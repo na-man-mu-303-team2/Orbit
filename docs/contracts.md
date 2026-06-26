@@ -28,7 +28,14 @@
       "title": "Opening",
       "thumbnailUrl": "/files/thumbnails/slide_1.png",
       "speakerNotes": "발표자 노트",
-      "keywords": ["orbit", "demo"],
+      "keywords": [
+        {
+          "keywordId": "kw_1",
+          "text": "ORBIT",
+          "synonyms": ["발표 도우미"],
+          "abbreviations": []
+        }
+      ],
       "elements": [
         {
           "elementId": "element_1",
@@ -60,7 +67,7 @@
 - 슬라이드 식별자는 `slideId`, 객체 식별자는 `elementId`로 통일한다.
 - 좌표 단위는 `px` 기준으로 한다.
 - AI 생성 결과도 최종적으로 deck JSON으로 변환한다.
-- 리허설은 `speakerNotes`, `keywords`를 기준으로 연결한다.
+- 리허설은 `speakerNotes`, `keywords.text`, `keywords.synonyms`, `keywords.abbreviations`를 기준으로 연결한다.
 - 협업/발표 동기화는 `slideId`, `elementId`, `animationId` 기준으로 처리한다.
 
 ## 파일 업로드 결과 구조
