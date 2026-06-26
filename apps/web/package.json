@@ -1,0 +1,36 @@
+{
+  "name": "@orbit/web",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "build": "tsc -p tsconfig.json && vite build",
+    "clean": "rm -rf dist",
+    "dev": "vite --host 0.0.0.0",
+    "lint": "tsc -p tsconfig.json --noEmit",
+    "preview": "vite preview --host 0.0.0.0",
+    "test": "vitest run --passWithNoTests",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@orbit/editor-core": "workspace:*",
+    "@orbit/shared": "workspace:*",
+    "@tanstack/react-query": "^5.81.5",
+    "konva": "^9.3.20",
+    "lucide-react": "^0.468.0",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "react-konva": "^19.0.3",
+    "socket.io-client": "^4.8.1",
+    "yjs": "^13.6.27",
+    "zustand": "^5.0.6"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "@types/react": "^19.1.8",
+    "@types/react-dom": "^19.1.6",
+    "@vitejs/plugin-react": "^4.5.2",
+    "typescript": "^5.8.3",
+    "vite": "^7.0.0",
+    "vitest": "^3.2.4"
+  }
+}

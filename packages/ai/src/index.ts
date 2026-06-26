@@ -1,0 +1,42 @@
+import { Deck, RehearsalMetrics } from "@orbit/shared";
+
+export interface LlmMessage {
+  role: "system" | "user" | "assistant";
+  content: string;
+}
+
+export interface LlmProvider {
+  generateText(messages: LlmMessage[]): Promise<string>;
+}
+
+export interface EmbeddingProvider {
+  embed(texts: string[]): Promise<number[][]>;
+}
+
+export interface SttProvider {
+  transcribe(input: {
+    fileId: string;
+    consentToServerStt: boolean;
+  }): Promise<{ text: string; durationSeconds: number }>;
+}
+
+export interface OcrProvider {
+  extractText(input: { fileId: string; mimeType: string }): Promise<string>;
+}
+
+export interface DeckGenerationProvider {
+  generateDeck(input: {
+    projectId: string;
+    referenceText: string;
+    title: string;
+  }): Promise<Deck>;
+}
+
+export interface RehearsalAnalyzer {
+  analyzeTranscript(input: {
+    deck: Deck;
+    transcript: string;
+    durationSeconds: number;
+  }): Promise<RehearsalMetrics>;
+}
+
