@@ -15,6 +15,7 @@
 | 파일 | 역할 |
 | --- | --- |
 | `index.ts` | `@orbit/shared`의 public barrel export. 구현 로직을 두지 않는다. |
+| `auth/auth.schema.ts` | 회원가입, 로그인, 로그아웃, 현재 사용자 조회 API의 request/response와 session schema. |
 | `common/demo-ids.ts` | 1차 스프린트 데모용 고정 사용자, 워크스페이스, 프로젝트, 덱, 세션 ID. |
 | `common/time.schema.ts` | ISO datetime schema와 현재 시각 생성 유틸리티. |
 | `deck/deck-api.schema.ts` | 덱 저장/복원 API request, response, error, snapshot, patch log entry 계약. NestJS API와 web/editor/AI consumer가 같은 API 표면을 공유할 때 사용한다. |

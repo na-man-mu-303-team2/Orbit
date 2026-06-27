@@ -6,10 +6,75 @@
 
 확정 원칙:
 
-- 1차 스프린트에서는 ORBIT-8, ORBIT-9를 제외한다.
-- 로그인/회원가입 없이 임시 사용자와 데모 프로젝트로 진행한다.
+- 1차 스프린트에서는 ORBIT-9를 제외한다.
+- ORBIT-8부터 이메일/비밀번호 기반 인증을 제공한다.
+- 인증이 필요한 기능으로 전환되기 전까지 기존 데모 프로젝트 흐름은 유지한다.
 - 공통 구조가 바뀌면 반드시 전원에게 공유한다.
 - API, WebSocket, Job, Deck 구조는 shared schema로 옮길 수 있게 작성한다.
+
+## 인증과 세션 구조
+
+ORBIT-8은 self-managed email/password 인증을 사용한다. 비밀번호 reset, social login, email verification은 MVP 범위에서 제외한다.
+
+요청:
+
+```json
+{
+  "email": "person@example.com",
+  "password": "password-123"
+}
+```
+
+응답:
+
+```json
+{
+  "user": {
+    "userId": "user_1",
+    "email": "person@example.com",
+    "createdAt": "2026-06-27T01:00:00+09:00"
+  }
+}
+```
+
+현재 세션 조회:
+
+```json
+{
+  "user": {
+    "userId": "user_1",
+    "email": "person@example.com",
+    "createdAt": "2026-06-27T01:00:00+09:00"
+  },
+  "authenticatedAt": "2026-06-27T01:00:00+09:00",
+  "expiresAt": "2026-07-04T01:00:00+09:00"
+}
+```
+
+API:
+
+- `POST /api/v1/auth/register`
+- `POST /api/v1/auth/login`
+- `POST /api/v1/auth/logout`
+- `GET /api/v1/auth/me`
+
+결정 사항:
+
+- email은 shared schema에서 trim/lowercase normalization 후 저장한다.
+- password는 8자 이상, 128자 이하로 검증한다.
+- password는 Argon2id hash로만 저장한다. 평문 password는 저장하거나 응답하지 않는다.
+- session id는 signed HttpOnly cookie로 전달한다.
+- cookie signing은 `COOKIE_SECRET`을 사용한다.
+- session payload는 Redis에 저장하고 Redis key는 `SESSION_SECRET` 기반 HMAC digest를 사용한다.
+- session TTL은 MVP 기준 7일이다.
+- logout은 session 삭제 후 cookie를 지우며, 없는 session에 대한 logout은 성공으로 처리한다.
+
+구현 위치:
+
+- `packages/shared/src/auth/auth.schema.ts`
+- `apps/api/src/auth`
+- `apps/api/src/database/migrations/2026062702000-CreateAuthUsers.ts`
+- `apps/web/src/features/auth/AuthPanel.tsx`
 
 ## Deck JSON 구조
 
