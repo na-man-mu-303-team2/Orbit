@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+from fastapi.testclient import TestClient
+
+import app.main as api_module
 from app.references import (
     EMBEDDING_DIMENSION,
+    EmbeddingResult,
     ReferenceChunkInput,
     ReferenceSearchResult,
     create_embeddings,
@@ -9,6 +13,7 @@ from app.references import (
     search_reference_chunks,
     split_reference_text,
 )
+from tests.test_config import VALID_ENV
 
 
 class FakeRepository:
@@ -146,3 +151,38 @@ def test_create_embeddings_reports_missing_api_key() -> None:
 
     assert result.status == "unavailable"
     assert result.embeddings == []
+
+
+def test_references_search_endpoint_keeps_project_boundary(monkeypatch) -> None:
+    def fake_search_reference_chunks(**kwargs: object) -> object:
+        assert kwargs["project_id"] == "project-b"
+        return (
+            [
+                ReferenceSearchResult(
+                    chunk_id="chunk-1",
+                    project_id="project-b",
+                    file_id="file-1",
+                    chunk_index=0,
+                    content="project scoped evidence",
+                    metadata={},
+                    score=0.93,
+                )
+            ],
+            EmbeddingResult(status="succeeded"),
+        )
+
+    monkeypatch.setattr(
+        api_module,
+        "search_reference_chunks",
+        fake_search_reference_chunks,
+    )
+    api_module.app.state.config = api_module.load_config(VALID_ENV)
+
+    response = TestClient(api_module.app).post(
+        "/references/search",
+        json={"projectId": "project-b", "query": "deck", "limit": 1},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["projectId"] == "project-b"
+    assert response.json()["chunks"][0]["projectId"] == "project-b"

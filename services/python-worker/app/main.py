@@ -135,7 +135,6 @@ def extract_reference(payload: ReferenceExtractRequest) -> ReferenceExtractRespo
         text=text or f"stub extraction for {payload.file_id} ({payload.mime_type})",
     )
 
-
 @app.post("/references/index", response_model=ReferenceIndexResponse)
 def index_reference(
     payload: ReferenceIndexRequest,
@@ -282,6 +281,19 @@ def _extract_result_payload(
         model=config.openai_model,
         api_key=config.openai_api_key,
     )
+    index_result = index_reference_text(
+        repository=PostgresReferenceRepository(config.database_url),
+        project_id=project_id,
+        file_id=file_id,
+        text=cleanup.text,
+        metadata={
+            "fileName": result.source_path.name,
+            "kind": result.kind.value,
+            "status": result.status.value,
+        },
+        model=config.openai_embedding_model,
+        api_key=config.openai_api_key,
+    )
 
     return {
         "projectId": project_id,
@@ -304,9 +316,9 @@ def _extract_result_payload(
         ],
         "keywordStatus": keyword_result.status,
         "keywordMessage": keyword_result.message,
-        "indexingStatus": "skipped",
-        "indexingMessage": "Reference indexing is handled by the RAG search branch.",
-        "chunkCount": 0,
+        "indexingStatus": index_result.status,
+        "indexingMessage": index_result.message,
+        "chunkCount": index_result.chunk_count,
         "sections": [_section_payload(section) for section in result.sections],
     }
 
