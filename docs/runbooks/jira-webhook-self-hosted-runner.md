@@ -1,30 +1,10 @@
-# Jira Webhook Runner
+# Jira Webhook Self-hosted Runner
 
-The `Jira Complete Issue` workflow sends Jira Automation webhook calls when a pull
-request is merged into `main` or `develop`.
+Jira Automation webhook calls must run from a network that can reach the Jira server.
+The `Jira Complete Issue` workflow uses a self-hosted GitHub Actions runner with the
+`jira-access` label for that reason.
 
-By default, the workflow runs on GitHub-hosted Ubuntu runners:
-
-```yaml
-runs-on: ubuntu-latest
-```
-
-Use a self-hosted runner only if the Jira Automation webhook is not reachable from
-GitHub-hosted runners, for example when Jira is available only on a private network.
-
-## GitHub-hosted Runner Setup
-
-No runner registration is required for the default setup.
-
-The repository must have this GitHub Actions secret:
-
-```text
-JIRA_AUTOMATION_WEBHOOK_URL
-```
-
-The webhook URL must be reachable from GitHub-hosted runners.
-
-## Optional Self-hosted Runner Setup
+## GitHub Runner Setup
 
 1. Open the GitHub repository.
 2. Go to `Settings` -> `Actions` -> `Runners`.
@@ -44,7 +24,7 @@ The runner must have:
 - Bash and curl available for the webhook step
 - Permission to run as a long-lived service
 
-If the workflow is changed back to a self-hosted runner, keep this runner selector:
+Keep this runner selector in `.github/workflows/jira-complete-issue.yml`:
 
 ```yaml
 runs-on: [self-hosted, jira-access]
@@ -78,5 +58,5 @@ The workflow:
 2. Sends the issue list to Jira Automation.
 3. Lets the Jira rule transition the provided issues to the configured completion status.
 
-With the default GitHub-hosted setup, queued jobs usually indicate a GitHub Actions
-service or billing/permission issue rather than a missing self-hosted runner.
+If no online runner has both `self-hosted` and `jira-access` labels, the job will
+stay queued and Jira issues will not be completed by webhook.
