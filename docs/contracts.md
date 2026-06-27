@@ -140,7 +140,7 @@
 - 1차 스프린트 MVP에서는 슬라이드별 크기 override를 허용하지 않는다. 모든 슬라이드는 deck top-level의 `canvas` 크기와 비율을 따른다.
 - SlideSchema에는 `width`, `height`, `canvas`, `aspectRatio` 같은 슬라이드별 크기 필드를 두지 않는다.
 - 슬라이드 식별자는 `slideId`, 객체 식별자는 `elementId`로 통일한다.
-- Deck 내부 ID는 prefix를 강제한다. `deckId`는 `deck_`, `slideId`는 `slide_`, `elementId`는 `el_`, `animationId`는 `anim_`, `keywordId`는 `kw_`로 시작해야 한다.
+- Deck 내부 ID는 prefix를 강제한다. `deckId`는 `deck_`, `slideId`는 `slide_`, `elementId`는 `el_`, `animationId`는 `anim_`, `keywordId`는 `kw_`, `changeId`는 `change_`로 시작해야 한다.
 - prefix 뒤에는 영문, 숫자, `_`, `-`만 허용한다.
 - `projectId`, `fileId`, `jobId`, `sessionId`, `userId`, `runId`, `reportId`, `roomId`는 다른 도메인 소유 ID이므로 ORBIT-14 deck schema에서는 prefix를 강제하지 않고 non-empty string만 검증한다.
 - 좌표 단위는 `px` 기준으로 한다.
@@ -194,6 +194,7 @@
 
 - `packages/shared/src/deck/deck.schema.ts`: deck, slide style, slide, keyword schema와 타입
 - `packages/shared/src/deck/id.schema.ts`: deck 내부 ID prefix schema와 타입
+- `packages/shared/src/deck/patch.schema.ts`: deck patch operation, patch request, change record schema와 타입
 - `packages/shared/src/deck/slide-object.schema.ts`: slide element schema와 element type
 - `packages/shared/src/deck/animation.schema.ts`: animation schema와 animation type
 - `packages/shared/src/deck/chart.schema.ts`: chart object props에서 사용할 chart schema
@@ -201,6 +202,107 @@
 - `packages/shared/src/index.ts`: shared public export만 담당
 
 ORBIT-14 진행 중에는 위 구현 위치를 기준으로 계약을 변경한다. schema 파일의 의미와 유지보수 규칙은 `packages/shared/src/README.md`를 따른다.
+
+## Deck 변경 요청과 변경 기록 구조
+
+Deck JSON은 현재 덱의 최종 상태이고, DeckPatch는 덱에 적용할 변경 요청이다. AI 생성, 편집기, PPTX import는 전체 Deck JSON을 매번 다시 만들지 않고 patch operation을 생성한다. 서버나 editor-core는 patch를 현재 Deck에 적용한 뒤 최종 결과를 다시 `deckSchema`로 검증한다.
+
+```json
+{
+  "deckId": "deck_demo_1",
+  "baseVersion": 3,
+  "source": "ai",
+  "actorUserId": "user_demo_1",
+  "operations": [
+    {
+      "type": "update_element_props",
+      "slideId": "slide_1",
+      "elementId": "el_1",
+      "props": {
+        "text": "핵심 메시지만 남긴 문장"
+      }
+    }
+  ]
+}
+```
+
+DeckPatch 결정 사항:
+
+- `DeckPatchSchema`는 변경 요청이며, 실제 적용 완료 이력이 아니다.
+- `deckId`, `baseVersion`, `operations`는 필수다.
+- `source`는 `user`, `ai`, `import`, `system`만 허용하고, 생략 시 `user`로 정규화한다.
+- `actorUserId`는 사용자 주체가 있을 때만 넣고, ORBIT-14에서는 prefix를 강제하지 않는다.
+- `operations`는 1개 이상이어야 한다.
+- `baseVersion`은 patch가 만들어진 시점의 Deck version이다. 현재 Deck version과 다르면 충돌로 보고 재시도하거나 병합 정책을 적용한다.
+- patch 적용 후 `deck.version`은 애플리케이션 계층에서 증가시키고, 최종 Deck JSON은 `deckSchema`로 다시 검증한다.
+- AI는 초기 덱 생성/import를 제외하고 전체 Deck JSON을 반환하지 않는다. 기존 덱 수정은 DeckPatch operation으로 반환한다.
+
+지원하는 patch operation:
+
+- `update_deck`: deck 제목 수정
+- `add_slide`: slide 전체 추가
+- `update_slide`: slide 제목 또는 thumbnail URL 수정
+- `delete_slide`: slide 삭제
+- `reorder_slides`: slide order 재정렬
+- `update_theme`: deck theme token 부분 수정
+- `update_slide_style`: slide style 부분 수정
+- `add_element`: slide에 element 추가
+- `update_element_frame`: element의 좌표, 크기, 회전, 투명도, zIndex, 잠금, 표시 상태, role 수정
+- `update_element_props`: element props 부분 수정
+- `delete_element`: element 삭제
+- `update_speaker_notes`: 발표자 노트 교체
+- `replace_keywords`: slide keyword 목록 전체 교체
+- `add_animation`: animation 추가
+- `update_animation`: animation 부분 수정
+- `delete_animation`: animation 삭제
+
+patch 적용 규칙:
+
+- `update_theme`, `update_slide_style`, `update_element_frame`, `update_animation`은 전달된 필드만 기존 값에 병합한다.
+- `update_slide_style`에서 `layout`, `fontFamily`, `backgroundColor`, `textColor`, `accentColor`, `backgroundImage`에 `null`을 전달하면 해당 slide override를 제거한다.
+- `update_theme.effects.shadow`에 `null`을 전달하면 theme shadow override를 제거한다.
+- `update_element_frame.role`에 `null`을 전달하면 element role을 제거한다.
+- `update_element_props.props`는 타입별 props의 부분 업데이트를 위해 `record unknown`으로 받는다. 다만 patch 적용 후 최종 element는 `deckElementSchema`가 검증해야 한다.
+- `delete_slide`는 최소 1개 slide가 남아야 한다. 이 제약은 patch 적용 후 `deckSchema`의 `slides.min(1)` 검증으로 확인한다.
+- group의 child 삭제, animation 대상 element 삭제처럼 참조 무결성이 걸린 작업은 patch 적용 계층에서 정리한 뒤 최종 Deck 검증과 별도 참조 검사를 수행한다.
+
+DeckChangeRecord는 검증된 patch가 실제 Deck에 적용된 뒤 저장하는 변경 이력이다.
+
+```json
+{
+  "changeId": "change_1",
+  "deckId": "deck_demo_1",
+  "beforeVersion": 3,
+  "afterVersion": 4,
+  "source": "ai",
+  "actorUserId": "user_demo_1",
+  "createdAt": "2026-06-27T01:00:00+09:00",
+  "operations": [
+    {
+      "type": "update_element_props",
+      "slideId": "slide_1",
+      "elementId": "el_1",
+      "props": {
+        "text": "핵심 메시지만 남긴 문장"
+      }
+    }
+  ]
+}
+```
+
+DeckChangeRecord 결정 사항:
+
+- `DeckChangeRecordSchema`는 적용 완료된 변경 기록이다.
+- `changeId`는 `change_` prefix를 강제한다.
+- `beforeVersion`, `afterVersion`은 필수이고, `afterVersion`은 `beforeVersion`보다 커야 한다.
+- `createdAt`은 offset이 포함된 ISO datetime 문자열을 사용한다.
+- `operations`는 실제 적용된 patch operation 목록을 저장한다.
+- undo/redo, history UI, 협업 동기화, 디버깅은 이 change record를 기준으로 확장한다.
+
+구현 위치:
+
+- `packages/shared/src/deck/patch.schema.ts`
+- `packages/shared/src/deck/id.schema.ts`
 
 ## 파일 업로드 결과 구조
 
