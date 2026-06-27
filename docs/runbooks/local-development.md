@@ -65,7 +65,7 @@ corepack pnpm test:smoke
 
 - Web에서 프로젝트를 만들 수 있다.
 - PDF, PPTX, DOCX, JPG, PNG, WebP 파일의 upload URL 발급과 complete API가 성공한다.
-- MinIO bucket CORS는 `minio-init`에서 로컬 web origin 기준으로 설정된다.
+- 로컬 MinIO 모드에서는 API upload proxy가 파일을 MinIO bucket에 저장한다.
 
 ## 자주 보는 포인트
 

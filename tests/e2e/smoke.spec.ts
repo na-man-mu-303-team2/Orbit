@@ -48,7 +48,9 @@ test.describe("ORBIT-2 ORBIT-10 ORBIT-58 smoke", () => {
       .getByRole("button", { name: "프로젝트 생성" })
       .click();
 
-    await expect(page.getByText("ORBIT-10 smoke project")).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "ORBIT-10 smoke project" })
+    ).toBeVisible();
 
     await page.locator('input[type="file"]').setInputFiles({
       name: "smoke.pdf",

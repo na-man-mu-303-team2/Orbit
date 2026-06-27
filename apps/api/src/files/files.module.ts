@@ -5,13 +5,24 @@ import { TypeOrmModule } from "@nestjs/typeorm";
 import { ProjectsModule } from "../projects/projects.module";
 import { FilesController } from "./files.controller";
 import { ProjectAssetEntity } from "./project-asset.entity";
-import { FilesService, STORAGE_PORT } from "./files.service";
+import {
+  FilesService,
+  STORAGE_PORT,
+  UPLOAD_PROXY_ORIGIN,
+} from "./files.service";
 
 @Module({
   imports: [TypeOrmModule.forFeature([ProjectAssetEntity]), ProjectsModule],
   controllers: [FilesController],
   providers: [
     FilesService,
+    {
+      provide: UPLOAD_PROXY_ORIGIN,
+      useFactory: () => {
+        const config = loadOrbitConfig(process.env, { service: "api" });
+        return config.STORAGE_DRIVER === "minio" ? config.WEB_ORIGIN : null;
+      },
+    },
     {
       provide: STORAGE_PORT,
       useFactory: () => {

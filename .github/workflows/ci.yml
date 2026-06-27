@@ -86,8 +86,8 @@ jobs:
           done
       - name: Run Playwright smoke
         env:
-          PLAYWRIGHT_BASE_URL: http://127.0.0.1:5173
-          ORBIT_API_URL: http://127.0.0.1:3000
+          PLAYWRIGHT_BASE_URL: http://localhost:5173
+          ORBIT_API_URL: http://localhost:3000
         run: pnpm test:smoke
       - name: Show smoke service status
         if: always()

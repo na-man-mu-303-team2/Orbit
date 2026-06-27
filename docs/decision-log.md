@@ -88,12 +88,12 @@
 
 ## ORBIT-92 browser upload environment
 
-- Context: ORBIT-91 화면은 브라우저에서 `PUT uploadUrl`을 직접 호출한다. 기존 local storage adapter는 공개 object URL만 반환해 실제 MinIO presigned upload와 CORS 재현성을 보장하지 못했다.
+- Context: ORBIT-91 화면은 브라우저에서 `PUT uploadUrl`을 직접 호출한다. 기존 local storage adapter는 공개 object URL만 반환해 실제 upload URL 흐름을 재현하지 못했다.
 - Options considered:
   - API가 파일 binary를 proxy로 받아 MinIO에 저장한다.
   - 기존 공개 object URL을 유지하고 upload complete만 처리한다.
-  - S3-compatible presigned PUT URL을 발급하고 MinIO bucket CORS를 명시한다.
-- Final decision: `@orbit/storage`는 AWS SDK presigner 기반 S3-compatible adapter를 사용한다. MinIO는 내부 endpoint와 브라우저용 public endpoint를 분리하고, `minio-init`에서 local web origin에 대한 bucket CORS를 설정한다.
-- Rationale: ORBIT-10 계약의 upload URL/complete flow를 실제 브라우저 업로드 방식으로 검증할 수 있고, 이후 AWS S3 전환 시 같은 port를 유지할 수 있다.
-- Affected files: `packages/storage/src/index.ts`, `packages/storage/package.json`, `apps/api/src/files/files.module.ts`, `docker-compose.yml`, `pnpm-lock.yaml`.
-- Follow-up review notes: staging/production에서는 bucket CORS origin을 실제 web origin으로 제한하고, S3 credentials는 secret store로만 주입한다.
+  - 모든 환경에서 S3-compatible presigned PUT URL을 발급한다.
+- Final decision: local MinIO 모드에서는 API가 같은-origin upload proxy URL을 발급하고, proxy endpoint가 MinIO에 object를 저장한다. S3 모드에서는 `@orbit/storage`의 AWS SDK presigner 기반 S3-compatible adapter를 사용한다.
+- Rationale: 로컬/CI 브라우저 smoke에서 CORS와 host signature mismatch를 피하면서도, staging/production S3 전환 시 같은 `StoragePort`와 upload-url/complete 계약을 유지할 수 있다.
+- Affected files: `packages/storage/src/index.ts`, `packages/storage/package.json`, `apps/api/src/files/**`, `docker-compose.yml`, `pnpm-lock.yaml`.
+- Follow-up review notes: staging/production에서는 S3 bucket CORS origin을 실제 web origin으로 제한하고, S3 credentials는 secret store로만 주입한다.
