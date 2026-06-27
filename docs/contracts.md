@@ -119,6 +119,8 @@
 - `metadata.language`는 `"ko"`만 허용한다.
 - `metadata.locale`은 `"ko-KR"`만 허용한다. STT, 날짜/시간, 지역별 포맷이 필요한 기능은 `locale`을 기준으로 처리한다.
 - `metadata.language`와 `metadata.locale`은 생략 시 각각 `"ko"`, `"ko-KR"`로 기본값을 채운다.
+- AI 생성 deck은 `metadata.sourceType = "ai"`, `metadata.generatedBy = "ai"`, `metadata.audience`, `metadata.purpose`, `metadata.tone`, `metadata.createdFrom`을 선택적으로 포함할 수 있다.
+- `metadata.createdFrom.references`는 생성에 사용한 참고자료의 `{ fileId }[]`만 저장한다. URL ingestion과 원문 저장은 이번 계약에 포함하지 않는다.
 - `theme`는 생략 시 기본 theme token 값으로 채운다.
 - `theme`는 deck 전체의 기본 디자인 토큰이다.
 - MVP `theme` 필드는 `name`, `fontFamily`, `backgroundColor`, `textColor`, `accentColor`, `palette`, `typography`, `effects`로 제한한다.
@@ -136,6 +138,7 @@
 - `theme` 변경은 기존 `slide.style`이나 object props를 자동으로 덮어쓰지 않는다. 전체 테마 적용은 별도의 apply theme 동작으로 처리한다.
 - `slides`는 최소 1개 이상이어야 한다. 새 덱 생성 시에는 빈 덱 대신 기본 슬라이드 1장을 생성한다.
 - SlideSchema 필드는 `slideId`, `order`, `title`, `thumbnailUrl`, `style`, `speakerNotes`, `elements`, `keywords`, `animations`를 유지한다.
+- AI 생성 slide는 선택적 `aiNotes`를 포함할 수 있다. `aiNotes`는 `emphasisPoints`와 검토용 `sourceEvidence`만 담고, 디자인 전용 배열은 만들지 않는다.
 - `order`는 사용자에게 보이는 슬라이드 번호와 맞춰 `1`부터 시작하는 양의 정수로 관리한다. 배열 index가 필요하면 애플리케이션 내부에서 `order - 1`로 변환한다.
 - 1차 스프린트 MVP에서는 슬라이드별 크기 override를 허용하지 않는다. 모든 슬라이드는 deck top-level의 `canvas` 크기와 비율을 따른다.
 - SlideSchema에는 `width`, `height`, `canvas`, `aspectRatio` 같은 슬라이드별 크기 필드를 두지 않는다.
@@ -358,6 +361,69 @@ MVP 실패 코드:
 구현 위치:
 
 - `packages/shared/src/deck/deck-api.schema.ts`
+
+## AI 덱 생성 계약
+
+AI 덱 생성은 사용자 입력과 참고자료 fileId를 받아 비동기 Job으로 실행한다. public 계약은 요청/응답과 최종 Deck JSON에 필요한 metadata/evidence만 포함하고, planner/layout 중간 모델은 Python worker 내부 구현으로 둔다.
+
+요청:
+
+```json
+{
+  "topic": "AI 덱 생성",
+  "prompt": "참고자료 기반으로 핵심 메시지를 정리",
+  "targetDurationMinutes": 10,
+  "slideCountRange": {
+    "min": 5,
+    "max": 8
+  },
+  "template": "report",
+  "metadata": {
+    "audience": "technical",
+    "purpose": "inform",
+    "tone": "professional"
+  },
+  "references": [{ "fileId": "file_1" }]
+}
+```
+
+응답/job result:
+
+```json
+{
+  "deckId": "deck_ai_project_demo_1",
+  "deck": "{ DeckSchema }",
+  "warnings": [],
+  "validation": {
+    "passed": true,
+    "layoutIssues": [],
+    "contentIssues": [],
+    "designIssues": [],
+    "presentationIssues": []
+  }
+}
+```
+
+결정 사항:
+
+- API 시작점은 `POST /api/v1/projects/:projectId/jobs/generate-deck`이다.
+- Job type은 기존 `ai-deck-generation`을 사용하고 상태값은 공통 `queued`, `running`, `succeeded`, `failed`만 사용한다.
+- 요청의 `references`는 `{ fileId: string }[]`이며 비어 있으면 topic-only generation으로 처리한다.
+- MVP `metadata.audience`는 `general`, `executive`, `technical`, `sales`만 허용한다.
+- MVP `metadata.purpose`는 `inform`, `persuade`, `teach`, `report`만 허용한다.
+- MVP `metadata.tone`은 `professional`, `friendly`, `confident`, `concise`만 허용한다.
+- template은 `default`, `pitch`, `report`, `lesson`만 허용한다.
+- Python worker의 `/ai/generate-deck`은 `projectId`와 요청 본문을 받아 최종 `DeckSchema`를 만든다.
+- LLM/provider가 만드는 내용은 outline, message, design intent까지로 제한하고, 좌표/크기/zIndex는 코드 기반 layout engine이 계산한다.
+- 생성 결과의 디자인은 새 배열 없이 기존 `deck.theme`, `slide.style`, `slide.elements`, chart props, `slide.animations`에 매핑한다.
+- worker는 Python 응답을 shared `generateDeckResponseSchema`와 `deckSchema`로 검증한 뒤 `decks`에 저장하고 job result에 `{ deckId, deck, warnings, validation }`을 저장한다.
+
+구현 위치:
+
+- `packages/shared/src/deck/generate-deck.schema.ts`
+- `services/python-worker/app/ai/generate_deck.py`
+- `apps/api/src/generate-deck`
+- `apps/worker/src/generate-deck.processor.ts`
 
 ## 파일 업로드 결과 구조
 
