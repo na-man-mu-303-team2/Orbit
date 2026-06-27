@@ -67,7 +67,7 @@
 
 | 영역 | 기술 | 버전 기준 | 기준 파일 |
 | --- | --- | --- | --- |
-| Database | PostgreSQL + pgvector | `pgvector/pgvector:pg16` | `docker-compose.yml` |
+| Database | PostgreSQL 18 + pgvector | `pgvector/pgvector:pg18` | `docker-compose.yml` |
 | Cache, queue backend | Redis | `redis:7-alpine` | `docker-compose.yml` |
 | Object storage | MinIO | `minio/minio:RELEASE.2025-04-22T22-12-26Z` | `docker-compose.yml` |
 | MinIO client | mc | `minio/mc:RELEASE.2025-04-16T18-13-26Z` | `docker-compose.yml` |
@@ -91,4 +91,3 @@
 | MinIO | AWS S3 |
 | FastAPI Python worker | ECS Fargate worker |
 | Socket.IO | ALB + ECS + Redis adapter |
-

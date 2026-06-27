@@ -12,6 +12,7 @@ coverage/
 .env.*.local
 !.env.example
 !.env.staging.example
+!.env.production.example
 
 *.log
 *.tsbuildinfo

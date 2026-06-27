@@ -5,7 +5,7 @@ import "reflect-metadata";
 import { AppModule } from "./app.module";
 
 async function bootstrap() {
-  const config = loadOrbitConfig();
+  const config = loadOrbitConfig(process.env, { service: "api" });
   const app = await NestFactory.create(AppModule);
 
   app.enableCors({
@@ -21,8 +21,10 @@ async function bootstrap() {
   const document = SwaggerModule.createDocument(app, swaggerConfig);
   SwaggerModule.setup("docs", app, document);
 
-  await app.listen(Number(process.env.API_PORT ?? 3000), "0.0.0.0");
+  await app.listen(config.API_PORT, "0.0.0.0");
 }
 
-void bootstrap();
-
+void bootstrap().catch((error: unknown) => {
+  console.error(error instanceof Error ? error.message : error);
+  process.exit(1);
+});

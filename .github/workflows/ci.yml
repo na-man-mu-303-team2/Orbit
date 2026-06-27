@@ -20,6 +20,7 @@ jobs:
           node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile=false
+      - run: cp .env.example .env.local
       - run: node infra/scripts/check-env.mjs
       - run: pnpm build
       - run: pnpm lint
@@ -46,5 +47,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Prepare local env file for compose validation
+        run: cp .env.example .env.local
       - run: docker compose config
-

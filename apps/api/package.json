@@ -7,10 +7,11 @@
     "clean": "rm -rf dist",
     "dev": "nest start --watch",
     "lint": "tsc -p tsconfig.json --noEmit",
+    "migration:generate": "typeorm-ts-node-commonjs -d src/database/data-source.ts migration:generate",
     "migration:revert": "typeorm-ts-node-commonjs -d src/database/data-source.ts migration:revert",
     "migration:run": "typeorm-ts-node-commonjs -d src/database/data-source.ts migration:run",
     "start": "node dist/main.js",
-    "test": "vitest run --passWithNoTests",
+    "test": "corepack pnpm --filter @orbit/shared build && corepack pnpm --filter @orbit/config build && vitest run --passWithNoTests",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
@@ -45,4 +46,3 @@
     "vitest": "^3.2.4"
   }
 }
-

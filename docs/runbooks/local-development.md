@@ -6,6 +6,7 @@
 corepack enable
 corepack prepare pnpm@10.12.4 --activate
 pnpm install
+cp .env.example .env.local
 docker compose up --build
 ```
 
@@ -13,8 +14,25 @@ docker compose up --build
 
 ```bash
 docker compose up -d postgres
-pnpm db:migration:run
-pnpm db:migration:revert
+corepack pnpm db:migration:run
+docker compose exec postgres psql -U orbit -d orbit -c "\dt migration_command_checks"
+docker compose exec postgres psql -U orbit -d orbit -c "select extname from pg_extension where extname = 'vector';"
+corepack pnpm db:migration:revert
+docker compose exec postgres psql -U orbit -d orbit -c "select to_regclass('public.migration_command_checks');"
+```
+
+예상 결과:
+
+- `migration:run` 후 `migration_command_checks` 테이블이 보인다.
+- `pg_extension` 조회에서 `vector`가 보인다.
+- `migration:revert` 후 `to_regclass` 결과가 비어 있다.
+
+패키지 직접 실행:
+
+```bash
+corepack pnpm --filter api migration:run
+corepack pnpm --filter api migration:revert
+corepack pnpm --filter api migration:generate -- src/database/migrations/NextMigration
 ```
 
 ## Python worker
@@ -37,7 +55,6 @@ docker compose ps
 ## 자주 보는 포인트
 
 - `pnpm build`: workspace package가 먼저 빌드되는지 확인
-- `pnpm db:migration:run`: pgvector extension과 초기 테이블 생성 확인
+- `corepack pnpm db:migration:run`: pgvector extension과 sample migration table 생성 확인
 - `docker compose config`: Compose 문법 확인
 - API Swagger: http://localhost:3000/docs
-
