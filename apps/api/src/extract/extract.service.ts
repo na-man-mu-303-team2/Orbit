@@ -1,10 +1,9 @@
 import {
-  enqueueReferenceExtractJob,
   type EnqueueReferenceExtractJobInput
 } from "@orbit/job-queue";
 import { loadOrbitConfig } from "@orbit/config";
 import { jobSchema } from "@orbit/shared";
-import { Injectable } from "@nestjs/common";
+import { Inject, Injectable } from "@nestjs/common";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { JobsService } from "../jobs/jobs.service";
@@ -21,6 +20,12 @@ const extractResponseSchema = z.object({
 });
 
 type ExtractResponse = z.infer<typeof extractResponseSchema>;
+export type ReferenceExtractEnqueueJob = (
+  input: EnqueueReferenceExtractJobInput
+) => Promise<void>;
+
+export const REFERENCE_EXTRACT_ENQUEUE_JOB =
+  "REFERENCE_EXTRACT_ENQUEUE_JOB";
 
 @Injectable()
 export class ExtractService {
@@ -28,9 +33,8 @@ export class ExtractService {
 
   constructor(
     private readonly jobsService: JobsService,
-    private readonly enqueueJob: (
-      input: EnqueueReferenceExtractJobInput
-    ) => Promise<void> = enqueueReferenceExtractJob
+    @Inject(REFERENCE_EXTRACT_ENQUEUE_JOB)
+    private readonly enqueueJob: ReferenceExtractEnqueueJob
   ) {}
 
   async extract(
