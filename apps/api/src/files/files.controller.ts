@@ -1,24 +1,12 @@
-import { filePurposeSchema } from "@orbit/shared";
-import type { FilePurpose } from "@orbit/shared";
 import {
-  Body,
-  Controller,
-  Get,
-  Param,
-  Post,
-  UploadedFile,
-  UseInterceptors
-} from "@nestjs/common";
-import { FileInterceptor } from "@nestjs/platform-express";
+  assetUploadUrlRequestSchema,
+  completeAssetUploadRequestSchema,
+} from "@orbit/shared";
+import { Body, Controller, Get, Param, Post } from "@nestjs/common";
+import { parseRequest } from "../common/zod-request";
 import { FilesService } from "./files.service";
 
-interface UploadedFileLike {
-  originalname?: string;
-  mimetype?: string;
-  size?: number;
-}
-
-@Controller("projects/:projectId/files")
+@Controller("api/v1/projects/:projectId/assets")
 export class FilesController {
   constructor(private readonly filesService: FilesService) {}
 
@@ -27,23 +15,22 @@ export class FilesController {
     return this.filesService.list(projectId);
   }
 
-  @Post()
-  @UseInterceptors(FileInterceptor("file"))
-  uploadFile(
+  @Post("upload-url")
+  createUploadUrl(
     @Param("projectId") projectId: string,
-    @UploadedFile() file: UploadedFileLike | undefined,
-    @Body("purpose") rawPurpose: string | undefined
+    @Body() body: unknown,
   ) {
-    const purpose: FilePurpose = filePurposeSchema.parse(
-      rawPurpose ?? "reference-material"
-    );
-
-    return this.filesService.create({
+    return this.filesService.createUploadUrl(
       projectId,
-      originalName: file?.originalname ?? "demo-upload.txt",
-      mimeType: file?.mimetype ?? "text/plain",
-      size: file?.size ?? 0,
-      purpose
-    });
+      parseRequest(assetUploadUrlRequestSchema, body ?? {}),
+    );
+  }
+
+  @Post("complete")
+  completeUpload(@Param("projectId") projectId: string, @Body() body: unknown) {
+    return this.filesService.completeUpload(
+      projectId,
+      parseRequest(completeAssetUploadRequestSchema, body ?? {}),
+    );
   }
 }

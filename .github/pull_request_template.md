@@ -15,8 +15,15 @@
 - [ ] `pnpm build`
 - [ ] `pnpm lint`
 - [ ] `pnpm test`
+- [ ] `pnpm test:smoke`
 - [ ] `node infra/scripts/check-env.mjs`
-- [ ] `docker compose config`
+- [ ] `docker compose config --quiet`
+
+## Jira 완료 기준 검증표
+
+| Jira | 완료 기준 | 검증 방법 | 테스트/증거 | 결과 |
+| --- | --- | --- | --- | --- |
+| ORBIT-123 |  | unit/API/Playwright/manual |  |  |
 
 ## 영향 범위
 

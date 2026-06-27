@@ -32,6 +32,7 @@ ENV_KEYS = {
     "LLM_PROVIDER",
     "OPENAI_API_KEY",
     "OPENAI_MODEL",
+    "OPENAI_TRANSCRIPTION_MODEL",
     "OPENAI_EMBEDDING_MODEL",
     "AWS_REGION",
     "AWS_ACCESS_KEY_ID",
@@ -81,6 +82,9 @@ class PythonWorkerConfig(BaseModel):
     llm_provider: Literal["openai"] = Field(alias="LLM_PROVIDER")
     openai_api_key: str | None = Field(default=None, alias="OPENAI_API_KEY")
     openai_model: str = Field(alias="OPENAI_MODEL", min_length=1)
+    openai_transcription_model: str = Field(
+        alias="OPENAI_TRANSCRIPTION_MODEL", min_length=1
+    )
     openai_embedding_model: str = Field(alias="OPENAI_EMBEDDING_MODEL", min_length=1)
     aws_region: str = Field(alias="AWS_REGION", min_length=1)
     aws_access_key_id: str | None = Field(default=None, alias="AWS_ACCESS_KEY_ID")

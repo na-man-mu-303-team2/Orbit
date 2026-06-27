@@ -76,6 +76,10 @@ export default defineConfig(({ mode }) => {
       host: "0.0.0.0",
       port: env.webPort,
       proxy: {
+        "/api/v1": {
+          target: env.apiBaseUrl,
+          changeOrigin: true
+        },
         "/api": {
           target: env.apiBaseUrl,
           changeOrigin: true,
