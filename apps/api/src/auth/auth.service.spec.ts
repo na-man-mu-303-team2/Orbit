@@ -37,15 +37,18 @@ function createAuthTestHarness() {
   const users: UserRow[] = [];
   const dataSource = {
     query: vi.fn(async (query: string, params: unknown[] = []) => {
-      if (query.includes("WHERE lower(email) = $1")) {
-        return users.filter(
-          (user) => user.email.toLowerCase() === params[0]
-        );
+      if (query.includes("WHERE lower(email) = lower($1)")) {
+        const email = String(params[0]).toLowerCase();
+        return users.filter((user) => user.email.toLowerCase() === email);
       }
 
       if (query.includes("INSERT INTO users")) {
         const email = String(params[1]);
-        if (users.some((user) => user.email === email)) {
+        if (
+          users.some(
+            (user) => user.email.toLowerCase() === email.toLowerCase()
+          )
+        ) {
           throw Object.assign(new Error("duplicate email"), { code: "23505" });
         }
 
@@ -131,6 +134,25 @@ describe("AuthService", () => {
         password: "password-456"
       })
     ).rejects.toBeInstanceOf(ConflictException);
+  });
+
+  it("normalizes email before storing and rejects case-only duplicates", async () => {
+    const { service, users } = createAuthTestHarness();
+
+    await service.register({
+      email: " Person@Example.COM ",
+      password: "password-123"
+    });
+
+    expect(users[0].email).toBe("person@example.com");
+
+    await expect(
+      service.register({
+        email: "person@example.com",
+        password: "password-456"
+      })
+    ).rejects.toBeInstanceOf(ConflictException);
+    expect(users).toHaveLength(1);
   });
 
   it("deletes sessions on logout and treats repeated logout as successful", async () => {

@@ -33,10 +33,9 @@ export function AuthPanel() {
 
   const authMutation = useMutation({
     mutationFn: async () => {
-      const schema = mode === "register" ? registerRequestSchema : loginRequestSchema;
-      const payload = schema.parse({ email, password });
+      const payload = parseCredentials(mode, email, password);
       return requestAuth(
-        mode === "register" ? "register" : "login",
+        mode,
         {
           body: JSON.stringify(payload),
           headers: {
@@ -234,14 +233,38 @@ async function readJson(response: Response): Promise<unknown> {
 }
 
 function readErrorMessage(body: unknown): string {
-  if (
-    typeof body === "object" &&
-    body !== null &&
-    "message" in body &&
-    typeof body.message === "string"
-  ) {
-    return body.message;
+  if (!isRecord(body) || !("message" in body)) {
+    return "Request failed";
+  }
+
+  const { message } = body;
+  if (typeof message === "string") {
+    return message;
+  }
+
+  if (Array.isArray(message)) {
+    const errorMessage = message
+      .filter((item): item is string => typeof item === "string")
+      .join(", ");
+
+    if (errorMessage.length > 0) {
+      return errorMessage;
+    }
   }
 
   return "Request failed";
+}
+
+function parseCredentials(
+  mode: AuthMode,
+  email: string,
+  password: string
+) {
+  const schema =
+    mode === "register" ? registerRequestSchema : loginRequestSchema;
+  return schema.parse({ email, password });
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
 }

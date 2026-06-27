@@ -3,7 +3,9 @@ import {
   authResponseSchema,
   authSessionSchema,
   authUserSchema,
-  meResponseSchema
+  loginRequestSchema,
+  meResponseSchema,
+  registerRequestSchema
 } from "@orbit/shared";
 import type {
   AuthResponse,
@@ -47,13 +49,14 @@ export class AuthService {
   ) {}
 
   async register(input: RegisterRequest): Promise<AuthResult> {
-    const existingUser = await this.findUserByEmail(input.email);
+    const credentials = registerRequestSchema.parse(input);
+    const existingUser = await this.findUserByEmail(credentials.email);
     if (existingUser) {
       throw new ConflictException("Email already registered");
     }
 
     const now = new Date();
-    const passwordHash = await argon2.hash(input.password, {
+    const passwordHash = await argon2.hash(credentials.password, {
       type: argon2.argon2id
     });
 
@@ -64,7 +67,7 @@ export class AuthService {
           VALUES ($1, $2, $3, $4, $4)
           RETURNING user_id, email, password_hash, created_at, updated_at
         `,
-        [`user_${randomUUID()}`, input.email, passwordHash, now]
+        [`user_${randomUUID()}`, credentials.email, passwordHash, now]
       );
 
       return this.createSession(this.toAuthUser(rows[0]));
@@ -78,14 +81,15 @@ export class AuthService {
   }
 
   async login(input: LoginRequest): Promise<AuthResult> {
-    const user = await this.findUserByEmail(input.email);
+    const credentials = loginRequestSchema.parse(input);
+    const user = await this.findUserByEmail(credentials.email);
     if (!user) {
       throw invalidCredentials();
     }
 
     const passwordMatches = await argon2.verify(
       user.password_hash,
-      input.password
+      credentials.password
     );
     if (!passwordMatches) {
       throw invalidCredentials();
@@ -140,7 +144,7 @@ export class AuthService {
       `
         SELECT user_id, email, password_hash, created_at, updated_at
         FROM users
-        WHERE lower(email) = $1
+        WHERE lower(email) = lower($1)
       `,
       [email]
     );

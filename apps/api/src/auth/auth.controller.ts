@@ -5,7 +5,7 @@ import {
   logoutResponseSchema,
   registerRequestSchema
 } from "@orbit/shared";
-import type { LoginRequest, RegisterRequest } from "@orbit/shared";
+import type { AuthResponse, LoginRequest, RegisterRequest } from "@orbit/shared";
 import {
   BadRequestException,
   Body,
@@ -22,7 +22,7 @@ import type { Request, Response } from "express";
 import { z } from "zod";
 import { authCookieOptions, clearAuthCookieOptions } from "./auth-cookie";
 import { authSessionCookieName } from "./auth.constants";
-import { AuthService } from "./auth.service";
+import { AuthService, type AuthResult } from "./auth.service";
 
 type SignedCookieRequest = Request & {
   signedCookies?: Record<string, string | false | undefined>;
@@ -42,9 +42,7 @@ export class AuthController {
     const result = await this.authService.register(
       parseAuthRequest(registerRequestSchema, body)
     );
-    this.setSessionCookie(response, result.sessionId, result.session.expiresAt);
-
-    return authResponseSchema.parse({ user: result.user });
+    return this.finishAuthResponse(response, result);
   }
 
   @Post("login")
@@ -56,9 +54,7 @@ export class AuthController {
     const result = await this.authService.login(
       parseAuthRequest(loginRequestSchema, body)
     );
-    this.setSessionCookie(response, result.sessionId, result.session.expiresAt);
-
-    return authResponseSchema.parse({ user: result.user });
+    return this.finishAuthResponse(response, result);
   }
 
   @Post("logout")
@@ -103,6 +99,14 @@ export class AuthController {
       sessionId,
       authCookieOptions(this.config, expiresAt)
     );
+  }
+
+  private finishAuthResponse(
+    response: Response,
+    result: AuthResult
+  ): AuthResponse {
+    this.setSessionCookie(response, result.sessionId, result.session.expiresAt);
+    return authResponseSchema.parse({ user: result.user });
   }
 }
 
