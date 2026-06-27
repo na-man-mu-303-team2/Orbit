@@ -49,7 +49,7 @@
 | Session cache client | ioredis | `^5.11.1` | `apps/api/package.json` |
 | Cookie parsing/signing | cookie-parser | `^1.4.7` | `apps/api/package.json` |
 | HTTP security headers | Helmet | `^8.2.0` | `apps/api/package.json` |
-| Background queue | BullMQ | `^5.56.0` | `apps/worker/package.json` |
+| Background queue | BullMQ | `^5.56.0` | `apps/worker/package.json`, `packages/job-queue/package.json` |
 | Redis client | ioredis | `^5.6.1` | `apps/worker/package.json` |
 | Runtime schema | Zod | `^3.25.76` | `apps/api/package.json`, `packages/shared/package.json` |
 | API docs | Swagger for NestJS | `^11.2.0` | `apps/api/package.json` |
