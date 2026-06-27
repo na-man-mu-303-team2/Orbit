@@ -233,6 +233,12 @@ export const restoreDeckSnapshotResponseSchema = z
       response.deck.deckId,
       ["restoredSnapshot", "deckId"]
     );
+    requireMatchingVersion(
+      ctx,
+      response.restoredSnapshot.version,
+      response.deck.version,
+      ["restoredSnapshot", "version"]
+    );
   });
 
 export type DeckApiProjectId = z.infer<typeof deckApiProjectIdSchema>;

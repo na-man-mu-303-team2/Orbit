@@ -308,6 +308,8 @@ DeckChangeRecord 결정 사항:
 
 ORBIT-15에서 추가하는 저장/복원 API 계약은 deck 자체 구조를 다시 정의하지 않고, API request/response envelope만 정의한다. NestJS API, web/editor, AI 생성 결과 적용 흐름은 같은 shared schema를 기준으로 payload를 검증한다.
 
+상세 endpoint, request/response, 실패 코드, DB 저장 범위는 [덱 저장/복원 API 명세](api/deck-persistence.md)를 따른다.
+
 MVP API:
 
 - `GET /api/v1/projects/:projectId/deck`
@@ -326,6 +328,7 @@ MVP API:
 - snapshot reason은 `auto-save`, `deck-replaced`, `patch-applied`, `snapshot-restore`만 허용한다.
 - ORBIT-10의 project DB 모델이 확정되기 전까지 ORBIT-15 저장 API는 `projectId`를 FK가 아닌 문자열 boundary로 다룬다. API 계층에서 URL의 `projectId`와 deck/snapshot의 project boundary를 검증한다.
 - response envelope 내부의 `projectId`, `deckId`, `version`이 서로 어긋나면 shared API schema validation에서 거부한다.
+- NestJS API는 TypeORM migration으로 `decks`, `deck_patches`, `deck_snapshots` 테이블을 생성한다. `project_id`는 ORBIT-10 확정 전까지 `text`로 저장하고 project FK는 걸지 않는다.
 
 지원하는 API schema:
 
