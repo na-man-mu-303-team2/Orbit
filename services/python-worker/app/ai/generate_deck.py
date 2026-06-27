@@ -455,6 +455,7 @@ def assemble_slide(
         for intent in visual_plan.intents
         if intent.role in slot_by_role
     ]
+    elements.extend(design_elements(slide_plan, visual_plan, theme))
     title_element = next(element for element in elements if element["role"] == "title")
 
     return {
@@ -497,6 +498,61 @@ def assemble_slide(
             ],
         },
     }
+
+
+def design_elements(
+    slide_plan: SlidePlan,
+    visual_plan: VisualPlan,
+    theme: dict[str, Any],
+) -> list[dict[str, Any]]:
+    elements = [
+        shape_element(
+            slide_plan.order,
+            "accent_rail",
+            "decoration",
+            0,
+            0,
+            34,
+            CANVAS.height,
+            1,
+            theme["accentColor"],
+            "transparent",
+        ),
+        text_element(
+            slide_plan.order,
+            "section_label",
+            "caption",
+            visual_plan.slide_type.replace("-", " ").upper(),
+            CANVAS.safe_x,
+            50,
+            220,
+            24,
+            2,
+            theme["accentColor"],
+            18,
+            "bold",
+        ),
+    ]
+
+    if visual_plan.layout in {"two-column", "image-right"}:
+        elements.append(
+            text_element(
+                slide_plan.order,
+                "highlight_text",
+                "highlight",
+                "핵심\n" + slide_plan.message[:72],
+                1064,
+                322,
+                570,
+                240,
+                4,
+                theme["textColor"],
+                32,
+                "bold",
+            )
+        )
+
+    return elements
 
 
 def element_for_intent(
@@ -576,6 +632,81 @@ def element_for_intent(
             "align": "left",
             "verticalAlign": "top",
             "lineHeight": 1.2,
+        },
+    }
+
+
+def shape_element(
+    order: int,
+    name: str,
+    role: str,
+    x: int,
+    y: int,
+    width: int,
+    height: int,
+    z_index: int,
+    fill: str,
+    stroke: str,
+    border_radius: int = 0,
+) -> dict[str, Any]:
+    return {
+        "elementId": f"el_{order}_{name}",
+        "type": "rect",
+        "role": role,
+        "x": x,
+        "y": y,
+        "width": width,
+        "height": height,
+        "rotation": 0,
+        "opacity": 1,
+        "zIndex": z_index,
+        "locked": False,
+        "visible": True,
+        "props": {
+            "fill": fill,
+            "stroke": stroke,
+            "strokeWidth": 0 if stroke == "transparent" else 2,
+            "borderRadius": border_radius,
+        },
+    }
+
+
+def text_element(
+    order: int,
+    name: str,
+    role: str,
+    text: str,
+    x: int,
+    y: int,
+    width: int,
+    height: int,
+    z_index: int,
+    color: str,
+    font_size: int,
+    font_weight: str,
+) -> dict[str, Any]:
+    return {
+        "elementId": f"el_{order}_{name}",
+        "type": "text",
+        "role": role,
+        "x": x,
+        "y": y,
+        "width": width,
+        "height": height,
+        "rotation": 0,
+        "opacity": 1,
+        "zIndex": z_index,
+        "locked": False,
+        "visible": True,
+        "props": {
+            "text": text,
+            "fontFamily": "Inter",
+            "fontSize": font_size,
+            "fontWeight": font_weight,
+            "color": color,
+            "align": "left",
+            "verticalAlign": "top",
+            "lineHeight": 1.15,
         },
     }
 

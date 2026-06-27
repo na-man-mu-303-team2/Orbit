@@ -40,6 +40,14 @@ def test_generate_deck_endpoint_returns_deck_contract() -> None:
         for slide in deck["slides"]
         for element in slide["elements"]
     )
+    assert all(
+        any(element["role"] == "decoration" for element in slide["elements"])
+        for slide in deck["slides"]
+    )
+    assert any(
+        sum(1 for element in slide["elements"] if element["type"] != "text") >= 3
+        for slide in deck["slides"]
+    )
 
 
 def test_generate_deck_endpoint_supports_topic_only_generation() -> None:
