@@ -52,6 +52,21 @@ curl http://localhost:8000/health
 docker compose ps
 ```
 
+## 프로젝트 생성과 파일 업로드 smoke
+
+```bash
+cp .env.example .env.local
+docker compose up --build -d api web
+corepack pnpm db:migration:run
+corepack pnpm test:smoke
+```
+
+예상 결과:
+
+- Web에서 프로젝트를 만들 수 있다.
+- PDF, PPTX, DOCX, JPG, PNG, WebP 파일의 upload URL 발급과 complete API가 성공한다.
+- MinIO bucket CORS는 `minio-init`에서 로컬 web origin 기준으로 설정된다.
+
 ## 자주 보는 포인트
 
 - `pnpm build`: workspace package가 먼저 빌드되는지 확인

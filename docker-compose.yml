@@ -58,6 +58,17 @@ services:
         mc alias set local http://minio:9000 orbit orbit-password
         mc mb --ignore-existing local/orbit-local
         mc anonymous set download local/orbit-local
+        cat > /tmp/orbit-cors.json <<'EOF'
+        [
+          {
+            "AllowedOrigins": ["http://localhost:5173", "http://127.0.0.1:5173"],
+            "AllowedMethods": ["GET", "PUT", "HEAD"],
+            "AllowedHeaders": ["*"],
+            "ExposeHeaders": ["ETag"]
+          }
+        ]
+        EOF
+        mc cors set local/orbit-local /tmp/orbit-cors.json
 
   api:
     build:
