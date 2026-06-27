@@ -6,6 +6,23 @@ export function createDemoDeck(): Deck {
     projectId: demoIds.projectId,
     title: "ORBIT Demo Deck",
     version: 1,
+    metadata: {
+      language: "ko",
+      locale: "ko-KR",
+    },
+    canvas: {
+      preset: "wide-16-9",
+      width: 1920,
+      height: 1080,
+      aspectRatio: "16:9",
+    },
+    theme: {
+      name: "Default",
+      fontFamily: "Inter",
+      backgroundColor: "#ffffff",
+      textColor: "#111827",
+      accentColor: "#2563eb",
+    },
     slides: [
       {
         slideId: "slide_1",
@@ -18,8 +35,8 @@ export function createDemoDeck(): Deck {
             keywordId: "kw_1",
             text: "ORBIT",
             synonyms: ["발표 도우미"],
-            abbreviations: []
-          }
+            abbreviations: [],
+          },
         ],
         elements: [
           {
@@ -32,21 +49,23 @@ export function createDemoDeck(): Deck {
             props: {
               text: "ORBIT",
               fontSize: 56,
-              color: "#111827"
+              color: "#111827",
             },
-            animations: [
-              {
-                animationId: "anim_1",
-                elementId: "el_1",
-                type: "fade-in",
-                order: 1
-              }
-            ]
-          }
+          },
         ],
-        animations: []
-      }
-    ]
+        animations: [
+          {
+            animationId: "anim_1",
+            elementId: "el_1",
+            type: "fade-in",
+            order: 1,
+            durationMs: 400,
+            delayMs: 0,
+            easing: "ease-out",
+          },
+        ],
+      },
+    ],
   });
 }
 
@@ -57,7 +76,9 @@ export function validateDeck(deck: unknown): Deck {
 export function nextDeckVersion(deck: Deck): Deck {
   return {
     ...deck,
-    version: deck.version + 1
+    version: deck.version + 1,
   };
 }
 
+export * from "./patches/applyPatch";
+export * from "./patches/deckPatch";
