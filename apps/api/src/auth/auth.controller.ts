@@ -28,12 +28,14 @@ type SignedCookieRequest = Request & {
   signedCookies?: Record<string, string | false | undefined>;
 };
 
+/** ORBIT-8 인증 API의 HTTP 요청을 검증하고 세션 쿠키를 응답에 연결한다. */
 @Controller("api/v1/auth")
 export class AuthController {
   private readonly config = loadOrbitConfig(process.env, { service: "api" });
 
   constructor(private readonly authService: AuthService) {}
 
+  /** 회원가입 요청 본문을 검증한 뒤 새 계정 세션을 HttpOnly 쿠키로 내려준다. */
   @Post("register")
   async register(
     @Body() body: unknown,
@@ -45,6 +47,7 @@ export class AuthController {
     return this.finishAuthResponse(response, result);
   }
 
+  /** 로그인 요청 본문을 검증한 뒤 기존 계정 세션을 HttpOnly 쿠키로 내려준다. */
   @Post("login")
   @HttpCode(HttpStatus.OK)
   async login(
@@ -57,6 +60,7 @@ export class AuthController {
     return this.finishAuthResponse(response, result);
   }
 
+  /** 현재 쿠키의 세션을 삭제하고 브라우저의 세션 쿠키도 함께 지운다. */
   @Post("logout")
   @HttpCode(HttpStatus.OK)
   async logout(
@@ -72,6 +76,7 @@ export class AuthController {
     return logoutResponseSchema.parse({ ok: true });
   }
 
+  /** signed cookie에 담긴 세션 id로 현재 로그인 사용자를 조회한다. */
   @Get("me")
   async me(
     @Req() request: SignedCookieRequest,
@@ -89,6 +94,7 @@ export class AuthController {
     return this.authService.me(sessionId);
   }
 
+  /** Redis 세션 id를 브라우저에 직접 노출하지 않고 signed HttpOnly cookie로 설정한다. */
   private setSessionCookie(
     response: Response,
     sessionId: string,
@@ -101,6 +107,7 @@ export class AuthController {
     );
   }
 
+  /** 회원가입/로그인 성공 응답에서 쿠키 설정과 응답 schema 검증을 한 곳에서 처리한다. */
   private finishAuthResponse(
     response: Response,
     result: AuthResult
@@ -110,6 +117,7 @@ export class AuthController {
   }
 }
 
+/** 외부 입력 body를 shared 인증 schema로 검증하고 실패 시 400 응답으로 바꾼다. */
 function parseAuthRequest<T extends RegisterRequest | LoginRequest>(
   schema: z.ZodType<T>,
   body: unknown
@@ -128,6 +136,7 @@ function parseAuthRequest<T extends RegisterRequest | LoginRequest>(
   return result.data;
 }
 
+/** cookie-parser가 검증한 signed cookie에서 세션 id만 안전하게 꺼낸다. */
 function getSignedSessionId(request: SignedCookieRequest): string | null {
   const value = request.signedCookies?.[authSessionCookieName];
   return typeof value === "string" && value.length > 0 ? value : null;

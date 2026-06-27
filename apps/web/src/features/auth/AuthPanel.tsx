@@ -18,6 +18,7 @@ type ResponseSchema<T> = {
 const authBasePath = "/api/v1/auth";
 const authSessionQueryKey = ["auth", "session"] as const;
 
+/** ORBIT-8 로그인, 회원가입, 로그아웃, 현재 세션 확인 UI를 한 패널에서 제공한다. */
 export function AuthPanel() {
   const queryClient = useQueryClient();
   const [mode, setMode] = useState<AuthMode>("login");
@@ -88,6 +89,7 @@ export function AuthPanel() {
   const isSubmitting = authMutation.isPending || logoutMutation.isPending;
   const isSignedIn = session.isSuccess;
 
+  /** 폼 제출 시 현재 모드에 맞는 인증 mutation을 실행한다. */
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setFormError(null);
@@ -191,6 +193,7 @@ export function AuthPanel() {
   );
 }
 
+/** 브라우저 cookie를 포함해 현재 로그인 세션을 API에서 조회한다. */
 async function fetchSession(): Promise<MeResponse> {
   return requestAuth(
     "me",
@@ -201,6 +204,7 @@ async function fetchSession(): Promise<MeResponse> {
   );
 }
 
+/** 인증 API 호출 결과를 shared response schema로 검증해 UI 상태와 계약을 맞춘다. */
 async function requestAuth<T>(
   path: string,
   init: RequestInit,
@@ -219,6 +223,7 @@ async function requestAuth<T>(
   return schema.parse(body);
 }
 
+/** 빈 응답이나 JSON이 아닌 오류 응답도 UI에서 안전하게 처리할 수 있게 읽는다. */
 async function readJson(response: Response): Promise<unknown> {
   const text = await response.text();
   if (!text) {
@@ -232,6 +237,7 @@ async function readJson(response: Response): Promise<unknown> {
   }
 }
 
+/** NestJS 오류 응답의 message 값을 사용자가 읽을 수 있는 문자열로 바꾼다. */
 function readErrorMessage(body: unknown): string {
   if (!isRecord(body) || !("message" in body)) {
     return "Request failed";
@@ -255,6 +261,7 @@ function readErrorMessage(body: unknown): string {
   return "Request failed";
 }
 
+/** 현재 탭 모드에 맞는 request schema를 골라 email/password를 정규화한다. */
 function parseCredentials(
   mode: AuthMode,
   email: string,
@@ -265,6 +272,7 @@ function parseCredentials(
   return schema.parse({ email, password });
 }
 
+/** unknown 응답 body가 key 접근 가능한 객체인지 확인한다. */
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
