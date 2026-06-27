@@ -1,6 +1,7 @@
 import { loadOrbitConfig } from "@orbit/config";
 import { config as loadDotenv } from "dotenv";
 import { DataSource, DataSourceOptions } from "typeorm";
+import { CreateDeckPersistenceTables2026062701000 } from "./migrations/2026062701000-CreateDeckPersistenceTables";
 import { CreateMigrationCommandCheck2026062700000 } from "./migrations/2026062700000-CreateMigrationCommandCheck";
 import { CreateJobs2026062700200 } from "./migrations/2026062700200-CreateJobs";
 
@@ -16,7 +17,8 @@ export const databaseOptions: DataSourceOptions = {
   entities: [],
   migrations: [
     CreateMigrationCommandCheck2026062700000,
-    CreateJobs2026062700200
+    CreateJobs2026062700200,
+    CreateDeckPersistenceTables2026062701000
   ],
   migrationsTableName: "typeorm_migrations",
   synchronize: false,

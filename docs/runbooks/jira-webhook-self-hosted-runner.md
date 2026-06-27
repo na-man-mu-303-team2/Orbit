@@ -24,6 +24,12 @@ The runner must have:
 - Bash and curl available for the webhook step
 - Permission to run as a long-lived service
 
+Keep this runner selector in `.github/workflows/jira-complete-issue.yml`:
+
+```yaml
+runs-on: [self-hosted, jira-access]
+```
+
 On Windows, installing Git for Windows normally provides Bash and curl. After the
 runner is configured, install it as a service so webhook completion works even when
 no terminal is open.

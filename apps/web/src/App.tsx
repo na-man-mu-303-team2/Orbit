@@ -121,6 +121,9 @@ export function getJobResultFiles(job: Job): ExtractedFile[] {
 
 export function App() {
   const [view, setView] = useState<"console" | "upload">("console");
+  const previewText =
+    demoDeck.slides[0]?.elements.find((element) => element.type === "text")?.props.text ?? "";
+
   const health = useQuery({
     queryKey: ["health"],
     queryFn: fetchHealth,
@@ -166,7 +169,7 @@ export function App() {
             <h2>{demoDeck.title}</h2>
           </div>
           <div className="slide-preview">
-            <span>{demoDeck.slides[0]?.elements[0]?.props.text as string}</span>
+            <span>{previewText}</span>
           </div>
           <dl className="meta-grid">
             <div>
