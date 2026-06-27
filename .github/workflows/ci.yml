@@ -46,5 +46,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Prepare local env file for compose validation
+        run: cp .env.example .env.local
       - run: docker compose config
-
