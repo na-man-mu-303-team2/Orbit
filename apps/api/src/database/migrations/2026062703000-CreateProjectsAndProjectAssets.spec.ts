@@ -1,6 +1,6 @@
 import { QueryRunner } from "typeorm";
 import { describe, expect, it, vi } from "vitest";
-import { CreateProjectsAndProjectAssets2026062701000 } from "./2026062701000-CreateProjectsAndProjectAssets";
+import { CreateProjectsAndProjectAssets2026062703000 } from "./2026062703000-CreateProjectsAndProjectAssets";
 
 function createQueryRecorder() {
   const queries: string[] = [];
@@ -15,7 +15,7 @@ function createQueryRecorder() {
 
 describe("CreateProjectsAndProjectAssets migration", () => {
   it("creates projects and project_assets with project-scoped metadata", async () => {
-    const migration = new CreateProjectsAndProjectAssets2026062701000();
+    const migration = new CreateProjectsAndProjectAssets2026062703000();
     const { queries, queryRunner } = createQueryRecorder();
 
     await migration.up(queryRunner);
@@ -32,7 +32,7 @@ describe("CreateProjectsAndProjectAssets migration", () => {
   });
 
   it("drops project_assets before projects on revert", async () => {
-    const migration = new CreateProjectsAndProjectAssets2026062701000();
+    const migration = new CreateProjectsAndProjectAssets2026062703000();
     const { queries, queryRunner } = createQueryRecorder();
 
     await migration.down(queryRunner);
