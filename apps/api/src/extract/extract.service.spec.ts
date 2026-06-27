@@ -47,68 +47,49 @@ const validEnv = {
 describe("ExtractService", () => {
   beforeEach(() => {
     Object.assign(process.env, validEnv);
-    vi.unstubAllGlobals();
   });
 
-  it("tracks reference extraction job status around python worker calls", async () => {
+  it("enqueues reference extraction for the background worker", async () => {
     const job: Job = {
       jobId: "job-1",
       projectId: "project-a",
       type: "reference-extract",
       status: "queued",
       progress: 0,
-      message: "",
+      message: "Job queued",
       result: null,
       error: null,
       createdAt: "2026-06-27T00:00:00.000Z",
       updatedAt: "2026-06-27T00:00:00.000Z"
     };
     const jobsService = {
-      create: vi.fn(async () => job),
-      update: vi.fn(async (_jobId: string, patch: Partial<Job>) => ({
-        ...job,
-        ...patch,
-        updatedAt: "2026-06-27T00:00:01.000Z"
-      }))
+      create: vi.fn(async () => job)
     } as unknown as JobsService;
-    const workerResponse = {
-      files: [
-        {
-          projectId: "project-a",
-          referenceDocumentId: null,
-          fileName: "sample.png",
-          kind: "image",
-          status: "succeeded",
-          rawText: "hello"
-        }
-      ]
-    };
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () => new Response(JSON.stringify(workerResponse), { status: 200 }))
-    );
 
     const result = await new ExtractService(jobsService).extract(
       [
         {
-          originalname: "sample.png",
-          mimetype: "image/png",
-          buffer: Buffer.from("image")
+          originalname: "sample.txt",
+          mimetype: "text/plain",
+          buffer: Buffer.from("hello")
         }
       ],
       "project-a"
     );
 
-    expect(result.job.status).toBe("succeeded");
-    expect(jobsService.update).toHaveBeenNthCalledWith(
-      1,
-      "job-1",
-      expect.objectContaining({ status: "running" })
-    );
-    expect(jobsService.update).toHaveBeenNthCalledWith(
-      2,
-      "job-1",
-      expect.objectContaining({ status: "succeeded", progress: 100 })
-    );
+    expect(result).toEqual({ files: [], job });
+    expect(jobsService.create).toHaveBeenCalledWith({
+      projectId: "project-a",
+      type: "reference-extract",
+      payload: {
+        files: [
+          {
+            originalName: "sample.txt",
+            mimeType: "text/plain",
+            contentBase64: Buffer.from("hello").toString("base64")
+          }
+        ]
+      }
+    });
   });
 });

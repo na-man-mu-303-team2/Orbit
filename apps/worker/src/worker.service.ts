@@ -1,26 +1,50 @@
 import { loadOrbitConfig } from "@orbit/config";
-import { InMemoryJobQueue } from "@orbit/job-queue";
-import { demoIds } from "@orbit/shared";
-import { Injectable, Logger, OnModuleInit } from "@nestjs/common";
+import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
+import { InjectDataSource } from "@nestjs/typeorm";
+import type { DataSource } from "typeorm";
+import { processNextReferenceExtractJob } from "./reference-extract.processor";
 
 @Injectable()
-export class WorkerService implements OnModuleInit {
+export class WorkerService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(WorkerService.name);
-  private readonly queue = new InMemoryJobQueue();
+  private readonly config = loadOrbitConfig(process.env, { service: "worker" });
+  private processing = false;
+  private timer: NodeJS.Timeout | null = null;
 
-  async onModuleInit() {
-    const config = loadOrbitConfig(process.env, { service: "worker" });
-    const job = await this.queue.enqueue({
-      projectId: demoIds.projectId,
-      type: "reference-extract",
-      payload: {
-        mode: "worker-boot-smoke",
-        driver: config.JOB_QUEUE_DRIVER
+  constructor(@InjectDataSource() private readonly dataSource: DataSource) {}
+
+  onModuleInit() {
+    this.logger.log(`Worker ready with ${this.config.JOB_QUEUE_DRIVER}`);
+    this.timer = setInterval(() => {
+      void this.processOnce();
+    }, 1000);
+    void this.processOnce();
+  }
+
+  onModuleDestroy() {
+    if (this.timer) {
+      clearInterval(this.timer);
+    }
+  }
+
+  private async processOnce() {
+    if (this.processing) {
+      return;
+    }
+
+    this.processing = true;
+    try {
+      const job = await processNextReferenceExtractJob(
+        this.dataSource,
+        this.config.PYTHON_WORKER_URL
+      );
+      if (job) {
+        this.logger.log(`Processed ${job.type} job ${job.jobId}: ${job.status}`);
       }
-    });
-
-    this.logger.log(
-      `Worker ready with ${config.JOB_QUEUE_DRIVER}; smoke job ${job.jobId}`
-    );
+    } catch (error) {
+      this.logger.error(error instanceof Error ? error.message : error);
+    } finally {
+      this.processing = false;
+    }
   }
 }
