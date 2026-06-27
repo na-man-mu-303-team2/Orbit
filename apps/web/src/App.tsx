@@ -1,7 +1,15 @@
 import { createDemoDeck } from "@orbit/editor-core";
-import { demoIds, type Job } from "@orbit/shared";
+import { demoIds, type GenerateDeckJobResult, type Job } from "@orbit/shared";
 import { useQuery } from "@tanstack/react-query";
-import { Activity, Database, FileUp, Play, Radio, RefreshCw } from "lucide-react";
+import {
+  Activity,
+  Database,
+  FileUp,
+  Play,
+  Radio,
+  RefreshCw,
+  Sparkles
+} from "lucide-react";
 import type { ChangeEvent, DragEvent, ReactNode } from "react";
 import { useMemo, useRef, useState } from "react";
 
@@ -45,6 +53,10 @@ type ExtractResponse = {
 
 type JobResult = {
   files?: ExtractedFile[];
+};
+
+type GenerateDeckResponse = {
+  job: Job;
 };
 
 type Fetcher = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
@@ -119,8 +131,13 @@ export function getJobResultFiles(job: Job): ExtractedFile[] {
   return Array.isArray(result?.files) ? result.files : [];
 }
 
+export function getGenerateDeckJobResult(job: Job): GenerateDeckJobResult | null {
+  const result = job.result as GenerateDeckJobResult | null;
+  return result?.deck ? result : null;
+}
+
 export function App() {
-  const [view, setView] = useState<"console" | "upload">("console");
+  const [view, setView] = useState<"console" | "upload" | "generate">("console");
   const previewText =
     demoDeck.slides[0]?.elements.find((element) => element.type === "text")?.props.text ?? "";
 
@@ -132,6 +149,10 @@ export function App() {
 
   if (view === "upload") {
     return <UploadView />;
+  }
+
+  if (view === "generate") {
+    return <GenerateDeckView />;
   }
 
   return (
@@ -199,6 +220,10 @@ export function App() {
               <FileUp size={18} />
               파일 업로드
             </button>
+            <button type="button" onClick={() => setView("generate")}>
+              <Sparkles size={18} />
+              AI 덱 생성
+            </button>
             <button type="button">
               <Activity size={18} />
               Job 상태 확인
@@ -207,6 +232,280 @@ export function App() {
         </article>
       </section>
     </main>
+  );
+}
+
+function GenerateDeckView() {
+  const [topic, setTopic] = useState("AI 덱 생성 파이프라인");
+  const [prompt, setPrompt] = useState("참고자료를 바탕으로 발표 흐름과 핵심 메시지를 정리");
+  const [duration, setDuration] = useState(10);
+  const [minSlides, setMinSlides] = useState(5);
+  const [maxSlides, setMaxSlides] = useState(8);
+  const [template, setTemplate] = useState("report");
+  const [audience, setAudience] = useState("general");
+  const [purpose, setPurpose] = useState("inform");
+  const [tone, setTone] = useState("professional");
+  const [referenceIds, setReferenceIds] = useState("");
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [generateError, setGenerateError] = useState("");
+  const [generateJob, setGenerateJob] = useState<Job | null>(null);
+  const [result, setResult] = useState<GenerateDeckJobResult | null>(null);
+
+  const generateDeck = async () => {
+    if (!topic.trim() || isGenerating) return;
+
+    setIsGenerating(true);
+    setGenerateError("");
+    setGenerateJob(null);
+    setResult(null);
+
+    try {
+      const response = await fetch(
+        `/api/v1/projects/${demoIds.projectId}/jobs/generate-deck`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            topic,
+            prompt,
+            targetDurationMinutes: duration,
+            slideCountRange: { min: minSlides, max: maxSlides },
+            template,
+            metadata: { audience, purpose, tone },
+            references: parseReferenceIds(referenceIds)
+          })
+        }
+      );
+
+      if (!response.ok) {
+        const message = await response.text();
+        throw new Error(message || "AI 덱 생성에 실패했습니다.");
+      }
+
+      const data = (await response.json()) as GenerateDeckResponse;
+      setGenerateJob(data.job);
+
+      const job = await pollExtractJob(data.job.jobId, {
+        onUpdate: setGenerateJob
+      });
+
+      if (job.status === "failed") {
+        throw new Error(job.error?.message || job.message || "AI 덱 생성에 실패했습니다.");
+      }
+
+      setResult(getGenerateDeckJobResult(job));
+    } catch (error) {
+      setGenerateError(
+        error instanceof Error ? error.message : "AI 덱 생성에 실패했습니다."
+      );
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
+  return (
+    <main className="app-shell generate-app-shell">
+      <section className="generate-layout" aria-labelledby="generate-title">
+        <form
+          className="generate-form"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void generateDeck();
+          }}
+        >
+          <div className="panel-copy">
+            <span className="eyebrow">Orbit issue #26</span>
+            <h1 id="generate-title">AI 덱 생성</h1>
+          </div>
+
+          <label>
+            <span>Topic</span>
+            <input value={topic} onChange={(event) => setTopic(event.target.value)} />
+          </label>
+
+          <label>
+            <span>Prompt</span>
+            <textarea value={prompt} onChange={(event) => setPrompt(event.target.value)} />
+          </label>
+
+          <div className="form-grid">
+            <label>
+              <span>Duration</span>
+              <input
+                min={1}
+                max={120}
+                type="number"
+                value={duration}
+                onChange={(event) => setDuration(Number(event.target.value))}
+              />
+            </label>
+            <label>
+              <span>Min slides</span>
+              <input
+                min={1}
+                max={20}
+                type="number"
+                value={minSlides}
+                onChange={(event) => setMinSlides(Number(event.target.value))}
+              />
+            </label>
+            <label>
+              <span>Max slides</span>
+              <input
+                min={1}
+                max={20}
+                type="number"
+                value={maxSlides}
+                onChange={(event) => setMaxSlides(Number(event.target.value))}
+              />
+            </label>
+          </div>
+
+          <div className="form-grid">
+            <SelectField
+              label="Template"
+              value={template}
+              onChange={setTemplate}
+              options={["default", "pitch", "report", "lesson"]}
+            />
+            <SelectField
+              label="Audience"
+              value={audience}
+              onChange={setAudience}
+              options={["general", "executive", "technical", "sales"]}
+            />
+            <SelectField
+              label="Purpose"
+              value={purpose}
+              onChange={setPurpose}
+              options={["inform", "persuade", "teach", "report"]}
+            />
+          </div>
+
+          <div className="form-grid two">
+            <SelectField
+              label="Tone"
+              value={tone}
+              onChange={setTone}
+              options={["professional", "friendly", "confident", "concise"]}
+            />
+            <label>
+              <span>References</span>
+              <input
+                value={referenceIds}
+                onChange={(event) => setReferenceIds(event.target.value)}
+              />
+            </label>
+          </div>
+
+          <button className="extract-button" type="submit" disabled={isGenerating}>
+            {isGenerating ? "생성 중..." : "덱 생성"}
+          </button>
+
+          {generateJob && (
+            <div className="job-status" aria-live="polite">
+              <div>
+                <strong>{generateJob.status}</strong>
+                <span>{generateJob.progress}%</span>
+              </div>
+              {generateJob.message && <p>{generateJob.message}</p>}
+            </div>
+          )}
+
+          {generateError && (
+            <div className="rejection-list" role="alert">
+              <p>{generateError}</p>
+            </div>
+          )}
+        </form>
+
+        <section className="generate-result" aria-live="polite">
+          {result ? <GeneratedDeckResult result={result} /> : <DeckPreviewPlaceholder />}
+        </section>
+      </section>
+    </main>
+  );
+}
+
+function SelectField(props: {
+  label: string;
+  value: string;
+  options: string[];
+  onChange: (value: string) => void;
+}) {
+  return (
+    <label>
+      <span>{props.label}</span>
+      <select value={props.value} onChange={(event) => props.onChange(event.target.value)}>
+        {props.options.map((option) => (
+          <option key={option} value={option}>
+            {option}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
+export function GeneratedDeckResult(props: { result: GenerateDeckJobResult }) {
+  const { deck, validation, warnings } = props.result;
+
+  return (
+    <div className="generated-deck">
+      <header className="result-heading">
+        <div>
+          <span className="eyebrow">Generated deck</span>
+          <h2>{deck.title}</h2>
+        </div>
+        <strong>{deck.slides.length} slides</strong>
+      </header>
+
+      {warnings.length > 0 && (
+        <div className="job-status">
+          <p>{warnings.join(" · ")}</p>
+        </div>
+      )}
+
+      <p className="indexing-summary">
+        validation {validation.passed ? "passed" : "failed"}
+      </p>
+
+      <div className="generated-slide-list">
+        {deck.slides.map((slide) => (
+          <article key={slide.slideId} className="generated-slide">
+            <div>
+              <span>{slide.order}</span>
+              <h3>{slide.title}</h3>
+            </div>
+            <p>{slide.speakerNotes}</p>
+            <details>
+              <summary>Evidence</summary>
+              {slide.aiNotes?.sourceEvidence.length ? (
+                <ul>
+                  {slide.aiNotes.sourceEvidence.map((evidence) => (
+                    <li key={`${slide.slideId}-${evidence.fileId}`}>
+                      <strong>{evidence.fileId}</strong>
+                      {evidence.note ? ` · ${evidence.note}` : ""}
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p>topic-only</p>
+              )}
+            </details>
+          </article>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function DeckPreviewPlaceholder() {
+  return (
+    <div className="deck-preview-placeholder">
+      <Sparkles size={28} />
+      <span>AI deck</span>
+    </div>
   );
 }
 
@@ -530,6 +829,14 @@ function isAllowedFile(file: File) {
   const isImage = file.type.startsWith(imagePrefix);
 
   return isAllowedDocument || isImage;
+}
+
+function parseReferenceIds(value: string) {
+  return value
+    .split(/[,\n]/)
+    .map((fileId) => fileId.trim())
+    .filter(Boolean)
+    .map((fileId) => ({ fileId }));
 }
 
 function formatBytes(bytes: number) {
