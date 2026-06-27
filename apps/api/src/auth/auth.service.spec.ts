@@ -37,8 +37,10 @@ function createAuthTestHarness() {
   const users: UserRow[] = [];
   const dataSource = {
     query: vi.fn(async (query: string, params: unknown[] = []) => {
-      if (query.includes("WHERE email = $1")) {
-        return users.filter((user) => user.email === params[0]);
+      if (query.includes("WHERE lower(email) = $1")) {
+        return users.filter(
+          (user) => user.email.toLowerCase() === params[0]
+        );
       }
 
       if (query.includes("INSERT INTO users")) {
@@ -145,5 +147,24 @@ describe("AuthService", () => {
 
     await expect(service.logout(result.sessionId)).resolves.toBeUndefined();
     await expect(service.logout(null)).resolves.toBeUndefined();
+  });
+
+  it("rejects expired sessions and deletes them", async () => {
+    const { service, sessionStore } = createAuthTestHarness();
+    const sessionId = "session_expired";
+    sessionStore.sessions.set(sessionId, {
+      user: {
+        userId: "user_1",
+        email: "person@example.com",
+        createdAt: "2026-06-27T00:00:00.000Z"
+      },
+      authenticatedAt: "2026-06-27T00:00:00.000Z",
+      expiresAt: "2026-06-27T00:00:01.000Z"
+    });
+
+    await expect(service.me(sessionId)).rejects.toBeInstanceOf(
+      UnauthorizedException
+    );
+    expect(sessionStore.sessions.has(sessionId)).toBe(false);
   });
 });

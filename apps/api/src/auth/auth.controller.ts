@@ -11,6 +11,8 @@ import {
   Body,
   Controller,
   Get,
+  HttpCode,
+  HttpStatus,
   Post,
   Req,
   Res,
@@ -46,6 +48,7 @@ export class AuthController {
   }
 
   @Post("login")
+  @HttpCode(HttpStatus.OK)
   async login(
     @Body() body: unknown,
     @Res({ passthrough: true }) response: Response
@@ -59,6 +62,7 @@ export class AuthController {
   }
 
   @Post("logout")
+  @HttpCode(HttpStatus.OK)
   async logout(
     @Req() request: SignedCookieRequest,
     @Res({ passthrough: true }) response: Response

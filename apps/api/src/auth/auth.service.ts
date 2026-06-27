@@ -100,6 +100,11 @@ export class AuthService {
       throw new UnauthorizedException("Authentication required");
     }
 
+    if (isExpired(session)) {
+      await this.sessions.delete(sessionId);
+      throw new UnauthorizedException("Authentication required");
+    }
+
     return meResponseSchema.parse(session);
   }
 
@@ -135,7 +140,7 @@ export class AuthService {
       `
         SELECT user_id, email, password_hash, created_at, updated_at
         FROM users
-        WHERE email = $1
+        WHERE lower(email) = $1
       `,
       [email]
     );
@@ -169,4 +174,8 @@ function toIso(value: Date | string): string {
   return value instanceof Date
     ? value.toISOString()
     : new Date(value).toISOString();
+}
+
+function isExpired(session: AuthSession): boolean {
+  return new Date(session.expiresAt).getTime() <= Date.now();
 }
