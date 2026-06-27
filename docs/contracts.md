@@ -304,6 +304,58 @@ DeckChangeRecord 결정 사항:
 - `packages/shared/src/deck/patch.schema.ts`
 - `packages/shared/src/deck/id.schema.ts`
 
+## 덱 저장/복원 API 계약
+
+ORBIT-15에서 추가하는 저장/복원 API 계약은 deck 자체 구조를 다시 정의하지 않고, API request/response envelope만 정의한다. NestJS API, web/editor, AI 생성 결과 적용 흐름은 같은 shared schema를 기준으로 payload를 검증한다.
+
+MVP API:
+
+- `GET /api/v1/projects/:projectId/deck`
+- `PUT /api/v1/projects/:projectId/deck`
+- `POST /api/v1/projects/:projectId/deck/patches`
+- `GET /api/v1/projects/:projectId/snapshots`
+- `POST /api/v1/projects/:projectId/snapshots/:snapshotId/restore`
+
+결정 사항:
+
+- current deck payload는 기존 `DeckSchema`를 재사용한다.
+- patch append request는 기존 `DeckPatchSchema`를 재사용한다.
+- patch append response의 적용 완료 이력은 기존 `DeckChangeRecordSchema`를 재사용한다.
+- `DeckChangeRecordSchema`에는 `projectId`를 추가하지 않는다. project 단위 저장/조회가 필요한 API/DB 계층에서는 `projectId`와 `changeRecord`를 wrapper로 묶는다.
+- `snapshotId`는 `snapshot_` prefix를 강제한다.
+- snapshot reason은 `auto-save`, `deck-replaced`, `patch-applied`, `snapshot-restore`만 허용한다.
+- ORBIT-10의 project DB 모델이 확정되기 전까지 ORBIT-15 저장 API는 `projectId`를 FK가 아닌 문자열 boundary로 다룬다. API 계층에서 URL의 `projectId`와 deck/snapshot의 project boundary를 검증한다.
+- response envelope 내부의 `projectId`, `deckId`, `version`이 서로 어긋나면 shared API schema validation에서 거부한다.
+
+지원하는 API schema:
+
+- `getDeckResponseSchema`: `projectId`, `deck`, `updatedAt`
+- `putDeckRequestSchema`: `deck`, `snapshotReason?`
+- `putDeckResponseSchema`: `deck`, `snapshot`, `updatedAt`
+- `appendDeckPatchRequestSchema`: `patch`, `snapshotReason?`
+- `appendDeckPatchResponseSchema`: `deck`, `changeRecord`, `snapshot`, `updatedAt`
+- `deckSnapshotSchema`: `snapshotId`, `projectId`, `deckId`, `version`, `reason`, `createdAt`
+- `deckSnapshotDetailSchema`: snapshot metadata와 `deck`
+- `deckPatchLogEntrySchema`: `projectId`, `changeRecord`
+- `listDeckSnapshotsResponseSchema`: `projectId`, `snapshots`
+- `restoreDeckSnapshotResponseSchema`: `deck`, `restoredSnapshot`, `updatedAt`
+- `deckApiErrorSchema`: `code`, `message`, `details`
+
+MVP 실패 코드:
+
+- `DECK_NOT_FOUND`
+- `SNAPSHOT_NOT_FOUND`
+- `PROJECT_MISMATCH`
+- `DECK_VALIDATION_FAILED`
+- `PATCH_VALIDATION_FAILED`
+- `STALE_BASE_VERSION`
+- `SNAPSHOT_PROJECT_MISMATCH`
+- `PATCH_APPLY_FAILED`
+
+구현 위치:
+
+- `packages/shared/src/deck/deck-api.schema.ts`
+
 ## 파일 업로드 결과 구조
 
 파일 업로드는 공통 API로 제공하고, 각 기능은 `fileId`와 `purpose`를 기준으로 업로드 결과를 사용한다.

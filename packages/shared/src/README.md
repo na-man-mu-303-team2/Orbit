@@ -17,6 +17,7 @@
 | `index.ts` | `@orbit/shared`의 public barrel export. 구현 로직을 두지 않는다. |
 | `common/demo-ids.ts` | 1차 스프린트 데모용 고정 사용자, 워크스페이스, 프로젝트, 덱, 세션 ID. |
 | `common/time.schema.ts` | ISO datetime schema와 현재 시각 생성 유틸리티. |
+| `deck/deck-api.schema.ts` | 덱 저장/복원 API request, response, error, snapshot, patch log entry 계약. NestJS API와 web/editor/AI consumer가 같은 API 표면을 공유할 때 사용한다. |
 | `deck/deck.schema.ts` | deck top-level 구조, metadata, canvas preset, theme, slide layout/style, slide, keyword schema와 `Deck`, `DeckCanvas`, `DeckMetadata`, `Slide`, `SlideLayout`, `SlideStyle`, `Keyword` 타입. |
 | `deck/id.schema.ts` | deck 내부 ID prefix schema와 `DeckId`, `DeckSlideId`, `DeckElementId`, `DeckAnimationId`, `DeckKeywordId`, `DeckChangeId` 타입. |
 | `deck/patch.schema.ts` | deck 변경 요청과 적용 이력 schema. AI, 편집기, import가 전체 Deck JSON을 다시 만들지 않고 patch operation으로 변경을 전달할 때 사용한다. |
@@ -45,3 +46,14 @@ ORBIT-14의 핵심 작업은 deck 계약을 더 엄격하게 만드는 것이다
 - `deck/slide-object.schema.ts`: `text`, `image`, `chart`, `group`은 타입별 props로 검증한다. 도형류는 공통 shape props를 사용하고, `customShape`만 `record unknown` 확장 지점으로 둔다. AI 디자인 의미는 공통 `role` 필드로 표현하고, 배경/장식 요소도 `slide.elements` flat list에 유지한다.
 - `deck/chart.schema.ts`: unsupported chart type 거부 대상. `chart` object의 `props`는 이 schema로 검증한다. `data: []`는 빈 차트 편집을 위해 허용하고, `bar`/`line`, `pie`/`doughnut`, `scatter`는 타입별 data와 value 범위를 따로 검증한다. chart 내부 텍스트는 `style.fontFamily`와 title/axis/legend/data label font size 필드로 조정한다.
 - `deck/animation.schema.ts`: `appear`, `disappear`, `fade-in`, `fade-out`, `zoom-in`, `zoom-out`, `rotate`만 MVP animation type으로 허용한다. animation은 `slide.animations` flat list에 저장하고 `elementId`로 대상 객체를 참조한다. `order`는 `1`부터 시작하며 `durationMs`, `delayMs`, `easing`은 기본값으로 정규화한다.
+
+## ORBIT-15 작업 메모
+
+ORBIT-15의 공유 타입 작업은 deck 구조를 다시 정의하지 않고, 저장/복원 API가 주고받는 request/response envelope을 고정한다.
+
+- `deck/deck-api.schema.ts`: `GET /api/v1/projects/:projectId/deck`, `PUT /api/v1/projects/:projectId/deck`, `POST /api/v1/projects/:projectId/deck/patches`, snapshot 목록/복원 API의 request와 response schema를 관리한다.
+- `deck/deck-api.schema.ts`: `DeckSchema`, `DeckPatchSchema`, `DeckChangeRecordSchema`를 재사용한다. API 계층은 최종 deck, patch 요청, 적용 완료 이력을 여기서 다시 만들지 않는다.
+- `deck/deck-api.schema.ts`: `snapshotId`는 `snapshot_` prefix를 강제한다. snapshot reason은 `auto-save`, `deck-replaced`, `patch-applied`, `snapshot-restore`만 허용한다.
+- `deck/deck-api.schema.ts`: API error code는 `DECK_NOT_FOUND`, `SNAPSHOT_NOT_FOUND`, `PROJECT_MISMATCH`, `DECK_VALIDATION_FAILED`, `PATCH_VALIDATION_FAILED`, `STALE_BASE_VERSION`, `SNAPSHOT_PROJECT_MISMATCH`, `PATCH_APPLY_FAILED`로 시작한다.
+- `deck/deck-api.schema.ts`: response envelope 내부의 `projectId`, `deckId`, `version`이 서로 어긋난 경우 validation에서 거부한다.
+- `deck/deck-api.schema.ts`: `DeckChangeRecordSchema` 자체에는 `projectId`를 추가하지 않는다. ORBIT-15 API/DB에서 project 단위 patch log를 다루기 위해 `deckPatchLogEntrySchema`가 `projectId`와 `changeRecord`를 묶는다.
