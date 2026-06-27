@@ -64,14 +64,18 @@
           "props": {
             "text": "ORBIT",
             "fontSize": 48
-          },
-          "animations": [
-            {
-              "animationId": "animation_1",
-              "type": "fade-in",
-              "order": 1
-            }
-          ]
+          }
+        }
+      ],
+      "animations": [
+        {
+          "animationId": "animation_1",
+          "elementId": "element_1",
+          "type": "fade-in",
+          "order": 1,
+          "durationMs": 400,
+          "delayMs": 0,
+          "easing": "ease-out"
         }
       ]
     }
@@ -126,6 +130,13 @@
 - chart 디자인 필드는 `style.colors`, `style.backgroundColor`, `style.textColor`, `style.showLegend`, `style.legendPosition`, `style.showDataLabels`, `style.showGrid`, `style.xAxisTitle`, `style.yAxisTitle`, `style.unit`을 사용한다.
 - multi-series chart 구조는 1차 스프린트 MVP 계약에 포함하지 않고, import/export와 편집 UI 구현 중 필요성이 확인되면 별도 확장한다.
 - 지원하는 애니메이션 타입은 `appear`, `disappear`, `fade-in`, `fade-out`, `zoom-in`, `zoom-out`, `rotate`이다.
+- `slide-in`, `none`은 1차 스프린트 MVP animation type에 포함하지 않는다. animation이 없으면 animation 객체를 만들지 않는다.
+- 애니메이션은 element 단위를 기본으로 하고, `slide.animations` flat list에 저장한다.
+- `element.animations`에는 저장하지 않는다.
+- 각 animation은 `elementId`를 필수로 가지고 대상 객체를 참조한다. slide 단위 animation은 1차 스프린트 MVP에서 제외한다.
+- animation `order`는 `1`부터 시작하는 양의 정수로 관리한다.
+- `durationMs`, `delayMs`, `easing`은 입력에서 생략할 수 있지만, schema parse 후 normalized Deck JSON에는 각각 `400`, `0`, `"ease-out"` 기본값으로 포함한다.
+- `easing`은 `linear`, `ease-in`, `ease-out`, `ease-in-out`만 허용한다.
 - 밑줄 애니메이션은 1차 스프린트 MVP가 아니라 폴리싱 범위로 둔다.
 - AI 생성 결과도 최종적으로 deck JSON으로 변환한다.
 - 리허설은 `speakerNotes`, `keywords.text`, `keywords.synonyms`, `keywords.abbreviations`를 기준으로 연결한다.

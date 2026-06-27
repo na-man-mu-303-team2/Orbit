@@ -50,18 +50,20 @@ export function createDemoDeck(): Deck {
               text: "ORBIT",
               fontSize: 56,
               color: "#111827"
-            },
-            animations: [
-              {
-                animationId: "anim_1",
-                elementId: "el_1",
-                type: "fade-in",
-                order: 1
-              }
-            ]
+            }
           }
         ],
-        animations: []
+        animations: [
+          {
+            animationId: "anim_1",
+            elementId: "el_1",
+            type: "fade-in",
+            order: 1,
+            durationMs: 400,
+            delayMs: 0,
+            easing: "ease-out"
+          }
+        ]
       }
     ]
   });

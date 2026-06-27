@@ -38,4 +38,4 @@ ORBIT-14의 핵심 작업은 deck 계약을 더 엄격하게 만드는 것이다
 - `deck/slide-object.schema.ts`: `x`, `y`는 `0` 이상, `width`, `height`는 `0` 초과로 검증한다. 객체가 오른쪽/아래쪽으로 캔버스 밖에 일부 노출되는 경우는 MVP에서 막지 않고, PPTX import/export 구현 중 다시 결정한다. `rotation`, `opacity`, `zIndex`, `locked`, `visible`은 객체 공통 상태로 관리한다.
 - `deck/slide-object.schema.ts`: `text`, `image`, `chart`, `group`은 타입별 props로 검증한다. 도형류는 공통 shape props를 사용하고, `customShape`만 `record unknown` 확장 지점으로 둔다. group은 `childElementIds`만 가지고 child element는 `slide.elements` flat list에 유지한다.
 - `deck/chart.schema.ts`: unsupported chart type 거부 대상. `chart` object의 `props`는 이 schema로 검증한다. `data: []`는 빈 차트 편집을 위해 허용하고, `bar`/`line`, `pie`/`doughnut`, `scatter`는 타입별 data와 value 범위를 따로 검증한다.
-- `deck/animation.schema.ts`: `appear`, `disappear`, `fade-in`, `fade-out`, `zoom-in`, `zoom-out`, `rotate`만 MVP animation type으로 허용한다.
+- `deck/animation.schema.ts`: `appear`, `disappear`, `fade-in`, `fade-out`, `zoom-in`, `zoom-out`, `rotate`만 MVP animation type으로 허용한다. animation은 `slide.animations` flat list에 저장하고 `elementId`로 대상 객체를 참조한다. `order`는 `1`부터 시작하며 `durationMs`, `delayMs`, `easing`은 기본값으로 정규화한다.

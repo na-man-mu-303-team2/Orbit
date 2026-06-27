@@ -1,6 +1,5 @@
 import { z } from "zod";
 
-import { animationSchema } from "./animation.schema";
 import { chartSchema } from "./chart.schema";
 import { themeColorSchema } from "./theme.schema";
 
@@ -32,8 +31,7 @@ export const deckElementBaseSchema = z.object({
   opacity: z.number().finite().min(0).max(1).default(1),
   zIndex: z.number().int().nonnegative().default(0),
   locked: z.boolean().default(false),
-  visible: z.boolean().default(true),
-  animations: z.array(animationSchema).default([])
+  visible: z.boolean().default(true)
 });
 
 export const deckElementPaintSchema = z.union([

@@ -10,11 +10,23 @@ export const animationTypeSchema = z.enum([
   "rotate"
 ]);
 
+export const animationEasingSchema = z.enum([
+  "linear",
+  "ease-in",
+  "ease-out",
+  "ease-in-out"
+]);
+
 export const animationSchema = z.object({
   animationId: z.string().min(1),
-  elementId: z.string().min(1).optional(),
+  elementId: z.string().min(1),
   type: animationTypeSchema,
-  order: z.number().int().nonnegative()
+  order: z.number().int().positive(),
+  durationMs: z.number().int().positive().default(400),
+  delayMs: z.number().int().nonnegative().default(0),
+  easing: animationEasingSchema.default("ease-out")
 });
 
+export type DeckAnimationType = z.infer<typeof animationTypeSchema>;
+export type DeckAnimationEasing = z.infer<typeof animationEasingSchema>;
 export type DeckAnimation = z.infer<typeof animationSchema>;
