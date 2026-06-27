@@ -13,7 +13,7 @@ jobs:
     if: >
       github.event.pull_request.merged == true &&
       contains(fromJSON('["main","develop"]'), github.event.pull_request.base.ref)
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, jira-access]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -22,6 +22,7 @@ jobs:
 
       - name: Build Jira webhook payload
         id: jira_payload
+        shell: bash
         env:
           PR_TITLE: ${{ github.event.pull_request.title }}
           PR_BRANCH: ${{ github.event.pull_request.head.ref }}
@@ -30,6 +31,7 @@ jobs:
 
       - name: Trigger Jira Automation
         if: steps.jira_payload.outputs.has_issues == 'true'
+        shell: bash
         env:
           JIRA_AUTOMATION_WEBHOOK_URL: ${{ secrets.JIRA_AUTOMATION_WEBHOOK_URL }}
         run: |
