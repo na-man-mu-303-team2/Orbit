@@ -19,11 +19,25 @@ export const deckElementTypeSchema = z.enum([
   "chart"
 ]);
 
+export const deckElementRoleSchema = z.enum([
+  "background",
+  "decoration",
+  "title",
+  "subtitle",
+  "body",
+  "caption",
+  "media",
+  "chart",
+  "highlight",
+  "footer"
+]);
+
 export const deckElementCoordinateSchema = z.number().finite().nonnegative();
 export const deckElementSizeSchema = z.number().finite().positive();
 
 export const deckElementBaseSchema = z.object({
   elementId: deckElementIdSchema,
+  role: deckElementRoleSchema.optional(),
   x: deckElementCoordinateSchema,
   y: deckElementCoordinateSchema,
   width: deckElementSizeSchema,
@@ -167,6 +181,7 @@ export const deckElementSchema = z.discriminatedUnion("type", [
 ]);
 
 export type DeckElementType = z.infer<typeof deckElementTypeSchema>;
+export type DeckElementRole = z.infer<typeof deckElementRoleSchema>;
 export type DeckElementPaint = z.infer<typeof deckElementPaintSchema>;
 export type DeckElementShadow = z.infer<typeof deckElementShadowSchema>;
 export type ShapeElementProps = z.infer<typeof shapeElementPropsSchema>;

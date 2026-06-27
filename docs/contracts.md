@@ -36,7 +36,25 @@
     "fontFamily": "Inter",
     "backgroundColor": "#ffffff",
     "textColor": "#111827",
-    "accentColor": "#2563eb"
+    "accentColor": "#2563eb",
+    "palette": {
+      "primary": "#2563eb",
+      "secondary": "#7c3aed",
+      "surface": "#ffffff",
+      "muted": "#f3f4f6",
+      "border": "#e5e7eb"
+    },
+    "typography": {
+      "headingFontFamily": "Inter",
+      "bodyFontFamily": "Inter",
+      "titleSize": 56,
+      "headingSize": 40,
+      "bodySize": 24,
+      "captionSize": 16
+    },
+    "effects": {
+      "borderRadius": 8
+    }
   },
   "slides": [
     {
@@ -45,6 +63,7 @@
       "title": "Opening",
       "thumbnailUrl": "/files/thumbnails/slide_1.png",
       "style": {
+        "layout": "title-content",
         "backgroundColor": "#ffffff"
       },
       "speakerNotes": "발표자 노트",
@@ -60,6 +79,7 @@
         {
           "elementId": "el_1",
           "type": "text",
+          "role": "title",
           "x": 120,
           "y": 80,
           "width": 480,
@@ -99,13 +119,17 @@
 - `metadata.language`는 `"ko"`만 허용한다.
 - `metadata.locale`은 `"ko-KR"`만 허용한다. STT, 날짜/시간, 지역별 포맷이 필요한 기능은 `locale`을 기준으로 처리한다.
 - `metadata.language`와 `metadata.locale`은 생략 시 각각 `"ko"`, `"ko-KR"`로 기본값을 채운다.
-- `theme`는 생략 시 `Default`, `Inter`, `#ffffff`, `#111827`, `#2563eb` 기본값으로 채운다.
+- `theme`는 생략 시 기본 theme token 값으로 채운다.
 - `theme`는 deck 전체의 기본 디자인 토큰이다.
-- MVP `theme` 필드는 `name`, `fontFamily`, `backgroundColor`, `textColor`, `accentColor`로 제한한다.
+- MVP `theme` 필드는 `name`, `fontFamily`, `backgroundColor`, `textColor`, `accentColor`, `palette`, `typography`, `effects`로 제한한다.
+- `theme.palette`는 `primary`, `secondary`, `surface`, `muted`, `border`를 사용한다.
+- `theme.typography`는 `headingFontFamily`, `bodyFontFamily`, `titleSize`, `headingSize`, `bodySize`, `captionSize`를 사용한다.
+- `theme.effects`는 `borderRadius`, `shadow`를 사용한다. 복잡한 blur, blend mode, gradient token은 1차 스프린트 MVP에서 제외한다.
 - object와 slide의 실제 스타일 값은 `theme`를 기본값으로 삼되, 개별 object props에 명시된 값이 있으면 object props가 우선한다.
 - 스타일 해석 우선순위는 `object props` > `slide style` > `deck.theme` > `schema fallback`이다.
 - 1차 스프린트 MVP부터 AI 생성 결과가 슬라이드별 디자인을 지정할 수 있도록 `slide.style`을 허용한다.
-- MVP `slide.style` 필드는 `fontFamily`, `backgroundColor`, `textColor`, `accentColor`, `backgroundImage`로 제한한다.
+- MVP `slide.style` 필드는 `layout`, `fontFamily`, `backgroundColor`, `textColor`, `accentColor`, `backgroundImage`로 제한한다.
+- `slide.style.layout`은 `title`, `title-content`, `section`, `two-column`, `image-left`, `image-right`, `chart-focus`, `quote`, `closing`만 허용한다.
 - `slide.style.backgroundImage`는 `src`, `alt`, `fit`, `opacity`를 사용하고, `fit`은 `contain`, `cover`, `stretch`만 허용한다.
 - `slide.style`이 생략되면 schema parse 후 `{}`로 정규화하고, renderer/export/AI normalize 단계에서 필요한 값은 `deck.theme`에서 해석한다.
 - 슬라이드 배경은 `slide.style.backgroundImage` > `slide.style.backgroundColor` > `deck.theme.backgroundColor` 순서로 해석한다.
@@ -122,6 +146,10 @@
 - 좌표 단위는 `px` 기준으로 한다.
 - 지원하는 객체 타입은 `text`, `rect`, `ellipse`, `line`, `arrow`, `polygon`, `star`, `ring`, `image`, `group`, `customShape`, `chart`이다.
 - 기존 임시 타입인 `shape`, `video`는 1차 스프린트 deck schema에서 허용하지 않는다.
+- AI가 생성한 배경, 장식, 강조 박스, 라인, 아이콘도 별도 `designElements` 배열을 만들지 않고 `slide.elements`에 넣는다.
+- 객체 역할은 공통 `role` 필드로 표현하고, `background`, `decoration`, `title`, `subtitle`, `body`, `caption`, `media`, `chart`, `highlight`, `footer`만 허용한다.
+- `role`은 렌더링 필수값이 아니라 AI 생성, 편집 UI, export, 접근성 보조를 위한 의미 정보다.
+- `background`, `decoration` 역할의 element는 사용자가 기본 편집 중 실수로 움직이지 않도록 `locked: true`와 낮은 `zIndex`를 권장한다. schema에서는 강제하지 않는다.
 - 객체 `props`는 object type별 schema로 검증한다. 전체 객체에 대해 `z.record(z.unknown())`를 열어두지 않는다.
 - `text.props`는 `text`, `fontFamily`, `fontSize`, `fontWeight`, `color`, `align`, `verticalAlign`, `lineHeight`를 사용한다.
 - `text.props.fontFamily`, `text.props.color`가 생략되면 renderer/export/AI normalize 단계에서 각각 `slide.style.fontFamily` > `deck.theme.fontFamily`, `slide.style.textColor` > `deck.theme.textColor` 순서로 기본값을 사용한다.
@@ -145,7 +173,9 @@
 - `bar`, `line`의 data는 `{ label, value }[]` 구조를 사용하고, `value`는 음수와 양수를 모두 포함한 finite number만 허용한다.
 - `pie`, `doughnut`의 data는 `{ label, value }[]` 구조를 사용하고, `value`는 `0` 이상의 finite number만 허용한다.
 - `scatter`의 data는 `{ label?, x, y }[]` 구조를 사용하고, `x`, `y`는 finite number만 허용한다.
-- chart 디자인 필드는 `style.colors`, `style.backgroundColor`, `style.textColor`, `style.showLegend`, `style.legendPosition`, `style.showDataLabels`, `style.showGrid`, `style.xAxisTitle`, `style.yAxisTitle`, `style.unit`을 사용한다.
+- chart 디자인 필드는 `style.colors`, `style.backgroundColor`, `style.textColor`, `style.fontFamily`, `style.titleFontSize`, `style.axisLabelFontSize`, `style.legendFontSize`, `style.dataLabelFontSize`, `style.showLegend`, `style.legendPosition`, `style.showDataLabels`, `style.showGrid`, `style.xAxisTitle`, `style.yAxisTitle`, `style.unit`을 사용한다.
+- `chart.style.fontFamily`가 생략되면 renderer/export/AI normalize 단계에서 `slide.style.fontFamily` > `deck.theme.typography.bodyFontFamily` > `deck.theme.fontFamily` 순서로 기본값을 사용한다.
+- `chart.style.titleFontSize`, `axisLabelFontSize`, `legendFontSize`, `dataLabelFontSize`가 생략되면 renderer/export/AI normalize 단계에서 `deck.theme.typography` 값을 기준으로 해석한다.
 - multi-series chart 구조는 1차 스프린트 MVP 계약에 포함하지 않고, import/export와 편집 UI 구현 중 필요성이 확인되면 별도 확장한다.
 - 지원하는 애니메이션 타입은 `appear`, `disappear`, `fade-in`, `fade-out`, `zoom-in`, `zoom-out`, `rotate`이다.
 - `slide-in`, `none`은 1차 스프린트 MVP animation type에 포함하지 않는다. animation이 없으면 animation 객체를 만들지 않는다.

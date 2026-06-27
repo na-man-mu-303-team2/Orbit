@@ -42,6 +42,18 @@ export const keywordSchema = z.object({
 
 export const slideOrderSchema = z.number().int().positive();
 
+export const slideLayoutSchema = z.enum([
+  "title",
+  "title-content",
+  "section",
+  "two-column",
+  "image-left",
+  "image-right",
+  "chart-focus",
+  "quote",
+  "closing"
+]);
+
 export const slideBackgroundImageFitSchema = z.enum([
   "contain",
   "cover",
@@ -57,6 +69,7 @@ export const slideBackgroundImageSchema = z.object({
 
 export const slideStyleSchema = z
   .object({
+    layout: slideLayoutSchema.optional(),
     fontFamily: z.string().min(1).optional(),
     backgroundColor: themeColorSchema.optional(),
     textColor: themeColorSchema.optional(),
@@ -92,6 +105,7 @@ export type Deck = z.infer<typeof deckSchema>;
 export type DeckCanvas = z.infer<typeof deckCanvasSchema>;
 export type DeckMetadata = z.infer<typeof deckMetadataSchema>;
 export type Slide = z.infer<typeof slideSchema>;
+export type SlideLayout = z.infer<typeof slideLayoutSchema>;
 export type SlideStyle = z.infer<typeof slideStyleSchema>;
 export type SlideBackgroundImage = z.infer<typeof slideBackgroundImageSchema>;
 export type SlideBackgroundImageFit = z.infer<
