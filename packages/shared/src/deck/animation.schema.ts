@@ -1,11 +1,13 @@
 import { z } from "zod";
 
 export const animationTypeSchema = z.enum([
+  "appear",
+  "disappear",
   "fade-in",
   "fade-out",
-  "appear",
-  "slide-in",
-  "none"
+  "zoom-in",
+  "zoom-out",
+  "rotate"
 ]);
 
 export const animationSchema = z.object({
