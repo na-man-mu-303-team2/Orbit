@@ -3,6 +3,7 @@ import { demoIds, type Job } from "@orbit/shared";
 import { useQuery } from "@tanstack/react-query";
 import { Activity, Database, FileUp, Play, Radio, RefreshCw } from "lucide-react";
 import { AuthPanel } from "./features/auth/AuthPanel";
+import { ProjectAssetWorkspace } from "./features/projects/ProjectAssetWorkspace";
 import type { ChangeEvent, DragEvent, ReactNode } from "react";
 import { useMemo, useRef, useState } from "react";
 
@@ -120,8 +121,9 @@ export function getJobResultFiles(job: Job): ExtractedFile[] {
   return Array.isArray(result?.files) ? result.files : [];
 }
 
+// 데모 콘솔의 최상위 화면 전환을 관리한다.
 export function App() {
-  const [view, setView] = useState<"console" | "upload">("console");
+  const [view, setView] = useState<"console" | "upload" | "project-assets">("console");
   const previewText =
     demoDeck.slides[0]?.elements.find((element) => element.type === "text")?.props.text ?? "";
 
@@ -133,6 +135,10 @@ export function App() {
 
   if (view === "upload") {
     return <UploadView />;
+  }
+
+  if (view === "project-assets") {
+    return <ProjectAssetWorkspace />;
   }
 
   return (
@@ -195,7 +201,7 @@ export function App() {
             <p className="panel-kicker">Sprint 1</p>
             <h2>Core Flow</h2>
             <div className="action-list">
-              <button type="button">
+              <button type="button" onClick={() => setView("project-assets")}>
                 <Play size={18} />
                 프로젝트 생성
               </button>
