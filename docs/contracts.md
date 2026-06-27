@@ -44,6 +44,9 @@
       "order": 1,
       "title": "Opening",
       "thumbnailUrl": "/files/thumbnails/slide_1.png",
+      "style": {
+        "backgroundColor": "#ffffff"
+      },
       "speakerNotes": "발표자 노트",
       "keywords": [
         {
@@ -97,8 +100,18 @@
 - `metadata.locale`은 `"ko-KR"`만 허용한다. STT, 날짜/시간, 지역별 포맷이 필요한 기능은 `locale`을 기준으로 처리한다.
 - `metadata.language`와 `metadata.locale`은 생략 시 각각 `"ko"`, `"ko-KR"`로 기본값을 채운다.
 - `theme`는 생략 시 `Default`, `Inter`, `#ffffff`, `#111827`, `#2563eb` 기본값으로 채운다.
+- `theme`는 deck 전체의 기본 디자인 토큰이다.
+- MVP `theme` 필드는 `name`, `fontFamily`, `backgroundColor`, `textColor`, `accentColor`로 제한한다.
+- object와 slide의 실제 스타일 값은 `theme`를 기본값으로 삼되, 개별 object props에 명시된 값이 있으면 object props가 우선한다.
+- 스타일 해석 우선순위는 `object props` > `slide style` > `deck.theme` > `schema fallback`이다.
+- 1차 스프린트 MVP부터 AI 생성 결과가 슬라이드별 디자인을 지정할 수 있도록 `slide.style`을 허용한다.
+- MVP `slide.style` 필드는 `fontFamily`, `backgroundColor`, `textColor`, `accentColor`, `backgroundImage`로 제한한다.
+- `slide.style.backgroundImage`는 `src`, `alt`, `fit`, `opacity`를 사용하고, `fit`은 `contain`, `cover`, `stretch`만 허용한다.
+- `slide.style`이 생략되면 schema parse 후 `{}`로 정규화하고, renderer/export/AI normalize 단계에서 필요한 값은 `deck.theme`에서 해석한다.
+- 슬라이드 배경은 `slide.style.backgroundImage` > `slide.style.backgroundColor` > `deck.theme.backgroundColor` 순서로 해석한다.
+- `theme` 변경은 기존 `slide.style`이나 object props를 자동으로 덮어쓰지 않는다. 전체 테마 적용은 별도의 apply theme 동작으로 처리한다.
 - `slides`는 최소 1개 이상이어야 한다. 새 덱 생성 시에는 빈 덱 대신 기본 슬라이드 1장을 생성한다.
-- SlideSchema 필드는 `slideId`, `order`, `title`, `thumbnailUrl`, `speakerNotes`, `elements`, `keywords`, `animations`를 유지한다.
+- SlideSchema 필드는 `slideId`, `order`, `title`, `thumbnailUrl`, `style`, `speakerNotes`, `elements`, `keywords`, `animations`를 유지한다.
 - `order`는 사용자에게 보이는 슬라이드 번호와 맞춰 `1`부터 시작하는 양의 정수로 관리한다. 배열 index가 필요하면 애플리케이션 내부에서 `order - 1`로 변환한다.
 - 1차 스프린트 MVP에서는 슬라이드별 크기 override를 허용하지 않는다. 모든 슬라이드는 deck top-level의 `canvas` 크기와 비율을 따른다.
 - SlideSchema에는 `width`, `height`, `canvas`, `aspectRatio` 같은 슬라이드별 크기 필드를 두지 않는다.
@@ -108,6 +121,7 @@
 - 기존 임시 타입인 `shape`, `video`는 1차 스프린트 deck schema에서 허용하지 않는다.
 - 객체 `props`는 object type별 schema로 검증한다. 전체 객체에 대해 `z.record(z.unknown())`를 열어두지 않는다.
 - `text.props`는 `text`, `fontFamily`, `fontSize`, `fontWeight`, `color`, `align`, `verticalAlign`, `lineHeight`를 사용한다.
+- `text.props.fontFamily`, `text.props.color`가 생략되면 renderer/export/AI normalize 단계에서 각각 `slide.style.fontFamily` > `deck.theme.fontFamily`, `slide.style.textColor` > `deck.theme.textColor` 순서로 기본값을 사용한다.
 - `image.props`는 `src`, `alt`, `fit`을 사용하고, `fit`은 `contain`, `cover`, `stretch`만 허용한다.
 - `chart.props`는 `chart.schema.ts`의 chart schema를 그대로 사용한다.
 - `rect`, `ellipse`, `line`, `arrow`, `polygon`, `star`, `ring`은 공통 shape props인 `fill`, `stroke`, `strokeWidth`, `borderRadius`, `shadow`를 사용한다.
@@ -144,7 +158,7 @@
 
 구현 위치:
 
-- `packages/shared/src/deck/deck.schema.ts`: deck, slide, keyword schema와 타입
+- `packages/shared/src/deck/deck.schema.ts`: deck, slide style, slide, keyword schema와 타입
 - `packages/shared/src/deck/slide-object.schema.ts`: slide element schema와 element type
 - `packages/shared/src/deck/animation.schema.ts`: animation schema와 animation type
 - `packages/shared/src/deck/chart.schema.ts`: chart object props에서 사용할 chart schema

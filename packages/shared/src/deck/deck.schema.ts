@@ -2,7 +2,7 @@ import { z } from "zod";
 
 import { animationSchema } from "./animation.schema";
 import { deckElementSchema } from "./slide-object.schema";
-import { themeSchema } from "./theme.schema";
+import { themeColorSchema, themeSchema } from "./theme.schema";
 
 export const deckMetadataSchema = z.object({
   language: z.literal("ko").default("ko"),
@@ -37,11 +37,35 @@ export const keywordSchema = z.object({
 
 export const slideOrderSchema = z.number().int().positive();
 
+export const slideBackgroundImageFitSchema = z.enum([
+  "contain",
+  "cover",
+  "stretch"
+]);
+
+export const slideBackgroundImageSchema = z.object({
+  src: z.string().min(1),
+  alt: z.string().default(""),
+  fit: slideBackgroundImageFitSchema.default("cover"),
+  opacity: z.number().finite().min(0).max(1).default(1)
+});
+
+export const slideStyleSchema = z
+  .object({
+    fontFamily: z.string().min(1).optional(),
+    backgroundColor: themeColorSchema.optional(),
+    textColor: themeColorSchema.optional(),
+    accentColor: themeColorSchema.optional(),
+    backgroundImage: slideBackgroundImageSchema.optional()
+  })
+  .default({});
+
 export const slideSchema = z.object({
   slideId: z.string().min(1),
   order: slideOrderSchema,
   title: z.string().default(""),
   thumbnailUrl: z.string().default(""),
+  style: slideStyleSchema,
   speakerNotes: z.string().default(""),
   elements: z.array(deckElementSchema).default([]),
   keywords: z.array(keywordSchema).default([]),
@@ -63,4 +87,9 @@ export type Deck = z.infer<typeof deckSchema>;
 export type DeckCanvas = z.infer<typeof deckCanvasSchema>;
 export type DeckMetadata = z.infer<typeof deckMetadataSchema>;
 export type Slide = z.infer<typeof slideSchema>;
+export type SlideStyle = z.infer<typeof slideStyleSchema>;
+export type SlideBackgroundImage = z.infer<typeof slideBackgroundImageSchema>;
+export type SlideBackgroundImageFit = z.infer<
+  typeof slideBackgroundImageFitSchema
+>;
 export type Keyword = z.infer<typeof keywordSchema>;

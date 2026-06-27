@@ -74,10 +74,10 @@ export const textFontWeightSchema = z.union([
 export const textElementPropsSchema = z
   .object({
     text: z.string().default(""),
-    fontFamily: z.string().min(1).default("Inter"),
+    fontFamily: z.string().min(1).optional(),
     fontSize: z.number().finite().positive().default(24),
     fontWeight: textFontWeightSchema.default("normal"),
-    color: themeColorSchema.default("#111827"),
+    color: themeColorSchema.optional(),
     align: textAlignSchema.default("left"),
     verticalAlign: textVerticalAlignSchema.default("top"),
     lineHeight: z.number().finite().positive().default(1.2)
