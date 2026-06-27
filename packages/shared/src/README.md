@@ -26,6 +26,7 @@
 | `deck/theme.schema.ts` | deck theme schema. deck 전체 기본 디자인 토큰, palette, typography, effects 계약을 관리한다. |
 | `files/file.schema.ts` | 파일 업로드 결과와 file purpose schema. |
 | `jobs/job.schema.ts` | 비동기 Job 상태, type, 진행률, 결과/에러 schema. |
+| `projects/project.schema.ts` | 프로젝트 생성 요청과 프로젝트 응답 schema. |
 | `realtime/websocket.schema.ts` | WebSocket event envelope과 주요 payload schema. |
 | `presentation/presentation.schema.ts` | 발표 세션, 리허설 지표, 최종 보고서 schema. |
 

@@ -304,6 +304,46 @@ DeckChangeRecord 결정 사항:
 - `packages/shared/src/deck/patch.schema.ts`
 - `packages/shared/src/deck/id.schema.ts`
 
+## 프로젝트 생성 구조
+
+프로젝트는 워크스페이스 안에서 생성되며, 1차 스프린트에서는 데모 사용자와 데모 워크스페이스 boundary를 기준으로 접근을 제한한다.
+
+생성 요청:
+
+```json
+{
+  "title": "Demo Project"
+}
+```
+
+응답 구조:
+
+```json
+{
+  "projectId": "project_1",
+  "workspaceId": "workspace_demo_1",
+  "title": "Demo Project",
+  "createdBy": "user_demo_1",
+  "createdAt": "2026-06-27T01:00:00+09:00"
+}
+```
+
+API:
+
+- `POST /api/v1/workspaces/:workspaceId/projects`
+- `GET /api/v1/workspaces/:workspaceId/projects`
+
+결정 사항:
+
+- 인증 시스템이 완성되기 전까지는 `DEMO_WORKSPACE_ID`와 `DEMO_USER_ID`를 기준으로 project boundary를 검증한다.
+- `workspaceId`가 데모 워크스페이스와 다르면 권한 실패로 처리한다.
+- 프로젝트 응답은 `packages/shared/src/projects/project.schema.ts`의 schema로 검증한다.
+
+구현 위치:
+
+- `packages/shared/src/projects/project.schema.ts`
+- `apps/api/src/projects`
+
 ## 파일 업로드 결과 구조
 
 파일 업로드는 공통 API로 제공하고, 각 기능은 `fileId`와 `purpose`를 기준으로 업로드 결과를 사용한다.
@@ -335,10 +375,15 @@ DeckChangeRecord 결정 사항:
 - 업로드 후 API 응답은 위 구조로 통일한다.
 - PPTX import, 참고자료 추출, 리허설 STT는 모두 `fileId`를 받아 시작한다.
 - `url`은 임시로 로컬 경로를 쓰되, 이후 S3 signed URL로 교체할 수 있게 유지한다.
+- 업로드 요청은 `POST /api/v1/projects/:projectId/assets/upload-url`로 시작한다.
+- 업로드 완료 처리는 `POST /api/v1/projects/:projectId/assets/complete`에서 `fileId`를 받아 위 구조를 반환한다.
+- 1차 구현에서 허용하는 mime type은 PDF, PPTX, DOCX, JPEG, PNG, WebP이며 최대 크기는 50MiB다.
+- upload URL을 발급한 뒤 complete가 호출되지 않은 파일은 `pending` metadata로 남기고, 정리 정책은 후속 작업에서 결정한다.
 
 구현 위치:
 
 - `packages/shared/src/files/file.schema.ts`
+- `apps/api/src/files`
 
 ## Job 상태 구조
 

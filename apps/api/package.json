@@ -11,8 +11,8 @@
     "migration:revert": "typeorm-ts-node-commonjs -d src/database/data-source.ts migration:revert",
     "migration:run": "typeorm-ts-node-commonjs -d src/database/data-source.ts migration:run",
     "start": "node dist/main.js",
-    "test": "corepack pnpm --filter @orbit/shared build && corepack pnpm --filter @orbit/config build && vitest run --passWithNoTests",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "test": "corepack pnpm --filter @orbit/shared build && corepack pnpm --filter @orbit/config build && corepack pnpm --filter @orbit/storage build && vitest run --passWithNoTests",
+    "typecheck": "corepack pnpm --filter @orbit/shared build && corepack pnpm --filter @orbit/config build && corepack pnpm --filter @orbit/storage build && corepack pnpm --filter @orbit/job-queue build && corepack pnpm --filter @orbit/realtime build && tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
     "@nestjs/common": "^11.1.3",
@@ -27,6 +27,7 @@
     "@orbit/job-queue": "workspace:*",
     "@orbit/realtime": "workspace:*",
     "@orbit/shared": "workspace:*",
+    "@orbit/storage": "workspace:*",
     "dotenv": "^16.4.7",
     "multer": "^2.0.1",
     "pg": "^8.16.2",

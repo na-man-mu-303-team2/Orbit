@@ -1,36 +1,84 @@
-import { demoIds, nowIso } from "@orbit/shared";
-import { Injectable } from "@nestjs/common";
+import {
+  demoIds,
+  projectListResponseSchema,
+  projectSchema,
+} from "@orbit/shared";
+import type { CreateProjectRequest, Project } from "@orbit/shared";
+import { randomUUID } from "crypto";
+import {
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from "@nestjs/common";
+import { InjectRepository } from "@nestjs/typeorm";
+import { Repository } from "typeorm";
+import { ProjectEntity } from "./project.entity";
 
-export interface ProjectDto {
-  projectId: string;
-  workspaceId: string;
-  title: string;
-  createdBy: string;
-  createdAt: string;
-}
+const defaultProjectTitle = "ORBIT Demo Project";
 
 @Injectable()
 export class ProjectsService {
-  private readonly projects = new Map<string, ProjectDto>();
+  constructor(
+    @InjectRepository(ProjectEntity)
+    private readonly projectsRepository: Repository<ProjectEntity>,
+  ) {}
 
-  constructor() {
-    this.create({ title: "ORBIT Demo Project" });
-  }
+  async create(
+    workspaceId: string,
+    input: CreateProjectRequest,
+  ): Promise<Project> {
+    this.assertWorkspaceAccess(workspaceId);
 
-  create(input: { title?: string }): ProjectDto {
-    const project: ProjectDto = {
-      projectId: demoIds.projectId,
-      workspaceId: demoIds.workspaceId,
-      title: input.title ?? "ORBIT Demo Project",
+    const project = this.projectsRepository.create({
+      projectId: `project_${randomUUID()}`,
+      workspaceId,
+      title: input.title ?? defaultProjectTitle,
       createdBy: demoIds.userId,
-      createdAt: nowIso()
-    };
-    this.projects.set(project.projectId, project);
-    return project;
+      createdAt: new Date(),
+    });
+
+    return this.toProjectDto(await this.projectsRepository.save(project));
   }
 
-  list(): ProjectDto[] {
-    return [...this.projects.values()];
+  async list(workspaceId: string): Promise<Project[]> {
+    this.assertWorkspaceAccess(workspaceId);
+
+    const projects = await this.projectsRepository.find({
+      where: { workspaceId },
+      order: { createdAt: "ASC" },
+    });
+
+    return projectListResponseSchema.parse(
+      projects.map((project) => this.toProjectDto(project)),
+    );
+  }
+
+  async getAccessibleProject(projectId: string): Promise<Project> {
+    const project = await this.projectsRepository.findOne({
+      where: { projectId },
+    });
+
+    if (!project) {
+      throw new NotFoundException(`Project not found: ${projectId}`);
+    }
+
+    this.assertWorkspaceAccess(project.workspaceId);
+    return this.toProjectDto(project);
+  }
+
+  assertWorkspaceAccess(workspaceId: string): void {
+    if (workspaceId !== demoIds.workspaceId) {
+      throw new ForbiddenException("Workspace access denied");
+    }
+  }
+
+  private toProjectDto(project: ProjectEntity): Project {
+    return projectSchema.parse({
+      projectId: project.projectId,
+      workspaceId: project.workspaceId,
+      title: project.title,
+      createdBy: project.createdBy,
+      createdAt: project.createdAt.toISOString(),
+    });
   }
 }
-
