@@ -31,6 +31,13 @@
     "height": 1080,
     "aspectRatio": "16:9"
   },
+  "theme": {
+    "name": "Default",
+    "fontFamily": "Inter",
+    "backgroundColor": "#ffffff",
+    "textColor": "#111827",
+    "accentColor": "#2563eb"
+  },
   "slides": [
     {
       "slideId": "slide_1",
@@ -74,6 +81,10 @@
 
 결정 사항:
 
+- DeckSchema 최상위 필드는 `deckId`, `projectId`, `title`, `version`, `metadata`, `canvas`, `theme`, `slides`로 구성한다.
+- `deckId`, `projectId`, `title`, `version`, `canvas`, `slides`는 필수로 검증한다.
+- `metadata`, `theme`는 생성 입력에서 생략할 수 있지만, schema parse 후 normalized Deck JSON에는 항상 포함한다.
+- `width`, `height`는 top-level에 두지 않고 반드시 `canvas.width`, `canvas.height`로 둔다.
 - 지원하는 deck canvas preset은 `wide-16-9`와 `standard-4-3`이다.
 - `wide-16-9`는 `1920x1080`, `standard-4-3`은 `1024x768`만 허용한다.
 - `aspectRatio`는 preset에 맞는 문자열 literal로 검증한다.
@@ -81,6 +92,8 @@
 - `metadata.language`는 `"ko"`만 허용한다.
 - `metadata.locale`은 `"ko-KR"`만 허용한다. STT, 날짜/시간, 지역별 포맷이 필요한 기능은 `locale`을 기준으로 처리한다.
 - `metadata.language`와 `metadata.locale`은 생략 시 각각 `"ko"`, `"ko-KR"`로 기본값을 채운다.
+- `theme`는 생략 시 `Default`, `Inter`, `#ffffff`, `#111827`, `#2563eb` 기본값으로 채운다.
+- `slides`는 최소 1개 이상이어야 한다. 새 덱 생성 시에는 빈 덱 대신 기본 슬라이드 1장을 생성한다.
 - 슬라이드 식별자는 `slideId`, 객체 식별자는 `elementId`로 통일한다.
 - 좌표 단위는 `px` 기준으로 한다.
 - 지원하는 객체 타입은 `text`, `rect`, `ellipse`, `line`, `arrow`, `polygon`, `star`, `ring`, `image`, `group`, `customShape`, `chart`이다.

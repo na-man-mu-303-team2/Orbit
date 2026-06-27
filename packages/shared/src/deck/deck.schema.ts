@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import { animationSchema } from "./animation.schema";
 import { deckElementSchema } from "./slide-object.schema";
+import { themeSchema } from "./theme.schema";
 
 export const deckMetadataSchema = z.object({
   language: z.literal("ko").default("ko"),
@@ -50,9 +51,10 @@ export const deckSchema = z.object({
   projectId: z.string().min(1),
   title: z.string().min(1),
   version: z.number().int().positive(),
-  metadata: deckMetadataSchema,
+  metadata: deckMetadataSchema.default({}),
   canvas: deckCanvasSchema,
-  slides: z.array(slideSchema)
+  theme: themeSchema.default({}),
+  slides: z.array(slideSchema).min(1)
 });
 
 export type Deck = z.infer<typeof deckSchema>;

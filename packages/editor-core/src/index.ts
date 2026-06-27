@@ -16,6 +16,13 @@ export function createDemoDeck(): Deck {
       height: 1080,
       aspectRatio: "16:9"
     },
+    theme: {
+      name: "Default",
+      fontFamily: "Inter",
+      backgroundColor: "#ffffff",
+      textColor: "#111827",
+      accentColor: "#2563eb"
+    },
     slides: [
       {
         slideId: "slide_1",
