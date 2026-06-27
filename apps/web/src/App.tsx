@@ -37,7 +37,11 @@ import {
   Upload,
   Wand2
 } from "lucide-react";
-import type { CSSProperties, PointerEvent as ReactPointerEvent } from "react";
+import type {
+  CSSProperties,
+  KeyboardEvent as ReactKeyboardEvent,
+  PointerEvent as ReactPointerEvent
+} from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 interface HealthResponse {
@@ -54,6 +58,7 @@ const maxSlidesPaneWidth = 280;
 
 type TopMenu = "file" | "resize" | "editMode" | "quickEdit" | "presentation";
 type SlidePanelView = "thumbnail" | "list";
+type RightPanelTab = "ai" | "properties";
 
 async function fetchHealth(): Promise<HealthResponse> {
   const response = await fetch("/api/health");
@@ -82,6 +87,8 @@ export function App() {
     useState<SlidePanelView>("thumbnail");
   const [showIds, setShowIds] = useState(false);
   const [selectedKeywordId, setSelectedKeywordId] = useState<string | null>(null);
+  const [selectedElementId, setSelectedElementId] = useState<string | null>(null);
+  const [rightPanelTab, setRightPanelTab] = useState<RightPanelTab>("ai");
   const [activeTopMenu, setActiveTopMenu] = useState<TopMenu | null>(null);
   const topbarRef = useRef<HTMLElement | null>(null);
 
@@ -118,6 +125,9 @@ export function App() {
     currentSlide.keywords.find(
       (keyword) => keyword.keywordId === selectedKeywordId
     ) ?? null;
+  const selectedElement =
+    visibleElements.find((element) => element.elementId === selectedElementId) ??
+    null;
   const isDev = import.meta.env.DEV;
   const fileMenuItems = [
     { icon: FolderPlus, label: "새 프레젠테이션", meta: "빈 덱" },
@@ -227,6 +237,17 @@ export function App() {
       setSelectedKeywordId(null);
     }
   }, [currentSlide.keywords, selectedKeywordId]);
+
+  useEffect(() => {
+    if (
+      selectedElementId &&
+      !currentSlide.elements.some(
+        (element) => element.elementId === selectedElementId
+      )
+    ) {
+      setSelectedElementId(null);
+    }
+  }, [currentSlide.elements, selectedElementId]);
 
   return (
     <main className="app-shell orbit-shell">
@@ -664,9 +685,14 @@ export function App() {
                     key={element.elementId}
                     deck={deck}
                     element={element}
+                    isSelected={element.elementId === selectedElementId}
                     showIds={showIds}
                     slide={currentSlide}
                     stageScale={stageScale}
+                    onSelect={() => {
+                      setSelectedElementId(element.elementId);
+                      setRightPanelTab("properties");
+                    }}
                   />
                 ))}
               </div>
@@ -706,7 +732,7 @@ export function App() {
         {isRightPanelOpen ? (
           <aside className="ai-pane">
             <div className="ai-header">
-              <h2>AI</h2>
+              <h2>{rightPanelTab === "ai" ? "AI" : "속성"}</h2>
               <div>
                 <button
                   type="button"
@@ -717,7 +743,34 @@ export function App() {
                 </button>
               </div>
             </div>
-            <div className="assistant-panel-slot" />
+            <div className="right-panel-tabs" role="tablist" aria-label="Right panel">
+              <button
+                aria-selected={rightPanelTab === "ai"}
+                className={rightPanelTab === "ai" ? "active" : ""}
+                role="tab"
+                type="button"
+                onClick={() => setRightPanelTab("ai")}
+              >
+                AI
+              </button>
+              <button
+                aria-selected={rightPanelTab === "properties"}
+                className={rightPanelTab === "properties" ? "active" : ""}
+                role="tab"
+                type="button"
+                onClick={() => setRightPanelTab("properties")}
+              >
+                속성
+              </button>
+            </div>
+            {rightPanelTab === "ai" ? (
+              <div className="assistant-panel-slot" />
+            ) : (
+              <ElementInspector
+                element={selectedElement}
+                showIds={showIds}
+              />
+            )}
           </aside>
         ) : null}
       </section>
@@ -1045,6 +1098,135 @@ function ElementSummary(props: { element: DeckElement }) {
   );
 }
 
+function ElementInspector(props: {
+  element: DeckElement | null;
+  showIds: boolean;
+}) {
+  const { element, showIds } = props;
+
+  if (!element) {
+    return (
+      <section className="property-panel empty">
+        <strong>선택된 요소 없음</strong>
+        <p>캔버스의 텍스트, 도형, 이미지, 차트를 선택하면 정보가 표시됩니다.</p>
+      </section>
+    );
+  }
+
+  return (
+    <section className="property-panel">
+      <div className="property-panel-header">
+        <div>
+          <span>{element.type}</span>
+          <strong>{element.role ?? "role 없음"}</strong>
+        </div>
+        {showIds ? <IdBadge id={element.elementId} /> : null}
+      </div>
+
+      <div className="property-grid">
+        <PropertyMetric label="x" value={Math.round(element.x)} />
+        <PropertyMetric label="y" value={Math.round(element.y)} />
+        <PropertyMetric label="w" value={Math.round(element.width)} />
+        <PropertyMetric label="h" value={Math.round(element.height)} />
+      </div>
+
+      <div className="property-list">
+        <PropertyRow label="rotation" value={`${element.rotation}deg`} />
+        <PropertyRow label="opacity" value={String(element.opacity)} />
+        <PropertyRow label="zIndex" value={String(element.zIndex)} />
+        <PropertyRow label="locked" value={element.locked ? "true" : "false"} />
+        <PropertyRow label="visible" value={element.visible ? "true" : "false"} />
+      </div>
+
+      <div className="property-props">
+        <strong>주요 props</strong>
+        <div className="property-list">
+          {summarizeElementProps(element).map((line) => (
+            <PropertyRow key={line.label} label={line.label} value={line.value} />
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function PropertyMetric(props: { label: string; value: number }) {
+  return (
+    <div className="property-metric">
+      <span>{props.label}</span>
+      <strong>{props.value}</strong>
+    </div>
+  );
+}
+
+function PropertyRow(props: { label: string; value: string }) {
+  return (
+    <div className="property-row">
+      <span>{props.label}</span>
+      <strong>{props.value}</strong>
+    </div>
+  );
+}
+
+function summarizeElementProps(element: DeckElement) {
+  if (element.type === "text") {
+    return [
+      { label: "text", value: truncateValue(element.props.text, 72) },
+      { label: "fontSize", value: String(element.props.fontSize) },
+      { label: "fontWeight", value: String(element.props.fontWeight) },
+      { label: "color", value: element.props.color ?? "theme" }
+    ];
+  }
+
+  if (element.type === "image") {
+    const imageProps = element.props as ImageElementProps;
+
+    return [
+      { label: "src", value: truncateValue(imageProps.src, 72) },
+      { label: "alt", value: imageProps.alt || "none" },
+      { label: "fit", value: imageProps.fit }
+    ];
+  }
+
+  if (element.type === "chart") {
+    const chart = element.props as Chart;
+
+    return [
+      { label: "chartType", value: chart.type },
+      { label: "title", value: chart.title || "none" },
+      { label: "data", value: `${chart.data.length}개` },
+      { label: "colors", value: chart.style.colors.join(", ") || "theme" }
+    ];
+  }
+
+  if (element.type === "group") {
+    const groupProps = element.props as GroupElementProps;
+
+    return [
+      {
+        label: "children",
+        value: groupProps.childElementIds.join(", ") || "none"
+      }
+    ];
+  }
+
+  if (element.type === "customShape") {
+    return [
+      { label: "props", value: truncateValue(JSON.stringify(element.props), 96) }
+    ];
+  }
+
+  return [
+    { label: "fill", value: element.props.fill },
+    { label: "stroke", value: element.props.stroke },
+    { label: "strokeWidth", value: String(element.props.strokeWidth) }
+  ];
+}
+
+function truncateValue(value: string, maxLength: number) {
+  return value.length > maxLength ? `${value.slice(0, maxLength - 1)}…` : value;
+}
+
 function IdBadge(props: { id: string }) {
   return (
     <span className={`id-badge id-badge-${getIdKind(props.id)}`}>
@@ -1084,11 +1266,14 @@ function getIdKind(id: string): string {
 function SlideElementView(props: {
   deck: Deck;
   element: DeckElement;
+  isSelected: boolean;
   showIds: boolean;
   slide: Slide;
   stageScale: number;
+  onSelect: () => void;
 }) {
-  const { deck, element, showIds, slide, stageScale } = props;
+  const { deck, element, isSelected, onSelect, showIds, slide, stageScale } =
+    props;
   const commonStyle = {
     left: element.x * stageScale,
     top: element.y * stageScale,
@@ -1097,11 +1282,24 @@ function SlideElementView(props: {
     opacity: element.visible ? element.opacity : 0,
     transform: `rotate(${element.rotation}deg)`
   } satisfies CSSProperties;
+  const interactiveProps = {
+    onClick: onSelect,
+    onKeyDown: (event: ReactKeyboardEvent<HTMLDivElement>) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        onSelect();
+      }
+    },
+    role: "button",
+    tabIndex: 0
+  };
+  const selectedClass = isSelected ? " selected" : "";
 
   if (element.type === "text") {
     return (
       <div
-        className="stage-element text-element"
+        className={`stage-element text-element${selectedClass}`}
+        {...interactiveProps}
         style={{
           ...commonStyle,
           color: element.props.color ?? slide.style.textColor ?? deck.theme.textColor,
@@ -1135,7 +1333,11 @@ function SlideElementView(props: {
   if (element.type === "image") {
     const imageProps = element.props as ImageElementProps;
     return (
-      <div className="stage-element media-card" style={commonStyle}>
+      <div
+        className={`stage-element media-card${selectedClass}`}
+        {...interactiveProps}
+        style={commonStyle}
+      >
         <strong>image</strong>
         {showIds ? <IdBadge id={element.elementId} /> : null}
         <span>{imageProps.src}</span>
@@ -1149,7 +1351,11 @@ function SlideElementView(props: {
   if (element.type === "group") {
     const groupProps = element.props as GroupElementProps;
     return (
-      <div className="stage-element group-card" style={commonStyle}>
+      <div
+        className={`stage-element group-card${selectedClass}`}
+        {...interactiveProps}
+        style={commonStyle}
+      >
         <strong>group</strong>
         {showIds ? <IdBadge id={element.elementId} /> : null}
         <span>{groupProps.childElementIds.join(", ") || "no children"}</span>
@@ -1159,7 +1365,11 @@ function SlideElementView(props: {
 
   if (element.type === "customShape") {
     return (
-      <div className="stage-element custom-card" style={commonStyle}>
+      <div
+        className={`stage-element custom-card${selectedClass}`}
+        {...interactiveProps}
+        style={commonStyle}
+      >
         <strong>customShape</strong>
         {showIds ? <IdBadge id={element.elementId} /> : null}
         <pre>{JSON.stringify(element.props, null, 2)}</pre>
@@ -1170,7 +1380,11 @@ function SlideElementView(props: {
   if (element.type === "chart") {
     const chart = element.props as Chart;
     return (
-      <div className="stage-element chart-card" style={commonStyle}>
+      <div
+        className={`stage-element chart-card${selectedClass}`}
+        {...interactiveProps}
+        style={commonStyle}
+      >
         <strong>
           {chart.type} chart {chart.title ? `· ${chart.title}` : ""}
         </strong>
@@ -1235,7 +1449,11 @@ function SlideElementView(props: {
   };
 
   return (
-    <div className={`stage-element shape-element shape-${element.type}`} style={shapeStyle}>
+    <div
+      className={`stage-element shape-element shape-${element.type}${selectedClass}`}
+      {...interactiveProps}
+      style={shapeStyle}
+    >
       <span>{element.type}</span>
       {showIds ? (
         <small className="element-meta">
