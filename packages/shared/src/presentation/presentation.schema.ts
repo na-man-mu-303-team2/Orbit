@@ -1,11 +1,12 @@
 import { z } from "zod";
 
 import { isoDateTimeSchema } from "../common/time.schema";
+import { deckIdSchema } from "../deck/id.schema";
 
 export const presentationSessionSchema = z.object({
   sessionId: z.string().min(1),
   projectId: z.string().min(1),
-  deckId: z.string().min(1),
+  deckId: deckIdSchema,
   presenterUserId: z.string().min(1),
   status: z.enum(["draft", "live", "ended"]),
   startedAt: isoDateTimeSchema.nullable(),
@@ -15,7 +16,7 @@ export const presentationSessionSchema = z.object({
 export const rehearsalMetricsSchema = z.object({
   runId: z.string().min(1),
   projectId: z.string().min(1),
-  deckId: z.string().min(1),
+  deckId: deckIdSchema,
   durationSeconds: z.number().nonnegative(),
   wordsPerMinute: z.number().nonnegative(),
   fillerWordCount: z.number().int().nonnegative(),

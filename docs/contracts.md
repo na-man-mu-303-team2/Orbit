@@ -58,7 +58,7 @@
       ],
       "elements": [
         {
-          "elementId": "element_1",
+          "elementId": "el_1",
           "type": "text",
           "x": 120,
           "y": 80,
@@ -72,8 +72,8 @@
       ],
       "animations": [
         {
-          "animationId": "animation_1",
-          "elementId": "element_1",
+          "animationId": "anim_1",
+          "elementId": "el_1",
           "type": "fade-in",
           "order": 1,
           "durationMs": 400,
@@ -116,6 +116,9 @@
 - 1차 스프린트 MVP에서는 슬라이드별 크기 override를 허용하지 않는다. 모든 슬라이드는 deck top-level의 `canvas` 크기와 비율을 따른다.
 - SlideSchema에는 `width`, `height`, `canvas`, `aspectRatio` 같은 슬라이드별 크기 필드를 두지 않는다.
 - 슬라이드 식별자는 `slideId`, 객체 식별자는 `elementId`로 통일한다.
+- Deck 내부 ID는 prefix를 강제한다. `deckId`는 `deck_`, `slideId`는 `slide_`, `elementId`는 `el_`, `animationId`는 `anim_`, `keywordId`는 `kw_`로 시작해야 한다.
+- prefix 뒤에는 영문, 숫자, `_`, `-`만 허용한다.
+- `projectId`, `fileId`, `jobId`, `sessionId`, `userId`, `runId`, `reportId`, `roomId`는 다른 도메인 소유 ID이므로 ORBIT-14 deck schema에서는 prefix를 강제하지 않고 non-empty string만 검증한다.
 - 좌표 단위는 `px` 기준으로 한다.
 - 지원하는 객체 타입은 `text`, `rect`, `ellipse`, `line`, `arrow`, `polygon`, `star`, `ring`, `image`, `group`, `customShape`, `chart`이다.
 - 기존 임시 타입인 `shape`, `video`는 1차 스프린트 deck schema에서 허용하지 않는다.
@@ -128,6 +131,7 @@
 - `customShape.props`만 MVP 확장 지점으로 `record unknown`을 허용한다.
 - `group.props`는 `childElementIds`만 가진다.
 - group은 child element를 직접 중첩하지 않는다. 실제 child element는 `slide.elements` flat list에 그대로 두고, group은 `childElementIds`로 묶음 관계만 표현한다.
+- group의 `childElementIds`는 `el_` prefix를 따르는 `elementId` 목록이다.
 - group의 child element 좌표는 group-local 좌표가 아니라 slide canvas 기준 절대 좌표로 유지한다.
 - 객체 좌표 `x`, `y`는 `0` 이상이어야 하고, `width`, `height`는 `0`보다 커야 한다.
 - 1차 스프린트 MVP에서는 객체 기준점이 음수 좌표가 되는 것까지만 금지한다.
@@ -147,18 +151,19 @@
 - `slide-in`, `none`은 1차 스프린트 MVP animation type에 포함하지 않는다. animation이 없으면 animation 객체를 만들지 않는다.
 - 애니메이션은 element 단위를 기본으로 하고, `slide.animations` flat list에 저장한다.
 - `element.animations`에는 저장하지 않는다.
-- 각 animation은 `elementId`를 필수로 가지고 대상 객체를 참조한다. slide 단위 animation은 1차 스프린트 MVP에서 제외한다.
+- 각 animation은 `anim_` prefix를 따르는 `animationId`와 `el_` prefix를 따르는 `elementId`를 필수로 가지고 대상 객체를 참조한다. slide 단위 animation은 1차 스프린트 MVP에서 제외한다.
 - animation `order`는 `1`부터 시작하는 양의 정수로 관리한다.
 - `durationMs`, `delayMs`, `easing`은 입력에서 생략할 수 있지만, schema parse 후 normalized Deck JSON에는 각각 `400`, `0`, `"ease-out"` 기본값으로 포함한다.
 - `easing`은 `linear`, `ease-in`, `ease-out`, `ease-in-out`만 허용한다.
 - 밑줄 애니메이션은 1차 스프린트 MVP가 아니라 폴리싱 범위로 둔다.
 - AI 생성 결과도 최종적으로 deck JSON으로 변환한다.
 - 리허설은 `speakerNotes`, `keywords.text`, `keywords.synonyms`, `keywords.abbreviations`를 기준으로 연결한다.
-- 협업/발표 동기화는 `slideId`, `elementId`, `animationId` 기준으로 처리한다.
+- 협업/발표 동기화는 `deck_`, `slide_`, `el_`, `anim_` prefix를 따르는 `deckId`, `slideId`, `elementId`, `animationId` 기준으로 처리한다.
 
 구현 위치:
 
 - `packages/shared/src/deck/deck.schema.ts`: deck, slide style, slide, keyword schema와 타입
+- `packages/shared/src/deck/id.schema.ts`: deck 내부 ID prefix schema와 타입
 - `packages/shared/src/deck/slide-object.schema.ts`: slide element schema와 element type
 - `packages/shared/src/deck/animation.schema.ts`: animation schema와 animation type
 - `packages/shared/src/deck/chart.schema.ts`: chart object props에서 사용할 chart schema

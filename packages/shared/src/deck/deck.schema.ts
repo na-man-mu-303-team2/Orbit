@@ -1,6 +1,11 @@
 import { z } from "zod";
 
 import { animationSchema } from "./animation.schema";
+import {
+  deckIdSchema,
+  deckKeywordIdSchema,
+  deckSlideIdSchema
+} from "./id.schema";
 import { deckElementSchema } from "./slide-object.schema";
 import { themeColorSchema, themeSchema } from "./theme.schema";
 
@@ -29,7 +34,7 @@ export const deckCanvasSchema = z.discriminatedUnion("preset", [
 ]);
 
 export const keywordSchema = z.object({
-  keywordId: z.string().min(1),
+  keywordId: deckKeywordIdSchema,
   text: z.string().min(1),
   synonyms: z.array(z.string()).default([]),
   abbreviations: z.array(z.string()).default([])
@@ -61,7 +66,7 @@ export const slideStyleSchema = z
   .default({});
 
 export const slideSchema = z.object({
-  slideId: z.string().min(1),
+  slideId: deckSlideIdSchema,
   order: slideOrderSchema,
   title: z.string().default(""),
   thumbnailUrl: z.string().default(""),
@@ -73,7 +78,7 @@ export const slideSchema = z.object({
 });
 
 export const deckSchema = z.object({
-  deckId: z.string().min(1),
+  deckId: deckIdSchema,
   projectId: z.string().min(1),
   title: z.string().min(1),
   version: z.number().int().positive(),

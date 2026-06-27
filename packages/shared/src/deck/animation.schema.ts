@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { deckAnimationIdSchema, deckElementIdSchema } from "./id.schema";
+
 export const animationTypeSchema = z.enum([
   "appear",
   "disappear",
@@ -18,8 +20,8 @@ export const animationEasingSchema = z.enum([
 ]);
 
 export const animationSchema = z.object({
-  animationId: z.string().min(1),
-  elementId: z.string().min(1),
+  animationId: deckAnimationIdSchema,
+  elementId: deckElementIdSchema,
   type: animationTypeSchema,
   order: z.number().int().positive(),
   durationMs: z.number().int().positive().default(400),

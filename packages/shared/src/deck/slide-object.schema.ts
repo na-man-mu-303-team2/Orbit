@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { chartSchema } from "./chart.schema";
+import { deckElementIdSchema } from "./id.schema";
 import { themeColorSchema } from "./theme.schema";
 
 export const deckElementTypeSchema = z.enum([
@@ -22,7 +23,7 @@ export const deckElementCoordinateSchema = z.number().finite().nonnegative();
 export const deckElementSizeSchema = z.number().finite().positive();
 
 export const deckElementBaseSchema = z.object({
-  elementId: z.string().min(1),
+  elementId: deckElementIdSchema,
   x: deckElementCoordinateSchema,
   y: deckElementCoordinateSchema,
   width: deckElementSizeSchema,
@@ -94,7 +95,7 @@ export const imageElementPropsSchema = z.object({
 
 export const groupElementPropsSchema = z
   .object({
-    childElementIds: z.array(z.string().min(1)).default([])
+    childElementIds: z.array(deckElementIdSchema).default([])
   })
   .default({});
 

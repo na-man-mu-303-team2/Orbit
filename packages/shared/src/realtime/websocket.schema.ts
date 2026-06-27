@@ -1,6 +1,11 @@
 import { z } from "zod";
 
 import { isoDateTimeSchema } from "../common/time.schema";
+import {
+  deckElementIdSchema,
+  deckIdSchema,
+  deckSlideIdSchema
+} from "../deck/id.schema";
 
 export const websocketEventTypeSchema = z.enum([
   "project-joined",
@@ -24,14 +29,14 @@ export const websocketEventSchema = z.object({
 });
 
 export const slideChangedPayloadSchema = z.object({
-  deckId: z.string().min(1),
-  slideId: z.string().min(1),
+  deckId: deckIdSchema,
+  slideId: deckSlideIdSchema,
   slideIndex: z.number().int().nonnegative()
 });
 
 export const highlightChangedPayloadSchema = z.object({
-  slideId: z.string().min(1),
-  elementId: z.string().min(1),
+  slideId: deckSlideIdSchema,
+  elementId: deckElementIdSchema,
   state: z.enum(["active", "inactive"])
 });
 
