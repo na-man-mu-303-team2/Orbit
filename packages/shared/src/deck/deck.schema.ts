@@ -35,9 +35,11 @@ export const keywordSchema = z.object({
   abbreviations: z.array(z.string()).default([])
 });
 
+export const slideOrderSchema = z.number().int().positive();
+
 export const slideSchema = z.object({
   slideId: z.string().min(1),
-  order: z.number().int().positive(),
+  order: slideOrderSchema,
   title: z.string().default(""),
   thumbnailUrl: z.string().default(""),
   speakerNotes: z.string().default(""),

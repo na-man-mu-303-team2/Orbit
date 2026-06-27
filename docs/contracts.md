@@ -94,6 +94,10 @@
 - `metadata.language`와 `metadata.locale`은 생략 시 각각 `"ko"`, `"ko-KR"`로 기본값을 채운다.
 - `theme`는 생략 시 `Default`, `Inter`, `#ffffff`, `#111827`, `#2563eb` 기본값으로 채운다.
 - `slides`는 최소 1개 이상이어야 한다. 새 덱 생성 시에는 빈 덱 대신 기본 슬라이드 1장을 생성한다.
+- SlideSchema 필드는 `slideId`, `order`, `title`, `thumbnailUrl`, `speakerNotes`, `elements`, `keywords`, `animations`를 유지한다.
+- `order`는 사용자에게 보이는 슬라이드 번호와 맞춰 `1`부터 시작하는 양의 정수로 관리한다. 배열 index가 필요하면 애플리케이션 내부에서 `order - 1`로 변환한다.
+- 1차 스프린트 MVP에서는 슬라이드별 크기 override를 허용하지 않는다. 모든 슬라이드는 deck top-level의 `canvas` 크기와 비율을 따른다.
+- SlideSchema에는 `width`, `height`, `canvas`, `aspectRatio` 같은 슬라이드별 크기 필드를 두지 않는다.
 - 슬라이드 식별자는 `slideId`, 객체 식별자는 `elementId`로 통일한다.
 - 좌표 단위는 `px` 기준으로 한다.
 - 지원하는 객체 타입은 `text`, `rect`, `ellipse`, `line`, `arrow`, `polygon`, `star`, `ring`, `image`, `group`, `customShape`, `chart`이다.
