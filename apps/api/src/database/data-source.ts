@@ -2,6 +2,7 @@ import { loadOrbitConfig } from "@orbit/config";
 import { config as loadDotenv } from "dotenv";
 import { DataSource, DataSourceOptions } from "typeorm";
 import { CreateDeckPersistenceTables2026062701000 } from "./migrations/2026062701000-CreateDeckPersistenceTables";
+import { CreateAuthUsers2026062702000 } from "./migrations/2026062702000-CreateAuthUsers";
 import { CreateMigrationCommandCheck2026062700000 } from "./migrations/2026062700000-CreateMigrationCommandCheck";
 
 loadDotenv({ path: "../../.env.local" });
@@ -16,7 +17,8 @@ export const databaseOptions: DataSourceOptions = {
   entities: [],
   migrations: [
     CreateMigrationCommandCheck2026062700000,
-    CreateDeckPersistenceTables2026062701000
+    CreateDeckPersistenceTables2026062701000,
+    CreateAuthUsers2026062702000
   ],
   migrationsTableName: "typeorm_migrations",
   synchronize: false,
