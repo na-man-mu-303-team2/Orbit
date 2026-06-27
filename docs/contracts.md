@@ -70,6 +70,17 @@
 - 리허설은 `speakerNotes`, `keywords.text`, `keywords.synonyms`, `keywords.abbreviations`를 기준으로 연결한다.
 - 협업/발표 동기화는 `slideId`, `elementId`, `animationId` 기준으로 처리한다.
 
+구현 위치:
+
+- `packages/shared/src/deck/deck.schema.ts`: deck, slide, keyword schema와 타입
+- `packages/shared/src/deck/slide-object.schema.ts`: slide element schema와 element type
+- `packages/shared/src/deck/animation.schema.ts`: animation schema와 animation type
+- `packages/shared/src/deck/chart.schema.ts`: chart object props에서 사용할 chart schema
+- `packages/shared/src/deck/theme.schema.ts`: deck/theme 기본 schema
+- `packages/shared/src/index.ts`: shared public export만 담당
+
+ORBIT-14 진행 중에는 위 구현 위치를 기준으로 계약을 변경한다. schema 파일의 의미와 유지보수 규칙은 `packages/shared/src/README.md`를 따른다.
+
 ## 파일 업로드 결과 구조
 
 파일 업로드는 공통 API로 제공하고, 각 기능은 `fileId`와 `purpose`를 기준으로 업로드 결과를 사용한다.
@@ -101,6 +112,10 @@
 - 업로드 후 API 응답은 위 구조로 통일한다.
 - PPTX import, 참고자료 추출, 리허설 STT는 모두 `fileId`를 받아 시작한다.
 - `url`은 임시로 로컬 경로를 쓰되, 이후 S3 signed URL로 교체할 수 있게 유지한다.
+
+구현 위치:
+
+- `packages/shared/src/files/file.schema.ts`
 
 ## Job 상태 구조
 
@@ -144,6 +159,10 @@ PPTX import/export, 참고자료 추출, AI 생성, 리허설 STT, 최종 보고
 - 프론트는 `jobId`로 진행률을 조회한다.
 - 성공 결과는 `result`, 실패 이유는 `error`에 넣는다.
 
+구현 위치:
+
+- `packages/shared/src/jobs/job.schema.ts`
+
 ## WebSocket 이벤트 구조
 
 실시간 협업과 발표 동기화는 WebSocket 공통 envelope을 사용하고, 이벤트별 `payload`는 shared schema로 검증한다.
@@ -181,6 +200,25 @@ PPTX import/export, 참고자료 추출, AI 생성, 리허설 STT, 최종 보고
 - 발표 세션은 `sessionId`로 구분한다.
 - `slide-changed` payload에는 `deckId`, `slideId`, `slideIndex`를 넣는다.
 - `highlight-changed` payload에는 `slideId`, `elementId`, `state`를 넣는다.
+
+구현 위치:
+
+- `packages/shared/src/realtime/websocket.schema.ts`
+
+## Shared schema 파일 배치 원칙
+
+`packages/shared`는 프론트엔드, API, worker, realtime, AI 패키지가 함께 사용하는 런타임 계약을 관리한다.
+
+원칙:
+
+- `packages/shared/src/index.ts`에는 구현을 두지 않고 export만 둔다.
+- 새 공통 schema는 기능 영역별 폴더에 둔다.
+- deck 편집과 직접 관련된 계약은 `packages/shared/src/deck`에 둔다.
+- 파일 업로드 계약은 `packages/shared/src/files`에 둔다.
+- Job 계약은 `packages/shared/src/jobs`에 둔다.
+- WebSocket event 계약은 `packages/shared/src/realtime`에 둔다.
+- 발표/리허설/보고서 계약은 `packages/shared/src/presentation`에 둔다.
+- schema를 변경하면 이 문서와 `packages/shared/src/README.md`도 함께 갱신한다.
 
 ## E2E 체크리스트
 
