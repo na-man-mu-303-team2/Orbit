@@ -105,8 +105,21 @@ services:
       dockerfile: infra/docker/python-worker.Dockerfile
     env_file:
       - .env.local
+    environment:
+      API_BASE_URL: http://api:3000
+      DATABASE_URL: postgres://orbit:orbit@postgres:5432/orbit
+      REDIS_URL: redis://redis:6379
+      S3_ENDPOINT: http://minio:9000
+      PYTHON_WORKER_URL: http://python-worker:8000
     ports:
       - "${PYTHON_WORKER_PORT:-8000}:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
 
   web:
     build:
