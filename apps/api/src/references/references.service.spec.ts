@@ -1,5 +1,5 @@
-import { ReferenceSearchResponse } from "@orbit/shared";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { ReferenceSearchResponse } from "./references.schema";
 import { ReferencesService } from "./references.service";
 
 const validEnv = {

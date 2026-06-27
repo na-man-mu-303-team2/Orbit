@@ -1,5 +1,5 @@
-import { referenceSearchRequestSchema } from "@orbit/shared";
 import { Body, Controller, Param, Post } from "@nestjs/common";
+import { referenceSearchRequestSchema } from "./references.schema";
 import { ReferencesService } from "./references.service";
 
 @Controller("projects/:projectId/references")

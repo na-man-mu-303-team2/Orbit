@@ -1,13 +1,13 @@
 import { loadOrbitConfig } from "@orbit/config";
+import { BadGatewayException, Injectable } from "@nestjs/common";
 import type {
   ReferenceSearchRequest,
   ReferenceSearchResponse
-} from "@orbit/shared";
+} from "./references.schema";
 import {
   referenceSearchResponseSchema,
   referenceSearchWorkerRequestSchema
-} from "@orbit/shared";
-import { BadGatewayException, Injectable } from "@nestjs/common";
+} from "./references.schema";
 
 @Injectable()
 export class ReferencesService {
