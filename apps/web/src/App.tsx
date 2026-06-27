@@ -1,5 +1,10 @@
 import { createDemoDeck } from "@orbit/editor-core";
-import { demoIds, type GenerateDeckJobResult, type Job } from "@orbit/shared";
+import {
+  demoIds,
+  type DeckElement,
+  type GenerateDeckJobResult,
+  type Job
+} from "@orbit/shared";
 import { useQuery } from "@tanstack/react-query";
 import {
   Activity,
@@ -10,7 +15,7 @@ import {
   RefreshCw,
   Sparkles
 } from "lucide-react";
-import type { ChangeEvent, DragEvent, ReactNode } from "react";
+import type { CSSProperties, ChangeEvent, DragEvent, ReactNode } from "react";
 import { useMemo, useRef, useState } from "react";
 
 interface HealthResponse {
@@ -470,14 +475,18 @@ export function GeneratedDeckResult(props: { result: GenerateDeckJobResult }) {
         validation {validation.passed ? "passed" : "failed"}
       </p>
 
-      <div className="generated-slide-list">
+      <div className="generated-slide-grid">
         {deck.slides.map((slide) => (
-          <article key={slide.slideId} className="generated-slide">
-            <div>
+          <article key={slide.slideId} className="generated-slide-card">
+            <GeneratedSlidePreview
+              canvas={deck.canvas}
+              elements={slide.elements}
+              title={slide.title}
+            />
+            <div className="generated-slide-meta">
               <span>{slide.order}</span>
-              <h3>{slide.title}</h3>
+              <strong>{slide.title}</strong>
             </div>
-            <p>{slide.speakerNotes}</p>
             <details>
               <summary>Evidence</summary>
               {slide.aiNotes?.sourceEvidence.length ? (
@@ -498,6 +507,122 @@ export function GeneratedDeckResult(props: { result: GenerateDeckJobResult }) {
       </div>
     </div>
   );
+}
+
+function GeneratedSlidePreview(props: {
+  canvas: { width: number; height: number };
+  elements: DeckElement[];
+  title: string;
+}) {
+  return (
+    <div
+      className="generated-slide-preview"
+      aria-label={props.title}
+      style={{ aspectRatio: `${props.canvas.width} / ${props.canvas.height}` }}
+    >
+      {props.elements
+        .filter((element) => element.visible)
+        .sort((a, b) => a.zIndex - b.zIndex)
+        .map((element) => (
+          <GeneratedSlideElement
+            key={element.elementId}
+            canvas={props.canvas}
+            element={element}
+          />
+        ))}
+    </div>
+  );
+}
+
+function GeneratedSlideElement(props: {
+  canvas: { width: number; height: number };
+  element: DeckElement;
+}) {
+  const { canvas, element } = props;
+  const baseStyle: CSSProperties = {
+    left: `${(element.x / canvas.width) * 100}%`,
+    top: `${(element.y / canvas.height) * 100}%`,
+    width: `${(element.width / canvas.width) * 100}%`,
+    height: `${(element.height / canvas.height) * 100}%`,
+    opacity: element.opacity,
+    transform: `rotate(${element.rotation}deg)`,
+    zIndex: element.zIndex
+  };
+
+  if (element.type === "text") {
+    return (
+      <div
+        className="generated-slide-element generated-slide-text"
+        style={{
+          ...baseStyle,
+          alignItems: textVerticalAlign(element.props.verticalAlign),
+          color: element.props.color,
+          display: "flex",
+          fontFamily: element.props.fontFamily,
+          fontSize: `max(8px, ${(element.props.fontSize / canvas.width) * 100}cqw)`,
+          fontWeight: element.props.fontWeight,
+          justifyContent: textAlign(element.props.align),
+          lineHeight: element.props.lineHeight,
+          textAlign: element.props.align
+        }}
+      >
+        {element.props.text}
+      </div>
+    );
+  }
+
+  if (element.type === "image") {
+    return (
+      <img
+        className="generated-slide-element"
+        src={element.props.src}
+        alt={element.props.alt}
+        style={{
+          ...baseStyle,
+          objectFit: element.props.fit === "stretch" ? "fill" : element.props.fit
+        }}
+      />
+    );
+  }
+
+  if (isShapeElement(element)) {
+    return (
+      <div
+        className={`generated-slide-element generated-slide-shape generated-slide-shape-${element.type}`}
+        style={{
+          ...baseStyle,
+          background: element.props.fill,
+          borderColor: element.props.stroke,
+          borderRadius:
+            element.type === "ellipse" || element.type === "ring"
+              ? "999px"
+              : `${element.props.borderRadius}px`,
+          borderStyle: "solid",
+          borderWidth: `${element.props.strokeWidth}px`
+        }}
+      />
+    );
+  }
+
+  return <div className="generated-slide-element generated-slide-shape" style={baseStyle} />;
+}
+
+function isShapeElement(
+  element: DeckElement
+): element is Extract<DeckElement, { type: "rect" | "ellipse" | "line" | "arrow" | "polygon" | "star" | "ring" }> {
+  return ["rect", "ellipse", "line", "arrow", "polygon", "star", "ring"].includes(element.type);
+}
+
+function textAlign(align: string) {
+  if (align === "center") return "center";
+  if (align === "right") return "flex-end";
+  return "flex-start";
+}
+
+function textVerticalAlign(align: string) {
+  if (align === "middle") return "center";
+  if (align === "bottom") return "flex-end";
+  return "flex-start";
 }
 
 function DeckPreviewPlaceholder() {
