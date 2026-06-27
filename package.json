@@ -20,9 +20,11 @@
     "py:sync": "cd services/python-worker && uv sync",
     "py:test": "cd services/python-worker && uv run pytest",
     "test": "turbo run test",
+    "test:smoke": "playwright test",
     "typecheck": "turbo run typecheck"
   },
   "devDependencies": {
+    "@playwright/test": "^1.61.1",
     "@types/node": "^24.0.0",
     "prettier": "^3.5.3",
     "turbo": "^2.5.4",
@@ -30,4 +32,3 @@
     "vitest": "^3.2.4"
   }
 }
-

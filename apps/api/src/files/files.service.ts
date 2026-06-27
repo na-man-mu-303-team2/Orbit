@@ -10,6 +10,7 @@ import { Injectable } from "@nestjs/common";
 @Injectable()
 export class FilesService {
   private readonly files = new Map<string, UploadedFile>();
+  private nextFileSequence = 0;
 
   create(input: {
     projectId: string;
@@ -18,7 +19,7 @@ export class FilesService {
     size: number;
     purpose: FilePurpose;
   }): UploadedFile {
-    const fileId = `file_${Date.now()}`;
+    const fileId = `file_${Date.now()}_${this.nextFileSequence++}`;
     const file = uploadedFileSchema.parse({
       fileId,
       projectId: input.projectId,
@@ -38,4 +39,3 @@ export class FilesService {
     return [...this.files.values()].filter((file) => file.projectId === projectId);
   }
 }
-
