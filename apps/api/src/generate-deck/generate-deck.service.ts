@@ -8,7 +8,7 @@ import {
   jobSchema
 } from "@orbit/shared";
 import { loadOrbitConfig } from "@orbit/config";
-import { ForbiddenException, Injectable } from "@nestjs/common";
+import { ForbiddenException, Injectable, Optional } from "@nestjs/common";
 import { z } from "zod";
 import { JobsService } from "../jobs/jobs.service";
 
@@ -24,6 +24,7 @@ export class GenerateDeckService {
 
   constructor(
     private readonly jobsService: JobsService,
+    @Optional()
     private readonly enqueueJob: (
       input: EnqueueGenerateDeckJobInput
     ) => Promise<void> = enqueueGenerateDeckJob

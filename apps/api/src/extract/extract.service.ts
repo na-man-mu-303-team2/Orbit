@@ -4,7 +4,7 @@ import {
 } from "@orbit/job-queue";
 import { loadOrbitConfig } from "@orbit/config";
 import { jobSchema } from "@orbit/shared";
-import { Injectable } from "@nestjs/common";
+import { Injectable, Optional } from "@nestjs/common";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { JobsService } from "../jobs/jobs.service";
@@ -28,6 +28,7 @@ export class ExtractService {
 
   constructor(
     private readonly jobsService: JobsService,
+    @Optional()
     private readonly enqueueJob: (
       input: EnqueueReferenceExtractJobInput
     ) => Promise<void> = enqueueReferenceExtractJob
