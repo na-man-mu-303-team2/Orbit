@@ -6,7 +6,7 @@ from uuid import uuid4
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.concurrency import run_in_threadpool
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.audio.transcribe import (
     AudioTranscribeRequest,
@@ -24,6 +24,11 @@ from app.extraction import (
     clean_reference_text,
     extract_file,
     extract_presentation_keywords,
+)
+from app.references import (
+    PostgresReferenceRepository,
+    index_reference_text,
+    search_reference_chunks,
 )
 
 
@@ -44,6 +49,55 @@ class ReferenceExtractResponse(BaseModel):
     file_id: str = Field(alias="fileId")
     project_id: str = Field(alias="projectId")
     text: str
+
+
+class ReferenceIndexRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    file_id: str = Field(alias="fileId")
+    project_id: str = Field(alias="projectId")
+    text: str
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class ReferenceIndexResponse(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    file_id: str = Field(alias="fileId")
+    project_id: str = Field(alias="projectId")
+    status: str
+    message: str = ""
+    chunk_count: int = Field(alias="chunkCount")
+
+
+class ReferenceSearchRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    project_id: str = Field(alias="projectId")
+    query: str = Field(min_length=1)
+    limit: int = Field(default=6, ge=1, le=20)
+
+
+class ReferenceSearchChunk(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    chunk_id: str = Field(alias="chunkId")
+    project_id: str = Field(alias="projectId")
+    file_id: str = Field(alias="fileId")
+    chunk_index: int = Field(alias="chunkIndex")
+    content: str
+    metadata: dict[str, Any]
+    score: float
+
+
+class ReferenceSearchResponse(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    project_id: str = Field(alias="projectId")
+    query: str
+    status: Literal["succeeded", "unavailable", "failed"]
+    message: str = ""
+    chunks: list[ReferenceSearchChunk]
 
 
 class RehearsalAnalyzeRequest(BaseModel):
@@ -87,6 +141,65 @@ def extract_reference(payload: ReferenceExtractRequest) -> ReferenceExtractRespo
         fileId=payload.file_id,
         projectId=payload.project_id,
         text=text or f"stub extraction for {payload.file_id} ({payload.mime_type})",
+    )
+
+@app.post("/references/index", response_model=ReferenceIndexResponse)
+def index_reference(
+    payload: ReferenceIndexRequest,
+    request: Request,
+) -> ReferenceIndexResponse:
+    config = _config(request)
+    result = index_reference_text(
+        repository=PostgresReferenceRepository(config.database_url),
+        project_id=payload.project_id,
+        file_id=payload.file_id,
+        text=payload.text,
+        metadata=payload.metadata,
+        model=config.openai_embedding_model,
+        api_key=config.openai_api_key,
+    )
+
+    return ReferenceIndexResponse(
+        fileId=payload.file_id,
+        projectId=payload.project_id,
+        status=result.status,
+        message=result.message,
+        chunkCount=result.chunk_count,
+    )
+
+
+@app.post("/references/search", response_model=ReferenceSearchResponse)
+def search_references(
+    payload: ReferenceSearchRequest,
+    request: Request,
+) -> ReferenceSearchResponse:
+    config = _config(request)
+    results, embedding_result = search_reference_chunks(
+        repository=PostgresReferenceRepository(config.database_url),
+        project_id=payload.project_id,
+        query=payload.query,
+        limit=payload.limit,
+        model=config.openai_embedding_model,
+        api_key=config.openai_api_key,
+    )
+
+    return ReferenceSearchResponse(
+        projectId=payload.project_id,
+        query=payload.query,
+        status=_search_status(embedding_result.status),
+        message=embedding_result.message,
+        chunks=[
+            ReferenceSearchChunk(
+                chunkId=result.chunk_id,
+                projectId=result.project_id,
+                fileId=result.file_id,
+                chunkIndex=result.chunk_index,
+                content=result.content,
+                metadata=result.metadata,
+                score=result.score,
+            )
+            for result in results
+        ],
     )
 
 
@@ -164,6 +277,12 @@ def _config(request: Request) -> PythonWorkerConfig:
     return cast(PythonWorkerConfig, request.app.state.config)
 
 
+def _search_status(status: str) -> Literal["succeeded", "unavailable", "failed"]:
+    if status in {"succeeded", "unavailable"}:
+        return cast(Literal["succeeded", "unavailable"], status)
+    return "failed"
+
+
 def _extract_result_payload(
     result: ExtractionResult,
     project_id: str,
@@ -179,6 +298,19 @@ def _extract_result_payload(
     keyword_result = extract_presentation_keywords(
         cleanup.text,
         model=config.openai_model,
+        api_key=config.openai_api_key,
+    )
+    index_result = index_reference_text(
+        repository=PostgresReferenceRepository(config.database_url),
+        project_id=project_id,
+        file_id=file_id,
+        text=cleanup.text,
+        metadata={
+            "fileName": result.source_path.name,
+            "kind": result.kind.value,
+            "status": result.status.value,
+        },
+        model=config.openai_embedding_model,
         api_key=config.openai_api_key,
     )
 
@@ -203,9 +335,9 @@ def _extract_result_payload(
         ],
         "keywordStatus": keyword_result.status,
         "keywordMessage": keyword_result.message,
-        "indexingStatus": "skipped",
-        "indexingMessage": "Reference indexing is handled by the RAG search branch.",
-        "chunkCount": 0,
+        "indexingStatus": index_result.status,
+        "indexingMessage": index_result.message,
+        "chunkCount": index_result.chunk_count,
         "sections": [_section_payload(section) for section in result.sections],
     }
 

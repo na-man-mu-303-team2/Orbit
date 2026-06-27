@@ -15,7 +15,7 @@ from app.extraction import (
 from tests.test_config import VALID_ENV
 
 
-def test_documents_parse_returns_extraction_payload(monkeypatch) -> None:
+def test_documents_parse_connects_extraction_cleanup_and_indexing(monkeypatch) -> None:
     def fake_extract_file(source_path: Path, config: object) -> ExtractionResult:
         return ExtractionResult(
             source_path=source_path,
@@ -61,6 +61,21 @@ def test_documents_parse_returns_extraction_payload(monkeypatch) -> None:
             status="succeeded",
         )
 
+    def fake_index_reference_text(**kwargs: object) -> object:
+        assert kwargs["project_id"] == "project-a"
+        assert kwargs["file_id"] == "file-1"
+        assert kwargs["text"] == "cleaned: first block\n\nsecond block"
+        assert kwargs["model"] == "text-embedding-3-small"
+        return type(
+            "IndexResult",
+            (),
+            {
+                "status": "indexed",
+                "message": "2 chunks indexed",
+                "chunk_count": 2,
+            },
+        )()
+
     monkeypatch.setattr(api_module, "extract_file", fake_extract_file)
     monkeypatch.setattr(api_module, "clean_reference_text", fake_clean_reference_text)
     monkeypatch.setattr(
@@ -68,6 +83,7 @@ def test_documents_parse_returns_extraction_payload(monkeypatch) -> None:
         "extract_presentation_keywords",
         fake_extract_presentation_keywords,
     )
+    monkeypatch.setattr(api_module, "index_reference_text", fake_index_reference_text)
     api_module.app.state.config = load_config(VALID_ENV)
 
     client = TestClient(api_module.app)
@@ -98,9 +114,9 @@ def test_documents_parse_returns_extraction_payload(monkeypatch) -> None:
         ],
         "keywordStatus": "succeeded",
         "keywordMessage": "",
-        "indexingStatus": "skipped",
-        "indexingMessage": "Reference indexing is handled by the RAG search branch.",
-        "chunkCount": 0,
+        "indexingStatus": "indexed",
+        "indexingMessage": "2 chunks indexed",
+        "chunkCount": 2,
         "sections": [
             {
                 "title": "Image OCR",
