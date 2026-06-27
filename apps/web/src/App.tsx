@@ -920,7 +920,7 @@ function buildSlideThumbBackground(slide: Slide, deck: Deck) {
   ].join(",");
 }
 
-function EditorStateNotice(props: {
+export function EditorStateNotice(props: {
   isError: boolean;
   isLoading: boolean;
   isUsingFallback: boolean;
