@@ -1,4 +1,5 @@
 import {
+  generateDeckQueueName,
   redisConnectionOptions,
   referenceExtractQueueName
 } from "@orbit/job-queue";
@@ -7,13 +8,14 @@ import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from "@nestjs/commo
 import { InjectDataSource } from "@nestjs/typeorm";
 import { Worker as BullMqWorker } from "bullmq";
 import type { DataSource } from "typeorm";
+import { processGenerateDeckJob } from "./generate-deck.processor";
 import { processReferenceExtractJob } from "./reference-extract.processor";
 
 @Injectable()
 export class WorkerService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(WorkerService.name);
   private readonly config = loadOrbitConfig(process.env, { service: "worker" });
-  private worker: BullMqWorker | null = null;
+  private workers: BullMqWorker[] = [];
 
   constructor(@InjectDataSource() private readonly dataSource: DataSource) {}
 
@@ -23,32 +25,53 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
       throw new Error("SqsJobQueue adapter is not implemented yet.");
     }
 
-    this.worker = new BullMqWorker(
-      referenceExtractQueueName,
-      async (job) => {
-        const result = await processReferenceExtractJob(
-          this.dataSource,
-          this.config.PYTHON_WORKER_URL,
-          job.data
-        );
-        this.logger.log(`Processed ${result.type} job ${result.jobId}: ${result.status}`);
-        return result;
-      },
-      {
-        connection: redisConnectionOptions(this.config.REDIS_URL)
-      }
-    );
+    this.workers = [
+      new BullMqWorker(
+        referenceExtractQueueName,
+        async (job) => {
+          const result = await processReferenceExtractJob(
+            this.dataSource,
+            this.config.PYTHON_WORKER_URL,
+            job.data
+          );
+          this.logger.log(
+            `Processed ${result.type} job ${result.jobId}: ${result.status}`
+          );
+          return result;
+        },
+        {
+          connection: redisConnectionOptions(this.config.REDIS_URL)
+        }
+      ),
+      new BullMqWorker(
+        generateDeckQueueName,
+        async (job) => {
+          const result = await processGenerateDeckJob(
+            this.dataSource,
+            this.config.PYTHON_WORKER_URL,
+            job.data
+          );
+          this.logger.log(
+            `Processed ${result.type} job ${result.jobId}: ${result.status}`
+          );
+          return result;
+        },
+        {
+          connection: redisConnectionOptions(this.config.REDIS_URL)
+        }
+      )
+    ];
 
-    this.worker.on("failed", (job, error) => {
-      this.logger.error(
-        `BullMQ job ${job?.id ?? "unknown"} failed: ${error.message}`
-      );
-    });
+    for (const worker of this.workers) {
+      worker.on("failed", (job, error) => {
+        this.logger.error(
+          `BullMQ job ${job?.id ?? "unknown"} failed: ${error.message}`
+        );
+      });
+    }
   }
 
   async onModuleDestroy() {
-    if (this.worker) {
-      await this.worker.close();
-    }
+    await Promise.all(this.workers.map((worker) => worker.close()));
   }
 }
