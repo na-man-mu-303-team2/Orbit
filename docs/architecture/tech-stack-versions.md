@@ -45,7 +45,7 @@
 | ORM | TypeORM | `^0.3.25` | `apps/api/package.json` |
 | PostgreSQL driver | pg | `^8.16.2` | `apps/api/package.json` |
 | Realtime server | Socket.IO | `^4.8.1` | `apps/api/package.json` |
-| Background queue | BullMQ | `^5.56.0` | `apps/worker/package.json` |
+| Background queue | BullMQ | `^5.56.0` | `apps/worker/package.json`, `packages/job-queue/package.json` |
 | Redis client | ioredis | `^5.6.1` | `apps/worker/package.json` |
 | Runtime schema | Zod | `^3.25.76` | `apps/api/package.json`, `packages/shared/package.json` |
 | API docs | Swagger for NestJS | `^11.2.0` | `apps/api/package.json` |
