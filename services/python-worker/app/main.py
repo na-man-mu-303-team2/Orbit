@@ -1,8 +1,12 @@
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from typing import Literal
 
 from fastapi import FastAPI
 from pydantic import BaseModel, Field
+
+from app.config import load_config
 
 
 class HealthResponse(BaseModel):
@@ -39,7 +43,13 @@ class RehearsalAnalyzeResponse(BaseModel):
     keyword_coverage: float = Field(alias="keywordCoverage")
 
 
-app = FastAPI(title="ORBIT Python Worker", version="0.1.0")
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    app.state.config = load_config()
+    yield
+
+
+app = FastAPI(title="ORBIT Python Worker", version="0.1.0", lifespan=lifespan)
 
 
 @app.get("/health", response_model=HealthResponse)
@@ -74,4 +84,3 @@ def analyze_rehearsal(
         pauseCount=0,
         keywordCoverage=0.0,
     )
-

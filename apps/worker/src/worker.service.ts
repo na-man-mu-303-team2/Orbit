@@ -9,7 +9,7 @@ export class WorkerService implements OnModuleInit {
   private readonly queue = new InMemoryJobQueue();
 
   async onModuleInit() {
-    const config = loadOrbitConfig();
+    const config = loadOrbitConfig(process.env, { service: "worker" });
     const job = await this.queue.enqueue({
       projectId: demoIds.projectId,
       type: "reference-extract",
@@ -24,4 +24,3 @@ export class WorkerService implements OnModuleInit {
     );
   }
 }
-
