@@ -1,10 +1,10 @@
 ## Jira
 
-- Issue: <!-- PPT-123 -->
+- Issue: <!-- ORBIT-123 -->
 
-## Jira auto-complete issues
+## 완료한 JIRA 이슈
 
-- <!-- PR merge 시 완료 전환할 이슈 키를 명시합니다. 예: PPT-123 -->
+- <!-- PR merge 시 완료 전환할 이슈를 적습니다. 예: [ORBIT-123] 이슈 제목 -->
 
 ## 변경 요약
 

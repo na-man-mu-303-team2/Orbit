@@ -1,7 +1,7 @@
 import { appendFileSync } from "node:fs";
 
 const jiraKeyPattern = /\b[A-Z][A-Z0-9]+-\d+\b/g;
-const autoCompleteHeadingPattern = /^(jira\s+auto-?complete\s+issues?|jira\s+complete\s+issues?|jira\s+completion\s+issues?|jira\s+자동\s*완료\s*이슈|자동\s*완료\s*jira\s*이슈|자동\s*완료\s*대상)$/i;
+const autoCompleteHeadingPattern = /^(jira\s+auto-?complete\s+issues?|jira\s+complete\s+issues?|jira\s+completion\s+issues?|completed\s+jira\s+issues?|완료한\s*jira\s*이슈|jira\s*완료\s*이슈|jira\s+자동\s*완료\s*이슈|자동\s*완료\s*jira\s*이슈|자동\s*완료\s*대상)$/i;
 
 function findKeys(value) {
   return Array.from(new Set((value.match(jiraKeyPattern) ?? []).map((key) => key.toUpperCase())));

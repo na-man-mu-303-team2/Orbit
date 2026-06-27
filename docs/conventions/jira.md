@@ -33,18 +33,35 @@ Smart Commit으로 Jira 상태를 직접 전환하지 않는다. 리뷰와 CI를
 
 ## PR
 
-PR 제목은 Jira 이슈 키로 시작한다.
+PR 제목은 작업 범위의 최상위 Jira 이슈 키와 제목으로 작성한다.
+하위 작업을 처리하는 PR이라도 제목에는 모든 하위 작업 키를 나열하지 않고 부모 또는 최상위 이슈를 사용한다.
 
 ```text
-[PPT-123] 실시간 슬라이드 제어 추가
+[ORBIT-2] 프로젝트 뼈대와 로컬 실행 환경 만들기
 ```
 
 PR 본문에는 다음 항목을 남긴다.
 
-- 연결 Jira 이슈
+- 완료한 Jira 이슈
 - 변경 요약
 - 테스트/검증 내용
 - 영향 범위
+
+`완료한 JIRA 이슈` 섹션에는 PR merge 시 완료 전환할 이슈를 `[이슈키] 제목` 형식으로 적는다.
+부모 이슈와 하위 작업을 모두 완료해야 하는 경우 모두 명시한다.
+
+```markdown
+## 완료한 JIRA 이슈
+
+- [ORBIT-2] 프로젝트 뼈대와 로컬 실행 환경 만들기
+- [ORBIT-62] 환경
+- [ORBIT-63] 화면
+- [ORBIT-64] API
+- [ORBIT-65] 작업큐
+- [ORBIT-66] Python
+- [ORBIT-67] 공유 타입
+- [ORBIT-68] 테스트
+```
 
 `Jira Link` 워크플로의 `jira-link` 체크는 PR 제목과 source branch에 같은 Jira 이슈 키가 있는지 검증한다.
 
@@ -83,8 +100,8 @@ Status: 완료
 ```
 
 GitHub Actions에는 `JIRA_AUTOMATION_WEBHOOK_URL` repository secret을 추가한다.
-`Jira Complete Issue` 워크플로는 PR이 `main` 또는 `develop`에 merge될 때 PR 제목과 source branch에서 Jira 이슈 키를 찾아 Jira 웹후크에 `{"issues":["ORBIT-123"]}` 형식으로 전달한다.
-부모 이슈 키가 PR 본문에 적혀 있어도 자동 완료 대상에는 포함하지 않는다.
+`Jira Complete Issue` 워크플로는 PR이 `main` 또는 `develop`에 merge될 때 PR 제목, source branch, PR 본문의 `완료한 JIRA 이슈` 섹션에서 Jira 이슈 키를 찾아 Jira 웹후크에 `{"issues":["ORBIT-123"]}` 형식으로 전달한다.
+PR 본문의 다른 섹션에 적힌 Jira 이슈 키는 자동 완료 대상으로 보지 않는다.
 웹후크 URL은 저장소 파일에 쓰지 않는다.
 
 프로젝트의 실제 workflow 상태명이 `Done`이 아니라 `완료`, `Resolved`, `Closed` 등인 경우 해당 프로젝트의 완료 상태로 전환한다.
