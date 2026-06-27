@@ -3,6 +3,7 @@ import { demoIds } from "@orbit/shared";
 import { useQuery } from "@tanstack/react-query";
 import { Activity, Database, FileUp, Play, Radio, RefreshCw } from "lucide-react";
 import type { ReactNode } from "react";
+import { KeywordEditor } from "./features/rehearsal/keywords/KeywordEditor";
 
 interface HealthResponse {
   status: string;
@@ -101,6 +102,10 @@ export function App() {
             </button>
           </div>
         </article>
+      </section>
+
+      <section className="feature-grid">
+        <KeywordEditor />
       </section>
     </main>
   );
