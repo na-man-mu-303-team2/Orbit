@@ -6,6 +6,7 @@ import { JobsModule } from "./jobs/jobs.module";
 import { databaseOptions } from "./database/data-source";
 import { ExtractModule } from "./extract/extract.module";
 import { ProjectsModule } from "./projects/projects.module";
+import { ReferencesModule } from "./references/references.module";
 import { RealtimeGateway } from "./realtime/realtime.gateway";
 
 @Module({
@@ -15,7 +16,8 @@ import { RealtimeGateway } from "./realtime/realtime.gateway";
     ProjectsModule,
     FilesModule,
     ExtractModule,
-    JobsModule
+    JobsModule,
+    ReferencesModule
   ],
   providers: [RealtimeGateway]
 })

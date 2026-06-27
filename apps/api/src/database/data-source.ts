@@ -3,6 +3,7 @@ import { config as loadDotenv } from "dotenv";
 import { DataSource, DataSourceOptions } from "typeorm";
 import { CreateMigrationCommandCheck2026062700000 } from "./migrations/2026062700000-CreateMigrationCommandCheck";
 import { CreateJobs2026062700200 } from "./migrations/2026062700200-CreateJobs";
+import { CreateReferenceChunks2026062700100 } from "./migrations/2026062700100-CreateReferenceChunks";
 
 loadDotenv({ path: "../../.env.local" });
 loadDotenv({ path: ".env.local" });
@@ -16,7 +17,8 @@ export const databaseOptions: DataSourceOptions = {
   entities: [],
   migrations: [
     CreateMigrationCommandCheck2026062700000,
-    CreateJobs2026062700200
+    CreateJobs2026062700200,
+    CreateReferenceChunks2026062700100
   ],
   migrationsTableName: "typeorm_migrations",
   synchronize: false,
