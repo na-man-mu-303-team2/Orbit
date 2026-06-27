@@ -1,5 +1,6 @@
 import { Module } from "@nestjs/common";
 import { TypeOrmModule } from "@nestjs/typeorm";
+import { DecksModule } from "./decks/decks.module";
 import { FilesModule } from "./files/files.module";
 import { HealthModule } from "./health/health.module";
 import { JobsModule } from "./jobs/jobs.module";
@@ -14,6 +15,7 @@ import { RealtimeGateway } from "./realtime/realtime.gateway";
     TypeOrmModule.forRoot(databaseOptions),
     HealthModule,
     ProjectsModule,
+    DecksModule,
     FilesModule,
     ExtractModule,
     JobsModule,

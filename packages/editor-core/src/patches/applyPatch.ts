@@ -1,0 +1,571 @@
+import {
+  deckChangeRecordSchema,
+  deckPatchSchema,
+  deckSchema,
+} from "@orbit/shared";
+import type {
+  Deck,
+  DeckAnimation,
+  DeckElement,
+  DeckPatchOperation,
+  Slide,
+} from "@orbit/shared";
+
+import type {
+  ApplyDeckPatchError,
+  ApplyDeckPatchFailure,
+  ApplyDeckPatchOptions,
+  ApplyDeckPatchResult,
+} from "./deckPatch";
+
+type OperationResult = { ok: true } | ApplyDeckPatchFailure;
+
+type ElementWithProps = DeckElement & {
+  props: Record<string, unknown>;
+};
+
+export function applyDeckPatch(
+  deckInput: unknown,
+  patchInput: unknown,
+  options: ApplyDeckPatchOptions = {},
+): ApplyDeckPatchResult {
+  const deckResult = deckSchema.safeParse(deckInput);
+
+  if (!deckResult.success) {
+    return failure("DECK_VALIDATION_FAILED", "Deck input is invalid", {
+      details: formatValidationError(deckResult.error),
+    });
+  }
+
+  const patchResult = deckPatchSchema.safeParse(patchInput);
+
+  if (!patchResult.success) {
+    return failure("PATCH_VALIDATION_FAILED", "Deck patch is invalid", {
+      details: formatValidationError(patchResult.error),
+    });
+  }
+
+  const deck = cloneJson(deckResult.data);
+  const patch = patchResult.data;
+
+  if (deck.deckId !== patch.deckId) {
+    return failure(
+      "DECK_ID_MISMATCH",
+      "Patch deckId does not match deck deckId",
+      {
+        details: [`deckId=${deck.deckId}`, `patch.deckId=${patch.deckId}`],
+      },
+    );
+  }
+
+  if (deck.version !== patch.baseVersion) {
+    return failure(
+      "BASE_VERSION_MISMATCH",
+      "Patch baseVersion does not match current deck version",
+      {
+        details: [
+          `deck.version=${deck.version}`,
+          `patch.baseVersion=${patch.baseVersion}`,
+        ],
+      },
+    );
+  }
+
+  const nextDeck = cloneJson(deck);
+
+  for (const operation of patch.operations) {
+    const operationResult = applyOperation(nextDeck, operation);
+
+    if (!operationResult.ok) {
+      return operationResult;
+    }
+  }
+
+  nextDeck.version = deck.version + 1;
+
+  const nextDeckResult = deckSchema.safeParse(nextDeck);
+
+  if (!nextDeckResult.success) {
+    return failure("DECK_VALIDATION_FAILED", "Patched deck is invalid", {
+      details: formatValidationError(nextDeckResult.error),
+    });
+  }
+
+  const changeRecordResult = deckChangeRecordSchema.safeParse({
+    changeId:
+      options.changeId ?? createDefaultChangeId(deck.deckId, nextDeck.version),
+    deckId: deck.deckId,
+    beforeVersion: deck.version,
+    afterVersion: nextDeck.version,
+    source: patch.source,
+    actorUserId: options.actorUserId ?? patch.actorUserId,
+    createdAt: options.createdAt ?? new Date().toISOString(),
+    operations: patch.operations,
+  });
+
+  if (!changeRecordResult.success) {
+    return failure(
+      "CHANGE_RECORD_VALIDATION_FAILED",
+      "Deck change record is invalid",
+      {
+        details: formatValidationError(changeRecordResult.error),
+      },
+    );
+  }
+
+  return {
+    ok: true,
+    deck: nextDeckResult.data,
+    changeRecord: changeRecordResult.data,
+    metadata: {
+      deckId: deck.deckId,
+      baseVersion: deck.version,
+      nextVersion: nextDeck.version,
+    },
+  };
+}
+
+function applyOperation(
+  deck: Deck,
+  operation: DeckPatchOperation,
+): OperationResult {
+  switch (operation.type) {
+    case "update_deck":
+      deck.title = operation.title;
+      return { ok: true };
+
+    case "add_slide":
+      if (findSlide(deck, operation.slide.slideId)) {
+        return failure("DUPLICATE_SLIDE_ID", "Slide already exists", {
+          operationType: operation.type,
+          details: [`slideId=${operation.slide.slideId}`],
+        });
+      }
+
+      deck.slides.push(cloneJson(operation.slide));
+      sortSlides(deck);
+      return { ok: true };
+
+    case "update_slide": {
+      const slide = findSlide(deck, operation.slideId);
+
+      if (!slide) {
+        return slideNotFound(operation.type, operation.slideId);
+      }
+
+      if (operation.title !== undefined) {
+        slide.title = operation.title;
+      }
+
+      if (operation.thumbnailUrl !== undefined) {
+        slide.thumbnailUrl = operation.thumbnailUrl;
+      }
+
+      return { ok: true };
+    }
+
+    case "delete_slide": {
+      const slideIndex = deck.slides.findIndex(
+        (slide) => slide.slideId === operation.slideId,
+      );
+
+      if (slideIndex < 0) {
+        return slideNotFound(operation.type, operation.slideId);
+      }
+
+      deck.slides.splice(slideIndex, 1);
+      return { ok: true };
+    }
+
+    case "reorder_slides":
+      for (const slideOrder of operation.slideOrders) {
+        const slide = findSlide(deck, slideOrder.slideId);
+
+        if (!slide) {
+          return slideNotFound(operation.type, slideOrder.slideId);
+        }
+
+        slide.order = slideOrder.order;
+      }
+
+      sortSlides(deck);
+      return { ok: true };
+
+    case "update_theme":
+      mergeRecordPatch(
+        deck.theme as unknown as Record<string, unknown>,
+        operation.theme as Record<string, unknown>,
+      );
+      return { ok: true };
+
+    case "update_slide_style": {
+      const slide = findSlide(deck, operation.slideId);
+
+      if (!slide) {
+        return slideNotFound(operation.type, operation.slideId);
+      }
+
+      mergeRecordPatch(
+        slide.style as unknown as Record<string, unknown>,
+        operation.style as Record<string, unknown>,
+      );
+      return { ok: true };
+    }
+
+    case "add_element": {
+      const slide = findSlide(deck, operation.slideId);
+
+      if (!slide) {
+        return slideNotFound(operation.type, operation.slideId);
+      }
+
+      if (findElement(slide, operation.element.elementId)) {
+        return failure("DUPLICATE_ELEMENT_ID", "Element already exists", {
+          operationType: operation.type,
+          details: [`elementId=${operation.element.elementId}`],
+        });
+      }
+
+      slide.elements.push(cloneJson(operation.element));
+      sortElements(slide);
+      return { ok: true };
+    }
+
+    case "update_element_frame": {
+      const elementResult = findElementByOperation(deck, operation);
+
+      if (!elementResult.ok) {
+        return elementResult;
+      }
+
+      mergeRecordPatch(
+        elementResult.element as unknown as Record<string, unknown>,
+        operation.frame as Record<string, unknown>,
+      );
+      return { ok: true };
+    }
+
+    case "update_element_props": {
+      const elementResult = findElementByOperation(deck, operation);
+
+      if (!elementResult.ok) {
+        return elementResult;
+      }
+
+      const element = elementResult.element as ElementWithProps;
+      mergeRecordPatch(element.props, operation.props);
+      return { ok: true };
+    }
+
+    case "delete_element": {
+      const slide = findSlide(deck, operation.slideId);
+
+      if (!slide) {
+        return slideNotFound(operation.type, operation.slideId);
+      }
+
+      const elementIndex = slide.elements.findIndex(
+        (element) => element.elementId === operation.elementId,
+      );
+
+      if (elementIndex < 0) {
+        return elementNotFound(operation.type, operation.elementId);
+      }
+
+      slide.elements.splice(elementIndex, 1);
+      slide.animations = slide.animations.filter(
+        (animation) => animation.elementId !== operation.elementId,
+      );
+      removeElementFromGroups(slide, operation.elementId);
+      return { ok: true };
+    }
+
+    case "update_speaker_notes": {
+      const slide = findSlide(deck, operation.slideId);
+
+      if (!slide) {
+        return slideNotFound(operation.type, operation.slideId);
+      }
+
+      slide.speakerNotes = operation.speakerNotes;
+      return { ok: true };
+    }
+
+    case "replace_keywords": {
+      const slide = findSlide(deck, operation.slideId);
+
+      if (!slide) {
+        return slideNotFound(operation.type, operation.slideId);
+      }
+
+      slide.keywords = cloneJson(operation.keywords);
+      return { ok: true };
+    }
+
+    case "add_animation": {
+      const slide = findSlide(deck, operation.slideId);
+
+      if (!slide) {
+        return slideNotFound(operation.type, operation.slideId);
+      }
+
+      if (!findElement(slide, operation.animation.elementId)) {
+        return animationTargetNotFound(
+          operation.type,
+          operation.animation.elementId,
+        );
+      }
+
+      if (findAnimation(slide, operation.animation.animationId)) {
+        return failure("DUPLICATE_ANIMATION_ID", "Animation already exists", {
+          operationType: operation.type,
+          details: [`animationId=${operation.animation.animationId}`],
+        });
+      }
+
+      slide.animations.push(cloneJson(operation.animation));
+      sortAnimations(slide);
+      return { ok: true };
+    }
+
+    case "update_animation": {
+      const slide = findSlide(deck, operation.slideId);
+
+      if (!slide) {
+        return slideNotFound(operation.type, operation.slideId);
+      }
+
+      const animation = findAnimation(slide, operation.animationId);
+
+      if (!animation) {
+        return animationNotFound(operation.type, operation.animationId);
+      }
+
+      if (
+        operation.animation.elementId !== undefined &&
+        !findElement(slide, operation.animation.elementId)
+      ) {
+        return animationTargetNotFound(
+          operation.type,
+          operation.animation.elementId,
+        );
+      }
+
+      mergeRecordPatch(
+        animation as unknown as Record<string, unknown>,
+        operation.animation as Record<string, unknown>,
+      );
+      sortAnimations(slide);
+      return { ok: true };
+    }
+
+    case "delete_animation": {
+      const slide = findSlide(deck, operation.slideId);
+
+      if (!slide) {
+        return slideNotFound(operation.type, operation.slideId);
+      }
+
+      const animationIndex = slide.animations.findIndex(
+        (animation) => animation.animationId === operation.animationId,
+      );
+
+      if (animationIndex < 0) {
+        return animationNotFound(operation.type, operation.animationId);
+      }
+
+      slide.animations.splice(animationIndex, 1);
+      return { ok: true };
+    }
+
+    default:
+      return unsupportedOperation(operation);
+  }
+}
+
+function findElementByOperation(
+  deck: Deck,
+  operation: Extract<
+    DeckPatchOperation,
+    { type: "update_element_frame" | "update_element_props" }
+  >,
+): { ok: true; element: DeckElement } | ApplyDeckPatchFailure {
+  const slide = findSlide(deck, operation.slideId);
+
+  if (!slide) {
+    return slideNotFound(operation.type, operation.slideId);
+  }
+
+  const element = findElement(slide, operation.elementId);
+
+  if (!element) {
+    return elementNotFound(operation.type, operation.elementId);
+  }
+
+  return { ok: true, element };
+}
+
+function findSlide(deck: Deck, slideId: string): Slide | undefined {
+  return deck.slides.find((slide) => slide.slideId === slideId);
+}
+
+function findElement(slide: Slide, elementId: string): DeckElement | undefined {
+  return slide.elements.find((element) => element.elementId === elementId);
+}
+
+function findAnimation(
+  slide: Slide,
+  animationId: string,
+): DeckAnimation | undefined {
+  return slide.animations.find(
+    (animation) => animation.animationId === animationId,
+  );
+}
+
+function removeElementFromGroups(slide: Slide, elementId: string): void {
+  for (const element of slide.elements) {
+    if (element.type !== "group") {
+      continue;
+    }
+
+    element.props.childElementIds = element.props.childElementIds.filter(
+      (childElementId) => childElementId !== elementId,
+    );
+  }
+}
+
+function sortSlides(deck: Deck): void {
+  deck.slides.sort((a, b) => a.order - b.order);
+}
+
+function sortElements(slide: Slide): void {
+  slide.elements.sort((a, b) => a.zIndex - b.zIndex);
+}
+
+function sortAnimations(slide: Slide): void {
+  slide.animations.sort((a, b) => a.order - b.order);
+}
+
+function mergeRecordPatch(
+  target: Record<string, unknown>,
+  patch: Record<string, unknown>,
+): void {
+  for (const [key, value] of Object.entries(patch)) {
+    if (value === undefined) {
+      continue;
+    }
+
+    if (value === null) {
+      delete target[key];
+      continue;
+    }
+
+    if (isPlainRecord(target[key]) && isPlainRecord(value)) {
+      mergeRecordPatch(target[key], value);
+      continue;
+    }
+
+    target[key] = cloneJson(value);
+  }
+}
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function cloneJson<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value)) as T;
+}
+
+function createDefaultChangeId(deckId: string, nextVersion: number): string {
+  return `change_${deckId}_${nextVersion}`;
+}
+
+function slideNotFound(
+  operationType: string,
+  slideId: string,
+): ApplyDeckPatchFailure {
+  return failure("SLIDE_NOT_FOUND", "Slide was not found", {
+    operationType,
+    details: [`slideId=${slideId}`],
+  });
+}
+
+function elementNotFound(
+  operationType: string,
+  elementId: string,
+): ApplyDeckPatchFailure {
+  return failure("ELEMENT_NOT_FOUND", "Element was not found", {
+    operationType,
+    details: [`elementId=${elementId}`],
+  });
+}
+
+function animationNotFound(
+  operationType: string,
+  animationId: string,
+): ApplyDeckPatchFailure {
+  return failure("ANIMATION_NOT_FOUND", "Animation was not found", {
+    operationType,
+    details: [`animationId=${animationId}`],
+  });
+}
+
+function animationTargetNotFound(
+  operationType: string,
+  elementId: string,
+): ApplyDeckPatchFailure {
+  return failure(
+    "ANIMATION_TARGET_NOT_FOUND",
+    "Animation target was not found",
+    {
+      operationType,
+      details: [`elementId=${elementId}`],
+    },
+  );
+}
+
+function unsupportedOperation(operation: unknown): OperationResult {
+  const operationType =
+    typeof operation === "object" && operation !== null && "type" in operation
+      ? String(operation.type)
+      : "unknown";
+
+  return failure("UNSUPPORTED_OPERATION", "Patch operation is not supported", {
+    operationType,
+  });
+}
+
+function failure(
+  code: ApplyDeckPatchError["code"],
+  message: string,
+  options: Omit<ApplyDeckPatchError, "code" | "message"> = {},
+): ApplyDeckPatchFailure {
+  return {
+    ok: false,
+    error: {
+      code,
+      message,
+      ...options,
+    },
+  };
+}
+
+function formatValidationError(error: unknown): string[] {
+  if (typeof error !== "object" || error === null || !("issues" in error)) {
+    return [String(error)];
+  }
+
+  const issues = (
+    error as { issues?: Array<{ path: unknown[]; message: string }> }
+  ).issues;
+
+  if (!Array.isArray(issues)) {
+    return [String(error)];
+  }
+
+  return issues.map((issue) => {
+    const path = issue.path.join(".");
+    return path ? `${path}: ${issue.message}` : issue.message;
+  });
+}

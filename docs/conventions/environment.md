@@ -33,6 +33,7 @@ OpenAI 모델은 코드 상수가 아니라 env로 결정한다.
 
 ```txt
 OPENAI_MODEL=gpt-4.1-mini
+OPENAI_TRANSCRIPTION_MODEL=gpt-4o-transcribe
 OPENAI_EMBEDDING_MODEL=text-embedding-3-small
 ```
 

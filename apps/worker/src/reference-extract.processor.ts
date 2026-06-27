@@ -1,7 +1,4 @@
-import {
-  referenceExtractWorkerResponseSchema,
-  type Job
-} from "@orbit/shared";
+import type { Job } from "@orbit/shared";
 import type { DataSource } from "typeorm";
 import { z } from "zod";
 
@@ -16,6 +13,10 @@ const referenceExtractPayloadSchema = z.object({
       contentBase64: z.string().min(1)
     })
   )
+});
+
+const referenceExtractWorkerResponseSchema = z.object({
+  files: z.array(z.record(z.unknown()))
 });
 
 export async function processReferenceExtractJob(

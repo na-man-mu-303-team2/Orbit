@@ -17,7 +17,8 @@
 - Cache/session/realtime adapter: ElastiCache Redis/Valkey
 - Queue: SQS
 - File storage: S3 private bucket, presigned URL
-- STT: Amazon Transcribe
+- Live STT: browser on-device STT, no managed cloud STT service
+- Rehearsal/coaching STT: OpenAI STT/API via `python-worker`
 - OCR: Amazon Textract
 - Secrets: AWS Secrets Manager
 - Logs/alarms: CloudWatch
@@ -32,4 +33,3 @@
 - [ ] raw audio 삭제 정책 검증
 - [ ] 청중 API에서 speaker notes/script가 노출되지 않는지 검증
 - [ ] SQS adapter와 BullMQ adapter 계약 일치 확인
-

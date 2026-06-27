@@ -25,6 +25,7 @@ VALID_ENV = {
     "LLM_PROVIDER": "openai",
     "OPENAI_API_KEY": "",
     "OPENAI_MODEL": "gpt-4.1-mini",
+    "OPENAI_TRANSCRIPTION_MODEL": "gpt-4o-transcribe",
     "OPENAI_EMBEDDING_MODEL": "text-embedding-3-small",
     "AWS_REGION": "ap-northeast-2",
     "AWS_ACCESS_KEY_ID": "",
@@ -39,11 +40,13 @@ def test_openai_model_defaults_are_loaded_from_env() -> None:
         {
             **VALID_ENV,
             "OPENAI_MODEL": "gpt-4.1",
+            "OPENAI_TRANSCRIPTION_MODEL": "gpt-4o-mini-transcribe",
             "OPENAI_EMBEDDING_MODEL": "text-embedding-3-large",
         }
     )
 
     assert config.openai_model == "gpt-4.1"
+    assert config.openai_transcription_model == "gpt-4o-mini-transcribe"
     assert config.openai_embedding_model == "text-embedding-3-large"
 
 

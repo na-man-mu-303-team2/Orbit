@@ -3,10 +3,10 @@ import {
   type EnqueueReferenceExtractJobInput
 } from "@orbit/job-queue";
 import { loadOrbitConfig } from "@orbit/config";
-import type { ReferenceExtractResponse } from "@orbit/shared";
-import { referenceExtractResponseSchema } from "@orbit/shared";
+import { jobSchema } from "@orbit/shared";
 import { Injectable } from "@nestjs/common";
 import { randomUUID } from "node:crypto";
+import { z } from "zod";
 import { JobsService } from "../jobs/jobs.service";
 
 interface UploadedExtractFile {
@@ -14,6 +14,13 @@ interface UploadedExtractFile {
   mimetype: string;
   buffer: Buffer;
 }
+
+const extractResponseSchema = z.object({
+  files: z.array(z.record(z.unknown())),
+  job: jobSchema
+});
+
+type ExtractResponse = z.infer<typeof extractResponseSchema>;
 
 @Injectable()
 export class ExtractService {
@@ -29,7 +36,7 @@ export class ExtractService {
   async extract(
     files: UploadedExtractFile[],
     projectId: string
-  ): Promise<ReferenceExtractResponse> {
+  ): Promise<ExtractResponse> {
     const payload = {
       files: files.map((file) => ({
         fileId: `file_${randomUUID()}`,
@@ -70,7 +77,7 @@ export class ExtractService {
       throw error;
     }
 
-    return referenceExtractResponseSchema.parse({
+    return extractResponseSchema.parse({
       files: [],
       job: queuedJob
     });

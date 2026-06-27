@@ -8,6 +8,14 @@ from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.audio.transcribe import (
+    AudioTranscribeRequest,
+    AudioTranscribeResponse,
+    AudioTranscriptionError,
+    SttProviderDependency,
+    to_http_exception,
+    transcribe_rehearsal_audio,
+)
 from app.config import PythonWorkerConfig, load_config
 from app.extraction import (
     ExtractConfig,
@@ -236,6 +244,17 @@ async def parse_documents(
             extracted_files.append(payload)
 
     return {"files": extracted_files}
+
+
+@app.post("/audio/transcribe", response_model=AudioTranscribeResponse)
+def transcribe_audio(
+    payload: AudioTranscribeRequest,
+    provider: SttProviderDependency,
+) -> AudioTranscribeResponse:
+    try:
+        return transcribe_rehearsal_audio(payload, provider)
+    except AudioTranscriptionError as exc:
+        raise to_http_exception(exc) from exc
 
 
 @app.post("/rehearsal/analyze", response_model=RehearsalAnalyzeResponse)
