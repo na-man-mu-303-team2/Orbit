@@ -1,5 +1,5 @@
 import { createDemoDeck } from "@orbit/editor-core";
-import { demoIds } from "@orbit/shared";
+import { demoIds, type Job } from "@orbit/shared";
 import { useQuery } from "@tanstack/react-query";
 import { Activity, Database, FileUp, Play, Radio, RefreshCw } from "lucide-react";
 import type { ChangeEvent, DragEvent, ReactNode } from "react";
@@ -33,11 +33,21 @@ type ExtractedFile = {
   keywords?: PresentationKeyword[];
   keywordStatus?: string;
   keywordMessage?: string;
+  indexingStatus?: string;
+  indexingMessage?: string;
+  chunkCount?: number;
 };
 
 type ExtractResponse = {
   files: ExtractedFile[];
+  job: Job;
 };
+
+type JobResult = {
+  files?: ExtractedFile[];
+};
+
+type Fetcher = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 
 type PresentationKeyword = {
   keyword: string;
@@ -69,6 +79,44 @@ async function fetchHealth(): Promise<HealthResponse> {
     throw new Error("API health check failed");
   }
   return response.json() as Promise<HealthResponse>;
+}
+
+export async function pollExtractJob(
+  jobId: string,
+  options: {
+    delayMs?: number;
+    fetcher?: Fetcher;
+    onUpdate?: (job: Job) => void;
+    timeoutMs?: number;
+  } = {}
+): Promise<Job> {
+  const delayMs = options.delayMs ?? 1000;
+  const fetcher = options.fetcher ?? fetch;
+  const timeoutAt = Date.now() + (options.timeoutMs ?? 120_000);
+
+  for (;;) {
+    const response = await fetcher(`/api/jobs/${jobId}`);
+    if (!response.ok) {
+      throw new Error((await response.text()) || "Job status lookup failed.");
+    }
+
+    const job = (await response.json()) as Job;
+    options.onUpdate?.(job);
+    if (job.status === "succeeded" || job.status === "failed") {
+      return job;
+    }
+
+    if (Date.now() > timeoutAt) {
+      throw new Error("Reference extraction timed out.");
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, delayMs));
+  }
+}
+
+export function getJobResultFiles(job: Job): ExtractedFile[] {
+  const result = job.result as JobResult | null;
+  return Array.isArray(result?.files) ? result.files : [];
 }
 
 export function App() {
@@ -166,6 +214,7 @@ function UploadView() {
   const [isDragging, setIsDragging] = useState(false);
   const [isExtracting, setIsExtracting] = useState(false);
   const [extractError, setExtractError] = useState("");
+  const [extractJob, setExtractJob] = useState<Job | null>(null);
   const [results, setResults] = useState<ExtractedFile[]>([]);
 
   const totalSize = useMemo(
@@ -215,6 +264,7 @@ function UploadView() {
   const removeUpload = (id: string) => {
     setUploads((current) => current.filter((upload) => upload.id !== id));
     setResults([]);
+    setExtractJob(null);
     setExtractError("");
   };
 
@@ -226,6 +276,7 @@ function UploadView() {
 
     setIsExtracting(true);
     setExtractError("");
+    setExtractJob(null);
     setResults([]);
 
     try {
@@ -240,7 +291,19 @@ function UploadView() {
       }
 
       const data = (await response.json()) as ExtractResponse;
-      setResults(data.files);
+      setExtractJob(data.job);
+
+      const job = await pollExtractJob(data.job.jobId, {
+        onUpdate: setExtractJob
+      });
+
+      if (job.status === "failed") {
+        throw new Error(
+          job.error?.message || job.message || "텍스트 추출에 실패했습니다."
+        );
+      }
+
+      setResults(getJobResultFiles(job));
     } catch (error) {
       setExtractError(error instanceof Error ? error.message : "텍스트 추출에 실패했습니다.");
     } finally {
@@ -328,6 +391,16 @@ function UploadView() {
           </>
         )}
 
+        {extractJob && (
+          <div className="job-status" aria-live="polite">
+            <div>
+              <strong>{extractJob.status}</strong>
+              <span>{extractJob.progress}%</span>
+            </div>
+            {extractJob.message && <p>{extractJob.message}</p>}
+          </div>
+        )}
+
         {extractError && (
           <div className="rejection-list" role="alert">
             <p>{extractError}</p>
@@ -343,72 +416,87 @@ function UploadView() {
 
             <div className="result-list">
               {results.map((result) => (
-                <article className="result-item" key={result.fileName}>
-                  <header className="result-item-header">
-                    <div>
-                      <h3>{result.fileName}</h3>
-                      <p>
-                        {result.kind.toUpperCase()} · {result.status}
-                      </p>
-                    </div>
-                    {result.message && <span>{result.message}</span>}
-                  </header>
-                  <div className="text-comparison">
-                    <div className="text-column">
-                      <h4>OCR 원문</h4>
-                      <pre>{result.rawText || "추출된 텍스트가 없습니다."}</pre>
-                    </div>
-                    <div className="text-column">
-                      <h4>AI 정제본</h4>
-                      <pre>
-                        {result.cleanedText ||
-                          result.cleanupMessage ||
-                          "AI 정제 결과가 없습니다."}
-                      </pre>
-                      {result.cleanupStatus && (
-                        <span className={`cleanup-status cleanup-status-${result.cleanupStatus}`}>
-                          {result.cleanupStatus}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                  <div className="keyword-panel">
-                    <div className="keyword-panel-header">
-                      <h4>발표 주요 키워드</h4>
-                      {result.keywordStatus && (
-                        <span className={`cleanup-status cleanup-status-${result.keywordStatus}`}>
-                          {result.keywordStatus}
-                        </span>
-                      )}
-                    </div>
-
-                    {result.keywords && result.keywords.length > 0 ? (
-                      <ul className="keyword-list">
-                        {result.keywords.map((keyword) => (
-                          <li key={`${result.fileName}-${keyword.keyword}`}>
-                            <div>
-                              <strong>{keyword.keyword}</strong>
-                              <p>{keyword.reason}</p>
-                            </div>
-                            <span className={`priority priority-${keyword.priority}`}>
-                              {keyword.priority}
-                            </span>
-                          </li>
-                        ))}
-                      </ul>
-                    ) : (
-                      <p className="keyword-empty">
-                        {result.keywordMessage || "추출된 발표 키워드가 없습니다."}
-                      </p>
-                    )}
-                  </div>
-                </article>
+                <ExtractResultItem key={result.fileName} result={result} />
               ))}
             </div>
           </section>
         )}
       </section>
     </main>
+  );
+}
+
+export function ExtractResultItem(props: { result: ExtractedFile }) {
+  const { result } = props;
+
+  return (
+    <article className="result-item">
+      <header className="result-item-header">
+        <div>
+          <h3>{result.fileName}</h3>
+          <p>
+            {result.kind.toUpperCase()} · {result.status}
+          </p>
+        </div>
+        {result.message && <span>{result.message}</span>}
+      </header>
+      {result.indexingStatus && (
+        <p className="indexing-summary">
+          {result.indexingStatus}
+          {typeof result.chunkCount === "number" ? ` · ${result.chunkCount} chunks` : ""}
+          {result.indexingMessage ? ` · ${result.indexingMessage}` : ""}
+        </p>
+      )}
+      <div className="text-comparison">
+        <div className="text-column">
+          <h4>OCR 원문</h4>
+          <pre>{result.rawText || "추출된 텍스트가 없습니다."}</pre>
+        </div>
+        <div className="text-column">
+          <h4>AI 정제본</h4>
+          <pre>
+            {result.cleanedText ||
+              result.cleanupMessage ||
+              "AI 정제 결과가 없습니다."}
+          </pre>
+          {result.cleanupStatus && (
+            <span className={`cleanup-status cleanup-status-${result.cleanupStatus}`}>
+              {result.cleanupStatus}
+            </span>
+          )}
+        </div>
+      </div>
+      <div className="keyword-panel">
+        <div className="keyword-panel-header">
+          <h4>발표 주요 키워드</h4>
+          {result.keywordStatus && (
+            <span className={`cleanup-status cleanup-status-${result.keywordStatus}`}>
+              {result.keywordStatus}
+            </span>
+          )}
+        </div>
+
+        {result.keywords && result.keywords.length > 0 ? (
+          <ul className="keyword-list">
+            {result.keywords.map((keyword) => (
+              <li key={`${result.fileName}-${keyword.keyword}`}>
+                <div>
+                  <strong>{keyword.keyword}</strong>
+                  <p>{keyword.reason}</p>
+                </div>
+                <span className={`priority priority-${keyword.priority}`}>
+                  {keyword.priority}
+                </span>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="keyword-empty">
+            {result.keywordMessage || "추출된 발표 키워드가 없습니다."}
+          </p>
+        )}
+      </div>
+    </article>
   );
 }
 

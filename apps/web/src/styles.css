@@ -305,6 +305,32 @@ dd {
   margin: 0;
 }
 
+.job-status {
+  background: rgba(13, 115, 119, 0.08);
+  border-left: 4px solid #0d7377;
+  display: grid;
+  gap: 6px;
+  padding: 14px 16px;
+}
+
+.job-status div {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+  justify-content: space-between;
+}
+
+.job-status strong,
+.job-status span {
+  color: #063f43;
+  font-weight: 800;
+}
+
+.job-status p {
+  color: #696f7a;
+  margin: 0;
+}
+
 .file-list {
   display: grid;
   gap: 10px;
@@ -436,6 +462,12 @@ dd {
   font-size: 0.85rem;
   max-width: 45%;
   text-align: right;
+}
+
+.indexing-summary {
+  color: #696f7a;
+  font-size: 0.88rem;
+  margin: 0;
 }
 
 .text-comparison {
