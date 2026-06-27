@@ -125,6 +125,11 @@ dd {
   grid-template-columns: minmax(0, 1.4fr) minmax(280px, 0.6fr);
 }
 
+.side-column {
+  display: grid;
+  gap: 16px;
+}
+
 .panel {
   padding: 20px;
 }
@@ -165,6 +170,139 @@ dd {
   display: flex;
   flex-direction: column;
   gap: 18px;
+}
+
+.auth-panel,
+.auth-form,
+.session-card {
+  display: grid;
+  gap: 14px;
+}
+
+.auth-heading {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+}
+
+.auth-heading svg {
+  color: #0f766e;
+}
+
+.segmented-control {
+  background: #eef3f6;
+  border: 1px solid #d9e1e7;
+  border-radius: 8px;
+  display: grid;
+  gap: 4px;
+  grid-template-columns: 1fr 1fr;
+  padding: 4px;
+}
+
+.segmented-control button,
+.primary-action,
+.secondary-action {
+  align-items: center;
+  border-radius: 6px;
+  cursor: pointer;
+  display: inline-flex;
+  gap: 8px;
+  justify-content: center;
+  min-height: 38px;
+}
+
+.segmented-control button {
+  background: transparent;
+  border: 0;
+  color: #527089;
+}
+
+.segmented-control button.active {
+  background: #ffffff;
+  color: #15202b;
+  font-weight: 700;
+}
+
+.auth-form label {
+  display: grid;
+  gap: 6px;
+}
+
+.auth-form label span,
+.session-card span {
+  color: #678095;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.auth-form input {
+  background: #ffffff;
+  border: 1px solid #cdd8e1;
+  border-radius: 8px;
+  color: #15202b;
+  min-height: 42px;
+  padding: 0 12px;
+  width: 100%;
+}
+
+.auth-form input:focus {
+  border-color: #0f766e;
+  outline: 2px solid rgba(15, 118, 110, 0.18);
+}
+
+.auth-error {
+  align-items: center;
+  background: #fff1f2;
+  border: 1px solid #fecdd3;
+  border-radius: 8px;
+  color: #be123c;
+  display: flex;
+  font-size: 0.86rem;
+  gap: 8px;
+  margin: 0;
+  padding: 10px;
+}
+
+.auth-error svg {
+  flex: 0 0 auto;
+}
+
+.session-card {
+  background: #f8fafb;
+  border: 1px solid #d9e1e7;
+  border-radius: 8px;
+  padding: 14px;
+}
+
+.session-card strong {
+  color: #15202b;
+  display: block;
+  font-size: 0.95rem;
+  margin-top: 4px;
+  overflow-wrap: anywhere;
+}
+
+.primary-action,
+.secondary-action {
+  border: 0;
+  font-weight: 700;
+  padding: 0 14px;
+}
+
+.primary-action {
+  background: #0f766e;
+  color: #ffffff;
+}
+
+.secondary-action {
+  background: #15202b;
+  color: #ffffff;
+}
+
+.primary-action:disabled,
+.secondary-action:disabled {
+  cursor: not-allowed;
+  opacity: 0.62;
 }
 
 .action-list {

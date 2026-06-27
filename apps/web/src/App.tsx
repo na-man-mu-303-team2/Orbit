@@ -3,6 +3,7 @@ import { demoIds } from "@orbit/shared";
 import { useQuery } from "@tanstack/react-query";
 import { Activity, Database, FileUp, Play, Radio, RefreshCw } from "lucide-react";
 import type { ReactNode } from "react";
+import { AuthPanel } from "./features/auth/AuthPanel";
 
 interface HealthResponse {
   status: string;
@@ -83,24 +84,28 @@ export function App() {
           </dl>
         </article>
 
-        <article className="panel task-panel">
-          <p className="panel-kicker">Sprint 1</p>
-          <h2>Core Flow</h2>
-          <div className="action-list">
-            <button type="button">
-              <Play size={18} />
-              프로젝트 생성
-            </button>
-            <button type="button">
-              <FileUp size={18} />
-              파일 업로드
-            </button>
-            <button type="button">
-              <Activity size={18} />
-              Job 상태 확인
-            </button>
-          </div>
-        </article>
+        <div className="side-column">
+          <AuthPanel />
+
+          <article className="panel task-panel">
+            <p className="panel-kicker">Sprint 1</p>
+            <h2>Core Flow</h2>
+            <div className="action-list">
+              <button type="button">
+                <Play size={18} />
+                프로젝트 생성
+              </button>
+              <button type="button">
+                <FileUp size={18} />
+                파일 업로드
+              </button>
+              <button type="button">
+                <Activity size={18} />
+                Job 상태 확인
+              </button>
+            </div>
+          </article>
+        </div>
       </section>
     </main>
   );
