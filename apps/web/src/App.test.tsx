@@ -1,96 +1,58 @@
-import { createDemoDeck } from "@orbit/editor-core";
-import { demoIds } from "@orbit/shared";
-import type { Deck } from "@orbit/shared";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { renderToString } from "react-dom/server";
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import { App, EditorStateNotice } from "./App";
+import { renderToStaticMarkup } from "react-dom/server";
+import type { Job } from "@orbit/shared";
+import { describe, expect, it, vi } from "vitest";
+import { ExtractResultItem, getJobResultFiles, pollExtractJob } from "./App";
 
-function createTestQueryClient() {
-  return new QueryClient({
-    defaultOptions: {
-      queries: {
-        retry: false
-      }
-    }
-  });
-}
+describe("reference extraction upload flow", () => {
+  it("polls a succeeded job and renders its result", async () => {
+    const file = {
+      fileName: "sample.pdf",
+      kind: "pdf",
+      status: "succeeded",
+      message: "done",
+      rawText: "raw text",
+      cleanedText: "cleaned text",
+      cleanupStatus: "succeeded",
+      keywords: [{ keyword: "deck", reason: "topic", priority: "high" }],
+      keywordStatus: "succeeded",
+      indexingStatus: "indexed",
+      indexingMessage: "stored",
+      chunkCount: 2
+    };
+    const baseJob: Job = {
+      jobId: "job-1",
+      projectId: "project-a",
+      type: "reference-extract",
+      status: "running",
+      progress: 10,
+      message: "Reference extraction running.",
+      result: null,
+      error: null,
+      createdAt: "2026-06-27T00:00:00.000Z",
+      updatedAt: "2026-06-27T00:00:00.000Z"
+    };
+    const fetcher = vi
+      .fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify(baseJob)))
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            ...baseJob,
+            status: "succeeded",
+            progress: 100,
+            result: { files: [file] }
+          })
+        )
+      );
 
-function renderApp(queryClient: QueryClient) {
-  return renderToString(
-    <QueryClientProvider client={queryClient}>
-      <App />
-    </QueryClientProvider>
-  );
-}
+    const job = await pollExtractJob("job-1", { delayMs: 0, fetcher });
+    const [result] = getJobResultFiles(job);
+    const html = renderToStaticMarkup(<ExtractResultItem result={result} />);
 
-function setDeckData(queryClient: QueryClient, deck: Deck) {
-  queryClient.setQueryData(["deck", demoIds.projectId], deck);
-  queryClient.setQueryData(["health"], {
-    app: "orbit-api",
-    demo: demoIds,
-    status: "ok"
-  });
-}
-
-describe("editor shell", () => {
-  beforeEach(() => {
-    vi.stubGlobal("fetch", vi.fn());
-  });
-
-  it("renders the project deck and slide navigator", () => {
-    const queryClient = createTestQueryClient();
-    const deck = createDemoDeck();
-
-    setDeckData(queryClient, deck);
-
-    const html = renderApp(queryClient);
-
-    expect(html).toContain(deck.title);
-    expect(html).toContain("Opening");
-    expect(html).toContain("Data Contract");
-    expect(html).toContain("발표 메모");
-    expect(html).toContain("저장됨");
-    expect(html).toContain("충돌 없음 · base v");
-  });
-
-  it("renders a loading state while the deck query is pending", () => {
-    const queryClient = createTestQueryClient();
-
-    const html = renderApp(queryClient);
-
-    expect(html).toContain("덱을 불러오는 중");
-    expect(html).toContain("프로젝트 덱 응답을 기다리는 동안");
-    expect(html).toContain("로컬 데모");
-  });
-
-  it("renders an empty deck state without a selected slide", () => {
-    const queryClient = createTestQueryClient();
-    const emptyDeck = {
-      ...createDemoDeck(),
-      slides: []
-    } as Deck;
-
-    setDeckData(queryClient, emptyDeck);
-
-    const html = renderApp(queryClient);
-
-    expect(html).toContain("슬라이드 없음");
-    expect(html).toContain("현재 덱에는 슬라이드가 없습니다");
-    expect(html).toContain("등록된 키워드 없음");
-  });
-
-  it("renders a deck load error state with demo fallback", () => {
-    const html = renderToString(
-      <EditorStateNotice
-        isError
-        isLoading={false}
-        isUsingFallback
-      />
-    );
-
-    expect(html).toContain("덱을 불러올 수 없음");
-    expect(html).toContain("403/404 또는 네트워크 오류");
-    expect(html).toContain("demo fallback");
+    expect(fetcher).toHaveBeenNthCalledWith(1, "/api/jobs/job-1");
+    expect(fetcher).toHaveBeenNthCalledWith(2, "/api/jobs/job-1");
+    expect(html).toContain("sample.pdf");
+    expect(html).toContain("cleaned text");
+    expect(html).toContain("2 chunks");
   });
 });
