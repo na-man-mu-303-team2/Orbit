@@ -21,6 +21,16 @@
   "projectId": "project_demo_1",
   "title": "Demo Deck",
   "version": 1,
+  "metadata": {
+    "language": "ko",
+    "locale": "ko-KR"
+  },
+  "canvas": {
+    "preset": "wide-16-9",
+    "width": 1920,
+    "height": 1080,
+    "aspectRatio": "16:9"
+  },
   "slides": [
     {
       "slideId": "slide_1",
@@ -64,6 +74,13 @@
 
 결정 사항:
 
+- 지원하는 deck canvas preset은 `wide-16-9`와 `standard-4-3`이다.
+- `wide-16-9`는 `1920x1080`, `standard-4-3`은 `1024x768`만 허용한다.
+- `aspectRatio`는 preset에 맞는 문자열 literal로 검증한다.
+- 모바일 세로형 `1080x1920`은 1차 스프린트 계약에 포함하지 않고, 필요 시 `portrait-9-16` preset으로 추가한다.
+- `metadata.language`는 `"ko"`만 허용한다.
+- `metadata.locale`은 `"ko-KR"`만 허용한다. STT, 날짜/시간, 지역별 포맷이 필요한 기능은 `locale`을 기준으로 처리한다.
+- `metadata.language`와 `metadata.locale`은 생략 시 각각 `"ko"`, `"ko-KR"`로 기본값을 채운다.
 - 슬라이드 식별자는 `slideId`, 객체 식별자는 `elementId`로 통일한다.
 - 좌표 단위는 `px` 기준으로 한다.
 - AI 생성 결과도 최종적으로 deck JSON으로 변환한다.

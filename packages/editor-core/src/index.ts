@@ -6,6 +6,16 @@ export function createDemoDeck(): Deck {
     projectId: demoIds.projectId,
     title: "ORBIT Demo Deck",
     version: 1,
+    metadata: {
+      language: "ko",
+      locale: "ko-KR"
+    },
+    canvas: {
+      preset: "wide-16-9",
+      width: 1920,
+      height: 1080,
+      aspectRatio: "16:9"
+    },
     slides: [
       {
         slideId: "slide_1",
@@ -60,4 +70,3 @@ export function nextDeckVersion(deck: Deck): Deck {
     version: deck.version + 1
   };
 }
-
