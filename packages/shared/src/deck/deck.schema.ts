@@ -33,11 +33,14 @@ export const deckCanvasSchema = z.discriminatedUnion("preset", [
   standardDeckCanvasSchema
 ]);
 
+export const keywordTextSchema = z.string().trim().min(1);
+export const keywordTermSchema = z.string().trim().min(1);
+
 export const keywordSchema = z.object({
   keywordId: deckKeywordIdSchema,
-  text: z.string().min(1),
-  synonyms: z.array(z.string()).default([]),
-  abbreviations: z.array(z.string()).default([])
+  text: keywordTextSchema,
+  synonyms: z.array(keywordTermSchema).default([]),
+  abbreviations: z.array(keywordTermSchema).default([])
 });
 
 export const slideOrderSchema = z.number().int().positive();
@@ -78,17 +81,36 @@ export const slideStyleSchema = z
   })
   .default({});
 
-export const slideSchema = z.object({
-  slideId: deckSlideIdSchema,
-  order: slideOrderSchema,
-  title: z.string().default(""),
-  thumbnailUrl: z.string().default(""),
-  style: slideStyleSchema,
-  speakerNotes: z.string().default(""),
-  elements: z.array(deckElementSchema).default([]),
-  keywords: z.array(keywordSchema).default([]),
-  animations: z.array(animationSchema).default([])
-});
+export const slideSchema = z
+  .object({
+    slideId: deckSlideIdSchema,
+    order: slideOrderSchema,
+    title: z.string().default(""),
+    thumbnailUrl: z.string().default(""),
+    style: slideStyleSchema,
+    speakerNotes: z.string().default(""),
+    elements: z.array(deckElementSchema).default([]),
+    keywords: z.array(keywordSchema).default([]),
+    animations: z.array(animationSchema).default([])
+  })
+  .superRefine((slide, ctx) => {
+    const keywordTexts = new Set<string>();
+
+    slide.keywords.forEach((keyword, index) => {
+      const text = keyword.text.toLocaleLowerCase("ko-KR");
+
+      if (keywordTexts.has(text)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["keywords", index, "text"],
+          message: "keyword text must be unique within a slide"
+        });
+        return;
+      }
+
+      keywordTexts.add(text);
+    });
+  });
 
 export const deckSchema = z.object({
   deckId: deckIdSchema,

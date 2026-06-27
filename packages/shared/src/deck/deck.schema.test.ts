@@ -318,6 +318,60 @@ describe("deckSchema validation", () => {
     expectInvalidDeck(deck);
   });
 
+  it("normalizes keyword text and terms", () => {
+    const deck = createValidDeck();
+
+    deck.slides[0].keywords = [
+      {
+        keywordId: "kw_1",
+        text: " ORBIT ",
+        synonyms: [" 발표 도우미 "],
+        abbreviations: [" STT "]
+      }
+    ];
+
+    const parsed = deckSchema.parse(deck);
+
+    expect(parsed.slides[0].keywords[0]).toEqual({
+      keywordId: "kw_1",
+      text: "ORBIT",
+      synonyms: ["발표 도우미"],
+      abbreviations: ["STT"]
+    });
+  });
+
+  it("rejects duplicate keyword text within a slide", () => {
+    const deck = createValidDeck();
+
+    deck.slides[0].keywords = [
+      {
+        keywordId: "kw_1",
+        text: "ORBIT",
+        synonyms: [],
+        abbreviations: []
+      },
+      {
+        keywordId: "kw_2",
+        text: "orbit",
+        synonyms: [],
+        abbreviations: []
+      }
+    ];
+
+    expectInvalidDeck(deck);
+  });
+
+  it.each([
+    ["synonym", "synonyms"],
+    ["abbreviation", "abbreviations"]
+  ])("rejects empty keyword %s", (_label, field) => {
+    const deck = createValidDeck();
+
+    deck.slides[0].keywords[0][field as "synonyms" | "abbreviations"] = [""];
+
+    expectInvalidDeck(deck);
+  });
+
   it.each([
     ["deckId", "deckId"],
     ["slideId", "slides.0.slideId"],
