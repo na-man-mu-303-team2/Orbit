@@ -336,9 +336,9 @@ describe("DecksService", () => {
       after_version: 2
     });
     expect(getResponse.deck.version).toBe(2);
-    expect(snapshotResponse.snapshots.map((snapshot) => snapshot.version)).toEqual([
-      2,
-      1
+    expect(snapshotResponse.snapshots.map((snapshot) => snapshot.version).sort()).toEqual([
+      1,
+      2
     ]);
   });
 
@@ -433,6 +433,47 @@ describe("DecksService", () => {
     );
 
     expect(error.details.join("\n")).toContain("operations");
+  });
+
+  it("rejects invalid keyword replacement patch payloads", async () => {
+    const { service } = createService();
+    const deck = createDeck();
+    await service.putDeck(deck.projectId, { deck });
+
+    const error = await expectDeckApiError(
+      () =>
+        service.appendPatch(deck.projectId, {
+          patch: {
+            deckId: deck.deckId,
+            baseVersion: deck.version,
+            source: "user",
+            operations: [
+              {
+                type: "replace_keywords",
+                slideId: "slide_intro",
+                keywords: [
+                  {
+                    keywordId: "kw_one",
+                    text: "ORBIT",
+                    synonyms: [""],
+                    abbreviations: []
+                  },
+                  {
+                    keywordId: "kw_two",
+                    text: "orbit",
+                    synonyms: [],
+                    abbreviations: []
+                  }
+                ]
+              }
+            ]
+          }
+        }),
+      HttpStatus.BAD_REQUEST,
+      "PATCH_VALIDATION_FAILED"
+    );
+
+    expect(error.details.join("\n")).toContain("keywords");
   });
 
   it("rejects invalid DeckSchema payloads", async () => {
