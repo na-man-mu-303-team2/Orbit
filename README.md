@@ -34,6 +34,7 @@ ORBIT은 발표자료 생성, 편집, 협업 발표, 리허설, 청중 참여를
 corepack enable
 corepack prepare pnpm@10.12.4 --activate
 pnpm install
+cp .env.example .env.local
 pnpm build
 docker compose up --build
 ```

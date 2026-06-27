@@ -1,4 +1,5 @@
 import { z } from "zod";
+export * from "./config/runtime";
 
 export const demoIds = {
   userId: "user_demo_1",
@@ -216,4 +217,3 @@ export type PresentationReport = z.infer<typeof reportSchema>;
 export function nowIso(): string {
   return new Date().toISOString();
 }
-

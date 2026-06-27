@@ -20,6 +20,7 @@ jobs:
           node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile=false
+      - run: cp .env.example .env.local
       - run: node infra/scripts/check-env.mjs
       - run: pnpm build
       - run: pnpm lint

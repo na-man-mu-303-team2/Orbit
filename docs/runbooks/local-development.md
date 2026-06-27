@@ -6,6 +6,7 @@
 corepack enable
 corepack prepare pnpm@10.12.4 --activate
 pnpm install
+cp .env.example .env.local
 docker compose up --build
 ```
 
@@ -40,4 +41,3 @@ docker compose ps
 - `pnpm db:migration:run`: pgvector extension과 초기 테이블 생성 확인
 - `docker compose config`: Compose 문법 확인
 - API Swagger: http://localhost:3000/docs
-
