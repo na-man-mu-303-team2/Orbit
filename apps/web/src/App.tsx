@@ -8,6 +8,7 @@ import type {
   GetDeckResponse,
   GroupElementProps,
   ImageElementProps,
+  Keyword,
   Slide
 } from "@orbit/shared";
 import { useQuery } from "@tanstack/react-query";
@@ -80,6 +81,7 @@ export function App() {
   const [slidePanelView, setSlidePanelView] =
     useState<SlidePanelView>("thumbnail");
   const [showIds, setShowIds] = useState(false);
+  const [selectedKeywordId, setSelectedKeywordId] = useState<string | null>(null);
   const [activeTopMenu, setActiveTopMenu] = useState<TopMenu | null>(null);
   const topbarRef = useRef<HTMLElement | null>(null);
 
@@ -112,6 +114,10 @@ export function App() {
       [...currentSlide.animations].sort((left, right) => left.order - right.order),
     [currentSlide.animations]
   );
+  const selectedKeyword =
+    currentSlide.keywords.find(
+      (keyword) => keyword.keywordId === selectedKeywordId
+    ) ?? null;
   const isDev = import.meta.env.DEV;
   const fileMenuItems = [
     { icon: FolderPlus, label: "새 프레젠테이션", meta: "빈 덱" },
@@ -210,6 +216,17 @@ export function App() {
       document.removeEventListener("keydown", handleEscape);
     };
   }, [activeTopMenu]);
+
+  useEffect(() => {
+    if (
+      selectedKeywordId &&
+      !currentSlide.keywords.some(
+        (keyword) => keyword.keywordId === selectedKeywordId
+      )
+    ) {
+      setSelectedKeywordId(null);
+    }
+  }, [currentSlide.keywords, selectedKeywordId]);
 
   return (
     <main className="app-shell orbit-shell">
@@ -666,7 +683,22 @@ export function App() {
                   )}
                 </span>
               </div>
-              <p>{currentSlide.speakerNotes || "발표 메모가 아직 없습니다."}</p>
+              <KeywordHighlightedNotes
+                keywords={currentSlide.keywords}
+                notes={currentSlide.speakerNotes}
+                selectedKeywordId={selectedKeywordId}
+                showIds={showIds}
+                onSelectKeyword={setSelectedKeywordId}
+              />
+              <KeywordList
+                keywords={currentSlide.keywords}
+                selectedKeywordId={selectedKeywordId}
+                showIds={showIds}
+                onSelectKeyword={setSelectedKeywordId}
+              />
+              {selectedKeyword ? (
+                <KeywordDetail keyword={selectedKeyword} showIds={showIds} />
+              ) : null}
             </section>
           </div>
         </section>
@@ -735,6 +767,25 @@ export function App() {
           />
 
           <section className="suggestion-card">
+            <strong>Keywords</strong>
+            <div className="stack-list">
+              {currentSlide.keywords.length > 0 ? (
+                currentSlide.keywords.map((keyword) => (
+                  <KeywordSummary
+                    key={keyword.keywordId}
+                    keyword={keyword}
+                    showIds
+                  />
+                ))
+              ) : (
+                <div className="stack-item compact">
+                  <span>no keywords</span>
+                </div>
+              )}
+            </div>
+          </section>
+
+          <section className="suggestion-card">
             <strong>Animations</strong>
             <div className="stack-list">
               {currentSlideAnimations.map((animation) => (
@@ -775,6 +826,190 @@ function buildSlideThumbBackground(slide: Slide, deck: Deck) {
     `linear-gradient(90deg, ${accent} 0 20%, transparent 20% 28%, ${accent} 28% 55%, transparent 55% 64%, ${accent} 64% 84%, transparent 84%)`,
     background
   ].join(",");
+}
+
+interface KeywordMatch {
+  end: number;
+  keyword: Keyword;
+  start: number;
+  value: string;
+}
+
+function KeywordHighlightedNotes(props: {
+  keywords: Keyword[];
+  notes: string;
+  selectedKeywordId: string | null;
+  showIds: boolean;
+  onSelectKeyword: (keywordId: string) => void;
+}) {
+  const { keywords, notes, selectedKeywordId, showIds, onSelectKeyword } = props;
+
+  if (!notes) {
+    return <p className="script-copy">발표 메모가 아직 없습니다.</p>;
+  }
+
+  const matches = findKeywordMatches(notes, keywords);
+
+  if (matches.length === 0) {
+    return <p className="script-copy">{notes}</p>;
+  }
+
+  const parts: Array<string | KeywordMatch> = [];
+  let cursor = 0;
+
+  matches.forEach((match) => {
+    if (cursor < match.start) {
+      parts.push(notes.slice(cursor, match.start));
+    }
+    parts.push(match);
+    cursor = match.end;
+  });
+
+  if (cursor < notes.length) {
+    parts.push(notes.slice(cursor));
+  }
+
+  return (
+    <p className="script-copy">
+      {parts.map((part, index) => {
+        if (typeof part === "string") {
+          return part;
+        }
+
+        const isSelected = part.keyword.keywordId === selectedKeywordId;
+
+        return (
+          <button
+            className={`keyword-mark ${isSelected ? "selected" : ""}`}
+            key={`${part.keyword.keywordId}-${part.start}-${index}`}
+            type="button"
+            onClick={() => onSelectKeyword(part.keyword.keywordId)}
+          >
+            <strong>{part.value}</strong>
+            {showIds ? <IdBadge id={part.keyword.keywordId} /> : null}
+          </button>
+        );
+      })}
+    </p>
+  );
+}
+
+function KeywordList(props: {
+  keywords: Keyword[];
+  selectedKeywordId: string | null;
+  showIds: boolean;
+  onSelectKeyword: (keywordId: string) => void;
+}) {
+  const { keywords, selectedKeywordId, showIds, onSelectKeyword } = props;
+
+  return (
+    <div className="keyword-strip">
+      {keywords.length > 0 ? (
+        keywords.map((keyword) => (
+          <button
+            className={`keyword-chip ${
+              keyword.keywordId === selectedKeywordId ? "selected" : ""
+            }`}
+            key={keyword.keywordId}
+            type="button"
+            onClick={() => onSelectKeyword(keyword.keywordId)}
+          >
+            <span>{keyword.text}</span>
+            {showIds ? <IdBadge id={keyword.keywordId} /> : null}
+          </button>
+        ))
+      ) : (
+        <span className="keyword-empty">등록된 키워드 없음</span>
+      )}
+    </div>
+  );
+}
+
+function KeywordDetail(props: { keyword: Keyword; showIds: boolean }) {
+  const { keyword, showIds } = props;
+
+  return (
+    <section className="keyword-detail-card">
+      <div className="keyword-detail-header">
+        <strong>{keyword.text}</strong>
+        {showIds ? <IdBadge id={keyword.keywordId} /> : null}
+      </div>
+      <KeywordAliases label="유의어" values={keyword.synonyms} />
+      <KeywordAliases label="약어" values={keyword.abbreviations} />
+    </section>
+  );
+}
+
+function KeywordAliases(props: { label: string; values: string[] }) {
+  return (
+    <div className="keyword-alias-row">
+      <span>{props.label}</span>
+      <div>
+        {props.values.length > 0 ? (
+          props.values.map((value) => (
+            <small className="keyword-alias" key={value}>
+              {value}
+            </small>
+          ))
+        ) : (
+          <small className="keyword-alias muted">없음</small>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function KeywordSummary(props: { keyword: Keyword; showIds: boolean }) {
+  const { keyword, showIds } = props;
+
+  return (
+    <div className="stack-item">
+      {showIds ? <IdBadge id={keyword.keywordId} /> : null}
+      <strong>{keyword.text}</strong>
+      <small>
+        synonyms {keyword.synonyms.join(", ") || "none"} · abbreviations{" "}
+        {keyword.abbreviations.join(", ") || "none"}
+      </small>
+    </div>
+  );
+}
+
+function findKeywordMatches(notes: string, keywords: Keyword[]) {
+  const candidates = keywords
+    .flatMap((keyword) =>
+      [keyword.text, ...keyword.synonyms, ...keyword.abbreviations]
+        .map((value) => value.trim())
+        .filter(Boolean)
+        .map((value) => ({ keyword, value }))
+    )
+    .sort((left, right) => right.value.length - left.value.length);
+  const normalizedNotes = notes.toLocaleLowerCase();
+  const matches: KeywordMatch[] = [];
+
+  candidates.forEach(({ keyword, value }) => {
+    const normalizedValue = value.toLocaleLowerCase();
+    let start = normalizedNotes.indexOf(normalizedValue);
+
+    while (start !== -1) {
+      const end = start + value.length;
+      const overlaps = matches.some(
+        (match) => start < match.end && end > match.start
+      );
+
+      if (!overlaps) {
+        matches.push({
+          end,
+          keyword,
+          start,
+          value: notes.slice(start, end)
+        });
+      }
+
+      start = normalizedNotes.indexOf(normalizedValue, end);
+    }
+  });
+
+  return matches.sort((left, right) => left.start - right.start);
 }
 
 function InfoCard(props: { title: string; lines: string[] }) {

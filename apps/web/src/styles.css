@@ -859,14 +859,134 @@ button:disabled {
 }
 
 .script-panel-header span,
-.script-panel p {
+.script-copy {
   color: var(--muted);
   font-size: 14px;
 }
 
-.script-panel p {
+.script-copy {
   margin: 0;
   line-height: 1.6;
+}
+
+.keyword-mark {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 0;
+  margin: 0 1px;
+  padding: 1px 4px;
+  border: 0;
+  border-radius: 5px;
+  background: rgba(162, 225, 219, 0.35);
+  color: #0f4f52;
+  vertical-align: baseline;
+}
+
+.keyword-mark strong {
+  font-weight: 900;
+}
+
+.keyword-mark:hover,
+.keyword-mark.selected {
+  background: rgba(143, 202, 202, 0.45);
+  color: #0c3f42;
+}
+
+.keyword-mark .id-badge {
+  min-height: 18px;
+  padding: 0 6px;
+  font-size: 10px;
+}
+
+.keyword-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+
+.keyword-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 30px;
+  padding: 0 10px;
+  border: 1px solid rgba(143, 202, 202, 0.62);
+  border-radius: 999px;
+  background: #f3fbfb;
+  color: #0f4f52;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.keyword-chip:hover,
+.keyword-chip.selected {
+  border-color: #8fcaca;
+  background: #d4f0f0;
+}
+
+.keyword-empty {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.keyword-detail-card {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px solid rgba(143, 202, 202, 0.54);
+  border-radius: 12px;
+  background: linear-gradient(180deg, #fbffff, #f3fbfb);
+}
+
+.keyword-detail-header,
+.keyword-alias-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.keyword-detail-header strong {
+  color: #0f4f52;
+  font-size: 14px;
+}
+
+.keyword-alias-row > span {
+  flex: 0 0 72px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.keyword-alias-row > div {
+  display: flex;
+  flex: 1;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.keyword-alias {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: #fff;
+  color: #0f4f52;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.keyword-alias.muted {
+  color: var(--muted);
+  font-weight: 700;
 }
 
 .ai-pane {
