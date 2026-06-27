@@ -33,4 +33,3 @@ describe("ORBIT-10 ProjectsService", () => {
     expect(service.list()).toContainEqual(project);
   });
 });
-
