@@ -168,6 +168,48 @@ describe("FilesService", () => {
     ).rejects.toBeInstanceOf(ForbiddenException);
   });
 
+  it("stores uploaded proxy content in the project asset object", async () => {
+    const { assets, repository } = createAssetRepository([
+      {
+        fileId: "file_1",
+        projectId: demoProject.projectId,
+        storageKey: "projects/project_demo_created/assets/file_1/report.pdf",
+        originalName: "report.pdf",
+        mimeType: "application/pdf",
+        size: 4,
+        url: "http://localhost:5173/api/v1/projects/project_demo_created/assets/file_1/content",
+        purpose: "reference-material",
+        status: "pending",
+        createdAt: new Date(),
+        uploadedAt: null,
+      } as ProjectAssetEntity,
+    ]);
+    const storage = createStorage();
+    const service = new FilesService(
+      repository,
+      {
+        getAccessibleProject: vi.fn(async () => demoProject),
+      } as unknown as ProjectsService,
+      storage,
+    );
+
+    await service.storeUploadContent(
+      demoProject.projectId,
+      "file_1",
+      Buffer.from("%PDF"),
+    );
+
+    expect(storage.putObject).toHaveBeenCalledWith({
+      key: "projects/project_demo_created/assets/file_1/report.pdf",
+      body: Buffer.from("%PDF"),
+      contentType: "application/pdf",
+      purpose: "reference-material",
+    });
+    expect(assets[0].url).toBe(
+      "http://localhost:9000/orbit-local/projects/project_demo_created/assets/file_1/report.pdf",
+    );
+  });
+
   it("returns not found when completing an unknown asset", async () => {
     const { service } = createService({
       getAccessibleProject: vi.fn(async () => demoProject),

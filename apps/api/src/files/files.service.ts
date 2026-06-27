@@ -1,5 +1,6 @@
 import {
   assetUploadUrlResponseSchema,
+  filePurposeSchema,
   uploadedFileSchema,
 } from "@orbit/shared";
 import type {
@@ -15,6 +16,7 @@ import {
   Inject,
   Injectable,
   NotFoundException,
+  Optional,
 } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { Repository } from "typeorm";
@@ -22,6 +24,7 @@ import { ProjectsService } from "../projects/projects.service";
 import { ProjectAssetEntity } from "./project-asset.entity";
 
 export const STORAGE_PORT = Symbol("STORAGE_PORT");
+export const UPLOAD_PROXY_ORIGIN = Symbol("UPLOAD_PROXY_ORIGIN");
 
 const uploadUrlExpiresInSeconds = 15 * 60;
 
@@ -33,6 +36,9 @@ export class FilesService {
     private readonly projectsService: ProjectsService,
     @Inject(STORAGE_PORT)
     private readonly storage: StoragePort,
+    @Optional()
+    @Inject(UPLOAD_PROXY_ORIGIN)
+    private readonly uploadProxyOrigin: string | null = null,
   ) {}
 
   async createUploadUrl(
@@ -46,7 +52,9 @@ export class FilesService {
       fileId,
       input.originalName,
     );
-    const uploadUrl = await this.storage.createUploadUrl({
+    const uploadUrl = await this.createUploadTarget({
+      projectId: project.projectId,
+      fileId,
       key: storageKey,
       contentType: input.mimeType,
       expiresInSeconds: uploadUrlExpiresInSeconds,
@@ -77,6 +85,37 @@ export class FilesService {
       expiresAt: uploadUrl.expiresAt,
       purpose: input.purpose,
     });
+  }
+
+  // local MinIO 모드에서 브라우저가 보낸 binary를 실제 storage object로 저장한다.
+  async storeUploadContent(
+    projectId: string,
+    fileId: string,
+    body: Uint8Array,
+  ): Promise<void> {
+    await this.projectsService.getAccessibleProject(projectId);
+
+    const asset = await this.assetsRepository.findOne({
+      where: { fileId },
+    });
+
+    if (!asset) {
+      throw new NotFoundException(`Asset not found: ${fileId}`);
+    }
+
+    if (asset.projectId !== projectId) {
+      throw new ForbiddenException("Project asset access denied");
+    }
+
+    const object = await this.storage.putObject({
+      key: asset.storageKey,
+      body,
+      contentType: asset.mimeType,
+      purpose: filePurposeSchema.parse(asset.purpose),
+    });
+
+    asset.url = object.url;
+    await this.assetsRepository.save(asset);
   }
 
   async completeUpload(
@@ -124,6 +163,39 @@ export class FilesService {
   ): string {
     const safeName = originalName.replace(/[^a-zA-Z0-9._-]/g, "_");
     return `projects/${projectId}/assets/${fileId}/${safeName}`;
+  }
+
+  // 환경에 따라 local API proxy URL 또는 S3 presigned URL을 선택한다.
+  private async createUploadTarget(input: {
+    projectId: string;
+    fileId: string;
+    key: string;
+    contentType: string;
+    expiresInSeconds: number;
+  }) {
+    if (this.uploadProxyOrigin) {
+      return {
+        key: input.key,
+        url: this.createUploadProxyUrl(input.projectId, input.fileId),
+        method: "PUT" as const,
+        headers: {
+          "content-type": input.contentType,
+        },
+        expiresAt: new Date(
+          Date.now() + input.expiresInSeconds * 1000,
+        ).toISOString(),
+      };
+    }
+
+    return this.storage.createUploadUrl(input);
+  }
+
+  // 브라우저 origin과 같은 host를 쓰는 API upload proxy URL을 만든다.
+  private createUploadProxyUrl(projectId: string, fileId: string): string {
+    const origin = this.uploadProxyOrigin?.replace(/\/+$/, "");
+    return `${origin}/api/v1/projects/${encodeURIComponent(
+      projectId,
+    )}/assets/${encodeURIComponent(fileId)}/content`;
   }
 
   private toUploadedFile(asset: ProjectAssetEntity): UploadedFile {

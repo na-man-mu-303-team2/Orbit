@@ -85,3 +85,15 @@
 - Rationale: complete 누락 상태를 API/DB에서 추적할 수 있고 후속 cleanup job을 붙이기 쉽다.
 - Affected files: `apps/api/src/files/**`, `apps/api/src/database/migrations/2026062703000-CreateProjectsAndProjectAssets.ts`.
 - Follow-up review notes: pending asset TTL, object existence check, cleanup job은 작업큐 또는 storage adapter 기능이 준비된 뒤 별도 결정한다.
+
+## ORBIT-92 browser upload environment
+
+- Context: ORBIT-91 화면은 브라우저에서 `PUT uploadUrl`을 직접 호출한다. 기존 local storage adapter는 공개 object URL만 반환해 실제 upload URL 흐름을 재현하지 못했다.
+- Options considered:
+  - API가 파일 binary를 proxy로 받아 MinIO에 저장한다.
+  - 기존 공개 object URL을 유지하고 upload complete만 처리한다.
+  - 모든 환경에서 S3-compatible presigned PUT URL을 발급한다.
+- Final decision: local MinIO 모드에서는 API가 같은-origin upload proxy URL을 발급하고, proxy endpoint가 MinIO에 object를 저장한다. S3 모드에서는 `@orbit/storage`의 AWS SDK presigner 기반 S3-compatible adapter를 사용한다.
+- Rationale: 로컬/CI 브라우저 smoke에서 CORS와 host signature mismatch를 피하면서도, staging/production S3 전환 시 같은 `StoragePort`와 upload-url/complete 계약을 유지할 수 있다.
+- Affected files: `packages/storage/src/index.ts`, `packages/storage/package.json`, `apps/api/src/files/**`, `docker-compose.yml`, `pnpm-lock.yaml`.
+- Follow-up review notes: staging/production에서는 S3 bucket CORS origin을 실제 web origin으로 제한하고, S3 credentials는 secret store로만 주입한다.
