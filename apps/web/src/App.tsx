@@ -4,6 +4,7 @@ import orbitLogo from "./assets/orbit-logo.png";
 import type {
   Chart,
   Deck,
+  DeckCanvas,
   DeckElement,
   GetDeckResponse,
   GroupElementProps,
@@ -105,24 +106,27 @@ export function App() {
   });
 
   const deck = deckQuery.data ?? fallbackDeck;
-  const currentSlide = deck.slides[currentSlideIndex] ?? deck.slides[0];
-  const apiStatusLabel =
-    health.data?.status === "ok"
-      ? "API 연결됨"
-      : health.isError
-        ? "API 연결 안 됨 · demo data"
-        : "API 확인 중";
-  const visibleElements = [...currentSlide.elements].sort(
-    (left, right) => left.zIndex - right.zIndex
-  );
+  const isUsingFallbackDeck = !deckQuery.data;
+  const isDeckLoading = deckQuery.isPending;
+  const isDeckError = deckQuery.isError;
+  const hasSlides = deck.slides.length > 0;
+  const currentSlide = deck.slides[currentSlideIndex] ?? deck.slides[0] ?? null;
+  const saveStatusLabel = deckQuery.data ? "저장됨" : "로컬 데모";
+  const visibleElements = currentSlide
+    ? [...currentSlide.elements].sort((left, right) => left.zIndex - right.zIndex)
+    : [];
   const stageScale = 0.44;
   const currentSlideAnimations = useMemo(
     () =>
-      [...currentSlide.animations].sort((left, right) => left.order - right.order),
-    [currentSlide.animations]
+      currentSlide
+        ? [...currentSlide.animations].sort(
+            (left, right) => left.order - right.order
+          )
+        : [],
+    [currentSlide]
   );
   const selectedKeyword =
-    currentSlide.keywords.find(
+    currentSlide?.keywords.find(
       (keyword) => keyword.keywordId === selectedKeywordId
     ) ?? null;
   const selectedElement =
@@ -230,24 +234,30 @@ export function App() {
   useEffect(() => {
     if (
       selectedKeywordId &&
-      !currentSlide.keywords.some(
+      !currentSlide?.keywords.some(
         (keyword) => keyword.keywordId === selectedKeywordId
       )
     ) {
       setSelectedKeywordId(null);
     }
-  }, [currentSlide.keywords, selectedKeywordId]);
+  }, [currentSlide, selectedKeywordId]);
 
   useEffect(() => {
     if (
       selectedElementId &&
-      !currentSlide.elements.some(
+      !currentSlide?.elements.some(
         (element) => element.elementId === selectedElementId
       )
     ) {
       setSelectedElementId(null);
     }
-  }, [currentSlide.elements, selectedElementId]);
+  }, [currentSlide, selectedElementId]);
+
+  useEffect(() => {
+    if (currentSlideIndex > 0 && currentSlideIndex >= deck.slides.length) {
+      setCurrentSlideIndex(Math.max(0, deck.slides.length - 1));
+    }
+  }, [currentSlideIndex, deck.slides.length]);
 
   return (
     <main className="app-shell orbit-shell">
@@ -409,7 +419,7 @@ export function App() {
 
         <div className="topbar-center">
           <span className="deck-title">{deck.title}</span>
-          <span className="save-state">{apiStatusLabel}</span>
+          <span className="save-state">{saveStatusLabel}</span>
         </div>
 
         <div className="top-actions">
@@ -534,30 +544,37 @@ export function App() {
             </div>
           ) : (
             <div className={`slides-list ${slidePanelView}-view`}>
-              {deck.slides.map((slide, index) => (
-                <button
-                  className={`slide-item ${index === currentSlideIndex ? "active" : ""}`}
-                  key={slide.slideId}
-                  type="button"
-                  onClick={() => setCurrentSlideIndex(index)}
-                >
-                  <span className="slide-number">{index + 1}</span>
-                  <span className="slide-title">
-                    {slide.title || `슬라이드 ${index + 1}`}
-                    {showIds ? <IdBadge id={slide.slideId} /> : null}
-                  </span>
-                  <span
-                    className="slide-thumb orbit-thumb"
-                    style={{
-                      background: buildSlideThumbBackground(slide, deck)
-                    }}
+              {hasSlides ? (
+                deck.slides.map((slide, index) => (
+                  <button
+                    className={`slide-item ${index === currentSlideIndex ? "active" : ""}`}
+                    key={slide.slideId}
+                    type="button"
+                    onClick={() => setCurrentSlideIndex(index)}
                   >
-                    <small>
-                      {slide.thumbnailUrl ? "미리보기 준비 중" : "미리보기 없음"}
-                    </small>
-                  </span>
-                </button>
-              ))}
+                    <span className="slide-number">{index + 1}</span>
+                    <span className="slide-title">
+                      {slide.title || `슬라이드 ${index + 1}`}
+                      {showIds ? <IdBadge id={slide.slideId} /> : null}
+                    </span>
+                    <span
+                      className="slide-thumb orbit-thumb"
+                      style={{
+                        background: buildSlideThumbBackground(slide, deck)
+                      }}
+                    >
+                      <small>
+                        {slide.thumbnailUrl ? "미리보기 준비 중" : "미리보기 없음"}
+                      </small>
+                    </span>
+                  </button>
+                ))
+              ) : (
+                <EmptyPanel
+                  title="슬라이드 없음"
+                  description="덱에 표시할 슬라이드가 없습니다. 새 슬라이드 또는 가져오기 기능이 연결되면 이 영역에 목록이 표시됩니다."
+                />
+              )}
             </div>
           )}
 
@@ -638,6 +655,11 @@ export function App() {
           </div>
 
           <div className="canvas-scroll">
+            <EditorStateNotice
+              isError={isDeckError}
+              isLoading={isDeckLoading}
+              isUsingFallback={isUsingFallbackDeck}
+            />
             <div className="workspace-summary">
               {showIds ? (
                 <div className="summary-chip id-summary-chip">
@@ -651,73 +673,80 @@ export function App() {
               <div className="summary-chip">
                 {deck.metadata.language} / {deck.metadata.locale}
               </div>
-            </div>
-
-            <div className="konva-wrap">
-              <div
-                className="konva-stage-shell orbit-stage-shell"
-                style={{
-                  width: deck.canvas.width * stageScale,
-                  height: deck.canvas.height * stageScale,
-                  background:
-                    currentSlide.style.backgroundColor ?? deck.theme.backgroundColor,
-                  color: currentSlide.style.textColor ?? deck.theme.textColor,
-                  borderRadius: deck.theme.effects.borderRadius * 0.8
-                }}
-              >
-                {currentSlide.style.backgroundImage ? (
-                  <div
-                    className="background-image-overlay"
-                    style={{
-                      opacity: currentSlide.style.backgroundImage.opacity
-                    }}
-                  >
-                    <span>{currentSlide.style.backgroundImage.src}</span>
-                    <small>
-                      {currentSlide.style.backgroundImage.alt} ·{" "}
-                      {currentSlide.style.backgroundImage.fit}
-                    </small>
-                  </div>
-                ) : null}
-
-                {visibleElements.map((element) => (
-                  <SlideElementView
-                    key={element.elementId}
-                    deck={deck}
-                    element={element}
-                    isSelected={element.elementId === selectedElementId}
-                    showIds={showIds}
-                    slide={currentSlide}
-                    stageScale={stageScale}
-                    onSelect={() => {
-                      setSelectedElementId(element.elementId);
-                      setRightPanelTab("properties");
-                    }}
-                  />
-                ))}
+              <div className="summary-chip save-conflict-chip">
+                충돌 없음 · base v{deck.version}
               </div>
             </div>
+
+            {currentSlide ? (
+              <div className="konva-wrap">
+                <div
+                  className="konva-stage-shell orbit-stage-shell"
+                  style={{
+                    width: deck.canvas.width * stageScale,
+                    height: deck.canvas.height * stageScale,
+                    background:
+                      currentSlide.style.backgroundColor ?? deck.theme.backgroundColor,
+                    color: currentSlide.style.textColor ?? deck.theme.textColor,
+                    borderRadius: deck.theme.effects.borderRadius * 0.8
+                  }}
+                >
+                  {currentSlide.style.backgroundImage ? (
+                    <div
+                      className="background-image-overlay"
+                      style={{
+                        opacity: currentSlide.style.backgroundImage.opacity
+                      }}
+                    >
+                      <span>{currentSlide.style.backgroundImage.src}</span>
+                      <small>
+                        {currentSlide.style.backgroundImage.alt} ·{" "}
+                        {currentSlide.style.backgroundImage.fit}
+                      </small>
+                    </div>
+                  ) : null}
+
+                  {visibleElements.map((element) => (
+                    <SlideElementView
+                      key={element.elementId}
+                      deck={deck}
+                      element={element}
+                      isSelected={element.elementId === selectedElementId}
+                      showIds={showIds}
+                      slide={currentSlide}
+                      stageScale={stageScale}
+                      onSelect={() => {
+                        setSelectedElementId(element.elementId);
+                        setRightPanelTab("properties");
+                      }}
+                    />
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <EmptyCanvasState canvas={deck.canvas} />
+            )}
 
             <section className="script-panel">
               <div className="script-panel-header">
                 <strong>발표 메모</strong>
                 <span>
-                  {showIds ? (
+                  {currentSlide && showIds ? (
                     <IdBadge id={currentSlide.slideId} />
                   ) : (
-                    currentSlide.title || `슬라이드 ${currentSlideIndex + 1}`
+                    currentSlide?.title || `슬라이드 ${currentSlideIndex + 1}`
                   )}
                 </span>
               </div>
               <KeywordHighlightedNotes
-                keywords={currentSlide.keywords}
-                notes={currentSlide.speakerNotes}
+                keywords={currentSlide?.keywords ?? []}
+                notes={currentSlide?.speakerNotes ?? ""}
                 selectedKeywordId={selectedKeywordId}
                 showIds={showIds}
                 onSelectKeyword={setSelectedKeywordId}
               />
               <KeywordList
-                keywords={currentSlide.keywords}
+                keywords={currentSlide?.keywords ?? []}
                 selectedKeywordId={selectedKeywordId}
                 showIds={showIds}
                 onSelectKeyword={setSelectedKeywordId}
@@ -809,20 +838,24 @@ export function App() {
 
           <InfoCard
             title="Slide Style"
-            lines={[
-              `layout: ${currentSlide.style.layout ?? "none"}`,
-              `fontFamily: ${currentSlide.style.fontFamily ?? deck.theme.fontFamily}`,
-              `backgroundColor: ${currentSlide.style.backgroundColor ?? deck.theme.backgroundColor}`,
-              `textColor: ${currentSlide.style.textColor ?? deck.theme.textColor}`,
-              `accentColor: ${currentSlide.style.accentColor ?? deck.theme.accentColor}`,
-              `backgroundImage: ${currentSlide.style.backgroundImage?.src ?? "none"}`
-            ]}
+            lines={
+              currentSlide
+                ? [
+                    `layout: ${currentSlide.style.layout ?? "none"}`,
+                    `fontFamily: ${currentSlide.style.fontFamily ?? deck.theme.fontFamily}`,
+                    `backgroundColor: ${currentSlide.style.backgroundColor ?? deck.theme.backgroundColor}`,
+                    `textColor: ${currentSlide.style.textColor ?? deck.theme.textColor}`,
+                    `accentColor: ${currentSlide.style.accentColor ?? deck.theme.accentColor}`,
+                    `backgroundImage: ${currentSlide.style.backgroundImage?.src ?? "none"}`
+                  ]
+                : ["empty deck: no selected slide"]
+            }
           />
 
           <section className="suggestion-card">
             <strong>Keywords</strong>
             <div className="stack-list">
-              {currentSlide.keywords.length > 0 ? (
+              {currentSlide && currentSlide.keywords.length > 0 ? (
                 currentSlide.keywords.map((keyword) => (
                   <KeywordSummary
                     key={keyword.keywordId}
@@ -859,9 +892,15 @@ export function App() {
           <section className="suggestion-card">
             <strong>Elements</strong>
             <div className="stack-list">
-              {visibleElements.map((element) => (
-                <ElementSummary key={element.elementId} element={element} />
-              ))}
+              {visibleElements.length > 0 ? (
+                visibleElements.map((element) => (
+                  <ElementSummary key={element.elementId} element={element} />
+                ))
+              ) : (
+                <div className="stack-item compact">
+                  <span>no elements</span>
+                </div>
+              )}
             </div>
           </section>
         </section>
@@ -879,6 +918,62 @@ function buildSlideThumbBackground(slide: Slide, deck: Deck) {
     `linear-gradient(90deg, ${accent} 0 20%, transparent 20% 28%, ${accent} 28% 55%, transparent 55% 64%, ${accent} 64% 84%, transparent 84%)`,
     background
   ].join(",");
+}
+
+function EditorStateNotice(props: {
+  isError: boolean;
+  isLoading: boolean;
+  isUsingFallback: boolean;
+}) {
+  if (props.isLoading) {
+    return (
+      <section className="editor-state-notice loading">
+        <strong>덱을 불러오는 중</strong>
+        <span>프로젝트 덱 응답을 기다리는 동안 데모 덱 미리보기를 유지합니다.</span>
+      </section>
+    );
+  }
+
+  if (props.isError) {
+    return (
+      <section className="editor-state-notice error">
+        <strong>덱을 불러올 수 없음</strong>
+        <span>403/404 또는 네트워크 오류일 수 있습니다. 현재 화면은 demo fallback 데이터입니다.</span>
+      </section>
+    );
+  }
+
+  if (props.isUsingFallback) {
+    return (
+      <section className="editor-state-notice fallback">
+        <strong>Demo fallback</strong>
+        <span>API 덱이 아직 없어서 로컬 데모 DeckSchema 데이터를 표시합니다.</span>
+      </section>
+    );
+  }
+
+  return null;
+}
+
+function EmptyPanel(props: { title: string; description: string }) {
+  return (
+    <section className="empty-panel">
+      <strong>{props.title}</strong>
+      <p>{props.description}</p>
+    </section>
+  );
+}
+
+function EmptyCanvasState(props: { canvas: DeckCanvas }) {
+  return (
+    <section className="empty-canvas-state">
+      <strong>빈 덱</strong>
+      <p>
+        현재 덱에는 슬라이드가 없습니다. 캔버스 프리셋은 {props.canvas.preset} /{" "}
+        {props.canvas.width} × {props.canvas.height}px로 유지됩니다.
+      </p>
+    </section>
+  );
 }
 
 interface KeywordMatch {

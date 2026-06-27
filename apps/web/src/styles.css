@@ -679,6 +679,52 @@ button:disabled {
   padding: 34px 24px 30px;
 }
 
+.editor-state-notice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  width: min(100%, 920px);
+  margin: 0 auto 14px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+  color: #334155;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.04);
+}
+
+.editor-state-notice strong {
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.editor-state-notice span {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.45;
+  text-align: right;
+}
+
+.editor-state-notice.loading {
+  border-color: #bfdbfe;
+  background: #eff6ff;
+}
+
+.editor-state-notice.error {
+  border-color: #fecaca;
+  background: #fff1f2;
+}
+
+.editor-state-notice.error strong {
+  color: #b42318;
+}
+
+.editor-state-notice.fallback {
+  border-color: #fde68a;
+  background: #fffbeb;
+}
+
 .workspace-summary {
   display: flex;
   gap: 8px;
@@ -695,6 +741,12 @@ button:disabled {
   font-size: 13px;
   font-weight: 700;
   padding: 6px 10px;
+}
+
+.save-conflict-chip {
+  border-color: #bbf7d0;
+  background: #f0fdf4;
+  color: #15803d;
 }
 
 .id-summary-chip {
@@ -761,6 +813,43 @@ button:disabled {
   place-items: start center;
   min-width: 0;
   overflow: visible;
+}
+
+.empty-panel,
+.empty-canvas-state {
+  display: grid;
+  gap: 8px;
+  border: 1px dashed var(--line-strong);
+  border-radius: 10px;
+  background: #fff;
+}
+
+.empty-panel {
+  padding: 14px;
+}
+
+.empty-panel strong,
+.empty-canvas-state strong {
+  color: #1e293b;
+  font-size: 14px;
+}
+
+.empty-panel p,
+.empty-canvas-state p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.empty-canvas-state {
+  width: min(100%, 720px);
+  min-height: 320px;
+  margin: 0 auto;
+  place-items: center;
+  align-content: center;
+  padding: 24px;
+  text-align: center;
 }
 
 .konva-stage-shell {
