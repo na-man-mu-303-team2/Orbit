@@ -4,7 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Activity, Database, FileUp, Play, Radio, RefreshCw } from "lucide-react";
 import { AuthPanel } from "./features/auth/AuthPanel";
 import type { ChangeEvent, DragEvent, ReactNode } from "react";
-import { useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useMemo, useRef, useState } from "react";
 
 interface HealthResponse {
   status: string;
@@ -57,6 +57,11 @@ type PresentationKeyword = {
 };
 
 const demoDeck = createDemoDeck();
+const EditorShell = lazy(() =>
+  import("./features/editor/EditorShell").then((module) => ({
+    default: module.EditorShell
+  }))
+);
 const allowedExtensions = ["pdf", "docx", "pptx"];
 const allowedMimeTypes = new Set([
   "application/pdf",
@@ -121,7 +126,7 @@ export function getJobResultFiles(job: Job): ExtractedFile[] {
 }
 
 export function App() {
-  const [view, setView] = useState<"console" | "upload">("console");
+  const [view, setView] = useState<"console" | "upload" | "editor">("console");
   const previewText =
     demoDeck.slides[0]?.elements.find((element) => element.type === "text")?.props.text ?? "";
 
@@ -133,6 +138,14 @@ export function App() {
 
   if (view === "upload") {
     return <UploadView />;
+  }
+
+  if (view === "editor") {
+    return (
+      <Suspense fallback={<EditorLoadingFallback />}>
+        <EditorShell />
+      </Suspense>
+    );
   }
 
   return (
@@ -203,12 +216,29 @@ export function App() {
                 <FileUp size={18} />
                 파일 업로드
               </button>
+              <button type="button" onClick={() => setView("editor")}>
+                <Activity size={18} />
+                편집기 열기
+              </button>
               <button type="button">
                 <Activity size={18} />
                 Job 상태 확인
               </button>
             </div>
           </article>
+        </div>
+      </section>
+    </main>
+  );
+}
+
+function EditorLoadingFallback() {
+  return (
+    <main className="app-shell">
+      <section className="topbar">
+        <div>
+          <p className="eyebrow">editor</p>
+          <h1>편집기를 불러오는 중</h1>
         </div>
       </section>
     </main>
