@@ -8,20 +8,20 @@ export function createDemoDeck(): Deck {
     version: 1,
     metadata: {
       language: "ko",
-      locale: "ko-KR"
+      locale: "ko-KR",
     },
     canvas: {
       preset: "wide-16-9",
       width: 1920,
       height: 1080,
-      aspectRatio: "16:9"
+      aspectRatio: "16:9",
     },
     theme: {
       name: "Default",
       fontFamily: "Inter",
       backgroundColor: "#ffffff",
       textColor: "#111827",
-      accentColor: "#2563eb"
+      accentColor: "#2563eb",
     },
     slides: [
       {
@@ -35,8 +35,8 @@ export function createDemoDeck(): Deck {
             keywordId: "kw_1",
             text: "ORBIT",
             synonyms: ["발표 도우미"],
-            abbreviations: []
-          }
+            abbreviations: [],
+          },
         ],
         elements: [
           {
@@ -49,9 +49,9 @@ export function createDemoDeck(): Deck {
             props: {
               text: "ORBIT",
               fontSize: 56,
-              color: "#111827"
-            }
-          }
+              color: "#111827",
+            },
+          },
         ],
         animations: [
           {
@@ -61,11 +61,11 @@ export function createDemoDeck(): Deck {
             order: 1,
             durationMs: 400,
             delayMs: 0,
-            easing: "ease-out"
-          }
-        ]
-      }
-    ]
+            easing: "ease-out",
+          },
+        ],
+      },
+    ],
   });
 }
 
@@ -76,6 +76,9 @@ export function validateDeck(deck: unknown): Deck {
 export function nextDeckVersion(deck: Deck): Deck {
   return {
     ...deck,
-    version: deck.version + 1
+    version: deck.version + 1,
   };
 }
+
+export * from "./patches/applyPatch";
+export * from "./patches/deckPatch";
