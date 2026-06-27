@@ -66,8 +66,43 @@ function createTextElement(elementId: string): DeckElement {
   };
 }
 
-function createDeckWithSecondSlide(): Deck {
+function createPatchTestDeck(): Deck {
   const deck = createDemoDeck();
+  const slide: Slide = {
+    ...createSlide("slide_1", 1),
+    title: "Opening",
+    thumbnailUrl: "/files/thumbnails/slide_1.png",
+    speakerNotes: "ORBIT 데모 흐름을 소개합니다.",
+    keywords: [
+      {
+        keywordId: "kw_1",
+        text: "ORBIT",
+        synonyms: ["발표 도우미"],
+        abbreviations: ["OBT"],
+      },
+    ],
+    elements: [createTextElement("el_1")],
+    animations: [
+      {
+        animationId: "anim_1",
+        elementId: "el_1",
+        type: "fade-in",
+        order: 1,
+        durationMs: 400,
+        delayMs: 0,
+        easing: "ease-out",
+      },
+    ],
+  };
+
+  return {
+    ...deck,
+    slides: [slide],
+  };
+}
+
+function createDeckWithSecondSlide(): Deck {
+  const deck = createPatchTestDeck();
 
   deck.slides.push(createSlide("slide_2", 2));
 
@@ -95,7 +130,7 @@ function applyPatchOrFail(deck: Deck, patch: DeckPatch): ApplyDeckPatchSuccess {
 
 describe("applyDeckPatch", () => {
   it("applies update_deck and returns version metadata with change record", () => {
-    const deck = createDemoDeck();
+    const deck = createPatchTestDeck();
     const result = applyPatchOrFail(
       deck,
       createPatch([
@@ -126,7 +161,7 @@ describe("applyDeckPatch", () => {
 
   it("adds a slide and keeps slides sorted by order", () => {
     const result = applyPatchOrFail(
-      createDemoDeck(),
+      createPatchTestDeck(),
       createPatch([
         {
           type: "add_slide",
@@ -143,7 +178,7 @@ describe("applyDeckPatch", () => {
 
   it("updates slide title and thumbnailUrl", () => {
     const result = applyPatchOrFail(
-      createDemoDeck(),
+      createPatchTestDeck(),
       createPatch([
         {
           type: "update_slide",
@@ -204,7 +239,7 @@ describe("applyDeckPatch", () => {
 
   it("adds an element", () => {
     const result = applyPatchOrFail(
-      createDemoDeck(),
+      createPatchTestDeck(),
       createPatch([
         {
           type: "add_element",
@@ -221,7 +256,7 @@ describe("applyDeckPatch", () => {
 
   it("updates element frame fields", () => {
     const result = applyPatchOrFail(
-      createDemoDeck(),
+      createPatchTestDeck(),
       createPatch([
         {
           type: "update_element_frame",
@@ -254,7 +289,7 @@ describe("applyDeckPatch", () => {
 
   it("updates element props", () => {
     const result = applyPatchOrFail(
-      createDemoDeck(),
+      createPatchTestDeck(),
       createPatch([
         {
           type: "update_element_props",
@@ -279,7 +314,7 @@ describe("applyDeckPatch", () => {
 
   it("deletes an element and removes animations targeting it", () => {
     const result = applyPatchOrFail(
-      createDemoDeck(),
+      createPatchTestDeck(),
       createPatch([
         {
           type: "delete_element",
@@ -295,7 +330,7 @@ describe("applyDeckPatch", () => {
 
   it("applies theme, slide style, notes, keywords, and animation operations", () => {
     const result = applyPatchOrFail(
-      createDemoDeck(),
+      createPatchTestDeck(),
       createPatch([
         {
           type: "update_theme",
@@ -380,7 +415,7 @@ describe("applyDeckPatch", () => {
 
   it("fails when deckId does not match", () => {
     const result = applyDeckPatch(
-      createDemoDeck(),
+      createPatchTestDeck(),
       createPatch(
         [
           {
@@ -419,7 +454,7 @@ describe("applyDeckPatch", () => {
 
   it("fails when baseVersion does not match current deck version", () => {
     const result = applyDeckPatch(
-      createDemoDeck(),
+      createPatchTestDeck(),
       createPatch(
         [
           {
@@ -441,7 +476,7 @@ describe("applyDeckPatch", () => {
 
   it("fails when target slide does not exist", () => {
     const result = applyDeckPatch(
-      createDemoDeck(),
+      createPatchTestDeck(),
       createPatch([
         {
           type: "update_slide",
@@ -461,7 +496,7 @@ describe("applyDeckPatch", () => {
 
   it("fails when target element does not exist", () => {
     const result = applyDeckPatch(
-      createDemoDeck(),
+      createPatchTestDeck(),
       createPatch([
         {
           type: "update_element_props",
@@ -484,7 +519,7 @@ describe("applyDeckPatch", () => {
 
   it("fails when the patched deck violates DeckSchema", () => {
     const result = applyDeckPatch(
-      createDemoDeck(),
+      createPatchTestDeck(),
       createPatch([
         {
           type: "delete_slide",
