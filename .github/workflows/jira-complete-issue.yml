@@ -25,6 +25,7 @@ jobs:
         env:
           PR_TITLE: ${{ github.event.pull_request.title }}
           PR_BRANCH: ${{ github.event.pull_request.head.ref }}
+          PR_BODY_JSON: ${{ toJSON(github.event.pull_request.body) }}
         run: node infra/scripts/build-jira-webhook-payload.mjs > jira-payload.json
 
       - name: Trigger Jira Automation
