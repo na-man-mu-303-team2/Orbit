@@ -8,6 +8,11 @@ from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.ai.generate_deck import (
+    GenerateDeckRequest,
+    GenerateDeckResponse,
+    generate_deck,
+)
 from app.audio.transcribe import (
     AudioTranscribeRequest,
     AudioTranscribeResponse,
@@ -255,6 +260,11 @@ def transcribe_audio(
         return transcribe_rehearsal_audio(payload, provider)
     except AudioTranscriptionError as exc:
         raise to_http_exception(exc) from exc
+
+
+@app.post("/ai/generate-deck", response_model=GenerateDeckResponse)
+def generate_ai_deck(payload: GenerateDeckRequest) -> GenerateDeckResponse:
+    return generate_deck(payload)
 
 
 @app.post("/rehearsal/analyze", response_model=RehearsalAnalyzeResponse)
