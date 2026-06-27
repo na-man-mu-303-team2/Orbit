@@ -68,6 +68,8 @@ jobs:
         run: cp .env.example .env.local
       - name: Start API and web smoke services
         run: docker compose up --build -d api web
+      - name: Run smoke database migrations
+        run: pnpm db:migration:run
       - name: Wait for smoke endpoints
         run: |
           for url in http://127.0.0.1:3000/health http://127.0.0.1:5173; do

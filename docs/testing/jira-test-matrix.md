@@ -30,7 +30,7 @@
 | ORBIT-7 | 환경변수 | 필수 env 검증, 예시 파일 정합성 | env schema tests, `node infra/scripts/check-env.mjs` |
 | ORBIT-8 | 인증/세션 | 회원가입, 로그인, 세션 유지 | `apps/api/src/auth/auth.service.spec.ts`, web auth tests |
 | ORBIT-9 | 초대 링크 | 생성, 만료, 중복 사용, 권한 | planned API unit/integration tests |
-| ORBIT-10 | 프로젝트/파일 업로드 | 프로젝트 생성, 업로드 결과 구조 유지 | `projects.service.spec.ts`, `files.service.spec.ts`, Playwright smoke expansion |
+| ORBIT-10 | 프로젝트/파일 업로드 | 프로젝트 생성, 업로드 결과 구조 유지 | `projects.service.spec.ts`, `files.service.spec.ts`, `ProjectAssetWorkspace.test.ts`, `tests/e2e/smoke.spec.ts` |
 | ORBIT-11 | 작업큐/Python worker | Job 상태, worker health, 실패 상태 | planned job queue unit/API tests, Python health tests |
 | ORBIT-12 | M1 checkpoint | 로그인부터 작업 시작까지 확인 | Playwright platform flow |
 | ORBIT-13 | 편집기 epic | 덱 편집과 내보내기 흐름 | 하위 ORBIT-14..22 테스트 |
@@ -95,7 +95,7 @@
 | ORBIT-81 | ORBIT-7 env | env schema/script tests |
 | ORBIT-85 | ORBIT-8 auth | API service/controller tests |
 | ORBIT-89 | ORBIT-9 invite | API integration tests |
-| ORBIT-93 | ORBIT-10 project/upload | API unit/integration plus Playwright smoke |
+| ORBIT-93 | ORBIT-10 project/upload | API unit/integration, web helper test, storage presign test, Playwright smoke |
 | ORBIT-97 | ORBIT-11 jobs | API/worker tests |
 | ORBIT-99 | ORBIT-14 deck schema | shared schema tests |
 | ORBIT-102 | ORBIT-15 deck persistence | API service tests |
