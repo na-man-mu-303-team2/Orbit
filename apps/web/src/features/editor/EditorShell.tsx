@@ -9,8 +9,13 @@ import {
 } from "../../../../../packages/editor-core/src/index";
 import { applyDeckPatch } from "../../../../../packages/editor-core/src/patches/applyPatch";
 import { createElementFramePatch } from "../../../../../packages/editor-core/src/patches/elementFrame";
-import { demoIds } from "@orbit/shared";
+import { demoIds, maxAssetUploadSizeBytes } from "@orbit/shared";
 import orbitLogo from "../../assets/orbit-logo.png";
+import {
+  createProject,
+  fetchProjects,
+  uploadProjectAsset
+} from "../projects/ProjectAssetWorkspace";
 import type {
   Chart,
   Deck,
@@ -63,6 +68,7 @@ import {
 import {
   Circle,
   Group,
+  Image as KonvaImage,
   Layer,
   Line,
   Rect,
@@ -73,6 +79,7 @@ import {
   Transformer
 } from "react-konva";
 import type {
+  ChangeEvent,
   CSSProperties,
   PointerEvent as ReactPointerEvent
 } from "react";
@@ -96,6 +103,15 @@ const defaultRightPaneWidth = 320;
 const minRightPaneWidth = 260;
 const maxRightPaneWidth = 560;
 const textElementPadding = 4;
+const editorUploadProjectTitle = "ORBIT Editor Uploads";
+const defaultImageInsertFrame = {
+  height: 240,
+  width: 420,
+  x: 260,
+  y: 220
+};
+const editorImageAccept = ".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp";
+const editorImageMimeTypes = new Set(["image/jpeg", "image/png", "image/webp"]);
 
 type TopMenu = "file" | "resize" | "editMode" | "quickEdit" | "presentation";
 type SlidePanelView = "thumbnail" | "list";
@@ -105,6 +121,22 @@ type ShapeMenuPosition = {
   left: number;
   top: number;
 };
+type ElementContextMenuState = {
+  elementId: string;
+  left: number;
+  slideId: string;
+  top: number;
+};
+type ImageUploadTarget =
+  | {
+      type: "insert";
+      slideId: string;
+    }
+  | {
+      elementId: string;
+      slideId: string;
+      type: "replace";
+    };
 type ElementFrameChange = {
   role?: DeckElementRole | null;
   x?: number;
@@ -117,6 +149,8 @@ type ElementFrameChange = {
   locked?: boolean;
   visible?: boolean;
 };
+
+type ToolbarNoticeTone = "info" | "success" | "danger";
 
 async function fetchHealth(): Promise<HealthResponse> {
   const response = await fetch("/api/health");
@@ -154,10 +188,18 @@ export function EditorShell() {
   const [isShapeMenuOpen, setIsShapeMenuOpen] = useState(false);
   const [shapeMenuPosition, setShapeMenuPosition] =
     useState<ShapeMenuPosition | null>(null);
+  const [elementContextMenu, setElementContextMenu] =
+    useState<ElementContextMenuState | null>(null);
+  const [imageUploadNotice, setImageUploadNotice] = useState<{
+    message: string;
+    tone: ToolbarNoticeTone;
+  } | null>(null);
+  const [isImageUploadPending, setIsImageUploadPending] = useState(false);
   const [undoStack, setUndoStack] = useState<Deck[]>([]);
   const [redoStack, setRedoStack] = useState<Deck[]>([]);
   const topbarRef = useRef<HTMLElement | null>(null);
   const shapeMenuButtonRef = useRef<HTMLButtonElement | null>(null);
+  const imageFileInputRef = useRef<HTMLInputElement | null>(null);
 
   const health = useQuery({
     queryKey: ["health"],
@@ -173,6 +215,9 @@ export function EditorShell() {
 
   const loadedDeck = deckQuery.data ?? fallbackDeck;
   const [deck, setDeck] = useState<Deck>(loadedDeck);
+  const deckRef = useRef(loadedDeck);
+  const imageUploadTargetRef = useRef<ImageUploadTarget | null>(null);
+  const resolvedUploadProjectIdRef = useRef<string | null>(null);
   const isUsingFallbackDeck = !deckQuery.data;
   const isDeckLoading = deckQuery.isPending;
   const isDeckError = deckQuery.isError;
@@ -245,20 +290,30 @@ export function EditorShell() {
   ];
 
   useEffect(() => {
+    deckRef.current = loadedDeck;
     setDeck(loadedDeck);
     setUndoStack([]);
     setRedoStack([]);
   }, [loadedDeck]);
 
-  function commitPatch(patch: DeckPatch) {
-    const result = applyDeckPatch(deck, patch);
+  useEffect(() => {
+    if (!deckQuery.data?.projectId) {
+      return;
+    }
+
+    resolvedUploadProjectIdRef.current = deckQuery.data.projectId;
+  }, [deckQuery.data]);
+
+  function commitPatch(patch: DeckPatch, baseDeck: Deck = deckRef.current) {
+    const result = applyDeckPatch(baseDeck, patch);
 
     if (!result.ok) {
       setLastPatchLabel(`실패 · ${result.error.code}`);
       return;
     }
 
-    setUndoStack((current) => [...current.slice(-49), deck]);
+    deckRef.current = result.deck;
+    setUndoStack((current) => [...current.slice(-49), baseDeck]);
     setRedoStack([]);
     setDeck(result.deck);
     setLastPatchLabel(
@@ -272,7 +327,9 @@ export function EditorShell() {
       if (!previous) {
         return current;
       }
-      setRedoStack((redoCurrent) => [...redoCurrent, deck]);
+      const currentDeck = deckRef.current;
+      deckRef.current = previous;
+      setRedoStack((redoCurrent) => [...redoCurrent, currentDeck]);
       setDeck(previous);
       setLastPatchLabel(`undo · v${previous.version}`);
       return current.slice(0, -1);
@@ -285,7 +342,8 @@ export function EditorShell() {
       if (!next) {
         return current;
       }
-      setUndoStack((undoCurrent) => [...undoCurrent.slice(-49), deck]);
+      setUndoStack((undoCurrent) => [...undoCurrent.slice(-49), deckRef.current]);
+      deckRef.current = next;
       setDeck(next);
       setLastPatchLabel(`redo · v${next.version}`);
       return current.slice(0, -1);
@@ -320,6 +378,160 @@ export function EditorShell() {
         }
       ]
     });
+  }
+
+  function openImageFilePicker(target: ImageUploadTarget) {
+    if (isImageUploadPending) {
+      return;
+    }
+
+    setElementContextMenu(null);
+    imageUploadTargetRef.current = target;
+    imageFileInputRef.current?.click();
+  }
+
+  function rememberUploadProject(projectId: string) {
+    resolvedUploadProjectIdRef.current = projectId;
+  }
+
+  async function resolveUploadProject(targetProjectId: string) {
+    if (resolvedUploadProjectIdRef.current) {
+      return resolvedUploadProjectIdRef.current;
+    }
+
+    if (deckQuery.data?.projectId) {
+      rememberUploadProject(deckQuery.data.projectId);
+      return deckQuery.data.projectId;
+    }
+
+    const projects = await fetchProjects();
+    const preferredProject = projects.find(
+      (project) => project.projectId === targetProjectId
+    );
+    const project = preferredProject ?? projects[0] ?? (await createProject(editorUploadProjectTitle));
+
+    rememberUploadProject(project.projectId);
+    return project.projectId;
+  }
+
+  async function handleImageFileSelection(
+    file: File,
+    target: ImageUploadTarget
+  ) {
+    const validationMessage = getEditorImageValidationMessage(file);
+
+    if (validationMessage) {
+      setImageUploadNotice({
+        message: validationMessage,
+        tone: "danger"
+      });
+      return;
+    }
+
+    setImageUploadNotice({
+      message: `${file.name} 업로드 중...`,
+      tone: "info"
+    });
+    setIsImageUploadPending(true);
+
+    try {
+      const uploadProjectId = await resolveUploadProject(deckRef.current.projectId);
+      const uploaded = await uploadProjectAsset(
+        uploadProjectId,
+        file,
+        "reference-material"
+      );
+      const activeDeck = deckRef.current;
+      const targetSlideIndex = activeDeck.slides.findIndex(
+        (slide) => slide.slideId === target.slideId
+      );
+
+      if (targetSlideIndex < 0) {
+        throw new Error("이미지를 넣을 슬라이드를 찾지 못했습니다.");
+      }
+
+      const targetSlide = activeDeck.slides[targetSlideIndex];
+
+      if (target.type === "replace") {
+        const targetElement = targetSlide.elements.find(
+          (element) => element.elementId === target.elementId
+        );
+
+        if (!targetElement || targetElement.type !== "image") {
+          throw new Error("교체할 이미지 요소를 찾지 못했습니다.");
+        }
+
+        commitPatch(
+          createUpdateElementPropsPatch(activeDeck, target.slideId, target.elementId, {
+            alt: file.name,
+            src: uploaded.url
+          }),
+          activeDeck
+        );
+        setCurrentSlideIndex(targetSlideIndex);
+        setSelectedElementId(target.elementId);
+      } else {
+        const elementId = createElementId(activeDeck);
+        const naturalSize = await readImageNaturalSize(file).catch(() => ({
+          height: defaultImageInsertFrame.height,
+          width: defaultImageInsertFrame.width
+        }));
+        const frame = getDefaultImageInsertFrame(activeDeck.canvas, naturalSize);
+
+        commitPatch(
+          createAddElementPatch(activeDeck, target.slideId, {
+            elementId,
+            type: "image",
+            role: "media",
+            x: frame.x,
+            y: frame.y,
+            width: frame.width,
+            height: frame.height,
+            rotation: 0,
+            opacity: 1,
+            zIndex: targetSlide.elements.length + 1,
+            locked: false,
+            visible: true,
+            props: {
+              alt: file.name,
+              fit: "contain",
+              src: uploaded.url
+            }
+          }),
+          activeDeck
+        );
+        setCurrentSlideIndex(targetSlideIndex);
+        setSelectedElementId(elementId);
+        setEditingElementId(null);
+        setInsertTool("select");
+      }
+
+      setImageUploadNotice({
+        message: `${file.name} 업로드 완료`,
+        tone: "success"
+      });
+    } catch (error) {
+      setImageUploadNotice({
+        message: toEditorErrorMessage(error),
+        tone: "danger"
+      });
+    } finally {
+      setIsImageUploadPending(false);
+    }
+  }
+
+  function handleImageFileInputChange(event: ChangeEvent<HTMLInputElement>) {
+    const [file] = Array.from(event.target.files ?? []);
+    const target = imageUploadTargetRef.current;
+
+    event.target.value = "";
+    imageUploadTargetRef.current = null;
+
+    if (!file || !target) {
+      return;
+    }
+
+    void handleImageFileSelection(file, target);
   }
 
   function handleAddTextElement() {
@@ -358,36 +570,6 @@ export function EditorShell() {
     setSelectedElementId(elementId);
     setEditingElementId(elementId);
     setInsertTool("select");
-  }
-
-  function handleAddImageElement() {
-    if (!currentSlide) {
-      return;
-    }
-
-    const elementId = createElementId(deck);
-    commitPatch(
-      createAddElementPatch(deck, currentSlide.slideId, {
-        elementId,
-        type: "image",
-        role: "media",
-        x: 260,
-        y: 220,
-        width: 420,
-        height: 240,
-        rotation: 0,
-        opacity: 1,
-        zIndex: visibleElements.length + 1,
-        locked: false,
-        visible: true,
-        props: {
-          src: "/files/mockups/placeholder-image.png",
-          alt: "Placeholder image",
-          fit: "cover"
-        }
-      })
-    );
-    setSelectedElementId(elementId);
   }
 
   function handleAddChartElement() {
@@ -541,6 +723,7 @@ export function EditorShell() {
       return;
     }
 
+    setElementContextMenu(null);
     commitPatch(
       createDeleteElementPatch(deck, currentSlide.slideId, selectedElementId)
     );
@@ -553,6 +736,7 @@ export function EditorShell() {
       return;
     }
 
+    setElementContextMenu(null);
     const nextElementId = createElementId(deck);
     commitPatch(
       createAddElementPatch(deck, currentSlide.slideId, {
@@ -662,6 +846,8 @@ export function EditorShell() {
   }
 
   function handleCanvasBackgroundSelectionClear() {
+    setElementContextMenu(null);
+
     if (selectedElement?.type === "text") {
       setEditingElementId(null);
       return;
@@ -669,6 +855,38 @@ export function EditorShell() {
 
     setSelectedElementId(null);
     setEditingElementId(null);
+  }
+
+  function handleOpenElementContextMenu(args: {
+    clientX: number;
+    clientY: number;
+    element: DeckElement;
+    slideId: string;
+  }) {
+    if (args.element.type !== "image") {
+      return;
+    }
+
+    const viewportPadding = 12;
+    const menuWidth = 196;
+    const menuHeight = 60;
+    const left = Math.min(
+      Math.max(viewportPadding, args.clientX),
+      Math.max(viewportPadding, window.innerWidth - menuWidth - viewportPadding)
+    );
+    const top = Math.min(
+      Math.max(viewportPadding, args.clientY),
+      Math.max(viewportPadding, window.innerHeight - menuHeight - viewportPadding)
+    );
+
+    setSelectedElementId(args.element.elementId);
+    setEditingElementId(null);
+    setElementContextMenu({
+      elementId: args.element.elementId,
+      left,
+      slideId: args.slideId,
+      top
+    });
   }
 
   function handleSlidesPaneResizeStart(
@@ -872,6 +1090,24 @@ export function EditorShell() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [deck, editingElementId, selectedElementId, selectedElement, currentSlide]);
 
+  useEffect(() => {
+    if (!elementContextMenu) {
+      return;
+    }
+
+    function handleEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setElementContextMenu(null);
+      }
+    }
+
+    window.addEventListener("keydown", handleEscape);
+
+    return () => {
+      window.removeEventListener("keydown", handleEscape);
+    };
+  }, [elementContextMenu]);
+
   const shapeMenuOverlay =
     typeof document !== "undefined" && isShapeMenuOpen && shapeMenuPosition
       ? createPortal(
@@ -930,6 +1166,44 @@ export function EditorShell() {
               >
                 <Minus size={14} />
                 <span>선</span>
+              </button>
+            </div>
+          </div>,
+          document.body
+        )
+      : null;
+
+  const elementContextMenuOverlay =
+    typeof document !== "undefined" && elementContextMenu
+      ? createPortal(
+          <div
+            className="element-context-menu-overlay"
+            onMouseDown={() => setElementContextMenu(null)}
+          >
+            <div
+              className="element-context-menu-popover"
+              role="menu"
+              style={{
+                left: elementContextMenu.left,
+                top: elementContextMenu.top
+              }}
+              onMouseDown={(event) => event.stopPropagation()}
+            >
+              <button
+                className="element-context-menu-item"
+                disabled={isImageUploadPending}
+                role="menuitem"
+                type="button"
+                onClick={() =>
+                  openImageFilePicker({
+                    elementId: elementContextMenu.elementId,
+                    slideId: elementContextMenu.slideId,
+                    type: "replace"
+                  })
+                }
+              >
+                <ImagePlus size={16} />
+                <span>{isImageUploadPending ? "업로드 중..." : "이미지 바꾸기"}</span>
               </button>
             </div>
           </div>,
@@ -1323,10 +1597,6 @@ export function EditorShell() {
                     <ChevronDown size={14} />
                   </button>
                 </div>
-                <button className="tool-button" type="button" onClick={handleAddImageElement}>
-                  <ImagePlus size={14} />
-                  이미지
-                </button>
                 <button className="tool-button" type="button" onClick={handleAddChartElement}>
                   <BarChart3 size={14} />
                   차트
@@ -1351,6 +1621,11 @@ export function EditorShell() {
                 >
                   ID
                 </button>
+                {imageUploadNotice ? (
+                  <span className={`toolbar-status-pill ${imageUploadNotice.tone}`}>
+                    {imageUploadNotice.message}
+                  </span>
+                ) : null}
               </div>
             </div>
 
@@ -1417,6 +1692,7 @@ export function EditorShell() {
                     onCreateElement={handleCreateDrawnElement}
                     onDoubleClickElement={(elementId) => setEditingElementId(elementId)}
                     onFinishEditing={() => setEditingElementId(null)}
+                    onOpenElementContextMenu={handleOpenElementContextMenu}
                     onSelectElement={(elementId) => setSelectedElementId(elementId)}
                   />
                 </div>
@@ -1616,8 +1892,16 @@ export function EditorShell() {
           </section>
         </section>
       ) : null}
+        <input
+          ref={imageFileInputRef}
+          accept={editorImageAccept}
+          hidden
+          type="file"
+          onChange={handleImageFileInputChange}
+        />
       </main>
       {shapeMenuOverlay}
+      {elementContextMenuOverlay}
     </>
   );
 }
@@ -1980,9 +2264,15 @@ function SelectionQuickBar(props: {
     accentColor?: string | null;
   }) => void;
   showIds: boolean;
-}) {
-  const { element, onChangeFrame, onChangeProps, onChangeSlideStyle, showIds, slide } =
-    props;
+  }) {
+  const {
+    element,
+    onChangeFrame,
+    onChangeProps,
+    onChangeSlideStyle,
+    showIds,
+    slide
+  } = props;
 
   if (!element && !slide) {
     return null;
@@ -2060,6 +2350,11 @@ function SelectionQuickBar(props: {
         >
           {element.visible ? <Eye size={16} /> : <EyeOff size={16} />}
         </button>
+        {element.type === "image" ? (
+          <span className="quickbar-inline-hint">
+            우클릭해 이미지를 바꿀 수 있습니다
+          </span>
+        ) : null}
       </div>
     </section>
   );
@@ -2178,25 +2473,17 @@ function ElementQuickBarFields(props: {
     const imageProps = element.props as ImageElementProps;
 
     return (
-      <>
-        <PropertyTextField
-          className="compact-property-field compact-property-field-xl"
-          label="이미지 주소"
-          value={imageProps.src}
-          onCommit={(value) => onChangeProps({ src: value })}
-        />
-        <QuickBarSelectField
-          className="compact-property-field compact-property-field-sm"
-          label="채우기"
-          value={imageProps.fit}
-          options={[
-            { value: "contain", label: "맞춤" },
-            { value: "cover", label: "채우기" },
-            { value: "stretch", label: "늘리기" }
-          ]}
-          onChange={(value) => onChangeProps({ fit: value })}
-        />
-      </>
+      <QuickBarSelectField
+        className="compact-property-field compact-property-field-sm"
+        label="채우기"
+        value={imageProps.fit}
+        options={[
+          { value: "contain", label: "맞춤" },
+          { value: "cover", label: "채우기" },
+          { value: "stretch", label: "늘리기" }
+        ]}
+        onChange={(value) => onChangeProps({ fit: value })}
+      />
     );
   }
 
@@ -2364,6 +2651,202 @@ function truncateValue(value: string, maxLength: number) {
   return value.length > maxLength ? `${value.slice(0, maxLength - 1)}…` : value;
 }
 
+function useLoadedImage(src: string) {
+  const [image, setImage] = useState<HTMLImageElement | null>(null);
+
+  useEffect(() => {
+    if (!src || typeof window === "undefined") {
+      setImage(null);
+      return;
+    }
+
+    let cancelled = false;
+    const nextImage = new window.Image();
+
+    nextImage.onload = () => {
+      if (!cancelled) {
+        setImage(nextImage);
+      }
+    };
+    nextImage.onerror = () => {
+      if (!cancelled) {
+        setImage(null);
+      }
+    };
+    nextImage.src = src;
+
+    if (nextImage.complete && nextImage.naturalWidth > 0) {
+      setImage(nextImage);
+    } else {
+      setImage(null);
+    }
+
+    return () => {
+      cancelled = true;
+      nextImage.onload = null;
+      nextImage.onerror = null;
+    };
+  }, [src]);
+
+  return image;
+}
+
+function getEditorImageValidationMessage(file: Pick<File, "name" | "size" | "type">) {
+  if (!isSupportedEditorImageFile(file)) {
+    return "JPG, PNG, WebP 이미지 파일만 업로드할 수 있습니다.";
+  }
+
+  if (file.size > maxAssetUploadSizeBytes) {
+    return `이미지 크기는 최대 ${formatBytes(maxAssetUploadSizeBytes)}까지 가능합니다.`;
+  }
+
+  if (file.size <= 0) {
+    return "빈 파일은 업로드할 수 없습니다.";
+  }
+
+  return "";
+}
+
+function isSupportedEditorImageFile(file: Pick<File, "name" | "type">) {
+  if (editorImageMimeTypes.has(file.type.toLowerCase())) {
+    return true;
+  }
+
+  const extension = file.name.split(".").pop()?.toLowerCase() ?? "";
+  return extension === "jpg" || extension === "jpeg" || extension === "png" || extension === "webp";
+}
+
+function formatBytes(bytes: number) {
+  if (bytes === 0) {
+    return "0 B";
+  }
+
+  const units = ["B", "KB", "MB", "GB"];
+  const index = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
+  const value = bytes / 1024 ** index;
+
+  return `${value.toFixed(value >= 10 || index === 0 ? 0 : 1)} ${units[index]}`;
+}
+
+function toEditorErrorMessage(error: unknown) {
+  return error instanceof Error ? error.message : "알 수 없는 오류가 발생했습니다.";
+}
+
+async function readImageNaturalSize(file: File) {
+  if (typeof window === "undefined") {
+    return {
+      height: defaultImageInsertFrame.height,
+      width: defaultImageInsertFrame.width
+    };
+  }
+
+  const objectUrl = window.URL.createObjectURL(file);
+
+  try {
+    return await new Promise<{ height: number; width: number }>((resolve, reject) => {
+      const image = new window.Image();
+
+      image.onload = () => {
+        resolve({
+          height: image.naturalHeight || defaultImageInsertFrame.height,
+          width: image.naturalWidth || defaultImageInsertFrame.width
+        });
+      };
+      image.onerror = () => reject(new Error("이미지 크기를 읽지 못했습니다."));
+      image.src = objectUrl;
+    });
+  } finally {
+    window.URL.revokeObjectURL(objectUrl);
+  }
+}
+
+function getDefaultImageInsertFrame(
+  canvas: DeckCanvas,
+  imageSize: { height: number; width: number }
+) {
+  const safeWidth = Math.max(1, imageSize.width || defaultImageInsertFrame.width);
+  const safeHeight = Math.max(1, imageSize.height || defaultImageInsertFrame.height);
+  const scale = Math.min(520 / safeWidth, 320 / safeHeight, 1);
+  const width = Math.max(140, Math.round(safeWidth * scale));
+  const height = Math.max(96, Math.round(safeHeight * scale));
+
+  return {
+    height,
+    width,
+    x: Math.max(40, Math.round((canvas.width - width) / 2)),
+    y: Math.max(40, Math.round((canvas.height - height) / 2))
+  };
+}
+
+function getImageElementLayout(args: {
+  fit: ImageElementProps["fit"];
+  frameHeight: number;
+  frameWidth: number;
+  imageHeight: number;
+  imageWidth: number;
+}) {
+  const { fit, frameHeight, frameWidth, imageHeight, imageWidth } = args;
+
+  if (fit === "stretch") {
+    return {
+      crop: undefined,
+      height: frameHeight,
+      width: frameWidth,
+      x: 0,
+      y: 0
+    };
+  }
+
+  if (fit === "contain") {
+    const scale = Math.min(frameWidth / imageWidth, frameHeight / imageHeight);
+    const width = imageWidth * scale;
+    const height = imageHeight * scale;
+
+    return {
+      crop: undefined,
+      height,
+      width,
+      x: (frameWidth - width) / 2,
+      y: (frameHeight - height) / 2
+    };
+  }
+
+  const frameRatio = frameWidth / frameHeight;
+  const imageRatio = imageWidth / imageHeight;
+
+  if (imageRatio > frameRatio) {
+    const cropWidth = imageHeight * frameRatio;
+
+    return {
+      crop: {
+        height: imageHeight,
+        width: cropWidth,
+        x: (imageWidth - cropWidth) / 2,
+        y: 0
+      },
+      height: frameHeight,
+      width: frameWidth,
+      x: 0,
+      y: 0
+    };
+  }
+
+  const cropHeight = imageWidth / frameRatio;
+
+  return {
+    crop: {
+      height: cropHeight,
+      width: imageWidth,
+      x: 0,
+      y: (imageHeight - cropHeight) / 2
+    },
+    height: frameHeight,
+    width: frameWidth,
+    x: 0,
+    y: 0
+  };
+}
+
 function IdBadge(props: { id: string }) {
   return (
     <span className={`id-badge id-badge-${getIdKind(props.id)}`}>
@@ -2435,6 +2918,12 @@ function EditableCanvas(props: {
   ) => void;
   onDoubleClickElement: (elementId: string) => void;
   onFinishEditing: () => void;
+  onOpenElementContextMenu: (args: {
+    clientX: number;
+    clientY: number;
+    element: DeckElement;
+    slideId: string;
+  }) => void;
   onSelectElement: (elementId: string) => void;
 }) {
   const {
@@ -2452,6 +2941,7 @@ function EditableCanvas(props: {
     onCreateElement,
     onDoubleClickElement,
     onFinishEditing,
+    onOpenElementContextMenu,
     onSelectElement
   } = props;
   const transformerRef = useRef<Konva.Transformer | null>(null);
@@ -2569,6 +3059,14 @@ function EditableCanvas(props: {
               onMountNode={(node) => {
                 nodeRefs.current[element.elementId] = node;
               }}
+              onOpenContextMenu={(clientX, clientY) =>
+                onOpenElementContextMenu({
+                  clientX,
+                  clientY,
+                  element,
+                  slideId: slide.slideId
+                })
+              }
               onSelect={() => onSelectElement(element.elementId)}
             />
           ))}
@@ -2642,6 +3140,7 @@ function EditableElementNode(props: {
     rotation: number;
   }) => void;
   onMountNode: (node: Konva.Group | null) => void;
+  onOpenContextMenu: (clientX: number, clientY: number) => void;
   onSelect: () => void;
 }) {
   const {
@@ -2654,6 +3153,7 @@ function EditableElementNode(props: {
     onDoubleClick,
     onCommitFrame,
     onMountNode,
+    onOpenContextMenu,
     onSelect
   } =
     props;
@@ -2697,6 +3197,15 @@ function EditableElementNode(props: {
       y={frame.y}
       ref={onMountNode}
       onClick={handlePointerSelect}
+      onContextMenu={(event) => {
+        if (element.type !== "image") {
+          return;
+        }
+
+        event.evt.preventDefault();
+        onSelect();
+        onOpenContextMenu(event.evt.clientX, event.evt.clientY);
+      }}
       onDblClick={() => {
         if (element.type === "text") {
           onDoubleClick();
@@ -2834,31 +3343,7 @@ function ElementNodeContent(props: {
   }
 
   if (element.type === "image") {
-    const imageProps = element.props as ImageElementProps;
-
-    return (
-      <Group listening={false}>
-        <Rect
-          fill="#e0f2fe"
-          cornerRadius={18}
-          stroke="#0ea5e9"
-          strokeWidth={2}
-          width={frame.width}
-          height={frame.height}
-        />
-        <Text
-          fill="#0f172a"
-          fontSize={16}
-          fontStyle="bold"
-          text={`IMAGE\n${truncateValue(imageProps.src, 48)}`}
-          verticalAlign="middle"
-          align="center"
-          width={frame.width}
-          height={frame.height}
-          padding={16}
-        />
-      </Group>
-    );
+    return <ImageElementContent frame={frame} imageProps={element.props} />;
   }
 
   if (element.type === "chart") {
@@ -3090,6 +3575,70 @@ function ElementNodeContent(props: {
         width={frame.width}
         height={frame.height}
       />
+    </Group>
+  );
+}
+
+function ImageElementContent(props: {
+  frame: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    rotation: number;
+  };
+  imageProps: ImageElementProps;
+}) {
+  const { frame, imageProps } = props;
+  const image = useLoadedImage(imageProps.src);
+  const layout =
+    image && image.naturalWidth > 0 && image.naturalHeight > 0
+      ? getImageElementLayout({
+          fit: imageProps.fit,
+          frameHeight: frame.height,
+          frameWidth: frame.width,
+          imageHeight: image.naturalHeight,
+          imageWidth: image.naturalWidth
+        })
+      : null;
+
+  return (
+    <Group
+      listening={false}
+      clipX={0}
+      clipY={0}
+      clipWidth={frame.width}
+      clipHeight={frame.height}
+    >
+      <Rect
+        fill="#f8fafc"
+        stroke={image ? "#cbd5e1" : "#93c5fd"}
+        strokeWidth={1}
+        width={frame.width}
+        height={frame.height}
+      />
+      {image && layout ? (
+        <KonvaImage
+          crop={layout.crop}
+          image={image}
+          x={layout.x}
+          y={layout.y}
+          width={layout.width}
+          height={layout.height}
+        />
+      ) : (
+        <Text
+          align="center"
+          fill="#475467"
+          fontSize={14}
+          fontStyle="bold"
+          padding={16}
+          text={`IMAGE\n${truncateValue(imageProps.alt || imageProps.src, 44)}`}
+          verticalAlign="middle"
+          width={frame.width}
+          height={frame.height}
+        />
+      )}
     </Group>
   );
 }

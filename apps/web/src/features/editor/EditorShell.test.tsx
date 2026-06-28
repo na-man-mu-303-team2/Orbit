@@ -27,10 +27,14 @@ vi.mock("react-konva", () => {
   }) => <span>{text ?? children}</span>;
 
   return {
+    Circle: () => null,
     Group,
+    Image: () => null,
     Layer,
     Line: () => null,
     Rect: () => null,
+    RegularPolygon: () => null,
+    Star: () => null,
     Stage,
     Text,
     Transformer: () => null
