@@ -1,5 +1,28 @@
 import { Deck, deckSchema, demoIds } from "@orbit/shared";
 
+export { applyDeckPatch } from "./patches/applyPatch";
+export type {
+  ApplyDeckPatchError,
+  ApplyDeckPatchErrorCode,
+  ApplyDeckPatchFailure,
+  ApplyDeckPatchOptions,
+  ApplyDeckPatchResult,
+  ApplyDeckPatchSuccess,
+  DeckPatchVersionMetadata
+} from "./patches/deckPatch";
+export {
+  createElementFramePatch,
+  normalizeElementFrameDraft
+} from "./patches/elementFrame";
+export type { ElementFrameDraft } from "./patches/elementFrame";
+export {
+  createAddElementPatch,
+  createDeleteElementPatch,
+  createElementId,
+  createUpdateElementPropsPatch
+} from "./patches/elementOperations";
+export { createAddSlidePatch, createSlideId } from "./patches/slideOperations";
+
 export function createDemoDeck(): Deck {
   return deckSchema.parse({
     deckId: demoIds.deckId,
