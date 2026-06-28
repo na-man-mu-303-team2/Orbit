@@ -605,6 +605,7 @@ PPTX import/export, 참고자료 추출, AI 생성, 리허설 STT, 최종 보고
 - `deck-export`
 - `reference-extract`
 - `ai-deck-generation`
+- `worker-health-check`
 - `rehearsal-stt`
 - `final-report-generation`
 - `report-pdf-export`
