@@ -1,0 +1,69 @@
+import { describe, expect, it } from "vitest";
+
+import { createDemoDeck } from "../index";
+import { applyDeckPatch } from "./applyPatch";
+import {
+  createAddElementPatch,
+  createDeleteElementPatch,
+  createElementId,
+  createUpdateElementPropsPatch
+} from "./elementOperations";
+
+describe("element operation helpers", () => {
+  it("creates a unique element id", () => {
+    const deck = createDemoDeck();
+    expect(createElementId(deck)).toBe("el_11");
+  });
+
+  it("creates an add_element patch", () => {
+    const deck = createDemoDeck();
+    const patch = createAddElementPatch(deck, "slide_1", {
+      elementId: "el_7",
+      type: "rect",
+      x: 32,
+      y: 48,
+      width: 240,
+      height: 120,
+      rotation: 0,
+      opacity: 1,
+      zIndex: 10,
+      locked: false,
+      visible: true,
+      props: {
+        fill: "#dbeafe",
+        stroke: "#2563eb",
+        strokeWidth: 2,
+        borderRadius: 12
+      }
+    });
+    const result = applyDeckPatch(deck, patch);
+
+    expect(result.ok).toBe(true);
+  });
+
+  it("creates an update_element_props patch", () => {
+    const deck = createDemoDeck();
+    const patch = createUpdateElementPropsPatch(deck, "slide_1", "el_1", {
+      text: "Changed"
+    });
+    const result = applyDeckPatch(deck, patch);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+
+    expect(result.deck.slides[0].elements[0].type).toBe("text");
+    if (result.deck.slides[0].elements[0].type === "text") {
+      expect(result.deck.slides[0].elements[0].props.text).toBe("Changed");
+    }
+  });
+
+  it("creates a delete_element patch", () => {
+    const deck = createDemoDeck();
+    const patch = createDeleteElementPatch(deck, "slide_1", "el_1");
+    const result = applyDeckPatch(deck, patch);
+
+    expect(result.ok).toBe(true);
+  });
+});
