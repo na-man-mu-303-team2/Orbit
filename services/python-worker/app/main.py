@@ -9,6 +9,7 @@ from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.ai.generate_deck import (
+    DeckContentGenerationError,
     GenerateDeckRequest,
     GenerateDeckResponse,
     ReferenceContext,
@@ -269,12 +270,15 @@ def generate_ai_deck(
     request: Request,
 ) -> GenerateDeckResponse:
     config = _config(request)
-    return generate_deck(
-        payload,
-        model=config.openai_model,
-        api_key=config.openai_api_key,
-        reference_context=_generate_deck_reference_context(payload, config),
-    )
+    try:
+        return generate_deck(
+            payload,
+            model=config.openai_model,
+            api_key=config.openai_api_key,
+            reference_context=_generate_deck_reference_context(payload, config),
+        )
+    except DeckContentGenerationError as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
 
 
 @app.post("/rehearsal/analyze", response_model=RehearsalAnalyzeResponse)

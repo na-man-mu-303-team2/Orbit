@@ -205,6 +205,10 @@ class GenerateDeckResponse(BaseModel):
     validation: ValidationResult
 
 
+class DeckContentGenerationError(RuntimeError):
+    pass
+
+
 @dataclass(frozen=True)
 class Canvas:
     width: int = 1920
@@ -395,9 +399,22 @@ def plan_deck_content(
                 ),
                 slide_plans,
             )
+    if requires_llm_content(raw_input):
+        raise DeckContentGenerationError(
+            "LLM deck content generation is required for prompt or reference-based decks."
+        )
 
     outline = plan_presentation(raw_input)
     return outline, plan_slides(raw_input, outline)
+
+
+def requires_llm_content(raw_input: RawInput) -> bool:
+    return bool(
+        raw_input.prompt.strip()
+        or raw_input.references
+        or raw_input.reference_keywords
+        or raw_input.reference_context
+    )
 
 
 def plan_presentation(raw_input: RawInput) -> DeckOutline:
@@ -519,6 +536,10 @@ def generate_content_plan_with_llm(
     api_client: Any = client
     if api_client is None:
         if not api_key:
+            if requires_llm_content(raw_input):
+                raise DeckContentGenerationError(
+                    "OPENAI_API_KEY is required for prompt or reference-based deck generation."
+                )
             return None
 
         from openai import OpenAI
@@ -532,21 +553,27 @@ def generate_content_plan_with_llm(
             input=deck_content_prompt(raw_input),
             text=DECK_CONTENT_RESPONSE_FORMAT,
         )
-    except Exception:
-        return None
+    except Exception as error:
+        raise DeckContentGenerationError(
+            f"LLM deck content generation failed: {error}"
+        ) from error
 
     output_text = str(getattr(response, "output_text", "")).strip()
     if not output_text:
-        return None
+        raise DeckContentGenerationError("LLM returned empty deck content.")
 
     try:
         payload = json.loads(output_text)
         plan = GeneratedDeckContentPlan.model_validate(payload)
-    except Exception:
-        return None
+    except Exception as error:
+        raise DeckContentGenerationError(
+            f"LLM returned invalid deck content: {error}"
+        ) from error
 
     if len(plan.slides) < raw_input.slide_count:
-        return None
+        raise DeckContentGenerationError(
+            "LLM returned fewer slides than requested."
+        )
 
     return GeneratedDeckContentPlan(
         title=plan.title,
