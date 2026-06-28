@@ -679,15 +679,20 @@
 }
 
 .shape-menu-anchor {
-  position: relative;
+  display: inline-flex;
+}
+
+.shape-menu-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
 }
 
 .shape-menu-popover {
-  position: absolute;
-  top: calc(100% + 10px);
-  left: 0;
-  z-index: 12;
+  position: fixed;
+  z-index: 41;
   min-width: 180px;
+  max-width: calc(100vw - 24px);
   display: grid;
   gap: 4px;
   padding: 8px;
@@ -1018,7 +1023,7 @@
 
 .konva-stage-shell {
   position: relative;
-  border-radius: 8px;
+  border-radius: 0;
   background: #fff;
   box-shadow:
     0 0 0 1px #cbd5e1,
@@ -1048,36 +1053,6 @@
   resize: none;
   outline: 0;
   overflow: hidden;
-}
-
-.background-image-overlay {
-  position: absolute;
-  inset: 18px;
-  z-index: 2;
-  pointer-events: none;
-  border: 1px dashed rgba(49, 87, 245, 0.28);
-  border-radius: 18px;
-  background:
-    linear-gradient(135deg, rgba(49, 87, 245, 0.12), rgba(124, 58, 237, 0.08)),
-    repeating-linear-gradient(
-      45deg,
-      rgba(255, 255, 255, 0.18) 0 10px,
-      rgba(255, 255, 255, 0.04) 10px 20px
-    );
-  color: #344054;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  justify-content: flex-end;
-  padding: 14px;
-}
-
-.background-image-overlay span,
-.background-image-overlay small {
-  background: rgba(255, 255, 255, 0.72);
-  width: fit-content;
-  border-radius: 999px;
-  padding: 4px 8px;
 }
 
 .stage-element {

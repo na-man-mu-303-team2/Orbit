@@ -60,12 +60,24 @@ import {
   Upload,
   Wand2
 } from "lucide-react";
-import { Group, Layer, Line, Rect, Stage, Text, Transformer } from "react-konva";
+import {
+  Circle,
+  Group,
+  Layer,
+  Line,
+  Rect,
+  RegularPolygon,
+  Stage,
+  Star as KonvaStar,
+  Text,
+  Transformer
+} from "react-konva";
 import type {
   CSSProperties,
   PointerEvent as ReactPointerEvent
 } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import "./editor-shell.css";
 
 interface HealthResponse {
@@ -88,7 +100,11 @@ const textElementPadding = 4;
 type TopMenu = "file" | "resize" | "editMode" | "quickEdit" | "presentation";
 type SlidePanelView = "thumbnail" | "list";
 type InsertTool = "select" | "text" | "rect" | "ellipse" | "line";
-type ShapeInsertType = Extract<InsertTool, "rect" | "ellipse" | "line">;
+type ShapeInsertType = "rect" | "ellipse" | "line" | "polygon" | "star";
+type ShapeMenuPosition = {
+  left: number;
+  top: number;
+};
 type ElementFrameChange = {
   role?: DeckElementRole | null;
   x?: number;
@@ -136,10 +152,12 @@ export function EditorShell() {
   const [insertTool, setInsertTool] = useState<InsertTool>("select");
   const [editingElementId, setEditingElementId] = useState<string | null>(null);
   const [isShapeMenuOpen, setIsShapeMenuOpen] = useState(false);
+  const [shapeMenuPosition, setShapeMenuPosition] =
+    useState<ShapeMenuPosition | null>(null);
   const [undoStack, setUndoStack] = useState<Deck[]>([]);
   const [redoStack, setRedoStack] = useState<Deck[]>([]);
   const topbarRef = useRef<HTMLElement | null>(null);
-  const shapeMenuRef = useRef<HTMLDivElement | null>(null);
+  const shapeMenuButtonRef = useRef<HTMLButtonElement | null>(null);
 
   const health = useQuery({
     queryKey: ["health"],
@@ -282,6 +300,28 @@ export function EditorShell() {
     commitPatch(createUpdateElementPropsPatch(deck, slideId, elementId, props));
   }
 
+  function handleSlideStyleChange(
+    slideId: string,
+    style: {
+      backgroundColor?: string | null;
+      textColor?: string | null;
+      accentColor?: string | null;
+    }
+  ) {
+    commitPatch({
+      deckId: deck.deckId,
+      baseVersion: deck.version,
+      source: "user",
+      operations: [
+        {
+          type: "update_slide_style",
+          slideId,
+          style
+        }
+      ]
+    });
+  }
+
   function handleAddTextElement() {
     if (!currentSlide) {
       return;
@@ -412,8 +452,10 @@ export function EditorShell() {
       { x: number; y: number; width: number; height: number }
     > = {
       rect: { x: 260, y: 220, width: 280, height: 160 },
-      ellipse: { x: 260, y: 220, width: 280, height: 160 },
-      line: { x: 240, y: 280, width: 320, height: 12 }
+      ellipse: { x: 260, y: 220, width: 180, height: 180 },
+      line: { x: 240, y: 280, width: 320, height: 12 },
+      polygon: { x: 260, y: 220, width: 180, height: 180 },
+      star: { x: 260, y: 220, width: 180, height: 180 }
     };
     const frame = defaultFrameByShape[shapeType];
 
@@ -721,13 +763,31 @@ export function EditorShell() {
 
   useEffect(() => {
     if (!isShapeMenuOpen) {
+      setShapeMenuPosition(null);
       return;
     }
 
-    function handlePointerDown(event: MouseEvent) {
-      if (!shapeMenuRef.current?.contains(event.target as Node)) {
-        setIsShapeMenuOpen(false);
+    function updateShapeMenuPosition() {
+      const buttonRect = shapeMenuButtonRef.current?.getBoundingClientRect();
+      if (!buttonRect) {
+        setShapeMenuPosition(null);
+        return;
       }
+
+      const viewportPadding = 12;
+      const popoverWidth = 196;
+      const left = Math.min(
+        Math.max(viewportPadding, buttonRect.left),
+        Math.max(
+          viewportPadding,
+          window.innerWidth - popoverWidth - viewportPadding
+        )
+      );
+
+      setShapeMenuPosition({
+        left,
+        top: buttonRect.bottom + 10
+      });
     }
 
     function handleEscape(event: KeyboardEvent) {
@@ -736,12 +796,15 @@ export function EditorShell() {
       }
     }
 
-    document.addEventListener("mousedown", handlePointerDown);
+    updateShapeMenuPosition();
     document.addEventListener("keydown", handleEscape);
+    document.addEventListener("scroll", updateShapeMenuPosition, true);
+    window.addEventListener("resize", updateShapeMenuPosition);
 
     return () => {
-      document.removeEventListener("mousedown", handlePointerDown);
       document.removeEventListener("keydown", handleEscape);
+      document.removeEventListener("scroll", updateShapeMenuPosition, true);
+      window.removeEventListener("resize", updateShapeMenuPosition);
     };
   }, [isShapeMenuOpen]);
 
@@ -809,9 +872,75 @@ export function EditorShell() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [deck, editingElementId, selectedElementId, selectedElement, currentSlide]);
 
+  const shapeMenuOverlay =
+    typeof document !== "undefined" && isShapeMenuOpen && shapeMenuPosition
+      ? createPortal(
+          <div
+            className="shape-menu-overlay"
+            onMouseDown={() => setIsShapeMenuOpen(false)}
+          >
+            <div
+              className="shape-menu-popover"
+              role="menu"
+              style={shapeMenuPosition}
+              onMouseDown={(event) => event.stopPropagation()}
+            >
+              <span className="shape-menu-title">기본 도형</span>
+              <button
+                className="shape-menu-item"
+                role="menuitem"
+                type="button"
+                onClick={() => handleInsertShapeElement("rect")}
+              >
+                <span className="shape-menu-symbol">▭</span>
+                <span>사각형</span>
+              </button>
+              <button
+                className="shape-menu-item"
+                role="menuitem"
+                type="button"
+                onClick={() => handleInsertShapeElement("ellipse")}
+              >
+                <span className="shape-menu-symbol">◯</span>
+                <span>원</span>
+              </button>
+              <button
+                className="shape-menu-item"
+                role="menuitem"
+                type="button"
+                onClick={() => handleInsertShapeElement("polygon")}
+              >
+                <span className="shape-menu-symbol">△</span>
+                <span>삼각형</span>
+              </button>
+              <button
+                className="shape-menu-item"
+                role="menuitem"
+                type="button"
+                onClick={() => handleInsertShapeElement("star")}
+              >
+                <span className="shape-menu-symbol">★</span>
+                <span>별</span>
+              </button>
+              <button
+                className="shape-menu-item"
+                role="menuitem"
+                type="button"
+                onClick={() => handleInsertShapeElement("line")}
+              >
+                <Minus size={14} />
+                <span>선</span>
+              </button>
+            </div>
+          </div>,
+          document.body
+        )
+      : null;
+
   return (
-    <main className="editor-app-shell orbit-shell">
-      <header className="app-topbar" ref={topbarRef}>
+    <>
+      <main className="editor-app-shell orbit-shell">
+        <header className="app-topbar" ref={topbarRef}>
         <div className="topbar-left">
           <img alt="Orbit" className="brand-mark" src={orbitLogo} />
           <button className="top-home-button" type="button" title="Home">
@@ -1180,11 +1309,12 @@ export function EditorShell() {
                   <Type size={14} />
                   텍스트
                 </button>
-                <div className="shape-menu-anchor" ref={shapeMenuRef}>
+                <div className="shape-menu-anchor">
                   <button
                     aria-expanded={isShapeMenuOpen}
                     aria-haspopup="menu"
                     className={`tool-button ${isShapeMenuOpen ? "active" : ""}`}
+                    ref={shapeMenuButtonRef}
                     type="button"
                     onClick={() => setIsShapeMenuOpen((current) => !current)}
                   >
@@ -1192,38 +1322,6 @@ export function EditorShell() {
                     도형
                     <ChevronDown size={14} />
                   </button>
-                  {isShapeMenuOpen ? (
-                    <div className="shape-menu-popover" role="menu">
-                      <span className="shape-menu-title">기본 도형</span>
-                      <button
-                        className="shape-menu-item"
-                        role="menuitem"
-                        type="button"
-                        onClick={() => handleInsertShapeElement("rect")}
-                      >
-                        <span className="shape-menu-symbol">▭</span>
-                        <span>사각형</span>
-                      </button>
-                      <button
-                        className="shape-menu-item"
-                        role="menuitem"
-                        type="button"
-                        onClick={() => handleInsertShapeElement("ellipse")}
-                      >
-                        <span className="shape-menu-symbol">◯</span>
-                        <span>원형</span>
-                      </button>
-                      <button
-                        className="shape-menu-item"
-                        role="menuitem"
-                        type="button"
-                        onClick={() => handleInsertShapeElement("line")}
-                      >
-                        <Minus size={14} />
-                        <span>선</span>
-                      </button>
-                    </div>
-                  ) : null}
                 </div>
                 <button className="tool-button" type="button" onClick={handleAddImageElement}>
                   <ImagePlus size={14} />
@@ -1257,8 +1355,9 @@ export function EditorShell() {
             </div>
 
             <SelectionQuickBar
-              key={`quickbar-${selectedElement?.elementId ?? "none"}`}
+              key={`quickbar-${selectedElement?.elementId ?? currentSlide?.slideId ?? "none"}`}
               element={selectedElement}
+              slide={currentSlide}
               showIds={showIds}
               onChangeFrame={(frame) => {
                 if (!selectedElement || !currentSlide) {
@@ -1280,6 +1379,12 @@ export function EditorShell() {
                   props
                 );
               }}
+              onChangeSlideStyle={(style) => {
+                if (!currentSlide) {
+                  return;
+                }
+                handleSlideStyleChange(currentSlide.slideId, style);
+              }}
             />
           </div>
 
@@ -1291,27 +1396,10 @@ export function EditorShell() {
                   style={{
                     width: deck.canvas.width * stageScale,
                     height: deck.canvas.height * stageScale,
-                    background:
-                      currentSlide.style.backgroundColor ?? deck.theme.backgroundColor,
                     color: currentSlide.style.textColor ?? deck.theme.textColor,
-                    borderRadius: deck.theme.effects.borderRadius * 0.8
+                    ...buildSlideBackgroundStyle(currentSlide, deck)
                   }}
                 >
-                  {currentSlide.style.backgroundImage ? (
-                    <div
-                      className="background-image-overlay"
-                      style={{
-                        opacity: currentSlide.style.backgroundImage.opacity
-                      }}
-                    >
-                      <span>{currentSlide.style.backgroundImage.src}</span>
-                      <small>
-                        {currentSlide.style.backgroundImage.alt} ·{" "}
-                        {currentSlide.style.backgroundImage.fit}
-                      </small>
-                    </div>
-                  ) : null}
-
                   <EditableCanvas
                     deck={deck}
                     editingElementId={editingElementId}
@@ -1528,19 +1616,64 @@ export function EditorShell() {
           </section>
         </section>
       ) : null}
-    </main>
+      </main>
+      {shapeMenuOverlay}
+    </>
   );
 }
 
 function buildSlideThumbBackground(slide: Slide, deck: Deck) {
   const background = slide.style.backgroundColor ?? deck.theme.backgroundColor;
-  const accent = slide.style.accentColor ?? deck.theme.accentColor;
+  const backgroundImage = slide.style.backgroundImage;
+
+  if (!backgroundImage?.src) {
+    return background;
+  }
+
+  const size = getSlideBackgroundSize(backgroundImage.fit);
+  const overlayOpacity = clampBackgroundOverlayOpacity(backgroundImage.opacity);
 
   return [
-    "linear-gradient(180deg, rgba(255,255,255,0.78), rgba(255,255,255,0.18))",
-    `linear-gradient(90deg, ${accent} 0 20%, transparent 20% 28%, ${accent} 28% 55%, transparent 55% 64%, ${accent} 64% 84%, transparent 84%)`,
+    `linear-gradient(rgba(255,255,255,${overlayOpacity}), rgba(255,255,255,${overlayOpacity}))`,
+    `url("${backgroundImage.src}") center / ${size} no-repeat`,
     background
   ].join(",");
+}
+
+function buildSlideBackgroundStyle(slide: Slide, deck: Deck): CSSProperties {
+  const backgroundColor = slide.style.backgroundColor ?? deck.theme.backgroundColor;
+  const backgroundImage = slide.style.backgroundImage;
+
+  if (!backgroundImage?.src) {
+    return {
+      backgroundColor,
+      borderRadius: 0
+    };
+  }
+
+  const size = getSlideBackgroundSize(backgroundImage.fit);
+  const overlayOpacity = clampBackgroundOverlayOpacity(backgroundImage.opacity);
+
+  return {
+    backgroundColor,
+    backgroundImage: `linear-gradient(rgba(255,255,255,${overlayOpacity}), rgba(255,255,255,${overlayOpacity})), url("${backgroundImage.src}")`,
+    backgroundPosition: "center, center",
+    backgroundRepeat: "no-repeat, no-repeat",
+    backgroundSize: `100% 100%, ${size}`,
+    borderRadius: 0
+  };
+}
+
+function getSlideBackgroundSize(fit: NonNullable<Slide["style"]["backgroundImage"]>["fit"]) {
+  if (fit === "stretch") {
+    return "100% 100%";
+  }
+
+  return fit;
+}
+
+function clampBackgroundOverlayOpacity(opacity: number) {
+  return Math.max(0, Math.min(1, 1 - opacity));
 }
 
 function getEditorStatusLabel(props: {
@@ -1838,25 +1971,54 @@ function ElementSummary(props: { element: DeckElement }) {
 
 function SelectionQuickBar(props: {
   element: DeckElement | null;
+  slide: Slide | null;
   onChangeFrame: (frame: ElementFrameChange) => void;
   onChangeProps: (props: Record<string, unknown>) => void;
+  onChangeSlideStyle: (style: {
+    backgroundColor?: string | null;
+    textColor?: string | null;
+    accentColor?: string | null;
+  }) => void;
   showIds: boolean;
 }) {
-  const { element, onChangeFrame, onChangeProps, showIds } = props;
+  const { element, onChangeFrame, onChangeProps, onChangeSlideStyle, showIds, slide } =
+    props;
+
+  if (!element && !slide) {
+    return null;
+  }
+
+  if (!element && slide) {
+    return (
+      <section className="selection-quickbar">
+        {showIds ? (
+          <div className="selection-quickbar-meta">
+            <IdBadge id={slide.slideId} />
+          </div>
+        ) : null}
+        <div className="selection-quickbar-fields">
+          <PropertyColorField
+            className="compact-property-field compact-property-field-color"
+            label="배경색"
+            value={slide.style.backgroundColor ?? "#ffffff"}
+            onCommit={(value) => onChangeSlideStyle({ backgroundColor: value })}
+          />
+        </div>
+      </section>
+    );
+  }
 
   if (!element) {
     return null;
   }
 
   const showOpacityControl = element.type !== "text";
-  const showElementTypeLabel = element.type !== "text";
-  const showMeta = showElementTypeLabel || showIds;
+  const showMeta = showIds;
 
   return (
     <section className="selection-quickbar">
       {showMeta ? (
         <div className="selection-quickbar-meta">
-          {showElementTypeLabel ? <strong>{getElementTypeLabel(element)}</strong> : null}
           {showIds ? <IdBadge id={element.elementId} /> : null}
         </div>
       ) : null}
@@ -1966,7 +2128,14 @@ function ElementQuickBarFields(props: {
     );
   }
 
-  if (element.type === "rect" || element.type === "ellipse" || element.type === "line") {
+  if (
+    element.type === "rect" ||
+    element.type === "ellipse" ||
+    element.type === "line" ||
+    element.type === "polygon" ||
+    element.type === "star" ||
+    element.type === "ring"
+  ) {
     const shapeProps = element.props as ShapeElementProps;
 
     return (
@@ -1992,7 +2161,7 @@ function ElementQuickBarFields(props: {
           onCommit={(value) => onChangeProps({ strokeWidth: value })}
           value={shapeProps.strokeWidth}
         />
-        {element.type !== "line" ? (
+        {element.type === "rect" ? (
           <PropertyNumberField
             className="compact-property-field compact-property-field-sm"
             label="둥글기"
@@ -2082,27 +2251,6 @@ function QuickBarSelectField(props: {
       </select>
     </label>
   );
-}
-
-function getElementTypeLabel(element: DeckElement) {
-  switch (element.type) {
-    case "text":
-      return "텍스트";
-    case "image":
-      return "이미지";
-    case "chart":
-      return "차트";
-    case "rect":
-      return "사각형";
-    case "ellipse":
-      return "원형";
-    case "line":
-      return "선";
-    case "group":
-      return "그룹";
-    default:
-      return element.type;
-  }
 }
 
 function PropertyNumberField(props: {
@@ -2523,6 +2671,9 @@ function EditableElementNode(props: {
     height: element.height,
     rotation: element.rotation
   };
+  const selectionHitFill = isSelected
+    ? "rgba(37, 99, 235, 0.08)"
+    : "rgba(15, 23, 42, 0.001)";
 
   useEffect(() => {
     setPreviewFrame(null);
@@ -2600,8 +2751,7 @@ function EditableElementNode(props: {
     >
       <Rect
         cornerRadius={10}
-        fill={isSelected ? "rgba(37, 99, 235, 0.08)" : "transparent"}
-        listening={false}
+        fill={selectionHitFill}
         stroke={isSelected ? "#2563eb" : "transparent"}
         strokeWidth={isSelected ? 2 : 0}
         width={frame.width}
@@ -2813,19 +2963,96 @@ function ElementNodeContent(props: {
   }
 
   if (element.type === "ellipse") {
+    const strokeWidth = Math.max(1, element.props.strokeWidth);
+    const radius = Math.max(1, Math.min(frame.width, frame.height) / 2 - strokeWidth / 2);
+
     return (
       <Group listening={false}>
-        <Rect
-          cornerRadius={999}
+        <Circle
           fill={element.props.fill === "transparent" ? "#eff6ff" : element.props.fill}
           stroke={
             element.props.stroke === "transparent"
               ? "rgba(15, 23, 42, 0.18)"
               : element.props.stroke
           }
-          strokeWidth={Math.max(1, element.props.strokeWidth)}
-          width={frame.width}
-          height={frame.height}
+          strokeWidth={strokeWidth}
+          x={frame.width / 2}
+          y={frame.height / 2}
+          radius={radius}
+        />
+      </Group>
+    );
+  }
+
+  if (element.type === "polygon") {
+    const strokeWidth = Math.max(1, element.props.strokeWidth);
+    const radius = Math.max(1, Math.min(frame.width, frame.height) / 2 - strokeWidth / 2);
+
+    return (
+      <Group listening={false}>
+        <RegularPolygon
+          sides={3}
+          fill={element.props.fill === "transparent" ? "#eff6ff" : element.props.fill}
+          stroke={
+            element.props.stroke === "transparent"
+              ? "rgba(15, 23, 42, 0.18)"
+              : element.props.stroke
+          }
+          strokeWidth={strokeWidth}
+          x={frame.width / 2}
+          y={frame.height / 2}
+          radius={radius}
+        />
+      </Group>
+    );
+  }
+
+  if (element.type === "star") {
+    const strokeWidth = Math.max(1, element.props.strokeWidth);
+    const outerRadius = Math.max(
+      1,
+      Math.min(frame.width, frame.height) / 2 - strokeWidth / 2
+    );
+
+    return (
+      <Group listening={false}>
+        <KonvaStar
+          numPoints={5}
+          innerRadius={outerRadius * 0.48}
+          outerRadius={outerRadius}
+          fill={element.props.fill === "transparent" ? "#eff6ff" : element.props.fill}
+          stroke={
+            element.props.stroke === "transparent"
+              ? "rgba(15, 23, 42, 0.18)"
+              : element.props.stroke
+          }
+          strokeWidth={strokeWidth}
+          x={frame.width / 2}
+          y={frame.height / 2}
+        />
+      </Group>
+    );
+  }
+
+  if (element.type === "ring") {
+    const strokeWidth = Math.max(6, element.props.strokeWidth * 4 || 12);
+    const radius = Math.max(1, Math.min(frame.width, frame.height) / 2 - strokeWidth / 2);
+
+    return (
+      <Group listening={false}>
+        <Circle
+          fill="transparent"
+          stroke={
+            element.props.stroke === "transparent"
+              ? element.props.fill === "transparent"
+                ? "#2563eb"
+                : element.props.fill
+              : element.props.stroke
+          }
+          strokeWidth={strokeWidth}
+          x={frame.width / 2}
+          y={frame.height / 2}
+          radius={radius}
         />
       </Group>
     );
@@ -2852,7 +3079,7 @@ function ElementNodeContent(props: {
   return (
     <Group listening={false}>
       <Rect
-        cornerRadius={element.type === "ring" ? 999 : element.props.borderRadius}
+        cornerRadius={element.props.borderRadius}
         fill={element.props.fill === "transparent" ? "rgba(49, 87, 245, 0.08)" : element.props.fill}
         stroke={
           element.props.stroke === "transparent"
@@ -2863,22 +3090,8 @@ function ElementNodeContent(props: {
         width={frame.width}
         height={frame.height}
       />
-      <Text
-        fill="#475569"
-        fontSize={14}
-        fontStyle="bold"
-        text={renderShapeLabel(element)}
-        align="center"
-        verticalAlign="middle"
-        width={frame.width}
-        height={frame.height}
-      />
     </Group>
   );
-}
-
-function renderShapeLabel(element: DeckElement) {
-  return `${element.type}${element.role ? ` · ${element.role}` : ""}`;
 }
 
 function InlineTextEditorOverlay(props: {
