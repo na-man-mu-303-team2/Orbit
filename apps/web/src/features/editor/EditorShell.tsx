@@ -127,6 +127,10 @@ type ElementContextMenuState = {
   slideId: string;
   top: number;
 };
+type ElementClipboardState = {
+  element: DeckElement;
+  pasteCount: number;
+};
 type ImageUploadTarget =
   | {
       type: "insert";
@@ -200,6 +204,7 @@ export function EditorShell() {
   const topbarRef = useRef<HTMLElement | null>(null);
   const shapeMenuButtonRef = useRef<HTMLButtonElement | null>(null);
   const imageFileInputRef = useRef<HTMLInputElement | null>(null);
+  const copiedElementRef = useRef<ElementClipboardState | null>(null);
 
   const health = useQuery({
     queryKey: ["health"],
@@ -731,23 +736,70 @@ export function EditorShell() {
     setEditingElementId(null);
   }
 
+  function cloneElementToCurrentSlide(sourceElement: DeckElement, offsetMultiplier = 1) {
+    if (!currentSlide) {
+      return null;
+    }
+
+    const nextElementId = createElementId(deck);
+    const nextZIndex =
+      currentSlide.elements.reduce(
+        (highestZIndex, element) => Math.max(highestZIndex, element.zIndex),
+        0
+      ) + 1;
+    const offset = 24 * offsetMultiplier;
+
+    commitPatch(
+      createAddElementPatch(deck, currentSlide.slideId, {
+        ...structuredClone(sourceElement),
+        elementId: nextElementId,
+        x: sourceElement.x + offset,
+        y: sourceElement.y + offset,
+        zIndex: nextZIndex
+      })
+    );
+
+    setSelectedElementId(nextElementId);
+    setEditingElementId(null);
+
+    return nextElementId;
+  }
+
   function handleDuplicateSelectedElement() {
     if (!currentSlide || !selectedElement) {
       return;
     }
 
     setElementContextMenu(null);
-    const nextElementId = createElementId(deck);
-    commitPatch(
-      createAddElementPatch(deck, currentSlide.slideId, {
-        ...structuredClone(selectedElement),
-        elementId: nextElementId,
-        x: selectedElement.x + 24,
-        y: selectedElement.y + 24,
-        zIndex: selectedElement.zIndex + 1
-      })
-    );
-    setSelectedElementId(nextElementId);
+    cloneElementToCurrentSlide(selectedElement);
+  }
+
+  function handleCopySelectedElement() {
+    if (!selectedElement) {
+      return;
+    }
+
+    setElementContextMenu(null);
+    copiedElementRef.current = {
+      element: structuredClone(selectedElement),
+      pasteCount: 0
+    };
+  }
+
+  function handlePasteCopiedElement() {
+    if (!currentSlide || !copiedElementRef.current) {
+      return;
+    }
+
+    setElementContextMenu(null);
+    const { element, pasteCount } = copiedElementRef.current;
+    const nextPasteCount = pasteCount + 1;
+
+    cloneElementToCurrentSlide(element, nextPasteCount);
+    copiedElementRef.current = {
+      element,
+      pasteCount: nextPasteCount
+    };
   }
 
   function handleCreateDrawnElement(
@@ -847,12 +899,6 @@ export function EditorShell() {
 
   function handleCanvasBackgroundSelectionClear() {
     setElementContextMenu(null);
-
-    if (selectedElement?.type === "text") {
-      setEditingElementId(null);
-      return;
-    }
-
     setSelectedElementId(null);
     setEditingElementId(null);
   }
@@ -1056,6 +1102,8 @@ export function EditorShell() {
 
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
+      const isEditableTarget = isKeyboardEditableTarget(event.target);
+
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "z") {
         event.preventDefault();
         if (event.shiftKey) {
@@ -1076,6 +1124,20 @@ export function EditorShell() {
         if (selectedElementId) {
           event.preventDefault();
           handleDuplicateSelectedElement();
+        }
+      }
+
+      if (!isEditableTarget && (event.metaKey || event.ctrlKey)) {
+        const normalizedKey = event.key.toLowerCase();
+
+        if (normalizedKey === "c" && selectedElement) {
+          event.preventDefault();
+          handleCopySelectedElement();
+        }
+
+        if (normalizedKey === "v" && copiedElementRef.current) {
+          event.preventDefault();
+          handlePasteCopiedElement();
         }
       }
 
@@ -2649,6 +2711,19 @@ function PropertyColorField(props: {
 
 function truncateValue(value: string, maxLength: number) {
   return value.length > maxLength ? `${value.slice(0, maxLength - 1)}…` : value;
+}
+
+function isKeyboardEditableTarget(target: EventTarget | null) {
+  if (!(target instanceof HTMLElement)) {
+    return false;
+  }
+
+  return (
+    target.isContentEditable ||
+    target instanceof HTMLInputElement ||
+    target instanceof HTMLTextAreaElement ||
+    target instanceof HTMLSelectElement
+  );
 }
 
 function useLoadedImage(src: string) {
