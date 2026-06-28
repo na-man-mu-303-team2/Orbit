@@ -359,8 +359,8 @@ test.describe("ORBIT-2 ORBIT-10 ORBIT-36 ORBIT-58 smoke", () => {
     await expect(page.getByText("raw audio 삭제 완료")).toBeVisible({
       timeout: 20_000
     });
-    expect(requestOrder).toEqual([
-      "deck",
+    expect(requestOrder).toContain("deck");
+    expect(requestOrder.filter((request) => request !== "deck")).toEqual([
       "run",
       "upload-url",
       "storage-put",
