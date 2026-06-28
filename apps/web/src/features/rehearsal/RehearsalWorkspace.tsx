@@ -13,6 +13,7 @@ import {
   type LiveSttKeywordDetectedEvent,
   type LiveSttPartialTranscriptEvent,
   type LiveSttSlideAdvanceEvent,
+  type PutDeckResponse,
   type RehearsalRun,
   type Slide
 } from "@orbit/shared";
@@ -148,6 +149,49 @@ export async function fetchRehearsalDeck(
 
   const payload = (await response.json()) as GetDeckResponse;
   return payload.deck;
+}
+
+export async function fetchOrCreateRehearsalDeck(
+  options: {
+    projectId?: string;
+    fallbackDeck?: Deck;
+    fetcher?: Fetcher;
+  } = {}
+) {
+  const projectId = options.projectId ?? options.fallbackDeck?.projectId ?? demoIds.projectId;
+  const fetcher = options.fetcher ?? fetch;
+  const response = await fetcher(`/api/v1/projects/${projectId}/deck`);
+
+  if (response.ok) {
+    const payload = (await response.json()) as GetDeckResponse;
+    return payload.deck;
+  }
+
+  if (response.status === 404 && options.fallbackDeck) {
+    const putResponse = await fetcher(`/api/v1/projects/${projectId}/deck`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        deck: options.fallbackDeck,
+        snapshotReason: "deck-replaced"
+      })
+    });
+
+    if (!putResponse.ok) {
+      throw new RehearsalFlowError(
+        "deck",
+        await readErrorMessage(putResponse, "리허설 발표자료를 초기화하지 못했습니다.")
+      );
+    }
+
+    const payload = (await putResponse.json()) as PutDeckResponse;
+    return payload.deck;
+  }
+
+  throw new RehearsalFlowError(
+    "deck",
+    await readErrorMessage(response, "발표자료를 불러오지 못했습니다.")
+  );
 }
 
 export async function createRehearsalRun(
@@ -346,10 +390,15 @@ export function createRecordingFile(
   mimeType: string,
   now: Date = new Date()
 ) {
+  const normalizedMimeType = normalizeRecordingMimeType(mimeType || blob.type);
   const safeTimestamp = now.toISOString().replace(/[:.]/g, "-");
-  return new File([blob], `rehearsal-${safeTimestamp}.${extensionForMimeType(mimeType)}`, {
-    type: mimeType || blob.type || "audio/webm"
+  return new File([blob], `rehearsal-${safeTimestamp}.${extensionForMimeType(normalizedMimeType)}`, {
+    type: normalizedMimeType
   });
+}
+
+export function normalizeRecordingMimeType(mimeType: string) {
+  return mimeType.split(";")[0]?.trim().toLowerCase() || "audio/webm";
 }
 
 export function createRecordingSession(
@@ -483,6 +532,7 @@ function createDefaultLiveSttAdapter() {
 
 export function RehearsalWorkspace(props: {
   initialDeck?: Deck;
+  fallbackDeck?: Deck;
   liveSttAdapter?: LiveSttAdapter;
   autoAdvanceDelayMs?: number;
 }) {
@@ -523,7 +573,7 @@ export function RehearsalWorkspace(props: {
 
     let isCancelled = false;
     setPhase("loading");
-    void fetchRehearsalDeck()
+    void fetchOrCreateRehearsalDeck({ fallbackDeck: props.fallbackDeck })
       .then((nextDeck) => {
         if (!isCancelled) {
           setDeck(nextDeck);
@@ -541,7 +591,7 @@ export function RehearsalWorkspace(props: {
       isCancelled = true;
       stopMediaStream(streamRef.current);
     };
-  }, [props.initialDeck]);
+  }, [props.fallbackDeck, props.initialDeck]);
 
   useEffect(() => {
     deckRef.current = deck;
@@ -579,6 +629,7 @@ export function RehearsalWorkspace(props: {
 
   async function startRecording() {
     if (!deck || !canRecord) return;
+    const activeDeck = deck;
 
     setError("");
     setRun(null);
@@ -597,17 +648,26 @@ export function RehearsalWorkspace(props: {
       return;
     }
 
+    let stream: MediaStream | null = null;
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const session = createRecordingSession(stream, {
         onError: (recordingError) => {
           stopMediaStream(stream);
+          if (streamRef.current === stream) {
+            streamRef.current = null;
+          }
+          sessionRef.current = null;
           setError(recordingError.message);
           setPhase("failed");
         },
         onStop: (audioFile) => {
           stopMediaStream(stream);
-          void submitRecording(deck.deckId, audioFile);
+          if (streamRef.current === stream) {
+            streamRef.current = null;
+          }
+          sessionRef.current = null;
+          void submitRecording(activeDeck, audioFile);
         }
       });
       streamRef.current = stream;
@@ -616,6 +676,11 @@ export function RehearsalWorkspace(props: {
       setPhase("recording");
       void startLiveStt(stream);
     } catch (cause) {
+      stopMediaStream(stream);
+      if (streamRef.current === stream) {
+        streamRef.current = null;
+      }
+      sessionRef.current = null;
       setError(toMicrophoneErrorMessage(cause));
       setPhase("failed");
     }
@@ -632,6 +697,8 @@ export function RehearsalWorkspace(props: {
     );
     sessionRef.current?.stop();
     stopMediaStream(streamRef.current);
+    streamRef.current = null;
+    sessionRef.current = null;
   }
 
   async function startLiveStt(stream: MediaStream) {
@@ -759,14 +826,14 @@ export function RehearsalWorkspace(props: {
     }
   }
 
-  async function submitRecording(deckId: string, audioFile: File) {
+  async function submitRecording(activeDeck: Deck, audioFile: File) {
     setPhase("uploading");
     setError("");
 
     try {
       const result = await runRehearsalUploadFlow({
-        projectId: demoIds.projectId,
-        deckId,
+        projectId: activeDeck.projectId,
+        deckId: activeDeck.deckId,
         audioFile,
         onJobUpdate: (nextJob) => {
           setJob(nextJob);
