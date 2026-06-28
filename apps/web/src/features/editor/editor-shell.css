@@ -514,10 +514,23 @@
   gap: 4px;
   overflow: hidden;
   color: #1e293b;
+  min-width: 0;
+}
+
+.slide-title-text {
+  display: -webkit-box;
+  overflow: hidden;
+  color: #1e293b;
   font-size: 11px;
   font-weight: 800;
-  line-height: 1.25;
-  max-height: 30px;
+  line-height: 1.3;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+}
+
+.slide-title .id-badge {
+  justify-self: flex-start;
 }
 
 .slide-thumb {
@@ -676,6 +689,67 @@
   color: var(--blue);
   background: var(--blue-soft);
   border-color: #bfdbfe;
+}
+
+.toolbar-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 40px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #fff;
+  color: #334155;
+}
+
+.toolbar-toggle:hover {
+  border-color: #bfdbfe;
+  background: var(--blue-soft);
+  color: var(--blue);
+}
+
+.toolbar-toggle.active {
+  border-color: #93c5fd;
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
+.toolbar-toggle-label {
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+}
+
+.toolbar-toggle-track {
+  position: relative;
+  flex: 0 0 auto;
+  width: 34px;
+  height: 20px;
+  border-radius: 999px;
+  background: #cbd5e1;
+  transition: background 160ms ease;
+}
+
+.toolbar-toggle.active .toolbar-toggle-track {
+  background: #60a5fa;
+}
+
+.toolbar-toggle-thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.18);
+  transition: transform 160ms ease;
+}
+
+.toolbar-toggle.active .toolbar-toggle-thumb {
+  transform: translateX(14px);
 }
 
 .toolbar-status-pill {
@@ -1008,13 +1082,18 @@
   align-items: center;
   width: fit-content;
   max-width: 100%;
-  min-height: 22px;
-  padding: 0 8px;
+  min-height: 28px;
+  padding: 0 10px;
+  border: 1px solid rgba(15, 23, 42, 0.08);
   border-radius: 999px;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 900;
   line-height: 1;
   white-space: nowrap;
+  overflow: hidden;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+    "Liberation Mono", "Courier New", monospace;
+  letter-spacing: 0.02em;
 }
 
 .id-badge-project {

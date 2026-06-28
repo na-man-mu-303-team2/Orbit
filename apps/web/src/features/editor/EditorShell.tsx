@@ -1559,7 +1559,9 @@ export function EditorShell() {
                   >
                     <span className="slide-number">{index + 1}</span>
                     <span className="slide-title">
-                      {slide.title || `슬라이드 ${index + 1}`}
+                      <strong className="slide-title-text">
+                        {slide.title || `슬라이드 ${index + 1}`}
+                      </strong>
                       {showIds ? <IdBadge id={slide.slideId} /> : null}
                     </span>
                     <span
@@ -1666,22 +1668,20 @@ export function EditorShell() {
               </div>
 
               <div className="tool-group">
-                <button className="tool-button" type="button" onClick={handleDuplicateSelectedElement}>
-                  복제
-                </button>
                 <button className="tool-button" type="button">
                   <LayoutTemplate size={14} />
                   템플릿
                 </button>
-                <button className="tool-button" type="button" onClick={handleDeleteSelectedElement}>
-                  삭제
-                </button>
                 <button
-                  className={`tool-button ${showIds ? "active" : ""}`}
+                  aria-pressed={showIds}
+                  className={`toolbar-toggle ${showIds ? "active" : ""}`}
                   type="button"
                   onClick={() => setShowIds((current) => !current)}
                 >
-                  ID
+                  <span className="toolbar-toggle-label">ID 표시</span>
+                  <span className="toolbar-toggle-track" aria-hidden="true">
+                    <span className="toolbar-toggle-thumb" />
+                  </span>
                 </button>
                 {imageUploadNotice ? (
                   <span className={`toolbar-status-pill ${imageUploadNotice.tone}`}>
@@ -2923,9 +2923,12 @@ function getImageElementLayout(args: {
 }
 
 function IdBadge(props: { id: string }) {
+  const kind = getIdKind(props.id);
+  const displayId = getDisplayIdLabel(props.id);
+
   return (
-    <span className={`id-badge id-badge-${getIdKind(props.id)}`}>
-      {props.id}
+    <span className={`id-badge id-badge-${kind}`} title={props.id}>
+      {displayId}
     </span>
   );
 }
@@ -2956,6 +2959,68 @@ function getIdKind(id: string): string {
     return "snapshot";
   }
   return "default";
+}
+
+function getDisplayIdLabel(id: string) {
+  const kind = getIdKind(id);
+  const suffix = getDisplayIdSuffix(id);
+
+  switch (kind) {
+    case "project":
+      return `project${suffix}`;
+    case "deck":
+      return `deck${suffix}`;
+    case "slide":
+      return `slide${suffix}`;
+    case "element":
+      return `element${suffix}`;
+    case "animation":
+      return `animation${suffix}`;
+    case "keyword":
+      return `keyword${suffix}`;
+    case "change":
+      return `change${suffix}`;
+    case "snapshot":
+      return `snapshot${suffix}`;
+    default:
+      return truncateValue(id.replace(/_/g, ""), 18);
+  }
+}
+
+function getDisplayIdSuffix(id: string) {
+  const normalized = id.includes("_") ? id.slice(id.indexOf("_") + 1) : id;
+
+  return truncateValue(normalized.replace(/_/g, ""), 12);
+}
+
+const CANVAS_ID_BADGE_FONT_SIZE = 27;
+const CANVAS_ID_BADGE_HEIGHT = 60;
+const CANVAS_ID_BADGE_GAP = 10;
+const CANVAS_ID_BADGE_PADDING = 15;
+const CANVAS_ID_STAGE_PADDING = 12;
+
+function getCanvasIdBadgeWidth(label: string) {
+  return Math.max(172, label.length * 19 + 36);
+}
+
+function getCanvasIdBadgeOffset(args: {
+  canvas: DeckCanvas;
+  frame: { x: number; y: number; width: number; height: number };
+  badgeWidth: number;
+  badgeHeight: number;
+}) {
+  const { canvas, frame, badgeWidth, badgeHeight } = args;
+  const hasRoomOnRight = frame.x + badgeWidth <= canvas.width - CANVAS_ID_STAGE_PADDING;
+  const hasRoomAbove =
+    frame.y >= badgeHeight + CANVAS_ID_BADGE_GAP + CANVAS_ID_STAGE_PADDING;
+  const hasRoomBelow =
+    frame.y + frame.height + CANVAS_ID_BADGE_GAP + badgeHeight <=
+    canvas.height - CANVAS_ID_STAGE_PADDING;
+
+  return {
+    x: hasRoomOnRight ? 0 : Math.min(0, frame.width - badgeWidth),
+    y: hasRoomAbove || !hasRoomBelow ? -badgeHeight - CANVAS_ID_BADGE_GAP : frame.height + CANVAS_ID_BADGE_GAP
+  };
 }
 
 function EditableCanvas(props: {
@@ -3249,6 +3314,14 @@ function EditableElementNode(props: {
   const selectionHitFill = isSelected
     ? "rgba(37, 99, 235, 0.08)"
     : "rgba(15, 23, 42, 0.001)";
+  const elementIdLabel = getDisplayIdLabel(element.elementId);
+  const canvasIdBadgeWidth = getCanvasIdBadgeWidth(elementIdLabel);
+  const canvasIdBadgeOffset = getCanvasIdBadgeOffset({
+    badgeHeight: CANVAS_ID_BADGE_HEIGHT,
+    badgeWidth: canvasIdBadgeWidth,
+    canvas: deck.canvas,
+    frame
+  });
 
   useEffect(() => {
     setPreviewFrame(null);
@@ -3349,15 +3422,30 @@ function EditableElementNode(props: {
         slide={slide}
       />
       {showIds ? (
-        <Group listening={false} x={8} y={8}>
-          <Rect fill="rgba(15, 23, 42, 0.88)" cornerRadius={999} height={24} width={110} />
+        <Group
+          listening={false}
+          rotation={-frame.rotation}
+          x={canvasIdBadgeOffset.x}
+          y={canvasIdBadgeOffset.y}
+        >
+          <Rect
+            cornerRadius={18}
+            fill="rgba(255, 255, 255, 0.98)"
+            height={CANVAS_ID_BADGE_HEIGHT}
+            shadowBlur={14}
+            shadowColor="rgba(15, 23, 42, 0.18)"
+            shadowOpacity={0.28}
+            stroke="#2563eb"
+            strokeWidth={1.5}
+            width={canvasIdBadgeWidth}
+          />
           <Text
-            fill="#f8fafc"
-            fontSize={12}
+            fill="#0f172a"
+            fontSize={CANVAS_ID_BADGE_FONT_SIZE}
             fontStyle="bold"
-            padding={6}
-            text={element.elementId}
-            width={110}
+            padding={CANVAS_ID_BADGE_PADDING}
+            text={elementIdLabel}
+            width={canvasIdBadgeWidth}
           />
         </Group>
       ) : null}
