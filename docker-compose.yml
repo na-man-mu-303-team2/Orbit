@@ -112,7 +112,6 @@ services:
       REDIS_URL: redis://redis:6379
       S3_ENDPOINT: http://minio:9000
       PYTHON_WORKER_URL: http://python-worker:8000
-      OPENAI_TRANSCRIPTION_MODEL: ${OPENAI_TRANSCRIPTION_MODEL:-gpt-4o-transcribe}
     ports:
       - "${PYTHON_WORKER_PORT:-8000}:8000"
     depends_on:
