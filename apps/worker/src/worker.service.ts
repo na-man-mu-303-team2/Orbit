@@ -2,7 +2,8 @@ import {
   generateDeckQueueName,
   redisConnectionOptions,
   referenceExtractQueueName,
-  rehearsalSttQueueName
+  rehearsalSttQueueName,
+  workerHealthCheckQueueName
 } from "@orbit/job-queue";
 import { loadOrbitConfig } from "@orbit/config";
 import type { Job as OrbitJob } from "@orbit/shared";
@@ -16,10 +17,17 @@ import { serializeLogError } from "./logging";
 import { processReferenceExtractJob } from "./reference-extract.processor";
 import { processRehearsalSttJob } from "./rehearsal-stt.processor";
 import { workerStorage } from "./storage";
+import { processWorkerHealthCheckJob } from "./worker-health-check.processor";
 
 @Injectable()
 export class WorkerService implements OnModuleInit, OnModuleDestroy {
   private readonly config = loadOrbitConfig(process.env, { service: "worker" });
+  private readonly queueNames = [
+    referenceExtractQueueName,
+    rehearsalSttQueueName,
+    generateDeckQueueName,
+    workerHealthCheckQueueName
+  ];
   private workers: BullMqWorker[] = [];
 
   constructor(
@@ -29,16 +37,11 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
   ) {}
 
   onModuleInit() {
-    const queueNames = [
-      referenceExtractQueueName,
-      rehearsalSttQueueName,
-      generateDeckQueueName
-    ];
     this.logger.info(
       {
         event: "worker.ready",
         driver: this.config.JOB_QUEUE_DRIVER,
-        queueNames
+        queueNames: this.queueNames
       },
       "Worker ready."
     );
@@ -69,6 +72,13 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
           this.config.PYTHON_WORKER_URL,
           job.data
         )
+      ),
+      this.createWorker(workerHealthCheckQueueName, (job) =>
+        processWorkerHealthCheckJob(
+          this.dataSource,
+          this.config.PYTHON_WORKER_URL,
+          job.data
+        )
       )
     ];
   }
@@ -78,11 +88,7 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
     this.logger.info(
       {
         event: "worker.stopped",
-        queueNames: [
-          referenceExtractQueueName,
-          rehearsalSttQueueName,
-          generateDeckQueueName
-        ]
+        queueNames: this.queueNames
       },
       "Worker stopped."
     );
