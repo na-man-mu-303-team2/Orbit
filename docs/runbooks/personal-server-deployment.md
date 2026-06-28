@@ -12,7 +12,7 @@
 - 런타임 사용자: `orbit`
 - 관리자 사용자: `shawn`
 - secret 출처: Doppler `orbit / stg`
-- 공개 origin: `<SERVER_ORIGIN>`
+- 공개 origin: `<SERVER_ORIGIN>` (HTTPS)
 
 ## 네트워크 정책
 
@@ -26,13 +26,14 @@ localhost에만 bind하는 앱 포트:
 
 - `5173`: web
 - `3000`: api
+- `9000`: MinIO object API. Nginx의 `/assets/` 프록시 upstream으로만 사용한다.
 
 외부에 직접 공개하지 않는 포트:
 
 - PostgreSQL `5432`
 - Redis `6379`
 - Python worker `8000`
-- MinIO `9000/9001`
+- MinIO console `9001`
 
 ## Doppler
 
@@ -68,20 +69,23 @@ PYTHON_WORKER_URL=http://python-worker:8000
 예시:
 
 ```bash
-WEB_ORIGIN=http://example.com
-API_BASE_URL=http://example.com/api
-S3_PUBLIC_ENDPOINT=http://example.com/assets
+WEB_ORIGIN=https://example.com
+API_BASE_URL=https://example.com/api
+S3_PUBLIC_ENDPOINT=https://example.com/assets
 PYTHON_WORKER_URL=http://python-worker:8000
 ```
 
 실제 서버 전용 값은 repository에 커밋하지 않는다.
 
-개인 서버에서는 OCR을 Python worker 경로로 실행한다. AWS Textract는 필요하지 않다.
+개인 서버용 Docker Compose override는 로컬 Redis, MinIO, Python worker를 기준으로 다음 런타임 값을 고정한다.
 
-```bash
-OCR_PROVIDER=python
-TEXTRACT_ENABLED=false
-```
+- storage driver는 MinIO를 사용한다.
+- queue driver는 BullMQ를 사용한다.
+- STT provider는 Python worker의 현재 지원 범위에 맞춰 OpenAI를 사용한다.
+- OCR provider는 Python worker 경로를 사용한다.
+- AWS Textract는 사용하지 않는다.
+
+Doppler `orbit / stg` 값이 S3, SQS, AWS Transcribe, AWS Textract 기준이어도 개인 서버 override에서 위 값으로 덮어쓴다.
 
 ## Nginx
 
@@ -92,7 +96,20 @@ Nginx는 외부 요청을 받는 public entrypoint다.
 - `/`: `127.0.0.1:5173`으로 proxy
 - `/api/health`: API `/health`로 proxy
 - `/api/v1/`: `127.0.0.1:3000/api/v1/`로 proxy
+- `/assets/`: prefix를 제거한 뒤 `127.0.0.1:9000`으로 proxy
 - `/socket.io/`: websocket traffic을 `127.0.0.1:3000/socket.io/`로 proxy
+
+`S3_PUBLIC_ENDPOINT=<SERVER_ORIGIN>/assets`를 사용하면 API가 asset URL을 `/assets/<bucket>/<key>` 형태로 반환한다. Nginx는 `/assets/` prefix를 제거해 MinIO의 path-style object URL인 `/<bucket>/<key>`로 전달해야 한다.
+
+예시:
+
+```nginx
+location /assets/ {
+  rewrite ^/assets/(.*)$ /$1 break;
+  proxy_pass http://127.0.0.1:9000;
+  proxy_set_header Host $host;
+}
+```
 
 Nginx 설정 변경 후에는 다음 명령으로 문법을 확인하고 재시작한다.
 
@@ -116,6 +133,7 @@ cd /var/www/orbit
 ```bash
 curl -fsS http://127.0.0.1/api/health
 curl -I http://127.0.0.1/
+curl -I http://127.0.0.1:9000/minio/health/live
 doppler run -- docker compose -f docker-compose.yml -f docker-compose.staging.yml ps
 ```
 
@@ -124,11 +142,14 @@ doppler run -- docker compose -f docker-compose.yml -f docker-compose.staging.ym
 ```text
 <SERVER_ORIGIN>/
 <SERVER_ORIGIN>/api/health
+<SERVER_ORIGIN>/assets/orbit-local/
 ```
 
 ## 주의 사항
 
-이 배포 경로는 Nginx 또는 앞단 load balancer에서 TLS를 별도로 설정하지 않는 한 HTTP로 동작한다.
+`APP_ENV=staging`에서는 인증 cookie가 `secure`로 설정된다. 따라서 로그인, 회원가입, 현재 사용자 조회 같은 인증 흐름을 브라우저에서 검증하려면 `<SERVER_ORIGIN>`은 HTTPS여야 한다.
+
+TLS를 붙이기 전의 HTTP endpoint는 기본 health check와 화면 로딩 확인에만 사용한다. HTTP 상태에서 register/login 응답이 성공하더라도 브라우저가 session cookie를 저장하지 않아 이후 인증 요청은 실패할 수 있다.
 
 MinIO는 기존 named volume과의 호환성을 위해 `docker-compose.yml`의 로컬 개발 root credential을 유지한다. 초기화된 MinIO volume에서 root credential을 바꾸려면 별도 migration 계획이 필요하다.
 

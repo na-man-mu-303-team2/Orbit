@@ -169,3 +169,15 @@
 - Rationale: 실제 서버에서 `develop`을 검증할 수 있게 하면서도, 문서화된 AWS ECS Fargate production 목표와 경계를 분리한다.
 - Affected files: `docker-compose.staging.yml`, `infra/scripts/deploy-personal-server.sh`, `docs/runbooks/personal-server-deployment.md`, `docs/decision-log.md`.
 - Follow-up review notes: 수동 배포 스크립트가 서버에서 검증된 뒤 GitHub Actions 자동 배포를 별도 결정으로 추가한다. TLS를 설정하기 전까지 이 endpoint를 production으로 취급하지 않는다.
+
+## ORBIT-228 personal server runtime override policy
+
+- Context: 개인 서버 배포는 Doppler `orbit / stg` secret을 사용하지만, 저장소의 staging 예시는 S3, SQS, AWS Transcribe, AWS Textract를 전제로 한다. 개인 서버 override는 같은 서버 안의 Redis, MinIO, Python worker를 올리므로 staging secret 값을 그대로 주입하면 web 부팅, queue 처리, asset 접근, 인증 검증, STT demo가 깨질 수 있다.
+- Options considered:
+  - Doppler `stg` 값을 개인 서버 토폴로지에 맞춰 수동으로 계속 관리한다.
+  - staging 예시 값을 그대로 사용하고 실패 항목을 runbook troubleshooting으로만 설명한다.
+  - Docker Compose override에서 개인 서버 전용 runtime driver와 localhost-bound service mapping을 고정하고, runbook은 HTTPS와 Nginx `/assets/` proxy 요구를 명시한다.
+- Final decision: 개인 서버 compose override에서 web `WEB_PORT`, MinIO storage, BullMQ queue, OpenAI STT, Python OCR, Textract disabled 값을 명시적으로 고정한다. MinIO object API는 host Nginx가 `/assets/`를 proxy할 수 있도록 localhost에만 bind하고, staging 인증 흐름 검증은 HTTPS origin을 요구한다.
+- Rationale: 개인 서버 배포가 Doppler staging 값의 AWS 전제에 흔들리지 않게 하고, asset URL과 secure cookie 동작을 실제 브라우저 검증 경로와 맞춘다. MinIO object API는 외부 공개 포트가 아니라 localhost Nginx upstream으로 제한한다.
+- Affected files: `docker-compose.staging.yml`, `docs/runbooks/personal-server-deployment.md`, `docs/decision-log.md`.
+- Follow-up review notes: 개인 서버 Nginx 설정이 실제 서버에 반영된 뒤 `/assets/<bucket>/<key>` 접근, 인증 cookie 저장, reference extraction/job 처리, rehearsal STT demo를 서버에서 수동 검증한다.
