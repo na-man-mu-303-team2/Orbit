@@ -133,3 +133,15 @@
 - Rationale: 별도 번역 단계 없이 리뷰 품질과 schema 안정성을 유지하면서, 팀원이 PR에서 바로 읽을 수 있는 한국어 리뷰를 만든다.
 - Affected files: `.github/codex/prompts/develop-standard-review.md`, `infra/scripts/post-codex-review.mjs`, `docs/decision-log.md`.
 - Follow-up review notes: 첫 한국어 자동 리뷰 결과에서 용어가 어색하거나 severity/category가 번역되어 schema 검증을 깨는지 확인한다.
+
+## ORBIT develop Codex review automation removal
+
+- Context: `OPENAI_API_KEY` 기반 Codex PR review automation이 `develop`에 적용되었지만, 운영 정책 재검토를 위해 일단 제거해야 한다.
+- Options considered:
+  - GitHub repository secret만 제거하고 workflow는 남긴다.
+  - Codex review job만 조건으로 비활성화한다.
+  - OpenAI key를 사용하는 Codex review job, prompt/schema/context/posting scripts, review-only docs를 제거하고 기존 CI 분기 검증은 유지한다.
+- Final decision: `develop` PR에서 OpenAI Codex review를 실행하거나 PR review comment를 게시하는 GitHub Actions 경로를 제거한다. PR 유형별 CI 검증과 `pnpm lint` 실행 방식은 유지한다.
+- Rationale: secret 의존 자동리뷰를 중단하면서도 기존 CI 비용 절감/검증 분기와 로컬 lint 안정성은 보존한다.
+- Affected files: `.github/workflows/ci.yml`, `.github/codex/**`, `infra/scripts/build-codex-review-context.mjs`, `infra/scripts/post-codex-review.mjs`, `docs/review/official-tech-stack-references.md`, `.gitignore`, `docs/decision-log.md`.
+- Follow-up review notes: 자동리뷰를 다시 도입할 경우 모델, 비용, secret 권한, fork PR 정책, required check 포함 여부를 별도 승인 후 새 결정으로 기록한다.
