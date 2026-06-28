@@ -10,6 +10,7 @@ import {
   Activity,
   Database,
   FileUp,
+  Mic,
   Play,
   Radio,
   RefreshCw,
@@ -17,6 +18,7 @@ import {
 } from "lucide-react";
 import { AuthPanel } from "./features/auth/AuthPanel";
 import { ProjectAssetWorkspace } from "./features/projects/ProjectAssetWorkspace";
+import { RehearsalWorkspace } from "./features/rehearsal/RehearsalWorkspace";
 import type { CSSProperties, ChangeEvent, DragEvent, ReactNode } from "react";
 import { lazy, Suspense, useMemo, useRef, useState } from "react";
 
@@ -195,7 +197,7 @@ export function buildReferenceGenerationInput(
 // 데모 콘솔의 최상위 화면 전환을 관리한다.
 export function App() {
   const [view, setView] = useState<
-    "console" | "upload" | "generate" | "project-assets" | "editor"
+    "console" | "upload" | "generate" | "project-assets" | "editor" | "rehearsal"
   >(
     "console"
   );
@@ -226,6 +228,10 @@ export function App() {
         <EditorShell />
       </Suspense>
     );
+  }
+
+  if (view === "rehearsal") {
+    return <RehearsalWorkspace />;
   }
 
   return (
@@ -303,6 +309,10 @@ export function App() {
               <button type="button" onClick={() => setView("editor")}>
                 <Activity size={18} />
                 편집기 열기
+              </button>
+              <button type="button" onClick={() => setView("rehearsal")}>
+                <Mic size={18} />
+                리허설
               </button>
               <button type="button">
                 <Activity size={18} />
