@@ -28,6 +28,7 @@ import type {
 } from "@orbit/shared";
 import { useQuery } from "@tanstack/react-query";
 import type Konva from "konva";
+import type { Box as TransformerBox } from "konva/lib/shapes/Transformer";
 import { Text as KonvaTextShape } from "konva/lib/shapes/Text";
 import {
   BarChart3,
@@ -60,8 +61,17 @@ import {
   Upload,
   Wand2
 } from "lucide-react";
-import { Group, Layer, Line, Rect, Stage, Text, Transformer } from "react-konva";
+import {
+  Group as KonvaGroup,
+  Layer as KonvaLayer,
+  Line as KonvaLine,
+  Rect as KonvaRect,
+  Stage as KonvaStage,
+  Text as KonvaText,
+  Transformer as KonvaTransformer
+} from "react-konva";
 import type {
+  ComponentType,
   CSSProperties,
   PointerEvent as ReactPointerEvent
 } from "react";
@@ -78,6 +88,16 @@ const fallbackDeck = createDemoDeck();
 const collapsedSlidesPaneWidth = 52;
 const defaultSlidesPaneWidth = 176;
 const minSlidesPaneWidth = 132;
+
+type KonvaComponent = ComponentType<any>;
+
+const Group = KonvaGroup as unknown as KonvaComponent;
+const Layer = KonvaLayer as unknown as KonvaComponent;
+const Line = KonvaLine as unknown as KonvaComponent;
+const Rect = KonvaRect as unknown as KonvaComponent;
+const Stage = KonvaStage as unknown as KonvaComponent;
+const Text = KonvaText as unknown as KonvaComponent;
+const Transformer = KonvaTransformer as unknown as KonvaComponent;
 const maxSlidesPaneWidth = 280;
 const collapsedRightPaneWidth = 52;
 const defaultRightPaneWidth = 320;
@@ -2338,7 +2358,7 @@ function EditableCanvas(props: {
         scaleX={stageScale}
         scaleY={stageScale}
         width={deck.canvas.width * stageScale}
-        onMouseDown={(event) => {
+        onMouseDown={(event: Konva.KonvaEventObject<MouseEvent>) => {
           if (event.target === event.target.getStage()) {
             if (insertTool !== "select") {
               const pointer = event.target.getStage()?.getPointerPosition();
@@ -2361,7 +2381,7 @@ function EditableCanvas(props: {
             onClearSelection();
           }
         }}
-        onMouseMove={(event) => {
+        onMouseMove={(event: Konva.KonvaEventObject<MouseEvent>) => {
           if (!draftElement) {
             return;
           }
@@ -2440,7 +2460,7 @@ function EditableCanvas(props: {
           ) : null}
           <Transformer
             ref={transformerRef}
-            boundBoxFunc={(_, nextBox) => ({
+            boundBoxFunc={(_oldBox: TransformerBox, nextBox: TransformerBox) => ({
               ...nextBox,
               width: Math.max(1, nextBox.width),
               height: Math.max(1, nextBox.height)
@@ -2551,7 +2571,7 @@ function EditableElementNode(props: {
           onDoubleClick();
         }
       }}
-      onDragEnd={(event) => {
+      onDragEnd={(event: Konva.KonvaEventObject<DragEvent>) => {
         setPreviewFrame(null);
         onCommitFrame({
           x: event.target.x(),
@@ -2562,7 +2582,7 @@ function EditableElementNode(props: {
         });
       }}
       onTap={handlePointerSelect}
-      onTransform={(event) => {
+      onTransform={(event: Konva.KonvaEventObject<Event>) => {
         if (element.type !== "text") {
           return;
         }
@@ -2580,7 +2600,7 @@ function EditableElementNode(props: {
         node.scaleY(1);
         setPreviewFrame(nextFrame);
       }}
-      onTransformEnd={(event) => {
+      onTransformEnd={(event: Konva.KonvaEventObject<Event>) => {
         const node = event.target;
         const nextWidth = Math.max(1, frame.width * node.scaleX());
         const nextHeight = Math.max(1, frame.height * node.scaleY());

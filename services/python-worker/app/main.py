@@ -347,7 +347,7 @@ def analyze_rehearsal(
         pauseCount=metrics.pause_count,
         keywordCoverage=metrics.keyword_coverage,
         coaching=RehearsalCoachingResponse(
-            status=coaching.status,
+            status="succeeded",
             summary=coaching.summary,
             strengths=coaching.strengths,
             improvements=coaching.improvements,

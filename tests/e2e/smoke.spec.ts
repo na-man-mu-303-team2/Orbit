@@ -1,25 +1,107 @@
 import { expect, test } from "@playwright/test";
-import { createDemoDeck } from "@orbit/editor-core";
 
 const apiBaseUrl = process.env.ORBIT_API_URL ?? "http://127.0.0.1:3000";
-const demoDeck = createDemoDeck();
 const smokeDeck = {
-  ...demoDeck,
-  slides: demoDeck.slides.map((slide, index) =>
-    index === 0
-      ? {
-          ...slide,
-          keywords: [
-            {
-              keywordId: "kw_smoke_1",
-              text: "ORBIT",
-              synonyms: ["오르빗"],
-              abbreviations: []
-            }
-          ]
+  deckId: "deck_demo_1",
+  projectId: "project_demo_1",
+  title: "ORBIT 리허설 Smoke Deck",
+  version: 1,
+  metadata: { language: "ko", locale: "ko-KR", sourceType: "manual" },
+  canvas: {
+    preset: "wide-16-9",
+    width: 1920,
+    height: 1080,
+    aspectRatio: "16:9"
+  },
+  theme: {
+    fontFamily: "Inter",
+    backgroundColor: "#ffffff",
+    textColor: "#15202b",
+    accentColor: "#0f766e"
+  },
+  slides: [
+    {
+      slideId: "slide_smoke_1",
+      order: 1,
+      title: "ORBIT 리허설 흐름",
+      thumbnailUrl: "",
+      style: {
+        layout: "title-content",
+        backgroundColor: "#ffffff",
+        textColor: "#15202b",
+        accentColor: "#0f766e"
+      },
+      speakerNotes: "ORBIT 리허설 흐름을 설명합니다.",
+      elements: [
+        {
+          elementId: "el_smoke_1",
+          type: "text",
+          x: 120,
+          y: 140,
+          width: 900,
+          height: 180,
+          rotation: 0,
+          opacity: 1,
+          locked: false,
+          props: {
+            text: "ORBIT 리허설 흐름",
+            fontSize: 64,
+            fontFamily: "Inter",
+            fontWeight: 800,
+            color: "#15202b",
+            align: "left"
+          }
         }
-      : slide
-  )
+      ],
+      keywords: [
+        {
+          keywordId: "kw_smoke_1",
+          text: "ORBIT",
+          synonyms: ["오르빗"],
+          abbreviations: []
+        }
+      ],
+      animations: [],
+      aiNotes: { emphasisPoints: [], sourceEvidence: [] }
+    },
+    {
+      slideId: "slide_smoke_2",
+      order: 2,
+      title: "리포트 분석 완료",
+      thumbnailUrl: "",
+      style: {
+        layout: "closing",
+        backgroundColor: "#f8fafb",
+        textColor: "#15202b",
+        accentColor: "#0f766e"
+      },
+      speakerNotes: "리포트 분석 완료 상태를 확인합니다.",
+      elements: [
+        {
+          elementId: "el_smoke_2",
+          type: "text",
+          x: 120,
+          y: 140,
+          width: 900,
+          height: 180,
+          rotation: 0,
+          opacity: 1,
+          locked: false,
+          props: {
+            text: "리포트 분석 완료",
+            fontSize: 64,
+            fontFamily: "Inter",
+            fontWeight: 800,
+            color: "#15202b",
+            align: "left"
+          }
+        }
+      ],
+      keywords: [],
+      animations: [],
+      aiNotes: { emphasisPoints: [], sourceEvidence: [] }
+    }
+  ]
 };
 
 test.describe("ORBIT-2 ORBIT-10 ORBIT-36 ORBIT-58 smoke", () => {
