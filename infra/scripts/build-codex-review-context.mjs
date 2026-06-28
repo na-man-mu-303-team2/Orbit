@@ -101,11 +101,9 @@ function normalizePath(filePath) {
 function isSecretPath(filePath) {
   const normalized = normalizePath(filePath);
   const baseName = path.posix.basename(normalized);
+  const isEnvExample = baseName === ".env.example" || /^\.env\..*\.example$/.test(baseName);
   return (
-    baseName === ".env" ||
-    baseName === ".env.local" ||
-    /^\.env\..*\.local$/.test(baseName) ||
-    normalized.includes("/.env.") ||
+    (baseName.startsWith(".env") && !isEnvExample) ||
     normalized.includes("secrets/")
   );
 }
@@ -256,6 +254,7 @@ const ciResults = [
   ["python-worker", env.CI_PYTHON_WORKER_RESULT],
   ["compose-config", env.CI_COMPOSE_CONFIG_RESULT],
   ["playwright-smoke", env.CI_PLAYWRIGHT_SMOKE_RESULT],
+  ["automation-check", env.CI_AUTOMATION_CHECK_RESULT],
 ].map(([job, result]) => `- ${job}: ${result || "unknown"}`);
 
 const prBody = truncate(stripHtmlComments(getPrBody()), 8000);

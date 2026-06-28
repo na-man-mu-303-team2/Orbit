@@ -121,13 +121,13 @@ async function listPullFiles(owner, repo, prNumber) {
 function findingBody(finding) {
   const evidence = finding.evidence?.references?.length
     ? finding.evidence.references.map((item) => `- ${item}`).join("\n")
-    : "- No evidence reference provided.";
+    : "- 근거 reference가 제공되지 않았습니다.";
   const basis = finding.evidence?.basis?.length
     ? finding.evidence.basis.join(", ")
     : "unspecified";
 
   return truncate(
-    `**[${finding.severity}] ${finding.title}**\n\n${finding.body}\n\nEvidence basis: ${basis}\n\n${evidence}`,
+    `**[${finding.severity}] ${finding.title}**\n\n${finding.body}\n\n근거 유형: ${basis}\n\n${evidence}`,
     3000,
   );
 }
@@ -138,11 +138,11 @@ function summaryBody(review, inlineComments, summaryOnlyFindings) {
     "",
     review.summary,
     "",
-    `Inline findings posted: ${inlineComments.length}`,
+    `인라인 코멘트로 게시한 항목: ${inlineComments.length}`,
   ];
 
   if (summaryOnlyFindings.length > 0) {
-    lines.push("", "### Findings not posted inline", "");
+    lines.push("", "### 인라인으로 게시하지 못한 항목", "");
     for (const finding of summaryOnlyFindings) {
       lines.push(
         `- **[${finding.severity}] ${finding.path}${finding.line ? `:${finding.line}` : ""} - ${finding.title}**: ${finding.body}`,
@@ -151,7 +151,7 @@ function summaryBody(review, inlineComments, summaryOnlyFindings) {
   }
 
   if (review.followUps?.length) {
-    lines.push("", "### Follow-up checks", "");
+    lines.push("", "### 후속 확인", "");
     for (const followUp of review.followUps) {
       lines.push(`- ${followUp}`);
     }
