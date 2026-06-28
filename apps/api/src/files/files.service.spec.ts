@@ -219,4 +219,74 @@ describe("FilesService", () => {
       service.completeUpload(demoProject.projectId, { fileId: "file_missing" }),
     ).rejects.toBeInstanceOf(NotFoundException);
   });
+
+  it("returns uploaded rehearsal audio metadata for job starters", async () => {
+    const { repository } = createAssetRepository([
+      {
+        fileId: "file_audio_1",
+        projectId: demoProject.projectId,
+        storageKey: "projects/project_demo_created/assets/file_audio_1/rehearsal.webm",
+        originalName: "rehearsal.webm",
+        mimeType: "audio/webm",
+        size: 1024,
+        url: "http://localhost:9000/orbit-local/rehearsal.webm",
+        purpose: "rehearsal-audio",
+        status: "uploaded",
+        createdAt: new Date(),
+        uploadedAt: new Date(),
+      } as ProjectAssetEntity,
+    ]);
+    const service = new FilesService(
+      repository,
+      {
+        getAccessibleProject: vi.fn(async () => demoProject),
+      } as unknown as ProjectsService,
+      createStorage(),
+    );
+
+    await expect(
+      service.getUploadedAsset(
+        demoProject.projectId,
+        "file_audio_1",
+        "rehearsal-audio",
+      ),
+    ).resolves.toMatchObject({
+      fileId: "file_audio_1",
+      purpose: "rehearsal-audio",
+      status: "uploaded",
+    });
+  });
+
+  it("rejects pending assets before starting asset-backed jobs", async () => {
+    const { repository } = createAssetRepository([
+      {
+        fileId: "file_audio_1",
+        projectId: demoProject.projectId,
+        storageKey: "projects/project_demo_created/assets/file_audio_1/rehearsal.webm",
+        originalName: "rehearsal.webm",
+        mimeType: "audio/webm",
+        size: 1024,
+        url: "http://localhost:9000/orbit-local/rehearsal.webm",
+        purpose: "rehearsal-audio",
+        status: "pending",
+        createdAt: new Date(),
+        uploadedAt: null,
+      } as ProjectAssetEntity,
+    ]);
+    const service = new FilesService(
+      repository,
+      {
+        getAccessibleProject: vi.fn(async () => demoProject),
+      } as unknown as ProjectsService,
+      createStorage(),
+    );
+
+    await expect(
+      service.getUploadedAsset(
+        demoProject.projectId,
+        "file_audio_1",
+        "rehearsal-audio",
+      ),
+    ).rejects.toBeInstanceOf(NotFoundException);
+  });
 });

@@ -1,0 +1,230 @@
+import type { StoragePort } from "@orbit/storage";
+import type { DataSource } from "typeorm";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { processRehearsalSttJob } from "./rehearsal-stt.processor";
+
+const payload = {
+  jobId: "job-1",
+  projectId: "project-a",
+  runId: "run-a",
+  deckId: "deck-a",
+  audioFileId: "file-audio",
+};
+
+const assetRow = {
+  file_id: "file-audio",
+  project_id: "project-a",
+  storage_key: "projects/project-a/assets/file-audio/rehearsal.webm",
+  mime_type: "audio/webm",
+  original_name: "rehearsal.webm",
+  purpose: "rehearsal-audio",
+  status: "uploaded",
+};
+
+const deckRow = {
+  deck_json: {
+    slides: [
+      {
+        keywords: [
+          {
+            text: "ORBIT",
+            synonyms: ["오르빗"],
+            abbreviations: [],
+          },
+        ],
+      },
+    ],
+  },
+};
+
+describe("processRehearsalSttJob", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("transcribes, analyzes, deletes raw audio, and stores results", async () => {
+    const query = vi
+      .fn()
+      .mockResolvedValueOnce([jobRow("running", 10, null, null)])
+      .mockResolvedValueOnce([assetRow])
+      .mockResolvedValueOnce([deckRow])
+      .mockResolvedValueOnce([
+        jobRow(
+          "succeeded",
+          100,
+          {
+            transcript: "안녕하세요 ORBIT 발표입니다",
+            rawAudioDeletedAt: "2026-06-27T00:00:02.000Z",
+          },
+          null,
+        ),
+      ]);
+    const storage = createStorage();
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({
+              runId: "run-a",
+              projectId: "project-a",
+              fileId: "file-audio",
+              transcript: "안녕하세요 ORBIT 발표입니다",
+              language: "ko-KR",
+              provider: "fake",
+              model: "fake-transcriber",
+              durationSeconds: 3.5,
+              segments: [{ text: "안녕하세요 ORBIT 발표입니다" }],
+            }),
+          ),
+        )
+        .mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({
+              runId: "run-a",
+              wordsPerMinute: 120,
+              fillerWordCount: 1,
+              pauseCount: 0,
+              keywordCoverage: 1,
+              coaching: { status: "succeeded", summary: "clear" },
+            }),
+          ),
+        ),
+    );
+
+    const job = await processRehearsalSttJob(
+      { query } as unknown as DataSource,
+      storage,
+      "http://localhost:8000",
+      payload,
+    );
+
+    expect(job.status).toBe("succeeded");
+    expect(fetch).toHaveBeenNthCalledWith(
+      1,
+      "http://localhost:8000/audio/transcribe",
+      expect.objectContaining({ method: "POST" }),
+    );
+    expect(fetch).toHaveBeenNthCalledWith(
+      2,
+      "http://localhost:8000/rehearsal/analyze",
+      expect.objectContaining({ method: "POST" }),
+    );
+    expect(storage.removeObject).toHaveBeenCalledWith(assetRow.storage_key);
+  });
+
+  it("deletes raw audio and marks the job failed when STT fails", async () => {
+    const query = vi
+      .fn()
+      .mockResolvedValueOnce([jobRow("running", 10, null, null)])
+      .mockResolvedValueOnce([assetRow])
+      .mockResolvedValueOnce([deckRow])
+      .mockResolvedValueOnce([
+        jobRow("failed", 10, null, {
+          code: "PYTHON_WORKER_STT_FAILED",
+          message: "bad audio",
+        }),
+      ]);
+    const storage = createStorage();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("bad audio", { status: 500 })),
+    );
+
+    const job = await processRehearsalSttJob(
+      { query } as unknown as DataSource,
+      storage,
+      "http://localhost:8000",
+      payload,
+    );
+
+    expect(job.status).toBe("failed");
+    expect(job.error?.code).toBe("PYTHON_WORKER_STT_FAILED");
+    expect(storage.removeObject).toHaveBeenCalledWith(assetRow.storage_key);
+  });
+
+  it("marks deletion failure explicitly", async () => {
+    const query = vi
+      .fn()
+      .mockResolvedValueOnce([jobRow("running", 10, null, null)])
+      .mockResolvedValueOnce([assetRow])
+      .mockResolvedValueOnce([deckRow])
+      .mockResolvedValueOnce([
+        jobRow("failed", 90, null, {
+          code: "RAW_AUDIO_DELETE_FAILED",
+          message: "delete denied",
+        }),
+      ]);
+    const storage = createStorage();
+    vi.mocked(storage.removeObject).mockRejectedValueOnce(new Error("delete denied"));
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({
+              runId: "run-a",
+              projectId: "project-a",
+              fileId: "file-audio",
+              transcript: "hello",
+              language: "ko-KR",
+              provider: "fake",
+              model: "fake",
+              durationSeconds: 1,
+              segments: [],
+            }),
+          ),
+        )
+        .mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({
+              runId: "run-a",
+              wordsPerMinute: 60,
+              fillerWordCount: 0,
+              pauseCount: 0,
+              keywordCoverage: 0,
+            }),
+          ),
+        ),
+    );
+
+    const job = await processRehearsalSttJob(
+      { query } as unknown as DataSource,
+      storage,
+      "http://localhost:8000",
+      payload,
+    );
+
+    expect(job.status).toBe("failed");
+    expect(job.error?.code).toBe("RAW_AUDIO_DELETE_FAILED");
+  });
+});
+
+function createStorage() {
+  return {
+    getSignedReadUrl: vi.fn(async () => "http://localhost:9000/rehearsal.webm"),
+    removeObject: vi.fn(async () => undefined),
+  } as unknown as Pick<StoragePort, "getSignedReadUrl" | "removeObject">;
+}
+
+function jobRow(
+  status: "running" | "succeeded" | "failed",
+  progress: number,
+  result: Record<string, unknown> | null,
+  error: { code: string; message: string } | null,
+) {
+  return {
+    jobId: "job-1",
+    projectId: "project-a",
+    type: "rehearsal-stt",
+    status,
+    progress,
+    message: status,
+    result,
+    error,
+    createdAt: "2026-06-27T00:00:00.000Z",
+    updatedAt: "2026-06-27T00:00:01.000Z",
+  };
+}
