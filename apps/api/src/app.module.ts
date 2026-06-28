@@ -12,6 +12,7 @@ import { ExtractModule } from "./extract/extract.module";
 import { ProjectsModule } from "./projects/projects.module";
 import { ReferencesModule } from "./references/references.module";
 import { RealtimeGateway } from "./realtime/realtime.gateway";
+import { RehearsalsModule } from "./rehearsals/rehearsals.module";
 
 @Module({
   imports: [
@@ -24,7 +25,8 @@ import { RealtimeGateway } from "./realtime/realtime.gateway";
     FilesModule,
     ExtractModule,
     JobsModule,
-    ReferencesModule
+    ReferencesModule,
+    RehearsalsModule
   ],
   providers: [RealtimeGateway]
 })
