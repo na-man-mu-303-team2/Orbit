@@ -1,4 +1,14 @@
-import { createDemoDeck } from "@orbit/editor-core";
+import {
+  createAddElementPatch,
+  createAddSlidePatch,
+  createDemoDeck,
+  createDeleteElementPatch,
+  createElementId,
+  createSlideId,
+  createUpdateElementPropsPatch
+} from "../../../../../packages/editor-core/src/index";
+import { applyDeckPatch } from "../../../../../packages/editor-core/src/patches/applyPatch";
+import { createElementFramePatch } from "../../../../../packages/editor-core/src/patches/elementFrame";
 import { demoIds } from "@orbit/shared";
 import orbitLogo from "../../assets/orbit-logo.png";
 import type {
@@ -6,6 +16,10 @@ import type {
   Deck,
   DeckCanvas,
   DeckElement,
+  DeckElementRole,
+  DeckPatch,
+  ShapeElementProps,
+  TextElementProps,
   GetDeckResponse,
   GroupElementProps,
   ImageElementProps,
@@ -13,17 +27,24 @@ import type {
   Slide
 } from "@orbit/shared";
 import { useQuery } from "@tanstack/react-query";
+import Konva from "konva";
 import {
   BarChart3,
   ChevronDown,
   Cloud,
   Download,
+  Eye,
+  EyeOff,
   FileText,
   FolderPlus,
   Home,
   ImagePlus,
   LayoutTemplate,
+  Lock,
+  LockOpen,
+  Minus,
   MonitorPlay,
+  MousePointer2,
   PanelLeftClose,
   PanelLeftOpen,
   PanelRightClose,
@@ -38,9 +59,9 @@ import {
   Upload,
   Wand2
 } from "lucide-react";
+import { Group, Layer, Line, Rect, Stage, Text, Transformer } from "react-konva";
 import type {
   CSSProperties,
-  KeyboardEvent as ReactKeyboardEvent,
   PointerEvent as ReactPointerEvent
 } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -57,10 +78,28 @@ const collapsedSlidesPaneWidth = 52;
 const defaultSlidesPaneWidth = 176;
 const minSlidesPaneWidth = 132;
 const maxSlidesPaneWidth = 280;
+const collapsedRightPaneWidth = 52;
+const defaultRightPaneWidth = 320;
+const minRightPaneWidth = 260;
+const maxRightPaneWidth = 560;
+const textElementPadding = 4;
 
 type TopMenu = "file" | "resize" | "editMode" | "quickEdit" | "presentation";
 type SlidePanelView = "thumbnail" | "list";
-type RightPanelTab = "ai" | "properties";
+type InsertTool = "select" | "text" | "rect" | "ellipse" | "line";
+type ShapeInsertType = Extract<InsertTool, "rect" | "ellipse" | "line">;
+type ElementFrameChange = {
+  role?: DeckElementRole | null;
+  x?: number;
+  y?: number;
+  width?: number;
+  height?: number;
+  rotation?: number;
+  opacity?: number;
+  zIndex?: number;
+  locked?: boolean;
+  visible?: boolean;
+};
 
 async function fetchHealth(): Promise<HealthResponse> {
   const response = await fetch("/api/health");
@@ -85,14 +124,21 @@ export function EditorShell() {
   const [isRightPanelOpen, setIsRightPanelOpen] = useState(true);
   const [isSlidesPaneCollapsed, setIsSlidesPaneCollapsed] = useState(false);
   const [slidesPaneWidth, setSlidesPaneWidth] = useState(defaultSlidesPaneWidth);
+  const [rightPaneWidth, setRightPaneWidth] = useState(defaultRightPaneWidth);
   const [slidePanelView, setSlidePanelView] =
     useState<SlidePanelView>("thumbnail");
   const [showIds, setShowIds] = useState(false);
   const [selectedKeywordId, setSelectedKeywordId] = useState<string | null>(null);
   const [selectedElementId, setSelectedElementId] = useState<string | null>(null);
-  const [rightPanelTab, setRightPanelTab] = useState<RightPanelTab>("ai");
   const [activeTopMenu, setActiveTopMenu] = useState<TopMenu | null>(null);
+  const [lastPatchLabel, setLastPatchLabel] = useState("편집 없음");
+  const [insertTool, setInsertTool] = useState<InsertTool>("select");
+  const [editingElementId, setEditingElementId] = useState<string | null>(null);
+  const [isShapeMenuOpen, setIsShapeMenuOpen] = useState(false);
+  const [undoStack, setUndoStack] = useState<Deck[]>([]);
+  const [redoStack, setRedoStack] = useState<Deck[]>([]);
   const topbarRef = useRef<HTMLElement | null>(null);
+  const shapeMenuRef = useRef<HTMLDivElement | null>(null);
 
   const health = useQuery({
     queryKey: ["health"],
@@ -106,13 +152,18 @@ export function EditorShell() {
     retry: false
   });
 
-  const deck = deckQuery.data ?? fallbackDeck;
+  const loadedDeck = deckQuery.data ?? fallbackDeck;
+  const [deck, setDeck] = useState<Deck>(loadedDeck);
   const isUsingFallbackDeck = !deckQuery.data;
   const isDeckLoading = deckQuery.isPending;
   const isDeckError = deckQuery.isError;
   const hasSlides = deck.slides.length > 0;
   const currentSlide = deck.slides[currentSlideIndex] ?? deck.slides[0] ?? null;
-  const saveStatusLabel = deckQuery.data ? "저장됨" : "로컬 데모";
+  const saveStatusLabel = getEditorStatusLabel({
+    isDeckError,
+    isDeckLoading,
+    isUsingFallbackDeck
+  });
   const visibleElements = currentSlide
     ? [...currentSlide.elements].sort((left, right) => left.zIndex - right.zIndex)
     : [];
@@ -174,6 +225,409 @@ export function EditorShell() {
     { icon: Share2, label: "청중 링크/QR", meta: "공유 준비" }
   ];
 
+  useEffect(() => {
+    setDeck(loadedDeck);
+    setUndoStack([]);
+    setRedoStack([]);
+  }, [loadedDeck]);
+
+  function commitPatch(patch: DeckPatch) {
+    const result = applyDeckPatch(deck, patch);
+
+    if (!result.ok) {
+      setLastPatchLabel(`실패 · ${result.error.code}`);
+      return;
+    }
+
+    setUndoStack((current) => [...current.slice(-49), deck]);
+    setRedoStack([]);
+    setDeck(result.deck);
+    setLastPatchLabel(
+      `${result.changeRecord.operations[0]?.type ?? "patch"} · v${result.metadata.nextVersion}`
+    );
+  }
+
+  function handleUndo() {
+    setUndoStack((current) => {
+      const previous = current.at(-1);
+      if (!previous) {
+        return current;
+      }
+      setRedoStack((redoCurrent) => [...redoCurrent, deck]);
+      setDeck(previous);
+      setLastPatchLabel(`undo · v${previous.version}`);
+      return current.slice(0, -1);
+    });
+  }
+
+  function handleRedo() {
+    setRedoStack((current) => {
+      const next = current.at(-1);
+      if (!next) {
+        return current;
+      }
+      setUndoStack((undoCurrent) => [...undoCurrent.slice(-49), deck]);
+      setDeck(next);
+      setLastPatchLabel(`redo · v${next.version}`);
+      return current.slice(0, -1);
+    });
+  }
+
+  function handleElementPropsChange(
+    slideId: string,
+    elementId: string,
+    props: Record<string, unknown>
+  ) {
+    commitPatch(createUpdateElementPropsPatch(deck, slideId, elementId, props));
+  }
+
+  function handleAddTextElement() {
+    if (!currentSlide) {
+      return;
+    }
+
+    const elementId = createElementId(deck);
+    commitPatch(
+      createAddElementPatch(deck, currentSlide.slideId, {
+        elementId,
+        type: "text",
+        role: "body",
+        x: 180,
+        y: 180,
+        width: 360,
+        height: 96,
+        rotation: 0,
+        opacity: 1,
+        zIndex: visibleElements.length + 1,
+        locked: false,
+        visible: true,
+        props: {
+          text: "새 텍스트",
+          fontFamily:
+            currentSlide.style.fontFamily ?? deck.theme.typography.bodyFontFamily,
+          fontSize: deck.theme.typography.bodySize,
+          fontWeight: "normal",
+          color: currentSlide.style.textColor ?? deck.theme.textColor,
+          align: "left",
+          verticalAlign: "top",
+          lineHeight: 1.2
+        }
+      })
+    );
+    setSelectedElementId(elementId);
+    setEditingElementId(elementId);
+    setInsertTool("select");
+  }
+
+  function handleAddImageElement() {
+    if (!currentSlide) {
+      return;
+    }
+
+    const elementId = createElementId(deck);
+    commitPatch(
+      createAddElementPatch(deck, currentSlide.slideId, {
+        elementId,
+        type: "image",
+        role: "media",
+        x: 260,
+        y: 220,
+        width: 420,
+        height: 240,
+        rotation: 0,
+        opacity: 1,
+        zIndex: visibleElements.length + 1,
+        locked: false,
+        visible: true,
+        props: {
+          src: "/files/mockups/placeholder-image.png",
+          alt: "Placeholder image",
+          fit: "cover"
+        }
+      })
+    );
+    setSelectedElementId(elementId);
+  }
+
+  function handleAddChartElement() {
+    if (!currentSlide) {
+      return;
+    }
+
+    const elementId = createElementId(deck);
+    commitPatch(
+      createAddElementPatch(deck, currentSlide.slideId, {
+        elementId,
+        type: "chart",
+        role: "chart",
+        x: 240,
+        y: 180,
+        width: 520,
+        height: 280,
+        rotation: 0,
+        opacity: 1,
+        zIndex: visibleElements.length + 1,
+        locked: false,
+        visible: true,
+        props: {
+          type: "bar",
+          title: "새 차트",
+          data: [
+            { label: "A", value: 48 },
+            { label: "B", value: 72 },
+            { label: "C", value: 56 }
+          ],
+          style: {
+            colors: ["#2563eb", "#0ea5e9", "#7c3aed"],
+            backgroundColor: "#ffffff",
+            textColor: "#111827",
+            fontFamily: deck.theme.typography.bodyFontFamily,
+            titleFontSize: 20,
+            axisLabelFontSize: 12,
+            legendFontSize: 12,
+            dataLabelFontSize: 12,
+            showLegend: true,
+            legendPosition: "bottom",
+            showDataLabels: true,
+            showGrid: true,
+            xAxisTitle: "",
+            yAxisTitle: "",
+            unit: ""
+          }
+        }
+      })
+    );
+    setSelectedElementId(elementId);
+  }
+
+  function handleInsertShapeElement(shapeType: ShapeInsertType) {
+    if (!currentSlide) {
+      return;
+    }
+
+    const elementId = createElementId(deck);
+    const defaultFrameByShape: Record<
+      ShapeInsertType,
+      { x: number; y: number; width: number; height: number }
+    > = {
+      rect: { x: 260, y: 220, width: 280, height: 160 },
+      ellipse: { x: 260, y: 220, width: 280, height: 160 },
+      line: { x: 240, y: 280, width: 320, height: 12 }
+    };
+    const frame = defaultFrameByShape[shapeType];
+
+    commitPatch(
+      createAddElementPatch(deck, currentSlide.slideId, {
+        elementId,
+        type: shapeType,
+        role: shapeType === "line" ? "decoration" : "highlight",
+        x: frame.x,
+        y: frame.y,
+        width: frame.width,
+        height: frame.height,
+        rotation: 0,
+        opacity: 1,
+        zIndex: visibleElements.length + 1,
+        locked: false,
+        visible: true,
+        props: {
+          fill: shapeType === "line" ? "transparent" : "#dbeafe",
+          stroke: "#2563eb",
+          strokeWidth: 3,
+          borderRadius: 18
+        }
+      })
+    );
+    setSelectedElementId(elementId);
+    setInsertTool("select");
+    setIsShapeMenuOpen(false);
+  }
+
+  function handleAddSlide() {
+    const slideId = createSlideId(deck);
+    const nextOrder = deck.slides.length + 1;
+    commitPatch(
+      createAddSlidePatch(deck, {
+        slideId,
+        order: nextOrder,
+        title: `Slide ${nextOrder}`,
+        thumbnailUrl: "",
+        style: {
+          layout: "title-content",
+          backgroundColor: deck.theme.backgroundColor,
+          textColor: deck.theme.textColor,
+          accentColor: deck.theme.accentColor
+        },
+        speakerNotes: "",
+        keywords: [],
+        elements: [
+          {
+            elementId: createElementId(deck),
+            type: "text",
+            role: "title",
+            x: 120,
+            y: 96,
+            width: 720,
+            height: 96,
+            rotation: 0,
+            opacity: 1,
+            zIndex: 1,
+            locked: false,
+            visible: true,
+            props: {
+              text: `Slide ${nextOrder}`,
+              fontFamily: deck.theme.typography.headingFontFamily,
+              fontSize: deck.theme.typography.titleSize,
+              fontWeight: "bold",
+              color: deck.theme.textColor,
+              align: "left",
+              verticalAlign: "top",
+              lineHeight: 1.1
+            }
+          }
+        ],
+        animations: []
+      })
+    );
+    setCurrentSlideIndex(deck.slides.length);
+    setSelectedElementId(null);
+  }
+
+  function handleDeleteSelectedElement() {
+    if (!currentSlide || !selectedElementId) {
+      return;
+    }
+
+    commitPatch(
+      createDeleteElementPatch(deck, currentSlide.slideId, selectedElementId)
+    );
+    setSelectedElementId(null);
+    setEditingElementId(null);
+  }
+
+  function handleDuplicateSelectedElement() {
+    if (!currentSlide || !selectedElement) {
+      return;
+    }
+
+    const nextElementId = createElementId(deck);
+    commitPatch(
+      createAddElementPatch(deck, currentSlide.slideId, {
+        ...structuredClone(selectedElement),
+        elementId: nextElementId,
+        x: selectedElement.x + 24,
+        y: selectedElement.y + 24,
+        zIndex: selectedElement.zIndex + 1
+      })
+    );
+    setSelectedElementId(nextElementId);
+  }
+
+  function handleCreateDrawnElement(
+    draft:
+      | {
+          type: "text";
+          x: number;
+          y: number;
+          width: number;
+          height: number;
+        }
+      | {
+          type: "rect" | "ellipse" | "line";
+          x: number;
+          y: number;
+          width: number;
+          height: number;
+        }
+  ) {
+    if (!currentSlide) {
+      return;
+    }
+
+    const elementId = createElementId(deck);
+
+    if (draft.type === "text") {
+      commitPatch(
+        createAddElementPatch(deck, currentSlide.slideId, {
+          elementId,
+          type: "text",
+          role: "body",
+          x: draft.x,
+          y: draft.y,
+          width: draft.width,
+          height: draft.height,
+          rotation: 0,
+          opacity: 1,
+          zIndex: visibleElements.length + 1,
+          locked: false,
+          visible: true,
+          props: {
+            text: "텍스트 입력",
+            fontFamily:
+              currentSlide.style.fontFamily ?? deck.theme.typography.bodyFontFamily,
+            fontSize: deck.theme.typography.bodySize,
+            fontWeight: "normal",
+            color: currentSlide.style.textColor ?? deck.theme.textColor,
+            align: "left",
+            verticalAlign: "top",
+            lineHeight: 1.2
+          }
+        })
+      );
+      setEditingElementId(elementId);
+    } else {
+      commitPatch(
+        createAddElementPatch(deck, currentSlide.slideId, {
+          elementId,
+          type: draft.type,
+          role: draft.type === "line" ? "decoration" : "highlight",
+          x: draft.x,
+          y: draft.y,
+          width: Math.max(8, draft.width),
+          height: Math.max(draft.type === "line" ? 8 : 8, draft.height),
+          rotation: 0,
+          opacity: 1,
+          zIndex: visibleElements.length + 1,
+          locked: false,
+          visible: true,
+          props: {
+            fill: draft.type === "line" ? "transparent" : "#dbeafe",
+            stroke: "#2563eb",
+            strokeWidth: 3,
+            borderRadius: 18
+          }
+        })
+      );
+    }
+
+    setSelectedElementId(elementId);
+    setInsertTool("select");
+  }
+
+  function handleElementFrameChange(
+    slideId: string,
+    elementId: string,
+    frame: ElementFrameChange
+  ) {
+    try {
+      commitPatch(createElementFramePatch(deck, slideId, elementId, frame));
+    } catch (error) {
+      setLastPatchLabel(
+        error instanceof Error ? `실패 · ${error.message}` : "실패 · unknown"
+      );
+    }
+  }
+
+  function handleCanvasBackgroundSelectionClear() {
+    if (selectedElement?.type === "text") {
+      setEditingElementId(null);
+      return;
+    }
+
+    setSelectedElementId(null);
+    setEditingElementId(null);
+  }
+
   function handleSlidesPaneResizeStart(
     event: ReactPointerEvent<HTMLButtonElement>
   ) {
@@ -191,6 +645,38 @@ export function EditorShell() {
         Math.max(minSlidesPaneWidth, startWidth + pointerEvent.clientX - startX)
       );
       setSlidesPaneWidth(nextWidth);
+    }
+
+    function handlePointerUp() {
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", handlePointerUp);
+    }
+
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", handlePointerUp);
+  }
+
+  function handleRightPaneResizeStart(
+    event: ReactPointerEvent<HTMLButtonElement>
+  ) {
+    event.preventDefault();
+
+    const startX = event.clientX;
+    const startWidth = rightPaneWidth;
+
+    function handlePointerMove(pointerEvent: PointerEvent) {
+      const nextWidth = Math.min(
+        maxRightPaneWidth,
+        Math.max(
+          minRightPaneWidth,
+          startWidth + (startX - pointerEvent.clientX)
+        )
+      );
+      setRightPaneWidth(nextWidth);
     }
 
     function handlePointerUp() {
@@ -233,6 +719,32 @@ export function EditorShell() {
   }, [activeTopMenu]);
 
   useEffect(() => {
+    if (!isShapeMenuOpen) {
+      return;
+    }
+
+    function handlePointerDown(event: MouseEvent) {
+      if (!shapeMenuRef.current?.contains(event.target as Node)) {
+        setIsShapeMenuOpen(false);
+      }
+    }
+
+    function handleEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setIsShapeMenuOpen(false);
+      }
+    }
+
+    document.addEventListener("mousedown", handlePointerDown);
+    document.addEventListener("keydown", handleEscape);
+
+    return () => {
+      document.removeEventListener("mousedown", handlePointerDown);
+      document.removeEventListener("keydown", handleEscape);
+    };
+  }, [isShapeMenuOpen]);
+
+  useEffect(() => {
     if (
       selectedKeywordId &&
       !currentSlide?.keywords.some(
@@ -259,6 +771,42 @@ export function EditorShell() {
       setCurrentSlideIndex(Math.max(0, deck.slides.length - 1));
     }
   }, [currentSlideIndex, deck.slides.length]);
+
+  useEffect(() => {
+    function handleKeyDown(event: KeyboardEvent) {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "z") {
+        event.preventDefault();
+        if (event.shiftKey) {
+          handleRedo();
+        } else {
+          handleUndo();
+        }
+      }
+
+      if (event.key === "Delete" || event.key === "Backspace") {
+        if (selectedElementId && editingElementId !== selectedElementId) {
+          event.preventDefault();
+          handleDeleteSelectedElement();
+        }
+      }
+
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "d") {
+        if (selectedElementId) {
+          event.preventDefault();
+          handleDuplicateSelectedElement();
+        }
+      }
+
+      if (event.key === "Escape") {
+        if (editingElementId !== selectedElementId && selectedElementId) {
+          setSelectedElementId(null);
+        }
+      }
+    }
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [deck, editingElementId, selectedElementId, selectedElement, currentSlide]);
 
   return (
     <main className="editor-app-shell orbit-shell">
@@ -420,23 +968,11 @@ export function EditorShell() {
 
         <div className="topbar-center">
           <span className="deck-title">{deck.title}</span>
-          <span className="save-state">{saveStatusLabel}</span>
+          {isDev ? <span className="save-state">{saveStatusLabel}</span> : null}
         </div>
 
         <div className="top-actions">
           <span className="avatar">김</span>
-          <button
-            className={`header-chip-button ${isRightPanelOpen ? "active" : ""}`}
-            type="button"
-            onClick={() => setIsRightPanelOpen((current) => !current)}
-          >
-            {isRightPanelOpen ? (
-              <PanelRightClose size={15} />
-            ) : (
-              <PanelRightOpen size={15} />
-            )}
-            AI
-          </button>
           <div className="top-action-menu">
             <button
               aria-expanded={activeTopMenu === "presentation"}
@@ -500,7 +1036,9 @@ export function EditorShell() {
           {
             "--slides-pane-width": `${
               isSlidesPaneCollapsed ? collapsedSlidesPaneWidth : slidesPaneWidth
-            }px`
+            }px`,
+            "--right-pane-width": `${rightPaneWidth}px`,
+            "--right-pane-collapsed-width": `${collapsedRightPaneWidth}px`
           } as CSSProperties
         }
       >
@@ -509,7 +1047,7 @@ export function EditorShell() {
         >
           <div className="slides-pane-header">
             {!isSlidesPaneCollapsed ? (
-              <button className="add-slide-button" type="button">
+              <button className="add-slide-button" type="button" onClick={handleAddSlide}>
                 + 슬라이드
               </button>
             ) : null}
@@ -607,78 +1145,144 @@ export function EditorShell() {
         </aside>
 
         <section className="stage-pane">
-          <div className="editor-toolbar">
-            <div className="tool-group">
-              <button className="icon-button" type="button" title="Undo">
-                ‹
-              </button>
-              <button className="icon-button" type="button" title="Redo">
-                ›
-              </button>
-              <button className="icon-button selected-tool" type="button" title="Select">
-                ⌖
-              </button>
-              <div className="toolbar-divider" />
-              <button className="tool-button active" type="button">
-                <Type size={14} />
-                텍스트
-              </button>
-              <button className="tool-button" type="button">
-                <Shapes size={14} />
-                도형
-              </button>
-              <button className="tool-button" type="button">
-                <ImagePlus size={14} />
-                이미지
-              </button>
-              <button className="tool-button" type="button">
-                <BarChart3 size={14} />
-                차트
-              </button>
+          <div className="stage-top-controls">
+            <div className="editor-toolbar">
+              <div className="tool-group">
+                <button
+                  className="icon-button"
+                  disabled={undoStack.length === 0}
+                  type="button"
+                  title="Undo"
+                  onClick={handleUndo}
+                >
+                  ‹
+                </button>
+                <button
+                  className="icon-button"
+                  disabled={redoStack.length === 0}
+                  type="button"
+                  title="Redo"
+                  onClick={handleRedo}
+                >
+                  ›
+                </button>
+                <button
+                  className={`icon-button ${insertTool === "select" ? "selected-tool" : ""}`}
+                  type="button"
+                  title="Select"
+                  onClick={() => setInsertTool("select")}
+                >
+                  <MousePointer2 size={14} />
+                </button>
+                <div className="toolbar-divider" />
+                <button className="tool-button" type="button" onClick={handleAddTextElement}>
+                  <Type size={14} />
+                  텍스트
+                </button>
+                <div className="shape-menu-anchor" ref={shapeMenuRef}>
+                  <button
+                    aria-expanded={isShapeMenuOpen}
+                    aria-haspopup="menu"
+                    className={`tool-button ${isShapeMenuOpen ? "active" : ""}`}
+                    type="button"
+                    onClick={() => setIsShapeMenuOpen((current) => !current)}
+                  >
+                    <Shapes size={14} />
+                    도형
+                    <ChevronDown size={14} />
+                  </button>
+                  {isShapeMenuOpen ? (
+                    <div className="shape-menu-popover" role="menu">
+                      <span className="shape-menu-title">기본 도형</span>
+                      <button
+                        className="shape-menu-item"
+                        role="menuitem"
+                        type="button"
+                        onClick={() => handleInsertShapeElement("rect")}
+                      >
+                        <span className="shape-menu-symbol">▭</span>
+                        <span>사각형</span>
+                      </button>
+                      <button
+                        className="shape-menu-item"
+                        role="menuitem"
+                        type="button"
+                        onClick={() => handleInsertShapeElement("ellipse")}
+                      >
+                        <span className="shape-menu-symbol">◯</span>
+                        <span>원형</span>
+                      </button>
+                      <button
+                        className="shape-menu-item"
+                        role="menuitem"
+                        type="button"
+                        onClick={() => handleInsertShapeElement("line")}
+                      >
+                        <Minus size={14} />
+                        <span>선</span>
+                      </button>
+                    </div>
+                  ) : null}
+                </div>
+                <button className="tool-button" type="button" onClick={handleAddImageElement}>
+                  <ImagePlus size={14} />
+                  이미지
+                </button>
+                <button className="tool-button" type="button" onClick={handleAddChartElement}>
+                  <BarChart3 size={14} />
+                  차트
+                </button>
+              </div>
+
+              <div className="tool-group">
+                <button className="tool-button" type="button" onClick={handleDuplicateSelectedElement}>
+                  복제
+                </button>
+                <button className="tool-button" type="button">
+                  <LayoutTemplate size={14} />
+                  템플릿
+                </button>
+                <button className="tool-button" type="button" onClick={handleDeleteSelectedElement}>
+                  삭제
+                </button>
+                <button
+                  className={`tool-button ${showIds ? "active" : ""}`}
+                  type="button"
+                  onClick={() => setShowIds((current) => !current)}
+                >
+                  ID
+                </button>
+              </div>
             </div>
 
-            <div className="tool-group">
-              <button className="tool-button" type="button">
-                그룹
-              </button>
-              <button className="tool-button" type="button">
-                <LayoutTemplate size={14} />
-                템플릿
-              </button>
-              <button
-                className={`tool-button ${showIds ? "active" : ""}`}
-                type="button"
-                onClick={() => setShowIds((current) => !current)}
-              >
-                ID
-              </button>
-            </div>
+            <SelectionQuickBar
+              key={`quickbar-${selectedElement?.elementId ?? "none"}`}
+              element={selectedElement}
+              showIds={showIds}
+              onChangeFrame={(frame) => {
+                if (!selectedElement || !currentSlide) {
+                  return;
+                }
+                handleElementFrameChange(
+                  currentSlide.slideId,
+                  selectedElement.elementId,
+                  frame
+                );
+              }}
+              onChangeProps={(props) => {
+                if (!selectedElement || !currentSlide) {
+                  return;
+                }
+                handleElementPropsChange(
+                  currentSlide.slideId,
+                  selectedElement.elementId,
+                  props
+                );
+              }}
+            />
           </div>
 
           <div className="canvas-scroll">
-            <EditorStateNotice
-              isError={isDeckError}
-              isLoading={isDeckLoading}
-              isUsingFallback={isUsingFallbackDeck}
-            />
-            <div className="workspace-summary">
-              {showIds ? (
-                <div className="summary-chip id-summary-chip">
-                  <IdBadge id={deck.projectId} />
-                </div>
-              ) : null}
-              <div className="summary-chip">
-                {deck.canvas.preset} / {deck.canvas.width} × {deck.canvas.height}
-              </div>
-              <div className="summary-chip">v{deck.version}</div>
-              <div className="summary-chip">
-                {deck.metadata.language} / {deck.metadata.locale}
-              </div>
-              <div className="summary-chip save-conflict-chip">
-                충돌 없음 · base v{deck.version}
-              </div>
-            </div>
-
             {currentSlide ? (
               <div className="konva-wrap">
                 <div
@@ -707,21 +1311,25 @@ export function EditorShell() {
                     </div>
                   ) : null}
 
-                  {visibleElements.map((element) => (
-                    <SlideElementView
-                      key={element.elementId}
-                      deck={deck}
-                      element={element}
-                      isSelected={element.elementId === selectedElementId}
-                      showIds={showIds}
-                      slide={currentSlide}
-                      stageScale={stageScale}
-                      onSelect={() => {
-                        setSelectedElementId(element.elementId);
-                        setRightPanelTab("properties");
-                      }}
-                    />
-                  ))}
+                  <EditableCanvas
+                    deck={deck}
+                    editingElementId={editingElementId}
+                    insertTool={insertTool}
+                    selectedElementId={selectedElementId}
+                    showIds={showIds}
+                    slide={currentSlide}
+                    stageScale={stageScale}
+                    visibleElements={visibleElements}
+                    onClearSelection={handleCanvasBackgroundSelectionClear}
+                    onCommitElementFrame={handleElementFrameChange}
+                    onCommitElementProps={(elementId, props) =>
+                      handleElementPropsChange(currentSlide.slideId, elementId, props)
+                    }
+                    onCreateElement={handleCreateDrawnElement}
+                    onDoubleClickElement={(elementId) => setEditingElementId(elementId)}
+                    onFinishEditing={() => setEditingElementId(null)}
+                    onSelectElement={(elementId) => setSelectedElementId(elementId)}
+                  />
                 </div>
               </div>
             ) : (
@@ -759,50 +1367,49 @@ export function EditorShell() {
           </div>
         </section>
 
-        {isRightPanelOpen ? (
-          <aside className="ai-pane">
-            <div className="ai-header">
-              <h2>{rightPanelTab === "ai" ? "AI" : "속성"}</h2>
-              <div>
-                <button
-                  type="button"
-                  title="Close AI panel"
-                  onClick={() => setIsRightPanelOpen(false)}
-                >
-                  ×
-                </button>
-              </div>
-            </div>
-            <div className="right-panel-tabs" role="tablist" aria-label="Right panel">
+        <aside className={`ai-pane ${isRightPanelOpen ? "" : "collapsed"}`}>
+          {isRightPanelOpen ? (
+            <>
               <button
-                aria-selected={rightPanelTab === "ai"}
-                className={rightPanelTab === "ai" ? "active" : ""}
-                role="tab"
+                aria-label="오른쪽 패널 크기 조정"
+                className="right-pane-resizer"
                 type="button"
-                onClick={() => setRightPanelTab("ai")}
-              >
-                AI
-              </button>
-              <button
-                aria-selected={rightPanelTab === "properties"}
-                className={rightPanelTab === "properties" ? "active" : ""}
-                role="tab"
-                type="button"
-                onClick={() => setRightPanelTab("properties")}
-              >
-                속성
-              </button>
-            </div>
-            {rightPanelTab === "ai" ? (
-              <div className="assistant-panel-slot" />
-            ) : (
-              <ElementInspector
-                element={selectedElement}
-                showIds={showIds}
+                onPointerDown={handleRightPaneResizeStart}
               />
-            )}
-          </aside>
-        ) : null}
+              <div className="ai-header">
+                <h2>AI</h2>
+                <div>
+                  <button
+                    className="collapse-right-pane-button"
+                    type="button"
+                    title="오른쪽 패널 접기"
+                    onClick={() => setIsRightPanelOpen(false)}
+                  >
+                    <PanelRightClose size={16} />
+                  </button>
+                </div>
+              </div>
+              <div className="assistant-panel-slot">
+                <div className="assistant-panel-empty">
+                  <strong>AI 편집 도우미</strong>
+                  <p>대화, 수정 제안, 초안 생성은 이 패널에서만 처리하도록 분리했습니다.</p>
+                </div>
+              </div>
+            </>
+          ) : (
+            <div className="collapsed-right-rail">
+              <button
+                className="collapse-right-pane-button"
+                type="button"
+                title="오른쪽 패널 펼치기"
+                onClick={() => setIsRightPanelOpen(true)}
+              >
+                <PanelRightOpen size={16} />
+              </button>
+              <span>AI</span>
+            </div>
+          )}
+        </aside>
       </section>
 
       {isDev ? (
@@ -830,6 +1437,7 @@ export function EditorShell() {
             title="Deck Meta"
             lines={[
               `deckId: ${deck.deckId}`,
+              `version: ${deck.version}`,
               `theme: ${deck.theme.name}`,
               `font: ${deck.theme.fontFamily}`,
               `palette.primary: ${deck.theme.palette.primary}`,
@@ -842,6 +1450,8 @@ export function EditorShell() {
             lines={
               currentSlide
                 ? [
+                    `canvas: ${deck.canvas.preset} / ${deck.canvas.width} × ${deck.canvas.height}`,
+                    `locale: ${deck.metadata.language} / ${deck.metadata.locale}`,
                     `layout: ${currentSlide.style.layout ?? "none"}`,
                     `fontFamily: ${currentSlide.style.fontFamily ?? deck.theme.fontFamily}`,
                     `backgroundColor: ${currentSlide.style.backgroundColor ?? deck.theme.backgroundColor}`,
@@ -851,6 +1461,17 @@ export function EditorShell() {
                   ]
                 : ["empty deck: no selected slide"]
             }
+          />
+
+          <InfoCard
+            title="Editor Debug"
+            lines={[
+              `saveStatus: ${saveStatusLabel}`,
+              `baseVersion: ${deck.version}`,
+              `undo: ${undoStack.length}`,
+              `redo: ${redoStack.length}`,
+              `lastPatch: ${lastPatchLabel}`
+            ]}
           />
 
           <section className="suggestion-card">
@@ -919,6 +1540,26 @@ function buildSlideThumbBackground(slide: Slide, deck: Deck) {
     `linear-gradient(90deg, ${accent} 0 20%, transparent 20% 28%, ${accent} 28% 55%, transparent 55% 64%, ${accent} 64% 84%, transparent 84%)`,
     background
   ].join(",");
+}
+
+function getEditorStatusLabel(props: {
+  isDeckError: boolean;
+  isDeckLoading: boolean;
+  isUsingFallbackDeck: boolean;
+}) {
+  if (props.isDeckLoading) {
+    return "불러오는 중";
+  }
+
+  if (props.isDeckError) {
+    return "오프라인 데모";
+  }
+
+  if (props.isUsingFallbackDeck) {
+    return "로컬 데모";
+  }
+
+  return "자동 저장됨";
 }
 
 export function EditorStateNotice(props: {
@@ -1194,129 +1835,380 @@ function ElementSummary(props: { element: DeckElement }) {
   );
 }
 
-function ElementInspector(props: {
+function SelectionQuickBar(props: {
   element: DeckElement | null;
+  onChangeFrame: (frame: ElementFrameChange) => void;
+  onChangeProps: (props: Record<string, unknown>) => void;
   showIds: boolean;
 }) {
-  const { element, showIds } = props;
+  const { element, onChangeFrame, onChangeProps, showIds } = props;
 
   if (!element) {
-    return (
-      <section className="property-panel empty">
-        <strong>선택된 요소 없음</strong>
-        <p>캔버스의 텍스트, 도형, 이미지, 차트를 선택하면 정보가 표시됩니다.</p>
-      </section>
-    );
+    return null;
   }
 
+  const showOpacityControl = element.type !== "text";
+  const showElementTypeLabel = element.type !== "text";
+  const showMeta = showElementTypeLabel || showIds;
+
   return (
-    <section className="property-panel">
-      <div className="property-panel-header">
-        <div>
-          <span>{element.type}</span>
-          <strong>{element.role ?? "role 없음"}</strong>
+    <section className="selection-quickbar">
+      {showMeta ? (
+        <div className="selection-quickbar-meta">
+          {showElementTypeLabel ? <strong>{getElementTypeLabel(element)}</strong> : null}
+          {showIds ? <IdBadge id={element.elementId} /> : null}
         </div>
-        {showIds ? <IdBadge id={element.elementId} /> : null}
-      </div>
-
-      <div className="property-grid">
-        <PropertyMetric label="x" value={Math.round(element.x)} />
-        <PropertyMetric label="y" value={Math.round(element.y)} />
-        <PropertyMetric label="w" value={Math.round(element.width)} />
-        <PropertyMetric label="h" value={Math.round(element.height)} />
-      </div>
-
-      <div className="property-list">
-        <PropertyRow label="rotation" value={`${element.rotation}deg`} />
-        <PropertyRow label="opacity" value={String(element.opacity)} />
-        <PropertyRow label="zIndex" value={String(element.zIndex)} />
-        <PropertyRow label="locked" value={element.locked ? "true" : "false"} />
-        <PropertyRow label="visible" value={element.visible ? "true" : "false"} />
-      </div>
-
-      <div className="property-props">
-        <strong>주요 props</strong>
-        <div className="property-list">
-          {summarizeElementProps(element).map((line) => (
-            <PropertyRow key={line.label} label={line.label} value={line.value} />
-          ))}
-        </div>
+      ) : null}
+      <div className="selection-quickbar-fields">
+        <ElementQuickBarFields element={element} onChangeProps={onChangeProps} />
+        <div className="quickbar-divider" />
+        <PropertyNumberField
+          className="compact-property-field compact-property-field-sm"
+          label="회전"
+          onCommit={(value) => onChangeFrame({ rotation: value })}
+          value={element.rotation}
+        />
+        {showOpacityControl ? (
+          <PropertyNumberField
+            className="compact-property-field compact-property-field-sm"
+            label="투명도"
+            max={1}
+            min={0}
+            step="0.05"
+            onCommit={(value) => onChangeFrame({ opacity: value })}
+            value={element.opacity}
+          />
+        ) : null}
+        <button
+          className={`quickbar-toggle ${element.locked ? "active" : ""}`}
+          aria-label={element.locked ? "잠금 해제" : "잠금"}
+          type="button"
+          title={element.locked ? "잠금 해제" : "잠금"}
+          onClick={() => onChangeFrame({ locked: !element.locked })}
+        >
+          {element.locked ? <Lock size={16} /> : <LockOpen size={16} />}
+        </button>
+        <button
+          className={`quickbar-toggle ${element.visible ? "active" : ""}`}
+          aria-label={element.visible ? "숨기기" : "표시"}
+          type="button"
+          title={element.visible ? "숨기기" : "표시"}
+          onClick={() => onChangeFrame({ visible: !element.visible })}
+        >
+          {element.visible ? <Eye size={16} /> : <EyeOff size={16} />}
+        </button>
       </div>
     </section>
   );
 }
 
-function PropertyMetric(props: { label: string; value: number }) {
-  return (
-    <div className="property-metric">
-      <span>{props.label}</span>
-      <strong>{props.value}</strong>
-    </div>
-  );
-}
+function ElementQuickBarFields(props: {
+  element: DeckElement;
+  onChangeProps: (props: Record<string, unknown>) => void;
+}) {
+  const { element, onChangeProps } = props;
 
-function PropertyRow(props: { label: string; value: string }) {
-  return (
-    <div className="property-row">
-      <span>{props.label}</span>
-      <strong>{props.value}</strong>
-    </div>
-  );
-}
-
-function summarizeElementProps(element: DeckElement) {
   if (element.type === "text") {
-    return [
-      { label: "text", value: truncateValue(element.props.text, 72) },
-      { label: "fontSize", value: String(element.props.fontSize) },
-      { label: "fontWeight", value: String(element.props.fontWeight) },
-      { label: "color", value: element.props.color ?? "theme" }
-    ];
+    const textProps = element.props as TextElementProps;
+
+    return (
+      <>
+        <PropertyNumberField
+          className="compact-property-field compact-property-field-sm"
+          label="크기"
+          min={1}
+          onCommit={(value) => onChangeProps({ fontSize: value })}
+          value={textProps.fontSize}
+        />
+        <PropertyColorField
+          className="compact-property-field compact-property-field-color"
+          label="글자색"
+          value={textProps.color ?? "#111827"}
+          onCommit={(value) => onChangeProps({ color: value })}
+        />
+        <QuickBarSelectField
+          className="compact-property-field compact-property-field-sm"
+          label="굵기"
+          value={String(textProps.fontWeight)}
+          options={[
+            { value: "normal", label: "보통" },
+            { value: "medium", label: "중간" },
+            { value: "semibold", label: "세미" },
+            { value: "bold", label: "굵게" }
+          ]}
+          onChange={(value) => onChangeProps({ fontWeight: value })}
+        />
+        <QuickBarSelectField
+          className="compact-property-field compact-property-field-sm"
+          label="정렬(가로)"
+          value={textProps.align}
+          options={[
+            { value: "left", label: "왼쪽" },
+            { value: "center", label: "가운데" },
+            { value: "right", label: "오른쪽" },
+            { value: "justify", label: "양쪽" }
+          ]}
+          onChange={(value) => onChangeProps({ align: value })}
+        />
+        <QuickBarSelectField
+          className="compact-property-field compact-property-field-sm"
+          label="정렬(세로)"
+          value={textProps.verticalAlign}
+          options={[
+            { value: "top", label: "위" },
+            { value: "middle", label: "가운데" },
+            { value: "bottom", label: "아래" }
+          ]}
+          onChange={(value) => onChangeProps({ verticalAlign: value })}
+        />
+      </>
+    );
+  }
+
+  if (element.type === "rect" || element.type === "ellipse" || element.type === "line") {
+    const shapeProps = element.props as ShapeElementProps;
+
+    return (
+      <>
+        <PropertyColorField
+          className="compact-property-field compact-property-field-color"
+          label="채우기"
+          value={shapeProps.fill === "transparent" ? "#dbeafe" : shapeProps.fill}
+          onCommit={(value) => onChangeProps({ fill: value })}
+        />
+        <PropertyColorField
+          className="compact-property-field compact-property-field-color"
+          label="선 색"
+          value={
+            shapeProps.stroke === "transparent" ? "#2563eb" : shapeProps.stroke
+          }
+          onCommit={(value) => onChangeProps({ stroke: value })}
+        />
+        <PropertyNumberField
+          className="compact-property-field compact-property-field-sm"
+          label="두께"
+          min={0}
+          onCommit={(value) => onChangeProps({ strokeWidth: value })}
+          value={shapeProps.strokeWidth}
+        />
+        {element.type !== "line" ? (
+          <PropertyNumberField
+            className="compact-property-field compact-property-field-sm"
+            label="둥글기"
+            min={0}
+            onCommit={(value) => onChangeProps({ borderRadius: value })}
+            value={shapeProps.borderRadius}
+          />
+        ) : null}
+      </>
+    );
   }
 
   if (element.type === "image") {
     const imageProps = element.props as ImageElementProps;
 
-    return [
-      { label: "src", value: truncateValue(imageProps.src, 72) },
-      { label: "alt", value: imageProps.alt || "none" },
-      { label: "fit", value: imageProps.fit }
-    ];
+    return (
+      <>
+        <PropertyTextField
+          className="compact-property-field compact-property-field-xl"
+          label="이미지 주소"
+          value={imageProps.src}
+          onCommit={(value) => onChangeProps({ src: value })}
+        />
+        <QuickBarSelectField
+          className="compact-property-field compact-property-field-sm"
+          label="채우기"
+          value={imageProps.fit}
+          options={[
+            { value: "contain", label: "맞춤" },
+            { value: "cover", label: "채우기" },
+            { value: "stretch", label: "늘리기" }
+          ]}
+          onChange={(value) => onChangeProps({ fit: value })}
+        />
+      </>
+    );
   }
 
   if (element.type === "chart") {
     const chart = element.props as Chart;
 
-    return [
-      { label: "chartType", value: chart.type },
-      { label: "title", value: chart.title || "none" },
-      { label: "data", value: `${chart.data.length}개` },
-      { label: "colors", value: chart.style.colors.join(", ") || "theme" }
-    ];
+    return (
+      <>
+        <PropertyTextField
+          className="compact-property-field compact-property-field-lg"
+          label="제목"
+          value={chart.title}
+          onCommit={(value) => onChangeProps({ title: value })}
+        />
+        <QuickBarSelectField
+          className="compact-property-field compact-property-field-sm"
+          label="종류"
+          value={chart.type}
+          options={[
+            { value: "bar", label: "막대" },
+            { value: "line", label: "선" },
+            { value: "pie", label: "원형" },
+            { value: "doughnut", label: "도넛" }
+          ]}
+          onChange={(value) => onChangeProps({ type: value })}
+        />
+      </>
+    );
   }
 
-  if (element.type === "group") {
-    const groupProps = element.props as GroupElementProps;
+  return null;
+}
 
-    return [
-      {
-        label: "children",
-        value: groupProps.childElementIds.join(", ") || "none"
-      }
-    ];
+function QuickBarSelectField(props: {
+  className?: string;
+  label: string;
+  value: string;
+  options: Array<{ value: string; label: string }>;
+  onChange: (value: string) => void;
+}) {
+  const { className, label, onChange, options, value } = props;
+
+  return (
+    <label className={["property-field", className].filter(Boolean).join(" ")}>
+      <span>{label}</span>
+      <select value={value} onChange={(event) => onChange(event.target.value)}>
+        {options.map((option) => (
+          <option key={option.value} value={option.value}>
+            {option.label}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
+function getElementTypeLabel(element: DeckElement) {
+  switch (element.type) {
+    case "text":
+      return "텍스트";
+    case "image":
+      return "이미지";
+    case "chart":
+      return "차트";
+    case "rect":
+      return "사각형";
+    case "ellipse":
+      return "원형";
+    case "line":
+      return "선";
+    case "group":
+      return "그룹";
+    default:
+      return element.type;
+  }
+}
+
+function PropertyNumberField(props: {
+  className?: string;
+  label: string;
+  min?: number;
+  max?: number;
+  step?: string;
+  onCommit: (value: number) => void;
+  value: number;
+}) {
+  const { className, label, max, min, onCommit, step = "1", value } = props;
+  const [draftValue, setDraftValue] = useState(String(value));
+
+  useEffect(() => {
+    setDraftValue(String(value));
+  }, [value]);
+
+  function commitValue(nextRawValue: string) {
+    const nextValue = Number(nextRawValue);
+
+    if (Number.isFinite(nextValue)) {
+      onCommit(nextValue);
+      setDraftValue(String(nextValue));
+      return;
+    }
+
+    setDraftValue(String(value));
   }
 
-  if (element.type === "customShape") {
-    return [
-      { label: "props", value: truncateValue(JSON.stringify(element.props), 96) }
-    ];
+  return (
+    <label className={["property-field", className].filter(Boolean).join(" ")}>
+      <span>{label}</span>
+      <input
+        max={max}
+        min={min}
+        step={step}
+        type="number"
+        value={draftValue}
+        onChange={(event) => setDraftValue(event.target.value)}
+        onBlur={(event) => commitValue(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") {
+            commitValue(event.currentTarget.value);
+            event.currentTarget.blur();
+          }
+        }}
+      />
+    </label>
+  );
+}
+
+function PropertyTextField(props: {
+  className?: string;
+  label: string;
+  value: string;
+  onCommit: (value: string) => void;
+}) {
+  const { className, label, onCommit, value } = props;
+  const [draftValue, setDraftValue] = useState(value);
+
+  useEffect(() => {
+    setDraftValue(value);
+  }, [value]);
+
+  function commitValue(nextValue: string) {
+    onCommit(nextValue);
+    setDraftValue(nextValue);
   }
 
-  return [
-    { label: "fill", value: element.props.fill },
-    { label: "stroke", value: element.props.stroke },
-    { label: "strokeWidth", value: String(element.props.strokeWidth) }
-  ];
+  return (
+    <label className={["property-field", className].filter(Boolean).join(" ")}>
+      <span>{label}</span>
+      <input
+        type="text"
+        value={draftValue}
+        onChange={(event) => setDraftValue(event.target.value)}
+        onBlur={(event) => commitValue(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") {
+            commitValue(event.currentTarget.value);
+            event.currentTarget.blur();
+          }
+        }}
+      />
+    </label>
+  );
+}
+
+function PropertyColorField(props: {
+  className?: string;
+  label: string;
+  value: string;
+  onCommit: (value: string) => void;
+}) {
+  const { className, label, onCommit, value } = props;
+
+  return (
+    <label className={["property-field", className].filter(Boolean).join(" ")}>
+      <span>{label}</span>
+      <input
+        type="color"
+        value={value}
+        onChange={(event) => onCommit(event.target.value)}
+      />
+    </label>
+  );
 }
 
 function truncateValue(value: string, maxLength: number) {
@@ -1359,204 +2251,781 @@ function getIdKind(id: string): string {
   return "default";
 }
 
-function SlideElementView(props: {
+function EditableCanvas(props: {
+  deck: Deck;
+  editingElementId: string | null;
+  insertTool: InsertTool;
+  selectedElementId: string | null;
+  showIds: boolean;
+  slide: Slide;
+  stageScale: number;
+  visibleElements: DeckElement[];
+  onClearSelection: () => void;
+  onCommitElementProps: (elementId: string, props: Record<string, unknown>) => void;
+  onCommitElementFrame: (
+    slideId: string,
+    elementId: string,
+    frame: {
+      x: number;
+      y: number;
+      width: number;
+      height: number;
+      rotation: number;
+    }
+  ) => void;
+  onCreateElement: (
+    draft:
+      | { type: "text"; x: number; y: number; width: number; height: number }
+      | {
+          type: "rect" | "ellipse" | "line";
+          x: number;
+          y: number;
+          width: number;
+          height: number;
+        }
+  ) => void;
+  onDoubleClickElement: (elementId: string) => void;
+  onFinishEditing: () => void;
+  onSelectElement: (elementId: string) => void;
+}) {
+  const {
+    deck,
+    editingElementId,
+    insertTool,
+    selectedElementId,
+    showIds,
+    slide,
+    stageScale,
+    visibleElements,
+    onClearSelection,
+    onCommitElementProps,
+    onCommitElementFrame,
+    onCreateElement,
+    onDoubleClickElement,
+    onFinishEditing,
+    onSelectElement
+  } = props;
+  const transformerRef = useRef<Konva.Transformer | null>(null);
+  const nodeRefs = useRef<Record<string, Konva.Group | null>>({});
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const [draftElement, setDraftElement] = useState<{
+    type: InsertTool;
+    start: { x: number; y: number };
+    end: { x: number; y: number };
+  } | null>(null);
+
+  useEffect(() => {
+    const transformer = transformerRef.current;
+
+    if (!transformer) {
+      return;
+    }
+
+    const selectedNode = selectedElementId
+      ? nodeRefs.current[selectedElementId]
+      : null;
+
+    transformer.nodes(selectedNode ? [selectedNode] : []);
+    transformer.getLayer()?.batchDraw();
+  }, [selectedElementId, visibleElements]);
+
+  return (
+    <div className="konva-editor-stage" ref={containerRef}>
+      <Stage
+        className="konva-canvas-layer"
+        height={deck.canvas.height * stageScale}
+        scaleX={stageScale}
+        scaleY={stageScale}
+        width={deck.canvas.width * stageScale}
+        onMouseDown={(event) => {
+          if (event.target === event.target.getStage()) {
+            if (insertTool !== "select") {
+              const pointer = event.target.getStage()?.getPointerPosition();
+              if (!pointer) {
+                return;
+              }
+              setDraftElement({
+                type: insertTool,
+                start: {
+                  x: pointer.x / stageScale,
+                  y: pointer.y / stageScale
+                },
+                end: {
+                  x: pointer.x / stageScale,
+                  y: pointer.y / stageScale
+                }
+              });
+              return;
+            }
+            onClearSelection();
+          }
+        }}
+        onMouseMove={(event) => {
+          if (!draftElement) {
+            return;
+          }
+          const pointer = event.target.getStage()?.getPointerPosition();
+          if (!pointer) {
+            return;
+          }
+          setDraftElement((current) =>
+            current
+              ? {
+                  ...current,
+                  end: {
+                    x: pointer.x / stageScale,
+                    y: pointer.y / stageScale
+                  }
+                }
+              : current
+          );
+        }}
+        onMouseUp={() => {
+          if (!draftElement) {
+            return;
+          }
+          const rect = normalizeDraftRect(draftElement.start, draftElement.end);
+          setDraftElement(null);
+          if (!rect) {
+            return;
+          }
+          onCreateElement({
+            type: draftElement.type === "select" ? "rect" : draftElement.type,
+            ...rect
+          } as
+            | { type: "text"; x: number; y: number; width: number; height: number }
+            | {
+                type: "rect" | "ellipse" | "line";
+                x: number;
+                y: number;
+                width: number;
+                height: number;
+              });
+        }}
+      >
+        <Layer>
+          {visibleElements.map((element) => (
+            <EditableElementNode
+              key={element.elementId}
+              accentColor={slide.style.accentColor ?? deck.theme.accentColor}
+              deck={deck}
+              element={element}
+              isSelected={element.elementId === selectedElementId}
+              showIds={showIds}
+              slide={slide}
+              onCommitFrame={(frame) =>
+                onCommitElementFrame(slide.slideId, element.elementId, frame)
+              }
+              onDoubleClick={() => onDoubleClickElement(element.elementId)}
+              onMountNode={(node) => {
+                nodeRefs.current[element.elementId] = node;
+              }}
+              onSelect={() => onSelectElement(element.elementId)}
+            />
+          ))}
+          {draftElement ? (
+            <Rect
+              dash={[10, 6]}
+              fill="rgba(37, 99, 235, 0.08)"
+              stroke="#2563eb"
+              strokeWidth={2}
+              {...(normalizeDraftRect(draftElement.start, draftElement.end) ?? {
+                x: draftElement.start.x,
+                y: draftElement.start.y,
+                width: 1,
+                height: 1
+              })}
+            />
+          ) : null}
+          <Transformer
+            ref={transformerRef}
+            boundBoxFunc={(_, nextBox) => ({
+              ...nextBox,
+              width: Math.max(1, nextBox.width),
+              height: Math.max(1, nextBox.height)
+            })}
+            enabledAnchors={[
+              "top-left",
+              "top-center",
+              "top-right",
+              "middle-left",
+              "middle-right",
+              "bottom-left",
+              "bottom-center",
+              "bottom-right"
+            ]}
+            ignoreStroke
+            rotateEnabled
+            rotationSnaps={[0, 45, 90, 135, 180, 225, 270, 315]}
+          />
+        </Layer>
+      </Stage>
+      {editingElementId ? (
+        <InlineTextEditorOverlay
+          deck={deck}
+          element={
+            visibleElements.find((candidate) => candidate.elementId === editingElementId) ??
+            null
+          }
+          slide={slide}
+          stageScale={stageScale}
+          onCommitProps={onCommitElementProps}
+          onFinishEditing={onFinishEditing}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+function EditableElementNode(props: {
+  accentColor: string;
   deck: Deck;
   element: DeckElement;
   isSelected: boolean;
   showIds: boolean;
   slide: Slide;
-  stageScale: number;
+  onDoubleClick: () => void;
+  onCommitFrame: (frame: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    rotation: number;
+  }) => void;
+  onMountNode: (node: Konva.Group | null) => void;
   onSelect: () => void;
 }) {
-  const { deck, element, isSelected, onSelect, showIds, slide, stageScale } =
+  const {
+    accentColor,
+    deck,
+    element,
+    isSelected,
+    showIds,
+    slide,
+    onDoubleClick,
+    onCommitFrame,
+    onMountNode,
+    onSelect
+  } =
     props;
-  const commonStyle = {
-    left: element.x * stageScale,
-    top: element.y * stageScale,
-    width: element.width * stageScale,
-    height: element.height * stageScale,
-    opacity: element.visible ? element.opacity : 0,
-    transform: `rotate(${element.rotation}deg)`
-  } satisfies CSSProperties;
-  const interactiveProps = {
-    onClick: onSelect,
-    onKeyDown: (event: ReactKeyboardEvent<HTMLDivElement>) => {
-      if (event.key === "Enter" || event.key === " ") {
-        event.preventDefault();
-        onSelect();
-      }
-    },
-    role: "button",
-    tabIndex: 0
+  const [previewFrame, setPreviewFrame] = useState<{
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    rotation: number;
+  } | null>(null);
+  const frame = previewFrame ?? {
+    x: element.x,
+    y: element.y,
+    width: element.width,
+    height: element.height,
+    rotation: element.rotation
   };
-  const selectedClass = isSelected ? " selected" : "";
+
+  useEffect(() => {
+    setPreviewFrame(null);
+  }, [element.height, element.rotation, element.width, element.x, element.y]);
+
+  function handlePointerSelect() {
+    if (element.type === "text" && isSelected) {
+      onDoubleClick();
+      return;
+    }
+
+    onSelect();
+  }
+
+  return (
+    <Group
+      draggable={!element.locked}
+      opacity={element.visible ? element.opacity : 0}
+      rotation={frame.rotation}
+      x={frame.x}
+      y={frame.y}
+      ref={onMountNode}
+      onClick={handlePointerSelect}
+      onDblClick={() => {
+        if (element.type === "text") {
+          onDoubleClick();
+        }
+      }}
+      onDragEnd={(event) => {
+        setPreviewFrame(null);
+        onCommitFrame({
+          x: event.target.x(),
+          y: event.target.y(),
+          width: frame.width,
+          height: frame.height,
+          rotation: event.target.rotation()
+        });
+      }}
+      onTap={handlePointerSelect}
+      onTransform={(event) => {
+        if (element.type !== "text") {
+          return;
+        }
+
+        const node = event.target;
+        const nextFrame = {
+          x: node.x(),
+          y: node.y(),
+          width: Math.max(1, frame.width * node.scaleX()),
+          height: Math.max(1, frame.height * node.scaleY()),
+          rotation: node.rotation()
+        };
+
+        node.scaleX(1);
+        node.scaleY(1);
+        setPreviewFrame(nextFrame);
+      }}
+      onTransformEnd={(event) => {
+        const node = event.target;
+        const nextWidth = Math.max(1, frame.width * node.scaleX());
+        const nextHeight = Math.max(1, frame.height * node.scaleY());
+
+        node.scaleX(1);
+        node.scaleY(1);
+
+        setPreviewFrame(null);
+        onCommitFrame({
+          x: node.x(),
+          y: node.y(),
+          width: nextWidth,
+          height: nextHeight,
+          rotation: node.rotation()
+        });
+      }}
+    >
+      <Rect
+        cornerRadius={10}
+        fill={isSelected ? "rgba(37, 99, 235, 0.08)" : "transparent"}
+        listening={false}
+        stroke={isSelected ? "#2563eb" : "transparent"}
+        strokeWidth={isSelected ? 2 : 0}
+        width={frame.width}
+        height={frame.height}
+      />
+      <ElementNodeContent
+        accentColor={accentColor}
+        deck={deck}
+        element={element}
+        frame={frame}
+        slide={slide}
+      />
+      {showIds ? (
+        <Group listening={false} x={8} y={8}>
+          <Rect fill="rgba(15, 23, 42, 0.88)" cornerRadius={999} height={24} width={110} />
+          <Text
+            fill="#f8fafc"
+            fontSize={12}
+            fontStyle="bold"
+            padding={6}
+            text={element.elementId}
+            width={110}
+          />
+        </Group>
+      ) : null}
+      {element.locked ? (
+        <Text
+          fill="#b91c1c"
+          fontSize={12}
+          fontStyle="bold"
+          listening={false}
+          text="LOCKED"
+          x={frame.width - 54}
+          y={8}
+        />
+      ) : null}
+    </Group>
+  );
+}
+
+function ElementNodeContent(props: {
+  accentColor: string;
+  deck: Deck;
+  element: DeckElement;
+  frame: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    rotation: number;
+  };
+  slide: Slide;
+}) {
+  const { accentColor, deck, element, frame, slide } = props;
 
   if (element.type === "text") {
+    const textLayout = getTextElementLayout({
+      frame,
+      props: element.props,
+      slide,
+      theme: deck.theme
+    });
+
     return (
-      <div
-        className={`stage-element text-element${selectedClass}`}
-        {...interactiveProps}
-        style={{
-          ...commonStyle,
-          color: element.props.color ?? slide.style.textColor ?? deck.theme.textColor,
-          fontFamily:
-            element.props.fontFamily ??
-            slide.style.fontFamily ??
-            deck.theme.typography.bodyFontFamily,
-          fontSize: element.props.fontSize * stageScale,
-          fontWeight: String(element.props.fontWeight),
-          lineHeight: String(element.props.lineHeight),
-          justifyContent:
-            element.props.verticalAlign === "middle"
-              ? "center"
-              : element.props.verticalAlign === "bottom"
-                ? "flex-end"
-                : "flex-start",
-          textAlign: element.props.align
-        }}
-      >
-        <span>{element.props.text}</span>
-        {showIds ? (
-          <small className="element-meta">
-            <IdBadge id={element.elementId} />
-            {element.role ? <span className="role-badge">{element.role}</span> : null}
-          </small>
-        ) : null}
-      </div>
+      <Text
+        align={element.props.align}
+        fill={textLayout.color}
+        fontFamily={textLayout.fontFamily}
+        fontSize={element.props.fontSize}
+        fontStyle={textLayout.fontStyle}
+        lineHeight={element.props.lineHeight}
+        padding={0}
+        text={element.props.text}
+        width={textLayout.width}
+        wrap="word"
+        x={textLayout.x}
+        y={textLayout.y}
+      />
     );
   }
 
   if (element.type === "image") {
     const imageProps = element.props as ImageElementProps;
-    return (
-      <div
-        className={`stage-element media-card${selectedClass}`}
-        {...interactiveProps}
-        style={commonStyle}
-      >
-        <strong>image</strong>
-        {showIds ? <IdBadge id={element.elementId} /> : null}
-        <span>{imageProps.src}</span>
-        <small>
-          {imageProps.alt || "no alt"} · fit {imageProps.fit}
-        </small>
-      </div>
-    );
-  }
 
-  if (element.type === "group") {
-    const groupProps = element.props as GroupElementProps;
     return (
-      <div
-        className={`stage-element group-card${selectedClass}`}
-        {...interactiveProps}
-        style={commonStyle}
-      >
-        <strong>group</strong>
-        {showIds ? <IdBadge id={element.elementId} /> : null}
-        <span>{groupProps.childElementIds.join(", ") || "no children"}</span>
-      </div>
-    );
-  }
-
-  if (element.type === "customShape") {
-    return (
-      <div
-        className={`stage-element custom-card${selectedClass}`}
-        {...interactiveProps}
-        style={commonStyle}
-      >
-        <strong>customShape</strong>
-        {showIds ? <IdBadge id={element.elementId} /> : null}
-        <pre>{JSON.stringify(element.props, null, 2)}</pre>
-      </div>
+      <Group listening={false}>
+        <Rect
+          fill="#e0f2fe"
+          cornerRadius={18}
+          stroke="#0ea5e9"
+          strokeWidth={2}
+          width={frame.width}
+          height={frame.height}
+        />
+        <Text
+          fill="#0f172a"
+          fontSize={16}
+          fontStyle="bold"
+          text={`IMAGE\n${truncateValue(imageProps.src, 48)}`}
+          verticalAlign="middle"
+          align="center"
+          width={frame.width}
+          height={frame.height}
+          padding={16}
+        />
+      </Group>
     );
   }
 
   if (element.type === "chart") {
     const chart = element.props as Chart;
+    const values = chart.data.map((datum) =>
+      "value" in datum ? Math.abs(datum.value) : Math.abs(datum.y)
+    );
+    const maxValue = Math.max(1, ...values);
+    const barWidth = element.width / Math.max(chart.data.length, 1);
+
     return (
-      <div
-        className={`stage-element chart-card${selectedClass}`}
-        {...interactiveProps}
-        style={commonStyle}
-      >
-        <strong>
-          {chart.type} chart {chart.title ? `· ${chart.title}` : ""}
-        </strong>
-        {showIds ? <IdBadge id={element.elementId} /> : null}
-        <div className="chart-bars">
-          {chart.data.slice(0, 5).map((datum, index) => {
-            const value = "value" in datum ? datum.value : datum.y;
-            const label = datum.label ?? `item-${index + 1}`;
-            return (
-              <div className="chart-bar-row" key={`${label}-${index}`}>
-                <span>{label}</span>
-                <div className="chart-bar-track">
-                  <div
-                    className="chart-bar-fill"
-                    style={{
-                      width: `${Math.max(12, Math.min(100, Math.abs(value)))}%`,
-                      background:
-                        chart.style.colors[index] ??
-                        slide.style.accentColor ??
-                        deck.theme.accentColor
-                    }}
-                  />
-                </div>
-                <small>{String(value)}</small>
-              </div>
-            );
-          })}
-        </div>
-        <small className="element-meta">
-          legend {chart.style.legendPosition} · unit {chart.style.unit || "none"}
-        </small>
-      </div>
+      <Group listening={false}>
+        <Rect
+          cornerRadius={18}
+          fill="#fff"
+          stroke={accentColor}
+          strokeWidth={2}
+          width={frame.width}
+          height={frame.height}
+        />
+        <Text
+          fill="#0f172a"
+          fontSize={18}
+          fontStyle="bold"
+          text={chart.title || `${chart.type} chart`}
+          x={14}
+          y={12}
+        />
+        {chart.data.slice(0, 6).map((datum, index) => {
+          const value = "value" in datum ? Math.abs(datum.value) : Math.abs(datum.y);
+          const height = Math.max(
+            18,
+            ((frame.height - 84) * value) / maxValue
+          );
+
+          return (
+            <Group key={`${datum.label ?? "item"}-${index}`}>
+              <Rect
+                fill={chart.style.colors[index] ?? accentColor}
+                x={14 + index * barWidth}
+                y={frame.height - height - 24}
+                width={Math.max(18, barWidth - 16)}
+                height={height}
+                cornerRadius={8}
+              />
+            </Group>
+          );
+        })}
+      </Group>
     );
   }
 
-  const shadow = element.props.shadow;
-  const shapeStyle: CSSProperties = {
-    ...commonStyle,
-    background:
-      element.type === "line" || element.type === "arrow"
-        ? "transparent"
-        : element.props.fill === "transparent"
-          ? "rgba(49, 87, 245, 0.08)"
-          : element.props.fill,
-    border:
-      element.type === "line" || element.type === "arrow"
-        ? "none"
-        : `${Math.max(1, element.props.strokeWidth * stageScale)}px solid ${
+  if (element.type === "group") {
+    const groupProps = element.props as GroupElementProps;
+
+    return (
+      <Group listening={false}>
+        <Rect
+          dash={[10, 6]}
+          cornerRadius={18}
+          fill="rgba(241, 245, 249, 0.7)"
+          stroke="#64748b"
+          strokeWidth={2}
+          width={frame.width}
+          height={frame.height}
+        />
+        <Text
+          fill="#334155"
+          fontSize={15}
+          text={`GROUP\n${groupProps.childElementIds.join(", ") || "empty"}`}
+          align="center"
+          verticalAlign="middle"
+          width={frame.width}
+          height={frame.height}
+          padding={12}
+        />
+      </Group>
+    );
+  }
+
+  if (element.type === "customShape") {
+    return (
+      <Group listening={false}>
+        <Rect
+          cornerRadius={18}
+          fill="rgba(250, 245, 255, 0.92)"
+          stroke="#9333ea"
+          strokeWidth={2}
+          width={frame.width}
+          height={frame.height}
+        />
+        <Text
+          fill="#6b21a8"
+          fontSize={14}
+          text={truncateValue(JSON.stringify(element.props), 80)}
+          width={frame.width}
+          height={frame.height}
+          padding={14}
+        />
+      </Group>
+    );
+  }
+
+  if (element.type === "ellipse") {
+    return (
+      <Group listening={false}>
+        <Rect
+          cornerRadius={999}
+          fill={element.props.fill === "transparent" ? "#eff6ff" : element.props.fill}
+          stroke={
             element.props.stroke === "transparent"
-              ? "rgba(16, 24, 40, 0.18)"
+              ? "rgba(15, 23, 42, 0.18)"
               : element.props.stroke
-          }`,
-    borderRadius:
-      element.type === "ellipse"
-        ? "999px"
-        : `${element.props.borderRadius * stageScale}px`,
-    boxShadow: shadow
-      ? `${shadow.offsetX * stageScale}px ${shadow.offsetY * stageScale}px ${
-          shadow.blur * stageScale
-        }px rgba(0, 0, 0, ${shadow.opacity})`
-      : undefined
-  };
+          }
+          strokeWidth={Math.max(1, element.props.strokeWidth)}
+          width={frame.width}
+          height={frame.height}
+        />
+      </Group>
+    );
+  }
+
+  if (element.type === "line" || element.type === "arrow") {
+    return (
+      <Group listening={false}>
+        <Rect fill="transparent" width={frame.width} height={Math.max(16, frame.height)} />
+        <Line
+          points={[0, frame.height / 2, frame.width, frame.height / 2]}
+          stroke={
+            element.props.stroke === "transparent"
+              ? "#2563eb"
+              : element.props.stroke
+          }
+          strokeWidth={Math.max(2, element.props.strokeWidth)}
+          tension={0}
+        />
+      </Group>
+    );
+  }
 
   return (
-    <div
-      className={`stage-element shape-element shape-${element.type}${selectedClass}`}
-      {...interactiveProps}
-      style={shapeStyle}
-    >
-      <span>{element.type}</span>
-      {showIds ? (
-        <small className="element-meta">
-          <IdBadge id={element.elementId} />
-          {element.role ? <span className="role-badge">{element.role}</span> : null}
-        </small>
-      ) : null}
-    </div>
+    <Group listening={false}>
+      <Rect
+        cornerRadius={element.type === "ring" ? 999 : element.props.borderRadius}
+        fill={element.props.fill === "transparent" ? "rgba(49, 87, 245, 0.08)" : element.props.fill}
+        stroke={
+          element.props.stroke === "transparent"
+            ? "rgba(16, 24, 40, 0.18)"
+            : element.props.stroke
+        }
+        strokeWidth={Math.max(1, element.props.strokeWidth)}
+        width={frame.width}
+        height={frame.height}
+      />
+      <Text
+        fill="#475569"
+        fontSize={14}
+        fontStyle="bold"
+        text={renderShapeLabel(element)}
+        align="center"
+        verticalAlign="middle"
+        width={frame.width}
+        height={frame.height}
+      />
+    </Group>
   );
+}
+
+function renderShapeLabel(element: DeckElement) {
+  return `${element.type}${element.role ? ` · ${element.role}` : ""}`;
+}
+
+function InlineTextEditorOverlay(props: {
+  deck: Deck;
+  element: DeckElement | null;
+  slide: Slide;
+  stageScale: number;
+  onCommitProps: (elementId: string, props: Record<string, unknown>) => void;
+  onFinishEditing: () => void;
+}) {
+  const { deck, element, slide, stageScale, onCommitProps, onFinishEditing } = props;
+
+  if (!element || element.type !== "text") {
+    return null;
+  }
+
+  return (
+    <textarea
+      autoFocus
+      className="inline-text-editor"
+      defaultValue={element.props.text}
+      style={{
+        left: `${element.x * stageScale}px`,
+        top: `${element.y * stageScale}px`,
+        width: `${element.width * stageScale}px`,
+        height: `${element.height * stageScale}px`,
+        color: element.props.color ?? slide.style.textColor ?? deck.theme.textColor,
+        fontFamily:
+          element.props.fontFamily ??
+          slide.style.fontFamily ??
+          deck.theme.typography.bodyFontFamily,
+        fontSize: `${element.props.fontSize * stageScale}px`,
+        fontWeight: String(getCssFontWeight(element.props.fontWeight)),
+        lineHeight: String(element.props.lineHeight),
+        textAlign: element.props.align,
+        transform: `rotate(${element.rotation}deg)`,
+        transformOrigin: "top left"
+      }}
+      onBlur={(event) => {
+        onCommitProps(element.elementId, { text: event.target.value });
+        onFinishEditing();
+      }}
+      onKeyDown={(event) => {
+        if (event.key === "Escape") {
+          event.preventDefault();
+          onFinishEditing();
+        }
+        if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+          event.preventDefault();
+          onCommitProps(element.elementId, { text: event.currentTarget.value });
+          onFinishEditing();
+        }
+      }}
+    />
+  );
+}
+
+function getCssFontWeight(fontWeight: TextElementProps["fontWeight"]) {
+  if (typeof fontWeight === "number") {
+    return fontWeight;
+  }
+
+  switch (fontWeight) {
+    case "medium":
+      return 500;
+    case "semibold":
+      return 600;
+    case "bold":
+      return 700;
+    case "normal":
+    default:
+      return 400;
+  }
+}
+
+function getKonvaFontStyle(fontWeight: TextElementProps["fontWeight"]) {
+  return getCssFontWeight(fontWeight) >= 600 ? "bold" : "normal";
+}
+
+function getTextElementLayout(args: {
+  frame: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    rotation: number;
+  };
+  props: TextElementProps;
+  slide: Slide;
+  theme: Deck["theme"];
+}) {
+  const { frame, props, slide, theme } = args;
+  const fontFamily =
+    props.fontFamily ?? slide.style.fontFamily ?? theme.typography.bodyFontFamily;
+  const color = props.color ?? slide.style.textColor ?? theme.textColor;
+  const fontStyle = getKonvaFontStyle(props.fontWeight);
+  const width = Math.max(1, frame.width - textElementPadding * 2);
+  const availableHeight = Math.max(1, frame.height - textElementPadding * 2);
+  const measureNode = new Konva.Text({
+    align: props.align,
+    fontFamily,
+    fontSize: props.fontSize,
+    fontStyle,
+    lineHeight: props.lineHeight,
+    padding: 0,
+    text: props.text,
+    width,
+    wrap: "word"
+  });
+  const contentHeight = Math.min(measureNode.height(), availableHeight);
+  const spareHeight = Math.max(0, availableHeight - contentHeight);
+  let y = textElementPadding;
+
+  if (props.verticalAlign === "middle") {
+    y += spareHeight / 2;
+  } else if (props.verticalAlign === "bottom") {
+    y += spareHeight;
+  }
+
+  measureNode.destroy();
+
+  return {
+    color,
+    fontFamily,
+    fontStyle,
+    width,
+    x: textElementPadding,
+    y
+  };
+}
+
+function normalizeDraftRect(
+  start: { x: number; y: number },
+  end: { x: number; y: number }
+) {
+  const x = Math.min(start.x, end.x);
+  const y = Math.min(start.y, end.y);
+  const width = Math.abs(end.x - start.x);
+  const height = Math.abs(end.y - start.y);
+
+  if (width < 4 && height < 4) {
+    return null;
+  }
+
+  return {
+    x,
+    y,
+    width: Math.max(8, width),
+    height: Math.max(8, height)
+  };
 }

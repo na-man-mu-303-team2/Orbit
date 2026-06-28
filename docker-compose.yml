@@ -108,6 +108,7 @@ services:
     environment:
       API_BASE_URL: http://api:3000
       DATABASE_URL: postgres://orbit:orbit@postgres:5432/orbit
+      OPENAI_TRANSCRIPTION_MODEL: ${OPENAI_TRANSCRIPTION_MODEL:-gpt-4o-transcribe}
       REDIS_URL: redis://redis:6379
       S3_ENDPOINT: http://minio:9000
       PYTHON_WORKER_URL: http://python-worker:8000
@@ -128,7 +129,7 @@ services:
     env_file:
       - .env.local
     environment:
-      API_BASE_URL: http://api:3000
+      API_BASE_URL: http://localhost:3000
     ports:
       - "${WEB_PORT:-5173}:5173"
     depends_on:
