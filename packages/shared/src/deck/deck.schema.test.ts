@@ -11,6 +11,15 @@ type DeckValidationInput = {
   metadata: {
     language: string;
     locale: string;
+    sourceType?: string;
+    generatedBy?: string;
+    audience?: string;
+    purpose?: string;
+    tone?: string;
+    createdFrom?: {
+      topic: string;
+      references: Array<{ fileId: string }>;
+    };
   };
   canvas: {
     preset: string;
@@ -25,6 +34,15 @@ type DeckValidationInput = {
     thumbnailUrl: string;
     style: Record<string, unknown>;
     speakerNotes: string;
+    aiNotes?: {
+      emphasisPoints: string[];
+      sourceEvidence: Array<{
+        fileId: string;
+        quote?: string;
+        note?: string;
+        confidence: number;
+      }>;
+    };
     keywords: Array<{
       keywordId: string;
       text: string;
@@ -316,6 +334,35 @@ describe("deckSchema validation", () => {
     deck.metadata.locale = "en-US";
 
     expectInvalidDeck(deck);
+  });
+
+  it("accepts AI metadata and slide notes on generated decks", () => {
+    const deck = createValidDeck();
+
+    deck.metadata = {
+      ...deck.metadata,
+      sourceType: "ai",
+      generatedBy: "ai",
+      audience: "technical",
+      purpose: "inform",
+      tone: "professional",
+      createdFrom: {
+        topic: "AI 발표 자동화",
+        references: [{ fileId: "file_1" }]
+      }
+    };
+    deck.slides[0].aiNotes = {
+      emphasisPoints: ["근거 기반 메시지"],
+      sourceEvidence: [
+        {
+          fileId: "file_1",
+          quote: "reference",
+          confidence: 0.8
+        }
+      ]
+    };
+
+    expectValidDeck(deck);
   });
 
   it.each([

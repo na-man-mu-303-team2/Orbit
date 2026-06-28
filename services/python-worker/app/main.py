@@ -8,6 +8,13 @@ from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.ai.generate_deck import (
+    DeckContentGenerationError,
+    GenerateDeckRequest,
+    GenerateDeckResponse,
+    ReferenceContext,
+    generate_deck,
+)
 from app.audio.transcribe import (
     AudioTranscribeRequest,
     AudioTranscribeResponse,
@@ -286,6 +293,23 @@ def transcribe_audio(
         raise to_http_exception(exc) from exc
 
 
+@app.post("/ai/generate-deck", response_model=GenerateDeckResponse)
+def generate_ai_deck(
+    payload: GenerateDeckRequest,
+    request: Request,
+) -> GenerateDeckResponse:
+    config = _config(request)
+    try:
+        return generate_deck(
+            payload,
+            model=config.openai_model,
+            api_key=config.openai_api_key,
+            reference_context=_generate_deck_reference_context(payload, config),
+        )
+    except DeckContentGenerationError as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
+
+
 @app.post("/rehearsal/analyze", response_model=RehearsalAnalyzeResponse)
 def analyze_rehearsal(
     request: Request,
@@ -410,6 +434,45 @@ def _extract_result_payload(
         "chunkCount": index_result.chunk_count,
         "sections": [_section_payload(section) for section in result.sections],
     }
+
+
+def _generate_deck_reference_context(
+    payload: GenerateDeckRequest,
+    config: PythonWorkerConfig,
+) -> list[ReferenceContext]:
+    file_ids = {reference.file_id for reference in payload.references}
+    if not file_ids:
+        return []
+
+    query = " ".join(
+        [
+            payload.topic,
+            payload.prompt,
+            *[keyword.text for keyword in payload.reference_keywords],
+        ]
+    ).strip()
+
+    try:
+        results, _embedding_result = search_reference_chunks(
+            repository=PostgresReferenceRepository(config.database_url),
+            project_id=payload.project_id,
+            query=query or payload.topic,
+            limit=20,
+            model=config.openai_embedding_model,
+            api_key=config.openai_api_key,
+        )
+    except Exception:
+        return []
+
+    return [
+        ReferenceContext(
+            fileId=result.file_id,
+            title=str(result.metadata.get("fileName", "")),
+            content=result.content,
+        )
+        for result in results
+        if result.file_id in file_ids and result.content.strip()
+    ][:6]
 
 
 def _result_text(result: ExtractionResult) -> str:

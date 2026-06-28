@@ -1,4 +1,5 @@
 import {
+  generateDeckQueueName,
   redisConnectionOptions,
   referenceExtractQueueName,
   rehearsalSttQueueName
@@ -10,6 +11,7 @@ import { InjectDataSource } from "@nestjs/typeorm";
 import { type Job as BullMqJob, Worker as BullMqWorker } from "bullmq";
 import { InjectPinoLogger, PinoLogger } from "nestjs-pino";
 import type { DataSource } from "typeorm";
+import { processGenerateDeckJob } from "./generate-deck.processor";
 import { serializeLogError } from "./logging";
 import { processReferenceExtractJob } from "./reference-extract.processor";
 import { processRehearsalSttJob } from "./rehearsal-stt.processor";
@@ -27,11 +29,16 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
   ) {}
 
   onModuleInit() {
+    const queueNames = [
+      referenceExtractQueueName,
+      rehearsalSttQueueName,
+      generateDeckQueueName
+    ];
     this.logger.info(
       {
         event: "worker.ready",
         driver: this.config.JOB_QUEUE_DRIVER,
-        queueNames: [referenceExtractQueueName, rehearsalSttQueueName]
+        queueNames
       },
       "Worker ready."
     );
@@ -39,56 +46,31 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
       throw new Error("SqsJobQueue adapter is not implemented yet.");
     }
 
-    const connection = redisConnectionOptions(this.config.REDIS_URL);
     const storage = workerStorage();
-
     this.workers = [
-      new BullMqWorker(
-        referenceExtractQueueName,
-        (job) =>
-          this.processJob(referenceExtractQueueName, job, () =>
-            processReferenceExtractJob(
-              this.dataSource,
-              this.config.PYTHON_WORKER_URL,
-              job.data
-            )
-          ),
-        {
-          connection
-        }
+      this.createWorker(referenceExtractQueueName, (job) =>
+        processReferenceExtractJob(
+          this.dataSource,
+          this.config.PYTHON_WORKER_URL,
+          job.data
+        )
       ),
-      new BullMqWorker(
-        rehearsalSttQueueName,
-        (job) =>
-          this.processJob(rehearsalSttQueueName, job, () =>
-            processRehearsalSttJob(
-              this.dataSource,
-              storage,
-              this.config.PYTHON_WORKER_URL,
-              job.data
-            )
-          ),
-        {
-          connection
-        }
+      this.createWorker(rehearsalSttQueueName, (job) =>
+        processRehearsalSttJob(
+          this.dataSource,
+          storage,
+          this.config.PYTHON_WORKER_URL,
+          job.data
+        )
+      ),
+      this.createWorker(generateDeckQueueName, (job) =>
+        processGenerateDeckJob(
+          this.dataSource,
+          this.config.PYTHON_WORKER_URL,
+          job.data
+        )
       )
     ];
-
-    for (const worker of this.workers) {
-      worker.on("failed", (job, error) => {
-        this.logger.error(
-          {
-            event: "bullmq.job.failed",
-            queueName: worker.name,
-            bullJobId: job?.id,
-            attemptsMade: job?.attemptsMade,
-            ...jobPayloadFields(job?.data),
-            error: serializeLogError(error)
-          },
-          "BullMQ job failed."
-        );
-      });
-    }
   }
 
   async onModuleDestroy() {
@@ -96,10 +78,43 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
     this.logger.info(
       {
         event: "worker.stopped",
-        queueNames: [referenceExtractQueueName, rehearsalSttQueueName]
+        queueNames: [
+          referenceExtractQueueName,
+          rehearsalSttQueueName,
+          generateDeckQueueName
+        ]
       },
       "Worker stopped."
     );
+  }
+
+  private createWorker(
+    queueName: string,
+    handler: (job: BullMqJob) => Promise<OrbitJob>
+  ): BullMqWorker {
+    const worker = new BullMqWorker(
+      queueName,
+      (job) => this.processJob(queueName, job, () => handler(job)),
+      {
+        connection: redisConnectionOptions(this.config.REDIS_URL)
+      }
+    );
+
+    worker.on("failed", (job, error) => {
+      this.logger.error(
+        {
+          event: "bullmq.job.failed",
+          queueName,
+          bullJobId: job?.id,
+          attemptsMade: job?.attemptsMade,
+          ...jobPayloadFields(job?.data),
+          error: serializeLogError(error)
+        },
+        "BullMQ job failed."
+      );
+    });
+
+    return worker;
   }
 
   private async processJob(

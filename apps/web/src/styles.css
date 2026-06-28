@@ -20,8 +20,14 @@ button {
   font: inherit;
 }
 
-input {
+input,
+select,
+textarea {
   font: inherit;
+}
+
+textarea {
+  resize: vertical;
 }
 
 .app-shell {
@@ -334,6 +340,239 @@ dd {
     #fffdf8;
   display: grid;
   place-items: center;
+}
+
+.generate-app-shell {
+  background: #eef2f6;
+}
+
+.generate-layout {
+  display: grid;
+  gap: 18px;
+  grid-template-columns: minmax(340px, 0.42fr) minmax(0, 0.58fr);
+  margin: 0 auto;
+  max-width: 1180px;
+}
+
+.generate-form,
+.generate-result {
+  background: #ffffff;
+  border: 1px solid #d9e1e7;
+  border-radius: 8px;
+  display: grid;
+  gap: 16px;
+  padding: 20px;
+}
+
+.generate-form label {
+  display: grid;
+  gap: 6px;
+}
+
+.generate-form label span {
+  color: #527089;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.generate-form input,
+.generate-form select,
+.generate-form textarea {
+  background: #f8fafc;
+  border: 1px solid #cad5df;
+  border-radius: 8px;
+  color: #15202b;
+  min-height: 42px;
+  padding: 9px 10px;
+  width: 100%;
+}
+
+.generate-form textarea {
+  min-height: 112px;
+}
+
+.form-grid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.form-grid.two {
+  grid-template-columns: minmax(0, 0.35fr) minmax(0, 0.65fr);
+}
+
+.generate-result {
+  align-content: start;
+  min-height: 680px;
+}
+
+.generate-reference-panel {
+  display: grid;
+  gap: 12px;
+}
+
+.reference-panel-heading {
+  display: grid;
+  gap: 4px;
+}
+
+.reference-panel-heading p {
+  color: #696f7a;
+  margin: 0;
+}
+
+.generate-form .drop-zone {
+  gap: 12px;
+  min-height: 220px;
+  padding: 24px;
+}
+
+.generate-form .drop-zone .upload-mark {
+  color: #fffdf8;
+  font-size: 2.4rem;
+  font-weight: 400;
+}
+
+.generate-form .drop-zone .drop-title {
+  color: #202226;
+  font-size: clamp(1.15rem, 3vw, 1.55rem);
+  font-weight: 800;
+  text-align: center;
+}
+
+.generate-form .drop-zone .drop-meta {
+  color: #696f7a;
+  font-size: 0.95rem;
+  font-weight: 400;
+  text-align: center;
+}
+
+.generated-deck {
+  display: grid;
+  gap: 16px;
+}
+
+.generated-deck .result-heading {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.generated-deck .result-heading strong {
+  color: #0f766e;
+  flex: 0 0 auto;
+}
+
+.generated-slide-grid {
+  display: grid;
+  gap: 18px;
+}
+
+.generated-slide-card {
+  background: #f8fafc;
+  border: 1px solid #d9e1e7;
+  border-radius: 8px;
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+}
+
+.generated-slide-preview {
+  background: #ffffff;
+  border: 1px solid #d9e1e7;
+  border-radius: 6px;
+  box-shadow: 0 12px 32px rgba(21, 32, 43, 0.08);
+  container-type: inline-size;
+  overflow: hidden;
+  position: relative;
+  width: 100%;
+}
+
+.generated-slide-element {
+  position: absolute;
+}
+
+.generated-slide-text {
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  padding: 0.2cqw;
+  white-space: pre-wrap;
+}
+
+.generated-slide-shape-line,
+.generated-slide-shape-arrow {
+  height: 0 !important;
+}
+
+.generated-slide-meta {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+}
+
+.generated-slide-meta span {
+  background: #0f766e;
+  border-radius: 50%;
+  color: #ffffff;
+  display: grid;
+  flex: 0 0 auto;
+  font-size: 0.8rem;
+  font-weight: 800;
+  height: 28px;
+  place-items: center;
+  width: 28px;
+}
+
+.generated-slide-meta strong {
+  color: #15202b;
+  font-size: 1rem;
+  overflow-wrap: anywhere;
+}
+
+.generated-slide-card details {
+  border-top: 1px solid #d9e1e7;
+  color: #526678;
+  padding-top: 10px;
+}
+
+.generated-slide-card summary {
+  color: #15202b;
+  cursor: pointer;
+  font-weight: 800;
+}
+
+.generated-slide-card ul {
+  display: grid;
+  gap: 6px;
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+}
+
+.generated-slide-card p {
+  color: #526678;
+  line-height: 1.55;
+  margin: 10px 0 0;
+}
+
+.deck-preview-placeholder {
+  align-items: center;
+  aspect-ratio: 16 / 9;
+  background:
+    linear-gradient(135deg, rgba(15, 118, 110, 0.12), transparent 60%),
+    #f8fafc;
+  border: 1px solid #d9e1e7;
+  border-radius: 8px;
+  color: #0f766e;
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+  min-height: 320px;
+}
+
+.deck-preview-placeholder span {
+  color: #15202b;
+  font-size: 1.2rem;
+  font-weight: 800;
 }
 
 .upload-panel {
@@ -960,8 +1199,14 @@ dd {
 
   .status-strip,
   .workspace-grid,
+  .generate-layout,
   .meta-grid,
   .project-workspace-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .form-grid,
+  .form-grid.two {
     grid-template-columns: 1fr;
   }
 

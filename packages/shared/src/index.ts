@@ -6,6 +6,7 @@ export * from "./deck/animation.schema";
 export * from "./deck/chart.schema";
 export * from "./deck/deck-api.schema";
 export * from "./deck/deck.schema";
+export * from "./deck/generate-deck.schema";
 export * from "./deck/id.schema";
 export * from "./deck/patch.schema";
 export * from "./deck/slide-object.schema";

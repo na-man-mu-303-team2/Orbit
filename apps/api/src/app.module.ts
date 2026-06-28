@@ -9,6 +9,7 @@ import { JobsModule } from "./jobs/jobs.module";
 import { createApiLoggerParams } from "./logging";
 import { databaseOptions } from "./database/data-source";
 import { ExtractModule } from "./extract/extract.module";
+import { GenerateDeckModule } from "./generate-deck/generate-deck.module";
 import { ProjectsModule } from "./projects/projects.module";
 import { ReferencesModule } from "./references/references.module";
 import { RealtimeGateway } from "./realtime/realtime.gateway";
@@ -24,6 +25,7 @@ import { RehearsalsModule } from "./rehearsals/rehearsals.module";
     DecksModule,
     FilesModule,
     ExtractModule,
+    GenerateDeckModule,
     JobsModule,
     ReferencesModule,
     RehearsalsModule

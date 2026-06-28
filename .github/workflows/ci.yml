@@ -298,7 +298,7 @@ jobs:
         run: |
           for url in http://127.0.0.1:3000/health http://127.0.0.1:5173; do
             for attempt in $(seq 1 60); do
-              if curl -fsS "$url" > /dev/null; then
+              if curl --max-time 5 -fsS "$url" > /dev/null; then
                 break
               fi
               if [ "$attempt" -eq 60 ]; then
@@ -316,6 +316,9 @@ jobs:
       - name: Show smoke service status
         if: always()
         run: docker compose ps
+      - name: Show smoke service logs
+        if: failure()
+        run: docker compose logs --tail=200 api web
       - name: Stop smoke services
         if: always()
         run: docker compose down --remove-orphans

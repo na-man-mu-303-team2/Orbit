@@ -18,7 +18,8 @@ RUN pnpm install --frozen-lockfile
 
 COPY . .
 RUN pnpm --filter "./packages/*" build
+RUN pnpm --filter "@orbit/api" build
 
 EXPOSE 3000
 
-CMD ["pnpm", "--filter", "@orbit/api", "dev"]
+CMD ["pnpm", "--filter", "@orbit/api", "start"]
