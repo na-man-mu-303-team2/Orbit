@@ -241,6 +241,53 @@ describe("deckSchema validation", () => {
     expectValidDeck(deck);
   });
 
+  it("accepts a custom shape with typed path editing props", () => {
+    const deck = createValidDeck();
+
+    deck.slides[0].elements[0] = {
+      ...deck.slides[0].elements[0],
+      type: "customShape",
+      props: {
+        pathData:
+          "M 20 20 L 200 20 L 200 100 L 92 100 L 48 148 L 56 100 L 20 100 Z",
+        viewBoxWidth: 220,
+        viewBoxHeight: 160,
+        fill: "#f5edff",
+        stroke: "#9333ea",
+        strokeWidth: 2,
+        closed: true,
+        nodes: [
+          { x: 20, y: 20, mode: "corner" },
+          { x: 200, y: 20, mode: "corner" },
+          { x: 200, y: 100, mode: "corner" },
+          { x: 92, y: 100, mode: "corner" },
+          { x: 48, y: 148, mode: "corner" },
+          { x: 56, y: 100, mode: "corner" },
+          { x: 20, y: 100, mode: "corner" }
+        ]
+      }
+    };
+
+    expectValidDeck(deck);
+  });
+
+  it("rejects a custom shape without pathData", () => {
+    const deck = createValidDeck();
+
+    deck.slides[0].elements[0] = {
+      ...deck.slides[0].elements[0],
+      type: "customShape",
+      props: {
+        viewBoxWidth: 220,
+        viewBoxHeight: 160,
+        closed: true,
+        nodes: []
+      }
+    };
+
+    expectInvalidDeck(deck);
+  });
+
   it("rejects negative radial chart values", () => {
     const deck = createValidDeck();
 
