@@ -28,15 +28,15 @@ vi.mock("react-konva", () => {
 
   return {
     Arrow: () => <span data-konva-arrow="true" />,
-    Circle: () => null,
+    Circle: () => <span data-konva-circle="true" />,
     Group,
-    Image: () => null,
+    Image: () => <span data-konva-image="true" />,
     Layer,
-    Line: () => null,
-    Rect: () => null,
+    Line: () => <span data-konva-line="true" />,
+    Rect: () => <span data-konva-rect="true" />,
     RegularPolygon: () => <span data-konva-polygon="true" />,
     Shape: () => <span data-konva-shape="true" />,
-    Star: () => null,
+    Star: () => <span data-konva-star="true" />,
     Stage,
     Text,
     Transformer: () => null
@@ -90,9 +90,10 @@ describe("editor shell", () => {
     expect(html).toContain("저장됨");
     expect(html).toContain("AI 편집 도우미");
     expect(html).toContain("이미지");
+    expect(html).toContain("data-testid=\"editor-slide-quickbar\"");
   });
 
-  it("renders arrow, polygon, grouped content, and custom shape elements on the canvas", () => {
+  it("renders supported canvas object types without exposing grouped child labels", () => {
     const queryClient = createTestQueryClient();
     const deck = createDemoDeck();
     const firstSlide = deck.slides[0];
@@ -158,6 +159,66 @@ describe("editor shell", () => {
         }
       } as Deck["slides"][number]["elements"][number],
       {
+        elementId: "el_15",
+        type: "ellipse",
+        role: "highlight",
+        x: 1360,
+        y: 720,
+        width: 180,
+        height: 180,
+        rotation: 0,
+        opacity: 1,
+        zIndex: 14,
+        locked: false,
+        visible: true,
+        props: {
+          fill: "#dbeafe",
+          stroke: "#2563eb",
+          strokeWidth: 3,
+          borderRadius: 0
+        }
+      } as Deck["slides"][number]["elements"][number],
+      {
+        elementId: "el_16",
+        type: "star",
+        role: "highlight",
+        x: 1560,
+        y: 720,
+        width: 180,
+        height: 180,
+        rotation: 0,
+        opacity: 1,
+        zIndex: 15,
+        locked: false,
+        visible: true,
+        props: {
+          fill: "#fef3c7",
+          stroke: "#f59e0b",
+          strokeWidth: 3,
+          borderRadius: 0
+        }
+      } as Deck["slides"][number]["elements"][number],
+      {
+        elementId: "el_17",
+        type: "ring",
+        role: "highlight",
+        x: 1560,
+        y: 920,
+        width: 160,
+        height: 160,
+        rotation: 0,
+        opacity: 1,
+        zIndex: 16,
+        locked: false,
+        visible: true,
+        props: {
+          fill: "#a5b4fc",
+          stroke: "#4338ca",
+          strokeWidth: 4,
+          borderRadius: 0
+        }
+      } as Deck["slides"][number]["elements"][number],
+      {
         elementId: "el_14",
         type: "customShape",
         role: "highlight",
@@ -197,8 +258,12 @@ describe("editor shell", () => {
     const html = renderApp(queryClient);
 
     expect(html).toContain("data-konva-arrow");
+    expect(html).toContain("data-konva-circle");
+    expect(html).toContain("Editor preview");
+    expect(html).toContain("data-konva-line");
     expect(html).toContain("data-konva-polygon");
     expect(html).toContain("data-konva-shape");
+    expect(html).toContain("data-konva-star");
     expect(html).not.toContain("GROUP");
   });
 
