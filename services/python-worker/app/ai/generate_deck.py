@@ -40,6 +40,12 @@ class GenerateDeckReference(BaseModel):
     file_id: str = Field(alias="fileId", min_length=1)
 
 
+class GenerateDeckReferenceKeyword(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    text: str = Field(min_length=1)
+
+
 class GenerateDeckMetadata(BaseModel):
     audience: Audience = "general"
     purpose: Purpose = "inform"
@@ -76,6 +82,10 @@ class GenerateDeckRequest(BaseModel):
     template: Template = "default"
     metadata: GenerateDeckMetadata = Field(default_factory=GenerateDeckMetadata)
     references: list[GenerateDeckReference] = Field(default_factory=list)
+    reference_keywords: list[GenerateDeckReferenceKeyword] = Field(
+        default_factory=list,
+        alias="referenceKeywords",
+    )
 
 
 class RawInput(BaseModel):
@@ -87,6 +97,7 @@ class RawInput(BaseModel):
     template: Template
     metadata: GenerateDeckMetadata
     references: list[GenerateDeckReference]
+    reference_keywords: list[GenerateDeckReferenceKeyword]
 
 
 class DeckOutline(BaseModel):
@@ -266,6 +277,7 @@ def analyze_input(request: GenerateDeckRequest) -> RawInput:
         template=request.template,
         metadata=request.metadata,
         references=request.references,
+        reference_keywords=request.reference_keywords,
     )
 
 
@@ -301,7 +313,10 @@ def title_for_slide(topic: str, order: int, total: int) -> str:
 
 
 def plan_slides(raw_input: RawInput, outline: DeckOutline) -> list[SlidePlan]:
-    keyword_pool = keywords_for(raw_input.topic, raw_input.prompt)
+    keyword_pool = reference_keywords_for(raw_input.reference_keywords) or keywords_for(
+        raw_input.topic,
+        raw_input.prompt,
+    )
     plans: list[SlidePlan] = []
 
     for index, title in enumerate(outline.slide_titles, start=1):
@@ -350,6 +365,23 @@ def keywords_for(topic: str, prompt: str) -> list[str]:
     words = [word.strip(" ,.;:()[]{}") for word in f"{topic} {prompt}".split()]
     unique = [word for index, word in enumerate(words) if word and word not in words[:index]]
     return (unique or [topic])[:5]
+
+
+def reference_keywords_for(
+    reference_keywords: list[GenerateDeckReferenceKeyword],
+) -> list[str]:
+    keywords: list[str] = []
+    seen: set[str] = set()
+    for keyword in reference_keywords:
+        text = keyword.text.strip()
+        key = text.casefold()
+        if not text or key in seen:
+            continue
+
+        seen.add(key)
+        keywords.append(text)
+
+    return keywords[:5]
 
 
 def evidence_for(

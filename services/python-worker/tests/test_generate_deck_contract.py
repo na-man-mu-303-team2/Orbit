@@ -61,3 +61,29 @@ def test_generate_deck_endpoint_supports_topic_only_generation() -> None:
     assert response.json()["warnings"] == [
         "참고자료 없이 topic-only generation으로 생성했습니다."
     ]
+
+
+def test_generate_deck_endpoint_uses_reference_keywords() -> None:
+    client = TestClient(api_module.app)
+    response = client.post(
+        "/ai/generate-deck",
+        json={
+            "projectId": "project_demo_1",
+            "topic": "AI 덱 생성",
+            "slideCountRange": {"min": 2, "max": 2},
+            "references": [{"fileId": "file_1"}],
+            "referenceKeywords": [
+                {"text": "실시간 발표 피드백"},
+                {"text": " 실시간 발표 피드백 "},
+                {"text": "전환율"},
+            ],
+        },
+    )
+
+    assert response.status_code == 200
+    slides = response.json()["deck"]["slides"]
+    assert all(
+        [keyword["text"] for keyword in slide["keywords"]]
+        == ["실시간 발표 피드백", "전환율"]
+        for slide in slides
+    )
