@@ -1,4 +1,5 @@
 import type { Job } from "@orbit/shared";
+import type { PinoLogger } from "nestjs-pino";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { JobsService } from "../jobs/jobs.service";
 import { ExtractService } from "./extract.service";
@@ -37,6 +38,8 @@ const validEnv = {
   AWS_SECRET_ACCESS_KEY: "",
   TRANSCRIBE_LANGUAGE_CODE: "ko-KR",
   TEXTRACT_ENABLED: "false",
+  LOG_LEVEL: "debug",
+  LOG_PRETTY: "false",
   DEMO_USER_ID: "user_demo_1",
   DEMO_WORKSPACE_ID: "workspace_demo_1",
   DEMO_PROJECT_ID: "project_demo_1",
@@ -68,7 +71,8 @@ describe("ExtractService", () => {
     } as unknown as JobsService;
     const enqueueJob = vi.fn(async () => undefined);
 
-    const result = await new ExtractService(jobsService, enqueueJob).extract(
+    const logger = createLogger();
+    const result = await new ExtractService(jobsService, enqueueJob, logger).extract(
       [
         {
           originalname: "sample.txt",
@@ -80,6 +84,16 @@ describe("ExtractService", () => {
     );
 
     expect(result).toEqual({ files: [], job });
+    expect(logger.info).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: "job.enqueued",
+        jobId: "job-1",
+        jobType: "reference-extract",
+        projectId: "project-a",
+        fileCount: 1
+      }),
+      "Reference extraction job enqueued."
+    );
     expect(jobsService.create).toHaveBeenCalledWith({
       projectId: "project-a",
       type: "reference-extract",
@@ -110,3 +124,10 @@ describe("ExtractService", () => {
     });
   });
 });
+
+function createLogger() {
+  return {
+    info: vi.fn(),
+    error: vi.fn()
+  } as unknown as PinoLogger;
+}

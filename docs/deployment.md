@@ -21,7 +21,7 @@
 - Rehearsal/coaching STT: OpenAI STT/API via `python-worker`
 - OCR: Amazon Textract
 - Secrets: AWS Secrets Manager
-- Logs/alarms: CloudWatch
+- Logs/alarms: CloudWatch. 서버 컨테이너는 stdout JSON 로그를 출력하고 `LOG_PRETTY=false`를 유지한다.
 
 ## 체크리스트
 

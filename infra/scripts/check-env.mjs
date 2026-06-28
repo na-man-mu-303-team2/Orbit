@@ -29,6 +29,8 @@ const requiredKeys = [
   "OPENAI_MODEL",
   "OPENAI_EMBEDDING_MODEL",
   "AWS_REGION",
+  "LOG_LEVEL",
+  "LOG_PRETTY",
   "DEMO_USER_ID",
   "DEMO_WORKSPACE_ID",
   "DEMO_PROJECT_ID",

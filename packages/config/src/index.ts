@@ -71,6 +71,9 @@ const requiredPort = (name: string) =>
 
 const remoteEnvValues = ["staging", "production"] as const;
 const remoteEnvSet = new Set<string>(remoteEnvValues);
+const logLevelSchema = z
+  .enum(["trace", "debug", "info", "warn", "error", "fatal", "silent"])
+  .default("info");
 
 const localDefaults = {
   WEB_ORIGIN: "http://localhost:5173",
@@ -123,6 +126,8 @@ export const orbitEnvSchema = z.object({
   AWS_SECRET_ACCESS_KEY: optionalString,
   TRANSCRIBE_LANGUAGE_CODE: requiredString("TRANSCRIBE_LANGUAGE_CODE"),
   TEXTRACT_ENABLED: booleanStringSchema.default(false),
+  LOG_LEVEL: logLevelSchema,
+  LOG_PRETTY: booleanStringSchema.default(false),
   DEMO_USER_ID: requiredString("DEMO_USER_ID"),
   DEMO_WORKSPACE_ID: requiredString("DEMO_WORKSPACE_ID"),
   DEMO_PROJECT_ID: requiredString("DEMO_PROJECT_ID"),
@@ -165,6 +170,14 @@ export const orbitEnvSchema = z.object({
         message: `OPENAI_API_KEY is required in ${value.APP_ENV}`
       });
     }
+  }
+
+  if (value.LOG_PRETTY && value.NODE_ENV !== "development") {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["LOG_PRETTY"],
+      message: "LOG_PRETTY can only be true when NODE_ENV=development"
+    });
   }
 });
 

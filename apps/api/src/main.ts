@@ -3,12 +3,15 @@ import { NestFactory } from "@nestjs/core";
 import { DocumentBuilder, SwaggerModule } from "@nestjs/swagger";
 import cookieParser from "cookie-parser";
 import helmet from "helmet";
+import { Logger, PinoLogger } from "nestjs-pino";
 import "reflect-metadata";
 import { AppModule } from "./app.module";
+import { writeBootstrapError } from "./logging";
 
 async function bootstrap() {
   const config = loadOrbitConfig(process.env, { service: "api" });
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create(AppModule, { bufferLogs: true });
+  app.useLogger(app.get(Logger));
 
   app.use(helmet());
   app.use(cookieParser(config.COOKIE_SECRET));
@@ -27,9 +30,17 @@ async function bootstrap() {
   SwaggerModule.setup("docs", app, document);
 
   await app.listen(config.API_PORT, "0.0.0.0");
+  app.get(PinoLogger).info(
+    {
+      event: "api.ready",
+      port: config.API_PORT,
+      webOrigin: config.WEB_ORIGIN
+    },
+    "API ready."
+  );
 }
 
 void bootstrap().catch((error: unknown) => {
-  console.error(error instanceof Error ? error.message : error);
+  writeBootstrapError("api", error);
   process.exit(1);
 });
