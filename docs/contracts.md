@@ -565,8 +565,9 @@ AI 덱 생성은 사용자 입력과 참고자료 fileId를 받아 비동기 Job
 - `url`은 임시로 로컬 경로를 쓰되, 이후 S3 signed URL로 교체할 수 있게 유지한다.
 - 업로드 요청은 `POST /api/v1/projects/:projectId/assets/upload-url`로 시작한다.
 - 업로드 완료 처리는 `POST /api/v1/projects/:projectId/assets/complete`에서 `fileId`를 받아 위 구조를 반환한다.
-- 1차 구현에서 허용하는 mime type은 PDF, PPTX, DOCX, JPEG, PNG, WebP이며 최대 크기는 50MiB다.
+- 1차 구현에서 허용하는 mime type은 purpose별로 제한한다. 문서/이미지 purpose는 PDF, PPTX, DOCX, JPEG, PNG, WebP를 허용하고, `rehearsal-audio`는 audio MIME만 허용한다. 최대 크기는 50MiB다.
 - upload URL을 발급한 뒤 complete가 호출되지 않은 파일은 `pending` metadata로 남기고, 정리 정책은 후속 작업에서 결정한다.
+- 분석이 끝난 `rehearsal-audio` raw object는 삭제하고, metadata는 `status=deleted`, `deletedAt`으로 추적한다.
 
 구현 위치:
 
@@ -587,6 +588,7 @@ AI 덱 생성은 사용자 입력과 참고자료 fileId를 받아 비동기 Job
 - 입력: 마이크 스트림
 - 출력: partial transcript, keyword detection, cue event, slide advance signal
 - 원칙: raw audio를 서버 리포트용 storage에 업로드하지 않는다.
+- 구현 위치: `packages/shared/src/rehearsals/live-stt.schema.ts`, `apps/web/src/features/rehearsal`
 
 ### Report STT/AI
 
@@ -599,6 +601,66 @@ AI 덱 생성은 사용자 입력과 참고자료 fileId를 받아 비동기 Job
 - 입력: `rehearsal-audio` fileId, deck JSON, 키워드, 청중 반응 데이터
 - 출력: transcript, metrics, coaching/report result
 - 원칙: 분석 완료 직후 raw audio object를 삭제하고 삭제 시각을 기록한다.
+
+## 리포트용 리허설 Run 및 STT 계약
+
+리포트용 리허설 녹음은 run 단위로 생성하고, run에 연결된 `rehearsal-audio` 업로드가 완료된 뒤 `rehearsal-stt` Job을 시작한다. 이 계약은 실시간 발표 제어용 Live STT 계약이 아니다.
+
+Run 상태:
+
+- `created`
+- `uploading`
+- `processing`
+- `succeeded`
+- `failed`
+
+Run 응답 구조:
+
+```json
+{
+  "runId": "run_1",
+  "projectId": "project_demo_1",
+  "deckId": "deck_demo_1",
+  "audioFileId": "file_audio_1",
+  "jobId": "job_1",
+  "status": "processing",
+  "error": null,
+  "rawAudioDeletedAt": null,
+  "createdAt": "2026-06-27T01:00:00+09:00",
+  "updatedAt": "2026-06-27T01:00:00+09:00"
+}
+```
+
+API:
+
+- `POST /api/v1/projects/:projectId/rehearsals`
+  - request: `{ "deckId": "deck_demo_1" }`
+  - response: `{ "run": RehearsalRun }`
+- `POST /api/v1/rehearsals/:runId/audio/upload-url`
+  - request: `{ "originalName": "rehearsal.webm", "mimeType": "audio/webm", "size": 1234 }`
+  - 서버가 purpose를 `rehearsal-audio`로 고정한다.
+  - response: `{ "run": RehearsalRun, "upload": AssetUploadUrlResponse }`
+- `POST /api/v1/rehearsals/:runId/audio/complete`
+  - request: `{ "fileId": "file_audio_1" }`
+  - 업로드 완료 검증 뒤 `rehearsal-stt` Job을 enqueue한다.
+  - response: `{ "run": RehearsalRun, "job": Job }`
+- `GET /api/v1/rehearsals/:runId`
+  - response: `{ "run": RehearsalRun }`
+
+결정 사항:
+
+- `audio/complete`는 run에 연결된 `fileId`만 허용한다.
+- worker는 시작 시 run을 `processing`으로 갱신하고, 성공 시 `succeeded`, 실패 시 `failed`로 갱신한다.
+- STT와 코칭 분석이 끝난 직후 raw audio object를 삭제한다.
+- raw audio 삭제 성공은 `rawAudioDeletedAt`과 `project_assets.status=deleted`, `deleted_at`으로 남긴다.
+- 삭제 실패는 `RAW_AUDIO_DELETE_FAILED` error로 run/job 양쪽에 남긴다.
+
+구현 위치:
+
+- `packages/shared/src/rehearsals/live-stt.schema.ts`
+- `packages/shared/src/rehearsals/rehearsal.schema.ts`
+- `apps/api/src/rehearsals`
+- `apps/worker/src/rehearsal-stt.processor.ts`
 
 ## Job 상태 구조
 
