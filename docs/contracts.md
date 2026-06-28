@@ -561,7 +561,7 @@ AI 덱 생성은 사용자 입력과 참고자료 fileId를 받아 비동기 Job
 결정 사항:
 
 - 업로드 후 API 응답은 위 구조로 통일한다.
-- PPTX import, 참고자료 추출, 리허설 STT는 모두 `fileId`를 받아 시작한다.
+- PPTX import, 참고자료 추출, 리포트용 리허설 STT는 모두 `fileId`를 받아 시작한다.
 - `url`은 임시로 로컬 경로를 쓰되, 이후 S3 signed URL로 교체할 수 있게 유지한다.
 - 업로드 요청은 `POST /api/v1/projects/:projectId/assets/upload-url`로 시작한다.
 - 업로드 완료 처리는 `POST /api/v1/projects/:projectId/assets/complete`에서 `fileId`를 받아 위 구조를 반환한다.
@@ -572,6 +572,33 @@ AI 덱 생성은 사용자 입력과 참고자료 fileId를 받아 비동기 Job
 
 - `packages/shared/src/files/file.schema.ts`
 - `apps/api/src/files`
+
+## 리허설 STT/AI provider 구분
+
+리허설에는 서로 다른 두 종류의 음성/AI 처리가 있다. 두 흐름은 provider, latency 요구사항, 데이터 보존 정책이 다르므로 하나의 `STT_PROVIDER`로 표현하지 않는다.
+
+### Live STT
+
+발표/리허설 중 사용자의 발화를 실시간으로 인식해 화면 제어에 사용한다.
+
+- provider env: `LIVE_STT_PROVIDER=sherpa`
+- 실행 위치: web 또는 device-local runtime
+- 목적: 애니메이션 cue, 강조 표시, 키워드 누락 체크, 다음 슬라이드 전환 제안/실행
+- 입력: 마이크 스트림
+- 출력: partial transcript, keyword detection, cue event, slide advance signal
+- 원칙: raw audio를 서버 리포트용 storage에 업로드하지 않는다.
+
+### Report STT/AI
+
+리허설 종료 뒤 녹음 파일을 전사하고 코칭 리포트를 생성한다.
+
+- STT provider env: `REPORT_STT_PROVIDER=openai`
+- LLM provider env: `LLM_PROVIDER=openai`
+- 실행 위치: API/worker/Python worker
+- 목적: 억양, 말 속도, 톤, 발음, 키워드 누락, 청중 반응 등을 종합한 리포트와 코칭 생성
+- 입력: `rehearsal-audio` fileId, deck JSON, 키워드, 청중 반응 데이터
+- 출력: transcript, metrics, coaching/report result
+- 원칙: 분석 완료 직후 raw audio object를 삭제하고 삭제 시각을 기록한다.
 
 ## Job 상태 구조
 

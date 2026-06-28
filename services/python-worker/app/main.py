@@ -19,7 +19,7 @@ from app.audio.transcribe import (
     AudioTranscribeRequest,
     AudioTranscribeResponse,
     AudioTranscriptionError,
-    SttProviderDependency,
+    ReportSttProviderDependency,
     TranscriptSegment,
     to_http_exception,
     transcribe_rehearsal_audio,
@@ -285,7 +285,7 @@ async def parse_documents(
 @app.post("/audio/transcribe", response_model=AudioTranscribeResponse)
 def transcribe_audio(
     payload: AudioTranscribeRequest,
-    provider: SttProviderDependency,
+    provider: ReportSttProviderDependency,
 ) -> AudioTranscribeResponse:
     try:
         return transcribe_rehearsal_audio(payload, provider)

@@ -1,11 +1,12 @@
 import {
   appEnvSchema,
   jobQueueDriverSchema,
+  liveSttProviderSchema,
   llmProviderSchema,
   nodeEnvSchema,
   ocrProviderSchema,
-  storageDriverSchema,
-  sttProviderSchema
+  reportSttProviderSchema,
+  storageDriverSchema
 } from "@orbit/shared";
 import { ZodError, z } from "zod";
 
@@ -115,11 +116,13 @@ export const orbitEnvSchema = z.object({
   S3_SECRET_ACCESS_KEY: optionalString,
   S3_FORCE_PATH_STYLE: booleanStringSchema.default(true),
   JOB_QUEUE_DRIVER: jobQueueDriverSchema,
-  STT_PROVIDER: sttProviderSchema,
+  LIVE_STT_PROVIDER: liveSttProviderSchema,
+  REPORT_STT_PROVIDER: reportSttProviderSchema,
   OCR_PROVIDER: ocrProviderSchema,
   LLM_PROVIDER: llmProviderSchema,
   OPENAI_API_KEY: optionalString,
   OPENAI_MODEL: requiredString("OPENAI_MODEL"),
+  OPENAI_TRANSCRIPTION_MODEL: requiredString("OPENAI_TRANSCRIPTION_MODEL"),
   OPENAI_EMBEDDING_MODEL: requiredString("OPENAI_EMBEDDING_MODEL"),
   AWS_REGION: requiredString("AWS_REGION"),
   AWS_ACCESS_KEY_ID: optionalString,

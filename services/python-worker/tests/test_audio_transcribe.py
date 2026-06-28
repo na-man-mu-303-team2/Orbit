@@ -15,7 +15,7 @@ from app.audio.transcribe import (
     get_speech_to_text_provider,
     transcribe_rehearsal_audio,
 )
-from app.config import load_config
+from app.config import ConfigError, load_config
 from app.main import app
 from tests.test_config import VALID_ENV
 
@@ -113,14 +113,19 @@ def test_missing_audio_file_returns_predictable_error(tmp_path: Path) -> None:
     assert error.value.status_code == 404
 
 
-def test_unsupported_stt_provider_is_explicit() -> None:
+def test_report_stt_provider_rejects_non_openai_values() -> None:
+    with pytest.raises(ConfigError, match="REPORT_STT_PROVIDER"):
+        load_config({**VALID_ENV, "REPORT_STT_PROVIDER": "sherpa"})
+
+
+def test_openai_stt_requires_api_key() -> None:
     config = load_config(VALID_ENV)
 
     with pytest.raises(AudioTranscriptionError) as error:
         create_speech_to_text_provider(config)
 
-    assert error.value.code == "unsupported_provider"
-    assert "STT_PROVIDER=sherpa" in error.value.message
+    assert error.value.code == "provider_not_configured"
+    assert "OPENAI_API_KEY" in error.value.message
 
 
 def test_audio_transcribe_endpoint_uses_injected_provider(
