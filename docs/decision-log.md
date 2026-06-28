@@ -145,3 +145,15 @@
 - Rationale: secret 의존 자동리뷰를 중단하면서도 기존 CI 비용 절감/검증 분기와 로컬 lint 안정성은 보존한다.
 - Affected files: `.github/workflows/ci.yml`, `.github/codex/**`, `infra/scripts/build-codex-review-context.mjs`, `infra/scripts/post-codex-review.mjs`, `docs/review/official-tech-stack-references.md`, `.gitignore`, `docs/decision-log.md`.
 - Follow-up review notes: 자동리뷰를 다시 도입할 경우 모델, 비용, secret 권한, fork PR 정책, required check 포함 여부를 별도 승인 후 새 결정으로 기록한다.
+
+## ORBIT GitHub Codex Korean review guidance
+
+- Context: GitHub 내장 Codex 코드 리뷰는 저장소의 `AGENTS.md` review guidance를 읽을 수 있지만, 저장소에는 리뷰 출력 언어를 고정하는 지침이 없었다. 팀 협업 흐름은 한국어 PR 리뷰를 기대하며, 이전 `OPENAI_API_KEY` 기반 자동리뷰 제거 결정과 충돌하지 않는 방식이 필요하다.
+- Options considered:
+  - Codex 기본 출력 언어에 맡긴다.
+  - GitHub Actions 기반 Codex review automation을 다시 도입한다.
+  - `AGENTS.md`에 GitHub PR 리뷰용 한국어 출력 지침을 추가한다.
+- Final decision: `AGENTS.md`에 `Review guidelines`를 추가해 Codex가 GitHub PR 리뷰 요약과 inline comment를 한국어로 작성하게 한다. 코드 식별자, 파일 경로, 명령어, schema key, enum, severity label은 원문을 유지하고, secret 값은 출력하지 않는다.
+- Rationale: 별도 secret이나 GitHub Actions 자동리뷰 경로를 되살리지 않고도, GitHub 내장 Codex 리뷰가 저장소 협업 언어와 보안 원칙을 따르게 할 수 있다.
+- Affected files: `AGENTS.md`, `docs/decision-log.md`.
+- Follow-up review notes: 다음 Codex PR 리뷰에서 요약과 inline comment가 한국어로 작성되는지, technical identifier가 불필요하게 번역되지 않는지 확인한다.

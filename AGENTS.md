@@ -53,6 +53,14 @@
 - 사용자가 요청하지 않은 Git 원격 상태 변경을 하지 않는다.
 - Git과 PR 세부 기준은 `docs/git-rules.md`를 따른다.
 
+## Review guidelines
+
+- GitHub Pull Request에 남기는 Codex 코드 리뷰 요약과 inline review comment는 한국어로 작성한다.
+- 코드 식별자, 파일 경로, API 이름, 환경변수 이름, 오류 메시지, 명령어, schema key, enum 값은 원문을 유지한다.
+- `P0`, `P1` 같은 severity label은 원문을 유지하되, 문제 설명과 권장 조치는 한국어로 작성한다.
+- `.env` 값, API 키, 토큰, cookie, password, credential, secret 값은 출력하지 않고 필요한 경우 존재 여부만 확인한다.
+- 리뷰는 correctness, security, architecture boundary, contract/schema compatibility, missing test risk처럼 실제 merge 위험이 있는 항목에 집중한다.
+
 ## 코드와 테스트 필수 규칙
 
 - 불필요한 추상화보다 명확한 구조를 우선한다.
