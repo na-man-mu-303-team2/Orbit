@@ -1,7 +1,7 @@
 import { Body, Controller, Param, Post } from "@nestjs/common";
 import { GenerateDeckService } from "./generate-deck.service";
 
-@Controller("v1/projects/:projectId/jobs")
+@Controller("api/v1/projects/:projectId/jobs")
 export class GenerateDeckController {
   constructor(private readonly generateDeckService: GenerateDeckService) {}
 
