@@ -7,7 +7,10 @@ import {
   createUpdateElementPropsPatch
 } from "../../../../../packages/editor-core/src/index";
 import { applyDeckPatch } from "../../../../../packages/editor-core/src/patches/applyPatch";
-import { createElementFramePatch } from "../../../../../packages/editor-core/src/patches/elementFrame";
+import {
+  createElementFramePatch,
+  normalizeElementFrameDraft
+} from "../../../../../packages/editor-core/src/patches/elementFrame";
 import { demoIds, maxAssetUploadSizeBytes } from "@orbit/shared";
 import orbitLogo from "../../assets/orbit-logo.png";
 import {
@@ -18,6 +21,7 @@ import {
 import type {
   Chart,
   CustomShapeElementProps,
+  CustomShapeNode,
   Deck,
   DeckCanvas,
   DeckElement,
@@ -119,7 +123,14 @@ const editorImageMimeTypes = new Set(["image/jpeg", "image/png", "image/webp"]);
 
 type TopMenu = "file" | "resize" | "editMode" | "quickEdit" | "presentation";
 type SlidePanelView = "thumbnail" | "list";
-type InsertTool = "select" | "text" | "rect" | "ellipse" | "line";
+type InsertTool =
+  | "select"
+  | "text"
+  | "rect"
+  | "ellipse"
+  | "line"
+  | "customShape";
+type DrawableInsertTool = Exclude<InsertTool, "select" | "customShape">;
 type ShapeInsertType =
   | "rect"
   | "ellipse"
@@ -127,7 +138,8 @@ type ShapeInsertType =
   | "arrow"
   | "triangle"
   | "polygon"
-  | "star";
+  | "star"
+  | "customShape";
 type ShapeMenuPosition = {
   left: number;
   top: number;
@@ -139,6 +151,13 @@ type ElementContextMenuState =
       slideId: string;
       top: number;
       type: "image";
+    }
+  | {
+      elementId: string;
+      left: number;
+      slideId: string;
+      top: number;
+      type: "group";
     }
   | {
       elementIds: string[];
@@ -172,6 +191,21 @@ type ElementFrameChange = {
   zIndex?: number;
   locked?: boolean;
   visible?: boolean;
+};
+type CanvasPoint = {
+  x: number;
+  y: number;
+};
+type CustomShapeInsertDraft = {
+  activeNodeIndex: number | null;
+  nodes: CustomShapeNode[];
+  pointer: CanvasPoint | null;
+};
+type CustomShapeEditDraft = {
+  closed: boolean;
+  elementId: string;
+  nodes: CustomShapeNode[];
+  selectedNodeIndex: number | null;
 };
 
 type ToolbarNoticeTone = "info" | "success" | "danger";
@@ -209,6 +243,9 @@ export function EditorShell() {
   const [lastPatchLabel, setLastPatchLabel] = useState("편집 없음");
   const [insertTool, setInsertTool] = useState<InsertTool>("select");
   const [editingElementId, setEditingElementId] = useState<string | null>(null);
+  const [customShapeEditElementId, setCustomShapeEditElementId] = useState<
+    string | null
+  >(null);
   const [isShapeMenuOpen, setIsShapeMenuOpen] = useState(false);
   const [shapeMenuPosition, setShapeMenuPosition] =
     useState<ShapeMenuPosition | null>(null);
@@ -254,7 +291,7 @@ export function EditorShell() {
     isUsingFallbackDeck
   });
   const visibleElements = currentSlide
-    ? [...currentSlide.elements].sort((left, right) => left.zIndex - right.zIndex)
+    ? getRenderableSlideElements(currentSlide)
     : [];
   const stageScale = 0.44;
   const currentSlideAnimations = useMemo(
@@ -278,6 +315,9 @@ export function EditorShell() {
     selectedElementIds.length === 1
       ? selectedElements.find((element) => element.elementId === selectedElementId) ?? null
       : null;
+  const isCustomShapeEditingSelection =
+    selectedElement?.type === "customShape" &&
+    selectedElement.elementId === customShapeEditElementId;
   const isDev = import.meta.env.DEV;
   const fileMenuItems = [
     { icon: FolderPlus, label: "새 프레젠테이션", meta: "빈 덱" },
@@ -326,6 +366,7 @@ export function EditorShell() {
     setRedoStack([]);
     setSelectedElementIds([]);
     setEditingElementId(null);
+    setCustomShapeEditElementId(null);
     setElementContextMenu(null);
   }, [loadedDeck]);
 
@@ -356,6 +397,9 @@ export function EditorShell() {
 
   function handleElementSelection(elementId: string, options?: { append?: boolean }) {
     setElementContextMenu(null);
+    setCustomShapeEditElementId((current) =>
+      current === elementId && !options?.append ? current : null
+    );
 
     if (options?.append) {
       setEditingElementId(null);
@@ -538,7 +582,7 @@ export function EditorShell() {
             height: frame.height,
             rotation: 0,
             opacity: 1,
-            zIndex: targetSlide.elements.length + 1,
+            zIndex: getNextElementZIndex(targetSlide.elements),
             locked: false,
             visible: true,
             props: {
@@ -600,7 +644,7 @@ export function EditorShell() {
         height: 96,
         rotation: 0,
         opacity: 1,
-        zIndex: visibleElements.length + 1,
+        zIndex: getNextElementZIndex(currentSlide.elements),
         locked: false,
         visible: true,
         props: {
@@ -638,7 +682,7 @@ export function EditorShell() {
         height: 280,
         rotation: 0,
         opacity: 1,
-        zIndex: visibleElements.length + 1,
+        zIndex: getNextElementZIndex(currentSlide.elements),
         locked: false,
         visible: true,
         props: {
@@ -677,6 +721,15 @@ export function EditorShell() {
       return;
     }
 
+    if (shapeType === "customShape") {
+      setEditingElementId(null);
+      setCustomShapeEditElementId(null);
+      setSelectedElementIds([]);
+      setInsertTool("customShape");
+      setIsShapeMenuOpen(false);
+      return;
+    }
+
     const elementId = createElementId(deck);
     const defaultFrameByShape: Record<
       ShapeInsertType,
@@ -688,7 +741,8 @@ export function EditorShell() {
       arrow: { x: 240, y: 280, width: 360, height: 28 },
       triangle: { x: 260, y: 220, width: 180, height: 180 },
       polygon: { x: 260, y: 220, width: 180, height: 180 },
-      star: { x: 260, y: 220, width: 180, height: 180 }
+      star: { x: 260, y: 220, width: 180, height: 180 },
+      customShape: { x: 260, y: 220, width: 220, height: 160 }
     };
     const frame = defaultFrameByShape[shapeType];
     const baseElement = {
@@ -699,7 +753,7 @@ export function EditorShell() {
       height: frame.height,
       rotation: 0,
       opacity: 1,
-      zIndex: visibleElements.length + 1,
+      zIndex: getNextElementZIndex(currentSlide.elements),
       locked: false,
       visible: true
     } as const;
@@ -797,6 +851,7 @@ export function EditorShell() {
     });
     setSelectedElementIds([]);
     setEditingElementId(null);
+    setCustomShapeEditElementId(null);
   }
 
   function cloneElementToCurrentSlide(sourceElement: DeckElement, offsetMultiplier = 1) {
@@ -824,6 +879,7 @@ export function EditorShell() {
 
     setSelectedElementIds([nextElementId]);
     setEditingElementId(null);
+    setCustomShapeEditElementId(null);
 
     return nextElementId;
   }
@@ -900,7 +956,7 @@ export function EditorShell() {
           height: draft.height,
           rotation: 0,
           opacity: 1,
-          zIndex: visibleElements.length + 1,
+          zIndex: getNextElementZIndex(currentSlide.elements),
           locked: false,
           visible: true,
           props: {
@@ -929,7 +985,7 @@ export function EditorShell() {
           height: Math.max(draft.type === "line" ? 8 : 8, draft.height),
           rotation: 0,
           opacity: 1,
-          zIndex: visibleElements.length + 1,
+          zIndex: getNextElementZIndex(currentSlide.elements),
           locked: false,
           visible: true,
           props: {
@@ -946,11 +1002,144 @@ export function EditorShell() {
     setInsertTool("select");
   }
 
+  function handleCreateCustomShape(
+    nodes: CustomShapeNode[],
+    closed: boolean
+  ) {
+    if (!currentSlide || nodes.length < 2) {
+      setInsertTool("select");
+      return;
+    }
+
+    const elementId = createElementId(deck);
+    const geometry = normalizeCustomShapeAbsoluteGeometry(nodes, closed);
+
+    commitPatch(
+      createAddElementPatch(deck, currentSlide.slideId, {
+        elementId,
+        type: "customShape",
+        role: "highlight",
+        x: geometry.frame.x,
+        y: geometry.frame.y,
+        width: geometry.frame.width,
+        height: geometry.frame.height,
+        rotation: 0,
+        opacity: 1,
+        zIndex: getNextElementZIndex(currentSlide.elements),
+        locked: false,
+        visible: true,
+        props: {
+          closed: geometry.props.closed,
+          fill: "#f5edff",
+          nodes: geometry.props.nodes,
+          stroke: "#9333ea",
+          strokeWidth: 2,
+          viewBoxWidth: geometry.props.viewBoxWidth,
+          viewBoxHeight: geometry.props.viewBoxHeight,
+          pathData: geometry.props.pathData
+        }
+      })
+    );
+    setSelectedElementIds([elementId]);
+    setCustomShapeEditElementId(elementId);
+    setInsertTool("select");
+  }
+
+  function handleCommitCustomShapeGeometry(
+    slideId: string,
+    elementId: string,
+    nodes: CustomShapeNode[],
+    closed: boolean
+  ) {
+    const slide = deck.slides.find((candidate) => candidate.slideId === slideId);
+    const element = slide?.elements.find(
+      (candidate) => candidate.elementId === elementId
+    );
+
+    if (!slide || !element || element.type !== "customShape" || nodes.length < 2) {
+      return;
+    }
+
+    const geometry = normalizeCustomShapeAbsoluteGeometry(nodes, closed);
+
+    commitPatch({
+      deckId: deck.deckId,
+      baseVersion: deck.version,
+      source: "user",
+      operations: [
+        {
+          type: "update_element_frame",
+          slideId,
+          elementId,
+          frame: normalizeElementFrameDraft(deck.canvas, element, geometry.frame)
+        },
+        {
+          type: "update_element_props",
+          slideId,
+          elementId,
+          props: {
+            closed: geometry.props.closed,
+            nodes: geometry.props.nodes,
+            pathData: geometry.props.pathData,
+            viewBoxWidth: geometry.props.viewBoxWidth,
+            viewBoxHeight: geometry.props.viewBoxHeight
+          }
+        }
+      ]
+    });
+  }
+
   function handleElementFrameChange(
     slideId: string,
     elementId: string,
     frame: ElementFrameChange
   ) {
+    const slide = deck.slides.find((candidate) => candidate.slideId === slideId);
+    const element = slide?.elements.find(
+      (candidate) => candidate.elementId === elementId
+    );
+
+    if (!slide || !element) {
+      return;
+    }
+
+    if (element.type === "group") {
+      const normalizedGroupFrame = normalizeElementFrameDraft(
+        deck.canvas,
+        element,
+        frame
+      );
+      const resolvedGroupFrame = {
+        x: normalizedGroupFrame.x ?? element.x,
+        y: normalizedGroupFrame.y ?? element.y,
+        width: normalizedGroupFrame.width ?? element.width,
+        height: normalizedGroupFrame.height ?? element.height,
+        rotation: normalizedGroupFrame.rotation ?? element.rotation
+      };
+
+      commitPatch({
+        deckId: deck.deckId,
+        baseVersion: deck.version,
+        source: "user",
+        operations: [
+          {
+            type: "update_element_frame",
+            slideId,
+            elementId,
+            frame: normalizedGroupFrame
+          },
+          ...buildGroupedFrameOperations({
+            canvas: deck.canvas,
+            groupElement: element,
+            nextGroupFrame: resolvedGroupFrame,
+            slide,
+            slideId
+          })
+        ]
+      });
+      return;
+    }
+
     try {
       commitPatch(createElementFramePatch(deck, slideId, elementId, frame));
     } catch (error) {
@@ -993,13 +1182,46 @@ export function EditorShell() {
     );
     setElementContextMenu(null);
     setEditingElementId(null);
+    setCustomShapeEditElementId(null);
     setSelectedElementIds([elementId]);
+  }
+
+  function handleUngroupElement(slideId: string, elementId: string) {
+    const slide = deck.slides.find((candidate) => candidate.slideId === slideId);
+    const groupElement = slide?.elements.find(
+      (candidate) => candidate.elementId === elementId
+    );
+
+    if (!slide || !groupElement || groupElement.type !== "group") {
+      return;
+    }
+
+    const groupProps = groupElement.props as GroupElementProps;
+    const childElements = getGroupChildElements(slide, groupProps.childElementIds);
+
+    commitPatch({
+      deckId: deck.deckId,
+      baseVersion: deck.version,
+      source: "user",
+      operations: [
+        {
+          type: "delete_element",
+          slideId,
+          elementId
+        }
+      ]
+    });
+    setElementContextMenu(null);
+    setEditingElementId(null);
+    setCustomShapeEditElementId(null);
+    setSelectedElementIds(childElements.map((childElement) => childElement.elementId));
   }
 
   function handleCanvasBackgroundSelectionClear() {
     setElementContextMenu(null);
     setSelectedElementIds([]);
     setEditingElementId(null);
+    setCustomShapeEditElementId(null);
   }
 
   function handleOpenElementContextMenu(args: {
@@ -1011,7 +1233,11 @@ export function EditorShell() {
     const isSelectedElement = selectedElementIds.includes(args.element.elementId);
     const isGroupingTarget = isSelectedElement && selectedElementIds.length > 1;
 
-    if (!isGroupingTarget && args.element.type !== "image") {
+    if (
+      !isGroupingTarget &&
+      args.element.type !== "image" &&
+      args.element.type !== "group"
+    ) {
       return;
     }
 
@@ -1036,6 +1262,18 @@ export function EditorShell() {
     }
 
     setSelectedElementIds([args.element.elementId]);
+
+    if (args.element.type === "group") {
+      setElementContextMenu({
+        elementId: args.element.elementId,
+        left,
+        slideId: args.slideId,
+        top,
+        type: "group"
+      });
+      return;
+    }
+
     setElementContextMenu({
       elementId: args.element.elementId,
       left,
@@ -1202,6 +1440,22 @@ export function EditorShell() {
   }, [currentSlide]);
 
   useEffect(() => {
+    if (
+      customShapeEditElementId &&
+      (selectedElementIds.length !== 1 ||
+        selectedElementId !== customShapeEditElementId ||
+        selectedElement?.type !== "customShape")
+    ) {
+      setCustomShapeEditElementId(null);
+    }
+  }, [
+    customShapeEditElementId,
+    selectedElement,
+    selectedElementId,
+    selectedElementIds.length
+  ]);
+
+  useEffect(() => {
     if (currentSlideIndex > 0 && currentSlideIndex >= deck.slides.length) {
       setCurrentSlideIndex(Math.max(0, deck.slides.length - 1));
     }
@@ -1226,6 +1480,7 @@ export function EditorShell() {
 
       if (
         !isEditableTarget &&
+        !isCustomShapeEditingSelection &&
         (event.key === "Delete" || event.key === "Backspace")
       ) {
         if (
@@ -1265,6 +1520,11 @@ export function EditorShell() {
       }
 
       if (event.key === "Escape") {
+        if (isCustomShapeEditingSelection) {
+          setCustomShapeEditElementId(null);
+          return;
+        }
+
         if (
           selectedElementIds.length > 0 &&
           (selectedElementIds.length > 1 || editingElementId !== selectedElementId)
@@ -1276,7 +1536,15 @@ export function EditorShell() {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [deck, editingElementId, selectedElementId, selectedElement, selectedElementIds, currentSlide]);
+  }, [
+    currentSlide,
+    deck,
+    editingElementId,
+    isCustomShapeEditingSelection,
+    selectedElement,
+    selectedElementId,
+    selectedElementIds
+  ]);
 
   useEffect(() => {
     if (!elementContextMenu) {
@@ -1359,6 +1627,15 @@ export function EditorShell() {
                 className="shape-menu-item"
                 role="menuitem"
                 type="button"
+                onClick={() => handleInsertShapeElement("customShape")}
+              >
+                <PenLine size={14} />
+                <span>커스텀 도형 그리기</span>
+              </button>
+              <button
+                className="shape-menu-item"
+                role="menuitem"
+                type="button"
                 onClick={() => handleInsertShapeElement("line")}
               >
                 <Minus size={14} />
@@ -1411,6 +1688,21 @@ export function EditorShell() {
                 >
                   <ImagePlus size={16} />
                   <span>{isImageUploadPending ? "업로드 중..." : "이미지 바꾸기"}</span>
+                </button>
+              ) : elementContextMenu.type === "group" ? (
+                <button
+                  className="element-context-menu-item"
+                  role="menuitem"
+                  type="button"
+                  onClick={() =>
+                    handleUngroupElement(
+                      elementContextMenu.slideId,
+                      elementContextMenu.elementId
+                    )
+                  }
+                >
+                  <Shapes size={16} />
+                  <span>그룹 해제</span>
                 </button>
               ) : (
                 <button
@@ -1807,7 +2099,9 @@ export function EditorShell() {
                   <button
                     aria-expanded={isShapeMenuOpen}
                     aria-haspopup="menu"
-                    className={`tool-button ${isShapeMenuOpen ? "active" : ""}`}
+                    className={`tool-button ${
+                      isShapeMenuOpen || insertTool === "customShape" ? "active" : ""
+                    }`}
                     ref={shapeMenuButtonRef}
                     type="button"
                     onClick={() => setIsShapeMenuOpen((current) => !current)}
@@ -1865,9 +2159,30 @@ export function EditorShell() {
 
             <SelectionQuickBar
               key={`quickbar-${selectedElement?.elementId ?? currentSlide?.slideId ?? "none"}`}
+              customShapeEditActive={isCustomShapeEditingSelection}
               element={selectedElement}
               slide={selectedElementIds.length > 1 ? null : currentSlide}
               showIds={showIds}
+              onToggleCustomShapeClosed={() => {
+                if (!selectedElement || !currentSlide || selectedElement.type !== "customShape") {
+                  return;
+                }
+                handleCommitCustomShapeGeometry(
+                  currentSlide.slideId,
+                  selectedElement.elementId,
+                  getCustomShapeAbsoluteNodes(selectedElement),
+                  !(selectedElement.props as CustomShapeElementProps).closed
+                );
+              }}
+              onToggleCustomShapeEdit={() => {
+                if (!selectedElement || selectedElement.type !== "customShape") {
+                  return;
+                }
+                setEditingElementId(null);
+                setCustomShapeEditElementId((current) =>
+                  current === selectedElement.elementId ? null : selectedElement.elementId
+                );
+              }}
               onChangeFrame={(frame) => {
                 if (!selectedElement || !currentSlide) {
                   return;
@@ -1910,6 +2225,7 @@ export function EditorShell() {
                   }}
                 >
                   <EditableCanvas
+                    customShapeEditElementId={customShapeEditElementId}
                     deck={deck}
                     editingElementId={editingElementId}
                     insertTool={insertTool}
@@ -1924,8 +2240,19 @@ export function EditorShell() {
                       handleElementPropsChange(currentSlide.slideId, elementId, props)
                     }
                     onCreateElement={handleCreateDrawnElement}
+                    onCreateCustomShape={handleCreateCustomShape}
+                    onCommitCustomShapeGeometry={(elementId, nodes, closed) =>
+                      handleCommitCustomShapeGeometry(
+                        currentSlide.slideId,
+                        elementId,
+                        nodes,
+                        closed
+                      )
+                    }
                     onDoubleClickElement={(elementId) => setEditingElementId(elementId)}
                     onFinishEditing={() => setEditingElementId(null)}
+                    onSetCustomShapeEditElementId={setCustomShapeEditElementId}
+                    onSetInsertTool={setInsertTool}
                     onOpenElementContextMenu={handleOpenElementContextMenu}
                     onSelectElement={handleElementSelection}
                   />
@@ -2488,6 +2815,7 @@ function ElementSummary(props: { element: DeckElement }) {
 }
 
 function SelectionQuickBar(props: {
+  customShapeEditActive: boolean;
   element: DeckElement | null;
   slide: Slide | null;
   onChangeFrame: (frame: ElementFrameChange) => void;
@@ -2497,13 +2825,18 @@ function SelectionQuickBar(props: {
     textColor?: string | null;
     accentColor?: string | null;
   }) => void;
+  onToggleCustomShapeClosed: () => void;
+  onToggleCustomShapeEdit: () => void;
   showIds: boolean;
   }) {
   const {
+    customShapeEditActive,
     element,
     onChangeFrame,
     onChangeProps,
     onChangeSlideStyle,
+    onToggleCustomShapeClosed,
+    onToggleCustomShapeEdit,
     showIds,
     slide
   } = props;
@@ -2547,7 +2880,13 @@ function SelectionQuickBar(props: {
         </div>
       ) : null}
       <div className="selection-quickbar-fields">
-        <ElementQuickBarFields element={element} onChangeProps={onChangeProps} />
+        <ElementQuickBarFields
+          customShapeEditActive={customShapeEditActive}
+          element={element}
+          onChangeProps={onChangeProps}
+          onToggleCustomShapeClosed={onToggleCustomShapeClosed}
+          onToggleCustomShapeEdit={onToggleCustomShapeEdit}
+        />
         <div className="quickbar-divider" />
         <PropertyNumberField
           className="compact-property-field compact-property-field-sm"
@@ -2595,10 +2934,19 @@ function SelectionQuickBar(props: {
 }
 
 function ElementQuickBarFields(props: {
+  customShapeEditActive: boolean;
   element: DeckElement;
   onChangeProps: (props: Record<string, unknown>) => void;
+  onToggleCustomShapeClosed: () => void;
+  onToggleCustomShapeEdit: () => void;
 }) {
-  const { element, onChangeProps } = props;
+  const {
+    customShapeEditActive,
+    element,
+    onChangeProps,
+    onToggleCustomShapeClosed,
+    onToggleCustomShapeEdit
+  } = props;
 
   if (element.type === "text") {
     const textProps = element.props as TextElementProps;
@@ -2717,37 +3065,30 @@ function ElementQuickBarFields(props: {
   }
 
   if (element.type === "group") {
-    const groupProps = element.props as GroupElementProps;
-
-    return (
-      <PropertyTextField
-        className="compact-property-field compact-property-field-lg"
-        label="자식 ID"
-        value={groupProps.childElementIds.join(", ")}
-        onCommit={(value) =>
-          onChangeProps({
-            childElementIds: value
-              .split(",")
-              .map((token) => token.trim())
-              .filter(Boolean)
-          })
-        }
-      />
-    );
+    return null;
   }
 
   if (element.type === "customShape") {
     const customShapeProps = element.props as CustomShapeElementProps;
-    const pathData = getCustomShapePathData(customShapeProps);
+    const customShapeNodes = getCustomShapeNodes(customShapeProps);
 
     return (
       <>
-        <PropertyTextField
-          className="compact-property-field compact-property-field-lg"
-          label="SVG 경로"
-          value={pathData}
-          onCommit={(value) => onChangeProps({ pathData: value })}
-        />
+        <button
+          className={`quickbar-action-chip ${customShapeEditActive ? "active" : ""}`}
+          type="button"
+          onClick={onToggleCustomShapeEdit}
+        >
+          <PenLine size={14} />
+          노드 편집
+        </button>
+        <button
+          className={`quickbar-action-chip ${customShapeProps.closed ? "active" : ""}`}
+          type="button"
+          onClick={onToggleCustomShapeClosed}
+        >
+          경로 닫기
+        </button>
         <PropertyColorField
           className="compact-property-field compact-property-field-color"
           label="채우기"
@@ -2767,6 +3108,11 @@ function ElementQuickBarFields(props: {
           onCommit={(value) => onChangeProps({ strokeWidth: value })}
           value={getCustomShapeStrokeWidth(customShapeProps)}
         />
+        <span className="quickbar-inline-hint">
+          {customShapeNodes.length > 0
+            ? "점 선택 후 드래그, 더블클릭으로 코너/곡선 전환"
+            : "노드 정보가 없는 도형입니다"}
+        </span>
       </>
     );
   }
@@ -2949,6 +3295,262 @@ function PropertyColorField(props: {
   );
 }
 
+function cloneCustomShapeNodes(nodes: CustomShapeNode[]) {
+  return nodes.map((node) => ({ ...node }));
+}
+
+function getCustomShapeNodes(props: CustomShapeElementProps) {
+  return Array.isArray(props.nodes) ? cloneCustomShapeNodes(props.nodes) : [];
+}
+
+function buildCustomShapePathDataFromNodes(
+  nodes: CustomShapeNode[],
+  closed: boolean
+) {
+  if (nodes.length === 0) {
+    return "";
+  }
+
+  const segments = [`M ${formatSvgNumber(nodes[0].x)} ${formatSvgNumber(nodes[0].y)}`];
+
+  for (let index = 1; index < nodes.length; index += 1) {
+    segments.push(buildCustomShapeSegment(nodes[index - 1], nodes[index]));
+  }
+
+  if (closed && nodes.length > 1) {
+    segments.push(buildCustomShapeSegment(nodes[nodes.length - 1], nodes[0]));
+    segments.push("Z");
+  }
+
+  return segments.join(" ");
+}
+
+function buildCustomShapeSegment(from: CustomShapeNode, to: CustomShapeNode) {
+  const hasCurve =
+    typeof from.outX === "number" ||
+    typeof from.outY === "number" ||
+    typeof to.inX === "number" ||
+    typeof to.inY === "number";
+
+  if (!hasCurve) {
+    return `L ${formatSvgNumber(to.x)} ${formatSvgNumber(to.y)}`;
+  }
+
+  return [
+    "C",
+    formatSvgNumber(from.outX ?? from.x),
+    formatSvgNumber(from.outY ?? from.y),
+    formatSvgNumber(to.inX ?? to.x),
+    formatSvgNumber(to.inY ?? to.y),
+    formatSvgNumber(to.x),
+    formatSvgNumber(to.y)
+  ].join(" ");
+}
+
+function formatSvgNumber(value: number) {
+  return Number.isInteger(value) ? String(value) : value.toFixed(2);
+}
+
+function normalizeCustomShapeAbsoluteGeometry(
+  nodes: CustomShapeNode[],
+  closed: boolean
+) {
+  const bounds = getCustomShapeNodeBounds(nodes);
+  const frameX = Math.max(0, Math.floor(bounds.minX));
+  const frameY = Math.max(0, Math.floor(bounds.minY));
+  const maxX = Math.max(frameX + 1, Math.ceil(bounds.maxX));
+  const maxY = Math.max(frameY + 1, Math.ceil(bounds.maxY));
+  const width = Math.max(1, maxX - frameX);
+  const height = Math.max(1, maxY - frameY);
+  const normalizedNodes = nodes.map((node) => ({
+    ...node,
+    x: node.x - frameX,
+    y: node.y - frameY,
+    ...(typeof node.inX === "number" ? { inX: node.inX - frameX } : {}),
+    ...(typeof node.inY === "number" ? { inY: node.inY - frameY } : {}),
+    ...(typeof node.outX === "number" ? { outX: node.outX - frameX } : {}),
+    ...(typeof node.outY === "number" ? { outY: node.outY - frameY } : {})
+  }));
+
+  return {
+    frame: {
+      x: frameX,
+      y: frameY,
+      width,
+      height
+    },
+    props: {
+      closed,
+      nodes: normalizedNodes,
+      pathData: buildCustomShapePathDataFromNodes(normalizedNodes, closed),
+      viewBoxWidth: width,
+      viewBoxHeight: height
+    }
+  };
+}
+
+function getCustomShapeNodeBounds(nodes: CustomShapeNode[]) {
+  const points = nodes.flatMap((node) => [
+    { x: node.x, y: node.y },
+    ...(typeof node.inX === "number" && typeof node.inY === "number"
+      ? [{ x: node.inX, y: node.inY }]
+      : []),
+    ...(typeof node.outX === "number" && typeof node.outY === "number"
+      ? [{ x: node.outX, y: node.outY }]
+      : [])
+  ]);
+  const xs = points.map((point) => point.x);
+  const ys = points.map((point) => point.y);
+
+  return {
+    maxX: Math.max(...xs),
+    maxY: Math.max(...ys),
+    minX: Math.min(...xs),
+    minY: Math.min(...ys)
+  };
+}
+
+function getCustomShapeAbsoluteNodes(element: DeckElement) {
+  if (element.type !== "customShape") {
+    return [] as CustomShapeNode[];
+  }
+
+  const props = element.props as CustomShapeElementProps;
+  const viewBoxWidth = getCustomShapeDimension(
+    props,
+    "viewBoxWidth",
+    element.width
+  );
+  const viewBoxHeight = getCustomShapeDimension(
+    props,
+    "viewBoxHeight",
+    element.height
+  );
+
+  return convertCustomShapeNodesToAbsolute({
+    frame: {
+      height: element.height,
+      width: element.width,
+      x: element.x,
+      y: element.y
+    },
+    nodes: getCustomShapeNodes(props),
+    viewBoxHeight,
+    viewBoxWidth
+  });
+}
+
+function convertCustomShapeNodesToAbsolute(args: {
+  frame: { x: number; y: number; width: number; height: number };
+  nodes: CustomShapeNode[];
+  viewBoxWidth: number;
+  viewBoxHeight: number;
+}) {
+  const { frame, nodes, viewBoxHeight, viewBoxWidth } = args;
+  const scaleX = frame.width / viewBoxWidth;
+  const scaleY = frame.height / viewBoxHeight;
+
+  return nodes.map((node) => ({
+    ...node,
+    x: frame.x + node.x * scaleX,
+    y: frame.y + node.y * scaleY,
+    ...(typeof node.inX === "number" ? { inX: frame.x + node.inX * scaleX } : {}),
+    ...(typeof node.inY === "number" ? { inY: frame.y + node.inY * scaleY } : {}),
+    ...(typeof node.outX === "number" ? { outX: frame.x + node.outX * scaleX } : {}),
+    ...(typeof node.outY === "number" ? { outY: frame.y + node.outY * scaleY } : {})
+  }));
+}
+
+function createCustomShapeNode(point: CanvasPoint): CustomShapeNode {
+  return {
+    x: point.x,
+    y: point.y,
+    mode: "corner"
+  };
+}
+
+function moveCustomShapeNode(
+  node: CustomShapeNode,
+  point: CanvasPoint
+): CustomShapeNode {
+  const deltaX = point.x - node.x;
+  const deltaY = point.y - node.y;
+
+  return {
+    ...node,
+    x: point.x,
+    y: point.y,
+    ...(typeof node.inX === "number" ? { inX: node.inX + deltaX } : {}),
+    ...(typeof node.inY === "number" ? { inY: node.inY + deltaY } : {}),
+    ...(typeof node.outX === "number" ? { outX: node.outX + deltaX } : {}),
+    ...(typeof node.outY === "number" ? { outY: node.outY + deltaY } : {})
+  };
+}
+
+function updateCustomShapeNodeHandle(
+  node: CustomShapeNode,
+  handle: "in" | "out",
+  point: CanvasPoint
+): CustomShapeNode {
+  const deltaX = point.x - node.x;
+  const deltaY = point.y - node.y;
+  const mirroredPoint = {
+    x: node.x - deltaX,
+    y: node.y - deltaY
+  };
+  const hasMeaningfulHandle = Math.hypot(deltaX, deltaY) >= 4;
+
+  if (!hasMeaningfulHandle) {
+    return {
+      x: node.x,
+      y: node.y,
+      mode: "corner" as const
+    };
+  }
+
+  if (handle === "in") {
+    return {
+      ...node,
+      mode: "smooth" as const,
+      inX: point.x,
+      inY: point.y,
+      outX: mirroredPoint.x,
+      outY: mirroredPoint.y
+    };
+  }
+
+  return {
+    ...node,
+    mode: "smooth" as const,
+    inX: mirroredPoint.x,
+    inY: mirroredPoint.y,
+    outX: point.x,
+    outY: point.y
+  };
+}
+
+function toggleCustomShapeNodeMode(
+  node: CustomShapeNode,
+  handleLength: number
+): CustomShapeNode {
+  if (node.mode === "smooth") {
+    return {
+      x: node.x,
+      y: node.y,
+      mode: "corner"
+    };
+  }
+
+  return {
+    ...node,
+    mode: "smooth",
+    inX: node.x - handleLength,
+    inY: node.y,
+    outX: node.x + handleLength,
+    outY: node.y
+  };
+}
+
 function getGroupedSelectionBounds(elements: DeckElement[]) {
   const minX = Math.min(...elements.map((element) => element.x));
   const minY = Math.min(...elements.map((element) => element.y));
@@ -2960,6 +3562,200 @@ function getGroupedSelectionBounds(elements: DeckElement[]) {
     y: minY,
     width: Math.max(1, maxX - minX),
     height: Math.max(1, maxY - minY)
+  };
+}
+
+function getRenderableSlideElements(slide: Slide) {
+  const groupedChildElementIds = new Set<string>();
+
+  for (const element of slide.elements) {
+    if (element.type !== "group") {
+      continue;
+    }
+
+    const groupProps = element.props as GroupElementProps;
+
+    for (const childElementId of groupProps.childElementIds) {
+      groupedChildElementIds.add(childElementId);
+    }
+  }
+
+  return [...slide.elements]
+    .filter((element) => !groupedChildElementIds.has(element.elementId))
+    .sort((left, right) => left.zIndex - right.zIndex);
+}
+
+function getNextElementZIndex(elements: DeckElement[]) {
+  return (
+    elements.reduce(
+      (currentMaxZIndex, element) => Math.max(currentMaxZIndex, element.zIndex),
+      0
+    ) + 1
+  );
+}
+
+function getGroupChildElements(slide: Slide, childElementIds: string[]) {
+  return childElementIds
+    .map((childElementId) =>
+      slide.elements.find((candidate) => candidate.elementId === childElementId)
+    )
+    .filter((candidate): candidate is DeckElement => Boolean(candidate));
+}
+
+function getGroupedChildPreviewFrame(args: {
+  childElement: DeckElement;
+  currentGroupFrame: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    rotation: number;
+  };
+  previewGroupFrame: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    rotation: number;
+  };
+}) {
+  const { childElement, currentGroupFrame, previewGroupFrame } = args;
+  const scaleX = previewGroupFrame.width / Math.max(1, currentGroupFrame.width);
+  const scaleY = previewGroupFrame.height / Math.max(1, currentGroupFrame.height);
+
+  return {
+    height: Math.max(1, childElement.height * scaleY),
+    rotation: childElement.rotation - currentGroupFrame.rotation,
+    width: Math.max(1, childElement.width * scaleX),
+    x: (childElement.x - currentGroupFrame.x) * scaleX,
+    y: (childElement.y - currentGroupFrame.y) * scaleY
+  };
+}
+
+function buildGroupedFrameOperations(args: {
+  canvas: DeckCanvas;
+  groupElement: DeckElement;
+  nextGroupFrame: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    rotation: number;
+  };
+  slide: Slide;
+  slideId: string;
+}) {
+  const { canvas, groupElement, nextGroupFrame, slide, slideId } = args;
+  const operations: Array<{
+    type: "update_element_frame";
+    slideId: string;
+    elementId: string;
+    frame: ReturnType<typeof normalizeElementFrameDraft>;
+  }> = [];
+  const visitedGroupIds = new Set<string>([groupElement.elementId]);
+
+  function visitGroup(
+    currentGroupElement: DeckElement,
+    currentNextGroupFrame: {
+      x: number;
+      y: number;
+      width: number;
+      height: number;
+      rotation: number;
+    }
+  ) {
+    if (currentGroupElement.type !== "group") {
+      return;
+    }
+
+    const groupProps = currentGroupElement.props as GroupElementProps;
+    const childElements = getGroupChildElements(slide, groupProps.childElementIds);
+
+    for (const childElement of childElements) {
+      const nextChildFrame = transformGroupedChildFrame({
+        childElement,
+        currentGroupFrame: currentGroupElement,
+        nextGroupFrame: currentNextGroupFrame
+      });
+
+      operations.push({
+        type: "update_element_frame",
+        slideId,
+        elementId: childElement.elementId,
+        frame: normalizeElementFrameDraft(canvas, childElement, nextChildFrame)
+      });
+
+      if (childElement.type === "group" && !visitedGroupIds.has(childElement.elementId)) {
+        visitedGroupIds.add(childElement.elementId);
+        visitGroup(childElement, nextChildFrame);
+      }
+    }
+  }
+
+  visitGroup(groupElement, nextGroupFrame);
+
+  return operations;
+}
+
+function transformGroupedChildFrame(args: {
+  childElement: DeckElement;
+  currentGroupFrame: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    rotation: number;
+  };
+  nextGroupFrame: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    rotation: number;
+  };
+}) {
+  const { childElement, currentGroupFrame, nextGroupFrame } = args;
+  const scaleX = nextGroupFrame.width / Math.max(1, currentGroupFrame.width);
+  const scaleY = nextGroupFrame.height / Math.max(1, currentGroupFrame.height);
+  const rotationDelta = nextGroupFrame.rotation - currentGroupFrame.rotation;
+  const rotationRadians = (rotationDelta * Math.PI) / 180;
+  const currentGroupCenter = {
+    x: currentGroupFrame.x + currentGroupFrame.width / 2,
+    y: currentGroupFrame.y + currentGroupFrame.height / 2
+  };
+  const nextGroupCenter = {
+    x: nextGroupFrame.x + nextGroupFrame.width / 2,
+    y: nextGroupFrame.y + nextGroupFrame.height / 2
+  };
+  const childCenter = {
+    x: childElement.x + childElement.width / 2,
+    y: childElement.y + childElement.height / 2
+  };
+  const relativeCenter = {
+    x: (childCenter.x - currentGroupCenter.x) * scaleX,
+    y: (childCenter.y - currentGroupCenter.y) * scaleY
+  };
+  const rotatedCenter = {
+    x:
+      relativeCenter.x * Math.cos(rotationRadians) -
+      relativeCenter.y * Math.sin(rotationRadians),
+    y:
+      relativeCenter.x * Math.sin(rotationRadians) +
+      relativeCenter.y * Math.cos(rotationRadians)
+  };
+  const nextWidth = Math.max(1, childElement.width * scaleX);
+  const nextHeight = Math.max(1, childElement.height * scaleY);
+  const nextCenter = {
+    x: nextGroupCenter.x + rotatedCenter.x,
+    y: nextGroupCenter.y + rotatedCenter.y
+  };
+
+  return {
+    height: nextHeight,
+    rotation: childElement.rotation + rotationDelta,
+    width: nextWidth,
+    x: nextCenter.x - nextWidth / 2,
+    y: nextCenter.y - nextHeight / 2
   };
 }
 
@@ -2984,15 +3780,8 @@ function getContextMenuPosition(args: {
 }
 
 function getCustomShapePathData(props: CustomShapeElementProps) {
-  const candidates = [props.pathData, props.path, props.svgPath];
-
-  for (const candidate of candidates) {
-    if (typeof candidate === "string" && candidate.trim()) {
-      return candidate.trim();
-    }
-  }
-
-  return "";
+  const pathData = props.pathData;
+  return typeof pathData === "string" ? pathData.trim() : "";
 }
 
 function getCustomShapeDimension(
@@ -3432,6 +4221,7 @@ function getCanvasIdBadgeOffset(args: {
 }
 
 function EditableCanvas(props: {
+  customShapeEditElementId: string | null;
   deck: Deck;
   editingElementId: string | null;
   insertTool: InsertTool;
@@ -3464,6 +4254,12 @@ function EditableCanvas(props: {
           height: number;
         }
   ) => void;
+  onCreateCustomShape: (nodes: CustomShapeNode[], closed: boolean) => void;
+  onCommitCustomShapeGeometry: (
+    elementId: string,
+    nodes: CustomShapeNode[],
+    closed: boolean
+  ) => void;
   onDoubleClickElement: (elementId: string) => void;
   onFinishEditing: () => void;
   onOpenElementContextMenu: (args: {
@@ -3472,9 +4268,12 @@ function EditableCanvas(props: {
     element: DeckElement;
     slideId: string;
   }) => void;
+  onSetCustomShapeEditElementId: (elementId: string | null) => void;
+  onSetInsertTool: (tool: InsertTool) => void;
   onSelectElement: (elementId: string, options?: { append?: boolean }) => void;
 }) {
   const {
+    customShapeEditElementId,
     deck,
     editingElementId,
     insertTool,
@@ -3487,24 +4286,48 @@ function EditableCanvas(props: {
     onCommitElementProps,
     onCommitElementFrame,
     onCreateElement,
+    onCreateCustomShape,
+    onCommitCustomShapeGeometry,
     onDoubleClickElement,
     onFinishEditing,
     onOpenElementContextMenu,
+    onSetCustomShapeEditElementId,
+    onSetInsertTool,
     onSelectElement
   } = props;
+  const stageRef = useRef<Konva.Stage | null>(null);
   const transformerRef = useRef<Konva.Transformer | null>(null);
   const nodeRefs = useRef<Record<string, Konva.Group | null>>({});
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const pendingTextBlurActionRef = useRef<"clear-selection" | null>(null);
   const [draftElement, setDraftElement] = useState<{
-    type: InsertTool;
-    start: { x: number; y: number };
-    end: { x: number; y: number };
+    end: CanvasPoint;
+    start: CanvasPoint;
+    type: DrawableInsertTool;
   } | null>(null);
+  const [customShapeInsertDraft, setCustomShapeInsertDraft] =
+    useState<CustomShapeInsertDraft | null>(null);
+  const [customShapeEditDraft, setCustomShapeEditDraft] =
+    useState<CustomShapeEditDraft | null>(null);
+  const editingCustomShapeElement =
+    customShapeEditElementId && customShapeEditElementId !== editingElementId
+      ? (visibleElements.find(
+          (candidate) =>
+            candidate.elementId === customShapeEditElementId &&
+            candidate.type === "customShape"
+        ) ?? null)
+      : null;
 
   useEffect(() => {
     const transformer = transformerRef.current;
 
     if (!transformer) {
+      return;
+    }
+
+    if (customShapeEditElementId) {
+      transformer.nodes([]);
+      transformer.getLayer()?.batchDraw();
       return;
     }
 
@@ -3514,60 +4337,436 @@ function EditableCanvas(props: {
 
     transformer.nodes(selectedNodes);
     transformer.getLayer()?.batchDraw();
-  }, [selectedElementIds, visibleElements]);
+  }, [customShapeEditElementId, selectedElementIds, visibleElements]);
+
+  useEffect(() => {
+    if (insertTool !== "customShape") {
+      setCustomShapeInsertDraft(null);
+    }
+  }, [insertTool]);
+
+  useEffect(() => {
+    pendingTextBlurActionRef.current = null;
+  }, [editingElementId]);
+
+  useEffect(() => {
+    if (!editingCustomShapeElement) {
+      setCustomShapeEditDraft(null);
+      return;
+    }
+
+    const customShapeProps = editingCustomShapeElement.props as CustomShapeElementProps;
+
+    setCustomShapeEditDraft({
+      closed: customShapeProps.closed,
+      elementId: editingCustomShapeElement.elementId,
+      nodes: getCustomShapeNodes(customShapeProps),
+      selectedNodeIndex: null
+    });
+  }, [editingCustomShapeElement]);
+
+  useEffect(() => {
+    function handleKeyDown(event: KeyboardEvent) {
+      if (isKeyboardEditableTarget(event.target)) {
+        return;
+      }
+
+      if (insertTool === "customShape") {
+        if (event.key === "Escape") {
+          event.preventDefault();
+          setCustomShapeInsertDraft(null);
+          onSetInsertTool("select");
+        }
+
+        if (
+          (event.key === "Delete" || event.key === "Backspace") &&
+          customShapeInsertDraft &&
+          customShapeInsertDraft.nodes.length > 0
+        ) {
+          event.preventDefault();
+          setCustomShapeInsertDraft((current) =>
+            current
+              ? {
+                  ...current,
+                  activeNodeIndex: null,
+                  nodes: current.nodes.slice(0, -1)
+                }
+              : current
+          );
+        }
+
+        if (
+          event.key === "Enter" &&
+          customShapeInsertDraft &&
+          customShapeInsertDraft.nodes.length > 1
+        ) {
+          event.preventDefault();
+          onCreateCustomShape(customShapeInsertDraft.nodes, false);
+          setCustomShapeInsertDraft(null);
+        }
+
+        return;
+      }
+
+      if (!customShapeEditDraft || !editingCustomShapeElement) {
+        return;
+      }
+
+      if (event.key === "Escape") {
+        event.preventDefault();
+
+        if (customShapeEditDraft.selectedNodeIndex !== null) {
+          setCustomShapeEditDraft((current) =>
+            current
+              ? {
+                  ...current,
+                  selectedNodeIndex: null
+                }
+              : current
+          );
+          return;
+        }
+
+        onSetCustomShapeEditElementId(null);
+        return;
+      }
+
+      if (
+        (event.key === "Delete" || event.key === "Backspace") &&
+        customShapeEditDraft.selectedNodeIndex !== null &&
+        customShapeEditDraft.nodes.length > 2
+      ) {
+        event.preventDefault();
+        const nextNodes = customShapeEditDraft.nodes.filter(
+          (_, index) => index !== customShapeEditDraft.selectedNodeIndex
+        );
+        const nextClosed =
+          customShapeEditDraft.closed && nextNodes.length > 2;
+        const nextDraft = {
+          ...customShapeEditDraft,
+          closed: nextClosed,
+          nodes: nextNodes,
+          selectedNodeIndex:
+            nextNodes.length === 0
+              ? null
+              : Math.min(
+                  customShapeEditDraft.selectedNodeIndex,
+                  nextNodes.length - 1
+                )
+        };
+
+        setCustomShapeEditDraft(nextDraft);
+        onCommitCustomShapeGeometry(
+          editingCustomShapeElement.elementId,
+          convertCustomShapeNodesToAbsolute({
+            frame: {
+              height: editingCustomShapeElement.height,
+              width: editingCustomShapeElement.width,
+              x: editingCustomShapeElement.x,
+              y: editingCustomShapeElement.y
+            },
+            nodes: nextDraft.nodes,
+            viewBoxHeight: getCustomShapeDimension(
+              editingCustomShapeElement.props as CustomShapeElementProps,
+              "viewBoxHeight",
+              editingCustomShapeElement.height
+            ),
+            viewBoxWidth: getCustomShapeDimension(
+              editingCustomShapeElement.props as CustomShapeElementProps,
+              "viewBoxWidth",
+              editingCustomShapeElement.width
+            )
+          }),
+          nextDraft.closed
+        );
+      }
+    }
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [
+    customShapeEditDraft,
+    customShapeInsertDraft,
+    editingCustomShapeElement,
+    insertTool,
+    onCommitCustomShapeGeometry,
+    onCreateCustomShape,
+    onSetCustomShapeEditElementId,
+    onSetInsertTool
+  ]);
+
+  function getCanvasPointerPosition(event: Konva.KonvaEventObject<MouseEvent>) {
+    const pointer = event.target.getStage()?.getPointerPosition();
+
+    if (!pointer) {
+      return null;
+    }
+
+    return {
+      x: pointer.x / stageScale,
+      y: pointer.y / stageScale
+    };
+  }
+
+  function getCanvasPointFromClientPosition(clientX: number, clientY: number) {
+    const stageContainer = stageRef.current?.container();
+    const containerRect = stageContainer?.getBoundingClientRect();
+
+    if (!containerRect) {
+      return null;
+    }
+
+    return {
+      x: (clientX - containerRect.left) / stageScale,
+      y: (clientY - containerRect.top) / stageScale
+    };
+  }
+
+  function commitCustomShapeEdit(nextDraft: CustomShapeEditDraft) {
+    if (!editingCustomShapeElement) {
+      return;
+    }
+
+    const customShapeProps = editingCustomShapeElement.props as CustomShapeElementProps;
+
+    onCommitCustomShapeGeometry(
+      editingCustomShapeElement.elementId,
+      convertCustomShapeNodesToAbsolute({
+        frame: {
+          height: editingCustomShapeElement.height,
+          width: editingCustomShapeElement.width,
+          x: editingCustomShapeElement.x,
+          y: editingCustomShapeElement.y
+        },
+        nodes: nextDraft.nodes,
+        viewBoxHeight: getCustomShapeDimension(
+          customShapeProps,
+          "viewBoxHeight",
+          editingCustomShapeElement.height
+        ),
+        viewBoxWidth: getCustomShapeDimension(
+          customShapeProps,
+          "viewBoxWidth",
+          editingCustomShapeElement.width
+        )
+      }),
+      nextDraft.closed
+    );
+  }
+
+  function handleInlineTextEditingFinish(options?: { clearSelection?: boolean }) {
+    const shouldClearSelection =
+      options?.clearSelection ||
+      pendingTextBlurActionRef.current === "clear-selection";
+
+    pendingTextBlurActionRef.current = null;
+
+    if (shouldClearSelection) {
+      onClearSelection();
+      return;
+    }
+
+    onFinishEditing();
+  }
+
+  function handleCanvasBackgroundSelection() {
+    if (editingElementId) {
+      pendingTextBlurActionRef.current = "clear-selection";
+      return;
+    }
+
+    const customShapeDraftElementId = customShapeEditDraft?.elementId ?? null;
+    const shouldClearCustomShapeNode =
+      customShapeEditDraft?.selectedNodeIndex !== null &&
+      customShapeDraftElementId !== null &&
+      (selectedElementIds.length === 0 ||
+        selectedElementIds.includes(customShapeDraftElementId));
+
+    if (shouldClearCustomShapeNode) {
+      setCustomShapeEditDraft((current) =>
+        current
+          ? {
+              ...current,
+              selectedNodeIndex: null
+            }
+          : current
+      );
+      return;
+    }
+
+    onClearSelection();
+  }
+
+  useEffect(() => {
+    const stageContainer = stageRef.current?.container();
+
+    if (!stageContainer) {
+      return;
+    }
+
+    function handleNativeBackgroundCapture(event: MouseEvent | PointerEvent) {
+      if (event.button !== 0 || insertTool !== "select") {
+        return;
+      }
+
+      if (isKeyboardEditableTarget(event.target)) {
+        return;
+      }
+
+      const point = getCanvasPointFromClientPosition(event.clientX, event.clientY);
+
+      if (!point) {
+        return;
+      }
+
+      const isElementHit = visibleElements.some((element) =>
+        isCanvasPointInsideElementSelectionArea({
+          deck,
+          element,
+          point,
+          slide
+        })
+      );
+
+      if (!isElementHit) {
+        handleCanvasBackgroundSelection();
+      }
+    }
+
+    stageContainer.addEventListener("pointerdown", handleNativeBackgroundCapture, true);
+    stageContainer.addEventListener("mousedown", handleNativeBackgroundCapture, true);
+    return () => {
+      stageContainer.removeEventListener(
+        "pointerdown",
+        handleNativeBackgroundCapture,
+        true
+      );
+      stageContainer.removeEventListener(
+        "mousedown",
+        handleNativeBackgroundCapture,
+        true
+      );
+    };
+  }, [deck, insertTool, slide, visibleElements, editingElementId, customShapeEditDraft]);
 
   return (
     <div className="konva-editor-stage" ref={containerRef}>
       <Stage
         className="konva-canvas-layer"
         height={deck.canvas.height * stageScale}
+        ref={stageRef}
         scaleX={stageScale}
         scaleY={stageScale}
         width={deck.canvas.width * stageScale}
         onMouseDown={(event) => {
           if (event.target === event.target.getStage()) {
-            if (insertTool !== "select") {
-              const pointer = event.target.getStage()?.getPointerPosition();
-              if (!pointer) {
-                return;
-              }
-              setDraftElement({
-                type: insertTool,
-                start: {
-                  x: pointer.x / stageScale,
-                  y: pointer.y / stageScale
-                },
-                end: {
-                  x: pointer.x / stageScale,
-                  y: pointer.y / stageScale
-                }
+            const pointer = getCanvasPointerPosition(event);
+
+            if (!pointer) {
+              return;
+            }
+
+            if (editingElementId) {
+              pendingTextBlurActionRef.current = "clear-selection";
+              return;
+            }
+
+            if (insertTool === "customShape") {
+              setCustomShapeInsertDraft((current) => {
+                const nextNodes = [...(current?.nodes ?? []), createCustomShapeNode(pointer)];
+
+                return {
+                  activeNodeIndex: nextNodes.length - 1,
+                  nodes: nextNodes,
+                  pointer
+                };
               });
               return;
             }
+
+            if (insertTool !== "select") {
+              setDraftElement({
+                type: insertTool as DrawableInsertTool,
+                start: pointer,
+                end: pointer
+              });
+              return;
+            }
+
+            if (customShapeEditDraft?.selectedNodeIndex !== null) {
+              setCustomShapeEditDraft((current) =>
+                current
+                  ? {
+                      ...current,
+                      selectedNodeIndex: null
+                    }
+                  : current
+              );
+              return;
+            }
+
             onClearSelection();
           }
         }}
         onMouseMove={(event) => {
-          if (!draftElement) {
+          const pointer = getCanvasPointerPosition(event);
+
+          if (insertTool === "customShape") {
+            if (!pointer) {
+              return;
+            }
+
+            setCustomShapeInsertDraft((current) => {
+              if (!current) {
+                return current;
+              }
+
+              if (current.activeNodeIndex === null) {
+                return {
+                  ...current,
+                  pointer
+                };
+              }
+
+              return {
+                ...current,
+                nodes: current.nodes.map((node, index) =>
+                  index === current.activeNodeIndex
+                    ? updateCustomShapeNodeHandle(node, "out", pointer)
+                    : node
+                ),
+                pointer
+              };
+            });
             return;
           }
-          const pointer = event.target.getStage()?.getPointerPosition();
-          if (!pointer) {
+
+          if (!draftElement || !pointer) {
             return;
           }
+
           setDraftElement((current) =>
             current
               ? {
                   ...current,
-                  end: {
-                    x: pointer.x / stageScale,
-                    y: pointer.y / stageScale
-                  }
+                  end: pointer
                 }
               : current
           );
         }}
         onMouseUp={() => {
+          if (insertTool === "customShape") {
+            setCustomShapeInsertDraft((current) =>
+              current
+                ? {
+                    ...current,
+                    activeNodeIndex: null
+                  }
+                : current
+            );
+            return;
+          }
+
           if (!draftElement) {
             return;
           }
@@ -3577,7 +4776,7 @@ function EditableCanvas(props: {
             return;
           }
           onCreateElement({
-            type: draftElement.type === "select" ? "rect" : draftElement.type,
+            type: draftElement.type,
             ...rect
           } as
             | { type: "text"; x: number; y: number; width: number; height: number }
@@ -3596,14 +4795,25 @@ function EditableCanvas(props: {
               key={element.elementId}
               accentColor={slide.style.accentColor ?? deck.theme.accentColor}
               deck={deck}
+              disablePointerEvents={insertTool !== "select"}
               element={element}
               isSelected={selectedElementIds.includes(element.elementId)}
               selectedCount={selectedElementIds.length}
               showIds={showIds}
               slide={slide}
+              customShapeEditDraft={
+                customShapeEditDraft?.elementId === element.elementId
+                  ? customShapeEditDraft
+                  : null
+              }
               onCommitFrame={(frame) =>
                 onCommitElementFrame(slide.slideId, element.elementId, frame)
               }
+              onChangeCustomShapeEditDraft={setCustomShapeEditDraft}
+              onCommitCustomShapeEditDraft={(nextDraft) => {
+                setCustomShapeEditDraft(nextDraft);
+                commitCustomShapeEdit(nextDraft);
+              }}
               onDoubleClick={() => onDoubleClickElement(element.elementId)}
               onMountNode={(node) => {
                 nodeRefs.current[element.elementId] = node;
@@ -3621,6 +4831,18 @@ function EditableCanvas(props: {
               }
             />
           ))}
+          {customShapeInsertDraft ? (
+            <CustomShapeInsertOverlay
+              draft={customShapeInsertDraft}
+              onClosePath={() => {
+                if (customShapeInsertDraft.nodes.length < 3) {
+                  return;
+                }
+                onCreateCustomShape(customShapeInsertDraft.nodes, true);
+                setCustomShapeInsertDraft(null);
+              }}
+            />
+          ) : null}
           {draftElement ? (
             <Rect
               dash={[10, 6]}
@@ -3668,22 +4890,389 @@ function EditableCanvas(props: {
           slide={slide}
           stageScale={stageScale}
           onCommitProps={onCommitElementProps}
-          onFinishEditing={onFinishEditing}
+          onFinishEditing={handleInlineTextEditingFinish}
         />
+      ) : null}
+      {insertTool === "customShape" ? (
+        <div className="canvas-mode-hint">
+          클릭으로 점 추가, 드래그로 곡선 손잡이 생성, 첫 점 클릭 또는 Enter로
+          완료, Esc 취소
+        </div>
+      ) : customShapeEditDraft ? (
+        <div className="canvas-mode-hint">
+          점을 드래그해 도형을 다듬고, 더블클릭으로 코너와 곡선을 전환합니다
+        </div>
       ) : null}
     </div>
   );
 }
 
+function CustomShapeInsertOverlay(props: {
+  draft: CustomShapeInsertDraft;
+  onClosePath: () => void;
+}) {
+  const { draft, onClosePath } = props;
+  const previewNodes =
+    draft.pointer && draft.activeNodeIndex === null && draft.nodes.length > 0
+      ? [...draft.nodes, createCustomShapeNode(draft.pointer)]
+      : draft.nodes;
+  const previewPathData = buildCustomShapePathDataFromNodes(previewNodes, false);
+  const previewDataArray = getCustomShapeDataArray(previewPathData);
+
+  return (
+    <>
+      {previewDataArray.length > 0 ? (
+        <Shape
+          fillEnabled={false}
+          lineCap="round"
+          lineJoin="round"
+          sceneFunc={(context, shape) =>
+            drawCustomShapeScene(context, shape, previewDataArray)
+          }
+          stroke="#2563eb"
+          strokeWidth={2}
+        />
+      ) : null}
+      {draft.nodes.map((node, index) => {
+        const isClosableStart = index === 0 && draft.nodes.length > 2;
+
+        return (
+          <Group key={`draft-node-${index}`}>
+            {typeof node.outX === "number" && typeof node.outY === "number" ? (
+              <Line
+                dash={[4, 4]}
+                points={[node.x, node.y, node.outX, node.outY]}
+                stroke="rgba(37, 99, 235, 0.5)"
+                strokeWidth={1}
+              />
+            ) : null}
+            {typeof node.outX === "number" && typeof node.outY === "number" ? (
+              <Circle
+                fill="#dbeafe"
+                listening={false}
+                radius={4}
+                stroke="#2563eb"
+                strokeWidth={1.5}
+                x={node.outX}
+                y={node.outY}
+              />
+            ) : null}
+            <Circle
+              fill={isClosableStart ? "#dcfce7" : "#ffffff"}
+              radius={isClosableStart ? 7 : 6}
+              stroke={isClosableStart ? "#16a34a" : "#2563eb"}
+              strokeWidth={2}
+              x={node.x}
+              y={node.y}
+              onClick={(event) => {
+                if (!isClosableStart) {
+                  return;
+                }
+                event.cancelBubble = true;
+                onClosePath();
+              }}
+            />
+          </Group>
+        );
+      })}
+    </>
+  );
+}
+
+function CustomShapeEditOverlay(props: {
+  draft: CustomShapeEditDraft;
+  frame: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    rotation: number;
+  };
+  onChangeDraft: (draft: CustomShapeEditDraft | null) => void;
+  onCommitDraft: (draft: CustomShapeEditDraft) => void;
+  viewBoxHeight: number;
+  viewBoxWidth: number;
+}) {
+  const {
+    draft,
+    frame,
+    onChangeDraft,
+    onCommitDraft,
+    viewBoxHeight,
+    viewBoxWidth
+  } = props;
+  const scaleX = frame.width / Math.max(1, viewBoxWidth);
+  const scaleY = frame.height / Math.max(1, viewBoxHeight);
+  const handleLength = Math.max(18, Math.min(viewBoxWidth, viewBoxHeight) * 0.08);
+
+  function toDisplayPoint(point: CanvasPoint) {
+    return {
+      x: point.x * scaleX,
+      y: point.y * scaleY
+    };
+  }
+
+  function toLocalPoint(point: CanvasPoint) {
+    return {
+      x: point.x / Math.max(scaleX, 0.0001),
+      y: point.y / Math.max(scaleY, 0.0001)
+    };
+  }
+
+  function updateDraft(
+    updater: (current: CustomShapeEditDraft) => CustomShapeEditDraft,
+    options?: { commit?: boolean }
+  ) {
+    const nextDraft = updater(draft);
+    onChangeDraft(nextDraft);
+
+    if (options?.commit) {
+      onCommitDraft(nextDraft);
+    }
+  }
+
+  return (
+    <Group>
+      {draft.nodes.map((node, index) => {
+        const displayNode = toDisplayPoint({ x: node.x, y: node.y });
+        const displayIn =
+          typeof node.inX === "number" && typeof node.inY === "number"
+            ? toDisplayPoint({ x: node.inX, y: node.inY })
+            : null;
+        const displayOut =
+          typeof node.outX === "number" && typeof node.outY === "number"
+            ? toDisplayPoint({ x: node.outX, y: node.outY })
+            : null;
+        const isSelected = draft.selectedNodeIndex === index;
+
+        return (
+          <Group key={`${draft.elementId}-node-${index}`}>
+            {displayIn ? (
+              <Line
+                dash={[4, 4]}
+                points={[displayNode.x, displayNode.y, displayIn.x, displayIn.y]}
+                stroke="rgba(37, 99, 235, 0.55)"
+                strokeWidth={1}
+              />
+            ) : null}
+            {displayOut ? (
+              <Line
+                dash={[4, 4]}
+                points={[displayNode.x, displayNode.y, displayOut.x, displayOut.y]}
+                stroke="rgba(37, 99, 235, 0.55)"
+                strokeWidth={1}
+              />
+            ) : null}
+            {displayIn ? (
+              <Circle
+                draggable
+                fill="#dbeafe"
+                radius={4.5}
+                stroke="#2563eb"
+                strokeWidth={1.5}
+                x={displayIn.x}
+                y={displayIn.y}
+                onClick={(event) => {
+                  event.cancelBubble = true;
+                  updateDraft((current) => ({
+                    ...current,
+                    selectedNodeIndex: index
+                  }));
+                }}
+                onDragMove={(event) => {
+                  event.cancelBubble = true;
+                  updateDraft((current) => ({
+                    ...current,
+                    selectedNodeIndex: index,
+                    nodes: current.nodes.map((currentNode, currentIndex) =>
+                      currentIndex === index
+                        ? updateCustomShapeNodeHandle(
+                            currentNode,
+                            "in",
+                            toLocalPoint({
+                              x: event.target.x(),
+                              y: event.target.y()
+                            })
+                          )
+                        : currentNode
+                    )
+                  }));
+                }}
+                onDragEnd={(event) => {
+                  event.cancelBubble = true;
+                  updateDraft(
+                    (current) => ({
+                      ...current,
+                      selectedNodeIndex: index,
+                      nodes: current.nodes.map((currentNode, currentIndex) =>
+                        currentIndex === index
+                          ? updateCustomShapeNodeHandle(
+                              currentNode,
+                              "in",
+                              toLocalPoint({
+                                x: event.target.x(),
+                                y: event.target.y()
+                              })
+                            )
+                          : currentNode
+                      )
+                    }),
+                    { commit: true }
+                  );
+                }}
+              />
+            ) : null}
+            {displayOut ? (
+              <Circle
+                draggable
+                fill="#dbeafe"
+                radius={4.5}
+                stroke="#2563eb"
+                strokeWidth={1.5}
+                x={displayOut.x}
+                y={displayOut.y}
+                onClick={(event) => {
+                  event.cancelBubble = true;
+                  updateDraft((current) => ({
+                    ...current,
+                    selectedNodeIndex: index
+                  }));
+                }}
+                onDragMove={(event) => {
+                  event.cancelBubble = true;
+                  updateDraft((current) => ({
+                    ...current,
+                    selectedNodeIndex: index,
+                    nodes: current.nodes.map((currentNode, currentIndex) =>
+                      currentIndex === index
+                        ? updateCustomShapeNodeHandle(
+                            currentNode,
+                            "out",
+                            toLocalPoint({
+                              x: event.target.x(),
+                              y: event.target.y()
+                            })
+                          )
+                        : currentNode
+                    )
+                  }));
+                }}
+                onDragEnd={(event) => {
+                  event.cancelBubble = true;
+                  updateDraft(
+                    (current) => ({
+                      ...current,
+                      selectedNodeIndex: index,
+                      nodes: current.nodes.map((currentNode, currentIndex) =>
+                        currentIndex === index
+                          ? updateCustomShapeNodeHandle(
+                              currentNode,
+                              "out",
+                              toLocalPoint({
+                                x: event.target.x(),
+                                y: event.target.y()
+                              })
+                            )
+                          : currentNode
+                      )
+                    }),
+                    { commit: true }
+                  );
+                }}
+              />
+            ) : null}
+            <Circle
+              draggable
+              fill={isSelected ? "#2563eb" : "#ffffff"}
+              radius={7}
+              stroke="#2563eb"
+              strokeWidth={2}
+              x={displayNode.x}
+              y={displayNode.y}
+              onClick={(event) => {
+                event.cancelBubble = true;
+                updateDraft((current) => ({
+                  ...current,
+                  selectedNodeIndex: index
+                }));
+              }}
+              onDblClick={(event) => {
+                event.cancelBubble = true;
+                updateDraft(
+                  (current) => ({
+                    ...current,
+                    selectedNodeIndex: index,
+                    nodes: current.nodes.map((currentNode, currentIndex) =>
+                      currentIndex === index
+                        ? toggleCustomShapeNodeMode(currentNode, handleLength)
+                        : currentNode
+                    )
+                  }),
+                  { commit: true }
+                );
+              }}
+              onDragMove={(event) => {
+                event.cancelBubble = true;
+                updateDraft((current) => ({
+                  ...current,
+                  selectedNodeIndex: index,
+                  nodes: current.nodes.map((currentNode, currentIndex) =>
+                    currentIndex === index
+                      ? moveCustomShapeNode(
+                          currentNode,
+                          toLocalPoint({
+                            x: event.target.x(),
+                            y: event.target.y()
+                          })
+                        )
+                      : currentNode
+                  )
+                }));
+              }}
+              onDragEnd={(event) => {
+                event.cancelBubble = true;
+                updateDraft(
+                  (current) => ({
+                    ...current,
+                    selectedNodeIndex: index,
+                    nodes: current.nodes.map((currentNode, currentIndex) =>
+                      currentIndex === index
+                        ? moveCustomShapeNode(
+                            currentNode,
+                            toLocalPoint({
+                              x: event.target.x(),
+                              y: event.target.y()
+                            })
+                          )
+                        : currentNode
+                    )
+                  }),
+                  { commit: true }
+                );
+              }}
+            />
+          </Group>
+        );
+      })}
+    </Group>
+  );
+}
+
 function EditableElementNode(props: {
   accentColor: string;
+  customShapeEditDraft: CustomShapeEditDraft | null;
   deck: Deck;
+  disablePointerEvents: boolean;
   element: DeckElement;
   isSelected: boolean;
   selectedCount: number;
   showIds: boolean;
   slide: Slide;
+  onChangeCustomShapeEditDraft: (
+    draft: CustomShapeEditDraft | null
+  ) => void;
   onDoubleClick: () => void;
+  onCommitCustomShapeEditDraft: (draft: CustomShapeEditDraft) => void;
   onCommitFrame: (frame: {
     x: number;
     y: number;
@@ -3697,13 +5286,17 @@ function EditableElementNode(props: {
 }) {
   const {
     accentColor,
+    customShapeEditDraft,
     deck,
+    disablePointerEvents,
     element,
     isSelected,
     selectedCount,
     showIds,
     slide,
+    onChangeCustomShapeEditDraft,
     onDoubleClick,
+    onCommitCustomShapeEditDraft,
     onCommitFrame,
     onMountNode,
     onOpenContextMenu,
@@ -3724,9 +5317,15 @@ function EditableElementNode(props: {
     height: element.height,
     rotation: element.rotation
   };
+  const isMultiSelected = isSelected && selectedCount > 1;
   const selectionHitFill = isSelected
-    ? "rgba(37, 99, 235, 0.08)"
+    ? isMultiSelected
+      ? "rgba(37, 99, 235, 0.16)"
+      : "rgba(37, 99, 235, 0.08)"
     : "rgba(15, 23, 42, 0.001)";
+  const selectionStroke = isSelected ? "#2563eb" : "transparent";
+  const selectionStrokeWidth = isSelected ? (isMultiSelected ? 3 : 2) : 0;
+  const selectionDash = isMultiSelected ? [12, 6] : undefined;
   const elementIdLabel = getDisplayIdLabel(element.elementId);
   const canvasIdBadgeWidth = getCanvasIdBadgeWidth(elementIdLabel);
   const canvasIdBadgeOffset = getCanvasIdBadgeOffset({
@@ -3751,7 +5350,8 @@ function EditableElementNode(props: {
 
   return (
     <Group
-      draggable={!element.locked}
+      draggable={!disablePointerEvents && !element.locked && !customShapeEditDraft}
+      listening={!disablePointerEvents}
       opacity={element.visible ? element.opacity : 0}
       rotation={frame.rotation}
       x={frame.x}
@@ -3761,7 +5361,7 @@ function EditableElementNode(props: {
       onContextMenu={(event) => {
         const shouldKeepSelection = isSelected && selectedCount > 1;
 
-        if (element.type !== "image" && !shouldKeepSelection) {
+        if (element.type !== "image" && element.type !== "group" && !shouldKeepSelection) {
           return;
         }
 
@@ -3823,21 +5423,48 @@ function EditableElementNode(props: {
         });
       }}
     >
-      <Rect
-        cornerRadius={10}
-        fill={selectionHitFill}
-        stroke={isSelected ? "#2563eb" : "transparent"}
-        strokeWidth={isSelected ? 2 : 0}
-        width={frame.width}
-        height={frame.height}
-      />
-      <ElementNodeContent
-        accentColor={accentColor}
+      <ElementInteractionHitTargets
         deck={deck}
         element={element}
         frame={frame}
         slide={slide}
       />
+      <Rect
+        cornerRadius={10}
+        fill={selectionHitFill}
+        dash={selectionDash}
+        listening={false}
+        stroke={selectionStroke}
+        strokeWidth={selectionStrokeWidth}
+        width={frame.width}
+        height={frame.height}
+      />
+      <ElementNodeContent
+        accentColor={accentColor}
+        customShapePreview={customShapeEditDraft}
+        deck={deck}
+        element={element}
+        frame={frame}
+        slide={slide}
+      />
+      {customShapeEditDraft && element.type === "customShape" ? (
+        <CustomShapeEditOverlay
+          draft={customShapeEditDraft}
+          frame={frame}
+          onChangeDraft={onChangeCustomShapeEditDraft}
+          onCommitDraft={onCommitCustomShapeEditDraft}
+          viewBoxHeight={getCustomShapeDimension(
+            element.props as CustomShapeElementProps,
+            "viewBoxHeight",
+            frame.height
+          )}
+          viewBoxWidth={getCustomShapeDimension(
+            element.props as CustomShapeElementProps,
+            "viewBoxWidth",
+            frame.width
+          )}
+        />
+      ) : null}
       {showIds ? (
         <Group
           listening={false}
@@ -3881,8 +5508,7 @@ function EditableElementNode(props: {
   );
 }
 
-function ElementNodeContent(props: {
-  accentColor: string;
+function ElementInteractionHitTargets(props: {
   deck: Deck;
   element: DeckElement;
   frame: {
@@ -3894,7 +5520,84 @@ function ElementNodeContent(props: {
   };
   slide: Slide;
 }) {
-  const { accentColor, deck, element, frame, slide } = props;
+  const { deck, element, frame, slide } = props;
+  const hitFill = "rgba(15, 23, 42, 0.001)";
+
+  if (element.type === "group") {
+    const groupProps = element.props as GroupElementProps;
+    const childElements = getGroupChildElements(slide, groupProps.childElementIds);
+
+    return (
+      <>
+        {childElements.map((childElement) => {
+          const childFrame = getGroupedChildPreviewFrame({
+            childElement,
+            currentGroupFrame: element,
+            previewGroupFrame: frame
+          });
+
+          return (
+            <Group
+              key={`group-hit-${childElement.elementId}`}
+              rotation={childFrame.rotation}
+              x={childFrame.x}
+              y={childFrame.y}
+            >
+              <Rect
+                fill={hitFill}
+                width={Math.max(1, childFrame.width)}
+                height={Math.max(1, childFrame.height)}
+              />
+            </Group>
+          );
+        })}
+      </>
+    );
+  }
+
+  if (element.type === "text") {
+    const textLayout = getTextElementLayout({
+      frame,
+      props: element.props as TextElementProps,
+      slide,
+      theme: deck.theme
+    });
+
+    return (
+      <Rect
+        fill={hitFill}
+        x={textLayout.contentX}
+        y={textLayout.y}
+        width={Math.max(24, textLayout.contentWidth)}
+        height={Math.max(1, textLayout.contentHeight)}
+      />
+    );
+  }
+
+  return (
+    <Rect
+      fill={hitFill}
+      width={Math.max(1, frame.width)}
+      height={Math.max(1, frame.height)}
+    />
+  );
+}
+
+function ElementNodeContent(props: {
+  accentColor: string;
+  customShapePreview?: CustomShapeEditDraft | null;
+  deck: Deck;
+  element: DeckElement;
+  frame: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    rotation: number;
+  };
+  slide: Slide;
+}) {
+  const { accentColor, customShapePreview, deck, element, frame, slide } = props;
 
   if (element.type === "text") {
     const textLayout = getTextElementLayout({
@@ -3912,6 +5615,7 @@ function ElementNodeContent(props: {
         fontSize={element.props.fontSize}
         fontStyle={textLayout.fontStyle}
         lineHeight={element.props.lineHeight}
+        listening={false}
         padding={0}
         text={element.props.text}
         width={textLayout.width}
@@ -3932,7 +5636,7 @@ function ElementNodeContent(props: {
       "value" in datum ? Math.abs(datum.value) : Math.abs(datum.y)
     );
     const maxValue = Math.max(1, ...values);
-    const barWidth = element.width / Math.max(chart.data.length, 1);
+    const barWidth = frame.width / Math.max(chart.data.length, 1);
 
     return (
       <Group listening={false}>
@@ -3978,35 +5682,80 @@ function ElementNodeContent(props: {
 
   if (element.type === "group") {
     const groupProps = element.props as GroupElementProps;
+    const childElements = getGroupChildElements(slide, groupProps.childElementIds);
+
+    if (childElements.length === 0) {
+      return (
+        <Group listening={false}>
+          <Rect
+            dash={[10, 6]}
+            cornerRadius={18}
+            fill="rgba(241, 245, 249, 0.7)"
+            stroke="#64748b"
+            strokeWidth={2}
+            width={frame.width}
+            height={frame.height}
+          />
+          <Text
+            fill="#334155"
+            fontSize={15}
+            text="빈 그룹"
+            align="center"
+            verticalAlign="middle"
+            width={frame.width}
+            height={frame.height}
+            padding={12}
+          />
+        </Group>
+      );
+    }
 
     return (
       <Group listening={false}>
-        <Rect
-          dash={[10, 6]}
-          cornerRadius={18}
-          fill="rgba(241, 245, 249, 0.7)"
-          stroke="#64748b"
-          strokeWidth={2}
-          width={frame.width}
-          height={frame.height}
-        />
-        <Text
-          fill="#334155"
-          fontSize={15}
-          text={`GROUP\n${groupProps.childElementIds.join(", ") || "empty"}`}
-          align="center"
-          verticalAlign="middle"
-          width={frame.width}
-          height={frame.height}
-          padding={12}
-        />
+        {childElements.map((childElement) => {
+          const childFrame = getGroupedChildPreviewFrame({
+            childElement,
+            currentGroupFrame: element,
+            previewGroupFrame: frame
+          });
+
+          return (
+            <Group
+              key={childElement.elementId}
+              rotation={childFrame.rotation}
+              x={childFrame.x}
+              y={childFrame.y}
+            >
+              <ElementNodeContent
+                accentColor={accentColor}
+                deck={deck}
+                element={childElement}
+                frame={{
+                  x: 0,
+                  y: 0,
+                  width: childFrame.width,
+                  height: childFrame.height,
+                  rotation: childFrame.rotation
+                }}
+                slide={slide}
+              />
+            </Group>
+          );
+        })}
       </Group>
     );
   }
 
   if (element.type === "customShape") {
     const customShapeProps = element.props as CustomShapeElementProps;
-    const pathData = getCustomShapePathData(customShapeProps);
+    const isClosed = customShapePreview?.closed ?? customShapeProps.closed;
+    const pathData =
+      customShapePreview?.nodes.length
+        ? buildCustomShapePathDataFromNodes(
+            customShapePreview.nodes,
+            isClosed
+          )
+        : getCustomShapePathData(customShapeProps);
     const dataArray = getCustomShapeDataArray(pathData);
     const fill = getCustomShapePaint(customShapeProps, "fill", "#f5edff");
     const stroke = getCustomShapePaint(customShapeProps, "stroke", "#9333ea");
@@ -4027,7 +5776,8 @@ function ElementNodeContent(props: {
         <Group listening={false}>
           <Rect fill="transparent" width={frame.width} height={frame.height} />
           <Shape
-            fill={fill}
+            fill={isClosed ? fill : "transparent"}
+            fillEnabled={isClosed}
             lineJoin="round"
             scaleX={frame.width / viewBoxWidth}
             scaleY={frame.height / viewBoxHeight}
@@ -4291,7 +6041,7 @@ function InlineTextEditorOverlay(props: {
   slide: Slide;
   stageScale: number;
   onCommitProps: (elementId: string, props: Record<string, unknown>) => void;
-  onFinishEditing: () => void;
+  onFinishEditing: (options?: { clearSelection?: boolean }) => void;
 }) {
   const { deck, element, slide, stageScale, onCommitProps, onFinishEditing } = props;
 
@@ -4362,58 +6112,6 @@ function getKonvaFontStyle(fontWeight: TextElementProps["fontWeight"]) {
   return getCssFontWeight(fontWeight) >= 600 ? "bold" : "normal";
 }
 
-function estimateTextContentHeight(args: {
-  text: string;
-  width: number;
-  fontSize: number;
-  lineHeight: number;
-}) {
-  const { text, width, fontSize, lineHeight } = args;
-  const charsPerLine = Math.max(1, Math.floor(width / Math.max(fontSize * 0.55, 1)));
-  const lineCount = text
-    .replace(/\r\n/g, "\n")
-    .split("\n")
-    .reduce((count, line) => count + Math.max(1, Math.ceil(line.length / charsPerLine)), 0);
-
-  return lineCount * fontSize * lineHeight;
-}
-
-function measureTextContentHeight(args: {
-  align: TextElementProps["align"];
-  fontFamily: string;
-  fontSize: number;
-  fontStyle: "normal" | "bold";
-  lineHeight: number;
-  text: string;
-  width: number;
-}) {
-  if (typeof document === "undefined") {
-    return estimateTextContentHeight({
-      text: args.text,
-      width: args.width,
-      fontSize: args.fontSize,
-      lineHeight: args.lineHeight
-    });
-  }
-
-  const measureNode = new KonvaTextShape({
-    align: args.align,
-    fontFamily: args.fontFamily,
-    fontSize: args.fontSize,
-    fontStyle: args.fontStyle,
-    lineHeight: args.lineHeight,
-    padding: 0,
-    text: args.text,
-    width: args.width,
-    wrap: "word"
-  });
-  const contentHeight = measureNode.height();
-
-  measureNode.destroy();
-
-  return contentHeight;
-}
-
 function getTextElementLayout(args: {
   frame: {
     x: number;
@@ -4433,20 +6131,23 @@ function getTextElementLayout(args: {
   const fontStyle = getKonvaFontStyle(props.fontWeight);
   const width = Math.max(1, frame.width - textElementPadding * 2);
   const availableHeight = Math.max(1, frame.height - textElementPadding * 2);
-  const contentHeight = Math.min(
-    measureTextContentHeight({
-      align: props.align,
-      fontFamily,
-      fontSize: props.fontSize,
-      fontStyle,
-      lineHeight: props.lineHeight,
-      text: props.text,
-      width
-    }),
-    availableHeight
-  );
+  const contentMetrics = measureTextContentBounds({
+    align: props.align,
+    fontFamily,
+    fontSize: props.fontSize,
+    fontStyle,
+    lineHeight: props.lineHeight,
+    text: props.text,
+    width
+  });
+  const contentHeight = Math.min(contentMetrics.height, availableHeight);
   const spareHeight = Math.max(0, availableHeight - contentHeight);
+  const contentWidth =
+    props.align === "justify"
+      ? width
+      : Math.max(1, Math.min(contentMetrics.width, width));
   let y = textElementPadding;
+  let contentX = textElementPadding;
 
   if (props.verticalAlign === "middle") {
     y += spareHeight / 2;
@@ -4454,13 +6155,178 @@ function getTextElementLayout(args: {
     y += spareHeight;
   }
 
+  if (props.align === "center") {
+    contentX += Math.max(0, (width - contentWidth) / 2);
+  } else if (props.align === "right") {
+    contentX += Math.max(0, width - contentWidth);
+  }
+
   return {
     color,
+    contentHeight,
+    contentWidth,
+    contentX,
     fontFamily,
     fontStyle,
     width,
     x: textElementPadding,
     y
+  };
+}
+
+function isCanvasPointInsideElementSelectionArea(args: {
+  deck: Deck;
+  element: DeckElement;
+  point: CanvasPoint;
+  slide: Slide;
+}) {
+  const { deck, element, point, slide } = args;
+
+  if (!element.visible) {
+    return false;
+  }
+
+  if (element.type === "text") {
+    const textLayout = getTextElementLayout({
+      frame: {
+        x: element.x,
+        y: element.y,
+        width: element.width,
+        height: element.height,
+        rotation: element.rotation
+      },
+      props: element.props as TextElementProps,
+      slide,
+      theme: deck.theme
+    });
+
+    return isCanvasPointInsideRotatedFrame({
+      frame: {
+        x: element.x + textLayout.contentX,
+        y: element.y + textLayout.y,
+        width: Math.max(24, textLayout.contentWidth),
+        height: Math.max(1, textLayout.contentHeight),
+        rotation: element.rotation
+      },
+      point
+    });
+  }
+
+  return isCanvasPointInsideRotatedFrame({
+    frame: {
+      x: element.x,
+      y: element.y,
+      width: Math.max(1, element.width),
+      height: Math.max(1, element.height),
+      rotation: element.rotation
+    },
+    point
+  });
+}
+
+function isCanvasPointInsideRotatedFrame(args: {
+  frame: {
+    height: number;
+    rotation: number;
+    width: number;
+    x: number;
+    y: number;
+  };
+  point: CanvasPoint;
+}) {
+  const { frame, point } = args;
+  const rotationRadians = (frame.rotation * Math.PI) / 180;
+  const cos = Math.cos(rotationRadians);
+  const sin = Math.sin(rotationRadians);
+  const relativeX = point.x - frame.x;
+  const relativeY = point.y - frame.y;
+  const localX = relativeX * cos + relativeY * sin;
+  const localY = -relativeX * sin + relativeY * cos;
+
+  return (
+    localX >= 0 &&
+    localX <= frame.width &&
+    localY >= 0 &&
+    localY <= frame.height
+  );
+}
+
+function estimateTextContentBounds(args: {
+  text: string;
+  width: number;
+  fontSize: number;
+  lineHeight: number;
+}) {
+  const { text, width, fontSize, lineHeight } = args;
+  const charsPerLine = Math.max(1, Math.floor(width / Math.max(fontSize * 0.55, 1)));
+  const paragraphs = text.replace(/\r\n/g, "\n").split("\n");
+  const estimatedLineLengths: number[] = [];
+
+  for (const paragraph of paragraphs) {
+    if (paragraph.length === 0) {
+      estimatedLineLengths.push(0);
+      continue;
+    }
+
+    for (let start = 0; start < paragraph.length; start += charsPerLine) {
+      estimatedLineLengths.push(
+        Math.min(charsPerLine, paragraph.length - start)
+      );
+    }
+  }
+
+  const maxCharsInLine = Math.max(0, ...estimatedLineLengths);
+  const lineCount = Math.max(1, estimatedLineLengths.length);
+
+  return {
+    height: lineCount * fontSize * lineHeight,
+    width: Math.min(width, maxCharsInLine * fontSize * 0.55)
+  };
+}
+
+function measureTextContentBounds(args: {
+  align: TextElementProps["align"];
+  fontFamily: string;
+  fontSize: number;
+  fontStyle: "normal" | "bold";
+  lineHeight: number;
+  text: string;
+  width: number;
+}) {
+  if (typeof document === "undefined") {
+    return estimateTextContentBounds({
+      text: args.text,
+      width: args.width,
+      fontSize: args.fontSize,
+      lineHeight: args.lineHeight
+    });
+  }
+
+  const measureNode = new KonvaTextShape({
+    align: args.align,
+    fontFamily: args.fontFamily,
+    fontSize: args.fontSize,
+    fontStyle: args.fontStyle,
+    lineHeight: args.lineHeight,
+    padding: 0,
+    text: args.text,
+    width: args.width,
+    wrap: "word"
+  });
+  const contentHeight = measureNode.height();
+  const contentWidth = Math.min(
+    args.width,
+    measureNode.textArr.reduce(
+      (maxWidth, line) => Math.max(maxWidth, line.width),
+      0
+    )
+  );
+
+  measureNode.destroy();
+
+  return {
+    height: contentHeight,
+    width: contentWidth
   };
 }
 

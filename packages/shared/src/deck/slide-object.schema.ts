@@ -114,7 +114,28 @@ export const groupElementPropsSchema = z
   })
   .default({});
 
-export const customShapeElementPropsSchema = z.record(z.unknown()).default({});
+export const customShapeNodeModeSchema = z.enum(["corner", "smooth"]);
+
+export const customShapeNodeSchema = z.object({
+  x: z.number().finite(),
+  y: z.number().finite(),
+  inX: z.number().finite().optional(),
+  inY: z.number().finite().optional(),
+  outX: z.number().finite().optional(),
+  outY: z.number().finite().optional(),
+  mode: customShapeNodeModeSchema.default("corner")
+});
+
+export const customShapeElementPropsSchema = z.object({
+  pathData: z.string().min(1),
+  viewBoxWidth: z.number().finite().positive(),
+  viewBoxHeight: z.number().finite().positive(),
+  fill: deckElementPaintSchema.default("transparent"),
+  stroke: deckElementPaintSchema.default("transparent"),
+  strokeWidth: z.number().finite().nonnegative().default(0),
+  closed: z.boolean().default(true),
+  nodes: z.array(customShapeNodeSchema).default([])
+});
 
 type ShapeElementType =
   | "rect"
@@ -193,6 +214,8 @@ export type TextElementProps = z.infer<typeof textElementPropsSchema>;
 export type ImageFit = z.infer<typeof imageFitSchema>;
 export type ImageElementProps = z.infer<typeof imageElementPropsSchema>;
 export type GroupElementProps = z.infer<typeof groupElementPropsSchema>;
+export type CustomShapeNodeMode = z.infer<typeof customShapeNodeModeSchema>;
+export type CustomShapeNode = z.infer<typeof customShapeNodeSchema>;
 export type CustomShapeElementProps = z.infer<
   typeof customShapeElementPropsSchema
 >;

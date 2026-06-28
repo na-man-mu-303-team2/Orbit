@@ -92,7 +92,7 @@ describe("editor shell", () => {
     expect(html).toContain("이미지");
   });
 
-  it("renders arrow, polygon, group, and custom shape elements on the canvas", () => {
+  it("renders arrow, polygon, grouped content, and custom shape elements on the canvas", () => {
     const queryClient = createTestQueryClient();
     const deck = createDemoDeck();
     const firstSlide = deck.slides[0];
@@ -171,13 +171,23 @@ describe("editor shell", () => {
         locked: false,
         visible: true,
         props: {
+          closed: true,
           fill: "#f5edff",
+          nodes: [
+            { x: 20, y: 20, mode: "corner" },
+            { x: 200, y: 20, mode: "corner" },
+            { x: 200, y: 100, mode: "corner" },
+            { x: 92, y: 100, mode: "corner" },
+            { x: 48, y: 148, mode: "corner" },
+            { x: 56, y: 100, mode: "corner" },
+            { x: 20, y: 100, mode: "corner" }
+          ],
           stroke: "#9333ea",
           strokeWidth: 2,
           viewBoxHeight: 160,
           viewBoxWidth: 220,
           pathData:
-            "M20 12 H200 C210 12 218 20 218 30 V96 C218 106 210 114 200 114 H92 L48 148 L56 114 H20 C10 114 2 106 2 96 V30 C2 20 10 12 20 12 Z"
+            "M 20 20 L 200 20 L 200 100 L 92 100 L 48 148 L 56 100 L 20 100 Z"
         }
       } as Deck["slides"][number]["elements"][number]
     ];
@@ -189,7 +199,7 @@ describe("editor shell", () => {
     expect(html).toContain("data-konva-arrow");
     expect(html).toContain("data-konva-polygon");
     expect(html).toContain("data-konva-shape");
-    expect(html).toContain("GROUP");
+    expect(html).not.toContain("GROUP");
   });
 
   it("keeps the demo deck visible while the deck query is pending", () => {
