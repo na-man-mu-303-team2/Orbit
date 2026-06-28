@@ -2,9 +2,40 @@ import { createDemoDeck } from "@orbit/editor-core";
 import { demoIds } from "@orbit/shared";
 import type { Deck } from "@orbit/shared";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import type { ReactNode } from "react";
+import { forwardRef } from "react";
 import { renderToString } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { EditorShell, EditorStateNotice } from "./EditorShell";
+
+vi.mock("react-konva", () => {
+  const Group = forwardRef<HTMLDivElement, { children?: ReactNode }>(
+    ({ children }, _ref) => <div>{children}</div>
+  );
+  const Layer = forwardRef<HTMLDivElement, { children?: ReactNode }>(
+    ({ children }, _ref) => <div>{children}</div>
+  );
+  const Stage = forwardRef<HTMLDivElement, { children?: ReactNode }>(
+    ({ children }, _ref) => <div>{children}</div>
+  );
+  const Text = ({
+    children,
+    text
+  }: {
+    children?: ReactNode;
+    text?: string;
+  }) => <span>{text ?? children}</span>;
+
+  return {
+    Group,
+    Layer,
+    Line: () => null,
+    Rect: () => null,
+    Stage,
+    Text,
+    Transformer: () => null
+  };
+});
 
 function createTestQueryClient() {
   return new QueryClient({
@@ -51,17 +82,18 @@ describe("editor shell", () => {
     expect(html).toContain("Data Contract");
     expect(html).toContain("발표 메모");
     expect(html).toContain("저장됨");
-    expect(html).toContain("충돌 없음 · base v");
+    expect(html).toContain("AI 편집 도우미");
   });
 
-  it("renders a loading state while the deck query is pending", () => {
+  it("keeps the demo deck visible while the deck query is pending", () => {
     const queryClient = createTestQueryClient();
 
     const html = renderApp(queryClient);
 
-    expect(html).toContain("덱을 불러오는 중");
-    expect(html).toContain("프로젝트 덱 응답을 기다리는 동안");
-    expect(html).toContain("로컬 데모");
+    expect(html).toContain("ORBIT Demo Deck");
+    expect(html).toContain("Opening");
+    expect(html).toContain("불러오는 중");
+    expect(html).not.toContain("덱을 불러오는 중");
   });
 
   it("renders an empty deck state without a selected slide", () => {

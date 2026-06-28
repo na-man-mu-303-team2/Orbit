@@ -12,6 +12,7 @@ playwright-report/
 .env
 .env.local
 .env.*.local
+.env.staging.private
 !.env.example
 !.env.staging.example
 !.env.production.example

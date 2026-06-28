@@ -1,0 +1,62 @@
+# 서버 로그 규칙
+
+ORBIT 서버 로그는 컨테이너 stdout/stderr로 출력되는 JSON 로그를 기준으로 한다.
+로컬 Docker Compose와 운영 ECS Fargate 모두 같은 구조를 유지하고, 운영 수집기는 CloudWatch를 기준으로 한다.
+
+## 환경변수
+
+```txt
+LOG_LEVEL=trace | debug | info | warn | error | fatal | silent
+LOG_PRETTY=false | true
+```
+
+- 기본 로그 형식은 모든 환경에서 JSON이다.
+- `LOG_PRETTY=true`는 `NODE_ENV=development`에서만 허용한다.
+- staging/production은 `LOG_PRETTY=false`를 유지한다.
+- 로컬 개발 기본값은 `LOG_LEVEL=debug`, staging/production 기본값은 `LOG_LEVEL=info`다.
+
+## 공통 필드
+
+모든 서버 로그는 가능한 경우 아래 필드를 사용한다.
+
+| 필드 | 의미 |
+| --- | --- |
+| `service` | `api`, `worker` 등 로그를 낸 서비스 |
+| `appEnv` | `local`, `test`, `staging`, `production` |
+| `event` | 기계가 읽을 수 있는 이벤트 이름 |
+| `requestId` | HTTP 요청 상관관계 ID |
+| `jobId` | 공통 Job ID |
+| `jobType` | `reference-extract`, `rehearsal-stt` 등 작업 유형 |
+| `projectId` | 프로젝트 단위 추적 ID |
+| `runId` | 리허설 실행 ID |
+| `roomId`, `sessionId`, `userId` | 실시간/세션 관련 추적 ID |
+| `durationMs` | 작업 처리 시간 |
+| `error` | `{ name, message, stack }` 또는 도메인 error object |
+
+이벤트 이름은 `영역.동작` 형식을 사용한다.
+예: `http.request.completed`, `job.enqueued`, `job.started`, `job.succeeded`, `job.failed`, `bullmq.job.failed`, `worker.ready`.
+
+## 업무 이벤트 로그
+
+서버 쪽 기능을 구현할 때 아래 지점에는 업무 이벤트 로그를 함께 남긴다.
+
+- Job 생성, enqueue 성공, enqueue 실패
+- Worker의 job 시작, 성공, 실패
+- 외부 provider 호출 실패 또는 fallback
+- 파일 업로드/삭제처럼 사용자 데이터 생명주기에 영향을 주는 상태 변경
+- 인증, 세션, WebSocket room join/leave처럼 운영 추적이 필요한 경계 이벤트
+
+로그는 디버깅 가능한 식별자와 상태만 남긴다.
+성공 로그는 `info`, 예상 가능한 거절/부분 실패는 `warn`, 실제 처리 실패는 `error`를 기본으로 한다.
+
+## 금지 데이터
+
+아래 값은 로그에 직접 남기지 않는다.
+
+- API key, access token, cookie, authorization header
+- password, session secret, signed cookie 원문
+- 파일 `contentBase64`, raw audio, transcript 원문, 발표자 script
+- 대용량 request/response body 원문
+- presigned URL처럼 접근 권한을 담은 URL
+
+필요하면 `fileId`, `audioFileId`, `jobId`, `projectId`, `runId`, `fileCount`, `mimeType`처럼 추적 가능한 메타데이터만 남긴다.
