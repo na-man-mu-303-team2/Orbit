@@ -322,7 +322,7 @@ test.describe("ORBIT-2 ORBIT-10 ORBIT-36 ORBIT-58 smoke", () => {
     await page.goto("/");
     await page.getByRole("button", { name: "리허설" }).click();
 
-    await expect(page.getByRole("heading", { name: "리허설" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "리허설", exact: true })).toBeVisible();
     await expect(page.getByText(smokeDeck.slides[0]?.title ?? "")).toBeVisible();
 
     await page.getByRole("button", { name: "리포트 녹음 시작" }).click();
