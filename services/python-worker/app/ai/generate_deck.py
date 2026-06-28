@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from typing import Any, Literal
 
@@ -44,6 +45,14 @@ class GenerateDeckReferenceKeyword(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True)
 
     text: str = Field(min_length=1)
+
+
+class ReferenceContext(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    file_id: str = Field(alias="fileId", min_length=1)
+    content: str = Field(min_length=1)
+    title: str = ""
 
 
 class GenerateDeckMetadata(BaseModel):
@@ -98,6 +107,7 @@ class RawInput(BaseModel):
     metadata: GenerateDeckMetadata
     references: list[GenerateDeckReference]
     reference_keywords: list[GenerateDeckReferenceKeyword]
+    reference_context: list[ReferenceContext]
 
 
 class DeckOutline(BaseModel):
@@ -111,6 +121,20 @@ class SourceEvidence(BaseModel):
     file_id: str = Field(alias="fileId")
     note: str
     confidence: float = 0.7
+
+
+class GeneratedSlideContent(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    title: str = Field(min_length=1)
+    message: str = Field(min_length=1)
+    speaker_notes: str = Field(alias="speakerNotes", min_length=1)
+    keywords: list[str] = Field(default_factory=list)
+
+
+class GeneratedDeckContentPlan(BaseModel):
+    title: str = Field(min_length=1)
+    slides: list[GeneratedSlideContent] = Field(min_length=1)
 
 
 class SlidePlan(BaseModel):
@@ -215,11 +239,68 @@ LAYOUT_BY_SLIDE_TYPE: dict[SlideType, DeckLayout] = {
     "summary": "closing",
 }
 
+DECK_CONTENT_INSTRUCTIONS = """
+You create Korean presentation slide content for ORBIT.
+Return only JSON that matches the requested schema.
 
-def generate_deck(request: GenerateDeckRequest) -> GenerateDeckResponse:
-    raw_input = analyze_input(request)
-    outline = plan_presentation(raw_input)
-    slide_plans = plan_slides(raw_input, outline)
+Rules:
+- Ground the deck in the topic, user prompt, reference keywords, and reference excerpts.
+- Write concrete slide titles, body messages, and speaker notes for the actual subject.
+- Do not write meta placeholders such as "목적과 기대 결과를 소개합니다" or
+  "결정 사항, 실행 순서, 후속 검증 기준을 정리합니다" unless the source is actually about that.
+- Do not invent unsupported facts. If excerpts are sparse, stay close to the topic and keywords.
+- Keep messages concise enough for slide body text.
+""".strip()
+
+DECK_CONTENT_RESPONSE_FORMAT: dict[str, Any] = {
+    "format": {
+        "type": "json_schema",
+        "name": "deck_content_plan",
+        "strict": True,
+        "schema": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "title": {"type": "string"},
+                "slides": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "additionalProperties": False,
+                        "properties": {
+                            "title": {"type": "string"},
+                            "message": {"type": "string"},
+                            "speakerNotes": {"type": "string"},
+                            "keywords": {
+                                "type": "array",
+                                "items": {"type": "string"},
+                            },
+                        },
+                        "required": ["title", "message", "speakerNotes", "keywords"],
+                    },
+                },
+            },
+            "required": ["title", "slides"],
+        },
+    }
+}
+
+
+def generate_deck(
+    request: GenerateDeckRequest,
+    *,
+    client: Any | None = None,
+    model: str | None = None,
+    api_key: str | None = None,
+    reference_context: list[ReferenceContext] | None = None,
+) -> GenerateDeckResponse:
+    raw_input = analyze_input(request, reference_context=reference_context)
+    outline, slide_plans = plan_deck_content(
+        raw_input,
+        client=client,
+        model=model,
+        api_key=api_key,
+    )
     theme = direct_design(raw_input)
     slides = [
         assemble_slide(raw_input, slide_plan, plan_visuals(slide_plan), theme)
@@ -263,7 +344,11 @@ def generate_deck(request: GenerateDeckRequest) -> GenerateDeckResponse:
     return GenerateDeckResponse(deck=deck, warnings=warnings, validation=validation)
 
 
-def analyze_input(request: GenerateDeckRequest) -> RawInput:
+def analyze_input(
+    request: GenerateDeckRequest,
+    *,
+    reference_context: list[ReferenceContext] | None = None,
+) -> RawInput:
     slide_count = choose_slide_count(
         request.target_duration_minutes,
         request.slide_count_range,
@@ -278,6 +363,7 @@ def analyze_input(request: GenerateDeckRequest) -> RawInput:
         metadata=request.metadata,
         references=request.references,
         reference_keywords=request.reference_keywords,
+        reference_context=reference_context or [],
     )
 
 
@@ -286,28 +372,55 @@ def choose_slide_count(target_minutes: int, slide_range: SlideCountRange) -> int
     return min(slide_range.max, suggested)
 
 
+def plan_deck_content(
+    raw_input: RawInput,
+    *,
+    client: Any | None = None,
+    model: str | None = None,
+    api_key: str | None = None,
+) -> tuple[DeckOutline, list[SlidePlan]]:
+    generated_plan = generate_content_plan_with_llm(
+        raw_input,
+        client=client,
+        model=model,
+        api_key=api_key,
+    )
+    if generated_plan is not None:
+        slide_plans = slide_plans_from_generated_content(raw_input, generated_plan)
+        if slide_plans:
+            return (
+                DeckOutline(
+                    title=generated_plan.title,
+                    slide_titles=[slide.title for slide in slide_plans],
+                ),
+                slide_plans,
+            )
+
+    outline = plan_presentation(raw_input)
+    return outline, plan_slides(raw_input, outline)
+
+
 def plan_presentation(raw_input: RawInput) -> DeckOutline:
     titles = [
-        title_for_slide(raw_input.topic, index, raw_input.slide_count)
+        title_for_slide(raw_input, index, raw_input.slide_count)
         for index in range(1, raw_input.slide_count + 1)
     ]
     return DeckOutline(title=f"{raw_input.topic} 발표안", slide_titles=titles)
 
 
-def title_for_slide(topic: str, order: int, total: int) -> str:
+def title_for_slide(raw_input: RawInput, order: int, total: int) -> str:
     if order == 1:
-        return topic
+        return raw_input.topic
     if order == total:
-        return "정리와 다음 단계"
+        return f"{raw_input.topic} 핵심 정리"
 
-    middle_titles = [
-        "현재 과제",
-        "해결 방향",
-        "핵심 구성",
-        "진행 흐름",
-        "비교와 선택 기준",
-        "아키텍처",
-        "지표와 기대 효과",
+    focus_terms = reference_keywords_for(raw_input.reference_keywords)
+    middle_titles = [f"{term}" for term in focus_terms] or [
+        f"{raw_input.topic}의 핵심 특징",
+        f"{raw_input.topic}의 배경과 맥락",
+        f"{raw_input.topic}의 주요 포인트",
+        f"{raw_input.topic}의 사례와 활용",
+        f"{raw_input.topic}를 기억하는 방법",
     ]
     return middle_titles[(order - 2) % len(middle_titles)]
 
@@ -346,18 +459,22 @@ def slide_type_for(order: int, total: int) -> SlideType:
 
 
 def message_for(raw_input: RawInput, slide_type: SlideType, title: str) -> str:
-    base = raw_input.prompt or f"{raw_input.topic}의 핵심 흐름을 명확하게 전달합니다."
+    focus = keyword_phrase(raw_input)
     if slide_type == "cover":
-        return f"{raw_input.topic}의 목적과 기대 결과를 한 문장으로 소개합니다."
+        return f"{raw_input.topic}를 {focus} 중심으로 소개합니다."
     if slide_type == "summary":
-        return "결정 사항, 실행 순서, 후속 검증 기준을 정리합니다."
+        return f"{raw_input.topic}에서 기억할 핵심은 {focus}입니다."
+    if title in reference_keywords_for(raw_input.reference_keywords):
+        return f"{title}가 {raw_input.topic}에서 어떤 의미를 갖는지 설명합니다."
+
+    base = raw_input.prompt or f"{raw_input.topic}의 주요 내용을 구체적으로 정리합니다."
     return f"{title}: {base}"
 
 
 def speaker_notes_for(raw_input: RawInput, title: str, message: str, order: int) -> str:
     return (
-        f"{order}번째 슬라이드에서는 '{title}'를 중심으로 설명합니다. "
-        f"{message} 청중이 다음 행동을 이해하도록 사례와 근거를 함께 언급합니다."
+        f"{order}번째 슬라이드에서는 '{title}'를 중심으로 {raw_input.topic}를 설명합니다. "
+        f"{message} 참고자료 키워드와 연결되는 구체적인 예시를 함께 언급합니다."
     )
 
 
@@ -365,6 +482,14 @@ def keywords_for(topic: str, prompt: str) -> list[str]:
     words = [word.strip(" ,.;:()[]{}") for word in f"{topic} {prompt}".split()]
     unique = [word for index, word in enumerate(words) if word and word not in words[:index]]
     return (unique or [topic])[:5]
+
+
+def keyword_phrase(raw_input: RawInput) -> str:
+    keywords = reference_keywords_for(raw_input.reference_keywords) or keywords_for(
+        raw_input.topic,
+        raw_input.prompt,
+    )
+    return ", ".join(keywords[:3]) if keywords else raw_input.topic
 
 
 def reference_keywords_for(
@@ -382,6 +507,111 @@ def reference_keywords_for(
         keywords.append(text)
 
     return keywords[:5]
+
+
+def generate_content_plan_with_llm(
+    raw_input: RawInput,
+    *,
+    client: Any | None = None,
+    model: str | None = None,
+    api_key: str | None = None,
+) -> GeneratedDeckContentPlan | None:
+    api_client: Any = client
+    if api_client is None:
+        if not api_key:
+            return None
+
+        from openai import OpenAI
+
+        api_client = OpenAI(api_key=api_key)
+
+    try:
+        response = api_client.responses.create(
+            model=model or "gpt-4o-mini",
+            instructions=DECK_CONTENT_INSTRUCTIONS,
+            input=deck_content_prompt(raw_input),
+            text=DECK_CONTENT_RESPONSE_FORMAT,
+        )
+    except Exception:
+        return None
+
+    output_text = str(getattr(response, "output_text", "")).strip()
+    if not output_text:
+        return None
+
+    try:
+        payload = json.loads(output_text)
+        plan = GeneratedDeckContentPlan.model_validate(payload)
+    except Exception:
+        return None
+
+    if len(plan.slides) < raw_input.slide_count:
+        return None
+
+    return GeneratedDeckContentPlan(
+        title=plan.title,
+        slides=plan.slides[: raw_input.slide_count],
+    )
+
+
+def deck_content_prompt(raw_input: RawInput) -> str:
+    keywords = reference_keywords_for(raw_input.reference_keywords)
+    context = "\n\n".join(
+        f"[{item.file_id}] {item.title}\n{item.content[:1200]}"
+        for item in raw_input.reference_context[:6]
+    )
+    return "\n".join(
+        [
+            f"Topic: {raw_input.topic}",
+            f"User prompt: {raw_input.prompt or '(none)'}",
+            f"Slide count: {raw_input.slide_count}",
+            f"Audience: {raw_input.metadata.audience}",
+            f"Purpose: {raw_input.metadata.purpose}",
+            f"Tone: {raw_input.metadata.tone}",
+            f"Reference keywords: {', '.join(keywords) if keywords else '(none)'}",
+            "Reference excerpts:",
+            context or "(none)",
+        ]
+    )
+
+
+def slide_plans_from_generated_content(
+    raw_input: RawInput,
+    plan: GeneratedDeckContentPlan,
+) -> list[SlidePlan]:
+    keyword_pool = reference_keywords_for(raw_input.reference_keywords)
+    slide_plans: list[SlidePlan] = []
+
+    for index, slide in enumerate(plan.slides[: raw_input.slide_count], start=1):
+        slide_keywords = merge_keywords(keyword_pool, slide.keywords)
+        slide_plans.append(
+            SlidePlan(
+                order=index,
+                slide_type=slide_type_for(index, raw_input.slide_count),
+                title=slide.title,
+                message=slide.message,
+                speaker_notes=slide.speaker_notes,
+                keywords=slide_keywords[:3],
+                evidence=evidence_for(raw_input.references, slide.title),
+            )
+        )
+
+    return slide_plans
+
+
+def merge_keywords(primary: list[str], secondary: list[str]) -> list[str]:
+    merged: list[str] = []
+    seen: set[str] = set()
+    for keyword in [*primary, *secondary]:
+        text = keyword.strip()
+        key = text.casefold()
+        if not text or key in seen:
+            continue
+
+        seen.add(key)
+        merged.append(text)
+
+    return merged
 
 
 def evidence_for(
