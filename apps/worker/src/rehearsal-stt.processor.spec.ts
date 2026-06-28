@@ -46,8 +46,11 @@ describe("processRehearsalSttJob", () => {
     const query = vi
       .fn()
       .mockResolvedValueOnce([jobRow("running", 10, null, null)])
+      .mockResolvedValueOnce([runRow()])
       .mockResolvedValueOnce([assetRow])
       .mockResolvedValueOnce([deckRow])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([runRow()])
       .mockResolvedValueOnce([
         jobRow(
           "succeeded",
@@ -112,14 +115,21 @@ describe("processRehearsalSttJob", () => {
       expect.objectContaining({ method: "POST" }),
     );
     expect(storage.removeObject).toHaveBeenCalledWith(assetRow.storage_key);
+    expect(query).toHaveBeenCalledWith(
+      expect.stringContaining("UPDATE project_assets"),
+      expect.arrayContaining(["file-audio", "project-a"]),
+    );
   });
 
   it("deletes raw audio and marks the job failed when STT fails", async () => {
     const query = vi
       .fn()
       .mockResolvedValueOnce([jobRow("running", 10, null, null)])
+      .mockResolvedValueOnce([runRow()])
       .mockResolvedValueOnce([assetRow])
       .mockResolvedValueOnce([deckRow])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([runRow()])
       .mockResolvedValueOnce([
         jobRow("failed", 10, null, {
           code: "PYTHON_WORKER_STT_FAILED",
@@ -144,12 +154,66 @@ describe("processRehearsalSttJob", () => {
     expect(storage.removeObject).toHaveBeenCalledWith(assetRow.storage_key);
   });
 
+  it("deletes raw audio and marks the job failed when analysis fails", async () => {
+    const query = vi
+      .fn()
+      .mockResolvedValueOnce([jobRow("running", 10, null, null)])
+      .mockResolvedValueOnce([runRow()])
+      .mockResolvedValueOnce([assetRow])
+      .mockResolvedValueOnce([deckRow])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([runRow()])
+      .mockResolvedValueOnce([
+        jobRow("failed", 60, null, {
+          code: "PYTHON_WORKER_ANALYZE_FAILED",
+          message: "analysis unavailable",
+        }),
+      ]);
+    const storage = createStorage();
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({
+              runId: "run-a",
+              projectId: "project-a",
+              fileId: "file-audio",
+              transcript: "안녕하세요 ORBIT 발표입니다",
+              language: "ko-KR",
+              provider: "fake",
+              model: "fake-transcriber",
+              durationSeconds: 3.5,
+              segments: [{ text: "안녕하세요 ORBIT 발표입니다" }],
+            }),
+          ),
+        )
+        .mockResolvedValueOnce(
+          new Response("analysis unavailable", { status: 500 }),
+        ),
+    );
+
+    const job = await processRehearsalSttJob(
+      { query } as unknown as DataSource,
+      storage,
+      "http://localhost:8000",
+      payload,
+    );
+
+    expect(job.status).toBe("failed");
+    expect(job.error?.code).toBe("PYTHON_WORKER_ANALYZE_FAILED");
+    expect(storage.removeObject).toHaveBeenCalledWith(assetRow.storage_key);
+  });
+
   it("marks deletion failure explicitly", async () => {
     const query = vi
       .fn()
       .mockResolvedValueOnce([jobRow("running", 10, null, null)])
+      .mockResolvedValueOnce([runRow()])
       .mockResolvedValueOnce([assetRow])
       .mockResolvedValueOnce([deckRow])
+      .mockResolvedValueOnce([runRow()])
       .mockResolvedValueOnce([
         jobRow("failed", 90, null, {
           code: "RAW_AUDIO_DELETE_FAILED",
@@ -227,4 +291,8 @@ function jobRow(
     createdAt: "2026-06-27T00:00:00.000Z",
     updatedAt: "2026-06-27T00:00:01.000Z",
   };
+}
+
+function runRow() {
+  return { run_id: "run-a" };
 }

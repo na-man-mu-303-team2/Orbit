@@ -8,7 +8,7 @@ const rehearsalSttPayloadSchema = z.object({
   projectId: z.string().min(1),
   runId: z.string().min(1),
   deckId: z.string().min(1),
-  audioFileId: z.string().min(1),
+  audioFileId: z.string().min(1)
 });
 
 const audioAssetRowSchema = z.object({
@@ -18,11 +18,11 @@ const audioAssetRowSchema = z.object({
   mime_type: z.string().min(1),
   original_name: z.string().min(1),
   purpose: z.literal("rehearsal-audio"),
-  status: z.literal("uploaded"),
+  status: z.literal("uploaded")
 });
 
 const deckRowSchema = z.object({
-  deck_json: z.record(z.unknown()),
+  deck_json: z.record(z.unknown())
 });
 
 const transcribeResponseSchema = z.object({
@@ -34,7 +34,7 @@ const transcribeResponseSchema = z.object({
   provider: z.string(),
   model: z.string(),
   durationSeconds: z.number().nullable().optional(),
-  segments: z.array(z.record(z.unknown())),
+  segments: z.array(z.record(z.unknown()))
 });
 
 const analyzeResponseSchema = z.object({
@@ -43,14 +43,17 @@ const analyzeResponseSchema = z.object({
   fillerWordCount: z.number().int(),
   pauseCount: z.number().int(),
   keywordCoverage: z.number(),
-  coaching: z.record(z.unknown()).optional(),
+  coaching: z.record(z.unknown()).optional()
 });
+
+type RehearsalSttPayload = z.infer<typeof rehearsalSttPayloadSchema>;
+type AudioAssetRow = z.infer<typeof audioAssetRowSchema>;
 
 export async function processRehearsalSttJob(
   dataSource: DataSource,
   storage: Pick<StoragePort, "getSignedReadUrl" | "removeObject">,
   pythonWorkerUrl: string,
-  rawPayload: unknown,
+  rawPayload: unknown
 ): Promise<Job> {
   const payloadResult = rehearsalSttPayloadSchema.safeParse(rawPayload);
   if (!payloadResult.success) {
@@ -66,12 +69,12 @@ export async function processRehearsalSttJob(
       throw new Error(payloadResult.error.message);
     }
 
-    return failJob(
+    return failJobOnly(
       dataSource,
       jobId,
       0,
       "REHEARSAL_STT_PAYLOAD_INVALID",
-      payloadResult.error.message,
+      payloadResult.error.message
     );
   }
 
@@ -81,10 +84,26 @@ export async function processRehearsalSttJob(
     progress: 10,
     message: "Rehearsal STT running.",
     result: null,
-    error: null,
+    error: null
   });
 
-  let asset: z.infer<typeof audioAssetRowSchema>;
+  try {
+    await updateRun(dataSource, payload, {
+      status: "processing",
+      error: null,
+      jobId: payload.jobId
+    });
+  } catch (error) {
+    return failJobOnly(
+      dataSource,
+      payload.jobId,
+      10,
+      "REHEARSAL_RUN_UNAVAILABLE",
+      error instanceof Error ? error.message : "Rehearsal run unavailable."
+    );
+  }
+
+  let asset: AudioAssetRow;
   let deck: z.infer<typeof deckRowSchema>;
   let storageUrl: string;
   try {
@@ -92,12 +111,12 @@ export async function processRehearsalSttJob(
     deck = await loadDeck(dataSource, payload.projectId, payload.deckId);
     storageUrl = await storage.getSignedReadUrl(asset.storage_key);
   } catch (error) {
-    return failJob(
+    return failJobAndRun(
       dataSource,
-      payload.jobId,
+      payload,
       10,
       "REHEARSAL_STT_INPUT_UNAVAILABLE",
-      error instanceof Error ? error.message : "Rehearsal STT input unavailable.",
+      error instanceof Error ? error.message : "Rehearsal STT input unavailable."
     );
   }
 
@@ -112,21 +131,21 @@ export async function processRehearsalSttJob(
         audio: {
           fileId: payload.audioFileId,
           storageUrl,
-          mimeType: asset.mime_type,
-        },
+          mimeType: asset.mime_type
+        }
       }),
-      signal: AbortSignal.timeout(120_000),
+      signal: AbortSignal.timeout(120_000)
     });
 
     if (!response.ok) {
       return failAfterDelete(
         dataSource,
         storage,
-        asset.storage_key,
-        payload.jobId,
+        asset,
+        payload,
         10,
         "PYTHON_WORKER_STT_FAILED",
-        (await response.text()) || "Python worker STT failed.",
+        (await response.text()) || "Python worker STT failed."
       );
     }
 
@@ -135,11 +154,11 @@ export async function processRehearsalSttJob(
     return failAfterDelete(
       dataSource,
       storage,
-      asset.storage_key,
-      payload.jobId,
+      asset,
+      payload,
       10,
       "PYTHON_WORKER_STT_UNAVAILABLE",
-      error instanceof Error ? error.message : "Python worker STT unavailable.",
+      error instanceof Error ? error.message : "Python worker STT unavailable."
     );
   }
 
@@ -149,31 +168,38 @@ export async function processRehearsalSttJob(
       pythonWorkerUrl,
       payload,
       deck.deck_json,
-      transcribePayload,
+      transcribePayload
     );
   } catch (error) {
     return failAfterDelete(
       dataSource,
       storage,
-      asset.storage_key,
-      payload.jobId,
+      asset,
+      payload,
       60,
       "PYTHON_WORKER_ANALYZE_FAILED",
-      error instanceof Error ? error.message : "Python worker analysis failed.",
+      error instanceof Error ? error.message : "Python worker analysis failed."
     );
   }
 
+  let rawAudioDeletedAt: string;
   try {
-    await storage.removeObject(asset.storage_key);
+    rawAudioDeletedAt = await deleteRawAudio(dataSource, storage, asset);
   } catch (error) {
-    return failJob(
+    return failJobAndRun(
       dataSource,
-      payload.jobId,
+      payload,
       90,
       "RAW_AUDIO_DELETE_FAILED",
-      error instanceof Error ? error.message : "Raw audio deletion failed.",
+      error instanceof Error ? error.message : "Raw audio deletion failed."
     );
   }
+
+  await updateRun(dataSource, payload, {
+    status: "succeeded",
+    error: null,
+    rawAudioDeletedAt
+  });
 
   return updateJob(dataSource, payload.jobId, {
     status: "succeeded",
@@ -198,20 +224,20 @@ export async function processRehearsalSttJob(
         wordsPerMinute: analysis.wordsPerMinute,
         fillerWordCount: analysis.fillerWordCount,
         pauseCount: analysis.pauseCount,
-        keywordCoverage: analysis.keywordCoverage,
+        keywordCoverage: analysis.keywordCoverage
       },
       coaching: analysis.coaching ?? null,
-      rawAudioDeletedAt: new Date().toISOString(),
+      rawAudioDeletedAt
     },
-    error: null,
+    error: null
   });
 }
 
 async function analyzeTranscript(
   pythonWorkerUrl: string,
-  payload: z.infer<typeof rehearsalSttPayloadSchema>,
+  payload: RehearsalSttPayload,
   deck: Record<string, unknown>,
-  transcription: z.infer<typeof transcribeResponseSchema>,
+  transcription: z.infer<typeof transcribeResponseSchema>
 ) {
   const response = await fetch(workerUrl(pythonWorkerUrl, "/rehearsal/analyze"), {
     method: "POST",
@@ -223,9 +249,9 @@ async function analyzeTranscript(
       transcript: transcription.transcript,
       durationSeconds: transcription.durationSeconds ?? 0,
       segments: transcription.segments,
-      deckKeywords: collectDeckKeywords(deck),
+      deckKeywords: collectDeckKeywords(deck)
     }),
-    signal: AbortSignal.timeout(120_000),
+    signal: AbortSignal.timeout(120_000)
   });
 
   if (!response.ok) {
@@ -237,7 +263,7 @@ async function analyzeTranscript(
 
 async function loadAudioAsset(
   dataSource: DataSource,
-  payload: z.infer<typeof rehearsalSttPayloadSchema>,
+  payload: RehearsalSttPayload
 ) {
   const rows = await dataSource.query(
     `
@@ -245,67 +271,141 @@ async function loadAudioAsset(
       FROM project_assets
       WHERE file_id = $1 AND project_id = $2
     `,
-    [payload.audioFileId, payload.projectId],
+    [payload.audioFileId, payload.projectId]
   );
 
-  if (!rows[0]) {
+  const row = readFirstQueryRow<unknown>(rows);
+  if (!row) {
     throw new Error(`Rehearsal audio asset not found: ${payload.audioFileId}`);
   }
 
-  return audioAssetRowSchema.parse(rows[0]);
+  return audioAssetRowSchema.parse(row);
 }
 
 async function loadDeck(dataSource: DataSource, projectId: string, deckId: string) {
   const rows = await dataSource.query(
     `SELECT deck_json FROM decks WHERE project_id = $1 AND deck_id = $2`,
-    [projectId, deckId],
+    [projectId, deckId]
   );
 
-  if (!rows[0]) {
+  const row = readFirstQueryRow<unknown>(rows);
+  if (!row) {
     throw new Error(`Deck not found: ${deckId}`);
   }
 
-  return deckRowSchema.parse(rows[0]);
+  return deckRowSchema.parse(row);
 }
 
 async function failAfterDelete(
   dataSource: DataSource,
   storage: Pick<StoragePort, "removeObject">,
-  storageKey: string,
-  jobId: string,
+  asset: AudioAssetRow,
+  payload: RehearsalSttPayload,
+  progress: number,
+  code: string,
+  message: string
+) {
+  try {
+    const rawAudioDeletedAt = await deleteRawAudio(dataSource, storage, asset);
+    return failJobAndRun(dataSource, payload, progress, code, message, {
+      rawAudioDeletedAt
+    });
+  } catch (error) {
+    return failJobAndRun(
+      dataSource,
+      payload,
+      progress,
+      "RAW_AUDIO_DELETE_FAILED",
+      error instanceof Error ? error.message : "Raw audio deletion failed."
+    );
+  }
+}
+
+async function deleteRawAudio(
+  dataSource: DataSource,
+  storage: Pick<StoragePort, "removeObject">,
+  asset: AudioAssetRow
+) {
+  await storage.removeObject(asset.storage_key);
+  const deletedAt = new Date().toISOString();
+  await dataSource.query(
+    `
+      UPDATE project_assets
+      SET status = 'deleted',
+          deleted_at = $3
+      WHERE file_id = $1 AND project_id = $2
+    `,
+    [asset.file_id, asset.project_id, deletedAt]
+  );
+  return deletedAt;
+}
+
+async function failJobAndRun(
+  dataSource: DataSource,
+  payload: RehearsalSttPayload,
   progress: number,
   code: string,
   message: string,
-) {
-  try {
-    await storage.removeObject(storageKey);
-  } catch (error) {
-    return failJob(
-      dataSource,
-      jobId,
-      progress,
-      "RAW_AUDIO_DELETE_FAILED",
-      error instanceof Error ? error.message : "Raw audio deletion failed.",
-    );
-  }
-
-  return failJob(dataSource, jobId, progress, code, message);
+  options: { rawAudioDeletedAt?: string } = {}
+): Promise<Job> {
+  await updateRun(dataSource, payload, {
+    status: "failed",
+    error: { code, message },
+    rawAudioDeletedAt: options.rawAudioDeletedAt
+  });
+  return failJobOnly(dataSource, payload.jobId, progress, code, message);
 }
 
-async function failJob(
+async function failJobOnly(
   dataSource: DataSource,
   jobId: string,
   progress: number,
   code: string,
-  message: string,
+  message: string
 ): Promise<Job> {
   return updateJob(dataSource, jobId, {
     status: "failed",
     progress,
     message: "Rehearsal STT failed.",
     result: null,
-    error: { code, message },
+    error: { code, message }
   });
+}
+
+async function updateRun(
+  dataSource: DataSource,
+  payload: RehearsalSttPayload,
+  patch: {
+    status: "processing" | "succeeded" | "failed";
+    error: { code: string; message: string } | null;
+    jobId?: string;
+    rawAudioDeletedAt?: string;
+  }
+): Promise<void> {
+  const rows = await dataSource.query(
+    `
+      UPDATE rehearsal_runs
+      SET status = $2,
+          job_id = COALESCE($3, job_id),
+          error = $4,
+          raw_audio_deleted_at = COALESCE($5::timestamptz, raw_audio_deleted_at),
+          updated_at = now()
+      WHERE run_id = $1 AND project_id = $6
+      RETURNING run_id
+    `,
+    [
+      payload.runId,
+      patch.status,
+      patch.jobId ?? null,
+      patch.error,
+      patch.rawAudioDeletedAt ?? null,
+      payload.projectId
+    ]
+  );
+
+  if (!readFirstQueryRow(rows)) {
+    throw new Error(`Rehearsal run not found: ${payload.runId}`);
+  }
 }
 
 async function updateJob(
@@ -317,7 +417,7 @@ async function updateJob(
     message: string;
     result: Record<string, unknown> | null;
     error: { code: string; message: string } | null;
-  },
+  }
 ): Promise<Job> {
   const rows = await dataSource.query(
     `
@@ -329,30 +429,83 @@ async function updateJob(
           error = $6,
           updated_at = now()
       WHERE job_id = $1
-      RETURNING
-        job_id AS "jobId",
-        project_id AS "projectId",
-        type,
-        status,
-        progress,
-        message,
-        result,
-        error,
-        created_at AS "createdAt",
-        updated_at AS "updatedAt"
+      RETURNING *
     `,
-    [jobId, patch.status, patch.progress, patch.message, patch.result, patch.error],
+    [jobId, patch.status, patch.progress, patch.message, patch.result, patch.error]
   );
 
-  if (!rows[0]) {
+  const row = readFirstQueryRow<JobRow>(rows);
+  if (!row) {
     throw new Error(`Job not found: ${jobId}`);
   }
 
+  return rowToJob(row);
+}
+
+type JobRow = {
+  job_id?: string;
+  jobId?: string;
+  project_id?: string;
+  projectId?: string;
+  type: Job["type"];
+  status: Job["status"];
+  progress: number;
+  message: string;
+  result: Record<string, unknown> | null;
+  error: { code: string; message: string } | null;
+  created_at?: Date | string;
+  createdAt?: Date | string;
+  updated_at?: Date | string;
+  updatedAt?: Date | string;
+};
+
+function rowToJob(row: JobRow): Job {
   return {
-    ...rows[0],
-    createdAt: new Date(rows[0].createdAt).toISOString(),
-    updatedAt: new Date(rows[0].updatedAt).toISOString(),
+    jobId: readRequiredString(row.jobId ?? row.job_id, "jobId"),
+    projectId: readRequiredString(row.projectId ?? row.project_id, "projectId"),
+    type: row.type,
+    status: row.status,
+    progress: row.progress,
+    message: row.message,
+    result: row.result,
+    error: row.error,
+    createdAt: toIso(row.createdAt ?? row.created_at),
+    updatedAt: toIso(row.updatedAt ?? row.updated_at)
   };
+}
+
+function readFirstQueryRow<T>(queryResult: unknown): T | null {
+  if (!Array.isArray(queryResult)) {
+    return null;
+  }
+
+  const first = queryResult[0];
+  if (Array.isArray(first)) {
+    return (first[0] as T | undefined) ?? null;
+  }
+
+  return (first as T | undefined) ?? null;
+}
+
+function readRequiredString(value: unknown, field: string) {
+  if (typeof value !== "string" || !value) {
+    throw new Error(`Missing ${field} in job row.`);
+  }
+
+  return value;
+}
+
+function toIso(value: Date | string | undefined): string {
+  if (value === undefined) {
+    throw new Error("Missing timestamp in job row.");
+  }
+
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    throw new Error(`Invalid timestamp value: ${String(value)}`);
+  }
+
+  return date.toISOString();
 }
 
 type DeckKeywordPayload = {
@@ -387,14 +540,14 @@ function collectDeckKeywords(deck: Record<string, unknown>): DeckKeywordPayload[
             : [],
           abbreviations: Array.isArray(record.abbreviations)
             ? record.abbreviations.filter(
-                (value): value is string => typeof value === "string",
+                (value): value is string => typeof value === "string"
               )
-            : [],
+            : []
         };
       })
       .filter(
         (keyword: DeckKeywordPayload | null): keyword is DeckKeywordPayload =>
-          Boolean(keyword && keyword.text),
+          Boolean(keyword && keyword.text)
       );
   });
 }
@@ -402,6 +555,6 @@ function collectDeckKeywords(deck: Record<string, unknown>): DeckKeywordPayload[
 function workerUrl(baseUrl: string, path: string): string {
   return new URL(
     path,
-    baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`,
+    baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`
   ).toString();
 }
