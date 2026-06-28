@@ -50,6 +50,18 @@
 - Affected files: `.github/workflows/ci.yml`.
 - Follow-up review notes: 추후 CI 로그 마스킹과 애플리케이션 로그 정책이 정리되면 제한된 로그 아티팩트 업로드 방식을 재검토한다.
 
+## ORBIT path-scoped PR CI policy
+
+- Context: 모든 PR에서 TypeScript/Python/Compose/Playwright smoke를 실행하면 docs-only 또는 automation-only PR도 제품 회귀 테스트를 기다려야 한다. 반대로 workflow 전체를 path filter로 스킵하면 branch protection에서 required check가 pending으로 남을 수 있다.
+- Options considered:
+  - 기존처럼 모든 PR에서 전체 빠른 gate를 실행한다.
+  - workflow-level `paths-ignore`로 docs-only PR 전체 CI를 스킵한다.
+  - 선행 변경 파일 분류 job을 두고 job-level `if`로 관련 검증만 실행한다.
+- Final decision: PR에서는 `detect-changes` job으로 docs-only, automation-only, CI workflow, product/API/shared/worker/compose/env/lockfile 변경을 분류하고 관련 job만 실행한다. `main`/`develop` push에서는 merge 후 조합 검증을 위해 전체 빠른 gate를 유지한다. 자동 리뷰 코드, prompt, schema, workflow, root automation 파일이 바뀐 PR에서는 Codex review job을 실행하지 않는다.
+- Rationale: 구현과 무관한 PR의 대기 시간을 줄이면서도 required check pending 문제를 피한다. 또한 PR이 변경한 automation code가 `OPENAI_API_KEY` 또는 `GITHUB_TOKEN`과 함께 실행되는 경로를 차단한다.
+- Affected files: `.github/workflows/ci.yml`, `docs/testing/jira-test-matrix.md`.
+- Follow-up review notes: branch protection에서 개별 job을 required check로 쓰는 경우 skipped job 표시가 팀 기대와 맞는지 확인하고, 필요하면 별도 aggregate required check를 추가한다.
+
 ## ORBIT-90 API project and asset boundary
 
 - Context: ORBIT-90은 프로젝트 생성과 project-scoped asset upload URL/complete API를 구현한다. 저장소 문서는 1차 스프린트가 임시 사용자 기반 프로젝트 생성에서 시작한다고 정의하며, 인증/워크스페이스 초대 흐름은 별도 선행/인접 작업이다.
@@ -97,3 +109,27 @@
 - Rationale: 로컬/CI 브라우저 smoke에서 CORS와 host signature mismatch를 피하면서도, staging/production S3 전환 시 같은 `StoragePort`와 upload-url/complete 계약을 유지할 수 있다.
 - Affected files: `packages/storage/src/index.ts`, `packages/storage/package.json`, `apps/api/src/files/**`, `docker-compose.yml`, `pnpm-lock.yaml`.
 - Follow-up review notes: staging/production에서는 S3 bucket CORS origin을 실제 web origin으로 제한하고, S3 credentials는 secret store로만 주입한다.
+
+## ORBIT develop Codex review automation policy
+
+- Context: `develop` 대상 PR마다 Codex standard review를 실행해 diff, 관련 계약 문서, 주변 코드, CI 결과를 함께 검토해야 한다. 리뷰는 파일/라인, 레포 규칙, 계약/API, 테스트/CI, 실제 위험, 공식 기술스택 문서 근거를 남겨야 한다.
+- Options considered:
+  - GitHub 내장 Codex 리뷰만 사용한다.
+  - GitHub Actions에서 diff만 Codex에 전달한다.
+  - GitHub Actions에서 diff, 레포 규칙, 계약 문서, 기술스택 공식문서 요약, CI 결과를 묶어 Codex standard review를 실행한다.
+- Final decision: `pull_request`의 `opened`, `synchronize`, `reopened`, `ready_for_review` 이벤트에서 base branch가 `develop`이고 same-repository PR이며 draft가 아닐 때만 Codex review를 실행한다. Codex가 읽는 context는 secret-like path와 lockfile/binary/generated full diff를 제외하고, 생성된 리뷰는 diff line 검증 후 GitHub PR review로 게시한다.
+- Rationale: 비용을 통제하면서도 계약/API와 테스트 누락을 확인할 충분한 맥락을 제공하고, fork PR 또는 secret 노출 위험을 기본적으로 차단한다.
+- Affected files: `.github/workflows/ci.yml`, `.github/codex/**`, `infra/scripts/build-codex-review-context.mjs`, `infra/scripts/post-codex-review.mjs`, `docs/review/official-tech-stack-references.md`, `.gitignore`.
+- Follow-up review notes: GitHub Actions에서 첫 실행 결과를 확인한 뒤 Codex model/effort, inline comment cap, fork PR 정책, branch protection required check 포함 여부를 별도 검토한다.
+
+## ORBIT Korean Codex review output policy
+
+- Context: Codex standard review는 ORBIT 팀 PR에 직접 게시되는 리뷰이므로, 한국어 협업 흐름과 맞아야 한다. 기존 prompt와 게시 스크립트 문구는 영어 summary와 inline comment를 만들었다.
+- Options considered:
+  - Codex action의 기본 영어 출력에 맡긴다.
+  - GitHub에 게시하기 직전에 번역 단계를 별도로 추가한다.
+  - prompt에서 사람이 읽는 필드를 한국어로 요구하고, 게시 스크립트의 고정 문구도 한국어로 바꾼다.
+- Final decision: `summary`, `title`, `body`, `followUps`는 한국어로 작성하게 하고, severity/category enum, 파일 경로, line reference, command, schema key는 원문을 유지한다. 게시 스크립트의 fixed heading과 evidence label도 한국어로 표시한다.
+- Rationale: 별도 번역 단계 없이 리뷰 품질과 schema 안정성을 유지하면서, 팀원이 PR에서 바로 읽을 수 있는 한국어 리뷰를 만든다.
+- Affected files: `.github/codex/prompts/develop-standard-review.md`, `infra/scripts/post-codex-review.mjs`, `docs/decision-log.md`.
+- Follow-up review notes: 첫 한국어 자동 리뷰 결과에서 용어가 어색하거나 severity/category가 번역되어 schema 검증을 깨는지 확인한다.
