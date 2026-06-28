@@ -1,22 +1,17 @@
-import type { Job } from "@orbit/shared";
+import {
+  generateDeckJobResultSchema,
+  generateDeckRequestSchema,
+  generateDeckResponseSchema,
+  type Deck,
+  type Job
+} from "@orbit/shared";
 import type { DataSource } from "typeorm";
 import { z } from "zod";
 
-const referenceExtractPayloadSchema = z.object({
+const generateDeckPayloadSchema = z.object({
   jobId: z.string().min(1),
   projectId: z.string().min(1),
-  files: z.array(
-    z.object({
-      fileId: z.string().min(1),
-      originalName: z.string().min(1),
-      mimeType: z.string().min(1),
-      contentBase64: z.string().min(1)
-    })
-  )
-});
-
-const referenceExtractWorkerResponseSchema = z.object({
-  files: z.array(z.record(z.unknown()))
+  request: generateDeckRequestSchema
 });
 
 type JobRow = {
@@ -32,12 +27,12 @@ type JobRow = {
   updated_at: Date | string;
 };
 
-export async function processReferenceExtractJob(
+export async function processGenerateDeckJob(
   dataSource: DataSource,
   pythonWorkerUrl: string,
   rawPayload: unknown
 ): Promise<Job> {
-  const payloadResult = referenceExtractPayloadSchema.safeParse(rawPayload);
+  const payloadResult = generateDeckPayloadSchema.safeParse(rawPayload);
   if (!payloadResult.success) {
     const jobId =
       rawPayload &&
@@ -55,7 +50,7 @@ export async function processReferenceExtractJob(
       dataSource,
       jobId,
       0,
-      "REFERENCE_EXTRACT_PAYLOAD_INVALID",
+      "GENERATE_DECK_PAYLOAD_INVALID",
       payloadResult.error.message
     );
   }
@@ -63,76 +58,100 @@ export async function processReferenceExtractJob(
   const payload = payloadResult.data;
   await updateJob(dataSource, payload.jobId, {
     status: "running",
-    progress: 10,
-    message: "Reference extraction running.",
+    progress: 15,
+    message: "AI deck generation running.",
     result: null,
     error: null
   });
 
-  const form = new FormData();
-  form.append("project_id", payload.projectId);
-
-  for (const file of payload.files) {
-    form.append("file_ids", file.fileId);
-    form.append(
-      "files",
-      new Blob([Buffer.from(file.contentBase64, "base64")], {
-        type: file.mimeType
-      }),
-      file.originalName
-    );
-  }
-
   let response: Response;
   try {
-    response = await fetch(workerUrl(pythonWorkerUrl, "/documents/parse"), {
+    response = await fetch(workerUrl(pythonWorkerUrl, "/ai/generate-deck"), {
       method: "POST",
-      body: form,
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        projectId: payload.projectId,
+        ...payload.request
+      }),
       signal: AbortSignal.timeout(120_000)
     });
   } catch (error) {
     return failJob(
       dataSource,
       payload.jobId,
-      10,
-      "PYTHON_WORKER_EXTRACT_UNAVAILABLE",
+      15,
+      "PYTHON_WORKER_GENERATE_DECK_UNAVAILABLE",
       error instanceof Error ? error.message : "Python worker unavailable."
     );
   }
 
   if (!response.ok) {
-    const message = (await response.text()) || "Python worker extraction failed.";
+    const message = (await response.text()) || "Python worker deck generation failed.";
     return failJob(
       dataSource,
       payload.jobId,
-      10,
-      "PYTHON_WORKER_EXTRACT_FAILED",
+      15,
+      "PYTHON_WORKER_GENERATE_DECK_FAILED",
       message
     );
   }
 
   try {
-    const workerPayload = referenceExtractWorkerResponseSchema.parse(
-      await response.json()
-    );
+    const workerPayload = generateDeckResponseSchema.parse(await response.json());
+    if (!workerPayload.validation.passed) {
+      return failJob(
+        dataSource,
+        payload.jobId,
+        75,
+        "GENERATE_DECK_VALIDATION_FAILED",
+        "Generated deck did not pass validation.",
+        { validation: workerPayload.validation }
+      );
+    }
+
+    await saveDeck(dataSource, workerPayload.deck);
+    const result = generateDeckJobResultSchema.parse({
+      deckId: workerPayload.deck.deckId,
+      ...workerPayload
+    });
+
     return updateJob(dataSource, payload.jobId, {
       status: "succeeded",
       progress: 100,
-      message: "Reference extraction completed.",
-      result: { files: workerPayload.files },
+      message: "AI deck generation completed.",
+      result,
       error: null
     });
   } catch (error) {
     return failJob(
       dataSource,
       payload.jobId,
-      10,
-      "PYTHON_WORKER_EXTRACT_INVALID_RESPONSE",
+      75,
+      "PYTHON_WORKER_GENERATE_DECK_INVALID_RESPONSE",
       error instanceof Error
         ? error.message
-        : "Python worker returned invalid extraction response."
+        : "Python worker returned invalid deck generation response."
     );
   }
+}
+
+async function saveDeck(
+  dataSource: DataSource,
+  deck: Deck
+): Promise<void> {
+  await dataSource.query(
+    `
+      INSERT INTO decks (project_id, deck_id, deck_json, version, updated_at)
+      VALUES ($1, $2, $3, $4, now())
+      ON CONFLICT (project_id)
+      DO UPDATE SET
+        deck_id = EXCLUDED.deck_id,
+        deck_json = EXCLUDED.deck_json,
+        version = EXCLUDED.version,
+        updated_at = EXCLUDED.updated_at
+    `,
+    [deck.projectId, deck.deckId, deck, deck.version]
+  );
 }
 
 async function failJob(
@@ -140,13 +159,14 @@ async function failJob(
   jobId: string,
   progress: number,
   code: string,
-  message: string
+  message: string,
+  result: Record<string, unknown> | null = null
 ): Promise<Job> {
   return updateJob(dataSource, jobId, {
     status: "failed",
     progress,
-    message: "Python worker extraction failed.",
-    result: null,
+    message: "AI deck generation failed.",
+    result,
     error: { code, message }
   });
 }

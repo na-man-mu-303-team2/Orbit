@@ -1,4 +1,5 @@
 import {
+  generateDeckQueueName,
   redisConnectionOptions,
   referenceExtractQueueName
 } from "@orbit/job-queue";
@@ -9,13 +10,14 @@ import { InjectDataSource } from "@nestjs/typeorm";
 import { Job as BullMqJob, Worker as BullMqWorker } from "bullmq";
 import { InjectPinoLogger, PinoLogger } from "nestjs-pino";
 import type { DataSource } from "typeorm";
+import { processGenerateDeckJob } from "./generate-deck.processor";
 import { serializeLogError } from "./logging";
 import { processReferenceExtractJob } from "./reference-extract.processor";
 
 @Injectable()
 export class WorkerService implements OnModuleInit, OnModuleDestroy {
   private readonly config = loadOrbitConfig(process.env, { service: "worker" });
-  private worker: BullMqWorker | null = null;
+  private workers: BullMqWorker[] = [];
 
   constructor(
     @InjectDataSource() private readonly dataSource: DataSource,
@@ -24,11 +26,12 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
   ) {}
 
   onModuleInit() {
+    const queueNames = [referenceExtractQueueName, generateDeckQueueName];
     this.logger.info(
       {
         event: "worker.ready",
         driver: this.config.JOB_QUEUE_DRIVER,
-        queueNames: [referenceExtractQueueName]
+        queueNames
       },
       "Worker ready."
     );
@@ -36,26 +39,52 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
       throw new Error("SqsJobQueue adapter is not implemented yet.");
     }
 
-    this.worker = new BullMqWorker(
-      referenceExtractQueueName,
-      (job) =>
-        this.processJob(referenceExtractQueueName, job, () =>
-          processReferenceExtractJob(
-            this.dataSource,
-            this.config.PYTHON_WORKER_URL,
-            job.data
-          )
-        ),
+    this.workers = [
+      this.createWorker(referenceExtractQueueName, (job) =>
+        processReferenceExtractJob(
+          this.dataSource,
+          this.config.PYTHON_WORKER_URL,
+          job.data
+        )
+      ),
+      this.createWorker(generateDeckQueueName, (job) =>
+        processGenerateDeckJob(
+          this.dataSource,
+          this.config.PYTHON_WORKER_URL,
+          job.data
+        )
+      )
+    ];
+  }
+
+  async onModuleDestroy() {
+    await Promise.all(this.workers.map((worker) => worker.close()));
+    this.logger.info(
+      {
+        event: "worker.stopped",
+        queueNames: [referenceExtractQueueName, generateDeckQueueName]
+      },
+      "Worker stopped."
+    );
+  }
+
+  private createWorker(
+    queueName: string,
+    handler: (job: BullMqJob) => Promise<Job>
+  ): BullMqWorker {
+    const worker = new BullMqWorker(
+      queueName,
+      (job) => this.processJob(queueName, job, () => handler(job)),
       {
         connection: redisConnectionOptions(this.config.REDIS_URL)
       }
     );
 
-    this.worker.on("failed", (job, error) => {
+    worker.on("failed", (job, error) => {
       this.logger.error(
         {
           event: "bullmq.job.failed",
-          queueName: referenceExtractQueueName,
+          queueName,
           bullJobId: job?.id,
           attemptsMade: job?.attemptsMade,
           ...jobPayloadFields(job?.data),
@@ -64,19 +93,8 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
         "BullMQ job failed."
       );
     });
-  }
 
-  async onModuleDestroy() {
-    if (this.worker) {
-      await this.worker.close();
-    }
-    this.logger.info(
-      {
-        event: "worker.stopped",
-        queueNames: [referenceExtractQueueName]
-      },
-      "Worker stopped."
-    );
+    return worker;
   }
 
   private async processJob(

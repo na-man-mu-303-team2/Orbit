@@ -80,15 +80,15 @@ function jobRow(
   error: { code: string; message: string } | null
 ) {
   return {
-    jobId: "job-1",
-    projectId: "project-a",
+    job_id: "job-1",
+    project_id: "project-a",
     type: "reference-extract",
     status,
     progress,
     message: status,
     result,
     error,
-    createdAt: "2026-06-27T00:00:00.000Z",
-    updatedAt: "2026-06-27T00:00:01.000Z"
+    created_at: "2026-06-27T00:00:00.000Z",
+    updated_at: "2026-06-27T00:00:01.000Z"
   };
 }

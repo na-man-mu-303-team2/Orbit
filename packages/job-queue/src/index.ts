@@ -1,4 +1,12 @@
-import { Job, JobType, demoIds, jobSchema, nowIso } from "@orbit/shared";
+import {
+  Job,
+  JobType,
+  demoIds,
+  generateDeckRequestSchema,
+  jobSchema,
+  nowIso,
+  type GenerateDeckRequest
+} from "@orbit/shared";
 import { Queue } from "bullmq";
 
 export interface EnqueueJobInput {
@@ -19,6 +27,8 @@ export type UpdateJobInput = Partial<
 
 export const referenceExtractQueueName = "reference-extract";
 export const referenceExtractJobName = "reference-extract";
+export const generateDeckQueueName = "generate-deck";
+export const generateDeckJobName = "generate-deck";
 
 export interface ReferenceExtractBullMqFile {
   fileId: string;
@@ -35,6 +45,17 @@ export interface ReferenceExtractBullMqPayload {
 
 export interface EnqueueReferenceExtractJobInput
   extends ReferenceExtractBullMqPayload {
+  driver: "bullmq" | "sqs";
+  redisUrl: string;
+}
+
+export interface GenerateDeckBullMqPayload {
+  jobId: string;
+  projectId: string;
+  request: GenerateDeckRequest;
+}
+
+export interface EnqueueGenerateDeckJobInput extends GenerateDeckBullMqPayload {
   driver: "bullmq" | "sqs";
   redisUrl: string;
 }
@@ -56,6 +77,28 @@ export async function enqueueReferenceExtractJob(
       projectId: input.projectId,
       files: input.files
     } satisfies ReferenceExtractBullMqPayload);
+  } finally {
+    await queue.close();
+  }
+}
+
+export async function enqueueGenerateDeckJob(
+  input: EnqueueGenerateDeckJobInput
+): Promise<void> {
+  if (input.driver === "sqs") {
+    throw new Error("SqsJobQueue adapter is not implemented yet.");
+  }
+
+  const queue = new Queue(generateDeckQueueName, {
+    connection: redisConnectionOptions(input.redisUrl)
+  });
+
+  try {
+    await queue.add(generateDeckJobName, {
+      jobId: input.jobId,
+      projectId: input.projectId,
+      request: generateDeckRequestSchema.parse(input.request)
+    } satisfies GenerateDeckBullMqPayload);
   } finally {
     await queue.close();
   }
