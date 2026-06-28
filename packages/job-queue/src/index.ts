@@ -1,5 +1,4 @@
 import { Job, JobType, demoIds, jobSchema, nowIso } from "@orbit/shared";
-import { Queue } from "bullmq";
 
 export interface EnqueueJobInput {
   projectId?: string;
@@ -19,6 +18,8 @@ export type UpdateJobInput = Partial<
 
 export const referenceExtractQueueName = "reference-extract";
 export const referenceExtractJobName = "reference-extract";
+export const rehearsalSttQueueName = "rehearsal-stt";
+export const rehearsalSttJobName = "rehearsal-stt";
 
 export interface ReferenceExtractBullMqFile {
   fileId: string;
@@ -39,6 +40,19 @@ export interface EnqueueReferenceExtractJobInput
   redisUrl: string;
 }
 
+export interface RehearsalSttBullMqPayload {
+  jobId: string;
+  projectId: string;
+  runId: string;
+  deckId: string;
+  audioFileId: string;
+}
+
+export interface EnqueueRehearsalSttJobInput extends RehearsalSttBullMqPayload {
+  driver: "bullmq" | "sqs";
+  redisUrl: string;
+}
+
 export async function enqueueReferenceExtractJob(
   input: EnqueueReferenceExtractJobInput
 ): Promise<void> {
@@ -46,6 +60,7 @@ export async function enqueueReferenceExtractJob(
     throw new Error("SqsJobQueue adapter is not implemented yet.");
   }
 
+  const { Queue } = await import("bullmq");
   const queue = new Queue(referenceExtractQueueName, {
     connection: redisConnectionOptions(input.redisUrl)
   });
@@ -56,6 +71,31 @@ export async function enqueueReferenceExtractJob(
       projectId: input.projectId,
       files: input.files
     } satisfies ReferenceExtractBullMqPayload);
+  } finally {
+    await queue.close();
+  }
+}
+
+export async function enqueueRehearsalSttJob(
+  input: EnqueueRehearsalSttJobInput
+): Promise<void> {
+  if (input.driver === "sqs") {
+    throw new Error("SqsJobQueue adapter is not implemented yet.");
+  }
+
+  const { Queue } = await import("bullmq");
+  const queue = new Queue(rehearsalSttQueueName, {
+    connection: redisConnectionOptions(input.redisUrl)
+  });
+
+  try {
+    await queue.add(rehearsalSttJobName, {
+      jobId: input.jobId,
+      projectId: input.projectId,
+      runId: input.runId,
+      deckId: input.deckId,
+      audioFileId: input.audioFileId
+    } satisfies RehearsalSttBullMqPayload);
   } finally {
     await queue.close();
   }
