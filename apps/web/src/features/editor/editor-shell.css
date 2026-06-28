@@ -857,6 +857,20 @@
   letter-spacing: 0.04em;
 }
 
+.shape-menu-section-title {
+  padding: 8px 8px 4px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+}
+
+.shape-menu-divider {
+  height: 1px;
+  margin: 4px 2px;
+  background: rgba(148, 163, 184, 0.24);
+}
+
 .shape-menu-item {
   display: flex;
   align-items: center;

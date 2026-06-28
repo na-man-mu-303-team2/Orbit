@@ -318,8 +318,13 @@ export function createDemoDeck(): Deck {
             width: 220,
             height: 160,
             props: {
-              label: "schema-link",
-              variant: "callout"
+              fill: "#f5edff",
+              stroke: "#9333ea",
+              strokeWidth: 2,
+              viewBoxWidth: 220,
+              viewBoxHeight: 160,
+              pathData:
+                "M20 12 H200 C210 12 218 20 218 30 V96 C218 106 210 114 200 114 H92 L48 148 L56 114 H20 C10 114 2 106 2 96 V30 C2 20 10 12 20 12 Z"
             }
           }
         ],

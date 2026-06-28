@@ -27,13 +27,15 @@ vi.mock("react-konva", () => {
   }) => <span>{text ?? children}</span>;
 
   return {
+    Arrow: () => <span data-konva-arrow="true" />,
     Circle: () => null,
     Group,
     Image: () => null,
     Layer,
     Line: () => null,
     Rect: () => null,
-    RegularPolygon: () => null,
+    RegularPolygon: () => <span data-konva-polygon="true" />,
+    Shape: () => <span data-konva-shape="true" />,
     Star: () => null,
     Stage,
     Text,
@@ -87,6 +89,107 @@ describe("editor shell", () => {
     expect(html).toContain("발표 메모");
     expect(html).toContain("저장됨");
     expect(html).toContain("AI 편집 도우미");
+    expect(html).toContain("이미지");
+  });
+
+  it("renders arrow, polygon, group, and custom shape elements on the canvas", () => {
+    const queryClient = createTestQueryClient();
+    const deck = createDemoDeck();
+    const firstSlide = deck.slides[0];
+
+    firstSlide.elements = [
+      ...firstSlide.elements,
+      {
+        elementId: "el_11",
+        type: "arrow",
+        role: "decoration",
+        x: 980,
+        y: 520,
+        width: 320,
+        height: 28,
+        rotation: 0,
+        opacity: 1,
+        zIndex: 10,
+        locked: false,
+        visible: true,
+        props: {
+          fill: "transparent",
+          stroke: "#2563eb",
+          strokeWidth: 4,
+          borderRadius: 0
+        }
+      } as Deck["slides"][number]["elements"][number],
+      {
+        elementId: "el_12",
+        type: "polygon",
+        role: "highlight",
+        x: 1360,
+        y: 500,
+        width: 180,
+        height: 180,
+        rotation: 0,
+        opacity: 1,
+        zIndex: 11,
+        locked: false,
+        visible: true,
+        props: {
+          fill: "#dbeafe",
+          stroke: "#2563eb",
+          strokeWidth: 3,
+          borderRadius: 0,
+          sides: 6
+        } as Deck["slides"][number]["elements"][number]["props"]
+      } as Deck["slides"][number]["elements"][number],
+      {
+        elementId: "el_13",
+        type: "group",
+        role: "decoration",
+        x: 980,
+        y: 590,
+        width: 320,
+        height: 180,
+        rotation: 0,
+        opacity: 1,
+        zIndex: 12,
+        locked: false,
+        visible: true,
+        props: {
+          childElementIds: ["el_1", "el_2"]
+        }
+      } as Deck["slides"][number]["elements"][number],
+      {
+        elementId: "el_14",
+        type: "customShape",
+        role: "highlight",
+        x: 980,
+        y: 800,
+        width: 280,
+        height: 160,
+        rotation: 0,
+        opacity: 1,
+        zIndex: 13,
+        locked: false,
+        visible: true,
+        props: {
+          fill: "#f5edff",
+          stroke: "#9333ea",
+          strokeWidth: 2,
+          viewBoxHeight: 160,
+          viewBoxWidth: 220,
+          pathData:
+            "M20 12 H200 C210 12 218 20 218 30 V96 C218 106 210 114 200 114 H92 L48 148 L56 114 H20 C10 114 2 106 2 96 V30 C2 20 10 12 20 12 Z"
+        }
+      } as Deck["slides"][number]["elements"][number]
+    ];
+
+    setDeckData(queryClient, deck);
+
+    const html = renderApp(queryClient);
+
+    expect(html).toContain("data-konva-arrow");
+    expect(html).toContain("data-konva-polygon");
+    expect(html).toContain("data-konva-shape");
+    expect(html).toContain("GROUP");
   });
 
   it("keeps the demo deck visible while the deck query is pending", () => {

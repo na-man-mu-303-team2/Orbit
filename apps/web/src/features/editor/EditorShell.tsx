@@ -2,7 +2,6 @@ import {
   createAddElementPatch,
   createAddSlidePatch,
   createDemoDeck,
-  createDeleteElementPatch,
   createElementId,
   createSlideId,
   createUpdateElementPropsPatch
@@ -18,6 +17,7 @@ import {
 } from "../projects/ProjectAssetWorkspace";
 import type {
   Chart,
+  CustomShapeElementProps,
   Deck,
   DeckCanvas,
   DeckElement,
@@ -33,6 +33,7 @@ import type {
 } from "@orbit/shared";
 import { useQuery } from "@tanstack/react-query";
 import type Konva from "konva";
+import { Path as KonvaPathShape } from "konva/lib/shapes/Path";
 import { Text as KonvaTextShape } from "konva/lib/shapes/Text";
 import {
   BarChart3,
@@ -50,6 +51,7 @@ import {
   LockOpen,
   Minus,
   MonitorPlay,
+  MoveRight,
   MousePointer2,
   PanelLeftClose,
   PanelLeftOpen,
@@ -66,6 +68,7 @@ import {
   Wand2
 } from "lucide-react";
 import {
+  Arrow as KonvaArrow,
   Circle,
   Group,
   Image as KonvaImage,
@@ -73,6 +76,7 @@ import {
   Line,
   Rect,
   RegularPolygon,
+  Shape,
   Stage,
   Star as KonvaStar,
   Text,
@@ -116,17 +120,33 @@ const editorImageMimeTypes = new Set(["image/jpeg", "image/png", "image/webp"]);
 type TopMenu = "file" | "resize" | "editMode" | "quickEdit" | "presentation";
 type SlidePanelView = "thumbnail" | "list";
 type InsertTool = "select" | "text" | "rect" | "ellipse" | "line";
-type ShapeInsertType = "rect" | "ellipse" | "line" | "polygon" | "star";
+type ShapeInsertType =
+  | "rect"
+  | "ellipse"
+  | "line"
+  | "arrow"
+  | "triangle"
+  | "polygon"
+  | "star";
 type ShapeMenuPosition = {
   left: number;
   top: number;
 };
-type ElementContextMenuState = {
-  elementId: string;
-  left: number;
-  slideId: string;
-  top: number;
-};
+type ElementContextMenuState =
+  | {
+      elementId: string;
+      left: number;
+      slideId: string;
+      top: number;
+      type: "image";
+    }
+  | {
+      elementIds: string[];
+      left: number;
+      slideId: string;
+      top: number;
+      type: "selection";
+    };
 type ElementClipboardState = {
   element: DeckElement;
   pasteCount: number;
@@ -184,7 +204,7 @@ export function EditorShell() {
     useState<SlidePanelView>("thumbnail");
   const [showIds, setShowIds] = useState(false);
   const [selectedKeywordId, setSelectedKeywordId] = useState<string | null>(null);
-  const [selectedElementId, setSelectedElementId] = useState<string | null>(null);
+  const [selectedElementIds, setSelectedElementIds] = useState<string[]>([]);
   const [activeTopMenu, setActiveTopMenu] = useState<TopMenu | null>(null);
   const [lastPatchLabel, setLastPatchLabel] = useState("편집 없음");
   const [insertTool, setInsertTool] = useState<InsertTool>("select");
@@ -250,9 +270,14 @@ export function EditorShell() {
     currentSlide?.keywords.find(
       (keyword) => keyword.keywordId === selectedKeywordId
     ) ?? null;
+  const selectedElementId = selectedElementIds.at(-1) ?? null;
+  const selectedElements = visibleElements.filter((element) =>
+    selectedElementIds.includes(element.elementId)
+  );
   const selectedElement =
-    visibleElements.find((element) => element.elementId === selectedElementId) ??
-    null;
+    selectedElementIds.length === 1
+      ? selectedElements.find((element) => element.elementId === selectedElementId) ?? null
+      : null;
   const isDev = import.meta.env.DEV;
   const fileMenuItems = [
     { icon: FolderPlus, label: "새 프레젠테이션", meta: "빈 덱" },
@@ -299,6 +324,9 @@ export function EditorShell() {
     setDeck(loadedDeck);
     setUndoStack([]);
     setRedoStack([]);
+    setSelectedElementIds([]);
+    setEditingElementId(null);
+    setElementContextMenu(null);
   }, [loadedDeck]);
 
   useEffect(() => {
@@ -324,6 +352,22 @@ export function EditorShell() {
     setLastPatchLabel(
       `${result.changeRecord.operations[0]?.type ?? "patch"} · v${result.metadata.nextVersion}`
     );
+  }
+
+  function handleElementSelection(elementId: string, options?: { append?: boolean }) {
+    setElementContextMenu(null);
+
+    if (options?.append) {
+      setEditingElementId(null);
+      setSelectedElementIds((current) =>
+        current.includes(elementId)
+          ? current.filter((currentElementId) => currentElementId !== elementId)
+          : [...current, elementId]
+      );
+      return;
+    }
+
+    setSelectedElementIds([elementId]);
   }
 
   function handleUndo() {
@@ -474,7 +518,7 @@ export function EditorShell() {
           activeDeck
         );
         setCurrentSlideIndex(targetSlideIndex);
-        setSelectedElementId(target.elementId);
+        setSelectedElementIds([target.elementId]);
       } else {
         const elementId = createElementId(activeDeck);
         const naturalSize = await readImageNaturalSize(file).catch(() => ({
@@ -506,7 +550,7 @@ export function EditorShell() {
           activeDeck
         );
         setCurrentSlideIndex(targetSlideIndex);
-        setSelectedElementId(elementId);
+        setSelectedElementIds([elementId]);
         setEditingElementId(null);
         setInsertTool("select");
       }
@@ -572,7 +616,7 @@ export function EditorShell() {
         }
       })
     );
-    setSelectedElementId(elementId);
+    setSelectedElementIds([elementId]);
     setEditingElementId(elementId);
     setInsertTool("select");
   }
@@ -625,7 +669,7 @@ export function EditorShell() {
         }
       })
     );
-    setSelectedElementId(elementId);
+    setSelectedElementIds([elementId]);
   }
 
   function handleInsertShapeElement(shapeType: ShapeInsertType) {
@@ -641,34 +685,46 @@ export function EditorShell() {
       rect: { x: 260, y: 220, width: 280, height: 160 },
       ellipse: { x: 260, y: 220, width: 180, height: 180 },
       line: { x: 240, y: 280, width: 320, height: 12 },
+      arrow: { x: 240, y: 280, width: 360, height: 28 },
+      triangle: { x: 260, y: 220, width: 180, height: 180 },
       polygon: { x: 260, y: 220, width: 180, height: 180 },
       star: { x: 260, y: 220, width: 180, height: 180 }
     };
     const frame = defaultFrameByShape[shapeType];
+    const baseElement = {
+      elementId,
+      x: frame.x,
+      y: frame.y,
+      width: frame.width,
+      height: frame.height,
+      rotation: 0,
+      opacity: 1,
+      zIndex: visibleElements.length + 1,
+      locked: false,
+      visible: true
+    } as const;
+    let nextElement: DeckElement;
 
-    commitPatch(
-      createAddElementPatch(deck, currentSlide.slideId, {
-        elementId,
-        type: shapeType,
-        role: shapeType === "line" ? "decoration" : "highlight",
-        x: frame.x,
-        y: frame.y,
-        width: frame.width,
-        height: frame.height,
-        rotation: 0,
-        opacity: 1,
-        zIndex: visibleElements.length + 1,
-        locked: false,
-        visible: true,
-        props: {
-          fill: shapeType === "line" ? "transparent" : "#dbeafe",
-          stroke: "#2563eb",
-          strokeWidth: 3,
-          borderRadius: 18
-        }
-      })
-    );
-    setSelectedElementId(elementId);
+    const nextShapeType = shapeType === "triangle" ? "polygon" : shapeType;
+    nextElement = {
+      ...baseElement,
+      type: nextShapeType,
+      role: shapeType === "line" || shapeType === "arrow" ? "decoration" : "highlight",
+      props: {
+        fill: shapeType === "line" || shapeType === "arrow" ? "transparent" : "#dbeafe",
+        stroke: "#2563eb",
+        strokeWidth: 3,
+        borderRadius: 18,
+        ...(shapeType === "triangle"
+          ? { sides: 3 }
+          : shapeType === "polygon"
+            ? { sides: 6 }
+            : {})
+      } as ShapeElementProps
+    };
+
+    commitPatch(createAddElementPatch(deck, currentSlide.slideId, nextElement));
+    setSelectedElementIds([elementId]);
     setInsertTool("select");
     setIsShapeMenuOpen(false);
   }
@@ -720,19 +776,26 @@ export function EditorShell() {
       })
     );
     setCurrentSlideIndex(deck.slides.length);
-    setSelectedElementId(null);
+    setSelectedElementIds([]);
   }
 
   function handleDeleteSelectedElement() {
-    if (!currentSlide || !selectedElementId) {
+    if (!currentSlide || selectedElementIds.length === 0) {
       return;
     }
 
     setElementContextMenu(null);
-    commitPatch(
-      createDeleteElementPatch(deck, currentSlide.slideId, selectedElementId)
-    );
-    setSelectedElementId(null);
+    commitPatch({
+      deckId: deck.deckId,
+      baseVersion: deck.version,
+      source: "user",
+      operations: selectedElementIds.map((elementId) => ({
+        type: "delete_element" as const,
+        slideId: currentSlide.slideId,
+        elementId
+      }))
+    });
+    setSelectedElementIds([]);
     setEditingElementId(null);
   }
 
@@ -759,7 +822,7 @@ export function EditorShell() {
       })
     );
 
-    setSelectedElementId(nextElementId);
+    setSelectedElementIds([nextElementId]);
     setEditingElementId(null);
 
     return nextElementId;
@@ -879,7 +942,7 @@ export function EditorShell() {
       );
     }
 
-    setSelectedElementId(elementId);
+    setSelectedElementIds([elementId]);
     setInsertTool("select");
   }
 
@@ -897,9 +960,45 @@ export function EditorShell() {
     }
   }
 
+  function handleCreateGroupFromSelection() {
+    if (!currentSlide || selectedElements.length < 2) {
+      return;
+    }
+
+    const elementId = createElementId(deck);
+    const bounds = getGroupedSelectionBounds(selectedElements);
+    const highestZIndex = selectedElements.reduce(
+      (currentHighest, element) => Math.max(currentHighest, element.zIndex),
+      0
+    );
+
+    commitPatch(
+      createAddElementPatch(deck, currentSlide.slideId, {
+        elementId,
+        type: "group",
+        role: "decoration",
+        x: bounds.x,
+        y: bounds.y,
+        width: bounds.width,
+        height: bounds.height,
+        rotation: 0,
+        opacity: 1,
+        zIndex: highestZIndex + 1,
+        locked: false,
+        visible: true,
+        props: {
+          childElementIds: selectedElements.map((element) => element.elementId)
+        }
+      })
+    );
+    setElementContextMenu(null);
+    setEditingElementId(null);
+    setSelectedElementIds([elementId]);
+  }
+
   function handleCanvasBackgroundSelectionClear() {
     setElementContextMenu(null);
-    setSelectedElementId(null);
+    setSelectedElementIds([]);
     setEditingElementId(null);
   }
 
@@ -909,29 +1008,40 @@ export function EditorShell() {
     element: DeckElement;
     slideId: string;
   }) {
-    if (args.element.type !== "image") {
+    const isSelectedElement = selectedElementIds.includes(args.element.elementId);
+    const isGroupingTarget = isSelectedElement && selectedElementIds.length > 1;
+
+    if (!isGroupingTarget && args.element.type !== "image") {
       return;
     }
 
-    const viewportPadding = 12;
-    const menuWidth = 196;
-    const menuHeight = 60;
-    const left = Math.min(
-      Math.max(viewportPadding, args.clientX),
-      Math.max(viewportPadding, window.innerWidth - menuWidth - viewportPadding)
-    );
-    const top = Math.min(
-      Math.max(viewportPadding, args.clientY),
-      Math.max(viewportPadding, window.innerHeight - menuHeight - viewportPadding)
-    );
+    const { left, top } = getContextMenuPosition({
+      clientX: args.clientX,
+      clientY: args.clientY,
+      height: 60,
+      width: 196
+    });
 
-    setSelectedElementId(args.element.elementId);
     setEditingElementId(null);
+
+    if (isGroupingTarget) {
+      setElementContextMenu({
+        elementIds: selectedElementIds,
+        left,
+        slideId: args.slideId,
+        top,
+        type: "selection"
+      });
+      return;
+    }
+
+    setSelectedElementIds([args.element.elementId]);
     setElementContextMenu({
       elementId: args.element.elementId,
       left,
       slideId: args.slideId,
-      top
+      top,
+      type: "image"
     });
   }
 
@@ -1084,15 +1194,12 @@ export function EditorShell() {
   }, [currentSlide, selectedKeywordId]);
 
   useEffect(() => {
-    if (
-      selectedElementId &&
-      !currentSlide?.elements.some(
-        (element) => element.elementId === selectedElementId
+    setSelectedElementIds((current) =>
+      current.filter((elementId) =>
+        currentSlide?.elements.some((element) => element.elementId === elementId)
       )
-    ) {
-      setSelectedElementId(null);
-    }
-  }, [currentSlide, selectedElementId]);
+    );
+  }, [currentSlide]);
 
   useEffect(() => {
     if (currentSlideIndex > 0 && currentSlideIndex >= deck.slides.length) {
@@ -1104,7 +1211,11 @@ export function EditorShell() {
     function handleKeyDown(event: KeyboardEvent) {
       const isEditableTarget = isKeyboardEditableTarget(event.target);
 
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "z") {
+      if (
+        !isEditableTarget &&
+        (event.metaKey || event.ctrlKey) &&
+        event.key.toLowerCase() === "z"
+      ) {
         event.preventDefault();
         if (event.shiftKey) {
           handleRedo();
@@ -1113,15 +1224,27 @@ export function EditorShell() {
         }
       }
 
-      if (event.key === "Delete" || event.key === "Backspace") {
-        if (selectedElementId && editingElementId !== selectedElementId) {
+      if (
+        !isEditableTarget &&
+        (event.key === "Delete" || event.key === "Backspace")
+      ) {
+        if (
+          selectedElementIds.length > 0 &&
+          (!editingElementId ||
+            selectedElementIds.length > 1 ||
+            editingElementId !== selectedElementId)
+        ) {
           event.preventDefault();
           handleDeleteSelectedElement();
         }
       }
 
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "d") {
-        if (selectedElementId) {
+      if (
+        !isEditableTarget &&
+        (event.metaKey || event.ctrlKey) &&
+        event.key.toLowerCase() === "d"
+      ) {
+        if (selectedElementIds.length === 1) {
           event.preventDefault();
           handleDuplicateSelectedElement();
         }
@@ -1142,15 +1265,18 @@ export function EditorShell() {
       }
 
       if (event.key === "Escape") {
-        if (editingElementId !== selectedElementId && selectedElementId) {
-          setSelectedElementId(null);
+        if (
+          selectedElementIds.length > 0 &&
+          (selectedElementIds.length > 1 || editingElementId !== selectedElementId)
+        ) {
+          setSelectedElementIds([]);
         }
       }
     }
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [deck, editingElementId, selectedElementId, selectedElement, currentSlide]);
+  }, [deck, editingElementId, selectedElementId, selectedElement, selectedElementIds, currentSlide]);
 
   useEffect(() => {
     if (!elementContextMenu) {
@@ -1206,10 +1332,19 @@ export function EditorShell() {
                 className="shape-menu-item"
                 role="menuitem"
                 type="button"
+                onClick={() => handleInsertShapeElement("triangle")}
+              >
+                <span className="shape-menu-symbol">⬡</span>
+                <span>삼각형</span>
+              </button>
+              <button
+                className="shape-menu-item"
+                role="menuitem"
+                type="button"
                 onClick={() => handleInsertShapeElement("polygon")}
               >
-                <span className="shape-menu-symbol">△</span>
-                <span>삼각형</span>
+                <span className="shape-menu-symbol">⬢</span>
+                <span>다각형</span>
               </button>
               <button
                 className="shape-menu-item"
@@ -1228,6 +1363,15 @@ export function EditorShell() {
               >
                 <Minus size={14} />
                 <span>선</span>
+              </button>
+              <button
+                className="shape-menu-item"
+                role="menuitem"
+                type="button"
+                onClick={() => handleInsertShapeElement("arrow")}
+              >
+                <MoveRight size={14} />
+                <span>화살표</span>
               </button>
             </div>
           </div>,
@@ -1251,22 +1395,34 @@ export function EditorShell() {
               }}
               onMouseDown={(event) => event.stopPropagation()}
             >
-              <button
-                className="element-context-menu-item"
-                disabled={isImageUploadPending}
-                role="menuitem"
-                type="button"
-                onClick={() =>
-                  openImageFilePicker({
-                    elementId: elementContextMenu.elementId,
-                    slideId: elementContextMenu.slideId,
-                    type: "replace"
-                  })
-                }
-              >
-                <ImagePlus size={16} />
-                <span>{isImageUploadPending ? "업로드 중..." : "이미지 바꾸기"}</span>
-              </button>
+              {elementContextMenu.type === "image" ? (
+                <button
+                  className="element-context-menu-item"
+                  disabled={isImageUploadPending}
+                  role="menuitem"
+                  type="button"
+                  onClick={() =>
+                    openImageFilePicker({
+                      elementId: elementContextMenu.elementId,
+                      slideId: elementContextMenu.slideId,
+                      type: "replace"
+                    })
+                  }
+                >
+                  <ImagePlus size={16} />
+                  <span>{isImageUploadPending ? "업로드 중..." : "이미지 바꾸기"}</span>
+                </button>
+              ) : (
+                <button
+                  className="element-context-menu-item"
+                  role="menuitem"
+                  type="button"
+                  onClick={handleCreateGroupFromSelection}
+                >
+                  <Shapes size={16} />
+                  <span>그룹</span>
+                </button>
+              )}
             </div>
           </div>,
           document.body
@@ -1665,6 +1821,22 @@ export function EditorShell() {
                   <BarChart3 size={14} />
                   차트
                 </button>
+                <button
+                  className="tool-button"
+                  disabled={!currentSlide || isImageUploadPending}
+                  type="button"
+                  onClick={() =>
+                    currentSlide
+                      ? openImageFilePicker({
+                          slideId: currentSlide.slideId,
+                          type: "insert"
+                        })
+                      : undefined
+                  }
+                >
+                  <ImagePlus size={14} />
+                  이미지
+                </button>
               </div>
 
               <div className="tool-group">
@@ -1694,7 +1866,7 @@ export function EditorShell() {
             <SelectionQuickBar
               key={`quickbar-${selectedElement?.elementId ?? currentSlide?.slideId ?? "none"}`}
               element={selectedElement}
-              slide={currentSlide}
+              slide={selectedElementIds.length > 1 ? null : currentSlide}
               showIds={showIds}
               onChangeFrame={(frame) => {
                 if (!selectedElement || !currentSlide) {
@@ -1741,7 +1913,7 @@ export function EditorShell() {
                     deck={deck}
                     editingElementId={editingElementId}
                     insertTool={insertTool}
-                    selectedElementId={selectedElementId}
+                    selectedElementIds={selectedElementIds}
                     showIds={showIds}
                     slide={currentSlide}
                     stageScale={stageScale}
@@ -1755,7 +1927,7 @@ export function EditorShell() {
                     onDoubleClickElement={(elementId) => setEditingElementId(elementId)}
                     onFinishEditing={() => setEditingElementId(null)}
                     onOpenElementContextMenu={handleOpenElementContextMenu}
-                    onSelectElement={(elementId) => setSelectedElementId(elementId)}
+                    onSelectElement={handleElementSelection}
                   />
                 </div>
               </div>
@@ -2489,11 +2661,12 @@ function ElementQuickBarFields(props: {
     element.type === "rect" ||
     element.type === "ellipse" ||
     element.type === "line" ||
+    element.type === "arrow" ||
     element.type === "polygon" ||
     element.type === "star" ||
     element.type === "ring"
   ) {
-    const shapeProps = element.props as ShapeElementProps;
+    const shapeProps = element.props as ShapeElementProps & { sides?: number };
 
     return (
       <>
@@ -2527,6 +2700,73 @@ function ElementQuickBarFields(props: {
             value={shapeProps.borderRadius}
           />
         ) : null}
+        {element.type === "polygon" ? (
+          <PropertyNumberField
+            className="compact-property-field compact-property-field-sm"
+            label="꼭짓점"
+            max={12}
+            min={3}
+            onCommit={(value) =>
+              onChangeProps({ sides: Math.max(3, Math.min(12, Math.round(value))) })
+            }
+            value={shapeProps.sides ?? 3}
+          />
+        ) : null}
+      </>
+    );
+  }
+
+  if (element.type === "group") {
+    const groupProps = element.props as GroupElementProps;
+
+    return (
+      <PropertyTextField
+        className="compact-property-field compact-property-field-lg"
+        label="자식 ID"
+        value={groupProps.childElementIds.join(", ")}
+        onCommit={(value) =>
+          onChangeProps({
+            childElementIds: value
+              .split(",")
+              .map((token) => token.trim())
+              .filter(Boolean)
+          })
+        }
+      />
+    );
+  }
+
+  if (element.type === "customShape") {
+    const customShapeProps = element.props as CustomShapeElementProps;
+    const pathData = getCustomShapePathData(customShapeProps);
+
+    return (
+      <>
+        <PropertyTextField
+          className="compact-property-field compact-property-field-lg"
+          label="SVG 경로"
+          value={pathData}
+          onCommit={(value) => onChangeProps({ pathData: value })}
+        />
+        <PropertyColorField
+          className="compact-property-field compact-property-field-color"
+          label="채우기"
+          value={getCustomShapePaint(customShapeProps, "fill", "#f5edff")}
+          onCommit={(value) => onChangeProps({ fill: value })}
+        />
+        <PropertyColorField
+          className="compact-property-field compact-property-field-color"
+          label="선 색"
+          value={getCustomShapePaint(customShapeProps, "stroke", "#9333ea")}
+          onCommit={(value) => onChangeProps({ stroke: value })}
+        />
+        <PropertyNumberField
+          className="compact-property-field compact-property-field-sm"
+          label="두께"
+          min={0}
+          onCommit={(value) => onChangeProps({ strokeWidth: value })}
+          value={getCustomShapeStrokeWidth(customShapeProps)}
+        />
       </>
     );
   }
@@ -2709,21 +2949,189 @@ function PropertyColorField(props: {
   );
 }
 
+function getGroupedSelectionBounds(elements: DeckElement[]) {
+  const minX = Math.min(...elements.map((element) => element.x));
+  const minY = Math.min(...elements.map((element) => element.y));
+  const maxX = Math.max(...elements.map((element) => element.x + element.width));
+  const maxY = Math.max(...elements.map((element) => element.y + element.height));
+
+  return {
+    x: minX,
+    y: minY,
+    width: Math.max(1, maxX - minX),
+    height: Math.max(1, maxY - minY)
+  };
+}
+
+function getContextMenuPosition(args: {
+  clientX: number;
+  clientY: number;
+  width: number;
+  height: number;
+}) {
+  const viewportPadding = 12;
+
+  return {
+    left: Math.min(
+      Math.max(viewportPadding, args.clientX),
+      Math.max(viewportPadding, window.innerWidth - args.width - viewportPadding)
+    ),
+    top: Math.min(
+      Math.max(viewportPadding, args.clientY),
+      Math.max(viewportPadding, window.innerHeight - args.height - viewportPadding)
+    )
+  };
+}
+
+function getCustomShapePathData(props: CustomShapeElementProps) {
+  const candidates = [props.pathData, props.path, props.svgPath];
+
+  for (const candidate of candidates) {
+    if (typeof candidate === "string" && candidate.trim()) {
+      return candidate.trim();
+    }
+  }
+
+  return "";
+}
+
+function getCustomShapeDimension(
+  props: CustomShapeElementProps,
+  key: "viewBoxWidth" | "viewBoxHeight",
+  fallback: number
+) {
+  const value = props[key];
+  return typeof value === "number" && Number.isFinite(value) && value > 0
+    ? value
+    : fallback;
+}
+
+function getCustomShapePaint(
+  props: CustomShapeElementProps,
+  key: "fill" | "stroke",
+  fallback: string
+) {
+  const value = props[key];
+  return typeof value === "string" && value.trim() ? value : fallback;
+}
+
+function getCustomShapeStrokeWidth(props: CustomShapeElementProps) {
+  const value = props.strokeWidth;
+  return typeof value === "number" && Number.isFinite(value) && value >= 0
+    ? value
+    : 2;
+}
+
+function getCustomShapeDataArray(pathData: string) {
+  if (!pathData) {
+    return [] as ReturnType<typeof KonvaPathShape.parsePathData>;
+  }
+
+  try {
+    return KonvaPathShape.parsePathData(pathData);
+  } catch {
+    return [] as ReturnType<typeof KonvaPathShape.parsePathData>;
+  }
+}
+
+function drawCustomShapeScene(
+  context: Konva.Context,
+  shape: Konva.Shape,
+  dataArray: ReturnType<typeof KonvaPathShape.parsePathData>
+) {
+  context.beginPath();
+
+  let isClosed = false;
+
+  for (const segment of dataArray) {
+    const { command, points } = segment;
+
+    switch (command) {
+      case "L":
+        context.lineTo(points[0], points[1]);
+        break;
+      case "M":
+        context.moveTo(points[0], points[1]);
+        break;
+      case "C":
+        context.bezierCurveTo(
+          points[0],
+          points[1],
+          points[2],
+          points[3],
+          points[4],
+          points[5]
+        );
+        break;
+      case "Q":
+        context.quadraticCurveTo(points[0], points[1], points[2], points[3]);
+        break;
+      case "A": {
+        const cx = points[0];
+        const cy = points[1];
+        const rx = points[2];
+        const ry = points[3];
+        const theta = points[4];
+        const deltaTheta = points[5];
+        const psi = points[6];
+        const sweepFlag = points[7];
+        const radius = rx > ry ? rx : ry;
+        const scaleX = rx > ry ? 1 : rx / ry;
+        const scaleY = rx > ry ? ry / rx : 1;
+
+        context.translate(cx, cy);
+        context.rotate(psi);
+        context.scale(scaleX, scaleY);
+        context.arc(
+          0,
+          0,
+          radius,
+          theta,
+          theta + deltaTheta,
+          sweepFlag === 0
+        );
+        context.scale(1 / scaleX, 1 / scaleY);
+        context.rotate(-psi);
+        context.translate(-cx, -cy);
+        break;
+      }
+      case "z":
+        isClosed = true;
+        context.closePath();
+        break;
+    }
+  }
+
+  if (!isClosed && !shape.hasFill()) {
+    context.strokeShape(shape);
+    return;
+  }
+
+  context.fillStrokeShape(shape);
+}
+
 function truncateValue(value: string, maxLength: number) {
   return value.length > maxLength ? `${value.slice(0, maxLength - 1)}…` : value;
 }
 
 function isKeyboardEditableTarget(target: EventTarget | null) {
-  if (!(target instanceof HTMLElement)) {
-    return false;
+  if (target instanceof HTMLElement) {
+    return (
+      target.isContentEditable ||
+      target instanceof HTMLInputElement ||
+      target instanceof HTMLTextAreaElement ||
+      target instanceof HTMLSelectElement ||
+      Boolean(target.closest("[contenteditable='true'], input, textarea, select"))
+    );
   }
 
-  return (
-    target.isContentEditable ||
-    target instanceof HTMLInputElement ||
-    target instanceof HTMLTextAreaElement ||
-    target instanceof HTMLSelectElement
-  );
+  if (target instanceof Node) {
+    return Boolean(
+      target.parentElement?.closest("[contenteditable='true'], input, textarea, select")
+    );
+  }
+
+  return false;
 }
 
 function useLoadedImage(src: string) {
@@ -3027,7 +3435,7 @@ function EditableCanvas(props: {
   deck: Deck;
   editingElementId: string | null;
   insertTool: InsertTool;
-  selectedElementId: string | null;
+  selectedElementIds: string[];
   showIds: boolean;
   slide: Slide;
   stageScale: number;
@@ -3064,13 +3472,13 @@ function EditableCanvas(props: {
     element: DeckElement;
     slideId: string;
   }) => void;
-  onSelectElement: (elementId: string) => void;
+  onSelectElement: (elementId: string, options?: { append?: boolean }) => void;
 }) {
   const {
     deck,
     editingElementId,
     insertTool,
-    selectedElementId,
+    selectedElementIds,
     showIds,
     slide,
     stageScale,
@@ -3100,13 +3508,13 @@ function EditableCanvas(props: {
       return;
     }
 
-    const selectedNode = selectedElementId
-      ? nodeRefs.current[selectedElementId]
-      : null;
+    const selectedNodes = selectedElementIds
+      .map((elementId) => nodeRefs.current[elementId])
+      .filter((node): node is Konva.Group => Boolean(node));
 
-    transformer.nodes(selectedNode ? [selectedNode] : []);
+    transformer.nodes(selectedNodes);
     transformer.getLayer()?.batchDraw();
-  }, [selectedElementId, visibleElements]);
+  }, [selectedElementIds, visibleElements]);
 
   return (
     <div className="konva-editor-stage" ref={containerRef}>
@@ -3189,7 +3597,8 @@ function EditableCanvas(props: {
               accentColor={slide.style.accentColor ?? deck.theme.accentColor}
               deck={deck}
               element={element}
-              isSelected={element.elementId === selectedElementId}
+              isSelected={selectedElementIds.includes(element.elementId)}
+              selectedCount={selectedElementIds.length}
               showIds={showIds}
               slide={slide}
               onCommitFrame={(frame) =>
@@ -3207,7 +3616,9 @@ function EditableCanvas(props: {
                   slideId: slide.slideId
                 })
               }
-              onSelect={() => onSelectElement(element.elementId)}
+              onSelect={(append) =>
+                onSelectElement(element.elementId, { append })
+              }
             />
           ))}
           {draftElement ? (
@@ -3269,6 +3680,7 @@ function EditableElementNode(props: {
   deck: Deck;
   element: DeckElement;
   isSelected: boolean;
+  selectedCount: number;
   showIds: boolean;
   slide: Slide;
   onDoubleClick: () => void;
@@ -3281,13 +3693,14 @@ function EditableElementNode(props: {
   }) => void;
   onMountNode: (node: Konva.Group | null) => void;
   onOpenContextMenu: (clientX: number, clientY: number) => void;
-  onSelect: () => void;
+  onSelect: (append: boolean) => void;
 }) {
   const {
     accentColor,
     deck,
     element,
     isSelected,
+    selectedCount,
     showIds,
     slide,
     onDoubleClick,
@@ -3327,13 +3740,13 @@ function EditableElementNode(props: {
     setPreviewFrame(null);
   }, [element.height, element.rotation, element.width, element.x, element.y]);
 
-  function handlePointerSelect() {
-    if (element.type === "text" && isSelected) {
+  function handlePointerSelect(append: boolean) {
+    if (!append && element.type === "text" && isSelected && selectedCount === 1) {
       onDoubleClick();
       return;
     }
 
-    onSelect();
+    onSelect(append);
   }
 
   return (
@@ -3344,14 +3757,18 @@ function EditableElementNode(props: {
       x={frame.x}
       y={frame.y}
       ref={onMountNode}
-      onClick={handlePointerSelect}
+      onClick={(event) => handlePointerSelect(Boolean(event.evt.shiftKey))}
       onContextMenu={(event) => {
-        if (element.type !== "image") {
+        const shouldKeepSelection = isSelected && selectedCount > 1;
+
+        if (element.type !== "image" && !shouldKeepSelection) {
           return;
         }
 
         event.evt.preventDefault();
-        onSelect();
+        if (!shouldKeepSelection) {
+          onSelect(false);
+        }
         onOpenContextMenu(event.evt.clientX, event.evt.clientY);
       }}
       onDblClick={() => {
@@ -3369,7 +3786,7 @@ function EditableElementNode(props: {
           rotation: event.target.rotation()
         });
       }}
-      onTap={handlePointerSelect}
+      onTap={() => handlePointerSelect(false)}
       onTransform={(event) => {
         if (element.type !== "text") {
           return;
@@ -3588,20 +4005,58 @@ function ElementNodeContent(props: {
   }
 
   if (element.type === "customShape") {
+    const customShapeProps = element.props as CustomShapeElementProps;
+    const pathData = getCustomShapePathData(customShapeProps);
+    const dataArray = getCustomShapeDataArray(pathData);
+    const fill = getCustomShapePaint(customShapeProps, "fill", "#f5edff");
+    const stroke = getCustomShapePaint(customShapeProps, "stroke", "#9333ea");
+    const strokeWidth = getCustomShapeStrokeWidth(customShapeProps);
+    const viewBoxWidth = getCustomShapeDimension(
+      customShapeProps,
+      "viewBoxWidth",
+      frame.width
+    );
+    const viewBoxHeight = getCustomShapeDimension(
+      customShapeProps,
+      "viewBoxHeight",
+      frame.height
+    );
+
+    if (dataArray.length > 0) {
+      return (
+        <Group listening={false}>
+          <Rect fill="transparent" width={frame.width} height={frame.height} />
+          <Shape
+            fill={fill}
+            lineJoin="round"
+            scaleX={frame.width / viewBoxWidth}
+            scaleY={frame.height / viewBoxHeight}
+            sceneFunc={(context, shape) =>
+              drawCustomShapeScene(context, shape, dataArray)
+            }
+            stroke={stroke}
+            strokeWidth={strokeWidth}
+          />
+        </Group>
+      );
+    }
+
     return (
       <Group listening={false}>
         <Rect
           cornerRadius={18}
-          fill="rgba(250, 245, 255, 0.92)"
-          stroke="#9333ea"
+          dash={[10, 6]}
+          fill={fill}
+          stroke={stroke}
           strokeWidth={2}
           width={frame.width}
           height={frame.height}
         />
         <Text
           fill="#6b21a8"
-          fontSize={14}
-          text={truncateValue(JSON.stringify(element.props), 80)}
+          fontSize={16}
+          fontStyle="bold"
+          text="SVG PATH"
           width={frame.width}
           height={frame.height}
           padding={14}
@@ -3633,13 +4088,15 @@ function ElementNodeContent(props: {
   }
 
   if (element.type === "polygon") {
+    const polygonProps = element.props as ShapeElementProps & { sides?: number };
     const strokeWidth = Math.max(1, element.props.strokeWidth);
     const radius = Math.max(1, Math.min(frame.width, frame.height) / 2 - strokeWidth / 2);
+    const sides = polygonProps.sides ?? 3;
 
     return (
       <Group listening={false}>
         <RegularPolygon
-          sides={3}
+          sides={sides}
           fill={element.props.fill === "transparent" ? "#eff6ff" : element.props.fill}
           stroke={
             element.props.stroke === "transparent"
@@ -3706,7 +4163,29 @@ function ElementNodeContent(props: {
     );
   }
 
-  if (element.type === "line" || element.type === "arrow") {
+  if (element.type === "arrow") {
+    const stroke = element.props.stroke === "transparent" ? "#2563eb" : element.props.stroke;
+    const strokeWidth = Math.max(2, element.props.strokeWidth);
+    const pointerLength = Math.max(18, Math.min(42, frame.width * 0.1));
+    const pointerWidth = Math.max(14, Math.min(30, frame.height * 1.2));
+
+    return (
+      <Group listening={false}>
+        <Rect fill="transparent" width={frame.width} height={Math.max(20, frame.height)} />
+        <KonvaArrow
+          fill={stroke}
+          pointerLength={pointerLength}
+          pointerWidth={pointerWidth}
+          points={[0, frame.height / 2, frame.width, frame.height / 2]}
+          stroke={stroke}
+          strokeWidth={strokeWidth}
+          tension={0}
+        />
+      </Group>
+    );
+  }
+
+  if (element.type === "line") {
     return (
       <Group listening={false}>
         <Rect fill="transparent" width={frame.width} height={Math.max(16, frame.height)} />

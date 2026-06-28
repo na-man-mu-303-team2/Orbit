@@ -68,6 +68,7 @@ export const shapeElementPropsSchema = z
     stroke: deckElementPaintSchema.default("transparent"),
     strokeWidth: z.number().finite().nonnegative().default(0),
     borderRadius: z.number().finite().nonnegative().default(0),
+    sides: z.number().int().min(3).max(12).optional(),
     shadow: deckElementShadowSchema.optional()
   })
   .default({});
