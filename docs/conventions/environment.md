@@ -41,7 +41,7 @@ OPENAI_EMBEDDING_MODEL=text-embedding-3-small
 
 ## Demo ID
 
-1차 스프린트는 인증 없이 아래 값을 사용한다.
+Demo ID 기반 기능은 아래 값을 사용한다.
 
 ```txt
 DEMO_USER_ID=user_demo_1

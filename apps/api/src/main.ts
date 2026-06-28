@@ -1,12 +1,17 @@
 import { loadOrbitConfig } from "@orbit/config";
 import { NestFactory } from "@nestjs/core";
 import { DocumentBuilder, SwaggerModule } from "@nestjs/swagger";
+import cookieParser from "cookie-parser";
+import helmet from "helmet";
 import "reflect-metadata";
 import { AppModule } from "./app.module";
 
 async function bootstrap() {
   const config = loadOrbitConfig(process.env, { service: "api" });
   const app = await NestFactory.create(AppModule);
+
+  app.use(helmet());
+  app.use(cookieParser(config.COOKIE_SECRET));
 
   app.enableCors({
     credentials: true,
