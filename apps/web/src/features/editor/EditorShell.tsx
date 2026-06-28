@@ -27,7 +27,8 @@ import type {
   Slide
 } from "@orbit/shared";
 import { useQuery } from "@tanstack/react-query";
-import Konva from "konva";
+import type Konva from "konva";
+import { Text as KonvaTextShape } from "konva/lib/shapes/Text";
 import {
   BarChart3,
   ChevronDown,
@@ -2957,6 +2958,58 @@ function getKonvaFontStyle(fontWeight: TextElementProps["fontWeight"]) {
   return getCssFontWeight(fontWeight) >= 600 ? "bold" : "normal";
 }
 
+function estimateTextContentHeight(args: {
+  text: string;
+  width: number;
+  fontSize: number;
+  lineHeight: number;
+}) {
+  const { text, width, fontSize, lineHeight } = args;
+  const charsPerLine = Math.max(1, Math.floor(width / Math.max(fontSize * 0.55, 1)));
+  const lineCount = text
+    .replace(/\r\n/g, "\n")
+    .split("\n")
+    .reduce((count, line) => count + Math.max(1, Math.ceil(line.length / charsPerLine)), 0);
+
+  return lineCount * fontSize * lineHeight;
+}
+
+function measureTextContentHeight(args: {
+  align: TextElementProps["align"];
+  fontFamily: string;
+  fontSize: number;
+  fontStyle: "normal" | "bold";
+  lineHeight: number;
+  text: string;
+  width: number;
+}) {
+  if (typeof document === "undefined") {
+    return estimateTextContentHeight({
+      text: args.text,
+      width: args.width,
+      fontSize: args.fontSize,
+      lineHeight: args.lineHeight
+    });
+  }
+
+  const measureNode = new KonvaTextShape({
+    align: args.align,
+    fontFamily: args.fontFamily,
+    fontSize: args.fontSize,
+    fontStyle: args.fontStyle,
+    lineHeight: args.lineHeight,
+    padding: 0,
+    text: args.text,
+    width: args.width,
+    wrap: "word"
+  });
+  const contentHeight = measureNode.height();
+
+  measureNode.destroy();
+
+  return contentHeight;
+}
+
 function getTextElementLayout(args: {
   frame: {
     x: number;
@@ -2976,18 +3029,18 @@ function getTextElementLayout(args: {
   const fontStyle = getKonvaFontStyle(props.fontWeight);
   const width = Math.max(1, frame.width - textElementPadding * 2);
   const availableHeight = Math.max(1, frame.height - textElementPadding * 2);
-  const measureNode = new Konva.Text({
-    align: props.align,
-    fontFamily,
-    fontSize: props.fontSize,
-    fontStyle,
-    lineHeight: props.lineHeight,
-    padding: 0,
-    text: props.text,
-    width,
-    wrap: "word"
-  });
-  const contentHeight = Math.min(measureNode.height(), availableHeight);
+  const contentHeight = Math.min(
+    measureTextContentHeight({
+      align: props.align,
+      fontFamily,
+      fontSize: props.fontSize,
+      fontStyle,
+      lineHeight: props.lineHeight,
+      text: props.text,
+      width
+    }),
+    availableHeight
+  );
   const spareHeight = Math.max(0, availableHeight - contentHeight);
   let y = textElementPadding;
 
@@ -2996,8 +3049,6 @@ function getTextElementLayout(args: {
   } else if (props.verticalAlign === "bottom") {
     y += spareHeight;
   }
-
-  measureNode.destroy();
 
   return {
     color,

@@ -129,7 +129,7 @@ services:
     env_file:
       - .env.local
     environment:
-      API_BASE_URL: http://localhost:3000
+      API_BASE_URL: http://api:3000
     ports:
       - "${WEB_PORT:-5173}:5173"
     depends_on:
