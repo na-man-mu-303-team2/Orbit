@@ -157,3 +157,15 @@
 - Rationale: 별도 secret이나 GitHub Actions 자동리뷰 경로를 되살리지 않고도, GitHub 내장 Codex 리뷰가 저장소 협업 언어와 보안 원칙을 따르게 할 수 있다.
 - Affected files: `AGENTS.md`, `docs/decision-log.md`.
 - Follow-up review notes: 다음 Codex PR 리뷰에서 요약과 inline comment가 한국어로 작성되는지, technical identifier가 불필요하게 번역되지 않는지 확인한다.
+
+## ORBIT-228 personal server develop deployment boundary
+
+- Context: 공식 production 배포 경로가 완성되기 전에 `develop` 브랜치를 개인 서버에서 staging/demo로 검증할 수 있는 반복 가능한 절차가 필요하다.
+- Options considered:
+  - 개인 서버를 production 환경으로 취급한다.
+  - 수동 Docker Compose 명령을 계속 사용한다.
+  - Doppler secret, Nginx reverse proxy, Docker Compose override를 사용해 개인 서버 staging/demo 경로를 정의한다.
+- Final decision: 개인 서버는 `develop` staging/demo 환경으로만 취급한다. Doppler `orbit / stg`, host Nginx public entrypoint, localhost-bound app services, Docker Compose staging override를 사용한다.
+- Rationale: 실제 서버에서 `develop`을 검증할 수 있게 하면서도, 문서화된 AWS ECS Fargate production 목표와 경계를 분리한다.
+- Affected files: `docker-compose.staging.yml`, `infra/scripts/deploy-personal-server.sh`, `docs/runbooks/personal-server-deployment.md`, `docs/decision-log.md`.
+- Follow-up review notes: 수동 배포 스크립트가 서버에서 검증된 뒤 GitHub Actions 자동 배포를 별도 결정으로 추가한다. TLS를 설정하기 전까지 이 endpoint를 production으로 취급하지 않는다.
