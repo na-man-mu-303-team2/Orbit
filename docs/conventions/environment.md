@@ -27,6 +27,19 @@ OCR_PROVIDER=python | textract
 LLM_PROVIDER=openai
 ```
 
+## 서버 로그
+
+서버 로그는 stdout JSON을 기본으로 한다.
+
+```txt
+LOG_LEVEL=trace | debug | info | warn | error | fatal | silent
+LOG_PRETTY=false | true
+```
+
+`LOG_PRETTY=true`는 `NODE_ENV=development`에서만 허용한다.
+staging/production에서는 CloudWatch 수집을 위해 `LOG_PRETTY=false`를 유지한다.
+업무 이벤트 로그와 금지 데이터 기준은 `docs/conventions/logging.md`를 따른다.
+
 ## OpenAI 기본 모델
 
 OpenAI 모델은 코드 상수가 아니라 env로 결정한다.

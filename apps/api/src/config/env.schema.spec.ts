@@ -35,6 +35,8 @@ const validEnv = {
   AWS_SECRET_ACCESS_KEY: "",
   TRANSCRIBE_LANGUAGE_CODE: "ko-KR",
   TEXTRACT_ENABLED: "false",
+  LOG_LEVEL: "debug",
+  LOG_PRETTY: "false",
   DEMO_USER_ID: "user_demo_1",
   DEMO_WORKSPACE_ID: "workspace_demo_1",
   DEMO_PROJECT_ID: "project_demo_1",
@@ -73,6 +75,32 @@ describe("ORBIT env validation", () => {
     expect(() =>
       loadOrbitConfig({ ...validEnv, OPENAI_MODEL: " " }, { service: "api" })
     ).toThrow(/OPENAI_MODEL/);
+  });
+
+  it("loads logging defaults and validates log levels", () => {
+    const env = { ...validEnv } as Partial<typeof validEnv>;
+    delete env.LOG_LEVEL;
+    delete env.LOG_PRETTY;
+
+    expect(loadOrbitConfig(env as NodeJS.ProcessEnv, { service: "api" })).toMatchObject({
+      LOG_LEVEL: "info",
+      LOG_PRETTY: false
+    });
+    expect(() =>
+      loadOrbitConfig({ ...validEnv, LOG_LEVEL: "verbose" }, { service: "api" })
+    ).toThrow(/LOG_LEVEL/);
+  });
+
+  it("allows pretty logs only in development", () => {
+    expect(
+      loadOrbitConfig(
+        { ...validEnv, NODE_ENV: "development", LOG_PRETTY: "true" },
+        { service: "api" }
+      ).LOG_PRETTY
+    ).toBe(true);
+    expect(() =>
+      loadOrbitConfig({ ...validEnv, NODE_ENV: "production", LOG_PRETTY: "true" }, { service: "api" })
+    ).toThrow(/LOG_PRETTY can only be true/);
   });
 
   it("rejects local defaults in staging and production", () => {
