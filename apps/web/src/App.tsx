@@ -37,6 +37,7 @@ type RejectedFile = {
 };
 
 type ExtractedFile = {
+  referenceDocumentId?: string;
   fileName: string;
   kind: string;
   status: string;
@@ -64,6 +65,13 @@ type JobResult = {
 
 type GenerateDeckResponse = {
   job: Job;
+};
+
+type ReferenceGenerationInput = {
+  references: Array<{ fileId: string }>;
+  referenceKeywords: Array<{ text: string }>;
+  succeededFiles: ExtractedFile[];
+  failedFiles: ExtractedFile[];
 };
 
 type Fetcher = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
@@ -146,6 +154,42 @@ export function getJobResultFiles(job: Job): ExtractedFile[] {
 export function getGenerateDeckJobResult(job: Job): GenerateDeckJobResult | null {
   const result = job.result as GenerateDeckJobResult | null;
   return result?.deck ? result : null;
+}
+
+export function buildReferenceGenerationInput(
+  files: ExtractedFile[]
+): ReferenceGenerationInput {
+  const references: Array<{ fileId: string }> = [];
+  const referenceKeywords: Array<{ text: string }> = [];
+  const succeededFiles: ExtractedFile[] = [];
+  const failedFiles: ExtractedFile[] = [];
+  const seenFileIds = new Set<string>();
+  const seenKeywords = new Set<string>();
+
+  for (const file of files) {
+    const fileId = file.referenceDocumentId?.trim() ?? "";
+    if (file.status.toLowerCase() !== "succeeded" || !fileId) {
+      failedFiles.push(file);
+      continue;
+    }
+
+    succeededFiles.push(file);
+    if (!seenFileIds.has(fileId)) {
+      seenFileIds.add(fileId);
+      references.push({ fileId });
+    }
+
+    for (const keyword of file.keywords ?? []) {
+      const text = keyword.keyword.trim();
+      const key = text.toLowerCase();
+      if (!text || seenKeywords.has(key)) continue;
+
+      seenKeywords.add(key);
+      referenceKeywords.push({ text });
+    }
+  }
+
+  return { references, referenceKeywords, succeededFiles, failedFiles };
 }
 
 // 데모 콘솔의 최상위 화면 전환을 관리한다.
@@ -295,21 +339,119 @@ function GenerateDeckView() {
   const [audience, setAudience] = useState("general");
   const [purpose, setPurpose] = useState("inform");
   const [tone, setTone] = useState("professional");
-  const [referenceIds, setReferenceIds] = useState("");
+  const [uploads, setUploads] = useState<UploadFile[]>([]);
+  const [rejected, setRejected] = useState<RejectedFile[]>([]);
+  const [isDragging, setIsDragging] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [generationStep, setGenerationStep] = useState<
+    "idle" | "extracting" | "generating"
+  >("idle");
   const [generateError, setGenerateError] = useState("");
+  const [extractJob, setExtractJob] = useState<Job | null>(null);
   const [generateJob, setGenerateJob] = useState<Job | null>(null);
+  const [extractedFiles, setExtractedFiles] = useState<ExtractedFile[]>([]);
   const [result, setResult] = useState<GenerateDeckJobResult | null>(null);
+  const totalSize = useMemo(
+    () => uploads.reduce((sum, upload) => sum + upload.file.size, 0),
+    [uploads]
+  );
+  const referenceSummary = useMemo(
+    () => buildReferenceGenerationInput(extractedFiles),
+    [extractedFiles]
+  );
+
+  const addFiles = (fileList: FileList | File[]) => {
+    const { acceptedFiles, rejectedFiles } = collectUploadFiles(fileList);
+
+    setUploads((current) => appendUniqueUploads(current, acceptedFiles));
+    setRejected(rejectedFiles);
+  };
+
+  const handleFileChange = (event: ChangeEvent<HTMLInputElement>) => {
+    if (event.target.files) {
+      addFiles(event.target.files);
+    }
+
+    event.target.value = "";
+  };
+
+  const handleDrop = (event: DragEvent<HTMLLabelElement>) => {
+    event.preventDefault();
+    setIsDragging(false);
+    addFiles(event.dataTransfer.files);
+  };
+
+  const removeUpload = (id: string) => {
+    setUploads((current) => current.filter((upload) => upload.id !== id));
+    setExtractedFiles([]);
+    setExtractJob(null);
+    setGenerateError("");
+  };
+
+  const extractReferences = async (): Promise<ReferenceGenerationInput> => {
+    if (uploads.length === 0) {
+      return {
+        references: [],
+        referenceKeywords: [],
+        succeededFiles: [],
+        failedFiles: []
+      };
+    }
+
+    const formData = new FormData();
+    uploads.forEach(({ file }) => formData.append("files", file));
+
+    setGenerationStep("extracting");
+    setExtractJob(null);
+    setExtractedFiles([]);
+
+    const response = await fetch("/api/extract", {
+      method: "POST",
+      body: formData
+    });
+
+    if (!response.ok) {
+      const message = await response.text();
+      throw new Error(message || "참고자료 처리에 실패했습니다.");
+    }
+
+    const data = (await response.json()) as ExtractResponse;
+    setExtractJob(data.job);
+
+    const job = await pollExtractJob(data.job.jobId, {
+      onUpdate: setExtractJob
+    });
+
+    if (job.status === "failed") {
+      throw new Error(
+        job.error?.message || job.message || "참고자료 처리에 실패했습니다."
+      );
+    }
+
+    const files = getJobResultFiles(job);
+    setExtractedFiles(files);
+    const input = buildReferenceGenerationInput(files);
+    if (input.references.length === 0) {
+      throw new Error("참고자료 처리에 성공한 파일이 없어 덱 생성을 중단했습니다.");
+    }
+
+    return input;
+  };
 
   const generateDeck = async () => {
     if (!topic.trim() || isGenerating) return;
 
     setIsGenerating(true);
+    setGenerationStep("idle");
     setGenerateError("");
+    setExtractJob(null);
     setGenerateJob(null);
+    setExtractedFiles([]);
     setResult(null);
 
     try {
+      const referenceInput = await extractReferences();
+      setGenerationStep("generating");
       const response = await fetch(
         `/api/v1/projects/${demoIds.projectId}/jobs/generate-deck`,
         {
@@ -322,7 +464,8 @@ function GenerateDeckView() {
             slideCountRange: { min: minSlides, max: maxSlides },
             template,
             metadata: { audience, purpose, tone },
-            references: parseReferenceIds(referenceIds)
+            references: referenceInput.references,
+            referenceKeywords: referenceInput.referenceKeywords
           })
         }
       );
@@ -350,8 +493,15 @@ function GenerateDeckView() {
       );
     } finally {
       setIsGenerating(false);
+      setGenerationStep("idle");
     }
   };
+  const submitLabel =
+    generationStep === "extracting"
+      ? "참고자료 처리 중..."
+      : generationStep === "generating"
+        ? "덱 생성 중..."
+        : "덱 생성";
 
   return (
     <main className="app-shell generate-app-shell">
@@ -432,30 +582,111 @@ function GenerateDeckView() {
             />
           </div>
 
-          <div className="form-grid two">
+          <div className="form-grid">
             <SelectField
               label="Tone"
               value={tone}
               onChange={setTone}
               options={["professional", "friendly", "confident", "concise"]}
             />
-            <label>
-              <span>References</span>
-              <input
-                value={referenceIds}
-                onChange={(event) => setReferenceIds(event.target.value)}
-              />
-            </label>
           </div>
 
+          <section
+            className="generate-reference-panel"
+            aria-labelledby="generate-reference-title"
+          >
+            <div className="reference-panel-heading">
+              <span className="eyebrow" id="generate-reference-title">
+                References
+              </span>
+              <p>PDF, DOCX, PPTX와 이미지 파일</p>
+            </div>
+
+            <label
+              className={`drop-zone${isDragging ? " is-dragging" : ""}`}
+              onDragOver={(event) => {
+                event.preventDefault();
+                setIsDragging(true);
+              }}
+              onDragLeave={() => setIsDragging(false)}
+              onDrop={handleDrop}
+            >
+              <input type="file" accept={accept} multiple onChange={handleFileChange} />
+              <span className="upload-mark" aria-hidden="true">
+                +
+              </span>
+              <span className="drop-title">파일을 끌어오거나 선택하세요</span>
+              <span className="drop-meta">PDF · DOCX · PPTX · JPG · PNG · GIF · WEBP</span>
+            </label>
+
+            <div className="upload-summary" aria-live="polite">
+              <span>{uploads.length}개 파일</span>
+              <span>{formatBytes(totalSize)}</span>
+            </div>
+
+            {rejected.length > 0 && (
+              <div className="rejection-list" role="alert">
+                {rejected.map((file) => (
+                  <p key={file.name}>
+                    <strong>{file.name}</strong> {file.reason}
+                  </p>
+                ))}
+              </div>
+            )}
+
+            {uploads.length > 0 && (
+              <ul className="file-list" aria-label="덱 생성 참고자료 파일">
+                {uploads.map(({ id, file }) => (
+                  <li key={id}>
+                    <div>
+                      <span className="file-name">{file.name}</span>
+                      <span className="file-detail">
+                        {getExtension(file.name).toUpperCase()} · {formatBytes(file.size)}
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => removeUpload(id)}
+                      aria-label={`${file.name} 제거`}
+                      disabled={isGenerating}
+                    >
+                      ×
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+
           <button className="extract-button" type="submit" disabled={isGenerating}>
-            {isGenerating ? "생성 중..." : "덱 생성"}
+            {isGenerating ? submitLabel : "덱 생성"}
           </button>
+
+          {extractJob && (
+            <div className="job-status" aria-live="polite">
+              <div>
+                <strong>reference {extractJob.status}</strong>
+                <span>{extractJob.progress}%</span>
+              </div>
+              {extractJob.message && <p>{extractJob.message}</p>}
+            </div>
+          )}
+
+          {extractedFiles.length > 0 && (
+            <div className="job-status" aria-live="polite">
+              <p>
+                참고자료 {referenceSummary.succeededFiles.length}개 사용
+                {referenceSummary.failedFiles.length > 0
+                  ? ` · ${referenceSummary.failedFiles.length}개 실패`
+                  : ""}
+              </p>
+            </div>
+          )}
 
           {generateJob && (
             <div className="job-status" aria-live="polite">
               <div>
-                <strong>{generateJob.status}</strong>
+                <strong>deck {generateJob.status}</strong>
                 <span>{generateJob.progress}%</span>
               </div>
               {generateJob.message && <p>{generateJob.message}</p>}
@@ -695,27 +926,9 @@ function UploadView() {
   );
 
   const addFiles = (fileList: FileList | File[]) => {
-    const acceptedFiles: UploadFile[] = [];
-    const rejectedFiles: RejectedFile[] = [];
+    const { acceptedFiles, rejectedFiles } = collectUploadFiles(fileList);
 
-    Array.from(fileList).forEach((file) => {
-      if (isAllowedFile(file)) {
-        acceptedFiles.push({ id: createUploadId(file), file });
-        return;
-      }
-
-      rejectedFiles.push({
-        name: file.name,
-        reason: "PDF, DOCX, PPTX 또는 이미지 파일만 업로드할 수 있습니다."
-      });
-    });
-
-    setUploads((current) => {
-      const existingIds = new Set(current.map((upload) => upload.id));
-      const nextFiles = acceptedFiles.filter((upload) => !existingIds.has(upload.id));
-
-      return [...current, ...nextFiles];
-    });
+    setUploads((current) => appendUniqueUploads(current, acceptedFiles));
     setRejected(rejectedFiles);
   };
 
@@ -1001,14 +1214,6 @@ function isAllowedFile(file: File) {
   return isAllowedDocument || isImage;
 }
 
-function parseReferenceIds(value: string) {
-  return value
-    .split(/[,\n]/)
-    .map((fileId) => fileId.trim())
-    .filter(Boolean)
-    .map((fileId) => ({ fileId }));
-}
-
 function formatBytes(bytes: number) {
   if (bytes === 0) return "0 B";
 
@@ -1021,4 +1226,30 @@ function formatBytes(bytes: number) {
 
 function createUploadId(file: File) {
   return `${file.name}-${file.size}-${file.lastModified}`;
+}
+
+function collectUploadFiles(fileList: FileList | File[]) {
+  const acceptedFiles: UploadFile[] = [];
+  const rejectedFiles: RejectedFile[] = [];
+
+  Array.from(fileList).forEach((file) => {
+    if (isAllowedFile(file)) {
+      acceptedFiles.push({ id: createUploadId(file), file });
+      return;
+    }
+
+    rejectedFiles.push({
+      name: file.name,
+      reason: "PDF, DOCX, PPTX 또는 이미지 파일만 업로드할 수 있습니다."
+    });
+  });
+
+  return { acceptedFiles, rejectedFiles };
+}
+
+function appendUniqueUploads(current: UploadFile[], acceptedFiles: UploadFile[]) {
+  const existingIds = new Set(current.map((upload) => upload.id));
+  const nextFiles = acceptedFiles.filter((upload) => !existingIds.has(upload.id));
+
+  return [...current, ...nextFiles];
 }

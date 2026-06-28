@@ -2,6 +2,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import type { Job } from "@orbit/shared";
 import { describe, expect, it, vi } from "vitest";
 import {
+  buildReferenceGenerationInput,
   ExtractResultItem,
   GeneratedDeckResult,
   getGenerateDeckJobResult,
@@ -10,6 +11,43 @@ import {
 } from "./App";
 
 describe("reference extraction upload flow", () => {
+  it("builds generate-deck references and keywords from succeeded extraction results", () => {
+    const input = buildReferenceGenerationInput([
+      {
+        referenceDocumentId: " file_1 ",
+        fileName: "success.pdf",
+        kind: "pdf",
+        status: "succeeded",
+        rawText: "raw",
+        keywords: [
+          { keyword: "Deck", reason: "topic", priority: "high" },
+          { keyword: " deck ", reason: "duplicate", priority: "medium" }
+        ]
+      },
+      {
+        referenceDocumentId: "file_2",
+        fileName: "failed.pdf",
+        kind: "pdf",
+        status: "failed",
+        rawText: "",
+        keywords: [{ keyword: "ignored", reason: "failed", priority: "low" }]
+      },
+      {
+        referenceDocumentId: "file_1",
+        fileName: "duplicate.pdf",
+        kind: "pdf",
+        status: "succeeded",
+        rawText: "raw",
+        keywords: [{ keyword: "AI", reason: "topic", priority: "high" }]
+      }
+    ]);
+
+    expect(input.references).toEqual([{ fileId: "file_1" }]);
+    expect(input.referenceKeywords).toEqual([{ text: "Deck" }, { text: "AI" }]);
+    expect(input.succeededFiles).toHaveLength(2);
+    expect(input.failedFiles.map((file) => file.fileName)).toEqual(["failed.pdf"]);
+  });
+
   it("polls a succeeded job and renders its result", async () => {
     const file = {
       fileName: "sample.pdf",

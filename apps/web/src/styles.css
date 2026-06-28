@@ -406,6 +406,47 @@ dd {
   min-height: 680px;
 }
 
+.generate-reference-panel {
+  display: grid;
+  gap: 12px;
+}
+
+.reference-panel-heading {
+  display: grid;
+  gap: 4px;
+}
+
+.reference-panel-heading p {
+  color: #696f7a;
+  margin: 0;
+}
+
+.generate-form .drop-zone {
+  gap: 12px;
+  min-height: 220px;
+  padding: 24px;
+}
+
+.generate-form .drop-zone .upload-mark {
+  color: #fffdf8;
+  font-size: 2.4rem;
+  font-weight: 400;
+}
+
+.generate-form .drop-zone .drop-title {
+  color: #202226;
+  font-size: clamp(1.15rem, 3vw, 1.55rem);
+  font-weight: 800;
+  text-align: center;
+}
+
+.generate-form .drop-zone .drop-meta {
+  color: #696f7a;
+  font-size: 0.95rem;
+  font-weight: 400;
+  text-align: center;
+}
+
 .generated-deck {
   display: grid;
   gap: 16px;
