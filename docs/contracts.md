@@ -488,7 +488,8 @@ AI 덱 생성은 사용자 입력과 참고자료 fileId를 받아 비동기 Job
     "purpose": "inform",
     "tone": "professional"
   },
-  "references": [{ "fileId": "file_1" }]
+  "references": [{ "fileId": "file_1" }],
+  "referenceKeywords": [{ "text": "실시간 발표 피드백" }]
 }
 ```
 
@@ -514,6 +515,7 @@ AI 덱 생성은 사용자 입력과 참고자료 fileId를 받아 비동기 Job
 - API 시작점은 `POST /api/v1/projects/:projectId/jobs/generate-deck`이다.
 - Job type은 기존 `ai-deck-generation`을 사용하고 상태값은 공통 `queued`, `running`, `succeeded`, `failed`만 사용한다.
 - 요청의 `references`는 `{ fileId: string }[]`이며 비어 있으면 topic-only generation으로 처리한다.
+- 요청의 `referenceKeywords`는 `{ text: string }[]` 선택 필드이며 기본값은 `[]`이다. 참고자료 처리 결과의 주요 키워드를 전달할 때 사용한다.
 - MVP `metadata.audience`는 `general`, `executive`, `technical`, `sales`만 허용한다.
 - MVP `metadata.purpose`는 `inform`, `persuade`, `teach`, `report`만 허용한다.
 - MVP `metadata.tone`은 `professional`, `friendly`, `confident`, `concise`만 허용한다.

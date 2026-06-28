@@ -7,7 +7,8 @@ const payload = {
   projectId: "project-a",
   request: {
     topic: "AI 덱 생성",
-    references: [{ fileId: "file_1" }]
+    references: [{ fileId: "file_1" }],
+    referenceKeywords: [{ text: "실시간 발표 피드백" }]
   }
 };
 
@@ -35,12 +36,10 @@ describe("processGenerateDeckJob", () => {
           null
         )
       ]);
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () =>
-        new Response(JSON.stringify({ deck, warnings: [], validation: validation() }))
-      )
+    const fetchMock = vi.fn(async () =>
+      new Response(JSON.stringify({ deck, warnings: [], validation: validation() }))
     );
+    vi.stubGlobal("fetch", fetchMock);
 
     const job = await processGenerateDeckJob(
       { query } as unknown as DataSource,
@@ -52,6 +51,11 @@ describe("processGenerateDeckJob", () => {
     expect(fetch).toHaveBeenCalledWith(
       "http://localhost:8000/ai/generate-deck",
       expect.objectContaining({ method: "POST" })
+    );
+    expect(JSON.parse(String(fetchMock.mock.calls[0][1]?.body))).toEqual(
+      expect.objectContaining({
+        referenceKeywords: [{ text: "실시간 발표 피드백" }]
+      })
     );
     expect(query).toHaveBeenCalledTimes(3);
     expect(query.mock.calls[1][0]).toContain("INSERT INTO decks");

@@ -19,6 +19,10 @@ export const generateDeckReferenceSchema = z.object({
   fileId: z.string().min(1)
 });
 
+export const generateDeckReferenceKeywordSchema = z.object({
+  text: z.string().trim().min(1)
+});
+
 export const generateDeckMetadataSchema = z
   .object({
     audience: aiDeckAudienceSchema.default("general"),
@@ -50,7 +54,8 @@ export const generateDeckRequestSchema = z.object({
   slideCountRange: generateDeckSlideCountRangeSchema,
   template: generateDeckTemplateSchema.default("default"),
   metadata: generateDeckMetadataSchema,
-  references: z.array(generateDeckReferenceSchema).default([])
+  references: z.array(generateDeckReferenceSchema).default([]),
+  referenceKeywords: z.array(generateDeckReferenceKeywordSchema).default([])
 });
 
 export const generateDeckValidationIssueSchema = z.object({
@@ -89,6 +94,9 @@ export const generateDeckJobResultSchema = generateDeckResponseSchema
 
 export type GenerateDeckTemplate = z.infer<typeof generateDeckTemplateSchema>;
 export type GenerateDeckReference = z.infer<typeof generateDeckReferenceSchema>;
+export type GenerateDeckReferenceKeyword = z.infer<
+  typeof generateDeckReferenceKeywordSchema
+>;
 export type GenerateDeckMetadata = z.infer<typeof generateDeckMetadataSchema>;
 export type GenerateDeckSlideCountRange = z.infer<
   typeof generateDeckSlideCountRangeSchema

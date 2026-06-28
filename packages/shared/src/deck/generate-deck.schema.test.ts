@@ -20,6 +20,16 @@ describe("generateDeckRequestSchema", () => {
       tone: "professional"
     });
     expect(request.template).toBe("default");
+    expect(request.referenceKeywords).toEqual([]);
+  });
+
+  it("accepts normalized reference keywords", () => {
+    const request = generateDeckRequestSchema.parse({
+      topic: "AI 덱 생성",
+      referenceKeywords: [{ text: " 실시간 발표 피드백 " }]
+    });
+
+    expect(request.referenceKeywords).toEqual([{ text: "실시간 발표 피드백" }]);
   });
 
   it("rejects an inverted slide count range", () => {
