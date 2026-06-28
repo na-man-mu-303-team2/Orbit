@@ -36,9 +36,13 @@ describe("processGenerateDeckJob", () => {
           null
         )
       ]);
-    const fetchMock = vi.fn(async () =>
-      new Response(JSON.stringify({ deck, warnings: [], validation: validation() }))
-    );
+    let pythonRequestBody = "";
+    const fetchMock = vi.fn(async (_input: unknown, init?: RequestInit) => {
+      pythonRequestBody = String(init?.body ?? "");
+      return new Response(
+        JSON.stringify({ deck, warnings: [], validation: validation() })
+      );
+    });
     vi.stubGlobal("fetch", fetchMock);
 
     const job = await processGenerateDeckJob(
@@ -52,7 +56,7 @@ describe("processGenerateDeckJob", () => {
       "http://localhost:8000/ai/generate-deck",
       expect.objectContaining({ method: "POST" })
     );
-    expect(JSON.parse(String(fetchMock.mock.calls[0][1]?.body))).toEqual(
+    expect(JSON.parse(pythonRequestBody)).toEqual(
       expect.objectContaining({
         referenceKeywords: [{ text: "실시간 발표 피드백" }]
       })
