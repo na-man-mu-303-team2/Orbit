@@ -70,8 +70,8 @@ async function fetchHealth(): Promise<HealthResponse> {
   return response.json() as Promise<HealthResponse>;
 }
 
-async function fetchDeck(): Promise<Deck> {
-  const response = await fetch(`/api/v1/projects/${demoIds.projectId}/deck`);
+async function fetchDeck(projectId: string): Promise<Deck> {
+  const response = await fetch(`/api/v1/projects/${projectId}/deck`);
   if (!response.ok) {
     throw new Error("Deck fetch failed");
   }
@@ -79,7 +79,8 @@ async function fetchDeck(): Promise<Deck> {
   return payload.deck;
 }
 
-export function EditorShell() {
+export function EditorShell(props: { projectId?: string }) {
+  const projectId = props.projectId ?? demoIds.projectId;
   const [currentSlideIndex, setCurrentSlideIndex] = useState(0);
   const [isDataViewOpen, setIsDataViewOpen] = useState(false);
   const [isRightPanelOpen, setIsRightPanelOpen] = useState(true);
@@ -92,6 +93,9 @@ export function EditorShell() {
   const [selectedElementId, setSelectedElementId] = useState<string | null>(null);
   const [rightPanelTab, setRightPanelTab] = useState<RightPanelTab>("ai");
   const [activeTopMenu, setActiveTopMenu] = useState<TopMenu | null>(null);
+  const [manualSaveStatus, setManualSaveStatus] = useState<
+    "idle" | "saving" | "saved" | "error"
+  >("idle");
   const topbarRef = useRef<HTMLElement | null>(null);
 
   const health = useQuery({
@@ -101,8 +105,8 @@ export function EditorShell() {
   });
 
   const deckQuery = useQuery({
-    queryKey: ["deck", demoIds.projectId],
-    queryFn: fetchDeck,
+    queryKey: ["deck", projectId],
+    queryFn: () => fetchDeck(projectId),
     retry: false
   });
 
@@ -112,7 +116,16 @@ export function EditorShell() {
   const isDeckError = deckQuery.isError;
   const hasSlides = deck.slides.length > 0;
   const currentSlide = deck.slides[currentSlideIndex] ?? deck.slides[0] ?? null;
-  const saveStatusLabel = deckQuery.data ? "저장됨" : "로컬 데모";
+  const saveStatusLabel =
+    manualSaveStatus === "saving"
+      ? "저장 중"
+      : manualSaveStatus === "saved"
+        ? "수동 저장됨"
+        : manualSaveStatus === "error"
+          ? "저장 실패"
+          : deckQuery.data
+            ? "저장됨"
+            : "로컬 데모";
   const visibleElements = currentSlide
     ? [...currentSlide.elements].sort((left, right) => left.zIndex - right.zIndex)
     : [];
@@ -204,6 +217,41 @@ export function EditorShell() {
     document.body.style.userSelect = "none";
     window.addEventListener("pointermove", handlePointerMove);
     window.addEventListener("pointerup", handlePointerUp);
+  }
+
+  async function handleManualSave() {
+    if (manualSaveStatus === "saving") return;
+
+    setManualSaveStatus("saving");
+
+    try {
+      const deckToSave: Deck = {
+        ...deck,
+        deckId: deckQuery.data?.deckId ?? `deck_${crypto.randomUUID()}`,
+        projectId,
+        version: Math.max(1, deck.version)
+      };
+
+      const response = await fetch(`/api/v1/projects/${projectId}/deck`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          deck: deckToSave,
+          snapshotReason: "deck-replaced"
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error((await response.text()) || "Deck save failed");
+      }
+
+      await deckQuery.refetch();
+      setManualSaveStatus("saved");
+    } catch {
+      setManualSaveStatus("error");
+    }
   }
 
   useEffect(() => {
@@ -425,6 +473,16 @@ export function EditorShell() {
 
         <div className="top-actions">
           <span className="avatar">김</span>
+          <button
+            className={`header-chip-button ${manualSaveStatus === "saved" ? "active" : ""}`}
+            type="button"
+            onClick={() => void handleManualSave()}
+            disabled={manualSaveStatus === "saving"}
+            title="수동 저장"
+          >
+            <Cloud size={15} />
+            {manualSaveStatus === "saving" ? "저장 중" : "저장"}
+          </button>
           <button
             className={`header-chip-button ${isRightPanelOpen ? "active" : ""}`}
             type="button"
