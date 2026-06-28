@@ -93,7 +93,7 @@ def test_generate_deck_endpoint_requires_llm_for_reference_generation() -> None:
 def test_generate_deck_uses_llm_content_plan_with_reference_context() -> None:
     fake_client = FakeOpenAIClient(
         {
-            "title": "피카츄 소개 발표안",
+            "title": "전기 타입 포켓몬",
             "slides": [
                 {
                     "title": "피카츄란?",
@@ -140,6 +140,8 @@ def test_generate_deck_uses_llm_content_plan_with_reference_context() -> None:
         keyword["text"]
         for keyword in response.deck["slides"][0]["keywords"]
     ]
+    assert response.deck["title"] == "피카츄 소개: 전기 타입 포켓몬"
+    assert response.validation.passed is True
     assert body_texts[0] == "피카츄는 볼주머니에 전기를 저장하는 전기 타입 포켓몬입니다."
     assert slide_keywords == ["전기 타입", "볼주머니", "피카츄"]
     assert "피카츄는 볼주머니" in fake_client.requests[0]["input"]

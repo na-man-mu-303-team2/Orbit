@@ -394,7 +394,7 @@ def plan_deck_content(
         if slide_plans:
             return (
                 DeckOutline(
-                    title=generated_plan.title,
+                    title=deck_title_for_topic(raw_input.topic, generated_plan.title),
                     slide_titles=[slide.title for slide in slide_plans],
                 ),
                 slide_plans,
@@ -415,6 +415,15 @@ def requires_llm_content(raw_input: RawInput) -> bool:
         or raw_input.reference_keywords
         or raw_input.reference_context
     )
+
+
+def deck_title_for_topic(topic: str, title: str) -> str:
+    deck_title = title.strip()
+    if not deck_title:
+        return topic
+    if topic in deck_title:
+        return deck_title
+    return f"{topic}: {deck_title}"
 
 
 def plan_presentation(raw_input: RawInput) -> DeckOutline:
