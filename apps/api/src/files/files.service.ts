@@ -137,6 +137,10 @@ export class FilesService {
       throw new ForbiddenException("Project asset access denied");
     }
 
+    if (asset.status === "deleted") {
+      throw new NotFoundException(`Asset is deleted: ${input.fileId}`);
+    }
+
     if (asset.status !== "uploaded") {
       asset.status = "uploaded";
       asset.uploadedAt = new Date();

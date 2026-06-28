@@ -1,13 +1,15 @@
-import type { Job } from "@orbit/shared";
+import type { AssetUploadUrlResponse, Job } from "@orbit/shared";
 import { BadRequestException } from "@nestjs/common";
 import type { PinoLogger } from "nestjs-pino";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { Repository } from "typeorm";
 import type { DecksService } from "../decks/decks.service";
 import type { FilesService } from "../files/files.service";
 import type { JobsService } from "../jobs/jobs.service";
+import { RehearsalRunEntity } from "./rehearsal-run.entity";
 import {
   RehearsalsService,
-  type RehearsalSttEnqueueJob,
+  type RehearsalSttEnqueueJob
 } from "./rehearsals.service";
 
 const validEnv = {
@@ -52,8 +54,10 @@ const validEnv = {
   DEMO_WORKSPACE_ID: "workspace_demo_1",
   DEMO_PROJECT_ID: "project_demo_1",
   DEMO_DECK_ID: "deck_demo_1",
-  DEMO_SESSION_ID: "session_demo_1",
+  DEMO_SESSION_ID: "session_demo_1"
 };
+
+const createdAt = new Date("2026-06-27T00:00:00.000Z");
 
 const job: Job = {
   jobId: "job-1",
@@ -64,8 +68,18 @@ const job: Job = {
   message: "Job queued",
   result: null,
   error: null,
-  createdAt: "2026-06-27T00:00:00.000Z",
-  updatedAt: "2026-06-27T00:00:00.000Z",
+  createdAt: createdAt.toISOString(),
+  updatedAt: createdAt.toISOString()
+};
+
+const upload: AssetUploadUrlResponse = {
+  fileId: "file-audio",
+  projectId: "project-a",
+  uploadUrl: "http://localhost:5173/api/v1/projects/project-a/assets/file-audio/content",
+  method: "PUT",
+  headers: { "content-type": "audio/webm" },
+  expiresAt: "2026-06-27T00:15:00.000Z",
+  purpose: "rehearsal-audio"
 };
 
 describe("RehearsalsService", () => {
@@ -73,124 +87,206 @@ describe("RehearsalsService", () => {
     Object.assign(process.env, validEnv);
   });
 
-  it("creates a rehearsal STT job and enqueues BullMQ work", async () => {
-    const enqueueJob = vi.fn(async () => undefined);
-    const service = createService(enqueueJob);
+  it("creates a rehearsal run for the project deck", async () => {
+    const service = createService();
 
-    const result = await service.startStt("project-a", {
-      audioFileId: "file-audio",
+    const result = await service.createRun("project-a", { deckId: "deck-a" });
+
+    expect(result.run).toMatchObject({
+      projectId: "project-a",
       deckId: "deck-a",
-      runId: "run-a",
+      audioFileId: null,
+      jobId: null,
+      status: "created"
+    });
+    expect(result.run.runId).toMatch(/^run_/);
+  });
+
+  it("rejects run creation when the deckId does not match the project deck", async () => {
+    const service = createService();
+
+    await expect(
+      service.createRun("project-a", { deckId: "deck-other" })
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it("creates an upload URL and pins the audio file to the run", async () => {
+    const service = createService();
+    const run = await createRun(service);
+
+    const result = await service.createAudioUploadUrl(run.runId, {
+      originalName: "rehearsal.webm",
+      mimeType: "audio/webm",
+      size: 1024
     });
 
-    expect(result).toEqual({ job });
+    expect(result.upload).toEqual(upload);
+    expect(result.run).toMatchObject({
+      runId: run.runId,
+      audioFileId: "file-audio",
+      status: "uploading"
+    });
+    expect(service.testFilesService.createUploadUrl).toHaveBeenCalledWith(
+      "project-a",
+      expect.objectContaining({
+        originalName: "rehearsal.webm",
+        mimeType: "audio/webm",
+        size: 1024,
+        purpose: "rehearsal-audio"
+      })
+    );
+  });
+
+  it("completes upload, enqueues STT work, and marks the run processing", async () => {
+    const enqueueJob = vi.fn(async () => undefined);
+    const service = createService({ enqueueJob });
+    const run = await createRun(service);
+    await service.createAudioUploadUrl(run.runId, {
+      originalName: "rehearsal.webm",
+      mimeType: "audio/webm",
+      size: 1024
+    });
+
+    const result = await service.completeAudioUpload(run.runId, {
+      fileId: "file-audio"
+    });
+
+    expect(result.run).toMatchObject({
+      runId: run.runId,
+      status: "processing",
+      audioFileId: "file-audio",
+      jobId: "job-1"
+    });
+    expect(result.job).toEqual(job);
     expect(enqueueJob).toHaveBeenCalledWith({
       driver: "bullmq",
       redisUrl: "redis://localhost:6379",
       jobId: "job-1",
       projectId: "project-a",
-      runId: "run-a",
+      runId: run.runId,
       deckId: "deck-a",
-      audioFileId: "file-audio",
+      audioFileId: "file-audio"
     });
-    expect(service.testLogger.info).toHaveBeenCalledWith(
-      expect.objectContaining({
-        event: "job.enqueued",
-        jobId: "job-1",
-        jobType: "rehearsal-stt",
-        projectId: "project-a",
-        runId: "run-a",
-        deckId: "deck-a",
-        audioFileId: "file-audio",
-      }),
-      "Rehearsal STT job enqueued.",
-    );
   });
 
-  it("rejects requests when the deckId does not match the project deck", async () => {
-    const service = createService(vi.fn(async () => undefined));
-
-    await expect(
-      service.startStt("project-a", {
-        audioFileId: "file-audio",
-        deckId: "deck-other",
-      }),
-    ).rejects.toBeInstanceOf(BadRequestException);
-  });
-
-  it("marks the job failed when enqueue fails", async () => {
+  it("marks the run and job failed when enqueue fails", async () => {
     const jobsService = {
       create: vi.fn(async () => job),
-      update: vi.fn(async () => ({ ...job, status: "failed" })),
+      update: vi.fn(async () => ({ ...job, status: "failed" }))
     } as unknown as JobsService;
-    const service = createService(
-      vi.fn(async () => {
+    const service = createService({
+      enqueueJob: vi.fn(async () => {
         throw new Error("redis down");
       }),
-      jobsService,
-    );
+      jobsService
+    });
+    const run = await createRun(service);
+    await service.createAudioUploadUrl(run.runId, {
+      originalName: "rehearsal.webm",
+      mimeType: "audio/webm",
+      size: 1024
+    });
 
     await expect(
-      service.startStt("project-a", {
-        audioFileId: "file-audio",
-        deckId: "deck-a",
-      }),
+      service.completeAudioUpload(run.runId, { fileId: "file-audio" })
     ).rejects.toThrow("redis down");
+
     expect(jobsService.update).toHaveBeenCalledWith("job-1", {
       status: "failed",
       progress: 0,
       message: "Rehearsal STT enqueue failed.",
       error: {
         code: "REHEARSAL_STT_ENQUEUE_FAILED",
-        message: "redis down",
-      },
+        message: "redis down"
+      }
     });
-    expect(service.testLogger.error).toHaveBeenCalledWith(
-      expect.objectContaining({
-        event: "job.enqueue_failed",
-        jobId: "job-1",
-        jobType: "rehearsal-stt",
-        projectId: "project-a",
-        deckId: "deck-a",
-      }),
-      "Rehearsal STT enqueue failed.",
-    );
+    expect((await service.getRun(run.runId)).run).toMatchObject({
+      status: "failed",
+      error: {
+        code: "REHEARSAL_STT_ENQUEUE_FAILED",
+        message: "redis down"
+      }
+    });
   });
 });
 
+async function createRun(service: ReturnType<typeof createService>) {
+  return (await service.createRun("project-a", { deckId: "deck-a" })).run;
+}
+
 function createService(
-  enqueueJob: RehearsalSttEnqueueJob,
-  jobsService: JobsService = {
-    create: vi.fn(async () => job),
-    update: vi.fn(),
-  } as unknown as JobsService,
+  options: {
+    enqueueJob?: RehearsalSttEnqueueJob;
+    jobsService?: JobsService;
+  } = {}
 ) {
   const logger = createLogger();
+  const repository = createRunRepository();
+  const filesService = {
+    createUploadUrl: vi.fn(async () => upload),
+    completeUpload: vi.fn(async () => ({
+      fileId: "file-audio",
+      projectId: "project-a",
+      originalName: "rehearsal.webm",
+      mimeType: "audio/webm",
+      size: 1024,
+      url: "http://localhost:9000/rehearsal.webm",
+      purpose: "rehearsal-audio",
+      createdAt: createdAt.toISOString()
+    })),
+    getUploadedAsset: vi.fn(async () => ({
+      fileId: "file-audio",
+      projectId: "project-a",
+      purpose: "rehearsal-audio",
+      status: "uploaded"
+    }))
+  } as unknown as FilesService;
   const service = new RehearsalsService(
+    repository,
     {
       getDeck: vi.fn(async () => ({
         projectId: "project-a",
         deck: { deckId: "deck-a" },
-        updatedAt: "2026-06-27T00:00:00.000Z",
-      })),
+        updatedAt: createdAt.toISOString()
+      }))
     } as unknown as DecksService,
-    {
-      getUploadedAsset: vi.fn(async () => ({
-        fileId: "file-audio",
-        purpose: "rehearsal-audio",
-        status: "uploaded",
-      })),
-    } as unknown as FilesService,
-    jobsService,
-    enqueueJob,
-    logger,
+    filesService,
+    options.jobsService ??
+      ({
+        create: vi.fn(async () => job),
+        update: vi.fn()
+      } as unknown as JobsService),
+    options.enqueueJob ?? vi.fn(async () => undefined),
+    logger
   );
-  return Object.assign(service, { testLogger: logger });
+  return Object.assign(service, {
+    testFilesService: filesService as FilesService & {
+      createUploadUrl: ReturnType<typeof vi.fn>;
+    },
+    testLogger: logger
+  });
+}
+
+function createRunRepository() {
+  const runs = new Map<string, RehearsalRunEntity>();
+
+  return {
+    create(input: Partial<RehearsalRunEntity>) {
+      return input as RehearsalRunEntity;
+    },
+    async save(run: RehearsalRunEntity) {
+      runs.set(run.runId, { ...run });
+      return runs.get(run.runId) as RehearsalRunEntity;
+    },
+    async findOne(options: { where: { runId: string } }) {
+      return runs.get(options.where.runId) ?? null;
+    }
+  } as unknown as Repository<RehearsalRunEntity>;
 }
 
 function createLogger() {
   return {
     info: vi.fn(),
-    error: vi.fn(),
+    error: vi.fn()
   } as unknown as PinoLogger;
 }
