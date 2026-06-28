@@ -176,7 +176,7 @@ export class DecksService {
         SELECT snapshot_id, project_id, deck_id, deck_json, version, reason, created_at
         FROM deck_snapshots
         WHERE project_id = $1
-        ORDER BY created_at DESC, snapshot_id DESC
+        ORDER BY created_at DESC, version DESC, snapshot_id DESC
       `,
       [projectId]
     );
