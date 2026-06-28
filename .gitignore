@@ -8,6 +8,7 @@ playwright-report/
 .vite/
 .next/
 .cache/
+.codex-review/
 
 .env
 .env.local

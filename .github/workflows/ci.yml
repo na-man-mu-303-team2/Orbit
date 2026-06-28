@@ -2,6 +2,11 @@ name: CI
 
 on:
   pull_request:
+    types:
+      - opened
+      - synchronize
+      - reopened
+      - ready_for_review
   push:
     branches:
       - main
@@ -95,3 +100,91 @@ jobs:
       - name: Stop smoke services
         if: always()
         run: docker compose down --remove-orphans
+
+  codex-review:
+    name: Codex standard review
+    runs-on: ubuntu-latest
+    needs:
+      - typescript
+      - python-worker
+      - compose-config
+      - playwright-smoke
+    if: >
+      always() &&
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.base.ref == 'develop' &&
+      github.event.pull_request.draft == false &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    permissions:
+      contents: read
+    outputs:
+      review_json: ${{ steps.run_codex.outputs.final-message }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: refs/pull/${{ github.event.pull_request.number }}/merge
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Confirm OpenAI key is configured
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          if [ -z "$OPENAI_API_KEY" ]; then
+            echo "::error::OPENAI_API_KEY repository secret is not configured."
+            exit 1
+          fi
+          echo "OPENAI_API_KEY is configured."
+
+      - name: Build Codex review context
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BASE_REF: ${{ github.event.pull_request.base.ref }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          CI_TYPESCRIPT_RESULT: ${{ needs.typescript.result }}
+          CI_PYTHON_WORKER_RESULT: ${{ needs.python-worker.result }}
+          CI_COMPOSE_CONFIG_RESULT: ${{ needs.compose-config.result }}
+          CI_PLAYWRIGHT_SMOKE_RESULT: ${{ needs.playwright-smoke.result }}
+        run: node infra/scripts/build-codex-review-context.mjs
+
+      - name: Run Codex standard review
+        id: run_codex
+        uses: openai/codex-action@v1
+        with:
+          openai-api-key: ${{ secrets.OPENAI_API_KEY }}
+          prompt-file: .github/codex/prompts/develop-standard-review.md
+          model: gpt-5.5
+          codex-args: '["--output-schema", ".github/codex/review.schema.json"]'
+          sandbox: read-only
+
+  post-codex-review:
+    name: Post Codex standard review
+    runs-on: ubuntu-latest
+    needs:
+      - codex-review
+    if: >
+      needs.codex-review.result == 'success' &&
+      needs.codex-review.outputs.review_json != ''
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Post Codex review comments
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          CODEX_REVIEW_JSON: ${{ needs.codex-review.outputs.review_json }}
+        run: node infra/scripts/post-codex-review.mjs

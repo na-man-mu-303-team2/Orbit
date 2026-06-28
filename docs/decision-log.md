@@ -97,3 +97,15 @@
 - Rationale: 로컬/CI 브라우저 smoke에서 CORS와 host signature mismatch를 피하면서도, staging/production S3 전환 시 같은 `StoragePort`와 upload-url/complete 계약을 유지할 수 있다.
 - Affected files: `packages/storage/src/index.ts`, `packages/storage/package.json`, `apps/api/src/files/**`, `docker-compose.yml`, `pnpm-lock.yaml`.
 - Follow-up review notes: staging/production에서는 S3 bucket CORS origin을 실제 web origin으로 제한하고, S3 credentials는 secret store로만 주입한다.
+
+## ORBIT develop Codex review automation policy
+
+- Context: `develop` 대상 PR마다 Codex standard review를 실행해 diff, 관련 계약 문서, 주변 코드, CI 결과를 함께 검토해야 한다. 리뷰는 파일/라인, 레포 규칙, 계약/API, 테스트/CI, 실제 위험, 공식 기술스택 문서 근거를 남겨야 한다.
+- Options considered:
+  - GitHub 내장 Codex 리뷰만 사용한다.
+  - GitHub Actions에서 diff만 Codex에 전달한다.
+  - GitHub Actions에서 diff, 레포 규칙, 계약 문서, 기술스택 공식문서 요약, CI 결과를 묶어 Codex standard review를 실행한다.
+- Final decision: `pull_request`의 `opened`, `synchronize`, `reopened`, `ready_for_review` 이벤트에서 base branch가 `develop`이고 same-repository PR이며 draft가 아닐 때만 Codex review를 실행한다. Codex가 읽는 context는 secret-like path와 lockfile/binary/generated full diff를 제외하고, 생성된 리뷰는 diff line 검증 후 GitHub PR review로 게시한다.
+- Rationale: 비용을 통제하면서도 계약/API와 테스트 누락을 확인할 충분한 맥락을 제공하고, fork PR 또는 secret 노출 위험을 기본적으로 차단한다.
+- Affected files: `.github/workflows/ci.yml`, `.github/codex/**`, `infra/scripts/build-codex-review-context.mjs`, `infra/scripts/post-codex-review.mjs`, `docs/review/official-tech-stack-references.md`, `.gitignore`.
+- Follow-up review notes: GitHub Actions에서 첫 실행 결과를 확인한 뒤 Codex model/effort, inline comment cap, fork PR 정책, branch protection required check 포함 여부를 별도 검토한다.
