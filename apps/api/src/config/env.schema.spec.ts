@@ -24,11 +24,13 @@ const validEnv = {
   S3_SECRET_ACCESS_KEY: "orbit-password",
   S3_FORCE_PATH_STYLE: "true",
   JOB_QUEUE_DRIVER: "bullmq",
-  STT_PROVIDER: "sherpa",
+  LIVE_STT_PROVIDER: "sherpa",
+  REPORT_STT_PROVIDER: "openai",
   OCR_PROVIDER: "python",
   LLM_PROVIDER: "openai",
   OPENAI_API_KEY: "",
   OPENAI_MODEL: "gpt-4.1-mini",
+  OPENAI_TRANSCRIPTION_MODEL: "gpt-4o-transcribe",
   OPENAI_EMBEDDING_MODEL: "text-embedding-3-small",
   AWS_REGION: "ap-northeast-2",
   AWS_ACCESS_KEY_ID: "",
@@ -89,6 +91,25 @@ describe("ORBIT env validation", () => {
     expect(() =>
       loadOrbitConfig({ ...validEnv, LOG_LEVEL: "verbose" }, { service: "api" })
     ).toThrow(/LOG_LEVEL/);
+  });
+
+  it("keeps live STT and report STT provider contracts separate", () => {
+    const config = loadOrbitConfig(validEnv, { service: "api" });
+
+    expect(config.LIVE_STT_PROVIDER).toBe("sherpa");
+    expect(config.REPORT_STT_PROVIDER).toBe("openai");
+    expect(() =>
+      loadOrbitConfig(
+        { ...validEnv, LIVE_STT_PROVIDER: "openai" },
+        { service: "api" }
+      )
+    ).toThrow(/LIVE_STT_PROVIDER/);
+    expect(() =>
+      loadOrbitConfig(
+        { ...validEnv, REPORT_STT_PROVIDER: "sherpa" },
+        { service: "api" }
+      )
+    ).toThrow(/REPORT_STT_PROVIDER/);
   });
 
   it("allows pretty logs only in development", () => {

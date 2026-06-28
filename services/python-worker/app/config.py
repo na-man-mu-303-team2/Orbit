@@ -27,7 +27,8 @@ ENV_KEYS = {
     "S3_SECRET_ACCESS_KEY",
     "S3_FORCE_PATH_STYLE",
     "JOB_QUEUE_DRIVER",
-    "STT_PROVIDER",
+    "LIVE_STT_PROVIDER",
+    "REPORT_STT_PROVIDER",
     "OCR_PROVIDER",
     "LLM_PROVIDER",
     "OPENAI_API_KEY",
@@ -75,9 +76,8 @@ class PythonWorkerConfig(BaseModel):
     s3_secret_access_key: str | None = Field(default=None, alias="S3_SECRET_ACCESS_KEY")
     s3_force_path_style: bool = Field(alias="S3_FORCE_PATH_STYLE")
     job_queue_driver: Literal["bullmq", "sqs"] = Field(alias="JOB_QUEUE_DRIVER")
-    stt_provider: Literal["sherpa", "transcribe", "openai"] = Field(
-        alias="STT_PROVIDER"
-    )
+    live_stt_provider: Literal["sherpa"] = Field(alias="LIVE_STT_PROVIDER")
+    report_stt_provider: Literal["openai"] = Field(alias="REPORT_STT_PROVIDER")
     ocr_provider: Literal["python", "textract"] = Field(alias="OCR_PROVIDER")
     llm_provider: Literal["openai"] = Field(alias="LLM_PROVIDER")
     openai_api_key: str | None = Field(default=None, alias="OPENAI_API_KEY")

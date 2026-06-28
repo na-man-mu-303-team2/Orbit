@@ -7,6 +7,7 @@ import type {
   AssetUploadUrlRequest,
   AssetUploadUrlResponse,
   CompleteAssetUploadRequest,
+  FilePurpose,
   UploadedFile,
 } from "@orbit/shared";
 import { StoragePort } from "@orbit/storage";
@@ -136,6 +137,10 @@ export class FilesService {
       throw new ForbiddenException("Project asset access denied");
     }
 
+    if (asset.status === "deleted") {
+      throw new NotFoundException(`Asset is deleted: ${input.fileId}`);
+    }
+
     if (asset.status !== "uploaded") {
       asset.status = "uploaded";
       asset.uploadedAt = new Date();
@@ -143,6 +148,36 @@ export class FilesService {
     }
 
     return this.toUploadedFile(asset);
+  }
+
+  async getUploadedAsset(
+    projectId: string,
+    fileId: string,
+    purpose?: FilePurpose,
+  ): Promise<ProjectAssetEntity> {
+    await this.projectsService.getAccessibleProject(projectId);
+
+    const asset = await this.assetsRepository.findOne({
+      where: { fileId },
+    });
+
+    if (!asset) {
+      throw new NotFoundException(`Asset not found: ${fileId}`);
+    }
+
+    if (asset.projectId !== projectId) {
+      throw new ForbiddenException("Project asset access denied");
+    }
+
+    if (asset.status !== "uploaded") {
+      throw new NotFoundException(`Asset is not uploaded: ${fileId}`);
+    }
+
+    if (purpose && asset.purpose !== purpose) {
+      throw new ForbiddenException(`Asset purpose must be ${purpose}`);
+    }
+
+    return asset;
   }
 
   async list(projectId: string): Promise<UploadedFile[]> {

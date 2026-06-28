@@ -59,7 +59,7 @@
 | ORBIT-33 | M4 checkpoint | 협업 편집 안전성 | multi-browser Playwright flow |
 | ORBIT-34 | 리허설 epic | 녹음/STT/보고서 | 하위 ORBIT-35..39 테스트 |
 | ORBIT-35 | 키워드 편집 | keyword CRUD and validation | planned web/shared keyword tests |
-| ORBIT-36 | 리허설 STT/코칭 | raw audio handling, server STT, report analysis | planned API/Python retention and STT fixture tests |
+| ORBIT-36 | 리허설 리포트 STT/코칭 | raw audio handling, report STT, report analysis | planned API/Python retention and STT fixture tests |
 | ORBIT-37 | 점수/지표 | filler/pause/speed score calculation | planned Python metrics tests |
 | ORBIT-38 | 리허설 보고서 UI | report loading/error/results | planned web report tests |
 | ORBIT-39 | M5 checkpoint | 리허설부터 보고서까지 확인 | Playwright rehearsal flow |
@@ -116,7 +116,7 @@
 | ORBIT-144 | ORBIT-31 sync | realtime integration tests |
 | ORBIT-147 | ORBIT-32 locks | object lock service tests |
 | ORBIT-151 | ORBIT-35 keywords | web/shared tests |
-| ORBIT-156 | ORBIT-36 rehearsal STT | API/Python retention tests |
+| ORBIT-156 | ORBIT-36 rehearsal report STT | API/Python retention tests |
 | ORBIT-159 | ORBIT-37 metrics | Python metrics tests |
 | ORBIT-163 | ORBIT-38 report UI | web report tests |
 | ORBIT-167 | ORBIT-41 presentation session | API/Playwright tests |

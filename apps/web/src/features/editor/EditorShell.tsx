@@ -37,6 +37,7 @@ import type {
 } from "@orbit/shared";
 import { useQuery } from "@tanstack/react-query";
 import type Konva from "konva";
+import type { Box as TransformerBox } from "konva/lib/shapes/Transformer";
 import { Path as KonvaPathShape } from "konva/lib/shapes/Path";
 import { Text as KonvaTextShape } from "konva/lib/shapes/Text";
 import {
@@ -72,22 +73,23 @@ import {
   Wand2
 } from "lucide-react";
 import {
-  Arrow as KonvaArrow,
-  Circle,
-  Group,
-  Image as KonvaImage,
-  Layer,
-  Line,
-  Rect,
-  RegularPolygon,
-  Shape,
-  Stage,
-  Star as KonvaStar,
-  Text,
-  Transformer
+  Arrow as KonvaArrowComponent,
+  Circle as KonvaCircle,
+  Group as KonvaGroup,
+  Image as KonvaImageComponent,
+  Layer as KonvaLayer,
+  Line as KonvaLine,
+  Rect as KonvaRect,
+  RegularPolygon as KonvaRegularPolygon,
+  Shape as KonvaShape,
+  Stage as KonvaStage,
+  Star as KonvaStarComponent,
+  Text as KonvaText,
+  Transformer as KonvaTransformer
 } from "react-konva";
 import type {
   ChangeEvent,
+  ComponentType,
   CSSProperties,
   PointerEvent as ReactPointerEvent
 } from "react";
@@ -105,6 +107,22 @@ const fallbackDeck = createDemoDeck();
 const collapsedSlidesPaneWidth = 52;
 const defaultSlidesPaneWidth = 176;
 const minSlidesPaneWidth = 132;
+
+type KonvaComponent = ComponentType<any>;
+
+const Circle = KonvaCircle as unknown as KonvaComponent;
+const Group = KonvaGroup as unknown as KonvaComponent;
+const KonvaArrow = KonvaArrowComponent as unknown as KonvaComponent;
+const KonvaImage = KonvaImageComponent as unknown as KonvaComponent;
+const KonvaStar = KonvaStarComponent as unknown as KonvaComponent;
+const Layer = KonvaLayer as unknown as KonvaComponent;
+const Line = KonvaLine as unknown as KonvaComponent;
+const Rect = KonvaRect as unknown as KonvaComponent;
+const RegularPolygon = KonvaRegularPolygon as unknown as KonvaComponent;
+const Shape = KonvaShape as unknown as KonvaComponent;
+const Stage = KonvaStage as unknown as KonvaComponent;
+const Text = KonvaText as unknown as KonvaComponent;
+const Transformer = KonvaTransformer as unknown as KonvaComponent;
 const maxSlidesPaneWidth = 280;
 const collapsedRightPaneWidth = 52;
 const defaultRightPaneWidth = 320;
@@ -4658,7 +4676,7 @@ function EditableCanvas(props: {
         scaleX={stageScale}
         scaleY={stageScale}
         width={deck.canvas.width * stageScale}
-        onMouseDown={(event) => {
+        onMouseDown={(event: Konva.KonvaEventObject<MouseEvent>) => {
           if (event.target === event.target.getStage()) {
             const pointer = getCanvasPointerPosition(event);
 
@@ -4708,7 +4726,7 @@ function EditableCanvas(props: {
             onClearSelection();
           }
         }}
-        onMouseMove={(event) => {
+        onMouseMove={(event: Konva.KonvaEventObject<MouseEvent>) => {
           const pointer = getCanvasPointerPosition(event);
 
           if (insertTool === "customShape") {
@@ -4859,7 +4877,7 @@ function EditableCanvas(props: {
           ) : null}
           <Transformer
             ref={transformerRef}
-            boundBoxFunc={(_, nextBox) => ({
+            boundBoxFunc={(_oldBox: TransformerBox, nextBox: TransformerBox) => ({
               ...nextBox,
               width: Math.max(1, nextBox.width),
               height: Math.max(1, nextBox.height)
@@ -4926,7 +4944,7 @@ function CustomShapeInsertOverlay(props: {
           fillEnabled={false}
           lineCap="round"
           lineJoin="round"
-          sceneFunc={(context, shape) =>
+          sceneFunc={(context: Konva.Context, shape: Konva.Shape) =>
             drawCustomShapeScene(context, shape, previewDataArray)
           }
           stroke="#2563eb"
@@ -4964,7 +4982,7 @@ function CustomShapeInsertOverlay(props: {
               strokeWidth={2}
               x={node.x}
               y={node.y}
-              onClick={(event) => {
+              onClick={(event: Konva.KonvaEventObject<MouseEvent>) => {
                 if (!isClosableStart) {
                   return;
                 }
@@ -5072,14 +5090,14 @@ function CustomShapeEditOverlay(props: {
                 strokeWidth={1.5}
                 x={displayIn.x}
                 y={displayIn.y}
-                onClick={(event) => {
+                onClick={(event: Konva.KonvaEventObject<MouseEvent>) => {
                   event.cancelBubble = true;
                   updateDraft((current) => ({
                     ...current,
                     selectedNodeIndex: index
                   }));
                 }}
-                onDragMove={(event) => {
+                onDragMove={(event: Konva.KonvaEventObject<DragEvent>) => {
                   event.cancelBubble = true;
                   updateDraft((current) => ({
                     ...current,
@@ -5098,7 +5116,7 @@ function CustomShapeEditOverlay(props: {
                     )
                   }));
                 }}
-                onDragEnd={(event) => {
+                onDragEnd={(event: Konva.KonvaEventObject<DragEvent>) => {
                   event.cancelBubble = true;
                   updateDraft(
                     (current) => ({
@@ -5131,14 +5149,14 @@ function CustomShapeEditOverlay(props: {
                 strokeWidth={1.5}
                 x={displayOut.x}
                 y={displayOut.y}
-                onClick={(event) => {
+                onClick={(event: Konva.KonvaEventObject<MouseEvent>) => {
                   event.cancelBubble = true;
                   updateDraft((current) => ({
                     ...current,
                     selectedNodeIndex: index
                   }));
                 }}
-                onDragMove={(event) => {
+                onDragMove={(event: Konva.KonvaEventObject<DragEvent>) => {
                   event.cancelBubble = true;
                   updateDraft((current) => ({
                     ...current,
@@ -5157,7 +5175,7 @@ function CustomShapeEditOverlay(props: {
                     )
                   }));
                 }}
-                onDragEnd={(event) => {
+                onDragEnd={(event: Konva.KonvaEventObject<DragEvent>) => {
                   event.cancelBubble = true;
                   updateDraft(
                     (current) => ({
@@ -5189,14 +5207,14 @@ function CustomShapeEditOverlay(props: {
               strokeWidth={2}
               x={displayNode.x}
               y={displayNode.y}
-              onClick={(event) => {
+              onClick={(event: Konva.KonvaEventObject<MouseEvent>) => {
                 event.cancelBubble = true;
                 updateDraft((current) => ({
                   ...current,
                   selectedNodeIndex: index
                 }));
               }}
-              onDblClick={(event) => {
+              onDblClick={(event: Konva.KonvaEventObject<MouseEvent>) => {
                 event.cancelBubble = true;
                 updateDraft(
                   (current) => ({
@@ -5211,7 +5229,7 @@ function CustomShapeEditOverlay(props: {
                   { commit: true }
                 );
               }}
-              onDragMove={(event) => {
+              onDragMove={(event: Konva.KonvaEventObject<DragEvent>) => {
                 event.cancelBubble = true;
                 updateDraft((current) => ({
                   ...current,
@@ -5229,7 +5247,7 @@ function CustomShapeEditOverlay(props: {
                   )
                 }));
               }}
-              onDragEnd={(event) => {
+              onDragEnd={(event: Konva.KonvaEventObject<DragEvent>) => {
                 event.cancelBubble = true;
                 updateDraft(
                   (current) => ({
@@ -5357,8 +5375,10 @@ function EditableElementNode(props: {
       x={frame.x}
       y={frame.y}
       ref={onMountNode}
-      onClick={(event) => handlePointerSelect(Boolean(event.evt.shiftKey))}
-      onContextMenu={(event) => {
+      onClick={(event: Konva.KonvaEventObject<MouseEvent>) =>
+        handlePointerSelect(Boolean(event.evt.shiftKey))
+      }
+      onContextMenu={(event: Konva.KonvaEventObject<PointerEvent>) => {
         const shouldKeepSelection = isSelected && selectedCount > 1;
 
         if (element.type !== "image" && element.type !== "group" && !shouldKeepSelection) {
@@ -5376,7 +5396,7 @@ function EditableElementNode(props: {
           onDoubleClick();
         }
       }}
-      onDragEnd={(event) => {
+      onDragEnd={(event: Konva.KonvaEventObject<DragEvent>) => {
         setPreviewFrame(null);
         onCommitFrame({
           x: event.target.x(),
@@ -5387,7 +5407,7 @@ function EditableElementNode(props: {
         });
       }}
       onTap={() => handlePointerSelect(false)}
-      onTransform={(event) => {
+      onTransform={(event: Konva.KonvaEventObject<Event>) => {
         if (element.type !== "text") {
           return;
         }
@@ -5405,7 +5425,7 @@ function EditableElementNode(props: {
         node.scaleY(1);
         setPreviewFrame(nextFrame);
       }}
-      onTransformEnd={(event) => {
+      onTransformEnd={(event: Konva.KonvaEventObject<Event>) => {
         const node = event.target;
         const nextWidth = Math.max(1, frame.width * node.scaleX());
         const nextHeight = Math.max(1, frame.height * node.scaleY());
@@ -5781,7 +5801,7 @@ function ElementNodeContent(props: {
             lineJoin="round"
             scaleX={frame.width / viewBoxWidth}
             scaleY={frame.height / viewBoxHeight}
-            sceneFunc={(context, shape) =>
+            sceneFunc={(context: Konva.Context, shape: Konva.Shape) =>
               drawCustomShapeScene(context, shape, dataArray)
             }
             stroke={stroke}

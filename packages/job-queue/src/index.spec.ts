@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   InMemoryJobQueue,
+  enqueueRehearsalSttJob,
   enqueueWorkerHealthCheckJob,
   workerHealthCheckJobName,
   workerHealthCheckQueueName
@@ -46,6 +47,22 @@ describe("InMemoryJobQueue", () => {
     expect(updated?.status).toBe("succeeded");
     expect(updated?.progress).toBe(100);
     expect(await queue.get(job.jobId)).toEqual(updated);
+  });
+});
+
+describe("enqueueRehearsalSttJob", () => {
+  it("keeps the SQS rehearsal STT adapter explicitly unsupported", async () => {
+    await expect(
+      enqueueRehearsalSttJob({
+        driver: "sqs",
+        redisUrl: "redis://localhost:6379",
+        jobId: "job-1",
+        projectId: "project-a",
+        runId: "run-1",
+        deckId: "deck-1",
+        audioFileId: "file-1"
+      })
+    ).rejects.toThrow("SqsJobQueue adapter is not implemented yet.");
   });
 });
 

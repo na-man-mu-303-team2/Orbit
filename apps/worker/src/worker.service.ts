@@ -2,18 +2,21 @@ import {
   generateDeckQueueName,
   redisConnectionOptions,
   referenceExtractQueueName,
+  rehearsalSttQueueName,
   workerHealthCheckQueueName
 } from "@orbit/job-queue";
 import { loadOrbitConfig } from "@orbit/config";
-import type { Job } from "@orbit/shared";
+import type { Job as OrbitJob } from "@orbit/shared";
 import { Injectable, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
 import { InjectDataSource } from "@nestjs/typeorm";
-import { Job as BullMqJob, Worker as BullMqWorker } from "bullmq";
+import { type Job as BullMqJob, Worker as BullMqWorker } from "bullmq";
 import { InjectPinoLogger, PinoLogger } from "nestjs-pino";
 import type { DataSource } from "typeorm";
 import { processGenerateDeckJob } from "./generate-deck.processor";
 import { serializeLogError } from "./logging";
 import { processReferenceExtractJob } from "./reference-extract.processor";
+import { processRehearsalSttJob } from "./rehearsal-stt.processor";
+import { workerStorage } from "./storage";
 import { processWorkerHealthCheckJob } from "./worker-health-check.processor";
 
 @Injectable()
@@ -21,6 +24,7 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
   private readonly config = loadOrbitConfig(process.env, { service: "worker" });
   private readonly queueNames = [
     referenceExtractQueueName,
+    rehearsalSttQueueName,
     generateDeckQueueName,
     workerHealthCheckQueueName
   ];
@@ -45,10 +49,19 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
       throw new Error("SqsJobQueue adapter is not implemented yet.");
     }
 
+    const storage = workerStorage();
     this.workers = [
       this.createWorker(referenceExtractQueueName, (job) =>
         processReferenceExtractJob(
           this.dataSource,
+          this.config.PYTHON_WORKER_URL,
+          job.data
+        )
+      ),
+      this.createWorker(rehearsalSttQueueName, (job) =>
+        processRehearsalSttJob(
+          this.dataSource,
+          storage,
           this.config.PYTHON_WORKER_URL,
           job.data
         )
@@ -83,7 +96,7 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
 
   private createWorker(
     queueName: string,
-    handler: (job: BullMqJob) => Promise<Job>
+    handler: (job: BullMqJob) => Promise<OrbitJob>
   ): BullMqWorker {
     const worker = new BullMqWorker(
       queueName,
@@ -113,8 +126,8 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
   private async processJob(
     queueName: string,
     job: BullMqJob,
-    handler: () => Promise<Job>
-  ): Promise<Job> {
+    handler: () => Promise<OrbitJob>
+  ): Promise<OrbitJob> {
     const startedAt = Date.now();
     const baseFields = {
       queueName,

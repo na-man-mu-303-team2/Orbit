@@ -182,17 +182,17 @@ def get_speech_to_text_provider(
 def create_speech_to_text_provider(
     config: PythonWorkerConfig,
 ) -> SpeechToTextProvider:
-    if config.stt_provider != "openai":
+    if config.report_stt_provider != "openai":
         raise AudioTranscriptionError(
             "unsupported_provider",
-            f"STT_PROVIDER={config.stt_provider} is not supported for /audio/transcribe",
+            f"REPORT_STT_PROVIDER={config.report_stt_provider} is not supported for /audio/transcribe",
             400,
         )
 
     if not config.openai_api_key:
         raise AudioTranscriptionError(
             "provider_not_configured",
-            "OPENAI_API_KEY is required when STT_PROVIDER=openai",
+            "OPENAI_API_KEY is required when REPORT_STT_PROVIDER=openai",
             500,
         )
 
@@ -283,7 +283,7 @@ def to_http_exception(error: AudioTranscriptionError) -> HTTPException:
     )
 
 
-SttProviderDependency = Annotated[
+ReportSttProviderDependency = Annotated[
     SpeechToTextProvider,
     Depends(get_speech_to_text_provider),
 ]

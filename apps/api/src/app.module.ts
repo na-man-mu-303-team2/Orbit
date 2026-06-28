@@ -13,6 +13,7 @@ import { GenerateDeckModule } from "./generate-deck/generate-deck.module";
 import { ProjectsModule } from "./projects/projects.module";
 import { ReferencesModule } from "./references/references.module";
 import { RealtimeGateway } from "./realtime/realtime.gateway";
+import { RehearsalsModule } from "./rehearsals/rehearsals.module";
 
 @Module({
   imports: [
@@ -26,7 +27,8 @@ import { RealtimeGateway } from "./realtime/realtime.gateway";
     ExtractModule,
     GenerateDeckModule,
     JobsModule,
-    ReferencesModule
+    ReferencesModule,
+    RehearsalsModule
   ],
   providers: [RealtimeGateway]
 })

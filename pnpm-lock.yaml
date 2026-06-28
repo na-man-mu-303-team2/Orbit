@@ -220,6 +220,9 @@ importers:
       '@orbit/shared':
         specifier: workspace:*
         version: link:../../packages/shared
+      '@orbit/storage':
+        specifier: workspace:*
+        version: link:../../packages/storage
       bullmq:
         specifier: ^5.56.0
         version: 5.79.1
