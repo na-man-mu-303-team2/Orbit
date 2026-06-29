@@ -666,7 +666,9 @@ function GenerateDeckView() {
     setGenerateError("");
   };
 
-  const extractReferences = async (): Promise<ReferenceGenerationInput> => {
+  const extractReferences = async (
+    projectId: string
+  ): Promise<ReferenceGenerationInput> => {
     if (uploads.length === 0) {
       return {
         references: [],
@@ -677,6 +679,7 @@ function GenerateDeckView() {
     }
 
     const formData = new FormData();
+    formData.append("projectId", projectId);
     uploads.forEach(({ file }) => formData.append("files", file));
 
     setGenerationStep("extracting");
@@ -729,9 +732,9 @@ function GenerateDeckView() {
     setResult(null);
 
     try {
-      const referenceInput = await extractReferences();
-      setGenerationStep("generating");
       const project = await createGeneratedDeckProject(topic);
+      const referenceInput = await extractReferences(project.projectId);
+      setGenerationStep("generating");
       const response = await fetch(
         `/api/v1/projects/${project.projectId}/jobs/generate-deck`,
         {
