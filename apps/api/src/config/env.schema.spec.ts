@@ -124,6 +124,58 @@ describe("ORBIT env validation", () => {
     ).toThrow(/LOG_PRETTY can only be true/);
   });
 
+  it("allows the personal staging server to opt out of secure auth cookies", () => {
+    const config = loadOrbitConfig(
+      {
+        ...validEnv,
+        APP_ENV: "staging",
+        WEB_ORIGIN: "http://8.230.24.164",
+        API_BASE_URL: "http://8.230.24.164/api",
+        PYTHON_WORKER_URL: "http://python-worker:8000",
+        DATABASE_URL: "postgres://orbit:orbit@postgres:5432/orbit",
+        REDIS_URL: "redis://redis:6379",
+        SESSION_SECRET: "staging-session-secret",
+        COOKIE_SECRET: "staging-cookie-secret",
+        S3_ENDPOINT: "http://minio:9000",
+        S3_PUBLIC_ENDPOINT: "http://8.230.24.164/assets",
+        S3_BUCKET: "orbit-personal-staging",
+        OPENAI_API_KEY: "sk-staging-placeholder",
+        AUTH_COOKIE_SECURE: "false"
+      },
+      { service: "api" }
+    );
+
+    expect(config.AUTH_COOKIE_SECURE).toBe(false);
+  });
+
+  it("rejects insecure auth cookies in production", () => {
+    expect(() =>
+      loadOrbitConfig(
+        {
+          ...validEnv,
+          APP_ENV: "production",
+          WEB_ORIGIN: "https://app.example.com",
+          API_BASE_URL: "https://api.example.com",
+          PYTHON_WORKER_URL: "http://python-worker.internal:8000",
+          DATABASE_URL: "postgres://orbit:orbit@prod-rds.example.com:5432/orbit",
+          REDIS_URL: "rediss://prod-redis.example.com:6379",
+          SESSION_SECRET: "production-session-secret",
+          COOKIE_SECRET: "production-cookie-secret",
+          STORAGE_DRIVER: "s3",
+          S3_ENDPOINT: "",
+          S3_PUBLIC_ENDPOINT: "https://assets.example.com",
+          S3_BUCKET: "orbit-production",
+          S3_ACCESS_KEY_ID: "",
+          S3_SECRET_ACCESS_KEY: "",
+          S3_FORCE_PATH_STYLE: "false",
+          OPENAI_API_KEY: "sk-production-placeholder",
+          AUTH_COOKIE_SECURE: "false"
+        },
+        { service: "api" }
+      )
+    ).toThrow(/AUTH_COOKIE_SECURE cannot be false in production/);
+  });
+
   it("rejects local defaults in staging and production", () => {
     expect(() =>
       loadOrbitConfig(

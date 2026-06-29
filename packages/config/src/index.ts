@@ -31,6 +31,27 @@ const booleanStringSchema = z.preprocess((value) => {
   return value;
 }, z.boolean());
 
+const optionalBooleanStringSchema = z.preprocess((value) => {
+  if (value === undefined || value === null || value === "") {
+    return undefined;
+  }
+
+  if (typeof value === "boolean") {
+    return value;
+  }
+
+  const normalized = String(value).trim().toLowerCase();
+  if (normalized === "true") {
+    return true;
+  }
+
+  if (normalized === "false") {
+    return false;
+  }
+
+  return value;
+}, z.boolean().optional());
+
 const requiredString = (name: string) =>
   z.preprocess(
     (value) => {
@@ -129,6 +150,7 @@ export const orbitEnvSchema = z.object({
   AWS_SECRET_ACCESS_KEY: optionalString,
   TRANSCRIBE_LANGUAGE_CODE: requiredString("TRANSCRIBE_LANGUAGE_CODE"),
   TEXTRACT_ENABLED: booleanStringSchema.default(false),
+  AUTH_COOKIE_SECURE: optionalBooleanStringSchema,
   LOG_LEVEL: logLevelSchema,
   LOG_PRETTY: booleanStringSchema.default(false),
   DEMO_USER_ID: requiredString("DEMO_USER_ID"),
@@ -180,6 +202,14 @@ export const orbitEnvSchema = z.object({
       code: z.ZodIssueCode.custom,
       path: ["LOG_PRETTY"],
       message: "LOG_PRETTY can only be true when NODE_ENV=development"
+    });
+  }
+
+  if (value.APP_ENV === "production" && value.AUTH_COOKIE_SECURE === false) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["AUTH_COOKIE_SECURE"],
+      message: "AUTH_COOKIE_SECURE cannot be false in production"
     });
   }
 });

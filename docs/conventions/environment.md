@@ -43,6 +43,18 @@ LOG_PRETTY=false | true
 staging/production에서는 CloudWatch 수집을 위해 `LOG_PRETTY=false`를 유지한다.
 업무 이벤트 로그와 금지 데이터 기준은 `docs/conventions/logging.md`를 따른다.
 
+## 인증 cookie secure override
+
+기본 인증 cookie는 `APP_ENV=local` 또는 `APP_ENV=test`에서만 non-secure로 설정되고, `APP_ENV=staging` 또는 `APP_ENV=production`에서는 secure cookie를 사용한다.
+
+개인 서버의 임시 HTTP demo처럼 TLS가 아직 없는 staging 검증 경로에서만 다음 값을 사용할 수 있다.
+
+```txt
+AUTH_COOKIE_SECURE=false
+```
+
+이 값은 개인 서버 develop demo 전용 예외다. production에서는 `AUTH_COOKIE_SECURE=false`를 사용할 수 없고, 일반 staging도 HTTPS를 우선한다.
+
 ## OpenAI 기본 모델
 
 OpenAI 모델은 코드 상수가 아니라 env로 결정한다.

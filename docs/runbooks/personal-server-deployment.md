@@ -64,6 +64,7 @@ WEB_ORIGIN=<SERVER_ORIGIN>
 API_BASE_URL=<SERVER_ORIGIN>/api
 S3_PUBLIC_ENDPOINT=<SERVER_ORIGIN>/assets
 PYTHON_WORKER_URL=http://python-worker:8000
+AUTH_COOKIE_SECURE=false
 ```
 
 예시:
@@ -73,6 +74,7 @@ WEB_ORIGIN=https://example.com
 API_BASE_URL=https://example.com/api
 S3_PUBLIC_ENDPOINT=https://example.com/assets
 PYTHON_WORKER_URL=http://python-worker:8000
+AUTH_COOKIE_SECURE=
 ```
 
 실제 서버 전용 값은 repository에 커밋하지 않는다.
@@ -182,6 +184,8 @@ doppler run -- docker compose -f docker-compose.yml -f docker-compose.staging.ym
 `APP_ENV=staging`에서는 인증 cookie가 `secure`로 설정된다. 따라서 로그인, 회원가입, 현재 사용자 조회 같은 인증 흐름을 브라우저에서 검증하려면 `<SERVER_ORIGIN>`은 HTTPS여야 한다.
 
 TLS를 붙이기 전의 HTTP endpoint는 기본 health check와 화면 로딩 확인에만 사용한다. HTTP 상태에서 register/login 응답이 성공하더라도 브라우저가 session cookie를 저장하지 않아 이후 인증 요청은 실패할 수 있다.
+
+단, 개인 서버 develop demo에서 HTTPS를 붙이기 전 임시로 인증 흐름을 확인해야 하면 Doppler `orbit / stg`에 `AUTH_COOKIE_SECURE=false`를 둘 수 있다. 이 값은 개인 서버 HTTP demo 전용 예외이며, production에서는 금지된다. HTTPS를 적용한 뒤에는 값을 비우거나 `true`로 되돌린다.
 
 MinIO는 기존 named volume과의 호환성을 위해 `docker-compose.yml`의 로컬 개발 root credential을 유지한다. 초기화된 MinIO volume에서 root credential을 바꾸려면 별도 migration 계획이 필요하다.
 
