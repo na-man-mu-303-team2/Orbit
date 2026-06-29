@@ -960,7 +960,7 @@ def generate_deck(
         api_key=api_key,
     )
     slide_plans = apply_design_options(raw_input, slide_plans)
-    theme = direct_design(raw_input)
+    theme = direct_design(raw_input, slide_plans)
     slides = [
         assemble_slide(raw_input, slide_plan, plan_visuals(slide_plan), theme)
         for slide_plan in slide_plans
@@ -1539,8 +1539,11 @@ def evidence_for(
     ]
 
 
-def direct_design(raw_input: RawInput) -> dict[str, Any]:
-    profile = design_profile_for(raw_input)
+def direct_design(
+    raw_input: RawInput,
+    slide_plans: list[SlidePlan] | None = None,
+) -> dict[str, Any]:
+    profile = design_profile_for(raw_input, slide_plans)
     return {
         "name": f"{raw_input.template}-{profile['name']}-ai",
         "fontFamily": profile["bodyFontFamily"],
@@ -1566,19 +1569,26 @@ def direct_design(raw_input: RawInput) -> dict[str, Any]:
     }
 
 
-def design_profile_for(raw_input: RawInput) -> dict[str, Any]:
+def design_profile_for(
+    raw_input: RawInput,
+    slide_plans: list[SlidePlan] | None = None,
+) -> dict[str, Any]:
     rhythm_profile = design_profile_for_visual_rhythm(raw_input.design.visual_rhythm)
     if rhythm_profile is not None:
         return rhythm_profile
 
+    palette_hints = [
+        slide_plan.visual_intent.palette_hint
+        for slide_plan in slide_plans or []
+    ]
     text = " ".join(
         [
             raw_input.topic,
             raw_input.prompt,
-            raw_input.template,
             raw_input.metadata.audience,
             raw_input.metadata.purpose,
             raw_input.metadata.tone,
+            *palette_hints,
         ]
     ).casefold()
     registry_profile = style_profile_for_text(text)
@@ -1657,7 +1667,24 @@ def design_profile_for(raw_input: RawInput) -> dict[str, Any]:
 
 
 def style_profile_for_text(text: str) -> dict[str, Any] | None:
-    if has_any(text, ["splatoon", "platoon", "raiders", "neon ink"]) or (
+    if has_any(
+        text,
+        [
+            "splatoon",
+            "platoon",
+            "raiders",
+            "neon ink",
+            "스플래툰",
+            "레이더스",
+            "잉크",
+            "네온",
+            "게임",
+            "비비드",
+            "밝은",
+            "형광",
+            "캐주얼",
+        ],
+    ) or (
         "game" in text and has_any(text, ["ink", "neon"])
     ):
         return STYLE_PROFILE_REGISTRY["game-ink-neon"]

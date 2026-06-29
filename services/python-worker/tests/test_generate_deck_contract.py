@@ -131,6 +131,94 @@ def test_generate_deck_matches_game_ink_neon_profile_without_color_hints() -> No
     assert theme["accentColor"] != "#2563eb"
 
 
+def test_generate_deck_matches_game_ink_neon_profile_for_korean_hints() -> None:
+    response = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="스플래툰 잉크 네온 게임 캠페인",
+            slideCountRange={"min": 2, "max": 2},
+        )
+    )
+
+    assert response.deck["theme"]["name"] == "default-game-ink-neon-ai"
+
+
+def test_generate_deck_report_template_keeps_explicit_game_prompt_theme() -> None:
+    fake_client = FakeOpenAIClient(
+        {
+            "title": "네온 게임 리포트",
+            "slides": [
+                slide_payload(
+                    "캠페인 방향",
+                    "잉크와 네온이 중심인 캐주얼 게임 캠페인입니다.",
+                    "밝은 네온 톤을 중심으로 소개합니다.",
+                    slide_type="title",
+                    slot_preset="title_center",
+                ),
+                slide_payload(
+                    "핵심 정리",
+                    "비비드한 잉크 대비를 유지합니다.",
+                    "게임 프롬프트가 리포트 템플릿보다 우선합니다.",
+                    slide_type="summary",
+                    slot_preset="insight_with_evidence",
+                ),
+            ],
+        }
+    )
+
+    response = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="분기 디자인 리포트",
+            prompt="스플래툰처럼 잉크와 네온이 강한 게임 발표 자료",
+            template="report",
+            slideCountRange={"min": 2, "max": 2},
+        ),
+        client=fake_client,
+    )
+
+    assert response.deck["theme"]["name"] == "report-game-ink-neon-ai"
+
+
+def test_generate_deck_uses_visual_intent_palette_hint_for_theme() -> None:
+    fake_client = FakeOpenAIClient(
+        {
+            "title": "Palette hint",
+            "slides": [
+                slide_payload(
+                    "Visual plan",
+                    "Palette hint should drive the theme.",
+                    "Use the generated visual intent.",
+                    slide_type="title",
+                    slot_preset="title_center",
+                    visual_intent={
+                        "emphasis": "color",
+                        "mood": "energetic",
+                        "structure": "cover",
+                        "paletteHint": "neon ink",
+                        "emphasisStyle": "",
+                        "composition": "",
+                        "decorationDensity": "medium",
+                        "mediaStyle": "",
+                    },
+                )
+            ],
+        }
+    )
+
+    response = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="Quarterly roadmap",
+            prompt="Use generated plan.",
+            slideCountRange={"min": 1, "max": 1},
+        ),
+        client=fake_client,
+    )
+
+    assert response.deck["theme"]["name"] == "default-game-ink-neon-ai"
+
+
 def test_generate_deck_uses_safe_fallback_for_unknown_style_prompt() -> None:
     response = generate_deck(
         GenerateDeckRequest(
