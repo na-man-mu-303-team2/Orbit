@@ -1,4 +1,6 @@
+import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
@@ -8,6 +10,7 @@ from app.audio.transcribe import (
     AudioTranscribeRequest,
     AudioTranscriptionError,
     AudioContent,
+    OpenAISpeechToTextProvider,
     ProviderTranscription,
     SpeechToTextProvider,
     TranscriptSegment,
@@ -15,7 +18,7 @@ from app.audio.transcribe import (
     get_speech_to_text_provider,
     transcribe_rehearsal_audio,
 )
-from app.config import load_config
+from app.config import ConfigError, load_config
 from app.main import app
 from tests.test_config import VALID_ENV
 
@@ -113,14 +116,73 @@ def test_missing_audio_file_returns_predictable_error(tmp_path: Path) -> None:
     assert error.value.status_code == 404
 
 
-def test_unsupported_stt_provider_is_explicit() -> None:
+def test_report_stt_provider_rejects_non_openai_values() -> None:
+    with pytest.raises(ConfigError, match="REPORT_STT_PROVIDER"):
+        load_config({**VALID_ENV, "REPORT_STT_PROVIDER": "sherpa"})
+
+
+def test_openai_stt_requires_api_key() -> None:
     config = load_config(VALID_ENV)
 
     with pytest.raises(AudioTranscriptionError) as error:
         create_speech_to_text_provider(config)
 
-    assert error.value.code == "unsupported_provider"
-    assert "STT_PROVIDER=sherpa" in error.value.message
+    assert error.value.code == "provider_not_configured"
+    assert "OPENAI_API_KEY" in error.value.message
+
+
+def test_gpt4o_transcribe_uses_json_response_format(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[dict[str, object]] = []
+
+    class FakeTranscriptions:
+        def create(self, **kwargs: object) -> dict[str, str]:
+            calls.append(kwargs)
+            return {"text": "테스트 전사"}
+
+    class FakeOpenAI:
+        def __init__(self, *, api_key: str) -> None:
+            self.api_key = api_key
+            self.audio = SimpleNamespace(transcriptions=FakeTranscriptions())
+
+    monkeypatch.setitem(sys.modules, "openai", SimpleNamespace(OpenAI=FakeOpenAI))
+
+    provider = OpenAISpeechToTextProvider(
+        api_key="test-key",
+        model="gpt-4o-transcribe",
+        language="ko-KR",
+    )
+    result = provider.transcribe(
+        AudioContent(
+            data=b"fake webm bytes",
+            file_name="rehearsal.webm",
+            mime_type="audio/webm",
+        )
+    )
+
+    assert result.transcript == "테스트 전사"
+    assert calls[0]["response_format"] == "json"
+
+
+def test_audio_reference_rejects_unsupported_openai_mime_type(
+    tmp_path: Path,
+) -> None:
+    audio_path = tmp_path / "rehearsal.ogg"
+    audio_path.write_bytes(b"fake ogg bytes")
+
+    with pytest.raises(ValidationError, match="unsupported audio mime type"):
+        AudioTranscribeRequest.model_validate(
+            {
+                "runId": "run_demo_1",
+                "projectId": "project_demo_1",
+                "audio": {
+                    "fileId": "file_demo_1",
+                    "storageUrl": str(audio_path),
+                    "mimeType": "audio/ogg",
+                },
+            }
+        )
 
 
 def test_audio_transcribe_endpoint_uses_injected_provider(

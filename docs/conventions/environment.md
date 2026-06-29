@@ -22,10 +22,26 @@ API, worker, web, Python worker는 시작 시 환경변수를 검증한다.
 ```txt
 STORAGE_DRIVER=minio | s3
 JOB_QUEUE_DRIVER=bullmq | sqs
-STT_PROVIDER=sherpa | transcribe | openai
+LIVE_STT_PROVIDER=sherpa
+REPORT_STT_PROVIDER=openai
 OCR_PROVIDER=python | textract
 LLM_PROVIDER=openai
 ```
+
+현재 `.env.example`, `.env.staging.example`, `.env.production.example` 템플릿은 구현 완료된 BullMQ/Redis 경로를 기준으로 `JOB_QUEUE_DRIVER=bullmq`를 사용한다. `JOB_QUEUE_DRIVER=sqs`는 AWS SQS adapter 구현 후 활성화한다.
+
+## 서버 로그
+
+서버 로그는 stdout JSON을 기본으로 한다.
+
+```txt
+LOG_LEVEL=trace | debug | info | warn | error | fatal | silent
+LOG_PRETTY=false | true
+```
+
+`LOG_PRETTY=true`는 `NODE_ENV=development`에서만 허용한다.
+staging/production에서는 CloudWatch 수집을 위해 `LOG_PRETTY=false`를 유지한다.
+업무 이벤트 로그와 금지 데이터 기준은 `docs/conventions/logging.md`를 따른다.
 
 ## OpenAI 기본 모델
 
@@ -39,9 +55,17 @@ OPENAI_EMBEDDING_MODEL=text-embedding-3-small
 
 로컬과 테스트에서는 `OPENAI_API_KEY`를 비워둘 수 있지만, staging/production에서는 반드시 secret store에 설정한다.
 
+STT/AI provider는 목적별로 분리한다.
+
+- `LIVE_STT_PROVIDER=sherpa`: 발표/리허설 중 실시간 발화 인식, 애니메이션 cue, 강조, 키워드 누락 체크, 슬라이드 전환 제어에 쓰는 온디바이스 STT다.
+- `REPORT_STT_PROVIDER=openai`: 리허설 종료 후 녹음 파일을 전사하고 코칭 리포트를 만들기 위한 서버 리포트 STT다. 실제 리포트 분석 실행에는 `OPENAI_API_KEY`가 필요하다.
+- `LLM_PROVIDER=openai`: 전사 결과, 발표자료, 키워드, 청중 반응 등을 종합해 리포트와 코칭 문장을 생성하는 AI provider다.
+
+Report STT에 업로드하는 `rehearsal-audio`는 OpenAI Speech-to-Text 입력 제한에 맞춰 MP3, MP4, MPEG, MPGA, M4A, WAV, WebM 계열만 허용하고 25MB를 넘기지 않는다. 25MB를 넘는 녹음 chunking은 후속 작업이다.
+
 ## Demo ID
 
-1차 스프린트는 인증 없이 아래 값을 사용한다.
+Demo ID 기반 기능은 아래 값을 사용한다.
 
 ```txt
 DEMO_USER_ID=user_demo_1

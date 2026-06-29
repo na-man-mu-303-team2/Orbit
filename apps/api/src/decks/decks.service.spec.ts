@@ -266,9 +266,14 @@ function cloneSnapshotRow(row: StoredSnapshotRow): StoredSnapshotRow {
 
 function compareSnapshotRows(a: StoredSnapshotRow, b: StoredSnapshotRow): number {
   const createdAtOrder = b.created_at.localeCompare(a.created_at);
-  return createdAtOrder === 0
+  if (createdAtOrder !== 0) {
+    return createdAtOrder;
+  }
+
+  const versionOrder = b.version - a.version;
+  return versionOrder === 0
     ? b.snapshot_id.localeCompare(a.snapshot_id)
-    : createdAtOrder;
+    : versionOrder;
 }
 
 function cloneJson<T>(value: T): T {

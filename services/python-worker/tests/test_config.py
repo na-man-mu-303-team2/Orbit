@@ -20,7 +20,8 @@ VALID_ENV = {
     "S3_SECRET_ACCESS_KEY": "orbit-password",
     "S3_FORCE_PATH_STYLE": "true",
     "JOB_QUEUE_DRIVER": "bullmq",
-    "STT_PROVIDER": "sherpa",
+    "LIVE_STT_PROVIDER": "sherpa",
+    "REPORT_STT_PROVIDER": "openai",
     "OCR_PROVIDER": "python",
     "LLM_PROVIDER": "openai",
     "OPENAI_API_KEY": "",
@@ -48,6 +49,17 @@ def test_openai_model_defaults_are_loaded_from_env() -> None:
     assert config.openai_model == "gpt-4.1"
     assert config.openai_transcription_model == "gpt-4o-mini-transcribe"
     assert config.openai_embedding_model == "text-embedding-3-large"
+
+
+def test_live_and_report_stt_providers_are_separate_contracts() -> None:
+    config = load_config(VALID_ENV)
+
+    assert config.live_stt_provider == "sherpa"
+    assert config.report_stt_provider == "openai"
+    with pytest.raises(ConfigError, match="LIVE_STT_PROVIDER"):
+        load_config({**VALID_ENV, "LIVE_STT_PROVIDER": "openai"})
+    with pytest.raises(ConfigError, match="REPORT_STT_PROVIDER"):
+        load_config({**VALID_ENV, "REPORT_STT_PROVIDER": "sherpa"})
 
 
 def test_missing_required_env_fails_with_readable_error() -> None:

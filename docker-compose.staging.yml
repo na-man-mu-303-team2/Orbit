@@ -1,0 +1,148 @@
+x-orbit-env: &orbit-env
+  NODE_ENV: ${NODE_ENV:?}
+  APP_ENV: ${APP_ENV:?}
+  WEB_PORT: ${WEB_PORT:?}
+  API_PORT: ${API_PORT:?}
+  WORKER_PORT: ${WORKER_PORT:?}
+  PYTHON_WORKER_PORT: ${PYTHON_WORKER_PORT:?}
+
+  WEB_ORIGIN: ${WEB_ORIGIN:?}
+  API_BASE_URL: ${API_BASE_URL:?}
+  PYTHON_WORKER_URL: ${PYTHON_WORKER_URL:?}
+
+  DATABASE_URL: ${DATABASE_URL:?}
+  REDIS_URL: ${REDIS_URL:?}
+
+  SESSION_SECRET: ${SESSION_SECRET:?}
+  COOKIE_SECRET: ${COOKIE_SECRET:?}
+
+  STORAGE_DRIVER: ${STORAGE_DRIVER:-minio}
+  S3_ENDPOINT: ${S3_ENDPOINT:-http://minio:9000}
+  S3_PUBLIC_ENDPOINT: ${S3_PUBLIC_ENDPOINT:?}
+  S3_BUCKET: ${S3_BUCKET:-orbit-personal-staging}
+  S3_REGION: ${S3_REGION:?}
+  S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-orbit}
+  S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-orbit-password}
+  S3_FORCE_PATH_STYLE: ${S3_FORCE_PATH_STYLE:-true}
+
+  JOB_QUEUE_DRIVER: ${JOB_QUEUE_DRIVER:-bullmq}
+  LIVE_STT_PROVIDER: ${LIVE_STT_PROVIDER:-sherpa}
+  REPORT_STT_PROVIDER: ${REPORT_STT_PROVIDER:-openai}
+  OCR_PROVIDER: ${OCR_PROVIDER:-python}
+  LLM_PROVIDER: ${LLM_PROVIDER:?}
+
+  OPENAI_API_KEY: ${OPENAI_API_KEY:?}
+  OPENAI_MODEL: ${OPENAI_MODEL:?}
+  OPENAI_TRANSCRIPTION_MODEL: ${OPENAI_TRANSCRIPTION_MODEL:?}
+  OPENAI_EMBEDDING_MODEL: ${OPENAI_EMBEDDING_MODEL:?}
+
+  AWS_REGION: ${AWS_REGION:?}
+  AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+  AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+  TRANSCRIBE_LANGUAGE_CODE: ${TRANSCRIBE_LANGUAGE_CODE:?}
+  TEXTRACT_ENABLED: ${TEXTRACT_ENABLED:-false}
+
+  DEMO_USER_ID: ${DEMO_USER_ID:?}
+  DEMO_WORKSPACE_ID: ${DEMO_WORKSPACE_ID:?}
+  DEMO_PROJECT_ID: ${DEMO_PROJECT_ID:?}
+  DEMO_DECK_ID: ${DEMO_DECK_ID:?}
+  DEMO_SESSION_ID: ${DEMO_SESSION_ID:?}
+
+services:
+  api:
+    env_file: !reset []
+    environment:
+      <<: *orbit-env
+      DATABASE_URL: postgres://orbit:orbit@postgres:5432/orbit
+      REDIS_URL: redis://redis:6379
+      STORAGE_DRIVER: minio
+      S3_ENDPOINT: http://minio:9000
+      S3_BUCKET: orbit-personal-staging
+      S3_ACCESS_KEY_ID: orbit
+      S3_SECRET_ACCESS_KEY: orbit-password
+      S3_FORCE_PATH_STYLE: "true"
+      JOB_QUEUE_DRIVER: bullmq
+      LIVE_STT_PROVIDER: sherpa
+      REPORT_STT_PROVIDER: openai
+      OCR_PROVIDER: python
+      TEXTRACT_ENABLED: "false"
+      PYTHON_WORKER_URL: http://python-worker:8000
+    ports: !override
+      - "127.0.0.1:${API_PORT:-3000}:3000"
+    restart: unless-stopped
+
+  worker:
+    env_file: !reset []
+    environment:
+      <<: *orbit-env
+      DATABASE_URL: postgres://orbit:orbit@postgres:5432/orbit
+      REDIS_URL: redis://redis:6379
+      STORAGE_DRIVER: minio
+      S3_ENDPOINT: http://minio:9000
+      S3_BUCKET: orbit-personal-staging
+      S3_ACCESS_KEY_ID: orbit
+      S3_SECRET_ACCESS_KEY: orbit-password
+      S3_FORCE_PATH_STYLE: "true"
+      JOB_QUEUE_DRIVER: bullmq
+      LIVE_STT_PROVIDER: sherpa
+      REPORT_STT_PROVIDER: openai
+      OCR_PROVIDER: python
+      TEXTRACT_ENABLED: "false"
+      PYTHON_WORKER_URL: http://python-worker:8000
+    restart: unless-stopped
+
+  python-worker:
+    env_file: !reset []
+    environment:
+      <<: *orbit-env
+      API_BASE_URL: http://api:3000
+      DATABASE_URL: postgres://orbit:orbit@postgres:5432/orbit
+      REDIS_URL: redis://redis:6379
+      STORAGE_DRIVER: minio
+      S3_ENDPOINT: http://minio:9000
+      S3_BUCKET: orbit-personal-staging
+      S3_ACCESS_KEY_ID: orbit
+      S3_SECRET_ACCESS_KEY: orbit-password
+      S3_FORCE_PATH_STYLE: "true"
+      JOB_QUEUE_DRIVER: bullmq
+      LIVE_STT_PROVIDER: sherpa
+      REPORT_STT_PROVIDER: openai
+      OCR_PROVIDER: python
+      TEXTRACT_ENABLED: "false"
+      PYTHON_WORKER_URL: http://python-worker:8000
+    ports: !reset []
+    restart: unless-stopped
+
+  web:
+    env_file: !reset []
+    environment:
+      NODE_ENV: ${NODE_ENV:?}
+      APP_ENV: ${APP_ENV:?}
+      WEB_PORT: ${WEB_PORT:?}
+      API_BASE_URL: http://api:3000
+    ports: !override
+      - "127.0.0.1:${WEB_PORT:-5173}:5173"
+    restart: unless-stopped
+
+  postgres:
+    ports: !reset []
+    restart: unless-stopped
+
+  redis:
+    ports: !reset []
+    restart: unless-stopped
+
+  minio:
+    ports: !override
+      - "127.0.0.1:9000:9000"
+    restart: unless-stopped
+
+  minio-init:
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        set -eu
+        mc alias set local http://minio:9000 orbit orbit-password
+        mc mb --ignore-existing local/orbit-personal-staging
+        mc anonymous set download local/orbit-personal-staging

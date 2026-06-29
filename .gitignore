@@ -2,6 +2,8 @@ node_modules/
 dist/
 build/
 coverage/
+test-results/
+playwright-report/
 .turbo/
 .vite/
 .next/
@@ -10,6 +12,7 @@ coverage/
 .env
 .env.local
 .env.*.local
+.env.staging.private
 !.env.example
 !.env.staging.example
 !.env.production.example

@@ -9,9 +9,47 @@ import {
 import { deckElementSchema } from "./slide-object.schema";
 import { themeColorSchema, themeSchema } from "./theme.schema";
 
+export const deckSourceTypeSchema = z.enum(["manual", "import", "ai"]);
+
+export const aiDeckAudienceSchema = z.enum([
+  "general",
+  "executive",
+  "technical",
+  "sales"
+]);
+
+export const aiDeckPurposeSchema = z.enum([
+  "inform",
+  "persuade",
+  "teach",
+  "report"
+]);
+
+export const aiDeckToneSchema = z.enum([
+  "professional",
+  "friendly",
+  "confident",
+  "concise"
+]);
+
+export const deckCreatedFromReferenceSchema = z.object({
+  fileId: z.string().min(1)
+});
+
+export const deckCreatedFromSchema = z.object({
+  topic: z.string().min(1),
+  references: z.array(deckCreatedFromReferenceSchema).default([])
+});
+
 export const deckMetadataSchema = z.object({
   language: z.literal("ko").default("ko"),
-  locale: z.literal("ko-KR").default("ko-KR")
+  locale: z.literal("ko-KR").default("ko-KR"),
+  sourceType: deckSourceTypeSchema.optional(),
+  generatedBy: z.literal("ai").optional(),
+  audience: aiDeckAudienceSchema.optional(),
+  purpose: aiDeckPurposeSchema.optional(),
+  tone: aiDeckToneSchema.optional(),
+  createdFrom: deckCreatedFromSchema.optional()
 });
 
 export const wideDeckCanvasSchema = z.object({
@@ -33,14 +71,11 @@ export const deckCanvasSchema = z.discriminatedUnion("preset", [
   standardDeckCanvasSchema
 ]);
 
-export const keywordTextSchema = z.string().trim().min(1);
-export const keywordTermSchema = z.string().trim().min(1);
-
 export const keywordSchema = z.object({
   keywordId: deckKeywordIdSchema,
-  text: keywordTextSchema,
-  synonyms: z.array(keywordTermSchema).default([]),
-  abbreviations: z.array(keywordTermSchema).default([])
+  text: z.string().min(1),
+  synonyms: z.array(z.string()).default([]),
+  abbreviations: z.array(z.string()).default([])
 });
 
 export const slideOrderSchema = z.number().int().positive();
@@ -81,36 +116,32 @@ export const slideStyleSchema = z
   })
   .default({});
 
-export const slideSchema = z
+export const slideSourceEvidenceSchema = z.object({
+  fileId: z.string().min(1),
+  quote: z.string().min(1).optional(),
+  note: z.string().min(1).optional(),
+  confidence: z.number().finite().min(0).max(1).default(0.5)
+});
+
+export const slideAiNotesSchema = z
   .object({
-    slideId: deckSlideIdSchema,
-    order: slideOrderSchema,
-    title: z.string().default(""),
-    thumbnailUrl: z.string().default(""),
-    style: slideStyleSchema,
-    speakerNotes: z.string().default(""),
-    elements: z.array(deckElementSchema).default([]),
-    keywords: z.array(keywordSchema).default([]),
-    animations: z.array(animationSchema).default([])
+    emphasisPoints: z.array(z.string().min(1)).default([]),
+    sourceEvidence: z.array(slideSourceEvidenceSchema).default([])
   })
-  .superRefine((slide, ctx) => {
-    const keywordTexts = new Set<string>();
+  .default({});
 
-    slide.keywords.forEach((keyword, index) => {
-      const text = keyword.text.toLocaleLowerCase("ko-KR");
-
-      if (keywordTexts.has(text)) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ["keywords", index, "text"],
-          message: "keyword text must be unique within a slide"
-        });
-        return;
-      }
-
-      keywordTexts.add(text);
-    });
-  });
+export const slideSchema = z.object({
+  slideId: deckSlideIdSchema,
+  order: slideOrderSchema,
+  title: z.string().default(""),
+  thumbnailUrl: z.string().default(""),
+  style: slideStyleSchema,
+  speakerNotes: z.string().default(""),
+  elements: z.array(deckElementSchema).default([]),
+  keywords: z.array(keywordSchema).default([]),
+  animations: z.array(animationSchema).default([]),
+  aiNotes: slideAiNotesSchema.optional()
+});
 
 export const deckSchema = z.object({
   deckId: deckIdSchema,
@@ -126,6 +157,11 @@ export const deckSchema = z.object({
 export type Deck = z.infer<typeof deckSchema>;
 export type DeckCanvas = z.infer<typeof deckCanvasSchema>;
 export type DeckMetadata = z.infer<typeof deckMetadataSchema>;
+export type DeckSourceType = z.infer<typeof deckSourceTypeSchema>;
+export type AiDeckAudience = z.infer<typeof aiDeckAudienceSchema>;
+export type AiDeckPurpose = z.infer<typeof aiDeckPurposeSchema>;
+export type AiDeckTone = z.infer<typeof aiDeckToneSchema>;
+export type DeckCreatedFrom = z.infer<typeof deckCreatedFromSchema>;
 export type Slide = z.infer<typeof slideSchema>;
 export type SlideLayout = z.infer<typeof slideLayoutSchema>;
 export type SlideStyle = z.infer<typeof slideStyleSchema>;
@@ -133,4 +169,6 @@ export type SlideBackgroundImage = z.infer<typeof slideBackgroundImageSchema>;
 export type SlideBackgroundImageFit = z.infer<
   typeof slideBackgroundImageFitSchema
 >;
+export type SlideSourceEvidence = z.infer<typeof slideSourceEvidenceSchema>;
+export type SlideAiNotes = z.infer<typeof slideAiNotesSchema>;
 export type Keyword = z.infer<typeof keywordSchema>;

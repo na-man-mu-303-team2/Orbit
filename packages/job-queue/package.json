@@ -13,11 +13,11 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@orbit/shared": "workspace:*"
+    "@orbit/shared": "workspace:*",
+    "bullmq": "^5.56.0"
   },
   "devDependencies": {
     "typescript": "^5.8.3",
     "vitest": "^3.2.4"
   }
 }
-

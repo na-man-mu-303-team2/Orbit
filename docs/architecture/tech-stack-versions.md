@@ -45,10 +45,18 @@
 | ORM | TypeORM | `^0.3.25` | `apps/api/package.json` |
 | PostgreSQL driver | pg | `^8.16.2` | `apps/api/package.json` |
 | Realtime server | Socket.IO | `^4.8.1` | `apps/api/package.json` |
-| Background queue | BullMQ | `^5.56.0` | `apps/worker/package.json` |
+| Password hashing | Argon2 | `^0.44.0` | `apps/api/package.json` |
+| Session cache client | ioredis | `^5.11.1` | `apps/api/package.json` |
+| Cookie parsing/signing | cookie-parser | `^1.4.7` | `apps/api/package.json` |
+| HTTP security headers | Helmet | `^8.2.0` | `apps/api/package.json` |
+| Background queue | BullMQ | `^5.56.0` | `apps/worker/package.json`, `packages/job-queue/package.json` |
 | Redis client | ioredis | `^5.6.1` | `apps/worker/package.json` |
 | Runtime schema | Zod | `^3.25.76` | `apps/api/package.json`, `packages/shared/package.json` |
 | API docs | Swagger for NestJS | `^11.2.0` | `apps/api/package.json` |
+| Structured logger | nestjs-pino | `^4.6.1` | `apps/api/package.json`, `apps/worker/package.json` |
+| JSON logger | Pino | `^10.3.1` | `apps/api/package.json`, `apps/worker/package.json` |
+| HTTP request logger | pino-http | `^11.0.0` | `apps/api/package.json` |
+| Dev log formatter | pino-pretty | `^13.1.3` | `apps/api/package.json`, `apps/worker/package.json` |
 
 ## Python Worker
 

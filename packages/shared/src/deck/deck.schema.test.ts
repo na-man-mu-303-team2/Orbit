@@ -11,6 +11,15 @@ type DeckValidationInput = {
   metadata: {
     language: string;
     locale: string;
+    sourceType?: string;
+    generatedBy?: string;
+    audience?: string;
+    purpose?: string;
+    tone?: string;
+    createdFrom?: {
+      topic: string;
+      references: Array<{ fileId: string }>;
+    };
   };
   canvas: {
     preset: string;
@@ -25,6 +34,15 @@ type DeckValidationInput = {
     thumbnailUrl: string;
     style: Record<string, unknown>;
     speakerNotes: string;
+    aiNotes?: {
+      emphasisPoints: string[];
+      sourceEvidence: Array<{
+        fileId: string;
+        quote?: string;
+        note?: string;
+        confidence: number;
+      }>;
+    };
     keywords: Array<{
       keywordId: string;
       text: string;
@@ -223,6 +241,53 @@ describe("deckSchema validation", () => {
     expectValidDeck(deck);
   });
 
+  it("accepts a custom shape with typed path editing props", () => {
+    const deck = createValidDeck();
+
+    deck.slides[0].elements[0] = {
+      ...deck.slides[0].elements[0],
+      type: "customShape",
+      props: {
+        pathData:
+          "M 20 20 L 200 20 L 200 100 L 92 100 L 48 148 L 56 100 L 20 100 Z",
+        viewBoxWidth: 220,
+        viewBoxHeight: 160,
+        fill: "#f5edff",
+        stroke: "#9333ea",
+        strokeWidth: 2,
+        closed: true,
+        nodes: [
+          { x: 20, y: 20, mode: "corner" },
+          { x: 200, y: 20, mode: "corner" },
+          { x: 200, y: 100, mode: "corner" },
+          { x: 92, y: 100, mode: "corner" },
+          { x: 48, y: 148, mode: "corner" },
+          { x: 56, y: 100, mode: "corner" },
+          { x: 20, y: 100, mode: "corner" }
+        ]
+      }
+    };
+
+    expectValidDeck(deck);
+  });
+
+  it("rejects a custom shape without pathData", () => {
+    const deck = createValidDeck();
+
+    deck.slides[0].elements[0] = {
+      ...deck.slides[0].elements[0],
+      type: "customShape",
+      props: {
+        viewBoxWidth: 220,
+        viewBoxHeight: 160,
+        closed: true,
+        nodes: []
+      }
+    };
+
+    expectInvalidDeck(deck);
+  });
+
   it("rejects negative radial chart values", () => {
     const deck = createValidDeck();
 
@@ -318,58 +383,33 @@ describe("deckSchema validation", () => {
     expectInvalidDeck(deck);
   });
 
-  it("normalizes keyword text and terms", () => {
+  it("accepts AI metadata and slide notes on generated decks", () => {
     const deck = createValidDeck();
 
-    deck.slides[0].keywords = [
-      {
-        keywordId: "kw_1",
-        text: " ORBIT ",
-        synonyms: [" 발표 도우미 "],
-        abbreviations: [" STT "]
+    deck.metadata = {
+      ...deck.metadata,
+      sourceType: "ai",
+      generatedBy: "ai",
+      audience: "technical",
+      purpose: "inform",
+      tone: "professional",
+      createdFrom: {
+        topic: "AI 발표 자동화",
+        references: [{ fileId: "file_1" }]
       }
-    ];
+    };
+    deck.slides[0].aiNotes = {
+      emphasisPoints: ["근거 기반 메시지"],
+      sourceEvidence: [
+        {
+          fileId: "file_1",
+          quote: "reference",
+          confidence: 0.8
+        }
+      ]
+    };
 
-    const parsed = deckSchema.parse(deck);
-
-    expect(parsed.slides[0].keywords[0]).toEqual({
-      keywordId: "kw_1",
-      text: "ORBIT",
-      synonyms: ["발표 도우미"],
-      abbreviations: ["STT"]
-    });
-  });
-
-  it("rejects duplicate keyword text within a slide", () => {
-    const deck = createValidDeck();
-
-    deck.slides[0].keywords = [
-      {
-        keywordId: "kw_1",
-        text: "ORBIT",
-        synonyms: [],
-        abbreviations: []
-      },
-      {
-        keywordId: "kw_2",
-        text: "orbit",
-        synonyms: [],
-        abbreviations: []
-      }
-    ];
-
-    expectInvalidDeck(deck);
-  });
-
-  it.each([
-    ["synonym", "synonyms"],
-    ["abbreviation", "abbreviations"]
-  ])("rejects empty keyword %s", (_label, field) => {
-    const deck = createValidDeck();
-
-    deck.slides[0].keywords[0][field as "synonyms" | "abbreviations"] = [""];
-
-    expectInvalidDeck(deck);
+    expectValidDeck(deck);
   });
 
   it.each([

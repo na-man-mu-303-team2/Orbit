@@ -2,6 +2,16 @@ FROM python:3.12-slim
 
 WORKDIR /app/services/python-worker
 
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends \
+    tesseract-ocr \
+    tesseract-ocr-eng \
+    tesseract-ocr-kor \
+    libreoffice-writer \
+    libreoffice-impress \
+    fonts-noto-cjk \
+  && rm -rf /var/lib/apt/lists/*
+
 RUN pip install --no-cache-dir uv
 
 COPY services/python-worker/pyproject.toml services/python-worker/uv.lock ./
