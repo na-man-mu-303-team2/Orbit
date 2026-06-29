@@ -232,7 +232,7 @@ def test_generate_deck_uses_safe_fallback_for_unknown_style_prompt() -> None:
     assert response.validation.passed is True
 
 
-def test_generate_deck_uses_code_fallback_before_llm_slot_preset() -> None:
+def test_generate_deck_uses_llm_slot_preset_before_code_fallback() -> None:
     fake_client = FakeOpenAIClient(
         {
             "title": "Stable fallback",
@@ -258,9 +258,11 @@ def test_generate_deck_uses_code_fallback_before_llm_slot_preset() -> None:
         client=fake_client,
     )
 
-    body = element_by_role(response.deck["slides"][0], "body")
-    assert response.deck["slides"][0]["style"]["layout"] == "title-content"
-    assert body["width"] == 900
+    slide = response.deck["slides"][0]
+    body = element_by_role(slide, "body")
+    assert slide["style"]["layout"] == "two-column"
+    assert body["width"] == 760
+    assert has_element(slide, "el_1_metric_card")
 
 
 def test_generate_deck_varied_layout_keeps_stable_title_anchors() -> None:

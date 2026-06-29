@@ -218,6 +218,7 @@ class SlidePlan(BaseModel):
     evidence: list[SourceEvidence]
     layout_variant: str = ""
     slot_preset: SlotPreset | None = None
+    requested_slot_preset: SlotPreset | None = None
     visual_intent: VisualIntent = Field(default_factory=VisualIntent)
     media_intent: MediaIntent = Field(default_factory=MediaIntent)
 
@@ -1316,6 +1317,7 @@ def slide_plans_from_generated_content(
                     fallback_preset,
                 ),
                 slot_preset=slot_preset,
+                requested_slot_preset=slot_preset,
                 visual_intent=slide.visual_intent,
                 media_intent=slide.media_intent,
             )
@@ -1422,6 +1424,9 @@ def layout_candidates_for(
     wants_media = media_intent_needs_slot(slide_plan.media_intent)
     composition = normalize_composition(slide_plan.visual_intent.composition)
     candidate_presets: set[SlotPreset] = {fallback}
+    requested_slot_preset = slide_plan.requested_slot_preset
+    if requested_slot_preset is not None:
+        candidate_presets.add(requested_slot_preset)
 
     candidate_presets.update(
         slot_preset
@@ -1454,6 +1459,8 @@ def layout_candidates_for(
         if PRESET_DENSITY[slot_preset] == design.density_target:
             score += 2
         score += composition_score(slot_preset, composition)
+        if slot_preset == requested_slot_preset:
+            score += 10
         score -= preset_usage.get(slot_preset, 0)
         if slide_plan.slide_type == "summary":
             score += 2 if preset.variant == "data" else 0
