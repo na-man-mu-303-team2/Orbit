@@ -1268,7 +1268,7 @@ def choose_layout_preset(
     previous_preset: SlotPreset | None,
 ) -> SlotPreset:
     fallback = preset_for_slide_type(slide_plan.slide_type)
-    if slide_plan.slide_type == "chart":
+    if slide_plan.slide_type in ("chart", "feature-grid"):
         return fallback
 
     candidates = layout_candidates_for(slide_plan, design, previous_preset, fallback)

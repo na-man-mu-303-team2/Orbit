@@ -186,6 +186,49 @@ def test_generate_deck_varied_layout_reduces_adjacent_preset_repetition() -> Non
     assert first_body["width"] != second_body["width"]
 
 
+def test_generate_deck_keeps_feature_grid_metric_cards_with_varied_layout() -> None:
+    fake_client = FakeOpenAIClient(
+        {
+            "title": "Feature grid layout",
+            "slides": [
+                slide_payload(
+                    "First feature grid",
+                    "First feature message",
+                    "First speaker note.",
+                    slide_type="feature-grid",
+                    slot_preset="metric_cards",
+                ),
+                slide_payload(
+                    "Second feature grid",
+                    "Second feature message",
+                    "Second speaker note.",
+                    slide_type="feature-grid",
+                    slot_preset="title_left_visual_right",
+                ),
+            ],
+        }
+    )
+
+    response = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="ORBIT",
+            prompt="Use generated plan.",
+            slideCountRange={"min": 2, "max": 2},
+            design={"layoutDiversity": "varied"},
+        ),
+        client=fake_client,
+    )
+
+    for slide in response.deck["slides"]:
+        title = element_by_role(slide, "title")
+        assert slide["style"]["layout"] == "two-column"
+        assert title["x"] == 120
+        assert title["y"] == 88
+        assert title["width"] == 1680
+        assert title["height"] == 128
+
+
 def test_generate_deck_avoid_media_policy_suppresses_placeholders() -> None:
     fake_client = FakeOpenAIClient(
         {
