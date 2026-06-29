@@ -5,6 +5,7 @@ import {
   buildReferenceGenerationInput,
   ExtractResultItem,
   GeneratedDeckResult,
+  getGeneratedDeckProjectPath,
   getGenerateDeckJobResult,
   getJobResultFiles,
   pollExtractJob
@@ -166,6 +167,7 @@ describe("AI deck generation flow", () => {
     if (!result) {
       throw new Error("Generated deck result was not parsed.");
     }
+    expect(getGeneratedDeckProjectPath(result)).toBe("/project/project-a");
     expect(renderToStaticMarkup(<GeneratedDeckResult result={result} />)).toContain(
       "file_1"
     );

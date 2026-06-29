@@ -564,6 +564,7 @@ function ProjectCard(props: { project: Project }) {
 }
 
 function GenerateDeckView() {
+  const queryClient = useQueryClient();
   const [topic, setTopic] = useState("AI 덱 생성 파이프라인");
   const [prompt, setPrompt] = useState("참고자료를 바탕으로 발표 흐름과 핵심 메시지를 정리");
   const [duration, setDuration] = useState(10);
@@ -720,7 +721,14 @@ function GenerateDeckView() {
         throw new Error(job.error?.message || job.message || "AI 덱 생성에 실패했습니다.");
       }
 
-      setResult(getGenerateDeckJobResult(job));
+      const generatedResult = getGenerateDeckJobResult(job);
+      if (!generatedResult) {
+        throw new Error("AI 덱 생성 결과를 읽지 못했습니다.");
+      }
+
+      setResult(generatedResult);
+      queryClient.setQueryData(["deck", generatedResult.deck.projectId], generatedResult.deck);
+      navigateTo(getGeneratedDeckProjectPath(generatedResult));
     } catch (error) {
       setGenerateError(
         error instanceof Error ? error.message : "AI 덱 생성에 실패했습니다."
@@ -1072,6 +1080,10 @@ export function getJobResultFiles(job: Job): ExtractedFile[] {
 export function getGenerateDeckJobResult(job: Job): GenerateDeckJobResult | null {
   const result = job.result as GenerateDeckJobResult | null;
   return result?.deck ? result : null;
+}
+
+export function getGeneratedDeckProjectPath(result: GenerateDeckJobResult) {
+  return `/project/${encodeURIComponent(result.deck.projectId)}`;
 }
 
 export function buildReferenceGenerationInput(
