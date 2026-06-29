@@ -6,7 +6,12 @@ import type { ReactNode } from "react";
 import { forwardRef } from "react";
 import { renderToString } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { EditorShell, EditorStateNotice } from "./EditorShell";
+import {
+  EditorShell,
+  EditorStateNotice,
+  mergeDeckIntoQueryCache,
+  shouldHydrateDeckFromQuery
+} from "./EditorShell";
 
 vi.mock("react-konva", () => {
   const Group = forwardRef<HTMLDivElement, { children?: ReactNode }>(
@@ -265,6 +270,58 @@ describe("editor shell", () => {
     expect(html).toContain("data-konva-shape");
     expect(html).toContain("data-konva-star");
     expect(html).not.toContain("GROUP");
+  });
+
+  it("keeps the newer local deck when a stale save response tries to update the query cache", () => {
+    const currentDeck = {
+      ...createDemoDeck(),
+      version: 3
+    } as Deck;
+    const stalePersistedDeck = {
+      ...currentDeck,
+      version: 2
+    } as Deck;
+
+    expect(mergeDeckIntoQueryCache(currentDeck, stalePersistedDeck)).toBe(
+      currentDeck
+    );
+  });
+
+  it("hydrates the first persisted deck before local optimistic edits exist", () => {
+    const currentDeck = createDemoDeck();
+    const persistedDeck = {
+      ...currentDeck,
+      projectId: "project_real_1"
+    } as Deck;
+
+    expect(
+      shouldHydrateDeckFromQuery({
+        currentDeck,
+        nextDeck: persistedDeck,
+        hasHydratedPersistedDeck: false,
+        hasLocalOptimisticChanges: false
+      })
+    ).toBe(true);
+  });
+
+  it("ignores an older persisted deck once local optimistic edits have advanced", () => {
+    const currentDeck = {
+      ...createDemoDeck(),
+      version: 3
+    } as Deck;
+    const persistedDeck = {
+      ...currentDeck,
+      version: 2
+    } as Deck;
+
+    expect(
+      shouldHydrateDeckFromQuery({
+        currentDeck,
+        nextDeck: persistedDeck,
+        hasHydratedPersistedDeck: true,
+        hasLocalOptimisticChanges: true
+      })
+    ).toBe(false);
   });
 
   it("sanitizes invalid element frame values before rendering debug data", () => {

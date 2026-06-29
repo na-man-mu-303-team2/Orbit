@@ -358,6 +358,53 @@ async function fetchDeck(): Promise<Deck> {
   return putProjectDeck(projectId, createSeedDeck(projectId));
 }
 
+function isSameDeckIdentity(left: Deck, right: Deck) {
+  return left.deckId === right.deckId && left.projectId === right.projectId;
+}
+
+export function mergeDeckIntoQueryCache(
+  currentDeck: Deck | undefined,
+  nextDeck: Deck
+) {
+  if (!currentDeck) {
+    return nextDeck;
+  }
+
+  if (!isSameDeckIdentity(currentDeck, nextDeck)) {
+    return nextDeck;
+  }
+
+  return nextDeck.version > currentDeck.version ? nextDeck : currentDeck;
+}
+
+export function shouldHydrateDeckFromQuery(args: {
+  currentDeck: Deck;
+  nextDeck: Deck;
+  hasHydratedPersistedDeck: boolean;
+  hasLocalOptimisticChanges: boolean;
+}) {
+  const {
+    currentDeck,
+    nextDeck,
+    hasHydratedPersistedDeck,
+    hasLocalOptimisticChanges
+  } = args;
+
+  if (!hasHydratedPersistedDeck) {
+    if (!hasLocalOptimisticChanges) {
+      return true;
+    }
+
+    if (!isSameDeckIdentity(currentDeck, nextDeck)) {
+      return false;
+    }
+  } else if (!isSameDeckIdentity(currentDeck, nextDeck)) {
+    return true;
+  }
+
+  return nextDeck.version > currentDeck.version;
+}
+
 export function EditorShell() {
   const queryClient = useQueryClient();
   const [currentSlideIndex, setCurrentSlideIndex] = useState(0);
@@ -413,6 +460,8 @@ export function EditorShell() {
   const imageUploadTargetRef = useRef<ImageUploadTarget | null>(null);
   const resolvedUploadProjectIdRef = useRef<string | null>(null);
   const saveQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const hasHydratedPersistedDeckRef = useRef(false);
+  const hasLocalOptimisticChangesRef = useRef(false);
   const isUsingFallbackDeck = !deckQuery.data;
   const isDeckLoading = deckQuery.isPending;
   const isDeckError = deckQuery.isError;
@@ -493,15 +542,34 @@ export function EditorShell() {
   ];
 
   useEffect(() => {
-    deckRef.current = loadedDeck;
-    setDeck(loadedDeck);
+    const persistedDeck = deckQuery.data;
+
+    if (!persistedDeck) {
+      return;
+    }
+
+    if (
+      !shouldHydrateDeckFromQuery({
+        currentDeck: deckRef.current,
+        nextDeck: persistedDeck,
+        hasHydratedPersistedDeck: hasHydratedPersistedDeckRef.current,
+        hasLocalOptimisticChanges: hasLocalOptimisticChangesRef.current
+      })
+    ) {
+      return;
+    }
+
+    hasHydratedPersistedDeckRef.current = true;
+    hasLocalOptimisticChangesRef.current = false;
+    deckRef.current = persistedDeck;
+    setDeck(persistedDeck);
     setUndoStack([]);
     setRedoStack([]);
     setSelectedElementIds([]);
     setEditingElementId(null);
     setCustomShapeEditElementId(null);
     setElementContextMenu(null);
-  }, [loadedDeck]);
+  }, [deckQuery.data]);
 
   useEffect(() => {
     if (!deckQuery.data?.projectId) {
@@ -520,6 +588,7 @@ export function EditorShell() {
     }
 
     deckRef.current = result.deck;
+    hasLocalOptimisticChangesRef.current = true;
     setUndoStack((current) => [...current.slice(-49), baseDeck]);
     setRedoStack([]);
     setDeck(result.deck);
@@ -531,16 +600,22 @@ export function EditorShell() {
       return;
     }
 
+    queryClient.setQueryData(["deck", demoIds.projectId], (current?: Deck) =>
+      mergeDeckIntoQueryCache(current, result.deck)
+    );
+
     saveQueueRef.current = saveQueueRef.current
       .catch(() => undefined)
       .then(async () => {
         const persistedDeck = await appendProjectDeckPatch(deckQuery.data.projectId, patch);
 
-        queryClient.setQueryData(["deck", demoIds.projectId], persistedDeck);
+        queryClient.setQueryData(["deck", demoIds.projectId], (current?: Deck) =>
+          mergeDeckIntoQueryCache(current, persistedDeck)
+        );
 
         if (persistedDeck.version >= deckRef.current.version) {
-          deckRef.current = persistedDeck;
-          setDeck(persistedDeck);
+          hasHydratedPersistedDeckRef.current = true;
+          hasLocalOptimisticChangesRef.current = false;
         }
       })
       .catch((error: unknown) => {
