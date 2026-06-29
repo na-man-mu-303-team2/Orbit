@@ -1174,9 +1174,10 @@ def slide_plans_from_generated_content(
         slide_keywords = merge_keywords(keyword_pool, slide.keywords)
         fallback_type = slide_type_for(index, raw_input.slide_count)
         slide_type = normalize_slide_type(slide.slide_type, fallback_type)
+        fallback_preset = preset_for_slide_type(slide_type)
         slot_preset = normalize_slot_preset(
             slide.slot_preset,
-            preset_for_slide_type(slide_type),
+            fallback_preset,
         )
         slide_plans.append(
             SlidePlan(
@@ -1189,7 +1190,7 @@ def slide_plans_from_generated_content(
                 evidence=evidence_for(raw_input.references, slide.title),
                 layout_variant=normalize_layout_variant(
                     slide.layout_variant,
-                    slot_preset,
+                    fallback_preset,
                 ),
                 slot_preset=slot_preset,
                 visual_intent=slide.visual_intent,
@@ -1266,10 +1267,7 @@ def choose_layout_preset(
     design: DesignOptions,
     previous_preset: SlotPreset | None,
 ) -> SlotPreset:
-    fallback = normalize_slot_preset(
-        slide_plan.slot_preset,
-        preset_for_slide_type(slide_plan.slide_type),
-    )
+    fallback = preset_for_slide_type(slide_plan.slide_type)
     if slide_plan.slide_type == "chart":
         return fallback
 

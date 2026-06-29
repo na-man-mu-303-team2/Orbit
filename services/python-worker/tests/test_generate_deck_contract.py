@@ -114,6 +114,37 @@ def test_generate_deck_design_rhythm_overrides_theme_profile() -> None:
     assert response.deck["theme"]["accentColor"] == "#1a73e8"
 
 
+def test_generate_deck_uses_code_fallback_before_llm_slot_preset() -> None:
+    fake_client = FakeOpenAIClient(
+        {
+            "title": "Stable fallback",
+            "slides": [
+                slide_payload(
+                    "Metric slide",
+                    "Metric message",
+                    "Metric speaker note.",
+                    slide_type="data",
+                    slot_preset="metric_cards",
+                )
+            ],
+        }
+    )
+
+    response = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="ORBIT",
+            prompt="Use generated plan.",
+            slideCountRange={"min": 1, "max": 1},
+        ),
+        client=fake_client,
+    )
+
+    body = element_by_role(response.deck["slides"][0], "body")
+    assert response.deck["slides"][0]["style"]["layout"] == "title-content"
+    assert body["width"] == 900
+
+
 def test_generate_deck_varied_layout_reduces_adjacent_preset_repetition() -> None:
     fake_client = FakeOpenAIClient(
         {
@@ -148,8 +179,11 @@ def test_generate_deck_varied_layout_reduces_adjacent_preset_repetition() -> Non
         client=fake_client,
     )
 
-    assert response.deck["slides"][0]["style"]["layout"] == "two-column"
+    first_body = element_by_role(response.deck["slides"][0], "body")
+    second_body = element_by_role(response.deck["slides"][1], "body")
+    assert response.deck["slides"][0]["style"]["layout"] == "title-content"
     assert response.deck["slides"][1]["style"]["layout"] == "title-content"
+    assert first_body["width"] != second_body["width"]
 
 
 def test_generate_deck_avoid_media_policy_suppresses_placeholders() -> None:
@@ -343,7 +377,7 @@ def test_generate_deck_uses_design_intents_without_schema_leak() -> None:
     assert "slotPreset" not in deck_text
     assert "layoutCandidates" not in deck_text
     assert has_element(response.deck["slides"][0], "el_1_media_placeholder")
-    assert response.deck["slides"][1]["style"]["layout"] == "two-column"
+    assert response.deck["slides"][1]["style"]["layout"] == "title-content"
     assert has_element(response.deck["slides"][1], "el_2_metric_card")
     generated_texts = [
         element["props"]["text"]
@@ -409,6 +443,14 @@ def has_element(slide: dict[str, Any], element_id: str) -> bool:
     return any(
         element["elementId"] == element_id
         for element in slide["elements"]
+    )
+
+
+def element_by_role(slide: dict[str, Any], role: str) -> dict[str, Any]:
+    return next(
+        element
+        for element in slide["elements"]
+        if element["role"] == role
     )
 
 
