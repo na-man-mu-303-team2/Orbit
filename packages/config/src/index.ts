@@ -79,6 +79,8 @@ const optionalString = z.preprocess((value) => {
 const requiredUrl = (name: string) =>
   requiredString(name).pipe(z.string().url(`${name} must be a valid URL`));
 
+const usesHttpProtocol = (url: string): boolean => new URL(url).protocol === "http:";
+
 const requiredPort = (name: string) =>
   z.preprocess(
     (value) => {
@@ -210,6 +212,19 @@ export const orbitEnvSchema = z.object({
       code: z.ZodIssueCode.custom,
       path: ["AUTH_COOKIE_SECURE"],
       message: "AUTH_COOKIE_SECURE cannot be false in production"
+    });
+  }
+
+  if (
+    value.APP_ENV === "staging" &&
+    value.AUTH_COOKIE_SECURE === false &&
+    (!usesHttpProtocol(value.WEB_ORIGIN) || !usesHttpProtocol(value.API_BASE_URL))
+  ) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["AUTH_COOKIE_SECURE"],
+      message:
+        "AUTH_COOKIE_SECURE=false is only allowed when WEB_ORIGIN and API_BASE_URL use http in staging"
     });
   }
 });

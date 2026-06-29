@@ -148,6 +148,30 @@ describe("ORBIT env validation", () => {
     expect(config.AUTH_COOKIE_SECURE).toBe(false);
   });
 
+  it("rejects insecure auth cookies when staging uses HTTPS origins", () => {
+    expect(() =>
+      loadOrbitConfig(
+        {
+          ...validEnv,
+          APP_ENV: "staging",
+          WEB_ORIGIN: "https://app.example.com",
+          API_BASE_URL: "https://app.example.com/api",
+          PYTHON_WORKER_URL: "http://python-worker:8000",
+          DATABASE_URL: "postgres://orbit:orbit@postgres:5432/orbit",
+          REDIS_URL: "redis://redis:6379",
+          SESSION_SECRET: "staging-session-secret",
+          COOKIE_SECRET: "staging-cookie-secret",
+          S3_ENDPOINT: "http://minio:9000",
+          S3_PUBLIC_ENDPOINT: "https://app.example.com/assets",
+          S3_BUCKET: "orbit-personal-staging",
+          OPENAI_API_KEY: "sk-staging-placeholder",
+          AUTH_COOKIE_SECURE: "false"
+        },
+        { service: "api" }
+      )
+    ).toThrow(/AUTH_COOKIE_SECURE=false is only allowed/);
+  });
+
   it("rejects insecure auth cookies in production", () => {
     expect(() =>
       loadOrbitConfig(
