@@ -296,6 +296,10 @@ async function fetchProjectDeck(projectId: string): Promise<Deck | null> {
   return payload.deck;
 }
 
+function navigateToRehearsal(projectId: string) {
+  window.history.pushState({}, "", `/rehearsal/${encodeURIComponent(projectId)}`);
+  window.dispatchEvent(new PopStateEvent("popstate"));
+}
 async function putProjectDeck(projectId: string, deck: Deck): Promise<Deck> {
   const response = await fetch(`/api/v1/projects/${projectId}/deck`, {
     method: "PUT",
@@ -2140,7 +2144,18 @@ export function EditorShell(props: { projectId?: string }) {
               <div className="file-menu-popover action-popover" role="menu">
                 <div className="file-menu-list">
                   {presentationItems.map(({ icon: Icon, label, meta }) => (
-                    <button className="file-menu-item" key={label} role="menuitem" type="button">
+                    <button
+                    className="file-menu-item"
+                    key={label}
+                    role="menuitem"
+                    type="button"
+                    onClick={() => {
+                      if (label === presentationItems[2]?.label) {
+                        setActiveTopMenu(null);
+                        navigateToRehearsal(projectId);
+                      }
+                    }}
+                  >
                       <span className="file-menu-label">
                         <Icon size={16} />
                         {label}
