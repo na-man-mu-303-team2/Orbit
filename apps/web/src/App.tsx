@@ -217,6 +217,10 @@ function AppFrame(props: {
   onToggleSidebar: () => void;
 }) {
   const { children, isSidebarCollapsed, route, onToggleSidebar } = props;
+  const activeProjectId =
+    route.name === "project-editor" || route.name === "rehearsal"
+      ? route.projectId
+      : demoIds.projectId;
 
   return (
     <main className={`orbit-layout ${isSidebarCollapsed ? "sidebar-collapsed" : ""}`}>
@@ -257,7 +261,7 @@ function AppFrame(props: {
             active={route.name === "rehearsal"}
             icon={<Sparkles size={18} />}
             label="리허설"
-            onClick={() => navigateTo(`/rehearsal/${demoIds.projectId}`)}
+            onClick={() => navigateTo(`/rehearsal/${activeProjectId}`)}
           />
         </nav>
         <button className="sidebar-login" type="button" onClick={() => navigateTo("/login")}>
