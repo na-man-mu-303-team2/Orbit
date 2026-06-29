@@ -2,9 +2,9 @@ import { z } from "zod";
 
 import { isoDateTimeSchema } from "../common/time.schema";
 import {
-  allowedAssetMimeTypes,
+  allowedRehearsalAudioMimeTypes,
   assetUploadUrlResponseSchema,
-  maxAssetUploadSizeBytes
+  maxRehearsalAudioUploadSizeBytes
 } from "../files/file.schema";
 import { jobSchema } from "../jobs/job.schema";
 
@@ -42,34 +42,18 @@ export const createRehearsalRunResponseSchema = z.object({
   run: rehearsalRunSchema
 });
 
-const rehearsalAudioMimeTypes = new Set<string>([
-  "audio/flac",
-  "audio/m4a",
-  "audio/mp4",
-  "audio/mpeg",
-  "audio/mpga",
-  "audio/ogg",
-  "audio/wav",
-  "audio/webm",
-  "audio/x-m4a",
-  "audio/x-wav",
-  "video/mp4"
-]);
-
 export const createRehearsalAudioUploadUrlRequestSchema = z
   .object({
     originalName: z.string().trim().min(1).max(255),
-    mimeType: z.enum(allowedAssetMimeTypes),
-    size: z.number().int().positive().max(maxAssetUploadSizeBytes)
-  })
-  .superRefine((value, context) => {
-    if (!rehearsalAudioMimeTypes.has(value.mimeType)) {
-      context.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: "rehearsal audio uploads require an audio MIME type.",
-        path: ["mimeType"]
-      });
-    }
+    mimeType: z.enum(allowedRehearsalAudioMimeTypes),
+    size: z
+      .number()
+      .int()
+      .positive()
+      .max(
+        maxRehearsalAudioUploadSizeBytes,
+        "rehearsal-audio uploads must be 25MB or smaller."
+      )
   });
 
 export const createRehearsalAudioUploadUrlResponseSchema = z.object({

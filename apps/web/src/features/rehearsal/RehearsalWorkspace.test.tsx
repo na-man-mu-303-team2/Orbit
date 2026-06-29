@@ -7,8 +7,11 @@ import {
   RehearsalFlowError,
   RehearsalWorkspace,
   SherpaLiveSttAdapter,
+  createRecordingFile,
   createRecordingSession,
   evaluateLiveTranscript,
+  fetchOrCreateRehearsalDeck,
+  normalizeRecordingMimeType,
   normalizeLiveTranscriptText,
   runRehearsalUploadFlow,
   selectRecordingMimeType,
@@ -138,6 +141,65 @@ describe("RehearsalWorkspace", () => {
     } as unknown as typeof MediaRecorder;
 
     expect(selectRecordingMimeType(recorderCtor)).toBe("audio/mp4");
+  });
+
+  it("does not select unsupported OpenAI report STT MIME fallbacks", () => {
+    const recorderCtor = {
+      isTypeSupported: vi.fn((mimeType: string) => mimeType === "audio/ogg")
+    } as unknown as typeof MediaRecorder;
+
+    expect(selectRecordingMimeType(recorderCtor)).toBe("audio/webm");
+  });
+
+  it("normalizes recorder codec MIME types before upload", () => {
+    const file = createRecordingFile(
+      new Blob(["audio"], { type: "audio/webm;codecs=opus" }),
+      "audio/webm;codecs=opus",
+      new Date("2026-06-29T00:00:00.000Z")
+    );
+
+    expect(normalizeRecordingMimeType("audio/webm;codecs=opus")).toBe("audio/webm");
+    expect(file.type).toBe("audio/webm");
+    expect(file.name).toBe("rehearsal-2026-06-29T00-00-00-000Z.webm");
+  });
+
+  it("persists a fallback demo deck when rehearsal entry has no stored deck", async () => {
+    const fallbackDeck = createDemoDeck();
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+    const fetcher = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      calls.push({ url, init });
+
+      if (!init) {
+        return new Response("missing", { status: 404 });
+      }
+
+      return jsonResponse({
+        projectId: fallbackDeck.projectId,
+        deck: fallbackDeck,
+        updatedAt: createdAt,
+        snapshot: null
+      });
+    });
+
+    const deck = await fetchOrCreateRehearsalDeck({
+      fallbackDeck,
+      fetcher
+    });
+
+    expect(deck.deckId).toBe(fallbackDeck.deckId);
+    expect(calls.map((call) => call.url)).toEqual([
+      `/api/v1/projects/${fallbackDeck.projectId}/deck`,
+      `/api/v1/projects/${fallbackDeck.projectId}/deck`
+    ]);
+    expect(calls[1]?.init).toMatchObject({
+      method: "PUT",
+      headers: { "content-type": "application/json" }
+    });
+    expect(JSON.parse(String(calls[1]?.init?.body))).toEqual({
+      deck: fallbackDeck,
+      snapshotReason: "deck-replaced"
+    });
   });
 });
 

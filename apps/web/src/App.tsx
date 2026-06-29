@@ -231,7 +231,7 @@ export function App() {
   }
 
   if (view === "rehearsal") {
-    return <RehearsalWorkspace />;
+    return <RehearsalWorkspace fallbackDeck={demoDeck} />;
   }
 
   return (

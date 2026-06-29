@@ -66,6 +66,12 @@ export class CreateRehearsalRuns2026062901000 implements MigrationInterface {
       DROP CONSTRAINT IF EXISTS project_assets_status_check
     `);
     await queryRunner.query(`
+      UPDATE project_assets
+      SET status = 'uploaded',
+          deleted_at = NULL
+      WHERE status = 'deleted'
+    `);
+    await queryRunner.query(`
       ALTER TABLE project_assets
       ADD CONSTRAINT project_assets_status_check
       CHECK (status IN ('pending', 'uploaded'))

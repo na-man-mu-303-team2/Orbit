@@ -131,6 +131,11 @@ export class RehearsalsService {
       "rehearsal-audio"
     );
 
+    const claimedRun = await this.claimAudioUpload(run, request.fileId);
+    if (!claimedRun) {
+      throw new BadRequestException("Rehearsal run has no pending audio upload.");
+    }
+
     const queuedJob = await this.jobsService.create({
       projectId: run.projectId,
       type: "rehearsal-stt",
@@ -141,7 +146,9 @@ export class RehearsalsService {
       }
     });
 
-    run.jobId = queuedJob.jobId;
+    claimedRun.jobId = queuedJob.jobId;
+    claimedRun.updatedAt = new Date();
+    await this.rehearsalRuns.save(claimedRun);
 
     try {
       await this.enqueueJob({
@@ -154,18 +161,14 @@ export class RehearsalsService {
         audioFileId: request.fileId
       });
 
-      run.status = "processing";
-      run.error = null;
-      run.updatedAt = new Date();
-      const savedRun = await this.rehearsalRuns.save(run);
       this.logger.info(
         {
           event: "job.enqueued",
           jobId: queuedJob.jobId,
           jobType: queuedJob.type,
-          projectId: run.projectId,
-          runId: run.runId,
-          deckId: run.deckId,
+          projectId: claimedRun.projectId,
+          runId: claimedRun.runId,
+          deckId: claimedRun.deckId,
           audioFileId: request.fileId,
           driver: this.config.JOB_QUEUE_DRIVER
         },
@@ -173,42 +176,39 @@ export class RehearsalsService {
       );
 
       return completeRehearsalAudioUploadResponseSchema.parse({
-        run: toRehearsalRun(savedRun),
+        run: toRehearsalRun(claimedRun),
         job: queuedJob
       });
     } catch (error) {
+      const failure = await this.cleanupAfterEnqueueFailure(
+        claimedRun,
+        request.fileId,
+        error
+      );
       await this.jobsService.update(queuedJob.jobId, {
         status: "failed",
         progress: 0,
-        message: "Rehearsal STT enqueue failed.",
-        error: {
-          code: "REHEARSAL_STT_ENQUEUE_FAILED",
-          message:
-            error instanceof Error
-              ? error.message
-              : "Rehearsal STT enqueue failed."
-        }
+        message: failure.jobMessage,
+        error: failure.error
       });
-      run.status = "failed";
-      run.error = {
-        code: "REHEARSAL_STT_ENQUEUE_FAILED",
-        message:
-          error instanceof Error
-            ? error.message
-            : "Rehearsal STT enqueue failed."
-      };
-      run.updatedAt = new Date();
-      await this.rehearsalRuns.save(run);
+      claimedRun.status = "failed";
+      claimedRun.error = failure.error;
+      claimedRun.rawAudioDeletedAt = failure.rawAudioDeletedAt;
+      claimedRun.updatedAt = new Date();
+      await this.rehearsalRuns.save(claimedRun);
       this.logger.error(
         {
           event: "job.enqueue_failed",
           jobId: queuedJob.jobId,
           jobType: queuedJob.type,
-          projectId: run.projectId,
-          runId: run.runId,
-          deckId: run.deckId,
+          projectId: claimedRun.projectId,
+          runId: claimedRun.runId,
+          deckId: claimedRun.deckId,
           audioFileId: request.fileId,
           driver: this.config.JOB_QUEUE_DRIVER,
+          cleanupError: failure.cleanupError
+            ? serializeLogError(failure.cleanupError)
+            : undefined,
           error: serializeLogError(error)
         },
         "Rehearsal STT enqueue failed."
@@ -229,6 +229,72 @@ export class RehearsalsService {
     }
 
     return run;
+  }
+
+  private async claimAudioUpload(run: RehearsalRunEntity, fileId: string) {
+    const result = await this.rehearsalRuns.update(
+      {
+        runId: run.runId,
+        projectId: run.projectId,
+        audioFileId: fileId,
+        status: "uploading"
+      },
+      {
+        status: "processing",
+        error: null,
+        updatedAt: new Date()
+      }
+    );
+
+    if (!result.affected) {
+      return null;
+    }
+
+    return this.getRunEntity(run.runId);
+  }
+
+  private async cleanupAfterEnqueueFailure(
+    run: RehearsalRunEntity,
+    fileId: string,
+    enqueueError: unknown
+  ): Promise<{
+    error: { code: string; message: string };
+    jobMessage: string;
+    rawAudioDeletedAt: Date | null;
+    cleanupError?: unknown;
+  }> {
+    try {
+      const rawAudioDeletedAt = await this.filesService.deleteUploadedAsset(
+        run.projectId,
+        fileId,
+        "rehearsal-audio"
+      );
+
+      return {
+        error: {
+          code: "REHEARSAL_STT_ENQUEUE_FAILED",
+          message:
+            enqueueError instanceof Error
+              ? enqueueError.message
+              : "Rehearsal STT enqueue failed."
+        },
+        jobMessage: "Rehearsal STT enqueue failed.",
+        rawAudioDeletedAt: new Date(rawAudioDeletedAt)
+      };
+    } catch (cleanupError) {
+      return {
+        error: {
+          code: "RAW_AUDIO_DELETE_FAILED",
+          message:
+            cleanupError instanceof Error
+              ? cleanupError.message
+              : "Raw audio deletion failed."
+        },
+        jobMessage: "Rehearsal raw audio cleanup failed.",
+        rawAudioDeletedAt: run.rawAudioDeletedAt,
+        cleanupError
+      };
+    }
   }
 }
 

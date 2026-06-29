@@ -14,13 +14,11 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from app.config import PythonWorkerConfig
 
 SUPPORTED_AUDIO_MIME_TYPES = {
-    "audio/flac",
     "audio/m4a",
     "audio/mp3",
     "audio/mp4",
     "audio/mpeg",
     "audio/mpga",
-    "audio/ogg",
     "audio/wav",
     "audio/webm",
     "audio/x-m4a",
@@ -128,7 +126,7 @@ class OpenAISpeechToTextProvider:
                 model=self.model,
                 file=(audio.file_name, BytesIO(audio.data), audio.mime_type),
                 language=_openai_language(self._language),
-                response_format="verbose_json",
+                response_format=_openai_response_format(self.model),
             )
         except Exception as exc:  # pragma: no cover - exercised via fake provider.
             raise AudioTranscriptionError(
@@ -291,6 +289,13 @@ ReportSttProviderDependency = Annotated[
 
 def _openai_language(language_code: str) -> str:
     return language_code.split("-", maxsplit=1)[0]
+
+
+def _openai_response_format(model: str) -> str:
+    if model.strip().lower() in {"gpt-4o-transcribe", "gpt-4o-mini-transcribe"}:
+        return "json"
+
+    return "verbose_json"
 
 
 def _file_name(reference: AudioReference) -> str:
