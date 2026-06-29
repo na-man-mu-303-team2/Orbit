@@ -18,6 +18,7 @@ import {
   type Slide
 } from "@orbit/shared";
 import {
+  AlertCircle,
   CheckCircle2,
   ChevronLeft,
   ChevronRight,
@@ -30,6 +31,22 @@ import {
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { resolveEditorAssetUrl } from "../editor/editorAssetUrl";
+import {
+  LiveSttAdapterError,
+  type LiveSttAdapter
+} from "./liveStt";
+import { SherpaLiveSttAdapter } from "./sherpaOnnxLiveSttAdapter";
+
+export {
+  LiveSttAdapterError,
+  type LiveSttAdapter,
+  type LiveSttCallbacks
+} from "./liveStt";
+export {
+  SherpaLiveSttAdapter,
+  SherpaOnnxLiveSttAdapter,
+  resampleFloat32Audio
+} from "./sherpaOnnxLiveSttAdapter";
 
 type Fetcher = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 type RehearsalPhase =
@@ -63,56 +80,6 @@ type RecordingSession = {
   stop: () => void;
 };
 
-export type LiveSttCallbacks = {
-  onPartialTranscript: (event: LiveSttPartialTranscriptEvent) => void;
-  onError: (error: LiveSttAdapterError) => void;
-};
-
-export type LiveSttAdapter = {
-  start: (stream: MediaStream, callbacks: LiveSttCallbacks) => Promise<void>;
-  stop: () => void;
-  dispose: () => void;
-};
-
-type BrowserSpeechRecognitionAlternative = {
-  transcript: string;
-  confidence?: number;
-};
-
-type BrowserSpeechRecognitionResult = {
-  readonly isFinal: boolean;
-  readonly length: number;
-  [index: number]: BrowserSpeechRecognitionAlternative | undefined;
-};
-
-type BrowserSpeechRecognitionResultList = {
-  readonly length: number;
-  [index: number]: BrowserSpeechRecognitionResult | undefined;
-};
-
-type BrowserSpeechRecognitionResultEvent = {
-  readonly resultIndex: number;
-  readonly results: BrowserSpeechRecognitionResultList;
-};
-
-type BrowserSpeechRecognitionErrorEvent = {
-  readonly error?: string;
-  readonly message?: string;
-};
-
-type BrowserSpeechRecognition = {
-  continuous: boolean;
-  interimResults: boolean;
-  lang: string;
-  onerror: ((event: BrowserSpeechRecognitionErrorEvent) => void) | null;
-  onresult: ((event: BrowserSpeechRecognitionResultEvent) => void) | null;
-  start: () => void;
-  stop: () => void;
-  abort?: () => void;
-};
-
-type BrowserSpeechRecognitionConstructor = new () => BrowserSpeechRecognition;
-
 type LiveKeywordCandidate = {
   keyword: Keyword;
   aliases: string[];
@@ -141,130 +108,6 @@ export class RehearsalFlowError extends Error {
   ) {
     super(message);
     this.name = "RehearsalFlowError";
-  }
-}
-
-export class LiveSttAdapterError extends Error {
-  constructor(
-    readonly code: "LIVE_STT_MODEL_UNAVAILABLE" | "LIVE_STT_START_FAILED",
-    message: string
-  ) {
-    super(message);
-    this.name = "LiveSttAdapterError";
-  }
-}
-
-export class SherpaLiveSttAdapter implements LiveSttAdapter {
-  async start(
-    _stream: MediaStream,
-    _callbacks: LiveSttCallbacks
-  ): Promise<void> {
-    throw new LiveSttAdapterError(
-      "LIVE_STT_MODEL_UNAVAILABLE",
-      "sherpa Korean on-device STT model is not connected yet."
-    );
-  }
-
-  stop() {}
-
-  dispose() {}
-}
-
-export class WebSpeechLiveSttAdapter implements LiveSttAdapter {
-  private recognition: BrowserSpeechRecognition | null = null;
-
-  constructor(
-    private readonly options: {
-      recognitionCtor?: BrowserSpeechRecognitionConstructor;
-      lang?: string;
-    } = {}
-  ) {}
-
-  async start(
-    _stream: MediaStream,
-    callbacks: LiveSttCallbacks
-  ): Promise<void> {
-    const Recognition =
-      this.options.recognitionCtor ??
-      window.SpeechRecognition ??
-      window.webkitSpeechRecognition;
-
-    if (!Recognition) {
-      throw new LiveSttAdapterError(
-        "LIVE_STT_MODEL_UNAVAILABLE",
-        "browser SpeechRecognition is not available."
-      );
-    }
-
-    try {
-      const recognition = new Recognition();
-      recognition.continuous = true;
-      recognition.interimResults = true;
-      recognition.lang = this.options.lang ?? "ko-KR";
-      recognition.onresult = (event) => {
-        emitSpeechRecognitionResults(event, callbacks);
-      };
-      recognition.onerror = (event) => {
-        callbacks.onError(
-          new LiveSttAdapterError(
-            "LIVE_STT_START_FAILED",
-            event.message || event.error || "browser SpeechRecognition failed."
-          )
-        );
-      };
-
-      this.recognition = recognition;
-      recognition.start();
-    } catch (cause) {
-      throw new LiveSttAdapterError(
-        "LIVE_STT_START_FAILED",
-        cause instanceof Error
-          ? cause.message
-          : "browser SpeechRecognition failed to start."
-      );
-    }
-  }
-
-  stop() {
-    this.recognition?.stop();
-    this.recognition = null;
-  }
-
-  dispose() {
-    this.recognition?.abort?.();
-    this.recognition = null;
-  }
-}
-
-declare global {
-  interface Window {
-    __orbitCreateLiveSttAdapter?: () => LiveSttAdapter;
-    SpeechRecognition?: BrowserSpeechRecognitionConstructor;
-    webkitSpeechRecognition?: BrowserSpeechRecognitionConstructor;
-  }
-}
-
-function emitSpeechRecognitionResults(
-  event: BrowserSpeechRecognitionResultEvent,
-  callbacks: LiveSttCallbacks
-) {
-  for (let index = event.resultIndex; index < event.results.length; index += 1) {
-    const result = event.results[index];
-    const alternative = result?.[0];
-    const transcript = alternative?.transcript?.trim();
-    if (!result || !alternative || !transcript) {
-      continue;
-    }
-
-    callbacks.onPartialTranscript({
-      type: "partial-transcript",
-      transcript,
-      isFinal: result.isFinal,
-      confidence:
-        typeof alternative.confidence === "number"
-          ? alternative.confidence
-          : null
-    });
   }
 }
 
@@ -660,7 +503,7 @@ function getLiveKeywordCandidates(slide: Slide): LiveKeywordCandidate[] {
 }
 
 function createDefaultLiveSttAdapter() {
-  return window.__orbitCreateLiveSttAdapter?.() ?? new WebSpeechLiveSttAdapter();
+  return window.__orbitCreateLiveSttAdapter?.() ?? new SherpaLiveSttAdapter();
 }
 
 export function RehearsalWorkspace(props: {
@@ -679,16 +522,17 @@ export function RehearsalWorkspace(props: {
   const [run, setRun] = useState<RehearsalRun | null>(null);
   const [, setJob] = useState<Job | null>(null);
   const [liveStatus, setLiveStatus] = useState<LiveSttStatus>("idle");
-  const [, setLiveError] = useState("");
+  const [liveError, setLiveError] = useState("");
   const [liveTranscript, setLiveTranscript] = useState("");
   const [liveKeywordState, setLiveKeywordState] =
     useState<LiveTranscriptAnalysis | null>(null);
-  const [, setLiveCue] = useState<LiveSttAnimationCueEvent | null>(null);
-  const [, setLiveSlideAdvance] =
+  const [liveCue, setLiveCue] = useState<LiveSttAnimationCueEvent | null>(null);
+  const [liveSlideAdvance, setLiveSlideAdvance] =
     useState<LiveSttSlideAdvanceEvent | null>(null);
-  const [, setAutoAdvanceState] = useState<
+  const [autoAdvanceState, setAutoAdvanceState] = useState<
     "idle" | "pending" | "advanced" | "cancelled"
   >("idle");
+  const [isLiveDemoActive, setIsLiveDemoActive] = useState(false);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [isTimerRunning, setIsTimerRunning] = useState(false);
   const [timeMode, setTimeMode] = useState<RehearsalTimeMode>("stopwatch");
@@ -700,6 +544,7 @@ export function RehearsalWorkspace(props: {
   >(null);
   const sessionRef = useRef<RecordingSession | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const liveDemoStreamRef = useRef<MediaStream | null>(null);
   const liveSttAdapterRef = useRef<LiveSttAdapter | null>(
     props.liveSttAdapter ?? null
   );
@@ -736,6 +581,7 @@ export function RehearsalWorkspace(props: {
     return () => {
       isCancelled = true;
       stopMediaStream(streamRef.current);
+      stopMediaStream(liveDemoStreamRef.current);
     };
   }, [props.fallbackDeck, props.initialDeck, props.projectId]);
 
@@ -786,11 +632,22 @@ export function RehearsalWorkspace(props: {
       cancelPendingAutoAdvance("cancelled");
       liveSttAdapterRef.current?.stop();
       liveSttAdapterRef.current?.dispose();
+      stopMediaStream(streamRef.current);
+      stopMediaStream(liveDemoStreamRef.current);
     };
   }, []);
 
   const currentSlide = deck?.slides[currentSlideIndex] ?? null;
   const canRecord = Boolean(deck) && !["recording", "uploading", "processing"].includes(phase);
+  const isLiveSttActive = liveStatus === "starting" || liveStatus === "listening";
+  const isReportBusy = ["recording", "uploading", "processing"].includes(phase);
+  const canStartLiveDemo =
+    Boolean(deck) && !isReportBusy && !isLiveSttActive && !isLiveDemoActive;
+  const canStopLiveDemo = isLiveDemoActive && isLiveSttActive;
+  const liveTranscriptPlaceholder =
+    liveStatus === "idle"
+      ? "Live STT 시작을 눌러 테스트하세요"
+      : "마이크 입력을 기다리는 중";
 
   useEffect(() => {
     if (!currentSlide) {
@@ -805,6 +662,7 @@ export function RehearsalWorkspace(props: {
   async function startRecording() {
     if (!deck || !canRecord) return;
     const activeDeck = deck;
+    stopLiveDemo();
 
     setError("");
     setRun(null);
@@ -860,6 +718,58 @@ export function RehearsalWorkspace(props: {
       setError(toMicrophoneErrorMessage(cause));
       setPhase("failed");
     }
+  }
+
+  async function startLiveDemo() {
+    if (!deck || !canStartLiveDemo) return;
+
+    setLiveError("");
+    setLiveTranscript("");
+    setLiveKeywordState(currentSlide ? evaluateLiveTranscript(currentSlide, "") : null);
+    setLiveCue(null);
+    setLiveSlideAdvance(null);
+    setAutoAdvanceState("idle");
+    autoAdvancedSlideIdsRef.current.clear();
+
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setLiveError("이 브라우저는 마이크 녹음을 지원하지 않습니다.");
+      setLiveStatus("failed");
+      return;
+    }
+
+    let stream: MediaStream | null = null;
+    setIsLiveDemoActive(true);
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      liveDemoStreamRef.current = stream;
+      const started = await startLiveStt(stream);
+      if (!started) {
+        stopMediaStream(stream);
+        if (liveDemoStreamRef.current === stream) {
+          liveDemoStreamRef.current = null;
+        }
+        setIsLiveDemoActive(false);
+      }
+    } catch (cause) {
+      stopMediaStream(stream);
+      if (liveDemoStreamRef.current === stream) {
+        liveDemoStreamRef.current = null;
+      }
+      setIsLiveDemoActive(false);
+      setLiveError(toMicrophoneErrorMessage(cause));
+      setLiveStatus("failed");
+    }
+  }
+
+  function stopLiveDemo() {
+    liveSttAdapterRef.current?.stop();
+    stopMediaStream(liveDemoStreamRef.current);
+    liveDemoStreamRef.current = null;
+    setIsLiveDemoActive(false);
+    setLiveStatus((current) =>
+      current === "listening" || current === "starting" ? "stopped" : current
+    );
+    cancelPendingAutoAdvance("cancelled");
   }
 
   function stopRecording() {
@@ -935,6 +845,7 @@ export function RehearsalWorkspace(props: {
         onError: handleLiveSttError
       });
       setLiveStatus("listening");
+      return true;
     } catch (cause) {
       const error = toLiveSttAdapterError(cause);
       setLiveStatus(
@@ -942,6 +853,7 @@ export function RehearsalWorkspace(props: {
       );
       setLiveError(error.message);
       cancelPendingAutoAdvance("cancelled");
+      return false;
     }
   }
 
@@ -1091,6 +1003,8 @@ export function RehearsalWorkspace(props: {
   const liveDetectedKeywordIds = new Set(
     liveKeywordState?.detectedKeywords.map((keyword) => keyword.keywordId) ?? []
   );
+  const liveCoveragePercent = Math.round((liveKeywordState?.coverage ?? 0) * 100);
+  const liveMissingKeywordIds = new Set(liveKeywordState?.missingKeywordIds ?? []);
   const checklistKeywords = getChecklistKeywords(currentSlide);
   const scriptParagraphs = buildScriptParagraphs(currentSlide);
   const hasDeletedRawAudio = Boolean(run?.rawAudioDeletedAt);
@@ -1285,6 +1199,85 @@ export function RehearsalWorkspace(props: {
                 <div className="keyword-empty-state">강조 키워드가 없습니다</div>
               )}
             </div>
+
+            <div className={`rehearsal-live-status rehearsal-live-status-${liveStatus}`}>
+              <strong>{liveStatus}</strong>
+              <span>{autoAdvanceState === "pending" ? "자동 전환 대기" : "자동 전환 활성"}</span>
+            </div>
+
+            <div className="rehearsal-live-actions">
+              <button
+                className="primary-action"
+                type="button"
+                onClick={() => void startLiveDemo()}
+                disabled={!canStartLiveDemo}
+              >
+                <Mic size={18} />
+                Live STT 시작
+              </button>
+              <button
+                className="secondary-action"
+                type="button"
+                onClick={stopLiveDemo}
+                disabled={!canStopLiveDemo}
+              >
+                <Square size={18} />
+                Live STT 종료
+              </button>
+            </div>
+
+            <div className="rehearsal-live-transcript">
+              <span>Partial transcript</span>
+              <p>{liveTranscript || liveTranscriptPlaceholder}</p>
+            </div>
+
+            <div className="rehearsal-live-coverage">
+              <strong>{liveCoveragePercent}%</strong>
+              <span>keyword coverage</span>
+            </div>
+
+            <div className="rehearsal-live-keywords">
+              {(currentSlide?.keywords ?? []).length > 0 ? (
+                currentSlide?.keywords.map((keyword) => {
+                  const state = liveDetectedKeywordIds.has(keyword.keywordId)
+                    ? "detected"
+                    : liveMissingKeywordIds.has(keyword.keywordId)
+                      ? "missing"
+                      : "idle";
+                  return (
+                    <span className={`live-keyword live-keyword-${state}`} key={keyword.keywordId}>
+                      {keyword.text}
+                    </span>
+                  );
+                })
+              ) : (
+                <span className="live-keyword live-keyword-idle">키워드 없음</span>
+              )}
+            </div>
+
+            {liveCue && (
+              <div className="job-status" aria-live="polite">
+                <div>
+                  <strong>emphasis</strong>
+                  <span>{liveCue.text}</span>
+                </div>
+                <p>현재 슬라이드에서 키워드를 감지했습니다.</p>
+              </div>
+            )}
+
+            {liveSlideAdvance && (
+              <div className="project-status-message project-status-success">
+                <CheckCircle2 size={18} />
+                <span>키워드 {Math.round(liveSlideAdvance.coverage * 100)}% 감지로 자동 전환</span>
+              </div>
+            )}
+
+            {liveError && (
+              <div className="project-status-message project-status-danger" role="status">
+                <AlertCircle size={18} />
+                <span>{liveError}</span>
+              </div>
+            )}
           </section>
 
           <section className="rehearsal-assist-card script-card">
