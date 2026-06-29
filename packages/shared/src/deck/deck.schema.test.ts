@@ -412,6 +412,48 @@ describe("deckSchema validation", () => {
     expectValidDeck(deck);
   });
 
+  it("rejects empty and duplicate slide keyword terms", () => {
+    const deck = createValidDeck();
+
+    deck.slides[0].keywords = [
+      {
+        keywordId: "kw_1",
+        text: "ORBIT",
+        synonyms: ["발표 도우미", ""],
+        abbreviations: ["OD"]
+      },
+      {
+        keywordId: "kw_2",
+        text: "orbit",
+        synonyms: ["발표 도우미"],
+        abbreviations: ["od"]
+      }
+    ];
+
+    expectInvalidDeck(deck);
+  });
+
+  it("rejects slide keyword terms duplicated across keyword types", () => {
+    const deck = createValidDeck();
+
+    deck.slides[0].keywords = [
+      {
+        keywordId: "kw_1",
+        text: "ORBIT",
+        synonyms: ["발표 도우미"],
+        abbreviations: ["OD"]
+      },
+      {
+        keywordId: "kw_2",
+        text: "리허설",
+        synonyms: ["orbit"],
+        abbreviations: []
+      }
+    ];
+
+    expectInvalidDeck(deck);
+  });
+
   it.each([
     ["deckId", "deckId"],
     ["slideId", "slides.0.slideId"],

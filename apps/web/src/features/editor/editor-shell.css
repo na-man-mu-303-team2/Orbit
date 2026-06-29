@@ -1611,16 +1611,8 @@
 .assistant-panel-slot {
   min-height: 0;
   display: grid;
-  place-items: center;
-  border: 1px dashed var(--line-strong);
-  border-radius: 10px;
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.95), rgba(248, 250, 252, 0.95)),
-    repeating-linear-gradient(
-      135deg,
-      rgba(49, 87, 245, 0.04) 0 8px,
-      rgba(49, 87, 245, 0) 8px 16px
-    );
+  align-content: start;
+  overflow: auto;
 }
 
 .assistant-panel-empty {
@@ -1887,8 +1879,152 @@
   align-content: start;
 }
 
+.suggestion-panel {
+  min-width: 0;
+  display: grid;
+  align-content: start;
+  gap: 12px;
+}
+
+.suggestion-panel-header,
+.suggestion-card-header,
+.suggestion-meta,
+.suggestion-actions {
+  display: flex;
+  align-items: center;
+}
+
+.suggestion-panel-header,
+.suggestion-card-header,
+.suggestion-actions {
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.suggestion-panel-header h3 {
+  margin: 2px 0 0;
+  color: var(--ink);
+  font-size: 16px;
+  line-height: 1.25;
+}
+
 .suggestion-card {
-  padding: 12px 14px;
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border-radius: 8px;
+}
+
+.suggestion-card-applied {
+  border-color: #bbf7d0;
+}
+
+.suggestion-card-rejected {
+  border-color: #fecdd3;
+}
+
+.suggestion-card-header {
+  align-items: flex-start;
+}
+
+.suggestion-card-header svg {
+  flex: 0 0 auto;
+  margin-top: 1px;
+  color: var(--blue);
+}
+
+.suggestion-card-header > div {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.suggestion-status {
+  flex: 0 0 auto;
+  padding: 3px 7px;
+  border-radius: 999px;
+  background: var(--surface-soft);
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 900;
+  line-height: 1.2;
+}
+
+.suggestion-status-pending {
+  background: var(--blue-soft);
+  color: var(--blue);
+}
+
+.suggestion-status-applied {
+  background: #dcfce7;
+  color: var(--green);
+}
+
+.suggestion-status-rejected {
+  background: #ffe4e6;
+  color: var(--danger);
+}
+
+.suggestion-meta {
+  gap: 8px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.suggestion-meta span {
+  min-height: 22px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: var(--surface-soft);
+}
+
+.suggestion-actions {
+  justify-content: flex-end;
+}
+
+.suggestion-actions button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 34px;
+  padding: 0 10px;
+  font-size: 12px;
+}
+
+.suggestion-actions .primary-button {
+  border-color: var(--blue);
+  background: var(--blue);
+  color: #fff;
+}
+
+.suggestion-actions .primary-button:hover {
+  border-color: var(--blue-strong);
+  background: var(--blue-strong);
+}
+
+.suggestion-actions .secondary-button:hover {
+  border-color: var(--line-strong);
+  background: var(--surface-soft);
+}
+
+.suggestion-state {
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-soft);
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.suggestion-state-danger {
+  border-color: #fecdd3;
+  background: #fff1f2;
+  color: var(--danger);
 }
 
 .token-list,
