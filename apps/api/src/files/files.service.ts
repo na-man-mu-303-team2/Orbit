@@ -28,6 +28,13 @@ export const STORAGE_PORT = Symbol("STORAGE_PORT");
 export const UPLOAD_PROXY_ORIGIN = Symbol("UPLOAD_PROXY_ORIGIN");
 
 const uploadUrlExpiresInSeconds = 15 * 60;
+const publicAssetContentPurposes = new Set<FilePurpose>([
+  "thumbnail",
+  "pptx-import",
+  "reference-material",
+  "export-result",
+  "report-result",
+]);
 
 @Injectable()
 export class FilesService {
@@ -253,6 +260,11 @@ export class FilesService {
     purpose?: FilePurpose,
   ): Promise<{ body: Buffer; contentType: string }> {
     const asset = await this.getUploadedAsset(projectId, fileId, purpose);
+
+    if (!publicAssetContentPurposes.has(asset.purpose)) {
+      throw new NotFoundException(`Asset content unavailable: ${fileId}`);
+    }
+
     const readUrl = this.uploadProxyOrigin
       ? this.createInternalObjectUrl(asset.storageKey)
       : await this.storage.getSignedReadUrl(asset.storageKey);

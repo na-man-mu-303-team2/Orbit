@@ -665,6 +665,18 @@ function isSameDeckIdentity(left: Deck, right: Deck) {
   return left.deckId === right.deckId && left.projectId === right.projectId;
 }
 
+export function shouldApplyManualSaveResult(args: {
+  snapshotDeck: Deck;
+  currentDeck: Deck;
+}) {
+  const { snapshotDeck, currentDeck } = args;
+
+  return (
+    currentDeck.version === snapshotDeck.version &&
+    isSameDeckIdentity(currentDeck, snapshotDeck)
+  );
+}
+
 export function mergeDeckIntoQueryCache(
   currentDeck: Deck | undefined,
   nextDeck: Deck
@@ -1006,7 +1018,6 @@ export function EditorShell(props: { projectId?: string }) {
     setActiveTopMenu(null);
 
     const deckSnapshot = structuredClone(normalizeDeckAssetUrls(deckRef.current));
-    const snapshotVersion = deckSnapshot.version;
 
     try {
       await saveQueueRef.current.catch(() => undefined);
@@ -1015,8 +1026,10 @@ export function EditorShell(props: { projectId?: string }) {
       let finalDeck = persistedDeck;
 
       if (
-        deckRef.current.version === snapshotVersion &&
-        isSameDeckIdentity(deckRef.current, persistedDeck)
+        shouldApplyManualSaveResult({
+          snapshotDeck: deckSnapshot,
+          currentDeck: deckRef.current,
+        })
       ) {
         applyPersistedDeckState(persistedDeck);
       }
@@ -1028,7 +1041,15 @@ export function EditorShell(props: { projectId?: string }) {
         );
 
         finalDeck = await putProjectDeck(activeProjectId, renderResult.deck);
-        applyPersistedDeckState(finalDeck);
+
+        if (
+          shouldApplyManualSaveResult({
+            snapshotDeck: deckSnapshot,
+            currentDeck: deckRef.current,
+          })
+        ) {
+          applyPersistedDeckState(finalDeck);
+        }
         setImageUploadNotice({
           message:
             renderResult.missingAssetCount > 0
@@ -1040,7 +1061,14 @@ export function EditorShell(props: { projectId?: string }) {
         setSaveState("idle");
         setSaveErrorMessage(null);
       } catch (renderError) {
-        applyPersistedDeckState(persistedDeck);
+        if (
+          shouldApplyManualSaveResult({
+            snapshotDeck: deckSnapshot,
+            currentDeck: deckRef.current,
+          })
+        ) {
+          applyPersistedDeckState(persistedDeck);
+        }
         setImageUploadNotice({
           message: "덱 저장 완료, 슬라이드 이미지 저장 실패",
           tone: "danger"

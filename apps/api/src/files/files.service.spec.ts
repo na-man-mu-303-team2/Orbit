@@ -342,6 +342,38 @@ describe("FilesService", () => {
     expect(Array.from(asset.body)).toEqual([1, 2, 3]);
   });
 
+  it("rejects asset content reads for non-public purposes", async () => {
+    const { repository } = createAssetRepository([
+      {
+        fileId: "file_audio_1",
+        projectId: demoProject.projectId,
+        storageKey: "projects/project_demo_created/assets/file_audio_1/rehearsal.webm",
+        originalName: "rehearsal.webm",
+        mimeType: "audio/webm",
+        size: 1024,
+        url: "http://localhost:9000/orbit-local/rehearsal.webm",
+        purpose: "rehearsal-audio",
+        status: "uploaded",
+        createdAt: new Date(),
+        uploadedAt: new Date(),
+      } as ProjectAssetEntity,
+    ]);
+    const storage = createStorage();
+    const service = new FilesService(
+      repository,
+      {
+        getAccessibleProject: vi.fn(async () => demoProject),
+      } as unknown as ProjectsService,
+      storage,
+    );
+
+    await expect(
+      service.readUploadedAssetContent(demoProject.projectId, "file_audio_1"),
+    ).rejects.toBeInstanceOf(NotFoundException);
+    expect(storage.getSignedReadUrl).not.toHaveBeenCalled();
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
   it("returns not found when completing an unknown asset", async () => {
     const { service } = createService({
       getAccessibleProject: vi.fn(async () => demoProject),

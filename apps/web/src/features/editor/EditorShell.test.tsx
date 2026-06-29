@@ -15,6 +15,7 @@ import {
   EditorStateNotice,
   mergeDeckIntoQueryCache,
   resolveEditorAssetUrl,
+  shouldApplyManualSaveResult,
   shouldHydrateDeckFromQuery
 } from "./EditorShell";
 import { aiSuggestionsQueryKey } from "./suggestions/suggestionApi";
@@ -202,6 +203,39 @@ describe("editor shell", () => {
 
     expect(html).toContain("미리보기 준비됨");
     expect(html).toContain("http://assets.example.test/slide_1.png");
+  });
+
+  it("applies manual save results only while the saved snapshot is still current", () => {
+    const deck = createDemoDeck();
+
+    expect(
+      shouldApplyManualSaveResult({
+        snapshotDeck: deck,
+        currentDeck: {
+          ...deck
+        }
+      }),
+    ).toBe(true);
+
+    expect(
+      shouldApplyManualSaveResult({
+        snapshotDeck: deck,
+        currentDeck: {
+          ...deck,
+          version: deck.version + 1
+        }
+      }),
+    ).toBe(false);
+
+    expect(
+      shouldApplyManualSaveResult({
+        snapshotDeck: deck,
+        currentDeck: {
+          ...deck,
+          projectId: "project_other"
+        }
+      }),
+    ).toBe(false);
   });
 
   it("renders supported canvas object types without exposing grouped child labels", () => {
