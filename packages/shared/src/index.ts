@@ -3,7 +3,6 @@ export * from "./common/time.schema";
 export * from "./auth/auth.schema";
 export * from "./config/runtime";
 export * from "./deck/animation.schema";
-export * from "./deck/ai-suggestion.schema";
 export * from "./deck/chart.schema";
 export * from "./deck/deck-api.schema";
 export * from "./deck/deck.schema";
