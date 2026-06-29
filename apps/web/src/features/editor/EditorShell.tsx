@@ -490,7 +490,7 @@ function HiddenSlideRenderStages(props: {
           <Stage
             height={deck.canvas.height}
             key={slide.slideId}
-            ref={(stage) => {
+            ref={(stage: Konva.Stage | null) => {
               if (stage) {
                 stageRefs.current.set(slide.slideId, stage);
               } else {

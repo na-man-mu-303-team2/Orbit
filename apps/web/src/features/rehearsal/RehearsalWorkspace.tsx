@@ -252,7 +252,7 @@ function emitSpeechRecognitionResults(
     const result = event.results[index];
     const alternative = result?.[0];
     const transcript = alternative?.transcript?.trim();
-    if (!result || !transcript) {
+    if (!result || !alternative || !transcript) {
       continue;
     }
 
