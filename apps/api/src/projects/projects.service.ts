@@ -54,9 +54,21 @@ export class ProjectsService {
   }
 
   async getAccessibleProject(projectId: string): Promise<Project> {
-    const project = await this.projectsRepository.findOne({
+    let project = await this.projectsRepository.findOne({
       where: { projectId },
     });
+
+    if (!project && projectId === demoIds.projectId) {
+      project = await this.projectsRepository.save(
+        this.projectsRepository.create({
+          projectId: demoIds.projectId,
+          workspaceId: demoIds.workspaceId,
+          title: defaultProjectTitle,
+          createdBy: demoIds.userId,
+          createdAt: new Date(),
+        }),
+      );
+    }
 
     if (!project) {
       throw new NotFoundException(`Project not found: ${projectId}`);

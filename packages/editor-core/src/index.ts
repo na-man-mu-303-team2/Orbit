@@ -16,6 +16,13 @@ export {
 } from "./patches/elementFrame";
 export type { ElementFrameDraft } from "./patches/elementFrame";
 export {
+  buildGroupedFrameOperations,
+  createGroupedElementFramePatch,
+  getGroupChildElements,
+  getGroupedSelectionBounds,
+  transformGroupedChildFrame
+} from "./patches/groupFrame";
+export {
   createAddElementPatch,
   createDeleteElementPatch,
   createElementId,
