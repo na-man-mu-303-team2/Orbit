@@ -27,6 +27,22 @@ import {
   Square
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import {
+  LiveSttAdapterError,
+  type LiveSttAdapter
+} from "./liveStt";
+import { SherpaLiveSttAdapter } from "./sherpaOnnxLiveSttAdapter";
+
+export {
+  LiveSttAdapterError,
+  type LiveSttAdapter,
+  type LiveSttCallbacks
+} from "./liveStt";
+export {
+  SherpaLiveSttAdapter,
+  SherpaOnnxLiveSttAdapter,
+  resampleFloat32Audio
+} from "./sherpaOnnxLiveSttAdapter";
 
 type Fetcher = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 type RehearsalPhase =
@@ -59,17 +75,6 @@ type RecordingSession = {
   stop: () => void;
 };
 
-export type LiveSttCallbacks = {
-  onPartialTranscript: (event: LiveSttPartialTranscriptEvent) => void;
-  onError: (error: LiveSttAdapterError) => void;
-};
-
-export type LiveSttAdapter = {
-  start: (stream: MediaStream, callbacks: LiveSttCallbacks) => Promise<void>;
-  stop: () => void;
-  dispose: () => void;
-};
-
 type LiveKeywordCandidate = {
   keyword: Keyword;
   aliases: string[];
@@ -98,38 +103,6 @@ export class RehearsalFlowError extends Error {
   ) {
     super(message);
     this.name = "RehearsalFlowError";
-  }
-}
-
-export class LiveSttAdapterError extends Error {
-  constructor(
-    readonly code: "LIVE_STT_MODEL_UNAVAILABLE" | "LIVE_STT_START_FAILED",
-    message: string
-  ) {
-    super(message);
-    this.name = "LiveSttAdapterError";
-  }
-}
-
-export class SherpaLiveSttAdapter implements LiveSttAdapter {
-  async start(
-    _stream: MediaStream,
-    _callbacks: LiveSttCallbacks
-  ): Promise<void> {
-    throw new LiveSttAdapterError(
-      "LIVE_STT_MODEL_UNAVAILABLE",
-      "sherpa Korean on-device STT model is not connected yet."
-    );
-  }
-
-  stop() {}
-
-  dispose() {}
-}
-
-declare global {
-  interface Window {
-    __orbitCreateLiveSttAdapter?: () => LiveSttAdapter;
   }
 }
 
