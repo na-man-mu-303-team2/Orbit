@@ -1,6 +1,7 @@
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any, Literal, cast
 from uuid import uuid4
 
@@ -33,6 +34,7 @@ from app.extraction import (
     extract_file,
     extract_presentation_keywords,
 )
+from app.pptx_import import import_pptx_as_deck
 from app.references import (
     PostgresReferenceRepository,
     index_reference_text,
@@ -149,6 +151,17 @@ class RehearsalAnalyzeResponse(BaseModel):
     pause_count: int = Field(alias="pauseCount")
     keyword_coverage: float = Field(alias="keywordCoverage")
     coaching: RehearsalCoachingResponse
+
+
+class PptxImportWarningResponse(BaseModel):
+    code: str
+    message: str
+    slide_index: int | None = Field(default=None, alias="slideIndex")
+
+
+class PptxImportResponse(BaseModel):
+    deck: dict[str, Any]
+    warnings: list[PptxImportWarningResponse] = Field(default_factory=list)
 
 
 @asynccontextmanager
@@ -280,6 +293,39 @@ async def parse_documents(
             extracted_files.append(payload)
 
     return {"files": extracted_files}
+
+
+@app.post("/pptx/import", response_model=PptxImportResponse)
+async def import_pptx(
+    request: Request,
+    file: UploadFile = File(...),
+    project_id: str = Form(...),
+    file_id: str = Form(...),
+) -> PptxImportResponse:
+    from tempfile import TemporaryDirectory
+
+    safe_name = Path(file.filename or "upload.pptx").name
+    if not safe_name.lower().endswith(".pptx"):
+        raise HTTPException(status_code=400, detail="PPTX file is required.")
+
+    extract_config = ExtractConfig()
+
+    with TemporaryDirectory(prefix="orbit-pptx-import-") as temp_dir:
+        source_path = Path(temp_dir) / safe_name
+        source_path.write_bytes(await file.read())
+
+        try:
+            deck, warnings = await run_in_threadpool(
+                import_pptx_as_deck,
+                source_path,
+                project_id=project_id,
+                file_id=file_id,
+                config=extract_config,
+            )
+        except Exception as error:
+            raise HTTPException(status_code=502, detail=str(error)) from error
+
+    return PptxImportResponse(deck=deck, warnings=warnings)
 
 
 @app.post("/audio/transcribe", response_model=AudioTranscribeResponse)

@@ -29,6 +29,8 @@ export const referenceExtractQueueName = "reference-extract";
 export const referenceExtractJobName = "reference-extract";
 export const rehearsalSttQueueName = "rehearsal-stt";
 export const rehearsalSttJobName = "rehearsal-stt";
+export const pptxImportQueueName = "pptx-import";
+export const pptxImportJobName = "pptx-import";
 export const generateDeckQueueName = "generate-deck";
 export const generateDeckJobName = "generate-deck";
 export const workerHealthCheckQueueName = "worker-health-check";
@@ -62,6 +64,17 @@ export interface RehearsalSttBullMqPayload {
 }
 
 export interface EnqueueRehearsalSttJobInput extends RehearsalSttBullMqPayload {
+  driver: "bullmq" | "sqs";
+  redisUrl: string;
+}
+
+export interface PptxImportBullMqPayload {
+  jobId: string;
+  projectId: string;
+  fileId: string;
+}
+
+export interface EnqueuePptxImportJobInput extends PptxImportBullMqPayload {
   driver: "bullmq" | "sqs";
   redisUrl: string;
 }
@@ -129,6 +142,28 @@ export async function enqueueRehearsalSttJob(
       deckId: input.deckId,
       audioFileId: input.audioFileId
     } satisfies RehearsalSttBullMqPayload);
+  } finally {
+    await queue.close();
+  }
+}
+
+export async function enqueuePptxImportJob(
+  input: EnqueuePptxImportJobInput
+): Promise<void> {
+  if (input.driver === "sqs") {
+    throw new Error("SqsJobQueue adapter is not implemented yet.");
+  }
+
+  const queue = new Queue(pptxImportQueueName, {
+    connection: redisConnectionOptions(input.redisUrl)
+  });
+
+  try {
+    await queue.add(pptxImportJobName, {
+      jobId: input.jobId,
+      projectId: input.projectId,
+      fileId: input.fileId
+    } satisfies PptxImportBullMqPayload);
   } finally {
     await queue.close();
   }
