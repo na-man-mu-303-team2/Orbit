@@ -77,6 +77,29 @@ def test_generate_deck_endpoint_supports_topic_only_generation() -> None:
     assert "제공합니다" not in speaker_notes
 
 
+def test_generate_deck_applies_content_aware_theme_and_fonts() -> None:
+    response = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="Google Speech-to-Text 언어 및 방언 지원",
+            slideCountRange={"min": 2, "max": 2},
+        )
+    )
+
+    deck = response.deck
+    title_element = next(
+        element
+        for element in deck["slides"][0]["elements"]
+        if element["type"] == "text" and element["role"] == "title"
+    )
+    assert deck["theme"]["name"] == "default-voice-tech-ai"
+    assert deck["theme"]["backgroundColor"] == "#f7fbff"
+    assert deck["theme"]["accentColor"] == "#1a73e8"
+    assert deck["theme"]["typography"]["headingFontFamily"] == "Noto Sans KR"
+    assert title_element["props"]["fontFamily"] == "Noto Sans KR"
+    assert title_element["props"]["fontSize"] == 64
+
+
 def test_generate_deck_endpoint_requires_llm_for_reference_generation() -> None:
     response = client().post(
         "/ai/generate-deck",

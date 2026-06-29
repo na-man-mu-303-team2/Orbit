@@ -1203,35 +1203,131 @@ def evidence_for(
 
 
 def direct_design(raw_input: RawInput) -> dict[str, Any]:
-    accent = {
-        "inform": "#2563eb",
-        "persuade": "#0f766e",
-        "teach": "#7c3aed",
-        "report": "#334155",
-    }[raw_input.metadata.purpose]
+    profile = design_profile_for(raw_input)
     return {
-        "name": f"{raw_input.template}-ai",
-        "fontFamily": "Inter",
-        "backgroundColor": "#ffffff",
-        "textColor": "#111827",
-        "accentColor": accent,
+        "name": f"{raw_input.template}-{profile['name']}-ai",
+        "fontFamily": profile["bodyFontFamily"],
+        "backgroundColor": profile["background"],
+        "textColor": profile["text"],
+        "accentColor": profile["accent"],
         "palette": {
-            "primary": accent,
-            "secondary": "#f59e0b",
-            "surface": "#ffffff",
-            "muted": "#f8fafc",
-            "border": "#d8dee9",
+            "primary": profile["accent"],
+            "secondary": profile["secondary"],
+            "surface": profile["surface"],
+            "muted": profile["muted"],
+            "border": profile["border"],
         },
         "typography": {
-            "headingFontFamily": "Inter",
-            "bodyFontFamily": "Inter",
-            "titleSize": 60,
-            "headingSize": 42,
-            "bodySize": 26,
-            "captionSize": 18,
+            "headingFontFamily": profile["headingFontFamily"],
+            "bodyFontFamily": profile["bodyFontFamily"],
+            "titleSize": profile["titleSize"],
+            "headingSize": profile["headingSize"],
+            "bodySize": profile["bodySize"],
+            "captionSize": profile["captionSize"],
         },
         "effects": {"borderRadius": 8},
     }
+
+
+def design_profile_for(raw_input: RawInput) -> dict[str, Any]:
+    text = " ".join(
+        [
+            raw_input.topic,
+            raw_input.prompt,
+            raw_input.template,
+            raw_input.metadata.audience,
+            raw_input.metadata.purpose,
+            raw_input.metadata.tone,
+        ]
+    ).casefold()
+    if has_any(text, ["speech", "stt", "audio", "voice", "언어", "음성", "오디오", "방언"]):
+        return {
+            "name": "voice-tech",
+            "headingFontFamily": "Noto Sans KR",
+            "bodyFontFamily": "Noto Sans KR",
+            "background": "#f7fbff",
+            "surface": "#ffffff",
+            "text": "#102033",
+            "accent": "#1a73e8",
+            "secondary": "#34a853",
+            "muted": "#eef6ff",
+            "border": "#c8daf4",
+            "titleSize": 64,
+            "headingSize": 42,
+            "bodySize": 27,
+            "captionSize": 17,
+        }
+    if raw_input.template == "lesson" or raw_input.metadata.purpose == "teach":
+        return {
+            "name": "lesson-green",
+            "headingFontFamily": "Noto Sans KR",
+            "bodyFontFamily": "Noto Sans KR",
+            "background": "#fbfdf7",
+            "surface": "#ffffff",
+            "text": "#16251b",
+            "accent": "#2f7d32",
+            "secondary": "#e0a100",
+            "muted": "#f0f7e8",
+            "border": "#cfe2bd",
+            "titleSize": 60,
+            "headingSize": 40,
+            "bodySize": 28,
+            "captionSize": 18,
+        }
+    if raw_input.template == "pitch" or raw_input.metadata.purpose == "persuade":
+        return {
+            "name": "pitch-contrast",
+            "headingFontFamily": "Montserrat",
+            "bodyFontFamily": "Inter",
+            "background": "#0f172a",
+            "surface": "#172033",
+            "text": "#f8fafc",
+            "accent": "#22d3ee",
+            "secondary": "#f59e0b",
+            "muted": "#111827",
+            "border": "#334155",
+            "titleSize": 66,
+            "headingSize": 44,
+            "bodySize": 27,
+            "captionSize": 17,
+        }
+    if raw_input.template == "report" or raw_input.metadata.audience == "executive":
+        return {
+            "name": "report-editorial",
+            "headingFontFamily": "IBM Plex Sans",
+            "bodyFontFamily": "Inter",
+            "background": "#f8fafc",
+            "surface": "#ffffff",
+            "text": "#111827",
+            "accent": "#0f766e",
+            "secondary": "#7c3aed",
+            "muted": "#eef2f7",
+            "border": "#cbd5e1",
+            "titleSize": 62,
+            "headingSize": 42,
+            "bodySize": 26,
+            "captionSize": 17,
+        }
+    return {
+        "name": "default-clean",
+        "headingFontFamily": "Inter",
+        "bodyFontFamily": "Inter",
+        "background": "#ffffff",
+        "surface": "#ffffff",
+        "text": "#111827",
+        "accent": "#2563eb",
+        "secondary": "#f59e0b",
+        "muted": "#f8fafc",
+        "border": "#d8dee9",
+        "titleSize": 60,
+        "headingSize": 42,
+        "bodySize": 26,
+        "captionSize": 18,
+    }
+
+
+def has_any(text: str, candidates: list[str]) -> bool:
+    return any(candidate in text for candidate in candidates)
 
 
 def plan_visuals(slide_plan: SlidePlan) -> VisualPlan:
@@ -1395,8 +1491,9 @@ def design_elements(
             24,
             2,
             theme["accentColor"],
-            18,
+            theme["typography"]["captionSize"],
             "bold",
+            theme["typography"]["headingFontFamily"],
         ),
     ]
 
@@ -1411,7 +1508,7 @@ def design_elements(
                 700,
                 500,
                 2,
-                "#ffffff",
+                theme["palette"]["surface"],
                 theme["palette"]["border"],
                 8,
             )
@@ -1442,7 +1539,7 @@ def design_elements(
                 1420,
                 440,
                 2,
-                "#ffffff",
+                theme["palette"]["surface"],
                 theme["palette"]["border"],
                 8,
             )
@@ -1506,8 +1603,9 @@ def media_elements(
             max(80, slot.height - 88),
             slot.z_index + 1,
             theme["textColor"],
-            22,
+            theme["typography"]["captionSize"] + 4,
             "medium",
+            theme["typography"]["bodyFontFamily"],
         ),
     ]
 
@@ -1549,7 +1647,7 @@ def element_for_intent(
             **base,
             "type": "rect",
             "props": {
-                "fill": "#ffffff",
+                "fill": theme["palette"]["surface"],
                 "stroke": theme["accentColor"],
                 "strokeWidth": 3,
                 "borderRadius": 8,
@@ -1575,20 +1673,29 @@ def element_for_intent(
             },
         }
 
-    font_size = 60 if intent.role == "title" else 26
+    font_size = (
+        theme["typography"]["titleSize"]
+        if intent.role == "title"
+        else theme["typography"]["bodySize"]
+    )
+    font_family = (
+        theme["typography"]["headingFontFamily"]
+        if intent.role == "title"
+        else theme["typography"]["bodyFontFamily"]
+    )
     if intent.role == "footer":
-        font_size = 18
+        font_size = theme["typography"]["captionSize"]
     return {
         **base,
         "props": {
             "text": intent.text,
-            "fontFamily": "Inter",
+            "fontFamily": font_family,
             "fontSize": font_size,
             "fontWeight": "bold" if intent.role == "title" else "normal",
             "color": theme["textColor"],
             "align": "left",
             "verticalAlign": "top",
-            "lineHeight": 1.2,
+            "lineHeight": 1.12 if intent.role == "title" else 1.22,
         },
     }
 
@@ -1670,6 +1777,7 @@ def text_element(
     color: str,
     font_size: int,
     font_weight: str,
+    font_family: str = "Inter",
 ) -> dict[str, Any]:
     return {
         "elementId": f"el_{order}_{name}",
@@ -1686,7 +1794,7 @@ def text_element(
         "visible": True,
         "props": {
             "text": text,
-            "fontFamily": "Inter",
+            "fontFamily": font_family,
             "fontSize": font_size,
             "fontWeight": font_weight,
             "color": color,
