@@ -1,4 +1,5 @@
 import json
+from typing import Any
 
 from fastapi.testclient import TestClient
 
@@ -147,6 +148,136 @@ def test_generate_deck_uses_llm_content_plan_with_reference_context() -> None:
     assert "피카츄는 볼주머니" in fake_client.requests[0]["input"]
     assert "목적과 기대 결과" not in "\n".join(body_texts)
     assert "결정 사항, 실행 순서" not in "\n".join(body_texts)
+
+
+def test_generate_deck_uses_design_intents_without_schema_leak() -> None:
+    fake_client = FakeOpenAIClient(
+        {
+            "title": "디자인 고도화",
+            "slides": [
+                slide_payload(
+                    "한눈에 보는 ORBIT",
+                    "발표 흐름을 먼저 보여주고 핵심 메시지를 고정합니다.",
+                    "첫 장에서는 ORBIT의 목적과 흐름을 짧게 소개합니다.",
+                    slide_type="title",
+                    slot_preset="title_left_visual_right",
+                    media_intent={
+                        "kind": "generate",
+                        "prompt": "생성형 발표 도구의 작업 흐름",
+                        "alt": "AI 발표 자료 생성 흐름",
+                        "caption": "AI 생성 흐름 이미지",
+                        "rationale": "시각 자료가 이해를 돕기 때문입니다.",
+                        "required": True,
+                        "placement": "right",
+                        "src": "",
+                    },
+                ),
+                slide_payload(
+                    "핵심 지표",
+                    "반복 작업 시간을 줄이고 발표 준비 속도를 높이는 점을 강조합니다.",
+                    "숫자와 근거를 함께 설명합니다.",
+                    slide_type="data",
+                    slot_preset="metric_cards",
+                ),
+                slide_payload(
+                    "이전 방식과 ORBIT",
+                    "수동 정리와 자동 초안 생성의 차이를 비교합니다.",
+                    "두 방식의 차이를 기준별로 설명합니다.",
+                    slide_type="comparison",
+                    slot_preset="before_after",
+                ),
+                slide_payload(
+                    "사용자가 기억할 한 문장",
+                    "발표자는 내용에 집중하고 ORBIT는 반복 작업을 줄입니다.",
+                    "마무리에서는 기억할 문장을 중심으로 정리합니다.",
+                    slide_type="quote",
+                    slot_preset="quote_with_source",
+                ),
+                slide_payload(
+                    "기존 chart 동작",
+                    "차트 슬라이드는 기존 chart-focus 레이아웃을 유지합니다.",
+                    "기존 차트 생성 경로가 유지되는지 확인합니다.",
+                    slide_type="chart",
+                    slot_preset="insight_with_evidence",
+                ),
+            ],
+        }
+    )
+
+    response = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="ORBIT",
+            prompt="AI 덱 생성 디자인 고도화",
+            slideCountRange={"min": 5, "max": 5},
+        ),
+        client=fake_client,
+    )
+
+    deck_text = json.dumps(response.deck, ensure_ascii=False)
+    assert "visualIntent" not in deck_text
+    assert "mediaIntent" not in deck_text
+    assert "slotPreset" not in deck_text
+    assert has_element(response.deck["slides"][0], "el_1_media_placeholder")
+    assert response.deck["slides"][1]["style"]["layout"] == "two-column"
+    assert has_element(response.deck["slides"][1], "el_2_metric_card")
+    assert has_element(response.deck["slides"][2], "el_3_comparison_divider")
+    assert has_element(response.deck["slides"][3], "el_4_quote_block")
+    assert any(
+        element["type"] == "chart"
+        for element in response.deck["slides"][4]["elements"]
+    )
+    assert response.deck["slides"][4]["style"]["layout"] == "chart-focus"
+    assert response.validation.design_issues[0].message == (
+        "이미지 소스가 없어 자리 표시자를 생성했습니다."
+    )
+    assert "\ufffd" not in json.dumps(
+        response.model_dump(by_alias=True),
+        ensure_ascii=False,
+    )
+
+
+def slide_payload(
+    title: str,
+    message: str,
+    speaker_notes: str,
+    *,
+    slide_type: str,
+    slot_preset: str,
+    media_intent: dict[str, object] | None = None,
+) -> dict[str, object]:
+    return {
+        "title": title,
+        "message": message,
+        "speakerNotes": speaker_notes,
+        "keywords": ["ORBIT"],
+        "slideType": slide_type,
+        "layoutVariant": slot_preset.split("_", maxsplit=1)[0],
+        "slotPreset": slot_preset,
+        "visualIntent": {
+            "emphasis": "핵심 메시지",
+            "mood": "professional",
+            "structure": "safe slots",
+        },
+        "mediaIntent": media_intent
+        or {
+            "kind": "none",
+            "prompt": "",
+            "alt": "",
+            "caption": "",
+            "rationale": "",
+            "required": False,
+            "placement": "auto",
+            "src": "",
+        },
+    }
+
+
+def has_element(slide: dict[str, Any], element_id: str) -> bool:
+    return any(
+        element["elementId"] == element_id
+        for element in slide["elements"]
+    )
 
 
 class FakeOpenAIClient:
