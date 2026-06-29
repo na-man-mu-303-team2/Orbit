@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  buildInitialProjectDeck,
   buildAssetUploadRequest,
+  createProject,
   getAssetValidationMessage,
   uploadProjectAsset,
 } from "./ProjectAssetWorkspace";
@@ -9,6 +11,91 @@ const pptxMime =
   "application/vnd.openxmlformats-officedocument.presentationml.presentation";
 
 describe("ORBIT-93 project asset upload helpers", () => {
+  it("creates an initial blank deck after creating a project", async () => {
+    const fetcher = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+
+      if (url.endsWith("/workspaces/workspace_demo_1/projects")) {
+        expect(init?.method).toBe("POST");
+        expect(JSON.parse(String(init?.body))).toEqual({
+          title: "새 프레젠테이션",
+        });
+
+        return new Response(
+          JSON.stringify({
+            projectId: "project_smoke",
+            workspaceId: "workspace_demo_1",
+            title: "새 프레젠테이션",
+            createdBy: "user_smoke",
+            createdAt: "2026-06-29T00:00:00.000Z",
+          }),
+        );
+      }
+
+      if (url.endsWith("/projects/project_smoke/deck")) {
+        expect(init?.method).toBe("PUT");
+        const body = JSON.parse(String(init?.body));
+
+        expect(body.snapshotReason).toBe("deck-replaced");
+        expect(body.deck).toMatchObject({
+          deckId: "deck_smoke",
+          projectId: "project_smoke",
+          title: "새 프레젠테이션",
+          slides: [
+            expect.objectContaining({
+              slideId: "slide_1",
+              elements: [],
+            }),
+          ],
+        });
+
+        return new Response(
+          JSON.stringify({
+            deck: body.deck,
+            snapshot: {
+              snapshotId: "snapshot_smoke",
+              projectId: "project_smoke",
+              deckId: "deck_smoke",
+              version: 1,
+              reason: "deck-replaced",
+              createdAt: "2026-06-29T00:00:00.000Z",
+            },
+            updatedAt: "2026-06-29T00:00:00.000Z",
+          }),
+        );
+      }
+
+      return new Response("unexpected request", { status: 500 });
+    });
+
+    await expect(createProject("새 프레젠테이션", fetcher)).resolves.toMatchObject({
+      projectId: "project_smoke",
+    });
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+
+  it("builds a schema-valid blank deck for the created project", () => {
+    const deck = buildInitialProjectDeck({
+      projectId: "project_new",
+      workspaceId: "workspace_demo_1",
+      title: "팀 발표",
+      createdBy: "user_smoke",
+      createdAt: "2026-06-29T00:00:00.000Z",
+    });
+
+    expect(deck).toMatchObject({
+      deckId: "deck_new",
+      projectId: "project_new",
+      title: "팀 발표",
+      slides: [
+        expect.objectContaining({
+          elements: [],
+          order: 1,
+        }),
+      ],
+    });
+  });
+
   it("builds an upload request from the shared file contract", () => {
     const file = new File(["deck"], "deck.pptx", { type: pptxMime });
 
