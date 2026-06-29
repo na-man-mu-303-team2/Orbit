@@ -7,8 +7,8 @@ import {
   animationTypeSchema
 } from "./animation.schema";
 import {
-  keywordSchema,
   slideBackgroundImageFitSchema,
+  slideKeywordsSchema,
   slideLayoutSchema,
   slideOrderSchema,
   slideSchema
@@ -215,7 +215,7 @@ export const updateSpeakerNotesOperationSchema = z.object({
 export const replaceKeywordsOperationSchema = z.object({
   type: z.literal("replace_keywords"),
   slideId: deckSlideIdSchema,
-  keywords: z.array(keywordSchema)
+  keywords: slideKeywordsSchema
 });
 
 export const addAnimationOperationSchema = z.object({

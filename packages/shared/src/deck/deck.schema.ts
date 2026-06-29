@@ -71,12 +71,43 @@ export const deckCanvasSchema = z.discriminatedUnion("preset", [
   standardDeckCanvasSchema
 ]);
 
+export const keywordTermSchema = z.string().trim().min(1);
+
 export const keywordSchema = z.object({
   keywordId: deckKeywordIdSchema,
-  text: z.string().min(1),
-  synonyms: z.array(z.string()).default([]),
-  abbreviations: z.array(z.string()).default([])
+  text: keywordTermSchema,
+  synonyms: z.array(keywordTermSchema).default([]),
+  abbreviations: z.array(keywordTermSchema).default([])
 });
+
+export const slideKeywordsSchema = z
+  .array(keywordSchema)
+  .superRefine((keywords, ctx) => {
+    const terms = new Set<string>();
+
+    keywords.forEach((keyword, keywordIndex) => {
+      requireUniqueKeywordTerm(ctx, terms, keyword.text, [
+        keywordIndex,
+        "text"
+      ]);
+
+      keyword.synonyms.forEach((synonym, synonymIndex) => {
+        requireUniqueKeywordTerm(ctx, terms, synonym, [
+          keywordIndex,
+          "synonyms",
+          synonymIndex
+        ]);
+      });
+
+      keyword.abbreviations.forEach((abbreviation, abbreviationIndex) => {
+        requireUniqueKeywordTerm(ctx, terms, abbreviation, [
+          keywordIndex,
+          "abbreviations",
+          abbreviationIndex
+        ]);
+      });
+    });
+  });
 
 export const slideOrderSchema = z.number().int().positive();
 
@@ -138,7 +169,7 @@ export const slideSchema = z.object({
   style: slideStyleSchema,
   speakerNotes: z.string().default(""),
   elements: z.array(deckElementSchema).default([]),
-  keywords: z.array(keywordSchema).default([]),
+  keywords: slideKeywordsSchema.default([]),
   animations: z.array(animationSchema).default([]),
   aiNotes: slideAiNotesSchema.optional()
 });
@@ -171,4 +202,25 @@ export type SlideBackgroundImageFit = z.infer<
 >;
 export type SlideSourceEvidence = z.infer<typeof slideSourceEvidenceSchema>;
 export type SlideAiNotes = z.infer<typeof slideAiNotesSchema>;
+export type KeywordTerm = z.infer<typeof keywordTermSchema>;
 export type Keyword = z.infer<typeof keywordSchema>;
+
+function requireUniqueKeywordTerm(
+  ctx: z.RefinementCtx,
+  seen: Set<string>,
+  rawValue: string,
+  path: Array<string | number>
+): void {
+  const value = rawValue.toLocaleLowerCase("ko-KR");
+
+  if (seen.has(value)) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path,
+      message: "keyword terms must be unique within the same slide"
+    });
+    return;
+  }
+
+  seen.add(value);
+}
