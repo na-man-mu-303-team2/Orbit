@@ -86,15 +86,20 @@ function createStorage(): StoragePort {
   };
 }
 
-function createService(projectsService: Partial<ProjectsService>) {
+function createService(
+  projectsService: Partial<ProjectsService>,
+  options: { uploadProxyOrigin?: string | null } = {},
+) {
   const { assets, repository } = createAssetRepository();
 
   return {
     assets,
+    repository,
     service: new FilesService(
       repository,
       projectsService as ProjectsService,
       createStorage(),
+      options.uploadProxyOrigin,
     ),
   };
 }
@@ -135,6 +140,50 @@ describe("FilesService", () => {
     await expect(service.list(demoProject.projectId)).resolves.toEqual([
       completed,
     ]);
+  });
+
+  it("uses the request origin for local upload proxy URLs", async () => {
+    const { service } = createService(
+      {
+        getAccessibleProject: vi.fn(async () => demoProject),
+      },
+      {
+        uploadProxyOrigin: "http://localhost:5173",
+      },
+    );
+
+    const upload = await service.createUploadUrl(
+      demoProject.projectId,
+      {
+        originalName: "diagram.png",
+        mimeType: "image/png",
+        size: 1024,
+        purpose: "reference-material",
+      },
+      "http://127.0.0.1:5173",
+    );
+
+    expect(upload.uploadUrl).toContain("http://127.0.0.1:5173/api/v1/projects/");
+  });
+
+  it("falls back to the configured web origin when the request origin is absent", async () => {
+    const { service } = createService(
+      {
+        getAccessibleProject: vi.fn(async () => demoProject),
+      },
+      {
+        uploadProxyOrigin: "http://localhost:5173",
+      },
+    );
+
+    const upload = await service.createUploadUrl(demoProject.projectId, {
+      originalName: "diagram.png",
+      mimeType: "image/png",
+      size: 1024,
+      purpose: "reference-material",
+    });
+
+    expect(upload.uploadUrl).toContain("http://localhost:5173/api/v1/projects/");
   });
 
   it("rejects complete requests for an asset outside the project boundary", async () => {
