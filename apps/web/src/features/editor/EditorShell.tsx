@@ -337,18 +337,7 @@ async function appendProjectDeckPatch(
   return payload.deck;
 }
 
-async function resolveEditorProjectId() {
-  const projects = await fetchProjects();
-  const preferredProject = projects.find(
-    (project) => project.projectId === demoIds.projectId
-  );
-  const project = preferredProject ?? projects[0] ?? (await createProject(editorUploadProjectTitle));
-
-  return project.projectId;
-}
-
-async function fetchDeck(): Promise<Deck> {
-  const projectId = await resolveEditorProjectId();
+async function fetchDeck(projectId: string): Promise<Deck> {
   const storedDeck = await fetchProjectDeck(projectId);
 
   if (storedDeck) {
@@ -405,7 +394,8 @@ export function shouldHydrateDeckFromQuery(args: {
   return nextDeck.version > currentDeck.version;
 }
 
-export function EditorShell() {
+export function EditorShell(props: { projectId?: string }) {
+  const projectId = props.projectId ?? demoIds.projectId;
   const queryClient = useQueryClient();
   const [currentSlideIndex, setCurrentSlideIndex] = useState(0);
   const [isDataViewOpen, setIsDataViewOpen] = useState(false);
@@ -449,8 +439,8 @@ export function EditorShell() {
   });
 
   const deckQuery = useQuery({
-    queryKey: ["deck", demoIds.projectId],
-    queryFn: fetchDeck,
+    queryKey: ["deck", projectId],
+    queryFn: () => fetchDeck(projectId),
     retry: false
   });
 
@@ -600,7 +590,7 @@ export function EditorShell() {
       return;
     }
 
-    queryClient.setQueryData(["deck", demoIds.projectId], (current?: Deck) =>
+    queryClient.setQueryData(["deck", projectId], (current?: Deck) =>
       mergeDeckIntoQueryCache(current, result.deck)
     );
 
@@ -609,7 +599,7 @@ export function EditorShell() {
       .then(async () => {
         const persistedDeck = await appendProjectDeckPatch(deckQuery.data.projectId, patch);
 
-        queryClient.setQueryData(["deck", demoIds.projectId], (current?: Deck) =>
+        queryClient.setQueryData(["deck", projectId], (current?: Deck) =>
           mergeDeckIntoQueryCache(current, persistedDeck)
         );
 
