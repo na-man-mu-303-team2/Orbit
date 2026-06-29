@@ -19,13 +19,17 @@ import {
   updateCanvasShape,
   verifyCanvasRoomPassword
 } from "./canvas-room.store";
+import { resolveAllowedWebOrigins } from "../common/web-origin";
 
 const connectedUsers = new Map<string, ConnectedRealtimeUser>();
+const realtimeCorsOrigins = resolveAllowedWebOrigins(
+  process.env.WEB_ORIGIN ?? "http://localhost:5173"
+);
 
 @WebSocketGateway({
   cors: {
     credentials: true,
-    origin: process.env.WEB_ORIGIN ?? "http://localhost:5173"
+    origin: realtimeCorsOrigins
   }
 })
 export class RealtimeGateway

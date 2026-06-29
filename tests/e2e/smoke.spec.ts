@@ -124,22 +124,15 @@ test.describe("ORBIT-2 ORBIT-10 ORBIT-36 ORBIT-58 smoke", () => {
 
     await page.goto("/");
 
-    await expect(
-      page.getByRole("heading", { name: "ORBIT Demo Console" })
-    ).toBeVisible();
-    await expect(page.getByText("project_demo_1")).toBeVisible();
-    await expect(page.getByText("session_demo_1")).toBeVisible();
-    await expect(
-      page.getByRole("button", { name: "프로젝트 생성" })
-    ).toBeVisible();
-    await expect(page.getByText("ok")).toBeVisible();
+    await expect(page).toHaveURL(/\/login$/);
+    await expect(page.getByRole("heading", { name: "로그인" })).toBeVisible();
+    await expect(page.getByText("Orbit 작업 공간")).toBeVisible();
   });
 
   test("creates a project and completes a project asset upload", async ({
     page
   }) => {
-    await page.goto("/");
-    await page.getByRole("button", { name: "프로젝트 생성" }).click();
+    await page.goto("/upload");
 
     await expect(
       page.getByRole("heading", { name: "프로젝트와 파일" })
@@ -319,8 +312,7 @@ test.describe("ORBIT-2 ORBIT-10 ORBIT-36 ORBIT-58 smoke", () => {
       });
     });
 
-    await page.goto("/");
-    await page.getByRole("button", { name: "리허설" }).click();
+    await page.goto("/rehearsal/project_demo_1");
 
     await expect(page.getByRole("heading", { name: "리허설", exact: true })).toBeVisible();
     await expect(

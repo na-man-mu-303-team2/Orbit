@@ -14,7 +14,13 @@ import {
   createElementFramePatch,
   normalizeElementFrameDraft
 } from "../../../../../packages/editor-core/src/patches/elementFrame";
-import { demoIds, maxAssetUploadSizeBytes } from "@orbit/shared";
+import {
+  appendDeckPatchResponseSchema,
+  demoIds,
+  getDeckResponseSchema,
+  maxAssetUploadSizeBytes,
+  putDeckResponseSchema
+} from "@orbit/shared";
 import orbitLogo from "../../assets/orbit-logo.png";
 import {
   createProject,
@@ -31,13 +37,12 @@ import type {
   DeckElement,
   DeckElementRole,
   DeckPatch,
-  ShapeElementProps,
-  TextElementProps,
-  GetDeckResponse,
   GroupElementProps,
   ImageElementProps,
   Keyword,
-  Slide
+  ShapeElementProps,
+  Slide,
+  TextElementProps
 } from "@orbit/shared";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type Konva from "konva";
@@ -264,16 +269,136 @@ async function fetchHealth(): Promise<HealthResponse> {
   return response.json() as Promise<HealthResponse>;
 }
 
-async function fetchDeck(): Promise<Deck> {
-  const response = await fetch(`/api/v1/projects/${demoIds.projectId}/deck`);
-  if (!response.ok) {
-    throw new Error("Deck fetch failed");
+async function readResponseError(response: Response, fallbackMessage: string) {
+  const message = await response.text();
+  return message || fallbackMessage;
+}
+
+function createSeedDeck(projectId: string): Deck {
+  return {
+    ...createDemoDeck(),
+    projectId
+  };
+}
+
+async function fetchProjectDeck(projectId: string): Promise<Deck | null> {
+  const response = await fetch(`/api/v1/projects/${projectId}/deck`);
+
+  if (response.status === 404) {
+    return null;
   }
-  const payload = (await response.json()) as GetDeckResponse;
+
+  if (!response.ok) {
+    throw new Error(await readResponseError(response, "Deck fetch failed"));
+  }
+
+  const payload = getDeckResponseSchema.parse(await response.json());
   return payload.deck;
 }
 
-export function EditorShell() {
+async function putProjectDeck(projectId: string, deck: Deck): Promise<Deck> {
+  const response = await fetch(`/api/v1/projects/${projectId}/deck`, {
+    method: "PUT",
+    headers: {
+      "content-type": "application/json"
+    },
+    body: JSON.stringify({
+      deck,
+      snapshotReason: "deck-replaced"
+    })
+  });
+
+  if (!response.ok) {
+    throw new Error(await readResponseError(response, "Deck bootstrap failed"));
+  }
+
+  const payload = putDeckResponseSchema.parse(await response.json());
+  return payload.deck;
+}
+
+async function appendProjectDeckPatch(
+  projectId: string,
+  patch: DeckPatch
+): Promise<Deck> {
+  const response = await fetch(`/api/v1/projects/${projectId}/deck/patches`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json"
+    },
+    body: JSON.stringify({
+      patch,
+      snapshotReason: "patch-applied"
+    })
+  });
+
+  if (!response.ok) {
+    throw new Error(await readResponseError(response, "Deck save failed"));
+  }
+
+  const payload = appendDeckPatchResponseSchema.parse(await response.json());
+  return payload.deck;
+}
+
+async function fetchDeck(projectId: string): Promise<Deck> {
+  const storedDeck = await fetchProjectDeck(projectId);
+
+  if (storedDeck) {
+    return storedDeck;
+  }
+
+  return putProjectDeck(projectId, createSeedDeck(projectId));
+}
+
+function isSameDeckIdentity(left: Deck, right: Deck) {
+  return left.deckId === right.deckId && left.projectId === right.projectId;
+}
+
+export function mergeDeckIntoQueryCache(
+  currentDeck: Deck | undefined,
+  nextDeck: Deck
+) {
+  if (!currentDeck) {
+    return nextDeck;
+  }
+
+  if (!isSameDeckIdentity(currentDeck, nextDeck)) {
+    return nextDeck;
+  }
+
+  return nextDeck.version > currentDeck.version ? nextDeck : currentDeck;
+}
+
+export function shouldHydrateDeckFromQuery(args: {
+  currentDeck: Deck;
+  nextDeck: Deck;
+  hasHydratedPersistedDeck: boolean;
+  hasLocalOptimisticChanges: boolean;
+}) {
+  const {
+    currentDeck,
+    nextDeck,
+    hasHydratedPersistedDeck,
+    hasLocalOptimisticChanges
+  } = args;
+
+  if (!hasHydratedPersistedDeck) {
+    if (!hasLocalOptimisticChanges) {
+      return true;
+    }
+
+    if (!isSameDeckIdentity(currentDeck, nextDeck)) {
+      return false;
+    }
+  } else if (!isSameDeckIdentity(currentDeck, nextDeck)) {
+    return true;
+  }
+
+  return nextDeck.version > currentDeck.version;
+}
+
+export function EditorShell(props: { projectId?: string }) {
+  const projectId = props.projectId ?? demoIds.projectId;
+  const queryClient = useQueryClient();
   const [currentSlideIndex, setCurrentSlideIndex] = useState(0);
   const [isDataViewOpen, setIsDataViewOpen] = useState(false);
   const [isRightPanelOpen, setIsRightPanelOpen] = useState(true);
@@ -317,8 +442,8 @@ export function EditorShell() {
   });
 
   const deckQuery = useQuery({
-    queryKey: ["deck", demoIds.projectId],
-    queryFn: fetchDeck,
+    queryKey: ["deck", projectId],
+    queryFn: () => fetchDeck(projectId),
     retry: false
   });
 
@@ -327,6 +452,9 @@ export function EditorShell() {
   const deckRef = useRef(loadedDeck);
   const imageUploadTargetRef = useRef<ImageUploadTarget | null>(null);
   const resolvedUploadProjectIdRef = useRef<string | null>(null);
+  const saveQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const hasHydratedPersistedDeckRef = useRef(false);
+  const hasLocalOptimisticChangesRef = useRef(false);
   const isUsingFallbackDeck = !deckQuery.data;
   const isDeckLoading = deckQuery.isPending;
   const isDeckError = deckQuery.isError;
@@ -338,7 +466,7 @@ export function EditorShell() {
     isUsingFallbackDeck
   });
   const visibleElements = currentSlide
-    ? getRenderableSlideElements(currentSlide)
+    ? getRenderableSlideElements(currentSlide, deck.canvas)
     : [];
   const stageScale = 0.44;
   const currentSlideAnimations = useMemo(
@@ -407,15 +535,34 @@ export function EditorShell() {
   ];
 
   useEffect(() => {
-    deckRef.current = loadedDeck;
-    setDeck(loadedDeck);
+    const persistedDeck = deckQuery.data;
+
+    if (!persistedDeck) {
+      return;
+    }
+
+    if (
+      !shouldHydrateDeckFromQuery({
+        currentDeck: deckRef.current,
+        nextDeck: persistedDeck,
+        hasHydratedPersistedDeck: hasHydratedPersistedDeckRef.current,
+        hasLocalOptimisticChanges: hasLocalOptimisticChangesRef.current
+      })
+    ) {
+      return;
+    }
+
+    hasHydratedPersistedDeckRef.current = true;
+    hasLocalOptimisticChangesRef.current = false;
+    deckRef.current = persistedDeck;
+    setDeck(persistedDeck);
     setUndoStack([]);
     setRedoStack([]);
     setSelectedElementIds([]);
     setEditingElementId(null);
     setCustomShapeEditElementId(null);
     setElementContextMenu(null);
-  }, [loadedDeck]);
+  }, [deckQuery.data]);
 
   useEffect(() => {
     if (!deckQuery.data?.projectId) {
@@ -449,12 +596,40 @@ export function EditorShell() {
     }
 
     deckRef.current = result.deck;
+    hasLocalOptimisticChangesRef.current = true;
     setUndoStack((current) => [...current.slice(-49), baseDeck]);
     setRedoStack([]);
     setDeck(result.deck);
     setLastPatchLabel(
       `${result.changeRecord.operations[0]?.type ?? "patch"} · v${result.metadata.nextVersion}`
     );
+
+    if (!deckQuery.data?.projectId) {
+      return;
+    }
+
+    queryClient.setQueryData(["deck", projectId], (current?: Deck) =>
+      mergeDeckIntoQueryCache(current, result.deck)
+    );
+
+    saveQueueRef.current = saveQueueRef.current
+      .catch(() => undefined)
+      .then(async () => {
+        const persistedDeck = await appendProjectDeckPatch(deckQuery.data.projectId, patch);
+
+        queryClient.setQueryData(["deck", projectId], (current?: Deck) =>
+          mergeDeckIntoQueryCache(current, persistedDeck)
+        );
+
+        if (persistedDeck.version >= deckRef.current.version) {
+          hasHydratedPersistedDeckRef.current = true;
+          hasLocalOptimisticChangesRef.current = false;
+        }
+      })
+      .catch((error: unknown) => {
+        setLastPatchLabel(`저장 실패 · ${toEditorErrorMessage(error)}`);
+        void deckQuery.refetch();
+      });
   }
 
   function handleElementSelection(elementId: string, options?: { append?: boolean }) {
@@ -3641,7 +3816,7 @@ function toggleCustomShapeNodeMode(
   };
 }
 
-function getRenderableSlideElements(slide: Slide) {
+function getRenderableSlideElements(slide: Slide, canvas: DeckCanvas) {
   const groupedChildElementIds = new Set<string>();
 
   for (const element of slide.elements) {
@@ -3658,7 +3833,29 @@ function getRenderableSlideElements(slide: Slide) {
 
   return [...slide.elements]
     .filter((element) => !groupedChildElementIds.has(element.elementId))
+    .map((element) => normalizeRenderableElement(canvas, element))
     .sort((left, right) => left.zIndex - right.zIndex);
+}
+
+function normalizeRenderableElement(
+  canvas: DeckCanvas,
+  element: DeckElement
+): DeckElement {
+  const frame = normalizeElementFrameDraft(canvas, element, {});
+
+  return {
+    ...element,
+    role: frame.role ?? undefined,
+    x: frame.x ?? element.x,
+    y: frame.y ?? element.y,
+    width: frame.width ?? element.width,
+    height: frame.height ?? element.height,
+    rotation: frame.rotation ?? element.rotation,
+    opacity: frame.opacity ?? element.opacity,
+    zIndex: frame.zIndex ?? element.zIndex,
+    locked: frame.locked ?? element.locked,
+    visible: frame.visible ?? element.visible
+  };
 }
 
 function getNextElementZIndex(elements: DeckElement[]) {

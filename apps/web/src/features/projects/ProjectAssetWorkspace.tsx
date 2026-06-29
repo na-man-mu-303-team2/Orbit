@@ -1,9 +1,11 @@
 import {
   allowedAssetMimeTypes,
+  deckSchema,
   demoIds,
   maxAssetUploadSizeBytes,
   type AssetUploadUrlRequest,
   type AssetUploadUrlResponse,
+  type Deck,
   type FilePurpose,
   type Project,
   type UploadedFile,
@@ -146,7 +148,109 @@ export async function createProject(
     );
   }
 
-  return (await response.json()) as Project;
+  const project = (await response.json()) as Project;
+  await createInitialProjectDeck(project, fetcher);
+
+  return project;
+}
+
+export function buildInitialProjectDeck(project: Project): Deck {
+  const normalizedProjectId = project.projectId.replace(/^project_/, "");
+
+  return deckSchema.parse({
+    deckId: `deck_${normalizedProjectId}`,
+    projectId: project.projectId,
+    title: project.title || "새 프레젠테이션",
+    version: 1,
+    metadata: {
+      language: "ko",
+      locale: "ko-KR",
+      sourceType: "manual",
+    },
+    canvas: {
+      preset: "wide-16-9",
+      width: 1920,
+      height: 1080,
+      aspectRatio: "16:9",
+    },
+    theme: {
+      name: "Orbit Blank",
+      fontFamily: "Inter",
+      backgroundColor: "#ffffff",
+      textColor: "#111827",
+      accentColor: "#2563eb",
+      palette: {
+        primary: "#2563eb",
+        secondary: "#7c3aed",
+        surface: "#ffffff",
+        muted: "#f3f4f6",
+        border: "#dbe3f0",
+      },
+      typography: {
+        headingFontFamily: "Inter",
+        bodyFontFamily: "Inter",
+        titleSize: 56,
+        headingSize: 36,
+        bodySize: 22,
+        captionSize: 16,
+      },
+      effects: {
+        borderRadius: 10,
+        shadow: {
+          color: "#111827",
+          blur: 18,
+          offsetX: 0,
+          offsetY: 8,
+          opacity: 0.16,
+        },
+      },
+    },
+    slides: [
+      {
+        slideId: "slide_1",
+        order: 1,
+        title: "",
+        thumbnailUrl: "",
+        style: {
+          layout: "title",
+          backgroundColor: "#ffffff",
+          textColor: "#111827",
+          accentColor: "#2563eb",
+        },
+        speakerNotes: "",
+        elements: [],
+        keywords: [],
+        animations: [],
+        aiNotes: {
+          emphasisPoints: [],
+          sourceEvidence: [],
+        },
+      },
+    ],
+  });
+}
+
+export async function createInitialProjectDeck(
+  project: Project,
+  fetcher: Fetcher = fetch,
+) {
+  const deck = buildInitialProjectDeck(project);
+  const response = await fetcher(`/api/v1/projects/${project.projectId}/deck`, {
+    method: "PUT",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      deck,
+      snapshotReason: "deck-replaced",
+    }),
+  });
+
+  if (!response.ok) {
+    throw new ProjectAssetError(
+      await readErrorMessage(response, "초기 발표자료를 만들지 못했습니다."),
+    );
+  }
+
+  return deck;
 }
 
 // 선택된 프로젝트에 이미 완료된 asset metadata를 불러온다.

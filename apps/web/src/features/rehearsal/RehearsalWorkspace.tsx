@@ -533,6 +533,7 @@ export function RehearsalWorkspace(props: {
   fallbackDeck?: Deck;
   liveSttAdapter?: LiveSttAdapter;
   autoAdvanceDelayMs?: number;
+  projectId?: string;
 }) {
   const [deck, setDeck] = useState<Deck | null>(props.initialDeck ?? null);
   const [currentSlideIndex, setCurrentSlideIndex] = useState(0);
@@ -571,7 +572,10 @@ export function RehearsalWorkspace(props: {
 
     let isCancelled = false;
     setPhase("loading");
-    void fetchOrCreateRehearsalDeck({ fallbackDeck: props.fallbackDeck })
+    void fetchOrCreateRehearsalDeck({
+      projectId: props.projectId,
+      fallbackDeck: props.fallbackDeck
+    })
       .then((nextDeck) => {
         if (!isCancelled) {
           setDeck(nextDeck);
@@ -589,7 +593,7 @@ export function RehearsalWorkspace(props: {
       isCancelled = true;
       stopMediaStream(streamRef.current);
     };
-  }, [props.fallbackDeck, props.initialDeck]);
+  }, [props.fallbackDeck, props.initialDeck, props.projectId]);
 
   useEffect(() => {
     deckRef.current = deck;
