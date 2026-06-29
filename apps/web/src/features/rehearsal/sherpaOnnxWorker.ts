@@ -6,6 +6,7 @@ type WorkerManifest = {
   numThreads?: number;
   decodingMethod?: "greedy_search" | "modified_beam_search";
   runtime: {
+    helpers: string[];
     script: string;
     wasm: string | null;
     data: string | null;
@@ -15,6 +16,7 @@ type WorkerManifest = {
     decoder: string;
     joiner: string;
     tokens: string;
+    bpeVocab: string | null;
   };
 };
 
@@ -59,9 +61,13 @@ type SherpaRecognizer = Record<string, unknown>;
 type SherpaStream = Record<string, unknown>;
 type SherpaModule = Record<string, unknown> & {
   calledRun?: boolean;
+  mainScriptUrlOrBlob?: string;
   locateFile?: (path: string, prefix: string) => string;
+  getPreloadedPackage?: (packageName: string, packageSize: number) => ArrayBuffer | null;
   onRuntimeInitialized?: () => void;
   createOnlineRecognizer?: unknown;
+  FS_createDataFile?: unknown;
+  FS_unlink?: unknown;
 };
 
 type WorkerScope = typeof globalThis & {
@@ -79,6 +85,14 @@ let recognizer: SherpaRecognizer | null = null;
 let stream: SherpaStream | null = null;
 let activeSessionId: string | null = null;
 let latestText = "";
+
+const fsModelPaths = {
+  encoder: "/orbit-live-stt-encoder.onnx",
+  decoder: "/orbit-live-stt-decoder.onnx",
+  joiner: "/orbit-live-stt-joiner.onnx",
+  tokens: "/orbit-live-stt-tokens.txt",
+  bpeVocab: "/orbit-live-stt-bpe.model"
+} as const;
 
 workerScope.onmessage = (event: MessageEvent<WorkerInboundMessage>) => {
   void handleMessage(event.data);
@@ -127,6 +141,7 @@ async function loadRecognizer(nextManifest: WorkerManifest) {
   }
 
   const nextModule = await loadSherpaRuntime(nextManifest);
+  await installModelFiles(nextModule, nextManifest);
   recognizer = createRecognizer(nextModule, nextManifest);
 }
 
@@ -183,13 +198,15 @@ function stopSession(sessionId: string) {
     return;
   }
 
-  if (latestText) {
+  const result = recognizer && stream ? finishStream(recognizer, stream) : null;
+  const finalText = result?.text || latestText;
+  if (finalText) {
     post({
       type: "final",
       sessionId,
-      transcript: latestText,
+      transcript: finalText,
       isFinal: true,
-      confidence: null
+      confidence: result?.confidence ?? null
     });
   }
 
@@ -221,6 +238,7 @@ function disposeRecognizer() {
 
 async function loadSherpaRuntime(nextManifest: WorkerManifest) {
   const runtimeModule: SherpaModule = {
+    mainScriptUrlOrBlob: nextManifest.runtime.script,
     locateFile: (path) => {
       if (nextManifest.runtime.wasm && path.endsWith(".wasm")) {
         return nextManifest.runtime.wasm;
@@ -231,12 +249,22 @@ async function loadSherpaRuntime(nextManifest: WorkerManifest) {
       }
 
       return new URL(path, nextManifest.baseUrl).toString();
+    },
+    getPreloadedPackage: () => {
+      if (nextManifest.runtime.data) {
+        return null;
+      }
+
+      return new ArrayBuffer(0);
     }
   };
   const runtimeReady = waitForRuntime(runtimeModule);
   workerScope.Module = runtimeModule;
   workerScope.importScripts(nextManifest.runtime.script);
   await runtimeReady;
+  for (const helperScript of nextManifest.runtime.helpers) {
+    workerScope.importScripts(helperScript);
+  }
   return workerScope.Module ?? runtimeModule;
 }
 
@@ -264,13 +292,16 @@ function createRecognizer(runtimeModule: SherpaModule, nextManifest: WorkerManif
     },
     modelConfig: {
       transducer: {
-        encoder: nextManifest.model.encoder,
-        decoder: nextManifest.model.decoder,
-        joiner: nextManifest.model.joiner
+        encoder: fsModelPaths.encoder,
+        decoder: fsModelPaths.decoder,
+        joiner: fsModelPaths.joiner
       },
-      tokens: nextManifest.model.tokens,
+      tokens: fsModelPaths.tokens,
       numThreads: nextManifest.numThreads ?? 1,
-      provider: "wasm"
+      provider: "cpu",
+      debug: false,
+      modelingUnit: nextManifest.model.bpeVocab ? "bpe" : "cjkchar",
+      bpeVocab: nextManifest.model.bpeVocab ? fsModelPaths.bpeVocab : ""
     },
     decodingMethod: nextManifest.decodingMethod ?? "greedy_search",
     enableEndpoint: true,
@@ -289,6 +320,54 @@ function createRecognizer(runtimeModule: SherpaModule, nextManifest: WorkerManif
   }
 
   return tryFactoryCall(factory, runtimeModule, config);
+}
+
+async function installModelFiles(
+  runtimeModule: SherpaModule,
+  nextManifest: WorkerManifest
+) {
+  await Promise.all([
+    writeUrlToFs(runtimeModule, nextManifest.model.encoder, fsModelPaths.encoder),
+    writeUrlToFs(runtimeModule, nextManifest.model.decoder, fsModelPaths.decoder),
+    writeUrlToFs(runtimeModule, nextManifest.model.joiner, fsModelPaths.joiner),
+    writeUrlToFs(runtimeModule, nextManifest.model.tokens, fsModelPaths.tokens),
+    nextManifest.model.bpeVocab
+      ? writeUrlToFs(runtimeModule, nextManifest.model.bpeVocab, fsModelPaths.bpeVocab)
+      : Promise.resolve()
+  ]);
+}
+
+async function writeUrlToFs(
+  runtimeModule: SherpaModule,
+  sourceUrl: string,
+  targetPath: string
+) {
+  const response = await fetch(sourceUrl);
+  if (!response.ok) {
+    throw new Error(`Live STT model asset is unavailable: ${response.status}`);
+  }
+
+  const createDataFile = asFunction(runtimeModule.FS_createDataFile);
+  if (!createDataFile) {
+    throw new Error("sherpa-onnx WASM runtime does not expose FS_createDataFile.");
+  }
+
+  const unlink = asFunction(runtimeModule.FS_unlink);
+  try {
+    unlink?.call(runtimeModule, targetPath);
+  } catch {
+    // The preload may not have created this path; either state is fine.
+  }
+
+  createDataFile.call(
+    runtimeModule,
+    targetPath,
+    null,
+    new Uint8Array(await response.arrayBuffer()),
+    true,
+    true,
+    true
+  );
 }
 
 function tryFactoryCall(
@@ -353,10 +432,17 @@ function decodeStream(nextRecognizer: SherpaRecognizer, nextStream: SherpaStream
   }
 
   let loops = 0;
-  while (Boolean(isReady.call(nextRecognizer, nextStream)) && loops < 16) {
+  while (Boolean(isReady.call(nextRecognizer, nextStream)) && loops < 64) {
     decode.call(nextRecognizer, nextStream);
     loops += 1;
   }
+}
+
+function finishStream(nextRecognizer: SherpaRecognizer, nextStream: SherpaStream) {
+  const inputFinished = asFunction(nextStream.inputFinished);
+  inputFinished?.call(nextStream);
+  decodeStream(nextRecognizer, nextStream);
+  return readRecognizerResult(nextRecognizer, nextStream);
 }
 
 function readRecognizerResult(
@@ -447,5 +533,3 @@ function readStringResult(value: unknown) {
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
-
-export {};
