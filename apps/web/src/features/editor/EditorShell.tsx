@@ -1,8 +1,11 @@
 import {
+  createGroupedElementFramePatch,
   createAddElementPatch,
   createAddSlidePatch,
   createDemoDeck,
   createElementId,
+  getGroupChildElements,
+  getGroupedSelectionBounds,
   createSlideId,
   createUpdateElementPropsPatch
 } from "../../../../../packages/editor-core/src/index";
@@ -101,6 +104,29 @@ interface HealthResponse {
   status: string;
   app: string;
   demo: typeof demoIds;
+}
+
+declare global {
+  interface Window {
+    __ORBIT_EDITOR_TEST_API__?: {
+      updateSelectedElementFrame: (
+        frame: Partial<{
+          x: number;
+          y: number;
+          width: number;
+          height: number;
+          rotation: number;
+        }>
+      ) => boolean;
+      updateCurrentSlideStyle: (
+        style: Partial<{
+          backgroundColor: string | null;
+          textColor: string | null;
+          accentColor: string | null;
+        }>
+      ) => boolean;
+    };
+  }
 }
 
 const fallbackDeck = createDemoDeck();
@@ -1121,45 +1147,12 @@ export function EditorShell() {
       return;
     }
 
-    if (element.type === "group") {
-      const normalizedGroupFrame = normalizeElementFrameDraft(
-        deck.canvas,
-        element,
-        frame
-      );
-      const resolvedGroupFrame = {
-        x: normalizedGroupFrame.x ?? element.x,
-        y: normalizedGroupFrame.y ?? element.y,
-        width: normalizedGroupFrame.width ?? element.width,
-        height: normalizedGroupFrame.height ?? element.height,
-        rotation: normalizedGroupFrame.rotation ?? element.rotation
-      };
-
-      commitPatch({
-        deckId: deck.deckId,
-        baseVersion: deck.version,
-        source: "user",
-        operations: [
-          {
-            type: "update_element_frame",
-            slideId,
-            elementId,
-            frame: normalizedGroupFrame
-          },
-          ...buildGroupedFrameOperations({
-            canvas: deck.canvas,
-            groupElement: element,
-            nextGroupFrame: resolvedGroupFrame,
-            slide,
-            slideId
-          })
-        ]
-      });
-      return;
-    }
-
     try {
-      commitPatch(createElementFramePatch(deck, slideId, elementId, frame));
+      commitPatch(
+        element.type === "group"
+          ? createGroupedElementFramePatch(deck, slideId, elementId, frame)
+          : createElementFramePatch(deck, slideId, elementId, frame)
+      );
     } catch (error) {
       setLastPatchLabel(
         error instanceof Error ? `실패 · ${error.message}` : "실패 · unknown"
@@ -1478,6 +1471,36 @@ export function EditorShell() {
       setCurrentSlideIndex(Math.max(0, deck.slides.length - 1));
     }
   }, [currentSlideIndex, deck.slides.length]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    // Test hook for reliable Playwright frame updates when Konva anchors are too brittle.
+    window.__ORBIT_EDITOR_TEST_API__ = {
+      updateSelectedElementFrame: (frame) => {
+        if (!selectedElement || !currentSlide) {
+          return false;
+        }
+
+        handleElementFrameChange(currentSlide.slideId, selectedElement.elementId, frame);
+        return true;
+      },
+      updateCurrentSlideStyle: (style) => {
+        if (!currentSlide) {
+          return false;
+        }
+
+        handleSlideStyleChange(currentSlide.slideId, style);
+        return true;
+      }
+    };
+
+    return () => {
+      delete window.__ORBIT_EDITOR_TEST_API__;
+    };
+  }, [currentSlide, selectedElement]);
 
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
@@ -2235,6 +2258,7 @@ export function EditorShell() {
               <div className="konva-wrap">
                 <div
                   className="konva-stage-shell orbit-stage-shell"
+                  data-testid="editor-stage-shell"
                   style={{
                     width: deck.canvas.width * stageScale,
                     height: deck.canvas.height * stageScale,
@@ -2356,9 +2380,36 @@ export function EditorShell() {
         </aside>
       </section>
 
+      <div data-testid="editor-elements-debug" hidden>
+        {JSON.stringify(
+          visibleElements.map((element) => ({
+            elementId: element.elementId,
+            type: element.type,
+            x: Math.round(element.x),
+            y: Math.round(element.y),
+            width: Math.round(element.width),
+            height: Math.round(element.height),
+            rotation: Math.round(element.rotation)
+          }))
+        )}
+      </div>
+      <div data-testid="editor-slide-style-debug" hidden>
+        {JSON.stringify(
+          currentSlide
+            ? {
+                backgroundColor:
+                  currentSlide.style.backgroundColor ?? deck.theme.backgroundColor,
+                textColor: currentSlide.style.textColor ?? deck.theme.textColor,
+                accentColor: currentSlide.style.accentColor ?? deck.theme.accentColor
+              }
+            : null
+        )}
+      </div>
+
       {isDev ? (
         <button
           className={`data-view-fab ${isDataViewOpen ? "active" : ""}`}
+          data-testid="editor-data-view-toggle"
           type="button"
           onClick={() => setIsDataViewOpen((current) => !current)}
         >
@@ -2818,7 +2869,7 @@ function ElementSummary(props: { element: DeckElement }) {
   const { element } = props;
 
   return (
-    <div className="stack-item">
+    <div className="stack-item" data-testid={`debug-element-${element.elementId}`}>
       <IdBadge id={element.elementId} />
       <strong>
         {element.type}
@@ -2826,7 +2877,8 @@ function ElementSummary(props: { element: DeckElement }) {
       </strong>
       <small>
         {Math.round(element.x)},{Math.round(element.y)} · {Math.round(element.width)}×
-        {Math.round(element.height)} · z{element.zIndex} · opacity {element.opacity}
+        {Math.round(element.height)} · r{Math.round(element.rotation)} · z
+        {element.zIndex} · opacity {element.opacity}
       </small>
     </div>
   );
@@ -2865,7 +2917,7 @@ function SelectionQuickBar(props: {
 
   if (!element && slide) {
     return (
-      <section className="selection-quickbar">
+      <section className="selection-quickbar" data-testid="editor-slide-quickbar">
         {showIds ? (
           <div className="selection-quickbar-meta">
             <IdBadge id={slide.slideId} />
@@ -2891,7 +2943,7 @@ function SelectionQuickBar(props: {
   const showMeta = showIds;
 
   return (
-    <section className="selection-quickbar">
+    <section className="selection-quickbar" data-testid="editor-element-quickbar">
       {showMeta ? (
         <div className="selection-quickbar-meta">
           {showIds ? <IdBadge id={element.elementId} /> : null}
@@ -3569,20 +3621,6 @@ function toggleCustomShapeNodeMode(
   };
 }
 
-function getGroupedSelectionBounds(elements: DeckElement[]) {
-  const minX = Math.min(...elements.map((element) => element.x));
-  const minY = Math.min(...elements.map((element) => element.y));
-  const maxX = Math.max(...elements.map((element) => element.x + element.width));
-  const maxY = Math.max(...elements.map((element) => element.y + element.height));
-
-  return {
-    x: minX,
-    y: minY,
-    width: Math.max(1, maxX - minX),
-    height: Math.max(1, maxY - minY)
-  };
-}
-
 function getRenderableSlideElements(slide: Slide) {
   const groupedChildElementIds = new Set<string>();
 
@@ -3612,14 +3650,6 @@ function getNextElementZIndex(elements: DeckElement[]) {
   );
 }
 
-function getGroupChildElements(slide: Slide, childElementIds: string[]) {
-  return childElementIds
-    .map((childElementId) =>
-      slide.elements.find((candidate) => candidate.elementId === childElementId)
-    )
-    .filter((candidate): candidate is DeckElement => Boolean(candidate));
-}
-
 function getGroupedChildPreviewFrame(args: {
   childElement: DeckElement;
   currentGroupFrame: {
@@ -3647,133 +3677,6 @@ function getGroupedChildPreviewFrame(args: {
     width: Math.max(1, childElement.width * scaleX),
     x: (childElement.x - currentGroupFrame.x) * scaleX,
     y: (childElement.y - currentGroupFrame.y) * scaleY
-  };
-}
-
-function buildGroupedFrameOperations(args: {
-  canvas: DeckCanvas;
-  groupElement: DeckElement;
-  nextGroupFrame: {
-    x: number;
-    y: number;
-    width: number;
-    height: number;
-    rotation: number;
-  };
-  slide: Slide;
-  slideId: string;
-}) {
-  const { canvas, groupElement, nextGroupFrame, slide, slideId } = args;
-  const operations: Array<{
-    type: "update_element_frame";
-    slideId: string;
-    elementId: string;
-    frame: ReturnType<typeof normalizeElementFrameDraft>;
-  }> = [];
-  const visitedGroupIds = new Set<string>([groupElement.elementId]);
-
-  function visitGroup(
-    currentGroupElement: DeckElement,
-    currentNextGroupFrame: {
-      x: number;
-      y: number;
-      width: number;
-      height: number;
-      rotation: number;
-    }
-  ) {
-    if (currentGroupElement.type !== "group") {
-      return;
-    }
-
-    const groupProps = currentGroupElement.props as GroupElementProps;
-    const childElements = getGroupChildElements(slide, groupProps.childElementIds);
-
-    for (const childElement of childElements) {
-      const nextChildFrame = transformGroupedChildFrame({
-        childElement,
-        currentGroupFrame: currentGroupElement,
-        nextGroupFrame: currentNextGroupFrame
-      });
-
-      operations.push({
-        type: "update_element_frame",
-        slideId,
-        elementId: childElement.elementId,
-        frame: normalizeElementFrameDraft(canvas, childElement, nextChildFrame)
-      });
-
-      if (childElement.type === "group" && !visitedGroupIds.has(childElement.elementId)) {
-        visitedGroupIds.add(childElement.elementId);
-        visitGroup(childElement, nextChildFrame);
-      }
-    }
-  }
-
-  visitGroup(groupElement, nextGroupFrame);
-
-  return operations;
-}
-
-function transformGroupedChildFrame(args: {
-  childElement: DeckElement;
-  currentGroupFrame: {
-    x: number;
-    y: number;
-    width: number;
-    height: number;
-    rotation: number;
-  };
-  nextGroupFrame: {
-    x: number;
-    y: number;
-    width: number;
-    height: number;
-    rotation: number;
-  };
-}) {
-  const { childElement, currentGroupFrame, nextGroupFrame } = args;
-  const scaleX = nextGroupFrame.width / Math.max(1, currentGroupFrame.width);
-  const scaleY = nextGroupFrame.height / Math.max(1, currentGroupFrame.height);
-  const rotationDelta = nextGroupFrame.rotation - currentGroupFrame.rotation;
-  const rotationRadians = (rotationDelta * Math.PI) / 180;
-  const currentGroupCenter = {
-    x: currentGroupFrame.x + currentGroupFrame.width / 2,
-    y: currentGroupFrame.y + currentGroupFrame.height / 2
-  };
-  const nextGroupCenter = {
-    x: nextGroupFrame.x + nextGroupFrame.width / 2,
-    y: nextGroupFrame.y + nextGroupFrame.height / 2
-  };
-  const childCenter = {
-    x: childElement.x + childElement.width / 2,
-    y: childElement.y + childElement.height / 2
-  };
-  const relativeCenter = {
-    x: (childCenter.x - currentGroupCenter.x) * scaleX,
-    y: (childCenter.y - currentGroupCenter.y) * scaleY
-  };
-  const rotatedCenter = {
-    x:
-      relativeCenter.x * Math.cos(rotationRadians) -
-      relativeCenter.y * Math.sin(rotationRadians),
-    y:
-      relativeCenter.x * Math.sin(rotationRadians) +
-      relativeCenter.y * Math.cos(rotationRadians)
-  };
-  const nextWidth = Math.max(1, childElement.width * scaleX);
-  const nextHeight = Math.max(1, childElement.height * scaleY);
-  const nextCenter = {
-    x: nextGroupCenter.x + rotatedCenter.x,
-    y: nextGroupCenter.y + rotatedCenter.y
-  };
-
-  return {
-    height: nextHeight,
-    rotation: childElement.rotation + rotationDelta,
-    width: nextWidth,
-    x: nextCenter.x - nextWidth / 2,
-    y: nextCenter.y - nextHeight / 2
   };
 }
 
@@ -4668,7 +4571,7 @@ function EditableCanvas(props: {
   }, [deck, insertTool, slide, visibleElements, editingElementId, customShapeEditDraft]);
 
   return (
-    <div className="konva-editor-stage" ref={containerRef}>
+    <div className="konva-editor-stage" data-testid="editor-canvas-stage" ref={containerRef}>
       <Stage
         className="konva-canvas-layer"
         height={deck.canvas.height * stageScale}
