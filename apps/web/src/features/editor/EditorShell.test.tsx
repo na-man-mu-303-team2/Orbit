@@ -14,6 +14,7 @@ import {
   EditorShell,
   EditorStateNotice,
   mergeDeckIntoQueryCache,
+  resolveEditorAssetUrl,
   shouldHydrateDeckFromQuery
 } from "./EditorShell";
 import { aiSuggestionsQueryKey } from "./suggestions/suggestionApi";
@@ -83,6 +84,36 @@ function setDeckData(queryClient: QueryClient, deck: Deck) {
 describe("editor shell", () => {
   beforeEach(() => {
     vi.stubGlobal("fetch", vi.fn());
+  });
+
+  it("rewrites local minio asset URLs to the same-origin asset proxy", () => {
+    vi.stubGlobal("window", {
+      location: {
+        origin: "http://127.0.0.1:5173"
+      }
+    });
+
+    expect(
+      resolveEditorAssetUrl(
+        "http://localhost:9000/orbit-local/projects/project_real_1/assets/file_real_1/slide_1-v8.png",
+      ),
+    ).toBe(
+      "http://127.0.0.1:5173/api/v1/projects/project_real_1/assets/file_real_1/content",
+    );
+    expect(
+      resolveEditorAssetUrl(
+        "http://localhost:9000/orbit-local/projects/project_real_1/assets/file_real_2-slide_2-v8.png",
+      ),
+    ).toBe(
+      "http://127.0.0.1:5173/api/v1/projects/project_real_1/assets/file_real_2/content",
+    );
+    expect(
+      resolveEditorAssetUrl(
+        "http://localhost:5173/api/v1/projects/project_real_1/assets/file_real_3/content",
+      ),
+    ).toBe(
+      "http://127.0.0.1:5173/api/v1/projects/project_real_1/assets/file_real_3/content",
+    );
   });
 
   it("renders the project deck and slide navigator", () => {
@@ -158,6 +189,19 @@ describe("editor shell", () => {
 
     expect(html).toContain("실제 프로젝트 제안");
     expect(html).not.toContain("현재 슬라이드에 검토할 AI 제안이 없습니다.");
+  });
+
+  it("renders stored slide thumbnail images in the slide list", () => {
+    const queryClient = createTestQueryClient();
+    const deck = createDemoDeck();
+
+    deck.slides[0].thumbnailUrl = "http://assets.example.test/slide_1.png";
+    setDeckData(queryClient, deck);
+
+    const html = renderApp(queryClient);
+
+    expect(html).toContain("미리보기 준비됨");
+    expect(html).toContain("http://assets.example.test/slide_1.png");
   });
 
   it("renders supported canvas object types without exposing grouped child labels", () => {

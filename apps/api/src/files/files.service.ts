@@ -31,6 +31,11 @@ const uploadUrlExpiresInSeconds = 15 * 60;
 
 @Injectable()
 export class FilesService {
+  private readonly localStorageEndpoint = (
+    process.env.S3_ENDPOINT ?? "http://localhost:9000"
+  ).replace(/\/+$/, "");
+  private readonly localStorageBucket = process.env.S3_BUCKET ?? "orbit-local";
+
   constructor(
     @InjectRepository(ProjectAssetEntity)
     private readonly assetsRepository: Repository<ProjectAssetEntity>,
@@ -70,7 +75,9 @@ export class FilesService {
       originalName: input.originalName,
       mimeType: input.mimeType,
       size: input.size,
-      url: uploadUrl.url,
+      url: this.uploadProxyOrigin
+        ? this.createAssetAccessUrl(project.projectId, fileId, requestOrigin)
+        : uploadUrl.url,
       purpose: input.purpose,
       status: "pending",
       createdAt: new Date(),
@@ -117,7 +124,9 @@ export class FilesService {
       purpose: filePurposeSchema.parse(asset.purpose),
     });
 
-    asset.url = object.url;
+    asset.url = this.uploadProxyOrigin
+      ? this.createAssetAccessUrl(asset.projectId, asset.fileId)
+      : object.url;
     await this.assetsRepository.save(asset);
   }
 
@@ -238,13 +247,35 @@ export class FilesService {
     return assets.map((asset) => this.toUploadedFile(asset));
   }
 
+  async readUploadedAssetContent(
+    projectId: string,
+    fileId: string,
+    purpose?: FilePurpose,
+  ): Promise<{ body: Buffer; contentType: string }> {
+    const asset = await this.getUploadedAsset(projectId, fileId, purpose);
+    const readUrl = this.uploadProxyOrigin
+      ? this.createInternalObjectUrl(asset.storageKey)
+      : await this.storage.getSignedReadUrl(asset.storageKey);
+
+    const response = await fetch(readUrl);
+
+    if (!response.ok) {
+      throw new NotFoundException(`Asset content unavailable: ${fileId}`);
+    }
+
+    return {
+      body: Buffer.from(await response.arrayBuffer()),
+      contentType: asset.mimeType,
+    };
+  }
+
   private createStorageKey(
     projectId: string,
     fileId: string,
     originalName: string,
   ): string {
     const safeName = originalName.replace(/[^a-zA-Z0-9._-]/g, "_");
-    return `projects/${projectId}/assets/${fileId}/${safeName}`;
+    return `projects/${projectId}/assets/${fileId}-${safeName}`;
   }
 
   // 환경에 따라 local API proxy URL 또는 S3 presigned URL을 선택한다.
@@ -287,6 +318,23 @@ export class FilesService {
     return `${origin}/api/v1/projects/${encodeURIComponent(
       projectId,
     )}/assets/${encodeURIComponent(fileId)}/content`;
+  }
+
+  private createAssetAccessUrl(
+    projectId: string,
+    fileId: string,
+    requestOrigin?: string | null,
+  ) {
+    return this.createUploadProxyUrl(projectId, fileId, requestOrigin);
+  }
+
+  private createInternalObjectUrl(storageKey: string) {
+    const encodedKey = storageKey
+      .split("/")
+      .map((segment) => encodeURIComponent(segment))
+      .join("/");
+
+    return `${this.localStorageEndpoint}/${this.localStorageBucket}/${encodedKey}`;
   }
 
   private toUploadedFile(asset: ProjectAssetEntity): UploadedFile {
