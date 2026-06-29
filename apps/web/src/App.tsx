@@ -1,25 +1,33 @@
 ﻿import {
   demoIds,
+  acceptWorkspaceInviteResponseSchema,
+  createWorkspaceRequestSchema,
+  workspaceInviteResponseSchema,
   pptxImportJobResponseSchema,
   pptxImportJobResultSchema,
   type DeckElement,
   type GenerateDeckJobResult,
   type Job,
   type PptxImportJobResult,
-  type Project
+  type Project,
+  type Workspace,
+  type WorkspaceInviteResponse,
+  type WorkspaceWithMembership
 } from "@orbit/shared";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   FolderOpen,
   Home,
   LayoutTemplate,
+  Link,
   LogIn,
   MessageSquareText,
   PanelLeftClose,
   PanelLeftOpen,
   Plus,
   Search,
-  Sparkles
+  Sparkles,
+  UsersRound
 } from "lucide-react";
 import type { CSSProperties, ChangeEvent, DragEvent, FormEvent, ReactNode } from "react";
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
@@ -95,6 +103,8 @@ type Route =
   | { name: "home" }
   | { name: "create-deck" }
   | { name: "upload" }
+  | { name: "workspace" }
+  | { name: "workspace-invite"; token: string }
   | { name: "project-list" }
   | { name: "project-editor"; projectId: string }
   | { name: "rehearsal"; projectId: string };
@@ -149,13 +159,72 @@ async function fetchCurrentUser(): Promise<AuthUser> {
   return response.json() as Promise<AuthUser>;
 }
 
+async function fetchWorkspaces(): Promise<WorkspaceWithMembership[]> {
+  const response = await fetch("/api/v1/workspaces", {
+    credentials: "include"
+  });
+  if (!response.ok) {
+    throw new Error(await readApiError(response, "워크스페이스를 불러오지 못했습니다."));
+  }
+  return response.json() as Promise<WorkspaceWithMembership[]>;
+}
+
+async function createWorkspace(name: string): Promise<Workspace> {
+  const payload = createWorkspaceRequestSchema.parse({ name });
+  const response = await fetch("/api/v1/workspaces", {
+    method: "POST",
+    credentials: "include",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+  if (!response.ok) {
+    throw new Error(await readApiError(response, "워크스페이스를 만들지 못했습니다."));
+  }
+  return response.json() as Promise<Workspace>;
+}
+
+async function createWorkspaceInvite(
+  workspaceId: string
+): Promise<WorkspaceInviteResponse> {
+  const response = await fetch(`/api/v1/workspaces/${workspaceId}/invites`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({})
+  });
+  if (!response.ok) {
+    throw new Error(await readApiError(response, "초대 링크를 만들지 못했습니다."));
+  }
+  return workspaceInviteResponseSchema.parse(await response.json());
+}
+
+async function acceptWorkspaceInvite(token: string) {
+  const response = await fetch(`/api/v1/workspaces/invites/${encodeURIComponent(token)}/accept`, {
+    method: "POST",
+    credentials: "include"
+  });
+  if (!response.ok) {
+    throw new Error(await readApiError(response, "초대를 수락하지 못했습니다."));
+  }
+  return acceptWorkspaceInviteResponseSchema.parse(await response.json());
+}
+
 function getRoute(pathname = window.location.pathname): Route {
   const normalized = pathname.replace(/\/+$/, "") || "/";
 
   if (normalized === "/login") return { name: "login" };
   if (normalized === "/createdeck") return { name: "create-deck" };
   if (normalized === "/upload") return { name: "upload" };
+  if (normalized === "/workspace") return { name: "workspace" };
   if (normalized === "/project") return { name: "project-list" };
+
+  const workspaceInviteMatch = normalized.match(/^\/workspace\/invites\/([^/]+)$/);
+  if (workspaceInviteMatch) {
+    return {
+      name: "workspace-invite",
+      token: decodeURIComponent(workspaceInviteMatch[1])
+    };
+  }
 
   const projectMatch = normalized.match(/^\/project\/([^/]+)$/);
   if (projectMatch) {
@@ -213,6 +282,10 @@ function renderRoute(route: Route, user?: AuthUser) {
   if (route.name === "login") return <LoginPage />;
   if (route.name === "create-deck") return <GenerateDeckView />;
   if (route.name === "upload") return <ProjectAssetWorkspace />;
+  if (route.name === "workspace") return <WorkspacePage />;
+  if (route.name === "workspace-invite") {
+    return <WorkspaceInviteAcceptPage token={route.token} />;
+  }
   if (route.name === "project-list") return <ProjectListPage />;
   if (route.name === "project-editor") {
     return (
@@ -272,6 +345,12 @@ function AppFrame(props: {
             icon={<FolderOpen size={18} />}
             label="프로젝트"
             onClick={() => navigateTo("/project")}
+          />
+          <SidebarButton
+            active={route.name === "workspace" || route.name === "workspace-invite"}
+            icon={<UsersRound size={18} />}
+            label="워크스페이스"
+            onClick={() => navigateTo("/workspace")}
           />
           <SidebarButton
             active={route.name === "create-deck"}
@@ -425,6 +504,10 @@ function LoginPage() {
 
 async function readAuthError(response: Response) {
   const fallback = "로그인에 실패했습니다.";
+  return readApiError(response, fallback);
+}
+
+async function readApiError(response: Response, fallback: string) {
   const text = await response.text();
   if (!text) return fallback;
 
@@ -437,6 +520,193 @@ async function readAuthError(response: Response) {
   }
 
   return fallback;
+}
+
+function WorkspacePage() {
+  const queryClient = useQueryClient();
+  const [name, setName] = useState("새 워크스페이스");
+  const [inviteByWorkspace, setInviteByWorkspace] = useState<
+    Record<string, WorkspaceInviteResponse>
+  >({});
+  const [status, setStatus] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [isCreating, setIsCreating] = useState(false);
+  const [creatingInviteWorkspaceId, setCreatingInviteWorkspaceId] =
+    useState<string | null>(null);
+
+  const workspaces = useQuery({
+    queryKey: ["workspaces"],
+    queryFn: fetchWorkspaces,
+    retry: false
+  });
+
+  async function handleCreateWorkspace(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (isCreating) return;
+
+    setError(null);
+    setStatus(null);
+    setIsCreating(true);
+    try {
+      const workspace = await createWorkspace(name);
+      setName("새 워크스페이스");
+      setStatus(`${workspace.name} 워크스페이스를 만들었습니다.`);
+      await queryClient.invalidateQueries({ queryKey: ["workspaces"] });
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "워크스페이스를 만들지 못했습니다.");
+    } finally {
+      setIsCreating(false);
+    }
+  }
+
+  async function handleCreateInvite(workspaceId: string) {
+    if (creatingInviteWorkspaceId) return;
+
+    setError(null);
+    setStatus(null);
+    setCreatingInviteWorkspaceId(workspaceId);
+    try {
+      const invite = await createWorkspaceInvite(workspaceId);
+      setInviteByWorkspace((current) => ({
+        ...current,
+        [workspaceId]: invite
+      }));
+      setStatus("초대 링크를 만들었습니다.");
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "초대 링크를 만들지 못했습니다.");
+    } finally {
+      setCreatingInviteWorkspaceId(null);
+    }
+  }
+
+  async function handleCopyInvite(inviteLink: string) {
+    await navigator.clipboard.writeText(inviteLink);
+    setStatus("초대 링크를 복사했습니다.");
+  }
+
+  return (
+    <section className="workspace-page">
+      <header className="page-heading row">
+        <div>
+          <span>워크스페이스</span>
+          <h1>팀원 초대</h1>
+        </div>
+        <button type="button" className="ghost-button" onClick={() => void workspaces.refetch()}>
+          <Search size={16} />
+          새로고침
+        </button>
+      </header>
+
+      <form className="workspace-create-card" onSubmit={handleCreateWorkspace}>
+        <label>
+          <span>워크스페이스 이름</span>
+          <input
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+            minLength={1}
+            maxLength={120}
+            required
+          />
+        </label>
+        <button type="submit" disabled={isCreating}>
+          <Plus size={16} />
+          {isCreating ? "생성 중..." : "워크스페이스 생성"}
+        </button>
+      </form>
+
+      {status ? <p className="workspace-status success">{status}</p> : null}
+      {error ? <p className="workspace-status error">{error}</p> : null}
+      {workspaces.isLoading ? (
+        <p className="empty-state">워크스페이스를 불러오는 중입니다.</p>
+      ) : null}
+      {workspaces.isError ? (
+        <p className="empty-state">로그인 후 워크스페이스를 관리할 수 있습니다.</p>
+      ) : null}
+
+      <div className="workspace-grid">
+        {(workspaces.data ?? []).map((workspace) => {
+          const invite = inviteByWorkspace[workspace.workspaceId];
+          const canInvite = workspace.role === "owner";
+
+          return (
+            <article className="workspace-card" key={workspace.workspaceId}>
+              <div>
+                <span className="workspace-role">{workspace.role}</span>
+                <h2>{workspace.name}</h2>
+                <p>{workspace.workspaceId}</p>
+              </div>
+              <button
+                type="button"
+                className="ghost-button"
+                disabled={!canInvite || creatingInviteWorkspaceId === workspace.workspaceId}
+                onClick={() => void handleCreateInvite(workspace.workspaceId)}
+              >
+                <Link size={16} />
+                {canInvite ? "초대 링크 만들기" : "owner만 초대 가능"}
+              </button>
+              {invite ? (
+                <div className="invite-link-box">
+                  <input readOnly value={invite.inviteLink} />
+                  <button type="button" onClick={() => void handleCopyInvite(invite.inviteLink)}>
+                    복사
+                  </button>
+                  <small>
+                    만료:{" "}
+                    {new Intl.DateTimeFormat("ko-KR", {
+                      dateStyle: "medium",
+                      timeStyle: "short"
+                    }).format(new Date(invite.expiresAt))}
+                  </small>
+                </div>
+              ) : null}
+            </article>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+function WorkspaceInviteAcceptPage(props: { token: string }) {
+  const queryClient = useQueryClient();
+  const [status, setStatus] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [isAccepting, setIsAccepting] = useState(false);
+
+  async function handleAcceptInvite() {
+    if (isAccepting) return;
+
+    setStatus(null);
+    setError(null);
+    setIsAccepting(true);
+    try {
+      const result = await acceptWorkspaceInvite(props.token);
+      await queryClient.invalidateQueries({ queryKey: ["workspaces"] });
+      setStatus(`${result.workspace.name} 워크스페이스에 editor로 합류했습니다.`);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "초대를 수락하지 못했습니다.");
+    } finally {
+      setIsAccepting(false);
+    }
+  }
+
+  return (
+    <section className="workspace-page invite-accept-page">
+      <article className="workspace-create-card invite-accept-card">
+        <UsersRound size={32} />
+        <h1>워크스페이스 초대</h1>
+        <p>초대를 수락하면 이 워크스페이스의 editor 멤버가 됩니다.</p>
+        <button type="button" onClick={() => void handleAcceptInvite()} disabled={isAccepting}>
+          {isAccepting ? "수락 중..." : "초대 수락"}
+        </button>
+        <button type="button" className="ghost-button" onClick={() => navigateTo("/login")}>
+          로그인 / 회원가입
+        </button>
+        {status ? <p className="workspace-status success">{status}</p> : null}
+        {error ? <p className="workspace-status error">{error}</p> : null}
+      </article>
+    </section>
+  );
 }
 
 function HomePage(props: { user?: AuthUser }) {

@@ -15,6 +15,7 @@ import { ProjectsModule } from "./projects/projects.module";
 import { ReferencesModule } from "./references/references.module";
 import { RealtimeGateway } from "./realtime/realtime.gateway";
 import { RehearsalsModule } from "./rehearsals/rehearsals.module";
+import { WorkspacesModule } from "./workspaces/workspaces.module";
 
 @Module({
   imports: [
@@ -30,7 +31,8 @@ import { RehearsalsModule } from "./rehearsals/rehearsals.module";
     ImportPptxModule,
     JobsModule,
     ReferencesModule,
-    RehearsalsModule
+    RehearsalsModule,
+    WorkspacesModule
   ],
   providers: [RealtimeGateway]
 })

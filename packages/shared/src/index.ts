@@ -19,3 +19,4 @@ export * from "./projects/project.schema";
 export * from "./rehearsals/live-stt.schema";
 export * from "./rehearsals/rehearsal.schema";
 export * from "./realtime/websocket.schema";
+export * from "./workspaces/workspace.schema";
