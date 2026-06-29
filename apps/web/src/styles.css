@@ -1217,6 +1217,50 @@ button:disabled {
   user-select: none;
 }
 
+.rehearsal-smoke-heading {
+  color: rgba(15, 23, 42, 0.72);
+  font-size: 0.92rem;
+  font-weight: 900;
+  letter-spacing: 0;
+  margin: 0;
+}
+
+.rehearsal-smoke-controls {
+  align-items: center;
+  bottom: 24px;
+  display: flex;
+  gap: 6px;
+  left: 24px;
+  opacity: 0.48;
+  position: fixed;
+  z-index: 4;
+}
+
+.rehearsal-smoke-controls button {
+  background: #ffffff;
+  border: 1px solid #dbe3ef;
+  border-radius: 8px;
+  color: #334155;
+  font-size: 0.72rem;
+  font-weight: 800;
+  min-height: 28px;
+  padding: 0 8px;
+}
+
+.rehearsal-smoke-controls button:disabled {
+  opacity: 0.45;
+}
+
+.rehearsal-smoke-controls span {
+  background: rgba(255, 255, 255, 0.86);
+  border: 1px solid #e5e7eb;
+  border-radius: 999px;
+  color: #475569;
+  font-size: 0.72rem;
+  font-weight: 800;
+  padding: 5px 8px;
+}
+
 .rehearsal-presenter-topbar {
   align-items: center;
   background: #ffffff;

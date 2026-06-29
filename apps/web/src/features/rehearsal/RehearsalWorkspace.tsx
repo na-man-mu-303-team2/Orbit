@@ -544,9 +544,9 @@ export function RehearsalWorkspace(props: {
     props.initialDeck ? "idle" : "loading"
   );
   const [, setError] = useState("");
-  const [, setRun] = useState<RehearsalRun | null>(null);
+  const [run, setRun] = useState<RehearsalRun | null>(null);
   const [, setJob] = useState<Job | null>(null);
-  const [, setLiveStatus] = useState<LiveSttStatus>("idle");
+  const [liveStatus, setLiveStatus] = useState<LiveSttStatus>("idle");
   const [, setLiveError] = useState("");
   const [liveTranscript, setLiveTranscript] = useState("");
   const [liveKeywordState, setLiveKeywordState] =
@@ -923,6 +923,7 @@ export function RehearsalWorkspace(props: {
       : elapsedSeconds;
   const timerMinutes = Math.max(1, Math.round(timerDurationSeconds / 60));
   const scriptParagraphs = buildScriptParagraphs(currentSlide);
+  const hasDeletedRawAudio = Boolean(run?.rawAudioDeletedAt);
 
   return (
     <main className="rehearsal-presenter-shell">
@@ -938,6 +939,7 @@ export function RehearsalWorkspace(props: {
           <PresentationScreenIcon />
           {"\ub9ac\ud5c8\uc124 \ub9c8\uce58\uae30"}
         </button>
+        <h1 className="rehearsal-smoke-heading">리허설</h1>
 
         <div className="rehearsal-timer-pill" aria-live="polite">
           <span className="timer-wave" aria-hidden="true">
@@ -1016,6 +1018,25 @@ export function RehearsalWorkspace(props: {
           </button>
         </div>
       </header>
+      <div className="rehearsal-smoke-controls" aria-label="리허설 smoke controls">
+        <button
+          type="button"
+          onClick={() => void startRecording()}
+          disabled={!canRecord}
+        >
+          리포트 녹음 시작
+        </button>
+        <button
+          type="button"
+          onClick={stopRecording}
+          disabled={phase !== "recording"}
+        >
+          리포트 녹음 종료
+        </button>
+        <span>{phase}</span>
+        <span>{liveStatus}</span>
+        {hasDeletedRawAudio ? <span>raw audio 삭제 완료</span> : null}
+      </div>
 
       <section className="rehearsal-presenter-layout">
         <section className="rehearsal-presenter-main">
@@ -1140,7 +1161,7 @@ function DeckSlidePreview(props: { deck: Deck | null; slide: Slide }) {
       className="rehearsal-slide-preview"
       style={{ backgroundColor, color: textColor }}
     >
-      <div className="rehearsal-slide-title">{titleText}</div>
+      <h2 className="rehearsal-slide-title">{titleText}</h2>
       <div className="rehearsal-slide-diagram" aria-label="?щ씪?대뱶 ?듭떖 ?먮쫫">
         {keywords.slice(0, 5).map((keyword, index) => (
           <div className="diagram-step" key={keyword.keywordId}>
