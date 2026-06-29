@@ -26,7 +26,8 @@ x-orbit-env: &orbit-env
   S3_FORCE_PATH_STYLE: ${S3_FORCE_PATH_STYLE:-true}
 
   JOB_QUEUE_DRIVER: ${JOB_QUEUE_DRIVER:-bullmq}
-  STT_PROVIDER: ${STT_PROVIDER:-openai}
+  LIVE_STT_PROVIDER: ${LIVE_STT_PROVIDER:-sherpa}
+  REPORT_STT_PROVIDER: ${REPORT_STT_PROVIDER:-openai}
   OCR_PROVIDER: ${OCR_PROVIDER:-python}
   LLM_PROVIDER: ${LLM_PROVIDER:?}
 
@@ -61,7 +62,8 @@ services:
       S3_SECRET_ACCESS_KEY: orbit-password
       S3_FORCE_PATH_STYLE: "true"
       JOB_QUEUE_DRIVER: bullmq
-      STT_PROVIDER: openai
+      LIVE_STT_PROVIDER: sherpa
+      REPORT_STT_PROVIDER: openai
       OCR_PROVIDER: python
       TEXTRACT_ENABLED: "false"
       PYTHON_WORKER_URL: http://python-worker:8000
@@ -82,7 +84,8 @@ services:
       S3_SECRET_ACCESS_KEY: orbit-password
       S3_FORCE_PATH_STYLE: "true"
       JOB_QUEUE_DRIVER: bullmq
-      STT_PROVIDER: openai
+      LIVE_STT_PROVIDER: sherpa
+      REPORT_STT_PROVIDER: openai
       OCR_PROVIDER: python
       TEXTRACT_ENABLED: "false"
       PYTHON_WORKER_URL: http://python-worker:8000
@@ -102,7 +105,8 @@ services:
       S3_SECRET_ACCESS_KEY: orbit-password
       S3_FORCE_PATH_STYLE: "true"
       JOB_QUEUE_DRIVER: bullmq
-      STT_PROVIDER: openai
+      LIVE_STT_PROVIDER: sherpa
+      REPORT_STT_PROVIDER: openai
       OCR_PROVIDER: python
       TEXTRACT_ENABLED: "false"
       PYTHON_WORKER_URL: http://python-worker:8000

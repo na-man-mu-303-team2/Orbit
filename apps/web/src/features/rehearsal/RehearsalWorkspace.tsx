@@ -86,9 +86,7 @@ type LiveTranscriptAnalysis = {
 const preferredAudioMimeTypes = [
   "audio/webm;codecs=opus",
   "audio/webm",
-  "audio/mp4",
-  "audio/ogg;codecs=opus",
-  "audio/ogg"
+  "audio/mp4"
 ];
 const liveAutoAdvanceCoverageThreshold = 0.8;
 const defaultLiveAutoAdvanceDelayMs = 800;

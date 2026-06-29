@@ -18,12 +18,11 @@ export const allowedAssetMimeTypes = [
   "image/jpeg",
   "image/png",
   "image/webp",
-  "audio/flac",
+  "audio/mp3",
   "audio/m4a",
   "audio/mp4",
   "audio/mpeg",
   "audio/mpga",
-  "audio/ogg",
   "audio/wav",
   "audio/webm",
   "audio/x-m4a",
@@ -32,20 +31,22 @@ export const allowedAssetMimeTypes = [
 ] as const;
 
 export const maxAssetUploadSizeBytes = 50 * 1024 * 1024;
+export const maxRehearsalAudioUploadSizeBytes = 25_000_000;
 
-const rehearsalAudioMimeTypes = new Set<string>([
-  "audio/flac",
+export const allowedRehearsalAudioMimeTypes = [
+  "audio/mp3",
   "audio/m4a",
   "audio/mp4",
   "audio/mpeg",
   "audio/mpga",
-  "audio/ogg",
   "audio/wav",
   "audio/webm",
   "audio/x-m4a",
   "audio/x-wav",
   "video/mp4",
-]);
+] as const;
+
+const rehearsalAudioMimeTypes = new Set<string>(allowedRehearsalAudioMimeTypes);
 
 const documentAssetMimeTypes = new Set<string>(
   allowedAssetMimeTypes.filter((mimeType) => !rehearsalAudioMimeTypes.has(mimeType)),
@@ -74,8 +75,22 @@ export const assetUploadUrlRequestSchema = z.object({
   if (value.purpose === "rehearsal-audio" && !isAudio) {
     context.addIssue({
       code: z.ZodIssueCode.custom,
-      message: "rehearsal-audio uploads require an audio MIME type.",
+      message: "rehearsal-audio uploads require an OpenAI-compatible audio MIME type.",
       path: ["mimeType"],
+    });
+  }
+
+  if (
+    value.purpose === "rehearsal-audio" &&
+    value.size > maxRehearsalAudioUploadSizeBytes
+  ) {
+    context.addIssue({
+      code: z.ZodIssueCode.too_big,
+      maximum: maxRehearsalAudioUploadSizeBytes,
+      inclusive: true,
+      type: "number",
+      message: "rehearsal-audio uploads must be 25MB or smaller.",
+      path: ["size"],
     });
   }
 

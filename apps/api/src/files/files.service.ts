@@ -180,6 +180,51 @@ export class FilesService {
     return asset;
   }
 
+  async deleteUploadedAsset(
+    projectId: string,
+    fileId: string,
+    purpose?: FilePurpose,
+  ): Promise<string> {
+    await this.projectsService.getAccessibleProject(projectId);
+
+    const asset = await this.assetsRepository.findOne({
+      where: { fileId },
+    });
+
+    if (!asset) {
+      throw new NotFoundException(`Asset not found: ${fileId}`);
+    }
+
+    if (asset.projectId !== projectId) {
+      throw new ForbiddenException("Project asset access denied");
+    }
+
+    if (purpose && asset.purpose !== purpose) {
+      throw new ForbiddenException(`Asset purpose must be ${purpose}`);
+    }
+
+    if (asset.status === "deleted") {
+      if (!asset.deletedAt) {
+        throw new NotFoundException(`Asset is deleted without deletion time: ${fileId}`);
+      }
+
+      return asset.deletedAt.toISOString();
+    }
+
+    if (asset.status !== "uploaded") {
+      throw new NotFoundException(`Asset is not uploaded: ${fileId}`);
+    }
+
+    await this.storage.removeObject(asset.storageKey);
+
+    const deletedAt = new Date();
+    asset.status = "deleted";
+    asset.deletedAt = deletedAt;
+    await this.assetsRepository.save(asset);
+
+    return deletedAt.toISOString();
+  }
+
   async list(projectId: string): Promise<UploadedFile[]> {
     await this.projectsService.getAccessibleProject(projectId);
 

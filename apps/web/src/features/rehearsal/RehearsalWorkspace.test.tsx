@@ -143,6 +143,14 @@ describe("RehearsalWorkspace", () => {
     expect(selectRecordingMimeType(recorderCtor)).toBe("audio/mp4");
   });
 
+  it("does not select unsupported OpenAI report STT MIME fallbacks", () => {
+    const recorderCtor = {
+      isTypeSupported: vi.fn((mimeType: string) => mimeType === "audio/ogg")
+    } as unknown as typeof MediaRecorder;
+
+    expect(selectRecordingMimeType(recorderCtor)).toBe("audio/webm");
+  });
+
   it("normalizes recorder codec MIME types before upload", () => {
     const file = createRecordingFile(
       new Blob(["audio"], { type: "audio/webm;codecs=opus" }),
@@ -150,7 +158,7 @@ describe("RehearsalWorkspace", () => {
       new Date("2026-06-29T00:00:00.000Z")
     );
 
-    expect(normalizeRecordingMimeType("audio/ogg;codecs=opus")).toBe("audio/ogg");
+    expect(normalizeRecordingMimeType("audio/webm;codecs=opus")).toBe("audio/webm");
     expect(file.type).toBe("audio/webm");
     expect(file.name).toBe("rehearsal-2026-06-29T00-00-00-000Z.webm");
   });

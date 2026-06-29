@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { maxRehearsalAudioUploadSizeBytes } from "../files/file.schema";
 import {
   createRehearsalAudioUploadUrlRequestSchema,
   rehearsalRunSchema,
@@ -29,10 +30,22 @@ describe("createRehearsalAudioUploadUrlRequestSchema", () => {
     const request = createRehearsalAudioUploadUrlRequestSchema.parse({
       originalName: "rehearsal.webm",
       mimeType: "audio/webm",
-      size: 1024,
+      size: maxRehearsalAudioUploadSizeBytes,
     });
 
     expect(request.mimeType).toBe("audio/webm");
+  });
+
+  it("accepts OpenAI-compatible MIME aliases", () => {
+    for (const mimeType of ["audio/mp3", "audio/x-m4a"] as const) {
+      const request = createRehearsalAudioUploadUrlRequestSchema.parse({
+        originalName: "rehearsal.audio",
+        mimeType,
+        size: 1024,
+      });
+
+      expect(request.mimeType).toBe(mimeType);
+    }
   });
 
   it("rejects non-audio MIME types", () => {
@@ -40,6 +53,28 @@ describe("createRehearsalAudioUploadUrlRequestSchema", () => {
       originalName: "slides.pdf",
       mimeType: "application/pdf",
       size: 1024,
+    });
+
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects MIME types unsupported by OpenAI report STT", () => {
+    for (const mimeType of ["audio/ogg", "audio/flac"] as const) {
+      const result = createRehearsalAudioUploadUrlRequestSchema.safeParse({
+        originalName: "rehearsal.audio",
+        mimeType,
+        size: 1024,
+      });
+
+      expect(result.success).toBe(false);
+    }
+  });
+
+  it("rejects audio above the OpenAI upload limit", () => {
+    const result = createRehearsalAudioUploadUrlRequestSchema.safeParse({
+      originalName: "rehearsal.webm",
+      mimeType: "audio/webm",
+      size: maxRehearsalAudioUploadSizeBytes + 1,
     });
 
     expect(result.success).toBe(false);

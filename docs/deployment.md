@@ -15,7 +15,7 @@
 
 - DB: RDS PostgreSQL + pgvector
 - Cache/session/realtime adapter: ElastiCache Redis/Valkey
-- Queue: SQS
+- Queue: 현재 템플릿은 BullMQ/Redis, AWS 전환 목표는 SQS adapter
 - File storage: S3 private bucket, presigned URL
 - Live STT: browser on-device STT, no managed cloud STT service
 - Rehearsal/coaching STT: OpenAI STT/API via `python-worker`
@@ -33,3 +33,4 @@
 - [ ] raw audio 삭제 정책 검증
 - [ ] 청중 API에서 speaker notes/script가 노출되지 않는지 검증
 - [ ] SQS adapter와 BullMQ adapter 계약 일치 확인
+- [ ] SQS adapter 구현: `@aws-sdk/client-sqs` 의존성, queue URL env, enqueue/worker poll/delete/visibility timeout, BullMQ와 동일 payload 계약, idempotency 테스트

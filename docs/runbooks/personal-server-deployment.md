@@ -81,7 +81,7 @@ PYTHON_WORKER_URL=http://python-worker:8000
 
 - storage driver는 MinIO를 사용한다.
 - queue driver는 BullMQ를 사용한다.
-- STT provider는 Python worker의 현재 지원 범위에 맞춰 OpenAI를 사용한다.
+- Live STT provider는 Sherpa, report STT provider는 Python worker의 현재 지원 범위에 맞춰 OpenAI를 사용한다.
 - OCR provider는 Python worker 경로를 사용한다.
 - AWS Textract는 사용하지 않는다.
 
