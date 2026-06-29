@@ -527,8 +527,10 @@ export function RehearsalWorkspace(props: {
   const [autoAdvanceState, setAutoAdvanceState] = useState<
     "idle" | "pending" | "advanced" | "cancelled"
   >("idle");
+  const [isLiveDemoActive, setIsLiveDemoActive] = useState(false);
   const sessionRef = useRef<RecordingSession | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const liveDemoStreamRef = useRef<MediaStream | null>(null);
   const liveSttAdapterRef = useRef<LiveSttAdapter | null>(
     props.liveSttAdapter ?? null
   );
@@ -565,6 +567,7 @@ export function RehearsalWorkspace(props: {
     return () => {
       isCancelled = true;
       stopMediaStream(streamRef.current);
+      stopMediaStream(liveDemoStreamRef.current);
     };
   }, [props.fallbackDeck, props.initialDeck, props.projectId]);
 
@@ -585,12 +588,23 @@ export function RehearsalWorkspace(props: {
       cancelPendingAutoAdvance("cancelled");
       liveSttAdapterRef.current?.stop();
       liveSttAdapterRef.current?.dispose();
+      stopMediaStream(streamRef.current);
+      stopMediaStream(liveDemoStreamRef.current);
     };
   }, []);
 
   const currentSlide = deck?.slides[currentSlideIndex] ?? null;
   const canRecord = Boolean(deck) && !["recording", "uploading", "processing"].includes(phase);
+  const isLiveSttActive = liveStatus === "starting" || liveStatus === "listening";
+  const isReportBusy = ["recording", "uploading", "processing"].includes(phase);
+  const canStartLiveDemo =
+    Boolean(deck) && !isReportBusy && !isLiveSttActive && !isLiveDemoActive;
+  const canStopLiveDemo = isLiveDemoActive && isLiveSttActive;
   const statusMessage = buildStatusMessage(phase, job, run);
+  const liveTranscriptPlaceholder =
+    liveStatus === "idle"
+      ? "Live STT 시작을 눌러 테스트하세요"
+      : "마이크 입력을 기다리는 중";
 
   useEffect(() => {
     if (!currentSlide) {
@@ -605,6 +619,7 @@ export function RehearsalWorkspace(props: {
   async function startRecording() {
     if (!deck || !canRecord) return;
     const activeDeck = deck;
+    stopLiveDemo();
 
     setError("");
     setRun(null);
@@ -661,6 +676,58 @@ export function RehearsalWorkspace(props: {
     }
   }
 
+  async function startLiveDemo() {
+    if (!deck || !canStartLiveDemo) return;
+
+    setLiveError("");
+    setLiveTranscript("");
+    setLiveKeywordState(currentSlide ? evaluateLiveTranscript(currentSlide, "") : null);
+    setLiveCue(null);
+    setLiveSlideAdvance(null);
+    setAutoAdvanceState("idle");
+    autoAdvancedSlideIdsRef.current.clear();
+
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setLiveError("이 브라우저는 마이크 녹음을 지원하지 않습니다.");
+      setLiveStatus("failed");
+      return;
+    }
+
+    let stream: MediaStream | null = null;
+    setIsLiveDemoActive(true);
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      liveDemoStreamRef.current = stream;
+      const started = await startLiveStt(stream);
+      if (!started) {
+        stopMediaStream(stream);
+        if (liveDemoStreamRef.current === stream) {
+          liveDemoStreamRef.current = null;
+        }
+        setIsLiveDemoActive(false);
+      }
+    } catch (cause) {
+      stopMediaStream(stream);
+      if (liveDemoStreamRef.current === stream) {
+        liveDemoStreamRef.current = null;
+      }
+      setIsLiveDemoActive(false);
+      setLiveError(toMicrophoneErrorMessage(cause));
+      setLiveStatus("failed");
+    }
+  }
+
+  function stopLiveDemo() {
+    liveSttAdapterRef.current?.stop();
+    stopMediaStream(liveDemoStreamRef.current);
+    liveDemoStreamRef.current = null;
+    setIsLiveDemoActive(false);
+    setLiveStatus((current) =>
+      current === "listening" || current === "starting" ? "stopped" : current
+    );
+    cancelPendingAutoAdvance("cancelled");
+  }
+
   function stopRecording() {
     if (phase !== "recording") return;
 
@@ -688,6 +755,7 @@ export function RehearsalWorkspace(props: {
         onError: handleLiveSttError
       });
       setLiveStatus("listening");
+      return true;
     } catch (cause) {
       const error = toLiveSttAdapterError(cause);
       setLiveStatus(
@@ -695,6 +763,7 @@ export function RehearsalWorkspace(props: {
       );
       setLiveError(error.message);
       cancelPendingAutoAdvance("cancelled");
+      return false;
     }
   }
 
@@ -909,9 +978,30 @@ export function RehearsalWorkspace(props: {
               <span>{autoAdvanceState === "pending" ? "자동 전환 대기" : "자동 전환 활성"}</span>
             </div>
 
+            <div className="rehearsal-live-actions">
+              <button
+                className="primary-action"
+                type="button"
+                onClick={() => void startLiveDemo()}
+                disabled={!canStartLiveDemo}
+              >
+                <Mic size={18} />
+                Live STT 시작
+              </button>
+              <button
+                className="secondary-action"
+                type="button"
+                onClick={stopLiveDemo}
+                disabled={!canStopLiveDemo}
+              >
+                <Square size={18} />
+                Live STT 종료
+              </button>
+            </div>
+
             <div className="rehearsal-live-transcript">
               <span>Partial transcript</span>
-              <p>{liveTranscript || "마이크 입력을 기다리는 중"}</p>
+              <p>{liveTranscript || liveTranscriptPlaceholder}</p>
             </div>
 
             <div className="rehearsal-live-coverage">
