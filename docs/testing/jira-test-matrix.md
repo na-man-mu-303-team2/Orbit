@@ -50,7 +50,7 @@
 | ORBIT-24 | 텍스트 추출 | PDF/PPTX/doc fixture extraction | planned Python parser tests |
 | ORBIT-25 | 검색 저장 | chunking, embedding, pgvector search | planned API/Python embedding tests |
 | ORBIT-26 | AI 덱 생성 | grounded deck generation, schema validation | planned AI provider fixture tests |
-| ORBIT-27 | AI 제안 적용 | 승인 후 patch 적용, auto-apply 방지 | `packages/shared/src/deck/ai-suggestion.schema.test.ts`, `apps/api/src/ai-suggestions/ai-suggestions.service.spec.ts`, `apps/web/src/features/editor/suggestions/SuggestionPanel.test.tsx`, `apps/web/src/features/editor/suggestions/suggestionApi.test.ts`, `tests/e2e/ai-suggestions.spec.ts` |
+| ORBIT-27 | AI 제안 적용 | 승인 후 patch 적용, auto-apply 방지 | planned API/web approval tests |
 | ORBIT-28 | M3 checkpoint | AI 덱 생성 흐름 확인 | Playwright AI generation smoke |
 | ORBIT-29 | 협업 epic | 다중 편집 안전성 | 하위 ORBIT-30..33 테스트 |
 | ORBIT-30 | WebSocket 인증/방 | envelope, room join, auth failure | planned realtime gateway tests |
@@ -111,7 +111,7 @@
 | ORBIT-126 | ORBIT-24 document parse | Python fixture tests |
 | ORBIT-129 | ORBIT-25 retrieval | API/Python embedding tests |
 | ORBIT-135 | ORBIT-26 AI deck generation | AI provider fixture tests |
-| ORBIT-139 | ORBIT-27 AI suggestions | shared validation, API approval/apply/reject, web panel/API helper tests |
+| ORBIT-139 | ORBIT-27 AI suggestions | approval and patch tests |
 | ORBIT-141 | ORBIT-30 WebSocket | realtime gateway tests |
 | ORBIT-144 | ORBIT-31 sync | realtime integration tests |
 | ORBIT-147 | ORBIT-32 locks | object lock service tests |

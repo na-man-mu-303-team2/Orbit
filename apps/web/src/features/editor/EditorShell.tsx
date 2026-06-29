@@ -28,7 +28,6 @@ import {
   uploadProjectAsset
 } from "../projects/ProjectAssetWorkspace";
 import type {
-  ApplyAiSuggestionResponse,
   Chart,
   CustomShapeElementProps,
   CustomShapeNode,
@@ -104,7 +103,6 @@ import type {
 } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { SuggestionPanel } from "./suggestions/SuggestionPanel";
 import "./editor-shell.css";
 
 interface HealthResponse {
@@ -570,21 +568,6 @@ export function EditorShell(props: { projectId?: string }) {
 
     resolvedUploadProjectIdRef.current = deckQuery.data.projectId;
   }, [deckQuery.data]);
-
-  function handleAiSuggestionApplied(response: ApplyAiSuggestionResponse) {
-    queryClient.setQueryData(["deck", projectId], response.deck);
-    deckRef.current = response.deck;
-    setDeck(response.deck);
-    setUndoStack([]);
-    setRedoStack([]);
-    setSelectedElementIds([]);
-    setEditingElementId(null);
-    setCustomShapeEditElementId(null);
-    setElementContextMenu(null);
-    setLastPatchLabel(
-      `${response.changeRecord.operations[0]?.type ?? "ai suggestion"} · v${response.deck.version}`
-    );
-  }
 
   function commitPatch(patch: DeckPatch, baseDeck: Deck = deckRef.current) {
     const result = applyDeckPatch(baseDeck, patch);
@@ -2550,12 +2533,10 @@ export function EditorShell(props: { projectId?: string }) {
                 </div>
               </div>
               <div className="assistant-panel-slot">
-                <SuggestionPanel
-                  deck={deck}
-                  projectId={demoIds.projectId}
-                  slideId={currentSlide?.slideId ?? null}
-                  onApplySuccess={handleAiSuggestionApplied}
-                />
+                <div className="assistant-panel-empty">
+                  <strong>AI 편집 도우미</strong>
+                  <p>대화, 수정 제안, 초안 생성은 이 패널에서만 처리하도록 분리했습니다.</p>
+                </div>
               </div>
             </>
           ) : (

@@ -1,11 +1,8 @@
 ﻿import {
   demoIds,
-  pptxImportJobResponseSchema,
-  pptxImportJobResultSchema,
   type DeckElement,
   type GenerateDeckJobResult,
   type Job,
-  type PptxImportJobResult,
   type Project
 } from "@orbit/shared";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -22,14 +19,12 @@ import {
   Sparkles
 } from "lucide-react";
 import type { CSSProperties, ChangeEvent, DragEvent, FormEvent, ReactNode } from "react";
-import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import { createDemoDeck } from "../../../packages/editor-core/src/index";
 import orbitLogo from "./assets/orbit-logo.png";
 import {
   createProject,
   fetchProjects,
-  getAssetValidationMessage,
-  uploadProjectAsset,
   ProjectAssetWorkspace
 } from "./features/projects/ProjectAssetWorkspace";
 import { RehearsalWorkspace } from "./features/rehearsal/RehearsalWorkspace";
@@ -126,13 +121,10 @@ const allowedMimeTypes = new Set([
   "application/vnd.openxmlformats-officedocument.presentationml.presentation"
 ]);
 const imagePrefix = "image/";
-const pptxMimeType =
-  "application/vnd.openxmlformats-officedocument.presentationml.presentation";
-const pptxAccept = [pptxMimeType, ".pptx"].join(",");
 const accept = [
   "application/pdf",
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-  pptxMimeType,
+  "application/vnd.openxmlformats-officedocument.presentationml.presentation",
   "image/*",
   ".pdf",
   ".docx",
@@ -440,72 +432,6 @@ async function readAuthError(response: Response) {
 }
 
 function HomePage(props: { user?: AuthUser }) {
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const [isImporting, setIsImporting] = useState(false);
-  const [importError, setImportError] = useState("");
-  const [importJob, setImportJob] = useState<Job | null>(null);
-
-  async function handlePptxImport(file: File) {
-    const validationMessage = getPptxImportValidationMessage(file);
-    if (validationMessage) {
-      setImportError(validationMessage);
-      return;
-    }
-
-    setIsImporting(true);
-    setImportError("");
-    setImportJob(null);
-
-    try {
-      const project = await createProject(projectTitleFromFileName(file.name));
-      const uploaded = await uploadProjectAsset(project.projectId, file, "pptx-import");
-      const response = await fetch(`/api/v1/projects/${project.projectId}/jobs/import-pptx`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ fileId: uploaded.fileId })
-      });
-
-      if (!response.ok) {
-        throw new Error((await response.text()) || "PPTX 가져오기를 시작하지 못했습니다.");
-      }
-
-      const data = pptxImportJobResponseSchema.parse(await response.json());
-      setImportJob(data.job);
-
-      const job = await pollJob(data.job.jobId, {
-        onUpdate: setImportJob
-      });
-
-      if (job.status === "failed") {
-        throw new Error(job.error?.message || job.message || "PPTX 가져오기에 실패했습니다.");
-      }
-
-      if (!getPptxImportJobResult(job)) {
-        throw new Error("가져오기 결과 deck을 확인하지 못했습니다.");
-      }
-
-      navigateTo(`/project/${project.projectId}`);
-    } catch (error) {
-      setImportError(
-        error instanceof Error ? error.message : "PPTX 가져오기에 실패했습니다."
-      );
-    } finally {
-      setIsImporting(false);
-    }
-  }
-
-  function handlePptxFileChange(event: ChangeEvent<HTMLInputElement>) {
-    const [file] = Array.from(event.target.files ?? []);
-
-    event.target.value = "";
-
-    if (!file || isImporting) {
-      return;
-    }
-
-    void handlePptxImport(file);
-  }
-
   return (
     <section className="home-page">
       <header className="page-heading">
@@ -522,30 +448,9 @@ function HomePage(props: { user?: AuthUser }) {
           <input placeholder="발표 주제, 자료 구성, 슬라이드 방향을 입력하세요" />
           <button type="button">전송</button>
         </div>
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept={pptxAccept}
-          hidden
-          onChange={handlePptxFileChange}
-        />
-        <button
-          className="link-action"
-          type="button"
-          disabled={isImporting}
-          onClick={() => {
-            setImportError("");
-            fileInputRef.current?.click();
-          }}
-        >
-          {isImporting ? "PPTX 가져오는 중..." : "기존 PPT 사용하기"}
+        <button className="link-action" type="button" onClick={() => navigateTo("/upload")}>
+          기존 PPT 사용하기
         </button>
-        {importJob ? (
-          <p className="empty-state">
-            {importJob.message} {importJob.progress}%
-          </p>
-        ) : null}
-        {importError ? <p className="empty-state">{importError}</p> : null}
       </section>
 
       <TemplateRail title="최근 열어본 템플릿" />
@@ -747,7 +652,7 @@ function GenerateDeckView() {
     const data = (await response.json()) as ExtractResponse;
     setExtractJob(data.job);
 
-    const job = await pollJob(data.job.jobId, {
+    const job = await pollExtractJob(data.job.jobId, {
       onUpdate: setExtractJob
     });
 
@@ -807,7 +712,7 @@ function GenerateDeckView() {
       const data = (await response.json()) as GenerateDeckResponse;
       setGenerateJob(data.job);
 
-      const job = await pollJob(data.job.jobId, {
+      const job = await pollExtractJob(data.job.jobId, {
         onUpdate: setGenerateJob
       });
 
@@ -1126,7 +1031,7 @@ function EditorLoadingFallback() {
     </section>
   );
 }
-export async function pollJob(
+export async function pollExtractJob(
   jobId: string,
   options: {
     delayMs?: number;
@@ -1152,7 +1057,7 @@ export async function pollJob(
     }
 
     if (Date.now() > timeoutAt) {
-      throw new Error("Job polling timed out.");
+      throw new Error("Reference extraction timed out.");
     }
 
     await new Promise((resolve) => setTimeout(resolve, delayMs));
@@ -1167,28 +1072,6 @@ export function getJobResultFiles(job: Job): ExtractedFile[] {
 export function getGenerateDeckJobResult(job: Job): GenerateDeckJobResult | null {
   const result = job.result as GenerateDeckJobResult | null;
   return result?.deck ? result : null;
-}
-
-export function getPptxImportJobResult(job: Job): PptxImportJobResult | null {
-  const result = pptxImportJobResultSchema.safeParse(job.result);
-  return result.success ? result.data : null;
-}
-
-function getPptxImportValidationMessage(file: File) {
-  if (!isPptxFile(file)) {
-    return "PPTX 파일만 업로드할 수 있습니다.";
-  }
-
-  return getAssetValidationMessage(file);
-}
-
-function isPptxFile(file: File) {
-  return file.type === pptxMimeType || getExtension(file.name) === "pptx";
-}
-
-function projectTitleFromFileName(fileName: string) {
-  const normalized = fileName.trim().replace(/\.pptx$/i, "").trim();
-  return normalized || "가져온 발표자료";
 }
 
 export function buildReferenceGenerationInput(
