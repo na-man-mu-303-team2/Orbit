@@ -63,6 +63,10 @@ services:
     build:
       context: .
       dockerfile: infra/docker/api.Dockerfile
+    command:
+      - /bin/sh
+      - -lc
+      - pnpm --filter @orbit/api migration:run && pnpm --filter @orbit/api start
     env_file:
       - .env.local
     environment:

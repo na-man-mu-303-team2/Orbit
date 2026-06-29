@@ -112,9 +112,13 @@ class InMemoryDeckDataSource {
         number,
         string,
         string | null,
-        DeckPatch["operations"],
+        DeckPatch["operations"] | string,
         string
       ];
+      const normalizedOperations =
+        typeof operations === "string"
+          ? (JSON.parse(operations) as DeckPatch["operations"])
+          : operations;
 
       this.patchRows.push({
         change_id: changeId,
@@ -124,7 +128,7 @@ class InMemoryDeckDataSource {
         after_version: afterVersion,
         source,
         actor_user_id: actorUserId,
-        operations: cloneJson(operations),
+        operations: cloneJson(normalizedOperations),
         created_at: createdAt
       });
       return [] as T;

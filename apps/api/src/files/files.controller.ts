@@ -4,6 +4,7 @@ import {
 } from "@orbit/shared";
 import { Body, Controller, Get, HttpCode, Param, Post, Put, Req } from "@nestjs/common";
 import type { Request } from "express";
+import { normalizeHttpOrigin } from "../common/web-origin";
 import { parseRequest } from "../common/zod-request";
 import { FilesService } from "./files.service";
 
@@ -20,10 +21,12 @@ export class FilesController {
   createUploadUrl(
     @Param("projectId") projectId: string,
     @Body() body: unknown,
+    @Req() request: Request,
   ) {
     return this.filesService.createUploadUrl(
       projectId,
       parseRequest(assetUploadUrlRequestSchema, body ?? {}),
+      normalizeHttpOrigin(request.get("origin")),
     );
   }
 
