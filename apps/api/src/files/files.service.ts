@@ -260,8 +260,9 @@ export class FilesService {
     purpose?: FilePurpose,
   ): Promise<{ body: Buffer; contentType: string }> {
     const asset = await this.getUploadedAsset(projectId, fileId, purpose);
+    const assetPurpose = filePurposeSchema.parse(asset.purpose);
 
-    if (!publicAssetContentPurposes.has(asset.purpose)) {
+    if (!publicAssetContentPurposes.has(assetPurpose)) {
       throw new NotFoundException(`Asset content unavailable: ${fileId}`);
     }
 
