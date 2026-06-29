@@ -11,6 +11,7 @@ import {
   createRecordingSession,
   evaluateLiveTranscript,
   fetchOrCreateRehearsalDeck,
+  mergeLiveTranscript,
   normalizeRecordingMimeType,
   normalizeLiveTranscriptText,
   runRehearsalUploadFlow,
@@ -89,6 +90,19 @@ describe("RehearsalWorkspace", () => {
     );
     expect(resolveEditorAssetUrl("https://cdn.example.com/thumb.png")).toBe(
       "https://cdn.example.com/thumb.png"
+    );
+  });
+
+  it("accumulates partial transcript segments without duplicating interim updates", () => {
+    expect(mergeLiveTranscript("", "첫 번째 키워드")).toBe("첫 번째 키워드");
+    expect(mergeLiveTranscript("첫 번째 키워", "첫 번째 키워드")).toBe(
+      "첫 번째 키워드"
+    );
+    expect(mergeLiveTranscript("첫 번째 키워드", "두 번째 키워드")).toBe(
+      "첫 번째 키워드\n두 번째 키워드"
+    );
+    expect(mergeLiveTranscript("첫 번째 키워드\n두 번째 키워드", "두 번째 키워드")).toBe(
+      "첫 번째 키워드\n두 번째 키워드"
     );
   });
 
