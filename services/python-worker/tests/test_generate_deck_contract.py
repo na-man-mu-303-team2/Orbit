@@ -192,6 +192,174 @@ def test_generate_deck_applies_palette_hint_color_theme() -> None:
     assert theme["accentColor"] == "#facc15"
 
 
+def test_generate_deck_separates_design_prompt_from_content_prompt() -> None:
+    design_prompt = "retro tetris colors, classic game, pixel art"
+    fake_client = FakeOpenAIClient(
+        {
+            "title": "Tetris history",
+            "slides": [
+                slide_payload(
+                    "Origins",
+                    "Tetris became a global puzzle game.",
+                    "Explain the origin story without visual style words.",
+                    slide_type="title",
+                    slot_preset="title_center",
+                )
+            ],
+        }
+    )
+
+    response = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="Tetris",
+            prompt="History and core rules",
+            designPrompt=design_prompt,
+            slideCountRange={"min": 1, "max": 1},
+        ),
+        client=fake_client,
+    )
+
+    llm_input = str(fake_client.requests[0]["input"])
+    deck_text = json.dumps(response.deck, ensure_ascii=False)
+    assert "User prompt: History and core rules" in llm_input
+    assert f"Design prompt: {design_prompt}" in llm_input
+    assert design_prompt not in deck_text
+
+
+def test_generate_deck_applies_keyed_theme_tokens_from_palette_hint() -> None:
+    fake_client = FakeOpenAIClient(
+        {
+            "title": "Token palette",
+            "slides": [
+                slide_payload(
+                    "Visual plan",
+                    "Tokens should drive the theme.",
+                    "Use the generated visual intent.",
+                    slide_type="title",
+                    slot_preset="title_center",
+                    visual_intent={
+                        "emphasis": "color",
+                        "mood": "arcade",
+                        "structure": "cover",
+                        "paletteHint": (
+                            "background:#111827 text:#f8fafc accent:#00f0f0 "
+                            "secondary:#facc15 surface:#1f2937 muted:#0f172a "
+                            "border:#a855f7 style:retro-pixel-arcade"
+                        ),
+                        "emphasisStyle": "",
+                        "composition": "",
+                        "decorationDensity": "medium",
+                        "mediaStyle": "",
+                    },
+                )
+            ],
+        }
+    )
+
+    response = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="Quarterly roadmap",
+            prompt="Use generated plan.",
+            slideCountRange={"min": 1, "max": 1},
+        ),
+        client=fake_client,
+    )
+
+    theme = response.deck["theme"]
+    assert theme["backgroundColor"] == "#111827"
+    assert theme["textColor"] == "#f8fafc"
+    assert theme["accentColor"] == "#00f0f0"
+    assert theme["palette"]["primary"] == "#00f0f0"
+    assert theme["palette"]["secondary"] == "#facc15"
+    assert theme["palette"]["surface"] == "#1f2937"
+    assert theme["palette"]["muted"] == "#0f172a"
+    assert theme["palette"]["border"] == "#a855f7"
+
+
+def test_generate_deck_ignores_invalid_theme_tokens() -> None:
+    fake_client = FakeOpenAIClient(
+        {
+            "title": "Invalid tokens",
+            "slides": [
+                slide_payload(
+                    "Visual plan",
+                    "Invalid tokens should not drive the theme.",
+                    "Use the generated visual intent.",
+                    slide_type="title",
+                    slot_preset="title_center",
+                    visual_intent={
+                        "emphasis": "color",
+                        "mood": "plain",
+                        "structure": "cover",
+                        "paletteHint": "accent:yellow unknown:#111111 background:rgb(0, 0, 0)",
+                        "emphasisStyle": "",
+                        "composition": "",
+                        "decorationDensity": "medium",
+                        "mediaStyle": "",
+                    },
+                )
+            ],
+        }
+    )
+
+    response = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="Quarterly roadmap",
+            prompt="Use generated plan.",
+            slideCountRange={"min": 1, "max": 1},
+        ),
+        client=fake_client,
+    )
+
+    theme = response.deck["theme"]
+    assert theme["backgroundColor"] == "#ffffff"
+    assert theme["accentColor"] == "#2563eb"
+
+
+def test_generate_deck_falls_back_when_token_contrast_is_low() -> None:
+    fake_client = FakeOpenAIClient(
+        {
+            "title": "Low contrast",
+            "slides": [
+                slide_payload(
+                    "Visual plan",
+                    "Low contrast text should be corrected.",
+                    "Use the generated visual intent.",
+                    slide_type="title",
+                    slot_preset="title_center",
+                    visual_intent={
+                        "emphasis": "color",
+                        "mood": "dark",
+                        "structure": "cover",
+                        "paletteHint": "background:#111827 text:#111827",
+                        "emphasisStyle": "",
+                        "composition": "",
+                        "decorationDensity": "medium",
+                        "mediaStyle": "",
+                    },
+                )
+            ],
+        }
+    )
+
+    response = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="Quarterly roadmap",
+            prompt="Use generated plan.",
+            slideCountRange={"min": 1, "max": 1},
+        ),
+        client=fake_client,
+    )
+
+    theme = response.deck["theme"]
+    assert theme["backgroundColor"] == "#111827"
+    assert theme["textColor"] == "#f8fafc"
+
+
 def test_generate_deck_keeps_visual_rhythm_typography_with_color_theme() -> None:
     fake_client = FakeOpenAIClient(
         {

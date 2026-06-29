@@ -47,6 +47,17 @@ describe("generateDeckRequestSchema", () => {
     });
   });
 
+  it("accepts an optional design prompt", () => {
+    const request = generateDeckRequestSchema.parse({
+      topic: "AI deck generation",
+      prompt: "Explain the workflow",
+      designPrompt: "retro pixel palette"
+    });
+
+    expect(request.prompt).toBe("Explain the workflow");
+    expect(request.designPrompt).toBe("retro pixel palette");
+  });
+
   it("accepts normalized reference keywords", () => {
     const request = generateDeckRequestSchema.parse({
       topic: "AI 덱 생성",

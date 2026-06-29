@@ -63,6 +63,7 @@ export const generateDeckSlideCountRangeSchema = z
 export const generateDeckRequestSchema = z.object({
   topic: z.string().trim().min(1),
   prompt: z.string().trim().optional(),
+  designPrompt: z.string().trim().optional(),
   targetDurationMinutes: z.number().int().min(1).max(120).default(10),
   slideCountRange: generateDeckSlideCountRangeSchema,
   template: generateDeckTemplateSchema.default("default"),

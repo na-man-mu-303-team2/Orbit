@@ -548,6 +548,7 @@ AI 덱 생성은 사용자 입력과 참고자료 fileId를 받아 비동기 Job
 {
   "topic": "AI 덱 생성",
   "prompt": "참고자료 기반으로 핵심 메시지를 정리",
+  "designPrompt": "테트리스 색감, 고전 게임, 픽셀 아트 느낌",
   "targetDurationMinutes": 10,
   "slideCountRange": {
     "min": 5,
@@ -593,6 +594,8 @@ AI 덱 생성은 사용자 입력과 참고자료 fileId를 받아 비동기 Job
 - Job type은 기존 `ai-deck-generation`을 사용하고 상태값은 공통 `queued`, `running`, `succeeded`, `failed`만 사용한다.
 - 요청의 `references`는 `{ fileId: string }[]`이며 비어 있으면 topic-only generation으로 처리한다.
 - 요청의 `referenceKeywords`는 `{ text: string }[]` 선택 필드이며 기본값은 `[]`이다. 참고자료 처리 결과의 주요 키워드를 전달할 때 사용한다.
+- 요청의 `designPrompt`는 선택 필드이며 기본값은 없다. 값이 있으면 콘텐츠 지시가 아니라 시각 스타일 지시로만 사용하고, LLM은 `visualIntent.paletteHint`에 `background:#RRGGBB` 같은 검증 가능한 theme token을 제안한다.
+- 기존 클라이언트처럼 `designPrompt` 없이 `prompt`만 보내는 요청은 계속 허용한다. worker는 하위 호환을 위해 명확한 디자인 문구만 fallback으로 분리하고, 분리되지 않은 값은 기존 콘텐츠 prompt로 처리한다.
 - MVP `metadata.audience`는 `general`, `executive`, `technical`, `sales`만 허용한다.
 - MVP `metadata.purpose`는 `inform`, `persuade`, `teach`, `report`만 허용한다.
 - MVP `metadata.tone`은 `professional`, `friendly`, `confident`, `concise`만 허용한다.

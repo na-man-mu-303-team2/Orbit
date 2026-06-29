@@ -113,6 +113,7 @@ class GenerateDeckRequest(BaseModel):
     project_id: str = Field(alias="projectId", min_length=1)
     topic: str = Field(min_length=1)
     prompt: str = ""
+    design_prompt: str = Field(default="", alias="designPrompt")
     target_duration_minutes: int = Field(
         default=10,
         alias="targetDurationMinutes",
@@ -137,6 +138,7 @@ class RawInput(BaseModel):
     project_id: str
     topic: str
     prompt: str
+    design_prompt: str = ""
     target_duration_minutes: int
     slide_count: int
     template: Template
@@ -844,6 +846,22 @@ EXPLICIT_COLOR_RE = re.compile(
     r"purple|orange|pink|navy)(?![a-z])",
     re.IGNORECASE,
 )
+DESIGN_PROMPT_HINT_RE = re.compile(
+    r"색감|디자인|스타일|느낌|테마|팔레트|픽셀|고전|"
+    r"(?<![a-z])(?:design|style|theme|palette|color|colors|pixel|retro|"
+    r"classic|visual|look|mood)(?![a-z])",
+    re.IGNORECASE,
+)
+THEME_TOKEN_RE = re.compile(
+    r"(?<![a-z])"
+    r"(background|text|accent|primary|secondary|surface|muted|border)"
+    r"\s*:\s*(#[0-9a-fA-F]{6})(?![0-9a-fA-F])",
+    re.IGNORECASE,
+)
+THEME_TOKEN_ANY_RE = re.compile(
+    r"(?<![a-z])(?:[a-z][a-z0-9_-]*)\s*:\s*\S+",
+    re.IGNORECASE,
+)
 NEUTRAL_COLORS = {"#ffffff", "#111827", "#000000", "#6b7280"}
 
 DECK_CONTENT_INSTRUCTIONS = """
@@ -852,6 +870,13 @@ Return only JSON that matches the requested schema.
 
 Rules:
 - Ground the deck in the topic, user prompt, reference keywords, and reference excerpts.
+- Design instructions describe visual style only.
+- Do not write design instructions into slide title, message, or speakerNotes.
+- Reflect design instructions through visualIntent.paletteHint, emphasisStyle,
+  composition, decorationDensity, and mediaStyle.
+- When suggesting colors, use machine-readable theme tokens:
+  background:#RRGGBB text:#RRGGBB accent:#RRGGBB secondary:#RRGGBB
+  surface:#RRGGBB muted:#RRGGBB border:#RRGGBB
 - Write concrete slide titles, body messages, and speaker notes for the actual subject.
 - speakerNotes must be the actual Korean presenter script to read aloud, not a guide
   about what the presenter should explain.
@@ -1051,10 +1076,15 @@ def analyze_input(
         request.target_duration_minutes,
         request.slide_count_range,
     )
+    prompt, design_prompt = split_content_and_design_prompt(
+        request.prompt,
+        request.design_prompt,
+    )
     return RawInput(
         project_id=request.project_id,
         topic=request.topic.strip(),
-        prompt=request.prompt.strip(),
+        prompt=prompt,
+        design_prompt=design_prompt,
         target_duration_minutes=request.target_duration_minutes,
         slide_count=slide_count,
         template=request.template,
@@ -1064,6 +1094,29 @@ def analyze_input(
         reference_keywords=request.reference_keywords,
         reference_context=reference_context or [],
     )
+
+
+def split_content_and_design_prompt(prompt: str, design_prompt: str) -> tuple[str, str]:
+    content = prompt.strip()
+    design = design_prompt.strip()
+    if design:
+        return content, design
+
+    chunks = [chunk.strip() for chunk in re.split(r"[\n,;]+", content) if chunk.strip()]
+    if not chunks:
+        return "", ""
+
+    design_chunks = [
+        chunk for chunk in chunks if DESIGN_PROMPT_HINT_RE.search(chunk)
+    ]
+    if not design_chunks:
+        return content, ""
+
+    content_chunks = [chunk for chunk in chunks if chunk not in design_chunks]
+    if len(chunks) == 1 and content_chunks:
+        return content, ""
+
+    return ", ".join(content_chunks), ", ".join(design_chunks)
 
 
 def choose_slide_count(target_minutes: int, slide_range: SlideCountRange) -> int:
@@ -1106,6 +1159,7 @@ def plan_deck_content(
 def requires_llm_content(raw_input: RawInput) -> bool:
     return bool(
         raw_input.prompt.strip()
+        or raw_input.design_prompt.strip()
         or raw_input.references
         or raw_input.reference_keywords
         or raw_input.reference_context
@@ -1310,6 +1364,7 @@ def deck_content_prompt(raw_input: RawInput) -> str:
         [
             f"Topic: {raw_input.topic}",
             f"User prompt: {raw_input.prompt or '(none)'}",
+            f"Design prompt: {raw_input.design_prompt or '(none)'}",
             f"Slide count: {raw_input.slide_count}",
             f"Audience: {raw_input.metadata.audience}",
             f"Purpose: {raw_input.metadata.purpose}",
@@ -1669,6 +1724,10 @@ def apply_explicit_palette(
     raw_input: RawInput,
     slide_plans: list[SlidePlan] | None = None,
 ) -> dict[str, Any]:
+    tokens = keyed_theme_tokens(raw_input, slide_plans)
+    if tokens:
+        return apply_keyed_theme_tokens(theme, tokens)
+
     colors = explicit_palette_colors(raw_input, slide_plans)
     if not colors:
         return theme
@@ -1696,17 +1755,55 @@ def apply_explicit_palette(
     return theme
 
 
+def keyed_theme_tokens(
+    raw_input: RawInput,
+    slide_plans: list[SlidePlan] | None = None,
+) -> dict[str, str]:
+    tokens: dict[str, str] = {}
+    for source in palette_sources(raw_input, slide_plans):
+        for match in THEME_TOKEN_RE.finditer(source):
+            key = match.group(1).lower()
+            if key not in tokens:
+                tokens[key] = match.group(2).lower()
+    return tokens
+
+
+def apply_keyed_theme_tokens(
+    theme: dict[str, Any],
+    tokens: dict[str, str],
+) -> dict[str, Any]:
+    background = tokens.get("background")
+    if background:
+        theme["backgroundColor"] = background
+
+    if "text" in tokens:
+        theme["textColor"] = tokens["text"]
+    elif background:
+        theme["textColor"] = text_color_for_background(background)
+
+    accent = tokens.get("accent")
+    if accent:
+        theme["accentColor"] = accent
+        theme["palette"]["primary"] = accent
+        theme["palette"]["secondary"] = accent
+
+    for key in ("primary", "secondary", "surface", "muted", "border"):
+        if key in tokens:
+            theme["palette"][key] = tokens[key]
+
+    if background and contrast_ratio(background, theme["textColor"]) < 4.5:
+        theme["textColor"] = text_color_for_background(background)
+
+    return theme
+
+
 def explicit_palette_colors(
     raw_input: RawInput,
     slide_plans: list[SlidePlan] | None = None,
 ) -> list[str]:
-    sources = [raw_input.prompt]
-    sources.extend(
-        slide_plan.visual_intent.palette_hint
-        for slide_plan in slide_plans or []
-    )
     colors: list[str] = []
-    for source in sources:
+    for source in palette_sources(raw_input, slide_plans):
+        source = strip_theme_tokens(source)
         for match in EXPLICIT_COLOR_RE.finditer(source):
             token = match.group(0).casefold()
             if token.startswith("#"):
@@ -1718,12 +1815,56 @@ def explicit_palette_colors(
     return colors
 
 
+def palette_sources(
+    raw_input: RawInput,
+    slide_plans: list[SlidePlan] | None = None,
+) -> list[str]:
+    return [
+        *[
+            slide_plan.visual_intent.palette_hint
+            for slide_plan in slide_plans or []
+        ],
+        raw_input.design_prompt,
+        raw_input.prompt,
+    ]
+
+
+def strip_theme_tokens(source: str) -> str:
+    return THEME_TOKEN_ANY_RE.sub(" ", source)
+
+
 def is_neutral_color(color: str) -> bool:
     return color in NEUTRAL_COLORS
 
 
 def text_color_for_background(color: str) -> str:
-    return "#111827" if color == "#ffffff" else "#f8fafc"
+    dark = "#111827"
+    light = "#f8fafc"
+    return (
+        dark
+        if contrast_ratio(color, dark) >= contrast_ratio(color, light)
+        else light
+    )
+
+
+def contrast_ratio(color_a: str, color_b: str) -> float:
+    lighter = max(relative_luminance(color_a), relative_luminance(color_b))
+    darker = min(relative_luminance(color_a), relative_luminance(color_b))
+    return (lighter + 0.05) / (darker + 0.05)
+
+
+def relative_luminance(color: str) -> float:
+    values = [
+        int(color[index : index + 2], 16) / 255
+        for index in (1, 3, 5)
+    ]
+    channels = [
+        value / 12.92
+        if value <= 0.03928
+        else ((value + 0.055) / 1.055) ** 2.4
+        for value in values
+    ]
+    return 0.2126 * channels[0] + 0.7152 * channels[1] + 0.0722 * channels[2]
 
 
 def design_profile_for(
@@ -1735,13 +1876,14 @@ def design_profile_for(
         return rhythm_profile
 
     palette_hints = [
-        slide_plan.visual_intent.palette_hint
+        strip_theme_tokens(slide_plan.visual_intent.palette_hint)
         for slide_plan in slide_plans or []
     ]
     text = " ".join(
         [
             raw_input.topic,
             raw_input.prompt,
+            strip_theme_tokens(raw_input.design_prompt),
             raw_input.metadata.audience,
             raw_input.metadata.purpose,
             raw_input.metadata.tone,

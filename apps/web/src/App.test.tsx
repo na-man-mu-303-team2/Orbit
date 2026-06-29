@@ -111,6 +111,7 @@ describe("AI deck generation flow", () => {
     const payload = buildGenerateDeckPayload({
       topic: "ORBIT",
       prompt: "Generate slides",
+      designPrompt: "retro pixel palette",
       duration: 10,
       minSlides: 5,
       maxSlides: 8,
@@ -136,6 +137,8 @@ describe("AI deck generation flow", () => {
 
     expect(payload).toMatchObject({
       topic: "ORBIT",
+      prompt: "Generate slides",
+      designPrompt: "retro pixel palette",
       targetDurationMinutes: 10,
       slideCountRange: { min: 5, max: 8 },
       design: {
@@ -147,6 +150,36 @@ describe("AI deck generation flow", () => {
       references: [{ fileId: "file_1" }],
       referenceKeywords: [{ text: "Deck" }]
     });
+  });
+
+  it("defaults an omitted design prompt to an empty string", () => {
+    const payload = buildGenerateDeckPayload({
+      topic: "ORBIT",
+      prompt: "Generate slides",
+      duration: 10,
+      minSlides: 5,
+      maxSlides: 8,
+      template: "report",
+      metadata: {
+        audience: "general",
+        purpose: "inform",
+        tone: "professional"
+      },
+      design: {
+        visualRhythm: "auto",
+        densityTarget: "medium",
+        mediaPolicy: "balanced",
+        layoutDiversity: "varied"
+      },
+      referenceInput: {
+        references: [],
+        referenceKeywords: [],
+        succeededFiles: [],
+        failedFiles: []
+      }
+    });
+
+    expect(payload.designPrompt).toBe("");
   });
 
   it("keeps a generated project at the top of the project list cache", () => {
