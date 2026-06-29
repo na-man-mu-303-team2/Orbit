@@ -2,6 +2,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import type { Job, Project } from "@orbit/shared";
 import { describe, expect, it, vi } from "vitest";
 import {
+  buildGenerateDeckPayload,
   buildReferenceGenerationInput,
   createGeneratedDeckProject,
   ExtractResultItem,
@@ -106,6 +107,48 @@ describe("reference extraction upload flow", () => {
 });
 
 describe("AI deck generation flow", () => {
+  it("builds a generate-deck payload with design direction", () => {
+    const payload = buildGenerateDeckPayload({
+      topic: "ORBIT",
+      prompt: "Generate slides",
+      duration: 10,
+      minSlides: 5,
+      maxSlides: 8,
+      template: "report",
+      metadata: {
+        audience: "general",
+        purpose: "inform",
+        tone: "professional"
+      },
+      design: {
+        visualRhythm: "auto",
+        densityTarget: "medium",
+        mediaPolicy: "balanced",
+        layoutDiversity: "varied"
+      },
+      referenceInput: {
+        references: [{ fileId: "file_1" }],
+        referenceKeywords: [{ text: "Deck" }],
+        succeededFiles: [],
+        failedFiles: []
+      }
+    });
+
+    expect(payload).toMatchObject({
+      topic: "ORBIT",
+      targetDurationMinutes: 10,
+      slideCountRange: { min: 5, max: 8 },
+      design: {
+        visualRhythm: "auto",
+        densityTarget: "medium",
+        mediaPolicy: "balanced",
+        layoutDiversity: "varied"
+      },
+      references: [{ fileId: "file_1" }],
+      referenceKeywords: [{ text: "Deck" }]
+    });
+  });
+
   it("keeps a generated project at the top of the project list cache", () => {
     const older: Project = {
       projectId: "project_old",

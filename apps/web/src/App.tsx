@@ -69,6 +69,29 @@ type ReferenceGenerationInput = {
   failedFiles: ExtractedFile[];
 };
 
+type GenerateDeckPayloadInput = {
+  topic: string;
+  prompt: string;
+  duration: number;
+  minSlides: number;
+  maxSlides: number;
+  template: string;
+  metadata: {
+    audience: string;
+    purpose: string;
+    tone: string;
+  };
+  design: GenerateDeckDesignDirection;
+  referenceInput: ReferenceGenerationInput;
+};
+
+type GenerateDeckDesignDirection = {
+  visualRhythm: "auto" | "clean" | "editorial" | "bold" | "technical";
+  densityTarget: "low" | "medium" | "high";
+  mediaPolicy: "avoid" | "balanced" | "placeholder-ok";
+  layoutDiversity: "stable" | "varied";
+};
+
 type PresentationKeyword = {
   keyword: string;
   reason: string;
@@ -574,6 +597,14 @@ function GenerateDeckView() {
   const [audience, setAudience] = useState("general");
   const [purpose, setPurpose] = useState("inform");
   const [tone, setTone] = useState("professional");
+  const [visualRhythm, setVisualRhythm] =
+    useState<GenerateDeckDesignDirection["visualRhythm"]>("auto");
+  const [densityTarget, setDensityTarget] =
+    useState<GenerateDeckDesignDirection["densityTarget"]>("medium");
+  const [mediaPolicy, setMediaPolicy] =
+    useState<GenerateDeckDesignDirection["mediaPolicy"]>("balanced");
+  const [layoutDiversity, setLayoutDiversity] =
+    useState<GenerateDeckDesignDirection["layoutDiversity"]>("varied");
   const [uploads, setUploads] = useState<UploadFile[]>([]);
   const [rejected, setRejected] = useState<RejectedFile[]>([]);
   const [isDragging, setIsDragging] = useState(false);
@@ -735,21 +766,23 @@ function GenerateDeckView() {
       const project = await createGeneratedDeckProject(topic);
       const referenceInput = await extractReferences(project.projectId);
       setGenerationStep("generating");
+      const payload = buildGenerateDeckPayload({
+        topic,
+        prompt,
+        duration,
+        minSlides,
+        maxSlides,
+        template,
+        metadata: { audience, purpose, tone },
+        design: { visualRhythm, densityTarget, mediaPolicy, layoutDiversity },
+        referenceInput
+      });
       const response = await fetch(
         `/api/v1/projects/${project.projectId}/jobs/generate-deck`,
         {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({
-            topic,
-            prompt,
-            targetDurationMinutes: duration,
-            slideCountRange: { min: minSlides, max: maxSlides },
-            template,
-            metadata: { audience, purpose, tone },
-            references: referenceInput.references,
-            referenceKeywords: referenceInput.referenceKeywords
-          })
+          body: JSON.stringify(payload)
         }
       );
 
@@ -941,6 +974,55 @@ function GenerateDeckView() {
               options={["professional", "friendly", "confident", "concise"]}
             />
           </div>
+
+          <section
+            className="generate-reference-panel"
+            aria-labelledby="generate-design-title"
+          >
+            <div className="reference-panel-heading">
+              <span className="eyebrow" id="generate-design-title">
+                Design Direction
+              </span>
+            </div>
+
+            <div className="form-grid">
+              <SelectField
+                label="Visual rhythm"
+                value={visualRhythm}
+                onChange={(value) =>
+                  setVisualRhythm(value as GenerateDeckDesignDirection["visualRhythm"])
+                }
+                options={["auto", "clean", "editorial", "bold", "technical"]}
+              />
+              <SelectField
+                label="Density"
+                value={densityTarget}
+                onChange={(value) =>
+                  setDensityTarget(value as GenerateDeckDesignDirection["densityTarget"])
+                }
+                options={["low", "medium", "high"]}
+              />
+            </div>
+
+            <div className="form-grid">
+              <SelectField
+                label="Media"
+                value={mediaPolicy}
+                onChange={(value) =>
+                  setMediaPolicy(value as GenerateDeckDesignDirection["mediaPolicy"])
+                }
+                options={["avoid", "balanced", "placeholder-ok"]}
+              />
+              <SelectField
+                label="Layout diversity"
+                value={layoutDiversity}
+                onChange={(value) =>
+                  setLayoutDiversity(value as GenerateDeckDesignDirection["layoutDiversity"])
+                }
+                options={["stable", "varied"]}
+              />
+            </div>
+          </section>
 
           <section
             className="generate-reference-panel"
@@ -1201,6 +1283,20 @@ export function getGeneratedDeckProjectTitle(topic: string) {
 
 export function createGeneratedDeckProject(topic: string, fetcher: Fetcher = fetch) {
   return createProject(getGeneratedDeckProjectTitle(topic), fetcher);
+}
+
+export function buildGenerateDeckPayload(input: GenerateDeckPayloadInput) {
+  return {
+    topic: input.topic,
+    prompt: input.prompt,
+    targetDurationMinutes: input.duration,
+    slideCountRange: { min: input.minSlides, max: input.maxSlides },
+    template: input.template,
+    metadata: input.metadata,
+    design: input.design,
+    references: input.referenceInput.references,
+    referenceKeywords: input.referenceInput.referenceKeywords
+  };
 }
 
 export function mergeGeneratedProjectList(
