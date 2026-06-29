@@ -21,7 +21,11 @@ import {
 import type { CSSProperties, ChangeEvent, DragEvent, FormEvent, ReactNode } from "react";
 import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import orbitLogo from "./assets/orbit-logo.png";
-import { createProject, fetchProjects } from "./features/projects/ProjectAssetWorkspace";
+import {
+  createProject,
+  fetchProjects,
+  ProjectAssetWorkspace
+} from "./features/projects/ProjectAssetWorkspace";
 import { RehearsalWorkspace } from "./features/rehearsal/RehearsalWorkspace";
 
 type Fetcher = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
@@ -84,6 +88,7 @@ type Route =
   | { name: "login" }
   | { name: "home" }
   | { name: "create-deck" }
+  | { name: "upload" }
   | { name: "project-list" }
   | { name: "project-editor"; projectId: string }
   | { name: "rehearsal"; projectId: string };
@@ -139,6 +144,7 @@ function getRoute(pathname = window.location.pathname): Route {
 
   if (normalized === "/login") return { name: "login" };
   if (normalized === "/createdeck") return { name: "create-deck" };
+  if (normalized === "/upload") return { name: "upload" };
   if (normalized === "/project") return { name: "project-list" };
 
   const projectMatch = normalized.match(/^\/project\/([^/]+)$/);
@@ -196,6 +202,7 @@ export function App() {
 function renderRoute(route: Route, user?: AuthUser) {
   if (route.name === "login") return <LoginPage />;
   if (route.name === "create-deck") return <GenerateDeckView />;
+  if (route.name === "upload") return <ProjectAssetWorkspace />;
   if (route.name === "project-list") return <ProjectListPage />;
   if (route.name === "project-editor") {
     return (
@@ -290,6 +297,7 @@ function SidebarButton(props: {
 
 function LoginPage() {
   const queryClient = useQueryClient();
+  const [mode, setMode] = useState<"login" | "register">("login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -302,7 +310,7 @@ function LoginPage() {
     setError(null);
     setIsSubmitting(true);
     try {
-      const response = await fetch("/api/v1/auth/login", {
+      const response = await fetch(`/api/v1/auth/${mode}`, {
         body: JSON.stringify({ email, password }),
         credentials: "include",
         headers: {
@@ -318,7 +326,13 @@ function LoginPage() {
       await queryClient.invalidateQueries({ queryKey: ["auth", "me"] });
       navigateTo("/");
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "로그인에 실패했습니다.");
+      setError(
+        cause instanceof Error
+          ? cause.message
+          : mode === "register"
+            ? "회원가입에 실패했습니다."
+            : "로그인에 실패했습니다."
+      );
     } finally {
       setIsSubmitting(false);
     }
@@ -328,8 +342,34 @@ function LoginPage() {
     <section className="login-page">
       <form className="login-card" onSubmit={handleLogin}>
         <img alt="Orbit" src={orbitLogo} />
-        <h1>로그인</h1>
-        <p>계정으로 로그인하면 Orbit 작업 공간으로 이동합니다.</p>
+        <h1>{mode === "register" ? "회원가입" : "로그인"}</h1>
+        <p>
+          {mode === "register"
+            ? "처음 사용하는 환경이라면 계정을 먼저 생성하세요."
+            : "계정으로 로그인하면 Orbit 작업 공간으로 이동합니다."}
+        </p>
+        <div className="login-mode-switch" role="tablist" aria-label="인증 방식">
+          <button
+            type="button"
+            className={mode === "login" ? "active" : ""}
+            onClick={() => {
+              setMode("login");
+              setError(null);
+            }}
+          >
+            로그인
+          </button>
+          <button
+            type="button"
+            className={mode === "register" ? "active" : ""}
+            onClick={() => {
+              setMode("register");
+              setError(null);
+            }}
+          >
+            회원가입
+          </button>
+        </div>
         <label>
           <span>이메일</span>
           <input
@@ -344,7 +384,7 @@ function LoginPage() {
         <label>
           <span>비밀번호</span>
           <input
-            autoComplete="current-password"
+            autoComplete={mode === "register" ? "new-password" : "current-password"}
             minLength={8}
             onChange={(event) => setPassword(event.target.value)}
             placeholder="비밀번호"
@@ -355,7 +395,13 @@ function LoginPage() {
         </label>
         {error ? <p className="auth-error">{error}</p> : null}
         <button type="submit" disabled={isSubmitting}>
-          {isSubmitting ? "로그인 중..." : "로그인"}
+          {isSubmitting
+            ? mode === "register"
+              ? "가입 중..."
+              : "로그인 중..."
+            : mode === "register"
+              ? "계정 만들기"
+              : "로그인"}
         </button>
       </form>
     </section>
@@ -395,7 +441,7 @@ function HomePage(props: { user?: AuthUser }) {
           <input placeholder="발표 주제, 자료 구성, 슬라이드 방향을 입력하세요" />
           <button type="button">전송</button>
         </div>
-        <button className="link-action" type="button" onClick={() => navigateTo("/project")}>
+        <button className="link-action" type="button" onClick={() => navigateTo("/upload")}>
           기존 PPT 사용하기
         </button>
       </section>
