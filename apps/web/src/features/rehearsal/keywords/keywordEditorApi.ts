@@ -8,7 +8,7 @@ import type { Deck, GetDeckResponse } from "@orbit/shared";
 
 import { applyKeywordsToDeck, buildReplaceKeywordsRequest } from "./keywordEditorModel";
 
-const deckApiBasePath = "/api/api/v1";
+const deckApiBasePath = "/api/v1";
 
 export async function fetchProjectDeck(projectId: string): Promise<GetDeckResponse> {
   const response = await fetch(`${deckApiBasePath}/projects/${projectId}/deck`);
