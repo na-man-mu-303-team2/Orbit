@@ -6,10 +6,12 @@ import helmet from "helmet";
 import { Logger } from "nestjs-pino";
 import "reflect-metadata";
 import { AppModule } from "./app.module";
+import { resolveAllowedWebOrigins } from "./common/web-origin";
 import { writeBootstrapError } from "./logging";
 
 async function bootstrap() {
   const config = loadOrbitConfig(process.env, { service: "api" });
+  const allowedWebOrigins = resolveAllowedWebOrigins(config.WEB_ORIGIN);
   const app = await NestFactory.create(AppModule, { bufferLogs: true });
   const logger = app.get(Logger);
   app.useLogger(logger);
@@ -19,7 +21,7 @@ async function bootstrap() {
 
   app.enableCors({
     credentials: true,
-    origin: config.WEB_ORIGIN
+    origin: allowedWebOrigins
   });
 
   const swaggerConfig = new DocumentBuilder()
@@ -35,7 +37,8 @@ async function bootstrap() {
     {
       event: "api.ready",
       port: config.API_PORT,
-      webOrigin: config.WEB_ORIGIN
+      webOrigin: config.WEB_ORIGIN,
+      allowedWebOrigins
     },
     "API ready."
   );

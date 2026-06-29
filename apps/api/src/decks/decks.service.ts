@@ -312,7 +312,7 @@ export class DecksService {
         changeRecord.afterVersion,
         changeRecord.source,
         changeRecord.actorUserId ?? null,
-        changeRecord.operations,
+        JSON.stringify(changeRecord.operations),
         changeRecord.createdAt
       ]
     );

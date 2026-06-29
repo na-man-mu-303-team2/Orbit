@@ -45,6 +45,7 @@ export class FilesService {
   async createUploadUrl(
     projectId: string,
     input: AssetUploadUrlRequest,
+    requestOrigin?: string | null,
   ): Promise<AssetUploadUrlResponse> {
     const project = await this.projectsService.getAccessibleProject(projectId);
     const fileId = `file_${randomUUID()}`;
@@ -59,6 +60,7 @@ export class FilesService {
       key: storageKey,
       contentType: input.mimeType,
       expiresInSeconds: uploadUrlExpiresInSeconds,
+      requestOrigin,
     });
 
     const asset = this.assetsRepository.create({
@@ -252,11 +254,16 @@ export class FilesService {
     key: string;
     contentType: string;
     expiresInSeconds: number;
+    requestOrigin?: string | null;
   }) {
     if (this.uploadProxyOrigin) {
       return {
         key: input.key,
-        url: this.createUploadProxyUrl(input.projectId, input.fileId),
+        url: this.createUploadProxyUrl(
+          input.projectId,
+          input.fileId,
+          input.requestOrigin,
+        ),
         method: "PUT" as const,
         headers: {
           "content-type": input.contentType,
@@ -271,8 +278,12 @@ export class FilesService {
   }
 
   // 브라우저 origin과 같은 host를 쓰는 API upload proxy URL을 만든다.
-  private createUploadProxyUrl(projectId: string, fileId: string): string {
-    const origin = this.uploadProxyOrigin?.replace(/\/+$/, "");
+  private createUploadProxyUrl(
+    projectId: string,
+    fileId: string,
+    requestOrigin?: string | null,
+  ): string {
+    const origin = (requestOrigin ?? this.uploadProxyOrigin ?? "").replace(/\/+$/, "");
     return `${origin}/api/v1/projects/${encodeURIComponent(
       projectId,
     )}/assets/${encodeURIComponent(fileId)}/content`;

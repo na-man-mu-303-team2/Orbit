@@ -267,6 +267,42 @@ describe("editor shell", () => {
     expect(html).not.toContain("GROUP");
   });
 
+  it("sanitizes invalid element frame values before rendering debug data", () => {
+    const queryClient = createTestQueryClient();
+    const deck = createDemoDeck();
+
+    deck.slides[0].elements.push({
+      elementId: "el_invalid",
+      type: "text",
+      role: "body",
+      x: Number.NaN,
+      y: Number.NaN,
+      width: Number.NaN,
+      height: Number.NaN,
+      rotation: Number.NaN,
+      opacity: 1,
+      zIndex: Number.NaN,
+      locked: false,
+      visible: true,
+      props: {
+        text: "Invalid frame",
+        fontSize: 28,
+        color: "#111827",
+      },
+    } as Deck["slides"][number]["elements"][number]);
+
+    setDeckData(queryClient, deck);
+
+    const html = renderApp(queryClient);
+
+    expect(html).toContain(
+      "&quot;elementId&quot;:&quot;el_invalid&quot;,&quot;type&quot;:&quot;text&quot;,&quot;x&quot;:0,&quot;y&quot;:0,&quot;width&quot;:1,&quot;height&quot;:1,&quot;rotation&quot;:0",
+    );
+    expect(html).not.toContain(
+      "&quot;elementId&quot;:&quot;el_invalid&quot;,&quot;type&quot;:&quot;text&quot;,&quot;x&quot;:null",
+    );
+  });
+
   it("keeps the demo deck visible while the deck query is pending", () => {
     const queryClient = createTestQueryClient();
 
