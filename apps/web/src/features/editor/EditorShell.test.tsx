@@ -1,6 +1,10 @@
 import { createDemoDeck } from "@orbit/editor-core";
 import { demoIds } from "@orbit/shared";
-import type { Deck } from "@orbit/shared";
+import type {
+  AiSuggestion,
+  Deck,
+  ListAiSuggestionsResponse
+} from "@orbit/shared";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import { forwardRef } from "react";
@@ -12,6 +16,7 @@ import {
   mergeDeckIntoQueryCache,
   shouldHydrateDeckFromQuery
 } from "./EditorShell";
+import { aiSuggestionsQueryKey } from "./suggestions/suggestionApi";
 
 vi.mock("react-konva", () => {
   const Group = forwardRef<HTMLDivElement, { children?: ReactNode }>(
@@ -58,10 +63,10 @@ function createTestQueryClient() {
   });
 }
 
-function renderApp(queryClient: QueryClient) {
+function renderApp(queryClient: QueryClient, projectId?: string) {
   return renderToString(
     <QueryClientProvider client={queryClient}>
-      <EditorShell />
+      <EditorShell projectId={projectId} />
     </QueryClientProvider>
   );
 }
@@ -96,6 +101,63 @@ describe("editor shell", () => {
     expect(html).toContain("AI 제안 검토");
     expect(html).toContain("이미지");
     expect(html).toContain('data-testid="editor-slide-quickbar"');
+  });
+
+  it("loads AI suggestions with the route project id", () => {
+    const queryClient = createTestQueryClient();
+    const projectId = "project_real_1";
+    const deck = {
+      ...createDemoDeck(),
+      projectId
+    } as Deck;
+    const slideId = deck.slides[0].slideId;
+    const suggestion = {
+      suggestionId: "suggestion_real_project",
+      projectId,
+      deckId: deck.deckId,
+      slideId,
+      baseVersion: deck.version,
+      title: "실제 프로젝트 제안",
+      summary: "라우트 projectId로 조회한 제안입니다.",
+      patch: {
+        deckId: deck.deckId,
+        baseVersion: deck.version,
+        source: "ai",
+        operations: [
+          {
+            type: "update_speaker_notes",
+            slideId,
+            speakerNotes: "현재 프로젝트의 발표 메모를 개선합니다."
+          }
+        ]
+      },
+      status: "pending",
+      createdAt: "2026-06-29T00:00:00.000Z",
+      updatedAt: "2026-06-29T00:00:01.000Z"
+    } satisfies AiSuggestion;
+    const response = {
+      projectId,
+      suggestions: [suggestion]
+    } satisfies ListAiSuggestionsResponse;
+
+    queryClient.setQueryData(["deck", projectId], deck);
+    queryClient.setQueryData(["health"], {
+      app: "orbit-api",
+      demo: demoIds,
+      status: "ok"
+    });
+    queryClient.setQueryData(
+      aiSuggestionsQueryKey(projectId, {
+        deckId: deck.deckId,
+        slideId
+      }),
+      response
+    );
+
+    const html = renderApp(queryClient, projectId);
+
+    expect(html).toContain("실제 프로젝트 제안");
+    expect(html).not.toContain("현재 슬라이드에 검토할 AI 제안이 없습니다.");
   });
 
   it("renders supported canvas object types without exposing grouped child labels", () => {

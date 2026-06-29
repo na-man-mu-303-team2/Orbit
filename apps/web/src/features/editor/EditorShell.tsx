@@ -2552,7 +2552,7 @@ export function EditorShell(props: { projectId?: string }) {
               <div className="assistant-panel-slot">
                 <SuggestionPanel
                   deck={deck}
-                  projectId={demoIds.projectId}
+                  projectId={projectId}
                   slideId={currentSlide?.slideId ?? null}
                   onApplySuccess={handleAiSuggestionApplied}
                 />
