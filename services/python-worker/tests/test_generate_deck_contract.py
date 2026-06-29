@@ -114,6 +114,36 @@ def test_generate_deck_design_rhythm_overrides_theme_profile() -> None:
     assert response.deck["theme"]["accentColor"] == "#1a73e8"
 
 
+def test_generate_deck_matches_game_ink_neon_profile_without_color_hints() -> None:
+    response = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="Platoon ink neon game raiders",
+            slideCountRange={"min": 2, "max": 2},
+        )
+    )
+
+    theme = response.deck["theme"]
+    assert theme["name"] == "default-game-ink-neon-ai"
+    assert theme["backgroundColor"] == "#07111f"
+    assert theme["accentColor"] == "#00e5ff"
+    assert theme["palette"]["secondary"] == "#b6ff00"
+    assert theme["accentColor"] != "#2563eb"
+
+
+def test_generate_deck_uses_safe_fallback_for_unknown_style_prompt() -> None:
+    response = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="ORBIT asymptotic nebula",
+            slideCountRange={"min": 2, "max": 2},
+        )
+    )
+
+    assert response.deck["theme"]["name"] == "default-startup-clean-ai"
+    assert response.validation.passed is True
+
+
 def test_generate_deck_uses_code_fallback_before_llm_slot_preset() -> None:
     fake_client = FakeOpenAIClient(
         {
@@ -227,6 +257,48 @@ def test_generate_deck_keeps_feature_grid_metric_cards_with_varied_layout() -> N
         assert title["y"] == 88
         assert title["width"] == 1680
         assert title["height"] == 128
+
+
+def test_generate_deck_summary_prefers_content_preset_over_quote() -> None:
+    fake_client = FakeOpenAIClient(
+        {
+            "title": "Summary preset",
+            "slides": [
+                slide_payload(
+                    "Summary bullets",
+                    "- First point\n- Second point",
+                    "Wrap up with two concrete points.",
+                    slide_type="summary",
+                    slot_preset="quote_with_source",
+                    visual_intent={
+                        "emphasis": "bullet list",
+                        "mood": "concise",
+                        "structure": "summary",
+                        "paletteHint": "",
+                        "emphasisStyle": "",
+                        "composition": "data",
+                        "decorationDensity": "medium",
+                        "mediaStyle": "",
+                    },
+                )
+            ],
+        }
+    )
+
+    response = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="ORBIT",
+            prompt="Use generated plan.",
+            slideCountRange={"min": 1, "max": 1},
+        ),
+        client=fake_client,
+    )
+
+    slide = response.deck["slides"][0]
+    assert slide["style"]["layout"] == "title-content"
+    assert has_element(slide, "el_1_metric_card")
+    assert not has_element(slide, "el_1_quote_block")
 
 
 def test_generate_deck_avoid_media_policy_suppresses_placeholders() -> None:
@@ -446,6 +518,70 @@ def test_generate_deck_uses_design_intents_without_schema_leak() -> None:
     )
 
 
+def test_generate_deck_applies_visual_intent_decorations_and_caps_elements() -> None:
+    fake_client = FakeOpenAIClient(
+        {
+            "title": "Visual intent",
+            "slides": [
+                slide_payload(
+                    "Keyword chips",
+                    "Use chips to emphasize the generated keywords.",
+                    "Call out the keywords without changing the deck schema.",
+                    slide_type="data",
+                    slot_preset="metric_cards",
+                    visual_intent={
+                        "emphasis": "keywords",
+                        "mood": "energetic",
+                        "structure": "chips",
+                        "paletteHint": "neon",
+                        "emphasisStyle": "keyword-chips",
+                        "composition": "data",
+                        "decorationDensity": "high",
+                        "mediaStyle": "",
+                    },
+                ),
+                slide_payload(
+                    "Callout",
+                    "This sentence should become a callout. Extra details stay in body.",
+                    "Use the callout as an editable text element.",
+                    slide_type="solution",
+                    slot_preset="title_left_visual_right",
+                    visual_intent={
+                        "emphasis": "main sentence",
+                        "mood": "focused",
+                        "structure": "callout",
+                        "paletteHint": "",
+                        "emphasisStyle": "callout",
+                        "composition": "split",
+                        "decorationDensity": "high",
+                        "mediaStyle": "",
+                    },
+                ),
+            ],
+        }
+    )
+
+    response = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="ORBIT",
+            prompt="Use generated plan.",
+            slideCountRange={"min": 2, "max": 2},
+        ),
+        client=fake_client,
+    )
+
+    first_slide = response.deck["slides"][0]
+    second_slide = response.deck["slides"][1]
+    assert has_element(first_slide, "el_1_top_stripe")
+    assert has_element(first_slide, "el_1_keyword_chip_1")
+    assert has_element(second_slide, "el_2_diagonal_block")
+    assert has_element(second_slide, "el_2_callout_box")
+    assert has_element(second_slide, "el_2_callout_text")
+    assert all(len(slide["elements"]) <= 14 for slide in response.deck["slides"])
+    assert response.validation.passed is True
+
+
 def slide_payload(
     title: str,
     message: str,
@@ -454,6 +590,7 @@ def slide_payload(
     slide_type: str,
     slot_preset: str,
     media_intent: dict[str, object] | None = None,
+    visual_intent: dict[str, object] | None = None,
 ) -> dict[str, object]:
     return {
         "title": title,
@@ -463,10 +600,16 @@ def slide_payload(
         "slideType": slide_type,
         "layoutVariant": slot_preset.split("_", maxsplit=1)[0],
         "slotPreset": slot_preset,
-        "visualIntent": {
+        "visualIntent": visual_intent
+        or {
             "emphasis": "핵심 메시지",
             "mood": "professional",
             "structure": "safe slots",
+            "paletteHint": "",
+            "emphasisStyle": "",
+            "composition": "",
+            "decorationDensity": "medium",
+            "mediaStyle": "",
         },
         "mediaIntent": media_intent
         or {

@@ -21,6 +21,17 @@ import {
 import { aiSuggestionsQueryKey } from "./suggestions/suggestionApi";
 
 vi.mock("react-konva", () => {
+  function shapeAttrs(props: Record<string, unknown>) {
+    return {
+      "data-corner-radius":
+        props.cornerRadius === undefined ? undefined : String(props.cornerRadius),
+      "data-fill": typeof props.fill === "string" ? props.fill : undefined,
+      "data-stroke": typeof props.stroke === "string" ? props.stroke : undefined,
+      "data-stroke-width":
+        props.strokeWidth === undefined ? undefined : String(props.strokeWidth)
+    };
+  }
+
   const Group = forwardRef<HTMLDivElement, { children?: ReactNode }>(
     ({ children }, _ref) => <div>{children}</div>
   );
@@ -44,8 +55,12 @@ vi.mock("react-konva", () => {
     Group,
     Image: () => <span data-konva-image="true" />,
     Layer,
-    Line: () => <span data-konva-line="true" />,
-    Rect: () => <span data-konva-rect="true" />,
+    Line: (props: Record<string, unknown>) => (
+      <span data-konva-line="true" {...shapeAttrs(props)} />
+    ),
+    Rect: (props: Record<string, unknown>) => (
+      <span data-konva-rect="true" {...shapeAttrs(props)} />
+    ),
     RegularPolygon: () => <span data-konva-polygon="true" />,
     Shape: () => <span data-konva-shape="true" />,
     Star: () => <span data-konva-star="true" />,
@@ -409,6 +424,10 @@ describe("editor shell", () => {
     expect(html).toContain("data-konva-polygon");
     expect(html).toContain("data-konva-shape");
     expect(html).toContain("data-konva-star");
+    expect(html).toContain('data-fill="#dbeafe"');
+    expect(html).toContain('data-stroke="#93c5fd"');
+    expect(html).toContain('data-stroke-width="3"');
+    expect(html).toContain('data-corner-radius="24"');
     expect(html).not.toContain("GROUP");
   });
 
