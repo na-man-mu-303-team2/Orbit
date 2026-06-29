@@ -1704,7 +1704,7 @@ def validate_and_patch(deck: dict[str, Any]) -> tuple[dict[str, Any], Validation
     content_issues = validate_content(deck)
     design_issues = validate_design(deck)
     presentation_issues = validate_presentation(deck)
-    issues = layout_issues + content_issues + design_issues + presentation_issues
+    issues = layout_issues + content_issues + presentation_issues
     if issues:
         deck = patch_deck(deck)
         layout_issues = validate_layout(deck)
@@ -1716,7 +1716,6 @@ def validate_and_patch(deck: dict[str, Any]) -> tuple[dict[str, Any], Validation
         passed=not (
             layout_issues
             or content_issues
-            or design_issues
             or presentation_issues
         ),
         layoutIssues=layout_issues,

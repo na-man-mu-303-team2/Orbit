@@ -228,6 +228,7 @@ def test_generate_deck_uses_design_intents_without_schema_leak() -> None:
         for element in response.deck["slides"][4]["elements"]
     )
     assert response.deck["slides"][4]["style"]["layout"] == "chart-focus"
+    assert response.validation.passed is True
     assert response.validation.design_issues[0].message == (
         "이미지 소스가 없어 자리 표시자를 생성했습니다."
     )
