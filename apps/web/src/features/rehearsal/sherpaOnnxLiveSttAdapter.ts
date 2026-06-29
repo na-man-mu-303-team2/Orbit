@@ -84,7 +84,14 @@ type PendingWorkerRequest = {
 };
 
 type PendingRequestKey = "load" | `start:${string}`;
+type LiveSttLatencyDebugState = {
+  frameSize: number;
+  sourceSampleRate: number;
+  targetSampleRate: number;
+  lastCallbackAtMs: number | null;
+};
 
+const liveSttLatencyDebugStorageKey = "orbit.liveStt.debugLatency";
 const liveSttWorkerTimeoutMs = 30_000;
 const defaultAudioWorkletFrameSize = 4096;
 const pcmCaptureWorkletProcessorName = "orbit-live-stt-pcm-capture";
@@ -97,6 +104,7 @@ export class SherpaOnnxLiveSttAdapter implements LiveSttAdapter {
   private pendingRequests = new Map<PendingRequestKey, PendingWorkerRequest>();
   private sessionId: string | null = null;
   private isDisposed = false;
+  private latencyDebugState: LiveSttLatencyDebugState | null = null;
 
   constructor(
     private readonly options: {
@@ -220,10 +228,24 @@ export class SherpaOnnxLiveSttAdapter implements LiveSttAdapter {
     try {
       await this.loadAudioWorkletModule(context);
 
+      const frameSize = this.options.bufferSize ?? defaultAudioWorkletFrameSize;
+      this.latencyDebugState = {
+        frameSize,
+        sourceSampleRate: context.sampleRate,
+        targetSampleRate: manifest.sampleRate,
+        lastCallbackAtMs: null
+      };
+      logLiveSttLatencyDebug("capture-start", {
+        frameSize,
+        sourceSampleRate: context.sampleRate,
+        targetSampleRate: manifest.sampleRate,
+        frameDurationMs: frameSizeToDurationMs(frameSize, context.sampleRate)
+      });
+
       const source = context.createMediaStreamSource(stream);
       const processor = this.createAudioWorkletNode(
         context,
-        this.options.bufferSize ?? defaultAudioWorkletFrameSize
+        frameSize
       );
       const output = context.createGain();
       output.gain.value = 0;
@@ -267,6 +289,7 @@ export class SherpaOnnxLiveSttAdapter implements LiveSttAdapter {
       return;
     }
 
+    this.latencyDebugState = null;
     this.capture.processor.port.onmessage = null;
     this.capture.processor.onprocessorerror = null;
     postAudioWorkletMessage(this.capture.processor, { type: "dispose" });
@@ -452,6 +475,7 @@ export class SherpaOnnxLiveSttAdapter implements LiveSttAdapter {
         return;
       }
 
+      this.logPartialCallbackLatency(message.isFinal);
       this.callbacks?.onPartialTranscript(
         parsePartialTranscriptMessage(message)
       );
@@ -483,6 +507,30 @@ export class SherpaOnnxLiveSttAdapter implements LiveSttAdapter {
     }
     this.pendingRequests.clear();
   }
+
+  private logPartialCallbackLatency(isFinal: boolean) {
+    const now = Date.now();
+    const state = this.latencyDebugState;
+    if (!state) {
+      return;
+    }
+
+    const callbackIntervalMs =
+      state.lastCallbackAtMs === null ? 0 : now - state.lastCallbackAtMs;
+    state.lastCallbackAtMs = now;
+
+    logLiveSttLatencyDebug("partial-callback", {
+      frameSize: state.frameSize,
+      sourceSampleRate: state.sourceSampleRate,
+      targetSampleRate: state.targetSampleRate,
+      frameDurationMs: frameSizeToDurationMs(
+        state.frameSize,
+        state.sourceSampleRate
+      ),
+      callbackIntervalMs,
+      isFinal: isFinal ? 1 : 0
+    });
+  }
 }
 
 export class SherpaLiveSttAdapter extends SherpaOnnxLiveSttAdapter {}
@@ -509,6 +557,34 @@ function parsePartialTranscriptMessage(
     isFinal: message.isFinal,
     confidence: message.confidence
   });
+}
+
+function logLiveSttLatencyDebug(event: string, metrics: Record<string, number>) {
+  if (!isLiveSttLatencyDebugEnabled()) {
+    return;
+  }
+
+  console.debug(`[orbit-live-stt-latency] ${event}`, metrics);
+}
+
+function isLiveSttLatencyDebugEnabled() {
+  if (typeof window === "undefined") {
+    return false;
+  }
+
+  try {
+    return window.localStorage?.getItem(liveSttLatencyDebugStorageKey) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function frameSizeToDurationMs(frameSize: number, sampleRate: number) {
+  if (!Number.isFinite(sampleRate) || sampleRate <= 0) {
+    return 0;
+  }
+
+  return Math.round((frameSize / sampleRate) * 1000);
 }
 
 export function resampleFloat32Audio(

@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   SherpaOnnxLiveSttAdapter,
   resampleFloat32Audio
@@ -6,6 +6,11 @@ import {
 import type { SherpaOnnxModelManifest } from "./sherpaOnnxManifest";
 
 describe("SherpaOnnxLiveSttAdapter", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
   it("loads the manifest, starts a worker session, and forwards partial transcript events", async () => {
     const calls: string[] = [];
     const worker = new FakeSherpaWorker();
@@ -54,6 +59,102 @@ describe("SherpaOnnxLiveSttAdapter", () => {
     expect(partials).toEqual(["오르빗 실시간 음성 인식"]);
     expect(errors).toEqual([]);
     expect(worker.isTerminated).toBe(true);
+  });
+
+  it("uses a stable audio frame size by default", async () => {
+    const audioContext = new FakeAudioContext(16000);
+    const adapter = new SherpaOnnxLiveSttAdapter({
+      manifestUrl: "/models/live-stt/korean/manifest.json",
+      fetcher: vi.fn(async () => jsonResponse(manifestFixture())) as typeof fetch,
+      createWorker: () => new FakeSherpaWorker(),
+      createAudioContext: () => audioContext as unknown as AudioContext,
+      createAudioWorkletNode: (_context, _name, options) =>
+        audioContext.createAudioWorkletNode(options) as unknown as AudioWorkletNode
+    });
+
+    await adapter.start({ getTracks: () => [] } as unknown as MediaStream, {
+      onPartialTranscript: () => undefined,
+      onError: () => undefined
+    });
+    adapter.dispose();
+
+    expect(audioContext.workletNode?.processorOptions).toEqual({ frameSize: 4096 });
+  });
+
+  it("does not log latency metrics when debug latency is disabled", async () => {
+    const debugLog = vi.spyOn(console, "debug").mockImplementation(() => undefined);
+    vi.stubGlobal("window", {
+      location: { href: "http://localhost/" },
+      localStorage: {
+        getItem: vi.fn(() => null)
+      }
+    });
+    const worker = new FakeSherpaWorker();
+    const audioContext = new FakeAudioContext(48000);
+    const adapter = new SherpaOnnxLiveSttAdapter({
+      manifestUrl: "/models/live-stt/korean/manifest.json",
+      fetcher: vi.fn(async () => jsonResponse(manifestFixture())) as typeof fetch,
+      createWorker: () => worker,
+      createAudioContext: () => audioContext as unknown as AudioContext,
+      createAudioWorkletNode: (_context, _name, options) =>
+        audioContext.createAudioWorkletNode(options) as unknown as AudioWorkletNode,
+      bufferSize: 4
+    });
+
+    await adapter.start({ getTracks: () => [] } as unknown as MediaStream, {
+      onPartialTranscript: () => undefined,
+      onError: () => undefined
+    });
+    audioContext.emitAudio(new Float32Array([0, 0.5, 1, 0]));
+    adapter.dispose();
+
+    expect(debugLog).not.toHaveBeenCalled();
+  });
+
+  it("logs latency metrics without transcript text when debug latency is enabled", async () => {
+    const debugLog = vi.spyOn(console, "debug").mockImplementation(() => undefined);
+    vi.stubGlobal("window", {
+      location: { href: "http://localhost/" },
+      localStorage: {
+        getItem: vi.fn((key: string) =>
+          key === "orbit.liveStt.debugLatency" ? "1" : null
+        )
+      }
+    });
+    const worker = new FakeSherpaWorker();
+    const audioContext = new FakeAudioContext(48000);
+    const adapter = new SherpaOnnxLiveSttAdapter({
+      manifestUrl: "/models/live-stt/korean/manifest.json",
+      fetcher: vi.fn(async () => jsonResponse(manifestFixture())) as typeof fetch,
+      createWorker: () => worker,
+      createAudioContext: () => audioContext as unknown as AudioContext,
+      createAudioWorkletNode: (_context, _name, options) =>
+        audioContext.createAudioWorkletNode(options) as unknown as AudioWorkletNode,
+      bufferSize: 4
+    });
+
+    await adapter.start({ getTracks: () => [] } as unknown as MediaStream, {
+      onPartialTranscript: () => undefined,
+      onError: () => undefined
+    });
+    audioContext.emitAudio(new Float32Array([0, 0.5, 1, 0]));
+    adapter.dispose();
+
+    const serializedLogs = JSON.stringify(debugLog.mock.calls);
+    const partialCallbackMetrics = debugLog.mock.calls.find(([message]) =>
+      String(message).includes("partial-callback")
+    )?.[1] as Record<string, number> | undefined;
+
+    expect(debugLog).toHaveBeenCalled();
+    expect(serializedLogs).not.toContain("오르빗 실시간 음성 인식");
+    expect(partialCallbackMetrics).toMatchObject({
+      frameSize: 4,
+      sourceSampleRate: 48000,
+      targetSampleRate: 16000,
+      frameDurationMs: 0,
+      isFinal: 0
+    });
+    expect(typeof partialCallbackMetrics?.callbackIntervalMs).toBe("number");
   });
 
   it("maps an unavailable manifest to the live STT model unavailable error", async () => {
