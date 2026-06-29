@@ -19,6 +19,7 @@ import {
   demoIds,
   getDeckResponseSchema,
   maxAssetUploadSizeBytes,
+  projectShareStateSchema,
   putDeckResponseSchema
 } from "@orbit/shared";
 import orbitLogo from "../../assets/orbit-logo.png";
@@ -40,6 +41,8 @@ import type {
   GroupElementProps,
   ImageElementProps,
   Keyword,
+  ProjectShareMember,
+  ProjectShareState,
   ShapeElementProps,
   Slide,
   TextElementProps
@@ -51,6 +54,7 @@ import { Path as KonvaPathShape } from "konva/lib/shapes/Path";
 import { Text as KonvaTextShape } from "konva/lib/shapes/Text";
 import {
   BarChart3,
+  Check,
   ChevronDown,
   Cloud,
   Download,
@@ -77,9 +81,11 @@ import {
   Shapes,
   Share2,
   Sparkles,
+  Trash2,
   Type,
   Upload,
-  Wand2
+  Wand2,
+  X
 } from "lucide-react";
 import {
   Arrow as KonvaArrowComponent,
@@ -260,6 +266,8 @@ type CustomShapeEditDraft = {
 };
 
 type ToolbarNoticeTone = "info" | "success" | "danger";
+type ShareAccessTab = "status" | "requests";
+type ShareRole = "owner" | "editor" | "viewer";
 
 async function fetchHealth(): Promise<HealthResponse> {
   const response = await fetch("/api/health");
@@ -284,6 +292,11 @@ function createSeedDeck(projectId: string): Deck {
 async function fetchProjectDeck(projectId: string): Promise<Deck | null> {
   const response = await fetch(`/api/v1/projects/${projectId}/deck`);
 
+  if (response.status === 403) {
+    redirectToProjectAccessRequest(projectId);
+    throw new Error("Project access denied");
+  }
+
   if (response.status === 404) {
     return null;
   }
@@ -296,10 +309,21 @@ async function fetchProjectDeck(projectId: string): Promise<Deck | null> {
   return payload.deck;
 }
 
+function redirectToProjectAccessRequest(projectId: string) {
+  const requestPath = `/project/${encodeURIComponent(projectId)}/request-access`;
+  if (window.location.pathname === requestPath) {
+    return;
+  }
+
+  window.history.replaceState({}, "", requestPath);
+  window.dispatchEvent(new PopStateEvent("popstate"));
+}
+
 function navigateToRehearsal(projectId: string) {
   window.history.pushState({}, "", `/rehearsal/${encodeURIComponent(projectId)}`);
   window.dispatchEvent(new PopStateEvent("popstate"));
 }
+
 async function putProjectDeck(projectId: string, deck: Deck): Promise<Deck> {
   const response = await fetch(`/api/v1/projects/${projectId}/deck`, {
     method: "PUT",
@@ -318,6 +342,63 @@ async function putProjectDeck(projectId: string, deck: Deck): Promise<Deck> {
 
   const payload = putDeckResponseSchema.parse(await response.json());
   return payload.deck;
+}
+
+async function fetchProjectShareState(projectId: string): Promise<ProjectShareState> {
+  const response = await fetch(`/api/v1/projects/${projectId}/members`, {
+    credentials: "include"
+  });
+
+  if (!response.ok) {
+    throw new Error(await readResponseError(response, "Share state fetch failed"));
+  }
+
+  return projectShareStateSchema.parse(await response.json());
+}
+
+async function inviteProjectMember(
+  projectId: string,
+  email: string,
+  role: ShareRole
+): Promise<ProjectShareMember> {
+  const response = await fetch(`/api/v1/projects/${projectId}/members`, {
+    body: JSON.stringify({ email, role }),
+    credentials: "include",
+    headers: {
+      "content-type": "application/json"
+    },
+    method: "POST"
+  });
+
+  if (!response.ok) {
+    throw new Error(await readResponseError(response, "Member invite failed"));
+  }
+
+  return response.json() as Promise<ProjectShareMember>;
+}
+
+async function updateProjectMember(
+  projectId: string,
+  userId: string,
+  input: { role?: ShareRole; status?: "pending" | "accepted" | "rejected" }
+): Promise<ProjectShareMember> {
+  const response = await fetch(
+    `/api/v1/projects/${projectId}/members/${encodeURIComponent(userId)}`,
+    {
+      body: JSON.stringify(input),
+      credentials: "include",
+      headers: {
+        "content-type": "application/json"
+      },
+      method: "PATCH"
+    }
+  );
+
+  if (!response.ok) {
+    throw new Error(await readResponseError(response, "Member update failed"));
+  }
+
+  return response.json() as Promise<ProjectShareMember>;
 }
 
 async function appendProjectDeckPatch(
@@ -415,6 +496,12 @@ export function EditorShell(props: { projectId?: string }) {
   const [selectedKeywordId, setSelectedKeywordId] = useState<string | null>(null);
   const [selectedElementIds, setSelectedElementIds] = useState<string[]>([]);
   const [activeTopMenu, setActiveTopMenu] = useState<TopMenu | null>(null);
+  const [isSharePanelOpen, setIsSharePanelOpen] = useState(false);
+  const [shareAccessTab, setShareAccessTab] = useState<ShareAccessTab>("status");
+  const [shareInviteEmail, setShareInviteEmail] = useState("");
+  const [shareInviteRole, setShareInviteRole] = useState<ShareRole>("viewer");
+  const [shareActionError, setShareActionError] = useState("");
+  const [shareActionLabel, setShareActionLabel] = useState("");
   const [lastPatchLabel, setLastPatchLabel] = useState("편집 없음");
   const [insertTool, setInsertTool] = useState<InsertTool>("select");
   const [editingElementId, setEditingElementId] = useState<string | null>(null);
@@ -450,6 +537,12 @@ export function EditorShell(props: { projectId?: string }) {
     retry: false
   });
 
+  const shareQuery = useQuery({
+    queryKey: ["project-share", projectId],
+    queryFn: () => fetchProjectShareState(projectId),
+    retry: false
+  });
+
   const loadedDeck = deckQuery.data ?? fallbackDeck;
   const [deck, setDeck] = useState<Deck>(loadedDeck);
   const deckRef = useRef(loadedDeck);
@@ -461,6 +554,13 @@ export function EditorShell(props: { projectId?: string }) {
   const isUsingFallbackDeck = !deckQuery.data;
   const isDeckLoading = deckQuery.isPending;
   const isDeckError = deckQuery.isError;
+  const canManageProjectShare = shareQuery.data?.currentMember?.role === "owner";
+  const isShareButtonDisabled = shareQuery.isPending || !canManageProjectShare;
+  const shareButtonTitle = shareQuery.isPending
+    ? "공유 권한을 확인하는 중입니다."
+    : canManageProjectShare
+      ? "프로젝트 공유 설정"
+      : "프로젝트 owner만 공유 설정을 관리할 수 있습니다.";
   const hasSlides = deck.slides.length > 0;
   const currentSlide = deck.slides[currentSlideIndex] ?? deck.slides[0] ?? null;
   const saveStatusLabel = getEditorStatusLabel({
@@ -588,6 +688,78 @@ export function EditorShell(props: { projectId?: string }) {
     setLastPatchLabel(
       `${response.changeRecord.operations[0]?.type ?? "ai suggestion"} · v${response.deck.version}`
     );
+  }
+
+  async function handleShareInvite() {
+    const email = shareInviteEmail.trim();
+    if (!email) {
+      setShareActionError("추가할 사용자의 이메일을 입력하세요.");
+      return;
+    }
+
+    setShareActionError("");
+    setShareActionLabel("사용자를 추가하는 중...");
+    try {
+      await inviteProjectMember(projectId, email, shareInviteRole);
+      setShareInviteEmail("");
+      setShareActionLabel("사용자를 추가했습니다.");
+      await shareQuery.refetch();
+    } catch (error) {
+      setShareActionLabel("");
+      setShareActionError(toEditorErrorMessage(error));
+    }
+  }
+
+  async function handleShareRequestStatus(
+    userId: string,
+    status: "accepted" | "rejected",
+  ) {
+    setShareActionError("");
+    setShareActionLabel(status === "accepted" ? "요청을 승인하는 중..." : "요청을 거절하는 중...");
+    try {
+      await updateProjectMember(projectId, userId, { status });
+      setShareActionLabel(status === "accepted" ? "요청을 승인했습니다." : "요청을 거절했습니다.");
+      await shareQuery.refetch();
+    } catch (error) {
+      setShareActionLabel("");
+      setShareActionError(toEditorErrorMessage(error));
+    }
+  }
+
+  async function handleShareMemberRemoval(userId: string) {
+    setShareActionError("");
+    setShareActionLabel("권한을 회수하는 중...");
+    try {
+      await updateProjectMember(projectId, userId, { status: "rejected" });
+      setShareActionLabel("사용자 권한을 회수했습니다.");
+      await shareQuery.refetch();
+    } catch (error) {
+      setShareActionLabel("");
+      setShareActionError(toEditorErrorMessage(error));
+    }
+  }
+
+  async function handleShareMemberRoleChange(userId: string, role: ShareRole) {
+    if (
+      role === "owner" &&
+      !window.confirm(
+        "owner 권한을 넘기면 현재 owner는 editor로 변경됩니다. 계속 진행할까요?",
+      )
+    ) {
+      return;
+    }
+
+    setShareActionError("");
+    setShareActionLabel("권한을 수정하는 중...");
+    try {
+      await updateProjectMember(projectId, userId, { role });
+      setShareActionLabel("사용자 권한을 수정했습니다.");
+      await shareQuery.refetch();
+      setIsSharePanelOpen(false);
+    } catch (error) {
+      setShareActionLabel("");
+      setShareActionError(toEditorErrorMessage(error));
+    }
   }
 
   function commitPatch(patch: DeckPatch, baseDeck: Deck = deckRef.current) {
@@ -2145,17 +2317,17 @@ export function EditorShell(props: { projectId?: string }) {
                 <div className="file-menu-list">
                   {presentationItems.map(({ icon: Icon, label, meta }) => (
                     <button
-                    className="file-menu-item"
-                    key={label}
-                    role="menuitem"
-                    type="button"
-                    onClick={() => {
-                      if (label === presentationItems[2]?.label) {
-                        setActiveTopMenu(null);
-                        navigateToRehearsal(projectId);
-                      }
-                    }}
-                  >
+                      className="file-menu-item"
+                      key={label}
+                      role="menuitem"
+                      type="button"
+                      onClick={() => {
+                        if (label === "리허설 시작") {
+                          setActiveTopMenu(null);
+                          navigateToRehearsal(projectId);
+                        }
+                      }}
+                    >
                       <span className="file-menu-label">
                         <Icon size={16} />
                         {label}
@@ -2170,8 +2342,19 @@ export function EditorShell(props: { projectId?: string }) {
             ) : null}
           </div>
           <button
+            aria-expanded={isSharePanelOpen}
+            aria-haspopup="dialog"
             className="share-top-button"
+            disabled={isShareButtonDisabled}
+            title={shareButtonTitle}
             type="button"
+            onClick={() => {
+              if (isShareButtonDisabled) return;
+              setIsSharePanelOpen(true);
+              setActiveTopMenu(null);
+              setShareActionError("");
+              setShareActionLabel("");
+            }}
           >
             <Share2 size={15} />
             공유
@@ -2188,6 +2371,36 @@ export function EditorShell(props: { projectId?: string }) {
           </button>
         </div>
       </header>
+
+      {isSharePanelOpen
+        ? createPortal(
+            <ShareAccessModal
+              activeTab={shareAccessTab}
+              actionError={shareActionError}
+              actionLabel={shareActionLabel}
+              inviteEmail={shareInviteEmail}
+              inviteRole={shareInviteRole}
+              isLoading={shareQuery.isPending}
+              isError={shareQuery.isError}
+              members={shareQuery.data?.members ?? []}
+              requests={shareQuery.data?.requests ?? []}
+              onClose={() => setIsSharePanelOpen(false)}
+              onInvite={() => void handleShareInvite()}
+              onInviteEmailChange={setShareInviteEmail}
+              onInviteRoleChange={setShareInviteRole}
+              onMemberRemove={(userId) => void handleShareMemberRemoval(userId)}
+              onMemberRoleChange={(userId, role) =>
+                void handleShareMemberRoleChange(userId, role)
+              }
+              onRequestStatusChange={(userId, status) =>
+                void handleShareRequestStatus(userId, status)
+              }
+              onRetry={() => void shareQuery.refetch()}
+              onTabChange={setShareAccessTab}
+            />,
+            document.body,
+          )
+        : null}
 
       <section
         className={`editor-panel ${isRightPanelOpen ? "" : "right-panel-closed"} ${
@@ -2742,6 +2955,273 @@ export function EditorShell(props: { projectId?: string }) {
       {shapeMenuOverlay}
       {elementContextMenuOverlay}
     </>
+  );
+}
+
+function ShareAccessModal(props: {
+  activeTab: ShareAccessTab;
+  actionError: string;
+  actionLabel: string;
+  inviteEmail: string;
+  inviteRole: ShareRole;
+  isError: boolean;
+  isLoading: boolean;
+  members: ProjectShareMember[];
+  requests: ProjectShareMember[];
+  onClose: () => void;
+  onInvite: () => void;
+  onInviteEmailChange: (email: string) => void;
+  onInviteRoleChange: (role: ShareRole) => void;
+  onMemberRemove: (userId: string) => void;
+  onMemberRoleChange: (userId: string, role: ShareRole) => void;
+  onRequestStatusChange: (userId: string, status: "accepted" | "rejected") => void;
+  onRetry: () => void;
+  onTabChange: (tab: ShareAccessTab) => void;
+}) {
+  return (
+    <div className="share-modal-backdrop" role="presentation" onMouseDown={props.onClose}>
+      <section
+        className="share-access-modal"
+        role="dialog"
+        aria-label="프로젝트 공유"
+        aria-modal="true"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <header className="share-access-header">
+          <div>
+            <strong>공유</strong>
+            <span>프로젝트 접근 권한과 대기 중인 요청을 관리합니다.</span>
+          </div>
+          <button type="button" aria-label="공유 창 닫기" onClick={props.onClose}>
+            <X size={16} />
+          </button>
+        </header>
+
+        <div className="share-access-tabs" role="tablist" aria-label="공유 탭">
+          <button
+            className={props.activeTab === "status" ? "active" : ""}
+            type="button"
+            onClick={() => props.onTabChange("status")}
+          >
+            현황
+          </button>
+          <button
+            className={props.activeTab === "requests" ? "active" : ""}
+            type="button"
+            onClick={() => props.onTabChange("requests")}
+          >
+            요청
+          </button>
+        </div>
+
+        {props.isLoading ? (
+          <div className="share-empty-state">공유 정보를 불러오는 중입니다.</div>
+        ) : props.isError ? (
+          <div className="share-empty-state">
+            공유 정보를 불러오지 못했습니다.
+            <button type="button" onClick={props.onRetry}>
+              다시 시도
+            </button>
+          </div>
+        ) : props.activeTab === "status" ? (
+          <div className="share-access-panel">
+            <label className="share-invite-field">
+              <span>이메일</span>
+              <div>
+                <input
+                  type="email"
+                  placeholder="user@orbit.dev"
+                  value={props.inviteEmail}
+                  onChange={(event) => props.onInviteEmailChange(event.target.value)}
+                />
+                <select
+                  value={props.inviteRole}
+                  onChange={(event) => props.onInviteRoleChange(event.target.value as ShareRole)}
+                >
+                  <option value="viewer">viewer</option>
+                  <option value="editor">editor</option>
+                  <option value="owner">owner</option>
+                </select>
+                <button type="button" onClick={props.onInvite}>
+                  추가
+                </button>
+              </div>
+            </label>
+
+            <div className="share-access-list" aria-label="권한이 있는 사용자">
+              <div className="share-access-row member header">
+                <span>이메일</span>
+                <span>권한</span>
+                <span>처리</span>
+              </div>
+              {props.members.length > 0 ? (
+                props.members.map((member) => (
+                  <div className="share-access-row member" key={member.userId}>
+                    <span>{member.email ?? member.userId}</span>
+                    <select
+                      aria-label={`${member.email ?? member.userId} 권한 수정`}
+                      value={member.role}
+                      onChange={(event) =>
+                        props.onMemberRoleChange(member.userId, event.target.value as ShareRole)
+                      }
+                    >
+                      <option value="viewer">viewer</option>
+                      <option value="editor">editor</option>
+                      <option value="owner">owner</option>
+                    </select>
+                    <span className="share-request-actions">
+                      <button
+                        type="button"
+                        aria-label={`${member.email ?? member.userId} 권한 회수`}
+                        onClick={() => props.onMemberRemove(member.userId)}
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    </span>
+                  </div>
+                ))
+              ) : (
+                <div className="share-empty-row">권한이 있는 사용자가 없습니다.</div>
+              )}
+            </div>
+          </div>
+        ) : (
+          <div className="share-access-panel">
+            <div className="share-access-list" aria-label="권한 요청 목록">
+              <div className="share-access-row request header">
+                <span>요청자</span>
+                <span>요청 권한</span>
+                <span>처리</span>
+              </div>
+              {props.requests.length > 0 ? (
+                props.requests.map((request) => (
+                  <div className="share-access-row request" key={request.userId}>
+                    <span>{request.email ?? request.userId}</span>
+                    <strong>{request.role}</strong>
+                    <span className="share-request-actions">
+                      <button
+                        type="button"
+                        aria-label={`${request.email ?? request.userId} 요청 승인`}
+                        onClick={() => props.onRequestStatusChange(request.userId, "accepted")}
+                      >
+                        <Check size={16} />
+                      </button>
+                      <button
+                        type="button"
+                        aria-label={`${request.email ?? request.userId} 요청 거절`}
+                        onClick={() => props.onRequestStatusChange(request.userId, "rejected")}
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    </span>
+                  </div>
+                ))
+              ) : (
+                <div className="share-empty-row">대기 중인 요청이 없습니다.</div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {props.actionLabel ? <p className="share-action-message">{props.actionLabel}</p> : null}
+        {props.actionError ? <p className="share-action-message error">{props.actionError}</p> : null}
+      </section>
+    </div>
+  );
+}
+
+export function LegacyShareAccessPopover(props: {
+  activeTab: ShareAccessTab;
+  inviteEmail: string;
+  members: Array<{ email: string; role: ShareRole }>;
+  requests: Array<{ email: string; requestedRole: ShareRole }>;
+  onClose: () => void;
+  onInviteEmailChange: (email: string) => void;
+  onTabChange: (tab: ShareAccessTab) => void;
+}) {
+  return (
+    <section className="share-access-popover" role="dialog" aria-label="프로젝트 공유">
+      <header className="share-access-header">
+        <div>
+          <strong>공유</strong>
+          <span>프로젝트 접근 권한을 확인하고 요청을 관리합니다.</span>
+        </div>
+        <button type="button" aria-label="공유 창 닫기" onClick={props.onClose}>
+          <X size={16} />
+        </button>
+      </header>
+
+      <div className="share-access-tabs" role="tablist" aria-label="공유 탭">
+        <button
+          className={props.activeTab === "status" ? "active" : ""}
+          type="button"
+          onClick={() => props.onTabChange("status")}
+        >
+          현황
+        </button>
+        <button
+          className={props.activeTab === "requests" ? "active" : ""}
+          type="button"
+          onClick={() => props.onTabChange("requests")}
+        >
+          요청
+        </button>
+      </div>
+
+      {props.activeTab === "status" ? (
+        <div className="share-access-panel">
+          <label className="share-invite-field">
+            <span>이메일</span>
+            <div>
+              <input
+                type="email"
+                placeholder="user@orbit.dev"
+                value={props.inviteEmail}
+                onChange={(event) => props.onInviteEmailChange(event.target.value)}
+              />
+              <button type="button">추가</button>
+            </div>
+          </label>
+
+          <div className="share-access-list" aria-label="권한이 있는 사용자">
+            <div className="share-access-row header">
+              <span>이메일</span>
+              <span>권한</span>
+            </div>
+            {props.members.map((member) => (
+              <div className="share-access-row" key={member.email}>
+                <span>{member.email}</span>
+                <strong>{member.role}</strong>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : (
+        <div className="share-access-panel">
+          <div className="share-access-list" aria-label="권한 요청 목록">
+            <div className="share-access-row request header">
+              <span>요청자</span>
+              <span>요청 권한</span>
+              <span>처리</span>
+            </div>
+            {props.requests.map((request) => (
+              <div className="share-access-row request" key={request.email}>
+                <span>{request.email}</span>
+                <strong>{request.requestedRole}</strong>
+                <span className="share-request-actions">
+                  <button type="button" aria-label={`${request.email} 요청 승인`}>
+                    <Check size={16} />
+                  </button>
+                  <button type="button" aria-label={`${request.email} 요청 삭제`}>
+                    <Trash2 size={16} />
+                  </button>
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </section>
   );
 }
 

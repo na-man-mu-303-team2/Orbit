@@ -3,7 +3,8 @@
   type DeckElement,
   type GenerateDeckJobResult,
   type Job,
-  type Project
+  type Project,
+  type ProjectMember
 } from "@orbit/shared";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -11,6 +12,7 @@ import {
   Home,
   LayoutTemplate,
   LogIn,
+  LogOut,
   MessageSquareText,
   PanelLeftClose,
   PanelLeftOpen,
@@ -92,6 +94,7 @@ type Route =
   | { name: "upload" }
   | { name: "project-list" }
   | { name: "project-editor"; projectId: string }
+  | { name: "project-access-request"; projectId: string }
   | { name: "rehearsal"; projectId: string };
 
 type AuthUser = {
@@ -138,7 +141,29 @@ async function fetchCurrentUser(): Promise<AuthUser> {
   if (!response.ok) {
     throw new Error("Unauthenticated");
   }
-  return response.json() as Promise<AuthUser>;
+  const session = (await response.json()) as { user: AuthUser };
+  return session.user;
+}
+
+async function logoutCurrentUser(): Promise<void> {
+  const response = await fetch("/api/v1/auth/logout", {
+    credentials: "include",
+    method: "POST"
+  });
+  if (!response.ok) {
+    throw new Error(await readAuthError(response));
+  }
+}
+
+async function fetchProjectAccessRequest(projectId: string): Promise<ProjectMember | null> {
+  const response = await fetch(`/api/v1/projects/${projectId}/access-requests/me`, {
+    credentials: "include"
+  });
+  if (!response.ok) {
+    throw new Error("권한 요청 상태를 불러오지 못했습니다.");
+  }
+
+  return (await response.json()) as ProjectMember | null;
 }
 
 function getRoute(pathname = window.location.pathname): Route {
@@ -148,6 +173,14 @@ function getRoute(pathname = window.location.pathname): Route {
   if (normalized === "/createdeck") return { name: "create-deck" };
   if (normalized === "/upload") return { name: "upload" };
   if (normalized === "/project") return { name: "project-list" };
+
+  const projectAccessRequestMatch = normalized.match(/^\/project\/([^/]+)\/request-access$/);
+  if (projectAccessRequestMatch) {
+    return {
+      name: "project-access-request",
+      projectId: decodeURIComponent(projectAccessRequestMatch[1])
+    };
+  }
 
   const projectMatch = normalized.match(/^\/project\/([^/]+)$/);
   if (projectMatch) {
@@ -167,9 +200,16 @@ function navigateTo(path: string) {
   window.dispatchEvent(new PopStateEvent("popstate"));
 }
 
+function replaceRoute(path: string) {
+  window.history.replaceState({}, "", path);
+  window.dispatchEvent(new PopStateEvent("popstate"));
+}
+
 export function App() {
   const [route, setRoute] = useState(() => getRoute());
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
+  const queryClient = useQueryClient();
 
   useEffect(() => {
     const handleRouteChange = () => setRoute(getRoute());
@@ -184,19 +224,44 @@ export function App() {
   });
 
   useEffect(() => {
-    if (route.name === "home" && auth.isError) {
-      window.history.replaceState({}, "", "/login");
-      setRoute({ name: "login" });
+    if (route.name !== "login" && auth.isError) {
+      replaceRoute("/login");
     }
   }, [auth.isError, route.name]);
+
+  useEffect(() => {
+    if (route.name === "login" && auth.data && !isLoggingOut) {
+      replaceRoute("/");
+    }
+  }, [auth.data, isLoggingOut, route.name]);
+
+  async function handleLogout() {
+    if (isLoggingOut) return;
+
+    setIsLoggingOut(true);
+    try {
+      await logoutCurrentUser();
+      queryClient.removeQueries({ queryKey: ["auth", "me"] });
+      replaceRoute("/login");
+    } finally {
+      setIsLoggingOut(false);
+    }
+  }
+
+  const isProtectedRoute = route.name !== "login";
+  const shouldBlockProtectedRoute =
+    isProtectedRoute && (auth.isPending || auth.isError || !auth.data);
 
   return (
     <AppFrame
       isSidebarCollapsed={isSidebarCollapsed}
+      isLoggingOut={isLoggingOut}
       route={route}
+      user={auth.data}
+      onLogout={() => void handleLogout()}
       onToggleSidebar={() => setIsSidebarCollapsed((current) => !current)}
     >
-      {renderRoute(route, auth.data)}
+      {shouldBlockProtectedRoute ? <EditorLoadingFallback /> : renderRoute(route, auth.data)}
     </AppFrame>
   );
 }
@@ -206,6 +271,9 @@ function renderRoute(route: Route, user?: AuthUser) {
   if (route.name === "create-deck") return <GenerateDeckView />;
   if (route.name === "upload") return <ProjectAssetWorkspace />;
   if (route.name === "project-list") return <ProjectListPage />;
+  if (route.name === "project-access-request") {
+    return <ProjectAccessRequestPage projectId={route.projectId} />;
+  }
   if (route.name === "project-editor") {
     return (
       <Suspense fallback={<EditorLoadingFallback />}>
@@ -227,10 +295,21 @@ function renderRoute(route: Route, user?: AuthUser) {
 function AppFrame(props: {
   children: ReactNode;
   isSidebarCollapsed: boolean;
+  isLoggingOut: boolean;
   route: Route;
+  user?: AuthUser;
+  onLogout: () => void;
   onToggleSidebar: () => void;
 }) {
-  const { children, isSidebarCollapsed, route, onToggleSidebar } = props;
+  const {
+    children,
+    isSidebarCollapsed,
+    isLoggingOut,
+    route,
+    user,
+    onLogout,
+    onToggleSidebar
+  } = props;
   const activeProjectId =
     route.name === "project-editor" || route.name === "rehearsal"
       ? route.projectId
@@ -278,10 +357,31 @@ function AppFrame(props: {
             onClick={() => navigateTo(`/rehearsal/${activeProjectId}`)}
           />
         </nav>
-        <button className="sidebar-login" type="button" onClick={() => navigateTo("/login")}>
-          <LogIn size={18} />
-          <span>로그인</span>
-        </button>
+        {user ? (
+          <div className="sidebar-account">
+            <div className="sidebar-profile">
+              <span className="sidebar-avatar">유</span>
+              <span className="sidebar-user-text">
+                <strong>{user.displayName ?? user.email?.split("@")[0] ?? "사용자"}</strong>
+                {user.email ? <small>{user.email}</small> : null}
+              </span>
+            </div>
+            <button
+              className="sidebar-login"
+              type="button"
+              disabled={isLoggingOut}
+              onClick={onLogout}
+            >
+              <LogOut size={18} />
+              <span>{isLoggingOut ? "로그아웃 중..." : "로그아웃"}</span>
+            </button>
+          </div>
+        ) : (
+          <button className="sidebar-login" type="button" onClick={() => navigateTo("/login")}>
+            <LogIn size={18} />
+            <span>로그인</span>
+          </button>
+        )}
       </aside>
       <section className="orbit-page">{children}</section>
     </main>
@@ -410,6 +510,166 @@ function LoginPage() {
               ? "계정 만들기"
               : "로그인"}
         </button>
+      </form>
+    </section>
+  );
+}
+
+function ProjectAccessRequestPage(props: { projectId: string }) {
+  const [requestedRole, setRequestedRole] = useState<"editor" | "viewer">("viewer");
+  const [error, setError] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const accessRequest = useQuery({
+    queryKey: ["projects", props.projectId, "access-request", "me"],
+    queryFn: () => fetchProjectAccessRequest(props.projectId),
+    retry: false
+  });
+  const roles: Array<{
+    label: string;
+    value: "editor" | "viewer";
+    description: string;
+  }> = [
+    {
+      label: "editor",
+      value: "editor",
+      description: "슬라이드와 자료를 수정할 수 있는 편집 권한"
+    },
+    {
+      label: "viewer",
+      value: "viewer",
+      description: "프로젝트 내용을 확인할 수 있는 보기 권한"
+    }
+  ];
+  const pendingRequest =
+    accessRequest.data?.status === "pending" ? accessRequest.data : null;
+  const acceptedRequest =
+    accessRequest.data?.status === "accepted" ? accessRequest.data : null;
+
+  if (accessRequest.isPending) {
+    return (
+      <section className="access-request-page">
+        <div className="access-request-card">
+          <header>
+            <span>요청 상태 확인 중</span>
+            <h1>권한 요청 상태를 불러오고 있습니다</h1>
+            <p>{props.projectId}</p>
+          </header>
+        </div>
+      </section>
+    );
+  }
+
+  if (pendingRequest) {
+    return (
+      <section className="access-request-page">
+        <div className="access-request-card access-request-wait-card">
+          <header>
+            <span>요청 검토 중</span>
+            <h1>권한 요청을 보냈습니다</h1>
+            <p>{props.projectId}</p>
+          </header>
+          <div className="access-request-wait-state">
+            <strong>{pendingRequest.role} 권한 요청이 대기 중입니다.</strong>
+            <span>
+              프로젝트 관리자가 요청을 승인하면 바로 이 프로젝트에 접근할 수 있습니다.
+            </span>
+          </div>
+          <button type="button" onClick={() => navigateTo("/project")}>
+            프로젝트 목록으로
+          </button>
+        </div>
+      </section>
+    );
+  }
+
+  if (acceptedRequest) {
+    return (
+      <section className="access-request-page">
+        <div className="access-request-card access-request-wait-card">
+          <header>
+            <span>접근 가능</span>
+            <h1>이미 프로젝트 권한이 있습니다</h1>
+            <p>{props.projectId}</p>
+          </header>
+          <button type="button" onClick={() => navigateTo(`/project/${props.projectId}`)}>
+            프로젝트로 이동
+          </button>
+        </div>
+      </section>
+    );
+  }
+
+  return (
+    <section className="access-request-page">
+      <form
+        className="access-request-card"
+        onSubmit={async (event) => {
+          event.preventDefault();
+          if (isSubmitting) return;
+
+          setError("");
+          setIsSubmitting(true);
+          try {
+            const response = await fetch(
+              `/api/v1/projects/${props.projectId}/access-requests`,
+              {
+                body: JSON.stringify({ role: requestedRole }),
+                credentials: "include",
+                headers: {
+                  "Content-Type": "application/json"
+                },
+                method: "POST"
+              }
+            );
+
+            if (!response.ok) {
+              throw new Error((await response.text()) || "권한 요청에 실패했습니다.");
+            }
+
+            await accessRequest.refetch();
+          } catch (cause) {
+            setError(
+              cause instanceof Error ? cause.message : "권한 요청에 실패했습니다."
+            );
+          } finally {
+            setIsSubmitting(false);
+          }
+        }}
+      >
+        <header>
+          <span>접근 권한 필요</span>
+          <h1>프로젝트 권한을 요청하세요</h1>
+          <p>{props.projectId}</p>
+        </header>
+
+        <div className="access-role-list" aria-label="요청할 권한">
+          {roles.map((role) => (
+            <label
+              className={requestedRole === role.value ? "selected" : ""}
+              key={role.value}
+            >
+              <input
+                checked={requestedRole === role.value}
+                type="checkbox"
+                onChange={() => setRequestedRole(role.value)}
+              />
+              <span>
+                <strong>{role.label}</strong>
+                <small>{role.description}</small>
+              </span>
+            </label>
+          ))}
+        </div>
+
+        <button type="submit" disabled={isSubmitting}>
+          {isSubmitting ? "요청 중..." : "요청하기"}
+        </button>
+        {error ? <p className="access-request-error">{error}</p> : null}
+        {accessRequest.isError ? (
+          <p className="access-request-error">
+            권한 요청 상태를 확인하지 못했습니다. 다시 요청할 수 있습니다.
+          </p>
+        ) : null}
       </form>
     </section>
   );

@@ -338,11 +338,17 @@
 .top-actions {
   justify-content: flex-end;
   flex: 1 1 0;
+  position: relative;
 }
 
 .top-action-menu {
   position: relative;
   display: inline-flex;
+}
+
+.share-action-menu {
+  display: inline-flex;
+  position: relative;
 }
 
 .header-chip-button,
@@ -388,6 +394,255 @@
   background: var(--blue-strong);
   border-color: var(--blue-strong);
   color: #fff;
+}
+
+.share-top-button:disabled,
+.share-top-button:disabled:hover {
+  background: #e2e8f0;
+  border-color: #cbd5e1;
+  color: #64748b;
+}
+
+.share-access-popover {
+  background: #ffffff;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  box-shadow: var(--shadow);
+  color: var(--ink);
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+  position: absolute;
+  right: 48px;
+  top: 48px;
+  width: min(420px, calc(100vw - 32px));
+  z-index: 60;
+}
+
+.share-modal-backdrop {
+  align-items: center;
+  background: rgba(15, 23, 42, 0.58);
+  display: flex;
+  inset: 0;
+  justify-content: center;
+  padding: 24px;
+  position: fixed;
+  z-index: 1000;
+}
+
+.share-access-modal {
+  background: #ffffff;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  box-shadow: 0 28px 80px rgba(15, 23, 42, 0.28);
+  color: var(--ink);
+  display: grid;
+  gap: 16px;
+  max-height: min(760px, calc(100vh - 48px));
+  overflow: auto;
+  padding: 20px;
+  width: min(620px, calc(100vw - 48px));
+}
+
+.share-access-header {
+  align-items: start;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+}
+
+.share-access-header div {
+  display: grid;
+  gap: 4px;
+}
+
+.share-access-header strong {
+  color: var(--ink);
+  font-size: 1rem;
+}
+
+.share-access-header span {
+  color: var(--muted);
+  font-size: 0.82rem;
+  line-height: 1.4;
+}
+
+.share-access-header button,
+.share-request-actions button {
+  align-items: center;
+  background: #f8fafc;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: #334155;
+  display: inline-flex;
+  height: 32px;
+  justify-content: center;
+  padding: 0;
+  width: 32px;
+}
+
+.share-access-tabs {
+  background: #f1f5f9;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  display: grid;
+  gap: 4px;
+  grid-template-columns: 1fr 1fr;
+  padding: 4px;
+}
+
+.share-access-tabs button {
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  color: #475569;
+  font-weight: 800;
+  min-height: 34px;
+}
+
+.share-access-tabs button.active {
+  background: #ffffff;
+  box-shadow: 0 6px 16px rgba(15, 23, 42, 0.08);
+  color: var(--blue);
+}
+
+.share-access-panel,
+.share-invite-field {
+  display: grid;
+  gap: 12px;
+}
+
+.share-invite-field span {
+  color: #334155;
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
+.share-invite-field div {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: minmax(0, 1fr) 112px auto;
+}
+
+.share-invite-field input,
+.share-invite-field select,
+.share-access-row select {
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  min-height: 38px;
+  min-width: 0;
+  padding: 0 10px;
+}
+
+.share-invite-field select,
+.share-access-row select {
+  background: #ffffff;
+}
+
+.share-invite-field button {
+  background: var(--blue);
+  border: 0;
+  border-radius: 8px;
+  color: #ffffff;
+  font-weight: 800;
+  padding: 0 14px;
+}
+
+.share-access-list {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  display: grid;
+  overflow: hidden;
+}
+
+.share-access-row {
+  align-items: center;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: minmax(0, 1fr) 92px;
+  min-height: 42px;
+  padding: 0 12px;
+}
+
+.share-access-row + .share-access-row {
+  border-top: 1px solid var(--line);
+}
+
+.share-access-row.header {
+  background: #f8fafc;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.share-access-row span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.share-access-row strong {
+  color: #0f766e;
+  font-size: 0.82rem;
+}
+
+.share-access-row.request {
+  grid-template-columns: minmax(0, 1fr) 88px 78px;
+}
+
+.share-access-row.member {
+  grid-template-columns: minmax(0, 1fr) 92px 48px;
+}
+
+.share-request-actions {
+  display: inline-flex;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
+.share-empty-state,
+.share-empty-row {
+  color: var(--muted);
+  font-size: 0.88rem;
+  line-height: 1.5;
+  padding: 16px;
+}
+
+.share-empty-state {
+  align-items: center;
+  border: 1px dashed var(--line-strong);
+  border-radius: 10px;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+}
+
+.share-empty-state button {
+  background: var(--blue);
+  border: 0;
+  border-radius: 8px;
+  color: #ffffff;
+  font-weight: 800;
+  min-height: 34px;
+  padding: 0 12px;
+}
+
+.share-action-message {
+  background: #ecfdf5;
+  border: 1px solid #bbf7d0;
+  border-radius: 8px;
+  color: #047857;
+  font-size: 0.86rem;
+  font-weight: 800;
+  margin: 0;
+  padding: 10px 12px;
+}
+
+.share-action-message.error {
+  background: #fff1f2;
+  border-color: #fecdd3;
+  color: #be123c;
 }
 
 .refresh-top-button {
