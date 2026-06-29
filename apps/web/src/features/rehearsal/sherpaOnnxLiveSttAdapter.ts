@@ -7,6 +7,7 @@ import {
   type LiveSttAdapter,
   type LiveSttCallbacks
 } from "./liveStt";
+import { calculatePcmAudioLevel } from "./liveSttAudioLevel";
 import {
   defaultSherpaOnnxManifestUrl,
   loadSherpaOnnxModelManifest,
@@ -16,7 +17,12 @@ import pcmCaptureWorkletUrl from "./liveSttPcmCapture.worklet.js?url&no-inline";
 
 type SherpaWorkerInboundMessage =
   | { type: "load"; manifest: ResolvedSherpaOnnxModelManifest }
-  | { type: "start"; sessionId: string }
+  | {
+      type: "start";
+      sessionId: string;
+      decodeBatchSamples: number;
+      debugStatsEnabled: boolean;
+    }
   | {
       type: "audio-frame";
       sessionId: string;
@@ -36,6 +42,11 @@ type SherpaWorkerOutboundMessage =
       isFinal: boolean;
       confidence: number | null;
     }
+  | {
+      type: "debug-stats";
+      sessionId: string;
+      stats: SherpaWorkerDebugStats;
+    }
   | { type: "stopped"; sessionId: string }
   | {
       type: "error";
@@ -43,6 +54,36 @@ type SherpaWorkerOutboundMessage =
       message: string;
       sessionId?: string;
     };
+
+type SherpaWorkerDebugStats = {
+  decodedBatches: number;
+  acceptedSamples: number;
+  batchSamples: number;
+  acceptMs: number;
+  decodeMs: number;
+  decodeLoops: number;
+  readyAfterLoopCap: boolean;
+  endpoint: boolean;
+  resultChanged: boolean;
+  resultLength: number;
+  audioMaxAbs: number;
+  audioRms: number;
+};
+
+const liveSttWorkerDebugFields: ReadonlyArray<keyof SherpaWorkerDebugStats> = [
+  "decodedBatches",
+  "acceptedSamples",
+  "batchSamples",
+  "acceptMs",
+  "decodeMs",
+  "decodeLoops",
+  "readyAfterLoopCap",
+  "endpoint",
+  "resultChanged",
+  "resultLength",
+  "audioMaxAbs",
+  "audioRms"
+];
 
 type SherpaWorker = Pick<Worker, "postMessage" | "terminate"> & {
   onmessage: ((event: MessageEvent<SherpaWorkerOutboundMessage>) => void) | null;
@@ -85,15 +126,20 @@ type PendingWorkerRequest = {
 
 type PendingRequestKey = "load" | `start:${string}`;
 type LiveSttLatencyDebugState = {
-  frameSize: number;
+  captureFrameSize: number;
   sourceSampleRate: number;
   targetSampleRate: number;
+  decodeBatchSamples: number;
+  decodeBatchDurationMs: number;
   lastCallbackAtMs: number | null;
+  lastAudioLevelAtMs: number | null;
 };
 
 const liveSttLatencyDebugStorageKey = "orbit.liveStt.debugLatency";
 const liveSttWorkerTimeoutMs = 30_000;
-const defaultAudioWorkletFrameSize = 4096;
+const defaultAudioWorkletFrameSize = 512;
+const defaultDecodeBatchDurationMs = 128;
+const audioLevelUpdateIntervalMs = 250;
 const pcmCaptureWorkletProcessorName = "orbit-live-stt-pcm-capture";
 
 export class SherpaOnnxLiveSttAdapter implements LiveSttAdapter {
@@ -114,6 +160,7 @@ export class SherpaOnnxLiveSttAdapter implements LiveSttAdapter {
       createAudioContext?: AudioContextFactory;
       createAudioWorkletNode?: AudioWorkletNodeFactory;
       bufferSize?: number;
+      decodeBatchDurationMs?: number;
     } = {}
   ) {}
 
@@ -134,9 +181,32 @@ export class SherpaOnnxLiveSttAdapter implements LiveSttAdapter {
       const sessionId = `live_stt_${Date.now()}_${Math.random()
         .toString(36)
         .slice(2)}`;
+      const decodeBatchDurationMs = normalizeDecodeBatchDurationMs(
+        this.options.decodeBatchDurationMs
+      );
+      const decodeBatchSamples = durationMsToSamples(
+        decodeBatchDurationMs,
+        manifest.sampleRate
+      );
       this.sessionId = sessionId;
-      await this.requestWorker(worker, { type: "start", sessionId }, `start:${sessionId}`);
-      this.capture = await this.startAudioCapture(stream, manifest, sessionId, worker);
+      await this.requestWorker(
+        worker,
+        {
+          type: "start",
+          sessionId,
+          decodeBatchSamples,
+          debugStatsEnabled: isLiveSttLatencyDebugEnabled()
+        },
+        `start:${sessionId}`
+      );
+      this.capture = await this.startAudioCapture(
+        stream,
+        manifest,
+        sessionId,
+        worker,
+        decodeBatchSamples,
+        decodeBatchDurationMs
+      );
     } catch (error) {
       this.stop();
       throw toLiveSttAdapterError(error);
@@ -221,7 +291,9 @@ export class SherpaOnnxLiveSttAdapter implements LiveSttAdapter {
     stream: MediaStream,
     manifest: ResolvedSherpaOnnxModelManifest,
     sessionId: string,
-    worker: SherpaWorker
+    worker: SherpaWorker,
+    decodeBatchSamples: number,
+    decodeBatchDurationMs: number
   ) {
     const context = await this.createAudioContext(manifest);
 
@@ -230,16 +302,24 @@ export class SherpaOnnxLiveSttAdapter implements LiveSttAdapter {
 
       const frameSize = this.options.bufferSize ?? defaultAudioWorkletFrameSize;
       this.latencyDebugState = {
-        frameSize,
+        captureFrameSize: frameSize,
         sourceSampleRate: context.sampleRate,
         targetSampleRate: manifest.sampleRate,
-        lastCallbackAtMs: null
+        decodeBatchSamples,
+        decodeBatchDurationMs,
+        lastCallbackAtMs: null,
+        lastAudioLevelAtMs: null
       };
       logLiveSttLatencyDebug("capture-start", {
-        frameSize,
+        captureFrameSize: frameSize,
         sourceSampleRate: context.sampleRate,
         targetSampleRate: manifest.sampleRate,
-        frameDurationMs: frameSizeToDurationMs(frameSize, context.sampleRate)
+        captureFrameDurationMs: frameSizeToDurationMs(
+          frameSize,
+          context.sampleRate
+        ),
+        decodeBatchSamples,
+        decodeBatchDurationMs
       });
 
       const source = context.createMediaStreamSource(stream);
@@ -406,8 +486,10 @@ export class SherpaOnnxLiveSttAdapter implements LiveSttAdapter {
     const sourceSampleRate = Number.isFinite(message.sampleRate)
       ? message.sampleRate
       : context.sampleRate;
+    const inputSamples = toFloat32Array(message.samples);
+    this.publishAudioLevel(inputSamples);
     const samples = resampleFloat32Audio(
-      toFloat32Array(message.samples),
+      inputSamples,
       sourceSampleRate,
       manifest.sampleRate
     );
@@ -470,6 +552,15 @@ export class SherpaOnnxLiveSttAdapter implements LiveSttAdapter {
       return;
     }
 
+    if (message.type === "debug-stats") {
+      if (message.sessionId !== this.sessionId) {
+        return;
+      }
+
+      logLiveSttWorkerDebug(message.stats);
+      return;
+    }
+
     if (message.type === "partial" || message.type === "final") {
       if (message.sessionId !== this.sessionId) {
         return;
@@ -520,15 +611,43 @@ export class SherpaOnnxLiveSttAdapter implements LiveSttAdapter {
     state.lastCallbackAtMs = now;
 
     logLiveSttLatencyDebug("partial-callback", {
-      frameSize: state.frameSize,
+      captureFrameSize: state.captureFrameSize,
       sourceSampleRate: state.sourceSampleRate,
       targetSampleRate: state.targetSampleRate,
-      frameDurationMs: frameSizeToDurationMs(
-        state.frameSize,
+      captureFrameDurationMs: frameSizeToDurationMs(
+        state.captureFrameSize,
         state.sourceSampleRate
       ),
+      decodeBatchSamples: state.decodeBatchSamples,
+      decodeBatchDurationMs: state.decodeBatchDurationMs,
       callbackIntervalMs,
       isFinal: isFinal ? 1 : 0
+    });
+  }
+
+  private publishAudioLevel(samples: Float32Array) {
+    const state = this.latencyDebugState;
+    if (!state) {
+      return;
+    }
+
+    const now = Date.now();
+    if (
+      state.lastAudioLevelAtMs !== null &&
+      now - state.lastAudioLevelAtMs < audioLevelUpdateIntervalMs
+    ) {
+      return;
+    }
+    state.lastAudioLevelAtMs = now;
+
+    const level = calculatePcmAudioLevel(samples);
+    this.callbacks?.onAudioLevel?.(level);
+    logLiveSttLatencyDebug("audio-level", {
+      rms: level.rms,
+      peak: level.peak,
+      rmsDb: level.rmsDb,
+      peakDb: level.peakDb,
+      isLikelySilence: level.isLikelySilence ? 1 : 0
     });
   }
 }
@@ -567,6 +686,28 @@ function logLiveSttLatencyDebug(event: string, metrics: Record<string, number>) 
   console.debug(`[orbit-live-stt-latency] ${event}`, metrics);
 }
 
+function logLiveSttWorkerDebug(stats: SherpaWorkerDebugStats) {
+  if (!isLiveSttLatencyDebugEnabled()) {
+    return;
+  }
+
+  const payload: Record<string, number | boolean> = {};
+  for (const field of liveSttWorkerDebugFields) {
+    const value = stats[field];
+    payload[field] = typeof value === "number" ? roundLiveSttDebugValue(value) : value;
+  }
+
+  console.debug(`[orbit-live-stt-worker] ${JSON.stringify(payload)}`);
+}
+
+function roundLiveSttDebugValue(value: number) {
+  if (Number.isInteger(value)) {
+    return value;
+  }
+
+  return Math.round(value * 1000) / 1000;
+}
+
 function isLiveSttLatencyDebugEnabled() {
   if (typeof window === "undefined") {
     return false;
@@ -585,6 +726,22 @@ function frameSizeToDurationMs(frameSize: number, sampleRate: number) {
   }
 
   return Math.round((frameSize / sampleRate) * 1000);
+}
+
+function normalizeDecodeBatchDurationMs(value: number | undefined) {
+  if (!Number.isFinite(value) || !value || value <= 0) {
+    return defaultDecodeBatchDurationMs;
+  }
+
+  return Math.max(1, Math.round(value));
+}
+
+function durationMsToSamples(durationMs: number, sampleRate: number) {
+  if (!Number.isFinite(sampleRate) || sampleRate <= 0) {
+    return 1;
+  }
+
+  return Math.max(1, Math.round((sampleRate * durationMs) / 1000));
 }
 
 export function resampleFloat32Audio(

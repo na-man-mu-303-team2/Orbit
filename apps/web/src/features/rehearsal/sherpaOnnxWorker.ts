@@ -1,3 +1,8 @@
+import {
+  SherpaAudioFrameBatcher,
+  type SherpaAudioFrameBatch
+} from "./sherpaOnnxAudioBatch";
+
 type WorkerManifest = {
   modelId: string;
   version: string;
@@ -22,7 +27,12 @@ type WorkerManifest = {
 
 type WorkerInboundMessage =
   | { type: "load"; manifest: WorkerManifest }
-  | { type: "start"; sessionId: string }
+  | {
+      type: "start";
+      sessionId: string;
+      decodeBatchSamples: number;
+      debugStatsEnabled: boolean;
+    }
   | {
       type: "audio-frame";
       sessionId: string;
@@ -49,6 +59,11 @@ type WorkerOutboundMessage =
       isFinal: true;
       confidence: number | null;
     }
+  | {
+      type: "debug-stats";
+      sessionId: string;
+      stats: WorkerDebugStats;
+    }
   | { type: "stopped"; sessionId: string }
   | {
       type: "error";
@@ -59,6 +74,24 @@ type WorkerOutboundMessage =
 
 type SherpaRecognizer = Record<string, unknown>;
 type SherpaStream = Record<string, unknown>;
+type DecodeStreamStats = {
+  loops: number;
+  readyAfterLoopCap: boolean;
+};
+type WorkerDebugStats = {
+  decodedBatches: number;
+  acceptedSamples: number;
+  batchSamples: number;
+  acceptMs: number;
+  decodeMs: number;
+  decodeLoops: number;
+  readyAfterLoopCap: boolean;
+  endpoint: boolean;
+  resultChanged: boolean;
+  resultLength: number;
+  audioMaxAbs: number;
+  audioRms: number;
+};
 type SherpaModule = Record<string, unknown> & {
   calledRun?: boolean;
   mainScriptUrlOrBlob?: string;
@@ -85,6 +118,10 @@ let recognizer: SherpaRecognizer | null = null;
 let stream: SherpaStream | null = null;
 let activeSessionId: string | null = null;
 let latestText = "";
+let audioBatcher: SherpaAudioFrameBatcher | null = null;
+let decodedBatches = 0;
+let acceptedSamples = 0;
+let shouldPostDebugStats = false;
 
 const fsModelPaths = {
   encoder: "/orbit-live-stt-encoder.onnx",
@@ -110,10 +147,14 @@ async function handleMessage(message: WorkerInboundMessage) {
         });
         return;
       case "start":
-        startSession(message.sessionId);
+        startSession(
+          message.sessionId,
+          message.decodeBatchSamples,
+          message.debugStatsEnabled
+        );
         return;
       case "audio-frame":
-        decodeAudioFrame(message);
+        queueAudioFrame(message);
         return;
       case "stop":
         stopSession(message.sessionId);
@@ -145,19 +186,27 @@ async function loadRecognizer(nextManifest: WorkerManifest) {
   recognizer = createRecognizer(nextModule, nextManifest);
 }
 
-function startSession(sessionId: string) {
+function startSession(
+  sessionId: string,
+  decodeBatchSamples: number,
+  debugStatsEnabled: boolean
+) {
   if (!recognizer) {
     throw new Error("Live STT recognizer has not been loaded.");
   }
 
   activeSessionId = sessionId;
   latestText = "";
+  decodedBatches = 0;
+  acceptedSamples = 0;
+  shouldPostDebugStats = debugStatsEnabled;
+  audioBatcher = new SherpaAudioFrameBatcher(decodeBatchSamples);
   stream = createRecognizerStream(recognizer);
   post({ type: "started", sessionId });
 }
 
-function decodeAudioFrame(message: Extract<WorkerInboundMessage, { type: "audio-frame" }>) {
-  if (!recognizer || !stream || activeSessionId !== message.sessionId) {
+function queueAudioFrame(message: Extract<WorkerInboundMessage, { type: "audio-frame" }>) {
+  if (!recognizer || !stream || !audioBatcher || activeSessionId !== message.sessionId) {
     return;
   }
 
@@ -165,29 +214,79 @@ function decodeAudioFrame(message: Extract<WorkerInboundMessage, { type: "audio-
     message.samples instanceof Float32Array
       ? message.samples
       : new Float32Array(message.samples);
-  acceptWaveform(recognizer, stream, message.sampleRate, samples);
-  decodeStream(recognizer, stream);
+  const batch = audioBatcher.push({
+    sampleRate: message.sampleRate,
+    samples
+  });
+
+  if (!batch) {
+    return;
+  }
+
+  decodeAudioBatch(message.sessionId, batch);
+}
+
+function decodeAudioBatch(sessionId: string, batch: SherpaAudioFrameBatch) {
+  if (!recognizer || !stream || activeSessionId !== sessionId) {
+    return;
+  }
+
+  const acceptStart = performance.now();
+  for (const frame of batch.frames) {
+    acceptWaveform(recognizer, stream, frame.sampleRate, frame.samples);
+  }
+  const acceptEnd = performance.now();
+  const decodeStats = decodeStream(recognizer, stream);
+  const decodeEnd = performance.now();
 
   const result = readRecognizerResult(recognizer, stream);
-  if (result.text && result.text !== latestText) {
+  const resultChanged = Boolean(result.text && result.text !== latestText);
+  const endpoint = isEndpoint(recognizer, stream);
+  decodedBatches += 1;
+  acceptedSamples += batch.sampleCount;
+  if (shouldPostDebugStats) {
+    const amplitude = measureBatchAmplitude(batch);
+    post({
+      type: "debug-stats",
+      sessionId,
+      stats: {
+        decodedBatches,
+        acceptedSamples,
+        batchSamples: batch.sampleCount,
+        acceptMs: acceptEnd - acceptStart,
+        decodeMs: decodeEnd - acceptEnd,
+        decodeLoops: decodeStats.loops,
+        readyAfterLoopCap: decodeStats.readyAfterLoopCap,
+        endpoint,
+        resultChanged,
+        resultLength: result.text.length,
+        audioMaxAbs: amplitude.maxAbs,
+        audioRms: amplitude.rms
+      }
+    });
+  }
+
+  if (resultChanged) {
     latestText = result.text;
     post({
       type: "partial",
-      sessionId: message.sessionId,
+      sessionId,
       transcript: result.text,
       isFinal: false,
       confidence: result.confidence
     });
   }
 
-  if (isEndpoint(recognizer, stream) && latestText) {
-    post({
-      type: "final",
-      sessionId: message.sessionId,
-      transcript: latestText,
-      isFinal: true,
-      confidence: result.confidence
-    });
+  if (endpoint) {
+    if (latestText) {
+      post({
+        type: "final",
+        sessionId,
+        transcript: latestText,
+        isFinal: true,
+        confidence: result.confidence
+      });
+    }
     resetStream(recognizer, stream);
     latestText = "";
   }
@@ -196,6 +295,11 @@ function decodeAudioFrame(message: Extract<WorkerInboundMessage, { type: "audio-
 function stopSession(sessionId: string) {
   if (activeSessionId !== sessionId) {
     return;
+  }
+
+  const pendingBatch = audioBatcher?.flush();
+  if (pendingBatch) {
+    decodeAudioBatch(sessionId, pendingBatch);
   }
 
   const result = recognizer && stream ? finishStream(recognizer, stream) : null;
@@ -217,10 +321,15 @@ function stopSession(sessionId: string) {
   stream = null;
   activeSessionId = null;
   latestText = "";
+  audioBatcher = null;
+  decodedBatches = 0;
+  acceptedSamples = 0;
+  shouldPostDebugStats = false;
   post({ type: "stopped", sessionId });
 }
 
 function disposeRecognizer() {
+  audioBatcher?.reset();
   if (stream) {
     freeResource(stream);
   }
@@ -233,6 +342,10 @@ function disposeRecognizer() {
   recognizer = null;
   activeSessionId = null;
   latestText = "";
+  audioBatcher = null;
+  decodedBatches = 0;
+  acceptedSamples = 0;
+  shouldPostDebugStats = false;
   workerScope.close();
 }
 
@@ -299,7 +412,7 @@ function createRecognizer(runtimeModule: SherpaModule, nextManifest: WorkerManif
       tokens: fsModelPaths.tokens,
       numThreads: nextManifest.numThreads ?? 1,
       provider: "cpu",
-      debug: false,
+      debug: true,
       modelingUnit: nextManifest.model.bpeVocab ? "bpe" : "cjkchar",
       bpeVocab: nextManifest.model.bpeVocab ? fsModelPaths.bpeVocab : ""
     },
@@ -419,7 +532,10 @@ function acceptWaveform(
   }
 }
 
-function decodeStream(nextRecognizer: SherpaRecognizer, nextStream: SherpaStream) {
+function decodeStream(
+  nextRecognizer: SherpaRecognizer,
+  nextStream: SherpaStream
+): DecodeStreamStats {
   const decode = asFunction(nextRecognizer.decode);
   if (!decode) {
     throw new Error("sherpa-onnx recognizer does not expose decode.");
@@ -428,7 +544,7 @@ function decodeStream(nextRecognizer: SherpaRecognizer, nextStream: SherpaStream
   const isReady = asFunction(nextRecognizer.isReady);
   if (!isReady) {
     decode.call(nextRecognizer, nextStream);
-    return;
+    return { loops: 1, readyAfterLoopCap: false };
   }
 
   let loops = 0;
@@ -436,6 +552,11 @@ function decodeStream(nextRecognizer: SherpaRecognizer, nextStream: SherpaStream
     decode.call(nextRecognizer, nextStream);
     loops += 1;
   }
+
+  return {
+    loops,
+    readyAfterLoopCap: Boolean(isReady.call(nextRecognizer, nextStream))
+  };
 }
 
 function finishStream(nextRecognizer: SherpaRecognizer, nextStream: SherpaStream) {
@@ -528,6 +649,29 @@ function requireRecord(value: unknown, label: string) {
 
 function readStringResult(value: unknown) {
   return typeof value === "string" ? value : null;
+}
+
+function measureBatchAmplitude(batch: SherpaAudioFrameBatch) {
+  let maxAbs = 0;
+  let sumSquares = 0;
+  let count = 0;
+  for (const frame of batch.frames) {
+    const samples = frame.samples;
+    for (let index = 0; index < samples.length; index += 1) {
+      const value = samples[index]!;
+      const abs = value < 0 ? -value : value;
+      if (abs > maxAbs) {
+        maxAbs = abs;
+      }
+      sumSquares += value * value;
+      count += 1;
+    }
+  }
+
+  return {
+    maxAbs,
+    rms: count > 0 ? Math.sqrt(sumSquares / count) : 0
+  };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
