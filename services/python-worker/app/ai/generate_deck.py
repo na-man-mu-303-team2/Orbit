@@ -1962,6 +1962,8 @@ def design_elements(
     emphasis_style = normalize_emphasis_style(
         visual_plan.visual_intent.emphasis_style,
     )
+    if not emphasis_style and slide_plan.keywords:
+        emphasis_style = "keyword-chips"
     elements = [
         shape_element(
             slide_plan.order,
@@ -2110,10 +2112,13 @@ def normalize_decoration_density(value: str) -> str:
 
 def normalize_emphasis_style(value: str) -> str:
     normalized = value.strip().casefold()
-    if "chip" in normalized:
-        return "keyword-chips"
-    if "callout" in normalized or "quote" in normalized:
+    if "callout" in normalized or "quote" in normalized or "콜아웃" in normalized:
         return "callout"
+    if has_any(
+        normalized,
+        ["chip", "keyword", "키워드", "강조", "칩", "하이라이트"],
+    ):
+        return "keyword-chips"
     return ""
 
 

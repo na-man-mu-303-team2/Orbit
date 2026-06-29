@@ -555,6 +555,7 @@ def test_generate_deck_uses_llm_content_plan_with_reference_context() -> None:
     assert response.validation.passed is True
     assert body_texts[0] == "피카츄는 볼주머니에 전기를 저장하는 전기 타입 포켓몬입니다."
     assert slide_keywords == ["전기 타입", "볼주머니", "피카츄"]
+    assert has_element(response.deck["slides"][0], "el_1_keyword_chip_1")
     assert "피카츄는 볼주머니" in fake_client.requests[0]["input"]
     assert "actual Korean presenter script" in fake_client.requests[0]["instructions"]
     assert "목적과 기대 결과" not in "\n".join(body_texts)
@@ -674,7 +675,7 @@ def test_generate_deck_applies_visual_intent_decorations_and_caps_elements() -> 
                         "mood": "energetic",
                         "structure": "chips",
                         "paletteHint": "neon",
-                        "emphasisStyle": "keyword-chips",
+                        "emphasisStyle": "키워드 강조",
                         "composition": "data",
                         "decorationDensity": "high",
                         "mediaStyle": "",
@@ -691,7 +692,7 @@ def test_generate_deck_applies_visual_intent_decorations_and_caps_elements() -> 
                         "mood": "focused",
                         "structure": "callout",
                         "paletteHint": "",
-                        "emphasisStyle": "callout",
+                        "emphasisStyle": "콜아웃",
                         "composition": "split",
                         "decorationDensity": "high",
                         "mediaStyle": "",
