@@ -260,6 +260,7 @@ type CustomShapeEditDraft = {
 };
 
 type ToolbarNoticeTone = "info" | "success" | "danger";
+type SaveState = "idle" | "pending" | "saving" | "error";
 
 async function fetchHealth(): Promise<HealthResponse> {
   const response = await fetch("/api/health");
@@ -427,6 +428,8 @@ export function EditorShell(props: { projectId?: string }) {
     tone: ToolbarNoticeTone;
   } | null>(null);
   const [isImageUploadPending, setIsImageUploadPending] = useState(false);
+  const [saveState, setSaveState] = useState<SaveState>("idle");
+  const [saveErrorMessage, setSaveErrorMessage] = useState<string | null>(null);
   const [undoStack, setUndoStack] = useState<Deck[]>([]);
   const [redoStack, setRedoStack] = useState<Deck[]>([]);
   const topbarRef = useRef<HTMLElement | null>(null);
@@ -452,6 +455,7 @@ export function EditorShell(props: { projectId?: string }) {
   const imageUploadTargetRef = useRef<ImageUploadTarget | null>(null);
   const resolvedUploadProjectIdRef = useRef<string | null>(null);
   const saveQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const pendingSaveCountRef = useRef(0);
   const hasHydratedPersistedDeckRef = useRef(false);
   const hasLocalOptimisticChangesRef = useRef(false);
   const isUsingFallbackDeck = !deckQuery.data;
@@ -462,7 +466,8 @@ export function EditorShell(props: { projectId?: string }) {
   const saveStatusLabel = getEditorStatusLabel({
     isDeckError,
     isDeckLoading,
-    isUsingFallbackDeck
+    isUsingFallbackDeck,
+    saveState
   });
   const visibleElements = currentSlide
     ? getRenderableSlideElements(currentSlide, deck.canvas)
@@ -496,7 +501,15 @@ export function EditorShell(props: { projectId?: string }) {
   const fileMenuItems = [
     { icon: FolderPlus, label: "새 프레젠테이션", meta: "빈 덱" },
     { icon: Upload, label: "PPTX 가져오기", meta: "업로드" },
-    { icon: Cloud, label: "저장", meta: deckQuery.data ? "자동 저장됨" : "demo fallback" }
+    {
+      icon: Cloud,
+      label: saveState === "saving" ? "저장 중..." : "저장",
+      meta: saveErrorMessage
+        ? "저장 실패"
+        : deckQuery.data
+          ? saveStatusLabel
+          : "demo fallback"
+    }
   ];
   const exportMenuItems = [
     { icon: Download, label: "PPTX 내보내기" },
@@ -584,6 +597,51 @@ export function EditorShell(props: { projectId?: string }) {
     setLastPatchLabel(
       `${response.changeRecord.operations[0]?.type ?? "ai suggestion"} · v${response.deck.version}`
     );
+    setSaveState("idle");
+    setSaveErrorMessage(null);
+  }
+
+  async function handleSaveDeck() {
+    const activeProjectId = deckRef.current.projectId || deckQuery.data?.projectId;
+
+    if (!activeProjectId) {
+      setSaveState("error");
+      setSaveErrorMessage("저장할 프로젝트를 찾지 못했습니다.");
+      return;
+    }
+
+    setSaveState("saving");
+    setSaveErrorMessage(null);
+    setActiveTopMenu(null);
+
+    const deckSnapshot = structuredClone(deckRef.current);
+    const snapshotVersion = deckSnapshot.version;
+
+    try {
+      await saveQueueRef.current.catch(() => undefined);
+
+      const persistedDeck = await putProjectDeck(activeProjectId, deckSnapshot);
+
+      if (
+        deckRef.current.version === snapshotVersion &&
+        isSameDeckIdentity(deckRef.current, persistedDeck)
+      ) {
+        queryClient.setQueryData(["deck", projectId], persistedDeck);
+        deckRef.current = persistedDeck;
+        hasHydratedPersistedDeckRef.current = true;
+        hasLocalOptimisticChangesRef.current = false;
+        setDeck(persistedDeck);
+      }
+
+      setLastPatchLabel(`수동 저장 · v${persistedDeck.version}`);
+      setSaveState("idle");
+      setSaveErrorMessage(null);
+    } catch (error) {
+      setLastPatchLabel(`저장 실패 · ${toEditorErrorMessage(error)}`);
+      setSaveState("error");
+      setSaveErrorMessage(toEditorErrorMessage(error));
+      void deckQuery.refetch();
+    }
   }
 
   function commitPatch(patch: DeckPatch, baseDeck: Deck = deckRef.current) {
@@ -596,6 +654,8 @@ export function EditorShell(props: { projectId?: string }) {
 
     deckRef.current = result.deck;
     hasLocalOptimisticChangesRef.current = true;
+    setSaveState("pending");
+    setSaveErrorMessage(null);
     setUndoStack((current) => [...current.slice(-49), baseDeck]);
     setRedoStack([]);
     setDeck(result.deck);
@@ -611,9 +671,11 @@ export function EditorShell(props: { projectId?: string }) {
       mergeDeckIntoQueryCache(current, result.deck)
     );
 
+    pendingSaveCountRef.current += 1;
     saveQueueRef.current = saveQueueRef.current
       .catch(() => undefined)
       .then(async () => {
+        setSaveState("saving");
         const persistedDeck = await appendProjectDeckPatch(deckQuery.data.projectId, patch);
 
         queryClient.setQueryData(["deck", projectId], (current?: Deck) =>
@@ -627,7 +689,17 @@ export function EditorShell(props: { projectId?: string }) {
       })
       .catch((error: unknown) => {
         setLastPatchLabel(`저장 실패 · ${toEditorErrorMessage(error)}`);
+        setSaveState("error");
+        setSaveErrorMessage(toEditorErrorMessage(error));
         void deckQuery.refetch();
+      })
+      .finally(() => {
+        pendingSaveCountRef.current = Math.max(0, pendingSaveCountRef.current - 1);
+        if (pendingSaveCountRef.current === 0) {
+          setSaveState("idle");
+        } else {
+          setSaveState("pending");
+        }
       });
   }
 
@@ -2033,7 +2105,17 @@ export function EditorShell(props: { projectId?: string }) {
 
                 <div className="file-menu-list">
                   {fileMenuItems.map(({ icon: Icon, label, meta }) => (
-                    <button className="file-menu-item" key={label} role="menuitem" type="button">
+                    <button
+                      className="file-menu-item"
+                      key={label}
+                      role="menuitem"
+                      type="button"
+                      onClick={() => {
+                        if (label.startsWith("저장")) {
+                          void handleSaveDeck();
+                        }
+                      }}
+                    >
                       <span className="file-menu-label">
                         <Icon size={16} />
                         {label}
@@ -2788,6 +2870,7 @@ function getEditorStatusLabel(props: {
   isDeckError: boolean;
   isDeckLoading: boolean;
   isUsingFallbackDeck: boolean;
+  saveState: SaveState;
 }) {
   if (props.isDeckLoading) {
     return "불러오는 중";
@@ -2799,6 +2882,18 @@ function getEditorStatusLabel(props: {
 
   if (props.isUsingFallbackDeck) {
     return "로컬 데모";
+  }
+
+  if (props.saveState === "error") {
+    return "저장 실패";
+  }
+
+  if (props.saveState === "saving") {
+    return "저장 중";
+  }
+
+  if (props.saveState === "pending") {
+    return "저장 대기 중";
   }
 
   return "자동 저장됨";
