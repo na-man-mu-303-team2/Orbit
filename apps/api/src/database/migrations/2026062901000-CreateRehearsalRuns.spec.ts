@@ -36,7 +36,11 @@ describe("CreateRehearsalRuns migration", () => {
 
     const sql = queries.join("\n");
     expect(sql).toContain("DROP TABLE IF EXISTS rehearsal_runs");
+    expect(sql).toContain("WHERE status = 'deleted'");
     expect(sql).toContain("CHECK (status IN ('pending', 'uploaded'))");
     expect(sql).toContain("DROP COLUMN IF EXISTS deleted_at");
+    expect(sql.indexOf("WHERE status = 'deleted'")).toBeLessThan(
+      sql.indexOf("CHECK (status IN ('pending', 'uploaded'))")
+    );
   });
 });

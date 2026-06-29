@@ -58,6 +58,7 @@ const validEnv = {
 };
 
 const createdAt = new Date("2026-06-27T00:00:00.000Z");
+const rawAudioDeletedAt = "2026-06-27T00:00:05.000Z";
 
 const job: Job = {
   jobId: "job-1",
@@ -170,6 +171,7 @@ describe("RehearsalsService", () => {
   });
 
   it("marks the run and job failed when enqueue fails", async () => {
+    const deleteUploadedAsset = vi.fn(async () => rawAudioDeletedAt);
     const jobsService = {
       create: vi.fn(async () => job),
       update: vi.fn(async () => ({ ...job, status: "failed" }))
@@ -178,7 +180,59 @@ describe("RehearsalsService", () => {
       enqueueJob: vi.fn(async () => {
         throw new Error("redis down");
       }),
-      jobsService
+      jobsService,
+      filesServicePatch: { deleteUploadedAsset }
+    });
+    const run = await createRun(service);
+    await service.createAudioUploadUrl(run.runId, {
+      originalName: "rehearsal.webm",
+      mimeType: "audio/webm",
+      size: 1024
+    });
+
+    await expect(
+      service.completeAudioUpload(run.runId, { fileId: "file-audio" })
+    ).rejects.toThrow("redis down");
+
+    expect(deleteUploadedAsset).toHaveBeenCalledWith(
+      "project-a",
+      "file-audio",
+      "rehearsal-audio"
+    );
+    expect(jobsService.update).toHaveBeenCalledWith("job-1", {
+      status: "failed",
+      progress: 0,
+      message: "Rehearsal STT enqueue failed.",
+      error: {
+        code: "REHEARSAL_STT_ENQUEUE_FAILED",
+        message: "redis down"
+      }
+    });
+    expect((await service.getRun(run.runId)).run).toMatchObject({
+      status: "failed",
+      rawAudioDeletedAt,
+      error: {
+        code: "REHEARSAL_STT_ENQUEUE_FAILED",
+        message: "redis down"
+      }
+    });
+  });
+
+  it("marks raw audio cleanup failure when enqueue cleanup fails", async () => {
+    const jobsService = {
+      create: vi.fn(async () => job),
+      update: vi.fn(async () => ({ ...job, status: "failed" }))
+    } as unknown as JobsService;
+    const service = createService({
+      enqueueJob: vi.fn(async () => {
+        throw new Error("redis down");
+      }),
+      jobsService,
+      filesServicePatch: {
+        deleteUploadedAsset: vi.fn(async () => {
+          throw new Error("delete down");
+        })
+      }
     });
     const run = await createRun(service);
     await service.createAudioUploadUrl(run.runId, {
@@ -194,19 +248,41 @@ describe("RehearsalsService", () => {
     expect(jobsService.update).toHaveBeenCalledWith("job-1", {
       status: "failed",
       progress: 0,
-      message: "Rehearsal STT enqueue failed.",
+      message: "Rehearsal raw audio cleanup failed.",
       error: {
-        code: "REHEARSAL_STT_ENQUEUE_FAILED",
-        message: "redis down"
+        code: "RAW_AUDIO_DELETE_FAILED",
+        message: "delete down"
       }
     });
     expect((await service.getRun(run.runId)).run).toMatchObject({
       status: "failed",
+      rawAudioDeletedAt: null,
       error: {
-        code: "REHEARSAL_STT_ENQUEUE_FAILED",
-        message: "redis down"
+        code: "RAW_AUDIO_DELETE_FAILED",
+        message: "delete down"
       }
     });
+  });
+
+  it("does not create another job when audio complete is repeated", async () => {
+    const jobsService = {
+      create: vi.fn(async () => job),
+      update: vi.fn()
+    } as unknown as JobsService;
+    const service = createService({ jobsService });
+    const run = await createRun(service);
+    await service.createAudioUploadUrl(run.runId, {
+      originalName: "rehearsal.webm",
+      mimeType: "audio/webm",
+      size: 1024
+    });
+
+    await service.completeAudioUpload(run.runId, { fileId: "file-audio" });
+    await expect(
+      service.completeAudioUpload(run.runId, { fileId: "file-audio" })
+    ).rejects.toBeInstanceOf(BadRequestException);
+
+    expect(jobsService.create).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -218,6 +294,7 @@ function createService(
   options: {
     enqueueJob?: RehearsalSttEnqueueJob;
     jobsService?: JobsService;
+    filesServicePatch?: Partial<FilesService>;
   } = {}
 ) {
   const logger = createLogger();
@@ -239,7 +316,9 @@ function createService(
       projectId: "project-a",
       purpose: "rehearsal-audio",
       status: "uploaded"
-    }))
+    })),
+    deleteUploadedAsset: vi.fn(async () => rawAudioDeletedAt),
+    ...options.filesServicePatch
   } as unknown as FilesService;
   const service = new RehearsalsService(
     repository,
@@ -280,6 +359,24 @@ function createRunRepository() {
     },
     async findOne(options: { where: { runId: string } }) {
       return runs.get(options.where.runId) ?? null;
+    },
+    async update(
+      criteria: Partial<RehearsalRunEntity>,
+      patch: Partial<RehearsalRunEntity>
+    ) {
+      const run = [...runs.values()].find((candidate) =>
+        Object.entries(criteria).every(
+          ([key, value]) => candidate[key as keyof RehearsalRunEntity] === value
+        )
+      );
+
+      if (!run) {
+        return { affected: 0 };
+      }
+
+      Object.assign(run, patch);
+      runs.set(run.runId, { ...run });
+      return { affected: 1 };
     }
   } as unknown as Repository<RehearsalRunEntity>;
 }

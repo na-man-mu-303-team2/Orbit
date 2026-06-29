@@ -257,6 +257,48 @@ describe("FilesService", () => {
     });
   });
 
+  it("deletes uploaded rehearsal audio object and marks metadata deleted", async () => {
+    const { assets, repository } = createAssetRepository([
+      {
+        fileId: "file_audio_1",
+        projectId: demoProject.projectId,
+        storageKey: "projects/project_demo_created/assets/file_audio_1/rehearsal.webm",
+        originalName: "rehearsal.webm",
+        mimeType: "audio/webm",
+        size: 1024,
+        url: "http://localhost:9000/orbit-local/rehearsal.webm",
+        purpose: "rehearsal-audio",
+        status: "uploaded",
+        createdAt: new Date(),
+        uploadedAt: new Date(),
+        deletedAt: null,
+      } as ProjectAssetEntity,
+    ]);
+    const storage = createStorage();
+    const service = new FilesService(
+      repository,
+      {
+        getAccessibleProject: vi.fn(async () => demoProject),
+      } as unknown as ProjectsService,
+      storage,
+    );
+
+    const deletedAt = await service.deleteUploadedAsset(
+      demoProject.projectId,
+      "file_audio_1",
+      "rehearsal-audio",
+    );
+
+    expect(storage.removeObject).toHaveBeenCalledWith(
+      "projects/project_demo_created/assets/file_audio_1/rehearsal.webm",
+    );
+    expect(new Date(deletedAt).toISOString()).toBe(deletedAt);
+    expect(assets[0]).toMatchObject({
+      status: "deleted",
+      deletedAt: expect.any(Date),
+    });
+  });
+
   it("rejects pending assets before starting asset-backed jobs", async () => {
     const { repository } = createAssetRepository([
       {

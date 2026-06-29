@@ -1185,4 +1185,3 @@ export function ExtractResultItem(props: { result: ExtractedFile }) {
     </article>
   );
 }
-

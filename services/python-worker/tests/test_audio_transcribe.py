@@ -1,4 +1,6 @@
+import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
@@ -8,6 +10,7 @@ from app.audio.transcribe import (
     AudioTranscribeRequest,
     AudioTranscriptionError,
     AudioContent,
+    OpenAISpeechToTextProvider,
     ProviderTranscription,
     SpeechToTextProvider,
     TranscriptSegment,
@@ -126,6 +129,60 @@ def test_openai_stt_requires_api_key() -> None:
 
     assert error.value.code == "provider_not_configured"
     assert "OPENAI_API_KEY" in error.value.message
+
+
+def test_gpt4o_transcribe_uses_json_response_format(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[dict[str, object]] = []
+
+    class FakeTranscriptions:
+        def create(self, **kwargs: object) -> dict[str, str]:
+            calls.append(kwargs)
+            return {"text": "테스트 전사"}
+
+    class FakeOpenAI:
+        def __init__(self, *, api_key: str) -> None:
+            self.api_key = api_key
+            self.audio = SimpleNamespace(transcriptions=FakeTranscriptions())
+
+    monkeypatch.setitem(sys.modules, "openai", SimpleNamespace(OpenAI=FakeOpenAI))
+
+    provider = OpenAISpeechToTextProvider(
+        api_key="test-key",
+        model="gpt-4o-transcribe",
+        language="ko-KR",
+    )
+    result = provider.transcribe(
+        AudioContent(
+            data=b"fake webm bytes",
+            file_name="rehearsal.webm",
+            mime_type="audio/webm",
+        )
+    )
+
+    assert result.transcript == "테스트 전사"
+    assert calls[0]["response_format"] == "json"
+
+
+def test_audio_reference_rejects_unsupported_openai_mime_type(
+    tmp_path: Path,
+) -> None:
+    audio_path = tmp_path / "rehearsal.ogg"
+    audio_path.write_bytes(b"fake ogg bytes")
+
+    with pytest.raises(ValidationError, match="unsupported audio mime type"):
+        AudioTranscribeRequest.model_validate(
+            {
+                "runId": "run_demo_1",
+                "projectId": "project_demo_1",
+                "audio": {
+                    "fileId": "file_demo_1",
+                    "storageUrl": str(audio_path),
+                    "mimeType": "audio/ogg",
+                },
+            }
+        )
 
 
 def test_audio_transcribe_endpoint_uses_injected_provider(
