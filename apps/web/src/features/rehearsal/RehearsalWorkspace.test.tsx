@@ -7,12 +7,15 @@ import {
   RehearsalFlowError,
   RehearsalWorkspace,
   SherpaLiveSttAdapter,
+  applyLiveTranscriptEvent,
+  createLiveTranscriptBuffer,
   createRecordingFile,
   createRecordingSession,
   evaluateLiveTranscript,
   fetchOrCreateRehearsalDeck,
   normalizeRecordingMimeType,
   normalizeLiveTranscriptText,
+  renderLiveTranscriptBuffer,
   runRehearsalUploadFlow,
   selectRecordingMimeType,
   shouldAutoAdvanceLiveSlide
@@ -67,6 +70,88 @@ describe("RehearsalWorkspace", () => {
       "kw_2"
     ]);
     expect(analysis.missingKeywordIds).toEqual([]);
+  });
+
+  it("composes committed live STT finals with the current draft", () => {
+    let buffer = createLiveTranscriptBuffer();
+
+    buffer = applyLiveTranscriptEvent(buffer, {
+      transcript: "오늘은",
+      isFinal: false
+    });
+    expect(renderLiveTranscriptBuffer(buffer)).toBe("오늘은");
+
+    buffer = applyLiveTranscriptEvent(buffer, {
+      transcript: "오늘은",
+      isFinal: true
+    });
+    expect(renderLiveTranscriptBuffer(buffer)).toBe("오늘은");
+
+    buffer = applyLiveTranscriptEvent(buffer, {
+      transcript: "오르빗",
+      isFinal: false
+    });
+
+    expect(renderLiveTranscriptBuffer(buffer)).toBe("오늘은 오르빗");
+    expect(renderLiveTranscriptBuffer(buffer)).not.toContain("오늘은 오늘은");
+  });
+
+  it("evaluates keywords across multiple committed live STT utterances", () => {
+    const slide = {
+      ...createDemoDeck().slides[0]!,
+      slideId: "slide_1",
+      keywords: [
+        {
+          keywordId: "kw_1",
+          text: "ORBIT",
+          synonyms: ["오르빗"],
+          abbreviations: []
+        },
+        {
+          keywordId: "kw_2",
+          text: "Live STT",
+          synonyms: ["실시간 음성 인식"],
+          abbreviations: ["stt"]
+        }
+      ]
+    };
+    let buffer = createLiveTranscriptBuffer();
+
+    buffer = applyLiveTranscriptEvent(buffer, {
+      transcript: "오늘은 오르빗을 소개합니다",
+      isFinal: true
+    });
+    buffer = applyLiveTranscriptEvent(buffer, {
+      transcript: "실시간 음성 인식 흐름입니다",
+      isFinal: true
+    });
+
+    const transcript = renderLiveTranscriptBuffer(buffer);
+    const analysis = evaluateLiveTranscript(slide, transcript);
+
+    expect(transcript).toBe("오늘은 오르빗을 소개합니다 실시간 음성 인식 흐름입니다");
+    expect(analysis.coverage).toBe(1);
+    expect(analysis.detectedKeywords.map((keyword) => keyword.keywordId)).toEqual([
+      "kw_1",
+      "kw_2"
+    ]);
+  });
+
+  it("starts a fresh live STT transcript buffer after reset", () => {
+    let buffer = createLiveTranscriptBuffer();
+    buffer = applyLiveTranscriptEvent(buffer, {
+      transcript: "이전 슬라이드 오르빗",
+      isFinal: true
+    });
+
+    buffer = createLiveTranscriptBuffer();
+    expect(renderLiveTranscriptBuffer(buffer)).toBe("");
+
+    buffer = applyLiveTranscriptEvent(buffer, {
+      transcript: "새 슬라이드",
+      isFinal: false
+    });
+    expect(renderLiveTranscriptBuffer(buffer)).toBe("새 슬라이드");
   });
 
   it("decides auto-advance only when keyword coverage reaches 80%", () => {

@@ -92,6 +92,11 @@ type LiveTranscriptAnalysis = {
   missingKeywordIds: string[];
 };
 
+type LiveTranscriptBuffer = {
+  committedTranscript: string;
+  draftTranscript: string;
+};
+
 const preferredAudioMimeTypes = [
   "audio/webm;codecs=opus",
   "audio/webm",
@@ -427,6 +432,50 @@ export function normalizeLiveTranscriptText(value: string) {
   return value.toLocaleLowerCase("ko-KR").replace(/\s+/g, "").trim();
 }
 
+export function createLiveTranscriptBuffer(): LiveTranscriptBuffer {
+  return {
+    committedTranscript: "",
+    draftTranscript: ""
+  };
+}
+
+export function applyLiveTranscriptEvent(
+  buffer: LiveTranscriptBuffer,
+  event: Pick<LiveSttPartialTranscriptEvent, "transcript" | "isFinal">
+): LiveTranscriptBuffer {
+  const transcript = normalizeLiveTranscriptDisplayText(event.transcript);
+
+  if (event.isFinal) {
+    return {
+      committedTranscript: appendLiveTranscriptText(
+        buffer.committedTranscript,
+        transcript
+      ),
+      draftTranscript: ""
+    };
+  }
+
+  return {
+    ...buffer,
+    draftTranscript: transcript
+  };
+}
+
+export function renderLiveTranscriptBuffer(buffer: LiveTranscriptBuffer) {
+  return appendLiveTranscriptText(buffer.committedTranscript, buffer.draftTranscript);
+}
+
+function appendLiveTranscriptText(current: string, next: string) {
+  return [current, next]
+    .map(normalizeLiveTranscriptDisplayText)
+    .filter((part) => part.length > 0)
+    .join(" ");
+}
+
+function normalizeLiveTranscriptDisplayText(value: string) {
+  return value.replace(/\s+/g, " ").trim();
+}
+
 export function evaluateLiveTranscript(
   slide: Slide,
   transcript: string
@@ -522,7 +571,9 @@ export function RehearsalWorkspace(props: {
   const [, setJob] = useState<Job | null>(null);
   const [liveStatus, setLiveStatus] = useState<LiveSttStatus>("idle");
   const [liveError, setLiveError] = useState("");
-  const [liveTranscript, setLiveTranscript] = useState("");
+  const [liveTranscriptBuffer, setLiveTranscriptBuffer] = useState(
+    createLiveTranscriptBuffer
+  );
   const [liveKeywordState, setLiveKeywordState] =
     useState<LiveTranscriptAnalysis | null>(null);
   const [liveCue, setLiveCue] = useState<LiveSttAnimationCueEvent | null>(null);
@@ -544,6 +595,9 @@ export function RehearsalWorkspace(props: {
   );
   const deckRef = useRef<Deck | null>(props.initialDeck ?? null);
   const currentSlideIndexRef = useRef(0);
+  const liveTranscriptBufferRef = useRef<LiveTranscriptBuffer>(
+    createLiveTranscriptBuffer()
+  );
   const liveKeywordStateRef = useRef<LiveTranscriptAnalysis | null>(null);
   const autoAdvancedSlideIdsRef = useRef(new Set<string>());
   const autoAdvanceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -630,15 +684,10 @@ export function RehearsalWorkspace(props: {
     liveStatus === "idle"
       ? "Live STT 시작을 눌러 테스트하세요"
       : "마이크 입력을 기다리는 중";
+  const liveTranscript = renderLiveTranscriptBuffer(liveTranscriptBuffer);
 
   useEffect(() => {
-    if (!currentSlide) {
-      setLiveKeywordState(null);
-      return;
-    }
-
-    setLiveKeywordState(evaluateLiveTranscript(currentSlide, liveTranscript));
-    setLiveCue(null);
+    resetLiveTranscriptForSlide(currentSlide);
   }, [currentSlide?.slideId]);
 
   async function startRecording() {
@@ -650,9 +699,7 @@ export function RehearsalWorkspace(props: {
     setRun(null);
     setJob(null);
     setLiveError("");
-    setLiveTranscript("");
-    setLiveKeywordState(currentSlide ? evaluateLiveTranscript(currentSlide, "") : null);
-    setLiveCue(null);
+    resetLiveTranscriptForSlide(currentSlide);
     setLiveSlideAdvance(null);
     setAutoAdvanceState("idle");
     autoAdvancedSlideIdsRef.current.clear();
@@ -706,9 +753,7 @@ export function RehearsalWorkspace(props: {
     if (!deck || !canStartLiveDemo) return;
 
     setLiveError("");
-    setLiveTranscript("");
-    setLiveKeywordState(currentSlide ? evaluateLiveTranscript(currentSlide, "") : null);
-    setLiveCue(null);
+    resetLiveTranscriptForSlide(currentSlide);
     setLiveSlideAdvance(null);
     setAutoAdvanceState("idle");
     autoAdvancedSlideIdsRef.current.clear();
@@ -829,10 +874,15 @@ export function RehearsalWorkspace(props: {
       return;
     }
 
-    const analysis = evaluateLiveTranscript(slide, event.transcript);
-    setLiveTranscript(event.transcript);
-    setLiveKeywordState(analysis);
-    setLiveStatus("listening");
+    const nextBuffer = applyLiveTranscriptEvent(
+      liveTranscriptBufferRef.current,
+      event
+    );
+    liveTranscriptBufferRef.current = nextBuffer;
+    setLiveTranscriptBuffer(nextBuffer);
+
+    const transcript = renderLiveTranscriptBuffer(nextBuffer);
+    const analysis = evaluateLiveTranscript(slide, transcript);
 
     const previousDetectedIds = new Set(
       liveKeywordStateRef.current?.slideId === slide.slideId
@@ -855,6 +905,10 @@ export function RehearsalWorkspace(props: {
       });
     }
 
+    setLiveKeywordState(analysis);
+    liveKeywordStateRef.current = analysis;
+    setLiveStatus("listening");
+
     if (
       shouldAutoAdvanceLiveSlide({
         analysis,
@@ -866,6 +920,17 @@ export function RehearsalWorkspace(props: {
     ) {
       scheduleAutoAdvance(deckSnapshot, slideIndex, analysis.coverage);
     }
+  }
+
+  function resetLiveTranscriptForSlide(slide: Slide | null) {
+    const nextBuffer = createLiveTranscriptBuffer();
+    const nextKeywordState = slide ? evaluateLiveTranscript(slide, "") : null;
+
+    liveTranscriptBufferRef.current = nextBuffer;
+    liveKeywordStateRef.current = nextKeywordState;
+    setLiveTranscriptBuffer(nextBuffer);
+    setLiveKeywordState(nextKeywordState);
+    setLiveCue(null);
   }
 
   function scheduleAutoAdvance(
