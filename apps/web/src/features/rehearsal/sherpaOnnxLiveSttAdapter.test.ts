@@ -20,6 +20,8 @@ describe("SherpaOnnxLiveSttAdapter", () => {
       }) as typeof fetch,
       createWorker: () => worker,
       createAudioContext: () => audioContext as unknown as AudioContext,
+      createAudioWorkletNode: (_context, _name, options) =>
+        audioContext.createAudioWorkletNode(options) as unknown as AudioWorkletNode,
       bufferSize: 4
     });
 
@@ -42,6 +44,13 @@ describe("SherpaOnnxLiveSttAdapter", () => {
     ]);
     expect(worker.audioFrames).toHaveLength(1);
     expect(worker.audioFrames[0]?.sampleRate).toBe(16000);
+    expect(audioContext.audioWorklet!.moduleLoads).toHaveLength(1);
+    expect(audioContext.audioWorklet!.moduleLoads[0]?.options).toEqual({
+      credentials: "same-origin"
+    });
+    expect(audioContext.workletNode?.processorOptions).toEqual({ frameSize: 4 });
+    expect(audioContext.workletNode?.port.messages).toEqual([{ type: "dispose" }]);
+    expect(audioContext.state).toBe("closed");
     expect(partials).toEqual(["오르빗 실시간 음성 인식"]);
     expect(errors).toEqual([]);
     expect(worker.isTerminated).toBe(true);
@@ -60,6 +69,75 @@ describe("SherpaOnnxLiveSttAdapter", () => {
         onError: () => undefined
       })
     ).rejects.toMatchObject({ code: "LIVE_STT_MODEL_UNAVAILABLE" });
+  });
+
+  it("maps unsupported AudioWorklet capture to the live STT model unavailable error", async () => {
+    const audioContext = new FakeAudioContext(48000, {
+      supportsAudioWorklet: false
+    });
+    const adapter = new SherpaOnnxLiveSttAdapter({
+      manifestUrl: "/models/live-stt/korean/manifest.json",
+      fetcher: vi.fn(async () => jsonResponse(manifestFixture())) as typeof fetch,
+      createWorker: () => new FakeSherpaWorker(),
+      createAudioContext: () => audioContext as unknown as AudioContext
+    });
+
+    await expect(
+      adapter.start({ getTracks: () => [] } as unknown as MediaStream, {
+        onPartialTranscript: () => undefined,
+        onError: () => undefined
+      })
+    ).rejects.toMatchObject({ code: "LIVE_STT_MODEL_UNAVAILABLE" });
+    expect(audioContext.state).toBe("closed");
+  });
+
+  it("maps AudioWorklet module load failures to the live STT start failed error", async () => {
+    const audioContext = new FakeAudioContext(48000, {
+      addModuleError: new Error("module failed")
+    });
+    const adapter = new SherpaOnnxLiveSttAdapter({
+      manifestUrl: "/models/live-stt/korean/manifest.json",
+      fetcher: vi.fn(async () => jsonResponse(manifestFixture())) as typeof fetch,
+      createWorker: () => new FakeSherpaWorker(),
+      createAudioContext: () => audioContext as unknown as AudioContext
+    });
+
+    await expect(
+      adapter.start({ getTracks: () => [] } as unknown as MediaStream, {
+        onPartialTranscript: () => undefined,
+        onError: () => undefined
+      })
+    ).rejects.toMatchObject({ code: "LIVE_STT_START_FAILED" });
+    expect(audioContext.state).toBe("closed");
+  });
+
+  it("reports AudioWorklet processor failures through the live STT error callback", async () => {
+    const worker = new FakeSherpaWorker();
+    const audioContext = new FakeAudioContext(48000);
+    const errors: string[] = [];
+    const adapter = new SherpaOnnxLiveSttAdapter({
+      manifestUrl: "/models/live-stt/korean/manifest.json",
+      fetcher: vi.fn(async () => jsonResponse(manifestFixture())) as typeof fetch,
+      createWorker: () => worker,
+      createAudioContext: () => audioContext as unknown as AudioContext,
+      createAudioWorkletNode: (_context, _name, options) =>
+        audioContext.createAudioWorkletNode(options) as unknown as AudioWorkletNode
+    });
+
+    await adapter.start({ getTracks: () => [] } as unknown as MediaStream, {
+      onPartialTranscript: () => undefined,
+      onError: (error) => errors.push(error.code)
+    });
+
+    audioContext.workletNode?.emitProcessorError();
+
+    expect(errors).toEqual(["LIVE_STT_START_FAILED"]);
+    expect(worker.messages.map((message) => message.type)).toEqual([
+      "load",
+      "start",
+      "stop"
+    ]);
+    expect(audioContext.state).toBe("closed");
   });
 
   it("resamples microphone PCM to the model sample rate", () => {
@@ -129,17 +207,25 @@ class FakeSherpaWorker {
 class FakeAudioContext {
   state: AudioContextState = "running";
   destination = new FakeAudioNode();
-  processor: FakeScriptProcessorNode | null = null;
+  audioWorklet?: FakeAudioWorklet;
+  workletNode: FakeAudioWorkletNode | null = null;
 
-  constructor(readonly sampleRate: number) {}
+  constructor(
+    readonly sampleRate: number,
+    options: { supportsAudioWorklet?: boolean; addModuleError?: Error } = {}
+  ) {
+    if (options.supportsAudioWorklet !== false) {
+      this.audioWorklet = new FakeAudioWorklet(options.addModuleError);
+    }
+  }
 
   createMediaStreamSource(_stream: MediaStream) {
     return new FakeAudioNode();
   }
 
-  createScriptProcessor(_bufferSize: number, _inputChannels: number, _outputChannels: number) {
-    this.processor = new FakeScriptProcessorNode();
-    return this.processor;
+  createAudioWorkletNode(options: AudioWorkletNodeOptions) {
+    this.workletNode = new FakeAudioWorkletNode(options.processorOptions);
+    return this.workletNode;
   }
 
   createGain() {
@@ -155,11 +241,25 @@ class FakeAudioContext {
   }
 
   emitAudio(samples: Float32Array) {
-    this.processor?.onaudioprocess?.({
-      inputBuffer: {
-        getChannelData: () => samples
-      }
-    } as unknown as AudioProcessingEvent);
+    this.workletNode?.port.emit({
+      type: "audio-frame",
+      sampleRate: this.sampleRate,
+      samples
+    });
+  }
+}
+
+class FakeAudioWorklet {
+  moduleLoads: Array<{ url: string; options?: WorkletOptions }> = [];
+
+  constructor(private readonly addModuleError?: Error) {}
+
+  async addModule(url: string, options?: WorkletOptions) {
+    this.moduleLoads.push({ url, options });
+
+    if (this.addModuleError) {
+      throw this.addModuleError;
+    }
   }
 }
 
@@ -175,8 +275,32 @@ class FakeGainNode extends FakeAudioNode {
   gain = { value: 1 };
 }
 
-class FakeScriptProcessorNode extends FakeAudioNode {
-  onaudioprocess: ((event: AudioProcessingEvent) => void) | null = null;
+class FakeAudioWorkletNode extends FakeAudioNode {
+  port = new FakeMessagePort();
+  onprocessorerror: ((event: Event) => void) | null = null;
+
+  constructor(readonly processorOptions: unknown) {
+    super();
+  }
+
+  emitProcessorError() {
+    this.onprocessorerror?.(new Event("processorerror"));
+  }
+}
+
+class FakeMessagePort {
+  onmessage: ((event: MessageEvent) => void) | null = null;
+  messages: unknown[] = [];
+
+  postMessage(message: unknown) {
+    this.messages.push(message);
+  }
+
+  start() {}
+
+  emit(data: unknown) {
+    this.onmessage?.({ data } as MessageEvent);
+  }
 }
 
 function manifestFixture(): SherpaOnnxModelManifest {

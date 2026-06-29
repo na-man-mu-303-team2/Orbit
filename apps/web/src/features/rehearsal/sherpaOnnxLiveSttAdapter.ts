@@ -12,6 +12,7 @@ import {
   loadSherpaOnnxModelManifest,
   type ResolvedSherpaOnnxModelManifest
 } from "./sherpaOnnxManifest";
+import pcmCaptureWorkletUrl from "./liveSttPcmCapture.worklet.js?url&no-inline";
 
 type SherpaWorkerInboundMessage =
   | { type: "load"; manifest: ResolvedSherpaOnnxModelManifest }
@@ -49,12 +50,30 @@ type SherpaWorker = Pick<Worker, "postMessage" | "terminate"> & {
 };
 
 type AudioContextConstructor = new (options?: AudioContextOptions) => AudioContext;
+type AudioWorkletNodeConstructor = new (
+  context: BaseAudioContext,
+  name: string,
+  options?: AudioWorkletNodeOptions
+) => AudioWorkletNode;
 type AudioContextFactory = (manifest: ResolvedSherpaOnnxModelManifest) => AudioContext;
+type AudioWorkletNodeFactory = (
+  context: AudioContext,
+  name: string,
+  options: AudioWorkletNodeOptions
+) => AudioWorkletNode;
+
+type PcmCaptureWorkletMessage =
+  | {
+      type: "audio-frame";
+      sampleRate: number;
+      samples: Float32Array | ArrayBuffer;
+    }
+  | { type: "error"; message: string };
 
 type AudioCaptureSession = {
   context: AudioContext;
   source: MediaStreamAudioSourceNode;
-  processor: ScriptProcessorNode;
+  processor: AudioWorkletNode;
   output: GainNode;
 };
 
@@ -67,7 +86,8 @@ type PendingWorkerRequest = {
 type PendingRequestKey = "load" | `start:${string}`;
 
 const liveSttWorkerTimeoutMs = 30_000;
-const defaultScriptProcessorBufferSize = 4096;
+const defaultAudioWorkletFrameSize = 4096;
+const pcmCaptureWorkletProcessorName = "orbit-live-stt-pcm-capture";
 
 export class SherpaOnnxLiveSttAdapter implements LiveSttAdapter {
   private manifest: ResolvedSherpaOnnxModelManifest | null = null;
@@ -84,6 +104,7 @@ export class SherpaOnnxLiveSttAdapter implements LiveSttAdapter {
       fetcher?: typeof fetch;
       createWorker?: () => SherpaWorker;
       createAudioContext?: AudioContextFactory;
+      createAudioWorkletNode?: AudioWorkletNodeFactory;
       bufferSize?: number;
     } = {}
   ) {}
@@ -195,47 +216,50 @@ export class SherpaOnnxLiveSttAdapter implements LiveSttAdapter {
     worker: SherpaWorker
   ) {
     const context = await this.createAudioContext(manifest);
-    const source = context.createMediaStreamSource(stream);
-    const processor = context.createScriptProcessor(
-      this.options.bufferSize ?? defaultScriptProcessorBufferSize,
-      1,
-      1
-    );
-    const output = context.createGain();
-    output.gain.value = 0;
 
-    processor.onaudioprocess = (event) => {
-      if (this.sessionId !== sessionId) {
-        return;
+    try {
+      await this.loadAudioWorkletModule(context);
+
+      const source = context.createMediaStreamSource(stream);
+      const processor = this.createAudioWorkletNode(
+        context,
+        this.options.bufferSize ?? defaultAudioWorkletFrameSize
+      );
+      const output = context.createGain();
+      output.gain.value = 0;
+
+      processor.port.onmessage = (event: MessageEvent<PcmCaptureWorkletMessage>) => {
+        this.handleAudioWorkletMessage(
+          event.data,
+          context,
+          manifest,
+          sessionId,
+          worker
+        );
+      };
+      processor.port.start();
+      processor.onprocessorerror = () => {
+        const error = new LiveSttAdapterError(
+          "LIVE_STT_START_FAILED",
+          "Live STT audio worklet failed."
+        );
+        this.callbacks?.onError(error);
+        this.stop();
+      };
+
+      source.connect(processor);
+      processor.connect(output);
+      output.connect(context.destination);
+
+      if (context.state === "suspended") {
+        await context.resume();
       }
 
-      const input = event.inputBuffer.getChannelData(0);
-      const samples = resampleFloat32Audio(
-        input,
-        context.sampleRate,
-        manifest.sampleRate
-      );
-      this.postWorkerMessage(
-        worker,
-        {
-          type: "audio-frame",
-          sessionId,
-          sampleRate: manifest.sampleRate,
-          samples
-        },
-        [samples.buffer]
-      );
-    };
-
-    source.connect(processor);
-    processor.connect(output);
-    output.connect(context.destination);
-
-    if (context.state === "suspended") {
-      await context.resume();
+      return { context, source, processor, output };
+    } catch (error) {
+      void context.close();
+      throw error;
     }
-
-    return { context, source, processor, output };
   }
 
   private stopAudioCapture() {
@@ -243,7 +267,9 @@ export class SherpaOnnxLiveSttAdapter implements LiveSttAdapter {
       return;
     }
 
-    this.capture.processor.onaudioprocess = null;
+    this.capture.processor.port.onmessage = null;
+    this.capture.processor.onprocessorerror = null;
+    postAudioWorkletMessage(this.capture.processor, { type: "dispose" });
     disconnectAudioNode(this.capture.source);
     disconnectAudioNode(this.capture.processor);
     disconnectAudioNode(this.capture.output);
@@ -269,6 +295,110 @@ export class SherpaOnnxLiveSttAdapter implements LiveSttAdapter {
     } catch {
       return new AudioContextCtor();
     }
+  }
+
+  private async loadAudioWorkletModule(context: AudioContext) {
+    if (
+      !context.audioWorklet ||
+      typeof context.audioWorklet.addModule !== "function"
+    ) {
+      throw new LiveSttAdapterError(
+        "LIVE_STT_MODEL_UNAVAILABLE",
+        "This browser does not support AudioWorklet for Live STT."
+      );
+    }
+
+    try {
+      await context.audioWorklet.addModule(pcmCaptureWorkletUrl, {
+        credentials: "same-origin"
+      });
+    } catch (error) {
+      throw new LiveSttAdapterError(
+        "LIVE_STT_START_FAILED",
+        error instanceof Error
+          ? `Live STT audio worklet failed to load: ${error.message}`
+          : "Live STT audio worklet failed to load."
+      );
+    }
+  }
+
+  private createAudioWorkletNode(context: AudioContext, frameSize: number) {
+    const options: AudioWorkletNodeOptions = {
+      numberOfInputs: 1,
+      numberOfOutputs: 1,
+      outputChannelCount: [1],
+      processorOptions: { frameSize }
+    };
+
+    if (this.options.createAudioWorkletNode) {
+      return this.options.createAudioWorkletNode(
+        context,
+        pcmCaptureWorkletProcessorName,
+        options
+      );
+    }
+
+    const AudioWorkletNodeCtor = getAudioWorkletNodeConstructor();
+    if (!AudioWorkletNodeCtor) {
+      throw new LiveSttAdapterError(
+        "LIVE_STT_MODEL_UNAVAILABLE",
+        "This browser does not support AudioWorkletNode for Live STT."
+      );
+    }
+
+    try {
+      return new AudioWorkletNodeCtor(
+        context,
+        pcmCaptureWorkletProcessorName,
+        options
+      );
+    } catch (error) {
+      throw new LiveSttAdapterError(
+        "LIVE_STT_START_FAILED",
+        error instanceof Error
+          ? `Live STT audio worklet failed to start: ${error.message}`
+          : "Live STT audio worklet failed to start."
+      );
+    }
+  }
+
+  private handleAudioWorkletMessage(
+    message: PcmCaptureWorkletMessage,
+    context: AudioContext,
+    manifest: ResolvedSherpaOnnxModelManifest,
+    sessionId: string,
+    worker: SherpaWorker
+  ) {
+    if (message.type === "error") {
+      this.callbacks?.onError(
+        new LiveSttAdapterError("LIVE_STT_START_FAILED", message.message)
+      );
+      return;
+    }
+
+    if (this.sessionId !== sessionId) {
+      return;
+    }
+
+    const sourceSampleRate = Number.isFinite(message.sampleRate)
+      ? message.sampleRate
+      : context.sampleRate;
+    const samples = resampleFloat32Audio(
+      toFloat32Array(message.samples),
+      sourceSampleRate,
+      manifest.sampleRate
+    );
+
+    this.postWorkerMessage(
+      worker,
+      {
+        type: "audio-frame",
+        sessionId,
+        sampleRate: manifest.sampleRate,
+        samples
+      },
+      [samples.buffer]
+    );
   }
 
   private requestWorker(
@@ -414,12 +544,35 @@ function getAudioContextConstructor(): AudioContextConstructor | null {
   return globalWindow.AudioContext ?? globalWindow.webkitAudioContext ?? null;
 }
 
+function getAudioWorkletNodeConstructor(): AudioWorkletNodeConstructor | null {
+  const globalWindow = window as Window &
+    typeof globalThis & {
+      AudioWorkletNode?: AudioWorkletNodeConstructor;
+    };
+  return globalWindow.AudioWorkletNode ?? null;
+}
+
 function disconnectAudioNode(node: AudioNode) {
   try {
     node.disconnect();
   } catch {
     // Some browsers throw when a node is already disconnected.
   }
+}
+
+function postAudioWorkletMessage(
+  processor: AudioWorkletNode,
+  message: { type: "dispose" }
+) {
+  try {
+    processor.port.postMessage(message);
+  } catch {
+    // The port can already be closed while tearing down audio capture.
+  }
+}
+
+function toFloat32Array(samples: Float32Array | ArrayBuffer) {
+  return samples instanceof Float32Array ? samples : new Float32Array(samples);
 }
 
 function toLiveSttAdapterError(error: unknown) {
