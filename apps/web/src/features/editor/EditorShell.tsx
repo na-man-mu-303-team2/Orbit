@@ -433,7 +433,6 @@ export function EditorShell(props: { projectId?: string }) {
   const shapeMenuButtonRef = useRef<HTMLButtonElement | null>(null);
   const imageFileInputRef = useRef<HTMLInputElement | null>(null);
   const copiedElementRef = useRef<ElementClipboardState | null>(null);
-  const queryClient = useQueryClient();
 
   const health = useQuery({
     queryKey: ["health"],
@@ -573,7 +572,7 @@ export function EditorShell(props: { projectId?: string }) {
   }, [deckQuery.data]);
 
   function handleAiSuggestionApplied(response: ApplyAiSuggestionResponse) {
-    queryClient.setQueryData(["deck", demoIds.projectId], response.deck);
+    queryClient.setQueryData(["deck", projectId], response.deck);
     deckRef.current = response.deck;
     setDeck(response.deck);
     setUndoStack([]);
