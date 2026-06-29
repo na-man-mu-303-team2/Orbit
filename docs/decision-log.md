@@ -181,3 +181,15 @@
 - Rationale: 개인 서버 배포가 Doppler staging 값의 AWS 전제에 흔들리지 않게 하고, asset URL과 secure cookie 동작을 실제 브라우저 검증 경로와 맞춘다. MinIO object API는 외부 공개 포트가 아니라 localhost Nginx upstream으로 제한한다.
 - Affected files: `docker-compose.staging.yml`, `docs/runbooks/personal-server-deployment.md`, `docs/decision-log.md`.
 - Follow-up review notes: 개인 서버 Nginx 설정이 실제 서버에 반영된 뒤 `/assets/<bucket>/<key>` 접근, 인증 cookie 저장, reference extraction/job 처리, rehearsal STT demo를 서버에서 수동 검증한다.
+
+## ORBIT-228 personal server automatic deploy policy
+
+- Context: 개인 서버 배포 절차가 수동 스크립트로 정리되었지만, `develop` merge 뒤 사람이 서버에 접속해 실행해야 하면 staging/demo 검증이 누락될 수 있다. 또한 `APP_ENV=staging` validation은 local default인 `S3_BUCKET=orbit-local`을 금지하므로 개인 서버 MinIO bucket도 staging 전용 이름을 사용해야 한다.
+- Options considered:
+  - 수동 배포 스크립트만 유지한다.
+  - GitHub-hosted runner에서 SSH secret으로 개인 서버에 접속한다.
+  - 개인 서버 self-hosted runner가 최소 sudo wrapper만 실행하고, 서버 내부 checkout과 Doppler token으로 배포한다.
+- Final decision: `develop` push와 수동 `workflow_dispatch`에서 `orbit-personal-staging` self-hosted runner가 `/usr/local/sbin/orbit-deploy-personal-staging` wrapper를 실행한다. 개인 서버 MinIO bucket은 `orbit-personal-staging`으로 고정한다. GitHub repository secret은 사용하지 않고, Doppler token과 deploy key는 서버에만 둔다.
+- Rationale: GitHub에 서버 SSH secret을 저장하지 않고, runner 권한을 단일 wrapper 실행으로 제한하면서 merge 후 배포를 자동화한다. staging validation의 local-default 금지 정책도 유지한다.
+- Affected files: `.github/workflows/deploy-personal-staging.yml`, `docker-compose.staging.yml`, `docs/runbooks/personal-server-deployment.md`, `docs/decision-log.md`.
+- Follow-up review notes: 첫 merge 후 GitHub Actions에서 runner label 매칭, sudoers wrapper 실행, `db:migration:run`, `/api/health`, `/assets/orbit-personal-staging/` 접근을 확인한다. 완전 자동 배포가 목표면 GitHub Environment `personal-staging`에 required reviewer를 설정하지 않는다.
