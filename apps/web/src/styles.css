@@ -988,14 +988,17 @@ button:disabled {
   gap: 16px;
 }
 
-.rehearsal-recorder-actions {
+.rehearsal-recorder-actions,
+.rehearsal-live-actions {
   display: grid;
   gap: 10px;
   grid-template-columns: 1fr 1fr;
 }
 
 .rehearsal-record-panel .primary-action,
-.rehearsal-record-panel .secondary-action {
+.rehearsal-record-panel .secondary-action,
+.rehearsal-live-panel .primary-action,
+.rehearsal-live-panel .secondary-action {
   min-height: 46px;
 }
 

@@ -8,6 +8,7 @@
     "dev": "vite --host 0.0.0.0",
     "lint": "corepack pnpm --filter @orbit/shared build && tsc -p tsconfig.json --noEmit",
     "preview": "vite preview --host 0.0.0.0",
+    "stt:model:prepare": "node scripts/prepare-live-stt-model.mjs",
     "test": "vitest run --passWithNoTests",
     "typecheck": "corepack pnpm --filter @orbit/shared build && tsc -p tsconfig.json --noEmit"
   },
