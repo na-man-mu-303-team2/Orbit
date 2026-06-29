@@ -228,6 +228,13 @@ def test_generate_deck_uses_design_intents_without_schema_leak() -> None:
     assert has_element(response.deck["slides"][0], "el_1_media_placeholder")
     assert response.deck["slides"][1]["style"]["layout"] == "two-column"
     assert has_element(response.deck["slides"][1], "el_2_metric_card")
+    generated_texts = [
+        element["props"]["text"]
+        for slide in response.deck["slides"]
+        for element in slide["elements"]
+        if element["type"] == "text"
+    ]
+    assert all(not text.startswith("핵심\n") for text in generated_texts)
     assert has_element(response.deck["slides"][2], "el_3_comparison_divider")
     assert has_element(response.deck["slides"][3], "el_4_quote_block")
     assert any(

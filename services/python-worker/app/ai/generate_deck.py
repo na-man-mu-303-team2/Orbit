@@ -1249,8 +1249,6 @@ def plan_visuals(slide_plan: SlidePlan) -> VisualPlan:
     ]
     if slide_plan.slide_type == "chart":
         intents.append(ElementIntent(role="chart", text=slide_plan.title))
-    elif any(slot.role == "highlight" for slot in preset.slots):
-        intents.append(ElementIntent(role="highlight", text="핵심 포인트"))
 
     return VisualPlan(
         slide_type=slide_plan.slide_type,
@@ -1402,23 +1400,6 @@ def design_elements(
         ),
     ]
 
-    if any(intent.role == "highlight" for intent in visual_plan.intents):
-        elements.append(
-            text_element(
-                slide_plan.order,
-                "highlight_text",
-                "highlight",
-                "핵심\n" + slide_plan.message[:72],
-                1064,
-                322,
-                570,
-                240,
-                4,
-                theme["textColor"],
-                32,
-                "bold",
-            )
-        )
     if visual_plan.layout_variant == "data":
         elements.append(
             shape_element(
