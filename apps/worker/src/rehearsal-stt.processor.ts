@@ -39,10 +39,10 @@ const transcribeResponseSchema = z.object({
 
 const analyzeResponseSchema = z.object({
   runId: z.string().min(1),
-  wordsPerMinute: z.number(),
-  fillerWordCount: z.number().int(),
-  pauseCount: z.number().int(),
-  keywordCoverage: z.number(),
+  wordsPerMinute: z.number().nonnegative(),
+  fillerWordCount: z.number().int().nonnegative(),
+  pauseCount: z.number().int().nonnegative(),
+  keywordCoverage: z.number().min(0).max(1),
   coaching: z.record(z.unknown()).optional()
 });
 
