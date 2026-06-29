@@ -7,7 +7,8 @@ import {
   GeneratedDeckResult,
   getGenerateDeckJobResult,
   getJobResultFiles,
-  pollExtractJob
+  getPptxImportJobResult,
+  pollJob
 } from "./App";
 
 describe("reference extraction upload flow", () => {
@@ -89,7 +90,7 @@ describe("reference extraction upload flow", () => {
         )
       );
 
-    const job = await pollExtractJob("job-1", { delayMs: 0, fetcher });
+    const job = await pollJob("job-1", { delayMs: 0, fetcher });
     const [result] = getJobResultFiles(job);
     const html = renderToStaticMarkup(<ExtractResultItem result={result} />);
 
@@ -169,5 +170,102 @@ describe("AI deck generation flow", () => {
     expect(renderToStaticMarkup(<GeneratedDeckResult result={result} />)).toContain(
       "file_1"
     );
+  });
+});
+
+describe("PPTX import flow", () => {
+  it("reads a PPTX import job result", () => {
+    const job: Job = {
+      jobId: "job-3",
+      projectId: "project-a",
+      type: "pptx-import",
+      status: "succeeded",
+      progress: 100,
+      message: "PPTX import completed.",
+      result: {
+        deckId: "deck_project-a",
+        deck: {
+          deckId: "deck_project-a",
+          projectId: "project-a",
+          title: "sample",
+          version: 1,
+          metadata: {
+            language: "ko",
+            locale: "ko-KR",
+            sourceType: "import"
+          },
+          canvas: {
+            preset: "wide-16-9",
+            width: 1920,
+            height: 1080,
+            aspectRatio: "16:9"
+          },
+          theme: {
+            name: "Orbit Import",
+            fontFamily: "Inter",
+            backgroundColor: "#ffffff",
+            textColor: "#111827",
+            accentColor: "#2563eb",
+            palette: {
+              primary: "#2563eb",
+              secondary: "#7c3aed",
+              surface: "#ffffff",
+              muted: "#f3f4f6",
+              border: "#dbe3f0"
+            },
+            typography: {
+              headingFontFamily: "Inter",
+              bodyFontFamily: "Inter",
+              titleSize: 56,
+              headingSize: 36,
+              bodySize: 22,
+              captionSize: 16
+            },
+            effects: {
+              borderRadius: 10,
+              shadow: {
+                color: "#111827",
+                blur: 18,
+                offsetX: 0,
+                offsetY: 8,
+                opacity: 0.16
+              }
+            }
+          },
+          slides: [
+            {
+              slideId: "slide_1",
+              order: 1,
+              title: "Intro",
+              thumbnailUrl: "",
+              style: {},
+              speakerNotes: "hello",
+              elements: [],
+              keywords: [],
+              animations: [],
+              aiNotes: {
+                emphasisPoints: [],
+                sourceEvidence: [{ fileId: "file_1" }]
+              }
+            }
+          ]
+        },
+        warnings: [
+          {
+            code: "PPTX_OCR_NEEDED_SLIDE",
+            message: "이미지 중심 슬라이드라 OCR 텍스트 기준으로 가져왔습니다.",
+            slideIndex: 1
+          }
+        ]
+      },
+      error: null,
+      createdAt: "2026-06-29T00:00:00.000Z",
+      updatedAt: "2026-06-29T00:00:01.000Z"
+    };
+
+    const result = getPptxImportJobResult(job);
+
+    expect(result?.deckId).toBe("deck_project-a");
+    expect(result?.warnings).toHaveLength(1);
   });
 });

@@ -1,5 +1,6 @@
 import {
   generateDeckQueueName,
+  pptxImportQueueName,
   redisConnectionOptions,
   referenceExtractQueueName,
   rehearsalSttQueueName,
@@ -14,6 +15,7 @@ import { InjectPinoLogger, PinoLogger } from "nestjs-pino";
 import type { DataSource } from "typeorm";
 import { processGenerateDeckJob } from "./generate-deck.processor";
 import { serializeLogError } from "./logging";
+import { processPptxImportJob } from "./pptx-import.processor";
 import { processReferenceExtractJob } from "./reference-extract.processor";
 import { processRehearsalSttJob } from "./rehearsal-stt.processor";
 import { workerStorage } from "./storage";
@@ -25,6 +27,7 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
   private readonly queueNames = [
     referenceExtractQueueName,
     rehearsalSttQueueName,
+    pptxImportQueueName,
     generateDeckQueueName,
     workerHealthCheckQueueName
   ];
@@ -60,6 +63,14 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
       ),
       this.createWorker(rehearsalSttQueueName, (job) =>
         processRehearsalSttJob(
+          this.dataSource,
+          storage,
+          this.config.PYTHON_WORKER_URL,
+          job.data
+        )
+      ),
+      this.createWorker(pptxImportQueueName, (job) =>
+        processPptxImportJob(
           this.dataSource,
           storage,
           this.config.PYTHON_WORKER_URL,
