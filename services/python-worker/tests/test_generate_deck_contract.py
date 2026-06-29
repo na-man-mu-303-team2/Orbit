@@ -725,6 +725,110 @@ def test_generate_deck_applies_visual_intent_decorations_and_caps_elements() -> 
     assert response.validation.passed is True
 
 
+def test_generate_deck_creates_diagram_elements_from_composition() -> None:
+    fake_client = FakeOpenAIClient(
+        {
+            "title": "ORBIT diagrams",
+            "slides": [
+                slide_payload(
+                    "프로세스",
+                    "수집, 분석, 생성, 검증 순서로 진행합니다.",
+                    "네 단계를 차례로 소개합니다.",
+                    slide_type="process",
+                    slot_preset="before_after",
+                    keywords=["수집", "분석", "생성", "검증"],
+                    visual_intent={
+                        "emphasis": "steps",
+                        "mood": "structured",
+                        "structure": "process",
+                        "paletteHint": "",
+                        "emphasisStyle": "",
+                        "composition": "process",
+                        "decorationDensity": "low",
+                        "mediaStyle": "",
+                    },
+                ),
+                slide_payload(
+                    "허브 구조",
+                    "중앙 허브에서 네 개의 노드로 확장됩니다.",
+                    "핵심 허브와 주변 노드를 설명합니다.",
+                    slide_type="architecture",
+                    slot_preset="insight_with_evidence",
+                    keywords=["입력", "분류", "생성", "검증"],
+                    visual_intent={
+                        "emphasis": "hub",
+                        "mood": "systematic",
+                        "structure": "radial",
+                        "paletteHint": "",
+                        "emphasisStyle": "",
+                        "composition": "radial",
+                        "decorationDensity": "low",
+                        "mediaStyle": "",
+                    },
+                ),
+                slide_payload(
+                    "버블 클러스터",
+                    "다섯 개의 키워드가 한 화면에 모입니다.",
+                    "키워드를 버블로 묶어 보여줍니다.",
+                    slide_type="solution",
+                    slot_preset="insight_with_evidence",
+                    keywords=["초안", "편집", "공유", "연습", "실행"],
+                    visual_intent={
+                        "emphasis": "cluster",
+                        "mood": "clear",
+                        "structure": "bubble",
+                        "paletteHint": "",
+                        "emphasisStyle": "",
+                        "composition": "bubble",
+                        "decorationDensity": "low",
+                        "mediaStyle": "",
+                    },
+                ),
+            ],
+        }
+    )
+
+    response = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="ORBIT",
+            prompt="Use generated plan.",
+            slideCountRange={"min": 3, "max": 3},
+        ),
+        client=fake_client,
+    )
+
+    process_slide, radial_slide, bubble_slide = response.deck["slides"]
+    process_steps = [
+        element
+        for element in process_slide["elements"]
+        if element["elementId"].startswith("el_1_process_step_")
+        and element["type"] == "customShape"
+    ]
+    radial_nodes = [
+        element
+        for element in radial_slide["elements"]
+        if element["elementId"].startswith("el_2_radial_node_")
+        and element["type"] == "ellipse"
+    ]
+    bubbles = [
+        element
+        for element in bubble_slide["elements"]
+        if element["elementId"].startswith("el_3_bubble_")
+        and element["type"] == "ellipse"
+    ]
+
+    assert process_slide["style"]["layout"] == "two-column"
+    assert len(process_steps) == 4
+    assert element_by_id(process_slide, "el_1_process_step_1_label")["props"]["text"] == "수집"
+    assert element_by_id(radial_slide, "el_2_radial_hub")["type"] == "ellipse"
+    assert len(radial_nodes) == 4
+    assert element_by_id(radial_slide, "el_2_radial_node_1_label")["props"]["text"] == "입력"
+    assert len(bubbles) == 5
+    assert element_by_id(bubble_slide, "el_3_bubble_1_label")["props"]["text"] == "초안"
+    assert response.validation.passed is True
+
+
 def slide_payload(
     title: str,
     message: str,
@@ -732,6 +836,7 @@ def slide_payload(
     *,
     slide_type: str,
     slot_preset: str,
+    keywords: list[str] | None = None,
     media_intent: dict[str, object] | None = None,
     visual_intent: dict[str, object] | None = None,
 ) -> dict[str, object]:
@@ -739,7 +844,7 @@ def slide_payload(
         "title": title,
         "message": message,
         "speakerNotes": speaker_notes,
-        "keywords": ["ORBIT"],
+        "keywords": keywords or ["ORBIT"],
         "slideType": slide_type,
         "layoutVariant": slot_preset.split("_", maxsplit=1)[0],
         "slotPreset": slot_preset,
@@ -772,6 +877,14 @@ def has_element(slide: dict[str, Any], element_id: str) -> bool:
     return any(
         element["elementId"] == element_id
         for element in slide["elements"]
+    )
+
+
+def element_by_id(slide: dict[str, Any], element_id: str) -> dict[str, Any]:
+    return next(
+        element
+        for element in slide["elements"]
+        if element["elementId"] == element_id
     )
 
 

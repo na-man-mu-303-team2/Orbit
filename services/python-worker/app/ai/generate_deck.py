@@ -825,7 +825,8 @@ Rules:
 - Choose slideType, layoutVariant, slotPreset, visualIntent, and mediaIntent.
 - visualIntent may include paletteHint, emphasisStyle, composition,
   decorationDensity, and mediaStyle. Prefer concise values such as
-  keyword-chips, callout, split, poster, data, media, low, medium, or high.
+  keyword-chips, callout, split, poster, data, media, process, radial, bubble,
+  low, medium, or high.
 - Do not output coordinates, sizes, zIndex, or final Deck JSON.
 - Do not write meta placeholders such as "목적과 기대 결과를 소개합니다" or
   "결정 사항, 실행 순서, 후속 검증 기준을 정리합니다" unless the source is actually about that.
@@ -1477,6 +1478,12 @@ def layout_candidates_for(
 
 def normalize_composition(value: str) -> str:
     normalized = value.strip().casefold()
+    if has_any(normalized, ["process", "step", "flow", "timeline", "sequence"]):
+        return "process"
+    if has_any(normalized, ["radial", "hub", "cycle"]):
+        return "radial"
+    if has_any(normalized, ["bubble", "cluster"]):
+        return "bubble"
     if "split" in normalized or "two" in normalized:
         return "split"
     if "poster" in normalized or "cover" in normalized:
@@ -1500,6 +1507,10 @@ def presets_for_composition(composition: str) -> set[SlotPreset]:
         return {"title_center", "title_full_bleed_image"}
     if composition == "data":
         return {"big_number_focus", "metric_cards", "insight_with_evidence"}
+    if composition == "process":
+        return {"before_after", "criteria_table", "insight_with_evidence"}
+    if composition in {"radial", "bubble"}:
+        return {"metric_cards", "insight_with_evidence"}
     if composition == "media":
         return {
             slot_preset
@@ -1969,7 +1980,8 @@ def design_elements(
     emphasis_style = normalize_emphasis_style(
         visual_plan.visual_intent.emphasis_style,
     )
-    if not emphasis_style and slide_plan.keywords:
+    composition = normalize_composition(visual_plan.visual_intent.composition)
+    if not emphasis_style and slide_plan.keywords and not is_diagram_composition(composition):
         emphasis_style = "keyword-chips"
     elements = [
         shape_element(
@@ -2100,11 +2112,190 @@ def design_elements(
             )
         )
 
+    elements.extend(diagram_elements(slide_plan, composition, theme))
+
     if emphasis_style == "keyword-chips":
         elements.extend(keyword_chip_elements(slide_plan, theme))
     if emphasis_style == "callout":
         elements.extend(callout_elements(slide_plan, theme))
 
+    return elements
+
+
+def is_diagram_composition(composition: str) -> bool:
+    return composition in {"process", "radial", "bubble"}
+
+
+def diagram_elements(
+    slide_plan: SlidePlan,
+    composition: str,
+    theme: dict[str, Any],
+) -> list[dict[str, Any]]:
+    if composition == "process":
+        return process_diagram_elements(slide_plan, theme)
+    if composition == "radial":
+        return radial_diagram_elements(slide_plan, theme)
+    if composition == "bubble":
+        return bubble_diagram_elements(slide_plan, theme)
+    return []
+
+
+def diagram_labels(slide_plan: SlidePlan, count: int) -> list[str]:
+    labels = [keyword.strip() for keyword in slide_plan.keywords if keyword.strip()]
+    while len(labels) < count:
+        labels.append(f"STEP {len(labels) + 1}")
+    return labels[:count]
+
+
+def process_diagram_elements(
+    slide_plan: SlidePlan,
+    theme: dict[str, Any],
+) -> list[dict[str, Any]]:
+    labels = diagram_labels(slide_plan, 4)
+    elements: list[dict[str, Any]] = []
+    for index, label in enumerate(labels):
+        x = 210 + index * 380
+        y = 790
+        elements.extend(
+            [
+                custom_shape_element(
+                    slide_plan.order,
+                    f"process_step_{index + 1}",
+                    "highlight",
+                    x,
+                    y,
+                    320,
+                    76,
+                    4,
+                    "M 0 0 L 270 0 L 320 38 L 270 76 L 0 76 L 48 38 Z",
+                    320,
+                    76,
+                    theme["palette"]["surface"],
+                    theme["accentColor"],
+                ),
+                text_element(
+                    slide_plan.order,
+                    f"process_step_{index + 1}_label",
+                    "highlight",
+                    label,
+                    x + 42,
+                    y + 22,
+                    220,
+                    32,
+                    5,
+                    theme["textColor"],
+                    theme["typography"]["captionSize"] + 4,
+                    "bold",
+                    theme["typography"]["headingFontFamily"],
+                ),
+            ]
+        )
+    return elements
+
+
+def radial_diagram_elements(
+    slide_plan: SlidePlan,
+    theme: dict[str, Any],
+) -> list[dict[str, Any]]:
+    labels = diagram_labels(slide_plan, 4)
+    elements = [
+        shape_element(
+            slide_plan.order,
+            "radial_hub",
+            "highlight",
+            840,
+            648,
+            240,
+            240,
+            4,
+            theme["palette"]["surface"],
+            theme["accentColor"],
+            element_type="ellipse",
+        )
+    ]
+    positions = [(540, 628), (1140, 628), (660, 820), (1020, 820)]
+    for index, (x, y) in enumerate(positions):
+        elements.extend(
+            [
+                shape_element(
+                    slide_plan.order,
+                    f"radial_node_{index + 1}",
+                    "highlight",
+                    x,
+                    y,
+                    190,
+                    112,
+                    5,
+                    theme["palette"]["muted"],
+                    theme["accentColor"],
+                    element_type="ellipse",
+                ),
+                text_element(
+                    slide_plan.order,
+                    f"radial_node_{index + 1}_label",
+                    "highlight",
+                    labels[index],
+                    x + 28,
+                    y + 39,
+                    134,
+                    34,
+                    6,
+                    theme["textColor"],
+                    theme["typography"]["captionSize"] + 3,
+                    "bold",
+                    theme["typography"]["bodyFontFamily"],
+                ),
+            ]
+        )
+    return elements
+
+
+def bubble_diagram_elements(
+    slide_plan: SlidePlan,
+    theme: dict[str, Any],
+) -> list[dict[str, Any]]:
+    labels = diagram_labels(slide_plan, 5)
+    positions = [
+        (470, 660, 220),
+        (750, 604, 250),
+        (1050, 664, 220),
+        (680, 820, 210),
+        (980, 820, 210),
+    ]
+    elements: list[dict[str, Any]] = []
+    for index, (x, y, size) in enumerate(positions):
+        elements.extend(
+            [
+                shape_element(
+                    slide_plan.order,
+                    f"bubble_{index + 1}",
+                    "highlight",
+                    x,
+                    y,
+                    size,
+                    size,
+                    4,
+                    theme["palette"]["surface"],
+                    theme["accentColor"],
+                    element_type="ellipse",
+                ),
+                text_element(
+                    slide_plan.order,
+                    f"bubble_{index + 1}_label",
+                    "highlight",
+                    labels[index],
+                    x + 36,
+                    y + size // 2 - 18,
+                    size - 72,
+                    36,
+                    5,
+                    theme["textColor"],
+                    theme["typography"]["captionSize"] + 3,
+                    "bold",
+                    theme["typography"]["bodyFontFamily"],
+                ),
+            ]
+        )
     return elements
 
 
@@ -2383,10 +2574,11 @@ def shape_element(
     stroke: str,
     border_radius: int = 0,
     rotation: int = 0,
+    element_type: str = "rect",
 ) -> dict[str, Any]:
     return {
         "elementId": f"el_{order}_{name}",
-        "type": "rect",
+        "type": element_type,
         "role": role,
         "x": x,
         "y": y,
@@ -2402,6 +2594,47 @@ def shape_element(
             "stroke": stroke,
             "strokeWidth": 0 if stroke == "transparent" else 2,
             "borderRadius": border_radius,
+        },
+    }
+
+
+def custom_shape_element(
+    order: int,
+    name: str,
+    role: str,
+    x: int,
+    y: int,
+    width: int,
+    height: int,
+    z_index: int,
+    path_data: str,
+    view_box_width: int,
+    view_box_height: int,
+    fill: str,
+    stroke: str,
+) -> dict[str, Any]:
+    return {
+        "elementId": f"el_{order}_{name}",
+        "type": "customShape",
+        "role": role,
+        "x": x,
+        "y": y,
+        "width": width,
+        "height": height,
+        "rotation": 0,
+        "opacity": 1,
+        "zIndex": z_index,
+        "locked": False,
+        "visible": True,
+        "props": {
+            "pathData": path_data,
+            "viewBoxWidth": view_box_width,
+            "viewBoxHeight": view_box_height,
+            "fill": fill,
+            "stroke": stroke,
+            "strokeWidth": 2,
+            "closed": True,
+            "nodes": [],
         },
     }
 
