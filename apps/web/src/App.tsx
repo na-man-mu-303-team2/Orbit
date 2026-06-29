@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import type { CSSProperties, ChangeEvent, DragEvent, FormEvent, ReactNode } from "react";
 import { lazy, Suspense, useEffect, useMemo, useState } from "react";
+import { createDemoDeck } from "../../../packages/editor-core/src/index";
 import orbitLogo from "./assets/orbit-logo.png";
 import {
   createProject,
@@ -112,6 +113,7 @@ const templates = [
   { id: "report", title: "보고서", description: "요약과 근거 중심" },
   { id: "workshop", title: "워크숍", description: "진행 순서와 실습 구성" }
 ];
+const demoDeck = createDemoDeck();
 const allowedExtensions = ["pdf", "docx", "pptx"];
 const allowedMimeTypes = new Set([
   "application/pdf",
@@ -212,7 +214,12 @@ function renderRoute(route: Route, user?: AuthUser) {
     );
   }
   if (route.name === "rehearsal") {
-    return <RehearsalWorkspace projectId={route.projectId} />;
+    return (
+      <RehearsalWorkspace
+        projectId={route.projectId}
+        fallbackDeck={route.projectId === demoIds.projectId ? demoDeck : undefined}
+      />
+    );
   }
   return <HomePage user={user} />;
 }
