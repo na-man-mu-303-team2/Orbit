@@ -28,6 +28,9 @@ describe("RehearsalWorkspace", () => {
     expect(html).toContain("리허설");
     expect(html).toContain(deck.slides[0]?.title);
     expect(html).toContain("Live STT");
+    expect(html).toContain("Live STT 시작");
+    expect(html).toContain("Live STT 종료");
+    expect(html).toContain("Live STT 시작을 눌러 테스트하세요");
     expect(html).toContain("Report AI");
     expect(html).toContain("Speaker notes");
   });
