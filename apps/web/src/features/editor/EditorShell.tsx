@@ -27,6 +27,10 @@ import {
   fetchProjects,
   uploadProjectAsset
 } from "../projects/ProjectAssetWorkspace";
+import {
+  normalizeEditorAssetUrl,
+  resolveEditorAssetUrl
+} from "./editorAssetUrl";
 import type {
   ApplyAiSuggestionResponse,
   Chart,
@@ -276,83 +280,6 @@ async function readResponseError(response: Response, fallbackMessage: string) {
   return message || fallbackMessage;
 }
 
-type ProjectAssetDescriptor = {
-  fileId: string;
-  projectId: string;
-};
-
-function parseProjectAssetDescriptor(src: string): ProjectAssetDescriptor | null {
-  if (!src) {
-    return null;
-  }
-
-  try {
-    const baseOrigin =
-      typeof window === "undefined" ? "http://localhost" : window.location.origin;
-    const url = new URL(src, baseOrigin);
-    const proxyMatch = url.pathname.match(
-      /^\/api\/v1\/projects\/([^/]+)\/assets\/([^/]+)\/content$/,
-    );
-
-    if (proxyMatch) {
-      return {
-        projectId: decodeURIComponent(proxyMatch[1]),
-        fileId: decodeURIComponent(proxyMatch[2]),
-      };
-    }
-
-    const nestedMinioMatch = url.pathname.match(
-      /\/orbit-local\/projects\/([^/]+)\/assets\/([^/]+)\/[^/]+$/,
-    );
-    const flatMinioMatch = url.pathname.match(
-      /\/orbit-local\/projects\/([^/]+)\/assets\/([^/]+?)-[^/]+$/,
-    );
-    const minioMatch = nestedMinioMatch ?? flatMinioMatch;
-
-    if (!minioMatch) {
-      return null;
-    }
-
-    return {
-      projectId: decodeURIComponent(minioMatch[1]),
-      fileId: decodeURIComponent(minioMatch[2]),
-    };
-  } catch {
-    return null;
-  }
-}
-
-function createProjectAssetProxyPath(projectId: string, fileId: string) {
-  return `/api/v1/projects/${encodeURIComponent(projectId)}/assets/${encodeURIComponent(
-    fileId,
-  )}/content`;
-}
-
-function normalizeEditorAssetUrl(src: string) {
-  const descriptor = parseProjectAssetDescriptor(src);
-
-  if (!descriptor) {
-    return src;
-  }
-
-  return createProjectAssetProxyPath(descriptor.projectId, descriptor.fileId);
-}
-
-export function resolveEditorAssetUrl(src: string) {
-  if (!src) {
-    return src;
-  }
-
-  if (typeof window === "undefined") {
-    return normalizeEditorAssetUrl(src);
-  }
-
-  const normalizedPath = normalizeEditorAssetUrl(src);
-  return normalizedPath.startsWith("/api/")
-    ? `${window.location.origin}${normalizedPath}`
-    : normalizedPath;
-}
-
 function waitForAnimationFrame() {
   return new Promise<void>((resolve) => {
     window.requestAnimationFrame(() => resolve());
@@ -537,13 +464,11 @@ function RenderOnlyElementNode(props: {
   );
 }
 
-function HiddenSlideRenderStage(props: {
+function HiddenSlideRenderStages(props: {
   deck: Deck;
-  slide: Slide;
-  stageRef: MutableRefObject<Konva.Stage | null>;
+  stageRefs: MutableRefObject<Map<string, Konva.Stage>>;
 }) {
-  const { deck, slide, stageRef } = props;
-  const visibleElements = getRenderableSlideElements(slide, deck.canvas);
+  const { deck, stageRefs } = props;
 
   return (
     <div
@@ -558,30 +483,43 @@ function HiddenSlideRenderStage(props: {
         opacity: 0,
       }}
     >
-      <Stage
-        height={deck.canvas.height}
-        ref={stageRef}
-        width={deck.canvas.width}
-      >
-        <Layer>
-          {visibleElements.map((element) => (
-            <RenderOnlyElementNode
-              key={element.elementId}
-              accentColor={slide.style.accentColor ?? deck.theme.accentColor}
-              deck={deck}
-              element={element}
-              frame={{
-                x: element.x,
-                y: element.y,
-                width: element.width,
-                height: element.height,
-                rotation: element.rotation,
-              }}
-              slide={slide}
-            />
-          ))}
-        </Layer>
-      </Stage>
+      {deck.slides.map((slide) => {
+        const visibleElements = getRenderableSlideElements(slide, deck.canvas);
+
+        return (
+          <Stage
+            height={deck.canvas.height}
+            key={slide.slideId}
+            ref={(stage) => {
+              if (stage) {
+                stageRefs.current.set(slide.slideId, stage);
+              } else {
+                stageRefs.current.delete(slide.slideId);
+              }
+            }}
+            width={deck.canvas.width}
+          >
+            <Layer>
+              {visibleElements.map((element) => (
+                <RenderOnlyElementNode
+                  key={element.elementId}
+                  accentColor={slide.style.accentColor ?? deck.theme.accentColor}
+                  deck={deck}
+                  element={element}
+                  frame={{
+                    x: element.x,
+                    y: element.y,
+                    width: element.width,
+                    height: element.height,
+                    rotation: element.rotation,
+                  }}
+                  slide={slide}
+                />
+              ))}
+            </Layer>
+          </Stage>
+        );
+      })}
     </div>
   );
 }
@@ -764,9 +702,8 @@ export function EditorShell(props: { projectId?: string }) {
   const imageFileInputRef = useRef<HTMLInputElement | null>(null);
   const copiedElementRef = useRef<ElementClipboardState | null>(null);
   const editorStageRef = useRef<Konva.Stage | null>(null);
-  const slideRenderStageRef = useRef<Konva.Stage | null>(null);
+  const slideRenderStageRefs = useRef(new Map<string, Konva.Stage>());
   const [renderingDeck, setRenderingDeck] = useState<Deck | null>(null);
-  const [renderingSlideIndex, setRenderingSlideIndex] = useState<number | null>(null);
 
   const health = useQuery({
     queryKey: ["health"],
@@ -955,22 +892,21 @@ export function EditorShell(props: { projectId?: string }) {
 
     const nextDeck = structuredClone(normalizeDeckAssetUrls(sourceDeck));
     let missingAssetCount = 0;
+    slideRenderStageRefs.current.clear();
     flushSync(() => {
       setRenderingDeck(nextDeck);
     });
+    await waitForAnimationFrame();
+    await waitForAnimationFrame();
 
     try {
       for (let index = 0; index < nextDeck.slides.length; index += 1) {
         const slide = nextDeck.slides[index];
         missingAssetCount += await waitForSlideAssets(slide);
 
-        flushSync(() => {
-          setRenderingSlideIndex(index);
-        });
-        await waitForAnimationFrame();
         await waitForAnimationFrame();
 
-        const stage = slideRenderStageRef.current;
+        const stage = slideRenderStageRefs.current.get(slide.slideId);
 
         if (!stage) {
           throw new Error("슬라이드 렌더링 스테이지를 찾지 못했습니다.");
@@ -998,8 +934,8 @@ export function EditorShell(props: { projectId?: string }) {
     } finally {
       flushSync(() => {
         setRenderingDeck(null);
-        setRenderingSlideIndex(null);
       });
+      slideRenderStageRefs.current.clear();
     }
 
     return {
@@ -1086,6 +1022,53 @@ export function EditorShell(props: { projectId?: string }) {
       setSaveState("error");
       setSaveErrorMessage(toEditorErrorMessage(error));
       void deckQuery.refetch();
+    }
+  }
+
+  async function handleStartRehearsal() {
+    const activeProjectId = deckRef.current.projectId || deckQuery.data?.projectId;
+
+    if (!activeProjectId) {
+      setSaveState("error");
+      setSaveErrorMessage("저장할 프로젝트를 찾지 못했습니다.");
+      return;
+    }
+
+    setSaveState("saving");
+    setSaveErrorMessage(null);
+    setActiveTopMenu(null);
+
+    const deckSnapshot = structuredClone(normalizeDeckAssetUrls(deckRef.current));
+
+    try {
+      await saveQueueRef.current.catch(() => undefined);
+
+      const persistedDeck = await putProjectDeck(activeProjectId, deckSnapshot);
+      const renderResult = await syncSlideRenderAssets(activeProjectId, persistedDeck);
+      const finalDeck = await putProjectDeck(activeProjectId, renderResult.deck);
+
+      applyPersistedDeckState(finalDeck);
+      setImageUploadNotice({
+        message:
+          renderResult.missingAssetCount > 0
+            ? `${finalDeck.slides.length}개 슬라이드 이미지 저장 완료 · 누락 이미지 ${renderResult.missingAssetCount}개`
+            : `${finalDeck.slides.length}개 슬라이드 이미지 저장 완료`,
+        tone: renderResult.missingAssetCount > 0 ? "info" : "success"
+      });
+      setLastPatchLabel(`리허설 준비 완료 · v${finalDeck.version}`);
+      setSaveState("idle");
+      setSaveErrorMessage(null);
+      navigateToRehearsal(activeProjectId);
+    } catch (error) {
+      const message = toEditorErrorMessage(error);
+
+      setLastPatchLabel(`리허설 준비 실패 · ${message}`);
+      setSaveState("error");
+      setSaveErrorMessage(message);
+      setImageUploadNotice({
+        message: "리허설용 슬라이드 이미지 저장 실패",
+        tone: "danger"
+      });
     }
   }
 
@@ -2675,8 +2658,7 @@ export function EditorShell(props: { projectId?: string }) {
                     type="button"
                     onClick={() => {
                       if (label === presentationItems[2]?.label) {
-                        setActiveTopMenu(null);
-                        navigateToRehearsal(projectId);
+                        void handleStartRehearsal();
                       }
                     }}
                   >
@@ -3031,12 +3013,10 @@ export function EditorShell(props: { projectId?: string }) {
                     onSelectElement={handleElementSelection}
                   />
                 </div>
-                {renderingDeck && renderingSlideIndex !== null &&
-                renderingDeck.slides[renderingSlideIndex] ? (
-                  <HiddenSlideRenderStage
+                {renderingDeck ? (
+                  <HiddenSlideRenderStages
                     deck={renderingDeck}
-                    slide={renderingDeck.slides[renderingSlideIndex]}
-                    stageRef={slideRenderStageRef}
+                    stageRefs={slideRenderStageRefs}
                   />
                 ) : null}
               </div>

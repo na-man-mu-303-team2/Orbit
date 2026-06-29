@@ -7,6 +7,7 @@ import {
   RehearsalFlowError,
   RehearsalWorkspace,
   SherpaLiveSttAdapter,
+  WebSpeechLiveSttAdapter,
   createRecordingFile,
   createRecordingSession,
   evaluateLiveTranscript,
@@ -17,6 +18,7 @@ import {
   selectRecordingMimeType,
   shouldAutoAdvanceLiveSlide
 } from "./RehearsalWorkspace";
+import { resolveEditorAssetUrl } from "../editor/editorAssetUrl";
 
 const createdAt = "2026-06-29T00:00:00.000Z";
 
@@ -30,6 +32,28 @@ describe("RehearsalWorkspace", () => {
     expect(html).toContain("Live STT");
     expect(html).toContain("Report AI");
     expect(html).toContain("Speaker notes");
+  });
+
+  it("resolves slide thumbnails to same-origin asset URLs", () => {
+    vi.stubGlobal("window", {
+      location: {
+        origin: "http://localhost:5173"
+      }
+    });
+
+    expect(resolveEditorAssetUrl("/api/v1/projects/p1/assets/file_1/content")).toBe(
+      "http://localhost:5173/api/v1/projects/p1/assets/file_1/content"
+    );
+    expect(
+      resolveEditorAssetUrl(
+        "http://localhost:9000/orbit-local/projects/project_real_1/assets/file_real_1/slide_1.png"
+      )
+    ).toBe(
+      "http://localhost:5173/api/v1/projects/project_real_1/assets/file_real_1/content"
+    );
+    expect(resolveEditorAssetUrl("https://cdn.example.com/thumb.png")).toBe(
+      "https://cdn.example.com/thumb.png"
+    );
   });
 
   it("matches live STT keywords with normalized Korean aliases", () => {
@@ -110,6 +134,36 @@ describe("RehearsalWorkspace", () => {
     ).rejects.toMatchObject({
       code: "LIVE_STT_MODEL_UNAVAILABLE"
     } satisfies Partial<LiveSttAdapterError>);
+  });
+
+  it("connects browser SpeechRecognition results to partial transcript events", async () => {
+    const transcripts: string[] = [];
+    const recognition = new FakeSpeechRecognition();
+    const adapter = new WebSpeechLiveSttAdapter({
+      recognitionCtor: class extends FakeSpeechRecognition {
+        constructor() {
+          super();
+          return recognition;
+        }
+      }
+    });
+
+    await adapter.start({ getTracks: () => [] } as unknown as MediaStream, {
+      onPartialTranscript: (event) => transcripts.push(event.transcript),
+      onError: () => undefined
+    });
+
+    expect(recognition.started).toBe(true);
+
+    recognition.emitResult("오늘은 오르빗 리허설 흐름을 확인합니다", {
+      confidence: 0.91,
+      isFinal: false
+    });
+
+    expect(transcripts).toEqual(["오늘은 오르빗 리허설 흐름을 확인합니다"]);
+
+    adapter.stop();
+    expect(recognition.stopped).toBe(true);
   });
 
   it("records audio through a MediaRecorder-compatible session", () => {
@@ -344,6 +398,65 @@ describe("runRehearsalUploadFlow", () => {
     ]);
   });
 });
+
+class FakeSpeechRecognition {
+  continuous = false;
+  interimResults = false;
+  lang = "";
+  onerror: ((event: { error?: string; message?: string }) => void) | null = null;
+  onresult:
+    | ((event: {
+        resultIndex: number;
+        results: {
+          length: number;
+          [index: number]:
+            | {
+                isFinal: boolean;
+                length: number;
+                [alternativeIndex: number]:
+                  | { transcript: string; confidence?: number }
+                  | undefined;
+              }
+            | undefined;
+        };
+      }) => void)
+    | null = null;
+  started = false;
+  stopped = false;
+  aborted = false;
+
+  start() {
+    this.started = true;
+  }
+
+  stop() {
+    this.stopped = true;
+  }
+
+  abort() {
+    this.aborted = true;
+  }
+
+  emitResult(
+    transcript: string,
+    options: { confidence?: number; isFinal: boolean }
+  ) {
+    this.onresult?.({
+      resultIndex: 0,
+      results: {
+        length: 1,
+        0: {
+          isFinal: options.isFinal,
+          length: 1,
+          0: {
+            transcript,
+            confidence: options.confidence
+          }
+        }
+      }
+    });
+  }
+}
 
 class FakeMediaRecorder {
   static isTypeSupported(mimeType: string) {

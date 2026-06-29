@@ -29,6 +29,7 @@ import {
   Square
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { resolveEditorAssetUrl } from "../editor/editorAssetUrl";
 
 type Fetcher = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 type RehearsalPhase =
@@ -72,6 +73,45 @@ export type LiveSttAdapter = {
   stop: () => void;
   dispose: () => void;
 };
+
+type BrowserSpeechRecognitionAlternative = {
+  transcript: string;
+  confidence?: number;
+};
+
+type BrowserSpeechRecognitionResult = {
+  readonly isFinal: boolean;
+  readonly length: number;
+  [index: number]: BrowserSpeechRecognitionAlternative | undefined;
+};
+
+type BrowserSpeechRecognitionResultList = {
+  readonly length: number;
+  [index: number]: BrowserSpeechRecognitionResult | undefined;
+};
+
+type BrowserSpeechRecognitionResultEvent = {
+  readonly resultIndex: number;
+  readonly results: BrowserSpeechRecognitionResultList;
+};
+
+type BrowserSpeechRecognitionErrorEvent = {
+  readonly error?: string;
+  readonly message?: string;
+};
+
+type BrowserSpeechRecognition = {
+  continuous: boolean;
+  interimResults: boolean;
+  lang: string;
+  onerror: ((event: BrowserSpeechRecognitionErrorEvent) => void) | null;
+  onresult: ((event: BrowserSpeechRecognitionResultEvent) => void) | null;
+  start: () => void;
+  stop: () => void;
+  abort?: () => void;
+};
+
+type BrowserSpeechRecognitionConstructor = new () => BrowserSpeechRecognition;
 
 type LiveKeywordCandidate = {
   keyword: Keyword;
@@ -130,9 +170,101 @@ export class SherpaLiveSttAdapter implements LiveSttAdapter {
   dispose() {}
 }
 
+export class WebSpeechLiveSttAdapter implements LiveSttAdapter {
+  private recognition: BrowserSpeechRecognition | null = null;
+
+  constructor(
+    private readonly options: {
+      recognitionCtor?: BrowserSpeechRecognitionConstructor;
+      lang?: string;
+    } = {}
+  ) {}
+
+  async start(
+    _stream: MediaStream,
+    callbacks: LiveSttCallbacks
+  ): Promise<void> {
+    const Recognition =
+      this.options.recognitionCtor ??
+      window.SpeechRecognition ??
+      window.webkitSpeechRecognition;
+
+    if (!Recognition) {
+      throw new LiveSttAdapterError(
+        "LIVE_STT_MODEL_UNAVAILABLE",
+        "browser SpeechRecognition is not available."
+      );
+    }
+
+    try {
+      const recognition = new Recognition();
+      recognition.continuous = true;
+      recognition.interimResults = true;
+      recognition.lang = this.options.lang ?? "ko-KR";
+      recognition.onresult = (event) => {
+        emitSpeechRecognitionResults(event, callbacks);
+      };
+      recognition.onerror = (event) => {
+        callbacks.onError(
+          new LiveSttAdapterError(
+            "LIVE_STT_START_FAILED",
+            event.message || event.error || "browser SpeechRecognition failed."
+          )
+        );
+      };
+
+      this.recognition = recognition;
+      recognition.start();
+    } catch (cause) {
+      throw new LiveSttAdapterError(
+        "LIVE_STT_START_FAILED",
+        cause instanceof Error
+          ? cause.message
+          : "browser SpeechRecognition failed to start."
+      );
+    }
+  }
+
+  stop() {
+    this.recognition?.stop();
+    this.recognition = null;
+  }
+
+  dispose() {
+    this.recognition?.abort?.();
+    this.recognition = null;
+  }
+}
+
 declare global {
   interface Window {
     __orbitCreateLiveSttAdapter?: () => LiveSttAdapter;
+    SpeechRecognition?: BrowserSpeechRecognitionConstructor;
+    webkitSpeechRecognition?: BrowserSpeechRecognitionConstructor;
+  }
+}
+
+function emitSpeechRecognitionResults(
+  event: BrowserSpeechRecognitionResultEvent,
+  callbacks: LiveSttCallbacks
+) {
+  for (let index = event.resultIndex; index < event.results.length; index += 1) {
+    const result = event.results[index];
+    const alternative = result?.[0];
+    const transcript = alternative?.transcript?.trim();
+    if (!result || !transcript) {
+      continue;
+    }
+
+    callbacks.onPartialTranscript({
+      type: "partial-transcript",
+      transcript,
+      isFinal: result.isFinal,
+      confidence:
+        typeof alternative.confidence === "number"
+          ? alternative.confidence
+          : null
+    });
   }
 }
 
@@ -528,7 +660,7 @@ function getLiveKeywordCandidates(slide: Slide): LiveKeywordCandidate[] {
 }
 
 function createDefaultLiveSttAdapter() {
-  return window.__orbitCreateLiveSttAdapter?.() ?? new SherpaLiveSttAdapter();
+  return window.__orbitCreateLiveSttAdapter?.() ?? new WebSpeechLiveSttAdapter();
 }
 
 export function RehearsalWorkspace(props: {
@@ -561,6 +693,11 @@ export function RehearsalWorkspace(props: {
   const [isTimerRunning, setIsTimerRunning] = useState(false);
   const [timeMode, setTimeMode] = useState<RehearsalTimeMode>("stopwatch");
   const [timerDurationSeconds, setTimerDurationSeconds] = useState(80);
+  const [elapsedTimeInput, setElapsedTimeInput] = useState("00:00");
+  const [timerDurationInput, setTimerDurationInput] = useState("01:20");
+  const [editingTimeField, setEditingTimeField] = useState<
+    "elapsed" | "duration" | null
+  >(null);
   const sessionRef = useRef<RecordingSession | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const liveSttAdapterRef = useRef<LiveSttAdapter | null>(
@@ -631,6 +768,18 @@ export function RehearsalWorkspace(props: {
       setIsTimerRunning(false);
     }
   }, [elapsedSeconds, timeMode, timerDurationSeconds]);
+
+  useEffect(() => {
+    if (editingTimeField !== "elapsed") {
+      setElapsedTimeInput(formatClock(elapsedSeconds));
+    }
+  }, [editingTimeField, elapsedSeconds]);
+
+  useEffect(() => {
+    if (editingTimeField !== "duration") {
+      setTimerDurationInput(formatClock(timerDurationSeconds));
+    }
+  }, [editingTimeField, timerDurationSeconds]);
 
   useEffect(() => {
     return () => {
@@ -741,11 +890,37 @@ export function RehearsalWorkspace(props: {
     if (timeMode === "timer" && elapsedSeconds >= timerDurationSeconds) {
       setElapsedSeconds(0);
     }
-    setIsTimerRunning(true);
 
     if (canRecord) {
       void startRecording();
+      return;
     }
+
+    setIsTimerRunning(true);
+  }
+
+  function commitElapsedTimeInput(value: string) {
+    const nextSeconds = parseClockInput(value);
+    setEditingTimeField(null);
+
+    if (nextSeconds === null) {
+      setElapsedTimeInput(formatClock(elapsedSeconds));
+      return;
+    }
+
+    setElapsedSeconds(Math.min(nextSeconds, 60 * 60 * 24 - 1));
+  }
+
+  function commitTimerDurationInput(value: string) {
+    const nextSeconds = parseClockInput(value);
+    setEditingTimeField(null);
+
+    if (nextSeconds === null || nextSeconds <= 0) {
+      setTimerDurationInput(formatClock(timerDurationSeconds));
+      return;
+    }
+
+    setTimerDurationSeconds(Math.min(nextSeconds, 60 * 60 * 24 - 1));
   }
 
   async function startLiveStt(stream: MediaStream) {
@@ -917,11 +1092,6 @@ export function RehearsalWorkspace(props: {
     liveKeywordState?.detectedKeywords.map((keyword) => keyword.keywordId) ?? []
   );
   const checklistKeywords = getChecklistKeywords(currentSlide);
-  const displayedSeconds =
-    timeMode === "timer"
-      ? Math.max(timerDurationSeconds - elapsedSeconds, 0)
-      : elapsedSeconds;
-  const timerMinutes = Math.max(1, Math.round(timerDurationSeconds / 60));
   const scriptParagraphs = buildScriptParagraphs(currentSlide);
   const hasDeletedRawAudio = Boolean(run?.rawAudioDeletedAt);
 
@@ -961,44 +1131,33 @@ export function RehearsalWorkspace(props: {
               <option value="stopwatch">{"\uc2a4\ud1b1\uc6cc\uce58"}</option>
               <option value="timer">{"\ud0c0\uc774\uba38"}</option>
             </select>
+            <span className="rehearsal-select-caret" aria-hidden="true" />
           </label>
-          <strong>
-            {timeMode === "timer" ? "\ub0a8\uc740" : "\uacbd\uacfc"} {formatClock(displayedSeconds)}
-          </strong>
-          <label className="rehearsal-timer-duration">
-            <span>{"\ud0c0\uc774\uba38"}</span>
-            <button
-              type="button"
-              aria-label="Decrease timer"
-              onClick={() =>
-                setTimerDurationSeconds((current) => Math.max(60, current - 60))
-              }
-            >
-              -
-            </button>
+          <div className="rehearsal-time-fields">
             <input
-              aria-label="Timer minutes"
-              min={1}
-              max={180}
-              type="number"
-              value={timerMinutes}
+              aria-label="Elapsed time"
+              inputMode="numeric"
+              value={elapsedTimeInput}
+              onBlur={(event) => commitElapsedTimeInput(event.target.value)}
               onChange={(event) => {
-                const nextMinutes = Number(event.target.value);
-                if (!Number.isFinite(nextMinutes)) return;
-                setTimerDurationSeconds(Math.max(60, Math.min(10800, nextMinutes * 60)));
+                setEditingTimeField("elapsed");
+                setElapsedTimeInput(event.target.value);
               }}
+              onFocus={() => setEditingTimeField("elapsed")}
             />
-            <small>{"\ubd84"}</small>
-            <button
-              type="button"
-              aria-label="Increase timer"
-              onClick={() =>
-                setTimerDurationSeconds((current) => Math.min(10800, current + 60))
-              }
-            >
-              +
-            </button>
-          </label>
+            <span aria-hidden="true">/</span>
+            <input
+              aria-label="Target time"
+              inputMode="numeric"
+              value={timerDurationInput}
+              onBlur={(event) => commitTimerDurationInput(event.target.value)}
+              onChange={(event) => {
+                setEditingTimeField("duration");
+                setTimerDurationInput(event.target.value);
+              }}
+              onFocus={() => setEditingTimeField("duration")}
+            />
+          </div>
           <button
             type="button"
             aria-label={isTimerRunning ? "Pause time" : "Start time"}
@@ -1108,20 +1267,23 @@ export function RehearsalWorkspace(props: {
               </button>
             </header>
             <div className="keyword-check-list">
-              {checklistKeywords.map((keyword, index) => {
-                const isDetected =
-                  index < 2 || liveDetectedKeywordIds.has(keyword.keywordId);
-                return (
-                  <div className="keyword-check-item" key={keyword.keywordId}>
-                    {isDetected ? (
-                      <CheckCircle2 size={20} />
-                    ) : (
-                      <span className="empty-check" />
-                    )}
-                    <strong>{keyword.text}</strong>
-                  </div>
-                );
-              })}
+              {checklistKeywords.length > 0 ? (
+                checklistKeywords.map((keyword) => {
+                  const isDetected = liveDetectedKeywordIds.has(keyword.keywordId);
+                  return (
+                    <div className="keyword-check-item" key={keyword.keywordId}>
+                      {isDetected ? (
+                        <CheckCircle2 size={20} />
+                      ) : (
+                        <span className="empty-check" />
+                      )}
+                      <strong>{keyword.text}</strong>
+                    </div>
+                  );
+                })
+              ) : (
+                <div className="keyword-empty-state">강조 키워드가 없습니다</div>
+              )}
             </div>
           </section>
 
@@ -1137,7 +1299,9 @@ export function RehearsalWorkspace(props: {
             </header>
             <div className="script-body">
               {scriptParagraphs.map((paragraph, index) => (
-                <p key={`${paragraph}-${index}`}>{paragraph}</p>
+                <p key={`${paragraph}-${index}`}>
+                  {renderHighlightedScriptText(paragraph, checklistKeywords)}
+                </p>
               ))}
             </div>
           </section>
@@ -1155,6 +1319,22 @@ function DeckSlidePreview(props: { deck: Deck | null; slide: Slide }) {
   const titleText = getSlideTitle(slide);
   const bodyTexts = getSlideBodyTexts(slide);
   const keywords = getChecklistKeywords(slide);
+  const thumbnailUrl = resolveEditorAssetUrl(slide.thumbnailUrl);
+
+  if (thumbnailUrl) {
+    return (
+      <div
+        className="rehearsal-slide-preview image-preview"
+        style={{ backgroundColor, color: textColor }}
+      >
+        <img
+          alt={`${titleText} slide preview`}
+          className="rehearsal-slide-image"
+          src={thumbnailUrl}
+        />
+      </div>
+    );
+  }
 
   return (
     <div
@@ -1205,30 +1385,7 @@ function getSlideSummary(slide: Slide) {
 }
 
 function getChecklistKeywords(slide: Slide | null): Keyword[] {
-  const fallback = ["Realtime", "Voice", "Source"].map((text, index) => ({
-    keywordId: `fallback-${index}`,
-    text,
-    synonyms: [],
-    abbreviations: []
-  }));
-
-  if (!slide) return fallback;
-
-  const keywords = slide.keywords.length > 0
-    ? slide.keywords
-    : getSlideBodyTexts(slide)
-        .join(" ")
-        .split(/s+/)
-        .filter((word) => word.length > 1)
-        .slice(0, 3)
-        .map((text, index) => ({
-          keywordId: `${slide.slideId}-keyword-${index}`,
-          text,
-          synonyms: [],
-          abbreviations: []
-        }));
-
-  return keywords.length > 0 ? keywords.slice(0, 3) : fallback;
+  return slide?.keywords ?? [];
 }
 
 function buildScriptParagraphs(slide: Slide | null) {
@@ -1248,10 +1405,71 @@ function buildScriptParagraphs(slide: Slide | null) {
   return ["\ub300\ubcf8\uc774 \uc5c6\uc2b5\ub2c8\ub2e4."];
 }
 
+function renderHighlightedScriptText(paragraph: string, keywords: Keyword[]) {
+  const keywordTexts = Array.from(
+    new Set(
+      keywords
+        .map((keyword) => keyword.text.trim())
+        .filter(Boolean)
+        .sort((left, right) => right.length - left.length)
+    )
+  );
+
+  if (keywordTexts.length === 0) {
+    return paragraph;
+  }
+
+  const keywordPattern = new RegExp(
+    `(${keywordTexts.map(escapeRegExp).join("|")})`,
+    "gi"
+  );
+  const normalizedKeywordTexts = new Set(
+    keywordTexts.map((keyword) => keyword.toLocaleLowerCase())
+  );
+
+  return paragraph.split(keywordPattern).map((part, index) => {
+    if (!part) {
+      return null;
+    }
+
+    if (normalizedKeywordTexts.has(part.toLocaleLowerCase())) {
+      return (
+        <span className="script-keyword-highlight" key={`${part}-${index}`}>
+          {part}
+        </span>
+      );
+    }
+
+    return part;
+  });
+}
+
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 function formatClock(totalSeconds: number) {
   const minutes = Math.floor(totalSeconds / 60).toString().padStart(2, "0");
   const seconds = Math.floor(totalSeconds % 60).toString().padStart(2, "0");
   return `${minutes}:${seconds}`;
+}
+
+function parseClockInput(value: string): number | null {
+  const normalizedValue = value.trim();
+  const match = normalizedValue.match(/^(\d{1,3})(?::([0-5]?\d))?$/);
+
+  if (!match) {
+    return null;
+  }
+
+  const minutes = Number(match[1]);
+  const seconds = Number(match[2] ?? 0);
+
+  if (!Number.isFinite(minutes) || !Number.isFinite(seconds)) {
+    return null;
+  }
+
+  return minutes * 60 + seconds;
 }
 
 function navigateToProject(projectId: string) {
