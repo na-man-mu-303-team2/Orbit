@@ -190,7 +190,19 @@ export async function processRehearsalSttJob(
     );
   }
 
-  const report = buildRehearsalReport(payload, transcribePayload, analysis, rawAudioDeletedAt);
+  let report: RehearsalReport;
+  try {
+    report = buildRehearsalReport(payload, transcribePayload, analysis, rawAudioDeletedAt);
+  } catch (error) {
+    return failJobAndRun(
+      dataSource,
+      payload,
+      90,
+      "REHEARSAL_REPORT_INVALID",
+      error instanceof Error ? error.message : "Rehearsal report validation failed.",
+      { rawAudioDeletedAt }
+    );
+  }
 
   await updateRun(dataSource, payload, {
     status: "succeeded",

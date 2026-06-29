@@ -292,6 +292,77 @@ describe("processRehearsalSttJob", () => {
     expect(job.status).toBe("failed");
     expect(job.error?.code).toBe("RAW_AUDIO_DELETE_FAILED");
   });
+
+  it("marks the job failed when report validation fails after deleting raw audio", async () => {
+    const query = vi
+      .fn()
+      .mockResolvedValueOnce([jobRow("running", 10, null, null)])
+      .mockResolvedValueOnce([runRow()])
+      .mockResolvedValueOnce([assetRow])
+      .mockResolvedValueOnce([deckRow])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([runRow()])
+      .mockResolvedValueOnce([
+        jobRow("failed", 90, null, {
+          code: "REHEARSAL_REPORT_INVALID",
+          message: "Invalid report"
+        })
+      ]);
+    const storage = createStorage();
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({
+              runId: "run-a",
+              projectId: "project-a",
+              fileId: "file-audio",
+              transcript: "안녕하세요 ORBIT 발표입니다",
+              language: "ko-KR",
+              provider: "fake",
+              model: "fake-transcriber",
+              durationSeconds: 3.5,
+              segments: [{ text: "안녕하세요 ORBIT 발표입니다" }]
+            })
+          )
+        )
+        .mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({
+              runId: "run-a",
+              wordsPerMinute: 120,
+              fillerWordCount: 1,
+              pauseCount: 0,
+              keywordCoverage: 1,
+              coaching: { status: "failed", summary: "bad coaching state" }
+            })
+          )
+        )
+    );
+
+    const job = await processRehearsalSttJob(
+      { query } as unknown as DataSource,
+      storage,
+      "http://localhost:8000",
+      payload
+    );
+
+    expect(job.status).toBe("failed");
+    expect(job.error?.code).toBe("REHEARSAL_REPORT_INVALID");
+    expect(storage.removeObject).toHaveBeenCalledWith(assetRow.storage_key);
+    expect(query).toHaveBeenCalledWith(
+      expect.stringContaining("UPDATE rehearsal_runs"),
+      expect.arrayContaining([
+        "run-a",
+        "failed",
+        null,
+        expect.objectContaining({ code: "REHEARSAL_REPORT_INVALID" }),
+        expect.any(String)
+      ])
+    );
+  });
 });
 
 function createStorage() {
