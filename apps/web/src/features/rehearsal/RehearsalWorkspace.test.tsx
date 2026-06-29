@@ -1,0 +1,352 @@
+import { createDemoDeck } from "@orbit/editor-core";
+import type { Job, RehearsalRun } from "@orbit/shared";
+import { renderToStaticMarkup } from "react-dom/server";
+import { describe, expect, it, vi } from "vitest";
+import {
+  LiveSttAdapterError,
+  RehearsalFlowError,
+  RehearsalWorkspace,
+  SherpaLiveSttAdapter,
+  createRecordingSession,
+  evaluateLiveTranscript,
+  normalizeLiveTranscriptText,
+  runRehearsalUploadFlow,
+  selectRecordingMimeType,
+  shouldAutoAdvanceLiveSlide
+} from "./RehearsalWorkspace";
+
+const createdAt = "2026-06-29T00:00:00.000Z";
+
+describe("RehearsalWorkspace", () => {
+  it("renders the current deck preview and notes", () => {
+    const deck = createDemoDeck();
+    const html = renderToStaticMarkup(<RehearsalWorkspace initialDeck={deck} />);
+
+    expect(html).toContain("리허설");
+    expect(html).toContain(deck.slides[0]?.title);
+    expect(html).toContain("Live STT");
+    expect(html).toContain("Report AI");
+    expect(html).toContain("Speaker notes");
+  });
+
+  it("matches live STT keywords with normalized Korean aliases", () => {
+    const slide = {
+      ...createDemoDeck().slides[0]!,
+      slideId: "slide_1",
+      keywords: [
+        {
+          keywordId: "kw_1",
+          text: "ORBIT",
+          synonyms: ["오르빗"],
+          abbreviations: []
+        },
+        {
+          keywordId: "kw_2",
+          text: "Live STT",
+          synonyms: ["실시간 음성 인식"],
+          abbreviations: ["stt"]
+        }
+      ]
+    };
+
+    const analysis = evaluateLiveTranscript(
+      slide,
+      "오늘은 오르빗 실시간음성인식 흐름을 확인합니다"
+    );
+
+    expect(normalizeLiveTranscriptText("실시간 음성 인식")).toBe("실시간음성인식");
+    expect(analysis.coverage).toBe(1);
+    expect(analysis.detectedKeywords.map((keyword) => keyword.keywordId)).toEqual([
+      "kw_1",
+      "kw_2"
+    ]);
+    expect(analysis.missingKeywordIds).toEqual([]);
+  });
+
+  it("decides auto-advance only when keyword coverage reaches 80%", () => {
+    expect(
+      shouldAutoAdvanceLiveSlide({
+        analysis: { coverage: 0.8, missingKeywordIds: ["kw_5"] },
+        currentSlideIndex: 0,
+        slideCount: 2,
+        keywordCount: 5,
+        alreadyAdvanced: false
+      })
+    ).toBe(true);
+
+    expect(
+      shouldAutoAdvanceLiveSlide({
+        analysis: { coverage: 0.75, missingKeywordIds: ["kw_4"] },
+        currentSlideIndex: 0,
+        slideCount: 2,
+        keywordCount: 4,
+        alreadyAdvanced: false
+      })
+    ).toBe(false);
+
+    expect(
+      shouldAutoAdvanceLiveSlide({
+        analysis: { coverage: 1, missingKeywordIds: [] },
+        currentSlideIndex: 1,
+        slideCount: 2,
+        keywordCount: 1,
+        alreadyAdvanced: false
+      })
+    ).toBe(false);
+  });
+
+  it("keeps the default sherpa adapter as an explicit unavailable shell", async () => {
+    await expect(
+      new SherpaLiveSttAdapter().start(
+        { getTracks: () => [] } as unknown as MediaStream,
+        {
+          onPartialTranscript: () => undefined,
+          onError: () => undefined
+        }
+      )
+    ).rejects.toMatchObject({
+      code: "LIVE_STT_MODEL_UNAVAILABLE"
+    } satisfies Partial<LiveSttAdapterError>);
+  });
+
+  it("records audio through a MediaRecorder-compatible session", () => {
+    const stoppedFiles: File[] = [];
+    const errors: Error[] = [];
+    const session = createRecordingSession(
+      { getTracks: () => [] } as unknown as MediaStream,
+      {
+        recorderCtor: FakeMediaRecorder as unknown as typeof MediaRecorder,
+        now: () => new Date("2026-06-29T00:00:00.000Z"),
+        onStop: (file) => stoppedFiles.push(file),
+        onError: (error) => errors.push(error)
+      }
+    );
+
+    session.start();
+    expect(session.recorder.state).toBe("recording");
+
+    session.stop();
+    expect(errors).toEqual([]);
+    expect(stoppedFiles).toHaveLength(1);
+    expect(stoppedFiles[0]?.name).toBe("rehearsal-2026-06-29T00-00-00-000Z.webm");
+    expect(stoppedFiles[0]?.type).toBe("audio/webm");
+  });
+
+  it("selects the first supported recording MIME type", () => {
+    const recorderCtor = {
+      isTypeSupported: vi.fn((mimeType: string) => mimeType === "audio/mp4")
+    } as unknown as typeof MediaRecorder;
+
+    expect(selectRecordingMimeType(recorderCtor)).toBe("audio/mp4");
+  });
+});
+
+describe("runRehearsalUploadFlow", () => {
+  it("creates a run, uploads audio, completes it, polls the job, and fetches final run", async () => {
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+    const fetcher = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      calls.push({ url, init });
+
+      if (url === "/api/v1/projects/project-a/rehearsals") {
+        return jsonResponse({ run: runFixture("created") });
+      }
+
+      if (url === "/api/v1/rehearsals/run-1/audio/upload-url") {
+        return jsonResponse({
+          run: runFixture("uploading", { audioFileId: "file-audio" }),
+          upload: {
+            fileId: "file-audio",
+            projectId: "project-a",
+            uploadUrl: "http://storage.local/rehearsal.webm",
+            method: "PUT",
+            headers: { "content-type": "audio/webm" },
+            expiresAt: "2026-06-29T00:15:00.000Z",
+            purpose: "rehearsal-audio"
+          }
+        });
+      }
+
+      if (url === "http://storage.local/rehearsal.webm") {
+        return new Response(null, { status: 200 });
+      }
+
+      if (url === "/api/v1/rehearsals/run-1/audio/complete") {
+        return jsonResponse({
+          run: runFixture("processing", {
+            audioFileId: "file-audio",
+            jobId: "job-1"
+          }),
+          job: jobFixture("queued", 0)
+        });
+      }
+
+      if (url === "/api/jobs/job-1") {
+        const count = calls.filter((call) => call.url === "/api/jobs/job-1").length;
+        return jsonResponse(
+          count === 1 ? jobFixture("running", 40) : jobFixture("succeeded", 100)
+        );
+      }
+
+      if (url === "/api/v1/rehearsals/run-1") {
+        return jsonResponse(
+          {
+            run: runFixture("succeeded", {
+              audioFileId: "file-audio",
+              jobId: "job-1",
+              rawAudioDeletedAt: "2026-06-29T00:00:10.000Z"
+            })
+          }
+        );
+      }
+
+      return new Response("unexpected", { status: 500 });
+    });
+    const audioFile = new File(["audio"], "rehearsal.webm", { type: "audio/webm" });
+
+    const result = await runRehearsalUploadFlow({
+      projectId: "project-a",
+      deckId: "deck-a",
+      audioFile,
+      fetcher,
+      pollDelayMs: 0
+    });
+
+    expect(result.run.status).toBe("succeeded");
+    expect(result.job.status).toBe("succeeded");
+    expect(calls.map((call) => call.url)).toEqual([
+      "/api/v1/projects/project-a/rehearsals",
+      "/api/v1/rehearsals/run-1/audio/upload-url",
+      "http://storage.local/rehearsal.webm",
+      "/api/v1/rehearsals/run-1/audio/complete",
+      "/api/jobs/job-1",
+      "/api/jobs/job-1",
+      "/api/v1/rehearsals/run-1"
+    ]);
+    expect(JSON.parse(String(calls[0]?.init?.body))).toEqual({ deckId: "deck-a" });
+    expect(calls[2]?.init).toMatchObject({
+      method: "PUT",
+      headers: { "content-type": "audio/webm" },
+      body: audioFile
+    });
+  });
+
+  it("stops before complete when storage upload is interrupted", async () => {
+    const calls: string[] = [];
+    const fetcher = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      calls.push(url);
+
+      if (url === "/api/v1/projects/project-a/rehearsals") {
+        return jsonResponse({ run: runFixture("created") });
+      }
+
+      if (url === "/api/v1/rehearsals/run-1/audio/upload-url") {
+        return jsonResponse({
+          run: runFixture("uploading", { audioFileId: "file-audio" }),
+          upload: {
+            fileId: "file-audio",
+            projectId: "project-a",
+            uploadUrl: "http://storage.local/rehearsal.webm",
+            method: "PUT",
+            headers: { "content-type": "audio/webm" },
+            expiresAt: "2026-06-29T00:15:00.000Z",
+            purpose: "rehearsal-audio"
+          }
+        });
+      }
+
+      if (url === "http://storage.local/rehearsal.webm") {
+        return new Response("network interrupted", { status: 503 });
+      }
+
+      return new Response("unexpected", { status: 500 });
+    });
+
+    await expect(
+      runRehearsalUploadFlow({
+        projectId: "project-a",
+        deckId: "deck-a",
+        audioFile: new File(["audio"], "rehearsal.webm", { type: "audio/webm" }),
+        fetcher,
+        pollDelayMs: 0
+      })
+    ).rejects.toMatchObject({
+      stage: "storage-put"
+    } satisfies Partial<RehearsalFlowError>);
+
+    expect(calls).toEqual([
+      "/api/v1/projects/project-a/rehearsals",
+      "/api/v1/rehearsals/run-1/audio/upload-url",
+      "http://storage.local/rehearsal.webm"
+    ]);
+  });
+});
+
+class FakeMediaRecorder {
+  static isTypeSupported(mimeType: string) {
+    return mimeType === "audio/webm";
+  }
+
+  state: RecordingState = "inactive";
+  ondataavailable: ((event: BlobEvent) => void) | null = null;
+  onerror: ((event: Event) => void) | null = null;
+  onstop: ((event: Event) => void) | null = null;
+
+  constructor(
+    readonly stream: MediaStream,
+    readonly options?: MediaRecorderOptions
+  ) {}
+
+  start() {
+    this.state = "recording";
+  }
+
+  stop() {
+    this.state = "inactive";
+    this.ondataavailable?.({
+      data: new Blob(["audio"], { type: this.options?.mimeType ?? "audio/webm" })
+    } as BlobEvent);
+    this.onstop?.(new Event("stop"));
+  }
+}
+
+function runFixture(
+  status: RehearsalRun["status"],
+  patch: Partial<RehearsalRun> = {}
+): RehearsalRun {
+  return {
+    runId: "run-1",
+    projectId: "project-a",
+    deckId: "deck-a",
+    audioFileId: null,
+    jobId: null,
+    status,
+    error: null,
+    rawAudioDeletedAt: null,
+    createdAt,
+    updatedAt: createdAt,
+    ...patch
+  };
+}
+
+function jobFixture(status: Job["status"], progress: number): Job {
+  return {
+    jobId: "job-1",
+    projectId: "project-a",
+    type: "rehearsal-stt",
+    status,
+    progress,
+    message: status,
+    result: null,
+    error: null,
+    createdAt,
+    updatedAt: createdAt
+  };
+}
+
+function jsonResponse(payload: unknown) {
+  return new Response(JSON.stringify(payload), {
+    headers: { "content-type": "application/json" }
+  });
+}

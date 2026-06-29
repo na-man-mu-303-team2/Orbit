@@ -1,5 +1,13 @@
 # AGENTS.md
 
+## Review guidelines
+
+- GitHub Pull Request에 남기는 Codex 코드 리뷰 요약과 inline review comment는 한국어로 작성한다.
+- 코드 식별자, 파일 경로, API 이름, 환경변수 이름, 오류 메시지, 명령어, schema key, enum 값은 원문을 유지한다.
+- `P0`, `P1` 같은 severity label은 원문을 유지하되, 문제 설명과 권장 조치는 한국어로 작성한다.
+- `.env` 값, API 키, 토큰, cookie, password, credential, secret 값은 출력하지 않고 필요한 경우 존재 여부만 확인한다.
+- 리뷰는 correctness, security, architecture boundary, contract/schema compatibility, missing test risk처럼 실제 merge 위험이 있는 항목에 집중한다.
+
 이 파일은 ORBIT 저장소에서 에이전트가 반드시 지켜야 하는 최상위 작업 규칙이다.
 상세 설명과 예시는 `docs/` 문서를 따른다.
 
@@ -35,6 +43,7 @@
 - 운영 목표는 Kubernetes가 아니라 AWS ECS Fargate와 managed service 기준이다.
 - 기술스택 버전 기준은 `docs/architecture/tech-stack-versions.md`를 따른다.
 - 환경변수 규칙은 `docs/conventions/environment.md`를 따른다.
+- 서버 로그 규칙은 `docs/conventions/logging.md`를 따른다.
 - `.env`, `.env.local`, API 키, 토큰, 비밀값을 커밋하지 않는다.
 - Python worker는 `requirements.txt`가 아니라 `pyproject.toml`과 `uv.lock`을 기준으로 관리한다.
 - JavaScript, TypeScript 의존성은 `package.json`과 `pnpm-lock.yaml`을 기준으로 관리한다.
@@ -61,6 +70,8 @@
 - STT/OCR/LLM 결과는 shared schema 검증 후 저장한다.
 - 발표자 script와 raw audio는 청중 API로 노출하지 않는다.
 - 코드 주석은 꼭 필요한 경우에만 짧게 작성한다.
+- API/Worker 서버 기능을 구현할 때 Job enqueue, Worker 처리, 외부 provider 호출, 사용자 데이터 상태 변경에는 업무 이벤트 로그를 함께 추가한다.
+- 서버 로그에는 API 키, 토큰, cookie, password, raw audio, transcript 원문, 발표자 script, 파일 base64를 남기지 않는다.
 - 버그 수정 시 가능하면 재발 방지 테스트를 추가한다.
 - 테스트를 실행하지 못한 경우 이유와 남은 검증 범위를 작업 결과에 남긴다.
 
@@ -110,6 +121,7 @@ pnpm db:migration:revert
 - 로컬 우선 아키텍처: `docs/architecture/local-first-stack.md`
 - 기술스택 버전: `docs/architecture/tech-stack-versions.md`
 - 환경변수 규칙: `docs/conventions/environment.md`
+- 서버 로그 규칙: `docs/conventions/logging.md`
 - 로컬 개발 Runbook: `docs/runbooks/local-development.md`
 - AWS 배포 기준: `docs/deployment.md`
 - STT spike: `docs/spikes/on-device-stt.md`

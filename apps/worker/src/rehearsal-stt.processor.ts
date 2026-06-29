@@ -1,0 +1,560 @@
+import type { StoragePort } from "@orbit/storage";
+import type { Job } from "@orbit/shared";
+import type { DataSource } from "typeorm";
+import { z } from "zod";
+
+const rehearsalSttPayloadSchema = z.object({
+  jobId: z.string().min(1),
+  projectId: z.string().min(1),
+  runId: z.string().min(1),
+  deckId: z.string().min(1),
+  audioFileId: z.string().min(1)
+});
+
+const audioAssetRowSchema = z.object({
+  file_id: z.string().min(1),
+  project_id: z.string().min(1),
+  storage_key: z.string().min(1),
+  mime_type: z.string().min(1),
+  original_name: z.string().min(1),
+  purpose: z.literal("rehearsal-audio"),
+  status: z.literal("uploaded")
+});
+
+const deckRowSchema = z.object({
+  deck_json: z.record(z.unknown())
+});
+
+const transcribeResponseSchema = z.object({
+  runId: z.string().min(1),
+  projectId: z.string().min(1),
+  fileId: z.string().min(1),
+  transcript: z.string(),
+  language: z.string(),
+  provider: z.string(),
+  model: z.string(),
+  durationSeconds: z.number().nullable().optional(),
+  segments: z.array(z.record(z.unknown()))
+});
+
+const analyzeResponseSchema = z.object({
+  runId: z.string().min(1),
+  wordsPerMinute: z.number(),
+  fillerWordCount: z.number().int(),
+  pauseCount: z.number().int(),
+  keywordCoverage: z.number(),
+  coaching: z.record(z.unknown()).optional()
+});
+
+type RehearsalSttPayload = z.infer<typeof rehearsalSttPayloadSchema>;
+type AudioAssetRow = z.infer<typeof audioAssetRowSchema>;
+
+export async function processRehearsalSttJob(
+  dataSource: DataSource,
+  storage: Pick<StoragePort, "getSignedReadUrl" | "removeObject">,
+  pythonWorkerUrl: string,
+  rawPayload: unknown
+): Promise<Job> {
+  const payloadResult = rehearsalSttPayloadSchema.safeParse(rawPayload);
+  if (!payloadResult.success) {
+    const jobId =
+      rawPayload &&
+      typeof rawPayload === "object" &&
+      "jobId" in rawPayload &&
+      typeof rawPayload.jobId === "string"
+        ? rawPayload.jobId
+        : "";
+
+    if (!jobId) {
+      throw new Error(payloadResult.error.message);
+    }
+
+    return failJobOnly(
+      dataSource,
+      jobId,
+      0,
+      "REHEARSAL_STT_PAYLOAD_INVALID",
+      payloadResult.error.message
+    );
+  }
+
+  const payload = payloadResult.data;
+  await updateJob(dataSource, payload.jobId, {
+    status: "running",
+    progress: 10,
+    message: "Rehearsal STT running.",
+    result: null,
+    error: null
+  });
+
+  try {
+    await updateRun(dataSource, payload, {
+      status: "processing",
+      error: null,
+      jobId: payload.jobId
+    });
+  } catch (error) {
+    return failJobOnly(
+      dataSource,
+      payload.jobId,
+      10,
+      "REHEARSAL_RUN_UNAVAILABLE",
+      error instanceof Error ? error.message : "Rehearsal run unavailable."
+    );
+  }
+
+  let asset: AudioAssetRow;
+  let deck: z.infer<typeof deckRowSchema>;
+  let storageUrl: string;
+  try {
+    asset = await loadAudioAsset(dataSource, payload);
+    deck = await loadDeck(dataSource, payload.projectId, payload.deckId);
+    storageUrl = await storage.getSignedReadUrl(asset.storage_key);
+  } catch (error) {
+    return failJobAndRun(
+      dataSource,
+      payload,
+      10,
+      "REHEARSAL_STT_INPUT_UNAVAILABLE",
+      error instanceof Error ? error.message : "Rehearsal STT input unavailable."
+    );
+  }
+
+  let transcribePayload: z.infer<typeof transcribeResponseSchema>;
+  try {
+    const response = await fetch(workerUrl(pythonWorkerUrl, "/audio/transcribe"), {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        runId: payload.runId,
+        projectId: payload.projectId,
+        audio: {
+          fileId: payload.audioFileId,
+          storageUrl,
+          mimeType: asset.mime_type
+        }
+      }),
+      signal: AbortSignal.timeout(120_000)
+    });
+
+    if (!response.ok) {
+      return failAfterDelete(
+        dataSource,
+        storage,
+        asset,
+        payload,
+        10,
+        "PYTHON_WORKER_STT_FAILED",
+        (await response.text()) || "Python worker STT failed."
+      );
+    }
+
+    transcribePayload = transcribeResponseSchema.parse(await response.json());
+  } catch (error) {
+    return failAfterDelete(
+      dataSource,
+      storage,
+      asset,
+      payload,
+      10,
+      "PYTHON_WORKER_STT_UNAVAILABLE",
+      error instanceof Error ? error.message : "Python worker STT unavailable."
+    );
+  }
+
+  let analysis: z.infer<typeof analyzeResponseSchema>;
+  try {
+    analysis = await analyzeTranscript(
+      pythonWorkerUrl,
+      payload,
+      deck.deck_json,
+      transcribePayload
+    );
+  } catch (error) {
+    return failAfterDelete(
+      dataSource,
+      storage,
+      asset,
+      payload,
+      60,
+      "PYTHON_WORKER_ANALYZE_FAILED",
+      error instanceof Error ? error.message : "Python worker analysis failed."
+    );
+  }
+
+  let rawAudioDeletedAt: string;
+  try {
+    rawAudioDeletedAt = await deleteRawAudio(dataSource, storage, asset);
+  } catch (error) {
+    return failJobAndRun(
+      dataSource,
+      payload,
+      90,
+      "RAW_AUDIO_DELETE_FAILED",
+      error instanceof Error ? error.message : "Raw audio deletion failed."
+    );
+  }
+
+  await updateRun(dataSource, payload, {
+    status: "succeeded",
+    error: null,
+    rawAudioDeletedAt
+  });
+
+  return updateJob(dataSource, payload.jobId, {
+    status: "succeeded",
+    progress: 100,
+    message: "Rehearsal STT completed.",
+    result: {
+      runId: payload.runId,
+      projectId: payload.projectId,
+      deckId: payload.deckId,
+      audioFileId: payload.audioFileId,
+      transcript: transcribePayload.transcript,
+      language: transcribePayload.language,
+      provider: transcribePayload.provider,
+      model: transcribePayload.model,
+      durationSeconds: transcribePayload.durationSeconds ?? null,
+      segments: transcribePayload.segments,
+      metrics: {
+        runId: analysis.runId,
+        projectId: payload.projectId,
+        deckId: payload.deckId,
+        durationSeconds: transcribePayload.durationSeconds ?? 0,
+        wordsPerMinute: analysis.wordsPerMinute,
+        fillerWordCount: analysis.fillerWordCount,
+        pauseCount: analysis.pauseCount,
+        keywordCoverage: analysis.keywordCoverage
+      },
+      coaching: analysis.coaching ?? null,
+      rawAudioDeletedAt
+    },
+    error: null
+  });
+}
+
+async function analyzeTranscript(
+  pythonWorkerUrl: string,
+  payload: RehearsalSttPayload,
+  deck: Record<string, unknown>,
+  transcription: z.infer<typeof transcribeResponseSchema>
+) {
+  const response = await fetch(workerUrl(pythonWorkerUrl, "/rehearsal/analyze"), {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      runId: payload.runId,
+      projectId: payload.projectId,
+      deckId: payload.deckId,
+      transcript: transcription.transcript,
+      durationSeconds: transcription.durationSeconds ?? 0,
+      segments: transcription.segments,
+      deckKeywords: collectDeckKeywords(deck)
+    }),
+    signal: AbortSignal.timeout(120_000)
+  });
+
+  if (!response.ok) {
+    throw new Error((await response.text()) || "Python worker analysis failed.");
+  }
+
+  return analyzeResponseSchema.parse(await response.json());
+}
+
+async function loadAudioAsset(
+  dataSource: DataSource,
+  payload: RehearsalSttPayload
+) {
+  const rows = await dataSource.query(
+    `
+      SELECT file_id, project_id, storage_key, mime_type, original_name, purpose, status
+      FROM project_assets
+      WHERE file_id = $1 AND project_id = $2
+    `,
+    [payload.audioFileId, payload.projectId]
+  );
+
+  const row = readFirstQueryRow<unknown>(rows);
+  if (!row) {
+    throw new Error(`Rehearsal audio asset not found: ${payload.audioFileId}`);
+  }
+
+  return audioAssetRowSchema.parse(row);
+}
+
+async function loadDeck(dataSource: DataSource, projectId: string, deckId: string) {
+  const rows = await dataSource.query(
+    `SELECT deck_json FROM decks WHERE project_id = $1 AND deck_id = $2`,
+    [projectId, deckId]
+  );
+
+  const row = readFirstQueryRow<unknown>(rows);
+  if (!row) {
+    throw new Error(`Deck not found: ${deckId}`);
+  }
+
+  return deckRowSchema.parse(row);
+}
+
+async function failAfterDelete(
+  dataSource: DataSource,
+  storage: Pick<StoragePort, "removeObject">,
+  asset: AudioAssetRow,
+  payload: RehearsalSttPayload,
+  progress: number,
+  code: string,
+  message: string
+) {
+  try {
+    const rawAudioDeletedAt = await deleteRawAudio(dataSource, storage, asset);
+    return failJobAndRun(dataSource, payload, progress, code, message, {
+      rawAudioDeletedAt
+    });
+  } catch (error) {
+    return failJobAndRun(
+      dataSource,
+      payload,
+      progress,
+      "RAW_AUDIO_DELETE_FAILED",
+      error instanceof Error ? error.message : "Raw audio deletion failed."
+    );
+  }
+}
+
+async function deleteRawAudio(
+  dataSource: DataSource,
+  storage: Pick<StoragePort, "removeObject">,
+  asset: AudioAssetRow
+) {
+  await storage.removeObject(asset.storage_key);
+  const deletedAt = new Date().toISOString();
+  await dataSource.query(
+    `
+      UPDATE project_assets
+      SET status = 'deleted',
+          deleted_at = $3
+      WHERE file_id = $1 AND project_id = $2
+    `,
+    [asset.file_id, asset.project_id, deletedAt]
+  );
+  return deletedAt;
+}
+
+async function failJobAndRun(
+  dataSource: DataSource,
+  payload: RehearsalSttPayload,
+  progress: number,
+  code: string,
+  message: string,
+  options: { rawAudioDeletedAt?: string } = {}
+): Promise<Job> {
+  await updateRun(dataSource, payload, {
+    status: "failed",
+    error: { code, message },
+    rawAudioDeletedAt: options.rawAudioDeletedAt
+  });
+  return failJobOnly(dataSource, payload.jobId, progress, code, message);
+}
+
+async function failJobOnly(
+  dataSource: DataSource,
+  jobId: string,
+  progress: number,
+  code: string,
+  message: string
+): Promise<Job> {
+  return updateJob(dataSource, jobId, {
+    status: "failed",
+    progress,
+    message: "Rehearsal STT failed.",
+    result: null,
+    error: { code, message }
+  });
+}
+
+async function updateRun(
+  dataSource: DataSource,
+  payload: RehearsalSttPayload,
+  patch: {
+    status: "processing" | "succeeded" | "failed";
+    error: { code: string; message: string } | null;
+    jobId?: string;
+    rawAudioDeletedAt?: string;
+  }
+): Promise<void> {
+  const rows = await dataSource.query(
+    `
+      UPDATE rehearsal_runs
+      SET status = $2,
+          job_id = COALESCE($3, job_id),
+          error = $4,
+          raw_audio_deleted_at = COALESCE($5::timestamptz, raw_audio_deleted_at),
+          updated_at = now()
+      WHERE run_id = $1 AND project_id = $6
+      RETURNING run_id
+    `,
+    [
+      payload.runId,
+      patch.status,
+      patch.jobId ?? null,
+      patch.error,
+      patch.rawAudioDeletedAt ?? null,
+      payload.projectId
+    ]
+  );
+
+  if (!readFirstQueryRow(rows)) {
+    throw new Error(`Rehearsal run not found: ${payload.runId}`);
+  }
+}
+
+async function updateJob(
+  dataSource: DataSource,
+  jobId: string,
+  patch: {
+    status: "running" | "succeeded" | "failed";
+    progress: number;
+    message: string;
+    result: Record<string, unknown> | null;
+    error: { code: string; message: string } | null;
+  }
+): Promise<Job> {
+  const rows = await dataSource.query(
+    `
+      UPDATE jobs
+      SET status = $2,
+          progress = $3,
+          message = $4,
+          result = $5,
+          error = $6,
+          updated_at = now()
+      WHERE job_id = $1
+      RETURNING *
+    `,
+    [jobId, patch.status, patch.progress, patch.message, patch.result, patch.error]
+  );
+
+  const row = readFirstQueryRow<JobRow>(rows);
+  if (!row) {
+    throw new Error(`Job not found: ${jobId}`);
+  }
+
+  return rowToJob(row);
+}
+
+type JobRow = {
+  job_id?: string;
+  jobId?: string;
+  project_id?: string;
+  projectId?: string;
+  type: Job["type"];
+  status: Job["status"];
+  progress: number;
+  message: string;
+  result: Record<string, unknown> | null;
+  error: { code: string; message: string } | null;
+  created_at?: Date | string;
+  createdAt?: Date | string;
+  updated_at?: Date | string;
+  updatedAt?: Date | string;
+};
+
+function rowToJob(row: JobRow): Job {
+  return {
+    jobId: readRequiredString(row.jobId ?? row.job_id, "jobId"),
+    projectId: readRequiredString(row.projectId ?? row.project_id, "projectId"),
+    type: row.type,
+    status: row.status,
+    progress: row.progress,
+    message: row.message,
+    result: row.result,
+    error: row.error,
+    createdAt: toIso(row.createdAt ?? row.created_at),
+    updatedAt: toIso(row.updatedAt ?? row.updated_at)
+  };
+}
+
+function readFirstQueryRow<T>(queryResult: unknown): T | null {
+  if (!Array.isArray(queryResult)) {
+    return null;
+  }
+
+  const first = queryResult[0];
+  if (Array.isArray(first)) {
+    return (first[0] as T | undefined) ?? null;
+  }
+
+  return (first as T | undefined) ?? null;
+}
+
+function readRequiredString(value: unknown, field: string) {
+  if (typeof value !== "string" || !value) {
+    throw new Error(`Missing ${field} in job row.`);
+  }
+
+  return value;
+}
+
+function toIso(value: Date | string | undefined): string {
+  if (value === undefined) {
+    throw new Error("Missing timestamp in job row.");
+  }
+
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    throw new Error(`Invalid timestamp value: ${String(value)}`);
+  }
+
+  return date.toISOString();
+}
+
+type DeckKeywordPayload = {
+  text: string;
+  synonyms: string[];
+  abbreviations: string[];
+};
+
+function collectDeckKeywords(deck: Record<string, unknown>): DeckKeywordPayload[] {
+  const slides = Array.isArray(deck.slides) ? deck.slides : [];
+  return slides.flatMap((slide) => {
+    if (!slide || typeof slide !== "object" || !("keywords" in slide)) {
+      return [];
+    }
+
+    const keywords = Array.isArray(slide.keywords) ? slide.keywords : [];
+    return keywords
+      .map((keyword: unknown) => {
+        if (!keyword || typeof keyword !== "object" || !("text" in keyword)) {
+          return null;
+        }
+
+        const record = keyword as {
+          text?: unknown;
+          synonyms?: unknown;
+          abbreviations?: unknown;
+        };
+        return {
+          text: typeof record.text === "string" ? record.text : "",
+          synonyms: Array.isArray(record.synonyms)
+            ? record.synonyms.filter((value): value is string => typeof value === "string")
+            : [],
+          abbreviations: Array.isArray(record.abbreviations)
+            ? record.abbreviations.filter(
+                (value): value is string => typeof value === "string"
+              )
+            : []
+        };
+      })
+      .filter(
+        (keyword: DeckKeywordPayload | null): keyword is DeckKeywordPayload =>
+          Boolean(keyword && keyword.text)
+      );
+  });
+}
+
+function workerUrl(baseUrl: string, path: string): string {
+  return new URL(
+    path,
+    baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`
+  ).toString();
+}

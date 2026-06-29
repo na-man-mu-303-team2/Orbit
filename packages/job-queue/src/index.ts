@@ -1,4 +1,12 @@
-import { Job, JobType, demoIds, jobSchema, nowIso } from "@orbit/shared";
+import {
+  Job,
+  JobType,
+  demoIds,
+  generateDeckRequestSchema,
+  jobSchema,
+  nowIso,
+  type GenerateDeckRequest
+} from "@orbit/shared";
 import { Queue } from "bullmq";
 
 export interface EnqueueJobInput {
@@ -19,6 +27,12 @@ export type UpdateJobInput = Partial<
 
 export const referenceExtractQueueName = "reference-extract";
 export const referenceExtractJobName = "reference-extract";
+export const rehearsalSttQueueName = "rehearsal-stt";
+export const rehearsalSttJobName = "rehearsal-stt";
+export const generateDeckQueueName = "generate-deck";
+export const generateDeckJobName = "generate-deck";
+export const workerHealthCheckQueueName = "worker-health-check";
+export const workerHealthCheckJobName = "worker-health-check";
 
 export interface ReferenceExtractBullMqFile {
   fileId: string;
@@ -35,6 +49,41 @@ export interface ReferenceExtractBullMqPayload {
 
 export interface EnqueueReferenceExtractJobInput
   extends ReferenceExtractBullMqPayload {
+  driver: "bullmq" | "sqs";
+  redisUrl: string;
+}
+
+export interface RehearsalSttBullMqPayload {
+  jobId: string;
+  projectId: string;
+  runId: string;
+  deckId: string;
+  audioFileId: string;
+}
+
+export interface EnqueueRehearsalSttJobInput extends RehearsalSttBullMqPayload {
+  driver: "bullmq" | "sqs";
+  redisUrl: string;
+}
+
+export interface GenerateDeckBullMqPayload {
+  jobId: string;
+  projectId: string;
+  request: GenerateDeckRequest;
+}
+
+export interface EnqueueGenerateDeckJobInput extends GenerateDeckBullMqPayload {
+  driver: "bullmq" | "sqs";
+  redisUrl: string;
+}
+
+export interface WorkerHealthCheckBullMqPayload {
+  jobId: string;
+  projectId: string;
+}
+
+export interface EnqueueWorkerHealthCheckJobInput
+  extends WorkerHealthCheckBullMqPayload {
   driver: "bullmq" | "sqs";
   redisUrl: string;
 }
@@ -56,6 +105,73 @@ export async function enqueueReferenceExtractJob(
       projectId: input.projectId,
       files: input.files
     } satisfies ReferenceExtractBullMqPayload);
+  } finally {
+    await queue.close();
+  }
+}
+
+export async function enqueueRehearsalSttJob(
+  input: EnqueueRehearsalSttJobInput
+): Promise<void> {
+  if (input.driver === "sqs") {
+    throw new Error("SqsJobQueue adapter is not implemented yet.");
+  }
+
+  const queue = new Queue(rehearsalSttQueueName, {
+    connection: redisConnectionOptions(input.redisUrl)
+  });
+
+  try {
+    await queue.add(rehearsalSttJobName, {
+      jobId: input.jobId,
+      projectId: input.projectId,
+      runId: input.runId,
+      deckId: input.deckId,
+      audioFileId: input.audioFileId
+    } satisfies RehearsalSttBullMqPayload);
+  } finally {
+    await queue.close();
+  }
+}
+
+export async function enqueueGenerateDeckJob(
+  input: EnqueueGenerateDeckJobInput
+): Promise<void> {
+  if (input.driver === "sqs") {
+    throw new Error("SqsJobQueue adapter is not implemented yet.");
+  }
+
+  const queue = new Queue(generateDeckQueueName, {
+    connection: redisConnectionOptions(input.redisUrl)
+  });
+
+  try {
+    await queue.add(generateDeckJobName, {
+      jobId: input.jobId,
+      projectId: input.projectId,
+      request: generateDeckRequestSchema.parse(input.request)
+    } satisfies GenerateDeckBullMqPayload);
+  } finally {
+    await queue.close();
+  }
+}
+
+export async function enqueueWorkerHealthCheckJob(
+  input: EnqueueWorkerHealthCheckJobInput
+): Promise<void> {
+  if (input.driver === "sqs") {
+    throw new Error("SqsJobQueue adapter is not implemented yet.");
+  }
+
+  const queue = new Queue(workerHealthCheckQueueName, {
+    connection: redisConnectionOptions(input.redisUrl)
+  });
+
+  try {
+    await queue.add(workerHealthCheckJobName, {
+      jobId: input.jobId,
+      projectId: input.projectId
+    } satisfies WorkerHealthCheckBullMqPayload);
   } finally {
     await queue.close();
   }

@@ -18,9 +18,38 @@ export const allowedAssetMimeTypes = [
   "image/jpeg",
   "image/png",
   "image/webp",
+  "audio/flac",
+  "audio/m4a",
+  "audio/mp4",
+  "audio/mpeg",
+  "audio/mpga",
+  "audio/ogg",
+  "audio/wav",
+  "audio/webm",
+  "audio/x-m4a",
+  "audio/x-wav",
+  "video/mp4",
 ] as const;
 
 export const maxAssetUploadSizeBytes = 50 * 1024 * 1024;
+
+const rehearsalAudioMimeTypes = new Set<string>([
+  "audio/flac",
+  "audio/m4a",
+  "audio/mp4",
+  "audio/mpeg",
+  "audio/mpga",
+  "audio/ogg",
+  "audio/wav",
+  "audio/webm",
+  "audio/x-m4a",
+  "audio/x-wav",
+  "video/mp4",
+]);
+
+const documentAssetMimeTypes = new Set<string>(
+  allowedAssetMimeTypes.filter((mimeType) => !rehearsalAudioMimeTypes.has(mimeType)),
+);
 
 export const uploadedFileSchema = z.object({
   fileId: z.string().min(1),
@@ -38,6 +67,25 @@ export const assetUploadUrlRequestSchema = z.object({
   mimeType: z.enum(allowedAssetMimeTypes),
   size: z.number().int().positive().max(maxAssetUploadSizeBytes),
   purpose: filePurposeSchema,
+}).superRefine((value, context) => {
+  const isAudio = rehearsalAudioMimeTypes.has(value.mimeType);
+  const isDocument = documentAssetMimeTypes.has(value.mimeType);
+
+  if (value.purpose === "rehearsal-audio" && !isAudio) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "rehearsal-audio uploads require an audio MIME type.",
+      path: ["mimeType"],
+    });
+  }
+
+  if (value.purpose !== "rehearsal-audio" && !isDocument) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: `${value.purpose} uploads do not accept audio MIME types.`,
+      path: ["mimeType"],
+    });
+  }
 });
 
 export const assetUploadUrlResponseSchema = z.object({

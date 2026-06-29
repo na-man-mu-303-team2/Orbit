@@ -24,17 +24,21 @@ const validEnv = {
   S3_SECRET_ACCESS_KEY: "orbit-password",
   S3_FORCE_PATH_STYLE: "true",
   JOB_QUEUE_DRIVER: "bullmq",
-  STT_PROVIDER: "sherpa",
+  LIVE_STT_PROVIDER: "sherpa",
+  REPORT_STT_PROVIDER: "openai",
   OCR_PROVIDER: "python",
   LLM_PROVIDER: "openai",
   OPENAI_API_KEY: "",
   OPENAI_MODEL: "gpt-4.1-mini",
+  OPENAI_TRANSCRIPTION_MODEL: "gpt-4o-transcribe",
   OPENAI_EMBEDDING_MODEL: "text-embedding-3-small",
   AWS_REGION: "ap-northeast-2",
   AWS_ACCESS_KEY_ID: "",
   AWS_SECRET_ACCESS_KEY: "",
   TRANSCRIBE_LANGUAGE_CODE: "ko-KR",
   TEXTRACT_ENABLED: "false",
+  LOG_LEVEL: "debug",
+  LOG_PRETTY: "false",
   DEMO_USER_ID: "user_demo_1",
   DEMO_WORKSPACE_ID: "workspace_demo_1",
   DEMO_PROJECT_ID: "project_demo_1",
@@ -73,6 +77,51 @@ describe("ORBIT env validation", () => {
     expect(() =>
       loadOrbitConfig({ ...validEnv, OPENAI_MODEL: " " }, { service: "api" })
     ).toThrow(/OPENAI_MODEL/);
+  });
+
+  it("loads logging defaults and validates log levels", () => {
+    const env = { ...validEnv } as Partial<typeof validEnv>;
+    delete env.LOG_LEVEL;
+    delete env.LOG_PRETTY;
+
+    expect(loadOrbitConfig(env as NodeJS.ProcessEnv, { service: "api" })).toMatchObject({
+      LOG_LEVEL: "info",
+      LOG_PRETTY: false
+    });
+    expect(() =>
+      loadOrbitConfig({ ...validEnv, LOG_LEVEL: "verbose" }, { service: "api" })
+    ).toThrow(/LOG_LEVEL/);
+  });
+
+  it("keeps live STT and report STT provider contracts separate", () => {
+    const config = loadOrbitConfig(validEnv, { service: "api" });
+
+    expect(config.LIVE_STT_PROVIDER).toBe("sherpa");
+    expect(config.REPORT_STT_PROVIDER).toBe("openai");
+    expect(() =>
+      loadOrbitConfig(
+        { ...validEnv, LIVE_STT_PROVIDER: "openai" },
+        { service: "api" }
+      )
+    ).toThrow(/LIVE_STT_PROVIDER/);
+    expect(() =>
+      loadOrbitConfig(
+        { ...validEnv, REPORT_STT_PROVIDER: "sherpa" },
+        { service: "api" }
+      )
+    ).toThrow(/REPORT_STT_PROVIDER/);
+  });
+
+  it("allows pretty logs only in development", () => {
+    expect(
+      loadOrbitConfig(
+        { ...validEnv, NODE_ENV: "development", LOG_PRETTY: "true" },
+        { service: "api" }
+      ).LOG_PRETTY
+    ).toBe(true);
+    expect(() =>
+      loadOrbitConfig({ ...validEnv, NODE_ENV: "production", LOG_PRETTY: "true" }, { service: "api" })
+    ).toThrow(/LOG_PRETTY can only be true/);
   });
 
   it("rejects local defaults in staging and production", () => {

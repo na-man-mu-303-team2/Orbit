@@ -13,7 +13,7 @@ export interface EmbeddingProvider {
   embed(texts: string[]): Promise<number[][]>;
 }
 
-export interface SttProvider {
+export interface ReportSttProvider {
   transcribe(input: {
     fileId: string;
     consentToServerStt: boolean;
@@ -39,4 +39,3 @@ export interface RehearsalAnalyzer {
     durationSeconds: number;
   }): Promise<RehearsalMetrics>;
 }
-

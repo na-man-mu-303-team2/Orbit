@@ -53,6 +53,10 @@
 | Redis client | ioredis | `^5.6.1` | `apps/worker/package.json` |
 | Runtime schema | Zod | `^3.25.76` | `apps/api/package.json`, `packages/shared/package.json` |
 | API docs | Swagger for NestJS | `^11.2.0` | `apps/api/package.json` |
+| Structured logger | nestjs-pino | `^4.6.1` | `apps/api/package.json`, `apps/worker/package.json` |
+| JSON logger | Pino | `^10.3.1` | `apps/api/package.json`, `apps/worker/package.json` |
+| HTTP request logger | pino-http | `^11.0.0` | `apps/api/package.json` |
+| Dev log formatter | pino-pretty | `^13.1.3` | `apps/api/package.json`, `apps/worker/package.json` |
 
 ## Python Worker
 

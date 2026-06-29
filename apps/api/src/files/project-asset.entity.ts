@@ -1,7 +1,7 @@
 import { Column, Entity, JoinColumn, ManyToOne, PrimaryColumn } from "typeorm";
 import { ProjectEntity } from "../projects/project.entity";
 
-export type ProjectAssetStatus = "pending" | "uploaded";
+export type ProjectAssetStatus = "pending" | "uploaded" | "deleted";
 
 @Entity({ name: "project_assets" })
 export class ProjectAssetEntity {
@@ -37,6 +37,9 @@ export class ProjectAssetEntity {
 
   @Column({ name: "uploaded_at", nullable: true, type: "timestamptz" })
   uploadedAt!: Date | null;
+
+  @Column({ name: "deleted_at", nullable: true, type: "timestamptz" })
+  deletedAt!: Date | null;
 
   @ManyToOne(() => ProjectEntity, { onDelete: "CASCADE" })
   @JoinColumn({ name: "project_id", referencedColumnName: "projectId" })

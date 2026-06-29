@@ -8,11 +8,19 @@ from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.ai.generate_deck import (
+    DeckContentGenerationError,
+    GenerateDeckRequest,
+    GenerateDeckResponse,
+    ReferenceContext,
+    generate_deck,
+)
 from app.audio.transcribe import (
     AudioTranscribeRequest,
     AudioTranscribeResponse,
     AudioTranscriptionError,
-    SttProviderDependency,
+    ReportSttProviderDependency,
+    TranscriptSegment,
     to_http_exception,
     transcribe_rehearsal_audio,
 )
@@ -29,6 +37,11 @@ from app.references import (
     PostgresReferenceRepository,
     index_reference_text,
     search_reference_chunks,
+)
+from app.rehearsal import (
+    DeckKeyword,
+    analyze_rehearsal_metrics,
+    generate_rehearsal_coaching,
 )
 
 
@@ -100,12 +113,33 @@ class ReferenceSearchResponse(BaseModel):
     chunks: list[ReferenceSearchChunk]
 
 
+class DeckKeywordRequest(BaseModel):
+    text: str
+    synonyms: list[str] = Field(default_factory=list)
+    abbreviations: list[str] = Field(default_factory=list)
+
+
 class RehearsalAnalyzeRequest(BaseModel):
     run_id: str = Field(alias="runId")
     project_id: str = Field(alias="projectId")
     deck_id: str = Field(alias="deckId")
     transcript: str
     duration_seconds: float = Field(alias="durationSeconds", ge=0)
+    segments: list[TranscriptSegment] = Field(default_factory=list)
+    deck_keywords: list[DeckKeywordRequest] = Field(
+        default_factory=list,
+        alias="deckKeywords",
+    )
+
+
+class RehearsalCoachingResponse(BaseModel):
+    # 정상 응답에는 성공한 코칭 결과만 포함한다.
+    status: Literal["succeeded"]
+    summary: str = ""
+    strengths: list[str] = Field(default_factory=list)
+    improvements: list[str] = Field(default_factory=list)
+    next_practice_focus: str = Field(default="", alias="nextPracticeFocus")
+    message: str = ""
 
 
 class RehearsalAnalyzeResponse(BaseModel):
@@ -114,6 +148,7 @@ class RehearsalAnalyzeResponse(BaseModel):
     filler_word_count: int = Field(alias="fillerWordCount")
     pause_count: int = Field(alias="pauseCount")
     keyword_coverage: float = Field(alias="keywordCoverage")
+    coaching: RehearsalCoachingResponse
 
 
 @asynccontextmanager
@@ -142,6 +177,7 @@ def extract_reference(payload: ReferenceExtractRequest) -> ReferenceExtractRespo
         projectId=payload.project_id,
         text=text or f"stub extraction for {payload.file_id} ({payload.mime_type})",
     )
+
 
 @app.post("/references/index", response_model=ReferenceIndexResponse)
 def index_reference(
@@ -249,7 +285,7 @@ async def parse_documents(
 @app.post("/audio/transcribe", response_model=AudioTranscribeResponse)
 def transcribe_audio(
     payload: AudioTranscribeRequest,
-    provider: SttProviderDependency,
+    provider: ReportSttProviderDependency,
 ) -> AudioTranscribeResponse:
     try:
         return transcribe_rehearsal_audio(payload, provider)
@@ -257,19 +293,67 @@ def transcribe_audio(
         raise to_http_exception(exc) from exc
 
 
+@app.post("/ai/generate-deck", response_model=GenerateDeckResponse)
+def generate_ai_deck(
+    payload: GenerateDeckRequest,
+    request: Request,
+) -> GenerateDeckResponse:
+    config = _config(request)
+    try:
+        return generate_deck(
+            payload,
+            model=config.openai_model,
+            api_key=config.openai_api_key,
+            reference_context=_generate_deck_reference_context(payload, config),
+        )
+    except DeckContentGenerationError as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
+
+
 @app.post("/rehearsal/analyze", response_model=RehearsalAnalyzeResponse)
 def analyze_rehearsal(
+    request: Request,
     payload: RehearsalAnalyzeRequest,
 ) -> RehearsalAnalyzeResponse:
-    words = [word for word in payload.transcript.split() if word.strip()]
-    minutes = max(payload.duration_seconds / 60, 1 / 60)
+    config = _config(request)
+    deck_keywords = [
+        DeckKeyword(
+            text=keyword.text,
+            synonyms=keyword.synonyms,
+            abbreviations=keyword.abbreviations,
+        )
+        for keyword in payload.deck_keywords
+    ]
+    metrics = analyze_rehearsal_metrics(
+        transcript=payload.transcript,
+        duration_seconds=payload.duration_seconds,
+        segments=payload.segments,
+        deck_keywords=deck_keywords,
+    )
+    coaching = generate_rehearsal_coaching(
+        transcript=payload.transcript,
+        metrics=metrics,
+        model=config.openai_model,
+        api_key=config.openai_api_key,
+    )
+    # 코칭 생성 실패는 부분 성공으로 숨기지 않고 API 오류로 반환한다.
+    if coaching.status != "succeeded":
+        raise _coaching_http_exception(coaching.status, coaching.message)
 
     return RehearsalAnalyzeResponse(
         runId=payload.run_id,
-        wordsPerMinute=round(len(words) / minutes, 2),
-        fillerWordCount=0,
-        pauseCount=0,
-        keywordCoverage=0.0,
+        wordsPerMinute=metrics.words_per_minute,
+        fillerWordCount=metrics.filler_word_count,
+        pauseCount=metrics.pause_count,
+        keywordCoverage=metrics.keyword_coverage,
+        coaching=RehearsalCoachingResponse(
+            status="succeeded",
+            summary=coaching.summary,
+            strengths=coaching.strengths,
+            improvements=coaching.improvements,
+            nextPracticeFocus=coaching.next_practice_focus,
+            message=coaching.message,
+        ),
     )
 
 
@@ -281,6 +365,16 @@ def _search_status(status: str) -> Literal["succeeded", "unavailable", "failed"]
     if status in {"succeeded", "unavailable"}:
         return cast(Literal["succeeded", "unavailable"], status)
     return "failed"
+
+
+def _coaching_http_exception(status: str, message: str) -> HTTPException:
+    # 코칭 실패 원인을 클라이언트가 구분할 수 있는 HTTP 상태로 변환한다.
+    detail = message or "Rehearsal coaching failed."
+    if status == "skipped":
+        return HTTPException(status_code=400, detail=detail)
+    if status == "unavailable":
+        return HTTPException(status_code=503, detail=detail)
+    return HTTPException(status_code=502, detail=detail)
 
 
 def _extract_result_payload(
@@ -340,6 +434,45 @@ def _extract_result_payload(
         "chunkCount": index_result.chunk_count,
         "sections": [_section_payload(section) for section in result.sections],
     }
+
+
+def _generate_deck_reference_context(
+    payload: GenerateDeckRequest,
+    config: PythonWorkerConfig,
+) -> list[ReferenceContext]:
+    file_ids = {reference.file_id for reference in payload.references}
+    if not file_ids:
+        return []
+
+    query = " ".join(
+        [
+            payload.topic,
+            payload.prompt,
+            *[keyword.text for keyword in payload.reference_keywords],
+        ]
+    ).strip()
+
+    try:
+        results, _embedding_result = search_reference_chunks(
+            repository=PostgresReferenceRepository(config.database_url),
+            project_id=payload.project_id,
+            query=query or payload.topic,
+            limit=20,
+            model=config.openai_embedding_model,
+            api_key=config.openai_api_key,
+        )
+    except Exception:
+        return []
+
+    return [
+        ReferenceContext(
+            fileId=result.file_id,
+            title=str(result.metadata.get("fileName", "")),
+            content=result.content,
+        )
+        for result in results
+        if result.file_id in file_ids and result.content.strip()
+    ][:6]
 
 
 def _result_text(result: ExtractionResult) -> str:

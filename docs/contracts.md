@@ -184,6 +184,8 @@ API:
 - `metadata.language`는 `"ko"`만 허용한다.
 - `metadata.locale`은 `"ko-KR"`만 허용한다. STT, 날짜/시간, 지역별 포맷이 필요한 기능은 `locale`을 기준으로 처리한다.
 - `metadata.language`와 `metadata.locale`은 생략 시 각각 `"ko"`, `"ko-KR"`로 기본값을 채운다.
+- AI 생성 deck은 `metadata.sourceType = "ai"`, `metadata.generatedBy = "ai"`, `metadata.audience`, `metadata.purpose`, `metadata.tone`, `metadata.createdFrom`을 선택적으로 포함할 수 있다.
+- `metadata.createdFrom.references`는 생성에 사용한 참고자료의 `{ fileId }[]`만 저장한다. URL ingestion과 원문 저장은 이번 계약에 포함하지 않는다.
 - `theme`는 생략 시 기본 theme token 값으로 채운다.
 - `theme`는 deck 전체의 기본 디자인 토큰이다.
 - MVP `theme` 필드는 `name`, `fontFamily`, `backgroundColor`, `textColor`, `accentColor`, `palette`, `typography`, `effects`로 제한한다.
@@ -201,6 +203,7 @@ API:
 - `theme` 변경은 기존 `slide.style`이나 object props를 자동으로 덮어쓰지 않는다. 전체 테마 적용은 별도의 apply theme 동작으로 처리한다.
 - `slides`는 최소 1개 이상이어야 한다. 새 덱 생성 시에는 빈 덱 대신 기본 슬라이드 1장을 생성한다.
 - SlideSchema 필드는 `slideId`, `order`, `title`, `thumbnailUrl`, `style`, `speakerNotes`, `elements`, `keywords`, `animations`를 유지한다.
+- AI 생성 slide는 선택적 `aiNotes`를 포함할 수 있다. `aiNotes`는 `emphasisPoints`와 검토용 `sourceEvidence`만 담고, 디자인 전용 배열은 만들지 않는다.
 - `order`는 사용자에게 보이는 슬라이드 번호와 맞춰 `1`부터 시작하는 양의 정수로 관리한다. 배열 index가 필요하면 애플리케이션 내부에서 `order - 1`로 변환한다.
 - 1차 스프린트 MVP에서는 슬라이드별 크기 override를 허용하지 않는다. 모든 슬라이드는 deck top-level의 `canvas` 크기와 비율을 따른다.
 - SlideSchema에는 `width`, `height`, `canvas`, `aspectRatio` 같은 슬라이드별 크기 필드를 두지 않는다.
@@ -464,6 +467,71 @@ MVP 실패 코드:
 
 - `packages/shared/src/deck/deck-api.schema.ts`
 
+## AI 덱 생성 계약
+
+AI 덱 생성은 사용자 입력과 참고자료 fileId를 받아 비동기 Job으로 실행한다. public 계약은 요청/응답과 최종 Deck JSON에 필요한 metadata/evidence만 포함하고, planner/layout 중간 모델은 Python worker 내부 구현으로 둔다.
+
+요청:
+
+```json
+{
+  "topic": "AI 덱 생성",
+  "prompt": "참고자료 기반으로 핵심 메시지를 정리",
+  "targetDurationMinutes": 10,
+  "slideCountRange": {
+    "min": 5,
+    "max": 8
+  },
+  "template": "report",
+  "metadata": {
+    "audience": "technical",
+    "purpose": "inform",
+    "tone": "professional"
+  },
+  "references": [{ "fileId": "file_1" }],
+  "referenceKeywords": [{ "text": "실시간 발표 피드백" }]
+}
+```
+
+응답/job result:
+
+```json
+{
+  "deckId": "deck_ai_project_demo_1",
+  "deck": "{ DeckSchema }",
+  "warnings": [],
+  "validation": {
+    "passed": true,
+    "layoutIssues": [],
+    "contentIssues": [],
+    "designIssues": [],
+    "presentationIssues": []
+  }
+}
+```
+
+결정 사항:
+
+- API 시작점은 `POST /api/v1/projects/:projectId/jobs/generate-deck`이다.
+- Job type은 기존 `ai-deck-generation`을 사용하고 상태값은 공통 `queued`, `running`, `succeeded`, `failed`만 사용한다.
+- 요청의 `references`는 `{ fileId: string }[]`이며 비어 있으면 topic-only generation으로 처리한다.
+- 요청의 `referenceKeywords`는 `{ text: string }[]` 선택 필드이며 기본값은 `[]`이다. 참고자료 처리 결과의 주요 키워드를 전달할 때 사용한다.
+- MVP `metadata.audience`는 `general`, `executive`, `technical`, `sales`만 허용한다.
+- MVP `metadata.purpose`는 `inform`, `persuade`, `teach`, `report`만 허용한다.
+- MVP `metadata.tone`은 `professional`, `friendly`, `confident`, `concise`만 허용한다.
+- template은 `default`, `pitch`, `report`, `lesson`만 허용한다.
+- Python worker의 `/ai/generate-deck`은 `projectId`와 요청 본문을 받아 최종 `DeckSchema`를 만든다.
+- LLM/provider가 만드는 내용은 outline, message, design intent까지로 제한하고, 좌표/크기/zIndex는 코드 기반 layout engine이 계산한다.
+- 생성 결과의 디자인은 새 배열 없이 기존 `deck.theme`, `slide.style`, `slide.elements`, chart props, `slide.animations`에 매핑한다.
+- worker는 Python 응답을 shared `generateDeckResponseSchema`와 `deckSchema`로 검증한 뒤 `decks`에 저장하고 job result에 `{ deckId, deck, warnings, validation }`을 저장한다.
+
+구현 위치:
+
+- `packages/shared/src/deck/generate-deck.schema.ts`
+- `services/python-worker/app/ai/generate_deck.py`
+- `apps/api/src/generate-deck`
+- `apps/worker/src/generate-deck.processor.ts`
+
 ## 파일 업로드 결과 구조
 
 파일 업로드는 공통 API로 제공하고, 각 기능은 `fileId`와 `purpose`를 기준으로 업로드 결과를 사용한다.
@@ -493,17 +561,106 @@ MVP 실패 코드:
 결정 사항:
 
 - 업로드 후 API 응답은 위 구조로 통일한다.
-- PPTX import, 참고자료 추출, 리허설 STT는 모두 `fileId`를 받아 시작한다.
+- PPTX import, 참고자료 추출, 리포트용 리허설 STT는 모두 `fileId`를 받아 시작한다.
 - `url`은 임시로 로컬 경로를 쓰되, 이후 S3 signed URL로 교체할 수 있게 유지한다.
 - 업로드 요청은 `POST /api/v1/projects/:projectId/assets/upload-url`로 시작한다.
 - 업로드 완료 처리는 `POST /api/v1/projects/:projectId/assets/complete`에서 `fileId`를 받아 위 구조를 반환한다.
-- 1차 구현에서 허용하는 mime type은 PDF, PPTX, DOCX, JPEG, PNG, WebP이며 최대 크기는 50MiB다.
+- 1차 구현에서 허용하는 mime type은 purpose별로 제한한다. 문서/이미지 purpose는 PDF, PPTX, DOCX, JPEG, PNG, WebP를 허용하고, `rehearsal-audio`는 audio MIME만 허용한다. 최대 크기는 50MiB다.
 - upload URL을 발급한 뒤 complete가 호출되지 않은 파일은 `pending` metadata로 남기고, 정리 정책은 후속 작업에서 결정한다.
+- 분석이 끝난 `rehearsal-audio` raw object는 삭제하고, metadata는 `status=deleted`, `deletedAt`으로 추적한다.
 
 구현 위치:
 
 - `packages/shared/src/files/file.schema.ts`
 - `apps/api/src/files`
+
+## 리허설 STT/AI provider 구분
+
+리허설에는 서로 다른 두 종류의 음성/AI 처리가 있다. 두 흐름은 provider, latency 요구사항, 데이터 보존 정책이 다르므로 하나의 `STT_PROVIDER`로 표현하지 않는다.
+
+### Live STT
+
+발표/리허설 중 사용자의 발화를 실시간으로 인식해 화면 제어에 사용한다.
+
+- provider env: `LIVE_STT_PROVIDER=sherpa`
+- 실행 위치: web 또는 device-local runtime
+- 목적: 애니메이션 cue, 강조 표시, 키워드 누락 체크, 다음 슬라이드 전환 제안/실행
+- 입력: 마이크 스트림
+- 출력: partial transcript, keyword detection, cue event, slide advance signal
+- 원칙: raw audio를 서버 리포트용 storage에 업로드하지 않는다.
+- 구현 위치: `packages/shared/src/rehearsals/live-stt.schema.ts`, `apps/web/src/features/rehearsal`
+
+### Report STT/AI
+
+리허설 종료 뒤 녹음 파일을 전사하고 코칭 리포트를 생성한다.
+
+- STT provider env: `REPORT_STT_PROVIDER=openai`
+- LLM provider env: `LLM_PROVIDER=openai`
+- 실행 위치: API/worker/Python worker
+- 목적: 억양, 말 속도, 톤, 발음, 키워드 누락, 청중 반응 등을 종합한 리포트와 코칭 생성
+- 입력: `rehearsal-audio` fileId, deck JSON, 키워드, 청중 반응 데이터
+- 출력: transcript, metrics, coaching/report result
+- 원칙: 분석 완료 직후 raw audio object를 삭제하고 삭제 시각을 기록한다.
+
+## 리포트용 리허설 Run 및 STT 계약
+
+리포트용 리허설 녹음은 run 단위로 생성하고, run에 연결된 `rehearsal-audio` 업로드가 완료된 뒤 `rehearsal-stt` Job을 시작한다. 이 계약은 실시간 발표 제어용 Live STT 계약이 아니다.
+
+Run 상태:
+
+- `created`
+- `uploading`
+- `processing`
+- `succeeded`
+- `failed`
+
+Run 응답 구조:
+
+```json
+{
+  "runId": "run_1",
+  "projectId": "project_demo_1",
+  "deckId": "deck_demo_1",
+  "audioFileId": "file_audio_1",
+  "jobId": "job_1",
+  "status": "processing",
+  "error": null,
+  "rawAudioDeletedAt": null,
+  "createdAt": "2026-06-27T01:00:00+09:00",
+  "updatedAt": "2026-06-27T01:00:00+09:00"
+}
+```
+
+API:
+
+- `POST /api/v1/projects/:projectId/rehearsals`
+  - request: `{ "deckId": "deck_demo_1" }`
+  - response: `{ "run": RehearsalRun }`
+- `POST /api/v1/rehearsals/:runId/audio/upload-url`
+  - request: `{ "originalName": "rehearsal.webm", "mimeType": "audio/webm", "size": 1234 }`
+  - 서버가 purpose를 `rehearsal-audio`로 고정한다.
+  - response: `{ "run": RehearsalRun, "upload": AssetUploadUrlResponse }`
+- `POST /api/v1/rehearsals/:runId/audio/complete`
+  - request: `{ "fileId": "file_audio_1" }`
+  - 업로드 완료 검증 뒤 `rehearsal-stt` Job을 enqueue한다.
+  - response: `{ "run": RehearsalRun, "job": Job }`
+- `GET /api/v1/rehearsals/:runId`
+  - response: `{ "run": RehearsalRun }`
+
+결정 사항:
+
+- `audio/complete`는 run에 연결된 `fileId`만 허용한다.
+- worker는 시작 시 run을 `processing`으로 갱신하고, 성공 시 `succeeded`, 실패 시 `failed`로 갱신한다.
+- STT와 코칭 분석이 끝난 직후 raw audio object를 삭제한다.
+- raw audio 삭제 성공은 `rawAudioDeletedAt`과 `project_assets.status=deleted`, `deleted_at`으로 남긴다.
+- 삭제 실패는 `RAW_AUDIO_DELETE_FAILED` error로 run/job 양쪽에 남긴다.
+
+구현 위치:
+
+- `packages/shared/src/rehearsals/live-stt.schema.ts`
+- `packages/shared/src/rehearsals/rehearsal.schema.ts`
+- `apps/api/src/rehearsals`
+- `apps/worker/src/rehearsal-stt.processor.ts`
 
 ## Job 상태 구조
 
@@ -537,6 +694,7 @@ PPTX import/export, 참고자료 추출, AI 생성, 리허설 STT, 최종 보고
 - `deck-export`
 - `reference-extract`
 - `ai-deck-generation`
+- `worker-health-check`
 - `rehearsal-stt`
 - `final-report-generation`
 - `report-pdf-export`
