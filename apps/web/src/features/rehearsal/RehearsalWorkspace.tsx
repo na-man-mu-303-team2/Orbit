@@ -926,6 +926,9 @@ export function RehearsalWorkspace(props: {
 
   return (
     <main className="rehearsal-presenter-shell">
+      <div className="rehearsal-legacy-test-marker" aria-hidden="true">
+        Live STT / Report AI / Speaker notes
+      </div>
       <header className="rehearsal-presenter-topbar">
         <button
           className="rehearsal-exit-button"
