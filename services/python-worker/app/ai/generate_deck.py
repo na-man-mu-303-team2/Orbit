@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass
 from typing import Any, Literal
 
@@ -809,6 +810,42 @@ STYLE_PROFILE_REGISTRY: dict[str, dict[str, Any]] = {
     },
 }
 
+EXPLICIT_COLOR_NAME_MAP = {
+    "흰색": "#ffffff",
+    "화이트": "#ffffff",
+    "white": "#ffffff",
+    "노란색": "#facc15",
+    "노랑": "#facc15",
+    "옐로우": "#facc15",
+    "yellow": "#facc15",
+    "검정": "#111827",
+    "black": "#111827",
+    "회색": "#6b7280",
+    "gray": "#6b7280",
+    "파랑": "#2563eb",
+    "blue": "#2563eb",
+    "빨강": "#dc2626",
+    "red": "#dc2626",
+    "초록": "#16a34a",
+    "green": "#16a34a",
+    "보라": "#7c3aed",
+    "purple": "#7c3aed",
+    "주황": "#f97316",
+    "orange": "#f97316",
+    "분홍": "#ec4899",
+    "pink": "#ec4899",
+    "남색": "#1e3a8a",
+    "navy": "#1e3a8a",
+}
+EXPLICIT_COLOR_RE = re.compile(
+    r"#[0-9a-fA-F]{6}|흰색|화이트|노란색|노랑|옐로우|검정|"
+    r"회색|파랑|빨강|초록|보라|주황|분홍|남색|"
+    r"(?<![a-z])(?:white|yellow|black|gray|blue|red|green|"
+    r"purple|orange|pink|navy)(?![a-z])",
+    re.IGNORECASE,
+)
+NEUTRAL_COLORS = {"#ffffff", "#111827", "#000000", "#6b7280"}
+
 DECK_CONTENT_INSTRUCTIONS = """
 You create Korean presentation slide content for ORBIT.
 Return only JSON that matches the requested schema.
@@ -1601,7 +1638,7 @@ def direct_design(
     slide_plans: list[SlidePlan] | None = None,
 ) -> dict[str, Any]:
     profile = design_profile_for(raw_input, slide_plans)
-    return {
+    theme = {
         "name": f"{raw_input.template}-{profile['name']}-ai",
         "fontFamily": profile["bodyFontFamily"],
         "backgroundColor": profile["background"],
@@ -1624,6 +1661,69 @@ def direct_design(
         },
         "effects": {"borderRadius": 8},
     }
+    return apply_explicit_palette(theme, raw_input, slide_plans)
+
+
+def apply_explicit_palette(
+    theme: dict[str, Any],
+    raw_input: RawInput,
+    slide_plans: list[SlidePlan] | None = None,
+) -> dict[str, Any]:
+    colors = explicit_palette_colors(raw_input, slide_plans)
+    if not colors:
+        return theme
+
+    neutral = next((color for color in colors if is_neutral_color(color)), None)
+    accent_colors = [color for color in colors if not is_neutral_color(color)]
+
+    if neutral is not None:
+        theme["backgroundColor"] = neutral
+        theme["textColor"] = text_color_for_background(neutral)
+        theme["palette"]["surface"] = neutral
+
+    if accent_colors:
+        accent = accent_colors[0]
+        theme["accentColor"] = accent
+        theme["palette"]["primary"] = accent
+        theme["palette"]["secondary"] = (
+            accent_colors[1] if len(accent_colors) > 1 else accent
+        )
+        if neutral == "#ffffff" and accent == "#facc15":
+            theme["palette"]["secondary"] = accent
+            theme["palette"]["muted"] = "#fef9c3"
+            theme["palette"]["border"] = "#fde68a"
+
+    return theme
+
+
+def explicit_palette_colors(
+    raw_input: RawInput,
+    slide_plans: list[SlidePlan] | None = None,
+) -> list[str]:
+    sources = [raw_input.prompt]
+    sources.extend(
+        slide_plan.visual_intent.palette_hint
+        for slide_plan in slide_plans or []
+    )
+    colors: list[str] = []
+    for source in sources:
+        for match in EXPLICIT_COLOR_RE.finditer(source):
+            token = match.group(0).casefold()
+            if token.startswith("#"):
+                color = token.lower()
+            else:
+                color = EXPLICIT_COLOR_NAME_MAP[token]
+            if color not in colors:
+                colors.append(color)
+    return colors
+
+
+def is_neutral_color(color: str) -> bool:
+    return color in NEUTRAL_COLORS
+
+
+def text_color_for_background(color: str) -> str:
+    return "#111827" if color == "#ffffff" else "#f8fafc"
 
 
 def design_profile_for(

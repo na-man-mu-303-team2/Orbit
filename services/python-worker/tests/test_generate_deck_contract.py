@@ -114,6 +114,118 @@ def test_generate_deck_design_rhythm_overrides_theme_profile() -> None:
     assert response.deck["theme"]["accentColor"] == "#1a73e8"
 
 
+def test_generate_deck_applies_prompt_color_theme() -> None:
+    fake_client = FakeOpenAIClient(
+        {
+            "title": "Prompt colors",
+            "slides": [
+                slide_payload(
+                    "Visual plan",
+                    "Prompt colors should drive the theme.",
+                    "Use the generated visual intent.",
+                    slide_type="title",
+                    slot_preset="title_center",
+                )
+            ],
+        }
+    )
+
+    response = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="Quarterly roadmap",
+            prompt="흰색과 노란색으로 디자인",
+            slideCountRange={"min": 1, "max": 1},
+        ),
+        client=fake_client,
+    )
+
+    theme = response.deck["theme"]
+    assert theme["backgroundColor"] == "#ffffff"
+    assert theme["textColor"] == "#111827"
+    assert theme["accentColor"] == "#facc15"
+    assert theme["palette"]["surface"] == "#ffffff"
+    assert theme["palette"]["primary"] == "#facc15"
+    assert theme["palette"]["secondary"] == "#facc15"
+    assert theme["palette"]["muted"] == "#fef9c3"
+    assert theme["palette"]["border"] == "#fde68a"
+
+
+def test_generate_deck_applies_palette_hint_color_theme() -> None:
+    fake_client = FakeOpenAIClient(
+        {
+            "title": "Palette hint",
+            "slides": [
+                slide_payload(
+                    "Visual plan",
+                    "Palette hint should drive explicit colors.",
+                    "Use the generated visual intent.",
+                    slide_type="title",
+                    slot_preset="title_center",
+                    visual_intent={
+                        "emphasis": "color",
+                        "mood": "bright",
+                        "structure": "cover",
+                        "paletteHint": "white yellow",
+                        "emphasisStyle": "",
+                        "composition": "",
+                        "decorationDensity": "medium",
+                        "mediaStyle": "",
+                    },
+                )
+            ],
+        }
+    )
+
+    response = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="Quarterly roadmap",
+            prompt="Use generated plan.",
+            slideCountRange={"min": 1, "max": 1},
+        ),
+        client=fake_client,
+    )
+
+    theme = response.deck["theme"]
+    assert theme["backgroundColor"] == "#ffffff"
+    assert theme["accentColor"] == "#facc15"
+
+
+def test_generate_deck_keeps_visual_rhythm_typography_with_color_theme() -> None:
+    fake_client = FakeOpenAIClient(
+        {
+            "title": "Technical colors",
+            "slides": [
+                slide_payload(
+                    "Visual plan",
+                    "Prompt colors should not replace typography.",
+                    "Use the generated visual intent.",
+                    slide_type="title",
+                    slot_preset="title_center",
+                )
+            ],
+        }
+    )
+
+    response = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="Quarterly roadmap",
+            prompt="white and yellow theme",
+            slideCountRange={"min": 1, "max": 1},
+            design={"visualRhythm": "technical"},
+        ),
+        client=fake_client,
+    )
+
+    theme = response.deck["theme"]
+    assert theme["name"] == "default-voice-tech-ai"
+    assert theme["backgroundColor"] == "#ffffff"
+    assert theme["accentColor"] == "#facc15"
+    assert theme["typography"]["headingFontFamily"] == "Noto Sans KR"
+
+
 def test_generate_deck_matches_game_ink_neon_profile_without_color_hints() -> None:
     response = generate_deck(
         GenerateDeckRequest(
