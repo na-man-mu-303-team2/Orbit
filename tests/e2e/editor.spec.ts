@@ -71,8 +71,7 @@ test.describe("ORBIT-18 ORBIT-107 editor manipulation", () => {
   test("selects, drags, resizes, rotates, and returns to slide background editing", async ({
     page
   }) => {
-    await page.goto("/");
-    await page.getByRole("button", { name: "편집기 열기" }).click();
+    await page.goto("/project/project_demo_1");
 
     await expect(
       page.getByLabel("Presentation editor")
