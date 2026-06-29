@@ -193,3 +193,15 @@
 - Rationale: GitHub에 서버 SSH secret을 저장하지 않고, runner 권한을 단일 wrapper 실행으로 제한하면서 merge 후 배포를 자동화한다. staging validation의 local-default 금지 정책도 유지한다.
 - Affected files: `.github/workflows/deploy-personal-staging.yml`, `docker-compose.staging.yml`, `docs/runbooks/personal-server-deployment.md`, `docs/decision-log.md`.
 - Follow-up review notes: 첫 merge 후 GitHub Actions에서 runner label 매칭, sudoers wrapper 실행, `db:migration:run`, `/api/health`, `/assets/orbit-personal-staging/` 접근을 확인한다. 완전 자동 배포가 목표면 GitHub Environment `personal-staging`에 required reviewer를 설정하지 않는다.
+
+## ORBIT personal HTTP demo auth cookie exception
+
+- Context: 개인 서버 develop demo가 HTTP origin으로 운영되는 동안 `APP_ENV=staging`의 secure auth cookie가 브라우저에 저장되지 않아 로그인 후 `/api/v1/auth/me`가 401을 반환한다.
+- Options considered:
+  - 즉시 HTTPS 도메인과 TLS 인증서를 붙인다.
+  - `APP_ENV=local`로 내려서 staging validation을 우회한다.
+  - 명시적 `AUTH_COOKIE_SECURE=false` override를 개인 서버 staging에만 허용한다.
+- Final decision: `AUTH_COOKIE_SECURE` optional env를 추가하고, 명시된 경우 auth cookie의 `secure` 값을 override한다. 단, `AUTH_COOKIE_SECURE=false`는 `APP_ENV=staging`에서 `WEB_ORIGIN`과 `API_BASE_URL`이 모두 `http://`인 개인 서버 HTTP demo에만 허용하고, `APP_ENV=production` 또는 `https://` staging origin에서는 금지한다.
+- Rationale: 개인 서버 HTTP demo의 인증 흐름을 검증할 수 있게 하면서도 HTTPS staging/prod에서 non-secure auth cookie가 실수로 남는 설정을 startup 단계에서 거부한다.
+- Affected files: `packages/config/src/index.ts`, `apps/api/src/auth/auth-cookie.ts`, `apps/api/src/config/env.schema.spec.ts`, `.env.example`, `.env.staging.example`, `.env.production.example`, `docker-compose.staging.yml`, `docs/conventions/environment.md`, `docs/runbooks/personal-server-deployment.md`, `docs/decision-log.md`.
+- Follow-up review notes: HTTPS 적용 후 Doppler `orbit / stg`의 `AUTH_COOKIE_SECURE` 값을 비우거나 `true`로 되돌린다. 값이 남아 있으면 HTTPS staging startup이 실패해야 한다.

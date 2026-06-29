@@ -27,7 +27,11 @@ export function clearAuthCookieOptions(config: OrbitConfig): CookieOptions {
   };
 }
 
-/** 로컬/테스트에서는 HTTP 개발을 허용하고 원격 환경에서는 secure cookie를 강제한다. */
+/** 명시적 override가 없으면 로컬/테스트에서만 HTTP 개발을 허용한다. */
 function shouldUseSecureCookie(config: OrbitConfig): boolean {
+  if (config.AUTH_COOKIE_SECURE !== undefined) {
+    return config.AUTH_COOKIE_SECURE;
+  }
+
   return config.APP_ENV !== "local" && config.APP_ENV !== "test";
 }
