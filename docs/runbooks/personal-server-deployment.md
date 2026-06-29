@@ -80,8 +80,9 @@ PYTHON_WORKER_URL=http://python-worker:8000
 개인 서버용 Docker Compose override는 로컬 Redis, MinIO, Python worker를 기준으로 다음 런타임 값을 고정한다.
 
 - storage driver는 MinIO를 사용한다.
+- MinIO bucket은 staging local-default validation을 피하기 위해 `orbit-personal-staging`을 사용한다.
 - queue driver는 BullMQ를 사용한다.
-- STT provider는 Python worker의 현재 지원 범위에 맞춰 OpenAI를 사용한다.
+- Live STT provider는 `sherpa`, report STT provider는 Python worker의 현재 지원 범위에 맞춰 `openai`를 사용한다.
 - OCR provider는 Python worker 경로를 사용한다.
 - AWS Textract는 사용하지 않는다.
 
@@ -95,7 +96,7 @@ Nginx는 외부 요청을 받는 public entrypoint다.
 
 - `/`: `127.0.0.1:5173`으로 proxy
 - `/api/health`: API `/health`로 proxy
-- `/api/v1/`: `127.0.0.1:3000/api/v1/`로 proxy
+- `/api/v1/`: prefix를 유지해 `127.0.0.1:3000`으로 proxy
 - `/assets/`: prefix를 제거한 뒤 `127.0.0.1:9000`으로 proxy
 - `/socket.io/`: websocket traffic을 `127.0.0.1:3000/socket.io/`로 proxy
 
@@ -107,6 +108,15 @@ Nginx는 외부 요청을 받는 public entrypoint다.
 location /assets/ {
   rewrite ^/assets/(.*)$ /$1 break;
   proxy_pass http://127.0.0.1:9000;
+  proxy_set_header Host $host;
+}
+```
+
+API는 controller가 `api/v1/...` prefix를 직접 받으므로 `/api/v1/` location의 `proxy_pass`에는 path를 다시 붙이지 않는다.
+
+```nginx
+location /api/v1/ {
+  proxy_pass http://127.0.0.1:3000;
   proxy_set_header Host $host;
 }
 ```
@@ -126,6 +136,28 @@ cd /var/www/orbit
 ./infra/scripts/deploy-personal-server.sh
 ```
 
+## 자동 배포
+
+`develop`에 merge되면 `.github/workflows/deploy-personal-staging.yml`이 개인 서버 self-hosted runner에서 배포 wrapper를 실행한다.
+
+필수 서버 조건:
+
+- GitHub Actions runner label: `orbit-personal-staging`
+- runner 실행 사용자: `orbit-runner`
+- 앱 checkout과 Doppler token scope: `/var/www/orbit`
+- 배포 wrapper: `/usr/local/sbin/orbit-deploy-personal-staging`
+- sudoers 허용 명령: `orbit-runner ALL=(root) NOPASSWD: /usr/local/sbin/orbit-deploy-personal-staging`
+
+배포 wrapper는 다음 형태를 유지한다.
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+exec /usr/bin/sudo -iu orbit /bin/bash -lc 'cd /var/www/orbit && ./infra/scripts/deploy-personal-server.sh'
+```
+
+완전 자동 배포가 목표라면 GitHub Environment `personal-staging`에는 required reviewer를 설정하지 않는다. 승인 단계를 두고 싶을 때만 environment protection rule을 추가한다.
+
 ## 검증
 
 서버 내부에서 확인한다.
@@ -142,7 +174,7 @@ doppler run -- docker compose -f docker-compose.yml -f docker-compose.staging.ym
 ```text
 <SERVER_ORIGIN>/
 <SERVER_ORIGIN>/api/health
-<SERVER_ORIGIN>/assets/orbit-local/
+<SERVER_ORIGIN>/assets/orbit-personal-staging/
 ```
 
 ## 주의 사항
