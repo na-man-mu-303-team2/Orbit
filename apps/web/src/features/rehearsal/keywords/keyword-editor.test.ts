@@ -16,8 +16,8 @@ describe("keyword-editor model", () => {
     const initialKeywords = createDemoDeck().slides[0].keywords;
     const withKeyword = addKeyword(initialKeywords, "리허설", () => keywordIds.shift()!);
 
-    expect(withKeyword).toHaveLength(2);
-    expect(withKeyword[1]).toMatchObject({
+    expect(withKeyword).toHaveLength(initialKeywords.length + 1);
+    expect(withKeyword.at(-1)).toMatchObject({
       keywordId: "kw_new_1",
       text: "리허설",
       synonyms: [],
