@@ -97,4 +97,43 @@ describe("GenerateDeckService", () => {
       request: expect.objectContaining({ topic: "AI 덱 생성" })
     });
   });
+
+  it("accepts a non-demo project id for AI deck generation", async () => {
+    const job: Job = {
+      jobId: "job-2",
+      projectId: "project_custom_1",
+      type: "ai-deck-generation",
+      status: "queued",
+      progress: 0,
+      message: "Job queued",
+      result: null,
+      error: null,
+      createdAt: "2026-06-27T00:00:00.000Z",
+      updatedAt: "2026-06-27T00:00:00.000Z"
+    };
+    const jobsService = {
+      create: vi.fn(async () => job),
+      update: vi.fn()
+    } as unknown as JobsService;
+    const enqueueJob = vi.fn(async () => undefined);
+
+    const result = await new GenerateDeckService(
+      jobsService,
+      enqueueJob
+    ).createJob("project_custom_1", {
+      topic: "프로젝트별 AI 덱 생성",
+      references: []
+    });
+
+    expect(result).toEqual({ job });
+    expect(jobsService.create).toHaveBeenCalledWith({
+      projectId: "project_custom_1",
+      type: "ai-deck-generation",
+      payload: {
+        request: expect.objectContaining({
+          topic: "프로젝트별 AI 덱 생성"
+        })
+      }
+    });
+  });
 });
