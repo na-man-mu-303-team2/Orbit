@@ -564,6 +564,7 @@ function ProjectCard(props: { project: Project }) {
 }
 
 function GenerateDeckView() {
+  const queryClient = useQueryClient();
   const [topic, setTopic] = useState("AI 덱 생성 파이프라인");
   const [prompt, setPrompt] = useState("참고자료를 바탕으로 발표 흐름과 핵심 메시지를 정리");
   const [duration, setDuration] = useState(10);
@@ -585,6 +586,15 @@ function GenerateDeckView() {
   const [generateJob, setGenerateJob] = useState<Job | null>(null);
   const [extractedFiles, setExtractedFiles] = useState<ExtractedFile[]>([]);
   const [result, setResult] = useState<GenerateDeckJobResult | null>(null);
+  const [selectedProjectId, setSelectedProjectId] = useState("");
+  const [newProjectTitle, setNewProjectTitle] = useState("AI 생성 발표자료");
+  const [isCreatingProject, setIsCreatingProject] = useState(false);
+  const [projectError, setProjectError] = useState("");
+  const projectsQuery = useQuery({
+    queryKey: ["projects", "generate-deck"],
+    queryFn: () => fetchProjects(),
+    retry: false
+  });
   const totalSize = useMemo(
     () => uploads.reduce((sum, upload) => sum + upload.file.size, 0),
     [uploads]
@@ -593,6 +603,40 @@ function GenerateDeckView() {
     () => buildReferenceGenerationInput(extractedFiles),
     [extractedFiles]
   );
+
+  useEffect(() => {
+    if (!projectsQuery.data || selectedProjectId) {
+      return;
+    }
+
+    const firstProject = projectsQuery.data[0];
+    if (firstProject) {
+      setSelectedProjectId(firstProject.projectId);
+    }
+  }, [projectsQuery.data, selectedProjectId]);
+
+  const handleCreateProject = async () => {
+    const trimmedTitle = newProjectTitle.trim();
+    if (!trimmedTitle || isCreatingProject) {
+      return;
+    }
+
+    setIsCreatingProject(true);
+    setProjectError("");
+
+    try {
+      const project = await createProject(trimmedTitle);
+      setSelectedProjectId(project.projectId);
+      await queryClient.invalidateQueries({ queryKey: ["projects"] });
+      await projectsQuery.refetch();
+    } catch (error) {
+      setProjectError(
+        error instanceof Error ? error.message : "프로젝트를 만들지 못했습니다."
+      );
+    } finally {
+      setIsCreatingProject(false);
+    }
+  };
 
   const addFiles = (fileList: FileList | File[]) => {
     const { acceptedFiles, rejectedFiles } = collectUploadFiles(fileList);
@@ -675,9 +719,15 @@ function GenerateDeckView() {
   const generateDeck = async () => {
     if (!topic.trim() || isGenerating) return;
 
+    if (!selectedProjectId) {
+      setProjectError("AI 덱을 저장할 프로젝트를 먼저 선택하세요.");
+      return;
+    }
+
     setIsGenerating(true);
     setGenerationStep("idle");
     setGenerateError("");
+    setProjectError("");
     setExtractJob(null);
     setGenerateJob(null);
     setExtractedFiles([]);
@@ -687,7 +737,7 @@ function GenerateDeckView() {
       const referenceInput = await extractReferences();
       setGenerationStep("generating");
       const response = await fetch(
-        `/api/v1/projects/${demoIds.projectId}/jobs/generate-deck`,
+        `/api/v1/projects/${selectedProjectId}/jobs/generate-deck`,
         {
           method: "POST",
           headers: { "content-type": "application/json" },
@@ -720,7 +770,11 @@ function GenerateDeckView() {
         throw new Error(job.error?.message || job.message || "AI 덱 생성에 실패했습니다.");
       }
 
-      setResult(getGenerateDeckJobResult(job));
+      const generatedResult = getGenerateDeckJobResult(job);
+      setResult(generatedResult);
+      if (generatedResult) {
+        navigateTo(`/project/${selectedProjectId}`);
+      }
     } catch (error) {
       setGenerateError(
         error instanceof Error ? error.message : "AI 덱 생성에 실패했습니다."
@@ -751,6 +805,64 @@ function GenerateDeckView() {
             <span className="eyebrow">Orbit issue #26</span>
             <h1 id="generate-title">AI 덱 생성</h1>
           </div>
+
+          <section className="generate-reference-panel" aria-labelledby="generate-project-title">
+            <div className="reference-panel-heading">
+              <span className="eyebrow" id="generate-project-title">
+                Target project
+              </span>
+              <p>AI 생성 결과를 저장하고 바로 에디터에서 열 프로젝트</p>
+            </div>
+
+            <label>
+              <span>Project</span>
+              <select
+                value={selectedProjectId}
+                onChange={(event) => setSelectedProjectId(event.target.value)}
+                disabled={isGenerating || projectsQuery.isLoading}
+              >
+                <option value="">프로젝트 선택</option>
+                {(projectsQuery.data ?? []).map((project) => (
+                  <option key={project.projectId} value={project.projectId}>
+                    {project.title}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <div className="form-grid">
+              <label>
+                <span>New project</span>
+                <input
+                  value={newProjectTitle}
+                  onChange={(event) => setNewProjectTitle(event.target.value)}
+                  disabled={isGenerating || isCreatingProject}
+                  placeholder="AI 생성 발표자료"
+                />
+              </label>
+            </div>
+
+            <button
+              className="extract-button"
+              type="button"
+              onClick={() => void handleCreateProject()}
+              disabled={isGenerating || isCreatingProject || !newProjectTitle.trim()}
+            >
+              {isCreatingProject ? "프로젝트 생성 중..." : "새 프로젝트 만들고 선택"}
+            </button>
+
+            {projectsQuery.isError ? (
+              <div className="rejection-list" role="alert">
+                <p>프로젝트 목록을 불러오지 못했습니다.</p>
+              </div>
+            ) : null}
+
+            {projectError ? (
+              <div className="rejection-list" role="alert">
+                <p>{projectError}</p>
+              </div>
+            ) : null}
+          </section>
 
           <label>
             <span>Topic</span>

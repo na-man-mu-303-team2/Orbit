@@ -8,6 +8,7 @@ describe("FilesController", () => {
     const service = {
       createUploadUrl: vi.fn(),
       completeUpload: vi.fn(),
+      readUploadedAssetContent: vi.fn(),
       list: vi.fn(),
     } as unknown as FilesService;
     const controller = new FilesController(service);
@@ -33,6 +34,7 @@ describe("FilesController", () => {
     const service = {
       createUploadUrl: vi.fn(),
       completeUpload: vi.fn(),
+      readUploadedAssetContent: vi.fn(),
       list: vi.fn(),
     } as unknown as FilesService;
     const controller = new FilesController(service);
@@ -58,6 +60,7 @@ describe("FilesController", () => {
     const service = {
       createUploadUrl: vi.fn(),
       completeUpload: vi.fn(),
+      readUploadedAssetContent: vi.fn(),
       list: vi.fn(),
     } as unknown as FilesService;
     const controller = new FilesController(service);
@@ -87,5 +90,30 @@ describe("FilesController", () => {
       },
       "http://127.0.0.1:5173",
     );
+  });
+
+  it("reads uploaded asset content through the service", async () => {
+    const service = {
+      createUploadUrl: vi.fn(),
+      completeUpload: vi.fn(),
+      readUploadedAssetContent: vi.fn(async () => ({
+        body: Buffer.from("png"),
+        contentType: "image/png",
+      })),
+      list: vi.fn(),
+    } as unknown as FilesService;
+    const controller = new FilesController(service);
+    const response = {
+      setHeader: vi.fn(),
+    } as any;
+
+    const file = await controller.readContent("project_1", "file_1", response);
+
+    expect(service.readUploadedAssetContent).toHaveBeenCalledWith(
+      "project_1",
+      "file_1",
+    );
+    expect(response.setHeader).toHaveBeenCalledWith("content-type", "image/png");
+    expect(file).toBeDefined();
   });
 });

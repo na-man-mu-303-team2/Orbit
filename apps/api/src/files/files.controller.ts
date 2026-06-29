@@ -2,8 +2,19 @@ import {
   assetUploadUrlRequestSchema,
   completeAssetUploadRequestSchema,
 } from "@orbit/shared";
-import { Body, Controller, Get, HttpCode, Param, Post, Put, Req } from "@nestjs/common";
-import type { Request } from "express";
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  Param,
+  Post,
+  Put,
+  Req,
+  Res,
+  StreamableFile,
+} from "@nestjs/common";
+import type { Request, Response } from "express";
 import { normalizeHttpOrigin } from "../common/web-origin";
 import { parseRequest } from "../common/zod-request";
 import { FilesService } from "./files.service";
@@ -36,6 +47,21 @@ export class FilesController {
       projectId,
       parseRequest(completeAssetUploadRequestSchema, body ?? {}),
     );
+  }
+
+  @Get(":fileId/content")
+  async readContent(
+    @Param("projectId") projectId: string,
+    @Param("fileId") fileId: string,
+    @Res({ passthrough: true }) response: Response,
+  ) {
+    const asset = await this.filesService.readUploadedAssetContent(
+      projectId,
+      fileId,
+    );
+
+    response.setHeader("content-type", asset.contentType);
+    return new StreamableFile(asset.body);
   }
 
   // local upload proxy가 받은 파일 binary를 서비스 계층 저장 흐름으로 넘긴다.

@@ -2,7 +2,7 @@ import { ForbiddenException, NotFoundException } from "@nestjs/common";
 import { Project, demoIds } from "@orbit/shared";
 import { StoragePort } from "@orbit/storage";
 import { Repository } from "typeorm";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ProjectsService } from "../projects/projects.service";
 import { FilesService } from "./files.service";
 import { ProjectAssetEntity } from "./project-asset.entity";
@@ -105,6 +105,10 @@ function createService(
 }
 
 describe("FilesService", () => {
+  beforeEach(() => {
+    vi.stubGlobal("fetch", vi.fn());
+  });
+
   it("creates a pending upload URL and completes it as uploaded metadata", async () => {
     const { assets, service } = createService({
       getAccessibleProject: vi.fn(async () => demoProject),
@@ -193,7 +197,7 @@ describe("FilesService", () => {
       {
         fileId: "file_1",
         projectId: foreignProjectId,
-        storageKey: "projects/project_foreign/assets/file_1/report.pdf",
+        storageKey: "projects/project_foreign/assets/file_1-report.pdf",
         originalName: "report.pdf",
         mimeType: "application/pdf",
         size: 1024,
@@ -222,7 +226,7 @@ describe("FilesService", () => {
       {
         fileId: "file_1",
         projectId: demoProject.projectId,
-        storageKey: "projects/project_demo_created/assets/file_1/report.pdf",
+        storageKey: "projects/project_demo_created/assets/file_1-report.pdf",
         originalName: "report.pdf",
         mimeType: "application/pdf",
         size: 4,
@@ -249,14 +253,125 @@ describe("FilesService", () => {
     );
 
     expect(storage.putObject).toHaveBeenCalledWith({
-      key: "projects/project_demo_created/assets/file_1/report.pdf",
+      key: "projects/project_demo_created/assets/file_1-report.pdf",
       body: Buffer.from("%PDF"),
       contentType: "application/pdf",
       purpose: "reference-material",
     });
     expect(assets[0].url).toBe(
-      "http://localhost:9000/orbit-local/projects/project_demo_created/assets/file_1/report.pdf",
+      "http://localhost:9000/orbit-local/projects/project_demo_created/assets/file_1-report.pdf",
     );
+  });
+
+  it("stores local uploaded proxy content with a same-origin read URL", async () => {
+    const { assets, repository } = createAssetRepository([
+      {
+        fileId: "file_1",
+        projectId: demoProject.projectId,
+        storageKey: "projects/project_demo_created/assets/file_1-report.png",
+        originalName: "report.png",
+        mimeType: "image/png",
+        size: 4,
+        url: "http://localhost:5173/api/v1/projects/project_demo_created/assets/file_1/content",
+        purpose: "reference-material",
+        status: "pending",
+        createdAt: new Date(),
+        uploadedAt: null,
+      } as ProjectAssetEntity,
+    ]);
+    const storage = createStorage();
+    const service = new FilesService(
+      repository,
+      {
+        getAccessibleProject: vi.fn(async () => demoProject),
+      } as unknown as ProjectsService,
+      storage,
+      "http://localhost:5173",
+    );
+
+    await service.storeUploadContent(
+      demoProject.projectId,
+      "file_1",
+      Buffer.from("png"),
+    );
+
+    expect(assets[0].url).toBe(
+      "http://localhost:5173/api/v1/projects/project_demo_created/assets/file_1/content",
+    );
+  });
+
+  it("reads uploaded asset content through the local proxy path", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: true,
+      arrayBuffer: async () => Uint8Array.from([1, 2, 3]).buffer,
+    } as Response);
+
+    const { repository } = createAssetRepository([
+      {
+        fileId: "file_1",
+        projectId: demoProject.projectId,
+        storageKey: "projects/project_demo_created/assets/file_1-report.png",
+        originalName: "report.png",
+        mimeType: "image/png",
+        size: 3,
+        url: "http://localhost:5173/api/v1/projects/project_demo_created/assets/file_1/content",
+        purpose: "reference-material",
+        status: "uploaded",
+        createdAt: new Date(),
+        uploadedAt: new Date(),
+      } as ProjectAssetEntity,
+    ]);
+    const service = new FilesService(
+      repository,
+      {
+        getAccessibleProject: vi.fn(async () => demoProject),
+      } as unknown as ProjectsService,
+      createStorage(),
+      "http://localhost:5173",
+    );
+
+    const asset = await service.readUploadedAssetContent(
+      demoProject.projectId,
+      "file_1",
+    );
+
+    expect(fetch).toHaveBeenCalledWith(
+      "http://localhost:9000/orbit-local/projects/project_demo_created/assets/file_1-report.png",
+    );
+    expect(asset.contentType).toBe("image/png");
+    expect(Array.from(asset.body)).toEqual([1, 2, 3]);
+  });
+
+  it("rejects asset content reads for non-public purposes", async () => {
+    const { repository } = createAssetRepository([
+      {
+        fileId: "file_audio_1",
+        projectId: demoProject.projectId,
+        storageKey: "projects/project_demo_created/assets/file_audio_1/rehearsal.webm",
+        originalName: "rehearsal.webm",
+        mimeType: "audio/webm",
+        size: 1024,
+        url: "http://localhost:9000/orbit-local/rehearsal.webm",
+        purpose: "rehearsal-audio",
+        status: "uploaded",
+        createdAt: new Date(),
+        uploadedAt: new Date(),
+      } as ProjectAssetEntity,
+    ]);
+    const storage = createStorage();
+    const service = new FilesService(
+      repository,
+      {
+        getAccessibleProject: vi.fn(async () => demoProject),
+      } as unknown as ProjectsService,
+      storage,
+    );
+
+    await expect(
+      service.readUploadedAssetContent(demoProject.projectId, "file_audio_1"),
+    ).rejects.toBeInstanceOf(NotFoundException);
+    expect(storage.getSignedReadUrl).not.toHaveBeenCalled();
+    expect(fetch).not.toHaveBeenCalled();
   });
 
   it("returns not found when completing an unknown asset", async () => {
