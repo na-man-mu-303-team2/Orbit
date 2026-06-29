@@ -45,7 +45,7 @@ export class ProjectsService {
 
     const projects = await this.projectsRepository.find({
       where: { workspaceId },
-      order: { createdAt: "ASC" },
+      order: { createdAt: "DESC" },
     });
 
     return projectListResponseSchema.parse(

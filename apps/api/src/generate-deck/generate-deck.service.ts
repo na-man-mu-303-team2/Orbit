@@ -7,6 +7,7 @@ import { loadOrbitConfig } from "@orbit/config";
 import { Injectable, Optional } from "@nestjs/common";
 import { z } from "zod";
 import { JobsService } from "../jobs/jobs.service";
+import { ProjectsService } from "../projects/projects.service";
 
 const generateDeckJobResponseSchema = z.object({
   job: jobSchema
@@ -20,6 +21,7 @@ export class GenerateDeckService {
 
   constructor(
     private readonly jobsService: JobsService,
+    private readonly projectsService: ProjectsService,
     @Optional()
     private readonly enqueueJob: (
       input: EnqueueGenerateDeckJobInput
@@ -30,6 +32,8 @@ export class GenerateDeckService {
     projectId: string,
     body: unknown
   ): Promise<GenerateDeckJobResponse> {
+    await this.projectsService.getAccessibleProject(projectId);
+
     const request = generateDeckRequestSchema.parse(body);
     const queuedJob = await this.jobsService.create({
       projectId,
