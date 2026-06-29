@@ -79,4 +79,17 @@ describe("ProjectsService", () => {
       service.getAccessibleProject("project_missing"),
     ).rejects.toBeInstanceOf(NotFoundException);
   });
+
+  it("auto-creates the demo project when demo project access is requested", async () => {
+    const service = new ProjectsService(createProjectRepository());
+
+    const project = await service.getAccessibleProject(demoIds.projectId);
+    const projects = await service.list(demoIds.workspaceId);
+
+    expect(project.projectId).toBe(demoIds.projectId);
+    expect(project.workspaceId).toBe(demoIds.workspaceId);
+    expect(project.createdBy).toBe(demoIds.userId);
+    expect(project.title).toBe("ORBIT Demo Project");
+    expect(projects).toEqual([project]);
+  });
 });

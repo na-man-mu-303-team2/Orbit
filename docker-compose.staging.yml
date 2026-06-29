@@ -19,7 +19,7 @@ x-orbit-env: &orbit-env
   STORAGE_DRIVER: ${STORAGE_DRIVER:-minio}
   S3_ENDPOINT: ${S3_ENDPOINT:-http://minio:9000}
   S3_PUBLIC_ENDPOINT: ${S3_PUBLIC_ENDPOINT:?}
-  S3_BUCKET: ${S3_BUCKET:-orbit-local}
+  S3_BUCKET: ${S3_BUCKET:-orbit-personal-staging}
   S3_REGION: ${S3_REGION:?}
   S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-orbit}
   S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-orbit-password}
@@ -57,7 +57,7 @@ services:
       REDIS_URL: redis://redis:6379
       STORAGE_DRIVER: minio
       S3_ENDPOINT: http://minio:9000
-      S3_BUCKET: orbit-local
+      S3_BUCKET: orbit-personal-staging
       S3_ACCESS_KEY_ID: orbit
       S3_SECRET_ACCESS_KEY: orbit-password
       S3_FORCE_PATH_STYLE: "true"
@@ -79,7 +79,7 @@ services:
       REDIS_URL: redis://redis:6379
       STORAGE_DRIVER: minio
       S3_ENDPOINT: http://minio:9000
-      S3_BUCKET: orbit-local
+      S3_BUCKET: orbit-personal-staging
       S3_ACCESS_KEY_ID: orbit
       S3_SECRET_ACCESS_KEY: orbit-password
       S3_FORCE_PATH_STYLE: "true"
@@ -100,7 +100,7 @@ services:
       REDIS_URL: redis://redis:6379
       STORAGE_DRIVER: minio
       S3_ENDPOINT: http://minio:9000
-      S3_BUCKET: orbit-local
+      S3_BUCKET: orbit-personal-staging
       S3_ACCESS_KEY_ID: orbit
       S3_SECRET_ACCESS_KEY: orbit-password
       S3_FORCE_PATH_STYLE: "true"
@@ -144,5 +144,5 @@ services:
       - |
         set -eu
         mc alias set local http://minio:9000 orbit orbit-password
-        mc mb --ignore-existing local/orbit-local
-        mc anonymous set download local/orbit-local
+        mc mb --ignore-existing local/orbit-personal-staging
+        mc anonymous set download local/orbit-personal-staging
