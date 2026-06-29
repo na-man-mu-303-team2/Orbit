@@ -729,9 +729,7 @@ function GenerateDeckView() {
 
       setResult(generatedResult);
       queryClient.setQueryData<Project[]>(["projects"], (current) =>
-        current?.some((item) => item.projectId === project.projectId)
-          ? current
-          : [...(current ?? []), project]
+        mergeGeneratedProjectList(current, project)
       );
       queryClient.setQueryData(["deck", generatedResult.deck.projectId], generatedResult.deck);
       navigateTo(getGeneratedDeckProjectPath(generatedResult));
@@ -1098,6 +1096,15 @@ export function getGeneratedDeckProjectTitle(topic: string) {
 
 export function createGeneratedDeckProject(topic: string, fetcher: Fetcher = fetch) {
   return createProject(getGeneratedDeckProjectTitle(topic), fetcher);
+}
+
+export function mergeGeneratedProjectList(
+  current: Project[] | undefined,
+  project: Project
+) {
+  return current?.some((item) => item.projectId === project.projectId)
+    ? current
+    : [project, ...(current ?? [])];
 }
 
 export function buildReferenceGenerationInput(

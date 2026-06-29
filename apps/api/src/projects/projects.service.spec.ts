@@ -7,6 +7,7 @@ import { ProjectsService } from "./projects.service";
 
 type ProjectFindOptions = {
   where: Partial<ProjectEntity>;
+  order?: Partial<Record<keyof ProjectEntity, "ASC" | "DESC">>;
 };
 
 function createProjectRepository(initialProjects: ProjectEntity[] = []) {
@@ -29,9 +30,16 @@ function createProjectRepository(initialProjects: ProjectEntity[] = []) {
       return project;
     },
     async find(options: ProjectFindOptions): Promise<ProjectEntity[]> {
-      return projects.filter(
+      const filtered = projects.filter(
         (project) => project.workspaceId === options.where.workspaceId,
       );
+      if (options.order?.createdAt === "DESC") {
+        return filtered.sort(
+          (left, right) =>
+            right.createdAt.getTime() - left.createdAt.getTime(),
+        );
+      }
+      return filtered;
     },
     async findOne(options: ProjectFindOptions): Promise<ProjectEntity | null> {
       return (
@@ -70,6 +78,27 @@ describe("ProjectsService", () => {
     await expect(
       service.create("workspace_other", { title: "Nope" }),
     ).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it("lists newest projects first", async () => {
+    const older = new ProjectEntity();
+    older.projectId = "project_old";
+    older.workspaceId = demoIds.workspaceId;
+    older.title = "Old";
+    older.createdBy = demoIds.userId;
+    older.createdAt = new Date("2026-06-28T00:00:00.000Z");
+    const newer = new ProjectEntity();
+    newer.projectId = "project_new";
+    newer.workspaceId = demoIds.workspaceId;
+    newer.title = "New";
+    newer.createdBy = demoIds.userId;
+    newer.createdAt = new Date("2026-06-29T00:00:00.000Z");
+    const service = new ProjectsService(createProjectRepository([older, newer]));
+
+    await expect(service.list(demoIds.workspaceId)).resolves.toMatchObject([
+      { projectId: "project_new" },
+      { projectId: "project_old" },
+    ]);
   });
 
   it("returns not found for an unknown project", async () => {

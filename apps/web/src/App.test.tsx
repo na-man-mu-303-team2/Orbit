@@ -1,5 +1,5 @@
 import { renderToStaticMarkup } from "react-dom/server";
-import type { Job } from "@orbit/shared";
+import type { Job, Project } from "@orbit/shared";
 import { describe, expect, it, vi } from "vitest";
 import {
   buildReferenceGenerationInput,
@@ -10,6 +10,7 @@ import {
   getGeneratedDeckProjectTitle,
   getGenerateDeckJobResult,
   getJobResultFiles,
+  mergeGeneratedProjectList,
   pollExtractJob
 } from "./App";
 
@@ -105,6 +106,32 @@ describe("reference extraction upload flow", () => {
 });
 
 describe("AI deck generation flow", () => {
+  it("keeps a generated project at the top of the project list cache", () => {
+    const older: Project = {
+      projectId: "project_old",
+      workspaceId: "workspace_demo_1",
+      title: "Old",
+      createdBy: "user_demo_1",
+      createdAt: "2026-06-28T00:00:00.000Z"
+    };
+    const generated: Project = {
+      projectId: "project_new_ai",
+      workspaceId: "workspace_demo_1",
+      title: "New",
+      createdBy: "user_demo_1",
+      createdAt: "2026-06-29T00:00:00.000Z"
+    };
+
+    expect(mergeGeneratedProjectList([older], generated)).toEqual([
+      generated,
+      older
+    ]);
+    expect(mergeGeneratedProjectList([generated, older], generated)).toEqual([
+      generated,
+      older
+    ]);
+  });
+
   it("creates a new project for an AI deck generation", async () => {
     const fetcher = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
