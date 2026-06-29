@@ -62,6 +62,18 @@
 - Affected files: `.github/workflows/ci.yml`, `docs/testing/jira-test-matrix.md`.
 - Follow-up review notes: branch protection에서 개별 job을 required check로 쓰는 경우 skipped job 표시가 팀 기대와 맞는지 확인하고, 필요하면 별도 aggregate required check를 추가한다.
 
+## ORBIT Playwright smoke CI temporary suspension
+
+- Context: Playwright smoke gate가 PR과 `main`/`develop` push 자동 검증에 포함되어 있지만, 현재는 안정성 재검토 전까지 자동화 테스트에서 임시로 제외해야 한다.
+- Options considered:
+  - Playwright smoke 테스트 파일과 `test:smoke` 스크립트를 삭제한다.
+  - `playwright-smoke` job 정의는 유지하되 job-level 조건으로 항상 skip한다.
+  - 변경 경로 분류에서만 `playwright_smoke` 출력을 끈다.
+- Final decision: `playwright-smoke` job은 그대로 보존하고 job-level `if: ${{ false }}`로 임시 skip한다. 로컬 또는 수동 검증용 `pnpm test:smoke` 스크립트와 Playwright 테스트 파일은 유지한다.
+- Rationale: 자동 gate에서만 제외하면 flaky 또는 환경 의존 이슈가 PR merge를 막지 않으면서도, smoke 재활성화와 수동 회귀 검증 경로를 잃지 않는다.
+- Affected files: `.github/workflows/ci.yml`, `.github/pull_request_template.md`, `docs/testing/jira-test-matrix.md`.
+- Follow-up review notes: smoke 안정화 원인이 정리되면 기존 path-scoped 조건을 복구하고 branch protection에서 skipped check 처리가 팀 기대와 맞는지 다시 확인한다.
+
 ## ORBIT-90 API project and asset boundary
 
 - Context: ORBIT-90은 프로젝트 생성과 project-scoped asset upload URL/complete API를 구현한다. 저장소 문서는 1차 스프린트가 임시 사용자 기반 프로젝트 생성에서 시작한다고 정의하며, 인증/워크스페이스 초대 흐름은 별도 선행/인접 작업이다.
