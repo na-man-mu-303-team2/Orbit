@@ -667,6 +667,12 @@ Return only JSON that matches the requested schema.
 Rules:
 - Ground the deck in the topic, user prompt, reference keywords, and reference excerpts.
 - Write concrete slide titles, body messages, and speaker notes for the actual subject.
+- speakerNotes must be the actual Korean presenter script to read aloud, not a guide
+  about what the presenter should explain.
+- Keep speakerNotes to 2-4 natural spoken sentences with concrete wording, examples,
+  or transitions for the audience.
+- Do not write speakerNotes like "이 슬라이드는 ... 설명합니다", "... 팁을 제공합니다",
+  or "... 함께 언급합니다". Say the presentation lines directly.
 - Choose slideType, layoutVariant, slotPreset, visualIntent, and mediaIntent.
 - Do not output coordinates, sizes, zIndex, or final Deck JSON.
 - Do not write meta placeholders such as "목적과 기대 결과를 소개합니다" or
@@ -985,9 +991,20 @@ def message_for(raw_input: RawInput, slide_type: SlideType, title: str) -> str:
 
 
 def speaker_notes_for(raw_input: RawInput, title: str, message: str, order: int) -> str:
+    focus = keyword_phrase(raw_input)
+    if order == 1:
+        return (
+            f"안녕하세요. 오늘은 {raw_input.topic}를 {focus} 중심으로 살펴보겠습니다. "
+            f"먼저 왜 이 주제가 중요한지 짚고, 바로 적용할 수 있는 포인트까지 연결해 보겠습니다."
+        )
+    if order == raw_input.slide_count:
+        return (
+            f"마지막으로 핵심만 다시 묶어보겠습니다. {message} "
+            f"이 내용을 기준으로 발표 이후에 바로 실행할 한 가지를 정하면 좋겠습니다."
+        )
     return (
-        f"{order}번째 슬라이드에서는 '{title}'를 중심으로 {raw_input.topic}를 설명합니다. "
-        f"{message} 참고자료 키워드와 연결되는 구체적인 예시를 함께 언급합니다."
+        f"여기서 중요한 점은 {message} "
+        f"{title}를 볼 때는 {focus}가 실제 상황에서 어떻게 달라지는지에 집중해 주세요."
     )
 
 

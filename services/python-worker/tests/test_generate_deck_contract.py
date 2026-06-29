@@ -66,9 +66,15 @@ def test_generate_deck_endpoint_supports_topic_only_generation() -> None:
     )
 
     assert response.status_code == 200
-    assert response.json()["warnings"] == [
+    payload = response.json()
+    speaker_notes = payload["deck"]["slides"][0]["speakerNotes"]
+    assert payload["warnings"] == [
         "참고자료 없이 topic-only generation으로 생성했습니다."
     ]
+    assert "안녕하세요. 오늘은 ORBIT" in speaker_notes
+    assert "슬라이드에서는" not in speaker_notes
+    assert "설명합니다" not in speaker_notes
+    assert "제공합니다" not in speaker_notes
 
 
 def test_generate_deck_endpoint_requires_llm_for_reference_generation() -> None:
@@ -146,6 +152,7 @@ def test_generate_deck_uses_llm_content_plan_with_reference_context() -> None:
     assert body_texts[0] == "피카츄는 볼주머니에 전기를 저장하는 전기 타입 포켓몬입니다."
     assert slide_keywords == ["전기 타입", "볼주머니", "피카츄"]
     assert "피카츄는 볼주머니" in fake_client.requests[0]["input"]
+    assert "actual Korean presenter script" in fake_client.requests[0]["instructions"]
     assert "목적과 기대 결과" not in "\n".join(body_texts)
     assert "결정 사항, 실행 순서" not in "\n".join(body_texts)
 
