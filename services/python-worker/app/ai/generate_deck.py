@@ -1442,11 +1442,15 @@ def layout_candidates_for(
             continue
 
         preset = PRESET_REGISTRY[slot_preset]
+        has_media_slot = preset_has_media_slot(preset)
+        if not wants_media and has_media_slot:
+            continue
+
         score = 4 if slot_preset == fallback else 0
         if preset.variant == variant:
             score += 1
         if wants_media:
-            score += 3 if preset_has_media_slot(preset) else -2
+            score += 3 if has_media_slot else -2
         if PRESET_DENSITY[slot_preset] == design.density_target:
             score += 2
         score += composition_score(slot_preset, composition)
@@ -1454,8 +1458,10 @@ def layout_candidates_for(
         if slide_plan.slide_type == "summary":
             score += 2 if preset.variant == "data" else 0
             score -= 4 if slot_preset == "quote_with_source" else 0
-        if design.layout_diversity == "varied" and slot_preset == previous_preset:
-            score -= 6
+        if design.layout_diversity == "varied":
+            if slot_preset == previous_preset:
+                score -= 2
+            score -= layout_stability_penalty(slot_preset, previous_preset)
 
         candidates.append(LayoutCandidate(slot_preset=slot_preset, score=score))
 
@@ -1502,6 +1508,37 @@ def composition_score(slot_preset: SlotPreset, composition: str) -> int:
     return 3 if slot_preset in presets_for_composition(composition) else -1
 
 
+def layout_stability_penalty(
+    slot_preset: SlotPreset,
+    previous_preset: SlotPreset | None,
+) -> int:
+    if previous_preset is None:
+        return 0
+
+    preset = PRESET_REGISTRY[slot_preset]
+    previous = PRESET_REGISTRY[previous_preset]
+    penalty = 0
+    title = slot_for_role(preset, "title")
+    previous_title = slot_for_role(previous, "title")
+    if title is not None and previous_title is not None and any(
+        getattr(title, field) != getattr(previous_title, field)
+        for field in ("x", "y", "width", "height")
+    ):
+        penalty += 8
+
+    body = slot_for_role(preset, "body")
+    previous_body = slot_for_role(previous, "body")
+    if body is not None and previous_body is not None:
+        if abs(body.y - previous_body.y) > 64:
+            penalty += 5
+
+    return penalty
+
+
+def slot_for_role(preset: PresetConfig, role: str) -> LayoutSlot | None:
+    return next((slot for slot in preset.slots if slot.role == role), None)
+
+
 def media_intent_for_policy(
     media_intent: MediaIntent,
     media_policy: MediaPolicy,
@@ -1518,7 +1555,9 @@ def media_intent_for_policy(
 def media_intent_needs_slot(media_intent: MediaIntent) -> bool:
     if media_intent.kind == "none":
         return False
-    return media_intent.kind != "provided" or bool(media_intent.src.strip())
+    if media_intent.kind == "provided":
+        return bool(media_intent.src.strip()) or media_intent.required
+    return True
 
 
 def preset_has_media_slot(preset: PresetConfig) -> bool:

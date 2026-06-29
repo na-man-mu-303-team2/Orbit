@@ -263,24 +263,24 @@ def test_generate_deck_uses_code_fallback_before_llm_slot_preset() -> None:
     assert body["width"] == 900
 
 
-def test_generate_deck_varied_layout_reduces_adjacent_preset_repetition() -> None:
+def test_generate_deck_varied_layout_keeps_stable_title_anchors() -> None:
     fake_client = FakeOpenAIClient(
         {
             "title": "Layout diversity",
             "slides": [
                 slide_payload(
-                    "First metric slide",
-                    "First metric message",
+                    "First title slide",
+                    "First title message",
                     "First speaker note.",
-                    slide_type="data",
-                    slot_preset="metric_cards",
+                    slide_type="title",
+                    slot_preset="title_center",
                 ),
                 slide_payload(
-                    "Second metric slide",
-                    "Second metric message",
+                    "Second title slide",
+                    "Second title message",
                     "Second speaker note.",
-                    slide_type="data",
-                    slot_preset="metric_cards",
+                    slide_type="title",
+                    slot_preset="title_center",
                 ),
             ],
         }
@@ -297,11 +297,12 @@ def test_generate_deck_varied_layout_reduces_adjacent_preset_repetition() -> Non
         client=fake_client,
     )
 
-    first_body = element_by_role(response.deck["slides"][0], "body")
-    second_body = element_by_role(response.deck["slides"][1], "body")
-    assert response.deck["slides"][0]["style"]["layout"] == "title-content"
-    assert response.deck["slides"][1]["style"]["layout"] == "title-content"
-    assert first_body["width"] != second_body["width"]
+    first_title = element_by_role(response.deck["slides"][0], "title")
+    second_title = element_by_role(response.deck["slides"][1], "title")
+    assert response.deck["slides"][0]["style"]["layout"] == "title"
+    assert response.deck["slides"][1]["style"]["layout"] == "title"
+    for key in ("x", "y", "width", "height"):
+        assert second_title[key] == first_title[key]
 
 
 def test_generate_deck_keeps_feature_grid_metric_cards_with_varied_layout() -> None:
@@ -427,6 +428,57 @@ def test_generate_deck_avoid_media_policy_suppresses_placeholders() -> None:
     )
 
     assert not has_element(response.deck["slides"][0], "el_1_media_placeholder")
+
+
+def test_generate_deck_does_not_choose_media_preset_without_media() -> None:
+    fake_client = FakeOpenAIClient(
+        {
+            "title": "Missing media",
+            "slides": [
+                slide_payload(
+                    "No media slide",
+                    "The model requested a media composition without usable media.",
+                    "Keep the title layout stable.",
+                    slide_type="title",
+                    slot_preset="title_center",
+                    media_intent={
+                        "kind": "provided",
+                        "prompt": "",
+                        "alt": "",
+                        "caption": "",
+                        "rationale": "",
+                        "required": False,
+                        "placement": "right",
+                        "src": "",
+                    },
+                    visual_intent={
+                        "emphasis": "visual",
+                        "mood": "clean",
+                        "structure": "cover",
+                        "paletteHint": "",
+                        "emphasisStyle": "",
+                        "composition": "media",
+                        "decorationDensity": "medium",
+                        "mediaStyle": "",
+                    },
+                )
+            ],
+        }
+    )
+
+    response = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="ORBIT",
+            prompt="Use generated plan.",
+            slideCountRange={"min": 1, "max": 1},
+        ),
+        client=fake_client,
+    )
+
+    slide = response.deck["slides"][0]
+    assert slide["style"]["layout"] == "title"
+    assert not has_element(slide, "el_1_media_placeholder")
 
 
 def test_generate_deck_endpoint_requires_llm_for_reference_generation() -> None:
