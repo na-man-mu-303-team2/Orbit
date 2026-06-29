@@ -22,6 +22,7 @@ import {
   uploadProjectAsset
 } from "../projects/ProjectAssetWorkspace";
 import type {
+  ApplyAiSuggestionResponse,
   Chart,
   CustomShapeElementProps,
   CustomShapeNode,
@@ -38,7 +39,7 @@ import type {
   Keyword,
   Slide
 } from "@orbit/shared";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type Konva from "konva";
 import type { Box as TransformerBox } from "konva/lib/shapes/Transformer";
 import { Path as KonvaPathShape } from "konva/lib/shapes/Path";
@@ -98,6 +99,7 @@ import type {
 } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { SuggestionPanel } from "./suggestions/SuggestionPanel";
 import "./editor-shell.css";
 
 interface HealthResponse {
@@ -306,6 +308,7 @@ export function EditorShell() {
   const shapeMenuButtonRef = useRef<HTMLButtonElement | null>(null);
   const imageFileInputRef = useRef<HTMLInputElement | null>(null);
   const copiedElementRef = useRef<ElementClipboardState | null>(null);
+  const queryClient = useQueryClient();
 
   const health = useQuery({
     queryKey: ["health"],
@@ -421,6 +424,21 @@ export function EditorShell() {
 
     resolvedUploadProjectIdRef.current = deckQuery.data.projectId;
   }, [deckQuery.data]);
+
+  function handleAiSuggestionApplied(response: ApplyAiSuggestionResponse) {
+    queryClient.setQueryData(["deck", demoIds.projectId], response.deck);
+    deckRef.current = response.deck;
+    setDeck(response.deck);
+    setUndoStack([]);
+    setRedoStack([]);
+    setSelectedElementIds([]);
+    setEditingElementId(null);
+    setCustomShapeEditElementId(null);
+    setElementContextMenu(null);
+    setLastPatchLabel(
+      `${response.changeRecord.operations[0]?.type ?? "ai suggestion"} · v${response.deck.version}`
+    );
+  }
 
   function commitPatch(patch: DeckPatch, baseDeck: Deck = deckRef.current) {
     const result = applyDeckPatch(baseDeck, patch);
@@ -2358,10 +2376,12 @@ export function EditorShell() {
                 </div>
               </div>
               <div className="assistant-panel-slot">
-                <div className="assistant-panel-empty">
-                  <strong>AI 편집 도우미</strong>
-                  <p>대화, 수정 제안, 초안 생성은 이 패널에서만 처리하도록 분리했습니다.</p>
-                </div>
+                <SuggestionPanel
+                  deck={deck}
+                  projectId={demoIds.projectId}
+                  slideId={currentSlide?.slideId ?? null}
+                  onApplySuccess={handleAiSuggestionApplied}
+                />
               </div>
             </>
           ) : (
