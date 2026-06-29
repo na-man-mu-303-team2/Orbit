@@ -18,6 +18,7 @@ export type SherpaOnnxModelManifest = {
   numThreads?: number;
   decodingMethod?: "greedy_search" | "modified_beam_search";
   runtime: {
+    helpers?: string[];
     script: string;
     wasm?: string;
     data?: string;
@@ -27,6 +28,7 @@ export type SherpaOnnxModelManifest = {
     decoder: string;
     joiner: string;
     tokens: string;
+    bpeVocab?: string;
   };
   files?: Record<string, SherpaOnnxFileMetadata>;
 };
@@ -38,6 +40,7 @@ export type ResolvedSherpaOnnxModelManifest = Omit<
   baseUrl: string;
   manifestUrl: string;
   runtime: {
+    helpers: string[];
     script: string;
     wasm: string | null;
     data: string | null;
@@ -47,6 +50,7 @@ export type ResolvedSherpaOnnxModelManifest = Omit<
     decoder: string;
     joiner: string;
     tokens: string;
+    bpeVocab: string | null;
   };
 };
 
@@ -83,6 +87,9 @@ export function resolveSherpaOnnxModelManifest(
     manifestUrl: resolveManifestUrl("", manifestUrl),
     baseUrl,
     runtime: {
+      helpers: (manifest.runtime.helpers ?? []).map((helper) =>
+        resolveAssetUrl(helper, baseUrl)
+      ),
       script: resolveAssetUrl(manifest.runtime.script, baseUrl),
       wasm: manifest.runtime.wasm
         ? resolveAssetUrl(manifest.runtime.wasm, baseUrl)
@@ -95,7 +102,10 @@ export function resolveSherpaOnnxModelManifest(
       encoder: resolveAssetUrl(manifest.model.encoder, baseUrl),
       decoder: resolveAssetUrl(manifest.model.decoder, baseUrl),
       joiner: resolveAssetUrl(manifest.model.joiner, baseUrl),
-      tokens: resolveAssetUrl(manifest.model.tokens, baseUrl)
+      tokens: resolveAssetUrl(manifest.model.tokens, baseUrl),
+      bpeVocab: manifest.model.bpeVocab
+        ? resolveAssetUrl(manifest.model.bpeVocab, baseUrl)
+        : null
     }
   };
 }
@@ -135,6 +145,7 @@ function parseSherpaOnnxModelManifest(value: unknown): SherpaOnnxModelManifest {
     numThreads: readOptionalPositiveInteger(value, "numThreads"),
     decodingMethod,
     runtime: {
+      helpers: readOptionalStringArray(runtime, "helpers"),
       script: readString(runtime, "script"),
       wasm: readOptionalString(runtime, "wasm"),
       data: readOptionalString(runtime, "data")
@@ -143,7 +154,8 @@ function parseSherpaOnnxModelManifest(value: unknown): SherpaOnnxModelManifest {
       encoder: readString(model, "encoder"),
       decoder: readString(model, "decoder"),
       joiner: readString(model, "joiner"),
-      tokens: readString(model, "tokens")
+      tokens: readString(model, "tokens"),
+      bpeVocab: readOptionalString(model, "bpeVocab")
     },
     files: readOptionalFiles(value)
   };
@@ -186,6 +198,25 @@ function readOptionalString(record: Record<string, unknown>, key: string) {
   }
 
   return value.trim();
+}
+
+function readOptionalStringArray(record: Record<string, unknown>, key: string) {
+  const value = record[key];
+  if (value === undefined || value === null) {
+    return undefined;
+  }
+
+  if (!Array.isArray(value)) {
+    throw new Error(`Live STT model manifest ${key} must be an array.`);
+  }
+
+  return value.map((item) => {
+    if (typeof item !== "string" || item.trim().length === 0) {
+      throw new Error(`Live STT model manifest ${key} must contain strings.`);
+    }
+
+    return item.trim();
+  });
 }
 
 function readPositiveInteger(record: Record<string, unknown>, key: string) {
