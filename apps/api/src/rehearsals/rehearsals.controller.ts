@@ -11,10 +11,7 @@ export class RehearsalsController {
   }
 
   @Post("api/v1/rehearsals/:runId/audio/upload-url")
-  createAudioUploadUrl(
-    @Param("runId") runId: string,
-    @Body() body: unknown
-  ) {
+  createAudioUploadUrl(@Param("runId") runId: string, @Body() body: unknown) {
     return this.rehearsalsService.createAudioUploadUrl(runId, body);
   }
 
@@ -26,5 +23,10 @@ export class RehearsalsController {
   @Get("api/v1/rehearsals/:runId")
   getRun(@Param("runId") runId: string) {
     return this.rehearsalsService.getRun(runId);
+  }
+
+  @Get("api/v1/rehearsals/:runId/report")
+  getReport(@Param("runId") runId: string) {
+    return this.rehearsalsService.getReport(runId);
   }
 }

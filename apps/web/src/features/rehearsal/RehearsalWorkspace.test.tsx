@@ -1,5 +1,5 @@
 import { createDemoDeck } from "@orbit/editor-core";
-import type { Job, RehearsalRun } from "@orbit/shared";
+import type { Job, RehearsalReport, RehearsalRun } from "@orbit/shared";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import {
@@ -10,6 +10,7 @@ import {
   createRecordingFile,
   createRecordingSession,
   evaluateLiveTranscript,
+  fetchRehearsalReport,
   fetchOrCreateRehearsalDeck,
   normalizeRecordingMimeType,
   normalizeLiveTranscriptText,
@@ -30,6 +31,24 @@ describe("RehearsalWorkspace", () => {
     expect(html).toContain("Live STT");
     expect(html).toContain("Report AI");
     expect(html).toContain("Speaker notes");
+  });
+
+  it("renders report metrics without exposing a non-retained transcript", () => {
+    const deck = createDemoDeck();
+    const html = renderToStaticMarkup(
+      <RehearsalWorkspace
+        initialDeck={deck}
+        initialReport={reportFixture({
+          transcriptRetained: false,
+          transcript: null
+        })}
+      />
+    );
+
+    expect(html).toContain("리허설 보고서");
+    expect(html).toContain("120 wpm");
+    expect(html).toContain("전사문 미보존");
+    expect(html).not.toContain("민감한 전사 원문");
   });
 
   it("matches live STT keywords with normalized Korean aliases", () => {
@@ -59,10 +78,7 @@ describe("RehearsalWorkspace", () => {
 
     expect(normalizeLiveTranscriptText("실시간 음성 인식")).toBe("실시간음성인식");
     expect(analysis.coverage).toBe(1);
-    expect(analysis.detectedKeywords.map((keyword) => keyword.keywordId)).toEqual([
-      "kw_1",
-      "kw_2"
-    ]);
+    expect(analysis.detectedKeywords.map((keyword) => keyword.keywordId)).toEqual(["kw_1", "kw_2"]);
     expect(analysis.missingKeywordIds).toEqual([]);
   });
 
@@ -100,13 +116,10 @@ describe("RehearsalWorkspace", () => {
 
   it("keeps the default sherpa adapter as an explicit unavailable shell", async () => {
     await expect(
-      new SherpaLiveSttAdapter().start(
-        { getTracks: () => [] } as unknown as MediaStream,
-        {
-          onPartialTranscript: () => undefined,
-          onError: () => undefined
-        }
-      )
+      new SherpaLiveSttAdapter().start({ getTracks: () => [] } as unknown as MediaStream, {
+        onPartialTranscript: () => undefined,
+        onError: () => undefined
+      })
     ).rejects.toMatchObject({
       code: "LIVE_STT_MODEL_UNAVAILABLE"
     } satisfies Partial<LiveSttAdapterError>);
@@ -115,15 +128,12 @@ describe("RehearsalWorkspace", () => {
   it("records audio through a MediaRecorder-compatible session", () => {
     const stoppedFiles: File[] = [];
     const errors: Error[] = [];
-    const session = createRecordingSession(
-      { getTracks: () => [] } as unknown as MediaStream,
-      {
-        recorderCtor: FakeMediaRecorder as unknown as typeof MediaRecorder,
-        now: () => new Date("2026-06-29T00:00:00.000Z"),
-        onStop: (file) => stoppedFiles.push(file),
-        onError: (error) => errors.push(error)
-      }
-    );
+    const session = createRecordingSession({ getTracks: () => [] } as unknown as MediaStream, {
+      recorderCtor: FakeMediaRecorder as unknown as typeof MediaRecorder,
+      now: () => new Date("2026-06-29T00:00:00.000Z"),
+      onStop: (file) => stoppedFiles.push(file),
+      onError: (error) => errors.push(error)
+    });
 
     session.start();
     expect(session.recorder.state).toBe("recording");
@@ -245,26 +255,24 @@ describe("runRehearsalUploadFlow", () => {
 
       if (url === "/api/jobs/job-1") {
         const count = calls.filter((call) => call.url === "/api/jobs/job-1").length;
-        return jsonResponse(
-          count === 1 ? jobFixture("running", 40) : jobFixture("succeeded", 100)
-        );
+        return jsonResponse(count === 1 ? jobFixture("running", 40) : jobFixture("succeeded", 100));
       }
 
       if (url === "/api/v1/rehearsals/run-1") {
-        return jsonResponse(
-          {
-            run: runFixture("succeeded", {
-              audioFileId: "file-audio",
-              jobId: "job-1",
-              rawAudioDeletedAt: "2026-06-29T00:00:10.000Z"
-            })
-          }
-        );
+        return jsonResponse({
+          run: runFixture("succeeded", {
+            audioFileId: "file-audio",
+            jobId: "job-1",
+            rawAudioDeletedAt: "2026-06-29T00:00:10.000Z"
+          })
+        });
       }
 
       return new Response("unexpected", { status: 500 });
     });
-    const audioFile = new File(["audio"], "rehearsal.webm", { type: "audio/webm" });
+    const audioFile = new File(["audio"], "rehearsal.webm", {
+      type: "audio/webm"
+    });
 
     const result = await runRehearsalUploadFlow({
       projectId: "project-a",
@@ -285,7 +293,9 @@ describe("runRehearsalUploadFlow", () => {
       "/api/jobs/job-1",
       "/api/v1/rehearsals/run-1"
     ]);
-    expect(JSON.parse(String(calls[0]?.init?.body))).toEqual({ deckId: "deck-a" });
+    expect(JSON.parse(String(calls[0]?.init?.body))).toEqual({
+      deckId: "deck-a"
+    });
     expect(calls[2]?.init).toMatchObject({
       method: "PUT",
       headers: { "content-type": "audio/webm" },
@@ -329,7 +339,9 @@ describe("runRehearsalUploadFlow", () => {
       runRehearsalUploadFlow({
         projectId: "project-a",
         deckId: "deck-a",
-        audioFile: new File(["audio"], "rehearsal.webm", { type: "audio/webm" }),
+        audioFile: new File(["audio"], "rehearsal.webm", {
+          type: "audio/webm"
+        }),
         fetcher,
         pollDelayMs: 0
       })
@@ -342,6 +354,23 @@ describe("runRehearsalUploadFlow", () => {
       "/api/v1/rehearsals/run-1/audio/upload-url",
       "http://storage.local/rehearsal.webm"
     ]);
+  });
+});
+
+describe("fetchRehearsalReport", () => {
+  it("loads the official report for a rehearsal run", async () => {
+    const fetcher = vi.fn(async () =>
+      jsonResponse({
+        run: runFixture("succeeded"),
+        report: reportFixture()
+      })
+    );
+
+    const result = await fetchRehearsalReport("run-1", fetcher);
+
+    expect(fetcher).toHaveBeenCalledWith("/api/v1/rehearsals/run-1/report");
+    expect(result.report?.transcriptRetained).toBe(false);
+    expect(result.report?.transcript).toBeNull();
   });
 });
 
@@ -367,7 +396,9 @@ class FakeMediaRecorder {
   stop() {
     this.state = "inactive";
     this.ondataavailable?.({
-      data: new Blob(["audio"], { type: this.options?.mimeType ?? "audio/webm" })
+      data: new Blob(["audio"], {
+        type: this.options?.mimeType ?? "audio/webm"
+      })
     } as BlobEvent);
     this.onstop?.(new Event("stop"));
   }
@@ -404,6 +435,34 @@ function jobFixture(status: Job["status"], progress: number): Job {
     error: null,
     createdAt,
     updatedAt: createdAt
+  };
+}
+
+function reportFixture(patch: Partial<RehearsalReport> = {}): RehearsalReport {
+  return {
+    reportId: "report_run-1",
+    runId: "run-1",
+    projectId: "project-a",
+    deckId: "deck-a",
+    transcriptRetained: false,
+    transcript: null,
+    metrics: {
+      durationSeconds: 90,
+      wordsPerMinute: 120,
+      fillerWordCount: 2,
+      pauseCount: 1,
+      keywordCoverage: 0.75
+    },
+    coaching: {
+      status: "succeeded",
+      summary: "핵심 메시지가 분명합니다.",
+      strengths: ["키워드를 언급했습니다."],
+      improvements: ["불필요한 filler를 줄이세요."],
+      nextPracticeFocus: "도입부를 더 짧게 연습하세요.",
+      message: ""
+    },
+    generatedAt: "2026-06-29T00:00:10.000Z",
+    ...patch
   };
 }
 

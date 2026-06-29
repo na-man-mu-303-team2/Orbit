@@ -1,5 +1,5 @@
 import type { StoragePort } from "@orbit/storage";
-import type { Job } from "@orbit/shared";
+import { rehearsalReportSchema, type Job, type RehearsalReport } from "@orbit/shared";
 import type { DataSource } from "typeorm";
 import { z } from "zod";
 
@@ -164,12 +164,7 @@ export async function processRehearsalSttJob(
 
   let analysis: z.infer<typeof analyzeResponseSchema>;
   try {
-    analysis = await analyzeTranscript(
-      pythonWorkerUrl,
-      payload,
-      deck.deck_json,
-      transcribePayload
-    );
+    analysis = await analyzeTranscript(pythonWorkerUrl, payload, deck.deck_json, transcribePayload);
   } catch (error) {
     return failAfterDelete(
       dataSource,
@@ -195,42 +190,73 @@ export async function processRehearsalSttJob(
     );
   }
 
+  const report = buildRehearsalReport(payload, transcribePayload, analysis, rawAudioDeletedAt);
+
   await updateRun(dataSource, payload, {
     status: "succeeded",
     error: null,
-    rawAudioDeletedAt
+    rawAudioDeletedAt,
+    reportJson: report,
+    transcriptRetained: report.transcriptRetained
   });
 
   return updateJob(dataSource, payload.jobId, {
     status: "succeeded",
     progress: 100,
     message: "Rehearsal STT completed.",
-    result: {
-      runId: payload.runId,
-      projectId: payload.projectId,
-      deckId: payload.deckId,
-      audioFileId: payload.audioFileId,
-      transcript: transcribePayload.transcript,
-      language: transcribePayload.language,
-      provider: transcribePayload.provider,
-      model: transcribePayload.model,
-      durationSeconds: transcribePayload.durationSeconds ?? null,
-      segments: transcribePayload.segments,
-      metrics: {
-        runId: analysis.runId,
-        projectId: payload.projectId,
-        deckId: payload.deckId,
-        durationSeconds: transcribePayload.durationSeconds ?? 0,
-        wordsPerMinute: analysis.wordsPerMinute,
-        fillerWordCount: analysis.fillerWordCount,
-        pauseCount: analysis.pauseCount,
-        keywordCoverage: analysis.keywordCoverage
-      },
-      coaching: analysis.coaching ?? null,
-      rawAudioDeletedAt
-    },
+    result: buildRehearsalJobResult(payload, transcribePayload, report, rawAudioDeletedAt),
     error: null
   });
+}
+
+function buildRehearsalReport(
+  payload: RehearsalSttPayload,
+  transcription: z.infer<typeof transcribeResponseSchema>,
+  analysis: z.infer<typeof analyzeResponseSchema>,
+  generatedAt: string
+): RehearsalReport {
+  return rehearsalReportSchema.parse({
+    reportId: `report_${payload.runId}`,
+    runId: payload.runId,
+    projectId: payload.projectId,
+    deckId: payload.deckId,
+    transcriptRetained: false,
+    transcript: null,
+    metrics: {
+      durationSeconds: transcription.durationSeconds ?? 0,
+      wordsPerMinute: analysis.wordsPerMinute,
+      fillerWordCount: analysis.fillerWordCount,
+      pauseCount: analysis.pauseCount,
+      keywordCoverage: analysis.keywordCoverage
+    },
+    coaching: analysis.coaching ?? null,
+    generatedAt
+  });
+}
+
+function buildRehearsalJobResult(
+  payload: RehearsalSttPayload,
+  transcription: z.infer<typeof transcribeResponseSchema>,
+  report: RehearsalReport,
+  rawAudioDeletedAt: string
+) {
+  return {
+    runId: payload.runId,
+    projectId: payload.projectId,
+    deckId: payload.deckId,
+    audioFileId: payload.audioFileId,
+    transcriptRetained: report.transcriptRetained,
+    transcript: report.transcript,
+    language: transcription.language,
+    provider: transcription.provider,
+    model: transcription.model,
+    durationSeconds: report.metrics.durationSeconds,
+    segmentCount: transcription.segments.length,
+    metrics: report.metrics,
+    coaching: report.coaching,
+    report,
+    rawAudioDeletedAt
+  };
 }
 
 async function analyzeTranscript(
@@ -261,10 +287,7 @@ async function analyzeTranscript(
   return analyzeResponseSchema.parse(await response.json());
 }
 
-async function loadAudioAsset(
-  dataSource: DataSource,
-  payload: RehearsalSttPayload
-) {
+async function loadAudioAsset(dataSource: DataSource, payload: RehearsalSttPayload) {
   const rows = await dataSource.query(
     `
       SELECT file_id, project_id, storage_key, mime_type, original_name, purpose, status
@@ -380,6 +403,8 @@ async function updateRun(
     error: { code: string; message: string } | null;
     jobId?: string;
     rawAudioDeletedAt?: string;
+    reportJson?: RehearsalReport;
+    transcriptRetained?: boolean;
   }
 ): Promise<void> {
   const rows = await dataSource.query(
@@ -389,8 +414,10 @@ async function updateRun(
           job_id = COALESCE($3, job_id),
           error = $4,
           raw_audio_deleted_at = COALESCE($5::timestamptz, raw_audio_deleted_at),
+          report_json = COALESCE($6::jsonb, report_json),
+          transcript_retained = COALESCE($7::boolean, transcript_retained),
           updated_at = now()
-      WHERE run_id = $1 AND project_id = $6
+      WHERE run_id = $1 AND project_id = $8
       RETURNING run_id
     `,
     [
@@ -399,6 +426,8 @@ async function updateRun(
       patch.jobId ?? null,
       patch.error,
       patch.rawAudioDeletedAt ?? null,
+      patch.reportJson ? JSON.stringify(patch.reportJson) : null,
+      patch.transcriptRetained ?? null,
       payload.projectId
     ]
   );
@@ -539,22 +568,16 @@ function collectDeckKeywords(deck: Record<string, unknown>): DeckKeywordPayload[
             ? record.synonyms.filter((value): value is string => typeof value === "string")
             : [],
           abbreviations: Array.isArray(record.abbreviations)
-            ? record.abbreviations.filter(
-                (value): value is string => typeof value === "string"
-              )
+            ? record.abbreviations.filter((value): value is string => typeof value === "string")
             : []
         };
       })
-      .filter(
-        (keyword: DeckKeywordPayload | null): keyword is DeckKeywordPayload =>
-          Boolean(keyword && keyword.text)
+      .filter((keyword: DeckKeywordPayload | null): keyword is DeckKeywordPayload =>
+        Boolean(keyword && keyword.text)
       );
   });
 }
 
 function workerUrl(baseUrl: string, path: string): string {
-  return new URL(
-    path,
-    baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`
-  ).toString();
+  return new URL(path, baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`).toString();
 }

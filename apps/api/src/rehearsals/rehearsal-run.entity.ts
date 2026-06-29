@@ -1,12 +1,7 @@
 import { Column, Entity, JoinColumn, ManyToOne, PrimaryColumn } from "typeorm";
 import { ProjectEntity } from "../projects/project.entity";
 
-export type RehearsalRunStatus =
-  | "created"
-  | "uploading"
-  | "processing"
-  | "succeeded"
-  | "failed";
+export type RehearsalRunStatus = "created" | "uploading" | "processing" | "succeeded" | "failed";
 
 @Entity({ name: "rehearsal_runs" })
 export class RehearsalRunEntity {
@@ -30,6 +25,12 @@ export class RehearsalRunEntity {
 
   @Column({ nullable: true, type: "jsonb" })
   error!: { code: string; message: string } | null;
+
+  @Column({ name: "report_json", nullable: true, type: "jsonb" })
+  reportJson!: Record<string, unknown> | null;
+
+  @Column({ default: false, name: "transcript_retained", type: "boolean" })
+  transcriptRetained!: boolean;
 
   @Column({ name: "raw_audio_deleted_at", nullable: true, type: "timestamptz" })
   rawAudioDeletedAt!: Date | null;
