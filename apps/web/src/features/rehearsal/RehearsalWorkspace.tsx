@@ -32,13 +32,15 @@ import {
 import { useEffect, useRef, useState } from "react";
 import {
   LiveSttAdapterError,
-  type LiveSttAdapter
+  type LiveSttAdapter,
+  type LiveSttAudioLevelEvent
 } from "./liveStt";
 import { SherpaLiveSttAdapter } from "./sherpaOnnxLiveSttAdapter";
 
 export {
   LiveSttAdapterError,
   type LiveSttAdapter,
+  type LiveSttAudioLevelEvent,
   type LiveSttCallbacks
 } from "./liveStt";
 export {
@@ -102,6 +104,12 @@ const preferredAudioMimeTypes = [
   "audio/webm",
   "audio/mp4"
 ];
+export const rehearsalMicrophoneAudioConstraints: MediaTrackConstraints = {
+  echoCancellation: true,
+  noiseSuppression: true,
+  autoGainControl: true,
+  channelCount: 1
+};
 const liveAutoAdvanceCoverageThreshold = 0.8;
 const defaultLiveAutoAdvanceDelayMs = 800;
 
@@ -541,6 +549,38 @@ export function shouldAutoAdvanceLiveSlide(options: {
   );
 }
 
+export function getLiveAudioLevelLabel(level: LiveSttAudioLevelEvent | null) {
+  if (!level) {
+    return "입력 대기";
+  }
+
+  if (level.peakDb > -3) {
+    return "입력 과대";
+  }
+
+  return level.isLikelySilence ? "입력 낮음" : "입력 적정";
+}
+
+export function getLiveAudioLevelPercent(level: LiveSttAudioLevelEvent | null) {
+  if (!level) {
+    return 0;
+  }
+
+  return clamp(((level.rmsDb + 55) / 55) * 100, 0, 100);
+}
+
+export function requestRehearsalMicrophoneStream(
+  mediaDevices: Pick<MediaDevices, "getUserMedia"> = navigator.mediaDevices
+) {
+  return mediaDevices.getUserMedia({
+    audio: rehearsalMicrophoneAudioConstraints
+  });
+}
+
+function clamp(value: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, value));
+}
+
 function getLiveKeywordCandidates(slide: Slide): LiveKeywordCandidate[] {
   return slide.keywords.map((keyword) => ({
     keyword,
@@ -576,6 +616,8 @@ export function RehearsalWorkspace(props: {
   );
   const [liveKeywordState, setLiveKeywordState] =
     useState<LiveTranscriptAnalysis | null>(null);
+  const [liveAudioLevel, setLiveAudioLevel] =
+    useState<LiveSttAudioLevelEvent | null>(null);
   const [liveCue, setLiveCue] = useState<LiveSttAnimationCueEvent | null>(null);
   const [liveSlideAdvance, setLiveSlideAdvance] =
     useState<LiveSttSlideAdvanceEvent | null>(null);
@@ -685,6 +727,15 @@ export function RehearsalWorkspace(props: {
       ? "Live STT 시작을 눌러 테스트하세요"
       : "마이크 입력을 기다리는 중";
   const liveTranscript = renderLiveTranscriptBuffer(liveTranscriptBuffer);
+  const liveAudioLevelLabel = getLiveAudioLevelLabel(liveAudioLevel);
+  const liveAudioLevelPercent = getLiveAudioLevelPercent(liveAudioLevel);
+  const liveAudioMeterState = liveAudioLevel
+    ? liveAudioLevelLabel === "입력 과대"
+      ? "clipped"
+      : liveAudioLevel.isLikelySilence
+        ? "quiet"
+        : "active"
+    : "idle";
 
   useEffect(() => {
     resetLiveTranscriptForSlide(currentSlide);
@@ -699,6 +750,7 @@ export function RehearsalWorkspace(props: {
     setRun(null);
     setJob(null);
     setLiveError("");
+    setLiveAudioLevel(null);
     resetLiveTranscriptForSlide(currentSlide);
     setLiveSlideAdvance(null);
     setAutoAdvanceState("idle");
@@ -712,7 +764,7 @@ export function RehearsalWorkspace(props: {
 
     let stream: MediaStream | null = null;
     try {
-      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      stream = await requestRehearsalMicrophoneStream(navigator.mediaDevices);
       const session = createRecordingSession(stream, {
         onError: (recordingError) => {
           stopMediaStream(stream);
@@ -753,6 +805,7 @@ export function RehearsalWorkspace(props: {
     if (!deck || !canStartLiveDemo) return;
 
     setLiveError("");
+    setLiveAudioLevel(null);
     resetLiveTranscriptForSlide(currentSlide);
     setLiveSlideAdvance(null);
     setAutoAdvanceState("idle");
@@ -767,7 +820,7 @@ export function RehearsalWorkspace(props: {
     let stream: MediaStream | null = null;
     setIsLiveDemoActive(true);
     try {
-      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      stream = await requestRehearsalMicrophoneStream(navigator.mediaDevices);
       liveDemoStreamRef.current = stream;
       const started = await startLiveStt(stream);
       if (!started) {
@@ -792,6 +845,7 @@ export function RehearsalWorkspace(props: {
     liveSttAdapterRef.current?.stop();
     stopMediaStream(liveDemoStreamRef.current);
     liveDemoStreamRef.current = null;
+    setLiveAudioLevel(null);
     setIsLiveDemoActive(false);
     setLiveStatus((current) =>
       current === "listening" || current === "starting" ? "stopped" : current
@@ -806,6 +860,7 @@ export function RehearsalWorkspace(props: {
     setIsTimerRunning(false);
     cancelPendingAutoAdvance("cancelled");
     liveSttAdapterRef.current?.stop();
+    setLiveAudioLevel(null);
     setLiveStatus((current) =>
       current === "listening" || current === "starting" ? "stopped" : current
     );
@@ -839,11 +894,13 @@ export function RehearsalWorkspace(props: {
       props.liveSttAdapter ?? liveSttAdapterRef.current ?? createDefaultLiveSttAdapter();
     liveSttAdapterRef.current = adapter;
     setLiveStatus("starting");
+    setLiveAudioLevel(null);
 
     try {
       await adapter.start(stream, {
         onPartialTranscript: handleLivePartialTranscript,
-        onError: handleLiveSttError
+        onError: handleLiveSttError,
+        onAudioLevel: setLiveAudioLevel
       });
       setLiveStatus("listening");
       return true;
@@ -853,6 +910,7 @@ export function RehearsalWorkspace(props: {
         error.code === "LIVE_STT_MODEL_UNAVAILABLE" ? "unavailable" : "failed"
       );
       setLiveError(error.message);
+      setLiveAudioLevel(null);
       cancelPendingAutoAdvance("cancelled");
       return false;
     }
@@ -863,6 +921,7 @@ export function RehearsalWorkspace(props: {
       error.code === "LIVE_STT_MODEL_UNAVAILABLE" ? "unavailable" : "failed"
     );
     setLiveError(error.message);
+    setLiveAudioLevel(null);
     cancelPendingAutoAdvance("cancelled");
   }
 
@@ -1258,6 +1317,31 @@ export function RehearsalWorkspace(props: {
                 <Square size={18} />
                 Live STT 종료
               </button>
+            </div>
+
+            <div
+              className={`rehearsal-live-audio-meter rehearsal-live-audio-meter-${liveAudioMeterState}`}
+            >
+              <div className="rehearsal-live-audio-meter-header">
+                <span>Mic input</span>
+                <strong>{liveAudioLevelLabel}</strong>
+              </div>
+              <div
+                className="rehearsal-live-audio-meter-track"
+                role="meter"
+                aria-label="Mic input level"
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-valuenow={Math.round(liveAudioLevelPercent)}
+                aria-valuetext={liveAudioLevelLabel}
+              >
+                <span style={{ width: `${liveAudioLevelPercent}%` }} />
+              </div>
+              <small>
+                {liveAudioLevel
+                  ? `${Math.round(liveAudioLevel.rmsDb)} dB RMS`
+                  : "-100 dB RMS"}
+              </small>
             </div>
 
             <div className="rehearsal-live-transcript">

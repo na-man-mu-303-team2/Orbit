@@ -13,9 +13,13 @@ import {
   createRecordingSession,
   evaluateLiveTranscript,
   fetchOrCreateRehearsalDeck,
+  getLiveAudioLevelLabel,
+  getLiveAudioLevelPercent,
   normalizeRecordingMimeType,
   normalizeLiveTranscriptText,
+  rehearsalMicrophoneAudioConstraints,
   renderLiveTranscriptBuffer,
+  requestRehearsalMicrophoneStream,
   runRehearsalUploadFlow,
   selectRecordingMimeType,
   shouldAutoAdvanceLiveSlide
@@ -34,8 +38,68 @@ describe("RehearsalWorkspace", () => {
     expect(html).toContain("Live STT 시작");
     expect(html).toContain("Live STT 종료");
     expect(html).toContain("Live STT 시작을 눌러 테스트하세요");
+    expect(html).toContain("Mic input");
+    expect(html).toContain("입력 대기");
+    expect(html).toContain("-100 dB RMS");
     expect(html).toContain("Report AI");
     expect(html).toContain("Speaker notes");
+  });
+
+  it("requests microphone audio with live STT input quality constraints", async () => {
+    const stream = { getTracks: () => [] } as unknown as MediaStream;
+    const getUserMedia = vi.fn(async () => stream);
+
+    const result = await requestRehearsalMicrophoneStream({
+      getUserMedia
+    } as unknown as Pick<MediaDevices, "getUserMedia">);
+
+    expect(result).toBe(stream);
+    expect(getUserMedia).toHaveBeenCalledWith({
+      audio: rehearsalMicrophoneAudioConstraints
+    });
+  });
+
+  it("labels live STT microphone input levels", () => {
+    expect(getLiveAudioLevelLabel(null)).toBe("입력 대기");
+    expect(getLiveAudioLevelPercent(null)).toBe(0);
+    expect(
+      getLiveAudioLevelLabel({
+        type: "audio-level",
+        rms: 0.001,
+        peak: 0.01,
+        rmsDb: -60,
+        peakDb: -40,
+        isLikelySilence: true
+      })
+    ).toBe("입력 낮음");
+    expect(
+      getLiveAudioLevelLabel({
+        type: "audio-level",
+        rms: 0.08,
+        peak: 0.3,
+        rmsDb: -22,
+        peakDb: -10,
+        isLikelySilence: false
+      })
+    ).toBe("입력 적정");
+    expect(
+      getLiveAudioLevelLabel({
+        type: "audio-level",
+        rms: 0.5,
+        peak: 0.9,
+        rmsDb: -6,
+        peakDb: -2,
+        isLikelySilence: false
+      })
+    ).toBe("입력 과대");
+    expect(getLiveAudioLevelPercent({
+      type: "audio-level",
+      rms: 0.08,
+      peak: 0.3,
+      rmsDb: -22,
+      peakDb: -10,
+      isLikelySilence: false
+    })).toBe(60);
   });
 
   it("matches live STT keywords with normalized Korean aliases", () => {
