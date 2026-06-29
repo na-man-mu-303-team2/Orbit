@@ -2642,17 +2642,38 @@ def custom_shape_element(
 def cap_elements(elements: list[dict[str, Any]]) -> list[dict[str, Any]]:
     if len(elements) <= 14:
         return elements
-    required = [
+    required = [element for element in elements if is_required_element(element)]
+    priority = [
         element
         for element in elements
-        if element.get("role") != "decoration"
+        if not is_required_element(element) and is_priority_element(element)
     ]
     optional = [
         element
         for element in elements
-        if element.get("role") == "decoration"
+        if not is_required_element(element) and not is_priority_element(element)
     ]
-    return [*required, *optional][:14]
+    return [*required, *priority, *optional][:14]
+
+
+def is_required_element(element: dict[str, Any]) -> bool:
+    return element.get("role") in {
+        "background",
+        "title",
+        "subtitle",
+        "body",
+        "footer",
+        "media",
+        "chart",
+    } or element.get("type") == "chart"
+
+
+def is_priority_element(element: dict[str, Any]) -> bool:
+    element_id = str(element.get("elementId", ""))
+    return element.get("role") == "highlight" or any(
+        token in element_id
+        for token in ("keyword_chip", "process_step", "radial_", "bubble_")
+    )
 
 
 def image_element(

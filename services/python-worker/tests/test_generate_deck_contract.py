@@ -672,6 +672,7 @@ def test_generate_deck_applies_visual_intent_decorations_and_caps_elements() -> 
                     "Call out the keywords without changing the deck schema.",
                     slide_type="data",
                     slot_preset="metric_cards",
+                    keywords=["속도", "품질", "협업"],
                     visual_intent={
                         "emphasis": "keywords",
                         "mood": "energetic",
@@ -717,7 +718,9 @@ def test_generate_deck_applies_visual_intent_decorations_and_caps_elements() -> 
     first_slide = response.deck["slides"][0]
     second_slide = response.deck["slides"][1]
     assert has_element(first_slide, "el_1_top_stripe")
-    assert has_element(first_slide, "el_1_keyword_chip_1")
+    for index in range(1, 4):
+        assert has_element(first_slide, f"el_1_keyword_chip_{index}")
+        assert has_element(first_slide, f"el_1_keyword_chip_{index}_text")
     assert has_element(second_slide, "el_2_diagonal_block")
     assert has_element(second_slide, "el_2_callout_box")
     assert has_element(second_slide, "el_2_callout_text")
