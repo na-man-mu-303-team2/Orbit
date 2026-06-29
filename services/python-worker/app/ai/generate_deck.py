@@ -11,6 +11,10 @@ Audience = Literal["general", "executive", "technical", "sales"]
 Purpose = Literal["inform", "persuade", "teach", "report"]
 Tone = Literal["professional", "friendly", "confident", "concise"]
 Template = Literal["default", "pitch", "report", "lesson"]
+VisualRhythm = Literal["auto", "clean", "editorial", "bold", "technical"]
+DensityTarget = Literal["low", "medium", "high"]
+MediaPolicy = Literal["avoid", "balanced", "placeholder-ok"]
+LayoutDiversity = Literal["stable", "varied"]
 SlideType = Literal[
     "title",
     "cover",
@@ -79,6 +83,18 @@ class GenerateDeckMetadata(BaseModel):
     tone: Tone = "professional"
 
 
+class DesignOptions(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    visual_rhythm: VisualRhythm = Field(default="auto", alias="visualRhythm")
+    density_target: DensityTarget = Field(default="medium", alias="densityTarget")
+    media_policy: MediaPolicy = Field(default="balanced", alias="mediaPolicy")
+    layout_diversity: LayoutDiversity = Field(
+        default="stable",
+        alias="layoutDiversity",
+    )
+
+
 class SlideCountRange(BaseModel):
     min: int = Field(default=5, ge=1, le=20)
     max: int = Field(default=8, ge=1, le=20)
@@ -108,6 +124,7 @@ class GenerateDeckRequest(BaseModel):
     )
     template: Template = "default"
     metadata: GenerateDeckMetadata = Field(default_factory=GenerateDeckMetadata)
+    design: DesignOptions = Field(default_factory=DesignOptions)
     references: list[GenerateDeckReference] = Field(default_factory=list)
     reference_keywords: list[GenerateDeckReferenceKeyword] = Field(
         default_factory=list,
@@ -123,6 +140,7 @@ class RawInput(BaseModel):
     slide_count: int
     template: Template
     metadata: GenerateDeckMetadata
+    design: DesignOptions
     references: list[GenerateDeckReference]
     reference_keywords: list[GenerateDeckReferenceKeyword]
     reference_context: list[ReferenceContext]
@@ -286,6 +304,12 @@ class PresetConfig:
     variant: str
     layout: DeckLayout
     slots: tuple[LayoutSlot, ...]
+
+
+@dataclass(frozen=True)
+class LayoutCandidate:
+    slot_preset: SlotPreset
+    score: int
 
 
 CANVAS = Canvas()
@@ -660,6 +684,24 @@ PRESET_REGISTRY: dict[SlotPreset, PresetConfig] = {
     ),
 }
 
+PRESET_ORDER: dict[SlotPreset, int] = {
+    slot_preset: index for index, slot_preset in enumerate(PRESET_REGISTRY)
+}
+PRESET_DENSITY: dict[SlotPreset, DensityTarget] = {
+    "title_center": "low",
+    "title_left_visual_right": "medium",
+    "title_full_bleed_image": "low",
+    "big_number_focus": "medium",
+    "metric_cards": "high",
+    "insight_with_evidence": "medium",
+    "before_after": "medium",
+    "us_vs_them": "high",
+    "criteria_table": "high",
+    "quote_center": "low",
+    "quote_with_source": "medium",
+    "quote_left_image_right": "medium",
+}
+
 DECK_CONTENT_INSTRUCTIONS = """
 You create Korean presentation slide content for ORBIT.
 Return only JSON that matches the requested schema.
@@ -794,6 +836,7 @@ def generate_deck(
         model=model,
         api_key=api_key,
     )
+    slide_plans = apply_design_options(raw_input, slide_plans)
     theme = direct_design(raw_input)
     slides = [
         assemble_slide(raw_input, slide_plan, plan_visuals(slide_plan), theme)
@@ -854,6 +897,7 @@ def analyze_input(
         slide_count=slide_count,
         template=request.template,
         metadata=request.metadata,
+        design=request.design,
         references=request.references,
         reference_keywords=request.reference_keywords,
         reference_context=reference_context or [],
@@ -1108,6 +1152,10 @@ def deck_content_prompt(raw_input: RawInput) -> str:
             f"Audience: {raw_input.metadata.audience}",
             f"Purpose: {raw_input.metadata.purpose}",
             f"Tone: {raw_input.metadata.tone}",
+            f"Visual rhythm: {raw_input.design.visual_rhythm}",
+            f"Density target: {raw_input.design.density_target}",
+            f"Media policy: {raw_input.design.media_policy}",
+            f"Layout diversity: {raw_input.design.layout_diversity}",
             f"Reference keywords: {', '.join(keywords) if keywords else '(none)'}",
             "Reference excerpts:",
             context or "(none)",
@@ -1188,6 +1236,119 @@ def normalize_layout_variant(value: str, slot_preset: SlotPreset) -> str:
     return PRESET_REGISTRY[slot_preset].variant
 
 
+def apply_design_options(
+    raw_input: RawInput,
+    slide_plans: list[SlidePlan],
+) -> list[SlidePlan]:
+    previous_preset: SlotPreset | None = None
+    for slide_plan in slide_plans:
+        slide_plan.media_intent = media_intent_for_policy(
+            slide_plan.media_intent,
+            raw_input.design.media_policy,
+        )
+        selected_preset = choose_layout_preset(
+            slide_plan,
+            raw_input.design,
+            previous_preset,
+        )
+        slide_plan.slot_preset = selected_preset
+        slide_plan.layout_variant = normalize_layout_variant(
+            slide_plan.layout_variant,
+            selected_preset,
+        )
+        previous_preset = selected_preset
+
+    return slide_plans
+
+
+def choose_layout_preset(
+    slide_plan: SlidePlan,
+    design: DesignOptions,
+    previous_preset: SlotPreset | None,
+) -> SlotPreset:
+    fallback = normalize_slot_preset(
+        slide_plan.slot_preset,
+        preset_for_slide_type(slide_plan.slide_type),
+    )
+    if slide_plan.slide_type == "chart":
+        return fallback
+
+    candidates = layout_candidates_for(slide_plan, design, previous_preset, fallback)
+    return max(
+        candidates,
+        key=lambda candidate: (
+            candidate.score,
+            -PRESET_ORDER[candidate.slot_preset],
+        ),
+    ).slot_preset
+
+
+def layout_candidates_for(
+    slide_plan: SlidePlan,
+    design: DesignOptions,
+    previous_preset: SlotPreset | None,
+    fallback: SlotPreset,
+) -> list[LayoutCandidate]:
+    variant = normalize_layout_variant(slide_plan.layout_variant, fallback)
+    wants_media = media_intent_needs_slot(slide_plan.media_intent)
+    candidate_presets: set[SlotPreset] = {fallback}
+
+    candidate_presets.update(
+        slot_preset
+        for slot_preset, preset in PRESET_REGISTRY.items()
+        if preset.variant == variant
+    )
+    if wants_media:
+        candidate_presets.update(
+            slot_preset
+            for slot_preset, preset in PRESET_REGISTRY.items()
+            if preset_has_media_slot(preset)
+        )
+
+    candidates: list[LayoutCandidate] = []
+    for slot_preset in PRESET_REGISTRY:
+        if slot_preset not in candidate_presets:
+            continue
+
+        preset = PRESET_REGISTRY[slot_preset]
+        score = 4 if slot_preset == fallback else 0
+        if preset.variant == variant:
+            score += 1
+        if wants_media:
+            score += 3 if preset_has_media_slot(preset) else -2
+        if PRESET_DENSITY[slot_preset] == design.density_target:
+            score += 2
+        if design.layout_diversity == "varied" and slot_preset == previous_preset:
+            score -= 6
+
+        candidates.append(LayoutCandidate(slot_preset=slot_preset, score=score))
+
+    return candidates
+
+
+def media_intent_for_policy(
+    media_intent: MediaIntent,
+    media_policy: MediaPolicy,
+) -> MediaIntent:
+    if media_intent.kind == "none":
+        return media_intent
+    if media_intent.kind == "provided" and media_intent.src.strip():
+        return media_intent
+    if media_policy == "placeholder-ok":
+        return media_intent
+    return MediaIntent()
+
+
+def media_intent_needs_slot(media_intent: MediaIntent) -> bool:
+    if media_intent.kind == "none":
+        return False
+    return media_intent.kind != "provided" or bool(media_intent.src.strip())
+
+
+def preset_has_media_slot(preset: PresetConfig) -> bool:
+    return any(slot.role == "media" for slot in preset.slots)
+
+
 def preset_for_slide_type(slide_type: SlideType) -> SlotPreset:
     return PRESET_BY_SLIDE_TYPE.get(slide_type, "insight_with_evidence")
 
@@ -1230,6 +1391,10 @@ def direct_design(raw_input: RawInput) -> dict[str, Any]:
 
 
 def design_profile_for(raw_input: RawInput) -> dict[str, Any]:
+    rhythm_profile = design_profile_for_visual_rhythm(raw_input.design.visual_rhythm)
+    if rhythm_profile is not None:
+        return rhythm_profile
+
     text = " ".join(
         [
             raw_input.topic,
@@ -1324,6 +1489,80 @@ def design_profile_for(raw_input: RawInput) -> dict[str, Any]:
         "bodySize": 26,
         "captionSize": 18,
     }
+
+
+def design_profile_for_visual_rhythm(
+    visual_rhythm: VisualRhythm,
+) -> dict[str, Any] | None:
+    if visual_rhythm == "technical":
+        return {
+            "name": "voice-tech",
+            "headingFontFamily": "Noto Sans KR",
+            "bodyFontFamily": "Noto Sans KR",
+            "background": "#f7fbff",
+            "surface": "#ffffff",
+            "text": "#102033",
+            "accent": "#1a73e8",
+            "secondary": "#34a853",
+            "muted": "#eef6ff",
+            "border": "#c8daf4",
+            "titleSize": 64,
+            "headingSize": 42,
+            "bodySize": 27,
+            "captionSize": 17,
+        }
+    if visual_rhythm == "editorial":
+        return {
+            "name": "report-editorial",
+            "headingFontFamily": "IBM Plex Sans",
+            "bodyFontFamily": "Inter",
+            "background": "#f8fafc",
+            "surface": "#ffffff",
+            "text": "#111827",
+            "accent": "#0f766e",
+            "secondary": "#7c3aed",
+            "muted": "#eef2f7",
+            "border": "#cbd5e1",
+            "titleSize": 62,
+            "headingSize": 42,
+            "bodySize": 26,
+            "captionSize": 17,
+        }
+    if visual_rhythm == "bold":
+        return {
+            "name": "pitch-contrast",
+            "headingFontFamily": "Montserrat",
+            "bodyFontFamily": "Inter",
+            "background": "#0f172a",
+            "surface": "#172033",
+            "text": "#f8fafc",
+            "accent": "#22d3ee",
+            "secondary": "#f59e0b",
+            "muted": "#111827",
+            "border": "#334155",
+            "titleSize": 66,
+            "headingSize": 44,
+            "bodySize": 27,
+            "captionSize": 17,
+        }
+    if visual_rhythm == "clean":
+        return {
+            "name": "default-clean",
+            "headingFontFamily": "Inter",
+            "bodyFontFamily": "Inter",
+            "background": "#ffffff",
+            "surface": "#ffffff",
+            "text": "#111827",
+            "accent": "#2563eb",
+            "secondary": "#f59e0b",
+            "muted": "#f8fafc",
+            "border": "#d8dee9",
+            "titleSize": 60,
+            "headingSize": 42,
+            "bodySize": 26,
+            "captionSize": 18,
+        }
+    return None
 
 
 def has_any(text: str, candidates: list[str]) -> bool:

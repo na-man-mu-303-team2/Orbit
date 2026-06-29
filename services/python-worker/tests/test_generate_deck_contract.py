@@ -100,6 +100,98 @@ def test_generate_deck_applies_content_aware_theme_and_fonts() -> None:
     assert title_element["props"]["fontSize"] == 64
 
 
+def test_generate_deck_design_rhythm_overrides_theme_profile() -> None:
+    response = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="Quarterly roadmap",
+            slideCountRange={"min": 2, "max": 2},
+            design={"visualRhythm": "technical"},
+        )
+    )
+
+    assert response.deck["theme"]["name"] == "default-voice-tech-ai"
+    assert response.deck["theme"]["accentColor"] == "#1a73e8"
+
+
+def test_generate_deck_varied_layout_reduces_adjacent_preset_repetition() -> None:
+    fake_client = FakeOpenAIClient(
+        {
+            "title": "Layout diversity",
+            "slides": [
+                slide_payload(
+                    "First metric slide",
+                    "First metric message",
+                    "First speaker note.",
+                    slide_type="data",
+                    slot_preset="metric_cards",
+                ),
+                slide_payload(
+                    "Second metric slide",
+                    "Second metric message",
+                    "Second speaker note.",
+                    slide_type="data",
+                    slot_preset="metric_cards",
+                ),
+            ],
+        }
+    )
+
+    response = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="ORBIT",
+            prompt="Use generated plan.",
+            slideCountRange={"min": 2, "max": 2},
+            design={"layoutDiversity": "varied"},
+        ),
+        client=fake_client,
+    )
+
+    assert response.deck["slides"][0]["style"]["layout"] == "two-column"
+    assert response.deck["slides"][1]["style"]["layout"] == "title-content"
+
+
+def test_generate_deck_avoid_media_policy_suppresses_placeholders() -> None:
+    fake_client = FakeOpenAIClient(
+        {
+            "title": "Media policy",
+            "slides": [
+                slide_payload(
+                    "Media slide",
+                    "Media message",
+                    "Media speaker note.",
+                    slide_type="title",
+                    slot_preset="title_left_visual_right",
+                    media_intent={
+                        "kind": "generate",
+                        "prompt": "A generated image",
+                        "alt": "Generated image",
+                        "caption": "Generated image",
+                        "rationale": "Visual support",
+                        "required": True,
+                        "placement": "right",
+                        "src": "",
+                    },
+                )
+            ],
+        }
+    )
+
+    response = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="ORBIT",
+            prompt="Use generated plan.",
+            slideCountRange={"min": 1, "max": 1},
+            design={"mediaPolicy": "avoid"},
+        ),
+        client=fake_client,
+    )
+
+    assert not has_element(response.deck["slides"][0], "el_1_media_placeholder")
+
+
 def test_generate_deck_endpoint_requires_llm_for_reference_generation() -> None:
     response = client().post(
         "/ai/generate-deck",
@@ -240,6 +332,7 @@ def test_generate_deck_uses_design_intents_without_schema_leak() -> None:
             topic="ORBIT",
             prompt="AI 덱 생성 디자인 고도화",
             slideCountRange={"min": 5, "max": 5},
+            design={"mediaPolicy": "placeholder-ok"},
         ),
         client=fake_client,
     )
@@ -248,6 +341,7 @@ def test_generate_deck_uses_design_intents_without_schema_leak() -> None:
     assert "visualIntent" not in deck_text
     assert "mediaIntent" not in deck_text
     assert "slotPreset" not in deck_text
+    assert "layoutCandidates" not in deck_text
     assert has_element(response.deck["slides"][0], "el_1_media_placeholder")
     assert response.deck["slides"][1]["style"]["layout"] == "two-column"
     assert has_element(response.deck["slides"][1], "el_2_metric_card")
