@@ -3,9 +3,11 @@ import type { Job } from "@orbit/shared";
 import { describe, expect, it, vi } from "vitest";
 import {
   buildReferenceGenerationInput,
+  createGeneratedDeckProject,
   ExtractResultItem,
   GeneratedDeckResult,
   getGeneratedDeckProjectPath,
+  getGeneratedDeckProjectTitle,
   getGenerateDeckJobResult,
   getJobResultFiles,
   pollExtractJob
@@ -103,6 +105,51 @@ describe("reference extraction upload flow", () => {
 });
 
 describe("AI deck generation flow", () => {
+  it("creates a new project for an AI deck generation", async () => {
+    const fetcher = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+
+      if (url.endsWith("/workspaces/workspace_demo_1/projects")) {
+        expect(init?.method).toBe("POST");
+        expect(JSON.parse(String(init?.body))).toEqual({ title: "새 주제" });
+        return new Response(
+          JSON.stringify({
+            projectId: "project_new_ai",
+            workspaceId: "workspace_demo_1",
+            title: "새 주제",
+            createdBy: "user_demo_1",
+            createdAt: "2026-06-29T00:00:00.000Z"
+          })
+        );
+      }
+
+      if (url.endsWith("/projects/project_new_ai/deck")) {
+        const body = JSON.parse(String(init?.body));
+        return new Response(
+          JSON.stringify({
+            deck: body.deck,
+            snapshot: {
+              snapshotId: "snapshot_new_ai",
+              projectId: "project_new_ai",
+              deckId: "deck_new_ai",
+              version: 1,
+              reason: "deck-replaced",
+              createdAt: "2026-06-29T00:00:00.000Z"
+            },
+            updatedAt: "2026-06-29T00:00:00.000Z"
+          })
+        );
+      }
+
+      return new Response("unexpected request", { status: 500 });
+    });
+
+    await expect(createGeneratedDeckProject("  새 주제  ", fetcher)).resolves.toMatchObject({
+      projectId: "project_new_ai"
+    });
+    expect(getGeneratedDeckProjectTitle("   ")).toBe("AI 덱");
+  });
+
   it("reads a generated deck job result and renders slide evidence", () => {
     const job: Job = {
       jobId: "job-2",

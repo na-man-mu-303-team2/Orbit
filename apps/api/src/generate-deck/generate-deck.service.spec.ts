@@ -1,6 +1,7 @@
 import type { Job } from "@orbit/shared";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { JobsService } from "../jobs/jobs.service";
+import type { ProjectsService } from "../projects/projects.service";
 import { GenerateDeckService } from "./generate-deck.service";
 
 const validEnv = {
@@ -26,6 +27,7 @@ const validEnv = {
   S3_SECRET_ACCESS_KEY: "orbit-password",
   S3_FORCE_PATH_STYLE: "true",
   JOB_QUEUE_DRIVER: "bullmq",
+  STT_PROVIDER: "sherpa",
   LIVE_STT_PROVIDER: "sherpa",
   REPORT_STT_PROVIDER: "openai",
   OCR_PROVIDER: "python",
@@ -54,7 +56,7 @@ describe("GenerateDeckService", () => {
   it("creates an AI deck generation job and enqueues the worker payload", async () => {
     const job: Job = {
       jobId: "job-1",
-      projectId: "project_demo_1",
+      projectId: "project_generated_1",
       type: "ai-deck-generation",
       status: "queued",
       progress: 0,
@@ -68,19 +70,32 @@ describe("GenerateDeckService", () => {
       create: vi.fn(async () => job),
       update: vi.fn()
     } as unknown as JobsService;
+    const projectsService = {
+      getAccessibleProject: vi.fn(async () => ({
+        projectId: "project_generated_1",
+        workspaceId: "workspace_demo_1",
+        title: "AI 생성 덱",
+        createdBy: "user_demo_1",
+        createdAt: "2026-06-27T00:00:00.000Z"
+      }))
+    } as unknown as ProjectsService;
     const enqueueJob = vi.fn(async () => undefined);
 
     const result = await new GenerateDeckService(
       jobsService,
+      projectsService,
       enqueueJob
-    ).createJob("project_demo_1", {
+    ).createJob("project_generated_1", {
       topic: "AI 덱 생성",
       references: [{ fileId: "file_1" }]
     });
 
     expect(result).toEqual({ job });
+    expect(projectsService.getAccessibleProject).toHaveBeenCalledWith(
+      "project_generated_1"
+    );
     expect(jobsService.create).toHaveBeenCalledWith({
-      projectId: "project_demo_1",
+      projectId: "project_generated_1",
       type: "ai-deck-generation",
       payload: {
         request: expect.objectContaining({
@@ -93,7 +108,7 @@ describe("GenerateDeckService", () => {
       driver: "bullmq",
       redisUrl: "redis://localhost:6379",
       jobId: "job-1",
-      projectId: "project_demo_1",
+      projectId: "project_generated_1",
       request: expect.objectContaining({ topic: "AI 덱 생성" })
     });
   });

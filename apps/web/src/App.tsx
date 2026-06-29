@@ -687,8 +687,9 @@ function GenerateDeckView() {
     try {
       const referenceInput = await extractReferences();
       setGenerationStep("generating");
+      const project = await createGeneratedDeckProject(topic);
       const response = await fetch(
-        `/api/v1/projects/${demoIds.projectId}/jobs/generate-deck`,
+        `/api/v1/projects/${project.projectId}/jobs/generate-deck`,
         {
           method: "POST",
           headers: { "content-type": "application/json" },
@@ -727,6 +728,11 @@ function GenerateDeckView() {
       }
 
       setResult(generatedResult);
+      queryClient.setQueryData<Project[]>(["projects"], (current) =>
+        current?.some((item) => item.projectId === project.projectId)
+          ? current
+          : [...(current ?? []), project]
+      );
       queryClient.setQueryData(["deck", generatedResult.deck.projectId], generatedResult.deck);
       navigateTo(getGeneratedDeckProjectPath(generatedResult));
     } catch (error) {
@@ -1084,6 +1090,14 @@ export function getGenerateDeckJobResult(job: Job): GenerateDeckJobResult | null
 
 export function getGeneratedDeckProjectPath(result: GenerateDeckJobResult) {
   return `/project/${encodeURIComponent(result.deck.projectId)}`;
+}
+
+export function getGeneratedDeckProjectTitle(topic: string) {
+  return topic.trim() || "AI 덱";
+}
+
+export function createGeneratedDeckProject(topic: string, fetcher: Fetcher = fetch) {
+  return createProject(getGeneratedDeckProjectTitle(topic), fetcher);
 }
 
 export function buildReferenceGenerationInput(
