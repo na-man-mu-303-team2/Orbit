@@ -1,30 +1,42 @@
-﻿import {
+import { createDemoDeck } from "@orbit/editor-core";
+import {
   demoIds,
   type DeckElement,
   type GenerateDeckJobResult,
-  type Job,
-  type Project
+  type Job
 } from "@orbit/shared";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import {
-  FolderOpen,
-  Home,
-  LayoutTemplate,
-  LogIn,
-  MessageSquareText,
-  PanelLeftClose,
-  PanelLeftOpen,
-  Plus,
-  Search,
+  Activity,
+  Database,
+  FileUp,
+  Mic,
+  Play,
+  Radio,
+  RefreshCw,
   Sparkles
 } from "lucide-react";
-import type { CSSProperties, FormEvent, ReactNode } from "react";
-import { lazy, Suspense, useEffect, useState } from "react";
-import orbitLogo from "./assets/orbit-logo.png";
-import { createProject, fetchProjects } from "./features/projects/ProjectAssetWorkspace";
+import { AuthPanel } from "./features/auth/AuthPanel";
+import { ProjectAssetWorkspace } from "./features/projects/ProjectAssetWorkspace";
 import { RehearsalWorkspace } from "./features/rehearsal/RehearsalWorkspace";
+import type { CSSProperties, ChangeEvent, DragEvent, ReactNode } from "react";
+import { lazy, Suspense, useMemo, useRef, useState } from "react";
 
-type Fetcher = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
+interface HealthResponse {
+  status: string;
+  app: string;
+  demo: typeof demoIds;
+}
+
+type UploadFile = {
+  id: string;
+  file: File;
+};
+
+type RejectedFile = {
+  name: string;
+  reason: string;
+};
 
 type ExtractedFile = {
   referenceDocumentId?: string;
@@ -44,8 +56,17 @@ type ExtractedFile = {
   chunkCount?: number;
 };
 
+type ExtractResponse = {
+  files: ExtractedFile[];
+  job: Job;
+};
+
 type JobResult = {
   files?: ExtractedFile[];
+};
+
+type GenerateDeckResponse = {
+  job: Job;
 };
 
 type ReferenceGenerationInput = {
@@ -55,420 +76,45 @@ type ReferenceGenerationInput = {
   failedFiles: ExtractedFile[];
 };
 
+type Fetcher = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
+
 type PresentationKeyword = {
   keyword: string;
   reason: string;
   priority: "high" | "medium" | "low" | string;
 };
 
-type Route =
-  | { name: "login" }
-  | { name: "home" }
-  | { name: "project-list" }
-  | { name: "project-editor"; projectId: string }
-  | { name: "rehearsal"; projectId: string };
-
-type AuthUser = {
-  userId: string;
-  email?: string;
-  displayName?: string;
-};
-
+const demoDeck = createDemoDeck();
 const EditorShell = lazy(() =>
   import("./features/editor/EditorShell").then((module) => ({
     default: module.EditorShell
   }))
 );
+const allowedExtensions = ["pdf", "docx", "pptx"];
+const allowedMimeTypes = new Set([
+  "application/pdf",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+]);
+const imagePrefix = "image/";
+const accept = [
+  "application/pdf",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  "image/*",
+  ".pdf",
+  ".docx",
+  ".pptx"
+].join(",");
 
-const templates = [
-  { id: "blank", title: "새 프레젠테이션", description: "빈 슬라이드에서 시작" },
-  { id: "pitch", title: "피치덱", description: "문제, 해결책, 시장 흐름" },
-  { id: "lesson", title: "수업 자료", description: "학습 목표와 활동 중심" },
-  { id: "report", title: "보고서", description: "요약과 근거 중심" },
-  { id: "workshop", title: "워크숍", description: "진행 순서와 실습 구성" }
-];
-
-async function fetchCurrentUser(): Promise<AuthUser> {
-  const response = await fetch("/api/v1/auth/me", {
-    credentials: "include"
-  });
+async function fetchHealth(): Promise<HealthResponse> {
+  const response = await fetch("/api/health");
   if (!response.ok) {
-    throw new Error("Unauthenticated");
+    throw new Error("API health check failed");
   }
-  return response.json() as Promise<AuthUser>;
+  return response.json() as Promise<HealthResponse>;
 }
 
-function getRoute(pathname = window.location.pathname): Route {
-  const normalized = pathname.replace(/\/+$/, "") || "/";
-
-  if (normalized === "/login") return { name: "login" };
-  if (normalized === "/project") return { name: "project-list" };
-
-  const projectMatch = normalized.match(/^\/project\/([^/]+)$/);
-  if (projectMatch) {
-    return { name: "project-editor", projectId: decodeURIComponent(projectMatch[1]) };
-  }
-
-  const rehearsalMatch = normalized.match(/^\/rehearsal\/([^/]+)$/);
-  if (rehearsalMatch) {
-    return { name: "rehearsal", projectId: decodeURIComponent(rehearsalMatch[1]) };
-  }
-
-  return { name: "home" };
-}
-
-function navigateTo(path: string) {
-  window.history.pushState({}, "", path);
-  window.dispatchEvent(new PopStateEvent("popstate"));
-}
-
-export function App() {
-  const [route, setRoute] = useState(() => getRoute());
-  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
-
-  useEffect(() => {
-    const handleRouteChange = () => setRoute(getRoute());
-    window.addEventListener("popstate", handleRouteChange);
-    return () => window.removeEventListener("popstate", handleRouteChange);
-  }, []);
-
-  const auth = useQuery({
-    queryKey: ["auth", "me"],
-    queryFn: fetchCurrentUser,
-    retry: false
-  });
-
-  useEffect(() => {
-    if (route.name === "home" && auth.isError) {
-      window.history.replaceState({}, "", "/login");
-      setRoute({ name: "login" });
-    }
-  }, [auth.isError, route.name]);
-
-  return (
-    <AppFrame
-      isSidebarCollapsed={isSidebarCollapsed}
-      route={route}
-      onToggleSidebar={() => setIsSidebarCollapsed((current) => !current)}
-    >
-      {renderRoute(route, auth.data)}
-    </AppFrame>
-  );
-}
-
-function renderRoute(route: Route, user?: AuthUser) {
-  if (route.name === "login") return <LoginPage />;
-  if (route.name === "project-list") return <ProjectListPage />;
-  if (route.name === "project-editor") {
-    return (
-      <Suspense fallback={<EditorLoadingFallback />}>
-        <EditorShell projectId={route.projectId} />
-      </Suspense>
-    );
-  }
-  if (route.name === "rehearsal") {
-    return <RehearsalWorkspace projectId={route.projectId} />;
-  }
-  return <HomePage user={user} />;
-}
-
-function AppFrame(props: {
-  children: ReactNode;
-  isSidebarCollapsed: boolean;
-  route: Route;
-  onToggleSidebar: () => void;
-}) {
-  const { children, isSidebarCollapsed, route, onToggleSidebar } = props;
-
-  return (
-    <main className={`orbit-layout ${isSidebarCollapsed ? "sidebar-collapsed" : ""}`}>
-      <aside className="orbit-sidebar" aria-label="Orbit navigation">
-        <button className="sidebar-brand" type="button" onClick={() => navigateTo("/")}>
-          <img alt="Orbit" src={orbitLogo} />
-          <span>Orbit</span>
-        </button>
-        <button
-          className="sidebar-toggle"
-          type="button"
-          onClick={onToggleSidebar}
-          aria-label={isSidebarCollapsed ? "사이드바 펼치기" : "사이드바 접기"}
-          title={isSidebarCollapsed ? "사이드바 펼치기" : "사이드바 접기"}
-        >
-          {isSidebarCollapsed ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}
-        </button>
-        <nav className="sidebar-nav">
-          <SidebarButton
-            active={route.name === "home"}
-            icon={<Home size={18} />}
-            label="홈"
-            onClick={() => navigateTo("/")}
-          />
-          <SidebarButton
-            active={route.name === "project-list" || route.name === "project-editor"}
-            icon={<FolderOpen size={18} />}
-            label="프로젝트"
-            onClick={() => navigateTo("/project")}
-          />
-          <SidebarButton
-            active={route.name === "rehearsal"}
-            icon={<Sparkles size={18} />}
-            label="리허설"
-            onClick={() => navigateTo(`/rehearsal/${demoIds.projectId}`)}
-          />
-        </nav>
-        <button className="sidebar-login" type="button" onClick={() => navigateTo("/login")}>
-          <LogIn size={18} />
-          <span>로그인</span>
-        </button>
-      </aside>
-      <section className="orbit-page">{children}</section>
-    </main>
-  );
-}
-
-function SidebarButton(props: {
-  active: boolean;
-  icon: ReactNode;
-  label: string;
-  onClick: () => void;
-}) {
-  return (
-    <button className={props.active ? "active" : ""} type="button" onClick={props.onClick}>
-      {props.icon}
-      <span>{props.label}</span>
-    </button>
-  );
-}
-
-function LoginPage() {
-  const queryClient = useQueryClient();
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-
-  async function handleLogin(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (isSubmitting) return;
-
-    setError(null);
-    setIsSubmitting(true);
-    try {
-      const response = await fetch("/api/v1/auth/login", {
-        body: JSON.stringify({ email, password }),
-        credentials: "include",
-        headers: {
-          "Content-Type": "application/json"
-        },
-        method: "POST"
-      });
-
-      if (!response.ok) {
-        throw new Error(await readAuthError(response));
-      }
-
-      await queryClient.invalidateQueries({ queryKey: ["auth", "me"] });
-      navigateTo("/");
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "로그인에 실패했습니다.");
-    } finally {
-      setIsSubmitting(false);
-    }
-  }
-
-  return (
-    <section className="login-page">
-      <form className="login-card" onSubmit={handleLogin}>
-        <img alt="Orbit" src={orbitLogo} />
-        <h1>로그인</h1>
-        <p>계정으로 로그인하면 Orbit 작업 공간으로 이동합니다.</p>
-        <label>
-          <span>이메일</span>
-          <input
-            autoComplete="email"
-            onChange={(event) => setEmail(event.target.value)}
-            placeholder="you@orbit.dev"
-            required
-            type="email"
-            value={email}
-          />
-        </label>
-        <label>
-          <span>비밀번호</span>
-          <input
-            autoComplete="current-password"
-            minLength={8}
-            onChange={(event) => setPassword(event.target.value)}
-            placeholder="비밀번호"
-            required
-            type="password"
-            value={password}
-          />
-        </label>
-        {error ? <p className="auth-error">{error}</p> : null}
-        <button type="submit" disabled={isSubmitting}>
-          {isSubmitting ? "로그인 중..." : "로그인"}
-        </button>
-      </form>
-    </section>
-  );
-}
-
-async function readAuthError(response: Response) {
-  const fallback = "로그인에 실패했습니다.";
-  const text = await response.text();
-  if (!text) return fallback;
-
-  try {
-    const body = JSON.parse(text) as { message?: unknown };
-    if (typeof body.message === "string") return body.message;
-    if (Array.isArray(body.message)) return body.message.join(", ");
-  } catch {
-    return text;
-  }
-
-  return fallback;
-}
-
-function HomePage(props: { user?: AuthUser }) {
-  return (
-    <section className="home-page">
-      <header className="page-heading">
-        <span>홈</span>
-        <h1>{props.user?.displayName ?? "Orbit"} 작업 공간</h1>
-      </header>
-
-      <section className="home-chat-panel" aria-label="AI 대화">
-        <div className="chat-orb">
-          <MessageSquareText size={30} />
-        </div>
-        <h2>무엇을 발표 자료로 만들까요?</h2>
-        <div className="chat-input-shell">
-          <input placeholder="발표 주제, 자료 구성, 슬라이드 방향을 입력하세요" />
-          <button type="button">전송</button>
-        </div>
-        <button className="link-action" type="button" onClick={() => navigateTo("/project")}>
-          기존 PPT 사용하기
-        </button>
-      </section>
-
-      <TemplateRail title="최근 열어본 템플릿" />
-    </section>
-  );
-}
-
-function ProjectListPage() {
-  const [isCreating, setIsCreating] = useState(false);
-  const projects = useQuery({
-    queryKey: ["projects"],
-    queryFn: () => fetchProjects(),
-    retry: false
-  });
-
-  async function handleCreateProject() {
-    if (isCreating) return;
-    setIsCreating(true);
-    try {
-      const project = await createProject("새 프레젠테이션");
-      await projects.refetch();
-      navigateTo(`/project/${project.projectId}`);
-    } finally {
-      setIsCreating(false);
-    }
-  }
-
-  return (
-    <section className="project-page">
-      <header className="page-heading row">
-        <div>
-          <span>프로젝트</span>
-          <h1>프로젝트 불러오기</h1>
-        </div>
-        <button type="button" className="ghost-button" onClick={() => void projects.refetch()}>
-          <Search size={16} />
-          새로고침
-        </button>
-      </header>
-
-      <TemplateRail title="템플릿" onCreateProject={handleCreateProject} isCreating={isCreating} />
-
-      <section className="project-history">
-        <div className="section-heading">
-          <h2>최근 에디팅한 프로젝트</h2>
-          <span>{projects.data?.length ?? 0}개</span>
-        </div>
-        {projects.isLoading ? <p className="empty-state">프로젝트를 불러오는 중입니다.</p> : null}
-        {projects.isError ? <p className="empty-state">프로젝트 목록을 불러오지 못했습니다.</p> : null}
-        <div className="project-grid">
-          {(projects.data ?? []).map((project) => (
-            <ProjectCard key={project.projectId} project={project} />
-          ))}
-        </div>
-      </section>
-    </section>
-  );
-}
-
-function TemplateRail(props: {
-  title: string;
-  isCreating?: boolean;
-  onCreateProject?: () => void;
-}) {
-  return (
-    <section className="template-section">
-      <div className="section-heading">
-        <h2>{props.title}</h2>
-      </div>
-      <div className="template-row">
-        <button
-          className="new-template-card"
-          type="button"
-          onClick={props.onCreateProject ?? (() => navigateTo("/project"))}
-          disabled={props.isCreating}
-        >
-          <Plus size={28} />
-          <span>새 프레젠테이션</span>
-        </button>
-        {templates.slice(1).map((template) => (
-          <button className="template-card" type="button" key={template.id}>
-            <LayoutTemplate size={18} />
-            <strong>{template.title}</strong>
-            <span>{template.description}</span>
-          </button>
-        ))}
-      </div>
-    </section>
-  );
-}
-
-function ProjectCard(props: { project: Project }) {
-  const createdAt = new Date(props.project.createdAt);
-  return (
-    <button
-      className="project-card"
-      type="button"
-      onClick={() => navigateTo(`/project/${props.project.projectId}`)}
-    >
-      <div className="project-thumb">
-        <span />
-      </div>
-      <strong>{props.project.title}</strong>
-      <span>
-        {Number.isNaN(createdAt.getTime())
-          ? props.project.projectId
-          : createdAt.toLocaleDateString("ko-KR")}
-      </span>
-    </button>
-  );
-}
-
-function EditorLoadingFallback() {
-  return (
-    <section className="loading-page">
-      <h1>에디터를 불러오는 중</h1>
-    </section>
-  );
-}
 export async function pollExtractJob(
   jobId: string,
   options: {
@@ -548,6 +194,550 @@ export function buildReferenceGenerationInput(
   return { references, referenceKeywords, succeededFiles, failedFiles };
 }
 
+// 데모 콘솔의 최상위 화면 전환을 관리한다.
+export function App() {
+  const [view, setView] = useState<
+    "console" | "upload" | "generate" | "project-assets" | "editor" | "rehearsal"
+  >(
+    "console"
+  );
+  const previewText =
+    demoDeck.slides[0]?.elements.find((element) => element.type === "text")?.props.text ?? "";
+
+  const health = useQuery({
+    queryKey: ["health"],
+    queryFn: fetchHealth,
+    retry: false
+  });
+
+  if (view === "upload") {
+    return <UploadView />;
+  }
+
+  if (view === "generate") {
+    return <GenerateDeckView />;
+  }
+
+  if (view === "project-assets") {
+    return <ProjectAssetWorkspace />;
+  }
+
+  if (view === "editor") {
+    return (
+      <Suspense fallback={<EditorLoadingFallback />}>
+        <EditorShell />
+      </Suspense>
+    );
+  }
+
+  if (view === "rehearsal") {
+    return <RehearsalWorkspace />;
+  }
+
+  return (
+    <main className="app-shell">
+      <section className="topbar">
+        <div>
+          <p className="eyebrow">platform-core</p>
+          <h1>ORBIT Demo Console</h1>
+        </div>
+        <button
+          className="icon-button"
+          type="button"
+          onClick={() => void health.refetch()}
+          aria-label="상태 새로고침"
+          title="상태 새로고침"
+        >
+          <RefreshCw size={18} />
+        </button>
+      </section>
+
+      <section className="status-strip">
+        <StatusItem
+          icon={<Activity size={20} />}
+          label="API"
+          value={health.data?.status ?? (health.isError ? "offline" : "checking")}
+        />
+        <StatusItem icon={<Database size={20} />} label="Project" value={demoIds.projectId} />
+        <StatusItem icon={<Radio size={20} />} label="Session" value={demoIds.sessionId} />
+      </section>
+
+      <section className="workspace-grid">
+        <article className="panel primary-panel">
+          <div>
+            <p className="panel-kicker">Deck</p>
+            <h2>{demoDeck.title}</h2>
+          </div>
+          <div className="slide-preview">
+            <span>{previewText}</span>
+          </div>
+          <dl className="meta-grid">
+            <div>
+              <dt>deckId</dt>
+              <dd>{demoDeck.deckId}</dd>
+            </div>
+            <div>
+              <dt>slides</dt>
+              <dd>{demoDeck.slides.length}</dd>
+            </div>
+            <div>
+              <dt>version</dt>
+              <dd>{demoDeck.version}</dd>
+            </div>
+          </dl>
+        </article>
+
+        <div className="side-column">
+          <AuthPanel />
+
+          <article className="panel task-panel">
+            <p className="panel-kicker">Sprint 1</p>
+            <h2>Core Flow</h2>
+            <div className="action-list">
+              <button type="button" onClick={() => setView("project-assets")}>
+                <Play size={18} />
+                프로젝트 생성
+              </button>
+              <button type="button" onClick={() => setView("upload")}>
+                <FileUp size={18} />
+                파일 업로드
+              </button>
+              <button type="button" onClick={() => setView("generate")}>
+                <Sparkles size={18} />
+                AI 덱 생성
+              </button>
+              <button type="button" onClick={() => setView("editor")}>
+                <Activity size={18} />
+                편집기 열기
+              </button>
+              <button type="button" onClick={() => setView("rehearsal")}>
+                <Mic size={18} />
+                리허설
+              </button>
+              <button type="button">
+                <Activity size={18} />
+                Job 상태 확인
+              </button>
+            </div>
+          </article>
+        </div>
+      </section>
+    </main>
+  );
+}
+
+function EditorLoadingFallback() {
+  return (
+    <main className="app-shell">
+      <section className="topbar">
+        <div>
+          <p className="eyebrow">editor</p>
+          <h1>편집기를 불러오는 중</h1>
+        </div>
+      </section>
+    </main>
+  );
+}
+
+function GenerateDeckView() {
+  const [topic, setTopic] = useState("AI 덱 생성 파이프라인");
+  const [prompt, setPrompt] = useState("참고자료를 바탕으로 발표 흐름과 핵심 메시지를 정리");
+  const [duration, setDuration] = useState(10);
+  const [minSlides, setMinSlides] = useState(5);
+  const [maxSlides, setMaxSlides] = useState(8);
+  const [template, setTemplate] = useState("report");
+  const [audience, setAudience] = useState("general");
+  const [purpose, setPurpose] = useState("inform");
+  const [tone, setTone] = useState("professional");
+  const [uploads, setUploads] = useState<UploadFile[]>([]);
+  const [rejected, setRejected] = useState<RejectedFile[]>([]);
+  const [isDragging, setIsDragging] = useState(false);
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [generationStep, setGenerationStep] = useState<
+    "idle" | "extracting" | "generating"
+  >("idle");
+  const [generateError, setGenerateError] = useState("");
+  const [extractJob, setExtractJob] = useState<Job | null>(null);
+  const [generateJob, setGenerateJob] = useState<Job | null>(null);
+  const [extractedFiles, setExtractedFiles] = useState<ExtractedFile[]>([]);
+  const [result, setResult] = useState<GenerateDeckJobResult | null>(null);
+  const totalSize = useMemo(
+    () => uploads.reduce((sum, upload) => sum + upload.file.size, 0),
+    [uploads]
+  );
+  const referenceSummary = useMemo(
+    () => buildReferenceGenerationInput(extractedFiles),
+    [extractedFiles]
+  );
+
+  const addFiles = (fileList: FileList | File[]) => {
+    const { acceptedFiles, rejectedFiles } = collectUploadFiles(fileList);
+
+    setUploads((current) => appendUniqueUploads(current, acceptedFiles));
+    setRejected(rejectedFiles);
+  };
+
+  const handleFileChange = (event: ChangeEvent<HTMLInputElement>) => {
+    if (event.target.files) {
+      addFiles(event.target.files);
+    }
+
+    event.target.value = "";
+  };
+
+  const handleDrop = (event: DragEvent<HTMLLabelElement>) => {
+    event.preventDefault();
+    setIsDragging(false);
+    addFiles(event.dataTransfer.files);
+  };
+
+  const removeUpload = (id: string) => {
+    setUploads((current) => current.filter((upload) => upload.id !== id));
+    setExtractedFiles([]);
+    setExtractJob(null);
+    setGenerateError("");
+  };
+
+  const extractReferences = async (): Promise<ReferenceGenerationInput> => {
+    if (uploads.length === 0) {
+      return {
+        references: [],
+        referenceKeywords: [],
+        succeededFiles: [],
+        failedFiles: []
+      };
+    }
+
+    const formData = new FormData();
+    uploads.forEach(({ file }) => formData.append("files", file));
+
+    setGenerationStep("extracting");
+    setExtractJob(null);
+    setExtractedFiles([]);
+
+    const response = await fetch("/api/extract", {
+      method: "POST",
+      body: formData
+    });
+
+    if (!response.ok) {
+      const message = await response.text();
+      throw new Error(message || "참고자료 처리에 실패했습니다.");
+    }
+
+    const data = (await response.json()) as ExtractResponse;
+    setExtractJob(data.job);
+
+    const job = await pollExtractJob(data.job.jobId, {
+      onUpdate: setExtractJob
+    });
+
+    if (job.status === "failed") {
+      throw new Error(
+        job.error?.message || job.message || "참고자료 처리에 실패했습니다."
+      );
+    }
+
+    const files = getJobResultFiles(job);
+    setExtractedFiles(files);
+    const input = buildReferenceGenerationInput(files);
+    if (input.references.length === 0) {
+      throw new Error("참고자료 처리에 성공한 파일이 없어 덱 생성을 중단했습니다.");
+    }
+
+    return input;
+  };
+
+  const generateDeck = async () => {
+    if (!topic.trim() || isGenerating) return;
+
+    setIsGenerating(true);
+    setGenerationStep("idle");
+    setGenerateError("");
+    setExtractJob(null);
+    setGenerateJob(null);
+    setExtractedFiles([]);
+    setResult(null);
+
+    try {
+      const referenceInput = await extractReferences();
+      setGenerationStep("generating");
+      const response = await fetch(
+        `/api/v1/projects/${demoIds.projectId}/jobs/generate-deck`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            topic,
+            prompt,
+            targetDurationMinutes: duration,
+            slideCountRange: { min: minSlides, max: maxSlides },
+            template,
+            metadata: { audience, purpose, tone },
+            references: referenceInput.references,
+            referenceKeywords: referenceInput.referenceKeywords
+          })
+        }
+      );
+
+      if (!response.ok) {
+        const message = await response.text();
+        throw new Error(message || "AI 덱 생성에 실패했습니다.");
+      }
+
+      const data = (await response.json()) as GenerateDeckResponse;
+      setGenerateJob(data.job);
+
+      const job = await pollExtractJob(data.job.jobId, {
+        onUpdate: setGenerateJob
+      });
+
+      if (job.status === "failed") {
+        throw new Error(job.error?.message || job.message || "AI 덱 생성에 실패했습니다.");
+      }
+
+      setResult(getGenerateDeckJobResult(job));
+    } catch (error) {
+      setGenerateError(
+        error instanceof Error ? error.message : "AI 덱 생성에 실패했습니다."
+      );
+    } finally {
+      setIsGenerating(false);
+      setGenerationStep("idle");
+    }
+  };
+  const submitLabel =
+    generationStep === "extracting"
+      ? "참고자료 처리 중..."
+      : generationStep === "generating"
+        ? "덱 생성 중..."
+        : "덱 생성";
+
+  return (
+    <main className="app-shell generate-app-shell">
+      <section className="generate-layout" aria-labelledby="generate-title">
+        <form
+          className="generate-form"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void generateDeck();
+          }}
+        >
+          <div className="panel-copy">
+            <span className="eyebrow">Orbit issue #26</span>
+            <h1 id="generate-title">AI 덱 생성</h1>
+          </div>
+
+          <label>
+            <span>Topic</span>
+            <input value={topic} onChange={(event) => setTopic(event.target.value)} />
+          </label>
+
+          <label>
+            <span>Prompt</span>
+            <textarea value={prompt} onChange={(event) => setPrompt(event.target.value)} />
+          </label>
+
+          <div className="form-grid">
+            <label>
+              <span>Duration</span>
+              <input
+                min={1}
+                max={120}
+                type="number"
+                value={duration}
+                onChange={(event) => setDuration(Number(event.target.value))}
+              />
+            </label>
+            <label>
+              <span>Min slides</span>
+              <input
+                min={1}
+                max={20}
+                type="number"
+                value={minSlides}
+                onChange={(event) => setMinSlides(Number(event.target.value))}
+              />
+            </label>
+            <label>
+              <span>Max slides</span>
+              <input
+                min={1}
+                max={20}
+                type="number"
+                value={maxSlides}
+                onChange={(event) => setMaxSlides(Number(event.target.value))}
+              />
+            </label>
+          </div>
+
+          <div className="form-grid">
+            <SelectField
+              label="Template"
+              value={template}
+              onChange={setTemplate}
+              options={["default", "pitch", "report", "lesson"]}
+            />
+            <SelectField
+              label="Audience"
+              value={audience}
+              onChange={setAudience}
+              options={["general", "executive", "technical", "sales"]}
+            />
+            <SelectField
+              label="Purpose"
+              value={purpose}
+              onChange={setPurpose}
+              options={["inform", "persuade", "teach", "report"]}
+            />
+          </div>
+
+          <div className="form-grid">
+            <SelectField
+              label="Tone"
+              value={tone}
+              onChange={setTone}
+              options={["professional", "friendly", "confident", "concise"]}
+            />
+          </div>
+
+          <section
+            className="generate-reference-panel"
+            aria-labelledby="generate-reference-title"
+          >
+            <div className="reference-panel-heading">
+              <span className="eyebrow" id="generate-reference-title">
+                References
+              </span>
+              <p>PDF, DOCX, PPTX와 이미지 파일</p>
+            </div>
+
+            <label
+              className={`drop-zone${isDragging ? " is-dragging" : ""}`}
+              onDragOver={(event) => {
+                event.preventDefault();
+                setIsDragging(true);
+              }}
+              onDragLeave={() => setIsDragging(false)}
+              onDrop={handleDrop}
+            >
+              <input type="file" accept={accept} multiple onChange={handleFileChange} />
+              <span className="upload-mark" aria-hidden="true">
+                +
+              </span>
+              <span className="drop-title">파일을 끌어오거나 선택하세요</span>
+              <span className="drop-meta">PDF · DOCX · PPTX · JPG · PNG · GIF · WEBP</span>
+            </label>
+
+            <div className="upload-summary" aria-live="polite">
+              <span>{uploads.length}개 파일</span>
+              <span>{formatBytes(totalSize)}</span>
+            </div>
+
+            {rejected.length > 0 && (
+              <div className="rejection-list" role="alert">
+                {rejected.map((file) => (
+                  <p key={file.name}>
+                    <strong>{file.name}</strong> {file.reason}
+                  </p>
+                ))}
+              </div>
+            )}
+
+            {uploads.length > 0 && (
+              <ul className="file-list" aria-label="덱 생성 참고자료 파일">
+                {uploads.map(({ id, file }) => (
+                  <li key={id}>
+                    <div>
+                      <span className="file-name">{file.name}</span>
+                      <span className="file-detail">
+                        {getExtension(file.name).toUpperCase()} · {formatBytes(file.size)}
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => removeUpload(id)}
+                      aria-label={`${file.name} 제거`}
+                      disabled={isGenerating}
+                    >
+                      ×
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+
+          <button className="extract-button" type="submit" disabled={isGenerating}>
+            {isGenerating ? submitLabel : "덱 생성"}
+          </button>
+
+          {extractJob && (
+            <div className="job-status" aria-live="polite">
+              <div>
+                <strong>reference {extractJob.status}</strong>
+                <span>{extractJob.progress}%</span>
+              </div>
+              {extractJob.message && <p>{extractJob.message}</p>}
+            </div>
+          )}
+
+          {extractedFiles.length > 0 && (
+            <div className="job-status" aria-live="polite">
+              <p>
+                참고자료 {referenceSummary.succeededFiles.length}개 사용
+                {referenceSummary.failedFiles.length > 0
+                  ? ` · ${referenceSummary.failedFiles.length}개 실패`
+                  : ""}
+              </p>
+            </div>
+          )}
+
+          {generateJob && (
+            <div className="job-status" aria-live="polite">
+              <div>
+                <strong>deck {generateJob.status}</strong>
+                <span>{generateJob.progress}%</span>
+              </div>
+              {generateJob.message && <p>{generateJob.message}</p>}
+            </div>
+          )}
+
+          {generateError && (
+            <div className="rejection-list" role="alert">
+              <p>{generateError}</p>
+            </div>
+          )}
+        </form>
+
+        <section className="generate-result" aria-live="polite">
+          {result ? <GeneratedDeckResult result={result} /> : <DeckPreviewPlaceholder />}
+        </section>
+      </section>
+    </main>
+  );
+}
+
+function SelectField(props: {
+  label: string;
+  value: string;
+  options: string[];
+  onChange: (value: string) => void;
+}) {
+  return (
+    <label>
+      <span>{props.label}</span>
+      <select value={props.value} onChange={(event) => props.onChange(event.target.value)}>
+        {props.options.map((option) => (
+          <option key={option} value={option}>
+            {option}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
 export function GeneratedDeckResult(props: { result: GenerateDeckJobResult }) {
   const { deck, validation, warnings } = props.result;
 
@@ -555,13 +745,22 @@ export function GeneratedDeckResult(props: { result: GenerateDeckJobResult }) {
     <div className="generated-deck">
       <header className="result-heading">
         <div>
-          <span>Generated deck</span>
+          <span className="eyebrow">Generated deck</span>
           <h2>{deck.title}</h2>
         </div>
         <strong>{deck.slides.length} slides</strong>
       </header>
-      {warnings.length > 0 ? <p>{warnings.join(" 쨌 ")}</p> : null}
-      <p>validation {validation.passed ? "passed" : "failed"}</p>
+
+      {warnings.length > 0 && (
+        <div className="job-status">
+          <p>{warnings.join(" · ")}</p>
+        </div>
+      )}
+
+      <p className="indexing-summary">
+        validation {validation.passed ? "passed" : "failed"}
+      </p>
+
       <div className="generated-slide-grid">
         {deck.slides.map((slide) => (
           <article key={slide.slideId} className="generated-slide-card">
@@ -570,17 +769,25 @@ export function GeneratedDeckResult(props: { result: GenerateDeckJobResult }) {
               elements={slide.elements}
               title={slide.title}
             />
-            <strong>{slide.title}</strong>
-            {slide.aiNotes?.sourceEvidence.length ? (
-              <ul>
-                {slide.aiNotes.sourceEvidence.map((evidence) => (
-                  <li key={`${slide.slideId}-${evidence.fileId}`}>
-                    {evidence.fileId}
-                    {evidence.note ? ` 쨌 ${evidence.note}` : ""}
-                  </li>
-                ))}
-              </ul>
-            ) : null}
+            <div className="generated-slide-meta">
+              <span>{slide.order}</span>
+              <strong>{slide.title}</strong>
+            </div>
+            <details>
+              <summary>Evidence</summary>
+              {slide.aiNotes?.sourceEvidence.length ? (
+                <ul>
+                  {slide.aiNotes.sourceEvidence.map((evidence) => (
+                    <li key={`${slide.slideId}-${evidence.fileId}`}>
+                      <strong>{evidence.fileId}</strong>
+                      {evidence.note ? ` · ${evidence.note}` : ""}
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p>topic-only</p>
+              )}
+            </details>
           </article>
         ))}
       </div>
@@ -634,9 +841,13 @@ function GeneratedSlideElement(props: {
         className="generated-slide-element generated-slide-text"
         style={{
           ...baseStyle,
+          alignItems: textVerticalAlign(element.props.verticalAlign),
           color: element.props.color,
+          display: "flex",
+          fontFamily: element.props.fontFamily,
           fontSize: `max(8px, ${(element.props.fontSize / canvas.width) * 100}cqw)`,
           fontWeight: element.props.fontWeight,
+          justifyContent: textAlign(element.props.align),
           lineHeight: element.props.lineHeight,
           textAlign: element.props.align
         }}
@@ -646,7 +857,268 @@ function GeneratedSlideElement(props: {
     );
   }
 
+  if (element.type === "image") {
+    return (
+      <img
+        className="generated-slide-element"
+        src={element.props.src}
+        alt={element.props.alt}
+        style={{
+          ...baseStyle,
+          objectFit: element.props.fit === "stretch" ? "fill" : element.props.fit
+        }}
+      />
+    );
+  }
+
+  if (isShapeElement(element)) {
+    return (
+      <div
+        className={`generated-slide-element generated-slide-shape generated-slide-shape-${element.type}`}
+        style={{
+          ...baseStyle,
+          background: element.props.fill,
+          borderColor: element.props.stroke,
+          borderRadius:
+            element.type === "ellipse" || element.type === "ring"
+              ? "999px"
+              : `${element.props.borderRadius}px`,
+          borderStyle: "solid",
+          borderWidth: `${element.props.strokeWidth}px`
+        }}
+      />
+    );
+  }
+
   return <div className="generated-slide-element generated-slide-shape" style={baseStyle} />;
+}
+
+function isShapeElement(
+  element: DeckElement
+): element is Extract<DeckElement, { type: "rect" | "ellipse" | "line" | "arrow" | "polygon" | "star" | "ring" }> {
+  return ["rect", "ellipse", "line", "arrow", "polygon", "star", "ring"].includes(element.type);
+}
+
+function textAlign(align: string) {
+  if (align === "center") return "center";
+  if (align === "right") return "flex-end";
+  return "flex-start";
+}
+
+function textVerticalAlign(align: string) {
+  if (align === "middle") return "center";
+  if (align === "bottom") return "flex-end";
+  return "flex-start";
+}
+
+function DeckPreviewPlaceholder() {
+  return (
+    <div className="deck-preview-placeholder">
+      <Sparkles size={28} />
+      <span>AI deck</span>
+    </div>
+  );
+}
+
+function UploadView() {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [uploads, setUploads] = useState<UploadFile[]>([]);
+  const [rejected, setRejected] = useState<RejectedFile[]>([]);
+  const [isDragging, setIsDragging] = useState(false);
+  const [isExtracting, setIsExtracting] = useState(false);
+  const [extractError, setExtractError] = useState("");
+  const [extractJob, setExtractJob] = useState<Job | null>(null);
+  const [results, setResults] = useState<ExtractedFile[]>([]);
+
+  const totalSize = useMemo(
+    () => uploads.reduce((sum, upload) => sum + upload.file.size, 0),
+    [uploads]
+  );
+
+  const addFiles = (fileList: FileList | File[]) => {
+    const { acceptedFiles, rejectedFiles } = collectUploadFiles(fileList);
+
+    setUploads((current) => appendUniqueUploads(current, acceptedFiles));
+    setRejected(rejectedFiles);
+  };
+
+  const handleFileChange = (event: ChangeEvent<HTMLInputElement>) => {
+    if (event.target.files) {
+      addFiles(event.target.files);
+    }
+
+    event.target.value = "";
+  };
+
+  const handleDrop = (event: DragEvent<HTMLLabelElement>) => {
+    event.preventDefault();
+    setIsDragging(false);
+    addFiles(event.dataTransfer.files);
+  };
+
+  const removeUpload = (id: string) => {
+    setUploads((current) => current.filter((upload) => upload.id !== id));
+    setResults([]);
+    setExtractJob(null);
+    setExtractError("");
+  };
+
+  const extractText = async () => {
+    if (uploads.length === 0 || isExtracting) return;
+
+    const formData = new FormData();
+    uploads.forEach(({ file }) => formData.append("files", file));
+
+    setIsExtracting(true);
+    setExtractError("");
+    setExtractJob(null);
+    setResults([]);
+
+    try {
+      const response = await fetch("/api/extract", {
+        method: "POST",
+        body: formData
+      });
+
+      if (!response.ok) {
+        const message = await response.text();
+        throw new Error(message || "텍스트 추출에 실패했습니다.");
+      }
+
+      const data = (await response.json()) as ExtractResponse;
+      setExtractJob(data.job);
+
+      const job = await pollExtractJob(data.job.jobId, {
+        onUpdate: setExtractJob
+      });
+
+      if (job.status === "failed") {
+        throw new Error(
+          job.error?.message || job.message || "텍스트 추출에 실패했습니다."
+        );
+      }
+
+      setResults(getJobResultFiles(job));
+    } catch (error) {
+      setExtractError(error instanceof Error ? error.message : "텍스트 추출에 실패했습니다.");
+    } finally {
+      setIsExtracting(false);
+    }
+  };
+
+  return (
+    <main className="app-shell upload-app-shell">
+      <section className="upload-panel" aria-labelledby="upload-title">
+        <div className="panel-copy">
+          <span className="eyebrow">Orbit issue #24</span>
+          <h1 id="upload-title">참고 자료 업로드</h1>
+          <p>PDF, DOCX, PPTX와 이미지 파일을 추가하고 텍스트를 추출하세요.</p>
+        </div>
+
+        <label
+          className={`drop-zone${isDragging ? " is-dragging" : ""}`}
+          onDragOver={(event) => {
+            event.preventDefault();
+            setIsDragging(true);
+          }}
+          onDragLeave={() => setIsDragging(false)}
+          onDrop={handleDrop}
+        >
+          <input
+            ref={inputRef}
+            type="file"
+            accept={accept}
+            multiple
+            onChange={handleFileChange}
+          />
+          <span className="upload-mark" aria-hidden="true">
+            +
+          </span>
+          <span className="drop-title">파일을 끌어오거나 선택하세요</span>
+          <span className="drop-meta">PDF · DOCX · PPTX · JPG · PNG · GIF · WEBP</span>
+        </label>
+
+        <div className="upload-summary" aria-live="polite">
+          <span>{uploads.length}개 파일</span>
+          <span>{formatBytes(totalSize)}</span>
+        </div>
+
+        {rejected.length > 0 && (
+          <div className="rejection-list" role="alert">
+            {rejected.map((file) => (
+              <p key={file.name}>
+                <strong>{file.name}</strong> {file.reason}
+              </p>
+            ))}
+          </div>
+        )}
+
+        {uploads.length > 0 && (
+          <>
+            <ul className="file-list" aria-label="업로드 대기 파일">
+              {uploads.map(({ id, file }) => (
+                <li key={id}>
+                  <div>
+                    <span className="file-name">{file.name}</span>
+                    <span className="file-detail">
+                      {getExtension(file.name).toUpperCase()} · {formatBytes(file.size)}
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => removeUpload(id)}
+                    aria-label={`${file.name} 제거`}
+                  >
+                    ×
+                  </button>
+                </li>
+              ))}
+            </ul>
+
+            <button
+              className="extract-button"
+              type="button"
+              onClick={extractText}
+              disabled={isExtracting}
+            >
+              {isExtracting ? "텍스트 추출 중..." : "텍스트 추출"}
+            </button>
+          </>
+        )}
+
+        {extractJob && (
+          <div className="job-status" aria-live="polite">
+            <div>
+              <strong>{extractJob.status}</strong>
+              <span>{extractJob.progress}%</span>
+            </div>
+            {extractJob.message && <p>{extractJob.message}</p>}
+          </div>
+        )}
+
+        {extractError && (
+          <div className="rejection-list" role="alert">
+            <p>{extractError}</p>
+          </div>
+        )}
+
+        {results.length > 0 && (
+          <section className="result-panel" aria-labelledby="result-title">
+            <div className="result-heading">
+              <span className="eyebrow">Extraction result</span>
+              <h2 id="result-title">추출된 텍스트</h2>
+            </div>
+
+            <div className="result-list">
+              {results.map((result) => (
+                <ExtractResultItem key={result.fileName} result={result} />
+              ))}
+            </div>
+          </section>
+        )}
+      </section>
+    </main>
+  );
 }
 
 export function ExtractResultItem(props: { result: ExtractedFile }) {
@@ -654,29 +1126,140 @@ export function ExtractResultItem(props: { result: ExtractedFile }) {
 
   return (
     <article className="result-item">
-      <header>
-        <h3>{result.fileName}</h3>
-        <p>
-          {result.kind.toUpperCase()} 쨌 {result.status}
-        </p>
+      <header className="result-item-header">
+        <div>
+          <h3>{result.fileName}</h3>
+          <p>
+            {result.kind.toUpperCase()} · {result.status}
+          </p>
+        </div>
+        {result.message && <span>{result.message}</span>}
       </header>
-      {result.indexingStatus ? (
-        <p>
+      {result.indexingStatus && (
+        <p className="indexing-summary">
           {result.indexingStatus}
-          {typeof result.chunkCount === "number" ? ` 쨌 ${result.chunkCount} chunks` : ""}
-          {result.indexingMessage ? ` 쨌 ${result.indexingMessage}` : ""}
+          {typeof result.chunkCount === "number" ? ` · ${result.chunkCount} chunks` : ""}
+          {result.indexingMessage ? ` · ${result.indexingMessage}` : ""}
         </p>
-      ) : null}
-      <pre>{result.cleanedText || result.cleanupMessage || result.rawText}</pre>
-      {result.keywords?.length ? (
-        <ul>
-          {result.keywords.map((keyword) => (
-            <li key={`${result.fileName}-${keyword.keyword}`}>
-              <strong>{keyword.keyword}</strong> {keyword.reason}
-            </li>
-          ))}
-        </ul>
-      ) : null}
+      )}
+      <div className="text-comparison">
+        <div className="text-column">
+          <h4>OCR 원문</h4>
+          <pre>{result.rawText || "추출된 텍스트가 없습니다."}</pre>
+        </div>
+        <div className="text-column">
+          <h4>AI 정제본</h4>
+          <pre>
+            {result.cleanedText ||
+              result.cleanupMessage ||
+              "AI 정제 결과가 없습니다."}
+          </pre>
+          {result.cleanupStatus && (
+            <span className={`cleanup-status cleanup-status-${result.cleanupStatus}`}>
+              {result.cleanupStatus}
+            </span>
+          )}
+        </div>
+      </div>
+      <div className="keyword-panel">
+        <div className="keyword-panel-header">
+          <h4>발표 주요 키워드</h4>
+          {result.keywordStatus && (
+            <span className={`cleanup-status cleanup-status-${result.keywordStatus}`}>
+              {result.keywordStatus}
+            </span>
+          )}
+        </div>
+
+        {result.keywords && result.keywords.length > 0 ? (
+          <ul className="keyword-list">
+            {result.keywords.map((keyword) => (
+              <li key={`${result.fileName}-${keyword.keyword}`}>
+                <div>
+                  <strong>{keyword.keyword}</strong>
+                  <p>{keyword.reason}</p>
+                </div>
+                <span className={`priority priority-${keyword.priority}`}>
+                  {keyword.priority}
+                </span>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="keyword-empty">
+            {result.keywordMessage || "추출된 발표 키워드가 없습니다."}
+          </p>
+        )}
+      </div>
     </article>
   );
+}
+
+function StatusItem(props: {
+  icon: ReactNode;
+  label: string;
+  value: string;
+}) {
+  return (
+    <div className="status-item">
+      {props.icon}
+      <div>
+        <span>{props.label}</span>
+        <strong>{props.value}</strong>
+      </div>
+    </div>
+  );
+}
+
+function getExtension(fileName: string) {
+  return fileName.split(".").pop()?.toLowerCase() ?? "";
+}
+
+function isAllowedFile(file: File) {
+  const extension = getExtension(file.name);
+  const isAllowedDocument =
+    allowedExtensions.includes(extension) && allowedMimeTypes.has(file.type);
+  const isImage = file.type.startsWith(imagePrefix);
+
+  return isAllowedDocument || isImage;
+}
+
+function formatBytes(bytes: number) {
+  if (bytes === 0) return "0 B";
+
+  const units = ["B", "KB", "MB", "GB"];
+  const index = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
+  const value = bytes / 1024 ** index;
+
+  return `${value.toFixed(value >= 10 || index === 0 ? 0 : 1)} ${units[index]}`;
+}
+
+function createUploadId(file: File) {
+  return `${file.name}-${file.size}-${file.lastModified}`;
+}
+
+function collectUploadFiles(fileList: FileList | File[]) {
+  const acceptedFiles: UploadFile[] = [];
+  const rejectedFiles: RejectedFile[] = [];
+
+  Array.from(fileList).forEach((file) => {
+    if (isAllowedFile(file)) {
+      acceptedFiles.push({ id: createUploadId(file), file });
+      return;
+    }
+
+    rejectedFiles.push({
+      name: file.name,
+      reason: "PDF, DOCX, PPTX 또는 이미지 파일만 업로드할 수 있습니다."
+    });
+  });
+
+  return { acceptedFiles, rejectedFiles };
+}
+
+function appendUniqueUploads(current: UploadFile[], acceptedFiles: UploadFile[]) {
+  const existingIds = new Set(current.map((upload) => upload.id));
+  const nextFiles = acceptedFiles.filter((upload) => !existingIds.has(upload.id));
+
+  return [...current, ...nextFiles];
 }
