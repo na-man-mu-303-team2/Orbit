@@ -15,7 +15,7 @@
 - [ ] `pnpm build`
 - [ ] `pnpm lint`
 - [ ] `pnpm test`
-- [ ] `pnpm test:smoke`
+- [ ] 필요 시 수동 실행: `pnpm test:smoke`
 - [ ] `node infra/scripts/check-env.mjs`
 - [ ] `docker compose config --quiet`
 

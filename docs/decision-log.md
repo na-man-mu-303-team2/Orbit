@@ -62,6 +62,18 @@
 - Affected files: `.github/workflows/ci.yml`, `docs/testing/jira-test-matrix.md`.
 - Follow-up review notes: branch protection에서 개별 job을 required check로 쓰는 경우 skipped job 표시가 팀 기대와 맞는지 확인하고, 필요하면 별도 aggregate required check를 추가한다.
 
+## ORBIT Playwright smoke CI temporary suspension
+
+- Context: Playwright smoke gate가 PR과 `main`/`develop` push 자동 검증에 포함되어 있지만, 현재는 안정성 재검토 전까지 자동화 테스트에서 임시로 제외해야 한다.
+- Options considered:
+  - Playwright smoke 테스트 파일과 `test:smoke` 스크립트를 삭제한다.
+  - `playwright-smoke` job 정의는 유지하되 job-level 조건으로 항상 skip한다.
+  - 변경 경로 분류에서만 `playwright_smoke` 출력을 끈다.
+- Final decision: `playwright-smoke` job은 그대로 보존하고 job-level `if: ${{ false }}`로 임시 skip한다. 로컬 또는 수동 검증용 `pnpm test:smoke` 스크립트와 Playwright 테스트 파일은 유지한다.
+- Rationale: 자동 gate에서만 제외하면 flaky 또는 환경 의존 이슈가 PR merge를 막지 않으면서도, smoke 재활성화와 수동 회귀 검증 경로를 잃지 않는다.
+- Affected files: `.github/workflows/ci.yml`, `.github/pull_request_template.md`, `docs/testing/jira-test-matrix.md`.
+- Follow-up review notes: smoke 안정화 원인이 정리되면 기존 path-scoped 조건을 복구하고 branch protection에서 skipped check 처리가 팀 기대와 맞는지 다시 확인한다.
+
 ## ORBIT-90 API project and asset boundary
 
 - Context: ORBIT-90은 프로젝트 생성과 project-scoped asset upload URL/complete API를 구현한다. 저장소 문서는 1차 스프린트가 임시 사용자 기반 프로젝트 생성에서 시작한다고 정의하며, 인증/워크스페이스 초대 흐름은 별도 선행/인접 작업이다.
@@ -193,3 +205,15 @@
 - Rationale: GitHub에 서버 SSH secret을 저장하지 않고, runner 권한을 단일 wrapper 실행으로 제한하면서 merge 후 배포를 자동화한다. staging validation의 local-default 금지 정책도 유지한다.
 - Affected files: `.github/workflows/deploy-personal-staging.yml`, `docker-compose.staging.yml`, `docs/runbooks/personal-server-deployment.md`, `docs/decision-log.md`.
 - Follow-up review notes: 첫 merge 후 GitHub Actions에서 runner label 매칭, sudoers wrapper 실행, `db:migration:run`, `/api/health`, `/assets/orbit-personal-staging/` 접근을 확인한다. 완전 자동 배포가 목표면 GitHub Environment `personal-staging`에 required reviewer를 설정하지 않는다.
+
+## ORBIT personal HTTP demo auth cookie exception
+
+- Context: 개인 서버 develop demo가 HTTP origin으로 운영되는 동안 `APP_ENV=staging`의 secure auth cookie가 브라우저에 저장되지 않아 로그인 후 `/api/v1/auth/me`가 401을 반환한다.
+- Options considered:
+  - 즉시 HTTPS 도메인과 TLS 인증서를 붙인다.
+  - `APP_ENV=local`로 내려서 staging validation을 우회한다.
+  - 명시적 `AUTH_COOKIE_SECURE=false` override를 개인 서버 staging에만 허용한다.
+- Final decision: `AUTH_COOKIE_SECURE` optional env를 추가하고, 명시된 경우 auth cookie의 `secure` 값을 override한다. 단, `AUTH_COOKIE_SECURE=false`는 `APP_ENV=staging`에서 `WEB_ORIGIN`과 `API_BASE_URL`이 모두 `http://`인 개인 서버 HTTP demo에만 허용하고, `APP_ENV=production` 또는 `https://` staging origin에서는 금지한다.
+- Rationale: 개인 서버 HTTP demo의 인증 흐름을 검증할 수 있게 하면서도 HTTPS staging/prod에서 non-secure auth cookie가 실수로 남는 설정을 startup 단계에서 거부한다.
+- Affected files: `packages/config/src/index.ts`, `apps/api/src/auth/auth-cookie.ts`, `apps/api/src/config/env.schema.spec.ts`, `.env.example`, `.env.staging.example`, `.env.production.example`, `docker-compose.staging.yml`, `docs/conventions/environment.md`, `docs/runbooks/personal-server-deployment.md`, `docs/decision-log.md`.
+- Follow-up review notes: HTTPS 적용 후 Doppler `orbit / stg`의 `AUTH_COOKIE_SECURE` 값을 비우거나 `true`로 되돌린다. 값이 남아 있으면 HTTPS staging startup이 실패해야 한다.

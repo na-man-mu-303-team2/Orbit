@@ -100,10 +100,11 @@ import type {
   ChangeEvent,
   ComponentType,
   CSSProperties,
+  MutableRefObject,
   PointerEvent as ReactPointerEvent
 } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { createPortal } from "react-dom";
+import { createPortal, flushSync } from "react-dom";
 import { SuggestionPanel } from "./suggestions/SuggestionPanel";
 import "./editor-shell.css";
 
@@ -260,6 +261,7 @@ type CustomShapeEditDraft = {
 };
 
 type ToolbarNoticeTone = "info" | "success" | "danger";
+type SaveState = "idle" | "pending" | "saving" | "error";
 
 async function fetchHealth(): Promise<HealthResponse> {
   const response = await fetch("/api/health");
@@ -272,6 +274,316 @@ async function fetchHealth(): Promise<HealthResponse> {
 async function readResponseError(response: Response, fallbackMessage: string) {
   const message = await response.text();
   return message || fallbackMessage;
+}
+
+type ProjectAssetDescriptor = {
+  fileId: string;
+  projectId: string;
+};
+
+function parseProjectAssetDescriptor(src: string): ProjectAssetDescriptor | null {
+  if (!src) {
+    return null;
+  }
+
+  try {
+    const baseOrigin =
+      typeof window === "undefined" ? "http://localhost" : window.location.origin;
+    const url = new URL(src, baseOrigin);
+    const proxyMatch = url.pathname.match(
+      /^\/api\/v1\/projects\/([^/]+)\/assets\/([^/]+)\/content$/,
+    );
+
+    if (proxyMatch) {
+      return {
+        projectId: decodeURIComponent(proxyMatch[1]),
+        fileId: decodeURIComponent(proxyMatch[2]),
+      };
+    }
+
+    const nestedMinioMatch = url.pathname.match(
+      /\/orbit-local\/projects\/([^/]+)\/assets\/([^/]+)\/[^/]+$/,
+    );
+    const flatMinioMatch = url.pathname.match(
+      /\/orbit-local\/projects\/([^/]+)\/assets\/([^/]+?)-[^/]+$/,
+    );
+    const minioMatch = nestedMinioMatch ?? flatMinioMatch;
+
+    if (!minioMatch) {
+      return null;
+    }
+
+    return {
+      projectId: decodeURIComponent(minioMatch[1]),
+      fileId: decodeURIComponent(minioMatch[2]),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function createProjectAssetProxyPath(projectId: string, fileId: string) {
+  return `/api/v1/projects/${encodeURIComponent(projectId)}/assets/${encodeURIComponent(
+    fileId,
+  )}/content`;
+}
+
+function normalizeEditorAssetUrl(src: string) {
+  const descriptor = parseProjectAssetDescriptor(src);
+
+  if (!descriptor) {
+    return src;
+  }
+
+  return createProjectAssetProxyPath(descriptor.projectId, descriptor.fileId);
+}
+
+export function resolveEditorAssetUrl(src: string) {
+  if (!src) {
+    return src;
+  }
+
+  if (typeof window === "undefined") {
+    return normalizeEditorAssetUrl(src);
+  }
+
+  const normalizedPath = normalizeEditorAssetUrl(src);
+  return normalizedPath.startsWith("/api/")
+    ? `${window.location.origin}${normalizedPath}`
+    : normalizedPath;
+}
+
+function waitForAnimationFrame() {
+  return new Promise<void>((resolve) => {
+    window.requestAnimationFrame(() => resolve());
+  });
+}
+
+function getSlideRenderBackgroundColor(slide: Slide, deck: Deck) {
+  return slide.style.backgroundColor ?? deck.theme.backgroundColor;
+}
+
+async function canvasToBlob(canvas: HTMLCanvasElement, mimeType = "image/png") {
+  return new Promise<Blob>((resolve, reject) => {
+    canvas.toBlob((blob) => {
+      if (!blob) {
+        reject(new Error("슬라이드 이미지를 생성하지 못했습니다."));
+        return;
+      }
+
+      resolve(blob);
+    }, mimeType);
+  });
+}
+
+async function createSlideRenderFile(args: {
+  deck: Deck;
+  slide: Slide;
+  stage: Konva.Stage;
+  stageScale: number;
+  slideNumber: number;
+}) {
+  const pixelRatio = Math.max(1, 1 / args.stageScale);
+  const stageCanvas = args.stage.toCanvas({
+    pixelRatio
+  }) as HTMLCanvasElement;
+  const canvas = document.createElement("canvas");
+  canvas.width = args.deck.canvas.width;
+  canvas.height = args.deck.canvas.height;
+
+  const context = canvas.getContext("2d");
+
+  if (!context) {
+    throw new Error("슬라이드 렌더링용 캔버스를 초기화하지 못했습니다.");
+  }
+
+  context.fillStyle = getSlideRenderBackgroundColor(args.slide, args.deck);
+  context.fillRect(0, 0, canvas.width, canvas.height);
+  context.drawImage(stageCanvas, 0, 0, canvas.width, canvas.height);
+
+  const blob = await canvasToBlob(canvas);
+
+  return new File(
+    [blob],
+    `slide-${String(args.slideNumber).padStart(2, "0")}-thumbnail-v${args.deck.version}.png`,
+    {
+      type: "image/png"
+    },
+  );
+}
+
+async function loadImageAsset(url: string) {
+  if (!url || typeof window === "undefined") {
+    return true;
+  }
+
+  return new Promise<boolean>((resolve) => {
+    const image = new window.Image();
+
+    image.onload = () => resolve(true);
+    image.onerror = () => resolve(false);
+    image.src = resolveEditorAssetUrl(url);
+
+    if (image.complete && image.naturalWidth > 0) {
+      resolve(true);
+    }
+  });
+}
+
+function collectSlideAssetUrls(slide: Slide) {
+  const urls = new Set<string>();
+
+  if (slide.style.backgroundImage?.src) {
+    urls.add(slide.style.backgroundImage.src);
+  }
+
+  for (const element of slide.elements) {
+    if (element.type === "image" && element.props.src) {
+      urls.add(element.props.src);
+    }
+  }
+
+  return [...urls];
+}
+
+async function waitForSlideAssets(slide: Slide) {
+  const assetUrls = collectSlideAssetUrls(slide);
+
+  const results = await Promise.all(assetUrls.map((url) => loadImageAsset(url)));
+  return results.filter((result) => !result).length;
+}
+
+function normalizeDeckAssetUrls(deck: Deck) {
+  return {
+    ...deck,
+    slides: deck.slides.map((slide) => ({
+      ...slide,
+      thumbnailUrl: slide.thumbnailUrl
+        ? normalizeEditorAssetUrl(slide.thumbnailUrl)
+        : slide.thumbnailUrl,
+      style: slide.style.backgroundImage?.src
+        ? {
+            ...slide.style,
+            backgroundImage: {
+              ...slide.style.backgroundImage,
+              src: normalizeEditorAssetUrl(slide.style.backgroundImage.src),
+            },
+          }
+        : slide.style,
+      elements: slide.elements.map((element) =>
+        element.type === "image"
+          ? {
+              ...element,
+              props: {
+                ...element.props,
+                src: normalizeEditorAssetUrl(element.props.src),
+              },
+            }
+          : element,
+      ),
+    })),
+  } satisfies Deck;
+}
+
+function createSlideScopedUploadFile(
+  file: File,
+  slideNumber: number,
+  kind: "image" | "thumbnail",
+) {
+  const extension = file.name.split(".").pop()?.toLowerCase() ?? "png";
+  const label = kind === "thumbnail" ? "thumbnail" : "image";
+
+  return new File(
+    [file],
+    `slide-${String(slideNumber).padStart(2, "0")}-${label}.${extension}`,
+    {
+      type: file.type,
+      lastModified: file.lastModified,
+    },
+  );
+}
+
+function RenderOnlyElementNode(props: {
+  accentColor: string;
+  deck: Deck;
+  element: DeckElement;
+  frame: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    rotation: number;
+  };
+  slide: Slide;
+}) {
+  const { accentColor, deck, element, frame, slide } = props;
+
+  return (
+    <Group
+      listening={false}
+      opacity={element.visible ? element.opacity : 0}
+      rotation={frame.rotation}
+      x={frame.x}
+      y={frame.y}
+    >
+      <ElementNodeContent
+        accentColor={accentColor}
+        deck={deck}
+        element={element}
+        frame={frame}
+        slide={slide}
+      />
+    </Group>
+  );
+}
+
+function HiddenSlideRenderStage(props: {
+  deck: Deck;
+  slide: Slide;
+  stageRef: MutableRefObject<Konva.Stage | null>;
+}) {
+  const { deck, slide, stageRef } = props;
+  const visibleElements = getRenderableSlideElements(slide, deck.canvas);
+
+  return (
+    <div
+      aria-hidden="true"
+      style={{
+        position: "fixed",
+        top: -10000,
+        left: -10000,
+        width: deck.canvas.width,
+        height: deck.canvas.height,
+        pointerEvents: "none",
+        opacity: 0,
+      }}
+    >
+      <Stage
+        height={deck.canvas.height}
+        ref={stageRef}
+        width={deck.canvas.width}
+      >
+        <Layer>
+          {visibleElements.map((element) => (
+            <RenderOnlyElementNode
+              key={element.elementId}
+              accentColor={slide.style.accentColor ?? deck.theme.accentColor}
+              deck={deck}
+              element={element}
+              frame={{
+                x: element.x,
+                y: element.y,
+                width: element.width,
+                height: element.height,
+                rotation: element.rotation,
+              }}
+              slide={slide}
+            />
+          ))}
+        </Layer>
+      </Stage>
+    </div>
+  );
 }
 
 function createSeedDeck(projectId: string): Deck {
@@ -296,6 +608,10 @@ async function fetchProjectDeck(projectId: string): Promise<Deck | null> {
   return payload.deck;
 }
 
+function navigateToRehearsal(projectId: string) {
+  window.history.pushState({}, "", `/rehearsal/${encodeURIComponent(projectId)}`);
+  window.dispatchEvent(new PopStateEvent("popstate"));
+}
 async function putProjectDeck(projectId: string, deck: Deck): Promise<Deck> {
   const response = await fetch(`/api/v1/projects/${projectId}/deck`, {
     method: "PUT",
@@ -351,6 +667,18 @@ async function fetchDeck(projectId: string): Promise<Deck> {
 
 function isSameDeckIdentity(left: Deck, right: Deck) {
   return left.deckId === right.deckId && left.projectId === right.projectId;
+}
+
+export function shouldApplyManualSaveResult(args: {
+  snapshotDeck: Deck;
+  currentDeck: Deck;
+}) {
+  const { snapshotDeck, currentDeck } = args;
+
+  return (
+    currentDeck.version === snapshotDeck.version &&
+    isSameDeckIdentity(currentDeck, snapshotDeck)
+  );
 }
 
 export function mergeDeckIntoQueryCache(
@@ -427,12 +755,18 @@ export function EditorShell(props: { projectId?: string }) {
     tone: ToolbarNoticeTone;
   } | null>(null);
   const [isImageUploadPending, setIsImageUploadPending] = useState(false);
+  const [saveState, setSaveState] = useState<SaveState>("idle");
+  const [saveErrorMessage, setSaveErrorMessage] = useState<string | null>(null);
   const [undoStack, setUndoStack] = useState<Deck[]>([]);
   const [redoStack, setRedoStack] = useState<Deck[]>([]);
   const topbarRef = useRef<HTMLElement | null>(null);
   const shapeMenuButtonRef = useRef<HTMLButtonElement | null>(null);
   const imageFileInputRef = useRef<HTMLInputElement | null>(null);
   const copiedElementRef = useRef<ElementClipboardState | null>(null);
+  const editorStageRef = useRef<Konva.Stage | null>(null);
+  const slideRenderStageRef = useRef<Konva.Stage | null>(null);
+  const [renderingDeck, setRenderingDeck] = useState<Deck | null>(null);
+  const [renderingSlideIndex, setRenderingSlideIndex] = useState<number | null>(null);
 
   const health = useQuery({
     queryKey: ["health"],
@@ -452,6 +786,7 @@ export function EditorShell(props: { projectId?: string }) {
   const imageUploadTargetRef = useRef<ImageUploadTarget | null>(null);
   const resolvedUploadProjectIdRef = useRef<string | null>(null);
   const saveQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const pendingSaveCountRef = useRef(0);
   const hasHydratedPersistedDeckRef = useRef(false);
   const hasLocalOptimisticChangesRef = useRef(false);
   const isUsingFallbackDeck = !deckQuery.data;
@@ -462,7 +797,8 @@ export function EditorShell(props: { projectId?: string }) {
   const saveStatusLabel = getEditorStatusLabel({
     isDeckError,
     isDeckLoading,
-    isUsingFallbackDeck
+    isUsingFallbackDeck,
+    saveState
   });
   const visibleElements = currentSlide
     ? getRenderableSlideElements(currentSlide, deck.canvas)
@@ -496,7 +832,15 @@ export function EditorShell(props: { projectId?: string }) {
   const fileMenuItems = [
     { icon: FolderPlus, label: "새 프레젠테이션", meta: "빈 덱" },
     { icon: Upload, label: "PPTX 가져오기", meta: "업로드" },
-    { icon: Cloud, label: "저장", meta: deckQuery.data ? "자동 저장됨" : "demo fallback" }
+    {
+      icon: Cloud,
+      label: saveState === "saving" ? "저장 중..." : "저장",
+      meta: saveErrorMessage
+        ? "저장 실패"
+        : deckQuery.data
+          ? saveStatusLabel
+          : "demo fallback"
+    }
   ];
   const exportMenuItems = [
     { icon: Download, label: "PPTX 내보내기" },
@@ -584,6 +928,165 @@ export function EditorShell(props: { projectId?: string }) {
     setLastPatchLabel(
       `${response.changeRecord.operations[0]?.type ?? "ai suggestion"} · v${response.deck.version}`
     );
+    setSaveState("idle");
+    setSaveErrorMessage(null);
+  }
+
+  function applyPersistedDeckState(nextDeck: Deck) {
+    queryClient.setQueryData(["deck", projectId], nextDeck);
+    deckRef.current = nextDeck;
+    hasHydratedPersistedDeckRef.current = true;
+    hasLocalOptimisticChangesRef.current = false;
+    flushSync(() => {
+      setDeck(nextDeck);
+    });
+  }
+
+  async function syncSlideRenderAssets(
+    activeProjectId: string,
+    sourceDeck: Deck
+  ) {
+    if (sourceDeck.slides.length === 0) {
+      return {
+        deck: sourceDeck,
+        missingAssetCount: 0,
+      };
+    }
+
+    const nextDeck = structuredClone(normalizeDeckAssetUrls(sourceDeck));
+    let missingAssetCount = 0;
+    flushSync(() => {
+      setRenderingDeck(nextDeck);
+    });
+
+    try {
+      for (let index = 0; index < nextDeck.slides.length; index += 1) {
+        const slide = nextDeck.slides[index];
+        missingAssetCount += await waitForSlideAssets(slide);
+
+        flushSync(() => {
+          setRenderingSlideIndex(index);
+        });
+        await waitForAnimationFrame();
+        await waitForAnimationFrame();
+
+        const stage = slideRenderStageRef.current;
+
+        if (!stage) {
+          throw new Error("슬라이드 렌더링 스테이지를 찾지 못했습니다.");
+        }
+
+        const renderFile = await createSlideRenderFile({
+          deck: nextDeck,
+          slide,
+          stage,
+          stageScale: 1,
+          slideNumber: slide.order || index + 1,
+        });
+        const uploaded = await uploadProjectAsset(
+          activeProjectId,
+          createSlideScopedUploadFile(
+            renderFile,
+            slide.order || index + 1,
+            "thumbnail",
+          ),
+          "thumbnail"
+        );
+
+        slide.thumbnailUrl = normalizeEditorAssetUrl(uploaded.url);
+      }
+    } finally {
+      flushSync(() => {
+        setRenderingDeck(null);
+        setRenderingSlideIndex(null);
+      });
+    }
+
+    return {
+      deck: nextDeck,
+      missingAssetCount,
+    };
+  }
+
+  async function handleSaveDeck() {
+    const activeProjectId = deckRef.current.projectId || deckQuery.data?.projectId;
+
+    if (!activeProjectId) {
+      setSaveState("error");
+      setSaveErrorMessage("저장할 프로젝트를 찾지 못했습니다.");
+      return;
+    }
+
+    setSaveState("saving");
+    setSaveErrorMessage(null);
+    setActiveTopMenu(null);
+
+    const deckSnapshot = structuredClone(normalizeDeckAssetUrls(deckRef.current));
+
+    try {
+      await saveQueueRef.current.catch(() => undefined);
+
+      const persistedDeck = await putProjectDeck(activeProjectId, deckSnapshot);
+      let finalDeck = persistedDeck;
+
+      if (
+        shouldApplyManualSaveResult({
+          snapshotDeck: deckSnapshot,
+          currentDeck: deckRef.current,
+        })
+      ) {
+        applyPersistedDeckState(persistedDeck);
+      }
+
+      try {
+        const renderResult = await syncSlideRenderAssets(
+          activeProjectId,
+          finalDeck
+        );
+
+        finalDeck = await putProjectDeck(activeProjectId, renderResult.deck);
+
+        if (
+          shouldApplyManualSaveResult({
+            snapshotDeck: deckSnapshot,
+            currentDeck: deckRef.current,
+          })
+        ) {
+          applyPersistedDeckState(finalDeck);
+        }
+        setImageUploadNotice({
+          message:
+            renderResult.missingAssetCount > 0
+              ? `${finalDeck.slides.length}개 슬라이드 이미지 저장 완료 · 누락 이미지 ${renderResult.missingAssetCount}개`
+              : `${finalDeck.slides.length}개 슬라이드 이미지 저장 완료`,
+          tone: renderResult.missingAssetCount > 0 ? "info" : "success"
+        });
+        setLastPatchLabel(`수동 저장 · v${finalDeck.version}`);
+        setSaveState("idle");
+        setSaveErrorMessage(null);
+      } catch (renderError) {
+        if (
+          shouldApplyManualSaveResult({
+            snapshotDeck: deckSnapshot,
+            currentDeck: deckRef.current,
+          })
+        ) {
+          applyPersistedDeckState(persistedDeck);
+        }
+        setImageUploadNotice({
+          message: "덱 저장 완료, 슬라이드 이미지 저장 실패",
+          tone: "danger"
+        });
+        setLastPatchLabel(`수동 저장 · 렌더 실패 · v${persistedDeck.version}`);
+        setSaveState("error");
+        setSaveErrorMessage(toEditorErrorMessage(renderError));
+      }
+    } catch (error) {
+      setLastPatchLabel(`저장 실패 · ${toEditorErrorMessage(error)}`);
+      setSaveState("error");
+      setSaveErrorMessage(toEditorErrorMessage(error));
+      void deckQuery.refetch();
+    }
   }
 
   function commitPatch(patch: DeckPatch, baseDeck: Deck = deckRef.current) {
@@ -596,6 +1099,8 @@ export function EditorShell(props: { projectId?: string }) {
 
     deckRef.current = result.deck;
     hasLocalOptimisticChangesRef.current = true;
+    setSaveState("pending");
+    setSaveErrorMessage(null);
     setUndoStack((current) => [...current.slice(-49), baseDeck]);
     setRedoStack([]);
     setDeck(result.deck);
@@ -611,9 +1116,11 @@ export function EditorShell(props: { projectId?: string }) {
       mergeDeckIntoQueryCache(current, result.deck)
     );
 
+    pendingSaveCountRef.current += 1;
     saveQueueRef.current = saveQueueRef.current
       .catch(() => undefined)
       .then(async () => {
+        setSaveState("saving");
         const persistedDeck = await appendProjectDeckPatch(deckQuery.data.projectId, patch);
 
         queryClient.setQueryData(["deck", projectId], (current?: Deck) =>
@@ -627,7 +1134,17 @@ export function EditorShell(props: { projectId?: string }) {
       })
       .catch((error: unknown) => {
         setLastPatchLabel(`저장 실패 · ${toEditorErrorMessage(error)}`);
+        setSaveState("error");
+        setSaveErrorMessage(toEditorErrorMessage(error));
         void deckQuery.refetch();
+      })
+      .finally(() => {
+        pendingSaveCountRef.current = Math.max(0, pendingSaveCountRef.current - 1);
+        if (pendingSaveCountRef.current === 0) {
+          setSaveState("idle");
+        } else {
+          setSaveState("pending");
+        }
       });
   }
 
@@ -764,12 +1281,6 @@ export function EditorShell(props: { projectId?: string }) {
     setIsImageUploadPending(true);
 
     try {
-      const uploadProjectId = await resolveUploadProject(deckRef.current.projectId);
-      const uploaded = await uploadProjectAsset(
-        uploadProjectId,
-        file,
-        "reference-material"
-      );
       const activeDeck = deckRef.current;
       const targetSlideIndex = activeDeck.slides.findIndex(
         (slide) => slide.slideId === target.slideId
@@ -780,6 +1291,13 @@ export function EditorShell(props: { projectId?: string }) {
       }
 
       const targetSlide = activeDeck.slides[targetSlideIndex];
+      const uploadProjectId = await resolveUploadProject(deckRef.current.projectId);
+      const uploaded = await uploadProjectAsset(
+        uploadProjectId,
+        createSlideScopedUploadFile(file, targetSlide.order || targetSlideIndex + 1, "image"),
+        "reference-material"
+      );
+      const normalizedUploadedUrl = normalizeEditorAssetUrl(uploaded.url);
 
       if (target.type === "replace") {
         const targetElement = targetSlide.elements.find(
@@ -793,7 +1311,7 @@ export function EditorShell(props: { projectId?: string }) {
         commitPatch(
           createUpdateElementPropsPatch(activeDeck, target.slideId, target.elementId, {
             alt: file.name,
-            src: uploaded.url
+            src: normalizedUploadedUrl
           }),
           activeDeck
         );
@@ -824,7 +1342,7 @@ export function EditorShell(props: { projectId?: string }) {
             props: {
               alt: file.name,
               fit: "contain",
-              src: uploaded.url
+              src: normalizedUploadedUrl
             }
           }),
           activeDeck
@@ -2033,7 +2551,17 @@ export function EditorShell(props: { projectId?: string }) {
 
                 <div className="file-menu-list">
                   {fileMenuItems.map(({ icon: Icon, label, meta }) => (
-                    <button className="file-menu-item" key={label} role="menuitem" type="button">
+                    <button
+                      className="file-menu-item"
+                      key={label}
+                      role="menuitem"
+                      type="button"
+                      onClick={() => {
+                        if (label.startsWith("저장")) {
+                          void handleSaveDeck();
+                        }
+                      }}
+                    >
                       <span className="file-menu-label">
                         <Icon size={16} />
                         {label}
@@ -2140,7 +2668,18 @@ export function EditorShell(props: { projectId?: string }) {
               <div className="file-menu-popover action-popover" role="menu">
                 <div className="file-menu-list">
                   {presentationItems.map(({ icon: Icon, label, meta }) => (
-                    <button className="file-menu-item" key={label} role="menuitem" type="button">
+                    <button
+                    className="file-menu-item"
+                    key={label}
+                    role="menuitem"
+                    type="button"
+                    onClick={() => {
+                      if (label === presentationItems[2]?.label) {
+                        setActiveTopMenu(null);
+                        navigateToRehearsal(projectId);
+                      }
+                    }}
+                  >
                       <span className="file-menu-label">
                         <Icon size={16} />
                         {label}
@@ -2252,7 +2791,7 @@ export function EditorShell(props: { projectId?: string }) {
                       }}
                     >
                       <small>
-                        {slide.thumbnailUrl ? "미리보기 준비 중" : "미리보기 없음"}
+                        {slide.thumbnailUrl ? "미리보기 준비됨" : "미리보기 없음"}
                       </small>
                     </span>
                   </button>
@@ -2467,6 +3006,7 @@ export function EditorShell(props: { projectId?: string }) {
                     showIds={showIds}
                     slide={currentSlide}
                     stageScale={stageScale}
+                    stageRef={editorStageRef}
                     visibleElements={visibleElements}
                     onClearSelection={handleCanvasBackgroundSelectionClear}
                     onCommitElementFrame={handleElementFrameChange}
@@ -2491,6 +3031,14 @@ export function EditorShell(props: { projectId?: string }) {
                     onSelectElement={handleElementSelection}
                   />
                 </div>
+                {renderingDeck && renderingSlideIndex !== null &&
+                renderingDeck.slides[renderingSlideIndex] ? (
+                  <HiddenSlideRenderStage
+                    deck={renderingDeck}
+                    slide={renderingDeck.slides[renderingSlideIndex]}
+                    stageRef={slideRenderStageRef}
+                  />
+                ) : null}
               </div>
             ) : (
               <EmptyCanvasState canvas={deck.canvas} />
@@ -2732,6 +3280,11 @@ export function EditorShell(props: { projectId?: string }) {
 
 function buildSlideThumbBackground(slide: Slide, deck: Deck) {
   const background = slide.style.backgroundColor ?? deck.theme.backgroundColor;
+
+  if (slide.thumbnailUrl) {
+    return `url("${resolveEditorAssetUrl(slide.thumbnailUrl)}") center / cover no-repeat, ${background}`;
+  }
+
   const backgroundImage = slide.style.backgroundImage;
 
   if (!backgroundImage?.src) {
@@ -2743,7 +3296,7 @@ function buildSlideThumbBackground(slide: Slide, deck: Deck) {
 
   return [
     `linear-gradient(rgba(255,255,255,${overlayOpacity}), rgba(255,255,255,${overlayOpacity}))`,
-    `url("${backgroundImage.src}") center / ${size} no-repeat`,
+    `url("${resolveEditorAssetUrl(backgroundImage.src)}") center / ${size} no-repeat`,
     background
   ].join(",");
 }
@@ -2764,7 +3317,7 @@ function buildSlideBackgroundStyle(slide: Slide, deck: Deck): CSSProperties {
 
   return {
     backgroundColor,
-    backgroundImage: `linear-gradient(rgba(255,255,255,${overlayOpacity}), rgba(255,255,255,${overlayOpacity})), url("${backgroundImage.src}")`,
+    backgroundImage: `linear-gradient(rgba(255,255,255,${overlayOpacity}), rgba(255,255,255,${overlayOpacity})), url("${resolveEditorAssetUrl(backgroundImage.src)}")`,
     backgroundPosition: "center, center",
     backgroundRepeat: "no-repeat, no-repeat",
     backgroundSize: `100% 100%, ${size}`,
@@ -2788,6 +3341,7 @@ function getEditorStatusLabel(props: {
   isDeckError: boolean;
   isDeckLoading: boolean;
   isUsingFallbackDeck: boolean;
+  saveState: SaveState;
 }) {
   if (props.isDeckLoading) {
     return "불러오는 중";
@@ -2799,6 +3353,18 @@ function getEditorStatusLabel(props: {
 
   if (props.isUsingFallbackDeck) {
     return "로컬 데모";
+  }
+
+  if (props.saveState === "error") {
+    return "저장 실패";
+  }
+
+  if (props.saveState === "saving") {
+    return "저장 중";
+  }
+
+  if (props.saveState === "pending") {
+    return "저장 대기 중";
   }
 
   return "자동 저장됨";
@@ -4366,6 +4932,7 @@ function EditableCanvas(props: {
   showIds: boolean;
   slide: Slide;
   stageScale: number;
+  stageRef: MutableRefObject<Konva.Stage | null>;
   visibleElements: DeckElement[];
   onClearSelection: () => void;
   onCommitElementProps: (elementId: string, props: Record<string, unknown>) => void;
@@ -4418,6 +4985,7 @@ function EditableCanvas(props: {
     showIds,
     slide,
     stageScale,
+    stageRef,
     visibleElements,
     onClearSelection,
     onCommitElementProps,
@@ -4432,7 +5000,6 @@ function EditableCanvas(props: {
     onSetInsertTool,
     onSelectElement
   } = props;
-  const stageRef = useRef<Konva.Stage | null>(null);
   const transformerRef = useRef<Konva.Transformer | null>(null);
   const nodeRefs = useRef<Record<string, Konva.Group | null>>({});
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -6121,7 +6688,7 @@ function ImageElementContent(props: {
   imageProps: ImageElementProps;
 }) {
   const { frame, imageProps } = props;
-  const image = useLoadedImage(imageProps.src);
+  const image = useLoadedImage(resolveEditorAssetUrl(imageProps.src));
   const layout =
     image && image.naturalWidth > 0 && image.naturalHeight > 0
       ? getImageElementLayout({

@@ -6,10 +6,10 @@
     "build": "tsc -p tsconfig.json && vite build",
     "clean": "rm -rf dist",
     "dev": "vite --host 0.0.0.0",
-    "lint": "tsc -p tsconfig.json --noEmit",
+    "lint": "corepack pnpm --filter @orbit/shared build && tsc -p tsconfig.json --noEmit",
     "preview": "vite preview --host 0.0.0.0",
     "test": "vitest run --passWithNoTests",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "corepack pnpm --filter @orbit/shared build && tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
     "@orbit/editor-core": "workspace:*",

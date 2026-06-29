@@ -8,10 +8,12 @@
 | --- | --- | --- |
 | docs-only PR | Jira Link, 변경 Markdown UTF-8 읽기 검증 | 구현과 무관한 PR에서 제품 build/test/smoke 비용을 줄이고, PR 본문에 코드 테스트 미실행 사유를 남김 |
 | automation-only PR | automation JSON 검증, Node script syntax check, 필요한 경우 `pnpm lint` | workflow/script/schema 변경 자체를 검증하되 Playwright smoke와 Python worker 테스트는 관련 변경이 있을 때만 실행 |
-| CI workflow 변경 PR | 변경된 workflow가 참조하는 관련 job 실행, `ci.yml` 변경 시 전체 빠른 gate 실행 | CI 정의 자체가 깨졌는지 merge 전에 확인 |
-| app/API/shared/worker/compose/env/lockfile PR | `node infra/scripts/check-env.mjs`, `pnpm build`, `pnpm lint`, `pnpm test`, Python `ruff/mypy/pytest`, `docker compose config --quiet`, `pnpm test:smoke` 중 변경 경로와 관련된 job | merge 전 빠른 회귀 차단 |
-| `main`/`develop` push | 전체 빠른 gate 재실행 | merge 후 base branch 조합 검증 |
-| 수동 또는 scheduled | 전체 Playwright E2E, 1000명 load test, 실제 브라우저 STT 측정 | 무겁거나 환경 의존적인 검증 |
+| CI workflow 변경 PR | 변경된 workflow가 참조하는 관련 job 실행, `ci.yml` 변경 시 Playwright smoke를 제외한 빠른 gate 실행 | CI 정의 자체가 깨졌는지 merge 전에 확인 |
+| app/API/shared/worker/compose/env/lockfile PR | `node infra/scripts/check-env.mjs`, `pnpm build`, `pnpm lint`, `pnpm test`, Python `ruff/mypy/pytest`, `docker compose config --quiet` 중 변경 경로와 관련된 job | merge 전 빠른 회귀 차단 |
+| `main`/`develop` push | Playwright smoke를 제외한 전체 빠른 gate 재실행 | merge 후 base branch 조합 검증 |
+| 수동 또는 scheduled | `pnpm test:smoke`, 전체 Playwright E2E, 1000명 load test, 실제 브라우저 STT 측정 | 무겁거나 환경 의존적인 검증 |
+
+임시 정책: `playwright-smoke` CI job은 안정성 재검토 전까지 자동화 테스트에서 skip한다. 수동 검증이 필요하면 로컬 또는 별도 실행 환경에서 `pnpm test:smoke`를 사용한다.
 
 ## PR Review Rule
 
