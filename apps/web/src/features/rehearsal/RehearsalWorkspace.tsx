@@ -485,6 +485,7 @@ export function RehearsalWorkspace(props: {
   initialDeck?: Deck;
   liveSttAdapter?: LiveSttAdapter;
   autoAdvanceDelayMs?: number;
+  projectId?: string;
 }) {
   const [deck, setDeck] = useState<Deck | null>(props.initialDeck ?? null);
   const [currentSlideIndex, setCurrentSlideIndex] = useState(0);
@@ -523,7 +524,7 @@ export function RehearsalWorkspace(props: {
 
     let isCancelled = false;
     setPhase("loading");
-    void fetchRehearsalDeck()
+    void fetchRehearsalDeck(props.projectId ?? demoIds.projectId)
       .then((nextDeck) => {
         if (!isCancelled) {
           setDeck(nextDeck);
@@ -541,7 +542,7 @@ export function RehearsalWorkspace(props: {
       isCancelled = true;
       stopMediaStream(streamRef.current);
     };
-  }, [props.initialDeck]);
+  }, [props.initialDeck, props.projectId]);
 
   useEffect(() => {
     deckRef.current = deck;
@@ -765,7 +766,7 @@ export function RehearsalWorkspace(props: {
 
     try {
       const result = await runRehearsalUploadFlow({
-        projectId: demoIds.projectId,
+        projectId: props.projectId ?? demoIds.projectId,
         deckId,
         audioFile,
         onJobUpdate: (nextJob) => {

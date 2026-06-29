@@ -262,8 +262,8 @@ async function fetchHealth(): Promise<HealthResponse> {
   return response.json() as Promise<HealthResponse>;
 }
 
-async function fetchDeck(): Promise<Deck> {
-  const response = await fetch(`/api/v1/projects/${demoIds.projectId}/deck`);
+async function fetchDeck(projectId: string): Promise<Deck> {
+  const response = await fetch(`/api/v1/projects/${projectId}/deck`);
   if (!response.ok) {
     throw new Error("Deck fetch failed");
   }
@@ -271,7 +271,8 @@ async function fetchDeck(): Promise<Deck> {
   return payload.deck;
 }
 
-export function EditorShell() {
+export function EditorShell(props: { projectId?: string }) {
+  const projectId = props.projectId ?? demoIds.projectId;
   const [currentSlideIndex, setCurrentSlideIndex] = useState(0);
   const [isDataViewOpen, setIsDataViewOpen] = useState(false);
   const [isRightPanelOpen, setIsRightPanelOpen] = useState(true);
@@ -314,8 +315,8 @@ export function EditorShell() {
   });
 
   const deckQuery = useQuery({
-    queryKey: ["deck", demoIds.projectId],
-    queryFn: fetchDeck,
+    queryKey: ["deck", projectId],
+    queryFn: () => fetchDeck(projectId),
     retry: false
   });
 
