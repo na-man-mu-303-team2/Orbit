@@ -224,8 +224,8 @@ function createLegacyKeywordDeck(deck: Deck): Deck {
     {
       keywordId: "kw_two",
       text: "orbit",
-      synonyms: ["리허설"],
-      abbreviations: ["STT"]
+      synonyms: ["ORBIT", "리허설"],
+      abbreviations: ["발표 도우미", "STT"]
     }
   ];
 

@@ -83,18 +83,16 @@ export const keywordSchema = z.object({
 export const slideKeywordsSchema = z
   .array(keywordSchema)
   .superRefine((keywords, ctx) => {
-    const keywordTexts = new Set<string>();
-    const synonyms = new Set<string>();
-    const abbreviations = new Set<string>();
+    const terms = new Set<string>();
 
     keywords.forEach((keyword, keywordIndex) => {
-      requireUniqueKeywordTerm(ctx, keywordTexts, keyword.text, [
+      requireUniqueKeywordTerm(ctx, terms, keyword.text, [
         keywordIndex,
         "text"
       ]);
 
       keyword.synonyms.forEach((synonym, synonymIndex) => {
-        requireUniqueKeywordTerm(ctx, synonyms, synonym, [
+        requireUniqueKeywordTerm(ctx, terms, synonym, [
           keywordIndex,
           "synonyms",
           synonymIndex
@@ -102,7 +100,7 @@ export const slideKeywordsSchema = z
       });
 
       keyword.abbreviations.forEach((abbreviation, abbreviationIndex) => {
-        requireUniqueKeywordTerm(ctx, abbreviations, abbreviation, [
+        requireUniqueKeywordTerm(ctx, terms, abbreviation, [
           keywordIndex,
           "abbreviations",
           abbreviationIndex

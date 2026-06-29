@@ -447,7 +447,7 @@ function normalizeLegacyDeckKeywords(deckJson: unknown): unknown {
 
 function normalizeLegacySlideKeywords(keywords: unknown[]): unknown[] {
   const normalizedKeywords: unknown[] = [];
-  const keywordByText = new Map<string, Record<string, unknown>>();
+  const keywordByTerm = new Map<string, Record<string, unknown>>();
 
   for (const keyword of keywords) {
     if (!isRecord(keyword)) {
@@ -464,43 +464,68 @@ function normalizeLegacySlideKeywords(keywords: unknown[]): unknown[] {
       continue;
     }
 
-    const normalizedKeyword = {
-      ...keyword,
-      text,
-      synonyms: normalizeLegacyKeywordTermList(keyword.synonyms),
-      abbreviations: normalizeLegacyKeywordTermList(keyword.abbreviations)
-    };
-    const textKey = text.toLocaleLowerCase("ko-KR");
-    const existingKeyword = keywordByText.get(textKey);
+    const textKey = normalizeLegacyKeywordTermKey(text);
+    const existingKeyword = keywordByTerm.get(textKey);
 
     if (existingKeyword) {
-      existingKeyword.synonyms = mergeLegacyKeywordTermLists(
+      existingKeyword.synonyms = appendLegacyKeywordTerms(
         existingKeyword.synonyms,
-        normalizedKeyword.synonyms
+        keyword.synonyms,
+        keywordByTerm,
+        existingKeyword
       );
-      existingKeyword.abbreviations = mergeLegacyKeywordTermLists(
+      existingKeyword.abbreviations = appendLegacyKeywordTerms(
         existingKeyword.abbreviations,
-        normalizedKeyword.abbreviations
+        keyword.abbreviations,
+        keywordByTerm,
+        existingKeyword
       );
       continue;
     }
 
-    keywordByText.set(textKey, normalizedKeyword);
+    const normalizedKeyword: Record<string, unknown> = {
+      ...keyword,
+      text,
+      synonyms: [],
+      abbreviations: []
+    };
+
+    keywordByTerm.set(textKey, normalizedKeyword);
+    normalizedKeyword.synonyms = appendLegacyKeywordTerms(
+      normalizedKeyword.synonyms,
+      keyword.synonyms,
+      keywordByTerm,
+      normalizedKeyword
+    );
+    normalizedKeyword.abbreviations = appendLegacyKeywordTerms(
+      normalizedKeyword.abbreviations,
+      keyword.abbreviations,
+      keywordByTerm,
+      normalizedKeyword
+    );
     normalizedKeywords.push(normalizedKeyword);
   }
 
   return normalizedKeywords;
 }
 
-function normalizeLegacyKeywordTermList(value: unknown): unknown {
-  if (!Array.isArray(value)) {
-    return value;
+function appendLegacyKeywordTerms(
+  current: unknown,
+  incoming: unknown,
+  keywordByTerm: Map<string, Record<string, unknown>>,
+  ownerKeyword: Record<string, unknown>
+): unknown {
+  if (incoming === undefined) {
+    return current;
   }
 
-  const terms: unknown[] = [];
-  const seenTerms = new Set<string>();
+  if (!Array.isArray(incoming)) {
+    return incoming;
+  }
 
-  for (const term of value) {
+  const terms = Array.isArray(current) ? [...current] : [];
+
+  for (const term of incoming) {
     const normalizedTerm = normalizeLegacyKeywordTerm(term);
 
     if (!normalizedTerm) {
@@ -510,25 +535,17 @@ function normalizeLegacyKeywordTermList(value: unknown): unknown {
       continue;
     }
 
-    const termKey = normalizedTerm.toLocaleLowerCase("ko-KR");
+    const termKey = normalizeLegacyKeywordTermKey(normalizedTerm);
 
-    if (seenTerms.has(termKey)) {
+    if (keywordByTerm.has(termKey)) {
       continue;
     }
 
-    seenTerms.add(termKey);
+    keywordByTerm.set(termKey, ownerKeyword);
     terms.push(normalizedTerm);
   }
 
   return terms;
-}
-
-function mergeLegacyKeywordTermLists(current: unknown, incoming: unknown): unknown {
-  if (!Array.isArray(current) || !Array.isArray(incoming)) {
-    return current;
-  }
-
-  return normalizeLegacyKeywordTermList([...current, ...incoming]);
 }
 
 function normalizeLegacyKeywordTerm(value: unknown): string | undefined {
@@ -538,6 +555,10 @@ function normalizeLegacyKeywordTerm(value: unknown): string | undefined {
 
   const term = value.trim();
   return term.length > 0 ? term : undefined;
+}
+
+function normalizeLegacyKeywordTermKey(value: string): string {
+  return value.toLocaleLowerCase("ko-KR");
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

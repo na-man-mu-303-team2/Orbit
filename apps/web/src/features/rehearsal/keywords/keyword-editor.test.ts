@@ -117,4 +117,30 @@ describe("keyword-editor model", () => {
       "빈 동의어는 저장할 수 없습니다."
     );
   });
+
+  it("rejects keyword terms duplicated across keyword types", () => {
+    const deck = createDemoDeck();
+    const keywords = [
+      {
+        keywordId: "kw_one",
+        text: "ORBIT",
+        synonyms: ["발표 도우미"],
+        abbreviations: ["OD"]
+      },
+      {
+        keywordId: "kw_two",
+        text: "리허설",
+        synonyms: ["orbit"],
+        abbreviations: ["발표 도우미"]
+      }
+    ];
+
+    expect(validateSlideKeywords(keywords).map((issue) => issue.field)).toEqual([
+      "synonym",
+      "abbreviation"
+    ]);
+    expect(() => buildReplaceKeywordsRequest(deck, "slide_1", keywords)).toThrow(
+      "같은 슬라이드에 같은 키워드, 동의어 또는 약어가 이미 있습니다."
+    );
+  });
 });

@@ -81,17 +81,15 @@ export function validateSlideKeywords(
   keywords: Keyword[]
 ): KeywordValidationIssue[] {
   const issues: KeywordValidationIssue[] = [];
-  const keywordTexts = new Set<string>();
-  const synonyms = new Set<string>();
-  const abbreviations = new Set<string>();
+  const terms = new Set<string>();
 
   for (const keyword of keywords) {
     const text = keyword.text.trim();
 
     if (!text) {
       issues.push({ field: "keyword", message: "빈 키워드는 저장할 수 없습니다." });
-    } else if (hasSeen(keywordTexts, text)) {
-      issues.push({ field: "keyword", message: "같은 슬라이드에 중복 키워드가 있습니다." });
+    } else if (hasSeen(terms, text)) {
+      issues.push({ field: "keyword", message: duplicateTermMessage });
     }
 
     for (const synonym of keyword.synonyms) {
@@ -99,8 +97,8 @@ export function validateSlideKeywords(
 
       if (!value) {
         issues.push({ field: "synonym", message: "빈 동의어는 저장할 수 없습니다." });
-      } else if (hasSeen(synonyms, value)) {
-        issues.push({ field: "synonym", message: "같은 슬라이드에 중복 동의어가 있습니다." });
+      } else if (hasSeen(terms, value)) {
+        issues.push({ field: "synonym", message: duplicateTermMessage });
       }
     }
 
@@ -112,10 +110,10 @@ export function validateSlideKeywords(
           field: "abbreviation",
           message: "빈 약어는 저장할 수 없습니다."
         });
-      } else if (hasSeen(abbreviations, value)) {
+      } else if (hasSeen(terms, value)) {
         issues.push({
           field: "abbreviation",
-          message: "같은 슬라이드에 중복 약어가 있습니다."
+          message: duplicateTermMessage
         });
       }
     }
@@ -123,6 +121,9 @@ export function validateSlideKeywords(
 
   return issues;
 }
+
+const duplicateTermMessage =
+  "같은 슬라이드에 같은 키워드, 동의어 또는 약어가 이미 있습니다.";
 
 export function buildReplaceKeywordsRequest(
   deck: Deck,
