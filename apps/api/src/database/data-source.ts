@@ -13,6 +13,7 @@ import { CreateProjectsAndProjectAssets2026062703000 } from "./migrations/202606
 import { CreateReferenceChunks2026062700100 } from "./migrations/2026062700100-CreateReferenceChunks";
 import { CreateRehearsalRuns2026062901000 } from "./migrations/2026062901000-CreateRehearsalRuns";
 import { CreateAiSuggestions2026062902000 } from "./migrations/2026062902000-CreateAiSuggestions";
+import { AddRehearsalReportColumns2026062903000 } from "./migrations/2026062903000-AddRehearsalReportColumns";
 
 loadDotenv({ path: "../../.env.local" });
 loadDotenv({ path: ".env.local" });
@@ -37,7 +38,8 @@ export const databaseOptions: DataSourceOptions = {
     CreateAuthUsers2026062702000,
     CreateProjectsAndProjectAssets2026062703000,
     CreateRehearsalRuns2026062901000,
-    CreateAiSuggestions2026062902000
+    CreateAiSuggestions2026062902000,
+    AddRehearsalReportColumns2026062903000
   ],
   migrationsTableName: "typeorm_migrations",
   synchronize: false,
