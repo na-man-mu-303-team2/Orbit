@@ -209,8 +209,8 @@ test.describe("ORBIT-27 AI suggestion review/apply", () => {
       }
     );
 
-    await page.goto("/");
-    await page.getByRole("button", { name: "편집기 열기" }).click();
+    await page.goto("/project/project_demo_1");
+    await expect(page.getByLabel("Presentation editor")).toBeVisible();
 
     const aiPanel = page.getByLabel("AI 제안");
     await expect(aiPanel.getByText("발표 메모 개선")).toBeVisible();
@@ -224,7 +224,7 @@ test.describe("ORBIT-27 AI suggestion review/apply", () => {
     expect(applyCount).toBe(1);
 
     await page.reload();
-    await page.getByRole("button", { name: "편집기 열기" }).click();
+    await expect(page.getByLabel("Presentation editor")).toBeVisible();
 
     await expect(page.getByText(appliedNotes)).toBeVisible();
     await expect(aiPanel.getByText("적용됨")).toBeVisible();
