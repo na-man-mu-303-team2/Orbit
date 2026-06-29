@@ -14,7 +14,7 @@ import { DecksService } from "./decks.service";
 type StoredDeckRow = {
   project_id: string;
   deck_id: string;
-  deck_json: Deck;
+  deck_json: unknown;
   version: number;
   updated_at: string;
 };
@@ -35,7 +35,7 @@ type StoredSnapshotRow = {
   snapshot_id: string;
   project_id: string;
   deck_id: string;
-  deck_json: Deck;
+  deck_json: unknown;
   version: number;
   reason: DeckSnapshotReason;
   created_at: string;
@@ -211,6 +211,52 @@ function createDeck(): Deck {
   });
 }
 
+function createLegacyKeywordDeck(deck: Deck): Deck {
+  const legacyDeck = cloneJson(deck);
+
+  legacyDeck.slides[0].keywords = [
+    {
+      keywordId: "kw_one",
+      text: " ORBIT ",
+      synonyms: ["발표 도우미", "", "발표 도우미"],
+      abbreviations: ["OD", "od", " "]
+    },
+    {
+      keywordId: "kw_two",
+      text: "orbit",
+      synonyms: ["리허설"],
+      abbreviations: ["STT"]
+    }
+  ];
+
+  return legacyDeck;
+}
+
+function createNormalizedLegacyKeywords(): Deck["slides"][number]["keywords"] {
+  return [
+    {
+      keywordId: "kw_one",
+      text: "ORBIT",
+      synonyms: ["발표 도우미", "리허설"],
+      abbreviations: ["OD", "STT"]
+    }
+  ];
+}
+
+function seedStoredDeck(
+  dataSource: InMemoryDeckDataSource,
+  deck: Deck,
+  deckJson: unknown
+): void {
+  dataSource.decks.set(deck.projectId, {
+    project_id: deck.projectId,
+    deck_id: deck.deckId,
+    deck_json: cloneJson(deckJson),
+    version: deck.version,
+    updated_at: "2026-06-29T00:00:00.000Z"
+  });
+}
+
 function createUpdateTitlePatch(
   deck: Deck,
   title: string,
@@ -313,6 +359,43 @@ describe("DecksService", () => {
     );
   });
 
+  it("normalizes legacy keyword terms when reading stored deck JSON", async () => {
+    const { dataSource, service } = createService();
+    const deck = createDeck();
+
+    seedStoredDeck(dataSource, deck, createLegacyKeywordDeck(deck));
+
+    const response = await service.getDeck(deck.projectId);
+
+    expect(response.deck.slides[0].keywords).toEqual(
+      createNormalizedLegacyKeywords()
+    );
+  });
+
+  it("normalizes legacy keyword terms before applying patches", async () => {
+    const { dataSource, service } = createService();
+    const deck = createDeck();
+
+    seedStoredDeck(dataSource, deck, createLegacyKeywordDeck(deck));
+
+    const response = await service.appendPatch(deck.projectId, {
+      patch: createUpdateTitlePatch(deck, "수정된 덱")
+    });
+
+    expect(response.deck.title).toBe("수정된 덱");
+    expect(response.deck.slides[0].keywords).toEqual(
+      createNormalizedLegacyKeywords()
+    );
+    expect(dataSource.decks.get(deck.projectId)?.deck_json).toMatchObject({
+      title: "수정된 덱",
+      slides: [
+        {
+          keywords: createNormalizedLegacyKeywords()
+        }
+      ]
+    });
+  });
+
   it("applies a patch, increments the deck version, and stores change history", async () => {
     const { dataSource, service } = createService();
     const deck = createDeck();
@@ -375,6 +458,37 @@ describe("DecksService", () => {
     expect(getResponse.deck).toMatchObject({
       title: deck.title,
       version: 1
+    });
+  });
+
+  it("normalizes legacy keyword terms when restoring snapshots", async () => {
+    const { dataSource, service } = createService();
+    const deck = createDeck();
+
+    dataSource.snapshotRows.push({
+      snapshot_id: "snapshot_legacy_keywords",
+      project_id: deck.projectId,
+      deck_id: deck.deckId,
+      deck_json: createLegacyKeywordDeck(deck),
+      version: deck.version,
+      reason: "deck-replaced",
+      created_at: "2026-06-29T00:00:00.000Z"
+    });
+
+    const response = await service.restoreSnapshot(
+      deck.projectId,
+      "snapshot_legacy_keywords"
+    );
+
+    expect(response.deck.slides[0].keywords).toEqual(
+      createNormalizedLegacyKeywords()
+    );
+    expect(dataSource.decks.get(deck.projectId)?.deck_json).toMatchObject({
+      slides: [
+        {
+          keywords: createNormalizedLegacyKeywords()
+        }
+      ]
     });
   });
 

@@ -215,7 +215,7 @@ export class DecksService {
       }
 
       const restoredSnapshot = parseSnapshotRow(snapshotRow);
-      const deck = deckSchema.parse(snapshotRow.deck_json);
+      const deck = parseDeckJson(snapshotRow.deck_json);
       const updatedAt = nowIso();
       await this.upsertDeck(manager, deck, updatedAt);
 
@@ -412,7 +412,136 @@ function parseDeckRow(row: DeckRow | undefined): Deck {
     );
   }
 
-  return deckSchema.parse(row.deck_json);
+  return parseDeckJson(row.deck_json);
+}
+
+function parseDeckJson(deckJson: unknown): Deck {
+  const result = deckSchema.safeParse(deckJson);
+
+  if (result.success) {
+    return result.data;
+  }
+
+  return deckSchema.parse(normalizeLegacyDeckKeywords(deckJson));
+}
+
+function normalizeLegacyDeckKeywords(deckJson: unknown): unknown {
+  if (!isRecord(deckJson) || !Array.isArray(deckJson.slides)) {
+    return deckJson;
+  }
+
+  return {
+    ...deckJson,
+    slides: deckJson.slides.map((slide) => {
+      if (!isRecord(slide) || !Array.isArray(slide.keywords)) {
+        return slide;
+      }
+
+      return {
+        ...slide,
+        keywords: normalizeLegacySlideKeywords(slide.keywords)
+      };
+    })
+  };
+}
+
+function normalizeLegacySlideKeywords(keywords: unknown[]): unknown[] {
+  const normalizedKeywords: unknown[] = [];
+  const keywordByText = new Map<string, Record<string, unknown>>();
+
+  for (const keyword of keywords) {
+    if (!isRecord(keyword)) {
+      normalizedKeywords.push(keyword);
+      continue;
+    }
+
+    const text = normalizeLegacyKeywordTerm(keyword.text);
+
+    if (!text) {
+      if (typeof keyword.text !== "string") {
+        normalizedKeywords.push(keyword);
+      }
+      continue;
+    }
+
+    const normalizedKeyword = {
+      ...keyword,
+      text,
+      synonyms: normalizeLegacyKeywordTermList(keyword.synonyms),
+      abbreviations: normalizeLegacyKeywordTermList(keyword.abbreviations)
+    };
+    const textKey = text.toLocaleLowerCase("ko-KR");
+    const existingKeyword = keywordByText.get(textKey);
+
+    if (existingKeyword) {
+      existingKeyword.synonyms = mergeLegacyKeywordTermLists(
+        existingKeyword.synonyms,
+        normalizedKeyword.synonyms
+      );
+      existingKeyword.abbreviations = mergeLegacyKeywordTermLists(
+        existingKeyword.abbreviations,
+        normalizedKeyword.abbreviations
+      );
+      continue;
+    }
+
+    keywordByText.set(textKey, normalizedKeyword);
+    normalizedKeywords.push(normalizedKeyword);
+  }
+
+  return normalizedKeywords;
+}
+
+function normalizeLegacyKeywordTermList(value: unknown): unknown {
+  if (!Array.isArray(value)) {
+    return value;
+  }
+
+  const terms: unknown[] = [];
+  const seenTerms = new Set<string>();
+
+  for (const term of value) {
+    const normalizedTerm = normalizeLegacyKeywordTerm(term);
+
+    if (!normalizedTerm) {
+      if (typeof term !== "string") {
+        terms.push(term);
+      }
+      continue;
+    }
+
+    const termKey = normalizedTerm.toLocaleLowerCase("ko-KR");
+
+    if (seenTerms.has(termKey)) {
+      continue;
+    }
+
+    seenTerms.add(termKey);
+    terms.push(normalizedTerm);
+  }
+
+  return terms;
+}
+
+function mergeLegacyKeywordTermLists(current: unknown, incoming: unknown): unknown {
+  if (!Array.isArray(current) || !Array.isArray(incoming)) {
+    return current;
+  }
+
+  return normalizeLegacyKeywordTermList([...current, ...incoming]);
+}
+
+function normalizeLegacyKeywordTerm(value: unknown): string | undefined {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+
+  const term = value.trim();
+  return term.length > 0 ? term : undefined;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function parseSnapshotRow(row: DeckSnapshotRow): DeckSnapshot {
