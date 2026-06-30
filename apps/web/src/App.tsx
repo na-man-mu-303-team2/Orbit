@@ -118,7 +118,7 @@ type RejectedFile = {
   reason: string;
 };
 
-type Route =
+export type Route =
   | { name: "login" }
   | { name: "home" }
   | { name: "create-deck" }
@@ -276,7 +276,7 @@ export function App() {
     }
   }, [auth.isError, route.name]);
 
-  if (route.name === "rehearsal-report") {
+  if (!shouldRenderAppFrame(route)) {
     return renderRoute(route, auth.data);
   }
 
@@ -289,6 +289,10 @@ export function App() {
       {renderRoute(route, auth.data)}
     </AppFrame>
   );
+}
+
+export function shouldRenderAppFrame(route: Route) {
+  return route.name !== "login" && route.name !== "rehearsal-report";
 }
 
 function renderRoute(route: Route, user?: AuthUser) {
