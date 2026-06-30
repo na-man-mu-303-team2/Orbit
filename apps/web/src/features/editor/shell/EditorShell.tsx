@@ -16,6 +16,7 @@ import {
 } from "../../../../../../packages/editor-core/src/patches/elementFrame";
 import {
   appendDeckPatchResponseSchema,
+  deckApiErrorSchema,
   demoIds,
   getDeckResponseSchema,
   maxAssetUploadSizeBytes,
@@ -72,7 +73,8 @@ import type {
   GroupElementProps,
   ImageElementProps,
   ShapeElementProps,
-  Slide
+  Slide,
+  DeckApiErrorCode
 } from "@orbit/shared";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type Konva from "konva";
@@ -245,8 +247,51 @@ async function fetchHealth(): Promise<HealthResponse> {
 }
 
 async function readResponseError(response: Response, fallbackMessage: string) {
-  const message = await response.text();
-  return message || fallbackMessage;
+  const text = await response.text();
+
+  if (!text) {
+    return new DeckRequestError(fallbackMessage, response.status);
+  }
+
+  try {
+    const payload = deckApiErrorSchema.parse(JSON.parse(text));
+    return new DeckRequestError(payload.message, response.status, payload.code, payload.details);
+  } catch {
+    return new DeckRequestError(text, response.status);
+  }
+}
+
+class DeckRequestError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+    readonly code?: DeckApiErrorCode,
+    readonly details: string[] = []
+  ) {
+    super(message);
+    this.name = "DeckRequestError";
+  }
+}
+
+function isDeckRequestErrorWithCode(
+  error: unknown,
+  code: DeckApiErrorCode
+): error is DeckRequestError {
+  return error instanceof DeckRequestError && error.code === code;
+}
+
+function createPatchForPersistedDeck(deck: Deck, patch: DeckPatch): DeckPatch {
+  const nextPatch = {
+    ...patch,
+    baseVersion: deck.version
+  } satisfies DeckPatch;
+  const result = applyDeckPatch(deck, nextPatch);
+
+  if (!result.ok) {
+    throw new Error("최신 내용과 충돌해 저장할 수 없습니다. 다시 저장해 주세요.");
+  }
+
+  return nextPatch;
 }
 
 function waitForAnimationFrame() {
@@ -499,7 +544,7 @@ async function fetchProjectDeck(projectId: string): Promise<Deck | null> {
   }
 
   if (!response.ok) {
-    throw new Error(await readResponseError(response, "Deck fetch failed"));
+    throw await readResponseError(response, "Deck fetch failed");
   }
 
   const payload = getDeckResponseSchema.parse(await response.json());
@@ -523,7 +568,7 @@ async function putProjectDeck(projectId: string, deck: Deck): Promise<Deck> {
   });
 
   if (!response.ok) {
-    throw new Error(await readResponseError(response, "Deck bootstrap failed"));
+    throw await readResponseError(response, "Deck bootstrap failed");
   }
 
   const payload = putDeckResponseSchema.parse(await response.json());
@@ -546,7 +591,7 @@ async function appendProjectDeckPatch(
   });
 
   if (!response.ok) {
-    throw new Error(await readResponseError(response, "Deck save failed"));
+    throw await readResponseError(response, "Deck save failed");
   }
 
   const payload = appendDeckPatchResponseSchema.parse(await response.json());
@@ -619,6 +664,7 @@ export function EditorShell(props: { projectId?: string }) {
   const loadedDeck = deckQuery.data ?? fallbackDeck;
   const [deck, setDeck] = useState<Deck>(loadedDeck);
   const deckRef = useRef(loadedDeck);
+  const persistedDeckRef = useRef<Deck | null>(deckQuery.data ?? null);
   const imageUploadTargetRef = useRef<ImageUploadTarget | null>(null);
   const resolvedUploadProjectIdRef = useRef<string | null>(null);
   const saveQueueRef = useRef<Promise<void>>(Promise.resolve());
@@ -740,6 +786,7 @@ export function EditorShell(props: { projectId?: string }) {
     hasHydratedPersistedDeckRef.current = true;
     hasLocalOptimisticChangesRef.current = false;
     deckRef.current = persistedDeck;
+    persistedDeckRef.current = persistedDeck;
     setDeck(persistedDeck);
     setUndoStack([]);
     setRedoStack([]);
@@ -760,6 +807,7 @@ export function EditorShell(props: { projectId?: string }) {
   function handleAiSuggestionApplied(response: ApplyAiSuggestionResponse) {
     queryClient.setQueryData(["deck", projectId], response.deck);
     deckRef.current = response.deck;
+    persistedDeckRef.current = response.deck;
     setDeck(response.deck);
     setLastSavedAt(response.changeRecord.createdAt);
     setUndoStack([]);
@@ -778,6 +826,7 @@ export function EditorShell(props: { projectId?: string }) {
   function applyPersistedDeckState(nextDeck: Deck) {
     queryClient.setQueryData(["deck", projectId], nextDeck);
     deckRef.current = nextDeck;
+    persistedDeckRef.current = nextDeck;
     hasHydratedPersistedDeckRef.current = true;
     hasLocalOptimisticChangesRef.current = false;
     flushSync(() => {
@@ -1026,7 +1075,40 @@ export function EditorShell(props: { projectId?: string }) {
       .catch(() => undefined)
       .then(async () => {
         setSaveState("saving");
-        const persistedDeck = await appendProjectDeckPatch(deckQuery.data.projectId, patch);
+        const activeProjectId = deckQuery.data?.projectId ?? deckRef.current.projectId;
+
+        if (!activeProjectId) {
+          throw new Error("저장할 프로젝트를 찾지 못했습니다.");
+        }
+
+        const basePersistedDeck = persistedDeckRef.current ?? deckQuery.data;
+
+        if (!basePersistedDeck) {
+          throw new Error("최신 저장 상태를 찾지 못했습니다. 다시 불러온 뒤 저장해 주세요.");
+        }
+
+        let transportPatch = createPatchForPersistedDeck(basePersistedDeck, patch);
+        let persistedDeck: Deck;
+
+        try {
+          persistedDeck = await appendProjectDeckPatch(activeProjectId, transportPatch);
+        } catch (error) {
+          if (!isDeckRequestErrorWithCode(error, "STALE_BASE_VERSION")) {
+            throw error;
+          }
+
+          const latestDeck = await fetchProjectDeck(activeProjectId);
+
+          if (!latestDeck) {
+            throw new Error("최신 저장 상태를 다시 불러오지 못했습니다. 다시 시도해 주세요.");
+          }
+
+          persistedDeckRef.current = latestDeck;
+          transportPatch = createPatchForPersistedDeck(latestDeck, patch);
+          persistedDeck = await appendProjectDeckPatch(activeProjectId, transportPatch);
+        }
+
+        persistedDeckRef.current = persistedDeck;
         setLastSavedAt(new Date().toISOString());
 
         queryClient.setQueryData(["deck", projectId], (current?: Deck) =>
