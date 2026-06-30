@@ -23,6 +23,7 @@ import {
   getLiveAudioLevelPercent,
   getLiveSttDebugDecodingMethod,
   getRehearsalMicrophoneAudioConstraints,
+  shouldCompleteLiveSlideAdvance,
   normalizeRecordingMimeType,
   normalizeLiveTranscriptText,
   rehearsalMicrophoneAudioConstraints,
@@ -103,6 +104,42 @@ describe("RehearsalWorkspace", () => {
     expect(getUserMedia).toHaveBeenCalledWith({
       audio: rehearsalRawMicrophoneAudioConstraints
     });
+  });
+
+  it("falls back to default microphone constraints when localStorage is blocked", async () => {
+    const blockedWindow = {};
+    Object.defineProperty(blockedWindow, "localStorage", {
+      get() {
+        throw new DOMException("blocked", "SecurityError");
+      }
+    });
+    vi.stubGlobal("window", blockedWindow);
+    const stream = { getTracks: () => [] } as unknown as MediaStream;
+    const getUserMedia = vi.fn(async () => stream);
+
+    await expect(
+      requestRehearsalMicrophoneStream({
+        getUserMedia
+      } as unknown as Pick<MediaDevices, "getUserMedia">)
+    ).resolves.toBe(stream);
+
+    expect(getRehearsalMicrophoneAudioConstraints()).toBe(
+      rehearsalMicrophoneAudioConstraints
+    );
+    expect(getLiveSttDebugDecodingMethod()).toBeNull();
+    expect(
+      shouldShowLiveSttDebugPcmDownload(
+        {
+          blob: new Blob([]),
+          filename: "orbit-live-stt-model-input.wav",
+          sampleRate: 16000,
+          durationMs: 1000,
+          peak: 0.5,
+          rms: 0.2
+        },
+        undefined
+      )
+    ).toBe(false);
   });
 
   it("parses Live STT debug decoding method overrides defensively", () => {
@@ -467,6 +504,33 @@ describe("RehearsalWorkspace", () => {
     expect(biasedAnalysis.coverage).toBe(1);
   });
 
+  it("does not fuzzy-correct Korean prefix-only keyword fragments into coverage", () => {
+    const slide = {
+      ...createDemoDeck().slides[0]!,
+      slideId: "slide_1",
+      keywords: [
+        {
+          keywordId: "kw_orbit",
+          text: "오르빗",
+          synonyms: [],
+          abbreviations: []
+        }
+      ]
+    };
+    const biasContext = buildLiveSttBiasContext(slide);
+
+    for (const rawTranscript of [
+      "오늘은 오르 리허설을 시작합니다",
+      "오늘은 오르비 리허설을 시작합니다"
+    ]) {
+      const biasedTranscript = applyLiveTranscriptBias(rawTranscript, biasContext);
+      const biasedAnalysis = evaluateLiveTranscript(slide, biasedTranscript);
+
+      expect(biasedTranscript).toBe(rawTranscript);
+      expect(biasedAnalysis.coverage).toBe(0);
+    }
+  });
+
   it("does not fuzzy-correct short ascii abbreviations into coverage", () => {
     const slide = {
       ...createDemoDeck().slides[0]!,
@@ -666,6 +730,26 @@ describe("RehearsalWorkspace", () => {
         alreadyAdvanced: false
       })
     ).toBe(false);
+    expect(
+      shouldCompleteLiveSlideAdvance({
+        confirmedCommand,
+        analysis: { coverage: 0.2, missingKeywordIds: ["kw_2", "kw_3"] },
+        currentSlideIndex: 0,
+        slideCount: 2,
+        keywordCount: 3,
+        alreadyAdvanced: false
+      })
+    ).toBe(false);
+    expect(
+      shouldCompleteLiveSlideAdvance({
+        confirmedCommand,
+        analysis: { coverage: 0.8, missingKeywordIds: [] },
+        currentSlideIndex: 0,
+        slideCount: 2,
+        keywordCount: 3,
+        alreadyAdvanced: false
+      })
+    ).toBe(true);
     expect(
       detectRehearsalCommandCandidate({
         transcript: "안녕하세요. 다음 슬라이드는.",

@@ -129,7 +129,15 @@ export function calculatePcmStats(samples: Float32Array) {
 }
 
 function readBrowserLocalStorage() {
-  return typeof window === "undefined" ? null : window.localStorage;
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  try {
+    return window.localStorage;
+  } catch {
+    return null;
+  }
 }
 
 function normalizeSampleRate(sampleRate: number) {
