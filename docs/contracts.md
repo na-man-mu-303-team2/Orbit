@@ -548,6 +548,7 @@ AI 덱 생성은 사용자 입력과 참고자료 fileId를 받아 비동기 Job
 {
   "topic": "AI 덱 생성",
   "prompt": "참고자료 기반으로 핵심 메시지를 정리",
+  "designPrompt": "테트리스 색감, 고전 게임, 픽셀 아트 느낌",
   "targetDurationMinutes": 10,
   "slideCountRange": {
     "min": 5,
@@ -558,6 +559,12 @@ AI 덱 생성은 사용자 입력과 참고자료 fileId를 받아 비동기 Job
     "audience": "technical",
     "purpose": "inform",
     "tone": "professional"
+  },
+  "design": {
+    "visualRhythm": "technical",
+    "densityTarget": "medium",
+    "mediaPolicy": "balanced",
+    "layoutDiversity": "stable"
   },
   "references": [{ "fileId": "file_1" }],
   "referenceKeywords": [{ "text": "실시간 발표 피드백" }]
@@ -587,12 +594,21 @@ AI 덱 생성은 사용자 입력과 참고자료 fileId를 받아 비동기 Job
 - Job type은 기존 `ai-deck-generation`을 사용하고 상태값은 공통 `queued`, `running`, `succeeded`, `failed`만 사용한다.
 - 요청의 `references`는 `{ fileId: string }[]`이며 비어 있으면 topic-only generation으로 처리한다.
 - 요청의 `referenceKeywords`는 `{ text: string }[]` 선택 필드이며 기본값은 `[]`이다. 참고자료 처리 결과의 주요 키워드를 전달할 때 사용한다.
+- 요청의 `designPrompt`는 선택 필드이며 기본값은 없다. 값이 있으면 콘텐츠 지시가 아니라 시각 스타일 지시로만 사용하고, LLM은 `visualIntent.paletteHint`에 `background:#RRGGBB` 같은 검증 가능한 theme token을 제안한다.
+- 기존 클라이언트처럼 `designPrompt` 없이 `prompt`만 보내는 요청은 계속 허용한다. worker는 하위 호환을 위해 명확한 디자인 문구만 fallback으로 분리하고, 분리되지 않은 값은 기존 콘텐츠 prompt로 처리한다.
 - MVP `metadata.audience`는 `general`, `executive`, `technical`, `sales`만 허용한다.
 - MVP `metadata.purpose`는 `inform`, `persuade`, `teach`, `report`만 허용한다.
 - MVP `metadata.tone`은 `professional`, `friendly`, `confident`, `concise`만 허용한다.
+- 요청의 `design`은 선택 필드이며 생략 시 `{ visualRhythm: "auto", densityTarget: "medium", mediaPolicy: "balanced", layoutDiversity: "stable" }`로 정규화한다.
+- `design.visualRhythm`은 `auto`, `clean`, `editorial`, `bold`, `technical`만 허용한다.
+- `design.densityTarget`은 `low`, `medium`, `high`만 허용한다.
+- `design.mediaPolicy`는 `avoid`, `balanced`, `placeholder-ok`만 허용하며, source 없는 media placeholder는 `placeholder-ok`에서만 허용한다.
+- `design.layoutDiversity`는 `stable`, `varied`만 허용한다.
 - template은 `default`, `pitch`, `report`, `lesson`만 허용한다.
 - Python worker의 `/ai/generate-deck`은 `projectId`와 요청 본문을 받아 최종 `DeckSchema`를 만든다.
 - LLM/provider가 만드는 내용은 outline, message, design intent까지로 제한하고, 좌표/크기/zIndex는 코드 기반 layout engine이 계산한다.
+- LLM은 좌표, 크기, zIndex를 만들지 않는다. layout preset 후보 탐색과 최종 좌표 계산은 worker 코드가 수행한다.
+- `slotPreset`, `visualIntent`, `mediaIntent`, `layoutCandidates` 같은 생성 중간 필드는 최종 `DeckSchema`에 저장하지 않는다.
 - 생성 결과의 디자인은 새 배열 없이 기존 `deck.theme`, `slide.style`, `slide.elements`, chart props, `slide.animations`에 매핑한다.
 - worker는 Python 응답을 shared `generateDeckResponseSchema`와 `deckSchema`로 검증한 뒤 `decks`에 저장하고 job result에 `{ deckId, deck, warnings, validation }`을 저장한다.
 
@@ -717,6 +733,38 @@ API:
   - response: `{ "run": RehearsalRun, "job": Job }`
 - `GET /api/v1/rehearsals/:runId`
   - response: `{ "run": RehearsalRun }`
+- `GET /api/v1/rehearsals/:runId/report`
+  - response: `{ "run": RehearsalRun, "report": RehearsalReport | null }`
+  - run이 아직 `processing`이거나 과거 run에 `report_json`이 없으면 `report`는 `null`이다.
+
+Report 응답 구조:
+
+```json
+{
+  "reportId": "report_run_1",
+  "runId": "run_1",
+  "projectId": "project_demo_1",
+  "deckId": "deck_demo_1",
+  "transcriptRetained": false,
+  "transcript": null,
+  "metrics": {
+    "durationSeconds": 90,
+    "wordsPerMinute": 120,
+    "fillerWordCount": 2,
+    "pauseCount": 1,
+    "keywordCoverage": 0.75
+  },
+  "coaching": {
+    "status": "succeeded",
+    "summary": "핵심 메시지가 분명합니다.",
+    "strengths": ["키워드를 언급했습니다."],
+    "improvements": ["불필요한 filler를 줄이세요."],
+    "nextPracticeFocus": "도입부를 더 짧게 연습하세요.",
+    "message": ""
+  },
+  "generatedAt": "2026-06-27T01:00:10+09:00"
+}
+```
 
 결정 사항:
 
@@ -725,6 +773,10 @@ API:
 - STT와 코칭 분석이 끝난 직후 raw audio object를 삭제한다.
 - raw audio 삭제 성공은 `rawAudioDeletedAt`과 `project_assets.status=deleted`, `deleted_at`으로 남긴다.
 - 삭제 실패는 `RAW_AUDIO_DELETE_FAILED` error로 run/job 양쪽에 남긴다.
+- 공식 보고서 원본은 `jobs.result`가 아니라 `rehearsal_runs.report_json`이다.
+- `transcript_retained` 기본값은 `false`이며, `false`일 때 `report.transcript`는 반드시 `null`이다.
+- `GET /api/v1/rehearsals/:runId/report` 접근은 현재 프로젝트 접근 경계(`ProjectsService.getAccessibleProject`)를 재사용한다.
+- ORBIT-37의 고급 0-100 점수 산식은 이 계약에 포함하지 않으며, 실제 산식이 확정되기 전까지 UI에서도 점수를 표시하지 않는다.
 
 구현 위치:
 

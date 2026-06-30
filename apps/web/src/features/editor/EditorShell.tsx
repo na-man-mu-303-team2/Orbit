@@ -19,6 +19,7 @@ import {
   demoIds,
   getDeckResponseSchema,
   maxAssetUploadSizeBytes,
+  projectMembersResponseSchema,
   putDeckResponseSchema
 } from "@orbit/shared";
 import orbitLogo from "../../assets/orbit-logo.png";
@@ -27,6 +28,10 @@ import {
   fetchProjects,
   uploadProjectAsset
 } from "../projects/ProjectAssetWorkspace";
+import {
+  normalizeEditorAssetUrl,
+  resolveEditorAssetUrl
+} from "./editorAssetUrl";
 import type {
   ApplyAiSuggestionResponse,
   Chart,
@@ -40,6 +45,8 @@ import type {
   GroupElementProps,
   ImageElementProps,
   Keyword,
+  ProjectMember,
+  ProjectMembersResponse,
   ShapeElementProps,
   Slide,
   TextElementProps
@@ -51,6 +58,7 @@ import { Path as KonvaPathShape } from "konva/lib/shapes/Path";
 import { Text as KonvaTextShape } from "konva/lib/shapes/Text";
 import {
   BarChart3,
+  Check,
   ChevronDown,
   Cloud,
   Download,
@@ -77,9 +85,11 @@ import {
   Shapes,
   Share2,
   Sparkles,
+  Trash2,
   Type,
   Upload,
-  Wand2
+  Wand2,
+  X
 } from "lucide-react";
 import {
   Arrow as KonvaArrowComponent,
@@ -261,6 +271,14 @@ type CustomShapeEditDraft = {
 };
 
 type ToolbarNoticeTone = "info" | "success" | "danger";
+type ShareAccessTab = "status" | "requests";
+type ShareRole = "owner" | "editor" | "viewer";
+
+type LocalShareMember = ProjectMember;
+type LocalShareRequest = ProjectMember & {
+  role: Exclude<ShareRole, "owner">;
+};
+
 type SaveState = "idle" | "pending" | "saving" | "error";
 
 async function fetchHealth(): Promise<HealthResponse> {
@@ -273,84 +291,21 @@ async function fetchHealth(): Promise<HealthResponse> {
 
 async function readResponseError(response: Response, fallbackMessage: string) {
   const message = await response.text();
-  return message || fallbackMessage;
-}
-
-type ProjectAssetDescriptor = {
-  fileId: string;
-  projectId: string;
-};
-
-function parseProjectAssetDescriptor(src: string): ProjectAssetDescriptor | null {
-  if (!src) {
-    return null;
+  if (!message) {
+    return fallbackMessage;
   }
 
   try {
-    const baseOrigin =
-      typeof window === "undefined" ? "http://localhost" : window.location.origin;
-    const url = new URL(src, baseOrigin);
-    const proxyMatch = url.pathname.match(
-      /^\/api\/v1\/projects\/([^/]+)\/assets\/([^/]+)\/content$/,
-    );
-
-    if (proxyMatch) {
-      return {
-        projectId: decodeURIComponent(proxyMatch[1]),
-        fileId: decodeURIComponent(proxyMatch[2]),
-      };
-    }
-
-    const nestedMinioMatch = url.pathname.match(
-      /\/orbit-local\/projects\/([^/]+)\/assets\/([^/]+)\/[^/]+$/,
-    );
-    const flatMinioMatch = url.pathname.match(
-      /\/orbit-local\/projects\/([^/]+)\/assets\/([^/]+?)-[^/]+$/,
-    );
-    const minioMatch = nestedMinioMatch ?? flatMinioMatch;
-
-    if (!minioMatch) {
-      return null;
-    }
-
-    return {
-      projectId: decodeURIComponent(minioMatch[1]),
-      fileId: decodeURIComponent(minioMatch[2]),
+    const payload = JSON.parse(message) as {
+      error?: string;
+      issues?: Array<{ message?: string; path?: string }>;
+      message?: string;
     };
+    const issueMessage = payload.issues?.map((issue) => issue.message).join(", ");
+    return issueMessage || payload.message || payload.error || fallbackMessage;
   } catch {
-    return null;
+    return message;
   }
-}
-
-function createProjectAssetProxyPath(projectId: string, fileId: string) {
-  return `/api/v1/projects/${encodeURIComponent(projectId)}/assets/${encodeURIComponent(
-    fileId,
-  )}/content`;
-}
-
-function normalizeEditorAssetUrl(src: string) {
-  const descriptor = parseProjectAssetDescriptor(src);
-
-  if (!descriptor) {
-    return src;
-  }
-
-  return createProjectAssetProxyPath(descriptor.projectId, descriptor.fileId);
-}
-
-export function resolveEditorAssetUrl(src: string) {
-  if (!src) {
-    return src;
-  }
-
-  if (typeof window === "undefined") {
-    return normalizeEditorAssetUrl(src);
-  }
-
-  const normalizedPath = normalizeEditorAssetUrl(src);
-  return normalizedPath.startsWith("/api/")
-    ? `${window.location.origin}${normalizedPath}`
-    : normalizedPath;
 }
 
 function waitForAnimationFrame() {
@@ -399,6 +354,7 @@ async function createSlideRenderFile(args: {
 
   context.fillStyle = getSlideRenderBackgroundColor(args.slide, args.deck);
   context.fillRect(0, 0, canvas.width, canvas.height);
+  await drawSlideRenderBackgroundImage(context, args.slide, canvas);
   context.drawImage(stageCanvas, 0, 0, canvas.width, canvas.height);
 
   const blob = await canvasToBlob(canvas);
@@ -410,6 +366,90 @@ async function createSlideRenderFile(args: {
       type: "image/png"
     },
   );
+}
+
+async function drawSlideRenderBackgroundImage(
+  context: CanvasRenderingContext2D,
+  slide: Slide,
+  canvas: HTMLCanvasElement
+) {
+  const backgroundImage = slide.style.backgroundImage;
+
+  if (!backgroundImage?.src) {
+    return;
+  }
+
+  const image = await loadCanvasImage(backgroundImage.src);
+
+  if (!image) {
+    return;
+  }
+
+  const frame = getBackgroundImageDrawFrame({
+    canvasHeight: canvas.height,
+    canvasWidth: canvas.width,
+    fit: backgroundImage.fit,
+    imageHeight: image.naturalHeight || image.height,
+    imageWidth: image.naturalWidth || image.width
+  });
+
+  context.save();
+  context.drawImage(image, frame.x, frame.y, frame.width, frame.height);
+  context.fillStyle = `rgba(255,255,255,${clampBackgroundOverlayOpacity(backgroundImage.opacity)})`;
+  context.fillRect(0, 0, canvas.width, canvas.height);
+  context.restore();
+}
+
+async function loadCanvasImage(url: string) {
+  if (!url || typeof window === "undefined") {
+    return null;
+  }
+
+  return new Promise<HTMLImageElement | null>((resolve) => {
+    const image = new window.Image();
+
+    image.crossOrigin = "anonymous";
+    image.onload = () => resolve(image);
+    image.onerror = () => resolve(null);
+    image.src = resolveEditorAssetUrl(url);
+
+    if (image.complete && image.naturalWidth > 0) {
+      resolve(image);
+    }
+  });
+}
+
+function getBackgroundImageDrawFrame(args: {
+  canvasHeight: number;
+  canvasWidth: number;
+  fit: NonNullable<Slide["style"]["backgroundImage"]>["fit"];
+  imageHeight: number;
+  imageWidth: number;
+}) {
+  const { canvasHeight, canvasWidth, fit, imageHeight, imageWidth } = args;
+
+  if (fit === "stretch" || imageWidth <= 0 || imageHeight <= 0) {
+    return {
+      height: canvasHeight,
+      width: canvasWidth,
+      x: 0,
+      y: 0
+    };
+  }
+
+  const scale =
+    fit === "contain"
+      ? Math.min(canvasWidth / imageWidth, canvasHeight / imageHeight)
+      : Math.max(canvasWidth / imageWidth, canvasHeight / imageHeight);
+  const width = imageWidth * scale;
+  const height = imageHeight * scale;
+
+  return {
+    height,
+    width,
+    x: (canvasWidth - width) / 2,
+    y: (canvasHeight - height) / 2
+  };
 }
 
 async function loadImageAsset(url: string) {
@@ -503,6 +543,169 @@ function createSlideScopedUploadFile(
   );
 }
 
+function ShareAccessModal(props: {
+  activeTab: ShareAccessTab;
+  actionError: string;
+  actionLabel: string;
+  inviteEmail: string;
+  inviteRole: Exclude<ShareRole, "owner">;
+  isLoading: boolean;
+  members: LocalShareMember[];
+  requests: LocalShareRequest[];
+  onClose: () => void;
+  onInvite: () => void;
+  onInviteEmailChange: (email: string) => void;
+  onInviteRoleChange: (role: Exclude<ShareRole, "owner">) => void;
+  onMemberRemove: (email: string) => void;
+  onMemberRoleChange: (email: string, role: ShareRole) => void;
+  onRequestStatusChange: (email: string, status: "accepted" | "rejected") => void;
+  onTabChange: (tab: ShareAccessTab) => void;
+}) {
+  return (
+    <div className="share-modal-backdrop" role="presentation" onMouseDown={props.onClose}>
+      <section
+        aria-label="프로젝트 공유"
+        aria-modal="true"
+        className="share-access-modal"
+        role="dialog"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <header className="share-access-header">
+          <div>
+            <strong>공유</strong>
+            <span>프로젝트 접근 권한과 대기 중인 요청을 관리합니다.</span>
+          </div>
+          <button type="button" aria-label="공유 닫기" onClick={props.onClose}>
+            <X size={16} />
+          </button>
+        </header>
+
+        <div className="share-access-tabs" role="tablist" aria-label="공유 탭">
+          <button
+            className={props.activeTab === "status" ? "active" : ""}
+            type="button"
+            onClick={() => props.onTabChange("status")}
+          >
+            현황
+          </button>
+          <button
+            className={props.activeTab === "requests" ? "active" : ""}
+            type="button"
+            onClick={() => props.onTabChange("requests")}
+          >
+            요청
+          </button>
+        </div>
+
+        {props.activeTab === "status" ? (
+          <div className="share-access-panel">
+            <label className="share-invite-field">
+              <span>이메일</span>
+              <div>
+                <input
+                  type="email"
+                  placeholder="user@example.com"
+                  value={props.inviteEmail}
+                  onChange={(event) => props.onInviteEmailChange(event.target.value)}
+                />
+                <select
+                  value={props.inviteRole}
+                  onChange={(event) =>
+                    props.onInviteRoleChange(event.target.value as Exclude<ShareRole, "owner">)
+                  }
+                >
+                  <option value="viewer">viewer</option>
+                  <option value="editor">editor</option>
+                </select>
+                <button type="button" onClick={props.onInvite}>
+                  추가
+                </button>
+              </div>
+            </label>
+
+            <div className="share-access-list" aria-label="권한이 있는 사용자">
+              <div className="share-access-row member header">
+                <span>이메일</span>
+                <span>권한</span>
+                <span>처리</span>
+              </div>
+              {props.members.length > 0 ? (
+                props.members.map((member) => (
+                  <div className="share-access-row member" key={member.userId}>
+                    <span>{member.email}</span>
+                    <select
+                      aria-label={`${member.email} 권한 수정`}
+                      value={member.role}
+                      onChange={(event) =>
+                        props.onMemberRoleChange(member.email, event.target.value as ShareRole)
+                      }
+                    >
+                      <option value="viewer">viewer</option>
+                      <option value="editor">editor</option>
+                      <option value="owner">owner</option>
+                    </select>
+                    <span className="share-request-actions">
+                      <button
+                        type="button"
+                        aria-label={`${member.email} 권한 회수`}
+                        onClick={() => props.onMemberRemove(member.email)}
+                      >
+                        <Trash2 size={15} />
+                      </button>
+                    </span>
+                  </div>
+                ))
+              ) : (
+                <div className="share-empty-row">권한이 있는 사용자가 없습니다.</div>
+              )}
+            </div>
+          </div>
+        ) : (
+          <div className="share-access-panel">
+            <div className="share-access-list" aria-label="권한 요청 목록">
+              <div className="share-access-row request header">
+                <span>요청자</span>
+                <span>요청 권한</span>
+                <span>처리</span>
+              </div>
+              {props.requests.length > 0 ? (
+                props.requests.map((request) => (
+                  <div className="share-access-row request" key={request.userId}>
+                    <span>{request.email}</span>
+                    <strong>{request.role}</strong>
+                    <span className="share-request-actions">
+                      <button
+                        type="button"
+                        aria-label={`${request.email} 요청 승인`}
+                        onClick={() => props.onRequestStatusChange(request.email, "accepted")}
+                      >
+                        <Check size={15} />
+                      </button>
+                      <button
+                        type="button"
+                        aria-label={`${request.email} 요청 삭제`}
+                        onClick={() => props.onRequestStatusChange(request.email, "rejected")}
+                      >
+                        <Trash2 size={15} />
+                      </button>
+                    </span>
+                  </div>
+                ))
+              ) : (
+                <div className="share-empty-row">대기 중인 요청이 없습니다.</div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {props.isLoading ? <p className="share-action-message">공유 정보를 불러오는 중입니다.</p> : null}
+        {props.actionLabel ? <p className="share-action-message">{props.actionLabel}</p> : null}
+        {props.actionError ? <p className="share-action-message error">{props.actionError}</p> : null}
+      </section>
+    </div>
+  );
+}
+
 function RenderOnlyElementNode(props: {
   accentColor: string;
   deck: Deck;
@@ -537,13 +740,11 @@ function RenderOnlyElementNode(props: {
   );
 }
 
-function HiddenSlideRenderStage(props: {
+function HiddenSlideRenderStages(props: {
   deck: Deck;
-  slide: Slide;
-  stageRef: MutableRefObject<Konva.Stage | null>;
+  stageRefs: MutableRefObject<Map<string, Konva.Stage>>;
 }) {
-  const { deck, slide, stageRef } = props;
-  const visibleElements = getRenderableSlideElements(slide, deck.canvas);
+  const { deck, stageRefs } = props;
 
   return (
     <div
@@ -558,30 +759,43 @@ function HiddenSlideRenderStage(props: {
         opacity: 0,
       }}
     >
-      <Stage
-        height={deck.canvas.height}
-        ref={stageRef}
-        width={deck.canvas.width}
-      >
-        <Layer>
-          {visibleElements.map((element) => (
-            <RenderOnlyElementNode
-              key={element.elementId}
-              accentColor={slide.style.accentColor ?? deck.theme.accentColor}
-              deck={deck}
-              element={element}
-              frame={{
-                x: element.x,
-                y: element.y,
-                width: element.width,
-                height: element.height,
-                rotation: element.rotation,
-              }}
-              slide={slide}
-            />
-          ))}
-        </Layer>
-      </Stage>
+      {deck.slides.map((slide) => {
+        const visibleElements = getRenderableSlideElements(slide, deck.canvas);
+
+        return (
+          <Stage
+            height={deck.canvas.height}
+            key={slide.slideId}
+            ref={(stage: Konva.Stage | null) => {
+              if (stage) {
+                stageRefs.current.set(slide.slideId, stage);
+              } else {
+                stageRefs.current.delete(slide.slideId);
+              }
+            }}
+            width={deck.canvas.width}
+          >
+            <Layer>
+              {visibleElements.map((element) => (
+                <RenderOnlyElementNode
+                  key={element.elementId}
+                  accentColor={slide.style.accentColor ?? deck.theme.accentColor}
+                  deck={deck}
+                  element={element}
+                  frame={{
+                    x: element.x,
+                    y: element.y,
+                    width: element.width,
+                    height: element.height,
+                    rotation: element.rotation,
+                  }}
+                  slide={slide}
+                />
+              ))}
+            </Layer>
+          </Stage>
+        );
+      })}
     </div>
   );
 }
@@ -665,6 +879,114 @@ async function fetchDeck(projectId: string): Promise<Deck> {
   return putProjectDeck(projectId, createSeedDeck(projectId));
 }
 
+function projectMembersUrl(projectId: string) {
+  return `/api/v1/workspaces/${encodeURIComponent(demoIds.workspaceId)}/projects/${encodeURIComponent(projectId)}/members`;
+}
+
+async function fetchProjectMembers(projectId: string): Promise<ProjectMembersResponse> {
+  const response = await fetch(projectMembersUrl(projectId), {
+    credentials: "include"
+  });
+
+  if (!response.ok) {
+    throw new Error(await readResponseError(response, "Project members fetch failed"));
+  }
+
+  return projectMembersResponseSchema.parse(await response.json());
+}
+
+async function inviteProjectMember(
+  projectId: string,
+  email: string,
+  role: Exclude<ShareRole, "owner">
+): Promise<ProjectMembersResponse> {
+  const response = await fetch(projectMembersUrl(projectId), {
+    method: "POST",
+    credentials: "include",
+    headers: {
+      "content-type": "application/json"
+    },
+    body: JSON.stringify({ email, role })
+  });
+
+  if (!response.ok) {
+    throw new Error(await readResponseError(response, "Project member invite failed"));
+  }
+
+  return projectMembersResponseSchema.parse(await response.json());
+}
+
+function toShareInviteErrorMessage(error: unknown) {
+  const message = toEditorErrorMessage(error);
+  if (
+    message.includes("Invalid email") ||
+    message.includes("Invalid request body") ||
+    message.includes("User not found")
+  ) {
+    return "해당 유저를 찾을 수 없습니다.";
+  }
+
+  return message;
+}
+
+async function updateProjectMemberRole(
+  projectId: string,
+  userId: string,
+  role: ShareRole
+): Promise<ProjectMembersResponse> {
+  const response = await fetch(`${projectMembersUrl(projectId)}/${encodeURIComponent(userId)}/role`, {
+    method: "PATCH",
+    credentials: "include",
+    headers: {
+      "content-type": "application/json"
+    },
+    body: JSON.stringify({ role })
+  });
+
+  if (!response.ok) {
+    throw new Error(await readResponseError(response, "Project member role update failed"));
+  }
+
+  return projectMembersResponseSchema.parse(await response.json());
+}
+
+async function updateProjectMemberStatus(
+  projectId: string,
+  userId: string,
+  status: "accepted" | "rejected"
+): Promise<ProjectMembersResponse> {
+  const response = await fetch(`${projectMembersUrl(projectId)}/${encodeURIComponent(userId)}/status`, {
+    method: "PATCH",
+    credentials: "include",
+    headers: {
+      "content-type": "application/json"
+    },
+    body: JSON.stringify({ status })
+  });
+
+  if (!response.ok) {
+    throw new Error(await readResponseError(response, "Project member request update failed"));
+  }
+
+  return projectMembersResponseSchema.parse(await response.json());
+}
+
+async function removeProjectMember(
+  projectId: string,
+  userId: string
+): Promise<ProjectMembersResponse> {
+  const response = await fetch(`${projectMembersUrl(projectId)}/${encodeURIComponent(userId)}`, {
+    method: "DELETE",
+    credentials: "include"
+  });
+
+  if (!response.ok) {
+    throw new Error(await readResponseError(response, "Project member removal failed"));
+  }
+
+  return projectMembersResponseSchema.parse(await response.json());
+}
+
 function isSameDeckIdentity(left: Deck, right: Deck) {
   return left.deckId === right.deckId && left.projectId === right.projectId;
 }
@@ -739,6 +1061,17 @@ export function EditorShell(props: { projectId?: string }) {
   const [selectedKeywordId, setSelectedKeywordId] = useState<string | null>(null);
   const [selectedElementIds, setSelectedElementIds] = useState<string[]>([]);
   const [activeTopMenu, setActiveTopMenu] = useState<TopMenu | null>(null);
+  const [isSharePanelOpen, setIsSharePanelOpen] = useState(false);
+  const [shareAccessTab, setShareAccessTab] = useState<ShareAccessTab>("status");
+  const [shareInviteEmail, setShareInviteEmail] = useState("");
+  const [shareInviteRole, setShareInviteRole] = useState<Exclude<ShareRole, "owner">>("viewer");
+  const [shareMembers, setShareMembers] = useState<LocalShareMember[]>([]);
+  const [shareRequests, setShareRequests] = useState<LocalShareRequest[]>([]);
+  const [shareActionError, setShareActionError] = useState("");
+  const [shareActionLabel, setShareActionLabel] = useState("");
+  const [isShareLoading, setIsShareLoading] = useState(false);
+  const [canManageShare, setCanManageShare] = useState(false);
+  const [isSharePermissionLoading, setIsSharePermissionLoading] = useState(false);
   const [lastPatchLabel, setLastPatchLabel] = useState("편집 없음");
   const [insertTool, setInsertTool] = useState<InsertTool>("select");
   const [editingElementId, setEditingElementId] = useState<string | null>(null);
@@ -755,6 +1088,7 @@ export function EditorShell(props: { projectId?: string }) {
     tone: ToolbarNoticeTone;
   } | null>(null);
   const [isImageUploadPending, setIsImageUploadPending] = useState(false);
+  const [isRehearsalPreparing, setIsRehearsalPreparing] = useState(false);
   const [saveState, setSaveState] = useState<SaveState>("idle");
   const [saveErrorMessage, setSaveErrorMessage] = useState<string | null>(null);
   const [undoStack, setUndoStack] = useState<Deck[]>([]);
@@ -764,9 +1098,8 @@ export function EditorShell(props: { projectId?: string }) {
   const imageFileInputRef = useRef<HTMLInputElement | null>(null);
   const copiedElementRef = useRef<ElementClipboardState | null>(null);
   const editorStageRef = useRef<Konva.Stage | null>(null);
-  const slideRenderStageRef = useRef<Konva.Stage | null>(null);
+  const slideRenderStageRefs = useRef(new Map<string, Konva.Stage>());
   const [renderingDeck, setRenderingDeck] = useState<Deck | null>(null);
-  const [renderingSlideIndex, setRenderingSlideIndex] = useState<number | null>(null);
 
   const health = useQuery({
     queryKey: ["health"],
@@ -780,6 +1113,47 @@ export function EditorShell(props: { projectId?: string }) {
     retry: false
   });
 
+  useEffect(() => {
+    const activeProjectId = deckQuery.data?.projectId ?? projectId;
+    let isCancelled = false;
+
+    setIsSharePermissionLoading(true);
+    setCanManageShare(false);
+    fetchProjectMembers(activeProjectId)
+      .then((response) => {
+        if (isCancelled) {
+          return;
+        }
+        applyShareResponse(response);
+        setCanManageShare(true);
+      })
+      .catch(() => {
+        if (isCancelled) {
+          return;
+        }
+        setCanManageShare(false);
+        setShareMembers([]);
+        setShareRequests([]);
+      })
+      .finally(() => {
+        if (!isCancelled) {
+          setIsSharePermissionLoading(false);
+        }
+      });
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [projectId, deckQuery.data?.projectId]);
+
+  useEffect(() => {
+    if (!isSharePanelOpen) {
+      return;
+    }
+
+    void loadShareMembers();
+  }, [isSharePanelOpen, projectId, deckQuery.data?.projectId]);
+
   const loadedDeck = deckQuery.data ?? fallbackDeck;
   const [deck, setDeck] = useState<Deck>(loadedDeck);
   const deckRef = useRef(loadedDeck);
@@ -792,6 +1166,11 @@ export function EditorShell(props: { projectId?: string }) {
   const isUsingFallbackDeck = !deckQuery.data;
   const isDeckLoading = deckQuery.isPending;
   const isDeckError = deckQuery.isError;
+  const canStartRehearsal =
+    Boolean(deckQuery.data?.projectId) &&
+    !isDeckLoading &&
+    !isDeckError &&
+    !isRehearsalPreparing;
   const hasSlides = deck.slides.length > 0;
   const currentSlide = deck.slides[currentSlideIndex] ?? deck.slides[0] ?? null;
   const saveStatusLabel = getEditorStatusLabel({
@@ -955,22 +1334,21 @@ export function EditorShell(props: { projectId?: string }) {
 
     const nextDeck = structuredClone(normalizeDeckAssetUrls(sourceDeck));
     let missingAssetCount = 0;
+    slideRenderStageRefs.current.clear();
     flushSync(() => {
       setRenderingDeck(nextDeck);
     });
+    await waitForAnimationFrame();
+    await waitForAnimationFrame();
 
     try {
       for (let index = 0; index < nextDeck.slides.length; index += 1) {
         const slide = nextDeck.slides[index];
         missingAssetCount += await waitForSlideAssets(slide);
 
-        flushSync(() => {
-          setRenderingSlideIndex(index);
-        });
-        await waitForAnimationFrame();
         await waitForAnimationFrame();
 
-        const stage = slideRenderStageRef.current;
+        const stage = slideRenderStageRefs.current.get(slide.slideId);
 
         if (!stage) {
           throw new Error("슬라이드 렌더링 스테이지를 찾지 못했습니다.");
@@ -998,8 +1376,8 @@ export function EditorShell(props: { projectId?: string }) {
     } finally {
       flushSync(() => {
         setRenderingDeck(null);
-        setRenderingSlideIndex(null);
       });
+      slideRenderStageRefs.current.clear();
     }
 
     return {
@@ -1087,6 +1465,249 @@ export function EditorShell(props: { projectId?: string }) {
       setSaveErrorMessage(toEditorErrorMessage(error));
       void deckQuery.refetch();
     }
+  }
+
+  async function handleStartRehearsal() {
+    const activeProjectId = deckQuery.data?.projectId ?? projectId;
+
+    if (isDeckLoading || !deckQuery.data) {
+      setSaveState("pending");
+      setSaveErrorMessage("발표 자료를 불러온 뒤 리허설을 시작할 수 있습니다.");
+      return;
+    }
+
+    if (isRehearsalPreparing) {
+      return;
+    }
+
+    if (!activeProjectId) {
+      setSaveState("error");
+      setSaveErrorMessage("저장할 프로젝트를 찾지 못했습니다.");
+      return;
+    }
+
+    setIsRehearsalPreparing(true);
+    setSaveState("saving");
+    setSaveErrorMessage(null);
+    setActiveTopMenu(null);
+
+    try {
+      await saveQueueRef.current.catch(() => undefined);
+
+      const deckSnapshot = structuredClone(normalizeDeckAssetUrls(deckRef.current));
+      const persistedDeck = await putProjectDeck(activeProjectId, deckSnapshot);
+      const renderResult = await syncSlideRenderAssets(activeProjectId, persistedDeck);
+
+      if (
+        !shouldApplyManualSaveResult({
+          snapshotDeck: deckSnapshot,
+          currentDeck: deckRef.current
+        })
+      ) {
+        throw new Error("리허설 준비 중 편집 내용이 변경되었습니다. 다시 시작해 주세요.");
+      }
+
+      const finalDeck =
+        renderResult.deck.slides.length > 0
+          ? await appendProjectDeckPatch(activeProjectId, {
+              baseVersion: persistedDeck.version,
+              deckId: persistedDeck.deckId,
+              operations: renderResult.deck.slides.map((slide) => ({
+                slideId: slide.slideId,
+                thumbnailUrl: slide.thumbnailUrl,
+                type: "update_slide" as const
+              })),
+              source: "system"
+            })
+          : persistedDeck;
+
+      applyPersistedDeckState(finalDeck);
+      setImageUploadNotice({
+        message:
+          renderResult.missingAssetCount > 0
+            ? `${finalDeck.slides.length}개 슬라이드 이미지 저장 완료 · 누락 이미지 ${renderResult.missingAssetCount}개`
+            : `${finalDeck.slides.length}개 슬라이드 이미지 저장 완료`,
+        tone: renderResult.missingAssetCount > 0 ? "info" : "success"
+      });
+      setLastPatchLabel(`리허설 준비 완료 · v${finalDeck.version}`);
+      setSaveState("idle");
+      setSaveErrorMessage(null);
+      navigateToRehearsal(activeProjectId);
+    } catch (error) {
+      const message = toEditorErrorMessage(error);
+
+      setLastPatchLabel(`리허설 준비 실패 · ${message}`);
+      setSaveState("error");
+      setSaveErrorMessage(message);
+      setImageUploadNotice({
+        message: "리허설용 슬라이드 이미지 저장 실패",
+        tone: "danger"
+      });
+    } finally {
+      setIsRehearsalPreparing(false);
+    }
+  }
+
+  function getShareProjectId() {
+    return deckQuery.data?.projectId ?? deckRef.current.projectId ?? projectId;
+  }
+
+  function applyShareResponse(response: ProjectMembersResponse) {
+    setShareMembers(response.members);
+    setShareRequests(
+      response.requests.filter(
+        (request): request is LocalShareRequest => request.role !== "owner"
+      )
+    );
+  }
+
+  async function loadShareMembers() {
+    setIsShareLoading(true);
+    setShareActionError("");
+    try {
+      applyShareResponse(await fetchProjectMembers(getShareProjectId()));
+    } catch (error) {
+      setShareActionError(toEditorErrorMessage(error));
+    } finally {
+      setIsShareLoading(false);
+    }
+  }
+
+  async function handleShareInvite() {
+    const email = shareInviteEmail.trim();
+
+    setShareActionError("");
+    if (!email) {
+      setShareActionError("추가할 사용자의 이메일을 입력하세요.");
+      return;
+    }
+
+    setIsShareLoading(true);
+    try {
+      applyShareResponse(await inviteProjectMember(getShareProjectId(), email, shareInviteRole));
+      setShareInviteEmail("");
+      setShareActionLabel("사용자를 추가했습니다.");
+    } catch (error) {
+      setShareActionError(toShareInviteErrorMessage(error));
+    } finally {
+      setIsShareLoading(false);
+    }
+    return;
+
+    setShareMembers((current) => {
+      const existingIndex = current.findIndex(
+        (member) => member.email.toLowerCase() === email.toLowerCase()
+      );
+
+      if (existingIndex < 0) {
+        return [
+          ...current,
+          {
+            userId: email,
+            email,
+            role: shareInviteRole,
+            status: "accepted" as const,
+            createdAt: new Date().toISOString()
+          }
+        ];
+      }
+
+      return current.map((member, index) =>
+        index === existingIndex ? { ...member, role: shareInviteRole } : member
+      );
+    });
+    setShareInviteEmail("");
+    setShareActionLabel("사용자를 추가했습니다.");
+  }
+
+  async function handleShareMemberRoleChange(email: string, role: ShareRole) {
+    if (
+      role === "owner" &&
+      !window.confirm(
+        "owner 권한을 넘기면 현재 owner는 editor로 변경됩니다. 계속 진행할까요?"
+      )
+    ) {
+      return;
+    }
+
+    const member = shareMembers.find((candidate) => candidate.email === email);
+    if (!member) {
+      return;
+    }
+
+    setShareActionError("");
+    setIsShareLoading(true);
+    try {
+      applyShareResponse(await updateProjectMemberRole(getShareProjectId(), member.userId, role));
+      setShareActionLabel("사용자 권한을 수정했습니다.");
+    } catch (error) {
+      setShareActionError(toEditorErrorMessage(error));
+    } finally {
+      setIsShareLoading(false);
+    }
+    return;
+
+    setShareMembers((current) =>
+      current.map((member) => (member.email === email ? { ...member, role } : member))
+    );
+    setShareActionError("");
+    setShareActionLabel("사용자 권한을 수정했습니다.");
+  }
+
+  async function handleShareMemberRemoval(email: string) {
+    const member = shareMembers.find((candidate) => candidate.email === email);
+    if (!member) {
+      return;
+    }
+
+    setShareActionError("");
+    setIsShareLoading(true);
+    try {
+      applyShareResponse(await removeProjectMember(getShareProjectId(), member.userId));
+      setShareActionLabel("사용자 권한을 회수했습니다.");
+    } catch (error) {
+      setShareActionError(toEditorErrorMessage(error));
+    } finally {
+      setIsShareLoading(false);
+    }
+    return;
+
+    setShareMembers((current) => current.filter((member) => member.email !== email));
+    setShareActionError("");
+    setShareActionLabel("사용자 권한을 회수했습니다.");
+  }
+
+  async function handleShareRequestStatus(email: string, status: "accepted" | "rejected") {
+    const request = shareRequests.find((candidate) => candidate.email === email);
+    if (!request) {
+      return;
+    }
+
+    setShareActionError("");
+    setIsShareLoading(true);
+    try {
+      applyShareResponse(
+        await updateProjectMemberStatus(getShareProjectId(), request.userId, status)
+      );
+      setShareActionLabel(status === "accepted" ? "요청을 승인했습니다." : "요청을 거절했습니다.");
+    } catch (error) {
+      setShareActionError(toEditorErrorMessage(error));
+    } finally {
+      setIsShareLoading(false);
+    }
+    return;
+
+    setShareRequests((current) => current.filter((candidate) => candidate.email !== email));
+
+    if (status === "accepted" && request) {
+      setShareMembers((current) => [
+        ...current,
+        { ...(request as LocalShareRequest), status: "accepted" as const }
+      ]);
+    }
+
+    setShareActionError("");
+    setShareActionLabel(status === "accepted" ? "요청을 승인했습니다." : "요청을 거절했습니다.");
   }
 
   function commitPatch(patch: DeckPatch, baseDeck: Deck = deckRef.current) {
@@ -2474,7 +3095,10 @@ export function EditorShell(props: { projectId?: string }) {
 
   return (
     <>
-      <main className="editor-app-shell orbit-shell">
+      <main
+        aria-busy={isDeckLoading}
+        className={`editor-app-shell orbit-shell ${isDeckLoading ? "is-deck-loading" : ""}`}
+      >
         <header className="app-topbar" ref={topbarRef}>
         <div className="topbar-left">
           <img alt="Orbit" className="brand-mark" src={orbitLogo} />
@@ -2667,35 +3291,58 @@ export function EditorShell(props: { projectId?: string }) {
             {activeTopMenu === "presentation" ? (
               <div className="file-menu-popover action-popover" role="menu">
                 <div className="file-menu-list">
-                  {presentationItems.map(({ icon: Icon, label, meta }) => (
-                    <button
-                    className="file-menu-item"
-                    key={label}
-                    role="menuitem"
-                    type="button"
-                    onClick={() => {
-                      if (label === presentationItems[2]?.label) {
-                        setActiveTopMenu(null);
-                        navigateToRehearsal(projectId);
-                      }
-                    }}
-                  >
-                      <span className="file-menu-label">
-                        <Icon size={16} />
-                        {label}
-                      </span>
-                      <span className="file-menu-meta">
-                        <small>{meta}</small>
-                      </span>
-                    </button>
-                  ))}
+                  {presentationItems.map(({ icon: Icon, label, meta }) => {
+                    const isRehearsalItem = label === presentationItems[2]?.label;
+
+                    return (
+                      <button
+                        className="file-menu-item"
+                        disabled={isRehearsalItem && !canStartRehearsal}
+                        key={label}
+                        role="menuitem"
+                        type="button"
+                        onClick={() => {
+                          if (isRehearsalItem) {
+                            void handleStartRehearsal();
+                          }
+                        }}
+                      >
+                        <span className="file-menu-label">
+                          <Icon size={16} />
+                          {label}
+                        </span>
+                        <span className="file-menu-meta">
+                          <small>
+                            {isRehearsalItem && isRehearsalPreparing ? "리허설 준비 중..." : meta}
+                          </small>
+                        </span>
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
             ) : null}
           </div>
           <button
+            aria-expanded={isSharePanelOpen}
+            aria-haspopup="dialog"
             className="share-top-button"
+            disabled={!canManageShare || isSharePermissionLoading}
+            title={
+              canManageShare
+                ? "프로젝트 공유"
+                : "프로젝트 owner만 공유 설정을 변경할 수 있습니다."
+            }
             type="button"
+            onClick={() => {
+              if (!canManageShare) {
+                return;
+              }
+              setIsSharePanelOpen(true);
+              setActiveTopMenu(null);
+              setShareActionError("");
+              setShareActionLabel("");
+            }}
           >
             <Share2 size={15} />
             공유
@@ -2712,6 +3359,35 @@ export function EditorShell(props: { projectId?: string }) {
           </button>
         </div>
       </header>
+      {isSharePanelOpen
+        ? createPortal(
+            <ShareAccessModal
+              activeTab={shareAccessTab}
+              actionError={shareActionError}
+              actionLabel={shareActionLabel}
+              inviteEmail={shareInviteEmail}
+              inviteRole={shareInviteRole}
+              isLoading={isShareLoading}
+              members={shareMembers}
+              requests={shareRequests}
+              onClose={() => setIsSharePanelOpen(false)}
+              onInvite={handleShareInvite}
+              onInviteEmailChange={setShareInviteEmail}
+              onInviteRoleChange={setShareInviteRole}
+              onMemberRemove={handleShareMemberRemoval}
+              onMemberRoleChange={handleShareMemberRoleChange}
+              onRequestStatusChange={handleShareRequestStatus}
+              onTabChange={setShareAccessTab}
+            />,
+            document.body
+          )
+        : null}
+      {isDeckLoading ? (
+        <div className="editor-loading-guard" role="status">
+          <span className="editor-loading-spinner" aria-hidden="true" />
+          <strong>발표 자료를 불러오는 중입니다</strong>
+        </div>
+      ) : null}
 
       <section
         className={`editor-panel ${isRightPanelOpen ? "" : "right-panel-closed"} ${
@@ -3031,12 +3707,10 @@ export function EditorShell(props: { projectId?: string }) {
                     onSelectElement={handleElementSelection}
                   />
                 </div>
-                {renderingDeck && renderingSlideIndex !== null &&
-                renderingDeck.slides[renderingSlideIndex] ? (
-                  <HiddenSlideRenderStage
+                {renderingDeck ? (
+                  <HiddenSlideRenderStages
                     deck={renderingDeck}
-                    slide={renderingDeck.slides[renderingSlideIndex]}
-                    stageRef={slideRenderStageRef}
+                    stageRefs={slideRenderStageRefs}
                   />
                 ) : null}
               </div>

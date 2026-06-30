@@ -14,13 +14,24 @@ import {
   EditorShell,
   EditorStateNotice,
   mergeDeckIntoQueryCache,
-  resolveEditorAssetUrl,
   shouldApplyManualSaveResult,
   shouldHydrateDeckFromQuery
 } from "./EditorShell";
+import { resolveEditorAssetUrl } from "./editorAssetUrl";
 import { aiSuggestionsQueryKey } from "./suggestions/suggestionApi";
 
 vi.mock("react-konva", () => {
+  function shapeAttrs(props: Record<string, unknown>) {
+    return {
+      "data-corner-radius":
+        props.cornerRadius === undefined ? undefined : String(props.cornerRadius),
+      "data-fill": typeof props.fill === "string" ? props.fill : undefined,
+      "data-stroke": typeof props.stroke === "string" ? props.stroke : undefined,
+      "data-stroke-width":
+        props.strokeWidth === undefined ? undefined : String(props.strokeWidth)
+    };
+  }
+
   const Group = forwardRef<HTMLDivElement, { children?: ReactNode }>(
     ({ children }, _ref) => <div>{children}</div>
   );
@@ -44,8 +55,12 @@ vi.mock("react-konva", () => {
     Group,
     Image: () => <span data-konva-image="true" />,
     Layer,
-    Line: () => <span data-konva-line="true" />,
-    Rect: () => <span data-konva-rect="true" />,
+    Line: (props: Record<string, unknown>) => (
+      <span data-konva-line="true" {...shapeAttrs(props)} />
+    ),
+    Rect: (props: Record<string, unknown>) => (
+      <span data-konva-rect="true" {...shapeAttrs(props)} />
+    ),
     RegularPolygon: () => <span data-konva-polygon="true" />,
     Shape: () => <span data-konva-shape="true" />,
     Star: () => <span data-konva-star="true" />,
@@ -107,6 +122,13 @@ describe("editor shell", () => {
       ),
     ).toBe(
       "http://127.0.0.1:5173/api/v1/projects/project_real_1/assets/file_real_2/content",
+    );
+    expect(
+      resolveEditorAssetUrl(
+        "http://localhost:9000/orbit-local/projects/project_real_1/assets/file_550e8400-e29b-41d4-a716-446655440000-slide_3-v8.png",
+      ),
+    ).toBe(
+      "http://127.0.0.1:5173/api/v1/projects/project_real_1/assets/file_550e8400-e29b-41d4-a716-446655440000/content",
     );
     expect(
       resolveEditorAssetUrl(
@@ -409,6 +431,10 @@ describe("editor shell", () => {
     expect(html).toContain("data-konva-polygon");
     expect(html).toContain("data-konva-shape");
     expect(html).toContain("data-konva-star");
+    expect(html).toContain('data-fill="#dbeafe"');
+    expect(html).toContain('data-stroke="#93c5fd"');
+    expect(html).toContain('data-stroke-width="3"');
+    expect(html).toContain('data-corner-radius="24"');
     expect(html).not.toContain("GROUP");
   });
 

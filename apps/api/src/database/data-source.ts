@@ -4,6 +4,7 @@ import { DataSource, DataSourceOptions } from "typeorm";
 import { AiSuggestionEntity } from "../ai-suggestions/ai-suggestion.entity";
 import { ProjectAssetEntity } from "../files/project-asset.entity";
 import { ProjectEntity } from "../projects/project.entity";
+import { ProjectMemberEntity } from "../projects/project-member.entity";
 import { RehearsalRunEntity } from "../rehearsals/rehearsal-run.entity";
 import { CreateDeckPersistenceTables2026062701000 } from "./migrations/2026062701000-CreateDeckPersistenceTables";
 import { CreateAuthUsers2026062702000 } from "./migrations/2026062702000-CreateAuthUsers";
@@ -13,6 +14,8 @@ import { CreateProjectsAndProjectAssets2026062703000 } from "./migrations/202606
 import { CreateReferenceChunks2026062700100 } from "./migrations/2026062700100-CreateReferenceChunks";
 import { CreateRehearsalRuns2026062901000 } from "./migrations/2026062901000-CreateRehearsalRuns";
 import { CreateAiSuggestions2026062902000 } from "./migrations/2026062902000-CreateAiSuggestions";
+import { AddRehearsalReportColumns2026062903000 } from "./migrations/2026062903000-AddRehearsalReportColumns";
+import { CreateProjectMembers2026063001000 } from "./migrations/2026063001000-CreateProjectMembers";
 
 loadDotenv({ path: "../../.env.local" });
 loadDotenv({ path: ".env.local" });
@@ -25,6 +28,7 @@ export const databaseOptions: DataSourceOptions = {
   url: config.DATABASE_URL,
   entities: [
     ProjectEntity,
+    ProjectMemberEntity,
     ProjectAssetEntity,
     RehearsalRunEntity,
     AiSuggestionEntity
@@ -37,7 +41,9 @@ export const databaseOptions: DataSourceOptions = {
     CreateAuthUsers2026062702000,
     CreateProjectsAndProjectAssets2026062703000,
     CreateRehearsalRuns2026062901000,
-    CreateAiSuggestions2026062902000
+    CreateAiSuggestions2026062902000,
+    AddRehearsalReportColumns2026062903000,
+    CreateProjectMembers2026063001000
   ],
   migrationsTableName: "typeorm_migrations",
   synchronize: false,

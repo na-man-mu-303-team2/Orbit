@@ -8,15 +8,11 @@ import {
   createRehearsalAudioUploadUrlResponseSchema,
   createRehearsalRunRequestSchema,
   createRehearsalRunResponseSchema,
+  getRehearsalReportResponseSchema,
   getRehearsalRunResponseSchema,
   type RehearsalRun
 } from "@orbit/shared";
-import {
-  BadRequestException,
-  Inject,
-  Injectable,
-  NotFoundException
-} from "@nestjs/common";
+import { BadRequestException, Inject, Injectable, NotFoundException } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { randomUUID } from "node:crypto";
 import { InjectPinoLogger, PinoLogger } from "nestjs-pino";
@@ -26,11 +22,10 @@ import { DecksService } from "../decks/decks.service";
 import { FilesService } from "../files/files.service";
 import { JobsService } from "../jobs/jobs.service";
 import { serializeLogError } from "../logging";
+import { ProjectsService } from "../projects/projects.service";
 import { RehearsalRunEntity } from "./rehearsal-run.entity";
 
-export type RehearsalSttEnqueueJob = (
-  input: EnqueueRehearsalSttJobInput
-) => Promise<void>;
+export type RehearsalSttEnqueueJob = (input: EnqueueRehearsalSttJobInput) => Promise<void>;
 
 export const REHEARSAL_STT_ENQUEUE_JOB = "REHEARSAL_STT_ENQUEUE_JOB";
 
@@ -42,6 +37,7 @@ export class RehearsalsService {
     @InjectRepository(RehearsalRunEntity)
     private readonly rehearsalRuns: Repository<RehearsalRunEntity>,
     private readonly decksService: DecksService,
+    private readonly projectsService: ProjectsService,
     private readonly filesService: FilesService,
     private readonly jobsService: JobsService,
     @Inject(REHEARSAL_STT_ENQUEUE_JOB)
@@ -67,6 +63,8 @@ export class RehearsalsService {
         jobId: null,
         status: "created",
         error: null,
+        reportJson: null,
+        transcriptRetained: false,
         rawAudioDeletedAt: null,
         createdAt: now,
         updatedAt: now
@@ -77,10 +75,7 @@ export class RehearsalsService {
   }
 
   async createAudioUploadUrl(runId: string, body: unknown) {
-    const request = parseRequest(
-      createRehearsalAudioUploadUrlRequestSchema,
-      body
-    );
+    const request = parseRequest(createRehearsalAudioUploadUrlRequestSchema, body);
     const run = await this.getRunEntity(runId);
 
     if (!["created", "uploading"].includes(run.status)) {
@@ -108,10 +103,7 @@ export class RehearsalsService {
   }
 
   async completeAudioUpload(runId: string, body: unknown) {
-    const request = parseRequest(
-      completeRehearsalAudioUploadRequestSchema,
-      body
-    );
+    const request = parseRequest(completeRehearsalAudioUploadRequestSchema, body);
     const run = await this.getRunEntity(runId);
 
     if (run.status !== "uploading") {
@@ -125,11 +117,7 @@ export class RehearsalsService {
     await this.filesService.completeUpload(run.projectId, {
       fileId: request.fileId
     });
-    await this.filesService.getUploadedAsset(
-      run.projectId,
-      request.fileId,
-      "rehearsal-audio"
-    );
+    await this.filesService.getUploadedAsset(run.projectId, request.fileId, "rehearsal-audio");
 
     const claimedRun = await this.claimAudioUpload(run, request.fileId);
     if (!claimedRun) {
@@ -180,11 +168,7 @@ export class RehearsalsService {
         job: queuedJob
       });
     } catch (error) {
-      const failure = await this.cleanupAfterEnqueueFailure(
-        claimedRun,
-        request.fileId,
-        error
-      );
+      const failure = await this.cleanupAfterEnqueueFailure(claimedRun, request.fileId, error);
       await this.jobsService.update(queuedJob.jobId, {
         status: "failed",
         progress: 0,
@@ -206,9 +190,7 @@ export class RehearsalsService {
           deckId: claimedRun.deckId,
           audioFileId: request.fileId,
           driver: this.config.JOB_QUEUE_DRIVER,
-          cleanupError: failure.cleanupError
-            ? serializeLogError(failure.cleanupError)
-            : undefined,
+          cleanupError: failure.cleanupError ? serializeLogError(failure.cleanupError) : undefined,
           error: serializeLogError(error)
         },
         "Rehearsal STT enqueue failed."
@@ -222,11 +204,23 @@ export class RehearsalsService {
     return getRehearsalRunResponseSchema.parse({ run: toRehearsalRun(run) });
   }
 
+  async getReport(runId: string) {
+    const run = await this.getRunEntity(runId);
+    const report = run.status === "succeeded" && run.reportJson ? run.reportJson : null;
+
+    return getRehearsalReportResponseSchema.parse({
+      run: toRehearsalRun(run),
+      report
+    });
+  }
+
   private async getRunEntity(runId: string) {
     const run = await this.rehearsalRuns.findOne({ where: { runId } });
     if (!run) {
       throw new NotFoundException(`Rehearsal run not found: ${runId}`);
     }
+
+    await this.projectsService.getAccessibleProject(run.projectId);
 
     return run;
   }
@@ -274,9 +268,7 @@ export class RehearsalsService {
         error: {
           code: "REHEARSAL_STT_ENQUEUE_FAILED",
           message:
-            enqueueError instanceof Error
-              ? enqueueError.message
-              : "Rehearsal STT enqueue failed."
+            enqueueError instanceof Error ? enqueueError.message : "Rehearsal STT enqueue failed."
         },
         jobMessage: "Rehearsal STT enqueue failed.",
         rawAudioDeletedAt: new Date(rawAudioDeletedAt)
@@ -286,9 +278,7 @@ export class RehearsalsService {
         error: {
           code: "RAW_AUDIO_DELETE_FAILED",
           message:
-            cleanupError instanceof Error
-              ? cleanupError.message
-              : "Raw audio deletion failed."
+            cleanupError instanceof Error ? cleanupError.message : "Raw audio deletion failed."
         },
         jobMessage: "Rehearsal raw audio cleanup failed.",
         rawAudioDeletedAt: run.rawAudioDeletedAt,

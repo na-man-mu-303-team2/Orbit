@@ -1,14 +1,34 @@
 import { renderToStaticMarkup } from "react-dom/server";
-import type { Job } from "@orbit/shared";
+import type { Job, Project } from "@orbit/shared";
 import { describe, expect, it, vi } from "vitest";
 import {
+  buildGenerateDeckPayload,
   buildReferenceGenerationInput,
+  createGeneratedDeckProject,
   ExtractResultItem,
   GeneratedDeckResult,
+  getGeneratedDeckProjectPath,
+  getGeneratedDeckProjectTitle,
   getGenerateDeckJobResult,
   getJobResultFiles,
-  pollExtractJob
+  mergeGeneratedProjectList,
+  pollExtractJob,
+  shouldRenderAppFrame
 } from "./App";
+
+describe("App shell routing", () => {
+  it("keeps the login page outside the shared navigation shell", () => {
+    expect(shouldRenderAppFrame({ name: "login" })).toBe(false);
+    expect(
+      shouldRenderAppFrame({
+        name: "rehearsal-report",
+        projectId: "project_demo_1",
+        runId: "run_demo_1"
+      })
+    ).toBe(false);
+    expect(shouldRenderAppFrame({ name: "home" })).toBe(true);
+  });
+});
 
 describe("reference extraction upload flow", () => {
   it("builds generate-deck references and keywords from succeeded extraction results", () => {
@@ -102,6 +122,152 @@ describe("reference extraction upload flow", () => {
 });
 
 describe("AI deck generation flow", () => {
+  it("builds a generate-deck payload with design direction", () => {
+    const payload = buildGenerateDeckPayload({
+      topic: "ORBIT",
+      prompt: "Generate slides",
+      designPrompt: "retro pixel palette",
+      duration: 10,
+      minSlides: 5,
+      maxSlides: 8,
+      template: "report",
+      metadata: {
+        audience: "general",
+        purpose: "inform",
+        tone: "professional"
+      },
+      design: {
+        visualRhythm: "auto",
+        densityTarget: "medium",
+        mediaPolicy: "balanced",
+        layoutDiversity: "varied"
+      },
+      referenceInput: {
+        references: [{ fileId: "file_1" }],
+        referenceKeywords: [{ text: "Deck" }],
+        succeededFiles: [],
+        failedFiles: []
+      }
+    });
+
+    expect(payload).toMatchObject({
+      topic: "ORBIT",
+      prompt: "Generate slides",
+      designPrompt: "retro pixel palette",
+      targetDurationMinutes: 10,
+      slideCountRange: { min: 5, max: 8 },
+      design: {
+        visualRhythm: "auto",
+        densityTarget: "medium",
+        mediaPolicy: "balanced",
+        layoutDiversity: "varied"
+      },
+      references: [{ fileId: "file_1" }],
+      referenceKeywords: [{ text: "Deck" }]
+    });
+  });
+
+  it("defaults an omitted design prompt to an empty string", () => {
+    const payload = buildGenerateDeckPayload({
+      topic: "ORBIT",
+      prompt: "Generate slides",
+      duration: 10,
+      minSlides: 5,
+      maxSlides: 8,
+      template: "report",
+      metadata: {
+        audience: "general",
+        purpose: "inform",
+        tone: "professional"
+      },
+      design: {
+        visualRhythm: "auto",
+        densityTarget: "medium",
+        mediaPolicy: "balanced",
+        layoutDiversity: "varied"
+      },
+      referenceInput: {
+        references: [],
+        referenceKeywords: [],
+        succeededFiles: [],
+        failedFiles: []
+      }
+    });
+
+    expect(payload.designPrompt).toBe("");
+  });
+
+  it("keeps a generated project at the top of the project list cache", () => {
+    const older: Project = {
+      projectId: "project_old",
+      workspaceId: "workspace_demo_1",
+      title: "Old",
+      createdBy: "user_demo_1",
+      createdAt: "2026-06-28T00:00:00.000Z"
+    };
+    const generated: Project = {
+      projectId: "project_new_ai",
+      workspaceId: "workspace_demo_1",
+      title: "New",
+      createdBy: "user_demo_1",
+      createdAt: "2026-06-29T00:00:00.000Z"
+    };
+
+    expect(mergeGeneratedProjectList([older], generated)).toEqual([
+      generated,
+      older
+    ]);
+    expect(mergeGeneratedProjectList([generated, older], generated)).toEqual([
+      generated,
+      older
+    ]);
+  });
+
+  it("creates a new project for an AI deck generation", async () => {
+    const fetcher = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+
+      if (url.endsWith("/workspaces/workspace_demo_1/projects")) {
+        expect(init?.method).toBe("POST");
+        expect(JSON.parse(String(init?.body))).toEqual({ title: "새 주제" });
+        return new Response(
+          JSON.stringify({
+            projectId: "project_new_ai",
+            workspaceId: "workspace_demo_1",
+            title: "새 주제",
+            createdBy: "user_demo_1",
+            createdAt: "2026-06-29T00:00:00.000Z"
+          })
+        );
+      }
+
+      if (url.endsWith("/projects/project_new_ai/deck")) {
+        const body = JSON.parse(String(init?.body));
+        return new Response(
+          JSON.stringify({
+            deck: body.deck,
+            snapshot: {
+              snapshotId: "snapshot_new_ai",
+              projectId: "project_new_ai",
+              deckId: "deck_new_ai",
+              version: 1,
+              reason: "deck-replaced",
+              createdAt: "2026-06-29T00:00:00.000Z"
+            },
+            updatedAt: "2026-06-29T00:00:00.000Z"
+          })
+        );
+      }
+
+      return new Response("unexpected request", { status: 500 });
+    });
+
+    await expect(createGeneratedDeckProject("  새 주제  ", fetcher)).resolves.toMatchObject({
+      projectId: "project_new_ai"
+    });
+    expect(getGeneratedDeckProjectTitle("   ")).toBe("AI 덱");
+  });
+
   it("reads a generated deck job result and renders slide evidence", () => {
     const job: Job = {
       jobId: "job-2",
@@ -147,7 +313,7 @@ describe("AI deck generation flow", () => {
             }
           ]
         },
-        warnings: [],
+        warnings: ["AI가 참고자료/주제 밀도를 기준으로 1장이 적정하다고 판단했습니다."],
         validation: {
           passed: true,
           layoutIssues: [],
@@ -166,8 +332,12 @@ describe("AI deck generation flow", () => {
     if (!result) {
       throw new Error("Generated deck result was not parsed.");
     }
+    expect(getGeneratedDeckProjectPath(result)).toBe("/project/project-a");
     expect(renderToStaticMarkup(<GeneratedDeckResult result={result} />)).toContain(
       "file_1"
+    );
+    expect(renderToStaticMarkup(<GeneratedDeckResult result={result} />)).toContain(
+      "AI가 참고자료/주제 밀도를 기준으로 1장이 적정하다고 판단했습니다."
     );
   });
 });

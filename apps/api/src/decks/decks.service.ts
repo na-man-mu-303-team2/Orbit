@@ -412,7 +412,7 @@ function parseDeckRow(row: DeckRow | undefined): Deck {
     );
   }
 
-  return parseDeckJson(row.deck_json);
+  return parseDeckJson(normalizeStoredDeckRowIdentity(row));
 }
 
 function parseDeckJson(deckJson: unknown): Deck {
@@ -423,6 +423,18 @@ function parseDeckJson(deckJson: unknown): Deck {
   }
 
   return deckSchema.parse(normalizeLegacyDeckKeywords(deckJson));
+}
+
+function normalizeStoredDeckRowIdentity(row: DeckRow): unknown {
+  if (!isRecord(row.deck_json)) {
+    return row.deck_json;
+  }
+
+  return {
+    ...row.deck_json,
+    projectId: row.project_id,
+    deckId: row.deck_id
+  };
 }
 
 function normalizeLegacyDeckKeywords(deckJson: unknown): unknown {
@@ -449,7 +461,7 @@ function normalizeLegacySlideKeywords(keywords: unknown[]): unknown[] {
   const normalizedKeywords: unknown[] = [];
   const keywordByTerm = new Map<string, Record<string, unknown>>();
 
-  for (const keyword of keywords) {
+  for (const [index, keyword] of keywords.entries()) {
     if (!isRecord(keyword)) {
       normalizedKeywords.push(keyword);
       continue;
@@ -485,6 +497,7 @@ function normalizeLegacySlideKeywords(keywords: unknown[]): unknown[] {
 
     const normalizedKeyword: Record<string, unknown> = {
       ...keyword,
+      keywordId: normalizeLegacyKeywordId(keyword.keywordId, index),
       text,
       synonyms: [],
       abbreviations: []
@@ -507,6 +520,19 @@ function normalizeLegacySlideKeywords(keywords: unknown[]): unknown[] {
   }
 
   return normalizedKeywords;
+}
+
+function normalizeLegacyKeywordId(value: unknown, index: number): string {
+  if (typeof value === "string" && /^kw_[A-Za-z0-9_-]+$/.test(value)) {
+    return value;
+  }
+
+  const normalizedValue =
+    typeof value === "string" || typeof value === "number"
+      ? String(value).trim().replace(/[^A-Za-z0-9_-]/g, "_")
+      : "";
+
+  return `kw_legacy_${normalizedValue || index + 1}`;
 }
 
 function appendLegacyKeywordTerms(
