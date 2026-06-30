@@ -25,6 +25,7 @@ import {
   selectRecordingMimeType,
   shouldAutoAdvanceLiveSlide
 } from "./RehearsalWorkspace";
+import { resolveEditorAssetUrl } from "../editor/editorAssetUrl";
 
 const createdAt = "2026-06-29T00:00:00.000Z";
 
@@ -150,6 +151,28 @@ describe("RehearsalWorkspace", () => {
     expect(analysis.coverage).toBe(1);
     expect(analysis.detectedKeywords.map((keyword) => keyword.keywordId)).toEqual(["kw_1", "kw_2"]);
     expect(analysis.missingKeywordIds).toEqual([]);
+  });
+
+  it("resolves slide thumbnails to same-origin asset URLs", () => {
+    vi.stubGlobal("window", {
+      location: {
+        origin: "http://localhost:5173"
+      }
+    });
+
+    expect(resolveEditorAssetUrl("/api/v1/projects/p1/assets/file_1/content")).toBe(
+      "http://localhost:5173/api/v1/projects/p1/assets/file_1/content"
+    );
+    expect(
+      resolveEditorAssetUrl(
+        "http://localhost:9000/orbit-local/projects/project_real_1/assets/file_real_1/slide_1.png"
+      )
+    ).toBe(
+      "http://localhost:5173/api/v1/projects/project_real_1/assets/file_real_1/content"
+    );
+    expect(resolveEditorAssetUrl("https://cdn.example.com/thumb.png")).toBe(
+      "https://cdn.example.com/thumb.png"
+    );
   });
 
   it("composes committed live STT finals with the current draft", () => {

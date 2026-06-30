@@ -372,6 +372,36 @@ describe("DecksService", () => {
     );
   });
 
+  it("normalizes legacy numeric keyword IDs when reading stored deck JSON", async () => {
+    const { dataSource, service } = createService();
+    const deck = createDeck();
+    const legacyDeck = createLegacyKeywordDeck(deck);
+    legacyDeck.slides[0].keywords[0].keywordId = 1 as unknown as string;
+
+    seedStoredDeck(dataSource, deck, legacyDeck);
+
+    const response = await service.getDeck(deck.projectId);
+
+    expect(response.deck.slides[0].keywords[0]?.keywordId).toBe("kw_legacy_1");
+  });
+
+  it("uses stored deck row IDs when legacy deck JSON identity is stale", async () => {
+    const { dataSource, service } = createService();
+    const deck = createDeck();
+    const staleDeck = {
+      ...deck,
+      projectId: "project_stale",
+      deckId: "deck_stale"
+    };
+
+    seedStoredDeck(dataSource, deck, staleDeck);
+
+    const response = await service.getDeck(deck.projectId);
+
+    expect(response.deck.projectId).toBe(deck.projectId);
+    expect(response.deck.deckId).toBe(deck.deckId);
+  });
+
   it("normalizes legacy keyword terms before applying patches", async () => {
     const { dataSource, service } = createService();
     const deck = createDeck();

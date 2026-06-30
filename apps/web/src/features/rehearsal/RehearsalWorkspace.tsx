@@ -33,6 +33,7 @@ import {
   Square
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { resolveEditorAssetUrl } from "../editor/editorAssetUrl";
 import {
   LiveSttAdapterError,
   type LiveSttAdapter,
@@ -637,6 +638,11 @@ export function RehearsalWorkspace(props: {
   const [isTimerRunning, setIsTimerRunning] = useState(false);
   const [timeMode, setTimeMode] = useState<RehearsalTimeMode>("stopwatch");
   const [timerDurationSeconds, setTimerDurationSeconds] = useState(80);
+  const [elapsedTimeInput, setElapsedTimeInput] = useState("00:00");
+  const [timerDurationInput, setTimerDurationInput] = useState("01:20");
+  const [editingTimeField, setEditingTimeField] = useState<
+    "elapsed" | "duration" | null
+  >(null);
   const sessionRef = useRef<RecordingSession | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const liveDemoStreamRef = useRef<MediaStream | null>(null);
@@ -712,6 +718,18 @@ export function RehearsalWorkspace(props: {
       setIsTimerRunning(false);
     }
   }, [elapsedSeconds, timeMode, timerDurationSeconds]);
+
+  useEffect(() => {
+    if (editingTimeField !== "elapsed") {
+      setElapsedTimeInput(formatClock(elapsedSeconds));
+    }
+  }, [editingTimeField, elapsedSeconds]);
+
+  useEffect(() => {
+    if (editingTimeField !== "duration") {
+      setTimerDurationInput(formatClock(timerDurationSeconds));
+    }
+  }, [editingTimeField, timerDurationSeconds]);
 
   useEffect(() => {
     return () => {
@@ -893,11 +911,37 @@ export function RehearsalWorkspace(props: {
     if (timeMode === "timer" && elapsedSeconds >= timerDurationSeconds) {
       setElapsedSeconds(0);
     }
-    setIsTimerRunning(true);
 
     if (canRecord) {
       void startRecording();
+      return;
     }
+
+    setIsTimerRunning(true);
+  }
+
+  function commitElapsedTimeInput(value: string) {
+    const nextSeconds = parseClockInput(value);
+    setEditingTimeField(null);
+
+    if (nextSeconds === null) {
+      setElapsedTimeInput(formatClock(elapsedSeconds));
+      return;
+    }
+
+    setElapsedSeconds(Math.min(nextSeconds, 60 * 60 * 24 - 1));
+  }
+
+  function commitTimerDurationInput(value: string) {
+    const nextSeconds = parseClockInput(value);
+    setEditingTimeField(null);
+
+    if (nextSeconds === null || nextSeconds <= 0) {
+      setTimerDurationInput(formatClock(timerDurationSeconds));
+      return;
+    }
+
+    setTimerDurationSeconds(Math.min(nextSeconds, 60 * 60 * 24 - 1));
   }
 
   async function startLiveStt(stream: MediaStream) {
@@ -1111,9 +1155,6 @@ export function RehearsalWorkspace(props: {
   const liveCoveragePercent = Math.round((liveKeywordState?.coverage ?? 0) * 100);
   const liveMissingKeywordIds = new Set(liveKeywordState?.missingKeywordIds ?? []);
   const checklistKeywords = getChecklistKeywords(currentSlide);
-  const displayedSeconds =
-    timeMode === "timer" ? Math.max(timerDurationSeconds - elapsedSeconds, 0) : elapsedSeconds;
-  const timerMinutes = Math.max(1, Math.round(timerDurationSeconds / 60));
   const scriptParagraphs = buildScriptParagraphs(currentSlide);
   const hasDeletedRawAudio = Boolean(run?.rawAudioDeletedAt);
 
@@ -1153,40 +1194,33 @@ export function RehearsalWorkspace(props: {
               <option value="stopwatch">{"\uc2a4\ud1b1\uc6cc\uce58"}</option>
               <option value="timer">{"\ud0c0\uc774\uba38"}</option>
             </select>
+            <span className="rehearsal-select-caret" aria-hidden="true" />
           </label>
-          <strong>
-            {timeMode === "timer" ? "\ub0a8\uc740" : "\uacbd\uacfc"} {formatClock(displayedSeconds)}
-          </strong>
-          <label className="rehearsal-timer-duration">
-            <span>{"\ud0c0\uc774\uba38"}</span>
-            <button
-              type="button"
-              aria-label="Decrease timer"
-              onClick={() => setTimerDurationSeconds((current) => Math.max(60, current - 60))}
-            >
-              -
-            </button>
+          <div className="rehearsal-time-fields">
             <input
-              aria-label="Timer minutes"
-              min={1}
-              max={180}
-              type="number"
-              value={timerMinutes}
+              aria-label="Elapsed time"
+              inputMode="numeric"
+              value={elapsedTimeInput}
+              onBlur={(event) => commitElapsedTimeInput(event.target.value)}
               onChange={(event) => {
-                const nextMinutes = Number(event.target.value);
-                if (!Number.isFinite(nextMinutes)) return;
-                setTimerDurationSeconds(Math.max(60, Math.min(10800, nextMinutes * 60)));
+                setEditingTimeField("elapsed");
+                setElapsedTimeInput(event.target.value);
               }}
+              onFocus={() => setEditingTimeField("elapsed")}
             />
-            <small>{"\ubd84"}</small>
-            <button
-              type="button"
-              aria-label="Increase timer"
-              onClick={() => setTimerDurationSeconds((current) => Math.min(10800, current + 60))}
-            >
-              +
-            </button>
-          </label>
+            <span aria-hidden="true">/</span>
+            <input
+              aria-label="Target time"
+              inputMode="numeric"
+              value={timerDurationInput}
+              onBlur={(event) => commitTimerDurationInput(event.target.value)}
+              onChange={(event) => {
+                setEditingTimeField("duration");
+                setTimerDurationInput(event.target.value);
+              }}
+              onFocus={() => setEditingTimeField("duration")}
+            />
+          </div>
           <button
             type="button"
             aria-label={isTimerRunning ? "Pause time" : "Start time"}
@@ -1261,6 +1295,7 @@ export function RehearsalWorkspace(props: {
               if (!slide) return null;
 
               const label = offset === 0 ? "\ud604\uc7ac" : offset > 0 ? `+${offset}` : `${offset}`;
+              const thumbnailUrl = resolveEditorAssetUrl(slide.thumbnailUrl);
               return (
                 <button
                   className={`rehearsal-context-thumb ${offset === 0 ? "active" : ""}`}
@@ -1268,9 +1303,27 @@ export function RehearsalWorkspace(props: {
                   type="button"
                   onClick={() => setCurrentSlideIndex(slideIndex)}
                 >
-                  <span>{label}</span>
-                  <strong>{getSlideTitle(slide)}</strong>
-                  <small>{getSlideSummary(slide)}</small>
+                  <span className="rehearsal-context-thumb-preview">
+                    {thumbnailUrl ? (
+                      <img
+                        alt={`${getSlideTitle(slide)} thumbnail`}
+                        src={thumbnailUrl}
+                      />
+                    ) : (
+                      <span className="rehearsal-context-thumb-empty">
+                        {getSlideTitle(slide)}
+                      </span>
+                    )}
+                  </span>
+                  <span className="rehearsal-context-thumb-meta">
+                    <span className="rehearsal-context-thumb-label">{label}</span>
+                    <span>
+                      <strong>{getSlideTitle(slide)}</strong>
+                      <small>
+                        {slideIndex + 1} / {deck?.slides.length ?? 0}
+                      </small>
+                    </span>
+                  </span>
                 </button>
               );
             })}
@@ -1296,15 +1349,23 @@ export function RehearsalWorkspace(props: {
               </button>
             </header>
             <div className="keyword-check-list">
-              {checklistKeywords.map((keyword, index) => {
-                const isDetected = index < 2 || liveDetectedKeywordIds.has(keyword.keywordId);
-                return (
-                  <div className="keyword-check-item" key={keyword.keywordId}>
-                    {isDetected ? <CheckCircle2 size={20} /> : <span className="empty-check" />}
-                    <strong>{keyword.text}</strong>
-                  </div>
-                );
-              })}
+              {checklistKeywords.length > 0 ? (
+                checklistKeywords.map((keyword) => {
+                  const isDetected = liveDetectedKeywordIds.has(keyword.keywordId);
+                  return (
+                    <div className="keyword-check-item" key={keyword.keywordId}>
+                      {isDetected ? (
+                        <CheckCircle2 size={20} />
+                      ) : (
+                        <span className="empty-check" />
+                      )}
+                      <strong>{keyword.text}</strong>
+                    </div>
+                  );
+                })
+              ) : (
+                <div className="keyword-empty-state">강조 키워드가 없습니다</div>
+              )}
             </div>
 
             <div className={`rehearsal-live-status rehearsal-live-status-${liveStatus}`}>
@@ -1424,7 +1485,9 @@ export function RehearsalWorkspace(props: {
             </header>
             <div className="script-body">
               {scriptParagraphs.map((paragraph, index) => (
-                <p key={`${paragraph}-${index}`}>{paragraph}</p>
+                <p key={`${paragraph}-${index}`}>
+                  {renderHighlightedScriptText(paragraph, checklistKeywords)}
+                </p>
               ))}
             </div>
           </section>
@@ -1441,6 +1504,22 @@ function DeckSlidePreview(props: { deck: Deck | null; slide: Slide }) {
   const titleText = getSlideTitle(slide);
   const bodyTexts = getSlideBodyTexts(slide);
   const keywords = getChecklistKeywords(slide);
+  const thumbnailUrl = resolveEditorAssetUrl(slide.thumbnailUrl);
+
+  if (thumbnailUrl) {
+    return (
+      <div
+        className="rehearsal-slide-preview image-preview"
+        style={{ backgroundColor, color: textColor }}
+      >
+        <img
+          alt={`${titleText} slide preview`}
+          className="rehearsal-slide-image"
+          src={thumbnailUrl}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="rehearsal-slide-preview" style={{ backgroundColor, color: textColor }}>
@@ -1584,36 +1663,8 @@ function getSlideBodyTexts(slide: Slide) {
     .filter((text) => text !== slide.title.trim());
 }
 
-function getSlideSummary(slide: Slide) {
-  return getSlideBodyTexts(slide)[0] ?? "Review the key point";
-}
-
 function getChecklistKeywords(slide: Slide | null): Keyword[] {
-  const fallback = ["Realtime", "Voice", "Source"].map((text, index) => ({
-    keywordId: `fallback-${index}`,
-    text,
-    synonyms: [],
-    abbreviations: []
-  }));
-
-  if (!slide) return fallback;
-
-  const keywords =
-    slide.keywords.length > 0
-      ? slide.keywords
-      : getSlideBodyTexts(slide)
-          .join(" ")
-          .split(/s+/)
-          .filter((word) => word.length > 1)
-          .slice(0, 3)
-          .map((text, index) => ({
-            keywordId: `${slide.slideId}-keyword-${index}`,
-            text,
-            synonyms: [],
-            abbreviations: []
-          }));
-
-  return keywords.length > 0 ? keywords.slice(0, 3) : fallback;
+  return slide?.keywords ?? [];
 }
 
 function buildScriptParagraphs(slide: Slide | null) {
@@ -1631,6 +1682,49 @@ function buildScriptParagraphs(slide: Slide | null) {
   }
 
   return ["\ub300\ubcf8\uc774 \uc5c6\uc2b5\ub2c8\ub2e4."];
+}
+
+function renderHighlightedScriptText(paragraph: string, keywords: Keyword[]) {
+  const keywordTexts = Array.from(
+    new Set(
+      keywords
+        .map((keyword) => keyword.text.trim())
+        .filter(Boolean)
+        .sort((left, right) => right.length - left.length)
+    )
+  );
+
+  if (keywordTexts.length === 0) {
+    return paragraph;
+  }
+
+  const keywordPattern = new RegExp(
+    `(${keywordTexts.map(escapeRegExp).join("|")})`,
+    "gi"
+  );
+  const normalizedKeywordTexts = new Set(
+    keywordTexts.map((keyword) => keyword.toLocaleLowerCase())
+  );
+
+  return paragraph.split(keywordPattern).map((part, index) => {
+    if (!part) {
+      return null;
+    }
+
+    if (normalizedKeywordTexts.has(part.toLocaleLowerCase())) {
+      return (
+        <span className="script-keyword-highlight" key={`${part}-${index}`}>
+          {part}
+        </span>
+      );
+    }
+
+    return part;
+  });
+}
+
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function formatReportStatus(status: RehearsalReportStatus, runStatus?: RehearsalRun["status"]) {
@@ -1672,6 +1766,24 @@ function formatClock(totalSeconds: number) {
     .toString()
     .padStart(2, "0");
   return `${minutes}:${seconds}`;
+}
+
+function parseClockInput(value: string): number | null {
+  const normalizedValue = value.trim();
+  const match = normalizedValue.match(/^(\d{1,3})(?::([0-5]?\d))?$/);
+
+  if (!match) {
+    return null;
+  }
+
+  const minutes = Number(match[1]);
+  const seconds = Number(match[2] ?? 0);
+
+  if (!Number.isFinite(minutes) || !Number.isFinite(seconds)) {
+    return null;
+  }
+
+  return minutes * 60 + seconds;
 }
 
 function navigateToProject(projectId: string) {
