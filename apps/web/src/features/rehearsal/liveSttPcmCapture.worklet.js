@@ -1,5 +1,5 @@
 const processorName = "orbit-live-stt-pcm-capture";
-const defaultFrameSize = 4096;
+const defaultFrameSize = 512;
 
 class OrbitLiveSttPcmCaptureProcessor extends AudioWorkletProcessor {
   constructor(options) {

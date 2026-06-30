@@ -1002,6 +1002,62 @@ button:disabled {
   min-height: 46px;
 }
 
+.rehearsal-live-audio-meter {
+  background: #f8fafb;
+  border: 1px solid #d9e1e7;
+  border-radius: 8px;
+  display: grid;
+  gap: 8px;
+  padding: 12px 14px;
+}
+
+.rehearsal-live-audio-meter-header {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+}
+
+.rehearsal-live-audio-meter-header span,
+.rehearsal-live-audio-meter small {
+  color: #527089;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.rehearsal-live-audio-meter-header strong {
+  color: #15202b;
+  font-size: 0.82rem;
+}
+
+.rehearsal-live-audio-meter-track {
+  background: #e5edf3;
+  border-radius: 999px;
+  height: 8px;
+  overflow: hidden;
+}
+
+.rehearsal-live-audio-meter-track span {
+  background: #0f766e;
+  border-radius: inherit;
+  display: block;
+  height: 100%;
+  min-width: 0;
+  transition: width 160ms ease;
+}
+
+.rehearsal-live-audio-meter-quiet .rehearsal-live-audio-meter-track span,
+.rehearsal-live-audio-meter-idle .rehearsal-live-audio-meter-track span {
+  background: #94a3b8;
+}
+
+.rehearsal-live-audio-meter-clipped .rehearsal-live-audio-meter-header strong {
+  color: #be123c;
+}
+
+.rehearsal-live-audio-meter-clipped .rehearsal-live-audio-meter-track span {
+  background: #be123c;
+}
+
 .rehearsal-live-status {
   align-items: center;
   background: #f8fafb;

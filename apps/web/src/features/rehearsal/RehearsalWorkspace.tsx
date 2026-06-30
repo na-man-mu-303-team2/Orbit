@@ -36,13 +36,15 @@ import { useEffect, useRef, useState } from "react";
 import { resolveEditorAssetUrl } from "../editor/editorAssetUrl";
 import {
   LiveSttAdapterError,
-  type LiveSttAdapter
+  type LiveSttAdapter,
+  type LiveSttAudioLevelEvent
 } from "./liveStt";
 import { SherpaLiveSttAdapter } from "./sherpaOnnxLiveSttAdapter";
 
 export {
   LiveSttAdapterError,
   type LiveSttAdapter,
+  type LiveSttAudioLevelEvent,
   type LiveSttCallbacks
 } from "./liveStt";
 export {
@@ -92,7 +94,22 @@ type LiveTranscriptAnalysis = {
   missingKeywordIds: string[];
 };
 
-const preferredAudioMimeTypes = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4"];
+type LiveTranscriptBuffer = {
+  committedTranscript: string;
+  draftTranscript: string;
+};
+
+const preferredAudioMimeTypes = [
+  "audio/webm;codecs=opus",
+  "audio/webm",
+  "audio/mp4"
+];
+export const rehearsalMicrophoneAudioConstraints: MediaTrackConstraints = {
+  echoCancellation: true,
+  noiseSuppression: true,
+  autoGainControl: true,
+  channelCount: 1
+};
 const liveAutoAdvanceCoverageThreshold = 0.8;
 const defaultLiveAutoAdvanceDelayMs = 800;
 
@@ -431,30 +448,48 @@ export function normalizeLiveTranscriptText(value: string) {
   return value.toLocaleLowerCase("ko-KR").replace(/\s+/g, "").trim();
 }
 
-export function mergeLiveTranscript(
-  currentTranscript: string,
-  incomingTranscript: string
-) {
-  const current = currentTranscript.trim();
-  const incoming = incomingTranscript.trim();
+export function createLiveTranscriptBuffer(): LiveTranscriptBuffer {
+  return {
+    committedTranscript: "",
+    draftTranscript: ""
+  };
+}
 
-  if (!incoming) {
-    return current;
+export function applyLiveTranscriptEvent(
+  buffer: LiveTranscriptBuffer,
+  event: Pick<LiveSttPartialTranscriptEvent, "transcript" | "isFinal">
+): LiveTranscriptBuffer {
+  const transcript = normalizeLiveTranscriptDisplayText(event.transcript);
+
+  if (event.isFinal) {
+    return {
+      committedTranscript: appendLiveTranscriptText(
+        buffer.committedTranscript,
+        transcript
+      ),
+      draftTranscript: ""
+    };
   }
 
-  if (!current) {
-    return incoming;
-  }
+  return {
+    ...buffer,
+    draftTranscript: transcript
+  };
+}
 
-  if (incoming.startsWith(current)) {
-    return incoming;
-  }
+export function renderLiveTranscriptBuffer(buffer: LiveTranscriptBuffer) {
+  return appendLiveTranscriptText(buffer.committedTranscript, buffer.draftTranscript);
+}
 
-  if (current.endsWith(incoming)) {
-    return current;
-  }
+function appendLiveTranscriptText(current: string, next: string) {
+  return [current, next]
+    .map(normalizeLiveTranscriptDisplayText)
+    .filter((part) => part.length > 0)
+    .join(" ");
+}
 
-  return `${current}\n${incoming}`;
+function normalizeLiveTranscriptDisplayText(value: string) {
+  return value.replace(/\s+/g, " ").trim();
 }
 
 export function evaluateLiveTranscript(
@@ -519,6 +554,38 @@ export function shouldAutoAdvanceLiveSlide(options: {
   );
 }
 
+export function getLiveAudioLevelLabel(level: LiveSttAudioLevelEvent | null) {
+  if (!level) {
+    return "입력 대기";
+  }
+
+  if (level.peakDb > -3) {
+    return "입력 과대";
+  }
+
+  return level.isLikelySilence ? "입력 낮음" : "입력 적정";
+}
+
+export function getLiveAudioLevelPercent(level: LiveSttAudioLevelEvent | null) {
+  if (!level) {
+    return 0;
+  }
+
+  return clamp(((level.rmsDb + 55) / 55) * 100, 0, 100);
+}
+
+export function requestRehearsalMicrophoneStream(
+  mediaDevices: Pick<MediaDevices, "getUserMedia"> = navigator.mediaDevices
+) {
+  return mediaDevices.getUserMedia({
+    audio: rehearsalMicrophoneAudioConstraints
+  });
+}
+
+function clamp(value: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, value));
+}
+
 function getLiveKeywordCandidates(slide: Slide): LiveKeywordCandidate[] {
   return slide.keywords.map((keyword) => ({
     keyword,
@@ -553,9 +620,13 @@ export function RehearsalWorkspace(props: {
   const [reportError, setReportError] = useState("");
   const [liveStatus, setLiveStatus] = useState<LiveSttStatus>("idle");
   const [liveError, setLiveError] = useState("");
-  const [liveTranscript, setLiveTranscript] = useState("");
+  const [liveTranscriptBuffer, setLiveTranscriptBuffer] = useState(
+    createLiveTranscriptBuffer
+  );
   const [liveKeywordState, setLiveKeywordState] =
     useState<LiveTranscriptAnalysis | null>(null);
+  const [liveAudioLevel, setLiveAudioLevel] =
+    useState<LiveSttAudioLevelEvent | null>(null);
   const [liveCue, setLiveCue] = useState<LiveSttAnimationCueEvent | null>(null);
   const [liveSlideAdvance, setLiveSlideAdvance] =
     useState<LiveSttSlideAdvanceEvent | null>(null);
@@ -580,9 +651,8 @@ export function RehearsalWorkspace(props: {
   );
   const deckRef = useRef<Deck | null>(props.initialDeck ?? null);
   const currentSlideIndexRef = useRef(0);
-  const liveTranscriptRef = useRef("");
-  const liveTranscriptSlideIdRef = useRef<string | null>(
-    props.initialDeck?.slides[0]?.slideId ?? null
+  const liveTranscriptBufferRef = useRef<LiveTranscriptBuffer>(
+    createLiveTranscriptBuffer()
   );
   const liveKeywordStateRef = useRef<LiveTranscriptAnalysis | null>(null);
   const autoAdvancedSlideIdsRef = useRef(new Set<string>());
@@ -682,17 +752,19 @@ export function RehearsalWorkspace(props: {
     liveStatus === "idle"
       ? "Live STT 시작을 눌러 테스트하세요"
       : "마이크 입력을 기다리는 중";
-
-  function resetLiveTranscriptForSlide(slide: Slide | null = currentSlide) {
-    liveTranscriptRef.current = "";
-    liveTranscriptSlideIdRef.current = slide?.slideId ?? null;
-    setLiveTranscript("");
-    setLiveKeywordState(slide ? evaluateLiveTranscript(slide, "") : null);
-  }
+  const liveTranscript = renderLiveTranscriptBuffer(liveTranscriptBuffer);
+  const liveAudioLevelLabel = getLiveAudioLevelLabel(liveAudioLevel);
+  const liveAudioLevelPercent = getLiveAudioLevelPercent(liveAudioLevel);
+  const liveAudioMeterState = liveAudioLevel
+    ? liveAudioLevelLabel === "입력 과대"
+      ? "clipped"
+      : liveAudioLevel.isLikelySilence
+        ? "quiet"
+        : "active"
+    : "idle";
 
   useEffect(() => {
     resetLiveTranscriptForSlide(currentSlide);
-    setLiveCue(null);
   }, [currentSlide?.slideId]);
 
   async function startRecording() {
@@ -707,8 +779,8 @@ export function RehearsalWorkspace(props: {
     setReportStatus("idle");
     setReportError("");
     setLiveError("");
+    setLiveAudioLevel(null);
     resetLiveTranscriptForSlide(currentSlide);
-    setLiveCue(null);
     setLiveSlideAdvance(null);
     setAutoAdvanceState("idle");
     autoAdvancedSlideIdsRef.current.clear();
@@ -721,7 +793,7 @@ export function RehearsalWorkspace(props: {
 
     let stream: MediaStream | null = null;
     try {
-      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      stream = await requestRehearsalMicrophoneStream(navigator.mediaDevices);
       const session = createRecordingSession(stream, {
         onError: (recordingError) => {
           stopMediaStream(stream);
@@ -762,8 +834,8 @@ export function RehearsalWorkspace(props: {
     if (!deck || !canStartLiveDemo) return;
 
     setLiveError("");
+    setLiveAudioLevel(null);
     resetLiveTranscriptForSlide(currentSlide);
-    setLiveCue(null);
     setLiveSlideAdvance(null);
     setAutoAdvanceState("idle");
     autoAdvancedSlideIdsRef.current.clear();
@@ -777,7 +849,7 @@ export function RehearsalWorkspace(props: {
     let stream: MediaStream | null = null;
     setIsLiveDemoActive(true);
     try {
-      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      stream = await requestRehearsalMicrophoneStream(navigator.mediaDevices);
       liveDemoStreamRef.current = stream;
       const started = await startLiveStt(stream);
       if (!started) {
@@ -802,6 +874,7 @@ export function RehearsalWorkspace(props: {
     liveSttAdapterRef.current?.stop();
     stopMediaStream(liveDemoStreamRef.current);
     liveDemoStreamRef.current = null;
+    setLiveAudioLevel(null);
     setIsLiveDemoActive(false);
     setLiveStatus((current) =>
       current === "listening" || current === "starting" ? "stopped" : current
@@ -816,6 +889,7 @@ export function RehearsalWorkspace(props: {
     setIsTimerRunning(false);
     cancelPendingAutoAdvance("cancelled");
     liveSttAdapterRef.current?.stop();
+    setLiveAudioLevel(null);
     setLiveStatus((current) =>
       current === "listening" || current === "starting" ? "stopped" : current
     );
@@ -875,11 +949,13 @@ export function RehearsalWorkspace(props: {
       props.liveSttAdapter ?? liveSttAdapterRef.current ?? createDefaultLiveSttAdapter();
     liveSttAdapterRef.current = adapter;
     setLiveStatus("starting");
+    setLiveAudioLevel(null);
 
     try {
       await adapter.start(stream, {
         onPartialTranscript: handleLivePartialTranscript,
-        onError: handleLiveSttError
+        onError: handleLiveSttError,
+        onAudioLevel: setLiveAudioLevel
       });
       setLiveStatus("listening");
       return true;
@@ -887,6 +963,7 @@ export function RehearsalWorkspace(props: {
       const error = toLiveSttAdapterError(cause);
       setLiveStatus(error.code === "LIVE_STT_MODEL_UNAVAILABLE" ? "unavailable" : "failed");
       setLiveError(error.message);
+      setLiveAudioLevel(null);
       cancelPendingAutoAdvance("cancelled");
       return false;
     }
@@ -895,6 +972,7 @@ export function RehearsalWorkspace(props: {
   function handleLiveSttError(error: LiveSttAdapterError) {
     setLiveStatus(error.code === "LIVE_STT_MODEL_UNAVAILABLE" ? "unavailable" : "failed");
     setLiveError(error.message);
+    setLiveAudioLevel(null);
     cancelPendingAutoAdvance("cancelled");
   }
 
@@ -906,21 +984,15 @@ export function RehearsalWorkspace(props: {
       return;
     }
 
-    if (liveTranscriptSlideIdRef.current !== slide.slideId) {
-      liveTranscriptRef.current = "";
-      liveTranscriptSlideIdRef.current = slide.slideId;
-    }
-
-    const transcript = mergeLiveTranscript(
-      liveTranscriptRef.current,
-      event.transcript
+    const nextBuffer = applyLiveTranscriptEvent(
+      liveTranscriptBufferRef.current,
+      event
     );
-    liveTranscriptRef.current = transcript;
+    liveTranscriptBufferRef.current = nextBuffer;
+    setLiveTranscriptBuffer(nextBuffer);
 
+    const transcript = renderLiveTranscriptBuffer(nextBuffer);
     const analysis = evaluateLiveTranscript(slide, transcript);
-    setLiveTranscript(transcript);
-    setLiveKeywordState(analysis);
-    setLiveStatus("listening");
 
     const previousDetectedIds = new Set(
       liveKeywordStateRef.current?.slideId === slide.slideId
@@ -941,6 +1013,10 @@ export function RehearsalWorkspace(props: {
       });
     }
 
+    setLiveKeywordState(analysis);
+    liveKeywordStateRef.current = analysis;
+    setLiveStatus("listening");
+
     if (
       shouldAutoAdvanceLiveSlide({
         analysis,
@@ -954,7 +1030,22 @@ export function RehearsalWorkspace(props: {
     }
   }
 
-  function scheduleAutoAdvance(deckSnapshot: Deck, fromSlideIndex: number, coverage: number) {
+  function resetLiveTranscriptForSlide(slide: Slide | null) {
+    const nextBuffer = createLiveTranscriptBuffer();
+    const nextKeywordState = slide ? evaluateLiveTranscript(slide, "") : null;
+
+    liveTranscriptBufferRef.current = nextBuffer;
+    liveKeywordStateRef.current = nextKeywordState;
+    setLiveTranscriptBuffer(nextBuffer);
+    setLiveKeywordState(nextKeywordState);
+    setLiveCue(null);
+  }
+
+  function scheduleAutoAdvance(
+    deckSnapshot: Deck,
+    fromSlideIndex: number,
+    coverage: number
+  ) {
     const fromSlide = deckSnapshot.slides[fromSlideIndex];
     const toSlide = deckSnapshot.slides[fromSlideIndex + 1];
     if (!fromSlide || !toSlide) {
@@ -1282,6 +1373,31 @@ export function RehearsalWorkspace(props: {
                 <Square size={18} />
                 Live STT 종료
               </button>
+            </div>
+
+            <div
+              className={`rehearsal-live-audio-meter rehearsal-live-audio-meter-${liveAudioMeterState}`}
+            >
+              <div className="rehearsal-live-audio-meter-header">
+                <span>Mic input</span>
+                <strong>{liveAudioLevelLabel}</strong>
+              </div>
+              <div
+                className="rehearsal-live-audio-meter-track"
+                role="meter"
+                aria-label="Mic input level"
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-valuenow={Math.round(liveAudioLevelPercent)}
+                aria-valuetext={liveAudioLevelLabel}
+              >
+                <span style={{ width: `${liveAudioLevelPercent}%` }} />
+              </div>
+              <small>
+                {liveAudioLevel
+                  ? `${Math.round(liveAudioLevel.rmsDb)} dB RMS`
+                  : "-100 dB RMS"}
+              </small>
             </div>
 
             <div className="rehearsal-live-transcript">

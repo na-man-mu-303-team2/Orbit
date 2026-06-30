@@ -1,8 +1,18 @@
 import type { LiveSttPartialTranscriptEvent } from "@orbit/shared";
 
+export type LiveSttAudioLevelEvent = {
+  type: "audio-level";
+  rms: number;
+  peak: number;
+  rmsDb: number;
+  peakDb: number;
+  isLikelySilence: boolean;
+};
+
 export type LiveSttCallbacks = {
   onPartialTranscript: (event: LiveSttPartialTranscriptEvent) => void;
   onError: (error: LiveSttAdapterError) => void;
+  onAudioLevel?: (event: LiveSttAudioLevelEvent) => void;
 };
 
 export type LiveSttAdapter = {
