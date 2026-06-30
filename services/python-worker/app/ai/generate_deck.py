@@ -1169,8 +1169,8 @@ def split_content_and_design_prompt(prompt: str, design_prompt: str) -> tuple[st
 
 
 def choose_slide_count(target_minutes: int, slide_range: SlideCountRange) -> int:
-    suggested = max(slide_range.min, round(target_minutes / 2))
-    return min(slide_range.max, suggested)
+    suggested = round(target_minutes)
+    return min(slide_range.max, max(slide_range.min, suggested))
 
 
 def plan_deck_content(

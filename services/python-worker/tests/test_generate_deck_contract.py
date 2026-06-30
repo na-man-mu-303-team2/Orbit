@@ -4,13 +4,28 @@ from typing import Any
 from fastapi.testclient import TestClient
 
 import app.main as api_module
-from app.ai.generate_deck import GenerateDeckRequest, ReferenceContext, generate_deck
+from app.ai.generate_deck import (
+    GenerateDeckRequest,
+    ReferenceContext,
+    SlideCountRange,
+    choose_slide_count,
+    generate_deck,
+)
 from tests.test_config import VALID_ENV
 
 
 def client() -> TestClient:
     api_module.app.state.config = api_module.load_config(VALID_ENV)
     return TestClient(api_module.app)
+
+
+def test_choose_slide_count_clamps_duration_to_requested_range() -> None:
+    slide_range = SlideCountRange(min=5, max=10)
+
+    assert choose_slide_count(3, slide_range) == 5
+    assert choose_slide_count(7, slide_range) == 7
+    assert choose_slide_count(10, slide_range) == 10
+    assert choose_slide_count(30, slide_range) == 10
 
 
 def test_generate_deck_endpoint_returns_deck_contract() -> None:
