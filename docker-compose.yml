@@ -130,6 +130,11 @@ services:
     build:
       context: .
       dockerfile: infra/docker/web.Dockerfile
+      args:
+        APP_ENV: ${APP_ENV:-local}
+        API_BASE_URL: ${API_BASE_URL:-http://api:3000}
+        WEB_PORT: ${WEB_PORT:-5173}
+    command: pnpm --filter @orbit/web dev
     env_file:
       - .env.local
     environment:
