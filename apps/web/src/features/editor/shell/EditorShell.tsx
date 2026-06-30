@@ -55,6 +55,7 @@ import { EditorSaveControl } from "./components/EditorSaveControl";
 import { SelectionQuickBar } from "./components/SelectionQuickBar";
 import {
   useEditorPersistenceState,
+  type PatchProducer,
   type SaveState
 } from "./hooks/useEditorPersistenceState";
 export {
@@ -275,8 +276,6 @@ class DeckRequestError extends Error {
   }
 }
 
-type PatchProducer = (deck: Deck) => DeckPatch;
-
 function isDeckRequestErrorWithCode(
   error: unknown,
   code: DeckApiErrorCode
@@ -291,22 +290,44 @@ function resolvePatchInput(
   return typeof patchInput === "function" ? patchInput(deck) : patchInput;
 }
 
-function createPatchForPersistedDeck(
-  deck: Deck,
-  patchInput: DeckPatch | PatchProducer
-): DeckPatch {
-  const patch = resolvePatchInput(deck, patchInput);
-  const nextPatch = {
-    ...patch,
-    baseVersion: deck.version
-  } satisfies DeckPatch;
-  const result = applyDeckPatch(deck, nextPatch);
+function buildPatchBatch(
+  baseDeck: Deck,
+  patchInputs: (DeckPatch | PatchProducer)[]
+): { patch: DeckPatch; deck: Deck } {
+  let workingDeck = baseDeck;
+  const operations: DeckPatch["operations"] = [];
+  let source: DeckPatch["source"] = "user";
 
-  if (!result.ok) {
-    throw new Error("최신 내용과 충돌해 저장할 수 없습니다. 다시 저장해 주세요.");
+  for (const patchInput of patchInputs) {
+    const resolvedPatch = resolvePatchInput(workingDeck, patchInput);
+    const nextPatch = {
+      ...resolvedPatch,
+      baseVersion: workingDeck.version
+    } satisfies DeckPatch;
+    const result = applyDeckPatch(workingDeck, nextPatch);
+
+    if (!result.ok) {
+      throw new Error("최신 내용과 충돌해 저장할 수 없습니다. 다시 저장해 주세요.");
+    }
+
+    operations.push(...nextPatch.operations);
+    source = nextPatch.source;
+    workingDeck = result.deck;
   }
 
-  return nextPatch;
+  if (operations.length === 0) {
+    throw new Error("저장할 변경 사항이 없습니다.");
+  }
+
+  return {
+    patch: {
+      deckId: baseDeck.deckId,
+      baseVersion: baseDeck.version,
+      operations,
+      source
+    },
+    deck: workingDeck
+  };
 }
 
 function waitForAnimationFrame() {
@@ -679,9 +700,10 @@ export function EditorShell(props: { projectId?: string }) {
     deckRef,
     hasHydratedPersistedDeckRef,
     hasLocalOptimisticChangesRef,
+    isSaveFlushInFlightRef,
     lastSavedAt,
     markHydratedDeck,
-    pendingSaveCountRef,
+    pendingSaveInputsRef,
     persistedDeckRef,
     saveErrorMessage,
     saveQueueRef,
@@ -1055,6 +1077,66 @@ export function EditorShell(props: { projectId?: string }) {
     }
   }
 
+  async function flushPendingSaveBatch() {
+    if (pendingSaveInputsRef.current.length === 0) {
+      return;
+    }
+
+    setSaveState("saving");
+    isSaveFlushInFlightRef.current = true;
+
+    const activeProjectId = deckQuery.data?.projectId ?? deckRef.current.projectId;
+
+    if (!activeProjectId) {
+      throw new Error("저장할 프로젝트를 찾지 못했습니다.");
+    }
+
+    const basePersistedDeck = persistedDeckRef.current ?? deckQuery.data;
+
+    if (!basePersistedDeck) {
+      throw new Error("최신 저장 상태를 찾지 못했습니다. 다시 불러온 뒤 저장해 주세요.");
+    }
+
+    const batchInputs = pendingSaveInputsRef.current.splice(0);
+    try {
+      let buildResult = buildPatchBatch(basePersistedDeck, batchInputs);
+      let persistedDeck: Deck;
+
+      try {
+        persistedDeck = await appendProjectDeckPatch(activeProjectId, buildResult.patch);
+      } catch (error) {
+        if (!isDeckRequestErrorWithCode(error, "STALE_BASE_VERSION")) {
+          throw error;
+        }
+
+        const latestDeck = await fetchProjectDeck(activeProjectId);
+
+        if (!latestDeck) {
+          throw new Error("최신 저장 상태를 다시 불러오지 못했습니다. 다시 시도해 주세요.");
+        }
+
+        persistedDeckRef.current = latestDeck;
+        buildResult = buildPatchBatch(latestDeck, batchInputs);
+        persistedDeck = await appendProjectDeckPatch(activeProjectId, buildResult.patch);
+      }
+
+      persistedDeckRef.current = persistedDeck;
+      setLastSavedAt(new Date().toISOString());
+
+      queryClient.setQueryData(["deck", projectId], (current?: Deck) =>
+        mergeDeckIntoQueryCache(current, persistedDeck)
+      );
+
+      if (persistedDeck.version >= deckRef.current.version) {
+        hasHydratedPersistedDeckRef.current = true;
+        hasLocalOptimisticChangesRef.current = false;
+      }
+    } catch (error) {
+      pendingSaveInputsRef.current = [...batchInputs, ...pendingSaveInputsRef.current];
+      throw error;
+    }
+  }
+
   function commitPatch(
     patchInput: DeckPatch | PatchProducer,
     baseDeck: Deck = deckRef.current
@@ -1086,54 +1168,12 @@ export function EditorShell(props: { projectId?: string }) {
       mergeDeckIntoQueryCache(current, result.deck)
     );
 
-    pendingSaveCountRef.current += 1;
+    pendingSaveInputsRef.current.push(patchInput);
     saveQueueRef.current = saveQueueRef.current
       .catch(() => undefined)
       .then(async () => {
-        setSaveState("saving");
-        const activeProjectId = deckQuery.data?.projectId ?? deckRef.current.projectId;
-
-        if (!activeProjectId) {
-          throw new Error("저장할 프로젝트를 찾지 못했습니다.");
-        }
-
-        const basePersistedDeck = persistedDeckRef.current ?? deckQuery.data;
-
-        if (!basePersistedDeck) {
-          throw new Error("최신 저장 상태를 찾지 못했습니다. 다시 불러온 뒤 저장해 주세요.");
-        }
-
-        let transportPatch = createPatchForPersistedDeck(basePersistedDeck, patchInput);
-        let persistedDeck: Deck;
-
-        try {
-          persistedDeck = await appendProjectDeckPatch(activeProjectId, transportPatch);
-        } catch (error) {
-          if (!isDeckRequestErrorWithCode(error, "STALE_BASE_VERSION")) {
-            throw error;
-          }
-
-          const latestDeck = await fetchProjectDeck(activeProjectId);
-
-          if (!latestDeck) {
-            throw new Error("최신 저장 상태를 다시 불러오지 못했습니다. 다시 시도해 주세요.");
-          }
-
-          persistedDeckRef.current = latestDeck;
-          transportPatch = createPatchForPersistedDeck(latestDeck, patchInput);
-          persistedDeck = await appendProjectDeckPatch(activeProjectId, transportPatch);
-        }
-
-        persistedDeckRef.current = persistedDeck;
-        setLastSavedAt(new Date().toISOString());
-
-        queryClient.setQueryData(["deck", projectId], (current?: Deck) =>
-          mergeDeckIntoQueryCache(current, persistedDeck)
-        );
-
-        if (persistedDeck.version >= deckRef.current.version) {
-          hasHydratedPersistedDeckRef.current = true;
-          hasLocalOptimisticChangesRef.current = false;
+        while (pendingSaveInputsRef.current.length > 0) {
+          await flushPendingSaveBatch();
         }
       })
       .catch((error: unknown) => {
@@ -1143,8 +1183,8 @@ export function EditorShell(props: { projectId?: string }) {
         void deckQuery.refetch();
       })
       .finally(() => {
-        pendingSaveCountRef.current = Math.max(0, pendingSaveCountRef.current - 1);
-        if (pendingSaveCountRef.current === 0) {
+        isSaveFlushInFlightRef.current = false;
+        if (pendingSaveInputsRef.current.length === 0) {
           setSaveState("idle");
         } else {
           setSaveState("pending");

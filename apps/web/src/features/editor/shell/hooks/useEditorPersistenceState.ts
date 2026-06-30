@@ -1,14 +1,16 @@
-import type { Deck } from "@orbit/shared";
+import type { Deck, DeckPatch } from "@orbit/shared";
 import type { Dispatch, MutableRefObject, SetStateAction } from "react";
 import { useRef, useState } from "react";
 
 export type SaveState = "idle" | "pending" | "saving" | "error";
+export type PatchProducer = (deck: Deck) => DeckPatch;
 
 type EditorPersistenceState = {
   deckRef: MutableRefObject<Deck>;
   persistedDeckRef: MutableRefObject<Deck | null>;
   saveQueueRef: MutableRefObject<Promise<void>>;
-  pendingSaveCountRef: MutableRefObject<number>;
+  pendingSaveInputsRef: MutableRefObject<(DeckPatch | PatchProducer)[]>;
+  isSaveFlushInFlightRef: MutableRefObject<boolean>;
   hasHydratedPersistedDeckRef: MutableRefObject<boolean>;
   hasLocalOptimisticChangesRef: MutableRefObject<boolean>;
   lastSavedAt: string | null;
@@ -26,7 +28,8 @@ export function useEditorPersistenceState(initialDeck: Deck): EditorPersistenceS
   const deckRef = useRef(initialDeck);
   const persistedDeckRef = useRef<Deck | null>(initialDeck);
   const saveQueueRef = useRef<Promise<void>>(Promise.resolve());
-  const pendingSaveCountRef = useRef(0);
+  const pendingSaveInputsRef = useRef<(DeckPatch | PatchProducer)[]>([]);
+  const isSaveFlushInFlightRef = useRef(false);
   const hasHydratedPersistedDeckRef = useRef(false);
   const hasLocalOptimisticChangesRef = useRef(false);
   const [saveState, setSaveState] = useState<SaveState>("idle");
@@ -57,7 +60,8 @@ export function useEditorPersistenceState(initialDeck: Deck): EditorPersistenceS
     deckRef,
     persistedDeckRef,
     saveQueueRef,
-    pendingSaveCountRef,
+    pendingSaveInputsRef,
+    isSaveFlushInFlightRef,
     hasHydratedPersistedDeckRef,
     hasLocalOptimisticChangesRef,
     lastSavedAt,
