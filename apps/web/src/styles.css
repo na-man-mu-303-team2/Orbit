@@ -2,7 +2,12 @@
   color: #111827;
   background: #f7f8fa;
   font-family:
-    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    Inter,
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
     sans-serif;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
@@ -355,9 +360,7 @@ button:disabled {
 .project-thumb {
   align-items: center;
   aspect-ratio: 16 / 9;
-  background:
-    linear-gradient(135deg, rgba(37, 99, 235, 0.16), transparent 52%),
-    #f8fafc;
+  background: linear-gradient(135deg, rgba(37, 99, 235, 0.16), transparent 52%), #f8fafc;
   border: 1px solid #e5e7eb;
   border-radius: 6px;
   display: flex;
@@ -741,9 +744,7 @@ button:disabled {
 .deck-preview-placeholder {
   align-items: center;
   aspect-ratio: 16 / 9;
-  background:
-    linear-gradient(135deg, rgba(15, 118, 110, 0.12), transparent 60%),
-    #f8fafc;
+  background: linear-gradient(135deg, rgba(15, 118, 110, 0.12), transparent 60%), #f8fafc;
   border: 1px solid #d9e1e7;
   border-radius: 8px;
   color: #0f766e;
@@ -1711,7 +1712,7 @@ button:disabled {
   background: #ffffff;
   border-left: 1px solid #e5e7eb;
   display: grid;
-  grid-template-rows: minmax(220px, 0.9fr) minmax(360px, 1.45fr);
+  grid-template-rows: auto minmax(180px, 0.75fr) minmax(300px, 1.2fr);
   min-height: 0;
   overflow: hidden;
 }
@@ -1751,6 +1752,92 @@ button:disabled {
   height: 28px;
   padding: 0;
   width: 28px;
+}
+
+.rehearsal-report-card {
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+.rehearsal-report-card header small {
+  color: #64748b;
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.rehearsal-report-content {
+  display: grid;
+  gap: 12px;
+  min-height: 0;
+  overflow: auto;
+}
+
+.rehearsal-report-metrics {
+  display: grid;
+  gap: 8px;
+}
+
+.rehearsal-report-metric {
+  align-items: center;
+  border-bottom: 1px solid #edf2f7;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  padding: 4px 0 8px;
+}
+
+.rehearsal-report-metric span {
+  color: #64748b;
+  font-size: 0.75rem;
+  font-weight: 800;
+}
+
+.rehearsal-report-metric strong {
+  color: #111827;
+  font-size: 0.88rem;
+}
+
+.rehearsal-report-section,
+.rehearsal-report-transcript {
+  display: grid;
+  gap: 6px;
+}
+
+.rehearsal-report-section strong,
+.rehearsal-report-transcript strong {
+  color: #111827;
+  font-size: 0.78rem;
+  font-weight: 900;
+}
+
+.rehearsal-report-section p,
+.rehearsal-report-transcript p,
+.rehearsal-report-section li {
+  color: #334155;
+  font-size: 0.78rem;
+  line-height: 1.55;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.rehearsal-report-section ul {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding-left: 16px;
+}
+
+.rehearsal-report-muted,
+.rehearsal-report-generated {
+  color: #64748b;
+}
+
+.rehearsal-report-state {
+  align-items: center;
+  color: #64748b;
+  display: flex;
+  font-size: 0.84rem;
+  font-weight: 800;
+  min-height: 70px;
 }
 
 .keyword-check-list {
@@ -1834,7 +1921,7 @@ button:disabled {
 
   .rehearsal-presenter-side {
     border-left: 0;
-    grid-template-rows: auto auto;
+    grid-template-rows: auto auto auto;
   }
 
   .rehearsal-filmstrip {

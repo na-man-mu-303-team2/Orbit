@@ -192,6 +192,7 @@ export function App() {
 
   return (
     <AppFrame
+      isAuthenticated={auth.isSuccess}
       isSidebarCollapsed={isSidebarCollapsed}
       route={route}
       onToggleSidebar={() => setIsSidebarCollapsed((current) => !current)}
@@ -226,11 +227,12 @@ function renderRoute(route: Route, user?: AuthUser) {
 
 function AppFrame(props: {
   children: ReactNode;
+  isAuthenticated: boolean;
   isSidebarCollapsed: boolean;
   route: Route;
   onToggleSidebar: () => void;
 }) {
-  const { children, isSidebarCollapsed, route, onToggleSidebar } = props;
+  const { children, isAuthenticated, isSidebarCollapsed, route, onToggleSidebar } = props;
   const activeProjectId =
     route.name === "project-editor" || route.name === "rehearsal"
       ? route.projectId
@@ -278,10 +280,12 @@ function AppFrame(props: {
             onClick={() => navigateTo(`/rehearsal/${activeProjectId}`)}
           />
         </nav>
-        <button className="sidebar-login" type="button" onClick={() => navigateTo("/login")}>
-          <LogIn size={18} />
-          <span>로그인</span>
-        </button>
+        {!isAuthenticated ? (
+          <button className="sidebar-login" type="button" onClick={() => navigateTo("/login")}>
+            <LogIn size={18} />
+            <span>로그인</span>
+          </button>
+        ) : null}
       </aside>
       <section className="orbit-page">{children}</section>
     </main>
@@ -666,7 +670,9 @@ function GenerateDeckView() {
     setGenerateError("");
   };
 
-  const extractReferences = async (): Promise<ReferenceGenerationInput> => {
+  const extractReferences = async (
+    projectId: string
+  ): Promise<ReferenceGenerationInput> => {
     if (uploads.length === 0) {
       return {
         references: [],
@@ -677,6 +683,7 @@ function GenerateDeckView() {
     }
 
     const formData = new FormData();
+    formData.append("projectId", projectId);
     uploads.forEach(({ file }) => formData.append("files", file));
 
     setGenerationStep("extracting");
@@ -719,11 +726,6 @@ function GenerateDeckView() {
   const generateDeck = async () => {
     if (!topic.trim() || isGenerating) return;
 
-    if (!selectedProjectId) {
-      setProjectError("AI 덱을 저장할 프로젝트를 먼저 선택하세요.");
-      return;
-    }
-
     setIsGenerating(true);
     setGenerationStep("idle");
     setGenerateError("");
@@ -734,10 +736,11 @@ function GenerateDeckView() {
     setResult(null);
 
     try {
-      const referenceInput = await extractReferences();
+      const project = await createGeneratedDeckProject(topic);
+      const referenceInput = await extractReferences(project.projectId);
       setGenerationStep("generating");
       const response = await fetch(
-        `/api/v1/projects/${selectedProjectId}/jobs/generate-deck`,
+        `/api/v1/projects/${project.projectId}/jobs/generate-deck`,
         {
           method: "POST",
           headers: { "content-type": "application/json" },
@@ -771,10 +774,16 @@ function GenerateDeckView() {
       }
 
       const generatedResult = getGenerateDeckJobResult(job);
-      setResult(generatedResult);
-      if (generatedResult) {
-        navigateTo(`/project/${selectedProjectId}`);
+      if (!generatedResult) {
+        throw new Error("AI 덱 생성 결과를 읽지 못했습니다.");
       }
+
+      setResult(generatedResult);
+      queryClient.setQueryData<Project[]>(["projects"], (current) =>
+        mergeGeneratedProjectList(current, project)
+      );
+      queryClient.setQueryData(["deck", generatedResult.deck.projectId], generatedResult.deck);
+      navigateTo(getGeneratedDeckProjectPath(generatedResult));
     } catch (error) {
       setGenerateError(
         error instanceof Error ? error.message : "AI 덱 생성에 실패했습니다."
@@ -1184,6 +1193,27 @@ export function getJobResultFiles(job: Job): ExtractedFile[] {
 export function getGenerateDeckJobResult(job: Job): GenerateDeckJobResult | null {
   const result = job.result as GenerateDeckJobResult | null;
   return result?.deck ? result : null;
+}
+
+export function getGeneratedDeckProjectPath(result: GenerateDeckJobResult) {
+  return `/project/${encodeURIComponent(result.deck.projectId)}`;
+}
+
+export function getGeneratedDeckProjectTitle(topic: string) {
+  return topic.trim() || "AI 덱";
+}
+
+export function createGeneratedDeckProject(topic: string, fetcher: Fetcher = fetch) {
+  return createProject(getGeneratedDeckProjectTitle(topic), fetcher);
+}
+
+export function mergeGeneratedProjectList(
+  current: Project[] | undefined,
+  project: Project
+) {
+  return current?.some((item) => item.projectId === project.projectId)
+    ? current
+    : [project, ...(current ?? [])];
 }
 
 export function buildReferenceGenerationInput(
