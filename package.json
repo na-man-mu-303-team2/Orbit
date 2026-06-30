@@ -12,6 +12,7 @@
     "clean": "turbo run clean && rm -rf node_modules",
     "compose:down": "docker compose down --remove-orphans",
     "compose:up": "docker compose up --build",
+    "dev:local": "bash infra/scripts/dev-up.sh",
     "db:migration:revert": "pnpm --filter @orbit/api migration:revert",
     "db:migration:run": "pnpm --filter @orbit/api migration:run",
     "dev": "turbo run dev --parallel",

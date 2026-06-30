@@ -10,6 +10,16 @@ cp .env.example .env.local
 docker compose up --build
 ```
 
+로컬 개발용으로 인프라, migration, Web/API/Worker, Python worker를 한 번에 올리려면:
+
+```bash
+corepack enable
+corepack prepare pnpm@10.12.4 --activate
+pnpm install
+cp -n .env.example .env.local
+pnpm dev:local
+```
+
 ## DB migration
 
 ```bash
