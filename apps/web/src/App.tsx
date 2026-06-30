@@ -145,7 +145,7 @@ type ProjectAccessResponse = {
 };
 
 const EditorShell = lazy(() =>
-  import("./features/editor/EditorShell").then((module) => ({
+  import("./features/editor/shell/EditorShell").then((module) => ({
     default: module.EditorShell
   }))
 );

@@ -53,7 +53,20 @@ type DeckSnapshotRow = {
   created_at: Date | string;
 };
 
+type DeckPatchRow = {
+  change_id: string;
+  project_id: string;
+  deck_id: string;
+  before_version: number;
+  after_version: number;
+  source: AppendDeckPatchRequest["patch"]["source"];
+  actor_user_id: string | null;
+  operations: AppendDeckPatchRequest["patch"]["operations"];
+  created_at: Date | string;
+};
+
 type QueryExecutor = DataSource | EntityManager;
+const deckCheckpointPatchInterval = 20;
 
 @Injectable()
 export class DecksService {
@@ -70,10 +83,18 @@ export class DecksService {
       );
     }
 
+    const deck = await this.readCurrentDeckState(
+      this.dataSource,
+      parseDeckRow(deckRow),
+      projectId,
+      deckRow.deck_id,
+      toIso(deckRow.updated_at)
+    );
+
     return getDeckResponseSchema.parse({
       projectId,
-      deck: parseDeckRow(deckRow),
-      updatedAt: toIso(deckRow.updated_at)
+      deck: deck.deck,
+      updatedAt: deck.updatedAt
     });
   }
 
@@ -92,6 +113,7 @@ export class DecksService {
     return this.dataSource.transaction(async (manager) => {
       const updatedAt = nowIso();
       const deck = await this.upsertDeck(manager, request.deck, updatedAt);
+      await this.deletePatchRowsUpToVersion(manager, projectId, deck.deckId, deck.version);
       const snapshot = await this.createSnapshot(
         manager,
         deck,
@@ -128,7 +150,17 @@ export class DecksService {
         );
       }
 
-      const currentDeck = parseDeckRow(deckRow);
+      const checkpointVersion = deckRow.version;
+      const currentDeck = (
+        await this.readCurrentDeckState(
+          manager,
+          parseDeckRow(deckRow),
+          projectId,
+          request.patch.deckId,
+          toIso(deckRow.updated_at),
+          true
+        )
+      ).deck;
 
       if (currentDeck.projectId !== projectId) {
         throwDeckApiException(
@@ -151,15 +183,22 @@ export class DecksService {
         throwApplyPatchException(applyResult.error);
       }
 
-      const deck = await this.upsertDeck(manager, applyResult.deck, updatedAt);
       await this.insertPatchLog(manager, projectId, applyResult.changeRecord);
+      const shouldCheckpoint =
+        Boolean(request.snapshotReason) ||
+        applyResult.deck.version - checkpointVersion >= deckCheckpointPatchInterval;
+      const deck = shouldCheckpoint
+        ? await this.writeDeckCheckpoint(manager, applyResult.deck, updatedAt)
+        : applyResult.deck;
 
-      const snapshot = await this.createSnapshot(
-        manager,
-        deck,
-        request.snapshotReason ?? "patch-applied",
-        updatedAt
-      );
+      const snapshot = request.snapshotReason
+        ? await this.createSnapshot(
+            manager,
+            deck,
+            request.snapshotReason,
+            updatedAt
+          )
+        : null;
 
       return appendDeckPatchResponseSchema.parse({
         deck,
@@ -216,8 +255,10 @@ export class DecksService {
 
       const restoredSnapshot = parseSnapshotRow(snapshotRow);
       const deck = parseDeckJson(snapshotRow.deck_json);
+      await this.findDeckRowForUpdate(manager, projectId, deck.deckId);
       const updatedAt = nowIso();
-      await this.upsertDeck(manager, deck, updatedAt);
+      await this.deletePatchRowsAfterVersion(manager, projectId, deck.deckId, deck.version);
+      await this.writeDeckCheckpoint(manager, deck, updatedAt);
 
       return restoreDeckSnapshotResponseSchema.parse({
         deck,
@@ -225,6 +266,36 @@ export class DecksService {
         updatedAt
       });
     });
+  }
+
+  private async readCurrentDeckState(
+    executor: QueryExecutor,
+    checkpointDeck: Deck,
+    projectId: string,
+    deckId: string,
+    checkpointUpdatedAt: string,
+    lockRows = false
+  ): Promise<{ deck: Deck; updatedAt: string }> {
+    const patchRows = await this.findPatchRowsAfterVersion(
+      executor,
+      projectId,
+      deckId,
+      checkpointDeck.version,
+      lockRows
+    );
+
+    if (patchRows.length === 0) {
+      return {
+        deck: checkpointDeck,
+        updatedAt: checkpointUpdatedAt
+      };
+    }
+
+    const deck = replayPatchRows(checkpointDeck, patchRows);
+    return {
+      deck,
+      updatedAt: toIso(patchRows.at(-1)?.created_at ?? nowIso())
+    };
   }
 
   private async findDeckRow(
@@ -261,6 +332,36 @@ export class DecksService {
     return rows[0];
   }
 
+  private async findPatchRowsAfterVersion(
+    executor: QueryExecutor,
+    projectId: string,
+    deckId: string,
+    version: number,
+    lockRows = false
+  ): Promise<DeckPatchRow[]> {
+    const rows = await executor.query<DeckPatchRow[]>(
+      `
+        SELECT
+          change_id,
+          project_id,
+          deck_id,
+          before_version,
+          after_version,
+          source,
+          actor_user_id,
+          operations,
+          created_at
+        FROM deck_patches
+        WHERE project_id = $1 AND deck_id = $2 AND after_version > $3
+        ORDER BY after_version ASC, created_at ASC, change_id ASC
+        ${lockRows ? "FOR UPDATE" : ""}
+      `,
+      [projectId, deckId, version]
+    );
+
+    return rows;
+  }
+
   private async upsertDeck(
     executor: QueryExecutor,
     deck: Deck,
@@ -282,6 +383,21 @@ export class DecksService {
     );
 
     return parseDeckRow(rows[0]);
+  }
+
+  private async writeDeckCheckpoint(
+    executor: QueryExecutor,
+    deck: Deck,
+    updatedAt: string
+  ): Promise<Deck> {
+    const checkpointDeck = await this.upsertDeck(executor, deck, updatedAt);
+    await this.deletePatchRowsUpToVersion(
+      executor,
+      checkpointDeck.projectId,
+      checkpointDeck.deckId,
+      checkpointDeck.version
+    );
+    return checkpointDeck;
   }
 
   private async insertPatchLog(
@@ -355,6 +471,36 @@ export class DecksService {
     return parseSnapshotRow(rows[0]);
   }
 
+  private async deletePatchRowsAfterVersion(
+    executor: QueryExecutor,
+    projectId: string,
+    deckId: string,
+    version: number
+  ): Promise<void> {
+    await executor.query(
+      `
+        DELETE FROM deck_patches
+        WHERE project_id = $1 AND deck_id = $2 AND after_version > $3
+      `,
+      [projectId, deckId, version]
+    );
+  }
+
+  private async deletePatchRowsUpToVersion(
+    executor: QueryExecutor,
+    projectId: string,
+    deckId: string,
+    version: number
+  ): Promise<void> {
+    await executor.query(
+      `
+        DELETE FROM deck_patches
+        WHERE project_id = $1 AND deck_id = $2 AND after_version <= $3
+      `,
+      [projectId, deckId, version]
+    );
+  }
+
   private async findSnapshotRow(
     manager: EntityManager,
     snapshotId: string
@@ -423,6 +569,91 @@ function parseDeckJson(deckJson: unknown): Deck {
   }
 
   return deckSchema.parse(normalizeLegacyDeckKeywords(deckJson));
+}
+
+function replayPatchRows(checkpointDeck: Deck, patchRows: DeckPatchRow[]): Deck {
+  let workingDeck = checkpointDeck;
+  let expectedBeforeVersion = checkpointDeck.version;
+
+  for (const patchRow of patchRows) {
+    if (patchRow.project_id !== checkpointDeck.projectId || patchRow.deck_id !== checkpointDeck.deckId) {
+      throwDeckApiException(
+        "PATCH_CHAIN_INVALID",
+        HttpStatus.CONFLICT,
+        "Stored patch history does not belong to the checkpoint deck",
+        [
+          `deck.projectId=${checkpointDeck.projectId}`,
+          `patch.projectId=${patchRow.project_id}`,
+          `deck.deckId=${checkpointDeck.deckId}`,
+          `patch.deckId=${patchRow.deck_id}`,
+          `patch.changeId=${patchRow.change_id}`
+        ]
+      );
+    }
+
+    if (patchRow.before_version !== expectedBeforeVersion) {
+      throwDeckApiException(
+        expectedBeforeVersion === checkpointDeck.version
+          ? "PATCH_CHAIN_CHECKPOINT_MISMATCH"
+          : "PATCH_CHAIN_INVALID",
+        HttpStatus.CONFLICT,
+        expectedBeforeVersion === checkpointDeck.version
+          ? "Stored patch chain does not start from the checkpoint version"
+          : "Stored patch chain has a version gap or duplicate transition",
+        [
+          `checkpoint.version=${checkpointDeck.version}`,
+          `expected.beforeVersion=${expectedBeforeVersion}`,
+          `patch.beforeVersion=${patchRow.before_version}`,
+          `patch.changeId=${patchRow.change_id}`
+        ]
+      );
+    }
+
+    if (patchRow.after_version !== patchRow.before_version + 1) {
+      throwDeckApiException(
+        "PATCH_CHAIN_INVALID",
+        HttpStatus.CONFLICT,
+        "Stored patch history has a non-sequential version transition",
+        [
+          `patch.beforeVersion=${patchRow.before_version}`,
+          `patch.afterVersion=${patchRow.after_version}`,
+          `patch.changeId=${patchRow.change_id}`
+        ]
+      );
+    }
+
+    const patch = appendDeckPatchRequestSchema.shape.patch.parse({
+      deckId: patchRow.deck_id,
+      baseVersion: patchRow.before_version,
+      source: patchRow.source,
+      operations: patchRow.operations
+    });
+    const result = applyDeckPatch(workingDeck, patch, {
+      createdAt: toIso(patchRow.created_at)
+    });
+
+    if (!result.ok) {
+      throwApplyPatchException(result.error);
+    }
+
+    if (result.deck.version !== patchRow.after_version) {
+      throwDeckApiException(
+        "PATCH_CHAIN_INVALID",
+        HttpStatus.CONFLICT,
+        "Stored patch history has an unexpected version transition",
+        [
+          `deck.version=${result.deck.version}`,
+          `patch.afterVersion=${patchRow.after_version}`,
+          `patch.changeId=${patchRow.change_id}`
+        ]
+      );
+    }
+
+    workingDeck = result.deck;
+    expectedBeforeVersion = patchRow.after_version;
+  }
+
+  return workingDeck;
 }
 
 function normalizeStoredDeckRowIdentity(row: DeckRow): unknown {

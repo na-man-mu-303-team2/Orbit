@@ -33,6 +33,7 @@ describe("CreateDeckPersistenceTables migration", () => {
     );
     expect(sql).toContain("idx_decks_deck_id");
     expect(sql).toContain("idx_deck_patches_project_deck_version");
+    expect(sql).toContain("uq_deck_patches_project_deck_after_version");
     expect(sql).toContain("idx_deck_snapshots_project_created_at");
     expect(sql).not.toContain("REFERENCES projects");
   });
@@ -46,6 +47,7 @@ describe("CreateDeckPersistenceTables migration", () => {
     expect(queries).toEqual([
       "DROP INDEX IF EXISTS idx_deck_snapshots_project_created_at",
       "DROP TABLE IF EXISTS deck_snapshots",
+      "DROP INDEX IF EXISTS uq_deck_patches_project_deck_after_version",
       "DROP INDEX IF EXISTS idx_deck_patches_project_deck_version",
       "DROP TABLE IF EXISTS deck_patches",
       "DROP INDEX IF EXISTS idx_decks_deck_id",

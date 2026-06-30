@@ -45,6 +45,7 @@ class InMemoryDeckDataSource {
   readonly decks = new Map<string, StoredDeckRow>();
   readonly patchRows: StoredPatchRow[] = [];
   readonly snapshotRows: StoredSnapshotRow[] = [];
+  readonly executedQueries: string[] = [];
 
   async transaction<T>(
     run: (manager: InMemoryDeckDataSource) => Promise<T>
@@ -54,6 +55,7 @@ class InMemoryDeckDataSource {
 
   async query<T = unknown>(sql: string, params: unknown[] = []): Promise<T> {
     const query = normalizeSql(sql);
+    this.executedQueries.push(query);
 
     if (
       query.startsWith("SELECT project_id, deck_id, deck_json, version") &&
@@ -71,6 +73,26 @@ class InMemoryDeckDataSource {
       const [projectId] = params as [string];
       const row = this.decks.get(projectId);
       return (row ? [cloneDeckRow(row)] : []) as T;
+    }
+
+    if (
+      query.startsWith("SELECT change_id, project_id, deck_id") &&
+      query.includes("WHERE project_id = $1 AND deck_id = $2 AND after_version > $3")
+    ) {
+      const [projectId, deckId, version] = params as [string, string, number];
+      return this.patchRows
+        .filter(
+          (row) =>
+            row.project_id === projectId &&
+            row.deck_id === deckId &&
+            row.after_version > version
+        )
+        .sort((left, right) =>
+          left.after_version !== right.after_version
+            ? left.after_version - right.after_version
+            : left.created_at.localeCompare(right.created_at)
+        )
+        .map(clonePatchRow) as T;
     }
 
     if (query.startsWith("INSERT INTO decks")) {
@@ -149,6 +171,42 @@ class InMemoryDeckDataSource {
 
       this.snapshotRows.push(row);
       return [cloneSnapshotRow(row)] as T;
+    }
+
+    if (
+      query.startsWith("DELETE FROM deck_patches") &&
+      query.includes("WHERE project_id = $1 AND deck_id = $2 AND after_version > $3")
+    ) {
+      const [projectId, deckId, version] = params as [string, string, number];
+      for (let index = this.patchRows.length - 1; index >= 0; index -= 1) {
+        const row = this.patchRows[index];
+        if (
+          row?.project_id === projectId &&
+          row.deck_id === deckId &&
+          row.after_version > version
+        ) {
+          this.patchRows.splice(index, 1);
+        }
+      }
+      return [] as T;
+    }
+
+    if (
+      query.startsWith("DELETE FROM deck_patches") &&
+      query.includes("WHERE project_id = $1 AND deck_id = $2 AND after_version <= $3")
+    ) {
+      const [projectId, deckId, version] = params as [string, string, number];
+      for (let index = this.patchRows.length - 1; index >= 0; index -= 1) {
+        const row = this.patchRows[index];
+        if (
+          row?.project_id === projectId &&
+          row.deck_id === deckId &&
+          row.after_version <= version
+        ) {
+          this.patchRows.splice(index, 1);
+        }
+      }
+      return [] as T;
     }
 
     if (
@@ -314,6 +372,13 @@ function cloneSnapshotRow(row: StoredSnapshotRow): StoredSnapshotRow {
   };
 }
 
+function clonePatchRow(row: StoredPatchRow): StoredPatchRow {
+  return {
+    ...row,
+    operations: cloneJson(row.operations)
+  };
+}
+
 function compareSnapshotRows(a: StoredSnapshotRow, b: StoredSnapshotRow): number {
   const createdAtOrder = b.created_at.localeCompare(a.created_at);
   if (createdAtOrder !== 0) {
@@ -411,12 +476,13 @@ describe("DecksService", () => {
     const response = await service.appendPatch(deck.projectId, {
       patch: createUpdateTitlePatch(deck, "수정된 덱")
     });
+    const getResponse = await service.getDeck(deck.projectId);
 
     expect(response.deck.title).toBe("수정된 덱");
     expect(response.deck.slides[0].keywords).toEqual(
       createNormalizedLegacyKeywords()
     );
-    expect(dataSource.decks.get(deck.projectId)?.deck_json).toMatchObject({
+    expect(getResponse.deck).toMatchObject({
       title: "수정된 덱",
       slides: [
         {
@@ -445,27 +511,21 @@ describe("DecksService", () => {
       afterVersion: 2,
       source: "user"
     });
-    expect(patchResponse.snapshot).toMatchObject({
-      projectId: deck.projectId,
-      deckId: deck.deckId,
-      version: 2,
-      reason: "patch-applied"
-    });
+    expect(patchResponse.snapshot).toBeNull();
     expect(dataSource.patchRows).toHaveLength(1);
     expect(dataSource.patchRows[0]).toMatchObject({
       deck_id: deck.deckId,
       before_version: 1,
       after_version: 2
     });
+    expect(dataSource.decks.get(deck.projectId)?.version).toBe(1);
     expect(getResponse.deck.version).toBe(2);
-    expect(snapshotResponse.snapshots.map((snapshot) => snapshot.version).sort()).toEqual([
-      1,
-      2
-    ]);
+    expect(getResponse.deck.title).toBe("수정된 덱");
+    expect(snapshotResponse.snapshots.map((snapshot) => snapshot.version).sort()).toEqual([1]);
   });
 
   it("restores a snapshot into the current deck", async () => {
-    const { service } = createService();
+    const { dataSource, service } = createService();
     const deck = createDeck();
     const putResponse = await service.putDeck(deck.projectId, { deck });
     await service.appendPatch(deck.projectId, {
@@ -489,6 +549,29 @@ describe("DecksService", () => {
       title: deck.title,
       version: 1
     });
+    expect(dataSource.patchRows).toHaveLength(0);
+    expect(
+      dataSource.executedQueries.some((query) =>
+        query.includes("WHERE project_id = $1 AND deck_id = $2 FOR UPDATE")
+      )
+    ).toBe(true);
+  });
+
+  it("compacts stored patch rows after a full deck checkpoint save", async () => {
+    const { dataSource, service } = createService();
+    const deck = createDeck();
+    await service.putDeck(deck.projectId, { deck });
+
+    const patched = await service.appendPatch(deck.projectId, {
+      patch: createUpdateTitlePatch(deck, "수정된 덱")
+    });
+
+    expect(dataSource.patchRows).toHaveLength(1);
+
+    await service.putDeck(deck.projectId, { deck: patched.deck });
+
+    expect(dataSource.patchRows).toHaveLength(0);
+    expect(dataSource.decks.get(deck.projectId)?.version).toBe(2);
   });
 
   it("normalizes legacy keyword terms when restoring snapshots", async () => {
@@ -540,6 +623,95 @@ describe("DecksService", () => {
       "deck.version=1",
       "patch.baseVersion=2"
     ]);
+  });
+
+  it("rejects reads when stored patch chain does not start from the checkpoint version", async () => {
+    const { dataSource, service } = createService();
+    const deck = createDeck();
+    seedStoredDeck(dataSource, deck, deck);
+    dataSource.patchRows.push({
+      change_id: "change_gap_from_checkpoint",
+      project_id: deck.projectId,
+      deck_id: deck.deckId,
+      before_version: 2,
+      after_version: 3,
+      source: "user",
+      actor_user_id: null,
+      operations: createUpdateTitlePatch(deck, "수정된 덱", 2).operations,
+      created_at: "2026-06-30T00:00:00.000Z"
+    });
+
+    const error = await expectDeckApiError(
+      () => service.getDeck(deck.projectId),
+      HttpStatus.CONFLICT,
+      "PATCH_CHAIN_CHECKPOINT_MISMATCH"
+    );
+
+    expect(error.details).toContain("checkpoint.version=1");
+    expect(error.details).toContain("expected.beforeVersion=1");
+  });
+
+  it("rejects reads when stored patch chain contains a version gap", async () => {
+    const { dataSource, service } = createService();
+    const deck = createDeck();
+    seedStoredDeck(dataSource, deck, { ...deck, version: 2, title: "중간 덱" });
+    dataSource.patchRows.push({
+      change_id: "change_gap_middle_start",
+      project_id: deck.projectId,
+      deck_id: deck.deckId,
+      before_version: 2,
+      after_version: 3,
+      source: "user",
+      actor_user_id: null,
+      operations: createUpdateTitlePatch({ ...deck, version: 2 }, "세 번째 덱", 2).operations,
+      created_at: "2026-06-30T00:00:00.000Z"
+    });
+    dataSource.patchRows.push({
+      change_id: "change_gap_middle",
+      project_id: deck.projectId,
+      deck_id: deck.deckId,
+      before_version: 4,
+      after_version: 5,
+      source: "user",
+      actor_user_id: null,
+      operations: createUpdateTitlePatch({ ...deck, version: 4 }, "수정된 덱", 4).operations,
+      created_at: "2026-06-30T00:00:01.000Z"
+    });
+
+    const error = await expectDeckApiError(
+      () => service.getDeck(deck.projectId),
+      HttpStatus.CONFLICT,
+      "PATCH_CHAIN_INVALID"
+    );
+
+    expect(error.details).toContain("expected.beforeVersion=3");
+    expect(error.details).toContain("patch.beforeVersion=4");
+  });
+
+  it("rejects reads when stored patch row has a non-sequential version transition", async () => {
+    const { dataSource, service } = createService();
+    const deck = createDeck();
+    seedStoredDeck(dataSource, deck, deck);
+    dataSource.patchRows.push({
+      change_id: "change_duplicate_after_version",
+      project_id: deck.projectId,
+      deck_id: deck.deckId,
+      before_version: 1,
+      after_version: 3,
+      source: "user",
+      actor_user_id: null,
+      operations: createUpdateTitlePatch(deck, "수정된 덱").operations,
+      created_at: "2026-06-30T00:00:00.000Z"
+    });
+
+    const error = await expectDeckApiError(
+      () => service.getDeck(deck.projectId),
+      HttpStatus.CONFLICT,
+      "PATCH_CHAIN_INVALID"
+    );
+
+    expect(error.details).toContain("patch.beforeVersion=1");
+    expect(error.details).toContain("patch.afterVersion=3");
   });
 
   it("rejects reads when the current deck does not exist", async () => {

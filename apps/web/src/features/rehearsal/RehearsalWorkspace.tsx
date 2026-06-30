@@ -44,7 +44,7 @@ import {
   Volume2
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { resolveEditorAssetUrl } from "../editor/editorAssetUrl";
+import { resolveEditorAssetUrl } from "../editor/shared/editorAssetUrl";
 import {
   LiveSttAdapterError,
   type LiveSttAdapter,

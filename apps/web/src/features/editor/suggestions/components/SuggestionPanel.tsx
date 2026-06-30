@@ -6,7 +6,7 @@ import {
   applyAiSuggestion,
   fetchAiSuggestions,
   rejectAiSuggestion
-} from "./suggestionApi";
+} from "../api/suggestionApi";
 
 export function SuggestionPanel(props: {
   deck: Deck;

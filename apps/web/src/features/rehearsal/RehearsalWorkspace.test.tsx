@@ -41,7 +41,7 @@ import {
   createRehearsalCommandConfirmationState,
   detectRehearsalCommandCandidate
 } from "./rehearsalCommands";
-import { resolveEditorAssetUrl } from "../editor/editorAssetUrl";
+import { resolveEditorAssetUrl } from "../editor/shared/editorAssetUrl";
 
 const createdAt = "2026-06-29T00:00:00.000Z";
 

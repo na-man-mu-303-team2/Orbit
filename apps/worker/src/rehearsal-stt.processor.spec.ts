@@ -23,10 +23,45 @@ const assetRow = {
 
 const deckRow = {
   deck_json: {
+    deckId: "deck-a",
+    projectId: "project-a",
+    title: "deck",
+    version: 1,
+    metadata: {
+      language: "ko",
+      locale: "ko-KR",
+      sourceType: "manual",
+      generatedBy: "user"
+    },
+    theme: {
+      accentColor: "#2563eb",
+      backgroundColor: "#ffffff",
+      textColor: "#111827",
+      fontFamily: "Pretendard",
+      typography: {
+        titleFontFamily: "Pretendard",
+        bodyFontFamily: "Pretendard",
+        titleSize: 32,
+        bodySize: 18
+      }
+    },
+    canvas: {
+      width: 1280,
+      height: 720,
+      preset: "wide-16-9"
+    },
     slides: [
       {
+        slideId: "slide-1",
+        order: 1,
+        title: "slide",
+        notes: "",
+        style: {},
+        elements: [],
+        animations: [],
         keywords: [
           {
+            keywordId: "keyword-1",
             text: "ORBIT",
             synonyms: ["오르빗"],
             abbreviations: []
@@ -151,6 +186,105 @@ describe("processRehearsalSttJob", () => {
     );
   });
 
+  it("replays patch-only deck updates before rehearsal analysis", async () => {
+    const updatedKeywordPatchOperations = [
+      {
+        type: "update_slide_keywords",
+        slideId: "slide-1",
+        keywords: [
+          {
+            keywordId: "keyword-1",
+            text: "LATEST",
+            synonyms: ["최신"],
+            abbreviations: []
+          }
+        ]
+      }
+    ];
+    const query = vi
+      .fn()
+      .mockResolvedValueOnce([jobRow("running", 10, null, null)])
+      .mockResolvedValueOnce([runRow()])
+      .mockResolvedValueOnce([assetRow])
+      .mockResolvedValueOnce([{ ...deckRow, version: 1 }])
+      .mockResolvedValueOnce([
+        {
+          deck_id: "deck-a",
+          before_version: 1,
+          after_version: 2,
+          source: "user",
+          operations: updatedKeywordPatchOperations
+        }
+      ])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([runRow()])
+      .mockResolvedValueOnce([
+        jobRow(
+          "succeeded",
+          100,
+          {
+            transcriptRetained: false,
+            transcript: null,
+            report: {
+              reportId: "report_run-a",
+              transcriptRetained: false,
+              transcript: null
+            },
+            rawAudioDeletedAt: "2026-06-27T00:00:02.000Z"
+          },
+          null
+        )
+      ]);
+    const storage = createStorage();
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            runId: "run-a",
+            projectId: "project-a",
+            fileId: "file-audio",
+            transcript: "안녕하세요 LATEST 발표입니다",
+            language: "ko-KR",
+            provider: "fake",
+            model: "fake-transcriber",
+            durationSeconds: 3.5,
+            segments: [{ text: "안녕하세요 LATEST 발표입니다" }]
+          })
+        )
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            runId: "run-a",
+            wordsPerMinute: 120,
+            fillerWordCount: 0,
+            pauseCount: 0,
+            keywordCoverage: 1
+          })
+        )
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await processRehearsalSttJob(
+      { query } as unknown as DataSource,
+      storage,
+      "http://localhost:8000",
+      payload
+    );
+
+    const analyzeCall = fetchMock.mock.calls[1];
+    const analyzeBody = JSON.parse(String(analyzeCall?.[1]?.body));
+    expect(analyzeBody.deckKeywords).toEqual([
+      {
+        keywordId: "keyword-1",
+        text: "LATEST",
+        synonyms: ["최신"],
+        abbreviations: []
+      }
+    ]);
+  });
+
   it("deletes raw audio and marks the job failed when STT fails", async () => {
     const query = vi
       .fn()
@@ -241,6 +375,7 @@ describe("processRehearsalSttJob", () => {
       .mockResolvedValueOnce([runRow()])
       .mockResolvedValueOnce([assetRow])
       .mockResolvedValueOnce([deckRow])
+      .mockResolvedValueOnce([])
       .mockResolvedValueOnce([runRow()])
       .mockResolvedValueOnce([
         jobRow("failed", 90, null, {

@@ -4,7 +4,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { renderToString } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import { SuggestionPanel } from "./SuggestionPanel";
-import { aiSuggestionsQueryKey } from "./suggestionApi";
+import { aiSuggestionsQueryKey } from "../api/suggestionApi";
 
 function createTestQueryClient() {
   return new QueryClient({
