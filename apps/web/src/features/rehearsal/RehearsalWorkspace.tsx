@@ -301,6 +301,17 @@ export function getRehearsalReportPath(projectId: string, runId: string) {
   return `/rehearsal/${encodeURIComponent(projectId)}/report/${encodeURIComponent(runId)}`;
 }
 
+export function getRehearsalFinishPath(
+  projectId: string,
+  run: Pick<RehearsalRun, "runId" | "status"> | null
+) {
+  if (run?.status === "succeeded") {
+    return getRehearsalReportPath(projectId, run.runId);
+  }
+
+  return `/project/${encodeURIComponent(projectId)}`;
+}
+
 export async function pollRehearsalJob(
   jobId: string,
   options: {
@@ -1113,7 +1124,6 @@ export function RehearsalWorkspace(props: {
 
       await loadReportForRun(result.run.runId, result.run);
       setPhase("succeeded");
-      navigateToRehearsalReport(activeDeck.projectId, result.run.runId);
     } catch (cause) {
       setError(toRehearsalFlowMessage(cause));
       setPhase("failed");
@@ -1138,6 +1148,10 @@ export function RehearsalWorkspace(props: {
     cancelPendingAutoAdvance("cancelled");
     setCurrentSlideIndex((current) => Math.min(deck.slides.length - 1, current + 1));
   };
+  const finishRehearsal = () => {
+    const projectId = deck?.projectId ?? props.projectId ?? demoIds.projectId;
+    navigateToPath(getRehearsalFinishPath(projectId, run));
+  };
 
   const liveDetectedKeywordIds = new Set(
     liveKeywordState?.detectedKeywords.map((keyword) => keyword.keywordId) ?? []
@@ -1157,7 +1171,7 @@ export function RehearsalWorkspace(props: {
         <button
           className="rehearsal-exit-button"
           type="button"
-          onClick={() => navigateToProject(deck?.projectId ?? props.projectId ?? demoIds.projectId)}
+          onClick={finishRehearsal}
         >
           <PresentationScreenIcon />
           {"\ub9ac\ud5c8\uc124 \ub9c8\uce58\uae30"}
@@ -1854,18 +1868,12 @@ function parseClockInput(value: string): number | null {
   return minutes * 60 + seconds;
 }
 
-function navigateToProject(projectId: string) {
-  window.history.pushState({}, "", `/project/${encodeURIComponent(projectId)}`);
-  window.dispatchEvent(new PopStateEvent("popstate"));
-}
-
 function navigateToRehearsal(projectId: string) {
-  window.history.pushState({}, "", `/rehearsal/${encodeURIComponent(projectId)}`);
-  window.dispatchEvent(new PopStateEvent("popstate"));
+  navigateToPath(`/rehearsal/${encodeURIComponent(projectId)}`);
 }
 
-function navigateToRehearsalReport(projectId: string, runId: string) {
-  window.history.pushState({}, "", getRehearsalReportPath(projectId, runId));
+function navigateToPath(path: string) {
+  window.history.pushState({}, "", path);
   window.dispatchEvent(new PopStateEvent("popstate"));
 }
 

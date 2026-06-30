@@ -15,6 +15,7 @@ import {
   evaluateLiveTranscript,
   fetchRehearsalReport,
   fetchOrCreateRehearsalDeck,
+  getRehearsalFinishPath,
   getRehearsalReportPath,
   getLiveAudioLevelLabel,
   getLiveAudioLevelPercent,
@@ -142,6 +143,16 @@ describe("RehearsalWorkspace", () => {
   it("builds the dedicated report route for a completed rehearsal run", () => {
     expect(getRehearsalReportPath("project a", "run/1")).toBe(
       "/rehearsal/project%20a/report/run%2F1"
+    );
+  });
+
+  it("opens the report only from finish when the run has succeeded", () => {
+    expect(getRehearsalFinishPath("project-a", null)).toBe("/project/project-a");
+    expect(getRehearsalFinishPath("project-a", runFixture("processing"))).toBe(
+      "/project/project-a"
+    );
+    expect(getRehearsalFinishPath("project-a", runFixture("succeeded"))).toBe(
+      "/rehearsal/project-a/report/run-1"
     );
   });
 
