@@ -15,7 +15,8 @@
     "encoder": "encoder.onnx",
     "decoder": "decoder.onnx",
     "joiner": "joiner.onnx",
-    "tokens": "tokens.txt"
+    "tokens": "tokens.txt",
+    "bpeVocab": "bpe.vocab"
   },
   "files": {
     "sherpa-onnx-wasm-main-asr.js": {},
@@ -24,6 +25,7 @@
     "encoder.onnx": {},
     "decoder.onnx": {},
     "joiner.onnx": {},
-    "tokens.txt": {}
+    "tokens.txt": {},
+    "bpe.vocab": {}
   }
 }
