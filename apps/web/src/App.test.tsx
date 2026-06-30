@@ -12,8 +12,23 @@ import {
   getGenerateDeckJobResult,
   getJobResultFiles,
   mergeGeneratedProjectList,
-  pollExtractJob
+  pollExtractJob,
+  shouldRenderAppFrame
 } from "./App";
+
+describe("App shell routing", () => {
+  it("keeps the login page outside the shared navigation shell", () => {
+    expect(shouldRenderAppFrame({ name: "login" })).toBe(false);
+    expect(
+      shouldRenderAppFrame({
+        name: "rehearsal-report",
+        projectId: "project_demo_1",
+        runId: "run_demo_1"
+      })
+    ).toBe(false);
+    expect(shouldRenderAppFrame({ name: "home" })).toBe(true);
+  });
+});
 
 describe("reference extraction upload flow", () => {
   it("builds generate-deck references and keywords from succeeded extraction results", () => {
