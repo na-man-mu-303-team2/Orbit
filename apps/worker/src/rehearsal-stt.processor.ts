@@ -1,5 +1,10 @@
 import type { StoragePort } from "@orbit/storage";
-import { rehearsalReportSchema, type Job, type RehearsalReport } from "@orbit/shared";
+import {
+  deckSchema,
+  rehearsalReportSchema,
+  type Job,
+  type RehearsalReport
+} from "@orbit/shared";
 import type { DataSource } from "typeorm";
 import { z } from "zod";
 
@@ -22,7 +27,14 @@ const audioAssetRowSchema = z.object({
 });
 
 const deckRowSchema = z.object({
-  deck_json: z.record(z.unknown())
+  deck_json: z.record(z.unknown()),
+  version: z.number().int().nonnegative()
+});
+
+const deckPatchRowSchema = z.object({
+  before_version: z.number().int().nonnegative(),
+  after_version: z.number().int().nonnegative(),
+  operations: z.array(z.record(z.unknown()))
 });
 
 const transcribeResponseSchema = z.object({
@@ -104,11 +116,11 @@ export async function processRehearsalSttJob(
   }
 
   let asset: AudioAssetRow;
-  let deck: z.infer<typeof deckRowSchema>;
+  let deckKeywords: DeckKeywordPayload[];
   let storageUrl: string;
   try {
     asset = await loadAudioAsset(dataSource, payload);
-    deck = await loadDeck(dataSource, payload.projectId, payload.deckId);
+    deckKeywords = await loadDeckKeywords(dataSource, payload.projectId, payload.deckId);
     storageUrl = await storage.getSignedReadUrl(asset.storage_key);
   } catch (error) {
     return failJobAndRun(
@@ -164,7 +176,12 @@ export async function processRehearsalSttJob(
 
   let analysis: z.infer<typeof analyzeResponseSchema>;
   try {
-    analysis = await analyzeTranscript(pythonWorkerUrl, payload, deck.deck_json, transcribePayload);
+    analysis = await analyzeTranscript(
+      pythonWorkerUrl,
+      payload,
+      deckKeywords,
+      transcribePayload
+    );
   } catch (error) {
     return failAfterDelete(
       dataSource,
@@ -274,7 +291,7 @@ function buildRehearsalJobResult(
 async function analyzeTranscript(
   pythonWorkerUrl: string,
   payload: RehearsalSttPayload,
-  deck: Record<string, unknown>,
+  deckKeywords: DeckKeywordPayload[],
   transcription: z.infer<typeof transcribeResponseSchema>
 ) {
   const response = await fetch(workerUrl(pythonWorkerUrl, "/rehearsal/analyze"), {
@@ -287,7 +304,7 @@ async function analyzeTranscript(
       transcript: transcription.transcript,
       durationSeconds: transcription.durationSeconds ?? 0,
       segments: transcription.segments,
-      deckKeywords: collectDeckKeywords(deck)
+      deckKeywords
     }),
     signal: AbortSignal.timeout(120_000)
   });
@@ -317,9 +334,13 @@ async function loadAudioAsset(dataSource: DataSource, payload: RehearsalSttPaylo
   return audioAssetRowSchema.parse(row);
 }
 
-async function loadDeck(dataSource: DataSource, projectId: string, deckId: string) {
+async function loadDeckKeywords(
+  dataSource: DataSource,
+  projectId: string,
+  deckId: string
+) {
   const rows = await dataSource.query(
-    `SELECT deck_json FROM decks WHERE project_id = $1 AND deck_id = $2`,
+    `SELECT deck_json, version FROM decks WHERE project_id = $1 AND deck_id = $2`,
     [projectId, deckId]
   );
 
@@ -328,7 +349,79 @@ async function loadDeck(dataSource: DataSource, projectId: string, deckId: strin
     throw new Error(`Deck not found: ${deckId}`);
   }
 
-  return deckRowSchema.parse(row);
+  const checkpoint = deckRowSchema.parse(row);
+  const checkpointDeck = deckSchema.parse(checkpoint.deck_json);
+  const slideKeywords = new Map(
+    checkpointDeck.slides.map((slide) => [slide.slideId, slide.keywords])
+  );
+  const patchRows = await dataSource.query(
+    `
+      SELECT before_version, after_version, operations
+      FROM deck_patches
+      WHERE project_id = $1 AND deck_id = $2 AND after_version > $3
+      ORDER BY after_version ASC, created_at ASC, change_id ASC
+    `,
+    [projectId, deckId, checkpoint.version]
+  );
+
+  let expectedBeforeVersion = checkpointDeck.version;
+  for (const rawPatchRow of patchRows) {
+    const patchRow = deckPatchRowSchema.parse(rawPatchRow);
+
+    if (patchRow.before_version !== expectedBeforeVersion) {
+      throw new Error(
+        `Stored patch chain does not start from the checkpoint version: expected=${expectedBeforeVersion}, actual=${patchRow.before_version}`
+      );
+    }
+
+    if (patchRow.after_version !== patchRow.before_version + 1) {
+      throw new Error(
+        `Stored patch history has a non-sequential version transition: before=${patchRow.before_version}, after=${patchRow.after_version}`
+      );
+    }
+
+    for (const operation of patchRow.operations) {
+      if (
+        (operation.type === "replace_keywords" ||
+          operation.type === "update_slide_keywords") &&
+        typeof operation.slideId === "string" &&
+        Array.isArray(operation.keywords)
+      ) {
+        const keywords = operation.keywords
+          .map((keyword) => {
+            if (!keyword || typeof keyword !== "object" || !("text" in keyword)) {
+              return null;
+            }
+
+            const record = keyword as {
+              keywordId?: unknown;
+              text?: unknown;
+              synonyms?: unknown;
+              abbreviations?: unknown;
+            };
+            return {
+              keywordId:
+                typeof record.keywordId === "string" ? record.keywordId : "",
+              text: typeof record.text === "string" ? record.text : "",
+              synonyms: Array.isArray(record.synonyms)
+                ? record.synonyms.filter((value): value is string => typeof value === "string")
+                : [],
+              abbreviations: Array.isArray(record.abbreviations)
+                ? record.abbreviations.filter((value): value is string => typeof value === "string")
+                : []
+            };
+          })
+          .filter(
+            (keyword): keyword is DeckKeywordPayload =>
+              Boolean(keyword?.keywordId) && Boolean(keyword?.text)
+          );
+        slideKeywords.set(operation.slideId, keywords);
+      }
+    }
+    expectedBeforeVersion = patchRow.after_version;
+  }
+
+  return checkpointDeck.slides.flatMap((slide) => slideKeywords.get(slide.slideId) ?? []);
 }
 
 async function failAfterDelete(
@@ -550,45 +643,11 @@ function toIso(value: Date | string | undefined): string {
 }
 
 type DeckKeywordPayload = {
+  keywordId: string;
   text: string;
   synonyms: string[];
   abbreviations: string[];
 };
-
-function collectDeckKeywords(deck: Record<string, unknown>): DeckKeywordPayload[] {
-  const slides = Array.isArray(deck.slides) ? deck.slides : [];
-  return slides.flatMap((slide) => {
-    if (!slide || typeof slide !== "object" || !("keywords" in slide)) {
-      return [];
-    }
-
-    const keywords = Array.isArray(slide.keywords) ? slide.keywords : [];
-    return keywords
-      .map((keyword: unknown) => {
-        if (!keyword || typeof keyword !== "object" || !("text" in keyword)) {
-          return null;
-        }
-
-        const record = keyword as {
-          text?: unknown;
-          synonyms?: unknown;
-          abbreviations?: unknown;
-        };
-        return {
-          text: typeof record.text === "string" ? record.text : "",
-          synonyms: Array.isArray(record.synonyms)
-            ? record.synonyms.filter((value): value is string => typeof value === "string")
-            : [],
-          abbreviations: Array.isArray(record.abbreviations)
-            ? record.abbreviations.filter((value): value is string => typeof value === "string")
-            : []
-        };
-      })
-      .filter((keyword: DeckKeywordPayload | null): keyword is DeckKeywordPayload =>
-        Boolean(keyword && keyword.text)
-      );
-  });
-}
 
 function workerUrl(baseUrl: string, path: string): string {
   return new URL(path, baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`).toString();
