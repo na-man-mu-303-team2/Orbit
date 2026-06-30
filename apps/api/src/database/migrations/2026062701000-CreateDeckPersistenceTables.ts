@@ -42,6 +42,11 @@ export class CreateDeckPersistenceTables2026062701000
     `);
 
     await queryRunner.query(`
+      CREATE UNIQUE INDEX IF NOT EXISTS uq_deck_patches_project_deck_after_version
+      ON deck_patches (project_id, deck_id, after_version)
+    `);
+
+    await queryRunner.query(`
       CREATE TABLE IF NOT EXISTS deck_snapshots (
         snapshot_id text PRIMARY KEY,
         project_id text NOT NULL,
@@ -66,6 +71,9 @@ export class CreateDeckPersistenceTables2026062701000
       `DROP INDEX IF EXISTS idx_deck_snapshots_project_created_at`
     );
     await queryRunner.query(`DROP TABLE IF EXISTS deck_snapshots`);
+    await queryRunner.query(
+      `DROP INDEX IF EXISTS uq_deck_patches_project_deck_after_version`
+    );
     await queryRunner.query(
       `DROP INDEX IF EXISTS idx_deck_patches_project_deck_version`
     );

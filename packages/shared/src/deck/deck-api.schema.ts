@@ -73,7 +73,9 @@ export const deckApiErrorCodeSchema = z.enum([
   "PATCH_VALIDATION_FAILED",
   "STALE_BASE_VERSION",
   "SNAPSHOT_PROJECT_MISMATCH",
-  "PATCH_APPLY_FAILED"
+  "PATCH_APPLY_FAILED",
+  "PATCH_CHAIN_INVALID",
+  "PATCH_CHAIN_CHECKPOINT_MISMATCH"
 ]);
 
 export const deckApiErrorSchema = z.object({

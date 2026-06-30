@@ -572,16 +572,50 @@ function parseDeckJson(deckJson: unknown): Deck {
 
 function replayPatchRows(checkpointDeck: Deck, patchRows: DeckPatchRow[]): Deck {
   let workingDeck = checkpointDeck;
+  let expectedBeforeVersion = checkpointDeck.version;
 
   for (const patchRow of patchRows) {
-    if (workingDeck.version !== patchRow.before_version) {
+    if (patchRow.project_id !== checkpointDeck.projectId || patchRow.deck_id !== checkpointDeck.deckId) {
       throwDeckApiException(
-        "PATCH_VALIDATION_FAILED",
+        "PATCH_CHAIN_INVALID",
         HttpStatus.CONFLICT,
-        "Stored patch history is inconsistent with the deck checkpoint",
+        "Stored patch history does not belong to the checkpoint deck",
         [
-          `deck.version=${workingDeck.version}`,
+          `deck.projectId=${checkpointDeck.projectId}`,
+          `patch.projectId=${patchRow.project_id}`,
+          `deck.deckId=${checkpointDeck.deckId}`,
+          `patch.deckId=${patchRow.deck_id}`,
+          `patch.changeId=${patchRow.change_id}`
+        ]
+      );
+    }
+
+    if (patchRow.before_version !== expectedBeforeVersion) {
+      throwDeckApiException(
+        expectedBeforeVersion === checkpointDeck.version
+          ? "PATCH_CHAIN_CHECKPOINT_MISMATCH"
+          : "PATCH_CHAIN_INVALID",
+        HttpStatus.CONFLICT,
+        expectedBeforeVersion === checkpointDeck.version
+          ? "Stored patch chain does not start from the checkpoint version"
+          : "Stored patch chain has a version gap or duplicate transition",
+        [
+          `checkpoint.version=${checkpointDeck.version}`,
+          `expected.beforeVersion=${expectedBeforeVersion}`,
           `patch.beforeVersion=${patchRow.before_version}`,
+          `patch.changeId=${patchRow.change_id}`
+        ]
+      );
+    }
+
+    if (patchRow.after_version !== patchRow.before_version + 1) {
+      throwDeckApiException(
+        "PATCH_CHAIN_INVALID",
+        HttpStatus.CONFLICT,
+        "Stored patch history has a non-sequential version transition",
+        [
+          `patch.beforeVersion=${patchRow.before_version}`,
+          `patch.afterVersion=${patchRow.after_version}`,
           `patch.changeId=${patchRow.change_id}`
         ]
       );
@@ -603,7 +637,7 @@ function replayPatchRows(checkpointDeck: Deck, patchRows: DeckPatchRow[]): Deck 
 
     if (result.deck.version !== patchRow.after_version) {
       throwDeckApiException(
-        "PATCH_VALIDATION_FAILED",
+        "PATCH_CHAIN_INVALID",
         HttpStatus.CONFLICT,
         "Stored patch history has an unexpected version transition",
         [
@@ -615,6 +649,7 @@ function replayPatchRows(checkpointDeck: Deck, patchRows: DeckPatchRow[]): Deck 
     }
 
     workingDeck = result.deck;
+    expectedBeforeVersion = patchRow.after_version;
   }
 
   return workingDeck;

@@ -618,6 +618,95 @@ describe("DecksService", () => {
     ]);
   });
 
+  it("rejects reads when stored patch chain does not start from the checkpoint version", async () => {
+    const { dataSource, service } = createService();
+    const deck = createDeck();
+    seedStoredDeck(dataSource, deck, deck);
+    dataSource.patchRows.push({
+      change_id: "change_gap_from_checkpoint",
+      project_id: deck.projectId,
+      deck_id: deck.deckId,
+      before_version: 2,
+      after_version: 3,
+      source: "user",
+      actor_user_id: null,
+      operations: createUpdateTitlePatch(deck, "수정된 덱", 2).operations,
+      created_at: "2026-06-30T00:00:00.000Z"
+    });
+
+    const error = await expectDeckApiError(
+      () => service.getDeck(deck.projectId),
+      HttpStatus.CONFLICT,
+      "PATCH_CHAIN_CHECKPOINT_MISMATCH"
+    );
+
+    expect(error.details).toContain("checkpoint.version=1");
+    expect(error.details).toContain("expected.beforeVersion=1");
+  });
+
+  it("rejects reads when stored patch chain contains a version gap", async () => {
+    const { dataSource, service } = createService();
+    const deck = createDeck();
+    seedStoredDeck(dataSource, deck, { ...deck, version: 2, title: "중간 덱" });
+    dataSource.patchRows.push({
+      change_id: "change_gap_middle_start",
+      project_id: deck.projectId,
+      deck_id: deck.deckId,
+      before_version: 2,
+      after_version: 3,
+      source: "user",
+      actor_user_id: null,
+      operations: createUpdateTitlePatch({ ...deck, version: 2 }, "세 번째 덱", 2).operations,
+      created_at: "2026-06-30T00:00:00.000Z"
+    });
+    dataSource.patchRows.push({
+      change_id: "change_gap_middle",
+      project_id: deck.projectId,
+      deck_id: deck.deckId,
+      before_version: 4,
+      after_version: 5,
+      source: "user",
+      actor_user_id: null,
+      operations: createUpdateTitlePatch({ ...deck, version: 4 }, "수정된 덱", 4).operations,
+      created_at: "2026-06-30T00:00:01.000Z"
+    });
+
+    const error = await expectDeckApiError(
+      () => service.getDeck(deck.projectId),
+      HttpStatus.CONFLICT,
+      "PATCH_CHAIN_INVALID"
+    );
+
+    expect(error.details).toContain("expected.beforeVersion=3");
+    expect(error.details).toContain("patch.beforeVersion=4");
+  });
+
+  it("rejects reads when stored patch row has a non-sequential version transition", async () => {
+    const { dataSource, service } = createService();
+    const deck = createDeck();
+    seedStoredDeck(dataSource, deck, deck);
+    dataSource.patchRows.push({
+      change_id: "change_duplicate_after_version",
+      project_id: deck.projectId,
+      deck_id: deck.deckId,
+      before_version: 1,
+      after_version: 3,
+      source: "user",
+      actor_user_id: null,
+      operations: createUpdateTitlePatch(deck, "수정된 덱").operations,
+      created_at: "2026-06-30T00:00:00.000Z"
+    });
+
+    const error = await expectDeckApiError(
+      () => service.getDeck(deck.projectId),
+      HttpStatus.CONFLICT,
+      "PATCH_CHAIN_INVALID"
+    );
+
+    expect(error.details).toContain("patch.beforeVersion=1");
+    expect(error.details).toContain("patch.afterVersion=3");
+  });
+
   it("rejects reads when the current deck does not exist", async () => {
     const { service } = createService();
 
