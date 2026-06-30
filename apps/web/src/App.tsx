@@ -574,6 +574,7 @@ function LoginPage(props: { isAuthenticated: boolean }) {
       }
 
       await queryClient.invalidateQueries({ queryKey: ["auth", "me"] });
+      navigateTo("/");
     } catch (cause) {
       setError(
         cause instanceof Error
