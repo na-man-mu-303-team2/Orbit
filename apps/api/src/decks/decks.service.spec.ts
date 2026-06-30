@@ -73,6 +73,26 @@ class InMemoryDeckDataSource {
       return (row ? [cloneDeckRow(row)] : []) as T;
     }
 
+    if (
+      query.startsWith("SELECT change_id, project_id, deck_id") &&
+      query.includes("WHERE project_id = $1 AND deck_id = $2 AND after_version > $3")
+    ) {
+      const [projectId, deckId, version] = params as [string, string, number];
+      return this.patchRows
+        .filter(
+          (row) =>
+            row.project_id === projectId &&
+            row.deck_id === deckId &&
+            row.after_version > version
+        )
+        .sort((left, right) =>
+          left.after_version !== right.after_version
+            ? left.after_version - right.after_version
+            : left.created_at.localeCompare(right.created_at)
+        )
+        .map(clonePatchRow) as T;
+    }
+
     if (query.startsWith("INSERT INTO decks")) {
       const [projectId, deckId, deck, version, updatedAt] = params as [
         string,
@@ -149,6 +169,24 @@ class InMemoryDeckDataSource {
 
       this.snapshotRows.push(row);
       return [cloneSnapshotRow(row)] as T;
+    }
+
+    if (
+      query.startsWith("DELETE FROM deck_patches") &&
+      query.includes("WHERE project_id = $1 AND deck_id = $2 AND after_version > $3")
+    ) {
+      const [projectId, deckId, version] = params as [string, string, number];
+      for (let index = this.patchRows.length - 1; index >= 0; index -= 1) {
+        const row = this.patchRows[index];
+        if (
+          row?.project_id === projectId &&
+          row.deck_id === deckId &&
+          row.after_version > version
+        ) {
+          this.patchRows.splice(index, 1);
+        }
+      }
+      return [] as T;
     }
 
     if (
@@ -314,6 +352,13 @@ function cloneSnapshotRow(row: StoredSnapshotRow): StoredSnapshotRow {
   };
 }
 
+function clonePatchRow(row: StoredPatchRow): StoredPatchRow {
+  return {
+    ...row,
+    operations: cloneJson(row.operations)
+  };
+}
+
 function compareSnapshotRows(a: StoredSnapshotRow, b: StoredSnapshotRow): number {
   const createdAtOrder = b.created_at.localeCompare(a.created_at);
   if (createdAtOrder !== 0) {
@@ -411,12 +456,13 @@ describe("DecksService", () => {
     const response = await service.appendPatch(deck.projectId, {
       patch: createUpdateTitlePatch(deck, "수정된 덱")
     });
+    const getResponse = await service.getDeck(deck.projectId);
 
     expect(response.deck.title).toBe("수정된 덱");
     expect(response.deck.slides[0].keywords).toEqual(
       createNormalizedLegacyKeywords()
     );
-    expect(dataSource.decks.get(deck.projectId)?.deck_json).toMatchObject({
+    expect(getResponse.deck).toMatchObject({
       title: "수정된 덱",
       slides: [
         {
@@ -452,12 +498,14 @@ describe("DecksService", () => {
       before_version: 1,
       after_version: 2
     });
+    expect(dataSource.decks.get(deck.projectId)?.version).toBe(1);
     expect(getResponse.deck.version).toBe(2);
+    expect(getResponse.deck.title).toBe("수정된 덱");
     expect(snapshotResponse.snapshots.map((snapshot) => snapshot.version).sort()).toEqual([1]);
   });
 
   it("restores a snapshot into the current deck", async () => {
-    const { service } = createService();
+    const { dataSource, service } = createService();
     const deck = createDeck();
     const putResponse = await service.putDeck(deck.projectId, { deck });
     await service.appendPatch(deck.projectId, {
@@ -481,6 +529,7 @@ describe("DecksService", () => {
       title: deck.title,
       version: 1
     });
+    expect(dataSource.patchRows).toHaveLength(0);
   });
 
   it("normalizes legacy keyword terms when restoring snapshots", async () => {
