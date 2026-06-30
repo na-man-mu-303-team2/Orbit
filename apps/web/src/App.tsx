@@ -9,6 +9,7 @@
 } from "@orbit/shared";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  ArrowRight,
   BarChart3,
   ChevronDown,
   FolderOpen,
@@ -296,7 +297,7 @@ export function shouldRenderAppFrame(route: Route) {
 }
 
 function renderRoute(route: Route, user?: AuthUser) {
-  if (route.name === "login") return <LoginPage />;
+  if (route.name === "login") return <LoginPage isAuthenticated={Boolean(user)} />;
   if (route.name === "create-deck") return <GenerateDeckView />;
   if (route.name === "upload") return <ProjectAssetWorkspace />;
   if (route.name === "project-list") return <ProjectListPage />;
@@ -544,7 +545,7 @@ function getUserLabel(user: AuthUser) {
   return user.email?.trim() || user.userId;
 }
 
-function LoginPage() {
+function LoginPage(props: { isAuthenticated: boolean }) {
   const queryClient = useQueryClient();
   const [mode, setMode] = useState<"login" | "register">("login");
   const [email, setEmail] = useState("");
@@ -573,7 +574,6 @@ function LoginPage() {
       }
 
       await queryClient.invalidateQueries({ queryKey: ["auth", "me"] });
-      navigateTo("/");
     } catch (cause) {
       setError(
         cause instanceof Error
@@ -653,6 +653,17 @@ function LoginPage() {
               : "로그인"}
         </button>
       </form>
+      {props.isAuthenticated ? (
+        <button
+          className="login-next-button"
+          type="button"
+          onClick={() => navigateTo("/")}
+          aria-label="다음 화면으로 이동"
+          title="다음 화면으로 이동"
+        >
+          <ArrowRight size={34} strokeWidth={2.4} />
+        </button>
+      ) : null}
     </section>
   );
 }
