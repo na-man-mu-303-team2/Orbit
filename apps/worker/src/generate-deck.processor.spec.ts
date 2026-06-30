@@ -7,6 +7,7 @@ const payload = {
   projectId: "project-a",
   request: {
     topic: "AI 덱 생성",
+    designPrompt: "retro pixel palette",
     references: [{ fileId: "file_1" }],
     referenceKeywords: [{ text: "실시간 발표 피드백" }]
   }
@@ -58,6 +59,7 @@ describe("processGenerateDeckJob", () => {
     );
     expect(JSON.parse(pythonRequestBody)).toEqual(
       expect.objectContaining({
+        designPrompt: "retro pixel palette",
         referenceKeywords: [{ text: "실시간 발표 피드백" }]
       })
     );

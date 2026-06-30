@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass
 from typing import Any, Literal
 
@@ -11,6 +12,10 @@ Audience = Literal["general", "executive", "technical", "sales"]
 Purpose = Literal["inform", "persuade", "teach", "report"]
 Tone = Literal["professional", "friendly", "confident", "concise"]
 Template = Literal["default", "pitch", "report", "lesson"]
+VisualRhythm = Literal["auto", "clean", "editorial", "bold", "technical"]
+DensityTarget = Literal["low", "medium", "high"]
+MediaPolicy = Literal["avoid", "balanced", "placeholder-ok"]
+LayoutDiversity = Literal["stable", "varied"]
 SlideType = Literal[
     "title",
     "cover",
@@ -79,6 +84,18 @@ class GenerateDeckMetadata(BaseModel):
     tone: Tone = "professional"
 
 
+class DesignOptions(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    visual_rhythm: VisualRhythm = Field(default="auto", alias="visualRhythm")
+    density_target: DensityTarget = Field(default="medium", alias="densityTarget")
+    media_policy: MediaPolicy = Field(default="balanced", alias="mediaPolicy")
+    layout_diversity: LayoutDiversity = Field(
+        default="stable",
+        alias="layoutDiversity",
+    )
+
+
 class SlideCountRange(BaseModel):
     min: int = Field(default=5, ge=1, le=20)
     max: int = Field(default=8, ge=1, le=20)
@@ -96,6 +113,7 @@ class GenerateDeckRequest(BaseModel):
     project_id: str = Field(alias="projectId", min_length=1)
     topic: str = Field(min_length=1)
     prompt: str = ""
+    design_prompt: str = Field(default="", alias="designPrompt")
     target_duration_minutes: int = Field(
         default=10,
         alias="targetDurationMinutes",
@@ -108,6 +126,7 @@ class GenerateDeckRequest(BaseModel):
     )
     template: Template = "default"
     metadata: GenerateDeckMetadata = Field(default_factory=GenerateDeckMetadata)
+    design: DesignOptions = Field(default_factory=DesignOptions)
     references: list[GenerateDeckReference] = Field(default_factory=list)
     reference_keywords: list[GenerateDeckReferenceKeyword] = Field(
         default_factory=list,
@@ -119,10 +138,12 @@ class RawInput(BaseModel):
     project_id: str
     topic: str
     prompt: str
+    design_prompt: str = ""
     target_duration_minutes: int
     slide_count: int
     template: Template
     metadata: GenerateDeckMetadata
+    design: DesignOptions
     references: list[GenerateDeckReference]
     reference_keywords: list[GenerateDeckReferenceKeyword]
     reference_context: list[ReferenceContext]
@@ -142,9 +163,17 @@ class SourceEvidence(BaseModel):
 
 
 class VisualIntent(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
     emphasis: str = ""
     mood: str = ""
     structure: str = ""
+    palette_hint: str = Field(default="", alias="paletteHint")
+    emphasis_style: str = Field(default="", alias="emphasisStyle")
+    composition: str = ""
+    decoration_density: str = Field(default="", alias="decorationDensity")
+    media_style: str = Field(default="", alias="mediaStyle")
+    metric_card_caption: str = Field(default="", alias="metricCardCaption")
 
 
 class MediaIntent(BaseModel):
@@ -193,6 +222,7 @@ class SlidePlan(BaseModel):
     evidence: list[SourceEvidence]
     layout_variant: str = ""
     slot_preset: SlotPreset | None = None
+    requested_slot_preset: SlotPreset | None = None
     visual_intent: VisualIntent = Field(default_factory=VisualIntent)
     media_intent: MediaIntent = Field(default_factory=MediaIntent)
 
@@ -288,6 +318,12 @@ class PresetConfig:
     slots: tuple[LayoutSlot, ...]
 
 
+@dataclass(frozen=True)
+class LayoutCandidate:
+    slot_preset: SlotPreset
+    score: int
+
+
 CANVAS = Canvas()
 SLIDE_TYPES: tuple[SlideType, ...] = (
     "title",
@@ -342,7 +378,7 @@ PRESET_BY_SLIDE_TYPE: dict[SlideType, SlotPreset] = {
     "architecture": "title_left_visual_right",
     "quote": "quote_center",
     "chart": "insight_with_evidence",
-    "summary": "quote_with_source",
+    "summary": "insight_with_evidence",
 }
 LAYOUT_VARIANTS = {"title", "data", "comparison", "quote"}
 PRESET_REGISTRY: dict[SlotPreset, PresetConfig] = {
@@ -660,12 +696,231 @@ PRESET_REGISTRY: dict[SlotPreset, PresetConfig] = {
     ),
 }
 
+PRESET_ORDER: dict[SlotPreset, int] = {
+    slot_preset: index for index, slot_preset in enumerate(PRESET_REGISTRY)
+}
+PRESET_DENSITY: dict[SlotPreset, DensityTarget] = {
+    "title_center": "low",
+    "title_left_visual_right": "medium",
+    "title_full_bleed_image": "low",
+    "big_number_focus": "medium",
+    "metric_cards": "high",
+    "insight_with_evidence": "medium",
+    "before_after": "medium",
+    "us_vs_them": "high",
+    "criteria_table": "high",
+    "quote_center": "low",
+    "quote_with_source": "medium",
+    "quote_left_image_right": "medium",
+}
+
+STYLE_PROFILE_REGISTRY: dict[str, dict[str, Any]] = {
+    "game-ink-neon": {
+        "name": "game-ink-neon",
+        "headingFontFamily": "Montserrat",
+        "bodyFontFamily": "Inter",
+        "background": "#07111f",
+        "surface": "#101827",
+        "text": "#f8fafc",
+        "accent": "#00e5ff",
+        "secondary": "#b6ff00",
+        "muted": "#0b1020",
+        "border": "#ff3df2",
+        "titleSize": 68,
+        "headingSize": 44,
+        "bodySize": 28,
+        "captionSize": 17,
+    },
+    "startup-clean": {
+        "name": "startup-clean",
+        "headingFontFamily": "Inter",
+        "bodyFontFamily": "Inter",
+        "background": "#ffffff",
+        "surface": "#ffffff",
+        "text": "#111827",
+        "accent": "#2563eb",
+        "secondary": "#10b981",
+        "muted": "#f8fafc",
+        "border": "#d8dee9",
+        "titleSize": 60,
+        "headingSize": 42,
+        "bodySize": 26,
+        "captionSize": 18,
+    },
+    "academic-report": {
+        "name": "academic-report",
+        "headingFontFamily": "IBM Plex Sans",
+        "bodyFontFamily": "Inter",
+        "background": "#f8fafc",
+        "surface": "#ffffff",
+        "text": "#111827",
+        "accent": "#0f766e",
+        "secondary": "#7c3aed",
+        "muted": "#eef2f7",
+        "border": "#cbd5e1",
+        "titleSize": 62,
+        "headingSize": 42,
+        "bodySize": 26,
+        "captionSize": 17,
+    },
+    "dark-cyber": {
+        "name": "dark-cyber",
+        "headingFontFamily": "Montserrat",
+        "bodyFontFamily": "Inter",
+        "background": "#0b1120",
+        "surface": "#111827",
+        "text": "#f8fafc",
+        "accent": "#38bdf8",
+        "secondary": "#a78bfa",
+        "muted": "#020617",
+        "border": "#334155",
+        "titleSize": 66,
+        "headingSize": 44,
+        "bodySize": 27,
+        "captionSize": 17,
+    },
+    "warm-editorial": {
+        "name": "warm-editorial",
+        "headingFontFamily": "IBM Plex Serif",
+        "bodyFontFamily": "Inter",
+        "background": "#fff7ed",
+        "surface": "#ffffff",
+        "text": "#1f2937",
+        "accent": "#be123c",
+        "secondary": "#0f766e",
+        "muted": "#ffedd5",
+        "border": "#fed7aa",
+        "titleSize": 62,
+        "headingSize": 42,
+        "bodySize": 27,
+        "captionSize": 17,
+    },
+    "kids-education": {
+        "name": "kids-education",
+        "headingFontFamily": "Nunito",
+        "bodyFontFamily": "Nunito",
+        "background": "#f0f9ff",
+        "surface": "#ffffff",
+        "text": "#172554",
+        "accent": "#f97316",
+        "secondary": "#22c55e",
+        "muted": "#dcfce7",
+        "border": "#bae6fd",
+        "titleSize": 64,
+        "headingSize": 42,
+        "bodySize": 28,
+        "captionSize": 18,
+    },
+}
+
+SEMANTIC_PALETTE_PROFILES: dict[str, dict[str, Any]] = {
+    "monochrome": {
+        "keywords": [
+            "모노톤",
+            "블랙앤화이트",
+            "흑백",
+            "monotone",
+            "monochrome",
+            "black and white",
+        ],
+        "background": "#ffffff",
+        "surface": "#ffffff",
+        "text": "#111827",
+        "accent": "#111827",
+        "secondary": "#6b7280",
+        "muted": "#f3f4f6",
+        "border": "#d1d5db",
+    },
+    "ocean-blue": {
+        "keywords": [
+            "바다",
+            "오션",
+            "해변",
+            "파도",
+            "해양",
+            "ocean",
+            "sea",
+            "beach",
+            "wave",
+            "marine",
+        ],
+        "background": "#f7fbff",
+        "surface": "#ffffff",
+        "text": "#0f172a",
+        "accent": "#2563eb",
+        "secondary": "#0891b2",
+        "muted": "#e0f2fe",
+        "border": "#bae6fd",
+    },
+}
+
+EXPLICIT_COLOR_NAME_MAP = {
+    "흰색": "#ffffff",
+    "화이트": "#ffffff",
+    "white": "#ffffff",
+    "노란색": "#facc15",
+    "노랑": "#facc15",
+    "옐로우": "#facc15",
+    "yellow": "#facc15",
+    "검정": "#111827",
+    "black": "#111827",
+    "회색": "#6b7280",
+    "gray": "#6b7280",
+    "파랑": "#2563eb",
+    "blue": "#2563eb",
+    "빨강": "#dc2626",
+    "red": "#dc2626",
+    "초록": "#16a34a",
+    "green": "#16a34a",
+    "보라": "#7c3aed",
+    "purple": "#7c3aed",
+    "주황": "#f97316",
+    "orange": "#f97316",
+    "분홍": "#ec4899",
+    "pink": "#ec4899",
+    "남색": "#1e3a8a",
+    "navy": "#1e3a8a",
+}
+EXPLICIT_COLOR_RE = re.compile(
+    r"#[0-9a-fA-F]{6}|흰색|화이트|노란색|노랑|옐로우|검정|"
+    r"회색|파랑|빨강|초록|보라|주황|분홍|남색|"
+    r"(?<![a-z])(?:white|yellow|black|gray|blue|red|green|"
+    r"purple|orange|pink|navy)(?![a-z])",
+    re.IGNORECASE,
+)
+DESIGN_PROMPT_HINT_RE = re.compile(
+    r"색감|디자인|스타일|느낌|테마|팔레트|픽셀|고전|"
+    r"(?<![a-z])(?:design|style|theme|palette|color|colors|pixel|retro|"
+    r"classic|visual|look|mood)(?![a-z])",
+    re.IGNORECASE,
+)
+THEME_TOKEN_RE = re.compile(
+    r"(?<![a-z])"
+    r"(background|text|accent|primary|secondary|surface|muted|border)"
+    r"\s*:\s*(#[0-9a-fA-F]{6})(?![0-9a-fA-F])",
+    re.IGNORECASE,
+)
+THEME_TOKEN_ANY_RE = re.compile(
+    r"(?<![a-z])(?:[a-z][a-z0-9_-]*)\s*:\s*\S+",
+    re.IGNORECASE,
+)
+NEUTRAL_COLORS = {"#ffffff", "#111827", "#000000", "#6b7280"}
+
 DECK_CONTENT_INSTRUCTIONS = """
 You create Korean presentation slide content for ORBIT.
 Return only JSON that matches the requested schema.
 
 Rules:
 - Ground the deck in the topic, user prompt, reference keywords, and reference excerpts.
+- Design instructions describe visual style only.
+- Do not write design instructions into slide title, message, or speakerNotes.
+- Reflect design instructions through visualIntent.paletteHint, emphasisStyle,
+  composition, decorationDensity, and mediaStyle.
+- When suggesting colors, use machine-readable theme tokens:
+  background:#RRGGBB text:#RRGGBB accent:#RRGGBB secondary:#RRGGBB
+  surface:#RRGGBB muted:#RRGGBB border:#RRGGBB
+- For design moods such as 바다, 오션, 모노톤, or 블랙앤화이트, reflect
+  them through theme tokens or visualIntent.paletteHint when possible.
 - Write concrete slide titles, body messages, and speaker notes for the actual subject.
 - speakerNotes must be the actual Korean presenter script to read aloud, not a guide
   about what the presenter should explain.
@@ -674,6 +929,13 @@ Rules:
 - Do not write speakerNotes like "이 슬라이드는 ... 설명합니다", "... 팁을 제공합니다",
   or "... 함께 언급합니다". Say the presentation lines directly.
 - Choose slideType, layoutVariant, slotPreset, visualIntent, and mediaIntent.
+- visualIntent must include paletteHint, emphasisStyle, composition,
+  decorationDensity, mediaStyle, and metricCardCaption. Prefer concise values such as
+  keyword-chips, split, poster, data, media, process, radial, bubble,
+  low, medium, or high.
+- For visualIntent.metricCardCaption, write only concrete text intended for a
+  data/metric card. Use an empty string if there is no meaningful caption, and
+  do not copy the slide message verbatim.
 - Do not output coordinates, sizes, zIndex, or final Deck JSON.
 - Do not write meta placeholders such as "목적과 기대 결과를 소개합니다" or
   "결정 사항, 실행 순서, 후속 검증 기준을 정리합니다" unless the source is actually about that.
@@ -723,8 +985,24 @@ DECK_CONTENT_RESPONSE_FORMAT: dict[str, Any] = {
                                     "emphasis": {"type": "string"},
                                     "mood": {"type": "string"},
                                     "structure": {"type": "string"},
+                                    "paletteHint": {"type": "string"},
+                                    "emphasisStyle": {"type": "string"},
+                                    "composition": {"type": "string"},
+                                    "decorationDensity": {"type": "string"},
+                                    "mediaStyle": {"type": "string"},
+                                    "metricCardCaption": {"type": "string"},
                                 },
-                                "required": ["emphasis", "mood", "structure"],
+                                "required": [
+                                    "emphasis",
+                                    "mood",
+                                    "structure",
+                                    "paletteHint",
+                                    "emphasisStyle",
+                                    "composition",
+                                    "decorationDensity",
+                                    "mediaStyle",
+                                    "metricCardCaption",
+                                ],
                             },
                             "mediaIntent": {
                                 "type": "object",
@@ -794,7 +1072,8 @@ def generate_deck(
         model=model,
         api_key=api_key,
     )
-    theme = direct_design(raw_input)
+    slide_plans = apply_design_options(raw_input, slide_plans)
+    theme = direct_design(raw_input, slide_plans)
     slides = [
         assemble_slide(raw_input, slide_plan, plan_visuals(slide_plan), theme)
         for slide_plan in slide_plans
@@ -846,18 +1125,47 @@ def analyze_input(
         request.target_duration_minutes,
         request.slide_count_range,
     )
+    prompt, design_prompt = split_content_and_design_prompt(
+        request.prompt,
+        request.design_prompt,
+    )
     return RawInput(
         project_id=request.project_id,
         topic=request.topic.strip(),
-        prompt=request.prompt.strip(),
+        prompt=prompt,
+        design_prompt=design_prompt,
         target_duration_minutes=request.target_duration_minutes,
         slide_count=slide_count,
         template=request.template,
         metadata=request.metadata,
+        design=request.design,
         references=request.references,
         reference_keywords=request.reference_keywords,
         reference_context=reference_context or [],
     )
+
+
+def split_content_and_design_prompt(prompt: str, design_prompt: str) -> tuple[str, str]:
+    content = prompt.strip()
+    design = design_prompt.strip()
+    if design:
+        return content, design
+
+    chunks = [chunk.strip() for chunk in re.split(r"[\n,;]+", content) if chunk.strip()]
+    if not chunks:
+        return "", ""
+
+    design_chunks = [
+        chunk for chunk in chunks if DESIGN_PROMPT_HINT_RE.search(chunk)
+    ]
+    if not design_chunks:
+        return content, ""
+
+    content_chunks = [chunk for chunk in chunks if chunk not in design_chunks]
+    if len(chunks) == 1 and content_chunks:
+        return content, ""
+
+    return ", ".join(content_chunks), ", ".join(design_chunks)
 
 
 def choose_slide_count(target_minutes: int, slide_range: SlideCountRange) -> int:
@@ -900,6 +1208,7 @@ def plan_deck_content(
 def requires_llm_content(raw_input: RawInput) -> bool:
     return bool(
         raw_input.prompt.strip()
+        or raw_input.design_prompt.strip()
         or raw_input.references
         or raw_input.reference_keywords
         or raw_input.reference_context
@@ -1104,10 +1413,15 @@ def deck_content_prompt(raw_input: RawInput) -> str:
         [
             f"Topic: {raw_input.topic}",
             f"User prompt: {raw_input.prompt or '(none)'}",
+            f"Design prompt: {raw_input.design_prompt or '(none)'}",
             f"Slide count: {raw_input.slide_count}",
             f"Audience: {raw_input.metadata.audience}",
             f"Purpose: {raw_input.metadata.purpose}",
             f"Tone: {raw_input.metadata.tone}",
+            f"Visual rhythm: {raw_input.design.visual_rhythm}",
+            f"Density target: {raw_input.design.density_target}",
+            f"Media policy: {raw_input.design.media_policy}",
+            f"Layout diversity: {raw_input.design.layout_diversity}",
             f"Reference keywords: {', '.join(keywords) if keywords else '(none)'}",
             "Reference excerpts:",
             context or "(none)",
@@ -1126,9 +1440,10 @@ def slide_plans_from_generated_content(
         slide_keywords = merge_keywords(keyword_pool, slide.keywords)
         fallback_type = slide_type_for(index, raw_input.slide_count)
         slide_type = normalize_slide_type(slide.slide_type, fallback_type)
+        fallback_preset = preset_for_slide_type(slide_type)
         slot_preset = normalize_slot_preset(
             slide.slot_preset,
-            preset_for_slide_type(slide_type),
+            fallback_preset,
         )
         slide_plans.append(
             SlidePlan(
@@ -1141,9 +1456,10 @@ def slide_plans_from_generated_content(
                 evidence=evidence_for(raw_input.references, slide.title),
                 layout_variant=normalize_layout_variant(
                     slide.layout_variant,
-                    slot_preset,
+                    fallback_preset,
                 ),
                 slot_preset=slot_preset,
+                requested_slot_preset=slot_preset,
                 visual_intent=slide.visual_intent,
                 media_intent=slide.media_intent,
             )
@@ -1188,6 +1504,225 @@ def normalize_layout_variant(value: str, slot_preset: SlotPreset) -> str:
     return PRESET_REGISTRY[slot_preset].variant
 
 
+def apply_design_options(
+    raw_input: RawInput,
+    slide_plans: list[SlidePlan],
+) -> list[SlidePlan]:
+    previous_preset: SlotPreset | None = None
+    preset_usage: dict[SlotPreset, int] = {}
+    for slide_plan in slide_plans:
+        slide_plan.media_intent = media_intent_for_policy(
+            slide_plan.media_intent,
+            raw_input.design.media_policy,
+        )
+        selected_preset = choose_layout_preset(
+            slide_plan,
+            raw_input.design,
+            previous_preset,
+            preset_usage,
+        )
+        slide_plan.slot_preset = selected_preset
+        slide_plan.layout_variant = PRESET_REGISTRY[selected_preset].variant
+        preset_usage[selected_preset] = preset_usage.get(selected_preset, 0) + 1
+        previous_preset = selected_preset
+
+    return slide_plans
+
+
+def choose_layout_preset(
+    slide_plan: SlidePlan,
+    design: DesignOptions,
+    previous_preset: SlotPreset | None,
+    preset_usage: dict[SlotPreset, int],
+) -> SlotPreset:
+    fallback = preset_for_slide_type(slide_plan.slide_type)
+    if slide_plan.slide_type in ("chart", "feature-grid"):
+        return fallback
+
+    candidates = layout_candidates_for(
+        slide_plan,
+        design,
+        previous_preset,
+        preset_usage,
+        fallback,
+    )
+    return max(
+        candidates,
+        key=lambda candidate: (
+            candidate.score,
+            -PRESET_ORDER[candidate.slot_preset],
+        ),
+    ).slot_preset
+
+
+def layout_candidates_for(
+    slide_plan: SlidePlan,
+    design: DesignOptions,
+    previous_preset: SlotPreset | None,
+    preset_usage: dict[SlotPreset, int],
+    fallback: SlotPreset,
+) -> list[LayoutCandidate]:
+    variant = normalize_layout_variant(slide_plan.layout_variant, fallback)
+    wants_media = media_intent_needs_slot(slide_plan.media_intent)
+    composition = normalize_composition(slide_plan.visual_intent.composition)
+    candidate_presets: set[SlotPreset] = {fallback}
+    requested_slot_preset = slide_plan.requested_slot_preset
+    if requested_slot_preset is not None:
+        candidate_presets.add(requested_slot_preset)
+
+    candidate_presets.update(
+        slot_preset
+        for slot_preset, preset in PRESET_REGISTRY.items()
+        if preset.variant == variant
+    )
+    candidate_presets.update(presets_for_composition(composition))
+    if wants_media:
+        candidate_presets.update(
+            slot_preset
+            for slot_preset, preset in PRESET_REGISTRY.items()
+            if preset_has_media_slot(preset)
+        )
+
+    candidates: list[LayoutCandidate] = []
+    for slot_preset in PRESET_REGISTRY:
+        if slot_preset not in candidate_presets:
+            continue
+
+        preset = PRESET_REGISTRY[slot_preset]
+        has_media_slot = preset_has_media_slot(preset)
+        if not wants_media and has_media_slot:
+            continue
+
+        score = 4 if slot_preset == fallback else 0
+        if preset.variant == variant:
+            score += 1
+        if wants_media:
+            score += 3 if has_media_slot else -2
+        if PRESET_DENSITY[slot_preset] == design.density_target:
+            score += 2
+        score += composition_score(slot_preset, composition)
+        if slot_preset == requested_slot_preset:
+            score += 10
+        score -= preset_usage.get(slot_preset, 0)
+        if slide_plan.slide_type == "summary":
+            score += 2 if preset.variant == "data" else 0
+            score -= 4 if slot_preset == "quote_with_source" else 0
+        if design.layout_diversity == "varied":
+            if slot_preset == previous_preset:
+                score -= 2
+            score -= layout_stability_penalty(slot_preset, previous_preset)
+
+        candidates.append(LayoutCandidate(slot_preset=slot_preset, score=score))
+
+    return candidates
+
+
+def normalize_composition(value: str) -> str:
+    normalized = value.strip().casefold()
+    if has_any(normalized, ["process", "step", "flow", "timeline", "sequence"]):
+        return "process"
+    if has_any(normalized, ["radial", "hub", "cycle"]):
+        return "radial"
+    if has_any(normalized, ["bubble", "cluster"]):
+        return "bubble"
+    if "split" in normalized or "two" in normalized:
+        return "split"
+    if "poster" in normalized or "cover" in normalized:
+        return "poster"
+    if "data" in normalized or "metric" in normalized:
+        return "data"
+    if "media" in normalized or "image" in normalized or "visual" in normalized:
+        return "media"
+    return ""
+
+
+def presets_for_composition(composition: str) -> set[SlotPreset]:
+    if composition == "split":
+        return {
+            "title_left_visual_right",
+            "before_after",
+            "us_vs_them",
+            "quote_left_image_right",
+        }
+    if composition == "poster":
+        return {"title_center", "title_full_bleed_image"}
+    if composition == "data":
+        return {"big_number_focus", "metric_cards", "insight_with_evidence"}
+    if composition == "process":
+        return {"before_after", "criteria_table", "insight_with_evidence"}
+    if composition in {"radial", "bubble"}:
+        return {"metric_cards", "insight_with_evidence"}
+    if composition == "media":
+        return {
+            slot_preset
+            for slot_preset, preset in PRESET_REGISTRY.items()
+            if preset_has_media_slot(preset)
+        }
+    return set()
+
+
+def composition_score(slot_preset: SlotPreset, composition: str) -> int:
+    if not composition:
+        return 0
+    return 3 if slot_preset in presets_for_composition(composition) else -1
+
+
+def layout_stability_penalty(
+    slot_preset: SlotPreset,
+    previous_preset: SlotPreset | None,
+) -> int:
+    if previous_preset is None:
+        return 0
+
+    preset = PRESET_REGISTRY[slot_preset]
+    previous = PRESET_REGISTRY[previous_preset]
+    penalty = 0
+    title = slot_for_role(preset, "title")
+    previous_title = slot_for_role(previous, "title")
+    if title is not None and previous_title is not None and any(
+        getattr(title, field) != getattr(previous_title, field)
+        for field in ("x", "y", "width", "height")
+    ):
+        penalty += 8
+
+    body = slot_for_role(preset, "body")
+    previous_body = slot_for_role(previous, "body")
+    if body is not None and previous_body is not None:
+        if abs(body.y - previous_body.y) > 64:
+            penalty += 5
+
+    return penalty
+
+
+def slot_for_role(preset: PresetConfig, role: str) -> LayoutSlot | None:
+    return next((slot for slot in preset.slots if slot.role == role), None)
+
+
+def media_intent_for_policy(
+    media_intent: MediaIntent,
+    media_policy: MediaPolicy,
+) -> MediaIntent:
+    if media_intent.kind == "none":
+        return media_intent
+    if media_intent.kind == "provided" and media_intent.src.strip():
+        return media_intent
+    if media_policy == "placeholder-ok":
+        return media_intent
+    return MediaIntent()
+
+
+def media_intent_needs_slot(media_intent: MediaIntent) -> bool:
+    if media_intent.kind == "none":
+        return False
+    if media_intent.kind == "provided":
+        return bool(media_intent.src.strip()) or media_intent.required
+    return True
+
+
+def preset_has_media_slot(preset: PresetConfig) -> bool:
+    return any(slot.role == "media" for slot in preset.slots)
+
+
 def preset_for_slide_type(slide_type: SlideType) -> SlotPreset:
     return PRESET_BY_SLIDE_TYPE.get(slide_type, "insight_with_evidence")
 
@@ -1202,9 +1737,12 @@ def evidence_for(
     ]
 
 
-def direct_design(raw_input: RawInput) -> dict[str, Any]:
-    profile = design_profile_for(raw_input)
-    return {
+def direct_design(
+    raw_input: RawInput,
+    slide_plans: list[SlidePlan] | None = None,
+) -> dict[str, Any]:
+    profile = design_profile_for(raw_input, slide_plans)
+    theme = {
         "name": f"{raw_input.template}-{profile['name']}-ai",
         "fontFamily": profile["bodyFontFamily"],
         "backgroundColor": profile["background"],
@@ -1227,19 +1765,222 @@ def direct_design(raw_input: RawInput) -> dict[str, Any]:
         },
         "effects": {"borderRadius": 8},
     }
+    return apply_explicit_palette(theme, raw_input, slide_plans)
 
 
-def design_profile_for(raw_input: RawInput) -> dict[str, Any]:
+def apply_explicit_palette(
+    theme: dict[str, Any],
+    raw_input: RawInput,
+    slide_plans: list[SlidePlan] | None = None,
+) -> dict[str, Any]:
+    tokens = keyed_theme_tokens(raw_input, slide_plans)
+    if tokens:
+        return apply_keyed_theme_tokens(theme, tokens)
+
+    semantic_palette = semantic_palette_for_sources(raw_input, slide_plans)
+    if semantic_palette is not None:
+        return apply_semantic_palette(theme, semantic_palette)
+
+    colors = explicit_palette_colors(raw_input, slide_plans)
+    if not colors:
+        return theme
+
+    neutral = next((color for color in colors if is_neutral_color(color)), None)
+    accent_colors = [color for color in colors if not is_neutral_color(color)]
+
+    if neutral is not None:
+        theme["backgroundColor"] = neutral
+        theme["textColor"] = text_color_for_background(neutral)
+        theme["palette"]["surface"] = neutral
+
+    if accent_colors:
+        accent = accent_colors[0]
+        theme["accentColor"] = accent
+        theme["palette"]["primary"] = accent
+        theme["palette"]["secondary"] = (
+            accent_colors[1] if len(accent_colors) > 1 else accent
+        )
+        if neutral == "#ffffff" and accent == "#facc15":
+            theme["palette"]["secondary"] = accent
+            theme["palette"]["muted"] = "#fef9c3"
+            theme["palette"]["border"] = "#fde68a"
+
+    return theme
+
+
+def semantic_palette_for_sources(
+    raw_input: RawInput,
+    slide_plans: list[SlidePlan] | None = None,
+) -> dict[str, Any] | None:
+    sources = [
+        *[
+            slide_plan.visual_intent.palette_hint
+            for slide_plan in slide_plans or []
+        ],
+        raw_input.design_prompt,
+    ]
+    for source in sources:
+        normalized = strip_theme_tokens(source).casefold()
+        for profile in SEMANTIC_PALETTE_PROFILES.values():
+            if has_any(normalized, profile["keywords"]):
+                return profile
+    return None
+
+
+def apply_semantic_palette(
+    theme: dict[str, Any],
+    profile: dict[str, Any],
+) -> dict[str, Any]:
+    theme["backgroundColor"] = profile["background"]
+    theme["textColor"] = profile["text"]
+    theme["accentColor"] = profile["accent"]
+    theme["palette"]["primary"] = profile["accent"]
+    theme["palette"]["secondary"] = profile["secondary"]
+    theme["palette"]["surface"] = profile["surface"]
+    theme["palette"]["muted"] = profile["muted"]
+    theme["palette"]["border"] = profile["border"]
+    return theme
+
+
+def keyed_theme_tokens(
+    raw_input: RawInput,
+    slide_plans: list[SlidePlan] | None = None,
+) -> dict[str, str]:
+    tokens: dict[str, str] = {}
+    for source in palette_sources(raw_input, slide_plans):
+        for match in THEME_TOKEN_RE.finditer(source):
+            key = match.group(1).lower()
+            if key not in tokens:
+                tokens[key] = match.group(2).lower()
+    return tokens
+
+
+def apply_keyed_theme_tokens(
+    theme: dict[str, Any],
+    tokens: dict[str, str],
+) -> dict[str, Any]:
+    background = tokens.get("background")
+    if background:
+        theme["backgroundColor"] = background
+
+    if "text" in tokens:
+        theme["textColor"] = tokens["text"]
+    elif background:
+        theme["textColor"] = text_color_for_background(background)
+
+    accent = tokens.get("accent")
+    if accent:
+        theme["accentColor"] = accent
+        theme["palette"]["primary"] = accent
+        theme["palette"]["secondary"] = accent
+
+    for key in ("primary", "secondary", "surface", "muted", "border"):
+        if key in tokens:
+            theme["palette"][key] = tokens[key]
+
+    if background and contrast_ratio(background, theme["textColor"]) < 4.5:
+        theme["textColor"] = text_color_for_background(background)
+
+    return theme
+
+
+def explicit_palette_colors(
+    raw_input: RawInput,
+    slide_plans: list[SlidePlan] | None = None,
+) -> list[str]:
+    colors: list[str] = []
+    for source in palette_sources(raw_input, slide_plans):
+        source = strip_theme_tokens(source)
+        for match in EXPLICIT_COLOR_RE.finditer(source):
+            token = match.group(0).casefold()
+            if token.startswith("#"):
+                color = token.lower()
+            else:
+                color = EXPLICIT_COLOR_NAME_MAP[token]
+            if color not in colors:
+                colors.append(color)
+    return colors
+
+
+def palette_sources(
+    raw_input: RawInput,
+    slide_plans: list[SlidePlan] | None = None,
+) -> list[str]:
+    return [
+        *[
+            slide_plan.visual_intent.palette_hint
+            for slide_plan in slide_plans or []
+        ],
+        raw_input.design_prompt,
+        raw_input.prompt,
+    ]
+
+
+def strip_theme_tokens(source: str) -> str:
+    return THEME_TOKEN_ANY_RE.sub(" ", source)
+
+
+def is_neutral_color(color: str) -> bool:
+    return color in NEUTRAL_COLORS
+
+
+def text_color_for_background(color: str) -> str:
+    dark = "#111827"
+    light = "#f8fafc"
+    return (
+        dark
+        if contrast_ratio(color, dark) >= contrast_ratio(color, light)
+        else light
+    )
+
+
+def contrast_ratio(color_a: str, color_b: str) -> float:
+    lighter = max(relative_luminance(color_a), relative_luminance(color_b))
+    darker = min(relative_luminance(color_a), relative_luminance(color_b))
+    return (lighter + 0.05) / (darker + 0.05)
+
+
+def relative_luminance(color: str) -> float:
+    values = [
+        int(color[index : index + 2], 16) / 255
+        for index in (1, 3, 5)
+    ]
+    channels = [
+        value / 12.92
+        if value <= 0.03928
+        else ((value + 0.055) / 1.055) ** 2.4
+        for value in values
+    ]
+    return 0.2126 * channels[0] + 0.7152 * channels[1] + 0.0722 * channels[2]
+
+
+def design_profile_for(
+    raw_input: RawInput,
+    slide_plans: list[SlidePlan] | None = None,
+) -> dict[str, Any]:
+    rhythm_profile = design_profile_for_visual_rhythm(raw_input.design.visual_rhythm)
+    if rhythm_profile is not None:
+        return rhythm_profile
+
+    palette_hints = [
+        strip_theme_tokens(slide_plan.visual_intent.palette_hint)
+        for slide_plan in slide_plans or []
+    ]
     text = " ".join(
         [
             raw_input.topic,
             raw_input.prompt,
-            raw_input.template,
+            strip_theme_tokens(raw_input.design_prompt),
             raw_input.metadata.audience,
             raw_input.metadata.purpose,
             raw_input.metadata.tone,
+            *palette_hints,
         ]
     ).casefold()
+    registry_profile = style_profile_for_text(text)
+    if registry_profile is not None:
+        return registry_profile
+
     if has_any(text, ["speech", "stt", "audio", "voice", "언어", "음성", "오디오", "방언"]):
         return {
             "name": "voice-tech",
@@ -1308,22 +2049,116 @@ def design_profile_for(raw_input: RawInput) -> dict[str, Any]:
             "bodySize": 26,
             "captionSize": 17,
         }
-    return {
-        "name": "default-clean",
-        "headingFontFamily": "Inter",
-        "bodyFontFamily": "Inter",
-        "background": "#ffffff",
-        "surface": "#ffffff",
-        "text": "#111827",
-        "accent": "#2563eb",
-        "secondary": "#f59e0b",
-        "muted": "#f8fafc",
-        "border": "#d8dee9",
-        "titleSize": 60,
-        "headingSize": 42,
-        "bodySize": 26,
-        "captionSize": 18,
-    }
+    return STYLE_PROFILE_REGISTRY["startup-clean"]
+
+
+def style_profile_for_text(text: str) -> dict[str, Any] | None:
+    if has_any(
+        text,
+        [
+            "splatoon",
+            "platoon",
+            "raiders",
+            "neon ink",
+            "스플래툰",
+            "레이더스",
+            "잉크",
+            "네온",
+            "게임",
+            "비비드",
+            "밝은",
+            "형광",
+            "캐주얼",
+        ],
+    ) or (
+        "game" in text and has_any(text, ["ink", "neon"])
+    ):
+        return STYLE_PROFILE_REGISTRY["game-ink-neon"]
+    if has_any(text, ["cyber", "security", "dark system", "terminal"]):
+        return STYLE_PROFILE_REGISTRY["dark-cyber"]
+    if has_any(text, ["startup", "saas", "product launch", "growth"]):
+        return STYLE_PROFILE_REGISTRY["startup-clean"]
+    if has_any(text, ["academic", "research", "paper", "report"]):
+        return STYLE_PROFILE_REGISTRY["academic-report"]
+    if has_any(text, ["editorial", "magazine", "story", "warm"]):
+        return STYLE_PROFILE_REGISTRY["warm-editorial"]
+    if has_any(text, ["kids", "children", "elementary", "classroom"]):
+        return STYLE_PROFILE_REGISTRY["kids-education"]
+    return None
+
+
+def design_profile_for_visual_rhythm(
+    visual_rhythm: VisualRhythm,
+) -> dict[str, Any] | None:
+    if visual_rhythm == "technical":
+        return {
+            "name": "voice-tech",
+            "headingFontFamily": "Noto Sans KR",
+            "bodyFontFamily": "Noto Sans KR",
+            "background": "#f7fbff",
+            "surface": "#ffffff",
+            "text": "#102033",
+            "accent": "#1a73e8",
+            "secondary": "#34a853",
+            "muted": "#eef6ff",
+            "border": "#c8daf4",
+            "titleSize": 64,
+            "headingSize": 42,
+            "bodySize": 27,
+            "captionSize": 17,
+        }
+    if visual_rhythm == "editorial":
+        return {
+            "name": "report-editorial",
+            "headingFontFamily": "IBM Plex Sans",
+            "bodyFontFamily": "Inter",
+            "background": "#f8fafc",
+            "surface": "#ffffff",
+            "text": "#111827",
+            "accent": "#0f766e",
+            "secondary": "#7c3aed",
+            "muted": "#eef2f7",
+            "border": "#cbd5e1",
+            "titleSize": 62,
+            "headingSize": 42,
+            "bodySize": 26,
+            "captionSize": 17,
+        }
+    if visual_rhythm == "bold":
+        return {
+            "name": "pitch-contrast",
+            "headingFontFamily": "Montserrat",
+            "bodyFontFamily": "Inter",
+            "background": "#0f172a",
+            "surface": "#172033",
+            "text": "#f8fafc",
+            "accent": "#22d3ee",
+            "secondary": "#f59e0b",
+            "muted": "#111827",
+            "border": "#334155",
+            "titleSize": 66,
+            "headingSize": 44,
+            "bodySize": 27,
+            "captionSize": 17,
+        }
+    if visual_rhythm == "clean":
+        return {
+            "name": "default-clean",
+            "headingFontFamily": "Inter",
+            "bodyFontFamily": "Inter",
+            "background": "#ffffff",
+            "surface": "#ffffff",
+            "text": "#111827",
+            "accent": "#2563eb",
+            "secondary": "#f59e0b",
+            "muted": "#f8fafc",
+            "border": "#d8dee9",
+            "titleSize": 60,
+            "headingSize": 42,
+            "bodySize": 26,
+            "captionSize": 18,
+        }
+    return None
 
 
 def has_any(text: str, candidates: list[str]) -> bool:
@@ -1341,8 +2176,9 @@ def plan_visuals(slide_plan: SlidePlan) -> VisualPlan:
         ElementIntent(role="background"),
         ElementIntent(role="title", text=slide_plan.title),
         ElementIntent(role="body", text=slide_plan.message),
-        ElementIntent(role="footer", text="ORBIT AI 덱"),
     ]
+    if slide_plan.order == 1:
+        intents.append(ElementIntent(role="footer", text="ORBIT AI 덱"))
     if slide_plan.slide_type == "chart":
         intents.append(ElementIntent(role="chart", text=slide_plan.title))
 
@@ -1418,6 +2254,7 @@ def assemble_slide(
     ]
     elements.extend(media_elements(slide_plan, visual_plan, slot_by_role, theme))
     elements.extend(design_elements(slide_plan, visual_plan, theme))
+    elements = cap_elements(elements)
     title_element = next(element for element in elements if element["role"] == "title")
 
     return {
@@ -1467,6 +2304,20 @@ def design_elements(
     visual_plan: VisualPlan,
     theme: dict[str, Any],
 ) -> list[dict[str, Any]]:
+    density = normalize_decoration_density(
+        visual_plan.visual_intent.decoration_density,
+    )
+    emphasis_style = normalize_emphasis_style(
+        visual_plan.visual_intent.emphasis_style,
+    )
+    composition = normalize_composition(visual_plan.visual_intent.composition)
+    if (
+        not emphasis_style
+        and slide_plan.order == 1
+        and slide_plan.keywords
+        and not is_diagram_composition(composition)
+    ):
+        emphasis_style = "keyword-chips"
     elements = [
         shape_element(
             slide_plan.order,
@@ -1480,6 +2331,25 @@ def design_elements(
             theme["accentColor"],
             "transparent",
         ),
+    ]
+
+    if density in ("medium", "high"):
+        elements.append(
+            shape_element(
+                slide_plan.order,
+                "section_label_chip",
+                "decoration",
+                CANVAS.safe_x - 18,
+                40,
+                260,
+                44,
+                1,
+                theme["palette"]["surface"],
+                theme["palette"]["border"],
+                22,
+            )
+        )
+    elements.append(
         text_element(
             slide_plan.order,
             "section_label",
@@ -1494,24 +2364,82 @@ def design_elements(
             theme["typography"]["captionSize"],
             "bold",
             theme["typography"]["headingFontFamily"],
-        ),
-    ]
+        )
+    )
 
-    if visual_plan.layout_variant == "data":
-        elements.append(
-            shape_element(
-                slide_plan.order,
-                "metric_card",
-                "decoration",
-                1028,
-                246,
-                700,
-                500,
-                2,
-                theme["palette"]["surface"],
-                theme["palette"]["border"],
-                8,
-            )
+    if density == "high":
+        elements.extend(
+            [
+                shape_element(
+                    slide_plan.order,
+                    "top_stripe",
+                    "decoration",
+                    0,
+                    0,
+                    CANVAS.width,
+                    18,
+                    1,
+                    theme["palette"]["secondary"],
+                    "transparent",
+                ),
+                shape_element(
+                    slide_plan.order,
+                    "diagonal_block",
+                    "decoration",
+                    1460,
+                    86,
+                    360,
+                    84,
+                    1,
+                    theme["palette"]["border"],
+                    "transparent",
+                    0,
+                    16,
+                ),
+            ]
+        )
+
+    metric_card_caption = visual_plan.visual_intent.metric_card_caption.strip()
+    if (
+        metric_card_caption
+        and visual_plan.slot_preset in {"metric_cards", "big_number_focus"}
+    ):
+        card_x = 1028
+        card_y = 246
+        card_width = 700
+        card_height = 500
+        card_z_index = 2
+        elements.extend(
+            [
+                shape_element(
+                    slide_plan.order,
+                    "metric_card",
+                    "decoration",
+                    card_x,
+                    card_y,
+                    card_width,
+                    card_height,
+                    card_z_index,
+                    theme["palette"]["surface"],
+                    theme["palette"]["border"],
+                    8,
+                ),
+                text_element(
+                    slide_plan.order,
+                    "metric_card_caption",
+                    "caption",
+                    metric_card_caption,
+                    card_x + 44,
+                    card_y + 44,
+                    card_width - 88,
+                    card_height - 88,
+                    card_z_index + 1,
+                    theme["textColor"],
+                    theme["typography"]["bodySize"],
+                    "bold",
+                    theme["typography"]["headingFontFamily"],
+                ),
+            ]
         )
     if visual_plan.layout_variant == "comparison":
         elements.append(
@@ -1545,6 +2473,251 @@ def design_elements(
             )
         )
 
+    elements.extend(diagram_elements(slide_plan, composition, theme))
+
+    if emphasis_style == "keyword-chips" and slide_plan.order == 1:
+        elements.extend(keyword_chip_elements(slide_plan, theme))
+
+    return elements
+
+
+def is_diagram_composition(composition: str) -> bool:
+    return composition in {"process", "radial", "bubble"}
+
+
+def diagram_elements(
+    slide_plan: SlidePlan,
+    composition: str,
+    theme: dict[str, Any],
+) -> list[dict[str, Any]]:
+    if composition == "process":
+        return process_diagram_elements(slide_plan, theme)
+    if composition == "radial":
+        return radial_diagram_elements(slide_plan, theme)
+    if composition == "bubble":
+        return bubble_diagram_elements(slide_plan, theme)
+    return []
+
+
+def diagram_labels(slide_plan: SlidePlan, count: int) -> list[str]:
+    labels = [keyword.strip() for keyword in slide_plan.keywords if keyword.strip()]
+    while len(labels) < count:
+        labels.append(f"STEP {len(labels) + 1}")
+    return labels[:count]
+
+
+def process_diagram_elements(
+    slide_plan: SlidePlan,
+    theme: dict[str, Any],
+) -> list[dict[str, Any]]:
+    labels = diagram_labels(slide_plan, 4)
+    elements: list[dict[str, Any]] = []
+    for index, label in enumerate(labels):
+        x = 210 + index * 380
+        y = 790
+        elements.extend(
+            [
+                custom_shape_element(
+                    slide_plan.order,
+                    f"process_step_{index + 1}",
+                    "highlight",
+                    x,
+                    y,
+                    320,
+                    76,
+                    4,
+                    "M 0 0 L 270 0 L 320 38 L 270 76 L 0 76 L 48 38 Z",
+                    320,
+                    76,
+                    theme["palette"]["surface"],
+                    theme["accentColor"],
+                ),
+                text_element(
+                    slide_plan.order,
+                    f"process_step_{index + 1}_label",
+                    "highlight",
+                    label,
+                    x + 42,
+                    y + 22,
+                    220,
+                    32,
+                    5,
+                    theme["textColor"],
+                    theme["typography"]["captionSize"] + 4,
+                    "bold",
+                    theme["typography"]["headingFontFamily"],
+                ),
+            ]
+        )
+    return elements
+
+
+def radial_diagram_elements(
+    slide_plan: SlidePlan,
+    theme: dict[str, Any],
+) -> list[dict[str, Any]]:
+    labels = diagram_labels(slide_plan, 4)
+    elements = [
+        shape_element(
+            slide_plan.order,
+            "radial_hub",
+            "highlight",
+            840,
+            648,
+            240,
+            240,
+            4,
+            theme["palette"]["surface"],
+            theme["accentColor"],
+            element_type="ellipse",
+        )
+    ]
+    positions = [(540, 628), (1140, 628), (660, 820), (1020, 820)]
+    for index, (x, y) in enumerate(positions):
+        elements.extend(
+            [
+                shape_element(
+                    slide_plan.order,
+                    f"radial_node_{index + 1}",
+                    "highlight",
+                    x,
+                    y,
+                    190,
+                    112,
+                    5,
+                    theme["palette"]["muted"],
+                    theme["accentColor"],
+                    element_type="ellipse",
+                ),
+                text_element(
+                    slide_plan.order,
+                    f"radial_node_{index + 1}_label",
+                    "highlight",
+                    labels[index],
+                    x + 28,
+                    y + 39,
+                    134,
+                    34,
+                    6,
+                    theme["textColor"],
+                    theme["typography"]["captionSize"] + 3,
+                    "bold",
+                    theme["typography"]["bodyFontFamily"],
+                ),
+            ]
+        )
+    return elements
+
+
+def bubble_diagram_elements(
+    slide_plan: SlidePlan,
+    theme: dict[str, Any],
+) -> list[dict[str, Any]]:
+    labels = diagram_labels(slide_plan, 5)
+    positions = [
+        (470, 660, 220),
+        (750, 604, 250),
+        (1050, 664, 220),
+        (680, 820, 210),
+        (980, 820, 210),
+    ]
+    elements: list[dict[str, Any]] = []
+    for index, (x, y, size) in enumerate(positions):
+        elements.extend(
+            [
+                shape_element(
+                    slide_plan.order,
+                    f"bubble_{index + 1}",
+                    "highlight",
+                    x,
+                    y,
+                    size,
+                    size,
+                    4,
+                    theme["palette"]["surface"],
+                    theme["accentColor"],
+                    element_type="ellipse",
+                ),
+                text_element(
+                    slide_plan.order,
+                    f"bubble_{index + 1}_label",
+                    "highlight",
+                    labels[index],
+                    x + 36,
+                    y + size // 2 - 18,
+                    size - 72,
+                    36,
+                    5,
+                    theme["textColor"],
+                    theme["typography"]["captionSize"] + 3,
+                    "bold",
+                    theme["typography"]["bodyFontFamily"],
+                ),
+            ]
+        )
+    return elements
+
+
+def normalize_decoration_density(value: str) -> str:
+    normalized = value.strip().casefold()
+    if normalized in {"none", "minimal", "low"}:
+        return "low"
+    if normalized in {"high", "rich", "dense", "decorative"}:
+        return "high"
+    return "medium"
+
+
+def normalize_emphasis_style(value: str) -> str:
+    normalized = value.strip().casefold()
+    if has_any(
+        normalized,
+        ["chip", "keyword", "키워드", "강조", "칩", "하이라이트"],
+    ):
+        return "keyword-chips"
+    return ""
+
+
+def keyword_chip_elements(
+    slide_plan: SlidePlan,
+    theme: dict[str, Any],
+) -> list[dict[str, Any]]:
+    elements: list[dict[str, Any]] = []
+    for index, keyword in enumerate(slide_plan.keywords[:3]):
+        width = min(260, max(144, 42 + len(keyword) * 12))
+        x = CANVAS.safe_x + index * 286
+        y = 870
+        elements.extend(
+            [
+                shape_element(
+                    slide_plan.order,
+                    f"keyword_chip_{index + 1}",
+                    "decoration",
+                    x,
+                    y,
+                    width,
+                    52,
+                    4,
+                    theme["palette"]["surface"],
+                    theme["accentColor"],
+                    26,
+                ),
+                text_element(
+                    slide_plan.order,
+                    f"keyword_chip_{index + 1}_text",
+                    "caption",
+                    keyword,
+                    x + 20,
+                    y + 13,
+                    width - 40,
+                    26,
+                    5,
+                    theme["accentColor"],
+                    theme["typography"]["captionSize"] + 2,
+                    "bold",
+                    theme["typography"]["bodyFontFamily"],
+                ),
+            ]
+        )
     return elements
 
 
@@ -1712,16 +2885,18 @@ def shape_element(
     fill: str,
     stroke: str,
     border_radius: int = 0,
+    rotation: int = 0,
+    element_type: str = "rect",
 ) -> dict[str, Any]:
     return {
         "elementId": f"el_{order}_{name}",
-        "type": "rect",
+        "type": element_type,
         "role": role,
         "x": x,
         "y": y,
         "width": width,
         "height": height,
-        "rotation": 0,
+        "rotation": rotation,
         "opacity": 1,
         "zIndex": z_index,
         "locked": False,
@@ -1733,6 +2908,91 @@ def shape_element(
             "borderRadius": border_radius,
         },
     }
+
+
+def custom_shape_element(
+    order: int,
+    name: str,
+    role: str,
+    x: int,
+    y: int,
+    width: int,
+    height: int,
+    z_index: int,
+    path_data: str,
+    view_box_width: int,
+    view_box_height: int,
+    fill: str,
+    stroke: str,
+) -> dict[str, Any]:
+    return {
+        "elementId": f"el_{order}_{name}",
+        "type": "customShape",
+        "role": role,
+        "x": x,
+        "y": y,
+        "width": width,
+        "height": height,
+        "rotation": 0,
+        "opacity": 1,
+        "zIndex": z_index,
+        "locked": False,
+        "visible": True,
+        "props": {
+            "pathData": path_data,
+            "viewBoxWidth": view_box_width,
+            "viewBoxHeight": view_box_height,
+            "fill": fill,
+            "stroke": stroke,
+            "strokeWidth": 2,
+            "closed": True,
+            "nodes": [],
+        },
+    }
+
+
+def cap_elements(elements: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    if len(elements) <= 14:
+        return elements
+    required = [element for element in elements if is_required_element(element)]
+    priority = [
+        element
+        for element in elements
+        if not is_required_element(element) and is_priority_element(element)
+    ]
+    optional = [
+        element
+        for element in elements
+        if not is_required_element(element) and not is_priority_element(element)
+    ]
+    return [*required, *priority, *optional][:14]
+
+
+def is_required_element(element: dict[str, Any]) -> bool:
+    return element.get("role") in {
+        "background",
+        "title",
+        "subtitle",
+        "body",
+        "footer",
+        "media",
+        "chart",
+    } or element.get("type") == "chart"
+
+
+def is_priority_element(element: dict[str, Any]) -> bool:
+    element_id = str(element.get("elementId", ""))
+    return element.get("role") == "highlight" or any(
+        token in element_id
+        for token in (
+            "keyword_chip",
+            "process_step",
+            "radial_",
+            "bubble_",
+            "metric_card",
+            "top_stripe",
+        )
+    )
 
 
 def image_element(
@@ -1957,18 +3217,7 @@ def validate_presentation(deck: dict[str, Any]) -> list[ValidationIssue]:
 
 def patch_deck(deck: dict[str, Any]) -> dict[str, Any]:
     for slide in deck["slides"]:
-        if len(slide["elements"]) > 14:
-            required = [
-                element
-                for element in slide["elements"]
-                if element.get("role") != "decoration"
-            ]
-            optional = [
-                element
-                for element in slide["elements"]
-                if element.get("role") == "decoration"
-            ]
-            slide["elements"] = [*required, *optional][:14]
+        slide["elements"] = cap_elements(slide["elements"])
         for element in slide["elements"]:
             element["x"] = max(0, min(element["x"], CANVAS.width - 1))
             element["y"] = max(0, min(element["y"], CANVAS.height - 1))

@@ -31,6 +31,19 @@ export const generateDeckMetadataSchema = z
   })
   .default({});
 
+export const generateDeckDesignSchema = z
+  .object({
+    visualRhythm: z
+      .enum(["auto", "clean", "editorial", "bold", "technical"])
+      .default("auto"),
+    densityTarget: z.enum(["low", "medium", "high"]).default("medium"),
+    mediaPolicy: z
+      .enum(["avoid", "balanced", "placeholder-ok"])
+      .default("balanced"),
+    layoutDiversity: z.enum(["stable", "varied"]).default("stable")
+  })
+  .default({});
+
 export const generateDeckSlideCountRangeSchema = z
   .object({
     min: z.number().int().min(1).max(20).default(5),
@@ -50,10 +63,12 @@ export const generateDeckSlideCountRangeSchema = z
 export const generateDeckRequestSchema = z.object({
   topic: z.string().trim().min(1),
   prompt: z.string().trim().optional(),
+  designPrompt: z.string().trim().optional(),
   targetDurationMinutes: z.number().int().min(1).max(120).default(10),
   slideCountRange: generateDeckSlideCountRangeSchema,
   template: generateDeckTemplateSchema.default("default"),
   metadata: generateDeckMetadataSchema,
+  design: generateDeckDesignSchema,
   references: z.array(generateDeckReferenceSchema).default([]),
   referenceKeywords: z.array(generateDeckReferenceKeywordSchema).default([])
 });
@@ -98,6 +113,7 @@ export type GenerateDeckReferenceKeyword = z.infer<
   typeof generateDeckReferenceKeywordSchema
 >;
 export type GenerateDeckMetadata = z.infer<typeof generateDeckMetadataSchema>;
+export type GenerateDeckDesign = z.infer<typeof generateDeckDesignSchema>;
 export type GenerateDeckSlideCountRange = z.infer<
   typeof generateDeckSlideCountRangeSchema
 >;

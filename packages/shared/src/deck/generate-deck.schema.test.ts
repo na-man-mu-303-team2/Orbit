@@ -19,8 +19,43 @@ describe("generateDeckRequestSchema", () => {
       purpose: "inform",
       tone: "professional"
     });
+    expect(request.design).toEqual({
+      visualRhythm: "auto",
+      densityTarget: "medium",
+      mediaPolicy: "balanced",
+      layoutDiversity: "stable"
+    });
     expect(request.template).toBe("default");
     expect(request.referenceKeywords).toEqual([]);
+  });
+
+  it("normalizes design direction defaults", () => {
+    const request = generateDeckRequestSchema.parse({
+      topic: "AI deck generation",
+      design: {
+        visualRhythm: "technical",
+        mediaPolicy: "placeholder-ok",
+        layoutDiversity: "varied"
+      }
+    });
+
+    expect(request.design).toEqual({
+      visualRhythm: "technical",
+      densityTarget: "medium",
+      mediaPolicy: "placeholder-ok",
+      layoutDiversity: "varied"
+    });
+  });
+
+  it("accepts an optional design prompt", () => {
+    const request = generateDeckRequestSchema.parse({
+      topic: "AI deck generation",
+      prompt: "Explain the workflow",
+      designPrompt: "retro pixel palette"
+    });
+
+    expect(request.prompt).toBe("Explain the workflow");
+    expect(request.designPrompt).toBe("retro pixel palette");
   });
 
   it("accepts normalized reference keywords", () => {

@@ -87,6 +87,7 @@ describe("GenerateDeckService", () => {
       enqueueJob
     ).createJob("project_generated_1", {
       topic: "AI 덱 생성",
+      designPrompt: "retro pixel palette",
       references: [{ fileId: "file_1" }]
     });
 
@@ -100,6 +101,7 @@ describe("GenerateDeckService", () => {
       payload: {
         request: expect.objectContaining({
           topic: "AI 덱 생성",
+          designPrompt: "retro pixel palette",
           references: [{ fileId: "file_1" }]
         })
       }
@@ -109,7 +111,10 @@ describe("GenerateDeckService", () => {
       redisUrl: "redis://localhost:6379",
       jobId: "job-1",
       projectId: "project_generated_1",
-      request: expect.objectContaining({ topic: "AI 덱 생성" })
+      request: expect.objectContaining({
+        topic: "AI 덱 생성",
+        designPrompt: "retro pixel palette"
+      })
     });
   });
 
