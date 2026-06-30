@@ -53,6 +53,10 @@ import {
 } from "./components/KeywordInspector";
 import { EditorSaveControl } from "./components/EditorSaveControl";
 import { SelectionQuickBar } from "./components/SelectionQuickBar";
+import {
+  useEditorPersistenceState,
+  type SaveState
+} from "./hooks/useEditorPersistenceState";
 export {
   EditorStateNotice
 } from "./components/EditorStateNotice";
@@ -236,8 +240,6 @@ type ElementFrameChange = {
   locked?: boolean;
   visible?: boolean;
 };
-type SaveState = "idle" | "pending" | "saving" | "error";
-
 async function fetchHealth(): Promise<HealthResponse> {
   const response = await fetch("/api/health");
   if (!response.ok) {
@@ -636,9 +638,6 @@ export function EditorShell(props: { projectId?: string }) {
     useState<ElementContextMenuState | null>(null);
   const [isImageUploadPending, setIsImageUploadPending] = useState(false);
   const [isRehearsalPreparing, setIsRehearsalPreparing] = useState(false);
-  const [saveState, setSaveState] = useState<SaveState>("idle");
-  const [saveErrorMessage, setSaveErrorMessage] = useState<string | null>(null);
-  const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
   const [undoStack, setUndoStack] = useState<Deck[]>([]);
   const [redoStack, setRedoStack] = useState<Deck[]>([]);
   const topbarRef = useRef<HTMLElement | null>(null);
@@ -663,14 +662,24 @@ export function EditorShell(props: { projectId?: string }) {
 
   const loadedDeck = deckQuery.data ?? fallbackDeck;
   const [deck, setDeck] = useState<Deck>(loadedDeck);
-  const deckRef = useRef(loadedDeck);
-  const persistedDeckRef = useRef<Deck | null>(deckQuery.data ?? null);
+  const {
+    applyPersistedDeckState,
+    deckRef,
+    hasHydratedPersistedDeckRef,
+    hasLocalOptimisticChangesRef,
+    lastSavedAt,
+    markHydratedDeck,
+    pendingSaveCountRef,
+    persistedDeckRef,
+    saveErrorMessage,
+    saveQueueRef,
+    saveState,
+    setLastSavedAt,
+    setSaveErrorMessage,
+    setSaveState
+  } = useEditorPersistenceState(loadedDeck);
   const imageUploadTargetRef = useRef<ImageUploadTarget | null>(null);
   const resolvedUploadProjectIdRef = useRef<string | null>(null);
-  const saveQueueRef = useRef<Promise<void>>(Promise.resolve());
-  const pendingSaveCountRef = useRef(0);
-  const hasHydratedPersistedDeckRef = useRef(false);
-  const hasLocalOptimisticChangesRef = useRef(false);
   const isUsingFallbackDeck = !deckQuery.data;
   const isDeckLoading = deckQuery.isPending;
   const isDeckError = deckQuery.isError;
@@ -783,11 +792,7 @@ export function EditorShell(props: { projectId?: string }) {
       return;
     }
 
-    hasHydratedPersistedDeckRef.current = true;
-    hasLocalOptimisticChangesRef.current = false;
-    deckRef.current = persistedDeck;
-    persistedDeckRef.current = persistedDeck;
-    setDeck(persistedDeck);
+    markHydratedDeck(persistedDeck, setDeck);
     setUndoStack([]);
     setRedoStack([]);
     setSelectedElementIds([]);
@@ -806,9 +811,7 @@ export function EditorShell(props: { projectId?: string }) {
 
   function handleAiSuggestionApplied(response: ApplyAiSuggestionResponse) {
     queryClient.setQueryData(["deck", projectId], response.deck);
-    deckRef.current = response.deck;
-    persistedDeckRef.current = response.deck;
-    setDeck(response.deck);
+    markHydratedDeck(response.deck, setDeck);
     setLastSavedAt(response.changeRecord.createdAt);
     setUndoStack([]);
     setRedoStack([]);
@@ -823,12 +826,9 @@ export function EditorShell(props: { projectId?: string }) {
     setSaveErrorMessage(null);
   }
 
-  function applyPersistedDeckState(nextDeck: Deck) {
+  function applyPersistedDeck(nextDeck: Deck) {
     queryClient.setQueryData(["deck", projectId], nextDeck);
-    deckRef.current = nextDeck;
-    persistedDeckRef.current = nextDeck;
-    hasHydratedPersistedDeckRef.current = true;
-    hasLocalOptimisticChangesRef.current = false;
+    applyPersistedDeckState(nextDeck);
     flushSync(() => {
       setDeck(nextDeck);
     });
@@ -927,7 +927,7 @@ export function EditorShell(props: { projectId?: string }) {
           currentDeck: deckRef.current,
         })
       ) {
-        applyPersistedDeckState(persistedDeck);
+        applyPersistedDeck(persistedDeck);
       }
 
       try {
@@ -945,7 +945,7 @@ export function EditorShell(props: { projectId?: string }) {
             currentDeck: deckRef.current,
           })
         ) {
-          applyPersistedDeckState(finalDeck);
+          applyPersistedDeck(finalDeck);
         }
         setLastPatchLabel(`수동 저장 · v${finalDeck.version}`);
         setSaveState("idle");
@@ -957,7 +957,7 @@ export function EditorShell(props: { projectId?: string }) {
             currentDeck: deckRef.current,
           })
         ) {
-          applyPersistedDeckState(persistedDeck);
+          applyPersistedDeck(persistedDeck);
         }
         setLastPatchLabel(`수동 저장 · 렌더 실패 · v${persistedDeck.version}`);
         setSaveState("error");
@@ -1026,7 +1026,7 @@ export function EditorShell(props: { projectId?: string }) {
             })
           : persistedDeck;
 
-      applyPersistedDeckState(finalDeck);
+      applyPersistedDeck(finalDeck);
       setLastSavedAt(new Date().toISOString());
       setLastPatchLabel(`리허설 준비 완료 · v${finalDeck.version}`);
       setSaveState("idle");
