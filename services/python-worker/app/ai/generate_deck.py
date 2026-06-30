@@ -813,6 +813,47 @@ STYLE_PROFILE_REGISTRY: dict[str, dict[str, Any]] = {
     },
 }
 
+SEMANTIC_PALETTE_PROFILES: dict[str, dict[str, Any]] = {
+    "monochrome": {
+        "keywords": [
+            "모노톤",
+            "블랙앤화이트",
+            "흑백",
+            "monotone",
+            "monochrome",
+            "black and white",
+        ],
+        "background": "#ffffff",
+        "surface": "#ffffff",
+        "text": "#111827",
+        "accent": "#111827",
+        "secondary": "#6b7280",
+        "muted": "#f3f4f6",
+        "border": "#d1d5db",
+    },
+    "ocean-blue": {
+        "keywords": [
+            "바다",
+            "오션",
+            "해변",
+            "파도",
+            "해양",
+            "ocean",
+            "sea",
+            "beach",
+            "wave",
+            "marine",
+        ],
+        "background": "#f7fbff",
+        "surface": "#ffffff",
+        "text": "#0f172a",
+        "accent": "#2563eb",
+        "secondary": "#0891b2",
+        "muted": "#e0f2fe",
+        "border": "#bae6fd",
+    },
+}
+
 EXPLICIT_COLOR_NAME_MAP = {
     "흰색": "#ffffff",
     "화이트": "#ffffff",
@@ -878,6 +919,8 @@ Rules:
 - When suggesting colors, use machine-readable theme tokens:
   background:#RRGGBB text:#RRGGBB accent:#RRGGBB secondary:#RRGGBB
   surface:#RRGGBB muted:#RRGGBB border:#RRGGBB
+- For design moods such as 바다, 오션, 모노톤, or 블랙앤화이트, reflect
+  them through theme tokens or visualIntent.paletteHint when possible.
 - Write concrete slide titles, body messages, and speaker notes for the actual subject.
 - speakerNotes must be the actual Korean presenter script to read aloud, not a guide
   about what the presenter should explain.
@@ -1734,6 +1777,10 @@ def apply_explicit_palette(
     if tokens:
         return apply_keyed_theme_tokens(theme, tokens)
 
+    semantic_palette = semantic_palette_for_sources(raw_input, slide_plans)
+    if semantic_palette is not None:
+        return apply_semantic_palette(theme, semantic_palette)
+
     colors = explicit_palette_colors(raw_input, slide_plans)
     if not colors:
         return theme
@@ -1758,6 +1805,40 @@ def apply_explicit_palette(
             theme["palette"]["muted"] = "#fef9c3"
             theme["palette"]["border"] = "#fde68a"
 
+    return theme
+
+
+def semantic_palette_for_sources(
+    raw_input: RawInput,
+    slide_plans: list[SlidePlan] | None = None,
+) -> dict[str, Any] | None:
+    sources = [
+        *[
+            slide_plan.visual_intent.palette_hint
+            for slide_plan in slide_plans or []
+        ],
+        raw_input.design_prompt,
+    ]
+    for source in sources:
+        normalized = strip_theme_tokens(source).casefold()
+        for profile in SEMANTIC_PALETTE_PROFILES.values():
+            if has_any(normalized, profile["keywords"]):
+                return profile
+    return None
+
+
+def apply_semantic_palette(
+    theme: dict[str, Any],
+    profile: dict[str, Any],
+) -> dict[str, Any]:
+    theme["backgroundColor"] = profile["background"]
+    theme["textColor"] = profile["text"]
+    theme["accentColor"] = profile["accent"]
+    theme["palette"]["primary"] = profile["accent"]
+    theme["palette"]["secondary"] = profile["secondary"]
+    theme["palette"]["surface"] = profile["surface"]
+    theme["palette"]["muted"] = profile["muted"]
+    theme["palette"]["border"] = profile["border"]
     return theme
 
 

@@ -192,6 +192,115 @@ def test_generate_deck_applies_palette_hint_color_theme() -> None:
     assert theme["accentColor"] == "#facc15"
 
 
+def test_generate_deck_applies_monochrome_semantic_palette_from_design_prompt() -> None:
+    fake_client = FakeOpenAIClient(
+        {
+            "title": "Monochrome palette",
+            "slides": [
+                slide_payload(
+                    "Visual plan",
+                    "Semantic palette should drive neutral colors.",
+                    "Use the generated visual intent.",
+                    slide_type="title",
+                    slot_preset="title_center",
+                )
+            ],
+        }
+    )
+
+    response = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="Quarterly roadmap",
+            designPrompt="전문가, 모노톤, 블랙앤화이트, 깔끔한 디자인",
+            template="report",
+            slideCountRange={"min": 1, "max": 1},
+        ),
+        client=fake_client,
+    )
+
+    theme = response.deck["theme"]
+    deck_text = json.dumps(response.deck, ensure_ascii=False)
+    assert theme["backgroundColor"] == "#ffffff"
+    assert theme["textColor"] == "#111827"
+    assert theme["accentColor"] == "#111827"
+    assert theme["palette"]["secondary"] == "#6b7280"
+    assert theme["palette"]["border"] == "#d1d5db"
+    assert "#0f766e" not in deck_text
+    assert "#7c3aed" not in deck_text
+    assert "#10b981" not in deck_text
+
+
+def test_generate_deck_applies_ocean_blue_semantic_palette_from_design_prompt() -> None:
+    fake_client = FakeOpenAIClient(
+        {
+            "title": "Ocean palette",
+            "slides": [
+                slide_payload(
+                    "Visual plan",
+                    "Semantic palette should drive blue colors.",
+                    "Use the generated visual intent.",
+                    slide_type="title",
+                    slot_preset="title_center",
+                )
+            ],
+        }
+    )
+
+    response = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="Quarterly roadmap",
+            designPrompt="바다 느낌으로 시원하고 깔끔한 디자인",
+            template="report",
+            slideCountRange={"min": 1, "max": 1},
+        ),
+        client=fake_client,
+    )
+
+    theme = response.deck["theme"]
+    assert theme["backgroundColor"] == "#f7fbff"
+    assert theme["textColor"] == "#0f172a"
+    assert theme["accentColor"] == "#2563eb"
+    assert theme["palette"]["secondary"] == "#0891b2"
+    assert theme["palette"]["muted"] == "#e0f2fe"
+    assert theme["palette"]["border"] == "#bae6fd"
+
+
+def test_generate_deck_keeps_theme_tokens_before_semantic_palette() -> None:
+    fake_client = FakeOpenAIClient(
+        {
+            "title": "Token priority",
+            "slides": [
+                slide_payload(
+                    "Visual plan",
+                    "Theme tokens should win over semantic palette.",
+                    "Use the generated visual intent.",
+                    slide_type="title",
+                    slot_preset="title_center",
+                )
+            ],
+        }
+    )
+
+    response = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="Quarterly roadmap",
+            designPrompt="바다 느낌, background:#fff7ed accent:#ff0066",
+            template="report",
+            slideCountRange={"min": 1, "max": 1},
+        ),
+        client=fake_client,
+    )
+
+    theme = response.deck["theme"]
+    assert theme["backgroundColor"] == "#fff7ed"
+    assert theme["accentColor"] == "#ff0066"
+    assert theme["palette"]["primary"] == "#ff0066"
+    assert theme["palette"]["secondary"] == "#ff0066"
+
+
 def test_generate_deck_separates_design_prompt_from_content_prompt() -> None:
     design_prompt = "retro tetris colors, classic game, pixel art"
     fake_client = FakeOpenAIClient(
