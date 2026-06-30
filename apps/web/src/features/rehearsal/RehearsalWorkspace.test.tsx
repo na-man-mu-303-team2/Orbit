@@ -4,6 +4,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import {
   LiveSttAdapterError,
+  RehearsalReportPage,
   RehearsalFlowError,
   RehearsalWorkspace,
   SherpaLiveSttAdapter,
@@ -119,6 +120,30 @@ describe("RehearsalWorkspace", () => {
     expect(html).toContain("리허설 보고서");
     expect(html).toContain("120 wpm");
     expect(html).toContain("전사문 미보존");
+    expect(html).not.toContain("민감한 전사 원문");
+  });
+
+  it("renders the dedicated report page from official report data", () => {
+    const deck = createDemoDeck();
+    const html = renderToStaticMarkup(
+      <RehearsalReportPage
+        initialDeck={deck}
+        initialRun={runFixture("succeeded")}
+        initialReport={reportFixture({
+          transcriptRetained: false,
+          transcript: null
+        })}
+        projectId="project-a"
+        runId="run-1"
+      />
+    );
+
+    expect(html).toContain("1회차 리허설 리포트");
+    expect(html).toContain("26.06.29.");
+    expect(html).toContain("1:30");
+    expect(html).toContain(String(deck.slides.length));
+    expect(html).toContain("120");
+    expect(html).toContain("75%");
     expect(html).not.toContain("민감한 전사 원문");
   });
 

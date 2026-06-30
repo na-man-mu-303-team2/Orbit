@@ -27,7 +27,10 @@ import {
   fetchProjects,
   ProjectAssetWorkspace
 } from "./features/projects/ProjectAssetWorkspace";
-import { RehearsalWorkspace } from "./features/rehearsal/RehearsalWorkspace";
+import {
+  RehearsalReportPage,
+  RehearsalWorkspace
+} from "./features/rehearsal/RehearsalWorkspace";
 
 type Fetcher = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 
@@ -116,7 +119,8 @@ type Route =
   | { name: "upload" }
   | { name: "project-list" }
   | { name: "project-editor"; projectId: string }
-  | { name: "rehearsal"; projectId: string };
+  | { name: "rehearsal"; projectId: string }
+  | { name: "rehearsal-report"; projectId: string; runId: string };
 
 type AuthUser = {
   userId: string;
@@ -176,6 +180,15 @@ function getRoute(pathname = window.location.pathname): Route {
   const projectMatch = normalized.match(/^\/project\/([^/]+)$/);
   if (projectMatch) {
     return { name: "project-editor", projectId: decodeURIComponent(projectMatch[1]) };
+  }
+
+  const rehearsalReportMatch = normalized.match(/^\/rehearsal\/([^/]+)\/report\/([^/]+)$/);
+  if (rehearsalReportMatch) {
+    return {
+      name: "rehearsal-report",
+      projectId: decodeURIComponent(rehearsalReportMatch[1]),
+      runId: decodeURIComponent(rehearsalReportMatch[2])
+    };
   }
 
   const rehearsalMatch = normalized.match(/^\/rehearsal\/([^/]+)$/);
@@ -246,6 +259,9 @@ function renderRoute(route: Route, user?: AuthUser) {
       />
     );
   }
+  if (route.name === "rehearsal-report") {
+    return <RehearsalReportPage projectId={route.projectId} runId={route.runId} />;
+  }
   return <HomePage user={user} />;
 }
 
@@ -258,7 +274,9 @@ function AppFrame(props: {
 }) {
   const { children, isAuthenticated, isSidebarCollapsed, route, onToggleSidebar } = props;
   const activeProjectId =
-    route.name === "project-editor" || route.name === "rehearsal"
+    route.name === "project-editor" ||
+    route.name === "rehearsal" ||
+    route.name === "rehearsal-report"
       ? route.projectId
       : demoIds.projectId;
 
@@ -298,7 +316,7 @@ function AppFrame(props: {
             onClick={() => navigateTo("/createdeck")}
           />
           <SidebarButton
-            active={route.name === "rehearsal"}
+            active={route.name === "rehearsal" || route.name === "rehearsal-report"}
             icon={<Sparkles size={18} />}
             label="리허설"
             onClick={() => navigateTo(`/rehearsal/${activeProjectId}`)}

@@ -25,12 +25,16 @@ import {
   CheckCircle2,
   ChevronLeft,
   ChevronRight,
+  Clock,
+  FileText,
+  Gauge,
   Mic,
   MoreHorizontal,
   PlayCircle,
   RotateCcw,
   Sparkles,
-  Square
+  Square,
+  Target
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { resolveEditorAssetUrl } from "../editor/editorAssetUrl";
@@ -1497,6 +1501,183 @@ export function RehearsalWorkspace(props: {
   );
 }
 
+export function RehearsalReportPage(props: {
+  initialDeck?: Deck;
+  initialReport?: RehearsalReport | null;
+  initialRun?: RehearsalRun | null;
+  projectId: string;
+  runId: string;
+}) {
+  const [deck, setDeck] = useState<Deck | null>(props.initialDeck ?? null);
+  const [run, setRun] = useState<RehearsalRun | null>(props.initialRun ?? null);
+  const [report, setReport] = useState<RehearsalReport | null>(props.initialReport ?? null);
+  const [status, setStatus] = useState<RehearsalReportStatus>(
+    props.initialReport ? "ready" : "loading"
+  );
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let isMounted = true;
+
+    if (!props.initialDeck) {
+      void fetchRehearsalDeck(props.projectId)
+        .then((nextDeck) => {
+          if (isMounted) setDeck(nextDeck);
+        })
+        .catch(() => {
+          if (isMounted) setDeck(null);
+        });
+    }
+
+    if (props.initialReport !== undefined) {
+      return () => {
+        isMounted = false;
+      };
+    }
+
+    setStatus("loading");
+    setError("");
+
+    void fetchRehearsalReport(props.runId)
+      .then((response) => {
+        if (!isMounted) return;
+
+        setRun(response.run);
+        setReport(response.report);
+        setStatus(response.report ? "ready" : "not-ready");
+      })
+      .catch((cause) => {
+        if (!isMounted) return;
+
+        setReport(null);
+        setStatus("failed");
+        setError(toRehearsalFlowMessage(cause));
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [props.initialDeck, props.initialReport, props.projectId, props.runId]);
+
+  const reportDate = formatReportDate(report?.generatedAt ?? run?.updatedAt ?? run?.createdAt);
+  const slideCount = deck?.slides.length;
+
+  return (
+    <main className="rehearsal-report-page">
+      <aside className="rehearsal-report-nav" aria-label="리허설 리포트 목록">
+        <button
+          className="rehearsal-report-home"
+          type="button"
+          onClick={() => navigateToRehearsal(props.projectId)}
+        >
+          <ChevronLeft size={18} />
+          <span>리허설</span>
+        </button>
+
+        <section>
+          <h2>
+            <ChevronRight size={20} />
+            리허설 리포트
+          </h2>
+          <button className="rehearsal-report-nav-item active" type="button">
+            <strong>1회차</strong>
+            <span>{reportDate}</span>
+          </button>
+        </section>
+
+        <section>
+          <h2>
+            <ChevronRight size={20} />
+            실전 리포트
+          </h2>
+        </section>
+      </aside>
+
+      <section className="rehearsal-report-document" aria-live="polite">
+        <header className="rehearsal-report-document-header">
+          <div>
+            <p>{deck?.title ?? "리허설"}</p>
+            <h1>1회차 리허설 리포트</h1>
+          </div>
+          <time>{reportDate}</time>
+        </header>
+
+        {report ? (
+          <div className="rehearsal-report-document-grid">
+            <section className="report-summary-card">
+              <div className="report-summary-row">
+                <span>
+                  <Clock size={24} />
+                  총 소요 시간
+                </span>
+                <strong>{formatDuration(report.metrics.durationSeconds)}</strong>
+              </div>
+              <div className="report-summary-row">
+                <span>
+                  <FileText size={24} />
+                  사용한 슬라이드 수
+                </span>
+                <strong>{typeof slideCount === "number" ? slideCount : "-"}</strong>
+              </div>
+            </section>
+
+            <section className="report-speed-card">
+              <h2>평균 발표 속도</h2>
+              <div className="report-speed-gauge" role="meter" aria-label="평균 발표 속도">
+                <span className="speed-slow">slow</span>
+                <strong>{Math.round(report.metrics.wordsPerMinute)}</strong>
+                <span className="speed-unit">words/min</span>
+                <span className="speed-fast">fast</span>
+              </div>
+            </section>
+
+            <section className="report-voice-card">
+              <h2>음성 분석</h2>
+              <div className="report-large-metric">
+                <Gauge size={28} />
+                <strong>{report.metrics.pauseCount}회</strong>
+                <span>긴 멈춤</span>
+              </div>
+              <div className="report-mini-chart" aria-label="음성 분석 요약">
+                {Array.from({ length: 14 }).map((_, index) => (
+                  <span
+                    key={index}
+                    className={index % 4 === 0 || index % 5 === 0 ? "emphasis" : ""}
+                  />
+                ))}
+              </div>
+            </section>
+
+            <section className="report-coaching-card">
+              <h2>내용 전달 명확성</h2>
+              <p>{report.coaching?.summary || report.coaching?.message || "코칭 요약이 없습니다."}</p>
+              <div className="report-chip-row">
+                <span>말습관</span>
+                <strong>{report.metrics.fillerWordCount}회 사용</strong>
+              </div>
+              <div className="report-chip-row">
+                <span>키워드 커버리지</span>
+                <strong>{formatPercent(report.metrics.keywordCoverage)}</strong>
+              </div>
+              {report.coaching?.nextPracticeFocus ? (
+                <div className="report-next-practice">
+                  <Target size={18} />
+                  <span>{report.coaching.nextPracticeFocus}</span>
+                </div>
+              ) : null}
+            </section>
+          </div>
+        ) : (
+          <div className={status === "failed" ? "report-page-state status-error" : "report-page-state"}>
+            <BarChart3 size={28} />
+            <strong>{formatEmptyReportMessage(status, error)}</strong>
+          </div>
+        )}
+      </section>
+    </main>
+  );
+}
+
 function DeckSlidePreview(props: { deck: Deck | null; slide: Slide }) {
   const { deck, slide } = props;
   const backgroundColor = slide.style.backgroundColor ?? deck?.theme.backgroundColor ?? "#ffffff";
@@ -1746,6 +1927,27 @@ function formatPercent(value: number) {
   return `${Math.round(value * 100)}%`;
 }
 
+function formatDuration(totalSeconds: number) {
+  const safeSeconds = Math.max(0, Math.floor(totalSeconds));
+  const minutes = Math.floor(safeSeconds / 60);
+  const seconds = (safeSeconds % 60).toString().padStart(2, "0");
+  return `${minutes}:${seconds}`;
+}
+
+function formatReportDate(value?: string) {
+  if (!value) return "-";
+
+  const parsed = Date.parse(value);
+  if (Number.isNaN(parsed)) {
+    return value;
+  }
+
+  const date = new Date(parsed);
+  return `${date.getFullYear().toString().slice(2)}.${(date.getMonth() + 1)
+    .toString()
+    .padStart(2, "0")}.${date.getDate().toString().padStart(2, "0")}.`;
+}
+
 function formatReportGeneratedAt(generatedAt: string) {
   const parsed = Date.parse(generatedAt);
   if (Number.isNaN(parsed)) {
@@ -1788,6 +1990,11 @@ function parseClockInput(value: string): number | null {
 
 function navigateToProject(projectId: string) {
   window.history.pushState({}, "", `/project/${encodeURIComponent(projectId)}`);
+  window.dispatchEvent(new PopStateEvent("popstate"));
+}
+
+function navigateToRehearsal(projectId: string) {
+  window.history.pushState({}, "", `/rehearsal/${encodeURIComponent(projectId)}`);
   window.dispatchEvent(new PopStateEvent("popstate"));
 }
 

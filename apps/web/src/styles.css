@@ -1969,6 +1969,312 @@ button:disabled {
   min-height: 70px;
 }
 
+.rehearsal-report-page {
+  background: #ffffff;
+  color: #0f172a;
+  display: grid;
+  grid-template-columns: 280px minmax(0, 1fr);
+  min-height: 100vh;
+}
+
+.rehearsal-report-nav {
+  border-right: 1px solid #d7dde8;
+  display: grid;
+  gap: 36px;
+  grid-auto-rows: max-content;
+  padding: 24px 26px;
+}
+
+.rehearsal-report-home,
+.rehearsal-report-nav-item {
+  background: transparent;
+  border: 0;
+  color: #0f172a;
+  text-align: left;
+}
+
+.rehearsal-report-home {
+  align-items: center;
+  display: inline-flex;
+  font-size: 0.95rem;
+  font-weight: 900;
+  gap: 8px;
+  padding: 0;
+}
+
+.rehearsal-report-nav section {
+  display: grid;
+  gap: 18px;
+}
+
+.rehearsal-report-nav h2 {
+  align-items: center;
+  display: inline-flex;
+  font-size: 1.35rem;
+  font-weight: 900;
+  gap: 8px;
+  margin: 0;
+}
+
+.rehearsal-report-nav-item {
+  border-left: 1px solid #111827;
+  display: grid;
+  gap: 4px;
+  margin-left: 16px;
+  padding: 8px 0 8px 42px;
+}
+
+.rehearsal-report-nav-item strong {
+  border-bottom: 2px solid #111827;
+  display: inline-block;
+  font-size: 1.2rem;
+  width: max-content;
+}
+
+.rehearsal-report-nav-item span {
+  color: #334155;
+  font-size: 0.84rem;
+  font-weight: 800;
+}
+
+.rehearsal-report-document {
+  display: grid;
+  gap: 28px;
+  grid-template-rows: auto minmax(0, 1fr);
+  min-width: 0;
+  padding: 54px clamp(28px, 7vw, 104px) 64px;
+}
+
+.rehearsal-report-document-header {
+  align-items: end;
+  display: flex;
+  gap: 24px;
+  justify-content: space-between;
+}
+
+.rehearsal-report-document-header p,
+.rehearsal-report-document-header h1 {
+  margin: 0;
+  text-align: center;
+}
+
+.rehearsal-report-document-header p {
+  color: #64748b;
+  font-size: 0.85rem;
+  font-weight: 900;
+}
+
+.rehearsal-report-document-header h1 {
+  font-size: clamp(2rem, 4vw, 3.2rem);
+  font-weight: 900;
+  letter-spacing: 0;
+}
+
+.rehearsal-report-document-header time {
+  color: #111827;
+  font-size: clamp(1.4rem, 2.4vw, 2.2rem);
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.rehearsal-report-document-grid {
+  align-items: start;
+  display: grid;
+  gap: 28px;
+  grid-template-columns: minmax(320px, 0.95fr) minmax(340px, 1.05fr);
+}
+
+.report-summary-card,
+.report-speed-card,
+.report-voice-card,
+.report-coaching-card {
+  background: #ffffff;
+  border: 2px solid #0f172a;
+  display: grid;
+  gap: 24px;
+  padding: 32px;
+}
+
+.report-summary-card {
+  grid-column: 1;
+}
+
+.report-speed-card,
+.report-coaching-card {
+  grid-column: 2;
+}
+
+.report-voice-card {
+  grid-column: 1;
+}
+
+.report-summary-row,
+.report-large-metric,
+.report-chip-row,
+.report-next-practice {
+  align-items: center;
+  display: flex;
+  gap: 14px;
+}
+
+.report-summary-row {
+  justify-content: space-between;
+}
+
+.report-summary-row span,
+.report-chip-row span {
+  align-items: center;
+  color: #111827;
+  display: inline-flex;
+  font-size: clamp(1.1rem, 2vw, 1.55rem);
+  font-weight: 800;
+  gap: 12px;
+}
+
+.report-summary-row strong {
+  font-size: clamp(1.7rem, 3vw, 2.2rem);
+}
+
+.report-speed-card h2,
+.report-voice-card h2,
+.report-coaching-card h2 {
+  font-size: clamp(1.3rem, 2.2vw, 1.8rem);
+  font-weight: 900;
+  margin: 0;
+}
+
+.report-speed-gauge {
+  align-items: center;
+  background:
+    radial-gradient(circle at 50% 100%, #ffffff 0 44%, transparent 45%),
+    conic-gradient(from 270deg at 50% 100%, #8b8b8b 0 42%, #e5e7eb 42% 75%, transparent 75%);
+  display: grid;
+  grid-template-areas:
+    "slow value fast"
+    ". unit .";
+  grid-template-columns: 1fr auto 1fr;
+  height: 190px;
+  justify-items: center;
+  padding-top: 76px;
+  position: relative;
+}
+
+.report-speed-gauge strong {
+  color: #3f3f46;
+  font-size: 3.5rem;
+  grid-area: value;
+  line-height: 1;
+}
+
+.speed-unit {
+  color: #64748b;
+  font-size: 1rem;
+  font-weight: 800;
+  grid-area: unit;
+}
+
+.speed-slow,
+.speed-fast {
+  color: #6b7280;
+  font-size: 0.88rem;
+  font-weight: 900;
+  padding-top: 34px;
+}
+
+.speed-slow {
+  grid-area: slow;
+}
+
+.speed-fast {
+  grid-area: fast;
+}
+
+.report-large-metric strong {
+  font-size: clamp(1.6rem, 3vw, 2.3rem);
+}
+
+.report-large-metric span {
+  color: #64748b;
+  font-weight: 900;
+}
+
+.report-mini-chart {
+  align-items: end;
+  border-bottom: 1px solid #94a3b8;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(14, 1fr);
+  height: 120px;
+  padding: 12px 0 0;
+}
+
+.report-mini-chart span {
+  background: #c4c4c4;
+  border-radius: 999px;
+  height: 38%;
+}
+
+.report-mini-chart span:nth-child(2n) {
+  height: 58%;
+}
+
+.report-mini-chart span.emphasis {
+  background: #4b5563;
+  height: 82%;
+}
+
+.report-coaching-card {
+  border-top: 0;
+}
+
+.report-coaching-card p {
+  color: #334155;
+  font-size: 1rem;
+  font-weight: 700;
+  line-height: 1.7;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.report-chip-row {
+  justify-content: space-between;
+}
+
+.report-chip-row span {
+  border: 2px solid #111827;
+  border-radius: 14px;
+  font-size: 1rem;
+  justify-content: center;
+  min-width: 116px;
+  padding: 10px 18px;
+}
+
+.report-chip-row strong {
+  font-size: 1.05rem;
+  overflow-wrap: anywhere;
+  text-align: right;
+}
+
+.report-next-practice {
+  border-top: 1px solid #94a3b8;
+  color: #334155;
+  font-weight: 800;
+  line-height: 1.55;
+  padding-top: 18px;
+}
+
+.report-page-state {
+  align-items: center;
+  align-self: start;
+  border: 2px solid #0f172a;
+  color: #334155;
+  display: grid;
+  gap: 14px;
+  justify-items: center;
+  min-height: 280px;
+  padding: 32px;
+}
+
 .keyword-check-list {
   display: grid;
   gap: 8px;
@@ -2048,6 +2354,41 @@ button:disabled {
 }
 
 @media (max-width: 980px) {
+  .rehearsal-report-page {
+    grid-template-columns: 1fr;
+  }
+
+  .rehearsal-report-nav {
+    border-bottom: 1px solid #d7dde8;
+    border-right: 0;
+    gap: 18px;
+  }
+
+  .rehearsal-report-document {
+    padding: 34px 18px 48px;
+  }
+
+  .rehearsal-report-document-header {
+    align-items: start;
+    flex-direction: column;
+  }
+
+  .rehearsal-report-document-header p,
+  .rehearsal-report-document-header h1 {
+    text-align: left;
+  }
+
+  .rehearsal-report-document-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .report-summary-card,
+  .report-speed-card,
+  .report-voice-card,
+  .report-coaching-card {
+    grid-column: 1;
+  }
+
   .rehearsal-presenter-layout {
     grid-template-columns: 1fr;
     overflow: auto;
@@ -2079,6 +2420,24 @@ button:disabled {
 }
 
 @media (max-width: 640px) {
+  .rehearsal-report-nav,
+  .report-summary-card,
+  .report-speed-card,
+  .report-voice-card,
+  .report-coaching-card {
+    padding: 20px;
+  }
+
+  .report-summary-row,
+  .report-chip-row {
+    align-items: start;
+    flex-direction: column;
+  }
+
+  .report-chip-row strong {
+    text-align: left;
+  }
+
   .rehearsal-presenter-topbar {
     align-items: stretch;
     flex-direction: column;
