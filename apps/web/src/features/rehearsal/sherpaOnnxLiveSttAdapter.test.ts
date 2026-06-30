@@ -3,7 +3,8 @@ import {
   SherpaOnnxLiveSttAdapter,
   resampleFloat32Audio
 } from "./sherpaOnnxLiveSttAdapter";
-import type { LiveSttBiasContext } from "./liveStt";
+import type { LiveSttBiasContext, LiveSttDecodingMethod } from "./liveStt";
+import type { LiveSttDebugPcmRecording } from "./liveSttPcmDebug";
 import type { SherpaOnnxModelManifest } from "./sherpaOnnxManifest";
 
 describe("SherpaOnnxLiveSttAdapter", () => {
@@ -171,6 +172,111 @@ describe("SherpaOnnxLiveSttAdapter", () => {
       type: "update-bias",
       biasContext: nextBiasContext
     });
+  });
+
+  it("passes a decoding method override to the worker start message", async () => {
+    const worker = new FakeSherpaWorker();
+    const audioContext = new FakeAudioContext(16000);
+    const adapter = new SherpaOnnxLiveSttAdapter({
+      manifestUrl: "/models/live-stt/korean/manifest.json",
+      fetcher: vi.fn(async () => jsonResponse(manifestFixture())) as typeof fetch,
+      createWorker: () => worker,
+      createAudioContext: () => audioContext as unknown as AudioContext,
+      createAudioWorkletNode: (_context, _name, options) =>
+        audioContext.createAudioWorkletNode(options) as unknown as AudioWorkletNode
+    });
+
+    await adapter.start(
+      { getTracks: () => [] } as unknown as MediaStream,
+      {
+        onPartialTranscript: () => undefined,
+        onError: () => undefined
+      },
+      { decodingMethod: "modified_beam_search" }
+    );
+    adapter.dispose();
+
+    expect(worker.messages[1]).toMatchObject({
+      type: "start",
+      decodingMethod: "modified_beam_search"
+    });
+  });
+
+  it("exports a local WAV copy of the resampled model input when PCM debug is enabled", async () => {
+    vi.stubGlobal("window", {
+      location: { href: "http://localhost/" },
+      localStorage: {
+        getItem: vi.fn((key: string) =>
+          key === "orbit.liveStt.debugPcmDump" ? "1" : null
+        )
+      }
+    });
+    const worker = new FakeSherpaWorker();
+    const audioContext = new FakeAudioContext(16000);
+    const recordings: LiveSttDebugPcmRecording[] = [];
+    const adapter = new SherpaOnnxLiveSttAdapter({
+      manifestUrl: "/models/live-stt/korean/manifest.json",
+      fetcher: vi.fn(async () => jsonResponse(manifestFixture())) as typeof fetch,
+      createWorker: () => worker,
+      createAudioContext: () => audioContext as unknown as AudioContext,
+      createAudioWorkletNode: (_context, _name, options) =>
+        audioContext.createAudioWorkletNode(options) as unknown as AudioWorkletNode,
+      bufferSize: 4
+    });
+
+    await adapter.start({ getTracks: () => [] } as unknown as MediaStream, {
+      onPartialTranscript: () => undefined,
+      onError: () => undefined,
+      onDebugPcmAvailable: (recording) => recordings.push(recording)
+    });
+    audioContext.emitAudio(new Float32Array([0, 0.5, -0.5, 1]));
+    adapter.stop();
+    adapter.dispose();
+
+    expect(recordings).toHaveLength(1);
+    expect(recordings[0]).toMatchObject({
+      sampleRate: 16000,
+      durationMs: 0,
+      peak: 1
+    });
+    expect(worker.audioFrames[0]?.samples).toEqual(
+      new Float32Array([0, 0.5, -0.5, 1])
+    );
+
+    const view = new DataView(await recordings[0]!.blob.arrayBuffer());
+    expect(readAscii(view, 0, 4)).toBe("RIFF");
+    expect(readAscii(view, 8, 4)).toBe("WAVE");
+    expect(view.getUint32(24, true)).toBe(16000);
+    expect(view.getUint32(40, true)).toBe(8);
+    expect(readPcm16Samples(view)).toEqual([0, 16384, -16384, 32767]);
+  });
+
+  it("does not export a debug PCM recording by default or after stale capture messages", async () => {
+    const worker = new FakeSherpaWorker();
+    const audioContext = new FakeAudioContext(16000);
+    const recordings: LiveSttDebugPcmRecording[] = [];
+    const adapter = new SherpaOnnxLiveSttAdapter({
+      manifestUrl: "/models/live-stt/korean/manifest.json",
+      fetcher: vi.fn(async () => jsonResponse(manifestFixture())) as typeof fetch,
+      createWorker: () => worker,
+      createAudioContext: () => audioContext as unknown as AudioContext,
+      createAudioWorkletNode: (_context, _name, options) =>
+        audioContext.createAudioWorkletNode(options) as unknown as AudioWorkletNode,
+      bufferSize: 4
+    });
+
+    await adapter.start({ getTracks: () => [] } as unknown as MediaStream, {
+      onPartialTranscript: () => undefined,
+      onError: () => undefined,
+      onDebugPcmAvailable: (recording) => recordings.push(recording)
+    });
+    audioContext.emitAudio(new Float32Array([0, 0.5, -0.5, 1]));
+    adapter.stop();
+    audioContext.emitAudio(new Float32Array([1, 1, 1, 1]));
+    adapter.dispose();
+
+    expect(recordings).toEqual([]);
+    expect(worker.audioFrames).toHaveLength(1);
   });
 
   it("reports microphone audio levels at a throttled cadence", async () => {
@@ -484,6 +590,7 @@ class FakeSherpaWorker {
     decodeBatchSamples?: number;
     debugStatsEnabled?: boolean;
     biasContext?: LiveSttBiasContext | null;
+    decodingMethod?: LiveSttDecodingMethod | null;
   }> = [];
   audioFrames: Array<{ sampleRate: number; samples: Float32Array }> = [];
   isTerminated = false;
@@ -497,6 +604,7 @@ class FakeSherpaWorker {
       decodeBatchSamples?: number;
       debugStatsEnabled?: boolean;
       biasContext?: LiveSttBiasContext | null;
+      decodingMethod?: LiveSttDecodingMethod | null;
     },
     _transfer?: Transferable[] | StructuredSerializeOptions
   ) {
@@ -679,6 +787,19 @@ function readStartedSessionId(worker: FakeSherpaWorker) {
   }
 
   return sessionId;
+}
+
+function readAscii(view: DataView, offset: number, length: number) {
+  return Array.from({ length }, (_, index) =>
+    String.fromCharCode(view.getUint8(offset + index))
+  ).join("");
+}
+
+function readPcm16Samples(view: DataView) {
+  const length = view.getUint32(40, true) / 2;
+  return Array.from({ length }, (_, index) =>
+    view.getInt16(44 + index * 2, true)
+  );
 }
 
 function workerDebugStatsFixture(

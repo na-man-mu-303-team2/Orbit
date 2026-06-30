@@ -1,4 +1,5 @@
 import type { LiveSttPartialTranscriptEvent } from "@orbit/shared";
+import type { LiveSttDebugPcmRecording } from "./liveSttPcmDebug";
 
 export type LiveSttAudioLevelEvent = {
   type: "audio-level";
@@ -13,6 +14,7 @@ export type LiveSttCallbacks = {
   onPartialTranscript: (event: LiveSttPartialTranscriptEvent) => void;
   onError: (error: LiveSttAdapterError) => void;
   onAudioLevel?: (event: LiveSttAudioLevelEvent) => void;
+  onDebugPcmAvailable?: (recording: LiveSttDebugPcmRecording) => void;
 };
 
 export type LiveSttBiasSource =
@@ -39,9 +41,11 @@ export type LiveSttBiasContext = {
 };
 
 export type LiveSttBiasMode = "none" | "postprocess" | "hotword" | "combined";
+export type LiveSttDecodingMethod = "greedy_search" | "modified_beam_search";
 
 export type LiveSttStartOptions = {
   biasContext?: LiveSttBiasContext | null;
+  decodingMethod?: LiveSttDecodingMethod | null;
 };
 
 export type LiveSttAdapter = {

@@ -1,4 +1,4 @@
-import type { LiveSttBiasContext } from "./liveStt";
+import type { LiveSttBiasContext, LiveSttDecodingMethod } from "./liveStt";
 
 type SherpaAudioFrame = {
   sampleRate: number;
@@ -56,7 +56,7 @@ type WorkerManifest = {
   baseUrl: string;
   sampleRate: number;
   numThreads?: number;
-  decodingMethod?: "greedy_search" | "modified_beam_search";
+  decodingMethod?: LiveSttDecodingMethod;
   runtime: {
     helpers: string[];
     script: string;
@@ -80,6 +80,7 @@ type WorkerInboundMessage =
       decodeBatchSamples: number;
       debugStatsEnabled: boolean;
       biasContext?: LiveSttBiasContext | null;
+      decodingMethod?: LiveSttDecodingMethod | null;
     }
   | {
       type: "update-bias";
@@ -178,6 +179,7 @@ let decodedBatches = 0;
 let acceptedSamples = 0;
 let shouldPostDebugStats = false;
 let activeBiasKey = "";
+let activeDecodingMethod: LiveSttDecodingMethod | null = null;
 
 const fsModelPaths = {
   encoder: "/orbit-live-stt-encoder.onnx",
@@ -207,7 +209,8 @@ async function handleMessage(message: WorkerInboundMessage) {
           message.sessionId,
           message.decodeBatchSamples,
           message.debugStatsEnabled,
-          message.biasContext ?? null
+          message.biasContext ?? null,
+          message.decodingMethod ?? null
         );
         return;
       case "update-bias":
@@ -251,7 +254,8 @@ function startSession(
   sessionId: string,
   decodeBatchSamples: number,
   debugStatsEnabled: boolean,
-  biasContext: LiveSttBiasContext | null
+  biasContext: LiveSttBiasContext | null,
+  decodingMethod: LiveSttDecodingMethod | null
 ) {
   if (!runtimeModule || !loadedManifest) {
     throw new Error("Live STT recognizer has not been loaded.");
@@ -262,8 +266,9 @@ function startSession(
   decodedBatches = 0;
   acceptedSamples = 0;
   shouldPostDebugStats = debugStatsEnabled;
+  activeDecodingMethod = decodingMethod;
   audioBatcher = new SherpaAudioFrameBatcher(decodeBatchSamples);
-  recreateRecognizer(biasContext);
+  recreateRecognizer(biasContext, decodingMethod);
   post({ type: "started", sessionId });
 }
 
@@ -282,7 +287,7 @@ function updateSessionBias(
 
   audioBatcher?.reset();
   latestText = "";
-  recreateRecognizer(biasContext);
+  recreateRecognizer(biasContext, activeDecodingMethod);
 }
 
 function queueAudioFrame(message: Extract<WorkerInboundMessage, { type: "audio-frame" }>) {
@@ -406,6 +411,7 @@ function stopSession(sessionId: string) {
   acceptedSamples = 0;
   shouldPostDebugStats = false;
   activeBiasKey = "";
+  activeDecodingMethod = null;
   post({ type: "stopped", sessionId });
 }
 
@@ -430,10 +436,14 @@ function disposeRecognizer() {
   acceptedSamples = 0;
   shouldPostDebugStats = false;
   activeBiasKey = "";
+  activeDecodingMethod = null;
   workerScope.close();
 }
 
-function recreateRecognizer(biasContext: LiveSttBiasContext | null) {
+function recreateRecognizer(
+  biasContext: LiveSttBiasContext | null,
+  decodingMethod: LiveSttDecodingMethod | null
+) {
   if (!runtimeModule || !loadedManifest) {
     throw new Error("Live STT recognizer has not been loaded.");
   }
@@ -446,7 +456,12 @@ function recreateRecognizer(biasContext: LiveSttBiasContext | null) {
     freeResource(recognizer);
   }
 
-  recognizer = createRecognizer(runtimeModule, loadedManifest, biasContext);
+  recognizer = createRecognizer(
+    runtimeModule,
+    loadedManifest,
+    biasContext,
+    decodingMethod
+  );
   stream = createRecognizerStream(recognizer);
   activeBiasKey = createBiasKey(biasContext);
 }
@@ -502,7 +517,8 @@ function waitForRuntime(runtimeModule: SherpaModule) {
 function createRecognizer(
   runtimeModule: SherpaModule,
   nextManifest: WorkerManifest,
-  biasContext: LiveSttBiasContext | null
+  biasContext: LiveSttBiasContext | null,
+  decodingMethodOverride: LiveSttDecodingMethod | null
 ) {
   const hotwords = createHotwordsConfig(biasContext);
   const config = {
@@ -523,7 +539,8 @@ function createRecognizer(
       modelingUnit: nextManifest.model.bpeVocab ? "bpe" : "cjkchar",
       bpeVocab: nextManifest.model.bpeVocab ? fsModelPaths.bpeVocab : ""
     },
-    decodingMethod: nextManifest.decodingMethod ?? "greedy_search",
+    decodingMethod:
+      decodingMethodOverride ?? nextManifest.decodingMethod ?? "greedy_search",
     enableEndpoint: true,
     rule1MinTrailingSilence: 2.4,
     rule2MinTrailingSilence: 1.2,

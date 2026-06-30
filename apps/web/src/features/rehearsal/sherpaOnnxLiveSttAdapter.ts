@@ -6,9 +6,15 @@ import {
   LiveSttAdapterError,
   type LiveSttAdapter,
   type LiveSttBiasContext,
-  type LiveSttCallbacks
+  type LiveSttCallbacks,
+  type LiveSttDecodingMethod,
+  type LiveSttStartOptions
 } from "./liveStt";
 import { calculatePcmAudioLevel } from "./liveSttAudioLevel";
+import {
+  createLiveSttPcmDebugRecorder,
+  isLiveSttPcmDebugEnabled
+} from "./liveSttPcmDebug";
 import {
   defaultSherpaOnnxManifestUrl,
   loadSherpaOnnxModelManifest,
@@ -24,6 +30,7 @@ type SherpaWorkerInboundMessage =
       decodeBatchSamples: number;
       debugStatsEnabled: boolean;
       biasContext?: LiveSttBiasContext | null;
+      decodingMethod?: LiveSttDecodingMethod | null;
     }
   | {
       type: "update-bias";
@@ -132,6 +139,7 @@ type PendingWorkerRequest = {
 };
 
 type PendingRequestKey = "load" | `start:${string}`;
+type LiveSttPcmDebugRecorder = ReturnType<typeof createLiveSttPcmDebugRecorder>;
 type LiveSttLatencyDebugState = {
   captureFrameSize: number;
   sourceSampleRate: number;
@@ -158,6 +166,7 @@ export class SherpaOnnxLiveSttAdapter implements LiveSttAdapter {
   private sessionId: string | null = null;
   private isDisposed = false;
   private latencyDebugState: LiveSttLatencyDebugState | null = null;
+  private debugPcmRecorder: LiveSttPcmDebugRecorder | null = null;
 
   constructor(
     private readonly options: {
@@ -174,7 +183,7 @@ export class SherpaOnnxLiveSttAdapter implements LiveSttAdapter {
   async start(
     stream: MediaStream,
     callbacks: LiveSttCallbacks,
-    options: { biasContext?: LiveSttBiasContext | null } = {}
+    options: LiveSttStartOptions = {}
   ): Promise<void> {
     if (this.isDisposed) {
       throw new LiveSttAdapterError(
@@ -207,7 +216,8 @@ export class SherpaOnnxLiveSttAdapter implements LiveSttAdapter {
           sessionId,
           decodeBatchSamples,
           debugStatsEnabled: isLiveSttLatencyDebugEnabled(),
-          biasContext: options.biasContext ?? null
+          biasContext: options.biasContext ?? null,
+          decodingMethod: options.decodingMethod ?? null
         },
         `start:${sessionId}`
       );
@@ -334,6 +344,9 @@ export class SherpaOnnxLiveSttAdapter implements LiveSttAdapter {
         lastCallbackAtMs: null,
         lastAudioLevelAtMs: null
       };
+      this.debugPcmRecorder = isLiveSttPcmDebugEnabled()
+        ? createLiveSttPcmDebugRecorder(manifest.sampleRate)
+        : null;
       logLiveSttLatencyDebug("capture-start", {
         captureFrameSize: frameSize,
         sourceSampleRate: context.sampleRate,
@@ -389,6 +402,8 @@ export class SherpaOnnxLiveSttAdapter implements LiveSttAdapter {
   }
 
   private stopAudioCapture() {
+    this.publishDebugPcmRecording();
+
     if (!this.capture) {
       return;
     }
@@ -402,6 +417,15 @@ export class SherpaOnnxLiveSttAdapter implements LiveSttAdapter {
     disconnectAudioNode(this.capture.output);
     void this.capture.context.close();
     this.capture = null;
+  }
+
+  private publishDebugPcmRecording() {
+    const recording = this.debugPcmRecorder?.finish();
+    this.debugPcmRecorder = null;
+
+    if (recording) {
+      this.callbacks?.onDebugPcmAvailable?.(recording);
+    }
   }
 
   private async createAudioContext(manifest: ResolvedSherpaOnnxModelManifest) {
@@ -517,6 +541,7 @@ export class SherpaOnnxLiveSttAdapter implements LiveSttAdapter {
       sourceSampleRate,
       manifest.sampleRate
     );
+    this.debugPcmRecorder?.append(samples);
 
     this.postWorkerMessage(
       worker,
