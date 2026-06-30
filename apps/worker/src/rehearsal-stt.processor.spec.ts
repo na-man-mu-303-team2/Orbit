@@ -22,6 +22,7 @@ const assetRow = {
 };
 
 const deckRow = {
+  version: 1,
   deck_json: {
     deckId: "deck-a",
     projectId: "project-a",
@@ -84,6 +85,7 @@ describe("processRehearsalSttJob", () => {
       .mockResolvedValueOnce([runRow()])
       .mockResolvedValueOnce([assetRow])
       .mockResolvedValueOnce([deckRow])
+      .mockResolvedValueOnce([])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([runRow()])
       .mockResolvedValueOnce([
