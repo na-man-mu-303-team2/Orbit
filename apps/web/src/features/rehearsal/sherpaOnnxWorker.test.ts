@@ -75,6 +75,56 @@ describe("sherpaOnnxWorker classic worker output", () => {
     expect(executableCode).not.toMatch(/(^|\n)\s*export\s+/);
   });
 
+  it("reports a clear setup error before loading pthread sherpa runtimes without SharedArrayBuffer", async () => {
+    server = await createWorkerTransformServer();
+    const result = await server.transformRequest(
+      "/src/features/rehearsal/sherpaOnnxWorker.ts?worker_file&type=classic"
+    );
+    const executableCode = stripInlineSourceMap(result?.code ?? "");
+    const posted: Array<Record<string, unknown>> = [];
+    const importScripts = vi.fn();
+    const context: WorkerTestContext = {
+      ArrayBuffer,
+      Float32Array,
+      SharedArrayBuffer: undefined,
+      TextEncoder,
+      URL,
+      console,
+      fetch: vi.fn(),
+      performance: { now: () => 0 },
+      postMessage: (message: Record<string, unknown>) => {
+        posted.push(message);
+      },
+      close: vi.fn(),
+      queueMicrotask: (callback: () => void) => queueMicrotask(callback),
+      importScripts
+    };
+
+    vm.runInNewContext(executableCode, context);
+    importScripts.mockClear();
+    await sendWorkerMessage(context, {
+      type: "load",
+      manifest: {
+        ...manifestFixture(),
+        runtime: {
+          helpers: [],
+          script: "http://model.local/sherpa-onnx-wasm-main-vad-asr.js",
+          wasm: "http://model.local/sherpa-onnx-wasm-main-vad-asr.wasm",
+          data: null
+        }
+      }
+    });
+
+    expect(importScripts).not.toHaveBeenCalled();
+    expect(posted).toContainEqual(
+      expect.objectContaining({
+        type: "error",
+        code: "LIVE_STT_MODEL_UNAVAILABLE",
+        message: expect.stringContaining("SharedArrayBuffer")
+      })
+    );
+  });
+
   it("keeps the active recognizer usable when update-bias recreation fails", async () => {
     server = await createWorkerTransformServer();
     const result = await server.transformRequest(

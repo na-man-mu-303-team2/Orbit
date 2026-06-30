@@ -1148,12 +1148,13 @@ export function RehearsalWorkspace(props: {
     "idle" | "pending" | "advanced" | "cancelled"
   >("idle");
   const [isLiveDemoActive, setIsLiveDemoActive] = useState(false);
+  const [isLiveStopModalOpen, setIsLiveStopModalOpen] = useState(false);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [isTimerRunning, setIsTimerRunning] = useState(false);
   const [timeMode, setTimeMode] = useState<RehearsalTimeMode>("stopwatch");
-  const [timerDurationSeconds, setTimerDurationSeconds] = useState(80);
+  const [timerDurationSeconds, setTimerDurationSeconds] = useState(5 * 60);
   const [elapsedTimeInput, setElapsedTimeInput] = useState("00:00");
-  const [timerDurationInput, setTimerDurationInput] = useState("01:20");
+  const [timerDurationInput, setTimerDurationInput] = useState("05:00");
   const [editingTimeField, setEditingTimeField] = useState<
     "elapsed" | "duration" | null
   >(null);
@@ -1232,6 +1233,11 @@ export function RehearsalWorkspace(props: {
     return () => window.clearInterval(timer);
   }, [isTimerRunning]);
 
+  const displayedTimeSeconds =
+    timeMode === "timer"
+      ? Math.max(timerDurationSeconds - elapsedSeconds, 0)
+      : elapsedSeconds;
+
   useEffect(() => {
     if (timeMode === "timer" && elapsedSeconds >= timerDurationSeconds) {
       setIsTimerRunning(false);
@@ -1240,9 +1246,9 @@ export function RehearsalWorkspace(props: {
 
   useEffect(() => {
     if (editingTimeField !== "elapsed") {
-      setElapsedTimeInput(formatClock(elapsedSeconds));
+      setElapsedTimeInput(formatClock(displayedTimeSeconds));
     }
-  }, [editingTimeField, elapsedSeconds]);
+  }, [displayedTimeSeconds, editingTimeField]);
 
   useEffect(() => {
     if (editingTimeField !== "duration") {
@@ -1390,6 +1396,10 @@ export function RehearsalWorkspace(props: {
           liveDemoStreamRef.current = null;
         }
         setIsLiveDemoActive(false);
+        setIsTimerRunning(false);
+      } else {
+        setElapsedSeconds(0);
+        setIsTimerRunning(true);
       }
     } catch (cause) {
       stopMediaStream(stream);
@@ -1397,21 +1407,27 @@ export function RehearsalWorkspace(props: {
         liveDemoStreamRef.current = null;
       }
       setIsLiveDemoActive(false);
+      setIsTimerRunning(false);
       setLiveError(toMicrophoneErrorMessage(cause));
       setLiveStatus("failed");
     }
   }
 
-  function stopLiveDemo() {
+  function stopLiveDemo(options: { showCompletionModal?: boolean } = {}) {
+    const wasLiveDemoActive = isLiveDemoActive || isLiveSttActive;
     liveSttAdapterRef.current?.stop();
     stopMediaStream(liveDemoStreamRef.current);
     liveDemoStreamRef.current = null;
     setLiveAudioLevel(null);
     setIsLiveDemoActive(false);
+    setIsTimerRunning(false);
     setLiveStatus((current) =>
       current === "listening" || current === "starting" ? "stopped" : current
     );
     cancelPendingAutoAdvance("cancelled");
+    if (options.showCompletionModal && wasLiveDemoActive) {
+      setIsLiveStopModalOpen(true);
+    }
   }
 
   function stopRecording() {
@@ -1444,11 +1460,6 @@ export function RehearsalWorkspace(props: {
       setElapsedSeconds(0);
     }
 
-    if (canRecord) {
-      void startRecording();
-      return;
-    }
-
     setIsTimerRunning(true);
   }
 
@@ -1457,11 +1468,16 @@ export function RehearsalWorkspace(props: {
     setEditingTimeField(null);
 
     if (nextSeconds === null) {
-      setElapsedTimeInput(formatClock(elapsedSeconds));
+      setElapsedTimeInput(formatClock(displayedTimeSeconds));
       return;
     }
 
-    setElapsedSeconds(Math.min(nextSeconds, 60 * 60 * 24 - 1));
+    const boundedSeconds = Math.min(nextSeconds, 60 * 60 * 24 - 1);
+    setElapsedSeconds(
+      timeMode === "timer"
+        ? Math.max(timerDurationSeconds - boundedSeconds, 0)
+        : boundedSeconds
+    );
   }
 
   function commitTimerDurationInput(value: string) {
@@ -1517,6 +1533,7 @@ export function RehearsalWorkspace(props: {
     setLiveStatus(error.code === "LIVE_STT_MODEL_UNAVAILABLE" ? "unavailable" : "failed");
     setLiveError(error.message);
     setLiveAudioLevel(null);
+    setIsTimerRunning(false);
     cancelPendingAutoAdvance("cancelled");
   }
 
@@ -1776,6 +1793,33 @@ export function RehearsalWorkspace(props: {
       <div className="rehearsal-legacy-test-marker" aria-hidden="true">
         Live STT / Report AI / Speaker notes
       </div>
+      {isLiveStopModalOpen ? (
+        <div className="rehearsal-live-stop-modal-backdrop" role="presentation">
+          <section
+            aria-labelledby="rehearsal-live-stop-modal-title"
+            aria-modal="true"
+            className="rehearsal-live-stop-modal"
+            role="dialog"
+          >
+            <span className="rehearsal-live-stop-modal-icon" aria-hidden="true">
+              <CheckCircle2 size={28} />
+            </span>
+            <h2 id="rehearsal-live-stop-modal-title">Live STT가 종료되었습니다</h2>
+            <p>
+              {run?.runId
+                ? `현재 리허설 runId는 ${run.runId}입니다.`
+                : "Live STT 단독 실행은 runId를 만들지 않습니다. 리포트 녹음 흐름에서 runId가 생성됩니다."}
+            </p>
+            <button
+              className="primary-action"
+              type="button"
+              onClick={() => setIsLiveStopModalOpen(false)}
+            >
+              확인
+            </button>
+          </section>
+        </div>
+      ) : null}
       <header className="rehearsal-presenter-topbar">
         <button
           className="rehearsal-exit-button"
@@ -1905,14 +1949,24 @@ export function RehearsalWorkspace(props: {
             {[-2, -1, 0, 1, 2].map((offset) => {
               const slideIndex = currentSlideIndex + offset;
               const slide = deck?.slides[slideIndex];
-              if (!slide) return null;
+              const gridColumn = offset + 3;
+              if (!slide) {
+                return (
+                  <span
+                    aria-hidden="true"
+                    className="rehearsal-context-thumb-placeholder"
+                    key={`empty-${offset}`}
+                    style={{ gridColumn }}
+                  />
+                );
+              }
 
-              const label = offset === 0 ? "\ud604\uc7ac" : offset > 0 ? `+${offset}` : `${offset}`;
               const thumbnailUrl = resolveEditorAssetUrl(slide.thumbnailUrl);
               return (
                 <button
                   className={`rehearsal-context-thumb ${offset === 0 ? "active" : ""}`}
                   key={`${slide.slideId}-${offset}`}
+                  style={{ gridColumn }}
                   type="button"
                   onClick={() => setCurrentSlideIndex(slideIndex)}
                 >
@@ -1929,13 +1983,7 @@ export function RehearsalWorkspace(props: {
                     )}
                   </span>
                   <span className="rehearsal-context-thumb-meta">
-                    <span className="rehearsal-context-thumb-label">{label}</span>
-                    <span>
-                      <strong>{getSlideTitle(slide)}</strong>
-                      <small>
-                        {slideIndex + 1} / {deck?.slides.length ?? 0}
-                      </small>
-                    </span>
+                    <strong>Slide {slideIndex + 1}</strong>
                   </span>
                 </button>
               );
@@ -1992,7 +2040,7 @@ export function RehearsalWorkspace(props: {
               <button
                 className="secondary-action"
                 type="button"
-                onClick={stopLiveDemo}
+                onClick={() => stopLiveDemo({ showCompletionModal: true })}
                 disabled={!canStopLiveDemo}
               >
                 <Square size={18} />

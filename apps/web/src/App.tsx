@@ -5,13 +5,13 @@
   type Job,
   type Project,
   type ProjectMemberRole,
-  type ProjectMemberStatus
+  type ProjectMemberStatus,
+  type RehearsalReport,
+  type RehearsalRun
 } from "@orbit/shared";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowRight,
-  BarChart3,
-  ChevronDown,
   FolderOpen,
   Home,
   LayoutTemplate,
@@ -19,9 +19,7 @@ import {
   LogOut,
   MessageSquareText,
   Monitor,
-  PlayCircle,
   Plus,
-  Save,
   Search,
   Sparkles
 } from "lucide-react";
@@ -128,7 +126,8 @@ export type Route =
   | { name: "project-editor"; projectId: string }
   | { name: "project-request"; projectId: string }
   | { name: "rehearsal"; projectId: string }
-  | { name: "rehearsal-report"; projectId: string; runId: string };
+  | { name: "rehearsal-report"; projectId: string; runId: string }
+  | { name: "report-mockup" };
 
 type AuthUser = {
   userId: string;
@@ -158,6 +157,53 @@ const templates = [
   { id: "workshop", title: "워크숍", description: "진행 순서와 실습 구성" }
 ];
 const demoDeck = createDemoDeck();
+const reportMockupRunId = "run_report_mockup";
+const reportMockupGeneratedAt = "2026-07-01T09:00:00.000Z";
+const reportMockupRun: RehearsalRun = {
+  runId: reportMockupRunId,
+  projectId: demoIds.projectId,
+  deckId: demoIds.deckId,
+  audioFileId: "file_report_mockup_audio",
+  jobId: "job_report_mockup_stt",
+  status: "succeeded",
+  error: null,
+  rawAudioDeletedAt: null,
+  createdAt: "2026-07-01T08:54:12.000Z",
+  updatedAt: reportMockupGeneratedAt
+};
+const reportMockupReport: RehearsalReport = {
+  reportId: "report_mockup",
+  runId: reportMockupRunId,
+  projectId: demoIds.projectId,
+  deckId: demoIds.deckId,
+  transcriptRetained: false,
+  transcript: null,
+  metrics: {
+    durationSeconds: 286,
+    wordsPerMinute: 128,
+    fillerWordCount: 3,
+    pauseCount: 2,
+    keywordCoverage: 0.86
+  },
+  coaching: {
+    status: "succeeded",
+    summary: "핵심 메시지는 안정적으로 전달됐고, 속도도 발표 시간에 잘 맞습니다.",
+    strengths: [
+      "도입부에서 발표 목적을 빠르게 제시했습니다.",
+      "중요 키워드를 반복해 청중이 흐름을 따라가기 좋았습니다.",
+      "슬라이드 전환 사이의 멈춤이 과하지 않았습니다."
+    ],
+    improvements: [
+      "중간 설명에서 일부 filler 표현이 반복됩니다.",
+      "마무리 전에 다음 행동을 더 명확하게 요청하면 좋습니다.",
+      "수치가 있는 문장은 한 번 더 천천히 읽는 편이 좋습니다."
+    ],
+    nextPracticeFocus:
+      "다음 연습에서는 결론 슬라이드의 CTA 문장을 먼저 고정하고, 수치 설명 구간의 호흡을 조금 더 길게 가져가세요.",
+    message: ""
+  },
+  generatedAt: reportMockupGeneratedAt
+};
 const allowedExtensions = ["pdf", "docx", "pptx"];
 const allowedMimeTypes = new Set([
   "application/pdf",
@@ -222,6 +268,7 @@ function getRoute(pathname = window.location.pathname): Route {
   if (normalized === "/createdeck") return { name: "create-deck" };
   if (normalized === "/upload") return { name: "upload" };
   if (normalized === "/project") return { name: "project-list" };
+  if (normalized === "/report_mockup") return { name: "report-mockup" };
 
   const projectRequestMatch = normalized.match(/^\/project\/([^/]+)\/request$/);
   if (projectRequestMatch) {
@@ -293,7 +340,7 @@ export function App() {
 }
 
 export function shouldRenderAppFrame(route: Route) {
-  return route.name !== "login" && route.name !== "rehearsal-report";
+  return route.name !== "login" && route.name !== "rehearsal-report" && route.name !== "report-mockup";
 }
 
 function renderRoute(route: Route, user?: AuthUser) {
@@ -322,6 +369,17 @@ function renderRoute(route: Route, user?: AuthUser) {
   if (route.name === "rehearsal-report") {
     return <RehearsalReportPage projectId={route.projectId} runId={route.runId} />;
   }
+  if (route.name === "report-mockup") {
+    return (
+      <RehearsalReportPage
+        initialDeck={demoDeck}
+        initialReport={reportMockupReport}
+        initialRun={reportMockupRun}
+        projectId={demoIds.projectId}
+        runId={reportMockupRunId}
+      />
+    );
+  }
   return <HomePage user={user} />;
 }
 
@@ -333,7 +391,6 @@ function AppFrame(props: {
 }) {
   const { children, isAuthenticated, route, user } = props;
   const queryClient = useQueryClient();
-  const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const activeProjectId =
     route.name === "project-editor" ||
@@ -342,18 +399,7 @@ function AppFrame(props: {
     route.name === "rehearsal-report"
       ? route.projectId
       : demoIds.projectId;
-  const projectTitle =
-    route.name === "create-deck"
-      ? "AI 덱 생성 파이프라인"
-      : route.name === "project-list" ||
-          route.name === "project-editor" ||
-          route.name === "project-request"
-        ? "프로젝트 워크스페이스"
-        : route.name === "rehearsal" || route.name === "rehearsal-report"
-          ? "리허설 워크스페이스"
-          : "AI 덱 생성 파이프라인";
   const isHomeDashboard = route.name === "home";
-  const isHeaderless = isHomeDashboard || route.name === "rehearsal";
   const userLabel = user ? getUserLabel(user) : "로그인";
   const userInitial = user ? getUserInitial(user) : "U";
 
@@ -368,7 +414,6 @@ function AppFrame(props: {
       });
       queryClient.setQueryData(["auth", "me"], undefined);
       await queryClient.invalidateQueries({ queryKey: ["auth", "me"] });
-      setIsUserMenuOpen(false);
       navigateTo("/login");
     } finally {
       setIsLoggingOut(false);
@@ -376,109 +421,20 @@ function AppFrame(props: {
   }
   return (
     <main
-      className={
-        isHeaderless
-          ? `orbit-layout orbit-product-shell orbit-headerless-shell${
-              isHomeDashboard ? " orbit-home-shell" : ""
-            }`
-          : "orbit-layout orbit-product-shell"
-      }
+      className={`orbit-layout orbit-product-shell orbit-headerless-shell${
+        isHomeDashboard ? " orbit-home-shell" : ""
+      }`}
     >
-      {isHeaderless ? null : (
-        <header className="rehearsal-report-topbar orbit-product-topbar">
-          <div className="rehearsal-report-topbar-left">
-            <span className="report-brand-mark" aria-hidden="true">
-              <i />
-              <i />
-            </span>
-            <strong>Orbit AI</strong>
-            <button type="button" onClick={() => navigateTo("/")} aria-label="홈으로 이동">
-              <Home size={18} />
-            </button>
-            <span className="report-project-title">{projectTitle}</span>
-            <ChevronDown size={16} />
-            <span className="report-save-state">
-              <Save size={15} />
-              저장됨
-            </span>
-          </div>
-          <div className="rehearsal-report-topbar-actions">
-            {isAuthenticated ? (
-              <div className="report-user-menu">
-                <button
-                  className="report-user-trigger"
-                  type="button"
-                  onClick={() => setIsUserMenuOpen((current) => !current)}
-                  aria-expanded={isUserMenuOpen}
-                  aria-haspopup="menu"
-                >
-                  <span>{userLabel}</span>
-                  <span className="report-avatar" aria-hidden="true">{userInitial}</span>
-                  <ChevronDown size={15} />
-                </button>
-                {isUserMenuOpen ? (
-                  <div className="report-user-dropdown" role="menu">
-                    <button
-                      type="button"
-                      role="menuitem"
-                      disabled={isLoggingOut}
-                      onClick={() => void handleLogout()}
-                    >
-                      <LogOut size={16} />
-                      {isLoggingOut ? "로그아웃 중" : "로그아웃"}
-                    </button>
-                  </div>
-                ) : null}
-              </div>
-            ) : (
-              <button type="button" onClick={() => navigateTo("/login")}>
-                <LogIn size={18} />
-                로그인
-              </button>
-            )}
-            <span className="report-mode-switch" aria-label="보기 모드">
-              <button type="button">편집</button>
-              <button className="active" type="button">보기</button>
-            </span>
-            <button type="button" onClick={() => navigateTo(`/rehearsal/${activeProjectId}`)}>
-              <Monitor size={18} />
-              리허설
-            </button>
-            <button
-              type="button"
-              onClick={() =>
-                route.name === "rehearsal-report"
-                  ? undefined
-                  : navigateTo(`/rehearsal/${activeProjectId}`)
-              }
-            >
-              <BarChart3 size={18} />
-              AI 리포트
-            </button>
-            <button className="report-present-button" type="button">
-              <PlayCircle size={18} />
-              프레젠테이션
-              <ChevronDown size={16} />
-            </button>
-          </div>
-        </header>
-      )}
       <div className="orbit-product-body">
         <aside className="orbit-product-nav" aria-label="Orbit navigation">
-          {isHeaderless ? (
-            <button
-              className="orbit-product-nav-brand"
-              type="button"
-              onClick={() => navigateTo("/")}
-              aria-label="Orbit AI 홈"
-            >
-              <span className="report-brand-mark" aria-hidden="true">
-                <i />
-                <i />
-              </span>
-              <strong>Orbit AI</strong>
-            </button>
-          ) : null}
+          <button
+            className="orbit-product-nav-brand"
+            type="button"
+            onClick={() => navigateTo("/")}
+            aria-label="Orbit AI 홈"
+          >
+            <img alt="Orbit" className="brand-mark" src={orbitLogo} />
+          </button>
           <SidebarButton
             active={route.name === "home"}
             icon={<Home size={15} />}
@@ -507,6 +463,34 @@ function AppFrame(props: {
             label="리허설 시작"
             onClick={() => navigateTo(`/rehearsal/${activeProjectId}`)}
           />
+          <div className="orbit-product-nav-account">
+            {isAuthenticated ? (
+              <>
+                <div className="report-user-trigger" aria-label="현재 사용자">
+                  <span className="report-avatar" aria-hidden="true">{userInitial}</span>
+                  <span>{userLabel}</span>
+                </div>
+                <button
+                  className="orbit-product-nav-logout"
+                  type="button"
+                  disabled={isLoggingOut}
+                  onClick={() => void handleLogout()}
+                >
+                  <LogOut size={16} />
+                  {isLoggingOut ? "로그아웃 중" : "로그아웃"}
+                </button>
+              </>
+            ) : (
+              <button
+                className="orbit-product-nav-logout"
+                type="button"
+                onClick={() => navigateTo("/login")}
+              >
+                <LogIn size={16} />
+                로그인
+              </button>
+            )}
+          </div>
         </aside>
         <section className="orbit-page">{children}</section>
       </div>

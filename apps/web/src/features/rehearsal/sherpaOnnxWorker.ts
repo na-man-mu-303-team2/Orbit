@@ -160,6 +160,7 @@ type SherpaModule = Record<string, unknown> & {
 type WorkerScope = typeof globalThis & {
   Module?: SherpaModule;
   createOnlineRecognizer?: unknown;
+  crossOriginIsolated?: boolean;
   importScripts: (...urls: string[]) => void;
   close: () => void;
   onmessage: ((event: MessageEvent<WorkerInboundMessage>) => void) | null;
@@ -484,6 +485,8 @@ function recreateRecognizer(
 }
 
 async function loadSherpaRuntime(nextManifest: WorkerManifest) {
+  assertSherpaRuntimeEnvironment(nextManifest);
+
   const runtimeModule: SherpaModule = {
     mainScriptUrlOrBlob: nextManifest.runtime.script,
     locateFile: (path) => {
@@ -513,6 +516,28 @@ async function loadSherpaRuntime(nextManifest: WorkerManifest) {
     workerScope.importScripts(helperScript);
   }
   return workerScope.Module ?? runtimeModule;
+}
+
+function assertSherpaRuntimeEnvironment(nextManifest: WorkerManifest) {
+  if (!requiresSharedMemoryRuntime(nextManifest)) {
+    return;
+  }
+
+  if (typeof SharedArrayBuffer === "undefined") {
+    throw new Error(
+      "Live STT WASM runtime requires SharedArrayBuffer. Serve the web app with COOP/COEP headers so cross-origin isolation is enabled."
+    );
+  }
+
+  if (workerScope.crossOriginIsolated === false) {
+    throw new Error(
+      "Live STT WASM runtime requires cross-origin isolation. Check Cross-Origin-Opener-Policy and Cross-Origin-Embedder-Policy headers."
+    );
+  }
+}
+
+function requiresSharedMemoryRuntime(nextManifest: WorkerManifest) {
+  return nextManifest.runtime.script.includes("vad-asr");
 }
 
 function waitForRuntime(runtimeModule: SherpaModule) {
