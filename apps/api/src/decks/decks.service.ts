@@ -113,6 +113,7 @@ export class DecksService {
     return this.dataSource.transaction(async (manager) => {
       const updatedAt = nowIso();
       const deck = await this.upsertDeck(manager, request.deck, updatedAt);
+      await this.deletePatchRowsUpToVersion(manager, projectId, deck.deckId, deck.version);
       const snapshot = await this.createSnapshot(
         manager,
         deck,
@@ -187,7 +188,7 @@ export class DecksService {
         Boolean(request.snapshotReason) ||
         applyResult.deck.version - checkpointVersion >= deckCheckpointPatchInterval;
       const deck = shouldCheckpoint
-        ? await this.upsertDeck(manager, applyResult.deck, updatedAt)
+        ? await this.writeDeckCheckpoint(manager, applyResult.deck, updatedAt)
         : applyResult.deck;
 
       const snapshot = request.snapshotReason
@@ -256,7 +257,7 @@ export class DecksService {
       const deck = parseDeckJson(snapshotRow.deck_json);
       const updatedAt = nowIso();
       await this.deletePatchRowsAfterVersion(manager, projectId, deck.deckId, deck.version);
-      await this.upsertDeck(manager, deck, updatedAt);
+      await this.writeDeckCheckpoint(manager, deck, updatedAt);
 
       return restoreDeckSnapshotResponseSchema.parse({
         deck,
@@ -383,6 +384,21 @@ export class DecksService {
     return parseDeckRow(rows[0]);
   }
 
+  private async writeDeckCheckpoint(
+    executor: QueryExecutor,
+    deck: Deck,
+    updatedAt: string
+  ): Promise<Deck> {
+    const checkpointDeck = await this.upsertDeck(executor, deck, updatedAt);
+    await this.deletePatchRowsUpToVersion(
+      executor,
+      checkpointDeck.projectId,
+      checkpointDeck.deckId,
+      checkpointDeck.version
+    );
+    return checkpointDeck;
+  }
+
   private async insertPatchLog(
     manager: EntityManager,
     projectId: string,
@@ -464,6 +480,21 @@ export class DecksService {
       `
         DELETE FROM deck_patches
         WHERE project_id = $1 AND deck_id = $2 AND after_version > $3
+      `,
+      [projectId, deckId, version]
+    );
+  }
+
+  private async deletePatchRowsUpToVersion(
+    executor: QueryExecutor,
+    projectId: string,
+    deckId: string,
+    version: number
+  ): Promise<void> {
+    await executor.query(
+      `
+        DELETE FROM deck_patches
+        WHERE project_id = $1 AND deck_id = $2 AND after_version <= $3
       `,
       [projectId, deckId, version]
     );

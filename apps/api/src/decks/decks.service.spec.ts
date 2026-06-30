@@ -190,6 +190,24 @@ class InMemoryDeckDataSource {
     }
 
     if (
+      query.startsWith("DELETE FROM deck_patches") &&
+      query.includes("WHERE project_id = $1 AND deck_id = $2 AND after_version <= $3")
+    ) {
+      const [projectId, deckId, version] = params as [string, string, number];
+      for (let index = this.patchRows.length - 1; index >= 0; index -= 1) {
+        const row = this.patchRows[index];
+        if (
+          row?.project_id === projectId &&
+          row.deck_id === deckId &&
+          row.after_version <= version
+        ) {
+          this.patchRows.splice(index, 1);
+        }
+      }
+      return [] as T;
+    }
+
+    if (
       query.startsWith("SELECT snapshot_id, project_id, deck_id") &&
       query.includes("WHERE project_id = $1")
     ) {
@@ -530,6 +548,23 @@ describe("DecksService", () => {
       version: 1
     });
     expect(dataSource.patchRows).toHaveLength(0);
+  });
+
+  it("compacts stored patch rows after a full deck checkpoint save", async () => {
+    const { dataSource, service } = createService();
+    const deck = createDeck();
+    await service.putDeck(deck.projectId, { deck });
+
+    const patched = await service.appendPatch(deck.projectId, {
+      patch: createUpdateTitlePatch(deck, "수정된 덱")
+    });
+
+    expect(dataSource.patchRows).toHaveLength(1);
+
+    await service.putDeck(deck.projectId, { deck: patched.deck });
+
+    expect(dataSource.patchRows).toHaveLength(0);
+    expect(dataSource.decks.get(deck.projectId)?.version).toBe(2);
   });
 
   it("normalizes legacy keyword terms when restoring snapshots", async () => {
