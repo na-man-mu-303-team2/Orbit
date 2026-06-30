@@ -1114,7 +1114,7 @@ def generate_deck(
     warnings = []
     if not raw_input.references:
         warnings.append("참고자료 없이 topic-only generation으로 생성했습니다.")
-    generated_slide_count = len(deck["slides"])
+    generated_slide_count = len(slides)
     if raw_input.min_slide_count <= generated_slide_count < raw_input.max_slide_count:
         warnings.append(
             f"AI가 참고자료/주제 밀도를 기준으로 {generated_slide_count}장이 적정하다고 판단했습니다."
