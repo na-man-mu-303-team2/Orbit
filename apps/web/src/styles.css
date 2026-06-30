@@ -1386,6 +1386,61 @@ button:disabled {
   grid-template-columns: 1fr 1fr;
 }
 
+.rehearsal-live-stop-modal-backdrop {
+  align-items: center;
+  background: rgba(15, 23, 42, 0.38);
+  display: flex;
+  inset: 0;
+  justify-content: center;
+  padding: 24px;
+  position: fixed;
+  z-index: 80;
+}
+
+.rehearsal-live-stop-modal {
+  align-items: center;
+  background: #ffffff;
+  border: 1px solid #d9e1e7;
+  border-radius: 8px;
+  box-shadow: 0 24px 80px rgba(15, 23, 42, 0.22);
+  color: #15202b;
+  display: grid;
+  gap: 14px;
+  justify-items: center;
+  max-width: 420px;
+  padding: 28px;
+  text-align: center;
+  width: min(100%, 420px);
+}
+
+.rehearsal-live-stop-modal-icon {
+  align-items: center;
+  background: #ecfdf5;
+  border-radius: 999px;
+  color: #0f766e;
+  display: inline-flex;
+  height: 54px;
+  justify-content: center;
+  width: 54px;
+}
+
+.rehearsal-live-stop-modal h2 {
+  font-size: 1.18rem;
+  line-height: 1.25;
+  margin: 0;
+}
+
+.rehearsal-live-stop-modal p {
+  color: #527089;
+  font-size: 0.92rem;
+  line-height: 1.55;
+  margin: 0;
+}
+
+.rehearsal-live-stop-modal .primary-action {
+  min-width: 112px;
+}
+
 .rehearsal-record-panel .primary-action,
 .rehearsal-record-panel .secondary-action,
 .rehearsal-live-panel .primary-action,

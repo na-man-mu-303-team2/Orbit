@@ -5,7 +5,9 @@
   type Job,
   type Project,
   type ProjectMemberRole,
-  type ProjectMemberStatus
+  type ProjectMemberStatus,
+  type RehearsalReport,
+  type RehearsalRun
 } from "@orbit/shared";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -124,7 +126,8 @@ export type Route =
   | { name: "project-editor"; projectId: string }
   | { name: "project-request"; projectId: string }
   | { name: "rehearsal"; projectId: string }
-  | { name: "rehearsal-report"; projectId: string; runId: string };
+  | { name: "rehearsal-report"; projectId: string; runId: string }
+  | { name: "report-mockup" };
 
 type AuthUser = {
   userId: string;
@@ -154,6 +157,53 @@ const templates = [
   { id: "workshop", title: "워크숍", description: "진행 순서와 실습 구성" }
 ];
 const demoDeck = createDemoDeck();
+const reportMockupRunId = "run_report_mockup";
+const reportMockupGeneratedAt = "2026-07-01T09:00:00.000Z";
+const reportMockupRun: RehearsalRun = {
+  runId: reportMockupRunId,
+  projectId: demoIds.projectId,
+  deckId: demoIds.deckId,
+  audioFileId: "file_report_mockup_audio",
+  jobId: "job_report_mockup_stt",
+  status: "succeeded",
+  error: null,
+  rawAudioDeletedAt: null,
+  createdAt: "2026-07-01T08:54:12.000Z",
+  updatedAt: reportMockupGeneratedAt
+};
+const reportMockupReport: RehearsalReport = {
+  reportId: "report_mockup",
+  runId: reportMockupRunId,
+  projectId: demoIds.projectId,
+  deckId: demoIds.deckId,
+  transcriptRetained: false,
+  transcript: null,
+  metrics: {
+    durationSeconds: 286,
+    wordsPerMinute: 128,
+    fillerWordCount: 3,
+    pauseCount: 2,
+    keywordCoverage: 0.86
+  },
+  coaching: {
+    status: "succeeded",
+    summary: "핵심 메시지는 안정적으로 전달됐고, 속도도 발표 시간에 잘 맞습니다.",
+    strengths: [
+      "도입부에서 발표 목적을 빠르게 제시했습니다.",
+      "중요 키워드를 반복해 청중이 흐름을 따라가기 좋았습니다.",
+      "슬라이드 전환 사이의 멈춤이 과하지 않았습니다."
+    ],
+    improvements: [
+      "중간 설명에서 일부 filler 표현이 반복됩니다.",
+      "마무리 전에 다음 행동을 더 명확하게 요청하면 좋습니다.",
+      "수치가 있는 문장은 한 번 더 천천히 읽는 편이 좋습니다."
+    ],
+    nextPracticeFocus:
+      "다음 연습에서는 결론 슬라이드의 CTA 문장을 먼저 고정하고, 수치 설명 구간의 호흡을 조금 더 길게 가져가세요.",
+    message: ""
+  },
+  generatedAt: reportMockupGeneratedAt
+};
 const allowedExtensions = ["pdf", "docx", "pptx"];
 const allowedMimeTypes = new Set([
   "application/pdf",
@@ -218,6 +268,7 @@ function getRoute(pathname = window.location.pathname): Route {
   if (normalized === "/createdeck") return { name: "create-deck" };
   if (normalized === "/upload") return { name: "upload" };
   if (normalized === "/project") return { name: "project-list" };
+  if (normalized === "/report_mockup") return { name: "report-mockup" };
 
   const projectRequestMatch = normalized.match(/^\/project\/([^/]+)\/request$/);
   if (projectRequestMatch) {
@@ -289,7 +340,7 @@ export function App() {
 }
 
 export function shouldRenderAppFrame(route: Route) {
-  return route.name !== "login" && route.name !== "rehearsal-report";
+  return route.name !== "login" && route.name !== "rehearsal-report" && route.name !== "report-mockup";
 }
 
 function renderRoute(route: Route, user?: AuthUser) {
@@ -317,6 +368,17 @@ function renderRoute(route: Route, user?: AuthUser) {
   }
   if (route.name === "rehearsal-report") {
     return <RehearsalReportPage projectId={route.projectId} runId={route.runId} />;
+  }
+  if (route.name === "report-mockup") {
+    return (
+      <RehearsalReportPage
+        initialDeck={demoDeck}
+        initialReport={reportMockupReport}
+        initialRun={reportMockupRun}
+        projectId={demoIds.projectId}
+        runId={reportMockupRunId}
+      />
+    );
   }
   return <HomePage user={user} />;
 }

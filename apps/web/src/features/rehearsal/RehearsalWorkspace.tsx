@@ -1148,6 +1148,7 @@ export function RehearsalWorkspace(props: {
     "idle" | "pending" | "advanced" | "cancelled"
   >("idle");
   const [isLiveDemoActive, setIsLiveDemoActive] = useState(false);
+  const [isLiveStopModalOpen, setIsLiveStopModalOpen] = useState(false);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [isTimerRunning, setIsTimerRunning] = useState(false);
   const [timeMode, setTimeMode] = useState<RehearsalTimeMode>("stopwatch");
@@ -1412,7 +1413,8 @@ export function RehearsalWorkspace(props: {
     }
   }
 
-  function stopLiveDemo() {
+  function stopLiveDemo(options: { showCompletionModal?: boolean } = {}) {
+    const wasLiveDemoActive = isLiveDemoActive || isLiveSttActive;
     liveSttAdapterRef.current?.stop();
     stopMediaStream(liveDemoStreamRef.current);
     liveDemoStreamRef.current = null;
@@ -1423,6 +1425,9 @@ export function RehearsalWorkspace(props: {
       current === "listening" || current === "starting" ? "stopped" : current
     );
     cancelPendingAutoAdvance("cancelled");
+    if (options.showCompletionModal && wasLiveDemoActive) {
+      setIsLiveStopModalOpen(true);
+    }
   }
 
   function stopRecording() {
@@ -1788,6 +1793,33 @@ export function RehearsalWorkspace(props: {
       <div className="rehearsal-legacy-test-marker" aria-hidden="true">
         Live STT / Report AI / Speaker notes
       </div>
+      {isLiveStopModalOpen ? (
+        <div className="rehearsal-live-stop-modal-backdrop" role="presentation">
+          <section
+            aria-labelledby="rehearsal-live-stop-modal-title"
+            aria-modal="true"
+            className="rehearsal-live-stop-modal"
+            role="dialog"
+          >
+            <span className="rehearsal-live-stop-modal-icon" aria-hidden="true">
+              <CheckCircle2 size={28} />
+            </span>
+            <h2 id="rehearsal-live-stop-modal-title">Live STT가 종료되었습니다</h2>
+            <p>
+              {run?.runId
+                ? `현재 리허설 runId는 ${run.runId}입니다.`
+                : "Live STT 단독 실행은 runId를 만들지 않습니다. 리포트 녹음 흐름에서 runId가 생성됩니다."}
+            </p>
+            <button
+              className="primary-action"
+              type="button"
+              onClick={() => setIsLiveStopModalOpen(false)}
+            >
+              확인
+            </button>
+          </section>
+        </div>
+      ) : null}
       <header className="rehearsal-presenter-topbar">
         <button
           className="rehearsal-exit-button"
@@ -2008,7 +2040,7 @@ export function RehearsalWorkspace(props: {
               <button
                 className="secondary-action"
                 type="button"
-                onClick={stopLiveDemo}
+                onClick={() => stopLiveDemo({ showCompletionModal: true })}
                 disabled={!canStopLiveDemo}
               >
                 <Square size={18} />
