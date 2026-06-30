@@ -5,14 +5,16 @@ import { ProjectsController } from "./projects.controller";
 import { ProjectsService } from "./projects.service";
 
 describe("ProjectsController", () => {
-  it("turns an invalid create payload into a bad request", () => {
+  it("turns an invalid create payload into a bad request", async () => {
     const controller = new ProjectsController({
       create: vi.fn(),
       list: vi.fn(),
-    } as unknown as ProjectsService);
+    } as unknown as ProjectsService, {
+      me: vi.fn(),
+    } as never);
 
-    expect(() =>
-      controller.createProject(demoIds.workspaceId, { title: "" }),
-    ).toThrow(BadRequestException);
+    await expect(
+      controller.createProject(demoIds.workspaceId, { title: "" }, {} as never),
+    ).rejects.toBeInstanceOf(BadRequestException);
   });
 });

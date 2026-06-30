@@ -13,39 +13,66 @@ import {
   Req,
   Res,
   StreamableFile,
+  UnauthorizedException,
 } from "@nestjs/common";
 import type { Request, Response } from "express";
+import { authSessionCookieName } from "../auth/auth.constants";
+import { AuthService } from "../auth/auth.service";
 import { normalizeHttpOrigin } from "../common/web-origin";
 import { parseRequest } from "../common/zod-request";
+import { ProjectsService } from "../projects/projects.service";
 import { FilesService } from "./files.service";
+
+type SignedCookieRequest = Request & {
+  signedCookies?: Record<string, string | false | undefined>;
+};
 
 @Controller("api/v1/projects/:projectId/assets")
 export class FilesController {
-  constructor(private readonly filesService: FilesService) {}
+  constructor(
+    private readonly authService: AuthService,
+    private readonly filesService: FilesService,
+    private readonly projectsService: ProjectsService,
+  ) {}
 
   @Get()
-  listFiles(@Param("projectId") projectId: string) {
+  async listFiles(
+    @Param("projectId") projectId: string,
+    @Req() request: SignedCookieRequest,
+  ) {
+    const user = await this.getCurrentUser(request);
+    await this.projectsService.assertCanReadProject(projectId, user.userId);
     return this.filesService.list(projectId);
   }
 
   @Post("upload-url")
-  createUploadUrl(
+  async createUploadUrl(
     @Param("projectId") projectId: string,
     @Body() body: unknown,
-    @Req() request: Request,
+    @Req() request: SignedCookieRequest,
   ) {
+    const input = parseRequest(assetUploadUrlRequestSchema, body ?? {});
+    const user = await this.getCurrentUser(request);
+    await this.projectsService.assertCanWriteProject(projectId, user.userId);
     return this.filesService.createUploadUrl(
       projectId,
-      parseRequest(assetUploadUrlRequestSchema, body ?? {}),
+      input,
       normalizeHttpOrigin(request.get("origin")),
     );
   }
 
   @Post("complete")
-  completeUpload(@Param("projectId") projectId: string, @Body() body: unknown) {
+  async completeUpload(
+    @Param("projectId") projectId: string,
+    @Body() body: unknown,
+    @Req() request: SignedCookieRequest,
+  ) {
+    const input = parseRequest(completeAssetUploadRequestSchema, body ?? {});
+    const user = await this.getCurrentUser(request);
+    await this.projectsService.assertCanWriteProject(projectId, user.userId);
     return this.filesService.completeUpload(
       projectId,
-      parseRequest(completeAssetUploadRequestSchema, body ?? {}),
+      input,
     );
   }
 
@@ -53,8 +80,11 @@ export class FilesController {
   async readContent(
     @Param("projectId") projectId: string,
     @Param("fileId") fileId: string,
+    @Req() request: SignedCookieRequest,
     @Res({ passthrough: true }) response: Response,
   ) {
+    const user = await this.getCurrentUser(request);
+    await this.projectsService.assertCanReadProject(projectId, user.userId);
     const asset = await this.filesService.readUploadedAssetContent(
       projectId,
       fileId,
@@ -70,14 +100,30 @@ export class FilesController {
   async uploadContent(
     @Param("projectId") projectId: string,
     @Param("fileId") fileId: string,
-    @Req() request: Request,
+    @Req() request: SignedCookieRequest,
   ) {
+    const user = await this.getCurrentUser(request);
+    await this.projectsService.assertCanWriteProject(projectId, user.userId);
     await this.filesService.storeUploadContent(
       projectId,
       fileId,
       await readRequestBody(request),
     );
   }
+
+  private async getCurrentUser(request: SignedCookieRequest) {
+    const sessionId = getSignedSessionId(request);
+    if (!sessionId) {
+      throw new UnauthorizedException("Authentication required");
+    }
+
+    return (await this.authService.me(sessionId)).user;
+  }
+}
+
+function getSignedSessionId(request: SignedCookieRequest): string | null {
+  const value = request.signedCookies?.[authSessionCookieName];
+  return typeof value === "string" && value.length > 0 ? value : null;
 }
 
 // Express request stream에서 파일 binary를 하나의 Buffer로 모은다.
