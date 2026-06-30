@@ -22,16 +22,16 @@ const assetRow = {
 };
 
 const deckRow = {
+  version: 1,
   deck_json: {
-    deckId: "deck-a",
+    deckId: "deck_a",
     projectId: "project-a",
     title: "deck",
     version: 1,
     metadata: {
       language: "ko",
       locale: "ko-KR",
-      sourceType: "manual",
-      generatedBy: "user"
+      sourceType: "manual"
     },
     theme: {
       accentColor: "#2563eb",
@@ -46,13 +46,14 @@ const deckRow = {
       }
     },
     canvas: {
-      width: 1280,
-      height: 720,
-      preset: "wide-16-9"
+      preset: "wide-16-9",
+      width: 1920,
+      height: 1080,
+      aspectRatio: "16:9"
     },
     slides: [
       {
-        slideId: "slide-1",
+        slideId: "slide_1",
         order: 1,
         title: "slide",
         notes: "",
@@ -61,7 +62,7 @@ const deckRow = {
         animations: [],
         keywords: [
           {
-            keywordId: "keyword-1",
+            keywordId: "kw_1",
             text: "ORBIT",
             synonyms: ["오르빗"],
             abbreviations: []
@@ -84,6 +85,7 @@ describe("processRehearsalSttJob", () => {
       .mockResolvedValueOnce([runRow()])
       .mockResolvedValueOnce([assetRow])
       .mockResolvedValueOnce([deckRow])
+      .mockResolvedValueOnce([])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([runRow()])
       .mockResolvedValueOnce([
@@ -190,10 +192,10 @@ describe("processRehearsalSttJob", () => {
     const updatedKeywordPatchOperations = [
       {
         type: "update_slide_keywords",
-        slideId: "slide-1",
+        slideId: "slide_1",
         keywords: [
           {
-            keywordId: "keyword-1",
+            keywordId: "kw_1",
             text: "LATEST",
             synonyms: ["최신"],
             abbreviations: []
@@ -277,7 +279,7 @@ describe("processRehearsalSttJob", () => {
     const analyzeBody = JSON.parse(String(analyzeCall?.[1]?.body));
     expect(analyzeBody.deckKeywords).toEqual([
       {
-        keywordId: "keyword-1",
+        keywordId: "kw_1",
         text: "LATEST",
         synonyms: ["최신"],
         abbreviations: []
@@ -292,6 +294,7 @@ describe("processRehearsalSttJob", () => {
       .mockResolvedValueOnce([runRow()])
       .mockResolvedValueOnce([assetRow])
       .mockResolvedValueOnce([deckRow])
+      .mockResolvedValueOnce([])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([runRow()])
       .mockResolvedValueOnce([
@@ -325,6 +328,7 @@ describe("processRehearsalSttJob", () => {
       .mockResolvedValueOnce([runRow()])
       .mockResolvedValueOnce([assetRow])
       .mockResolvedValueOnce([deckRow])
+      .mockResolvedValueOnce([])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([runRow()])
       .mockResolvedValueOnce([
@@ -435,6 +439,7 @@ describe("processRehearsalSttJob", () => {
       .mockResolvedValueOnce([runRow()])
       .mockResolvedValueOnce([assetRow])
       .mockResolvedValueOnce([deckRow])
+      .mockResolvedValueOnce([])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([runRow()])
       .mockResolvedValueOnce([
