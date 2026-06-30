@@ -220,6 +220,7 @@ describe("processRehearsalSttJob", () => {
       ])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([runRow()])
+      .mockResolvedValueOnce([runRow()])
       .mockResolvedValueOnce([
         jobRow(
           "succeeded",
@@ -295,6 +296,7 @@ describe("processRehearsalSttJob", () => {
       .mockResolvedValueOnce([assetRow])
       .mockResolvedValueOnce([deckRow])
       .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
       .mockResolvedValueOnce([runRow()])
       .mockResolvedValueOnce([
         jobRow("failed", 10, null, {
@@ -327,6 +329,7 @@ describe("processRehearsalSttJob", () => {
       .mockResolvedValueOnce([runRow()])
       .mockResolvedValueOnce([assetRow])
       .mockResolvedValueOnce([deckRow])
+      .mockResolvedValueOnce([])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([runRow()])
       .mockResolvedValueOnce([
@@ -377,6 +380,7 @@ describe("processRehearsalSttJob", () => {
       .mockResolvedValueOnce([runRow()])
       .mockResolvedValueOnce([assetRow])
       .mockResolvedValueOnce([deckRow])
+      .mockResolvedValueOnce([])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([runRow()])
       .mockResolvedValueOnce([
