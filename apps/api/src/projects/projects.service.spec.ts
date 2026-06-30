@@ -25,7 +25,7 @@ function findOperatorValues(value: unknown): unknown[] | null {
 }
 
 function createProjectRepository(initialProjects: ProjectEntity[] = []) {
-  const projects = [...initialProjects];
+  const projects = initialProjects;
 
   const repository = {
     create(input: Partial<ProjectEntity>): ProjectEntity {
@@ -77,7 +77,7 @@ function createProjectRepository(initialProjects: ProjectEntity[] = []) {
 }
 
 function createProjectMemberRepository(initialMembers: ProjectMemberEntity[] = []) {
-  const members = [...initialMembers];
+  const members = initialMembers;
 
   const repository = {
     create(input: Partial<ProjectMemberEntity>): ProjectMemberEntity {
@@ -144,6 +144,7 @@ function createService(args?: {
   members?: ProjectMemberEntity[];
   users?: Array<{ user_id: string; email: string }>;
 }) {
+  const projects = args?.projects ?? [];
   const members = args?.members ?? [];
   const users = args?.users ?? [];
   const dataSource = {
@@ -166,8 +167,38 @@ function createService(args?: {
       }
       return [];
     },
-    async transaction(callback: (manager: { update: (entity: unknown, where: Partial<ProjectMemberEntity>, input: Partial<ProjectMemberEntity>) => Promise<void> }) => Promise<void>) {
-      await callback({
+    async transaction<T>(callback: (manager: {
+      create: <Entity>(entity: new () => Entity, input: Partial<Entity>) => Entity;
+      save: <Entity>(entity: Entity) => Promise<Entity>;
+      update: (entity: unknown, where: Partial<ProjectMemberEntity>, input: Partial<ProjectMemberEntity>) => Promise<void>;
+    }) => Promise<T>) {
+      return callback({
+        create(_entity, input) {
+          return input as never;
+        },
+        async save(entity) {
+          if (
+            entity &&
+            typeof entity === "object" &&
+            "workspaceId" in entity &&
+            "title" in entity
+          ) {
+            return createProjectRepository(projects).save(
+              entity as unknown as ProjectEntity,
+            ) as unknown as Promise<typeof entity>;
+          }
+          if (
+            entity &&
+            typeof entity === "object" &&
+            "projectId" in entity &&
+            "userId" in entity
+          ) {
+            return createProjectMemberRepository(members).save(
+              entity as unknown as ProjectMemberEntity,
+            ) as unknown as Promise<typeof entity>;
+          }
+          return entity;
+        },
         async update(_entity, where, input) {
           const member = members.find(
             (candidate) =>
@@ -185,7 +216,7 @@ function createService(args?: {
 
   return new ProjectsService(
     dataSource,
-    createProjectRepository(args?.projects),
+    createProjectRepository(projects),
     createProjectMemberRepository(members),
   );
 }

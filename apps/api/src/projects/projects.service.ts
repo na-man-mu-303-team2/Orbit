@@ -64,24 +64,27 @@ export class ProjectsService {
     this.assertWorkspaceAccess(workspaceId);
     const now = new Date();
 
-    const project = this.projectsRepository.create({
-      projectId: `project_${randomUUID()}`,
-      workspaceId,
-      title: input.title ?? defaultProjectTitle,
-      createdBy: userId,
-      createdAt: now,
-    });
-
-    const savedProject = await this.projectsRepository.save(project);
-    await this.projectMembersRepository.save(
-      this.projectMembersRepository.create({
-        projectId: savedProject.projectId,
-        userId,
-        role: "owner",
-        status: "accepted",
+    const savedProject = await this.dataSource.transaction(async (manager) => {
+      const project = manager.create(ProjectEntity, {
+        projectId: `project_${randomUUID()}`,
+        workspaceId,
+        title: input.title ?? defaultProjectTitle,
+        createdBy: userId,
         createdAt: now,
-      }),
-    );
+      });
+      const createdProject = await manager.save(project);
+      await manager.save(
+        manager.create(ProjectMemberEntity, {
+          projectId: createdProject.projectId,
+          userId,
+          role: "owner",
+          status: "accepted",
+          createdAt: now,
+        }),
+      );
+
+      return createdProject;
+    });
 
     return this.toProjectDto(savedProject);
   }

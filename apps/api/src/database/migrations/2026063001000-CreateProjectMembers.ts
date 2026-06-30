@@ -22,6 +22,13 @@ export class CreateProjectMembers2026063001000 implements MigrationInterface {
       CREATE INDEX IF NOT EXISTS idx_project_members_project_status
       ON project_members (project_id, status)
     `);
+    await queryRunner.query(`
+      INSERT INTO project_members (project_id, user_id, role, status, created_at)
+      SELECT projects.project_id, projects.created_by, 'owner', 'accepted', projects.created_at
+      FROM projects
+      INNER JOIN users ON users.user_id = projects.created_by
+      ON CONFLICT (project_id, user_id) DO NOTHING
+    `);
   }
 
   async down(queryRunner: QueryRunner): Promise<void> {
