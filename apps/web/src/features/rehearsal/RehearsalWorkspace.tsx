@@ -686,7 +686,7 @@ export function applyLiveTranscriptBias(
     if (
       normalizedTerm.length < 3 ||
       normalizedTranscript.includes(normalizedTerm) ||
-      !hasFuzzyBiasMatch(normalizedTranscript, normalizedTerm)
+      !hasFuzzyBiasMatch(transcript, normalizedTerm)
     ) {
       continue;
     }
@@ -808,6 +808,17 @@ export function shouldAutoAdvanceLiveSlide(options: {
   );
 }
 
+export function shouldCompleteLiveSlideAdvance(
+  options: {
+    confirmedCommand: RehearsalCommandCandidate | null;
+  } & Parameters<typeof shouldAutoAdvanceLiveSlide>[0]
+) {
+  return (
+    isAdvanceSlideCommand(options.confirmedCommand) &&
+    shouldAutoAdvanceLiveSlide(options)
+  );
+}
+
 export function getLiveAudioLevelLabel(level: LiveSttAudioLevelEvent | null) {
   if (!level) {
     return "입력 대기";
@@ -910,7 +921,15 @@ function isLiveSttDecodingMethod(value: unknown): value is LiveSttDecodingMethod
 }
 
 function readBrowserLocalStorage() {
-  return typeof window === "undefined" ? null : window.localStorage;
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  try {
+    return window.localStorage;
+  } catch {
+    return null;
+  }
 }
 
 function shouldUseLiveSttPostprocessBias(mode: LiveSttBiasMode) {
@@ -1003,20 +1022,26 @@ function isKeywordBiasSource(source: LiveSttBiasSource) {
   );
 }
 
-function hasFuzzyBiasMatch(normalizedTranscript: string, normalizedTerm: string) {
-  const transcript = normalizeBiasDistanceText(normalizedTranscript);
-  const term = normalizeBiasDistanceText(normalizedTerm);
-  const maxDistance = maxBiasTermDistance(term.length);
-  const minWindowLength = Math.max(3, term.length - maxDistance);
-  const maxWindowLength = Math.min(transcript.length, term.length + maxDistance);
+function hasFuzzyBiasMatch(transcript: string, normalizedTerm: string) {
+  const normalizedTermText = normalizedTerm.normalize("NFC");
+  const term = normalizeBiasDistanceText(normalizedTermText);
+  const maxDistance = maxBiasTermDistance(normalizedTermText);
+  if (maxDistance === 0) {
+    return false;
+  }
 
-  for (let windowLength = minWindowLength; windowLength <= maxWindowLength; windowLength += 1) {
-    for (let index = 0; index <= transcript.length - windowLength; index += 1) {
-      const candidate = transcript.slice(index, index + windowLength);
-      if (levenshteinDistance(candidate, term) <= maxDistance) {
-        return true;
-      }
+  for (const candidateText of extractFuzzyBiasCandidates(transcript)) {
+    const candidate = normalizeBiasDistanceText(candidateText);
+    if (
+      !candidate ||
+      isStrictPrefixBiasCandidate(candidate, term) ||
+      Math.abs(candidate.length - term.length) > maxDistance ||
+      levenshteinDistance(candidate, term) > maxDistance
+    ) {
+      continue;
     }
+
+    return true;
   }
 
   return false;
@@ -1026,16 +1051,37 @@ function normalizeBiasDistanceText(value: string) {
   return value.normalize("NFD");
 }
 
-function maxBiasTermDistance(length: number) {
-  if (length < 5) {
+function extractFuzzyBiasCandidates(transcript: string) {
+  return Array.from(
+    new Set(
+      transcript
+        .split(/[^\p{L}\p{N}.+#-]+/u)
+        .map(normalizeLiveTranscriptText)
+        .map((value) => value.normalize("NFC"))
+        .filter((value) => value.length > 0)
+    )
+  );
+}
+
+function isStrictPrefixBiasCandidate(candidate: string, term: string) {
+  return candidate.length < term.length && term.startsWith(candidate);
+}
+
+function maxBiasTermDistance(term: string) {
+  const length = Array.from(term.normalize("NFC")).length;
+  if (/^[a-z0-9]+$/i.test(term) && length < 5) {
     return 0;
   }
 
-  if (length <= 6) {
+  if (length <= 4) {
+    return 2;
+  }
+
+  if (length <= 8) {
     return 1;
   }
 
-  if (length <= 10) {
+  if (length <= 12) {
     return 2;
   }
 
@@ -1534,15 +1580,22 @@ export function RehearsalWorkspace(props: {
     liveKeywordStateRef.current = analysis;
     setLiveStatus("listening");
 
+    const autoAdvanceOptions = {
+      analysis,
+      currentSlideIndex: slideIndex,
+      slideCount: deckSnapshot.slides.length,
+      keywordCount: slide.keywords.length,
+      alreadyAdvanced: autoAdvancedSlideIdsRef.current.has(slide.slideId)
+    };
     if (
-      shouldAutoAdvanceLiveSlide({
-        analysis,
-        currentSlideIndex: slideIndex,
-        slideCount: deckSnapshot.slides.length,
-        keywordCount: slide.keywords.length,
-        alreadyAdvanced: autoAdvancedSlideIdsRef.current.has(slide.slideId)
+      shouldCompleteLiveSlideAdvance({
+        confirmedCommand,
+        ...autoAdvanceOptions
       })
     ) {
+      cancelPendingAutoAdvance("cancelled");
+      completeLiveSlideAdvance(deckSnapshot, slideIndex, analysis.coverage);
+    } else if (shouldAutoAdvanceLiveSlide(autoAdvanceOptions)) {
       scheduleAutoAdvance(deckSnapshot, slideIndex, analysis.coverage);
     }
   }
@@ -1602,17 +1655,31 @@ export function RehearsalWorkspace(props: {
         return;
       }
 
-      autoAdvancedSlideIdsRef.current.add(fromSlide.slideId);
-      setCurrentSlideIndex(fromSlideIndex + 1);
-      setLiveSlideAdvance({
-        type: "slide-advance",
-        fromSlideId: fromSlide.slideId,
-        toSlideId: toSlide.slideId,
-        reason: "keyword-coverage",
-        coverage
-      });
-      setAutoAdvanceState("advanced");
+      completeLiveSlideAdvance(deckSnapshot, fromSlideIndex, coverage);
     }, props.autoAdvanceDelayMs ?? defaultLiveAutoAdvanceDelayMs);
+  }
+
+  function completeLiveSlideAdvance(
+    deckSnapshot: Deck,
+    fromSlideIndex: number,
+    coverage: number
+  ) {
+    const fromSlide = deckSnapshot.slides[fromSlideIndex];
+    const toSlide = deckSnapshot.slides[fromSlideIndex + 1];
+    if (!fromSlide || !toSlide) {
+      return;
+    }
+
+    autoAdvancedSlideIdsRef.current.add(fromSlide.slideId);
+    setCurrentSlideIndex(fromSlideIndex + 1);
+    setLiveSlideAdvance({
+      type: "slide-advance",
+      fromSlideId: fromSlide.slideId,
+      toSlideId: toSlide.slideId,
+      reason: "keyword-coverage",
+      coverage
+    });
+    setAutoAdvanceState("advanced");
   }
 
   function cancelPendingAutoAdvance(nextState: "idle" | "cancelled" = "cancelled") {
@@ -2476,6 +2543,12 @@ function isEmphasisCommand(
   candidate: RehearsalCommandCandidate | null
 ): candidate is RehearsalCommandCandidate & { cue: "emphasis" } {
   return candidate?.action === "animation-cue" && candidate.cue === "emphasis";
+}
+
+function isAdvanceSlideCommand(
+  candidate: RehearsalCommandCandidate | null
+): candidate is RehearsalCommandCandidate & { action: "advance-slide" } {
+  return candidate?.action === "advance-slide";
 }
 
 function buildScriptParagraphs(slide: Slide | null) {

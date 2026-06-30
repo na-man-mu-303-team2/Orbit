@@ -88,6 +88,18 @@ describe("Live STT PCM debug helpers", () => {
     ).toBe(false);
   });
 
+  it("returns false when the browser localStorage getter is blocked", () => {
+    const blockedWindow = {};
+    Object.defineProperty(blockedWindow, "localStorage", {
+      get() {
+        throw new DOMException("blocked", "SecurityError");
+      }
+    });
+    vi.stubGlobal("window", blockedWindow);
+
+    expect(isLiveSttPcmDebugEnabled()).toBe(false);
+  });
+
   it("calculates PCM peak and RMS", () => {
     expect(calculatePcmStats(new Float32Array([0, -0.5, 0.25]))).toEqual({
       peak: 0.5,

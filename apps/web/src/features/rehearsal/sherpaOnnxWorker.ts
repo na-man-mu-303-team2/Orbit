@@ -448,22 +448,39 @@ function recreateRecognizer(
     throw new Error("Live STT recognizer has not been loaded.");
   }
 
-  if (stream) {
-    freeResource(stream);
+  let nextRecognizer: SherpaRecognizer | null = null;
+  let nextStream: SherpaStream | null = null;
+  try {
+    nextRecognizer = createRecognizer(
+      runtimeModule,
+      loadedManifest,
+      biasContext,
+      decodingMethod
+    );
+    nextStream = createRecognizerStream(nextRecognizer);
+  } catch (error) {
+    if (nextStream) {
+      freeResource(nextStream);
+    }
+    if (nextRecognizer) {
+      freeResource(nextRecognizer);
+    }
+    throw error;
   }
 
-  if (recognizer) {
-    freeResource(recognizer);
-  }
-
-  recognizer = createRecognizer(
-    runtimeModule,
-    loadedManifest,
-    biasContext,
-    decodingMethod
-  );
-  stream = createRecognizerStream(recognizer);
+  const previousStream = stream;
+  const previousRecognizer = recognizer;
+  recognizer = nextRecognizer;
+  stream = nextStream;
   activeBiasKey = createBiasKey(biasContext);
+
+  if (previousStream) {
+    freeResource(previousStream);
+  }
+
+  if (previousRecognizer) {
+    freeResource(previousRecognizer);
+  }
 }
 
 async function loadSherpaRuntime(nextManifest: WorkerManifest) {
