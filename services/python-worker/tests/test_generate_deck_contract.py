@@ -627,6 +627,59 @@ def test_generate_deck_varied_layout_keeps_stable_title_anchors() -> None:
         assert second_title[key] == first_title[key]
 
 
+def test_generate_deck_limits_footer_and_keyword_chips_to_first_slide() -> None:
+    fake_client = FakeOpenAIClient(
+        {
+            "title": "Deck chrome",
+            "slides": [
+                slide_payload(
+                    "Title slide",
+                    "Title message",
+                    "Title speaker note.",
+                    slide_type="title",
+                    slot_preset="title_center",
+                    keywords=["alpha"],
+                ),
+                slide_payload(
+                    "Content slide",
+                    "Content message",
+                    "Content speaker note.",
+                    slide_type="summary",
+                    slot_preset="insight_with_evidence",
+                    keywords=["beta"],
+                    visual_intent={
+                        "emphasis": "keywords",
+                        "mood": "focused",
+                        "structure": "chips",
+                        "paletteHint": "",
+                        "emphasisStyle": "keyword-chips",
+                        "composition": "data",
+                        "decorationDensity": "medium",
+                        "mediaStyle": "",
+                    },
+                ),
+            ],
+        }
+    )
+
+    response = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="ORBIT",
+            prompt="Use generated plan.",
+            slideCountRange={"min": 2, "max": 2},
+        ),
+        client=fake_client,
+    )
+
+    first_slide, second_slide = response.deck["slides"]
+    assert has_element(first_slide, "el_1_footer")
+    assert has_element(first_slide, "el_1_keyword_chip_1")
+    assert not has_element(second_slide, "el_2_footer")
+    assert not has_element(second_slide, "el_2_keyword_chip_1")
+    assert not has_element(second_slide, "el_2_keyword_chip_1_text")
+
+
 def test_generate_deck_keeps_feature_grid_metric_cards_with_varied_layout() -> None:
     fake_client = FakeOpenAIClient(
         {

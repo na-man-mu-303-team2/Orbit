@@ -2095,8 +2095,9 @@ def plan_visuals(slide_plan: SlidePlan) -> VisualPlan:
         ElementIntent(role="background"),
         ElementIntent(role="title", text=slide_plan.title),
         ElementIntent(role="body", text=slide_plan.message),
-        ElementIntent(role="footer", text="ORBIT AI 덱"),
     ]
+    if slide_plan.order == 1:
+        intents.append(ElementIntent(role="footer", text="ORBIT AI 덱"))
     if slide_plan.slide_type == "chart":
         intents.append(ElementIntent(role="chart", text=slide_plan.title))
 
@@ -2229,7 +2230,12 @@ def design_elements(
         visual_plan.visual_intent.emphasis_style,
     )
     composition = normalize_composition(visual_plan.visual_intent.composition)
-    if not emphasis_style and slide_plan.keywords and not is_diagram_composition(composition):
+    if (
+        not emphasis_style
+        and slide_plan.order == 1
+        and slide_plan.keywords
+        and not is_diagram_composition(composition)
+    ):
         emphasis_style = "keyword-chips"
     elements = [
         shape_element(
@@ -2388,7 +2394,7 @@ def design_elements(
 
     elements.extend(diagram_elements(slide_plan, composition, theme))
 
-    if emphasis_style == "keyword-chips":
+    if emphasis_style == "keyword-chips" and slide_plan.order == 1:
         elements.extend(keyword_chip_elements(slide_plan, theme))
     if emphasis_style == "callout":
         elements.extend(callout_elements(slide_plan, theme))
