@@ -6,6 +6,7 @@ import {
   type CreateRehearsalRunResponse,
   type Deck,
   type DeckElement,
+  type GetRehearsalReportResponse,
   type GetDeckResponse,
   type Job,
   type Keyword,
@@ -14,10 +15,12 @@ import {
   type LiveSttPartialTranscriptEvent,
   type LiveSttSlideAdvanceEvent,
   type PutDeckResponse,
+  type RehearsalReport,
   type RehearsalRun,
   type Slide
 } from "@orbit/shared";
 import {
+  BarChart3,
   AlertCircle,
   CheckCircle2,
   ChevronLeft,
@@ -65,14 +68,10 @@ type RehearsalFlowStage =
   | "storage-put"
   | "complete"
   | "job-poll"
-  | "run-fetch";
-type LiveSttStatus =
-  | "idle"
-  | "starting"
-  | "listening"
-  | "unavailable"
-  | "failed"
-  | "stopped";
+  | "run-fetch"
+  | "report-fetch";
+type LiveSttStatus = "idle" | "starting" | "listening" | "unavailable" | "failed" | "stopped";
+type RehearsalReportStatus = "idle" | "loading" | "ready" | "not-ready" | "failed";
 
 type RecordingSession = {
   recorder: MediaRecorder;
@@ -93,11 +92,7 @@ type LiveTranscriptAnalysis = {
   missingKeywordIds: string[];
 };
 
-const preferredAudioMimeTypes = [
-  "audio/webm;codecs=opus",
-  "audio/webm",
-  "audio/mp4"
-];
+const preferredAudioMimeTypes = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4"];
 const liveAutoAdvanceCoverageThreshold = 0.8;
 const defaultLiveAutoAdvanceDelayMs = 800;
 
@@ -256,10 +251,7 @@ export async function completeRehearsalAudioUpload(
   return (await response.json()) as CompleteRehearsalAudioUploadResponse;
 }
 
-export async function fetchRehearsalRun(
-  runId: string,
-  fetcher: Fetcher = fetch
-) {
+export async function fetchRehearsalRun(runId: string, fetcher: Fetcher = fetch) {
   const response = await fetcher(`/api/v1/rehearsals/${runId}`);
   if (!response.ok) {
     throw new RehearsalFlowError(
@@ -270,6 +262,18 @@ export async function fetchRehearsalRun(
 
   const payload = (await response.json()) as { run: RehearsalRun };
   return payload.run;
+}
+
+export async function fetchRehearsalReport(runId: string, fetcher: Fetcher = fetch) {
+  const response = await fetcher(`/api/v1/rehearsals/${runId}/report`);
+  if (!response.ok) {
+    throw new RehearsalFlowError(
+      "report-fetch",
+      await readErrorMessage(response, "리허설 보고서를 불러오지 못했습니다.")
+    );
+  }
+
+  return (await response.json()) as GetRehearsalReportResponse;
 }
 
 export async function pollRehearsalJob(
@@ -355,22 +359,21 @@ export function selectRecordingMimeType(
   }
 
   return (
-    preferredAudioMimeTypes.find((mimeType) =>
-      recorderCtor.isTypeSupported(mimeType)
-    ) ?? "audio/webm"
+    preferredAudioMimeTypes.find((mimeType) => recorderCtor.isTypeSupported(mimeType)) ??
+    "audio/webm"
   );
 }
 
-export function createRecordingFile(
-  blob: Blob,
-  mimeType: string,
-  now: Date = new Date()
-) {
+export function createRecordingFile(blob: Blob, mimeType: string, now: Date = new Date()) {
   const normalizedMimeType = normalizeRecordingMimeType(mimeType || blob.type);
   const safeTimestamp = now.toISOString().replace(/[:.]/g, "-");
-  return new File([blob], `rehearsal-${safeTimestamp}.${extensionForMimeType(normalizedMimeType)}`, {
-    type: normalizedMimeType
-  });
+  return new File(
+    [blob],
+    `rehearsal-${safeTimestamp}.${extensionForMimeType(normalizedMimeType)}`,
+    {
+      type: normalizedMimeType
+    }
+  );
 }
 
 export function normalizeRecordingMimeType(mimeType: string) {
@@ -481,14 +484,11 @@ export function evaluateLiveTranscript(
       }
     ];
   });
-  const coverage =
-    candidates.length === 0 ? 0 : detectedKeywords.length / candidates.length;
+  const coverage = candidates.length === 0 ? 0 : detectedKeywords.length / candidates.length;
   const missingKeywordIds = candidates
     .filter(
       (candidate) =>
-        !detectedKeywords.some(
-          (event) => event.keywordId === candidate.keyword.keywordId
-        )
+        !detectedKeywords.some((event) => event.keywordId === candidate.keyword.keywordId)
     )
     .map((candidate) => candidate.keyword.keywordId);
 
@@ -534,6 +534,7 @@ function createDefaultLiveSttAdapter() {
 
 export function RehearsalWorkspace(props: {
   initialDeck?: Deck;
+  initialReport?: RehearsalReport;
   fallbackDeck?: Deck;
   liveSttAdapter?: LiveSttAdapter;
   autoAdvanceDelayMs?: number;
@@ -541,12 +542,15 @@ export function RehearsalWorkspace(props: {
 }) {
   const [deck, setDeck] = useState<Deck | null>(props.initialDeck ?? null);
   const [currentSlideIndex, setCurrentSlideIndex] = useState(0);
-  const [phase, setPhase] = useState<RehearsalPhase>(
-    props.initialDeck ? "idle" : "loading"
-  );
+  const [phase, setPhase] = useState<RehearsalPhase>(props.initialDeck ? "idle" : "loading");
   const [, setError] = useState("");
   const [run, setRun] = useState<RehearsalRun | null>(null);
   const [, setJob] = useState<Job | null>(null);
+  const [report, setReport] = useState<RehearsalReport | null>(props.initialReport ?? null);
+  const [reportStatus, setReportStatus] = useState<RehearsalReportStatus>(
+    props.initialReport ? "ready" : "idle"
+  );
+  const [reportError, setReportError] = useState("");
   const [liveStatus, setLiveStatus] = useState<LiveSttStatus>("idle");
   const [liveError, setLiveError] = useState("");
   const [liveTranscript, setLiveTranscript] = useState("");
@@ -699,6 +703,9 @@ export function RehearsalWorkspace(props: {
     setError("");
     setRun(null);
     setJob(null);
+    setReport(null);
+    setReportStatus("idle");
+    setReportError("");
     setLiveError("");
     resetLiveTranscriptForSlide(currentSlide);
     setLiveCue(null);
@@ -878,9 +885,7 @@ export function RehearsalWorkspace(props: {
       return true;
     } catch (cause) {
       const error = toLiveSttAdapterError(cause);
-      setLiveStatus(
-        error.code === "LIVE_STT_MODEL_UNAVAILABLE" ? "unavailable" : "failed"
-      );
+      setLiveStatus(error.code === "LIVE_STT_MODEL_UNAVAILABLE" ? "unavailable" : "failed");
       setLiveError(error.message);
       cancelPendingAutoAdvance("cancelled");
       return false;
@@ -888,9 +893,7 @@ export function RehearsalWorkspace(props: {
   }
 
   function handleLiveSttError(error: LiveSttAdapterError) {
-    setLiveStatus(
-      error.code === "LIVE_STT_MODEL_UNAVAILABLE" ? "unavailable" : "failed"
-    );
+    setLiveStatus(error.code === "LIVE_STT_MODEL_UNAVAILABLE" ? "unavailable" : "failed");
     setLiveError(error.message);
     cancelPendingAutoAdvance("cancelled");
   }
@@ -921,9 +924,7 @@ export function RehearsalWorkspace(props: {
 
     const previousDetectedIds = new Set(
       liveKeywordStateRef.current?.slideId === slide.slideId
-        ? liveKeywordStateRef.current.detectedKeywords.map(
-            (keyword) => keyword.keywordId
-          )
+        ? liveKeywordStateRef.current.detectedKeywords.map((keyword) => keyword.keywordId)
         : []
     );
     const newlyDetected = analysis.detectedKeywords.find(
@@ -953,11 +954,7 @@ export function RehearsalWorkspace(props: {
     }
   }
 
-  function scheduleAutoAdvance(
-    deckSnapshot: Deck,
-    fromSlideIndex: number,
-    coverage: number
-  ) {
+  function scheduleAutoAdvance(deckSnapshot: Deck, fromSlideIndex: number, coverage: number) {
     const fromSlide = deckSnapshot.slides[fromSlideIndex];
     const toSlide = deckSnapshot.slides[fromSlideIndex + 1];
     if (!fromSlide || !toSlide) {
@@ -991,9 +988,7 @@ export function RehearsalWorkspace(props: {
     }, props.autoAdvanceDelayMs ?? defaultLiveAutoAdvanceDelayMs);
   }
 
-  function cancelPendingAutoAdvance(
-    nextState: "idle" | "cancelled" = "cancelled"
-  ) {
+  function cancelPendingAutoAdvance(nextState: "idle" | "cancelled" = "cancelled") {
     if (autoAdvanceTimerRef.current) {
       clearTimeout(autoAdvanceTimerRef.current);
       autoAdvanceTimerRef.current = null;
@@ -1004,6 +999,8 @@ export function RehearsalWorkspace(props: {
   async function submitRecording(activeDeck: Deck, audioFile: File) {
     setPhase("uploading");
     setError("");
+    setReportStatus("idle");
+    setReportError("");
 
     try {
       const result = await runRehearsalUploadFlow({
@@ -1020,14 +1017,34 @@ export function RehearsalWorkspace(props: {
 
       if (result.job.status === "failed") {
         setPhase("failed");
-        setError(result.job.error?.message || result.job.message || "由ы뿀??遺꾩꽍???ㅽ뙣?덉뒿?덈떎.");
+        setError(
+          result.job.error?.message || result.job.message || "由ы뿀??遺꾩꽍???ㅽ뙣?덉뒿?덈떎."
+        );
         return;
       }
 
+      await loadReportForRun(result.run.runId, result.run);
       setPhase("succeeded");
     } catch (cause) {
       setError(toRehearsalFlowMessage(cause));
       setPhase("failed");
+    }
+  }
+
+  async function loadReportForRun(runId: string, fallbackRun: RehearsalRun) {
+    setReportStatus("loading");
+    setReportError("");
+
+    try {
+      const response = await fetchRehearsalReport(runId);
+      setRun(response.run);
+      setReport(response.report);
+      setReportStatus(response.report ? "ready" : "not-ready");
+    } catch (cause) {
+      setRun(fallbackRun);
+      setReport(null);
+      setReportStatus("failed");
+      setReportError(toRehearsalFlowMessage(cause));
     }
   }
 
@@ -1133,18 +1150,10 @@ export function RehearsalWorkspace(props: {
         </div>
       </header>
       <div className="rehearsal-smoke-controls" aria-label="리허설 smoke controls">
-        <button
-          type="button"
-          onClick={() => void startRecording()}
-          disabled={!canRecord}
-        >
+        <button type="button" onClick={() => void startRecording()} disabled={!canRecord}>
           리포트 녹음 시작
         </button>
-        <button
-          type="button"
-          onClick={stopRecording}
-          disabled={phase !== "recording"}
-        >
+        <button type="button" onClick={stopRecording} disabled={phase !== "recording"}>
           리포트 녹음 종료
         </button>
         <span>{phase}</span>
@@ -1158,7 +1167,9 @@ export function RehearsalWorkspace(props: {
             {currentSlide ? (
               <DeckSlidePreview deck={deck} slide={currentSlide} />
             ) : (
-              <div className="rehearsal-empty-stage">{"\ubc1c\ud45c\uc790\ub8cc \ub85c\ub529 \uc911"}</div>
+              <div className="rehearsal-empty-stage">
+                {"\ubc1c\ud45c\uc790\ub8cc \ub85c\ub529 \uc911"}
+              </div>
             )}
           </div>
 
@@ -1192,8 +1203,7 @@ export function RehearsalWorkspace(props: {
               const slide = deck?.slides[slideIndex];
               if (!slide) return null;
 
-              const label =
-                offset === 0 ? "\ud604\uc7ac" : offset > 0 ? `+${offset}` : `${offset}`;
+              const label = offset === 0 ? "\ud604\uc7ac" : offset > 0 ? `+${offset}` : `${offset}`;
               return (
                 <button
                   className={`rehearsal-context-thumb ${offset === 0 ? "active" : ""}`}
@@ -1211,6 +1221,13 @@ export function RehearsalWorkspace(props: {
         </section>
 
         <aside className="rehearsal-presenter-side">
+          <RehearsalReportPanel
+            error={reportError}
+            report={report}
+            run={run}
+            status={reportStatus}
+          />
+
           <section className="rehearsal-assist-card checklist-card">
             <header>
               <span>
@@ -1347,8 +1364,7 @@ export function RehearsalWorkspace(props: {
 
 function DeckSlidePreview(props: { deck: Deck | null; slide: Slide }) {
   const { deck, slide } = props;
-  const backgroundColor =
-    slide.style.backgroundColor ?? deck?.theme.backgroundColor ?? "#ffffff";
+  const backgroundColor = slide.style.backgroundColor ?? deck?.theme.backgroundColor ?? "#ffffff";
   const textColor = slide.style.textColor ?? deck?.theme.textColor ?? "#15202b";
   const titleText = getSlideTitle(slide);
   const bodyTexts = getSlideBodyTexts(slide);
@@ -1371,28 +1387,125 @@ function DeckSlidePreview(props: { deck: Deck | null; slide: Slide }) {
   }
 
   return (
-    <div
-      className="rehearsal-slide-preview"
-      style={{ backgroundColor, color: textColor }}
-    >
+    <div className="rehearsal-slide-preview" style={{ backgroundColor, color: textColor }}>
       <h2 className="rehearsal-slide-title">{titleText}</h2>
       <div className="rehearsal-slide-diagram" aria-label="?щ씪?대뱶 ?듭떖 ?먮쫫">
         {keywords.slice(0, 5).map((keyword, index) => (
           <div className="diagram-step" key={keyword.keywordId}>
             <span className="diagram-icon">
-              {index === 0 ? <Mic size={28} /> : index === 1 ? <span /> : index === 2 ? <Sparkles size={26} /> : index === 3 ? <PresentationScreenIcon /> : <CheckCircle2 size={28} />}
+              {index === 0 ? (
+                <Mic size={28} />
+              ) : index === 1 ? (
+                <span />
+              ) : index === 2 ? (
+                <Sparkles size={26} />
+              ) : index === 3 ? (
+                <PresentationScreenIcon />
+              ) : (
+                <CheckCircle2 size={28} />
+              )}
             </span>
             <strong>{keyword.text}</strong>
           </div>
         ))}
       </div>
-      <p className="rehearsal-slide-caption">
-        {bodyTexts[0] ?? `[ ${titleText} ]`}
-      </p>
+      <p className="rehearsal-slide-caption">{bodyTexts[0] ?? `[ ${titleText} ]`}</p>
     </div>
   );
 }
 
+function RehearsalReportPanel(props: {
+  error: string;
+  report: RehearsalReport | null;
+  run: RehearsalRun | null;
+  status: RehearsalReportStatus;
+}) {
+  const { error, report, run, status } = props;
+
+  return (
+    <section className="rehearsal-assist-card rehearsal-report-card" aria-live="polite">
+      <header>
+        <span>
+          <BarChart3 size={16} />
+          {"리허설 보고서"}
+        </span>
+        <small>{formatReportStatus(status, run?.status)}</small>
+      </header>
+
+      {report ? (
+        <div className="rehearsal-report-content">
+          <div className="rehearsal-report-metrics" aria-label="Report metrics">
+            <ReportMetric
+              label="말 속도"
+              value={`${Math.round(report.metrics.wordsPerMinute)} wpm`}
+            />
+            <ReportMetric label="불필요한 표현" value={`${report.metrics.fillerWordCount}회`} />
+            <ReportMetric label="긴 멈춤" value={`${report.metrics.pauseCount}회`} />
+            <ReportMetric
+              label="키워드 커버리지"
+              value={formatPercent(report.metrics.keywordCoverage)}
+            />
+          </div>
+
+          <div className="rehearsal-report-section">
+            <strong>{"코칭 요약"}</strong>
+            <p>
+              {report.coaching?.summary || report.coaching?.message || "코칭 요약이 아직 없습니다."}
+            </p>
+          </div>
+
+          {report.coaching?.strengths.length ? (
+            <div className="rehearsal-report-section">
+              <strong>{"강점"}</strong>
+              <ul>
+                {report.coaching.strengths.slice(0, 3).map((strength) => (
+                  <li key={strength}>{strength}</li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+
+          {report.coaching?.nextPracticeFocus ? (
+            <div className="rehearsal-report-section">
+              <strong>{"다음 연습"}</strong>
+              <p>{report.coaching.nextPracticeFocus}</p>
+            </div>
+          ) : null}
+
+          <div className="rehearsal-report-transcript">
+            <strong>{"전사문"}</strong>
+            {report.transcriptRetained && report.transcript ? (
+              <p>{report.transcript}</p>
+            ) : (
+              <p className="rehearsal-report-muted">{"전사문 미보존"}</p>
+            )}
+          </div>
+
+          <small className="rehearsal-report-generated">
+            {formatReportGeneratedAt(report.generatedAt)}
+          </small>
+        </div>
+      ) : (
+        <div
+          className={
+            status === "failed" ? "rehearsal-report-state status-error" : "rehearsal-report-state"
+          }
+        >
+          {formatEmptyReportMessage(status, error)}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function ReportMetric(props: { label: string; value: string }) {
+  return (
+    <div className="rehearsal-report-metric">
+      <span>{props.label}</span>
+      <strong>{props.value}</strong>
+    </div>
+  );
+}
 
 function getSlideTitle(slide: Slide) {
   const title = slide.title.trim();
@@ -1407,8 +1520,9 @@ function getSlideTitle(slide: Slide) {
 
 function getSlideBodyTexts(slide: Slide) {
   return slide.elements
-    .filter((element): element is Extract<DeckElement, { type: "text" }> =>
-      element.type === "text" && Boolean(element.props.text.trim())
+    .filter(
+      (element): element is Extract<DeckElement, { type: "text" }> =>
+        element.type === "text" && Boolean(element.props.text.trim())
     )
     .map((element) => element.props.text.trim())
     .filter((text) => text !== slide.title.trim());
@@ -1482,9 +1596,44 @@ function escapeRegExp(value: string) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+function formatReportStatus(status: RehearsalReportStatus, runStatus?: RehearsalRun["status"]) {
+  if (status === "ready") return "완료";
+  if (status === "loading") return "불러오는 중";
+  if (status === "failed") return "오류";
+  if (status === "not-ready" || runStatus === "processing") return "생성 중";
+  return "대기";
+}
+
+function formatEmptyReportMessage(status: RehearsalReportStatus, error: string) {
+  if (status === "loading") return "보고서를 불러오는 중입니다.";
+  if (status === "not-ready") return "보고서 생성 중입니다.";
+  if (status === "failed") return error || "보고서를 불러오지 못했습니다.";
+  return "보고서 대기 중";
+}
+
+function formatPercent(value: number) {
+  return `${Math.round(value * 100)}%`;
+}
+
+function formatReportGeneratedAt(generatedAt: string) {
+  const parsed = Date.parse(generatedAt);
+  if (Number.isNaN(parsed)) {
+    return generatedAt;
+  }
+
+  return `생성 ${new Intl.DateTimeFormat("ko-KR", {
+    dateStyle: "short",
+    timeStyle: "short"
+  }).format(parsed)}`;
+}
+
 function formatClock(totalSeconds: number) {
-  const minutes = Math.floor(totalSeconds / 60).toString().padStart(2, "0");
-  const seconds = Math.floor(totalSeconds % 60).toString().padStart(2, "0");
+  const minutes = Math.floor(totalSeconds / 60)
+    .toString()
+    .padStart(2, "0");
+  const seconds = Math.floor(totalSeconds % 60)
+    .toString()
+    .padStart(2, "0");
   return `${minutes}:${seconds}`;
 }
 

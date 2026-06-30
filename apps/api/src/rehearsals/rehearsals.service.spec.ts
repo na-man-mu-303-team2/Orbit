@@ -6,11 +6,9 @@ import type { Repository } from "typeorm";
 import type { DecksService } from "../decks/decks.service";
 import type { FilesService } from "../files/files.service";
 import type { JobsService } from "../jobs/jobs.service";
+import type { ProjectsService } from "../projects/projects.service";
 import { RehearsalRunEntity } from "./rehearsal-run.entity";
-import {
-  RehearsalsService,
-  type RehearsalSttEnqueueJob
-} from "./rehearsals.service";
+import { RehearsalsService, type RehearsalSttEnqueueJob } from "./rehearsals.service";
 
 const validEnv = {
   NODE_ENV: "test",
@@ -83,6 +81,31 @@ const upload: AssetUploadUrlResponse = {
   purpose: "rehearsal-audio"
 };
 
+const reportJson = {
+  reportId: "report_run-1",
+  runId: "run-1",
+  projectId: "project-a",
+  deckId: "deck-a",
+  transcriptRetained: false,
+  transcript: null,
+  metrics: {
+    durationSeconds: 30,
+    wordsPerMinute: 120,
+    fillerWordCount: 1,
+    pauseCount: 0,
+    keywordCoverage: 1
+  },
+  coaching: {
+    status: "succeeded",
+    summary: "clear",
+    strengths: ["키워드를 언급했습니다."],
+    improvements: ["불필요한 filler를 줄이세요."],
+    nextPracticeFocus: "도입부를 더 짧게 연습하세요.",
+    message: ""
+  },
+  generatedAt: rawAudioDeletedAt
+};
+
 describe("RehearsalsService", () => {
   beforeEach(() => {
     Object.assign(process.env, validEnv);
@@ -106,9 +129,9 @@ describe("RehearsalsService", () => {
   it("rejects run creation when the deckId does not match the project deck", async () => {
     const service = createService();
 
-    await expect(
-      service.createRun("project-a", { deckId: "deck-other" })
-    ).rejects.toBeInstanceOf(BadRequestException);
+    await expect(service.createRun("project-a", { deckId: "deck-other" })).rejects.toBeInstanceOf(
+      BadRequestException
+    );
   });
 
   it("creates an upload URL and pins the audio file to the run", async () => {
@@ -190,15 +213,11 @@ describe("RehearsalsService", () => {
       size: 1024
     });
 
-    await expect(
-      service.completeAudioUpload(run.runId, { fileId: "file-audio" })
-    ).rejects.toThrow("redis down");
-
-    expect(deleteUploadedAsset).toHaveBeenCalledWith(
-      "project-a",
-      "file-audio",
-      "rehearsal-audio"
+    await expect(service.completeAudioUpload(run.runId, { fileId: "file-audio" })).rejects.toThrow(
+      "redis down"
     );
+
+    expect(deleteUploadedAsset).toHaveBeenCalledWith("project-a", "file-audio", "rehearsal-audio");
     expect(jobsService.update).toHaveBeenCalledWith("job-1", {
       status: "failed",
       progress: 0,
@@ -241,9 +260,9 @@ describe("RehearsalsService", () => {
       size: 1024
     });
 
-    await expect(
-      service.completeAudioUpload(run.runId, { fileId: "file-audio" })
-    ).rejects.toThrow("redis down");
+    await expect(service.completeAudioUpload(run.runId, { fileId: "file-audio" })).rejects.toThrow(
+      "redis down"
+    );
 
     expect(jobsService.update).toHaveBeenCalledWith("job-1", {
       status: "failed",
@@ -284,10 +303,64 @@ describe("RehearsalsService", () => {
 
     expect(jobsService.create).toHaveBeenCalledTimes(1);
   });
+
+  it("returns a null report while the rehearsal is still processing", async () => {
+    const service = createService();
+    const run = await createRun(service);
+    await service.createAudioUploadUrl(run.runId, {
+      originalName: "rehearsal.webm",
+      mimeType: "audio/webm",
+      size: 1024
+    });
+    await service.completeAudioUpload(run.runId, { fileId: "file-audio" });
+
+    const result = await service.getReport(run.runId);
+
+    expect(result.run.status).toBe("processing");
+    expect(result.report).toBeNull();
+    expect(service.testProjectsService.getAccessibleProject).toHaveBeenCalledWith("project-a");
+  });
+
+  it("returns the saved report JSON for a succeeded rehearsal", async () => {
+    const service = createService();
+    const run = await createRun(service);
+    await saveRunPatch(service, run.runId, {
+      status: "succeeded",
+      reportJson,
+      transcriptRetained: false,
+      rawAudioDeletedAt: new Date(rawAudioDeletedAt)
+    });
+
+    const result = await service.getReport(run.runId);
+
+    expect(result.run.status).toBe("succeeded");
+    expect(result.report).toMatchObject({
+      reportId: "report_run-1",
+      transcriptRetained: false,
+      transcript: null,
+      metrics: {
+        wordsPerMinute: 120,
+        keywordCoverage: 1
+      }
+    });
+  });
 });
 
 async function createRun(service: ReturnType<typeof createService>) {
   return (await service.createRun("project-a", { deckId: "deck-a" })).run;
+}
+
+async function saveRunPatch(
+  service: ReturnType<typeof createService>,
+  runId: string,
+  patch: Partial<RehearsalRunEntity>
+) {
+  const run = await service.testRehearsalRuns.findOne({ where: { runId } });
+  if (!run) {
+    throw new Error(`Missing test run: ${runId}`);
+  }
+
+  await service.testRehearsalRuns.save({ ...run, ...patch });
 }
 
 function createService(
@@ -320,6 +393,15 @@ function createService(
     deleteUploadedAsset: vi.fn(async () => rawAudioDeletedAt),
     ...options.filesServicePatch
   } as unknown as FilesService;
+  const projectsService = {
+    getAccessibleProject: vi.fn(async (projectId: string) => ({
+      projectId,
+      workspaceId: "workspace-a",
+      title: "Project A",
+      createdBy: "user-a",
+      createdAt: createdAt.toISOString()
+    }))
+  } as unknown as ProjectsService;
   const service = new RehearsalsService(
     repository,
     {
@@ -329,6 +411,7 @@ function createService(
         updatedAt: createdAt.toISOString()
       }))
     } as unknown as DecksService,
+    projectsService,
     filesService,
     options.jobsService ??
       ({
@@ -339,6 +422,10 @@ function createService(
     logger
   );
   return Object.assign(service, {
+    testRehearsalRuns: repository,
+    testProjectsService: projectsService as ProjectsService & {
+      getAccessibleProject: ReturnType<typeof vi.fn>;
+    },
     testFilesService: filesService as FilesService & {
       createUploadUrl: ReturnType<typeof vi.fn>;
     },
@@ -360,10 +447,7 @@ function createRunRepository() {
     async findOne(options: { where: { runId: string } }) {
       return runs.get(options.where.runId) ?? null;
     },
-    async update(
-      criteria: Partial<RehearsalRunEntity>,
-      patch: Partial<RehearsalRunEntity>
-    ) {
+    async update(criteria: Partial<RehearsalRunEntity>, patch: Partial<RehearsalRunEntity>) {
       const run = [...runs.values()].find((candidate) =>
         Object.entries(criteria).every(
           ([key, value]) => candidate[key as keyof RehearsalRunEntity] === value

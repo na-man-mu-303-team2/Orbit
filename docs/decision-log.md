@@ -217,3 +217,16 @@
 - Rationale: 개인 서버 HTTP demo의 인증 흐름을 검증할 수 있게 하면서도 HTTPS staging/prod에서 non-secure auth cookie가 실수로 남는 설정을 startup 단계에서 거부한다.
 - Affected files: `packages/config/src/index.ts`, `apps/api/src/auth/auth-cookie.ts`, `apps/api/src/config/env.schema.spec.ts`, `.env.example`, `.env.staging.example`, `.env.production.example`, `docker-compose.staging.yml`, `docs/conventions/environment.md`, `docs/runbooks/personal-server-deployment.md`, `docs/decision-log.md`.
 - Follow-up review notes: HTTPS 적용 후 Doppler `orbit / stg`의 `AUTH_COOKIE_SECURE` 값을 비우거나 `true`로 되돌린다. 값이 남아 있으면 HTTPS staging startup이 실패해야 한다.
+
+## ORBIT-38 rehearsal report retention and access policy
+
+- Context: ORBIT-38은 리허설 결과 보고서 화면과 report API를 단독 완료형으로 구현한다. ORBIT-37의 고급 0-100 점수 산식은 아직 확정되지 않았고, transcript 원문은 발표자 발화 민감 데이터가 될 수 있다.
+- Options considered:
+  - `jobs.result`만 조회해 보고서를 표시한다.
+  - `rehearsal_runs.report_json`을 공식 보고서 저장 위치로 둔다.
+  - transcript를 기본 보존하거나, 사용자가 별도 보존을 선택하기 전까지 저장하지 않는다.
+  - 현재 demo/project boundary를 재사용하거나 완전한 workspace member role 모델을 새로 추가한다.
+- Final decision: 공식 보고서는 `rehearsal_runs.report_json`에 저장하고 `GET /api/v1/rehearsals/:runId/report`에서 조회한다. `transcript_retained=false`를 기본값으로 두며, 이때 `report.transcript`는 `null`이어야 한다. 접근 제어는 현재 프로젝트 접근 경계를 재사용하고, 고급 0-100 점수는 ORBIT-37 후속으로 남긴다.
+- Rationale: report API가 Job 기록에 덜 묶이고, 민감 발화 원문 보존을 최소화하며, ORBIT-38 범위 안에서 presenter-only 기본 접근을 현재 구조와 충돌 없이 제공할 수 있다.
+- Affected files: `packages/shared/src/rehearsals/rehearsal.schema.ts`, `apps/api/src/rehearsals/**`, `apps/api/src/database/migrations/2026062903000-AddRehearsalReportColumns.ts`, `apps/worker/src/rehearsal-stt.processor.ts`, `apps/web/src/features/rehearsal/RehearsalWorkspace.tsx`, `docs/contracts.md`, `docs/decision-log.md`.
+- Follow-up review notes: ORBIT-37에서 실제 점수 산식과 transcript 보존 opt-in 정책이 확정되면 `RehearsalReport` schema, worker 저장 정책, UI 노출 조건을 함께 재검토한다.
