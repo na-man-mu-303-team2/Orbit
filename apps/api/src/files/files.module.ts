@@ -2,6 +2,7 @@ import { loadOrbitConfig } from "@orbit/config";
 import { LocalMinioStorage, S3Storage } from "@orbit/storage";
 import { Module } from "@nestjs/common";
 import { TypeOrmModule } from "@nestjs/typeorm";
+import { AuthModule } from "../auth/auth.module";
 import { ProjectsModule } from "../projects/projects.module";
 import { FilesController } from "./files.controller";
 import { ProjectAssetEntity } from "./project-asset.entity";
@@ -12,7 +13,7 @@ import {
 } from "./files.service";
 
 @Module({
-  imports: [TypeOrmModule.forFeature([ProjectAssetEntity]), ProjectsModule],
+  imports: [AuthModule, TypeOrmModule.forFeature([ProjectAssetEntity]), ProjectsModule],
   controllers: [FilesController],
   providers: [
     FilesService,
