@@ -2860,22 +2860,13 @@ export function EditorShell(props: { projectId?: string }) {
                     onClick={() => setCurrentSlideIndex(index)}
                   >
                     <span className="slide-number">{index + 1}</span>
-                    <span className="slide-title">
-                      <strong className="slide-title-text">
-                        {slide.title || `슬라이드 ${index + 1}`}
-                      </strong>
-                      {showIds ? <IdBadge id={slide.slideId} /> : null}
-                    </span>
+                    {showIds ? <IdBadge id={slide.slideId} /> : null}
                     <span
                       className="slide-thumb orbit-thumb"
                       style={{
                         background: buildSlideThumbBackground(slide, deck)
                       }}
-                    >
-                      <small>
-                        {slide.thumbnailUrl ? "미리보기 준비됨" : "미리보기 없음"}
-                      </small>
-                    </span>
+                    />
                   </button>
                 ))
               ) : (
@@ -3357,7 +3348,7 @@ function buildSlideThumbBackground(slide: Slide, deck: Deck) {
   const background = slide.style.backgroundColor ?? deck.theme.backgroundColor;
 
   if (slide.thumbnailUrl) {
-    return `url("${resolveEditorAssetUrl(slide.thumbnailUrl)}") center / cover no-repeat, ${background}`;
+    return `url("${resolveEditorAssetUrl(slide.thumbnailUrl)}") center / contain no-repeat, ${background}`;
   }
 
   const backgroundImage = slide.style.backgroundImage;

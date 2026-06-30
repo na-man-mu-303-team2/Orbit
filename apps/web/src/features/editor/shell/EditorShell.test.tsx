@@ -149,7 +149,7 @@ describe("editor shell", () => {
 
     expect(html).toContain(deck.title);
     expect(html).toContain("Opening");
-    expect(html).toContain("Data Contract");
+    expect(html).not.toContain("Data Contract");
     expect(html).toContain("발표 메모");
     expect(html).toContain("저장됨");
     expect(html).toContain("AI 제안 검토");
@@ -223,8 +223,8 @@ describe("editor shell", () => {
 
     const html = renderApp(queryClient);
 
-    expect(html).toContain("미리보기 준비됨");
     expect(html).toContain("http://assets.example.test/slide_1.png");
+    expect(html).not.toContain("미리보기 준비됨");
   });
 
   it("applies manual save results only while the saved snapshot is still current", () => {
