@@ -1041,6 +1041,40 @@
   padding: 34px 24px 30px;
 }
 
+.editor-loading-guard {
+  align-items: center;
+  background: rgba(248, 250, 252, 0.82);
+  backdrop-filter: blur(5px);
+  color: #0f172a;
+  display: flex;
+  gap: 10px;
+  inset: var(--topbar-height, 58px) 0 0;
+  justify-content: center;
+  pointer-events: auto;
+  position: fixed;
+  z-index: 80;
+}
+
+.editor-loading-guard strong {
+  font-size: 0.94rem;
+  font-weight: 900;
+}
+
+.editor-loading-spinner {
+  animation: editor-spin 0.85s linear infinite;
+  border: 3px solid #dbeafe;
+  border-top-color: #2563eb;
+  border-radius: 999px;
+  height: 24px;
+  width: 24px;
+}
+
+@keyframes editor-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .editor-state-notice {
   display: flex;
   align-items: center;

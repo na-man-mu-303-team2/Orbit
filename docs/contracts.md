@@ -733,6 +733,38 @@ API:
   - response: `{ "run": RehearsalRun, "job": Job }`
 - `GET /api/v1/rehearsals/:runId`
   - response: `{ "run": RehearsalRun }`
+- `GET /api/v1/rehearsals/:runId/report`
+  - response: `{ "run": RehearsalRun, "report": RehearsalReport | null }`
+  - run이 아직 `processing`이거나 과거 run에 `report_json`이 없으면 `report`는 `null`이다.
+
+Report 응답 구조:
+
+```json
+{
+  "reportId": "report_run_1",
+  "runId": "run_1",
+  "projectId": "project_demo_1",
+  "deckId": "deck_demo_1",
+  "transcriptRetained": false,
+  "transcript": null,
+  "metrics": {
+    "durationSeconds": 90,
+    "wordsPerMinute": 120,
+    "fillerWordCount": 2,
+    "pauseCount": 1,
+    "keywordCoverage": 0.75
+  },
+  "coaching": {
+    "status": "succeeded",
+    "summary": "핵심 메시지가 분명합니다.",
+    "strengths": ["키워드를 언급했습니다."],
+    "improvements": ["불필요한 filler를 줄이세요."],
+    "nextPracticeFocus": "도입부를 더 짧게 연습하세요.",
+    "message": ""
+  },
+  "generatedAt": "2026-06-27T01:00:10+09:00"
+}
+```
 
 결정 사항:
 
@@ -741,6 +773,10 @@ API:
 - STT와 코칭 분석이 끝난 직후 raw audio object를 삭제한다.
 - raw audio 삭제 성공은 `rawAudioDeletedAt`과 `project_assets.status=deleted`, `deleted_at`으로 남긴다.
 - 삭제 실패는 `RAW_AUDIO_DELETE_FAILED` error로 run/job 양쪽에 남긴다.
+- 공식 보고서 원본은 `jobs.result`가 아니라 `rehearsal_runs.report_json`이다.
+- `transcript_retained` 기본값은 `false`이며, `false`일 때 `report.transcript`는 반드시 `null`이다.
+- `GET /api/v1/rehearsals/:runId/report` 접근은 현재 프로젝트 접근 경계(`ProjectsService.getAccessibleProject`)를 재사용한다.
+- ORBIT-37의 고급 0-100 점수 산식은 이 계약에 포함하지 않으며, 실제 산식이 확정되기 전까지 UI에서도 점수를 표시하지 않는다.
 
 구현 위치:
 

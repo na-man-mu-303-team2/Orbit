@@ -14,10 +14,10 @@ import {
   EditorShell,
   EditorStateNotice,
   mergeDeckIntoQueryCache,
-  resolveEditorAssetUrl,
   shouldApplyManualSaveResult,
   shouldHydrateDeckFromQuery
 } from "./EditorShell";
+import { resolveEditorAssetUrl } from "./editorAssetUrl";
 import { aiSuggestionsQueryKey } from "./suggestions/suggestionApi";
 
 vi.mock("react-konva", () => {
@@ -122,6 +122,13 @@ describe("editor shell", () => {
       ),
     ).toBe(
       "http://127.0.0.1:5173/api/v1/projects/project_real_1/assets/file_real_2/content",
+    );
+    expect(
+      resolveEditorAssetUrl(
+        "http://localhost:9000/orbit-local/projects/project_real_1/assets/file_550e8400-e29b-41d4-a716-446655440000-slide_3-v8.png",
+      ),
+    ).toBe(
+      "http://127.0.0.1:5173/api/v1/projects/project_real_1/assets/file_550e8400-e29b-41d4-a716-446655440000/content",
     );
     expect(
       resolveEditorAssetUrl(

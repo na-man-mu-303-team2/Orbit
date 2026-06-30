@@ -10,6 +10,12 @@ interface WebEnvConfig {
   webPort: number;
 }
 
+const crossOriginIsolationHeaders = {
+  "Cross-Origin-Opener-Policy": "same-origin",
+  "Cross-Origin-Embedder-Policy": "require-corp",
+  "Cross-Origin-Resource-Policy": "same-origin"
+} as const;
+
 function requireWebEnv(
   env: Record<string, string | undefined>,
   key: string
@@ -62,6 +68,9 @@ export default defineConfig(({ mode }) => {
 
   return {
     plugins: [react()],
+    worker: {
+      format: "iife"
+    },
     resolve: {
       alias: {
         "@orbit/editor-core": fileURLToPath(
@@ -75,6 +84,7 @@ export default defineConfig(({ mode }) => {
     server: {
       host: "0.0.0.0",
       port: env.webPort,
+      headers: crossOriginIsolationHeaders,
       proxy: {
         "/api/v1": {
           target: env.apiBaseUrl,
@@ -91,6 +101,11 @@ export default defineConfig(({ mode }) => {
           ws: true
         }
       }
+    },
+    preview: {
+      host: "0.0.0.0",
+      port: env.webPort,
+      headers: crossOriginIsolationHeaders
     }
   };
 });

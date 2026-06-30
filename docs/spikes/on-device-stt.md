@@ -11,6 +11,14 @@
 
 1차 온디바이스 후보는 sherpa-onnx WebAssembly와 Korean Streaming Zipformer INT8 모델이다.
 
+## 현재 통합 지점
+
+- Web 리허설 모드는 `LiveSttAdapter.start(stream, callbacks)` 인터페이스로 Live STT를 시작한다.
+- 기본 구현은 sherpa-onnx WebAssembly runtime과 `sherpa-onnx-streaming-zipformer-korean-2024-06-16` manifest를 lazy-load한다.
+- 기본 manifest 경로는 `/models/live-stt/sherpa-onnx-streaming-zipformer-korean-2024-06-16/manifest.json`이다.
+- 대형 `.onnx`, `.wasm`, `.data` 파일은 git에 커밋하지 않고 `apps/web/public/models/live-stt` 아래에 로컬/배포 asset으로 둔다.
+- 로컬 준비 명령은 `pnpm --filter @orbit/web stt:model:prepare -- --source <model-dir> --runtime <wasm-runtime-dir>`를 사용한다.
+
 ## 검증 항목
 
 - Chrome desktop에서 모델 로딩 가능 여부
