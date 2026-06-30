@@ -255,6 +255,7 @@ export class DecksService {
 
       const restoredSnapshot = parseSnapshotRow(snapshotRow);
       const deck = parseDeckJson(snapshotRow.deck_json);
+      await this.findDeckRowForUpdate(manager, projectId, deck.deckId);
       const updatedAt = nowIso();
       await this.deletePatchRowsAfterVersion(manager, projectId, deck.deckId, deck.version);
       await this.writeDeckCheckpoint(manager, deck, updatedAt);

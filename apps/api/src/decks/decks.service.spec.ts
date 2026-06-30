@@ -45,6 +45,7 @@ class InMemoryDeckDataSource {
   readonly decks = new Map<string, StoredDeckRow>();
   readonly patchRows: StoredPatchRow[] = [];
   readonly snapshotRows: StoredSnapshotRow[] = [];
+  readonly executedQueries: string[] = [];
 
   async transaction<T>(
     run: (manager: InMemoryDeckDataSource) => Promise<T>
@@ -54,6 +55,7 @@ class InMemoryDeckDataSource {
 
   async query<T = unknown>(sql: string, params: unknown[] = []): Promise<T> {
     const query = normalizeSql(sql);
+    this.executedQueries.push(query);
 
     if (
       query.startsWith("SELECT project_id, deck_id, deck_json, version") &&
@@ -548,6 +550,11 @@ describe("DecksService", () => {
       version: 1
     });
     expect(dataSource.patchRows).toHaveLength(0);
+    expect(
+      dataSource.executedQueries.some((query) =>
+        query.includes("WHERE project_id = $1 AND deck_id = $2 FOR UPDATE")
+      )
+    ).toBe(true);
   });
 
   it("compacts stored patch rows after a full deck checkpoint save", async () => {
