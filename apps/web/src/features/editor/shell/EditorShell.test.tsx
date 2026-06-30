@@ -17,8 +17,8 @@ import {
   shouldApplyManualSaveResult,
   shouldHydrateDeckFromQuery
 } from "./EditorShell";
-import { resolveEditorAssetUrl } from "./editorAssetUrl";
-import { aiSuggestionsQueryKey } from "./suggestions/suggestionApi";
+import { resolveEditorAssetUrl } from "../shared/editorAssetUrl";
+import { aiSuggestionsQueryKey } from "../suggestions/api/suggestionApi";
 
 vi.mock("react-konva", () => {
   function shapeAttrs(props: Record<string, unknown>) {
