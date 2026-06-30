@@ -16,7 +16,8 @@
 - Web 리허설 모드는 `LiveSttAdapter.start(stream, callbacks)` 인터페이스로 Live STT를 시작한다.
 - 기본 구현은 sherpa-onnx WebAssembly runtime과 `sherpa-onnx-streaming-zipformer-korean-2024-06-16` manifest를 lazy-load한다.
 - 기본 manifest 경로는 `/models/live-stt/sherpa-onnx-streaming-zipformer-korean-2024-06-16/manifest.json`이다.
-- 대형 `.onnx`, `.wasm`, `.data` 파일은 git에 커밋하지 않고 `apps/web/public/models/live-stt` 아래에 로컬/배포 asset으로 둔다.
+- 대형 `.onnx`, `.wasm`, `.data` 모델 artifact는 일반 git blob으로 커밋하지 않고 Git LFS로 추적한다.
+- Live STT 모델 artifact는 `apps/web/public/models/live-stt` 아래에 두고, 새 binary 확장자를 추가할 때는 `.gitattributes`의 LFS 패턴을 함께 갱신한다.
 - 로컬 준비 명령은 `pnpm --filter @orbit/web stt:model:prepare -- --source <model-dir> --runtime <wasm-runtime-dir>`를 사용한다.
 
 ## 검증 항목

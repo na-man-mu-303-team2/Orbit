@@ -1,4 +1,4 @@
-*
+# Live STT model artifacts are allowed here when tracked through Git LFS.
 !.gitignore
 !README.md
 !*.example.json

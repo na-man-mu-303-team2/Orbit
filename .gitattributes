@@ -23,3 +23,10 @@
 *.toml text eol=lf
 Dockerfile text eol=lf
 *.Dockerfile text eol=lf
+
+# Live STT model artifacts are large binary assets and must use Git LFS.
+apps/web/public/models/live-stt/**/*.onnx filter=lfs diff=lfs merge=lfs -text
+apps/web/public/models/live-stt/**/*.wasm filter=lfs diff=lfs merge=lfs -text
+apps/web/public/models/live-stt/**/*.data filter=lfs diff=lfs merge=lfs -text
+apps/web/public/models/live-stt/**/*.model filter=lfs diff=lfs merge=lfs -text
+apps/web/public/models/live-stt/**/*.vocab filter=lfs diff=lfs merge=lfs -text
