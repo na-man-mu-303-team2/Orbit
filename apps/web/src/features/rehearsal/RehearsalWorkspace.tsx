@@ -22,6 +22,7 @@ import {
   CheckCircle2,
   ChevronLeft,
   ChevronRight,
+  Download,
   Mic,
   MoreHorizontal,
   PlayCircle,
@@ -37,8 +38,13 @@ import {
   type LiveSttBiasContext,
   type LiveSttBiasMode,
   type LiveSttBiasSource,
-  type LiveSttBiasTerm
+  type LiveSttBiasTerm,
+  type LiveSttDecodingMethod
 } from "./liveStt";
+import {
+  isLiveSttPcmDebugEnabled,
+  type LiveSttDebugPcmRecording
+} from "./liveSttPcmDebug";
 import {
   confirmRehearsalCommandCandidate,
   createRehearsalCommandConfirmationState,
@@ -125,9 +131,18 @@ export const rehearsalMicrophoneAudioConstraints: MediaTrackConstraints = {
   autoGainControl: true,
   channelCount: 1
 };
+export const rehearsalRawMicrophoneAudioConstraints: MediaTrackConstraints = {
+  echoCancellation: false,
+  noiseSuppression: false,
+  autoGainControl: false,
+  channelCount: 1
+};
 const liveAutoAdvanceCoverageThreshold = 0.8;
 const defaultLiveAutoAdvanceDelayMs = 800;
 const liveSttBiasModeStorageKey = "orbit.liveStt.biasMode";
+const liveSttRawMicDebugStorageKey = "orbit.liveStt.debugRawMic";
+const liveSttDebugDecodingMethodStorageKey =
+  "orbit.liveStt.debugDecodingMethod";
 const maxLiveSttBiasTerms = 32;
 const maxLiveSttContextBiasTermLength = 36;
 
@@ -748,8 +763,55 @@ export function requestRehearsalMicrophoneStream(
   mediaDevices: Pick<MediaDevices, "getUserMedia"> = navigator.mediaDevices
 ) {
   return mediaDevices.getUserMedia({
-    audio: rehearsalMicrophoneAudioConstraints
+    audio: getRehearsalMicrophoneAudioConstraints()
   });
+}
+
+export function getRehearsalMicrophoneAudioConstraints(
+  storage: Pick<Storage, "getItem"> | null = readBrowserLocalStorage()
+) {
+  return isLiveSttRawMicDebugEnabled(storage)
+    ? rehearsalRawMicrophoneAudioConstraints
+    : rehearsalMicrophoneAudioConstraints;
+}
+
+export function isLiveSttRawMicDebugEnabled(
+  storage: Pick<Storage, "getItem"> | null = readBrowserLocalStorage()
+) {
+  try {
+    return storage?.getItem(liveSttRawMicDebugStorageKey) === "1";
+  } catch {
+    return false;
+  }
+}
+
+export function getLiveSttDebugDecodingMethod(
+  storage: Pick<Storage, "getItem"> | null = readBrowserLocalStorage()
+): LiveSttDecodingMethod | null {
+  try {
+    const value = storage?.getItem(liveSttDebugDecodingMethodStorageKey);
+    return isLiveSttDecodingMethod(value) ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+export function shouldShowLiveSttDebugPcmDownload(
+  recording: LiveSttDebugPcmRecording | null,
+  storage: Pick<Storage, "getItem"> | null = readBrowserLocalStorage()
+) {
+  return Boolean(recording) && isLiveSttPcmDebugEnabled(storage);
+}
+
+export function downloadLiveSttDebugPcm(recording: LiveSttDebugPcmRecording) {
+  const url = URL.createObjectURL(recording.blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = recording.filename;
+  document.body.append(anchor);
+  anchor.click();
+  anchor.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 0);
 }
 
 function clamp(value: number, min: number, max: number) {
@@ -772,6 +834,14 @@ function isLiveSttBiasMode(value: unknown): value is LiveSttBiasMode {
     value === "hotword" ||
     value === "combined"
   );
+}
+
+function isLiveSttDecodingMethod(value: unknown): value is LiveSttDecodingMethod {
+  return value === "greedy_search" || value === "modified_beam_search";
+}
+
+function readBrowserLocalStorage() {
+  return typeof window === "undefined" ? null : window.localStorage;
 }
 
 function shouldUseLiveSttPostprocessBias(mode: LiveSttBiasMode) {
@@ -952,6 +1022,8 @@ export function RehearsalWorkspace(props: {
     useState<LiveTranscriptAnalysis | null>(null);
   const [liveAudioLevel, setLiveAudioLevel] =
     useState<LiveSttAudioLevelEvent | null>(null);
+  const [liveDebugPcmRecording, setLiveDebugPcmRecording] =
+    useState<LiveSttDebugPcmRecording | null>(null);
   const [liveCue, setLiveCue] = useState<LiveSttAnimationCueEvent | null>(null);
   const [liveSlideAdvance, setLiveSlideAdvance] =
     useState<LiveSttSlideAdvanceEvent | null>(null);
@@ -1074,6 +1146,9 @@ export function RehearsalWorkspace(props: {
         ? "quiet"
         : "active"
     : "idle";
+  const canDownloadLiveSttDebugPcm = shouldShowLiveSttDebugPcmDownload(
+    liveDebugPcmRecording
+  );
 
   useEffect(() => {
     resetLiveTranscriptForSlide(currentSlide);
@@ -1099,6 +1174,7 @@ export function RehearsalWorkspace(props: {
     setJob(null);
     setLiveError("");
     setLiveAudioLevel(null);
+    setLiveDebugPcmRecording(null);
     resetLiveTranscriptForSlide(currentSlide);
     setLiveSlideAdvance(null);
     setAutoAdvanceState("idle");
@@ -1154,6 +1230,7 @@ export function RehearsalWorkspace(props: {
 
     setLiveError("");
     setLiveAudioLevel(null);
+    setLiveDebugPcmRecording(null);
     resetLiveTranscriptForSlide(currentSlide);
     setLiveSlideAdvance(null);
     setAutoAdvanceState("idle");
@@ -1249,13 +1326,19 @@ export function RehearsalWorkspace(props: {
     setLiveAudioLevel(null);
 
     try {
-      await adapter.start(stream, {
-        onPartialTranscript: handleLivePartialTranscript,
-        onError: handleLiveSttError,
-        onAudioLevel: setLiveAudioLevel
-      }, {
-        biasContext: shouldUseLiveSttHotwordBias(biasMode) ? biasContext : null
-      });
+      await adapter.start(
+        stream,
+        {
+          onPartialTranscript: handleLivePartialTranscript,
+          onError: handleLiveSttError,
+          onAudioLevel: setLiveAudioLevel,
+          onDebugPcmAvailable: setLiveDebugPcmRecording
+        },
+        {
+          biasContext: shouldUseLiveSttHotwordBias(biasMode) ? biasContext : null,
+          decodingMethod: getLiveSttDebugDecodingMethod()
+        }
+      );
       setLiveStatus("listening");
       return true;
     } catch (cause) {
@@ -1740,6 +1823,20 @@ export function RehearsalWorkspace(props: {
               <span>Partial transcript</span>
               <p>{liveTranscript || liveTranscriptPlaceholder}</p>
             </div>
+            {canDownloadLiveSttDebugPcm ? (
+              <button
+                className="secondary-action"
+                type="button"
+                onClick={() => {
+                  if (liveDebugPcmRecording) {
+                    downloadLiveSttDebugPcm(liveDebugPcmRecording);
+                  }
+                }}
+              >
+                <Download size={16} />
+                모델 입력 WAV 다운로드
+              </button>
+            ) : null}
 
             <div className="rehearsal-live-coverage">
               <strong>{liveCoveragePercent}%</strong>

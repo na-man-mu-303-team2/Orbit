@@ -1,7 +1,7 @@
 import { createDemoDeck } from "@orbit/editor-core";
 import type { Job, RehearsalRun } from "@orbit/shared";
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   LiveSttAdapterError,
   RehearsalFlowError,
@@ -17,13 +17,17 @@ import {
   fetchOrCreateRehearsalDeck,
   getLiveAudioLevelLabel,
   getLiveAudioLevelPercent,
+  getLiveSttDebugDecodingMethod,
+  getRehearsalMicrophoneAudioConstraints,
   normalizeRecordingMimeType,
   normalizeLiveTranscriptText,
   rehearsalMicrophoneAudioConstraints,
+  rehearsalRawMicrophoneAudioConstraints,
   renderLiveTranscriptBuffer,
   requestRehearsalMicrophoneStream,
   runRehearsalUploadFlow,
   selectRecordingMimeType,
+  shouldShowLiveSttDebugPcmDownload,
   shouldAutoAdvanceLiveSlide
 } from "./RehearsalWorkspace";
 import {
@@ -35,6 +39,11 @@ import {
 const createdAt = "2026-06-29T00:00:00.000Z";
 
 describe("RehearsalWorkspace", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
   it("renders the current deck preview and notes", () => {
     const deck = createDemoDeck();
     const html = renderToStaticMarkup(<RehearsalWorkspace initialDeck={deck} />);
@@ -64,6 +73,79 @@ describe("RehearsalWorkspace", () => {
     expect(getUserMedia).toHaveBeenCalledWith({
       audio: rehearsalMicrophoneAudioConstraints
     });
+  });
+
+  it("requests raw microphone audio constraints when Live STT raw mic debug is enabled", async () => {
+    vi.stubGlobal("window", {
+      localStorage: {
+        getItem: vi.fn((key: string) =>
+          key === "orbit.liveStt.debugRawMic" ? "1" : null
+        )
+      }
+    });
+    const stream = { getTracks: () => [] } as unknown as MediaStream;
+    const getUserMedia = vi.fn(async () => stream);
+
+    const result = await requestRehearsalMicrophoneStream({
+      getUserMedia
+    } as unknown as Pick<MediaDevices, "getUserMedia">);
+
+    expect(result).toBe(stream);
+    expect(getRehearsalMicrophoneAudioConstraints()).toBe(
+      rehearsalRawMicrophoneAudioConstraints
+    );
+    expect(getUserMedia).toHaveBeenCalledWith({
+      audio: rehearsalRawMicrophoneAudioConstraints
+    });
+  });
+
+  it("parses Live STT debug decoding method overrides defensively", () => {
+    expect(
+      getLiveSttDebugDecodingMethod({
+        getItem: vi.fn(() => "modified_beam_search")
+      })
+    ).toBe("modified_beam_search");
+    expect(
+      getLiveSttDebugDecodingMethod({
+        getItem: vi.fn(() => "beam_search")
+      })
+    ).toBeNull();
+    expect(
+      getLiveSttDebugDecodingMethod({
+        getItem: vi.fn(() => {
+          throw new Error("storage unavailable");
+        })
+      })
+    ).toBeNull();
+  });
+
+  it("shows the model input WAV download only when PCM debug has a recording", () => {
+    const recording = {
+      blob: new Blob([]),
+      filename: "orbit-live-stt-model-input.wav",
+      sampleRate: 16000,
+      durationMs: 1000,
+      peak: 0.5,
+      rms: 0.2
+    };
+
+    expect(
+      shouldShowLiveSttDebugPcmDownload(recording, {
+        getItem: vi.fn((key: string) =>
+          key === "orbit.liveStt.debugPcmDump" ? "1" : null
+        )
+      })
+    ).toBe(true);
+    expect(
+      shouldShowLiveSttDebugPcmDownload(null, {
+        getItem: vi.fn(() => "1")
+      })
+    ).toBe(false);
+    expect(
+      shouldShowLiveSttDebugPcmDownload(recording, {
+        getItem: vi.fn(() => null)
+      })
+    ).toBe(false);
   });
 
   it("labels live STT microphone input levels", () => {
