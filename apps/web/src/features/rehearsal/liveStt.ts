@@ -21,7 +21,9 @@ export type LiveSttBiasSource =
   | "abbreviation"
   | "title"
   | "slide-text"
-  | "speaker-notes";
+  | "speaker-notes"
+  | "nearby-slide-text"
+  | "control-phrase";
 
 export type LiveSttBiasTerm = {
   text: string;

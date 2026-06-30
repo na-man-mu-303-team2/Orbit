@@ -39,6 +39,11 @@ import {
   type LiveSttBiasSource,
   type LiveSttBiasTerm
 } from "./liveStt";
+import {
+  defaultRehearsalCommandConfig,
+  getRehearsalCommandBiasTerms,
+  type RehearsalCommandDefinition
+} from "./rehearsalCommands";
 import { SherpaLiveSttAdapter } from "./sherpaOnnxLiveSttAdapter";
 
 export {
@@ -462,7 +467,13 @@ export function getLiveSttBiasMode(): LiveSttBiasMode {
   }
 }
 
-export function buildLiveSttBiasContext(slide: Slide): LiveSttBiasContext {
+export function buildLiveSttBiasContext(
+  slide: Slide,
+  options: {
+    nearbySlides?: Slide[];
+    commandConfig?: RehearsalCommandDefinition[];
+  } = {}
+): LiveSttBiasContext {
   const terms = new Map<string, LiveSttBiasTerm>();
   const addTerm = (draft: BiasTermDraft) => {
     const text = normalizeBiasTermText(draft.text);
@@ -523,6 +534,33 @@ export function buildLiveSttBiasContext(slide: Slide): LiveSttBiasContext {
 
   for (const extracted of extractBiasTermsFromText(slide.speakerNotes)) {
     addTerm({ text: extracted, source: "speaker-notes", weight: 0.45 });
+  }
+
+  for (const nearbySlide of options.nearbySlides ?? []) {
+    if (nearbySlide.slideId === slide.slideId) {
+      continue;
+    }
+
+    addTerm({
+      text: getSlideTitle(nearbySlide),
+      source: "nearby-slide-text",
+      weight: 0.35
+    });
+    for (const text of getSlideBodyTexts(nearbySlide)) {
+      for (const extracted of extractBiasTermsFromText(text)) {
+        addTerm({
+          text: extracted,
+          source: "nearby-slide-text",
+          weight: 0.3
+        });
+      }
+    }
+  }
+
+  for (const term of getRehearsalCommandBiasTerms(
+    options.commandConfig ?? defaultRehearsalCommandConfig
+  )) {
+    addTerm(term);
   }
 
   return {
@@ -807,6 +845,10 @@ function biasSourcePriority(source: LiveSttBiasSource) {
       return 2;
     case "speaker-notes":
       return 1;
+    case "nearby-slide-text":
+      return 0;
+    case "control-phrase":
+      return 7;
   }
 }
 
