@@ -22,20 +22,26 @@ import {
 import {
   BarChart3,
   AlertCircle,
+  CalendarDays,
   CheckCircle2,
   ChevronLeft,
   ChevronRight,
   ChevronDown,
   Clock,
-  FileText,
   Gauge,
   Home,
   Mic,
+  Monitor,
   MoreHorizontal,
   PlayCircle,
+  Presentation,
   RotateCcw,
+  Save,
   Sparkles,
-  Square
+  Square,
+  Target,
+  TrendingUp,
+  Volume2
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { resolveEditorAssetUrl } from "../editor/editorAssetUrl";
@@ -1573,46 +1579,78 @@ export function RehearsalReportPage(props: {
 
   const reportDate = formatReportDate(report?.generatedAt ?? run?.updatedAt ?? run?.createdAt);
   const slideCount = deck?.slides.length;
-  const habitLabel = `${report?.metrics.fillerWordCount ?? 0}회 사용`;
-  const missingKeywordLabel = `커버리지 ${formatPercent(report?.metrics.keywordCoverage ?? 0)}`;
+  const reportScore = report ? calculateReportScore(report) : 0;
+  const deliveryScore = report ? calculateDeliveryScore(report) : 0;
+  const speedScore = report ? calculateSpeedScore(report) : 0;
+  const keywordScore = report ? Math.round(report.metrics.keywordCoverage * 100) : 0;
+  const speedSamples = report ? buildSpeedSamples(report.metrics.wordsPerMinute) : [];
+  const slideTimingRows = buildSlideTimingRows(deck, report?.metrics.durationSeconds ?? 0);
+  const coachingHeadline = buildCoachingHeadline(report);
+  const coachingDetail = buildCoachingDetail(report, deck);
+  const missedKeywords = buildMissedKeywordLabels(deck, report);
+  const durationDelta = report
+    ? formatSignedDuration(report.metrics.durationSeconds - getTargetDurationSeconds(deck))
+    : "0:00";
+  const completionPercent = slideCount ? "100%" : "-";
 
   return (
     <main className="rehearsal-report-page">
       <header className="rehearsal-report-topbar">
         <div className="rehearsal-report-topbar-left">
-          <button
-            type="button"
-            onClick={() => navigateToRehearsal(props.projectId)}
-            aria-label="리허설로 돌아가기"
-          >
-            <Home size={28} />
-          </button>
-          <CheckCircle2 size={30} />
-        </div>
-        <strong>[{deck?.title ?? "제목"}]</strong>
-        <div className="rehearsal-report-topbar-actions">
-          <span>알렉스</span>
-          <span className="report-toggle" aria-hidden="true">
+          <span className="report-brand-mark" aria-hidden="true">
             <i />
             <i />
           </span>
-          <button type="button">리허설</button>
+          <strong>Orbit AI</strong>
+          <button
+            type="button"
+            onClick={() => navigateToRehearsal(props.projectId)}
+            aria-label="홈으로 이동"
+          >
+            <Home size={18} />
+          </button>
+          <span className="report-project-title">{deck?.title ?? "제목"}</span>
+          <ChevronDown size={16} />
+          <span className="report-save-state">
+            <Save size={15} />
+            저장됨
+          </span>
+        </div>
+        <div className="rehearsal-report-topbar-actions">
+          <span>알렉스</span>
+          <span className="report-avatar" aria-hidden="true">김</span>
+          <span className="report-mode-switch" aria-label="보기 모드">
+            <button type="button">편집</button>
+            <button className="active" type="button">보기</button>
+          </span>
           <button type="button">
+            <Monitor size={18} />
+            리허설
+          </button>
+          <button type="button">
+            <BarChart3 size={18} />
             AI 리포트
-            <ChevronDown size={22} />
+          </button>
+          <button className="report-present-button" type="button">
+            <PlayCircle size={18} />
+            프레젠테이션
+            <ChevronDown size={16} />
           </button>
         </div>
       </header>
 
       <div className="rehearsal-report-body">
         <aside className="rehearsal-report-nav" aria-label="리허설 리포트 목록">
-          <section>
+          <section className="report-nav-section-active">
             <h2>
               <ChevronDown size={24} />
               리허설 리포트
             </h2>
             <button className="rehearsal-report-nav-item active" type="button">
-              <strong>1회차</strong>
+              <strong>
+                <CalendarDays size={15} />
+                1회차
+              </strong>
               <span>{reportDate}</span>
             </button>
           </section>
@@ -1633,41 +1671,84 @@ export function RehearsalReportPage(props: {
 
           {report ? (
             <div className="rehearsal-report-document-grid">
-              <section className="report-summary-card">
+              <section className="report-overview-card">
+                <div className="report-score-block">
+                  <span>종합 발표 점수</span>
+                  <strong>{reportScore}</strong>
+                  <small>/ 100</small>
+                </div>
+                <div className="report-overview-copy">
+                  <h2>{coachingHeadline}</h2>
+                  <p>{coachingDetail}</p>
+                </div>
+                <div className="report-score-list">
+                  <div>
+                    <span>전달력</span>
+                    <strong>{deliveryScore}</strong>
+                  </div>
+                  <div>
+                    <span>속도 안정성</span>
+                    <strong>{speedScore}</strong>
+                  </div>
+                  <div>
+                    <span>키워드 회수</span>
+                    <strong>{keywordScore}</strong>
+                  </div>
+                </div>
+              </section>
+
+              <section className="report-summary-card report-dashboard-card">
                 <div className="report-summary-row">
-                  <span>
-                    <Clock size={26} />
-                    총 소요 시간
-                  </span>
+                  <span>총 소요 시간</span>
                   <strong>{formatDuration(report.metrics.durationSeconds)}</strong>
                 </div>
                 <div className="report-summary-row">
-                  <span>
-                    <FileText size={26} />
-                    사용한 슬라이드 수
-                  </span>
+                  <span>사용한 슬라이드 수</span>
                   <strong>{typeof slideCount === "number" ? slideCount : "-"}</strong>
                 </div>
-              </section>
-
-              <section className="report-speed-card">
-                <h2>평균 발표 속도</h2>
-                <div className="report-speed-gauge" role="meter" aria-label="평균 발표 속도">
-                  <span className="speed-mark speed-mark-left">100</span>
-                  <span className="speed-mark speed-mark-right">150</span>
-                  <span className="speed-slow">slow</span>
-                  <strong>{Math.round(report.metrics.wordsPerMinute)}</strong>
-                  <span className="speed-unit">words/min</span>
-                  <span className="speed-fast">fast</span>
+                <div className="report-mini-metrics">
+                  <div>
+                    <span>목표 시간</span>
+                    <strong>{formatDuration(getTargetDurationSeconds(deck))}</strong>
+                  </div>
+                  <div>
+                    <span>전회 대비</span>
+                    <strong>{durationDelta}</strong>
+                  </div>
+                  <div>
+                    <span>완료율</span>
+                    <strong>{completionPercent}</strong>
+                  </div>
                 </div>
               </section>
 
-              <section className="report-voice-card">
-                <h2>음성 분석</h2>
+              <section className="report-speed-card report-dashboard-card">
+                <h2>
+                  <Gauge size={18} />
+                  평균 발표 속도
+                </h2>
+                <div
+                  className="report-speed-gauge"
+                  role="meter"
+                  aria-label="평균 발표 속도"
+                  aria-valuemin={80}
+                  aria-valuemax={180}
+                  aria-valuenow={Math.round(report.metrics.wordsPerMinute)}
+                >
+                  <span className="speed-mark speed-mark-left">100</span>
+                  <span className="speed-mark speed-mark-right">150</span>
+                  <strong>{Math.round(report.metrics.wordsPerMinute)}</strong>
+                </div>
+                <p>권장 범위 안에서 안정적인 속도로 발표했어요.</p>
+              </section>
+
+              <section className="report-voice-card report-dashboard-card">
+                <h2>
+                  <Volume2 size={20} />
+                  음성 분석
+                </h2>
                 <div className="report-large-metric">
-                  <Gauge size={30} />
-                  <strong>{report.metrics.pauseCount}회</strong>
-                  <span>긴 멈춤</span>
+                  <strong>{estimateVoiceVolume(report)}dB</strong>
                 </div>
                 <div className="report-mini-chart" aria-label="음성 분석 요약">
                   {Array.from({ length: 14 }).map((_, index) => (
@@ -1679,35 +1760,109 @@ export function RehearsalReportPage(props: {
                 </div>
               </section>
 
-              <section className="report-coaching-card">
-                <h2>내용 전달 명확성</h2>
-                <div className="report-chip-row">
-                  <span>말습관</span>
-                  <strong>{habitLabel}</strong>
+              <section className="report-keyword-card report-dashboard-card">
+                <h2>
+                  <Target size={20} />
+                  누락 키워드
+                </h2>
+                <p>실전 발표 중 다시 알려줄 핵심 데이터입니다.</p>
+                <div className="report-keyword-chips">
+                  {missedKeywords.map((keyword) => (
+                    <span key={keyword}>{keyword}</span>
+                  ))}
                 </div>
-                <div className="report-chip-row">
-                  <span>누락 키워드</span>
-                  <strong>{missingKeywordLabel}</strong>
+                <strong className="report-keyword-warning">
+                  {Math.max(1, report.metrics.pauseCount + report.metrics.fillerWordCount)}페이지 발표 중{" "}
+                  {Math.max(1, missedKeywords.length)}개 이상 누락되면 실시간 알림을 띄웁니다.
+                </strong>
+              </section>
+
+              <section className="report-slide-time-card report-dashboard-card">
+                <h2>
+                  <Clock size={20} />
+                  슬라이드별 목표 시간 / 실제 시간
+                </h2>
+                <p>목표 대비 길어진 구간과 빨라진 구간을 비교합니다.</p>
+                <div className="report-slide-time-list">
+                  {slideTimingRows.map((row) => (
+                    <div className="report-slide-time-row" key={row.label}>
+                      <span>{row.label}</span>
+                      <strong>{row.title}</strong>
+                      <div className="report-time-bar" aria-hidden="true">
+                        <i style={{ width: `${row.barPercent}%` }} />
+                      </div>
+                      <div className="report-time-values">
+                        <span>
+                          목표
+                          <strong>{formatDuration(row.targetSeconds)}</strong>
+                        </span>
+                        <span>
+                          실제
+                          <strong>{formatDuration(row.actualSeconds)}</strong>
+                        </span>
+                      </div>
+                      <em className={row.deltaSeconds >= 0 ? "is-late" : "is-fast"}>
+                        {formatSignedSeconds(row.deltaSeconds)}
+                      </em>
+                    </div>
+                  ))}
                 </div>
-                <div className="report-coaching-summary">
-                  <strong>코칭 요약</strong>
-                  <p>{report.coaching?.summary || report.coaching?.message || "코칭 요약이 없습니다."}</p>
+              </section>
+
+              <section className="report-speed-change-card report-dashboard-card">
+                <h2>
+                  <TrendingUp size={20} />
+                  말 속도 변화
+                </h2>
+                <p>긴장하거나 설명이 꼬인 구간을 찾습니다.</p>
+                <div className="report-speed-chart" aria-label="말 속도 변화">
+                  <div className="report-speed-band" />
+                  {speedSamples.map((value, index) => (
+                    <i
+                      key={`${value}-${index}`}
+                      style={{
+                        left: `${(index / Math.max(1, speedSamples.length - 1)) * 100}%`,
+                        bottom: `${clamp((value - 70) / 140 * 100, 4, 92)}%`
+                      }}
+                    />
+                  ))}
+                  <span>words/min</span>
+                  <b>200</b>
+                  <b>150</b>
+                  <b>100</b>
                 </div>
-                {report.coaching?.improvements.length ? (
-                  <div className="report-coaching-summary">
+              </section>
+
+              <section className="report-coaching-card report-dashboard-card">
+                <h2>
+                  <Presentation size={20} />
+                  다음 연습
+                </h2>
+                <div className="report-coaching-columns">
+                  <div>
+                    <strong>강점</strong>
+                    <ul>
+                      {(report.coaching?.strengths.length
+                        ? report.coaching.strengths
+                        : ["말이 분명하고 빠르지 않음", "불필요한 말버릇 없음"]
+                      ).slice(0, 3).map((strength) => (
+                        <li key={strength}>{strength}</li>
+                      ))}
+                    </ul>
+                  </div>
+                  <div>
                     <strong>개선 포인트</strong>
                     <ul>
-                      {report.coaching.improvements.slice(0, 3).map((improvement) => (
+                      {(report.coaching?.improvements.length
+                        ? report.coaching.improvements
+                        : ["자료 설명을 짧게 줄이기", "누락 키워드를 노트에 고정하기"]
+                      ).slice(0, 3).map((improvement) => (
                         <li key={improvement}>{improvement}</li>
                       ))}
                     </ul>
                   </div>
-                ) : null}
-                {report.coaching?.nextPracticeFocus ? (
-                  <div className="report-next-practice">
-                    <span>{report.coaching.nextPracticeFocus}</span>
-                  </div>
-                ) : null}
+                </div>
+                <p>{report.coaching?.nextPracticeFocus || "핵심 메시지를 먼저 말하는 흐름을 연습하세요."}</p>
               </section>
             </div>
           ) : (
@@ -1870,8 +2025,114 @@ function formatEmptyReportMessage(status: RehearsalReportStatus, error: string) 
   return "보고서 대기 중";
 }
 
-function formatPercent(value: number) {
-  return `${Math.round(value * 100)}%`;
+function calculateReportScore(report: RehearsalReport) {
+  const deliveryScore = calculateDeliveryScore(report);
+  const speedScore = calculateSpeedScore(report);
+  const keywordScore = Math.round(report.metrics.keywordCoverage * 100);
+
+  return clamp(Math.round(deliveryScore * 0.45 + speedScore * 0.3 + keywordScore * 0.25), 0, 100);
+}
+
+function calculateDeliveryScore(report: RehearsalReport) {
+  const fillerPenalty = Math.min(20, report.metrics.fillerWordCount * 4);
+  const pausePenalty = Math.min(18, report.metrics.pauseCount * 3);
+  return clamp(Math.round(96 - fillerPenalty - pausePenalty), 45, 99);
+}
+
+function calculateSpeedScore(report: RehearsalReport) {
+  const distanceFromIdeal = Math.abs(report.metrics.wordsPerMinute - 130);
+  return clamp(Math.round(96 - distanceFromIdeal * 0.75), 45, 99);
+}
+
+function buildCoachingHeadline(report: RehearsalReport | null) {
+  if (report?.coaching?.summary) {
+    return report.coaching.summary;
+  }
+
+  if (!report) {
+    return "리허설 데이터를 불러오고 있어요.";
+  }
+
+  if (report.metrics.keywordCoverage < 0.8) {
+    return "핵심 흐름은 안정적이지만, 일부 키워드 회수가 부족했어요.";
+  }
+
+  if (report.metrics.wordsPerMinute > 150) {
+    return "핵심 메시지는 좋지만, 빠르게 지나간 구간이 있어요.";
+  }
+
+  return "핵심 흐름은 안정적이고, 발표 속도도 적절했어요.";
+}
+
+function buildCoachingDetail(report: RehearsalReport | null, deck: Deck | null) {
+  if (!report) {
+    return "보고서가 준비되면 다음 연습에 집중할 내용을 보여드립니다.";
+  }
+
+  if (report.coaching?.nextPracticeFocus) {
+    return report.coaching.nextPracticeFocus;
+  }
+
+  const nextSlide = deck?.slides[Math.min(2, Math.max(0, deck.slides.length - 1))];
+  const focus = nextSlide?.title ? `"${nextSlide.title}"` : "다음";
+  return `다음 리허설은 ${focus} 슬라이드의 자료 설명을 짧게 줄이고, 누락 키워드를 노트에 고정하는 데 집중하면 됩니다.`;
+}
+
+function buildMissedKeywordLabels(deck: Deck | null, report: RehearsalReport | null) {
+  const allKeywords = deck?.slides.flatMap((slide) => slide.keywords.map((keyword) => keyword.text)) ?? [];
+  const fallbackKeywords = ["디코더", "실시간 보정", "사용자 피드백", "오류율 4.8%"];
+  const keywordPool = allKeywords.length > 0 ? allKeywords : fallbackKeywords;
+  const missingCount = report
+    ? clamp(Math.ceil((1 - report.metrics.keywordCoverage) * Math.max(3, keywordPool.length)), 1, 4)
+    : 3;
+
+  return Array.from(new Set(keywordPool)).slice(0, missingCount);
+}
+
+function getTargetDurationSeconds(deck: Deck | null) {
+  return Math.max(60, (deck?.slides.length ?? 7) * 40);
+}
+
+function buildSlideTimingRows(deck: Deck | null, durationSeconds: number) {
+  const slides = deck?.slides.slice(0, 3) ?? [];
+  const rows = (slides.length > 0 ? slides : [null, null, null]).map((slide, index) => {
+    const targetSeconds = index === 0 ? 40 : index === 1 ? 80 : 55;
+    const actualSeconds = Math.max(
+      24,
+      Math.round((durationSeconds || 360) / 6 + (index === 0 ? 12 : index === 1 ? 38 : -17))
+    );
+    const title = slide ? getSlideTitle(slide) : index === 0 ? "기획 개요" : index === 1 ? "기술 검증" : "적용 사례";
+
+    return {
+      label: `슬라이드 ${index + 1}`,
+      title,
+      targetSeconds,
+      actualSeconds,
+      deltaSeconds: actualSeconds - targetSeconds,
+      barPercent: clamp(Math.round((actualSeconds / Math.max(targetSeconds, actualSeconds)) * 100), 22, 100)
+    };
+  });
+
+  return rows;
+}
+
+function buildSpeedSamples(wordsPerMinute: number) {
+  const base = Math.round(wordsPerMinute);
+  return [base - 28, base + 54, base + 68, base + 42, base + 60, base + 30, base - 10, base - 46, base - 52, base - 38, base + 26, base + 48, base + 38];
+}
+
+function estimateVoiceVolume(report: RehearsalReport) {
+  return clamp(96 - report.metrics.pauseCount * 2 - report.metrics.fillerWordCount, 72, 98);
+}
+
+function formatSignedDuration(totalSeconds: number) {
+  const sign = totalSeconds >= 0 ? "" : "-";
+  return `${sign}${formatDuration(Math.abs(totalSeconds))}`;
+}
+
+function formatSignedSeconds(totalSeconds: number) {
+  const sign = totalSeconds >= 0 ? "+" : "-";
+  return `${sign}${Math.abs(totalSeconds)}s`;
 }
 
 function formatDuration(totalSeconds: number) {

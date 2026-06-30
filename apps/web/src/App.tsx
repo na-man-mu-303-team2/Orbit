@@ -7,14 +7,18 @@
 } from "@orbit/shared";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  BarChart3,
+  ChevronDown,
   FolderOpen,
   Home,
   LayoutTemplate,
   LogIn,
+  LogOut,
   MessageSquareText,
-  PanelLeftClose,
-  PanelLeftOpen,
+  Monitor,
+  PlayCircle,
   Plus,
+  Save,
   Search,
   Sparkles
 } from "lucide-react";
@@ -206,7 +210,6 @@ function navigateTo(path: string) {
 
 export function App() {
   const [route, setRoute] = useState(() => getRoute());
-  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
 
   useEffect(() => {
     const handleRouteChange = () => setRoute(getRoute());
@@ -227,12 +230,15 @@ export function App() {
     }
   }, [auth.isError, route.name]);
 
+  if (route.name === "rehearsal-report") {
+    return renderRoute(route, auth.data);
+  }
+
   return (
     <AppFrame
       isAuthenticated={auth.isSuccess}
-      isSidebarCollapsed={isSidebarCollapsed}
       route={route}
-      onToggleSidebar={() => setIsSidebarCollapsed((current) => !current)}
+      user={auth.data}
     >
       {renderRoute(route, auth.data)}
     </AppFrame>
@@ -268,68 +274,181 @@ function renderRoute(route: Route, user?: AuthUser) {
 function AppFrame(props: {
   children: ReactNode;
   isAuthenticated: boolean;
-  isSidebarCollapsed: boolean;
   route: Route;
-  onToggleSidebar: () => void;
+  user?: AuthUser;
 }) {
-  const { children, isAuthenticated, isSidebarCollapsed, route, onToggleSidebar } = props;
+  const { children, isAuthenticated, route, user } = props;
+  const queryClient = useQueryClient();
+  const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
   const activeProjectId =
     route.name === "project-editor" ||
     route.name === "rehearsal" ||
     route.name === "rehearsal-report"
       ? route.projectId
       : demoIds.projectId;
+  const projectTitle =
+    route.name === "create-deck"
+      ? "AI 덱 생성 파이프라인"
+      : route.name === "project-list" || route.name === "project-editor"
+        ? "프로젝트 워크스페이스"
+        : route.name === "rehearsal" || route.name === "rehearsal-report"
+          ? "리허설 워크스페이스"
+          : "AI 덱 생성 파이프라인";
+  const isHomeDashboard = route.name === "home";
+  const isHeaderless = isHomeDashboard || route.name === "rehearsal";
+  const userLabel = user?.email ?? user?.displayName ?? "로그인";
+  const userInitial = (user?.displayName ?? user?.email ?? "U").trim().slice(0, 1).toUpperCase();
+
+  async function handleLogout() {
+    if (isLoggingOut) return;
+
+    setIsLoggingOut(true);
+    try {
+      await fetch("/api/v1/auth/logout", {
+        credentials: "include",
+        method: "POST"
+      });
+      await queryClient.invalidateQueries({ queryKey: ["auth", "me"] });
+      setIsUserMenuOpen(false);
+      navigateTo("/login");
+    } finally {
+      setIsLoggingOut(false);
+    }
+  }
 
   return (
-    <main className={`orbit-layout ${isSidebarCollapsed ? "sidebar-collapsed" : ""}`}>
-      <aside className="orbit-sidebar" aria-label="Orbit navigation">
-        <button className="sidebar-brand" type="button" onClick={() => navigateTo("/")}>
-          <img alt="Orbit" src={orbitLogo} />
-          <span>Orbit</span>
-        </button>
-        <button
-          className="sidebar-toggle"
-          type="button"
-          onClick={onToggleSidebar}
-          aria-label={isSidebarCollapsed ? "사이드바 펼치기" : "사이드바 접기"}
-          title={isSidebarCollapsed ? "사이드바 펼치기" : "사이드바 접기"}
-        >
-          {isSidebarCollapsed ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}
-        </button>
-        <nav className="sidebar-nav">
+    <main
+      className={
+        isHeaderless
+          ? `orbit-layout orbit-product-shell orbit-headerless-shell${
+              isHomeDashboard ? " orbit-home-shell" : ""
+            }`
+          : "orbit-layout orbit-product-shell"
+      }
+    >
+      {isHeaderless ? null : (
+        <header className="rehearsal-report-topbar orbit-product-topbar">
+          <div className="rehearsal-report-topbar-left">
+            <span className="report-brand-mark" aria-hidden="true">
+              <i />
+              <i />
+            </span>
+            <strong>Orbit AI</strong>
+            <button type="button" onClick={() => navigateTo("/")} aria-label="홈으로 이동">
+              <Home size={18} />
+            </button>
+            <span className="report-project-title">{projectTitle}</span>
+            <ChevronDown size={16} />
+            <span className="report-save-state">
+              <Save size={15} />
+              저장됨
+            </span>
+          </div>
+          <div className="rehearsal-report-topbar-actions">
+            {isAuthenticated ? (
+              <div className="report-user-menu">
+                <button
+                  className="report-user-trigger"
+                  type="button"
+                  onClick={() => setIsUserMenuOpen((current) => !current)}
+                  aria-expanded={isUserMenuOpen}
+                  aria-haspopup="menu"
+                >
+                  <span>{userLabel}</span>
+                  <span className="report-avatar" aria-hidden="true">{userInitial}</span>
+                  <ChevronDown size={15} />
+                </button>
+                {isUserMenuOpen ? (
+                  <div className="report-user-dropdown" role="menu">
+                    <button
+                      type="button"
+                      role="menuitem"
+                      disabled={isLoggingOut}
+                      onClick={() => void handleLogout()}
+                    >
+                      <LogOut size={16} />
+                      {isLoggingOut ? "로그아웃 중" : "로그아웃"}
+                    </button>
+                  </div>
+                ) : null}
+              </div>
+            ) : (
+              <button type="button" onClick={() => navigateTo("/login")}>
+                <LogIn size={18} />
+                로그인
+              </button>
+            )}
+            <span className="report-mode-switch" aria-label="보기 모드">
+              <button type="button">편집</button>
+              <button className="active" type="button">보기</button>
+            </span>
+            <button type="button" onClick={() => navigateTo(`/rehearsal/${activeProjectId}`)}>
+              <Monitor size={18} />
+              리허설
+            </button>
+            <button
+              type="button"
+              onClick={() =>
+                route.name === "rehearsal-report"
+                  ? undefined
+                  : navigateTo(`/rehearsal/${activeProjectId}`)
+              }
+            >
+              <BarChart3 size={18} />
+              AI 리포트
+            </button>
+            <button className="report-present-button" type="button">
+              <PlayCircle size={18} />
+              프레젠테이션
+              <ChevronDown size={16} />
+            </button>
+          </div>
+        </header>
+      )}
+      <div className="orbit-product-body">
+        <aside className="orbit-product-nav" aria-label="Orbit navigation">
+          {isHeaderless ? (
+            <button
+              className="orbit-product-nav-brand"
+              type="button"
+              onClick={() => navigateTo("/")}
+              aria-label="Orbit AI 홈"
+            >
+              <span className="report-brand-mark" aria-hidden="true">
+                <i />
+                <i />
+              </span>
+              <strong>Orbit AI</strong>
+            </button>
+          ) : null}
           <SidebarButton
             active={route.name === "home"}
-            icon={<Home size={18} />}
+            icon={<Home size={15} />}
             label="홈"
             onClick={() => navigateTo("/")}
           />
           <SidebarButton
             active={route.name === "project-list" || route.name === "project-editor"}
-            icon={<FolderOpen size={18} />}
-            label="프로젝트"
+            icon={<FolderOpen size={15} />}
+            label="프로젝트 목록"
             onClick={() => navigateTo("/project")}
           />
           <SidebarButton
             active={route.name === "create-deck"}
-            icon={<Sparkles size={18} />}
+            icon={<Sparkles size={15} />}
             label="AI 덱 생성"
             onClick={() => navigateTo("/createdeck")}
           />
           <SidebarButton
             active={route.name === "rehearsal" || route.name === "rehearsal-report"}
-            icon={<Sparkles size={18} />}
-            label="리허설"
+            icon={<Monitor size={15} />}
+            label="리허설 시작"
             onClick={() => navigateTo(`/rehearsal/${activeProjectId}`)}
           />
-        </nav>
-        {!isAuthenticated ? (
-          <button className="sidebar-login" type="button" onClick={() => navigateTo("/login")}>
-            <LogIn size={18} />
-            <span>로그인</span>
-          </button>
-        ) : null}
-      </aside>
-      <section className="orbit-page">{children}</section>
+        </aside>
+        <section className="orbit-page">{children}</section>
+      </div>
     </main>
   );
 }
@@ -337,13 +456,21 @@ function AppFrame(props: {
 function SidebarButton(props: {
   active: boolean;
   icon: ReactNode;
+  detail?: string;
   label: string;
   onClick: () => void;
 }) {
   return (
-    <button className={props.active ? "active" : ""} type="button" onClick={props.onClick}>
-      {props.icon}
-      <span>{props.label}</span>
+    <button
+      className={props.active ? "rehearsal-report-nav-item active" : "rehearsal-report-nav-item"}
+      type="button"
+      onClick={props.onClick}
+    >
+      <strong>
+        {props.icon}
+        {props.label}
+      </strong>
+      {props.detail ? <span>{props.detail}</span> : null}
     </button>
   );
 }
@@ -481,7 +608,6 @@ function HomePage(props: { user?: AuthUser }) {
   return (
     <section className="home-page">
       <header className="page-heading">
-        <span>홈</span>
         <h1>{props.user?.displayName ?? "Orbit"} 작업 공간</h1>
       </header>
 
