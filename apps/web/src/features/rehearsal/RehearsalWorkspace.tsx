@@ -122,6 +122,7 @@ export const rehearsalMicrophoneAudioConstraints: MediaTrackConstraints = {
 };
 const liveAutoAdvanceCoverageThreshold = 0.8;
 const defaultLiveAutoAdvanceDelayMs = 800;
+const defaultRehearsalTimeSeconds = 5 * 60;
 
 export class RehearsalFlowError extends Error {
   constructor(
@@ -657,10 +658,8 @@ export function RehearsalWorkspace(props: {
 }) {
   const [deck, setDeck] = useState<Deck | null>(props.initialDeck ?? null);
   const [currentSlideIndex, setCurrentSlideIndex] = useState(0);
-  const [phase, setPhase] = useState<RehearsalPhase>(props.initialDeck ? "idle" : "loading");
+  const [, setPhase] = useState<RehearsalPhase>(props.initialDeck ? "idle" : "loading");
   const [, setError] = useState("");
-  const [run, setRun] = useState<RehearsalRun | null>(null);
-  const [, setJob] = useState<Job | null>(null);
   const [liveStatus, setLiveStatus] = useState<LiveSttStatus>("idle");
   const [liveError, setLiveError] = useState("");
   const [liveTranscriptBuffer, setLiveTranscriptBuffer] = useState(
@@ -677,22 +676,19 @@ export function RehearsalWorkspace(props: {
     "idle" | "pending" | "advanced" | "cancelled"
   >("idle");
   const [isLiveDemoActive, setIsLiveDemoActive] = useState(false);
-  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const [elapsedSeconds, setElapsedSeconds] = useState(defaultRehearsalTimeSeconds);
   const [isTimerRunning, setIsTimerRunning] = useState(false);
   const [timeMode, setTimeMode] = useState<RehearsalTimeMode>("stopwatch");
-  const [timerDurationSeconds, setTimerDurationSeconds] = useState(80);
-  const [elapsedTimeInput, setElapsedTimeInput] = useState("00:00");
-  const [timerDurationInput, setTimerDurationInput] = useState("01:20");
+  const [timerDurationSeconds, setTimerDurationSeconds] = useState(defaultRehearsalTimeSeconds);
+  const [elapsedTimeInput, setElapsedTimeInput] = useState("05:00");
+  const [timerDurationInput, setTimerDurationInput] = useState("05:00");
   const [editingTimeField, setEditingTimeField] = useState<
     "elapsed" | "duration" | null
   >(null);
-  const sessionRef = useRef<RecordingSession | null>(null);
-  const streamRef = useRef<MediaStream | null>(null);
   const liveDemoStreamRef = useRef<MediaStream | null>(null);
   const liveSttAdapterRef = useRef<LiveSttAdapter | null>(
     props.liveSttAdapter ?? null
   );
-  const finishAfterReportRef = useRef(false);
   const deckRef = useRef<Deck | null>(props.initialDeck ?? null);
   const currentSlideIndexRef = useRef(0);
   const liveTranscriptBufferRef = useRef<LiveTranscriptBuffer>(
@@ -728,7 +724,6 @@ export function RehearsalWorkspace(props: {
 
     return () => {
       isCancelled = true;
-      stopMediaStream(streamRef.current);
       stopMediaStream(liveDemoStreamRef.current);
     };
   }, [props.fallbackDeck, props.initialDeck, props.projectId]);
@@ -751,13 +746,20 @@ export function RehearsalWorkspace(props: {
     }
 
     const timer = window.setInterval(() => {
-      setElapsedSeconds((current) => current + 1);
+      setElapsedSeconds((current) =>
+        timeMode === "stopwatch" ? Math.max(0, current - 1) : current + 1
+      );
     }, 1000);
 
     return () => window.clearInterval(timer);
-  }, [isTimerRunning]);
+  }, [isTimerRunning, timeMode]);
 
   useEffect(() => {
+    if (timeMode === "stopwatch" && elapsedSeconds <= 0) {
+      setIsTimerRunning(false);
+      return;
+    }
+
     if (timeMode === "timer" && elapsedSeconds >= timerDurationSeconds) {
       setIsTimerRunning(false);
     }
@@ -780,17 +782,14 @@ export function RehearsalWorkspace(props: {
       cancelPendingAutoAdvance("cancelled");
       liveSttAdapterRef.current?.stop();
       liveSttAdapterRef.current?.dispose();
-      stopMediaStream(streamRef.current);
       stopMediaStream(liveDemoStreamRef.current);
     };
   }, []);
 
   const currentSlide = deck?.slides[currentSlideIndex] ?? null;
-  const canRecord = Boolean(deck) && !["recording", "uploading", "processing"].includes(phase);
   const isLiveSttActive = liveStatus === "starting" || liveStatus === "listening";
-  const isReportBusy = ["recording", "uploading", "processing"].includes(phase);
   const canStartLiveDemo =
-    Boolean(deck) && !isReportBusy && !isLiveSttActive && !isLiveDemoActive;
+    Boolean(deck) && !isLiveSttActive && !isLiveDemoActive;
   const canStopLiveDemo = isLiveDemoActive && isLiveSttActive;
   const liveTranscriptPlaceholder =
     liveStatus === "idle"
@@ -810,67 +809,6 @@ export function RehearsalWorkspace(props: {
   useEffect(() => {
     resetLiveTranscriptForSlide(currentSlide);
   }, [currentSlide?.slideId]);
-
-  async function startRecording() {
-    if (!deck || !canRecord) return;
-    const activeDeck = deck;
-    stopLiveDemo();
-
-    setError("");
-    setRun(null);
-    setJob(null);
-    finishAfterReportRef.current = false;
-    setLiveError("");
-    setLiveAudioLevel(null);
-    resetLiveTranscriptForSlide(currentSlide);
-    setLiveSlideAdvance(null);
-    setAutoAdvanceState("idle");
-    autoAdvancedSlideIdsRef.current.clear();
-
-    if (!navigator.mediaDevices?.getUserMedia) {
-      setError("??釉뚮씪?곗???留덉씠???뱀쓬??吏?먰븯吏 ?딆뒿?덈떎.");
-      setPhase("failed");
-      return;
-    }
-
-    let stream: MediaStream | null = null;
-    try {
-      stream = await requestRehearsalMicrophoneStream(navigator.mediaDevices);
-      const session = createRecordingSession(stream, {
-        onError: (recordingError) => {
-          stopMediaStream(stream);
-          if (streamRef.current === stream) {
-            streamRef.current = null;
-          }
-          sessionRef.current = null;
-          setError(recordingError.message);
-          setPhase("failed");
-        },
-        onStop: (audioFile) => {
-          stopMediaStream(stream);
-          if (streamRef.current === stream) {
-            streamRef.current = null;
-          }
-          sessionRef.current = null;
-          void submitRecording(activeDeck, audioFile);
-        }
-      });
-      streamRef.current = stream;
-      sessionRef.current = session;
-      session.start();
-      setPhase("recording");
-      setIsTimerRunning(true);
-      void startLiveStt(stream);
-    } catch (cause) {
-      stopMediaStream(stream);
-      if (streamRef.current === stream) {
-        streamRef.current = null;
-      }
-      sessionRef.current = null;
-      setError(toMicrophoneErrorMessage(cause));
-      setPhase("failed");
-    }
-  }
 
   async function startLiveDemo() {
     if (!deck || !canStartLiveDemo) return;
@@ -924,39 +862,18 @@ export function RehearsalWorkspace(props: {
     cancelPendingAutoAdvance("cancelled");
   }
 
-  function stopRecording() {
-    if (phase !== "recording") return;
-
-    setPhase("uploading");
-    setIsTimerRunning(false);
-    cancelPendingAutoAdvance("cancelled");
-    liveSttAdapterRef.current?.stop();
-    setLiveAudioLevel(null);
-    setLiveStatus((current) =>
-      current === "listening" || current === "starting" ? "stopped" : current
-    );
-    sessionRef.current?.stop();
-    stopMediaStream(streamRef.current);
-    streamRef.current = null;
-    sessionRef.current = null;
-  }
-
   function handleTimePrimaryAction() {
     if (isTimerRunning) {
       setIsTimerRunning(false);
-      if (phase === "recording") {
-        stopRecording();
-      }
       return;
+    }
+
+    if (timeMode === "stopwatch" && elapsedSeconds <= 0) {
+      setElapsedSeconds(defaultRehearsalTimeSeconds);
     }
 
     if (timeMode === "timer" && elapsedSeconds >= timerDurationSeconds) {
       setElapsedSeconds(0);
-    }
-
-    if (canRecord) {
-      void startRecording();
-      return;
     }
 
     setIsTimerRunning(true);
@@ -1129,52 +1046,6 @@ export function RehearsalWorkspace(props: {
     }
   }
 
-  async function submitRecording(activeDeck: Deck, audioFile: File) {
-    setPhase("uploading");
-    setError("");
-
-    try {
-      const result = await runRehearsalUploadFlow({
-        projectId: activeDeck.projectId,
-        deckId: activeDeck.deckId,
-        audioFile,
-        onJobUpdate: (nextJob) => {
-          setJob(nextJob);
-          setPhase("processing");
-        }
-      });
-      setRun(result.run);
-      setJob(result.job);
-
-      if (result.job.status === "failed") {
-        setPhase("failed");
-        setError(
-          result.job.error?.message || result.job.message || "由ы뿀??遺꾩꽍???ㅽ뙣?덉뒿?덈떎."
-        );
-        return;
-      }
-
-      await loadReportForRun(result.run.runId, result.run);
-      setPhase("succeeded");
-      if (finishAfterReportRef.current) {
-        finishAfterReportRef.current = false;
-        navigateToPath(getRehearsalReportPath(activeDeck.projectId, result.run.runId));
-      }
-    } catch (cause) {
-      setError(toRehearsalFlowMessage(cause));
-      setPhase("failed");
-    }
-  }
-
-  async function loadReportForRun(runId: string, fallbackRun: RehearsalRun) {
-    try {
-      const response = await fetchRehearsalReport(runId);
-      setRun(response.run);
-    } catch {
-      setRun(fallbackRun);
-    }
-  }
-
   const goPrevious = () => {
     cancelPendingAutoAdvance("cancelled");
     setCurrentSlideIndex((current) => Math.max(0, current - 1));
@@ -1186,19 +1057,7 @@ export function RehearsalWorkspace(props: {
   };
   const finishRehearsal = () => {
     const projectId = deck?.projectId ?? props.projectId ?? demoIds.projectId;
-
-    if (phase === "recording") {
-      finishAfterReportRef.current = true;
-      stopRecording();
-      return;
-    }
-
-    if (phase === "uploading" || phase === "processing") {
-      finishAfterReportRef.current = true;
-      return;
-    }
-
-    navigateToPath(getRehearsalFinishPath(projectId, run));
+    navigateToPath(getRehearsalFinishPath(projectId, null));
   };
 
   const liveDetectedKeywordIds = new Set(
@@ -1208,7 +1067,6 @@ export function RehearsalWorkspace(props: {
   const liveMissingKeywordIds = new Set(liveKeywordState?.missingKeywordIds ?? []);
   const checklistKeywords = getChecklistKeywords(currentSlide);
   const scriptParagraphs = buildScriptParagraphs(currentSlide);
-  const hasDeletedRawAudio = Boolean(run?.rawAudioDeletedAt);
 
   return (
     <main className="rehearsal-presenter-shell">
@@ -1238,8 +1096,9 @@ export function RehearsalWorkspace(props: {
               aria-label="Time display mode"
               value={timeMode}
               onChange={(event) => {
-                setTimeMode(event.target.value as RehearsalTimeMode);
-                setElapsedSeconds(0);
+                const nextMode = event.target.value as RehearsalTimeMode;
+                setTimeMode(nextMode);
+                setElapsedSeconds(nextMode === "stopwatch" ? defaultRehearsalTimeSeconds : 0);
                 setIsTimerRunning(false);
               }}
             >
@@ -1284,7 +1143,7 @@ export function RehearsalWorkspace(props: {
             type="button"
             aria-label="Reset timer"
             onClick={() => {
-              setElapsedSeconds(0);
+              setElapsedSeconds(timeMode === "stopwatch" ? defaultRehearsalTimeSeconds : 0);
               setIsTimerRunning(false);
             }}
           >
@@ -1292,17 +1151,6 @@ export function RehearsalWorkspace(props: {
           </button>
         </div>
       </header>
-      <div className="rehearsal-smoke-controls" aria-label="리허설 smoke controls">
-        <button type="button" onClick={() => void startRecording()} disabled={!canRecord}>
-          리포트 녹음 시작
-        </button>
-        <button type="button" onClick={stopRecording} disabled={phase !== "recording"}>
-          리포트 녹음 종료
-        </button>
-        <span>{phase}</span>
-        <span>{liveStatus}</span>
-        {hasDeletedRawAudio ? <span>raw audio 삭제 완료</span> : null}
-      </div>
 
       <section className="rehearsal-presenter-layout">
         <section className="rehearsal-presenter-main">
@@ -1344,9 +1192,16 @@ export function RehearsalWorkspace(props: {
             {[-2, -1, 0, 1, 2].map((offset) => {
               const slideIndex = currentSlideIndex + offset;
               const slide = deck?.slides[slideIndex];
-              if (!slide) return null;
+              if (!slide) {
+                return (
+                  <span
+                    aria-hidden="true"
+                    className="rehearsal-context-thumb-placeholder"
+                    key={`empty-${offset}`}
+                  />
+                );
+              }
 
-              const label = offset === 0 ? "\ud604\uc7ac" : offset > 0 ? `+${offset}` : `${offset}`;
               const thumbnailUrl = resolveEditorAssetUrl(slide.thumbnailUrl);
               return (
                 <button
@@ -1368,12 +1223,11 @@ export function RehearsalWorkspace(props: {
                     )}
                   </span>
                   <span className="rehearsal-context-thumb-meta">
-                    <span className="rehearsal-context-thumb-label">{label}</span>
+                    {offset === 0 ? (
+                      <span className="rehearsal-context-thumb-label">{"\ud604\uc7ac"}</span>
+                    ) : null}
                     <span>
-                      <strong>{getSlideTitle(slide)}</strong>
-                      <small>
-                        {slideIndex + 1} / {deck?.slides.length ?? 0}
-                      </small>
+                      <strong>{`\uc2ac\ub77c\uc774\ub4dc ${slideIndex + 1}`}</strong>
                     </span>
                   </span>
                 </button>
@@ -2196,14 +2050,14 @@ async function readErrorMessage(response: Response, fallback: string) {
 
 function toMicrophoneErrorMessage(cause: unknown) {
   if (cause instanceof DOMException && cause.name === "NotAllowedError") {
-    return "留덉씠??沅뚰븳??嫄곕??섏뿀?듬땲??";
+    return "마이크 권한이 거부되었습니다.";
   }
 
   if (cause instanceof DOMException && cause.name === "NotFoundError") {
-    return "?ъ슜?????덈뒗 留덉씠?щ? 李얠? 紐삵뻽?듬땲??";
+    return "사용 가능한 마이크를 찾지 못했습니다.";
   }
 
-  return toErrorMessage(cause) || "?뱀쓬???쒖옉?섏? 紐삵뻽?듬땲??";
+  return toErrorMessage(cause) || "녹음을 시작하지 못했습니다.";
 }
 
 function toRehearsalFlowMessage(cause: unknown) {

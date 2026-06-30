@@ -1629,42 +1629,6 @@ button:disabled {
   margin: 0;
 }
 
-.rehearsal-smoke-controls {
-  align-items: center;
-  bottom: 24px;
-  display: flex;
-  gap: 6px;
-  left: 24px;
-  opacity: 0.48;
-  position: fixed;
-  z-index: 4;
-}
-
-.rehearsal-smoke-controls button {
-  background: #ffffff;
-  border: 1px solid #dbe3ef;
-  border-radius: 8px;
-  color: #334155;
-  font-size: 0.72rem;
-  font-weight: 800;
-  min-height: 28px;
-  padding: 0 8px;
-}
-
-.rehearsal-smoke-controls button:disabled {
-  opacity: 0.45;
-}
-
-.rehearsal-smoke-controls span {
-  background: rgba(255, 255, 255, 0.86);
-  border: 1px solid #e5e7eb;
-  border-radius: 999px;
-  color: #475569;
-  font-size: 0.72rem;
-  font-weight: 800;
-  padding: 5px 8px;
-}
-
 .rehearsal-presenter-topbar {
   align-items: center;
   background: #ffffff;
@@ -1876,20 +1840,21 @@ button:disabled {
 
 .rehearsal-presenter-main {
   display: grid;
-  grid-template-rows: minmax(0, 1fr) 48px 150px;
+  grid-template-rows: minmax(0, 1fr) 42px 150px;
   min-width: 0;
   overflow: hidden;
-  padding: 14px 18px 16px;
+  padding: 14px 18px 20px;
 }
 
 .rehearsal-stage-wrap {
-  align-items: stretch;
   display: grid;
-  justify-items: start;
+  place-items: center;
   min-height: 0;
 }
 
 .rehearsal-presenter-shell .rehearsal-slide-preview {
+  --rehearsal-slide-max-height: calc((100vh - 300px) * 0.9);
+
   aspect-ratio: 16 / 9;
   background: linear-gradient(120deg, #ffffff 0%, #ffffff 70%, #eef4ff 100%);
   border: 1px solid #dbe3ef;
@@ -1899,8 +1864,8 @@ button:disabled {
   grid-template-rows: auto minmax(0, 1fr) auto;
   height: auto;
   margin: 0;
-  max-height: calc(100vh - 300px);
-  max-width: min(100%, calc((100vh - 300px) * 1.7778));
+  max-height: var(--rehearsal-slide-max-height);
+  max-width: min(90%, calc(var(--rehearsal-slide-max-height) * 1.7778));
   min-height: 0;
   padding: clamp(28px, 4vw, 40px);
   width: 100%;
@@ -1996,7 +1961,7 @@ button:disabled {
   gap: 22px;
   grid-template-columns: 42px auto 42px;
   justify-content: center;
-  padding-top: 8px;
+  padding-bottom: 14px;
 }
 
 .rehearsal-presenter-shell .rehearsal-slide-controls button {
@@ -2024,7 +1989,8 @@ button:disabled {
   align-items: stretch;
   display: grid;
   gap: 10px;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(5, 150px);
+  justify-content: center;
   min-height: 0;
 }
 
@@ -2035,11 +2001,20 @@ button:disabled {
   color: #0f172a;
   display: grid;
   gap: 0;
-  grid-template-rows: minmax(0, 1fr) 42px;
-  min-width: 0;
+  grid-template-rows: 108px 42px;
+  height: 150px;
+  min-width: 150px;
   overflow: hidden;
   padding: 0;
   text-align: left;
+  width: 150px;
+}
+
+.rehearsal-context-thumb-placeholder {
+  height: 150px;
+  min-width: 150px;
+  pointer-events: none;
+  width: 150px;
 }
 
 .rehearsal-context-thumb.active {
@@ -2063,12 +2038,11 @@ button:disabled {
 
 .rehearsal-context-thumb-preview {
   align-items: center;
-  aspect-ratio: 16 / 9;
   background: #f8fafc;
   border-bottom: 1px solid #e2e8f0;
   display: flex;
+  height: 108px;
   justify-content: center;
-  min-height: 0;
   overflow: hidden;
   width: 100%;
 }
@@ -2096,8 +2070,12 @@ button:disabled {
   align-items: center;
   display: grid;
   gap: 8px;
-  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
   padding: 8px 10px;
+}
+
+.rehearsal-context-thumb-meta:has(.rehearsal-context-thumb-label) {
+  grid-template-columns: auto minmax(0, 1fr);
 }
 
 .rehearsal-context-thumb strong,
