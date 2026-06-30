@@ -16,6 +16,8 @@ const crossOriginIsolationHeaders = {
   "Cross-Origin-Resource-Policy": "same-origin"
 } as const;
 
+const allowedHosts = ["photo-archive.cloud", "www.photo-archive.cloud"];
+
 function requireWebEnv(
   env: Record<string, string | undefined>,
   key: string
@@ -84,6 +86,7 @@ export default defineConfig(({ mode }) => {
     server: {
       host: "0.0.0.0",
       port: env.webPort,
+      allowedHosts,
       headers: crossOriginIsolationHeaders,
       proxy: {
         "/api/v1": {
@@ -105,6 +108,7 @@ export default defineConfig(({ mode }) => {
     preview: {
       host: "0.0.0.0",
       port: env.webPort,
+      allowedHosts,
       headers: crossOriginIsolationHeaders
     }
   };
