@@ -467,6 +467,48 @@ describe("RehearsalWorkspace", () => {
     expect(biasedAnalysis.coverage).toBe(1);
   });
 
+  it("does not fuzzy-correct short ascii abbreviations into coverage", () => {
+    const slide = {
+      ...createDemoDeck().slides[0]!,
+      slideId: "slide_1",
+      keywords: [
+        {
+          keywordId: "kw_stt",
+          text: "음성 인식",
+          synonyms: [],
+          abbreviations: ["STT"]
+        }
+      ]
+    };
+    const biasContext = buildLiveSttBiasContext(slide);
+    const rawTranscript = "오늘은 start 단계를 진행합니다";
+    const biasedTranscript = applyLiveTranscriptBias(rawTranscript, biasContext);
+    const biasedAnalysis = evaluateLiveTranscript(slide, biasedTranscript);
+
+    expect(biasedTranscript).toBe(rawTranscript);
+    expect(biasedAnalysis.coverage).toBe(0);
+  });
+
+  it("reserves control-phrase slots when keyword aliases exceed the cap", () => {
+    const keywords = Array.from({ length: 12 }, (_, index) => ({
+      keywordId: `kw_${index}`,
+      text: `키워드${index}`,
+      synonyms: [`동의어${index}`],
+      abbreviations: [`약어${index}`]
+    }));
+    const slide = {
+      ...createDemoDeck().slides[0]!,
+      slideId: "slide_dense",
+      keywords
+    };
+    const biasContext = buildLiveSttBiasContext(slide);
+
+    expect(biasContext.terms.length).toBeLessThanOrEqual(32);
+    expect(
+      biasContext.terms.some((term) => term.source === "control-phrase")
+    ).toBe(true);
+  });
+
   it("resolves slide thumbnails to same-origin asset URLs", () => {
     vi.stubGlobal("window", {
       location: {

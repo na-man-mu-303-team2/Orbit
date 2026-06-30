@@ -539,8 +539,9 @@ function createRecognizer(
       modelingUnit: nextManifest.model.bpeVocab ? "bpe" : "cjkchar",
       bpeVocab: nextManifest.model.bpeVocab ? fsModelPaths.bpeVocab : ""
     },
-    decodingMethod:
-      decodingMethodOverride ?? nextManifest.decodingMethod ?? "greedy_search",
+    decodingMethod: hotwords
+      ? "modified_beam_search"
+      : decodingMethodOverride ?? nextManifest.decodingMethod ?? "greedy_search",
     enableEndpoint: true,
     rule1MinTrailingSilence: 2.4,
     rule2MinTrailingSilence: 1.2,

@@ -639,11 +639,26 @@ export function buildLiveSttBiasContext(
     addTerm(term);
   }
 
+  const sortedTerms = Array.from(terms.values()).sort(compareBiasTerms);
+  const controlTerms = sortedTerms.filter(
+    (term) => term.source === "control-phrase"
+  );
+  const otherTerms = sortedTerms.filter(
+    (term) => term.source !== "control-phrase"
+  );
+  const reservedControlTerms = controlTerms.slice(0, maxLiveSttBiasTerms);
+  const remainingSlots = Math.max(
+    0,
+    maxLiveSttBiasTerms - reservedControlTerms.length
+  );
+  const selectedTerms = [
+    ...otherTerms.slice(0, remainingSlots),
+    ...reservedControlTerms
+  ].sort(compareBiasTerms);
+
   return {
     slideId: slide.slideId,
-    terms: Array.from(terms.values())
-      .sort(compareBiasTerms)
-      .slice(0, maxLiveSttBiasTerms)
+    terms: selectedTerms
   };
 }
 
@@ -1012,6 +1027,10 @@ function normalizeBiasDistanceText(value: string) {
 }
 
 function maxBiasTermDistance(length: number) {
+  if (length < 5) {
+    return 0;
+  }
+
   if (length <= 6) {
     return 1;
   }
