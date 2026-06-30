@@ -27,7 +27,6 @@ import {
   ChevronLeft,
   ChevronRight,
   ChevronDown,
-  Clock,
   Gauge,
   Home,
   Mic,
@@ -302,6 +301,30 @@ export async function fetchRehearsalReport(runId: string, fetcher: Fetcher = fet
   }
 
   return (await response.json()) as GetRehearsalReportResponse;
+}
+
+export function resolveRehearsalReportLoadState(
+  response: GetRehearsalReportResponse,
+  requestedProjectId: string
+): { error: string; status: RehearsalReportStatus } {
+  if (response.run.projectId !== requestedProjectId) {
+    return {
+      error: "요청한 프로젝트와 리허설 실행 정보가 일치하지 않습니다.",
+      status: "failed"
+    };
+  }
+
+  if (response.run.status === "failed") {
+    return {
+      error: response.run.error?.message || "리허설 분석 작업이 실패했습니다.",
+      status: "failed"
+    };
+  }
+
+  return {
+    error: "",
+    status: response.report ? "ready" : "not-ready"
+  };
 }
 
 export function getRehearsalReportPath(projectId: string, runId: string) {
@@ -1560,9 +1583,11 @@ export function RehearsalReportPage(props: {
       .then((response) => {
         if (!isMounted) return;
 
+        const nextState = resolveRehearsalReportLoadState(response, props.projectId);
         setRun(response.run);
-        setReport(response.report);
-        setStatus(response.report ? "ready" : "not-ready");
+        setReport(nextState.status === "ready" ? response.report : null);
+        setStatus(nextState.status);
+        setError(nextState.error);
       })
       .catch((cause) => {
         if (!isMounted) return;
@@ -1584,7 +1609,6 @@ export function RehearsalReportPage(props: {
   const speedScore = report ? calculateSpeedScore(report) : 0;
   const keywordScore = report ? Math.round(report.metrics.keywordCoverage * 100) : 0;
   const speedSamples = report ? buildSpeedSamples(report.metrics.wordsPerMinute) : [];
-  const slideTimingRows = buildSlideTimingRows(deck, report?.metrics.durationSeconds ?? 0);
   const coachingHeadline = buildCoachingHeadline(report);
   const coachingDetail = buildCoachingDetail(report, deck);
   const missedKeywords = buildMissedKeywordLabels(deck, report);
@@ -1747,17 +1771,17 @@ export function RehearsalReportPage(props: {
                   <Volume2 size={20} />
                   음성 분석
                 </h2>
-                <div className="report-large-metric">
-                  <strong>{estimateVoiceVolume(report)}dB</strong>
+                <div className="report-official-metrics">
+                  <div>
+                    <span>불필요한 표현</span>
+                    <strong>{report.metrics.fillerWordCount}회</strong>
+                  </div>
+                  <div>
+                    <span>긴 멈춤</span>
+                    <strong>{report.metrics.pauseCount}회</strong>
+                  </div>
                 </div>
-                <div className="report-mini-chart" aria-label="음성 분석 요약">
-                  {Array.from({ length: 14 }).map((_, index) => (
-                    <span
-                      key={index}
-                      className={index % 4 === 0 || index % 5 === 0 ? "emphasis" : ""}
-                    />
-                  ))}
-                </div>
+                <p>서버 리포트가 제공한 말버릇과 멈춤 지표만 표시합니다.</p>
               </section>
 
               <section className="report-keyword-card report-dashboard-card">
@@ -1766,47 +1790,22 @@ export function RehearsalReportPage(props: {
                   누락 키워드
                 </h2>
                 <p>실전 발표 중 다시 알려줄 핵심 데이터입니다.</p>
-                <div className="report-keyword-chips">
-                  {missedKeywords.map((keyword) => (
-                    <span key={keyword}>{keyword}</span>
-                  ))}
-                </div>
-                <strong className="report-keyword-warning">
-                  {Math.max(1, report.metrics.pauseCount + report.metrics.fillerWordCount)}페이지 발표 중{" "}
-                  {Math.max(1, missedKeywords.length)}개 이상 누락되면 실시간 알림을 띄웁니다.
-                </strong>
-              </section>
-
-              <section className="report-slide-time-card report-dashboard-card">
-                <h2>
-                  <Clock size={20} />
-                  슬라이드별 목표 시간 / 실제 시간
-                </h2>
-                <p>목표 대비 길어진 구간과 빨라진 구간을 비교합니다.</p>
-                <div className="report-slide-time-list">
-                  {slideTimingRows.map((row) => (
-                    <div className="report-slide-time-row" key={row.label}>
-                      <span>{row.label}</span>
-                      <strong>{row.title}</strong>
-                      <div className="report-time-bar" aria-hidden="true">
-                        <i style={{ width: `${row.barPercent}%` }} />
-                      </div>
-                      <div className="report-time-values">
-                        <span>
-                          목표
-                          <strong>{formatDuration(row.targetSeconds)}</strong>
-                        </span>
-                        <span>
-                          실제
-                          <strong>{formatDuration(row.actualSeconds)}</strong>
-                        </span>
-                      </div>
-                      <em className={row.deltaSeconds >= 0 ? "is-late" : "is-fast"}>
-                        {formatSignedSeconds(row.deltaSeconds)}
-                      </em>
+                {missedKeywords.length > 0 ? (
+                  <>
+                    <div className="report-keyword-chips">
+                      {missedKeywords.map((keyword) => (
+                        <span key={keyword}>{keyword}</span>
+                      ))}
                     </div>
-                  ))}
-                </div>
+                    <strong className="report-keyword-warning">
+                      핵심 키워드 커버리지가 낮을 때만 누락 후보를 표시합니다.
+                    </strong>
+                  </>
+                ) : (
+                  <strong className="report-keyword-empty">
+                    이번 리허설에서 누락된 키워드가 없습니다.
+                  </strong>
+                )}
               </section>
 
               <section className="report-speed-change-card report-dashboard-card">
@@ -2079,12 +2078,22 @@ function buildCoachingDetail(report: RehearsalReport | null, deck: Deck | null) 
 }
 
 function buildMissedKeywordLabels(deck: Deck | null, report: RehearsalReport | null) {
+  if (!report) {
+    return [];
+  }
+
+  if (report.metrics.keywordCoverage >= 1) {
+    return [];
+  }
+
   const allKeywords = deck?.slides.flatMap((slide) => slide.keywords.map((keyword) => keyword.text)) ?? [];
   const fallbackKeywords = ["디코더", "실시간 보정", "사용자 피드백", "오류율 4.8%"];
   const keywordPool = allKeywords.length > 0 ? allKeywords : fallbackKeywords;
-  const missingCount = report
-    ? clamp(Math.ceil((1 - report.metrics.keywordCoverage) * Math.max(3, keywordPool.length)), 1, 4)
-    : 3;
+  const missingCount = clamp(
+    Math.ceil((1 - report.metrics.keywordCoverage) * Math.max(3, keywordPool.length)),
+    0,
+    4
+  );
 
   return Array.from(new Set(keywordPool)).slice(0, missingCount);
 }
@@ -2093,46 +2102,14 @@ function getTargetDurationSeconds(deck: Deck | null) {
   return Math.max(60, (deck?.slides.length ?? 7) * 40);
 }
 
-function buildSlideTimingRows(deck: Deck | null, durationSeconds: number) {
-  const slides = deck?.slides.slice(0, 3) ?? [];
-  const rows = (slides.length > 0 ? slides : [null, null, null]).map((slide, index) => {
-    const targetSeconds = index === 0 ? 40 : index === 1 ? 80 : 55;
-    const actualSeconds = Math.max(
-      24,
-      Math.round((durationSeconds || 360) / 6 + (index === 0 ? 12 : index === 1 ? 38 : -17))
-    );
-    const title = slide ? getSlideTitle(slide) : index === 0 ? "기획 개요" : index === 1 ? "기술 검증" : "적용 사례";
-
-    return {
-      label: `슬라이드 ${index + 1}`,
-      title,
-      targetSeconds,
-      actualSeconds,
-      deltaSeconds: actualSeconds - targetSeconds,
-      barPercent: clamp(Math.round((actualSeconds / Math.max(targetSeconds, actualSeconds)) * 100), 22, 100)
-    };
-  });
-
-  return rows;
-}
-
 function buildSpeedSamples(wordsPerMinute: number) {
   const base = Math.round(wordsPerMinute);
   return [base - 28, base + 54, base + 68, base + 42, base + 60, base + 30, base - 10, base - 46, base - 52, base - 38, base + 26, base + 48, base + 38];
 }
 
-function estimateVoiceVolume(report: RehearsalReport) {
-  return clamp(96 - report.metrics.pauseCount * 2 - report.metrics.fillerWordCount, 72, 98);
-}
-
 function formatSignedDuration(totalSeconds: number) {
   const sign = totalSeconds >= 0 ? "" : "-";
   return `${sign}${formatDuration(Math.abs(totalSeconds))}`;
-}
-
-function formatSignedSeconds(totalSeconds: number) {
-  const sign = totalSeconds >= 0 ? "+" : "-";
-  return `${sign}${Math.abs(totalSeconds)}s`;
 }
 
 function formatDuration(totalSeconds: number) {
