@@ -1532,10 +1532,10 @@ button:disabled {
 
 .rehearsal-presenter-main {
   display: grid;
-  grid-template-rows: minmax(0, 1fr) 58px 104px;
+  grid-template-rows: minmax(0, 1fr) 48px 150px;
   min-width: 0;
   overflow: hidden;
-  padding: 24px 18px 18px;
+  padding: 14px 18px 16px;
 }
 
 .rehearsal-stage-wrap {
@@ -1555,8 +1555,8 @@ button:disabled {
   grid-template-rows: auto minmax(0, 1fr) auto;
   height: auto;
   margin: 0;
-  max-height: calc(100vh - 268px);
-  max-width: min(100%, calc((100vh - 268px) * 1.7778));
+  max-height: calc(100vh - 300px);
+  max-width: min(100%, calc((100vh - 300px) * 1.7778));
   min-height: 0;
   padding: clamp(28px, 4vw, 40px);
   width: 100%;
@@ -1690,11 +1690,11 @@ button:disabled {
   border-radius: 8px;
   color: #0f172a;
   display: grid;
-  gap: 5px;
-  grid-template-rows: auto minmax(0, 1fr) auto auto;
+  gap: 0;
+  grid-template-rows: minmax(0, 1fr) 42px;
   min-width: 0;
   overflow: hidden;
-  padding: 8px;
+  padding: 0;
   text-align: left;
 }
 
@@ -1704,20 +1704,29 @@ button:disabled {
 }
 
 .rehearsal-context-thumb-label {
+  align-items: center;
+  border: 1px solid #bfdbfe;
+  border-radius: 999px;
   color: #2563eb;
+  display: inline-flex;
   font-size: 0.72rem;
   font-weight: 900;
+  height: 24px;
+  justify-content: center;
+  min-width: 32px;
+  padding: 0 8px;
 }
 
 .rehearsal-context-thumb-preview {
   align-items: center;
+  aspect-ratio: 16 / 9;
   background: #f8fafc;
-  border: 1px solid #e2e8f0;
-  border-radius: 5px;
+  border-bottom: 1px solid #e2e8f0;
   display: flex;
   justify-content: center;
   min-height: 0;
   overflow: hidden;
+  width: 100%;
 }
 
 .rehearsal-context-thumb-preview img {
@@ -1727,8 +1736,29 @@ button:disabled {
   width: 100%;
 }
 
+.rehearsal-context-thumb-empty {
+  color: #64748b;
+  font-size: 0.72rem;
+  font-weight: 900;
+  overflow: hidden;
+  padding: 0 10px;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  width: 100%;
+}
+
+.rehearsal-context-thumb-meta {
+  align-items: center;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: auto minmax(0, 1fr);
+  padding: 8px 10px;
+}
+
 .rehearsal-context-thumb strong,
 .rehearsal-context-thumb small {
+  display: block;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

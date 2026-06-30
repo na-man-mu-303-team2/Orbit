@@ -1303,17 +1303,27 @@ export function RehearsalWorkspace(props: {
                   type="button"
                   onClick={() => setCurrentSlideIndex(slideIndex)}
                 >
-                  <span className="rehearsal-context-thumb-label">{label}</span>
-                  {thumbnailUrl ? (
-                    <span className="rehearsal-context-thumb-preview">
+                  <span className="rehearsal-context-thumb-preview">
+                    {thumbnailUrl ? (
                       <img
                         alt={`${getSlideTitle(slide)} thumbnail`}
                         src={thumbnailUrl}
                       />
+                    ) : (
+                      <span className="rehearsal-context-thumb-empty">
+                        {getSlideTitle(slide)}
+                      </span>
+                    )}
+                  </span>
+                  <span className="rehearsal-context-thumb-meta">
+                    <span className="rehearsal-context-thumb-label">{label}</span>
+                    <span>
+                      <strong>{getSlideTitle(slide)}</strong>
+                      <small>
+                        {slideIndex + 1} / {deck?.slides.length ?? 0}
+                      </small>
                     </span>
-                  ) : null}
-                  <strong>{getSlideTitle(slide)}</strong>
-                  <small>{getSlideSummary(slide)}</small>
+                  </span>
                 </button>
               );
             })}
@@ -1651,10 +1661,6 @@ function getSlideBodyTexts(slide: Slide) {
     )
     .map((element) => element.props.text.trim())
     .filter((text) => text !== slide.title.trim());
-}
-
-function getSlideSummary(slide: Slide) {
-  return getSlideBodyTexts(slide)[0] ?? "Review the key point";
 }
 
 function getChecklistKeywords(slide: Slide | null): Keyword[] {
