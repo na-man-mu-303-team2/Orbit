@@ -3,18 +3,25 @@
   type DeckElement,
   type GenerateDeckJobResult,
   type Job,
-  type Project
+  type Project,
+  type ProjectMemberRole,
+  type ProjectMemberStatus
 } from "@orbit/shared";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  ArrowRight,
+  BarChart3,
+  ChevronDown,
   FolderOpen,
   Home,
   LayoutTemplate,
   LogIn,
+  LogOut,
   MessageSquareText,
-  PanelLeftClose,
-  PanelLeftOpen,
+  Monitor,
+  PlayCircle,
   Plus,
+  Save,
   Search,
   Sparkles
 } from "lucide-react";
@@ -27,7 +34,10 @@ import {
   fetchProjects,
   ProjectAssetWorkspace
 } from "./features/projects/ProjectAssetWorkspace";
-import { RehearsalWorkspace } from "./features/rehearsal/RehearsalWorkspace";
+import {
+  RehearsalReportPage,
+  RehearsalWorkspace
+} from "./features/rehearsal/RehearsalWorkspace";
 
 type Fetcher = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 
@@ -109,19 +119,29 @@ type RejectedFile = {
   reason: string;
 };
 
-type Route =
+export type Route =
   | { name: "login" }
   | { name: "home" }
   | { name: "create-deck" }
   | { name: "upload" }
   | { name: "project-list" }
   | { name: "project-editor"; projectId: string }
-  | { name: "rehearsal"; projectId: string };
+  | { name: "project-request"; projectId: string }
+  | { name: "rehearsal"; projectId: string }
+  | { name: "rehearsal-report"; projectId: string; runId: string };
 
 type AuthUser = {
   userId: string;
   email?: string;
   displayName?: string;
+};
+
+type ProjectAccessResponse = {
+  project: Project;
+  membership: {
+    role: ProjectMemberRole;
+    status: ProjectMemberStatus;
+  } | null;
 };
 
 const EditorShell = lazy(() =>
@@ -162,7 +182,37 @@ async function fetchCurrentUser(): Promise<AuthUser> {
   if (!response.ok) {
     throw new Error("Unauthenticated");
   }
-  return response.json() as Promise<AuthUser>;
+  const payload = (await response.json()) as AuthUser | { user: AuthUser };
+  return "user" in payload ? payload.user : payload;
+}
+
+async function fetchProjectAccess(projectId: string): Promise<ProjectAccessResponse> {
+  const response = await fetch(`/api/v1/projects/${encodeURIComponent(projectId)}/access`, {
+    credentials: "include"
+  });
+  if (!response.ok) {
+    throw new Error(await readApiError(response, "프로젝트 권한을 확인하지 못했습니다."));
+  }
+  return response.json() as Promise<ProjectAccessResponse>;
+}
+
+async function requestProjectAccess(
+  projectId: string,
+  role: Exclude<ProjectMemberRole, "owner">
+): Promise<ProjectAccessResponse> {
+  const response = await fetch(
+    `/api/v1/projects/${encodeURIComponent(projectId)}/access-requests`,
+    {
+      body: JSON.stringify({ role }),
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      method: "POST"
+    }
+  );
+  if (!response.ok) {
+    throw new Error(await readApiError(response, "프로젝트 권한 요청에 실패했습니다."));
+  }
+  return response.json() as Promise<ProjectAccessResponse>;
 }
 
 function getRoute(pathname = window.location.pathname): Route {
@@ -173,9 +223,23 @@ function getRoute(pathname = window.location.pathname): Route {
   if (normalized === "/upload") return { name: "upload" };
   if (normalized === "/project") return { name: "project-list" };
 
+  const projectRequestMatch = normalized.match(/^\/project\/([^/]+)\/request$/);
+  if (projectRequestMatch) {
+    return { name: "project-request", projectId: decodeURIComponent(projectRequestMatch[1]) };
+  }
+
   const projectMatch = normalized.match(/^\/project\/([^/]+)$/);
   if (projectMatch) {
     return { name: "project-editor", projectId: decodeURIComponent(projectMatch[1]) };
+  }
+
+  const rehearsalReportMatch = normalized.match(/^\/rehearsal\/([^/]+)\/report\/([^/]+)$/);
+  if (rehearsalReportMatch) {
+    return {
+      name: "rehearsal-report",
+      projectId: decodeURIComponent(rehearsalReportMatch[1]),
+      runId: decodeURIComponent(rehearsalReportMatch[2])
+    };
   }
 
   const rehearsalMatch = normalized.match(/^\/rehearsal\/([^/]+)$/);
@@ -193,7 +257,6 @@ function navigateTo(path: string) {
 
 export function App() {
   const [route, setRoute] = useState(() => getRoute());
-  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
 
   useEffect(() => {
     const handleRouteChange = () => setRoute(getRoute());
@@ -214,30 +277,40 @@ export function App() {
     }
   }, [auth.isError, route.name]);
 
+  if (!shouldRenderAppFrame(route)) {
+    return renderRoute(route, auth.data);
+  }
+
   return (
     <AppFrame
       isAuthenticated={auth.isSuccess}
-      isSidebarCollapsed={isSidebarCollapsed}
       route={route}
-      onToggleSidebar={() => setIsSidebarCollapsed((current) => !current)}
+      user={auth.data}
     >
       {renderRoute(route, auth.data)}
     </AppFrame>
   );
 }
 
+export function shouldRenderAppFrame(route: Route) {
+  return route.name !== "login" && route.name !== "rehearsal-report";
+}
+
 function renderRoute(route: Route, user?: AuthUser) {
-  if (route.name === "login") return <LoginPage />;
+  if (route.name === "login") return <LoginPage isAuthenticated={Boolean(user)} />;
   if (route.name === "create-deck") return <GenerateDeckView />;
   if (route.name === "upload") return <ProjectAssetWorkspace />;
   if (route.name === "project-list") return <ProjectListPage />;
   if (route.name === "project-editor") {
     return (
-      <Suspense fallback={<EditorLoadingFallback />}>
-        <EditorShell projectId={route.projectId} />
-      </Suspense>
+      <ProjectAccessGate projectId={route.projectId}>
+        <Suspense fallback={<EditorLoadingFallback />}>
+          <EditorShell projectId={route.projectId} />
+        </Suspense>
+      </ProjectAccessGate>
     );
   }
+  if (route.name === "project-request") return <ProjectAccessRequestPage projectId={route.projectId} />;
   if (route.name === "rehearsal") {
     return (
       <RehearsalWorkspace
@@ -246,72 +319,197 @@ function renderRoute(route: Route, user?: AuthUser) {
       />
     );
   }
+  if (route.name === "rehearsal-report") {
+    return <RehearsalReportPage projectId={route.projectId} runId={route.runId} />;
+  }
   return <HomePage user={user} />;
 }
 
 function AppFrame(props: {
   children: ReactNode;
   isAuthenticated: boolean;
-  isSidebarCollapsed: boolean;
   route: Route;
-  onToggleSidebar: () => void;
+  user?: AuthUser;
 }) {
-  const { children, isAuthenticated, isSidebarCollapsed, route, onToggleSidebar } = props;
+  const { children, isAuthenticated, route, user } = props;
+  const queryClient = useQueryClient();
+  const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
   const activeProjectId =
-    route.name === "project-editor" || route.name === "rehearsal"
+    route.name === "project-editor" ||
+    route.name === "project-request" ||
+    route.name === "rehearsal" ||
+    route.name === "rehearsal-report"
       ? route.projectId
       : demoIds.projectId;
+  const projectTitle =
+    route.name === "create-deck"
+      ? "AI 덱 생성 파이프라인"
+      : route.name === "project-list" ||
+          route.name === "project-editor" ||
+          route.name === "project-request"
+        ? "프로젝트 워크스페이스"
+        : route.name === "rehearsal" || route.name === "rehearsal-report"
+          ? "리허설 워크스페이스"
+          : "AI 덱 생성 파이프라인";
+  const isHomeDashboard = route.name === "home";
+  const isHeaderless = isHomeDashboard || route.name === "rehearsal";
+  const userLabel = user ? getUserLabel(user) : "로그인";
+  const userInitial = user ? getUserInitial(user) : "U";
 
+  async function handleLogout() {
+    if (isLoggingOut) return;
+
+    setIsLoggingOut(true);
+    try {
+      await fetch("/api/v1/auth/logout", {
+        credentials: "include",
+        method: "POST"
+      });
+      queryClient.setQueryData(["auth", "me"], undefined);
+      await queryClient.invalidateQueries({ queryKey: ["auth", "me"] });
+      setIsUserMenuOpen(false);
+      navigateTo("/login");
+    } finally {
+      setIsLoggingOut(false);
+    }
+  }
   return (
-    <main className={`orbit-layout ${isSidebarCollapsed ? "sidebar-collapsed" : ""}`}>
-      <aside className="orbit-sidebar" aria-label="Orbit navigation">
-        <button className="sidebar-brand" type="button" onClick={() => navigateTo("/")}>
-          <img alt="Orbit" src={orbitLogo} />
-          <span>Orbit</span>
-        </button>
-        <button
-          className="sidebar-toggle"
-          type="button"
-          onClick={onToggleSidebar}
-          aria-label={isSidebarCollapsed ? "사이드바 펼치기" : "사이드바 접기"}
-          title={isSidebarCollapsed ? "사이드바 펼치기" : "사이드바 접기"}
-        >
-          {isSidebarCollapsed ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}
-        </button>
-        <nav className="sidebar-nav">
+    <main
+      className={
+        isHeaderless
+          ? `orbit-layout orbit-product-shell orbit-headerless-shell${
+              isHomeDashboard ? " orbit-home-shell" : ""
+            }`
+          : "orbit-layout orbit-product-shell"
+      }
+    >
+      {isHeaderless ? null : (
+        <header className="rehearsal-report-topbar orbit-product-topbar">
+          <div className="rehearsal-report-topbar-left">
+            <span className="report-brand-mark" aria-hidden="true">
+              <i />
+              <i />
+            </span>
+            <strong>Orbit AI</strong>
+            <button type="button" onClick={() => navigateTo("/")} aria-label="홈으로 이동">
+              <Home size={18} />
+            </button>
+            <span className="report-project-title">{projectTitle}</span>
+            <ChevronDown size={16} />
+            <span className="report-save-state">
+              <Save size={15} />
+              저장됨
+            </span>
+          </div>
+          <div className="rehearsal-report-topbar-actions">
+            {isAuthenticated ? (
+              <div className="report-user-menu">
+                <button
+                  className="report-user-trigger"
+                  type="button"
+                  onClick={() => setIsUserMenuOpen((current) => !current)}
+                  aria-expanded={isUserMenuOpen}
+                  aria-haspopup="menu"
+                >
+                  <span>{userLabel}</span>
+                  <span className="report-avatar" aria-hidden="true">{userInitial}</span>
+                  <ChevronDown size={15} />
+                </button>
+                {isUserMenuOpen ? (
+                  <div className="report-user-dropdown" role="menu">
+                    <button
+                      type="button"
+                      role="menuitem"
+                      disabled={isLoggingOut}
+                      onClick={() => void handleLogout()}
+                    >
+                      <LogOut size={16} />
+                      {isLoggingOut ? "로그아웃 중" : "로그아웃"}
+                    </button>
+                  </div>
+                ) : null}
+              </div>
+            ) : (
+              <button type="button" onClick={() => navigateTo("/login")}>
+                <LogIn size={18} />
+                로그인
+              </button>
+            )}
+            <span className="report-mode-switch" aria-label="보기 모드">
+              <button type="button">편집</button>
+              <button className="active" type="button">보기</button>
+            </span>
+            <button type="button" onClick={() => navigateTo(`/rehearsal/${activeProjectId}`)}>
+              <Monitor size={18} />
+              리허설
+            </button>
+            <button
+              type="button"
+              onClick={() =>
+                route.name === "rehearsal-report"
+                  ? undefined
+                  : navigateTo(`/rehearsal/${activeProjectId}`)
+              }
+            >
+              <BarChart3 size={18} />
+              AI 리포트
+            </button>
+            <button className="report-present-button" type="button">
+              <PlayCircle size={18} />
+              프레젠테이션
+              <ChevronDown size={16} />
+            </button>
+          </div>
+        </header>
+      )}
+      <div className="orbit-product-body">
+        <aside className="orbit-product-nav" aria-label="Orbit navigation">
+          {isHeaderless ? (
+            <button
+              className="orbit-product-nav-brand"
+              type="button"
+              onClick={() => navigateTo("/")}
+              aria-label="Orbit AI 홈"
+            >
+              <span className="report-brand-mark" aria-hidden="true">
+                <i />
+                <i />
+              </span>
+              <strong>Orbit AI</strong>
+            </button>
+          ) : null}
           <SidebarButton
             active={route.name === "home"}
-            icon={<Home size={18} />}
+            icon={<Home size={15} />}
             label="홈"
             onClick={() => navigateTo("/")}
           />
           <SidebarButton
-            active={route.name === "project-list" || route.name === "project-editor"}
-            icon={<FolderOpen size={18} />}
-            label="프로젝트"
+            active={
+              route.name === "project-list" ||
+              route.name === "project-editor" ||
+              route.name === "project-request"
+            }
+            icon={<FolderOpen size={15} />}
+            label="프로젝트 목록"
             onClick={() => navigateTo("/project")}
           />
           <SidebarButton
             active={route.name === "create-deck"}
-            icon={<Sparkles size={18} />}
+            icon={<Sparkles size={15} />}
             label="AI 덱 생성"
             onClick={() => navigateTo("/createdeck")}
           />
           <SidebarButton
-            active={route.name === "rehearsal"}
-            icon={<Sparkles size={18} />}
-            label="리허설"
+            active={route.name === "rehearsal" || route.name === "rehearsal-report"}
+            icon={<Monitor size={15} />}
+            label="리허설 시작"
             onClick={() => navigateTo(`/rehearsal/${activeProjectId}`)}
           />
-        </nav>
-        {!isAuthenticated ? (
-          <button className="sidebar-login" type="button" onClick={() => navigateTo("/login")}>
-            <LogIn size={18} />
-            <span>로그인</span>
-          </button>
-        ) : null}
-      </aside>
-      <section className="orbit-page">{children}</section>
+        </aside>
+        <section className="orbit-page">{children}</section>
+      </div>
     </main>
   );
 }
@@ -319,18 +517,35 @@ function AppFrame(props: {
 function SidebarButton(props: {
   active: boolean;
   icon: ReactNode;
+  detail?: string;
   label: string;
   onClick: () => void;
 }) {
   return (
-    <button className={props.active ? "active" : ""} type="button" onClick={props.onClick}>
-      {props.icon}
-      <span>{props.label}</span>
+    <button
+      className={props.active ? "rehearsal-report-nav-item active" : "rehearsal-report-nav-item"}
+      type="button"
+      onClick={props.onClick}
+    >
+      <strong>
+        {props.icon}
+        {props.label}
+      </strong>
+      {props.detail ? <span>{props.detail}</span> : null}
     </button>
   );
 }
 
-function LoginPage() {
+function getUserInitial(user: AuthUser) {
+  const source = user.displayName?.trim() || getUserLabel(user) || "U";
+  return source.slice(0, 1).toUpperCase();
+}
+
+function getUserLabel(user: AuthUser) {
+  return user.email?.trim() || user.userId;
+}
+
+function LoginPage(props: { isAuthenticated: boolean }) {
   const queryClient = useQueryClient();
   const [mode, setMode] = useState<"login" | "register">("login");
   const [email, setEmail] = useState("");
@@ -439,6 +654,17 @@ function LoginPage() {
               : "로그인"}
         </button>
       </form>
+      {props.isAuthenticated ? (
+        <button
+          className="login-next-button"
+          type="button"
+          onClick={() => navigateTo("/")}
+          aria-label="다음 화면으로 이동"
+          title="다음 화면으로 이동"
+        >
+          <ArrowRight size={34} strokeWidth={2.4} />
+        </button>
+      ) : null}
     </section>
   );
 }
@@ -459,11 +685,168 @@ async function readAuthError(response: Response) {
   return fallback;
 }
 
+async function readApiError(response: Response, fallback: string) {
+  const text = await response.text();
+  if (!text) return fallback;
+
+  try {
+    const body = JSON.parse(text) as { error?: unknown; message?: unknown };
+    if (typeof body.message === "string") return body.message;
+    if (Array.isArray(body.message)) return body.message.join(", ");
+    if (typeof body.error === "string") return body.error;
+  } catch {
+    return text;
+  }
+
+  return fallback;
+}
+
+function ProjectAccessGate(props: { children: ReactNode; projectId: string }) {
+  const access = useQuery({
+    queryKey: ["project-access", props.projectId],
+    queryFn: () => fetchProjectAccess(props.projectId),
+    retry: false
+  });
+
+  useEffect(() => {
+    const membership = access.data?.membership;
+    if (access.isSuccess && membership?.status !== "accepted") {
+      navigateTo(`/project/${encodeURIComponent(props.projectId)}/request`);
+    }
+  }, [access.data?.membership, access.isSuccess, props.projectId]);
+
+  if (access.isLoading) return <EditorLoadingFallback />;
+  if (access.isError) return <ProjectAccessError onRetry={() => void access.refetch()} />;
+  if (access.data?.membership?.status !== "accepted") return <EditorLoadingFallback />;
+
+  return <>{props.children}</>;
+}
+
+function ProjectAccessError(props: { onRetry: () => void }) {
+  return (
+    <section className="project-request-page">
+      <article className="project-request-card">
+        <span className="eyebrow">Project access</span>
+        <h1>프로젝트 권한을 확인하지 못했습니다.</h1>
+        <p>잠시 후 다시 시도하거나 프로젝트 소유자에게 권한 상태를 확인해 주세요.</p>
+        <button type="button" onClick={props.onRetry}>
+          다시 확인
+        </button>
+      </article>
+    </section>
+  );
+}
+
+function ProjectAccessRequestPage(props: { projectId: string }) {
+  const queryClient = useQueryClient();
+  const [role, setRole] = useState<Exclude<ProjectMemberRole, "owner">>("editor");
+  const [error, setError] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const access = useQuery({
+    queryKey: ["project-access", props.projectId],
+    queryFn: () => fetchProjectAccess(props.projectId),
+    retry: false
+  });
+
+  const membership = access.data?.membership;
+
+  useEffect(() => {
+    if (membership?.status === "accepted") {
+      navigateTo(`/project/${encodeURIComponent(props.projectId)}`);
+    }
+  }, [membership?.status, props.projectId]);
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (isSubmitting) return;
+
+    setError(null);
+    setIsSubmitting(true);
+    try {
+      const response = await requestProjectAccess(props.projectId, role);
+      queryClient.setQueryData(["project-access", props.projectId], response);
+    } catch (cause) {
+      setError(
+        cause instanceof Error ? cause.message : "프로젝트 권한 요청에 실패했습니다."
+      );
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  if (access.isLoading) return <EditorLoadingFallback />;
+
+  if (membership?.status === "pending") {
+    return (
+      <section className="project-request-page">
+        <article className="project-request-card">
+          <span className="eyebrow">Project access</span>
+          <h1>권한 요청을 보냈습니다.</h1>
+          <p>
+            프로젝트 소유자가 요청을 확인하고 있습니다. 승인되면 이 프로젝트에
+            접근할 수 있습니다.
+          </p>
+          <dl className="project-request-meta">
+            <div>
+              <dt>요청 권한</dt>
+              <dd>{membership.role}</dd>
+            </div>
+            <div>
+              <dt>상태</dt>
+              <dd>대기 중</dd>
+            </div>
+          </dl>
+        </article>
+      </section>
+    );
+  }
+
+  return (
+    <section className="project-request-page">
+      <form className="project-request-card" onSubmit={handleSubmit}>
+        <span className="eyebrow">Project access</span>
+        <h1>프로젝트 접근 권한이 필요합니다.</h1>
+        <p>
+          이 프로젝트는 승인된 사용자만 열 수 있습니다. 필요한 권한을 선택해서
+          프로젝트 소유자에게 요청하세요.
+        </p>
+        <div className="project-request-options" role="radiogroup" aria-label="요청 권한">
+          <label className={role === "editor" ? "active" : ""}>
+            <input
+              checked={role === "editor"}
+              name="project-role"
+              onChange={() => setRole("editor")}
+              type="radio"
+              value="editor"
+            />
+            <strong>editor</strong>
+            <span>프로젝트를 열고 슬라이드를 수정할 수 있습니다.</span>
+          </label>
+          <label className={role === "viewer" ? "active" : ""}>
+            <input
+              checked={role === "viewer"}
+              name="project-role"
+              onChange={() => setRole("viewer")}
+              type="radio"
+              value="viewer"
+            />
+            <strong>viewer</strong>
+            <span>프로젝트 내용을 읽고 확인할 수 있습니다.</span>
+          </label>
+        </div>
+        {error ? <p className="auth-error">{error}</p> : null}
+        <button type="submit" disabled={isSubmitting}>
+          {isSubmitting ? "요청 중..." : "권한 요청하기"}
+        </button>
+      </form>
+    </section>
+  );
+}
+
 function HomePage(props: { user?: AuthUser }) {
   return (
     <section className="home-page">
       <header className="page-heading">
-        <span>홈</span>
         <h1>{props.user?.displayName ?? "Orbit"} 작업 공간</h1>
       </header>
 

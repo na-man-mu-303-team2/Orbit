@@ -12,8 +12,23 @@ import {
   getGenerateDeckJobResult,
   getJobResultFiles,
   mergeGeneratedProjectList,
-  pollExtractJob
+  pollExtractJob,
+  shouldRenderAppFrame
 } from "./App";
+
+describe("App shell routing", () => {
+  it("keeps the login page outside the shared navigation shell", () => {
+    expect(shouldRenderAppFrame({ name: "login" })).toBe(false);
+    expect(
+      shouldRenderAppFrame({
+        name: "rehearsal-report",
+        projectId: "project_demo_1",
+        runId: "run_demo_1"
+      })
+    ).toBe(false);
+    expect(shouldRenderAppFrame({ name: "home" })).toBe(true);
+  });
+});
 
 describe("reference extraction upload flow", () => {
   it("builds generate-deck references and keywords from succeeded extraction results", () => {
@@ -298,7 +313,7 @@ describe("AI deck generation flow", () => {
             }
           ]
         },
-        warnings: [],
+        warnings: ["AI가 참고자료/주제 밀도를 기준으로 1장이 적정하다고 판단했습니다."],
         validation: {
           passed: true,
           layoutIssues: [],
@@ -320,6 +335,9 @@ describe("AI deck generation flow", () => {
     expect(getGeneratedDeckProjectPath(result)).toBe("/project/project-a");
     expect(renderToStaticMarkup(<GeneratedDeckResult result={result} />)).toContain(
       "file_1"
+    );
+    expect(renderToStaticMarkup(<GeneratedDeckResult result={result} />)).toContain(
+      "AI가 참고자료/주제 밀도를 기준으로 1장이 적정하다고 판단했습니다."
     );
   });
 });

@@ -117,6 +117,9 @@ async function readErrorMessage(response: Response, fallback: string) {
 export async function fetchProjects(fetcher: Fetcher = fetch) {
   const response = await fetcher(
     `/api/v1/workspaces/${demoIds.workspaceId}/projects`,
+    {
+      credentials: "include",
+    },
   );
 
   if (!response.ok) {
@@ -136,6 +139,7 @@ export async function createProject(
   const response = await fetcher(
     `/api/v1/workspaces/${demoIds.workspaceId}/projects`,
     {
+      credentials: "include",
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ title }),

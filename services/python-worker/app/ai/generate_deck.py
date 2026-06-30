@@ -141,6 +141,8 @@ class RawInput(BaseModel):
     design_prompt: str = ""
     target_duration_minutes: int
     slide_count: int
+    min_slide_count: int
+    max_slide_count: int
     template: Template
     metadata: GenerateDeckMetadata
     design: DesignOptions
@@ -1112,6 +1114,11 @@ def generate_deck(
     warnings = []
     if not raw_input.references:
         warnings.append("참고자료 없이 topic-only generation으로 생성했습니다.")
+    generated_slide_count = len(slides)
+    if raw_input.min_slide_count <= generated_slide_count < raw_input.max_slide_count:
+        warnings.append(
+            f"AI가 참고자료/주제 밀도를 기준으로 {generated_slide_count}장이 적정하다고 판단했습니다."
+        )
 
     return GenerateDeckResponse(deck=deck, warnings=warnings, validation=validation)
 
@@ -1136,6 +1143,8 @@ def analyze_input(
         design_prompt=design_prompt,
         target_duration_minutes=request.target_duration_minutes,
         slide_count=slide_count,
+        min_slide_count=request.slide_count_range.min,
+        max_slide_count=request.slide_count_range.max,
         template=request.template,
         metadata=request.metadata,
         design=request.design,
@@ -1169,8 +1178,8 @@ def split_content_and_design_prompt(prompt: str, design_prompt: str) -> tuple[st
 
 
 def choose_slide_count(target_minutes: int, slide_range: SlideCountRange) -> int:
-    suggested = max(slide_range.min, round(target_minutes / 2))
-    return min(slide_range.max, suggested)
+    suggested = round(target_minutes)
+    return min(slide_range.max, max(slide_range.min, suggested))
 
 
 def plan_deck_content(
@@ -1392,9 +1401,9 @@ def generate_content_plan_with_llm(
             f"LLM returned invalid deck content: {error}"
         ) from error
 
-    if len(plan.slides) < raw_input.slide_count:
+    if len(plan.slides) < raw_input.min_slide_count:
         raise DeckContentGenerationError(
-            "LLM returned fewer slides than requested."
+            f"LLM returned fewer slides than the requested minimum ({raw_input.min_slide_count})."
         )
 
     return GeneratedDeckContentPlan(

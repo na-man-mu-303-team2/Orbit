@@ -1,16 +1,130 @@
 import json
 from typing import Any
 
+import pytest
 from fastapi.testclient import TestClient
 
 import app.main as api_module
-from app.ai.generate_deck import GenerateDeckRequest, ReferenceContext, generate_deck
+from app.ai.generate_deck import (
+    DeckContentGenerationError,
+    GenerateDeckRequest,
+    ReferenceContext,
+    SlideCountRange,
+    choose_slide_count,
+    generate_deck,
+)
 from tests.test_config import VALID_ENV
 
 
 def client() -> TestClient:
     api_module.app.state.config = api_module.load_config(VALID_ENV)
     return TestClient(api_module.app)
+
+
+def test_choose_slide_count_clamps_duration_to_requested_range() -> None:
+    slide_range = SlideCountRange(min=5, max=10)
+
+    assert choose_slide_count(3, slide_range) == 5
+    assert choose_slide_count(7, slide_range) == 7
+    assert choose_slide_count(10, slide_range) == 10
+    assert choose_slide_count(30, slide_range) == 10
+
+
+def test_generate_deck_accepts_llm_slide_count_above_minimum() -> None:
+    fake_client = FakeOpenAIClient(
+        {
+            "title": "Dense enough",
+            "slides": [
+                slide_payload(
+                    f"Slide {index}",
+                    "LLM selected a concise deck.",
+                    "Present the concise deck.",
+                    slide_type="solution",
+                    slot_preset="title_left_visual_right",
+                )
+                for index in range(1, 6)
+            ],
+        }
+    )
+
+    response = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="ORBIT",
+            prompt="Use generated plan.",
+            targetDurationMinutes=10,
+            slideCountRange={"min": 5, "max": 8},
+        ),
+        client=fake_client,
+    )
+
+    assert len(response.deck["slides"]) == 5
+    assert response.warnings == [
+        "참고자료 없이 topic-only generation으로 생성했습니다.",
+        "AI가 참고자료/주제 밀도를 기준으로 5장이 적정하다고 판단했습니다.",
+    ]
+
+
+def test_generate_deck_rejects_llm_slide_count_below_minimum() -> None:
+    fake_client = FakeOpenAIClient(
+        {
+            "title": "Too short",
+            "slides": [
+                slide_payload(
+                    f"Slide {index}",
+                    "Too few slides.",
+                    "Explain the short slide.",
+                    slide_type="solution",
+                    slot_preset="title_left_visual_right",
+                )
+                for index in range(1, 5)
+            ],
+        }
+    )
+
+    with pytest.raises(DeckContentGenerationError, match="requested minimum"):
+        generate_deck(
+            GenerateDeckRequest(
+                projectId="project_demo_1",
+                topic="ORBIT",
+                prompt="Use generated plan.",
+                targetDurationMinutes=10,
+                slideCountRange={"min": 5, "max": 8},
+            ),
+            client=fake_client,
+        )
+
+
+def test_generate_deck_clamps_llm_slide_count_to_upper_bound() -> None:
+    fake_client = FakeOpenAIClient(
+        {
+            "title": "Too many",
+            "slides": [
+                slide_payload(
+                    f"Slide {index}",
+                    "Extra slides should be trimmed.",
+                    "Present the trimmed deck.",
+                    slide_type="solution",
+                    slot_preset="title_left_visual_right",
+                )
+                for index in range(1, 10)
+            ],
+        }
+    )
+
+    response = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="ORBIT",
+            prompt="Use generated plan.",
+            targetDurationMinutes=10,
+            slideCountRange={"min": 5, "max": 8},
+        ),
+        client=fake_client,
+    )
+
+    assert len(response.deck["slides"]) == 8
+    assert response.warnings == ["참고자료 없이 topic-only generation으로 생성했습니다."]
 
 
 def test_generate_deck_endpoint_returns_deck_contract() -> None:

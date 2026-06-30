@@ -1,19 +1,44 @@
 import { BadRequestException } from "@nestjs/common";
 import { describe, expect, it, vi } from "vitest";
+import { AuthService } from "../auth/auth.service";
+import { ProjectsService } from "../projects/projects.service";
 import { FilesController } from "./files.controller";
 import { FilesService } from "./files.service";
 
-describe("FilesController", () => {
-  it("rejects unsupported upload mime types before service execution", () => {
-    const service = {
-      createUploadUrl: vi.fn(),
-      completeUpload: vi.fn(),
-      readUploadedAssetContent: vi.fn(),
-      list: vi.fn(),
-    } as unknown as FilesService;
-    const controller = new FilesController(service);
+function createController(serviceOverrides: Partial<FilesService> = {}) {
+  const service = {
+    createUploadUrl: vi.fn(),
+    completeUpload: vi.fn(),
+    readUploadedAssetContent: vi.fn(),
+    list: vi.fn(),
+    ...serviceOverrides,
+  } as unknown as FilesService;
+  const authService = {
+    me: vi.fn(async () => ({ user: { userId: "user_1" } })),
+  } as unknown as AuthService;
+  const projectsService = {
+    assertCanReadProject: vi.fn(),
+    assertCanWriteProject: vi.fn(),
+  } as unknown as ProjectsService;
+  const controller = new FilesController(authService, service, projectsService);
 
-    expect(() =>
+  return { authService, controller, projectsService, service };
+}
+
+function createRequest(origin?: string) {
+  return {
+    get: vi.fn((header: string) => (header === "origin" ? origin : undefined)),
+    signedCookies: {
+      orbit_session: "session_1",
+    },
+  } as any;
+}
+
+describe("FilesController", () => {
+  it("rejects unsupported upload mime types before service execution", async () => {
+    const { controller, service } = createController();
+
+    await expect(
       controller.createUploadUrl(
         "project_1",
         {
@@ -26,20 +51,14 @@ describe("FilesController", () => {
           get: vi.fn(),
         } as any,
       ),
-    ).toThrow(BadRequestException);
+    ).rejects.toBeInstanceOf(BadRequestException);
     expect(service.createUploadUrl).not.toHaveBeenCalled();
   });
 
-  it("rejects oversized upload requests before service execution", () => {
-    const service = {
-      createUploadUrl: vi.fn(),
-      completeUpload: vi.fn(),
-      readUploadedAssetContent: vi.fn(),
-      list: vi.fn(),
-    } as unknown as FilesService;
-    const controller = new FilesController(service);
+  it("rejects oversized upload requests before service execution", async () => {
+    const { controller, service } = createController();
 
-    expect(() =>
+    await expect(
       controller.createUploadUrl(
         "project_1",
         {
@@ -52,20 +71,14 @@ describe("FilesController", () => {
           get: vi.fn(),
         } as any,
       ),
-    ).toThrow(BadRequestException);
+    ).rejects.toBeInstanceOf(BadRequestException);
     expect(service.createUploadUrl).not.toHaveBeenCalled();
   });
 
-  it("forwards the browser origin when creating a local upload URL", () => {
-    const service = {
-      createUploadUrl: vi.fn(),
-      completeUpload: vi.fn(),
-      readUploadedAssetContent: vi.fn(),
-      list: vi.fn(),
-    } as unknown as FilesService;
-    const controller = new FilesController(service);
+  it("checks write permission and forwards the browser origin when creating a local upload URL", async () => {
+    const { controller, projectsService, service } = createController();
 
-    controller.createUploadUrl(
+    await controller.createUploadUrl(
       "project_1",
       {
         originalName: "sample.png",
@@ -73,13 +86,13 @@ describe("FilesController", () => {
         size: 1024,
         purpose: "reference-material",
       },
-      {
-        get: vi.fn((header: string) =>
-          header === "origin" ? "http://127.0.0.1:5173" : undefined,
-        ),
-      } as any,
+      createRequest("http://127.0.0.1:5173"),
     );
 
+    expect(projectsService.assertCanWriteProject).toHaveBeenCalledWith(
+      "project_1",
+      "user_1",
+    );
     expect(service.createUploadUrl).toHaveBeenCalledWith(
       "project_1",
       {
@@ -93,22 +106,27 @@ describe("FilesController", () => {
   });
 
   it("reads uploaded asset content through the service", async () => {
-    const service = {
-      createUploadUrl: vi.fn(),
-      completeUpload: vi.fn(),
+    const { controller, projectsService, service } = createController({
       readUploadedAssetContent: vi.fn(async () => ({
         body: Buffer.from("png"),
         contentType: "image/png",
       })),
-      list: vi.fn(),
-    } as unknown as FilesService;
-    const controller = new FilesController(service);
+    });
     const response = {
       setHeader: vi.fn(),
     } as any;
 
-    const file = await controller.readContent("project_1", "file_1", response);
+    const file = await controller.readContent(
+      "project_1",
+      "file_1",
+      createRequest(),
+      response,
+    );
 
+    expect(projectsService.assertCanReadProject).toHaveBeenCalledWith(
+      "project_1",
+      "user_1",
+    );
     expect(service.readUploadedAssetContent).toHaveBeenCalledWith(
       "project_1",
       "file_1",
