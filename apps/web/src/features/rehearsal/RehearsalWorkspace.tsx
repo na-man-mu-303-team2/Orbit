@@ -306,7 +306,7 @@ export function getRehearsalFinishPath(
   projectId: string,
   run: Pick<RehearsalRun, "runId" | "status"> | null
 ) {
-  if (run?.status === "succeeded") {
+  if (run?.runId) {
     return getRehearsalReportPath(projectId, run.runId);
   }
 
@@ -663,6 +663,7 @@ export function RehearsalWorkspace(props: {
   const liveSttAdapterRef = useRef<LiveSttAdapter | null>(
     props.liveSttAdapter ?? null
   );
+  const finishAfterReportRef = useRef(false);
   const deckRef = useRef<Deck | null>(props.initialDeck ?? null);
   const currentSlideIndexRef = useRef(0);
   const liveTranscriptBufferRef = useRef<LiveTranscriptBuffer>(
@@ -789,6 +790,7 @@ export function RehearsalWorkspace(props: {
     setError("");
     setRun(null);
     setJob(null);
+    finishAfterReportRef.current = false;
     setLiveError("");
     setLiveAudioLevel(null);
     resetLiveTranscriptForSlide(currentSlide);
@@ -1125,6 +1127,10 @@ export function RehearsalWorkspace(props: {
 
       await loadReportForRun(result.run.runId, result.run);
       setPhase("succeeded");
+      if (finishAfterReportRef.current) {
+        finishAfterReportRef.current = false;
+        navigateToPath(getRehearsalReportPath(activeDeck.projectId, result.run.runId));
+      }
     } catch (cause) {
       setError(toRehearsalFlowMessage(cause));
       setPhase("failed");
@@ -1151,6 +1157,18 @@ export function RehearsalWorkspace(props: {
   };
   const finishRehearsal = () => {
     const projectId = deck?.projectId ?? props.projectId ?? demoIds.projectId;
+
+    if (phase === "recording") {
+      finishAfterReportRef.current = true;
+      stopRecording();
+      return;
+    }
+
+    if (phase === "uploading" || phase === "processing") {
+      finishAfterReportRef.current = true;
+      return;
+    }
+
     navigateToPath(getRehearsalFinishPath(projectId, run));
   };
 

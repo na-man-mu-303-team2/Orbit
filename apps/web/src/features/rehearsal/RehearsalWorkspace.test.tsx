@@ -149,7 +149,7 @@ describe("RehearsalWorkspace", () => {
   it("opens the report only from finish when the run has succeeded", () => {
     expect(getRehearsalFinishPath("project-a", null)).toBe("/project/project-a");
     expect(getRehearsalFinishPath("project-a", runFixture("processing"))).toBe(
-      "/project/project-a"
+      "/rehearsal/project-a/report/run-1"
     );
     expect(getRehearsalFinishPath("project-a", runFixture("succeeded"))).toBe(
       "/rehearsal/project-a/report/run-1"
