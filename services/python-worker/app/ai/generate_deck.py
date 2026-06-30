@@ -173,6 +173,7 @@ class VisualIntent(BaseModel):
     composition: str = ""
     decoration_density: str = Field(default="", alias="decorationDensity")
     media_style: str = Field(default="", alias="mediaStyle")
+    metric_card_caption: str = Field(default="", alias="metricCardCaption")
 
 
 class MediaIntent(BaseModel):
@@ -885,10 +886,13 @@ Rules:
 - Do not write speakerNotes like "이 슬라이드는 ... 설명합니다", "... 팁을 제공합니다",
   or "... 함께 언급합니다". Say the presentation lines directly.
 - Choose slideType, layoutVariant, slotPreset, visualIntent, and mediaIntent.
-- visualIntent may include paletteHint, emphasisStyle, composition,
-  decorationDensity, and mediaStyle. Prefer concise values such as
+- visualIntent must include paletteHint, emphasisStyle, composition,
+  decorationDensity, mediaStyle, and metricCardCaption. Prefer concise values such as
   keyword-chips, callout, split, poster, data, media, process, radial, bubble,
   low, medium, or high.
+- For visualIntent.metricCardCaption, write only concrete text intended for a
+  data/metric card. Use an empty string if there is no meaningful caption, and
+  do not copy the slide message verbatim.
 - Do not output coordinates, sizes, zIndex, or final Deck JSON.
 - Do not write meta placeholders such as "목적과 기대 결과를 소개합니다" or
   "결정 사항, 실행 순서, 후속 검증 기준을 정리합니다" unless the source is actually about that.
@@ -943,6 +947,7 @@ DECK_CONTENT_RESPONSE_FORMAT: dict[str, Any] = {
                                     "composition": {"type": "string"},
                                     "decorationDensity": {"type": "string"},
                                     "mediaStyle": {"type": "string"},
+                                    "metricCardCaption": {"type": "string"},
                                 },
                                 "required": [
                                     "emphasis",
@@ -953,6 +958,7 @@ DECK_CONTENT_RESPONSE_FORMAT: dict[str, Any] = {
                                     "composition",
                                     "decorationDensity",
                                     "mediaStyle",
+                                    "metricCardCaption",
                                 ],
                             },
                             "mediaIntent": {
@@ -2306,21 +2312,47 @@ def design_elements(
             ]
         )
 
-    if visual_plan.layout_variant == "data":
-        elements.append(
-            shape_element(
-                slide_plan.order,
-                "metric_card",
-                "decoration",
-                1028,
-                246,
-                700,
-                500,
-                2,
-                theme["palette"]["surface"],
-                theme["palette"]["border"],
-                8,
-            )
+    metric_card_caption = visual_plan.visual_intent.metric_card_caption.strip()
+    if (
+        metric_card_caption
+        and visual_plan.slot_preset in {"metric_cards", "big_number_focus"}
+    ):
+        card_x = 1028
+        card_y = 246
+        card_width = 700
+        card_height = 500
+        card_z_index = 2
+        elements.extend(
+            [
+                shape_element(
+                    slide_plan.order,
+                    "metric_card",
+                    "decoration",
+                    card_x,
+                    card_y,
+                    card_width,
+                    card_height,
+                    card_z_index,
+                    theme["palette"]["surface"],
+                    theme["palette"]["border"],
+                    8,
+                ),
+                text_element(
+                    slide_plan.order,
+                    "metric_card_caption",
+                    "caption",
+                    metric_card_caption,
+                    card_x + 44,
+                    card_y + 44,
+                    card_width - 88,
+                    card_height - 88,
+                    card_z_index + 1,
+                    theme["textColor"],
+                    theme["typography"]["bodySize"],
+                    "bold",
+                    theme["typography"]["headingFontFamily"],
+                ),
+            ]
         )
     if visual_plan.layout_variant == "comparison":
         elements.append(
@@ -2914,7 +2946,14 @@ def is_priority_element(element: dict[str, Any]) -> bool:
     element_id = str(element.get("elementId", ""))
     return element.get("role") == "highlight" or any(
         token in element_id
-        for token in ("keyword_chip", "process_step", "radial_", "bubble_")
+        for token in (
+            "keyword_chip",
+            "process_step",
+            "radial_",
+            "bubble_",
+            "metric_card",
+            "top_stripe",
+        )
     )
 
 

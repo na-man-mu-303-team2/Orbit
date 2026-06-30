@@ -523,6 +523,7 @@ def test_generate_deck_uses_llm_slot_preset_before_code_fallback() -> None:
                     "Metric speaker note.",
                     slide_type="data",
                     slot_preset="metric_cards",
+                    metric_card_caption="반복 작업 시간을 줄이는 핵심 지표입니다.",
                 )
             ],
         }
@@ -540,9 +541,48 @@ def test_generate_deck_uses_llm_slot_preset_before_code_fallback() -> None:
 
     slide = response.deck["slides"][0]
     body = element_by_role(slide, "body")
+    metric_card = element_by_id(slide, "el_1_metric_card")
+    metric_caption = element_by_id(slide, "el_1_metric_card_caption")
     assert slide["style"]["layout"] == "two-column"
     assert body["width"] == 760
     assert has_element(slide, "el_1_metric_card")
+    assert metric_caption["props"]["text"] == "반복 작업 시간을 줄이는 핵심 지표입니다."
+    assert metric_caption["x"] == metric_card["x"] + 44
+    assert metric_caption["y"] == metric_card["y"] + 44
+    assert metric_caption["width"] == metric_card["width"] - 88
+    assert metric_caption["height"] == metric_card["height"] - 88
+    assert metric_caption["zIndex"] == metric_card["zIndex"] + 1
+
+
+def test_generate_deck_skips_metric_card_without_caption() -> None:
+    fake_client = FakeOpenAIClient(
+        {
+            "title": "No empty card",
+            "slides": [
+                slide_payload(
+                    "Metric slide",
+                    "Metric message",
+                    "Metric speaker note.",
+                    slide_type="data",
+                    slot_preset="metric_cards",
+                )
+            ],
+        }
+    )
+
+    response = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="ORBIT",
+            prompt="Use generated plan.",
+            slideCountRange={"min": 1, "max": 1},
+        ),
+        client=fake_client,
+    )
+
+    slide = response.deck["slides"][0]
+    assert not has_element(slide, "el_1_metric_card")
+    assert not has_element(slide, "el_1_metric_card_caption")
 
 
 def test_generate_deck_varied_layout_keeps_stable_title_anchors() -> None:
@@ -651,6 +691,7 @@ def test_generate_deck_summary_prefers_content_preset_over_quote() -> None:
                         "decorationDensity": "medium",
                         "mediaStyle": "",
                     },
+                    metric_card_caption="본문과 겹치면 안 되는 카드 설명입니다.",
                 )
             ],
         }
@@ -668,7 +709,8 @@ def test_generate_deck_summary_prefers_content_preset_over_quote() -> None:
 
     slide = response.deck["slides"][0]
     assert slide["style"]["layout"] == "title-content"
-    assert has_element(slide, "el_1_metric_card")
+    assert not has_element(slide, "el_1_metric_card")
+    assert not has_element(slide, "el_1_metric_card_caption")
     assert not has_element(slide, "el_1_quote_block")
 
 
@@ -872,6 +914,7 @@ def test_generate_deck_uses_design_intents_without_schema_leak() -> None:
                     "숫자와 근거를 함께 설명합니다.",
                     slide_type="data",
                     slot_preset="metric_cards",
+                    metric_card_caption="반복 작업 시간을 줄인다는 지표 카드입니다.",
                 ),
                 slide_payload(
                     "이전 방식과 ORBIT",
@@ -911,12 +954,14 @@ def test_generate_deck_uses_design_intents_without_schema_leak() -> None:
 
     deck_text = json.dumps(response.deck, ensure_ascii=False)
     assert "visualIntent" not in deck_text
+    assert "metricCardCaption" not in deck_text
     assert "mediaIntent" not in deck_text
     assert "slotPreset" not in deck_text
     assert "layoutCandidates" not in deck_text
     assert has_element(response.deck["slides"][0], "el_1_media_placeholder")
     assert response.deck["slides"][1]["style"]["layout"] == "two-column"
     assert has_element(response.deck["slides"][1], "el_2_metric_card")
+    assert has_element(response.deck["slides"][1], "el_2_metric_card_caption")
     generated_texts = [
         element["props"]["text"]
         for slide in response.deck["slides"]
@@ -963,6 +1008,7 @@ def test_generate_deck_applies_visual_intent_decorations_and_caps_elements() -> 
                         "decorationDensity": "high",
                         "mediaStyle": "",
                     },
+                    metric_card_caption="속도, 품질, 협업 지표를 한 카드로 요약합니다.",
                 ),
                 slide_payload(
                     "Callout",
@@ -998,6 +1044,8 @@ def test_generate_deck_applies_visual_intent_decorations_and_caps_elements() -> 
     first_slide = response.deck["slides"][0]
     second_slide = response.deck["slides"][1]
     assert has_element(first_slide, "el_1_top_stripe")
+    assert has_element(first_slide, "el_1_metric_card")
+    assert has_element(first_slide, "el_1_metric_card_caption")
     for index in range(1, 4):
         assert has_element(first_slide, f"el_1_keyword_chip_{index}")
         assert has_element(first_slide, f"el_1_keyword_chip_{index}_text")
@@ -1122,16 +1170,10 @@ def slide_payload(
     keywords: list[str] | None = None,
     media_intent: dict[str, object] | None = None,
     visual_intent: dict[str, object] | None = None,
+    metric_card_caption: str = "",
 ) -> dict[str, object]:
-    return {
-        "title": title,
-        "message": message,
-        "speakerNotes": speaker_notes,
-        "keywords": keywords or ["ORBIT"],
-        "slideType": slide_type,
-        "layoutVariant": slot_preset.split("_", maxsplit=1)[0],
-        "slotPreset": slot_preset,
-        "visualIntent": visual_intent
+    visual_intent_payload = dict(
+        visual_intent
         or {
             "emphasis": "핵심 메시지",
             "mood": "professional",
@@ -1141,7 +1183,18 @@ def slide_payload(
             "composition": "",
             "decorationDensity": "medium",
             "mediaStyle": "",
-        },
+        }
+    )
+    visual_intent_payload.setdefault("metricCardCaption", metric_card_caption)
+    return {
+        "title": title,
+        "message": message,
+        "speakerNotes": speaker_notes,
+        "keywords": keywords or ["ORBIT"],
+        "slideType": slide_type,
+        "layoutVariant": slot_preset.split("_", maxsplit=1)[0],
+        "slotPreset": slot_preset,
+        "visualIntent": visual_intent_payload,
         "mediaIntent": media_intent
         or {
             "kind": "none",
