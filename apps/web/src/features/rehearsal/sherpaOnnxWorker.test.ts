@@ -200,6 +200,70 @@ describe("sherpaOnnxWorker classic worker output", () => {
       expect.objectContaining({ type: "stopped", sessionId: "session-1" })
     );
   });
+
+  it("falls back to greedy_search when the hotword recognizer fails to build", async () => {
+    server = await createWorkerTransformServer();
+    const result = await server.transformRequest(
+      "/src/features/rehearsal/sherpaOnnxWorker.ts?worker_file&type=classic"
+    );
+    const executableCode = stripInlineSourceMap(result?.code ?? "");
+    const posted: Array<Record<string, unknown>> = [];
+    const freed: string[] = [];
+    const warnings: string[] = [];
+    const context: WorkerTestContext = {
+      ArrayBuffer,
+      Float32Array,
+      TextEncoder,
+      URL,
+      console: { ...console, warn: (...args: unknown[]) => warnings.push(args.join(" ")) },
+      fetch: vi.fn(async () => new Response(new ArrayBuffer(1))),
+      performance: { now: () => 0 },
+      postMessage: (message: Record<string, unknown>) => {
+        posted.push(message);
+      },
+      close: vi.fn(),
+      queueMicrotask: (callback: () => void) => queueMicrotask(callback),
+      importScripts: vi.fn(() => {
+        const runtimeModule = context.Module;
+        if (!runtimeModule) {
+          return;
+        }
+        runtimeModule.calledRun = true;
+        runtimeModule.FS_createDataFile = vi.fn();
+        runtimeModule.FS_unlink = vi.fn();
+        // modified_beam_search (forced by hotwords) blows up like the real WASM
+        // does with a bad bpe vocab; greedy_search must still succeed.
+        runtimeModule.createOnlineRecognizer = vi.fn(
+          (first: Record<string, unknown>, second?: Record<string, unknown>) => {
+            const config = second ?? first;
+            if (config?.decodingMethod === "modified_beam_search") {
+              throw new Error("modified_beam_search unsupported in test runtime");
+            }
+            return createFakeRecognizer(freed, () => false);
+          }
+        );
+      })
+    };
+
+    vm.runInNewContext(executableCode, context);
+    await sendWorkerMessage(context, { type: "load", manifest: manifestFixture() });
+    await sendWorkerMessage(context, {
+      type: "start",
+      sessionId: "session-1",
+      decodeBatchSamples: 1,
+      debugStatsEnabled: false,
+      biasContext: biasContextFixture("slide-1"),
+      decodingMethod: null
+    });
+
+    expect(posted.filter((message) => message.type === "error")).toHaveLength(0);
+    expect(posted).toContainEqual(
+      expect.objectContaining({ type: "started", sessionId: "session-1" })
+    );
+    expect(warnings.some((line) => line.includes("hotword bias disabled"))).toBe(
+      true
+    );
+  });
 });
 
 function createTestServer() {

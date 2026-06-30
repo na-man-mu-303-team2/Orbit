@@ -166,7 +166,13 @@ manifest 예시:
 
 - `runtime.helpers`: runtime script 이후 추가로 `importScripts()`할 helper JS 목록
 - `runtime.wasm`, `runtime.data`: 없으면 `null`로 resolve됨
-- `model.bpeVocab`: BPE 모델일 때 사용할 vocab/model 파일
+- `model.bpeVocab`: BPE 모델의 hotword bias에 필요한 **텍스트** vocab 파일(`bpe.vocab`).
+  - sherpa `ssentencepiece`는 `piece<TAB>score` 라인 텍스트를 기대한다. 바이너리 `bpe.model`(sentencepiece protobuf)을 그대로 넣으면 `modified_beam_search`에서 파싱 실패해 recognizer 생성이 죽는다(`darts.h: failed to insert key: zero-length key`).
+  - `bpe.model` → `bpe.vocab` 변환:
+    ```bash
+    python3 -c "import sentencepiece as spm; sp=spm.SentencePieceProcessor(model_file='bpe.model'); open('bpe.vocab','w',encoding='utf-8').writelines(f'{sp.id_to_piece(i)}\t{sp.get_score(i)}\n' for i in range(sp.get_piece_size()))"
+    ```
+  - hotword bias(컨트롤 문구/슬라이드 키워드)는 `bpe.vocab`이 있어야만 동작한다. 없으면 worker가 자동으로 greedy_search로 degrade되고 bias는 꺼진다.
 - `files`: 파일별 `bytes`, `sha256` 메타데이터
 - `decodingMethod`: `"greedy_search"` 또는 `"modified_beam_search"`
 
@@ -187,7 +193,7 @@ apps/web/public/models/live-stt/
     decoder.onnx
     joiner.onnx
     tokens.txt
-    bpe.model                 # optional
+    bpe.vocab                 # hotword bias용 텍스트 vocab (bpe.model에서 생성)
 ```
 
 준비 명령:

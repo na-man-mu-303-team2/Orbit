@@ -234,10 +234,40 @@ async function handleMessage(message: WorkerInboundMessage) {
         message.type === "load"
           ? "LIVE_STT_MODEL_UNAVAILABLE"
           : "LIVE_STT_START_FAILED",
-      message: error instanceof Error ? error.message : "Live STT worker failed.",
+      message: describeWorkerError(error),
       sessionId: "sessionId" in message ? message.sessionId : undefined
     });
   }
+}
+
+// sherpa-onnx WASM aborts (e.g. a malformed bpe vocab parsed by ssentencepiece)
+// surface as a non-Error throw — often the numeric Emscripten exception pointer.
+// Decode it where possible so failures aren't flattened to "Live STT worker failed."
+function describeWorkerError(error: unknown): string {
+  if (error instanceof Error && error.message) {
+    return error.message;
+  }
+
+  if (typeof error === "number" && runtimeModule) {
+    const getExceptionMessage = (runtimeModule as Record<string, unknown>)
+      .getExceptionMessage;
+    if (typeof getExceptionMessage === "function") {
+      try {
+        const decoded = getExceptionMessage(error) as unknown;
+        const text = Array.isArray(decoded)
+          ? decoded.filter(Boolean).join(": ")
+          : String(decoded ?? "");
+        if (text) {
+          return text;
+        }
+      } catch {
+        // fall through to generic stringification
+      }
+    }
+  }
+
+  const text = typeof error === "string" ? error : String(error ?? "");
+  return text && text !== "[object Object]" ? text : "Live STT worker failed.";
 }
 
 async function loadRecognizer(nextManifest: WorkerManifest) {
@@ -466,7 +496,38 @@ function recreateRecognizer(
     if (nextRecognizer) {
       freeResource(nextRecognizer);
     }
-    throw error;
+    nextStream = null;
+    nextRecognizer = null;
+
+    // A hotword bias context forces modified_beam_search, which builds the bpe
+    // tokenizer. If that fails (bad/missing bpe vocab) keep Live STT alive by
+    // degrading to greedy_search without bias instead of killing the session.
+    const usedHotwords = createHotwordsConfig(biasContext) !== null;
+    if (!usedHotwords) {
+      throw error;
+    }
+
+    console.warn(
+      `[orbit-live-stt] hotword bias disabled, falling back to greedy_search: ${describeWorkerError(error)}`
+    );
+    try {
+      nextRecognizer = createRecognizer(
+        runtimeModule,
+        loadedManifest,
+        null,
+        "greedy_search"
+      );
+      nextStream = createRecognizerStream(nextRecognizer);
+      biasContext = null;
+    } catch (fallbackError) {
+      if (nextStream) {
+        freeResource(nextStream);
+      }
+      if (nextRecognizer) {
+        freeResource(nextRecognizer);
+      }
+      throw fallbackError;
+    }
   }
 
   const previousStream = stream;
