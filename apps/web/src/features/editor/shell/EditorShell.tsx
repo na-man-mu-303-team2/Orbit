@@ -20,7 +20,6 @@ import {
   demoIds,
   getDeckResponseSchema,
   maxAssetUploadSizeBytes,
-  projectMembersResponseSchema,
   putDeckResponseSchema
 } from "@orbit/shared";
 import orbitLogo from "../../../assets/orbit-logo.png";
@@ -53,13 +52,18 @@ import {
   KeywordList
 } from "./components/KeywordInspector";
 import { EditorSaveControl } from "./components/EditorSaveControl";
+import {
+  ShareAccessModal
+} from "./components/ShareAccessModal";
 import { SelectionQuickBar } from "./components/SelectionQuickBar";
+import type { ShareRole } from "./api/projectMembersApi";
 import {
   useEditorPersistenceState,
   type PatchProducer,
   type SaveErrorCode,
   type SaveState
 } from "./hooks/useEditorPersistenceState";
+import { useProjectShareAccess } from "./hooks/useProjectShareAccess";
 export {
   EditorStateNotice
 } from "./components/EditorStateNotice";
@@ -74,8 +78,6 @@ import type {
   CustomShapeNode,
   Deck,
   DeckCanvas,
-  ProjectMember,
-  ProjectMembersResponse,
   DeckElement,
   DeckElementRole,
   DeckPatch,
@@ -89,7 +91,6 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type Konva from "konva";
 import {
   BarChart3,
-  Check,
   ChevronDown,
   Cloud,
   Download,
@@ -112,11 +113,9 @@ import {
   Shapes,
   Share2,
   Sparkles,
-  Trash2,
   Type,
   Upload,
-  Wand2,
-  X
+  Wand2
 } from "lucide-react";
 import type { ChangeEvent, CSSProperties, PointerEvent as ReactPointerEvent } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -247,12 +246,6 @@ type ElementFrameChange = {
   zIndex?: number;
   locked?: boolean;
   visible?: boolean;
-};
-type ShareAccessTab = "status" | "requests";
-type ShareRole = "owner" | "editor" | "viewer";
-type LocalShareMember = ProjectMember;
-type LocalShareRequest = ProjectMember & {
-  role: Exclude<ShareRole, "owner">;
 };
 
 async function fetchHealth(): Promise<HealthResponse> {
