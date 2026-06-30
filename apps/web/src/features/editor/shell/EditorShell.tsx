@@ -696,21 +696,23 @@ export function EditorShell(props: { projectId?: string }) {
   const loadedDeck = deckQuery.data ?? fallbackDeck;
   const [deck, setDeck] = useState<Deck>(loadedDeck);
   const {
-    applyPersistedDeckState,
-    deckRef,
-    hasHydratedPersistedDeckRef,
-    hasLocalOptimisticChangesRef,
+    applyAckedPersistedDeck,
+    applyOptimisticWorkingDeck,
+    hasHydratedPersistedBaseRef,
+    hasUnackedLocalChangesRef,
     isSaveFlushInFlightRef,
     lastSavedAt,
-    markHydratedDeck,
-    pendingSaveInputsRef,
-    persistedDeckRef,
+    markHydratedPersistedDeck,
+    pendingPatchInputsRef,
+    persistedBaseDeckRef,
+    replaceWorkingDeck,
     saveErrorMessage,
     saveQueueRef,
     saveState,
     setLastSavedAt,
     setSaveErrorMessage,
-    setSaveState
+    setSaveState,
+    workingDeckRef
   } = useEditorPersistenceState(loadedDeck);
   const imageUploadTargetRef = useRef<ImageUploadTarget | null>(null);
   const resolvedUploadProjectIdRef = useRef<string | null>(null);
@@ -817,16 +819,16 @@ export function EditorShell(props: { projectId?: string }) {
 
     if (
       !shouldHydrateDeckFromQuery({
-        currentDeck: deckRef.current,
+        currentDeck: workingDeckRef.current,
         nextDeck: persistedDeck,
-        hasHydratedPersistedDeck: hasHydratedPersistedDeckRef.current,
-        hasLocalOptimisticChanges: hasLocalOptimisticChangesRef.current
+        hasHydratedPersistedDeck: hasHydratedPersistedBaseRef.current,
+        hasLocalOptimisticChanges: hasUnackedLocalChangesRef.current
       })
     ) {
       return;
     }
 
-    markHydratedDeck(persistedDeck, setDeck);
+    markHydratedPersistedDeck(persistedDeck, setDeck);
     setUndoStack([]);
     setRedoStack([]);
     setSelectedElementIds([]);
@@ -845,7 +847,7 @@ export function EditorShell(props: { projectId?: string }) {
 
   function handleAiSuggestionApplied(response: ApplyAiSuggestionResponse) {
     queryClient.setQueryData(["deck", projectId], response.deck);
-    markHydratedDeck(response.deck, setDeck);
+    markHydratedPersistedDeck(response.deck, setDeck);
     setLastSavedAt(response.changeRecord.createdAt);
     setUndoStack([]);
     setRedoStack([]);
@@ -862,7 +864,7 @@ export function EditorShell(props: { projectId?: string }) {
 
   function applyPersistedDeck(nextDeck: Deck) {
     queryClient.setQueryData(["deck", projectId], nextDeck);
-    applyPersistedDeckState(nextDeck);
+    applyAckedPersistedDeck(nextDeck);
     flushSync(() => {
       setDeck(nextDeck);
     });
@@ -934,7 +936,7 @@ export function EditorShell(props: { projectId?: string }) {
   }
 
   async function handleSaveDeck() {
-    const activeProjectId = deckRef.current.projectId || deckQuery.data?.projectId;
+    const activeProjectId = workingDeckRef.current.projectId || deckQuery.data?.projectId;
 
     if (!activeProjectId) {
       setSaveState("error");
@@ -946,7 +948,7 @@ export function EditorShell(props: { projectId?: string }) {
     setSaveErrorMessage(null);
     setActiveTopMenu(null);
 
-    const deckSnapshot = structuredClone(normalizeDeckAssetUrls(deckRef.current));
+    const deckSnapshot = structuredClone(normalizeDeckAssetUrls(workingDeckRef.current));
 
     try {
       await saveQueueRef.current.catch(() => undefined);
@@ -958,7 +960,7 @@ export function EditorShell(props: { projectId?: string }) {
       if (
         shouldApplyManualSaveResult({
           snapshotDeck: deckSnapshot,
-          currentDeck: deckRef.current,
+          currentDeck: workingDeckRef.current,
         })
       ) {
         applyPersistedDeck(persistedDeck);
@@ -976,7 +978,7 @@ export function EditorShell(props: { projectId?: string }) {
         if (
           shouldApplyManualSaveResult({
             snapshotDeck: deckSnapshot,
-            currentDeck: deckRef.current,
+            currentDeck: workingDeckRef.current,
           })
         ) {
           applyPersistedDeck(finalDeck);
@@ -988,7 +990,7 @@ export function EditorShell(props: { projectId?: string }) {
         if (
           shouldApplyManualSaveResult({
             snapshotDeck: deckSnapshot,
-            currentDeck: deckRef.current,
+            currentDeck: workingDeckRef.current,
           })
         ) {
           applyPersistedDeck(persistedDeck);
@@ -1032,7 +1034,7 @@ export function EditorShell(props: { projectId?: string }) {
     try {
       await saveQueueRef.current.catch(() => undefined);
 
-      const deckSnapshot = structuredClone(normalizeDeckAssetUrls(deckRef.current));
+      const deckSnapshot = structuredClone(normalizeDeckAssetUrls(workingDeckRef.current));
       const persistedDeck = await putProjectDeck(activeProjectId, deckSnapshot);
       const renderResult = await syncSlideRenderAssets(activeProjectId, persistedDeck);
       setLastSavedAt(new Date().toISOString());
@@ -1040,7 +1042,7 @@ export function EditorShell(props: { projectId?: string }) {
       if (
         !shouldApplyManualSaveResult({
           snapshotDeck: deckSnapshot,
-          currentDeck: deckRef.current
+          currentDeck: workingDeckRef.current
         })
       ) {
         throw new Error("리허설 준비 중 편집 내용이 변경되었습니다. 다시 시작해 주세요.");
@@ -1078,26 +1080,26 @@ export function EditorShell(props: { projectId?: string }) {
   }
 
   async function flushPendingSaveBatch() {
-    if (pendingSaveInputsRef.current.length === 0) {
+    if (pendingPatchInputsRef.current.length === 0) {
       return;
     }
 
     setSaveState("saving");
     isSaveFlushInFlightRef.current = true;
 
-    const activeProjectId = deckQuery.data?.projectId ?? deckRef.current.projectId;
+    const activeProjectId = deckQuery.data?.projectId ?? workingDeckRef.current.projectId;
 
     if (!activeProjectId) {
       throw new Error("저장할 프로젝트를 찾지 못했습니다.");
     }
 
-    const basePersistedDeck = persistedDeckRef.current ?? deckQuery.data;
+    const basePersistedDeck = persistedBaseDeckRef.current ?? deckQuery.data;
 
     if (!basePersistedDeck) {
       throw new Error("최신 저장 상태를 찾지 못했습니다. 다시 불러온 뒤 저장해 주세요.");
     }
 
-    const batchInputs = pendingSaveInputsRef.current.splice(0);
+    const batchInputs = pendingPatchInputsRef.current.splice(0);
     try {
       let buildResult = buildPatchBatch(basePersistedDeck, batchInputs);
       let persistedDeck: Deck;
@@ -1115,31 +1117,30 @@ export function EditorShell(props: { projectId?: string }) {
           throw new Error("최신 저장 상태를 다시 불러오지 못했습니다. 다시 시도해 주세요.");
         }
 
-        persistedDeckRef.current = latestDeck;
+        persistedBaseDeckRef.current = latestDeck;
         buildResult = buildPatchBatch(latestDeck, batchInputs);
         persistedDeck = await appendProjectDeckPatch(activeProjectId, buildResult.patch);
       }
 
-      persistedDeckRef.current = persistedDeck;
+      persistedBaseDeckRef.current = persistedDeck;
       setLastSavedAt(new Date().toISOString());
 
       queryClient.setQueryData(["deck", projectId], (current?: Deck) =>
         mergeDeckIntoQueryCache(current, persistedDeck)
       );
 
-      if (persistedDeck.version >= deckRef.current.version) {
-        hasHydratedPersistedDeckRef.current = true;
-        hasLocalOptimisticChangesRef.current = false;
+      if (persistedDeck.version >= workingDeckRef.current.version) {
+        applyAckedPersistedDeck(persistedDeck);
       }
     } catch (error) {
-      pendingSaveInputsRef.current = [...batchInputs, ...pendingSaveInputsRef.current];
+      pendingPatchInputsRef.current = [...batchInputs, ...pendingPatchInputsRef.current];
       throw error;
     }
   }
 
   function commitPatch(
     patchInput: DeckPatch | PatchProducer,
-    baseDeck: Deck = deckRef.current
+    baseDeck: Deck = workingDeckRef.current
   ) {
     const patch = resolvePatchInput(baseDeck, patchInput);
     const result = applyDeckPatch(baseDeck, patch);
@@ -1149,8 +1150,7 @@ export function EditorShell(props: { projectId?: string }) {
       return;
     }
 
-    deckRef.current = result.deck;
-    hasLocalOptimisticChangesRef.current = true;
+    applyOptimisticWorkingDeck(result.deck);
     setSaveState("pending");
     setSaveErrorMessage(null);
     setUndoStack((current) => [...current.slice(-49), baseDeck]);
@@ -1168,11 +1168,11 @@ export function EditorShell(props: { projectId?: string }) {
       mergeDeckIntoQueryCache(current, result.deck)
     );
 
-    pendingSaveInputsRef.current.push(patchInput);
+    pendingPatchInputsRef.current.push(patchInput);
     saveQueueRef.current = saveQueueRef.current
       .catch(() => undefined)
       .then(async () => {
-        while (pendingSaveInputsRef.current.length > 0) {
+        while (pendingPatchInputsRef.current.length > 0) {
           await flushPendingSaveBatch();
         }
       })
@@ -1184,7 +1184,7 @@ export function EditorShell(props: { projectId?: string }) {
       })
       .finally(() => {
         isSaveFlushInFlightRef.current = false;
-        if (pendingSaveInputsRef.current.length === 0) {
+        if (pendingPatchInputsRef.current.length === 0) {
           setSaveState("idle");
         } else {
           setSaveState("pending");
@@ -1217,8 +1217,8 @@ export function EditorShell(props: { projectId?: string }) {
       if (!previous) {
         return current;
       }
-      const currentDeck = deckRef.current;
-      deckRef.current = previous;
+      const currentDeck = workingDeckRef.current;
+      replaceWorkingDeck(previous);
       setRedoStack((redoCurrent) => [...redoCurrent, currentDeck]);
       setDeck(previous);
       setLastPatchLabel(`undo · v${previous.version}`);
@@ -1232,8 +1232,8 @@ export function EditorShell(props: { projectId?: string }) {
       if (!next) {
         return current;
       }
-      setUndoStack((undoCurrent) => [...undoCurrent.slice(-49), deckRef.current]);
-      deckRef.current = next;
+      setUndoStack((undoCurrent) => [...undoCurrent.slice(-49), workingDeckRef.current]);
+      replaceWorkingDeck(next);
       setDeck(next);
       setLastPatchLabel(`redo · v${next.version}`);
       return current.slice(0, -1);
@@ -1319,7 +1319,7 @@ export function EditorShell(props: { projectId?: string }) {
     setIsImageUploadPending(true);
 
     try {
-      const activeDeck = deckRef.current;
+      const activeDeck = workingDeckRef.current;
       const targetSlideIndex = activeDeck.slides.findIndex(
         (slide) => slide.slideId === target.slideId
       );
@@ -1329,7 +1329,7 @@ export function EditorShell(props: { projectId?: string }) {
       }
 
       const targetSlide = activeDeck.slides[targetSlideIndex];
-      const uploadProjectId = await resolveUploadProject(deckRef.current.projectId);
+      const uploadProjectId = await resolveUploadProject(workingDeckRef.current.projectId);
       const uploaded = await uploadProjectAsset(
         uploadProjectId,
         createSlideScopedUploadFile(file, targetSlide.order || targetSlideIndex + 1, "image"),

@@ -6,49 +6,71 @@ export type SaveState = "idle" | "pending" | "saving" | "error";
 export type PatchProducer = (deck: Deck) => DeckPatch;
 
 type EditorPersistenceState = {
-  deckRef: MutableRefObject<Deck>;
-  persistedDeckRef: MutableRefObject<Deck | null>;
+  workingDeckRef: MutableRefObject<Deck>;
+  persistedBaseDeckRef: MutableRefObject<Deck | null>;
+  lastAckedDeckRef: MutableRefObject<Deck | null>;
   saveQueueRef: MutableRefObject<Promise<void>>;
-  pendingSaveInputsRef: MutableRefObject<(DeckPatch | PatchProducer)[]>;
+  pendingPatchInputsRef: MutableRefObject<(DeckPatch | PatchProducer)[]>;
   isSaveFlushInFlightRef: MutableRefObject<boolean>;
-  hasHydratedPersistedDeckRef: MutableRefObject<boolean>;
-  hasLocalOptimisticChangesRef: MutableRefObject<boolean>;
+  hasHydratedPersistedBaseRef: MutableRefObject<boolean>;
+  hasUnackedLocalChangesRef: MutableRefObject<boolean>;
   lastSavedAt: string | null;
   saveErrorMessage: string | null;
   saveState: SaveState;
   setLastSavedAt: Dispatch<SetStateAction<string | null>>;
   setSaveErrorMessage: Dispatch<SetStateAction<string | null>>;
   setSaveState: Dispatch<SetStateAction<SaveState>>;
-  applyPersistedDeckState: (nextDeck: Deck) => void;
-  markHydratedDeck: (nextDeck: Deck, setDeck: Dispatch<SetStateAction<Deck>>) => void;
+  markHydratedPersistedDeck: (
+    nextDeck: Deck,
+    setDeck: Dispatch<SetStateAction<Deck>>
+  ) => void;
+  applyAckedPersistedDeck: (nextDeck: Deck) => void;
+  applyOptimisticWorkingDeck: (nextDeck: Deck) => void;
+  replaceWorkingDeck: (nextDeck: Deck) => void;
   resetSaveState: () => void;
 };
 
 export function useEditorPersistenceState(initialDeck: Deck): EditorPersistenceState {
-  const deckRef = useRef(initialDeck);
-  const persistedDeckRef = useRef<Deck | null>(initialDeck);
+  const workingDeckRef = useRef(initialDeck);
+  const persistedBaseDeckRef = useRef<Deck | null>(initialDeck);
+  const lastAckedDeckRef = useRef<Deck | null>(initialDeck);
   const saveQueueRef = useRef<Promise<void>>(Promise.resolve());
-  const pendingSaveInputsRef = useRef<(DeckPatch | PatchProducer)[]>([]);
+  const pendingPatchInputsRef = useRef<(DeckPatch | PatchProducer)[]>([]);
   const isSaveFlushInFlightRef = useRef(false);
-  const hasHydratedPersistedDeckRef = useRef(false);
-  const hasLocalOptimisticChangesRef = useRef(false);
+  const hasHydratedPersistedBaseRef = useRef(false);
+  const hasUnackedLocalChangesRef = useRef(false);
   const [saveState, setSaveState] = useState<SaveState>("idle");
   const [saveErrorMessage, setSaveErrorMessage] = useState<string | null>(null);
   const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
 
-  function markHydratedDeck(nextDeck: Deck, setDeck: Dispatch<SetStateAction<Deck>>) {
-    hasHydratedPersistedDeckRef.current = true;
-    hasLocalOptimisticChangesRef.current = false;
-    deckRef.current = nextDeck;
-    persistedDeckRef.current = nextDeck;
+  function markHydratedPersistedDeck(
+    nextDeck: Deck,
+    setDeck: Dispatch<SetStateAction<Deck>>
+  ) {
+    hasHydratedPersistedBaseRef.current = true;
+    hasUnackedLocalChangesRef.current = false;
+    workingDeckRef.current = nextDeck;
+    persistedBaseDeckRef.current = nextDeck;
+    lastAckedDeckRef.current = nextDeck;
     setDeck(nextDeck);
   }
 
-  function applyPersistedDeckState(nextDeck: Deck) {
-    deckRef.current = nextDeck;
-    persistedDeckRef.current = nextDeck;
-    hasHydratedPersistedDeckRef.current = true;
-    hasLocalOptimisticChangesRef.current = false;
+  function applyAckedPersistedDeck(nextDeck: Deck) {
+    workingDeckRef.current = nextDeck;
+    persistedBaseDeckRef.current = nextDeck;
+    lastAckedDeckRef.current = nextDeck;
+    hasHydratedPersistedBaseRef.current = true;
+    hasUnackedLocalChangesRef.current = false;
+    pendingPatchInputsRef.current = [];
+  }
+
+  function applyOptimisticWorkingDeck(nextDeck: Deck) {
+    workingDeckRef.current = nextDeck;
+    hasUnackedLocalChangesRef.current = true;
+  }
+
+  function replaceWorkingDeck(nextDeck: Deck) {
+    workingDeckRef.current = nextDeck;
   }
 
   function resetSaveState() {
@@ -57,25 +79,24 @@ export function useEditorPersistenceState(initialDeck: Deck): EditorPersistenceS
   }
 
   return {
-    deckRef,
-    persistedDeckRef,
+    workingDeckRef,
+    persistedBaseDeckRef,
+    lastAckedDeckRef,
     saveQueueRef,
-    pendingSaveInputsRef,
+    pendingPatchInputsRef,
     isSaveFlushInFlightRef,
-    hasHydratedPersistedDeckRef,
-    hasLocalOptimisticChangesRef,
+    hasHydratedPersistedBaseRef,
+    hasUnackedLocalChangesRef,
     lastSavedAt,
     saveErrorMessage,
     saveState,
     setLastSavedAt,
     setSaveErrorMessage,
     setSaveState,
-    applyPersistedDeckState: (nextDeck) => {
-      applyPersistedDeckState(nextDeck);
-    },
-    markHydratedDeck: (nextDeck, setDeck) => {
-      markHydratedDeck(nextDeck, setDeck);
-    },
+    markHydratedPersistedDeck,
+    applyAckedPersistedDeck,
+    applyOptimisticWorkingDeck,
+    replaceWorkingDeck,
     resetSaveState
   };
 }
