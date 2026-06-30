@@ -1,7 +1,54 @@
-import {
-  SherpaAudioFrameBatcher,
-  type SherpaAudioFrameBatch
-} from "./sherpaOnnxAudioBatch";
+import type { LiveSttBiasContext, LiveSttDecodingMethod } from "./liveStt";
+
+type SherpaAudioFrame = {
+  sampleRate: number;
+  samples: Float32Array;
+};
+
+type SherpaAudioFrameBatch = {
+  frames: SherpaAudioFrame[];
+  sampleCount: number;
+};
+
+// Keep this local so the classic worker response never contains ESM imports.
+class SherpaAudioFrameBatcher {
+  private frames: SherpaAudioFrame[] = [];
+  private sampleCount = 0;
+  private readonly decodeBatchSamples: number;
+
+  constructor(decodeBatchSamples: number) {
+    this.decodeBatchSamples = normalizeDecodeBatchSamples(decodeBatchSamples);
+  }
+
+  push(frame: SherpaAudioFrame) {
+    this.frames.push(frame);
+    this.sampleCount += frame.samples.length;
+
+    if (this.sampleCount < this.decodeBatchSamples) {
+      return null;
+    }
+
+    return this.flush();
+  }
+
+  flush(): SherpaAudioFrameBatch | null {
+    if (this.frames.length === 0) {
+      return null;
+    }
+
+    const batch = {
+      frames: this.frames,
+      sampleCount: this.sampleCount
+    };
+    this.reset();
+    return batch;
+  }
+
+  reset() {
+    this.frames = [];
+    this.sampleCount = 0;
+  }
+}
 
 type WorkerManifest = {
   modelId: string;
@@ -9,7 +56,7 @@ type WorkerManifest = {
   baseUrl: string;
   sampleRate: number;
   numThreads?: number;
-  decodingMethod?: "greedy_search" | "modified_beam_search";
+  decodingMethod?: LiveSttDecodingMethod;
   runtime: {
     helpers: string[];
     script: string;
@@ -32,6 +79,13 @@ type WorkerInboundMessage =
       sessionId: string;
       decodeBatchSamples: number;
       debugStatsEnabled: boolean;
+      biasContext?: LiveSttBiasContext | null;
+      decodingMethod?: LiveSttDecodingMethod | null;
+    }
+  | {
+      type: "update-bias";
+      sessionId: string;
+      biasContext: LiveSttBiasContext | null;
     }
   | {
       type: "audio-frame";
@@ -115,6 +169,8 @@ type WorkerScope = typeof globalThis & {
 const workerScope = globalThis as unknown as WorkerScope;
 
 let recognizer: SherpaRecognizer | null = null;
+let runtimeModule: SherpaModule | null = null;
+let loadedManifest: WorkerManifest | null = null;
 let stream: SherpaStream | null = null;
 let activeSessionId: string | null = null;
 let latestText = "";
@@ -122,6 +178,8 @@ let audioBatcher: SherpaAudioFrameBatcher | null = null;
 let decodedBatches = 0;
 let acceptedSamples = 0;
 let shouldPostDebugStats = false;
+let activeBiasKey = "";
+let activeDecodingMethod: LiveSttDecodingMethod | null = null;
 
 const fsModelPaths = {
   encoder: "/orbit-live-stt-encoder.onnx",
@@ -150,8 +208,13 @@ async function handleMessage(message: WorkerInboundMessage) {
         startSession(
           message.sessionId,
           message.decodeBatchSamples,
-          message.debugStatsEnabled
+          message.debugStatsEnabled,
+          message.biasContext ?? null,
+          message.decodingMethod ?? null
         );
+        return;
+      case "update-bias":
+        updateSessionBias(message.sessionId, message.biasContext);
         return;
       case "audio-frame":
         queueAudioFrame(message);
@@ -177,21 +240,24 @@ async function handleMessage(message: WorkerInboundMessage) {
 }
 
 async function loadRecognizer(nextManifest: WorkerManifest) {
-  if (recognizer) {
+  if (runtimeModule && loadedManifest) {
     return;
   }
 
   const nextModule = await loadSherpaRuntime(nextManifest);
   await installModelFiles(nextModule, nextManifest);
-  recognizer = createRecognizer(nextModule, nextManifest);
+  runtimeModule = nextModule;
+  loadedManifest = nextManifest;
 }
 
 function startSession(
   sessionId: string,
   decodeBatchSamples: number,
-  debugStatsEnabled: boolean
+  debugStatsEnabled: boolean,
+  biasContext: LiveSttBiasContext | null,
+  decodingMethod: LiveSttDecodingMethod | null
 ) {
-  if (!recognizer) {
+  if (!runtimeModule || !loadedManifest) {
     throw new Error("Live STT recognizer has not been loaded.");
   }
 
@@ -200,9 +266,28 @@ function startSession(
   decodedBatches = 0;
   acceptedSamples = 0;
   shouldPostDebugStats = debugStatsEnabled;
+  activeDecodingMethod = decodingMethod;
   audioBatcher = new SherpaAudioFrameBatcher(decodeBatchSamples);
-  stream = createRecognizerStream(recognizer);
+  recreateRecognizer(biasContext, decodingMethod);
   post({ type: "started", sessionId });
+}
+
+function updateSessionBias(
+  sessionId: string,
+  biasContext: LiveSttBiasContext | null
+) {
+  if (activeSessionId !== sessionId || !runtimeModule || !loadedManifest) {
+    return;
+  }
+
+  const nextBiasKey = createBiasKey(biasContext);
+  if (nextBiasKey === activeBiasKey) {
+    return;
+  }
+
+  audioBatcher?.reset();
+  latestText = "";
+  recreateRecognizer(biasContext, activeDecodingMethod);
 }
 
 function queueAudioFrame(message: Extract<WorkerInboundMessage, { type: "audio-frame" }>) {
@@ -325,6 +410,8 @@ function stopSession(sessionId: string) {
   decodedBatches = 0;
   acceptedSamples = 0;
   shouldPostDebugStats = false;
+  activeBiasKey = "";
+  activeDecodingMethod = null;
   post({ type: "stopped", sessionId });
 }
 
@@ -340,13 +427,43 @@ function disposeRecognizer() {
 
   stream = null;
   recognizer = null;
+  runtimeModule = null;
+  loadedManifest = null;
   activeSessionId = null;
   latestText = "";
   audioBatcher = null;
   decodedBatches = 0;
   acceptedSamples = 0;
   shouldPostDebugStats = false;
+  activeBiasKey = "";
+  activeDecodingMethod = null;
   workerScope.close();
+}
+
+function recreateRecognizer(
+  biasContext: LiveSttBiasContext | null,
+  decodingMethod: LiveSttDecodingMethod | null
+) {
+  if (!runtimeModule || !loadedManifest) {
+    throw new Error("Live STT recognizer has not been loaded.");
+  }
+
+  if (stream) {
+    freeResource(stream);
+  }
+
+  if (recognizer) {
+    freeResource(recognizer);
+  }
+
+  recognizer = createRecognizer(
+    runtimeModule,
+    loadedManifest,
+    biasContext,
+    decodingMethod
+  );
+  stream = createRecognizerStream(recognizer);
+  activeBiasKey = createBiasKey(biasContext);
 }
 
 async function loadSherpaRuntime(nextManifest: WorkerManifest) {
@@ -397,7 +514,13 @@ function waitForRuntime(runtimeModule: SherpaModule) {
   });
 }
 
-function createRecognizer(runtimeModule: SherpaModule, nextManifest: WorkerManifest) {
+function createRecognizer(
+  runtimeModule: SherpaModule,
+  nextManifest: WorkerManifest,
+  biasContext: LiveSttBiasContext | null,
+  decodingMethodOverride: LiveSttDecodingMethod | null
+) {
+  const hotwords = createHotwordsConfig(biasContext);
   const config = {
     featConfig: {
       sampleRate: nextManifest.sampleRate,
@@ -412,15 +535,24 @@ function createRecognizer(runtimeModule: SherpaModule, nextManifest: WorkerManif
       tokens: fsModelPaths.tokens,
       numThreads: nextManifest.numThreads ?? 1,
       provider: "cpu",
-      debug: true,
+      debug: false,
       modelingUnit: nextManifest.model.bpeVocab ? "bpe" : "cjkchar",
       bpeVocab: nextManifest.model.bpeVocab ? fsModelPaths.bpeVocab : ""
     },
-    decodingMethod: nextManifest.decodingMethod ?? "greedy_search",
+    decodingMethod: hotwords
+      ? "modified_beam_search"
+      : decodingMethodOverride ?? nextManifest.decodingMethod ?? "greedy_search",
     enableEndpoint: true,
     rule1MinTrailingSilence: 2.4,
     rule2MinTrailingSilence: 1.2,
-    rule3MinUtteranceLength: 20
+    rule3MinUtteranceLength: 20,
+    ...(hotwords
+      ? {
+          hotwordsBuf: hotwords.buffer,
+          hotwordsBufSize: hotwords.bufferSize,
+          hotwordsScore: hotwords.score
+        }
+      : {})
   };
   const factory =
     asFunction(workerScope.createOnlineRecognizer) ??
@@ -433,6 +565,41 @@ function createRecognizer(runtimeModule: SherpaModule, nextManifest: WorkerManif
   }
 
   return tryFactoryCall(factory, runtimeModule, config);
+}
+
+function createHotwordsConfig(biasContext: LiveSttBiasContext | null) {
+  const terms = (biasContext?.terms ?? [])
+    .filter((term) => term.text.trim().length > 0 && term.weight >= 0.45)
+    .sort((left, right) => right.weight - left.weight)
+    .slice(0, 32);
+  const hotwords = Array.from(
+    new Set(terms.map((term) => term.text.replace(/\s+/g, " ").trim()))
+  );
+
+  if (hotwords.length === 0) {
+    return null;
+  }
+
+  const maxWeight = terms.reduce(
+    (current, term) => Math.max(current, term.weight),
+    0
+  );
+  const buffer = hotwords.join("\n");
+  return {
+    buffer,
+    bufferSize: new TextEncoder().encode(buffer).length,
+    score: maxWeight >= 0.9 ? 2 : 1.5
+  };
+}
+
+function createBiasKey(biasContext: LiveSttBiasContext | null) {
+  if (!biasContext) {
+    return "";
+  }
+
+  return `${biasContext.slideId}:${biasContext.terms
+    .map((term) => `${term.source}:${term.text}:${term.weight}`)
+    .join("|")}`;
 }
 
 async function installModelFiles(
@@ -676,4 +843,12 @@ function measureBatchAmplitude(batch: SherpaAudioFrameBatch) {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function normalizeDecodeBatchSamples(value: number) {
+  if (!Number.isFinite(value) || value <= 0) {
+    return 1;
+  }
+
+  return Math.max(1, Math.round(value));
 }

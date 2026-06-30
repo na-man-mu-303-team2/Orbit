@@ -27,6 +27,7 @@ import {
   ChevronLeft,
   ChevronRight,
   ChevronDown,
+  Download,
   Gauge,
   Home,
   Mic,
@@ -47,8 +48,26 @@ import { resolveEditorAssetUrl } from "../editor/editorAssetUrl";
 import {
   LiveSttAdapterError,
   type LiveSttAdapter,
-  type LiveSttAudioLevelEvent
+  type LiveSttAudioLevelEvent,
+  type LiveSttBiasContext,
+  type LiveSttBiasMode,
+  type LiveSttBiasSource,
+  type LiveSttBiasTerm,
+  type LiveSttDecodingMethod
 } from "./liveStt";
+import {
+  isLiveSttPcmDebugEnabled,
+  type LiveSttDebugPcmRecording
+} from "./liveSttPcmDebug";
+import {
+  confirmRehearsalCommandCandidate,
+  createRehearsalCommandConfirmationState,
+  defaultRehearsalCommandConfig,
+  detectRehearsalCommandCandidate,
+  getRehearsalCommandBiasTerms,
+  type RehearsalCommandCandidate,
+  type RehearsalCommandDefinition
+} from "./rehearsalCommands";
 import { SherpaLiveSttAdapter } from "./sherpaOnnxLiveSttAdapter";
 
 export {
@@ -109,6 +128,8 @@ type LiveTranscriptBuffer = {
   draftTranscript: string;
 };
 
+type BiasTermDraft = Omit<LiveSttBiasTerm, "text"> & { text: string };
+
 const preferredAudioMimeTypes = [
   "audio/webm;codecs=opus",
   "audio/webm",
@@ -120,8 +141,20 @@ export const rehearsalMicrophoneAudioConstraints: MediaTrackConstraints = {
   autoGainControl: true,
   channelCount: 1
 };
+export const rehearsalRawMicrophoneAudioConstraints: MediaTrackConstraints = {
+  echoCancellation: false,
+  noiseSuppression: false,
+  autoGainControl: false,
+  channelCount: 1
+};
 const liveAutoAdvanceCoverageThreshold = 0.8;
 const defaultLiveAutoAdvanceDelayMs = 800;
+const liveSttBiasModeStorageKey = "orbit.liveStt.biasMode";
+const liveSttRawMicDebugStorageKey = "orbit.liveStt.debugRawMic";
+const liveSttDebugDecodingMethodStorageKey =
+  "orbit.liveStt.debugDecodingMethod";
+const maxLiveSttBiasTerms = 32;
+const maxLiveSttContextBiasTermLength = 36;
 
 export class RehearsalFlowError extends Error {
   constructor(
@@ -497,6 +530,178 @@ export function normalizeLiveTranscriptText(value: string) {
   return value.toLocaleLowerCase("ko-KR").replace(/\s+/g, "").trim();
 }
 
+export function getLiveSttBiasMode(): LiveSttBiasMode {
+  if (typeof window === "undefined") {
+    return "combined";
+  }
+
+  try {
+    const value = window.localStorage?.getItem(liveSttBiasModeStorageKey);
+    return isLiveSttBiasMode(value) ? value : "combined";
+  } catch {
+    return "combined";
+  }
+}
+
+export function buildLiveSttBiasContext(
+  slide: Slide,
+  options: {
+    nearbySlides?: Slide[];
+    commandConfig?: RehearsalCommandDefinition[];
+  } = {}
+): LiveSttBiasContext {
+  const terms = new Map<string, LiveSttBiasTerm>();
+  const addTerm = (draft: BiasTermDraft) => {
+    const text = normalizeBiasTermText(draft.text);
+    const normalized = normalizeLiveTranscriptText(text);
+    if (!text || !normalized) {
+      return;
+    }
+    if (
+      !isKeywordBiasSource(draft.source) &&
+      normalized.length > maxLiveSttContextBiasTermLength
+    ) {
+      return;
+    }
+
+    const existing = terms.get(normalized);
+    const next: LiveSttBiasTerm = { ...draft, text };
+    if (!existing || existing.weight < next.weight) {
+      terms.set(normalized, next);
+    }
+  };
+
+  for (const keyword of slide.keywords) {
+    addTerm({
+      text: keyword.text,
+      source: "keyword",
+      weight: 1,
+      keywordId: keyword.keywordId,
+      canonicalText: keyword.text
+    });
+    for (const synonym of keyword.synonyms) {
+      addTerm({
+        text: synonym,
+        source: "synonym",
+        weight: 0.95,
+        keywordId: keyword.keywordId,
+        canonicalText: keyword.text
+      });
+    }
+    for (const abbreviation of keyword.abbreviations) {
+      addTerm({
+        text: abbreviation,
+        source: "abbreviation",
+        weight: 0.9,
+        keywordId: keyword.keywordId,
+        canonicalText: keyword.text
+      });
+    }
+  }
+
+  addTerm({ text: getSlideTitle(slide), source: "title", weight: 0.7 });
+
+  for (const text of getSlideBodyTexts(slide)) {
+    addTerm({ text, source: "slide-text", weight: 0.55 });
+    for (const extracted of extractBiasTermsFromText(text)) {
+      addTerm({ text: extracted, source: "slide-text", weight: 0.5 });
+    }
+  }
+
+  for (const extracted of extractBiasTermsFromText(slide.speakerNotes)) {
+    addTerm({ text: extracted, source: "speaker-notes", weight: 0.45 });
+  }
+
+  for (const nearbySlide of options.nearbySlides ?? []) {
+    if (nearbySlide.slideId === slide.slideId) {
+      continue;
+    }
+
+    addTerm({
+      text: getSlideTitle(nearbySlide),
+      source: "nearby-slide-text",
+      weight: 0.35
+    });
+    for (const text of getSlideBodyTexts(nearbySlide)) {
+      for (const extracted of extractBiasTermsFromText(text)) {
+        addTerm({
+          text: extracted,
+          source: "nearby-slide-text",
+          weight: 0.3
+        });
+      }
+    }
+  }
+
+  for (const term of getRehearsalCommandBiasTerms(
+    options.commandConfig ?? defaultRehearsalCommandConfig
+  )) {
+    addTerm(term);
+  }
+
+  const sortedTerms = Array.from(terms.values()).sort(compareBiasTerms);
+  const controlTerms = sortedTerms.filter(
+    (term) => term.source === "control-phrase"
+  );
+  const otherTerms = sortedTerms.filter(
+    (term) => term.source !== "control-phrase"
+  );
+  const reservedControlTerms = controlTerms.slice(0, maxLiveSttBiasTerms);
+  const remainingSlots = Math.max(
+    0,
+    maxLiveSttBiasTerms - reservedControlTerms.length
+  );
+  const selectedTerms = [
+    ...otherTerms.slice(0, remainingSlots),
+    ...reservedControlTerms
+  ].sort(compareBiasTerms);
+
+  return {
+    slideId: slide.slideId,
+    terms: selectedTerms
+  };
+}
+
+export function applyLiveTranscriptBias(
+  transcript: string,
+  biasContext: LiveSttBiasContext | null | undefined
+) {
+  if (!biasContext || biasContext.terms.length === 0) {
+    return transcript;
+  }
+
+  const normalizedTranscript = normalizeLiveTranscriptText(transcript);
+  if (!normalizedTranscript) {
+    return transcript;
+  }
+
+  const additions: string[] = [];
+  const seenAdditions = new Set<string>();
+  for (const term of biasContext.terms) {
+    if (!term.keywordId || term.weight < 0.85) {
+      continue;
+    }
+
+    const normalizedTerm = normalizeLiveTranscriptText(term.text);
+    if (
+      normalizedTerm.length < 3 ||
+      normalizedTranscript.includes(normalizedTerm) ||
+      !hasFuzzyBiasMatch(normalizedTranscript, normalizedTerm)
+    ) {
+      continue;
+    }
+
+    const addition = normalizeBiasTermText(term.canonicalText ?? term.text);
+    const additionKey = normalizeLiveTranscriptText(addition);
+    if (addition && !seenAdditions.has(additionKey)) {
+      seenAdditions.add(additionKey);
+      additions.push(addition);
+    }
+  }
+
+  return appendLiveTranscriptText(transcript, additions.join(" "));
+}
+
 export function createLiveTranscriptBuffer(): LiveTranscriptBuffer {
   return {
     committedTranscript: "",
@@ -627,8 +832,55 @@ export function requestRehearsalMicrophoneStream(
   mediaDevices: Pick<MediaDevices, "getUserMedia"> = navigator.mediaDevices
 ) {
   return mediaDevices.getUserMedia({
-    audio: rehearsalMicrophoneAudioConstraints
+    audio: getRehearsalMicrophoneAudioConstraints()
   });
+}
+
+export function getRehearsalMicrophoneAudioConstraints(
+  storage: Pick<Storage, "getItem"> | null = readBrowserLocalStorage()
+) {
+  return isLiveSttRawMicDebugEnabled(storage)
+    ? rehearsalRawMicrophoneAudioConstraints
+    : rehearsalMicrophoneAudioConstraints;
+}
+
+export function isLiveSttRawMicDebugEnabled(
+  storage: Pick<Storage, "getItem"> | null = readBrowserLocalStorage()
+) {
+  try {
+    return storage?.getItem(liveSttRawMicDebugStorageKey) === "1";
+  } catch {
+    return false;
+  }
+}
+
+export function getLiveSttDebugDecodingMethod(
+  storage: Pick<Storage, "getItem"> | null = readBrowserLocalStorage()
+): LiveSttDecodingMethod | null {
+  try {
+    const value = storage?.getItem(liveSttDebugDecodingMethodStorageKey);
+    return isLiveSttDecodingMethod(value) ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+export function shouldShowLiveSttDebugPcmDownload(
+  recording: LiveSttDebugPcmRecording | null,
+  storage: Pick<Storage, "getItem"> | null = readBrowserLocalStorage()
+) {
+  return Boolean(recording) && isLiveSttPcmDebugEnabled(storage);
+}
+
+export function downloadLiveSttDebugPcm(recording: LiveSttDebugPcmRecording) {
+  const url = URL.createObjectURL(recording.blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = recording.filename;
+  document.body.append(anchor);
+  anchor.click();
+  anchor.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 0);
 }
 
 function clamp(value: number, min: number, max: number) {
@@ -642,6 +894,177 @@ function getLiveKeywordCandidates(slide: Slide): LiveKeywordCandidate[] {
       (value) => value.trim().length > 0
     )
   }));
+}
+
+function isLiveSttBiasMode(value: unknown): value is LiveSttBiasMode {
+  return (
+    value === "none" ||
+    value === "postprocess" ||
+    value === "hotword" ||
+    value === "combined"
+  );
+}
+
+function isLiveSttDecodingMethod(value: unknown): value is LiveSttDecodingMethod {
+  return value === "greedy_search" || value === "modified_beam_search";
+}
+
+function readBrowserLocalStorage() {
+  return typeof window === "undefined" ? null : window.localStorage;
+}
+
+function shouldUseLiveSttPostprocessBias(mode: LiveSttBiasMode) {
+  return mode === "postprocess" || mode === "combined";
+}
+
+function shouldUseLiveSttHotwordBias(mode: LiveSttBiasMode) {
+  return mode === "hotword" || mode === "combined";
+}
+
+function normalizeBiasTermText(value: string) {
+  return value.replace(/\s+/g, " ").trim();
+}
+
+function extractBiasTermsFromText(value: string) {
+  const terms = new Set<string>();
+  const text = normalizeBiasTermText(value);
+  if (!text) {
+    return [];
+  }
+
+  for (const match of text.matchAll(/["'([{<]([^"'()[\]{}<>]{2,40})["'\])}>]/g)) {
+    addExtractedBiasTerm(terms, match[1] ?? "");
+  }
+
+  for (const match of text.matchAll(/[A-Za-z][A-Za-z0-9.+#-]*(?:\s+[A-Za-z][A-Za-z0-9.+#-]*){0,3}/g)) {
+    addExtractedBiasTerm(terms, match[0]);
+  }
+
+  for (const segment of text.split(/[\n\r,.;:!?，。！？、•·|/]+/)) {
+    addExtractedBiasTerm(terms, segment);
+  }
+
+  return Array.from(terms);
+}
+
+function addExtractedBiasTerm(terms: Set<string>, value: string) {
+  const term = normalizeBiasTermText(value);
+  const normalized = normalizeLiveTranscriptText(term);
+  if (
+    normalized.length >= 3 &&
+    normalized.length <= 24 &&
+    /[A-Za-z0-9\u3131-\uD79D]/.test(term)
+  ) {
+    terms.add(term);
+  }
+}
+
+function compareBiasTerms(left: LiveSttBiasTerm, right: LiveSttBiasTerm) {
+  const weightDelta = right.weight - left.weight;
+  if (weightDelta !== 0) {
+    return weightDelta;
+  }
+
+  const sourceDelta =
+    biasSourcePriority(right.source) - biasSourcePriority(left.source);
+  if (sourceDelta !== 0) {
+    return sourceDelta;
+  }
+
+  return right.text.length - left.text.length;
+}
+
+function biasSourcePriority(source: LiveSttBiasSource) {
+  switch (source) {
+    case "keyword":
+      return 6;
+    case "synonym":
+      return 5;
+    case "abbreviation":
+      return 4;
+    case "title":
+      return 3;
+    case "slide-text":
+      return 2;
+    case "speaker-notes":
+      return 1;
+    case "nearby-slide-text":
+      return 0;
+    case "control-phrase":
+      return 7;
+  }
+}
+
+function isKeywordBiasSource(source: LiveSttBiasSource) {
+  return (
+    source === "keyword" ||
+    source === "synonym" ||
+    source === "abbreviation"
+  );
+}
+
+function hasFuzzyBiasMatch(normalizedTranscript: string, normalizedTerm: string) {
+  const transcript = normalizeBiasDistanceText(normalizedTranscript);
+  const term = normalizeBiasDistanceText(normalizedTerm);
+  const maxDistance = maxBiasTermDistance(term.length);
+  const minWindowLength = Math.max(3, term.length - maxDistance);
+  const maxWindowLength = Math.min(transcript.length, term.length + maxDistance);
+
+  for (let windowLength = minWindowLength; windowLength <= maxWindowLength; windowLength += 1) {
+    for (let index = 0; index <= transcript.length - windowLength; index += 1) {
+      const candidate = transcript.slice(index, index + windowLength);
+      if (levenshteinDistance(candidate, term) <= maxDistance) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
+function normalizeBiasDistanceText(value: string) {
+  return value.normalize("NFD");
+}
+
+function maxBiasTermDistance(length: number) {
+  if (length < 5) {
+    return 0;
+  }
+
+  if (length <= 6) {
+    return 1;
+  }
+
+  if (length <= 10) {
+    return 2;
+  }
+
+  return 3;
+}
+
+function levenshteinDistance(left: string, right: string) {
+  if (left === right) {
+    return 0;
+  }
+
+  let previous = Array.from({ length: right.length + 1 }, (_, index) => index);
+  let current = new Array<number>(right.length + 1);
+
+  for (let leftIndex = 1; leftIndex <= left.length; leftIndex += 1) {
+    current[0] = leftIndex;
+    for (let rightIndex = 1; rightIndex <= right.length; rightIndex += 1) {
+      const substitutionCost =
+        left[leftIndex - 1] === right[rightIndex - 1] ? 0 : 1;
+      current[rightIndex] = Math.min(
+        previous[rightIndex]! + 1,
+        current[rightIndex - 1]! + 1,
+        previous[rightIndex - 1]! + substitutionCost
+      );
+    }
+    [previous, current] = [current, previous];
+  }
+
+  return previous[right.length] ?? 0;
 }
 
 function createDefaultLiveSttAdapter() {
@@ -670,6 +1093,8 @@ export function RehearsalWorkspace(props: {
     useState<LiveTranscriptAnalysis | null>(null);
   const [liveAudioLevel, setLiveAudioLevel] =
     useState<LiveSttAudioLevelEvent | null>(null);
+  const [liveDebugPcmRecording, setLiveDebugPcmRecording] =
+    useState<LiveSttDebugPcmRecording | null>(null);
   const [liveCue, setLiveCue] = useState<LiveSttAnimationCueEvent | null>(null);
   const [liveSlideAdvance, setLiveSlideAdvance] =
     useState<LiveSttSlideAdvanceEvent | null>(null);
@@ -699,6 +1124,10 @@ export function RehearsalWorkspace(props: {
     createLiveTranscriptBuffer()
   );
   const liveKeywordStateRef = useRef<LiveTranscriptAnalysis | null>(null);
+  const liveBiasContextRef = useRef<LiveSttBiasContext | null>(null);
+  const liveCommandConfirmationRef = useRef(
+    createRehearsalCommandConfirmationState()
+  );
   const autoAdvancedSlideIdsRef = useRef(new Set<string>());
   const autoAdvanceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -806,10 +1235,23 @@ export function RehearsalWorkspace(props: {
         ? "quiet"
         : "active"
     : "idle";
+  const canDownloadLiveSttDebugPcm = shouldShowLiveSttDebugPcmDownload(
+    liveDebugPcmRecording
+  );
 
   useEffect(() => {
     resetLiveTranscriptForSlide(currentSlide);
-  }, [currentSlide?.slideId]);
+    const nextBiasContext = deck && currentSlide
+      ? buildLiveSttBiasContext(currentSlide, {
+          nearbySlides: getNearbySlides(deck, currentSlideIndex)
+        })
+      : null;
+    liveBiasContextRef.current = nextBiasContext;
+    const biasMode = getLiveSttBiasMode();
+    liveSttAdapterRef.current?.updateBiasContext?.(
+      shouldUseLiveSttHotwordBias(biasMode) ? nextBiasContext : null
+    );
+  }, [currentSlide?.slideId, currentSlideIndex, deck]);
 
   async function startRecording() {
     if (!deck || !canRecord) return;
@@ -822,6 +1264,7 @@ export function RehearsalWorkspace(props: {
     finishAfterReportRef.current = false;
     setLiveError("");
     setLiveAudioLevel(null);
+    setLiveDebugPcmRecording(null);
     resetLiveTranscriptForSlide(currentSlide);
     setLiveSlideAdvance(null);
     setAutoAdvanceState("idle");
@@ -877,6 +1320,7 @@ export function RehearsalWorkspace(props: {
 
     setLiveError("");
     setLiveAudioLevel(null);
+    setLiveDebugPcmRecording(null);
     resetLiveTranscriptForSlide(currentSlide);
     setLiveSlideAdvance(null);
     setAutoAdvanceState("idle");
@@ -990,15 +1434,27 @@ export function RehearsalWorkspace(props: {
     const adapter =
       props.liveSttAdapter ?? liveSttAdapterRef.current ?? createDefaultLiveSttAdapter();
     liveSttAdapterRef.current = adapter;
+    const biasMode = getLiveSttBiasMode();
+    const biasContext = deck && currentSlide
+      ? getCurrentLiveBiasContext(deck, currentSlideIndex)
+      : null;
     setLiveStatus("starting");
     setLiveAudioLevel(null);
 
     try {
-      await adapter.start(stream, {
-        onPartialTranscript: handleLivePartialTranscript,
-        onError: handleLiveSttError,
-        onAudioLevel: setLiveAudioLevel
-      });
+      await adapter.start(
+        stream,
+        {
+          onPartialTranscript: handleLivePartialTranscript,
+          onError: handleLiveSttError,
+          onAudioLevel: setLiveAudioLevel,
+          onDebugPcmAvailable: setLiveDebugPcmRecording
+        },
+        {
+          biasContext: shouldUseLiveSttHotwordBias(biasMode) ? biasContext : null,
+          decodingMethod: getLiveSttDebugDecodingMethod()
+        }
+      );
       setLiveStatus("listening");
       return true;
     } catch (cause) {
@@ -1034,7 +1490,16 @@ export function RehearsalWorkspace(props: {
     setLiveTranscriptBuffer(nextBuffer);
 
     const transcript = renderLiveTranscriptBuffer(nextBuffer);
-    const analysis = evaluateLiveTranscript(slide, transcript);
+    const biasMode = getLiveSttBiasMode();
+    const biasContext = getCurrentLiveBiasContext(deckSnapshot, slideIndex);
+    const matchingTranscript = shouldUseLiveSttPostprocessBias(biasMode)
+      ? applyLiveTranscriptBias(transcript, biasContext)
+      : transcript;
+    const analysis = evaluateLiveTranscript(slide, matchingTranscript);
+    const confirmedCommand = confirmRehearsalCommandCandidate(
+      liveCommandConfirmationRef.current,
+      detectRehearsalCommandCandidate(event)
+    );
 
     const previousDetectedIds = new Set(
       liveKeywordStateRef.current?.slideId === slide.slideId
@@ -1052,6 +1517,16 @@ export function RehearsalWorkspace(props: {
         keywordId: newlyDetected.keywordId,
         cue: "emphasis",
         text: newlyDetected.text
+      });
+    }
+
+    if (isEmphasisCommand(confirmedCommand)) {
+      setLiveCue({
+        type: "animation-cue",
+        slideId: slide.slideId,
+        keywordId: "command-emphasis",
+        cue: "emphasis",
+        text: confirmedCommand.phrase
       });
     }
 
@@ -1078,9 +1553,28 @@ export function RehearsalWorkspace(props: {
 
     liveTranscriptBufferRef.current = nextBuffer;
     liveKeywordStateRef.current = nextKeywordState;
+    liveCommandConfirmationRef.current = createRehearsalCommandConfirmationState();
     setLiveTranscriptBuffer(nextBuffer);
     setLiveKeywordState(nextKeywordState);
     setLiveCue(null);
+  }
+
+  function getCurrentLiveBiasContext(deckSnapshot: Deck, slideIndex: number) {
+    const slide = deckSnapshot.slides[slideIndex];
+    if (!slide) {
+      return null;
+    }
+
+    const current = liveBiasContextRef.current;
+    if (current?.slideId === slide.slideId) {
+      return current;
+    }
+
+    const nextBiasContext = buildLiveSttBiasContext(slide, {
+      nearbySlides: getNearbySlides(deckSnapshot, slideIndex)
+    });
+    liveBiasContextRef.current = nextBiasContext;
+    return nextBiasContext;
   }
 
   function scheduleAutoAdvance(
@@ -1468,6 +1962,20 @@ export function RehearsalWorkspace(props: {
               <span>Partial transcript</span>
               <p>{liveTranscript || liveTranscriptPlaceholder}</p>
             </div>
+            {canDownloadLiveSttDebugPcm ? (
+              <button
+                className="secondary-action"
+                type="button"
+                onClick={() => {
+                  if (liveDebugPcmRecording) {
+                    downloadLiveSttDebugPcm(liveDebugPcmRecording);
+                  }
+                }}
+              >
+                <Download size={16} />
+                모델 입력 WAV 다운로드
+              </button>
+            ) : null}
 
             <div className="rehearsal-live-coverage">
               <strong>{liveCoveragePercent}%</strong>
@@ -1955,6 +2463,19 @@ function getSlideBodyTexts(slide: Slide) {
 
 function getChecklistKeywords(slide: Slide | null): Keyword[] {
   return slide?.keywords ?? [];
+}
+
+function getNearbySlides(deck: Deck, currentSlideIndex: number) {
+  return deck.slides.filter(
+    (_slide, index) =>
+      index !== currentSlideIndex && Math.abs(index - currentSlideIndex) <= 2
+  );
+}
+
+function isEmphasisCommand(
+  candidate: RehearsalCommandCandidate | null
+): candidate is RehearsalCommandCandidate & { cue: "emphasis" } {
+  return candidate?.action === "animation-cue" && candidate.cue === "emphasis";
 }
 
 function buildScriptParagraphs(slide: Slide | null) {
