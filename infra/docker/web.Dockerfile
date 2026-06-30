@@ -18,7 +18,14 @@ RUN pnpm install --frozen-lockfile
 
 COPY . .
 RUN pnpm --filter "./packages/*" build
+ARG APP_ENV=local
+ARG API_BASE_URL=http://api:3000
+ARG WEB_PORT=5173
+ENV APP_ENV=$APP_ENV
+ENV API_BASE_URL=$API_BASE_URL
+ENV WEB_PORT=$WEB_PORT
+RUN pnpm --filter @orbit/web build
 
 EXPOSE 5173
 
-CMD ["pnpm", "--filter", "@orbit/web", "dev"]
+CMD ["pnpm", "--filter", "@orbit/web", "preview"]

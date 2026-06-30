@@ -115,6 +115,12 @@ services:
     restart: unless-stopped
 
   web:
+    build:
+      args:
+        APP_ENV: ${APP_ENV:?}
+        API_BASE_URL: http://api:3000
+        WEB_PORT: ${WEB_PORT:?}
+    command: pnpm --filter @orbit/web preview
     env_file: !reset []
     environment:
       NODE_ENV: ${NODE_ENV:?}
