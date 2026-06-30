@@ -298,7 +298,7 @@ describe("AI deck generation flow", () => {
             }
           ]
         },
-        warnings: [],
+        warnings: ["AI가 참고자료/주제 밀도를 기준으로 1장이 적정하다고 판단했습니다."],
         validation: {
           passed: true,
           layoutIssues: [],
@@ -320,6 +320,9 @@ describe("AI deck generation flow", () => {
     expect(getGeneratedDeckProjectPath(result)).toBe("/project/project-a");
     expect(renderToStaticMarkup(<GeneratedDeckResult result={result} />)).toContain(
       "file_1"
+    );
+    expect(renderToStaticMarkup(<GeneratedDeckResult result={result} />)).toContain(
+      "AI가 참고자료/주제 밀도를 기준으로 1장이 적정하다고 판단했습니다."
     );
   });
 });
