@@ -326,6 +326,7 @@ async function createSlideRenderFile(args: {
 
   context.fillStyle = getSlideRenderBackgroundColor(args.slide, args.deck);
   context.fillRect(0, 0, canvas.width, canvas.height);
+  await drawSlideRenderBackgroundImage(context, args.slide, canvas);
   context.drawImage(stageCanvas, 0, 0, canvas.width, canvas.height);
 
   const blob = await canvasToBlob(canvas);
@@ -337,6 +338,90 @@ async function createSlideRenderFile(args: {
       type: "image/png"
     },
   );
+}
+
+async function drawSlideRenderBackgroundImage(
+  context: CanvasRenderingContext2D,
+  slide: Slide,
+  canvas: HTMLCanvasElement
+) {
+  const backgroundImage = slide.style.backgroundImage;
+
+  if (!backgroundImage?.src) {
+    return;
+  }
+
+  const image = await loadCanvasImage(backgroundImage.src);
+
+  if (!image) {
+    return;
+  }
+
+  const frame = getBackgroundImageDrawFrame({
+    canvasHeight: canvas.height,
+    canvasWidth: canvas.width,
+    fit: backgroundImage.fit,
+    imageHeight: image.naturalHeight || image.height,
+    imageWidth: image.naturalWidth || image.width
+  });
+
+  context.save();
+  context.drawImage(image, frame.x, frame.y, frame.width, frame.height);
+  context.fillStyle = `rgba(255,255,255,${clampBackgroundOverlayOpacity(backgroundImage.opacity)})`;
+  context.fillRect(0, 0, canvas.width, canvas.height);
+  context.restore();
+}
+
+async function loadCanvasImage(url: string) {
+  if (!url || typeof window === "undefined") {
+    return null;
+  }
+
+  return new Promise<HTMLImageElement | null>((resolve) => {
+    const image = new window.Image();
+
+    image.crossOrigin = "anonymous";
+    image.onload = () => resolve(image);
+    image.onerror = () => resolve(null);
+    image.src = resolveEditorAssetUrl(url);
+
+    if (image.complete && image.naturalWidth > 0) {
+      resolve(image);
+    }
+  });
+}
+
+function getBackgroundImageDrawFrame(args: {
+  canvasHeight: number;
+  canvasWidth: number;
+  fit: NonNullable<Slide["style"]["backgroundImage"]>["fit"];
+  imageHeight: number;
+  imageWidth: number;
+}) {
+  const { canvasHeight, canvasWidth, fit, imageHeight, imageWidth } = args;
+
+  if (fit === "stretch" || imageWidth <= 0 || imageHeight <= 0) {
+    return {
+      height: canvasHeight,
+      width: canvasWidth,
+      x: 0,
+      y: 0
+    };
+  }
+
+  const scale =
+    fit === "contain"
+      ? Math.min(canvasWidth / imageWidth, canvasHeight / imageHeight)
+      : Math.max(canvasWidth / imageWidth, canvasHeight / imageHeight);
+  const width = imageWidth * scale;
+  const height = imageHeight * scale;
+
+  return {
+    height,
+    width,
+    x: (canvasWidth - width) / 2,
+    y: (canvasHeight - height) / 2
+  };
 }
 
 async function loadImageAsset(url: string) {
@@ -693,6 +778,7 @@ export function EditorShell(props: { projectId?: string }) {
     tone: ToolbarNoticeTone;
   } | null>(null);
   const [isImageUploadPending, setIsImageUploadPending] = useState(false);
+  const [isRehearsalPreparing, setIsRehearsalPreparing] = useState(false);
   const [saveState, setSaveState] = useState<SaveState>("idle");
   const [saveErrorMessage, setSaveErrorMessage] = useState<string | null>(null);
   const [undoStack, setUndoStack] = useState<Deck[]>([]);
@@ -729,6 +815,11 @@ export function EditorShell(props: { projectId?: string }) {
   const isUsingFallbackDeck = !deckQuery.data;
   const isDeckLoading = deckQuery.isPending;
   const isDeckError = deckQuery.isError;
+  const canStartRehearsal =
+    Boolean(deckQuery.data?.projectId) &&
+    !isDeckLoading &&
+    !isDeckError &&
+    !isRehearsalPreparing;
   const hasSlides = deck.slides.length > 0;
   const currentSlide = deck.slides[currentSlideIndex] ?? deck.slides[0] ?? null;
   const saveStatusLabel = getEditorStatusLabel({
@@ -1026,7 +1117,17 @@ export function EditorShell(props: { projectId?: string }) {
   }
 
   async function handleStartRehearsal() {
-    const activeProjectId = deckRef.current.projectId || deckQuery.data?.projectId;
+    const activeProjectId = deckQuery.data?.projectId ?? projectId;
+
+    if (isDeckLoading || !deckQuery.data) {
+      setSaveState("pending");
+      setSaveErrorMessage("발표 자료를 불러온 뒤 리허설을 시작할 수 있습니다.");
+      return;
+    }
+
+    if (isRehearsalPreparing) {
+      return;
+    }
 
     if (!activeProjectId) {
       setSaveState("error");
@@ -1034,18 +1135,40 @@ export function EditorShell(props: { projectId?: string }) {
       return;
     }
 
+    setIsRehearsalPreparing(true);
     setSaveState("saving");
     setSaveErrorMessage(null);
     setActiveTopMenu(null);
 
-    const deckSnapshot = structuredClone(normalizeDeckAssetUrls(deckRef.current));
-
     try {
       await saveQueueRef.current.catch(() => undefined);
 
+      const deckSnapshot = structuredClone(normalizeDeckAssetUrls(deckRef.current));
       const persistedDeck = await putProjectDeck(activeProjectId, deckSnapshot);
       const renderResult = await syncSlideRenderAssets(activeProjectId, persistedDeck);
-      const finalDeck = await putProjectDeck(activeProjectId, renderResult.deck);
+
+      if (
+        !shouldApplyManualSaveResult({
+          snapshotDeck: deckSnapshot,
+          currentDeck: deckRef.current
+        })
+      ) {
+        throw new Error("리허설 준비 중 편집 내용이 변경되었습니다. 다시 시작해 주세요.");
+      }
+
+      const finalDeck =
+        renderResult.deck.slides.length > 0
+          ? await appendProjectDeckPatch(activeProjectId, {
+              baseVersion: persistedDeck.version,
+              deckId: persistedDeck.deckId,
+              operations: renderResult.deck.slides.map((slide) => ({
+                slideId: slide.slideId,
+                thumbnailUrl: slide.thumbnailUrl,
+                type: "update_slide" as const
+              })),
+              source: "system"
+            })
+          : persistedDeck;
 
       applyPersistedDeckState(finalDeck);
       setImageUploadNotice({
@@ -1069,6 +1192,8 @@ export function EditorShell(props: { projectId?: string }) {
         message: "리허설용 슬라이드 이미지 저장 실패",
         tone: "danger"
       });
+    } finally {
+      setIsRehearsalPreparing(false);
     }
   }
 
@@ -2457,7 +2582,10 @@ export function EditorShell(props: { projectId?: string }) {
 
   return (
     <>
-      <main className="editor-app-shell orbit-shell">
+      <main
+        aria-busy={isDeckLoading}
+        className={`editor-app-shell orbit-shell ${isDeckLoading ? "is-deck-loading" : ""}`}
+      >
         <header className="app-topbar" ref={topbarRef}>
         <div className="topbar-left">
           <img alt="Orbit" className="brand-mark" src={orbitLogo} />
@@ -2650,27 +2778,34 @@ export function EditorShell(props: { projectId?: string }) {
             {activeTopMenu === "presentation" ? (
               <div className="file-menu-popover action-popover" role="menu">
                 <div className="file-menu-list">
-                  {presentationItems.map(({ icon: Icon, label, meta }) => (
-                    <button
-                    className="file-menu-item"
-                    key={label}
-                    role="menuitem"
-                    type="button"
-                    onClick={() => {
-                      if (label === presentationItems[2]?.label) {
-                        void handleStartRehearsal();
-                      }
-                    }}
-                  >
-                      <span className="file-menu-label">
-                        <Icon size={16} />
-                        {label}
-                      </span>
-                      <span className="file-menu-meta">
-                        <small>{meta}</small>
-                      </span>
-                    </button>
-                  ))}
+                  {presentationItems.map(({ icon: Icon, label, meta }) => {
+                    const isRehearsalItem = label === presentationItems[2]?.label;
+
+                    return (
+                      <button
+                        className="file-menu-item"
+                        disabled={isRehearsalItem && !canStartRehearsal}
+                        key={label}
+                        role="menuitem"
+                        type="button"
+                        onClick={() => {
+                          if (isRehearsalItem) {
+                            void handleStartRehearsal();
+                          }
+                        }}
+                      >
+                        <span className="file-menu-label">
+                          <Icon size={16} />
+                          {label}
+                        </span>
+                        <span className="file-menu-meta">
+                          <small>
+                            {isRehearsalItem && isRehearsalPreparing ? "리허설 준비 중..." : meta}
+                          </small>
+                        </span>
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
             ) : null}
@@ -2694,6 +2829,12 @@ export function EditorShell(props: { projectId?: string }) {
           </button>
         </div>
       </header>
+      {isDeckLoading ? (
+        <div className="editor-loading-guard" role="status">
+          <span className="editor-loading-spinner" aria-hidden="true" />
+          <strong>발표 자료를 불러오는 중입니다</strong>
+        </div>
+      ) : null}
 
       <section
         className={`editor-panel ${isRightPanelOpen ? "" : "right-panel-closed"} ${
