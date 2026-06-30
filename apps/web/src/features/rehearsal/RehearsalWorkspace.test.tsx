@@ -26,6 +26,11 @@ import {
   selectRecordingMimeType,
   shouldAutoAdvanceLiveSlide
 } from "./RehearsalWorkspace";
+import {
+  confirmRehearsalCommandCandidate,
+  createRehearsalCommandConfirmationState,
+  detectRehearsalCommandCandidate
+} from "./rehearsalCommands";
 
 const createdAt = "2026-06-29T00:00:00.000Z";
 
@@ -180,7 +185,39 @@ describe("RehearsalWorkspace", () => {
       ]
     };
 
-    const biasContext = buildLiveSttBiasContext(slide);
+    const nearbySlide = {
+      ...deck.slides[1]!,
+      slideId: "slide_nearby",
+      title: "다음 장표 요약",
+      elements: [
+        {
+          elementId: "el_nearby",
+          type: "text" as const,
+          role: "body" as const,
+          x: 0,
+          y: 0,
+          width: 320,
+          height: 80,
+          rotation: 0,
+          opacity: 1,
+          zIndex: 1,
+          locked: false,
+          visible: true,
+          props: {
+            text: "후속 액션 플랜",
+            fontSize: 24,
+            fontWeight: 400,
+            align: "left" as const,
+            verticalAlign: "top" as const,
+            lineHeight: 1.2
+          }
+        }
+      ]
+    };
+
+    const biasContext = buildLiveSttBiasContext(slide, {
+      nearbySlides: [nearbySlide]
+    });
 
     expect(biasContext.slideId).toBe("slide_1");
     expect(biasContext.terms.slice(0, 3).map((term) => term.text)).toEqual([
@@ -198,6 +235,18 @@ describe("RehearsalWorkspace", () => {
       expect.objectContaining({
         text: "브라우저 온디바이스 인식",
         source: "speaker-notes"
+      })
+    );
+    expect(biasContext.terms).toContainEqual(
+      expect.objectContaining({
+        text: "다음 슬라이드",
+        source: "control-phrase"
+      })
+    );
+    expect(biasContext.terms).toContainEqual(
+      expect.objectContaining({
+        text: "후속 액션 플랜",
+        source: "nearby-slide-text"
       })
     );
   });
@@ -338,6 +387,36 @@ describe("RehearsalWorkspace", () => {
         alreadyAdvanced: false
       })
     ).toBe(false);
+  });
+
+  it("does not let advance commands bypass keyword coverage policy", () => {
+    const state = createRehearsalCommandConfirmationState();
+    const confirmedCommand = confirmRehearsalCommandCandidate(
+      state,
+      detectRehearsalCommandCandidate({
+        transcript: "다음 슬라이드",
+        isFinal: true,
+        confidence: null
+      })
+    );
+
+    expect(confirmedCommand).toMatchObject({ action: "advance-slide" });
+    expect(
+      shouldAutoAdvanceLiveSlide({
+        analysis: { coverage: 0.2, missingKeywordIds: ["kw_2", "kw_3"] },
+        currentSlideIndex: 0,
+        slideCount: 2,
+        keywordCount: 3,
+        alreadyAdvanced: false
+      })
+    ).toBe(false);
+    expect(
+      detectRehearsalCommandCandidate({
+        transcript: "안녕하세요. 다음 슬라이드는.",
+        isFinal: true,
+        confidence: null
+      })
+    ).toBeNull();
   });
 
   it("keeps the default sherpa adapter as an explicit unavailable shell", async () => {

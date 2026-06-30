@@ -84,15 +84,20 @@ export function detectRehearsalCommandCandidate(
         normalizedPhrase &&
         segments.some((segment) => segment.compact === normalizedPhrase)
       ) {
-        return {
+        const candidate: RehearsalCommandCandidate = {
           action: command.action,
           phrase,
           normalizedTranscript,
           isFinal: event.isFinal,
-          confidence: event.confidence ?? undefined,
           matchedAt: options.now?.() ?? Date.now(),
-          cue: command.cue
         };
+        if (typeof event.confidence === "number") {
+          candidate.confidence = event.confidence;
+        }
+        if (command.cue) {
+          candidate.cue = command.cue;
+        }
+        return candidate;
       }
     }
   }

@@ -40,8 +40,12 @@ import {
   type LiveSttBiasTerm
 } from "./liveStt";
 import {
+  confirmRehearsalCommandCandidate,
+  createRehearsalCommandConfirmationState,
   defaultRehearsalCommandConfig,
+  detectRehearsalCommandCandidate,
   getRehearsalCommandBiasTerms,
+  type RehearsalCommandCandidate,
   type RehearsalCommandDefinition
 } from "./rehearsalCommands";
 import { SherpaLiveSttAdapter } from "./sherpaOnnxLiveSttAdapter";
@@ -972,6 +976,9 @@ export function RehearsalWorkspace(props: {
   );
   const liveKeywordStateRef = useRef<LiveTranscriptAnalysis | null>(null);
   const liveBiasContextRef = useRef<LiveSttBiasContext | null>(null);
+  const liveCommandConfirmationRef = useRef(
+    createRehearsalCommandConfirmationState()
+  );
   const autoAdvancedSlideIdsRef = useRef(new Set<string>());
   const autoAdvanceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -1070,15 +1077,17 @@ export function RehearsalWorkspace(props: {
 
   useEffect(() => {
     resetLiveTranscriptForSlide(currentSlide);
-    const nextBiasContext = currentSlide
-      ? buildLiveSttBiasContext(currentSlide)
+    const nextBiasContext = deck && currentSlide
+      ? buildLiveSttBiasContext(currentSlide, {
+          nearbySlides: getNearbySlides(deck, currentSlideIndex)
+        })
       : null;
     liveBiasContextRef.current = nextBiasContext;
     const biasMode = getLiveSttBiasMode();
     liveSttAdapterRef.current?.updateBiasContext?.(
       shouldUseLiveSttHotwordBias(biasMode) ? nextBiasContext : null
     );
-  }, [currentSlide?.slideId]);
+  }, [currentSlide?.slideId, currentSlideIndex, deck]);
 
   async function startRecording() {
     if (!deck || !canRecord) return;
@@ -1233,8 +1242,8 @@ export function RehearsalWorkspace(props: {
       props.liveSttAdapter ?? liveSttAdapterRef.current ?? createDefaultLiveSttAdapter();
     liveSttAdapterRef.current = adapter;
     const biasMode = getLiveSttBiasMode();
-    const biasContext = currentSlide
-      ? getCurrentLiveBiasContext(currentSlide)
+    const biasContext = deck && currentSlide
+      ? getCurrentLiveBiasContext(deck, currentSlideIndex)
       : null;
     setLiveStatus("starting");
     setLiveAudioLevel(null);
@@ -1287,11 +1296,15 @@ export function RehearsalWorkspace(props: {
 
     const transcript = renderLiveTranscriptBuffer(nextBuffer);
     const biasMode = getLiveSttBiasMode();
-    const biasContext = getCurrentLiveBiasContext(slide);
+    const biasContext = getCurrentLiveBiasContext(deckSnapshot, slideIndex);
     const matchingTranscript = shouldUseLiveSttPostprocessBias(biasMode)
       ? applyLiveTranscriptBias(transcript, biasContext)
       : transcript;
     const analysis = evaluateLiveTranscript(slide, matchingTranscript);
+    const confirmedCommand = confirmRehearsalCommandCandidate(
+      liveCommandConfirmationRef.current,
+      detectRehearsalCommandCandidate(event)
+    );
 
     const previousDetectedIds = new Set(
       liveKeywordStateRef.current?.slideId === slide.slideId
@@ -1311,6 +1324,16 @@ export function RehearsalWorkspace(props: {
         keywordId: newlyDetected.keywordId,
         cue: "emphasis",
         text: newlyDetected.text
+      });
+    }
+
+    if (isEmphasisCommand(confirmedCommand)) {
+      setLiveCue({
+        type: "animation-cue",
+        slideId: slide.slideId,
+        keywordId: "command-emphasis",
+        cue: "emphasis",
+        text: confirmedCommand.phrase
       });
     }
 
@@ -1337,18 +1360,26 @@ export function RehearsalWorkspace(props: {
 
     liveTranscriptBufferRef.current = nextBuffer;
     liveKeywordStateRef.current = nextKeywordState;
+    liveCommandConfirmationRef.current = createRehearsalCommandConfirmationState();
     setLiveTranscriptBuffer(nextBuffer);
     setLiveKeywordState(nextKeywordState);
     setLiveCue(null);
   }
 
-  function getCurrentLiveBiasContext(slide: Slide) {
+  function getCurrentLiveBiasContext(deckSnapshot: Deck, slideIndex: number) {
+    const slide = deckSnapshot.slides[slideIndex];
+    if (!slide) {
+      return null;
+    }
+
     const current = liveBiasContextRef.current;
     if (current?.slideId === slide.slideId) {
       return current;
     }
 
-    const nextBiasContext = buildLiveSttBiasContext(slide);
+    const nextBiasContext = buildLiveSttBiasContext(slide, {
+      nearbySlides: getNearbySlides(deckSnapshot, slideIndex)
+    });
     liveBiasContextRef.current = nextBiasContext;
     return nextBiasContext;
   }
@@ -1863,6 +1894,19 @@ function getChecklistKeywords(slide: Slide | null): Keyword[] {
         }));
 
   return keywords.length > 0 ? keywords.slice(0, 3) : fallback;
+}
+
+function getNearbySlides(deck: Deck, currentSlideIndex: number) {
+  return deck.slides.filter(
+    (_slide, index) =>
+      index !== currentSlideIndex && Math.abs(index - currentSlideIndex) <= 2
+  );
+}
+
+function isEmphasisCommand(
+  candidate: RehearsalCommandCandidate | null
+): candidate is RehearsalCommandCandidate & { cue: "emphasis" } {
+  return candidate?.action === "animation-cue" && candidate.cue === "emphasis";
 }
 
 function buildScriptParagraphs(slide: Slide | null) {
