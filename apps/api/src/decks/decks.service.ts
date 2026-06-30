@@ -154,12 +154,14 @@ export class DecksService {
       const deck = await this.upsertDeck(manager, applyResult.deck, updatedAt);
       await this.insertPatchLog(manager, projectId, applyResult.changeRecord);
 
-      const snapshot = await this.createSnapshot(
-        manager,
-        deck,
-        request.snapshotReason ?? "patch-applied",
-        updatedAt
-      );
+      const snapshot = request.snapshotReason
+        ? await this.createSnapshot(
+            manager,
+            deck,
+            request.snapshotReason,
+            updatedAt
+          )
+        : null;
 
       return appendDeckPatchResponseSchema.parse({
         deck,

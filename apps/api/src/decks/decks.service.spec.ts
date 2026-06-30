@@ -445,12 +445,7 @@ describe("DecksService", () => {
       afterVersion: 2,
       source: "user"
     });
-    expect(patchResponse.snapshot).toMatchObject({
-      projectId: deck.projectId,
-      deckId: deck.deckId,
-      version: 2,
-      reason: "patch-applied"
-    });
+    expect(patchResponse.snapshot).toBeNull();
     expect(dataSource.patchRows).toHaveLength(1);
     expect(dataSource.patchRows[0]).toMatchObject({
       deck_id: deck.deckId,
@@ -458,10 +453,7 @@ describe("DecksService", () => {
       after_version: 2
     });
     expect(getResponse.deck.version).toBe(2);
-    expect(snapshotResponse.snapshots.map((snapshot) => snapshot.version).sort()).toEqual([
-      1,
-      2
-    ]);
+    expect(snapshotResponse.snapshots.map((snapshot) => snapshot.version).sort()).toEqual([1]);
   });
 
   it("restores a snapshot into the current deck", async () => {

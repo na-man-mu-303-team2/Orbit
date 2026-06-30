@@ -165,7 +165,7 @@ export const appendDeckPatchResponseSchema = z
   .object({
     deck: deckSchema,
     changeRecord: deckChangeRecordSchema,
-    snapshot: deckSnapshotSchema,
+    snapshot: deckSnapshotSchema.nullable(),
     updatedAt: isoDateTimeSchema
   })
   .superRefine((response, ctx) => {
@@ -181,20 +181,22 @@ export const appendDeckPatchResponseSchema = z
       response.deck.version,
       ["changeRecord", "afterVersion"]
     );
-    requireMatchingProject(
-      ctx,
-      response.snapshot.projectId,
-      response.deck.projectId,
-      ["snapshot", "projectId"]
-    );
-    requireMatchingDeckId(ctx, response.snapshot.deckId, response.deck.deckId, [
-      "snapshot",
-      "deckId"
-    ]);
-    requireMatchingVersion(ctx, response.snapshot.version, response.deck.version, [
-      "snapshot",
-      "version"
-    ]);
+    if (response.snapshot) {
+      requireMatchingProject(
+        ctx,
+        response.snapshot.projectId,
+        response.deck.projectId,
+        ["snapshot", "projectId"]
+      );
+      requireMatchingDeckId(ctx, response.snapshot.deckId, response.deck.deckId, [
+        "snapshot",
+        "deckId"
+      ]);
+      requireMatchingVersion(ctx, response.snapshot.version, response.deck.version, [
+        "snapshot",
+        "version"
+      ]);
+    }
   });
 
 export const listDeckSnapshotsResponseSchema = z

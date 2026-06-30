@@ -600,8 +600,7 @@ async function appendProjectDeckPatch(
       "content-type": "application/json"
     },
     body: JSON.stringify({
-      patch,
-      snapshotReason: "patch-applied"
+      patch
     })
   });
 
@@ -1916,9 +1915,9 @@ export function EditorShell(props: { projectId?: string }) {
     const groupProps = groupElement.props as GroupElementProps;
     const childElements = getGroupChildElements(slide, groupProps.childElementIds);
 
-    commitPatch({
-      deckId: deck.deckId,
-      baseVersion: deck.version,
+    commitPatch((currentDeck) => ({
+      deckId: currentDeck.deckId,
+      baseVersion: currentDeck.version,
       source: "user",
       operations: [
         {
@@ -1927,7 +1926,7 @@ export function EditorShell(props: { projectId?: string }) {
           elementId
         }
       ]
-    });
+    }));
     setElementContextMenu(null);
     setEditingElementId(null);
     setCustomShapeEditElementId(null);
