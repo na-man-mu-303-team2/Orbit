@@ -713,7 +713,7 @@ function createSherpaWorker(): SherpaWorker {
   }
 
   return new Worker(
-    new URL("./sherpaOnnxWorker.ts?worker_file&type=classic", import.meta.url)
+    new URL("./sherpaOnnxWorker.ts", import.meta.url)
   );
 }
 
