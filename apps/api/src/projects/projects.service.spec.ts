@@ -322,4 +322,50 @@ describe("ProjectsService", () => {
     expect(project.title).toBe("ORBIT Demo Project");
     expect(projects).toEqual([]);
   });
+
+  it("creates a pending project access request for a non-member", async () => {
+    const project = new ProjectEntity();
+    project.projectId = "project_shared";
+    project.workspaceId = demoIds.workspaceId;
+    project.title = "Shared";
+    project.createdBy = "user_owner";
+    project.createdAt = new Date("2026-06-30T00:00:00.000Z");
+    const service = createService({ projects: [project] });
+
+    const response = await service.requestAccess("project_shared", "user_requester", "viewer");
+
+    expect(response.membership).toEqual({
+      role: "viewer",
+      status: "pending",
+    });
+    await expect(service.getProjectAccess("project_shared", "user_requester")).resolves.toMatchObject({
+      membership: {
+        role: "viewer",
+        status: "pending",
+      },
+    });
+  });
+
+  it("rejects project writes from accepted viewers", async () => {
+    const project = new ProjectEntity();
+    project.projectId = "project_readonly";
+    project.workspaceId = demoIds.workspaceId;
+    project.title = "Read only";
+    project.createdBy = "user_owner";
+    project.createdAt = new Date("2026-06-30T00:00:00.000Z");
+    const viewer = new ProjectMemberEntity();
+    viewer.projectId = project.projectId;
+    viewer.userId = "user_viewer";
+    viewer.role = "viewer";
+    viewer.status = "accepted";
+    viewer.createdAt = project.createdAt;
+    const service = createService({
+      projects: [project],
+      members: [viewer],
+    });
+
+    await expect(
+      service.assertCanWriteProject("project_readonly", "user_viewer"),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+  });
 });

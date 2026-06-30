@@ -11,6 +11,7 @@ import {
 } from "@nestjs/common";
 import {
   createProjectRequestSchema,
+  createProjectAccessRequestSchema,
   updateProjectMemberRoleRequestSchema,
   updateProjectMemberStatusRequestSchema,
   upsertProjectMemberRequestSchema,
@@ -136,6 +137,43 @@ export class ProjectsController {
       user.userId,
       userId,
     );
+  }
+
+  private async getCurrentUser(request: SignedCookieRequest) {
+    const sessionId = getSignedSessionId(request);
+    if (!sessionId) {
+      throw new UnauthorizedException("Authentication required");
+    }
+
+    return (await this.authService.me(sessionId)).user;
+  }
+}
+
+@Controller("api/v1/projects")
+export class ProjectAccessController {
+  constructor(
+    private readonly projectsService: ProjectsService,
+    private readonly authService: AuthService,
+  ) {}
+
+  @Get(":projectId/access")
+  async getProjectAccess(
+    @Param("projectId") projectId: string,
+    @Req() request: SignedCookieRequest,
+  ) {
+    const user = await this.getCurrentUser(request);
+    return this.projectsService.getProjectAccess(projectId, user.userId);
+  }
+
+  @Post(":projectId/access-requests")
+  async requestProjectAccess(
+    @Param("projectId") projectId: string,
+    @Body() body: unknown,
+    @Req() request: SignedCookieRequest,
+  ) {
+    const input = parseRequest(createProjectAccessRequestSchema, body ?? {});
+    const user = await this.getCurrentUser(request);
+    return this.projectsService.requestAccess(projectId, user.userId, input.role);
   }
 
   private async getCurrentUser(request: SignedCookieRequest) {

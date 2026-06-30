@@ -8,6 +8,7 @@ import type {
   CreateProjectRequest,
   Project,
   ProjectMemberRole,
+  ProjectMemberStatus,
   ProjectMembersResponse,
 } from "@orbit/shared";
 import { randomUUID } from "crypto";
@@ -35,6 +36,14 @@ type MemberRow = {
 type UserLookupRow = {
   user_id: string;
   email: string;
+};
+
+export type ProjectAccessResponse = {
+  project: Project;
+  membership: {
+    role: ProjectMemberRole;
+    status: ProjectMemberStatus;
+  } | null;
 };
 
 @Injectable()
@@ -125,6 +134,76 @@ export class ProjectsService {
     }
 
     this.assertWorkspaceAccess(project.workspaceId);
+    return this.toProjectDto(project);
+  }
+
+  async getProjectAccess(
+    projectId: string,
+    userId: string,
+  ): Promise<ProjectAccessResponse> {
+    const project = await this.findProjectOrDemo(projectId);
+    const member = await this.findProjectMember(project.projectId, userId);
+
+    return {
+      project: this.toProjectDto(project),
+      membership: member
+        ? {
+            role: member.role,
+            status: member.status,
+          }
+        : null,
+    };
+  }
+
+  async requestAccess(
+    projectId: string,
+    userId: string,
+    role: Exclude<ProjectMemberRole, "owner">,
+  ): Promise<ProjectAccessResponse> {
+    const project = await this.findProjectOrDemo(projectId);
+    const existing = await this.findProjectMember(project.projectId, userId);
+
+    if (existing?.status === "accepted") {
+      return {
+        project: this.toProjectDto(project),
+        membership: {
+          role: existing.role,
+          status: existing.status,
+        },
+      };
+    }
+
+    const member = await this.projectMembersRepository.save(
+      this.projectMembersRepository.create({
+        projectId: project.projectId,
+        userId,
+        role: existing?.role === "owner" ? "owner" : role,
+        status: "pending",
+        createdAt: existing?.createdAt ?? new Date(),
+      }),
+    );
+
+    return {
+      project: this.toProjectDto(project),
+      membership: {
+        role: member.role,
+        status: member.status,
+      },
+    };
+  }
+
+  async assertCanReadProject(projectId: string, userId: string): Promise<Project> {
+    const project = await this.findProjectOrDemo(projectId);
+    await this.assertAcceptedMember(project.workspaceId, project.projectId, userId);
+    return this.toProjectDto(project);
+  }
+
+  async assertCanWriteProject(projectId: string, userId: string): Promise<Project> {
+    const project = await this.findProjectOrDemo(projectId);
+    const member = await this.assertAcceptedMember(project.workspaceId, project.projectId, userId);
+    if (member.role === "viewer") {
+      throw new ForbiddenException("Project editor permission required");
+    }
     return this.toProjectDto(project);
   }
 
@@ -275,6 +354,31 @@ export class ProjectsService {
     if (!project) {
       throw new NotFoundException(`Project not found: ${projectId}`);
     }
+    return project;
+  }
+
+  private async findProjectOrDemo(projectId: string): Promise<ProjectEntity> {
+    let project = await this.projectsRepository.findOne({
+      where: { projectId },
+    });
+
+    if (!project && projectId === demoIds.projectId) {
+      project = await this.projectsRepository.save(
+        this.projectsRepository.create({
+          projectId: demoIds.projectId,
+          workspaceId: demoIds.workspaceId,
+          title: defaultProjectTitle,
+          createdBy: demoIds.userId,
+          createdAt: new Date(),
+        }),
+      );
+    }
+
+    if (!project) {
+      throw new NotFoundException(`Project not found: ${projectId}`);
+    }
+
+    this.assertWorkspaceAccess(project.workspaceId);
     return project;
   }
 

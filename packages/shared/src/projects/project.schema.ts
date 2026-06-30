@@ -35,6 +35,9 @@ export const upsertProjectMemberRequestSchema = z.object({
   email: z.string().trim().email().transform((email) => email.toLowerCase()),
   role: z.enum(["editor", "viewer"]),
 });
+export const createProjectAccessRequestSchema = z.object({
+  role: z.enum(["editor", "viewer"]),
+});
 export const updateProjectMemberRoleRequestSchema = z.object({
   role: projectMemberRoleSchema,
 });
@@ -51,5 +54,6 @@ export type ProjectMemberStatus = z.infer<typeof projectMemberStatusSchema>;
 export type ProjectMember = z.infer<typeof projectMemberSchema>;
 export type ProjectMembersResponse = z.infer<typeof projectMembersResponseSchema>;
 export type UpsertProjectMemberRequest = z.infer<typeof upsertProjectMemberRequestSchema>;
+export type CreateProjectAccessRequest = z.infer<typeof createProjectAccessRequestSchema>;
 export type UpdateProjectMemberRoleRequest = z.infer<typeof updateProjectMemberRoleRequestSchema>;
 export type UpdateProjectMemberStatusRequest = z.infer<typeof updateProjectMemberStatusRequestSchema>;
