@@ -1,4 +1,5 @@
 import type { LiveSttPartialTranscriptEvent } from "@orbit/shared";
+import type { LiveSttDebugPcmRecording } from "./liveSttPcmDebug";
 
 export type LiveSttAudioLevelEvent = {
   type: "audio-level";
@@ -13,10 +14,47 @@ export type LiveSttCallbacks = {
   onPartialTranscript: (event: LiveSttPartialTranscriptEvent) => void;
   onError: (error: LiveSttAdapterError) => void;
   onAudioLevel?: (event: LiveSttAudioLevelEvent) => void;
+  onDebugPcmAvailable?: (recording: LiveSttDebugPcmRecording) => void;
+};
+
+export type LiveSttBiasSource =
+  | "keyword"
+  | "synonym"
+  | "abbreviation"
+  | "title"
+  | "slide-text"
+  | "speaker-notes"
+  | "nearby-slide-text"
+  | "control-phrase";
+
+export type LiveSttBiasTerm = {
+  text: string;
+  source: LiveSttBiasSource;
+  weight: number;
+  keywordId?: string;
+  canonicalText?: string;
+};
+
+export type LiveSttBiasContext = {
+  slideId: string;
+  terms: LiveSttBiasTerm[];
+};
+
+export type LiveSttBiasMode = "none" | "postprocess" | "hotword" | "combined";
+export type LiveSttDecodingMethod = "greedy_search" | "modified_beam_search";
+
+export type LiveSttStartOptions = {
+  biasContext?: LiveSttBiasContext | null;
+  decodingMethod?: LiveSttDecodingMethod | null;
 };
 
 export type LiveSttAdapter = {
-  start: (stream: MediaStream, callbacks: LiveSttCallbacks) => Promise<void>;
+  start: (
+    stream: MediaStream,
+    callbacks: LiveSttCallbacks,
+    options?: LiveSttStartOptions
+  ) => Promise<void>;
+  updateBiasContext?: (biasContext: LiveSttBiasContext | null) => void;
   stop: () => void;
   dispose: () => void;
 };

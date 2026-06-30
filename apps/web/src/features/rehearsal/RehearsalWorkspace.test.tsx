@@ -1,14 +1,16 @@
 import { createDemoDeck } from "@orbit/editor-core";
 import type { Job, RehearsalReport, RehearsalRun } from "@orbit/shared";
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   LiveSttAdapterError,
   RehearsalReportPage,
   RehearsalFlowError,
   RehearsalWorkspace,
   SherpaLiveSttAdapter,
+  applyLiveTranscriptBias,
   applyLiveTranscriptEvent,
+  buildLiveSttBiasContext,
   createLiveTranscriptBuffer,
   createRecordingFile,
   createRecordingSession,
@@ -19,21 +21,35 @@ import {
   getRehearsalReportPath,
   getLiveAudioLevelLabel,
   getLiveAudioLevelPercent,
+  getLiveSttDebugDecodingMethod,
+  getRehearsalMicrophoneAudioConstraints,
   normalizeRecordingMimeType,
   normalizeLiveTranscriptText,
   rehearsalMicrophoneAudioConstraints,
+  rehearsalRawMicrophoneAudioConstraints,
   renderLiveTranscriptBuffer,
   requestRehearsalMicrophoneStream,
   resolveRehearsalReportLoadState,
   runRehearsalUploadFlow,
   selectRecordingMimeType,
+  shouldShowLiveSttDebugPcmDownload,
   shouldAutoAdvanceLiveSlide
 } from "./RehearsalWorkspace";
+import {
+  confirmRehearsalCommandCandidate,
+  createRehearsalCommandConfirmationState,
+  detectRehearsalCommandCandidate
+} from "./rehearsalCommands";
 import { resolveEditorAssetUrl } from "../editor/shared/editorAssetUrl";
 
 const createdAt = "2026-06-29T00:00:00.000Z";
 
 describe("RehearsalWorkspace", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
   it("renders the current deck preview and notes", () => {
     const deck = createDemoDeck();
     const html = renderToStaticMarkup(<RehearsalWorkspace initialDeck={deck} />);
@@ -63,6 +79,79 @@ describe("RehearsalWorkspace", () => {
     expect(getUserMedia).toHaveBeenCalledWith({
       audio: rehearsalMicrophoneAudioConstraints
     });
+  });
+
+  it("requests raw microphone audio constraints when Live STT raw mic debug is enabled", async () => {
+    vi.stubGlobal("window", {
+      localStorage: {
+        getItem: vi.fn((key: string) =>
+          key === "orbit.liveStt.debugRawMic" ? "1" : null
+        )
+      }
+    });
+    const stream = { getTracks: () => [] } as unknown as MediaStream;
+    const getUserMedia = vi.fn(async () => stream);
+
+    const result = await requestRehearsalMicrophoneStream({
+      getUserMedia
+    } as unknown as Pick<MediaDevices, "getUserMedia">);
+
+    expect(result).toBe(stream);
+    expect(getRehearsalMicrophoneAudioConstraints()).toBe(
+      rehearsalRawMicrophoneAudioConstraints
+    );
+    expect(getUserMedia).toHaveBeenCalledWith({
+      audio: rehearsalRawMicrophoneAudioConstraints
+    });
+  });
+
+  it("parses Live STT debug decoding method overrides defensively", () => {
+    expect(
+      getLiveSttDebugDecodingMethod({
+        getItem: vi.fn(() => "modified_beam_search")
+      })
+    ).toBe("modified_beam_search");
+    expect(
+      getLiveSttDebugDecodingMethod({
+        getItem: vi.fn(() => "beam_search")
+      })
+    ).toBeNull();
+    expect(
+      getLiveSttDebugDecodingMethod({
+        getItem: vi.fn(() => {
+          throw new Error("storage unavailable");
+        })
+      })
+    ).toBeNull();
+  });
+
+  it("shows the model input WAV download only when PCM debug has a recording", () => {
+    const recording = {
+      blob: new Blob([]),
+      filename: "orbit-live-stt-model-input.wav",
+      sampleRate: 16000,
+      durationMs: 1000,
+      peak: 0.5,
+      rms: 0.2
+    };
+
+    expect(
+      shouldShowLiveSttDebugPcmDownload(recording, {
+        getItem: vi.fn((key: string) =>
+          key === "orbit.liveStt.debugPcmDump" ? "1" : null
+        )
+      })
+    ).toBe(true);
+    expect(
+      shouldShowLiveSttDebugPcmDownload(null, {
+        getItem: vi.fn(() => "1")
+      })
+    ).toBe(false);
+    expect(
+      shouldShowLiveSttDebugPcmDownload(recording, {
+        getItem: vi.fn(() => null)
+      })
+    ).toBe(false);
   });
 
   it("labels live STT microphone input levels", () => {
@@ -246,6 +335,180 @@ describe("RehearsalWorkspace", () => {
     expect(analysis.missingKeywordIds).toEqual([]);
   });
 
+  it("builds current-slide live STT bias terms from keywords and slide context", () => {
+    const deck = createDemoDeck();
+    const slide = {
+      ...deck.slides[0]!,
+      slideId: "slide_1",
+      title: "ORBIT Live STT",
+      speakerNotes: "오프닝, 브라우저 온디바이스 인식",
+      keywords: [
+        {
+          keywordId: "kw_orbit",
+          text: "ORBIT",
+          synonyms: ["오르빗"],
+          abbreviations: ["OBT"]
+        }
+      ],
+      elements: [
+        ...deck.slides[0]!.elements,
+        {
+          elementId: "el_body",
+          type: "text" as const,
+          role: "body" as const,
+          x: 0,
+          y: 0,
+          width: 320,
+          height: 80,
+          rotation: 0,
+          opacity: 1,
+          zIndex: 1,
+          locked: false,
+          visible: true,
+          props: {
+            text: "온디바이스 STT와 키워드 진행률",
+            fontSize: 24,
+            fontWeight: 400,
+            align: "left" as const,
+            verticalAlign: "top" as const,
+            lineHeight: 1.2
+          }
+        }
+      ]
+    };
+
+    const nearbySlide = {
+      ...deck.slides[1]!,
+      slideId: "slide_nearby",
+      title: "다음 장표 요약",
+      elements: [
+        {
+          elementId: "el_nearby",
+          type: "text" as const,
+          role: "body" as const,
+          x: 0,
+          y: 0,
+          width: 320,
+          height: 80,
+          rotation: 0,
+          opacity: 1,
+          zIndex: 1,
+          locked: false,
+          visible: true,
+          props: {
+            text: "후속 액션 플랜",
+            fontSize: 24,
+            fontWeight: 400,
+            align: "left" as const,
+            verticalAlign: "top" as const,
+            lineHeight: 1.2
+          }
+        }
+      ]
+    };
+
+    const biasContext = buildLiveSttBiasContext(slide, {
+      nearbySlides: [nearbySlide]
+    });
+
+    expect(biasContext.slideId).toBe("slide_1");
+    expect(biasContext.terms.slice(0, 3).map((term) => term.text)).toEqual([
+      "ORBIT",
+      "오르빗",
+      "OBT"
+    ]);
+    expect(biasContext.terms).toContainEqual(
+      expect.objectContaining({
+        text: "ORBIT Live STT",
+        source: "title"
+      })
+    );
+    expect(biasContext.terms).toContainEqual(
+      expect.objectContaining({
+        text: "브라우저 온디바이스 인식",
+        source: "speaker-notes"
+      })
+    );
+    expect(biasContext.terms).toContainEqual(
+      expect.objectContaining({
+        text: "다음 슬라이드",
+        source: "control-phrase"
+      })
+    );
+    expect(biasContext.terms).toContainEqual(
+      expect.objectContaining({
+        text: "후속 액션 플랜",
+        source: "nearby-slide-text"
+      })
+    );
+  });
+
+  it("uses fuzzy live STT bias only for keyword matching transcripts", () => {
+    const slide = {
+      ...createDemoDeck().slides[0]!,
+      slideId: "slide_1",
+      keywords: [
+        {
+          keywordId: "kw_orbit",
+          text: "오르빗",
+          synonyms: [],
+          abbreviations: []
+        }
+      ]
+    };
+    const biasContext = buildLiveSttBiasContext(slide);
+    const rawTranscript = "오늘은 오르비트 리허설을 시작합니다";
+    const rawAnalysis = evaluateLiveTranscript(slide, rawTranscript);
+    const biasedTranscript = applyLiveTranscriptBias(rawTranscript, biasContext);
+    const biasedAnalysis = evaluateLiveTranscript(slide, biasedTranscript);
+
+    expect(rawAnalysis.coverage).toBe(0);
+    expect(biasedTranscript).toBe(`${rawTranscript} 오르빗`);
+    expect(biasedAnalysis.coverage).toBe(1);
+  });
+
+  it("does not fuzzy-correct short ascii abbreviations into coverage", () => {
+    const slide = {
+      ...createDemoDeck().slides[0]!,
+      slideId: "slide_1",
+      keywords: [
+        {
+          keywordId: "kw_stt",
+          text: "음성 인식",
+          synonyms: [],
+          abbreviations: ["STT"]
+        }
+      ]
+    };
+    const biasContext = buildLiveSttBiasContext(slide);
+    const rawTranscript = "오늘은 start 단계를 진행합니다";
+    const biasedTranscript = applyLiveTranscriptBias(rawTranscript, biasContext);
+    const biasedAnalysis = evaluateLiveTranscript(slide, biasedTranscript);
+
+    expect(biasedTranscript).toBe(rawTranscript);
+    expect(biasedAnalysis.coverage).toBe(0);
+  });
+
+  it("reserves control-phrase slots when keyword aliases exceed the cap", () => {
+    const keywords = Array.from({ length: 12 }, (_, index) => ({
+      keywordId: `kw_${index}`,
+      text: `키워드${index}`,
+      synonyms: [`동의어${index}`],
+      abbreviations: [`약어${index}`]
+    }));
+    const slide = {
+      ...createDemoDeck().slides[0]!,
+      slideId: "slide_dense",
+      keywords
+    };
+    const biasContext = buildLiveSttBiasContext(slide);
+
+    expect(biasContext.terms.length).toBeLessThanOrEqual(32);
+    expect(
+      biasContext.terms.some((term) => term.source === "control-phrase")
+    ).toBe(true);
+  });
+
   it("resolves slide thumbnails to same-origin asset URLs", () => {
     vi.stubGlobal("window", {
       location: {
@@ -380,6 +643,36 @@ describe("RehearsalWorkspace", () => {
         alreadyAdvanced: false
       })
     ).toBe(false);
+  });
+
+  it("does not let advance commands bypass keyword coverage policy", () => {
+    const state = createRehearsalCommandConfirmationState();
+    const confirmedCommand = confirmRehearsalCommandCandidate(
+      state,
+      detectRehearsalCommandCandidate({
+        transcript: "다음 슬라이드",
+        isFinal: true,
+        confidence: null
+      })
+    );
+
+    expect(confirmedCommand).toMatchObject({ action: "advance-slide" });
+    expect(
+      shouldAutoAdvanceLiveSlide({
+        analysis: { coverage: 0.2, missingKeywordIds: ["kw_2", "kw_3"] },
+        currentSlideIndex: 0,
+        slideCount: 2,
+        keywordCount: 3,
+        alreadyAdvanced: false
+      })
+    ).toBe(false);
+    expect(
+      detectRehearsalCommandCandidate({
+        transcript: "안녕하세요. 다음 슬라이드는.",
+        isFinal: true,
+        confidence: null
+      })
+    ).toBeNull();
   });
 
   it("keeps the default sherpa adapter as an explicit unavailable shell", async () => {

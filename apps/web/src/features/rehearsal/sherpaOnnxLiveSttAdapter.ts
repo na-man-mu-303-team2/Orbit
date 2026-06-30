@@ -5,9 +5,16 @@ import {
 import {
   LiveSttAdapterError,
   type LiveSttAdapter,
-  type LiveSttCallbacks
+  type LiveSttBiasContext,
+  type LiveSttCallbacks,
+  type LiveSttDecodingMethod,
+  type LiveSttStartOptions
 } from "./liveStt";
 import { calculatePcmAudioLevel } from "./liveSttAudioLevel";
+import {
+  createLiveSttPcmDebugRecorder,
+  isLiveSttPcmDebugEnabled
+} from "./liveSttPcmDebug";
 import {
   defaultSherpaOnnxManifestUrl,
   loadSherpaOnnxModelManifest,
@@ -22,6 +29,13 @@ type SherpaWorkerInboundMessage =
       sessionId: string;
       decodeBatchSamples: number;
       debugStatsEnabled: boolean;
+      biasContext?: LiveSttBiasContext | null;
+      decodingMethod?: LiveSttDecodingMethod | null;
+    }
+  | {
+      type: "update-bias";
+      sessionId: string;
+      biasContext: LiveSttBiasContext | null;
     }
   | {
       type: "audio-frame";
@@ -125,6 +139,7 @@ type PendingWorkerRequest = {
 };
 
 type PendingRequestKey = "load" | `start:${string}`;
+type LiveSttPcmDebugRecorder = ReturnType<typeof createLiveSttPcmDebugRecorder>;
 type LiveSttLatencyDebugState = {
   captureFrameSize: number;
   sourceSampleRate: number;
@@ -151,6 +166,7 @@ export class SherpaOnnxLiveSttAdapter implements LiveSttAdapter {
   private sessionId: string | null = null;
   private isDisposed = false;
   private latencyDebugState: LiveSttLatencyDebugState | null = null;
+  private debugPcmRecorder: LiveSttPcmDebugRecorder | null = null;
 
   constructor(
     private readonly options: {
@@ -164,7 +180,11 @@ export class SherpaOnnxLiveSttAdapter implements LiveSttAdapter {
     } = {}
   ) {}
 
-  async start(stream: MediaStream, callbacks: LiveSttCallbacks): Promise<void> {
+  async start(
+    stream: MediaStream,
+    callbacks: LiveSttCallbacks,
+    options: LiveSttStartOptions = {}
+  ): Promise<void> {
     if (this.isDisposed) {
       throw new LiveSttAdapterError(
         "LIVE_STT_START_FAILED",
@@ -195,7 +215,9 @@ export class SherpaOnnxLiveSttAdapter implements LiveSttAdapter {
           type: "start",
           sessionId,
           decodeBatchSamples,
-          debugStatsEnabled: isLiveSttLatencyDebugEnabled()
+          debugStatsEnabled: isLiveSttLatencyDebugEnabled(),
+          biasContext: options.biasContext ?? null,
+          decodingMethod: options.decodingMethod ?? null
         },
         `start:${sessionId}`
       );
@@ -221,6 +243,18 @@ export class SherpaOnnxLiveSttAdapter implements LiveSttAdapter {
     if (sessionId && this.worker) {
       this.postWorkerMessage(this.worker, { type: "stop", sessionId });
     }
+  }
+
+  updateBiasContext(biasContext: LiveSttBiasContext | null) {
+    if (!this.worker || !this.sessionId) {
+      return;
+    }
+
+    this.postWorkerMessage(this.worker, {
+      type: "update-bias",
+      sessionId: this.sessionId,
+      biasContext
+    });
   }
 
   dispose() {
@@ -310,6 +344,9 @@ export class SherpaOnnxLiveSttAdapter implements LiveSttAdapter {
         lastCallbackAtMs: null,
         lastAudioLevelAtMs: null
       };
+      this.debugPcmRecorder = isLiveSttPcmDebugEnabled()
+        ? createLiveSttPcmDebugRecorder(manifest.sampleRate)
+        : null;
       logLiveSttLatencyDebug("capture-start", {
         captureFrameSize: frameSize,
         sourceSampleRate: context.sampleRate,
@@ -365,6 +402,8 @@ export class SherpaOnnxLiveSttAdapter implements LiveSttAdapter {
   }
 
   private stopAudioCapture() {
+    this.publishDebugPcmRecording();
+
     if (!this.capture) {
       return;
     }
@@ -378,6 +417,15 @@ export class SherpaOnnxLiveSttAdapter implements LiveSttAdapter {
     disconnectAudioNode(this.capture.output);
     void this.capture.context.close();
     this.capture = null;
+  }
+
+  private publishDebugPcmRecording() {
+    const recording = this.debugPcmRecorder?.finish();
+    this.debugPcmRecorder = null;
+
+    if (recording) {
+      this.callbacks?.onDebugPcmAvailable?.(recording);
+    }
   }
 
   private async createAudioContext(manifest: ResolvedSherpaOnnxModelManifest) {
@@ -493,6 +541,7 @@ export class SherpaOnnxLiveSttAdapter implements LiveSttAdapter {
       sourceSampleRate,
       manifest.sampleRate
     );
+    this.debugPcmRecorder?.append(samples);
 
     this.postWorkerMessage(
       worker,
@@ -566,6 +615,7 @@ export class SherpaOnnxLiveSttAdapter implements LiveSttAdapter {
         return;
       }
 
+      logLiveSttTranscriptDebug(message);
       this.logPartialCallbackLatency(message.isFinal);
       this.callbacks?.onPartialTranscript(
         parsePartialTranscriptMessage(message)
@@ -698,6 +748,21 @@ function logLiveSttWorkerDebug(stats: SherpaWorkerDebugStats) {
   }
 
   console.debug(`[orbit-live-stt-worker] ${JSON.stringify(payload)}`);
+}
+
+function logLiveSttTranscriptDebug(
+  message: Extract<SherpaWorkerOutboundMessage, { type: "partial" | "final" }>
+) {
+  if (!isLiveSttLatencyDebugEnabled()) {
+    return;
+  }
+
+  console.debug("[orbit-live-stt-transcript]", {
+    sessionId: message.sessionId,
+    isFinal: message.isFinal,
+    confidence: message.confidence,
+    transcript: message.transcript
+  });
 }
 
 function roundLiveSttDebugValue(value: number) {
