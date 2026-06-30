@@ -15,6 +15,11 @@
 
 현재 에디터는 `Deck JSON`을 원본 상태로 들고, 브라우저에서 먼저 patch를 적용한 뒤 서버에 직렬 저장하는 optimistic update 구조다. 문제의 핵심은 서버 버전 체크 자체보다, 클라이언트가 들고 있는 `baseVersion`과 서버 current version이 save queue 동안 어긋날 수 있다는 점이다.
 
+이후 구조 개선을 거치면서 현재는 아래 두 방향으로 안정화가 진행된 상태다.
+
+- 클라이언트: `persisted base`와 `working deck`을 분리하고, auto save / manual save / conflict recovery 상태를 코드로 구분한다.
+- 서버: `deck_json` 전체 upsert 빈도를 줄이기 위해 checkpoint + patch replay 구조로 바꾸고, patch chain 무결성을 별도로 검증한다.
+
 ## 핵심 파일 지도
 
 ### Web editor
@@ -66,6 +71,22 @@
 - React state는 화면을 다시 그리기 위한 subscribe 지점이다.
 - React Query cache는 프로젝트 deck 조회 결과와 맞물린다.
 - `saveQueueRef`는 patch 요청이 서버에 순서대로 가도록 막아 준다.
+
+### 지금은 persisted base와 working deck을 분리한다
+
+초기 구조는 `deckRef + React state + query cache` 중심이라 로컬 작업 상태와 서버 정본 상태가 섞여 보였다. 지금은 저장 책임을 더 분명히 나눴다.
+
+- `workingDeckRef`: 현재 화면에서 편집 중인 로컬 작업본
+- `persistedBaseDeckRef`: 서버에서 마지막으로 알고 있는 persisted base
+- `lastAckedDeckRef`: 서버가 마지막으로 ack한 deck
+- `pendingPatchInputsRef`: 아직 ack되지 않은 patch 입력
+- `hasUnackedLocalChangesRef`: 로컬 미확정 변경 존재 여부
+
+이 분리가 필요한 이유는 아래와 같다.
+
+- 자동 저장과 수동 저장의 경계를 분리하기 위해
+- `409 STALE_BASE_VERSION` 이후 refetch/rebuild/retry를 같은 상태 모델 안에서 처리하기 위해
+- 나중에 협업용 `acked/unacked/remote` 레이어를 붙일 수 있게 하기 위해
 
 ## 상태 흐름 시각화
 
@@ -127,6 +148,19 @@ flowchart TD
 - patch 생성 시점의 `baseVersion`이 서버 저장 시점에는 이미 stale일 수 있다.
 - queue는 요청 순서를 보장하지만, patch의 `baseVersion` 자체를 재계산해 주지는 않는다.
 
+### 지금 적용된 개선점
+
+초기에는 patch 하나마다 바로 서버로 보내는 구조에 가까웠다. 이 방식은 입력이 몰릴 때 patch 수만큼 네트워크 요청과 DB write가 발생하고, 오래된 `baseVersion`이 queue 안에 쌓이기 쉬웠다.
+
+현재는 아래처럼 바뀌었다.
+
+1. patch 입력은 먼저 `pendingPatchInputsRef`에 모은다.
+2. flush 시점에 `persistedBaseDeckRef` 기준으로 patch batch를 다시 구성한다.
+3. `409 STALE_BASE_VERSION`이 나면 최신 deck을 다시 받아 batch를 재구성하고 한 번 더 저장한다.
+4. 충돌 복구가 성공하면 상태 코드는 `conflict-recovered`로 남는다.
+
+즉 queue의 역할이 "요청 직렬화"에서 끝나지 않고, "최신 persisted base 기준 batch 재구성"까지 포함하게 됐다.
+
 ## 수동 저장 흐름
 
 수동 저장은 patch가 아니라 full deck overwrite 쪽에 가깝다.
@@ -139,6 +173,12 @@ flowchart TD
 4. 필요하면 썸네일이 반영된 deck을 다시 `PUT /deck` 저장한다.
 
 즉 수동 저장은 경우에 따라 full deck write가 2번 발생할 수 있다.
+
+이 경로는 의도적으로 patch append와 다르게 유지한다. 이유는 다음과 같다.
+
+- 사용자가 명시적으로 누른 저장은 전체 문서 checkpoint를 남기는 의미가 강하다.
+- 썸네일 렌더 결과처럼 patch보다 full overwrite가 더 자연스러운 저장이 있다.
+- 이후 patch compaction이 일어나면 단일 사용자 장기 사용에서도 replay 길이를 줄일 수 있다.
 
 ## 리허설 시작 흐름
 
@@ -172,12 +212,52 @@ flowchart TD
 `appendPatch()`는 아래 역할을 한다.
 
 1. 현재 deck row를 `FOR UPDATE`로 잠근다.
-2. 현재 deck을 읽는다.
-3. `applyDeckPatch(currentDeck, patch)`를 호출한다.
-4. version이 맞으면 저장하고 snapshot/change record를 남긴다.
-5. version이 다르면 `409 STALE_BASE_VERSION`으로 실패시킨다.
+2. checkpoint deck과 그 이후 patch tail을 읽어 최신 deck을 재구성한다.
+3. patch chain이 checkpoint와 연속적으로 이어지는지 검증한다.
+4. `applyDeckPatch(currentDeck, patch)`를 호출한다.
+5. version이 맞으면 patch log를 남기고, 필요할 때만 checkpoint deck을 갱신한다.
+6. version이 다르면 `409 STALE_BASE_VERSION`으로 실패시킨다.
 
 즉 서버는 "낙관적 동시성 제어를 엄격하게 수행하는 쪽"이다.
+
+### 왜 deck_json 전체 upsert 구조를 바꿨는가
+
+초기 서버 구조는 patch를 받아도 매번 `decks.deck_json` 전체를 upsert했다. 이 방식의 문제는 아래였다.
+
+- 요소 수가 많아질수록 write payload가 계속 커진다.
+- patch log를 따로 남기는데도 current deck 전체를 매번 다시 써야 한다.
+- 일반 편집이 잦을수록 `deck_json` 전체 write가 과도하게 발생한다.
+
+그래서 현재는 서버를 아래처럼 바꿨다.
+
+- `decks`: 주기적 checkpoint deck
+- `deck_patches`: checkpoint 이후 patch tail
+- `deck_snapshots`: 복원/이력용 snapshot
+
+조회 시에는 `checkpoint + patch replay`로 최신 deck을 재구성하고, 저장 시에는 patch log를 우선 기록한다. checkpoint는 아래 시점에만 갱신한다.
+
+- full deck 저장(`PUT /deck`)
+- snapshot/restore 계열 저장
+- patch가 일정 개수 이상 누적된 시점
+
+이 구조로 바꾸면서 일반 patch 저장의 DB write 비용은 `deck_json 전체 upsert` 중심에서 `patch insert 중심`으로 내려갔다.
+
+### 지금 서버에서 추가로 강해진 무결성 규칙
+
+서버 patch chain은 이제 그냥 "쌓인 로그"가 아니라 검증 대상이다.
+
+- 첫 patch의 `before_version`은 checkpoint deck version과 같아야 한다.
+- 각 patch는 `after_version = before_version + 1` 이어야 한다.
+- 이전 patch의 `after_version`과 다음 patch의 `before_version`은 연속이어야 한다.
+- patch apply 결과 `deck.version`은 row의 `after_version`과 같아야 한다.
+- patch row의 `project_id`, `deck_id`는 checkpoint deck과 같아야 한다.
+
+이 규칙을 만족하지 않으면 서버는 아래 에러 코드로 실패시킨다.
+
+- `PATCH_CHAIN_INVALID`
+- `PATCH_CHAIN_CHECKPOINT_MISMATCH`
+
+또한 DB에는 `(project_id, deck_id, after_version)` unique index를 추가해서 같은 deck에 같은 `after_version` patch가 중복 저장되지 않게 했다.
 
 ## 409 충돌이 나는 이유
 
@@ -217,6 +297,16 @@ sequenceDiagram
 
 핵심은 queue가 있어도 `patch를 만든 시점의 baseVersion`은 고정이라는 점이다. 서버 current version이 그 사이 달라지면 충돌한다.
 
+### 지금은 어떻게 복구하는가
+
+현재는 `409 STALE_BASE_VERSION`이 나면 바로 실패로 끝나지 않는다.
+
+1. 최신 persisted deck을 다시 읽는다.
+2. pending patch batch를 최신 persisted base 기준으로 다시 만든다.
+3. 재생성한 patch로 한 번 더 저장한다.
+
+즉 단일 사용자 편집에서 흔한 stale save는 자동 복구가 가능하다. 다만 이 구조는 "협업 merge"까지는 아니고, "같은 사용자의 저장 직렬화 중 어긋난 baseVersion 복구"에 초점을 둔다.
+
 ## 지금 구조에서 바로 유용한 진단 포인트
 
 ### 1. 먼저 볼 것
@@ -246,10 +336,89 @@ sequenceDiagram
 
 ## 지금 구조의 취약점
 
-- `deckRef`, React state, Query cache가 함께 움직여서 상태 책임이 분산되어 보인다.
-- `saveQueueRef`는 요청 순서는 맞추지만, stale patch를 자동 복구하지는 않는다.
-- 리허설 시작이 저장 안정성에 묶여 있어서, 충돌이 나면 이동 실패로 체감된다.
-- 수동 저장이 full deck write 중심이라 payload와 write 비용이 커질 수 있다.
+- 협업용 `remote change` 레이어는 아직 없다.
+- `saveQueueRef`는 단일 사용자 안정화에는 충분하지만, 다중 사용자 merge 전략까지 포함하지는 않는다.
+- 리허설 시작은 여전히 저장 준비 단계에 묶여 있어서, 저장 실패가 곧 이동 실패로 보일 수 있다.
+- checkpoint 간격과 replay 길이 상한은 아직 더 운영적으로 다듬을 여지가 있다.
+
+## 어떤 구조적 문제가 있었고 어떻게 해결했는가
+
+### 1. 로컬 작업본과 서버 정본이 섞여 보이던 문제
+
+문제:
+
+- 화면에서 쓰는 deck
+- 서버가 마지막으로 ack한 deck
+- 아직 저장 안 된 변경
+
+이 세 가지가 코드상으로 분명히 나뉘지 않았다.
+
+해결:
+
+- `workingDeckRef`
+- `persistedBaseDeckRef`
+- `lastAckedDeckRef`
+- `pendingPatchInputsRef`
+
+로 분리해서 상태 책임을 명확히 했다.
+
+### 2. stale patch가 queue 안에서 쌓이던 문제
+
+문제:
+
+- patch를 만든 시점의 `baseVersion`이 queue 안에서 오래된 채 남을 수 있었다.
+- 저장 요청 순서만 맞고, 저장 시점 기준 재구성은 없었다.
+
+해결:
+
+- pending patch를 batch로 모으고
+- flush 시점의 `persisted base` 기준으로 patch를 다시 만들고
+- `409` 시 refetch + rebuild + retry를 넣었다.
+
+### 3. patch를 받아도 매번 deck_json 전체를 쓰던 문제
+
+문제:
+
+- 일반 편집이 많아질수록 `deck_json` 전체 upsert가 과도했다.
+- patch log가 있는데도 매 저장마다 full document write가 필요했다.
+
+해결:
+
+- `checkpoint + patch replay` 구조로 바꿨다.
+- 일반 편집은 patch insert 중심으로 저장한다.
+- full save/checkpoint 시 patch compaction을 수행한다.
+
+### 4. patch chain이 조용히 깨질 수 있던 문제
+
+문제:
+
+- patch gap
+- duplicate after_version
+- checkpoint와 안 맞는 첫 patch
+
+가 있어도 서버가 무조건 믿으면 잘못된 deck을 복원할 수 있었다.
+
+해결:
+
+- replay 시 version 연속성 검증
+- checkpoint 경계 검증
+- `(project_id, deck_id, after_version)` unique 제약
+- 무결성 테스트 추가
+
+## 어떤 성능 문제가 있었고 어떻게 해결했는가
+
+### 성능 문제
+
+- 일반 편집 patch마다 `decks.deck_json` 전체 upsert
+- patch log insert와 full deck write가 동시에 발생
+- 장기 사용 시 patch tail 또는 full write 비용이 한쪽으로 계속 커질 위험
+
+### 해결
+
+- patch 저장은 `deck_patches` insert 중심으로 전환
+- `decks`는 checkpoint 시점에만 갱신
+- full save/checkpoint 후 patch compaction으로 tail 길이를 줄임
+- 무결성 검증은 replay 경로 안에서 수행해 추가 오버헤드를 최소화
 
 ## 우선순위 기준으로 보면
 

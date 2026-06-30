@@ -708,6 +708,7 @@ export function EditorShell(props: { projectId?: string }) {
     hasUnackedLocalChangesRef,
     isSaveFlushInFlightRef,
     lastSavedAt,
+    lastAckedDeckRef,
     markHydratedPersistedDeck,
     pendingPatchInputsRef,
     persistedBaseDeckRef,
@@ -877,6 +878,31 @@ export function EditorShell(props: { projectId?: string }) {
     });
   }
 
+  function acknowledgePersistedDeckSnapshot(
+    snapshotDeck: Deck,
+    persistedDeck: Deck
+  ) {
+    queryClient.setQueryData(["deck", projectId], (current?: Deck) =>
+      mergeDeckIntoQueryCache(current, persistedDeck)
+    );
+
+    if (
+      shouldApplyManualSaveResult({
+        snapshotDeck,
+        currentDeck: workingDeckRef.current
+      })
+    ) {
+      applyPersistedDeck(persistedDeck);
+      return true;
+    }
+
+    persistedBaseDeckRef.current = persistedDeck;
+    lastAckedDeckRef.current = persistedDeck;
+    hasHydratedPersistedBaseRef.current = true;
+    pendingPatchInputsRef.current = [];
+    return false;
+  }
+
   async function syncSlideRenderAssets(
     activeProjectId: string,
     sourceDeck: Deck
@@ -962,16 +988,8 @@ export function EditorShell(props: { projectId?: string }) {
 
       const persistedDeck = await putProjectDeck(activeProjectId, deckSnapshot);
       let finalDeck = persistedDeck;
+      acknowledgePersistedDeckSnapshot(deckSnapshot, persistedDeck);
       setLastSavedAt(new Date().toISOString());
-
-      if (
-        shouldApplyManualSaveResult({
-          snapshotDeck: deckSnapshot,
-          currentDeck: workingDeckRef.current,
-        })
-      ) {
-        applyPersistedDeck(persistedDeck);
-      }
 
       try {
         const renderResult = await syncSlideRenderAssets(
@@ -981,27 +999,12 @@ export function EditorShell(props: { projectId?: string }) {
 
         finalDeck = await putProjectDeck(activeProjectId, renderResult.deck);
         setLastSavedAt(new Date().toISOString());
-
-        if (
-          shouldApplyManualSaveResult({
-            snapshotDeck: deckSnapshot,
-            currentDeck: workingDeckRef.current,
-          })
-        ) {
-          applyPersistedDeck(finalDeck);
-        }
+        acknowledgePersistedDeckSnapshot(deckSnapshot, finalDeck);
         setLastPatchLabel(`수동 저장 · v${finalDeck.version}`);
         setSaveState("manual-saved");
         setSaveError(null, null);
       } catch (renderError) {
-        if (
-          shouldApplyManualSaveResult({
-            snapshotDeck: deckSnapshot,
-            currentDeck: workingDeckRef.current,
-          })
-        ) {
-          applyPersistedDeck(persistedDeck);
-        }
+        acknowledgePersistedDeckSnapshot(deckSnapshot, persistedDeck);
         setLastPatchLabel(`수동 저장 · 렌더 실패 · v${persistedDeck.version}`);
         setSaveState("error");
         setSaveError("manual-render-failed", toEditorErrorMessage(renderError));
@@ -1043,6 +1046,7 @@ export function EditorShell(props: { projectId?: string }) {
 
       const deckSnapshot = structuredClone(normalizeDeckAssetUrls(workingDeckRef.current));
       const persistedDeck = await putProjectDeck(activeProjectId, deckSnapshot);
+      acknowledgePersistedDeckSnapshot(deckSnapshot, persistedDeck);
       const renderResult = await syncSlideRenderAssets(activeProjectId, persistedDeck);
       setLastSavedAt(new Date().toISOString());
 
