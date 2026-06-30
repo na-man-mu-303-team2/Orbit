@@ -2,7 +2,23 @@ import type { Deck, DeckPatch } from "@orbit/shared";
 import type { Dispatch, MutableRefObject, SetStateAction } from "react";
 import { useRef, useState } from "react";
 
-export type SaveState = "idle" | "pending" | "saving" | "error";
+export type SaveState =
+  | "idle"
+  | "auto-pending"
+  | "auto-saving"
+  | "auto-saved"
+  | "manual-saving"
+  | "manual-saved"
+  | "conflict-recovered"
+  | "error";
+export type SaveErrorCode =
+  | "missing-project"
+  | "missing-persisted-base"
+  | "manual-render-failed"
+  | "auto-save-failed"
+  | "conflict-recovery-failed"
+  | "rehearsal-blocked"
+  | "rehearsal-save-failed";
 export type PatchProducer = (deck: Deck) => DeckPatch;
 
 type EditorPersistenceState = {
@@ -15,10 +31,11 @@ type EditorPersistenceState = {
   hasHydratedPersistedBaseRef: MutableRefObject<boolean>;
   hasUnackedLocalChangesRef: MutableRefObject<boolean>;
   lastSavedAt: string | null;
+  saveErrorCode: SaveErrorCode | null;
   saveErrorMessage: string | null;
   saveState: SaveState;
+  setSaveError: (code: SaveErrorCode | null, message: string | null) => void;
   setLastSavedAt: Dispatch<SetStateAction<string | null>>;
-  setSaveErrorMessage: Dispatch<SetStateAction<string | null>>;
   setSaveState: Dispatch<SetStateAction<SaveState>>;
   markHydratedPersistedDeck: (
     nextDeck: Deck,
@@ -40,6 +57,7 @@ export function useEditorPersistenceState(initialDeck: Deck): EditorPersistenceS
   const hasHydratedPersistedBaseRef = useRef(false);
   const hasUnackedLocalChangesRef = useRef(false);
   const [saveState, setSaveState] = useState<SaveState>("idle");
+  const [saveErrorCode, setSaveErrorCode] = useState<SaveErrorCode | null>(null);
   const [saveErrorMessage, setSaveErrorMessage] = useState<string | null>(null);
   const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
 
@@ -75,7 +93,13 @@ export function useEditorPersistenceState(initialDeck: Deck): EditorPersistenceS
 
   function resetSaveState() {
     setSaveState("idle");
+    setSaveErrorCode(null);
     setSaveErrorMessage(null);
+  }
+
+  function setSaveError(code: SaveErrorCode | null, message: string | null) {
+    setSaveErrorCode(code);
+    setSaveErrorMessage(message);
   }
 
   return {
@@ -88,10 +112,11 @@ export function useEditorPersistenceState(initialDeck: Deck): EditorPersistenceS
     hasHydratedPersistedBaseRef,
     hasUnackedLocalChangesRef,
     lastSavedAt,
+    saveErrorCode,
     saveErrorMessage,
     saveState,
+    setSaveError,
     setLastSavedAt,
-    setSaveErrorMessage,
     setSaveState,
     markHydratedPersistedDeck,
     applyAckedPersistedDeck,

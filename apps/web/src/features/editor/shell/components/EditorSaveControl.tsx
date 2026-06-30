@@ -4,6 +4,7 @@ type EditorSaveControlProps = {
   isSaving: boolean;
   lastSavedAtLabel: string | null;
   onSave: () => void;
+  recoveryHint?: string | null;
   statusLabel: string;
 };
 
@@ -14,6 +15,7 @@ export function EditorSaveControl(props: EditorSaveControlProps) {
     isSaving,
     lastSavedAtLabel,
     onSave,
+    recoveryHint = null,
     statusLabel
   } = props;
 
@@ -29,6 +31,7 @@ export function EditorSaveControl(props: EditorSaveControlProps) {
       </button>
       <div className="editor-save-meta">
         <span className="editor-save-status">{statusLabel}</span>
+        {recoveryHint ? <span className="editor-save-status">{recoveryHint}</span> : null}
         <span className="editor-save-time">
           {lastSavedAtLabel ? `마지막 저장 ${lastSavedAtLabel}` : emptyStateLabel}
         </span>

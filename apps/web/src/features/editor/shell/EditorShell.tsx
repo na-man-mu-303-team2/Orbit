@@ -56,6 +56,7 @@ import { SelectionQuickBar } from "./components/SelectionQuickBar";
 import {
   useEditorPersistenceState,
   type PatchProducer,
+  type SaveErrorCode,
   type SaveState
 } from "./hooks/useEditorPersistenceState";
 export {
@@ -281,6 +282,11 @@ function isDeckRequestErrorWithCode(
   code: DeckApiErrorCode
 ): error is DeckRequestError {
   return error instanceof DeckRequestError && error.code === code;
+}
+
+function withSaveErrorCode(error: Error, saveErrorCode: SaveErrorCode) {
+  (error as Error & { saveErrorCode?: SaveErrorCode }).saveErrorCode = saveErrorCode;
+  return error;
 }
 
 function resolvePatchInput(
@@ -706,11 +712,12 @@ export function EditorShell(props: { projectId?: string }) {
     pendingPatchInputsRef,
     persistedBaseDeckRef,
     replaceWorkingDeck,
+    saveErrorCode,
     saveErrorMessage,
     saveQueueRef,
     saveState,
+    setSaveError,
     setLastSavedAt,
-    setSaveErrorMessage,
     setSaveState,
     workingDeckRef
   } = useEditorPersistenceState(loadedDeck);
@@ -767,9 +774,9 @@ export function EditorShell(props: { projectId?: string }) {
     {
       action: "save",
       icon: Cloud,
-      label: saveState === "saving" ? "저장 중..." : "저장",
+      label: isSaveInFlight(saveState) ? "저장 중..." : "저장",
       meta: saveErrorMessage
-        ? "저장 실패"
+        ? getSaveErrorStatusLabel(saveErrorCode)
         : deckQuery.data
           ? saveStatusLabel
           : "demo fallback"
@@ -858,8 +865,8 @@ export function EditorShell(props: { projectId?: string }) {
     setLastPatchLabel(
       `${response.changeRecord.operations[0]?.type ?? "ai suggestion"} · v${response.deck.version}`
     );
-    setSaveState("idle");
-    setSaveErrorMessage(null);
+    setSaveState("auto-saved");
+    setSaveError(null, null);
   }
 
   function applyPersistedDeck(nextDeck: Deck) {
@@ -940,12 +947,12 @@ export function EditorShell(props: { projectId?: string }) {
 
     if (!activeProjectId) {
       setSaveState("error");
-      setSaveErrorMessage("저장할 프로젝트를 찾지 못했습니다.");
+      setSaveError("missing-project", "저장할 프로젝트를 찾지 못했습니다.");
       return;
     }
 
-    setSaveState("saving");
-    setSaveErrorMessage(null);
+    setSaveState("manual-saving");
+    setSaveError(null, null);
     setActiveTopMenu(null);
 
     const deckSnapshot = structuredClone(normalizeDeckAssetUrls(workingDeckRef.current));
@@ -984,8 +991,8 @@ export function EditorShell(props: { projectId?: string }) {
           applyPersistedDeck(finalDeck);
         }
         setLastPatchLabel(`수동 저장 · v${finalDeck.version}`);
-        setSaveState("idle");
-        setSaveErrorMessage(null);
+        setSaveState("manual-saved");
+        setSaveError(null, null);
       } catch (renderError) {
         if (
           shouldApplyManualSaveResult({
@@ -997,12 +1004,12 @@ export function EditorShell(props: { projectId?: string }) {
         }
         setLastPatchLabel(`수동 저장 · 렌더 실패 · v${persistedDeck.version}`);
         setSaveState("error");
-        setSaveErrorMessage(toEditorErrorMessage(renderError));
+        setSaveError("manual-render-failed", toEditorErrorMessage(renderError));
       }
     } catch (error) {
       setLastPatchLabel(`저장 실패 · ${toEditorErrorMessage(error)}`);
       setSaveState("error");
-      setSaveErrorMessage(toEditorErrorMessage(error));
+      setSaveError("auto-save-failed", toEditorErrorMessage(error));
       void deckQuery.refetch();
     }
   }
@@ -1011,8 +1018,8 @@ export function EditorShell(props: { projectId?: string }) {
     const activeProjectId = deckQuery.data?.projectId ?? projectId;
 
     if (isDeckLoading || !deckQuery.data) {
-      setSaveState("pending");
-      setSaveErrorMessage("발표 자료를 불러온 뒤 리허설을 시작할 수 있습니다.");
+      setSaveState("auto-pending");
+      setSaveError("rehearsal-blocked", "발표 자료를 불러온 뒤 리허설을 시작할 수 있습니다.");
       return;
     }
 
@@ -1022,13 +1029,13 @@ export function EditorShell(props: { projectId?: string }) {
 
     if (!activeProjectId) {
       setSaveState("error");
-      setSaveErrorMessage("저장할 프로젝트를 찾지 못했습니다.");
+      setSaveError("missing-project", "저장할 프로젝트를 찾지 못했습니다.");
       return;
     }
 
     setIsRehearsalPreparing(true);
-    setSaveState("saving");
-    setSaveErrorMessage(null);
+    setSaveState("manual-saving");
+    setSaveError(null, null);
     setActiveTopMenu(null);
 
     try {
@@ -1065,15 +1072,15 @@ export function EditorShell(props: { projectId?: string }) {
       applyPersistedDeck(finalDeck);
       setLastSavedAt(new Date().toISOString());
       setLastPatchLabel(`리허설 준비 완료 · v${finalDeck.version}`);
-      setSaveState("idle");
-      setSaveErrorMessage(null);
+      setSaveState("manual-saved");
+      setSaveError(null, null);
       navigateToRehearsal(activeProjectId);
     } catch (error) {
       const message = toEditorErrorMessage(error);
 
       setLastPatchLabel(`리허설 준비 실패 · ${message}`);
       setSaveState("error");
-      setSaveErrorMessage(message);
+      setSaveError("rehearsal-save-failed", message);
     } finally {
       setIsRehearsalPreparing(false);
     }
@@ -1084,22 +1091,29 @@ export function EditorShell(props: { projectId?: string }) {
       return;
     }
 
-    setSaveState("saving");
+    setSaveState("auto-saving");
     isSaveFlushInFlightRef.current = true;
 
     const activeProjectId = deckQuery.data?.projectId ?? workingDeckRef.current.projectId;
 
     if (!activeProjectId) {
-      throw new Error("저장할 프로젝트를 찾지 못했습니다.");
+      throw withSaveErrorCode(
+        new Error("저장할 프로젝트를 찾지 못했습니다."),
+        "missing-project"
+      );
     }
 
     const basePersistedDeck = persistedBaseDeckRef.current ?? deckQuery.data;
 
     if (!basePersistedDeck) {
-      throw new Error("최신 저장 상태를 찾지 못했습니다. 다시 불러온 뒤 저장해 주세요.");
+      throw withSaveErrorCode(
+        new Error("최신 저장 상태를 찾지 못했습니다. 다시 불러온 뒤 저장해 주세요."),
+        "missing-persisted-base"
+      );
     }
 
     const batchInputs = pendingPatchInputsRef.current.splice(0);
+    let recoveredConflict = false;
     try {
       let buildResult = buildPatchBatch(basePersistedDeck, batchInputs);
       let persistedDeck: Deck;
@@ -1117,6 +1131,7 @@ export function EditorShell(props: { projectId?: string }) {
           throw new Error("최신 저장 상태를 다시 불러오지 못했습니다. 다시 시도해 주세요.");
         }
 
+        recoveredConflict = true;
         persistedBaseDeckRef.current = latestDeck;
         buildResult = buildPatchBatch(latestDeck, batchInputs);
         persistedDeck = await appendProjectDeckPatch(activeProjectId, buildResult.patch);
@@ -1131,8 +1146,12 @@ export function EditorShell(props: { projectId?: string }) {
 
       if (persistedDeck.version >= workingDeckRef.current.version) {
         applyAckedPersistedDeck(persistedDeck);
+        setSaveState(recoveredConflict ? "conflict-recovered" : "auto-saved");
       }
     } catch (error) {
+      if (recoveredConflict && error instanceof Error) {
+        withSaveErrorCode(error, "conflict-recovery-failed");
+      }
       pendingPatchInputsRef.current = [...batchInputs, ...pendingPatchInputsRef.current];
       throw error;
     }
@@ -1151,8 +1170,8 @@ export function EditorShell(props: { projectId?: string }) {
     }
 
     applyOptimisticWorkingDeck(result.deck);
-    setSaveState("pending");
-    setSaveErrorMessage(null);
+    setSaveState("auto-pending");
+    setSaveError(null, null);
     setUndoStack((current) => [...current.slice(-49), baseDeck]);
     setRedoStack([]);
     setDeck(result.deck);
@@ -1179,15 +1198,16 @@ export function EditorShell(props: { projectId?: string }) {
       .catch((error: unknown) => {
         setLastPatchLabel(`저장 실패 · ${toEditorErrorMessage(error)}`);
         setSaveState("error");
-        setSaveErrorMessage(toEditorErrorMessage(error));
+        setSaveError(
+          (error as { saveErrorCode?: SaveErrorCode })?.saveErrorCode ?? "auto-save-failed",
+          toEditorErrorMessage(error)
+        );
         void deckQuery.refetch();
       })
       .finally(() => {
         isSaveFlushInFlightRef.current = false;
-        if (pendingPatchInputsRef.current.length === 0) {
-          setSaveState("idle");
-        } else {
-          setSaveState("pending");
+        if (pendingPatchInputsRef.current.length > 0) {
+          setSaveState("auto-pending");
         }
       });
   }
@@ -2687,9 +2707,10 @@ export function EditorShell(props: { projectId?: string }) {
           <EditorSaveControl
             disabled={isDeckLoading || isUsingFallbackDeck}
             emptyStateLabel={deckQuery.data ? "불러온 파일" : "저장 기록 없음"}
-            isSaving={saveState === "saving"}
+            isSaving={isSaveInFlight(saveState)}
             lastSavedAtLabel={formatLastSavedAtLabel(lastSavedAt)}
             onSave={() => void handleSaveDeck()}
+            recoveryHint={saveErrorMessage ? getSaveRecoveryHint(saveErrorCode) : null}
             statusLabel={saveStatusLabel}
           />
           <span className="avatar">김</span>
@@ -3409,15 +3430,70 @@ function getEditorStatusLabel(props: {
     return "저장 실패";
   }
 
-  if (props.saveState === "saving") {
-    return "저장 중";
+  if (props.saveState === "manual-saving") {
+    return "수동 저장 중";
   }
 
-  if (props.saveState === "pending") {
+  if (props.saveState === "manual-saved") {
+    return "수동 저장됨";
+  }
+
+  if (props.saveState === "auto-saving") {
+    return "자동 저장 중";
+  }
+
+  if (props.saveState === "auto-pending") {
     return "저장 대기 중";
   }
 
+  if (props.saveState === "conflict-recovered") {
+    return "충돌 복구 후 저장됨";
+  }
+
   return "저장됨";
+}
+
+function isSaveInFlight(saveState: SaveState) {
+  return saveState === "auto-saving" || saveState === "manual-saving";
+}
+
+function getSaveErrorStatusLabel(saveErrorCode: SaveErrorCode | null) {
+  switch (saveErrorCode) {
+    case "manual-render-failed":
+      return "렌더 저장 실패";
+    case "conflict-recovery-failed":
+      return "충돌 복구 실패";
+    case "rehearsal-blocked":
+      return "리허설 준비 중단";
+    case "rehearsal-save-failed":
+      return "리허설 저장 실패";
+    case "missing-project":
+    case "missing-persisted-base":
+    case "auto-save-failed":
+      return "저장 실패";
+    default:
+      return "저장 실패";
+  }
+}
+
+function getSaveRecoveryHint(saveErrorCode: SaveErrorCode | null) {
+  switch (saveErrorCode) {
+    case "manual-render-failed":
+      return "다시 저장 필요";
+    case "conflict-recovery-failed":
+      return "새로고침 후 재시도";
+    case "rehearsal-blocked":
+      return "발표 자료를 먼저 불러와 주세요";
+    case "rehearsal-save-failed":
+      return "리허설 다시 시작";
+    case "missing-project":
+    case "missing-persisted-base":
+      return "새로고침 후 재시도";
+    case "auto-save-failed":
+      return "다시 저장 필요";
+    default:
+      return null;
+  }
 }
 
 function formatLastSavedAtLabel(lastSavedAt: string | null): string | null {
