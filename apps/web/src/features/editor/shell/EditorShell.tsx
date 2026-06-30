@@ -275,6 +275,8 @@ class DeckRequestError extends Error {
   }
 }
 
+type PatchProducer = (deck: Deck) => DeckPatch;
+
 function isDeckRequestErrorWithCode(
   error: unknown,
   code: DeckApiErrorCode
@@ -282,7 +284,18 @@ function isDeckRequestErrorWithCode(
   return error instanceof DeckRequestError && error.code === code;
 }
 
-function createPatchForPersistedDeck(deck: Deck, patch: DeckPatch): DeckPatch {
+function resolvePatchInput(
+  deck: Deck,
+  patchInput: DeckPatch | PatchProducer
+): DeckPatch {
+  return typeof patchInput === "function" ? patchInput(deck) : patchInput;
+}
+
+function createPatchForPersistedDeck(
+  deck: Deck,
+  patchInput: DeckPatch | PatchProducer
+): DeckPatch {
+  const patch = resolvePatchInput(deck, patchInput);
   const nextPatch = {
     ...patch,
     baseVersion: deck.version
@@ -1043,7 +1056,11 @@ export function EditorShell(props: { projectId?: string }) {
     }
   }
 
-  function commitPatch(patch: DeckPatch, baseDeck: Deck = deckRef.current) {
+  function commitPatch(
+    patchInput: DeckPatch | PatchProducer,
+    baseDeck: Deck = deckRef.current
+  ) {
+    const patch = resolvePatchInput(baseDeck, patchInput);
     const result = applyDeckPatch(baseDeck, patch);
 
     if (!result.ok) {
@@ -1087,7 +1104,7 @@ export function EditorShell(props: { projectId?: string }) {
           throw new Error("최신 저장 상태를 찾지 못했습니다. 다시 불러온 뒤 저장해 주세요.");
         }
 
-        let transportPatch = createPatchForPersistedDeck(basePersistedDeck, patch);
+        let transportPatch = createPatchForPersistedDeck(basePersistedDeck, patchInput);
         let persistedDeck: Deck;
 
         try {
@@ -1104,7 +1121,7 @@ export function EditorShell(props: { projectId?: string }) {
           }
 
           persistedDeckRef.current = latestDeck;
-          transportPatch = createPatchForPersistedDeck(latestDeck, patch);
+          transportPatch = createPatchForPersistedDeck(latestDeck, patchInput);
           persistedDeck = await appendProjectDeckPatch(activeProjectId, transportPatch);
         }
 
@@ -1189,7 +1206,9 @@ export function EditorShell(props: { projectId?: string }) {
     elementId: string,
     props: Record<string, unknown>
   ) {
-    commitPatch(createUpdateElementPropsPatch(deck, slideId, elementId, props));
+    commitPatch((currentDeck) =>
+      createUpdateElementPropsPatch(currentDeck, slideId, elementId, props)
+    );
   }
 
   function handleSlideStyleChange(
@@ -1200,9 +1219,9 @@ export function EditorShell(props: { projectId?: string }) {
       accentColor?: string | null;
     }
   ) {
-    commitPatch({
-      deckId: deck.deckId,
-      baseVersion: deck.version,
+    commitPatch((currentDeck) => ({
+      deckId: currentDeck.deckId,
+      baseVersion: currentDeck.version,
       source: "user",
       operations: [
         {
@@ -1211,7 +1230,7 @@ export function EditorShell(props: { projectId?: string }) {
           style
         }
       ]
-    });
+    }));
   }
 
   function openImageFilePicker(target: ImageUploadTarget) {
@@ -1289,10 +1308,11 @@ export function EditorShell(props: { projectId?: string }) {
         }
 
         commitPatch(
-          createUpdateElementPropsPatch(activeDeck, target.slideId, target.elementId, {
-            alt: file.name,
-            src: normalizedUploadedUrl
-          }),
+          (currentDeck) =>
+            createUpdateElementPropsPatch(currentDeck, target.slideId, target.elementId, {
+              alt: file.name,
+              src: normalizedUploadedUrl
+            }),
           activeDeck
         );
         setCurrentSlideIndex(targetSlideIndex);
@@ -1306,9 +1326,10 @@ export function EditorShell(props: { projectId?: string }) {
         const frame = getDefaultImageInsertFrame(activeDeck.canvas, naturalSize);
 
         commitPatch(
-          createAddElementPatch(activeDeck, target.slideId, {
-            elementId,
-            type: "image",
+          (currentDeck) =>
+            createAddElementPatch(currentDeck, target.slideId, {
+              elementId,
+              type: "image",
             role: "media",
             x: frame.x,
             y: frame.y,
@@ -1324,7 +1345,7 @@ export function EditorShell(props: { projectId?: string }) {
               fit: "contain",
               src: normalizedUploadedUrl
             }
-          }),
+            }),
           activeDeck
         );
         setCurrentSlideIndex(targetSlideIndex);
@@ -1360,8 +1381,8 @@ export function EditorShell(props: { projectId?: string }) {
     }
 
     const elementId = createElementId(deck);
-    commitPatch(
-      createAddElementPatch(deck, currentSlide.slideId, {
+    commitPatch((currentDeck) =>
+      createAddElementPatch(currentDeck, currentSlide.slideId, {
         elementId,
         type: "text",
         role: "body",
@@ -1398,8 +1419,8 @@ export function EditorShell(props: { projectId?: string }) {
     }
 
     const elementId = createElementId(deck);
-    commitPatch(
-      createAddElementPatch(deck, currentSlide.slideId, {
+    commitPatch((currentDeck) =>
+      createAddElementPatch(currentDeck, currentSlide.slideId, {
         elementId,
         type: "chart",
         role: "chart",
@@ -1504,7 +1525,9 @@ export function EditorShell(props: { projectId?: string }) {
       } as ShapeElementProps
     };
 
-    commitPatch(createAddElementPatch(deck, currentSlide.slideId, nextElement));
+    commitPatch((currentDeck) =>
+      createAddElementPatch(currentDeck, currentSlide.slideId, nextElement)
+    );
     setSelectedElementIds([elementId]);
     setInsertTool("select");
     setIsShapeMenuOpen(false);
@@ -1513,10 +1536,10 @@ export function EditorShell(props: { projectId?: string }) {
   function handleAddSlide() {
     const slideId = createSlideId(deck);
     const nextOrder = deck.slides.length + 1;
-    commitPatch(
-      createAddSlidePatch(deck, {
+    commitPatch((currentDeck) =>
+      createAddSlidePatch(currentDeck, {
         slideId,
-        order: nextOrder,
+        order: currentDeck.slides.length + 1,
         title: `Slide ${nextOrder}`,
         thumbnailUrl: "",
         style: {
@@ -1543,10 +1566,10 @@ export function EditorShell(props: { projectId?: string }) {
             visible: true,
             props: {
               text: `Slide ${nextOrder}`,
-              fontFamily: deck.theme.typography.headingFontFamily,
-              fontSize: deck.theme.typography.titleSize,
+              fontFamily: currentDeck.theme.typography.headingFontFamily,
+              fontSize: currentDeck.theme.typography.titleSize,
               fontWeight: "bold",
-              color: deck.theme.textColor,
+              color: currentDeck.theme.textColor,
               align: "left",
               verticalAlign: "top",
               lineHeight: 1.1
@@ -1566,16 +1589,16 @@ export function EditorShell(props: { projectId?: string }) {
     }
 
     setElementContextMenu(null);
-    commitPatch({
-      deckId: deck.deckId,
-      baseVersion: deck.version,
+    commitPatch((currentDeck) => ({
+      deckId: currentDeck.deckId,
+      baseVersion: currentDeck.version,
       source: "user",
       operations: selectedElementIds.map((elementId) => ({
         type: "delete_element" as const,
         slideId: currentSlide.slideId,
         elementId
       }))
-    });
+    }));
     setSelectedElementIds([]);
     setEditingElementId(null);
     setCustomShapeEditElementId(null);
@@ -1594,8 +1617,8 @@ export function EditorShell(props: { projectId?: string }) {
       ) + 1;
     const offset = 24 * offsetMultiplier;
 
-    commitPatch(
-      createAddElementPatch(deck, currentSlide.slideId, {
+    commitPatch((currentDeck) =>
+      createAddElementPatch(currentDeck, currentSlide.slideId, {
         ...structuredClone(sourceElement),
         elementId: nextElementId,
         x: sourceElement.x + offset,
@@ -1672,8 +1695,8 @@ export function EditorShell(props: { projectId?: string }) {
     const elementId = createElementId(deck);
 
     if (draft.type === "text") {
-      commitPatch(
-        createAddElementPatch(deck, currentSlide.slideId, {
+      commitPatch((currentDeck) =>
+        createAddElementPatch(currentDeck, currentSlide.slideId, {
           elementId,
           type: "text",
           role: "body",
@@ -1701,8 +1724,8 @@ export function EditorShell(props: { projectId?: string }) {
       );
       setEditingElementId(elementId);
     } else {
-      commitPatch(
-        createAddElementPatch(deck, currentSlide.slideId, {
+      commitPatch((currentDeck) =>
+        createAddElementPatch(currentDeck, currentSlide.slideId, {
           elementId,
           type: draft.type,
           role: draft.type === "line" ? "decoration" : "highlight",
@@ -1741,8 +1764,8 @@ export function EditorShell(props: { projectId?: string }) {
     const elementId = createElementId(deck);
     const geometry = normalizeCustomShapeAbsoluteGeometry(nodes, closed);
 
-    commitPatch(
-      createAddElementPatch(deck, currentSlide.slideId, {
+    commitPatch((currentDeck) =>
+      createAddElementPatch(currentDeck, currentSlide.slideId, {
         elementId,
         type: "customShape",
         role: "highlight",
@@ -1789,16 +1812,16 @@ export function EditorShell(props: { projectId?: string }) {
 
     const geometry = normalizeCustomShapeAbsoluteGeometry(nodes, closed);
 
-    commitPatch({
-      deckId: deck.deckId,
-      baseVersion: deck.version,
+    commitPatch((currentDeck) => ({
+      deckId: currentDeck.deckId,
+      baseVersion: currentDeck.version,
       source: "user",
       operations: [
         {
           type: "update_element_frame",
           slideId,
           elementId,
-          frame: normalizeElementFrameDraft(deck.canvas, element, geometry.frame)
+            frame: normalizeElementFrameDraft(currentDeck.canvas, element, geometry.frame)
         },
         {
           type: "update_element_props",
@@ -1813,7 +1836,7 @@ export function EditorShell(props: { projectId?: string }) {
           }
         }
       ]
-    });
+    }));
   }
 
   function handleElementFrameChange(
@@ -1831,10 +1854,10 @@ export function EditorShell(props: { projectId?: string }) {
     }
 
     try {
-      commitPatch(
+      commitPatch((currentDeck) =>
         element.type === "group"
-          ? createGroupedElementFramePatch(deck, slideId, elementId, frame)
-          : createElementFramePatch(deck, slideId, elementId, frame)
+          ? createGroupedElementFramePatch(currentDeck, slideId, elementId, frame)
+          : createElementFramePatch(currentDeck, slideId, elementId, frame)
       );
     } catch (error) {
       setLastPatchLabel(
@@ -1855,8 +1878,8 @@ export function EditorShell(props: { projectId?: string }) {
       0
     );
 
-    commitPatch(
-      createAddElementPatch(deck, currentSlide.slideId, {
+    commitPatch((currentDeck) =>
+      createAddElementPatch(currentDeck, currentSlide.slideId, {
         elementId,
         type: "group",
         role: "decoration",
