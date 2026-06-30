@@ -496,14 +496,31 @@ function PropertyColorField(props: {
   onCommit: (value: string) => void;
 }) {
   const { className, label, onCommit, value } = props;
+  const [draftValue, setDraftValue] = useState(value);
+
+  useEffect(() => {
+    setDraftValue(value);
+  }, [value]);
+
+  function commitValue(nextValue: string) {
+    if (nextValue === value) {
+      setDraftValue(nextValue);
+      return;
+    }
+
+    onCommit(nextValue);
+    setDraftValue(nextValue);
+  }
 
   return (
     <label className={["property-field", className].filter(Boolean).join(" ")}>
       <span>{label}</span>
       <input
         type="color"
-        value={value}
-        onChange={(event) => onCommit(event.target.value)}
+        value={draftValue}
+        onBlur={(event) => commitValue(event.target.value)}
+        onChange={(event) => setDraftValue(event.target.value)}
+        onInput={(event) => setDraftValue((event.target as HTMLInputElement).value)}
       />
     </label>
   );

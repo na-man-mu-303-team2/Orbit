@@ -224,6 +224,10 @@ type ElementClipboardState = {
   element: DeckElement;
   pasteCount: number;
 };
+type HistoryEntry = {
+  deck: Deck;
+  slideIndex: number;
+};
 type ImageUploadTarget =
   | {
       type: "insert";
@@ -682,14 +686,15 @@ export function EditorShell(props: { projectId?: string }) {
     useState<ElementContextMenuState | null>(null);
   const [isImageUploadPending, setIsImageUploadPending] = useState(false);
   const [isRehearsalPreparing, setIsRehearsalPreparing] = useState(false);
-  const [undoStack, setUndoStack] = useState<Deck[]>([]);
-  const [redoStack, setRedoStack] = useState<Deck[]>([]);
+  const [undoStack, setUndoStack] = useState<HistoryEntry[]>([]);
+  const [redoStack, setRedoStack] = useState<HistoryEntry[]>([]);
   const topbarRef = useRef<HTMLElement | null>(null);
   const shapeMenuButtonRef = useRef<HTMLButtonElement | null>(null);
   const imageFileInputRef = useRef<HTMLInputElement | null>(null);
   const copiedElementRef = useRef<ElementClipboardState | null>(null);
   const editorStageRef = useRef<Konva.Stage | null>(null);
   const slideRenderStageRefs = useRef(new Map<string, Konva.Stage>());
+  const undoRedoPersistTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [renderingDeck, setRenderingDeck] = useState<Deck | null>(null);
 
   const health = useQuery({
@@ -867,7 +872,17 @@ export function EditorShell(props: { projectId?: string }) {
       return;
     }
 
+    const shouldResetEditorState =
+      !hasHydratedPersistedBaseRef.current ||
+      workingDeckRef.current.deckId !== persistedDeck.deckId ||
+      workingDeckRef.current.projectId !== persistedDeck.projectId;
+
     markHydratedPersistedDeck(persistedDeck, setDeck);
+
+    if (!shouldResetEditorState) {
+      return;
+    }
+
     setUndoStack([]);
     setRedoStack([]);
     setSelectedElementIds([]);
@@ -1192,6 +1207,54 @@ export function EditorShell(props: { projectId?: string }) {
     }
   }
 
+  function scheduleUndoRedoPersist(label: string) {
+    if (undoRedoPersistTimerRef.current) {
+      clearTimeout(undoRedoPersistTimerRef.current);
+    }
+
+    pendingPatchInputsRef.current = [];
+    setSaveState("auto-pending");
+    setSaveError(null, null);
+    undoRedoPersistTimerRef.current = setTimeout(() => {
+      saveQueueRef.current = saveQueueRef.current
+        .catch(() => undefined)
+        .then(async () => {
+          const activeProjectId = deckQuery.data?.projectId ?? workingDeckRef.current.projectId;
+
+          if (!activeProjectId) {
+            throw withSaveErrorCode(
+              new Error("저장할 프로젝트를 찾지 못했습니다."),
+              "missing-project"
+            );
+          }
+
+          setSaveState("auto-saving");
+          const snapshotDeck = structuredClone(
+            normalizeDeckAssetUrls(workingDeckRef.current)
+          );
+          const persistedDeck = await putProjectDeck(activeProjectId, snapshotDeck);
+          applyPersistedDeck(persistedDeck);
+          setLastSavedAt(new Date().toISOString());
+          setSaveState("auto-saved");
+          setSaveError(null, null);
+          setLastPatchLabel(`${label} · v${persistedDeck.version}`);
+        })
+        .catch((error: unknown) => {
+          setLastPatchLabel(`저장 실패 · ${toEditorErrorMessage(error)}`);
+          setSaveState("error");
+          setSaveError(
+            (error as { saveErrorCode?: SaveErrorCode })?.saveErrorCode ?? "auto-save-failed",
+            toEditorErrorMessage(error)
+          );
+          void deckQuery.refetch();
+        })
+        .finally(() => {
+          isSaveFlushInFlightRef.current = false;
+          undoRedoPersistTimerRef.current = null;
+        });
+    }, 2000);
+  }
+
   function commitPatch(
     patchInput: DeckPatch | PatchProducer,
     baseDeck: Deck = workingDeckRef.current
@@ -1207,7 +1270,10 @@ export function EditorShell(props: { projectId?: string }) {
     applyOptimisticWorkingDeck(result.deck);
     setSaveState("auto-pending");
     setSaveError(null, null);
-    setUndoStack((current) => [...current.slice(-49), baseDeck]);
+    setUndoStack((current) => [
+      ...current.slice(-49),
+      { deck: baseDeck, slideIndex: currentSlideIndex }
+    ]);
     setRedoStack([]);
     setDeck(result.deck);
     setLastPatchLabel(
@@ -1272,11 +1338,26 @@ export function EditorShell(props: { projectId?: string }) {
       if (!previous) {
         return current;
       }
-      const currentDeck = workingDeckRef.current;
-      replaceWorkingDeck(previous);
-      setRedoStack((redoCurrent) => [...redoCurrent, currentDeck]);
-      setDeck(previous);
-      setLastPatchLabel(`undo · v${previous.version}`);
+      const currentEntry = {
+        deck: workingDeckRef.current,
+        slideIndex: currentSlideIndex
+      };
+      replaceWorkingDeck(previous.deck);
+      setRedoStack((redoCurrent) => [...redoCurrent, currentEntry]);
+      setDeck(previous.deck);
+      setCurrentSlideIndex(
+        Math.max(0, Math.min(previous.slideIndex, previous.deck.slides.length - 1))
+      );
+      setSelectedElementIds([]);
+      setSelectedKeywordId(null);
+      setEditingElementId(null);
+      setCustomShapeEditElementId(null);
+      setElementContextMenu(null);
+      queryClient.setQueryData(["deck", projectId], (currentDeck?: Deck) =>
+        mergeDeckIntoQueryCache(currentDeck, previous.deck)
+      );
+      setLastPatchLabel(`undo · v${previous.deck.version}`);
+      scheduleUndoRedoPersist("undo");
       return current.slice(0, -1);
     });
   }
@@ -1287,10 +1368,28 @@ export function EditorShell(props: { projectId?: string }) {
       if (!next) {
         return current;
       }
-      setUndoStack((undoCurrent) => [...undoCurrent.slice(-49), workingDeckRef.current]);
-      replaceWorkingDeck(next);
-      setDeck(next);
-      setLastPatchLabel(`redo · v${next.version}`);
+      setUndoStack((undoCurrent) => [
+        ...undoCurrent.slice(-49),
+        {
+          deck: workingDeckRef.current,
+          slideIndex: currentSlideIndex
+        }
+      ]);
+      replaceWorkingDeck(next.deck);
+      setDeck(next.deck);
+      setCurrentSlideIndex(
+        Math.max(0, Math.min(next.slideIndex, next.deck.slides.length - 1))
+      );
+      setSelectedElementIds([]);
+      setSelectedKeywordId(null);
+      setEditingElementId(null);
+      setCustomShapeEditElementId(null);
+      setElementContextMenu(null);
+      queryClient.setQueryData(["deck", projectId], (currentDeck?: Deck) =>
+        mergeDeckIntoQueryCache(currentDeck, next.deck)
+      );
+      setLastPatchLabel(`redo · v${next.deck.version}`);
+      scheduleUndoRedoPersist("redo");
       return current.slice(0, -1);
     });
   }
