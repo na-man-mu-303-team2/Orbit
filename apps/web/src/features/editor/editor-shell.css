@@ -88,6 +88,57 @@
   flex-direction: column;
 }
 
+.top-actions {
+  gap: 14px;
+}
+
+.editor-save-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.9);
+}
+
+.editor-save-button {
+  min-width: 88px;
+  min-height: 38px;
+  padding: 0 14px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: var(--blue-soft);
+  color: var(--blue-strong);
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.editor-save-button:hover:not(:disabled) {
+  background: #dbeafe;
+}
+
+.editor-save-meta {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.editor-save-status,
+.editor-save-time {
+  white-space: nowrap;
+  font-size: 12px;
+}
+
+.editor-save-status {
+  color: #0f172a;
+  font-weight: 800;
+}
+
+.editor-save-time {
+  color: var(--muted);
+}
+
 .topbar-divider {
   width: 1px;
   height: 30px;

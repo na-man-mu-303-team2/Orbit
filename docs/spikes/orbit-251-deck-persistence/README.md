@@ -1,31 +1,35 @@
-# ORBIT-251 Deck 구조 및 동작 정리
+# ORBIT-251 Editor Deck 상태/저장 흐름 정리
 
 ## 목적
 
-이 문서는 ORBIT의 덱 구조와 현재 구현 상태를 빠르게 파악하기 위한 작업 문서다.
+이 문서는 현재 ORBIT 에디터가 덱 상태를 어디서 들고 있고, 어떤 순서로 저장하며, 왜 `409 STALE_BASE_VERSION` 충돌이 날 수 있는지를 빠르게 파악하기 위한 스파이크 문서다.
 
-- 덱 데이터가 어디에서 정의되는지
-- 편집, 저장, 복원, AI 생성이 어떤 경로로 연결되는지
-- 현재 구조의 장점과 제약이 무엇인지
-- 리팩터링 전에 어떤 성능 지표와 안정성 지표를 봐야 하는지
+이 폴더 안에서 바로 도움이 되는 내용만 남긴다.
 
-설명은 가능한 한 쉽게 쓰되, 실제 코드 경로와 구현 경계를 놓치지 않는 것을 목표로 한다.
+- 에디터 상태의 실제 소스가 무엇인지
+- 저장이 optimistic patch 기준으로 어떻게 흐르는지
+- 수동 저장과 리허설 시작이 어떤 저장 경계를 타는지
+- 지금 구조에서 어디가 취약하고 어디를 먼저 손봐야 하는지
 
 ## 한 줄 요약
 
-현재 ORBIT의 덱은 `JSON 문서 + version 기반 patch + snapshot 복원` 구조로 설계되어 있다. 공통 schema와 patch 엔진은 잘 잡혀 있고, editor와 AI suggestion apply도 같은 저장 경계를 탄다. 반면 AI deck generation worker는 아직 같은 persistence boundary를 완전히 따르지 않아 저장 정책 일관성이 깨질 여지가 있다.
+현재 에디터는 `Deck JSON`을 원본 상태로 들고, 브라우저에서 먼저 patch를 적용한 뒤 서버에 직렬 저장하는 optimistic update 구조다. 문제의 핵심은 서버 버전 체크 자체보다, 클라이언트가 들고 있는 `baseVersion`과 서버 current version이 save queue 동안 어긋날 수 있다는 점이다.
 
 ## 핵심 파일 지도
+
+### Web editor
+
+- `apps/web/src/features/editor/shell/EditorShell.tsx`
+- `apps/web/src/features/editor/canvas/EditorCanvas.tsx`
+- `apps/web/src/features/editor/shared/editorAssetUrl.ts`
 
 ### 공통 계약
 
 - `packages/shared/src/deck/deck.schema.ts`
 - `packages/shared/src/deck/patch.schema.ts`
 - `packages/shared/src/deck/deck-api.schema.ts`
-- `docs/contracts.md`
-- `docs/api/deck-persistence.md`
 
-### 도메인 로직
+### patch 엔진
 
 - `packages/editor-core/src/patches/applyPatch.ts`
 
@@ -33,149 +37,129 @@
 
 - `apps/api/src/decks/decks.controller.ts`
 - `apps/api/src/decks/decks.service.ts`
-- `apps/api/src/database/migrations/2026062701000-CreateDeckPersistenceTables.ts`
+- `docs/api/deck-persistence.md`
 
-### Web editor 사용처
+## 상태 관리 구조
 
-- `apps/web/src/features/editor/EditorShell.tsx`
-- `apps/web/src/features/projects/ProjectAssetWorkspace.tsx`
-- `apps/web/src/features/rehearsal/keywords/keywordEditorApi.ts`
+### 상태 원본은 Konva가 아니라 Deck JSON
 
-### AI 관련 경로
+에디터의 저장 원본은 canvas 내부 상태가 아니라 `Deck` JSON이다. Konva는 렌더링과 인터랙션 엔진이고, 저장 가능한 문서 구조는 `Deck`이다.
 
-- `apps/api/src/ai-suggestions/ai-suggestions.service.ts`
-- `apps/worker/src/generate-deck.processor.ts`
+즉 역할은 이렇게 나뉜다.
 
-## 현재 덱 모델
+- `Deck JSON`: 저장, 복원, 리허설, API 계약의 원본
+- `Konva stage`: 화면 렌더와 드래그/선택/변형 처리
+- `React UI state`: 패널 열림, 선택 도구, 임시 입력 상태
 
-### 최상위 구조
+### EditorShell에서 중요한 상태
 
-덱의 원본은 Konva 상태가 아니라 `Deck` JSON이다. 이 결정은 중요하다. UI 라이브러리 내부 상태를 저장하지 않고, 저장 가능한 문서 구조를 먼저 정의해 두었기 때문에 editor, API, AI, export, rehearsal이 같은 원본을 본다.
+현재 에디터를 읽을 때 가장 먼저 봐야 할 상태는 아래다.
 
-현재 최상위 필드는 아래와 같다.
+- `deckRef`: 현재 로컬에서 authoritative하게 쓰는 deck
+- React state의 `loadedDeck` 계열 값: 화면 렌더용 동기화 상태
+- React Query cache: 서버 deck 응답 캐시
+- `saveQueueRef`: patch 저장 직렬화 큐
 
-- `deckId`
-- `projectId`
-- `title`
-- `version`
-- `metadata`
-- `canvas`
-- `theme`
-- `slides`
+실제 의미는 아래와 같다.
 
-코드 기준:
+- `deckRef`는 patch 계산과 후속 저장의 기준이 된다.
+- React state는 화면을 다시 그리기 위한 subscribe 지점이다.
+- React Query cache는 프로젝트 deck 조회 결과와 맞물린다.
+- `saveQueueRef`는 patch 요청이 서버에 순서대로 가도록 막아 준다.
 
-- `packages/shared/src/deck/deck.schema.ts`
+## 상태 흐름 시각화
 
-### 슬라이드 구조
+```mermaid
+flowchart LR
+    A["사용자 입력"] --> B["EditorShell.commitPatch(...)"]
+    B --> C["applyDeckPatch(baseDeck, patch)"]
+    C --> D["deckRef 갱신"]
+    C --> E["React state 갱신"]
+    C --> F["React Query cache 갱신"]
+    B --> G["saveQueueRef에 appendPatch 요청 연결"]
+    G --> H["API POST /deck/patches"]
+    H --> I["서버 current deck + version 검증"]
+    I --> J["성공: persisted deck 반환"]
+    I --> K["실패: 409 STALE_BASE_VERSION"]
+    J --> L["deckRef를 persisted deck으로 보정"]
+```
 
-각 슬라이드는 아래를 가진다.
+## 에디터 진입 흐름
 
-- `slideId`
-- `order`
-- `title`
-- `thumbnailUrl`
-- `style`
-- `speakerNotes`
-- `elements`
-- `keywords`
-- `animations`
-- `aiNotes` optional
+에디터 진입 시 기본 흐름은 단순하다.
 
-### 요소 구조
+1. `GET /deck`으로 기존 deck을 조회한다.
+2. 있으면 해당 deck으로 hydrate 한다.
+3. 없으면 seed deck을 만들고 `PUT /deck`으로 첫 deck을 저장한다.
 
-실제 편집 가능한 개체는 `elements` 배열에 들어간다. 텍스트, 도형, 이미지, 그룹, 차트까지 한 배열에서 관리한다. 이 방식은 구현이 단순하고 patch 적용이 쉽다. 반면 element 수가 매우 많아지면 배열 검색 비용이 늘어난다.
+즉 빈 프로젝트에 들어가면 에디터가 최초 deck 생성을 같이 맡는다.
 
-### 키 설계
+```mermaid
+flowchart TD
+    A["Editor 진입"] --> B["GET /projects/:projectId/deck"]
+    B -->|deck exists| C["hydrate loadedDeck / deckRef"]
+    B -->|404 or empty| D["seed deck 생성"]
+    D --> E["PUT /projects/:projectId/deck"]
+    E --> F["초기 deck hydrate"]
+```
 
-ID prefix를 강제한다.
+## 일반 편집 저장 흐름
 
-- `deck_`
-- `slide_`
-- `el_`
-- `anim_`
-- `kw_`
-- `change_`
-- `snapshot_`
+### optimistic patch 저장
+
+일반 편집은 전체 덱 저장이 아니라 patch append 중심이다.
+
+순서는 아래다.
+
+1. 현재 `deckRef` 또는 전달된 `baseDeck` 기준으로 patch를 만든다.
+2. 브라우저에서 `applyDeckPatch`로 먼저 적용한다.
+3. 그 결과를 `deckRef`, React state, React Query cache에 반영한다.
+4. 같은 patch를 `saveQueueRef`에 넣고 서버 `POST /deck/patches`를 호출한다.
+5. 서버가 성공 응답을 주면 persisted deck으로 다시 한 번 보정한다.
 
 장점:
 
-- 디버깅 시 객체 종류가 바로 보인다.
-- 잘못된 ID 혼입을 schema 레벨에서 빨리 잡을 수 있다.
+- 입력 반응이 빠르다.
+- 서버 응답을 기다리지 않고 바로 화면이 바뀐다.
 
-## 편집 모델
+주의점:
 
-### 현재 편집 철학
+- patch 생성 시점의 `baseVersion`이 서버 저장 시점에는 이미 stale일 수 있다.
+- queue는 요청 순서를 보장하지만, patch의 `baseVersion` 자체를 재계산해 주지는 않는다.
 
-편집은 전체 deck overwrite와 patch append를 함께 사용한다.
+## 수동 저장 흐름
 
-- 큰 저장: `PUT /deck`
-- 작은 변경: `POST /deck/patches`
+수동 저장은 patch가 아니라 full deck overwrite 쪽에 가깝다.
 
-이 구조는 문서 편집기에서 흔한 패턴이다.
+현재 문맥에서 보면 수동 저장은 보통 아래 단계를 탄다.
 
-- 사용자 상호작용은 patch로 쪼갠다.
-- 서버는 current deck과 version을 authoritative source로 유지한다.
-- 필요할 때 전체 deck을 다시 저장한다.
+1. 저장 대기 중인 patch queue를 먼저 기다린다.
+2. 현재 `deckRef` 기준으로 전체 deck을 `PUT /deck` 저장한다.
+3. 썸네일 렌더 결과를 deck에 반영한다.
+4. 필요하면 썸네일이 반영된 deck을 다시 `PUT /deck` 저장한다.
 
-### patch 구조
+즉 수동 저장은 경우에 따라 full deck write가 2번 발생할 수 있다.
 
-patch는 아래 필드를 가진다.
+## 리허설 시작 흐름
 
-- `deckId`
-- `baseVersion`
-- `source`
-- `actorUserId`
-- `operations`
+리허설 시작 버튼은 단순 라우팅이 아니라, 저장 준비 절차가 선행된다.
 
-지원 operation 예시:
+중요한 점은 `navigateToRehearsal(...)`보다 앞 단계가 실패하면 페이지 이동도 일어나지 않는다는 것이다.
 
-- `update_deck`
-- `add_slide`
-- `update_slide`
-- `reorder_slides`
-- `add_element`
-- `update_element_frame`
-- `update_element_props`
-- `replace_keywords`
-- `add_animation`
+```mermaid
+flowchart TD
+    A["리허설 시작 클릭"] --> B["saveQueueRef 대기"]
+    B --> C["현재 deck snapshot 확보"]
+    C --> D["필요한 저장/렌더 작업 수행"]
+    D -->|성공| E["navigateToRehearsal(projectId)"]
+    D -->|실패| F["리허설 진입 중단"]
+```
 
-코드 기준:
+따라서 사용자가 보기에는 "버튼이 안 먹는다"처럼 보여도, 실제 원인은 직전 patch 저장 충돌일 수 있다.
 
-- `packages/shared/src/deck/patch.schema.ts`
+## 서버 저장 경계
 
-### patch 적용 엔진
-
-실제 patch 계산은 `packages/editor-core/src/patches/applyPatch.ts`가 담당한다.
-
-동작 순서:
-
-1. 현재 deck schema 검증
-2. patch schema 검증
-3. `deckId` 일치 확인
-4. `baseVersion === deck.version` 확인
-5. operation 순서대로 적용
-6. `deck.version + 1`
-7. 결과 deck 재검증
-8. change record 생성
-
-좋은 점:
-
-- UI와 서버가 같은 patch 규칙을 쓸 수 있다.
-- 적용 실패 지점이 명확하다.
-- 최종 결과를 다시 schema 검증해서 손상된 deck 저장을 막는다.
-
-제약:
-
-- operation 적용이 슬라이드/요소 배열 순회 위주다.
-- 대규모 deck에서는 patch 1건당 탐색 비용이 커질 수 있다.
-- CRDT나 fine-grained collaboration 모델은 아니다.
-
-## 저장 계층
-
-### API 경계
-
-현재 공식 deck persistence boundary는 NestJS `DecksService`다.
+서버의 공식 persistence boundary는 `DecksService`다.
 
 주요 endpoint:
 
@@ -185,381 +169,221 @@ patch는 아래 필드를 가진다.
 - `GET /api/v1/projects/:projectId/snapshots`
 - `POST /api/v1/projects/:projectId/snapshots/:snapshotId/restore`
 
-코드 기준:
+`appendPatch()`는 아래 역할을 한다.
 
+1. 현재 deck row를 `FOR UPDATE`로 잠근다.
+2. 현재 deck을 읽는다.
+3. `applyDeckPatch(currentDeck, patch)`를 호출한다.
+4. version이 맞으면 저장하고 snapshot/change record를 남긴다.
+5. version이 다르면 `409 STALE_BASE_VERSION`으로 실패시킨다.
+
+즉 서버는 "낙관적 동시성 제어를 엄격하게 수행하는 쪽"이다.
+
+## 409 충돌이 나는 이유
+
+### 직접 원인
+
+`patch.baseVersion !== current deck.version`
+
+이 조건이 맞으면 `applyDeckPatch()`가 `BASE_VERSION_MISMATCH`를 반환하고, API는 이를 `409 STALE_BASE_VERSION`으로 변환한다.
+
+### 실제로 자주 발생하는 상황
+
+```mermaid
+sequenceDiagram
+    participant U as User
+    participant W as Web Editor
+    participant Q as saveQueue
+    participant S as Server
+
+    U->>W: 편집 A
+    W->>W: local deck v1 -> v2 optimistic apply
+    W->>Q: patch A(baseVersion=1) enqueue
+
+    U->>W: 편집 B
+    W->>W: local deck v2 -> v3 optimistic apply
+    W->>Q: patch B(baseVersion=2) enqueue
+
+    Q->>S: patch A(baseVersion=1)
+    S->>S: current deck v1 -> v2 저장
+    S-->>Q: success
+
+    Note over W,S: 여기까지는 정상
+
+    U->>W: 다른 저장/갱신 또는 재진입으로 서버 버전이 더 바뀜
+    Q->>S: patch B(baseVersion=2)
+    S-->>Q: 409 STALE_BASE_VERSION
+```
+
+핵심은 queue가 있어도 `patch를 만든 시점의 baseVersion`은 고정이라는 점이다. 서버 current version이 그 사이 달라지면 충돌한다.
+
+## 지금 구조에서 바로 유용한 진단 포인트
+
+### 1. 먼저 볼 것
+
+- `commitPatch()`가 어떤 `baseDeck`으로 patch를 생성하는지
+- `saveQueueRef`가 실패 이후 어떤 상태로 남는지
+- `persistedDeck.version >= deckRef.current.version` 보정이 충분한지
+- 리허설 시작 전에 queue 실패를 삼키는지, 아니면 흐름을 끊는지
+
+### 2. 콘솔/네트워크에서 의미 있는 신호
+
+- `POST /deck/patches`의 `409 Conflict`
+- 같은 프로젝트에서 연속 patch 요청이 밀려 있는지
+- 직전 `PUT /deck` 이후 오래된 patch가 뒤늦게 도착하는지
+
+### 3. 증상과 원인 연결
+
+- "리허설 시작이 안 됨" -> 저장 준비 단계 실패 가능성
+- "저장은 된 것 같은데 다시 꼬임" -> optimistic local state와 persisted state 불일치 가능성
+- "처음엔 안 되고 새로고침 후 됨" -> refetch 이후 version 정합성이 복구된 가능성
+
+## 지금 구조의 장점
+
+- `Deck JSON`을 원본으로 삼아서 editor, API, rehearsal이 같은 문서를 본다.
+- patch 규칙이 `shared`와 `editor-core`에 있어서 서버/클라 규칙이 맞춰져 있다.
+- 서버가 version 검증을 강하게 해서 잘못된 덱 덮어쓰기를 막는다.
+
+## 지금 구조의 취약점
+
+- `deckRef`, React state, Query cache가 함께 움직여서 상태 책임이 분산되어 보인다.
+- `saveQueueRef`는 요청 순서는 맞추지만, stale patch를 자동 복구하지는 않는다.
+- 리허설 시작이 저장 안정성에 묶여 있어서, 충돌이 나면 이동 실패로 체감된다.
+- 수동 저장이 full deck write 중심이라 payload와 write 비용이 커질 수 있다.
+
+## 우선순위 기준으로 보면
+
+### 먼저 리팩토링할 곳
+
+- web editor의 deck 동기화와 충돌 복구 로직
+- `commitPatch` 이후 save queue error handling
+- stale patch 재시도 또는 refetch/rebase 전략
+
+### 나중에 리팩토링할 곳
+
+- 서버 `DecksService` 파일 분리
+- snapshot 정책 정교화
+- patch apply의 대형 deck 성능 최적화
+
+즉 현재 우선순위는 서버보다 클라이언트 저장 흐름이다.
+
+## 바로 쓸 수 있는 개선 아이디어
+
+### 선택지 1. 409 시 refetch 후 사용자에게 재시도 유도
+
+가장 단순하다. 구현 부담이 낮다. 다만 입력이 많은 상황에서는 UX가 거칠다.
+
+### 선택지 2. save queue에서 409 시 최신 deck refetch 후 patch 재적용
+
+실무적으로 더 낫다. 다만 patch 재적용 가능 범위를 잘 따져야 한다.
+
+### 선택지 3. patch 자체가 아니라 "의도"를 queue에 넣고 전송 직전에 patch 생성
+
+구조적으로 가장 건강하다. 현재 local optimistic 구조와 저장 구조를 다시 정리해야 한다.
+
+## 지금 이 문서를 읽고 바로 확인할 코드 포인트
+
+- `apps/web/src/features/editor/shell/EditorShell.tsx`
+- `packages/editor-core/src/patches/applyPatch.ts`
 - `apps/api/src/decks/decks.service.ts`
-- `docs/api/deck-persistence.md`
 
-### DB 구조
+아래 순서로 보는 것이 가장 빠르다.
 
-현재 deck persistence 관련 테이블은 3개다.
+1. `EditorShell`의 `deckRef`, `saveQueueRef`, `commitPatch`
+2. 리허설 시작 핸들러의 queue 대기와 navigation 호출 위치
+3. `applyDeckPatch()`의 `baseVersion` 검증
+4. `DecksService.appendPatch()`의 409 변환 경로
 
-- `decks`: project별 current deck
-- `deck_patches`: patch 적용 이력
-- `deck_snapshots`: 복원 가능한 snapshot
+## 저장 UX 설계
 
-핵심 설계:
+자동 저장이 있더라도 저장 버튼과 마지막 저장 시각은 유지하는 편이 맞다. 현재 구조는 patch 저장, full deck 저장, 썸네일 저장, 리허설 준비 저장이 섞여 있어서 사용자가 "지금 진짜 저장됐는가"를 직관적으로 알기 어렵다.
 
-- `decks.project_id`가 primary key
-- current deck은 프로젝트마다 하나
-- patch append 시 version 증가
-- 저장 성공 시 snapshot 생성
-- restore는 snapshot의 deck JSON으로 current deck 교체
+저장 버튼은 단순한 중복 기능이 아니라 아래 역할을 가진다.
 
-좋은 점:
+- 사용자가 현재 상태를 명시적으로 확정 저장할 수 있는 액션
+- 자동 저장 실패 시 재시도 진입점
+- 저장 상태를 눈으로 확인하는 기준점
 
-- 모델이 단순하다.
-- 조회 패턴이 명확하다.
-- snapshot restore가 구현하기 쉽다.
+### 권장 UI 요소
 
-제약:
+- `저장` 버튼
+- `마지막 저장: HH:mm:ss` 문구
+- 상태 배지 또는 상태 텍스트
+- 필요하면 `자동 저장 켜짐` 표시
 
-- project당 current deck이 1개라는 가정이 강하다.
-- version history를 current deck과 별도 patch/snapshot로 나눠 관리한다.
-- full event sourcing은 아니다.
+### 상태 모델
 
-## 실제 기능 흐름
+현재 코드에는 이미 `saveState`, `saveStatusLabel`, `lastPatchLabel`이 있다. 이 값들을 더 명확한 저장 UX로 연결하는 방향이 적합하다.
 
-### 1. editor 진입
+권장 상태는 아래 정도면 충분하다.
 
-`EditorShell`은 먼저 `GET /deck`을 호출한다.
+- `저장됨`
+- `저장 중...`
+- `저장 대기 중`
+- `저장 실패`
+- `충돌 발생`
+- `마지막 저장: 14:32:10`
 
-- 있으면 그대로 hydrate
-- 없으면 seed deck을 만들어 `PUT /deck`
+### 상태 의미
 
-즉 현재 editor는 "빈 프로젝트에 들어가면 첫 덱을 자동 생성"하는 방식이다.
+- `저장 대기 중`
+  로컬 optimistic 변경은 반영됐지만 서버 확정 저장은 아직 끝나지 않은 상태
+- `저장 중...`
+  patch queue 또는 수동 저장이 실제 네트워크 요청을 수행 중인 상태
+- `저장됨`
+  현재 화면 상태와 서버 확정 상태가 일치한다고 판단되는 상태
+- `저장 실패`
+  네트워크 실패, validation 실패, 권한 실패 등으로 저장이 중단된 상태
+- `충돌 발생`
+  `409 STALE_BASE_VERSION`처럼 버전 충돌이 발생해 자동 복구나 재시도가 필요한 상태
 
-코드 기준:
+### 마지막 저장 시각 갱신 기준
 
-- `apps/web/src/features/editor/EditorShell.tsx`
+`마지막 저장 시각`은 로컬 수정 시각이 아니라 `서버가 확정 저장을 완료한 시각` 기준으로 갱신하는 것이 맞다.
 
-### 2. 일반 편집
+즉 아래 시점에만 갱신한다.
 
-사용자가 편집하면 브라우저 안에서 먼저 `applyDeckPatch`를 적용한다. 즉 optimistic update다.
+- `POST /deck/patches` 성공 응답을 받은 시점
+- `PUT /deck` 성공 응답을 받은 시점
+- 리허설 준비 저장까지 모두 성공해 최종 deck이 확정된 시점
 
-그 다음:
+아래 시점에는 갱신하면 안 된다.
 
-- React Query cache 갱신
-- 비동기 save queue에 patch 요청 추가
-- 서버의 `appendPatch` 호출
+- 사용자가 로컬에서 편집만 한 시점
+- queue에 patch가 쌓인 시점
+- 렌더/썸네일 저장이 아직 끝나지 않은 중간 시점
 
-좋은 점:
+### 버튼 동작 권장안
 
-- 체감 반응성이 좋다.
-- 사용자 입력이 서버 응답을 기다리지 않는다.
+- 기본 상태: `저장`
+- 저장 중: 버튼 비활성화, 라벨은 `저장 중...`
+- 실패 상태: 버튼 활성화, 라벨은 `다시 저장`
+- 충돌 상태: 버튼 활성화, 라벨은 `동기화 후 다시 저장` 또는 `다시 저장`
 
-주의점:
+### 자동 저장과 수동 저장의 관계
 
-- 저장 실패 시 refetch와 상태 복구가 중요하다.
-- local optimistic state와 persisted deck의 version 정합성이 깨지지 않아야 한다.
+자동 저장이 있더라도 수동 저장은 남기는 편이 좋다.
 
-### 3. 수동 저장
+- 자동 저장은 사용자의 입력 손실을 줄인다.
+- 수동 저장은 사용자가 "이 시점 상태를 확정한다"는 신뢰 포인트가 된다.
+- 동시 편집이 붙으면 수동 저장 버튼은 사실상 `동기화 상태 확인 + 재시도` UI 역할도 하게 된다.
 
-수동 저장은 patch가 아니라 전체 deck을 `PUT /deck`으로 보낸다.
+### 현재 구조에 맞는 최소 적용안
 
-그 후 추가로 썸네일 렌더링을 수행하고, 렌더된 thumbnail URL이 반영된 deck을 다시 한 번 `PUT /deck`한다.
+지금 구조를 크게 바꾸지 않고도 아래 정도는 바로 적용할 수 있다.
 
-이 말은 수동 저장 1회가 실제로는 최대 2회의 full deck write가 될 수 있다는 뜻이다.
+- 상단에 `저장` 버튼 유지
+- 버튼 옆에 `saveStatusLabel` 기반 상태 문구 노출
+- 별도 상태로 `마지막 저장 시각` 추가
+- `409` 발생 시 일반 `저장 실패`와 구분된 `충돌 발생` 상태 노출
+- `lastPatchLabel`은 디버그/개발자 정보로 두고, 사용자 메시지는 더 단순하게 정리
 
-좋은 점:
+### 동시 편집을 고려한 이유
 
-- 최종 저장본과 썸네일 상태를 함께 맞출 수 있다.
+나중에 동시 편집을 붙일수록 아래 정보가 중요해진다.
 
-부담:
+- 내가 본 화면이 서버 최신 상태와 얼마나 동기화돼 있는지
+- 저장이 끝났는지, 아직 대기 중인지
+- 실패가 네트워크 문제인지, 버전 충돌인지
 
-- large deck에서는 네트워크 payload와 DB write가 커진다.
-- 수동 저장 latency가 길어질 수 있다.
-
-### 4. AI suggestion apply
-
-AI suggestion은 좋은 예다. 이 경로는 `DecksService.appendPatch`를 재사용한다.
-
-즉:
-
-- 제안은 pending 상태로 저장
-- apply 시 current deck version 검증
-- stale이면 실패
-- 성공하면 change record와 snapshot 생성
-
-이 경로는 현재 persistence boundary를 잘 따른다.
-
-코드 기준:
-
-- `apps/api/src/ai-suggestions/ai-suggestions.service.ts`
-
-### 5. AI deck generation
-
-AI deck generation worker는 현재 예외적인 경로다.
-
-Python worker가 생성한 deck을 받은 뒤, worker 프로세스가 `decks` 테이블에 직접 upsert한다.
-
-즉 이 경로는:
-
-- `DecksService.putDeck`를 사용하지 않음
-- `deck_snapshots`를 만들지 않음
-- `deck_patches`를 만들지 않음
-- API 경계에 있는 project/dto normalization을 재사용하지 않음
-
-이건 현재 구조에서 가장 큰 일관성 리스크다.
-
-코드 기준:
-
-- `apps/worker/src/generate-deck.processor.ts`
-
-## 설계 관점에서 좋은 점
-
-### 1. 공통 schema 중심 구조
-
-deck, patch, API envelope이 모두 shared schema로 묶여 있다. 이건 협업 프로젝트에서 매우 큰 장점이다.
-
-### 2. patch와 full save를 분리
-
-자주 일어나는 작은 변경과, 전체 덱 교체를 다른 경로로 분리해 두었다. 편집기 구현과 저장 전략을 설명하기 쉽다.
-
-### 3. version 기반 충돌 방지
-
-`baseVersion` 검증이 있어서 최소한의 optimistic concurrency control이 있다.
-
-### 4. snapshot restore가 단순함
-
-snapshot에 완전한 deck JSON이 있기 때문에 restore 로직이 단순하다.
-
-## 지금 부족한 부분
-
-### 1. 저장 경계가 완전히 통일되지 않음
-
-가장 큰 문제다.
-
-- editor patch 저장: `DecksService` 사용
-- AI suggestion apply: `DecksService` 사용
-- AI deck generation: direct SQL upsert
-
-즉 "덱을 저장하는 공식 경계가 하나"라고 말하기 어렵다.
-
-영향:
-
-- snapshot 정책 불일치
-- 이력 추적 불일치
-- 추후 observability 추가 시 계측 위치 분산
-- restore 이후 기대 동작이 producer마다 달라질 위험
-
-### 2. 성능 목표가 문서화되어 있지 않음
-
-현재 repo에는 deck persistence에 대한 명시적인 latency budget, payload budget, deck size budget, snapshot budget이 없다.
-
-즉 지금 구조가 작은 demo deck에서는 충분할 수 있지만, 어느 규모까지 허용하는지 기준이 없다.
-
-### 3. full save 비용이 큼
-
-현재 수동 저장은 전체 deck JSON을 최소 1번, 경우에 따라 2번 저장한다. deck이 커질수록 아래 비용이 같이 늘어난다.
-
-- 직렬화 비용
-- 네트워크 payload
-- DB JSONB write 비용
-- snapshot row 크기
-
-### 4. patch lookup이 배열 기반
-
-slide, element, animation 탐색이 배열 순회 기반이라 대형 deck에서 patch apply 비용이 선형으로 증가한다.
-
-작은 deck에서는 단순하고 충분하지만, 수백 개 객체를 가진 deck에서는 병목이 될 수 있다.
-
-### 5. snapshot 운영 정책이 얕다
-
-현재는 "저장 시 snapshot 생성"은 있으나 아래가 확정돼 있지 않다.
-
-- snapshot 보존 개수
-- old snapshot 정리 정책
-- restore 후 audit snapshot 생성 여부
-- snapshot 생성 빈도 제어
-
-기능상 문제는 아니지만 운영 비용과 디버깅 품질에 영향을 준다.
-
-### 6. 협업 모델 확장 준비가 제한적
-
-현재 version 기반 patch 충돌 검사는 단일 사용자 또는 느슨한 충돌 처리에는 적합하다. 하지만 다중 사용자 동시 편집이 본격화되면 아래가 부족하다.
-
-- merge policy
-- partial conflict resolution
-- server-side rebasing
-- per-slide/per-element lock or CRDT
-
-## 보통 어떤 지표로 목표 성능을 잡는가
-
-아래는 일반적인 deck editor / document persistence 관점의 지표다. 이 프로젝트에 아직 명시되어 있지 않아서, 아래 항목은 실무적으로 권장하는 기준이다.
-
-### 1. 편집 반응성
-
-사용자 입력 후 화면이 바뀌는 시간이다.
-
-보는 지표:
-
-- patch local apply latency
-- 입력 후 다음 paint까지 걸리는 시간
-- drag/resize 중 frame drop
-
-권장 관점:
-
-- 단건 patch local apply는 체감상 즉시여야 한다.
-- 일반적으로 16ms~50ms 안쪽이면 부드럽다고 본다.
-
-### 2. 저장 지연
-
-사용자가 저장을 눌렀을 때 완료 피드백이 나오기까지 시간이다.
-
-보는 지표:
-
-- `PUT /deck` p50 / p95 latency
-- `POST /deck/patches` p50 / p95 latency
-- thumbnail render 포함 전체 save flow latency
-
-권장 관점:
-
-- patch save는 짧아야 한다.
-- full save는 더 길어도 되지만, 사용자가 기다리는 시간이 길면 저장 버튼 UX가 나빠진다.
-
-### 3. payload 크기
-
-보는 지표:
-
-- 평균 deck JSON 크기
-- 최악 deck JSON 크기
-- patch 요청 평균 크기
-- snapshot row 평균 크기
-
-중요한 이유:
-
-- 큰 JSON은 저장도 느리고 restore도 느리다.
-- editor autosave나 manual save 비용이 커진다.
-
-### 4. DB write amplification
-
-보는 지표:
-
-- 편집 1회당 몇 번의 DB write가 발생하는지
-- 수동 저장 1회당 decks/snapshots write 수
-- snapshot 생성 비율
-
-현재 구조에서 중요한 이유:
-
-- 수동 저장 한 번에 `decks`와 `deck_snapshots`가 같이 늘어난다.
-- 썸네일 저장 후 재저장하면 write 수가 더 늘어난다.
-
-### 5. 충돌률
-
-보는 지표:
-
-- `STALE_BASE_VERSION` 발생 비율
-- stale conflict가 어떤 화면/기능에서 주로 발생하는지
-
-이건 협업 전에도 유용하다. 로컬 optimistic queue와 서버 저장이 자주 어긋나는지 파악할 수 있다.
-
-### 6. 복원 신뢰성
-
-보는 지표:
-
-- snapshot restore 성공률
-- restore 후 schema validation 실패율
-- restore 이후 editor hydrate 오류
-
-### 7. 메모리와 렌더 비용
-
-deck persistence만의 지표는 아니지만 editor에서는 같이 봐야 한다.
-
-- slide 수 증가에 따른 initial load time
-- element 수 증가에 따른 editor render time
-- undo/redo stack 메모리 사용량
-
-## 이 프로젝트에 권장하는 목표값
-
-아래 수치는 repo에 정의된 공식 SLO가 아니라, 현재 구조를 건강하게 운영하기 위해 추천하는 초기 목표다.
-
-### Editor 반응성
-
-- 일반 patch local apply: p95 50ms 이하
-- drag/resize 중 frame budget: 16ms 근처 유지
-
-### 저장 API
-
-- `POST /deck/patches`: p95 300ms 이하
-- `PUT /deck`: p95 800ms 이하
-- 수동 저장 전체 플로우: p95 2s 이하
-
-### 데이터 크기
-
-- 일반 demo deck JSON: 1MB 이하 유지 권장
-- patch payload: 가능한 한 수 KB~수십 KB 수준 유지
-- snapshot row size는 deck JSON 크기와 동일 계열이므로 상한 모니터링 필요
-
-### 운영 지표
-
-- stale version conflict: 전체 patch 요청의 1% 미만
-- snapshot restore 실패율: 0% 목표
-
-## 지금 바로 계측하면 좋은 항목
-
-### 서버
-
-- `DecksService.getDeck`, `putDeck`, `appendPatch`, `restoreSnapshot` latency
-- response size
-- stored deck JSON byte size
-- snapshot 생성 횟수
-- stale conflict 횟수
-
-### Web
-
-- local patch apply duration
-- save queue depth
-- manual save total duration
-- thumbnail render duration
-
-### Worker
-
-- AI deck generation 후 deck write duration
-- direct SQL upsert 경로 호출 횟수
-
-## 우선순위가 높은 개선 포인트
-
-### 1. 모든 쓰기 경로를 같은 persistence boundary로 통합
-
-최우선이다.
-
-특히 AI deck generation worker가 `DecksService.putDeck` 또는 같은 정책을 가진 공통 domain service를 재사용하도록 맞추는 것이 중요하다.
-
-### 2. save flow 계측 추가
-
-지금은 성능을 논할 기준치가 없다. 먼저 계측이 있어야 리팩터링 효과를 판단할 수 있다.
-
-### 3. full save 비용 점검
-
-thumbnail 재저장까지 포함한 수동 저장 경로가 예상보다 비싼지 확인해야 한다.
-
-### 4. snapshot 운영 정책 정리
-
-retain 개수, 정리 기준, restore audit 여부를 문서화할 필요가 있다.
-
-### 5. 큰 deck에 대한 성능 시험
-
-아직 repo에는 "몇 개 slide / 몇 개 element까지 안전한가"에 대한 검증이 없다.
-
-권장 시험:
-
-- 50 slides
-- slide당 20~50 elements
-- animation, keywords, thumbnails 포함
-
-## 결론
-
-현재 ORBIT의 덱 구조는 문서 기반 편집기 아키텍처로서 방향이 좋다.
-
-- 공통 schema가 있다.
-- patch 기반 변경 모델이 있다.
-- version과 snapshot이 있다.
-- editor와 API 저장 흐름도 기본적으로 연결돼 있다.
-
-하지만 리팩터링 관점에서 보면 아직 "잘 돌아가는 구현"과 "일관된 저장 아키텍처" 사이에 간격이 있다. 특히 AI 생성 저장 경로와 성능 계측 부재가 핵심 약점이다.
-
-ORBIT-251의 첫 목표는 기능 추가보다 아래 두 가지를 명확히 만드는 것이다.
-
-1. 덱을 저장하는 공식 경계는 어디인가
-2. 그 경계가 성능과 운영 측면에서 얼마나 건강한가
+즉 저장 UX는 단순한 장식이 아니라, 저장 구조의 안정성과 협업 확장성을 사용자에게 설명하는 인터페이스다.

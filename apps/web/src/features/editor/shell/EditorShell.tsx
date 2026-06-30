@@ -21,7 +21,7 @@ import {
   maxAssetUploadSizeBytes,
   putDeckResponseSchema
 } from "@orbit/shared";
-import orbitLogo from "../../assets/orbit-logo.png";
+import orbitLogo from "../../../assets/orbit-logo.png";
 import { createProject, fetchProjects, uploadProjectAsset } from "../../projects/ProjectAssetWorkspace";
 import {
   normalizeEditorAssetUrl,
@@ -50,6 +50,7 @@ import {
   KeywordHighlightedNotes,
   KeywordList
 } from "./components/KeywordInspector";
+import { EditorSaveControl } from "./components/EditorSaveControl";
 import { SelectionQuickBar } from "./components/SelectionQuickBar";
 export {
   EditorStateNotice
@@ -233,7 +234,6 @@ type ElementFrameChange = {
   locked?: boolean;
   visible?: boolean;
 };
-type ToolbarNoticeTone = "info" | "success" | "danger";
 type SaveState = "idle" | "pending" | "saving" | "error";
 
 async function fetchHealth(): Promise<HealthResponse> {
@@ -589,14 +589,11 @@ export function EditorShell(props: { projectId?: string }) {
     useState<ShapeMenuPosition | null>(null);
   const [elementContextMenu, setElementContextMenu] =
     useState<ElementContextMenuState | null>(null);
-  const [imageUploadNotice, setImageUploadNotice] = useState<{
-    message: string;
-    tone: ToolbarNoticeTone;
-  } | null>(null);
   const [isImageUploadPending, setIsImageUploadPending] = useState(false);
   const [isRehearsalPreparing, setIsRehearsalPreparing] = useState(false);
   const [saveState, setSaveState] = useState<SaveState>("idle");
   const [saveErrorMessage, setSaveErrorMessage] = useState<string | null>(null);
+  const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
   const [undoStack, setUndoStack] = useState<Deck[]>([]);
   const [redoStack, setRedoStack] = useState<Deck[]>([]);
   const topbarRef = useRef<HTMLElement | null>(null);
@@ -674,9 +671,10 @@ export function EditorShell(props: { projectId?: string }) {
     selectedElement.elementId === customShapeEditElementId;
   const isDev = import.meta.env.DEV;
   const fileMenuItems = [
-    { icon: FolderPlus, label: "새 프레젠테이션", meta: "빈 덱" },
-    { icon: Upload, label: "PPTX 가져오기", meta: "업로드" },
+    { action: "new", icon: FolderPlus, label: "새 프레젠테이션", meta: "빈 덱" },
+    { action: "import", icon: Upload, label: "PPTX 가져오기", meta: "업로드" },
     {
+      action: "save",
       icon: Cloud,
       label: saveState === "saving" ? "저장 중..." : "저장",
       meta: saveErrorMessage
@@ -763,6 +761,7 @@ export function EditorShell(props: { projectId?: string }) {
     queryClient.setQueryData(["deck", projectId], response.deck);
     deckRef.current = response.deck;
     setDeck(response.deck);
+    setLastSavedAt(response.changeRecord.createdAt);
     setUndoStack([]);
     setRedoStack([]);
     setSelectedElementIds([]);
@@ -871,6 +870,7 @@ export function EditorShell(props: { projectId?: string }) {
 
       const persistedDeck = await putProjectDeck(activeProjectId, deckSnapshot);
       let finalDeck = persistedDeck;
+      setLastSavedAt(new Date().toISOString());
 
       if (
         shouldApplyManualSaveResult({
@@ -888,6 +888,7 @@ export function EditorShell(props: { projectId?: string }) {
         );
 
         finalDeck = await putProjectDeck(activeProjectId, renderResult.deck);
+        setLastSavedAt(new Date().toISOString());
 
         if (
           shouldApplyManualSaveResult({
@@ -897,13 +898,6 @@ export function EditorShell(props: { projectId?: string }) {
         ) {
           applyPersistedDeckState(finalDeck);
         }
-        setImageUploadNotice({
-          message:
-            renderResult.missingAssetCount > 0
-              ? `${finalDeck.slides.length}개 슬라이드 이미지 저장 완료 · 누락 이미지 ${renderResult.missingAssetCount}개`
-              : `${finalDeck.slides.length}개 슬라이드 이미지 저장 완료`,
-          tone: renderResult.missingAssetCount > 0 ? "info" : "success"
-        });
         setLastPatchLabel(`수동 저장 · v${finalDeck.version}`);
         setSaveState("idle");
         setSaveErrorMessage(null);
@@ -916,10 +910,6 @@ export function EditorShell(props: { projectId?: string }) {
         ) {
           applyPersistedDeckState(persistedDeck);
         }
-        setImageUploadNotice({
-          message: "덱 저장 완료, 슬라이드 이미지 저장 실패",
-          tone: "danger"
-        });
         setLastPatchLabel(`수동 저장 · 렌더 실패 · v${persistedDeck.version}`);
         setSaveState("error");
         setSaveErrorMessage(toEditorErrorMessage(renderError));
@@ -962,6 +952,7 @@ export function EditorShell(props: { projectId?: string }) {
       const deckSnapshot = structuredClone(normalizeDeckAssetUrls(deckRef.current));
       const persistedDeck = await putProjectDeck(activeProjectId, deckSnapshot);
       const renderResult = await syncSlideRenderAssets(activeProjectId, persistedDeck);
+      setLastSavedAt(new Date().toISOString());
 
       if (
         !shouldApplyManualSaveResult({
@@ -987,13 +978,7 @@ export function EditorShell(props: { projectId?: string }) {
           : persistedDeck;
 
       applyPersistedDeckState(finalDeck);
-      setImageUploadNotice({
-        message:
-          renderResult.missingAssetCount > 0
-            ? `${finalDeck.slides.length}개 슬라이드 이미지 저장 완료 · 누락 이미지 ${renderResult.missingAssetCount}개`
-            : `${finalDeck.slides.length}개 슬라이드 이미지 저장 완료`,
-        tone: renderResult.missingAssetCount > 0 ? "info" : "success"
-      });
+      setLastSavedAt(new Date().toISOString());
       setLastPatchLabel(`리허설 준비 완료 · v${finalDeck.version}`);
       setSaveState("idle");
       setSaveErrorMessage(null);
@@ -1004,10 +989,6 @@ export function EditorShell(props: { projectId?: string }) {
       setLastPatchLabel(`리허설 준비 실패 · ${message}`);
       setSaveState("error");
       setSaveErrorMessage(message);
-      setImageUploadNotice({
-        message: "리허설용 슬라이드 이미지 저장 실패",
-        tone: "danger"
-      });
     } finally {
       setIsRehearsalPreparing(false);
     }
@@ -1046,6 +1027,7 @@ export function EditorShell(props: { projectId?: string }) {
       .then(async () => {
         setSaveState("saving");
         const persistedDeck = await appendProjectDeckPatch(deckQuery.data.projectId, patch);
+        setLastSavedAt(new Date().toISOString());
 
         queryClient.setQueryData(["deck", projectId], (current?: Deck) =>
           mergeDeckIntoQueryCache(current, persistedDeck)
@@ -1191,17 +1173,9 @@ export function EditorShell(props: { projectId?: string }) {
     const validationMessage = getEditorImageValidationMessage(file);
 
     if (validationMessage) {
-      setImageUploadNotice({
-        message: validationMessage,
-        tone: "danger"
-      });
       return;
     }
 
-    setImageUploadNotice({
-      message: `${file.name} 업로드 중...`,
-      tone: "info"
-    });
     setIsImageUploadPending(true);
 
     try {
@@ -1277,15 +1251,8 @@ export function EditorShell(props: { projectId?: string }) {
         setInsertTool("select");
       }
 
-      setImageUploadNotice({
-        message: `${file.name} 업로드 완료`,
-        tone: "success"
-      });
     } catch (error) {
-      setImageUploadNotice({
-        message: toEditorErrorMessage(error),
-        tone: "danger"
-      });
+      console.error(error);
     } finally {
       setIsImageUploadPending(false);
     }
@@ -2477,14 +2444,14 @@ export function EditorShell(props: { projectId?: string }) {
                 </div>
 
                 <div className="file-menu-list">
-                  {fileMenuItems.map(({ icon: Icon, label, meta }) => (
+                  {fileMenuItems.map(({ action, icon: Icon, label, meta }) => (
                     <button
                       className="file-menu-item"
-                      key={label}
+                      key={action}
                       role="menuitem"
                       type="button"
                       onClick={() => {
-                        if (label.startsWith("저장")) {
+                        if (action === "save") {
                           void handleSaveDeck();
                         }
                       }}
@@ -2570,10 +2537,17 @@ export function EditorShell(props: { projectId?: string }) {
 
         <div className="topbar-center">
           <span className="deck-title">{deck.title}</span>
-          {isDev ? <span className="save-state">{saveStatusLabel}</span> : null}
         </div>
 
         <div className="top-actions">
+          <EditorSaveControl
+            disabled={isDeckLoading || isUsingFallbackDeck}
+            emptyStateLabel={deckQuery.data ? "불러온 파일" : "저장 기록 없음"}
+            isSaving={saveState === "saving"}
+            lastSavedAtLabel={formatLastSavedAtLabel(lastSavedAt)}
+            onSave={() => void handleSaveDeck()}
+            statusLabel={saveStatusLabel}
+          />
           <span className="avatar">김</span>
           <div className="top-action-menu">
             <button
@@ -2860,11 +2834,6 @@ export function EditorShell(props: { projectId?: string }) {
                     <span className="toolbar-toggle-thumb" />
                   </span>
                 </button>
-                {imageUploadNotice ? (
-                  <span className={`toolbar-status-pill ${imageUploadNotice.tone}`}>
-                    {imageUploadNotice.message}
-                  </span>
-                ) : null}
               </div>
             </div>
 
@@ -3304,7 +3273,26 @@ function getEditorStatusLabel(props: {
     return "저장 대기 중";
   }
 
-  return "자동 저장됨";
+  return "저장됨";
+}
+
+function formatLastSavedAtLabel(lastSavedAt: string | null): string | null {
+  if (!lastSavedAt) {
+    return null;
+  }
+
+  const date = new Date(lastSavedAt);
+
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+
+  return new Intl.DateTimeFormat("ko-KR", {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false
+  }).format(date);
 }
 
 
