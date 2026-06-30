@@ -7,7 +7,9 @@ import {
   RehearsalFlowError,
   RehearsalWorkspace,
   SherpaLiveSttAdapter,
+  applyLiveTranscriptBias,
   applyLiveTranscriptEvent,
+  buildLiveSttBiasContext,
   createLiveTranscriptBuffer,
   createRecordingFile,
   createRecordingSession,
@@ -134,6 +136,94 @@ describe("RehearsalWorkspace", () => {
       "kw_2"
     ]);
     expect(analysis.missingKeywordIds).toEqual([]);
+  });
+
+  it("builds current-slide live STT bias terms from keywords and slide context", () => {
+    const deck = createDemoDeck();
+    const slide = {
+      ...deck.slides[0]!,
+      slideId: "slide_1",
+      title: "ORBIT Live STT",
+      speakerNotes: "오프닝, 브라우저 온디바이스 인식",
+      keywords: [
+        {
+          keywordId: "kw_orbit",
+          text: "ORBIT",
+          synonyms: ["오르빗"],
+          abbreviations: ["OBT"]
+        }
+      ],
+      elements: [
+        ...deck.slides[0]!.elements,
+        {
+          elementId: "el_body",
+          type: "text" as const,
+          role: "body" as const,
+          x: 0,
+          y: 0,
+          width: 320,
+          height: 80,
+          rotation: 0,
+          opacity: 1,
+          zIndex: 1,
+          locked: false,
+          visible: true,
+          props: {
+            text: "온디바이스 STT와 키워드 진행률",
+            fontSize: 24,
+            fontWeight: 400,
+            align: "left" as const,
+            verticalAlign: "top" as const,
+            lineHeight: 1.2
+          }
+        }
+      ]
+    };
+
+    const biasContext = buildLiveSttBiasContext(slide);
+
+    expect(biasContext.slideId).toBe("slide_1");
+    expect(biasContext.terms.slice(0, 3).map((term) => term.text)).toEqual([
+      "ORBIT",
+      "오르빗",
+      "OBT"
+    ]);
+    expect(biasContext.terms).toContainEqual(
+      expect.objectContaining({
+        text: "ORBIT Live STT",
+        source: "title"
+      })
+    );
+    expect(biasContext.terms).toContainEqual(
+      expect.objectContaining({
+        text: "브라우저 온디바이스 인식",
+        source: "speaker-notes"
+      })
+    );
+  });
+
+  it("uses fuzzy live STT bias only for keyword matching transcripts", () => {
+    const slide = {
+      ...createDemoDeck().slides[0]!,
+      slideId: "slide_1",
+      keywords: [
+        {
+          keywordId: "kw_orbit",
+          text: "오르빗",
+          synonyms: [],
+          abbreviations: []
+        }
+      ]
+    };
+    const biasContext = buildLiveSttBiasContext(slide);
+    const rawTranscript = "오늘은 오르비트 리허설을 시작합니다";
+    const rawAnalysis = evaluateLiveTranscript(slide, rawTranscript);
+    const biasedTranscript = applyLiveTranscriptBias(rawTranscript, biasContext);
+    const biasedAnalysis = evaluateLiveTranscript(slide, biasedTranscript);
+
+    expect(rawAnalysis.coverage).toBe(0);
+    expect(biasedTranscript).toBe(`${rawTranscript} 오르빗`);
+    expect(biasedAnalysis.coverage).toBe(1);
   });
 
   it("composes committed live STT finals with the current draft", () => {

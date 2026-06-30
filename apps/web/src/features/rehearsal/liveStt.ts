@@ -15,8 +15,40 @@ export type LiveSttCallbacks = {
   onAudioLevel?: (event: LiveSttAudioLevelEvent) => void;
 };
 
+export type LiveSttBiasSource =
+  | "keyword"
+  | "synonym"
+  | "abbreviation"
+  | "title"
+  | "slide-text"
+  | "speaker-notes";
+
+export type LiveSttBiasTerm = {
+  text: string;
+  source: LiveSttBiasSource;
+  weight: number;
+  keywordId?: string;
+  canonicalText?: string;
+};
+
+export type LiveSttBiasContext = {
+  slideId: string;
+  terms: LiveSttBiasTerm[];
+};
+
+export type LiveSttBiasMode = "none" | "postprocess" | "hotword" | "combined";
+
+export type LiveSttStartOptions = {
+  biasContext?: LiveSttBiasContext | null;
+};
+
 export type LiveSttAdapter = {
-  start: (stream: MediaStream, callbacks: LiveSttCallbacks) => Promise<void>;
+  start: (
+    stream: MediaStream,
+    callbacks: LiveSttCallbacks,
+    options?: LiveSttStartOptions
+  ) => Promise<void>;
+  updateBiasContext?: (biasContext: LiveSttBiasContext | null) => void;
   stop: () => void;
   dispose: () => void;
 };

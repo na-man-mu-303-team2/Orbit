@@ -5,6 +5,7 @@ import {
 import {
   LiveSttAdapterError,
   type LiveSttAdapter,
+  type LiveSttBiasContext,
   type LiveSttCallbacks
 } from "./liveStt";
 import { calculatePcmAudioLevel } from "./liveSttAudioLevel";
@@ -22,6 +23,12 @@ type SherpaWorkerInboundMessage =
       sessionId: string;
       decodeBatchSamples: number;
       debugStatsEnabled: boolean;
+      biasContext?: LiveSttBiasContext | null;
+    }
+  | {
+      type: "update-bias";
+      sessionId: string;
+      biasContext: LiveSttBiasContext | null;
     }
   | {
       type: "audio-frame";
@@ -164,7 +171,11 @@ export class SherpaOnnxLiveSttAdapter implements LiveSttAdapter {
     } = {}
   ) {}
 
-  async start(stream: MediaStream, callbacks: LiveSttCallbacks): Promise<void> {
+  async start(
+    stream: MediaStream,
+    callbacks: LiveSttCallbacks,
+    options: { biasContext?: LiveSttBiasContext | null } = {}
+  ): Promise<void> {
     if (this.isDisposed) {
       throw new LiveSttAdapterError(
         "LIVE_STT_START_FAILED",
@@ -195,7 +206,8 @@ export class SherpaOnnxLiveSttAdapter implements LiveSttAdapter {
           type: "start",
           sessionId,
           decodeBatchSamples,
-          debugStatsEnabled: isLiveSttLatencyDebugEnabled()
+          debugStatsEnabled: isLiveSttLatencyDebugEnabled(),
+          biasContext: options.biasContext ?? null
         },
         `start:${sessionId}`
       );
@@ -221,6 +233,18 @@ export class SherpaOnnxLiveSttAdapter implements LiveSttAdapter {
     if (sessionId && this.worker) {
       this.postWorkerMessage(this.worker, { type: "stop", sessionId });
     }
+  }
+
+  updateBiasContext(biasContext: LiveSttBiasContext | null) {
+    if (!this.worker || !this.sessionId) {
+      return;
+    }
+
+    this.postWorkerMessage(this.worker, {
+      type: "update-bias",
+      sessionId: this.sessionId,
+      biasContext
+    });
   }
 
   dispose() {
@@ -566,6 +590,7 @@ export class SherpaOnnxLiveSttAdapter implements LiveSttAdapter {
         return;
       }
 
+      logLiveSttTranscriptDebug(message);
       this.logPartialCallbackLatency(message.isFinal);
       this.callbacks?.onPartialTranscript(
         parsePartialTranscriptMessage(message)
@@ -698,6 +723,21 @@ function logLiveSttWorkerDebug(stats: SherpaWorkerDebugStats) {
   }
 
   console.debug(`[orbit-live-stt-worker] ${JSON.stringify(payload)}`);
+}
+
+function logLiveSttTranscriptDebug(
+  message: Extract<SherpaWorkerOutboundMessage, { type: "partial" | "final" }>
+) {
+  if (!isLiveSttLatencyDebugEnabled()) {
+    return;
+  }
+
+  console.debug("[orbit-live-stt-transcript]", {
+    sessionId: message.sessionId,
+    isFinal: message.isFinal,
+    confidence: message.confidence,
+    transcript: message.transcript
+  });
 }
 
 function roundLiveSttDebugValue(value: number) {

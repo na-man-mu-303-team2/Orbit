@@ -3,6 +3,7 @@ import {
   SherpaOnnxLiveSttAdapter,
   resampleFloat32Audio
 } from "./sherpaOnnxLiveSttAdapter";
+import type { LiveSttBiasContext } from "./liveStt";
 import type { SherpaOnnxModelManifest } from "./sherpaOnnxManifest";
 
 describe("SherpaOnnxLiveSttAdapter", () => {
@@ -115,6 +116,63 @@ describe("SherpaOnnxLiveSttAdapter", () => {
     });
   });
 
+  it("passes live STT bias context to worker start and update messages", async () => {
+    const worker = new FakeSherpaWorker();
+    const audioContext = new FakeAudioContext(16000);
+    const biasContext: LiveSttBiasContext = {
+      slideId: "slide_1",
+      terms: [
+        {
+          text: "오르빗",
+          source: "keyword",
+          weight: 1,
+          keywordId: "kw_orbit",
+          canonicalText: "오르빗"
+        }
+      ]
+    };
+    const nextBiasContext: LiveSttBiasContext = {
+      slideId: "slide_2",
+      terms: [
+        {
+          text: "라이브 STT",
+          source: "keyword",
+          weight: 1,
+          keywordId: "kw_live_stt",
+          canonicalText: "라이브 STT"
+        }
+      ]
+    };
+    const adapter = new SherpaOnnxLiveSttAdapter({
+      manifestUrl: "/models/live-stt/korean/manifest.json",
+      fetcher: vi.fn(async () => jsonResponse(manifestFixture())) as typeof fetch,
+      createWorker: () => worker,
+      createAudioContext: () => audioContext as unknown as AudioContext,
+      createAudioWorkletNode: (_context, _name, options) =>
+        audioContext.createAudioWorkletNode(options) as unknown as AudioWorkletNode
+    });
+
+    await adapter.start(
+      { getTracks: () => [] } as unknown as MediaStream,
+      {
+        onPartialTranscript: () => undefined,
+        onError: () => undefined
+      },
+      { biasContext }
+    );
+    adapter.updateBiasContext(nextBiasContext);
+    adapter.dispose();
+
+    expect(worker.messages[1]).toMatchObject({
+      type: "start",
+      biasContext
+    });
+    expect(worker.messages[2]).toMatchObject({
+      type: "update-bias",
+      biasContext: nextBiasContext
+    });
+  });
+
   it("reports microphone audio levels at a throttled cadence", async () => {
     let now = 1_000;
     vi.spyOn(Date, "now").mockImplementation(() => now);
@@ -217,7 +275,7 @@ describe("SherpaOnnxLiveSttAdapter", () => {
     expect(debugLog).not.toHaveBeenCalled();
   });
 
-  it("logs latency metrics without transcript text when debug latency is enabled", async () => {
+  it("logs latency metrics with transcript text when debug latency is enabled", async () => {
     const debugLog = vi.spyOn(console, "debug").mockImplementation(() => undefined);
     vi.stubGlobal("window", {
       location: { href: "http://localhost/" },
@@ -251,6 +309,13 @@ describe("SherpaOnnxLiveSttAdapter", () => {
       stats: workerDebugStatsFixture({ decodedBatches: 99 })
     });
     worker.emitWorkerMessage({
+      type: "partial",
+      sessionId: "stale-session",
+      transcript: "stale transcript",
+      isFinal: false,
+      confidence: 0.12
+    });
+    worker.emitWorkerMessage({
       type: "debug-stats",
       sessionId,
       stats: workerDebugStatsFixture()
@@ -267,9 +332,20 @@ describe("SherpaOnnxLiveSttAdapter", () => {
     const workerDebugLogs = debugLog.mock.calls.filter(([message]) =>
       String(message).startsWith("[orbit-live-stt-worker]")
     );
+    const transcriptLogs = debugLog.mock.calls.filter(([message]) =>
+      String(message).startsWith("[orbit-live-stt-transcript]")
+    );
 
     expect(debugLog).toHaveBeenCalled();
-    expect(serializedLogs).not.toContain("오르빗 실시간 음성 인식");
+    expect(serializedLogs).toContain("오르빗 실시간 음성 인식");
+    expect(serializedLogs).not.toContain("stale transcript");
+    expect(transcriptLogs).toHaveLength(1);
+    expect(transcriptLogs[0]?.[1]).toEqual({
+      sessionId,
+      isFinal: false,
+      confidence: 0.91,
+      transcript: "오르빗 실시간 음성 인식"
+    });
     expect(audioLevelMetrics).toMatchObject({
       peak: 1,
       peakDb: 0,
@@ -407,6 +483,7 @@ class FakeSherpaWorker {
     samples?: Float32Array;
     decodeBatchSamples?: number;
     debugStatsEnabled?: boolean;
+    biasContext?: LiveSttBiasContext | null;
   }> = [];
   audioFrames: Array<{ sampleRate: number; samples: Float32Array }> = [];
   isTerminated = false;
@@ -419,6 +496,7 @@ class FakeSherpaWorker {
       samples?: Float32Array;
       decodeBatchSamples?: number;
       debugStatsEnabled?: boolean;
+      biasContext?: LiveSttBiasContext | null;
     },
     _transfer?: Transferable[] | StructuredSerializeOptions
   ) {
