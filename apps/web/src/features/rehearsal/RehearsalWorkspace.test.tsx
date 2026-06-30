@@ -15,6 +15,7 @@ import {
   evaluateLiveTranscript,
   fetchRehearsalReport,
   fetchOrCreateRehearsalDeck,
+  getRehearsalReportPath,
   getLiveAudioLevelLabel,
   getLiveAudioLevelPercent,
   normalizeRecordingMimeType,
@@ -105,21 +106,12 @@ describe("RehearsalWorkspace", () => {
     })).toBe(60);
   });
 
-  it("renders report metrics without exposing a non-retained transcript", () => {
+  it("keeps final report content out of the presenter workspace", () => {
     const deck = createDemoDeck();
-    const html = renderToStaticMarkup(
-      <RehearsalWorkspace
-        initialDeck={deck}
-        initialReport={reportFixture({
-          transcriptRetained: false,
-          transcript: null
-        })}
-      />
-    );
+    const html = renderToStaticMarkup(<RehearsalWorkspace initialDeck={deck} />);
 
-    expect(html).toContain("리허설 보고서");
-    expect(html).toContain("120 wpm");
-    expect(html).toContain("전사문 미보존");
+    expect(html).not.toContain("리허설 보고서");
+    expect(html).not.toContain("120 wpm");
     expect(html).not.toContain("민감한 전사 원문");
   });
 
@@ -145,6 +137,12 @@ describe("RehearsalWorkspace", () => {
     expect(html).toContain("120");
     expect(html).toContain("75%");
     expect(html).not.toContain("민감한 전사 원문");
+  });
+
+  it("builds the dedicated report route for a completed rehearsal run", () => {
+    expect(getRehearsalReportPath("project a", "run/1")).toBe(
+      "/rehearsal/project%20a/report/run%2F1"
+    );
   });
 
   it("matches live STT keywords with normalized Korean aliases", () => {

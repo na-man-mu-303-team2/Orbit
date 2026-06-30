@@ -297,6 +297,10 @@ export async function fetchRehearsalReport(runId: string, fetcher: Fetcher = fet
   return (await response.json()) as GetRehearsalReportResponse;
 }
 
+export function getRehearsalReportPath(projectId: string, runId: string) {
+  return `/rehearsal/${encodeURIComponent(projectId)}/report/${encodeURIComponent(runId)}`;
+}
+
 export async function pollRehearsalJob(
   jobId: string,
   options: {
@@ -605,7 +609,6 @@ function createDefaultLiveSttAdapter() {
 
 export function RehearsalWorkspace(props: {
   initialDeck?: Deck;
-  initialReport?: RehearsalReport;
   fallbackDeck?: Deck;
   liveSttAdapter?: LiveSttAdapter;
   autoAdvanceDelayMs?: number;
@@ -617,11 +620,6 @@ export function RehearsalWorkspace(props: {
   const [, setError] = useState("");
   const [run, setRun] = useState<RehearsalRun | null>(null);
   const [, setJob] = useState<Job | null>(null);
-  const [report, setReport] = useState<RehearsalReport | null>(props.initialReport ?? null);
-  const [reportStatus, setReportStatus] = useState<RehearsalReportStatus>(
-    props.initialReport ? "ready" : "idle"
-  );
-  const [reportError, setReportError] = useState("");
   const [liveStatus, setLiveStatus] = useState<LiveSttStatus>("idle");
   const [liveError, setLiveError] = useState("");
   const [liveTranscriptBuffer, setLiveTranscriptBuffer] = useState(
@@ -779,9 +777,6 @@ export function RehearsalWorkspace(props: {
     setError("");
     setRun(null);
     setJob(null);
-    setReport(null);
-    setReportStatus("idle");
-    setReportError("");
     setLiveError("");
     setLiveAudioLevel(null);
     resetLiveTranscriptForSlide(currentSlide);
@@ -1094,8 +1089,6 @@ export function RehearsalWorkspace(props: {
   async function submitRecording(activeDeck: Deck, audioFile: File) {
     setPhase("uploading");
     setError("");
-    setReportStatus("idle");
-    setReportError("");
 
     try {
       const result = await runRehearsalUploadFlow({
@@ -1120,6 +1113,7 @@ export function RehearsalWorkspace(props: {
 
       await loadReportForRun(result.run.runId, result.run);
       setPhase("succeeded");
+      navigateToRehearsalReport(activeDeck.projectId, result.run.runId);
     } catch (cause) {
       setError(toRehearsalFlowMessage(cause));
       setPhase("failed");
@@ -1127,19 +1121,11 @@ export function RehearsalWorkspace(props: {
   }
 
   async function loadReportForRun(runId: string, fallbackRun: RehearsalRun) {
-    setReportStatus("loading");
-    setReportError("");
-
     try {
       const response = await fetchRehearsalReport(runId);
       setRun(response.run);
-      setReport(response.report);
-      setReportStatus(response.report ? "ready" : "not-ready");
-    } catch (cause) {
+    } catch {
       setRun(fallbackRun);
-      setReport(null);
-      setReportStatus("failed");
-      setReportError(toRehearsalFlowMessage(cause));
     }
   }
 
@@ -1335,13 +1321,6 @@ export function RehearsalWorkspace(props: {
         </section>
 
         <aside className="rehearsal-presenter-side">
-          <RehearsalReportPanel
-            error={reportError}
-            report={report}
-            run={run}
-            status={reportStatus}
-          />
-
           <section className="rehearsal-assist-card checklist-card">
             <header>
               <span>
@@ -1730,99 +1709,6 @@ function DeckSlidePreview(props: { deck: Deck | null; slide: Slide }) {
   );
 }
 
-function RehearsalReportPanel(props: {
-  error: string;
-  report: RehearsalReport | null;
-  run: RehearsalRun | null;
-  status: RehearsalReportStatus;
-}) {
-  const { error, report, run, status } = props;
-
-  return (
-    <section className="rehearsal-assist-card rehearsal-report-card" aria-live="polite">
-      <header>
-        <span>
-          <BarChart3 size={16} />
-          {"리허설 보고서"}
-        </span>
-        <small>{formatReportStatus(status, run?.status)}</small>
-      </header>
-
-      {report ? (
-        <div className="rehearsal-report-content">
-          <div className="rehearsal-report-metrics" aria-label="Report metrics">
-            <ReportMetric
-              label="말 속도"
-              value={`${Math.round(report.metrics.wordsPerMinute)} wpm`}
-            />
-            <ReportMetric label="불필요한 표현" value={`${report.metrics.fillerWordCount}회`} />
-            <ReportMetric label="긴 멈춤" value={`${report.metrics.pauseCount}회`} />
-            <ReportMetric
-              label="키워드 커버리지"
-              value={formatPercent(report.metrics.keywordCoverage)}
-            />
-          </div>
-
-          <div className="rehearsal-report-section">
-            <strong>{"코칭 요약"}</strong>
-            <p>
-              {report.coaching?.summary || report.coaching?.message || "코칭 요약이 아직 없습니다."}
-            </p>
-          </div>
-
-          {report.coaching?.strengths.length ? (
-            <div className="rehearsal-report-section">
-              <strong>{"강점"}</strong>
-              <ul>
-                {report.coaching.strengths.slice(0, 3).map((strength) => (
-                  <li key={strength}>{strength}</li>
-                ))}
-              </ul>
-            </div>
-          ) : null}
-
-          {report.coaching?.nextPracticeFocus ? (
-            <div className="rehearsal-report-section">
-              <strong>{"다음 연습"}</strong>
-              <p>{report.coaching.nextPracticeFocus}</p>
-            </div>
-          ) : null}
-
-          <div className="rehearsal-report-transcript">
-            <strong>{"전사문"}</strong>
-            {report.transcriptRetained && report.transcript ? (
-              <p>{report.transcript}</p>
-            ) : (
-              <p className="rehearsal-report-muted">{"전사문 미보존"}</p>
-            )}
-          </div>
-
-          <small className="rehearsal-report-generated">
-            {formatReportGeneratedAt(report.generatedAt)}
-          </small>
-        </div>
-      ) : (
-        <div
-          className={
-            status === "failed" ? "rehearsal-report-state status-error" : "rehearsal-report-state"
-          }
-        >
-          {formatEmptyReportMessage(status, error)}
-        </div>
-      )}
-    </section>
-  );
-}
-
-function ReportMetric(props: { label: string; value: string }) {
-  return (
-    <div className="rehearsal-report-metric">
-      <span>{props.label}</span>
-      <strong>{props.value}</strong>
-    </div>
-  );
-}
-
 function getSlideTitle(slide: Slide) {
   const title = slide.title.trim();
   if (title) return title;
@@ -1908,14 +1794,6 @@ function escapeRegExp(value: string) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-function formatReportStatus(status: RehearsalReportStatus, runStatus?: RehearsalRun["status"]) {
-  if (status === "ready") return "완료";
-  if (status === "loading") return "불러오는 중";
-  if (status === "failed") return "오류";
-  if (status === "not-ready" || runStatus === "processing") return "생성 중";
-  return "대기";
-}
-
 function formatEmptyReportMessage(status: RehearsalReportStatus, error: string) {
   if (status === "loading") return "보고서를 불러오는 중입니다.";
   if (status === "not-ready") return "보고서 생성 중입니다.";
@@ -1946,18 +1824,6 @@ function formatReportDate(value?: string) {
   return `${date.getFullYear().toString().slice(2)}.${(date.getMonth() + 1)
     .toString()
     .padStart(2, "0")}.${date.getDate().toString().padStart(2, "0")}.`;
-}
-
-function formatReportGeneratedAt(generatedAt: string) {
-  const parsed = Date.parse(generatedAt);
-  if (Number.isNaN(parsed)) {
-    return generatedAt;
-  }
-
-  return `생성 ${new Intl.DateTimeFormat("ko-KR", {
-    dateStyle: "short",
-    timeStyle: "short"
-  }).format(parsed)}`;
 }
 
 function formatClock(totalSeconds: number) {
@@ -1995,6 +1861,11 @@ function navigateToProject(projectId: string) {
 
 function navigateToRehearsal(projectId: string) {
   window.history.pushState({}, "", `/rehearsal/${encodeURIComponent(projectId)}`);
+  window.dispatchEvent(new PopStateEvent("popstate"));
+}
+
+function navigateToRehearsalReport(projectId: string, runId: string) {
+  window.history.pushState({}, "", getRehearsalReportPath(projectId, runId));
   window.dispatchEvent(new PopStateEvent("popstate"));
 }
 
