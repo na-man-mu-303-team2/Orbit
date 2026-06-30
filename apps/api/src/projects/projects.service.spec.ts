@@ -1,14 +1,28 @@
 import { ForbiddenException, NotFoundException } from "@nestjs/common";
 import { demoIds } from "@orbit/shared";
-import { Repository } from "typeorm";
+import { DataSource, Repository } from "typeorm";
 import { describe, expect, it } from "vitest";
 import { ProjectEntity } from "./project.entity";
+import { ProjectMemberEntity } from "./project-member.entity";
 import { ProjectsService } from "./projects.service";
 
 type ProjectFindOptions = {
-  where: Partial<ProjectEntity>;
+  where: Partial<ProjectEntity> & { projectId?: unknown };
   order?: Partial<Record<keyof ProjectEntity, "ASC" | "DESC">>;
 };
+
+type ProjectMemberFindOptions = {
+  where: Partial<ProjectMemberEntity> & { role?: unknown };
+};
+
+function findOperatorValues(value: unknown): unknown[] | null {
+  if (typeof value === "object" && value !== null && "_value" in value) {
+    const candidate = (value as { _value?: unknown })._value;
+    return Array.isArray(candidate) ? candidate : [candidate];
+  }
+
+  return null;
+}
 
 function createProjectRepository(initialProjects: ProjectEntity[] = []) {
   const projects = [...initialProjects];
@@ -30,9 +44,18 @@ function createProjectRepository(initialProjects: ProjectEntity[] = []) {
       return project;
     },
     async find(options: ProjectFindOptions): Promise<ProjectEntity[]> {
-      const filtered = projects.filter(
-        (project) => project.workspaceId === options.where.workspaceId,
-      );
+      const projectIdValues = findOperatorValues(options.where.projectId);
+      const filtered = projects.filter((project) => {
+        if (project.workspaceId !== options.where.workspaceId) {
+          return false;
+        }
+
+        if (projectIdValues) {
+          return projectIdValues.includes(project.projectId);
+        }
+
+        return true;
+      });
       if (options.order?.createdAt === "DESC") {
         return filtered.sort(
           (left, right) =>
@@ -53,30 +76,144 @@ function createProjectRepository(initialProjects: ProjectEntity[] = []) {
   return repository as unknown as Repository<ProjectEntity>;
 }
 
+function createProjectMemberRepository(initialMembers: ProjectMemberEntity[] = []) {
+  const members = [...initialMembers];
+
+  const repository = {
+    create(input: Partial<ProjectMemberEntity>): ProjectMemberEntity {
+      return input as ProjectMemberEntity;
+    },
+    async save(member: ProjectMemberEntity): Promise<ProjectMemberEntity> {
+      const index = members.findIndex(
+        (item) => item.projectId === member.projectId && item.userId === member.userId,
+      );
+      if (index >= 0) {
+        members[index] = member;
+      } else {
+        members.push(member);
+      }
+
+      return member;
+    },
+    async find(options: ProjectMemberFindOptions): Promise<ProjectMemberEntity[]> {
+      const roleValues = findOperatorValues(options.where.role);
+      return members.filter((member) => {
+        if (options.where.userId && member.userId !== options.where.userId) {
+          return false;
+        }
+        if (options.where.status && member.status !== options.where.status) {
+          return false;
+        }
+        if (roleValues && !roleValues.includes(member.role)) {
+          return false;
+        }
+        return true;
+      });
+    },
+    async findOne(options: ProjectMemberFindOptions): Promise<ProjectMemberEntity | null> {
+      return (
+        members.find((member) => {
+          if (options.where.projectId && member.projectId !== options.where.projectId) {
+            return false;
+          }
+          if (options.where.userId && member.userId !== options.where.userId) {
+            return false;
+          }
+          if (options.where.status && member.status !== options.where.status) {
+            return false;
+          }
+          return true;
+        }) ?? null
+      );
+    },
+    async delete(where: Partial<ProjectMemberEntity>): Promise<void> {
+      const index = members.findIndex(
+        (member) => member.projectId === where.projectId && member.userId === where.userId,
+      );
+      if (index >= 0) {
+        members.splice(index, 1);
+      }
+    },
+  };
+
+  return repository as unknown as Repository<ProjectMemberEntity>;
+}
+
+function createService(args?: {
+  projects?: ProjectEntity[];
+  members?: ProjectMemberEntity[];
+  users?: Array<{ user_id: string; email: string }>;
+}) {
+  const members = args?.members ?? [];
+  const users = args?.users ?? [];
+  const dataSource = {
+    async query(query: string, params: unknown[]) {
+      if (query.includes("FROM users") && query.includes("WHERE lower(email) = lower($1)")) {
+        const email = String(params[0]).toLowerCase();
+        return users.filter((user) => user.email.toLowerCase() === email);
+      }
+      if (query.includes("FROM project_members")) {
+        const projectId = String(params[0]);
+        return members
+          .filter((member) => member.projectId === projectId)
+          .map((member) => ({
+            user_id: member.userId,
+            email: users.find((user) => user.user_id === member.userId)?.email ?? `${member.userId}@example.com`,
+            role: member.role,
+            status: member.status,
+            created_at: member.createdAt,
+          }));
+      }
+      return [];
+    },
+    async transaction(callback: (manager: { update: (entity: unknown, where: Partial<ProjectMemberEntity>, input: Partial<ProjectMemberEntity>) => Promise<void> }) => Promise<void>) {
+      await callback({
+        async update(_entity, where, input) {
+          const member = members.find(
+            (candidate) =>
+              candidate.projectId === where.projectId &&
+              candidate.userId === where.userId &&
+              (!where.status || candidate.status === where.status),
+          );
+          if (member && input.role) {
+            member.role = input.role;
+          }
+        },
+      });
+    },
+  } as unknown as DataSource;
+
+  return new ProjectsService(
+    dataSource,
+    createProjectRepository(args?.projects),
+    createProjectMemberRepository(members),
+  );
+}
+
 describe("ProjectsService", () => {
   it("creates and lists projects inside the demo workspace", async () => {
-    const service = new ProjectsService(createProjectRepository());
+    const service = createService();
 
     const project = await service.create(demoIds.workspaceId, {
       title: "Quarterly Review",
-    });
-    const projects = await service.list(demoIds.workspaceId);
+    }, "user_1");
+    const projects = await service.list(demoIds.workspaceId, "user_1");
 
     expect(project.projectId).toMatch(/^project_/);
     expect(project.workspaceId).toBe(demoIds.workspaceId);
-    expect(project.createdBy).toBe(demoIds.userId);
+    expect(project.createdBy).toBe("user_1");
     expect(project.title).toBe("Quarterly Review");
     expect(projects).toEqual([project]);
   });
 
   it("rejects workspace access outside the demo boundary", async () => {
-    const service = new ProjectsService(createProjectRepository());
+    const service = createService();
 
-    await expect(service.list("workspace_other")).rejects.toBeInstanceOf(
+    await expect(service.list("workspace_other", "user_1")).rejects.toBeInstanceOf(
       ForbiddenException,
     );
     await expect(
-      service.create("workspace_other", { title: "Nope" }),
+      service.create("workspace_other", { title: "Nope" }, "user_1"),
     ).rejects.toBeInstanceOf(ForbiddenException);
   });
 
@@ -93,16 +230,80 @@ describe("ProjectsService", () => {
     newer.title = "New";
     newer.createdBy = demoIds.userId;
     newer.createdAt = new Date("2026-06-29T00:00:00.000Z");
-    const service = new ProjectsService(createProjectRepository([older, newer]));
+    const olderMember = new ProjectMemberEntity();
+    olderMember.projectId = older.projectId;
+    olderMember.userId = "user_1";
+    olderMember.role = "viewer";
+    olderMember.status = "accepted";
+    olderMember.createdAt = older.createdAt;
+    const newerMember = new ProjectMemberEntity();
+    newerMember.projectId = newer.projectId;
+    newerMember.userId = "user_1";
+    newerMember.role = "editor";
+    newerMember.status = "accepted";
+    newerMember.createdAt = newer.createdAt;
+    const service = createService({
+      projects: [older, newer],
+      members: [olderMember, newerMember],
+    });
 
-    await expect(service.list(demoIds.workspaceId)).resolves.toMatchObject([
+    await expect(service.list(demoIds.workspaceId, "user_1")).resolves.toMatchObject([
       { projectId: "project_new" },
       { projectId: "project_old" },
     ]);
   });
 
+  it("lists only accepted member projects for the current user", async () => {
+    const accepted = new ProjectEntity();
+    accepted.projectId = "project_accepted";
+    accepted.workspaceId = demoIds.workspaceId;
+    accepted.title = "Accepted";
+    accepted.createdBy = "user_owner";
+    accepted.createdAt = new Date("2026-06-29T00:00:00.000Z");
+    const pending = new ProjectEntity();
+    pending.projectId = "project_pending";
+    pending.workspaceId = demoIds.workspaceId;
+    pending.title = "Pending";
+    pending.createdBy = "user_owner";
+    pending.createdAt = new Date("2026-06-30T00:00:00.000Z");
+    const otherUser = new ProjectEntity();
+    otherUser.projectId = "project_other";
+    otherUser.workspaceId = demoIds.workspaceId;
+    otherUser.title = "Other";
+    otherUser.createdBy = "user_owner";
+    otherUser.createdAt = new Date("2026-06-30T01:00:00.000Z");
+
+    const acceptedMember = new ProjectMemberEntity();
+    acceptedMember.projectId = accepted.projectId;
+    acceptedMember.userId = "user_1";
+    acceptedMember.role = "viewer";
+    acceptedMember.status = "accepted";
+    acceptedMember.createdAt = accepted.createdAt;
+    const pendingMember = new ProjectMemberEntity();
+    pendingMember.projectId = pending.projectId;
+    pendingMember.userId = "user_1";
+    pendingMember.role = "editor";
+    pendingMember.status = "pending";
+    pendingMember.createdAt = pending.createdAt;
+    const otherMember = new ProjectMemberEntity();
+    otherMember.projectId = otherUser.projectId;
+    otherMember.userId = "user_2";
+    otherMember.role = "owner";
+    otherMember.status = "accepted";
+    otherMember.createdAt = otherUser.createdAt;
+
+    const service = createService({
+      projects: [accepted, pending, otherUser],
+      members: [acceptedMember, pendingMember, otherMember],
+    });
+
+    await expect(service.list(demoIds.workspaceId, "user_1")).resolves.toEqual([
+      expect.objectContaining({ projectId: "project_accepted" }),
+    ]);
+  });
+
   it("returns not found for an unknown project", async () => {
-    const service = new ProjectsService(createProjectRepository());
+    const service = createService();
 
     await expect(
       service.getAccessibleProject("project_missing"),
@@ -110,15 +311,15 @@ describe("ProjectsService", () => {
   });
 
   it("auto-creates the demo project when demo project access is requested", async () => {
-    const service = new ProjectsService(createProjectRepository());
+    const service = createService();
 
     const project = await service.getAccessibleProject(demoIds.projectId);
-    const projects = await service.list(demoIds.workspaceId);
+    const projects = await service.list(demoIds.workspaceId, demoIds.userId);
 
     expect(project.projectId).toBe(demoIds.projectId);
     expect(project.workspaceId).toBe(demoIds.workspaceId);
     expect(project.createdBy).toBe(demoIds.userId);
     expect(project.title).toBe("ORBIT Demo Project");
-    expect(projects).toEqual([project]);
+    expect(projects).toEqual([]);
   });
 });

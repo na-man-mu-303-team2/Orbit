@@ -119,6 +119,78 @@ button:disabled {
   margin-top: auto;
 }
 
+.sidebar-user {
+  display: grid;
+  gap: 8px;
+  margin-top: auto;
+  width: 100%;
+}
+
+.sidebar-user-main {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+  min-width: 0;
+  padding: 8px 10px;
+}
+
+.sidebar-user-avatar {
+  align-items: center;
+  background: #e5f7fb;
+  border-radius: 999px;
+  color: #0f172a;
+  display: inline-flex;
+  flex: 0 0 auto;
+  font-size: 14px;
+  font-weight: 800;
+  height: 34px;
+  justify-content: center;
+  width: 34px;
+}
+
+.sidebar-user-text {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.sidebar-user-text strong,
+.sidebar-user-text small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sidebar-user-text strong {
+  color: #ffffff;
+  font-size: 14px;
+}
+
+.sidebar-user-text small {
+  color: #9ca3af;
+  font-size: 12px;
+}
+
+.sidebar-logout {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: 8px;
+  color: #d1d5db;
+  display: inline-flex;
+  gap: 10px;
+  justify-content: flex-start;
+  min-height: 42px;
+  padding: 0 12px;
+  text-align: left;
+  width: 100%;
+}
+
+.sidebar-logout:hover {
+  background: #1f2937;
+  color: #ffffff;
+}
+
 .sidebar-collapsed {
   grid-template-columns: 76px minmax(0, 1fr);
 }
@@ -129,7 +201,9 @@ button:disabled {
 
 .sidebar-collapsed .sidebar-brand span,
 .sidebar-collapsed .sidebar-nav span,
-.sidebar-collapsed .sidebar-login span {
+.sidebar-collapsed .sidebar-login span,
+.sidebar-collapsed .sidebar-user-text,
+.sidebar-collapsed .sidebar-logout span {
   display: none;
 }
 
@@ -139,7 +213,17 @@ button:disabled {
 
 .sidebar-collapsed .sidebar-nav button,
 .sidebar-collapsed .sidebar-login,
+.sidebar-collapsed .sidebar-logout,
 .sidebar-collapsed .sidebar-brand {
+  justify-content: center;
+  padding: 0;
+}
+
+.sidebar-collapsed .sidebar-user {
+  justify-items: center;
+}
+
+.sidebar-collapsed .sidebar-user-main {
   justify-content: center;
   padding: 0;
 }

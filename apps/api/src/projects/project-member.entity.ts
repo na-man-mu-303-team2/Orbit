@@ -1,0 +1,22 @@
+import { Column, Entity, Index, PrimaryColumn } from "typeorm";
+import type { ProjectMemberRole, ProjectMemberStatus } from "@orbit/shared";
+
+@Entity({ name: "project_members" })
+@Index("idx_project_members_user_status", ["userId", "status"])
+@Index("idx_project_members_project_status", ["projectId", "status"])
+export class ProjectMemberEntity {
+  @PrimaryColumn({ name: "project_id", type: "text" })
+  projectId!: string;
+
+  @PrimaryColumn({ name: "user_id", type: "text" })
+  userId!: string;
+
+  @Column({ type: "text" })
+  role!: ProjectMemberRole;
+
+  @Column({ type: "text" })
+  status!: ProjectMemberStatus;
+
+  @Column({ name: "created_at", type: "timestamptz" })
+  createdAt!: Date;
+}

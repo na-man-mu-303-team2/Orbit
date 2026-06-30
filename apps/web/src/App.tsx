@@ -11,6 +11,7 @@ import {
   Home,
   LayoutTemplate,
   LogIn,
+  LogOut,
   MessageSquareText,
   PanelLeftClose,
   PanelLeftOpen,
@@ -162,7 +163,8 @@ async function fetchCurrentUser(): Promise<AuthUser> {
   if (!response.ok) {
     throw new Error("Unauthenticated");
   }
-  return response.json() as Promise<AuthUser>;
+  const payload = (await response.json()) as AuthUser | { user: AuthUser };
+  return "user" in payload ? payload.user : payload;
 }
 
 function getRoute(pathname = window.location.pathname): Route {
@@ -194,6 +196,7 @@ function navigateTo(path: string) {
 export function App() {
   const [route, setRoute] = useState(() => getRoute());
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const queryClient = useQueryClient();
 
   useEffect(() => {
     const handleRouteChange = () => setRoute(getRoute());
@@ -219,6 +222,16 @@ export function App() {
       isAuthenticated={auth.isSuccess}
       isSidebarCollapsed={isSidebarCollapsed}
       route={route}
+      user={auth.data}
+      onLogout={async () => {
+        await fetch("/api/v1/auth/logout", {
+          credentials: "include",
+          method: "POST"
+        }).catch(() => undefined);
+        queryClient.setQueryData(["auth", "me"], undefined);
+        await queryClient.invalidateQueries({ queryKey: ["auth", "me"] });
+        navigateTo("/login");
+      }}
       onToggleSidebar={() => setIsSidebarCollapsed((current) => !current)}
     >
       {renderRoute(route, auth.data)}
@@ -254,13 +267,24 @@ function AppFrame(props: {
   isAuthenticated: boolean;
   isSidebarCollapsed: boolean;
   route: Route;
+  user?: AuthUser;
+  onLogout: () => Promise<void>;
   onToggleSidebar: () => void;
 }) {
-  const { children, isAuthenticated, isSidebarCollapsed, route, onToggleSidebar } = props;
+  const {
+    children,
+    isAuthenticated,
+    isSidebarCollapsed,
+    route,
+    user,
+    onLogout,
+    onToggleSidebar
+  } = props;
   const activeProjectId =
     route.name === "project-editor" || route.name === "rehearsal"
       ? route.projectId
       : demoIds.projectId;
+  const userLabel = user ? getUserLabel(user) : "";
 
   return (
     <main className={`orbit-layout ${isSidebarCollapsed ? "sidebar-collapsed" : ""}`}>
@@ -304,12 +328,28 @@ function AppFrame(props: {
             onClick={() => navigateTo(`/rehearsal/${activeProjectId}`)}
           />
         </nav>
-        {!isAuthenticated ? (
+        {isAuthenticated && user ? (
+          <div className="sidebar-user">
+            <div className="sidebar-user-main">
+              <span className="sidebar-user-avatar" aria-hidden="true">
+                {getUserInitial(user)}
+              </span>
+              <span className="sidebar-user-text">
+                <strong>{user.displayName || userLabel}</strong>
+                <small>{userLabel}</small>
+              </span>
+            </div>
+            <button className="sidebar-logout" type="button" onClick={() => void onLogout()}>
+              <LogOut size={18} />
+              <span>로그아웃</span>
+            </button>
+          </div>
+        ) : (
           <button className="sidebar-login" type="button" onClick={() => navigateTo("/login")}>
             <LogIn size={18} />
             <span>로그인</span>
           </button>
-        ) : null}
+        )}
       </aside>
       <section className="orbit-page">{children}</section>
     </main>
@@ -328,6 +368,15 @@ function SidebarButton(props: {
       <span>{props.label}</span>
     </button>
   );
+}
+
+function getUserInitial(user: AuthUser) {
+  const source = user.displayName?.trim() || getUserLabel(user) || "U";
+  return source.slice(0, 1).toUpperCase();
+}
+
+function getUserLabel(user: AuthUser) {
+  return user.email?.trim() || user.userId;
 }
 
 function LoginPage() {

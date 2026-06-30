@@ -14,7 +14,42 @@ export const createProjectRequestSchema = z.object({
   title: z.string().trim().min(1).max(120).optional(),
 });
 
+export const projectMemberRoleSchema = z.enum(["owner", "editor", "viewer"]);
+export const projectMemberStatusSchema = z.enum([
+  "pending",
+  "accepted",
+  "rejected",
+]);
+export const projectMemberSchema = z.object({
+  userId: z.string().min(1),
+  email: z.string().email(),
+  role: projectMemberRoleSchema,
+  status: projectMemberStatusSchema,
+  createdAt: isoDateTimeSchema,
+});
+export const projectMembersResponseSchema = z.object({
+  members: z.array(projectMemberSchema),
+  requests: z.array(projectMemberSchema),
+});
+export const upsertProjectMemberRequestSchema = z.object({
+  email: z.string().trim().email().transform((email) => email.toLowerCase()),
+  role: z.enum(["editor", "viewer"]),
+});
+export const updateProjectMemberRoleRequestSchema = z.object({
+  role: projectMemberRoleSchema,
+});
+export const updateProjectMemberStatusRequestSchema = z.object({
+  status: z.enum(["accepted", "rejected"]),
+});
+
 export const projectListResponseSchema = z.array(projectSchema);
 
 export type Project = z.infer<typeof projectSchema>;
 export type CreateProjectRequest = z.infer<typeof createProjectRequestSchema>;
+export type ProjectMemberRole = z.infer<typeof projectMemberRoleSchema>;
+export type ProjectMemberStatus = z.infer<typeof projectMemberStatusSchema>;
+export type ProjectMember = z.infer<typeof projectMemberSchema>;
+export type ProjectMembersResponse = z.infer<typeof projectMembersResponseSchema>;
+export type UpsertProjectMemberRequest = z.infer<typeof upsertProjectMemberRequestSchema>;
+export type UpdateProjectMemberRoleRequest = z.infer<typeof updateProjectMemberRoleRequestSchema>;
+export type UpdateProjectMemberStatusRequest = z.infer<typeof updateProjectMemberStatusRequestSchema>;
