@@ -216,6 +216,7 @@ export function App() {
 
   return (
     <AppFrame
+      isAuthenticated={auth.isSuccess}
       isSidebarCollapsed={isSidebarCollapsed}
       route={route}
       onToggleSidebar={() => setIsSidebarCollapsed((current) => !current)}
@@ -250,11 +251,12 @@ function renderRoute(route: Route, user?: AuthUser) {
 
 function AppFrame(props: {
   children: ReactNode;
+  isAuthenticated: boolean;
   isSidebarCollapsed: boolean;
   route: Route;
   onToggleSidebar: () => void;
 }) {
-  const { children, isSidebarCollapsed, route, onToggleSidebar } = props;
+  const { children, isAuthenticated, isSidebarCollapsed, route, onToggleSidebar } = props;
   const activeProjectId =
     route.name === "project-editor" || route.name === "rehearsal"
       ? route.projectId
@@ -302,10 +304,12 @@ function AppFrame(props: {
             onClick={() => navigateTo(`/rehearsal/${activeProjectId}`)}
           />
         </nav>
-        <button className="sidebar-login" type="button" onClick={() => navigateTo("/login")}>
-          <LogIn size={18} />
-          <span>로그인</span>
-        </button>
+        {!isAuthenticated ? (
+          <button className="sidebar-login" type="button" onClick={() => navigateTo("/login")}>
+            <LogIn size={18} />
+            <span>로그인</span>
+          </button>
+        ) : null}
       </aside>
       <section className="orbit-page">{children}</section>
     </main>
