@@ -888,7 +888,7 @@ Rules:
 - Choose slideType, layoutVariant, slotPreset, visualIntent, and mediaIntent.
 - visualIntent must include paletteHint, emphasisStyle, composition,
   decorationDensity, mediaStyle, and metricCardCaption. Prefer concise values such as
-  keyword-chips, callout, split, poster, data, media, process, radial, bubble,
+  keyword-chips, split, poster, data, media, process, radial, bubble,
   low, medium, or high.
 - For visualIntent.metricCardCaption, write only concrete text intended for a
   data/metric card. Use an empty string if there is no meaningful caption, and
@@ -2396,8 +2396,6 @@ def design_elements(
 
     if emphasis_style == "keyword-chips" and slide_plan.order == 1:
         elements.extend(keyword_chip_elements(slide_plan, theme))
-    if emphasis_style == "callout":
-        elements.extend(callout_elements(slide_plan, theme))
 
     return elements
 
@@ -2590,8 +2588,6 @@ def normalize_decoration_density(value: str) -> str:
 
 def normalize_emphasis_style(value: str) -> str:
     normalized = value.strip().casefold()
-    if "callout" in normalized or "quote" in normalized or "콜아웃" in normalized:
-        return "callout"
     if has_any(
         normalized,
         ["chip", "keyword", "키워드", "강조", "칩", "하이라이트"],
@@ -2642,51 +2638,6 @@ def keyword_chip_elements(
             ]
         )
     return elements
-
-
-def callout_elements(
-    slide_plan: SlidePlan,
-    theme: dict[str, Any],
-) -> list[dict[str, Any]]:
-    callout = first_sentence(slide_plan.message)
-    return [
-        shape_element(
-            slide_plan.order,
-            "callout_box",
-            "highlight",
-            1040,
-            730,
-            640,
-            126,
-            4,
-            theme["palette"]["surface"],
-            theme["accentColor"],
-            12,
-        ),
-        text_element(
-            slide_plan.order,
-            "callout_text",
-            "highlight",
-            callout,
-            1074,
-            760,
-            572,
-            76,
-            5,
-            theme["textColor"],
-            theme["typography"]["bodySize"],
-            "bold",
-            theme["typography"]["headingFontFamily"],
-        ),
-    ]
-
-
-def first_sentence(value: str) -> str:
-    text = value.strip()
-    for separator in [". ", "? ", "! ", "\n"]:
-        if separator in text:
-            return text.split(separator, maxsplit=1)[0].strip() + separator.strip()
-    return text
 
 
 def media_elements(

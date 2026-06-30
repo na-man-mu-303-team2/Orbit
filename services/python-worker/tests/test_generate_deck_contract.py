@@ -1103,8 +1103,8 @@ def test_generate_deck_applies_visual_intent_decorations_and_caps_elements() -> 
         assert has_element(first_slide, f"el_1_keyword_chip_{index}")
         assert has_element(first_slide, f"el_1_keyword_chip_{index}_text")
     assert has_element(second_slide, "el_2_diagonal_block")
-    assert has_element(second_slide, "el_2_callout_box")
-    assert has_element(second_slide, "el_2_callout_text")
+    assert not has_element(second_slide, "el_2_callout_box")
+    assert not has_element(second_slide, "el_2_callout_text")
     assert all(len(slide["elements"]) <= 14 for slide in response.deck["slides"])
     assert response.validation.passed is True
 
