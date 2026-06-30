@@ -4,6 +4,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import {
   LiveSttAdapterError,
+  RehearsalReportPage,
   RehearsalFlowError,
   RehearsalWorkspace,
   SherpaLiveSttAdapter,
@@ -14,6 +15,8 @@ import {
   evaluateLiveTranscript,
   fetchRehearsalReport,
   fetchOrCreateRehearsalDeck,
+  getRehearsalFinishPath,
+  getRehearsalReportPath,
   getLiveAudioLevelLabel,
   getLiveAudioLevelPercent,
   normalizeRecordingMimeType,
@@ -21,6 +24,7 @@ import {
   rehearsalMicrophoneAudioConstraints,
   renderLiveTranscriptBuffer,
   requestRehearsalMicrophoneStream,
+  resolveRehearsalReportLoadState,
   runRehearsalUploadFlow,
   selectRecordingMimeType,
   shouldAutoAdvanceLiveSlide
@@ -104,22 +108,111 @@ describe("RehearsalWorkspace", () => {
     })).toBe(60);
   });
 
-  it("renders report metrics without exposing a non-retained transcript", () => {
+  it("keeps final report content out of the presenter workspace", () => {
+    const deck = createDemoDeck();
+    const html = renderToStaticMarkup(<RehearsalWorkspace initialDeck={deck} />);
+
+    expect(html).not.toContain("리허설 보고서");
+    expect(html).not.toContain("120 wpm");
+    expect(html).not.toContain("민감한 전사 원문");
+  });
+
+  it("renders the dedicated report page from official report data", () => {
     const deck = createDemoDeck();
     const html = renderToStaticMarkup(
-      <RehearsalWorkspace
+      <RehearsalReportPage
         initialDeck={deck}
+        initialRun={runFixture("succeeded")}
         initialReport={reportFixture({
           transcriptRetained: false,
           transcript: null
         })}
+        projectId="project-a"
+        runId="run-1"
       />
     );
 
-    expect(html).toContain("리허설 보고서");
-    expect(html).toContain("120 wpm");
-    expect(html).toContain("전사문 미보존");
+    expect(html).toContain("1회차 리허설 리포트");
+    expect(html).toContain("26.06.29.");
+    expect(html).toContain("1:30");
+    expect(html).toContain(String(deck.slides.length));
+    expect(html).toContain("120");
+    expect(html).toContain("75%");
+    expect(html).toContain("불필요한 표현");
+    expect(html).toContain("긴 멈춤");
     expect(html).not.toContain("민감한 전사 원문");
+    expect(html).not.toContain("dB");
+    expect(html).not.toContain("슬라이드별 목표 시간 / 실제 시간");
+  });
+
+  it("does not show missing keyword candidates for full keyword coverage", () => {
+    const deck = createDemoDeck();
+    const html = renderToStaticMarkup(
+      <RehearsalReportPage
+        initialDeck={deck}
+        initialRun={runFixture("succeeded")}
+        initialReport={reportFixture({
+          metrics: {
+            durationSeconds: 90,
+            wordsPerMinute: 120,
+            fillerWordCount: 0,
+            pauseCount: 0,
+            keywordCoverage: 1
+          }
+        })}
+        projectId="project-a"
+        runId="run-1"
+      />
+    );
+
+    expect(html).toContain("이번 리허설에서 누락된 키워드가 없습니다.");
+    expect(html).not.toContain("핵심 키워드 커버리지가 낮을 때만 누락 후보를 표시합니다.");
+  });
+
+  it("maps failed and mismatched report responses to failed page state", () => {
+    expect(
+      resolveRehearsalReportLoadState(
+        {
+          run: runFixture("failed", {
+            error: { code: "REPORT_FAILED", message: "분석 실패" }
+          }),
+          report: null
+        },
+        "project-a"
+      )
+    ).toEqual({
+      error: "분석 실패",
+      status: "failed"
+    });
+
+    expect(
+      resolveRehearsalReportLoadState(
+        {
+          run: runFixture("succeeded", { projectId: "project-b" }),
+          report: reportFixture()
+        },
+        "project-a"
+      )
+    ).toEqual({
+      error: "요청한 프로젝트와 리허설 실행 정보가 일치하지 않습니다.",
+      status: "failed"
+    });
+  });
+
+  it("builds the dedicated report route for a completed rehearsal run", () => {
+    expect(getRehearsalReportPath("project a", "run/1")).toBe(
+      "/rehearsal/project%20a/report/run%2F1"
+    );
+  });
+
+  it("opens the report only from finish when the run has succeeded", () => {
+    expect(getRehearsalFinishPath("project-a", null)).toBe("/project/project-a");
+    expect(getRehearsalFinishPath("project-a", runFixture("processing"))).toBe(
+      "/rehearsal/project-a/report/run-1"
+    );
+    expect(getRehearsalFinishPath("project-a", runFixture("succeeded"))).toBe(
+      "/rehearsal/project-a/report/run-1"
+    );
   });
 
   it("matches live STT keywords with normalized Korean aliases", () => {
