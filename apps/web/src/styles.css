@@ -1691,10 +1691,10 @@ button:disabled {
   color: #0f172a;
   display: grid;
   gap: 5px;
-  grid-template-rows: auto auto minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr) auto auto;
   min-width: 0;
   overflow: hidden;
-  padding: 10px;
+  padding: 8px;
   text-align: left;
 }
 
@@ -1703,10 +1703,28 @@ button:disabled {
   box-shadow: inset 0 0 0 1px #2563eb;
 }
 
-.rehearsal-context-thumb > span {
+.rehearsal-context-thumb-label {
   color: #2563eb;
   font-size: 0.72rem;
   font-weight: 900;
+}
+
+.rehearsal-context-thumb-preview {
+  align-items: center;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 5px;
+  display: flex;
+  justify-content: center;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.rehearsal-context-thumb-preview img {
+  display: block;
+  height: 100%;
+  object-fit: contain;
+  width: 100%;
 }
 
 .rehearsal-context-thumb strong,

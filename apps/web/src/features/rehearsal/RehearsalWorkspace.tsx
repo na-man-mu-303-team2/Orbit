@@ -1295,6 +1295,7 @@ export function RehearsalWorkspace(props: {
               if (!slide) return null;
 
               const label = offset === 0 ? "\ud604\uc7ac" : offset > 0 ? `+${offset}` : `${offset}`;
+              const thumbnailUrl = resolveEditorAssetUrl(slide.thumbnailUrl);
               return (
                 <button
                   className={`rehearsal-context-thumb ${offset === 0 ? "active" : ""}`}
@@ -1302,7 +1303,15 @@ export function RehearsalWorkspace(props: {
                   type="button"
                   onClick={() => setCurrentSlideIndex(slideIndex)}
                 >
-                  <span>{label}</span>
+                  <span className="rehearsal-context-thumb-label">{label}</span>
+                  {thumbnailUrl ? (
+                    <span className="rehearsal-context-thumb-preview">
+                      <img
+                        alt={`${getSlideTitle(slide)} thumbnail`}
+                        src={thumbnailUrl}
+                      />
+                    </span>
+                  ) : null}
                   <strong>{getSlideTitle(slide)}</strong>
                   <small>{getSlideSummary(slide)}</small>
                 </button>
