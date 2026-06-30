@@ -25,16 +25,17 @@ import {
   CheckCircle2,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
   Clock,
   FileText,
   Gauge,
+  Home,
   Mic,
   MoreHorizontal,
   PlayCircle,
   RotateCcw,
   Sparkles,
-  Square,
-  Target
+  Square
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { resolveEditorAssetUrl } from "../editor/editorAssetUrl";
@@ -1554,119 +1555,155 @@ export function RehearsalReportPage(props: {
 
   const reportDate = formatReportDate(report?.generatedAt ?? run?.updatedAt ?? run?.createdAt);
   const slideCount = deck?.slides.length;
+  const habitLabel = `${report?.metrics.fillerWordCount ?? 0}회 사용`;
+  const missingKeywordLabel = `커버리지 ${formatPercent(report?.metrics.keywordCoverage ?? 0)}`;
 
   return (
     <main className="rehearsal-report-page">
-      <aside className="rehearsal-report-nav" aria-label="리허설 리포트 목록">
-        <button
-          className="rehearsal-report-home"
-          type="button"
-          onClick={() => navigateToRehearsal(props.projectId)}
-        >
-          <ChevronLeft size={18} />
-          <span>리허설</span>
-        </button>
-
-        <section>
-          <h2>
-            <ChevronRight size={20} />
-            리허설 리포트
-          </h2>
-          <button className="rehearsal-report-nav-item active" type="button">
-            <strong>1회차</strong>
-            <span>{reportDate}</span>
+      <header className="rehearsal-report-topbar">
+        <div className="rehearsal-report-topbar-left">
+          <button
+            type="button"
+            onClick={() => navigateToRehearsal(props.projectId)}
+            aria-label="리허설로 돌아가기"
+          >
+            <Home size={28} />
           </button>
-        </section>
+          <CheckCircle2 size={30} />
+        </div>
+        <strong>[{deck?.title ?? "제목"}]</strong>
+        <div className="rehearsal-report-topbar-actions">
+          <span>알렉스</span>
+          <span className="report-toggle" aria-hidden="true">
+            <i />
+            <i />
+          </span>
+          <button type="button">리허설</button>
+          <button type="button">
+            AI 리포트
+            <ChevronDown size={22} />
+          </button>
+        </div>
+      </header>
 
-        <section>
-          <h2>
-            <ChevronRight size={20} />
-            실전 리포트
-          </h2>
-        </section>
-      </aside>
+      <div className="rehearsal-report-body">
+        <aside className="rehearsal-report-nav" aria-label="리허설 리포트 목록">
+          <section>
+            <h2>
+              <ChevronDown size={24} />
+              리허설 리포트
+            </h2>
+            <button className="rehearsal-report-nav-item active" type="button">
+              <strong>1회차</strong>
+              <span>{reportDate}</span>
+            </button>
+          </section>
 
-      <section className="rehearsal-report-document" aria-live="polite">
-        <header className="rehearsal-report-document-header">
-          <div>
-            <p>{deck?.title ?? "리허설"}</p>
+          <section>
+            <h2>
+              <ChevronRight size={24} />
+              실전 리포트
+            </h2>
+          </section>
+        </aside>
+
+        <section className="rehearsal-report-document" aria-live="polite">
+          <header className="rehearsal-report-document-header">
             <h1>1회차 리허설 리포트</h1>
-          </div>
-          <time>{reportDate}</time>
-        </header>
+            <time>{reportDate}</time>
+          </header>
 
-        {report ? (
-          <div className="rehearsal-report-document-grid">
-            <section className="report-summary-card">
-              <div className="report-summary-row">
-                <span>
-                  <Clock size={24} />
-                  총 소요 시간
-                </span>
-                <strong>{formatDuration(report.metrics.durationSeconds)}</strong>
-              </div>
-              <div className="report-summary-row">
-                <span>
-                  <FileText size={24} />
-                  사용한 슬라이드 수
-                </span>
-                <strong>{typeof slideCount === "number" ? slideCount : "-"}</strong>
-              </div>
-            </section>
-
-            <section className="report-speed-card">
-              <h2>평균 발표 속도</h2>
-              <div className="report-speed-gauge" role="meter" aria-label="평균 발표 속도">
-                <span className="speed-slow">slow</span>
-                <strong>{Math.round(report.metrics.wordsPerMinute)}</strong>
-                <span className="speed-unit">words/min</span>
-                <span className="speed-fast">fast</span>
-              </div>
-            </section>
-
-            <section className="report-voice-card">
-              <h2>음성 분석</h2>
-              <div className="report-large-metric">
-                <Gauge size={28} />
-                <strong>{report.metrics.pauseCount}회</strong>
-                <span>긴 멈춤</span>
-              </div>
-              <div className="report-mini-chart" aria-label="음성 분석 요약">
-                {Array.from({ length: 14 }).map((_, index) => (
-                  <span
-                    key={index}
-                    className={index % 4 === 0 || index % 5 === 0 ? "emphasis" : ""}
-                  />
-                ))}
-              </div>
-            </section>
-
-            <section className="report-coaching-card">
-              <h2>내용 전달 명확성</h2>
-              <p>{report.coaching?.summary || report.coaching?.message || "코칭 요약이 없습니다."}</p>
-              <div className="report-chip-row">
-                <span>말습관</span>
-                <strong>{report.metrics.fillerWordCount}회 사용</strong>
-              </div>
-              <div className="report-chip-row">
-                <span>키워드 커버리지</span>
-                <strong>{formatPercent(report.metrics.keywordCoverage)}</strong>
-              </div>
-              {report.coaching?.nextPracticeFocus ? (
-                <div className="report-next-practice">
-                  <Target size={18} />
-                  <span>{report.coaching.nextPracticeFocus}</span>
+          {report ? (
+            <div className="rehearsal-report-document-grid">
+              <section className="report-summary-card">
+                <div className="report-summary-row">
+                  <span>
+                    <Clock size={26} />
+                    총 소요 시간
+                  </span>
+                  <strong>{formatDuration(report.metrics.durationSeconds)}</strong>
                 </div>
-              ) : null}
-            </section>
-          </div>
-        ) : (
-          <div className={status === "failed" ? "report-page-state status-error" : "report-page-state"}>
-            <BarChart3 size={28} />
-            <strong>{formatEmptyReportMessage(status, error)}</strong>
-          </div>
-        )}
-      </section>
+                <div className="report-summary-row">
+                  <span>
+                    <FileText size={26} />
+                    사용한 슬라이드 수
+                  </span>
+                  <strong>{typeof slideCount === "number" ? slideCount : "-"}</strong>
+                </div>
+              </section>
+
+              <section className="report-speed-card">
+                <h2>평균 발표 속도</h2>
+                <div className="report-speed-gauge" role="meter" aria-label="평균 발표 속도">
+                  <span className="speed-mark speed-mark-left">100</span>
+                  <span className="speed-mark speed-mark-right">150</span>
+                  <span className="speed-slow">slow</span>
+                  <strong>{Math.round(report.metrics.wordsPerMinute)}</strong>
+                  <span className="speed-unit">words/min</span>
+                  <span className="speed-fast">fast</span>
+                </div>
+              </section>
+
+              <section className="report-voice-card">
+                <h2>음성 분석</h2>
+                <div className="report-large-metric">
+                  <Gauge size={30} />
+                  <strong>{report.metrics.pauseCount}회</strong>
+                  <span>긴 멈춤</span>
+                </div>
+                <div className="report-mini-chart" aria-label="음성 분석 요약">
+                  {Array.from({ length: 14 }).map((_, index) => (
+                    <span
+                      key={index}
+                      className={index % 4 === 0 || index % 5 === 0 ? "emphasis" : ""}
+                    />
+                  ))}
+                </div>
+              </section>
+
+              <section className="report-coaching-card">
+                <h2>내용 전달 명확성</h2>
+                <div className="report-chip-row">
+                  <span>말습관</span>
+                  <strong>{habitLabel}</strong>
+                </div>
+                <div className="report-chip-row">
+                  <span>누락 키워드</span>
+                  <strong>{missingKeywordLabel}</strong>
+                </div>
+                <div className="report-coaching-summary">
+                  <strong>코칭 요약</strong>
+                  <p>{report.coaching?.summary || report.coaching?.message || "코칭 요약이 없습니다."}</p>
+                </div>
+                {report.coaching?.improvements.length ? (
+                  <div className="report-coaching-summary">
+                    <strong>개선 포인트</strong>
+                    <ul>
+                      {report.coaching.improvements.slice(0, 3).map((improvement) => (
+                        <li key={improvement}>{improvement}</li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
+                {report.coaching?.nextPracticeFocus ? (
+                  <div className="report-next-practice">
+                    <span>{report.coaching.nextPracticeFocus}</span>
+                  </div>
+                ) : null}
+              </section>
+            </div>
+          ) : (
+            <div
+              className={
+                status === "failed" ? "report-page-state status-error" : "report-page-state"
+              }
+            >
+              <BarChart3 size={28} />
+              <strong>{formatEmptyReportMessage(status, error)}</strong>
+            </div>
+          )}
+        </section>
+      </div>
     </main>
   );
 }
