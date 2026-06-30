@@ -22,7 +22,6 @@ import {
   maxAssetUploadSizeBytes,
   putDeckResponseSchema
 } from "@orbit/shared";
-import orbitLogo from "../../../assets/orbit-logo.png";
 import { createProject, fetchProjects, uploadProjectAsset } from "../../projects/ProjectAssetWorkspace";
 import {
   normalizeEditorAssetUrl,
@@ -95,7 +94,6 @@ import {
   Download,
   FileText,
   FolderPlus,
-  Home,
   ImagePlus,
   LayoutTemplate,
   Minus,
@@ -2669,11 +2667,6 @@ export function EditorShell(props: { projectId?: string }) {
       >
         <header className="app-topbar" ref={topbarRef}>
         <div className="topbar-left">
-          <img alt="Orbit" className="brand-mark" src={orbitLogo} />
-          <button className="top-home-button" type="button" title="Home">
-            <Home size={16} />
-          </button>
-          <div className="topbar-divider" />
           <div className="menu-stack">
             <div className="menu-row">
               <button
@@ -2838,6 +2831,7 @@ export function EditorShell(props: { projectId?: string }) {
         </div>
 
         <div className="top-actions">
+          <span className="avatar">김</span>
           <EditorSaveControl
             disabled={isDeckLoading || isUsingFallbackDeck}
             emptyStateLabel={deckQuery.data ? "불러온 파일" : "저장 기록 없음"}
@@ -2847,7 +2841,6 @@ export function EditorShell(props: { projectId?: string }) {
             recoveryHint={saveErrorMessage ? getSaveRecoveryHint(saveErrorCode) : null}
             statusLabel={saveStatusLabel}
           />
-          <span className="avatar">김</span>
           <div className="top-action-menu">
             <button
               aria-expanded={activeTopMenu === "presentation"}
