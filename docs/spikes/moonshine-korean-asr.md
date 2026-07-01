@@ -13,6 +13,7 @@ Implemented web pieces:
 - `moonshineWorker.ts`: loads `@huggingface/transformers` ASR pipeline for `onnx-community/moonshine-tiny-ko-ONNX`, tries WebGPU first, falls back to WASM, and passes `max_length` per segment.
 - `orbit.liveStt.engine`: localStorage engine flag for `sherpa` and `moonshine`.
 - `stt:evaluate`: fixed Korean fixture evaluator for CER, keyword recall, false-trigger rate, and segment latency.
+- `stt:measure:sherpa`: runs the current self-hosted sherpa WASM assets in Playwright Chromium and writes a gate-compatible baseline report.
 - `stt:canary:moonshine-debug`: summarizes `[orbit-live-stt-worker]` debug logs into canary RTF/latency/audio-level statistics.
 - `stt:gate:moonshine`: compares a Moonshine measurement report against a sherpa baseline or explicit absolute thresholds and returns `go`, `no-go`, or `blocked`.
 - `stt:readiness:moonshine`: aggregates the quality gate, hosting verification, and canary summary into one cutover readiness report.
@@ -118,14 +119,20 @@ Prediction format:
 Browser measurement runner:
 
 ```bash
+pnpm --filter @orbit/web stt:measure:sherpa -- --out docs/spikes/sherpa-korean-asr-baseline.json
 pnpm --filter @orbit/web stt:measure:moonshine -- --out docs/spikes/moonshine-korean-asr-measurements.json
 pnpm --filter @orbit/web stt:measure:moonshine -- --devices wasm --decoder-dtype q8 --out docs/spikes/moonshine-korean-asr-measurements-wasm-q8.json
 ```
 
-The runner starts Vite with COOP/COEP headers, synthesizes Korean fixture audio with the macOS `Yuna` voice unless `--audio-dir` is provided, loads Moonshine in Playwright Chromium, and writes prediction + metric JSON.
+The runners start Vite with COOP/COEP headers, synthesize Korean fixture audio with the macOS `Yuna` voice unless `--audio-dir` is provided, load the selected ASR engine in Playwright Chromium, and write prediction + metric JSON.
 For human wav fixtures, pass the same stable `--audio-source` label used by the sherpa baseline report:
 
 ```bash
+pnpm --filter @orbit/web stt:measure:sherpa -- \
+  --audio-dir <human-wav-dir> \
+  --audio-source <human-fixture-label> \
+  --out docs/spikes/sherpa-human-live-stt-baseline.json
+
 pnpm --filter @orbit/web stt:measure:moonshine -- \
   --audio-dir <human-wav-dir> \
   --audio-source <human-fixture-label> \
@@ -182,22 +189,24 @@ The readiness report returns `ready` only when the quality gate is `go`, hosting
 
 Source files:
 
+- `docs/spikes/sherpa-korean-asr-baseline.json`
 - `docs/spikes/moonshine-korean-asr-measurements.json`
 - `docs/spikes/moonshine-korean-asr-measurements-wasm-q8.json`
 
 Audio source: synthetic macOS `say -v Yuna` Korean speech generated from `apps/web/src/features/rehearsal/fixtures/live-stt-ko-evaluation.json`. This is useful for regression and pipeline validation, but it is not a replacement for human rehearsal wav fixtures.
-Model load times are directional only: the q4 WASM row ran after WebGPU in the same browser session, while the q8 WASM row ran in a separate measurement.
+Model load times are directional only: the Moonshine q4 WASM row ran after WebGPU in the same browser session, the Moonshine q8 WASM row ran in a separate measurement, and the sherpa row ran in its own browser session.
 
-| Device | dtype | Status | Model load | Avg CER | Keyword recall | False trigger | Avg segment latency | Notes |
+| Engine / device | dtype | Status | Model load | Avg CER | Keyword recall | False trigger | Avg segment latency | Notes |
 | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | --- |
-| WebGPU | `encoder_model=fp32`, `decoder_model_merged=q4` | no-go | 32154 ms | 1.173 | 0.000 | 0.000 | 6739 ms | Chromium emitted repeated WGSL `computeSliceOffsets` validation errors and transcripts were corrupted. |
-| WASM | `encoder_model=fp32`, `decoder_model_merged=q4` | no-go | 615 ms | 0.650 | 0.333 | 0.000 | 73.5 ms | Control phrases partially recognized, slide keywords missed. |
-| WASM | `encoder_model=fp32`, `decoder_model_merged=q8` | no-go | 13417 ms | 0.643 | 0.333 | 0.000 | 75.2 ms | Slight CER improvement over q4, recall unchanged. |
+| sherpa WASM | `streaming-zipformer-korean-2024-06-16` int8 | baseline no-go | 245 ms | 0.640 | 0.000 | 0.000 | 912.7 ms | Current self-hosted assets loaded successfully, but synthetic keyword recall stayed at zero. |
+| Moonshine WebGPU | `encoder_model=fp32`, `decoder_model_merged=q4` | no-go | 32154 ms | 1.173 | 0.000 | 0.000 | 6739 ms | Chromium emitted repeated WGSL `computeSliceOffsets` validation errors and transcripts were corrupted. |
+| Moonshine WASM | `encoder_model=fp32`, `decoder_model_merged=q4` | no-go | 615 ms | 0.650 | 0.333 | 0.000 | 73.5 ms | Control phrases partially recognized, slide keywords missed. |
+| Moonshine WASM | `encoder_model=fp32`, `decoder_model_merged=q8` | no-go | 13417 ms | 0.643 | 0.333 | 0.000 | 75.2 ms | Slight CER improvement over q4, recall unchanged. |
 
-Conclusion: the integration path works and the tokenizer compatibility issue is fixed, but the measured quality does **not** justify default-engine cutover. Keep the feature flag, collect real human wav fixtures, and revisit VAD/dtype/postprocessing after a representative baseline exists. Canary sessions can enable `orbit.liveStt.debugLatency=1` to capture Moonshine segment `transcribeMs`, `realtimeFactor`, and audio amplitude stats in browser debug logs.
+Conclusion: the integration path works and the tokenizer compatibility issue is fixed, but the measured quality does **not** justify default-engine cutover. The synthetic sherpa baseline is useful for local regression comparison, but it is not human cutover evidence. Running `stt:gate:moonshine` with the synthetic Moonshine candidate and sherpa baseline returns `blocked` with missing criterion `humanAudioSource`. Keep the feature flag, collect real human wav fixtures, and revisit VAD/dtype/postprocessing after a representative baseline exists. Canary sessions can enable `orbit.liveStt.debugLatency=1` to capture Moonshine segment `transcribeMs`, `realtimeFactor`, and audio amplitude stats in browser debug logs.
 
 ## Remaining Work
 
-- M1/M5: replace the synthetic TTS baseline with real Korean rehearsal wav fixtures and repeat WebGPU/WASM measurements.
+- M1/M5: replace the synthetic TTS baseline with real Korean rehearsal wav fixtures and repeat sherpa/Moonshine WebGPU/WASM measurements.
 - M6: run staging canary using `orbit.liveStt.debugLatency=1` for RTF/latency stats and the A2 harness for recall.
 - M7: keep sherpa as a fallback. Change the default engine only after the measured quality gate passes.

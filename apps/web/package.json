@@ -12,6 +12,7 @@
     "stt:evaluate": "node scripts/evaluate-live-stt-fixtures.mjs",
     "stt:gate:moonshine": "node scripts/evaluate-live-stt-quality-gate.mjs",
     "stt:measure:moonshine": "node scripts/measure-moonshine-browser-fixtures.mjs",
+    "stt:measure:sherpa": "node scripts/measure-sherpa-browser-fixtures.mjs",
     "stt:model:prepare:moonshine": "node scripts/prepare-moonshine-live-stt-model.mjs",
     "stt:model:prepare": "node scripts/prepare-live-stt-model.mjs",
     "stt:readiness:moonshine": "node scripts/evaluate-moonshine-readiness.mjs",

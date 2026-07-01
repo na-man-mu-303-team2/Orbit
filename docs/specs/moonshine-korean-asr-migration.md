@@ -39,7 +39,7 @@ Moonshine 한국어(`moonshine-tiny-ko`)는 2025년 9월 공개된 27M 파라미
 
 ### Decision
 
-**Moonshine `moonshine-tiny-ko` (ONNX)를 Transformers.js 기반 신규 `MoonshineLiveSttAdapter`로 통합한다.** M0 라이선스 게이트는 사용자 승인 완료(2026-07-01)로 처리한다. Synthetic `Yuna` fixture의 2026-07-01 측정은 품질 게이트를 통과하지 못했으므로 기본 엔진 전환과 프로덕션 롤아웃은 계속 보류한다. sherpa 어댑터는 fallback이자 기본 엔진으로 유지한다.
+**Moonshine `moonshine-tiny-ko` (ONNX)를 Transformers.js 기반 신규 `MoonshineLiveSttAdapter`로 통합한다.** M0 라이선스 게이트는 사용자 승인 완료(2026-07-01)로 처리한다. Synthetic `Yuna` fixture의 2026-07-01 Moonshine/sherpa 측정은 품질 게이트를 통과하지 못했으므로 기본 엔진 전환과 프로덕션 롤아웃은 계속 보류한다. sherpa 어댑터는 fallback이자 기본 엔진으로 유지한다.
 
 ### 고려한 옵션
 
@@ -158,7 +158,7 @@ Moonshine에는 sherpa의 `hotwordsBuf`/`modified_beam_search` 같은 디코딩 
 ## 7. 인수 조건 (개요 — 상세는 plan.md)
 - M0 라이선스 상태: 사용자 승인 완료(2026-07-01). 상세 계약 기록은 저장소 밖에서 관리한다.
 - `MoonshineLiveSttAdapter`가 기존 `LiveSttAdapter` 계약·테스트를 통과.
-- 고정 한국어 fixture에서 키워드 recall ≥ 현행, false-trigger ≤ 현행, CER 측정치 기록. Synthetic TTS baseline은 기록됐지만 no-go다.
+- 고정 한국어 fixture에서 키워드 recall ≥ 현행, false-trigger ≤ 현행, CER 측정치 기록. Synthetic TTS Moonshine/sherpa baseline은 기록됐지만 no-go이며, human-audio cutover 증거로 쓰지 않는다.
 - WebGPU/WASM 양 경로에서 세그먼트 전사 지연이 목표 이내. WASM은 짧은 지연을 보였으나 WebGPU는 no-go다.
 - 플래그로 sherpa ↔ Moonshine 무중단 전환.
 - 기본 엔진 전환은 `stt:gate:moonshine`이 sherpa baseline 또는 합의된 절대 threshold 대비 `go`를 반환할 때까지 금지.

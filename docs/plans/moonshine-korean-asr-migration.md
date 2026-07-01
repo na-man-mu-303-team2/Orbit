@@ -5,7 +5,7 @@
 **짝 문서:** [spec/ADR](../specs/moonshine-korean-asr-migration.md)
 **전략:** 신규 `MoonshineLiveSttAdapter`를 기능 플래그 뒤에 추가 → 실측(정확도·지연) → canary → 컷오버 → sherpa 제거. 기존 `LiveSttAdapter` 계약을 유지해 리허설 제품 로직·`packages/shared` 스키마는 변경하지 않는다.
 
-**현재 구현 메모(2026-07-01):** M2~M4와 M5 하네스/품질 gate CLI, M6 엔진 플래그/자가호스팅 옵션·준비 스크립트/디버그 지표는 구현됐다. M0는 사용자 승인 완료로 기록한다. Synthetic macOS `Yuna` fixture로 WebGPU/WASM 측정도 수행했으나 품질 게이트는 실패했다. `stt:evaluate --out`은 수동 수집한 sherpa prediction JSON을 gate-compatible baseline report로 변환할 수 있고, Moonshine 측정 report는 `audioInput.kind`로 synthetic TTS와 실제 wav 입력을 구분한다. `stt:readiness:moonshine`은 품질 gate, hosting 검증, canary 요약을 최종 컷오버 readiness report로 집계한다. 실제 사람 음성 fixture, staging canary, 기본 엔진 컷오버는 아직 완료 조건이 충족되지 않았다.
+**현재 구현 메모(2026-07-01):** M2~M4와 M5 하네스/품질 gate CLI, M6 엔진 플래그/자가호스팅 옵션·준비 스크립트/디버그 지표는 구현됐다. M0는 사용자 승인 완료로 기록한다. Synthetic macOS `Yuna` fixture로 Moonshine WebGPU/WASM 및 sherpa WASM baseline 측정을 수행했으나 품질 게이트는 실패했다. `stt:evaluate --out`은 수동 수집한 sherpa prediction JSON을 gate-compatible baseline report로 변환할 수 있고, `stt:measure:sherpa`는 현재 self-hosted sherpa 자산을 브라우저에서 직접 측정해 baseline report를 생성한다. Moonshine/sherpa 측정 report는 `audioInput.kind`로 synthetic TTS와 실제 wav 입력을 구분한다. `stt:readiness:moonshine`은 품질 gate, hosting 검증, canary 요약을 최종 컷오버 readiness report로 집계한다. 실제 사람 음성 fixture, staging canary, 기본 엔진 컷오버는 아직 완료 조건이 충족되지 않았다.
 
 ---
 
@@ -18,7 +18,7 @@
 | M2 | 어댑터 구현 | 계약 준수 어댑터 + 워커 | `MoonshineLiveSttAdapter` + 단위테스트 | 완료 |
 | M3 | VAD 세그먼트 | 라이브 발화 경계 처리 | VAD 세그먼터 + 세그먼트 final | 완료 |
 | M4 | 키워드 후처리 패리티 | hotword 상실 보완 | 후처리 바이어스 연결 + 매칭 개선 | 완료 |
-| M5 | 평가 하네스 + 튜닝 | recall/CER/지연 측정·튜닝 | CER 하네스 + 튜닝 리포트 | synthetic 리포트 완료, 사람 음성 대기 |
+| M5 | 평가 하네스 + 튜닝 | recall/CER/지연 측정·튜닝 | CER 하네스 + 튜닝 리포트 | synthetic Moonshine/sherpa 리포트 완료, 사람 음성 대기 |
 | M6 | 플래그 롤아웃(canary) | 무중단 A/B | 엔진 플래그 + 스테이징 canary | 플래그·디버그 지표 완료, canary 대기 |
 | M7 | 컷오버 & 정리 | 기본 엔진 전환 | Moonshine 기본화, sherpa 제거/보존 결정 | 품질 게이트 대기 |
 
@@ -67,7 +67,8 @@ M0는 M6(프로덕션 노출)의 **차단 선행조건**. M1~M5는 M0와 병행 
 ### M5 — 평가 하네스 + 튜닝
 - [x] 리허설형 한국어 발화 fixture(제어 명령 + 슬라이드 키워드 + 임의 발화 + 잡음) 구축.
 - [x] CER(문자 단위), 키워드 recall, false-trigger율, 세그먼트 지연 자동 측정 스크립트(Node) 구축.
-- [ ] sherpa(가능 시) vs Moonshine 비교표 생성. `stt:gate:moonshine`은 실제 사람 음성 candidate와 같은 `fixturePath`/`audioSource`의 sherpa baseline 또는 명시 threshold를 비교해 gate JSON/Markdown을 생성한다. `stt:evaluate --out --engine sherpa --audio-source <human-fixture-label>`은 수동 수집한 sherpa prediction을 baseline report로 변환하고, `stt:measure:moonshine --audio-dir <human-wav-dir> --audio-source <human-fixture-label>`은 같은 라벨의 candidate report를 생성한다. sherpa 모델 자산이 없어 이번 측정은 Moonshine 단독 synthetic baseline으로 남긴다.
+- [x] sherpa(가능 시) vs Moonshine synthetic 비교표 생성. `stt:measure:sherpa`가 현재 self-hosted sherpa WASM 자산으로 `docs/spikes/sherpa-korean-asr-baseline.json`을 생성했고, synthetic `Yuna` 기준 sherpa recall 0.000 / 평균 CER 0.640 / 평균 latency 912.7 ms를 기록했다. 같은 synthetic audioSource로 `stt:gate:moonshine`을 실행하면 `humanAudioSource` 부족으로 `blocked`를 반환한다.
+- [ ] 실제 사람 음성 fixture 기준 sherpa vs Moonshine 비교표 생성. `stt:gate:moonshine`은 실제 사람 음성 candidate와 같은 `fixturePath`/`audioSource`의 sherpa baseline 또는 명시 threshold를 비교해 gate JSON/Markdown을 생성한다. `stt:evaluate --out --engine sherpa --audio-source <human-fixture-label>`은 수동 수집한 sherpa prediction을 baseline report로 변환할 수 있고, `stt:measure:sherpa --audio-dir <human-wav-dir> --audio-source <human-fixture-label>`은 현재 sherpa 자산을 브라우저에서 직접 측정한다. `stt:measure:moonshine --audio-dir <human-wav-dir> --audio-source <human-fixture-label>`은 같은 라벨의 candidate report를 생성한다.
 - [x] 튜닝: VAD 임계값, 최소 세그먼트, `max_length`, dtype, 후처리 바이어스 임계값. q4/q8 synthetic baseline 결과 기본 컷오버는 no-go이며, 사람 음성 fixture 전에는 추가 튜닝하지 않는다.
 - [x] 산출물: 튜닝 리포트 + 권장 기본 파라미터. `docs/spikes/moonshine-korean-asr.md`와 측정 JSON에 no-go 결론과 fallback 유지 권장을 기록했다.
 
@@ -133,7 +134,7 @@ M0는 M6(프로덕션 노출)의 **차단 선행조건**. M1~M5는 M0와 병행 
 
 **지연/성능**
 - [ ] 제어 발화(짧은 구간) 발화종료→transcript 지연이 목표 이내(WebGPU 및 WASM 각각 기록). WASM은 약 74~75 ms였으나 WebGPU는 약 6.7 s로 no-go.
-- [ ] 캐시 로드 시 모델 준비 시간이 현행 대비 악화되지 않음. 측정값은 기록됐지만 현행 sherpa 기준 비교가 아직 없다.
+- [ ] 캐시 로드 시 모델 준비 시간이 현행 대비 악화되지 않음. Synthetic 기준 sherpa WASM baseline modelLoadMs는 245 ms로 기록됐지만, 실제 사람 음성/스테이징 캐시 조건의 비교는 아직 없다.
 
 **복원력**
 - [x] 모델 미가용/워커 실패/WebGPU 미지원에서 명확한 오류 상태 + 폴백. WebGPU→WASM fallback과 워커 오류 매핑은 단위 테스트로 검증한다.
@@ -151,7 +152,7 @@ M0는 M6(프로덕션 노출)의 **차단 선행조건**. M1~M5는 M0와 병행 
 - **연계:** [성능 액션 문서](../spikes/on-device-stt-performance-actions.md)의 A2(CER 하네스)·A3(형태소 매칭)·A5(VAD)와 작업 공유 — 중복 방지 위해 함께 계획.
 
 ## 7. 일정 요약
-비프로덕션 구현 트랙(M2~M4, M5 하네스, M6 플래그)과 synthetic baseline 측정은 완료됐다. 남은 임계 경로는 실제 사람 음성 한국어 wav fixture 측정, staging canary, 그리고 그 결과에 따른 M7 기본 엔진 전환 여부 결정이다.
+비프로덕션 구현 트랙(M2~M4, M5 하네스, M6 플래그)과 synthetic Moonshine/sherpa baseline 측정은 완료됐다. 남은 임계 경로는 실제 사람 음성 한국어 wav fixture 측정, staging canary, 그리고 그 결과에 따른 M7 기본 엔진 전환 여부 결정이다.
 
 ## 8. 참고
 spec/ADR의 참고 링크 참조: [moonshine-korean-asr-migration spec](../specs/moonshine-korean-asr-migration.md#9-참고).

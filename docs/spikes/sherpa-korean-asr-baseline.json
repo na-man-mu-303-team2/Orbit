@@ -1,0 +1,145 @@
+{
+  "generatedAt": "2026-07-01T07:19:20.841Z",
+  "engine": "sherpa",
+  "modelId": "sherpa-onnx-streaming-zipformer-korean-2024-06-16",
+  "fixturePath": "apps/web/src/features/rehearsal/fixtures/live-stt-ko-evaluation.json",
+  "audioSource": "macOS say voice Yuna",
+  "audioInput": {
+    "kind": "synthetic-tts",
+    "source": "macOS say voice Yuna",
+    "voice": "Yuna"
+  },
+  "results": [
+    {
+      "engine": "sherpa",
+      "modelId": "sherpa-onnx-streaming-zipformer-korean-2024-06-16",
+      "device": "wasm",
+      "status": "succeeded",
+      "elapsedMs": 5977,
+      "modelLoadMs": 245,
+      "predictions": [
+        {
+          "id": "control-next-slide",
+          "transcript": "",
+          "triggeredControl": false,
+          "transcriptAtMs": 1039,
+          "transcribeMs": 1039,
+          "audioDurationMs": 2046,
+          "sampleRate": 16000
+        },
+        {
+          "id": "control-previous-slide",
+          "transcript": "이젠슬라이드로간주세요",
+          "triggeredControl": false,
+          "transcriptAtMs": 854,
+          "transcribeMs": 854,
+          "audioDurationMs": 2018,
+          "sampleRate": 16000
+        },
+        {
+          "id": "keyword-orbit",
+          "transcript": "리디리할모두에서",
+          "triggeredControl": false,
+          "transcriptAtMs": 932,
+          "transcribeMs": 932,
+          "audioDurationMs": 2924,
+          "sampleRate": 16000
+        },
+        {
+          "id": "keyword-live-stt",
+          "transcript": "은디베이스가음성인식을설명",
+          "triggeredControl": false,
+          "transcriptAtMs": 979,
+          "transcribeMs": 979,
+          "audioDurationMs": 3568,
+          "sampleRate": 16000
+        },
+        {
+          "id": "free-speech-next-slide-phrase",
+          "transcript": "안녕하세요슬라이드님설명자료입니",
+          "triggeredControl": false,
+          "transcriptAtMs": 987,
+          "transcribeMs": 987,
+          "audioDurationMs": 3295,
+          "sampleRate": 16000
+        },
+        {
+          "id": "noise-short-utterance",
+          "transcript": "",
+          "triggeredControl": false,
+          "transcriptAtMs": 685,
+          "transcribeMs": 685,
+          "audioDurationMs": 835,
+          "sampleRate": 16000
+        }
+      ],
+      "summary": {
+        "itemCount": 6,
+        "averageCer": 0.6402418244523508,
+        "keywordRecall": 0,
+        "falseTriggerRate": 0,
+        "averageLatencyMs": 912.6666666666666,
+        "items": [
+          {
+            "id": "control-next-slide",
+            "cer": 1,
+            "matchedKeywords": [],
+            "missingKeywords": [
+              "다음 슬라이드"
+            ],
+            "falseTrigger": false,
+            "latencyMs": 1039
+          },
+          {
+            "id": "control-previous-slide",
+            "cer": 0.3076923076923077,
+            "matchedKeywords": [],
+            "missingKeywords": [
+              "이전 슬라이드"
+            ],
+            "falseTrigger": false,
+            "latencyMs": 854
+          },
+          {
+            "id": "keyword-orbit",
+            "cer": 0.7777777777777778,
+            "matchedKeywords": [],
+            "missingKeywords": [
+              "오르빗",
+              "리허설"
+            ],
+            "falseTrigger": false,
+            "latencyMs": 932
+          },
+          {
+            "id": "keyword-live-stt",
+            "cer": 0.5454545454545454,
+            "matchedKeywords": [],
+            "missingKeywords": [
+              "온디바이스",
+              "실시간 음성 인식"
+            ],
+            "falseTrigger": false,
+            "latencyMs": 979
+          },
+          {
+            "id": "free-speech-next-slide-phrase",
+            "cer": 0.21052631578947367,
+            "matchedKeywords": [],
+            "missingKeywords": [],
+            "falseTrigger": false,
+            "latencyMs": 987
+          },
+          {
+            "id": "noise-short-utterance",
+            "cer": 1,
+            "matchedKeywords": [],
+            "missingKeywords": [],
+            "falseTrigger": false,
+            "latencyMs": 685
+          }
+        ]
+      }
+    }
+  ]
+}
