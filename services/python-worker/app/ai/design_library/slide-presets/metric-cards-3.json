@@ -1,0 +1,7 @@
+{
+  "id": "metric-cards-3",
+  "intent": "metrics",
+  "cardCount": 3,
+  "layout": "two-column",
+  "maxElements": 28
+}

@@ -12,6 +12,7 @@ from app.ai.generate_deck import (
     SlideCountRange,
     choose_slide_count,
     generate_deck,
+    icon_name_for_keyword,
     validate_and_patch,
 )
 from tests.test_config import VALID_ENV
@@ -1467,6 +1468,89 @@ def test_generate_deck_applies_v1_design_profile_to_theme_and_slots() -> None:
     assert response.deck["theme"]["name"] == "pitch-startup-pitch-ai"
     assert response.deck["theme"]["backgroundColor"] == "#0f172a"
     assert response.deck["slides"][0]["style"]["backgroundColor"] == "#0f172a"
+    assert response.validation.passed is True
+
+
+def test_generate_deck_applies_v2_process_cards_registry() -> None:
+    fake_client = FakeOpenAIClient(
+        {
+            "title": "AI slide pipeline",
+            "slides": [
+                slide_payload(
+                    "AI slide generation pipeline",
+                    "LLM output becomes editable Deck JSON.",
+                    "Walk through the deterministic deck assembly flow.",
+                    slide_type="process",
+                    slot_preset="insight_with_evidence",
+                    keywords=[
+                        "Input collection",
+                        "LLM flow",
+                        "Design request",
+                        "Layout selection",
+                        "Element assembly",
+                        "Validation handoff",
+                    ],
+                    visual_intent={
+                        "emphasis": "Editable slide JSON keeps generation stable.",
+                        "mood": "professional",
+                        "structure": "process cards",
+                        "paletteHint": "",
+                        "emphasisStyle": "",
+                        "composition": "process",
+                        "decorationDensity": "high",
+                        "mediaStyle": "",
+                    },
+                )
+            ],
+        }
+    )
+
+    response = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="AI slide generation pipeline",
+            prompt="Use a teal process cards design.",
+            slideCountRange={"min": 1, "max": 1},
+        ),
+        client=fake_client,
+    )
+
+    slide = response.deck["slides"][0]
+    elements = slide["elements"]
+    deck_text = json.dumps(response.deck, ensure_ascii=False)
+    cards = [
+        element
+        for element in elements
+        if element["elementId"].startswith("el_1_process_card_")
+        and element["type"] == "rect"
+    ]
+    arrows = [
+        element
+        for element in elements
+        if element["elementId"].startswith("el_1_process_arrow_")
+    ]
+    badges = [
+        element
+        for element in elements
+        if element["elementId"].startswith("el_1_process_badge_")
+        and element["type"] == "ellipse"
+    ]
+
+    assert response.deck["theme"]["name"] == "teal-professional-process"
+    assert response.deck["theme"]["accentColor"] == "#006878"
+    assert cards[0]["props"]["fill"] == "#ffffff"
+    assert cards[0]["props"]["stroke"] == "#c7d2d0"
+    assert cards[0]["props"]["shadow"]["blur"] == 16
+    assert element_by_id(slide, "el_1_process_callout")["props"]["stroke"] == "#c7d2d0"
+    assert len(cards) == 6
+    assert len(arrows) == 5
+    assert len(badges) == 6
+    assert has_element(slide, "el_1_process_callout")
+    assert icon_name_for_keyword("LLM flow") == "network-nodes"
+    assert icon_name_for_keyword("Design request") == "pen-monitor"
+    assert "stylePackId" not in deck_text
+    assert "slidePresetId" not in deck_text
+    assert "visualIntent" not in deck_text
     assert response.validation.passed is True
 
 

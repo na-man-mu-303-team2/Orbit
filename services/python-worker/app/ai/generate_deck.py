@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -95,6 +96,8 @@ class DesignOptions(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
     profile: DesignProfile | None = None
+    style_pack_id: str | None = Field(default=None, alias="stylePackId")
+    slide_preset_id: str | None = Field(default=None, alias="slidePresetId")
     visual_rhythm: VisualRhythm = Field(default="auto", alias="visualRhythm")
     density_target: DensityTarget = Field(default="medium", alias="densityTarget")
     media_policy: MediaPolicy = Field(default="balanced", alias="mediaPolicy")
@@ -334,7 +337,30 @@ class LayoutCandidate:
     score: int
 
 
+DESIGN_LIBRARY_DIR = Path(__file__).with_name("design_library")
+
+
+def load_json_registry(directory: Path) -> dict[str, dict[str, Any]]:
+    if not directory.exists():
+        return {}
+    registry: dict[str, dict[str, Any]] = {}
+    for path in sorted(directory.glob("*.json")):
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        registry[str(payload["id"])] = payload
+    return registry
+
+
+def load_icon_map(path: Path) -> dict[str, str]:
+    if not path.exists():
+        return {}
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    return {str(key): str(value) for key, value in payload.items()}
+
+
 CANVAS = Canvas()
+STYLE_PACK_REGISTRY = load_json_registry(DESIGN_LIBRARY_DIR / "style-packs")
+SLIDE_PRESET_REGISTRY = load_json_registry(DESIGN_LIBRARY_DIR / "slide-presets")
+ICON_MAP = load_icon_map(DESIGN_LIBRARY_DIR / "icon-map.json")
 SLIDE_TYPES: tuple[SlideType, ...] = (
     "title",
     "cover",
@@ -1530,6 +1556,8 @@ def deck_content_prompt(raw_input: RawInput) -> str:
             f"Density target: {raw_input.design.density_target}",
             f"Media policy: {raw_input.design.media_policy}",
             f"Layout diversity: {raw_input.design.layout_diversity}",
+            f"Style pack override: {raw_input.design.style_pack_id or '(auto)'}",
+            f"Slide preset override: {raw_input.design.slide_preset_id or '(auto)'}",
             f"Reference keywords: {', '.join(keywords) if keywords else '(none)'}",
             "Reference excerpts:",
             context or "(none)",
@@ -1560,7 +1588,7 @@ def slide_plans_from_generated_content(
                 title=slide.title,
                 message=slide.message,
                 speaker_notes=slide.speaker_notes,
-                keywords=slide_keywords[:3],
+                keywords=slide_keywords[:6],
                 evidence=evidence_for(raw_input.references, slide.title),
                 layout_variant=normalize_layout_variant(
                     slide.layout_variant,
@@ -1845,6 +1873,130 @@ def preset_for_slide_type(slide_type: SlideType) -> SlotPreset:
     return PRESET_BY_SLIDE_TYPE.get(slide_type, "insight_with_evidence")
 
 
+def registry_item(
+    registry: dict[str, dict[str, Any]],
+    item_id: str | None,
+) -> dict[str, Any] | None:
+    if item_id is None:
+        return None
+    return registry.get(item_id.strip())
+
+
+def select_slide_preset_id(
+    raw_input: RawInput,
+    slide_plan: SlidePlan,
+) -> str | None:
+    override = registry_item(SLIDE_PRESET_REGISTRY, raw_input.design.slide_preset_id)
+    if override is not None:
+        return str(override["id"])
+
+    composition = normalize_composition(slide_plan.visual_intent.composition)
+    step_count = len([keyword for keyword in slide_plan.keywords if keyword.strip()])
+    text = " ".join(
+        [
+            raw_input.topic,
+            raw_input.prompt,
+            raw_input.design_prompt,
+            slide_plan.title,
+            slide_plan.message,
+            composition,
+        ]
+    ).casefold()
+    if (
+        slide_plan.slide_type == "process"
+        and step_count >= 6
+        and "process-cards-horizontal-6" in SLIDE_PRESET_REGISTRY
+    ):
+        return "process-cards-horizontal-6"
+    if (
+        has_any(text, ["process card", "process cards", "teal process"])
+        and "process-cards-horizontal-6" in SLIDE_PRESET_REGISTRY
+    ):
+        return "process-cards-horizontal-6"
+    if (
+        slide_plan.slide_type == "comparison"
+        and "comparison-cards-2" in SLIDE_PRESET_REGISTRY
+    ):
+        return "comparison-cards-2"
+    if slide_plan.slide_type == "data" and "metric-cards-3" in SLIDE_PRESET_REGISTRY:
+        return "metric-cards-3"
+    if composition == "process" and "timeline-steps-5" in SLIDE_PRESET_REGISTRY:
+        return "timeline-steps-5"
+    return None
+
+
+def select_style_pack(
+    raw_input: RawInput,
+    slide_plans: list[SlidePlan],
+) -> dict[str, Any] | None:
+    override = registry_item(STYLE_PACK_REGISTRY, raw_input.design.style_pack_id)
+    if override is not None:
+        return override
+
+    text = " ".join(
+        [
+            raw_input.topic,
+            raw_input.prompt,
+            raw_input.design_prompt,
+            *[slide_plan.title for slide_plan in slide_plans],
+            *[slide_plan.message for slide_plan in slide_plans],
+        ]
+    ).casefold()
+    if has_any(text, ["teal process", "process card", "process cards"]):
+        return registry_item(STYLE_PACK_REGISTRY, "teal-professional-process")
+    if any(
+        select_slide_preset_id(raw_input, slide_plan) == "process-cards-horizontal-6"
+        for slide_plan in slide_plans
+    ):
+        return registry_item(STYLE_PACK_REGISTRY, "teal-professional-process")
+    return None
+
+
+def apply_style_pack(
+    theme: dict[str, Any],
+    style_pack: dict[str, Any] | None,
+) -> dict[str, Any]:
+    if style_pack is None:
+        return theme
+
+    profile = style_pack.get("theme", {})
+    theme["name"] = str(profile.get("name", style_pack["id"]))
+    theme["fontFamily"] = str(profile.get("bodyFontFamily", theme["fontFamily"]))
+    theme["backgroundColor"] = str(profile.get("background", theme["backgroundColor"]))
+    theme["textColor"] = str(profile.get("text", theme["textColor"]))
+    theme["accentColor"] = str(profile.get("accent", theme["accentColor"]))
+    theme["palette"] = {
+        "primary": str(profile.get("accent", theme["palette"]["primary"])),
+        "secondary": str(profile.get("secondary", theme["palette"]["secondary"])),
+        "surface": str(profile.get("surface", theme["palette"]["surface"])),
+        "muted": str(profile.get("muted", theme["palette"]["muted"])),
+        "border": str(profile.get("border", theme["palette"]["border"])),
+    }
+    theme["typography"] = {
+        "headingFontFamily": str(
+            profile.get(
+                "headingFontFamily",
+                theme["typography"]["headingFontFamily"],
+            )
+        ),
+        "bodyFontFamily": str(
+            profile.get("bodyFontFamily", theme["typography"]["bodyFontFamily"])
+        ),
+        "titleSize": int(profile.get("titleSize", theme["typography"]["titleSize"])),
+        "headingSize": int(
+            profile.get("headingSize", theme["typography"]["headingSize"])
+        ),
+        "bodySize": int(profile.get("bodySize", theme["typography"]["bodySize"])),
+        "captionSize": int(
+            profile.get("captionSize", theme["typography"]["captionSize"])
+        ),
+    }
+    effects = dict(theme.get("effects", {}))
+    effects.update(style_pack.get("effects", {}))
+    theme["effects"] = effects
+    return theme
+
+
 def evidence_for(
     references: list[GenerateDeckReference],
     title: str,
@@ -1883,7 +2035,8 @@ def direct_design(
         },
         "effects": {"borderRadius": 8},
     }
-    return apply_explicit_palette(theme, raw_input, slide_plans)
+    theme = apply_explicit_palette(theme, raw_input, slide_plans)
+    return apply_style_pack(theme, select_style_pack(raw_input, slide_plans or []))
 
 
 def apply_explicit_palette(
@@ -2469,6 +2622,10 @@ def assemble_slide(
     visual_plan: VisualPlan,
     theme: dict[str, Any],
 ) -> dict[str, Any]:
+    slide_preset_id = select_slide_preset_id(raw_input, slide_plan)
+    if slide_preset_id == "process-cards-horizontal-6":
+        return assemble_process_cards_slide(raw_input, slide_plan, theme)
+
     layout = compose_layout(visual_plan)
     slot_by_role = {slot.role: slot for slot in layout.slots}
     elements = [
@@ -2521,6 +2678,423 @@ def assemble_slide(
             ],
         },
     }
+
+
+def assemble_process_cards_slide(
+    raw_input: RawInput,
+    slide_plan: SlidePlan,
+    theme: dict[str, Any],
+) -> dict[str, Any]:
+    style_pack = select_style_pack(raw_input, [slide_plan]) or {}
+    slide_preset = (
+        registry_item(
+            SLIDE_PRESET_REGISTRY,
+            "process-cards-horizontal-6",
+        )
+        or {}
+    )
+    elements = process_cards_elements(slide_plan, theme, style_pack)
+    elements = cap_elements(
+        elements,
+        limit=int(slide_preset.get("maxElements", 64)),
+    )
+    title_element = next(element for element in elements if element["role"] == "title")
+
+    return {
+        "slideId": f"slide_{slide_plan.order}",
+        "order": slide_plan.order,
+        "title": slide_plan.title,
+        "thumbnailUrl": "",
+        "style": {
+            "layout": str(slide_preset.get("layout", "title-content")),
+            "backgroundColor": theme["backgroundColor"],
+            "textColor": theme["textColor"],
+            "accentColor": theme["accentColor"],
+        },
+        "speakerNotes": slide_plan.speaker_notes,
+        "elements": elements,
+        "keywords": [
+            {
+                "keywordId": f"kw_{slide_plan.order}_{index}",
+                "text": keyword,
+                "synonyms": [],
+                "abbreviations": [],
+            }
+            for index, keyword in enumerate(slide_plan.keywords, start=1)
+        ],
+        "animations": [
+            {
+                "animationId": f"anim_{slide_plan.order}_1",
+                "elementId": title_element["elementId"],
+                "type": "fade-in",
+                "order": 1,
+                "durationMs": 400,
+                "delayMs": 0,
+                "easing": "ease-out",
+            }
+        ],
+        "aiNotes": {
+            "emphasisPoints": [slide_plan.message],
+            "sourceEvidence": [
+                evidence.model_dump(by_alias=True) for evidence in slide_plan.evidence
+            ],
+        },
+    }
+
+
+def process_cards_elements(
+    slide_plan: SlidePlan,
+    theme: dict[str, Any],
+    style_pack: dict[str, Any],
+) -> list[dict[str, Any]]:
+    card_style = style_pack.get("card", {})
+    callout_style = style_pack.get("callout", {})
+    labels = diagram_labels(slide_plan, 6)
+    bodies = process_card_bodies(slide_plan, labels)
+    card_width = 242
+    card_height = 458
+    card_gap = 45
+    card_y = 320
+    card_x = 120
+    badge_size = 44
+    elements: list[dict[str, Any]] = [
+        shape_element(
+            slide_plan.order,
+            "top_gradient_dark",
+            "background",
+            0,
+            0,
+            CANVAS.width,
+            34,
+            0,
+            str(style_pack.get("topBand", {}).get("dark", theme["accentColor"])),
+            "transparent",
+        ),
+        shape_element(
+            slide_plan.order,
+            "top_gradient_light",
+            "background",
+            0,
+            34,
+            CANVAS.width,
+            116,
+            0,
+            str(style_pack.get("topBand", {}).get("light", theme["palette"]["muted"])),
+            "transparent",
+        ),
+        shape_element(
+            slide_plan.order,
+            "section_label_card",
+            "decoration",
+            94,
+            26,
+            790,
+            112,
+            1,
+            theme["palette"]["surface"],
+            "transparent",
+            int(card_style.get("borderRadius", 28)),
+        ),
+        text_element(
+            slide_plan.order,
+            "section_label",
+            "caption",
+            f"step {slide_plan.order}.",
+            134,
+            52,
+            220,
+            32,
+            2,
+            theme["accentColor"],
+            theme["typography"]["captionSize"] + 4,
+            "bold",
+            theme["typography"]["headingFontFamily"],
+        ),
+        text_element(
+            slide_plan.order,
+            "section_heading",
+            "caption",
+            slide_plan.slide_type.replace("-", " ").title(),
+            130,
+            92,
+            620,
+            40,
+            2,
+            theme["textColor"],
+            theme["typography"]["headingSize"] - 4,
+            "bold",
+            theme["typography"]["headingFontFamily"],
+        ),
+        text_element(
+            slide_plan.order,
+            "title",
+            "title",
+            slide_plan.title,
+            610,
+            170,
+            720,
+            72,
+            3,
+            theme["accentColor"],
+            theme["typography"]["titleSize"] - 10,
+            "bold",
+            theme["typography"]["headingFontFamily"],
+        ),
+        text_element(
+            slide_plan.order,
+            "subtitle",
+            "subtitle",
+            slide_plan.message,
+            226,
+            258,
+            1468,
+            46,
+            3,
+            str(style_pack.get("subtitleColor", "#6b7280")),
+            theme["typography"]["headingSize"] - 6,
+            "normal",
+            theme["typography"]["bodyFontFamily"],
+        ),
+    ]
+
+    for index, label in enumerate(labels):
+        x = card_x + index * (card_width + card_gap)
+        badge_x = x + card_width // 2 - badge_size // 2
+        icon_name = icon_name_for_keyword(label)
+        elements.extend(
+            [
+                shape_element(
+                    slide_plan.order,
+                    f"process_card_{index + 1}",
+                    "highlight",
+                    x,
+                    card_y,
+                    card_width,
+                    card_height,
+                    3,
+                    str(card_style.get("fill", theme["palette"]["surface"])),
+                    str(card_style.get("stroke", theme["palette"]["border"])),
+                    int(card_style.get("borderRadius", 8)),
+                ),
+                shape_element(
+                    slide_plan.order,
+                    f"process_badge_{index + 1}",
+                    "decoration",
+                    badge_x,
+                    card_y + 10,
+                    badge_size,
+                    badge_size,
+                    6,
+                    theme["accentColor"],
+                    "transparent",
+                    element_type="ellipse",
+                ),
+                text_element(
+                    slide_plan.order,
+                    f"process_badge_{index + 1}_label",
+                    "caption",
+                    str(index + 1),
+                    badge_x + 15,
+                    card_y + 20,
+                    18,
+                    24,
+                    7,
+                    theme["palette"]["surface"],
+                    theme["typography"]["captionSize"],
+                    "bold",
+                    theme["typography"]["headingFontFamily"],
+                ),
+                icon_element(
+                    slide_plan.order,
+                    f"process_card_{index + 1}_icon",
+                    icon_name,
+                    x + card_width // 2 - 30,
+                    card_y + 86,
+                    60,
+                    60,
+                    6,
+                    theme["accentColor"],
+                ),
+                text_element(
+                    slide_plan.order,
+                    f"process_card_{index + 1}_title",
+                    "highlight",
+                    label,
+                    x + 22,
+                    card_y + 178,
+                    card_width - 44,
+                    58,
+                    6,
+                    theme["accentColor"],
+                    theme["typography"]["bodySize"] + 1,
+                    "bold",
+                    theme["typography"]["headingFontFamily"],
+                ),
+                text_element(
+                    slide_plan.order,
+                    f"process_card_{index + 1}_body",
+                    "body",
+                    bodies[index],
+                    x + 24,
+                    card_y + 250,
+                    card_width - 48,
+                    150,
+                    6,
+                    str(style_pack.get("bodyColor", "#5f6368")),
+                    theme["typography"]["captionSize"] + 7,
+                    "normal",
+                    theme["typography"]["bodyFontFamily"],
+                ),
+            ]
+        )
+        if index < len(labels) - 1:
+            elements.append(
+                shape_element(
+                    slide_plan.order,
+                    f"process_arrow_{index + 1}",
+                    "decoration",
+                    x + card_width + 8,
+                    card_y + 116,
+                    card_gap - 16,
+                    34,
+                    4,
+                    theme["accentColor"],
+                    "transparent",
+                    element_type="arrow",
+                )
+            )
+
+    callout_y = 860
+    elements.extend(
+        [
+            shape_element(
+                slide_plan.order,
+                "process_callout",
+                "highlight",
+                64,
+                callout_y,
+                1818,
+                112,
+                4,
+                str(callout_style.get("fill", theme["palette"]["surface"])),
+                str(callout_style.get("stroke", theme["palette"]["border"])),
+                int(callout_style.get("borderRadius", 8)),
+            ),
+            text_element(
+                slide_plan.order,
+                "process_callout_text",
+                "highlight",
+                slide_plan.visual_intent.emphasis or slide_plan.message,
+                122,
+                callout_y + 34,
+                1690,
+                48,
+                5,
+                str(callout_style.get("text", theme["accentColor"])),
+                theme["typography"]["headingSize"],
+                "bold",
+                theme["typography"]["headingFontFamily"],
+            ),
+            text_element(
+                slide_plan.order,
+                "page_number",
+                "footer",
+                str(slide_plan.order),
+                1838,
+                1006,
+                34,
+                30,
+                6,
+                theme["accentColor"],
+                theme["typography"]["captionSize"] + 4,
+                "bold",
+                theme["typography"]["headingFontFamily"],
+            ),
+        ]
+    )
+    card_shadow = style_pack.get("effects", {}).get("shadow")
+    if isinstance(card_shadow, dict):
+        for element in elements:
+            if (
+                element["elementId"].startswith(f"el_{slide_plan.order}_process_card_")
+                and element["type"] == "rect"
+            ):
+                element["props"]["shadow"] = card_shadow
+    return elements
+
+
+def process_card_bodies(slide_plan: SlidePlan, labels: list[str]) -> list[str]:
+    message_parts = [
+        part.strip(" -")
+        for part in re.split(r"[\n,;/]+", slide_plan.message)
+        if part.strip(" -")
+    ]
+    bodies: list[str] = []
+    for index, label in enumerate(labels):
+        icon_name = icon_name_for_keyword(label)
+        details = PROCESS_CARD_DETAIL_BY_ICON.get(icon_name, ())
+        if index < len(message_parts):
+            bodies.append(f"- {message_parts[index]}")
+        elif details:
+            bodies.append("\n".join(f"- {detail}" for detail in details))
+        else:
+            bodies.append(f"- {label}\n- editable step")
+    return bodies
+
+
+ICON_PATHS: dict[str, str] = {
+    "download-tray": "M14 44 L50 44 L50 54 L14 54 Z M32 10 L32 36 M22 26 L32 36 L42 26",
+    "network-nodes": "M18 20 A8 8 0 1 0 18 36 A8 8 0 1 0 18 20 M46 16 A8 8 0 1 0 46 32 A8 8 0 1 0 46 16 M46 38 A8 8 0 1 0 46 54 A8 8 0 1 0 46 38 M26 28 L38 24 M26 32 L38 44",
+    "pen-monitor": "M12 16 L52 16 L52 42 L12 42 Z M24 54 L40 54 M32 42 L32 54 M38 34 L50 22",
+    "layout-grid": "M12 12 L52 12 L52 52 L12 52 Z M12 28 L52 28 M28 28 L28 52",
+    "blocks": "M12 38 L24 38 L24 50 L12 50 Z M26 26 L38 26 L38 38 L26 38 Z M40 14 L52 14 L52 26 L40 26 Z M40 38 L52 38 L52 50 L40 50 Z",
+    "document-check": "M18 10 L46 10 L54 18 L54 54 L18 54 Z M46 10 L46 18 L54 18 M26 36 L32 42 L46 28",
+}
+PROCESS_CARD_DETAIL_BY_ICON: dict[str, tuple[str, ...]] = {
+    "download-tray": ("prompt", "schema", "references"),
+    "network-nodes": ("content", "script", "keywords"),
+    "pen-monitor": ("design prompt", "theme", "tone"),
+    "layout-grid": ("preset score", "layout", "safe area"),
+    "blocks": ("text", "cards", "media"),
+    "document-check": ("schema check", "repair", "save"),
+}
+
+
+def icon_name_for_keyword(keyword: str) -> str:
+    normalized = keyword.casefold()
+    for token, icon_name in ICON_MAP.items():
+        if token.casefold() in normalized:
+            return icon_name
+    return "document-check"
+
+
+def icon_element(
+    order: int,
+    name: str,
+    icon_name: str,
+    x: int,
+    y: int,
+    width: int,
+    height: int,
+    z_index: int,
+    stroke: str,
+) -> dict[str, Any]:
+    return custom_shape_element(
+        order,
+        name,
+        "decoration",
+        x,
+        y,
+        width,
+        height,
+        z_index,
+        ICON_PATHS.get(icon_name, ICON_PATHS["document-check"]),
+        64,
+        64,
+        "transparent",
+        stroke,
+        closed=False,
+    )
 
 
 def design_elements(
@@ -3144,6 +3718,7 @@ def custom_shape_element(
     view_box_height: int,
     fill: str,
     stroke: str,
+    closed: bool = True,
 ) -> dict[str, Any]:
     return {
         "elementId": f"el_{order}_{name}",
@@ -3165,14 +3740,14 @@ def custom_shape_element(
             "fill": fill,
             "stroke": stroke,
             "strokeWidth": 2,
-            "closed": True,
+            "closed": closed,
             "nodes": [],
         },
     }
 
 
-def cap_elements(elements: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    if len(elements) <= 14:
+def cap_elements(elements: list[dict[str, Any]], limit: int = 14) -> list[dict[str, Any]]:
+    if len(elements) <= limit:
         return elements
     required = [element for element in elements if is_required_element(element)]
     priority = [
@@ -3185,7 +3760,7 @@ def cap_elements(elements: list[dict[str, Any]]) -> list[dict[str, Any]]:
         for element in elements
         if not is_required_element(element) and not is_priority_element(element)
     ]
-    return [*required, *priority, *optional][:14]
+    return [*required, *priority, *optional][:limit]
 
 
 def is_required_element(element: dict[str, Any]) -> bool:
@@ -3315,7 +3890,7 @@ def validate_layout(deck: dict[str, Any]) -> list[ValidationIssue]:
     issues: list[ValidationIssue] = []
     for slide_index, slide in enumerate(deck["slides"]):
         elements = slide["elements"]
-        if len(elements) > 14:
+        if len(elements) > element_limit_for_slide(slide):
             issues.append(
                 ValidationIssue(
                     scope="slide",
@@ -3349,6 +3924,16 @@ def validate_layout(deck: dict[str, Any]) -> list[ValidationIssue]:
                     )
                 )
     return issues
+
+
+def element_limit_for_slide(slide: dict[str, Any]) -> int:
+    process_prefix = f"el_{slide.get('order')}_process_card_"
+    if any(
+        str(element.get("elementId", "")).startswith(process_prefix)
+        for element in slide.get("elements", [])
+    ):
+        return 64
+    return 14
 
 
 def validate_content(deck: dict[str, Any]) -> list[ValidationIssue]:
@@ -3572,7 +4157,10 @@ def validate_presentation(deck: dict[str, Any]) -> list[ValidationIssue]:
 
 def patch_deck(deck: dict[str, Any]) -> dict[str, Any]:
     for slide in deck["slides"]:
-        slide["elements"] = cap_elements(slide["elements"])
+        slide["elements"] = cap_elements(
+            slide["elements"],
+            limit=element_limit_for_slide(slide),
+        )
         for element in slide["elements"]:
             element["x"] = max(0, min(element["x"], CANVAS.width - 1))
             element["y"] = max(0, min(element["y"], CANVAS.height - 1))
