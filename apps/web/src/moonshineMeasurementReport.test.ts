@@ -27,6 +27,11 @@ describe("Moonshine browser measurement report", () => {
       modelId: "onnx-community/moonshine-tiny-ko-ONNX",
       fixturePath: "apps/web/src/features/rehearsal/fixtures/live-stt-ko-evaluation.json",
       audioSource: "human-rehearsal-fixtures-v1",
+      audioInput: {
+        kind: "human-wav",
+        source: "human-rehearsal-fixtures-v1",
+        directory: "fixtures/live-stt-human-v1"
+      },
       results: []
     });
     expect(report.generatedAt).toEqual(expect.any(String));
@@ -50,6 +55,11 @@ describe("Moonshine browser measurement report", () => {
     });
 
     expect(report.audioSource).toBe("macOS say voice Yuna");
+    expect(report.audioInput).toEqual({
+      kind: "synthetic-tts",
+      source: "macOS say voice Yuna",
+      voice: "Yuna"
+    });
   });
 
   it("rejects an explicit audio source label without a human audio directory", async () => {

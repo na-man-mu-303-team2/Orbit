@@ -1,29 +1,41 @@
 export function buildMoonshineMeasurementReport(options) {
+  const audioInput = buildMoonshineMeasurementAudioInput(options);
   return {
     generatedAt: new Date().toISOString(),
     modelId: options.modelId,
     dtype: options.dtype,
     fixturePath: relativeToRoot(options.fixturePath, options.repoRoot),
-    audioSource: resolveMoonshineMeasurementAudioSource(options),
+    audioSource: audioInput.source,
+    audioInput,
     results: options.results
   };
 }
 
 export function resolveMoonshineMeasurementAudioSource(options) {
+  return buildMoonshineMeasurementAudioInput(options).source;
+}
+
+export function buildMoonshineMeasurementAudioInput(options) {
   const explicitAudioSource = normalizeOptionalString(options.audioSource);
   if (explicitAudioSource && !options.audioDir) {
     throw new Error("--audio-source requires --audio-dir.");
   }
 
-  if (explicitAudioSource) {
-    return explicitAudioSource;
-  }
-
   if (options.audioDir) {
-    return relativeToRoot(options.audioDir, options.repoRoot);
+    const directory = relativeToRoot(options.audioDir, options.repoRoot);
+    return {
+      kind: "human-wav",
+      source: explicitAudioSource ?? directory,
+      directory
+    };
   }
 
-  return `macOS say voice ${options.voice}`;
+  const source = `macOS say voice ${options.voice}`;
+  return {
+    kind: "synthetic-tts",
+    source,
+    voice: options.voice
+  };
 }
 
 export function summarizeMoonshineMeasurementReport(report) {

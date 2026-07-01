@@ -385,7 +385,7 @@ pnpm --filter @orbit/web stt:measure:moonshine -- \
   --out docs/spikes/moonshine-human-live-stt-candidate.json
 ```
 
-`--audio-source`는 `--audio-dir`와 함께 있을 때만 허용됩니다. Synthetic TTS 측정은 항상 `macOS say voice <voice>` 라벨을 유지하므로 human-audio gate를 통과할 수 없습니다.
+`--audio-source`는 `--audio-dir`와 함께 있을 때만 허용됩니다. Synthetic TTS 측정은 항상 `macOS say voice <voice>` 라벨과 `audioInput.kind: "synthetic-tts"`를 유지하므로 human-audio gate를 통과할 수 없습니다. 실제 wav 측정은 `audioInput.kind: "human-wav"`와 상대 audio directory를 report에 남깁니다.
 
 Moonshine 컷오버 판정은 synthetic TTS가 아닌 실제 사람 음성 report이면서, sherpa baseline 또는 명시 threshold가 있을 때만 통과할 수 있습니다.
 
@@ -396,7 +396,7 @@ pnpm --filter @orbit/web stt:gate:moonshine -- \
   --markdown-out docs/spikes/moonshine-korean-asr-gate.md
 ```
 
-Markdown 결과에는 blocked reason과 missing criteria가 포함되므로, 컷오버가 보류된 이유를 release review에서 그대로 확인할 수 있습니다.
+Gate는 `audioInput` metadata가 있으면 `audioInput.kind: "human-wav"`를 요구하고, metadata가 없는 이전 report는 `audioSource` synthetic label 검사로 fallback합니다. Markdown 결과에는 blocked reason과 missing criteria가 포함되므로, 컷오버가 보류된 이유를 release review에서 그대로 확인할 수 있습니다.
 
 Canary session에서 `orbit.liveStt.debugLatency=1`을 켜고 브라우저 콘솔의 `[orbit-live-stt-worker]` 로그를 저장했다면 다음 명령으로 RTF/latency/audio-level 요약을 만들 수 있습니다.
 

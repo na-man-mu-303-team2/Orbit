@@ -145,7 +145,7 @@ function getMissingCriteria(options) {
   const baseline = options.baselineResults[0];
   const hasBaselineMetric = (key) => isFiniteNumber(baseline?.summary?.[key]);
   const missing = [];
-  if (!isHumanAudioSource(options.candidateReport?.audioSource)) {
+  if (!isHumanAudioCandidateReport(options.candidateReport)) {
     missing.push("humanAudioSource");
   }
   if (
@@ -182,6 +182,14 @@ function getMissingCriteria(options) {
   }
 
   return missing;
+}
+
+function isHumanAudioCandidateReport(report) {
+  if (report?.audioInput && typeof report.audioInput === "object") {
+    return report.audioInput.kind === "human-wav";
+  }
+
+  return isHumanAudioSource(report?.audioSource);
 }
 
 function isHumanAudioSource(audioSource) {

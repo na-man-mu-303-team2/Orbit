@@ -131,7 +131,7 @@ pnpm --filter @orbit/web stt:measure:moonshine -- \
   --out docs/spikes/moonshine-human-live-stt-candidate.json
 ```
 
-`--audio-source` is accepted only with `--audio-dir`; synthetic TTS reports always keep the `macOS say voice <voice>` source label so they cannot satisfy the human-audio cutover gate.
+`--audio-source` is accepted only with `--audio-dir`; synthetic TTS reports always keep the `macOS say voice <voice>` source label and `audioInput.kind: "synthetic-tts"` so they cannot satisfy the human-audio cutover gate. Human wav reports include `audioInput.kind: "human-wav"` and the relative audio directory for release-review traceability.
 
 Canary debug summary:
 
@@ -163,7 +163,7 @@ pnpm --filter @orbit/web stt:gate:moonshine -- \
   --markdown-out docs/spikes/moonshine-korean-asr-gate.md
 ```
 
-The gate refuses to return `go` unless the candidate report is from non-synthetic human rehearsal audio and each required metric has either a sherpa baseline or an explicit absolute threshold (`--min-keyword-recall`, `--max-false-trigger-rate`, `--max-average-latency-ms`). When a sherpa baseline is provided, the candidate and baseline reports must use the same `fixturePath` and `audioSource`. Markdown output includes the blocked reason and missing criteria so release review can see why cutover remains blocked. This keeps the default-engine cutover blocked until the quality criteria are measurable on representative audio.
+The gate refuses to return `go` unless the candidate report is from non-synthetic human rehearsal audio and each required metric has either a sherpa baseline or an explicit absolute threshold (`--min-keyword-recall`, `--max-false-trigger-rate`, `--max-average-latency-ms`). Candidate reports with `audioInput` metadata must use `audioInput.kind: "human-wav"`; older reports without metadata fall back to the `audioSource` synthetic-label check. When a sherpa baseline is provided, the candidate and baseline reports must use the same `fixturePath` and `audioSource`. Markdown output includes the blocked reason and missing criteria so release review can see why cutover remains blocked. This keeps the default-engine cutover blocked until the quality criteria are measurable on representative audio.
 
 ## 2026-07-01 Measurements
 

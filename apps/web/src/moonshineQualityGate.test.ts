@@ -104,6 +104,44 @@ describe("Moonshine Live STT quality gate", () => {
     expect(markdown).toContain("- `humanAudioSource`");
   });
 
+  it("blocks synthetic audio input metadata even when the source label looks human", async () => {
+    const tempDir = await createTempDir();
+    const candidatePath = join(tempDir, "synthetic-candidate.json");
+    await writeJson(candidatePath, {
+      ...measurementReport({
+        modelId: "onnx-community/moonshine-tiny-ko-ONNX",
+        engine: "moonshine",
+        device: "wasm",
+        keywordRecall: 1,
+        falseTriggerRate: 0,
+        averageLatencyMs: 80,
+        audioSource: "human-rehearsal-fixtures-v1"
+      }),
+      audioInput: {
+        kind: "synthetic-tts",
+        source: "human-rehearsal-fixtures-v1",
+        voice: "Yuna"
+      }
+    });
+
+    const result = await runGate([
+      "--candidate",
+      candidatePath,
+      "--min-keyword-recall",
+      "0.9",
+      "--max-false-trigger-rate",
+      "0",
+      "--max-average-latency-ms",
+      "120"
+    ]);
+
+    expect(result.code).toBe(1);
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      status: "blocked",
+      missingCriteria: ["humanAudioSource"]
+    });
+  });
+
   it("passes when candidate metrics meet or improve on the sherpa baseline", async () => {
     const tempDir = await createTempDir();
     const candidatePath = join(tempDir, "candidate.json");
