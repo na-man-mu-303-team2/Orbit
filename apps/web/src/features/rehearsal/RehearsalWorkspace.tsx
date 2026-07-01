@@ -27,7 +27,6 @@ import {
   ChevronLeft,
   ChevronRight,
   ChevronDown,
-  Download,
   Gauge,
   Home,
   Mic,
@@ -820,6 +819,24 @@ export function shouldCompleteLiveSlideAdvance(
   );
 }
 
+export function shouldStartAutomaticLiveStt(options: {
+  hasDeck: boolean;
+  hasCurrentSlide: boolean;
+  isReportBusy: boolean;
+  isLiveSttActive: boolean;
+  alreadyAttempted: boolean;
+  isInFlight: boolean;
+}) {
+  return (
+    options.hasDeck &&
+    options.hasCurrentSlide &&
+    !options.isReportBusy &&
+    !options.isLiveSttActive &&
+    !options.alreadyAttempted &&
+    !options.isInFlight
+  );
+}
+
 export function getLiveAudioLevelLabel(level: LiveSttAudioLevelEvent | null) {
   if (!level) {
     return "입력 대기";
@@ -1138,18 +1155,12 @@ export function RehearsalWorkspace(props: {
   );
   const [liveKeywordState, setLiveKeywordState] =
     useState<LiveTranscriptAnalysis | null>(null);
-  const [liveAudioLevel, setLiveAudioLevel] =
-    useState<LiveSttAudioLevelEvent | null>(null);
-  const [liveDebugPcmRecording, setLiveDebugPcmRecording] =
-    useState<LiveSttDebugPcmRecording | null>(null);
   const [liveCue, setLiveCue] = useState<LiveSttAnimationCueEvent | null>(null);
   const [liveSlideAdvance, setLiveSlideAdvance] =
     useState<LiveSttSlideAdvanceEvent | null>(null);
   const [autoAdvanceState, setAutoAdvanceState] = useState<
     "idle" | "pending" | "advanced" | "cancelled"
   >("idle");
-  const [isLiveDemoActive, setIsLiveDemoActive] = useState(false);
-  const [isLiveStopModalOpen, setIsLiveStopModalOpen] = useState(false);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [isTimerRunning, setIsTimerRunning] = useState(false);
   const [timeMode, setTimeMode] = useState<RehearsalTimeMode>("stopwatch");
@@ -1161,10 +1172,12 @@ export function RehearsalWorkspace(props: {
   >(null);
   const sessionRef = useRef<RecordingSession | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
-  const liveDemoStreamRef = useRef<MediaStream | null>(null);
+  const liveRecognitionStreamRef = useRef<MediaStream | null>(null);
   const liveSttAdapterRef = useRef<LiveSttAdapter | null>(
     props.liveSttAdapter ?? null
   );
+  const autoLiveStartAttemptedRef = useRef(false);
+  const autoLiveStartInFlightRef = useRef(false);
   const finishAfterReportRef = useRef(false);
   const deckRef = useRef<Deck | null>(props.initialDeck ?? null);
   const currentSlideIndexRef = useRef(0);
@@ -1206,7 +1219,7 @@ export function RehearsalWorkspace(props: {
     return () => {
       isCancelled = true;
       stopMediaStream(streamRef.current);
-      stopMediaStream(liveDemoStreamRef.current);
+      stopMediaStream(liveRecognitionStreamRef.current);
     };
   }, [props.fallbackDeck, props.initialDeck, props.projectId]);
 
@@ -1263,7 +1276,7 @@ export function RehearsalWorkspace(props: {
       liveSttAdapterRef.current?.stop();
       liveSttAdapterRef.current?.dispose();
       stopMediaStream(streamRef.current);
-      stopMediaStream(liveDemoStreamRef.current);
+      stopMediaStream(liveRecognitionStreamRef.current);
     };
   }, []);
 
@@ -1271,27 +1284,20 @@ export function RehearsalWorkspace(props: {
   const canRecord = Boolean(deck) && !["recording", "uploading", "processing"].includes(phase);
   const isLiveSttActive = liveStatus === "starting" || liveStatus === "listening";
   const isReportBusy = ["recording", "uploading", "processing"].includes(phase);
-  const canStartLiveDemo =
-    Boolean(deck) && !isReportBusy && !isLiveSttActive && !isLiveDemoActive;
-  const canStopLiveDemo = isLiveDemoActive && isLiveSttActive;
+  const canRetryLiveStt =
+    Boolean(deck) &&
+    !isReportBusy &&
+    !isLiveSttActive &&
+    (liveStatus === "failed" ||
+      liveStatus === "unavailable" ||
+      liveStatus === "stopped");
   const liveTranscriptPlaceholder =
-    liveStatus === "idle"
-      ? "Live STT 시작을 눌러 테스트하세요"
-      : "마이크 입력을 기다리는 중";
+    liveStatus === "idle" || liveStatus === "starting"
+      ? "음성 인식을 준비하는 중"
+      : liveStatus === "failed" || liveStatus === "unavailable"
+        ? "마이크 권한을 확인한 뒤 다시 시도하세요"
+        : "말하면 바로 표시됩니다";
   const liveTranscript = renderLiveTranscriptBuffer(liveTranscriptBuffer);
-  const liveAudioLevelLabel = getLiveAudioLevelLabel(liveAudioLevel);
-  const liveAudioLevelPercent = getLiveAudioLevelPercent(liveAudioLevel);
-  const liveAudioMeterState = liveAudioLevel
-    ? liveAudioLevelLabel === "입력 과대"
-      ? "clipped"
-      : liveAudioLevel.isLikelySilence
-        ? "quiet"
-        : "active"
-    : "idle";
-  const canDownloadLiveSttDebugPcm = shouldShowLiveSttDebugPcmDownload(
-    liveDebugPcmRecording
-  );
-
   useEffect(() => {
     resetLiveTranscriptForSlide(currentSlide);
     const nextBiasContext = deck && currentSlide
@@ -1306,18 +1312,30 @@ export function RehearsalWorkspace(props: {
     );
   }, [currentSlide?.slideId, currentSlideIndex, deck]);
 
+  useEffect(() => {
+    if (!shouldStartAutomaticLiveStt({
+      hasDeck: Boolean(deck),
+      hasCurrentSlide: Boolean(currentSlide),
+      isReportBusy,
+      isLiveSttActive,
+      alreadyAttempted: autoLiveStartAttemptedRef.current,
+      isInFlight: autoLiveStartInFlightRef.current
+    })) {
+      return;
+    }
+
+    void startAutomaticLiveStt();
+  }, [currentSlide?.slideId, deck, isLiveSttActive, isReportBusy]);
+
   async function startRecording() {
     if (!deck || !canRecord) return;
     const activeDeck = deck;
-    stopLiveDemo();
 
     setError("");
     setRun(null);
     setJob(null);
     finishAfterReportRef.current = false;
     setLiveError("");
-    setLiveAudioLevel(null);
-    setLiveDebugPcmRecording(null);
     resetLiveTranscriptForSlide(currentSlide);
     setLiveSlideAdvance(null);
     setAutoAdvanceState("idle");
@@ -1356,7 +1374,6 @@ export function RehearsalWorkspace(props: {
       session.start();
       setPhase("recording");
       setIsTimerRunning(true);
-      void startLiveStt(stream);
     } catch (cause) {
       stopMediaStream(stream);
       if (streamRef.current === stream) {
@@ -1368,67 +1385,61 @@ export function RehearsalWorkspace(props: {
     }
   }
 
-  async function startLiveDemo() {
-    if (!deck || !canStartLiveDemo) return;
+  async function startAutomaticLiveStt(options: { force?: boolean } = {}) {
+    if (
+      !deck ||
+      !currentSlide ||
+      isReportBusy ||
+      isLiveSttActive ||
+      (!options.force && autoLiveStartAttemptedRef.current) ||
+      autoLiveStartInFlightRef.current
+    ) {
+      return;
+    }
 
+    autoLiveStartAttemptedRef.current = true;
+    autoLiveStartInFlightRef.current = true;
     setLiveError("");
-    setLiveAudioLevel(null);
-    setLiveDebugPcmRecording(null);
     resetLiveTranscriptForSlide(currentSlide);
     setLiveSlideAdvance(null);
     setAutoAdvanceState("idle");
     autoAdvancedSlideIdsRef.current.clear();
+    stopMediaStream(liveRecognitionStreamRef.current);
+    liveRecognitionStreamRef.current = null;
 
     if (!navigator.mediaDevices?.getUserMedia) {
       setLiveError("이 브라우저는 마이크 녹음을 지원하지 않습니다.");
       setLiveStatus("failed");
+      autoLiveStartInFlightRef.current = false;
       return;
     }
 
     let stream: MediaStream | null = null;
-    setIsLiveDemoActive(true);
     try {
       stream = await requestRehearsalMicrophoneStream(navigator.mediaDevices);
-      liveDemoStreamRef.current = stream;
+      liveRecognitionStreamRef.current = stream;
       const started = await startLiveStt(stream);
       if (!started) {
         stopMediaStream(stream);
-        if (liveDemoStreamRef.current === stream) {
-          liveDemoStreamRef.current = null;
+        if (liveRecognitionStreamRef.current === stream) {
+          liveRecognitionStreamRef.current = null;
         }
-        setIsLiveDemoActive(false);
-        setIsTimerRunning(false);
-      } else {
-        setElapsedSeconds(0);
-        setIsTimerRunning(true);
       }
     } catch (cause) {
       stopMediaStream(stream);
-      if (liveDemoStreamRef.current === stream) {
-        liveDemoStreamRef.current = null;
+      if (liveRecognitionStreamRef.current === stream) {
+        liveRecognitionStreamRef.current = null;
       }
-      setIsLiveDemoActive(false);
-      setIsTimerRunning(false);
       setLiveError(toMicrophoneErrorMessage(cause));
       setLiveStatus("failed");
+    } finally {
+      autoLiveStartInFlightRef.current = false;
     }
   }
 
-  function stopLiveDemo(options: { showCompletionModal?: boolean } = {}) {
-    const wasLiveDemoActive = isLiveDemoActive || isLiveSttActive;
-    liveSttAdapterRef.current?.stop();
-    stopMediaStream(liveDemoStreamRef.current);
-    liveDemoStreamRef.current = null;
-    setLiveAudioLevel(null);
-    setIsLiveDemoActive(false);
-    setIsTimerRunning(false);
-    setLiveStatus((current) =>
-      current === "listening" || current === "starting" ? "stopped" : current
-    );
-    cancelPendingAutoAdvance("cancelled");
-    if (options.showCompletionModal && wasLiveDemoActive) {
-      setIsLiveStopModalOpen(true);
-    }
+  function retryLiveStt() {
+    autoLiveStartAttemptedRef.current = false;
+    void startAutomaticLiveStt({ force: true });
   }
 
   function stopRecording() {
@@ -1437,11 +1448,6 @@ export function RehearsalWorkspace(props: {
     setPhase("uploading");
     setIsTimerRunning(false);
     cancelPendingAutoAdvance("cancelled");
-    liveSttAdapterRef.current?.stop();
-    setLiveAudioLevel(null);
-    setLiveStatus((current) =>
-      current === "listening" || current === "starting" ? "stopped" : current
-    );
     sessionRef.current?.stop();
     stopMediaStream(streamRef.current);
     streamRef.current = null;
@@ -1502,16 +1508,13 @@ export function RehearsalWorkspace(props: {
       ? getCurrentLiveBiasContext(deck, currentSlideIndex)
       : null;
     setLiveStatus("starting");
-    setLiveAudioLevel(null);
 
     try {
       await adapter.start(
         stream,
         {
           onPartialTranscript: handleLivePartialTranscript,
-          onError: handleLiveSttError,
-          onAudioLevel: setLiveAudioLevel,
-          onDebugPcmAvailable: setLiveDebugPcmRecording
+          onError: handleLiveSttError
         },
         {
           biasContext: shouldUseLiveSttHotwordBias(biasMode) ? biasContext : null,
@@ -1524,7 +1527,6 @@ export function RehearsalWorkspace(props: {
       const error = toLiveSttAdapterError(cause);
       setLiveStatus(error.code === "LIVE_STT_MODEL_UNAVAILABLE" ? "unavailable" : "failed");
       setLiveError(error.message);
-      setLiveAudioLevel(null);
       cancelPendingAutoAdvance("cancelled");
       return false;
     }
@@ -1533,7 +1535,6 @@ export function RehearsalWorkspace(props: {
   function handleLiveSttError(error: LiveSttAdapterError) {
     setLiveStatus(error.code === "LIVE_STT_MODEL_UNAVAILABLE" ? "unavailable" : "failed");
     setLiveError(error.message);
-    setLiveAudioLevel(null);
     setIsTimerRunning(false);
     cancelPendingAutoAdvance("cancelled");
   }
@@ -1794,33 +1795,6 @@ export function RehearsalWorkspace(props: {
       <div className="rehearsal-legacy-test-marker" aria-hidden="true">
         Live STT / Report AI / Speaker notes
       </div>
-      {isLiveStopModalOpen ? (
-        <div className="rehearsal-live-stop-modal-backdrop" role="presentation">
-          <section
-            aria-labelledby="rehearsal-live-stop-modal-title"
-            aria-modal="true"
-            className="rehearsal-live-stop-modal"
-            role="dialog"
-          >
-            <span className="rehearsal-live-stop-modal-icon" aria-hidden="true">
-              <CheckCircle2 size={28} />
-            </span>
-            <h2 id="rehearsal-live-stop-modal-title">Live STT가 종료되었습니다</h2>
-            <p>
-              {run?.runId
-                ? `현재 리허설 runId는 ${run.runId}입니다.`
-                : "Live STT 단독 실행은 runId를 만들지 않습니다. 리포트 녹음 흐름에서 runId가 생성됩니다."}
-            </p>
-            <button
-              className="primary-action"
-              type="button"
-              onClick={() => setIsLiveStopModalOpen(false)}
-            >
-              확인
-            </button>
-          </section>
-        </div>
-      ) : null}
       <header className="rehearsal-presenter-topbar">
         <button
           className="rehearsal-exit-button"
@@ -2028,70 +2002,10 @@ export function RehearsalWorkspace(props: {
               <span>{autoAdvanceState === "pending" ? "자동 전환 대기" : "자동 전환 활성"}</span>
             </div>
 
-            <div className="rehearsal-live-actions">
-              <button
-                className="primary-action"
-                type="button"
-                onClick={() => void startLiveDemo()}
-                disabled={!canStartLiveDemo}
-              >
-                <Mic size={18} />
-                Live STT 시작
-              </button>
-              <button
-                className="secondary-action"
-                type="button"
-                onClick={() => stopLiveDemo({ showCompletionModal: true })}
-                disabled={!canStopLiveDemo}
-              >
-                <Square size={18} />
-                Live STT 종료
-              </button>
-            </div>
-
-            <div
-              className={`rehearsal-live-audio-meter rehearsal-live-audio-meter-${liveAudioMeterState}`}
-            >
-              <div className="rehearsal-live-audio-meter-header">
-                <span>Mic input</span>
-                <strong>{liveAudioLevelLabel}</strong>
-              </div>
-              <div
-                className="rehearsal-live-audio-meter-track"
-                role="meter"
-                aria-label="Mic input level"
-                aria-valuemin={0}
-                aria-valuemax={100}
-                aria-valuenow={Math.round(liveAudioLevelPercent)}
-                aria-valuetext={liveAudioLevelLabel}
-              >
-                <span style={{ width: `${liveAudioLevelPercent}%` }} />
-              </div>
-              <small>
-                {liveAudioLevel
-                  ? `${Math.round(liveAudioLevel.rmsDb)} dB RMS`
-                  : "-100 dB RMS"}
-              </small>
-            </div>
-
             <div className="rehearsal-live-transcript">
               <span>Partial transcript</span>
               <p>{liveTranscript || liveTranscriptPlaceholder}</p>
             </div>
-            {canDownloadLiveSttDebugPcm ? (
-              <button
-                className="secondary-action"
-                type="button"
-                onClick={() => {
-                  if (liveDebugPcmRecording) {
-                    downloadLiveSttDebugPcm(liveDebugPcmRecording);
-                  }
-                }}
-              >
-                <Download size={16} />
-                모델 입력 WAV 다운로드
-              </button>
-            ) : null}
 
             <div className="rehearsal-live-coverage">
               <strong>{liveCoveragePercent}%</strong>
@@ -2138,6 +2052,15 @@ export function RehearsalWorkspace(props: {
               <div className="project-status-message project-status-danger" role="status">
                 <AlertCircle size={18} />
                 <span>{liveError}</span>
+                {canRetryLiveStt ? (
+                  <button
+                    className="inline-retry-action"
+                    type="button"
+                    onClick={retryLiveStt}
+                  >
+                    마이크 권한 재시도
+                  </button>
+                ) : null}
               </div>
             )}
           </section>

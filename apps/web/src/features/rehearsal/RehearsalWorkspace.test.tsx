@@ -24,6 +24,7 @@ import {
   getLiveSttDebugDecodingMethod,
   getRehearsalMicrophoneAudioConstraints,
   shouldCompleteLiveSlideAdvance,
+  shouldStartAutomaticLiveStt,
   normalizeRecordingMimeType,
   normalizeLiveTranscriptText,
   rehearsalMicrophoneAudioConstraints,
@@ -58,12 +59,10 @@ describe("RehearsalWorkspace", () => {
     expect(html).toContain("리허설");
     expect(html).toContain(deck.slides[0]?.title);
     expect(html).toContain("Live STT");
-    expect(html).toContain("Live STT 시작");
-    expect(html).toContain("Live STT 종료");
-    expect(html).toContain("Live STT 시작을 눌러 테스트하세요");
-    expect(html).toContain("Mic input");
-    expect(html).toContain("입력 대기");
-    expect(html).toContain("-100 dB RMS");
+    expect(html).toContain("음성 인식을 준비하는 중");
+    expect(html).not.toContain("Live STT 시작");
+    expect(html).not.toContain("Live STT 종료");
+    expect(html).not.toContain("Mic input");
     expect(html).toContain("Report AI");
     expect(html).toContain("Speaker notes");
   });
@@ -232,6 +231,34 @@ describe("RehearsalWorkspace", () => {
       peakDb: -10,
       isLikelySilence: false
     })).toBe(60);
+  });
+
+  it("starts Live STT automatically only when rehearsal speech recognition is ready", () => {
+    const readyState = {
+      hasDeck: true,
+      hasCurrentSlide: true,
+      isReportBusy: false,
+      isLiveSttActive: false,
+      alreadyAttempted: false,
+      isInFlight: false
+    };
+
+    expect(shouldStartAutomaticLiveStt(readyState)).toBe(true);
+    expect(
+      shouldStartAutomaticLiveStt({ ...readyState, isLiveSttActive: true })
+    ).toBe(false);
+    expect(
+      shouldStartAutomaticLiveStt({ ...readyState, isReportBusy: true })
+    ).toBe(false);
+    expect(
+      shouldStartAutomaticLiveStt({ ...readyState, alreadyAttempted: true })
+    ).toBe(false);
+    expect(
+      shouldStartAutomaticLiveStt({ ...readyState, isInFlight: true })
+    ).toBe(false);
+    expect(
+      shouldStartAutomaticLiveStt({ ...readyState, hasCurrentSlide: false })
+    ).toBe(false);
   });
 
   it("keeps final report content out of the presenter workspace", () => {
