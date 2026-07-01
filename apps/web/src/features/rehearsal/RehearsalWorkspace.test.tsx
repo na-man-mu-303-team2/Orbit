@@ -12,6 +12,7 @@ import {
   applyLiveTranscriptEvent,
   buildLiveSttBiasContext,
   createLiveTranscriptBuffer,
+  createDefaultLiveSttAdapter,
   createRecordingFile,
   createRecordingSession,
   evaluateLiveTranscript,
@@ -38,6 +39,7 @@ import {
   shouldShowLiveSttDebugPcmDownload,
   shouldAutoAdvanceLiveSlide
 } from "./RehearsalWorkspace";
+import { MoonshineLiveSttAdapter } from "./moonshineLiveSttAdapter";
 import {
   confirmRehearsalCommandCandidate,
   createRehearsalCommandConfirmationState,
@@ -209,6 +211,35 @@ describe("RehearsalWorkspace", () => {
         }
       })
     ).toBe("combined");
+  });
+
+  it("creates the flagged Moonshine Live STT adapter by default", () => {
+    vi.stubGlobal("window", {
+      localStorage: {
+        getItem: vi.fn((key: string) =>
+          key === "orbit.liveStt.engine" ? "moonshine" : null
+        )
+      }
+    });
+
+    const adapter = createDefaultLiveSttAdapter();
+
+    expect(adapter).toBeInstanceOf(MoonshineLiveSttAdapter);
+    adapter.dispose();
+  });
+
+  it("keeps the window Live STT adapter override ahead of the engine flag", () => {
+    const overrideAdapter = new FakeLiveSttAdapter();
+    vi.stubGlobal("window", {
+      __orbitCreateLiveSttAdapter: vi.fn(() => overrideAdapter),
+      localStorage: {
+        getItem: vi.fn((key: string) =>
+          key === "orbit.liveStt.engine" ? "moonshine" : null
+        )
+      }
+    });
+
+    expect(createDefaultLiveSttAdapter()).toBe(overrideAdapter);
   });
 
   it("shows the model input WAV download only when PCM debug has a recording", () => {
@@ -1118,6 +1149,14 @@ describe("fetchRehearsalReport", () => {
     expect(result.report?.transcript).toBeNull();
   });
 });
+
+class FakeLiveSttAdapter {
+  async start() {}
+
+  stop() {}
+
+  dispose() {}
+}
 
 class FakeMediaRecorder {
   static isTypeSupported(mimeType: string) {

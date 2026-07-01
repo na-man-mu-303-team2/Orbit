@@ -13,11 +13,13 @@
     "typecheck": "corepack pnpm --filter @orbit/shared build && tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@huggingface/transformers": "^3.8.1",
     "@orbit/editor-core": "workspace:*",
     "@orbit/shared": "workspace:*",
     "@tanstack/react-query": "^5.81.5",
     "konva": "^9.3.20",
     "lucide-react": "^0.468.0",
+    "onnxruntime-web": "^1.27.0",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "react-konva": "^19.0.3",

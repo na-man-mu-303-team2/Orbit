@@ -69,6 +69,7 @@ import {
   type RehearsalCommandCandidate,
   type RehearsalCommandDefinition
 } from "./rehearsalCommands";
+import { MoonshineLiveSttAdapter } from "./moonshineLiveSttAdapter";
 import { SherpaLiveSttAdapter } from "./sherpaOnnxLiveSttAdapter";
 
 export {
@@ -77,6 +78,9 @@ export {
   type LiveSttAudioLevelEvent,
   type LiveSttCallbacks
 } from "./liveStt";
+export {
+  MoonshineLiveSttAdapter
+} from "./moonshineLiveSttAdapter";
 export {
   SherpaLiveSttAdapter,
   SherpaOnnxLiveSttAdapter,
@@ -1150,8 +1154,15 @@ function levenshteinDistance(left: string, right: string) {
   return previous[right.length] ?? 0;
 }
 
-function createDefaultLiveSttAdapter() {
-  return window.__orbitCreateLiveSttAdapter?.() ?? new SherpaLiveSttAdapter();
+export function createDefaultLiveSttAdapter() {
+  const override = window.__orbitCreateLiveSttAdapter?.();
+  if (override) {
+    return override;
+  }
+
+  return getLiveSttEngine() === "moonshine"
+    ? new MoonshineLiveSttAdapter()
+    : new SherpaLiveSttAdapter();
 }
 
 export function RehearsalWorkspace(props: {
