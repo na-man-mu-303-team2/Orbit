@@ -647,6 +647,22 @@ def test_generate_deck_matches_game_ink_neon_profile_for_korean_hints() -> None:
     assert response.deck["theme"]["name"] == "default-game-ink-neon-ai"
 
 
+def test_generate_deck_uses_design_prompt_profile_when_profile_is_auto() -> None:
+    response = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="Quarterly roadmap",
+            designPrompt="예쁜 모던 스타일로 세련되게",
+            slideCountRange={"min": 2, "max": 2},
+        )
+    )
+
+    theme = response.deck["theme"]
+    assert theme["name"] == "default-modern-lilac-ai"
+    assert theme["accentColor"] == "#7c3aed"
+    assert theme["palette"]["muted"] == "#f5f3ff"
+
+
 def test_generate_deck_report_template_keeps_explicit_game_prompt_theme() -> None:
     fake_client = FakeOpenAIClient(
         {

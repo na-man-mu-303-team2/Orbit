@@ -3,6 +3,7 @@ import type { Job, Project } from "@orbit/shared";
 import { describe, expect, it, vi } from "vitest";
 import {
   buildGenerateDeckPayload,
+  buildGenerateDeckDesignDirection,
   buildReferenceGenerationInput,
   createGeneratedDeckProject,
   ExtractResultItem,
@@ -168,6 +169,33 @@ describe("AI deck generation flow", () => {
       references: [{ fileId: "file_1" }],
       referenceKeywords: [{ text: "Deck" }]
     });
+  });
+
+  it("omits a design profile when the profile picker is automatic", () => {
+    expect(
+      buildGenerateDeckDesignDirection({
+        profile: "auto",
+        visualRhythm: "auto",
+        densityTarget: "medium",
+        mediaPolicy: "balanced",
+        layoutDiversity: "varied"
+      })
+    ).toEqual({
+      visualRhythm: "auto",
+      densityTarget: "medium",
+      mediaPolicy: "balanced",
+      layoutDiversity: "varied"
+    });
+
+    expect(
+      buildGenerateDeckDesignDirection({
+        profile: "editorial",
+        visualRhythm: "auto",
+        densityTarget: "medium",
+        mediaPolicy: "balanced",
+        layoutDiversity: "varied"
+      }).profile
+    ).toBe("editorial");
   });
 
   it("defaults an omitted design prompt to an empty string", () => {

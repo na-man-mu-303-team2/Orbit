@@ -828,6 +828,38 @@ STYLE_PROFILE_REGISTRY: dict[str, dict[str, Any]] = {
         "bodySize": 28,
         "captionSize": 18,
     },
+    "modern-lilac": {
+        "name": "modern-lilac",
+        "headingFontFamily": "Montserrat",
+        "bodyFontFamily": "Inter",
+        "background": "#f8fafc",
+        "surface": "#ffffff",
+        "text": "#111827",
+        "accent": "#7c3aed",
+        "secondary": "#0f766e",
+        "muted": "#f5f3ff",
+        "border": "#ddd6fe",
+        "titleSize": 66,
+        "headingSize": 44,
+        "bodySize": 27,
+        "captionSize": 17,
+    },
+    "premium-dark": {
+        "name": "premium-dark",
+        "headingFontFamily": "Montserrat",
+        "bodyFontFamily": "Inter",
+        "background": "#0f172a",
+        "surface": "#111827",
+        "text": "#f8fafc",
+        "accent": "#fbbf24",
+        "secondary": "#38bdf8",
+        "muted": "#1e293b",
+        "border": "#475569",
+        "titleSize": 66,
+        "headingSize": 44,
+        "bodySize": 27,
+        "captionSize": 17,
+    },
 }
 
 SEMANTIC_PALETTE_PROFILES: dict[str, dict[str, Any]] = {
@@ -868,6 +900,40 @@ SEMANTIC_PALETTE_PROFILES: dict[str, dict[str, Any]] = {
         "secondary": "#0891b2",
         "muted": "#e0f2fe",
         "border": "#bae6fd",
+    },
+    "pastel": {
+        "keywords": [
+            "파스텔",
+            "부드러운",
+            "소프트",
+            "pastel",
+            "soft",
+            "gentle",
+        ],
+        "background": "#fff7ed",
+        "surface": "#ffffff",
+        "text": "#1f2937",
+        "accent": "#ec4899",
+        "secondary": "#38bdf8",
+        "muted": "#fce7f3",
+        "border": "#fbcfe8",
+    },
+    "premium-dark": {
+        "keywords": [
+            "고급",
+            "프리미엄",
+            "럭셔리",
+            "premium",
+            "luxury",
+            "high-end",
+        ],
+        "background": "#0f172a",
+        "surface": "#111827",
+        "text": "#f8fafc",
+        "accent": "#fbbf24",
+        "secondary": "#38bdf8",
+        "muted": "#1e293b",
+        "border": "#475569",
     },
 }
 
@@ -1250,7 +1316,6 @@ def plan_deck_content(
 def requires_llm_content(raw_input: RawInput) -> bool:
     return bool(
         raw_input.prompt.strip()
-        or raw_input.design_prompt.strip()
         or raw_input.references
         or raw_input.reference_keywords
         or raw_input.reference_context
@@ -2112,11 +2177,15 @@ def theme_for_design_profile(profile: DesignProfile) -> dict[str, Any]:
     if profile == "executive-report":
         theme = dict(STYLE_PROFILE_REGISTRY["academic-report"])
     elif profile == "startup-pitch":
-        theme = design_profile_for_visual_rhythm("bold")
+        theme = design_profile_for_visual_rhythm("bold") or dict(
+            STYLE_PROFILE_REGISTRY["startup-clean"]
+        )
     elif profile == "editorial":
         theme = dict(STYLE_PROFILE_REGISTRY["warm-editorial"])
     elif profile == "technical":
-        theme = design_profile_for_visual_rhythm("technical")
+        theme = design_profile_for_visual_rhythm("technical") or dict(
+            STYLE_PROFILE_REGISTRY["dark-cyber"]
+        )
     else:
         theme = {
             "name": "training",
@@ -2162,13 +2231,82 @@ def style_profile_for_text(text: str) -> dict[str, Any] | None:
         return STYLE_PROFILE_REGISTRY["game-ink-neon"]
     if has_any(text, ["cyber", "security", "dark system", "terminal"]):
         return STYLE_PROFILE_REGISTRY["dark-cyber"]
-    if has_any(text, ["startup", "saas", "product launch", "growth"]):
+    if has_any(
+        text,
+        [
+            "premium",
+            "luxury",
+            "high-end",
+            "고급",
+            "프리미엄",
+            "럭셔리",
+        ],
+    ):
+        return STYLE_PROFILE_REGISTRY["premium-dark"]
+    if has_any(
+        text,
+        [
+            "pretty",
+            "beautiful",
+            "modern",
+            "polished",
+            "stylish",
+            "trendy",
+            "예쁜",
+            "예쁘게",
+            "세련",
+            "모던",
+            "감각",
+            "트렌디",
+        ],
+    ):
+        return STYLE_PROFILE_REGISTRY["modern-lilac"]
+    if has_any(
+        text,
+        [
+            "startup",
+            "saas",
+            "product launch",
+            "growth",
+            "스타트업",
+            "피치",
+            "투자",
+            "ir",
+        ],
+    ):
         return STYLE_PROFILE_REGISTRY["startup-clean"]
-    if has_any(text, ["academic", "research", "paper", "report"]):
+    if has_any(
+        text,
+        [
+            "academic",
+            "research",
+            "paper",
+            "report",
+            "보고서",
+            "리포트",
+            "임원",
+            "경영진",
+        ],
+    ):
         return STYLE_PROFILE_REGISTRY["academic-report"]
-    if has_any(text, ["editorial", "magazine", "story", "warm"]):
+    if has_any(
+        text,
+        [
+            "editorial",
+            "magazine",
+            "story",
+            "warm",
+            "에디토리얼",
+            "매거진",
+            "스토리",
+            "감성",
+        ],
+    ):
         return STYLE_PROFILE_REGISTRY["warm-editorial"]
-    if has_any(text, ["kids", "children", "elementary", "classroom"]):
+    if has_any(
+        text,
+        ["kids", "children", "elementary", "classroom", "어린이", "초등", "교실", "교육"],
+    ):
         return STYLE_PROFILE_REGISTRY["kids-education"]
     return None
 

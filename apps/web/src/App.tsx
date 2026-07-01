@@ -106,6 +106,8 @@ type GenerateDeckDesignDirection = {
   mediaPolicy: "avoid" | "balanced" | "placeholder-ok";
   layoutDiversity: "stable" | "varied";
 };
+type GenerateDeckDesignProfile = NonNullable<GenerateDeckDesignDirection["profile"]>;
+type GenerateDeckDesignProfileChoice = "auto" | GenerateDeckDesignProfile;
 
 type GenerateDeckTargetProject = {
   created: boolean;
@@ -983,7 +985,7 @@ function GenerateDeckView() {
   const [purpose, setPurpose] = useState("inform");
   const [tone, setTone] = useState("professional");
   const [designProfile, setDesignProfile] =
-    useState<NonNullable<GenerateDeckDesignDirection["profile"]>>("executive-report");
+    useState<GenerateDeckDesignProfileChoice>("auto");
   const [visualRhythm, setVisualRhythm] =
     useState<GenerateDeckDesignDirection["visualRhythm"]>("auto");
   const [densityTarget, setDensityTarget] =
@@ -1155,13 +1157,13 @@ function GenerateDeckView() {
         maxSlides,
         template,
         metadata: { audience, purpose, tone },
-        design: {
+        design: buildGenerateDeckDesignDirection({
           profile: designProfile,
           visualRhythm,
           densityTarget,
           mediaPolicy,
           layoutDiversity
-        },
+        }),
         referenceInput
       });
       const response = await fetch(
@@ -1392,9 +1394,10 @@ function GenerateDeckView() {
                 label="Profile"
                 value={designProfile}
                 onChange={(value) =>
-                  setDesignProfile(value as NonNullable<GenerateDeckDesignDirection["profile"]>)
+                  setDesignProfile(value as GenerateDeckDesignProfileChoice)
                 }
                 options={[
+                  "auto",
                   "executive-report",
                   "startup-pitch",
                   "editorial",
@@ -1735,6 +1738,27 @@ export function buildGenerateDeckPayload(input: GenerateDeckPayloadInput) {
     references: input.referenceInput.references,
     referenceKeywords: input.referenceInput.referenceKeywords
   };
+}
+
+export function buildGenerateDeckDesignDirection(input: {
+  densityTarget: GenerateDeckDesignDirection["densityTarget"];
+  layoutDiversity: GenerateDeckDesignDirection["layoutDiversity"];
+  mediaPolicy: GenerateDeckDesignDirection["mediaPolicy"];
+  profile: GenerateDeckDesignProfileChoice;
+  visualRhythm: GenerateDeckDesignDirection["visualRhythm"];
+}): GenerateDeckDesignDirection {
+  const design: GenerateDeckDesignDirection = {
+    visualRhythm: input.visualRhythm,
+    densityTarget: input.densityTarget,
+    mediaPolicy: input.mediaPolicy,
+    layoutDiversity: input.layoutDiversity
+  };
+
+  if (input.profile !== "auto") {
+    design.profile = input.profile;
+  }
+
+  return design;
 }
 
 export function mergeGeneratedProjectList(
