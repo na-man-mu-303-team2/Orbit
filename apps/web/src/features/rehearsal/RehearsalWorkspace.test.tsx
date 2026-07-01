@@ -21,7 +21,9 @@ import {
   getRehearsalReportPath,
   getLiveAudioLevelLabel,
   getLiveAudioLevelPercent,
+  getLiveSttBiasMode,
   getLiveSttDebugDecodingMethod,
+  getLiveSttEngine,
   getRehearsalMicrophoneAudioConstraints,
   shouldCompleteLiveSlideAdvance,
   normalizeRecordingMimeType,
@@ -160,6 +162,53 @@ describe("RehearsalWorkspace", () => {
         })
       })
     ).toBeNull();
+  });
+
+  it("selects the Live STT engine from localStorage defensively", () => {
+    expect(
+      getLiveSttEngine({
+        getItem: vi.fn(() => "moonshine")
+      })
+    ).toBe("moonshine");
+    expect(
+      getLiveSttEngine({
+        getItem: vi.fn(() => "whisper")
+      })
+    ).toBe("sherpa");
+    expect(
+      getLiveSttEngine({
+        getItem: vi.fn(() => {
+          throw new Error("storage unavailable");
+        })
+      })
+    ).toBe("sherpa");
+  });
+
+  it("uses postprocess bias for the Moonshine Live STT engine", () => {
+    expect(
+      getLiveSttBiasMode({
+        engine: "moonshine",
+        storage: {
+          getItem: vi.fn(() => null)
+        }
+      })
+    ).toBe("postprocess");
+    expect(
+      getLiveSttBiasMode({
+        engine: "moonshine",
+        storage: {
+          getItem: vi.fn(() => "combined")
+        }
+      })
+    ).toBe("postprocess");
+    expect(
+      getLiveSttBiasMode({
+        engine: "sherpa",
+        storage: {
+          getItem: vi.fn(() => null)
+        }
+      })
+    ).toBe("combined");
   });
 
   it("shows the model input WAV download only when PCM debug has a recording", () => {
@@ -480,7 +529,7 @@ describe("RehearsalWorkspace", () => {
     );
   });
 
-  it("uses fuzzy live STT bias only for keyword matching transcripts", () => {
+  it("uses fuzzy live STT matching and keeps postprocess bias canonicalization", () => {
     const slide = {
       ...createDemoDeck().slides[0]!,
       slideId: "slide_1",
@@ -499,9 +548,60 @@ describe("RehearsalWorkspace", () => {
     const biasedTranscript = applyLiveTranscriptBias(rawTranscript, biasContext);
     const biasedAnalysis = evaluateLiveTranscript(slide, biasedTranscript);
 
-    expect(rawAnalysis.coverage).toBe(0);
+    expect(rawAnalysis.coverage).toBe(1);
     expect(biasedTranscript).toBe(`${rawTranscript} 오르빗`);
     expect(biasedAnalysis.coverage).toBe(1);
+  });
+
+  it("reuses fuzzy Korean keyword matching in live transcript evaluation", () => {
+    const slide = {
+      ...createDemoDeck().slides[0]!,
+      slideId: "slide_1",
+      keywords: [
+        {
+          keywordId: "kw_orbit",
+          text: "오르빗",
+          synonyms: [],
+          abbreviations: []
+        }
+      ]
+    };
+
+    const analysis = evaluateLiveTranscript(
+      slide,
+      "오늘은 오르비트 리허설을 시작합니다"
+    );
+
+    expect(analysis.coverage).toBe(1);
+    expect(analysis.detectedKeywords).toEqual([
+      expect.objectContaining({
+        keywordId: "kw_orbit",
+        matchedText: "오르빗"
+      })
+    ]);
+  });
+
+  it("does not fuzzy-match unrelated Korean utterances into keyword coverage", () => {
+    const slide = {
+      ...createDemoDeck().slides[0]!,
+      slideId: "slide_1",
+      keywords: [
+        {
+          keywordId: "kw_orbit",
+          text: "오르빗",
+          synonyms: [],
+          abbreviations: []
+        }
+      ]
+    };
+
+    const analysis = evaluateLiveTranscript(
+      slide,
+      "안녕하세요. 다음 슬라이드는 설명 자료입니다."
+    );
+
+    expect(analysis.coverage).toBe(0);
+    expect(analysis.detectedKeywords).toEqual([]);
   });
 
   it("does not fuzzy-correct Korean prefix-only keyword fragments into coverage", () => {

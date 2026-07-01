@@ -42,6 +42,7 @@ export type LiveSttBiasContext = {
 
 export type LiveSttBiasMode = "none" | "postprocess" | "hotword" | "combined";
 export type LiveSttDecodingMethod = "greedy_search" | "modified_beam_search";
+export type LiveSttEngine = "sherpa" | "moonshine";
 
 export type LiveSttStartOptions = {
   biasContext?: LiveSttBiasContext | null;

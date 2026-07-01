@@ -53,7 +53,8 @@ import {
   type LiveSttBiasMode,
   type LiveSttBiasSource,
   type LiveSttBiasTerm,
-  type LiveSttDecodingMethod
+  type LiveSttDecodingMethod,
+  type LiveSttEngine
 } from "./liveStt";
 import {
   isLiveSttPcmDebugEnabled,
@@ -150,6 +151,7 @@ export const rehearsalRawMicrophoneAudioConstraints: MediaTrackConstraints = {
 const liveAutoAdvanceCoverageThreshold = 0.8;
 const defaultLiveAutoAdvanceDelayMs = 800;
 const liveSttBiasModeStorageKey = "orbit.liveStt.biasMode";
+const liveSttEngineStorageKey = "orbit.liveStt.engine";
 const liveSttRawMicDebugStorageKey = "orbit.liveStt.debugRawMic";
 const liveSttDebugDecodingMethodStorageKey =
   "orbit.liveStt.debugDecodingMethod";
@@ -530,16 +532,43 @@ export function normalizeLiveTranscriptText(value: string) {
   return value.toLocaleLowerCase("ko-KR").replace(/\s+/g, "").trim();
 }
 
-export function getLiveSttBiasMode(): LiveSttBiasMode {
-  if (typeof window === "undefined") {
-    return "combined";
+type BrowserStorageReader = Pick<Storage, "getItem">;
+
+export function getLiveSttEngine(
+  storage: BrowserStorageReader | null | undefined = readBrowserLocalStorage()
+): LiveSttEngine {
+  try {
+    const value = storage?.getItem(liveSttEngineStorageKey);
+    return isLiveSttEngine(value) ? value : "sherpa";
+  } catch {
+    return "sherpa";
   }
+}
+
+export function getLiveSttBiasMode(
+  options: {
+    engine?: LiveSttEngine;
+    storage?: BrowserStorageReader | null;
+  } = {}
+): LiveSttBiasMode {
+  const storage = options.storage ?? readBrowserLocalStorage();
+  const engine = options.engine ?? getLiveSttEngine(storage);
+  const defaultMode: LiveSttBiasMode =
+    engine === "moonshine" ? "postprocess" : "combined";
 
   try {
-    const value = window.localStorage?.getItem(liveSttBiasModeStorageKey);
-    return isLiveSttBiasMode(value) ? value : "combined";
+    const value = storage?.getItem(liveSttBiasModeStorageKey);
+    const requestedMode = isLiveSttBiasMode(value) ? value : defaultMode;
+    if (
+      engine === "moonshine" &&
+      (requestedMode === "hotword" || requestedMode === "combined")
+    ) {
+      return "postprocess";
+    }
+
+    return requestedMode;
   } catch {
-    return "combined";
+    return defaultMode;
   }
 }
 
@@ -755,7 +784,11 @@ export function evaluateLiveTranscript(
   const detectedKeywords = candidates.flatMap((candidate) => {
     const matchedText = candidate.aliases.find((alias) => {
       const normalizedAlias = normalizeLiveTranscriptText(alias);
-      return normalizedAlias && normalizedTranscript.includes(normalizedAlias);
+      return (
+        normalizedAlias &&
+        (normalizedTranscript.includes(normalizedAlias) ||
+          hasFuzzyBiasMatch(transcript, normalizedAlias))
+      );
     });
 
     if (!matchedText) {
@@ -914,6 +947,10 @@ function isLiveSttBiasMode(value: unknown): value is LiveSttBiasMode {
     value === "hotword" ||
     value === "combined"
   );
+}
+
+function isLiveSttEngine(value: unknown): value is LiveSttEngine {
+  return value === "sherpa" || value === "moonshine";
 }
 
 function isLiveSttDecodingMethod(value: unknown): value is LiveSttDecodingMethod {
