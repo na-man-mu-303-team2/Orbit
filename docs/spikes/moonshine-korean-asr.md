@@ -13,6 +13,7 @@ Implemented web pieces:
 - `moonshineWorker.ts`: loads `@huggingface/transformers` ASR pipeline for `onnx-community/moonshine-tiny-ko-ONNX`, tries WebGPU first, falls back to WASM, and passes `max_length` per segment.
 - `orbit.liveStt.engine`: localStorage engine flag for `sherpa` and `moonshine`.
 - `stt:evaluate`: fixed Korean fixture evaluator for CER, keyword recall, false-trigger rate, and segment latency.
+- `stt:gate:moonshine`: compares a Moonshine measurement report against a sherpa baseline or explicit absolute thresholds and returns `go`, `no-go`, or `blocked`.
 
 ## Current Go / No-Go
 
@@ -102,6 +103,17 @@ pnpm --filter @orbit/web stt:measure:moonshine -- --devices wasm --decoder-dtype
 ```
 
 The runner starts Vite with COOP/COEP headers, synthesizes Korean fixture audio with the macOS `Yuna` voice unless `--audio-dir` is provided, loads Moonshine in Playwright Chromium, and writes prediction + metric JSON.
+
+Quality gate runner:
+
+```bash
+pnpm --filter @orbit/web stt:gate:moonshine -- \
+  --candidate docs/spikes/moonshine-korean-asr-measurements.json \
+  --baseline <sherpa-measurement-report.json> \
+  --markdown-out docs/spikes/moonshine-korean-asr-gate.md
+```
+
+The gate refuses to return `go` unless each required metric has either a sherpa baseline or an explicit absolute threshold (`--min-keyword-recall`, `--max-false-trigger-rate`, `--max-average-latency-ms`). This keeps the default-engine cutover blocked until the quality criteria are measurable.
 
 ## 2026-07-01 Measurements
 

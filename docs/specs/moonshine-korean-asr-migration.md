@@ -161,7 +161,7 @@ Moonshine에는 sherpa의 `hotwordsBuf`/`modified_beam_search` 같은 디코딩 
 - 고정 한국어 fixture에서 키워드 recall ≥ 현행, false-trigger ≤ 현행, CER 측정치 기록. Synthetic TTS baseline은 기록됐지만 no-go다.
 - WebGPU/WASM 양 경로에서 세그먼트 전사 지연이 목표 이내. WASM은 짧은 지연을 보였으나 WebGPU는 no-go다.
 - 플래그로 sherpa ↔ Moonshine 무중단 전환.
-- 기본 엔진 전환은 위 품질·지연 수치가 기록될 때까지 금지.
+- 기본 엔진 전환은 `stt:gate:moonshine`이 sherpa baseline 또는 합의된 절대 threshold 대비 `go`를 반환할 때까지 금지.
 
 ## 8. 가정 & 열린 질문
 - **가정:** ORBIT은 상업 제품이며 라이선스 클리어런스가 필요하다. 현재는 사용자 승인 완료 상태로 구현을 진행한다.
