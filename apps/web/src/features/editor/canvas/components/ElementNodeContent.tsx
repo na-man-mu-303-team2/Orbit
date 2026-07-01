@@ -108,7 +108,7 @@ export function ElementNodeContent(props: {
     return (
       <Group listening={false}>
         <Rect
-          cornerRadius={18}
+          cornerRadius={deck.theme.effects.borderRadius}
           fill={chart.style.backgroundColor ?? "#fff"}
           stroke={accentColor}
           strokeWidth={2}

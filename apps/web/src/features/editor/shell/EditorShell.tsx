@@ -126,6 +126,7 @@ import {
   shouldApplyManualSaveResult,
   shouldHydrateDeckFromQuery
 } from "./utils/deckState";
+import { createThemeCascadePatch } from "./utils/themeCascadePatch";
 import "../editor-shell.css";
 
 interface HealthResponse {
@@ -1658,17 +1659,7 @@ export function EditorShell(props: { projectId?: string }) {
   }
 
   function handleThemeChange(theme: Record<string, unknown>) {
-    commitPatch((currentDeck) => ({
-      deckId: currentDeck.deckId,
-      baseVersion: currentDeck.version,
-      source: "user",
-      operations: [
-        {
-          type: "update_theme",
-          theme
-        }
-      ]
-    }));
+    commitPatch((currentDeck) => createThemeCascadePatch(currentDeck, theme));
   }
 
   function openImageFilePicker(target: ImageUploadTarget) {
