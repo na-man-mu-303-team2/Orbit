@@ -119,10 +119,10 @@ Model load times are directional only: the q4 WASM row ran after WebGPU in the s
 | WASM | `encoder_model=fp32`, `decoder_model_merged=q4` | no-go | 615 ms | 0.650 | 0.333 | 0.000 | 73.5 ms | Control phrases partially recognized, slide keywords missed. |
 | WASM | `encoder_model=fp32`, `decoder_model_merged=q8` | no-go | 13417 ms | 0.643 | 0.333 | 0.000 | 75.2 ms | Slight CER improvement over q4, recall unchanged. |
 
-Conclusion: the integration path works and the tokenizer compatibility issue is fixed, but the measured quality does **not** justify default-engine cutover. Keep the feature flag, collect real human wav fixtures, and revisit VAD/dtype/postprocessing after a representative baseline exists.
+Conclusion: the integration path works and the tokenizer compatibility issue is fixed, but the measured quality does **not** justify default-engine cutover. Keep the feature flag, collect real human wav fixtures, and revisit VAD/dtype/postprocessing after a representative baseline exists. Canary sessions can enable `orbit.liveStt.debugLatency=1` to capture Moonshine segment `transcribeMs`, `realtimeFactor`, and audio amplitude stats in browser debug logs.
 
 ## Remaining Work
 
 - M1/M5: replace the synthetic TTS baseline with real Korean rehearsal wav fixtures and repeat WebGPU/WASM measurements.
-- M6: run staging canary with debug metric collection.
+- M6: run staging canary using `orbit.liveStt.debugLatency=1` for RTF/latency stats and the A2 harness for recall.
 - M7: keep sherpa as a fallback. Change the default engine only after the measured quality gate passes.

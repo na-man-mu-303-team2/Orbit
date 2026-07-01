@@ -50,6 +50,11 @@ type MoonshineWorkerOutboundMessage =
   | { type: "loaded"; modelId: string; device: MoonshineWorkerDevice }
   | { type: "started"; sessionId: string }
   | {
+      type: "debug-stats";
+      sessionId: string;
+      stats: MoonshineWorkerDebugStats;
+    }
+  | {
       type: "partial" | "final";
       sessionId: string;
       sequenceId: number;
@@ -63,6 +68,16 @@ type MoonshineWorkerOutboundMessage =
       message: string;
       sessionId?: string;
     };
+type MoonshineWorkerDebugStats = {
+  sequenceId: number;
+  segmentSamples: number;
+  segmentDurationMs: number;
+  transcribeMs: number;
+  realtimeFactor: number;
+  resultLength: number;
+  audioMaxAbs: number;
+  audioRms: number;
+};
 
 type MoonshineWorkerDTypeConfig = {
   encoder_model: "fp32" | "fp16" | "q8" | "q4";
@@ -135,6 +150,16 @@ const moonshineLocalModelPathStorageKey =
   "orbit.liveStt.moonshine.localModelPath";
 const moonshineAllowRemoteModelsStorageKey =
   "orbit.liveStt.moonshine.allowRemoteModels";
+const moonshineWorkerDebugFields: ReadonlyArray<keyof MoonshineWorkerDebugStats> = [
+  "sequenceId",
+  "segmentSamples",
+  "segmentDurationMs",
+  "transcribeMs",
+  "realtimeFactor",
+  "resultLength",
+  "audioMaxAbs",
+  "audioRms"
+];
 
 export class MoonshineLiveSttAdapter implements LiveSttAdapter {
   private worker: MoonshineWorker | null = null;
@@ -589,6 +614,15 @@ export class MoonshineLiveSttAdapter implements LiveSttAdapter {
       return;
     }
 
+    if (message.type === "debug-stats") {
+      if (message.sessionId !== this.sessionId) {
+        return;
+      }
+
+      logLiveSttWorkerDebug(message.stats);
+      return;
+    }
+
     if (message.type === "partial" || message.type === "final") {
       if (message.sessionId !== this.sessionId) {
         return;
@@ -659,6 +693,27 @@ function parsePartialTranscriptMessage(
     isFinal: message.isFinal,
     confidence: message.confidence
   });
+}
+
+function logLiveSttWorkerDebug(stats: MoonshineWorkerDebugStats) {
+  if (!isLiveSttLatencyDebugEnabled()) {
+    return;
+  }
+
+  const payload: Record<string, number> = {};
+  for (const field of moonshineWorkerDebugFields) {
+    payload[field] = roundLiveSttDebugValue(stats[field]);
+  }
+
+  console.debug(`[orbit-live-stt-worker] ${JSON.stringify(payload)}`);
+}
+
+function roundLiveSttDebugValue(value: number) {
+  if (Number.isInteger(value)) {
+    return value;
+  }
+
+  return Math.round(value * 1000) / 1000;
 }
 
 function isLiveSttLatencyDebugEnabled() {

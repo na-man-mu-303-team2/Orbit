@@ -85,7 +85,7 @@ encoder만 int8로 **약 127MB**다. 지금은 매 로드마다 fetch → WASM F
 
 ## D. 계측 (Instrumentation)
 
-디버그 인프라는 좋다(지연 로그, PCM 다운로드, worker stat) — 다만 전부 localStorage 플래그 뒤에 있고 집계가 안 된다. dev/staging에서 익명 집계 지표(RTF, 엔드포인트 지연, 키워드 recall)를 수집해 튜닝의 근거로 삼는다. A2 하네스와 자연스럽게 연결된다.
+디버그 인프라는 좋다(지연 로그, PCM 다운로드, worker stat) — 다만 전부 localStorage 플래그 뒤에 있고 집계가 안 된다. Moonshine worker는 `orbit.liveStt.debugLatency=1`에서 세그먼트별 RTF, 전사 지연, 오디오 크기 통계를 남긴다. 남은 일은 dev/staging에서 익명 집계 지표(RTF, 엔드포인트 지연, 키워드 recall)를 수집해 튜닝의 근거로 삼는 것이다. A2 하네스와 자연스럽게 연결된다.
 
 ---
 

@@ -5,7 +5,7 @@
 **짝 문서:** [spec/ADR](../specs/moonshine-korean-asr-migration.md)
 **전략:** 신규 `MoonshineLiveSttAdapter`를 기능 플래그 뒤에 추가 → 실측(정확도·지연) → canary → 컷오버 → sherpa 제거. 기존 `LiveSttAdapter` 계약을 유지해 리허설 제품 로직·`packages/shared` 스키마는 변경하지 않는다.
 
-**현재 구현 메모(2026-07-01):** M2~M4와 M5 하네스, M6 엔진 플래그/자가호스팅 옵션은 구현됐다. M0는 사용자 승인 완료로 기록한다. Synthetic macOS `Yuna` fixture로 WebGPU/WASM 측정도 수행했으나 품질 게이트는 실패했다. 실제 사람 음성 fixture, staging canary, 기본 엔진 컷오버는 아직 완료 조건이 충족되지 않았다.
+**현재 구현 메모(2026-07-01):** M2~M4와 M5 하네스, M6 엔진 플래그/자가호스팅 옵션/디버그 지표는 구현됐다. M0는 사용자 승인 완료로 기록한다. Synthetic macOS `Yuna` fixture로 WebGPU/WASM 측정도 수행했으나 품질 게이트는 실패했다. 실제 사람 음성 fixture, staging canary, 기본 엔진 컷오버는 아직 완료 조건이 충족되지 않았다.
 
 ---
 
@@ -19,7 +19,7 @@
 | M3 | VAD 세그먼트 | 라이브 발화 경계 처리 | VAD 세그먼터 + 세그먼트 final | 완료 |
 | M4 | 키워드 후처리 패리티 | hotword 상실 보완 | 후처리 바이어스 연결 + 매칭 개선 | 완료 |
 | M5 | 평가 하네스 + 튜닝 | recall/CER/지연 측정·튜닝 | CER 하네스 + 튜닝 리포트 | synthetic 리포트 완료, 사람 음성 대기 |
-| M6 | 플래그 롤아웃(canary) | 무중단 A/B | 엔진 플래그 + 스테이징 canary | 플래그 완료, canary 대기 |
+| M6 | 플래그 롤아웃(canary) | 무중단 A/B | 엔진 플래그 + 스테이징 canary | 플래그·디버그 지표 완료, canary 대기 |
 | M7 | 컷오버 & 정리 | 기본 엔진 전환 | Moonshine 기본화, sherpa 제거/보존 결정 | 품질 게이트 대기 |
 
 M0는 M6(프로덕션 노출)의 **차단 선행조건**. M1~M5는 M0와 병행 가능(비프로덕션).
@@ -73,8 +73,9 @@ M0는 M6(프로덕션 노출)의 **차단 선행조건**. M1~M5는 M0와 병행 
 
 ### M6 — 플래그 롤아웃 (canary)
 - [x] 엔진 선택 플래그 `orbit.liveStt.engine`(`localStorage`) + `createDefaultLiveSttAdapter` 분기.
-- [ ] 스테이징 canary: 내부 사용자 대상 Moonshine 활성화, 디버그 지표 수집(RTF·지연·recall).
-- [ ] COOP/COEP 등 서빙 요건 점검(WebGPU/WASM 스레드), 자가 호스팅 자산 배치. 자가호스팅 경로와 README는 준비됐지만 실제 모델 자산 배치는 저장소에 포함하지 않는다.
+- [x] Moonshine canary 디버그 지표 수집 경로: `orbit.liveStt.debugLatency=1`에서 segment RTF, 전사 지연, 세그먼트 길이, 오디오 크기 통계를 worker debug log로 기록한다.
+- [ ] 스테이징 canary: 내부 사용자 대상 Moonshine 활성화, 디버그 지표와 A2 하네스 기반 recall 수집.
+- [ ] COOP/COEP 등 서빙 요건 점검(WebGPU/WASM 스레드), 자가 호스팅 자산 배치. Vite dev/preview 헤더는 준비됐지만 production/staging hosting 헤더와 실제 모델 자산 배치는 저장소에서 아직 검증하지 않는다.
 - [x] 회귀 없음 확인(제품 로직 단위 테스트, typecheck, build). E2E 스모크는 별도 실행 필요.
 
 ### M7 — 컷오버 & 정리

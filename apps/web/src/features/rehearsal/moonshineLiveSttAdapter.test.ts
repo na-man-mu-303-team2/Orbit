@@ -179,6 +179,70 @@ describe("MoonshineLiveSttAdapter", () => {
       }
     });
   });
+
+  it("logs Moonshine worker latency metrics only when debug latency is enabled", async () => {
+    const debugLog = vi.spyOn(console, "debug").mockImplementation(() => undefined);
+    vi.stubGlobal("window", {
+      localStorage: {
+        getItem: vi.fn((key: string) =>
+          key === "orbit.liveStt.debugLatency" ? "1" : null
+        )
+      }
+    });
+    const worker = new FakeMoonshineWorker();
+    const audioContext = new FakeAudioContext(1000);
+    const adapter = new MoonshineLiveSttAdapter({
+      createWorker: () => worker,
+      createAudioContext: () => audioContext as unknown as AudioContext,
+      createAudioWorkletNode: (_context, _name, options) =>
+        audioContext.createAudioWorkletNode(options) as unknown as AudioWorkletNode,
+      sampleRate: 1000
+    });
+
+    await adapter.start({ getTracks: () => [] } as unknown as MediaStream, {
+      onPartialTranscript: () => undefined,
+      onError: () => undefined
+    });
+    const sessionId = readStartedSessionId(worker);
+    worker.emitWorkerMessage({
+      type: "debug-stats",
+      sessionId,
+      stats: {
+        sequenceId: 3,
+        segmentSamples: 1000,
+        segmentDurationMs: 1000,
+        transcribeMs: 125.4567,
+        realtimeFactor: 0.1254567,
+        resultLength: 5,
+        audioMaxAbs: 0.25,
+        audioRms: 0.125
+      }
+    });
+    worker.emitWorkerMessage({
+      type: "debug-stats",
+      sessionId: "stale-session",
+      stats: {
+        sequenceId: 4,
+        segmentSamples: 1000,
+        segmentDurationMs: 1000,
+        transcribeMs: 999,
+        realtimeFactor: 0.999,
+        resultLength: 0,
+        audioMaxAbs: 0,
+        audioRms: 0
+      }
+    });
+    adapter.dispose();
+
+    const workerLogs = debugLog.mock.calls.filter(([message]) =>
+      String(message).startsWith("[orbit-live-stt-worker]")
+    );
+    expect(workerLogs).toHaveLength(1);
+    expect(workerLogs[0]?.[0]).toContain('"sequenceId":3');
+    expect(workerLogs[0]?.[0]).toContain('"transcribeMs":125.457');
+    expect(workerLogs[0]?.[0]).toContain('"realtimeFactor":0.125');
+    expect(JSON.stringify(debugLog.mock.calls)).not.toContain("stale-session");
+  });
 });
 
 type FakeWorkerMessage = {

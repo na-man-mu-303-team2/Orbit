@@ -42,6 +42,11 @@ type MoonshineWorkerOutboundMessage =
   | { type: "loaded"; modelId: string; device: MoonshineWorkerDevice }
   | { type: "started"; sessionId: string }
   | {
+      type: "debug-stats";
+      sessionId: string;
+      stats: MoonshineWorkerDebugStats;
+    }
+  | {
       type: "final";
       sessionId: string;
       sequenceId: number;
@@ -56,6 +61,16 @@ type MoonshineWorkerOutboundMessage =
       message: string;
       sessionId?: string;
     };
+type MoonshineWorkerDebugStats = {
+  sequenceId: number;
+  segmentSamples: number;
+  segmentDurationMs: number;
+  transcribeMs: number;
+  realtimeFactor: number;
+  resultLength: number;
+  audioMaxAbs: number;
+  audioRms: number;
+};
 
 type PipelineOptions = {
   device: MoonshineWorkerDevice;
@@ -92,6 +107,7 @@ let transcriber: MoonshineTranscriber | null = null;
 let loadedModelId = "";
 let loadedDevice: MoonshineWorkerDevice | null = null;
 let activeSessionId: string | null = null;
+let shouldPostDebugStats = false;
 
 workerScope.onmessage = (event: MessageEvent<MoonshineWorkerInboundMessage>) => {
   void handleMessage(event.data);
@@ -114,7 +130,7 @@ async function handleMessage(message: MoonshineWorkerInboundMessage) {
         });
         return;
       case "start":
-        startSession(message.sessionId);
+        startSession(message.sessionId, message.debugStatsEnabled);
         return;
       case "audio-segment":
         await transcribeSegment(message);
@@ -202,12 +218,13 @@ async function getPipelineFactory() {
   return transformersPipeline as MoonshinePipelineFactory;
 }
 
-function startSession(sessionId: string) {
+function startSession(sessionId: string, debugStatsEnabled: boolean) {
   if (!transcriber) {
     throw new Error("Moonshine Live STT model has not been loaded.");
   }
 
   activeSessionId = sessionId;
+  shouldPostDebugStats = debugStatsEnabled;
   post({ type: "started", sessionId });
 }
 
@@ -222,11 +239,21 @@ async function transcribeSegment(
     throw new Error("Moonshine Live STT model has not been loaded.");
   }
 
-  const result = await transcriber(toFloat32Array(message.samples), {
+  const samples = toFloat32Array(message.samples);
+  const transcribeStartedAt = performance.now();
+  const result = await transcriber(samples, {
     sampling_rate: message.sampleRate,
     max_length: normalizeMaxLength(message.maxLength)
   });
+  const transcribeMs = performance.now() - transcribeStartedAt;
   const transcript = extractTranscriptText(result);
+  if (shouldPostDebugStats) {
+    post({
+      type: "debug-stats",
+      sessionId: message.sessionId,
+      stats: buildDebugStats(message, samples, transcript, transcribeMs)
+    });
+  }
   if (!transcript) {
     return;
   }
@@ -247,6 +274,7 @@ function stopSession(sessionId: string) {
   }
 
   activeSessionId = null;
+  shouldPostDebugStats = false;
   post({ type: "stopped", sessionId });
 }
 
@@ -255,7 +283,51 @@ function disposeWorker() {
   loadedModelId = "";
   loadedDevice = null;
   activeSessionId = null;
+  shouldPostDebugStats = false;
   workerScope.close();
+}
+
+function buildDebugStats(
+  message: Extract<MoonshineWorkerInboundMessage, { type: "audio-segment" }>,
+  samples: Float32Array,
+  transcript: string,
+  transcribeMs: number
+): MoonshineWorkerDebugStats {
+  const segmentDurationMs =
+    samples.length > 0 && Number.isFinite(message.sampleRate) && message.sampleRate > 0
+      ? (samples.length / message.sampleRate) * 1000
+      : 0;
+  const amplitude = measureSamplesAmplitude(samples);
+
+  return {
+    sequenceId: message.sequenceId,
+    segmentSamples: samples.length,
+    segmentDurationMs,
+    transcribeMs,
+    realtimeFactor: segmentDurationMs > 0 ? transcribeMs / segmentDurationMs : 0,
+    resultLength: transcript.length,
+    audioMaxAbs: amplitude.maxAbs,
+    audioRms: amplitude.rms
+  };
+}
+
+function measureSamplesAmplitude(samples: Float32Array) {
+  if (samples.length === 0) {
+    return { maxAbs: 0, rms: 0 };
+  }
+
+  let maxAbs = 0;
+  let sumSquares = 0;
+  for (const sample of samples) {
+    const abs = Math.abs(sample);
+    maxAbs = Math.max(maxAbs, abs);
+    sumSquares += sample * sample;
+  }
+
+  return {
+    maxAbs,
+    rms: Math.sqrt(sumSquares / samples.length)
+  };
 }
 
 function toFloat32Array(samples: Float32Array | ArrayBuffer) {

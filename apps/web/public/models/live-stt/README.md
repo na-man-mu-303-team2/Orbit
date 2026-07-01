@@ -114,6 +114,14 @@ Moonshine 경로는 `transformers.js` + `onnxruntime-web`의 `automatic-speech-r
 
 Moonshine에는 sherpa hotword decoder API가 없으므로 `RehearsalWorkspace`는 이 엔진에서 `combined`/`hotword` bias 요청을 `postprocess`로 낮춥니다.
 
+Canary 지연·RTF 지표를 브라우저 콘솔에서 확인하려면 다음 값을 켭니다.
+
+```ts
+localStorage.setItem("orbit.liveStt.debugLatency", "1");
+```
+
+Moonshine worker는 이 플래그가 켜진 세션에서 세그먼트별 `segmentDurationMs`, `transcribeMs`, `realtimeFactor`, `resultLength`, `audioMaxAbs`, `audioRms`를 `[orbit-live-stt-worker]` 로그로 남깁니다. raw audio는 로그에 남기지 않습니다.
+
 ## 4. 브라우저 내부 처리 흐름
 
 현재 Live STT 처리 흐름:

@@ -128,6 +128,55 @@ describe("moonshineWorker", () => {
     );
   });
 
+  it("posts real-time factor debug stats for transcribed segments when enabled", async () => {
+    server = await createWorkerTransformServer();
+    const context = await createWorkerContext(server, {
+      pipelineFactory: async () => async () => ({ text: "다음 슬라이드" })
+    });
+    let now = 100;
+    context.performance.now = () => {
+      const value = now;
+      now += 25;
+      return value;
+    };
+
+    await sendWorkerMessage(context, {
+      type: "load",
+      modelId: "onnx-community/moonshine-tiny-ko-ONNX",
+      dtype: { encoder_model: "fp32", decoder_model_merged: "q4" },
+      preferredDevice: "wasm"
+    });
+    await sendWorkerMessage(context, {
+      type: "start",
+      sessionId: "session-1",
+      sampleRate: 16000,
+      debugStatsEnabled: true
+    });
+    await sendWorkerMessage(context, {
+      type: "audio-segment",
+      sessionId: "session-1",
+      sequenceId: 9,
+      sampleRate: 16000,
+      samples: new Float32Array([0.5, -0.25, 0, 0.25]),
+      maxLength: 2
+    });
+
+    expect(context.posted).toContainEqual({
+      type: "debug-stats",
+      sessionId: "session-1",
+      stats: {
+        sequenceId: 9,
+        segmentSamples: 4,
+        segmentDurationMs: 0.25,
+        transcribeMs: 25,
+        realtimeFactor: 100,
+        resultLength: 7,
+        audioMaxAbs: 0.5,
+        audioRms: 0.30618621784789724
+      }
+    });
+  });
+
   it("maps transcription failures to LIVE_STT_START_FAILED", async () => {
     server = await createWorkerTransformServer();
     const context = await createWorkerContext(server, {

@@ -153,6 +153,7 @@ Moonshine에는 sherpa의 `hotwordsBuf`/`modified_beam_search` 같은 디코딩 
 - 온디바이스 원칙 유지: 라이브 중 raw audio·전사는 서버·로그로 나가지 않음(기존 원칙 준수).
 - 자가 호스팅 시 외부 CDN 호출 제거로 프라이버시·오프라인 강화.
 - 전사 디버그 로그는 기존과 동일하게 `orbit.liveStt.debugLatency` 플래그 뒤에만.
+- Moonshine worker 지표도 같은 플래그 뒤에만 기록한다. 지표는 `sequenceId`, `segmentSamples`, `segmentDurationMs`, `transcribeMs`, `realtimeFactor`, `resultLength`, `audioMaxAbs`, `audioRms`로 제한하고 raw audio는 로그에 남기지 않는다.
 
 ## 7. 인수 조건 (개요 — 상세는 plan.md)
 - M0 라이선스 상태: 사용자 승인 완료(2026-07-01). 상세 계약 기록은 저장소 밖에서 관리한다.
