@@ -176,7 +176,9 @@ export function createDemoDeck(): Deck {
             props: {
               src: "/files/mockups/editor-preview.png",
               alt: "Editor preview",
-              fit: "cover"
+              fit: "cover",
+              focusX: 0.5,
+              focusY: 0.5
             }
           },
           {

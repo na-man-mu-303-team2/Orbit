@@ -33,6 +33,8 @@ export function ImageElementContent(props: {
     image && image.naturalWidth > 0 && image.naturalHeight > 0
       ? getImageElementLayout({
           fit: imageProps.fit,
+          focusX: imageProps.focusX,
+          focusY: imageProps.focusY,
           frameHeight: frame.height,
           frameWidth: frame.width,
           imageHeight: image.naturalHeight,
@@ -123,12 +125,14 @@ function useLoadedImage(src: string) {
 
 function getImageElementLayout(args: {
   fit: ImageElementProps["fit"];
+  focusX: number;
+  focusY: number;
   frameHeight: number;
   frameWidth: number;
   imageHeight: number;
   imageWidth: number;
 }) {
-  const { fit, frameHeight, frameWidth, imageHeight, imageWidth } = args;
+  const { fit, focusX, focusY, frameHeight, frameWidth, imageHeight, imageWidth } = args;
 
   if (fit === "stretch") {
     return {
@@ -159,12 +163,13 @@ function getImageElementLayout(args: {
 
   if (imageRatio > frameRatio) {
     const cropWidth = imageHeight * frameRatio;
+    const maxCropX = Math.max(0, imageWidth - cropWidth);
 
     return {
       crop: {
         height: imageHeight,
         width: cropWidth,
-        x: (imageWidth - cropWidth) / 2,
+        x: maxCropX * clampFocus(focusX),
         y: 0
       },
       height: frameHeight,
@@ -175,19 +180,24 @@ function getImageElementLayout(args: {
   }
 
   const cropHeight = imageWidth / frameRatio;
+  const maxCropY = Math.max(0, imageHeight - cropHeight);
 
   return {
     crop: {
       height: cropHeight,
       width: imageWidth,
       x: 0,
-      y: (imageHeight - cropHeight) / 2
+      y: maxCropY * clampFocus(focusY)
     },
     height: frameHeight,
     width: frameWidth,
     x: 0,
     y: 0
   };
+}
+
+function clampFocus(value: number) {
+  return Math.max(0, Math.min(1, Number.isFinite(value) ? value : 0.5));
 }
 
 function truncateValue(value: string, maxLength: number) {

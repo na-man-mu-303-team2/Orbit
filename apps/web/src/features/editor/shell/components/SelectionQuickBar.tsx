@@ -306,6 +306,13 @@ function ElementQuickBarFields(props: {
           value={textProps.verticalAlign}
           onChange={(value) => onChangeProps({ verticalAlign: value })}
         />
+        <button
+          className="quickbar-action-chip"
+          type="button"
+          onClick={() => onChangeProps(createShrinkToFitTextProps(element))}
+        >
+          맞춤 축소
+        </button>
       </>
     );
   }
@@ -444,6 +451,24 @@ function ElementQuickBarFields(props: {
           value={imageProps.alt}
           onCommit={(value) => onChangeProps({ alt: value })}
         />
+        <PropertyNumberField
+          className="compact-property-field compact-property-field-sm"
+          label="초점 X"
+          max={1}
+          min={0}
+          step="0.05"
+          value={imageProps.focusX ?? 0.5}
+          onCommit={(value) => onChangeProps({ focusX: clampUnit(value) })}
+        />
+        <PropertyNumberField
+          className="compact-property-field compact-property-field-sm"
+          label="초점 Y"
+          max={1}
+          min={0}
+          step="0.05"
+          value={imageProps.focusY ?? 0.5}
+          onCommit={(value) => onChangeProps({ focusY: clampUnit(value) })}
+        />
       </>
     );
   }
@@ -498,6 +523,47 @@ function ElementQuickBarFields(props: {
   }
 
   return null;
+}
+
+export function createShrinkToFitTextProps(
+  element: Extract<DeckElement, { type: "text" }>
+) {
+  const lineHeight = Math.min(element.props.lineHeight, 1.15);
+  const minFontSize = 8;
+
+  for (
+    let fontSize = Math.floor(element.props.fontSize);
+    fontSize >= minFontSize;
+    fontSize -= 1
+  ) {
+    if (estimateTextHeight(element.props.text, element.width, fontSize, lineHeight) <= element.height) {
+      return { fontSize, lineHeight };
+    }
+  }
+
+  return { fontSize: minFontSize, lineHeight: 1.05 };
+}
+
+function estimateTextHeight(
+  text: string,
+  width: number,
+  fontSize: number,
+  lineHeight: number
+) {
+  const characterWidth = Math.max(1, fontSize * 0.56);
+  const charactersPerLine = Math.max(1, Math.floor(width / characterWidth));
+  const lineCount = text
+    .split("\n")
+    .reduce(
+      (sum, line) => sum + Math.max(1, Math.ceil(line.length / charactersPerLine)),
+      0
+    );
+
+  return lineCount * fontSize * lineHeight;
+}
+
+function clampUnit(value: number) {
+  return Math.max(0, Math.min(1, Number.isFinite(value) ? value : 0.5));
 }
 
 function chartTypePatch(chart: Chart, type: ChartType) {

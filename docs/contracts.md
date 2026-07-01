@@ -221,7 +221,7 @@ API:
 - 객체 `props`는 object type별 schema로 검증한다. 전체 객체에 대해 `z.record(z.unknown())`를 열어두지 않는다.
 - `text.props`는 `text`, `fontFamily`, `fontSize`, `fontWeight`, `color`, `align`, `verticalAlign`, `lineHeight`를 사용한다.
 - `text.props.fontFamily`, `text.props.color`가 생략되면 renderer/export/AI normalize 단계에서 각각 `slide.style.fontFamily` > `deck.theme.fontFamily`, `slide.style.textColor` > `deck.theme.textColor` 순서로 기본값을 사용한다.
-- `image.props`는 `src`, `alt`, `fit`을 사용하고, `fit`은 `contain`, `cover`, `stretch`만 허용한다.
+- `image.props`는 `src`, `alt`, `fit`, `focusX`, `focusY`를 사용하고, `fit`은 `contain`, `cover`, `stretch`만 허용한다. `focusX`, `focusY`는 `cover` crop 기준점이며 0부터 1 사이 값이다.
 - `chart.props`는 `chart.schema.ts`의 chart schema를 그대로 사용한다.
 - `rect`, `ellipse`, `line`, `arrow`, `polygon`, `star`, `ring`은 공통 shape props인 `fill`, `stroke`, `strokeWidth`, `borderRadius`, `shadow`를 사용한다.
 - `customShape.props`만 MVP 확장 지점으로 `record unknown`을 허용한다.
