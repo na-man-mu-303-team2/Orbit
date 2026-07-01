@@ -5,7 +5,7 @@
 **짝 문서:** [spec/ADR](../specs/moonshine-korean-asr-migration.md)
 **전략:** 신규 `MoonshineLiveSttAdapter`를 기능 플래그 뒤에 추가 → 실측(정확도·지연) → canary → 컷오버 → sherpa 제거. 기존 `LiveSttAdapter` 계약을 유지해 리허설 제품 로직·`packages/shared` 스키마는 변경하지 않는다.
 
-**현재 구현 메모(2026-07-01):** M2~M4와 M5 하네스/품질 gate CLI, M6 엔진 플래그/자가호스팅 옵션·준비 스크립트/디버그 지표는 구현됐다. M0는 사용자 승인 완료로 기록한다. Synthetic macOS `Yuna` fixture로 WebGPU/WASM 측정도 수행했으나 품질 게이트는 실패했다. 실제 사람 음성 fixture, staging canary, 기본 엔진 컷오버는 아직 완료 조건이 충족되지 않았다.
+**현재 구현 메모(2026-07-01):** M2~M4와 M5 하네스/품질 gate CLI, M6 엔진 플래그/자가호스팅 옵션·준비 스크립트/디버그 지표는 구현됐다. M0는 사용자 승인 완료로 기록한다. Synthetic macOS `Yuna` fixture로 WebGPU/WASM 측정도 수행했으나 품질 게이트는 실패했다. `stt:evaluate --out`은 수동 수집한 sherpa prediction JSON을 gate-compatible baseline report로 변환할 수 있다. 실제 사람 음성 fixture, staging canary, 기본 엔진 컷오버는 아직 완료 조건이 충족되지 않았다.
 
 ---
 
@@ -67,7 +67,7 @@ M0는 M6(프로덕션 노출)의 **차단 선행조건**. M1~M5는 M0와 병행 
 ### M5 — 평가 하네스 + 튜닝
 - [x] 리허설형 한국어 발화 fixture(제어 명령 + 슬라이드 키워드 + 임의 발화 + 잡음) 구축.
 - [x] CER(문자 단위), 키워드 recall, false-trigger율, 세그먼트 지연 자동 측정 스크립트(Node) 구축.
-- [ ] sherpa(가능 시) vs Moonshine 비교표 생성. `stt:gate:moonshine`은 실제 사람 음성 candidate와 같은 `fixturePath`/`audioSource`의 sherpa baseline 또는 명시 threshold를 비교해 gate JSON/Markdown을 생성한다. sherpa 모델 자산이 없어 이번 측정은 Moonshine 단독 synthetic baseline으로 남긴다.
+- [ ] sherpa(가능 시) vs Moonshine 비교표 생성. `stt:gate:moonshine`은 실제 사람 음성 candidate와 같은 `fixturePath`/`audioSource`의 sherpa baseline 또는 명시 threshold를 비교해 gate JSON/Markdown을 생성한다. `stt:evaluate --out --engine sherpa --audio-source <human-fixture-label>`은 수동 수집한 sherpa prediction을 baseline report로 변환한다. sherpa 모델 자산이 없어 이번 측정은 Moonshine 단독 synthetic baseline으로 남긴다.
 - [x] 튜닝: VAD 임계값, 최소 세그먼트, `max_length`, dtype, 후처리 바이어스 임계값. q4/q8 synthetic baseline 결과 기본 컷오버는 no-go이며, 사람 음성 fixture 전에는 추가 튜닝하지 않는다.
 - [x] 산출물: 튜닝 리포트 + 권장 기본 파라미터. `docs/spikes/moonshine-korean-asr.md`와 측정 JSON에 no-go 결론과 fallback 유지 권장을 기록했다.
 

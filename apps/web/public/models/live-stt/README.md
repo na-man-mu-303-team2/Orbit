@@ -354,6 +354,19 @@ prediction JSON을 준비한 뒤 다음 명령으로 CER, keyword recall, false-
 pnpm --filter @orbit/web stt:evaluate -- --predictions <predictions.json>
 ```
 
+수동으로 수집한 sherpa prediction을 Moonshine gate의 baseline 입력으로 쓰려면 `--out`과 gate 비교용 메타데이터를 함께 지정합니다.
+
+```bash
+pnpm --filter @orbit/web stt:evaluate -- \
+  --predictions <sherpa-predictions.json> \
+  --engine sherpa \
+  --model-id <sherpa-model-id> \
+  --audio-source <human-fixture-label> \
+  --out docs/spikes/sherpa-live-stt-baseline.json
+```
+
+`--out`은 stdout 요약 출력은 유지하면서 `stt:gate:moonshine`이 읽는 measurement report JSON을 씁니다. 리포트 출력에는 candidate와 baseline이 같은 실제 음성 세트에서 측정됐는지 확인하기 위해 `--audio-source`가 필요합니다.
+
 Moonshine 모델을 실제 브라우저(WebGPU/WASM)에서 실행해 prediction과 metric JSON을 생성하려면 다음 명령을 사용합니다.
 
 ```bash

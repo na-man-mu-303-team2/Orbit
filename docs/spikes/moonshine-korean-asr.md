@@ -80,6 +80,23 @@ Run:
 pnpm --filter @orbit/web stt:evaluate -- --predictions <predictions.json>
 ```
 
+To turn manually collected sherpa predictions into a gate-compatible baseline
+report, include the engine metadata and output path:
+
+```bash
+pnpm --filter @orbit/web stt:evaluate -- \
+  --predictions <sherpa-predictions.json> \
+  --engine sherpa \
+  --model-id <sherpa-model-id> \
+  --audio-source <human-fixture-label> \
+  --out docs/spikes/sherpa-live-stt-baseline.json
+```
+
+`--out` still prints the summary to stdout, but also writes the measurement report
+shape consumed by `stt:gate:moonshine`. `--audio-source` is required for report
+output so the gate can prove the sherpa baseline and Moonshine candidate were
+measured against the same non-synthetic audio set.
+
 Prediction format:
 
 ```json

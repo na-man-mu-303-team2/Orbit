@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-import { readFile } from "node:fs/promises";
-import { resolve } from "node:path";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { dirname, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
 const defaultFixturePath = "src/features/rehearsal/fixtures/live-stt-ko-evaluation.json";
@@ -12,8 +12,45 @@ async function main() {
   const fixtures = JSON.parse(await readFile(fixturePath, "utf8"));
   const predictions = JSON.parse(await readFile(predictionPath, "utf8"));
   const summary = evaluateLiveSttPredictions(fixtures, predictions);
+  if (args.out) {
+    requireReportArg(args, "audio-source");
+    await writeText(
+      resolve(args.out),
+      `${JSON.stringify(
+        buildLiveSttEvaluationReport({
+          args,
+          fixturePath,
+          predictionPath,
+          summary
+        }),
+        null,
+        2
+      )}\n`
+    );
+  }
 
   console.log(JSON.stringify(summary, null, 2));
+}
+
+export function buildLiveSttEvaluationReport(options) {
+  const engine = options.args.engine ?? "manual";
+  return {
+    generatedAt: new Date().toISOString(),
+    engine,
+    modelId: options.args.modelId ?? engine,
+    fixturePath: options.fixturePath,
+    predictionPath: options.predictionPath,
+    audioSource: options.args.audioSource,
+    results: [
+      {
+        engine,
+        device: options.args.device ?? "manual",
+        status: "succeeded",
+        modelLoadMs: parseOptionalNumber(options.args.modelLoadMs),
+        summary: options.summary
+      }
+    ]
+  };
 }
 
 export function evaluateLiveSttPredictions(fixtures, predictions) {
@@ -207,6 +244,30 @@ function average(values) {
   return values.reduce((sum, value) => sum + value, 0) / values.length;
 }
 
+function parseOptionalNumber(value) {
+  if (value === undefined) {
+    return null;
+  }
+
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function requireReportArg(args, key) {
+  const parsedKey = toCamelCase(key);
+  const value = args[parsedKey];
+  if (typeof value !== "string" || value.trim().length === 0) {
+    throw new Error(`--${key} is required when --out is used.`);
+  }
+
+  args[parsedKey] = value.trim();
+}
+
+async function writeText(path, value) {
+  await mkdir(dirname(path), { recursive: true });
+  await writeFile(path, value);
+}
+
 function levenshteinDistance(left, right) {
   if (left.join("") === right.join("")) {
     return 0;
@@ -244,9 +305,7 @@ function parseArgs(args) {
       continue;
     }
 
-    const key = arg.slice(2).replace(/-([a-z])/g, (_, letter) =>
-      letter.toUpperCase()
-    );
+    const key = toCamelCase(arg.slice(2));
     const value = args[index + 1];
     if (!value || value.startsWith("--")) {
       throw new Error(`${arg} requires a value.`);
@@ -256,6 +315,10 @@ function parseArgs(args) {
   }
 
   return parsed;
+}
+
+function toCamelCase(value) {
+  return value.replace(/-([a-z])/g, (_, letter) => letter.toUpperCase());
 }
 
 function requireArg(args, key) {
