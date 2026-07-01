@@ -44,6 +44,7 @@ export function evaluateQualityGate(options) {
     ? extractResults(options.baselineReport, "baseline")
     : [];
   const missingCriteria = getMissingCriteria({
+    candidateReport: options.candidateReport,
     baselineResults,
     thresholds: options.thresholds
   });
@@ -51,7 +52,7 @@ export function evaluateQualityGate(options) {
   if (missingCriteria.length > 0) {
     return {
       status: "blocked",
-      reason: "A sherpa baseline or explicit absolute thresholds are required before Moonshine can pass the cutover gate.",
+      reason: formatBlockedReason(missingCriteria),
       missingCriteria,
       candidate: candidateResults[0] ?? null,
       baseline: baselineResults[0] ?? null,
@@ -76,6 +77,14 @@ export function evaluateQualityGate(options) {
     gates: comparisons[0]?.gates ?? {},
     comparisons
   };
+}
+
+function formatBlockedReason(missingCriteria) {
+  if (missingCriteria.includes("humanAudioSource")) {
+    return "A non-synthetic human rehearsal audio candidate report is required before Moonshine can pass the cutover gate.";
+  }
+
+  return "A sherpa baseline or explicit absolute thresholds are required before Moonshine can pass the cutover gate.";
 }
 
 function evaluateCandidate(candidate, baseline, thresholds) {
@@ -129,6 +138,9 @@ function getMissingCriteria(options) {
   const baseline = options.baselineResults[0];
   const hasBaselineMetric = (key) => isFiniteNumber(baseline?.summary?.[key]);
   const missing = [];
+  if (!isHumanAudioSource(options.candidateReport?.audioSource)) {
+    missing.push("humanAudioSource");
+  }
   if (
     !isFiniteNumber(options.thresholds.minKeywordRecall) &&
     !hasBaselineMetric("keywordRecall")
@@ -149,6 +161,22 @@ function getMissingCriteria(options) {
   }
 
   return missing;
+}
+
+function isHumanAudioSource(audioSource) {
+  const value = String(audioSource ?? "").toLowerCase();
+  if (!value) {
+    return false;
+  }
+  if (
+    value.includes("synthetic") ||
+    value.includes("macos say") ||
+    value.includes("say voice")
+  ) {
+    return false;
+  }
+
+  return true;
 }
 
 function extractResults(report, role) {

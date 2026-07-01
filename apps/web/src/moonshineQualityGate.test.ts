@@ -65,6 +65,39 @@ describe("Moonshine Live STT quality gate", () => {
     expect(result.stderr).not.toContain("ENOENT");
   });
 
+  it("blocks synthetic audio reports even when explicit thresholds pass", async () => {
+    const tempDir = await createTempDir();
+    const candidatePath = join(tempDir, "synthetic-candidate.json");
+    await writeJson(candidatePath, measurementReport({
+      modelId: "onnx-community/moonshine-tiny-ko-ONNX",
+      engine: "moonshine",
+      device: "wasm",
+      keywordRecall: 1,
+      falseTriggerRate: 0,
+      averageLatencyMs: 80,
+      audioSource: "macOS say voice Yuna"
+    }));
+
+    const result = await runGate([
+      "--candidate",
+      candidatePath,
+      "--min-keyword-recall",
+      "0.9",
+      "--max-false-trigger-rate",
+      "0",
+      "--max-average-latency-ms",
+      "120"
+    ]);
+
+    expect(result.code).toBe(1);
+    const gate = JSON.parse(result.stdout);
+    expect(gate).toMatchObject({
+      status: "blocked",
+      reason: expect.stringContaining("human rehearsal audio"),
+      missingCriteria: ["humanAudioSource"]
+    });
+  });
+
   it("passes when candidate metrics meet or improve on the sherpa baseline", async () => {
     const tempDir = await createTempDir();
     const candidatePath = join(tempDir, "candidate.json");
@@ -199,13 +232,14 @@ function measurementReport(options: {
   keywordRecall: number;
   falseTriggerRate: number;
   averageLatencyMs: number;
+  audioSource?: string;
 }) {
   return {
     generatedAt: "2026-07-01T00:00:00.000Z",
     modelId: options.modelId,
     engine: options.engine,
     fixturePath: "apps/web/src/features/rehearsal/fixtures/live-stt-ko-evaluation.json",
-    audioSource: "human-rehearsal-fixtures",
+    audioSource: options.audioSource ?? "human-rehearsal-fixtures",
     results: [
       {
         engine: options.engine,

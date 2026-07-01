@@ -353,7 +353,7 @@ pnpm --filter @orbit/web stt:measure:moonshine -- --out docs/spikes/moonshine-ko
 pnpm --filter @orbit/web stt:measure:moonshine -- --devices wasm --decoder-dtype q8 --out docs/spikes/moonshine-korean-asr-measurements-wasm-q8.json
 ```
 
-Moonshine 컷오버 판정은 sherpa baseline 또는 명시 threshold가 있을 때만 통과할 수 있습니다.
+Moonshine 컷오버 판정은 synthetic TTS가 아닌 실제 사람 음성 report이면서, sherpa baseline 또는 명시 threshold가 있을 때만 통과할 수 있습니다.
 
 ```bash
 pnpm --filter @orbit/web stt:gate:moonshine -- \

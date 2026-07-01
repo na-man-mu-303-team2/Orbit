@@ -67,7 +67,7 @@ M0는 M6(프로덕션 노출)의 **차단 선행조건**. M1~M5는 M0와 병행 
 ### M5 — 평가 하네스 + 튜닝
 - [x] 리허설형 한국어 발화 fixture(제어 명령 + 슬라이드 키워드 + 임의 발화 + 잡음) 구축.
 - [x] CER(문자 단위), 키워드 recall, false-trigger율, 세그먼트 지연 자동 측정 스크립트(Node) 구축.
-- [ ] sherpa(가능 시) vs Moonshine 비교표 생성. `stt:gate:moonshine`은 candidate와 sherpa baseline 또는 명시 threshold를 비교해 gate JSON/Markdown을 생성한다. sherpa 모델 자산이 없어 이번 측정은 Moonshine 단독 synthetic baseline으로 남긴다.
+- [ ] sherpa(가능 시) vs Moonshine 비교표 생성. `stt:gate:moonshine`은 실제 사람 음성 candidate와 sherpa baseline 또는 명시 threshold를 비교해 gate JSON/Markdown을 생성한다. sherpa 모델 자산이 없어 이번 측정은 Moonshine 단독 synthetic baseline으로 남긴다.
 - [x] 튜닝: VAD 임계값, 최소 세그먼트, `max_length`, dtype, 후처리 바이어스 임계값. q4/q8 synthetic baseline 결과 기본 컷오버는 no-go이며, 사람 음성 fixture 전에는 추가 튜닝하지 않는다.
 - [x] 산출물: 튜닝 리포트 + 권장 기본 파라미터. `docs/spikes/moonshine-korean-asr.md`와 측정 JSON에 no-go 결론과 fallback 유지 권장을 기록했다.
 
