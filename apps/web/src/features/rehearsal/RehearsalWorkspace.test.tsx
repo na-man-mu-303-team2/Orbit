@@ -7,7 +7,7 @@ import {
   RehearsalReportPage,
   RehearsalFlowError,
   RehearsalWorkspace,
-  SherpaLiveSttAdapter,
+  WebSpeechLiveSttAdapter,
   applyLiveTranscriptBias,
   applyLiveTranscriptEvent,
   buildLiveSttBiasContext,
@@ -759,12 +759,15 @@ describe("RehearsalWorkspace", () => {
     ).toBeNull();
   });
 
-  it("keeps the default sherpa adapter as an explicit unavailable shell", async () => {
+  it("keeps the default Web Speech adapter as an explicit unavailable shell", async () => {
     await expect(
-      new SherpaLiveSttAdapter().start({ getTracks: () => [] } as unknown as MediaStream, {
-        onPartialTranscript: () => undefined,
-        onError: () => undefined
-      })
+      new WebSpeechLiveSttAdapter().start(
+        { getAudioTracks: () => [] } as unknown as MediaStream,
+        {
+          onPartialTranscript: () => undefined,
+          onError: () => undefined
+        }
+      )
     ).rejects.toMatchObject({
       code: "LIVE_STT_MODEL_UNAVAILABLE"
     } satisfies Partial<LiveSttAdapterError>);

@@ -68,7 +68,7 @@ import {
   type RehearsalCommandCandidate,
   type RehearsalCommandDefinition
 } from "./rehearsalCommands";
-import { SherpaLiveSttAdapter } from "./sherpaOnnxLiveSttAdapter";
+import { WebSpeechLiveSttAdapter } from "./webSpeechLiveSttAdapter";
 
 export {
   LiveSttAdapterError,
@@ -81,6 +81,7 @@ export {
   SherpaOnnxLiveSttAdapter,
   resampleFloat32Audio
 } from "./sherpaOnnxLiveSttAdapter";
+export { WebSpeechLiveSttAdapter } from "./webSpeechLiveSttAdapter";
 
 type Fetcher = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 type RehearsalPhase =
@@ -1114,7 +1115,7 @@ function levenshteinDistance(left: string, right: string) {
 }
 
 function createDefaultLiveSttAdapter() {
-  return window.__orbitCreateLiveSttAdapter?.() ?? new SherpaLiveSttAdapter();
+  return window.__orbitCreateLiveSttAdapter?.() ?? new WebSpeechLiveSttAdapter();
 }
 
 export function RehearsalWorkspace(props: {
