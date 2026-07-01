@@ -402,6 +402,8 @@ pnpm --filter @orbit/web stt:canary:moonshine-debug -- \
   --out docs/spikes/moonshine-canary-debug-summary.json
 ```
 
+요약에는 segment count, zero-result count/rate, non-empty result rate, transcript latency, realtime factor, segment duration, audio level 분포가 포함되며 raw audio와 transcript 원문은 포함하지 않습니다.
+
 기본 입력 음성은 macOS `Yuna` synthetic TTS입니다. 실제 리허설 wav를 쓰려면 `<fixture-id>.wav` 파일을 둔 디렉터리를 `--audio-dir <dir>`로 넘깁니다.
 
 prediction 항목 예시:

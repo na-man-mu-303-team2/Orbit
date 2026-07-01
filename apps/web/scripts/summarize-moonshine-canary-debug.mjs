@@ -41,10 +41,13 @@ export function summarizeMoonshineCanaryDebugLog(logText) {
       status: "empty",
       segmentCount: 0,
       zeroResultCount: 0,
+      zeroResultRate: 0,
+      nonEmptyResultRate: 0,
       sequenceIdRange: null
     };
   }
 
+  const zeroResultCount = segments.filter((segment) => segment.resultLength === 0).length;
   const sortedSequenceIds = segments
     .map((segment) => segment.sequenceId)
     .filter((sequenceId) => Number.isFinite(sequenceId))
@@ -52,7 +55,9 @@ export function summarizeMoonshineCanaryDebugLog(logText) {
   const report = {
     status: "ok",
     segmentCount: segments.length,
-    zeroResultCount: segments.filter((segment) => segment.resultLength === 0).length,
+    zeroResultCount,
+    zeroResultRate: round(zeroResultCount / segments.length),
+    nonEmptyResultRate: round((segments.length - zeroResultCount) / segments.length),
     sequenceIdRange:
       sortedSequenceIds.length === 0
         ? null

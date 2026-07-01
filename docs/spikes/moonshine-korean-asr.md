@@ -139,7 +139,7 @@ pnpm --filter @orbit/web stt:canary:moonshine-debug -- \
   --out docs/spikes/moonshine-canary-debug-summary.json
 ```
 
-Enable `orbit.liveStt.debugLatency=1` during canary sessions and capture browser console lines containing `[orbit-live-stt-worker]`. The summary reports segment counts, zero-result count, transcript latency, realtime factor, segment duration, and audio level distributions without including raw audio or transcript text.
+Enable `orbit.liveStt.debugLatency=1` during canary sessions and capture browser console lines containing `[orbit-live-stt-worker]`. The summary reports segment counts, zero-result count/rate, non-empty result rate, transcript latency, realtime factor, segment duration, and audio level distributions without including raw audio or transcript text.
 
 Self-hosting deployment verifier:
 

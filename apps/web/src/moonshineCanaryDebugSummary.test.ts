@@ -35,6 +35,8 @@ describe("Moonshine canary debug summary", () => {
       status: "ok",
       segmentCount: 2,
       zeroResultCount: 1,
+      zeroResultRate: 0.5,
+      nonEmptyResultRate: 0.5,
       sequenceIdRange: { first: 1, last: 2 },
       transcribeMs: {
         avg: 187.5,
