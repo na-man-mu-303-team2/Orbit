@@ -76,7 +76,7 @@ M0는 M6(프로덕션 노출)의 **차단 선행조건**. M1~M5는 M0와 병행 
 - [x] Moonshine canary 디버그 지표 수집 경로: `orbit.liveStt.debugLatency=1`에서 segment RTF, 전사 지연, 세그먼트 길이, 오디오 크기 통계를 worker debug log로 기록한다.
 - [ ] 스테이징 canary: 내부 사용자 대상 Moonshine 활성화, 디버그 지표와 A2 하네스 기반 recall 수집. `stt:canary:moonshine-debug`은 `[orbit-live-stt-worker]` 콘솔 로그를 RTF/latency/audio-level summary JSON으로 집계한다.
 - [ ] COOP/COEP 등 서빙 요건 점검(WebGPU/WASM 스레드), 자가 호스팅 자산 배치. Vite dev/preview 헤더는 `viteConfig.test.ts`로 회귀 방지하고 개인 서버 staging 배포 스크립트는 내부 web 헤더를 확인한다. `stt:model:prepare:moonshine`은 Transformers.js self-hosted 경로를 생성하고, `stt:verify:moonshine-hosting`은 public origin의 cross-origin isolation 헤더와 필수 Moonshine 자산 URL을 검사한다. 다만 실제 public Nginx/CloudFront 응답과 모델 자산 배치는 환경에서 아직 검증하지 않는다.
-- [x] 회귀 없음 확인(제품 로직 단위 테스트, typecheck, build). E2E 스모크는 별도 실행 필요.
+- [x] 회귀 없음 확인(제품 로직 단위 테스트, typecheck, build, E2E smoke). 2026-07-01 로컬 Vite + API container 환경에서 `pnpm test:smoke` 5개 테스트 통과.
 
 ### M7 — 컷오버 & 정리
 - [ ] 인수 조건 충족 확인 후 기본 엔진을 Moonshine로 전환. 사용자 결정에 따라 실측 전에는 `sherpa` 기본값을 유지한다. `stt:gate:moonshine`이 `go`를 반환하고 `stt:readiness:moonshine`이 `ready`를 반환하기 전에는 컷오버하지 않는다.
