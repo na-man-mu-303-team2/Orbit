@@ -39,7 +39,7 @@ Moonshine 한국어(`moonshine-tiny-ko`)는 2025년 9월 공개된 27M 파라미
 
 ### Decision
 
-**Moonshine `moonshine-tiny-ko` (ONNX)를 Transformers.js 기반 신규 `MoonshineLiveSttAdapter`로 통합한다.** M0 라이선스 게이트는 사용자 승인 완료(2026-07-01)로 처리한다. 단, 기본 엔진 전환과 프로덕션 롤아웃은 고정 fixture의 정확도·false-trigger·WebGPU/WASM 지연 실측이 통과될 때까지 보류한다. sherpa 어댑터는 그때까지 fallback으로 유지한다.
+**Moonshine `moonshine-tiny-ko` (ONNX)를 Transformers.js 기반 신규 `MoonshineLiveSttAdapter`로 통합한다.** M0 라이선스 게이트는 사용자 승인 완료(2026-07-01)로 처리한다. Synthetic `Yuna` fixture의 2026-07-01 측정은 품질 게이트를 통과하지 못했으므로 기본 엔진 전환과 프로덕션 롤아웃은 계속 보류한다. sherpa 어댑터는 fallback이자 기본 엔진으로 유지한다.
 
 ### 고려한 옵션
 
@@ -104,7 +104,7 @@ mic → getUserMedia(16k, mono)
     → VAD(RMS 기반 MoonshineRmsVadSegmenter 1차 구현) 로 발화 세그먼트 경계 검출
     → 세그먼트 버퍼 → Moonshine Worker
         → transformers.js pipeline("automatic-speech-recognition",
-             "onnx-community/moonshine-tiny-ko-ONNX", { dtype: { encoder: "fp32", decoder_model_merged: "q4" }, device: "webgpu"→"wasm" fallback })
+             "onnx-community/moonshine-tiny-ko-ONNX", { dtype: { encoder_model: "fp32", decoder_model_merged: "q4" }, device: "webgpu"→"wasm" fallback })
         → max_length = ceil(seq_len * 13 / 16000)  // 할루시네이션 루프 억제
         → segment transcript
     → onPartialTranscript({ transcript, isFinal }) // 세그먼트 종료=final, 진행 중=partial(옵션)
@@ -157,8 +157,8 @@ Moonshine에는 sherpa의 `hotwordsBuf`/`modified_beam_search` 같은 디코딩 
 ## 7. 인수 조건 (개요 — 상세는 plan.md)
 - M0 라이선스 상태: 사용자 승인 완료(2026-07-01). 상세 계약 기록은 저장소 밖에서 관리한다.
 - `MoonshineLiveSttAdapter`가 기존 `LiveSttAdapter` 계약·테스트를 통과.
-- 고정 한국어 fixture에서 키워드 recall ≥ 현행, false-trigger ≤ 현행, CER 측정치 기록.
-- WebGPU/WASM 양 경로에서 세그먼트 전사 지연이 목표 이내.
+- 고정 한국어 fixture에서 키워드 recall ≥ 현행, false-trigger ≤ 현행, CER 측정치 기록. Synthetic TTS baseline은 기록됐지만 no-go다.
+- WebGPU/WASM 양 경로에서 세그먼트 전사 지연이 목표 이내. WASM은 짧은 지연을 보였으나 WebGPU는 no-go다.
 - 플래그로 sherpa ↔ Moonshine 무중단 전환.
 - 기본 엔진 전환은 위 품질·지연 수치가 기록될 때까지 금지.
 
@@ -167,7 +167,7 @@ Moonshine에는 sherpa의 `hotwordsBuf`/`modified_beam_search` 같은 디코딩 
 - **가정:** 라이브 제어 목적상 세그먼트 단위 final로 충분하며 연속 캡션은 필수가 아니다.
 - **결정:** sherpa 어댑터는 단기 fallback으로 유지한다.
 - **열린 질문:** WebGPU 비지원 환경(구형/기업 브라우저) 비중 — 성능 목표에 영향.
-- **열린 질문:** WebGPU/WASM 각각의 실제 fixture 지연·CER·recall 수치 — 기본 엔진 전환 게이트.
+- **열린 질문:** 실제 사람 음성 fixture의 WebGPU/WASM 지연·CER·recall 수치 — 기본 엔진 전환 게이트.
 
 ## 9. 참고
 - Moonshine Web(브라우저 실시간): https://huggingface.co/posts/Xenova/486935205804807

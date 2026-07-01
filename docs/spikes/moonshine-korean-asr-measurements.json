@@ -1,0 +1,270 @@
+{
+  "generatedAt": "2026-07-01T05:47:58.854Z",
+  "modelId": "onnx-community/moonshine-tiny-ko-ONNX",
+  "dtype": {
+    "encoder_model": "fp32",
+    "decoder_model_merged": "q4"
+  },
+  "fixturePath": "apps/web/src/features/rehearsal/fixtures/live-stt-ko-evaluation.json",
+  "audioSource": "macOS say voice Yuna",
+  "results": [
+    {
+      "device": "webgpu",
+      "status": "succeeded",
+      "elapsedMs": 73080,
+      "modelLoadMs": 32154,
+      "predictions": [
+        {
+          "id": "control-next-slide",
+          "transcript": "구Λ?\" Wor fr 나 � SSL cc",
+          "triggeredControl": false,
+          "transcriptAtMs": 20144,
+          "transcribeMs": 20144,
+          "audioDurationMs": 2046,
+          "sampleRate": 16000
+        },
+        {
+          "id": "control-previous-slide",
+          "transcript": "�리 ��;��다�� XXX",
+          "triggeredControl": false,
+          "transcriptAtMs": 3386,
+          "transcribeMs": 3386,
+          "audioDurationMs": 2018,
+          "sampleRate": 16000
+        },
+        {
+          "id": "keyword-orbit",
+          "transcript": "드드구마나 하구이나이그",
+          "triggeredControl": false,
+          "transcriptAtMs": 5498,
+          "transcribeMs": 5498,
+          "audioDurationMs": 2924,
+          "sampleRate": 16000
+        },
+        {
+          "id": "keyword-live-stt",
+          "transcript": "ughingхоwespholamy종youtube card�mor�phrphr부ughing�",
+          "triggeredControl": false,
+          "transcriptAtMs": 5385,
+          "transcribeMs": 5385,
+          "audioDurationMs": 3568,
+          "sampleRate": 16000
+        },
+        {
+          "id": "free-speech-next-slide-phrase",
+          "transcript": "",
+          "triggeredControl": false,
+          "transcriptAtMs": 5295,
+          "transcribeMs": 5295,
+          "audioDurationMs": 3295,
+          "sampleRate": 16000
+        },
+        {
+          "id": "noise-short-utterance",
+          "transcript": "",
+          "triggeredControl": false,
+          "transcriptAtMs": 726,
+          "transcribeMs": 726,
+          "audioDurationMs": 835,
+          "sampleRate": 16000
+        }
+      ],
+      "summary": {
+        "itemCount": 6,
+        "averageCer": 1.1725589225589226,
+        "keywordRecall": 0,
+        "falseTriggerRate": 0,
+        "averageLatencyMs": 6739,
+        "items": [
+          {
+            "id": "control-next-slide",
+            "cer": 1,
+            "matchedKeywords": [],
+            "missingKeywords": [
+              "다음 슬라이드"
+            ],
+            "falseTrigger": false,
+            "latencyMs": 20144
+          },
+          {
+            "id": "control-previous-slide",
+            "cer": 1,
+            "matchedKeywords": [],
+            "missingKeywords": [
+              "이전 슬라이드"
+            ],
+            "falseTrigger": false,
+            "latencyMs": 3386
+          },
+          {
+            "id": "keyword-orbit",
+            "cer": 0.9444444444444444,
+            "matchedKeywords": [],
+            "missingKeywords": [
+              "오르빗",
+              "리허설"
+            ],
+            "falseTrigger": false,
+            "latencyMs": 5498
+          },
+          {
+            "id": "keyword-live-stt",
+            "cer": 2.090909090909091,
+            "matchedKeywords": [],
+            "missingKeywords": [
+              "온디바이스",
+              "실시간 음성 인식"
+            ],
+            "falseTrigger": false,
+            "latencyMs": 5385
+          },
+          {
+            "id": "free-speech-next-slide-phrase",
+            "cer": 1,
+            "matchedKeywords": [],
+            "missingKeywords": [],
+            "falseTrigger": false,
+            "latencyMs": 5295
+          },
+          {
+            "id": "noise-short-utterance",
+            "cer": 1,
+            "matchedKeywords": [],
+            "missingKeywords": [],
+            "falseTrigger": false,
+            "latencyMs": 726
+          }
+        ]
+      }
+    },
+    {
+      "device": "wasm",
+      "status": "succeeded",
+      "elapsedMs": 1081,
+      "modelLoadMs": 615,
+      "predictions": [
+        {
+          "id": "control-next-slide",
+          "transcript": "다음 슬라이드로",
+          "triggeredControl": false,
+          "transcriptAtMs": 98,
+          "transcribeMs": 98,
+          "audioDurationMs": 2046,
+          "sampleRate": 16000
+        },
+        {
+          "id": "control-previous-slide",
+          "transcript": "이전 슬라이드로",
+          "triggeredControl": false,
+          "transcriptAtMs": 62,
+          "transcribeMs": 62,
+          "audioDurationMs": 2018,
+          "sampleRate": 16000
+        },
+        {
+          "id": "keyword-orbit",
+          "transcript": "오르비 리허�",
+          "triggeredControl": false,
+          "transcriptAtMs": 76,
+          "transcribeMs": 76,
+          "audioDurationMs": 2924,
+          "sampleRate": 16000
+        },
+        {
+          "id": "keyword-live-stt",
+          "transcript": "브라운서 온디바이",
+          "triggeredControl": false,
+          "transcriptAtMs": 102,
+          "transcribeMs": 102,
+          "audioDurationMs": 3568,
+          "sampleRate": 16000
+        },
+        {
+          "id": "free-speech-next-slide-phrase",
+          "transcript": "안녕하세요. 다음 슬라이",
+          "triggeredControl": false,
+          "transcriptAtMs": 93,
+          "transcribeMs": 93,
+          "audioDurationMs": 3295,
+          "sampleRate": 16000
+        },
+        {
+          "id": "noise-short-utterance",
+          "transcript": "",
+          "triggeredControl": false,
+          "transcriptAtMs": 10,
+          "transcribeMs": 10,
+          "audioDurationMs": 835,
+          "sampleRate": 16000
+        }
+      ],
+      "summary": {
+        "itemCount": 6,
+        "averageCer": 0.6503019397756241,
+        "keywordRecall": 0.3333333333333333,
+        "falseTriggerRate": 0,
+        "averageLatencyMs": 73.5,
+        "items": [
+          {
+            "id": "control-next-slide",
+            "cer": 0.46153846153846156,
+            "matchedKeywords": [
+              "다음 슬라이드"
+            ],
+            "missingKeywords": [],
+            "falseTrigger": false,
+            "latencyMs": 98
+          },
+          {
+            "id": "control-previous-slide",
+            "cer": 0.46153846153846156,
+            "matchedKeywords": [
+              "이전 슬라이드"
+            ],
+            "missingKeywords": [],
+            "falseTrigger": false,
+            "latencyMs": 62
+          },
+          {
+            "id": "keyword-orbit",
+            "cer": 0.7777777777777778,
+            "matchedKeywords": [],
+            "missingKeywords": [
+              "오르빗",
+              "리허설"
+            ],
+            "falseTrigger": false,
+            "latencyMs": 76
+          },
+          {
+            "id": "keyword-live-stt",
+            "cer": 0.7272727272727273,
+            "matchedKeywords": [],
+            "missingKeywords": [
+              "온디바이스",
+              "실시간 음성 인식"
+            ],
+            "falseTrigger": false,
+            "latencyMs": 102
+          },
+          {
+            "id": "free-speech-next-slide-phrase",
+            "cer": 0.47368421052631576,
+            "matchedKeywords": [],
+            "missingKeywords": [],
+            "falseTrigger": false,
+            "latencyMs": 93
+          },
+          {
+            "id": "noise-short-utterance",
+            "cer": 1,
+            "matchedKeywords": [],
+            "missingKeywords": [],
+            "falseTrigger": false,
+            "latencyMs": 10
+          }
+        ]
+      }
+    }
+  ]
+}

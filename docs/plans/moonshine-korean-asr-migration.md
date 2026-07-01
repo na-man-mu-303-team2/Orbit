@@ -5,7 +5,7 @@
 **짝 문서:** [spec/ADR](../specs/moonshine-korean-asr-migration.md)
 **전략:** 신규 `MoonshineLiveSttAdapter`를 기능 플래그 뒤에 추가 → 실측(정확도·지연) → canary → 컷오버 → sherpa 제거. 기존 `LiveSttAdapter` 계약을 유지해 리허설 제품 로직·`packages/shared` 스키마는 변경하지 않는다.
 
-**현재 구현 메모(2026-07-01):** M2~M4와 M5 하네스, M6 엔진 플래그/자가호스팅 옵션은 구현됐다. M0는 사용자 승인 완료로 기록한다. 다만 실제 한국어 wav를 WebGPU/WASM 양 경로로 돌린 품질·지연 측정, staging canary, 기본 엔진 컷오버는 아직 완료 조건이 충족되지 않았다.
+**현재 구현 메모(2026-07-01):** M2~M4와 M5 하네스, M6 엔진 플래그/자가호스팅 옵션은 구현됐다. M0는 사용자 승인 완료로 기록한다. Synthetic macOS `Yuna` fixture로 WebGPU/WASM 측정도 수행했으나 품질 게이트는 실패했다. 실제 사람 음성 fixture, staging canary, 기본 엔진 컷오버는 아직 완료 조건이 충족되지 않았다.
 
 ---
 
@@ -14,11 +14,11 @@
 | # | 마일스톤 | 목적 | 게이트/산출물 | 현재 상태 |
 |---|---|---|---|---|
 | M0 | 라이선스 클리어런스 | 상업 사용 가부 확정 | 라이선스 결정 문서 (진행/폴백) | 완료(사용자 승인) |
-| M1 | 스파이크/PoC | 브라우저에서 한국어 전사 실제 확인 | 통합 경로 + 지연/CER 초기치 | 통합 완료, 실측 대기 |
+| M1 | 스파이크/PoC | 브라우저에서 한국어 전사 실제 확인 | 통합 경로 + 지연/CER 초기치 | synthetic 실측 완료, 품질 no-go |
 | M2 | 어댑터 구현 | 계약 준수 어댑터 + 워커 | `MoonshineLiveSttAdapter` + 단위테스트 | 완료 |
 | M3 | VAD 세그먼트 | 라이브 발화 경계 처리 | VAD 세그먼터 + 세그먼트 final | 완료 |
 | M4 | 키워드 후처리 패리티 | hotword 상실 보완 | 후처리 바이어스 연결 + 매칭 개선 | 완료 |
-| M5 | 평가 하네스 + 튜닝 | recall/CER/지연 측정·튜닝 | CER 하네스 + 튜닝 리포트 | 하네스 완료, 실측 튜닝 대기 |
+| M5 | 평가 하네스 + 튜닝 | recall/CER/지연 측정·튜닝 | CER 하네스 + 튜닝 리포트 | synthetic 리포트 완료, 사람 음성 대기 |
 | M6 | 플래그 롤아웃(canary) | 무중단 A/B | 엔진 플래그 + 스테이징 canary | 플래그 완료, canary 대기 |
 | M7 | 컷오버 & 정리 | 기본 엔진 전환 | Moonshine 기본화, sherpa 제거/보존 결정 | 품질 게이트 대기 |
 
@@ -37,9 +37,9 @@ M0는 M6(프로덕션 노출)의 **차단 선행조건**. M1~M5는 M0와 병행 
 ### M1 — 스파이크 / PoC
 - [x] `transformers.js`(v3+) + `onnxruntime-web` 의존성 추가(`apps/web`), 번들 영향 측정. 현재 Vite build 기준 `moonshineWorker` 약 869 kB, ORT WASM 약 21.6 MB 경고가 기록된다.
 - [x] `pipeline("automatic-speech-recognition", "onnx-community/moonshine-tiny-ko-ONNX")` 통합 경로 구현. 격리 페이지 대신 `MoonshineLiveSttAdapter`/worker가 기능 플래그 뒤에서 직접 로드한다.
-- [ ] WebGPU 경로 + WASM fallback 각각 동작·지연 측정. worker fallback 로직과 단위 테스트는 있으나 실제 wav/GPU 측정값은 아직 없다.
-- [ ] `dtype`(encoder fp32 / decoder q4 등) 조합별 크기·정확도·속도 비교. 기본값(`encoder: "fp32"`, `decoder_model_merged: "q4"`)은 구현했으나 비교표는 실측 후 작성한다.
-- [ ] `test_wavs` 및 리허설 대표 발화로 초기 CER/키워드 recall 스냅샷. 평가 fixture와 스크립트는 준비됐지만 실제 모델 출력 JSON이 필요하다.
+- [x] WebGPU 경로 + WASM fallback 각각 동작·지연 측정. Synthetic `Yuna` fixture 기준 WebGPU는 WGSL validation 경고와 no-go 품질, WASM은 실행 가능하지만 recall 0.333으로 no-go.
+- [x] `dtype`(encoder fp32 / decoder q4 등) 조합별 크기·정확도·속도 비교. Synthetic baseline에서 WASM q4/q8을 비교했고 q8은 CER만 소폭 개선, recall은 동일했다.
+- [x] `test_wavs` 및 리허설 대표 발화로 초기 CER/키워드 recall 스냅샷. 현재 기록은 synthetic TTS baseline이며, 사람 음성 fixture는 후속 필수다.
 - [x] 산출물: 스파이크 노트(`docs/spikes/moonshine-korean-asr.md`) + go/no-go 판단.
 
 ### M2 — 어댑터 구현
@@ -67,9 +67,9 @@ M0는 M6(프로덕션 노출)의 **차단 선행조건**. M1~M5는 M0와 병행 
 ### M5 — 평가 하네스 + 튜닝
 - [x] 리허설형 한국어 발화 fixture(제어 명령 + 슬라이드 키워드 + 임의 발화 + 잡음) 구축.
 - [x] CER(문자 단위), 키워드 recall, false-trigger율, 세그먼트 지연 자동 측정 스크립트(Node) 구축.
-- [ ] sherpa(가능 시) vs Moonshine 비교표 생성. 실제 prediction JSON이 필요하다.
-- [ ] 튜닝: VAD 임계값, 최소 세그먼트, `max_length`, dtype, 후처리 바이어스 임계값. 기본값은 구현됐지만 실측 튜닝은 남아 있다.
-- [ ] 산출물: 튜닝 리포트 + 권장 기본 파라미터. `docs/spikes/moonshine-korean-asr.md`는 기술 go/no-go 기록이며, 수치 기반 튜닝 리포트는 아직 아니다.
+- [ ] sherpa(가능 시) vs Moonshine 비교표 생성. sherpa 모델 자산이 없어 이번 측정은 Moonshine 단독 synthetic baseline으로 남긴다.
+- [x] 튜닝: VAD 임계값, 최소 세그먼트, `max_length`, dtype, 후처리 바이어스 임계값. q4/q8 synthetic baseline 결과 기본 컷오버는 no-go이며, 사람 음성 fixture 전에는 추가 튜닝하지 않는다.
+- [x] 산출물: 튜닝 리포트 + 권장 기본 파라미터. `docs/spikes/moonshine-korean-asr.md`와 측정 JSON에 no-go 결론과 fallback 유지 권장을 기록했다.
 
 ### M6 — 플래그 롤아웃 (canary)
 - [x] 엔진 선택 플래그 `orbit.liveStt.engine`(`localStorage`) + `createDefaultLiveSttAdapter` 분기.
@@ -128,11 +128,11 @@ M0는 M6(프로덕션 노출)의 **차단 선행조건**. M1~M5는 M0와 병행 
 **품질(고정 한국어 fixture 기준)**
 - [ ] 키워드 recall ≥ 현행 sherpa 경로(또는 절대 목표치 합의값).
 - [ ] false-trigger율 ≤ 현행, 임의 발화(`안녕하세요. 다음 슬라이드는.`)가 자동 전환 미유발. 단위 false-trigger 회귀 테스트는 통과했지만 실제 fixture 측정은 남아 있다.
-- [ ] CER 측정치가 리포트에 기록(회귀 기준선 확립).
+- [x] CER 측정치가 리포트에 기록(회귀 기준선 확립). Synthetic TTS baseline만 기록됐고 품질 게이트는 실패했다.
 
 **지연/성능**
-- [ ] 제어 발화(짧은 구간) 발화종료→transcript 지연이 목표 이내(WebGPU 및 WASM 각각 기록).
-- [ ] 캐시 로드 시 모델 준비 시간이 현행 대비 악화되지 않음.
+- [ ] 제어 발화(짧은 구간) 발화종료→transcript 지연이 목표 이내(WebGPU 및 WASM 각각 기록). WASM은 약 74~75 ms였으나 WebGPU는 약 6.7 s로 no-go.
+- [ ] 캐시 로드 시 모델 준비 시간이 현행 대비 악화되지 않음. 측정값은 기록됐지만 현행 sherpa 기준 비교가 아직 없다.
 
 **복원력**
 - [x] 모델 미가용/워커 실패/WebGPU 미지원에서 명확한 오류 상태 + 폴백. WebGPU→WASM fallback과 워커 오류 매핑은 단위 테스트로 검증한다.
@@ -150,7 +150,7 @@ M0는 M6(프로덕션 노출)의 **차단 선행조건**. M1~M5는 M0와 병행 
 - **연계:** [성능 액션 문서](../spikes/on-device-stt-performance-actions.md)의 A2(CER 하네스)·A3(형태소 매칭)·A5(VAD)와 작업 공유 — 중복 방지 위해 함께 계획.
 
 ## 7. 일정 요약
-비프로덕션 구현 트랙(M2~M4, M5 하네스, M6 플래그)은 완료됐다. 남은 임계 경로는 실제 한국어 wav fixture의 WebGPU/WASM 측정, staging canary, 그리고 그 결과에 따른 M7 기본 엔진 전환 여부 결정이다.
+비프로덕션 구현 트랙(M2~M4, M5 하네스, M6 플래그)과 synthetic baseline 측정은 완료됐다. 남은 임계 경로는 실제 사람 음성 한국어 wav fixture 측정, staging canary, 그리고 그 결과에 따른 M7 기본 엔진 전환 여부 결정이다.
 
 ## 8. 참고
 spec/ADR의 참고 링크 참조: [moonshine-korean-asr-migration spec](../specs/moonshine-korean-asr-migration.md#9-참고).

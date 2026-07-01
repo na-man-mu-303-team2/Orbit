@@ -1,0 +1,141 @@
+{
+  "generatedAt": "2026-07-01T05:49:12.409Z",
+  "modelId": "onnx-community/moonshine-tiny-ko-ONNX",
+  "dtype": {
+    "encoder_model": "fp32",
+    "decoder_model_merged": "q8"
+  },
+  "fixturePath": "apps/web/src/features/rehearsal/fixtures/live-stt-ko-evaluation.json",
+  "audioSource": "macOS say voice Yuna",
+  "results": [
+    {
+      "device": "wasm",
+      "status": "succeeded",
+      "elapsedMs": 14573,
+      "modelLoadMs": 13417,
+      "predictions": [
+        {
+          "id": "control-next-slide",
+          "transcript": "다음 슬라이드로",
+          "triggeredControl": false,
+          "transcriptAtMs": 122,
+          "transcribeMs": 122,
+          "audioDurationMs": 2046,
+          "sampleRate": 16000
+        },
+        {
+          "id": "control-previous-slide",
+          "transcript": "이전 슬라이드로",
+          "triggeredControl": false,
+          "transcriptAtMs": 58,
+          "transcribeMs": 58,
+          "audioDurationMs": 2018,
+          "sampleRate": 16000
+        },
+        {
+          "id": "keyword-orbit",
+          "transcript": "오르비 리허�",
+          "triggeredControl": false,
+          "transcriptAtMs": 63,
+          "transcribeMs": 63,
+          "audioDurationMs": 2924,
+          "sampleRate": 16000
+        },
+        {
+          "id": "keyword-live-stt",
+          "transcript": "브라우저 온디 바",
+          "triggeredControl": false,
+          "transcriptAtMs": 87,
+          "transcribeMs": 87,
+          "audioDurationMs": 3568,
+          "sampleRate": 16000
+        },
+        {
+          "id": "free-speech-next-slide-phrase",
+          "transcript": "안녕하세요. 다음 슬라이",
+          "triggeredControl": false,
+          "transcriptAtMs": 87,
+          "transcribeMs": 87,
+          "audioDurationMs": 3295,
+          "sampleRate": 16000
+        },
+        {
+          "id": "noise-short-utterance",
+          "transcript": "",
+          "triggeredControl": false,
+          "transcriptAtMs": 34,
+          "transcribeMs": 34,
+          "audioDurationMs": 835,
+          "sampleRate": 16000
+        }
+      ],
+      "summary": {
+        "itemCount": 6,
+        "averageCer": 0.6427261821998664,
+        "keywordRecall": 0.3333333333333333,
+        "falseTriggerRate": 0,
+        "averageLatencyMs": 75.16666666666667,
+        "items": [
+          {
+            "id": "control-next-slide",
+            "cer": 0.46153846153846156,
+            "matchedKeywords": [
+              "다음 슬라이드"
+            ],
+            "missingKeywords": [],
+            "falseTrigger": false,
+            "latencyMs": 122
+          },
+          {
+            "id": "control-previous-slide",
+            "cer": 0.46153846153846156,
+            "matchedKeywords": [
+              "이전 슬라이드"
+            ],
+            "missingKeywords": [],
+            "falseTrigger": false,
+            "latencyMs": 58
+          },
+          {
+            "id": "keyword-orbit",
+            "cer": 0.7777777777777778,
+            "matchedKeywords": [],
+            "missingKeywords": [
+              "오르빗",
+              "리허설"
+            ],
+            "falseTrigger": false,
+            "latencyMs": 63
+          },
+          {
+            "id": "keyword-live-stt",
+            "cer": 0.6818181818181818,
+            "matchedKeywords": [],
+            "missingKeywords": [
+              "온디바이스",
+              "실시간 음성 인식"
+            ],
+            "falseTrigger": false,
+            "latencyMs": 87
+          },
+          {
+            "id": "free-speech-next-slide-phrase",
+            "cer": 0.47368421052631576,
+            "matchedKeywords": [],
+            "missingKeywords": [],
+            "falseTrigger": false,
+            "latencyMs": 87
+          },
+          {
+            "id": "noise-short-utterance",
+            "cer": 1,
+            "matchedKeywords": [],
+            "missingKeywords": [],
+            "falseTrigger": false,
+            "latencyMs": 34
+          }
+        ]
+      }
+    }
+  ]
+}
