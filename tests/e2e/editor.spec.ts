@@ -1,4 +1,8 @@
 import { expect, test, type Page } from "@playwright/test";
+import {
+  routeAcceptedProjectAccess,
+  routeAuthenticatedUser
+} from "./helpers";
 
 const canvasWidth = 1920;
 const canvasHeight = 1080;
@@ -71,6 +75,9 @@ test.describe("ORBIT-18 ORBIT-107 editor manipulation", () => {
   test("selects, drags, resizes, rotates, and returns to slide background editing", async ({
     page
   }) => {
+    await routeAuthenticatedUser(page);
+    await routeAcceptedProjectAccess(page);
+
     await page.goto("/project/project_demo_1");
 
     await expect(

@@ -1,4 +1,9 @@
 import { expect, test } from "@playwright/test";
+import {
+  projectFixture,
+  routeAcceptedProjectAccess,
+  routeAuthenticatedUser
+} from "./helpers";
 
 const initialNotes = "기존 발표 메모입니다.";
 const appliedNotes = "AI가 승인한 발표 메모입니다.";
@@ -97,6 +102,10 @@ test.describe("ORBIT-27 AI suggestion review/apply", () => {
     let deck: DeckFixture = structuredClone(baseDeck);
     let suggestionStatus: SuggestionStatus = "pending";
     let applyCount = 0;
+    const project = projectFixture({
+      projectId: deck.projectId,
+      title: "ORBIT AI Suggestion Project"
+    });
 
     await page.route("**/api/health", async (route) => {
       await route.fulfill({
@@ -112,15 +121,8 @@ test.describe("ORBIT-27 AI suggestion review/apply", () => {
       });
     });
 
-    await page.route("**/api/v1/auth/me", async (route) => {
-      await route.fulfill({
-        status: 401,
-        json: {
-          code: "UNAUTHENTICATED",
-          message: "Not authenticated"
-        }
-      });
-    });
+    await routeAuthenticatedUser(page);
+    await routeAcceptedProjectAccess(page, project);
 
     await page.route("**/api/v1/projects/project_demo_1/deck", async (route) => {
       await route.fulfill({

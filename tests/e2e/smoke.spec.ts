@@ -1,4 +1,9 @@
 import { expect, test } from "@playwright/test";
+import {
+  exposeRehearsalSmokeControls,
+  projectFixture,
+  routeAuthenticatedUser
+} from "./helpers";
 
 const apiBaseUrl = process.env.ORBIT_API_URL ?? "http://127.0.0.1:3000";
 const smokeDeck = {
@@ -132,6 +137,82 @@ test.describe("ORBIT-2 ORBIT-10 ORBIT-36 ORBIT-58 smoke", () => {
   test("creates a project and completes a project asset upload", async ({
     page
   }) => {
+    const createdProject = projectFixture({
+      projectId: "project_smoke",
+      title: "ORBIT-10 smoke project"
+    });
+    const uploadedFile = {
+      fileId: "file_smoke",
+      projectId: createdProject.projectId,
+      originalName: "smoke.pdf",
+      mimeType: "application/pdf",
+      size: 20,
+      url: "http://storage.local/file_smoke",
+      purpose: "pptx-import",
+      createdAt: "2026-06-29T00:00:00.000Z"
+    };
+    let hasCreatedProject = false;
+    let hasUploadedFile = false;
+
+    await routeAuthenticatedUser(page);
+    await page.route("**/api/v1/workspaces/workspace_demo_1/projects", async (route) => {
+      const request = route.request();
+
+      if (request.method() === "GET") {
+        await route.fulfill({
+          json: hasCreatedProject ? [createdProject] : []
+        });
+        return;
+      }
+
+      if (request.method() === "POST") {
+        hasCreatedProject = true;
+        await route.fulfill({ json: createdProject });
+        return;
+      }
+
+      await route.fulfill({ status: 405, body: "" });
+    });
+    await page.route("**/api/v1/projects/project_smoke/deck", async (route) => {
+      await route.fulfill({
+        json: {
+          projectId: createdProject.projectId,
+          updatedAt: "2026-06-29T00:00:00.000Z",
+          snapshot: null
+        }
+      });
+    });
+    await page.route("**/api/v1/projects/project_smoke/assets", async (route) => {
+      const request = route.request();
+
+      if (request.method() === "GET") {
+        await route.fulfill({ json: hasUploadedFile ? [uploadedFile] : [] });
+        return;
+      }
+
+      await route.fulfill({ status: 405, body: "" });
+    });
+    await page.route("**/api/v1/projects/project_smoke/assets/upload-url", async (route) => {
+      await route.fulfill({
+        json: {
+          fileId: uploadedFile.fileId,
+          projectId: createdProject.projectId,
+          uploadUrl: "http://storage.local/smoke.pdf",
+          method: "PUT",
+          headers: { "content-type": "application/pdf" },
+          expiresAt: "2026-06-29T00:15:00.000Z",
+          purpose: uploadedFile.purpose
+        }
+      });
+    });
+    await page.route("http://storage.local/smoke.pdf", async (route) => {
+      await route.fulfill({ status: 200, body: "" });
+    });
+    await page.route("**/api/v1/projects/project_smoke/assets/complete", async (route) => {
+      hasUploadedFile = true;
+      await route.fulfill({ json: uploadedFile });
+    });
+
     await page.goto("/upload");
 
     await expect(
@@ -313,6 +394,7 @@ test.describe("ORBIT-2 ORBIT-10 ORBIT-36 ORBIT-58 smoke", () => {
     });
 
     await page.goto("/rehearsal/project_demo_1");
+    await exposeRehearsalSmokeControls(page);
 
     await expect(page.getByRole("heading", { name: "리허설", exact: true })).toBeVisible();
     await expect(
@@ -322,9 +404,10 @@ test.describe("ORBIT-2 ORBIT-10 ORBIT-36 ORBIT-58 smoke", () => {
       })
     ).toBeVisible();
 
-    await page.getByRole("button", { name: "리포트 녹음 시작" }).click();
-    await expect(page.getByText("recording")).toBeVisible();
-    await expect(page.getByText("listening")).toBeVisible();
+    const smokeControls = page.getByLabel("리허설 smoke controls");
+    await smokeControls.getByRole("button", { name: "리포트 녹음 시작" }).click();
+    await expect(smokeControls.getByText("recording")).toBeVisible();
+    await expect(smokeControls.getByText("listening")).toBeVisible();
 
     await page.evaluate(() => {
       const orbitWindow = window as Window & {
@@ -347,7 +430,7 @@ test.describe("ORBIT-2 ORBIT-10 ORBIT-36 ORBIT-58 smoke", () => {
 
     await expect(page.getByText(`2 / ${smokeDeck.slides.length}`)).toBeVisible();
 
-    await page.getByRole("button", { name: "리포트 녹음 종료" }).click();
+    await smokeControls.getByRole("button", { name: "리포트 녹음 종료" }).click();
     await expect(page.getByText("raw audio 삭제 완료")).toBeVisible({
       timeout: 20_000
     });
