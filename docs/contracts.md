@@ -669,8 +669,8 @@ AI 덱 생성은 사용자 입력과 참고자료 fileId를 받아 비동기 Job
 
 발표/리허설 중 사용자의 발화를 실시간으로 인식해 화면 제어에 사용한다.
 
-- provider env: `LIVE_STT_PROVIDER=sherpa`
-- 실행 위치: web 또는 device-local runtime
+- provider env: `LIVE_STT_PROVIDER=web-speech`
+- 실행 위치: Chrome Web Speech on-device runtime
 - 목적: 애니메이션 cue, 강조 표시, 키워드 누락 체크, 다음 슬라이드 전환 제안/실행
 - 입력: 마이크 스트림
 - 출력: partial transcript, keyword detection, cue event, slide advance signal

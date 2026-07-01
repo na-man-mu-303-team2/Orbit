@@ -24,7 +24,7 @@ const validEnv = {
   S3_SECRET_ACCESS_KEY: "orbit-password",
   S3_FORCE_PATH_STYLE: "true",
   JOB_QUEUE_DRIVER: "bullmq",
-  LIVE_STT_PROVIDER: "sherpa",
+  LIVE_STT_PROVIDER: "web-speech",
   REPORT_STT_PROVIDER: "openai",
   OCR_PROVIDER: "python",
   LLM_PROVIDER: "openai",
@@ -96,11 +96,11 @@ describe("ORBIT env validation", () => {
   it("keeps live STT and report STT provider contracts separate", () => {
     const config = loadOrbitConfig(validEnv, { service: "api" });
 
-    expect(config.LIVE_STT_PROVIDER).toBe("sherpa");
+    expect(config.LIVE_STT_PROVIDER).toBe("web-speech");
     expect(config.REPORT_STT_PROVIDER).toBe("openai");
     expect(() =>
       loadOrbitConfig(
-        { ...validEnv, LIVE_STT_PROVIDER: "openai" },
+        { ...validEnv, LIVE_STT_PROVIDER: "sherpa" },
         { service: "api" }
       )
     ).toThrow(/LIVE_STT_PROVIDER/);

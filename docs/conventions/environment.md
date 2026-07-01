@@ -22,7 +22,7 @@ API, worker, web, Python worker는 시작 시 환경변수를 검증한다.
 ```txt
 STORAGE_DRIVER=minio | s3
 JOB_QUEUE_DRIVER=bullmq | sqs
-LIVE_STT_PROVIDER=sherpa
+LIVE_STT_PROVIDER=web-speech
 REPORT_STT_PROVIDER=openai
 OCR_PROVIDER=python | textract
 LLM_PROVIDER=openai
@@ -69,7 +69,7 @@ OPENAI_EMBEDDING_MODEL=text-embedding-3-small
 
 STT/AI provider는 목적별로 분리한다.
 
-- `LIVE_STT_PROVIDER=sherpa`: 발표/리허설 중 실시간 발화 인식, 애니메이션 cue, 강조, 키워드 누락 체크, 슬라이드 전환 제어에 쓰는 온디바이스 STT다.
+- `LIVE_STT_PROVIDER=web-speech`: 발표/리허설 중 실시간 발화 인식, 애니메이션 cue, 강조, 키워드 누락 체크, 슬라이드 전환 제어에 쓰는 Chrome Web Speech 온디바이스 STT다.
 - `REPORT_STT_PROVIDER=openai`: 리허설 종료 후 녹음 파일을 전사하고 코칭 리포트를 만들기 위한 서버 리포트 STT다. 실제 리포트 분석 실행에는 `OPENAI_API_KEY`가 필요하다.
 - `LLM_PROVIDER=openai`: 전사 결과, 발표자료, 키워드, 청중 반응 등을 종합해 리포트와 코칭 문장을 생성하는 AI provider다.
 
