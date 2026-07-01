@@ -68,6 +68,7 @@ describe("Moonshine Live STT quality gate", () => {
   it("blocks synthetic audio reports even when explicit thresholds pass", async () => {
     const tempDir = await createTempDir();
     const candidatePath = join(tempDir, "synthetic-candidate.json");
+    const markdownPath = join(tempDir, "synthetic-gate.md");
     await writeJson(candidatePath, measurementReport({
       modelId: "onnx-community/moonshine-tiny-ko-ONNX",
       engine: "moonshine",
@@ -86,7 +87,9 @@ describe("Moonshine Live STT quality gate", () => {
       "--max-false-trigger-rate",
       "0",
       "--max-average-latency-ms",
-      "120"
+      "120",
+      "--markdown-out",
+      markdownPath
     ]);
 
     expect(result.code).toBe(1);
@@ -96,6 +99,9 @@ describe("Moonshine Live STT quality gate", () => {
       reason: expect.stringContaining("human rehearsal audio"),
       missingCriteria: ["humanAudioSource"]
     });
+    const markdown = await readFile(markdownPath, "utf8");
+    expect(markdown).toContain("A non-synthetic human rehearsal audio candidate report is required");
+    expect(markdown).toContain("- `humanAudioSource`");
   });
 
   it("passes when candidate metrics meet or improve on the sherpa baseline", async () => {

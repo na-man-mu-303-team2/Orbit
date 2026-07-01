@@ -396,6 +396,8 @@ pnpm --filter @orbit/web stt:gate:moonshine -- \
   --markdown-out docs/spikes/moonshine-korean-asr-gate.md
 ```
 
+Markdown 결과에는 blocked reason과 missing criteria가 포함되므로, 컷오버가 보류된 이유를 release review에서 그대로 확인할 수 있습니다.
+
 Canary session에서 `orbit.liveStt.debugLatency=1`을 켜고 브라우저 콘솔의 `[orbit-live-stt-worker]` 로그를 저장했다면 다음 명령으로 RTF/latency/audio-level 요약을 만들 수 있습니다.
 
 ```bash

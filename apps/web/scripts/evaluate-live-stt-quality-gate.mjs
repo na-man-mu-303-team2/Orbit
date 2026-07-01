@@ -239,11 +239,28 @@ function renderMarkdownGate(gate) {
     "",
     `Status: **${gate.status}**`,
     "",
+    ...renderMarkdownBlockers(gate),
     "| Role | Engine | Device | Keyword recall | False trigger | Avg latency |",
     "| --- | --- | --- | ---: | ---: | ---: |",
     ...rows,
     ""
   ].join("\n");
+}
+
+function renderMarkdownBlockers(gate) {
+  const lines = [];
+  if (gate.reason) {
+    lines.push(`Reason: ${gate.reason}`, "");
+  }
+  if (Array.isArray(gate.missingCriteria) && gate.missingCriteria.length > 0) {
+    lines.push("Missing criteria:", "");
+    for (const criterion of gate.missingCriteria) {
+      lines.push(`- \`${criterion}\``);
+    }
+    lines.push("");
+  }
+
+  return lines;
 }
 
 function renderMarkdownRow(role, result) {
