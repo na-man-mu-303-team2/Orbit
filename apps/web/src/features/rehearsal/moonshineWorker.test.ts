@@ -19,20 +19,25 @@ describe("moonshineWorker", () => {
 
   it("loads a Transformers.js ASR pipeline and transcribes audio segments", async () => {
     server = await createWorkerTransformServer();
+    const tokenizer = { name: "moonshine-tokenizer" };
+    const processor = { components: {} as Record<string, unknown> };
     const context = await createWorkerContext(server, {
       pipelineFactory: async (task, modelId, options) => {
         context.pipelineCalls.push({ task, modelId, options });
-        return async (samples, transcribeOptions) => {
+        const transcriber = async (samples: Float32Array, transcribeOptions: TranscribeOptions) => {
           context.transcribeCalls.push({ samples, options: transcribeOptions });
           return { text: "다음 슬라이드" };
         };
+        transcriber.tokenizer = tokenizer;
+        transcriber.processor = processor;
+        return transcriber;
       }
     });
 
     await sendWorkerMessage(context, {
       type: "load",
       modelId: "onnx-community/moonshine-tiny-ko-ONNX",
-      dtype: { encoder: "fp32", decoder_model_merged: "q4" },
+      dtype: { encoder_model: "fp32", decoder_model_merged: "q4" },
       preferredDevice: "webgpu",
       modelOptions: {
         localModelPath: "/models/live-stt/moonshine-tiny-ko/",
@@ -61,7 +66,7 @@ describe("moonshineWorker", () => {
         modelId: "onnx-community/moonshine-tiny-ko-ONNX",
         options: {
           device: "webgpu",
-          dtype: { encoder: "fp32", decoder_model_merged: "q4" }
+          dtype: { encoder_model: "fp32", decoder_model_merged: "q4" }
         }
       }
     ]);
@@ -70,6 +75,7 @@ describe("moonshineWorker", () => {
       allowLocalModels: true,
       allowRemoteModels: false
     });
+    expect(processor.components.tokenizer).toBe(tokenizer);
     expect(context.transcribeCalls).toHaveLength(1);
     expect(context.transcribeCalls[0]?.samples).toBe(samples);
     expect(context.transcribeCalls[0]?.options).toMatchObject({
@@ -109,7 +115,7 @@ describe("moonshineWorker", () => {
     await sendWorkerMessage(context, {
       type: "load",
       modelId: "onnx-community/moonshine-tiny-ko-ONNX",
-      dtype: { encoder: "fp32", decoder_model_merged: "q4" },
+      dtype: { encoder_model: "fp32", decoder_model_merged: "q4" },
       preferredDevice: "webgpu"
     });
 
@@ -133,7 +139,7 @@ describe("moonshineWorker", () => {
     await sendWorkerMessage(context, {
       type: "load",
       modelId: "onnx-community/moonshine-tiny-ko-ONNX",
-      dtype: { encoder: "fp32", decoder_model_merged: "q4" },
+      dtype: { encoder_model: "fp32", decoder_model_merged: "q4" },
       preferredDevice: "wasm"
     });
     await sendWorkerMessage(context, {
@@ -176,7 +182,7 @@ describe("moonshineWorker", () => {
     await sendWorkerMessage(context, {
       type: "load",
       modelId: "onnx-community/moonshine-tiny-ko-ONNX",
-      dtype: { encoder: "fp32", decoder_model_merged: "q4" },
+      dtype: { encoder_model: "fp32", decoder_model_merged: "q4" },
       preferredDevice: "wasm"
     });
     await sendWorkerMessage(context, {

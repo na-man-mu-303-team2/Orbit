@@ -65,7 +65,7 @@ type MoonshineWorkerOutboundMessage =
     };
 
 type MoonshineWorkerDTypeConfig = {
-  encoder: "fp32" | "fp16" | "q8" | "q4";
+  encoder_model: "fp32" | "fp16" | "q8" | "q4";
   decoder_model_merged: "fp32" | "fp16" | "q8" | "q4";
 };
 
@@ -122,7 +122,7 @@ type LiveSttPcmDebugRecorder = ReturnType<typeof createLiveSttPcmDebugRecorder>;
 const defaultMoonshineModelId = "onnx-community/moonshine-tiny-ko-ONNX";
 const defaultMoonshineSampleRate = 16_000;
 const defaultMoonshineDType: MoonshineWorkerDTypeConfig = {
-  encoder: "fp32",
+  encoder_model: "fp32",
   decoder_model_merged: "q4"
 };
 const defaultMoonshinePreferredDevice: MoonshineWorkerDevice = "webgpu";

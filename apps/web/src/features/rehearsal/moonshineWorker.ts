@@ -5,7 +5,7 @@ import {
 
 type MoonshineWorkerDevice = "webgpu" | "wasm";
 type MoonshineWorkerDTypeConfig = {
-  encoder: "fp32" | "fp16" | "q8" | "q4";
+  encoder_model: "fp32" | "fp16" | "q8" | "q4";
   decoder_model_merged: "fp32" | "fp16" | "q8" | "q4";
 };
 type MoonshineWorkerModelOptions = {
@@ -66,10 +66,13 @@ type TranscribeOptions = {
   max_length: number;
 };
 type TranscribeResult = { text?: unknown };
-type MoonshineTranscriber = (
-  samples: Float32Array,
-  options: TranscribeOptions
-) => Promise<TranscribeResult>;
+type MoonshineTranscriber = {
+  (samples: Float32Array, options: TranscribeOptions): Promise<TranscribeResult>;
+  processor?: {
+    components?: Record<string, unknown>;
+  };
+  tokenizer?: unknown;
+};
 type MoonshinePipelineFactory = (
   task: "automatic-speech-recognition",
   modelId: string,
@@ -158,6 +161,7 @@ async function loadTranscriber(
         modelId,
         { device, dtype }
       );
+      patchMoonshineProcessorTokenizer(transcriber);
       loadedModelId = modelId;
       loadedDevice = device;
       return;
@@ -167,6 +171,16 @@ async function loadTranscriber(
   }
 
   throw lastError ?? new Error("Moonshine Live STT model failed to load.");
+}
+
+function patchMoonshineProcessorTokenizer(nextTranscriber: MoonshineTranscriber) {
+  if (
+    nextTranscriber.tokenizer &&
+    nextTranscriber.processor?.components &&
+    !nextTranscriber.processor.components.tokenizer
+  ) {
+    nextTranscriber.processor.components.tokenizer = nextTranscriber.tokenizer;
+  }
 }
 
 function applyModelOptions(modelOptions: MoonshineWorkerModelOptions) {

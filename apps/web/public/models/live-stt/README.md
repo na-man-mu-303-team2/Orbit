@@ -312,6 +312,15 @@ prediction JSON을 준비한 뒤 다음 명령으로 CER, keyword recall, false-
 pnpm --filter @orbit/web stt:evaluate -- --predictions <predictions.json>
 ```
 
+Moonshine 모델을 실제 브라우저(WebGPU/WASM)에서 실행해 prediction과 metric JSON을 생성하려면 다음 명령을 사용합니다.
+
+```bash
+pnpm --filter @orbit/web stt:measure:moonshine -- --out docs/spikes/moonshine-korean-asr-measurements.json
+pnpm --filter @orbit/web stt:measure:moonshine -- --devices wasm --decoder-dtype q8 --out docs/spikes/moonshine-korean-asr-measurements-wasm-q8.json
+```
+
+기본 입력 음성은 macOS `Yuna` synthetic TTS입니다. 실제 리허설 wav를 쓰려면 `<fixture-id>.wav` 파일을 둔 디렉터리를 `--audio-dir <dir>`로 넘깁니다.
+
 prediction 항목 예시:
 
 ```json
