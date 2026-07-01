@@ -854,6 +854,7 @@ PPTX import/export, 참고자료 추출, AI 생성, 리허설 STT, 최종 보고
 최소 이벤트:
 
 - `project-joined`
+- `project-presence`
 - `deck-updated`
 - `slide-changed`
 - `highlight-changed`
@@ -866,9 +867,28 @@ PPTX import/export, 참고자료 추출, AI 생성, 리허설 STT, 최종 보고
 결정 사항:
 
 - `roomId`는 `projectId` 기준으로 시작한다.
+- 서버 내부 Socket.IO project room key는 `project:${projectId}` 형식을 사용한다.
+- `project:join`은 signed session cookie로 인증하고, 프로젝트 읽기 권한을 확인한 뒤 해당 project room에 입장시킨다.
+- `project-presence` payload에는 `projectId`와 현재 project room 접속자 목록을 넣는다.
 - 발표 세션은 `sessionId`로 구분한다.
 - `slide-changed` payload에는 `deckId`, `slideId`, `slideIndex`를 넣는다.
 - `highlight-changed` payload에는 `slideId`, `elementId`, `state`를 넣는다.
+
+`project-presence` payload:
+
+```json
+{
+  "projectId": "project_demo_1",
+  "users": [
+    {
+      "id": "socket_demo_1",
+      "userId": "user_demo_1",
+      "email": "user@example.com",
+      "connectedAt": "2026-01-01T00:00:00.000Z"
+    }
+  ]
+}
+```
 
 구현 위치:
 

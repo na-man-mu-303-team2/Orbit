@@ -386,6 +386,143 @@
   border: 1px solid #334155;
 }
 
+.presence-avatar-trigger {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  display: inline-flex;
+  padding: 0;
+}
+
+.presence-avatar-trigger .avatar + .avatar {
+  margin-left: -10px;
+}
+
+.presence-avatar-trigger .avatar {
+  box-shadow: 0 0 0 2px #ffffff;
+}
+
+.presence-avatar-more {
+  background: #eff6ff;
+  border-color: #bfdbfe;
+  color: #2563eb;
+  font-size: 12px;
+}
+
+.presence-debug-backdrop {
+  align-items: center;
+  background: rgba(15, 23, 42, 0.52);
+  display: flex;
+  inset: 0;
+  justify-content: center;
+  padding: 24px;
+  position: fixed;
+  z-index: 95;
+}
+
+.presence-debug-modal {
+  background: #ffffff;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  box-shadow: 0 28px 80px rgba(15, 23, 42, 0.28);
+  color: #111827;
+  display: grid;
+  gap: 18px;
+  max-width: 520px;
+  padding: 22px;
+  width: min(100%, 520px);
+}
+
+.presence-debug-modal header {
+  align-items: center;
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+}
+
+.presence-debug-modal header div {
+  display: grid;
+  gap: 4px;
+}
+
+.presence-debug-modal header strong {
+  font-size: 18px;
+}
+
+.presence-debug-modal header span,
+.presence-debug-users small,
+.presence-debug-grid span {
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.presence-debug-modal header button {
+  background: #f8fafc;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: #334155;
+  cursor: pointer;
+  font-weight: 800;
+  min-height: 32px;
+  padding: 0 12px;
+}
+
+.presence-debug-grid {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  display: grid;
+  gap: 10px 14px;
+  grid-template-columns: minmax(120px, auto) 1fr;
+  padding: 14px;
+}
+
+.presence-debug-grid strong {
+  color: #0f172a;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.presence-debug-error {
+  background: #fff1f2;
+  border: 1px solid #fecdd3;
+  border-radius: 8px;
+  color: #be123c;
+  font-size: 13px;
+  font-weight: 800;
+  margin: 0;
+  padding: 10px 12px;
+}
+
+.presence-debug-users {
+  display: grid;
+  gap: 10px;
+}
+
+.presence-debug-users > div {
+  align-items: center;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: auto 1fr;
+  padding: 10px;
+}
+
+.presence-debug-users > div > div {
+  display: grid;
+  gap: 3px;
+}
+
+.presence-debug-users p {
+  color: #64748b;
+  font-size: 13px;
+  font-weight: 800;
+  margin: 0;
+}
+
 .top-actions {
   justify-content: flex-end;
   flex: 1 1 0;
