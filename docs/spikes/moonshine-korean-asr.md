@@ -13,6 +13,7 @@ Implemented web pieces:
 - `moonshineWorker.ts`: loads `@huggingface/transformers` ASR pipeline for `onnx-community/moonshine-tiny-ko-ONNX`, tries WebGPU first, falls back to WASM, and passes `max_length` per segment.
 - `orbit.liveStt.engine`: localStorage engine flag for `sherpa` and `moonshine`.
 - `stt:evaluate`: fixed Korean fixture evaluator for CER, keyword recall, false-trigger rate, and segment latency.
+- `stt:canary:moonshine-debug`: summarizes `[orbit-live-stt-worker]` debug logs into canary RTF/latency/audio-level statistics.
 - `stt:gate:moonshine`: compares a Moonshine measurement report against a sherpa baseline or explicit absolute thresholds and returns `go`, `no-go`, or `blocked`.
 - `stt:verify:moonshine-hosting`: checks a deployed web origin for cross-origin isolation headers and the required self-hosted Moonshine model assets.
 
@@ -104,6 +105,16 @@ pnpm --filter @orbit/web stt:measure:moonshine -- --devices wasm --decoder-dtype
 ```
 
 The runner starts Vite with COOP/COEP headers, synthesizes Korean fixture audio with the macOS `Yuna` voice unless `--audio-dir` is provided, loads Moonshine in Playwright Chromium, and writes prediction + metric JSON.
+
+Canary debug summary:
+
+```bash
+pnpm --filter @orbit/web stt:canary:moonshine-debug -- \
+  --log <browser-console-log.txt> \
+  --out docs/spikes/moonshine-canary-debug-summary.json
+```
+
+Enable `orbit.liveStt.debugLatency=1` during canary sessions and capture browser console lines containing `[orbit-live-stt-worker]`. The summary reports segment counts, zero-result count, transcript latency, realtime factor, segment duration, and audio level distributions without including raw audio or transcript text.
 
 Self-hosting deployment verifier:
 

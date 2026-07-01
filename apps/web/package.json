@@ -8,6 +8,7 @@
     "dev": "vite --host 0.0.0.0",
     "lint": "corepack pnpm --filter @orbit/shared build && tsc -p tsconfig.json --noEmit",
     "preview": "vite preview --host 0.0.0.0",
+    "stt:canary:moonshine-debug": "node scripts/summarize-moonshine-canary-debug.mjs",
     "stt:evaluate": "node scripts/evaluate-live-stt-fixtures.mjs",
     "stt:gate:moonshine": "node scripts/evaluate-live-stt-quality-gate.mjs",
     "stt:measure:moonshine": "node scripts/measure-moonshine-browser-fixtures.mjs",

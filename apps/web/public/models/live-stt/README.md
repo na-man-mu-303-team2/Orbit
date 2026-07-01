@@ -370,6 +370,14 @@ pnpm --filter @orbit/web stt:gate:moonshine -- \
   --markdown-out docs/spikes/moonshine-korean-asr-gate.md
 ```
 
+Canary session에서 `orbit.liveStt.debugLatency=1`을 켜고 브라우저 콘솔의 `[orbit-live-stt-worker]` 로그를 저장했다면 다음 명령으로 RTF/latency/audio-level 요약을 만들 수 있습니다.
+
+```bash
+pnpm --filter @orbit/web stt:canary:moonshine-debug -- \
+  --log <browser-console-log.txt> \
+  --out docs/spikes/moonshine-canary-debug-summary.json
+```
+
 기본 입력 음성은 macOS `Yuna` synthetic TTS입니다. 실제 리허설 wav를 쓰려면 `<fixture-id>.wav` 파일을 둔 디렉터리를 `--audio-dir <dir>`로 넘깁니다.
 
 prediction 항목 예시:
