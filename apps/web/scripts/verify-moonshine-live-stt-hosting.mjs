@@ -19,7 +19,8 @@ const requiredRootFiles = [
   "preprocessor_config.json",
   "special_tokens_map.json",
   "tokenizer.json",
-  "tokenizer_config.json"
+  "tokenizer_config.json",
+  "orbit-local-model-manifest.json"
 ];
 const dtypeSuffixes = {
   fp32: "",

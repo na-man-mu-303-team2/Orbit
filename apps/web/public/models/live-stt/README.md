@@ -272,6 +272,8 @@ pnpm --filter @orbit/web stt:verify:moonshine-hosting -- \
   --out docs/spikes/moonshine-hosting-verification.json
 ```
 
+검증 대상에는 Transformers.js metadata/tokenizer/ONNX 파일과 준비 스크립트가 생성한 `orbit-local-model-manifest.json`이 포함됩니다.
+
 ## 8. 리허설 제품 로직 계약
 
 현재 위치: [RehearsalWorkspace.tsx](../../../src/features/rehearsal/RehearsalWorkspace.tsx)

@@ -142,6 +142,7 @@ pnpm --filter @orbit/web stt:verify:moonshine-hosting -- \
 ```
 
 This checks `Cross-Origin-Opener-Policy`, `Cross-Origin-Embedder-Policy`, `Cross-Origin-Resource-Policy`, and the default `onnx-community/moonshine-tiny-ko-ONNX` fp32/q4 asset URLs under `/models/live-stt/`.
+The asset check includes the Transformers.js metadata/tokenizer/ONNX files and the generated `orbit-local-model-manifest.json` from `stt:model:prepare:moonshine`.
 
 Quality gate runner:
 

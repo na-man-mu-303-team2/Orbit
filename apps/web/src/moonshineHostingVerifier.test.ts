@@ -7,6 +7,7 @@ const requiredAssets = [
   "/models/live-stt/onnx-community/moonshine-tiny-ko-ONNX/special_tokens_map.json",
   "/models/live-stt/onnx-community/moonshine-tiny-ko-ONNX/tokenizer.json",
   "/models/live-stt/onnx-community/moonshine-tiny-ko-ONNX/tokenizer_config.json",
+  "/models/live-stt/onnx-community/moonshine-tiny-ko-ONNX/orbit-local-model-manifest.json",
   "/models/live-stt/onnx-community/moonshine-tiny-ko-ONNX/onnx/encoder_model.onnx",
   "/models/live-stt/onnx-community/moonshine-tiny-ko-ONNX/onnx/decoder_model_merged_q4.onnx"
 ];
@@ -54,6 +55,11 @@ describe("Moonshine self-hosting verifier", () => {
     });
     expect(report.assets).toHaveLength(requiredAssets.length);
     expect(report.assets.every((asset: { passed: boolean }) => asset.passed)).toBe(true);
+    expect(
+      report.assets.some((asset: { path: string }) =>
+        asset.path.endsWith("orbit-local-model-manifest.json")
+      )
+    ).toBe(true);
   });
 
   it("fails when a required isolation header and model asset are missing", async () => {
