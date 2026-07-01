@@ -3484,13 +3484,15 @@ def is_text_overflowing(element: dict[str, Any]) -> bool:
 
     font_size = float(props.get("fontSize", 24))
     line_height = float(props.get("lineHeight", 1.2))
+    width = float(element.get("width", 1))
+    height = float(element.get("height", 1))
     average_character_width = max(1.0, font_size * 0.56)
-    characters_per_line = max(1, int(element["width"] / average_character_width))
+    characters_per_line = max(1, int(width / average_character_width))
     estimated_lines = sum(
         max(1, (len(line) + characters_per_line - 1) // characters_per_line)
         for line in text.splitlines() or [text]
     )
-    return estimated_lines * font_size * line_height > element["height"] * 1.08
+    return estimated_lines * font_size * line_height > height * 1.08
 
 
 def is_low_contrast_text(element: dict[str, Any], background_color: str) -> bool:
@@ -3507,11 +3509,15 @@ def is_hex_color(value: Any) -> bool:
 def is_safe_area_text(element: dict[str, Any]) -> bool:
     if element.get("role") == "footer":
         return False
+    x = float(element.get("x", 0))
+    y = float(element.get("y", 0))
+    width = float(element.get("width", 1))
+    height = float(element.get("height", 1))
     return (
-        element["x"] < CANVAS.safe_x
-        or element["y"] < CANVAS.safe_y
-        or element["x"] + element["width"] > CANVAS.safe_x + CANVAS.safe_width
-        or element["y"] + element["height"] > CANVAS.safe_y + CANVAS.safe_height
+        x < CANVAS.safe_x
+        or y < CANVAS.safe_y
+        or x + width > CANVAS.safe_x + CANVAS.safe_width
+        or y + height > CANVAS.safe_y + CANVAS.safe_height
     )
 
 
@@ -3532,15 +3538,23 @@ def overlapping_design_pairs(elements: list[dict[str, Any]]) -> list[tuple[str, 
 
 
 def overlap_ratio(first: dict[str, Any], second: dict[str, Any]) -> float:
-    left = max(first["x"], second["x"])
-    top = max(first["y"], second["y"])
-    right = min(first["x"] + first["width"], second["x"] + second["width"])
-    bottom = min(first["y"] + first["height"], second["y"] + second["height"])
+    first_x = float(first.get("x", 0))
+    first_y = float(first.get("y", 0))
+    first_width = float(first.get("width", 1))
+    first_height = float(first.get("height", 1))
+    second_x = float(second.get("x", 0))
+    second_y = float(second.get("y", 0))
+    second_width = float(second.get("width", 1))
+    second_height = float(second.get("height", 1))
+    left = max(first_x, second_x)
+    top = max(first_y, second_y)
+    right = min(first_x + first_width, second_x + second_width)
+    bottom = min(first_y + first_height, second_y + second_height)
     if right <= left or bottom <= top:
-        return 0
+        return 0.0
 
     intersection = (right - left) * (bottom - top)
-    smaller_area = min(first["width"] * first["height"], second["width"] * second["height"])
+    smaller_area = min(first_width * first_height, second_width * second_height)
     return intersection / max(1, smaller_area)
 
 
