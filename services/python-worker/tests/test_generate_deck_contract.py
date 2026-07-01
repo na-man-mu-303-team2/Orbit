@@ -12,6 +12,7 @@ from app.ai.generate_deck import (
     SlideCountRange,
     choose_slide_count,
     generate_deck,
+    validate_and_patch,
 )
 from tests.test_config import VALID_ENV
 
@@ -1434,6 +1435,173 @@ def test_generate_deck_creates_diagram_elements_from_composition() -> None:
     assert len(bubbles) == 5
     assert element_by_id(bubble_slide, "el_3_bubble_1_label")["props"]["text"] == "초안"
     assert response.validation.passed is True
+
+
+def test_generate_deck_applies_v1_design_profile_to_theme_and_slots() -> None:
+    response = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="IR 피치",
+            slideCountRange={"min": 4, "max": 4},
+            template="pitch",
+            design={"profile": "startup-pitch", "layoutDiversity": "varied"},
+        )
+    )
+
+    assert response.deck["theme"]["name"] == "pitch-startup-pitch-ai"
+    assert response.deck["theme"]["backgroundColor"] == "#0f172a"
+    assert response.deck["slides"][0]["style"]["backgroundColor"] == "#0f172a"
+    assert response.validation.passed is True
+
+
+def test_generate_deck_does_not_invent_chart_data_without_source_numbers() -> None:
+    fake_client = FakeOpenAIClient(
+        {
+            "title": "차트 근거",
+            "slides": [
+                slide_payload(
+                    "성과 차트",
+                    "근거 데이터가 없으면 빈 차트로 남깁니다.",
+                    "데이터가 없을 때는 사용자가 직접 입력할 수 있도록 안내합니다.",
+                    slide_type="chart",
+                    slot_preset="insight_with_evidence",
+                )
+            ],
+        }
+    )
+
+    response = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="차트 근거",
+            prompt="차트 슬라이드 생성",
+            slideCountRange={"min": 1, "max": 1},
+        ),
+        client=fake_client,
+    )
+
+    chart = next(
+        element
+        for element in response.deck["slides"][0]["elements"]
+        if element["type"] == "chart"
+    )
+    assert chart["props"]["data"] == []
+    assert any("근거 데이터가 없어 빈 차트" in warning for warning in response.warnings)
+    assert response.validation.passed is True
+
+
+def test_generate_deck_reports_advisory_design_quality_issues() -> None:
+    deck = {
+        "deckId": "deck_ai_quality",
+        "projectId": "project_demo_1",
+        "title": "ORBIT",
+        "version": 1,
+        "metadata": {
+            "language": "ko",
+            "locale": "ko-KR",
+            "sourceType": "ai",
+            "generatedBy": "ai",
+            "createdFrom": {"topic": "ORBIT", "references": []},
+        },
+        "canvas": {
+            "preset": "wide-16-9",
+            "width": 1920,
+            "height": 1080,
+            "aspectRatio": "16:9",
+        },
+        "theme": {
+            "name": "quality-test",
+            "fontFamily": "Inter",
+            "backgroundColor": "#ffffff",
+            "textColor": "#111827",
+            "accentColor": "#2563eb",
+            "palette": {
+                "primary": "#2563eb",
+                "secondary": "#f59e0b",
+                "surface": "#ffffff",
+                "muted": "#f8fafc",
+                "border": "#d8dee9",
+            },
+            "typography": {
+                "headingFontFamily": "Inter",
+                "bodyFontFamily": "Inter",
+                "titleSize": 60,
+                "headingSize": 42,
+                "bodySize": 26,
+                "captionSize": 18,
+            },
+            "effects": {"borderRadius": 8},
+        },
+        "slides": [
+            {
+                "slideId": "slide_1",
+                "order": 1,
+                "title": "ORBIT",
+                "thumbnailUrl": "",
+                "style": {"backgroundColor": "#ffffff"},
+                "speakerNotes": "발표자 노트",
+                "elements": [
+                    {
+                        "elementId": "el_1_text",
+                        "type": "text",
+                        "role": "body",
+                        "x": 80,
+                        "y": 80,
+                        "width": 220,
+                        "height": 32,
+                        "rotation": 0,
+                        "opacity": 1,
+                        "zIndex": 1,
+                        "locked": False,
+                        "visible": True,
+                        "props": {
+                            "text": "긴 텍스트가 좁은 상자 안에서 여러 줄로 넘칠 수 있습니다.",
+                            "fontSize": 28,
+                            "fontWeight": "normal",
+                            "color": "#fefefe",
+                            "align": "left",
+                            "verticalAlign": "top",
+                            "lineHeight": 1.2,
+                        },
+                    },
+                    {
+                        "elementId": "el_1_overlap",
+                        "type": "text",
+                        "role": "body",
+                        "x": 100,
+                        "y": 92,
+                        "width": 220,
+                        "height": 80,
+                        "rotation": 0,
+                        "opacity": 1,
+                        "zIndex": 2,
+                        "locked": False,
+                        "visible": True,
+                        "props": {
+                            "text": "겹침",
+                            "fontSize": 24,
+                            "fontWeight": "normal",
+                            "color": "#111827",
+                            "align": "left",
+                            "verticalAlign": "top",
+                            "lineHeight": 1.2,
+                        },
+                    },
+                ],
+                "keywords": [],
+                "animations": [],
+            }
+        ],
+    }
+
+    _, validation = validate_and_patch(deck)
+    messages = [issue.message for issue in validation.design_issues]
+
+    assert validation.passed is True
+    assert "텍스트가 상자 높이를 넘을 수 있습니다." in messages
+    assert "텍스트와 배경의 대비가 낮습니다." in messages
+    assert "텍스트가 안전 영역 밖에 배치되었습니다." in messages
+    assert any("겹칠 수 있습니다" in message for message in messages)
 
 
 def slide_payload(

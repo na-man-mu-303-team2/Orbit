@@ -33,6 +33,15 @@ export const generateDeckMetadataSchema = z
 
 export const generateDeckDesignSchema = z
   .object({
+    profile: z
+      .enum([
+        "executive-report",
+        "startup-pitch",
+        "editorial",
+        "technical",
+        "training"
+      ])
+      .optional(),
     visualRhythm: z
       .enum(["auto", "clean", "editorial", "bold", "technical"])
       .default("auto"),

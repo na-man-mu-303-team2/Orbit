@@ -47,6 +47,17 @@ describe("generateDeckRequestSchema", () => {
     });
   });
 
+  it("accepts v1 design profiles", () => {
+    const request = generateDeckRequestSchema.parse({
+      topic: "AI deck generation",
+      design: {
+        profile: "startup-pitch"
+      }
+    });
+
+    expect(request.design.profile).toBe("startup-pitch");
+  });
+
   it("accepts an optional design prompt", () => {
     const request = generateDeckRequestSchema.parse({
       topic: "AI deck generation",

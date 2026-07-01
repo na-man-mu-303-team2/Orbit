@@ -16,6 +16,13 @@ VisualRhythm = Literal["auto", "clean", "editorial", "bold", "technical"]
 DensityTarget = Literal["low", "medium", "high"]
 MediaPolicy = Literal["avoid", "balanced", "placeholder-ok"]
 LayoutDiversity = Literal["stable", "varied"]
+DesignProfile = Literal[
+    "executive-report",
+    "startup-pitch",
+    "editorial",
+    "technical",
+    "training",
+]
 SlideType = Literal[
     "title",
     "cover",
@@ -87,6 +94,7 @@ class GenerateDeckMetadata(BaseModel):
 class DesignOptions(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
+    profile: DesignProfile | None = None
     visual_rhythm: VisualRhythm = Field(default="auto", alias="visualRhythm")
     density_target: DensityTarget = Field(default="medium", alias="densityTarget")
     media_policy: MediaPolicy = Field(default="balanced", alias="mediaPolicy")
@@ -715,6 +723,13 @@ PRESET_DENSITY: dict[SlotPreset, DensityTarget] = {
     "quote_with_source": "medium",
     "quote_left_image_right": "medium",
 }
+DESIGN_PROFILE_SLOT_BONUS: dict[DesignProfile, set[SlotPreset]] = {
+    "executive-report": {"insight_with_evidence", "criteria_table", "big_number_focus"},
+    "startup-pitch": {"title_left_visual_right", "big_number_focus", "before_after"},
+    "editorial": {"quote_center", "quote_with_source", "insight_with_evidence"},
+    "technical": {"criteria_table", "insight_with_evidence", "title_left_visual_right"},
+    "training": {"insight_with_evidence", "before_after", "criteria_table"},
+}
 
 STYLE_PROFILE_REGISTRY: dict[str, dict[str, Any]] = {
     "game-ink-neon": {
@@ -1111,16 +1126,34 @@ def generate_deck(
         "slides": slides,
     }
     deck, validation = validate_and_patch(deck)
-    warnings = []
+    warnings = generation_warnings(raw_input, len(slides), validation)
+
+    return GenerateDeckResponse(deck=deck, warnings=warnings, validation=validation)
+
+
+def generation_warnings(
+    raw_input: RawInput,
+    generated_slide_count: int,
+    validation: ValidationResult,
+) -> list[str]:
+    warnings: list[str] = []
     if not raw_input.references:
         warnings.append("참고자료 없이 topic-only generation으로 생성했습니다.")
-    generated_slide_count = len(slides)
     if raw_input.min_slide_count <= generated_slide_count < raw_input.max_slide_count:
         warnings.append(
             f"AI가 참고자료/주제 밀도를 기준으로 {generated_slide_count}장이 적정하다고 판단했습니다."
         )
+    for issue in validation.design_issues:
+        if should_promote_design_issue_to_warning(issue) and issue.message not in warnings:
+            warnings.append(issue.message)
 
-    return GenerateDeckResponse(deck=deck, warnings=warnings, validation=validation)
+    return warnings
+
+
+def should_promote_design_issue_to_warning(issue: ValidationIssue) -> bool:
+    return issue.message.startswith("이미지 소스가 없어") or issue.message.startswith(
+        "근거 데이터가 없어"
+    )
 
 
 def analyze_input(
@@ -1427,6 +1460,7 @@ def deck_content_prompt(raw_input: RawInput) -> str:
             f"Audience: {raw_input.metadata.audience}",
             f"Purpose: {raw_input.metadata.purpose}",
             f"Tone: {raw_input.metadata.tone}",
+            f"Design profile: {raw_input.design.profile or '(auto)'}",
             f"Visual rhythm: {raw_input.design.visual_rhythm}",
             f"Density target: {raw_input.design.density_target}",
             f"Media policy: {raw_input.design.media_policy}",
@@ -1609,6 +1643,7 @@ def layout_candidates_for(
             score += 3 if has_media_slot else -2
         if PRESET_DENSITY[slot_preset] == design.density_target:
             score += 2
+        score += design_profile_slot_score(design.profile, slot_preset)
         score += composition_score(slot_preset, composition)
         if slot_preset == requested_slot_preset:
             score += 10
@@ -1624,6 +1659,15 @@ def layout_candidates_for(
         candidates.append(LayoutCandidate(slot_preset=slot_preset, score=score))
 
     return candidates
+
+
+def design_profile_slot_score(
+    profile: DesignProfile | None,
+    slot_preset: SlotPreset,
+) -> int:
+    if profile is None:
+        return 0
+    return 2 if slot_preset in DESIGN_PROFILE_SLOT_BONUS[profile] else 0
 
 
 def normalize_composition(value: str) -> str:
@@ -1967,6 +2011,9 @@ def design_profile_for(
     raw_input: RawInput,
     slide_plans: list[SlidePlan] | None = None,
 ) -> dict[str, Any]:
+    if raw_input.design.profile is not None:
+        return theme_for_design_profile(raw_input.design.profile)
+
     rhythm_profile = design_profile_for_visual_rhythm(raw_input.design.visual_rhythm)
     if rhythm_profile is not None:
         return rhythm_profile
@@ -2059,6 +2106,36 @@ def design_profile_for(
             "captionSize": 17,
         }
     return STYLE_PROFILE_REGISTRY["startup-clean"]
+
+
+def theme_for_design_profile(profile: DesignProfile) -> dict[str, Any]:
+    if profile == "executive-report":
+        theme = dict(STYLE_PROFILE_REGISTRY["academic-report"])
+    elif profile == "startup-pitch":
+        theme = design_profile_for_visual_rhythm("bold")
+    elif profile == "editorial":
+        theme = dict(STYLE_PROFILE_REGISTRY["warm-editorial"])
+    elif profile == "technical":
+        theme = design_profile_for_visual_rhythm("technical")
+    else:
+        theme = {
+            "name": "training",
+            "headingFontFamily": "Noto Sans KR",
+            "bodyFontFamily": "Noto Sans KR",
+            "background": "#fbfdf7",
+            "surface": "#ffffff",
+            "text": "#16251b",
+            "accent": "#2f7d32",
+            "secondary": "#e0a100",
+            "muted": "#f0f7e8",
+            "border": "#cfe2bd",
+            "titleSize": 60,
+            "headingSize": 40,
+            "bodySize": 28,
+            "captionSize": 18,
+        }
+    theme["name"] = profile
+    return theme
 
 
 def style_profile_for_text(text: str) -> dict[str, Any] | None:
@@ -2842,11 +2919,7 @@ def element_for_intent(
             "props": {
                 "type": "bar",
                 "title": intent.text,
-                "data": [
-                    {"label": "현재", "value": 40},
-                    {"label": "목표", "value": 75},
-                    {"label": "확장", "value": 90},
-                ],
+                "data": [],
                 "style": {
                     "colors": [theme["accentColor"], "#f59e0b"],
                     "showLegend": False,
@@ -3175,6 +3248,10 @@ def validate_design(deck: dict[str, Any]) -> list[ValidationIssue]:
     issues: list[ValidationIssue] = []
     for slide_index, slide in enumerate(deck["slides"]):
         elements = slide["elements"]
+        background_color = slide.get("style", {}).get(
+            "backgroundColor",
+            deck.get("theme", {}).get("backgroundColor", "#ffffff"),
+        )
         for element_index, element in enumerate(elements):
             element_id = element["elementId"]
             if element_id.endswith("_media_placeholder"):
@@ -3196,6 +3273,55 @@ def validate_design(deck: dict[str, Any]) -> list[ValidationIssue]:
                         message="차트 슬라이드가 아닌 곳에 차트 요소가 있습니다.",
                     )
                 )
+            if element["type"] == "chart" and not element.get("props", {}).get("data"):
+                issues.append(
+                    ValidationIssue(
+                        scope="element",
+                        path=f"slides.{slide_index}.elements.{element_index}.props.data",
+                        message="근거 데이터가 없어 빈 차트 자리 표시자를 생성했습니다. 에디터에서 데이터를 입력하세요.",
+                    )
+                )
+            if element["type"] == "text":
+                if is_text_overflowing(element):
+                    issues.append(
+                        ValidationIssue(
+                            scope="element",
+                            path=f"slides.{slide_index}.elements.{element_index}",
+                            message="텍스트가 상자 높이를 넘을 수 있습니다.",
+                        )
+                    )
+                if is_low_contrast_text(element, background_color):
+                    issues.append(
+                        ValidationIssue(
+                            scope="element",
+                            path=f"slides.{slide_index}.elements.{element_index}.props.color",
+                            message="텍스트와 배경의 대비가 낮습니다.",
+                        )
+                    )
+                if is_safe_area_text(element):
+                    issues.append(
+                        ValidationIssue(
+                            scope="element",
+                            path=f"slides.{slide_index}.elements.{element_index}",
+                            message="텍스트가 안전 영역 밖에 배치되었습니다.",
+                        )
+                    )
+        if len(elements) > 12:
+            issues.append(
+                ValidationIssue(
+                    scope="slide",
+                    path=f"slides.{slide_index}.elements",
+                    message="슬라이드 요소 밀도가 높아 편집성과 가독성이 떨어질 수 있습니다.",
+                )
+            )
+        for first, second in overlapping_design_pairs(elements):
+            issues.append(
+                ValidationIssue(
+                    scope="slide",
+                    path=f"slides.{slide_index}.elements",
+                    message=f"{first}와 {second} 요소가 겹칠 수 있습니다.",
+                )
+            )
         backgrounds = [element for element in elements if element.get("role") == "background"]
         text_elements = [element for element in elements if element["type"] == "text"]
         if backgrounds and text_elements:
@@ -3210,6 +3336,74 @@ def validate_design(deck: dict[str, Any]) -> list[ValidationIssue]:
                     )
                 )
     return issues
+
+
+def is_text_overflowing(element: dict[str, Any]) -> bool:
+    props = element.get("props", {})
+    text = str(props.get("text", ""))
+    if not text:
+        return False
+
+    font_size = float(props.get("fontSize", 24))
+    line_height = float(props.get("lineHeight", 1.2))
+    average_character_width = max(1.0, font_size * 0.56)
+    characters_per_line = max(1, int(element["width"] / average_character_width))
+    estimated_lines = sum(
+        max(1, (len(line) + characters_per_line - 1) // characters_per_line)
+        for line in text.splitlines() or [text]
+    )
+    return estimated_lines * font_size * line_height > element["height"] * 1.08
+
+
+def is_low_contrast_text(element: dict[str, Any], background_color: str) -> bool:
+    color = element.get("props", {}).get("color")
+    if not is_hex_color(color) or not is_hex_color(background_color):
+        return False
+    return contrast_ratio(color, background_color) < 4.5
+
+
+def is_hex_color(value: Any) -> bool:
+    return isinstance(value, str) and re.fullmatch(r"#[0-9a-fA-F]{6}", value) is not None
+
+
+def is_safe_area_text(element: dict[str, Any]) -> bool:
+    if element.get("role") == "footer":
+        return False
+    return (
+        element["x"] < CANVAS.safe_x
+        or element["y"] < CANVAS.safe_y
+        or element["x"] + element["width"] > CANVAS.safe_x + CANVAS.safe_width
+        or element["y"] + element["height"] > CANVAS.safe_y + CANVAS.safe_height
+    )
+
+
+def overlapping_design_pairs(elements: list[dict[str, Any]]) -> list[tuple[str, str]]:
+    visible = [
+        element
+        for element in elements
+        if element.get("visible", True)
+        and element.get("role") != "background"
+        and element.get("type") in {"text", "image", "chart"}
+    ]
+    pairs: list[tuple[str, str]] = []
+    for index, first in enumerate(visible):
+        for second in visible[index + 1 :]:
+            if overlap_ratio(first, second) > 0.18:
+                pairs.append((first["elementId"], second["elementId"]))
+    return pairs[:3]
+
+
+def overlap_ratio(first: dict[str, Any], second: dict[str, Any]) -> float:
+    left = max(first["x"], second["x"])
+    top = max(first["y"], second["y"])
+    right = min(first["x"] + first["width"], second["x"] + second["width"])
+    bottom = min(first["y"] + first["height"], second["y"] + second["height"])
+    if right <= left or bottom <= top:
+        return 0
+
+    intersection = (right - left) * (bottom - top)
+    smaller_area = min(first["width"] * first["height"], second["width"] * second["height"])
+    return intersection / max(1, smaller_area)
 
 
 def validate_presentation(deck: dict[str, Any]) -> list[ValidationIssue]:

@@ -20,6 +20,16 @@ describe("processGenerateDeckJob", () => {
 
   it("calls Python deck generation, saves the deck, and stores job results", async () => {
     const deck = createDeck();
+    const warnings = ["근거 데이터가 없어 빈 차트 자리 표시자를 생성했습니다."];
+    const deckValidation = validation({
+      designIssues: [
+        {
+          scope: "element",
+          path: "slides.0.elements.0.props.data",
+          message: warnings[0]
+        }
+      ]
+    });
     const query = vi
       .fn()
       .mockResolvedValueOnce([jobRow("running", 15, null, null)])
@@ -31,8 +41,8 @@ describe("processGenerateDeckJob", () => {
           {
             deckId: deck.deckId,
             deck,
-            warnings: [],
-            validation: validation()
+            warnings,
+            validation: deckValidation
           },
           null
         )
@@ -41,7 +51,7 @@ describe("processGenerateDeckJob", () => {
     const fetchMock = vi.fn(async (_input: unknown, init?: RequestInit) => {
       pythonRequestBody = String(init?.body ?? "");
       return new Response(
-        JSON.stringify({ deck, warnings: [], validation: validation() })
+        JSON.stringify({ deck, warnings, validation: deckValidation })
       );
     });
     vi.stubGlobal("fetch", fetchMock);
@@ -65,6 +75,7 @@ describe("processGenerateDeckJob", () => {
     );
     expect(query).toHaveBeenCalledTimes(3);
     expect(query.mock.calls[1][0]).toContain("INSERT INTO decks");
+    expect(job.result?.warnings).toEqual(warnings);
   });
 
   it("marks the DB job failed when Python generation fails", async () => {
@@ -136,13 +147,21 @@ function createDeck() {
   };
 }
 
-function validation() {
+function validation(
+  overrides: Partial<{
+    layoutIssues: Array<Record<string, unknown>>;
+    contentIssues: Array<Record<string, unknown>>;
+    designIssues: Array<Record<string, unknown>>;
+    presentationIssues: Array<Record<string, unknown>>;
+  }> = {}
+) {
   return {
     passed: true,
     layoutIssues: [],
     contentIssues: [],
     designIssues: [],
-    presentationIssues: []
+    presentationIssues: [],
+    ...overrides
   };
 }
 
