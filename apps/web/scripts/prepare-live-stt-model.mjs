@@ -5,6 +5,8 @@ import { basename, join, resolve } from "node:path";
 
 const defaultModelId = "sherpa-onnx-streaming-zipformer-korean-2024-06-16";
 const requiredModelFiles = ["encoder.onnx", "decoder.onnx", "joiner.onnx", "tokens.txt"];
+const bpeVocabFileName = "bpe.vocab";
+const binaryBpeModelFileName = "bpe.model";
 const requiredRuntimeFiles = [
   "sherpa-onnx-wasm-main-asr.js",
   "sherpa-onnx-wasm-main-asr.wasm",
@@ -37,6 +39,25 @@ async function main() {
     copiedFiles.push({ fileName: basename(fileName), path: outPath });
   }
 
+  const model = {
+    encoder: "encoder.onnx",
+    decoder: "decoder.onnx",
+    joiner: "joiner.onnx",
+    tokens: "tokens.txt"
+  };
+  const bpeVocabSourcePath = resolve(sourceDir, bpeVocabFileName);
+  const bpeModelSourcePath = resolve(sourceDir, binaryBpeModelFileName);
+  if (await fileExists(bpeVocabSourcePath)) {
+    const outPath = join(outDir, bpeVocabFileName);
+    await copyFile(bpeVocabSourcePath, outPath);
+    copiedFiles.push({ fileName: bpeVocabFileName, path: outPath });
+    model.bpeVocab = bpeVocabFileName;
+  } else if (await fileExists(bpeModelSourcePath)) {
+    throw new Error(
+      `BPE hotword bias requires ${bpeVocabFileName}. ${binaryBpeModelFileName} is binary and cannot be used as model.bpeVocab. Generate the text vocab first with script/export_bpe_vocab.py --bpe-model ${bpeModelSourcePath} --output ${bpeVocabSourcePath}.`
+    );
+  }
+
   const files = Object.fromEntries(
     await Promise.all(
       copiedFiles.map(async ({ fileName, path }) => {
@@ -65,12 +86,7 @@ async function main() {
       wasm: "sherpa-onnx-wasm-main-asr.wasm",
       data: "sherpa-onnx-wasm-main-asr.data"
     },
-    model: {
-      encoder: "encoder.onnx",
-      decoder: "decoder.onnx",
-      joiner: "joiner.onnx",
-      tokens: "tokens.txt"
-    },
+    model,
     files
   };
 
@@ -110,6 +126,19 @@ function requireArg(args, key) {
   }
 
   return value;
+}
+
+async function fileExists(path) {
+  try {
+    await stat(path);
+    return true;
+  } catch (error) {
+    if (error?.code === "ENOENT") {
+      return false;
+    }
+
+    throw error;
+  }
 }
 
 async function sha256(path) {

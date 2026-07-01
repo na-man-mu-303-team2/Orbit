@@ -81,6 +81,7 @@ export function resolveSherpaOnnxModelManifest(
   manifestUrl: string
 ): ResolvedSherpaOnnxModelManifest {
   const baseUrl = resolveManifestUrl(manifest.baseUrl, manifestUrl);
+  const bpeVocab = validateBpeVocabPath(manifest.model.bpeVocab);
 
   return {
     ...manifest,
@@ -103,9 +104,7 @@ export function resolveSherpaOnnxModelManifest(
       decoder: resolveAssetUrl(manifest.model.decoder, baseUrl),
       joiner: resolveAssetUrl(manifest.model.joiner, baseUrl),
       tokens: resolveAssetUrl(manifest.model.tokens, baseUrl),
-      bpeVocab: manifest.model.bpeVocab
-        ? resolveAssetUrl(manifest.model.bpeVocab, baseUrl)
-        : null
+      bpeVocab: bpeVocab ? resolveAssetUrl(bpeVocab, baseUrl) : null
     }
   };
 }
@@ -155,7 +154,7 @@ function parseSherpaOnnxModelManifest(value: unknown): SherpaOnnxModelManifest {
       decoder: readString(model, "decoder"),
       joiner: readString(model, "joiner"),
       tokens: readString(model, "tokens"),
-      bpeVocab: readOptionalString(model, "bpeVocab")
+      bpeVocab: validateBpeVocabPath(readOptionalString(model, "bpeVocab"))
     },
     files: readOptionalFiles(value)
   };
@@ -167,6 +166,21 @@ function resolveManifestUrl(path: string, manifestUrl: string) {
 
 function resolveAssetUrl(path: string, baseUrl: string) {
   return new URL(path, baseUrl).toString();
+}
+
+function validateBpeVocabPath(value: string | null | undefined) {
+  if (!value) {
+    return undefined;
+  }
+
+  const pathWithoutQuery = value.split(/[?#]/)[0]?.toLowerCase() ?? "";
+  if (!pathWithoutQuery.endsWith(".vocab")) {
+    throw new Error(
+      "Live STT model manifest model.bpeVocab must point to a SentencePiece text vocab file such as bpe.vocab; bpe.model is a binary model and cannot be used for hotword bias."
+    );
+  }
+
+  return value;
 }
 
 function readRecord(record: Record<string, unknown>, key: string) {

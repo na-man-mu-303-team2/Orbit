@@ -151,7 +151,8 @@ manifest 예시:
     "encoder": "encoder.onnx",
     "decoder": "decoder.onnx",
     "joiner": "joiner.onnx",
-    "tokens": "tokens.txt"
+    "tokens": "tokens.txt",
+    "bpeVocab": "bpe.vocab"
   },
   "files": {
     "encoder.onnx": {
@@ -166,13 +167,7 @@ manifest 예시:
 
 - `runtime.helpers`: runtime script 이후 추가로 `importScripts()`할 helper JS 목록
 - `runtime.wasm`, `runtime.data`: 없으면 `null`로 resolve됨
-- `model.bpeVocab`: BPE 모델의 hotword bias에 필요한 **텍스트** vocab 파일(`bpe.vocab`).
-  - sherpa `ssentencepiece`는 `piece<TAB>score` 라인 텍스트를 기대한다. 바이너리 `bpe.model`(sentencepiece protobuf)을 그대로 넣으면 `modified_beam_search`에서 파싱 실패해 recognizer 생성이 죽는다(`darts.h: failed to insert key: zero-length key`).
-  - `bpe.model` → `bpe.vocab` 변환:
-    ```bash
-    python3 -c "import sentencepiece as spm; sp=spm.SentencePieceProcessor(model_file='bpe.model'); open('bpe.vocab','w',encoding='utf-8').writelines(f'{sp.id_to_piece(i)}\t{sp.get_score(i)}\n' for i in range(sp.get_piece_size()))"
-    ```
-  - hotword bias(컨트롤 문구/슬라이드 키워드)는 `bpe.vocab`이 있어야만 동작한다. 없으면 worker가 자동으로 greedy_search로 degrade되고 bias는 꺼진다.
+- `model.bpeVocab`: BPE hotword tokenization에 필요한 SentencePiece text vocab 파일. `bpe.vocab`를 지정하고, 바이너리 `bpe.model`은 지정하지 않는다.
 - `files`: 파일별 `bytes`, `sha256` 메타데이터
 - `decodingMethod`: `"greedy_search"` 또는 `"modified_beam_search"`
 
@@ -193,7 +188,7 @@ apps/web/public/models/live-stt/
     decoder.onnx
     joiner.onnx
     tokens.txt
-    bpe.vocab                 # hotword bias용 텍스트 vocab (bpe.model에서 생성)
+    bpe.vocab                 # BPE hotword bias 사용 시 필요
 ```
 
 준비 명령:
@@ -202,7 +197,15 @@ apps/web/public/models/live-stt/
 pnpm --filter @orbit/web stt:model:prepare -- --source <model-dir> --runtime <wasm-runtime-dir>
 ```
 
-현재 준비 스크립트는 필수 runtime 파일 3개와 필수 모델 파일 4개를 복사하고, `manifest.json`에 `files` 메타데이터를 생성합니다.
+대형 `.onnx`, `.wasm`, `.data`, `.model`, `.vocab` artifact는 일반 git blob으로 커밋하지 않고 Git LFS로 추적합니다. 새로 clone한 환경에서는 `git lfs install` 후 `git lfs pull`로 실제 모델 파일을 내려받습니다.
+
+현재 준비 스크립트는 필수 runtime 파일 3개와 필수 모델 파일 4개를 복사하고, source 모델 디렉터리에 `bpe.vocab`가 있으면 함께 복사해 `model.bpeVocab`와 `files` 메타데이터에 기록합니다. `bpe.model`만 있고 `bpe.vocab`가 없으면 실패하므로 `script/export_bpe_vocab.py --bpe-model ...`로 text vocab을 먼저 생성해야 합니다.
+
+배포 후 확인 항목:
+
+- `manifest.json`의 `model.bpeVocab` 값이 `"bpe.vocab"`인지 확인한다.
+- `/models/live-stt/<model-id>/bpe.vocab`가 `<!doctype html>` fallback이 아니라 `<blk>\t0.0` 같은 vocab text를 반환하는지 확인한다.
+- 브라우저에서 Live STT를 시작했을 때 hotword bias가 `modified_beam_search` 설정으로 시작되고 fallback 경고가 없는지 확인한다.
 
 ## 8. 리허설 제품 로직 계약
 
