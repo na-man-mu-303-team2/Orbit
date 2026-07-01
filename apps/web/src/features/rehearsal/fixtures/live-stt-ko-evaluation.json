@@ -1,0 +1,38 @@
+[
+  {
+    "id": "control-next-slide",
+    "referenceTranscript": "다음 슬라이드로 넘어가 주세요",
+    "expectedKeywords": ["다음 슬라이드"],
+    "shouldTriggerControl": true
+  },
+  {
+    "id": "control-previous-slide",
+    "referenceTranscript": "이전 슬라이드로 돌아가 주세요",
+    "expectedKeywords": ["이전 슬라이드"],
+    "shouldTriggerControl": true
+  },
+  {
+    "id": "keyword-orbit",
+    "referenceTranscript": "오르빗 리허설 모드에서 발표를 시작합니다",
+    "expectedKeywords": ["오르빗", "리허설"],
+    "shouldTriggerControl": false
+  },
+  {
+    "id": "keyword-live-stt",
+    "referenceTranscript": "브라우저 온디바이스 실시간 음성 인식을 설명합니다",
+    "expectedKeywords": ["온디바이스", "실시간 음성 인식"],
+    "shouldTriggerControl": false
+  },
+  {
+    "id": "free-speech-next-slide-phrase",
+    "referenceTranscript": "안녕하세요 다음 슬라이드는 설명 자료입니다",
+    "expectedKeywords": [],
+    "shouldTriggerControl": false
+  },
+  {
+    "id": "noise-short-utterance",
+    "referenceTranscript": "잠시만요",
+    "expectedKeywords": [],
+    "shouldTriggerControl": false
+  }
+]
