@@ -7,6 +7,10 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { evaluateLiveSttPredictions } from "./evaluate-live-stt-fixtures.mjs";
+import {
+  buildMoonshineMeasurementReport,
+  summarizeMoonshineMeasurementReport
+} from "./moonshine-measurement-report.mjs";
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const webRoot = resolve(scriptDir, "..");
@@ -107,19 +111,19 @@ async function main() {
       }
     }
 
-    const report = {
-      generatedAt: new Date().toISOString(),
+    const report = buildMoonshineMeasurementReport({
       modelId,
       dtype,
-      fixturePath: relativeToRepo(fixturesPath),
-      audioSource: args.audioDir
-        ? relativeToRepo(resolvePathFromRepo(args.audioDir))
-        : `macOS say voice ${voice}`,
+      fixturePath: fixturesPath,
+      audioDir: args.audioDir ? resolvePathFromRepo(args.audioDir) : null,
+      audioSource: args.audioSource,
+      voice,
+      repoRoot,
       results
-    };
+    });
     await mkdir(dirname(outPath), { recursive: true });
     await writeFile(outPath, `${JSON.stringify(report, null, 2)}\n`);
-    console.log(JSON.stringify(summarizeReport(report), null, 2));
+    console.log(JSON.stringify(summarizeMoonshineMeasurementReport(report), null, 2));
     console.log(`Wrote Moonshine measurement report to ${outPath}`);
   } finally {
     await browser?.close();
@@ -262,30 +266,6 @@ function findFreePort() {
   });
 }
 
-function summarizeReport(report) {
-  return {
-    modelId: report.modelId,
-    audioSource: report.audioSource,
-    results: report.results.map((result) =>
-      result.status === "succeeded"
-        ? {
-            device: result.device,
-            status: result.status,
-            modelLoadMs: result.modelLoadMs,
-            averageCer: result.summary.averageCer,
-            keywordRecall: result.summary.keywordRecall,
-            falseTriggerRate: result.summary.falseTriggerRate,
-            averageLatencyMs: result.summary.averageLatencyMs
-          }
-        : {
-            device: result.device,
-            status: result.status,
-            error: result.error
-          }
-    )
-  };
-}
-
 function parseArgs(args) {
   const parsed = {};
   for (let index = 0; index < args.length; index += 1) {
@@ -324,10 +304,6 @@ function parseBooleanArg(value) {
   }
 
   return undefined;
-}
-
-function relativeToRepo(path) {
-  return path.startsWith(repoRoot) ? path.slice(repoRoot.length + 1) : path;
 }
 
 function resolvePathFromRepo(path) {

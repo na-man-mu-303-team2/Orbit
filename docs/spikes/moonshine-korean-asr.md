@@ -122,6 +122,14 @@ pnpm --filter @orbit/web stt:measure:moonshine -- --devices wasm --decoder-dtype
 ```
 
 The runner starts Vite with COOP/COEP headers, synthesizes Korean fixture audio with the macOS `Yuna` voice unless `--audio-dir` is provided, loads Moonshine in Playwright Chromium, and writes prediction + metric JSON.
+For human wav fixtures, pass the same stable `--audio-source` label used by the sherpa baseline report:
+
+```bash
+pnpm --filter @orbit/web stt:measure:moonshine -- \
+  --audio-dir <human-wav-dir> \
+  --audio-source <human-fixture-label> \
+  --out docs/spikes/moonshine-human-live-stt-candidate.json
+```
 
 Canary debug summary:
 
