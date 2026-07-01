@@ -13,6 +13,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   EditorShell,
   EditorStateNotice,
+  getEditorValidationItems,
   mergeDeckIntoQueryCache,
   shouldApplyManualSaveResult,
   shouldHydrateDeckFromQuery
@@ -155,6 +156,7 @@ describe("editor shell", () => {
     expect(html).toContain("AI 제안 검토");
     expect(html).toContain("이미지");
     expect(html).toContain('data-testid="editor-slide-quickbar"');
+    expect(html).toContain("테마 배경");
   });
 
   it("loads AI suggestions with the route project id", () => {
@@ -436,6 +438,95 @@ describe("editor shell", () => {
     expect(html).toContain('data-stroke-width="3"');
     expect(html).toContain('data-corner-radius="24"');
     expect(html).not.toContain("GROUP");
+  });
+
+  it("reports editable AI deck validation warnings", () => {
+    const deck = createDemoDeck();
+    const firstSlide = deck.slides[0];
+
+    firstSlide.style.backgroundColor = "#ffffff";
+    firstSlide.elements.push(
+      {
+        elementId: "el_missing_alt",
+        type: "image",
+        role: "media",
+        x: 100,
+        y: 100,
+        width: 320,
+        height: 180,
+        rotation: 0,
+        opacity: 1,
+        zIndex: 20,
+        locked: false,
+        visible: true,
+        props: {
+          alt: "",
+          fit: "cover",
+          src: "/asset.png"
+        }
+      } as Deck["slides"][number]["elements"][number],
+      {
+        elementId: "el_empty_chart",
+        type: "chart",
+        role: "chart",
+        x: 460,
+        y: 100,
+        width: 420,
+        height: 260,
+        rotation: 0,
+        opacity: 1,
+        zIndex: 21,
+        locked: false,
+        visible: true,
+        props: {
+          type: "bar",
+          title: "빈 차트",
+          data: [],
+          style: {
+            colors: ["#2563eb"],
+            showLegend: false,
+            legendPosition: "bottom",
+            showDataLabels: false,
+            showGrid: true,
+            xAxisTitle: "",
+            yAxisTitle: "",
+            unit: ""
+          }
+        }
+      } as Deck["slides"][number]["elements"][number],
+      {
+        elementId: "el_overflow",
+        type: "text",
+        role: "body",
+        x: 120,
+        y: 420,
+        width: 180,
+        height: 28,
+        rotation: 0,
+        opacity: 1,
+        zIndex: 22,
+        locked: false,
+        visible: true,
+        props: {
+          text: "좁은 상자를 넘치는 긴 텍스트입니다.",
+          fontSize: 28,
+          fontWeight: "normal",
+          color: "#fefefe",
+          align: "left",
+          verticalAlign: "top",
+          lineHeight: 1.2
+        }
+      } as Deck["slides"][number]["elements"][number]
+    );
+
+    const messages = getEditorValidationItems(deck, firstSlide).map(
+      (item) => item.message
+    );
+
+    expect(messages).toContain("이미지 대체 텍스트가 비어 있습니다.");
+    expect(messages).toContain("차트 데이터가 비어 있습니다.");
+    expect(messages).toContain("텍스트가 상자 높이를 넘을 수 있습니다.");
+    expect(messages).toContain("텍스트와 배경 대비가 낮습니다.");
   });
 
   it("keeps the newer local deck when a stale save response tries to update the query cache", () => {

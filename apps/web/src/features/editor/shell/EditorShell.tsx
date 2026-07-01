@@ -252,6 +252,11 @@ type ElementClipboardState = {
   element: DeckElement;
   pasteCount: number;
 };
+type EditorValidationItem = {
+  elementId?: string;
+  message: string;
+  severity: "warning" | "risk";
+};
 type HistoryEntry = {
   deck: Deck;
   slideIndex: number;
@@ -1011,6 +1016,10 @@ export function EditorShell(props: { projectId?: string }) {
         : [],
     [currentSlide]
   );
+  const currentSlideValidationItems = useMemo(
+    () => (currentSlide ? getEditorValidationItems(deck, currentSlide) : []),
+    [currentSlide, deck]
+  );
   const selectedKeyword =
     currentSlide?.keywords.find(
       (keyword) => keyword.keywordId === selectedKeywordId
@@ -1643,6 +1652,20 @@ export function EditorShell(props: { projectId?: string }) {
           type: "update_slide_style",
           slideId,
           style
+        }
+      ]
+    }));
+  }
+
+  function handleThemeChange(theme: Record<string, unknown>) {
+    commitPatch((currentDeck) => ({
+      deckId: currentDeck.deckId,
+      baseVersion: currentDeck.version,
+      source: "user",
+      operations: [
+        {
+          type: "update_theme",
+          theme
         }
       ]
     }));
@@ -3470,10 +3493,12 @@ export function EditorShell(props: { projectId?: string }) {
 
             <SelectionQuickBar
               key={`quickbar-${selectedElement?.elementId ?? currentSlide?.slideId ?? "none"}`}
+              canvas={deck.canvas}
               customShapeEditActive={isCustomShapeEditingSelection}
               element={selectedElement}
               slide={selectedElementIds.length > 1 ? null : currentSlide}
               showIds={showIds}
+              theme={deck.theme}
               onToggleCustomShapeClosed={() => {
                 if (!selectedElement || !currentSlide || selectedElement.type !== "customShape") {
                   return;
@@ -3520,6 +3545,7 @@ export function EditorShell(props: { projectId?: string }) {
                 }
                 handleSlideStyleChange(currentSlide.slideId, style);
               }}
+              onChangeTheme={handleThemeChange}
             />
           </div>
 
@@ -3635,6 +3661,7 @@ export function EditorShell(props: { projectId?: string }) {
                 </div>
               </div>
               <div className="assistant-panel-slot">
+                <ValidationPanel items={currentSlideValidationItems} />
                 <SuggestionPanel
                   deck={deck}
                   projectId={projectId}
@@ -3868,6 +3895,129 @@ function getSlideBackgroundSize(fit: NonNullable<Slide["style"]["backgroundImage
   }
 
   return fit;
+}
+
+function ValidationPanel(props: { items: EditorValidationItem[] }) {
+  return (
+    <section className="suggestion-card">
+      <strong>검증</strong>
+      <div className="stack-list">
+        {props.items.length > 0 ? (
+          props.items.map((item, index) => (
+            <div className="stack-item compact" key={`${item.message}-${index}`}>
+              <span>{item.severity === "risk" ? "export risk" : "warning"}</span>
+              <strong>{item.message}</strong>
+              {item.elementId ? <small>{item.elementId}</small> : null}
+            </div>
+          ))
+        ) : (
+          <div className="stack-item compact">
+            <span>warning 없음</span>
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
+export function getEditorValidationItems(
+  deck: Deck,
+  slide: Slide
+): EditorValidationItem[] {
+  const backgroundColor = slide.style.backgroundColor ?? deck.theme.backgroundColor;
+  const items: EditorValidationItem[] = [];
+
+  for (const element of slide.elements) {
+    if (!element.visible) continue;
+
+    if (element.elementId.endsWith("_media_placeholder")) {
+      items.push({
+        elementId: element.elementId,
+        message: "이미지 자리 표시자가 남아 있습니다.",
+        severity: "warning"
+      });
+    }
+
+    if (element.type === "image" && !element.props.alt.trim()) {
+      items.push({
+        elementId: element.elementId,
+        message: "이미지 대체 텍스트가 비어 있습니다.",
+        severity: "warning"
+      });
+    }
+
+    if (element.type === "chart" && element.props.data.length === 0) {
+      items.push({
+        elementId: element.elementId,
+        message: "차트 데이터가 비어 있습니다.",
+        severity: "warning"
+      });
+    }
+
+    if (element.type === "text") {
+      if (isEditorTextOverflowing(element)) {
+        items.push({
+          elementId: element.elementId,
+          message: "텍스트가 상자 높이를 넘을 수 있습니다.",
+          severity: "warning"
+        });
+      }
+
+      const color = element.props.color ?? slide.style.textColor ?? deck.theme.textColor;
+      if (isHexColor(color) && isHexColor(backgroundColor) && contrastRatio(color, backgroundColor) < 4.5) {
+        items.push({
+          elementId: element.elementId,
+          message: "텍스트와 배경 대비가 낮습니다.",
+          severity: "warning"
+        });
+      }
+    }
+
+    if (element.type === "customShape" || element.type === "group") {
+      items.push({
+        elementId: element.elementId,
+        message: "내보내기에서 모양이 달라질 수 있습니다.",
+        severity: "risk"
+      });
+    }
+  }
+
+  return items;
+}
+
+function isEditorTextOverflowing(element: Extract<DeckElement, { type: "text" }>) {
+  const text = element.props.text;
+  if (!text) return false;
+
+  const fontSize = element.props.fontSize;
+  const characterWidth = Math.max(1, fontSize * 0.56);
+  const charactersPerLine = Math.max(1, Math.floor(element.width / characterWidth));
+  const estimatedLines = text
+    .split("\n")
+    .reduce(
+      (sum, line) => sum + Math.max(1, Math.ceil(line.length / charactersPerLine)),
+      0
+    );
+
+  return estimatedLines * fontSize * element.props.lineHeight > element.height * 1.08;
+}
+
+function isHexColor(value: string) {
+  return /^#[0-9a-f]{6}$/i.test(value);
+}
+
+function contrastRatio(first: string, second: string) {
+  const lighter = Math.max(relativeLuminance(first), relativeLuminance(second));
+  const darker = Math.min(relativeLuminance(first), relativeLuminance(second));
+  return (lighter + 0.05) / (darker + 0.05);
+}
+
+function relativeLuminance(color: string) {
+  const values = [1, 3, 5].map((index) => parseInt(color.slice(index, index + 2), 16) / 255);
+  const [red, green, blue] = values.map((value) =>
+    value <= 0.03928 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4
+  );
+  return 0.2126 * red + 0.7152 * green + 0.0722 * blue;
 }
 
 function clampBackgroundOverlayOpacity(opacity: number) {

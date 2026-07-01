@@ -13,6 +13,7 @@ import {
   getJobResultFiles,
   mergeGeneratedProjectList,
   pollExtractJob,
+  resolveGenerateDeckTargetProject,
   shouldRenderAppFrame
 } from "./App";
 
@@ -137,6 +138,7 @@ describe("AI deck generation flow", () => {
         tone: "professional"
       },
       design: {
+        profile: "executive-report",
         visualRhythm: "auto",
         densityTarget: "medium",
         mediaPolicy: "balanced",
@@ -157,6 +159,7 @@ describe("AI deck generation flow", () => {
       targetDurationMinutes: 10,
       slideCountRange: { min: 5, max: 8 },
       design: {
+        profile: "executive-report",
         visualRhythm: "auto",
         densityTarget: "medium",
         mediaPolicy: "balanced",
@@ -181,6 +184,7 @@ describe("AI deck generation flow", () => {
         tone: "professional"
       },
       design: {
+        profile: "executive-report",
         visualRhythm: "auto",
         densityTarget: "medium",
         mediaPolicy: "balanced",
@@ -268,6 +272,31 @@ describe("AI deck generation flow", () => {
     expect(getGeneratedDeckProjectTitle("   ")).toBe("AI 덱");
   });
 
+  it("uses a selected project as the generate-deck target", async () => {
+    const selected: Project = {
+      projectId: "project_selected",
+      workspaceId: "workspace_demo_1",
+      title: "Selected",
+      createdBy: "user_demo_1",
+      createdAt: "2026-06-29T00:00:00.000Z"
+    };
+    const fetcher = vi.fn(async () => new Response("unexpected", { status: 500 }));
+
+    await expect(
+      resolveGenerateDeckTargetProject({
+        fetcher,
+        projects: [selected],
+        selectedProjectId: selected.projectId,
+        topic: "새 주제"
+      })
+    ).resolves.toEqual({
+      created: false,
+      project: selected,
+      projectId: selected.projectId
+    });
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
   it("reads a generated deck job result and renders slide evidence", () => {
     const job: Job = {
       jobId: "job-2",
@@ -318,7 +347,13 @@ describe("AI deck generation flow", () => {
           passed: true,
           layoutIssues: [],
           contentIssues: [],
-          designIssues: [],
+          designIssues: [
+            {
+              scope: "element",
+              path: "slides.0.elements.0.props.data",
+              message: "근거 데이터가 없어 빈 차트 자리 표시자를 생성했습니다."
+            }
+          ],
           presentationIssues: []
         }
       },
@@ -338,6 +373,9 @@ describe("AI deck generation flow", () => {
     );
     expect(renderToStaticMarkup(<GeneratedDeckResult result={result} />)).toContain(
       "AI가 참고자료/주제 밀도를 기준으로 1장이 적정하다고 판단했습니다."
+    );
+    expect(renderToStaticMarkup(<GeneratedDeckResult result={result} />)).toContain(
+      "근거 데이터가 없어 빈 차트 자리 표시자를 생성했습니다."
     );
   });
 });

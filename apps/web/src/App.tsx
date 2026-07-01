@@ -95,10 +95,22 @@ type GenerateDeckPayloadInput = {
 };
 
 type GenerateDeckDesignDirection = {
+  profile?:
+    | "executive-report"
+    | "startup-pitch"
+    | "editorial"
+    | "technical"
+    | "training";
   visualRhythm: "auto" | "clean" | "editorial" | "bold" | "technical";
   densityTarget: "low" | "medium" | "high";
   mediaPolicy: "avoid" | "balanced" | "placeholder-ok";
   layoutDiversity: "stable" | "varied";
+};
+
+type GenerateDeckTargetProject = {
+  created: boolean;
+  project: Project | null;
+  projectId: string;
 };
 
 type PresentationKeyword = {
@@ -970,6 +982,8 @@ function GenerateDeckView() {
   const [audience, setAudience] = useState("general");
   const [purpose, setPurpose] = useState("inform");
   const [tone, setTone] = useState("professional");
+  const [designProfile, setDesignProfile] =
+    useState<NonNullable<GenerateDeckDesignDirection["profile"]>>("executive-report");
   const [visualRhythm, setVisualRhythm] =
     useState<GenerateDeckDesignDirection["visualRhythm"]>("auto");
   const [densityTarget, setDensityTarget] =
@@ -1007,17 +1021,6 @@ function GenerateDeckView() {
     () => buildReferenceGenerationInput(extractedFiles),
     [extractedFiles]
   );
-
-  useEffect(() => {
-    if (!projectsQuery.data || selectedProjectId) {
-      return;
-    }
-
-    const firstProject = projectsQuery.data[0];
-    if (firstProject) {
-      setSelectedProjectId(firstProject.projectId);
-    }
-  }, [projectsQuery.data, selectedProjectId]);
 
   const handleCreateProject = async () => {
     const trimmedTitle = newProjectTitle.trim();
@@ -1136,8 +1139,12 @@ function GenerateDeckView() {
     setResult(null);
 
     try {
-      const project = await createGeneratedDeckProject(topic);
-      const referenceInput = await extractReferences(project.projectId);
+      const targetProject = await resolveGenerateDeckTargetProject({
+        projects: projectsQuery.data ?? [],
+        selectedProjectId,
+        topic
+      });
+      const referenceInput = await extractReferences(targetProject.projectId);
       setGenerationStep("generating");
       const payload = buildGenerateDeckPayload({
         topic,
@@ -1148,11 +1155,17 @@ function GenerateDeckView() {
         maxSlides,
         template,
         metadata: { audience, purpose, tone },
-        design: { visualRhythm, densityTarget, mediaPolicy, layoutDiversity },
+        design: {
+          profile: designProfile,
+          visualRhythm,
+          densityTarget,
+          mediaPolicy,
+          layoutDiversity
+        },
         referenceInput
       });
       const response = await fetch(
-        `/api/v1/projects/${project.projectId}/jobs/generate-deck`,
+        `/api/v1/projects/${targetProject.projectId}/jobs/generate-deck`,
         {
           method: "POST",
           headers: { "content-type": "application/json" },
@@ -1182,9 +1195,11 @@ function GenerateDeckView() {
       }
 
       setResult(generatedResult);
-      queryClient.setQueryData<Project[]>(["projects"], (current) =>
-        mergeGeneratedProjectList(current, project)
-      );
+      if (targetProject.created && targetProject.project) {
+        queryClient.setQueryData<Project[]>(["projects"], (current) =>
+          mergeGeneratedProjectList(current, targetProject.project as Project)
+        );
+      }
       queryClient.setQueryData(["deck", generatedResult.deck.projectId], generatedResult.deck);
       navigateTo(getGeneratedDeckProjectPath(generatedResult));
     } catch (error) {
@@ -1373,6 +1388,20 @@ function GenerateDeckView() {
             </label>
 
             <div className="form-grid">
+              <SelectField
+                label="Profile"
+                value={designProfile}
+                onChange={(value) =>
+                  setDesignProfile(value as NonNullable<GenerateDeckDesignDirection["profile"]>)
+                }
+                options={[
+                  "executive-report",
+                  "startup-pitch",
+                  "editorial",
+                  "technical",
+                  "training"
+                ]}
+              />
               <SelectField
                 label="Visual rhythm"
                 value={visualRhythm}
@@ -1672,6 +1701,27 @@ export function createGeneratedDeckProject(topic: string, fetcher: Fetcher = fet
   return createProject(getGeneratedDeckProjectTitle(topic), fetcher);
 }
 
+export async function resolveGenerateDeckTargetProject(args: {
+  fetcher?: Fetcher;
+  projects: Project[];
+  selectedProjectId: string;
+  topic: string;
+}): Promise<GenerateDeckTargetProject> {
+  const selectedProjectId = args.selectedProjectId.trim();
+  if (selectedProjectId) {
+    return {
+      created: false,
+      project:
+        args.projects.find((project) => project.projectId === selectedProjectId) ??
+        null,
+      projectId: selectedProjectId
+    };
+  }
+
+  const project = await createGeneratedDeckProject(args.topic, args.fetcher);
+  return { created: true, project, projectId: project.projectId };
+}
+
 export function buildGenerateDeckPayload(input: GenerateDeckPayloadInput) {
   return {
     topic: input.topic,
@@ -1744,7 +1794,14 @@ export function GeneratedDeckResult(props: { result: GenerateDeckJobResult }) {
         </div>
         <strong>{deck.slides.length} slides</strong>
       </header>
-      {warnings.length > 0 ? <p>{warnings.join(" 쨌 ")}</p> : null}
+      {warnings.length > 0 ? <p>{warnings.join(" · ")}</p> : null}
+      {validation.designIssues.length > 0 ? (
+        <ul>
+          {validation.designIssues.map((issue, index) => (
+            <li key={`${issue.path}-${index}`}>{issue.message}</li>
+          ))}
+        </ul>
+      ) : null}
       <p>validation {validation.passed ? "passed" : "failed"}</p>
       <div className="generated-slide-grid">
         {deck.slides.map((slide) => (
