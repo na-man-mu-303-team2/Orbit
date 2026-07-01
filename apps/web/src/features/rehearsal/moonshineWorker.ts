@@ -1,9 +1,16 @@
-import { pipeline as transformersPipeline } from "@huggingface/transformers";
+import {
+  env as transformersEnv,
+  pipeline as transformersPipeline
+} from "@huggingface/transformers";
 
 type MoonshineWorkerDevice = "webgpu" | "wasm";
 type MoonshineWorkerDTypeConfig = {
   encoder: "fp32" | "fp16" | "q8" | "q4";
   decoder_model_merged: "fp32" | "fp16" | "q8" | "q4";
+};
+type MoonshineWorkerModelOptions = {
+  localModelPath?: string;
+  allowRemoteModels?: boolean;
 };
 
 type MoonshineWorkerInboundMessage =
@@ -12,6 +19,7 @@ type MoonshineWorkerInboundMessage =
       modelId: string;
       dtype: MoonshineWorkerDTypeConfig;
       preferredDevice: MoonshineWorkerDevice;
+      modelOptions?: MoonshineWorkerModelOptions;
     }
   | {
       type: "start";
@@ -93,7 +101,8 @@ async function handleMessage(message: MoonshineWorkerInboundMessage) {
         await loadTranscriber(
           message.modelId,
           message.dtype,
-          message.preferredDevice
+          message.preferredDevice,
+          message.modelOptions ?? {}
         );
         post({
           type: "loaded",
@@ -130,7 +139,8 @@ async function handleMessage(message: MoonshineWorkerInboundMessage) {
 async function loadTranscriber(
   modelId: string,
   dtype: MoonshineWorkerDTypeConfig,
-  preferredDevice: MoonshineWorkerDevice
+  preferredDevice: MoonshineWorkerDevice,
+  modelOptions: MoonshineWorkerModelOptions
 ) {
   if (transcriber && loadedModelId === modelId && loadedDevice) {
     return;
@@ -141,6 +151,7 @@ async function loadTranscriber(
   let lastError: unknown = null;
   for (const device of devices) {
     try {
+      applyModelOptions(modelOptions);
       const pipelineFactory = await getPipelineFactory();
       transcriber = await pipelineFactory(
         "automatic-speech-recognition",
@@ -156,6 +167,17 @@ async function loadTranscriber(
   }
 
   throw lastError ?? new Error("Moonshine Live STT model failed to load.");
+}
+
+function applyModelOptions(modelOptions: MoonshineWorkerModelOptions) {
+  if (modelOptions.localModelPath) {
+    transformersEnv.localModelPath = modelOptions.localModelPath;
+    transformersEnv.allowLocalModels = true;
+  }
+
+  if (modelOptions.allowRemoteModels !== undefined) {
+    transformersEnv.allowRemoteModels = modelOptions.allowRemoteModels;
+  }
 }
 
 async function getPipelineFactory() {

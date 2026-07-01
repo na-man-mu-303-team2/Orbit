@@ -94,13 +94,23 @@ Moonshine 한국어 경로:
 localStorage.setItem("orbit.liveStt.engine", "moonshine");
 ```
 
+자가호스팅 모델 자산을 강제하려면 다음 값을 함께 설정합니다.
+
+```ts
+localStorage.setItem(
+  "orbit.liveStt.moonshine.localModelPath",
+  "/models/live-stt/moonshine-tiny-ko/"
+);
+localStorage.setItem("orbit.liveStt.moonshine.allowRemoteModels", "0");
+```
+
 파일:
 
 - [moonshineLiveSttAdapter.ts](../../../src/features/rehearsal/moonshineLiveSttAdapter.ts)
 - [moonshineWorker.ts](../../../src/features/rehearsal/moonshineWorker.ts)
 - [moonshineVadSegmenter.ts](../../../src/features/rehearsal/moonshineVadSegmenter.ts)
 
-Moonshine 경로는 `transformers.js` + `onnxruntime-web`의 `automatic-speech-recognition` pipeline을 Web Worker에서 lazy-load합니다. `device: "webgpu"` 로드를 먼저 시도하고 실패하면 `device: "wasm"`으로 재시도합니다. seq2seq 모델 특성상 프레임별 streaming partial 대신 RMS VAD 세그먼트 종료 시 `isFinal: true` transcript를 방출합니다.
+Moonshine 경로는 `transformers.js` + `onnxruntime-web`의 `automatic-speech-recognition` pipeline을 Web Worker에서 lazy-load합니다. `device: "webgpu"` 로드를 먼저 시도하고 실패하면 `device: "wasm"`으로 재시도합니다. `localModelPath`가 설정되면 worker가 `env.localModelPath`, `env.allowLocalModels=true`, `env.allowRemoteModels`를 설정한 뒤 pipeline을 로드합니다. seq2seq 모델 특성상 프레임별 streaming partial 대신 RMS VAD 세그먼트 종료 시 `isFinal: true` transcript를 방출합니다.
 
 Moonshine에는 sherpa hotword decoder API가 없으므로 `RehearsalWorkspace`는 이 엔진에서 `combined`/`hotword` bias 요청을 `postprocess`로 낮춥니다.
 

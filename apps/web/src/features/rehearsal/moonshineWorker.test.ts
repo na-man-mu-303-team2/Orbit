@@ -33,7 +33,11 @@ describe("moonshineWorker", () => {
       type: "load",
       modelId: "onnx-community/moonshine-tiny-ko-ONNX",
       dtype: { encoder: "fp32", decoder_model_merged: "q4" },
-      preferredDevice: "webgpu"
+      preferredDevice: "webgpu",
+      modelOptions: {
+        localModelPath: "/models/live-stt/moonshine-tiny-ko/",
+        allowRemoteModels: false
+      }
     });
     await sendWorkerMessage(context, {
       type: "start",
@@ -61,6 +65,11 @@ describe("moonshineWorker", () => {
         }
       }
     ]);
+    expect(context.transformersEnv).toMatchObject({
+      localModelPath: "/models/live-stt/moonshine-tiny-ko/",
+      allowLocalModels: true,
+      allowRemoteModels: false
+    });
     expect(context.transcribeCalls).toHaveLength(1);
     expect(context.transcribeCalls[0]?.samples).toBe(samples);
     expect(context.transcribeCalls[0]?.options).toMatchObject({
@@ -214,8 +223,10 @@ type WorkerTestContext = {
   queueMicrotask: (callback: () => void) => void;
   importScripts: (...urls: string[]) => void;
   __orbitMoonshinePipelineFactory: PipelineFactory;
+  __orbitMoonshineEnv: Record<string, unknown>;
   onmessage?: (event: { data: Record<string, unknown> }) => void;
   posted: Array<Record<string, unknown>>;
+  transformersEnv: Record<string, unknown>;
   pipelineCalls: Array<{
     task: string;
     modelId: string;
@@ -249,6 +260,7 @@ async function createWorkerContext(
     stripInlineSourceMap(result?.code ?? "")
   );
   const posted: Array<Record<string, unknown>> = [];
+  const transformersEnv: Record<string, unknown> = {};
   const context: WorkerTestContext = {
     Float32Array,
     console,
@@ -260,7 +272,9 @@ async function createWorkerContext(
     queueMicrotask: (callback: () => void) => queueMicrotask(callback),
     importScripts: vi.fn(),
     __orbitMoonshinePipelineFactory: options.pipelineFactory,
+    __orbitMoonshineEnv: transformersEnv,
     posted,
+    transformersEnv,
     pipelineCalls: [],
     transcribeCalls: []
   };
@@ -284,7 +298,7 @@ function stripInlineSourceMap(source: string) {
 
 function replaceTransformersImportForVm(source: string) {
   return source.replace(
-    /import\s*\{\s*pipeline\s+as\s+transformersPipeline\s*\}\s*from\s*["'][^"']+["'];/,
-    "const transformersPipeline = __orbitMoonshinePipelineFactory;"
+    /import\s*\{[\s\S]*?env\s+as\s+transformersEnv[\s\S]*?pipeline\s+as\s+transformersPipeline[\s\S]*?\}\s*from\s*["'][^"']+["'];/,
+    "const transformersPipeline = __orbitMoonshinePipelineFactory; const transformersEnv = __orbitMoonshineEnv;"
   );
 }

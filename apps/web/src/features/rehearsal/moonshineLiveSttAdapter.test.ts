@@ -112,6 +112,73 @@ describe("MoonshineLiveSttAdapter", () => {
       code: "LIVE_STT_MODEL_UNAVAILABLE"
     });
   });
+
+  it("passes self-hosted Moonshine model options to the worker", async () => {
+    const worker = new FakeMoonshineWorker();
+    const audioContext = new FakeAudioContext(1000);
+    const adapter = new MoonshineLiveSttAdapter({
+      createWorker: () => worker,
+      createAudioContext: () => audioContext as unknown as AudioContext,
+      createAudioWorkletNode: (_context, _name, options) =>
+        audioContext.createAudioWorkletNode(options) as unknown as AudioWorkletNode,
+      sampleRate: 1000,
+      localModelPath: "/models/live-stt/moonshine-tiny-ko/",
+      allowRemoteModels: false
+    });
+
+    await adapter.start({ getTracks: () => [] } as unknown as MediaStream, {
+      onPartialTranscript: () => undefined,
+      onError: () => undefined
+    });
+    adapter.dispose();
+
+    expect(worker.messages[0]).toMatchObject({
+      type: "load",
+      modelOptions: {
+        localModelPath: "/models/live-stt/moonshine-tiny-ko/",
+        allowRemoteModels: false
+      }
+    });
+  });
+
+  it("reads default Moonshine model delivery options from localStorage", async () => {
+    vi.stubGlobal("window", {
+      localStorage: {
+        getItem: vi.fn((key: string) => {
+          if (key === "orbit.liveStt.moonshine.localModelPath") {
+            return "/models/live-stt/moonshine-tiny-ko/";
+          }
+          if (key === "orbit.liveStt.moonshine.allowRemoteModels") {
+            return "0";
+          }
+          return null;
+        })
+      }
+    });
+    const worker = new FakeMoonshineWorker();
+    const audioContext = new FakeAudioContext(1000);
+    const adapter = new MoonshineLiveSttAdapter({
+      createWorker: () => worker,
+      createAudioContext: () => audioContext as unknown as AudioContext,
+      createAudioWorkletNode: (_context, _name, options) =>
+        audioContext.createAudioWorkletNode(options) as unknown as AudioWorkletNode,
+      sampleRate: 1000
+    });
+
+    await adapter.start({ getTracks: () => [] } as unknown as MediaStream, {
+      onPartialTranscript: () => undefined,
+      onError: () => undefined
+    });
+    adapter.dispose();
+
+    expect(worker.messages[0]).toMatchObject({
+      type: "load",
+      modelOptions: {
+        localModelPath: "/models/live-stt/moonshine-tiny-ko/",
+        allowRemoteModels: false
+      }
+    });
+  });
 });
 
 type FakeWorkerMessage = {
@@ -121,6 +188,10 @@ type FakeWorkerMessage = {
   sampleRate?: number;
   samples?: Float32Array;
   maxLength?: number;
+  modelOptions?: {
+    localModelPath?: string;
+    allowRemoteModels?: boolean;
+  };
 };
 
 class FakeMoonshineWorker {

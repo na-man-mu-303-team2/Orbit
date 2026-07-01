@@ -45,6 +45,24 @@ The initial dtype is:
 
 The worker first requests `device: "webgpu"` and retries with `device: "wasm"` if WebGPU model loading fails.
 
+To force self-hosted model files and block remote Hub access during offline validation:
+
+```js
+localStorage.setItem(
+  "orbit.liveStt.moonshine.localModelPath",
+  "/models/live-stt/moonshine-tiny-ko/"
+);
+localStorage.setItem("orbit.liveStt.moonshine.allowRemoteModels", "0");
+```
+
+The worker applies these values to Transformers.js before pipeline load:
+
+```ts
+env.localModelPath = "/models/live-stt/moonshine-tiny-ko/";
+env.allowLocalModels = true;
+env.allowRemoteModels = false;
+```
+
 ## Evaluation Harness
 
 Fixture:

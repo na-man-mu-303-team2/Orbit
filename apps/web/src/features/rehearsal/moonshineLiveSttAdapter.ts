@@ -27,6 +27,7 @@ type MoonshineWorkerInboundMessage =
       modelId: string;
       dtype: MoonshineWorkerDTypeConfig;
       preferredDevice: MoonshineWorkerDevice;
+      modelOptions: MoonshineWorkerModelOptions;
     }
   | {
       type: "start";
@@ -69,6 +70,10 @@ type MoonshineWorkerDTypeConfig = {
 };
 
 type MoonshineWorkerDevice = "webgpu" | "wasm";
+type MoonshineWorkerModelOptions = {
+  localModelPath?: string;
+  allowRemoteModels?: boolean;
+};
 
 type MoonshineWorker = Pick<Worker, "postMessage" | "terminate"> & {
   onmessage:
@@ -126,6 +131,10 @@ const audioLevelUpdateIntervalMs = 250;
 const liveSttWorkerTimeoutMs = 30_000;
 const pcmCaptureWorkletProcessorName = "orbit-live-stt-pcm-capture";
 const liveSttLatencyDebugStorageKey = "orbit.liveStt.debugLatency";
+const moonshineLocalModelPathStorageKey =
+  "orbit.liveStt.moonshine.localModelPath";
+const moonshineAllowRemoteModelsStorageKey =
+  "orbit.liveStt.moonshine.allowRemoteModels";
 
 export class MoonshineLiveSttAdapter implements LiveSttAdapter {
   private worker: MoonshineWorker | null = null;
@@ -150,6 +159,8 @@ export class MoonshineLiveSttAdapter implements LiveSttAdapter {
       sampleRate?: number;
       bufferSize?: number;
       vad?: Omit<MoonshineRmsVadOptions, "sampleRate">;
+      localModelPath?: string;
+      allowRemoteModels?: boolean;
     } = {}
   ) {}
 
@@ -270,11 +281,25 @@ export class MoonshineLiveSttAdapter implements LiveSttAdapter {
         modelId: this.options.modelId ?? defaultMoonshineModelId,
         dtype: this.options.dtype ?? defaultMoonshineDType,
         preferredDevice:
-          this.options.preferredDevice ?? defaultMoonshinePreferredDevice
+          this.options.preferredDevice ?? defaultMoonshinePreferredDevice,
+        modelOptions: this.resolveModelOptions()
       },
       "load"
     );
     return worker;
+  }
+
+  private resolveModelOptions(): MoonshineWorkerModelOptions {
+    const storageOptions = readMoonshineModelOptionsFromStorage();
+    return {
+      ...storageOptions,
+      ...(this.options.localModelPath !== undefined
+        ? { localModelPath: this.options.localModelPath }
+        : {}),
+      ...(this.options.allowRemoteModels !== undefined
+        ? { allowRemoteModels: this.options.allowRemoteModels }
+        : {})
+    };
   }
 
   private async startAudioCapture(
@@ -645,6 +670,35 @@ function isLiveSttLatencyDebugEnabled() {
     return window.localStorage?.getItem(liveSttLatencyDebugStorageKey) === "1";
   } catch {
     return false;
+  }
+}
+
+function readMoonshineModelOptionsFromStorage(): MoonshineWorkerModelOptions {
+  if (typeof window === "undefined") {
+    return {};
+  }
+
+  try {
+    const localModelPath = window.localStorage
+      ?.getItem(moonshineLocalModelPathStorageKey)
+      ?.trim();
+    const allowRemoteModelsValue = window.localStorage?.getItem(
+      moonshineAllowRemoteModelsStorageKey
+    );
+    const options: MoonshineWorkerModelOptions = {};
+    if (localModelPath) {
+      options.localModelPath = localModelPath;
+    }
+    if (allowRemoteModelsValue === "0" || allowRemoteModelsValue === "false") {
+      options.allowRemoteModels = false;
+    }
+    if (allowRemoteModelsValue === "1" || allowRemoteModelsValue === "true") {
+      options.allowRemoteModels = true;
+    }
+
+    return options;
+  } catch {
+    return {};
   }
 }
 
