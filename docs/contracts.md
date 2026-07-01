@@ -562,6 +562,8 @@ AI 덱 생성은 사용자 입력과 참고자료 fileId를 받아 비동기 Job
   },
   "design": {
     "profile": "technical",
+    "stylePackId": "teal-professional-process",
+    "slidePresetId": "process-cards-horizontal-6",
     "visualRhythm": "technical",
     "densityTarget": "medium",
     "mediaPolicy": "balanced",
@@ -602,6 +604,8 @@ AI 덱 생성은 사용자 입력과 참고자료 fileId를 받아 비동기 Job
 - MVP `metadata.tone`은 `professional`, `friendly`, `confident`, `concise`만 허용한다.
 - 요청의 `design`은 선택 필드이며 생략 시 `{ visualRhythm: "auto", densityTarget: "medium", mediaPolicy: "balanced", layoutDiversity: "stable" }`로 정규화한다.
 - `design.profile`은 선택 필드이며 `executive-report`, `startup-pitch`, `editorial`, `technical`, `training`만 허용한다. profile은 기존 `theme`, `slide.style`, `SlotPreset` 선택 가중치로만 매핑하고 최종 Deck에 별도 중간 구조를 저장하지 않는다.
+- `design.stylePackId`는 선택 필드이며 worker 내부 curated style pack ID를 강제한다. 값이 없으면 worker selector가 자동 선택한다.
+- `design.slidePresetId`는 선택 필드이며 worker 내부 slide recipe ID를 강제한다. 값이 없으면 worker selector가 slide intent와 step count를 기준으로 자동 선택한다.
 - `design.visualRhythm`은 `auto`, `clean`, `editorial`, `bold`, `technical`만 허용한다.
 - `design.densityTarget`은 `low`, `medium`, `high`만 허용한다.
 - `design.mediaPolicy`는 `avoid`, `balanced`, `placeholder-ok`만 허용하며, source 없는 media placeholder는 `placeholder-ok`에서만 허용한다.
@@ -610,7 +614,7 @@ AI 덱 생성은 사용자 입력과 참고자료 fileId를 받아 비동기 Job
 - Python worker의 `/ai/generate-deck`은 `projectId`와 요청 본문을 받아 최종 `DeckSchema`를 만든다.
 - LLM/provider가 만드는 내용은 outline, message, design intent까지로 제한하고, 좌표/크기/zIndex는 코드 기반 layout engine이 계산한다.
 - LLM은 좌표, 크기, zIndex를 만들지 않는다. layout preset 후보 탐색과 최종 좌표 계산은 worker 코드가 수행한다.
-- `slotPreset`, `visualIntent`, `mediaIntent`, `layoutCandidates` 같은 생성 중간 필드는 최종 `DeckSchema`에 저장하지 않는다.
+- `slotPreset`, `stylePackId`, `slidePresetId`, `visualIntent`, `mediaIntent`, `layoutCandidates` 같은 생성 중간 필드는 최종 `DeckSchema`에 저장하지 않는다.
 - 생성 결과의 디자인은 새 배열 없이 기존 `deck.theme`, `slide.style`, `slide.elements`, chart props, `slide.animations`에 매핑한다.
 - Python worker는 source data가 없는 chart 숫자를 임의 생성하지 않는다. 근거 데이터가 없으면 `chart.props.data: []`인 editable chart placeholder와 `warnings`/`validation.designIssues`를 남긴다.
 - `validation.designIssues`는 overflow, contrast, collision, safe area, density, placeholder media, chart data provenance 같은 advisory warning을 담는다. 이 warning이 있어도 `validation.passed`가 true이면 worker는 deck을 저장한다.

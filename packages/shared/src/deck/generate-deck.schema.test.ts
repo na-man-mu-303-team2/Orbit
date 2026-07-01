@@ -58,6 +58,19 @@ describe("generateDeckRequestSchema", () => {
     expect(request.design.profile).toBe("startup-pitch");
   });
 
+  it("accepts optional v2 design preset overrides", () => {
+    const request = generateDeckRequestSchema.parse({
+      topic: "AI deck generation",
+      design: {
+        stylePackId: "teal-professional-process",
+        slidePresetId: "process-cards-horizontal-6"
+      }
+    });
+
+    expect(request.design.stylePackId).toBe("teal-professional-process");
+    expect(request.design.slidePresetId).toBe("process-cards-horizontal-6");
+  });
+
   it("accepts an optional design prompt", () => {
     const request = generateDeckRequestSchema.parse({
       topic: "AI deck generation",

@@ -42,6 +42,8 @@ export const generateDeckDesignSchema = z
         "training"
       ])
       .optional(),
+    stylePackId: z.string().trim().min(1).optional(),
+    slidePresetId: z.string().trim().min(1).optional(),
     visualRhythm: z
       .enum(["auto", "clean", "editorial", "bold", "technical"])
       .default("auto"),
