@@ -264,6 +264,14 @@ pnpm --filter @orbit/web stt:model:prepare:moonshine -- --source <moonshine-snap
 
 기본값은 `encoder_model=fp32`, `decoder_model_merged=q4`이며 Transformers.js가 찾는 파일명은 각각 `onnx/encoder_model.onnx`, `onnx/decoder_model_merged_q4.onnx`입니다. 다른 dtype 조합을 검증할 때는 `--encoder-dtype` 또는 `--decoder-dtype`을 넘깁니다.
 
+배포된 web origin에서 COOP/COEP 헤더와 Moonshine self-hosted 자산 배치를 확인하려면 다음 명령을 사용합니다.
+
+```bash
+pnpm --filter @orbit/web stt:verify:moonshine-hosting -- \
+  --base-url https://<web-origin> \
+  --out docs/spikes/moonshine-hosting-verification.json
+```
+
 ## 8. 리허설 제품 로직 계약
 
 현재 위치: [RehearsalWorkspace.tsx](../../../src/features/rehearsal/RehearsalWorkspace.tsx)

@@ -14,6 +14,7 @@ Implemented web pieces:
 - `orbit.liveStt.engine`: localStorage engine flag for `sherpa` and `moonshine`.
 - `stt:evaluate`: fixed Korean fixture evaluator for CER, keyword recall, false-trigger rate, and segment latency.
 - `stt:gate:moonshine`: compares a Moonshine measurement report against a sherpa baseline or explicit absolute thresholds and returns `go`, `no-go`, or `blocked`.
+- `stt:verify:moonshine-hosting`: checks a deployed web origin for cross-origin isolation headers and the required self-hosted Moonshine model assets.
 
 ## Current Go / No-Go
 
@@ -103,6 +104,16 @@ pnpm --filter @orbit/web stt:measure:moonshine -- --devices wasm --decoder-dtype
 ```
 
 The runner starts Vite with COOP/COEP headers, synthesizes Korean fixture audio with the macOS `Yuna` voice unless `--audio-dir` is provided, loads Moonshine in Playwright Chromium, and writes prediction + metric JSON.
+
+Self-hosting deployment verifier:
+
+```bash
+pnpm --filter @orbit/web stt:verify:moonshine-hosting -- \
+  --base-url https://<web-origin> \
+  --out docs/spikes/moonshine-hosting-verification.json
+```
+
+This checks `Cross-Origin-Opener-Policy`, `Cross-Origin-Embedder-Policy`, `Cross-Origin-Resource-Policy`, and the default `onnx-community/moonshine-tiny-ko-ONNX` fp32/q4 asset URLs under `/models/live-stt/`.
 
 Quality gate runner:
 
