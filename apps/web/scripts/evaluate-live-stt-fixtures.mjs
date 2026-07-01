@@ -2,6 +2,10 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
+import {
+  assertUsableLiveSttFixtures,
+  buildLiveSttFixtureSet
+} from "./live-stt-fixture-utils.mjs";
 
 const defaultFixturePath = "src/features/rehearsal/fixtures/live-stt-ko-evaluation.json";
 
@@ -10,6 +14,7 @@ async function main() {
   const fixturePath = resolve(args.fixtures ?? defaultFixturePath);
   const predictionPath = resolve(requireArg(args, "predictions"));
   const fixtures = JSON.parse(await readFile(fixturePath, "utf8"));
+  assertUsableLiveSttFixtures(fixtures);
   const predictions = JSON.parse(await readFile(predictionPath, "utf8"));
   const summary = evaluateLiveSttPredictions(fixtures, predictions);
   if (args.out) {
@@ -21,6 +26,7 @@ async function main() {
           args,
           fixturePath,
           predictionPath,
+          fixtureSet: buildLiveSttFixtureSet(fixtures),
           summary
         }),
         null,
@@ -39,6 +45,7 @@ export function buildLiveSttEvaluationReport(options) {
     engine,
     modelId: options.args.modelId ?? engine,
     fixturePath: options.fixturePath,
+    fixtureSet: options.fixtureSet,
     predictionPath: options.predictionPath,
     audioSource: options.args.audioSource,
     results: [

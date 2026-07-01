@@ -272,6 +272,45 @@ describe("Moonshine Live STT quality gate", () => {
     });
   });
 
+  it("blocks baseline comparisons that use a different fixture set fingerprint", async () => {
+    const tempDir = await createTempDir();
+    const candidatePath = join(tempDir, "candidate.json");
+    const baselinePath = join(tempDir, "baseline.json");
+    await writeJson(candidatePath, measurementReport({
+      modelId: "onnx-community/moonshine-tiny-ko-ONNX",
+      engine: "moonshine",
+      device: "wasm",
+      keywordRecall: 0.9,
+      falseTriggerRate: 0,
+      averageLatencyMs: 260,
+      fixtureSetSha256: "candidate-fixture-set"
+    }));
+    await writeJson(baselinePath, measurementReport({
+      modelId: "sherpa-onnx-streaming-zipformer-korean-2024-06-16",
+      engine: "sherpa",
+      device: "wasm",
+      keywordRecall: 0.8,
+      falseTriggerRate: 0.1,
+      averageLatencyMs: 320,
+      fixtureSetSha256: "baseline-fixture-set"
+    }));
+
+    const result = await runGate([
+      "--candidate",
+      candidatePath,
+      "--baseline",
+      baselinePath
+    ]);
+
+    expect(result.code).toBe(1);
+    const gate = JSON.parse(result.stdout);
+    expect(gate).toMatchObject({
+      status: "blocked",
+      reason: expect.stringContaining("same fixture set fingerprint"),
+      missingCriteria: ["matchingFixtureSet"]
+    });
+  });
+
   it("fails when candidate recall regresses against the sherpa baseline", async () => {
     const tempDir = await createTempDir();
     const candidatePath = join(tempDir, "candidate.json");
@@ -356,6 +395,7 @@ function measurementReport(options: {
   averageLatencyMs: number;
   audioSource?: string;
   fixturePath?: string;
+  fixtureSetSha256?: string;
 }) {
   return {
     generatedAt: "2026-07-01T00:00:00.000Z",
@@ -364,6 +404,11 @@ function measurementReport(options: {
     fixturePath:
       options.fixturePath ??
       "apps/web/src/features/rehearsal/fixtures/live-stt-ko-evaluation.json",
+    fixtureSet: {
+      count: 3,
+      ids: ["fixture-a", "fixture-b", "fixture-c"],
+      sha256: options.fixtureSetSha256 ?? "shared-fixture-set"
+    },
     audioSource: options.audioSource ?? "human-rehearsal-fixtures",
     results: [
       {

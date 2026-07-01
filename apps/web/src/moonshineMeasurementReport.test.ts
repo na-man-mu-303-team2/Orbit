@@ -18,6 +18,11 @@ describe("Moonshine browser measurement report", () => {
       fixturePath: "/repo/apps/web/src/features/rehearsal/fixtures/live-stt-ko-evaluation.json",
       audioDir: "/repo/fixtures/live-stt-human-v1",
       audioSource: "human-rehearsal-fixtures-v1",
+      fixtureSet: {
+        count: 1,
+        ids: ["next-slide-01"],
+        sha256: "fixture-set-hash"
+      },
       voice: "Yuna",
       results: [],
       repoRoot: "/repo"
@@ -26,6 +31,11 @@ describe("Moonshine browser measurement report", () => {
     expect(report).toMatchObject({
       modelId: "onnx-community/moonshine-tiny-ko-ONNX",
       fixturePath: "apps/web/src/features/rehearsal/fixtures/live-stt-ko-evaluation.json",
+      fixtureSet: {
+        count: 1,
+        ids: ["next-slide-01"],
+        sha256: "fixture-set-hash"
+      },
       audioSource: "human-rehearsal-fixtures-v1",
       audioInput: {
         kind: "human-wav",
@@ -49,6 +59,7 @@ describe("Moonshine browser measurement report", () => {
       fixturePath: "/repo/apps/web/src/features/rehearsal/fixtures/live-stt-ko-evaluation.json",
       audioDir: null,
       audioSource: undefined,
+      fixtureSet: undefined,
       voice: "Yuna",
       results: [],
       repoRoot: "/repo"
@@ -75,6 +86,7 @@ describe("Moonshine browser measurement report", () => {
         fixturePath: "/repo/apps/web/src/features/rehearsal/fixtures/live-stt-ko-evaluation.json",
         audioDir: null,
         audioSource: "human-rehearsal-fixtures-v1",
+        fixtureSet: undefined,
         voice: "Yuna",
         results: [],
         repoRoot: "/repo"

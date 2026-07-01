@@ -8,6 +8,11 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { evaluateLiveSttPredictions } from "./evaluate-live-stt-fixtures.mjs";
 import {
+  assertUsableLiveSttFixtures,
+  buildLiveSttFixtureSet,
+  resolveHumanFixtureAudioPath
+} from "./live-stt-fixture-utils.mjs";
+import {
   buildMoonshineMeasurementReport,
   summarizeMoonshineMeasurementReport
 } from "./moonshine-measurement-report.mjs";
@@ -40,6 +45,8 @@ async function main() {
   };
   const keepAudio = args.keepAudio === "1" || args.keepAudio === "true";
   const fixtures = JSON.parse(await readFile(fixturesPath, "utf8"));
+  assertUsableLiveSttFixtures(fixtures);
+  const fixtureSet = buildLiveSttFixtureSet(fixtures);
   const tempDir = await mkdtemp(join(tmpdir(), "orbit-moonshine-eval-"));
 
   let viteProcess = null;
@@ -115,6 +122,7 @@ async function main() {
       modelId,
       dtype,
       fixturePath: fixturesPath,
+      fixtureSet,
       audioDir: args.audioDir ? resolvePathFromRepo(args.audioDir) : null,
       audioSource: args.audioSource,
       voice,
@@ -163,7 +171,7 @@ async function prepareAudioById(fixtures, options) {
   const audioById = {};
   for (const fixture of fixtures) {
     const wavPath = options.audioDir
-      ? join(options.audioDir, `${fixture.id}.wav`)
+      ? await resolveHumanFixtureAudioPath(fixture, options.audioDir)
       : await synthesizeFixtureAudio(fixture, options);
     audioById[fixture.id] = (await readFile(wavPath)).toString("base64");
   }

@@ -140,6 +140,7 @@ pnpm --filter @orbit/web stt:measure:moonshine -- \
 ```
 
 `--audio-source` is accepted only with `--audio-dir`; synthetic TTS reports always keep the `macOS say voice <voice>` source label and `audioInput.kind: "synthetic-tts"` so they cannot satisfy the human-audio cutover gate. Human wav reports include `audioInput.kind: "human-wav"` and the relative audio directory for release-review traceability.
+If a fixture declares `audioFile`, `--audio-dir` is treated as the root containing that relative path, with `<fixture-id>.wav` kept as a fallback. Measurement reports include `fixtureSet.sha256`, `fixtureSet.ids`, and `fixtureSet.count`; rerun both sherpa and Moonshine reports whenever the fixture JSON changes.
 
 Canary debug summary:
 
@@ -171,7 +172,7 @@ pnpm --filter @orbit/web stt:gate:moonshine -- \
   --markdown-out docs/spikes/moonshine-korean-asr-gate.md
 ```
 
-The gate refuses to return `go` unless the candidate report is from non-synthetic human rehearsal audio and each required metric has either a sherpa baseline or an explicit absolute threshold (`--min-keyword-recall`, `--max-false-trigger-rate`, `--max-average-latency-ms`). Candidate reports with `audioInput` metadata must use `audioInput.kind: "human-wav"`; older reports without metadata fall back to the `audioSource` synthetic-label check. When a sherpa baseline is provided, the candidate and baseline reports must use the same `fixturePath` and `audioSource`. Markdown output includes the blocked reason and missing criteria so release review can see why cutover remains blocked. This keeps the default-engine cutover blocked until the quality criteria are measurable on representative audio.
+The gate refuses to return `go` unless the candidate report is from non-synthetic human rehearsal audio and each required metric has either a sherpa baseline or an explicit absolute threshold (`--min-keyword-recall`, `--max-false-trigger-rate`, `--max-average-latency-ms`). Candidate reports with `audioInput` metadata must use `audioInput.kind: "human-wav"`; older reports without metadata fall back to the `audioSource` synthetic-label check. When a sherpa baseline is provided, the candidate and baseline reports must use the same `fixturePath`, `fixtureSet.sha256`, and `audioSource`. Markdown output includes the blocked reason and missing criteria so release review can see why cutover remains blocked. This keeps the default-engine cutover blocked until the quality criteria are measurable on representative audio.
 
 Cutover readiness aggregator:
 
@@ -187,13 +188,13 @@ The readiness report returns `ready` only when the quality gate is `go`, hosting
 
 ## 2026-07-01 Measurements
 
-Source files:
+Historical source files:
 
 - `docs/spikes/sherpa-korean-asr-baseline.json`
 - `docs/spikes/moonshine-korean-asr-measurements.json`
 - `docs/spikes/moonshine-korean-asr-measurements-wasm-q8.json`
 
-Audio source: synthetic macOS `say -v Yuna` Korean speech generated from `apps/web/src/features/rehearsal/fixtures/live-stt-ko-evaluation.json`. This is useful for regression and pipeline validation, but it is not a replacement for human rehearsal wav fixtures.
+Audio source: synthetic macOS `say -v Yuna` Korean speech generated from `apps/web/src/features/rehearsal/fixtures/live-stt-ko-evaluation.json`. This is useful for regression and pipeline validation, but it is not a replacement for human rehearsal wav fixtures. These reports predate the fixture `audioFile` metadata update; regenerate them before using current fixture evidence.
 Model load times are directional only: the Moonshine q4 WASM row ran after WebGPU in the same browser session, the Moonshine q8 WASM row ran in a separate measurement, and the sherpa row ran in its own browser session.
 
 | Engine / device | dtype | Status | Model load | Avg CER | Keyword recall | False trigger | Avg segment latency | Notes |

@@ -5,7 +5,7 @@
 **짝 문서:** [spec/ADR](../specs/moonshine-korean-asr-migration.md)
 **전략:** 신규 `MoonshineLiveSttAdapter`를 기능 플래그 뒤에 추가 → 실측(정확도·지연) → canary → 컷오버 → sherpa 제거. 기존 `LiveSttAdapter` 계약을 유지해 리허설 제품 로직·`packages/shared` 스키마는 변경하지 않는다.
 
-**현재 구현 메모(2026-07-01):** M2~M4와 M5 하네스/품질 gate CLI, M6 엔진 플래그/자가호스팅 옵션·준비 스크립트/디버그 지표는 구현됐다. M0는 사용자 승인 완료로 기록한다. Synthetic macOS `Yuna` fixture로 Moonshine WebGPU/WASM 및 sherpa WASM baseline 측정을 수행했으나 품질 게이트는 실패했다. `stt:evaluate --out`은 수동 수집한 sherpa prediction JSON을 gate-compatible baseline report로 변환할 수 있고, `stt:measure:sherpa`는 현재 self-hosted sherpa 자산을 브라우저에서 직접 측정해 baseline report를 생성한다. Moonshine/sherpa 측정 report는 `audioInput.kind`로 synthetic TTS와 실제 wav 입력을 구분한다. `stt:readiness:moonshine`은 품질 gate, hosting 검증, canary 요약을 최종 컷오버 readiness report로 집계한다. 실제 사람 음성 fixture, staging canary, 기본 엔진 컷오버는 아직 완료 조건이 충족되지 않았다.
+**현재 구현 메모(2026-07-01):** M2~M4와 M5 하네스/품질 gate CLI, M6 엔진 플래그/자가호스팅 옵션·준비 스크립트/디버그 지표는 구현됐다. M0는 사용자 승인 완료로 기록한다. Synthetic macOS `Yuna` fixture로 Moonshine WebGPU/WASM 및 sherpa WASM baseline 측정을 수행했으나 품질 게이트는 실패했다. `stt:evaluate --out`은 수동 수집한 sherpa prediction JSON을 gate-compatible baseline report로 변환할 수 있고, `stt:measure:sherpa`는 현재 self-hosted sherpa 자산을 브라우저에서 직접 측정해 baseline report를 생성한다. Moonshine/sherpa 측정 report는 `audioInput.kind`로 synthetic TTS와 실제 wav 입력을 구분하고, `fixtureSet.sha256`으로 stale fixture evidence를 차단한다. `stt:readiness:moonshine`은 품질 gate, hosting 검증, canary 요약을 최종 컷오버 readiness report로 집계한다. 실제 사람 음성 fixture, staging canary, 기본 엔진 컷오버는 아직 완료 조건이 충족되지 않았다.
 
 ---
 
@@ -68,7 +68,7 @@ M0는 M6(프로덕션 노출)의 **차단 선행조건**. M1~M5는 M0와 병행 
 - [x] 리허설형 한국어 발화 fixture(제어 명령 + 슬라이드 키워드 + 임의 발화 + 잡음) 구축.
 - [x] CER(문자 단위), 키워드 recall, false-trigger율, 세그먼트 지연 자동 측정 스크립트(Node) 구축.
 - [x] sherpa(가능 시) vs Moonshine synthetic 비교표 생성. `stt:measure:sherpa`가 현재 self-hosted sherpa WASM 자산으로 `docs/spikes/sherpa-korean-asr-baseline.json`을 생성했고, synthetic `Yuna` 기준 sherpa recall 0.000 / 평균 CER 0.640 / 평균 latency 912.7 ms를 기록했다. 같은 synthetic audioSource로 `stt:gate:moonshine`을 실행하면 `humanAudioSource` 부족으로 `blocked`를 반환한다.
-- [ ] 실제 사람 음성 fixture 기준 sherpa vs Moonshine 비교표 생성. `stt:gate:moonshine`은 실제 사람 음성 candidate와 같은 `fixturePath`/`audioSource`의 sherpa baseline 또는 명시 threshold를 비교해 gate JSON/Markdown을 생성한다. `stt:evaluate --out --engine sherpa --audio-source <human-fixture-label>`은 수동 수집한 sherpa prediction을 baseline report로 변환할 수 있고, `stt:measure:sherpa --audio-dir <human-wav-dir> --audio-source <human-fixture-label>`은 현재 sherpa 자산을 브라우저에서 직접 측정한다. `stt:measure:moonshine --audio-dir <human-wav-dir> --audio-source <human-fixture-label>`은 같은 라벨의 candidate report를 생성한다.
+- [ ] 실제 사람 음성 fixture 기준 sherpa vs Moonshine 비교표 생성. `stt:gate:moonshine`은 실제 사람 음성 candidate와 같은 `fixturePath`/`fixtureSet.sha256`/`audioSource`의 sherpa baseline 또는 명시 threshold를 비교해 gate JSON/Markdown을 생성한다. `stt:evaluate --out --engine sherpa --audio-source <human-fixture-label>`은 수동 수집한 sherpa prediction을 baseline report로 변환할 수 있고, `stt:measure:sherpa --audio-dir <human-wav-root> --audio-source <human-fixture-label>`은 현재 sherpa 자산을 브라우저에서 직접 측정한다. fixture에 `audioFile`이 있으면 `--audio-dir`은 해당 상대 경로를 포함하는 루트로 해석한다. `stt:measure:moonshine --audio-dir <human-wav-root> --audio-source <human-fixture-label>`은 같은 라벨의 candidate report를 생성한다.
 - [x] 튜닝: VAD 임계값, 최소 세그먼트, `max_length`, dtype, 후처리 바이어스 임계값. q4/q8 synthetic baseline 결과 기본 컷오버는 no-go이며, 사람 음성 fixture 전에는 추가 튜닝하지 않는다.
 - [x] 산출물: 튜닝 리포트 + 권장 기본 파라미터. `docs/spikes/moonshine-korean-asr.md`와 측정 JSON에 no-go 결론과 fallback 유지 권장을 기록했다.
 

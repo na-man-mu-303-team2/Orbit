@@ -5,6 +5,7 @@ export function buildSherpaMeasurementReport(options) {
     engine: "sherpa",
     modelId: options.modelId,
     fixturePath: relativeToRoot(options.fixturePath, options.repoRoot),
+    fixtureSet: options.fixtureSet,
     audioSource: audioInput.source,
     audioInput,
     results: options.results

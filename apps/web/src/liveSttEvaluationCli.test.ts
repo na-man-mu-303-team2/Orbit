@@ -72,6 +72,11 @@ describe("evaluate Live STT fixtures CLI", () => {
       fixturePath: fixturesPath,
       predictionPath: predictionsPath,
       audioSource: "human-rehearsal-fixtures",
+      fixtureSet: {
+        count: 2,
+        ids: ["control-next", "free-speech"],
+        sha256: expect.any(String)
+      },
       results: [
         {
           engine: "sherpa",

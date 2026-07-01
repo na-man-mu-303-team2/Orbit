@@ -87,6 +87,9 @@ function formatBlockedReason(missingCriteria) {
   if (missingCriteria.includes("matchingFixturePath")) {
     return "Moonshine candidate and sherpa baseline reports must use the same fixture path before comparison.";
   }
+  if (missingCriteria.includes("matchingFixtureSet")) {
+    return "Moonshine candidate and sherpa baseline reports must use the same fixture set fingerprint before comparison.";
+  }
   if (missingCriteria.includes("matchingAudioSource")) {
     return "Moonshine candidate and sherpa baseline reports must use the same audio source before comparison.";
   }
@@ -157,6 +160,15 @@ function getMissingCriteria(options) {
   }
   if (
     options.baselineReport &&
+    !hasMatchingFixtureSet(
+      options.candidateReport?.fixtureSet,
+      options.baselineReport?.fixtureSet
+    )
+  ) {
+    missing.push("matchingFixtureSet");
+  }
+  if (
+    options.baselineReport &&
     normalizeOptionalString(options.candidateReport?.audioSource) !==
       normalizeOptionalString(options.baselineReport?.audioSource)
   ) {
@@ -210,6 +222,12 @@ function isHumanAudioSource(audioSource) {
 
 function normalizeOptionalString(value) {
   return String(value ?? "").trim();
+}
+
+function hasMatchingFixtureSet(candidateFixtureSet, baselineFixtureSet) {
+  const candidateHash = normalizeOptionalString(candidateFixtureSet?.sha256);
+  const baselineHash = normalizeOptionalString(baselineFixtureSet?.sha256);
+  return Boolean(candidateHash) && candidateHash === baselineHash;
 }
 
 function extractResults(report, role) {

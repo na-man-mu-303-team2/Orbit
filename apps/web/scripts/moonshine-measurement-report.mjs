@@ -5,6 +5,7 @@ export function buildMoonshineMeasurementReport(options) {
     modelId: options.modelId,
     dtype: options.dtype,
     fixturePath: relativeToRoot(options.fixturePath, options.repoRoot),
+    fixtureSet: options.fixtureSet,
     audioSource: audioInput.source,
     audioInput,
     results: options.results
