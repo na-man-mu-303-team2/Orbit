@@ -1,3 +1,5 @@
+import { normalizeLiveTranscriptText } from "./liveSttTextNormalization";
+
 export type LiveSttEvaluationFixture = {
   id: string;
   referenceTranscript: string;
@@ -157,7 +159,7 @@ function normalizeCerText(value: string) {
 }
 
 function normalizeMatchText(value: string) {
-  return normalizeCerText(value);
+  return normalizeLiveTranscriptText(value).replace(/[^\p{L}\p{N}%]+/gu, "");
 }
 
 function average(values: number[]) {

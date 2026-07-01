@@ -68,4 +68,29 @@ describe("liveSttEvaluation", () => {
       falseTrigger: true
     });
   });
+
+  it("normalizes Korean number words in fallback keyword matching", () => {
+    const summary = evaluateLiveSttPredictions(
+      [
+        {
+          id: "numeric-keywords",
+          referenceTranscript: "이번 실험은 16% 개선됐고 30명이 참여했습니다",
+          expectedKeywords: ["16%", "30"],
+          shouldTriggerControl: false
+        }
+      ],
+      [
+        {
+          id: "numeric-keywords",
+          transcript: "이번 실험은 십육 프로 개선됐고 삼십 명이 참여했습니다"
+        }
+      ]
+    );
+
+    expect(summary.keywordRecall).toBe(1);
+    expect(summary.items[0]).toMatchObject({
+      matchedKeywords: ["16%", "30"],
+      missingKeywords: []
+    });
+  });
 });
