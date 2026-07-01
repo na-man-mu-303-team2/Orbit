@@ -45,6 +45,7 @@ export function evaluateQualityGate(options) {
     : [];
   const missingCriteria = getMissingCriteria({
     candidateReport: options.candidateReport,
+    baselineReport: options.baselineReport,
     baselineResults,
     thresholds: options.thresholds
   });
@@ -82,6 +83,12 @@ export function evaluateQualityGate(options) {
 function formatBlockedReason(missingCriteria) {
   if (missingCriteria.includes("humanAudioSource")) {
     return "A non-synthetic human rehearsal audio candidate report is required before Moonshine can pass the cutover gate.";
+  }
+  if (missingCriteria.includes("matchingFixturePath")) {
+    return "Moonshine candidate and sherpa baseline reports must use the same fixture path before comparison.";
+  }
+  if (missingCriteria.includes("matchingAudioSource")) {
+    return "Moonshine candidate and sherpa baseline reports must use the same audio source before comparison.";
   }
 
   return "A sherpa baseline or explicit absolute thresholds are required before Moonshine can pass the cutover gate.";
@@ -142,6 +149,20 @@ function getMissingCriteria(options) {
     missing.push("humanAudioSource");
   }
   if (
+    options.baselineReport &&
+    normalizeOptionalString(options.candidateReport?.fixturePath) !==
+      normalizeOptionalString(options.baselineReport?.fixturePath)
+  ) {
+    missing.push("matchingFixturePath");
+  }
+  if (
+    options.baselineReport &&
+    normalizeOptionalString(options.candidateReport?.audioSource) !==
+      normalizeOptionalString(options.baselineReport?.audioSource)
+  ) {
+    missing.push("matchingAudioSource");
+  }
+  if (
     !isFiniteNumber(options.thresholds.minKeywordRecall) &&
     !hasBaselineMetric("keywordRecall")
   ) {
@@ -177,6 +198,10 @@ function isHumanAudioSource(audioSource) {
   }
 
   return true;
+}
+
+function normalizeOptionalString(value) {
+  return String(value ?? "").trim();
 }
 
 function extractResults(report, role) {

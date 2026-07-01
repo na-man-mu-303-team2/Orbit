@@ -124,7 +124,7 @@ pnpm --filter @orbit/web stt:gate:moonshine -- \
   --markdown-out docs/spikes/moonshine-korean-asr-gate.md
 ```
 
-The gate refuses to return `go` unless the candidate report is from non-synthetic human rehearsal audio and each required metric has either a sherpa baseline or an explicit absolute threshold (`--min-keyword-recall`, `--max-false-trigger-rate`, `--max-average-latency-ms`). This keeps the default-engine cutover blocked until the quality criteria are measurable on representative audio.
+The gate refuses to return `go` unless the candidate report is from non-synthetic human rehearsal audio and each required metric has either a sherpa baseline or an explicit absolute threshold (`--min-keyword-recall`, `--max-false-trigger-rate`, `--max-average-latency-ms`). When a sherpa baseline is provided, the candidate and baseline reports must use the same `fixturePath` and `audioSource`. This keeps the default-engine cutover blocked until the quality criteria are measurable on representative audio.
 
 ## 2026-07-01 Measurements
 

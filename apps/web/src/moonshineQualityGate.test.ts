@@ -150,6 +150,84 @@ describe("Moonshine Live STT quality gate", () => {
     );
   });
 
+  it("blocks baseline comparisons that use a different fixture path", async () => {
+    const tempDir = await createTempDir();
+    const candidatePath = join(tempDir, "candidate.json");
+    const baselinePath = join(tempDir, "baseline.json");
+    await writeJson(candidatePath, measurementReport({
+      modelId: "onnx-community/moonshine-tiny-ko-ONNX",
+      engine: "moonshine",
+      device: "wasm",
+      keywordRecall: 0.9,
+      falseTriggerRate: 0,
+      averageLatencyMs: 260,
+      fixturePath: "fixtures/human-rehearsal-set-a.json"
+    }));
+    await writeJson(baselinePath, measurementReport({
+      modelId: "sherpa-onnx-streaming-zipformer-korean-2024-06-16",
+      engine: "sherpa",
+      device: "wasm",
+      keywordRecall: 0.8,
+      falseTriggerRate: 0.1,
+      averageLatencyMs: 320,
+      fixturePath: "fixtures/human-rehearsal-set-b.json"
+    }));
+
+    const result = await runGate([
+      "--candidate",
+      candidatePath,
+      "--baseline",
+      baselinePath
+    ]);
+
+    expect(result.code).toBe(1);
+    const gate = JSON.parse(result.stdout);
+    expect(gate).toMatchObject({
+      status: "blocked",
+      reason: expect.stringContaining("same fixture"),
+      missingCriteria: ["matchingFixturePath"]
+    });
+  });
+
+  it("blocks baseline comparisons that use a different audio source", async () => {
+    const tempDir = await createTempDir();
+    const candidatePath = join(tempDir, "candidate.json");
+    const baselinePath = join(tempDir, "baseline.json");
+    await writeJson(candidatePath, measurementReport({
+      modelId: "onnx-community/moonshine-tiny-ko-ONNX",
+      engine: "moonshine",
+      device: "wasm",
+      keywordRecall: 0.9,
+      falseTriggerRate: 0,
+      averageLatencyMs: 260,
+      audioSource: "human-rehearsal-fixtures-a"
+    }));
+    await writeJson(baselinePath, measurementReport({
+      modelId: "sherpa-onnx-streaming-zipformer-korean-2024-06-16",
+      engine: "sherpa",
+      device: "wasm",
+      keywordRecall: 0.8,
+      falseTriggerRate: 0.1,
+      averageLatencyMs: 320,
+      audioSource: "human-rehearsal-fixtures-b"
+    }));
+
+    const result = await runGate([
+      "--candidate",
+      candidatePath,
+      "--baseline",
+      baselinePath
+    ]);
+
+    expect(result.code).toBe(1);
+    const gate = JSON.parse(result.stdout);
+    expect(gate).toMatchObject({
+      status: "blocked",
+      reason: expect.stringContaining("same audio source"),
+      missingCriteria: ["matchingAudioSource"]
+    });
+  });
+
   it("fails when candidate recall regresses against the sherpa baseline", async () => {
     const tempDir = await createTempDir();
     const candidatePath = join(tempDir, "candidate.json");
@@ -233,12 +311,15 @@ function measurementReport(options: {
   falseTriggerRate: number;
   averageLatencyMs: number;
   audioSource?: string;
+  fixturePath?: string;
 }) {
   return {
     generatedAt: "2026-07-01T00:00:00.000Z",
     modelId: options.modelId,
     engine: options.engine,
-    fixturePath: "apps/web/src/features/rehearsal/fixtures/live-stt-ko-evaluation.json",
+    fixturePath:
+      options.fixturePath ??
+      "apps/web/src/features/rehearsal/fixtures/live-stt-ko-evaluation.json",
     audioSource: options.audioSource ?? "human-rehearsal-fixtures",
     results: [
       {
