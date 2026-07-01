@@ -1,6 +1,6 @@
 # Moonshine Korean ASR Spike
 
-**Status:** Technical integration ready for local/staging validation; production rollout blocked by license clearance and measured quality gates.
+**Status:** Technical integration ready for local/staging validation; default-engine cutover blocked by measured quality gates.
 
 ## Scope
 
@@ -18,9 +18,9 @@ Implemented web pieces:
 
 Technical integration: **Go for local and staging validation behind `orbit.liveStt.engine=moonshine`.**
 
-Production exposure: **No-go until M0 license clearance is documented.** The plan treats the Korean Moonshine model license as a hard gate for commercial rollout and model asset redistribution.
+License gate: **User-confirmed as approved on 2026-07-01.** Keep the underlying license record outside this repository and do not remove this gate from release review unless the commercial use and self-hosting/redistribution terms are still current.
 
-Default engine cutover: **No-go until fixed fixture results record keyword recall, false-trigger rate, CER, and WebGPU/WASM latency against the current sherpa path or an agreed absolute target.**
+Default engine cutover: **No-go until fixed fixture results record keyword recall, false-trigger rate, CER, and WebGPU/WASM latency against the current sherpa path or an agreed absolute target.** Until then, Moonshine stays behind `orbit.liveStt.engine=moonshine`.
 
 ## How To Try Locally
 
@@ -78,7 +78,6 @@ Prediction format:
 
 ## Remaining Work
 
-- M0: document Moonshine Korean model license and redistribution decision before any production rollout.
 - M1/M5: run real Korean wav fixtures through Moonshine on WebGPU and WASM, then store measured CER, recall, false-trigger rate, model load time, and segment latency.
 - M6: run staging canary with debug metric collection.
-- M7: decide whether sherpa remains a fallback and only then change the default engine.
+- M7: keep sherpa as a fallback. Change the default engine only after the measured quality gate passes.
