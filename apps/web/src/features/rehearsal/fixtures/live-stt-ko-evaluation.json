@@ -1,38 +1,47 @@
 [
   {
-    "id": "control-next-slide",
+    "id": "next-slide-01",
+    "audioFile": "live-stt-ko-audio/next-slide-01.wav",
+    "recordingScript": "다음 슬라이드로 넘어가 주세요",
+    "recordingNotes": "보통 발표 속도로 또렷하게 녹음합니다.",
     "referenceTranscript": "다음 슬라이드로 넘어가 주세요",
     "expectedKeywords": ["다음 슬라이드"],
     "shouldTriggerControl": true
   },
   {
-    "id": "control-previous-slide",
+    "id": "previous-slide-01",
+    "audioFile": "live-stt-ko-audio/previous-slide-01.wav",
+    "recordingScript": "이전 슬라이드로 돌아가 주세요",
+    "recordingNotes": "보통 발표 속도로 또렷하게 녹음합니다.",
     "referenceTranscript": "이전 슬라이드로 돌아가 주세요",
     "expectedKeywords": ["이전 슬라이드"],
     "shouldTriggerControl": true
   },
   {
-    "id": "keyword-orbit",
-    "referenceTranscript": "오르빗 리허설 모드에서 발표를 시작합니다",
-    "expectedKeywords": ["오르빗", "리허설"],
+    "id": "keyword-ai-01",
+    "audioFile": "live-stt-ko-audio/keyword-ai-01.wav",
+    "recordingScript": "이번 장에서는 에이아이 기능의 정확도와 응답 속도를 설명합니다",
+    "recordingNotes": "에이아이는 영어 알파벳을 읽듯이 발음합니다.",
+    "referenceTranscript": "이번 장에서는 에이아이 기능의 정확도와 응답 속도를 설명합니다",
+    "expectedKeywords": ["에이아이", "정확도", "응답 속도"],
     "shouldTriggerControl": false
   },
   {
-    "id": "keyword-live-stt",
-    "referenceTranscript": "브라우저 온디바이스 실시간 음성 인식을 설명합니다",
-    "expectedKeywords": ["온디바이스", "실시간 음성 인식"],
-    "shouldTriggerControl": false
-  },
-  {
-    "id": "free-speech-next-slide-phrase",
-    "referenceTranscript": "안녕하세요 다음 슬라이드는 설명 자료입니다",
+    "id": "filler-hello-01",
+    "audioFile": "live-stt-ko-audio/filler-hello-01.wav",
+    "recordingScript": "안녕하세요 오늘 발표를 시작하겠습니다",
+    "recordingNotes": "제어 명령이 없는 일반 인사말로 녹음합니다.",
+    "referenceTranscript": "안녕하세요 오늘 발표를 시작하겠습니다",
     "expectedKeywords": [],
     "shouldTriggerControl": false
   },
   {
-    "id": "noise-short-utterance",
-    "referenceTranscript": "잠시만요",
-    "expectedKeywords": [],
-    "shouldTriggerControl": false
+    "id": "noisy-next-slide-01",
+    "audioFile": "live-stt-ko-audio/noisy-next-slide-01.wav",
+    "recordingScript": "다음 슬라이드로 넘어가 주세요",
+    "recordingNotes": "가능하면 약한 배경 소음이 있는 상태에서 같은 대본을 녹음합니다.",
+    "referenceTranscript": "다음 슬라이드로 넘어가 주세요",
+    "expectedKeywords": ["다음 슬라이드"],
+    "shouldTriggerControl": true
   }
 ]
