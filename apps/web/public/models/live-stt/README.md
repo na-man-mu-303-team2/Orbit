@@ -99,7 +99,7 @@ localStorage.setItem("orbit.liveStt.engine", "moonshine");
 ```ts
 localStorage.setItem(
   "orbit.liveStt.moonshine.localModelPath",
-  "/models/live-stt/moonshine-tiny-ko/"
+  "/models/live-stt/"
 );
 localStorage.setItem("orbit.liveStt.moonshine.allowRemoteModels", "0");
 ```
@@ -110,7 +110,7 @@ localStorage.setItem("orbit.liveStt.moonshine.allowRemoteModels", "0");
 - [moonshineWorker.ts](../../../src/features/rehearsal/moonshineWorker.ts)
 - [moonshineVadSegmenter.ts](../../../src/features/rehearsal/moonshineVadSegmenter.ts)
 
-Moonshine 경로는 `transformers.js` + `onnxruntime-web`의 `automatic-speech-recognition` pipeline을 Web Worker에서 lazy-load합니다. `device: "webgpu"` 로드를 먼저 시도하고 실패하면 `device: "wasm"`으로 재시도합니다. `localModelPath`가 설정되면 worker가 `env.localModelPath`, `env.allowLocalModels=true`, `env.allowRemoteModels`를 설정한 뒤 pipeline을 로드합니다. seq2seq 모델 특성상 프레임별 streaming partial 대신 RMS VAD 세그먼트 종료 시 `isFinal: true` transcript를 방출합니다.
+Moonshine 경로는 `transformers.js` + `onnxruntime-web`의 `automatic-speech-recognition` pipeline을 Web Worker에서 lazy-load합니다. `device: "webgpu"` 로드를 먼저 시도하고 실패하면 `device: "wasm"`으로 재시도합니다. `localModelPath`가 설정되면 worker가 `env.localModelPath`, `env.allowLocalModels=true`, `env.allowRemoteModels`를 설정한 뒤 pipeline을 로드합니다. Transformers.js는 `localModelPath + modelId + filename` 형태로 파일을 찾으므로, `onnx-community/moonshine-tiny-ko-ONNX`를 포함하지 않은 루트 경로(`/models/live-stt/`)를 설정해야 합니다. seq2seq 모델 특성상 프레임별 streaming partial 대신 RMS VAD 세그먼트 종료 시 `isFinal: true` transcript를 방출합니다.
 
 Moonshine에는 sherpa hotword decoder API가 없으므로 `RehearsalWorkspace`는 이 엔진에서 `combined`/`hotword` bias 요청을 `postprocess`로 낮춥니다.
 
@@ -237,6 +237,32 @@ pnpm --filter @orbit/web stt:model:prepare -- --source <model-dir> --runtime <wa
 ```
 
 현재 준비 스크립트는 필수 runtime 파일 3개와 필수 모델 파일 4개를 복사하고, `manifest.json`에 `files` 메타데이터를 생성합니다.
+
+Moonshine 자가호스팅 기본 배치:
+
+```text
+apps/web/public/models/live-stt/
+  onnx-community/
+    moonshine-tiny-ko-ONNX/
+      config.json
+      generation_config.json
+      preprocessor_config.json
+      special_tokens_map.json
+      tokenizer.json
+      tokenizer_config.json
+      orbit-local-model-manifest.json
+      onnx/
+        encoder_model.onnx
+        decoder_model_merged_q4.onnx
+```
+
+준비 명령:
+
+```bash
+pnpm --filter @orbit/web stt:model:prepare:moonshine -- --source <moonshine-snapshot-dir>
+```
+
+기본값은 `encoder_model=fp32`, `decoder_model_merged=q4`이며 Transformers.js가 찾는 파일명은 각각 `onnx/encoder_model.onnx`, `onnx/decoder_model_merged_q4.onnx`입니다. 다른 dtype 조합을 검증할 때는 `--encoder-dtype` 또는 `--decoder-dtype`을 넘깁니다.
 
 ## 8. 리허설 제품 로직 계약
 

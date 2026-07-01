@@ -10,6 +10,7 @@
     "preview": "vite preview --host 0.0.0.0",
     "stt:evaluate": "node scripts/evaluate-live-stt-fixtures.mjs",
     "stt:measure:moonshine": "node scripts/measure-moonshine-browser-fixtures.mjs",
+    "stt:model:prepare:moonshine": "node scripts/prepare-moonshine-live-stt-model.mjs",
     "stt:model:prepare": "node scripts/prepare-live-stt-model.mjs",
     "test": "vitest run --passWithNoTests",
     "typecheck": "corepack pnpm --filter @orbit/shared build && tsc -p tsconfig.json --noEmit"

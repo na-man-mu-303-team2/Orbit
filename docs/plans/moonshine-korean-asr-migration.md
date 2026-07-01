@@ -5,7 +5,7 @@
 **짝 문서:** [spec/ADR](../specs/moonshine-korean-asr-migration.md)
 **전략:** 신규 `MoonshineLiveSttAdapter`를 기능 플래그 뒤에 추가 → 실측(정확도·지연) → canary → 컷오버 → sherpa 제거. 기존 `LiveSttAdapter` 계약을 유지해 리허설 제품 로직·`packages/shared` 스키마는 변경하지 않는다.
 
-**현재 구현 메모(2026-07-01):** M2~M4와 M5 하네스, M6 엔진 플래그/자가호스팅 옵션/디버그 지표는 구현됐다. M0는 사용자 승인 완료로 기록한다. Synthetic macOS `Yuna` fixture로 WebGPU/WASM 측정도 수행했으나 품질 게이트는 실패했다. 실제 사람 음성 fixture, staging canary, 기본 엔진 컷오버는 아직 완료 조건이 충족되지 않았다.
+**현재 구현 메모(2026-07-01):** M2~M4와 M5 하네스, M6 엔진 플래그/자가호스팅 옵션·준비 스크립트/디버그 지표는 구현됐다. M0는 사용자 승인 완료로 기록한다. Synthetic macOS `Yuna` fixture로 WebGPU/WASM 측정도 수행했으나 품질 게이트는 실패했다. 실제 사람 음성 fixture, staging canary, 기본 엔진 컷오버는 아직 완료 조건이 충족되지 않았다.
 
 ---
 
@@ -31,7 +31,7 @@ M0는 M6(프로덕션 노출)의 **차단 선행조건**. M1~M5는 M0와 병행 
 ### M0 — 라이선스 클리어런스 *(차단 게이트)*
 - [x] `UsefulSensors/moonshine-tiny-ko` 라이선스 원문 확보 및 상업/재배포 조건 정리. 사용자 승인 완료로 확인(2026-07-01). 계약 원문·비용·연락 내역은 저장소 밖에서 관리한다.
 - [x] 상업 사용 필요 시 Moonshine AI에 상업 라이선스 문의(연락·조건·비용). 사용자 승인 완료 상태를 기준으로 구현을 계속한다.
-- [x] 자가 호스팅(모델 자산 재배포) 허용 여부 확인. 자가호스팅 경로는 `orbit.liveStt.moonshine.localModelPath`와 `orbit.liveStt.moonshine.allowRemoteModels=0`로 구현했다.
+- [x] 자가 호스팅(모델 자산 재배포) 허용 여부 확인. 자가호스팅 경로는 `orbit.liveStt.moonshine.localModelPath=/models/live-stt/`와 `orbit.liveStt.moonshine.allowRemoteModels=0`로 구현했다.
 - [x] 결정 기록: A안(Moonshine) 진행. 세부 기록은 `docs/spikes/moonshine-korean-asr.md`의 license gate 메모를 따른다.
 
 ### M1 — 스파이크 / PoC
@@ -75,7 +75,7 @@ M0는 M6(프로덕션 노출)의 **차단 선행조건**. M1~M5는 M0와 병행 
 - [x] 엔진 선택 플래그 `orbit.liveStt.engine`(`localStorage`) + `createDefaultLiveSttAdapter` 분기.
 - [x] Moonshine canary 디버그 지표 수집 경로: `orbit.liveStt.debugLatency=1`에서 segment RTF, 전사 지연, 세그먼트 길이, 오디오 크기 통계를 worker debug log로 기록한다.
 - [ ] 스테이징 canary: 내부 사용자 대상 Moonshine 활성화, 디버그 지표와 A2 하네스 기반 recall 수집.
-- [ ] COOP/COEP 등 서빙 요건 점검(WebGPU/WASM 스레드), 자가 호스팅 자산 배치. Vite dev/preview 헤더는 `viteConfig.test.ts`로 회귀 방지하고 개인 서버 staging 배포 스크립트는 내부 web 헤더를 확인한다. 다만 실제 public Nginx/CloudFront 응답과 모델 자산 배치는 환경에서 아직 검증하지 않는다.
+- [ ] COOP/COEP 등 서빙 요건 점검(WebGPU/WASM 스레드), 자가 호스팅 자산 배치. Vite dev/preview 헤더는 `viteConfig.test.ts`로 회귀 방지하고 개인 서버 staging 배포 스크립트는 내부 web 헤더를 확인한다. `stt:model:prepare:moonshine`은 Transformers.js self-hosted 경로를 생성한다. 다만 실제 public Nginx/CloudFront 응답과 모델 자산 배치는 환경에서 아직 검증하지 않는다.
 - [x] 회귀 없음 확인(제품 로직 단위 테스트, typecheck, build). E2E 스모크는 별도 실행 필요.
 
 ### M7 — 컷오버 & 정리

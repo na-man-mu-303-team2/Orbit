@@ -50,7 +50,7 @@ To force self-hosted model files and block remote Hub access during offline vali
 ```js
 localStorage.setItem(
   "orbit.liveStt.moonshine.localModelPath",
-  "/models/live-stt/moonshine-tiny-ko/"
+  "/models/live-stt/"
 );
 localStorage.setItem("orbit.liveStt.moonshine.allowRemoteModels", "0");
 ```
@@ -58,7 +58,7 @@ localStorage.setItem("orbit.liveStt.moonshine.allowRemoteModels", "0");
 The worker applies these values to Transformers.js before pipeline load:
 
 ```ts
-env.localModelPath = "/models/live-stt/moonshine-tiny-ko/";
+env.localModelPath = "/models/live-stt/";
 env.allowLocalModels = true;
 env.allowRemoteModels = false;
 ```

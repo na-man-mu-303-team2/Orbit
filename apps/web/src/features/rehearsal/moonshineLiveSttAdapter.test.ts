@@ -122,7 +122,7 @@ describe("MoonshineLiveSttAdapter", () => {
       createAudioWorkletNode: (_context, _name, options) =>
         audioContext.createAudioWorkletNode(options) as unknown as AudioWorkletNode,
       sampleRate: 1000,
-      localModelPath: "/models/live-stt/moonshine-tiny-ko/",
+      localModelPath: "/models/live-stt/",
       allowRemoteModels: false
     });
 
@@ -135,7 +135,7 @@ describe("MoonshineLiveSttAdapter", () => {
     expect(worker.messages[0]).toMatchObject({
       type: "load",
       modelOptions: {
-        localModelPath: "/models/live-stt/moonshine-tiny-ko/",
+        localModelPath: "/models/live-stt/",
         allowRemoteModels: false
       }
     });
@@ -146,7 +146,7 @@ describe("MoonshineLiveSttAdapter", () => {
       localStorage: {
         getItem: vi.fn((key: string) => {
           if (key === "orbit.liveStt.moonshine.localModelPath") {
-            return "/models/live-stt/moonshine-tiny-ko/";
+            return "/models/live-stt/";
           }
           if (key === "orbit.liveStt.moonshine.allowRemoteModels") {
             return "0";
@@ -174,7 +174,7 @@ describe("MoonshineLiveSttAdapter", () => {
     expect(worker.messages[0]).toMatchObject({
       type: "load",
       modelOptions: {
-        localModelPath: "/models/live-stt/moonshine-tiny-ko/",
+        localModelPath: "/models/live-stt/",
         allowRemoteModels: false
       }
     });

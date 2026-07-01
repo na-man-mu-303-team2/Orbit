@@ -135,7 +135,7 @@ Moonshine에는 sherpa의 `hotwordsBuf`/`modified_beam_search` 같은 디코딩 
 ### 4.5 모델 전달 / 오프라인
 
 - 1차 PoC는 HF Hub 자동 다운로드 + transformers.js 브라우저 캐시.
-- 프로덕션은 **모델 자산 자가 호스팅**(`apps/web/public/models/live-stt/moonshine-tiny-ko/…`)으로 전환해 HF CDN 의존 제거·오프라인 보장·라이선스 준수(재배포 조건 확인 필요). transformers.js `env.localModelPath`/`env.allowRemoteModels=false`로 로컬 자산을 가리킨다.
+- 프로덕션은 **모델 자산 자가 호스팅**(`apps/web/public/models/live-stt/onnx-community/moonshine-tiny-ko-ONNX/…`)으로 전환해 HF CDN 의존 제거·오프라인 보장·라이선스 준수(재배포 조건 확인 필요). transformers.js `env.localModelPath=/models/live-stt/`와 `env.allowRemoteModels=false`로 로컬 자산을 가리킨다.
 - 대형 `.onnx`는 기존 규칙대로 Git LFS 추적.
 
 ## 5. 리스크 & 완화

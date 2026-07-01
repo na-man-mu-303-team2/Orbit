@@ -40,7 +40,7 @@ describe("moonshineWorker", () => {
       dtype: { encoder_model: "fp32", decoder_model_merged: "q4" },
       preferredDevice: "webgpu",
       modelOptions: {
-        localModelPath: "/models/live-stt/moonshine-tiny-ko/",
+        localModelPath: "/models/live-stt/",
         allowRemoteModels: false
       }
     });
@@ -71,7 +71,7 @@ describe("moonshineWorker", () => {
       }
     ]);
     expect(context.transformersEnv).toMatchObject({
-      localModelPath: "/models/live-stt/moonshine-tiny-ko/",
+      localModelPath: "/models/live-stt/",
       allowLocalModels: true,
       allowRemoteModels: false
     });
