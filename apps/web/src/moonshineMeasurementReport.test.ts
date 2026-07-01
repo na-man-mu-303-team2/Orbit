@@ -51,4 +51,24 @@ describe("Moonshine browser measurement report", () => {
 
     expect(report.audioSource).toBe("macOS say voice Yuna");
   });
+
+  it("rejects an explicit audio source label without a human audio directory", async () => {
+    const { buildMoonshineMeasurementReport } = await import(measurementReportModuleUrl);
+
+    expect(() =>
+      buildMoonshineMeasurementReport({
+        modelId: "onnx-community/moonshine-tiny-ko-ONNX",
+        dtype: {
+          encoder_model: "fp32",
+          decoder_model_merged: "q4"
+        },
+        fixturePath: "/repo/apps/web/src/features/rehearsal/fixtures/live-stt-ko-evaluation.json",
+        audioDir: null,
+        audioSource: "human-rehearsal-fixtures-v1",
+        voice: "Yuna",
+        results: [],
+        repoRoot: "/repo"
+      })
+    ).toThrow("--audio-source requires --audio-dir");
+  });
 });

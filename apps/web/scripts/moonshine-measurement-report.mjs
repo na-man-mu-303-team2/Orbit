@@ -11,6 +11,10 @@ export function buildMoonshineMeasurementReport(options) {
 
 export function resolveMoonshineMeasurementAudioSource(options) {
   const explicitAudioSource = normalizeOptionalString(options.audioSource);
+  if (explicitAudioSource && !options.audioDir) {
+    throw new Error("--audio-source requires --audio-dir.");
+  }
+
   if (explicitAudioSource) {
     return explicitAudioSource;
   }

@@ -385,6 +385,8 @@ pnpm --filter @orbit/web stt:measure:moonshine -- \
   --out docs/spikes/moonshine-human-live-stt-candidate.json
 ```
 
+`--audio-source`는 `--audio-dir`와 함께 있을 때만 허용됩니다. Synthetic TTS 측정은 항상 `macOS say voice <voice>` 라벨을 유지하므로 human-audio gate를 통과할 수 없습니다.
+
 Moonshine 컷오버 판정은 synthetic TTS가 아닌 실제 사람 음성 report이면서, sherpa baseline 또는 명시 threshold가 있을 때만 통과할 수 있습니다.
 
 ```bash

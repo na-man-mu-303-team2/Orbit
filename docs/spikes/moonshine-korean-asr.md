@@ -131,6 +131,8 @@ pnpm --filter @orbit/web stt:measure:moonshine -- \
   --out docs/spikes/moonshine-human-live-stt-candidate.json
 ```
 
+`--audio-source` is accepted only with `--audio-dir`; synthetic TTS reports always keep the `macOS say voice <voice>` source label so they cannot satisfy the human-audio cutover gate.
+
 Canary debug summary:
 
 ```bash
