@@ -20,6 +20,7 @@ import {
   demoIds,
   getDeckResponseSchema,
   maxAssetUploadSizeBytes,
+  meResponseSchema,
   putDeckResponseSchema
 } from "@orbit/shared";
 import { createProject, fetchProjects, uploadProjectAsset } from "../../projects/ProjectAssetWorkspace";
@@ -117,6 +118,8 @@ import {
 import type { ChangeEvent, CSSProperties, PointerEvent as ReactPointerEvent } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal, flushSync } from "react-dom";
+import { io } from "socket.io-client";
+import type { Socket as ClientSocket } from "socket.io-client";
 import { SuggestionPanel } from "../suggestions/components/SuggestionPanel";
 import {
   mergeDeckIntoQueryCache,
@@ -130,6 +133,33 @@ interface HealthResponse {
   app: string;
   demo: typeof demoIds;
 }
+
+type ProjectPresenceUser = {
+  id: string;
+  connectedAt: string;
+  email?: string;
+  userId?: string;
+};
+
+type ProjectPresenceEvent = {
+  payload?: {
+    projectId?: string;
+    users?: ProjectPresenceUser[];
+  };
+};
+
+type EditorSocketStatus = "connecting" | "connected" | "disconnected" | "error";
+
+type EditorSessionDebugState =
+  | { status: "idle" | "loading"; message: string }
+  | {
+      authenticatedAt: string;
+      email: string;
+      expiresAt: string;
+      status: "ready";
+      userId: string;
+    }
+  | { status: "error"; message: string };
 
 declare global {
   interface Window {
@@ -604,6 +634,79 @@ function navigateToRehearsal(projectId: string) {
   window.history.pushState({}, "", `/rehearsal/${encodeURIComponent(projectId)}`);
   window.dispatchEvent(new PopStateEvent("popstate"));
 }
+
+function normalizeProjectPresenceUsers(
+  event: ProjectPresenceEvent,
+  projectId: string
+): ProjectPresenceUser[] {
+  if (event.payload?.projectId !== projectId || !Array.isArray(event.payload.users)) {
+    return [];
+  }
+
+  return event.payload.users.filter(
+    (user): user is ProjectPresenceUser =>
+      typeof user?.id === "string" &&
+      user.id.length > 0 &&
+      typeof user.connectedAt === "string" &&
+      user.connectedAt.length > 0
+  );
+}
+
+function getPresenceUserLabel(user: ProjectPresenceUser) {
+  return user.email || user.userId || user.id;
+}
+
+function getPresenceUserInitial(user: ProjectPresenceUser) {
+  const label = getPresenceUserLabel(user).trim();
+  if (!label) {
+    return "U";
+  }
+
+  return label[0]?.toLocaleUpperCase() ?? "U";
+}
+
+function formatSocketStatus(status: EditorSocketStatus) {
+  if (status === "connected") return "연결됨";
+  if (status === "connecting") return "연결 중";
+  if (status === "error") return "오류";
+  return "연결 끊김";
+}
+
+function formatDebugDate(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+
+  return date.toLocaleString();
+}
+
+function formatSessionRemaining(session: EditorSessionDebugState) {
+  if (session.status === "idle" || session.status === "loading") {
+    return session.message;
+  }
+
+  if (session.status === "error") {
+    return session.message;
+  }
+
+  if (session.status !== "ready") {
+    return "-";
+  }
+
+  const remainingMs = new Date(session.expiresAt).getTime() - Date.now();
+  if (!Number.isFinite(remainingMs)) {
+    return "unknown";
+  }
+
+  if (remainingMs <= 0) {
+    return "expired";
+  }
+
+  const remainingHours = remainingMs / (1000 * 60 * 60);
+  return `${remainingHours.toFixed(1)}h`;
+}
+
 async function putProjectDeck(projectId: string, deck: Deck): Promise<Deck> {
   const response = await fetch(`/api/v1/projects/${projectId}/deck`, {
     method: "PUT",
@@ -656,6 +759,25 @@ async function fetchDeck(projectId: string): Promise<Deck> {
   return putProjectDeck(projectId, createSeedDeck(projectId));
 }
 
+async function fetchEditorSessionDebug(): Promise<Exclude<EditorSessionDebugState, { status: "idle" | "loading" | "error" }>> {
+  const response = await fetch("/api/v1/auth/me", {
+    credentials: "include"
+  });
+
+  if (!response.ok) {
+    throw await readResponseError(response, "Session fetch failed");
+  }
+
+  const session = meResponseSchema.parse(await response.json());
+  return {
+    authenticatedAt: session.authenticatedAt,
+    email: session.user.email,
+    expiresAt: session.expiresAt,
+    status: "ready",
+    userId: session.user.userId
+  };
+}
+
 export function EditorShell(props: { projectId?: string }) {
   const projectId = props.projectId ?? demoIds.projectId;
   const queryClient = useQueryClient();
@@ -665,6 +787,16 @@ export function EditorShell(props: { projectId?: string }) {
   const [isSlidesPaneCollapsed, setIsSlidesPaneCollapsed] = useState(false);
   const [slidesPaneWidth, setSlidesPaneWidth] = useState(defaultSlidesPaneWidth);
   const [rightPaneWidth, setRightPaneWidth] = useState(defaultRightPaneWidth);
+  const [projectPresenceUsers, setProjectPresenceUsers] = useState<ProjectPresenceUser[]>([]);
+  const [isPresenceDebugOpen, setIsPresenceDebugOpen] = useState(false);
+  const [lastPresenceAt, setLastPresenceAt] = useState<string | null>(null);
+  const [socketErrorMessage, setSocketErrorMessage] = useState("");
+  const [socketId, setSocketId] = useState("");
+  const [socketStatus, setSocketStatus] = useState<EditorSocketStatus>("disconnected");
+  const [sessionDebug, setSessionDebug] = useState<EditorSessionDebugState>({
+    message: "세션 정보를 아직 조회하지 않았습니다.",
+    status: "idle"
+  });
   const [slidePanelView, setSlidePanelView] =
     useState<SlidePanelView>("thumbnail");
   const [showIds, setShowIds] = useState(false);
@@ -706,6 +838,98 @@ export function EditorShell(props: { projectId?: string }) {
     queryFn: () => fetchDeck(projectId),
     retry: false
   });
+
+  useEffect(() => {
+    const socket: ClientSocket = io({
+      withCredentials: true
+    });
+    setSocketStatus("connecting");
+    setSocketErrorMessage("");
+
+    function joinProjectRoom() {
+      socket.emit("project:join", { projectId });
+    }
+
+    function handlePresence(event: ProjectPresenceEvent) {
+      const users = normalizeProjectPresenceUsers(event, projectId);
+      setProjectPresenceUsers(users);
+      setLastPresenceAt(new Date().toISOString());
+    }
+
+    function handleConnect() {
+      setSocketId(socket.id ?? "");
+      setSocketStatus("connected");
+      setSocketErrorMessage("");
+      joinProjectRoom();
+    }
+
+    function handleConnectError(error: Error) {
+      setSocketStatus("error");
+      setSocketErrorMessage(error.message);
+      setProjectPresenceUsers([]);
+    }
+
+    function handleProjectError(error: { message?: string }) {
+      setSocketStatus("error");
+      setSocketErrorMessage(error.message ?? "Project socket join failed.");
+      setProjectPresenceUsers([]);
+    }
+
+    function handleDisconnect() {
+      setSocketId("");
+      setSocketStatus("disconnected");
+      setProjectPresenceUsers([]);
+    }
+
+    socket.on("connect", handleConnect);
+    socket.on("connect_error", handleConnectError);
+    socket.on("project:presence", handlePresence);
+    socket.on("project:error", handleProjectError);
+    socket.on("disconnect", handleDisconnect);
+
+    if (socket.connected) {
+      handleConnect();
+    }
+
+    return () => {
+      socket.off("connect", handleConnect);
+      socket.off("connect_error", handleConnectError);
+      socket.off("project:presence", handlePresence);
+      socket.off("project:error", handleProjectError);
+      socket.off("disconnect", handleDisconnect);
+      socket.disconnect();
+    };
+  }, [projectId]);
+
+  useEffect(() => {
+    if (!isPresenceDebugOpen) {
+      return;
+    }
+
+    let isCancelled = false;
+    setSessionDebug({
+      message: "세션 정보를 불러오는 중입니다.",
+      status: "loading"
+    });
+    void fetchEditorSessionDebug()
+      .then((session) => {
+        if (!isCancelled) {
+          setSessionDebug(session);
+        }
+      })
+      .catch((error) => {
+        if (!isCancelled) {
+          setSessionDebug({
+            message: toEditorErrorMessage(error),
+            status: "error"
+          });
+        }
+      });
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [isPresenceDebugOpen]);
 
   const loadedDeck = deckQuery.data ?? fallbackDeck;
   const [deck, setDeck] = useState<Deck>(loadedDeck);
@@ -2831,7 +3055,29 @@ export function EditorShell(props: { projectId?: string }) {
         </div>
 
         <div className="top-actions">
-          <span className="avatar">김</span>
+          {projectPresenceUsers.length > 0 ? (
+            <button
+              className="presence-avatar-trigger"
+              type="button"
+              aria-label="소켓 접속 상태 보기"
+              onClick={() => setIsPresenceDebugOpen(true)}
+            >
+              {projectPresenceUsers.slice(0, 4).map((user) => (
+                <span
+                  className="avatar"
+                  key={`${user.id}-${user.connectedAt}`}
+                  title={getPresenceUserLabel(user)}
+                >
+                  {getPresenceUserInitial(user)}
+                </span>
+              ))}
+              {projectPresenceUsers.length > 4 ? (
+                <span className="avatar presence-avatar-more">
+                  +{projectPresenceUsers.length - 4}
+                </span>
+              ) : null}
+            </button>
+          ) : null}
           <EditorSaveControl
             disabled={isDeckLoading || isUsingFallbackDeck}
             emptyStateLabel={deckQuery.data ? "불러온 파일" : "저장 기록 없음"}
@@ -2946,6 +3192,70 @@ export function EditorShell(props: { projectId?: string }) {
               onRequestStatusChange={handleShareRequestStatus}
               onTabChange={setShareAccessTab}
             />,
+            document.body
+          )
+        : null}
+      {isPresenceDebugOpen
+        ? createPortal(
+            <div
+              className="presence-debug-backdrop"
+              role="presentation"
+              onMouseDown={() => setIsPresenceDebugOpen(false)}
+            >
+              <section
+                aria-label="소켓 접속 상태"
+                aria-modal="true"
+                className="presence-debug-modal"
+                role="dialog"
+                onMouseDown={(event) => event.stopPropagation()}
+              >
+                <header>
+                  <div>
+                    <strong>소켓 접속 상태</strong>
+                    <span>프로젝트 presence 테스트 데이터입니다.</span>
+                  </div>
+                  <button
+                    type="button"
+                    aria-label="소켓 상태 닫기"
+                    onClick={() => setIsPresenceDebugOpen(false)}
+                  >
+                    닫기
+                  </button>
+                </header>
+                <div className="presence-debug-grid">
+                  <span>상태</span>
+                  <strong>{formatSocketStatus(socketStatus)}</strong>
+                  <span>Socket ID</span>
+                  <strong>{socketId || "-"}</strong>
+                  <span>프로젝트</span>
+                  <strong>{projectId}</strong>
+                  <span>접속자</span>
+                  <strong>{projectPresenceUsers.length}명</strong>
+                  <span>마지막 presence</span>
+                  <strong>{lastPresenceAt ? formatDebugDate(lastPresenceAt) : "-"}</strong>
+                  <span>세션 남은 시간</span>
+                  <strong>{formatSessionRemaining(sessionDebug)}</strong>
+                </div>
+                {socketErrorMessage ? (
+                  <p className="presence-debug-error">{socketErrorMessage}</p>
+                ) : null}
+                <div className="presence-debug-users">
+                  {projectPresenceUsers.length > 0 ? (
+                    projectPresenceUsers.map((user) => (
+                      <div key={`${user.id}-${user.connectedAt}`}>
+                        <span className="avatar">{getPresenceUserInitial(user)}</span>
+                        <div>
+                          <strong>{getPresenceUserLabel(user)}</strong>
+                          <small>{formatDebugDate(user.connectedAt)}</small>
+                        </div>
+                      </div>
+                    ))
+                  ) : (
+                    <p>현재 표시할 접속자가 없습니다.</p>
+                  )}
+                </div>
+              </section>
+            </div>,
             document.body
           )
         : null}

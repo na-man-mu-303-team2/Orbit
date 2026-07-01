@@ -9,6 +9,7 @@ import {
 
 export const websocketEventTypeSchema = z.enum([
   "project-joined",
+  "project-presence",
   "deck-updated",
   "slide-changed",
   "highlight-changed",

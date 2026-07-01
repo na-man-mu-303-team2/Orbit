@@ -1,5 +1,6 @@
 import { createRealtimeEvent } from "@orbit/realtime";
 import { demoIds, slideChangedPayloadSchema } from "@orbit/shared";
+import { loadOrbitConfig } from "@orbit/config";
 import {
   ConnectedSocket,
   MessageBody,
@@ -9,7 +10,11 @@ import {
   WebSocketGateway,
   WebSocketServer
 } from "@nestjs/websockets";
+import cookieParser from "cookie-parser";
 import { Server, Socket } from "socket.io";
+import { AuthService } from "../auth/auth.service";
+import { authSessionCookieName } from "../auth/auth.constants";
+import { ProjectsService } from "../projects/projects.service";
 import {
   CanvasShape,
   ConnectedRealtimeUser,
@@ -22,8 +27,9 @@ import {
 import { resolveAllowedWebOrigins } from "../common/web-origin";
 
 const connectedUsers = new Map<string, ConnectedRealtimeUser>();
+const orbitConfig = loadOrbitConfig(process.env, { service: "api" });
 const realtimeCorsOrigins = resolveAllowedWebOrigins(
-  process.env.WEB_ORIGIN ?? "http://localhost:5173"
+  orbitConfig.WEB_ORIGIN
 );
 
 @WebSocketGateway({
@@ -35,6 +41,11 @@ const realtimeCorsOrigins = resolveAllowedWebOrigins(
 export class RealtimeGateway
   implements OnGatewayConnection, OnGatewayDisconnect
 {
+  constructor(
+    private readonly authService: AuthService,
+    private readonly projectsService: ProjectsService
+  ) {}
+
   @WebSocketServer()
   server!: Server;
 
@@ -49,31 +60,65 @@ export class RealtimeGateway
 
   handleDisconnect(client: Socket) {
     const roomId = readSocketRoomId(client);
+    const projectId = readSocketProjectId(client);
     connectedUsers.delete(client.id);
     this.emitUsers();
 
     if (roomId) {
       this.emitRoomUsers(roomId);
     }
+    if (projectId) {
+      this.emitProjectPresence(projectId);
+    }
   }
 
   @SubscribeMessage("project:join")
-  handleProjectJoin(
+  async handleProjectJoin(
     @ConnectedSocket() client: Socket,
-    @MessageBody() body: { projectId?: string; userId?: string }
+    @MessageBody() body: { projectId?: string }
   ) {
-    const roomId = body.projectId ?? demoIds.projectId;
-    void client.join(roomId);
+    const projectId = readProjectId(body);
+    if (!projectId) {
+      return emitProjectError(client, "Project ID is required.");
+    }
 
-    const event = createRealtimeEvent({
-      type: "project-joined",
-      roomId,
-      userId: body.userId ?? demoIds.userId,
-      payload: { projectId: roomId }
-    });
+    const sessionId = readSocketSessionId(client);
+    if (!sessionId) {
+      return emitProjectError(client, "Authentication required.");
+    }
 
-    this.server.to(roomId).emit("project-joined", event);
-    return event;
+    try {
+      const { user } = await this.authService.me(sessionId);
+      const project = await this.projectsService.assertCanReadProject(
+        projectId,
+        user.userId
+      );
+      const roomName = projectSocketRoomName(project.projectId);
+
+      const previousProjectId = readSocketProjectId(client);
+      if (previousProjectId && previousProjectId !== project.projectId) {
+        client.leave(projectSocketRoomName(previousProjectId));
+        this.emitProjectPresence(previousProjectId);
+      }
+
+      await client.join(roomName);
+      client.data.projectId = project.projectId;
+      client.data.userId = user.userId;
+      client.data.userEmail = user.email ?? "";
+
+      const event = createRealtimeEvent({
+        type: "project-joined",
+        roomId: project.projectId,
+        userId: user.userId,
+        payload: { projectId: project.projectId }
+      });
+
+      this.server.to(roomName).emit("project-joined", event);
+      this.emitProjectPresence(project.projectId);
+      return event;
+    } catch {
+      return emitProjectError(client, "Project member permission required.");
+    }
   }
 
   @SubscribeMessage("slide:changed")
@@ -250,6 +295,22 @@ export class RealtimeGateway
       .emit("room:users", this.roomUsers(roomId));
   }
 
+  private emitProjectPresence(projectId: string) {
+    const event = createRealtimeEvent({
+      type: "project-presence",
+      roomId: projectId,
+      userId: demoIds.userId,
+      payload: {
+        projectId,
+        users: this.projectUsers(projectId)
+      }
+    });
+
+    this.server
+      .to(projectSocketRoomName(projectId))
+      .emit("project:presence", event);
+  }
+
   private users() {
     return [...connectedUsers.values()].sort((a, b) =>
       a.connectedAt.localeCompare(b.connectedAt)
@@ -267,6 +328,42 @@ export class RealtimeGateway
     return [...socketIds]
       .map((socketId) => connectedUsers.get(socketId))
       .filter((user): user is ConnectedRealtimeUser => Boolean(user))
+      .sort((a, b) => a.connectedAt.localeCompare(b.connectedAt));
+  }
+
+  private projectUsers(projectId: string) {
+    const socketIds = this.server.sockets.adapter.rooms.get(
+      projectSocketRoomName(projectId)
+    );
+    if (!socketIds) {
+      return [];
+    }
+
+    return [...socketIds]
+      .map((socketId) => {
+        const socket = this.server.sockets.sockets.get(socketId);
+        const user = connectedUsers.get(socketId);
+        if (!socket || !user) {
+          return null;
+        }
+
+        return {
+          connectedAt: user.connectedAt,
+          email: typeof socket.data.userEmail === "string" ? socket.data.userEmail : "",
+          id: user.id,
+          userId: typeof socket.data.userId === "string" ? socket.data.userId : ""
+        };
+      })
+      .filter(
+        (
+          user
+        ): user is {
+          connectedAt: string;
+          email: string;
+          id: string;
+          userId: string;
+        } => Boolean(user)
+      )
       .sort((a, b) => a.connectedAt.localeCompare(b.connectedAt));
   }
 }
@@ -369,14 +466,73 @@ function readRoomId(value: unknown) {
   return value.roomId.trim();
 }
 
+function readProjectId(value: unknown) {
+  if (!isRecord(value) || typeof value.projectId !== "string") {
+    return "";
+  }
+  return value.projectId.trim();
+}
+
 function readSocketRoomId(client: Socket) {
   return typeof client.data.canvasRoomId === "string"
     ? client.data.canvasRoomId
     : "";
 }
 
+function readSocketProjectId(client: Socket) {
+  return typeof client.data.projectId === "string"
+    ? client.data.projectId
+    : "";
+}
+
+function readSocketSessionId(client: Socket): string | null {
+  const cookieHeader = firstHeader(client.handshake.headers.cookie);
+  const signedValue = readCookieValue(cookieHeader, authSessionCookieName);
+  if (!signedValue) {
+    return null;
+  }
+
+  const unsigned = cookieParser.signedCookie(
+    signedValue,
+    orbitConfig.COOKIE_SECRET
+  );
+  return typeof unsigned === "string" && unsigned.length > 0 ? unsigned : null;
+}
+
+function readCookieValue(cookieHeader: string, name: string): string {
+  const prefix = `${name}=`;
+  const pair = cookieHeader
+    .split(";")
+    .map((part) => part.trim())
+    .find((part) => part.startsWith(prefix));
+
+  if (!pair) {
+    return "";
+  }
+
+  const value = pair.slice(prefix.length);
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
 function canvasSocketRoomName(roomId: string) {
   return `canvas:${roomId}`;
+}
+
+function projectSocketRoomName(projectId: string) {
+  return `project:${projectId}`;
+}
+
+function emitProjectError(client: Socket, message: string) {
+  const payload = {
+    event: "project:error",
+    data: { message }
+  };
+  client.emit("project:error", payload.data);
+  return payload;
 }
 
 function createRoomId() {
