@@ -201,7 +201,7 @@ describe("sherpaOnnxWorker classic worker output", () => {
     );
   });
 
-  it("falls back to greedy_search when the hotword recognizer fails to build", async () => {
+  it("starts BPE hotword sessions with modified beam search recognizer config", async () => {
     server = await createWorkerTransformServer();
     const result = await server.transformRequest(
       "/src/features/rehearsal/sherpaOnnxWorker.ts?worker_file&type=classic"
@@ -209,13 +209,13 @@ describe("sherpaOnnxWorker classic worker output", () => {
     const executableCode = stripInlineSourceMap(result?.code ?? "");
     const posted: Array<Record<string, unknown>> = [];
     const freed: string[] = [];
-    const warnings: string[] = [];
+    const recognizerConfigs: Array<Record<string, unknown>> = [];
     const context: WorkerTestContext = {
       ArrayBuffer,
       Float32Array,
       TextEncoder,
       URL,
-      console: { ...console, warn: (...args: unknown[]) => warnings.push(args.join(" ")) },
+      console,
       fetch: vi.fn(async () => new Response(new ArrayBuffer(1))),
       performance: { now: () => 0 },
       postMessage: (message: Record<string, unknown>) => {
@@ -231,14 +231,9 @@ describe("sherpaOnnxWorker classic worker output", () => {
         runtimeModule.calledRun = true;
         runtimeModule.FS_createDataFile = vi.fn();
         runtimeModule.FS_unlink = vi.fn();
-        // modified_beam_search (forced by hotwords) blows up like the real WASM
-        // does with a bad bpe vocab; greedy_search must still succeed.
         runtimeModule.createOnlineRecognizer = vi.fn(
-          (first: Record<string, unknown>, second?: Record<string, unknown>) => {
-            const config = second ?? first;
-            if (config?.decodingMethod === "modified_beam_search") {
-              throw new Error("modified_beam_search unsupported in test runtime");
-            }
+          (_module: unknown, config: Record<string, unknown>) => {
+            recognizerConfigs.push(config);
             return createFakeRecognizer(freed, () => false);
           }
         );
@@ -246,7 +241,10 @@ describe("sherpaOnnxWorker classic worker output", () => {
     };
 
     vm.runInNewContext(executableCode, context);
-    await sendWorkerMessage(context, { type: "load", manifest: manifestFixture() });
+    await sendWorkerMessage(context, {
+      type: "load",
+      manifest: manifestFixture({ bpeVocab: "bpe.vocab" })
+    });
     await sendWorkerMessage(context, {
       type: "start",
       sessionId: "session-1",
@@ -256,12 +254,21 @@ describe("sherpaOnnxWorker classic worker output", () => {
       decodingMethod: null
     });
 
-    expect(posted.filter((message) => message.type === "error")).toHaveLength(0);
     expect(posted).toContainEqual(
       expect.objectContaining({ type: "started", sessionId: "session-1" })
     );
-    expect(warnings.some((line) => line.includes("hotword bias disabled"))).toBe(
-      true
+    expect(recognizerConfigs).toHaveLength(1);
+    expect(recognizerConfigs[0]).toMatchObject({
+      modelConfig: {
+        modelingUnit: "bpe",
+        bpeVocab: "/orbit-live-stt-bpe.vocab"
+      },
+      decodingMethod: "modified_beam_search",
+      hotwordsBuf: "오르빗",
+      hotwordsScore: 2
+    });
+    expect(recognizerConfigs[0]?.hotwordsBufSize).toBe(
+      new TextEncoder().encode("오르빗").length
     );
   });
 });
@@ -345,7 +352,7 @@ async function sendWorkerMessage(
   await new Promise((resolve) => setTimeout(resolve, 0));
 }
 
-function manifestFixture() {
+function manifestFixture(options: { bpeVocab?: string | null } = {}) {
   return {
     modelId: "korean-streaming-test",
     version: "2026-06-30",
@@ -362,7 +369,7 @@ function manifestFixture() {
       decoder: "decoder.onnx",
       joiner: "joiner.onnx",
       tokens: "tokens.txt",
-      bpeVocab: null
+      bpeVocab: options.bpeVocab ?? null
     }
   };
 }

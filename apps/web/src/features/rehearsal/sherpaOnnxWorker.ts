@@ -187,7 +187,7 @@ const fsModelPaths = {
   decoder: "/orbit-live-stt-decoder.onnx",
   joiner: "/orbit-live-stt-joiner.onnx",
   tokens: "/orbit-live-stt-tokens.txt",
-  bpeVocab: "/orbit-live-stt-bpe.model"
+  bpeVocab: "/orbit-live-stt-bpe.vocab"
 } as const;
 
 workerScope.onmessage = (event: MessageEvent<WorkerInboundMessage>) => {
