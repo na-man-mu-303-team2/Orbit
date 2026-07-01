@@ -1,3 +1,5 @@
+import { pipeline as transformersPipeline } from "@huggingface/transformers";
+
 type MoonshineWorkerDevice = "webgpu" | "wasm";
 type MoonshineWorkerDTypeConfig = {
   encoder: "fp32" | "fp16" | "q8" | "q4";
@@ -65,9 +67,6 @@ type MoonshinePipelineFactory = (
   modelId: string,
   options: PipelineOptions
 ) => Promise<MoonshineTranscriber>;
-type TransformersModule = {
-  pipeline: MoonshinePipelineFactory;
-};
 type WorkerScope = typeof globalThis & {
   onmessage:
     | ((event: MessageEvent<MoonshineWorkerInboundMessage>) => void)
@@ -164,8 +163,7 @@ async function getPipelineFactory() {
     return workerScope.__orbitMoonshinePipelineFactory;
   }
 
-  const module = (await import("@huggingface/transformers")) as TransformersModule;
-  return module.pipeline;
+  return transformersPipeline as MoonshinePipelineFactory;
 }
 
 function startSession(sessionId: string) {

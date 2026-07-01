@@ -142,7 +142,10 @@ class FakeMoonshineWorker {
     } = {}
   ) {}
 
-  postMessage(message: FakeWorkerMessage, _transfer?: Transferable[]) {
+  postMessage(
+    message: FakeWorkerMessage,
+    _transfer?: Transferable[] | StructuredSerializeOptions
+  ) {
     this.messages.push(message);
 
     if (message.type === "load") {

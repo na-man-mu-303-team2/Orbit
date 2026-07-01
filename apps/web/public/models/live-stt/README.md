@@ -1,6 +1,6 @@
 # ORBIT Live STT 모델 연동 계약
 
-이 문서는 브라우저 리허설 모드에서 사용하는 Live STT 경로를 설명합니다. 현재 구현은 마이크 입력을 브라우저에서 캡처하고, sherpa-onnx WASM recognizer도 브라우저 안의 Web Worker에서 실행합니다. 리포트용 녹음 업로드/STT 경로와는 별개입니다.
+이 문서는 브라우저 리허설 모드에서 사용하는 Live STT 경로를 설명합니다. 현재 구현은 마이크 입력을 브라우저에서 캡처하고, 기본값으로 sherpa-onnx WASM recognizer를 브라우저 안의 Web Worker에서 실행합니다. Moonshine 한국어 경로는 `orbit.liveStt.engine` 플래그 뒤에 추가되어 있습니다. 리포트용 녹음 업로드/STT 경로와는 별개입니다.
 
 ## 1. 공개 Adapter 계약
 
@@ -57,7 +57,7 @@ await adapter.start(stream, {
 
 중요한 제품 원칙: ASR adapter는 transcript 이벤트까지만 책임집니다. 키워드 감지, animation cue, slide advance는 리허설 제품 로직에서 처리합니다.
 
-## 3. 기본 구현체
+## 3. 기본 구현체와 엔진 플래그
 
 파일: [sherpaOnnxLiveSttAdapter.ts](../../../src/features/rehearsal/sherpaOnnxLiveSttAdapter.ts)
 
@@ -86,7 +86,23 @@ const adapter = new SherpaOnnxLiveSttAdapter();
 /models/live-stt/sherpa-onnx-streaming-zipformer-korean-2024-06-16/manifest.json
 ```
 
-`SherpaLiveSttAdapter`는 현재 `SherpaOnnxLiveSttAdapter`를 그대로 상속하는 alias입니다. `RehearsalWorkspace`의 기본 adapter도 이 구현체를 사용합니다.
+`SherpaLiveSttAdapter`는 현재 `SherpaOnnxLiveSttAdapter`를 그대로 상속하는 alias입니다. `RehearsalWorkspace`의 기본 adapter도 엔진 플래그가 없으면 이 구현체를 사용합니다.
+
+Moonshine 한국어 경로:
+
+```ts
+localStorage.setItem("orbit.liveStt.engine", "moonshine");
+```
+
+파일:
+
+- [moonshineLiveSttAdapter.ts](../../../src/features/rehearsal/moonshineLiveSttAdapter.ts)
+- [moonshineWorker.ts](../../../src/features/rehearsal/moonshineWorker.ts)
+- [moonshineVadSegmenter.ts](../../../src/features/rehearsal/moonshineVadSegmenter.ts)
+
+Moonshine 경로는 `transformers.js` + `onnxruntime-web`의 `automatic-speech-recognition` pipeline을 Web Worker에서 lazy-load합니다. `device: "webgpu"` 로드를 먼저 시도하고 실패하면 `device: "wasm"`으로 재시도합니다. seq2seq 모델 특성상 프레임별 streaming partial 대신 RMS VAD 세그먼트 종료 시 `isFinal: true` transcript를 방출합니다.
+
+Moonshine에는 sherpa hotword decoder API가 없으므로 `RehearsalWorkspace`는 이 엔진에서 `combined`/`hotword` bias 요청을 `postprocess`로 낮춥니다.
 
 ## 4. 브라우저 내부 처리 흐름
 
@@ -232,6 +248,19 @@ shouldAutoAdvanceLiveSlide(options): boolean
  -> React UI state
 ```
 
+Moonshine 플래그 사용 시 adapter만 바뀌고 `partial-transcript` 이후 제품 로직은 동일합니다.
+
+```text
+마이크
+ -> MoonshineLiveSttAdapter
+ -> MoonshineRmsVadSegmenter
+ -> moonshineWorker.ts
+ -> partial-transcript(isFinal: true)
+ -> evaluateLiveTranscript
+ -> keyword / cue / slide advance
+ -> React UI state
+```
+
 ## 9. 내부 sherpa worker 메시지 계약
 
 파일: [sherpaOnnxWorker.ts](../../../src/features/rehearsal/sherpaOnnxWorker.ts)
@@ -257,6 +286,32 @@ Outbound:
 { type: "final", sessionId, transcript, isFinal: true, confidence }
 { type: "stopped", sessionId }
 { type: "error", code, message, sessionId? }
+```
+
+## 10. Moonshine 평가 하네스
+
+고정 한국어 fixture:
+
+```text
+apps/web/src/features/rehearsal/fixtures/live-stt-ko-evaluation.json
+```
+
+prediction JSON을 준비한 뒤 다음 명령으로 CER, keyword recall, false-trigger율, segment latency를 계산합니다.
+
+```bash
+pnpm --filter @orbit/web stt:evaluate -- --predictions <predictions.json>
+```
+
+prediction 항목 예시:
+
+```json
+{
+  "id": "control-next-slide",
+  "transcript": "다음 슬라이드로 넘어가 주세요",
+  "detectedKeywords": ["다음 슬라이드"],
+  "triggeredControl": true,
+  "transcriptAtMs": 1320
+}
 ```
 
 정리하면, 다른 사람이 가져다 쓸 때는 `LiveSttAdapter`만 맞추면 됩니다. ASR 제공자가 sherpa든 다른 엔진이든 `partial-transcript` 이벤트만 똑같이 내보내면 ORBIT의 리허설 제어 로직이 그대로 동작합니다.

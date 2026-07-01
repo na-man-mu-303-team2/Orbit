@@ -245,7 +245,9 @@ async function createWorkerContext(
     throw new Error("Expected Vite server to be initialized.");
   }
   const result = await server.transformRequest(workerFilePath);
-  const executableCode = stripInlineSourceMap(result?.code ?? "");
+  const executableCode = replaceTransformersImportForVm(
+    stripInlineSourceMap(result?.code ?? "")
+  );
   const posted: Array<Record<string, unknown>> = [];
   const context: WorkerTestContext = {
     Float32Array,
@@ -278,4 +280,11 @@ async function sendWorkerMessage(
 
 function stripInlineSourceMap(source: string) {
   return source.replace(/\n?\/\/# sourceMappingURL=data:application\/json[^\\n]*/g, "");
+}
+
+function replaceTransformersImportForVm(source: string) {
+  return source.replace(
+    /import\s*\{\s*pipeline\s+as\s+transformersPipeline\s*\}\s*from\s*["'][^"']+["'];/,
+    "const transformersPipeline = __orbitMoonshinePipelineFactory;"
+  );
 }
