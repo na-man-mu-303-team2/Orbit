@@ -202,6 +202,8 @@ apps/web/public/models/live-stt/
 pnpm --filter @orbit/web stt:model:prepare -- --source <model-dir> --runtime <wasm-runtime-dir>
 ```
 
+대형 `.onnx`, `.wasm`, `.data`, `.model`, `.vocab` artifact는 일반 git blob으로 커밋하지 않고 Git LFS로 추적합니다. 새로 clone한 환경에서는 `git lfs install` 후 `git lfs pull`로 실제 모델 파일을 내려받습니다.
+
 현재 준비 스크립트는 필수 runtime 파일 3개와 필수 모델 파일 4개를 복사하고, `manifest.json`에 `files` 메타데이터를 생성합니다.
 
 ## 8. 리허설 제품 로직 계약

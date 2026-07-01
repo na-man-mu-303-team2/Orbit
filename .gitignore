@@ -33,6 +33,5 @@ minio-data/
 postgres-data/
 redis-data/
 
-# Local extracted archives and STT model artifacts
+# Local extracted archives
 __MACOSX/
-sherpa-onnx-streaming-zipformer-korean-*/
