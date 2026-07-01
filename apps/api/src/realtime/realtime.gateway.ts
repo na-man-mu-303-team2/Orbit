@@ -131,7 +131,9 @@ export class RealtimeGateway
       payload
     });
 
-    this.server.to(event.roomId).emit("slide-changed", event);
+    this.server
+      .to(projectSocketRoomName(event.roomId))
+      .emit("slide-changed", event);
     return event;
   }
 
