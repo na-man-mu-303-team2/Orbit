@@ -612,6 +612,44 @@ describe("RehearsalWorkspace", () => {
     ]);
   });
 
+  it("normalizes Korean number words for live keyword matching", () => {
+    const slide = {
+      ...createDemoDeck().slides[0]!,
+      slideId: "slide_1",
+      keywords: [
+        {
+          keywordId: "kw_ratio",
+          text: "16%",
+          synonyms: [],
+          abbreviations: []
+        },
+        {
+          keywordId: "kw_count",
+          text: "30",
+          synonyms: [],
+          abbreviations: []
+        }
+      ]
+    };
+
+    const analysis = evaluateLiveTranscript(
+      slide,
+      "이번 실험은 십육 프로 개선됐고 삼십 명이 참여했습니다"
+    );
+
+    expect(normalizeLiveTranscriptText("십육 프로")).toBe("16%");
+    expect(normalizeLiveTranscriptText("십육 퍼센트")).toBe("16%");
+    expect(normalizeLiveTranscriptText("삼십")).toBe("30");
+    expect(normalizeLiveTranscriptText("좋은 영향과 공감")).toBe(
+      "좋은영향과공감"
+    );
+    expect(analysis.coverage).toBe(1);
+    expect(analysis.detectedKeywords.map((keyword) => keyword.keywordId)).toEqual([
+      "kw_ratio",
+      "kw_count"
+    ]);
+  });
+
   it("does not fuzzy-match unrelated Korean utterances into keyword coverage", () => {
     const slide = {
       ...createDemoDeck().slides[0]!,
