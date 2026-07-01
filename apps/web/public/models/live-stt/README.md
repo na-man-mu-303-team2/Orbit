@@ -408,6 +408,18 @@ pnpm --filter @orbit/web stt:canary:moonshine-debug -- \
 
 요약에는 segment count, zero-result count/rate, non-empty result rate, transcript latency, realtime factor, segment duration, audio level 분포가 포함되며 raw audio와 transcript 원문은 포함하지 않습니다.
 
+컷오버 직전에는 품질 gate, hosting 검증, canary 요약을 한 번에 집계합니다.
+
+```bash
+pnpm --filter @orbit/web stt:readiness:moonshine -- \
+  --quality-gate docs/spikes/moonshine-korean-asr-gate.json \
+  --hosting docs/spikes/moonshine-hosting-verification.json \
+  --canary docs/spikes/moonshine-canary-debug-summary.json \
+  --markdown-out docs/spikes/moonshine-cutover-readiness.md
+```
+
+이 명령은 quality gate가 `go`, hosting 검증이 `pass`, canary 요약이 `ok`일 때만 `ready`를 반환합니다. 증거가 빠졌거나 통과하지 못하면 `blocked`와 blocker 목록을 출력하고 non-zero로 종료합니다.
+
 기본 입력 음성은 macOS `Yuna` synthetic TTS입니다. 실제 리허설 wav를 쓰려면 `<fixture-id>.wav` 파일을 둔 디렉터리를 `--audio-dir <dir>`로 넘깁니다.
 
 prediction 항목 예시:

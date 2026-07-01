@@ -15,6 +15,7 @@ Implemented web pieces:
 - `stt:evaluate`: fixed Korean fixture evaluator for CER, keyword recall, false-trigger rate, and segment latency.
 - `stt:canary:moonshine-debug`: summarizes `[orbit-live-stt-worker]` debug logs into canary RTF/latency/audio-level statistics.
 - `stt:gate:moonshine`: compares a Moonshine measurement report against a sherpa baseline or explicit absolute thresholds and returns `go`, `no-go`, or `blocked`.
+- `stt:readiness:moonshine`: aggregates the quality gate, hosting verification, and canary summary into one cutover readiness report.
 - `stt:verify:moonshine-hosting`: checks a deployed web origin for cross-origin isolation headers and the required self-hosted Moonshine model assets.
 
 ## Current Go / No-Go
@@ -164,6 +165,18 @@ pnpm --filter @orbit/web stt:gate:moonshine -- \
 ```
 
 The gate refuses to return `go` unless the candidate report is from non-synthetic human rehearsal audio and each required metric has either a sherpa baseline or an explicit absolute threshold (`--min-keyword-recall`, `--max-false-trigger-rate`, `--max-average-latency-ms`). Candidate reports with `audioInput` metadata must use `audioInput.kind: "human-wav"`; older reports without metadata fall back to the `audioSource` synthetic-label check. When a sherpa baseline is provided, the candidate and baseline reports must use the same `fixturePath` and `audioSource`. Markdown output includes the blocked reason and missing criteria so release review can see why cutover remains blocked. This keeps the default-engine cutover blocked until the quality criteria are measurable on representative audio.
+
+Cutover readiness aggregator:
+
+```bash
+pnpm --filter @orbit/web stt:readiness:moonshine -- \
+  --quality-gate docs/spikes/moonshine-korean-asr-gate.json \
+  --hosting docs/spikes/moonshine-hosting-verification.json \
+  --canary docs/spikes/moonshine-canary-debug-summary.json \
+  --markdown-out docs/spikes/moonshine-cutover-readiness.md
+```
+
+The readiness report returns `ready` only when the quality gate is `go`, hosting verification is `pass`, and the canary debug summary is `ok`. Missing or non-passing evidence returns `blocked` and exits non-zero, so this should be the final release-review check before changing the default engine.
 
 ## 2026-07-01 Measurements
 

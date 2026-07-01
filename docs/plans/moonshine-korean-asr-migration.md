@@ -5,7 +5,7 @@
 **짝 문서:** [spec/ADR](../specs/moonshine-korean-asr-migration.md)
 **전략:** 신규 `MoonshineLiveSttAdapter`를 기능 플래그 뒤에 추가 → 실측(정확도·지연) → canary → 컷오버 → sherpa 제거. 기존 `LiveSttAdapter` 계약을 유지해 리허설 제품 로직·`packages/shared` 스키마는 변경하지 않는다.
 
-**현재 구현 메모(2026-07-01):** M2~M4와 M5 하네스/품질 gate CLI, M6 엔진 플래그/자가호스팅 옵션·준비 스크립트/디버그 지표는 구현됐다. M0는 사용자 승인 완료로 기록한다. Synthetic macOS `Yuna` fixture로 WebGPU/WASM 측정도 수행했으나 품질 게이트는 실패했다. `stt:evaluate --out`은 수동 수집한 sherpa prediction JSON을 gate-compatible baseline report로 변환할 수 있고, Moonshine 측정 report는 `audioInput.kind`로 synthetic TTS와 실제 wav 입력을 구분한다. 실제 사람 음성 fixture, staging canary, 기본 엔진 컷오버는 아직 완료 조건이 충족되지 않았다.
+**현재 구현 메모(2026-07-01):** M2~M4와 M5 하네스/품질 gate CLI, M6 엔진 플래그/자가호스팅 옵션·준비 스크립트/디버그 지표는 구현됐다. M0는 사용자 승인 완료로 기록한다. Synthetic macOS `Yuna` fixture로 WebGPU/WASM 측정도 수행했으나 품질 게이트는 실패했다. `stt:evaluate --out`은 수동 수집한 sherpa prediction JSON을 gate-compatible baseline report로 변환할 수 있고, Moonshine 측정 report는 `audioInput.kind`로 synthetic TTS와 실제 wav 입력을 구분한다. `stt:readiness:moonshine`은 품질 gate, hosting 검증, canary 요약을 최종 컷오버 readiness report로 집계한다. 실제 사람 음성 fixture, staging canary, 기본 엔진 컷오버는 아직 완료 조건이 충족되지 않았다.
 
 ---
 
@@ -79,7 +79,7 @@ M0는 M6(프로덕션 노출)의 **차단 선행조건**. M1~M5는 M0와 병행 
 - [x] 회귀 없음 확인(제품 로직 단위 테스트, typecheck, build). E2E 스모크는 별도 실행 필요.
 
 ### M7 — 컷오버 & 정리
-- [ ] 인수 조건 충족 확인 후 기본 엔진을 Moonshine로 전환. 사용자 결정에 따라 실측 전에는 `sherpa` 기본값을 유지한다. `stt:gate:moonshine`이 `go`를 반환하기 전에는 컷오버하지 않는다.
+- [ ] 인수 조건 충족 확인 후 기본 엔진을 Moonshine로 전환. 사용자 결정에 따라 실측 전에는 `sherpa` 기본값을 유지한다. `stt:gate:moonshine`이 `go`를 반환하고 `stt:readiness:moonshine`이 `ready`를 반환하기 전에는 컷오버하지 않는다.
 - [x] sherpa 어댑터/워커/매니페스트 보존 or 제거 결정: 단기 fallback 유지.
 - [x] `docs/specs/live-stt-keyword-control.md`, `on-device-stt.md` 등 현행 문서 업데이트.
 

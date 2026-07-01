@@ -14,6 +14,7 @@
     "stt:measure:moonshine": "node scripts/measure-moonshine-browser-fixtures.mjs",
     "stt:model:prepare:moonshine": "node scripts/prepare-moonshine-live-stt-model.mjs",
     "stt:model:prepare": "node scripts/prepare-live-stt-model.mjs",
+    "stt:readiness:moonshine": "node scripts/evaluate-moonshine-readiness.mjs",
     "stt:verify:moonshine-hosting": "node scripts/verify-moonshine-live-stt-hosting.mjs",
     "test": "vitest run --passWithNoTests",
     "typecheck": "corepack pnpm --filter @orbit/shared build && tsc -p tsconfig.json --noEmit"
