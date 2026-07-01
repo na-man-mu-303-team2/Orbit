@@ -11,6 +11,14 @@ COMPOSE=(
   -f docker-compose.staging.yml
 )
 
+check_web_headers() {
+  local headers
+  headers="$(curl -fsSI http://127.0.0.1/)" || return 1
+  printf '%s\n' "$headers" | tr -d '\r' | grep -qi '^Cross-Origin-Opener-Policy: same-origin$' || return 1
+  printf '%s\n' "$headers" | tr -d '\r' | grep -qi '^Cross-Origin-Embedder-Policy: require-corp$' || return 1
+  printf '%s\n' "$headers" | tr -d '\r' | grep -qi '^Cross-Origin-Resource-Policy: same-origin$' || return 1
+}
+
 cd "$APP_DIR"
 
 exec 9>"$LOCK_FILE"
@@ -29,7 +37,7 @@ doppler run -- "${COMPOSE[@]}" run --rm api corepack pnpm db:migration:run
 doppler run -- "${COMPOSE[@]}" up -d
 
 for attempt in $(seq 1 30); do
-  if curl -fsS http://127.0.0.1/api/health >/dev/null && curl -fsS http://127.0.0.1/ >/dev/null; then
+  if curl -fsS http://127.0.0.1/api/health >/dev/null && check_web_headers; then
     doppler run -- "${COMPOSE[@]}" ps
     exit 0
   fi

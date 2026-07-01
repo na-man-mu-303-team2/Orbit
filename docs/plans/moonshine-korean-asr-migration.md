@@ -75,7 +75,7 @@ M0는 M6(프로덕션 노출)의 **차단 선행조건**. M1~M5는 M0와 병행 
 - [x] 엔진 선택 플래그 `orbit.liveStt.engine`(`localStorage`) + `createDefaultLiveSttAdapter` 분기.
 - [x] Moonshine canary 디버그 지표 수집 경로: `orbit.liveStt.debugLatency=1`에서 segment RTF, 전사 지연, 세그먼트 길이, 오디오 크기 통계를 worker debug log로 기록한다.
 - [ ] 스테이징 canary: 내부 사용자 대상 Moonshine 활성화, 디버그 지표와 A2 하네스 기반 recall 수집.
-- [ ] COOP/COEP 등 서빙 요건 점검(WebGPU/WASM 스레드), 자가 호스팅 자산 배치. Vite dev/preview 헤더는 `viteConfig.test.ts`로 회귀 방지하지만 production/staging hosting 헤더와 실제 모델 자산 배치는 저장소에서 아직 검증하지 않는다.
+- [ ] COOP/COEP 등 서빙 요건 점검(WebGPU/WASM 스레드), 자가 호스팅 자산 배치. Vite dev/preview 헤더는 `viteConfig.test.ts`로 회귀 방지하고 개인 서버 staging 배포 스크립트는 내부 web 헤더를 확인한다. 다만 실제 public Nginx/CloudFront 응답과 모델 자산 배치는 환경에서 아직 검증하지 않는다.
 - [x] 회귀 없음 확인(제품 로직 단위 테스트, typecheck, build). E2E 스모크는 별도 실행 필요.
 
 ### M7 — 컷오버 & 정리

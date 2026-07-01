@@ -111,9 +111,27 @@ Nginx는 외부 요청을 받는 public entrypoint다.
 - `/assets/`: prefix를 제거한 뒤 `127.0.0.1:9000`으로 proxy
 - `/socket.io/`: websocket traffic을 `127.0.0.1:3000/socket.io/`로 proxy
 
+Live STT의 WebGPU/WASM 경로는 cross-origin isolation이 필요하다. `/` 응답에는 다음 헤더가 유지되어야 한다.
+
+```nginx
+add_header Cross-Origin-Opener-Policy "same-origin" always;
+add_header Cross-Origin-Embedder-Policy "require-corp" always;
+add_header Cross-Origin-Resource-Policy "same-origin" always;
+```
+
 `S3_PUBLIC_ENDPOINT=<SERVER_ORIGIN>/assets`를 사용하면 API가 asset URL을 `/assets/<bucket>/<key>` 형태로 반환한다. Nginx는 `/assets/` prefix를 제거해 MinIO의 path-style object URL인 `/<bucket>/<key>`로 전달해야 한다.
 
 예시:
+
+```nginx
+location / {
+  proxy_pass http://127.0.0.1:5173;
+  proxy_set_header Host $host;
+  add_header Cross-Origin-Opener-Policy "same-origin" always;
+  add_header Cross-Origin-Embedder-Policy "require-corp" always;
+  add_header Cross-Origin-Resource-Policy "same-origin" always;
+}
+```
 
 ```nginx
 location /assets/ {
@@ -176,6 +194,7 @@ exec /usr/bin/sudo -iu orbit /bin/bash -lc 'cd /var/www/orbit && ./infra/scripts
 ```bash
 curl -fsS http://127.0.0.1/api/health
 curl -I http://127.0.0.1/
+curl -fsSI http://127.0.0.1/ | grep -Ei 'Cross-Origin-(Opener|Embedder|Resource)-Policy'
 curl -I http://127.0.0.1:9000/minio/health/live
 doppler run -- docker compose -f docker-compose.yml -f docker-compose.staging.yml ps
 ```
