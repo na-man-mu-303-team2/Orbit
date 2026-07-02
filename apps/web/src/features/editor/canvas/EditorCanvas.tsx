@@ -4,16 +4,11 @@ import {
   type Deck,
   type DeckCanvas,
   type DeckElement,
-  type GroupElementProps,
   type Slide
 } from "@orbit/shared";
-import {
-  normalizeElementFrameDraft
-} from "../../../../../../packages/editor-core/src/patches/elementFrame";
 import type Konva from "konva";
 import type { Box as TransformerBox } from "konva/lib/shapes/Transformer";
 import {
-  Group as KonvaGroup,
   Layer as KonvaLayer,
   Rect as KonvaRect,
   Stage as KonvaStage,
@@ -25,7 +20,6 @@ import {
   CustomShapeInsertOverlay
 } from "./components/CustomShapeOverlays";
 import { EditableElementNode } from "./components/EditableElementNode";
-import { ElementNodeContent } from "./components/ElementNodeContent";
 import {
   type CanvasPoint
 } from "./custom-shape/geometry";
@@ -49,7 +43,6 @@ import {
 
 type KonvaComponent = ComponentType<any>;
 
-const Group = KonvaGroup as unknown as KonvaComponent;
 const Layer = KonvaLayer as unknown as KonvaComponent;
 const Rect = KonvaRect as unknown as KonvaComponent;
 const Stage = KonvaStage as unknown as KonvaComponent;
@@ -76,142 +69,6 @@ type CustomShapeEditDraft = {
   nodes: CustomShapeNode[];
   selectedNodeIndex: number | null;
 };
-
-function RenderOnlyElementNode(props: {
-  accentColor: string;
-  deck: Deck;
-  element: DeckElement;
-  frame: {
-    x: number;
-    y: number;
-    width: number;
-    height: number;
-    rotation: number;
-  };
-  slide: Slide;
-}) {
-  const { accentColor, deck, element, frame, slide } = props;
-
-  return (
-    <Group
-      listening={false}
-      opacity={element.visible ? element.opacity : 0}
-      rotation={frame.rotation}
-      x={frame.x}
-      y={frame.y}
-    >
-      <ElementNodeContent
-        accentColor={accentColor}
-        deck={deck}
-        element={element}
-        frame={frame}
-        slide={slide}
-      />
-    </Group>
-  );
-}
-
-export function HiddenSlideRenderStages(props: {
-  deck: Deck;
-  stageRefs: MutableRefObject<Map<string, Konva.Stage>>;
-}) {
-  const { deck, stageRefs } = props;
-
-  return (
-    <div
-      aria-hidden="true"
-      style={{
-        position: "fixed",
-        top: -10000,
-        left: -10000,
-        width: deck.canvas.width,
-        height: deck.canvas.height,
-        pointerEvents: "none",
-        opacity: 0,
-      }}
-    >
-      {deck.slides.map((slide) => {
-        const visibleElements = getRenderableSlideElements(slide, deck.canvas);
-
-        return (
-          <Stage
-            height={deck.canvas.height}
-            key={slide.slideId}
-            ref={(stage: Konva.Stage | null) => {
-              if (stage) {
-                stageRefs.current.set(slide.slideId, stage);
-              } else {
-                stageRefs.current.delete(slide.slideId);
-              }
-            }}
-            width={deck.canvas.width}
-          >
-            <Layer>
-              {visibleElements.map((element) => (
-                <RenderOnlyElementNode
-                  key={element.elementId}
-                  accentColor={slide.style.accentColor ?? deck.theme.accentColor}
-                  deck={deck}
-                  element={element}
-                  frame={{
-                    x: element.x,
-                    y: element.y,
-                    width: element.width,
-                    height: element.height,
-                    rotation: element.rotation,
-                  }}
-                  slide={slide}
-                />
-              ))}
-            </Layer>
-          </Stage>
-        );
-      })}
-    </div>
-  );
-}
-
-export function getRenderableSlideElements(slide: Slide, canvas: DeckCanvas) {
-  const groupedChildElementIds = new Set<string>();
-
-  for (const element of slide.elements) {
-    if (element.type !== "group") {
-      continue;
-    }
-
-    const groupProps = element.props as GroupElementProps;
-
-    for (const childElementId of groupProps.childElementIds) {
-      groupedChildElementIds.add(childElementId);
-    }
-  }
-
-  return [...slide.elements]
-    .filter((element) => !groupedChildElementIds.has(element.elementId))
-    .map((element) => normalizeRenderableElement(canvas, element))
-    .sort((left, right) => left.zIndex - right.zIndex);
-}
-
-function normalizeRenderableElement(
-  canvas: DeckCanvas,
-  element: DeckElement
-): DeckElement {
-  const frame = normalizeElementFrameDraft(canvas, element, {});
-
-  return {
-    ...element,
-    role: frame.role ?? undefined,
-    x: frame.x ?? element.x,
-    y: frame.y ?? element.y,
-    width: frame.width ?? element.width,
-    height: frame.height ?? element.height,
-    rotation: frame.rotation ?? element.rotation,
-    opacity: frame.opacity ?? element.opacity,
-    zIndex: frame.zIndex ?? element.zIndex,
-    locked: frame.locked ?? element.locked,
-    visible: frame.visible ?? element.visible
-  };
-}
 
 export function getNextElementZIndex(elements: DeckElement[]) {
   return (

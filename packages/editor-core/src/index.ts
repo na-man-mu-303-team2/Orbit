@@ -1,6 +1,16 @@
 import { Deck, deckSchema, demoIds } from "@orbit/shared";
 
 export { applyDeckPatch } from "./patches/applyPatch";
+export {
+  advanceAnimationRuntimeState,
+  buildAnimationSequence,
+  completeAnimationRuntimeState,
+  createInitialAnimationRuntimeState,
+  getActiveAnimationStep,
+  getAnimationStepKind,
+  resetAnimationRuntimeState,
+  resolveAnimationRenderState,
+} from "./animations/runtime";
 export type {
   ApplyDeckPatchError,
   ApplyDeckPatchErrorCode,
@@ -10,6 +20,15 @@ export type {
   ApplyDeckPatchSuccess,
   DeckPatchVersionMetadata
 } from "./patches/deckPatch";
+export type {
+  AnimationRenderState,
+  AnimationResolvedElementState,
+  AnimationRuntimeState,
+  AnimationRuntimeStatus,
+  AnimationSequence,
+  AnimationSequenceStep,
+  AnimationStepKind,
+} from "./animations/types";
 export {
   createElementFramePatch,
   normalizeElementFrameDraft
