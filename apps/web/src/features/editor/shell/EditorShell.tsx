@@ -7,12 +7,12 @@ import {
   getGroupChildElements,
   getGroupedSelectionBounds,
   createSlideId,
-  createUpdateElementPropsPatch
+  createUpdateElementPropsPatch,
 } from "../../../../../../packages/editor-core/src/index";
 import { applyDeckPatch } from "../../../../../../packages/editor-core/src/patches/applyPatch";
 import {
   createElementFramePatch,
-  normalizeElementFrameDraft
+  normalizeElementFrameDraft,
 } from "../../../../../../packages/editor-core/src/patches/elementFrame";
 import {
   appendDeckPatchResponseSchema,
@@ -23,56 +23,53 @@ import {
   maxAssetUploadSizeBytes,
   meResponseSchema,
   pptxImportJobResultSchema,
-  putDeckResponseSchema
+  putDeckResponseSchema,
 } from "@orbit/shared";
-import { createProject, fetchProjects, uploadProjectAsset } from "../../projects/ProjectAssetWorkspace";
+import {
+  createProject,
+  fetchProjects,
+  uploadProjectAsset,
+} from "../../projects/ProjectAssetWorkspace";
 import {
   normalizeEditorAssetUrl,
-  resolveEditorAssetUrl
+  resolveEditorAssetUrl,
 } from "../shared/editorAssetUrl";
 import {
   EditableCanvas,
   HiddenSlideRenderStages,
-  getRenderableSlideElements
+  getRenderableSlideElements,
 } from "../canvas/EditorCanvas";
 import {
   getCustomShapeAbsoluteNodes,
-  normalizeCustomShapeAbsoluteGeometry
+  normalizeCustomShapeAbsoluteGeometry,
 } from "../canvas/custom-shape/geometry";
-import {
-  EmptyCanvasState,
-  EmptyPanel
-} from "./components/EditorStateNotice";
+import { EmptyCanvasState, EmptyPanel } from "./components/EditorStateNotice";
 import { IdBadge } from "./components/EditorIdBadge";
 import {
   ElementSummary,
   InfoCard,
-  KeywordSummary
+  KeywordSummary,
 } from "./components/EditorDebugCards";
 import {
   KeywordDetail,
   KeywordHighlightedNotes,
-  KeywordList
+  KeywordList,
 } from "./components/KeywordInspector";
 import { EditorSaveControl } from "./components/EditorSaveControl";
-import {
-  ShareAccessModal
-} from "./components/ShareAccessModal";
+import { ShareAccessModal } from "./components/ShareAccessModal";
 import { SelectionQuickBar } from "./components/SelectionQuickBar";
 import {
   useEditorPersistenceState,
   type PatchProducer,
   type SaveErrorCode,
-  type SaveState
+  type SaveState,
 } from "./hooks/useEditorPersistenceState";
 import { useProjectShareAccess } from "./hooks/useProjectShareAccess";
-export {
-  EditorStateNotice
-} from "./components/EditorStateNotice";
+export { EditorStateNotice } from "./components/EditorStateNotice";
 export {
   mergeDeckIntoQueryCache,
   shouldApplyManualSaveResult,
-  shouldHydrateDeckFromQuery
+  shouldHydrateDeckFromQuery,
 } from "./utils/deckState";
 import type {
   ApplyAiSuggestionResponse,
@@ -89,7 +86,7 @@ import type {
   QualityReport,
   ShapeElementProps,
   Slide,
-  DeckApiErrorCode
+  DeckApiErrorCode,
 } from "@orbit/shared";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type Konva from "konva";
@@ -118,9 +115,13 @@ import {
   Sparkles,
   Type,
   Upload,
-  Wand2
+  Wand2,
 } from "lucide-react";
-import type { ChangeEvent, CSSProperties, PointerEvent as ReactPointerEvent } from "react";
+import type {
+  ChangeEvent,
+  CSSProperties,
+  PointerEvent as ReactPointerEvent,
+} from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal, flushSync } from "react-dom";
 import { io } from "socket.io-client";
@@ -133,18 +134,18 @@ import { MultiSelectionQuickBar } from "./components/MultiSelectionQuickBar";
 import {
   mergeDeckIntoQueryCache,
   shouldApplyManualSaveResult,
-  shouldHydrateDeckFromQuery
+  shouldHydrateDeckFromQuery,
 } from "./utils/deckState";
 import {
   createDistributeSelectionPatch,
-  type DistributeAxis
+  type DistributeAxis,
 } from "./utils/selectionDistribution";
 import { createThemeCascadePatch } from "./utils/themeCascadePatch";
 import "../editor-shell.css";
 
 export {
   getEditorValidationItems,
-  type EditorValidationItem
+  type EditorValidationItem,
 } from "../ai/quality/editorValidation";
 export { createDistributeSelectionPatch } from "./utils/selectionDistribution";
 
@@ -191,14 +192,14 @@ declare global {
           width: number;
           height: number;
           rotation: number;
-        }>
+        }>,
       ) => boolean;
       updateCurrentSlideStyle: (
         style: Partial<{
           backgroundColor: string | null;
           textColor: string | null;
           accentColor: string | null;
-        }>
+        }>,
       ) => boolean;
     };
   }
@@ -219,13 +220,16 @@ const defaultImageInsertFrame = {
   height: 240,
   width: 420,
   x: 260,
-  y: 220
+  y: 220,
 };
-const editorImageAccept = ".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp";
+const editorImageAccept =
+  ".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp";
 const editorImageMimeTypes = new Set(["image/jpeg", "image/png", "image/webp"]);
 const pptxMimeType =
   "application/vnd.openxmlformats-officedocument.presentationml.presentation";
-const pptxImportAccept = ".pptx,application/vnd.openxmlformats-officedocument.presentationml.presentation";
+const pptxImportAccept =
+  ".pptx,application/vnd.openxmlformats-officedocument.presentationml.presentation";
+const ooxmlSyncJobEventName = "orbit:ooxml-sync-job";
 
 type TopMenu = "file" | "resize" | "editMode" | "quickEdit" | "presentation";
 type SlidePanelView = "thumbnail" | "list";
@@ -303,9 +307,24 @@ type ElementFrameChange = {
 };
 type PptxImportState =
   | { status: "idle"; warnings: string[]; qualityReport: null; message: string }
-  | { status: "uploading" | "importing"; warnings: string[]; qualityReport: null; message: string }
-  | { status: "succeeded"; warnings: string[]; qualityReport: QualityReport; message: string }
-  | { status: "error"; warnings: string[]; qualityReport: null; message: string };
+  | {
+      status: "uploading" | "importing";
+      warnings: string[];
+      qualityReport: null;
+      message: string;
+    }
+  | {
+      status: "succeeded";
+      warnings: string[];
+      qualityReport: QualityReport;
+      message: string;
+    }
+  | {
+      status: "error";
+      warnings: string[];
+      qualityReport: null;
+      message: string;
+    };
 
 async function fetchHealth(): Promise<HealthResponse> {
   const response = await fetch("/api/health");
@@ -324,7 +343,12 @@ async function readResponseError(response: Response, fallbackMessage: string) {
 
   try {
     const payload = deckApiErrorSchema.parse(JSON.parse(text));
-    return new DeckRequestError(payload.message, response.status, payload.code, payload.details);
+    return new DeckRequestError(
+      payload.message,
+      response.status,
+      payload.code,
+      payload.details,
+    );
   } catch {
     return new DeckRequestError(text, response.status);
   }
@@ -335,7 +359,7 @@ class DeckRequestError extends Error {
     message: string,
     readonly status: number,
     readonly code?: DeckApiErrorCode,
-    readonly details: string[] = []
+    readonly details: string[] = [],
   ) {
     super(message);
     this.name = "DeckRequestError";
@@ -344,26 +368,27 @@ class DeckRequestError extends Error {
 
 function isDeckRequestErrorWithCode(
   error: unknown,
-  code: DeckApiErrorCode
+  code: DeckApiErrorCode,
 ): error is DeckRequestError {
   return error instanceof DeckRequestError && error.code === code;
 }
 
 function withSaveErrorCode(error: Error, saveErrorCode: SaveErrorCode) {
-  (error as Error & { saveErrorCode?: SaveErrorCode }).saveErrorCode = saveErrorCode;
+  (error as Error & { saveErrorCode?: SaveErrorCode }).saveErrorCode =
+    saveErrorCode;
   return error;
 }
 
 function resolvePatchInput(
   deck: Deck,
-  patchInput: DeckPatch | PatchProducer
+  patchInput: DeckPatch | PatchProducer,
 ): DeckPatch {
   return typeof patchInput === "function" ? patchInput(deck) : patchInput;
 }
 
 function buildPatchBatch(
   baseDeck: Deck,
-  patchInputs: (DeckPatch | PatchProducer)[]
+  patchInputs: (DeckPatch | PatchProducer)[],
 ): { patch: DeckPatch; deck: Deck } {
   let workingDeck = baseDeck;
   const operations: DeckPatch["operations"] = [];
@@ -373,12 +398,14 @@ function buildPatchBatch(
     const resolvedPatch = resolvePatchInput(workingDeck, patchInput);
     const nextPatch = {
       ...resolvedPatch,
-      baseVersion: workingDeck.version
+      baseVersion: workingDeck.version,
     } satisfies DeckPatch;
     const result = applyDeckPatch(workingDeck, nextPatch);
 
     if (!result.ok) {
-      throw new Error("최신 내용과 충돌해 저장할 수 없습니다. 다시 저장해 주세요.");
+      throw new Error(
+        "최신 내용과 충돌해 저장할 수 없습니다. 다시 저장해 주세요.",
+      );
     }
 
     operations.push(...nextPatch.operations);
@@ -395,9 +422,9 @@ function buildPatchBatch(
       deckId: baseDeck.deckId,
       baseVersion: baseDeck.version,
       operations,
-      source
+      source,
     },
-    deck: workingDeck
+    deck: workingDeck,
   };
 }
 
@@ -433,7 +460,7 @@ async function createSlideRenderFile(args: {
 }) {
   const pixelRatio = Math.max(1, 1 / args.stageScale);
   const stageCanvas = args.stage.toCanvas({
-    pixelRatio
+    pixelRatio,
   }) as HTMLCanvasElement;
   const canvas = document.createElement("canvas");
   canvas.width = args.deck.canvas.width;
@@ -456,7 +483,7 @@ async function createSlideRenderFile(args: {
     [blob],
     `slide-${String(args.slideNumber).padStart(2, "0")}-thumbnail-v${args.deck.version}.png`,
     {
-      type: "image/png"
+      type: "image/png",
     },
   );
 }
@@ -464,7 +491,7 @@ async function createSlideRenderFile(args: {
 async function drawSlideRenderBackgroundImage(
   context: CanvasRenderingContext2D,
   slide: Slide,
-  canvas: HTMLCanvasElement
+  canvas: HTMLCanvasElement,
 ) {
   const backgroundImage = slide.style.backgroundImage;
 
@@ -483,7 +510,7 @@ async function drawSlideRenderBackgroundImage(
     canvasWidth: canvas.width,
     fit: backgroundImage.fit,
     imageHeight: image.naturalHeight || image.height,
-    imageWidth: image.naturalWidth || image.width
+    imageWidth: image.naturalWidth || image.width,
   });
 
   context.save();
@@ -526,7 +553,7 @@ function getBackgroundImageDrawFrame(args: {
       height: canvasHeight,
       width: canvasWidth,
       x: 0,
-      y: 0
+      y: 0,
     };
   }
 
@@ -541,7 +568,7 @@ function getBackgroundImageDrawFrame(args: {
     height,
     width,
     x: (canvasWidth - width) / 2,
-    y: (canvasHeight - height) / 2
+    y: (canvasHeight - height) / 2,
   };
 }
 
@@ -582,7 +609,9 @@ function collectSlideAssetUrls(slide: Slide) {
 async function waitForSlideAssets(slide: Slide) {
   const assetUrls = collectSlideAssetUrls(slide);
 
-  const results = await Promise.all(assetUrls.map((url) => loadImageAsset(url)));
+  const results = await Promise.all(
+    assetUrls.map((url) => loadImageAsset(url)),
+  );
   return results.filter((result) => !result).length;
 }
 
@@ -639,7 +668,7 @@ function createSlideScopedUploadFile(
 function createSeedDeck(projectId: string): Deck {
   return {
     ...createDemoDeck(),
-    projectId
+    projectId,
   };
 }
 
@@ -659,15 +688,22 @@ async function fetchProjectDeck(projectId: string): Promise<Deck | null> {
 }
 
 function navigateToRehearsal(projectId: string) {
-  window.history.pushState({}, "", `/rehearsal/${encodeURIComponent(projectId)}`);
+  window.history.pushState(
+    {},
+    "",
+    `/rehearsal/${encodeURIComponent(projectId)}`,
+  );
   window.dispatchEvent(new PopStateEvent("popstate"));
 }
 
 function normalizeProjectPresenceUsers(
   event: ProjectPresenceEvent,
-  projectId: string
+  projectId: string,
 ): ProjectPresenceUser[] {
-  if (event.payload?.projectId !== projectId || !Array.isArray(event.payload.users)) {
+  if (
+    event.payload?.projectId !== projectId ||
+    !Array.isArray(event.payload.users)
+  ) {
     return [];
   }
 
@@ -676,7 +712,7 @@ function normalizeProjectPresenceUsers(
       typeof user?.id === "string" &&
       user.id.length > 0 &&
       typeof user.connectedAt === "string" &&
-      user.connectedAt.length > 0
+      user.connectedAt.length > 0,
   );
 }
 
@@ -739,12 +775,12 @@ async function putProjectDeck(projectId: string, deck: Deck): Promise<Deck> {
   const response = await fetch(`/api/v1/projects/${projectId}/deck`, {
     method: "PUT",
     headers: {
-      "content-type": "application/json"
+      "content-type": "application/json",
     },
     body: JSON.stringify({
       deck,
-      snapshotReason: "deck-replaced"
-    })
+      snapshotReason: "deck-replaced",
+    }),
   });
 
   if (!response.ok) {
@@ -757,16 +793,16 @@ async function putProjectDeck(projectId: string, deck: Deck): Promise<Deck> {
 
 async function appendProjectDeckPatch(
   projectId: string,
-  patch: DeckPatch
+  patch: DeckPatch,
 ): Promise<Deck> {
   const response = await fetch(`/api/v1/projects/${projectId}/deck/patches`, {
     method: "POST",
     headers: {
-      "content-type": "application/json"
+      "content-type": "application/json",
     },
     body: JSON.stringify({
-      patch
-    })
+      patch,
+    }),
   });
 
   if (!response.ok) {
@@ -774,7 +810,18 @@ async function appendProjectDeckPatch(
   }
 
   const payload = appendDeckPatchResponseSchema.parse(await response.json());
+  emitOoxmlSyncJob(payload.ooxmlSyncJob);
   return payload.deck;
+}
+
+function emitOoxmlSyncJob(job: Job | undefined) {
+  if (!job || typeof window === "undefined") {
+    return;
+  }
+
+  window.dispatchEvent(
+    new CustomEvent<Job>(ooxmlSyncJobEventName, { detail: job }),
+  );
 }
 
 async function fetchDeck(projectId: string): Promise<Deck> {
@@ -790,19 +837,21 @@ async function fetchDeck(projectId: string): Promise<Deck> {
 export async function createPptxImportJob(
   projectId: string,
   fileId: string,
-  fetcher: typeof fetch = fetch
+  fetcher: typeof fetch = fetch,
 ): Promise<Job> {
   const response = await fetcher(
     `/api/v1/projects/${encodeURIComponent(projectId)}/pptx-imports`,
     {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ fileId })
-    }
+      body: JSON.stringify({ fileId }),
+    },
   );
 
   if (!response.ok) {
-    throw new Error(await readPlainError(response, "PPTX import job creation failed"));
+    throw new Error(
+      await readPlainError(response, "PPTX import job creation failed"),
+    );
   }
 
   const payload = (await response.json()) as { job?: unknown };
@@ -812,7 +861,7 @@ export async function createPptxImportJob(
 export async function waitForPptxImportJob(
   jobId: string,
   fetcher: typeof fetch = fetch,
-  options: { pollIntervalMs?: number; timeoutMs?: number } = {}
+  options: { pollIntervalMs?: number; timeoutMs?: number } = {},
 ): Promise<Job> {
   const pollIntervalMs = options.pollIntervalMs ?? 1200;
   const timeoutMs = options.timeoutMs ?? 120_000;
@@ -822,7 +871,9 @@ export async function waitForPptxImportJob(
     const response = await fetcher(`/jobs/${encodeURIComponent(jobId)}`);
 
     if (!response.ok) {
-      throw new Error(await readPlainError(response, "PPTX import job fetch failed"));
+      throw new Error(
+        await readPlainError(response, "PPTX import job fetch failed"),
+      );
     }
 
     const job = jobSchema.parse(await response.json());
@@ -846,7 +897,7 @@ export async function uploadAndImportPptxTemplate(
     onPhase?: (phase: "uploading" | "importing") => void;
     pollIntervalMs?: number;
     timeoutMs?: number;
-  } = {}
+  } = {},
 ): Promise<PptxImportJobResult> {
   const validationMessage = getPptxImportValidationMessage(file);
   if (validationMessage) {
@@ -855,12 +906,21 @@ export async function uploadAndImportPptxTemplate(
 
   const fetcher = options.fetcher ?? fetch;
   options.onPhase?.("uploading");
-  const uploaded = await uploadProjectAsset(projectId, file, "pptx-import", fetcher);
+  const uploaded = await uploadProjectAsset(
+    projectId,
+    file,
+    "pptx-import",
+    fetcher,
+  );
   options.onPhase?.("importing");
-  const queuedJob = await createPptxImportJob(projectId, uploaded.fileId, fetcher);
+  const queuedJob = await createPptxImportJob(
+    projectId,
+    uploaded.fileId,
+    fetcher,
+  );
   const job = await waitForPptxImportJob(queuedJob.jobId, fetcher, {
     pollIntervalMs: options.pollIntervalMs,
-    timeoutMs: options.timeoutMs
+    timeoutMs: options.timeoutMs,
   });
 
   if (job.status === "failed") {
@@ -879,9 +939,11 @@ function delay(ms: number) {
   return new Promise<void>((resolve) => setTimeout(resolve, ms));
 }
 
-async function fetchEditorSessionDebug(): Promise<Exclude<EditorSessionDebugState, { status: "idle" | "loading" | "error" }>> {
+async function fetchEditorSessionDebug(): Promise<
+  Exclude<EditorSessionDebugState, { status: "idle" | "loading" | "error" }>
+> {
   const response = await fetch("/api/v1/auth/me", {
-    credentials: "include"
+    credentials: "include",
   });
 
   if (!response.ok) {
@@ -894,7 +956,7 @@ async function fetchEditorSessionDebug(): Promise<Exclude<EditorSessionDebugStat
     email: session.user.email,
     expiresAt: session.expiresAt,
     status: "ready",
-    userId: session.user.userId
+    userId: session.user.userId,
   };
 }
 
@@ -905,23 +967,30 @@ export function EditorShell(props: { projectId?: string }) {
   const [isDataViewOpen, setIsDataViewOpen] = useState(false);
   const [isRightPanelOpen, setIsRightPanelOpen] = useState(true);
   const [isSlidesPaneCollapsed, setIsSlidesPaneCollapsed] = useState(false);
-  const [slidesPaneWidth, setSlidesPaneWidth] = useState(defaultSlidesPaneWidth);
+  const [slidesPaneWidth, setSlidesPaneWidth] = useState(
+    defaultSlidesPaneWidth,
+  );
   const [rightPaneWidth, setRightPaneWidth] = useState(defaultRightPaneWidth);
-  const [projectPresenceUsers, setProjectPresenceUsers] = useState<ProjectPresenceUser[]>([]);
+  const [projectPresenceUsers, setProjectPresenceUsers] = useState<
+    ProjectPresenceUser[]
+  >([]);
   const [isPresenceDebugOpen, setIsPresenceDebugOpen] = useState(false);
   const [isAudienceLinkModalOpen, setIsAudienceLinkModalOpen] = useState(false);
   const [lastPresenceAt, setLastPresenceAt] = useState<string | null>(null);
   const [socketErrorMessage, setSocketErrorMessage] = useState("");
   const [socketId, setSocketId] = useState("");
-  const [socketStatus, setSocketStatus] = useState<EditorSocketStatus>("disconnected");
+  const [socketStatus, setSocketStatus] =
+    useState<EditorSocketStatus>("disconnected");
   const [sessionDebug, setSessionDebug] = useState<EditorSessionDebugState>({
     message: "세션 정보를 아직 조회하지 않았습니다.",
-    status: "idle"
+    status: "idle",
   });
   const [slidePanelView, setSlidePanelView] =
     useState<SlidePanelView>("thumbnail");
   const [showIds, setShowIds] = useState(false);
-  const [selectedKeywordId, setSelectedKeywordId] = useState<string | null>(null);
+  const [selectedKeywordId, setSelectedKeywordId] = useState<string | null>(
+    null,
+  );
   const [selectedElementIds, setSelectedElementIds] = useState<string[]>([]);
   const [activeTopMenu, setActiveTopMenu] = useState<TopMenu | null>(null);
   const [lastPatchLabel, setLastPatchLabel] = useState("편집 없음");
@@ -940,7 +1009,7 @@ export function EditorShell(props: { projectId?: string }) {
     status: "idle",
     warnings: [],
     qualityReport: null,
-    message: ""
+    message: "",
   });
   const [isRehearsalPreparing, setIsRehearsalPreparing] = useState(false);
   const [undoStack, setUndoStack] = useState<HistoryEntry[]>([]);
@@ -952,24 +1021,27 @@ export function EditorShell(props: { projectId?: string }) {
   const copiedElementRef = useRef<ElementClipboardState | null>(null);
   const editorStageRef = useRef<Konva.Stage | null>(null);
   const slideRenderStageRefs = useRef(new Map<string, Konva.Stage>());
-  const undoRedoPersistTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const undoRedoPersistTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
   const [renderingDeck, setRenderingDeck] = useState<Deck | null>(null);
+  const [ooxmlSyncJob, setOoxmlSyncJob] = useState<Job | null>(null);
 
   const health = useQuery({
     queryKey: ["health"],
     queryFn: fetchHealth,
-    retry: false
+    retry: false,
   });
 
   const deckQuery = useQuery({
     queryKey: ["deck", projectId],
     queryFn: () => fetchDeck(projectId),
-    retry: false
+    retry: false,
   });
 
   useEffect(() => {
     const socket: ClientSocket = io({
-      withCredentials: true
+      withCredentials: true,
     });
     setSocketStatus("connecting");
     setSocketErrorMessage("");
@@ -1037,7 +1109,7 @@ export function EditorShell(props: { projectId?: string }) {
     let isCancelled = false;
     setSessionDebug({
       message: "세션 정보를 불러오는 중입니다.",
-      status: "loading"
+      status: "loading",
     });
     void fetchEditorSessionDebug()
       .then((session) => {
@@ -1049,7 +1121,7 @@ export function EditorShell(props: { projectId?: string }) {
         if (!isCancelled) {
           setSessionDebug({
             message: toEditorErrorMessage(error),
-            status: "error"
+            status: "error",
           });
         }
       });
@@ -1058,6 +1130,48 @@ export function EditorShell(props: { projectId?: string }) {
       isCancelled = true;
     };
   }, [isPresenceDebugOpen]);
+
+  useEffect(() => {
+    function handleOoxmlSyncJob(event: Event) {
+      const job = (event as CustomEvent<Job>).detail;
+      setOoxmlSyncJob(jobSchema.parse(job));
+    }
+
+    window.addEventListener(ooxmlSyncJobEventName, handleOoxmlSyncJob);
+    return () =>
+      window.removeEventListener(ooxmlSyncJobEventName, handleOoxmlSyncJob);
+  }, []);
+
+  useEffect(() => {
+    if (
+      !ooxmlSyncJob ||
+      ["succeeded", "failed"].includes(ooxmlSyncJob.status)
+    ) {
+      return;
+    }
+
+    let isCancelled = false;
+    const intervalId = window.setInterval(() => {
+      void fetch(`/jobs/${encodeURIComponent(ooxmlSyncJob.jobId)}`)
+        .then(async (response) => {
+          if (!response.ok) {
+            return null;
+          }
+          return jobSchema.parse(await response.json());
+        })
+        .then((job) => {
+          if (!isCancelled && job) {
+            setOoxmlSyncJob(job);
+          }
+        })
+        .catch(() => undefined);
+    }, 1800);
+
+    return () => {
+      isCancelled = true;
+      window.clearInterval(intervalId);
+    };
+  }, [ooxmlSyncJob]);
 
   const loadedDeck = deckQuery.data ?? fallbackDeck;
   const [deck, setDeck] = useState<Deck>(loadedDeck);
@@ -1080,7 +1194,7 @@ export function EditorShell(props: { projectId?: string }) {
     setSaveError,
     setLastSavedAt,
     setSaveState,
-    workingDeckRef
+    workingDeckRef,
   } = useEditorPersistenceState(loadedDeck);
   const {
     canManageShare,
@@ -1102,11 +1216,11 @@ export function EditorShell(props: { projectId?: string }) {
     shareInviteEmail,
     shareInviteRole,
     shareMembers,
-    shareRequests
+    shareRequests,
   } = useProjectShareAccess({
     projectId: deckQuery.data?.projectId ?? projectId,
     toErrorMessage: toEditorErrorMessage,
-    workspaceId: demoIds.workspaceId
+    workspaceId: demoIds.workspaceId,
   });
   const imageUploadTargetRef = useRef<ImageUploadTarget | null>(null);
   const resolvedUploadProjectIdRef = useRef<string | null>(null);
@@ -1124,8 +1238,9 @@ export function EditorShell(props: { projectId?: string }) {
     isDeckError,
     isDeckLoading,
     isUsingFallbackDeck,
-    saveState
+    saveState,
   });
+  const ooxmlSyncStatus = getOoxmlSyncStatus(ooxmlSyncJob);
   const visibleElements = currentSlide
     ? getRenderableSlideElements(currentSlide, deck.canvas)
     : [];
@@ -1134,38 +1249,45 @@ export function EditorShell(props: { projectId?: string }) {
     () =>
       currentSlide
         ? [...currentSlide.animations].sort(
-            (left, right) => left.order - right.order
+            (left, right) => left.order - right.order,
           )
         : [],
-    [currentSlide]
+    [currentSlide],
   );
   const currentSlideValidationItems = useMemo(
     () => (currentSlide ? getEditorValidationItems(deck, currentSlide) : []),
-    [currentSlide, deck]
+    [currentSlide, deck],
   );
   const selectedKeyword =
     currentSlide?.keywords.find(
-      (keyword) => keyword.keywordId === selectedKeywordId
+      (keyword) => keyword.keywordId === selectedKeywordId,
     ) ?? null;
   const selectedElementId = selectedElementIds.at(-1) ?? null;
   const selectedElements = visibleElements.filter((element) =>
-    selectedElementIds.includes(element.elementId)
+    selectedElementIds.includes(element.elementId),
   );
   const selectedElement =
     selectedElementIds.length === 1
-      ? selectedElements.find((element) => element.elementId === selectedElementId) ?? null
+      ? (selectedElements.find(
+          (element) => element.elementId === selectedElementId,
+        ) ?? null)
       : null;
   const isCustomShapeEditingSelection =
     selectedElement?.type === "customShape" &&
     selectedElement.elementId === customShapeEditElementId;
   const isDev = import.meta.env.DEV;
   const fileMenuItems = [
-    { action: "new", icon: FolderPlus, label: "새 프레젠테이션", meta: "빈 덱" },
+    {
+      action: "new",
+      icon: FolderPlus,
+      label: "새 프레젠테이션",
+      meta: "빈 덱",
+    },
     {
       action: "import",
       icon: Upload,
       label: "PPTX 가져오기",
-      meta: pptxImportMenuMeta(pptxImportState)
+      meta: pptxImportMenuMeta(pptxImportState),
     },
     {
       action: "save",
@@ -1175,42 +1297,62 @@ export function EditorShell(props: { projectId?: string }) {
         ? getSaveErrorStatusLabel(saveErrorCode)
         : deckQuery.data
           ? saveStatusLabel
-          : "demo fallback"
-    }
+          : "demo fallback",
+    },
   ];
   const exportMenuItems = [
     { icon: Download, label: "PPTX 내보내기" },
     { icon: Download, label: "PDF 내보내기" },
     { icon: Download, label: "PNG 내보내기" },
-    { icon: Download, label: "JSON 백업 내보내기" }
+    { icon: Download, label: "JSON 백업 내보내기" },
   ];
   const resizeMenuItems = [
     {
       label: "와이드 16:9",
       meta: "1920 × 1080",
-      active: deck.canvas.preset === "wide-16-9"
+      active: deck.canvas.preset === "wide-16-9",
     },
     {
       label: "표준 4:3",
       meta: "1024 × 768",
-      active: deck.canvas.preset === "standard-4-3"
-    }
+      active: deck.canvas.preset === "standard-4-3",
+    },
   ];
   const editModeItems = [
     { label: "편집 중", meta: "텍스트와 오브젝트 수정", active: true },
     { label: "보기 전용", meta: "슬라이드 탐색만" },
-    { label: "검토", meta: "코멘트 중심" }
+    { label: "검토", meta: "코멘트 중심" },
   ];
   const quickEditItems = [
     { icon: PenLine, label: "슬라이드 제목 수정" },
     { icon: FileText, label: "발표 메모 편집" },
-    { icon: Wand2, label: "선택 요소 속성" }
+    { icon: Wand2, label: "선택 요소 속성" },
   ];
   const presentationItems = [
-    { action: "present", icon: Presentation, label: "발표 시작", meta: "현재 슬라이드부터" },
-    { action: "presenter-view", icon: MonitorPlay, label: "발표자 보기", meta: "메모와 타이머 포함" },
-    { action: "rehearsal", icon: Sparkles, label: "리허설 시작", meta: "키워드 체크" },
-    { action: "audience-link", icon: Share2, label: "청중 링크/QR", meta: "공유 준비" }
+    {
+      action: "present",
+      icon: Presentation,
+      label: "발표 시작",
+      meta: "현재 슬라이드부터",
+    },
+    {
+      action: "presenter-view",
+      icon: MonitorPlay,
+      label: "발표자 보기",
+      meta: "메모와 타이머 포함",
+    },
+    {
+      action: "rehearsal",
+      icon: Sparkles,
+      label: "리허설 시작",
+      meta: "키워드 체크",
+    },
+    {
+      action: "audience-link",
+      icon: Share2,
+      label: "청중 링크/QR",
+      meta: "공유 준비",
+    },
   ] as const;
 
   useEffect(() => {
@@ -1225,7 +1367,7 @@ export function EditorShell(props: { projectId?: string }) {
         currentDeck: workingDeckRef.current,
         nextDeck: persistedDeck,
         hasHydratedPersistedDeck: hasHydratedPersistedBaseRef.current,
-        hasLocalOptimisticChanges: hasUnackedLocalChangesRef.current
+        hasLocalOptimisticChanges: hasUnackedLocalChangesRef.current,
       })
     ) {
       return;
@@ -1269,7 +1411,7 @@ export function EditorShell(props: { projectId?: string }) {
     setCustomShapeEditElementId(null);
     setElementContextMenu(null);
     setLastPatchLabel(
-      `${response.changeRecord.operations[0]?.type ?? "ai suggestion"} · v${response.deck.version}`
+      `${response.changeRecord.operations[0]?.type ?? "ai suggestion"} · v${response.deck.version}`,
     );
     setSaveState("auto-saved");
     setSaveError(null, null);
@@ -1285,16 +1427,16 @@ export function EditorShell(props: { projectId?: string }) {
 
   function acknowledgePersistedDeckSnapshot(
     snapshotDeck: Deck,
-    persistedDeck: Deck
+    persistedDeck: Deck,
   ) {
     queryClient.setQueryData(["deck", projectId], (current?: Deck) =>
-      mergeDeckIntoQueryCache(current, persistedDeck)
+      mergeDeckIntoQueryCache(current, persistedDeck),
     );
 
     if (
       shouldApplyManualSaveResult({
         snapshotDeck,
-        currentDeck: workingDeckRef.current
+        currentDeck: workingDeckRef.current,
       })
     ) {
       applyPersistedDeck(persistedDeck);
@@ -1310,7 +1452,7 @@ export function EditorShell(props: { projectId?: string }) {
 
   async function syncSlideRenderAssets(
     activeProjectId: string,
-    sourceDeck: Deck
+    sourceDeck: Deck,
   ) {
     if (sourceDeck.slides.length === 0) {
       return {
@@ -1355,7 +1497,7 @@ export function EditorShell(props: { projectId?: string }) {
             slide.order || index + 1,
             "thumbnail",
           ),
-          "thumbnail"
+          "thumbnail",
         );
 
         slide.thumbnailUrl = normalizeEditorAssetUrl(uploaded.url);
@@ -1374,7 +1516,8 @@ export function EditorShell(props: { projectId?: string }) {
   }
 
   async function handleSaveDeck() {
-    const activeProjectId = workingDeckRef.current.projectId || deckQuery.data?.projectId;
+    const activeProjectId =
+      workingDeckRef.current.projectId || deckQuery.data?.projectId;
 
     if (!activeProjectId) {
       setSaveState("error");
@@ -1386,7 +1529,9 @@ export function EditorShell(props: { projectId?: string }) {
     setSaveError(null, null);
     setActiveTopMenu(null);
 
-    const deckSnapshot = structuredClone(normalizeDeckAssetUrls(workingDeckRef.current));
+    const deckSnapshot = structuredClone(
+      normalizeDeckAssetUrls(workingDeckRef.current),
+    );
 
     try {
       await saveQueueRef.current.catch(() => undefined);
@@ -1399,7 +1544,7 @@ export function EditorShell(props: { projectId?: string }) {
       try {
         const renderResult = await syncSlideRenderAssets(
           activeProjectId,
-          finalDeck
+          finalDeck,
         );
 
         finalDeck = await putProjectDeck(activeProjectId, renderResult.deck);
@@ -1427,7 +1572,10 @@ export function EditorShell(props: { projectId?: string }) {
 
     if (isDeckLoading || !deckQuery.data) {
       setSaveState("auto-pending");
-      setSaveError("rehearsal-blocked", "발표 자료를 불러온 뒤 리허설을 시작할 수 있습니다.");
+      setSaveError(
+        "rehearsal-blocked",
+        "발표 자료를 불러온 뒤 리허설을 시작할 수 있습니다.",
+      );
       return;
     }
 
@@ -1449,19 +1597,26 @@ export function EditorShell(props: { projectId?: string }) {
     try {
       await saveQueueRef.current.catch(() => undefined);
 
-      const deckSnapshot = structuredClone(normalizeDeckAssetUrls(workingDeckRef.current));
+      const deckSnapshot = structuredClone(
+        normalizeDeckAssetUrls(workingDeckRef.current),
+      );
       const persistedDeck = await putProjectDeck(activeProjectId, deckSnapshot);
       acknowledgePersistedDeckSnapshot(deckSnapshot, persistedDeck);
-      const renderResult = await syncSlideRenderAssets(activeProjectId, persistedDeck);
+      const renderResult = await syncSlideRenderAssets(
+        activeProjectId,
+        persistedDeck,
+      );
       setLastSavedAt(new Date().toISOString());
 
       if (
         !shouldApplyManualSaveResult({
           snapshotDeck: deckSnapshot,
-          currentDeck: workingDeckRef.current
+          currentDeck: workingDeckRef.current,
         })
       ) {
-        throw new Error("리허설 준비 중 편집 내용이 변경되었습니다. 다시 시작해 주세요.");
+        throw new Error(
+          "리허설 준비 중 편집 내용이 변경되었습니다. 다시 시작해 주세요.",
+        );
       }
 
       const finalDeck =
@@ -1472,9 +1627,9 @@ export function EditorShell(props: { projectId?: string }) {
               operations: renderResult.deck.slides.map((slide) => ({
                 slideId: slide.slideId,
                 thumbnailUrl: slide.thumbnailUrl,
-                type: "update_slide" as const
+                type: "update_slide" as const,
               })),
-              source: "system"
+              source: "system",
             })
           : persistedDeck;
 
@@ -1503,12 +1658,13 @@ export function EditorShell(props: { projectId?: string }) {
     setSaveState("auto-saving");
     isSaveFlushInFlightRef.current = true;
 
-    const activeProjectId = deckQuery.data?.projectId ?? workingDeckRef.current.projectId;
+    const activeProjectId =
+      deckQuery.data?.projectId ?? workingDeckRef.current.projectId;
 
     if (!activeProjectId) {
       throw withSaveErrorCode(
         new Error("저장할 프로젝트를 찾지 못했습니다."),
-        "missing-project"
+        "missing-project",
       );
     }
 
@@ -1516,8 +1672,10 @@ export function EditorShell(props: { projectId?: string }) {
 
     if (!basePersistedDeck) {
       throw withSaveErrorCode(
-        new Error("최신 저장 상태를 찾지 못했습니다. 다시 불러온 뒤 저장해 주세요."),
-        "missing-persisted-base"
+        new Error(
+          "최신 저장 상태를 찾지 못했습니다. 다시 불러온 뒤 저장해 주세요.",
+        ),
+        "missing-persisted-base",
       );
     }
 
@@ -1528,7 +1686,10 @@ export function EditorShell(props: { projectId?: string }) {
       let persistedDeck: Deck;
 
       try {
-        persistedDeck = await appendProjectDeckPatch(activeProjectId, buildResult.patch);
+        persistedDeck = await appendProjectDeckPatch(
+          activeProjectId,
+          buildResult.patch,
+        );
       } catch (error) {
         if (!isDeckRequestErrorWithCode(error, "STALE_BASE_VERSION")) {
           throw error;
@@ -1537,20 +1698,25 @@ export function EditorShell(props: { projectId?: string }) {
         const latestDeck = await fetchProjectDeck(activeProjectId);
 
         if (!latestDeck) {
-          throw new Error("최신 저장 상태를 다시 불러오지 못했습니다. 다시 시도해 주세요.");
+          throw new Error(
+            "최신 저장 상태를 다시 불러오지 못했습니다. 다시 시도해 주세요.",
+          );
         }
 
         recoveredConflict = true;
         persistedBaseDeckRef.current = latestDeck;
         buildResult = buildPatchBatch(latestDeck, batchInputs);
-        persistedDeck = await appendProjectDeckPatch(activeProjectId, buildResult.patch);
+        persistedDeck = await appendProjectDeckPatch(
+          activeProjectId,
+          buildResult.patch,
+        );
       }
 
       persistedBaseDeckRef.current = persistedDeck;
       setLastSavedAt(new Date().toISOString());
 
       queryClient.setQueryData(["deck", projectId], (current?: Deck) =>
-        mergeDeckIntoQueryCache(current, persistedDeck)
+        mergeDeckIntoQueryCache(current, persistedDeck),
       );
 
       if (persistedDeck.version >= workingDeckRef.current.version) {
@@ -1561,7 +1727,10 @@ export function EditorShell(props: { projectId?: string }) {
       if (recoveredConflict && error instanceof Error) {
         withSaveErrorCode(error, "conflict-recovery-failed");
       }
-      pendingPatchInputsRef.current = [...batchInputs, ...pendingPatchInputsRef.current];
+      pendingPatchInputsRef.current = [
+        ...batchInputs,
+        ...pendingPatchInputsRef.current,
+      ];
       throw error;
     }
   }
@@ -1578,20 +1747,24 @@ export function EditorShell(props: { projectId?: string }) {
       saveQueueRef.current = saveQueueRef.current
         .catch(() => undefined)
         .then(async () => {
-          const activeProjectId = deckQuery.data?.projectId ?? workingDeckRef.current.projectId;
+          const activeProjectId =
+            deckQuery.data?.projectId ?? workingDeckRef.current.projectId;
 
           if (!activeProjectId) {
             throw withSaveErrorCode(
               new Error("저장할 프로젝트를 찾지 못했습니다."),
-              "missing-project"
+              "missing-project",
             );
           }
 
           setSaveState("auto-saving");
           const snapshotDeck = structuredClone(
-            normalizeDeckAssetUrls(workingDeckRef.current)
+            normalizeDeckAssetUrls(workingDeckRef.current),
           );
-          const persistedDeck = await putProjectDeck(activeProjectId, snapshotDeck);
+          const persistedDeck = await putProjectDeck(
+            activeProjectId,
+            snapshotDeck,
+          );
           applyPersistedDeck(persistedDeck);
           setLastSavedAt(new Date().toISOString());
           setSaveState("auto-saved");
@@ -1602,8 +1775,9 @@ export function EditorShell(props: { projectId?: string }) {
           setLastPatchLabel(`저장 실패 · ${toEditorErrorMessage(error)}`);
           setSaveState("error");
           setSaveError(
-            (error as { saveErrorCode?: SaveErrorCode })?.saveErrorCode ?? "auto-save-failed",
-            toEditorErrorMessage(error)
+            (error as { saveErrorCode?: SaveErrorCode })?.saveErrorCode ??
+              "auto-save-failed",
+            toEditorErrorMessage(error),
           );
           void deckQuery.refetch();
         })
@@ -1616,7 +1790,7 @@ export function EditorShell(props: { projectId?: string }) {
 
   function commitPatch(
     patchInput: DeckPatch | PatchProducer,
-    baseDeck: Deck = workingDeckRef.current
+    baseDeck: Deck = workingDeckRef.current,
   ) {
     const patch = resolvePatchInput(baseDeck, patchInput);
     const result = applyDeckPatch(baseDeck, patch);
@@ -1631,12 +1805,12 @@ export function EditorShell(props: { projectId?: string }) {
     setSaveError(null, null);
     setUndoStack((current) => [
       ...current.slice(-49),
-      { deck: baseDeck, slideIndex: currentSlideIndex }
+      { deck: baseDeck, slideIndex: currentSlideIndex },
     ]);
     setRedoStack([]);
     setDeck(result.deck);
     setLastPatchLabel(
-      `${result.changeRecord.operations[0]?.type ?? "patch"} · v${result.metadata.nextVersion}`
+      `${result.changeRecord.operations[0]?.type ?? "patch"} · v${result.metadata.nextVersion}`,
     );
 
     if (!deckQuery.data?.projectId) {
@@ -1644,7 +1818,7 @@ export function EditorShell(props: { projectId?: string }) {
     }
 
     queryClient.setQueryData(["deck", projectId], (current?: Deck) =>
-      mergeDeckIntoQueryCache(current, result.deck)
+      mergeDeckIntoQueryCache(current, result.deck),
     );
 
     pendingPatchInputsRef.current.push(patchInput);
@@ -1659,8 +1833,9 @@ export function EditorShell(props: { projectId?: string }) {
         setLastPatchLabel(`저장 실패 · ${toEditorErrorMessage(error)}`);
         setSaveState("error");
         setSaveError(
-          (error as { saveErrorCode?: SaveErrorCode })?.saveErrorCode ?? "auto-save-failed",
-          toEditorErrorMessage(error)
+          (error as { saveErrorCode?: SaveErrorCode })?.saveErrorCode ??
+            "auto-save-failed",
+          toEditorErrorMessage(error),
         );
         void deckQuery.refetch();
       })
@@ -1672,10 +1847,13 @@ export function EditorShell(props: { projectId?: string }) {
       });
   }
 
-  function handleElementSelection(elementId: string, options?: { append?: boolean }) {
+  function handleElementSelection(
+    elementId: string,
+    options?: { append?: boolean },
+  ) {
     setElementContextMenu(null);
     setCustomShapeEditElementId((current) =>
-      current === elementId && !options?.append ? current : null
+      current === elementId && !options?.append ? current : null,
     );
 
     if (options?.append) {
@@ -1683,7 +1861,7 @@ export function EditorShell(props: { projectId?: string }) {
       setSelectedElementIds((current) =>
         current.includes(elementId)
           ? current.filter((currentElementId) => currentElementId !== elementId)
-          : [...current, elementId]
+          : [...current, elementId],
       );
       return;
     }
@@ -1699,13 +1877,16 @@ export function EditorShell(props: { projectId?: string }) {
       }
       const currentEntry = {
         deck: workingDeckRef.current,
-        slideIndex: currentSlideIndex
+        slideIndex: currentSlideIndex,
       };
       replaceWorkingDeck(previous.deck);
       setRedoStack((redoCurrent) => [...redoCurrent, currentEntry]);
       setDeck(previous.deck);
       setCurrentSlideIndex(
-        Math.max(0, Math.min(previous.slideIndex, previous.deck.slides.length - 1))
+        Math.max(
+          0,
+          Math.min(previous.slideIndex, previous.deck.slides.length - 1),
+        ),
       );
       setSelectedElementIds([]);
       setSelectedKeywordId(null);
@@ -1713,7 +1894,7 @@ export function EditorShell(props: { projectId?: string }) {
       setCustomShapeEditElementId(null);
       setElementContextMenu(null);
       queryClient.setQueryData(["deck", projectId], (currentDeck?: Deck) =>
-        mergeDeckIntoQueryCache(currentDeck, previous.deck)
+        mergeDeckIntoQueryCache(currentDeck, previous.deck),
       );
       setLastPatchLabel(`undo · v${previous.deck.version}`);
       scheduleUndoRedoPersist("undo");
@@ -1731,13 +1912,13 @@ export function EditorShell(props: { projectId?: string }) {
         ...undoCurrent.slice(-49),
         {
           deck: workingDeckRef.current,
-          slideIndex: currentSlideIndex
-        }
+          slideIndex: currentSlideIndex,
+        },
       ]);
       replaceWorkingDeck(next.deck);
       setDeck(next.deck);
       setCurrentSlideIndex(
-        Math.max(0, Math.min(next.slideIndex, next.deck.slides.length - 1))
+        Math.max(0, Math.min(next.slideIndex, next.deck.slides.length - 1)),
       );
       setSelectedElementIds([]);
       setSelectedKeywordId(null);
@@ -1745,7 +1926,7 @@ export function EditorShell(props: { projectId?: string }) {
       setCustomShapeEditElementId(null);
       setElementContextMenu(null);
       queryClient.setQueryData(["deck", projectId], (currentDeck?: Deck) =>
-        mergeDeckIntoQueryCache(currentDeck, next.deck)
+        mergeDeckIntoQueryCache(currentDeck, next.deck),
       );
       setLastPatchLabel(`redo · v${next.deck.version}`);
       scheduleUndoRedoPersist("redo");
@@ -1756,10 +1937,10 @@ export function EditorShell(props: { projectId?: string }) {
   function handleElementPropsChange(
     slideId: string,
     elementId: string,
-    props: Record<string, unknown>
+    props: Record<string, unknown>,
   ) {
     commitPatch((currentDeck) =>
-      createUpdateElementPropsPatch(currentDeck, slideId, elementId, props)
+      createUpdateElementPropsPatch(currentDeck, slideId, elementId, props),
     );
   }
 
@@ -1769,7 +1950,7 @@ export function EditorShell(props: { projectId?: string }) {
       backgroundColor?: string | null;
       textColor?: string | null;
       accentColor?: string | null;
-    }
+    },
   ) {
     commitPatch((currentDeck) => ({
       deckId: currentDeck.deckId,
@@ -1779,9 +1960,9 @@ export function EditorShell(props: { projectId?: string }) {
         {
           type: "update_slide_style",
           slideId,
-          style
-        }
-      ]
+          style,
+        },
+      ],
     }));
   }
 
@@ -1800,7 +1981,10 @@ export function EditorShell(props: { projectId?: string }) {
   }
 
   function openPptxFilePicker() {
-    if (pptxImportState.status === "uploading" || pptxImportState.status === "importing") {
+    if (
+      pptxImportState.status === "uploading" ||
+      pptxImportState.status === "importing"
+    ) {
       return;
     }
 
@@ -1824,9 +2008,12 @@ export function EditorShell(props: { projectId?: string }) {
 
     const projects = await fetchProjects();
     const preferredProject = projects.find(
-      (project) => project.projectId === targetProjectId
+      (project) => project.projectId === targetProjectId,
     );
-    const project = preferredProject ?? projects[0] ?? (await createProject(editorUploadProjectTitle));
+    const project =
+      preferredProject ??
+      projects[0] ??
+      (await createProject(editorUploadProjectTitle));
 
     rememberUploadProject(project.projectId);
     return project.projectId;
@@ -1834,7 +2021,7 @@ export function EditorShell(props: { projectId?: string }) {
 
   async function handleImageFileSelection(
     file: File,
-    target: ImageUploadTarget
+    target: ImageUploadTarget,
   ) {
     const validationMessage = getEditorImageValidationMessage(file);
 
@@ -1847,7 +2034,7 @@ export function EditorShell(props: { projectId?: string }) {
     try {
       const activeDeck = workingDeckRef.current;
       const targetSlideIndex = activeDeck.slides.findIndex(
-        (slide) => slide.slideId === target.slideId
+        (slide) => slide.slideId === target.slideId,
       );
 
       if (targetSlideIndex < 0) {
@@ -1855,17 +2042,23 @@ export function EditorShell(props: { projectId?: string }) {
       }
 
       const targetSlide = activeDeck.slides[targetSlideIndex];
-      const uploadProjectId = await resolveUploadProject(workingDeckRef.current.projectId);
+      const uploadProjectId = await resolveUploadProject(
+        workingDeckRef.current.projectId,
+      );
       const uploaded = await uploadProjectAsset(
         uploadProjectId,
-        createSlideScopedUploadFile(file, targetSlide.order || targetSlideIndex + 1, "image"),
-        "reference-material"
+        createSlideScopedUploadFile(
+          file,
+          targetSlide.order || targetSlideIndex + 1,
+          "image",
+        ),
+        "reference-material",
       );
       const normalizedUploadedUrl = normalizeEditorAssetUrl(uploaded.url);
 
       if (target.type === "replace") {
         const targetElement = targetSlide.elements.find(
-          (element) => element.elementId === target.elementId
+          (element) => element.elementId === target.elementId,
         );
 
         if (!targetElement || targetElement.type !== "image") {
@@ -1874,11 +2067,16 @@ export function EditorShell(props: { projectId?: string }) {
 
         commitPatch(
           (currentDeck) =>
-            createUpdateElementPropsPatch(currentDeck, target.slideId, target.elementId, {
-              alt: file.name,
-              src: normalizedUploadedUrl
-            }),
-          activeDeck
+            createUpdateElementPropsPatch(
+              currentDeck,
+              target.slideId,
+              target.elementId,
+              {
+                alt: file.name,
+                src: normalizedUploadedUrl,
+              },
+            ),
+          activeDeck,
         );
         setCurrentSlideIndex(targetSlideIndex);
         setSelectedElementIds([target.elementId]);
@@ -1886,41 +2084,43 @@ export function EditorShell(props: { projectId?: string }) {
         const elementId = createElementId(activeDeck);
         const naturalSize = await readImageNaturalSize(file).catch(() => ({
           height: defaultImageInsertFrame.height,
-          width: defaultImageInsertFrame.width
+          width: defaultImageInsertFrame.width,
         }));
-        const frame = getDefaultImageInsertFrame(activeDeck.canvas, naturalSize);
+        const frame = getDefaultImageInsertFrame(
+          activeDeck.canvas,
+          naturalSize,
+        );
 
         commitPatch(
           (currentDeck) =>
             createAddElementPatch(currentDeck, target.slideId, {
               elementId,
               type: "image",
-            role: "media",
-            x: frame.x,
-            y: frame.y,
-            width: frame.width,
-            height: frame.height,
-            rotation: 0,
-            opacity: 1,
-            zIndex: getNextElementZIndex(targetSlide.elements),
-            locked: false,
-            visible: true,
-            props: {
-              alt: file.name,
-              fit: "contain",
-              focusX: 0.5,
-              focusY: 0.5,
-              src: normalizedUploadedUrl
-            }
+              role: "media",
+              x: frame.x,
+              y: frame.y,
+              width: frame.width,
+              height: frame.height,
+              rotation: 0,
+              opacity: 1,
+              zIndex: getNextElementZIndex(targetSlide.elements),
+              locked: false,
+              visible: true,
+              props: {
+                alt: file.name,
+                fit: "contain",
+                focusX: 0.5,
+                focusY: 0.5,
+                src: normalizedUploadedUrl,
+              },
             }),
-          activeDeck
+          activeDeck,
         );
         setCurrentSlideIndex(targetSlideIndex);
         setSelectedElementIds([elementId]);
         setEditingElementId(null);
         setInsertTool("select");
       }
-
     } catch (error) {
       console.error(error);
     } finally {
@@ -1936,7 +2136,7 @@ export function EditorShell(props: { projectId?: string }) {
         status: "error",
         warnings: [],
         qualityReport: null,
-        message: validationMessage
+        message: validationMessage,
       });
       return;
     }
@@ -1945,7 +2145,7 @@ export function EditorShell(props: { projectId?: string }) {
       status: "uploading",
       warnings: [],
       qualityReport: null,
-      message: "PPTX 업로드 중..."
+      message: "PPTX 업로드 중...",
     });
 
     try {
@@ -1953,17 +2153,22 @@ export function EditorShell(props: { projectId?: string }) {
       await saveQueueRef.current.catch(() => undefined);
 
       const activeProjectId = await resolveUploadProject(
-        workingDeckRef.current.projectId || projectId
+        workingDeckRef.current.projectId || projectId,
       );
-      const importResult = await uploadAndImportPptxTemplate(activeProjectId, file, {
-        onPhase: (phase) =>
-          setPptxImportState({
-            status: phase,
-            warnings: [],
-            qualityReport: null,
-            message: phase === "uploading" ? "PPTX 업로드 중..." : "PPTX 변환 중..."
-          })
-      });
+      const importResult = await uploadAndImportPptxTemplate(
+        activeProjectId,
+        file,
+        {
+          onPhase: (phase) =>
+            setPptxImportState({
+              status: phase,
+              warnings: [],
+              qualityReport: null,
+              message:
+                phase === "uploading" ? "PPTX 업로드 중..." : "PPTX 변환 중...",
+            }),
+        },
+      );
       const refetchResult = await deckQuery.refetch();
       const importedDeck = refetchResult.data;
 
@@ -1987,14 +2192,14 @@ export function EditorShell(props: { projectId?: string }) {
         status: "succeeded",
         warnings: importResult.warnings,
         qualityReport: importResult.qualityReport,
-        message: "PPTX 가져오기 완료"
+        message: "PPTX 가져오기 완료",
       });
     } catch (error) {
       setPptxImportState({
         status: "error",
         warnings: [],
         qualityReport: null,
-        message: toEditorErrorMessage(error)
+        message: toEditorErrorMessage(error),
       });
     }
   }
@@ -2048,15 +2253,16 @@ export function EditorShell(props: { projectId?: string }) {
         props: {
           text: "새 텍스트",
           fontFamily:
-            currentSlide.style.fontFamily ?? deck.theme.typography.bodyFontFamily,
+            currentSlide.style.fontFamily ??
+            deck.theme.typography.bodyFontFamily,
           fontSize: deck.theme.typography.bodySize,
           fontWeight: "normal",
           color: currentSlide.style.textColor ?? deck.theme.textColor,
           align: "left",
           verticalAlign: "top",
-          lineHeight: 1.2
-        }
-      })
+          lineHeight: 1.2,
+        },
+      }),
     );
     setSelectedElementIds([elementId]);
     setEditingElementId(elementId);
@@ -2089,7 +2295,7 @@ export function EditorShell(props: { projectId?: string }) {
           data: [
             { label: "A", value: 48 },
             { label: "B", value: 72 },
-            { label: "C", value: 56 }
+            { label: "C", value: 56 },
           ],
           style: {
             colors: ["#2563eb", "#0ea5e9", "#7c3aed"],
@@ -2106,10 +2312,10 @@ export function EditorShell(props: { projectId?: string }) {
             showGrid: true,
             xAxisTitle: "",
             yAxisTitle: "",
-            unit: ""
-          }
-        }
-      })
+            unit: "",
+          },
+        },
+      }),
     );
     setSelectedElementIds([elementId]);
   }
@@ -2140,7 +2346,7 @@ export function EditorShell(props: { projectId?: string }) {
       triangle: { x: 260, y: 220, width: 180, height: 180 },
       polygon: { x: 260, y: 220, width: 180, height: 180 },
       star: { x: 260, y: 220, width: 180, height: 180 },
-      customShape: { x: 260, y: 220, width: 220, height: 160 }
+      customShape: { x: 260, y: 220, width: 220, height: 160 },
     };
     const frame = defaultFrameByShape[shapeType];
     const baseElement = {
@@ -2153,7 +2359,7 @@ export function EditorShell(props: { projectId?: string }) {
       opacity: 1,
       zIndex: getNextElementZIndex(currentSlide.elements),
       locked: false,
-      visible: true
+      visible: true,
     } as const;
     let nextElement: DeckElement;
 
@@ -2161,9 +2367,15 @@ export function EditorShell(props: { projectId?: string }) {
     nextElement = {
       ...baseElement,
       type: nextShapeType,
-      role: shapeType === "line" || shapeType === "arrow" ? "decoration" : "highlight",
+      role:
+        shapeType === "line" || shapeType === "arrow"
+          ? "decoration"
+          : "highlight",
       props: {
-        fill: shapeType === "line" || shapeType === "arrow" ? "transparent" : "#dbeafe",
+        fill:
+          shapeType === "line" || shapeType === "arrow"
+            ? "transparent"
+            : "#dbeafe",
         stroke: "#2563eb",
         strokeWidth: 3,
         borderRadius: 18,
@@ -2171,12 +2383,12 @@ export function EditorShell(props: { projectId?: string }) {
           ? { sides: 3 }
           : shapeType === "polygon"
             ? { sides: 6 }
-            : {})
-      } as ShapeElementProps
+            : {}),
+      } as ShapeElementProps,
     };
 
     commitPatch((currentDeck) =>
-      createAddElementPatch(currentDeck, currentSlide.slideId, nextElement)
+      createAddElementPatch(currentDeck, currentSlide.slideId, nextElement),
     );
     setSelectedElementIds([elementId]);
     setInsertTool("select");
@@ -2196,7 +2408,7 @@ export function EditorShell(props: { projectId?: string }) {
           layout: "title-content",
           backgroundColor: deck.theme.backgroundColor,
           textColor: deck.theme.textColor,
-          accentColor: deck.theme.accentColor
+          accentColor: deck.theme.accentColor,
         },
         speakerNotes: "",
         keywords: [],
@@ -2222,12 +2434,12 @@ export function EditorShell(props: { projectId?: string }) {
               color: currentDeck.theme.textColor,
               align: "left",
               verticalAlign: "top",
-              lineHeight: 1.1
-            }
-          }
+              lineHeight: 1.1,
+            },
+          },
         ],
-        animations: []
-      })
+        animations: [],
+      }),
     );
     setCurrentSlideIndex(deck.slides.length);
     setSelectedElementIds([]);
@@ -2246,15 +2458,18 @@ export function EditorShell(props: { projectId?: string }) {
       operations: selectedElementIds.map((elementId) => ({
         type: "delete_element" as const,
         slideId: currentSlide.slideId,
-        elementId
-      }))
+        elementId,
+      })),
     }));
     setSelectedElementIds([]);
     setEditingElementId(null);
     setCustomShapeEditElementId(null);
   }
 
-  function cloneElementToCurrentSlide(sourceElement: DeckElement, offsetMultiplier = 1) {
+  function cloneElementToCurrentSlide(
+    sourceElement: DeckElement,
+    offsetMultiplier = 1,
+  ) {
     if (!currentSlide) {
       return null;
     }
@@ -2263,7 +2478,7 @@ export function EditorShell(props: { projectId?: string }) {
     const nextZIndex =
       currentSlide.elements.reduce(
         (highestZIndex, element) => Math.max(highestZIndex, element.zIndex),
-        0
+        0,
       ) + 1;
     const offset = 24 * offsetMultiplier;
 
@@ -2273,8 +2488,8 @@ export function EditorShell(props: { projectId?: string }) {
         elementId: nextElementId,
         x: sourceElement.x + offset,
         y: sourceElement.y + offset,
-        zIndex: nextZIndex
-      })
+        zIndex: nextZIndex,
+      }),
     );
 
     setSelectedElementIds([nextElementId]);
@@ -2301,7 +2516,7 @@ export function EditorShell(props: { projectId?: string }) {
     setElementContextMenu(null);
     copiedElementRef.current = {
       element: structuredClone(selectedElement),
-      pasteCount: 0
+      pasteCount: 0,
     };
   }
 
@@ -2317,7 +2532,7 @@ export function EditorShell(props: { projectId?: string }) {
     cloneElementToCurrentSlide(element, nextPasteCount);
     copiedElementRef.current = {
       element,
-      pasteCount: nextPasteCount
+      pasteCount: nextPasteCount,
     };
   }
 
@@ -2336,7 +2551,7 @@ export function EditorShell(props: { projectId?: string }) {
           y: number;
           width: number;
           height: number;
-        }
+        },
   ) {
     if (!currentSlide) {
       return;
@@ -2362,15 +2577,16 @@ export function EditorShell(props: { projectId?: string }) {
           props: {
             text: "텍스트 입력",
             fontFamily:
-              currentSlide.style.fontFamily ?? deck.theme.typography.bodyFontFamily,
+              currentSlide.style.fontFamily ??
+              deck.theme.typography.bodyFontFamily,
             fontSize: deck.theme.typography.bodySize,
             fontWeight: "normal",
             color: currentSlide.style.textColor ?? deck.theme.textColor,
             align: "left",
             verticalAlign: "top",
-            lineHeight: 1.2
-          }
-        })
+            lineHeight: 1.2,
+          },
+        }),
       );
       setEditingElementId(elementId);
     } else {
@@ -2392,9 +2608,9 @@ export function EditorShell(props: { projectId?: string }) {
             fill: draft.type === "line" ? "transparent" : "#dbeafe",
             stroke: "#2563eb",
             strokeWidth: 3,
-            borderRadius: 18
-          }
-        })
+            borderRadius: 18,
+          },
+        }),
       );
     }
 
@@ -2402,10 +2618,7 @@ export function EditorShell(props: { projectId?: string }) {
     setInsertTool("select");
   }
 
-  function handleCreateCustomShape(
-    nodes: CustomShapeNode[],
-    closed: boolean
-  ) {
+  function handleCreateCustomShape(nodes: CustomShapeNode[], closed: boolean) {
     if (!currentSlide || nodes.length < 2) {
       setInsertTool("select");
       return;
@@ -2436,9 +2649,9 @@ export function EditorShell(props: { projectId?: string }) {
           strokeWidth: 2,
           viewBoxWidth: geometry.props.viewBoxWidth,
           viewBoxHeight: geometry.props.viewBoxHeight,
-          pathData: geometry.props.pathData
-        }
-      })
+          pathData: geometry.props.pathData,
+        },
+      }),
     );
     setSelectedElementIds([elementId]);
     setCustomShapeEditElementId(elementId);
@@ -2449,14 +2662,21 @@ export function EditorShell(props: { projectId?: string }) {
     slideId: string,
     elementId: string,
     nodes: CustomShapeNode[],
-    closed: boolean
+    closed: boolean,
   ) {
-    const slide = deck.slides.find((candidate) => candidate.slideId === slideId);
+    const slide = deck.slides.find(
+      (candidate) => candidate.slideId === slideId,
+    );
     const element = slide?.elements.find(
-      (candidate) => candidate.elementId === elementId
+      (candidate) => candidate.elementId === elementId,
     );
 
-    if (!slide || !element || element.type !== "customShape" || nodes.length < 2) {
+    if (
+      !slide ||
+      !element ||
+      element.type !== "customShape" ||
+      nodes.length < 2
+    ) {
       return;
     }
 
@@ -2471,7 +2691,11 @@ export function EditorShell(props: { projectId?: string }) {
           type: "update_element_frame",
           slideId,
           elementId,
-            frame: normalizeElementFrameDraft(currentDeck.canvas, element, geometry.frame)
+          frame: normalizeElementFrameDraft(
+            currentDeck.canvas,
+            element,
+            geometry.frame,
+          ),
         },
         {
           type: "update_element_props",
@@ -2482,21 +2706,23 @@ export function EditorShell(props: { projectId?: string }) {
             nodes: geometry.props.nodes,
             pathData: geometry.props.pathData,
             viewBoxWidth: geometry.props.viewBoxWidth,
-            viewBoxHeight: geometry.props.viewBoxHeight
-          }
-        }
-      ]
+            viewBoxHeight: geometry.props.viewBoxHeight,
+          },
+        },
+      ],
     }));
   }
 
   function handleElementFrameChange(
     slideId: string,
     elementId: string,
-    frame: ElementFrameChange
+    frame: ElementFrameChange,
   ) {
-    const slide = deck.slides.find((candidate) => candidate.slideId === slideId);
+    const slide = deck.slides.find(
+      (candidate) => candidate.slideId === slideId,
+    );
     const element = slide?.elements.find(
-      (candidate) => candidate.elementId === elementId
+      (candidate) => candidate.elementId === elementId,
     );
 
     if (!slide || !element) {
@@ -2506,12 +2732,17 @@ export function EditorShell(props: { projectId?: string }) {
     try {
       commitPatch((currentDeck) =>
         element.type === "group"
-          ? createGroupedElementFramePatch(currentDeck, slideId, elementId, frame)
-          : createElementFramePatch(currentDeck, slideId, elementId, frame)
+          ? createGroupedElementFramePatch(
+              currentDeck,
+              slideId,
+              elementId,
+              frame,
+            )
+          : createElementFramePatch(currentDeck, slideId, elementId, frame),
       );
     } catch (error) {
       setLastPatchLabel(
-        error instanceof Error ? `실패 · ${error.message}` : "실패 · unknown"
+        error instanceof Error ? `실패 · ${error.message}` : "실패 · unknown",
       );
     }
   }
@@ -2525,7 +2756,7 @@ export function EditorShell(props: { projectId?: string }) {
       deck,
       currentSlide,
       selectedElements,
-      axis
+      axis,
     );
 
     if (patch) {
@@ -2542,7 +2773,7 @@ export function EditorShell(props: { projectId?: string }) {
     const bounds = getGroupedSelectionBounds(selectedElements);
     const highestZIndex = selectedElements.reduce(
       (currentHighest, element) => Math.max(currentHighest, element.zIndex),
-      0
+      0,
     );
 
     commitPatch((currentDeck) =>
@@ -2560,9 +2791,9 @@ export function EditorShell(props: { projectId?: string }) {
         locked: false,
         visible: true,
         props: {
-          childElementIds: selectedElements.map((element) => element.elementId)
-        }
-      })
+          childElementIds: selectedElements.map((element) => element.elementId),
+        },
+      }),
     );
     setElementContextMenu(null);
     setEditingElementId(null);
@@ -2571,9 +2802,11 @@ export function EditorShell(props: { projectId?: string }) {
   }
 
   function handleUngroupElement(slideId: string, elementId: string) {
-    const slide = deck.slides.find((candidate) => candidate.slideId === slideId);
+    const slide = deck.slides.find(
+      (candidate) => candidate.slideId === slideId,
+    );
     const groupElement = slide?.elements.find(
-      (candidate) => candidate.elementId === elementId
+      (candidate) => candidate.elementId === elementId,
     );
 
     if (!slide || !groupElement || groupElement.type !== "group") {
@@ -2581,7 +2814,10 @@ export function EditorShell(props: { projectId?: string }) {
     }
 
     const groupProps = groupElement.props as GroupElementProps;
-    const childElements = getGroupChildElements(slide, groupProps.childElementIds);
+    const childElements = getGroupChildElements(
+      slide,
+      groupProps.childElementIds,
+    );
 
     commitPatch((currentDeck) => ({
       deckId: currentDeck.deckId,
@@ -2591,14 +2827,16 @@ export function EditorShell(props: { projectId?: string }) {
         {
           type: "delete_element",
           slideId,
-          elementId
-        }
-      ]
+          elementId,
+        },
+      ],
     }));
     setElementContextMenu(null);
     setEditingElementId(null);
     setCustomShapeEditElementId(null);
-    setSelectedElementIds(childElements.map((childElement) => childElement.elementId));
+    setSelectedElementIds(
+      childElements.map((childElement) => childElement.elementId),
+    );
   }
 
   function handleCanvasBackgroundSelectionClear() {
@@ -2614,7 +2852,9 @@ export function EditorShell(props: { projectId?: string }) {
     element: DeckElement;
     slideId: string;
   }) {
-    const isSelectedElement = selectedElementIds.includes(args.element.elementId);
+    const isSelectedElement = selectedElementIds.includes(
+      args.element.elementId,
+    );
     const isGroupingTarget = isSelectedElement && selectedElementIds.length > 1;
 
     if (
@@ -2629,7 +2869,7 @@ export function EditorShell(props: { projectId?: string }) {
       clientX: args.clientX,
       clientY: args.clientY,
       height: 60,
-      width: 196
+      width: 196,
     });
 
     setEditingElementId(null);
@@ -2640,7 +2880,7 @@ export function EditorShell(props: { projectId?: string }) {
         left,
         slideId: args.slideId,
         top,
-        type: "selection"
+        type: "selection",
       });
       return;
     }
@@ -2653,7 +2893,7 @@ export function EditorShell(props: { projectId?: string }) {
         left,
         slideId: args.slideId,
         top,
-        type: "group"
+        type: "group",
       });
       return;
     }
@@ -2663,12 +2903,12 @@ export function EditorShell(props: { projectId?: string }) {
       left,
       slideId: args.slideId,
       top,
-      type: "image"
+      type: "image",
     });
   }
 
   function handleSlidesPaneResizeStart(
-    event: ReactPointerEvent<HTMLButtonElement>
+    event: ReactPointerEvent<HTMLButtonElement>,
   ) {
     event.preventDefault();
     setIsSlidesPaneCollapsed(false);
@@ -2681,7 +2921,10 @@ export function EditorShell(props: { projectId?: string }) {
     function handlePointerMove(pointerEvent: PointerEvent) {
       const nextWidth = Math.min(
         maxSlidesPaneWidth,
-        Math.max(minSlidesPaneWidth, startWidth + pointerEvent.clientX - startX)
+        Math.max(
+          minSlidesPaneWidth,
+          startWidth + pointerEvent.clientX - startX,
+        ),
       );
       setSlidesPaneWidth(nextWidth);
     }
@@ -2700,7 +2943,7 @@ export function EditorShell(props: { projectId?: string }) {
   }
 
   function handleRightPaneResizeStart(
-    event: ReactPointerEvent<HTMLButtonElement>
+    event: ReactPointerEvent<HTMLButtonElement>,
   ) {
     event.preventDefault();
 
@@ -2712,8 +2955,8 @@ export function EditorShell(props: { projectId?: string }) {
         maxRightPaneWidth,
         Math.max(
           minRightPaneWidth,
-          startWidth + (startX - pointerEvent.clientX)
-        )
+          startWidth + (startX - pointerEvent.clientX),
+        ),
       );
       setRightPaneWidth(nextWidth);
     }
@@ -2776,13 +3019,13 @@ export function EditorShell(props: { projectId?: string }) {
         Math.max(viewportPadding, buttonRect.left),
         Math.max(
           viewportPadding,
-          window.innerWidth - popoverWidth - viewportPadding
-        )
+          window.innerWidth - popoverWidth - viewportPadding,
+        ),
       );
 
       setShapeMenuPosition({
         left,
-        top: buttonRect.bottom + 10
+        top: buttonRect.bottom + 10,
       });
     }
 
@@ -2808,7 +3051,7 @@ export function EditorShell(props: { projectId?: string }) {
     if (
       selectedKeywordId &&
       !currentSlide?.keywords.some(
-        (keyword) => keyword.keywordId === selectedKeywordId
+        (keyword) => keyword.keywordId === selectedKeywordId,
       )
     ) {
       setSelectedKeywordId(null);
@@ -2818,8 +3061,10 @@ export function EditorShell(props: { projectId?: string }) {
   useEffect(() => {
     setSelectedElementIds((current) =>
       current.filter((elementId) =>
-        currentSlide?.elements.some((element) => element.elementId === elementId)
-      )
+        currentSlide?.elements.some(
+          (element) => element.elementId === elementId,
+        ),
+      ),
     );
   }, [currentSlide]);
 
@@ -2836,7 +3081,7 @@ export function EditorShell(props: { projectId?: string }) {
     customShapeEditElementId,
     selectedElement,
     selectedElementId,
-    selectedElementIds.length
+    selectedElementIds.length,
   ]);
 
   useEffect(() => {
@@ -2857,7 +3102,11 @@ export function EditorShell(props: { projectId?: string }) {
           return false;
         }
 
-        handleElementFrameChange(currentSlide.slideId, selectedElement.elementId, frame);
+        handleElementFrameChange(
+          currentSlide.slideId,
+          selectedElement.elementId,
+          frame,
+        );
         return true;
       },
       updateCurrentSlideStyle: (style) => {
@@ -2867,7 +3116,7 @@ export function EditorShell(props: { projectId?: string }) {
 
         handleSlideStyleChange(currentSlide.slideId, style);
         return true;
-      }
+      },
     };
 
     return () => {
@@ -2941,7 +3190,8 @@ export function EditorShell(props: { projectId?: string }) {
 
         if (
           selectedElementIds.length > 0 &&
-          (selectedElementIds.length > 1 || editingElementId !== selectedElementId)
+          (selectedElementIds.length > 1 ||
+            editingElementId !== selectedElementId)
         ) {
           setSelectedElementIds([]);
         }
@@ -2957,7 +3207,7 @@ export function EditorShell(props: { projectId?: string }) {
     isCustomShapeEditingSelection,
     selectedElement,
     selectedElementId,
-    selectedElementIds
+    selectedElementIds,
   ]);
 
   useEffect(() => {
@@ -3066,7 +3316,7 @@ export function EditorShell(props: { projectId?: string }) {
               </button>
             </div>
           </div>,
-          document.body
+          document.body,
         )
       : null;
 
@@ -3082,7 +3332,7 @@ export function EditorShell(props: { projectId?: string }) {
               role="menu"
               style={{
                 left: elementContextMenu.left,
-                top: elementContextMenu.top
+                top: elementContextMenu.top,
               }}
               onMouseDown={(event) => event.stopPropagation()}
             >
@@ -3096,12 +3346,14 @@ export function EditorShell(props: { projectId?: string }) {
                     openImageFilePicker({
                       elementId: elementContextMenu.elementId,
                       slideId: elementContextMenu.slideId,
-                      type: "replace"
+                      type: "replace",
                     })
                   }
                 >
                   <ImagePlus size={16} />
-                  <span>{isImageUploadPending ? "업로드 중..." : "이미지 바꾸기"}</span>
+                  <span>
+                    {isImageUploadPending ? "업로드 중..." : "이미지 바꾸기"}
+                  </span>
                 </button>
               ) : elementContextMenu.type === "group" ? (
                 <button
@@ -3111,7 +3363,7 @@ export function EditorShell(props: { projectId?: string }) {
                   onClick={() =>
                     handleUngroupElement(
                       elementContextMenu.slideId,
-                      elementContextMenu.elementId
+                      elementContextMenu.elementId,
                     )
                   }
                 >
@@ -3131,7 +3383,7 @@ export function EditorShell(props: { projectId?: string }) {
               )}
             </div>
           </div>,
-          document.body
+          document.body,
         )
       : null;
 
@@ -3142,948 +3394,1031 @@ export function EditorShell(props: { projectId?: string }) {
         className={`editor-app-shell orbit-shell ${isDeckLoading ? "is-deck-loading" : ""}`}
       >
         <header className="app-topbar" ref={topbarRef}>
-        <div className="topbar-left">
-          <div className="menu-stack">
-            <div className="menu-row">
-              <button
-                aria-expanded={activeTopMenu === "file"}
-                aria-haspopup="menu"
-                className={`top-menu-button ${activeTopMenu === "file" ? "active" : ""}`}
-                type="button"
-                onClick={() =>
-                  setActiveTopMenu((current) => (current === "file" ? null : "file"))
-                }
-              >
-                파일 <ChevronDown size={14} />
-              </button>
-              <button
-                aria-expanded={activeTopMenu === "resize"}
-                aria-haspopup="menu"
-                className={`top-menu-button ${activeTopMenu === "resize" ? "active" : ""}`}
-                type="button"
-                onClick={() =>
-                  setActiveTopMenu((current) => (current === "resize" ? null : "resize"))
-                }
-              >
-                크기 조정 <ChevronDown size={14} />
-              </button>
-              <button
-                aria-expanded={activeTopMenu === "editMode"}
-                aria-haspopup="menu"
-                className={`top-menu-button ${activeTopMenu === "editMode" ? "active" : ""}`}
-                type="button"
-                onClick={() =>
-                  setActiveTopMenu((current) =>
-                    current === "editMode" ? null : "editMode"
-                  )
-                }
-              >
-                편집 중 <ChevronDown size={14} />
-              </button>
-              <button
-                aria-expanded={activeTopMenu === "quickEdit"}
-                aria-haspopup="menu"
-                className={`top-icon-button ${activeTopMenu === "quickEdit" ? "active" : ""}`}
-                type="button"
-                title="Quick edit"
-                onClick={() =>
-                  setActiveTopMenu((current) =>
-                    current === "quickEdit" ? null : "quickEdit"
-                  )
-                }
-              >
-                <PenLine size={15} />
-              </button>
-            </div>
-
-            {activeTopMenu === "file" ? (
-              <div className="file-menu-popover" role="menu">
-                <div className="file-menu-header">
-                  <div>
-                    <strong>{deck.title}</strong>
-                    <span>
-                      프레젠테이션 · {deck.canvas.width} × {deck.canvas.height}px
-                    </span>
-                  </div>
-                  <button className="menu-ghost-button" type="button" title="Rename">
-                    <PenLine size={15} />
-                  </button>
-                </div>
-
-                <div className="file-menu-list">
-                  {fileMenuItems.map(({ action, icon: Icon, label, meta }) => (
-                    <button
-                      className="file-menu-item"
-                      key={action}
-                      role="menuitem"
-                      type="button"
-                      onClick={() => {
-                        if (action === "import") {
-                          openPptxFilePicker();
-                          return;
-                        }
-
-                        if (action === "save") {
-                          void handleSaveDeck();
-                        }
-                      }}
-                    >
-                      <span className="file-menu-label">
-                        <Icon size={16} />
-                        {label}
-                      </span>
-                      <span className="file-menu-meta">
-                        {meta ? <small>{meta}</small> : null}
-                      </span>
-                    </button>
-                  ))}
-                  <span className="menu-section-label">내보내기</span>
-                  {exportMenuItems.map(({ icon: Icon, label }) => (
-                    <button className="file-menu-item" key={label} role="menuitem" type="button">
-                      <span className="file-menu-label">
-                        <Icon size={16} />
-                        {label}
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-            ) : null}
-
-            {activeTopMenu === "resize" ? (
-              <div className="file-menu-popover compact-popover" role="menu">
-                <div className="file-menu-list">
-                  {resizeMenuItems.map((item) => (
-                    <button
-                      className={`file-menu-item ${item.active ? "selected" : ""}`}
-                      key={item.label}
-                      role="menuitemradio"
-                      type="button"
-                    >
-                      <span className="file-menu-label">{item.label}</span>
-                      <span className="file-menu-meta">
-                        <small>{item.meta}</small>
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-            ) : null}
-
-            {activeTopMenu === "editMode" ? (
-              <div className="file-menu-popover compact-popover" role="menu">
-                <div className="file-menu-list">
-                  {editModeItems.map((item) => (
-                    <button
-                      className={`file-menu-item ${item.active ? "selected" : ""}`}
-                      key={item.label}
-                      role="menuitemradio"
-                      type="button"
-                    >
-                      <span className="file-menu-label">{item.label}</span>
-                      <span className="file-menu-meta">
-                        <small>{item.meta}</small>
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-            ) : null}
-
-            {activeTopMenu === "quickEdit" ? (
-              <div className="file-menu-popover compact-popover" role="menu">
-                <div className="file-menu-list">
-                  {quickEditItems.map(({ icon: Icon, label }) => (
-                    <button className="file-menu-item" key={label} role="menuitem" type="button">
-                      <span className="file-menu-label">
-                        <Icon size={16} />
-                        {label}
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-            ) : null}
-          </div>
-        </div>
-
-        <div className="topbar-center">
-          <span className="deck-title">{deck.title}</span>
-        </div>
-
-        <div className="top-actions">
-          {projectPresenceUsers.length > 0 ? (
-            <button
-              className="presence-avatar-trigger"
-              type="button"
-              aria-label="소켓 접속 상태 보기"
-              onClick={() => setIsPresenceDebugOpen(true)}
-            >
-              {projectPresenceUsers.slice(0, 4).map((user) => (
-                <span
-                  className="avatar"
-                  key={`${user.id}-${user.connectedAt}`}
-                  title={getPresenceUserLabel(user)}
+          <div className="topbar-left">
+            <div className="menu-stack">
+              <div className="menu-row">
+                <button
+                  aria-expanded={activeTopMenu === "file"}
+                  aria-haspopup="menu"
+                  className={`top-menu-button ${activeTopMenu === "file" ? "active" : ""}`}
+                  type="button"
+                  onClick={() =>
+                    setActiveTopMenu((current) =>
+                      current === "file" ? null : "file",
+                    )
+                  }
                 >
-                  {getPresenceUserInitial(user)}
-                </span>
-              ))}
-              {projectPresenceUsers.length > 4 ? (
-                <span className="avatar presence-avatar-more">
-                  +{projectPresenceUsers.length - 4}
-                </span>
-              ) : null}
-            </button>
-          ) : null}
-          <EditorSaveControl
-            disabled={isDeckLoading || isUsingFallbackDeck}
-            emptyStateLabel={deckQuery.data ? "불러온 파일" : "저장 기록 없음"}
-            isSaving={isSaveInFlight(saveState)}
-            lastSavedAtLabel={formatLastSavedAtLabel(lastSavedAt)}
-            onSave={() => void handleSaveDeck()}
-            recoveryHint={saveErrorMessage ? getSaveRecoveryHint(saveErrorCode) : null}
-            statusLabel={saveStatusLabel}
-          />
-          <div className="top-action-menu">
-            <button
-              aria-expanded={activeTopMenu === "presentation"}
-              aria-haspopup="menu"
-              className={`header-chip-button ${
-                activeTopMenu === "presentation" ? "active" : ""
-              }`}
-              type="button"
-              onClick={() =>
-                setActiveTopMenu((current) =>
-                  current === "presentation" ? null : "presentation"
-                )
-              }
-            >
-              프레젠테이션 <ChevronDown size={14} />
-            </button>
-            {activeTopMenu === "presentation" ? (
-              <div className="file-menu-popover action-popover" role="menu">
-                <div className="file-menu-list">
-                  {presentationItems.map(({ action, icon: Icon, label, meta }) => {
-                    const isRehearsalItem = action === "rehearsal";
-                    const isAudienceLinkItem = action === "audience-link";
+                  파일 <ChevronDown size={14} />
+                </button>
+                <button
+                  aria-expanded={activeTopMenu === "resize"}
+                  aria-haspopup="menu"
+                  className={`top-menu-button ${activeTopMenu === "resize" ? "active" : ""}`}
+                  type="button"
+                  onClick={() =>
+                    setActiveTopMenu((current) =>
+                      current === "resize" ? null : "resize",
+                    )
+                  }
+                >
+                  크기 조정 <ChevronDown size={14} />
+                </button>
+                <button
+                  aria-expanded={activeTopMenu === "editMode"}
+                  aria-haspopup="menu"
+                  className={`top-menu-button ${activeTopMenu === "editMode" ? "active" : ""}`}
+                  type="button"
+                  onClick={() =>
+                    setActiveTopMenu((current) =>
+                      current === "editMode" ? null : "editMode",
+                    )
+                  }
+                >
+                  편집 중 <ChevronDown size={14} />
+                </button>
+                <button
+                  aria-expanded={activeTopMenu === "quickEdit"}
+                  aria-haspopup="menu"
+                  className={`top-icon-button ${activeTopMenu === "quickEdit" ? "active" : ""}`}
+                  type="button"
+                  title="Quick edit"
+                  onClick={() =>
+                    setActiveTopMenu((current) =>
+                      current === "quickEdit" ? null : "quickEdit",
+                    )
+                  }
+                >
+                  <PenLine size={15} />
+                </button>
+              </div>
 
-                    return (
+              {activeTopMenu === "file" ? (
+                <div className="file-menu-popover" role="menu">
+                  <div className="file-menu-header">
+                    <div>
+                      <strong>{deck.title}</strong>
+                      <span>
+                        프레젠테이션 · {deck.canvas.width} ×{" "}
+                        {deck.canvas.height}px
+                      </span>
+                    </div>
+                    <button
+                      className="menu-ghost-button"
+                      type="button"
+                      title="Rename"
+                    >
+                      <PenLine size={15} />
+                    </button>
+                  </div>
+
+                  <div className="file-menu-list">
+                    {fileMenuItems.map(
+                      ({ action, icon: Icon, label, meta }) => (
+                        <button
+                          className="file-menu-item"
+                          key={action}
+                          role="menuitem"
+                          type="button"
+                          onClick={() => {
+                            if (action === "import") {
+                              openPptxFilePicker();
+                              return;
+                            }
+
+                            if (action === "save") {
+                              void handleSaveDeck();
+                            }
+                          }}
+                        >
+                          <span className="file-menu-label">
+                            <Icon size={16} />
+                            {label}
+                          </span>
+                          <span className="file-menu-meta">
+                            {meta ? <small>{meta}</small> : null}
+                          </span>
+                        </button>
+                      ),
+                    )}
+                    <span className="menu-section-label">내보내기</span>
+                    {exportMenuItems.map(({ icon: Icon, label }) => (
                       <button
                         className="file-menu-item"
-                        disabled={isRehearsalItem && !canStartRehearsal}
                         key={label}
                         role="menuitem"
                         type="button"
-                        onClick={() => {
-                          if (isRehearsalItem) {
-                            void handleStartRehearsal();
-                            return;
-                          }
-
-                          if (isAudienceLinkItem) {
-                            setIsAudienceLinkModalOpen(true);
-                            setActiveTopMenu(null);
-                          }
-                        }}
                       >
                         <span className="file-menu-label">
                           <Icon size={16} />
                           {label}
                         </span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+
+              {activeTopMenu === "resize" ? (
+                <div className="file-menu-popover compact-popover" role="menu">
+                  <div className="file-menu-list">
+                    {resizeMenuItems.map((item) => (
+                      <button
+                        className={`file-menu-item ${item.active ? "selected" : ""}`}
+                        key={item.label}
+                        role="menuitemradio"
+                        type="button"
+                      >
+                        <span className="file-menu-label">{item.label}</span>
                         <span className="file-menu-meta">
-                          <small>
-                            {isRehearsalItem && isRehearsalPreparing ? "리허설 준비 중..." : meta}
-                          </small>
+                          <small>{item.meta}</small>
                         </span>
                       </button>
-                    );
-                  })}
-                </div>
-              </div>
-            ) : null}
-          </div>
-          <button
-            className="share-top-button"
-            type="button"
-            aria-expanded={isSharePanelOpen}
-            aria-haspopup="dialog"
-            disabled={!canManageShare || isSharePermissionLoading}
-            title={
-              canManageShare
-                ? "프로젝트 공유"
-                : "프로젝트 owner만 공유 설정을 변경할 수 있습니다."
-            }
-            onClick={() => {
-              if (!canManageShare) {
-                return;
-              }
-              openSharePanel();
-              setActiveTopMenu(null);
-            }}
-          >
-            <Share2 size={15} />
-            공유
-          </button>
-          <button
-            className="refresh-top-button"
-            type="button"
-            onClick={() => {
-              void health.refetch();
-              void deckQuery.refetch();
-            }}
-          >
-            <RefreshCw size={15} />
-          </button>
-        </div>
-      </header>
-      {isSharePanelOpen
-        ? createPortal(
-            <ShareAccessModal
-              activeTab={shareAccessTab}
-              actionError={shareActionError}
-              actionLabel={shareActionLabel}
-              inviteEmail={shareInviteEmail}
-              inviteRole={shareInviteRole}
-              isLoading={isShareLoading}
-              members={shareMembers}
-              requests={shareRequests}
-              onClose={() => setIsSharePanelOpen(false)}
-              onInvite={handleShareInvite}
-              onInviteEmailChange={setShareInviteEmail}
-              onInviteRoleChange={setShareInviteRole}
-              onMemberRemove={handleShareMemberRemoval}
-              onMemberRoleChange={handleShareMemberRoleChange}
-              onRequestStatusChange={handleShareRequestStatus}
-              onTabChange={setShareAccessTab}
-            />,
-            document.body
-          )
-        : null}
-      <AudienceLinkModal
-        isOpen={isAudienceLinkModalOpen}
-        projectId={projectId}
-        onClose={() => setIsAudienceLinkModalOpen(false)}
-      />
-      {isPresenceDebugOpen
-        ? createPortal(
-            <div
-              className="presence-debug-backdrop"
-              role="presentation"
-              onMouseDown={() => setIsPresenceDebugOpen(false)}
-            >
-              <section
-                aria-label="소켓 접속 상태"
-                aria-modal="true"
-                className="presence-debug-modal"
-                role="dialog"
-                onMouseDown={(event) => event.stopPropagation()}
-              >
-                <header>
-                  <div>
-                    <strong>소켓 접속 상태</strong>
-                    <span>프로젝트 presence 테스트 데이터입니다.</span>
+                    ))}
                   </div>
-                  <button
-                    type="button"
-                    aria-label="소켓 상태 닫기"
-                    onClick={() => setIsPresenceDebugOpen(false)}
-                  >
-                    닫기
-                  </button>
-                </header>
-                <div className="presence-debug-grid">
-                  <span>상태</span>
-                  <strong>{formatSocketStatus(socketStatus)}</strong>
-                  <span>Socket ID</span>
-                  <strong>{socketId || "-"}</strong>
-                  <span>프로젝트</span>
-                  <strong>{projectId}</strong>
-                  <span>접속자</span>
-                  <strong>{projectPresenceUsers.length}명</strong>
-                  <span>마지막 presence</span>
-                  <strong>{lastPresenceAt ? formatDebugDate(lastPresenceAt) : "-"}</strong>
-                  <span>세션 남은 시간</span>
-                  <strong>{formatSessionRemaining(sessionDebug)}</strong>
                 </div>
-                {socketErrorMessage ? (
-                  <p className="presence-debug-error">{socketErrorMessage}</p>
-                ) : null}
-                <div className="presence-debug-users">
-                  {projectPresenceUsers.length > 0 ? (
-                    projectPresenceUsers.map((user) => (
-                      <div key={`${user.id}-${user.connectedAt}`}>
-                        <span className="avatar">{getPresenceUserInitial(user)}</span>
-                        <div>
-                          <strong>{getPresenceUserLabel(user)}</strong>
-                          <small>{formatDebugDate(user.connectedAt)}</small>
-                        </div>
-                      </div>
-                    ))
-                  ) : (
-                    <p>현재 표시할 접속자가 없습니다.</p>
-                  )}
-                </div>
-              </section>
-            </div>,
-            document.body
-          )
-        : null}
-      {isDeckLoading ? (
-        <div className="editor-loading-guard" role="status">
-          <span className="editor-loading-spinner" aria-hidden="true" />
-          <strong>발표 자료를 불러오는 중입니다</strong>
-        </div>
-      ) : null}
+              ) : null}
 
-      <section
-        className={`editor-panel ${isRightPanelOpen ? "" : "right-panel-closed"} ${
-          isSlidesPaneCollapsed ? "slides-panel-collapsed" : ""
-        }`}
-        aria-label="Presentation editor"
-        style={
-          {
-            "--slides-pane-width": `${
-              isSlidesPaneCollapsed ? collapsedSlidesPaneWidth : slidesPaneWidth
-            }px`,
-            "--right-pane-width": `${rightPaneWidth}px`,
-            "--right-pane-collapsed-width": `${collapsedRightPaneWidth}px`
-          } as CSSProperties
-        }
-      >
-        <aside
-          className={`slides-pane ${isSlidesPaneCollapsed ? "collapsed" : ""}`}
-        >
-          <div className="slides-pane-header">
-            {!isSlidesPaneCollapsed ? (
-              <button className="add-slide-button" type="button" onClick={handleAddSlide}>
-                + 슬라이드
+              {activeTopMenu === "editMode" ? (
+                <div className="file-menu-popover compact-popover" role="menu">
+                  <div className="file-menu-list">
+                    {editModeItems.map((item) => (
+                      <button
+                        className={`file-menu-item ${item.active ? "selected" : ""}`}
+                        key={item.label}
+                        role="menuitemradio"
+                        type="button"
+                      >
+                        <span className="file-menu-label">{item.label}</span>
+                        <span className="file-menu-meta">
+                          <small>{item.meta}</small>
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+
+              {activeTopMenu === "quickEdit" ? (
+                <div className="file-menu-popover compact-popover" role="menu">
+                  <div className="file-menu-list">
+                    {quickEditItems.map(({ icon: Icon, label }) => (
+                      <button
+                        className="file-menu-item"
+                        key={label}
+                        role="menuitem"
+                        type="button"
+                      >
+                        <span className="file-menu-label">
+                          <Icon size={16} />
+                          {label}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          </div>
+
+          <div className="topbar-center">
+            <span className="deck-title">{deck.title}</span>
+          </div>
+
+          <div className="top-actions">
+            {projectPresenceUsers.length > 0 ? (
+              <button
+                className="presence-avatar-trigger"
+                type="button"
+                aria-label="소켓 접속 상태 보기"
+                onClick={() => setIsPresenceDebugOpen(true)}
+              >
+                {projectPresenceUsers.slice(0, 4).map((user) => (
+                  <span
+                    className="avatar"
+                    key={`${user.id}-${user.connectedAt}`}
+                    title={getPresenceUserLabel(user)}
+                  >
+                    {getPresenceUserInitial(user)}
+                  </span>
+                ))}
+                {projectPresenceUsers.length > 4 ? (
+                  <span className="avatar presence-avatar-more">
+                    +{projectPresenceUsers.length - 4}
+                  </span>
+                ) : null}
               </button>
             ) : null}
+            <EditorSaveControl
+              disabled={isDeckLoading || isUsingFallbackDeck}
+              emptyStateLabel={
+                deckQuery.data ? "불러온 파일" : "저장 기록 없음"
+              }
+              isSaving={isSaveInFlight(saveState)}
+              lastSavedAtLabel={formatLastSavedAtLabel(lastSavedAt)}
+              onSave={() => void handleSaveDeck()}
+              recoveryHint={
+                saveErrorMessage ? getSaveRecoveryHint(saveErrorCode) : null
+              }
+              statusLabel={saveStatusLabel}
+            />
+            {ooxmlSyncStatus ? (
+              <span
+                className={`ooxml-sync-pill ${ooxmlSyncStatus.kind}`}
+                title={ooxmlSyncStatus.detail}
+              >
+                {ooxmlSyncStatus.label}
+              </span>
+            ) : null}
+            <div className="top-action-menu">
+              <button
+                aria-expanded={activeTopMenu === "presentation"}
+                aria-haspopup="menu"
+                className={`header-chip-button ${
+                  activeTopMenu === "presentation" ? "active" : ""
+                }`}
+                type="button"
+                onClick={() =>
+                  setActiveTopMenu((current) =>
+                    current === "presentation" ? null : "presentation",
+                  )
+                }
+              >
+                프레젠테이션 <ChevronDown size={14} />
+              </button>
+              {activeTopMenu === "presentation" ? (
+                <div className="file-menu-popover action-popover" role="menu">
+                  <div className="file-menu-list">
+                    {presentationItems.map(
+                      ({ action, icon: Icon, label, meta }) => {
+                        const isRehearsalItem = action === "rehearsal";
+                        const isAudienceLinkItem = action === "audience-link";
+
+                        return (
+                          <button
+                            className="file-menu-item"
+                            disabled={isRehearsalItem && !canStartRehearsal}
+                            key={label}
+                            role="menuitem"
+                            type="button"
+                            onClick={() => {
+                              if (isRehearsalItem) {
+                                void handleStartRehearsal();
+                                return;
+                              }
+
+                              if (isAudienceLinkItem) {
+                                setIsAudienceLinkModalOpen(true);
+                                setActiveTopMenu(null);
+                              }
+                            }}
+                          >
+                            <span className="file-menu-label">
+                              <Icon size={16} />
+                              {label}
+                            </span>
+                            <span className="file-menu-meta">
+                              <small>
+                                {isRehearsalItem && isRehearsalPreparing
+                                  ? "리허설 준비 중..."
+                                  : meta}
+                              </small>
+                            </span>
+                          </button>
+                        );
+                      },
+                    )}
+                  </div>
+                </div>
+              ) : null}
+            </div>
             <button
-              className="collapse-slides-button"
+              className="share-top-button"
               type="button"
-              title={isSlidesPaneCollapsed ? "슬라이드 패널 펼치기" : "슬라이드 패널 접기"}
-              onClick={() => setIsSlidesPaneCollapsed((current) => !current)}
+              aria-expanded={isSharePanelOpen}
+              aria-haspopup="dialog"
+              disabled={!canManageShare || isSharePermissionLoading}
+              title={
+                canManageShare
+                  ? "프로젝트 공유"
+                  : "프로젝트 owner만 공유 설정을 변경할 수 있습니다."
+              }
+              onClick={() => {
+                if (!canManageShare) {
+                  return;
+                }
+                openSharePanel();
+                setActiveTopMenu(null);
+              }}
             >
-              {isSlidesPaneCollapsed ? (
-                <PanelLeftOpen size={16} />
-              ) : (
-                <PanelLeftClose size={16} />
-              )}
+              <Share2 size={15} />
+              공유
+            </button>
+            <button
+              className="refresh-top-button"
+              type="button"
+              onClick={() => {
+                void health.refetch();
+                void deckQuery.refetch();
+              }}
+            >
+              <RefreshCw size={15} />
             </button>
           </div>
-
-          {isSlidesPaneCollapsed ? (
-            <div className="collapsed-slide-rail">
-              {deck.slides.map((slide, index) => (
-                <button
-                  className={`rail-slide-button ${
-                    index === currentSlideIndex ? "active" : ""
-                  }`}
-                  key={slide.slideId}
-                  type="button"
-                  title={slide.title || `슬라이드 ${index + 1}`}
-                  onClick={() => setCurrentSlideIndex(index)}
+        </header>
+        {isSharePanelOpen
+          ? createPortal(
+              <ShareAccessModal
+                activeTab={shareAccessTab}
+                actionError={shareActionError}
+                actionLabel={shareActionLabel}
+                inviteEmail={shareInviteEmail}
+                inviteRole={shareInviteRole}
+                isLoading={isShareLoading}
+                members={shareMembers}
+                requests={shareRequests}
+                onClose={() => setIsSharePanelOpen(false)}
+                onInvite={handleShareInvite}
+                onInviteEmailChange={setShareInviteEmail}
+                onInviteRoleChange={setShareInviteRole}
+                onMemberRemove={handleShareMemberRemoval}
+                onMemberRoleChange={handleShareMemberRoleChange}
+                onRequestStatusChange={handleShareRequestStatus}
+                onTabChange={setShareAccessTab}
+              />,
+              document.body,
+            )
+          : null}
+        <AudienceLinkModal
+          isOpen={isAudienceLinkModalOpen}
+          projectId={projectId}
+          onClose={() => setIsAudienceLinkModalOpen(false)}
+        />
+        {isPresenceDebugOpen
+          ? createPortal(
+              <div
+                className="presence-debug-backdrop"
+                role="presentation"
+                onMouseDown={() => setIsPresenceDebugOpen(false)}
+              >
+                <section
+                  aria-label="소켓 접속 상태"
+                  aria-modal="true"
+                  className="presence-debug-modal"
+                  role="dialog"
+                  onMouseDown={(event) => event.stopPropagation()}
                 >
-                  {index + 1}
+                  <header>
+                    <div>
+                      <strong>소켓 접속 상태</strong>
+                      <span>프로젝트 presence 테스트 데이터입니다.</span>
+                    </div>
+                    <button
+                      type="button"
+                      aria-label="소켓 상태 닫기"
+                      onClick={() => setIsPresenceDebugOpen(false)}
+                    >
+                      닫기
+                    </button>
+                  </header>
+                  <div className="presence-debug-grid">
+                    <span>상태</span>
+                    <strong>{formatSocketStatus(socketStatus)}</strong>
+                    <span>Socket ID</span>
+                    <strong>{socketId || "-"}</strong>
+                    <span>프로젝트</span>
+                    <strong>{projectId}</strong>
+                    <span>접속자</span>
+                    <strong>{projectPresenceUsers.length}명</strong>
+                    <span>마지막 presence</span>
+                    <strong>
+                      {lastPresenceAt ? formatDebugDate(lastPresenceAt) : "-"}
+                    </strong>
+                    <span>세션 남은 시간</span>
+                    <strong>{formatSessionRemaining(sessionDebug)}</strong>
+                  </div>
+                  {socketErrorMessage ? (
+                    <p className="presence-debug-error">{socketErrorMessage}</p>
+                  ) : null}
+                  <div className="presence-debug-users">
+                    {projectPresenceUsers.length > 0 ? (
+                      projectPresenceUsers.map((user) => (
+                        <div key={`${user.id}-${user.connectedAt}`}>
+                          <span className="avatar">
+                            {getPresenceUserInitial(user)}
+                          </span>
+                          <div>
+                            <strong>{getPresenceUserLabel(user)}</strong>
+                            <small>{formatDebugDate(user.connectedAt)}</small>
+                          </div>
+                        </div>
+                      ))
+                    ) : (
+                      <p>현재 표시할 접속자가 없습니다.</p>
+                    )}
+                  </div>
+                </section>
+              </div>,
+              document.body,
+            )
+          : null}
+        {isDeckLoading ? (
+          <div className="editor-loading-guard" role="status">
+            <span className="editor-loading-spinner" aria-hidden="true" />
+            <strong>발표 자료를 불러오는 중입니다</strong>
+          </div>
+        ) : null}
+
+        <section
+          className={`editor-panel ${isRightPanelOpen ? "" : "right-panel-closed"} ${
+            isSlidesPaneCollapsed ? "slides-panel-collapsed" : ""
+          }`}
+          aria-label="Presentation editor"
+          style={
+            {
+              "--slides-pane-width": `${
+                isSlidesPaneCollapsed
+                  ? collapsedSlidesPaneWidth
+                  : slidesPaneWidth
+              }px`,
+              "--right-pane-width": `${rightPaneWidth}px`,
+              "--right-pane-collapsed-width": `${collapsedRightPaneWidth}px`,
+            } as CSSProperties
+          }
+        >
+          <aside
+            className={`slides-pane ${isSlidesPaneCollapsed ? "collapsed" : ""}`}
+          >
+            <div className="slides-pane-header">
+              {!isSlidesPaneCollapsed ? (
+                <button
+                  className="add-slide-button"
+                  type="button"
+                  onClick={handleAddSlide}
+                >
+                  + 슬라이드
                 </button>
-              ))}
+              ) : null}
+              <button
+                className="collapse-slides-button"
+                type="button"
+                title={
+                  isSlidesPaneCollapsed
+                    ? "슬라이드 패널 펼치기"
+                    : "슬라이드 패널 접기"
+                }
+                onClick={() => setIsSlidesPaneCollapsed((current) => !current)}
+              >
+                {isSlidesPaneCollapsed ? (
+                  <PanelLeftOpen size={16} />
+                ) : (
+                  <PanelLeftClose size={16} />
+                )}
+              </button>
             </div>
-          ) : (
-            <div className={`slides-list ${slidePanelView}-view`}>
-              {hasSlides ? (
-                deck.slides.map((slide, index) => (
+
+            {isSlidesPaneCollapsed ? (
+              <div className="collapsed-slide-rail">
+                {deck.slides.map((slide, index) => (
                   <button
-                    className={`slide-item ${index === currentSlideIndex ? "active" : ""}`}
+                    className={`rail-slide-button ${
+                      index === currentSlideIndex ? "active" : ""
+                    }`}
                     key={slide.slideId}
                     type="button"
+                    title={slide.title || `슬라이드 ${index + 1}`}
                     onClick={() => setCurrentSlideIndex(index)}
                   >
-                    <span className="slide-number">{index + 1}</span>
-                    {showIds ? <IdBadge id={slide.slideId} /> : null}
-                    <span
-                      className="slide-thumb orbit-thumb"
-                      style={{
-                        background: buildSlideThumbBackground(slide, deck)
-                      }}
-                    />
+                    {index + 1}
                   </button>
-                ))
-              ) : (
-                <EmptyPanel
-                  title="슬라이드 없음"
-                  description="덱에 표시할 슬라이드가 없습니다. 새 슬라이드 또는 가져오기 기능이 연결되면 이 영역에 목록이 표시됩니다."
-                />
-              )}
-            </div>
-          )}
+                ))}
+              </div>
+            ) : (
+              <div className={`slides-list ${slidePanelView}-view`}>
+                {hasSlides ? (
+                  deck.slides.map((slide, index) => (
+                    <button
+                      className={`slide-item ${index === currentSlideIndex ? "active" : ""}`}
+                      key={slide.slideId}
+                      type="button"
+                      onClick={() => setCurrentSlideIndex(index)}
+                    >
+                      <span className="slide-number">{index + 1}</span>
+                      {showIds ? <IdBadge id={slide.slideId} /> : null}
+                      <span
+                        className="slide-thumb orbit-thumb"
+                        style={{
+                          background: buildSlideThumbBackground(slide, deck),
+                        }}
+                      />
+                    </button>
+                  ))
+                ) : (
+                  <EmptyPanel
+                    title="슬라이드 없음"
+                    description="덱에 표시할 슬라이드가 없습니다. 새 슬라이드 또는 가져오기 기능이 연결되면 이 영역에 목록이 표시됩니다."
+                  />
+                )}
+              </div>
+            )}
 
-          {!isSlidesPaneCollapsed ? (
-            <div className="side-footer">
-              <button
-                className={slidePanelView === "thumbnail" ? "active" : ""}
-                type="button"
-                onClick={() => setSlidePanelView("thumbnail")}
-              >
-                썸네일
-              </button>
-              <button
-                className={slidePanelView === "list" ? "active" : ""}
-                type="button"
-                onClick={() => setSlidePanelView("list")}
-              >
-                목록
-              </button>
-            </div>
-          ) : null}
-
-          <button
-            aria-label="슬라이드 패널 크기 조정"
-            className="slides-pane-resizer"
-            type="button"
-            onPointerDown={handleSlidesPaneResizeStart}
-          />
-        </aside>
-
-        <section className="stage-pane">
-          <div className="stage-top-controls">
-            <div className="editor-toolbar">
-              <div className="tool-group">
+            {!isSlidesPaneCollapsed ? (
+              <div className="side-footer">
                 <button
-                  className="icon-button"
-                  disabled={undoStack.length === 0}
+                  className={slidePanelView === "thumbnail" ? "active" : ""}
                   type="button"
-                  title="Undo"
-                  onClick={handleUndo}
+                  onClick={() => setSlidePanelView("thumbnail")}
                 >
-                  ‹
+                  썸네일
                 </button>
                 <button
-                  className="icon-button"
-                  disabled={redoStack.length === 0}
+                  className={slidePanelView === "list" ? "active" : ""}
                   type="button"
-                  title="Redo"
-                  onClick={handleRedo}
+                  onClick={() => setSlidePanelView("list")}
                 >
-                  ›
+                  목록
                 </button>
-                <button
-                  className={`icon-button ${insertTool === "select" ? "selected-tool" : ""}`}
-                  type="button"
-                  title="Select"
-                  onClick={() => setInsertTool("select")}
-                >
-                  <MousePointer2 size={14} />
-                </button>
-                <div className="toolbar-divider" />
-                <button className="tool-button" type="button" onClick={handleAddTextElement}>
-                  <Type size={14} />
-                  텍스트
-                </button>
-                <div className="shape-menu-anchor">
+              </div>
+            ) : null}
+
+            <button
+              aria-label="슬라이드 패널 크기 조정"
+              className="slides-pane-resizer"
+              type="button"
+              onPointerDown={handleSlidesPaneResizeStart}
+            />
+          </aside>
+
+          <section className="stage-pane">
+            <div className="stage-top-controls">
+              <div className="editor-toolbar">
+                <div className="tool-group">
                   <button
-                    aria-expanded={isShapeMenuOpen}
-                    aria-haspopup="menu"
-                    className={`tool-button ${
-                      isShapeMenuOpen || insertTool === "customShape" ? "active" : ""
-                    }`}
-                    ref={shapeMenuButtonRef}
+                    className="icon-button"
+                    disabled={undoStack.length === 0}
                     type="button"
-                    onClick={() => setIsShapeMenuOpen((current) => !current)}
+                    title="Undo"
+                    onClick={handleUndo}
                   >
-                    <Shapes size={14} />
-                    도형
-                    <ChevronDown size={14} />
+                    ‹
+                  </button>
+                  <button
+                    className="icon-button"
+                    disabled={redoStack.length === 0}
+                    type="button"
+                    title="Redo"
+                    onClick={handleRedo}
+                  >
+                    ›
+                  </button>
+                  <button
+                    className={`icon-button ${insertTool === "select" ? "selected-tool" : ""}`}
+                    type="button"
+                    title="Select"
+                    onClick={() => setInsertTool("select")}
+                  >
+                    <MousePointer2 size={14} />
+                  </button>
+                  <div className="toolbar-divider" />
+                  <button
+                    className="tool-button"
+                    type="button"
+                    onClick={handleAddTextElement}
+                  >
+                    <Type size={14} />
+                    텍스트
+                  </button>
+                  <div className="shape-menu-anchor">
+                    <button
+                      aria-expanded={isShapeMenuOpen}
+                      aria-haspopup="menu"
+                      className={`tool-button ${
+                        isShapeMenuOpen || insertTool === "customShape"
+                          ? "active"
+                          : ""
+                      }`}
+                      ref={shapeMenuButtonRef}
+                      type="button"
+                      onClick={() => setIsShapeMenuOpen((current) => !current)}
+                    >
+                      <Shapes size={14} />
+                      도형
+                      <ChevronDown size={14} />
+                    </button>
+                  </div>
+                  <button
+                    className="tool-button"
+                    type="button"
+                    onClick={handleAddChartElement}
+                  >
+                    <BarChart3 size={14} />
+                    차트
+                  </button>
+                  <button
+                    className="tool-button"
+                    disabled={!currentSlide || isImageUploadPending}
+                    type="button"
+                    onClick={() =>
+                      currentSlide
+                        ? openImageFilePicker({
+                            slideId: currentSlide.slideId,
+                            type: "insert",
+                          })
+                        : undefined
+                    }
+                  >
+                    <ImagePlus size={14} />
+                    이미지
                   </button>
                 </div>
-                <button className="tool-button" type="button" onClick={handleAddChartElement}>
-                  <BarChart3 size={14} />
-                  차트
-                </button>
-                <button
-                  className="tool-button"
-                  disabled={!currentSlide || isImageUploadPending}
-                  type="button"
-                  onClick={() =>
-                    currentSlide
-                      ? openImageFilePicker({
-                          slideId: currentSlide.slideId,
-                          type: "insert"
-                        })
-                      : undefined
-                  }
-                >
-                  <ImagePlus size={14} />
-                  이미지
-                </button>
+
+                <div className="tool-group">
+                  <button className="tool-button" type="button">
+                    <LayoutTemplate size={14} />
+                    템플릿
+                  </button>
+                  <button
+                    aria-pressed={showIds}
+                    className={`toolbar-toggle ${showIds ? "active" : ""}`}
+                    type="button"
+                    onClick={() => setShowIds((current) => !current)}
+                  >
+                    <span className="toolbar-toggle-label">ID 표시</span>
+                    <span className="toolbar-toggle-track" aria-hidden="true">
+                      <span className="toolbar-toggle-thumb" />
+                    </span>
+                  </button>
+                </div>
               </div>
 
-              <div className="tool-group">
-                <button className="tool-button" type="button">
-                  <LayoutTemplate size={14} />
-                  템플릿
-                </button>
-                <button
-                  aria-pressed={showIds}
-                  className={`toolbar-toggle ${showIds ? "active" : ""}`}
-                  type="button"
-                  onClick={() => setShowIds((current) => !current)}
-                >
-                  <span className="toolbar-toggle-label">ID 표시</span>
-                  <span className="toolbar-toggle-track" aria-hidden="true">
-                    <span className="toolbar-toggle-thumb" />
-                  </span>
-                </button>
-              </div>
-            </div>
-
-            {selectedElementIds.length > 1 ? (
-              <MultiSelectionQuickBar
-                canDistribute={selectedElements.length >= 3}
-                selectedCount={selectedElementIds.length}
-                onDistributeX={() => handleDistributeSelectedElements("x")}
-                onDistributeY={() => handleDistributeSelectedElements("y")}
-              />
-            ) : (
-              <SelectionQuickBar
-                key={`quickbar-${selectedElement?.elementId ?? currentSlide?.slideId ?? "none"}`}
-                canvas={deck.canvas}
-                customShapeEditActive={isCustomShapeEditingSelection}
-                element={selectedElement}
-                slide={currentSlide}
-                showIds={showIds}
-                theme={deck.theme}
-                onToggleCustomShapeClosed={() => {
-                  if (!selectedElement || !currentSlide || selectedElement.type !== "customShape") {
-                    return;
-                  }
-                  handleCommitCustomShapeGeometry(
-                    currentSlide.slideId,
-                    selectedElement.elementId,
-                    getCustomShapeAbsoluteNodes(selectedElement),
-                    !(selectedElement.props as CustomShapeElementProps).closed
-                  );
-                }}
-                onToggleCustomShapeEdit={() => {
-                  if (!selectedElement || selectedElement.type !== "customShape") {
-                    return;
-                  }
-                  setEditingElementId(null);
-                  setCustomShapeEditElementId((current) =>
-                    current === selectedElement.elementId ? null : selectedElement.elementId
-                  );
-                }}
-                onChangeFrame={(frame) => {
-                  if (!selectedElement || !currentSlide) {
-                    return;
-                  }
-                  handleElementFrameChange(
-                    currentSlide.slideId,
-                    selectedElement.elementId,
-                    frame
-                  );
-                }}
-                onChangeProps={(props) => {
-                  if (!selectedElement || !currentSlide) {
-                    return;
-                  }
-                  handleElementPropsChange(
-                    currentSlide.slideId,
-                    selectedElement.elementId,
-                    props
-                  );
-                }}
-                onChangeSlideStyle={(style) => {
-                  if (!currentSlide) {
-                    return;
-                  }
-                  handleSlideStyleChange(currentSlide.slideId, style);
-                }}
-                onChangeTheme={handleThemeChange}
-              />
-            )}
-          </div>
-
-          <div className="canvas-scroll">
-            {currentSlide ? (
-              <div className="konva-wrap">
-                <div
-                  className="konva-stage-shell orbit-stage-shell"
-                  data-testid="editor-stage-shell"
-                  style={{
-                    width: deck.canvas.width * stageScale,
-                    height: deck.canvas.height * stageScale,
-                    color: currentSlide.style.textColor ?? deck.theme.textColor,
-                    ...buildSlideBackgroundStyle(currentSlide, deck)
+              {selectedElementIds.length > 1 ? (
+                <MultiSelectionQuickBar
+                  canDistribute={selectedElements.length >= 3}
+                  selectedCount={selectedElementIds.length}
+                  onDistributeX={() => handleDistributeSelectedElements("x")}
+                  onDistributeY={() => handleDistributeSelectedElements("y")}
+                />
+              ) : (
+                <SelectionQuickBar
+                  key={`quickbar-${selectedElement?.elementId ?? currentSlide?.slideId ?? "none"}`}
+                  canvas={deck.canvas}
+                  customShapeEditActive={isCustomShapeEditingSelection}
+                  element={selectedElement}
+                  slide={currentSlide}
+                  showIds={showIds}
+                  theme={deck.theme}
+                  onToggleCustomShapeClosed={() => {
+                    if (
+                      !selectedElement ||
+                      !currentSlide ||
+                      selectedElement.type !== "customShape"
+                    ) {
+                      return;
+                    }
+                    handleCommitCustomShapeGeometry(
+                      currentSlide.slideId,
+                      selectedElement.elementId,
+                      getCustomShapeAbsoluteNodes(selectedElement),
+                      !(selectedElement.props as CustomShapeElementProps)
+                        .closed,
+                    );
                   }}
-                >
-                  <EditableCanvas
-                    customShapeEditElementId={customShapeEditElementId}
-                    deck={deck}
-                    editingElementId={editingElementId}
-                    insertTool={insertTool}
-                    selectedElementIds={selectedElementIds}
-                    showIds={showIds}
-                    slide={currentSlide}
-                    stageScale={stageScale}
-                    stageRef={editorStageRef}
-                    visibleElements={visibleElements}
-                    onClearSelection={handleCanvasBackgroundSelectionClear}
-                    onCommitElementFrame={handleElementFrameChange}
-                    onCommitElementProps={(elementId, props) =>
-                      handleElementPropsChange(currentSlide.slideId, elementId, props)
+                  onToggleCustomShapeEdit={() => {
+                    if (
+                      !selectedElement ||
+                      selectedElement.type !== "customShape"
+                    ) {
+                      return;
                     }
-                    onCreateElement={handleCreateDrawnElement}
-                    onCreateCustomShape={handleCreateCustomShape}
-                    onCommitCustomShapeGeometry={(elementId, nodes, closed) =>
-                      handleCommitCustomShapeGeometry(
-                        currentSlide.slideId,
-                        elementId,
-                        nodes,
-                        closed
-                      )
+                    setEditingElementId(null);
+                    setCustomShapeEditElementId((current) =>
+                      current === selectedElement.elementId
+                        ? null
+                        : selectedElement.elementId,
+                    );
+                  }}
+                  onChangeFrame={(frame) => {
+                    if (!selectedElement || !currentSlide) {
+                      return;
                     }
-                    onDoubleClickElement={(elementId) => setEditingElementId(elementId)}
-                    onFinishEditing={() => setEditingElementId(null)}
-                    onSetCustomShapeEditElementId={setCustomShapeEditElementId}
-                    onSetInsertTool={setInsertTool}
-                    onOpenElementContextMenu={handleOpenElementContextMenu}
-                    onSelectElement={handleElementSelection}
-                  />
-                </div>
-                {renderingDeck ? (
-                  <HiddenSlideRenderStages
-                    deck={renderingDeck}
-                    stageRefs={slideRenderStageRefs}
-                  />
-                ) : null}
-              </div>
-            ) : (
-              <EmptyCanvasState canvas={deck.canvas} />
-            )}
-
-            <section className="script-panel">
-              <div className="script-panel-header">
-                <strong>발표 메모</strong>
-                <span>
-                  {currentSlide && showIds ? (
-                    <IdBadge id={currentSlide.slideId} />
-                  ) : (
-                    currentSlide?.title || `슬라이드 ${currentSlideIndex + 1}`
-                  )}
-                </span>
-              </div>
-              <KeywordHighlightedNotes
-                keywords={currentSlide?.keywords ?? []}
-                notes={currentSlide?.speakerNotes ?? ""}
-                selectedKeywordId={selectedKeywordId}
-                showIds={showIds}
-                onSelectKeyword={setSelectedKeywordId}
-              />
-              <KeywordList
-                keywords={currentSlide?.keywords ?? []}
-                selectedKeywordId={selectedKeywordId}
-                showIds={showIds}
-                onSelectKeyword={setSelectedKeywordId}
-              />
-              {selectedKeyword ? (
-                <KeywordDetail keyword={selectedKeyword} showIds={showIds} />
-              ) : null}
-            </section>
-          </div>
-        </section>
-
-        <aside className={`ai-pane ${isRightPanelOpen ? "" : "collapsed"}`}>
-          {isRightPanelOpen ? (
-            <>
-              <button
-                aria-label="오른쪽 패널 크기 조정"
-                className="right-pane-resizer"
-                type="button"
-                onPointerDown={handleRightPaneResizeStart}
-              />
-              <div className="ai-header">
-                <h2>AI</h2>
-                <div>
-                  <button
-                    className="collapse-right-pane-button"
-                    type="button"
-                    title="오른쪽 패널 접기"
-                    onClick={() => setIsRightPanelOpen(false)}
-                  >
-                    <PanelRightClose size={16} />
-                  </button>
-                </div>
-              </div>
-              <div className="assistant-panel-slot">
-                <PptxImportQualityPanel state={pptxImportState} />
-                <ValidationPanel items={currentSlideValidationItems} />
-                <SuggestionPanel
-                  deck={deck}
-                  projectId={projectId}
-                  slideId={currentSlide?.slideId ?? null}
-                  onApplySuccess={handleAiSuggestionApplied}
+                    handleElementFrameChange(
+                      currentSlide.slideId,
+                      selectedElement.elementId,
+                      frame,
+                    );
+                  }}
+                  onChangeProps={(props) => {
+                    if (!selectedElement || !currentSlide) {
+                      return;
+                    }
+                    handleElementPropsChange(
+                      currentSlide.slideId,
+                      selectedElement.elementId,
+                      props,
+                    );
+                  }}
+                  onChangeSlideStyle={(style) => {
+                    if (!currentSlide) {
+                      return;
+                    }
+                    handleSlideStyleChange(currentSlide.slideId, style);
+                  }}
+                  onChangeTheme={handleThemeChange}
                 />
-              </div>
-            </>
-          ) : (
-            <div className="collapsed-right-rail">
-              <button
-                className="collapse-right-pane-button"
-                type="button"
-                title="오른쪽 패널 펼치기"
-                onClick={() => setIsRightPanelOpen(true)}
-              >
-                <PanelRightOpen size={16} />
-              </button>
-              <span>AI</span>
+              )}
             </div>
-          )}
-        </aside>
-      </section>
 
-      <div data-testid="editor-elements-debug" hidden>
-        {JSON.stringify(
-          visibleElements.map((element) => ({
-            elementId: element.elementId,
-            type: element.type,
-            x: Math.round(element.x),
-            y: Math.round(element.y),
-            width: Math.round(element.width),
-            height: Math.round(element.height),
-            rotation: Math.round(element.rotation)
-          }))
-        )}
-      </div>
-      <div data-testid="editor-slide-style-debug" hidden>
-        {JSON.stringify(
-          currentSlide
-            ? {
-                backgroundColor:
-                  currentSlide.style.backgroundColor ?? deck.theme.backgroundColor,
-                textColor: currentSlide.style.textColor ?? deck.theme.textColor,
-                accentColor: currentSlide.style.accentColor ?? deck.theme.accentColor
-              }
-            : null
-        )}
-      </div>
+            <div className="canvas-scroll">
+              {currentSlide ? (
+                <div className="konva-wrap">
+                  <div
+                    className="konva-stage-shell orbit-stage-shell"
+                    data-testid="editor-stage-shell"
+                    style={{
+                      width: deck.canvas.width * stageScale,
+                      height: deck.canvas.height * stageScale,
+                      color:
+                        currentSlide.style.textColor ?? deck.theme.textColor,
+                      ...buildSlideBackgroundStyle(currentSlide, deck),
+                    }}
+                  >
+                    <EditableCanvas
+                      customShapeEditElementId={customShapeEditElementId}
+                      deck={deck}
+                      editingElementId={editingElementId}
+                      insertTool={insertTool}
+                      selectedElementIds={selectedElementIds}
+                      showIds={showIds}
+                      slide={currentSlide}
+                      stageScale={stageScale}
+                      stageRef={editorStageRef}
+                      visibleElements={visibleElements}
+                      onClearSelection={handleCanvasBackgroundSelectionClear}
+                      onCommitElementFrame={handleElementFrameChange}
+                      onCommitElementProps={(elementId, props) =>
+                        handleElementPropsChange(
+                          currentSlide.slideId,
+                          elementId,
+                          props,
+                        )
+                      }
+                      onCreateElement={handleCreateDrawnElement}
+                      onCreateCustomShape={handleCreateCustomShape}
+                      onCommitCustomShapeGeometry={(elementId, nodes, closed) =>
+                        handleCommitCustomShapeGeometry(
+                          currentSlide.slideId,
+                          elementId,
+                          nodes,
+                          closed,
+                        )
+                      }
+                      onDoubleClickElement={(elementId) =>
+                        setEditingElementId(elementId)
+                      }
+                      onFinishEditing={() => setEditingElementId(null)}
+                      onSetCustomShapeEditElementId={
+                        setCustomShapeEditElementId
+                      }
+                      onSetInsertTool={setInsertTool}
+                      onOpenElementContextMenu={handleOpenElementContextMenu}
+                      onSelectElement={handleElementSelection}
+                    />
+                  </div>
+                  {renderingDeck ? (
+                    <HiddenSlideRenderStages
+                      deck={renderingDeck}
+                      stageRefs={slideRenderStageRefs}
+                    />
+                  ) : null}
+                </div>
+              ) : (
+                <EmptyCanvasState canvas={deck.canvas} />
+              )}
 
-      {isDev ? (
-        <button
-          className={`data-view-fab ${isDataViewOpen ? "active" : ""}`}
-          data-testid="editor-data-view-toggle"
-          type="button"
-          onClick={() => setIsDataViewOpen((current) => !current)}
-        >
-          Data View
-        </button>
-      ) : null}
-
-      {isDev && isDataViewOpen ? (
-        <section className="floating-dev-panel">
-          <div className="ai-header dev-panel-header">
-            <h2>ORBIT-14 Data View</h2>
-            <div>
-              <button type="button" onClick={() => setIsDataViewOpen(false)}>
-                ×
-              </button>
+              <section className="script-panel">
+                <div className="script-panel-header">
+                  <strong>발표 메모</strong>
+                  <span>
+                    {currentSlide && showIds ? (
+                      <IdBadge id={currentSlide.slideId} />
+                    ) : (
+                      currentSlide?.title || `슬라이드 ${currentSlideIndex + 1}`
+                    )}
+                  </span>
+                </div>
+                <KeywordHighlightedNotes
+                  keywords={currentSlide?.keywords ?? []}
+                  notes={currentSlide?.speakerNotes ?? ""}
+                  selectedKeywordId={selectedKeywordId}
+                  showIds={showIds}
+                  onSelectKeyword={setSelectedKeywordId}
+                />
+                <KeywordList
+                  keywords={currentSlide?.keywords ?? []}
+                  selectedKeywordId={selectedKeywordId}
+                  showIds={showIds}
+                  onSelectKeyword={setSelectedKeywordId}
+                />
+                {selectedKeyword ? (
+                  <KeywordDetail keyword={selectedKeyword} showIds={showIds} />
+                ) : null}
+              </section>
             </div>
-          </div>
+          </section>
 
-          <InfoCard
-            title="Deck Meta"
-            lines={[
-              `deckId: ${deck.deckId}`,
-              `version: ${deck.version}`,
-              `theme: ${deck.theme.name}`,
-              `font: ${deck.theme.fontFamily}`,
-              `palette.primary: ${deck.theme.palette.primary}`,
-              `effects.radius: ${deck.theme.effects.borderRadius}`
-            ]}
-          />
-
-          <InfoCard
-            title="Slide Style"
-            lines={
-              currentSlide
-                ? [
-                    `canvas: ${deck.canvas.preset} / ${deck.canvas.width} × ${deck.canvas.height}`,
-                    `locale: ${deck.metadata.language} / ${deck.metadata.locale}`,
-                    `layout: ${currentSlide.style.layout ?? "none"}`,
-                    `fontFamily: ${currentSlide.style.fontFamily ?? deck.theme.fontFamily}`,
-                    `backgroundColor: ${currentSlide.style.backgroundColor ?? deck.theme.backgroundColor}`,
-                    `textColor: ${currentSlide.style.textColor ?? deck.theme.textColor}`,
-                    `accentColor: ${currentSlide.style.accentColor ?? deck.theme.accentColor}`,
-                    `backgroundImage: ${currentSlide.style.backgroundImage?.src ?? "none"}`
-                  ]
-                : ["empty deck: no selected slide"]
-            }
-          />
-
-          <InfoCard
-            title="Editor Debug"
-            lines={[
-              `saveStatus: ${saveStatusLabel}`,
-              `baseVersion: ${deck.version}`,
-              `undo: ${undoStack.length}`,
-              `redo: ${redoStack.length}`,
-              `lastPatch: ${lastPatchLabel}`
-            ]}
-          />
-
-          <section className="suggestion-card">
-            <strong>Keywords</strong>
-            <div className="stack-list">
-              {currentSlide && currentSlide.keywords.length > 0 ? (
-                currentSlide.keywords.map((keyword) => (
-                  <KeywordSummary
-                    key={keyword.keywordId}
-                    keyword={keyword}
-                    showIds
+          <aside className={`ai-pane ${isRightPanelOpen ? "" : "collapsed"}`}>
+            {isRightPanelOpen ? (
+              <>
+                <button
+                  aria-label="오른쪽 패널 크기 조정"
+                  className="right-pane-resizer"
+                  type="button"
+                  onPointerDown={handleRightPaneResizeStart}
+                />
+                <div className="ai-header">
+                  <h2>AI</h2>
+                  <div>
+                    <button
+                      className="collapse-right-pane-button"
+                      type="button"
+                      title="오른쪽 패널 접기"
+                      onClick={() => setIsRightPanelOpen(false)}
+                    >
+                      <PanelRightClose size={16} />
+                    </button>
+                  </div>
+                </div>
+                <div className="assistant-panel-slot">
+                  <PptxImportQualityPanel state={pptxImportState} />
+                  <ValidationPanel items={currentSlideValidationItems} />
+                  <SuggestionPanel
+                    deck={deck}
+                    projectId={projectId}
+                    slideId={currentSlide?.slideId ?? null}
+                    onApplySuccess={handleAiSuggestionApplied}
                   />
-                ))
-              ) : (
-                <div className="stack-item compact">
-                  <span>no keywords</span>
                 </div>
-              )}
-            </div>
-          </section>
-
-          <section className="suggestion-card">
-            <strong>Animations</strong>
-            <div className="stack-list">
-              {currentSlideAnimations.map((animation) => (
-                <div className="stack-item" key={animation.animationId}>
-                  <span>{animation.animationId}</span>
-                  <strong>
-                    {animation.type} → {animation.elementId}
-                  </strong>
-                  <small>
-                    order {animation.order} · {animation.durationMs}ms · delay {animation.delayMs}ms ·{" "}
-                    {animation.easing}
-                  </small>
-                </div>
-              ))}
-            </div>
-          </section>
-
-          <section className="suggestion-card">
-            <strong>Elements</strong>
-            <div className="stack-list">
-              {visibleElements.length > 0 ? (
-                visibleElements.map((element) => (
-                  <ElementSummary key={element.elementId} element={element} />
-                ))
-              ) : (
-                <div className="stack-item compact">
-                  <span>no elements</span>
-                </div>
-              )}
-            </div>
-          </section>
+              </>
+            ) : (
+              <div className="collapsed-right-rail">
+                <button
+                  className="collapse-right-pane-button"
+                  type="button"
+                  title="오른쪽 패널 펼치기"
+                  onClick={() => setIsRightPanelOpen(true)}
+                >
+                  <PanelRightOpen size={16} />
+                </button>
+                <span>AI</span>
+              </div>
+            )}
+          </aside>
         </section>
-      ) : null}
+
+        <div data-testid="editor-elements-debug" hidden>
+          {JSON.stringify(
+            visibleElements.map((element) => ({
+              elementId: element.elementId,
+              type: element.type,
+              x: Math.round(element.x),
+              y: Math.round(element.y),
+              width: Math.round(element.width),
+              height: Math.round(element.height),
+              rotation: Math.round(element.rotation),
+            })),
+          )}
+        </div>
+        <div data-testid="editor-slide-style-debug" hidden>
+          {JSON.stringify(
+            currentSlide
+              ? {
+                  backgroundColor:
+                    currentSlide.style.backgroundColor ??
+                    deck.theme.backgroundColor,
+                  textColor:
+                    currentSlide.style.textColor ?? deck.theme.textColor,
+                  accentColor:
+                    currentSlide.style.accentColor ?? deck.theme.accentColor,
+                }
+              : null,
+          )}
+        </div>
+
+        {isDev ? (
+          <button
+            className={`data-view-fab ${isDataViewOpen ? "active" : ""}`}
+            data-testid="editor-data-view-toggle"
+            type="button"
+            onClick={() => setIsDataViewOpen((current) => !current)}
+          >
+            Data View
+          </button>
+        ) : null}
+
+        {isDev && isDataViewOpen ? (
+          <section className="floating-dev-panel">
+            <div className="ai-header dev-panel-header">
+              <h2>ORBIT-14 Data View</h2>
+              <div>
+                <button type="button" onClick={() => setIsDataViewOpen(false)}>
+                  ×
+                </button>
+              </div>
+            </div>
+
+            <InfoCard
+              title="Deck Meta"
+              lines={[
+                `deckId: ${deck.deckId}`,
+                `version: ${deck.version}`,
+                `theme: ${deck.theme.name}`,
+                `font: ${deck.theme.fontFamily}`,
+                `palette.primary: ${deck.theme.palette.primary}`,
+                `effects.radius: ${deck.theme.effects.borderRadius}`,
+              ]}
+            />
+
+            <InfoCard
+              title="Slide Style"
+              lines={
+                currentSlide
+                  ? [
+                      `canvas: ${deck.canvas.preset} / ${deck.canvas.width} × ${deck.canvas.height}`,
+                      `locale: ${deck.metadata.language} / ${deck.metadata.locale}`,
+                      `layout: ${currentSlide.style.layout ?? "none"}`,
+                      `fontFamily: ${currentSlide.style.fontFamily ?? deck.theme.fontFamily}`,
+                      `backgroundColor: ${currentSlide.style.backgroundColor ?? deck.theme.backgroundColor}`,
+                      `textColor: ${currentSlide.style.textColor ?? deck.theme.textColor}`,
+                      `accentColor: ${currentSlide.style.accentColor ?? deck.theme.accentColor}`,
+                      `backgroundImage: ${currentSlide.style.backgroundImage?.src ?? "none"}`,
+                    ]
+                  : ["empty deck: no selected slide"]
+              }
+            />
+
+            <InfoCard
+              title="Editor Debug"
+              lines={[
+                `saveStatus: ${saveStatusLabel}`,
+                `baseVersion: ${deck.version}`,
+                `undo: ${undoStack.length}`,
+                `redo: ${redoStack.length}`,
+                `lastPatch: ${lastPatchLabel}`,
+              ]}
+            />
+
+            <section className="suggestion-card">
+              <strong>Keywords</strong>
+              <div className="stack-list">
+                {currentSlide && currentSlide.keywords.length > 0 ? (
+                  currentSlide.keywords.map((keyword) => (
+                    <KeywordSummary
+                      key={keyword.keywordId}
+                      keyword={keyword}
+                      showIds
+                    />
+                  ))
+                ) : (
+                  <div className="stack-item compact">
+                    <span>no keywords</span>
+                  </div>
+                )}
+              </div>
+            </section>
+
+            <section className="suggestion-card">
+              <strong>Animations</strong>
+              <div className="stack-list">
+                {currentSlideAnimations.map((animation) => (
+                  <div className="stack-item" key={animation.animationId}>
+                    <span>{animation.animationId}</span>
+                    <strong>
+                      {animation.type} → {animation.elementId}
+                    </strong>
+                    <small>
+                      order {animation.order} · {animation.durationMs}ms · delay{" "}
+                      {animation.delayMs}ms · {animation.easing}
+                    </small>
+                  </div>
+                ))}
+              </div>
+            </section>
+
+            <section className="suggestion-card">
+              <strong>Elements</strong>
+              <div className="stack-list">
+                {visibleElements.length > 0 ? (
+                  visibleElements.map((element) => (
+                    <ElementSummary key={element.elementId} element={element} />
+                  ))
+                ) : (
+                  <div className="stack-item compact">
+                    <span>no elements</span>
+                  </div>
+                )}
+              </div>
+            </section>
+          </section>
+        ) : null}
         <input
           ref={imageFileInputRef}
           accept={editorImageAccept}
@@ -4124,18 +4459,19 @@ function buildSlideThumbBackground(slide: Slide, deck: Deck) {
   return [
     `linear-gradient(rgba(255,255,255,${overlayOpacity}), rgba(255,255,255,${overlayOpacity}))`,
     `url("${resolveEditorAssetUrl(backgroundImage.src)}") center / ${size} no-repeat`,
-    background
+    background,
   ].join(",");
 }
 
 function buildSlideBackgroundStyle(slide: Slide, deck: Deck): CSSProperties {
-  const backgroundColor = slide.style.backgroundColor ?? deck.theme.backgroundColor;
+  const backgroundColor =
+    slide.style.backgroundColor ?? deck.theme.backgroundColor;
   const backgroundImage = slide.style.backgroundImage;
 
   if (!backgroundImage?.src) {
     return {
       backgroundColor,
-      borderRadius: 0
+      borderRadius: 0,
     };
   }
 
@@ -4148,11 +4484,13 @@ function buildSlideBackgroundStyle(slide: Slide, deck: Deck): CSSProperties {
     backgroundPosition: "center, center",
     backgroundRepeat: "no-repeat, no-repeat",
     backgroundSize: `100% 100%, ${size}`,
-    borderRadius: 0
+    borderRadius: 0,
   };
 }
 
-function getSlideBackgroundSize(fit: NonNullable<Slide["style"]["backgroundImage"]>["fit"]) {
+function getSlideBackgroundSize(
+  fit: NonNullable<Slide["style"]["backgroundImage"]>["fit"],
+) {
   if (fit === "stretch") {
     return "100% 100%";
   }
@@ -4207,6 +4545,43 @@ function getEditorStatusLabel(props: {
   }
 
   return "저장됨";
+}
+
+function getOoxmlSyncStatus(job: Job | null) {
+  if (!job || job.type !== "pptx-ooxml-sync") {
+    return null;
+  }
+
+  const warnings = readOoxmlSyncWarnings(job);
+  if (job.status === "failed") {
+    return {
+      detail: job.error?.message ?? "PPTX OOXML sync failed.",
+      kind: "failed",
+      label: "OOXML sync failed",
+    };
+  }
+  if (job.status === "succeeded") {
+    return {
+      detail: warnings.join("\n") || "PPTX OOXML sync completed.",
+      kind: warnings.length > 0 ? "warning" : "succeeded",
+      label: warnings.length > 0 ? "OOXML sync warnings" : "OOXML synced",
+    };
+  }
+
+  return {
+    detail: job.message || "PPTX OOXML sync is queued.",
+    kind: "pending",
+    label: "OOXML sync pending",
+  };
+}
+
+function readOoxmlSyncWarnings(job: Job): string[] {
+  const warnings = job.result?.warnings;
+  return Array.isArray(warnings)
+    ? warnings.filter(
+        (warning): warning is string => typeof warning === "string",
+      )
+    : [];
 }
 
 function pptxImportMenuMeta(state: PptxImportState) {
@@ -4269,7 +4644,10 @@ function PptxImportQualityPanel(props: { state: PptxImportState }) {
   }
 
   return (
-    <section className="suggestion-card pptx-import-quality" data-testid="pptx-import-quality">
+    <section
+      className="suggestion-card pptx-import-quality"
+      data-testid="pptx-import-quality"
+    >
       <strong>PPTX 가져오기</strong>
       <div className="stack-list">
         <div className="stack-item compact">
@@ -4281,7 +4659,9 @@ function PptxImportQualityPanel(props: { state: PptxImportState }) {
         {state.qualityReport ? (
           <div className="stack-item compact">
             <span>편집 가능</span>
-            <strong>{Math.round(state.qualityReport.editabilityCoverage * 100)}%</strong>
+            <strong>
+              {Math.round(state.qualityReport.editabilityCoverage * 100)}%
+            </strong>
           </div>
         ) : null}
         {state.warnings.slice(0, 3).map((warning) => (
@@ -4309,16 +4689,15 @@ function formatLastSavedAtLabel(lastSavedAt: string | null): string | null {
     hour: "2-digit",
     minute: "2-digit",
     second: "2-digit",
-    hour12: false
+    hour12: false,
   }).format(date);
 }
-
 
 function getNextElementZIndex(elements: DeckElement[]) {
   return (
     elements.reduce(
       (currentMaxZIndex, element) => Math.max(currentMaxZIndex, element.zIndex),
-      0
+      0,
     ) + 1
   );
 }
@@ -4342,14 +4721,15 @@ export function getGroupedChildPreviewFrame(args: {
 }) {
   const { childElement, currentGroupFrame, previewGroupFrame } = args;
   const scaleX = previewGroupFrame.width / Math.max(1, currentGroupFrame.width);
-  const scaleY = previewGroupFrame.height / Math.max(1, currentGroupFrame.height);
+  const scaleY =
+    previewGroupFrame.height / Math.max(1, currentGroupFrame.height);
 
   return {
     height: Math.max(1, childElement.height * scaleY),
     rotation: childElement.rotation - currentGroupFrame.rotation,
     width: Math.max(1, childElement.width * scaleX),
     x: (childElement.x - currentGroupFrame.x) * scaleX,
-    y: (childElement.y - currentGroupFrame.y) * scaleY
+    y: (childElement.y - currentGroupFrame.y) * scaleY,
   };
 }
 
@@ -4364,15 +4744,20 @@ function getContextMenuPosition(args: {
   return {
     left: Math.min(
       Math.max(viewportPadding, args.clientX),
-      Math.max(viewportPadding, window.innerWidth - args.width - viewportPadding)
+      Math.max(
+        viewportPadding,
+        window.innerWidth - args.width - viewportPadding,
+      ),
     ),
     top: Math.min(
       Math.max(viewportPadding, args.clientY),
-      Math.max(viewportPadding, window.innerHeight - args.height - viewportPadding)
-    )
+      Math.max(
+        viewportPadding,
+        window.innerHeight - args.height - viewportPadding,
+      ),
+    ),
   };
 }
-
 
 function isKeyboardEditableTarget(target: EventTarget | null) {
   if (target instanceof HTMLElement) {
@@ -4381,13 +4766,17 @@ function isKeyboardEditableTarget(target: EventTarget | null) {
       target instanceof HTMLInputElement ||
       target instanceof HTMLTextAreaElement ||
       target instanceof HTMLSelectElement ||
-      Boolean(target.closest("[contenteditable='true'], input, textarea, select"))
+      Boolean(
+        target.closest("[contenteditable='true'], input, textarea, select"),
+      )
     );
   }
 
   if (target instanceof Node) {
     return Boolean(
-      target.parentElement?.closest("[contenteditable='true'], input, textarea, select")
+      target.parentElement?.closest(
+        "[contenteditable='true'], input, textarea, select",
+      ),
     );
   }
 
@@ -4434,7 +4823,9 @@ export function useLoadedImage(src: string) {
   return image;
 }
 
-function getEditorImageValidationMessage(file: Pick<File, "name" | "size" | "type">) {
+function getEditorImageValidationMessage(
+  file: Pick<File, "name" | "size" | "type">,
+) {
   if (!isSupportedEditorImageFile(file)) {
     return "JPG, PNG, WebP 이미지 파일만 업로드할 수 있습니다.";
   }
@@ -4456,10 +4847,17 @@ function isSupportedEditorImageFile(file: Pick<File, "name" | "type">) {
   }
 
   const extension = file.name.split(".").pop()?.toLowerCase() ?? "";
-  return extension === "jpg" || extension === "jpeg" || extension === "png" || extension === "webp";
+  return (
+    extension === "jpg" ||
+    extension === "jpeg" ||
+    extension === "png" ||
+    extension === "webp"
+  );
 }
 
-function getPptxImportValidationMessage(file: Pick<File, "name" | "size" | "type">) {
+function getPptxImportValidationMessage(
+  file: Pick<File, "name" | "size" | "type">,
+) {
   const extension = file.name.split(".").pop()?.toLowerCase() ?? "";
   const isPptx = file.type === pptxMimeType || extension === "pptx";
 
@@ -4484,39 +4882,47 @@ function formatBytes(bytes: number) {
   }
 
   const units = ["B", "KB", "MB", "GB"];
-  const index = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
+  const index = Math.min(
+    Math.floor(Math.log(bytes) / Math.log(1024)),
+    units.length - 1,
+  );
   const value = bytes / 1024 ** index;
 
   return `${value.toFixed(value >= 10 || index === 0 ? 0 : 1)} ${units[index]}`;
 }
 
 function toEditorErrorMessage(error: unknown) {
-  return error instanceof Error ? error.message : "알 수 없는 오류가 발생했습니다.";
+  return error instanceof Error
+    ? error.message
+    : "알 수 없는 오류가 발생했습니다.";
 }
 
 async function readImageNaturalSize(file: File) {
   if (typeof window === "undefined") {
     return {
       height: defaultImageInsertFrame.height,
-      width: defaultImageInsertFrame.width
+      width: defaultImageInsertFrame.width,
     };
   }
 
   const objectUrl = window.URL.createObjectURL(file);
 
   try {
-    return await new Promise<{ height: number; width: number }>((resolve, reject) => {
-      const image = new window.Image();
+    return await new Promise<{ height: number; width: number }>(
+      (resolve, reject) => {
+        const image = new window.Image();
 
-      image.onload = () => {
-        resolve({
-          height: image.naturalHeight || defaultImageInsertFrame.height,
-          width: image.naturalWidth || defaultImageInsertFrame.width
-        });
-      };
-      image.onerror = () => reject(new Error("이미지 크기를 읽지 못했습니다."));
-      image.src = objectUrl;
-    });
+        image.onload = () => {
+          resolve({
+            height: image.naturalHeight || defaultImageInsertFrame.height,
+            width: image.naturalWidth || defaultImageInsertFrame.width,
+          });
+        };
+        image.onerror = () =>
+          reject(new Error("이미지 크기를 읽지 못했습니다."));
+        image.src = objectUrl;
+      },
+    );
   } finally {
     window.URL.revokeObjectURL(objectUrl);
   }
@@ -4524,10 +4930,16 @@ async function readImageNaturalSize(file: File) {
 
 function getDefaultImageInsertFrame(
   canvas: DeckCanvas,
-  imageSize: { height: number; width: number }
+  imageSize: { height: number; width: number },
 ) {
-  const safeWidth = Math.max(1, imageSize.width || defaultImageInsertFrame.width);
-  const safeHeight = Math.max(1, imageSize.height || defaultImageInsertFrame.height);
+  const safeWidth = Math.max(
+    1,
+    imageSize.width || defaultImageInsertFrame.width,
+  );
+  const safeHeight = Math.max(
+    1,
+    imageSize.height || defaultImageInsertFrame.height,
+  );
   const scale = Math.min(520 / safeWidth, 320 / safeHeight, 1);
   const width = Math.max(140, Math.round(safeWidth * scale));
   const height = Math.max(96, Math.round(safeHeight * scale));
@@ -4536,6 +4948,6 @@ function getDefaultImageInsertFrame(
     height,
     width,
     x: Math.max(40, Math.round((canvas.width - width) / 2)),
-    y: Math.max(40, Math.round((canvas.height - height) / 2))
+    y: Math.max(40, Math.round((canvas.height - height) / 2)),
   };
 }
