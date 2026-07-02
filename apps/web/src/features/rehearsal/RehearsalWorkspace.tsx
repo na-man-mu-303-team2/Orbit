@@ -43,7 +43,7 @@ import {
   TrendingUp,
   Volume2
 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { resolveEditorAssetUrl } from "../editor/shared/editorAssetUrl";
 import {
   LiveSttAdapterError,
@@ -69,6 +69,9 @@ import {
   type RehearsalCommandDefinition
 } from "./rehearsalCommands";
 import { SherpaLiveSttAdapter } from "./sherpaOnnxLiveSttAdapter";
+import { SlideshowRenderer } from "./presenter/SlideshowRenderer";
+import { createSlideshowAnimationPlan } from "./presenter/slideshowStepModel";
+import { usePresenterKeyboard } from "./presenter/usePresenterKeyboard";
 
 export {
   LiveSttAdapterError,
@@ -1126,6 +1129,7 @@ export function RehearsalWorkspace(props: {
 }) {
   const [deck, setDeck] = useState<Deck | null>(props.initialDeck ?? null);
   const [currentSlideIndex, setCurrentSlideIndex] = useState(0);
+  const [presenterStepIndex, setPresenterStepIndex] = useState(0);
   const [phase, setPhase] = useState<RehearsalPhase>(props.initialDeck ? "idle" : "loading");
   const [, setError] = useState("");
   const [run, setRun] = useState<RehearsalRun | null>(null);
@@ -1267,6 +1271,13 @@ export function RehearsalWorkspace(props: {
   }, []);
 
   const currentSlide = deck?.slides[currentSlideIndex] ?? null;
+  const triggerAnimationIds = useMemo(() => [] as string[], [currentSlide?.slideId]);
+  const slideshowAnimationPlan = currentSlide
+    ? createSlideshowAnimationPlan({
+        slide: currentSlide,
+        triggerAnimationIds
+      })
+    : null;
   const canRecord = Boolean(deck) && !["recording", "uploading", "processing"].includes(phase);
   const isLiveSttActive = liveStatus === "starting" || liveStatus === "listening";
   const isReportBusy = ["recording", "uploading", "processing"].includes(phase);
@@ -1290,6 +1301,16 @@ export function RehearsalWorkspace(props: {
   const canDownloadLiveSttDebugPcm = shouldShowLiveSttDebugPcmDownload(
     liveDebugPcmRecording
   );
+
+  usePresenterKeyboard({
+    enabled: Boolean(deck),
+    onNextStep: () => {
+      handleNextPresenterStep();
+    },
+    onPreviousSlide: () => {
+      goPrevious();
+    }
+  });
 
   useEffect(() => {
     resetLiveTranscriptForSlide(currentSlide);
@@ -1755,12 +1776,27 @@ export function RehearsalWorkspace(props: {
 
   const goPrevious = () => {
     cancelPendingAutoAdvance("cancelled");
+    setPresenterStepIndex(0);
     setCurrentSlideIndex((current) => Math.max(0, current - 1));
   };
   const goNext = () => {
     if (!deck) return;
     cancelPendingAutoAdvance("cancelled");
+    setPresenterStepIndex(0);
     setCurrentSlideIndex((current) => Math.min(deck.slides.length - 1, current + 1));
+  };
+  const handleNextPresenterStep = () => {
+    if (!deck || !slideshowAnimationPlan) return;
+    cancelPendingAutoAdvance("cancelled");
+
+    setPresenterStepIndex((currentStep) => {
+      if (currentStep < slideshowAnimationPlan.maxStepIndex) {
+        return currentStep + 1;
+      }
+
+      setCurrentSlideIndex((current) => Math.min(deck.slides.length - 1, current + 1));
+      return 0;
+    });
   };
   const finishRehearsal = () => {
     const projectId = deck?.projectId ?? props.projectId ?? demoIds.projectId;
@@ -1912,8 +1948,14 @@ export function RehearsalWorkspace(props: {
       <section className="rehearsal-presenter-layout">
         <section className="rehearsal-presenter-main">
           <div className="rehearsal-stage-wrap">
-            {currentSlide ? (
-              <DeckSlidePreview deck={deck} slide={currentSlide} />
+            {deck && currentSlide ? (
+              <SlideshowRenderer
+                deck={deck}
+                scale={0.44}
+                slideId={currentSlide.slideId}
+                stepIndex={presenterStepIndex}
+                triggerAnimationIds={triggerAnimationIds}
+              />
             ) : (
               <div className="rehearsal-empty-stage">
                 {"\ubc1c\ud45c\uc790\ub8cc \ub85c\ub529 \uc911"}
@@ -1926,20 +1968,30 @@ export function RehearsalWorkspace(props: {
               type="button"
               onClick={goPrevious}
               disabled={currentSlideIndex === 0}
-              aria-label="Previous slide"
-              title="Previous slide"
+              aria-label="이전 슬라이드"
+              title="이전 슬라이드"
             >
               <ChevronLeft size={24} />
             </button>
             <span>
               {currentSlideIndex + 1} / {deck?.slides.length ?? 0}
+              {slideshowAnimationPlan ? ` · 스텝 ${presenterStepIndex}/${slideshowAnimationPlan.maxStepIndex}` : ""}
             </span>
+            <button
+              type="button"
+              onClick={handleNextPresenterStep}
+              disabled={!deck}
+              aria-label="다음 애니메이션 스텝"
+              title="다음 애니메이션 스텝"
+            >
+              다음 스텝
+            </button>
             <button
               type="button"
               onClick={goNext}
               disabled={!deck || currentSlideIndex >= deck.slides.length - 1}
-              aria-label="Next slide"
-              title="Next slide"
+              aria-label="다음 슬라이드"
+              title="다음 슬라이드"
             >
               <ChevronRight size={24} />
             </button>
@@ -1968,7 +2020,10 @@ export function RehearsalWorkspace(props: {
                   key={`${slide.slideId}-${offset}`}
                   style={{ gridColumn }}
                   type="button"
-                  onClick={() => setCurrentSlideIndex(slideIndex)}
+                  onClick={() => {
+                    setPresenterStepIndex(0);
+                    setCurrentSlideIndex(slideIndex);
+                  }}
                 >
                   <span className="rehearsal-context-thumb-preview">
                     {thumbnailUrl ? (
@@ -2500,58 +2555,6 @@ export function RehearsalReportPage(props: {
         </section>
       </div>
     </main>
-  );
-}
-
-function DeckSlidePreview(props: { deck: Deck | null; slide: Slide }) {
-  const { deck, slide } = props;
-  const backgroundColor = slide.style.backgroundColor ?? deck?.theme.backgroundColor ?? "#ffffff";
-  const textColor = slide.style.textColor ?? deck?.theme.textColor ?? "#15202b";
-  const titleText = getSlideTitle(slide);
-  const bodyTexts = getSlideBodyTexts(slide);
-  const keywords = getChecklistKeywords(slide);
-  const thumbnailUrl = resolveEditorAssetUrl(slide.thumbnailUrl);
-
-  if (thumbnailUrl) {
-    return (
-      <div
-        className="rehearsal-slide-preview image-preview"
-        style={{ backgroundColor, color: textColor }}
-      >
-        <img
-          alt={`${titleText} slide preview`}
-          className="rehearsal-slide-image"
-          src={thumbnailUrl}
-        />
-      </div>
-    );
-  }
-
-  return (
-    <div className="rehearsal-slide-preview" style={{ backgroundColor, color: textColor }}>
-      <h2 className="rehearsal-slide-title">{titleText}</h2>
-      <div className="rehearsal-slide-diagram" aria-label="?щ씪?대뱶 ?듭떖 ?먮쫫">
-        {keywords.slice(0, 5).map((keyword, index) => (
-          <div className="diagram-step" key={keyword.keywordId}>
-            <span className="diagram-icon">
-              {index === 0 ? (
-                <Mic size={28} />
-              ) : index === 1 ? (
-                <span />
-              ) : index === 2 ? (
-                <Sparkles size={26} />
-              ) : index === 3 ? (
-                <PresentationScreenIcon />
-              ) : (
-                <CheckCircle2 size={28} />
-              )}
-            </span>
-            <strong>{keyword.text}</strong>
-          </div>
-        ))}
-      </div>
-      <p className="rehearsal-slide-caption">{bodyTexts[0] ?? `[ ${titleText} ]`}</p>
-    </div>
   );
 }
 
