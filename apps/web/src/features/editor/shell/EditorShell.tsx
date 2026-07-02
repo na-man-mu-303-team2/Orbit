@@ -80,9 +80,6 @@ import type {
   DeckElement,
   DeckElementRole,
   DeckPatch,
-  AudienceAccessSession,
-  CreateAudienceAccessSessionResponse,
-  GetCurrentAudienceAccessSessionResponse,
   GroupElementProps,
   ImageElementProps,
   ShapeElementProps,
@@ -116,15 +113,14 @@ import {
   Sparkles,
   Type,
   Upload,
-  Wand2,
-  X
+  Wand2
 } from "lucide-react";
 import type { ChangeEvent, CSSProperties, PointerEvent as ReactPointerEvent } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal, flushSync } from "react-dom";
-import QRCode from "qrcode";
 import { io } from "socket.io-client";
 import type { Socket as ClientSocket } from "socket.io-client";
+import { AudienceLinkModal } from "../audience-link/AudienceLinkModal";
 import { SuggestionPanel } from "../suggestions/components/SuggestionPanel";
 import {
   mergeDeckIntoQueryCache,
@@ -686,47 +682,6 @@ function formatDebugDate(value: string) {
   return date.toLocaleString();
 }
 
-function formatAudienceExpiresAt(value: string) {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return value;
-  }
-
-  return new Intl.DateTimeFormat("ko-KR", {
-    hour: "2-digit",
-    minute: "2-digit",
-    month: "2-digit",
-    day: "2-digit",
-    hour12: false
-  }).format(date);
-}
-
-function formatAudienceTimeRemaining(value: string, nowMs = Date.now()) {
-  const expiresAt = new Date(value).getTime();
-  if (!Number.isFinite(expiresAt)) {
-    return "만료 시간 확인 필요";
-  }
-
-  const remainingMs = expiresAt - nowMs;
-  if (remainingMs <= 0) {
-    return "만료됨";
-  }
-
-  const totalMinutes = Math.ceil(remainingMs / (1000 * 60));
-  const hours = Math.floor(totalMinutes / 60);
-  const minutes = totalMinutes % 60;
-
-  if (hours <= 0) {
-    return `${minutes}분 남음`;
-  }
-
-  if (minutes === 0) {
-    return `${hours}시간 남음`;
-  }
-
-  return `${hours}시간 ${minutes}분 남음`;
-}
-
 function formatSessionRemaining(session: EditorSessionDebugState) {
   if (session.status === "idle" || session.status === "loading") {
     return session.message;
@@ -824,92 +779,6 @@ async function fetchEditorSessionDebug(): Promise<Exclude<EditorSessionDebugStat
   };
 }
 
-async function fetchCurrentAudienceAccessSession(
-  projectId: string
-): Promise<GetCurrentAudienceAccessSessionResponse> {
-  const response = await fetch(
-    `/api/v1/projects/${encodeURIComponent(projectId)}/presentation-sessions/current`,
-    {
-      credentials: "include"
-    }
-  );
-
-  if (!response.ok) {
-    throw await readResponseError(response, "Audience session fetch failed");
-  }
-
-  return response.json() as Promise<GetCurrentAudienceAccessSessionResponse>;
-}
-
-async function createAudienceAccessSession(args: {
-  expiresInHours: number;
-  passcode: string;
-  projectId: string;
-}): Promise<CreateAudienceAccessSessionResponse> {
-  const response = await fetch(
-    `/api/v1/projects/${encodeURIComponent(args.projectId)}/presentation-sessions`,
-    {
-      body: JSON.stringify({
-        expiresInHours: args.expiresInHours,
-        passcode: args.passcode
-      }),
-      credentials: "include",
-      headers: {
-        "content-type": "application/json"
-      },
-      method: "POST"
-    }
-  );
-
-  if (!response.ok) {
-    throw await readResponseError(response, "Audience session create failed");
-  }
-
-  return response.json() as Promise<CreateAudienceAccessSessionResponse>;
-}
-
-async function closeAudienceAccessSession(args: {
-  projectId: string;
-  sessionId: string;
-}): Promise<AudienceAccessSession> {
-  const response = await fetch(
-    `/api/v1/projects/${encodeURIComponent(
-      args.projectId
-    )}/presentation-sessions/${encodeURIComponent(args.sessionId)}/status`,
-    {
-      body: JSON.stringify({ status: "closed" }),
-      credentials: "include",
-      headers: {
-        "content-type": "application/json"
-      },
-      method: "PATCH"
-    }
-  );
-
-  if (!response.ok) {
-    throw await readResponseError(response, "Audience session close failed");
-  }
-
-  const payload = (await response.json()) as { session: AudienceAccessSession };
-  return payload.session;
-}
-
-function resolveAbsoluteAudienceUrl(audienceUrl: string) {
-  if (typeof window === "undefined") {
-    return audienceUrl;
-  }
-
-  return new URL(audienceUrl, window.location.origin).toString();
-}
-
-async function createQrDataUrl(value: string) {
-  return QRCode.toDataURL(value, {
-    errorCorrectionLevel: "M",
-    margin: 1,
-    width: 220
-  });
-}
-
 export function EditorShell(props: { projectId?: string }) {
   const projectId = props.projectId ?? demoIds.projectId;
   const queryClient = useQueryClient();
@@ -922,15 +791,6 @@ export function EditorShell(props: { projectId?: string }) {
   const [projectPresenceUsers, setProjectPresenceUsers] = useState<ProjectPresenceUser[]>([]);
   const [isPresenceDebugOpen, setIsPresenceDebugOpen] = useState(false);
   const [isAudienceLinkModalOpen, setIsAudienceLinkModalOpen] = useState(false);
-  const [audiencePasscode, setAudiencePasscode] = useState("");
-  const [audienceExpiresInHours, setAudienceExpiresInHours] = useState(2);
-  const [audienceSession, setAudienceSession] = useState<AudienceAccessSession | null>(null);
-  const [audienceUrl, setAudienceUrl] = useState("");
-  const [audienceQrDataUrl, setAudienceQrDataUrl] = useState("");
-  const [audienceLinkError, setAudienceLinkError] = useState("");
-  const [isAudienceLinkLoading, setIsAudienceLinkLoading] = useState(false);
-  const [isAudienceCloseConfirming, setIsAudienceCloseConfirming] = useState(false);
-  const [audienceNowMs, setAudienceNowMs] = useState(() => Date.now());
   const [lastPresenceAt, setLastPresenceAt] = useState<string | null>(null);
   const [socketErrorMessage, setSocketErrorMessage] = useState("");
   const [socketId, setSocketId] = useState("");
@@ -1072,123 +932,6 @@ export function EditorShell(props: { projectId?: string }) {
       isCancelled = true;
     };
   }, [isPresenceDebugOpen]);
-
-  useEffect(() => {
-    if (!isAudienceLinkModalOpen) {
-      return;
-    }
-
-    setAudienceNowMs(Date.now());
-    const timerId = window.setInterval(() => setAudienceNowMs(Date.now()), 60_000);
-
-    return () => window.clearInterval(timerId);
-  }, [isAudienceLinkModalOpen]);
-
-  useEffect(() => {
-    if (!isAudienceLinkModalOpen) {
-      return;
-    }
-
-    let isCancelled = false;
-    setAudienceLinkError("");
-    setIsAudienceCloseConfirming(false);
-    setIsAudienceLinkLoading(true);
-    void fetchCurrentAudienceAccessSession(projectId)
-      .then(async (payload) => {
-        if (isCancelled) {
-          return;
-        }
-
-        setAudienceSession(payload.session);
-        const nextAudienceUrl = payload.audienceUrl
-          ? resolveAbsoluteAudienceUrl(payload.audienceUrl)
-          : "";
-        setAudienceUrl(nextAudienceUrl);
-        setAudienceQrDataUrl(nextAudienceUrl ? await createQrDataUrl(nextAudienceUrl) : "");
-      })
-      .catch((error) => {
-        if (!isCancelled) {
-          setAudienceLinkError(toEditorErrorMessage(error));
-          setAudienceSession(null);
-          setAudienceUrl("");
-          setAudienceQrDataUrl("");
-        }
-      })
-      .finally(() => {
-        if (!isCancelled) {
-          setIsAudienceLinkLoading(false);
-        }
-      });
-
-    return () => {
-      isCancelled = true;
-    };
-  }, [isAudienceLinkModalOpen, projectId]);
-
-  function updateAudiencePasscode(value: string) {
-    setAudiencePasscode(value.replace(/\D/g, "").slice(0, 4));
-  }
-
-  async function handleCreateAudienceLink() {
-    if (!/^\d{4}$/.test(audiencePasscode) || isAudienceLinkLoading) {
-      setAudienceLinkError("4자리 숫자 비밀번호를 입력해 주세요.");
-      return;
-    }
-
-    setIsAudienceLinkLoading(true);
-    setAudienceLinkError("");
-
-    try {
-      const payload = await createAudienceAccessSession({
-        expiresInHours: audienceExpiresInHours,
-        passcode: audiencePasscode,
-        projectId
-      });
-      const nextAudienceUrl = resolveAbsoluteAudienceUrl(payload.audienceUrl);
-      setAudienceSession(payload.session);
-      setAudienceUrl(nextAudienceUrl);
-      setAudienceQrDataUrl(await createQrDataUrl(nextAudienceUrl));
-      setAudiencePasscode("");
-      setIsAudienceCloseConfirming(false);
-    } catch (error) {
-      setAudienceLinkError(toEditorErrorMessage(error));
-    } finally {
-      setIsAudienceLinkLoading(false);
-    }
-  }
-
-  async function handleCloseAudienceLink() {
-    if (!audienceSession || isAudienceLinkLoading) {
-      return;
-    }
-
-    setIsAudienceLinkLoading(true);
-    setAudienceLinkError("");
-
-    try {
-      await closeAudienceAccessSession({
-        projectId,
-        sessionId: audienceSession.sessionId
-      });
-      setAudienceSession(null);
-      setAudienceUrl("");
-      setAudienceQrDataUrl("");
-      setIsAudienceCloseConfirming(false);
-    } catch (error) {
-      setAudienceLinkError(toEditorErrorMessage(error));
-      setIsAudienceCloseConfirming(false);
-    } finally {
-      setIsAudienceLinkLoading(false);
-    }
-  }
-
-  async function handleCopyAudienceUrl() {
-    if (!audienceUrl || typeof navigator === "undefined" || !navigator.clipboard) {
-      return;
-    }
-
-    await navigator.clipboard.writeText(audienceUrl);
-  }
 
   const loadedDeck = deckQuery.data ?? fallbackDeck;
   const [deck, setDeck] = useState<Deck>(loadedDeck);
@@ -3461,195 +3204,11 @@ export function EditorShell(props: { projectId?: string }) {
             document.body
           )
         : null}
-      {isAudienceLinkModalOpen
-        ? createPortal(
-            <div
-              className="audience-link-modal-backdrop"
-              role="presentation"
-              onMouseDown={() => {
-                setIsAudienceCloseConfirming(false);
-                setIsAudienceLinkModalOpen(false);
-              }}
-            >
-              <section
-                aria-label="청중 링크와 QR"
-                aria-modal="true"
-                className="audience-link-modal"
-                role="dialog"
-                onMouseDown={(event) => event.stopPropagation()}
-              >
-                <header>
-                  <div>
-                    <strong>청중 링크/QR</strong>
-                    <span>4자리 입장 비밀번호로 보호되는 청중 입장 링크입니다.</span>
-                  </div>
-                  <button
-                    className="audience-link-close-button"
-                    type="button"
-                    aria-label="청중 링크 모달 닫기"
-                    onClick={() => {
-                      setIsAudienceCloseConfirming(false);
-                      setIsAudienceLinkModalOpen(false);
-                    }}
-                  >
-                    <X size={16} />
-                  </button>
-                </header>
-                {audienceSession && audienceUrl ? (
-                  <section className="audience-link-current">
-                    <div className="audience-link-status-row">
-                      <span
-                        className={`audience-link-status audience-link-status-${audienceSession.status}`}
-                      >
-                        {audienceSession.status === "open" ? "입장 열림" : "입장 닫힘"}
-                      </span>
-                    </div>
-                    <div className="audience-link-qr-frame">
-                      {audienceQrDataUrl ? (
-                        <img alt="청중 입장 QR 코드" src={audienceQrDataUrl} />
-                      ) : (
-                        <Share2 size={28} />
-                      )}
-                    </div>
-                    <div className="audience-link-expiry-summary">
-                      <strong>
-                        {formatAudienceTimeRemaining(
-                          audienceSession.expiresAt,
-                          audienceNowMs
-                        )}
-                      </strong>
-                      <span>만료 {formatAudienceExpiresAt(audienceSession.expiresAt)}</span>
-                    </div>
-                    <label className="audience-link-url-field">
-                      <span>주소 영역</span>
-                      <input readOnly value={audienceUrl} />
-                    </label>
-                    <div className="audience-link-actions">
-                      <button
-                        type="button"
-                        onClick={() => void handleCopyAudienceUrl()}
-                        disabled={!audienceUrl}
-                      >
-                        복사
-                      </button>
-                      <button
-                        className="audience-link-session-close"
-                        type="button"
-                        onClick={() => setIsAudienceCloseConfirming(true)}
-                        disabled={isAudienceLinkLoading || audienceSession.status === "closed"}
-                      >
-                        세션 닫기
-                      </button>
-                      <button
-                        className="audience-link-modal-dismiss"
-                        type="button"
-                        onClick={() => {
-                          setIsAudienceCloseConfirming(false);
-                          setIsAudienceLinkModalOpen(false);
-                        }}
-                      >
-                        닫기
-                      </button>
-                    </div>
-                  </section>
-                ) : null}
-                {isAudienceCloseConfirming ? (
-                  <div
-                    className="audience-link-confirm-backdrop"
-                    role="presentation"
-                    onMouseDown={() => setIsAudienceCloseConfirming(false)}
-                  >
-                    <section
-                      aria-label="세션 닫기 확인"
-                      aria-modal="true"
-                      className="audience-link-confirm-modal"
-                      role="alertdialog"
-                      onMouseDown={(event) => event.stopPropagation()}
-                    >
-                      <strong>세션을 닫을까요?</strong>
-                      <p>
-                        현재 청중 입장 링크가 닫히고, 이 QR 코드로는 더 이상 입장할 수
-                        없습니다.
-                      </p>
-                      <div className="audience-link-confirm-actions">
-                        <button
-                          type="button"
-                          onClick={() => setIsAudienceCloseConfirming(false)}
-                          disabled={isAudienceLinkLoading}
-                        >
-                          취소
-                        </button>
-                        <button
-                          className="audience-link-confirm-danger"
-                          type="button"
-                          onClick={() => void handleCloseAudienceLink()}
-                          disabled={isAudienceLinkLoading}
-                        >
-                          {isAudienceLinkLoading ? "닫는 중" : "세션 닫기"}
-                        </button>
-                      </div>
-                    </section>
-                  </div>
-                ) : null}
-                {!audienceSession ? (
-                  <section className="audience-link-create">
-                    <label>
-                      <span>입장 비밀번호</span>
-                      <div
-                        className="audience-pin-inputs"
-                        aria-label="4자리 입장 비밀번호"
-                      >
-                        <input
-                          aria-label="4자리 입장 비밀번호"
-                          inputMode="numeric"
-                          maxLength={4}
-                          pattern="[0-9]*"
-                          type="text"
-                          value={audiencePasscode}
-                          onChange={(event) => updateAudiencePasscode(event.target.value)}
-                        />
-                        {[0, 1, 2, 3].map((index) => (
-                          <span key={index} aria-hidden="true">
-                            {audiencePasscode[index] ?? ""}
-                          </span>
-                        ))}
-                      </div>
-                    </label>
-                    <label className="audience-expiry-field">
-                      <span>링크 유효시간</span>
-                      <select
-                        value={audienceExpiresInHours}
-                        onChange={(event) =>
-                          setAudienceExpiresInHours(Number(event.target.value))
-                        }
-                      >
-                        <option value={1}>1시간</option>
-                        <option value={2}>2시간</option>
-                        <option value={6}>6시간</option>
-                        <option value={12}>12시간</option>
-                        <option value={24}>24시간</option>
-                      </select>
-                    </label>
-                    <button
-                      className="audience-link-primary"
-                      type="button"
-                      onClick={() => void handleCreateAudienceLink()}
-                      disabled={isAudienceLinkLoading}
-                    >
-                      {isAudienceLinkLoading ? "처리 중..." : "QR코드 생성"}
-                    </button>
-                  </section>
-                ) : null}
-                {audienceLinkError ? (
-                  <p className="audience-link-error" role="alert">
-                    {audienceLinkError}
-                  </p>
-                ) : null}
-              </section>
-            </div>,
-            document.body
-          )
-        : null}
+      <AudienceLinkModal
+        isOpen={isAudienceLinkModalOpen}
+        projectId={projectId}
+        onClose={() => setIsAudienceLinkModalOpen(false)}
+      />
       {isPresenceDebugOpen
         ? createPortal(
             <div
