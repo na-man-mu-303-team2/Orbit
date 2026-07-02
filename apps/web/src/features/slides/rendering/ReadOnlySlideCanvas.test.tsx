@@ -126,6 +126,19 @@ describe("ReadOnlySlideCanvas", () => {
     expect(html).toContain("data-opacity=\"0\"");
   });
 
+  it("renders active highlights for grouped child elements", () => {
+    const html = renderToStaticMarkup(
+      <ReadOnlySlideCanvas
+        deck={p0AnimationDeck}
+        highlights={[{ elementId: "el_group_label", active: true }]}
+        slide={slide}
+      />
+    );
+
+    expect(html).toContain("data-element-id=\"el_group_label\"");
+    expect(html).toContain("data-highlight-element-id=\"el_group_label\"");
+  });
+
   it("applies highlight events in order", () => {
     expect(
       [...getActiveHighlightElementIds([

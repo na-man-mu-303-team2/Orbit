@@ -78,6 +78,7 @@ export function ReadOnlySlideCanvas(props: {
                 deck={deck}
                 element={element}
                 elementStates={elementStates}
+                activeHighlightElementIds={activeHighlightElementIds}
                 presentationState={elementStates[element.elementId]}
                 slide={slide}
               />
@@ -100,13 +101,22 @@ export function ReadOnlySlideCanvas(props: {
 
 function ReadOnlyElementNode(props: {
   accentColor: string;
+  activeHighlightElementIds: Set<string>;
   deck: Deck;
   element: DeckElement;
   elementStates: Record<string, ElementPresentationState>;
   presentationState?: ElementPresentationState;
   slide: Slide;
 }) {
-  const { accentColor, deck, element, elementStates, presentationState, slide } = props;
+  const {
+    accentColor,
+    activeHighlightElementIds,
+    deck,
+    element,
+    elementStates,
+    presentationState,
+    slide
+  } = props;
   const visible = presentationState?.visible ?? element.visible;
   const opacity = presentationState?.opacity ?? element.opacity;
   const frame = {
@@ -130,6 +140,7 @@ function ReadOnlyElementNode(props: {
     >
       <ElementNodeContent
         accentColor={accentColor}
+        activeHighlightElementIds={activeHighlightElementIds}
         deck={deck}
         element={element}
         elementStates={elementStates}

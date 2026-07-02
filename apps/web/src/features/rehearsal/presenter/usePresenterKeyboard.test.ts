@@ -16,4 +16,45 @@ describe("usePresenterKeyboard", () => {
   it("ignores unrelated keys", () => {
     expect(getPresenterKeyboardCommand({ key: "Escape", target: null })).toBeNull();
   });
+
+  it.each([
+    ["button", { tagName: "BUTTON" }],
+    ["link", { tagName: "A", hasAttribute: (name: string) => name === "href" }],
+    ["summary", { tagName: "SUMMARY" }],
+    ["button role", { tagName: "SPAN", getAttribute: () => "button" }],
+    ["link role", { tagName: "SPAN", getAttribute: () => "link" }],
+    ["contenteditable", { isContentEditable: true, tagName: "DIV" }]
+  ])("ignores presenter keys from interactive %s targets", (_, target) => {
+    expect(
+      getPresenterKeyboardCommand({
+        key: " ",
+        target: target as unknown as EventTarget
+      })
+    ).toBeNull();
+  });
+
+  it("ignores presenter keys from descendants of interactive controls", () => {
+    expect(
+      getPresenterKeyboardCommand({
+        key: "Enter",
+        target: {
+          tagName: "SPAN",
+          closest: (selector: string) =>
+            selector.includes("button") ? ({} as Element) : null
+        } as unknown as EventTarget
+      })
+    ).toBeNull();
+  });
+
+  it("keeps presenter keys active on body or stage-like targets", () => {
+    expect(
+      getPresenterKeyboardCommand({
+        key: " ",
+        target: {
+          tagName: "BODY",
+          closest: () => null
+        } as unknown as EventTarget
+      })
+    ).toBe("next-step");
+  });
 });

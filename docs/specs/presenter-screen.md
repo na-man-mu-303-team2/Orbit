@@ -39,8 +39,8 @@
 | D10 | 실시간 조언 | 리허설만: 말 속도(빠름/느림) + 슬라이드 시간 초과. 실전은 타이머·키워드 체크만 |
 | D11 | 대본 패널 | 문장별 상태 표시(언급된 문장 체크/흐림). 자동 스크롤 없음 |
 | D12 | stepIndex 의미 | `stepIndex = 0` = 슬라이드 진입 직후, 트리거 스텝 실행 전. 스텝 = **distinct `order` 값을 정렬한 시퀀스**(order 값은 연속 비보장), stepIndex = 완료된 스텝 개수(0..S) — order 값 자체가 아님 |
-| D13 | 애니메이션 재생 분류 | **하이브리드.** speechCue가 참조하지 않는 애니메이션 = 슬라이드 진입 시 자동 재생(order→delayMs 순). speechCue가 `animationId`로 참조하는 애니메이션만 트리거 스텝. 계약 무변경, 기존 AI 덱(제목 fade-in) 호환 |
-| D14 | 동일 order 실행 | 같은 `order` = 같은 스텝 그룹 = **동시 실행**(스키마상 order 중복 허용 확인). 각자의 delayMs/durationMs는 스텝 시작 기준 개별 적용, 렌더 tie-break는 배열 인덱스 |
+| D13 | 애니메이션 재생 분류 | **하이브리드.** speechCue가 참조하지 않는 애니메이션 = 슬라이드 진입 시 자동 재생(order→delayMs→array index 순). speechCue가 `animationId`로 참조하는 애니메이션만 트리거 스텝. 발표자 최초 mount는 entry autoplay를 재생하고, 복원 전용 소비자는 opt-out할 수 있다. |
+| D14 | 동일 order 실행 | 같은 `order` = 같은 스텝 그룹 = **동시 실행**(스키마상 order 중복 허용 확인). 각자의 delayMs/durationMs는 해당 order 그룹 시작 기준 개별 적용, 렌더 tie-break는 배열 인덱스 |
 | D15 | presenterSettings scope | **전역 단일**(1차 최소). localStorage key `orbit:presenter:global:v1` — 버전 suffix로 마이그레이션 대비. 덱별 오버라이드는 필요 확인 시 후속(`orbit:presenter:deck:<deckId>:v1` 예약) |
 | D16 | 문장 분할·구절 추출 방식 | **결정론적 휴리스틱**(문장부호 분리 + 조사 stopword 목록 + 2~4어절 추출). NLP 라이브러리 미도입. 조건: ① `PhraseExtractor` 인터페이스 격리+config 외부화, ② 대본·전사 **대칭 정규화**, ③ 조사 제거는 어간 2음절 이상 남을 때만 1회, ④ P3 하네스 매칭률 미달 시에만 형태소 분석기 v2 검토(근거 기반 승격) |
 | D17 | W1 확정 전 큐 공급 | **내부 config가 1차 CueProvider 구현체.** config 스키마는 W1 제안 `speechCueSchema`의 부분집합을 **그대로 미러링**(`{slideId, trigger.phrases, action{type, animationId\|elementId}}`) — W1 확정 시 데이터 변환 없이 로더 교체만. config 빈 덱 = 전부 자동 재생(D13 기본 동작)이므로 프로덕션은 W1 출시 전까지 자연 퇴화 상태로 동작, 내부 config는 개발·데모·E2E의 실데이터 검증용. 타 담당에게 계약 선제공 요구 없음(병렬 트랙 원칙) |
@@ -117,15 +117,16 @@
 
 **상태 모델 (D12·D13·D14):** 발표 상태 = `(slideId, stepIndex)`.
 
-- **애니메이션 분류(D13):** 슬라이드 진입 시 `speechCues[]`가 참조하는 animationId 집합을 계산 → **큐 미참조 애니메이션은 진입 시 자동 재생**(order→delayMs 순, 1회), **큐 참조 애니메이션만 트리거 스텝**을 구성.
+- **애니메이션 분류(D13):** 슬라이드 진입 시 `speechCues[]`가 참조하는 animationId 집합을 계산 → **큐 미참조 애니메이션은 진입 시 자동 재생**(order→delayMs→array index 순, 1회), **큐 참조 애니메이션만 트리거 스텝**을 구성. 최초 발표자 mount는 entry autoplay를 재생하고, 복원 전용 렌더링은 이를 opt-out할 수 있다.
 - **스텝 시퀀스(D12):** 트리거 대상 애니메이션들의 distinct `order` 값을 오름차순 정렬한 것. `stepIndex = 0` = 진입 직후(자동 재생은 완료 또는 진행 중, 트리거 스텝은 미실행), `stepIndex = k` = k번째 스텝까지 완료. order 값은 연속 비보장이므로 stepIndex는 개수 기준.
-- **동일 order(D14):** 같은 스텝 그룹으로 동시 실행. 그룹 내 각 애니메이션의 delayMs/durationMs는 스텝 시작 기준 개별 적용(시차 연출 가능), 렌더 tie-break는 배열 인덱스.
+- **동일 order(D14):** 같은 스텝 그룹으로 동시 실행. 그룹 내 각 애니메이션의 delayMs/durationMs는 해당 order 그룹 시작 기준 개별 적용(시차 연출 가능), 렌더 tie-break는 배열 인덱스.
 - **결정론 복원 요건:** 임의 시점에 `(slideId, k)`를 받아도 최종 화면을 전이 없이 즉시 구성할 수 있어야 한다(창 재열기·크래시 복구 대비). 구현: 각 요소의 "스텝 k에서의 가시성/속성"을 순수 함수로 계산 → 전이는 그 위의 장식. **복원 시 자동 재생 애니메이션은 항상 완료 상태로 취급**(재생 반복 없음).
 - **전이:** `appear`, `fade-in`, `zoom-in`, `disappear`, `fade-out`, `zoom-out`, `rotate`를 지원한다. `durationMs`와 `delayMs`를 존중하되 유효 전이는 500ms로 캡한다. 스텝 이벤트가 몰리면 중간 전이를 접고 최종 상태로 점프한다.
-- **스텝 전진 커맨드 통합:** 수동 키(Space/→/클리커) · CueEngine(음성) · `delayMs` 자동 타이머 — 전부 동일한 `next-step` 커맨드. 마지막 스텝에서 `next-step` = 다음 슬라이드 요청.
-- **강조:** `highlights: {elementId, active}[]` 상태 → 요소 오버레이(에디터 정의 강조 스타일 존중, 기본: 스케일+글로우). active 상태는 inactive 이벤트가 들어올 때까지 유지된다.
+- **스텝 전진 커맨드 통합:** 수동 키(Space/→/클리커) · CueEngine(음성) · `delayMs` 자동 타이머 — 전부 동일한 `next-step` 커맨드. 마지막 스텝에서 `next-step` = 다음 슬라이드 요청이며, 마지막 슬라이드의 마지막 스텝에서는 현재 상태를 유지한다.
+- **강조:** `highlights: {elementId, active}[]` 상태 → 요소 오버레이(에디터 정의 강조 스타일 존중, 기본: 스케일+글로우). active 상태는 inactive 이벤트가 들어올 때까지 유지되며, group 내부 child element도 highlight 대상이다.
 - **렌더 기반:** 기존 편집기 Konva 요소 매핑을 `apps/web/src/features/slides/rendering`의 공용 읽기 전용 뷰어 모드로 추출한다. 발표 렌더러는 편집 상호작용 컴포넌트(`EditableElementNode`, `Transformer`, inline text editor, canvas hooks)를 import하지 않는다.
-- **수동 입력:** P0 기준 Space/ArrowRight/PageDown/Enter는 `next-step`, ArrowLeft/PageUp은 이전 슬라이드 복원(`stepIndex=0`)으로 매핑한다. 입력 필드나 contenteditable에 포커스가 있을 때는 발표 키 입력을 무시한다.
+- **thumbnail fallback:** `elements`가 비어 있고 `thumbnailUrl`만 있는 imported/image-only slide는 발표자 main preview에서 thumbnail을 표시한다.
+- **수동 입력:** P0 기준 Space/ArrowRight/PageDown/Enter는 `next-step`, ArrowLeft/PageUp은 이전 슬라이드 복원(`stepIndex=0`)으로 매핑한다. 입력 필드, 버튼, 링크, summary, role 기반 interactive control, contenteditable에 포커스가 있을 때는 발표 키 입력을 무시한다.
 
 ### 5.2 DisplayManager — 창/보조 모니터 (D1)
 

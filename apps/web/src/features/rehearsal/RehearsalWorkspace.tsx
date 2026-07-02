@@ -1795,6 +1795,10 @@ export function RehearsalWorkspace(props: {
         return currentStep + 1;
       }
 
+      if (currentSlideIndexRef.current >= deck.slides.length - 1) {
+        return currentStep;
+      }
+
       setCurrentSlideIndex((current) => Math.min(deck.slides.length - 1, current + 1));
       return 0;
     });

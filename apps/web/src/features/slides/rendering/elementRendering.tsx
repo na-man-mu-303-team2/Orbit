@@ -23,6 +23,7 @@ import {
 } from "react-konva";
 import type { ComponentType } from "react";
 import type { ElementPresentationState } from "./ReadOnlySlideCanvas";
+import { HighlightOverlay } from "./highlightOverlay";
 
 import { ImageElementContent } from "./ImageElementContent";
 import {
@@ -68,6 +69,7 @@ export type CustomShapeRenderPreview = {
 
 export function ElementNodeContent(props: {
   accentColor: string;
+  activeHighlightElementIds?: Set<string>;
   customShapePreview?: CustomShapeRenderPreview | null;
   deck: Deck;
   element: DeckElement;
@@ -75,8 +77,16 @@ export function ElementNodeContent(props: {
   frame: SlideElementFrame;
   slide: Slide;
 }) {
-  const { accentColor, customShapePreview, deck, element, elementStates, frame, slide } =
-    props;
+  const {
+    accentColor,
+    activeHighlightElementIds,
+    customShapePreview,
+    deck,
+    element,
+    elementStates,
+    frame,
+    slide
+  } = props;
 
   if (element.type === "text") {
     const textLayout = getTextElementLayout({
@@ -217,6 +227,7 @@ export function ElementNodeContent(props: {
               y={childFrame.y}
             >
               <ElementNodeContent
+                activeHighlightElementIds={activeHighlightElementIds}
                 accentColor={accentColor}
                 deck={deck}
                 element={presentedChildElement}
@@ -230,6 +241,20 @@ export function ElementNodeContent(props: {
                 }}
                 slide={slide}
               />
+              {activeHighlightElementIds?.has(childElement.elementId) ? (
+                <HighlightOverlay
+                  element={{
+                    ...presentedChildElement,
+                    height: childFrame.height,
+                    opacity: childOpacity,
+                    rotation: 0,
+                    visible: childVisible,
+                    width: childFrame.width,
+                    x: 0,
+                    y: 0
+                  }}
+                />
+              ) : null}
             </Group>
           );
         })}

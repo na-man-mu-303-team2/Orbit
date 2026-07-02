@@ -91,7 +91,7 @@ describe("assetUploadUrlRequestSchema", () => {
     expect(result.success).toBe(false);
   });
 
-  it("allows a larger runtime rehearsal audio limit when the caller configures one", () => {
+  it("caps configured rehearsal audio upload limits at the implemented report STT maximum", () => {
     const schema = createAssetUploadUrlRequestSchema({
       maxRehearsalAudioUploadSizeBytes: 209_715_200,
     });
@@ -103,6 +103,6 @@ describe("assetUploadUrlRequestSchema", () => {
       purpose: "rehearsal-audio",
     });
 
-    expect(result.success).toBe(true);
+    expect(result.success).toBe(false);
   });
 });

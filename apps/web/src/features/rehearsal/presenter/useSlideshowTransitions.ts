@@ -10,11 +10,13 @@ const maxTransitionDurationMs = 500;
 
 export function useSlideshowTransitions(args: {
   deck: Deck;
+  playInitialEntryAnimations?: boolean;
   reducedMotion: boolean;
   slide: Slide;
   stepIndex: number;
   triggerAnimationIds?: Iterable<string>;
 }) {
+  const playInitialEntryAnimations = args.playInitialEntryAnimations ?? true;
   const triggerAnimationIds = useMemo(
     () => [...(args.triggerAnimationIds ?? [])],
     [args.triggerAnimationIds]
@@ -37,11 +39,20 @@ export function useSlideshowTransitions(args: {
       }),
     [args.deck, args.slide, args.stepIndex, triggerAnimationIds]
   );
-  const [displayStates, setDisplayStates] = useState(targetStates);
-  const previousAddressRef = useRef({
-    slideId: args.slide.slideId,
-    stepIndex: args.stepIndex
-  });
+  const [displayStates, setDisplayStates] = useState(() =>
+    playInitialEntryAnimations &&
+    args.stepIndex === 0 &&
+    plan.entryAnimations.length > 0
+      ? createSlideshowTransitionStartStates(
+          targetStates,
+          createSlideshowEntryTransitionTimeline(plan.entryAnimations)
+        )
+      : targetStates
+  );
+  const previousAddressRef = useRef<{
+    slideId: string;
+    stepIndex: number;
+  } | null>(null);
   const frameRef = useRef<number | null>(null);
 
   useEffect(() => {
@@ -56,18 +67,25 @@ export function useSlideshowTransitions(args: {
       frameRef.current = null;
     }
 
-    const isSlideChange = previousAddress.slideId !== args.slide.slideId;
-    const stepDelta = args.stepIndex - previousAddress.stepIndex;
-    const transitionAnimations = isSlideChange
-      ? plan.entryAnimations
+    const isInitialEntry =
+      previousAddress === null &&
+      playInitialEntryAnimations &&
+      args.stepIndex === 0;
+    const isSlideChange =
+      previousAddress !== null && previousAddress.slideId !== args.slide.slideId;
+    const stepDelta =
+      previousAddress === null ? 0 : args.stepIndex - previousAddress.stepIndex;
+    const transitionAnimations = isInitialEntry || isSlideChange
+      ? createSlideshowEntryTransitionTimeline(plan.entryAnimations)
       : stepDelta === 1
         ? plan.triggerSteps[args.stepIndex - 1]?.animations ?? []
         : [];
+    const shouldPlayTransition = isInitialEntry || isSlideChange || stepDelta === 1;
 
     if (
       args.reducedMotion ||
       transitionAnimations.length === 0 ||
-      (!isSlideChange && stepDelta !== 1)
+      !shouldPlayTransition
     ) {
       setDisplayStates(targetStates);
       return;
@@ -111,7 +129,14 @@ export function useSlideshowTransitions(args: {
         frameRef.current = null;
       }
     };
-  }, [args.reducedMotion, args.slide.slideId, args.stepIndex, plan, targetStates]);
+  }, [
+    args.reducedMotion,
+    args.slide.slideId,
+    args.stepIndex,
+    plan,
+    playInitialEntryAnimations,
+    targetStates
+  ]);
 
   return {
     animationPlan: plan,
@@ -120,9 +145,47 @@ export function useSlideshowTransitions(args: {
   };
 }
 
+type SlideshowTransitionAnimation = DeckAnimation & {
+  transitionDelayMs?: number;
+};
+
+export function createSlideshowEntryTransitionTimeline(
+  animations: DeckAnimation[]
+): SlideshowTransitionAnimation[] {
+  const orderGroups = new Map<number, DeckAnimation[]>();
+
+  for (const animation of animations) {
+    const group = orderGroups.get(animation.order) ?? [];
+    group.push(animation);
+    orderGroups.set(animation.order, group);
+  }
+
+  let groupStartMs = 0;
+  const timeline: SlideshowTransitionAnimation[] = [];
+
+  for (const [, groupAnimations] of [...orderGroups.entries()].sort(
+    ([leftOrder], [rightOrder]) => leftOrder - rightOrder
+  )) {
+    const sortedGroupAnimations = [...groupAnimations].sort(
+      (left, right) => left.delayMs - right.delayMs
+    );
+
+    for (const animation of sortedGroupAnimations) {
+      timeline.push({
+        ...animation,
+        transitionDelayMs: groupStartMs + animation.delayMs
+      });
+    }
+
+    groupStartMs += getSlideshowTransitionDurationMs(sortedGroupAnimations);
+  }
+
+  return timeline;
+}
+
 export function createSlideshowTransitionStartStates(
   targetStates: Record<string, ElementPresentationState>,
-  animations: DeckAnimation[]
+  animations: SlideshowTransitionAnimation[]
 ) {
   const states = cloneElementStates(targetStates);
 
@@ -163,7 +226,7 @@ export function createSlideshowTransitionStartStates(
 }
 
 export function interpolateSlideshowTransitionStates(args: {
-  animations: DeckAnimation[];
+  animations: SlideshowTransitionAnimation[];
   progress: number;
   startStates: Record<string, ElementPresentationState>;
   targetStates: Record<string, ElementPresentationState>;
@@ -218,23 +281,19 @@ export function interpolateSlideshowTransitionStates(args: {
 }
 
 function applyDelay(
-  animation: DeckAnimation,
+  animation: SlideshowTransitionAnimation,
   progress: number,
   transitionDurationMs: number
 ) {
   const safeTransitionDurationMs = Math.max(1, transitionDurationMs);
   const elapsedMs = progress * safeTransitionDurationMs;
   const effectiveDelayMs = Math.min(
-    animation.delayMs,
+    animation.transitionDelayMs ?? animation.delayMs,
     Math.max(0, safeTransitionDurationMs - 1)
   );
   const effectiveDurationMs = Math.max(
     1,
-    Math.min(
-      animation.durationMs,
-      maxTransitionDurationMs,
-      safeTransitionDurationMs - effectiveDelayMs
-    )
+    Math.min(animation.durationMs, maxTransitionDurationMs)
   );
   const delayedProgress =
     (elapsedMs - effectiveDelayMs) / effectiveDurationMs;
@@ -242,11 +301,14 @@ function applyDelay(
   return Math.min(1, Math.max(0, delayedProgress));
 }
 
-export function getSlideshowTransitionDurationMs(animations: DeckAnimation[]) {
+export function getSlideshowTransitionDurationMs(
+  animations: SlideshowTransitionAnimation[]
+) {
   return Math.max(
     1,
     ...animations.map((animation) =>
-      Math.min(animation.durationMs + animation.delayMs, maxTransitionDurationMs)
+      (animation.transitionDelayMs ?? animation.delayMs) +
+      Math.min(animation.durationMs, maxTransitionDurationMs)
     )
   );
 }

@@ -67,20 +67,47 @@ export function getPresenterKeyboardCommand(
 }
 
 export function isPresenterKeyboardEditableTarget(target: EventTarget | null) {
-  if (typeof HTMLElement !== "undefined" && target instanceof HTMLElement) {
-    return (
-      target.isContentEditable ||
-      target instanceof HTMLInputElement ||
-      target instanceof HTMLTextAreaElement ||
-      target instanceof HTMLSelectElement ||
-      Boolean(target.closest("[contenteditable='true'], input, textarea, select"))
-    );
+  if (!target || typeof target !== "object") {
+    return false;
   }
 
-  if (typeof Node !== "undefined" && target instanceof Node) {
-    return Boolean(
-      target.parentElement?.closest("[contenteditable='true'], input, textarea, select")
-    );
+  const element = target as {
+    closest?: (selector: string) => Element | null;
+    getAttribute?: (name: string) => string | null;
+    hasAttribute?: (name: string) => boolean;
+    isContentEditable?: boolean;
+    parentElement?: { closest?: (selector: string) => Element | null } | null;
+    tagName?: string;
+  };
+  const tagName = element.tagName?.toLowerCase();
+  const role = element.getAttribute?.("role")?.toLowerCase();
+
+  if (element.isContentEditable) {
+    return true;
+  }
+
+  if (
+    tagName === "input" ||
+    tagName === "textarea" ||
+    tagName === "select" ||
+    tagName === "button" ||
+    tagName === "summary" ||
+    (tagName === "a" && (element.hasAttribute?.("href") ?? false)) ||
+    role === "button" ||
+    role === "link"
+  ) {
+    return true;
+  }
+
+  const interactiveSelector =
+    "[contenteditable], input, textarea, select, button, a[href], summary, [role='button'], [role='link']";
+
+  if (element.closest?.(interactiveSelector)) {
+    return true;
+  }
+
+  if (element.parentElement?.closest?.(interactiveSelector)) {
+    return true;
   }
 
   return false;

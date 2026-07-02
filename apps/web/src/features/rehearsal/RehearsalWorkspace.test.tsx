@@ -112,6 +112,23 @@ describe("RehearsalWorkspace", () => {
     );
   });
 
+  it("keeps the presenter step on the last slide when no next slide exists", () => {
+    const source = fs.readFileSync(
+      path.join(process.cwd(), "src/features/rehearsal/RehearsalWorkspace.tsx"),
+      "utf8"
+    );
+    const start = source.indexOf("const handleNextPresenterStep");
+    const end = source.indexOf("const finishRehearsal");
+    const handleNextPresenterStepBody = source.slice(start, end);
+
+    expect(handleNextPresenterStepBody).toContain(
+      "currentSlideIndexRef.current >= deck.slides.length - 1"
+    );
+    expect(handleNextPresenterStepBody.indexOf("return currentStep")).toBeLessThan(
+      handleNextPresenterStepBody.indexOf("setCurrentSlideIndex")
+    );
+  });
+
   it("requests microphone audio with live STT input quality constraints", async () => {
     const stream = { getTracks: () => [] } as unknown as MediaStream;
     const getUserMedia = vi.fn(async () => stream);

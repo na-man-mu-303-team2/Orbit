@@ -1,5 +1,10 @@
 import type { Deck } from "@orbit/shared";
-import { ReadOnlySlideCanvas, type SlideRuntimeHighlight } from "../../slides/rendering";
+import {
+  getRenderableSlideElements,
+  ReadOnlySlideCanvas,
+  type SlideRuntimeHighlight
+} from "../../slides/rendering";
+import { resolveEditorAssetUrl } from "../../editor/shared/editorAssetUrl";
 import { useReducedMotion } from "./useReducedMotion";
 import { useSlideshowTransitions } from "./useSlideshowTransitions";
 
@@ -10,6 +15,7 @@ const emptyTriggerAnimationIds: readonly string[] = [];
 export function SlideshowRenderer(props: {
   deck: Deck;
   highlights?: SlideRuntimeHighlight[];
+  playInitialEntryAnimations?: boolean;
   renderMode?: SlideshowRenderMode;
   scale?: number;
   slideId: string;
@@ -19,6 +25,7 @@ export function SlideshowRenderer(props: {
   const {
     deck,
     highlights = [],
+    playInitialEntryAnimations = true,
     renderMode = "presenter",
     scale = 1,
     slideId,
@@ -40,6 +47,7 @@ export function SlideshowRenderer(props: {
     <SlideshowRendererContent
       deck={deck}
       highlights={highlights}
+      playInitialEntryAnimations={playInitialEntryAnimations}
       reducedMotion={reducedMotion}
       renderMode={renderMode}
       scale={scale}
@@ -53,6 +61,7 @@ export function SlideshowRenderer(props: {
 function SlideshowRendererContent(props: {
   deck: Deck;
   highlights: SlideRuntimeHighlight[];
+  playInitialEntryAnimations: boolean;
   reducedMotion: boolean;
   renderMode: SlideshowRenderMode;
   scale: number;
@@ -63,6 +72,7 @@ function SlideshowRendererContent(props: {
   const {
     deck,
     highlights,
+    playInitialEntryAnimations,
     reducedMotion,
     renderMode,
     scale,
@@ -72,11 +82,15 @@ function SlideshowRendererContent(props: {
   } = props;
   const { elementStates } = useSlideshowTransitions({
     deck,
+    playInitialEntryAnimations,
     reducedMotion,
     slide,
     stepIndex,
     triggerAnimationIds
   });
+  const hasRenderableElements =
+    getRenderableSlideElements(slide, deck.canvas).length > 0;
+  const thumbnailUrl = resolveEditorAssetUrl(slide.thumbnailUrl);
 
   return (
     <div
@@ -87,13 +101,35 @@ function SlideshowRendererContent(props: {
       data-slide-title={slide.title}
       data-step-index={stepIndex}
     >
-      <ReadOnlySlideCanvas
-        deck={deck}
-        elementStates={elementStates}
-        highlights={highlights}
-        scale={scale}
-        slide={slide}
-      />
+      {!hasRenderableElements && thumbnailUrl ? (
+        <div
+          className="slideshow-renderer-thumbnail"
+          style={{
+            height: deck.canvas.height * scale,
+            overflow: "hidden",
+            width: deck.canvas.width * scale
+          }}
+        >
+          <img
+            alt={`${slide.title || slide.slideId} thumbnail`}
+            src={thumbnailUrl}
+            style={{
+              display: "block",
+              height: "100%",
+              objectFit: "contain",
+              width: "100%"
+            }}
+          />
+        </div>
+      ) : (
+        <ReadOnlySlideCanvas
+          deck={deck}
+          elementStates={elementStates}
+          highlights={highlights}
+          scale={scale}
+          slide={slide}
+        />
+      )}
     </div>
   );
 }

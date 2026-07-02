@@ -16,8 +16,8 @@ This document keeps the P0-P7 milestone structure from the source plan and break
   - `Deck.targetDurationMinutes`
   - `Slide.estimatedSeconds`
   - rehearsal audio chunk APIs and run meta API
-  - `REPORT_STT_PROVIDER=openai | whisperx`
-  - `REHEARSAL_AUDIO_MAX_BYTES=209715200`
+  - `REPORT_STT_PROVIDER=openai`
+  - `REHEARSAL_AUDIO_MAX_BYTES=25000000`
 - A WhisperX external API contract spike before implementation.
 
 **Out of scope**
@@ -30,8 +30,8 @@ This document keeps the P0-P7 milestone structure from the source plan and break
 
 - `SttPort` is split into `LiveSttPort` for browser live control and `ReportSttProvider` for server report transcription.
 - Live STT engines: Sherpa, Moonshine, Web Speech. WhisperX is not selectable for live control.
-- Report STT providers: OpenAI and WhisperX. WhisperX calls an external hosted API.
-- WhisperX implementation starts with a contract spike defining endpoint, auth, audio input, transcript, and segment response shape.
+- Report STT provider: OpenAI. WhisperX calls an external hosted API only after the P2.5 provider implementation lands.
+- WhisperX implementation starts with a contract spike defining endpoint, auth, audio input, transcript, and segment response shape, but is not selectable in the current runtime config.
 - Chunk upload replaces `/api/v1/rehearsals/:runId/audio/upload-url`.
 - Chunk endpoints:
   - `POST /api/v1/rehearsals/:runId/audio-begin`
@@ -45,7 +45,7 @@ This document keeps the P0-P7 milestone structure from the source plan and break
 - P0 cue dependency is an input port only: the renderer/model receives trigger-referenced `animationId` values, while real `CueProvider` loading remains in P5.
 - P0 animation semantics: `zoom-in` settles visible at the base element state, `zoom-out` settles hidden, and `rotate` is a transient 360 degree effect that settles back to the base rotation.
 - P0 highlights are persistent state: active highlights remain visible until an inactive state is applied.
-- P0 manual controls: Space, ArrowRight, PageDown, Enter, and clicker-equivalent key events run `nextStep`; ArrowLeft and PageUp go to the previous slide and restore `stepIndex=0`.
+- P0 manual controls: Space, ArrowRight, PageDown, Enter, and clicker-equivalent key events run `nextStep`; ArrowLeft and PageUp go to the previous slide and restore `stepIndex=0`; the last slide's final step is a no-op until a separate finish UI is added.
 - P0 performance gate is manual playback plus a simple RAF/drop-frame measurement note, not a hard CI performance threshold.
 
 ## Dependency Graph
@@ -112,7 +112,7 @@ P0/P1, P2/P3/P4/P5, and P6 can run as parallel tracks after the contract baselin
 
 **Description:** Replace the single upload-url flow with chunked rehearsal audio contracts.
 
-**Feature/spec:** FLAC upload, 200MB configurable cap, begin/chunk/complete APIs, run meta API.
+**Feature/spec:** FLAC upload, future chunk storage cap, begin/chunk/complete APIs, run meta API.
 
 **Tech stack:** `packages/shared` Zod schemas, Vitest.
 
@@ -149,23 +149,23 @@ P0/P1, P2/P3/P4/P5, and P6 can run as parallel tracks after the contract baselin
 
 ### Task C0.3: Extend Runtime Config
 
-**Description:** Add report STT provider selection and rehearsal upload limits.
+**Description:** Add report STT provider validation and rehearsal upload limits.
 
-**Feature/spec:** `REPORT_STT_PROVIDER=openai | whisperx`, `WHISPERX_API_URL`, `WHISPERX_API_KEY`, `WHISPERX_MODEL`, `REHEARSAL_AUDIO_MAX_BYTES`.
+**Feature/spec:** `REPORT_STT_PROVIDER=openai`, `REHEARSAL_AUDIO_MAX_BYTES`.
 
 **Tech stack:** `packages/shared`, `packages/config`, Python `pydantic`, env docs.
 
 **Implementation plan:**
-- Extend `reportSttProviderSchema` to `openai | whisperx`.
-- Add `REHEARSAL_AUDIO_MAX_BYTES` with default/example `209715200`.
-- Add optional WhisperX env keys. Require `WHISPERX_API_URL` and `WHISPERX_API_KEY` only when `REPORT_STT_PROVIDER=whisperx`.
+- Keep `reportSttProviderSchema` openai-only until the WhisperX provider is implemented.
+- Add `REHEARSAL_AUDIO_MAX_BYTES` with default/example `25000000`.
+- Keep WhisperX env keys out of runtime config until P2.5.
 - Mirror validation in `services/python-worker/app/config.py`.
 - Update `.env.example` and `docs/conventions/environment.md`.
 
 **Acceptance criteria:**
 - Existing local config with `REPORT_STT_PROVIDER=openai` still passes.
-- `REPORT_STT_PROVIDER=whisperx` fails without required WhisperX URL/key.
-- 200MB limit is read from config rather than hard-coded.
+- `REPORT_STT_PROVIDER=whisperx` fails validation.
+- Values above the current OpenAI 25MB limit fail validation.
 
 **Verification:**
 - `pnpm --filter @orbit/api test -- env.schema`
@@ -352,9 +352,9 @@ P0/P1, P2/P3/P4/P5, and P6 can run as parallel tracks after the contract baselin
 **Implementation plan:**
 - Add `useReducedMotion`.
 - Add `useSlideshowTransitions` that receives previous and next settled states plus the animation plan.
-- On slide entry, play cue-unreferenced entry animations once in `order -> delayMs -> array index` order.
+- On slide entry, play cue-unreferenced entry animations once in `order -> delayMs -> array index` order, including the first presenter mount unless a restore-only consumer opts out.
 - On trigger step change, play only animations in the newly completed step group.
-- Cap effective transition duration at `min(animation.durationMs, 500)`.
+- Cap each animation duration at `min(animation.durationMs, 500)` while preserving group-relative `delayMs`.
 - If state jumps by more than one step, or slide changes during an active transition, cancel intermediate transitions and render the target settled state.
 - If `prefers-reduced-motion` is active, bypass transition frames and render the target settled state immediately.
 
@@ -363,6 +363,7 @@ P0/P1, P2/P3/P4/P5, and P6 can run as parallel tracks after the contract baselin
 - Rapid jumps never leave an element stuck in an intermediate opacity, scale, or rotation.
 - Reduced-motion users see immediate final states.
 - `rotate` animates transiently and settles to base rotation.
+- Entry animation order groups run sequentially; animations with the same order run together.
 
 **Verification:**
 - `pnpm --filter @orbit/web test -- SlideshowRenderer`
@@ -389,6 +390,7 @@ P0/P1, P2/P3/P4/P5, and P6 can run as parallel tracks after the contract baselin
 **Implementation plan:**
 - Normalize highlights into a `Map<elementId, active>`.
 - Render default highlight overlay around the target element with glow and subtle scale.
+- Render grouped child highlights inside the parent group coordinate space.
 - Keep overlay non-listening so it never captures pointer events.
 - Keep highlight styling outside the pure settled-state function.
 - Ensure hidden elements do not show runtime highlight overlays.
@@ -396,6 +398,7 @@ P0/P1, P2/P3/P4/P5, and P6 can run as parallel tracks after the contract baselin
 
 **Acceptance criteria:**
 - Active highlight appears for the target element and remains visible across re-renders.
+- Active highlight appears for grouped child elements as well as top-level elements.
 - Inactive highlight removes the overlay.
 - Highlight overlay does not alter element deck coordinates or settled state.
 - Highlighting a missing or hidden element is ignored without throwing.
@@ -423,18 +426,18 @@ P0/P1, P2/P3/P4/P5, and P6 can run as parallel tracks after the contract baselin
 **Implementation plan:**
 - Add presenter state `{ slideId, slideIndex, stepIndex, highlights }`.
 - Add commands: `nextStep`, `nextSlide`, `previousSlide`, `setSlide`, `setHighlight`.
-- `nextStep` increments `stepIndex` until `maxStepIndex`, then requests `nextSlide`.
+- `nextStep` increments `stepIndex` until `maxStepIndex`, then requests `nextSlide` unless already on the final slide.
 - `nextSlide`, `previousSlide`, and `setSlide` reset `stepIndex=0`.
 - Clamp slide index and step index at the command boundary.
 - Map Space, ArrowRight, PageDown, Enter, and clicker-equivalent key events to `nextStep`.
 - Map ArrowLeft and PageUp to `previousSlide`.
-- Ignore keyboard commands when focus is inside editable form controls.
+- Ignore keyboard commands when focus is inside editable form controls or interactive controls.
 
 **Acceptance criteria:**
 - Manual commands work without Live STT or CueEngine.
-- Last step on a slide moves to the next slide and resets `stepIndex=0`.
+- Last step on a non-final slide moves to the next slide and resets `stepIndex=0`; the final slide's last step is a no-op.
 - Previous slide restores with `stepIndex=0`.
-- Keyboard shortcuts do not fire while typing in an input, textarea, select, or contenteditable target.
+- Keyboard shortcuts do not fire while focus is in an input, textarea, select, button, link, summary, role-based interactive control, or contenteditable target.
 
 **Verification:**
 - `pnpm --filter @orbit/web test -- presenterStateStore`
@@ -1312,7 +1315,7 @@ P0/P1, P2/P3/P4/P5, and P6 can run as parallel tracks after the contract baselin
 
 ### Checkpoint: P6
 
-- [ ] 10 minute recording round trip succeeds under 200MB.
+- [ ] 10 minute recording round trip succeeds under the chunk upload storage cap.
 - [ ] Chunk missing/duplicate/retry paths pass.
 - [ ] Final FLAC is processed by the report STT worker.
 - [ ] Temp chunks are deleted on success and have 1 day TTL policy.
