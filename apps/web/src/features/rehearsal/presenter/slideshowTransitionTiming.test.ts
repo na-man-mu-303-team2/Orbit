@@ -1,13 +1,13 @@
 import type { DeckAnimation } from "@orbit/shared";
 import { describe, expect, it } from "vitest";
 import {
+  createSlideshowEntryTransitionTimeline,
   getSequencedEntryTransitionDurationMs,
   getSlideshowTransitionDurationMs,
-  sequenceEntryAnimationsByOrder
 } from "./slideshowTransitionTiming";
 
 describe("slideshowTransitionTiming", () => {
-  it("caps effective transition duration at 500ms", () => {
+  it("caps individual animation duration at 500ms while preserving delay", () => {
     expect(
       getSlideshowTransitionDurationMs([
         createAnimation({
@@ -19,15 +19,22 @@ describe("slideshowTransitionTiming", () => {
           delayMs: 200
         })
       ])
-    ).toBe(500);
+    ).toBe(700);
   });
 
-  it("sequences entry animations by order before applying per-animation delay", () => {
-    const sequencedAnimations = sequenceEntryAnimationsByOrder([
+  it("sequences entry animations by order groups before applying per-animation delay", () => {
+    const sequencedAnimations = createSlideshowEntryTransitionTimeline([
       createAnimation({
         animationId: "anim_second",
         elementId: "el_second",
-        order: 2
+        order: 2,
+        delayMs: 50
+      }),
+      createAnimation({
+        animationId: "anim_same_second",
+        elementId: "el_same_second",
+        order: 2,
+        durationMs: 200
       }),
       createAnimation({
         animationId: "anim_first",
@@ -38,12 +45,17 @@ describe("slideshowTransitionTiming", () => {
 
     expect(sequencedAnimations.map((animation) => animation.animationId)).toEqual([
       "anim_first",
+      "anim_same_second",
       "anim_second"
     ]);
-    expect(sequencedAnimations.map((animation) => animation.delayMs)).toEqual([
-      0, 200
+    expect(
+      sequencedAnimations.map((animation) => animation.transitionDelayMs)
+    ).toEqual([
+      0,
+      200,
+      250
     ]);
-    expect(getSequencedEntryTransitionDurationMs(sequencedAnimations)).toBe(400);
+    expect(getSequencedEntryTransitionDurationMs(sequencedAnimations)).toBe(450);
   });
 });
 

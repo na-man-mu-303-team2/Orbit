@@ -87,6 +87,33 @@ describe("SlideshowRenderer", () => {
     expect(html).toContain("슬라이드를 찾을 수 없습니다.");
   });
 
+  it("falls back to thumbnailUrl when a slide has no renderable elements", () => {
+    const thumbnailDeck = {
+      ...p0AnimationDeck,
+      slides: [
+        {
+          ...p0AnimationDeck.slides[0]!,
+          animations: [],
+          elements: [],
+          slideId: "slide_thumbnail_only",
+          thumbnailUrl: "/slides/thumb.png",
+          title: "Imported slide"
+        }
+      ]
+    };
+    const html = renderToStaticMarkup(
+      <SlideshowRenderer
+        deck={thumbnailDeck}
+        slideId="slide_thumbnail_only"
+        stepIndex={0}
+      />
+    );
+
+    expect(html).toContain("class=\"slideshow-renderer-thumbnail\"");
+    expect(html).toContain("src=\"/slides/thumb.png\"");
+    expect(html).not.toContain("data-testid=\"read-only-slide-stage\"");
+  });
+
   it("keeps renderer imports away from editor interaction modules", () => {
     const filesToCheck = [
       "src/features/rehearsal/presenter/SlideshowRenderer.tsx",

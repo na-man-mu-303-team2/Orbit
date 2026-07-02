@@ -121,6 +121,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal, flushSync } from "react-dom";
 import { io } from "socket.io-client";
 import type { Socket as ClientSocket } from "socket.io-client";
+import { AudienceLinkModal } from "../audience-link/AudienceLinkModal";
 import { SuggestionPanel } from "../suggestions/components/SuggestionPanel";
 import {
   mergeDeckIntoQueryCache,
@@ -790,6 +791,7 @@ export function EditorShell(props: { projectId?: string }) {
   const [rightPaneWidth, setRightPaneWidth] = useState(defaultRightPaneWidth);
   const [projectPresenceUsers, setProjectPresenceUsers] = useState<ProjectPresenceUser[]>([]);
   const [isPresenceDebugOpen, setIsPresenceDebugOpen] = useState(false);
+  const [isAudienceLinkModalOpen, setIsAudienceLinkModalOpen] = useState(false);
   const [lastPresenceAt, setLastPresenceAt] = useState<string | null>(null);
   const [socketErrorMessage, setSocketErrorMessage] = useState("");
   const [socketId, setSocketId] = useState("");
@@ -1071,11 +1073,11 @@ export function EditorShell(props: { projectId?: string }) {
     { icon: Wand2, label: "선택 요소 속성" }
   ];
   const presentationItems = [
-    { icon: Presentation, label: "발표 시작", meta: "현재 슬라이드부터" },
-    { icon: MonitorPlay, label: "발표자 보기", meta: "메모와 타이머 포함" },
-    { icon: Sparkles, label: "리허설 시작", meta: "키워드 체크" },
-    { icon: Share2, label: "청중 링크/QR", meta: "공유 준비" }
-  ];
+    { action: "present", icon: Presentation, label: "발표 시작", meta: "현재 슬라이드부터" },
+    { action: "presenter-view", icon: MonitorPlay, label: "발표자 보기", meta: "메모와 타이머 포함" },
+    { action: "rehearsal", icon: Sparkles, label: "리허설 시작", meta: "키워드 체크" },
+    { action: "audience-link", icon: Share2, label: "청중 링크/QR", meta: "공유 준비" }
+  ] as const;
 
   useEffect(() => {
     const persistedDeck = deckQuery.data;
@@ -3107,8 +3109,9 @@ export function EditorShell(props: { projectId?: string }) {
             {activeTopMenu === "presentation" ? (
               <div className="file-menu-popover action-popover" role="menu">
                 <div className="file-menu-list">
-                  {presentationItems.map(({ icon: Icon, label, meta }) => {
-                    const isRehearsalItem = label === presentationItems[2]?.label;
+                  {presentationItems.map(({ action, icon: Icon, label, meta }) => {
+                    const isRehearsalItem = action === "rehearsal";
+                    const isAudienceLinkItem = action === "audience-link";
 
                     return (
                       <button
@@ -3120,6 +3123,12 @@ export function EditorShell(props: { projectId?: string }) {
                         onClick={() => {
                           if (isRehearsalItem) {
                             void handleStartRehearsal();
+                            return;
+                          }
+
+                          if (isAudienceLinkItem) {
+                            setIsAudienceLinkModalOpen(true);
+                            setActiveTopMenu(null);
                           }
                         }}
                       >
@@ -3196,6 +3205,11 @@ export function EditorShell(props: { projectId?: string }) {
             document.body
           )
         : null}
+      <AudienceLinkModal
+        isOpen={isAudienceLinkModalOpen}
+        projectId={projectId}
+        onClose={() => setIsAudienceLinkModalOpen(false)}
+      />
       {isPresenceDebugOpen
         ? createPortal(
             <div

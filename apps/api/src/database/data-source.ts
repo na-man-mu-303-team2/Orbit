@@ -16,6 +16,8 @@ import { CreateRehearsalRuns2026062901000 } from "./migrations/2026062901000-Cre
 import { CreateAiSuggestions2026062902000 } from "./migrations/2026062902000-CreateAiSuggestions";
 import { AddRehearsalReportColumns2026062903000 } from "./migrations/2026062903000-AddRehearsalReportColumns";
 import { CreateProjectMembers2026063001000 } from "./migrations/2026063001000-CreateProjectMembers";
+import { CreatePresentationSessions2026070201000 } from "./migrations/2026070201000-CreatePresentationSessions";
+import { AddUniqueOpenPresentationSession2026070202000 } from "./migrations/2026070202000-AddUniqueOpenPresentationSession";
 
 loadDotenv({ path: "../../.env.local" });
 loadDotenv({ path: ".env.local" });
@@ -43,7 +45,9 @@ export const databaseOptions: DataSourceOptions = {
     CreateRehearsalRuns2026062901000,
     CreateAiSuggestions2026062902000,
     AddRehearsalReportColumns2026062903000,
-    CreateProjectMembers2026063001000
+    CreateProjectMembers2026063001000,
+    CreatePresentationSessions2026070201000,
+    AddUniqueOpenPresentationSession2026070202000
   ],
   migrationsTableName: "typeorm_migrations",
   synchronize: false,

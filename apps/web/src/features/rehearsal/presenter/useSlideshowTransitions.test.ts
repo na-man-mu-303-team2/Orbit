@@ -1,7 +1,11 @@
+import fs from "node:fs";
+import path from "node:path";
 import type { DeckAnimation } from "@orbit/shared";
 import { describe, expect, it } from "vitest";
 import {
+  createSlideshowEntryTransitionTimeline,
   createSlideshowTransitionStartStates,
+  getSlideshowTransitionDurationMs,
   interpolateSlideshowTransitionStates
 } from "./useSlideshowTransitions";
 
@@ -16,6 +20,10 @@ const fadeOutAnimation: DeckAnimation = {
 };
 
 describe("useSlideshowTransitions helpers", () => {
+  it("caps individual animation duration at 500ms while preserving delay", () => {
+    expect(getSlideshowTransitionDurationMs([fadeOutAnimation])).toBe(700);
+  });
+
   it("creates visible start states for exit animations", () => {
     const startStates = createSlideshowTransitionStartStates(
       {
@@ -26,11 +34,19 @@ describe("useSlideshowTransitions helpers", () => {
           visible: false
         }
       },
-      [fadeOutAnimation]
+      [fadeOutAnimation],
+      {
+        el_target: {
+          opacity: 0.55,
+          scaleX: 1,
+          scaleY: 1,
+          visible: true
+        }
+      }
     );
 
     expect(startStates.el_target).toMatchObject({
-      opacity: 1,
+      opacity: 0.55,
       scaleX: 1,
       scaleY: 1,
       visible: true
@@ -113,7 +129,7 @@ describe("useSlideshowTransitions helpers", () => {
     expect(states.el_long?.opacity).toBe(0.4);
   });
 
-  it("compresses delayed animations into the capped transition window", () => {
+  it("plays delayed animations across the computed transition window", () => {
     const delayedAnimation: DeckAnimation = {
       animationId: "anim_delayed",
       elementId: "el_delayed",
@@ -129,16 +145,94 @@ describe("useSlideshowTransitions helpers", () => {
     const targetStates = {
       el_delayed: { opacity: 1, visible: true }
     };
+    const transitionDurationMs = getSlideshowTransitionDurationMs([delayedAnimation]);
 
     const states = interpolateSlideshowTransitionStates({
       animations: [delayedAnimation],
       progress: 1,
       startStates,
       targetStates,
-      transitionDurationMs: 500
+      transitionDurationMs
     });
 
     expect(states.el_delayed).toMatchObject({ opacity: 1, visible: true });
   });
 
+  it("builds entry autoplay timeline by order groups", () => {
+    const firstOrder: DeckAnimation = {
+      animationId: "anim_first",
+      elementId: "el_first",
+      type: "fade-in",
+      order: 1,
+      durationMs: 100,
+      delayMs: 0,
+      easing: "ease-out"
+    };
+    const secondOrder: DeckAnimation = {
+      animationId: "anim_second",
+      elementId: "el_second",
+      type: "fade-in",
+      order: 2,
+      durationMs: 100,
+      delayMs: 50,
+      easing: "ease-out"
+    };
+    const sameSecondOrder: DeckAnimation = {
+      animationId: "anim_same_second",
+      elementId: "el_same_second",
+      type: "fade-in",
+      order: 2,
+      durationMs: 200,
+      delayMs: 0,
+      easing: "ease-out"
+    };
+
+    const timeline = createSlideshowEntryTransitionTimeline([
+      firstOrder,
+      secondOrder,
+      sameSecondOrder
+    ]);
+
+    expect(timeline.map((animation) => animation.animationId)).toEqual([
+      "anim_first",
+      "anim_same_second",
+      "anim_second"
+    ]);
+    expect(timeline.map((animation) => animation.transitionDelayMs)).toEqual([
+      0,
+      100,
+      150
+    ]);
+    expect(getSlideshowTransitionDurationMs(timeline)).toBe(300);
+  });
+
+  it("uses settled state on the first reduced-motion render", () => {
+    const source = fs.readFileSync(
+      path.join(
+        process.cwd(),
+        "src/features/rehearsal/presenter/useSlideshowTransitions.ts"
+      ),
+      "utf8"
+    );
+    const initialStateStart = source.indexOf("const [displayStates, setDisplayStates]");
+    const initialStateEnd = source.indexOf("const previousAddressRef");
+    const initialStateBlock = source.slice(initialStateStart, initialStateEnd);
+
+    expect(initialStateBlock).toContain("!args.reducedMotion");
+  });
+
+  it("does not replay entry transitions when restoring a later slide step", () => {
+    const source = fs.readFileSync(
+      path.join(
+        process.cwd(),
+        "src/features/rehearsal/presenter/useSlideshowTransitions.ts"
+      ),
+      "utf8"
+    );
+    const effectStart = source.indexOf("useEffect(() =>");
+    const effectEnd = source.indexOf("const startStates =");
+    const transitionSelectionBlock = source.slice(effectStart, effectEnd);
+
+    expect(transitionSelectionBlock).toContain("isSlideChange && args.stepIndex === 0");
+  });
 });

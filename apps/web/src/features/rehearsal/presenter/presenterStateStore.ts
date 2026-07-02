@@ -79,6 +79,10 @@ export function nextStepOrSlide(args: {
     return stepped;
   }
 
+  if (args.state.slideIndex >= args.slides.length - 1) {
+    return args.state;
+  }
+
   return applyPresenterSlideshowCommand(args.state, {
     type: "next-slide",
     slideCount: args.slides.length,

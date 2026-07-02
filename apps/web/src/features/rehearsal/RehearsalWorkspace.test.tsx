@@ -112,6 +112,40 @@ describe("RehearsalWorkspace", () => {
     );
   });
 
+  it("keeps the presenter step on the last slide when no next slide exists", () => {
+    const source = fs.readFileSync(
+      path.join(process.cwd(), "src/features/rehearsal/RehearsalWorkspace.tsx"),
+      "utf8"
+    );
+    const start = source.indexOf("const handleNextPresenterStep");
+    const end = source.indexOf("const finishRehearsal");
+    const handleNextPresenterStepBody = source.slice(start, end);
+
+    expect(handleNextPresenterStepBody).toContain("getNextPresenterStepState");
+    expect(handleNextPresenterStepBody).toContain("slideCount: deck.slides.length");
+    expect(handleNextPresenterStepBody).toContain(
+      "setPresenterStepIndex(nextState.stepIndex)"
+    );
+    expect(handleNextPresenterStepBody).toContain(
+      "setCurrentSlideIndex(nextState.slideIndex)"
+    );
+  });
+
+  it("moves slides outside of the presenter step state updater", () => {
+    const source = fs.readFileSync(
+      path.join(process.cwd(), "src/features/rehearsal/RehearsalWorkspace.tsx"),
+      "utf8"
+    );
+    const start = source.indexOf("const handleNextPresenterStep");
+    const end = source.indexOf("const finishRehearsal");
+    const handleNextPresenterStepBody = source.slice(start, end);
+
+    expect(handleNextPresenterStepBody).not.toContain("setPresenterStepIndex((currentStep)");
+    expect(
+      handleNextPresenterStepBody.indexOf("setPresenterStepIndex(nextState.stepIndex)")
+    ).toBeLessThan(handleNextPresenterStepBody.indexOf("setCurrentSlideIndex"));
+  });
+
   it("requests microphone audio with live STT input quality constraints", async () => {
     const stream = { getTracks: () => [] } as unknown as MediaStream;
     const getUserMedia = vi.fn(async () => stream);

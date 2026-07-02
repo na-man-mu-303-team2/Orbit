@@ -43,6 +43,23 @@ describe("presenterStateStore", () => {
     });
   });
 
+  it("keeps the final slide step when next-step has nowhere to advance", () => {
+    const state = {
+      ...createPresenterSlideshowState(p0AnimationDeck),
+      slideId: "slide_p0_2",
+      slideIndex: p0AnimationDeck.slides.length - 1,
+      stepIndex: 2
+    };
+
+    expect(
+      nextStepOrSlide({
+        maxStepIndex: 2,
+        slides: p0AnimationDeck.slides,
+        state
+      })
+    ).toBe(state);
+  });
+
   it("restores previous slide at stepIndex 0", () => {
     const state = {
       ...createPresenterSlideshowState(p0AnimationDeck),

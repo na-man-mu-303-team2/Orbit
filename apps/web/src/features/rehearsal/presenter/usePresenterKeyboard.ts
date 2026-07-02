@@ -3,12 +3,14 @@ import { useEffect } from "react";
 export type PresenterKeyboardCommand = "next-step" | "previous-slide";
 
 const presenterKeyboardIgnoredTargetSelector = [
+  "[contenteditable]",
   "[contenteditable='true']",
   "input",
   "textarea",
   "select",
   "button",
   "a[href]",
+  "summary",
   "[role='button']",
   "[role='link']",
   "[role='menuitem']",
@@ -84,17 +86,47 @@ export function getPresenterKeyboardCommand(
 }
 
 export function isPresenterKeyboardIgnoredTarget(target: EventTarget | null) {
-  if (isElementLike(target)) {
-    return (
-      Boolean(target.isContentEditable) ||
-      Boolean(target.closest(presenterKeyboardIgnoredTargetSelector))
-    );
+  if (!target || typeof target !== "object") {
+    return false;
   }
 
-  if (typeof Node !== "undefined" && target instanceof Node) {
-    return Boolean(
-      target.parentElement?.closest(presenterKeyboardIgnoredTargetSelector)
-    );
+  const element = target as {
+    closest?: (selector: string) => Element | null;
+    getAttribute?: (name: string) => string | null;
+    hasAttribute?: (name: string) => boolean;
+    isContentEditable?: boolean;
+    parentElement?: { closest?: (selector: string) => Element | null } | null;
+    tagName?: string;
+  };
+  const tagName = element.tagName?.toLowerCase();
+  const role = element.getAttribute?.("role")?.toLowerCase();
+
+  if (
+    element.isContentEditable ||
+    tagName === "input" ||
+    tagName === "textarea" ||
+    tagName === "select" ||
+    tagName === "button" ||
+    tagName === "summary" ||
+    (tagName === "a" && (element.hasAttribute?.("href") ?? false)) ||
+    role === "button" ||
+    role === "link" ||
+    role === "menuitem" ||
+    role === "checkbox" ||
+    role === "radio" ||
+    role === "switch" ||
+    role === "tab" ||
+    role === "textbox"
+  ) {
+    return true;
+  }
+
+  if (element.closest?.(presenterKeyboardIgnoredTargetSelector)) {
+    return true;
+  }
+
+  if (element.parentElement?.closest?.(presenterKeyboardIgnoredTargetSelector)) {
+    return true;
   }
 
   return false;
@@ -102,18 +134,4 @@ export function isPresenterKeyboardIgnoredTarget(target: EventTarget | null) {
 
 export function isPresenterKeyboardEditableTarget(target: EventTarget | null) {
   return isPresenterKeyboardIgnoredTarget(target);
-}
-
-function isElementLike(
-  target: EventTarget | null
-): target is EventTarget & {
-  closest: (selector: string) => unknown;
-  isContentEditable?: boolean;
-} {
-  return (
-    typeof target === "object" &&
-    target !== null &&
-    "closest" in target &&
-    typeof target.closest === "function"
-  );
 }

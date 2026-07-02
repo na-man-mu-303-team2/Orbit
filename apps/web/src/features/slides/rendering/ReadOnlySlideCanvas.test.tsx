@@ -126,7 +126,7 @@ describe("ReadOnlySlideCanvas", () => {
     expect(html).toContain("data-opacity=\"0\"");
   });
 
-  it("renders highlight overlays for grouped child elements", () => {
+  it("renders active highlights for grouped child elements", () => {
     const html = renderToStaticMarkup(
       <ReadOnlySlideCanvas
         deck={p0AnimationDeck}

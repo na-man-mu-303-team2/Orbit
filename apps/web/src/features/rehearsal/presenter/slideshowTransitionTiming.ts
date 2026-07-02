@@ -2,68 +2,71 @@ import type { DeckAnimation } from "@orbit/shared";
 
 export const maxTransitionDurationMs = 500;
 
-export function sequenceEntryAnimationsByOrder(
-  animations: DeckAnimation[]
-): DeckAnimation[] {
-  const sortedAnimations = animations
-    .map((animation, animationIndex) => ({ animation, animationIndex }))
-    .sort((left, right) => {
-      if (left.animation.order !== right.animation.order) {
-        return left.animation.order - right.animation.order;
-      }
+export type SlideshowTransitionAnimation = DeckAnimation & {
+  transitionDelayMs?: number;
+};
 
+export function createSlideshowEntryTransitionTimeline(
+  animations: DeckAnimation[]
+): SlideshowTransitionAnimation[] {
+  const orderGroups = new Map<
+    number,
+    Array<{ animation: DeckAnimation; animationIndex: number }>
+  >();
+
+  for (const [animationIndex, animation] of animations.entries()) {
+    const group = orderGroups.get(animation.order) ?? [];
+    group.push({ animation, animationIndex });
+    orderGroups.set(animation.order, group);
+  }
+
+  let groupStartMs = 0;
+  const timeline: SlideshowTransitionAnimation[] = [];
+
+  for (const [, groupAnimations] of [...orderGroups.entries()].sort(
+    ([leftOrder], [rightOrder]) => leftOrder - rightOrder
+  )) {
+    const sortedGroupAnimations = [...groupAnimations].sort((left, right) => {
       if (left.animation.delayMs !== right.animation.delayMs) {
         return left.animation.delayMs - right.animation.delayMs;
       }
 
       return left.animationIndex - right.animationIndex;
     });
-  const sequencedAnimations: DeckAnimation[] = [];
-  let elapsedMs = 0;
 
-  for (let index = 0; index < sortedAnimations.length; ) {
-    const order = sortedAnimations[index]!.animation.order;
-    const group: DeckAnimation[] = [];
-
-    while (
-      index < sortedAnimations.length &&
-      sortedAnimations[index]!.animation.order === order
-    ) {
-      group.push(sortedAnimations[index]!.animation);
-      index += 1;
-    }
-
-    for (const animation of group) {
-      sequencedAnimations.push({
+    for (const { animation } of sortedGroupAnimations) {
+      timeline.push({
         ...animation,
-        delayMs: elapsedMs + animation.delayMs
+        transitionDelayMs: groupStartMs + animation.delayMs
       });
     }
 
-    elapsedMs += getSlideshowTransitionDurationMs(group);
+    groupStartMs += getSlideshowTransitionDurationMs(
+      sortedGroupAnimations.map(({ animation }) => animation)
+    );
   }
 
-  return sequencedAnimations;
+  return timeline;
+}
+
+export function sequenceEntryAnimationsByOrder(animations: DeckAnimation[]) {
+  return createSlideshowEntryTransitionTimeline(animations);
 }
 
 export function getSequencedEntryTransitionDurationMs(
-  animations: DeckAnimation[]
+  animations: SlideshowTransitionAnimation[]
+) {
+  return getSlideshowTransitionDurationMs(animations);
+}
+
+export function getSlideshowTransitionDurationMs(
+  animations: SlideshowTransitionAnimation[]
 ) {
   return Math.max(
     1,
-    ...animations.map(
-      (animation) =>
-        animation.delayMs +
-        Math.max(1, Math.min(animation.durationMs, maxTransitionDurationMs))
-    )
-  );
-}
-
-export function getSlideshowTransitionDurationMs(animations: DeckAnimation[]) {
-  return Math.max(
-    1,
     ...animations.map((animation) =>
-      Math.min(animation.durationMs + animation.delayMs, maxTransitionDurationMs)
+      (animation.transitionDelayMs ?? animation.delayMs) +
+      Math.max(1, Math.min(animation.durationMs, maxTransitionDurationMs))
     )
   );
 }

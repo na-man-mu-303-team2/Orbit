@@ -2,7 +2,7 @@
 
 ## 방향
 
-ORBIT은 전체 Jira 이슈 구현을 전제로 `docker compose up --build` 한 번으로 Web, API, Worker, Python worker, PostgreSQL, Redis, MinIO를 실행할 수 있게 구성한다.
+ORBIT은 MVP 기능 범위를 `docker compose up --build` 한 번으로 Web, API, Worker, Python worker, PostgreSQL, Redis, MinIO까지 실행할 수 있게 구성한다.
 
 운영 기준은 Kubernetes가 아니라 AWS ECS Fargate와 managed service다.
 
