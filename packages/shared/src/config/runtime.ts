@@ -5,7 +5,7 @@ export const appEnvSchema = z.enum(["local", "test", "staging", "production"]);
 export const storageDriverSchema = z.enum(["minio", "s3"]);
 export const jobQueueDriverSchema = z.enum(["bullmq", "sqs"]);
 export const liveSttProviderSchema = z.literal("sherpa");
-export const reportSttProviderSchema = z.literal("openai");
+export const reportSttProviderSchema = z.enum(["openai", "whisperx"]);
 export const ocrProviderSchema = z.enum(["python", "textract"]);
 export const llmProviderSchema = z.literal("openai");
 

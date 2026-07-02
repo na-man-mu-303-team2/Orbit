@@ -1,6 +1,9 @@
+from __future__ import annotations
+
 import sys
 from pathlib import Path
 from types import SimpleNamespace
+from urllib.error import HTTPError
 
 import pytest
 from fastapi.testclient import TestClient
@@ -14,6 +17,7 @@ from app.audio.transcribe import (
     ProviderTranscription,
     SpeechToTextProvider,
     TranscriptSegment,
+    WhisperXSpeechToTextProvider,
     create_speech_to_text_provider,
     get_speech_to_text_provider,
     transcribe_rehearsal_audio,
@@ -150,6 +154,24 @@ def test_openai_stt_requires_api_key() -> None:
     assert "OPENAI_API_KEY" in error.value.message
 
 
+def test_create_provider_selects_whisperx() -> None:
+    config = load_config(
+        {
+            **VALID_ENV,
+            "REPORT_STT_PROVIDER": "whisperx",
+            "WHISPERX_API_URL": "https://whisperx.example.test/transcribe",
+            "WHISPERX_API_KEY": "whisperx-test-key",
+            "WHISPERX_MODEL": "large-v3",
+        }
+    )
+
+    provider = create_speech_to_text_provider(config)
+
+    assert isinstance(provider, WhisperXSpeechToTextProvider)
+    assert provider.name == "whisperx"
+    assert provider.model == "large-v3"
+
+
 def test_gpt4o_transcribe_uses_json_response_format(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -182,6 +204,193 @@ def test_gpt4o_transcribe_uses_json_response_format(
 
     assert result.transcript == "테스트 전사"
     assert calls[0]["response_format"] == "json"
+
+
+def test_whisperx_provider_posts_multipart_and_normalizes_response() -> None:
+    calls: list[tuple[object, float]] = []
+
+    def fake_urlopen(request: object, *, timeout: float) -> FakeHttpResponse:
+        calls.append((request, timeout))
+        return FakeHttpResponse(
+            {
+                "transcript": "발표 화면 테스트",
+                "language": "ko",
+                "provider": "whisperx",
+                "model": "large-v3",
+                "durationSeconds": 2.5,
+                "segments": [
+                    {
+                        "text": "발표 화면 테스트",
+                        "startSeconds": 0,
+                        "endSeconds": 2.5,
+                    }
+                ],
+            }
+        )
+
+    provider = WhisperXSpeechToTextProvider(
+        api_url="https://whisperx.example.test/transcribe",
+        api_key="whisperx-test-key",
+        model="large-v3",
+        language="ko-KR",
+        timeout_ms=45_000,
+        opener=fake_urlopen,
+    )
+
+    result = provider.transcribe(
+        AudioContent(
+            data=b"fake flac bytes",
+            file_name="rehearsal.flac",
+            mime_type="audio/flac",
+        )
+    )
+
+    request, timeout = calls[0]
+    body = request.data.decode("latin1")  # type: ignore[attr-defined]
+    assert timeout == 45
+    assert request.headers["Authorization"] == "Bearer whisperx-test-key"  # type: ignore[attr-defined]
+    assert "multipart/form-data" in request.headers["Content-type"]  # type: ignore[attr-defined]
+    assert 'name="language"' in body
+    assert "ko" in body
+    assert 'name="model"' in body
+    assert "large-v3" in body
+    assert 'name="file"; filename="rehearsal.flac"' in body
+    assert "fake flac bytes" in body
+    assert result.transcript == "발표 화면 테스트"
+    assert result.language == "ko"
+    assert result.provider == "whisperx"
+    assert result.duration_seconds == 2.5
+    assert result.segments[0].start_seconds == 0
+    assert result.segments[0].end_seconds == 2.5
+
+
+def test_whisperx_provider_rejects_empty_transcript() -> None:
+    provider = WhisperXSpeechToTextProvider(
+        api_url="https://whisperx.example.test/transcribe",
+        api_key="whisperx-test-key",
+        model="large-v3",
+        language="ko-KR",
+        timeout_ms=30_000,
+        opener=lambda _request, *, timeout: FakeHttpResponse(
+            {"transcript": "", "segments": []}
+        ),
+    )
+
+    with pytest.raises(AudioTranscriptionError) as error:
+        provider.transcribe(
+            AudioContent(
+                data=b"fake flac bytes",
+                file_name="rehearsal.flac",
+                mime_type="audio/flac",
+            )
+        )
+
+    assert error.value.code == "empty_transcript"
+
+
+def test_whisperx_provider_rejects_malformed_segments() -> None:
+    provider = WhisperXSpeechToTextProvider(
+        api_url="https://whisperx.example.test/transcribe",
+        api_key="whisperx-test-key",
+        model="large-v3",
+        language="ko-KR",
+        timeout_ms=30_000,
+        opener=lambda _request, *, timeout: FakeHttpResponse(
+            {"transcript": "발표 화면 테스트", "segments": {"text": "invalid"}}
+        ),
+    )
+
+    with pytest.raises(AudioTranscriptionError) as error:
+        provider.transcribe(
+            AudioContent(
+                data=b"fake flac bytes",
+                file_name="rehearsal.flac",
+                mime_type="audio/flac",
+            )
+        )
+
+    assert error.value.code == "malformed_provider_response"
+
+
+def test_whisperx_provider_wraps_request_failure() -> None:
+    def failing_urlopen(_request: object, *, timeout: float) -> FakeHttpResponse:
+        raise OSError("network failed")
+
+    provider = WhisperXSpeechToTextProvider(
+        api_url="https://whisperx.example.test/transcribe",
+        api_key="whisperx-test-key",
+        model="large-v3",
+        language="ko-KR",
+        timeout_ms=30_000,
+        opener=failing_urlopen,
+    )
+
+    with pytest.raises(AudioTranscriptionError) as error:
+        provider.transcribe(
+            AudioContent(
+                data=b"fake flac bytes",
+                file_name="rehearsal.flac",
+                mime_type="audio/flac",
+            )
+        )
+
+    assert error.value.code == "stt_provider_failed"
+
+
+def test_whisperx_provider_wraps_auth_failure() -> None:
+    def auth_failure(_request: object, *, timeout: float) -> FakeHttpResponse:
+        raise HTTPError(
+            "https://whisperx.example.test/transcribe",
+            401,
+            "Unauthorized",
+            hdrs=None,
+            fp=None,
+        )
+
+    provider = WhisperXSpeechToTextProvider(
+        api_url="https://whisperx.example.test/transcribe",
+        api_key="whisperx-test-key",
+        model="large-v3",
+        language="ko-KR",
+        timeout_ms=30_000,
+        opener=auth_failure,
+    )
+
+    with pytest.raises(AudioTranscriptionError) as error:
+        provider.transcribe(
+            AudioContent(
+                data=b"fake flac bytes",
+                file_name="rehearsal.flac",
+                mime_type="audio/flac",
+            )
+        )
+
+    assert error.value.code == "stt_provider_failed"
+
+
+def test_whisperx_provider_wraps_timeout() -> None:
+    def timeout_urlopen(_request: object, *, timeout: float) -> FakeHttpResponse:
+        raise TimeoutError("timed out")
+
+    provider = WhisperXSpeechToTextProvider(
+        api_url="https://whisperx.example.test/transcribe",
+        api_key="whisperx-test-key",
+        model="large-v3",
+        language="ko-KR",
+        timeout_ms=30_000,
+        opener=timeout_urlopen,
+    )
+
+    with pytest.raises(AudioTranscriptionError) as error:
+        provider.transcribe(
+            AudioContent(
+                data=b"fake flac bytes",
+                file_name="rehearsal.flac",
+                mime_type="audio/flac",
+            )
+        )
+
+    assert error.value.code == "stt_provider_failed"
 
 
 def test_audio_reference_rejects_unsupported_openai_mime_type(
@@ -259,3 +468,19 @@ def _request(audio_path: Path) -> AudioTranscribeRequest:
             },
         }
     )
+
+
+class FakeHttpResponse:
+    def __init__(self, body: object) -> None:
+        self.body = body
+
+    def __enter__(self) -> FakeHttpResponse:
+        return self
+
+    def __exit__(self, *_args: object) -> None:
+        return None
+
+    def read(self) -> bytes:
+        import json
+
+        return json.dumps(self.body).encode("utf-8")

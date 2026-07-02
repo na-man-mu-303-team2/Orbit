@@ -168,6 +168,10 @@ export const orbitEnvSchema = z.object({
   OPENAI_MODEL: requiredString("OPENAI_MODEL"),
   OPENAI_TRANSCRIPTION_MODEL: requiredString("OPENAI_TRANSCRIPTION_MODEL"),
   OPENAI_EMBEDDING_MODEL: requiredString("OPENAI_EMBEDDING_MODEL"),
+  WHISPERX_API_URL: optionalString,
+  WHISPERX_API_KEY: optionalString,
+  WHISPERX_MODEL: optionalString,
+  WHISPERX_TIMEOUT_MS: optionalPositiveInteger("WHISPERX_TIMEOUT_MS", 30000),
   AWS_REGION: requiredString("AWS_REGION"),
   AWS_ACCESS_KEY_ID: optionalString,
   AWS_SECRET_ACCESS_KEY: optionalString,
@@ -228,7 +232,26 @@ export const orbitEnvSchema = z.object({
     });
   }
 
-  if (value.REHEARSAL_AUDIO_MAX_BYTES > openAiRehearsalAudioMaxBytes) {
+  if (value.REPORT_STT_PROVIDER === "whisperx") {
+    for (const key of [
+      "WHISPERX_API_URL",
+      "WHISPERX_API_KEY",
+      "WHISPERX_MODEL"
+    ] as const) {
+      if (!value[key]) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: [key],
+          message: `${key} is required when REPORT_STT_PROVIDER=whisperx`
+        });
+      }
+    }
+  }
+
+  if (
+    value.REPORT_STT_PROVIDER === "openai" &&
+    value.REHEARSAL_AUDIO_MAX_BYTES > openAiRehearsalAudioMaxBytes
+  ) {
     context.addIssue({
       code: z.ZodIssueCode.custom,
       path: ["REHEARSAL_AUDIO_MAX_BYTES"],
