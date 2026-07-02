@@ -17,6 +17,7 @@ type KonvaComponent = ComponentType<any>;
 const Group = KonvaGroup as unknown as KonvaComponent;
 const Layer = KonvaLayer as unknown as KonvaComponent;
 const Stage = KonvaStage as unknown as KonvaComponent;
+const inactiveHighlightElementIds = new Set<string>();
 
 export type ElementPresentationState = {
   opacity?: number;
@@ -49,6 +50,7 @@ export function ReadOnlySlideCanvas(props: {
   const highlightElements = getHighlightOverlayElements({
     activeHighlightElementIds,
     deck,
+    elementStates,
     slide
   });
 
@@ -123,6 +125,8 @@ function ReadOnlyElementNode(props: {
   } = props;
   const visible = presentationState?.visible ?? element.visible;
   const opacity = presentationState?.opacity ?? element.opacity;
+  const visibleHighlightElementIds =
+    visible && opacity !== 0 ? activeHighlightElementIds : inactiveHighlightElementIds;
   const frame = {
     x: presentationState?.x ?? element.x,
     y: presentationState?.y ?? element.y,
@@ -144,7 +148,7 @@ function ReadOnlyElementNode(props: {
     >
       <ElementNodeContent
         accentColor={accentColor}
-        activeHighlightElementIds={activeHighlightElementIds}
+        activeHighlightElementIds={visibleHighlightElementIds}
         deck={deck}
         element={element}
         elementStates={elementStates}

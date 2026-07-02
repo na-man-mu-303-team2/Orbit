@@ -25,13 +25,15 @@ export function SlideshowRenderer(props: {
   const {
     deck,
     highlights = [],
-    playInitialEntryAnimations = true,
+    playInitialEntryAnimations: playInitialEntryAnimationsProp,
     renderMode = "presenter",
     scale = 1,
     slideId,
     stepIndex,
     triggerAnimationIds = emptyTriggerAnimationIds
   } = props;
+  const playInitialEntryAnimations =
+    playInitialEntryAnimationsProp ?? renderMode !== "slide-window";
   const slide = deck.slides.find((candidate) => candidate.slideId === slideId);
   const reducedMotion = useReducedMotion();
 
