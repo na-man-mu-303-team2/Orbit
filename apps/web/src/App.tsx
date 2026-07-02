@@ -372,12 +372,10 @@ export function App() {
 export function shouldRenderAppFrame(route: Route) {
   return (
     route.name !== "login" &&
+    route.name !== "present" &&
     route.name !== "rehearsal-report" &&
     route.name !== "report-mockup" &&
     route.name !== "audience-session"
-    route.name !== "present" &&
-    route.name !== "rehearsal-report" &&
-    route.name !== "report-mockup"
   );
 }
 
@@ -398,6 +396,7 @@ function renderRoute(route: Route, user?: AuthUser) {
   if (route.name === "project-request") return <ProjectAccessRequestPage projectId={route.projectId} />;
   if (route.name === "audience-session") {
     return <AudienceSessionPage sessionId={route.sessionId} />;
+  }
   if (route.name === "present") {
     return <PresentWindow deckId={route.deckId} sessionId={route.sessionId} />;
   }
