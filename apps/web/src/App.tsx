@@ -25,7 +25,7 @@ import {
 } from "lucide-react";
 import type { CSSProperties, ChangeEvent, DragEvent, FormEvent, ReactNode } from "react";
 import { lazy, Suspense, useEffect, useMemo, useState } from "react";
-import { createDemoDeck } from "@orbit/editor-core";
+import { createDemoDeck } from "../../../packages/editor-core/src/index";
 import orbitLogo from "./assets/orbit-logo.png";
 import {
   createProject,

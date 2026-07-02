@@ -6,7 +6,7 @@ import type {
   Slide,
   TextElementProps
 } from "@orbit/shared";
-import { getGroupChildElements } from "@orbit/editor-core";
+import { getGroupChildElements } from "../../../../../../../packages/editor-core/src/index";
 import type Konva from "konva";
 import {
   Group as KonvaGroup,
