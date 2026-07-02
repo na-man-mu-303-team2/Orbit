@@ -1710,6 +1710,76 @@ button:disabled {
   overflow: hidden;
 }
 
+.present-window-shell {
+  align-items: center;
+  background: #05070b;
+  color: #f8fafc;
+  display: grid;
+  height: 100vh;
+  justify-items: center;
+  min-height: 100vh;
+  overflow: hidden;
+  position: relative;
+  width: 100vw;
+}
+
+.present-window-stage {
+  align-items: center;
+  display: grid;
+  height: 100vh;
+  justify-items: center;
+  overflow: hidden;
+  width: 100vw;
+}
+
+.present-window-stage .slideshow-renderer {
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08);
+}
+
+.present-window-status {
+  display: grid;
+  gap: 10px;
+  max-width: 520px;
+  padding: 28px;
+  text-align: center;
+}
+
+.present-window-status h1 {
+  color: #ffffff;
+  font-size: 1.2rem;
+  letter-spacing: 0;
+  margin: 0;
+}
+
+.present-window-status p {
+  color: #aab4c4;
+  font-size: 0.95rem;
+  line-height: 1.6;
+  margin: 0;
+}
+
+.present-window-fullscreen {
+  align-items: center;
+  background: rgba(15, 23, 42, 0.82);
+  border: 1px solid rgba(226, 232, 240, 0.36);
+  border-radius: 8px;
+  bottom: 18px;
+  color: #ffffff;
+  display: inline-flex;
+  font-size: 0.84rem;
+  font-weight: 900;
+  gap: 7px;
+  min-height: 38px;
+  padding: 0 13px;
+  position: fixed;
+  right: 18px;
+  z-index: 3;
+}
+
+.present-window-fullscreen:hover {
+  background: rgba(30, 41, 59, 0.94);
+}
+
 .rehearsal-legacy-test-marker {
   position: fixed;
   right: 8px;
