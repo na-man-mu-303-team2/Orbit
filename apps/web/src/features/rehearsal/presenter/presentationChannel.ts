@@ -95,6 +95,7 @@ export function createSlideWindowDeckSnapshot(deck: Deck): SlideWindowDeckSnapsh
 
 function createSlideWindowSlideSnapshot(slide: Deck["slides"][number]): Deck["slides"][number] {
   return {
+    actions: [],
     animations: slide.animations,
     elements: slide.elements,
     estimatedSeconds: slide.estimatedSeconds,
