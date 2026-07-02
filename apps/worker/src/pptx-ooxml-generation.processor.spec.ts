@@ -33,7 +33,7 @@ describe("processPptxOoxmlGenerationJob", () => {
     vi.clearAllMocks();
   });
 
-  it("stores slide render backgrounds, slot overlays, current package, template blueprint, and job result", async () => {
+  it("stores editable visual elements, render thumbnails, current package, template blueprint, and job result", async () => {
     const insertedDecks: unknown[] = [];
     const insertedBlueprints: unknown[] = [];
     const query = vi.fn(async (sql: string, params: unknown[]) => {
@@ -108,35 +108,32 @@ describe("processPptxOoxmlGenerationJob", () => {
     expect(deck.slides[0].thumbnailUrl).toMatch(
       /\/api\/v1\/projects\/project-a\/assets\/file_.*\/content/
     );
-    expect(deck.slides[0].style.backgroundImage).toEqual(
-      expect.objectContaining({
-        src: expect.stringMatching(
-          /\/api\/v1\/projects\/project-a\/assets\/file_.*\/content/
-        ),
-        fit: "stretch",
-        opacity: 1
-      })
-    );
+    expect(deck.slides[0].style.backgroundImage).toBeUndefined();
     expect(deck.slides[0].elements).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          elementId: "el_slot_title",
+          elementId: "el_imported_1_background",
           type: "rect",
+          role: "background"
+        }),
+        expect.objectContaining({
+          elementId: "el_slot_title",
+          type: "text",
           role: "title",
-          locked: true,
+          locked: false,
           props: expect.objectContaining({
-            fill: "transparent",
-            stroke: "transparent"
+            text: "Editable PPTX Title"
           })
         }),
         expect.objectContaining({
           elementId: "el_slot_media",
-          type: "rect",
+          type: "image",
           role: "media",
-          locked: true,
+          locked: false,
           props: expect.objectContaining({
-            fill: "transparent",
-            stroke: "transparent"
+            src: expect.stringMatching(
+              /\/api\/v1\/projects\/project-a\/assets\/file_.*\/content/
+            )
           })
         })
       ])
@@ -149,16 +146,12 @@ describe("processPptxOoxmlGenerationJob", () => {
     expect(deck.slides[0].elements).not.toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          elementId: "el_imported_1_background",
-          type: "rect"
-        }),
-        expect.objectContaining({
           elementId: "el_slot_title",
-          type: "text"
-        }),
-        expect.objectContaining({
-          elementId: "el_slot_media",
-          type: "image"
+          type: "rect",
+          props: expect.objectContaining({
+            fill: "transparent",
+            stroke: "transparent"
+          })
         })
       ])
     );

@@ -74,6 +74,8 @@ type PptxOoxmlGenerationWorkerResponse = z.infer<
 type PptxOoxmlGenerationRequest = z.infer<
   typeof pptxOoxmlGenerationPayloadSchema
 >["request"];
+type OoxmlGenerationBlueprint =
+  PptxOoxmlGenerationWorkerResponse["blueprint"];
 type OoxmlTemplateBlueprint =
   PptxOoxmlGenerationWorkerResponse["templateBlueprint"];
 
@@ -183,10 +185,15 @@ export async function processPptxOoxmlGenerationJob(
       pptxOoxmlGenerationWorkerResponseSchema.shape.templateBlueprint.parse(
         replaceAssetRefs(generated.templateBlueprint, assetRefs.fileIds),
       );
+    const deckBlueprint =
+      pptxOoxmlGenerationWorkerResponseSchema.shape.blueprint.parse(
+        replaceAssetRefs(generated.blueprint, assetRefs.urls),
+      );
     const deck = buildOoxmlDeck(
       payload.projectId,
       asset,
       generated.canvas,
+      deckBlueprint,
       templateBlueprint,
       assetRefs.urls,
     );
@@ -363,10 +370,17 @@ function buildOoxmlDeck(
   projectId: string,
   asset: ProjectAssetRow,
   canvas: DeckCanvas,
+  blueprint: OoxmlGenerationBlueprint,
   templateBlueprint: OoxmlTemplateBlueprint,
   assetUrls: Map<string, string>,
 ): Deck {
   const title = titleFromFileName(asset.original_name);
+  const blueprintSlides = new Map(
+    blueprint.slides.map((slide, index) => [
+      slide.sourceSlideIndex ?? index + 1,
+      slide,
+    ]),
+  );
 
   return deckSchema.parse({
     deckId: `deck_ooxml_${safeId(asset.file_id)}`,
@@ -379,35 +393,24 @@ function buildOoxmlDeck(
       sourceType: "import",
     },
     canvas,
-    theme: {
-      name: "OOXML PPTX",
-      fontFamily: "Inter",
-      backgroundColor: "#ffffff",
-      textColor: "#111827",
-      accentColor: "#2563eb",
-      palette: {
-        primary: "#2563eb",
-        secondary: "#7c3aed",
-        surface: "#ffffff",
-        muted: "#f3f4f6",
-        border: "#d1d5db",
-      },
-      typography: {
-        headingFontFamily: "Inter",
-        bodyFontFamily: "Inter",
-        titleSize: 56,
-        headingSize: 36,
-        bodySize: 24,
-        captionSize: 16,
-      },
-      effects: { borderRadius: 8 },
-    },
+    theme: blueprint.theme,
     slides: templateBlueprint.slides.map((slide, index) => {
       const renderAssetRef = `asset:slide_render_${slide.sourceSlideIndex}`;
       const renderUrl = assetUrls.get(renderAssetRef);
+      const blueprintSlide =
+        blueprintSlides.get(slide.sourceSlideIndex) ?? blueprint.slides[index];
+      const visualElements = blueprintSlide?.elements ?? [];
       if (!renderUrl) {
         throw new Error(`Rendered slide asset missing: ${renderAssetRef}`);
       }
+      const elements =
+        visualElements.length > 0
+          ? visualElements
+          : slide.slots
+              .filter(isReplaceableSlot)
+              .map((slot, slotIndex) =>
+                slotOverlayElement(slot, 1000 + slotIndex),
+              );
 
       return {
         slideId: `slide_ooxml_${safeId(asset.file_id)}_${index + 1}`,
@@ -415,19 +418,21 @@ function buildOoxmlDeck(
         title: `Slide ${index + 1}`,
         thumbnailUrl: renderUrl,
         style: {
+          ...(blueprintSlide?.style ?? {}),
           layout: "title-content",
-          backgroundColor: "#ffffff",
-          backgroundImage: {
-            src: renderUrl,
-            alt: `Slide ${slide.sourceSlideIndex}`,
-            fit: "stretch",
-            opacity: 1,
-          },
+          ...(visualElements.length === 0
+            ? {
+                backgroundImage: {
+                  src: renderUrl,
+                  alt: `Slide ${slide.sourceSlideIndex}`,
+                  fit: "stretch",
+                  opacity: 1,
+                },
+              }
+            : {}),
         },
         speakerNotes: "",
-        elements: slide.slots
-          .filter(isReplaceableSlot)
-          .map((slot, slotIndex) => slotOverlayElement(slot, 1000 + slotIndex)),
+        elements,
         keywords: [],
         animations: [],
         aiNotes: {
