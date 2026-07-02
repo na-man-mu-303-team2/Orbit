@@ -883,6 +883,7 @@ P0/P1, P2/P3/P4/P5, and P6 can run as parallel tracks after the contract baselin
 - Slide-window recovery uses presenter and slide-window heartbeat messages. The presenter marks the peer `stale` after 5 seconds without a matching ready/heartbeat message and exposes a recoverable reopen action.
 - Single-screen fallback is implemented in `SingleScreenPresenter.tsx`. It replaces the normal presenter layout while active and renders only total time plus current-slide elapsed/target time over the slide.
 - Automated P1 coverage now includes `presentationChannel`, `PresentWindow`, `usePresentationChannelPublisher`, `displayManager`, `DisplayControls`, `SingleScreenPresenter`, `RehearsalWorkspace`, and `tests/e2e/presenter-screen.spec.ts`.
+- `tests/e2e/presenter-screen.spec.ts` covers real browser popup synchronization, slide changes, slide-window privacy guards, forced close detection, and one-click reopen restoration to the latest slide.
 - Manual HDMI/browser gate still requires a real Chrome external display check and Safari/Firefox fallback check before marking the P1 milestone complete.
 
 ## P2: STT Abstractions

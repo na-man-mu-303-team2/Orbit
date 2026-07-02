@@ -32,7 +32,7 @@ export function DisplayControls(props: {
   const [screens, setScreens] = useState<DisplayScreenDescriptor[]>([]);
   const windowRef = useRef<SlideWindowRef | null>(null);
   const identity = useMemo(() => ({ deckId, sessionId }), [deckId, sessionId]);
-  const isRecoverable = shouldShowRecoverAction(channelStatus);
+  const isRecoverable = shouldShowRecoverAction(channelStatus) || displayState === "failed";
 
   useEffect(() => {
     const timer = window.setInterval(() => {

@@ -46,5 +46,6 @@ describe("DisplayControls", () => {
     expect(getDisplayStatusLabel("stale", "idle")).toBe("슬라이드 창 응답 없음");
     expect(getDisplayStatusLabel("idle", "screen-picker")).toBe("화면 선택 필요");
     expect(getDisplayStatusLabel("idle", "manual-guide")).toBe("수동 배치 안내");
+    expect(getDisplayStatusLabel("idle", "failed")).toBe("확인 필요");
   });
 });

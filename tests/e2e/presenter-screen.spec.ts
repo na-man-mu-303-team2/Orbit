@@ -144,5 +144,21 @@ test.describe("P1 presenter screen and slide window", () => {
       .poll(async () => slideWindow.locator(".slideshow-renderer").getAttribute("data-slide-title"))
       .toBe("Slide Window");
     expect(await slideWindow.content()).not.toContain("두 번째 슬라이드 대본도");
+
+    await slideWindow.close();
+    await expect(page.getByText("슬라이드 창이 닫혔습니다. 다시 열 수 있습니다.")).toBeVisible();
+
+    const reopenedWindowPromise = page.waitForEvent("popup");
+    await page.getByRole("button", { name: "슬라이드 창 다시 열기" }).click();
+    const reopenedWindow = await reopenedWindowPromise;
+    await reopenedWindow.waitForLoadState();
+
+    await expect(reopenedWindow.locator('[data-slide-id="slide_presenter_2"]')).toBeVisible();
+    await expect
+      .poll(async () =>
+        reopenedWindow.locator(".slideshow-renderer").getAttribute("data-slide-title")
+      )
+      .toBe("Slide Window");
+    expect(await reopenedWindow.content()).not.toContain("두 번째 슬라이드 대본도");
   });
 });
