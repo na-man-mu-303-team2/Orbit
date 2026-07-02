@@ -23,7 +23,7 @@ API, worker, web, Python worker는 시작 시 환경변수를 검증한다.
 STORAGE_DRIVER=minio | s3
 JOB_QUEUE_DRIVER=bullmq | sqs
 LIVE_STT_PROVIDER=sherpa
-REPORT_STT_PROVIDER=openai | whisperx
+REPORT_STT_PROVIDER=openai
 OCR_PROVIDER=python | textract
 LLM_PROVIDER=openai
 ```
@@ -70,11 +70,10 @@ OPENAI_EMBEDDING_MODEL=text-embedding-3-small
 STT/AI provider는 목적별로 분리한다.
 
 - `LIVE_STT_PROVIDER=sherpa`: 발표/리허설 중 실시간 발화 인식, 애니메이션 cue, 강조, 키워드 누락 체크, 슬라이드 전환 제어에 쓰는 온디바이스 STT다.
-- `REPORT_STT_PROVIDER=openai | whisperx`: 리허설 종료 후 녹음 파일을 전사하고 코칭 리포트를 만들기 위한 서버 리포트 STT다. `openai`는 기존 OpenAI STT 경로를 사용하고, `whisperx`는 외부 WhisperX API 계약을 사용한다.
-- `WHISPERX_API_URL`, `WHISPERX_API_KEY`: `REPORT_STT_PROVIDER=whisperx`일 때만 필수다. `WHISPERX_MODEL`은 외부 WhisperX API가 모델 선택을 지원할 때만 설정한다.
+- `REPORT_STT_PROVIDER=openai`: 리허설 종료 후 녹음 파일을 전사하고 코칭 리포트를 만들기 위한 서버 리포트 STT다. WhisperX는 provider 구현이 들어가는 후속 작업 전까지 선택할 수 없다.
 - `LLM_PROVIDER=openai`: 전사 결과, 발표자료, 키워드, 청중 반응 등을 종합해 리포트와 코칭 문장을 생성하는 AI provider다.
 
-Report STT에 업로드하는 `rehearsal-audio`는 MP3, MP4, MPEG, MPGA, M4A, FLAC, WAV, WebM 계열만 허용한다. `REPORT_STT_PROVIDER=openai`에서는 기존 단일 파일 전사 경로를 사용하므로 `REHEARSAL_AUDIO_MAX_BYTES` 기본값과 최대값은 `25000000`이다. `REPORT_STT_PROVIDER=whisperx`에서는 `REHEARSAL_AUDIO_MAX_BYTES=209715200`을 기준값으로 사용하고, 배포 환경의 WhisperX 처리 한도에 맞춰 더 크게 설정할 수 있다.
+Report STT에 업로드하는 `rehearsal-audio`는 MP3, MP4, MPEG, MPGA, M4A, FLAC, WAV, WebM 계열만 허용한다. 현재 구현된 `REPORT_STT_PROVIDER=openai` 단일 파일 전사 경로에서는 `REHEARSAL_AUDIO_MAX_BYTES` 기본값과 최대값이 `25000000`이다.
 
 ## Demo ID
 

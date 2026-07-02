@@ -181,13 +181,6 @@ def get_speech_to_text_provider(
 def create_speech_to_text_provider(
     config: PythonWorkerConfig,
 ) -> SpeechToTextProvider:
-    if config.report_stt_provider != "openai":
-        raise AudioTranscriptionError(
-            "unsupported_provider",
-            f"REPORT_STT_PROVIDER={config.report_stt_provider}는 /audio/transcribe에서 아직 지원하지 않습니다.",
-            400,
-        )
-
     if not config.openai_api_key:
         raise AudioTranscriptionError(
             "provider_not_configured",
