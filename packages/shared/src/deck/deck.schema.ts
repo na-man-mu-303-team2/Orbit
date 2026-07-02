@@ -6,6 +6,7 @@ import {
   deckKeywordIdSchema,
   deckSlideIdSchema
 } from "./id.schema";
+import { slideActionSchema } from "./slide-action.schema";
 import { deckElementSchema } from "./slide-object.schema";
 import { themeColorSchema, themeSchema } from "./theme.schema";
 
@@ -161,19 +162,50 @@ export const slideAiNotesSchema = z
   })
   .default({});
 
-export const slideSchema = z.object({
-  slideId: deckSlideIdSchema,
-  order: slideOrderSchema,
-  title: z.string().default(""),
-  thumbnailUrl: z.string().default(""),
-  estimatedSeconds: z.number().int().positive().optional(),
-  style: slideStyleSchema,
-  speakerNotes: z.string().default(""),
-  elements: z.array(deckElementSchema).default([]),
-  keywords: slideKeywordsSchema.default([]),
-  animations: z.array(animationSchema).default([]),
-  aiNotes: slideAiNotesSchema.optional()
-});
+export const slideSchema = z
+  .object({
+    slideId: deckSlideIdSchema,
+    order: slideOrderSchema,
+    title: z.string().default(""),
+    thumbnailUrl: z.string().default(""),
+    estimatedSeconds: z.number().int().positive().optional(),
+    style: slideStyleSchema,
+    speakerNotes: z.string().default(""),
+    elements: z.array(deckElementSchema).default([]),
+    keywords: slideKeywordsSchema.default([]),
+    animations: z.array(animationSchema).default([]),
+    actions: z.array(slideActionSchema).default([]),
+    aiNotes: slideAiNotesSchema.optional()
+  })
+  .superRefine((slide, ctx) => {
+    const actionIds = new Set<string>();
+    const animationIds = new Set(
+      slide.animations.map((animation) => animation.animationId)
+    );
+
+    slide.actions.forEach((action, actionIndex) => {
+      if (actionIds.has(action.actionId)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["actions", actionIndex, "actionId"],
+          message: "slide action IDs must be unique within the same slide"
+        });
+      } else {
+        actionIds.add(action.actionId);
+      }
+
+      if (
+        action.effect.kind === "play-animation" &&
+        !animationIds.has(action.effect.animationId)
+      ) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["actions", actionIndex, "effect", "animationId"],
+          message: "slide action must target an animation in the same slide"
+        });
+      }
+    });
+  });
 
 export const deckSchema = z.object({
   deckId: deckIdSchema,

@@ -15,11 +15,13 @@ import {
 } from "./deck.schema";
 import {
   deckAnimationIdSchema,
+  deckActionIdSchema,
   deckChangeIdSchema,
   deckElementIdSchema,
   deckIdSchema,
   deckSlideIdSchema
 } from "./id.schema";
+import { slideActionPatchSchema, slideActionSchema } from "./slide-action.schema";
 import {
   deckElementCoordinateSchema,
   deckElementRoleSchema,
@@ -51,7 +53,10 @@ export const deckPatchOperationTypeSchema = z.enum([
   "replace_keywords",
   "add_animation",
   "update_animation",
-  "delete_animation"
+  "delete_animation",
+  "add_slide_action",
+  "update_slide_action",
+  "delete_slide_action"
 ]);
 
 export const themePalettePatchSchema = z.object({
@@ -237,6 +242,25 @@ export const deleteAnimationOperationSchema = z.object({
   animationId: deckAnimationIdSchema
 });
 
+export const addSlideActionOperationSchema = z.object({
+  type: z.literal("add_slide_action"),
+  slideId: deckSlideIdSchema,
+  action: slideActionSchema
+});
+
+export const updateSlideActionOperationSchema = z.object({
+  type: z.literal("update_slide_action"),
+  slideId: deckSlideIdSchema,
+  actionId: deckActionIdSchema,
+  action: slideActionPatchSchema
+});
+
+export const deleteSlideActionOperationSchema = z.object({
+  type: z.literal("delete_slide_action"),
+  slideId: deckSlideIdSchema,
+  actionId: deckActionIdSchema
+});
+
 export const deckPatchOperationSchema = z.discriminatedUnion("type", [
   updateDeckOperationSchema,
   addSlideOperationSchema,
@@ -253,7 +277,10 @@ export const deckPatchOperationSchema = z.discriminatedUnion("type", [
   replaceKeywordsOperationSchema,
   addAnimationOperationSchema,
   updateAnimationOperationSchema,
-  deleteAnimationOperationSchema
+  deleteAnimationOperationSchema,
+  addSlideActionOperationSchema,
+  updateSlideActionOperationSchema,
+  deleteSlideActionOperationSchema
 ]);
 
 export const deckPatchSchema = z.object({

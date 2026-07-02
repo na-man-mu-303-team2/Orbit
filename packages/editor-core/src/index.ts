@@ -29,6 +29,18 @@ export {
   createUpdateElementPropsPatch
 } from "./patches/elementOperations";
 export { createAddSlidePatch, createSlideId } from "./patches/slideOperations";
+export {
+  createSlidePlaybackState,
+  executeSlideAction,
+  getNextClickAnimation,
+  playNextClickAnimation,
+  resolveCueActions
+} from "./playback/slidePlayback";
+export type {
+  ClickPlaybackResult,
+  SlideActionExecutionResult,
+  SlidePlaybackState
+} from "./playback/slidePlayback";
 
 export function createDemoDeck(): Deck {
   return deckSchema.parse({

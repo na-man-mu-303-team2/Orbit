@@ -225,6 +225,7 @@ export function buildInitialProjectDeck(project: Project): Deck {
         elements: [],
         keywords: [],
         animations: [],
+        actions: [],
         aiNotes: {
           emphasisPoints: [],
           sourceEvidence: [],

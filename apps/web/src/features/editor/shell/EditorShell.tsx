@@ -1994,7 +1994,8 @@ export function EditorShell(props: { projectId?: string }) {
             }
           }
         ],
-        animations: []
+        animations: [],
+        actions: []
       })
     );
     setCurrentSlideIndex(deck.slides.length);
