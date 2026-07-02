@@ -52,7 +52,10 @@ export const templateSlotSourceSchema = z
       "unknown"
     ]),
     name: z.string().min(1).optional(),
-    placeholderType: z.string().min(1).optional()
+    placeholderType: z.string().min(1).optional(),
+    slidePart: z.string().min(1).optional(),
+    shapeId: z.string().min(1).optional(),
+    relationshipId: z.string().min(1).optional()
   })
   .passthrough();
 
@@ -69,12 +72,15 @@ export const templateBlueprintSlotSchema = z.object({
 export const templateBlueprintSlideSchema = z.object({
   slideIndex: z.number().int().positive(),
   sourceSlideIndex: z.number().int().positive(),
+  renderAssetFileId: z.string().min(1).optional(),
   slots: z.array(templateBlueprintSlotSchema).default([])
 });
 
 export const templateBlueprintSchema = z.object({
   templateId: templateBlueprintIdSchema,
   sourceFileId: z.string().min(1),
+  sourcePackageFileId: z.string().min(1).optional(),
+  currentPackageFileId: z.string().min(1).optional(),
   slides: z.array(templateBlueprintSlideSchema).min(1)
 });
 

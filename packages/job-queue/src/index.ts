@@ -5,6 +5,7 @@ import {
   generateDeckRequestSchema,
   jobSchema,
   nowIso,
+  type PptxOoxmlGenerationRequest,
   type GenerateDeckRequest
 } from "@orbit/shared";
 import { Queue } from "bullmq";
@@ -33,6 +34,8 @@ export const generateDeckQueueName = "generate-deck";
 export const generateDeckJobName = "generate-deck";
 export const pptxImportQueueName = "pptx-import";
 export const pptxImportJobName = "pptx-import";
+export const pptxOoxmlGenerationQueueName = "pptx-ooxml-generation";
+export const pptxOoxmlGenerationJobName = "pptx-ooxml-generation";
 export const workerHealthCheckQueueName = "worker-health-check";
 export const workerHealthCheckJobName = "worker-health-check";
 
@@ -86,6 +89,18 @@ export interface PptxImportBullMqPayload {
 }
 
 export interface EnqueuePptxImportJobInput extends PptxImportBullMqPayload {
+  driver: "bullmq" | "sqs";
+  redisUrl: string;
+}
+
+export interface PptxOoxmlGenerationBullMqPayload {
+  jobId: string;
+  projectId: string;
+  request: PptxOoxmlGenerationRequest;
+}
+
+export interface EnqueuePptxOoxmlGenerationJobInput
+  extends PptxOoxmlGenerationBullMqPayload {
   driver: "bullmq" | "sqs";
   redisUrl: string;
 }
@@ -186,6 +201,28 @@ export async function enqueuePptxImportJob(
       projectId: input.projectId,
       fileId: input.fileId
     } satisfies PptxImportBullMqPayload);
+  } finally {
+    await queue.close();
+  }
+}
+
+export async function enqueuePptxOoxmlGenerationJob(
+  input: EnqueuePptxOoxmlGenerationJobInput
+): Promise<void> {
+  if (input.driver === "sqs") {
+    throw new Error("SqsJobQueue adapter is not implemented yet.");
+  }
+
+  const queue = new Queue(pptxOoxmlGenerationQueueName, {
+    connection: redisConnectionOptions(input.redisUrl)
+  });
+
+  try {
+    await queue.add(pptxOoxmlGenerationJobName, {
+      jobId: input.jobId,
+      projectId: input.projectId,
+      request: input.request
+    } satisfies PptxOoxmlGenerationBullMqPayload);
   } finally {
     await queue.close();
   }

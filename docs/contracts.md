@@ -722,6 +722,50 @@ TemplateBlueprint:
 - `apps/api/src/pptx-imports`
 - `apps/worker/src/pptx-import.processor.ts`
 
+## PPTX OOXML generation contract
+
+PPTX OOXML generation uses an uploaded PPTX as the source of truth. The
+original OOXML package is preserved, the current package is stored as a
+derived `design-asset`, and rendered slide PNGs become locked full-slide image
+elements in `DeckSchema`. `Deck` and `DeckElement` schemas do not change.
+
+API:
+
+- `POST /api/v1/projects/:projectId/pptx-ooxml-generations`
+- request: `{ "fileId": "file_1", "topic": "optional", "prompt": "optional" }`
+- response: `{ "job": "{ JobSchema }" }`
+- Job type: `pptx-ooxml-generation`
+- Queue name: `pptx-ooxml-generation`
+
+Job result:
+
+```json
+{
+  "deckId": "deck_ooxml_file_1",
+  "templateId": "template_file_1",
+  "sourceFileId": "file_1",
+  "currentPackageFileId": "file_current_package",
+  "qualityReport": "{ QualityReport }",
+  "warnings": []
+}
+```
+
+TemplateBlueprint optional OOXML tracking fields:
+
+- `sourcePackageFileId`
+- `currentPackageFileId`
+- `slides[].renderAssetFileId`
+- `slots[].source.slidePart`
+- `slots[].source.shapeId`
+- `slots[].source.relationshipId`
+
+Implementation locations:
+
+- `packages/shared/src/deck/pptx-ooxml-generation.schema.ts`
+- `apps/api/src/pptx-ooxml-generations`
+- `apps/worker/src/pptx-ooxml-generation.processor.ts`
+- `services/python-worker/app/ai/pptx_ooxml_generation.py`
+
 ## 파일 업로드 결과 구조
 
 파일 업로드는 공통 API로 제공하고, 각 기능은 `fileId`와 `purpose`를 기준으로 업로드 결과를 사용한다.

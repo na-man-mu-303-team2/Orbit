@@ -1,8 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   InMemoryJobQueue,
+  enqueuePptxOoxmlGenerationJob,
   enqueueRehearsalSttJob,
   enqueueWorkerHealthCheckJob,
+  pptxOoxmlGenerationJobName,
+  pptxOoxmlGenerationQueueName,
   workerHealthCheckJobName,
   workerHealthCheckQueueName
 } from "./index";
@@ -84,6 +87,31 @@ describe("enqueueWorkerHealthCheckJob", () => {
     expect(queueMock.add).toHaveBeenCalledWith(workerHealthCheckJobName, {
       jobId: "job-1",
       projectId: "project-a"
+    });
+    expect(queueMock.close).toHaveBeenCalled();
+  });
+});
+
+describe("enqueuePptxOoxmlGenerationJob", () => {
+  it("adds a PPTX OOXML generation job to BullMQ", async () => {
+    await enqueuePptxOoxmlGenerationJob({
+      driver: "bullmq",
+      redisUrl: "redis://localhost:6379",
+      jobId: "job-1",
+      projectId: "project-a",
+      request: { fileId: "file_1", topic: "Topic" }
+    });
+
+    expect(queueMock.Queue).toHaveBeenCalledWith(pptxOoxmlGenerationQueueName, {
+      connection: expect.objectContaining({
+        host: "localhost",
+        port: 6379
+      })
+    });
+    expect(queueMock.add).toHaveBeenCalledWith(pptxOoxmlGenerationJobName, {
+      jobId: "job-1",
+      projectId: "project-a",
+      request: { fileId: "file_1", topic: "Topic" }
     });
     expect(queueMock.close).toHaveBeenCalled();
   });

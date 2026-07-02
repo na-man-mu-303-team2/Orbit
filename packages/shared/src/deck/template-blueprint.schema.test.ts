@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  pptxOoxmlGenerationJobResultSchema,
+  pptxOoxmlGenerationRequestSchema,
   pptxImportJobResultSchema,
   qualityReportSchema,
   templateBlueprintSchema
-} from "./template-blueprint.schema";
+} from "../index";
 
 const qualityReport = {
   compositeScore: 84,
@@ -46,7 +48,12 @@ describe("templateBlueprintSchema", () => {
               replaceMode: "replace",
               confidence: 0.95,
               bounds: { x: 120, y: 80, width: 800, height: 120 },
-              source: { type: "placeholder", placeholderType: "title" }
+              source: {
+                type: "placeholder",
+                placeholderType: "title",
+                slidePart: "ppt/slides/slide1.xml",
+                shapeId: "2"
+              }
             },
             {
               elementId: "el_logo",
@@ -63,6 +70,26 @@ describe("templateBlueprintSchema", () => {
     });
 
     expect(blueprint.slides[0].slots[0].usage).toBe("content-slot");
+  });
+
+  it("accepts OOXML package tracking fields", () => {
+    const blueprint = templateBlueprintSchema.parse({
+      templateId: "template_file_1",
+      sourceFileId: "file_1",
+      sourcePackageFileId: "file_1",
+      currentPackageFileId: "file_current",
+      slides: [
+        {
+          slideIndex: 1,
+          sourceSlideIndex: 1,
+          renderAssetFileId: "file_slide_1",
+          slots: []
+        }
+      ]
+    });
+
+    expect(blueprint.currentPackageFileId).toBe("file_current");
+    expect(blueprint.slides[0].renderAssetFileId).toBe("file_slide_1");
   });
 });
 
@@ -82,5 +109,28 @@ describe("pptxImportJobResultSchema", () => {
     });
 
     expect(result.qualityReport.compositeScore).toBe(84);
+  });
+});
+
+describe("pptxOoxmlGeneration schemas", () => {
+  it("validates request and job result contracts", () => {
+    expect(
+      pptxOoxmlGenerationRequestSchema.parse({
+        fileId: "file_1",
+        topic: "Topic",
+        prompt: "Prompt"
+      })
+    ).toEqual({ fileId: "file_1", topic: "Topic", prompt: "Prompt" });
+
+    const result = pptxOoxmlGenerationJobResultSchema.parse({
+      deckId: "deck_ooxml_1",
+      templateId: "template_file_1",
+      sourceFileId: "file_1",
+      currentPackageFileId: "file_current",
+      qualityReport,
+      warnings: ["media slot preserved"]
+    });
+
+    expect(result.currentPackageFileId).toBe("file_current");
   });
 });

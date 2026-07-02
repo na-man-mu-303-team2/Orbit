@@ -7,4 +7,10 @@ describe("jobTypeSchema", () => {
       "worker-health-check"
     );
   });
+
+  it("accepts PPTX OOXML generation jobs", () => {
+    expect(jobTypeSchema.parse("pptx-ooxml-generation")).toBe(
+      "pptx-ooxml-generation"
+    );
+  });
 });
