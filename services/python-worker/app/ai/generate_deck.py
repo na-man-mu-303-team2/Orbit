@@ -1559,6 +1559,8 @@ def imported_theme_from_blueprint(raw_input: RawInput) -> dict[str, Any] | None:
     if not has_imported_design_blueprint(raw_input):
         return None
     blueprint = raw_input.design_blueprint
+    if not isinstance(blueprint, dict):
+        return None
     theme = blueprint.get("theme")
     if not isinstance(theme, dict):
         return None
@@ -3107,6 +3109,8 @@ def imported_slide_for_order(
     if not has_imported_design_blueprint(raw_input):
         return None
     blueprint = raw_input.design_blueprint
+    if not isinstance(blueprint, dict):
+        return None
     slides = blueprint.get("slides")
     if not isinstance(slides, list) or not slides:
         return None

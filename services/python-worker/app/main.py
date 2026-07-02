@@ -20,6 +20,12 @@ from app.ai.pptx_design_importer import (
     PptxDesignImportResult,
     import_pptx_design,
 )
+from app.ai.pptx_ooxml_generation import (
+    PptxOoxmlGenerationError,
+    PptxOoxmlGenerationResult,
+    UnsupportedPptxAspectRatioError,
+    generate_pptx_ooxml,
+)
 from app.audio.transcribe import (
     AudioTranscribeRequest,
     AudioTranscribeResponse,
@@ -345,6 +351,40 @@ async def import_pptx_design_endpoint(
         assets=assets,
         warnings=warnings,
     )
+
+
+@app.post("/ai/pptx-ooxml-generation", response_model=PptxOoxmlGenerationResult)
+async def generate_pptx_ooxml_endpoint(
+    request: Request,
+    file: UploadFile = File(...),
+    project_id: str = Form("default"),
+    file_id: str = Form(...),
+    topic: str = Form(""),
+    prompt: str = Form(""),
+) -> PptxOoxmlGenerationResult:
+    from pathlib import Path
+    from tempfile import TemporaryDirectory
+
+    del project_id
+
+    worker_config = _config(request)
+    with TemporaryDirectory(prefix="orbit-ooxml-") as temp_dir:
+        source_path = Path(temp_dir) / Path(file.filename or "upload.pptx").name
+        source_path.write_bytes(await file.read())
+        try:
+            return await run_in_threadpool(
+                generate_pptx_ooxml,
+                source_path,
+                file_id,
+                topic=topic,
+                prompt=prompt,
+                api_key=worker_config.openai_api_key,
+                model=worker_config.openai_model,
+            )
+        except UnsupportedPptxAspectRatioError as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+        except PptxOoxmlGenerationError as error:
+            raise HTTPException(status_code=503, detail=str(error)) from error
 
 
 @app.post("/audio/transcribe", response_model=AudioTranscribeResponse)
