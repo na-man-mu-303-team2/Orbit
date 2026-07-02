@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { SlideshowRenderer } from "./SlideshowRenderer";
 import type { PresenterSlideshowState } from "./presenterStateStore";
 import {
+  createSlideWindowHeartbeatMessage,
   createSlideWindowReadyMessage,
   getPresentationChannelName,
   isPresentationChannelMessage,
@@ -63,8 +64,12 @@ export function PresentWindow(props: {
       setSnapshot((current) => applyPresentWindowMessage(current, message));
     };
     channel.postMessage(createSlideWindowReadyMessage(identity));
+    const heartbeatTimer = window.setInterval(() => {
+      channel.postMessage(createSlideWindowHeartbeatMessage(identity));
+    }, 1000);
 
     return () => {
+      window.clearInterval(heartbeatTimer);
       channel.close();
     };
   }, [channelFactory, identity]);

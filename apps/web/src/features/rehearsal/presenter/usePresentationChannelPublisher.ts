@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { PresenterSlideshowState } from "./presenterStateStore";
 import {
   createPresentationSessionId,
+  createPresenterHeartbeatMessage,
   createPresenterSnapshotMessage,
   createPresenterStateMessage,
   getPresentationChannelName,
@@ -47,6 +48,7 @@ export function usePresentationChannelPublisher(args: {
   const [status, setStatus] = useState<PresentationChannelStatus>("idle");
   const channelRef = useRef<PresentationChannelLike | null>(null);
   const controllerRef = useRef<PresentationPublisherController | null>(null);
+  const lastPeerSeenAtRef = useRef<number | null>(null);
   const latestRef = useRef({ deck, state, triggerAnimationIds });
   latestRef.current = { deck, state, triggerAnimationIds };
 
@@ -61,6 +63,7 @@ export function usePresentationChannelPublisher(args: {
     }
 
     setStatus("opening");
+    lastPeerSeenAtRef.current = Date.now();
     let channel: PresentationChannelLike;
     try {
       channel = channelFactory(getPresentationChannelName(identity));
@@ -97,6 +100,9 @@ export function usePresentationChannelPublisher(args: {
         });
       },
       identity,
+      onPeerSeen: () => {
+        lastPeerSeenAtRef.current = Date.now();
+      },
       onStatusChange: setStatus
     });
     channel.onmessage = (event) => controller.handleIncoming(event.data);
@@ -115,6 +121,27 @@ export function usePresentationChannelPublisher(args: {
   }, [channelFactory, identity]);
 
   useEffect(() => {
+    if (!identity || !channelRef.current) {
+      return;
+    }
+
+    const heartbeatTimer = window.setInterval(() => {
+      channelRef.current?.postMessage(createPresenterHeartbeatMessage(identity));
+    }, 1000);
+    const staleTimer = window.setInterval(() => {
+      const lastPeerSeenAt = lastPeerSeenAtRef.current;
+      if (lastPeerSeenAt !== null && Date.now() - lastPeerSeenAt > 5000) {
+        setStatus("stale");
+      }
+    }, 1000);
+
+    return () => {
+      window.clearInterval(heartbeatTimer);
+      window.clearInterval(staleTimer);
+    };
+  }, [identity]);
+
+  useEffect(() => {
     if (!deck || !state) {
       return;
     }
@@ -123,6 +150,7 @@ export function usePresentationChannelPublisher(args: {
   }, [deck, state, triggerAnimationIds]);
 
   return {
+    publishSnapshot: () => controllerRef.current?.publishSnapshot(),
     sessionId,
     status
   };
@@ -133,9 +161,10 @@ export function createPresentationPublisherController(args: {
   getSnapshot: () => PresenterSnapshotMessage | null;
   getState: () => PresenterStateMessage | null;
   identity: PresentationChannelIdentity;
+  onPeerSeen?: () => void;
   onStatusChange?: (status: PresentationChannelStatus) => void;
 }): PresentationPublisherController {
-  const { channel, getSnapshot, getState, identity, onStatusChange } = args;
+  const { channel, getSnapshot, getState, identity, onPeerSeen, onStatusChange } = args;
 
   return {
     close: () => {
@@ -150,6 +179,7 @@ export function createPresentationPublisherController(args: {
         return;
       }
 
+      onPeerSeen?.();
       handlePublisherMessage(data, {
         publishSnapshot: () => {
           const snapshot = getSnapshot();

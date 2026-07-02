@@ -69,6 +69,7 @@ import {
   type RehearsalCommandDefinition
 } from "./rehearsalCommands";
 import { SherpaLiveSttAdapter } from "./sherpaOnnxLiveSttAdapter";
+import { DisplayControls } from "./presenter/DisplayControls";
 import { SlideshowRenderer } from "./presenter/SlideshowRenderer";
 import { createSlideshowAnimationPlan } from "./presenter/slideshowStepModel";
 import { usePresentationChannelPublisher } from "./presenter/usePresentationChannelPublisher";
@@ -1285,7 +1286,7 @@ export function RehearsalWorkspace(props: {
         : null,
     [currentSlide?.slideId, currentSlideIndex, presenterStepIndex]
   );
-  usePresentationChannelPublisher({
+  const presentationChannel = usePresentationChannelPublisher({
     deck,
     state: presentationChannelState,
     triggerAnimationIds
@@ -1885,6 +1886,15 @@ export function RehearsalWorkspace(props: {
           {"\ub9ac\ud5c8\uc124 \ub9c8\uce58\uae30"}
         </button>
         <h1 className="rehearsal-smoke-heading">리허설</h1>
+
+        {deck ? (
+          <DisplayControls
+            channelStatus={presentationChannel.status}
+            deckId={deck.deckId}
+            onPublishSnapshot={presentationChannel.publishSnapshot}
+            sessionId={presentationChannel.sessionId}
+          />
+        ) : null}
 
         <div className="rehearsal-timer-pill" aria-live="polite">
           <span className="timer-wave" aria-hidden="true">

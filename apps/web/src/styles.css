@@ -1842,6 +1842,7 @@ button:disabled {
   background: #ffffff;
   border-bottom: 1px solid #e5e7eb;
   display: flex;
+  gap: 14px;
   justify-content: space-between;
   padding: 0 28px;
 }
@@ -2007,6 +2008,105 @@ button:disabled {
 
 .rehearsal-timer-pill button:hover {
   background: #eff6ff;
+}
+
+.presenter-display-controls {
+  align-items: center;
+  display: flex;
+  flex: 1 1 auto;
+  gap: 8px;
+  justify-content: center;
+  min-width: 0;
+  position: relative;
+}
+
+.presenter-display-primary {
+  align-items: center;
+  background: #0f172a;
+  border: 1px solid #0f172a;
+  border-radius: 8px;
+  color: #ffffff;
+  display: inline-flex;
+  font-size: 0.78rem;
+  font-weight: 900;
+  gap: 7px;
+  min-height: 32px;
+  padding: 0 11px;
+  white-space: nowrap;
+}
+
+.presenter-display-primary:hover {
+  background: #1e293b;
+}
+
+.presenter-display-status {
+  background: #f8fafc;
+  border: 1px solid #dbe3ef;
+  border-radius: 999px;
+  color: #475569;
+  font-size: 0.72rem;
+  font-weight: 900;
+  padding: 6px 9px;
+  white-space: nowrap;
+}
+
+.presenter-display-message {
+  align-items: center;
+  background: #fff7ed;
+  border: 1px solid #fed7aa;
+  border-radius: 8px;
+  color: #9a3412;
+  display: inline-flex;
+  font-size: 0.72rem;
+  font-weight: 800;
+  gap: 6px;
+  left: 50%;
+  margin: 0;
+  max-width: min(460px, 80vw);
+  padding: 7px 9px;
+  position: absolute;
+  top: calc(100% + 8px);
+  transform: translateX(-50%);
+  z-index: 5;
+}
+
+.presenter-display-screen-list {
+  background: #ffffff;
+  border: 1px solid #dbe3ef;
+  border-radius: 8px;
+  box-shadow: 0 16px 36px rgba(15, 23, 42, 0.16);
+  display: grid;
+  gap: 6px;
+  left: 50%;
+  min-width: 240px;
+  padding: 8px;
+  position: absolute;
+  top: calc(100% + 8px);
+  transform: translateX(-50%);
+  z-index: 6;
+}
+
+.presenter-display-screen-list button {
+  align-items: center;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  color: #111827;
+  display: flex;
+  font-size: 0.78rem;
+  font-weight: 900;
+  justify-content: space-between;
+  min-height: 34px;
+  padding: 0 9px;
+}
+
+.presenter-display-screen-list button:hover {
+  background: #f8fafc;
+}
+
+.presenter-display-screen-list span {
+  color: #64748b;
+  font-size: 0.7rem;
 }
 
 .timer-wave {
