@@ -1,12 +1,12 @@
-# Jira Test Matrix
+# Test Matrix
 
-이 문서는 Jira 완료 기준과 자동/수동 검증을 연결한다. Jira 이슈의 원문 상세는 Jira를 기준으로 하고, PR에서는 이 표의 "검증 앵커"와 실제 테스트 결과를 함께 확인한다.
+이 문서는 기능 범위와 자동/수동 검증을 연결한다. PR에서는 이 표의 "검증 앵커"와 실제 테스트 결과를 함께 확인한다.
 
 ## CI Policy
 
 | 시점 | 실행 항목 | 목적 |
 | --- | --- | --- |
-| docs-only PR | Jira Link, 변경 Markdown UTF-8 읽기 검증 | 구현과 무관한 PR에서 제품 build/test/smoke 비용을 줄이고, PR 본문에 코드 테스트 미실행 사유를 남김 |
+| docs-only PR | 변경 Markdown UTF-8 읽기 검증 | 구현과 무관한 PR에서 제품 build/test/smoke 비용을 줄이고, PR 본문에 코드 테스트 미실행 사유를 남김 |
 | automation-only PR | automation JSON 검증, Node script syntax check, 필요한 경우 `pnpm lint` | workflow/script/schema 변경 자체를 검증하되 Playwright smoke와 Python worker 테스트는 관련 변경이 있을 때만 실행 |
 | CI workflow 변경 PR | 변경된 workflow가 참조하는 관련 job 실행, `ci.yml` 변경 시 Playwright smoke를 제외한 빠른 gate 실행 | CI 정의 자체가 깨졌는지 merge 전에 확인 |
 | app/API/shared/worker/compose/env/lockfile PR | `node infra/scripts/check-env.mjs`, `pnpm build`, `pnpm lint`, `pnpm test`, Python `ruff/mypy/pytest`, `docker compose config --quiet` 중 변경 경로와 관련된 job | merge 전 빠른 회귀 차단 |
@@ -17,14 +17,14 @@
 
 ## PR Review Rule
 
-- PR 본문에는 완료하는 Jira 이슈마다 완료 기준, 검증 방법, 테스트 파일 또는 수동 증거를 적는다.
+- PR 본문에는 완료하는 작업 범위마다 완료 기준, 검증 방법, 테스트 파일 또는 수동 증거를 적는다.
 - 자동화 가능한 기준은 unit/API/Python/Playwright 테스트로 고정한다.
 - STT 품질, 1000명 fanout, 브라우저 마이크처럼 환경 의존적인 기준은 smoke/manual evidence와 별도 결과 문서로 남긴다.
-- 테스트 이름이나 `describe` 이름에는 가능하면 Jira key를 포함한다.
+- 테스트 이름이나 `describe` 이름에는 가능하면 검증 대상 기능명을 포함한다.
 
 ## Milestone Matrix
 
-| Jira | 범위 | 주요 완료 기준 | 검증 앵커 |
+| 기능 ID | 범위 | 주요 완료 기준 | 검증 앵커 |
 | --- | --- | --- | --- |
 | ORBIT-1 | 시작 준비 epic | 로컬 서비스, migration, 온디바이스 STT 기준 준비 | `pnpm build`, `pnpm lint`, Python pytest, Compose, STT 문서 review |
 | ORBIT-2 | 프로젝트 scaffold | workspace build/test, Compose 서비스 시작 | CI `typescript`, `python-worker`, `compose-config`, `playwright-smoke` |
@@ -92,7 +92,7 @@
 
 ## Test Subtask Map
 
-| Test issue | Parent/domain | Required test level |
+| 테스트 범위 | 상위 기능/domain | Required test level |
 | --- | --- | --- |
 | ORBIT-68 | ORBIT-2 scaffold | CI build/lint/test/Compose smoke |
 | ORBIT-71 | ORBIT-3 migration | migration unit plus run/revert |
