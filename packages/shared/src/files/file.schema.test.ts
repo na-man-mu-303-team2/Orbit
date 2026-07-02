@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   assetUploadUrlRequestSchema,
+  createAssetUploadUrlRequestSchema,
   maxRehearsalAudioUploadSizeBytes,
 } from "./file.schema";
 
@@ -69,6 +70,21 @@ describe("assetUploadUrlRequestSchema", () => {
       originalName: "rehearsal.webm",
       mimeType: "audio/webm",
       size: maxRehearsalAudioUploadSizeBytes + 1,
+      purpose: "rehearsal-audio",
+    });
+
+    expect(result.success).toBe(false);
+  });
+
+  it("uses the configured rehearsal audio upload limit when provided", () => {
+    const schema = createAssetUploadUrlRequestSchema({
+      maxRehearsalAudioUploadSizeBytes: 1024,
+    });
+
+    const result = schema.safeParse({
+      originalName: "rehearsal.flac",
+      mimeType: "audio/flac",
+      size: 1025,
       purpose: "rehearsal-audio",
     });
 

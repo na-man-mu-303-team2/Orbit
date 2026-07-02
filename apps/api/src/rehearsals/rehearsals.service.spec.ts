@@ -161,6 +161,25 @@ describe("RehearsalsService", () => {
     );
   });
 
+  it("uses REHEARSAL_AUDIO_MAX_BYTES when validating rehearsal uploads", async () => {
+    Object.assign(process.env, {
+      ...validEnv,
+      REHEARSAL_AUDIO_MAX_BYTES: "1024"
+    });
+    const service = createService();
+    const run = await createRun(service);
+
+    await expect(
+      service.createAudioUploadUrl(run.runId, {
+        originalName: "rehearsal.flac",
+        mimeType: "audio/flac",
+        size: 1025
+      })
+    ).rejects.toBeInstanceOf(BadRequestException);
+
+    expect(service.testFilesService.createUploadUrl).not.toHaveBeenCalled();
+  });
+
   it("completes upload, enqueues STT work, and marks the run processing", async () => {
     const enqueueJob = vi.fn(async () => undefined);
     const service = createService({ enqueueJob });

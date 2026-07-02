@@ -686,6 +686,8 @@ AI 덱 생성은 사용자 입력과 참고자료 fileId를 받아 비동기 Job
 리허설 종료 뒤 녹음 파일을 전사하고 코칭 리포트를 생성한다.
 
 - STT provider env: `REPORT_STT_PROVIDER=openai | whisperx`
+- WhisperX env: `WHISPERX_API_URL`, `WHISPERX_API_KEY`, `WHISPERX_MODEL`
+- rehearsal audio limit env: `REHEARSAL_AUDIO_MAX_BYTES=209715200`
 - LLM provider env: `LLM_PROVIDER=openai`
 - 실행 위치: API/worker/Python worker
 - 목적: 억양, 말 속도, 톤, 발음, 키워드 누락, 청중 반응 등을 종합한 리포트와 코칭 생성

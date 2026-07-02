@@ -1,5 +1,6 @@
 import {
   appEnvSchema,
+  defaultRehearsalAudioMaxBytes,
   jobQueueDriverSchema,
   liveSttProviderSchema,
   llmProviderSchema,
@@ -93,6 +94,21 @@ const requiredPort = (name: string) =>
     z.number({ required_error: `${name} is required` }).int().min(1).max(65535)
   );
 
+const optionalPositiveInteger = (name: string, defaultValue: number) =>
+  z.preprocess(
+    (value) => {
+      if (value === undefined || value === null || value === "") {
+        return defaultValue;
+      }
+
+      return Number(value);
+    },
+    z
+      .number({ invalid_type_error: `${name}은 양의 정수여야 합니다.` })
+      .int(`${name}은 양의 정수여야 합니다.`)
+      .positive(`${name}은 양의 정수여야 합니다.`)
+  );
+
 const remoteEnvValues = ["staging", "production"] as const;
 const remoteEnvSet = new Set<string>(remoteEnvValues);
 const logLevelSchema = z
@@ -141,6 +157,13 @@ export const orbitEnvSchema = z.object({
   JOB_QUEUE_DRIVER: jobQueueDriverSchema,
   LIVE_STT_PROVIDER: liveSttProviderSchema,
   REPORT_STT_PROVIDER: reportSttProviderSchema,
+  REHEARSAL_AUDIO_MAX_BYTES: optionalPositiveInteger(
+    "REHEARSAL_AUDIO_MAX_BYTES",
+    defaultRehearsalAudioMaxBytes
+  ),
+  WHISPERX_API_URL: optionalString,
+  WHISPERX_API_KEY: optionalString,
+  WHISPERX_MODEL: optionalString,
   OCR_PROVIDER: ocrProviderSchema,
   LLM_PROVIDER: llmProviderSchema,
   OPENAI_API_KEY: optionalString,
@@ -205,6 +228,33 @@ export const orbitEnvSchema = z.object({
       path: ["LOG_PRETTY"],
       message: "LOG_PRETTY can only be true when NODE_ENV=development"
     });
+  }
+
+  if (value.REPORT_STT_PROVIDER === "whisperx") {
+    if (!value.WHISPERX_API_URL) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["WHISPERX_API_URL"],
+        message: "REPORT_STT_PROVIDER=whisperx일 때 WHISPERX_API_URL이 필요합니다."
+      });
+    } else {
+      const result = z.string().url().safeParse(value.WHISPERX_API_URL);
+      if (!result.success) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["WHISPERX_API_URL"],
+          message: "WHISPERX_API_URL은 올바른 URL이어야 합니다."
+        });
+      }
+    }
+
+    if (!value.WHISPERX_API_KEY) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["WHISPERX_API_KEY"],
+        message: "REPORT_STT_PROVIDER=whisperx일 때 WHISPERX_API_KEY가 필요합니다."
+      });
+    }
   }
 
   if (value.APP_ENV === "production" && value.AUTH_COOKIE_SECURE === false) {

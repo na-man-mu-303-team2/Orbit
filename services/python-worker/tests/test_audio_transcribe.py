@@ -121,6 +121,23 @@ def test_report_stt_provider_rejects_non_openai_values() -> None:
         load_config({**VALID_ENV, "REPORT_STT_PROVIDER": "sherpa"})
 
 
+def test_whisperx_report_stt_provider_is_not_implemented_yet() -> None:
+    config = load_config(
+        {
+            **VALID_ENV,
+            "REPORT_STT_PROVIDER": "whisperx",
+            "WHISPERX_API_URL": "https://whisperx.example.test/transcribe",
+            "WHISPERX_API_KEY": "whisperx-test-key",
+        }
+    )
+
+    with pytest.raises(AudioTranscriptionError) as error:
+        create_speech_to_text_provider(config)
+
+    assert error.value.code == "unsupported_provider"
+    assert "아직 지원하지 않습니다" in error.value.message
+
+
 def test_openai_stt_requires_api_key() -> None:
     config = load_config(VALID_ENV)
 
