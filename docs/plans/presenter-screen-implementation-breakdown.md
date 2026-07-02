@@ -511,104 +511,379 @@ P0/P1, P2/P3/P4/P5, and P6 can run as parallel tracks after the contract baselin
 
 ## P1: Presenter Screen and Slide Window
 
-### Task P1.1: Add `/present/:deckId` Slide Window Route
+### P1 Resolved Decisions
 
-**Description:** Create a slide-only route that renders the read-only slideshow and waits for BroadcastChannel state.
+- The slide window uses `/present/:deckId?sessionId=<sessionId>`. `deckId` remains the path identity from the spec, while `sessionId` scopes the BroadcastChannel so two presenter sessions for the same deck do not collide.
+- BroadcastChannel payloads use a sanitized render snapshot. The presenter window must not send `speakerNotes`, transcript text, run meta, raw audio references, or presenter-only UI state to the slide window.
+- The sanitized deck snapshot keeps only render-required deck shape. `slides[].speakerNotes` is replaced with `""`; `slides[].keywords` is replaced with `[]`; slide elements, animations, style, title, order, canvas, theme, and deck timing fields are preserved.
+- If multiple external screens are available, P1 includes a screen picker instead of auto-selecting.
+- Fullscreen placement uses an attempt-plus-CTA flow: try automatic placement/fullscreen from the presenter action, then show a slide-window fullscreen CTA if the browser blocks it.
+- Connection health uses a 1 second heartbeat and marks the peer stale after 5 seconds without a heartbeat or ready acknowledgement.
+- Single-screen fallback overlay shows only total presentation timer and current-slide elapsed/target timer.
 
-**Feature/spec:** Slide window is render-only and receives state from presenter window.
+### P1 Scope Boundary
 
-**Tech stack:** React route handling in existing `App.tsx`, BroadcastChannel.
+**In scope**
+- Presenter window controls for opening, placing, monitoring, and recovering the slide-only window.
+- Slide-only `/present/:deckId` route with full-viewport `SlideshowRenderer` in `slide-window` mode.
+- Session-scoped BroadcastChannel synchronization from presenter window to slide window.
+- Sanitized render snapshot generation and tests proving speaker notes/transcript data do not cross the slide-window boundary.
+- Window Management API screen picker, placement attempt, fullscreen attempt, and unsupported/denied fallback guidance.
+- Single-screen fallback using `SlideshowRenderer` in `single-screen` mode and a timer-only overlay.
+
+**Out of scope**
+- Network broadcasting or W3 audience gateway integration.
+- Any slide-window input that changes presenter state. The slide window is receive-only in P1.
+- STT, auto advance, CueProvider, run meta upload, recording, or report integration.
+- Persistent multi-session storage after browser reload. P1 recovers live windows through current in-memory state and channel snapshot replay only.
+
+### Task P1.1: Define Slide Window Channel Contract
+
+**Description:** Define the browser-local contract between the presenter window and the slide-only window before adding UI integration.
+
+**Feature/spec:** D1 BroadcastChannel sync; slide window is render-only; sanitized render snapshot; session-scoped channel.
+
+**Tech stack:** TypeScript, browser `BroadcastChannel`, Vitest, existing `Deck` and presenter state types.
 
 **Implementation plan:**
-- Add a `present` route for `/present/:deckId`.
-- Render a full-viewport slide canvas with no presenter controls.
-- Use BroadcastChannel to receive deck snapshot and presenter state.
-- Show a waiting/error state if opened without a presenter source.
+- Add `presentationChannel.ts` under `apps/web/src/features/rehearsal/presenter`.
+- Add `createPresentationSessionId()` using browser-safe randomness.
+- Add `getPresentationChannelName({ deckId, sessionId })`.
+- Add `createSlideWindowDeckSnapshot(deck)` that preserves render-required deck fields but replaces `slides[].speakerNotes` with `""` and `slides[].keywords` with `[]`.
+- Define message types:
+  - `presenter-snapshot`: `{ deckId, sessionId, deck, state, triggerAnimationIds, sentAt }`
+  - `presenter-state`: `{ deckId, sessionId, state, triggerAnimationIds, sentAt }`
+  - `presenter-heartbeat`: `{ deckId, sessionId, sentAt }`
+  - `slide-window-ready`: `{ deckId, sessionId, sentAt }`
+  - `slide-window-heartbeat`: `{ deckId, sessionId, sentAt }`
+- Ignore messages whose `deckId` or `sessionId` does not match the current route/session.
+- Keep the channel module free of React so it can be unit-tested with a fake channel.
 
 **Acceptance criteria:**
-- The route can render a received deck and state.
-- The route does not expose speaker notes, transcript, or presenter controls.
+- Channel names are deterministic for a given `{deckId, sessionId}` and distinct across session IDs.
+- Sanitized snapshots preserve slide rendering inputs and remove speaker notes/keywords.
+- Message guards reject wrong deck/session messages.
+- No transcript, run meta, raw audio, or speaker notes field is present in channel payload tests.
 
 **Verification:**
-- `pnpm --filter @orbit/web test -- PresentWindow`
-- Manual open route from presenter screen.
+- `pnpm --filter @orbit/web test -- presentationChannel`
 
 **Dependencies:** P0 checkpoint
 
 **Files likely touched:**
-- `apps/web/src/App.tsx`
-- `apps/web/src/features/rehearsal/presenter/PresentWindow.tsx`
 - `apps/web/src/features/rehearsal/presenter/presentationChannel.ts`
+- `apps/web/src/features/rehearsal/presenter/presentationChannel.test.ts`
 
-**Estimated scope:** Medium
+**Estimated scope:** Small
 
-### Task P1.2: Implement DisplayManager
+### Task P1.2: Add `/present/:deckId` Slide Window Route
 
-**Description:** Open and synchronize the slide-only window, with Chrome Window Management support and fallback guidance.
+**Description:** Create the slide-only route that waits for a matching presenter session, renders the sanitized deck snapshot, and exposes only slide-window-safe states.
 
-**Feature/spec:** D1, BroadcastChannel sync, window recovery.
+**Feature/spec:** `/present/:deckId?sessionId=<sessionId>`; slide window receive-only; full-viewport slideshow.
 
-**Tech stack:** Browser `window.open`, Fullscreen API, Window Management API, BroadcastChannel.
+**Tech stack:** Existing `App.tsx` route union, React, `SlideshowRenderer`, BroadcastChannel wrapper from Task P1.1, Testing Library/Vitest.
 
 **Implementation plan:**
-- Implement `DisplayManager` with `openSlideWindow`, `syncState`, `requestFullscreen`, and `recoverWindow`.
-- Use `window.getScreenDetails()` only when available.
-- Move the slide window to the external display when permission is granted.
-- Fall back to a manual placement guide when unsupported or denied.
+- Extend `Route` and `getRoute()` in `App.tsx` with `{ name: "present"; deckId; sessionId? }`.
+- Exclude the `present` route from `AppFrame`.
+- Add `PresentWindow.tsx`.
+- Parse `sessionId` from query string. If missing, render a waiting/error state that says the route must be opened from presenter mode.
+- On mount, open the matching channel and send `slide-window-ready`.
+- Render waiting state until the first `presenter-snapshot` arrives.
+- Render `SlideshowRenderer` with `renderMode="slide-window"`, `scale` sized to the viewport, received `state.slideId`, `state.stepIndex`, received `triggerAnimationIds`, and received `state.highlights`.
+- Add a fullscreen CTA that is visible only when automatic fullscreen fails or has not yet been granted.
+- Do not render notes, transcript, checklist, controls, debug transcript, run IDs, or presenter panel content.
 
 **Acceptance criteria:**
-- Chrome with permission can place the slide window on an external screen.
-- Safari/Firefox paths show manual instructions.
-- Closing the slide window produces a recoverable warning in the presenter view.
+- Direct route open without `sessionId` does not render a deck or any presenter data.
+- Route open with a matching session renders the received slide and step state.
+- Wrong-session messages do not update the route.
+- The route has no presenter controls and no notes/transcript output.
+- Fullscreen CTA calls `requestFullscreen()` only from a user action.
 
 **Verification:**
-- `pnpm --filter @orbit/web test -- displayManager`
-- Manual Chrome + external monitor test.
-- Manual unsupported-browser fallback check.
+- `pnpm --filter @orbit/web test -- PresentWindow`
+- `pnpm --filter @orbit/web test -- App`
+- Manual route smoke test from a presenter-opened window.
 
 **Dependencies:** Task P1.1
 
 **Files likely touched:**
+- `apps/web/src/App.tsx`
+- `apps/web/src/App.test.tsx`
+- `apps/web/src/features/rehearsal/presenter/PresentWindow.tsx`
+- `apps/web/src/features/rehearsal/presenter/PresentWindow.test.tsx`
+- `apps/web/src/styles.css`
+
+**Estimated scope:** Medium
+
+### Task P1.3: Publish Presenter State to the Slide Window
+
+**Description:** Wire the existing P0 presenter state into the channel so slide-window rendering stays synchronized with manual presenter navigation.
+
+**Feature/spec:** BroadcastChannel state sync; renderer is a function of `{slideId, stepIndex, highlights}`; slide-window recovery uses snapshot replay.
+
+**Tech stack:** React hooks, `presentationChannel.ts`, existing `presenterStateStore`, existing `createSlideshowAnimationPlan`.
+
+**Implementation plan:**
+- Add `usePresentationChannelPublisher` or an equivalent small hook under `features/rehearsal/presenter`.
+- In `RehearsalWorkspace`, create one `sessionId` per presenter-screen lifecycle after a deck is loaded.
+- Broadcast an initial `presenter-snapshot` whenever the slide window reports ready.
+- Broadcast `presenter-state` whenever `slideId`, `slideIndex`, `stepIndex`, `highlights`, or `triggerAnimationIds` changes.
+- Keep the current manual controls as the only state mutators in P1.
+- Do not send live transcript buffer, `speakerNotes`, checklist state, run state, audio state, or report state.
+- Add a small presenter-side status model: `idle`, `opening`, `connected`, `stale`, `closed`, `unsupported`, `failed`.
+
+**Acceptance criteria:**
+- Slide window updates after manual next-step, next-slide, previous-slide, and thumbnail slide selection.
+- A newly opened slide window receives the latest full snapshot, not just subsequent deltas.
+- Presenter state messages contain only sanitized deck/state fields.
+- Existing P0 manual keyboard behavior is unchanged.
+
+**Verification:**
+- `pnpm --filter @orbit/web test -- presentationChannel`
+- `pnpm --filter @orbit/web test -- RehearsalWorkspace`
+- Manual two-window sync smoke test.
+
+**Dependencies:** Tasks P1.1, P1.2
+
+**Files likely touched:**
+- `apps/web/src/features/rehearsal/presenter/usePresentationChannelPublisher.ts`
+- `apps/web/src/features/rehearsal/presenter/usePresentationChannelPublisher.test.tsx`
+- `apps/web/src/features/rehearsal/presenter/presentationChannel.ts`
+- `apps/web/src/features/rehearsal/RehearsalWorkspace.tsx`
+- `apps/web/src/features/rehearsal/RehearsalWorkspace.test.tsx`
+
+**Estimated scope:** Medium
+
+### Task P1.4: Implement `DisplayManager` Browser Port
+
+**Description:** Implement the browser API boundary that opens the slide window, detects Window Management support, requests screen details, attempts placement/fullscreen, and reports recoverable failure states.
+
+**Feature/spec:** D1 `window.open`, Fullscreen API, Chrome Window Management API, unsupported/denied fallback.
+
+**Tech stack:** TypeScript, injectable browser port for tests, `window.open`, structural types for `getScreenDetails`, `ScreenDetailed`, `moveTo`, `resizeTo`, `focus`, and `requestFullscreen`.
+
+**Implementation plan:**
+- Add `displayManager.ts` with an injected `DisplayBrowserPort` so unit tests do not rely on real browser windows.
+- Add capabilities detection:
+  - `canOpenWindow`
+  - `canUseWindowManagement`
+  - `canRequestFullscreen`
+- Add `openSlideWindow({ deckId, sessionId })` that builds `/present/:deckId?sessionId=<sessionId>`.
+- Add `listExternalScreens()` that requests `getScreenDetails()` only after a presenter user action.
+- Return screen descriptors for the UI picker: stable index, label if available, `isPrimary`, `left`, `top`, `width`, `height`.
+- Add `placeOnScreen(windowRef, screen)` that attempts `moveTo`, `resizeTo`, `focus`, then reports success/failure without throwing to the UI.
+- Add `requestSlideWindowFullscreen(windowRef)` as best effort. If blocked, the slide route's CTA remains the fallback.
+- Normalize errors into user-safe codes: `popup-blocked`, `window-management-unsupported`, `permission-denied`, `placement-failed`, `fullscreen-blocked`.
+
+**Acceptance criteria:**
+- Popup-blocked, unsupported, permission-denied, placement-failed, and fullscreen-blocked paths are distinguishable.
+- Browser API calls happen only from presenter-initiated actions.
+- No hard dependency on Chrome-only types breaks TypeScript in non-Chrome environments.
+- DisplayManager never logs secrets, transcripts, speaker notes, or raw deck payloads.
+
+**Verification:**
+- `pnpm --filter @orbit/web test -- displayManager`
+
+**Dependencies:** Task P1.2
+
+**Files likely touched:**
 - `apps/web/src/features/rehearsal/presenter/displayManager.ts`
+- `apps/web/src/features/rehearsal/presenter/displayManager.test.ts`
+
+**Estimated scope:** Medium
+
+### Task P1.5: Add Presenter Display Controls and Screen Picker
+
+**Description:** Add presenter-visible controls for opening the slide window, selecting an external display when multiple screens are available, and showing actionable fallback guidance.
+
+**Feature/spec:** Window Management API permission flow; multiple external screens use a picker; Safari/Firefox/manual fallback guide.
+
+**Tech stack:** React, lucide icons, existing rehearsal topbar/layout styles, `DisplayManager`.
+
+**Implementation plan:**
+- Add `DisplayControls.tsx`.
+- Add an "open slide window" button in `RehearsalWorkspace` near existing presenter controls.
+- On click, create/reuse the session ID, open the slide window, and publish a snapshot.
+- If Window Management is supported, request screen details and render a screen picker when more than one external screen is available.
+- For a single external screen, allow one-click placement without rendering the picker.
+- For unsupported/denied browsers, show inline guidance to move the opened slide window to the presentation monitor and enter fullscreen manually.
+- Keep controls outside the slide-window route.
+- Avoid a decorative or card-heavy layout; this is an operational control surface.
+
+**Acceptance criteria:**
+- User can open a slide window from presenter mode.
+- If multiple external screens are detected, the user can choose the target screen before placement.
+- Unsupported or denied browser path shows manual placement guidance.
+- Closing/reopening controls do not reset the current slide or `stepIndex`.
+- Display controls do not expose notes, transcript, or run data.
+
+**Verification:**
+- `pnpm --filter @orbit/web test -- DisplayControls`
+- `pnpm --filter @orbit/web test -- RehearsalWorkspace`
+- Manual Chrome display picker smoke test with mocked or real multiple screens.
+- Manual Safari/Firefox fallback check.
+
+**Dependencies:** Tasks P1.3, P1.4
+
+**Files likely touched:**
+- `apps/web/src/features/rehearsal/presenter/DisplayControls.tsx`
+- `apps/web/src/features/rehearsal/presenter/DisplayControls.test.tsx`
+- `apps/web/src/features/rehearsal/RehearsalWorkspace.tsx`
+- `apps/web/src/features/rehearsal/RehearsalWorkspace.test.tsx`
+- `apps/web/src/styles.css`
+
+**Estimated scope:** Medium
+
+### Task P1.6: Add Heartbeat, Stale Detection, and Recovery
+
+**Description:** Detect slide-window close/stale states within the P1 gate and provide one-click recovery that restores the current slide and step.
+
+**Feature/spec:** Window close or monitor detach detection; warning plus one-click reopen; state jump restoration within 5 seconds.
+
+**Tech stack:** BroadcastChannel heartbeat, `windowRef.closed` polling as a secondary signal, React status state, fake timers in Vitest.
+
+**Implementation plan:**
+- Send `presenter-heartbeat` every 1 second while a slide window session is active.
+- Send `slide-window-heartbeat` every 1 second after `PresentWindow` has joined a session.
+- Mark peer stale if no ready/heartbeat message has been seen for 5 seconds.
+- Poll `windowRef.closed` as an additional immediate closed signal when a `Window` reference exists.
+- Show a recoverable warning in presenter mode for stale or closed slide windows.
+- Add a "reopen slide window" action that reuses the existing `sessionId` and immediately publishes a full sanitized snapshot.
+- Keep stale state recoverable; do not stop the presenter state store or reset current slide state.
+- If monitor placement fails after reopen, keep the slide window open and show manual placement guidance.
+
+**Acceptance criteria:**
+- Closing the slide window produces a recoverable warning within 5 seconds.
+- Reopening restores the latest `{slideId, stepIndex, highlights}`.
+- Heartbeat timers are cleaned up on unmount.
+- Wrong-session heartbeats are ignored.
+
+**Verification:**
+- `pnpm --filter @orbit/web test -- presentationChannel`
+- `pnpm --filter @orbit/web test -- DisplayControls`
+- `pnpm --filter @orbit/web test -- RehearsalWorkspace`
+- Manual close-and-reopen smoke test.
+
+**Dependencies:** Tasks P1.3, P1.5
+
+**Files likely touched:**
+- `apps/web/src/features/rehearsal/presenter/presentationChannel.ts`
+- `apps/web/src/features/rehearsal/presenter/usePresentationChannelPublisher.ts`
+- `apps/web/src/features/rehearsal/presenter/PresentWindow.tsx`
 - `apps/web/src/features/rehearsal/presenter/DisplayControls.tsx`
 - `apps/web/src/features/rehearsal/RehearsalWorkspace.tsx`
 
 **Estimated scope:** Medium
 
-### Task P1.3: Add Single-Screen Fallback Mode
+### Task P1.7: Add Single-Screen Fallback Mode
 
-**Description:** Provide a presenter-safe mode when no secondary display is available.
+**Description:** Provide a presenter-safe fallback when no second display is available or the user chooses not to open a slide window.
 
-**Feature/spec:** Slide fullscreen plus timer-only mini overlay.
+**Feature/spec:** Single screen fallback = slide fullscreen plus timer-only mini overlay.
 
-**Tech stack:** React, Fullscreen API, existing timer state.
+**Tech stack:** React, Fullscreen API, existing timer state, `SlideshowRenderer` `renderMode="single-screen"`.
 
 **Implementation plan:**
-- Add a single-screen mode command.
-- Render slide fullscreen with a minimal timer overlay.
-- Hide notes, transcript, and advice in the slide-only area.
+- Add `SingleScreenPresenter.tsx`.
+- Add a presenter control to enter single-screen mode without opening a second window.
+- Render the current slide with `SlideshowRenderer` in `single-screen` mode.
+- Request fullscreen from the user action and keep a visible CTA if fullscreen is blocked.
+- Render only:
+  - total presentation elapsed/remaining timer
+  - current slide elapsed/target timer
+- Hide speaker notes, transcript, keyword checklist, advice, run state, recording state, and presenter controls while in slide fullscreen.
+- Exit single-screen mode on Escape/fullscreen exit and return to the normal presenter layout without resetting current slide state.
 
 **Acceptance criteria:**
-- Single-screen mode works without opening a second window.
-- Overlay contains only allowed presenter timing information.
+- Single-screen mode works without BroadcastChannel or a second window.
+- Overlay contains only the approved timer fields.
+- Exiting fullscreen restores the normal presenter view and preserves slide/step state.
+- No notes/transcript/advice/checklist content is mounted in single-screen mode.
 
 **Verification:**
-- `pnpm --filter @orbit/web test -- singleScreen`
+- `pnpm --filter @orbit/web test -- SingleScreenPresenter`
+- `pnpm --filter @orbit/web test -- RehearsalWorkspace`
 - Manual fullscreen fallback smoke test.
 
-**Dependencies:** Task P1.1
+**Dependencies:** Task P1.3
 
 **Files likely touched:**
 - `apps/web/src/features/rehearsal/presenter/SingleScreenPresenter.tsx`
+- `apps/web/src/features/rehearsal/presenter/SingleScreenPresenter.test.tsx`
 - `apps/web/src/features/rehearsal/RehearsalWorkspace.tsx`
+- `apps/web/src/styles.css`
+
+**Estimated scope:** Medium
+
+### Task P1.8: Add P1 Verification Harness and Manual Gate Checklist
+
+**Description:** Add automated coverage for the two-window contract and a manual checklist for real HDMI/browser behavior that cannot be fully proven in unit tests.
+
+**Feature/spec:** P1 gate: presenter and slide windows synchronized, Chrome automatic placement with picker, Safari/Firefox fallback, slide window close recovery within 5 seconds.
+
+**Tech stack:** Vitest, Testing Library, existing Playwright smoke setup in `tests/e2e`, manual QA notes.
+
+**Implementation plan:**
+- Add route/channel integration tests that simulate presenter and slide-window messages.
+- Add privacy regression tests asserting slide-window DOM and channel payloads do not contain fixture `speakerNotes` or transcript strings.
+- Add stale/recovery tests with fake timers.
+- Add a manual checklist under the P1 checkpoint for:
+  - Chrome + one external display
+  - Chrome + multiple external displays and screen picker
+  - Safari or Firefox fallback
+  - popup blocked path
+  - slide window forced close and recovery within 5 seconds
+- Add `tests/e2e/presenter-screen.spec.ts` with one focused multi-page synchronization test: open presenter mode, open slide window, assert the slide-window page receives the current slide, advance one step/slide, and assert the slide-window page updates.
+
+**Acceptance criteria:**
+- Automated tests cover route boot, channel sync, stale detection, recovery, and privacy boundaries.
+- Manual checklist is explicit enough for a reviewer to repeat.
+- P1 gate cannot pass without both automated tests and manual HDMI/fallback notes.
+
+**Verification:**
+- `pnpm --filter @orbit/web test -- presentationChannel`
+- `pnpm --filter @orbit/web test -- PresentWindow`
+- `pnpm --filter @orbit/web test -- DisplayControls`
+- `pnpm --filter @orbit/web test -- SingleScreenPresenter`
+- `pnpm --filter @orbit/web test -- RehearsalWorkspace`
+- `pnpm test:smoke -- tests/e2e/presenter-screen.spec.ts`
+- Manual P1 gate checklist.
+
+**Dependencies:** Tasks P1.1-P1.7
+
+**Files likely touched:**
+- `apps/web/src/features/rehearsal/presenter/*.test.ts`
+- `apps/web/src/features/rehearsal/presenter/*.test.tsx`
+- `apps/web/src/features/rehearsal/RehearsalWorkspace.test.tsx`
+- `tests/e2e/presenter-screen.spec.ts`
+- `docs/plans/presenter-screen-implementation-breakdown.md`
 
 **Estimated scope:** Small
 
 ### Checkpoint: P1
 
-- [ ] Presenter and slide windows stay synchronized.
-- [ ] Slide window can be recovered after close.
-- [ ] Manual fallback paths are visible and usable.
+- [ ] `/present/:deckId?sessionId=<sessionId>` renders only after receiving a matching sanitized presenter snapshot.
+- [ ] BroadcastChannel payload tests prove `speakerNotes`, transcript text, run meta, and raw audio references do not cross into the slide window.
+- [ ] Presenter and slide windows stay synchronized across next-step, next-slide, previous-slide, thumbnail selection, and highlight state changes.
+- [ ] Chrome automatic placement works after selecting an external display from the screen picker.
+- [ ] Fullscreen attempt falls back to a slide-window CTA when blocked.
+- [ ] Safari/Firefox or unsupported API paths show manual placement/fullscreen guidance.
+- [ ] Slide window close/stale state is detected within 5 seconds and one-click reopen restores the latest slide and step.
+- [ ] Single-screen fallback works without opening a second window and shows only total plus current-slide timer information.
+- [ ] Manual HDMI gate notes are recorded before P1 is considered complete.
+
+### P1 Implementation Notes
+
+- The slide-window route is implemented in `apps/web/src/features/rehearsal/presenter/PresentWindow.tsx` and is routed from `apps/web/src/App.tsx` as `/present/:deckId?sessionId=<sessionId>`.
+- Browser-local sync is implemented in `presentationChannel.ts` and `usePresentationChannelPublisher.ts`. The channel is session-scoped and sends sanitized deck snapshots where `slides[].speakerNotes` is `""` and `slides[].keywords` is `[]`.
+- Display opening, screen discovery, placement, fullscreen attempts, and typed fallback errors are isolated in `displayManager.ts`; presenter UI controls live in `DisplayControls.tsx`.
+- Slide-window recovery uses presenter and slide-window heartbeat messages. The presenter marks the peer `stale` after 5 seconds without a matching ready/heartbeat message and exposes a recoverable reopen action.
+- Single-screen fallback is implemented in `SingleScreenPresenter.tsx`. It replaces the normal presenter layout while active and renders only total time plus current-slide elapsed/target time over the slide.
+- Automated P1 coverage now includes `presentationChannel`, `PresentWindow`, `usePresentationChannelPublisher`, `displayManager`, `DisplayControls`, `SingleScreenPresenter`, `RehearsalWorkspace`, and `tests/e2e/presenter-screen.spec.ts`.
+- Manual HDMI/browser gate still requires a real Chrome external display check and Safari/Firefox fallback check before marking the P1 milestone complete.
 
 ## P2: STT Abstractions
 

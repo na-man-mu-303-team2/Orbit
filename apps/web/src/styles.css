@@ -2264,6 +2264,7 @@ button:disabled {
   display: grid;
   justify-items: start;
   min-height: 0;
+  overflow: hidden;
 }
 
 .rehearsal-presenter-shell .rehearsal-slide-preview {

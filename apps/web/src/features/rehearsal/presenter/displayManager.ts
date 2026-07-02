@@ -198,7 +198,7 @@ function createBrowserDisplayPort(): DisplayBrowserPort {
       typeof window !== "undefined" && "getScreenDetails" in window
         ? () =>
             (
-              window as Window & {
+              window as unknown as Window & {
                 getScreenDetails: () => Promise<ScreenDetailsLike>;
               }
             ).getScreenDetails()
