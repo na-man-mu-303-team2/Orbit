@@ -36,6 +36,7 @@ import {
   RehearsalReportPage,
   RehearsalWorkspace
 } from "./features/rehearsal/RehearsalWorkspace";
+import { AudienceSessionPage } from "./pages/audience/AudienceSessionPage";
 
 type Fetcher = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 
@@ -125,6 +126,7 @@ export type Route =
   | { name: "project-list" }
   | { name: "project-editor"; projectId: string }
   | { name: "project-request"; projectId: string }
+  | { name: "audience-session"; sessionId: string }
   | { name: "rehearsal"; projectId: string }
   | { name: "rehearsal-report"; projectId: string; runId: string }
   | { name: "report-mockup" };
@@ -270,6 +272,14 @@ function getRoute(pathname = window.location.pathname): Route {
   if (normalized === "/project") return { name: "project-list" };
   if (normalized === "/report_mockup") return { name: "report-mockup" };
 
+  const audienceSessionMatch = normalized.match(/^\/audience\/([^/]+)$/);
+  if (audienceSessionMatch) {
+    return {
+      name: "audience-session",
+      sessionId: decodeURIComponent(audienceSessionMatch[1])
+    };
+  }
+
   const projectRequestMatch = normalized.match(/^\/project\/([^/]+)\/request$/);
   if (projectRequestMatch) {
     return { name: "project-request", projectId: decodeURIComponent(projectRequestMatch[1]) };
@@ -340,7 +350,12 @@ export function App() {
 }
 
 export function shouldRenderAppFrame(route: Route) {
-  return route.name !== "login" && route.name !== "rehearsal-report" && route.name !== "report-mockup";
+  return (
+    route.name !== "login" &&
+    route.name !== "rehearsal-report" &&
+    route.name !== "report-mockup" &&
+    route.name !== "audience-session"
+  );
 }
 
 function renderRoute(route: Route, user?: AuthUser) {
@@ -358,6 +373,9 @@ function renderRoute(route: Route, user?: AuthUser) {
     );
   }
   if (route.name === "project-request") return <ProjectAccessRequestPage projectId={route.projectId} />;
+  if (route.name === "audience-session") {
+    return <AudienceSessionPage sessionId={route.sessionId} />;
+  }
   if (route.name === "rehearsal") {
     return (
       <RehearsalWorkspace
