@@ -72,7 +72,49 @@ def test_import_pptx_design_extracts_editable_elements(tmp_path: Path) -> None:
         element["type"] == "image" and element["props"]["src"] == "asset:image_1"
         for element in elements
     )
+    title_slot = next(
+        slot
+        for slot in result.template_blueprint["slides"][0]["slots"]
+        if slot["elementId"].endswith("_text")
+    )
+    image_slot = next(
+        slot
+        for slot in result.template_blueprint["slides"][0]["slots"]
+        if slot["elementId"].endswith("_image")
+    )
+    assert title_slot["usage"] == "fixed-text"
+    assert title_slot["replaceMode"] == "preserve"
+    assert title_slot["confidence"] < 0.5
+    assert image_slot["usage"] == "media-slot"
+    assert image_slot["replaceMode"] == "preserve"
+    assert result.quality_report["metrics"]["pixelSimilarity"] is None
+    assert result.quality_report["compositeScore"] <= 100
     assert result.assets[0].mime_type == "image/png"
+
+
+def test_import_pptx_design_marks_placeholders_as_replaceable_slots(
+    tmp_path: Path,
+) -> None:
+    pptx_path = tmp_path / "placeholder.pptx"
+    presentation = Presentation()
+    presentation.slide_width = Inches(13.333333)
+    presentation.slide_height = Inches(7.5)
+    slide = presentation.slides.add_slide(presentation.slide_layouts[0])
+    slide.shapes.title.text_frame.text = "Placeholder Title"
+    slide.placeholders[1].text_frame.text = "Placeholder Subtitle"
+    presentation.save(pptx_path)
+
+    result = import_pptx_design(pptx_path, "file_design")
+    slots = result.template_blueprint["slides"][0]["slots"]
+    replaceable = [
+        slot
+        for slot in slots
+        if slot["usage"] == "content-slot" and slot["replaceMode"] == "replace"
+    ]
+
+    assert len(replaceable) >= 2
+    assert {slot["source"]["type"] for slot in replaceable} == {"placeholder"}
+    assert any(slot["slotRole"] == "title" for slot in replaceable)
 
 
 def test_import_pptx_design_flattens_group_shapes(tmp_path: Path) -> None:
@@ -128,10 +170,17 @@ def test_import_pptx_design_converts_freeform_to_custom_shape(tmp_path: Path) ->
     result = import_pptx_design(pptx_path, "file_design")
     elements = result.blueprint["slides"][0]["elements"]
     custom_shape = next(element for element in elements if element["type"] == "customShape")
+    custom_slot = next(
+        slot
+        for slot in result.template_blueprint["slides"][0]["slots"]
+        if slot["elementId"] == custom_shape["elementId"]
+    )
 
     assert "L" in custom_shape["props"]["pathData"]
     assert custom_shape["props"]["fill"] == "#FF8000"
     assert custom_shape["props"]["viewBoxWidth"] > 0
+    assert custom_slot["usage"] == "decoration"
+    assert custom_slot["replaceMode"] == "ignore"
 
 
 def test_blip_fill_asset_extracts_embedded_image_and_color() -> None:
@@ -203,6 +252,13 @@ def test_import_pptx_design_expands_table_cells(tmp_path: Path) -> None:
 
     assert len(cell_rects) == 4
     assert [element["props"]["text"] for element in cell_texts] == ["A", "B", "C", "D"]
+    table_slots = [
+        slot
+        for slot in result.template_blueprint["slides"][0]["slots"]
+        if slot["source"]["type"] == "table"
+    ]
+    assert table_slots
+    assert all(slot["replaceMode"] in {"ignore", "preserve"} for slot in table_slots)
 
 
 def test_import_pptx_design_imports_layout_decorations(tmp_path: Path) -> None:
@@ -237,3 +293,10 @@ def test_import_pptx_design_imports_layout_decorations(tmp_path: Path) -> None:
 
     assert layout_decoration["zIndex"] < 100
     assert layout_decoration["locked"] is True
+    layout_slot = next(
+        slot
+        for slot in result.template_blueprint["slides"][0]["slots"]
+        if slot["elementId"] == layout_decoration["elementId"]
+    )
+    assert layout_slot["usage"] == "decoration"
+    assert layout_slot["source"]["type"] == "layout"

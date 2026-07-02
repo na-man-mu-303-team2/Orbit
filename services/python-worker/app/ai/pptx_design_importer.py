@@ -28,6 +28,8 @@ class PptxDesignImportResult(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
     blueprint: dict[str, Any]
+    template_blueprint: dict[str, Any] = Field(alias="templateBlueprint")
+    quality_report: dict[str, Any] = Field(alias="qualityReport")
     assets: list[ImportedDesignAsset] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
 
@@ -124,9 +126,11 @@ def import_pptx_design(path: Path, file_id: str) -> PptxDesignImportResult:
     asset_colors: dict[str, str] = {}
     warnings: list[str] = []
     slides: list[dict[str, Any]] = []
+    slot_sources_by_slide: list[dict[str, dict[str, Any]]] = []
 
     for slide_index, slide in enumerate(presentation.slides, start=1):
         elements: list[dict[str, Any]] = []
+        slot_sources: dict[str, dict[str, Any]] = {}
         z_cursor = [1]
         background_color = slide_background_color(slide) or "#ffffff"
         elements.append(
@@ -153,6 +157,7 @@ def import_pptx_design(path: Path, file_id: str) -> PptxDesignImportResult:
                 assets=assets,
                 asset_colors=asset_colors,
                 warnings=warnings,
+                slot_sources=slot_sources,
                 scale_x=scale_x,
                 scale_y=scale_y,
                 z_cursor=z_cursor,
@@ -169,6 +174,7 @@ def import_pptx_design(path: Path, file_id: str) -> PptxDesignImportResult:
             assets=assets,
             asset_colors=asset_colors,
             warnings=warnings,
+            slot_sources=slot_sources,
             scale_x=scale_x,
             scale_y=scale_y,
             z_cursor=z_cursor,
@@ -191,6 +197,7 @@ def import_pptx_design(path: Path, file_id: str) -> PptxDesignImportResult:
                 "elements": elements,
             }
         )
+        slot_sources_by_slide.append(slot_sources)
 
     blueprint = ImportedDesignBlueprint.model_validate(
         {
@@ -206,6 +213,12 @@ def import_pptx_design(path: Path, file_id: str) -> PptxDesignImportResult:
     )
     return PptxDesignImportResult(
         blueprint=blueprint.model_dump(by_alias=True),
+        templateBlueprint=build_template_blueprint(
+            file_id,
+            slides,
+            slot_sources_by_slide,
+        ),
+        qualityReport=build_quality_report(slides, warnings),
         assets=assets,
         warnings=warnings,
     )
@@ -220,6 +233,7 @@ def append_shape_collection(
     assets: list[ImportedDesignAsset],
     asset_colors: dict[str, str],
     warnings: list[str],
+    slot_sources: dict[str, dict[str, Any]],
     scale_x: float,
     scale_y: float,
     z_cursor: list[int],
@@ -235,6 +249,7 @@ def append_shape_collection(
             assets=assets,
             asset_colors=asset_colors,
             warnings=warnings,
+            slot_sources=slot_sources,
             scale_x=scale_x,
             scale_y=scale_y,
             z_cursor=z_cursor,
@@ -252,6 +267,7 @@ def append_shape_elements(
     assets: list[ImportedDesignAsset],
     asset_colors: dict[str, str],
     warnings: list[str],
+    slot_sources: dict[str, dict[str, Any]],
     scale_x: float,
     scale_y: float,
     z_cursor: list[int],
@@ -271,6 +287,7 @@ def append_shape_elements(
             assets=assets,
             asset_colors=asset_colors,
             warnings=warnings,
+            slot_sources=slot_sources,
             scale_x=scale_x,
             scale_y=scale_y,
             z_cursor=z_cursor,
@@ -291,24 +308,29 @@ def append_shape_elements(
         color = average_image_color(shape.image.blob)
         if color:
             asset_colors[asset_id] = color
-        elements.append(
-            {
-                **element_base(
-                    element_id=f"{element_id}_image",
-                    role=role,
-                    frame=frame,
-                    z_index=next_z(z_cursor),
-                    locked=locked,
-                ),
-                "type": "image",
-                "props": {
-                    "src": f"asset:{asset_id}",
-                    "alt": str(getattr(shape, "name", "Imported image")),
-                    "fit": "contain",
-                    "focusX": 0.5,
-                    "focusY": 0.5,
-                },
-            }
+        element = {
+            **element_base(
+                element_id=f"{element_id}_image",
+                role=role,
+                frame=frame,
+                z_index=next_z(z_cursor),
+                locked=locked,
+            ),
+            "type": "image",
+            "props": {
+                "src": f"asset:{asset_id}",
+                "alt": str(getattr(shape, "name", "Imported image")),
+                "fit": "contain",
+                "focusX": 0.5,
+                "focusY": 0.5,
+            },
+        }
+        elements.append(element)
+        slot_sources[element["elementId"]] = shape_slot_source(
+            shape,
+            element_path,
+            decoration_only,
+            fallback_type="image",
         )
         return
 
@@ -319,29 +341,42 @@ def append_shape_elements(
         if color:
             asset_colors[asset.asset_id] = color
         image_role = "background" if is_full_canvas_frame(frame) else role
-        elements.append(
-            {
-                **element_base(
-                    element_id=f"{element_id}_image_fill",
-                    role=image_role,
-                    frame=frame,
-                    z_index=next_z(z_cursor),
-                    locked=locked or image_role == "background",
-                ),
-                "type": "image",
-                "props": {
-                    "src": f"asset:{asset.asset_id}",
-                    "alt": str(getattr(shape, "name", "Imported image fill")),
-                    "fit": "stretch",
-                    "focusX": 0.5,
-                    "focusY": 0.5,
-                },
-            }
+        element = {
+            **element_base(
+                element_id=f"{element_id}_image_fill",
+                role=image_role,
+                frame=frame,
+                z_index=next_z(z_cursor),
+                locked=locked or image_role == "background",
+            ),
+            "type": "image",
+            "props": {
+                "src": f"asset:{asset.asset_id}",
+                "alt": str(getattr(shape, "name", "Imported image fill")),
+                "fit": "stretch",
+                "focusX": 0.5,
+                "focusY": 0.5,
+            },
+        }
+        elements.append(element)
+        slot_sources[element["elementId"]] = shape_slot_source(
+            shape,
+            element_path,
+            decoration_only,
+            fallback_type="image",
         )
         return
 
     if shape_type == MSO_SHAPE_TYPE.TABLE and not decoration_only:
-        elements.extend(table_elements(shape, element_id, frame, z_cursor))
+        table_items = table_elements(shape, element_id, frame, z_cursor)
+        elements.extend(table_items)
+        for element in table_items:
+            slot_sources[element["elementId"]] = shape_slot_source(
+                shape,
+                element_path,
+                decoration_only,
+                fallback_type="table",
+            )
         return
 
     fill = shape_fill_color(shape)
@@ -360,31 +395,54 @@ def append_shape_elements(
         )
         if custom_shape is not None:
             elements.append(custom_shape)
+            slot_sources[custom_shape["elementId"]] = shape_slot_source(
+                shape,
+                element_path,
+                decoration_only,
+                fallback_type="shape",
+            )
         else:
             warnings.append(
                 f"Unsupported PPTX freeform path on slide {slide_index}: {getattr(shape, 'name', 'freeform')}"
             )
-            append_fallback_shape(elements, element_id, frame, z_cursor, fill, stroke, locked)
+            fallback = append_fallback_shape(elements, element_id, frame, z_cursor, fill, stroke, locked)
+            slot_sources[fallback["elementId"]] = shape_slot_source(
+                shape,
+                element_path,
+                decoration_only,
+                fallback_type="shape",
+            )
     elif fill or stroke:
-        append_fallback_shape(elements, element_id, frame, z_cursor, fill, stroke, locked)
+        fallback = append_fallback_shape(elements, element_id, frame, z_cursor, fill, stroke, locked)
+        slot_sources[fallback["elementId"]] = shape_slot_source(
+            shape,
+            element_path,
+            decoration_only,
+            fallback_type="shape",
+        )
 
     text = "" if decoration_only else shape_text(shape)
     if text:
-        elements.append(
-            {
-                **element_base(
-                    element_id=f"{element_id}_text",
-                    role="body",
-                    frame=frame,
-                    z_index=next_z(z_cursor),
-                    locked=False,
-                ),
-                "type": "text",
-                "props": {
-                    "text": text,
-                    **shape_text_props(shape),
-                },
-            }
+        element = {
+            **element_base(
+                element_id=f"{element_id}_text",
+                role="body",
+                frame=frame,
+                z_index=next_z(z_cursor),
+                locked=False,
+            ),
+            "type": "text",
+            "props": {
+                "text": text,
+                **shape_text_props(shape),
+            },
+        }
+        elements.append(element)
+        slot_sources[element["elementId"]] = shape_slot_source(
+            shape,
+            element_path,
+            decoration_only,
+            fallback_type="shape",
         )
     elif is_unsupported_complex_shape(shape):
         warnings.append(f"Unsupported PPTX shape on slide {slide_index}: {shape_type}")
@@ -398,21 +456,337 @@ def append_fallback_shape(
     fill: str | None,
     stroke: str | None,
     locked: bool,
-) -> None:
-    elements.append(
-        shape_element(
-            element_id=f"{element_id}_shape",
-            role="decoration",
-            x=frame["x"],
-            y=frame["y"],
-            width=frame["width"],
-            height=frame["height"],
-            z_index=next_z(z_cursor),
-            fill=fill or "transparent",
-            stroke=stroke or "transparent",
-            locked=locked,
-        )
+) -> dict[str, Any]:
+    element = shape_element(
+        element_id=f"{element_id}_shape",
+        role="decoration",
+        x=frame["x"],
+        y=frame["y"],
+        width=frame["width"],
+        height=frame["height"],
+        z_index=next_z(z_cursor),
+        fill=fill or "transparent",
+        stroke=stroke or "transparent",
+        locked=locked,
     )
+    elements.append(element)
+    return element
+
+
+def shape_slot_source(
+    shape: Any,
+    element_path: str,
+    decoration_only: bool,
+    *,
+    fallback_type: str,
+) -> dict[str, Any]:
+    if bool(getattr(shape, "is_placeholder", False)):
+        source_type = "placeholder"
+    elif element_path.startswith("master_"):
+        source_type = "master"
+    elif element_path.startswith("layout_"):
+        source_type = "layout"
+    elif fallback_type in {"table", "image"}:
+        source_type = fallback_type
+    elif decoration_only:
+        source_type = "layout"
+    else:
+        source_type = "slide"
+
+    source = {
+        "type": source_type,
+        "name": str(getattr(shape, "name", "") or "").strip() or "shape",
+    }
+    placeholder = placeholder_type(shape)
+    if placeholder:
+        source["placeholderType"] = placeholder
+    return source
+
+
+def placeholder_type(shape: Any) -> str:
+    try:
+        raw = str(shape.placeholder_format.type)
+    except Exception:
+        return ""
+    normalized = (
+        raw.lower()
+        .replace("(", " ")
+        .replace(")", " ")
+        .replace("_", "-")
+        .split()
+    )
+    return normalized[0] if normalized else ""
+
+
+def build_template_blueprint(
+    file_id: str,
+    slides: list[dict[str, Any]],
+    slot_sources_by_slide: list[dict[str, dict[str, Any]]],
+) -> dict[str, Any]:
+    repeated_texts = repeated_text_values(slides)
+    return {
+        "templateId": f"template_{safe_id(file_id)}",
+        "sourceFileId": file_id,
+        "slides": [
+            {
+                "slideIndex": index + 1,
+                "sourceSlideIndex": int(slide.get("sourceSlideIndex", index + 1)),
+                "slots": [
+                    slot
+                    for slot in (
+                        template_slot_for_element(
+                            element,
+                            slot_sources_by_slide[index].get(
+                                str(element.get("elementId", "")),
+                                infer_element_source(element),
+                            ),
+                            repeated_texts,
+                        )
+                        for element in slide.get("elements", [])
+                        if isinstance(element, dict)
+                    )
+                    if slot is not None
+                ],
+            }
+            for index, slide in enumerate(slides)
+        ],
+    }
+
+
+def template_slot_for_element(
+    element: dict[str, Any],
+    source: dict[str, Any],
+    repeated_texts: set[str],
+) -> dict[str, Any] | None:
+    element_id = str(element.get("elementId", ""))
+    if not element_id:
+        return None
+
+    element_type = str(element.get("type", ""))
+    role = slot_role_for_element(element)
+    source_type = str(source.get("type", "unknown"))
+    locked = bool(element.get("locked", False))
+
+    if element_type == "text":
+        text_key = normalized_text_key(element_text(element))
+        if source_type == "placeholder":
+            usage, replace_mode, confidence = "content-slot", "replace", 0.95
+        elif source_type in {"master", "layout"} or text_key in repeated_texts:
+            usage, replace_mode, confidence = "fixed-text", "preserve", 0.8
+        else:
+            usage, replace_mode, confidence = "fixed-text", "preserve", 0.45
+    elif element_type == "image":
+        if source_type == "placeholder":
+            usage, replace_mode, confidence = "media-slot", "replace", 0.95
+        elif str(element.get("role", "")) == "background" or locked:
+            usage, replace_mode, confidence = "decoration", "ignore", 0.9
+        else:
+            usage, replace_mode, confidence = "media-slot", "preserve", 0.55
+    else:
+        usage, replace_mode, confidence = "decoration", "ignore", 0.85 if locked else 0.6
+
+    return {
+        "elementId": element_id,
+        "usage": usage,
+        "slotRole": role,
+        "replaceMode": replace_mode,
+        "confidence": confidence,
+        "bounds": {
+            "x": number_or_zero(element.get("x")),
+            "y": number_or_zero(element.get("y")),
+            "width": max(1, number_or_zero(element.get("width"))),
+            "height": max(1, number_or_zero(element.get("height"))),
+        },
+        "source": source,
+    }
+
+
+def slot_role_for_element(element: dict[str, Any]) -> str:
+    role = str(element.get("role", "unknown"))
+    if role in {"title", "subtitle", "body", "caption", "background"}:
+        return role
+    if element.get("type") == "image":
+        return "image"
+    if element.get("type") == "chart":
+        return "chart"
+    if "_cell_" in str(element.get("elementId", "")):
+        return "table"
+    return "unknown"
+
+
+def infer_element_source(element: dict[str, Any]) -> dict[str, Any]:
+    element_id = str(element.get("elementId", ""))
+    if "_master_" in element_id:
+        return {"type": "master"}
+    if "_layout_" in element_id:
+        return {"type": "layout"}
+    if element.get("type") == "image":
+        return {"type": "image"}
+    if "_cell_" in element_id:
+        return {"type": "table"}
+    return {"type": "slide"}
+
+
+QUALITY_WEIGHTS = {
+    "geometry": 25,
+    "text": 15,
+    "color": 10,
+    "layer": 10,
+    "editability": 10,
+    "pixelSimilarity": 30,
+}
+
+
+def build_quality_report(
+    slides: list[dict[str, Any]],
+    warnings: list[str],
+) -> dict[str, Any]:
+    editability_coverage = editable_element_coverage(slides)
+    metrics: dict[str, float | None] = {
+        "geometry": geometry_score(slides),
+        "text": text_score(slides, warnings),
+        "color": color_score(slides),
+        "layer": layer_score(slides),
+        "editability": round(editability_coverage * 100),
+        "pixelSimilarity": None,
+    }
+    composite = weighted_quality_score(metrics)
+    applied_cap: int | None = None
+    notes = ["pixel renderer unavailable"]
+
+    if editability_coverage < 0.2:
+        applied_cap = 50
+    elif editability_coverage < 0.5:
+        applied_cap = 70
+
+    if applied_cap is not None:
+        composite = min(composite, applied_cap)
+        notes.append(f"editability coverage cap {applied_cap}")
+
+    return {
+        "compositeScore": composite,
+        "metrics": metrics,
+        "weights": QUALITY_WEIGHTS,
+        "editabilityCoverage": editability_coverage,
+        "appliedCap": applied_cap,
+        "notes": notes,
+    }
+
+
+def weighted_quality_score(metrics: dict[str, float | None]) -> int:
+    weighted_total = 0.0
+    weight_total = 0
+    for key, weight in QUALITY_WEIGHTS.items():
+        value = metrics.get(key)
+        if value is None:
+            continue
+        weighted_total += value * weight
+        weight_total += weight
+    return round(weighted_total / max(1, weight_total))
+
+
+def editable_element_coverage(slides: list[dict[str, Any]]) -> float:
+    elements = [
+        element
+        for slide in slides
+        for element in slide.get("elements", [])
+        if isinstance(element, dict)
+        and element.get("visible", True)
+        and element.get("role") != "background"
+    ]
+    if not elements:
+        return 0
+    editable = [
+        element
+        for element in elements
+        if not bool(element.get("locked", False))
+        and element.get("type") in {"text", "image", "chart", "customShape"}
+    ]
+    return round(len(editable) / len(elements), 3)
+
+
+def geometry_score(slides: list[dict[str, Any]]) -> int:
+    elements = [
+        element
+        for slide in slides
+        for element in slide.get("elements", [])
+        if isinstance(element, dict)
+    ]
+    if not elements:
+        return 50
+    invalid = [
+        element
+        for element in elements
+        if number_or_zero(element.get("width")) <= 0
+        or number_or_zero(element.get("height")) <= 0
+    ]
+    return max(0, 100 - len(invalid) * 20)
+
+
+def text_score(slides: list[dict[str, Any]], warnings: list[str]) -> int:
+    text_count = sum(
+        1
+        for slide in slides
+        for element in slide.get("elements", [])
+        if isinstance(element, dict) and element.get("type") == "text"
+    )
+    warning_penalty = min(40, len(warnings) * 5)
+    return max(0, (95 if text_count else 75) - warning_penalty)
+
+
+def color_score(slides: list[dict[str, Any]]) -> int:
+    colors = imported_visible_colors(slides)
+    return 90 if colors else 70
+
+
+def layer_score(slides: list[dict[str, Any]]) -> int:
+    score = 100
+    for slide in slides:
+        z_indexes = [
+            element.get("zIndex")
+            for element in slide.get("elements", [])
+            if isinstance(element, dict)
+        ]
+        if len(z_indexes) != len(set(z_indexes)):
+            score -= 15
+    return max(0, score)
+
+
+def repeated_text_values(slides: list[dict[str, Any]]) -> set[str]:
+    counts: dict[str, int] = {}
+    for slide in slides:
+        for element in slide.get("elements", []):
+            if not isinstance(element, dict) or element.get("type") != "text":
+                continue
+            key = normalized_text_key(element_text(element))
+            if key:
+                counts[key] = counts.get(key, 0) + 1
+    return {key for key, count in counts.items() if count > 1}
+
+
+def normalized_text_key(value: Any) -> str:
+    return " ".join(str(value or "").lower().split())
+
+
+def element_text(element: dict[str, Any]) -> str:
+    props = element.get("props", {})
+    if not isinstance(props, dict):
+        return ""
+    return str(props.get("text", ""))
+
+
+def number_or_zero(value: Any) -> float:
+    try:
+        return float(value)
+    except Exception:
+        return 0
+
+
+def safe_id(value: str) -> str:
+    return "".join(
+        char if char.isascii() and (char.isalnum() or char in "_-") else "_"
+        for char in value
+    ) or "pptx"
 
 
 def next_z(z_cursor: list[int]) -> int:

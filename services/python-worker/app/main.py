@@ -303,6 +303,8 @@ async def import_pptx_design_endpoint(
     assets: list[ImportedDesignAsset] = []
     warnings: list[str] = []
     theme: dict[str, Any] | None = None
+    template_blueprint: dict[str, Any] | None = None
+    quality_report: dict[str, Any] | None = None
 
     with TemporaryDirectory(prefix="orbit-design-") as temp_dir:
         temp_path = Path(temp_dir)
@@ -325,6 +327,10 @@ async def import_pptx_design_endpoint(
             warnings.extend(remapped.warnings)
             if theme is None and isinstance(remapped.blueprint.get("theme"), dict):
                 theme = cast(dict[str, Any], remapped.blueprint["theme"])
+            if template_blueprint is None:
+                template_blueprint = remapped.template_blueprint
+            if quality_report is None:
+                quality_report = remapped.quality_report
 
     return PptxDesignImportResult(
         blueprint={
@@ -334,6 +340,8 @@ async def import_pptx_design_endpoint(
             "slides": slides,
             "warnings": warnings,
         },
+        templateBlueprint=template_blueprint or {},
+        qualityReport=quality_report or {},
         assets=assets,
         warnings=warnings,
     )
@@ -441,6 +449,8 @@ def _remap_import_asset_ids(
             dict[str, Any],
             _replace_import_asset_refs(result.blueprint, replacements),
         ),
+        templateBlueprint=result.template_blueprint,
+        qualityReport=result.quality_report,
         assets=assets,
         warnings=result.warnings,
     )
