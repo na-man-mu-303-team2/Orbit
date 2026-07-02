@@ -10,13 +10,13 @@
   - 외부 auth provider를 붙인다.
   - email/password, Argon2id, signed HttpOnly cookie, Redis session으로 자체 인증을 구현한다.
 - Final decision: ORBIT-8은 email/password 인증을 추가하되, 기존 Demo ID 기반 기능은 즉시 제거하지 않는다. 비밀번호는 Argon2id hash로만 저장하고, session id는 signed HttpOnly cookie로 전달하며 session payload는 Redis에 저장한다.
-- Rationale: Jira 완료 기준의 self-managed auth 요구를 충족하면서 기존 데모 흐름과 다른 작업의 project boundary를 갑자기 깨지 않는다.
+- Rationale: self-managed auth 요구를 충족하면서 기존 데모 흐름과 다른 작업의 project boundary를 갑자기 깨지 않는다.
 - Affected files: `packages/shared/src/auth/**`, `apps/api/src/auth/**`, `apps/api/src/database/migrations/2026062702000-CreateAuthUsers.ts`, `apps/web/src/features/auth/**`, `docs/contracts.md`, `docs/demo-standards.md`.
 - Follow-up review notes: 프로젝트/워크스페이스 membership 모델이 확정되면 Demo ID boundary를 session user 기반 authorization으로 교체한다.
 
 ## ORBIT-8 session and password bounds
 
-- Context: Jira 설명은 사람이 세션 유지 시간과 비밀번호 정책을 확정해야 한다고 적고 있지만, 이번 자동 구현 세션에서는 보수적인 MVP 기본값이 필요하다.
+- Context: 세션 유지 시간과 비밀번호 정책은 사람이 최종 확정해야 하지만, 이번 자동 구현 세션에서는 보수적인 MVP 기본값이 필요하다.
 - Options considered:
   - 세션 TTL과 password length 제한을 두지 않는다.
   - 짧은 세션 TTL을 사용한다.
@@ -28,14 +28,14 @@
 
 ## ORBIT test automation gate policy
 
-- Context: Jira 완료 기준을 PR 리뷰에서 추적하기 쉽게 만들고, PR과 merge 후 모두 상황에 맞는 자동 검증을 실행해야 한다.
+- Context: 기능 완료 기준을 PR 리뷰에서 추적하기 쉽게 만들고, PR과 merge 후 모두 상황에 맞는 자동 검증을 실행해야 한다.
 - Options considered:
   - PR과 `main`/`develop` push 모두 빠른 unit/API/Python/Compose/Playwright smoke를 실행한다.
   - PR에서는 unit/API만 실행하고 merge 후 Playwright smoke를 실행한다.
   - PR에서는 수동 체크리스트만 사용하고 merge 후 자동 테스트를 실행한다.
 - Final decision: PR과 `main`/`develop` push 모두 기존 TypeScript/Python/Compose 검증과 얇은 Playwright smoke를 실행한다. 무거운 full E2E, STT 품질 측정, 1000명 load test는 manual 또는 scheduled 검증으로 분리한다.
-- Rationale: Jira 구현 누락과 기본 화면/API 회귀를 merge 전에 막되, 환경 의존적이고 오래 걸리는 검증은 필수 PR gate에서 분리해 flaky risk를 낮춘다.
-- Affected files: `.github/workflows/ci.yml`, `.github/pull_request_template.md`, `docs/testing/jira-test-matrix.md`, `playwright.config.ts`, `tests/e2e/smoke.spec.ts`, `package.json`.
+- Rationale: 기능 구현 누락과 기본 화면/API 회귀를 merge 전에 막되, 환경 의존적이고 오래 걸리는 검증은 필수 PR gate에서 분리해 flaky risk를 낮춘다.
+- Affected files: `.github/workflows/ci.yml`, `.github/pull_request_template.md`, `docs/testing/test-matrix.md`, `playwright.config.ts`, `tests/e2e/smoke.spec.ts`, `package.json`.
 - Follow-up review notes: 실제 기능별 Playwright flow와 load harness가 안정화되면 branch protection required checks에 추가할지 별도로 검토한다.
 
 ## ORBIT smoke CI output policy
@@ -59,7 +59,7 @@
   - 선행 변경 파일 분류 job을 두고 job-level `if`로 관련 검증만 실행한다.
 - Final decision: PR에서는 `detect-changes` job으로 docs-only, automation-only, CI workflow, product/API/shared/worker/compose/env/lockfile 변경을 분류하고 관련 job만 실행한다. `main`/`develop` push에서는 merge 후 조합 검증을 위해 전체 빠른 gate를 유지한다. 자동 리뷰 코드, prompt, schema, workflow, root automation 파일이 바뀐 PR에서는 Codex review job을 실행하지 않는다.
 - Rationale: 구현과 무관한 PR의 대기 시간을 줄이면서도 required check pending 문제를 피한다. 또한 PR이 변경한 automation code가 `OPENAI_API_KEY` 또는 `GITHUB_TOKEN`과 함께 실행되는 경로를 차단한다.
-- Affected files: `.github/workflows/ci.yml`, `docs/testing/jira-test-matrix.md`.
+- Affected files: `.github/workflows/ci.yml`, `docs/testing/test-matrix.md`.
 - Follow-up review notes: branch protection에서 개별 job을 required check로 쓰는 경우 skipped job 표시가 팀 기대와 맞는지 확인하고, 필요하면 별도 aggregate required check를 추가한다.
 
 ## ORBIT Playwright smoke CI temporary suspension
@@ -71,7 +71,7 @@
   - 변경 경로 분류에서만 `playwright_smoke` 출력을 끈다.
 - Final decision: `playwright-smoke` job은 그대로 보존하고 job-level `if: ${{ false }}`로 임시 skip한다. 로컬 또는 수동 검증용 `pnpm test:smoke` 스크립트와 Playwright 테스트 파일은 유지한다.
 - Rationale: 자동 gate에서만 제외하면 flaky 또는 환경 의존 이슈가 PR merge를 막지 않으면서도, smoke 재활성화와 수동 회귀 검증 경로를 잃지 않는다.
-- Affected files: `.github/workflows/ci.yml`, `.github/pull_request_template.md`, `docs/testing/jira-test-matrix.md`.
+- Affected files: `.github/workflows/ci.yml`, `.github/pull_request_template.md`, `docs/testing/test-matrix.md`.
 - Follow-up review notes: smoke 안정화 원인이 정리되면 기존 path-scoped 조건을 복구하고 branch protection에서 skipped check 처리가 팀 기대와 맞는지 다시 확인한다.
 
 ## ORBIT-90 API project and asset boundary
@@ -170,17 +170,17 @@
 - Affected files: `AGENTS.md`, `docs/decision-log.md`.
 - Follow-up review notes: 다음 Codex PR 리뷰에서 요약과 inline comment가 한국어로 작성되는지, technical identifier가 불필요하게 번역되지 않는지 확인한다.
 
-## ORBIT Jira Link PR check removal
+## ORBIT Jira retirement
 
-- Context: `Jira Link` workflow는 PR metadata가 바뀔 때마다 실행되어 product CI check보다 먼저 PR을 막을 수 있다. 팀은 branch와 PR metadata에 Jira key를 남기는 규칙은 유지하되, 이 규칙을 별도 PR별 GitHub Actions check로 강제하지 않기로 했다.
+- Context: 팀이 Jira를 더 이상 사용하지 않기로 하면서, PR마다 Jira key를 요구하거나 merge 후 Jira Automation webhook을 호출하는 저장소 규칙과 자동화가 불필요해졌다.
 - Options considered:
-  - `jira-link`를 required status check로 유지한다.
-  - workflow에 영구 false 조건을 달아 비활성화한다.
-  - `Jira Link` workflow를 제거하고, Jira key metadata는 required GitHub Actions check가 아니라 팀 규칙으로 문서화한다.
-- Final decision: `.github/workflows/jira-link.yml`을 제거하고 문서화된 branch protection required check 목록에서 `jira-link`를 제거한다. merge 시점의 `Jira Complete Issue` workflow는 유지한다.
-- Rationale: PR마다 실행되는 Jira metadata 검증 job은 중단하면서, `main` 또는 `develop` merge 후 Jira issue 완료 자동화는 보존한다.
-- Affected files: `.github/workflows/jira-link.yml`, `docs/conventions/jira.md`, `docs/testing/jira-test-matrix.md`, `docs/decision-log.md`.
-- Follow-up review notes: GitHub branch protection의 `main`, `develop` required status checks에서도 `jira-link`를 제거해야 한다. 그렇지 않으면 GitHub가 삭제된 check를 계속 기다릴 수 있다.
+  - `jira-link` check만 제거하고 Jira key 팀 규칙과 merge-time Jira 완료 workflow는 유지한다.
+  - Jira 관련 workflow만 비활성화하고 문서 규칙은 나중에 정리한다.
+  - Jira key 팀 규칙, PR template 항목, Jira webhook workflow, 관련 helper scripts, Jira 전용 문서를 함께 제거한다.
+- Final decision: Jira 관련 GitHub Actions workflow와 helper scripts를 제거하고, 브랜치/PR/커밋에 Jira key를 요구하는 팀 규칙을 삭제한다. 기존 Jira test matrix는 일반 test matrix로 전환한다.
+- Rationale: 사용하지 않는 외부 서비스 규칙과 secret 의존 자동화를 남기면 새 PR 작성과 branch protection 운영에 혼선을 만든다.
+- Affected files: `.github/workflows/jira-link.yml`, `.github/workflows/jira-complete-issue.yml`, `.github/pull_request_template.md`, `AGENTS.md`, `docs/git-rules.md`, `docs/conventions/jira.md`, `docs/runbooks/jira-webhook-self-hosted-runner.md`, `docs/testing/test-matrix.md`, `infra/scripts/validate-jira-link.mjs`, `infra/scripts/build-jira-webhook-payload.mjs`, `docs/decision-log.md`.
+- Follow-up review notes: GitHub branch protection의 `main`, `develop` required status checks에서 `jira-link`가 남아 있으면 제거한다. Repository secrets에 `JIRA_AUTOMATION_WEBHOOK_URL`이 남아 있으면 삭제한다. Self-hosted runner label `jira-access`가 Jira 전용이었다면 정리한다.
 
 ## ORBIT-228 personal server develop deployment boundary
 
