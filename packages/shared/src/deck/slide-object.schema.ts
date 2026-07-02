@@ -49,9 +49,22 @@ export const deckElementBaseSchema = z.object({
   visible: z.boolean().default(true)
 });
 
+export const deckElementGradientStopSchema = z.object({
+  offset: z.number().finite().min(0).max(1),
+  color: themeColorSchema,
+  opacity: z.number().finite().min(0).max(1).default(1)
+});
+
+export const deckElementLinearGradientPaintSchema = z.object({
+  type: z.literal("linear-gradient"),
+  angle: z.number().finite().default(0),
+  stops: z.array(deckElementGradientStopSchema).min(2)
+});
+
 export const deckElementPaintSchema = z.union([
   themeColorSchema,
-  z.literal("transparent")
+  z.literal("transparent"),
+  deckElementLinearGradientPaintSchema
 ]);
 
 export const deckElementShadowSchema = z.object({
@@ -69,6 +82,9 @@ export const shapeElementPropsSchema = z
     strokeWidth: z.number().finite().nonnegative().default(0),
     borderRadius: z.number().finite().nonnegative().default(0),
     sides: z.number().int().min(3).max(12).optional(),
+    dash: z.array(z.number().finite().positive()).optional(),
+    lineCap: z.enum(["butt", "round", "square"]).optional(),
+    lineJoin: z.enum(["miter", "round", "bevel"]).optional(),
     shadow: deckElementShadowSchema.optional()
   })
   .default({});
@@ -87,27 +103,67 @@ export const textFontWeightSchema = z.union([
   z.number().int().min(100).max(900)
 ]);
 
+export const textElementRunSchema = z.object({
+  text: z.string().default(""),
+  fontFamily: z.string().min(1).optional(),
+  fontSize: z.number().finite().positive().optional(),
+  fontWeight: textFontWeightSchema.optional(),
+  color: themeColorSchema.optional(),
+  baseline: z.enum(["normal", "superscript", "subscript"]).default("normal")
+});
+
+export const textElementBulletSchema = z.object({
+  enabled: z.boolean().default(false),
+  character: z.string().min(1).default("\u2022"),
+  indent: z.number().finite().nonnegative().default(0)
+});
+
 export const textElementPropsSchema = z
   .object({
     text: z.string().default(""),
+    runs: z.array(textElementRunSchema).optional(),
     fontFamily: z.string().min(1).optional(),
     fontSize: z.number().finite().positive().default(24),
     fontWeight: textFontWeightSchema.default("normal"),
     color: themeColorSchema.optional(),
     align: textAlignSchema.default("left"),
     verticalAlign: textVerticalAlignSchema.default("top"),
-    lineHeight: z.number().finite().positive().default(1.2)
+    lineHeight: z.number().finite().positive().default(1.2),
+    bullet: textElementBulletSchema.optional()
   })
   .default({});
 
 export const imageFitSchema = z.enum(["contain", "cover", "stretch"]);
+
+export const imageCropSchema = z
+  .object({
+    left: z.number().finite().min(0).max(1).default(0),
+    top: z.number().finite().min(0).max(1).default(0),
+    right: z.number().finite().min(0).max(1).default(0),
+    bottom: z.number().finite().min(0).max(1).default(0)
+  })
+  .superRefine((crop, ctx) => {
+    if (crop.left + crop.right >= 1) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "image crop left and right must leave visible width"
+      });
+    }
+    if (crop.top + crop.bottom >= 1) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "image crop top and bottom must leave visible height"
+      });
+    }
+  });
 
 export const imageElementPropsSchema = z.object({
   src: z.string().min(1),
   alt: z.string().default(""),
   fit: imageFitSchema.default("contain"),
   focusX: z.number().finite().min(0).max(1).default(0.5),
-  focusY: z.number().finite().min(0).max(1).default(0.5)
+  focusY: z.number().finite().min(0).max(1).default(0.5),
+  crop: imageCropSchema.optional()
 });
 
 export const groupElementPropsSchema = z
@@ -135,6 +191,10 @@ export const customShapeElementPropsSchema = z.object({
   fill: deckElementPaintSchema.default("transparent"),
   stroke: deckElementPaintSchema.default("transparent"),
   strokeWidth: z.number().finite().nonnegative().default(0),
+  dash: z.array(z.number().finite().positive()).optional(),
+  lineCap: z.enum(["butt", "round", "square"]).optional(),
+  lineJoin: z.enum(["miter", "round", "bevel"]).optional(),
+  shadow: deckElementShadowSchema.optional(),
   closed: z.boolean().default(true),
   nodes: z.array(customShapeNodeSchema).default([])
 });
@@ -207,8 +267,13 @@ export const deckElementSchema = z.discriminatedUnion("type", [
 export type DeckElementType = z.infer<typeof deckElementTypeSchema>;
 export type DeckElementRole = z.infer<typeof deckElementRoleSchema>;
 export type DeckElementPaint = z.infer<typeof deckElementPaintSchema>;
+export type DeckElementLinearGradientPaint = z.infer<
+  typeof deckElementLinearGradientPaintSchema
+>;
 export type DeckElementShadow = z.infer<typeof deckElementShadowSchema>;
 export type ShapeElementProps = z.infer<typeof shapeElementPropsSchema>;
+export type TextElementRun = z.infer<typeof textElementRunSchema>;
+export type TextElementBullet = z.infer<typeof textElementBulletSchema>;
 export type TextAlign = z.infer<typeof textAlignSchema>;
 export type TextVerticalAlign = z.infer<typeof textVerticalAlignSchema>;
 export type TextFontWeight = z.infer<typeof textFontWeightSchema>;

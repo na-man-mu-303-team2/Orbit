@@ -3,6 +3,7 @@ import type {
   CustomShapeElementProps,
   Deck,
   DeckElement,
+  DeckElementPaint,
   DeckPatch,
   DeckPatchOperation,
   ShapeElementProps,
@@ -203,8 +204,21 @@ function createPaintProps(
   return nextProps;
 }
 
-function followsColor(value: string | undefined, colors: string[]) {
-  return typeof value === "string" && colors.includes(value.toLowerCase());
+function followsColor(value: DeckElementPaint | string | undefined, colors: string[]) {
+  const color = solidColorForTheme(value);
+  return typeof color === "string" && colors.includes(color.toLowerCase());
+}
+
+function solidColorForTheme(value: DeckElementPaint | string | undefined) {
+  if (!value || value === "transparent") {
+    return undefined;
+  }
+
+  if (typeof value === "string") {
+    return value;
+  }
+
+  return value.stops[0]?.color;
 }
 
 function compactColors(colors: Array<string | undefined>) {

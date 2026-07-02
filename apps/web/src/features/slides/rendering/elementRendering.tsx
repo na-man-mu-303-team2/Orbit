@@ -2,6 +2,7 @@ import type {
   Chart,
   CustomShapeElementProps,
   Deck,
+  DeckElementPaint,
   DeckElement,
   GroupElementProps,
   ShapeElementProps,
@@ -101,12 +102,12 @@ export function ElementNodeContent(props: {
         align={element.props.align}
         fill={textLayout.color}
         fontFamily={textLayout.fontFamily}
-        fontSize={element.props.fontSize}
+        fontSize={textLayout.fontSize}
         fontStyle={textLayout.fontStyle}
         lineHeight={element.props.lineHeight}
         listening={false}
         padding={0}
-        text={element.props.text}
+        text={textLayout.text}
         width={textLayout.width}
         wrap="word"
         x={textLayout.x}
@@ -273,6 +274,7 @@ export function ElementNodeContent(props: {
     const fill = getCustomShapePaint(customShapeProps, "fill", "#f5edff");
     const stroke = getCustomShapePaint(customShapeProps, "stroke", "#9333ea");
     const strokeWidth = getCustomShapeStrokeWidth(customShapeProps);
+    const strokeProps = getStrokeRenderProps(customShapeProps);
     const viewBoxWidth = getCustomShapeDimension(
       customShapeProps,
       "viewBoxWidth",
@@ -289,9 +291,15 @@ export function ElementNodeContent(props: {
         <Group listening={false}>
           <Rect fill="transparent" width={frame.width} height={frame.height} />
           <Shape
-            fill={isClosed ? fill : "transparent"}
+            {...getFillRenderProps(isClosed ? customShapeProps.fill : "transparent", {
+              fallback: fill,
+              height: viewBoxHeight,
+              width: viewBoxWidth
+            })}
+            {...getShadowRenderProps(customShapeProps)}
             fillEnabled={isClosed}
-            lineJoin="round"
+            lineCap={strokeProps.lineCap}
+            lineJoin={strokeProps.lineJoin ?? "round"}
             scaleX={frame.width / viewBoxWidth}
             scaleY={frame.height / viewBoxHeight}
             sceneFunc={(context: Konva.Context, shape: Konva.Shape) =>
@@ -299,6 +307,7 @@ export function ElementNodeContent(props: {
             }
             stroke={stroke}
             strokeWidth={strokeWidth}
+            dash={strokeProps.dash}
           />
         </Group>
       );
@@ -308,8 +317,13 @@ export function ElementNodeContent(props: {
       <Group listening={false}>
         <Rect
           cornerRadius={18}
-          dash={[10, 6]}
-          fill={fill}
+          dash={strokeProps.dash ?? [10, 6]}
+          {...getFillRenderProps(customShapeProps.fill, {
+            fallback: fill,
+            height: frame.height,
+            width: frame.width
+          })}
+          {...getShadowRenderProps(customShapeProps)}
           stroke={stroke}
           strokeWidth={2}
           width={frame.width}
@@ -331,16 +345,21 @@ export function ElementNodeContent(props: {
   if (element.type === "ellipse") {
     const strokeWidth = Math.max(1, element.props.strokeWidth);
     const radius = Math.max(1, Math.min(frame.width, frame.height) / 2 - strokeWidth / 2);
+    const strokeProps = getStrokeRenderProps(element.props);
 
     return (
       <Group listening={false}>
         <Circle
-          fill={element.props.fill === "transparent" ? "#eff6ff" : element.props.fill}
-          stroke={
-            element.props.stroke === "transparent"
-              ? "rgba(15, 23, 42, 0.18)"
-              : element.props.stroke
-          }
+          {...getFillRenderProps(element.props.fill, {
+            fallback: "transparent",
+            height: frame.height,
+            width: frame.width
+          })}
+          {...getShadowRenderProps(element.props)}
+          dash={strokeProps.dash}
+          lineCap={strokeProps.lineCap}
+          lineJoin={strokeProps.lineJoin}
+          stroke={getSolidPaint(element.props.stroke, "transparent")}
           strokeWidth={strokeWidth}
           x={frame.width / 2}
           y={frame.height / 2}
@@ -355,17 +374,22 @@ export function ElementNodeContent(props: {
     const strokeWidth = Math.max(1, element.props.strokeWidth);
     const radius = Math.max(1, Math.min(frame.width, frame.height) / 2 - strokeWidth / 2);
     const sides = polygonProps.sides ?? 3;
+    const strokeProps = getStrokeRenderProps(element.props);
 
     return (
       <Group listening={false}>
         <RegularPolygon
           sides={sides}
-          fill={element.props.fill === "transparent" ? "#eff6ff" : element.props.fill}
-          stroke={
-            element.props.stroke === "transparent"
-              ? "rgba(15, 23, 42, 0.18)"
-              : element.props.stroke
-          }
+          {...getFillRenderProps(element.props.fill, {
+            fallback: "transparent",
+            height: frame.height,
+            width: frame.width
+          })}
+          {...getShadowRenderProps(element.props)}
+          dash={strokeProps.dash}
+          lineCap={strokeProps.lineCap}
+          lineJoin={strokeProps.lineJoin}
+          stroke={getSolidPaint(element.props.stroke, "transparent")}
           strokeWidth={strokeWidth}
           x={frame.width / 2}
           y={frame.height / 2}
@@ -377,6 +401,7 @@ export function ElementNodeContent(props: {
 
   if (element.type === "star") {
     const strokeWidth = Math.max(1, element.props.strokeWidth);
+    const strokeProps = getStrokeRenderProps(element.props);
     const outerRadius = Math.max(
       1,
       Math.min(frame.width, frame.height) / 2 - strokeWidth / 2
@@ -385,15 +410,19 @@ export function ElementNodeContent(props: {
     return (
       <Group listening={false}>
         <KonvaStar
-          fill={element.props.fill === "transparent" ? "#eff6ff" : element.props.fill}
+          {...getFillRenderProps(element.props.fill, {
+            fallback: "transparent",
+            height: frame.height,
+            width: frame.width
+          })}
+          {...getShadowRenderProps(element.props)}
+          dash={strokeProps.dash}
           innerRadius={outerRadius * 0.48}
+          lineCap={strokeProps.lineCap}
+          lineJoin={strokeProps.lineJoin}
           numPoints={5}
           outerRadius={outerRadius}
-          stroke={
-            element.props.stroke === "transparent"
-              ? "rgba(15, 23, 42, 0.18)"
-              : element.props.stroke
-          }
+          stroke={getSolidPaint(element.props.stroke, "transparent")}
           strokeWidth={strokeWidth}
           x={frame.width / 2}
           y={frame.height / 2}
@@ -405,19 +434,20 @@ export function ElementNodeContent(props: {
   if (element.type === "ring") {
     const strokeWidth = Math.max(6, element.props.strokeWidth * 4 || 12);
     const radius = Math.max(1, Math.min(frame.width, frame.height) / 2 - strokeWidth / 2);
+    const strokeProps = getStrokeRenderProps(element.props);
 
     return (
       <Group listening={false}>
         <Circle
           fill="transparent"
+          dash={strokeProps.dash}
+          lineCap={strokeProps.lineCap}
+          lineJoin={strokeProps.lineJoin}
           radius={radius}
-          stroke={
-            element.props.stroke === "transparent"
-              ? element.props.fill === "transparent"
-                ? "#2563eb"
-                : element.props.fill
-              : element.props.stroke
-          }
+          stroke={getSolidPaint(
+            element.props.stroke,
+            getSolidPaint(element.props.fill, "#2563eb")
+          )}
           strokeWidth={strokeWidth}
           x={frame.width / 2}
           y={frame.height / 2}
@@ -427,7 +457,8 @@ export function ElementNodeContent(props: {
   }
 
   if (element.type === "arrow") {
-    const stroke = element.props.stroke === "transparent" ? "#2563eb" : element.props.stroke;
+    const stroke = getSolidPaint(element.props.stroke, "#2563eb");
+    const strokeProps = getStrokeRenderProps(element.props);
     const strokeWidth = Math.max(2, element.props.strokeWidth);
     const pointerLength = Math.max(18, Math.min(42, frame.width * 0.1));
     const pointerWidth = Math.max(14, Math.min(30, frame.height * 1.2));
@@ -437,6 +468,9 @@ export function ElementNodeContent(props: {
         <Rect fill="transparent" width={frame.width} height={Math.max(20, frame.height)} />
         <KonvaArrow
           fill={stroke}
+          dash={strokeProps.dash}
+          lineCap={strokeProps.lineCap}
+          lineJoin={strokeProps.lineJoin}
           pointerLength={pointerLength}
           pointerWidth={pointerWidth}
           points={[0, frame.height / 2, frame.width, frame.height / 2]}
@@ -449,12 +483,17 @@ export function ElementNodeContent(props: {
   }
 
   if (element.type === "line") {
+    const strokeProps = getStrokeRenderProps(element.props);
+
     return (
       <Group listening={false}>
         <Rect fill="transparent" width={frame.width} height={Math.max(16, frame.height)} />
         <Line
+          dash={strokeProps.dash}
+          lineCap={strokeProps.lineCap}
+          lineJoin={strokeProps.lineJoin}
           points={[0, frame.height / 2, frame.width, frame.height / 2]}
-          stroke={element.props.stroke === "transparent" ? "#2563eb" : element.props.stroke}
+          stroke={getSolidPaint(element.props.stroke, "#2563eb")}
           strokeWidth={Math.max(2, element.props.strokeWidth)}
           tension={0}
         />
@@ -466,22 +505,91 @@ export function ElementNodeContent(props: {
     <Group listening={false}>
       <Rect
         cornerRadius={element.props.borderRadius}
-        fill={
-          element.props.fill === "transparent"
-            ? "rgba(49, 87, 245, 0.08)"
-            : element.props.fill
-        }
-        stroke={
-          element.props.stroke === "transparent"
-            ? "rgba(16, 24, 40, 0.18)"
-            : element.props.stroke
-        }
-        strokeWidth={Math.max(1, element.props.strokeWidth)}
+        {...getFillRenderProps(element.props.fill, {
+          fallback: "transparent",
+          height: frame.height,
+          width: frame.width
+        })}
+        {...getShadowRenderProps(element.props)}
+        {...getStrokeRenderProps(element.props)}
+        stroke={getSolidPaint(element.props.stroke, "transparent")}
+        strokeWidth={element.props.stroke === "transparent" ? 0 : Math.max(1, element.props.strokeWidth)}
         width={frame.width}
         height={frame.height}
       />
     </Group>
   );
+}
+
+function getSolidPaint(paint: DeckElementPaint | undefined, fallback: string) {
+  if (!paint || paint === "transparent") {
+    return paint === "transparent" ? "transparent" : fallback;
+  }
+
+  if (typeof paint === "string") {
+    return paint;
+  }
+
+  return paint.stops[0]?.color ?? fallback;
+}
+
+function getFillRenderProps(
+  paint: DeckElementPaint | undefined,
+  frame: { fallback: string; height: number; width: number }
+) {
+  if (!paint || typeof paint === "string") {
+    return { fill: getSolidPaint(paint, frame.fallback) };
+  }
+
+  const radians = (paint.angle * Math.PI) / 180;
+  const length = Math.max(frame.width, frame.height);
+  const dx = Math.cos(radians) * length * 0.5;
+  const dy = Math.sin(radians) * length * 0.5;
+
+  return {
+    fillLinearGradientColorStops: paint.stops.flatMap((stop) => [
+      stop.offset,
+      stop.opacity < 1 ? withOpacity(stop.color, stop.opacity) : stop.color
+    ]),
+    fillLinearGradientEndPoint: {
+      x: frame.width / 2 + dx,
+      y: frame.height / 2 + dy
+    },
+    fillLinearGradientStartPoint: {
+      x: frame.width / 2 - dx,
+      y: frame.height / 2 - dy
+    }
+  };
+}
+
+function getStrokeRenderProps(props: ShapeElementProps | CustomShapeElementProps) {
+  return {
+    dash: props.dash,
+    lineCap: props.lineCap,
+    lineJoin: props.lineJoin
+  };
+}
+
+function getShadowRenderProps(props: ShapeElementProps | CustomShapeElementProps) {
+  if (!props.shadow) {
+    return {};
+  }
+
+  return {
+    shadowBlur: props.shadow.blur,
+    shadowColor: props.shadow.color,
+    shadowOffsetX: props.shadow.offsetX,
+    shadowOffsetY: props.shadow.offsetY,
+    shadowOpacity: props.shadow.opacity
+  };
+}
+
+function withOpacity(color: string, opacity: number) {
+  const red = Number.parseInt(color.slice(1, 3), 16);
+  const green = Number.parseInt(color.slice(3, 5), 16);
+  const blue = Number.parseInt(color.slice(5, 7), 16);
+
+  return `rgba(${red}, ${green}, ${blue}, ${opacity})`;
 }
 
 function applyPresentationStateToElement(

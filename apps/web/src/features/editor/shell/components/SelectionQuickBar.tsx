@@ -4,6 +4,7 @@ import type {
   CustomShapeElementProps,
   Deck,
   DeckElement,
+  DeckElementPaint,
   ImageElementProps,
   ShapeElementProps,
   Slide,
@@ -333,14 +334,14 @@ function ElementQuickBarFields(props: {
         <PropertyColorField
           className="compact-property-field compact-property-field-color"
           label="채우기"
-          value={shapeProps.fill === "transparent" ? "#dbeafe" : shapeProps.fill}
+          value={solidPaintForControl(shapeProps.fill, "#dbeafe")}
           onCommit={(value) => onChangeProps({ fill: value })}
         />
         <PropertyColorField
           className="compact-property-field compact-property-field-color"
           label="선 색"
           value={
-            shapeProps.stroke === "transparent" ? "#2563eb" : shapeProps.stroke
+            solidPaintForControl(shapeProps.stroke, "#2563eb")
           }
           onCommit={(value) => onChangeProps({ stroke: value })}
         />
@@ -631,6 +632,18 @@ function parseChartDataDraft(value: string, type: ChartType): Array<Record<strin
           : Number(first) || 0
     };
   });
+}
+
+function solidPaintForControl(paint: DeckElementPaint, fallback: string) {
+  if (paint === "transparent") {
+    return fallback;
+  }
+
+  if (typeof paint === "string") {
+    return paint;
+  }
+
+  return paint.stops[0]?.color ?? fallback;
 }
 
 function QuickBarSelectField(props: {

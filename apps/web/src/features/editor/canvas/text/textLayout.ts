@@ -25,6 +25,18 @@ export function getKonvaFontStyle(fontWeight: TextElementProps["fontWeight"]) {
   return getCssFontWeight(fontWeight) >= 600 ? "bold" : "normal";
 }
 
+export function getTextElementText(props: TextElementProps) {
+  if (props.runs?.length) {
+    return props.runs.map((run) => run.text).join("");
+  }
+
+  return props.text;
+}
+
+function getPrimaryTextRun(props: TextElementProps) {
+  return props.runs?.find((run) => run.text.trim().length > 0) ?? props.runs?.[0];
+}
+
 export function getTextElementLayout(args: {
   frame: {
     x: number;
@@ -38,19 +50,26 @@ export function getTextElementLayout(args: {
   theme: Deck["theme"];
 }) {
   const { frame, props, slide, theme } = args;
+  const primaryRun = getPrimaryTextRun(props);
   const fontFamily =
-    props.fontFamily ?? slide.style.fontFamily ?? theme.typography.bodyFontFamily;
-  const color = props.color ?? slide.style.textColor ?? theme.textColor;
-  const fontStyle = getKonvaFontStyle(props.fontWeight);
+    primaryRun?.fontFamily ??
+    props.fontFamily ??
+    slide.style.fontFamily ??
+    theme.typography.bodyFontFamily;
+  const color = primaryRun?.color ?? props.color ?? slide.style.textColor ?? theme.textColor;
+  const fontSize = primaryRun?.fontSize ?? props.fontSize;
+  const fontWeight = primaryRun?.fontWeight ?? props.fontWeight;
+  const fontStyle = getKonvaFontStyle(fontWeight);
+  const text = getTextElementText(props);
   const width = Math.max(1, frame.width - textElementPadding * 2);
   const availableHeight = Math.max(1, frame.height - textElementPadding * 2);
   const contentMetrics = measureTextContentBounds({
     align: props.align,
     fontFamily,
-    fontSize: props.fontSize,
+    fontSize,
     fontStyle,
     lineHeight: props.lineHeight,
-    text: props.text,
+    text,
     width
   });
   const contentHeight = Math.min(contentMetrics.height, availableHeight);
@@ -80,7 +99,9 @@ export function getTextElementLayout(args: {
     contentWidth,
     contentX,
     fontFamily,
+    fontSize,
     fontStyle,
+    text,
     width,
     x: textElementPadding,
     y

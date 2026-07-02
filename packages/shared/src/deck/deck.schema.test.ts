@@ -227,6 +227,106 @@ describe("deckSchema validation", () => {
     expectValidDeck(deck);
   });
 
+  it("accepts high fidelity PPTX visual props", () => {
+    const deck = createValidDeck();
+
+    deck.slides[0].elements = [
+      {
+        elementId: "el_text",
+        type: "text",
+        role: "title",
+        x: 120,
+        y: 80,
+        width: 640,
+        height: 120,
+        rotation: 0,
+        opacity: 1,
+        zIndex: 0,
+        locked: false,
+        visible: true,
+        props: {
+          text: "Hello World",
+          runs: [
+            {
+              text: "Hello ",
+              fontFamily: "Aptos",
+              fontSize: 36,
+              fontWeight: "bold",
+              color: "#111827"
+            },
+            {
+              text: "World",
+              fontFamily: "Aptos",
+              fontSize: 36,
+              fontWeight: "normal",
+              color: "#2563eb"
+            }
+          ],
+          bullet: {
+            enabled: true,
+            character: "\u2022",
+            indent: 24
+          }
+        }
+      },
+      {
+        elementId: "el_shape",
+        type: "rect",
+        role: "decoration",
+        x: 80,
+        y: 240,
+        width: 400,
+        height: 180,
+        rotation: 0,
+        opacity: 1,
+        zIndex: 1,
+        locked: false,
+        visible: true,
+        props: {
+          fill: {
+            type: "linear-gradient",
+            angle: 90,
+            stops: [
+              { offset: 0, color: "#2563eb", opacity: 1 },
+              { offset: 1, color: "#7c3aed", opacity: 0.75 }
+            ]
+          },
+          stroke: "#111827",
+          strokeWidth: 2,
+          dash: [8, 4],
+          lineCap: "round",
+          lineJoin: "round"
+        }
+      },
+      {
+        elementId: "el_image",
+        type: "image",
+        role: "media",
+        x: 520,
+        y: 240,
+        width: 320,
+        height: 180,
+        rotation: 0,
+        opacity: 1,
+        zIndex: 2,
+        locked: false,
+        visible: true,
+        props: {
+          src: "/image.png",
+          fit: "stretch",
+          crop: {
+            left: 0.1,
+            top: 0.05,
+            right: 0.2,
+            bottom: 0.15
+          }
+        }
+      }
+    ];
+
+    expectValidDeck(deck);
+  });
+
   it("accepts a 1024x768 standard-4-3 deck", () => {
     const deck = createValidDeck();
 
