@@ -10,7 +10,6 @@ export type AnimationSequenceStep = {
   durationMs: number;
   delayMs: number;
   easing: DeckAnimation["easing"];
-  trigger: DeckAnimation["trigger"];
   kind: AnimationStepKind;
   initialVisible: boolean;
   finalVisible: boolean;

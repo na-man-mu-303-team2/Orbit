@@ -1,11 +1,5 @@
 import { z } from "zod";
 
-import {
-  deckAnimationIdSchema,
-  deckKeywordIdSchema,
-  deckSlideIdSchema
-} from "../deck/id.schema";
-
 export const liveSttEventTypeSchema = z.enum([
   "partial-transcript",
   "keyword-detected",
@@ -15,14 +9,6 @@ export const liveSttEventTypeSchema = z.enum([
 ]);
 
 const keywordCoverageSchema = z.number().finite().min(0).max(1);
-export const liveSttAnimationCueSchema = z.enum([
-  "emphasis",
-  "animation-trigger"
-]);
-export const liveSttSlideAdvanceReasonSchema = z.enum([
-  "script-progress",
-  "voice-command"
-]);
 
 export const liveSttPartialTranscriptEventSchema = z.object({
   type: z.literal("partial-transcript"),
@@ -33,8 +19,8 @@ export const liveSttPartialTranscriptEventSchema = z.object({
 
 export const liveSttKeywordDetectedEventSchema = z.object({
   type: z.literal("keyword-detected"),
-  slideId: deckSlideIdSchema,
-  keywordId: deckKeywordIdSchema,
+  slideId: z.string().min(1),
+  keywordId: z.string().min(1),
   text: z.string().min(1),
   matchedText: z.string().min(1),
   coverage: keywordCoverageSchema
@@ -42,25 +28,24 @@ export const liveSttKeywordDetectedEventSchema = z.object({
 
 export const liveSttKeywordMissingEventSchema = z.object({
   type: z.literal("keyword-missing"),
-  slideId: deckSlideIdSchema,
-  missingKeywordIds: z.array(deckKeywordIdSchema),
+  slideId: z.string().min(1),
+  missingKeywordIds: z.array(z.string().min(1)),
   coverage: keywordCoverageSchema
 });
 
 export const liveSttAnimationCueEventSchema = z.object({
   type: z.literal("animation-cue"),
-  slideId: deckSlideIdSchema,
-  keywordId: z.union([deckKeywordIdSchema, z.literal("command-emphasis")]),
-  cue: liveSttAnimationCueSchema,
-  animationId: deckAnimationIdSchema.nullable().default(null),
+  slideId: z.string().min(1),
+  keywordId: z.string().min(1),
+  cue: z.literal("emphasis"),
   text: z.string().min(1)
 });
 
 export const liveSttSlideAdvanceEventSchema = z.object({
   type: z.literal("slide-advance"),
-  fromSlideId: deckSlideIdSchema,
-  toSlideId: deckSlideIdSchema,
-  reason: liveSttSlideAdvanceReasonSchema,
+  fromSlideId: z.string().min(1),
+  toSlideId: z.string().min(1),
+  reason: z.literal("keyword-coverage"),
   coverage: keywordCoverageSchema
 });
 
@@ -82,12 +67,8 @@ export type LiveSttKeywordDetectedEvent = z.infer<
 export type LiveSttKeywordMissingEvent = z.infer<
   typeof liveSttKeywordMissingEventSchema
 >;
-export type LiveSttAnimationCue = z.infer<typeof liveSttAnimationCueSchema>;
 export type LiveSttAnimationCueEvent = z.infer<
   typeof liveSttAnimationCueEventSchema
->;
-export type LiveSttSlideAdvanceReason = z.infer<
-  typeof liveSttSlideAdvanceReasonSchema
 >;
 export type LiveSttSlideAdvanceEvent = z.infer<
   typeof liveSttSlideAdvanceEventSchema

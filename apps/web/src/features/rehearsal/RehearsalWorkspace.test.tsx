@@ -1,7 +1,5 @@
 import { createDemoDeck } from "@orbit/editor-core";
 import type { Job, RehearsalReport, RehearsalRun } from "@orbit/shared";
-import type { ReactNode } from "react";
-import { forwardRef } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
@@ -43,42 +41,7 @@ import {
   createRehearsalCommandConfirmationState,
   detectRehearsalCommandCandidate
 } from "./rehearsalCommands";
-import { evaluateLiveScriptProgress } from "./liveScriptProgress";
 import { resolveEditorAssetUrl } from "../editor/shared/editorAssetUrl";
-
-vi.mock("react-konva", () => {
-  const Group = forwardRef<HTMLDivElement, { children?: ReactNode }>(
-    ({ children }, _ref) => <div>{children}</div>
-  );
-  const Layer = forwardRef<HTMLDivElement, { children?: ReactNode }>(
-    ({ children }, _ref) => <div>{children}</div>
-  );
-  const Stage = forwardRef<HTMLDivElement, { children?: ReactNode }>(
-    ({ children }, _ref) => <div>{children}</div>
-  );
-  const Text = ({
-    children,
-    text
-  }: {
-    children?: ReactNode;
-    text?: string;
-  }) => <span>{text ?? children}</span>;
-
-  return {
-    Arrow: () => <span data-konva-arrow="true" />,
-    Circle: () => <span data-konva-circle="true" />,
-    Group,
-    Image: () => <span data-konva-image="true" />,
-    Layer,
-    Line: () => <span data-konva-line="true" />,
-    Rect: () => <span data-konva-rect="true" />,
-    RegularPolygon: () => <span data-konva-polygon="true" />,
-    Shape: () => <span data-konva-shape="true" />,
-    Stage,
-    Star: () => <span data-konva-star="true" />,
-    Text
-  };
-});
 
 const createdAt = "2026-06-29T00:00:00.000Z";
 
@@ -714,45 +677,39 @@ describe("RehearsalWorkspace", () => {
     expect(renderLiveTranscriptBuffer(buffer)).toBe("새 슬라이드");
   });
 
-  it("decides auto-advance only when script progress reaches 80% and the last sentence matches", () => {
+  it("decides auto-advance only when keyword coverage reaches 80%", () => {
     expect(
       shouldAutoAdvanceLiveSlide({
-        analysis: { coverage: 0.8, lastSentenceMatched: true },
+        analysis: { coverage: 0.8, missingKeywordIds: ["kw_5"] },
         currentSlideIndex: 0,
         slideCount: 2,
+        keywordCount: 5,
         alreadyAdvanced: false
       })
     ).toBe(true);
 
     expect(
       shouldAutoAdvanceLiveSlide({
-        analysis: { coverage: 0.79, lastSentenceMatched: true },
+        analysis: { coverage: 0.75, missingKeywordIds: ["kw_4"] },
         currentSlideIndex: 0,
         slideCount: 2,
+        keywordCount: 4,
         alreadyAdvanced: false
       })
     ).toBe(false);
 
     expect(
       shouldAutoAdvanceLiveSlide({
-        analysis: { coverage: 1, lastSentenceMatched: false },
-        currentSlideIndex: 0,
-        slideCount: 2,
-        alreadyAdvanced: false
-      })
-    ).toBe(false);
-
-    expect(
-      shouldAutoAdvanceLiveSlide({
-        analysis: { coverage: 1, lastSentenceMatched: true },
+        analysis: { coverage: 1, missingKeywordIds: [] },
         currentSlideIndex: 1,
         slideCount: 2,
+        keywordCount: 1,
         alreadyAdvanced: false
       })
     ).toBe(false);
   });
 
-  it("lets explicit advance commands move to the next slide without script coverage", () => {
+  it("does not let advance commands bypass keyword coverage policy", () => {
     const state = createRehearsalCommandConfirmationState();
     const confirmedCommand = confirmRehearsalCommandCandidate(
       state,
@@ -766,17 +723,31 @@ describe("RehearsalWorkspace", () => {
     expect(confirmedCommand).toMatchObject({ action: "advance-slide" });
     expect(
       shouldAutoAdvanceLiveSlide({
-        analysis: { coverage: 0.2, lastSentenceMatched: false },
+        analysis: { coverage: 0.2, missingKeywordIds: ["kw_2", "kw_3"] },
         currentSlideIndex: 0,
         slideCount: 2,
+        keywordCount: 3,
         alreadyAdvanced: false
       })
     ).toBe(false);
     expect(
       shouldCompleteLiveSlideAdvance({
         confirmedCommand,
+        analysis: { coverage: 0.2, missingKeywordIds: ["kw_2", "kw_3"] },
         currentSlideIndex: 0,
-        slideCount: 2
+        slideCount: 2,
+        keywordCount: 3,
+        alreadyAdvanced: false
+      })
+    ).toBe(false);
+    expect(
+      shouldCompleteLiveSlideAdvance({
+        confirmedCommand,
+        analysis: { coverage: 0.8, missingKeywordIds: [] },
+        currentSlideIndex: 0,
+        slideCount: 2,
+        keywordCount: 3,
+        alreadyAdvanced: false
       })
     ).toBe(true);
     expect(
@@ -786,27 +757,6 @@ describe("RehearsalWorkspace", () => {
         confidence: null
       })
     ).toBeNull();
-  });
-
-  it("calculates script progress from speaker notes and requires the last sentence", () => {
-    const slide = {
-      ...createDemoDeck().slides[0]!,
-      speakerNotes:
-        "첫 번째 문장에서 ORBIT 흐름을 소개합니다. 마지막 문장에서 다음 슬라이드로 넘어갑니다."
-    };
-    const partialProgress = evaluateLiveScriptProgress(
-      slide,
-      "ORBIT 데모 흐름을 소개합니다"
-    );
-    const fullProgress = evaluateLiveScriptProgress(
-      slide,
-      "첫 번째 문장에서 ORBIT 흐름을 소개합니다 마지막 문장에서 다음 슬라이드로 넘어갑니다"
-    );
-
-    expect(partialProgress.coverage).toBeGreaterThan(0.3);
-    expect(partialProgress.lastSentenceMatched).toBe(false);
-    expect(fullProgress.coverage).toBe(1);
-    expect(fullProgress.lastSentenceMatched).toBe(true);
   });
 
   it("keeps the default sherpa adapter as an explicit unavailable shell", async () => {

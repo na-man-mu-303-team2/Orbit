@@ -58,10 +58,6 @@ type DeckValidationInput = {
       durationMs: number;
       delayMs: number;
       easing: string;
-      trigger?: {
-        source: string;
-        keywordId: string;
-      };
     }>;
   }>;
 };
@@ -124,11 +120,7 @@ const createValidDeck = (): DeckValidationInput => ({
           order: 1,
           durationMs: 400,
           delayMs: 0,
-          easing: "ease-out",
-          trigger: {
-            source: "keyword",
-            keywordId: "kw_1"
-          }
+          easing: "ease-out"
         }
       ]
     }

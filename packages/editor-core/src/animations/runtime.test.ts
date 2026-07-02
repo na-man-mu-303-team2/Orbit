@@ -8,10 +8,8 @@ import {
   buildAnimationSequence,
   completeAnimationRuntimeState,
   createInitialAnimationRuntimeState,
-  findFirstPendingKeywordAnimationStep,
   resetAnimationRuntimeState,
   resolveAnimationRenderState,
-  triggerAnimationRuntimeState,
 } from "./runtime";
 
 function createAnimationTestSlide(): Slide {
@@ -90,10 +88,6 @@ function createAnimationTestSlide(): Slide {
         durationMs: 500,
         delayMs: 120,
         easing: "ease-in-out",
-        trigger: {
-          source: "keyword",
-          keywordId: "kw_9",
-        },
       },
     ],
   };
@@ -114,10 +108,6 @@ describe("animation runtime", () => {
       "exit",
       "emphasis",
     ]);
-    expect(sequence.steps[2]?.trigger).toEqual({
-      source: "keyword",
-      keywordId: "kw_9",
-    });
   });
 
   it("computes initial render state from the first animation on each element", () => {
@@ -191,42 +181,5 @@ describe("animation runtime", () => {
     expect(resetState.currentStepIndex).toBe(0);
     expect(resetState.executedAnimationIds).toEqual([]);
     expect(resetState.lastTriggeredAnimationId).toBeNull();
-  });
-
-  it("finds and triggers the next pending keyword animation step", () => {
-    const slide = createAnimationTestSlide();
-    const sequence = buildAnimationSequence(slide);
-    const initialState = createInitialAnimationRuntimeState(sequence);
-    const keywordStep = findFirstPendingKeywordAnimationStep(
-      sequence,
-      initialState,
-      "kw_9",
-    );
-    const triggeredState = triggerAnimationRuntimeState(
-      sequence,
-      initialState,
-      "anim_3",
-    );
-
-    expect(keywordStep?.animationId).toBe("anim_3");
-    expect(triggeredState.executedAnimationIds).toEqual(["anim_3"]);
-    expect(triggeredState.currentStepIndex).toBe(0);
-    expect(triggeredState.lastTriggeredAnimationId).toBe("anim_3");
-  });
-
-  it("advances to the next pending step after an out-of-order trigger", () => {
-    const slide = createAnimationTestSlide();
-    const sequence = buildAnimationSequence(slide);
-    const initialState = createInitialAnimationRuntimeState(sequence);
-    const triggeredState = triggerAnimationRuntimeState(
-      sequence,
-      initialState,
-      "anim_3",
-    );
-    const advancedState = advanceAnimationRuntimeState(sequence, triggeredState);
-
-    expect(advancedState.executedAnimationIds).toEqual(["anim_3", "anim_1"]);
-    expect(advancedState.currentStepIndex).toBe(1);
-    expect(advancedState.lastTriggeredAnimationId).toBe("anim_1");
   });
 });
