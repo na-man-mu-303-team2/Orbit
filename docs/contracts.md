@@ -205,7 +205,7 @@ API:
 - 슬라이드 배경은 `slide.style.backgroundImage` > `slide.style.backgroundColor` > `deck.theme.backgroundColor` 순서로 해석한다.
 - `theme` 변경은 기존 `slide.style`이나 object props를 자동으로 덮어쓰지 않는다. 전체 테마 적용은 별도의 apply theme 동작으로 처리한다.
 - `slides`는 최소 1개 이상이어야 한다. 새 덱 생성 시에는 빈 덱 대신 기본 슬라이드 1장을 생성한다.
-- SlideSchema 필드는 `slideId`, `order`, `title`, `thumbnailUrl`, `estimatedSeconds`, `style`, `speakerNotes`, `elements`, `keywords`, `animations`를 유지한다.
+- SlideSchema 필드는 `slideId`, `order`, `title`, `thumbnailUrl`, `estimatedSeconds`, `style`, `speakerNotes`, `elements`, `keywords`, `animations`를 유지한다. `thumbnailUrl`은 imported/image-only slide처럼 `elements`가 비어 있는 발표자 렌더링 fallback에 사용할 수 있다.
 - `estimatedSeconds`는 슬라이드별 목표 발표 시간(초)이며 선택 필드다. 생략된 경우 presenter UI는 `targetDurationMinutes / slides.length` 기반 균등 분배로 폴백한다.
 - AI 생성 slide는 선택적 `aiNotes`를 포함할 수 있다. `aiNotes`는 `emphasisPoints`와 검토용 `sourceEvidence`만 담고, 디자인 전용 배열은 만들지 않는다.
 - `order`는 사용자에게 보이는 슬라이드 번호와 맞춰 `1`부터 시작하는 양의 정수로 관리한다. 배열 index가 필요하면 애플리케이션 내부에서 `order - 1`로 변환한다.
@@ -666,7 +666,7 @@ AI 덱 생성은 사용자 입력과 참고자료 fileId를 받아 비동기 Job
 - `url`은 임시로 로컬 경로를 쓰되, 이후 S3 signed URL로 교체할 수 있게 유지한다.
 - 업로드 요청은 `POST /api/v1/projects/:projectId/assets/upload-url`로 시작한다.
 - 업로드 완료 처리는 `POST /api/v1/projects/:projectId/assets/complete`에서 `fileId`를 받아 위 구조를 반환한다.
-- 1차 구현에서 허용하는 mime type은 purpose별로 제한한다. 문서/이미지 purpose는 PDF, PPTX, DOCX, JPEG, PNG, WebP를 허용하고 최대 크기는 50MiB다. `rehearsal-audio`는 report STT 경로에서 MP3, MP4, MPEG, MPGA, M4A, FLAC, WAV, WebM 계열만 허용한다. `REPORT_STT_PROVIDER=openai`의 기본/최대 크기는 25MB이고, `REPORT_STT_PROVIDER=whisperx`는 200MiB 기본값과 env 기반 상향을 허용한다.
+- 1차 구현에서 허용하는 mime type은 purpose별로 제한한다. 문서/이미지 purpose는 PDF, PPTX, DOCX, JPEG, PNG, WebP를 허용하고 최대 크기는 50MiB다. `rehearsal-audio`는 현재 구현된 OpenAI report STT 경로에서 MP3, MP4, MPEG, MPGA, M4A, FLAC, WAV, WebM 계열만 허용하며 기본/최대 크기는 25MB다. WhisperX 대용량 업로드 한도는 provider 구현이 들어가는 후속 작업에서 다시 연다.
 - upload URL을 발급한 뒤 complete가 호출되지 않은 파일은 `pending` metadata로 남기고, 정리 정책은 후속 작업에서 결정한다.
 - 분석이 끝난 `rehearsal-audio` raw object는 삭제하고, metadata는 `status=deleted`, `deletedAt`으로 추적한다.
 
@@ -695,9 +695,9 @@ AI 덱 생성은 사용자 입력과 참고자료 fileId를 받아 비동기 Job
 
 리허설 종료 뒤 녹음 파일을 전사하고 코칭 리포트를 생성한다.
 
-- STT provider env: `REPORT_STT_PROVIDER=openai | whisperx`
-- WhisperX env: `WHISPERX_API_URL`, `WHISPERX_API_KEY`, `WHISPERX_MODEL`
-- rehearsal audio limit env: `REHEARSAL_AUDIO_MAX_BYTES=25000000` when `REPORT_STT_PROVIDER=openai`; `209715200` is the WhisperX baseline.
+- STT provider env: `REPORT_STT_PROVIDER=openai`
+- WhisperX env: 후속 `ReportSttProvider` 구현 전까지 선택할 수 없다.
+- rehearsal audio limit env: `REHEARSAL_AUDIO_MAX_BYTES=25000000`
 - LLM provider env: `LLM_PROVIDER=openai`
 - 실행 위치: API/worker/Python worker
 - 목적: 억양, 말 속도, 톤, 발음, 키워드 누락, 청중 반응 등을 종합한 리포트와 코칭 생성

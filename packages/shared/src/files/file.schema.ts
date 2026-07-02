@@ -83,7 +83,12 @@ export function createAssetUploadUrlRequestSchema(
 ) {
   // 리허설 녹음 한도는 배포 환경별 env 설정을 따르므로 schema 생성 시 주입한다.
   const rehearsalAudioMaxBytes =
-    options.maxRehearsalAudioUploadSizeBytes ?? maxRehearsalAudioUploadSizeBytes;
+    options.maxRehearsalAudioUploadSizeBytes === undefined
+      ? maxRehearsalAudioUploadSizeBytes
+      : Math.min(
+          options.maxRehearsalAudioUploadSizeBytes,
+          maxRehearsalAudioUploadSizeBytes,
+        );
 
   return assetUploadUrlRequestBaseSchema.superRefine((value, context) => {
     const isAudio = rehearsalAudioMimeTypes.has(value.mimeType);

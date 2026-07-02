@@ -2104,8 +2104,8 @@ button:disabled {
 .rehearsal-presenter-shell .rehearsal-slide-controls {
   align-items: center;
   display: grid;
-  gap: 22px;
-  grid-template-columns: 42px auto 42px;
+  gap: 14px;
+  grid-template-columns: 42px auto minmax(96px, max-content) 42px;
   justify-content: center;
   padding-top: 8px;
 }
@@ -2117,7 +2117,15 @@ button:disabled {
   box-shadow: 0 4px 14px rgba(15, 23, 42, 0.1);
   color: #111827;
   height: 42px;
+  padding: 0 14px;
   width: 42px;
+}
+
+.rehearsal-presenter-shell .rehearsal-slide-controls button[aria-label="다음 애니메이션 스텝"] {
+  border-radius: 8px;
+  font-size: 0.82rem;
+  font-weight: 900;
+  width: auto;
 }
 
 .rehearsal-presenter-shell .rehearsal-slide-controls button:disabled {

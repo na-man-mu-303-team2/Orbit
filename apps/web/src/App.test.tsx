@@ -1,5 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import type { Job, Project } from "@orbit/shared";
+import type { ReactNode } from "react";
+import { forwardRef } from "react";
 import { describe, expect, it, vi } from "vitest";
 import {
   buildDesignReferences,
@@ -18,6 +20,31 @@ import {
   resolveGenerateDeckTargetProject,
   shouldRenderAppFrame
 } from "./App";
+
+vi.mock("react-konva", () => {
+  const Group = forwardRef<HTMLDivElement, { children?: ReactNode }>(
+    ({ children }, ref) => <div ref={ref}>{children}</div>
+  );
+  const Stage = forwardRef<HTMLDivElement, { children?: ReactNode }>(
+    ({ children }, ref) => <div ref={ref}>{children}</div>
+  );
+  const Text = ({ text }: { text?: string }) => <span>{text}</span>;
+
+  return {
+    Arrow: () => <span data-konva-arrow="true" />,
+    Circle: () => <span data-konva-circle="true" />,
+    Group,
+    Image: () => <span data-konva-image="true" />,
+    Layer: ({ children }: { children?: ReactNode }) => <div>{children}</div>,
+    Line: () => <span data-konva-line="true" />,
+    Rect: () => <span data-konva-rect="true" />,
+    RegularPolygon: () => <span data-konva-polygon="true" />,
+    Shape: () => <span data-konva-shape="true" />,
+    Star: () => <span data-konva-star="true" />,
+    Stage,
+    Text
+  };
+});
 
 describe("App shell routing", () => {
   it("keeps the login page outside the shared navigation shell", () => {

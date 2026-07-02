@@ -30,7 +30,8 @@ import {
 } from "../shared/editorAssetUrl";
 import {
   EditableCanvas,
-  HiddenSlideRenderStages
+  HiddenSlideRenderStages,
+  getRenderableSlideElements
 } from "../canvas/EditorCanvas";
 import {
   getCustomShapeAbsoluteNodes,
@@ -80,11 +81,7 @@ import type {
   DeckElement,
   DeckElementRole,
   DeckPatch,
-  AudienceAccessSession,
-  CreateAudienceAccessSessionResponse,
-  GetCurrentAudienceAccessSessionResponse,
   GroupElementProps,
-  ImageElementProps,
   ShapeElementProps,
   Slide,
   DeckApiErrorCode
@@ -116,23 +113,35 @@ import {
   Sparkles,
   Type,
   Upload,
-  Wand2,
-  X
+  Wand2
 } from "lucide-react";
 import type { ChangeEvent, CSSProperties, PointerEvent as ReactPointerEvent } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal, flushSync } from "react-dom";
-import QRCode from "qrcode";
 import { io } from "socket.io-client";
 import type { Socket as ClientSocket } from "socket.io-client";
+import { ValidationPanel } from "../ai/quality/ValidationPanel";
+import { getEditorValidationItems } from "../ai/quality/editorValidation";
+import { AudienceLinkModal } from "../audience-link/AudienceLinkModal";
 import { SuggestionPanel } from "../suggestions/components/SuggestionPanel";
+import { MultiSelectionQuickBar } from "./components/MultiSelectionQuickBar";
 import {
   mergeDeckIntoQueryCache,
   shouldApplyManualSaveResult,
   shouldHydrateDeckFromQuery
 } from "./utils/deckState";
+import {
+  createDistributeSelectionPatch,
+  type DistributeAxis
+} from "./utils/selectionDistribution";
 import { createThemeCascadePatch } from "./utils/themeCascadePatch";
 import "../editor-shell.css";
+
+export {
+  getEditorValidationItems,
+  type EditorValidationItem
+} from "../ai/quality/editorValidation";
+export { createDistributeSelectionPatch } from "./utils/selectionDistribution";
 
 interface HealthResponse {
   status: string;
@@ -209,7 +218,6 @@ const defaultImageInsertFrame = {
 };
 const editorImageAccept = ".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp";
 const editorImageMimeTypes = new Set(["image/jpeg", "image/png", "image/webp"]);
-const editorTextOverlapWarningRatio = 0.15;
 
 type TopMenu = "file" | "resize" | "editMode" | "quickEdit" | "presentation";
 type SlidePanelView = "thumbnail" | "list";
@@ -259,15 +267,6 @@ type ElementClipboardState = {
   element: DeckElement;
   pasteCount: number;
 };
-export type EditorValidationItem = {
-  elementId?: string;
-  elementIds?: string[];
-  level?: "warning";
-  message: string;
-  slideId?: string;
-  severity: "warning" | "risk";
-};
-type DistributeAxis = "x" | "y";
 type HistoryEntry = {
   deck: Deck;
   slideIndex: number;
@@ -697,47 +696,6 @@ function formatDebugDate(value: string) {
   return date.toLocaleString();
 }
 
-function formatAudienceExpiresAt(value: string) {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return value;
-  }
-
-  return new Intl.DateTimeFormat("ko-KR", {
-    hour: "2-digit",
-    minute: "2-digit",
-    month: "2-digit",
-    day: "2-digit",
-    hour12: false
-  }).format(date);
-}
-
-function formatAudienceTimeRemaining(value: string, nowMs = Date.now()) {
-  const expiresAt = new Date(value).getTime();
-  if (!Number.isFinite(expiresAt)) {
-    return "만료 시간 확인 필요";
-  }
-
-  const remainingMs = expiresAt - nowMs;
-  if (remainingMs <= 0) {
-    return "만료됨";
-  }
-
-  const totalMinutes = Math.ceil(remainingMs / (1000 * 60));
-  const hours = Math.floor(totalMinutes / 60);
-  const minutes = totalMinutes % 60;
-
-  if (hours <= 0) {
-    return `${minutes}분 남음`;
-  }
-
-  if (minutes === 0) {
-    return `${hours}시간 남음`;
-  }
-
-  return `${hours}시간 ${minutes}분 남음`;
-}
-
 function formatSessionRemaining(session: EditorSessionDebugState) {
   if (session.status === "idle" || session.status === "loading") {
     return session.message;
@@ -835,92 +793,6 @@ async function fetchEditorSessionDebug(): Promise<Exclude<EditorSessionDebugStat
   };
 }
 
-async function fetchCurrentAudienceAccessSession(
-  projectId: string
-): Promise<GetCurrentAudienceAccessSessionResponse> {
-  const response = await fetch(
-    `/api/v1/projects/${encodeURIComponent(projectId)}/presentation-sessions/current`,
-    {
-      credentials: "include"
-    }
-  );
-
-  if (!response.ok) {
-    throw await readResponseError(response, "Audience session fetch failed");
-  }
-
-  return response.json() as Promise<GetCurrentAudienceAccessSessionResponse>;
-}
-
-async function createAudienceAccessSession(args: {
-  expiresInHours: number;
-  passcode: string;
-  projectId: string;
-}): Promise<CreateAudienceAccessSessionResponse> {
-  const response = await fetch(
-    `/api/v1/projects/${encodeURIComponent(args.projectId)}/presentation-sessions`,
-    {
-      body: JSON.stringify({
-        expiresInHours: args.expiresInHours,
-        passcode: args.passcode
-      }),
-      credentials: "include",
-      headers: {
-        "content-type": "application/json"
-      },
-      method: "POST"
-    }
-  );
-
-  if (!response.ok) {
-    throw await readResponseError(response, "Audience session create failed");
-  }
-
-  return response.json() as Promise<CreateAudienceAccessSessionResponse>;
-}
-
-async function closeAudienceAccessSession(args: {
-  projectId: string;
-  sessionId: string;
-}): Promise<AudienceAccessSession> {
-  const response = await fetch(
-    `/api/v1/projects/${encodeURIComponent(
-      args.projectId
-    )}/presentation-sessions/${encodeURIComponent(args.sessionId)}/status`,
-    {
-      body: JSON.stringify({ status: "closed" }),
-      credentials: "include",
-      headers: {
-        "content-type": "application/json"
-      },
-      method: "PATCH"
-    }
-  );
-
-  if (!response.ok) {
-    throw await readResponseError(response, "Audience session close failed");
-  }
-
-  const payload = (await response.json()) as { session: AudienceAccessSession };
-  return payload.session;
-}
-
-function resolveAbsoluteAudienceUrl(audienceUrl: string) {
-  if (typeof window === "undefined") {
-    return audienceUrl;
-  }
-
-  return new URL(audienceUrl, window.location.origin).toString();
-}
-
-async function createQrDataUrl(value: string) {
-  return QRCode.toDataURL(value, {
-    errorCorrectionLevel: "M",
-    margin: 1,
-    width: 220
-  });
-}
-
 export function EditorShell(props: { projectId?: string }) {
   const projectId = props.projectId ?? demoIds.projectId;
   const queryClient = useQueryClient();
@@ -933,15 +805,6 @@ export function EditorShell(props: { projectId?: string }) {
   const [projectPresenceUsers, setProjectPresenceUsers] = useState<ProjectPresenceUser[]>([]);
   const [isPresenceDebugOpen, setIsPresenceDebugOpen] = useState(false);
   const [isAudienceLinkModalOpen, setIsAudienceLinkModalOpen] = useState(false);
-  const [audiencePasscode, setAudiencePasscode] = useState("");
-  const [audienceExpiresInHours, setAudienceExpiresInHours] = useState(2);
-  const [audienceSession, setAudienceSession] = useState<AudienceAccessSession | null>(null);
-  const [audienceUrl, setAudienceUrl] = useState("");
-  const [audienceQrDataUrl, setAudienceQrDataUrl] = useState("");
-  const [audienceLinkError, setAudienceLinkError] = useState("");
-  const [isAudienceLinkLoading, setIsAudienceLinkLoading] = useState(false);
-  const [isAudienceCloseConfirming, setIsAudienceCloseConfirming] = useState(false);
-  const [audienceNowMs, setAudienceNowMs] = useState(() => Date.now());
   const [lastPresenceAt, setLastPresenceAt] = useState<string | null>(null);
   const [socketErrorMessage, setSocketErrorMessage] = useState("");
   const [socketId, setSocketId] = useState("");
@@ -1083,123 +946,6 @@ export function EditorShell(props: { projectId?: string }) {
       isCancelled = true;
     };
   }, [isPresenceDebugOpen]);
-
-  useEffect(() => {
-    if (!isAudienceLinkModalOpen) {
-      return;
-    }
-
-    setAudienceNowMs(Date.now());
-    const timerId = window.setInterval(() => setAudienceNowMs(Date.now()), 60_000);
-
-    return () => window.clearInterval(timerId);
-  }, [isAudienceLinkModalOpen]);
-
-  useEffect(() => {
-    if (!isAudienceLinkModalOpen) {
-      return;
-    }
-
-    let isCancelled = false;
-    setAudienceLinkError("");
-    setIsAudienceCloseConfirming(false);
-    setIsAudienceLinkLoading(true);
-    void fetchCurrentAudienceAccessSession(projectId)
-      .then(async (payload) => {
-        if (isCancelled) {
-          return;
-        }
-
-        setAudienceSession(payload.session);
-        const nextAudienceUrl = payload.audienceUrl
-          ? resolveAbsoluteAudienceUrl(payload.audienceUrl)
-          : "";
-        setAudienceUrl(nextAudienceUrl);
-        setAudienceQrDataUrl(nextAudienceUrl ? await createQrDataUrl(nextAudienceUrl) : "");
-      })
-      .catch((error) => {
-        if (!isCancelled) {
-          setAudienceLinkError(toEditorErrorMessage(error));
-          setAudienceSession(null);
-          setAudienceUrl("");
-          setAudienceQrDataUrl("");
-        }
-      })
-      .finally(() => {
-        if (!isCancelled) {
-          setIsAudienceLinkLoading(false);
-        }
-      });
-
-    return () => {
-      isCancelled = true;
-    };
-  }, [isAudienceLinkModalOpen, projectId]);
-
-  function updateAudiencePasscode(value: string) {
-    setAudiencePasscode(value.replace(/\D/g, "").slice(0, 4));
-  }
-
-  async function handleCreateAudienceLink() {
-    if (!/^\d{4}$/.test(audiencePasscode) || isAudienceLinkLoading) {
-      setAudienceLinkError("4자리 숫자 비밀번호를 입력해 주세요.");
-      return;
-    }
-
-    setIsAudienceLinkLoading(true);
-    setAudienceLinkError("");
-
-    try {
-      const payload = await createAudienceAccessSession({
-        expiresInHours: audienceExpiresInHours,
-        passcode: audiencePasscode,
-        projectId
-      });
-      const nextAudienceUrl = resolveAbsoluteAudienceUrl(payload.audienceUrl);
-      setAudienceSession(payload.session);
-      setAudienceUrl(nextAudienceUrl);
-      setAudienceQrDataUrl(await createQrDataUrl(nextAudienceUrl));
-      setAudiencePasscode("");
-      setIsAudienceCloseConfirming(false);
-    } catch (error) {
-      setAudienceLinkError(toEditorErrorMessage(error));
-    } finally {
-      setIsAudienceLinkLoading(false);
-    }
-  }
-
-  async function handleCloseAudienceLink() {
-    if (!audienceSession || isAudienceLinkLoading) {
-      return;
-    }
-
-    setIsAudienceLinkLoading(true);
-    setAudienceLinkError("");
-
-    try {
-      await closeAudienceAccessSession({
-        projectId,
-        sessionId: audienceSession.sessionId
-      });
-      setAudienceSession(null);
-      setAudienceUrl("");
-      setAudienceQrDataUrl("");
-      setIsAudienceCloseConfirming(false);
-    } catch (error) {
-      setAudienceLinkError(toEditorErrorMessage(error));
-      setIsAudienceCloseConfirming(false);
-    } finally {
-      setIsAudienceLinkLoading(false);
-    }
-  }
-
-  async function handleCopyAudienceUrl() {
-    if (!audienceUrl || typeof navigator === "undefined" || !navigator.clipboard) {
-      return;
-    }
-
-    await navigator.clipboard.writeText(audienceUrl);
-  }
 
   const loadedDeck = deckQuery.data ?? fallbackDeck;
   const [deck, setDeck] = useState<Deck>(loadedDeck);
@@ -3499,195 +3245,11 @@ export function EditorShell(props: { projectId?: string }) {
             document.body
           )
         : null}
-      {isAudienceLinkModalOpen
-        ? createPortal(
-            <div
-              className="audience-link-modal-backdrop"
-              role="presentation"
-              onMouseDown={() => {
-                setIsAudienceCloseConfirming(false);
-                setIsAudienceLinkModalOpen(false);
-              }}
-            >
-              <section
-                aria-label="청중 링크와 QR"
-                aria-modal="true"
-                className="audience-link-modal"
-                role="dialog"
-                onMouseDown={(event) => event.stopPropagation()}
-              >
-                <header>
-                  <div>
-                    <strong>청중 링크/QR</strong>
-                    <span>4자리 입장 비밀번호로 보호되는 청중 입장 링크입니다.</span>
-                  </div>
-                  <button
-                    className="audience-link-close-button"
-                    type="button"
-                    aria-label="청중 링크 모달 닫기"
-                    onClick={() => {
-                      setIsAudienceCloseConfirming(false);
-                      setIsAudienceLinkModalOpen(false);
-                    }}
-                  >
-                    <X size={16} />
-                  </button>
-                </header>
-                {audienceSession && audienceUrl ? (
-                  <section className="audience-link-current">
-                    <div className="audience-link-status-row">
-                      <span
-                        className={`audience-link-status audience-link-status-${audienceSession.status}`}
-                      >
-                        {audienceSession.status === "open" ? "입장 열림" : "입장 닫힘"}
-                      </span>
-                    </div>
-                    <div className="audience-link-qr-frame">
-                      {audienceQrDataUrl ? (
-                        <img alt="청중 입장 QR 코드" src={audienceQrDataUrl} />
-                      ) : (
-                        <Share2 size={28} />
-                      )}
-                    </div>
-                    <div className="audience-link-expiry-summary">
-                      <strong>
-                        {formatAudienceTimeRemaining(
-                          audienceSession.expiresAt,
-                          audienceNowMs
-                        )}
-                      </strong>
-                      <span>만료 {formatAudienceExpiresAt(audienceSession.expiresAt)}</span>
-                    </div>
-                    <label className="audience-link-url-field">
-                      <span>주소 영역</span>
-                      <input readOnly value={audienceUrl} />
-                    </label>
-                    <div className="audience-link-actions">
-                      <button
-                        type="button"
-                        onClick={() => void handleCopyAudienceUrl()}
-                        disabled={!audienceUrl}
-                      >
-                        복사
-                      </button>
-                      <button
-                        className="audience-link-session-close"
-                        type="button"
-                        onClick={() => setIsAudienceCloseConfirming(true)}
-                        disabled={isAudienceLinkLoading || audienceSession.status === "closed"}
-                      >
-                        세션 닫기
-                      </button>
-                      <button
-                        className="audience-link-modal-dismiss"
-                        type="button"
-                        onClick={() => {
-                          setIsAudienceCloseConfirming(false);
-                          setIsAudienceLinkModalOpen(false);
-                        }}
-                      >
-                        닫기
-                      </button>
-                    </div>
-                  </section>
-                ) : null}
-                {isAudienceCloseConfirming ? (
-                  <div
-                    className="audience-link-confirm-backdrop"
-                    role="presentation"
-                    onMouseDown={() => setIsAudienceCloseConfirming(false)}
-                  >
-                    <section
-                      aria-label="세션 닫기 확인"
-                      aria-modal="true"
-                      className="audience-link-confirm-modal"
-                      role="alertdialog"
-                      onMouseDown={(event) => event.stopPropagation()}
-                    >
-                      <strong>세션을 닫을까요?</strong>
-                      <p>
-                        현재 청중 입장 링크가 닫히고, 이 QR 코드로는 더 이상 입장할 수
-                        없습니다.
-                      </p>
-                      <div className="audience-link-confirm-actions">
-                        <button
-                          type="button"
-                          onClick={() => setIsAudienceCloseConfirming(false)}
-                          disabled={isAudienceLinkLoading}
-                        >
-                          취소
-                        </button>
-                        <button
-                          className="audience-link-confirm-danger"
-                          type="button"
-                          onClick={() => void handleCloseAudienceLink()}
-                          disabled={isAudienceLinkLoading}
-                        >
-                          {isAudienceLinkLoading ? "닫는 중" : "세션 닫기"}
-                        </button>
-                      </div>
-                    </section>
-                  </div>
-                ) : null}
-                {!audienceSession ? (
-                  <section className="audience-link-create">
-                    <label>
-                      <span>입장 비밀번호</span>
-                      <div
-                        className="audience-pin-inputs"
-                        aria-label="4자리 입장 비밀번호"
-                      >
-                        <input
-                          aria-label="4자리 입장 비밀번호"
-                          inputMode="numeric"
-                          maxLength={4}
-                          pattern="[0-9]*"
-                          type="text"
-                          value={audiencePasscode}
-                          onChange={(event) => updateAudiencePasscode(event.target.value)}
-                        />
-                        {[0, 1, 2, 3].map((index) => (
-                          <span key={index} aria-hidden="true">
-                            {audiencePasscode[index] ?? ""}
-                          </span>
-                        ))}
-                      </div>
-                    </label>
-                    <label className="audience-expiry-field">
-                      <span>링크 유효시간</span>
-                      <select
-                        value={audienceExpiresInHours}
-                        onChange={(event) =>
-                          setAudienceExpiresInHours(Number(event.target.value))
-                        }
-                      >
-                        <option value={1}>1시간</option>
-                        <option value={2}>2시간</option>
-                        <option value={6}>6시간</option>
-                        <option value={12}>12시간</option>
-                        <option value={24}>24시간</option>
-                      </select>
-                    </label>
-                    <button
-                      className="audience-link-primary"
-                      type="button"
-                      onClick={() => void handleCreateAudienceLink()}
-                      disabled={isAudienceLinkLoading}
-                    >
-                      {isAudienceLinkLoading ? "처리 중..." : "QR코드 생성"}
-                    </button>
-                  </section>
-                ) : null}
-                {audienceLinkError ? (
-                  <p className="audience-link-error" role="alert">
-                    {audienceLinkError}
-                  </p>
-                ) : null}
-              </section>
-            </div>,
-            document.body
-          )
-        : null}
+      <AudienceLinkModal
+        isOpen={isAudienceLinkModalOpen}
+        projectId={projectId}
+        onClose={() => setIsAudienceLinkModalOpen(false)}
+      />
       {isPresenceDebugOpen
         ? createPortal(
             <div
@@ -4376,229 +3938,6 @@ function getSlideBackgroundSize(fit: NonNullable<Slide["style"]["backgroundImage
   return fit;
 }
 
-function MultiSelectionQuickBar(props: {
-  canDistribute: boolean;
-  selectedCount: number;
-  onDistributeX: () => void;
-  onDistributeY: () => void;
-}) {
-  return (
-    <section className="selection-quickbar" data-testid="editor-multi-selection-quickbar">
-      <div className="selection-quickbar-fields">
-        <span className="quickbar-inline-hint">
-          {props.selectedCount}개 선택됨
-        </span>
-        <button
-          className="quickbar-action-chip"
-          disabled={!props.canDistribute}
-          type="button"
-          onClick={props.onDistributeX}
-        >
-          가로 분배
-        </button>
-        <button
-          className="quickbar-action-chip"
-          disabled={!props.canDistribute}
-          type="button"
-          onClick={props.onDistributeY}
-        >
-          세로 분배
-        </button>
-      </div>
-    </section>
-  );
-}
-
-export function createDistributeSelectionPatch(
-  deck: Deck,
-  slide: Slide,
-  elements: DeckElement[],
-  axis: DistributeAxis
-): DeckPatch | null {
-  if (elements.length < 3) {
-    return null;
-  }
-
-  const sortedElements = [...elements].sort(
-    (left, right) => getElementCenter(left, axis) - getElementCenter(right, axis)
-  );
-  const firstCenter = getElementCenter(sortedElements[0], axis);
-  const lastCenter = getElementCenter(sortedElements[sortedElements.length - 1], axis);
-  const step = (lastCenter - firstCenter) / (sortedElements.length - 1);
-  const operations: DeckPatch["operations"] = sortedElements.map((element, index) => {
-    const center = firstCenter + step * index;
-    const nextPosition =
-      axis === "x"
-        ? Math.round(center - element.width / 2)
-        : Math.round(center - element.height / 2);
-
-    return {
-      type: "update_element_frame",
-      slideId: slide.slideId,
-      elementId: element.elementId,
-      frame: normalizeElementFrameDraft(
-        deck.canvas,
-        element,
-        axis === "x" ? { x: nextPosition } : { y: nextPosition }
-      )
-    };
-  });
-
-  return {
-    deckId: deck.deckId,
-    baseVersion: deck.version,
-    source: "user",
-    operations
-  };
-}
-
-function getElementCenter(element: DeckElement, axis: DistributeAxis) {
-  return axis === "x"
-    ? element.x + element.width / 2
-    : element.y + element.height / 2;
-}
-
-function ValidationPanel(props: { items: EditorValidationItem[] }) {
-  return (
-    <section className="suggestion-card">
-      <strong>검증</strong>
-      <div className="stack-list">
-        {props.items.length > 0 ? (
-          props.items.map((item, index) => (
-            <div className="stack-item compact" key={`${item.message}-${index}`}>
-              <span>{item.severity === "risk" ? "export risk" : "warning"}</span>
-              <strong>{item.message}</strong>
-              {item.elementId ? <small>{item.elementId}</small> : null}
-            </div>
-          ))
-        ) : (
-          <div className="stack-item compact">
-            <span>warning 없음</span>
-          </div>
-        )}
-      </div>
-    </section>
-  );
-}
-
-export function getEditorValidationItems(
-  deck: Deck,
-  slide?: Slide
-): EditorValidationItem[] {
-  const slides = slide ? [slide] : deck.slides;
-  return slides.flatMap((targetSlide) =>
-    getEditorSlideValidationItems(deck, targetSlide)
-  );
-}
-
-function getEditorSlideValidationItems(
-  deck: Deck,
-  slide: Slide
-): EditorValidationItem[] {
-  const backgroundColor = slide.style.backgroundColor ?? deck.theme.backgroundColor;
-  const items: EditorValidationItem[] = [];
-
-  for (const element of slide.elements) {
-    if (!element.visible) continue;
-
-    if (element.elementId.endsWith("_media_placeholder")) {
-      items.push({
-        elementId: element.elementId,
-        message: "이미지 자리 표시자가 남아 있습니다.",
-        severity: "warning"
-      });
-    }
-
-    if (element.type === "image" && !element.props.alt.trim()) {
-      items.push({
-        elementId: element.elementId,
-        message: "이미지 대체 텍스트가 비어 있습니다.",
-        severity: "warning"
-      });
-    }
-
-    if (element.type === "chart" && element.props.data.length === 0) {
-      items.push({
-        elementId: element.elementId,
-        message: "차트 데이터가 비어 있습니다.",
-        severity: "warning"
-      });
-    }
-
-    if (element.type === "text") {
-      if (isEditorTextOverflowing(element)) {
-        items.push({
-          elementId: element.elementId,
-          message: "텍스트가 상자 높이를 넘을 수 있습니다.",
-          severity: "warning"
-        });
-      }
-
-      const color = element.props.color ?? slide.style.textColor ?? deck.theme.textColor;
-      if (isHexColor(color) && isHexColor(backgroundColor) && contrastRatio(color, backgroundColor) < 4.5) {
-        items.push({
-          elementId: element.elementId,
-          message: "텍스트와 배경 대비가 낮습니다.",
-          severity: "warning"
-        });
-      }
-    }
-
-    if (shouldReportExportShapeRisk(element)) {
-      items.push({
-        elementId: element.elementId,
-        message: "내보내기에서 모양이 달라질 수 있습니다.",
-        severity: "risk"
-      });
-    }
-  }
-
-  items.push(...getEditorTextOverlapValidationItems(slide));
-
-  return items;
-}
-
-function shouldReportExportShapeRisk(element: DeckElement) {
-  if (element.type === "group") return true;
-  if (element.type !== "customShape") return false;
-  return !(element.role === "decoration" && element.elementId.includes("_imported_"));
-}
-
-function isEditorTextOverflowing(element: Extract<DeckElement, { type: "text" }>) {
-  const text = element.props.text;
-  if (!text) return false;
-
-  const fontSize = element.props.fontSize;
-  const characterWidth = Math.max(1, fontSize * 0.56);
-  const charactersPerLine = Math.max(1, Math.floor(element.width / characterWidth));
-  const estimatedLines = text
-    .split("\n")
-    .reduce(
-      (sum, line) => sum + Math.max(1, Math.ceil(line.length / charactersPerLine)),
-      0
-    );
-
-  return estimatedLines * fontSize * element.props.lineHeight > element.height * 1.08;
-}
-
-function isHexColor(value: string) {
-  return /^#[0-9a-f]{6}$/i.test(value);
-}
-
-function contrastRatio(first: string, second: string) {
-  const lighter = Math.max(relativeLuminance(first), relativeLuminance(second));
-  const darker = Math.min(relativeLuminance(first), relativeLuminance(second));
-  return (lighter + 0.05) / (darker + 0.05);
-}
-
-function relativeLuminance(color: string) {
-  const values = [1, 3, 5].map((index) => parseInt(color.slice(index, index + 2), 16) / 255);
-  const [red, green, blue] = values.map((value) =>
-    value <= 0.03928 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4
-  );
-  return 0.2126 * red + 0.7152 * green + 0.0722 * blue;
-}
-
 function clampBackgroundOverlayOpacity(opacity: number) {
   return Math.max(0, Math.min(1, 1 - opacity));
 }
@@ -4710,48 +4049,6 @@ function formatLastSavedAtLabel(lastSavedAt: string | null): string | null {
   }).format(date);
 }
 
-
-function getRenderableSlideElements(slide: Slide, canvas: DeckCanvas) {
-  const groupedChildElementIds = new Set<string>();
-
-  for (const element of slide.elements) {
-    if (element.type !== "group") {
-      continue;
-    }
-
-    const groupProps = element.props as GroupElementProps;
-
-    for (const childElementId of groupProps.childElementIds) {
-      groupedChildElementIds.add(childElementId);
-    }
-  }
-
-  return [...slide.elements]
-    .filter((element) => !groupedChildElementIds.has(element.elementId))
-    .map((element) => normalizeRenderableElement(canvas, element))
-    .sort((left, right) => left.zIndex - right.zIndex);
-}
-
-function normalizeRenderableElement(
-  canvas: DeckCanvas,
-  element: DeckElement
-): DeckElement {
-  const frame = normalizeElementFrameDraft(canvas, element, {});
-
-  return {
-    ...element,
-    role: frame.role ?? undefined,
-    x: frame.x ?? element.x,
-    y: frame.y ?? element.y,
-    width: frame.width ?? element.width,
-    height: frame.height ?? element.height,
-    rotation: frame.rotation ?? element.rotation,
-    opacity: frame.opacity ?? element.opacity,
-    zIndex: frame.zIndex ?? element.zIndex,
-    locked: frame.locked ?? element.locked,
-    visible: frame.visible ?? element.visible
-  };
-}
 
 function getNextElementZIndex(elements: DeckElement[]) {
   return (
@@ -4910,68 +4207,6 @@ function formatBytes(bytes: number) {
   return `${value.toFixed(value >= 10 || index === 0 ? 0 : 1)} ${units[index]}`;
 }
 
-function getEditorTextOverlapValidationItems(slide: Slide): EditorValidationItem[] {
-  const textElements = slide.elements.filter(isReadableEditorTextElement);
-  const items: EditorValidationItem[] = [];
-
-  for (let leftIndex = 0; leftIndex < textElements.length; leftIndex += 1) {
-    for (
-      let rightIndex = leftIndex + 1;
-      rightIndex < textElements.length;
-      rightIndex += 1
-    ) {
-      const first = textElements[leftIndex];
-      const second = textElements[rightIndex];
-
-      if (getElementOverlapRatio(first, second) < editorTextOverlapWarningRatio) {
-        continue;
-      }
-
-      items.push({
-        elementIds: [first.elementId, second.elementId],
-        level: "warning",
-        severity: "warning",
-          message: "텍스트 요소가 겹쳐 읽기 어려울 수 있습니다.",
-          slideId: slide.slideId
-      });
-    }
-  }
-
-  return items;
-}
-
-function isReadableEditorTextElement(element: DeckElement) {
-  return (
-    element.type === "text" &&
-    element.visible !== false &&
-    element.role !== "footer" &&
-    element.props.text.trim().length > 0
-  );
-}
-
-function getElementOverlapRatio(first: DeckElement, second: DeckElement) {
-  const firstArea = getElementArea(first);
-  const secondArea = getElementArea(second);
-
-  if (firstArea <= 0 || secondArea <= 0) {
-    return 0;
-  }
-
-  const left = Math.max(first.x, second.x);
-  const top = Math.max(first.y, second.y);
-  const right = Math.min(first.x + first.width, second.x + second.width);
-  const bottom = Math.min(first.y + first.height, second.y + second.height);
-
-  return (
-    (Math.max(0, right - left) * Math.max(0, bottom - top)) /
-    Math.min(firstArea, secondArea)
-  );
-}
-
-function getElementArea(element: DeckElement) {
-  return Math.max(0, element.width) * Math.max(0, element.height);
-}
-
 function toEditorErrorMessage(error: unknown) {
   return error instanceof Error ? error.message : "알 수 없는 오류가 발생했습니다.";
 }
@@ -5020,81 +4255,4 @@ function getDefaultImageInsertFrame(
     x: Math.max(40, Math.round((canvas.width - width) / 2)),
     y: Math.max(40, Math.round((canvas.height - height) / 2))
   };
-}
-
-export function getImageElementLayout(args: {
-  fit: ImageElementProps["fit"];
-  focusX?: number;
-  focusY?: number;
-  frameHeight: number;
-  frameWidth: number;
-  imageHeight: number;
-  imageWidth: number;
-}) {
-  const { fit, focusX = 0.5, focusY = 0.5, frameHeight, frameWidth, imageHeight, imageWidth } = args;
-
-  if (fit === "stretch") {
-    return {
-      crop: undefined,
-      height: frameHeight,
-      width: frameWidth,
-      x: 0,
-      y: 0
-    };
-  }
-
-  if (fit === "contain") {
-    const scale = Math.min(frameWidth / imageWidth, frameHeight / imageHeight);
-    const width = imageWidth * scale;
-    const height = imageHeight * scale;
-
-    return {
-      crop: undefined,
-      height,
-      width,
-      x: (frameWidth - width) / 2,
-      y: (frameHeight - height) / 2
-    };
-  }
-
-  const frameRatio = frameWidth / frameHeight;
-  const imageRatio = imageWidth / imageHeight;
-
-  if (imageRatio > frameRatio) {
-    const cropWidth = imageHeight * frameRatio;
-    const maxCropX = Math.max(0, imageWidth - cropWidth);
-
-    return {
-      crop: {
-        height: imageHeight,
-        width: cropWidth,
-        x: maxCropX * clampUnit(focusX),
-        y: 0
-      },
-      height: frameHeight,
-      width: frameWidth,
-      x: 0,
-      y: 0
-    };
-  }
-
-  const cropHeight = imageWidth / frameRatio;
-  const maxCropY = Math.max(0, imageHeight - cropHeight);
-
-  return {
-    crop: {
-      height: cropHeight,
-      width: imageWidth,
-      x: 0,
-      y: maxCropY * clampUnit(focusY)
-    },
-    height: frameHeight,
-    width: frameWidth,
-    x: 0,
-    y: 0
-  };
-}
-
-function clampUnit(value: number) {
-  return Math.max(0, Math.min(1, Number.isFinite(value) ? value : 0.5));
 }
