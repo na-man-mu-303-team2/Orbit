@@ -11,6 +11,7 @@ export * from "./deck/generate-deck.schema";
 export * from "./deck/id.schema";
 export * from "./deck/patch.schema";
 export * from "./deck/slide-object.schema";
+export * from "./deck/template-blueprint.schema";
 export * from "./deck/theme.schema";
 export * from "./files/file.schema";
 export * from "./jobs/job.schema";

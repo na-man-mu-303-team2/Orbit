@@ -575,6 +575,7 @@ AI 덱 생성은 사용자 입력과 참고자료 fileId를 받아 비동기 Job
   },
   "references": [{ "fileId": "file_1" }],
   "designReferences": [{ "fileId": "file_design_1" }],
+  "templateBlueprintId": "template_file_design_1",
   "referenceKeywords": [{ "text": "실시간 발표 피드백" }]
 }
 ```
@@ -601,6 +602,7 @@ AI 덱 생성은 사용자 입력과 참고자료 fileId를 받아 비동기 Job
 - API 시작점은 `POST /api/v1/projects/:projectId/jobs/generate-deck`이다.
 - Job type은 기존 `ai-deck-generation`을 사용하고 상태값은 공통 `queued`, `running`, `succeeded`, `failed`만 사용한다.
 - 요청의 `references`는 `{ fileId: string }[]`이며 비어 있으면 topic-only generation으로 처리한다.
+- 요청의 `templateBlueprintId`는 선택 필드이며, AI 생성에 템플릿 의미 정보를 직접 넣지 않고 저장된 `TemplateBlueprint` sidecar만 참조한다.
 - 요청의 `referenceKeywords`는 `{ text: string }[]` 선택 필드이며 기본값은 `[]`이다. 참고자료 처리 결과의 주요 키워드를 전달할 때 사용한다.
 - 요청의 `designPrompt`는 선택 필드이며 기본값은 없다. 값이 있으면 콘텐츠 지시가 아니라 시각 스타일 지시로만 사용하고, LLM은 `visualIntent.paletteHint`에 `background:#RRGGBB` 같은 검증 가능한 theme token을 제안한다.
 - 기존 클라이언트처럼 `designPrompt` 없이 `prompt`만 보내는 요청은 계속 허용한다. worker는 하위 호환을 위해 명확한 디자인 문구만 fallback으로 분리하고, 분리되지 않은 값은 기존 콘텐츠 prompt로 처리한다.
@@ -624,6 +626,7 @@ AI 덱 생성은 사용자 입력과 참고자료 fileId를 받아 비동기 Job
 - Python worker는 source data가 없는 chart 숫자를 임의 생성하지 않는다. 근거 데이터가 없으면 `chart.props.data: []`인 editable chart placeholder와 `warnings`/`validation.designIssues`를 남긴다.
 - `validation.designIssues`는 overflow, contrast, collision, safe area, density, placeholder media, chart data provenance 같은 advisory warning을 담는다. 이 warning이 있어도 `validation.passed`가 true이면 worker는 deck을 저장한다.
 - worker는 Python 응답을 shared `generateDeckResponseSchema`와 `deckSchema`로 검증한 뒤 `decks`에 저장하고 job result에 `{ deckId, deck, warnings, validation }`을 저장한다.
+- 후속 AI 생성이 템플릿을 사용할 때는 `TemplateBlueprint.slots` 중 `usage`가 `content-slot` 또는 `media-slot`이고 `replaceMode`가 `replace`인 slot만 수정한다. `fixed-text`, `decoration`, `preserve`, 낮은 confidence slot은 수정하지 않는다.
 
 구현 위치:
 
@@ -631,6 +634,93 @@ AI 덱 생성은 사용자 입력과 참고자료 fileId를 받아 비동기 Job
 - `services/python-worker/app/ai/generate_deck.py`
 - `apps/api/src/generate-deck`
 - `apps/worker/src/generate-deck.processor.ts`
+
+## PPTX import, Template Blueprint, Quality Report 계약
+
+PPTX import는 최종 편집/렌더링용 `Deck`과 템플릿 의미 sidecar인 `TemplateBlueprint`를 분리한다. `Deck`/`DeckElement` schema는 변경하지 않고, 템플릿 의미 판단은 `packages/shared/src/deck/template-blueprint.schema.ts`의 sidecar를 원본으로 둔다.
+
+API:
+
+- `POST /api/v1/projects/:projectId/pptx-imports`
+- request: `{ "fileId": "file_1" }`
+- response: `{ "job": "{ JobSchema }" }`
+- Job type: `pptx-import`
+
+PPTX import job result:
+
+```json
+{
+  "deckId": "deck_import_file_1",
+  "templateId": "template_file_1",
+  "qualityReport": {
+    "compositeScore": 82,
+    "metrics": {
+      "geometry": 90,
+      "text": 80,
+      "color": 80,
+      "layer": 90,
+      "editability": 60,
+      "pixelSimilarity": null
+    },
+    "weights": {
+      "geometry": 25,
+      "text": 15,
+      "color": 10,
+      "layer": 10,
+      "editability": 10,
+      "pixelSimilarity": 30
+    },
+    "editabilityCoverage": 0.6,
+    "appliedCap": null,
+    "notes": ["pixel renderer unavailable"]
+  },
+  "warnings": []
+}
+```
+
+TemplateBlueprint:
+
+```json
+{
+  "templateId": "template_file_1",
+  "sourceFileId": "file_1",
+  "slides": [
+    {
+      "slideIndex": 1,
+      "sourceSlideIndex": 1,
+      "slots": [
+        {
+          "elementId": "el_imported_1_slide_1_text",
+          "usage": "content-slot",
+          "slotRole": "title",
+          "replaceMode": "replace",
+          "confidence": 0.95,
+          "bounds": { "x": 120, "y": 80, "width": 800, "height": 120 },
+          "source": { "type": "placeholder", "placeholderType": "title" }
+        }
+      ]
+    }
+  ]
+}
+```
+
+결정 사항:
+
+- Python worker의 `/design/import-pptx`는 기존 `blueprint`, `assets`, `warnings`와 함께 `templateBlueprint`, `qualityReport`를 반환한다.
+- Worker는 imported image asset을 기존 `design-asset` 저장 흐름으로 저장하고 asset ref를 API asset content URL로 교체한 뒤 `DeckSchema`로 검증해 `decks`에 저장한다.
+- `templateBlueprint`와 `qualityReport`는 `template_blueprints` 테이블에 저장한다.
+- placeholder `p:ph`에서 온 텍스트/미디어는 `content-slot` 또는 `media-slot`과 `replace`로 분류한다.
+- master/layout 유래 요소, 반복 텍스트, 직접 그린 애매한 텍스트 박스는 기본적으로 `decoration` 또는 `fixed-text`이며 `preserve`/`ignore`와 낮은 confidence를 사용한다.
+- Quality composite score는 geometry 25, text 15, color 10, layer 10, editability 10, pixel similarity 30 가중치를 사용한다.
+- pixel renderer가 없으면 `pixelSimilarity: null`로 두고 나머지 항목을 재가중한다.
+- `editabilityCoverage < 0.5`면 총점 cap 70, `< 0.2`면 cap 50을 적용해 whole-slide image 변환이 높은 점수를 받지 못하게 한다.
+
+구현 위치:
+
+- `packages/shared/src/deck/template-blueprint.schema.ts`
+- `services/python-worker/app/ai/pptx_design_importer.py`
+- `apps/api/src/pptx-imports`
+- `apps/worker/src/pptx-import.processor.ts`
 
 ## 파일 업로드 결과 구조
 

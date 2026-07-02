@@ -7,6 +7,7 @@ import {
   deckSchema
 } from "./deck.schema";
 import { deckIdSchema } from "./id.schema";
+import { templateBlueprintIdSchema } from "./template-blueprint.schema";
 
 export const generateDeckTemplateSchema = z.enum([
   "default",
@@ -82,6 +83,7 @@ export const generateDeckRequestSchema = z.object({
   design: generateDeckDesignSchema,
   references: z.array(generateDeckReferenceSchema).default([]),
   designReferences: z.array(generateDeckReferenceSchema).default([]),
+  templateBlueprintId: templateBlueprintIdSchema.optional(),
   referenceKeywords: z.array(generateDeckReferenceKeywordSchema).default([])
 });
 

@@ -41,6 +41,15 @@ describe("generateDeckRequestSchema", () => {
     expect(request.designReferences).toEqual([{ fileId: "file_design" }]);
   });
 
+  it("accepts only a template blueprint id for imported template semantics", () => {
+    const request = generateDeckRequestSchema.parse({
+      topic: "AI deck generation",
+      templateBlueprintId: "template_file_design"
+    });
+
+    expect(request.templateBlueprintId).toBe("template_file_design");
+  });
+
   it("normalizes design direction defaults", () => {
     const request = generateDeckRequestSchema.parse({
       topic: "AI deck generation",

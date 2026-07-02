@@ -11,6 +11,7 @@ import { createApiLoggerParams } from "./logging";
 import { databaseOptions } from "./database/data-source";
 import { ExtractModule } from "./extract/extract.module";
 import { GenerateDeckModule } from "./generate-deck/generate-deck.module";
+import { PptxImportsModule } from "./pptx-imports/pptx-imports.module";
 import { ProjectsModule } from "./projects/projects.module";
 import { PresentationSessionsModule } from "./presentation-sessions/presentation-sessions.module";
 import { ReferencesModule } from "./references/references.module";
@@ -29,6 +30,7 @@ import { RehearsalsModule } from "./rehearsals/rehearsals.module";
     FilesModule,
     ExtractModule,
     GenerateDeckModule,
+    PptxImportsModule,
     JobsModule,
     PresentationSessionsModule,
     ReferencesModule,
