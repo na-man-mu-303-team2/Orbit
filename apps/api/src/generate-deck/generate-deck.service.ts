@@ -4,8 +4,9 @@ import {
 } from "@orbit/job-queue";
 import { generateDeckRequestSchema, jobSchema } from "@orbit/shared";
 import { loadOrbitConfig } from "@orbit/config";
-import { Injectable, Optional } from "@nestjs/common";
+import { BadRequestException, Injectable, Optional } from "@nestjs/common";
 import { z } from "zod";
+import { FilesService } from "../files/files.service";
 import { JobsService } from "../jobs/jobs.service";
 import { ProjectsService } from "../projects/projects.service";
 
@@ -14,6 +15,8 @@ const generateDeckJobResponseSchema = z.object({
 });
 
 type GenerateDeckJobResponse = z.infer<typeof generateDeckJobResponseSchema>;
+const pptxMimeType =
+  "application/vnd.openxmlformats-officedocument.presentationml.presentation";
 
 @Injectable()
 export class GenerateDeckService {
@@ -25,7 +28,9 @@ export class GenerateDeckService {
     @Optional()
     private readonly enqueueJob: (
       input: EnqueueGenerateDeckJobInput
-    ) => Promise<void> = enqueueGenerateDeckJob
+    ) => Promise<void> = enqueueGenerateDeckJob,
+    @Optional()
+    private readonly filesService?: FilesService
   ) {}
 
   async createJob(
@@ -35,6 +40,7 @@ export class GenerateDeckService {
     await this.projectsService.getAccessibleProject(projectId);
 
     const request = generateDeckRequestSchema.parse(body);
+    await this.assertDesignReferences(projectId, request.designReferences);
     const queuedJob = await this.jobsService.create({
       projectId,
       type: "ai-deck-generation",
@@ -66,5 +72,26 @@ export class GenerateDeckService {
     }
 
     return generateDeckJobResponseSchema.parse({ job: queuedJob });
+  }
+
+  private async assertDesignReferences(
+    projectId: string,
+    designReferences: Array<{ fileId: string }>
+  ): Promise<void> {
+    if (designReferences.length === 0) return;
+    if (!this.filesService) {
+      throw new BadRequestException("Design reference validation is unavailable.");
+    }
+
+    for (const reference of designReferences) {
+      const asset = await this.filesService.getUploadedAsset(
+        projectId,
+        reference.fileId
+      );
+
+      if (asset.mimeType !== pptxMimeType) {
+        throw new BadRequestException("Design references must be uploaded PPTX files.");
+      }
+    }
   }
 }

@@ -1,3 +1,4 @@
+import type { StoragePort } from "@orbit/storage";
 import type { DataSource } from "typeorm";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { processGenerateDeckJob } from "./generate-deck.processor";
@@ -13,9 +14,21 @@ const payload = {
   }
 };
 
+const storage: Pick<StoragePort, "getSignedReadUrl" | "putObject"> = {
+  getSignedReadUrl: vi.fn(async () => "http://storage.local/design.pptx"),
+  putObject: vi.fn(async (input: { key: string; contentType: string }) => ({
+    key: input.key,
+    url: "http://storage.local/design-asset.png",
+    contentType: input.contentType,
+    purpose: "design-asset" as const,
+    size: 4
+  }))
+};
+
 describe("processGenerateDeckJob", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
+    vi.clearAllMocks();
   });
 
   it("calls Python deck generation, saves the deck, and stores job results", async () => {
@@ -58,6 +71,7 @@ describe("processGenerateDeckJob", () => {
 
     const job = await processGenerateDeckJob(
       { query } as unknown as DataSource,
+      storage,
       "http://localhost:8000",
       payload
     );
@@ -95,6 +109,7 @@ describe("processGenerateDeckJob", () => {
 
     const job = await processGenerateDeckJob(
       { query } as unknown as DataSource,
+      storage,
       "http://localhost:8000",
       payload
     );
@@ -103,9 +118,208 @@ describe("processGenerateDeckJob", () => {
     expect(job.error?.message).toBe("bad generation");
     expect(query).toHaveBeenCalledTimes(2);
   });
+
+  it("imports PPTX design references and stores derived images before generation", async () => {
+    const deck = createDeck({
+      metadata: {
+        language: "ko",
+        locale: "ko-KR",
+        sourceType: "ai",
+        generatedBy: "ai",
+        createdFrom: {
+          topic: "AI ???앹꽦",
+          references: [{ fileId: "file_1" }],
+          designReferences: [{ fileId: "file_design" }]
+        }
+      },
+      slides: [
+        {
+          slideId: "slide_1",
+          order: 1,
+          title: "AI ???앹꽦",
+          thumbnailUrl: "",
+          style: {},
+          speakerNotes: "notes",
+          elements: [
+            {
+              elementId: "el_1_imported_image_1",
+              type: "image",
+              role: "media",
+              x: 100,
+              y: 100,
+              width: 320,
+              height: 180,
+              rotation: 0,
+              opacity: 1,
+              zIndex: 1,
+              locked: false,
+              visible: true,
+              props: {
+                src: "/api/v1/projects/project-a/assets/file_design_asset/content",
+                alt: "Imported image",
+                fit: "contain"
+              }
+            }
+          ],
+          keywords: [],
+          animations: [],
+          aiNotes: {
+            emphasisPoints: ["message"],
+            sourceEvidence: [{ fileId: "file_1" }]
+          }
+        }
+      ]
+    });
+    const deckValidation = validation();
+    const query = vi.fn(async (sql: string, params: unknown[]) => {
+      if (sql.includes("UPDATE jobs")) {
+        return [jobRow(params[1] as "running" | "succeeded" | "failed", params[2] as number, params[4] as Record<string, unknown> | null, params[5] as { code: string; message: string } | null)];
+      }
+      if (sql.includes("FROM project_assets")) {
+        return [
+          {
+            file_id: "file_design",
+            project_id: "project-a",
+            storage_key: "projects/project-a/assets/file_design-template.pptx",
+            mime_type:
+              "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+            original_name: "template.pptx",
+            size: 12,
+            purpose: "pptx-import",
+            status: "uploaded"
+          }
+        ];
+      }
+      return [];
+    });
+    const fetchMock = vi.fn(async (input: string | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === "http://storage.local/design.pptx") {
+        return new Response("pptx-bytes");
+      }
+      if (url.endsWith("/design/import-pptx")) {
+        return new Response(
+          JSON.stringify({
+            blueprint: {
+              slides: [
+                {
+                  elements: [
+                    {
+                      type: "image",
+                      props: { src: "asset:image_1" }
+                    }
+                  ]
+                }
+              ]
+            },
+            assets: [
+              {
+                assetId: "image_1",
+                fileName: "image.png",
+                mimeType: "image/png",
+                contentBase64: Buffer.from("img").toString("base64")
+              }
+            ],
+            warnings: []
+          })
+        );
+      }
+
+      expect(url).toBe("http://localhost:8000/ai/generate-deck");
+      expect(JSON.parse(String(init?.body))).toMatchObject({
+        designReferences: [{ fileId: "file_design" }],
+        designBlueprint: {
+          slides: [
+            {
+              elements: [
+                {
+                  props: {
+                    src: expect.stringMatching(
+                      /^\/api\/v1\/projects\/project-a\/assets\/file_/
+                    )
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      });
+      return new Response(JSON.stringify({ deck, warnings: [], validation: deckValidation }));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const job = await processGenerateDeckJob(
+      { query } as unknown as DataSource,
+      storage,
+      "http://localhost:8000",
+      {
+        ...payload,
+        request: {
+          ...payload.request,
+          designReferences: [{ fileId: "file_design" }]
+        }
+      }
+    );
+
+    expect(job.status).toBe("succeeded");
+    expect(storage.getSignedReadUrl).toHaveBeenCalledWith(
+      "projects/project-a/assets/file_design-template.pptx"
+    );
+    expect(storage.putObject).toHaveBeenCalledWith(
+      expect.objectContaining({
+        contentType: "image/png",
+        purpose: "design-asset"
+      })
+    );
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://localhost:8000/design/import-pptx",
+      expect.objectContaining({ method: "POST" })
+    );
+  });
+
+  it("fails when a design reference is not an uploaded PPTX asset", async () => {
+    const query = vi.fn(async (sql: string, params: unknown[]) => {
+      if (sql.includes("UPDATE jobs")) {
+        return [jobRow(params[1] as "running" | "succeeded" | "failed", params[2] as number, params[4] as Record<string, unknown> | null, params[5] as { code: string; message: string } | null)];
+      }
+      if (sql.includes("FROM project_assets")) {
+        return [
+          {
+            file_id: "file_design",
+            project_id: "project-a",
+            storage_key: "projects/project-a/assets/file_design.pdf",
+            mime_type: "application/pdf",
+            original_name: "template.pdf",
+            size: 12,
+            purpose: "reference-material",
+            status: "uploaded"
+          }
+        ];
+      }
+      return [];
+    });
+    vi.stubGlobal("fetch", vi.fn());
+
+    const job = await processGenerateDeckJob(
+      { query } as unknown as DataSource,
+      storage,
+      "http://localhost:8000",
+      {
+        ...payload,
+        request: {
+          ...payload.request,
+          designReferences: [{ fileId: "file_design" }]
+        }
+      }
+    );
+
+    expect(job.status).toBe("failed");
+    expect(job.error?.code).toBe("GENERATE_DECK_DESIGN_REFERENCE_FAILED");
+    expect(fetch).not.toHaveBeenCalled();
+  });
 });
 
-function createDeck() {
+function createDeck(overrides: Record<string, unknown> = {}) {
   return {
     deckId: "deck_ai_1",
     projectId: "project-a",
@@ -143,7 +357,8 @@ function createDeck() {
           sourceEvidence: [{ fileId: "file_1" }]
         }
       }
-    ]
+    ],
+    ...overrides
   };
 }
 
