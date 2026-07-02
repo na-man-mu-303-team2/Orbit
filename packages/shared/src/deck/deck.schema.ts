@@ -166,6 +166,7 @@ export const slideSchema = z.object({
   order: slideOrderSchema,
   title: z.string().default(""),
   thumbnailUrl: z.string().default(""),
+  estimatedSeconds: z.number().int().positive().optional(),
   style: slideStyleSchema,
   speakerNotes: z.string().default(""),
   elements: z.array(deckElementSchema).default([]),
@@ -180,6 +181,7 @@ export const deckSchema = z.object({
   title: z.string().min(1),
   version: z.number().int().positive(),
   metadata: deckMetadataSchema.default({}),
+  targetDurationMinutes: z.number().int().positive().default(10),
   canvas: deckCanvasSchema,
   theme: themeSchema.default({}),
   slides: z.array(slideSchema).min(1)

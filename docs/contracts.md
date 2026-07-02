@@ -86,6 +86,7 @@ API:
   "projectId": "project_demo_1",
   "title": "Demo Deck",
   "version": 1,
+  "targetDurationMinutes": 10,
   "metadata": {
     "language": "ko",
     "locale": "ko-KR"
@@ -127,6 +128,7 @@ API:
       "order": 1,
       "title": "Opening",
       "thumbnailUrl": "/files/thumbnails/slide_1.png",
+      "estimatedSeconds": 60,
       "style": {
         "layout": "title-content",
         "backgroundColor": "#ffffff"
@@ -173,9 +175,10 @@ API:
 
 결정 사항:
 
-- DeckSchema 최상위 필드는 `deckId`, `projectId`, `title`, `version`, `metadata`, `canvas`, `theme`, `slides`로 구성한다.
+- DeckSchema 최상위 필드는 `deckId`, `projectId`, `title`, `version`, `metadata`, `targetDurationMinutes`, `canvas`, `theme`, `slides`로 구성한다.
 - `deckId`, `projectId`, `title`, `version`, `canvas`, `slides`는 필수로 검증한다.
 - `metadata`, `theme`는 생성 입력에서 생략할 수 있지만, schema parse 후 normalized Deck JSON에는 항상 포함한다.
+- `targetDurationMinutes`는 발표 전체 목표 시간(분)이며 양의 정수만 허용한다. 생략 시 AI 덱 생성 요청 기본값과 같은 `10`으로 정규화한다.
 - `width`, `height`는 top-level에 두지 않고 반드시 `canvas.width`, `canvas.height`로 둔다.
 - 지원하는 deck canvas preset은 `wide-16-9`와 `standard-4-3`이다.
 - `wide-16-9`는 `1920x1080`, `standard-4-3`은 `1024x768`만 허용한다.
@@ -202,7 +205,8 @@ API:
 - 슬라이드 배경은 `slide.style.backgroundImage` > `slide.style.backgroundColor` > `deck.theme.backgroundColor` 순서로 해석한다.
 - `theme` 변경은 기존 `slide.style`이나 object props를 자동으로 덮어쓰지 않는다. 전체 테마 적용은 별도의 apply theme 동작으로 처리한다.
 - `slides`는 최소 1개 이상이어야 한다. 새 덱 생성 시에는 빈 덱 대신 기본 슬라이드 1장을 생성한다.
-- SlideSchema 필드는 `slideId`, `order`, `title`, `thumbnailUrl`, `style`, `speakerNotes`, `elements`, `keywords`, `animations`를 유지한다.
+- SlideSchema 필드는 `slideId`, `order`, `title`, `thumbnailUrl`, `estimatedSeconds`, `style`, `speakerNotes`, `elements`, `keywords`, `animations`를 유지한다.
+- `estimatedSeconds`는 슬라이드별 목표 발표 시간(초)이며 선택 필드다. 생략된 경우 presenter UI는 `targetDurationMinutes / slides.length` 기반 균등 분배로 폴백한다.
 - AI 생성 slide는 선택적 `aiNotes`를 포함할 수 있다. `aiNotes`는 `emphasisPoints`와 검토용 `sourceEvidence`만 담고, 디자인 전용 배열은 만들지 않는다.
 - `order`는 사용자에게 보이는 슬라이드 번호와 맞춰 `1`부터 시작하는 양의 정수로 관리한다. 배열 index가 필요하면 애플리케이션 내부에서 `order - 1`로 변환한다.
 - 1차 스프린트 MVP에서는 슬라이드별 크기 override를 허용하지 않는다. 모든 슬라이드는 deck top-level의 `canvas` 크기와 비율을 따른다.
