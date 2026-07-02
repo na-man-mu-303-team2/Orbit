@@ -7,6 +7,7 @@ import {
   buildDesignReferences,
   buildGenerateDeckPayload,
   buildGenerateDeckDesignDirection,
+  buildPptxOoxmlGenerationPayload,
   buildReferenceGenerationInput,
   createGeneratedDeckProject,
   ExtractResultItem,
@@ -14,6 +15,8 @@ import {
   getGeneratedDeckProjectPath,
   getGeneratedDeckProjectTitle,
   getGenerateDeckJobResult,
+  getPptxOoxmlGeneratedProjectPath,
+  getPptxOoxmlGenerationJobResult,
   getJobResultFiles,
   getRoute,
   mergeGeneratedProjectList,
@@ -173,6 +176,77 @@ describe("reference extraction upload flow", () => {
 });
 
 describe("AI deck generation flow", () => {
+  it("builds a PPTX OOXML generation payload without old generate-deck fields", () => {
+    expect(
+      buildPptxOoxmlGenerationPayload({
+        fileId: "file_template",
+        topic: " ORBIT ",
+        prompt: " Keep source package "
+      })
+    ).toEqual({
+      fileId: "file_template",
+      topic: "ORBIT",
+      prompt: "Keep source package"
+    });
+    expect(
+      buildPptxOoxmlGenerationPayload({
+        fileId: "file_template",
+        topic: " ",
+        prompt: ""
+      })
+    ).toEqual({ fileId: "file_template" });
+  });
+
+  it("reads a PPTX OOXML generation job result", () => {
+    const job: Job = {
+      jobId: "job-ooxml",
+      projectId: "project-a",
+      type: "pptx-ooxml-generation",
+      status: "succeeded",
+      progress: 100,
+      message: "PPTX OOXML generation completed.",
+      result: {
+        deckId: "deck_ooxml_file_template",
+        templateId: "template_file_template",
+        sourceFileId: "file_template",
+        currentPackageFileId: "file_current",
+        qualityReport: {
+          compositeScore: 90,
+          metrics: {
+            geometry: 90,
+            text: 90,
+            color: 90,
+            layer: 90,
+            editability: 90,
+            pixelSimilarity: null
+          },
+          weights: {
+            geometry: 25,
+            text: 15,
+            color: 10,
+            layer: 10,
+            editability: 10,
+            pixelSimilarity: 30
+          },
+          editabilityCoverage: 0.9,
+          appliedCap: null,
+          notes: []
+        },
+        warnings: []
+      },
+      error: null,
+      createdAt: "2026-06-27T00:00:00.000Z",
+      updatedAt: "2026-06-27T00:00:01.000Z"
+    };
+
+    expect(getPptxOoxmlGenerationJobResult(job)?.deckId).toBe(
+      "deck_ooxml_file_template"
+    );
+    expect(getPptxOoxmlGeneratedProjectPath("project-a")).toBe(
+      "/project/project-a"
+    );
+  });
+
   it("builds a generate-deck payload with design direction", () => {
     const payload = buildGenerateDeckPayload({
       topic: "ORBIT",
