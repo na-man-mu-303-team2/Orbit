@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 from dataclasses import dataclass
+from io import BytesIO
 from pathlib import Path
 from typing import Any
 
@@ -120,6 +121,7 @@ def import_pptx_design(path: Path, file_id: str) -> PptxDesignImportResult:
     scale_x = CANVAS_WIDTH / source_width
     scale_y = CANVAS_HEIGHT / source_height
     assets: list[ImportedDesignAsset] = []
+    asset_colors: dict[str, str] = {}
     warnings: list[str] = []
     slides: list[dict[str, Any]] = []
 
@@ -149,6 +151,7 @@ def import_pptx_design(path: Path, file_id: str) -> PptxDesignImportResult:
                 path_prefix=source_name,
                 elements=elements,
                 assets=assets,
+                asset_colors=asset_colors,
                 warnings=warnings,
                 scale_x=scale_x,
                 scale_y=scale_y,
@@ -164,6 +167,7 @@ def import_pptx_design(path: Path, file_id: str) -> PptxDesignImportResult:
             path_prefix="slide",
             elements=elements,
             assets=assets,
+            asset_colors=asset_colors,
             warnings=warnings,
             scale_x=scale_x,
             scale_y=scale_y,
@@ -173,6 +177,12 @@ def import_pptx_design(path: Path, file_id: str) -> PptxDesignImportResult:
         )
 
         assign_text_roles(elements)
+        background_color = background_color_from_elements(
+            elements,
+            asset_colors,
+            background_color,
+        )
+        apply_imported_background_color(elements, background_color)
         slides.append(
             {
                 "sourceFileId": file_id,
@@ -211,6 +221,7 @@ def append_shape_collection(
     path_prefix: str,
     elements: list[dict[str, Any]],
     assets: list[ImportedDesignAsset],
+    asset_colors: dict[str, str],
     warnings: list[str],
     scale_x: float,
     scale_y: float,
@@ -225,6 +236,7 @@ def append_shape_collection(
             element_path=f"{path_prefix}_{shape_index}",
             elements=elements,
             assets=assets,
+            asset_colors=asset_colors,
             warnings=warnings,
             scale_x=scale_x,
             scale_y=scale_y,
@@ -241,6 +253,7 @@ def append_shape_elements(
     element_path: str,
     elements: list[dict[str, Any]],
     assets: list[ImportedDesignAsset],
+    asset_colors: dict[str, str],
     warnings: list[str],
     scale_x: float,
     scale_y: float,
@@ -259,6 +272,7 @@ def append_shape_elements(
             path_prefix=element_path,
             elements=elements,
             assets=assets,
+            asset_colors=asset_colors,
             warnings=warnings,
             scale_x=scale_x,
             scale_y=scale_y,
@@ -275,7 +289,11 @@ def append_shape_elements(
 
     if shape_type == MSO_SHAPE_TYPE.PICTURE:
         asset_id = f"image_{len(assets) + 1}"
-        assets.append(image_asset(shape, asset_id))
+        asset = image_asset(shape, asset_id)
+        assets.append(asset)
+        color = average_image_color(shape.image.blob)
+        if color:
+            asset_colors[asset_id] = color
         elements.append(
             {
                 **element_base(
@@ -297,6 +315,34 @@ def append_shape_elements(
         )
         return
 
+    blip_asset = blip_fill_asset(shape, f"image_{len(assets) + 1}")
+    if blip_asset is not None:
+        asset, color = blip_asset
+        assets.append(asset)
+        if color:
+            asset_colors[asset.asset_id] = color
+        image_role = "background" if is_full_canvas_frame(frame) else role
+        elements.append(
+            {
+                **element_base(
+                    element_id=f"{element_id}_image_fill",
+                    role=image_role,
+                    frame=frame,
+                    z_index=next_z(z_cursor),
+                    locked=locked or image_role == "background",
+                ),
+                "type": "image",
+                "props": {
+                    "src": f"asset:{asset.asset_id}",
+                    "alt": str(getattr(shape, "name", "Imported image fill")),
+                    "fit": "stretch",
+                    "focusX": 0.5,
+                    "focusY": 0.5,
+                },
+            }
+        )
+        return
+
     if shape_type == MSO_SHAPE_TYPE.TABLE and not decoration_only:
         elements.extend(table_elements(shape, element_id, frame, z_cursor))
         return
@@ -304,6 +350,8 @@ def append_shape_elements(
     fill = shape_fill_color(shape)
     stroke = shape_line_color(shape)
     if shape_type == MSO_SHAPE_TYPE.FREEFORM:
+        if not fill and not stroke:
+            return
         custom_shape = freeform_element(
             shape,
             element_id=f"{element_id}_custom",
@@ -493,12 +541,104 @@ def image_asset(shape: Any, asset_id: str) -> ImportedDesignAsset:
     image = shape.image
     extension = str(getattr(image, "ext", "png") or "png")
     mime_type = str(getattr(image, "content_type", f"image/{extension}"))
+    return image_asset_from_blob(asset_id, image.blob, mime_type)
+
+
+def image_asset_from_blob(
+    asset_id: str,
+    blob: bytes,
+    mime_type: str,
+) -> ImportedDesignAsset:
+    extension = extension_for_mime_type(mime_type)
     return ImportedDesignAsset(
         assetId=asset_id,
         fileName=f"{asset_id}.{extension}",
         mimeType=mime_type,
-        contentBase64=base64.b64encode(image.blob).decode("ascii"),
+        contentBase64=base64.b64encode(blob).decode("ascii"),
     )
+
+
+def blip_fill_asset(
+    shape: Any,
+    asset_id: str,
+) -> tuple[ImportedDesignAsset, str | None] | None:
+    blip = first_descendant(shape._element, "blip")
+    relationship_id = attr_by_local_name(blip, "embed") if blip is not None else None
+    if not relationship_id:
+        return None
+    try:
+        image_part = shape.part.related_part(relationship_id)
+        blob = bytes(image_part.blob)
+        mime_type = str(getattr(image_part, "content_type", "image/png"))
+    except Exception:
+        return None
+    return image_asset_from_blob(asset_id, blob, mime_type), average_image_color(blob)
+
+
+def extension_for_mime_type(mime_type: str) -> str:
+    subtype = mime_type.rsplit("/", maxsplit=1)[-1].lower()
+    if subtype == "jpeg":
+        return "jpg"
+    if subtype in {"png", "jpg", "gif", "webp"}:
+        return subtype
+    return "png"
+
+
+def average_image_color(blob: bytes) -> str | None:
+    try:
+        from PIL import Image
+
+        with Image.open(BytesIO(blob)) as image:
+            image.thumbnail((24, 24))
+            pixels = list(image.convert("RGB").getdata())
+    except Exception:
+        return None
+    if not pixels:
+        return None
+    red = round(sum(pixel[0] for pixel in pixels) / len(pixels))
+    green = round(sum(pixel[1] for pixel in pixels) / len(pixels))
+    blue = round(sum(pixel[2] for pixel in pixels) / len(pixels))
+    return f"#{red:02X}{green:02X}{blue:02X}"
+
+
+def is_full_canvas_frame(frame: dict[str, int]) -> bool:
+    return (
+        frame["x"] <= 4
+        and frame["y"] <= 4
+        and frame["width"] >= CANVAS_WIDTH - 8
+        and frame["height"] >= CANVAS_HEIGHT - 8
+    )
+
+
+def background_color_from_elements(
+    elements: list[dict[str, Any]],
+    asset_colors: dict[str, str],
+    fallback: str,
+) -> str:
+    for element in elements:
+        if element.get("type") != "image" or element.get("role") != "background":
+            continue
+        asset_id = asset_id_from_src(str(element.get("props", {}).get("src", "")))
+        color = asset_colors.get(asset_id)
+        if color:
+            return color
+    return fallback
+
+
+def apply_imported_background_color(
+    elements: list[dict[str, Any]],
+    background_color: str,
+) -> None:
+    for element in elements:
+        if element.get("role") == "background" and element.get("type") == "rect":
+            props = element.get("props", {})
+            if isinstance(props, dict):
+                props["fill"] = background_color
+            return
+
+
+def asset_id_from_src(src: str) -> str:
+    return src.removeprefix("asset:")
 
 
 def table_elements(
@@ -800,18 +940,24 @@ def imported_theme(slides: list[dict[str, Any]]) -> dict[str, Any]:
         if isinstance(first_slide.get("style"), dict)
         else "#ffffff"
     )
+    colors = imported_visible_colors(slides)
+    accent = first_non_background_color(colors, background) or "#2563eb"
+    text_color = imported_text_color(slides) or text_color_for_background(background)
+    muted = "#f3f4f6" if is_light_color(background) else "#1f3a2e"
+    border = "#d1d5db" if is_light_color(background) else "#7fa38c"
     return {
         "name": "Imported PPTX",
         "fontFamily": "Inter",
         "backgroundColor": background,
-        "textColor": "#111827",
-        "accentColor": "#2563eb",
+        "textColor": text_color,
+        "accentColor": accent,
         "palette": {
-            "primary": "#2563eb",
-            "secondary": "#7c3aed",
+            "primary": accent,
+            "secondary": first_non_background_color(colors, background, skip={accent})
+            or accent,
             "surface": background,
-            "muted": "#f3f4f6",
-            "border": "#d1d5db",
+            "muted": muted,
+            "border": border,
         },
         "typography": {
             "headingFontFamily": "Inter",
@@ -823,6 +969,73 @@ def imported_theme(slides: list[dict[str, Any]]) -> dict[str, Any]:
         },
         "effects": {"borderRadius": 8},
     }
+
+
+def imported_visible_colors(slides: list[dict[str, Any]]) -> list[str]:
+    colors: list[str] = []
+    for slide in slides:
+        style = slide.get("style", {})
+        if isinstance(style, dict) and is_hex_color(style.get("backgroundColor")):
+            colors.append(str(style["backgroundColor"]))
+        for element in slide.get("elements", []):
+            props = element.get("props", {})
+            if not isinstance(props, dict):
+                continue
+            for key in ("fill", "stroke", "color"):
+                value = props.get(key)
+                if is_hex_color(value) and value != "transparent":
+                    colors.append(str(value))
+    return colors
+
+
+def imported_text_color(slides: list[dict[str, Any]]) -> str | None:
+    text_colors: list[str] = []
+    for slide in slides:
+        for element in slide.get("elements", []):
+            if element.get("type") != "text":
+                continue
+            color = element.get("props", {}).get("color")
+            if is_hex_color(color):
+                text_colors.append(str(color))
+    return text_colors[0] if text_colors else None
+
+
+def first_non_background_color(
+    colors: list[str],
+    background: str,
+    *,
+    skip: set[str] | None = None,
+) -> str | None:
+    blocked = {background, "transparent", *(skip or set())}
+    for color in colors:
+        if color not in blocked:
+            return color
+    return None
+
+
+def text_color_for_background(color: str) -> str:
+    if not is_hex_color(color):
+        return "#111827"
+    return "#111827" if is_light_color(color) else "#f8fafc"
+
+
+def is_light_color(color: str) -> bool:
+    if not is_hex_color(color):
+        return True
+    red = int(color[1:3], 16)
+    green = int(color[3:5], 16)
+    blue = int(color[5:7], 16)
+    return (0.2126 * red + 0.7152 * green + 0.0722 * blue) > 150
+
+
+def is_hex_color(value: Any) -> bool:
+    if not isinstance(value, str) or len(value) != 7 or not value.startswith("#"):
+        return False
+    try:
+        int(value[1:], 16)
+    except ValueError:
+        return False
+    return True
 
 
 def is_unsupported_complex_shape(shape: Any) -> bool:
@@ -864,6 +1077,15 @@ def int_attr(element: Any | None, name: str, fallback: int) -> int:
         return int(element.get(name))
     except Exception:
         return fallback
+
+
+def attr_by_local_name(element: Any | None, name: str) -> str | None:
+    if element is None:
+        return None
+    for key, value in element.attrib.items():
+        if local_name(key) == name:
+            return str(value)
+    return None
 
 
 def point_xy(point: Any) -> tuple[int, int]:

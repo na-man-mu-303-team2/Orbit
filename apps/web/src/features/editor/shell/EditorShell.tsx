@@ -4075,7 +4075,7 @@ export function getEditorValidationItems(
       }
     }
 
-    if (element.type === "customShape" || element.type === "group") {
+    if (shouldReportExportShapeRisk(element)) {
       items.push({
         elementId: element.elementId,
         message: "내보내기에서 모양이 달라질 수 있습니다.",
@@ -4085,6 +4085,12 @@ export function getEditorValidationItems(
   }
 
   return items;
+}
+
+function shouldReportExportShapeRisk(element: DeckElement) {
+  if (element.type === "group") return true;
+  if (element.type !== "customShape") return false;
+  return !(element.role === "decoration" && element.elementId.includes("_imported_"));
 }
 
 function isEditorTextOverflowing(element: Extract<DeckElement, { type: "text" }>) {

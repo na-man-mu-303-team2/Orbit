@@ -1,12 +1,14 @@
+from io import BytesIO
 from pathlib import Path
 
 from PIL import Image
 from pptx import Presentation
 from pptx.dml.color import RGBColor
 from pptx.enum.shapes import MSO_SHAPE
+from pptx.oxml import parse_xml
 from pptx.util import Inches, Pt
 
-from app.ai.pptx_design_importer import import_pptx_design
+from app.ai.pptx_design_importer import blip_fill_asset, import_pptx_design
 
 
 def test_import_pptx_design_extracts_editable_elements(tmp_path: Path) -> None:
@@ -118,6 +120,47 @@ def test_import_pptx_design_converts_freeform_to_custom_shape(tmp_path: Path) ->
     assert "L" in custom_shape["props"]["pathData"]
     assert custom_shape["props"]["fill"] == "#FF8000"
     assert custom_shape["props"]["viewBoxWidth"] > 0
+
+
+def test_blip_fill_asset_extracts_embedded_image_and_color() -> None:
+    image_buffer = BytesIO()
+    Image.new("RGB", (4, 4), "#47604D").save(image_buffer, format="PNG")
+    image_blob = image_buffer.getvalue()
+
+    class FakeImagePart:
+        content_type = "image/png"
+
+        def __init__(self, blob: bytes) -> None:
+            self.blob = blob
+
+    class FakePart:
+        def related_part(self, relationship_id: str) -> FakeImagePart:
+            assert relationship_id == "rId2"
+            return FakeImagePart(image_blob)
+
+    class FakeShape:
+        _element = parse_xml(
+            """
+            <p:sp xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"
+                  xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"
+                  xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+              <p:spPr>
+                <a:blipFill>
+                  <a:blip r:embed="rId2"/>
+                </a:blipFill>
+              </p:spPr>
+            </p:sp>
+            """
+        )
+        part = FakePart()
+
+    extracted = blip_fill_asset(FakeShape(), "image_1")
+
+    assert extracted is not None
+    asset, color = extracted
+    assert asset.asset_id == "image_1"
+    assert asset.mime_type == "image/png"
+    assert color == "#47604D"
 
 
 def test_import_pptx_design_expands_table_cells(tmp_path: Path) -> None:

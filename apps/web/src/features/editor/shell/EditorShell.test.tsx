@@ -520,17 +520,77 @@ describe("editor shell", () => {
           verticalAlign: "top",
           lineHeight: 1.2
         }
+      } as Deck["slides"][number]["elements"][number],
+      {
+        elementId: "el_1_imported_icon_customShape",
+        type: "customShape",
+        role: "decoration",
+        x: 1000,
+        y: 120,
+        width: 120,
+        height: 120,
+        rotation: 0,
+        opacity: 1,
+        zIndex: 23,
+        locked: true,
+        visible: true,
+        props: {
+          closed: true,
+          fill: "#FFE99C",
+          nodes: [
+            { x: 0, y: 0, mode: "corner" },
+            { x: 120, y: 0, mode: "corner" },
+            { x: 120, y: 120, mode: "corner" }
+          ],
+          stroke: "transparent",
+          strokeWidth: 0,
+          viewBoxHeight: 120,
+          viewBoxWidth: 120,
+          pathData: "M 0 0 L 120 0 L 120 120 Z"
+        }
+      } as Deck["slides"][number]["elements"][number],
+      {
+        elementId: "el_manual_customShape",
+        type: "customShape",
+        role: "highlight",
+        x: 1140,
+        y: 120,
+        width: 120,
+        height: 120,
+        rotation: 0,
+        opacity: 1,
+        zIndex: 24,
+        locked: false,
+        visible: true,
+        props: {
+          closed: true,
+          fill: "#f5edff",
+          nodes: [
+            { x: 0, y: 0, mode: "corner" },
+            { x: 120, y: 0, mode: "corner" },
+            { x: 120, y: 120, mode: "corner" }
+          ],
+          stroke: "#9333ea",
+          strokeWidth: 2,
+          viewBoxHeight: 120,
+          viewBoxWidth: 120,
+          pathData: "M 0 0 L 120 0 L 120 120 Z"
+        }
       } as Deck["slides"][number]["elements"][number]
     );
 
-    const messages = getEditorValidationItems(deck, firstSlide).map(
-      (item) => item.message
-    );
+    const validationItems = getEditorValidationItems(deck, firstSlide);
+    const messages = validationItems.map((item) => item.message);
+    const riskElementIds = validationItems
+      .filter((item) => item.severity === "risk")
+      .map((item) => item.elementId);
 
     expect(messages).toContain("이미지 대체 텍스트가 비어 있습니다.");
     expect(messages).toContain("차트 데이터가 비어 있습니다.");
     expect(messages).toContain("텍스트가 상자 높이를 넘을 수 있습니다.");
     expect(messages).toContain("텍스트와 배경 대비가 낮습니다.");
+    expect(riskElementIds).not.toContain("el_1_imported_icon_customShape");
+    expect(riskElementIds).toContain("el_manual_customShape");
   });
 
   it("shrinks overflowing text to fit the element frame", () => {
