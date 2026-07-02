@@ -77,4 +77,72 @@ describe("useSlideshowTransitions helpers", () => {
     expect(half.el_target?.rotation).toBe(195);
     expect(done.el_target?.rotation).toBe(15);
   });
+
+  it("uses the step group duration when interpolating simultaneous animations", () => {
+    const shortAnimation: DeckAnimation = {
+      animationId: "anim_short",
+      elementId: "el_short",
+      type: "fade-in",
+      order: 1,
+      durationMs: 200,
+      delayMs: 0,
+      easing: "ease-out"
+    };
+    const longAnimation: DeckAnimation = {
+      animationId: "anim_long",
+      elementId: "el_long",
+      type: "fade-in",
+      order: 1,
+      durationMs: 500,
+      delayMs: 0,
+      easing: "ease-out"
+    };
+    const startStates = {
+      el_short: { opacity: 0, visible: true },
+      el_long: { opacity: 0, visible: true }
+    };
+    const targetStates = {
+      el_short: { opacity: 1, visible: true },
+      el_long: { opacity: 1, visible: true }
+    };
+
+    const states = interpolateSlideshowTransitionStates({
+      animations: [shortAnimation, longAnimation],
+      progress: 0.4,
+      startStates,
+      targetStates,
+      transitionDurationMs: 500
+    });
+
+    expect(states.el_short?.opacity).toBe(1);
+    expect(states.el_long?.opacity).toBe(0.4);
+  });
+
+  it("compresses delayed animations into the capped transition window", () => {
+    const delayedAnimation: DeckAnimation = {
+      animationId: "anim_delayed",
+      elementId: "el_delayed",
+      type: "fade-in",
+      order: 1,
+      durationMs: 400,
+      delayMs: 400,
+      easing: "ease-out"
+    };
+    const startStates = {
+      el_delayed: { opacity: 0, visible: true }
+    };
+    const targetStates = {
+      el_delayed: { opacity: 1, visible: true }
+    };
+
+    const states = interpolateSlideshowTransitionStates({
+      animations: [delayedAnimation],
+      progress: 1,
+      startStates,
+      targetStates,
+      transitionDurationMs: 500
+    });
+
+    expect(states.el_delayed).toMatchObject({ opacity: 1, visible: true });
+  });
 });

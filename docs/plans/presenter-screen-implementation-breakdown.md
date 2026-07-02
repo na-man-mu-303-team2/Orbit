@@ -1,9 +1,9 @@
 # Implementation Breakdown: Presenter Screen
 
-**Status:** Ready for implementation review  
-**Date:** 2026-07-02  
-**Source plan:** [presenter-screen.md](./presenter-screen.md)  
-**Source spec:** [presenter-screen.md](../specs/presenter-screen.md)  
+**Status:** Ready for implementation review
+**Date:** 2026-07-02
+**Source plan:** [presenter-screen.md](./presenter-screen.md)
+**Source spec:** [presenter-screen.md](../specs/presenter-screen.md)
 
 This document keeps the P0-P7 milestone structure from the source plan and breaks each milestone into implementable, verifiable units. The W1/W2/W3 documents are used only as interface context; this plan's implementation scope remains the presenter screen spec and plan.
 

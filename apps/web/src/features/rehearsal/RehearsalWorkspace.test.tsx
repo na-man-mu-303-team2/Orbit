@@ -1,3 +1,5 @@
+import fs from "node:fs";
+import path from "node:path";
 import { createDemoDeck } from "@orbit/editor-core";
 import type { Job, RehearsalReport, RehearsalRun } from "@orbit/shared";
 import type { ReactNode } from "react";
@@ -93,6 +95,21 @@ describe("RehearsalWorkspace", () => {
     expect(html).toContain("-100 dB RMS");
     expect(html).toContain("Report AI");
     expect(html).toContain("Speaker notes");
+  });
+
+  it("resets presenter step when live auto advance completes", () => {
+    const source = fs.readFileSync(
+      path.join(process.cwd(), "src/features/rehearsal/RehearsalWorkspace.tsx"),
+      "utf8"
+    );
+    const start = source.indexOf("function completeLiveSlideAdvance");
+    const end = source.indexOf("function cancelPendingAutoAdvance");
+    const completeLiveSlideAdvanceBody = source.slice(start, end);
+
+    expect(completeLiveSlideAdvanceBody).toContain("setPresenterStepIndex(0)");
+    expect(completeLiveSlideAdvanceBody.indexOf("setPresenterStepIndex(0)")).toBeLessThan(
+      completeLiveSlideAdvanceBody.indexOf("setCurrentSlideIndex")
+    );
   });
 
   it("requests microphone audio with live STT input quality constraints", async () => {

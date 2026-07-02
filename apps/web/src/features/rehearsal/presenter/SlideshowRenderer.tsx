@@ -5,6 +5,8 @@ import { useSlideshowTransitions } from "./useSlideshowTransitions";
 
 export type SlideshowRenderMode = "presenter" | "slide-window" | "single-screen";
 
+const emptyTriggerAnimationIds: readonly string[] = [];
+
 export function SlideshowRenderer(props: {
   deck: Deck;
   highlights?: SlideRuntimeHighlight[];
@@ -21,7 +23,7 @@ export function SlideshowRenderer(props: {
     scale = 1,
     slideId,
     stepIndex,
-    triggerAnimationIds = []
+    triggerAnimationIds = emptyTriggerAnimationIds
   } = props;
   const slide = deck.slides.find((candidate) => candidate.slideId === slideId);
   const reducedMotion = useReducedMotion();

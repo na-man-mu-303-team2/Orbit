@@ -21,6 +21,8 @@ vi.mock("react-konva", () => {
         typeof props["data-highlight-element-id"] === "string"
           ? props["data-highlight-element-id"]
           : undefined,
+      "data-opacity":
+        typeof props.opacity === "number" ? String(props.opacity) : undefined,
       "data-testid":
         typeof props["data-testid"] === "string" ? props["data-testid"] : undefined
     };
@@ -104,6 +106,24 @@ describe("ReadOnlySlideCanvas", () => {
     expect(html).toContain("data-element-id=\"el_image\"");
     expect(html).toContain("data-highlight-element-id=\"el_image\"");
     expect(html).not.toContain("data-highlight-element-id=\"el_body\"");
+  });
+
+  it("applies presentation state to grouped child elements", () => {
+    const html = renderToStaticMarkup(
+      <ReadOnlySlideCanvas
+        deck={p0AnimationDeck}
+        elementStates={{
+          el_group_label: {
+            opacity: 0,
+            visible: false
+          }
+        }}
+        slide={slide}
+      />
+    );
+
+    expect(html).toContain("data-element-id=\"el_group_label\"");
+    expect(html).toContain("data-opacity=\"0\"");
   });
 
   it("applies highlight events in order", () => {

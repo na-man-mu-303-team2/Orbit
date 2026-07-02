@@ -109,4 +109,17 @@ describe("SlideshowRenderer", () => {
       }
     }
   });
+
+  it("uses a stable default trigger animation iterable", () => {
+    const source = fs.readFileSync(
+      path.join(
+        process.cwd(),
+        "src/features/rehearsal/presenter/SlideshowRenderer.tsx"
+      ),
+      "utf8"
+    );
+
+    expect(source).toContain("emptyTriggerAnimationIds");
+    expect(source).not.toContain("triggerAnimationIds = []");
+  });
 });

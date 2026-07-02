@@ -90,7 +90,8 @@ export function useSlideshowTransitions(args: {
           animations: transitionAnimations,
           progress,
           startStates,
-          targetStates
+          targetStates,
+          transitionDurationMs: durationMs
         })
       );
 
@@ -166,8 +167,11 @@ export function interpolateSlideshowTransitionStates(args: {
   progress: number;
   startStates: Record<string, ElementPresentationState>;
   targetStates: Record<string, ElementPresentationState>;
+  transitionDurationMs?: number;
 }) {
   const states = cloneElementStates(args.targetStates);
+  const transitionDurationMs =
+    args.transitionDurationMs ?? getSlideshowTransitionDurationMs(args.animations);
 
   for (const animation of args.animations) {
     const start = args.startStates[animation.elementId];
@@ -178,7 +182,7 @@ export function interpolateSlideshowTransitionStates(args: {
       continue;
     }
 
-    const progress = applyDelay(animation, args.progress);
+    const progress = applyDelay(animation, args.progress, transitionDurationMs);
 
     switch (animation.type) {
       case "appear":
@@ -213,11 +217,27 @@ export function interpolateSlideshowTransitionStates(args: {
   return states;
 }
 
-function applyDelay(animation: DeckAnimation, progress: number) {
-  const durationMs = getSlideshowTransitionDurationMs([animation]);
+function applyDelay(
+  animation: DeckAnimation,
+  progress: number,
+  transitionDurationMs: number
+) {
+  const safeTransitionDurationMs = Math.max(1, transitionDurationMs);
+  const elapsedMs = progress * safeTransitionDurationMs;
+  const effectiveDelayMs = Math.min(
+    animation.delayMs,
+    Math.max(0, safeTransitionDurationMs - 1)
+  );
+  const effectiveDurationMs = Math.max(
+    1,
+    Math.min(
+      animation.durationMs,
+      maxTransitionDurationMs,
+      safeTransitionDurationMs - effectiveDelayMs
+    )
+  );
   const delayedProgress =
-    (progress * durationMs - Math.min(animation.delayMs, maxTransitionDurationMs)) /
-    Math.max(1, Math.min(animation.durationMs, maxTransitionDurationMs));
+    (elapsedMs - effectiveDelayMs) / effectiveDurationMs;
 
   return Math.min(1, Math.max(0, delayedProgress));
 }

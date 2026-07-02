@@ -79,17 +79,32 @@ describe("slideshowStepModel", () => {
     expect(step3.el_custom?.rotation).toBe(0);
   });
 
-  it("keeps grouped children out of top-level render state", () => {
+  it("keeps grouped children in presentation state for child-targeted animations", () => {
+    const slideWithChildAnimation = {
+      ...slide,
+      animations: [
+        ...slide.animations,
+        {
+          animationId: "anim_group_label_fade_out",
+          elementId: "el_group_label",
+          type: "fade-out",
+          order: 12,
+          durationMs: 300,
+          delayMs: 0,
+          easing: "ease-out"
+        }
+      ]
+    } satisfies typeof slide;
     const states = computeSettledElementStates({
       deck: p0AnimationDeck,
-      slide,
-      stepIndex: 0,
-      triggerAnimationIds: []
+      slide: slideWithChildAnimation,
+      stepIndex: 1,
+      triggerAnimationIds: ["anim_group_label_fade_out"]
     });
 
     expect(states.el_group).toBeDefined();
-    expect(states.el_group_rect).toBeUndefined();
-    expect(states.el_group_label).toBeUndefined();
+    expect(states.el_group_rect).toBeDefined();
+    expect(states.el_group_label).toMatchObject({ visible: false, opacity: 0 });
   });
 
   it("clamps step indexes at command boundaries", () => {

@@ -1709,6 +1709,7 @@ export function RehearsalWorkspace(props: {
     }
 
     autoAdvancedSlideIdsRef.current.add(fromSlide.slideId);
+    setPresenterStepIndex(0);
     setCurrentSlideIndex(fromSlideIndex + 1);
     setLiveSlideAdvance({
       type: "slide-advance",

@@ -22,6 +22,7 @@ import {
   Text as KonvaText
 } from "react-konva";
 import type { ComponentType } from "react";
+import type { ElementPresentationState } from "./ReadOnlySlideCanvas";
 
 import { ImageElementContent } from "./ImageElementContent";
 import {
@@ -70,10 +71,12 @@ export function ElementNodeContent(props: {
   customShapePreview?: CustomShapeRenderPreview | null;
   deck: Deck;
   element: DeckElement;
+  elementStates?: Record<string, ElementPresentationState>;
   frame: SlideElementFrame;
   slide: Slide;
 }) {
-  const { accentColor, customShapePreview, deck, element, frame, slide } = props;
+  const { accentColor, customShapePreview, deck, element, elementStates, frame, slide } =
+    props;
 
   if (element.type === "text") {
     const textLayout = getTextElementLayout({
@@ -186,23 +189,38 @@ export function ElementNodeContent(props: {
     return (
       <Group listening={false}>
         {childElements.map((childElement) => {
-          const childFrame = getGroupedChildPreviewFrame({
+          const childPresentationState = elementStates?.[childElement.elementId];
+          const presentedChildElement = applyPresentationStateToElement(
             childElement,
+            childPresentationState
+          );
+          const childFrame = getGroupedChildPreviewFrame({
+            childElement: presentedChildElement,
             currentGroupFrame: element,
             previewGroupFrame: frame
           });
+          const childVisible = childPresentationState?.visible ?? childElement.visible;
+          const childOpacity = childVisible
+            ? (childPresentationState?.opacity ?? childElement.opacity)
+            : 0;
 
           return (
             <Group
+              data-element-id={childElement.elementId}
               key={childElement.elementId}
+              listening={false}
+              opacity={childOpacity}
               rotation={childFrame.rotation}
+              scaleX={childPresentationState?.scaleX ?? 1}
+              scaleY={childPresentationState?.scaleY ?? 1}
               x={childFrame.x}
               y={childFrame.y}
             >
               <ElementNodeContent
                 accentColor={accentColor}
                 deck={deck}
-                element={childElement}
+                element={presentedChildElement}
+                elementStates={elementStates}
                 frame={{
                   x: 0,
                   y: 0,
@@ -439,4 +457,24 @@ export function ElementNodeContent(props: {
       />
     </Group>
   );
+}
+
+function applyPresentationStateToElement(
+  element: DeckElement,
+  state: ElementPresentationState | undefined
+): DeckElement {
+  if (!state) {
+    return element;
+  }
+
+  return {
+    ...element,
+    height: state.height ?? element.height,
+    opacity: state.opacity ?? element.opacity,
+    rotation: state.rotation ?? element.rotation,
+    visible: state.visible ?? element.visible,
+    width: state.width ?? element.width,
+    x: state.x ?? element.x,
+    y: state.y ?? element.y
+  };
 }

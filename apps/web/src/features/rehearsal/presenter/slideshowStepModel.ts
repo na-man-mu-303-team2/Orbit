@@ -1,6 +1,6 @@
 import type { Deck, DeckAnimation, DeckElement, Slide } from "@orbit/shared";
 import type { ElementPresentationState } from "../../slides/rendering/ReadOnlySlideCanvas";
-import { getRenderableSlideElements } from "../../slides/rendering/elementNormalization";
+import { normalizeRenderableElement } from "../../slides/rendering/elementNormalization";
 
 export type SlideshowModelInput = {
   slide: Slide;
@@ -113,8 +113,9 @@ export function clampSlideshowStepIndex(stepIndex: number, maxStepIndex: number)
 function createBaseElementStates(deck: Deck, slide: Slide) {
   const states: Record<string, ElementPresentationState> = {};
 
-  for (const element of getRenderableSlideElements(slide, deck.canvas)) {
-    states[element.elementId] = createBaseElementState(element);
+  for (const element of slide.elements) {
+    const normalizedElement = normalizeRenderableElement(deck.canvas, element);
+    states[normalizedElement.elementId] = createBaseElementState(normalizedElement);
   }
 
   return states;
