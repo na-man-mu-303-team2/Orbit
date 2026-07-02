@@ -6,13 +6,17 @@ from fastapi.testclient import TestClient
 
 import app.main as api_module
 from app.ai.generate_deck import (
+    AgentOutput,
     DeckContentGenerationError,
+    DeckGenerationOrchestrator,
     GenerateDeckRequest,
     ReferenceContext,
     SlideCountRange,
+    ValidationIssue,
     choose_slide_count,
     generate_deck,
     icon_name_for_keyword,
+    refine_design_issues,
     validate_and_patch,
 )
 from tests.test_config import VALID_ENV
@@ -1590,6 +1594,104 @@ def test_generate_deck_does_not_invent_chart_data_without_source_numbers() -> No
     assert response.validation.passed is True
 
 
+def test_agent_output_rejects_invalid_status() -> None:
+    with pytest.raises(ValueError):
+        AgentOutput.model_validate({"status": "done", "summary": "invalid"})
+
+
+def test_orchestrator_passes_design_blueprint_to_design_and_layout_agents() -> None:
+    blueprint = minimal_imported_design_blueprint()
+    orchestrator = DeckGenerationOrchestrator(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="ORBIT",
+            designReferences=[{"fileId": "file_design"}],
+            designBlueprint=blueprint,
+        )
+    )
+
+    response = orchestrator.run()
+    design_output = orchestrator.agent_outputs["DesignDirectorAgent"]
+    layout_output = orchestrator.agent_outputs["LayoutAgent"]
+
+    assert design_output.artifacts["designBlueprint"]["slides"][0]["elements"][0]["type"] == "rect"
+    assert layout_output.artifacts["designBlueprint"]["slides"][0]["elements"][1]["type"] == "text"
+    assert "agentOutputs" not in response.deck
+    assert "Original confidential" not in json.dumps(response.deck, ensure_ascii=False)
+    assert response.validation.passed is True
+
+
+def test_refiner_shrinks_clamps_and_corrects_text_contrast() -> None:
+    deck = {
+        "deckId": "deck_ai_refine",
+        "projectId": "project_demo_1",
+        "title": "ORBIT",
+        "version": 1,
+        "metadata": {
+            "language": "ko",
+            "locale": "ko-KR",
+            "sourceType": "ai",
+            "generatedBy": "ai",
+            "createdFrom": {"topic": "ORBIT", "references": []},
+        },
+        "canvas": {
+            "preset": "wide-16-9",
+            "width": 1920,
+            "height": 1080,
+            "aspectRatio": "16:9",
+        },
+        "theme": minimal_imported_design_blueprint()["theme"],
+        "slides": [
+            {
+                "slideId": "slide_1",
+                "order": 1,
+                "title": "ORBIT",
+                "thumbnailUrl": "",
+                "style": {"backgroundColor": "#ffffff"},
+                "speakerNotes": "notes",
+                "elements": [
+                    {
+                        "elementId": "el_1_text",
+                        "type": "text",
+                        "role": "body",
+                        "x": 80,
+                        "y": 80,
+                        "width": 260,
+                        "height": 44,
+                        "rotation": 0,
+                        "opacity": 1,
+                        "zIndex": 1,
+                        "locked": False,
+                        "visible": True,
+                        "props": {
+                            "text": "This copy is long enough to overflow the small frame.",
+                            "fontSize": 28,
+                            "fontWeight": "normal",
+                            "color": "#fefefe",
+                            "align": "left",
+                            "verticalAlign": "top",
+                            "lineHeight": 1.2,
+                        },
+                    }
+                ],
+                "keywords": [],
+                "animations": [],
+            }
+        ],
+    }
+
+    refined = refine_design_issues(
+        deck,
+        [ValidationIssue(scope="element", path="slides.0.elements.0", message="issue")],
+    )
+    element = refined["slides"][0]["elements"][0]
+
+    assert element["x"] == 120
+    assert element["y"] == 88
+    assert element["props"]["fontSize"] < 28
+    assert element["props"]["color"] == "#111827"
+
+
 def test_generate_deck_reports_advisory_design_quality_issues() -> None:
     deck = {
         "deckId": "deck_ai_quality",
@@ -1835,6 +1937,89 @@ def test_generate_deck_applies_imported_design_blueprint_without_schema_leak() -
     assert "designBlueprint" not in response.deck
     assert "Unsupported PPTX shape on slide 1: CHART" in response.warnings
     assert response.validation.passed is True
+
+
+def minimal_imported_design_blueprint() -> dict[str, Any]:
+    return {
+        "theme": {
+            "name": "Imported PPTX",
+            "fontFamily": "Inter",
+            "backgroundColor": "#ffffff",
+            "textColor": "#111827",
+            "accentColor": "#2563eb",
+            "palette": {
+                "primary": "#2563eb",
+                "secondary": "#7c3aed",
+                "surface": "#ffffff",
+                "muted": "#f3f4f6",
+                "border": "#d1d5db",
+            },
+            "typography": {
+                "headingFontFamily": "Inter",
+                "bodyFontFamily": "Inter",
+                "titleSize": 56,
+                "headingSize": 40,
+                "bodySize": 24,
+                "captionSize": 16,
+            },
+            "effects": {"borderRadius": 8},
+        },
+        "warnings": [],
+        "slides": [
+            {
+                "style": {
+                    "layout": "title-content",
+                    "backgroundColor": "#ffffff",
+                },
+                "elements": [
+                    {
+                        "elementId": "el_imported_1_background",
+                        "type": "rect",
+                        "role": "background",
+                        "x": 0,
+                        "y": 0,
+                        "width": 1920,
+                        "height": 1080,
+                        "rotation": 0,
+                        "opacity": 1,
+                        "zIndex": 0,
+                        "locked": True,
+                        "visible": True,
+                        "props": {
+                            "fill": "#ffffff",
+                            "stroke": "transparent",
+                            "strokeWidth": 0,
+                            "borderRadius": 0,
+                        },
+                    },
+                    {
+                        "elementId": "el_imported_1_title",
+                        "type": "text",
+                        "role": "title",
+                        "x": 120,
+                        "y": 96,
+                        "width": 1200,
+                        "height": 120,
+                        "rotation": 0,
+                        "opacity": 1,
+                        "zIndex": 2,
+                        "locked": False,
+                        "visible": True,
+                        "props": {
+                            "text": "Original confidential title",
+                            "fontFamily": "Inter",
+                            "fontSize": 52,
+                            "fontWeight": "bold",
+                            "color": "#111827",
+                            "align": "left",
+                            "verticalAlign": "top",
+                            "lineHeight": 1.15,
+                        },
+                    },
+                ],
+            }
+        ],
+    }
 
 
 def slide_payload(

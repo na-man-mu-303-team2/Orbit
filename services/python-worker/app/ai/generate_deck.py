@@ -9,6 +9,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from app.ai.pptx_design_importer import ImportedDesignBlueprint
+
 
 Audience = Literal["general", "executive", "technical", "sales"]
 Purpose = Literal["inform", "persuade", "teach", "report"]
@@ -65,6 +67,7 @@ DeckLayout = Literal[
     "quote",
     "closing",
 ]
+AgentStatus = Literal["succeeded", "failed"]
 
 
 class GenerateDeckReference(BaseModel):
@@ -319,6 +322,16 @@ class GenerateDeckResponse(BaseModel):
     deck: dict[str, Any]
     warnings: list[str] = Field(default_factory=list)
     validation: ValidationResult
+
+
+class AgentOutput(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    status: AgentStatus
+    summary: str
+    artifacts: dict[str, Any] = Field(default_factory=dict)
+    next_actions: list[str] = Field(default_factory=list, alias="nextActions")
+    warnings: list[str] = Field(default_factory=list)
 
 
 class DeckContentGenerationError(RuntimeError):
@@ -1177,6 +1190,250 @@ DECK_CONTENT_RESPONSE_FORMAT: dict[str, Any] = {
 }
 
 
+class DeckGenerationOrchestrator:
+    def __init__(
+        self,
+        request: GenerateDeckRequest,
+        *,
+        client: Any | None = None,
+        model: str | None = None,
+        api_key: str | None = None,
+        reference_context: list[ReferenceContext] | None = None,
+    ) -> None:
+        self.request = request
+        self.client = client
+        self.model = model
+        self.api_key = api_key
+        self.reference_context = reference_context
+        self.agent_outputs: dict[str, AgentOutput] = {}
+
+    def run(self) -> GenerateDeckResponse:
+        raw_input = self.run_brief_agent()
+        self.run_source_grounding_agent(raw_input)
+        outline, slide_plans = self.run_narrative_agent(raw_input)
+        slide_plans, theme = self.run_design_director_agent(raw_input, slide_plans)
+        slides = self.run_layout_agent(raw_input, slide_plans, theme)
+        deck = self.build_deck(raw_input, outline, theme, slides)
+        self.run_chart_data_agent(deck)
+        self.run_media_agent(deck)
+        reviewer_validation = self.run_quality_reviewer_agent(deck)
+        deck, validation = self.run_refiner_agent(deck, reviewer_validation)
+        warnings = unique_warnings(
+            [
+                *generation_warnings(raw_input, len(slides), validation),
+                *self.agent_warnings(),
+            ]
+        )
+        return GenerateDeckResponse(deck=deck, warnings=warnings, validation=validation)
+
+    def record(
+        self,
+        name: str,
+        summary: str,
+        *,
+        artifacts: dict[str, Any] | None = None,
+        warnings: list[str] | None = None,
+        next_actions: list[str] | None = None,
+    ) -> None:
+        self.agent_outputs[name] = AgentOutput(
+            status="succeeded",
+            summary=summary,
+            artifacts=artifacts or {},
+            warnings=warnings or [],
+            nextActions=next_actions or [],
+        )
+
+    def agent_warnings(self) -> list[str]:
+        return [
+            warning
+            for output in self.agent_outputs.values()
+            for warning in output.warnings
+        ]
+
+    def run_brief_agent(self) -> RawInput:
+        raw_input = analyze_input(self.request, reference_context=self.reference_context)
+        self.record(
+            "BriefAgent",
+            "Normalized deck generation request.",
+            artifacts={"rawInput": raw_input},
+        )
+        return raw_input
+
+    def run_source_grounding_agent(self, raw_input: RawInput) -> None:
+        self.record(
+            "SourceGroundingAgent",
+            "Prepared reference context for content grounding.",
+            artifacts={
+                "references": raw_input.references,
+                "referenceContext": raw_input.reference_context,
+            },
+        )
+
+    def run_narrative_agent(
+        self,
+        raw_input: RawInput,
+    ) -> tuple[DeckOutline, list[SlidePlan]]:
+        outline, slide_plans = plan_deck_content(
+            raw_input,
+            client=self.client,
+            model=self.model,
+            api_key=self.api_key,
+        )
+        self.record(
+            "NarrativeAgent",
+            "Planned slide narrative.",
+            artifacts={"outline": outline, "slidePlans": slide_plans},
+        )
+        return outline, slide_plans
+
+    def run_design_director_agent(
+        self,
+        raw_input: RawInput,
+        slide_plans: list[SlidePlan],
+    ) -> tuple[list[SlidePlan], dict[str, Any]]:
+        slide_plans = apply_design_options(raw_input, slide_plans)
+        theme = imported_theme_from_blueprint(raw_input) or direct_design(
+            raw_input,
+            slide_plans,
+        )
+        self.record(
+            "DesignDirectorAgent",
+            "Selected theme and design direction.",
+            artifacts={
+                "theme": theme,
+                "designBlueprint": raw_input.design_blueprint,
+                "slidePlans": slide_plans,
+            },
+        )
+        return slide_plans, theme
+
+    def run_layout_agent(
+        self,
+        raw_input: RawInput,
+        slide_plans: list[SlidePlan],
+        theme: dict[str, Any],
+    ) -> list[dict[str, Any]]:
+        slides = [
+            assemble_slide_from_imported_blueprint(raw_input, slide_plan, theme)
+            if raw_input.design_blueprint
+            else assemble_slide(raw_input, slide_plan, plan_visuals(slide_plan), theme)
+            for slide_plan in slide_plans
+        ]
+        self.record(
+            "LayoutAgent",
+            "Composed editable slide elements.",
+            artifacts={"slides": slides, "designBlueprint": raw_input.design_blueprint},
+        )
+        return slides
+
+    def run_chart_data_agent(self, deck: dict[str, Any]) -> None:
+        empty_chart_count = sum(
+            1
+            for slide in deck["slides"]
+            for element in slide["elements"]
+            if element["type"] == "chart" and not element.get("props", {}).get("data")
+        )
+        warnings = (
+            ["ChartDataAgent kept chart data empty because no source numbers were available."]
+            if empty_chart_count
+            else []
+        )
+        self.record(
+            "ChartDataAgent",
+            "Checked chart data provenance.",
+            artifacts={"emptyChartCount": empty_chart_count},
+            warnings=warnings,
+        )
+
+    def run_media_agent(self, deck: dict[str, Any]) -> None:
+        image_count = sum(
+            1
+            for slide in deck["slides"]
+            for element in slide["elements"]
+            if element["type"] == "image"
+        )
+        self.record(
+            "MediaAgent",
+            "Checked media placeholders and provided images.",
+            artifacts={"imageCount": image_count},
+        )
+
+    def run_quality_reviewer_agent(self, deck: dict[str, Any]) -> ValidationResult:
+        validation = ValidationResult(
+            passed=not (
+                validate_layout(deck)
+                or validate_content(deck)
+                or validate_presentation(deck)
+            ),
+            layoutIssues=validate_layout(deck),
+            contentIssues=validate_content(deck),
+            designIssues=validate_design(deck),
+            presentationIssues=validate_presentation(deck),
+        )
+        self.record(
+            "QualityReviewerAgent",
+            "Reviewed layout, content, design, and presentation quality.",
+            artifacts={"validation": validation},
+        )
+        return validation
+
+    def run_refiner_agent(
+        self,
+        deck: dict[str, Any],
+        reviewer_validation: ValidationResult,
+    ) -> tuple[dict[str, Any], ValidationResult]:
+        refined_deck = refine_design_issues(deck, reviewer_validation.design_issues)
+        refined_deck, validation = validate_and_patch(refined_deck)
+        self.record(
+            "RefinerAgent",
+            "Applied bounded rule-based refinements.",
+            artifacts={"validation": validation},
+        )
+        return refined_deck, validation
+
+    def build_deck(
+        self,
+        raw_input: RawInput,
+        outline: DeckOutline,
+        theme: dict[str, Any],
+        slides: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        return {
+            "deckId": f"deck_ai_{safe_token(raw_input.project_id)}",
+            "projectId": raw_input.project_id,
+            "title": outline.title,
+            "version": 1,
+            "metadata": {
+                "language": "ko",
+                "locale": "ko-KR",
+                "sourceType": "ai",
+                "generatedBy": "ai",
+                "audience": raw_input.metadata.audience,
+                "purpose": raw_input.metadata.purpose,
+                "tone": raw_input.metadata.tone,
+                "createdFrom": {
+                    "topic": raw_input.topic,
+                    "references": [
+                        {"fileId": reference.file_id}
+                        for reference in raw_input.references
+                    ],
+                    "designReferences": [
+                        {"fileId": reference.file_id}
+                        for reference in raw_input.design_references
+                    ],
+                },
+            },
+            "canvas": {
+                "preset": "wide-16-9",
+                "width": CANVAS.width,
+                "height": CANVAS.height,
+                "aspectRatio": "16:9",
+            },
+            "theme": theme,
+            "slides": slides,
+        }
+
+
 def generate_deck(
     request: GenerateDeckRequest,
     *,
@@ -1185,62 +1442,13 @@ def generate_deck(
     api_key: str | None = None,
     reference_context: list[ReferenceContext] | None = None,
 ) -> GenerateDeckResponse:
-    raw_input = analyze_input(request, reference_context=reference_context)
-    outline, slide_plans = plan_deck_content(
-        raw_input,
+    return DeckGenerationOrchestrator(
+        request,
         client=client,
         model=model,
         api_key=api_key,
-    )
-    slide_plans = apply_design_options(raw_input, slide_plans)
-    theme = imported_theme_from_blueprint(raw_input) or direct_design(
-        raw_input,
-        slide_plans,
-    )
-    slides = [
-        assemble_slide_from_imported_blueprint(raw_input, slide_plan, theme)
-        if raw_input.design_blueprint
-        else assemble_slide(raw_input, slide_plan, plan_visuals(slide_plan), theme)
-        for slide_plan in slide_plans
-    ]
-    deck = {
-        "deckId": f"deck_ai_{safe_token(raw_input.project_id)}",
-        "projectId": raw_input.project_id,
-        "title": outline.title,
-        "version": 1,
-        "metadata": {
-            "language": "ko",
-            "locale": "ko-KR",
-            "sourceType": "ai",
-            "generatedBy": "ai",
-            "audience": raw_input.metadata.audience,
-            "purpose": raw_input.metadata.purpose,
-            "tone": raw_input.metadata.tone,
-            "createdFrom": {
-                "topic": raw_input.topic,
-                "references": [
-                    {"fileId": reference.file_id}
-                    for reference in raw_input.references
-                ],
-                "designReferences": [
-                    {"fileId": reference.file_id}
-                    for reference in raw_input.design_references
-                ],
-            },
-        },
-        "canvas": {
-            "preset": "wide-16-9",
-            "width": CANVAS.width,
-            "height": CANVAS.height,
-            "aspectRatio": "16:9",
-        },
-        "theme": theme,
-        "slides": slides,
-    }
-    deck, validation = validate_and_patch(deck)
-    warnings = generation_warnings(raw_input, len(slides), validation)
-
-    return GenerateDeckResponse(deck=deck, warnings=warnings, validation=validation)
+        reference_context=reference_context,
+    ).run()
 
 
 def generation_warnings(
@@ -1263,6 +1471,17 @@ def generation_warnings(
             warnings.append(warning)
 
     return warnings
+
+
+def unique_warnings(warnings: list[str]) -> list[str]:
+    seen: set[str] = set()
+    result: list[str] = []
+    for warning in warnings:
+        if warning in seen:
+            continue
+        seen.add(warning)
+        result.append(warning)
+    return result
 
 
 def imported_theme_from_blueprint(raw_input: RawInput) -> dict[str, Any] | None:
@@ -1330,8 +1549,17 @@ def analyze_input(
         design_references=request.design_references,
         reference_keywords=request.reference_keywords,
         reference_context=reference_context or [],
-        design_blueprint=request.design_blueprint,
+        design_blueprint=normalize_imported_design_blueprint(request.design_blueprint),
     )
+
+
+def normalize_imported_design_blueprint(blueprint: dict[str, Any] | None) -> dict[str, Any] | None:
+    if not isinstance(blueprint, dict):
+        return None
+    try:
+        return ImportedDesignBlueprint.model_validate(blueprint).model_dump(by_alias=True)
+    except Exception:
+        return None
 
 
 def split_content_and_design_prompt(prompt: str, design_prompt: str) -> tuple[str, str]:
@@ -4252,6 +4480,16 @@ def validate_design(deck: dict[str, Any]) -> list[ValidationIssue]:
                         message="근거 데이터가 없어 빈 차트 자리 표시자를 생성했습니다. 에디터에서 데이터를 입력하세요.",
                     )
                 )
+            if element["type"] == "image" and not str(
+                element.get("props", {}).get("alt", "")
+            ).strip():
+                issues.append(
+                    ValidationIssue(
+                        scope="element",
+                        path=f"slides.{slide_index}.elements.{element_index}.props.alt",
+                        message="Image element is missing alt text.",
+                    )
+                )
             if element["type"] == "text":
                 if is_text_overflowing(element):
                     issues.append(
@@ -4419,6 +4657,64 @@ def patch_deck(deck: dict[str, Any]) -> dict[str, Any]:
         ):
             element["zIndex"] = z_index
     return deck
+
+
+def refine_design_issues(
+    deck: dict[str, Any],
+    design_issues: list[ValidationIssue],
+) -> dict[str, Any]:
+    if not design_issues:
+        return deck
+
+    refined = deepcopy(deck)
+    for slide in refined["slides"]:
+        background_color = slide.get("style", {}).get(
+            "backgroundColor",
+            refined.get("theme", {}).get("backgroundColor", "#ffffff"),
+        )
+        for element in slide["elements"]:
+            if element["type"] != "text":
+                continue
+            shrink_text_to_fit(element)
+            clamp_text_to_safe_area(element)
+            correct_text_contrast(element, background_color)
+    return refined
+
+
+def shrink_text_to_fit(element: dict[str, Any]) -> None:
+    props = element.get("props", {})
+    for _ in range(8):
+        if not is_text_overflowing(element):
+            return
+        font_size = float(props.get("fontSize", 24))
+        if font_size <= 12:
+            return
+        props["fontSize"] = max(12, round(font_size * 0.9))
+        props["lineHeight"] = max(1.0, round(float(props.get("lineHeight", 1.2)) - 0.05, 2))
+
+
+def clamp_text_to_safe_area(element: dict[str, Any]) -> None:
+    if element.get("role") == "footer":
+        return
+    element["width"] = min(element["width"], CANVAS.safe_width)
+    element["height"] = min(element["height"], CANVAS.safe_height)
+    element["x"] = min(
+        max(element["x"], CANVAS.safe_x),
+        CANVAS.safe_x + CANVAS.safe_width - element["width"],
+    )
+    element["y"] = min(
+        max(element["y"], CANVAS.safe_y),
+        CANVAS.safe_y + CANVAS.safe_height - element["height"],
+    )
+
+
+def correct_text_contrast(element: dict[str, Any], background_color: str) -> None:
+    props = element.get("props", {})
+    color = props.get("color")
+    if not is_hex_color(color) or not is_hex_color(background_color):
+        return
+    if contrast_ratio(color, background_color) < 4.5:
+        props["color"] = text_color_for_background(background_color)
 
 
 def safe_token(value: str) -> str:
