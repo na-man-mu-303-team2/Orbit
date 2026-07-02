@@ -19,6 +19,7 @@ type DeckValidationInput = {
     createdFrom?: {
       topic: string;
       references: Array<{ fileId: string }>;
+      designReferences?: Array<{ fileId: string }>;
     };
   };
   canvas: {
@@ -438,6 +439,24 @@ describe("deckSchema validation", () => {
     };
 
     expectValidDeck(deck);
+  });
+
+  it("defaults AI metadata design references to an empty list", () => {
+    const deck = createValidDeck();
+
+    deck.metadata = {
+      ...deck.metadata,
+      sourceType: "ai",
+      generatedBy: "ai",
+      createdFrom: {
+        topic: "AI design reference",
+        references: []
+      }
+    };
+
+    const result = deckSchema.parse(deck);
+
+    expect(result.metadata.createdFrom?.designReferences).toEqual([]);
   });
 
   it("rejects empty and duplicate slide keyword terms", () => {

@@ -81,6 +81,7 @@ export const generateDeckRequestSchema = z.object({
   metadata: generateDeckMetadataSchema,
   design: generateDeckDesignSchema,
   references: z.array(generateDeckReferenceSchema).default([]),
+  designReferences: z.array(generateDeckReferenceSchema).default([]),
   referenceKeywords: z.array(generateDeckReferenceKeywordSchema).default([])
 });
 

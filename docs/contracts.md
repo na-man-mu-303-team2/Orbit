@@ -570,6 +570,7 @@ AI 덱 생성은 사용자 입력과 참고자료 fileId를 받아 비동기 Job
     "layoutDiversity": "stable"
   },
   "references": [{ "fileId": "file_1" }],
+  "designReferences": [{ "fileId": "file_design_1" }],
   "referenceKeywords": [{ "text": "실시간 발표 피드백" }]
 }
 ```
@@ -652,6 +653,7 @@ AI 덱 생성은 사용자 입력과 참고자료 fileId를 받아 비동기 Job
 - `export-result`
 - `report-result`
 - `thumbnail`
+- `design-asset`
 
 결정 사항:
 

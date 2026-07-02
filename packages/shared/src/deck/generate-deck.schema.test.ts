@@ -26,7 +26,19 @@ describe("generateDeckRequestSchema", () => {
       layoutDiversity: "stable"
     });
     expect(request.template).toBe("default");
+    expect(request.designReferences).toEqual([]);
     expect(request.referenceKeywords).toEqual([]);
+  });
+
+  it("accepts design references separately from content references", () => {
+    const request = generateDeckRequestSchema.parse({
+      topic: "AI deck generation",
+      references: [{ fileId: "file_content" }],
+      designReferences: [{ fileId: "file_design" }]
+    });
+
+    expect(request.references).toEqual([{ fileId: "file_content" }]);
+    expect(request.designReferences).toEqual([{ fileId: "file_design" }]);
   });
 
   it("normalizes design direction defaults", () => {

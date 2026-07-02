@@ -9,6 +9,7 @@ export const filePurposeSchema = z.enum([
   "export-result",
   "report-result",
   "thumbnail",
+  "design-asset",
 ]);
 
 export const allowedAssetMimeTypes = [
@@ -71,6 +72,14 @@ export const assetUploadUrlRequestSchema = z.object({
 }).superRefine((value, context) => {
   const isAudio = rehearsalAudioMimeTypes.has(value.mimeType);
   const isDocument = documentAssetMimeTypes.has(value.mimeType);
+
+  if (value.purpose === "design-asset") {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "design-asset is reserved for internal derived assets.",
+      path: ["purpose"],
+    });
+  }
 
   if (value.purpose === "rehearsal-audio" && !isAudio) {
     context.addIssue({
