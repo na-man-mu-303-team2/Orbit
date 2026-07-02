@@ -2,6 +2,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import type { Job, Project } from "@orbit/shared";
 import { describe, expect, it, vi } from "vitest";
 import {
+  buildDesignReferences,
   buildGenerateDeckPayload,
   buildGenerateDeckDesignDirection,
   buildReferenceGenerationInput,
@@ -145,6 +146,7 @@ describe("AI deck generation flow", () => {
         mediaPolicy: "balanced",
         layoutDiversity: "varied"
       },
+      designReferences: [{ fileId: "file_design_1" }],
       referenceInput: {
         references: [{ fileId: "file_1" }],
         referenceKeywords: [{ text: "Deck" }],
@@ -167,6 +169,7 @@ describe("AI deck generation flow", () => {
         layoutDiversity: "varied"
       },
       references: [{ fileId: "file_1" }],
+      designReferences: [{ fileId: "file_design_1" }],
       referenceKeywords: [{ text: "Deck" }]
     });
   });
@@ -218,6 +221,7 @@ describe("AI deck generation flow", () => {
         mediaPolicy: "balanced",
         layoutDiversity: "varied"
       },
+      designReferences: [],
       referenceInput: {
         references: [],
         referenceKeywords: [],
@@ -227,6 +231,28 @@ describe("AI deck generation flow", () => {
     });
 
     expect(payload.designPrompt).toBe("");
+  });
+
+  it("builds design references from PPTX role uploads", () => {
+    const pptx = new File(["pptx"], "design.pptx", {
+      type: "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+    });
+    const pdf = new File(["pdf"], "content.pdf", { type: "application/pdf" });
+    const uploadedFileIds = new Map([
+      ["design-only", "file_design"],
+      ["both", "file_both"]
+    ]);
+
+    expect(
+      buildDesignReferences(
+        [
+          { id: "content", file: pdf, role: "content" },
+          { id: "design-only", file: pptx, role: "design" },
+          { id: "both", file: pptx, role: "both" }
+        ],
+        uploadedFileIds
+      )
+    ).toEqual([{ fileId: "file_design" }, { fileId: "file_both" }]);
   });
 
   it("keeps a generated project at the top of the project list cache", () => {

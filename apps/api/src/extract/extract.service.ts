@@ -43,11 +43,12 @@ export class ExtractService {
 
   async extract(
     files: UploadedExtractFile[],
-    projectId: string
+    projectId: string,
+    fileIds: string[] = []
   ): Promise<ExtractResponse> {
     const payload = {
-      files: files.map((file) => ({
-        fileId: `file_${randomUUID()}`,
+      files: files.map((file, index) => ({
+        fileId: fileIds[index]?.trim() || `file_${randomUUID()}`,
         originalName: file.originalname || "upload",
         mimeType: file.mimetype || "application/octet-stream",
         contentBase64: file.buffer.toString("base64")
