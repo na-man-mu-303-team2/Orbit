@@ -1710,6 +1710,76 @@ button:disabled {
   overflow: hidden;
 }
 
+.present-window-shell {
+  align-items: center;
+  background: #05070b;
+  color: #f8fafc;
+  display: grid;
+  height: 100vh;
+  justify-items: center;
+  min-height: 100vh;
+  overflow: hidden;
+  position: relative;
+  width: 100vw;
+}
+
+.present-window-stage {
+  align-items: center;
+  display: grid;
+  height: 100vh;
+  justify-items: center;
+  overflow: hidden;
+  width: 100vw;
+}
+
+.present-window-stage .slideshow-renderer {
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08);
+}
+
+.present-window-status {
+  display: grid;
+  gap: 10px;
+  max-width: 520px;
+  padding: 28px;
+  text-align: center;
+}
+
+.present-window-status h1 {
+  color: #ffffff;
+  font-size: 1.2rem;
+  letter-spacing: 0;
+  margin: 0;
+}
+
+.present-window-status p {
+  color: #aab4c4;
+  font-size: 0.95rem;
+  line-height: 1.6;
+  margin: 0;
+}
+
+.present-window-fullscreen {
+  align-items: center;
+  background: rgba(15, 23, 42, 0.82);
+  border: 1px solid rgba(226, 232, 240, 0.36);
+  border-radius: 8px;
+  bottom: 18px;
+  color: #ffffff;
+  display: inline-flex;
+  font-size: 0.84rem;
+  font-weight: 900;
+  gap: 7px;
+  min-height: 38px;
+  padding: 0 13px;
+  position: fixed;
+  right: 18px;
+  z-index: 3;
+}
+
+.present-window-fullscreen:hover {
+  background: rgba(30, 41, 59, 0.94);
+}
+
 .rehearsal-legacy-test-marker {
   position: fixed;
   right: 8px;
@@ -1772,6 +1842,7 @@ button:disabled {
   background: #ffffff;
   border-bottom: 1px solid #e5e7eb;
   display: flex;
+  gap: 14px;
   justify-content: space-between;
   padding: 0 28px;
 }
@@ -1939,6 +2010,210 @@ button:disabled {
   background: #eff6ff;
 }
 
+.presenter-display-controls {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  min-width: 0;
+  position: relative;
+}
+
+.rehearsal-display-toolbar {
+  align-items: center;
+  display: flex;
+  flex: 1 1 auto;
+  gap: 8px;
+  justify-content: center;
+  min-width: 0;
+}
+
+.presenter-display-primary {
+  align-items: center;
+  background: #0f172a;
+  border: 1px solid #0f172a;
+  border-radius: 8px;
+  color: #ffffff;
+  display: inline-flex;
+  font-size: 0.78rem;
+  font-weight: 900;
+  gap: 7px;
+  min-height: 32px;
+  padding: 0 11px;
+  white-space: nowrap;
+}
+
+.presenter-display-primary:hover {
+  background: #1e293b;
+}
+
+.presenter-display-status {
+  background: #f8fafc;
+  border: 1px solid #dbe3ef;
+  border-radius: 999px;
+  color: #475569;
+  font-size: 0.72rem;
+  font-weight: 900;
+  padding: 6px 9px;
+  white-space: nowrap;
+}
+
+.presenter-display-message {
+  align-items: center;
+  background: #fff7ed;
+  border: 1px solid #fed7aa;
+  border-radius: 8px;
+  color: #9a3412;
+  display: inline-flex;
+  font-size: 0.72rem;
+  font-weight: 800;
+  gap: 6px;
+  left: 50%;
+  margin: 0;
+  max-width: min(460px, 80vw);
+  padding: 7px 9px;
+  position: absolute;
+  top: calc(100% + 8px);
+  transform: translateX(-50%);
+  z-index: 5;
+}
+
+.presenter-display-screen-list {
+  background: #ffffff;
+  border: 1px solid #dbe3ef;
+  border-radius: 8px;
+  box-shadow: 0 16px 36px rgba(15, 23, 42, 0.16);
+  display: grid;
+  gap: 6px;
+  left: 50%;
+  min-width: 240px;
+  padding: 8px;
+  position: absolute;
+  top: calc(100% + 8px);
+  transform: translateX(-50%);
+  z-index: 6;
+}
+
+.presenter-display-screen-list button {
+  align-items: center;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  color: #111827;
+  display: flex;
+  font-size: 0.78rem;
+  font-weight: 900;
+  justify-content: space-between;
+  min-height: 34px;
+  padding: 0 9px;
+}
+
+.presenter-display-screen-list button:hover {
+  background: #f8fafc;
+}
+
+.presenter-display-screen-list span {
+  color: #64748b;
+  font-size: 0.7rem;
+}
+
+.presenter-single-screen-button {
+  align-items: center;
+  background: #ffffff;
+  border: 1px solid #dbe3ef;
+  border-radius: 8px;
+  color: #334155;
+  display: inline-flex;
+  font-size: 0.78rem;
+  font-weight: 900;
+  gap: 7px;
+  min-height: 32px;
+  padding: 0 11px;
+  white-space: nowrap;
+}
+
+.presenter-single-screen-button:hover {
+  background: #f8fafc;
+}
+
+.single-screen-presenter {
+  align-items: center;
+  background: #05070b;
+  color: #ffffff;
+  display: grid;
+  height: 100vh;
+  justify-items: center;
+  min-height: 100vh;
+  overflow: hidden;
+  position: relative;
+  width: 100vw;
+}
+
+.single-screen-stage {
+  align-items: center;
+  display: grid;
+  height: 100vh;
+  justify-items: center;
+  overflow: hidden;
+  width: 100vw;
+}
+
+.single-screen-timer-overlay {
+  align-items: center;
+  background: rgba(15, 23, 42, 0.84);
+  border: 1px solid rgba(226, 232, 240, 0.28);
+  border-radius: 8px;
+  color: #dbe3ef;
+  display: inline-flex;
+  gap: 12px;
+  left: 50%;
+  min-height: 38px;
+  padding: 0 12px;
+  position: fixed;
+  top: 14px;
+  transform: translateX(-50%);
+  z-index: 4;
+}
+
+.single-screen-timer-overlay span {
+  font-size: 0.78rem;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.single-screen-timer-overlay strong {
+  color: #ffffff;
+  font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+  font-size: 0.92rem;
+}
+
+.single-screen-actions {
+  bottom: 18px;
+  display: inline-flex;
+  gap: 8px;
+  position: fixed;
+  right: 18px;
+  z-index: 4;
+}
+
+.single-screen-actions button {
+  align-items: center;
+  background: rgba(15, 23, 42, 0.82);
+  border: 1px solid rgba(226, 232, 240, 0.36);
+  border-radius: 8px;
+  color: #ffffff;
+  display: inline-flex;
+  font-size: 0.84rem;
+  font-weight: 900;
+  gap: 7px;
+  min-height: 38px;
+  padding: 0 12px;
+}
+
+.single-screen-actions button:hover {
+  background: rgba(30, 41, 59, 0.94);
+}
+
 .timer-wave {
   align-items: center;
   background: #eff6ff;
@@ -1989,6 +2264,7 @@ button:disabled {
   display: grid;
   justify-items: start;
   min-height: 0;
+  overflow: hidden;
 }
 
 .rehearsal-presenter-shell .rehearsal-slide-preview {
@@ -2095,8 +2371,8 @@ button:disabled {
 .rehearsal-presenter-shell .rehearsal-slide-controls {
   align-items: center;
   display: grid;
-  gap: 22px;
-  grid-template-columns: 42px auto 42px;
+  gap: 14px;
+  grid-template-columns: 42px auto minmax(96px, max-content) 42px;
   justify-content: center;
   padding-top: 8px;
 }
@@ -2108,7 +2384,15 @@ button:disabled {
   box-shadow: 0 4px 14px rgba(15, 23, 42, 0.1);
   color: #111827;
   height: 42px;
+  padding: 0 14px;
   width: 42px;
+}
+
+.rehearsal-presenter-shell .rehearsal-slide-controls button[aria-label="다음 애니메이션 스텝"] {
+  border-radius: 8px;
+  font-size: 0.82rem;
+  font-weight: 900;
+  width: auto;
 }
 
 .rehearsal-presenter-shell .rehearsal-slide-controls button:disabled {

@@ -4,7 +4,8 @@ import {
   createAudienceAccessSessionRequestSchema,
   createAudienceAccessSessionResponseSchema,
   getCurrentAudienceAccessSessionResponseSchema,
-  updateAudienceAccessSessionStatusResponseSchema
+  updateAudienceAccessSessionStatusResponseSchema,
+  verifyAudienceAccessSessionResponseSchema
 } from "@orbit/shared";
 import type {
   AudienceAccessSession,
@@ -13,7 +14,7 @@ import type {
   GetCurrentAudienceAccessSessionResponse,
   UpdateAudienceAccessSessionStatusResponse
 } from "@orbit/shared";
-import { Injectable, NotFoundException } from "@nestjs/common";
+import { Injectable, NotFoundException, UnauthorizedException } from "@nestjs/common";
 import { InjectDataSource } from "@nestjs/typeorm";
 import { DataSource } from "typeorm";
 
@@ -23,6 +24,10 @@ type PresentationSessionRow = {
   status: AudienceAccessSessionStatus;
   created_at: Date | string;
   expires_at: Date | string;
+};
+
+type PresentationSessionWithPasswordRow = PresentationSessionRow & {
+  session_password_hash: string;
 };
 
 @Injectable()
@@ -37,11 +42,7 @@ export class PresentationSessionsService {
     await this.closeExpiredOpenSessions(projectId);
     const currentOpenSession = await this.findCurrentOpenSession(projectId);
     if (currentOpenSession) {
-      const session = this.toSessionDto(currentOpenSession);
-      return createAudienceAccessSessionResponseSchema.parse({
-        session,
-        audienceUrl: this.buildAudienceUrl(session.sessionId)
-      });
+      return this.toCreateResponse(currentOpenSession);
     }
 
     const sessionId = `session_${randomUUID()}`;
@@ -51,27 +52,36 @@ export class PresentationSessionsService {
       type: argon2.argon2id
     });
 
-    const rows = await this.dataSource.query<PresentationSessionRow[]>(
-      `
-        INSERT INTO presentation_sessions (
-          session_id,
-          session_password_hash,
-          project_id,
-          status,
-          created_at,
-          expires_at
-        )
-        VALUES ($1, $2, $3, 'open', $4, $5)
-        RETURNING session_id, project_id, status, created_at, expires_at
-      `,
-      [sessionId, passwordHash, projectId, now, expiresAt]
-    );
+    try {
+      const rows = await this.dataSource.query<PresentationSessionRow[]>(
+        `
+          INSERT INTO presentation_sessions (
+            session_id,
+            session_password_hash,
+            project_id,
+            status,
+            created_at,
+            expires_at
+          )
+          VALUES ($1, $2, $3, 'open', $4, $5)
+          RETURNING session_id, project_id, status, created_at, expires_at
+        `,
+        [sessionId, passwordHash, projectId, now, expiresAt]
+      );
 
-    const session = this.toSessionDto(rows[0]);
-    return createAudienceAccessSessionResponseSchema.parse({
-      session,
-      audienceUrl: this.buildAudienceUrl(session.sessionId)
-    });
+      return this.toCreateResponse(rows[0]);
+    } catch (error) {
+      if (!isPostgresUniqueViolation(error)) {
+        throw error;
+      }
+
+      const racedOpenSession = await this.findCurrentOpenSession(projectId);
+      if (!racedOpenSession) {
+        throw error;
+      }
+
+      return this.toCreateResponse(racedOpenSession);
+    }
   }
 
   async getCurrent(projectId: string): Promise<GetCurrentAudienceAccessSessionResponse> {
@@ -88,6 +98,61 @@ export class PresentationSessionsService {
     return getCurrentAudienceAccessSessionResponseSchema.parse({
       session,
       audienceUrl: this.buildAudienceUrl(session.sessionId)
+    });
+  }
+
+  async getOpenSessionById(sessionId: string): Promise<AudienceAccessSession> {
+    const rows = await this.dataSource.query<PresentationSessionRow[]>(
+      `
+        SELECT session_id, project_id, status, created_at, expires_at
+        FROM presentation_sessions
+        WHERE session_id = $1
+          AND status = 'open'
+          AND expires_at > now()
+        LIMIT 1
+      `,
+      [sessionId]
+    );
+
+    const row = rows[0];
+    if (!row) {
+      throw new NotFoundException("Audience session not found");
+    }
+
+    return this.toSessionDto(row);
+  }
+
+  async verifyAudienceAccess(sessionId: string, passcode: string) {
+    const rows = await this.dataSource.query<PresentationSessionWithPasswordRow[]>(
+      `
+        SELECT
+          session_id,
+          session_password_hash,
+          project_id,
+          status,
+          created_at,
+          expires_at
+        FROM presentation_sessions
+        WHERE session_id = $1
+          AND status = 'open'
+          AND expires_at > now()
+        LIMIT 1
+      `,
+      [sessionId]
+    );
+    const row = rows[0];
+    if (!row) {
+      throw new NotFoundException("Invalid audience session or passcode");
+    }
+
+    const isValid = await argon2.verify(row.session_password_hash, passcode);
+    if (!isValid) {
+      throw new UnauthorizedException("Invalid audience session or passcode");
+    }
+
+    return verifyAudienceAccessSessionResponseSchema.parse({
+      verified: true,
+      session: this.toSessionDto(row)
     });
   }
 
@@ -165,6 +230,23 @@ export class PresentationSessionsService {
       expiresAt: toIso(row.expires_at)
     };
   }
+
+  private toCreateResponse(row: PresentationSessionRow): CreateAudienceAccessSessionResponse {
+    const session = this.toSessionDto(row);
+    return createAudienceAccessSessionResponseSchema.parse({
+      session,
+      audienceUrl: this.buildAudienceUrl(session.sessionId)
+    });
+  }
+}
+
+function isPostgresUniqueViolation(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    error.code === "23505"
+  );
 }
 
 function toIso(value: Date | string) {

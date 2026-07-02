@@ -67,6 +67,15 @@ export const updateAudienceAccessSessionStatusResponseSchema = z.object({
   session: audienceAccessSessionSchema
 });
 
+export const verifyAudienceAccessSessionRequestSchema = z.object({
+  passcode: z.string().regex(/^\d{4}$/, "passcode must be exactly 4 digits")
+});
+
+export const verifyAudienceAccessSessionResponseSchema = z.object({
+  verified: z.literal(true),
+  session: audienceAccessSessionSchema
+});
+
 export type PresentationSession = z.infer<typeof presentationSessionSchema>;
 export type RehearsalMetrics = z.infer<typeof rehearsalMetricsSchema>;
 export type PresentationReport = z.infer<typeof reportSchema>;
@@ -88,4 +97,10 @@ export type UpdateAudienceAccessSessionStatusRequest = z.infer<
 >;
 export type UpdateAudienceAccessSessionStatusResponse = z.infer<
   typeof updateAudienceAccessSessionStatusResponseSchema
+>;
+export type VerifyAudienceAccessSessionRequest = z.infer<
+  typeof verifyAudienceAccessSessionRequestSchema
+>;
+export type VerifyAudienceAccessSessionResponse = z.infer<
+  typeof verifyAudienceAccessSessionResponseSchema
 >;

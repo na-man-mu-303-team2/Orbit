@@ -36,6 +36,8 @@ import {
   RehearsalReportPage,
   RehearsalWorkspace
 } from "./features/rehearsal/RehearsalWorkspace";
+import { AudienceSessionPage } from "./pages/audience/AudienceSessionPage";
+import { PresentWindow } from "./features/rehearsal/presenter/PresentWindow";
 
 type Fetcher = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 
@@ -125,6 +127,8 @@ export type Route =
   | { name: "project-list" }
   | { name: "project-editor"; projectId: string }
   | { name: "project-request"; projectId: string }
+  | { name: "audience-session"; sessionId: string }
+  | { name: "present"; deckId: string; sessionId?: string }
   | { name: "rehearsal"; projectId: string }
   | { name: "rehearsal-report"; projectId: string; runId: string }
   | { name: "report-mockup" };
@@ -261,14 +265,29 @@ async function requestProjectAccess(
   return response.json() as Promise<ProjectAccessResponse>;
 }
 
-function getRoute(pathname = window.location.pathname): Route {
-  const normalized = pathname.replace(/\/+$/, "") || "/";
+export function getRoute(
+  pathname?: string,
+  search?: string
+): Route {
+  const currentPathname =
+    pathname ?? (typeof window === "undefined" ? "/" : window.location.pathname);
+  const currentSearch =
+    search ?? (typeof window === "undefined" ? "" : window.location.search);
+  const normalized = currentPathname.replace(/\/+$/, "") || "/";
 
   if (normalized === "/login") return { name: "login" };
   if (normalized === "/createdeck") return { name: "create-deck" };
   if (normalized === "/upload") return { name: "upload" };
   if (normalized === "/project") return { name: "project-list" };
   if (normalized === "/report_mockup") return { name: "report-mockup" };
+
+  const audienceSessionMatch = normalized.match(/^\/audience\/([^/]+)$/);
+  if (audienceSessionMatch) {
+    return {
+      name: "audience-session",
+      sessionId: decodeURIComponent(audienceSessionMatch[1])
+    };
+  }
 
   const projectRequestMatch = normalized.match(/^\/project\/([^/]+)\/request$/);
   if (projectRequestMatch) {
@@ -292,6 +311,17 @@ function getRoute(pathname = window.location.pathname): Route {
   const rehearsalMatch = normalized.match(/^\/rehearsal\/([^/]+)$/);
   if (rehearsalMatch) {
     return { name: "rehearsal", projectId: decodeURIComponent(rehearsalMatch[1]) };
+  }
+
+  const presentMatch = normalized.match(/^\/present\/([^/]+)$/);
+  if (presentMatch) {
+    const searchParams = new URLSearchParams(currentSearch);
+    const sessionId = searchParams.get("sessionId") ?? undefined;
+    return {
+      name: "present",
+      deckId: decodeURIComponent(presentMatch[1]),
+      sessionId
+    };
   }
 
   return { name: "home" };
@@ -340,7 +370,13 @@ export function App() {
 }
 
 export function shouldRenderAppFrame(route: Route) {
-  return route.name !== "login" && route.name !== "rehearsal-report" && route.name !== "report-mockup";
+  return (
+    route.name !== "login" &&
+    route.name !== "present" &&
+    route.name !== "rehearsal-report" &&
+    route.name !== "report-mockup" &&
+    route.name !== "audience-session"
+  );
 }
 
 function renderRoute(route: Route, user?: AuthUser) {
@@ -358,6 +394,12 @@ function renderRoute(route: Route, user?: AuthUser) {
     );
   }
   if (route.name === "project-request") return <ProjectAccessRequestPage projectId={route.projectId} />;
+  if (route.name === "audience-session") {
+    return <AudienceSessionPage sessionId={route.sessionId} />;
+  }
+  if (route.name === "present") {
+    return <PresentWindow deckId={route.deckId} sessionId={route.sessionId} />;
+  }
   if (route.name === "rehearsal") {
     return (
       <RehearsalWorkspace

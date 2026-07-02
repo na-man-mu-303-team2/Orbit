@@ -1,5 +1,9 @@
+import fs from "node:fs";
+import path from "node:path";
 import { createDemoDeck } from "@orbit/editor-core";
 import type { Job, RehearsalReport, RehearsalRun } from "@orbit/shared";
+import type { ReactNode } from "react";
+import { forwardRef } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
@@ -45,6 +49,31 @@ import { resolveEditorAssetUrl } from "../editor/shared/editorAssetUrl";
 
 const createdAt = "2026-06-29T00:00:00.000Z";
 
+vi.mock("react-konva", () => {
+  const Group = forwardRef<HTMLDivElement, { children?: ReactNode }>(
+    ({ children }, ref) => <div ref={ref}>{children}</div>
+  );
+  const Stage = forwardRef<HTMLDivElement, { children?: ReactNode }>(
+    ({ children }, ref) => <div ref={ref}>{children}</div>
+  );
+  const Text = ({ text }: { text?: string }) => <span>{text}</span>;
+
+  return {
+    Arrow: () => <span data-konva-arrow="true" />,
+    Circle: () => <span data-konva-circle="true" />,
+    Group,
+    Image: () => <span data-konva-image="true" />,
+    Layer: ({ children }: { children?: ReactNode }) => <div>{children}</div>,
+    Line: () => <span data-konva-line="true" />,
+    Rect: () => <span data-konva-rect="true" />,
+    RegularPolygon: () => <span data-konva-polygon="true" />,
+    Shape: () => <span data-konva-shape="true" />,
+    Star: () => <span data-konva-star="true" />,
+    Stage,
+    Text
+  };
+});
+
 describe("RehearsalWorkspace", () => {
   afterEach(() => {
     vi.restoreAllMocks();
@@ -66,6 +95,55 @@ describe("RehearsalWorkspace", () => {
     expect(html).toContain("-100 dB RMS");
     expect(html).toContain("Report AI");
     expect(html).toContain("Speaker notes");
+  });
+
+  it("resets presenter step when live auto advance completes", () => {
+    const source = fs.readFileSync(
+      path.join(process.cwd(), "src/features/rehearsal/RehearsalWorkspace.tsx"),
+      "utf8"
+    );
+    const start = source.indexOf("function completeLiveSlideAdvance");
+    const end = source.indexOf("function cancelPendingAutoAdvance");
+    const completeLiveSlideAdvanceBody = source.slice(start, end);
+
+    expect(completeLiveSlideAdvanceBody).toContain("setPresenterStepIndex(0)");
+    expect(completeLiveSlideAdvanceBody.indexOf("setPresenterStepIndex(0)")).toBeLessThan(
+      completeLiveSlideAdvanceBody.indexOf("setCurrentSlideIndex")
+    );
+  });
+
+  it("keeps the presenter step on the last slide when no next slide exists", () => {
+    const source = fs.readFileSync(
+      path.join(process.cwd(), "src/features/rehearsal/RehearsalWorkspace.tsx"),
+      "utf8"
+    );
+    const start = source.indexOf("const handleNextPresenterStep");
+    const end = source.indexOf("const finishRehearsal");
+    const handleNextPresenterStepBody = source.slice(start, end);
+
+    expect(handleNextPresenterStepBody).toContain("getNextPresenterStepState");
+    expect(handleNextPresenterStepBody).toContain("slideCount: deck.slides.length");
+    expect(handleNextPresenterStepBody).toContain(
+      "setPresenterStepIndex(nextState.stepIndex)"
+    );
+    expect(handleNextPresenterStepBody).toContain(
+      "setCurrentSlideIndex(nextState.slideIndex)"
+    );
+  });
+
+  it("moves slides outside of the presenter step state updater", () => {
+    const source = fs.readFileSync(
+      path.join(process.cwd(), "src/features/rehearsal/RehearsalWorkspace.tsx"),
+      "utf8"
+    );
+    const start = source.indexOf("const handleNextPresenterStep");
+    const end = source.indexOf("const finishRehearsal");
+    const handleNextPresenterStepBody = source.slice(start, end);
+
+    expect(handleNextPresenterStepBody).not.toContain("setPresenterStepIndex((currentStep)");
+    expect(
+      handleNextPresenterStepBody.indexOf("setPresenterStepIndex(nextState.stepIndex)")
+    ).toBeLessThan(handleNextPresenterStepBody.indexOf("setCurrentSlideIndex"));
   });
 
   it("requests microphone audio with live STT input quality constraints", async () => {

@@ -1,5 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import type { Job, Project } from "@orbit/shared";
+import type { ReactNode } from "react";
+import { forwardRef } from "react";
 import { describe, expect, it, vi } from "vitest";
 import {
   buildGenerateDeckPayload,
@@ -11,10 +13,36 @@ import {
   getGeneratedDeckProjectTitle,
   getGenerateDeckJobResult,
   getJobResultFiles,
+  getRoute,
   mergeGeneratedProjectList,
   pollExtractJob,
   shouldRenderAppFrame
 } from "./App";
+
+vi.mock("react-konva", () => {
+  const Group = forwardRef<HTMLDivElement, { children?: ReactNode }>(
+    ({ children }, ref) => <div ref={ref}>{children}</div>
+  );
+  const Stage = forwardRef<HTMLDivElement, { children?: ReactNode }>(
+    ({ children }, ref) => <div ref={ref}>{children}</div>
+  );
+  const Text = ({ text }: { text?: string }) => <span>{text}</span>;
+
+  return {
+    Arrow: () => <span data-konva-arrow="true" />,
+    Circle: () => <span data-konva-circle="true" />,
+    Group,
+    Image: () => <span data-konva-image="true" />,
+    Layer: ({ children }: { children?: ReactNode }) => <div>{children}</div>,
+    Line: () => <span data-konva-line="true" />,
+    Rect: () => <span data-konva-rect="true" />,
+    RegularPolygon: () => <span data-konva-polygon="true" />,
+    Shape: () => <span data-konva-shape="true" />,
+    Star: () => <span data-konva-star="true" />,
+    Stage,
+    Text
+  };
+});
 
 describe("App shell routing", () => {
   it("keeps the login page outside the shared navigation shell", () => {
@@ -26,7 +54,27 @@ describe("App shell routing", () => {
         runId: "run_demo_1"
       })
     ).toBe(false);
+    expect(
+      shouldRenderAppFrame({
+        name: "present",
+        deckId: "deck_demo_1",
+        sessionId: "session_demo_1"
+      })
+    ).toBe(false);
     expect(shouldRenderAppFrame({ name: "home" })).toBe(true);
+  });
+
+  it("parses presenter slide-window routes with an optional session id", () => {
+    expect(getRoute("/present/deck_demo_1", "?sessionId=session_demo_1")).toEqual({
+      name: "present",
+      deckId: "deck_demo_1",
+      sessionId: "session_demo_1"
+    });
+    expect(getRoute("/present/deck_demo_1")).toEqual({
+      name: "present",
+      deckId: "deck_demo_1",
+      sessionId: undefined
+    });
   });
 });
 
