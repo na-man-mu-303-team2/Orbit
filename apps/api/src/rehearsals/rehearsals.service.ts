@@ -2,7 +2,7 @@ import type { EnqueueRehearsalSttJobInput } from "@orbit/job-queue";
 import { loadOrbitConfig } from "@orbit/config";
 import {
   assetUploadUrlRequestSchema,
-  completeRehearsalAudioUploadRequestSchema,
+  completeRehearsalAudioUploadUrlRequestSchema,
   completeRehearsalAudioUploadResponseSchema,
   createRehearsalAudioUploadUrlRequestSchema,
   createRehearsalAudioUploadUrlResponseSchema,
@@ -103,7 +103,7 @@ export class RehearsalsService {
   }
 
   async completeAudioUpload(runId: string, body: unknown) {
-    const request = parseRequest(completeRehearsalAudioUploadRequestSchema, body);
+    const request = parseRequest(completeRehearsalAudioUploadUrlRequestSchema, body);
     const run = await this.getRunEntity(runId);
 
     if (run.status !== "uploading") {

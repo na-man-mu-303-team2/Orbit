@@ -7,6 +7,7 @@ import {
   maxRehearsalAudioUploadSizeBytes
 } from "../files/file.schema";
 import { jobSchema } from "../jobs/job.schema";
+import { deckKeywordIdSchema, deckSlideIdSchema } from "../deck/id.schema";
 
 export const rehearsalRunStatusSchema = z.enum([
   "created",
@@ -88,7 +89,7 @@ export const createRehearsalAudioUploadUrlRequestSchema = z.object({
     .number()
     .int()
     .positive()
-    .max(maxRehearsalAudioUploadSizeBytes, "rehearsal-audio uploads must be 25MB or smaller.")
+    .max(maxRehearsalAudioUploadSizeBytes, "rehearsal-audio 업로드는 200MiB 이하여야 합니다.")
 });
 
 export const createRehearsalAudioUploadUrlResponseSchema = z.object({
@@ -96,13 +97,88 @@ export const createRehearsalAudioUploadUrlResponseSchema = z.object({
   upload: assetUploadUrlResponseSchema
 });
 
-export const completeRehearsalAudioUploadRequestSchema = z.object({
+export const completeRehearsalAudioUploadUrlRequestSchema = z.object({
   fileId: z.string().min(1)
 });
+
+export const rehearsalAudioSha256Schema = z
+  .string()
+  .regex(/^[a-f0-9]{64}$/i, "sha256은 64자리 16진수 문자열이어야 합니다.");
+
+export const beginRehearsalAudioUploadRequestSchema = z
+  .object({
+    codec: z.literal("flac"),
+    sampleRate: z.literal(16000),
+    channels: z.literal(1),
+    chunkDurationMs: z.literal(30000)
+  })
+  .strict();
+
+export const uploadRehearsalAudioChunkParamsSchema = z
+  .object({
+    runId: z.string().min(1),
+    index: z.number().int().nonnegative()
+  })
+  .strict();
+
+export const completeRehearsalAudioUploadRequestSchema = z
+  .object({
+    chunkCount: z.number().int().positive(),
+    totalDurationMs: z.number().int().positive(),
+    totalSizeBytes: z
+      .number()
+      .int()
+      .positive()
+      .max(maxRehearsalAudioUploadSizeBytes, "리허설 오디오는 200MiB 이하여야 합니다."),
+    sha256: rehearsalAudioSha256Schema
+  })
+  .strict();
 
 export const completeRehearsalAudioUploadResponseSchema = z.object({
   run: rehearsalRunSchema,
   job: jobSchema
+});
+
+export const rehearsalRunMetaSchema = z
+  .object({
+    slideTimeline: z
+      .array(
+        z
+          .object({
+            slideId: deckSlideIdSchema,
+            enteredAt: isoDateTimeSchema
+          })
+          .strict()
+      )
+      .default([]),
+    missedKeywords: z
+      .array(
+        z
+          .object({
+            slideId: deckSlideIdSchema,
+            keywordId: deckKeywordIdSchema
+          })
+          .strict()
+      )
+      .default([]),
+    adviceEvents: z
+      .array(
+        z
+          .object({
+            type: z.string().trim().min(1),
+            at: isoDateTimeSchema
+          })
+          .strict()
+      )
+      .default([])
+  })
+  // run 메타는 리포트 집계를 위한 사건 정보만 받고 전사/대본/원본 오디오는 받지 않는다.
+  .strict();
+
+export const updateRehearsalRunMetaRequestSchema = rehearsalRunMetaSchema;
+
+export const updateRehearsalRunMetaResponseSchema = z.object({
+  run: rehearsalRunSchema
 });
 
 export const getRehearsalRunResponseSchema = z.object({
@@ -128,10 +204,26 @@ export type CreateRehearsalAudioUploadUrlRequest = z.infer<
 export type CreateRehearsalAudioUploadUrlResponse = z.infer<
   typeof createRehearsalAudioUploadUrlResponseSchema
 >;
+export type CompleteRehearsalAudioUploadUrlRequest = z.infer<
+  typeof completeRehearsalAudioUploadUrlRequestSchema
+>;
 export type CompleteRehearsalAudioUploadRequest = z.infer<
   typeof completeRehearsalAudioUploadRequestSchema
 >;
 export type CompleteRehearsalAudioUploadResponse = z.infer<
   typeof completeRehearsalAudioUploadResponseSchema
+>;
+export type BeginRehearsalAudioUploadRequest = z.infer<
+  typeof beginRehearsalAudioUploadRequestSchema
+>;
+export type UploadRehearsalAudioChunkParams = z.infer<
+  typeof uploadRehearsalAudioChunkParamsSchema
+>;
+export type RehearsalRunMeta = z.infer<typeof rehearsalRunMetaSchema>;
+export type UpdateRehearsalRunMetaRequest = z.infer<
+  typeof updateRehearsalRunMetaRequestSchema
+>;
+export type UpdateRehearsalRunMetaResponse = z.infer<
+  typeof updateRehearsalRunMetaResponseSchema
 >;
 export type GetRehearsalReportResponse = z.infer<typeof getRehearsalReportResponseSchema>;

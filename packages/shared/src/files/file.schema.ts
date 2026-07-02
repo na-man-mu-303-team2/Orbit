@@ -23,6 +23,7 @@ export const allowedAssetMimeTypes = [
   "audio/mp4",
   "audio/mpeg",
   "audio/mpga",
+  "audio/flac",
   "audio/wav",
   "audio/webm",
   "audio/x-m4a",
@@ -31,7 +32,7 @@ export const allowedAssetMimeTypes = [
 ] as const;
 
 export const maxAssetUploadSizeBytes = 50 * 1024 * 1024;
-export const maxRehearsalAudioUploadSizeBytes = 25_000_000;
+export const maxRehearsalAudioUploadSizeBytes = 209_715_200;
 
 export const allowedRehearsalAudioMimeTypes = [
   "audio/mp3",
@@ -39,6 +40,7 @@ export const allowedRehearsalAudioMimeTypes = [
   "audio/mp4",
   "audio/mpeg",
   "audio/mpga",
+  "audio/flac",
   "audio/wav",
   "audio/webm",
   "audio/x-m4a",
@@ -66,7 +68,7 @@ export const uploadedFileSchema = z.object({
 export const assetUploadUrlRequestSchema = z.object({
   originalName: z.string().trim().min(1).max(255),
   mimeType: z.enum(allowedAssetMimeTypes),
-  size: z.number().int().positive().max(maxAssetUploadSizeBytes),
+  size: z.number().int().positive(),
   purpose: filePurposeSchema,
 }).superRefine((value, context) => {
   const isAudio = rehearsalAudioMimeTypes.has(value.mimeType);
@@ -75,7 +77,7 @@ export const assetUploadUrlRequestSchema = z.object({
   if (value.purpose === "rehearsal-audio" && !isAudio) {
     context.addIssue({
       code: z.ZodIssueCode.custom,
-      message: "rehearsal-audio uploads require an OpenAI-compatible audio MIME type.",
+      message: "rehearsal-audio 업로드는 지원하는 오디오 MIME type이어야 합니다.",
       path: ["mimeType"],
     });
   }
@@ -89,7 +91,7 @@ export const assetUploadUrlRequestSchema = z.object({
       maximum: maxRehearsalAudioUploadSizeBytes,
       inclusive: true,
       type: "number",
-      message: "rehearsal-audio uploads must be 25MB or smaller.",
+      message: "rehearsal-audio 업로드는 200MiB 이하여야 합니다.",
       path: ["size"],
     });
   }
@@ -99,6 +101,17 @@ export const assetUploadUrlRequestSchema = z.object({
       code: z.ZodIssueCode.custom,
       message: `${value.purpose} uploads do not accept audio MIME types.`,
       path: ["mimeType"],
+    });
+  }
+
+  if (value.purpose !== "rehearsal-audio" && value.size > maxAssetUploadSizeBytes) {
+    context.addIssue({
+      code: z.ZodIssueCode.too_big,
+      maximum: maxAssetUploadSizeBytes,
+      inclusive: true,
+      type: "number",
+      message: "파일 업로드는 50MiB 이하여야 합니다.",
+      path: ["size"],
     });
   }
 });

@@ -17,7 +17,7 @@ describe("assetUploadUrlRequestSchema", () => {
   });
 
   it("accepts OpenAI-compatible rehearsal audio MIME aliases", () => {
-    for (const mimeType of ["audio/mp3", "audio/x-m4a"] as const) {
+    for (const mimeType of ["audio/mp3", "audio/flac", "audio/x-m4a"] as const) {
       const result = assetUploadUrlRequestSchema.parse({
         originalName: "rehearsal.audio",
         mimeType,
@@ -51,8 +51,8 @@ describe("assetUploadUrlRequestSchema", () => {
     expect(result.success).toBe(false);
   });
 
-  it("rejects rehearsal audio MIME types that OpenAI report STT does not accept", () => {
-    for (const mimeType of ["audio/ogg", "audio/flac"] as const) {
+  it("rejects rehearsal audio MIME types outside the report STT contract", () => {
+    for (const mimeType of ["audio/ogg"] as const) {
       const result = assetUploadUrlRequestSchema.safeParse({
         originalName: "rehearsal.audio",
         mimeType,
@@ -64,7 +64,7 @@ describe("assetUploadUrlRequestSchema", () => {
     }
   });
 
-  it("rejects rehearsal audio above the OpenAI upload limit", () => {
+  it("rejects rehearsal audio above the rehearsal upload limit", () => {
     const result = assetUploadUrlRequestSchema.safeParse({
       originalName: "rehearsal.webm",
       mimeType: "audio/webm",

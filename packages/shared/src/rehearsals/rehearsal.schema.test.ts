@@ -1,10 +1,14 @@
 import { describe, expect, it } from "vitest";
 import { maxRehearsalAudioUploadSizeBytes } from "../files/file.schema";
 import {
+  beginRehearsalAudioUploadRequestSchema,
+  completeRehearsalAudioUploadRequestSchema,
   createRehearsalAudioUploadUrlRequestSchema,
   getRehearsalReportResponseSchema,
+  rehearsalRunMetaSchema,
   rehearsalReportSchema,
-  rehearsalRunSchema
+  rehearsalRunSchema,
+  uploadRehearsalAudioChunkParamsSchema
 } from "./rehearsal.schema";
 
 describe("rehearsalRunSchema", () => {
@@ -80,8 +84,8 @@ describe("createRehearsalAudioUploadUrlRequestSchema", () => {
     expect(request.mimeType).toBe("audio/webm");
   });
 
-  it("accepts OpenAI-compatible MIME aliases", () => {
-    for (const mimeType of ["audio/mp3", "audio/x-m4a"] as const) {
+  it("accepts report STT MIME aliases including FLAC", () => {
+    for (const mimeType of ["audio/mp3", "audio/flac", "audio/x-m4a"] as const) {
       const request = createRehearsalAudioUploadUrlRequestSchema.parse({
         originalName: "rehearsal.audio",
         mimeType,
@@ -102,8 +106,8 @@ describe("createRehearsalAudioUploadUrlRequestSchema", () => {
     expect(result.success).toBe(false);
   });
 
-  it("rejects MIME types unsupported by OpenAI report STT", () => {
-    for (const mimeType of ["audio/ogg", "audio/flac"] as const) {
+  it("rejects MIME types outside the rehearsal audio contract", () => {
+    for (const mimeType of ["audio/ogg"] as const) {
       const result = createRehearsalAudioUploadUrlRequestSchema.safeParse({
         originalName: "rehearsal.audio",
         mimeType,
@@ -114,7 +118,7 @@ describe("createRehearsalAudioUploadUrlRequestSchema", () => {
     }
   });
 
-  it("rejects audio above the OpenAI upload limit", () => {
+  it("rejects audio above the rehearsal upload limit", () => {
     const result = createRehearsalAudioUploadUrlRequestSchema.safeParse({
       originalName: "rehearsal.webm",
       mimeType: "audio/webm",
@@ -123,6 +127,111 @@ describe("createRehearsalAudioUploadUrlRequestSchema", () => {
 
     expect(result.success).toBe(false);
   });
+});
+
+describe("beginRehearsalAudioUploadRequestSchema", () => {
+  it("accepts only the FLAC chunk profile used by the presenter recorder", () => {
+    const request = beginRehearsalAudioUploadRequestSchema.parse({
+      codec: "flac",
+      sampleRate: 16000,
+      channels: 1,
+      chunkDurationMs: 30000
+    });
+
+    expect(request.codec).toBe("flac");
+  });
+
+  it.each([
+    ["sampleRate", 48000],
+    ["channels", 2],
+    ["chunkDurationMs", 10000]
+  ])("rejects unsupported chunk %s", (field, value) => {
+    const result = beginRehearsalAudioUploadRequestSchema.safeParse({
+      codec: "flac",
+      sampleRate: 16000,
+      channels: 1,
+      chunkDurationMs: 30000,
+      [field]: value
+    });
+
+    expect(result.success).toBe(false);
+  });
+});
+
+describe("uploadRehearsalAudioChunkParamsSchema", () => {
+  it("accepts a runId and zero-based chunk index", () => {
+    const params = uploadRehearsalAudioChunkParamsSchema.parse({
+      runId: "run_1",
+      index: 0
+    });
+
+    expect(params.index).toBe(0);
+  });
+
+  it("rejects negative chunk indexes", () => {
+    const result = uploadRehearsalAudioChunkParamsSchema.safeParse({
+      runId: "run_1",
+      index: -1
+    });
+
+    expect(result.success).toBe(false);
+  });
+});
+
+describe("completeRehearsalAudioUploadRequestSchema", () => {
+  it("accepts the final chunk manifest", () => {
+    const manifest = completeRehearsalAudioUploadRequestSchema.parse({
+      chunkCount: 3,
+      totalDurationMs: 90000,
+      totalSizeBytes: 1024,
+      sha256: "a".repeat(64)
+    });
+
+    expect(manifest.chunkCount).toBe(3);
+  });
+
+  it.each([
+    ["chunkCount", 0],
+    ["totalDurationMs", 0],
+    ["totalSizeBytes", maxRehearsalAudioUploadSizeBytes + 1],
+    ["sha256", "not-a-sha"]
+  ])("rejects invalid complete manifest %s", (field, value) => {
+    const result = completeRehearsalAudioUploadRequestSchema.safeParse({
+      chunkCount: 3,
+      totalDurationMs: 90000,
+      totalSizeBytes: 1024,
+      sha256: "a".repeat(64),
+      [field]: value
+    });
+
+    expect(result.success).toBe(false);
+  });
+});
+
+describe("rehearsalRunMetaSchema", () => {
+  it("accepts slide timeline, missed keywords, and advice events", () => {
+    const meta = rehearsalRunMetaSchema.parse({
+      slideTimeline: [{ slideId: "slide_1", enteredAt: "2026-07-02T00:00:00.000Z" }],
+      missedKeywords: [{ slideId: "slide_1", keywordId: "kw_1" }],
+      adviceEvents: [{ type: "pace-too-fast", at: "2026-07-02T00:00:30.000Z" }]
+    });
+
+    expect(meta.slideTimeline).toHaveLength(1);
+  });
+
+  it.each(["transcript", "speakerNotes", "rawAudio", "script"])(
+    "rejects sensitive run meta field %s",
+    (field) => {
+      const result = rehearsalRunMetaSchema.safeParse({
+        slideTimeline: [],
+        missedKeywords: [],
+        adviceEvents: [],
+        [field]: "민감한 원문"
+      });
+
+      expect(result.success).toBe(false);
+    }
+  );
 });
 
 function rehearsalReportFixture() {
