@@ -8,6 +8,7 @@ import type {
   DeckAnimation,
   DeckElement,
   DeckPatchOperation,
+  DeckSlideAction,
   Slide,
 } from "@orbit/shared";
 
@@ -272,10 +273,15 @@ function applyOperation(
         return elementNotFound(operation.type, operation.elementId);
       }
 
+      const removedAnimationIds = slide.animations
+        .filter((animation) => animation.elementId === operation.elementId)
+        .map((animation) => animation.animationId);
+
       slide.elements.splice(elementIndex, 1);
       slide.animations = slide.animations.filter(
         (animation) => animation.elementId !== operation.elementId,
       );
+      removeActionsForAnimations(slide, removedAnimationIds);
       removeElementFromGroups(slide, operation.elementId);
       return { ok: true };
     }
@@ -375,6 +381,92 @@ function applyOperation(
       }
 
       slide.animations.splice(animationIndex, 1);
+      removeActionsForAnimations(slide, [operation.animationId]);
+      return { ok: true };
+    }
+
+    case "add_slide_action": {
+      const slide = findSlide(deck, operation.slideId);
+
+      if (!slide) {
+        return slideNotFound(operation.type, operation.slideId);
+      }
+
+      if (findSlideAction(slide, operation.action.actionId)) {
+        return failure(
+          "DUPLICATE_SLIDE_ACTION_ID",
+          "Slide action already exists",
+          {
+            operationType: operation.type,
+            details: [`actionId=${operation.action.actionId}`],
+          },
+        );
+      }
+
+      if (
+        operation.action.effect.kind === "play-animation" &&
+        !findAnimation(slide, operation.action.effect.animationId)
+      ) {
+        return slideActionAnimationNotFound(
+          operation.type,
+          operation.action.effect.animationId,
+        );
+      }
+
+      slide.actions.push(cloneJson(operation.action));
+      return { ok: true };
+    }
+
+    case "update_slide_action": {
+      const slide = findSlide(deck, operation.slideId);
+
+      if (!slide) {
+        return slideNotFound(operation.type, operation.slideId);
+      }
+
+      const action = findSlideAction(slide, operation.actionId);
+
+      if (!action) {
+        return slideActionNotFound(operation.type, operation.actionId);
+      }
+
+      if (operation.action.trigger) {
+        action.trigger = cloneJson(operation.action.trigger);
+      }
+
+      if (operation.action.effect) {
+        if (
+          operation.action.effect.kind === "play-animation" &&
+          !findAnimation(slide, operation.action.effect.animationId)
+        ) {
+          return slideActionAnimationNotFound(
+            operation.type,
+            operation.action.effect.animationId,
+          );
+        }
+
+        action.effect = cloneJson(operation.action.effect);
+      }
+
+      return { ok: true };
+    }
+
+    case "delete_slide_action": {
+      const slide = findSlide(deck, operation.slideId);
+
+      if (!slide) {
+        return slideNotFound(operation.type, operation.slideId);
+      }
+
+      const actionIndex = slide.actions.findIndex(
+        (action) => action.actionId === operation.actionId,
+      );
+
+      if (actionIndex < 0) {
+        return slideActionNotFound(operation.type, operation.actionId);
+      }
+
+      slide.actions.splice(actionIndex, 1);
       return { ok: true };
     }
 
@@ -422,6 +514,13 @@ function findAnimation(
   );
 }
 
+function findSlideAction(
+  slide: Slide,
+  actionId: string,
+): DeckSlideAction | undefined {
+  return slide.actions.find((action) => action.actionId === actionId);
+}
+
 function removeElementFromGroups(slide: Slide, elementId: string): void {
   for (const element of slide.elements) {
     if (element.type !== "group") {
@@ -432,6 +531,22 @@ function removeElementFromGroups(slide: Slide, elementId: string): void {
       (childElementId) => childElementId !== elementId,
     );
   }
+}
+
+function removeActionsForAnimations(
+  slide: Slide,
+  animationIds: string[],
+): void {
+  if (animationIds.length === 0) {
+    return;
+  }
+
+  const animationIdSet = new Set(animationIds);
+  slide.actions = slide.actions.filter(
+    (action) =>
+      action.effect.kind !== "play-animation" ||
+      !animationIdSet.has(action.effect.animationId),
+  );
 }
 
 function sortSlides(deck: Deck): void {
@@ -521,6 +636,30 @@ function animationTargetNotFound(
     {
       operationType,
       details: [`elementId=${elementId}`],
+    },
+  );
+}
+
+function slideActionNotFound(
+  operationType: string,
+  actionId: string,
+): ApplyDeckPatchFailure {
+  return failure("SLIDE_ACTION_NOT_FOUND", "Slide action was not found", {
+    operationType,
+    details: [`actionId=${actionId}`],
+  });
+}
+
+function slideActionAnimationNotFound(
+  operationType: string,
+  animationId: string,
+): ApplyDeckPatchFailure {
+  return failure(
+    "SLIDE_ACTION_ANIMATION_NOT_FOUND",
+    "Slide action animation target was not found",
+    {
+      operationType,
+      details: [`animationId=${animationId}`],
     },
   );
 }

@@ -127,6 +127,7 @@ function createDeck() {
         elements: [],
         keywords: [],
         animations: [],
+        actions: [],
         aiNotes: {
           emphasisPoints: ["message"],
           sourceEvidence: [{ fileId: "file_1" }]
