@@ -21,7 +21,9 @@ from app.ai.pptx_design_importer import (
     CANVAS_WIDTH,
     ImportedDesignAsset,
     build_quality_report,
-    import_pptx_design,
+)
+from app.ai.pptx_ooxml_vector_importer import (
+    import_pptx_design_with_optional_ooxml_vector,
 )
 
 PML_NS = "http://schemas.openxmlformats.org/presentationml/2006/main"
@@ -119,7 +121,7 @@ def generate_pptx_ooxml(
     render: bool = True,
 ) -> PptxOoxmlGenerationResult:
     canvas = detect_canvas(path)
-    imported = import_pptx_design(
+    imported = import_pptx_design_with_optional_ooxml_vector(
         path,
         file_id,
         canvas_width=canvas.width,

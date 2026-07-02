@@ -1,0 +1,1291 @@
+from __future__ import annotations
+
+import base64
+import math
+import os
+import zipfile
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
+from xml.etree import ElementTree as ET
+
+from app.ai.pptx_design_importer import (
+    CANVAS_HEIGHT,
+    CANVAS_WIDTH,
+    ImportedDesignAsset,
+    ImportedDesignBlueprint,
+    PptxDesignImportResult,
+    assign_text_roles,
+    average_image_color,
+    build_quality_report,
+    build_template_blueprint,
+    imported_slide_style,
+    imported_theme,
+    import_pptx_design,
+    preset_custom_shape_path,
+)
+
+PML_NS = "http://schemas.openxmlformats.org/presentationml/2006/main"
+DML_NS = "http://schemas.openxmlformats.org/drawingml/2006/main"
+REL_NS = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+PKG_REL_NS = "http://schemas.openxmlformats.org/package/2006/relationships"
+CONTENT_TYPES_NS = "http://schemas.openxmlformats.org/package/2006/content-types"
+
+SLIDE_REL_TYPE = (
+    "http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide"
+)
+SLIDE_LAYOUT_REL_TYPE = (
+    "http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout"
+)
+SLIDE_MASTER_REL_TYPE = (
+    "http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideMaster"
+)
+IMAGE_REL_TYPE = (
+    "http://schemas.openxmlformats.org/officeDocument/2006/relationships/image"
+)
+VECTOR_IMPORT_FLAG = "ORBIT_PPTX_OOXML_VECTOR_IMPORT"
+
+
+def import_pptx_design_with_optional_ooxml_vector(
+    path: Path,
+    file_id: str,
+    *,
+    canvas_width: int = CANVAS_WIDTH,
+    canvas_height: int = CANVAS_HEIGHT,
+) -> PptxDesignImportResult:
+    if os.getenv(VECTOR_IMPORT_FLAG, "").strip().lower() not in {
+        "1",
+        "true",
+        "yes",
+    }:
+        return import_pptx_design(
+            path,
+            file_id,
+            canvas_width=canvas_width,
+            canvas_height=canvas_height,
+        )
+
+    try:
+        return import_pptx_ooxml_visual_tree(
+            path,
+            file_id,
+            canvas_width=canvas_width,
+            canvas_height=canvas_height,
+        )
+    except Exception as error:
+        fallback = import_pptx_design(
+            path,
+            file_id,
+            canvas_width=canvas_width,
+            canvas_height=canvas_height,
+        )
+        warning = f"OOXML visual tree importer failed; python-pptx fallback used: {error}"
+        fallback.warnings.insert(0, warning)
+        fallback.blueprint.setdefault("warnings", fallback.warnings)
+        if isinstance(fallback.blueprint["warnings"], list):
+            fallback.blueprint["warnings"].insert(0, warning)
+        return fallback
+
+
+@dataclass(frozen=True)
+class OoxmlScale:
+    canvas_width: int
+    canvas_height: int
+    slide_width_emu: int
+    slide_height_emu: int
+
+    @property
+    def scale_x(self) -> float:
+        return self.canvas_width / max(1, self.slide_width_emu)
+
+    @property
+    def scale_y(self) -> float:
+        return self.canvas_height / max(1, self.slide_height_emu)
+
+    @property
+    def average_scale(self) -> float:
+        return (self.scale_x + self.scale_y) / 2
+
+
+@dataclass(frozen=True)
+class OoxmlTransform:
+    scale_x: float = 1
+    scale_y: float = 1
+    translate_x: float = 0
+    translate_y: float = 0
+
+    def rect(
+        self,
+        x: int,
+        y: int,
+        width: int,
+        height: int,
+    ) -> tuple[float, float, float, float]:
+        return (
+            self.scale_x * x + self.translate_x,
+            self.scale_y * y + self.translate_y,
+            self.scale_x * width,
+            self.scale_y * height,
+        )
+
+    def for_group(self, group: ET.Element[Any]) -> OoxmlTransform:
+        xfrm = first_local_descendant(group, "xfrm")
+        if xfrm is None:
+            return self
+
+        off = first_local_child(xfrm, "off")
+        ext = first_local_child(xfrm, "ext")
+        child_off = first_local_child(xfrm, "chOff")
+        child_ext = first_local_child(xfrm, "chExt")
+        off_x = int_attr(off, "x", 0)
+        off_y = int_attr(off, "y", 0)
+        ext_x = int_attr(ext, "cx", 1)
+        ext_y = int_attr(ext, "cy", 1)
+        child_x = int_attr(child_off, "x", 0)
+        child_y = int_attr(child_off, "y", 0)
+        child_width = int_attr(child_ext, "cx", ext_x)
+        child_height = int_attr(child_ext, "cy", ext_y)
+        ratio_x = ext_x / max(1, child_width)
+        ratio_y = ext_y / max(1, child_height)
+        local = OoxmlTransform(
+            scale_x=ratio_x,
+            scale_y=ratio_y,
+            translate_x=off_x - child_x * ratio_x,
+            translate_y=off_y - child_y * ratio_y,
+        )
+        return OoxmlTransform(
+            scale_x=self.scale_x * local.scale_x,
+            scale_y=self.scale_y * local.scale_y,
+            translate_x=self.scale_x * local.translate_x + self.translate_x,
+            translate_y=self.scale_y * local.translate_y + self.translate_y,
+        )
+
+
+@dataclass
+class OoxmlImportState:
+    assets: list[ImportedDesignAsset]
+    asset_colors: dict[str, str]
+    warnings: list[str]
+    z_cursor: int = 1
+
+    def next_z(self) -> int:
+        value = self.z_cursor
+        self.z_cursor += 1
+        return value
+
+
+def import_pptx_ooxml_visual_tree(
+    path: Path,
+    file_id: str,
+    *,
+    canvas_width: int = CANVAS_WIDTH,
+    canvas_height: int = CANVAS_HEIGHT,
+) -> PptxDesignImportResult:
+    canvas_width = max(1, int(canvas_width))
+    canvas_height = max(1, int(canvas_height))
+
+    with zipfile.ZipFile(path, "r") as package:
+        slide_width, slide_height = presentation_size_emu(package)
+        scale = OoxmlScale(
+            canvas_width=canvas_width,
+            canvas_height=canvas_height,
+            slide_width_emu=slide_width,
+            slide_height_emu=slide_height,
+        )
+        slide_parts = presentation_slide_parts(package)
+        content_types = content_type_map(package)
+        state = OoxmlImportState(assets=[], asset_colors={}, warnings=[])
+        slides: list[dict[str, Any]] = []
+        slot_sources_by_slide: list[dict[str, dict[str, Any]]] = []
+
+        for slide_index, slide_part in enumerate(slide_parts, start=1):
+            slide = read_xml(package, slide_part)
+            if slide is None:
+                state.warnings.append(f"OOXML slide part missing: {slide_part}")
+                continue
+            slide_rels = relationships_for_part(package, slide_part)
+            layout_part = relationship_target_by_type(
+                slide_part,
+                slide_rels,
+                SLIDE_LAYOUT_REL_TYPE,
+            )
+            layout = read_xml(package, layout_part) if layout_part else None
+            layout_rels = (
+                relationships_for_part(package, layout_part) if layout_part else {}
+            )
+            master_part = (
+                relationship_target_by_type(
+                    layout_part,
+                    layout_rels,
+                    SLIDE_MASTER_REL_TYPE,
+                )
+                if layout_part
+                else None
+            )
+            master = read_xml(package, master_part) if master_part else None
+            placeholder_frames = placeholder_frame_map(layout, scale)
+            elements: list[dict[str, Any]] = [
+                background_element(slide_index, canvas_width, canvas_height)
+            ]
+            slot_sources: dict[str, dict[str, Any]] = {}
+
+            for source_name, part, root in (
+                ("master", master_part, master),
+                ("layout", layout_part, layout),
+                ("slide", slide_part, slide),
+            ):
+                if part is None or root is None:
+                    continue
+                append_visual_tree(
+                    package=package,
+                    content_types=content_types,
+                    part_path=part,
+                    root=root,
+                    slide_index=slide_index,
+                    source_name=source_name,
+                    scale=scale,
+                    transform=OoxmlTransform(),
+                    state=state,
+                    elements=elements,
+                    slot_sources=slot_sources,
+                    placeholder_frames=placeholder_frames,
+                    locked=source_name != "slide",
+                )
+
+            assign_text_roles(elements)
+            background = slide_background_color(slide) or "#FFFFFF"
+            slides.append(
+                {
+                    "sourceFileId": file_id,
+                    "sourceSlideIndex": slide_index,
+                    "style": imported_slide_style(elements, background),
+                    "elements": elements,
+                }
+            )
+            slot_sources_by_slide.append(slot_sources)
+
+        blueprint = ImportedDesignBlueprint.model_validate(
+            {
+                "sourceFileId": file_id,
+                "canvas": {
+                    "width": canvas_width,
+                    "height": canvas_height,
+                },
+                "theme": imported_theme(slides),
+                "slides": slides,
+                "warnings": state.warnings,
+            }
+        )
+        return PptxDesignImportResult(
+            blueprint=blueprint.model_dump(by_alias=True),
+            templateBlueprint=build_template_blueprint(
+                file_id,
+                slides,
+                slot_sources_by_slide,
+            ),
+            qualityReport=build_quality_report(slides, state.warnings),
+            assets=state.assets,
+            warnings=state.warnings,
+        )
+
+
+def append_visual_tree(
+    *,
+    package: zipfile.ZipFile,
+    content_types: dict[str, str],
+    part_path: str,
+    root: ET.Element[Any],
+    slide_index: int,
+    source_name: str,
+    scale: OoxmlScale,
+    transform: OoxmlTransform,
+    state: OoxmlImportState,
+    elements: list[dict[str, Any]],
+    slot_sources: dict[str, dict[str, Any]],
+    placeholder_frames: dict[tuple[str, str], dict[str, int]],
+    locked: bool,
+) -> None:
+    shape_tree = first_local_descendant(root, "spTree")
+    if shape_tree is None:
+        return
+    rels = relationships_for_part(package, part_path)
+
+    for child_index, child in enumerate(list(shape_tree), start=1):
+        tag = local_name(child)
+        if tag == "grpSp":
+            append_group_shape(
+                package=package,
+                content_types=content_types,
+                part_path=part_path,
+                group=child,
+                slide_index=slide_index,
+                source_name=source_name,
+                scale=scale,
+                transform=transform,
+                state=state,
+                elements=elements,
+                slot_sources=slot_sources,
+                placeholder_frames=placeholder_frames,
+                locked=locked,
+            )
+            continue
+        if tag not in {"sp", "pic", "cxnSp"}:
+            if tag not in {"nvGrpSpPr", "grpSpPr"}:
+                state.warnings.append(
+                    f"Unsupported OOXML shape tree item on slide {slide_index}: {tag}"
+                )
+            continue
+
+        if locked and placeholder_key(child) is not None:
+            continue
+
+        append_shape(
+            package=package,
+            content_types=content_types,
+            rels=rels,
+            part_path=part_path,
+            shape=child,
+            slide_index=slide_index,
+            source_name=source_name,
+            child_index=child_index,
+            scale=scale,
+            transform=transform,
+            state=state,
+            elements=elements,
+            slot_sources=slot_sources,
+            placeholder_frames=placeholder_frames,
+            locked=locked,
+        )
+
+
+def append_group_shape(
+    *,
+    package: zipfile.ZipFile,
+    content_types: dict[str, str],
+    part_path: str,
+    group: ET.Element[Any],
+    slide_index: int,
+    source_name: str,
+    scale: OoxmlScale,
+    transform: OoxmlTransform,
+    state: OoxmlImportState,
+    elements: list[dict[str, Any]],
+    slot_sources: dict[str, dict[str, Any]],
+    placeholder_frames: dict[tuple[str, str], dict[str, int]],
+    locked: bool,
+) -> None:
+    group_transform = transform.for_group(group)
+    rels = relationships_for_part(package, part_path)
+    for child_index, child in enumerate(list(group), start=1):
+        tag = local_name(child)
+        if tag == "grpSp":
+            append_group_shape(
+                package=package,
+                content_types=content_types,
+                part_path=part_path,
+                group=child,
+                slide_index=slide_index,
+                source_name=source_name,
+                scale=scale,
+                transform=group_transform,
+                state=state,
+                elements=elements,
+                slot_sources=slot_sources,
+                placeholder_frames=placeholder_frames,
+                locked=locked,
+            )
+        elif tag in {"sp", "pic", "cxnSp"}:
+            append_shape(
+                package=package,
+                content_types=content_types,
+                rels=rels,
+                part_path=part_path,
+                shape=child,
+                slide_index=slide_index,
+                source_name=source_name,
+                child_index=child_index,
+                scale=scale,
+                transform=group_transform,
+                state=state,
+                elements=elements,
+                slot_sources=slot_sources,
+                placeholder_frames=placeholder_frames,
+                locked=locked,
+            )
+
+
+def append_shape(
+    *,
+    package: zipfile.ZipFile,
+    content_types: dict[str, str],
+    rels: dict[str, dict[str, str]],
+    part_path: str,
+    shape: ET.Element[Any],
+    slide_index: int,
+    source_name: str,
+    child_index: int,
+    scale: OoxmlScale,
+    transform: OoxmlTransform,
+    state: OoxmlImportState,
+    elements: list[dict[str, Any]],
+    slot_sources: dict[str, dict[str, Any]],
+    placeholder_frames: dict[tuple[str, str], dict[str, int]],
+    locked: bool,
+) -> None:
+    shape_id = shape_identifier(shape, child_index)
+    frame = shape_frame(shape, scale, transform, placeholder_frames)
+    if frame is None:
+        state.warnings.append(
+            f"OOXML shape has no resolved transform on slide {slide_index}: {shape_id}"
+        )
+        return
+
+    source = shape_source(shape, part_path, shape_id, source_name, locked)
+    if local_name(shape) == "pic":
+        element = image_element(
+            package=package,
+            content_types=content_types,
+            rels=rels,
+            part_path=part_path,
+            shape=shape,
+            slide_index=slide_index,
+            source_name=source_name,
+            shape_id=shape_id,
+            frame=frame,
+            scale=scale,
+            z_index=state.next_z(),
+            locked=locked,
+            state=state,
+        )
+        if element:
+            elements.append(element)
+            slot_sources[str(element["elementId"])] = source
+        return
+
+    fill = shape_fill(shape)
+    stroke, stroke_width, stroke_extras = shape_stroke(shape, scale)
+    shadow = shape_shadow(shape, scale)
+    if fill != "transparent" or stroke != "transparent":
+        shape_element_payload = visual_shape_element(
+            shape=shape,
+            slide_index=slide_index,
+            source_name=source_name,
+            shape_id=shape_id,
+            frame=frame,
+            z_index=state.next_z(),
+            locked=locked,
+            fill=fill,
+            stroke=stroke,
+            stroke_width=stroke_width,
+            stroke_extras=stroke_extras,
+            shadow=shadow,
+            warnings=state.warnings,
+        )
+        elements.append(shape_element_payload)
+        slot_sources[str(shape_element_payload["elementId"])] = source
+
+    text_element_payload = text_element(
+        shape=shape,
+        slide_index=slide_index,
+        source_name=source_name,
+        shape_id=shape_id,
+        frame=frame,
+        z_index=state.next_z(),
+        locked=locked,
+    )
+    if text_element_payload:
+        elements.append(text_element_payload)
+        slot_sources[str(text_element_payload["elementId"])] = source
+
+
+def image_element(
+    *,
+    package: zipfile.ZipFile,
+    content_types: dict[str, str],
+    rels: dict[str, dict[str, str]],
+    part_path: str,
+    shape: ET.Element[Any],
+    slide_index: int,
+    source_name: str,
+    shape_id: str,
+    frame: dict[str, int],
+    scale: OoxmlScale,
+    z_index: int,
+    locked: bool,
+    state: OoxmlImportState,
+) -> dict[str, Any] | None:
+    blip = first_local_descendant(shape, "blip")
+    relationship_id = attr_by_local_name(blip, "embed")
+    if not relationship_id:
+        state.warnings.append(
+            f"OOXML image has no relationship on slide {slide_index}: {shape_id}"
+        )
+        return None
+    rel = rels.get(relationship_id)
+    if not rel:
+        state.warnings.append(
+            f"OOXML image relationship missing on slide {slide_index}: {relationship_id}"
+        )
+        return None
+    image_part = resolve_part_path(part_path, rel.get("Target", ""))
+    if image_part not in package.namelist():
+        state.warnings.append(
+            f"OOXML image part missing on slide {slide_index}: {image_part}"
+        )
+        return None
+    blob = package.read(image_part)
+    asset_id = f"image_{len(state.assets) + 1}"
+    mime_type = mime_type_for_part(content_types, image_part)
+    state.assets.append(
+        ImportedDesignAsset(
+            assetId=asset_id,
+            fileName=f"{asset_id}.{extension_for_mime_type(mime_type)}",
+            mimeType=mime_type,
+            contentBase64=base64.b64encode(blob).decode("ascii"),
+        )
+    )
+    color = average_image_color(blob)
+    if color:
+        state.asset_colors[asset_id] = color
+
+    props: dict[str, Any] = {
+        "src": f"asset:{asset_id}",
+        "alt": shape_name(shape) or "Imported image",
+        "fit": "stretch",
+        "focusX": 0.5,
+        "focusY": 0.5,
+    }
+    crop = image_crop(shape)
+    if crop:
+        props["crop"] = crop
+    role = "background" if is_full_canvas_frame(frame, scale) else "media"
+    return {
+        **element_base(
+            element_id=element_id(slide_index, source_name, shape_id, "image"),
+            role=role,
+            frame=frame,
+            z_index=z_index,
+            locked=locked or role == "background",
+        ),
+        "type": "image",
+        "props": props,
+    }
+
+
+def visual_shape_element(
+    *,
+    shape: ET.Element[Any],
+    slide_index: int,
+    source_name: str,
+    shape_id: str,
+    frame: dict[str, int],
+    z_index: int,
+    locked: bool,
+    fill: Any,
+    stroke: Any,
+    stroke_width: float,
+    stroke_extras: dict[str, Any],
+    shadow: dict[str, Any] | None,
+    warnings: list[str],
+) -> dict[str, Any]:
+    token = preset_token(shape)
+    element_type = shape_type_for_preset(token, local_name(shape))
+    props: dict[str, Any] = {
+        "fill": fill,
+        "stroke": stroke,
+        "strokeWidth": stroke_width,
+        "borderRadius": 0,
+        **stroke_extras,
+    }
+    if shadow:
+        props["shadow"] = shadow
+    if element_type == "customShape":
+        custom_path = preset_custom_shape_path(token)
+        if custom_path:
+            path_data, closed = custom_path
+        else:
+            warnings.append(
+                f"Unsupported OOXML preset converted to rect on slide {slide_index}: {token}"
+            )
+            element_type = "rect"
+            path_data, closed = "", True
+        if element_type == "customShape":
+            return {
+                **element_base(
+                    element_id=element_id(slide_index, source_name, shape_id, "shape"),
+                    role="decoration",
+                    frame=frame,
+                    z_index=z_index,
+                    locked=locked,
+                ),
+                "type": "customShape",
+                "props": {
+                    "pathData": path_data,
+                    "viewBoxWidth": 100,
+                    "viewBoxHeight": 100,
+                    "fill": fill,
+                    "stroke": stroke,
+                    "strokeWidth": stroke_width,
+                    "closed": closed,
+                    "nodes": [],
+                    **stroke_extras,
+                    **({"shadow": shadow} if shadow else {}),
+                },
+            }
+    if token == "roundRect":
+        props["borderRadius"] = round(min(frame["width"], frame["height"]) * 0.16)
+    return {
+        **element_base(
+            element_id=element_id(slide_index, source_name, shape_id, "shape"),
+            role="decoration",
+            frame=frame,
+            z_index=z_index,
+            locked=locked,
+        ),
+        "type": element_type,
+        "props": props,
+    }
+
+
+def text_element(
+    *,
+    shape: ET.Element[Any],
+    slide_index: int,
+    source_name: str,
+    shape_id: str,
+    frame: dict[str, int],
+    z_index: int,
+    locked: bool,
+) -> dict[str, Any] | None:
+    body = first_local_child(shape, "txBody")
+    if body is None:
+        return None
+    runs = text_runs(body)
+    text = "".join(str(run.get("text", "")) for run in runs)
+    if not text.strip():
+        return None
+    first_run = next((run for run in runs if str(run.get("text", "")).strip()), runs[0])
+    props: dict[str, Any] = {
+        "text": text,
+        "runs": runs,
+        "fontFamily": first_run.get("fontFamily", "Inter"),
+        "fontSize": first_run.get("fontSize", 24),
+        "fontWeight": first_run.get("fontWeight", "normal"),
+        "color": first_run.get("color", "#111827"),
+        "align": paragraph_align(body),
+        "verticalAlign": "top",
+        "lineHeight": 1.15,
+    }
+    bullet = paragraph_bullet(body)
+    if bullet:
+        props["bullet"] = bullet
+    return {
+        **element_base(
+            element_id=element_id(slide_index, source_name, shape_id, "text"),
+            role="body",
+            frame=frame,
+            z_index=z_index,
+            locked=locked,
+        ),
+        "type": "text",
+        "props": props,
+    }
+
+
+def text_runs(body: ET.Element[Any]) -> list[dict[str, Any]]:
+    runs: list[dict[str, Any]] = []
+    paragraphs = direct_local_children(body, "p")
+    for paragraph_index, paragraph in enumerate(paragraphs):
+        if paragraph_index > 0 and runs:
+            runs.append({"text": "\n", "baseline": "normal"})
+        for child in list(paragraph):
+            name = local_name(child)
+            if name == "r":
+                text = "".join(node.text or "" for node in child.iter() if local_name(node) == "t")
+                if text:
+                    runs.append({"text": text, **run_props(child)})
+            elif name == "br":
+                runs.append({"text": "\n", "baseline": "normal"})
+    if not runs:
+        plain = "".join(node.text or "" for node in body.iter() if local_name(node) == "t")
+        if plain:
+            runs.append({"text": plain, "baseline": "normal"})
+    return runs
+
+
+def run_props(run: ET.Element[Any]) -> dict[str, Any]:
+    r_pr = first_local_child(run, "rPr")
+    props: dict[str, Any] = {"baseline": "normal"}
+    if r_pr is None:
+        return props
+    typeface = run_typeface(r_pr)
+    if typeface:
+        props["fontFamily"] = typeface
+    size = int_attr(r_pr, "sz", 0)
+    if size > 0:
+        props["fontSize"] = max(8, round(size / 100))
+    if r_pr.get("b") in {"1", "true"}:
+        props["fontWeight"] = "bold"
+    color = solid_color(first_local_child(r_pr, "solidFill"))
+    if color:
+        props["color"] = color
+    baseline = int_attr(r_pr, "baseline", 0)
+    if baseline > 0:
+        props["baseline"] = "superscript"
+    elif baseline < 0:
+        props["baseline"] = "subscript"
+    return props
+
+
+def run_typeface(r_pr: ET.Element[Any]) -> str | None:
+    for child_name in ("latin", "ea", "cs"):
+        child = first_local_child(r_pr, child_name)
+        if child is not None and child.get("typeface"):
+            return str(child.get("typeface"))
+    return None
+
+
+def paragraph_align(body: ET.Element[Any]) -> str:
+    first_paragraph = first_local_child(body, "p")
+    p_pr = first_local_child(first_paragraph, "pPr") if first_paragraph is not None else None
+    align = str(p_pr.get("algn", "left")) if p_pr is not None else "left"
+    return {
+        "ctr": "center",
+        "r": "right",
+        "just": "justify",
+    }.get(align, "left")
+
+
+def paragraph_bullet(body: ET.Element[Any]) -> dict[str, Any] | None:
+    first_paragraph = first_local_child(body, "p")
+    p_pr = first_local_child(first_paragraph, "pPr") if first_paragraph is not None else None
+    if p_pr is None:
+        return None
+    bullet = first_local_child(p_pr, "buChar")
+    if bullet is None:
+        return None
+    return {
+        "enabled": True,
+        "character": str(bullet.get("char", "\u2022")),
+        "indent": max(0, round(int_attr(p_pr, "marL", 0) / 12700)),
+    }
+
+
+def shape_fill(shape: ET.Element[Any]) -> Any:
+    sp_pr = first_local_child(shape, "spPr")
+    if sp_pr is None:
+        return "transparent"
+    if first_local_child(sp_pr, "noFill") is not None:
+        return "transparent"
+    grad = first_local_child(sp_pr, "gradFill")
+    if grad is not None:
+        paint = gradient_paint(grad)
+        if paint:
+            return paint
+    solid = solid_color(first_local_child(sp_pr, "solidFill"))
+    return solid or "transparent"
+
+
+def shape_stroke(
+    shape: ET.Element[Any],
+    scale: OoxmlScale,
+) -> tuple[Any, float, dict[str, Any]]:
+    sp_pr = first_local_child(shape, "spPr")
+    line = first_local_child(sp_pr, "ln") if sp_pr is not None else None
+    if line is None or first_local_child(line, "noFill") is not None:
+        return "transparent", 0, {}
+    solid = solid_color(first_local_child(line, "solidFill"))
+    grad = gradient_paint(first_local_child(line, "gradFill"))
+    stroke: Any = grad or solid or "transparent"
+    width = int_attr(line, "w", 12700 if stroke != "transparent" else 0)
+    extras: dict[str, Any] = {}
+    dash = line_dash(line)
+    if dash:
+        extras["dash"] = dash
+    cap = line.get("cap")
+    if cap:
+        extras["lineCap"] = {"flat": "butt", "rnd": "round", "sq": "square"}.get(
+            cap,
+            "butt",
+        )
+    join = line_join(line)
+    if join:
+        extras["lineJoin"] = join
+    return stroke, round(max(0, width * scale.average_scale), 2), extras
+
+
+def line_dash(line: ET.Element[Any]) -> list[int] | None:
+    preset = first_local_child(line, "prstDash")
+    value = str(preset.get("val", "")) if preset is not None else ""
+    return {
+        "dash": [8, 4],
+        "dashDot": [8, 4, 2, 4],
+        "dot": [2, 4],
+        "lgDash": [12, 6],
+        "sysDash": [8, 4],
+        "sysDot": [2, 4],
+    }.get(value)
+
+
+def line_join(line: ET.Element[Any]) -> str | None:
+    if first_local_child(line, "round") is not None:
+        return "round"
+    if first_local_child(line, "bevel") is not None:
+        return "bevel"
+    if first_local_child(line, "miter") is not None:
+        return "miter"
+    return None
+
+
+def gradient_paint(gradient: ET.Element[Any] | None) -> dict[str, Any] | None:
+    if gradient is None:
+        return None
+    stops = []
+    stop_list = first_local_descendant(gradient, "gsLst")
+    for stop in list(stop_list) if stop_list is not None else []:
+        if local_name(stop) != "gs":
+            continue
+        color = solid_color(stop)
+        if not color:
+            continue
+        alpha = first_local_descendant(stop, "alpha")
+        stops.append(
+            {
+                "offset": max(0, min(1, int_attr(stop, "pos", 0) / 100000)),
+                "color": color,
+                "opacity": max(0, min(1, int_attr(alpha, "val", 100000) / 100000)),
+            }
+        )
+    if len(stops) < 2:
+        return None
+    line = first_local_child(gradient, "lin")
+    angle = round(int_attr(line, "ang", 0) / 60000) if line is not None else 0
+    return {
+        "type": "linear-gradient",
+        "angle": angle,
+        "stops": sorted(stops, key=lambda stop: float(stop["offset"])),
+    }
+
+
+def solid_color(container: ET.Element[Any] | None) -> str | None:
+    if container is None:
+        return None
+    srgb = first_local_descendant(container, "srgbClr")
+    if srgb is not None and srgb.get("val"):
+        return f"#{str(srgb.get('val')).upper()}"
+    scheme = first_local_descendant(container, "schemeClr")
+    if scheme is not None:
+        return scheme_color(str(scheme.get("val", "")))
+    return None
+
+
+def scheme_color(value: str) -> str | None:
+    return {
+        "bg1": "#FFFFFF",
+        "tx1": "#111827",
+        "accent1": "#2563EB",
+        "accent2": "#7C3AED",
+        "accent3": "#0EA5E9",
+        "accent4": "#10B981",
+        "accent5": "#F59E0B",
+        "accent6": "#EF4444",
+        "dk1": "#111827",
+        "lt1": "#FFFFFF",
+    }.get(value)
+
+
+def shape_shadow(
+    shape: ET.Element[Any],
+    scale: OoxmlScale,
+) -> dict[str, Any] | None:
+    shadow = first_local_descendant(shape, "outerShdw")
+    if shadow is None:
+        return None
+    color = solid_color(shadow) or "#000000"
+    blur = round(int_attr(shadow, "blurRad", 0) * scale.average_scale, 2)
+    distance = int_attr(shadow, "dist", 0) * scale.average_scale
+    direction = math.radians(int_attr(shadow, "dir", 0) / 60000)
+    alpha = first_local_descendant(shadow, "alpha")
+    return {
+        "color": color,
+        "blur": blur,
+        "offsetX": round(math.cos(direction) * distance, 2),
+        "offsetY": round(math.sin(direction) * distance, 2),
+        "opacity": max(0, min(1, int_attr(alpha, "val", 25000) / 100000)),
+    }
+
+
+def image_crop(shape: ET.Element[Any]) -> dict[str, float] | None:
+    src_rect = first_local_descendant(shape, "srcRect")
+    if src_rect is None:
+        return None
+    crop = {
+        "left": pct_attr(src_rect, "l"),
+        "top": pct_attr(src_rect, "t"),
+        "right": pct_attr(src_rect, "r"),
+        "bottom": pct_attr(src_rect, "b"),
+    }
+    return crop if any(value > 0 for value in crop.values()) else None
+
+
+def pct_attr(element: ET.Element[Any], name: str) -> float:
+    return max(0, min(0.99, int_attr(element, name, 0) / 100000))
+
+
+def shape_frame(
+    shape: ET.Element[Any],
+    scale: OoxmlScale,
+    transform: OoxmlTransform,
+    placeholder_frames: dict[tuple[str, str], dict[str, int]],
+) -> dict[str, int] | None:
+    xfrm = first_local_descendant(shape, "xfrm")
+    if xfrm is None or first_local_child(xfrm, "off") is None:
+        key = placeholder_key(shape)
+        if key is not None:
+            fallback = placeholder_frames.get(key) or placeholder_frames.get((key[0], ""))
+            if fallback is not None:
+                return fallback
+        return None
+    off = first_local_child(xfrm, "off")
+    ext = first_local_child(xfrm, "ext")
+    raw_x, raw_y, raw_width, raw_height = transform.rect(
+        int_attr(off, "x", 0),
+        int_attr(off, "y", 0),
+        max(1, int_attr(ext, "cx", 1)),
+        max(1, int_attr(ext, "cy", 1)),
+    )
+    x = max(0, round(raw_x * scale.scale_x))
+    y = max(0, round(raw_y * scale.scale_y))
+    width = max(1, round(raw_width * scale.scale_x))
+    height = max(1, round(raw_height * scale.scale_y))
+    return {
+        "x": min(x, scale.canvas_width - 1),
+        "y": min(y, scale.canvas_height - 1),
+        "width": min(width, scale.canvas_width - min(x, scale.canvas_width - 1)),
+        "height": min(height, scale.canvas_height - min(y, scale.canvas_height - 1)),
+    }
+
+
+def placeholder_frame_map(
+    root: ET.Element[Any] | None,
+    scale: OoxmlScale,
+) -> dict[tuple[str, str], dict[str, int]]:
+    if root is None:
+        return {}
+    frames: dict[tuple[str, str], dict[str, int]] = {}
+    for shape in root.iter():
+        key = placeholder_key(shape)
+        if key is None:
+            continue
+        frame = shape_frame(shape, scale, OoxmlTransform(), {})
+        if frame is not None:
+            frames[key] = frame
+            if key[0] and (key[0], "") not in frames:
+                frames[(key[0], "")] = frame
+    return frames
+
+
+def placeholder_key(shape: ET.Element[Any]) -> tuple[str, str] | None:
+    ph = first_local_descendant(shape, "ph")
+    if ph is None:
+        return None
+    return str(ph.get("type", "")), str(ph.get("idx", ""))
+
+
+def shape_source(
+    shape: ET.Element[Any],
+    part_path: str,
+    shape_id: str,
+    source_name: str,
+    locked: bool,
+) -> dict[str, Any]:
+    ph_key = placeholder_key(shape)
+    source_type = "placeholder" if ph_key is not None and source_name == "slide" else source_name
+    source = {
+        "type": source_type,
+        "name": shape_name(shape) or "shape",
+        "slidePart": part_path,
+        "shapeId": shape_id,
+        "writable": not locked and source_name == "slide",
+    }
+    if ph_key is not None and ph_key[0]:
+        source["placeholderType"] = ph_key[0]
+    relationship_id = attr_by_local_name(first_local_descendant(shape, "blip"), "embed")
+    if relationship_id:
+        source["relationshipId"] = relationship_id
+    return source
+
+
+def background_element(
+    slide_index: int,
+    canvas_width: int,
+    canvas_height: int,
+) -> dict[str, Any]:
+    return {
+        **element_base(
+            element_id=f"el_ooxml_{slide_index}_background",
+            role="background",
+            frame={"x": 0, "y": 0, "width": canvas_width, "height": canvas_height},
+            z_index=0,
+            locked=True,
+        ),
+        "type": "rect",
+        "props": {
+            "fill": "#FFFFFF",
+            "stroke": "transparent",
+            "strokeWidth": 0,
+            "borderRadius": 0,
+        },
+    }
+
+
+def element_base(
+    *,
+    element_id: str,
+    role: str,
+    frame: dict[str, int],
+    z_index: int,
+    locked: bool,
+) -> dict[str, Any]:
+    return {
+        "elementId": element_id,
+        "role": role,
+        "x": frame["x"],
+        "y": frame["y"],
+        "width": frame["width"],
+        "height": frame["height"],
+        "rotation": 0,
+        "opacity": 1,
+        "zIndex": z_index,
+        "locked": locked,
+        "visible": True,
+    }
+
+
+def shape_type_for_preset(token: str, tag: str) -> str:
+    if tag == "cxnSp" or token in {"line", "straightConnector1"}:
+        return "line"
+    if token in {"ellipse", "oval"}:
+        return "ellipse"
+    if "donut" in token:
+        return "ring"
+    if "star" in token:
+        return "star"
+    if preset_custom_shape_path(token):
+        return "customShape"
+    return "rect"
+
+
+def preset_token(shape: ET.Element[Any]) -> str:
+    preset = first_local_descendant(shape, "prstGeom")
+    return str(preset.get("prst", "rect")) if preset is not None else "rect"
+
+
+def shape_identifier(shape: ET.Element[Any], fallback_index: int) -> str:
+    c_nv_pr = first_local_descendant(shape, "cNvPr")
+    return safe_id(str(c_nv_pr.get("id", ""))) if c_nv_pr is not None else str(fallback_index)
+
+
+def shape_name(shape: ET.Element[Any]) -> str:
+    c_nv_pr = first_local_descendant(shape, "cNvPr")
+    return str(c_nv_pr.get("descr") or c_nv_pr.get("name") or "") if c_nv_pr is not None else ""
+
+
+def element_id(
+    slide_index: int,
+    source_name: str,
+    shape_id: str,
+    kind: str,
+) -> str:
+    return f"el_ooxml_{slide_index}_{safe_id(source_name)}_{safe_id(shape_id)}_{kind}"
+
+
+def presentation_slide_parts(package: zipfile.ZipFile) -> list[str]:
+    presentation = read_xml(package, "ppt/presentation.xml")
+    if presentation is None:
+        raise ValueError("PPTX presentation.xml is missing.")
+    rels = relationships_for_part(package, "ppt/presentation.xml")
+    slide_parts: list[str] = []
+    for slide_id in presentation.iter():
+        if local_name(slide_id) != "sldId":
+            continue
+        rel_id = slide_id.get(f"{{{REL_NS}}}id")
+        if not rel_id:
+            continue
+        rel = rels.get(rel_id)
+        if rel and rel.get("Type") == SLIDE_REL_TYPE:
+            slide_parts.append(resolve_part_path("ppt/presentation.xml", rel.get("Target", "")))
+    return slide_parts
+
+
+def presentation_size_emu(package: zipfile.ZipFile) -> tuple[int, int]:
+    presentation = read_xml(package, "ppt/presentation.xml")
+    size = first_local_descendant(presentation, "sldSz")
+    return (
+        max(1, int_attr(size, "cx", 12192000)),
+        max(1, int_attr(size, "cy", 6858000)),
+    )
+
+
+def slide_background_color(slide: ET.Element[Any]) -> str | None:
+    background = first_local_descendant(slide, "bgPr")
+    return solid_color(first_local_child(background, "solidFill")) if background is not None else None
+
+
+def relationships_for_part(
+    package: zipfile.ZipFile,
+    part_path: str | None,
+) -> dict[str, dict[str, str]]:
+    if not part_path:
+        return {}
+    rels_path = rels_path_for_part(part_path)
+    if rels_path not in package.namelist():
+        return {}
+    root = ET.fromstring(package.read(rels_path))
+    return {
+        str(relationship.get("Id")): {
+            key: str(value) for key, value in relationship.attrib.items()
+        }
+        for relationship in root
+        if local_name(relationship) == "Relationship" and relationship.get("Id")
+    }
+
+
+def relationship_target_by_type(
+    part_path: str | None,
+    rels: dict[str, dict[str, str]],
+    rel_type: str,
+) -> str | None:
+    if not part_path:
+        return None
+    for rel in rels.values():
+        if rel.get("Type") == rel_type and rel.get("Target"):
+            return resolve_part_path(part_path, rel["Target"])
+    return None
+
+
+def rels_path_for_part(part_path: str) -> str:
+    directory, _, filename = part_path.rpartition("/")
+    return f"{directory}/_rels/{filename}.rels" if directory else f"_rels/{filename}.rels"
+
+
+def resolve_part_path(part_path: str, target: str) -> str:
+    if target.startswith("/"):
+        return target.lstrip("/")
+    base_parts = part_path.split("/")[:-1]
+    for piece in target.split("/"):
+        if piece in {"", "."}:
+            continue
+        if piece == "..":
+            if base_parts:
+                base_parts.pop()
+        else:
+            base_parts.append(piece)
+    return "/".join(base_parts)
+
+
+def read_xml(package: zipfile.ZipFile, part_path: str | None) -> ET.Element[Any] | None:
+    if not part_path or part_path not in package.namelist():
+        return None
+    return ET.fromstring(package.read(part_path))
+
+
+def content_type_map(package: zipfile.ZipFile) -> dict[str, str]:
+    if "[Content_Types].xml" not in package.namelist():
+        return {}
+    root = ET.fromstring(package.read("[Content_Types].xml"))
+    mapping: dict[str, str] = {}
+    for item in root:
+        name = local_name(item)
+        if name == "Default" and item.get("Extension") and item.get("ContentType"):
+            mapping[f".{str(item.get('Extension')).lower()}"] = str(item.get("ContentType"))
+        elif name == "Override" and item.get("PartName") and item.get("ContentType"):
+            mapping[str(item.get("PartName")).lstrip("/")] = str(item.get("ContentType"))
+    return mapping
+
+
+def mime_type_for_part(content_types: dict[str, str], part_path: str) -> str:
+    if part_path in content_types:
+        return content_types[part_path]
+    suffix = f".{part_path.rsplit('.', maxsplit=1)[-1].lower()}"
+    return content_types.get(suffix, "image/png")
+
+
+def extension_for_mime_type(mime_type: str) -> str:
+    subtype = mime_type.rsplit("/", maxsplit=1)[-1].lower()
+    if subtype == "jpeg":
+        return "jpg"
+    return subtype if subtype in {"png", "jpg", "gif", "webp"} else "png"
+
+
+def is_full_canvas_frame(frame: dict[str, int], scale: OoxmlScale) -> bool:
+    return (
+        frame["x"] <= 4
+        and frame["y"] <= 4
+        and frame["width"] >= scale.canvas_width - 8
+        and frame["height"] >= scale.canvas_height - 8
+    )
+
+
+def first_local_descendant(
+    element: ET.Element[Any] | None,
+    name: str,
+) -> ET.Element[Any] | None:
+    if element is None:
+        return None
+    for candidate in element.iter():
+        if local_name(candidate) == name:
+            return candidate
+    return None
+
+
+def first_local_child(
+    element: ET.Element[Any] | None,
+    name: str,
+) -> ET.Element[Any] | None:
+    if element is None:
+        return None
+    for candidate in list(element):
+        if local_name(candidate) == name:
+            return candidate
+    return None
+
+
+def direct_local_children(
+    element: ET.Element[Any],
+    name: str,
+) -> list[ET.Element[Any]]:
+    return [child for child in list(element) if local_name(child) == name]
+
+
+def local_name(element: ET.Element[Any] | str) -> str:
+    tag = element.tag if isinstance(element, ET.Element) else element
+    return str(tag).rsplit("}", maxsplit=1)[-1]
+
+
+def int_attr(element: ET.Element[Any] | None, name: str, fallback: int) -> int:
+    if element is None:
+        return fallback
+    try:
+        return int(str(element.get(name)))
+    except Exception:
+        return fallback
+
+
+def attr_by_local_name(element: ET.Element[Any] | None, name: str) -> str | None:
+    if element is None:
+        return None
+    for key, value in element.attrib.items():
+        if local_name(key) == name:
+            return str(value)
+    return None
+
+
+def safe_id(value: str) -> str:
+    return (
+        "".join(
+            char if char.isascii() and (char.isalnum() or char in "_-") else "_"
+            for char in value
+        )
+        or "ooxml"
+    )

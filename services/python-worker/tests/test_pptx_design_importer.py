@@ -9,6 +9,7 @@ from pptx.oxml import parse_xml
 from pptx.util import Inches, Pt
 
 from app.ai.pptx_design_importer import blip_fill_asset, import_pptx_design
+from app.ai.pptx_ooxml_vector_importer import import_pptx_ooxml_visual_tree
 
 
 def test_import_pptx_design_extracts_editable_elements(tmp_path: Path) -> None:
@@ -376,3 +377,158 @@ def test_import_pptx_design_imports_layout_decorations(tmp_path: Path) -> None:
     )
     assert layout_slot["usage"] == "decoration"
     assert layout_slot["source"]["type"] == "layout"
+
+
+def test_ooxml_visual_tree_importer_preserves_vector_props(
+    tmp_path: Path,
+) -> None:
+    pptx_path = tmp_path / "ooxml-vector.pptx"
+    image_path = tmp_path / "sample.png"
+    Image.new("RGB", (64, 64), "#336699").save(image_path)
+
+    presentation = Presentation()
+    presentation.slide_width = Inches(13.333333)
+    presentation.slide_height = Inches(7.5)
+    layout = presentation.slide_layouts[6]
+    layout.shapes._spTree.add_autoshape(
+        91,
+        "Layout Decoration",
+        "rect",
+        Inches(0.2),
+        Inches(0.2),
+        Inches(1),
+        Inches(0.25),
+    )
+    layout_decoration = layout.shapes[-1]
+    layout_decoration.fill.solid()
+    layout_decoration.fill.fore_color.rgb = RGBColor(34, 197, 94)
+
+    slide = presentation.slides.add_slide(layout)
+    textbox = slide.shapes.add_textbox(Inches(1), Inches(0.8), Inches(5), Inches(1))
+    paragraph = textbox.text_frame.paragraphs[0]
+    first_run = paragraph.add_run()
+    first_run.text = "Hello "
+    first_run.font.name = "Aptos"
+    first_run.font.size = Pt(36)
+    first_run.font.bold = True
+    first_run.font.color.rgb = RGBColor(17, 24, 39)
+    second_run = paragraph.add_run()
+    second_run.text = "World"
+    second_run.font.name = "Aptos"
+    second_run.font.size = Pt(28)
+    second_run.font.color.rgb = RGBColor(37, 99, 235)
+
+    box = slide.shapes.add_shape(
+        MSO_SHAPE.RECTANGLE,
+        Inches(1),
+        Inches(2.4),
+        Inches(3),
+        Inches(1.2),
+    )
+    box.line.color.rgb = RGBColor(17, 24, 39)
+    replace_shape_fill_with_gradient(box)
+
+    picture = slide.shapes.add_picture(
+        str(image_path),
+        Inches(5),
+        Inches(2.4),
+        Inches(2),
+        Inches(2),
+    )
+    picture._element.blipFill.insert(
+        0,
+        parse_xml(
+            """
+            <a:srcRect xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"
+                       l="10000" t="5000" r="20000" b="15000"/>
+            """
+        ),
+    )
+
+    group_box = slide.shapes.add_shape(
+        MSO_SHAPE.RECTANGLE,
+        Inches(8),
+        Inches(3),
+        Inches(1.5),
+        Inches(0.8),
+    )
+    group_box.fill.solid()
+    group_box.fill.fore_color.rgb = RGBColor(245, 158, 11)
+    group_text = slide.shapes.add_textbox(
+        Inches(8.1),
+        Inches(3.1),
+        Inches(1.2),
+        Inches(0.4),
+    )
+    group_text.text_frame.text = "Grouped vector"
+    slide.shapes.add_group_shape([group_box, group_text])
+
+    presentation.save(pptx_path)
+
+    result = import_pptx_ooxml_visual_tree(pptx_path, "file_design")
+    elements = result.blueprint["slides"][0]["elements"]
+
+    text = next(
+        element
+        for element in elements
+        if element["type"] == "text" and element["props"]["text"] == "Hello World"
+    )
+    assert text["props"]["runs"][0]["fontWeight"] == "bold"
+    assert text["props"]["runs"][1]["fontSize"] == 28
+    assert text["props"]["runs"][1]["color"] == "#2563EB"
+
+    gradient_shape = next(
+        element
+        for element in elements
+        if isinstance(element.get("props", {}).get("fill"), dict)
+    )
+    assert gradient_shape["props"]["fill"]["type"] == "linear-gradient"
+    assert gradient_shape["props"]["fill"]["stops"][1]["color"] == "#7C3AED"
+
+    image = next(element for element in elements if element["type"] == "image")
+    assert image["props"]["crop"] == {
+        "left": 0.1,
+        "top": 0.05,
+        "right": 0.2,
+        "bottom": 0.15,
+    }
+
+    layout_source = next(
+        source
+        for source in result.template_blueprint["slides"][0]["elementSources"]
+        if source["sourceType"] == "layout"
+    )
+    assert layout_source["writable"] is False
+    assert any(
+        element["type"] == "text"
+        and element["props"]["text"] == "Grouped vector"
+        and element["x"] > 1000
+        for element in elements
+    )
+
+
+def replace_shape_fill_with_gradient(shape: object) -> None:
+    sp_pr = shape._element.spPr
+    for child in list(sp_pr):
+        if child.tag.rsplit("}", maxsplit=1)[-1] in {"solidFill", "gradFill", "noFill"}:
+            sp_pr.remove(child)
+    sp_pr.insert(
+        0,
+        parse_xml(
+            """
+            <a:gradFill xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
+              <a:gsLst>
+                <a:gs pos="0">
+                  <a:srgbClr val="2563EB"/>
+                </a:gs>
+                <a:gs pos="100000">
+                  <a:srgbClr val="7C3AED">
+                    <a:alpha val="75000"/>
+                  </a:srgbClr>
+                </a:gs>
+              </a:gsLst>
+              <a:lin ang="5400000" scaled="1"/>
+            </a:gradFill>
+            """
+        ),
+    )

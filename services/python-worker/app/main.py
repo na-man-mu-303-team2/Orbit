@@ -19,7 +19,6 @@ from app.ai.generate_deck import (
 from app.ai.pptx_design_importer import (
     ImportedDesignAsset,
     PptxDesignImportResult,
-    import_pptx_design,
 )
 from app.ai.pptx_ooxml_generation import (
     PptxOoxmlGenerationError,
@@ -28,6 +27,9 @@ from app.ai.pptx_ooxml_generation import (
     UnsupportedPptxAspectRatioError,
     generate_pptx_ooxml,
     sync_pptx_ooxml,
+)
+from app.ai.pptx_ooxml_vector_importer import (
+    import_pptx_design_with_optional_ooxml_vector,
 )
 from app.audio.transcribe import (
     AudioTranscribeRequest,
@@ -327,7 +329,11 @@ async def import_pptx_design_endpoint(
                 if file_ids and index < len(file_ids) and file_ids[index].strip()
                 else f"file_{uuid4()}"
             )
-            result = await run_in_threadpool(import_pptx_design, source_path, file_id)
+            result = await run_in_threadpool(
+                import_pptx_design_with_optional_ooxml_vector,
+                source_path,
+                file_id,
+            )
             remapped = _remap_import_asset_ids(result, len(assets))
             slides.extend(
                 cast(list[dict[str, Any]], remapped.blueprint.get("slides", []))

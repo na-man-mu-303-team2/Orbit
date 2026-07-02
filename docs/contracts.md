@@ -707,6 +707,7 @@ TemplateBlueprint:
 결정 사항:
 
 - Python worker의 `/design/import-pptx`는 기존 `blueprint`, `assets`, `warnings`와 함께 `templateBlueprint`, `qualityReport`를 반환한다.
+- `ORBIT_PPTX_OOXML_VECTOR_IMPORT=true`이면 Python worker는 OOXML XML 직접 파서 기반 visual tree를 먼저 사용한다. 지원하지 않는 OOXML 효과는 임의 변환하지 않고 `warnings`에 남기며, 파서 실패 시 기존 `python-pptx` importer로 fallback한다.
 - Worker는 imported image asset을 기존 `design-asset` 저장 흐름으로 저장하고 asset ref를 API asset content URL로 교체한 뒤 `DeckSchema`로 검증해 `decks`에 저장한다.
 - `templateBlueprint`와 `qualityReport`는 `template_blueprints` 테이블에 저장한다.
 - placeholder `p:ph`에서 온 텍스트/미디어는 `content-slot` 또는 `media-slot`과 `replace`로 분류한다.
