@@ -44,6 +44,43 @@ describe("ai suggestion schema", () => {
     });
   });
 
+  it("accepts slide action operations in AI suggestions", () => {
+    expect(
+      createAiSuggestionRequestSchema.parse({
+        ...baseRequest,
+        patch: {
+          ...basePatch,
+          operations: [
+            {
+              type: "add_slide_action",
+              slideId: "slide_intro",
+              action: {
+                actionId: "act_intro_emphasis",
+                trigger: {
+                  kind: "cue",
+                  cue: "강조"
+                },
+                effect: {
+                  kind: "go-to-next-slide"
+                }
+              }
+            }
+          ]
+        }
+      })
+    ).toMatchObject({
+      slideId: "slide_intro",
+      patch: {
+        operations: [
+          {
+            type: "add_slide_action",
+            slideId: "slide_intro"
+          }
+        ]
+      }
+    });
+  });
+
   it("rejects non-AI patch sources", () => {
     expect(
       createAiSuggestionRequestSchema.safeParse({
