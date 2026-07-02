@@ -10,6 +10,8 @@ from pptx import Presentation
 from pptx.enum.shapes import MSO_SHAPE_TYPE
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.ai.pptx_quality import not_evaluated_slide_reports
+
 
 CANVAS_WIDTH = 1920
 CANVAS_HEIGHT = 1080
@@ -1011,6 +1013,10 @@ def build_quality_report(
         "weights": QUALITY_WEIGHTS,
         "editabilityCoverage": editability_coverage,
         "appliedCap": applied_cap,
+        "slideReports": not_evaluated_slide_reports(
+            len(slides),
+            "candidate renderer unavailable",
+        ),
         "notes": notes,
     }
 

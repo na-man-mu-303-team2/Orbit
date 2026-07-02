@@ -107,6 +107,7 @@ def test_import_pptx_design_extracts_editable_elements(tmp_path: Path) -> None:
     assert image_slot["replaceMode"] == "preserve"
     assert image_source["relationshipId"].startswith("rId")
     assert result.quality_report["metrics"]["pixelSimilarity"] is None
+    assert result.quality_report["slideReports"][0]["status"] == "not_evaluated"
     assert result.quality_report["compositeScore"] <= 100
     assert result.assets[0].mime_type == "image/png"
 

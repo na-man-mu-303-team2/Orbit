@@ -672,6 +672,15 @@ PPTX import job result:
     },
     "editabilityCoverage": 0.6,
     "appliedCap": null,
+    "slideReports": [
+      {
+        "slideIndex": 1,
+        "status": "not_evaluated",
+        "ssim": null,
+        "reasons": ["candidate renderer unavailable"],
+        "fallback": "none"
+      }
+    ],
     "notes": ["pixel renderer unavailable"]
   },
   "warnings": []
@@ -713,7 +722,7 @@ TemplateBlueprint:
 - placeholder `p:ph`에서 온 텍스트/미디어는 `content-slot` 또는 `media-slot`과 `replace`로 분류한다.
 - master/layout 유래 요소, 반복 텍스트, 직접 그린 애매한 텍스트 박스는 기본적으로 `decoration` 또는 `fixed-text`이며 `preserve`/`ignore`와 낮은 confidence를 사용한다.
 - Quality composite score는 geometry 25, text 15, color 10, layer 10, editability 10, pixel similarity 30 가중치를 사용한다.
-- pixel renderer가 없으면 `pixelSimilarity: null`로 두고 나머지 항목을 재가중한다.
+- pixel renderer가 없으면 `pixelSimilarity: null`로 두고 나머지 항목을 재가중한다. slide별 평가는 `qualityReport.slideReports[]`에 `passed`, `vectorization_failed`, `not_evaluated`와 `ssim`, 실패 사유, fallback 후보를 남긴다.
 - `editabilityCoverage < 0.5`면 총점 cap 70, `< 0.2`면 cap 50을 적용해 whole-slide image 변환이 높은 점수를 받지 못하게 한다.
 
 구현 위치:

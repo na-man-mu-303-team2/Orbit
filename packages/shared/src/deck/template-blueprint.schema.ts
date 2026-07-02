@@ -108,6 +108,20 @@ export const templateBlueprintSchema = z.object({
 
 const qualityScoreSchema = z.number().finite().min(0).max(100);
 
+export const qualityReportSlideStatusSchema = z.enum([
+  "passed",
+  "vectorization_failed",
+  "not_evaluated",
+]);
+
+export const qualityReportSlideSchema = z.object({
+  slideIndex: z.number().int().positive(),
+  status: qualityReportSlideStatusSchema,
+  ssim: z.number().finite().min(0).max(1).nullable(),
+  reasons: z.array(z.string()).default([]),
+  fallback: z.enum(["rendered-background", "none"]).default("none"),
+});
+
 export const qualityReportSchema = z.object({
   compositeScore: qualityScoreSchema,
   metrics: z.object({
@@ -128,6 +142,7 @@ export const qualityReportSchema = z.object({
   }),
   editabilityCoverage: z.number().finite().min(0).max(1),
   appliedCap: z.number().int().min(0).max(100).nullable().default(null),
+  slideReports: z.array(qualityReportSlideSchema).default([]),
   notes: z.array(z.string()).default([]),
 });
 
@@ -151,4 +166,8 @@ export type TemplateBlueprintSlide = z.infer<
 >;
 export type TemplateBlueprint = z.infer<typeof templateBlueprintSchema>;
 export type QualityReport = z.infer<typeof qualityReportSchema>;
+export type QualityReportSlideStatus = z.infer<
+  typeof qualityReportSlideStatusSchema
+>;
+export type QualityReportSlide = z.infer<typeof qualityReportSlideSchema>;
 export type PptxImportJobResult = z.infer<typeof pptxImportJobResultSchema>;

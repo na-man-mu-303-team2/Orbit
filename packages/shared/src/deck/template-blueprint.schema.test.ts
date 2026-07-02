@@ -109,9 +109,40 @@ describe("templateBlueprintSchema", () => {
 
 describe("qualityReportSchema", () => {
   it("allows a missing pixel similarity score", () => {
-    expect(
-      qualityReportSchema.parse(qualityReport).metrics.pixelSimilarity,
-    ).toBeNull();
+    const parsed = qualityReportSchema.parse(qualityReport);
+
+    expect(parsed.metrics.pixelSimilarity).toBeNull();
+    expect(parsed.slideReports).toEqual([]);
+  });
+
+  it("accepts slide-level vectorization failure reports", () => {
+    const parsed = qualityReportSchema.parse({
+      ...qualityReport,
+      metrics: {
+        ...qualityReport.metrics,
+        pixelSimilarity: 91,
+      },
+      slideReports: [
+        {
+          slideIndex: 1,
+          status: "passed",
+          ssim: 0.97,
+          reasons: [],
+        },
+        {
+          slideIndex: 2,
+          status: "vectorization_failed",
+          ssim: 0.91,
+          reasons: ["gradient fill mismatch", "unsupported blur effect"],
+          fallback: "rendered-background",
+        },
+      ],
+    });
+
+    expect(parsed.slideReports[1]).toMatchObject({
+      status: "vectorization_failed",
+      fallback: "rendered-background",
+    });
   });
 });
 
