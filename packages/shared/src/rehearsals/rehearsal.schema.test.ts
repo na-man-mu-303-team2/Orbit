@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { maxRehearsalAudioUploadSizeBytes } from "../files/file.schema";
 import {
   beginRehearsalAudioUploadRequestSchema,
+  completeRehearsalAudioChunkUploadRequestSchema,
   completeRehearsalAudioUploadRequestSchema,
   createRehearsalAudioUploadUrlRequestSchema,
   getRehearsalReportResponseSchema,
@@ -118,14 +119,14 @@ describe("createRehearsalAudioUploadUrlRequestSchema", () => {
     }
   });
 
-  it("rejects audio above the rehearsal upload limit", () => {
-    const result = createRehearsalAudioUploadUrlRequestSchema.safeParse({
+  it("defers runtime upload size limits to the service schema", () => {
+    const request = createRehearsalAudioUploadUrlRequestSchema.parse({
       originalName: "rehearsal.webm",
       mimeType: "audio/webm",
       size: maxRehearsalAudioUploadSizeBytes + 1
     });
 
-    expect(result.success).toBe(false);
+    expect(request.size).toBe(maxRehearsalAudioUploadSizeBytes + 1);
   });
 });
 
@@ -162,7 +163,7 @@ describe("uploadRehearsalAudioChunkParamsSchema", () => {
   it("accepts a runId and zero-based chunk index", () => {
     const params = uploadRehearsalAudioChunkParamsSchema.parse({
       runId: "run_1",
-      index: 0
+      index: "0"
     });
 
     expect(params.index).toBe(0);
@@ -179,8 +180,18 @@ describe("uploadRehearsalAudioChunkParamsSchema", () => {
 });
 
 describe("completeRehearsalAudioUploadRequestSchema", () => {
+  it("keeps the legacy complete request as fileId for upload-url compatibility", () => {
+    const request = completeRehearsalAudioUploadRequestSchema.parse({
+      fileId: "file_audio_1"
+    });
+
+    expect(request.fileId).toBe("file_audio_1");
+  });
+});
+
+describe("completeRehearsalAudioChunkUploadRequestSchema", () => {
   it("accepts the final chunk manifest", () => {
-    const manifest = completeRehearsalAudioUploadRequestSchema.parse({
+    const manifest = completeRehearsalAudioChunkUploadRequestSchema.parse({
       chunkCount: 3,
       totalDurationMs: 90000,
       totalSizeBytes: 1024,
@@ -193,10 +204,10 @@ describe("completeRehearsalAudioUploadRequestSchema", () => {
   it.each([
     ["chunkCount", 0],
     ["totalDurationMs", 0],
-    ["totalSizeBytes", maxRehearsalAudioUploadSizeBytes + 1],
+    ["totalSizeBytes", 0],
     ["sha256", "not-a-sha"]
   ])("rejects invalid complete manifest %s", (field, value) => {
-    const result = completeRehearsalAudioUploadRequestSchema.safeParse({
+    const result = completeRehearsalAudioChunkUploadRequestSchema.safeParse({
       chunkCount: 3,
       totalDurationMs: 90000,
       totalSizeBytes: 1024,

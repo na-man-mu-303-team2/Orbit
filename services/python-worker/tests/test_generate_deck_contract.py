@@ -154,6 +154,7 @@ def test_generate_deck_endpoint_returns_deck_contract() -> None:
     ]
     assert deck["deckId"].startswith("deck_")
     assert deck["projectId"] == "project_demo_1"
+    assert deck["targetDurationMinutes"] == 8
     assert deck["metadata"]["generatedBy"] == "ai"
     assert deck["metadata"]["createdFrom"]["references"] == []
     assert 4 <= len(deck["slides"]) <= 5

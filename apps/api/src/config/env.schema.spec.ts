@@ -98,7 +98,7 @@ describe("ORBIT env validation", () => {
 
     expect(config.LIVE_STT_PROVIDER).toBe("sherpa");
     expect(config.REPORT_STT_PROVIDER).toBe("openai");
-    expect(config.REHEARSAL_AUDIO_MAX_BYTES).toBe(209715200);
+    expect(config.REHEARSAL_AUDIO_MAX_BYTES).toBe(25000000);
     expect(() =>
       loadOrbitConfig(
         { ...validEnv, LIVE_STT_PROVIDER: "openai" },
@@ -136,6 +136,30 @@ describe("ORBIT env validation", () => {
     expect(config.REPORT_STT_PROVIDER).toBe("whisperx");
     expect(config.REHEARSAL_AUDIO_MAX_BYTES).toBe(1048576);
     expect(config.WHISPERX_MODEL).toBe("large-v3");
+  });
+
+  it("rejects OpenAI report STT audio limits above the single-file path limit", () => {
+    expect(() =>
+      loadOrbitConfig(
+        { ...validEnv, REHEARSAL_AUDIO_MAX_BYTES: "25000001" },
+        { service: "api" }
+      )
+    ).toThrow(/REHEARSAL_AUDIO_MAX_BYTES/);
+  });
+
+  it("allows WhisperX report STT to use the larger rehearsal audio limit", () => {
+    const config = loadOrbitConfig(
+      {
+        ...validEnv,
+        REPORT_STT_PROVIDER: "whisperx",
+        WHISPERX_API_URL: "https://whisperx.example.test/transcribe",
+        WHISPERX_API_KEY: "whisperx-test-key",
+        REHEARSAL_AUDIO_MAX_BYTES: "209715200"
+      },
+      { service: "api" }
+    );
+
+    expect(config.REHEARSAL_AUDIO_MAX_BYTES).toBe(209715200);
   });
 
   it("allows pretty logs only in development", () => {

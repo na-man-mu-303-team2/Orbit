@@ -56,6 +56,9 @@ LOCAL_DEFAULTS = {
     "S3_BUCKET": "orbit-local",
 }
 
+OPENAI_REHEARSAL_AUDIO_MAX_BYTES = 25_000_000
+WHISPERX_REHEARSAL_AUDIO_MAX_BYTES = 209_715_200
+
 
 class ConfigError(RuntimeError):
     pass
@@ -85,7 +88,9 @@ class PythonWorkerConfig(BaseModel):
         alias="REPORT_STT_PROVIDER"
     )
     rehearsal_audio_max_bytes: int = Field(
-        default=209_715_200, alias="REHEARSAL_AUDIO_MAX_BYTES", ge=1
+        default=OPENAI_REHEARSAL_AUDIO_MAX_BYTES,
+        alias="REHEARSAL_AUDIO_MAX_BYTES",
+        ge=1,
     )
     whisperx_api_url: str | None = Field(default=None, alias="WHISPERX_API_URL")
     whisperx_api_key: str | None = Field(default=None, alias="WHISPERX_API_KEY")
@@ -125,6 +130,10 @@ class PythonWorkerConfig(BaseModel):
                 errors.append(
                     "REPORT_STT_PROVIDER=whisperx일 때 WHISPERX_API_KEY가 필요합니다."
                 )
+        elif self.rehearsal_audio_max_bytes > OPENAI_REHEARSAL_AUDIO_MAX_BYTES:
+            errors.append(
+                "REPORT_STT_PROVIDER=openai일 때 REHEARSAL_AUDIO_MAX_BYTES는 25000000 이하여야 합니다."
+            )
 
         if self.storage_driver == "minio":
             for key in [

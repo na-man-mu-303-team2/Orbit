@@ -74,7 +74,7 @@ STT/AI provider는 목적별로 분리한다.
 - `WHISPERX_API_URL`, `WHISPERX_API_KEY`: `REPORT_STT_PROVIDER=whisperx`일 때만 필수다. `WHISPERX_MODEL`은 외부 WhisperX API가 모델 선택을 지원할 때만 설정한다.
 - `LLM_PROVIDER=openai`: 전사 결과, 발표자료, 키워드, 청중 반응 등을 종합해 리포트와 코칭 문장을 생성하는 AI provider다.
 
-Report STT에 업로드하는 `rehearsal-audio`는 MP3, MP4, MPEG, MPGA, M4A, FLAC, WAV, WebM 계열만 허용한다. `REHEARSAL_AUDIO_MAX_BYTES` 기본값은 `209715200`이며, chunk upload 전체 크기 제한의 기준값이다.
+Report STT에 업로드하는 `rehearsal-audio`는 MP3, MP4, MPEG, MPGA, M4A, FLAC, WAV, WebM 계열만 허용한다. `REPORT_STT_PROVIDER=openai`에서는 기존 단일 파일 전사 경로를 사용하므로 `REHEARSAL_AUDIO_MAX_BYTES` 기본값과 최대값은 `25000000`이다. `REPORT_STT_PROVIDER=whisperx`에서는 `REHEARSAL_AUDIO_MAX_BYTES=209715200`을 기준값으로 사용하고, 배포 환경의 WhisperX 처리 한도에 맞춰 더 크게 설정할 수 있다.
 
 ## Demo ID
 

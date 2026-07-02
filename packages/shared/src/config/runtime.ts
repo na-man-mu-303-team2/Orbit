@@ -9,7 +9,9 @@ export const reportSttProviderSchema = z.enum(["openai", "whisperx"]);
 export const ocrProviderSchema = z.enum(["python", "textract"]);
 export const llmProviderSchema = z.literal("openai");
 
-export const defaultRehearsalAudioMaxBytes = 209_715_200;
+export const openAiRehearsalAudioMaxBytes = 25_000_000;
+export const whisperxRehearsalAudioMaxBytes = 209_715_200;
+export const defaultRehearsalAudioMaxBytes = openAiRehearsalAudioMaxBytes;
 
 export const openAiModelDefaults = {
   model: "gpt-4.1-mini",

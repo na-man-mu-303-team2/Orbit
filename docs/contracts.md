@@ -656,7 +656,7 @@ AI 덱 생성은 사용자 입력과 참고자료 fileId를 받아 비동기 Job
 - `url`은 임시로 로컬 경로를 쓰되, 이후 S3 signed URL로 교체할 수 있게 유지한다.
 - 업로드 요청은 `POST /api/v1/projects/:projectId/assets/upload-url`로 시작한다.
 - 업로드 완료 처리는 `POST /api/v1/projects/:projectId/assets/complete`에서 `fileId`를 받아 위 구조를 반환한다.
-- 1차 구현에서 허용하는 mime type은 purpose별로 제한한다. 문서/이미지 purpose는 PDF, PPTX, DOCX, JPEG, PNG, WebP를 허용하고 최대 크기는 50MiB다. `rehearsal-audio`는 report STT 경로에서 MP3, MP4, MPEG, MPGA, M4A, FLAC, WAV, WebM 계열만 허용하고 기본 최대 크기는 200MiB다.
+- 1차 구현에서 허용하는 mime type은 purpose별로 제한한다. 문서/이미지 purpose는 PDF, PPTX, DOCX, JPEG, PNG, WebP를 허용하고 최대 크기는 50MiB다. `rehearsal-audio`는 report STT 경로에서 MP3, MP4, MPEG, MPGA, M4A, FLAC, WAV, WebM 계열만 허용한다. `REPORT_STT_PROVIDER=openai`의 기본/최대 크기는 25MB이고, `REPORT_STT_PROVIDER=whisperx`는 200MiB 기본값과 env 기반 상향을 허용한다.
 - upload URL을 발급한 뒤 complete가 호출되지 않은 파일은 `pending` metadata로 남기고, 정리 정책은 후속 작업에서 결정한다.
 - 분석이 끝난 `rehearsal-audio` raw object는 삭제하고, metadata는 `status=deleted`, `deletedAt`으로 추적한다.
 
@@ -687,7 +687,7 @@ AI 덱 생성은 사용자 입력과 참고자료 fileId를 받아 비동기 Job
 
 - STT provider env: `REPORT_STT_PROVIDER=openai | whisperx`
 - WhisperX env: `WHISPERX_API_URL`, `WHISPERX_API_KEY`, `WHISPERX_MODEL`
-- rehearsal audio limit env: `REHEARSAL_AUDIO_MAX_BYTES=209715200`
+- rehearsal audio limit env: `REHEARSAL_AUDIO_MAX_BYTES=25000000` when `REPORT_STT_PROVIDER=openai`; `209715200` is the WhisperX baseline.
 - LLM provider env: `LLM_PROVIDER=openai`
 - 실행 위치: API/worker/Python worker
 - 목적: 억양, 말 속도, 톤, 발음, 키워드 누락, 청중 반응 등을 종합한 리포트와 코칭 생성
@@ -697,7 +697,7 @@ AI 덱 생성은 사용자 입력과 참고자료 fileId를 받아 비동기 Job
 
 ## 리포트용 리허설 Run 및 STT 계약
 
-리포트용 리허설 녹음은 run 단위로 생성하고, FLAC chunk 업로드가 완료된 뒤 서버가 `rehearsal-audio` object를 조립하고 `rehearsal-stt` Job을 시작한다. 이 계약은 실시간 발표 제어용 Live STT 계약이 아니다.
+리포트용 리허설 녹음은 run 단위로 생성하고, 현재 구현된 upload-url 기반 `rehearsal-audio` 업로드가 완료된 뒤 `rehearsal-stt` Job을 시작한다. 이 계약은 실시간 발표 제어용 Live STT 계약이 아니다.
 
 Run 상태:
 
@@ -729,28 +729,37 @@ API:
 - `POST /api/v1/projects/:projectId/rehearsals`
   - request: `{ "deckId": "deck_demo_1" }`
   - response: `{ "run": RehearsalRun }`
-- `POST /api/v1/rehearsals/:runId/audio-begin`
-  - request: `{ "codec": "flac", "sampleRate": 16000, "channels": 1, "chunkDurationMs": 30000 }`
-  - response: `{ "run": RehearsalRun }`
-- `POST /api/v1/rehearsals/:runId/audio-chunks/:index`
-  - params: `index`는 `0`부터 시작하는 정수다.
-  - body: `audio/flac` chunk binary. 서버는 chunk별 hash 검증과 중복 업로드 멱등 처리를 담당한다.
-  - response: `{ "run": RehearsalRun }`
-- `POST /api/v1/rehearsals/:runId/audio-complete`
-  - request: `{ "chunkCount": 3, "totalDurationMs": 90000, "totalSizeBytes": 1048576, "sha256": "<64 hex>" }`
-  - 청크 수, 전체 길이, 전체 크기, 조립 결과 sha256을 검증한 뒤 `rehearsal-stt` Job을 enqueue한다.
+- `POST /api/v1/rehearsals/:runId/audio/upload-url`
+  - request: `{ "originalName": "rehearsal.webm", "mimeType": "audio/webm", "size": 1048576 }`
+  - `size`는 service runtime schema에서 `REPORT_STT_PROVIDER`와 `REHEARSAL_AUDIO_MAX_BYTES` 기준으로 검증한다.
+  - response: `{ "run": RehearsalRun, "upload": AssetUploadUrlResponse }`
+- `POST /api/v1/rehearsals/:runId/audio/complete`
+  - request: `{ "fileId": "file_audio_1" }`
+  - run에 연결된 `fileId`만 허용하고, 업로드 완료 확인 뒤 `rehearsal-stt` Job을 enqueue한다.
   - response: `{ "run": RehearsalRun, "job": Job }`
-- `PATCH /api/v1/rehearsals/:runId/meta`
-  - request: `{ "slideTimeline": [{ "slideId": "slide_1", "enteredAt": "2026-07-02T00:00:00.000Z" }], "missedKeywords": [{ "slideId": "slide_1", "keywordId": "kw_1" }], "adviceEvents": [{ "type": "pace-too-fast", "at": "2026-07-02T00:00:30.000Z" }] }`
-  - transcript, speaker notes, raw audio, script 원문은 받지 않는다.
-  - response: `{ "run": RehearsalRun }`
 - `GET /api/v1/rehearsals/:runId`
   - response: `{ "run": RehearsalRun }`
 - `GET /api/v1/rehearsals/:runId/report`
   - response: `{ "run": RehearsalRun, "report": RehearsalReport | null }`
   - run이 아직 `processing`이거나 과거 run에 `report_json`이 없으면 `report`는 `null`이다.
 
-기존 `POST /api/v1/rehearsals/:runId/audio/upload-url`와 `POST /api/v1/rehearsals/:runId/audio/complete`의 `{ fileId }` 요청은 chunk API 전환 기간에만 하위 호환 경로로 유지한다.
+후속 구현 예정 API:
+
+- `POST /api/v1/rehearsals/:runId/audio-begin`
+  - request: `{ "codec": "flac", "sampleRate": 16000, "channels": 1, "chunkDurationMs": 30000 }`
+  - response: `{ "run": RehearsalRun }`
+- `POST /api/v1/rehearsals/:runId/audio-chunks/:index`
+  - params: `index`는 `0`부터 시작하는 정수다. route segment로 들어오는 문자열 숫자는 shared schema에서 정수로 변환한다.
+  - body: `audio/flac` chunk binary. 서버는 chunk별 hash 검증과 중복 업로드 멱등 처리를 담당한다.
+  - response: `{ "run": RehearsalRun }`
+- `POST /api/v1/rehearsals/:runId/audio-complete`
+  - request: `{ "chunkCount": 3, "totalDurationMs": 90000, "totalSizeBytes": 1048576, "sha256": "<64 hex>" }`
+  - 청크 수, 전체 길이, runtime 크기 한도, 조립 결과 sha256을 검증한 뒤 `rehearsal-stt` Job을 enqueue한다.
+  - response: `{ "run": RehearsalRun, "job": Job }`
+- `PATCH /api/v1/rehearsals/:runId/meta`
+  - request: `{ "slideTimeline": [{ "slideId": "slide_1", "enteredAt": "2026-07-02T00:00:00.000Z" }], "missedKeywords": [{ "slideId": "slide_1", "keywordId": "kw_1" }], "adviceEvents": [{ "type": "pace-too-fast", "at": "2026-07-02T00:00:30.000Z" }] }`
+  - transcript, speaker notes, raw audio, script 원문은 받지 않는다.
+  - response: `{ "run": RehearsalRun }`
 
 Report 응답 구조:
 

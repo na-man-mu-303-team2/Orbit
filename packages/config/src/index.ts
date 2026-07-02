@@ -6,6 +6,7 @@ import {
   llmProviderSchema,
   nodeEnvSchema,
   ocrProviderSchema,
+  openAiRehearsalAudioMaxBytes,
   reportSttProviderSchema,
   storageDriverSchema
 } from "@orbit/shared";
@@ -255,6 +256,13 @@ export const orbitEnvSchema = z.object({
         message: "REPORT_STT_PROVIDER=whisperx일 때 WHISPERX_API_KEY가 필요합니다."
       });
     }
+  } else if (value.REHEARSAL_AUDIO_MAX_BYTES > openAiRehearsalAudioMaxBytes) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["REHEARSAL_AUDIO_MAX_BYTES"],
+      message:
+        "REPORT_STT_PROVIDER=openai일 때 REHEARSAL_AUDIO_MAX_BYTES는 25000000 이하여야 합니다."
+    });
   }
 
   if (value.APP_ENV === "production" && value.AUTH_COOKIE_SECURE === false) {

@@ -90,4 +90,19 @@ describe("assetUploadUrlRequestSchema", () => {
 
     expect(result.success).toBe(false);
   });
+
+  it("allows a larger runtime rehearsal audio limit when the caller configures one", () => {
+    const schema = createAssetUploadUrlRequestSchema({
+      maxRehearsalAudioUploadSizeBytes: 209_715_200,
+    });
+
+    const result = schema.safeParse({
+      originalName: "rehearsal.flac",
+      mimeType: "audio/flac",
+      size: maxRehearsalAudioUploadSizeBytes + 1,
+      purpose: "rehearsal-audio",
+    });
+
+    expect(result.success).toBe(true);
+  });
 });

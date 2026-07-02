@@ -80,6 +80,25 @@ def test_transcribe_audio_returns_fixture_transcript(tmp_path: Path) -> None:
     assert provider.last_audio.data == b"fake wav bytes"
 
 
+def test_audio_reference_accepts_flac_mime_type(tmp_path: Path) -> None:
+    audio_path = tmp_path / "rehearsal.flac"
+    audio_path.write_bytes(b"fake flac bytes")
+
+    request = AudioTranscribeRequest.model_validate(
+        {
+            "runId": "run_demo_1",
+            "projectId": "project_demo_1",
+            "audio": {
+                "fileId": "file_demo_1",
+                "storageUrl": str(audio_path),
+                "mimeType": "audio/flac",
+            },
+        }
+    )
+
+    assert request.audio.mime_type == "audio/flac"
+
+
 def test_transcribe_audio_wraps_provider_failure(tmp_path: Path) -> None:
     audio_path = tmp_path / "rehearsal.wav"
     audio_path.write_bytes(b"fake wav bytes")

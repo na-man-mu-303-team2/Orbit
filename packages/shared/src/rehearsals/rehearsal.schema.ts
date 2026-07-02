@@ -3,8 +3,7 @@ import { z } from "zod";
 import { isoDateTimeSchema } from "../common/time.schema";
 import {
   allowedRehearsalAudioMimeTypes,
-  assetUploadUrlResponseSchema,
-  maxRehearsalAudioUploadSizeBytes
+  assetUploadUrlResponseSchema
 } from "../files/file.schema";
 import { jobSchema } from "../jobs/job.schema";
 import { deckKeywordIdSchema, deckSlideIdSchema } from "../deck/id.schema";
@@ -85,11 +84,7 @@ export const createRehearsalRunResponseSchema = z.object({
 export const createRehearsalAudioUploadUrlRequestSchema = z.object({
   originalName: z.string().trim().min(1).max(255),
   mimeType: z.enum(allowedRehearsalAudioMimeTypes),
-  size: z
-    .number()
-    .int()
-    .positive()
-    .max(maxRehearsalAudioUploadSizeBytes, "rehearsal-audio 업로드는 200MiB 이하여야 합니다.")
+  size: z.number().int().positive()
 });
 
 export const createRehearsalAudioUploadUrlResponseSchema = z.object({
@@ -117,19 +112,18 @@ export const beginRehearsalAudioUploadRequestSchema = z
 export const uploadRehearsalAudioChunkParamsSchema = z
   .object({
     runId: z.string().min(1),
-    index: z.number().int().nonnegative()
+    index: z.coerce.number().int().nonnegative()
   })
   .strict();
 
-export const completeRehearsalAudioUploadRequestSchema = z
+export const completeRehearsalAudioUploadRequestSchema =
+  completeRehearsalAudioUploadUrlRequestSchema;
+
+export const completeRehearsalAudioChunkUploadRequestSchema = z
   .object({
     chunkCount: z.number().int().positive(),
     totalDurationMs: z.number().int().positive(),
-    totalSizeBytes: z
-      .number()
-      .int()
-      .positive()
-      .max(maxRehearsalAudioUploadSizeBytes, "리허설 오디오는 200MiB 이하여야 합니다."),
+    totalSizeBytes: z.number().int().positive(),
     sha256: rehearsalAudioSha256Schema
   })
   .strict();
@@ -209,6 +203,9 @@ export type CompleteRehearsalAudioUploadUrlRequest = z.infer<
 >;
 export type CompleteRehearsalAudioUploadRequest = z.infer<
   typeof completeRehearsalAudioUploadRequestSchema
+>;
+export type CompleteRehearsalAudioChunkUploadRequest = z.infer<
+  typeof completeRehearsalAudioChunkUploadRequestSchema
 >;
 export type CompleteRehearsalAudioUploadResponse = z.infer<
   typeof completeRehearsalAudioUploadResponseSchema
