@@ -73,8 +73,11 @@ export function useSlideshowTransitions(args: {
       return;
     }
 
-    const startStates = createTransitionStartStates(targetStates, transitionAnimations);
-    const durationMs = getTransitionDurationMs(transitionAnimations);
+    const startStates = createSlideshowTransitionStartStates(
+      targetStates,
+      transitionAnimations
+    );
+    const durationMs = getSlideshowTransitionDurationMs(transitionAnimations);
     const startedAt = performance.now();
 
     setDisplayStates(startStates);
@@ -83,7 +86,7 @@ export function useSlideshowTransitions(args: {
       const progress = Math.min(1, (now - startedAt) / durationMs);
 
       setDisplayStates(
-        interpolateTransitionStates({
+        interpolateSlideshowTransitionStates({
           animations: transitionAnimations,
           progress,
           startStates,
@@ -116,7 +119,7 @@ export function useSlideshowTransitions(args: {
   };
 }
 
-function createTransitionStartStates(
+export function createSlideshowTransitionStartStates(
   targetStates: Record<string, ElementPresentationState>,
   animations: DeckAnimation[]
 ) {
@@ -158,7 +161,7 @@ function createTransitionStartStates(
   return states;
 }
 
-function interpolateTransitionStates(args: {
+export function interpolateSlideshowTransitionStates(args: {
   animations: DeckAnimation[];
   progress: number;
   startStates: Record<string, ElementPresentationState>;
@@ -211,7 +214,7 @@ function interpolateTransitionStates(args: {
 }
 
 function applyDelay(animation: DeckAnimation, progress: number) {
-  const durationMs = getTransitionDurationMs([animation]);
+  const durationMs = getSlideshowTransitionDurationMs([animation]);
   const delayedProgress =
     (progress * durationMs - Math.min(animation.delayMs, maxTransitionDurationMs)) /
     Math.max(1, Math.min(animation.durationMs, maxTransitionDurationMs));
@@ -219,7 +222,7 @@ function applyDelay(animation: DeckAnimation, progress: number) {
   return Math.min(1, Math.max(0, delayedProgress));
 }
 
-function getTransitionDurationMs(animations: DeckAnimation[]) {
+export function getSlideshowTransitionDurationMs(animations: DeckAnimation[]) {
   return Math.max(
     1,
     ...animations.map((animation) =>
