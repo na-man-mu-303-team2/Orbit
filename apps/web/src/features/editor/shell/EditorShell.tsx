@@ -208,6 +208,7 @@ const defaultImageInsertFrame = {
 };
 const editorImageAccept = ".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp";
 const editorImageMimeTypes = new Set(["image/jpeg", "image/png", "image/webp"]);
+const editorTextOverlapWarningRatio = 0.15;
 
 type TopMenu = "file" | "resize" | "editMode" | "quickEdit" | "presentation";
 type SlidePanelView = "thumbnail" | "list";
@@ -271,6 +272,12 @@ type ImageUploadTarget =
       slideId: string;
       type: "replace";
     };
+export type EditorValidationItem = {
+  elementIds: string[];
+  level: "warning";
+  message: string;
+  slideId: string;
+};
 type ElementFrameChange = {
   role?: DeckElementRole | null;
   x?: number;
@@ -1260,6 +1267,17 @@ export function EditorShell(props: { projectId?: string }) {
   const visibleElements = currentSlide
     ? getRenderableSlideElements(currentSlide, deck.canvas)
     : [];
+  const editorValidationItems = useMemo(
+    () => getEditorValidationItems(deck),
+    [deck]
+  );
+  const currentSlideValidationItems = useMemo(
+    () =>
+      currentSlide
+        ? editorValidationItems.filter((item) => item.slideId === currentSlide.slideId)
+        : [],
+    [currentSlide, editorValidationItems]
+  );
   const stageScale = 0.44;
   const currentSlideAnimations = useMemo(
     () =>
@@ -4090,6 +4108,24 @@ export function EditorShell(props: { projectId?: string }) {
                 </div>
               </div>
               <div className="assistant-panel-slot">
+                {currentSlideValidationItems.length > 0 ? (
+                  <section
+                    className="suggestion-card"
+                    data-testid="editor-validation-items"
+                  >
+                    <strong>품질 경고</strong>
+                    <div className="stack-list">
+                      {currentSlideValidationItems.map((item) => (
+                        <div
+                          className="stack-item compact"
+                          key={`${item.slideId}-${item.elementIds.join("-")}`}
+                        >
+                          <span>{item.message}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </section>
+                ) : null}
                 <SuggestionPanel
                   deck={deck}
                   projectId={projectId}
@@ -4634,6 +4670,69 @@ function formatBytes(bytes: number) {
   const value = bytes / 1024 ** index;
 
   return `${value.toFixed(value >= 10 || index === 0 ? 0 : 1)} ${units[index]}`;
+}
+
+export function getEditorValidationItems(deck: Deck): EditorValidationItem[] {
+  return deck.slides.flatMap((slide) => {
+    const textElements = slide.elements.filter(isReadableEditorTextElement);
+    const items: EditorValidationItem[] = [];
+
+    for (let leftIndex = 0; leftIndex < textElements.length; leftIndex += 1) {
+      for (
+        let rightIndex = leftIndex + 1;
+        rightIndex < textElements.length;
+        rightIndex += 1
+      ) {
+        const first = textElements[leftIndex];
+        const second = textElements[rightIndex];
+
+        if (getElementOverlapRatio(first, second) < editorTextOverlapWarningRatio) {
+          continue;
+        }
+
+        items.push({
+          elementIds: [first.elementId, second.elementId],
+          level: "warning",
+          message: "텍스트 요소가 겹쳐 읽기 어려울 수 있습니다.",
+          slideId: slide.slideId
+        });
+      }
+    }
+
+    return items;
+  });
+}
+
+function isReadableEditorTextElement(element: DeckElement) {
+  return (
+    element.type === "text" &&
+    element.visible !== false &&
+    element.role !== "footer" &&
+    element.props.text.trim().length > 0
+  );
+}
+
+function getElementOverlapRatio(first: DeckElement, second: DeckElement) {
+  const firstArea = getElementArea(first);
+  const secondArea = getElementArea(second);
+
+  if (firstArea <= 0 || secondArea <= 0) {
+    return 0;
+  }
+
+  const left = Math.max(first.x, second.x);
+  const top = Math.max(first.y, second.y);
+  const right = Math.min(first.x + first.width, second.x + second.width);
+  const bottom = Math.min(first.y + first.height, second.y + second.height);
+
+  return (
+    (Math.max(0, right - left) * Math.max(0, bottom - top)) /
+    Math.min(firstArea, secondArea)
+  );
+}
+
+function getElementArea(element: DeckElement) {
+  return Math.max(0, element.width) * Math.max(0, element.height);
 }
 
 function toEditorErrorMessage(error: unknown) {

@@ -326,7 +326,19 @@ class LayoutCandidate:
     score: int
 
 
+@dataclass(frozen=True)
+class TextOverlapCandidate:
+    slide_index: int
+    slide_id: str
+    first_element_index: int
+    second_element_index: int
+    first_element_id: str
+    second_element_id: str
+    overlap_ratio: float
+
+
 CANVAS = Canvas()
+TEXT_OVERLAP_WARNING_RATIO = 0.15
 SLIDE_TYPES: tuple[SlideType, ...] = (
     "title",
     "cover",
@@ -3141,6 +3153,97 @@ def validate_layout(deck: dict[str, Any]) -> list[ValidationIssue]:
     return issues
 
 
+def detect_text_overlap_candidates(deck: dict[str, Any]) -> list[TextOverlapCandidate]:
+    candidates: list[TextOverlapCandidate] = []
+    for slide_index, slide in enumerate(deck.get("slides", [])):
+        text_elements = [
+            (element_index, element)
+            for element_index, element in enumerate(slide.get("elements", []))
+            if is_readable_text_element(element)
+        ]
+        for left_index, (first_index, first) in enumerate(text_elements):
+            for second_index, second in text_elements[left_index + 1 :]:
+                ratio = overlap_ratio(first, second)
+                if ratio < TEXT_OVERLAP_WARNING_RATIO:
+                    continue
+
+                candidates.append(
+                    TextOverlapCandidate(
+                        slide_index=slide_index,
+                        slide_id=str(slide.get("slideId", "")),
+                        first_element_index=first_index,
+                        second_element_index=second_index,
+                        first_element_id=str(first.get("elementId", "")),
+                        second_element_id=str(second.get("elementId", "")),
+                        overlap_ratio=ratio,
+                    )
+                )
+
+    return candidates
+
+
+def is_readable_text_element(element: dict[str, Any]) -> bool:
+    if element.get("type") != "text":
+        return False
+    if element.get("visible") is False:
+        return False
+    if element.get("role") == "footer":
+        return False
+
+    props = element.get("props", {})
+    return bool(str(props.get("text", "")).strip())
+
+
+def overlap_ratio(first: dict[str, Any], second: dict[str, Any]) -> float:
+    first_area = element_area(first)
+    second_area = element_area(second)
+    if first_area <= 0 or second_area <= 0:
+        return 0
+
+    left = max(float(first.get("x", 0)), float(second.get("x", 0)))
+    top = max(float(first.get("y", 0)), float(second.get("y", 0)))
+    right = min(
+        float(first.get("x", 0)) + float(first.get("width", 0)),
+        float(second.get("x", 0)) + float(second.get("width", 0)),
+    )
+    bottom = min(
+        float(first.get("y", 0)) + float(first.get("height", 0)),
+        float(second.get("y", 0)) + float(second.get("height", 0)),
+    )
+    overlap_width = max(0.0, right - left)
+    overlap_height = max(0.0, bottom - top)
+    return (overlap_width * overlap_height) / min(first_area, second_area)
+
+
+def element_area(element: dict[str, Any]) -> float:
+    return max(0.0, float(element.get("width", 0))) * max(
+        0.0,
+        float(element.get("height", 0)),
+    )
+
+
+def text_overlap_candidate_issues(
+    candidates: list[TextOverlapCandidate],
+) -> list[ValidationIssue]:
+    best_by_slide: dict[int, TextOverlapCandidate] = {}
+    for candidate in candidates:
+        current = best_by_slide.get(candidate.slide_index)
+        if current is None or candidate.overlap_ratio > current.overlap_ratio:
+            best_by_slide[candidate.slide_index] = candidate
+
+    return [
+        ValidationIssue(
+            scope="slide",
+            path=f"slides.{candidate.slide_index}.elements",
+            message=(
+                "텍스트 요소가 겹쳐 읽기 어려울 수 있습니다: "
+                f"{candidate.first_element_id}, {candidate.second_element_id}"
+            ),
+        )
+        for candidate in best_by_slide.values()
+    ]
+
+
 def validate_content(deck: dict[str, Any]) -> list[ValidationIssue]:
     issues: list[ValidationIssue] = []
     topic = deck["metadata"]["createdFrom"]["topic"]
@@ -3210,6 +3313,7 @@ def validate_design(deck: dict[str, Any]) -> list[ValidationIssue]:
                         message="배경 요소가 텍스트보다 위에 있습니다.",
                     )
                 )
+    issues.extend(text_overlap_candidate_issues(detect_text_overlap_candidates(deck)))
     return issues
 
 
