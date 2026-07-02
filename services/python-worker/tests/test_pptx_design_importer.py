@@ -183,6 +183,56 @@ def test_import_pptx_design_converts_freeform_to_custom_shape(tmp_path: Path) ->
     assert custom_slot["replaceMode"] == "ignore"
 
 
+def test_import_pptx_design_preserves_common_preset_shape_types(
+    tmp_path: Path,
+) -> None:
+    pptx_path = tmp_path / "preset-shapes.pptx"
+    presentation = Presentation()
+    presentation.slide_width = Inches(13.333333)
+    presentation.slide_height = Inches(7.5)
+    slide = presentation.slides.add_slide(presentation.slide_layouts[6])
+
+    presets = [
+        (MSO_SHAPE.OVAL, 0.5, 0.5),
+        (MSO_SHAPE.ISOSCELES_TRIANGLE, 2.0, 0.5),
+        (MSO_SHAPE.DIAMOND, 3.5, 0.5),
+        (MSO_SHAPE.DONUT, 5.0, 0.5),
+        (MSO_SHAPE.STAR_5_POINT, 6.5, 0.5),
+        (MSO_SHAPE.RIGHT_ARROW, 8.0, 0.5),
+    ]
+    for preset, left, top in presets:
+        shape = slide.shapes.add_shape(
+            preset,
+            Inches(left),
+            Inches(top),
+            Inches(1),
+            Inches(1),
+        )
+        shape.fill.solid()
+        shape.fill.fore_color.rgb = RGBColor(17, 34, 51)
+        shape.line.color.rgb = RGBColor(68, 85, 102)
+    presentation.save(pptx_path)
+
+    result = import_pptx_design(pptx_path, "file_design")
+    element_types = {
+        element["type"]
+        for element in result.blueprint["slides"][0]["elements"]
+        if element["role"] == "decoration"
+    }
+    custom_paths = [
+        element["props"]["pathData"]
+        for element in result.blueprint["slides"][0]["elements"]
+        if element["type"] == "customShape"
+    ]
+
+    assert "ellipse" in element_types
+    assert "ring" in element_types
+    assert "star" in element_types
+    assert "customShape" in element_types
+    assert len(custom_paths) >= 3
+    assert all(path.startswith("M ") for path in custom_paths)
+
+
 def test_blip_fill_asset_extracts_embedded_image_and_color() -> None:
     image_buffer = BytesIO()
     Image.new("RGB", (4, 4), "#47604D").save(image_buffer, format="PNG")

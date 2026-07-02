@@ -413,8 +413,8 @@ def append_shape_elements(
                 fallback_type="shape",
             )
     elif fill or stroke:
-        fallback = append_fallback_shape(elements, element_id, frame, z_cursor, fill, stroke, locked)
-        slot_sources[fallback["elementId"]] = shape_slot_source(
+        element = append_pptx_shape(elements, shape, element_id, frame, z_cursor, fill, stroke, locked)
+        slot_sources[element["elementId"]] = shape_slot_source(
             shape,
             element_path,
             decoration_only,
@@ -471,6 +471,213 @@ def append_fallback_shape(
     )
     elements.append(element)
     return element
+
+
+def append_pptx_shape(
+    elements: list[dict[str, Any]],
+    shape: Any,
+    element_id: str,
+    frame: dict[str, int],
+    z_cursor: list[int],
+    fill: str | None,
+    stroke: str | None,
+    locked: bool,
+) -> dict[str, Any]:
+    element = pptx_shape_element(
+        shape,
+        element_id=f"{element_id}_shape",
+        frame=frame,
+        z_index=next_z(z_cursor),
+        fill=fill or "transparent",
+        stroke=stroke or "transparent",
+        locked=locked,
+    )
+    elements.append(element)
+    return element
+
+
+def pptx_shape_element(
+    shape: Any,
+    *,
+    element_id: str,
+    frame: dict[str, int],
+    z_index: int,
+    fill: str,
+    stroke: str,
+    locked: bool,
+) -> dict[str, Any]:
+    token = pptx_shape_token(shape)
+    if is_line_preset(shape, token):
+        element_type = "arrow" if has_arrow_head(shape) else "line"
+        return shape_element_of_type(
+            element_type,
+            element_id=element_id,
+            role="decoration",
+            frame=frame,
+            z_index=z_index,
+            fill=fill,
+            stroke=stroke,
+            locked=locked,
+        )
+    if "oval" in token:
+        return shape_element_of_type(
+            "ellipse",
+            element_id=element_id,
+            role="decoration",
+            frame=frame,
+            z_index=z_index,
+            fill=fill,
+            stroke=stroke,
+            locked=locked,
+        )
+    if "donut" in token:
+        return shape_element_of_type(
+            "ring",
+            element_id=element_id,
+            role="decoration",
+            frame=frame,
+            z_index=z_index,
+            fill=fill,
+            stroke=stroke,
+            locked=locked,
+        )
+    if "star" in token:
+        return shape_element_of_type(
+            "star",
+            element_id=element_id,
+            role="decoration",
+            frame=frame,
+            z_index=z_index,
+            fill=fill,
+            stroke=stroke,
+            locked=locked,
+        )
+
+    custom_path = preset_custom_shape_path(token)
+    if custom_path:
+        path_data, closed = custom_path
+        return {
+            **element_base(
+                element_id=element_id,
+                role="decoration",
+                frame=frame,
+                z_index=z_index,
+                locked=locked,
+            ),
+            "type": "customShape",
+            "props": {
+                "pathData": path_data,
+                "viewBoxWidth": 100,
+                "viewBoxHeight": 100,
+                "fill": fill,
+                "stroke": stroke,
+                "strokeWidth": 1 if stroke != "transparent" else 0,
+                "closed": closed,
+                "nodes": [],
+            },
+        }
+
+    element = shape_element(
+        element_id=element_id,
+        role="decoration",
+        x=frame["x"],
+        y=frame["y"],
+        width=frame["width"],
+        height=frame["height"],
+        z_index=z_index,
+        fill=fill,
+        stroke=stroke,
+        locked=locked,
+    )
+    if "round" in token:
+        element["props"]["borderRadius"] = round(
+            min(frame["width"], frame["height"]) * 0.16
+        )
+    return element
+
+
+def shape_element_of_type(
+    element_type: str,
+    *,
+    element_id: str,
+    role: str,
+    frame: dict[str, int],
+    z_index: int,
+    fill: str,
+    stroke: str,
+    locked: bool,
+    sides: int | None = None,
+) -> dict[str, Any]:
+    props: dict[str, Any] = {
+        "fill": fill,
+        "stroke": stroke,
+        "strokeWidth": 1 if stroke != "transparent" else 0,
+        "borderRadius": 0,
+    }
+    if sides is not None:
+        props["sides"] = sides
+    return {
+        **element_base(
+            element_id=element_id,
+            role=role,
+            frame=frame,
+            z_index=z_index,
+            locked=locked,
+        ),
+        "type": element_type,
+        "props": props,
+    }
+
+
+def pptx_shape_token(shape: Any) -> str:
+    raw = getattr(shape, "auto_shape_type", None)
+    return enum_token(raw)
+
+
+def enum_token(value: Any) -> str:
+    token = str(value or "").split("(", maxsplit=1)[0].strip().lower()
+    return token.replace(" ", "_").replace("-", "_")
+
+
+def is_line_preset(shape: Any, token: str) -> bool:
+    return getattr(shape, "shape_type", None) == MSO_SHAPE_TYPE.LINE or "connector" in token
+
+
+def has_arrow_head(shape: Any) -> bool:
+    line = first_descendant(shape._element, "ln")
+    return first_child(line, "headEnd") is not None or first_child(line, "tailEnd") is not None
+
+
+def preset_custom_shape_path(token: str) -> tuple[str, bool] | None:
+    if "triangle" in token:
+        if "right" in token:
+            return "M 0 0 L 100 100 L 0 100 Z", True
+        return "M 50 0 L 100 100 L 0 100 Z", True
+    if "diamond" in token:
+        return "M 50 0 L 100 50 L 50 100 L 0 50 Z", True
+    if "parallelogram" in token:
+        return "M 25 0 L 100 0 L 75 100 L 0 100 Z", True
+    if "trapezoid" in token:
+        return "M 25 0 L 75 0 L 100 100 L 0 100 Z", True
+    if "hexagon" in token:
+        return "M 25 0 L 75 0 L 100 50 L 75 100 L 25 100 L 0 50 Z", True
+    if "pentagon" in token:
+        return "M 50 0 L 100 38 L 81 100 L 19 100 L 0 38 Z", True
+    if "chevron" in token:
+        return "M 0 0 L 65 0 L 100 50 L 65 100 L 0 100 L 35 50 Z", True
+    if "left_right_arrow" in token:
+        return "M 0 50 L 25 15 L 25 35 L 75 35 L 75 15 L 100 50 L 75 85 L 75 65 L 25 65 L 25 85 Z", True
+    if "up_down_arrow" in token:
+        return "M 50 0 L 85 25 L 65 25 L 65 75 L 85 75 L 50 100 L 15 75 L 35 75 L 35 25 L 15 25 Z", True
+    if "right_arrow" in token:
+        return "M 0 25 L 65 25 L 65 0 L 100 50 L 65 100 L 65 75 L 0 75 Z", True
+    if "left_arrow" in token:
+        return "M 100 25 L 35 25 L 35 0 L 0 50 L 35 100 L 35 75 L 100 75 Z", True
+    if "up_arrow" in token:
+        return "M 25 100 L 25 35 L 0 35 L 50 0 L 100 35 L 75 35 L 75 100 Z", True
+    if "down_arrow" in token:
+        return "M 25 0 L 25 65 L 0 65 L 50 100 L 100 65 L 75 65 L 75 0 Z", True
+    return None
 
 
 def shape_slot_source(
