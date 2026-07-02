@@ -18,7 +18,8 @@ import {
   getEditorValidationItems,
   mergeDeckIntoQueryCache,
   shouldApplyManualSaveResult,
-  shouldHydrateDeckFromQuery
+  shouldHydrateDeckFromQuery,
+  uploadAndImportPptxTemplate
 } from "./EditorShell";
 import { createShrinkToFitTextProps } from "./components/SelectionQuickBar";
 import { resolveEditorAssetUrl } from "../shared/editorAssetUrl";
@@ -244,6 +245,97 @@ describe("editor shell", () => {
 
     expect(html).toContain("실제 프로젝트 제안");
     expect(html).not.toContain("현재 슬라이드에 검토할 AI 제안이 없습니다.");
+  });
+
+  it("uploads a PPTX file, creates an import job, and polls until completion", async () => {
+    const file = new File(["pptx"], "template.pptx", {
+      type: "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+    });
+    const phases: string[] = [];
+    let jobPollCount = 0;
+    const fetcher = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+
+      if (url.endsWith("/assets/upload-url")) {
+        expect(init?.method).toBe("POST");
+        expect(JSON.parse(String(init?.body))).toMatchObject({
+          originalName: "template.pptx",
+          purpose: "pptx-import"
+        });
+        return new Response(
+          JSON.stringify({
+            fileId: "file_template",
+            projectId: "project-a",
+            uploadUrl: "http://storage.local/upload",
+            method: "PUT",
+            headers: {
+              "content-type":
+                "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+            },
+            expiresAt: "2026-07-03T00:15:00.000Z",
+            purpose: "pptx-import"
+          })
+        );
+      }
+
+      if (url === "http://storage.local/upload") {
+        expect(init?.method).toBe("PUT");
+        expect(init?.body).toBe(file);
+        return new Response(null, { status: 200 });
+      }
+
+      if (url.endsWith("/assets/complete")) {
+        expect(init?.method).toBe("POST");
+        return new Response(
+          JSON.stringify({
+            fileId: "file_template",
+            projectId: "project-a",
+            originalName: "template.pptx",
+            mimeType:
+              "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+            size: 4,
+            url: "/api/v1/projects/project-a/assets/file_template/content",
+            purpose: "pptx-import",
+            createdAt: "2026-07-03T00:00:00.000Z"
+          })
+        );
+      }
+
+      if (url.endsWith("/pptx-imports")) {
+        expect(init?.method).toBe("POST");
+        expect(JSON.parse(String(init?.body))).toEqual({ fileId: "file_template" });
+        return new Response(JSON.stringify({ job: jobPayload("queued") }));
+      }
+
+      if (url.endsWith("/jobs/job-pptx")) {
+        jobPollCount += 1;
+        return new Response(
+          JSON.stringify(
+            jobPayload(jobPollCount === 1 ? "running" : "succeeded", {
+              deckId: "deck_import_file_template",
+              templateId: "template_file_template",
+              qualityReport: qualityReport(),
+              warnings: ["pixel renderer unavailable"]
+            })
+          )
+        );
+      }
+
+      return new Response("unexpected request", { status: 500 });
+    });
+
+    await expect(
+      uploadAndImportPptxTemplate("project-a", file, {
+        fetcher,
+        onPhase: (phase) => phases.push(phase),
+        pollIntervalMs: 0
+      })
+    ).resolves.toMatchObject({
+      deckId: "deck_import_file_template",
+      templateId: "template_file_template"
+    });
+    expect(phases).toEqual(["uploading", "importing"]);
+    expect(jobPollCount).toBe(2);
   });
 
   it("renders stored slide thumbnail images in the slide list", () => {
@@ -847,5 +939,48 @@ function editorTextElement(
       verticalAlign: "top",
       lineHeight: 1.2
     }
+  };
+}
+
+function jobPayload(
+  status: "queued" | "running" | "succeeded",
+  result: Record<string, unknown> | null = null
+) {
+  return {
+    jobId: "job-pptx",
+    projectId: "project-a",
+    type: "pptx-import",
+    status,
+    progress: status === "succeeded" ? 100 : 10,
+    message: status,
+    result,
+    error: null,
+    createdAt: "2026-07-03T00:00:00.000Z",
+    updatedAt: "2026-07-03T00:00:01.000Z"
+  };
+}
+
+function qualityReport() {
+  return {
+    compositeScore: 82,
+    metrics: {
+      geometry: 90,
+      text: 80,
+      color: 80,
+      layer: 90,
+      editability: 60,
+      pixelSimilarity: null
+    },
+    weights: {
+      geometry: 25,
+      text: 15,
+      color: 10,
+      layer: 10,
+      editability: 10,
+      pixelSimilarity: 30
+    },
+    editabilityCoverage: 0.6,
+    appliedCap: null,
+    notes: ["pixel renderer unavailable"]
   };
 }
