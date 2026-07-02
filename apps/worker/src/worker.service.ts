@@ -15,11 +15,14 @@ import { InjectPinoLogger, PinoLogger } from "nestjs-pino";
 import type { DataSource } from "typeorm";
 import { processGenerateDeckJob } from "./generate-deck.processor";
 import { serializeLogError } from "./logging";
+import { processPptxOoxmlGenerationJob } from "./pptx-ooxml-generation.processor";
 import { processPptxImportJob } from "./pptx-import.processor";
 import { processReferenceExtractJob } from "./reference-extract.processor";
 import { processRehearsalSttJob } from "./rehearsal-stt.processor";
 import { workerStorage } from "./storage";
 import { processWorkerHealthCheckJob } from "./worker-health-check.processor";
+
+const pptxOoxmlGenerationQueueName = "pptx-ooxml-generation";
 
 @Injectable()
 export class WorkerService implements OnModuleInit, OnModuleDestroy {
@@ -28,6 +31,7 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
     referenceExtractQueueName,
     rehearsalSttQueueName,
     generateDeckQueueName,
+    pptxOoxmlGenerationQueueName,
     pptxImportQueueName,
     workerHealthCheckQueueName
   ];
@@ -71,6 +75,14 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
       ),
       this.createWorker(generateDeckQueueName, (job) =>
         processGenerateDeckJob(
+          this.dataSource,
+          storage,
+          this.config.PYTHON_WORKER_URL,
+          job.data
+        )
+      ),
+      this.createWorker(pptxOoxmlGenerationQueueName, (job) =>
+        processPptxOoxmlGenerationJob(
           this.dataSource,
           storage,
           this.config.PYTHON_WORKER_URL,
