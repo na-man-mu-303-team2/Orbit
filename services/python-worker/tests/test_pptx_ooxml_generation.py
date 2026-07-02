@@ -48,7 +48,7 @@ def test_generation_blueprint_uses_detected_canvas(tmp_path: Path) -> None:
     background = next(
         element
         for element in result.blueprint["slides"][0]["elements"]
-        if element["elementId"] == "el_imported_1_background"
+        if element["role"] == "background"
     )
     title_slot = next(
         slot

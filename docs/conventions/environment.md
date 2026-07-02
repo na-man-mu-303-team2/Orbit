@@ -64,12 +64,12 @@ OPENAI_MODEL=gpt-4.1-mini
 OPENAI_TRANSCRIPTION_MODEL=gpt-4o-transcribe
 OPENAI_EMBEDDING_MODEL=text-embedding-3-small
 AI_SLIDE_IMAGE_REVIEW_MODE=auto
-ORBIT_PPTX_OOXML_VECTOR_IMPORT=false
+ORBIT_PPTX_OOXML_VECTOR_IMPORT=true
 ```
 
 `AI_SLIDE_IMAGE_REVIEW_MODE=auto | off`는 텍스트 겹침 후보가 있는 슬라이드 PNG preview 검증을 제어한다. `auto`는 기존 `OPENAI_API_KEY`와 `OPENAI_MODEL`을 쓰고, `off`는 이미지 호출 없이 rule-based warning만 남긴다.
 
-`ORBIT_PPTX_OOXML_VECTOR_IMPORT=true | false`는 PPTX import에서 OOXML XML 직접 파서 기반 visual tree 추출 경로를 켠다. 기본값 `false`는 기존 `python-pptx` 기반 importer를 유지한다.
+`ORBIT_PPTX_OOXML_VECTOR_IMPORT=true | false`는 PPTX import에서 OOXML XML 직접 파서 기반 visual tree 추출 경로를 제어한다. 기본값 `true`는 OOXML visual tree importer를 먼저 사용하고, `false`는 기존 `python-pptx` 기반 importer를 사용한다.
 
 로컬과 테스트에서는 `OPENAI_API_KEY`를 비워둘 수 있지만, staging/production에서는 반드시 secret store에 설정한다.
 

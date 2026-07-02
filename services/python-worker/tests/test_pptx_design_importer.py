@@ -9,7 +9,11 @@ from pptx.oxml import parse_xml
 from pptx.util import Inches, Pt
 
 from app.ai.pptx_design_importer import blip_fill_asset, import_pptx_design
-from app.ai.pptx_ooxml_vector_importer import import_pptx_ooxml_visual_tree
+from app.ai.pptx_ooxml_vector_importer import (
+    VECTOR_IMPORT_FLAG,
+    import_pptx_design_with_optional_ooxml_vector,
+    import_pptx_ooxml_visual_tree,
+)
 
 
 def test_import_pptx_design_extracts_editable_elements(tmp_path: Path) -> None:
@@ -505,6 +509,44 @@ def test_ooxml_visual_tree_importer_preserves_vector_props(
         and element["props"]["text"] == "Grouped vector"
         and element["x"] > 1000
         for element in elements
+    )
+
+
+def test_ooxml_visual_tree_importer_is_default(
+    tmp_path: Path,
+    monkeypatch: object,
+) -> None:
+    pptx_path = tmp_path / "default-vector.pptx"
+    presentation = Presentation()
+    presentation.slide_width = Inches(13.333333)
+    presentation.slide_height = Inches(7.5)
+    slide = presentation.slides.add_slide(presentation.slide_layouts[6])
+    slide.shapes.add_textbox(
+        Inches(1),
+        Inches(1),
+        Inches(3),
+        Inches(1),
+    ).text_frame.text = "Default vector"
+    presentation.save(pptx_path)
+
+    monkeypatch.delenv(VECTOR_IMPORT_FLAG, raising=False)
+    default_result = import_pptx_design_with_optional_ooxml_vector(
+        pptx_path,
+        "file_design",
+    )
+    assert any(
+        str(element["elementId"]).startswith("el_ooxml_")
+        for element in default_result.blueprint["slides"][0]["elements"]
+    )
+
+    monkeypatch.setenv(VECTOR_IMPORT_FLAG, "false")
+    fallback_result = import_pptx_design_with_optional_ooxml_vector(
+        pptx_path,
+        "file_design",
+    )
+    assert any(
+        str(element["elementId"]).startswith("el_imported_")
+        for element in fallback_result.blueprint["slides"][0]["elements"]
     )
 
 

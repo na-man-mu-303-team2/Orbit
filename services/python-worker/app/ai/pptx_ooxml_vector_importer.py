@@ -53,11 +53,7 @@ def import_pptx_design_with_optional_ooxml_vector(
     canvas_width: int = CANVAS_WIDTH,
     canvas_height: int = CANVAS_HEIGHT,
 ) -> PptxDesignImportResult:
-    if os.getenv(VECTOR_IMPORT_FLAG, "").strip().lower() not in {
-        "1",
-        "true",
-        "yes",
-    }:
+    if ooxml_vector_import_disabled():
         return import_pptx_design(
             path,
             file_id,
@@ -85,6 +81,15 @@ def import_pptx_design_with_optional_ooxml_vector(
         if isinstance(fallback.blueprint["warnings"], list):
             fallback.blueprint["warnings"].insert(0, warning)
         return fallback
+
+
+def ooxml_vector_import_disabled() -> bool:
+    return os.getenv(VECTOR_IMPORT_FLAG, "true").strip().lower() in {
+        "0",
+        "false",
+        "no",
+        "off",
+    }
 
 
 @dataclass(frozen=True)
