@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+from copy import deepcopy
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
@@ -139,9 +140,17 @@ class GenerateDeckRequest(BaseModel):
     metadata: GenerateDeckMetadata = Field(default_factory=GenerateDeckMetadata)
     design: DesignOptions = Field(default_factory=DesignOptions)
     references: list[GenerateDeckReference] = Field(default_factory=list)
+    design_references: list[GenerateDeckReference] = Field(
+        default_factory=list,
+        alias="designReferences",
+    )
     reference_keywords: list[GenerateDeckReferenceKeyword] = Field(
         default_factory=list,
         alias="referenceKeywords",
+    )
+    design_blueprint: dict[str, Any] | None = Field(
+        default=None,
+        alias="designBlueprint",
     )
 
 
@@ -158,8 +167,10 @@ class RawInput(BaseModel):
     metadata: GenerateDeckMetadata
     design: DesignOptions
     references: list[GenerateDeckReference]
+    design_references: list[GenerateDeckReference]
     reference_keywords: list[GenerateDeckReferenceKeyword]
     reference_context: list[ReferenceContext]
+    design_blueprint: dict[str, Any] | None = None
 
 
 class DeckOutline(BaseModel):
@@ -1182,9 +1193,14 @@ def generate_deck(
         api_key=api_key,
     )
     slide_plans = apply_design_options(raw_input, slide_plans)
-    theme = direct_design(raw_input, slide_plans)
+    theme = imported_theme_from_blueprint(raw_input) or direct_design(
+        raw_input,
+        slide_plans,
+    )
     slides = [
-        assemble_slide(raw_input, slide_plan, plan_visuals(slide_plan), theme)
+        assemble_slide_from_imported_blueprint(raw_input, slide_plan, theme)
+        if raw_input.design_blueprint
+        else assemble_slide(raw_input, slide_plan, plan_visuals(slide_plan), theme)
         for slide_plan in slide_plans
     ]
     deck = {
@@ -1205,6 +1221,10 @@ def generate_deck(
                 "references": [
                     {"fileId": reference.file_id}
                     for reference in raw_input.references
+                ],
+                "designReferences": [
+                    {"fileId": reference.file_id}
+                    for reference in raw_input.design_references
                 ],
             },
         },
@@ -1238,8 +1258,41 @@ def generation_warnings(
     for issue in validation.design_issues:
         if should_promote_design_issue_to_warning(issue) and issue.message not in warnings:
             warnings.append(issue.message)
+    for warning in imported_blueprint_warnings(raw_input):
+        if warning not in warnings:
+            warnings.append(warning)
 
     return warnings
+
+
+def imported_theme_from_blueprint(raw_input: RawInput) -> dict[str, Any] | None:
+    blueprint = raw_input.design_blueprint
+    if not isinstance(blueprint, dict):
+        return None
+    theme = blueprint.get("theme")
+    if not isinstance(theme, dict):
+        return None
+    required = {
+        "name",
+        "fontFamily",
+        "backgroundColor",
+        "textColor",
+        "accentColor",
+        "palette",
+        "typography",
+        "effects",
+    }
+    return deepcopy(theme) if required.issubset(theme.keys()) else None
+
+
+def imported_blueprint_warnings(raw_input: RawInput) -> list[str]:
+    blueprint = raw_input.design_blueprint
+    if not isinstance(blueprint, dict):
+        return []
+    warnings = blueprint.get("warnings")
+    if not isinstance(warnings, list):
+        return []
+    return [warning for warning in warnings if isinstance(warning, str)]
 
 
 def should_promote_design_issue_to_warning(issue: ValidationIssue) -> bool:
@@ -1274,8 +1327,10 @@ def analyze_input(
         metadata=request.metadata,
         design=request.design,
         references=request.references,
+        design_references=request.design_references,
         reference_keywords=request.reference_keywords,
         reference_context=reference_context or [],
+        design_blueprint=request.design_blueprint,
     )
 
 
@@ -2680,6 +2735,193 @@ def assemble_slide(
     }
 
 
+def assemble_slide_from_imported_blueprint(
+    raw_input: RawInput,
+    slide_plan: SlidePlan,
+    theme: dict[str, Any],
+) -> dict[str, Any]:
+    imported_slide = imported_slide_for_order(raw_input, slide_plan.order)
+    if not imported_slide:
+        return assemble_slide(raw_input, slide_plan, plan_visuals(slide_plan), theme)
+
+    elements = imported_elements_for_slide(imported_slide, slide_plan, theme)
+    elements = cap_elements(
+        elements,
+        limit=element_limit_for_slide({"order": slide_plan.order, "elements": elements}),
+    )
+    title_element = next(
+        (element for element in elements if element.get("role") == "title"),
+        elements[0],
+    )
+    raw_style = imported_slide.get("style")
+    style: dict[str, Any] = raw_style if isinstance(raw_style, dict) else {}
+
+    return {
+        "slideId": f"slide_{slide_plan.order}",
+        "order": slide_plan.order,
+        "title": slide_plan.title,
+        "thumbnailUrl": "",
+        "style": {
+            "layout": str(style.get("layout", "title-content")),
+            "backgroundColor": str(style.get("backgroundColor", theme["backgroundColor"])),
+            "textColor": str(style.get("textColor", theme["textColor"])),
+            "accentColor": str(style.get("accentColor", theme["accentColor"])),
+        },
+        "speakerNotes": slide_plan.speaker_notes,
+        "elements": elements,
+        "keywords": [
+            {
+                "keywordId": f"kw_{slide_plan.order}_{index}",
+                "text": keyword,
+                "synonyms": [],
+                "abbreviations": [],
+            }
+            for index, keyword in enumerate(slide_plan.keywords, start=1)
+        ],
+        "animations": [
+            {
+                "animationId": f"anim_{slide_plan.order}_1",
+                "elementId": title_element["elementId"],
+                "type": "fade-in",
+                "order": 1,
+                "durationMs": 400,
+                "delayMs": 0,
+                "easing": "ease-out",
+            }
+        ],
+        "aiNotes": {
+            "emphasisPoints": [slide_plan.message],
+            "sourceEvidence": [
+                evidence.model_dump(by_alias=True) for evidence in slide_plan.evidence
+            ],
+        },
+    }
+
+
+def imported_slide_for_order(
+    raw_input: RawInput,
+    order: int,
+) -> dict[str, Any] | None:
+    blueprint = raw_input.design_blueprint
+    if not isinstance(blueprint, dict):
+        return None
+    slides = blueprint.get("slides")
+    if not isinstance(slides, list) or not slides:
+        return None
+    slide = slides[(order - 1) % len(slides)]
+    return slide if isinstance(slide, dict) else None
+
+
+def imported_elements_for_slide(
+    imported_slide: dict[str, Any],
+    slide_plan: SlidePlan,
+    theme: dict[str, Any],
+) -> list[dict[str, Any]]:
+    raw_elements = imported_slide.get("elements")
+    elements = [
+        normalize_imported_element(element, slide_plan.order, index)
+        for index, element in enumerate(raw_elements if isinstance(raw_elements, list) else [])
+        if isinstance(element, dict)
+    ]
+    inject_imported_text(elements, slide_plan, theme)
+    if not any(element.get("role") == "title" for element in elements):
+        elements.append(
+            text_element(
+                slide_plan.order,
+                "imported_title_fallback",
+                "title",
+                slide_plan.title,
+                CANVAS.safe_x,
+                CANVAS.safe_y,
+                CANVAS.safe_width,
+                120,
+                20,
+                theme["textColor"],
+                theme["typography"]["titleSize"],
+                "bold",
+                theme["typography"]["headingFontFamily"],
+            )
+        )
+    if not any(element.get("role") == "body" for element in elements):
+        elements.append(
+            text_element(
+                slide_plan.order,
+                "imported_body_fallback",
+                "body",
+                slide_plan.message,
+                CANVAS.safe_x,
+                260,
+                CANVAS.safe_width,
+                260,
+                21,
+                theme["textColor"],
+                theme["typography"]["bodySize"],
+                "normal",
+                theme["typography"]["bodyFontFamily"],
+            )
+        )
+    return elements
+
+
+def normalize_imported_element(
+    element: dict[str, Any],
+    order: int,
+    index: int,
+) -> dict[str, Any]:
+    cloned = deepcopy(element)
+    element_type = str(cloned.get("type", "rect"))
+    cloned["elementId"] = f"el_{order}_imported_{index}_{element_type}"
+    cloned["x"] = max(0, int(cloned.get("x", 0)))
+    cloned["y"] = max(0, int(cloned.get("y", 0)))
+    cloned["width"] = max(1, int(cloned.get("width", 1)))
+    cloned["height"] = max(1, int(cloned.get("height", 1)))
+    cloned["rotation"] = float(cloned.get("rotation", 0))
+    cloned["opacity"] = max(0, min(1, float(cloned.get("opacity", 1))))
+    cloned["zIndex"] = max(0, int(cloned.get("zIndex", index)))
+    cloned["locked"] = bool(cloned.get("locked", False))
+    cloned["visible"] = bool(cloned.get("visible", True))
+    if not isinstance(cloned.get("props"), dict):
+        cloned["props"] = {}
+    return cloned
+
+
+def inject_imported_text(
+    elements: list[dict[str, Any]],
+    slide_plan: SlidePlan,
+    theme: dict[str, Any],
+) -> None:
+    text_elements = [
+        element for element in elements if element.get("type") == "text"
+    ]
+    text_elements.sort(
+        key=lambda element: (
+            0 if element.get("role") == "title" else 1,
+            int(element.get("y", 0)),
+            -int(element.get("props", {}).get("fontSize", 0)),
+        )
+    )
+    for index, element in enumerate(text_elements):
+        props = element["props"]
+        if index == 0:
+            element["role"] = "title"
+            props["text"] = slide_plan.title
+            props.setdefault("fontSize", theme["typography"]["titleSize"])
+            props.setdefault("fontWeight", "bold")
+        elif index == 1:
+            element["role"] = "body"
+            props["text"] = slide_plan.message
+            props.setdefault("fontSize", theme["typography"]["bodySize"])
+        else:
+            element["role"] = "caption"
+            props["text"] = slide_plan.keywords[index - 2] if index - 2 < len(slide_plan.keywords) else ""
+            props.setdefault("fontSize", theme["typography"]["captionSize"])
+        props.setdefault("fontFamily", theme["fontFamily"])
+        props.setdefault("color", theme["textColor"])
+        props.setdefault("align", "left")
+        props.setdefault("verticalAlign", "top")
+        props.setdefault("lineHeight", 1.15)
+
+
 def assemble_process_cards_slide(
     raw_input: RawInput,
     slide_plan: SlidePlan,
@@ -3928,6 +4170,12 @@ def validate_layout(deck: dict[str, Any]) -> list[ValidationIssue]:
 
 def element_limit_for_slide(slide: dict[str, Any]) -> int:
     process_prefix = f"el_{slide.get('order')}_process_card_"
+    imported_prefix = f"el_{slide.get('order')}_imported_"
+    if any(
+        str(element.get("elementId", "")).startswith(imported_prefix)
+        for element in slide.get("elements", [])
+    ):
+        return 80
     if any(
         str(element.get("elementId", "")).startswith(process_prefix)
         for element in slide.get("elements", [])

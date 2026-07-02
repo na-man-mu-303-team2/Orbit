@@ -1704,6 +1704,139 @@ def test_generate_deck_reports_advisory_design_quality_issues() -> None:
     assert any("겹칠 수 있습니다" in message for message in messages)
 
 
+def test_generate_deck_applies_imported_design_blueprint_without_schema_leak() -> None:
+    response = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="ORBIT",
+            designReferences=[{"fileId": "file_design"}],
+            designBlueprint={
+                "theme": {
+                    "name": "Imported PPTX",
+                    "fontFamily": "Inter",
+                    "backgroundColor": "#ffffff",
+                    "textColor": "#111827",
+                    "accentColor": "#2563eb",
+                    "palette": {
+                        "primary": "#2563eb",
+                        "secondary": "#7c3aed",
+                        "surface": "#ffffff",
+                        "muted": "#f3f4f6",
+                        "border": "#d1d5db",
+                    },
+                    "typography": {
+                        "headingFontFamily": "Inter",
+                        "bodyFontFamily": "Inter",
+                        "titleSize": 56,
+                        "headingSize": 40,
+                        "bodySize": 24,
+                        "captionSize": 16,
+                    },
+                    "effects": {"borderRadius": 8},
+                },
+                "warnings": ["Unsupported PPTX shape on slide 1: CHART"],
+                "slides": [
+                    {
+                        "style": {
+                            "layout": "title-content",
+                            "backgroundColor": "#ffffff",
+                        },
+                        "elements": [
+                            {
+                                "elementId": "el_imported_1_background",
+                                "type": "rect",
+                                "role": "background",
+                                "x": 0,
+                                "y": 0,
+                                "width": 1920,
+                                "height": 1080,
+                                "rotation": 0,
+                                "opacity": 1,
+                                "zIndex": 0,
+                                "locked": True,
+                                "visible": True,
+                                "props": {
+                                    "fill": "#ffffff",
+                                    "stroke": "transparent",
+                                    "strokeWidth": 0,
+                                    "borderRadius": 0,
+                                },
+                            },
+                            {
+                                "elementId": "el_imported_1_title",
+                                "type": "text",
+                                "role": "title",
+                                "x": 120,
+                                "y": 96,
+                                "width": 1200,
+                                "height": 120,
+                                "rotation": 0,
+                                "opacity": 1,
+                                "zIndex": 2,
+                                "locked": False,
+                                "visible": True,
+                                "props": {
+                                    "text": "Original confidential title",
+                                    "fontFamily": "Inter",
+                                    "fontSize": 52,
+                                    "fontWeight": "bold",
+                                    "color": "#111827",
+                                    "align": "left",
+                                    "verticalAlign": "top",
+                                    "lineHeight": 1.15,
+                                },
+                            },
+                            {
+                                "elementId": "el_imported_1_body",
+                                "type": "text",
+                                "role": "body",
+                                "x": 120,
+                                "y": 280,
+                                "width": 1200,
+                                "height": 220,
+                                "rotation": 0,
+                                "opacity": 1,
+                                "zIndex": 3,
+                                "locked": False,
+                                "visible": True,
+                                "props": {
+                                    "text": "Original confidential body",
+                                    "fontFamily": "Inter",
+                                    "fontSize": 28,
+                                    "fontWeight": "normal",
+                                    "color": "#111827",
+                                    "align": "left",
+                                    "verticalAlign": "top",
+                                    "lineHeight": 1.15,
+                                },
+                            },
+                        ],
+                    }
+                ],
+            },
+        )
+    )
+
+    slide = response.deck["slides"][0]
+    text = "\n".join(
+        str(element["props"].get("text", ""))
+        for element in slide["elements"]
+        if element["type"] == "text"
+    )
+
+    assert response.deck["metadata"]["createdFrom"]["designReferences"] == [
+        {"fileId": "file_design"}
+    ]
+    assert all(
+        element["elementId"].startswith("el_1_imported_")
+        for element in slide["elements"]
+    )
+    assert "Original confidential" not in text
+    assert "designBlueprint" not in response.deck
+    assert "Unsupported PPTX shape on slide 1: CHART" in response.warnings
+    assert response.validation.passed is True
+
+
 def slide_payload(
     title: str,
     message: str,

@@ -15,6 +15,11 @@ from app.ai.generate_deck import (
     ReferenceContext,
     generate_deck,
 )
+from app.ai.pptx_design_importer import (
+    ImportedDesignAsset,
+    PptxDesignImportResult,
+    import_pptx_design,
+)
 from app.audio.transcribe import (
     AudioTranscribeRequest,
     AudioTranscribeResponse,
@@ -282,6 +287,58 @@ async def parse_documents(
     return {"files": extracted_files}
 
 
+@app.post("/design/import-pptx", response_model=PptxDesignImportResult)
+async def import_pptx_design_endpoint(
+    files: list[UploadFile] = File(...),
+    project_id: str = Form("default"),
+    file_ids: list[str] | None = Form(None),
+) -> PptxDesignImportResult:
+    if not files:
+        raise HTTPException(status_code=400, detail="At least one file is required.")
+
+    from pathlib import Path
+    from tempfile import TemporaryDirectory
+
+    slides: list[dict[str, Any]] = []
+    assets: list[ImportedDesignAsset] = []
+    warnings: list[str] = []
+    theme: dict[str, Any] | None = None
+
+    with TemporaryDirectory(prefix="orbit-design-") as temp_dir:
+        temp_path = Path(temp_dir)
+
+        for index, upload in enumerate(files):
+            safe_name = Path(upload.filename or "upload.pptx").name
+            source_path = temp_path / safe_name
+            source_path.write_bytes(await upload.read())
+            file_id = (
+                file_ids[index]
+                if file_ids and index < len(file_ids) and file_ids[index].strip()
+                else f"file_{uuid4()}"
+            )
+            result = await run_in_threadpool(import_pptx_design, source_path, file_id)
+            remapped = _remap_import_asset_ids(result, len(assets))
+            slides.extend(
+                cast(list[dict[str, Any]], remapped.blueprint.get("slides", []))
+            )
+            assets.extend(remapped.assets)
+            warnings.extend(remapped.warnings)
+            if theme is None and isinstance(remapped.blueprint.get("theme"), dict):
+                theme = cast(dict[str, Any], remapped.blueprint["theme"])
+
+    return PptxDesignImportResult(
+        blueprint={
+            "projectId": project_id,
+            "canvas": {"width": 1920, "height": 1080},
+            "theme": theme or {},
+            "slides": slides,
+            "warnings": warnings,
+        },
+        assets=assets,
+        warnings=warnings,
+    )
+
+
 @app.post("/audio/transcribe", response_model=AudioTranscribeResponse)
 def transcribe_audio(
     payload: AudioTranscribeRequest,
@@ -355,6 +412,50 @@ def analyze_rehearsal(
             message=coaching.message,
         ),
     )
+
+
+def _remap_import_asset_ids(
+    result: PptxDesignImportResult,
+    offset: int,
+) -> PptxDesignImportResult:
+    if offset == 0:
+        return result
+
+    replacements: dict[str, str] = {}
+    assets: list[ImportedDesignAsset] = []
+    for index, asset in enumerate(result.assets, start=1):
+        next_id = f"image_{offset + index}"
+        replacements[f"asset:{asset.asset_id}"] = f"asset:{next_id}"
+        assets.append(
+            ImportedDesignAsset(
+                assetId=next_id,
+                fileName=asset.file_name.replace(asset.asset_id, next_id, 1),
+                mimeType=asset.mime_type,
+                contentBase64=asset.content_base64,
+            )
+        )
+
+    return PptxDesignImportResult(
+        blueprint=cast(
+            dict[str, Any],
+            _replace_import_asset_refs(result.blueprint, replacements),
+        ),
+        assets=assets,
+        warnings=result.warnings,
+    )
+
+
+def _replace_import_asset_refs(value: Any, replacements: dict[str, str]) -> Any:
+    if isinstance(value, str):
+        return replacements.get(value, value)
+    if isinstance(value, list):
+        return [_replace_import_asset_refs(item, replacements) for item in value]
+    if isinstance(value, dict):
+        return {
+            key: _replace_import_asset_refs(item, replacements)
+            for key, item in value.items()
+        }
+    return value
 
 
 def _config(request: Request) -> PythonWorkerConfig:
