@@ -170,6 +170,18 @@
 - Affected files: `AGENTS.md`, `docs/decision-log.md`.
 - Follow-up review notes: 다음 Codex PR 리뷰에서 요약과 inline comment가 한국어로 작성되는지, technical identifier가 불필요하게 번역되지 않는지 확인한다.
 
+## ORBIT Jira Link PR check removal
+
+- Context: `Jira Link` workflow는 PR metadata가 바뀔 때마다 실행되어 product CI check보다 먼저 PR을 막을 수 있다. 팀은 branch와 PR metadata에 Jira key를 남기는 규칙은 유지하되, 이 규칙을 별도 PR별 GitHub Actions check로 강제하지 않기로 했다.
+- Options considered:
+  - `jira-link`를 required status check로 유지한다.
+  - workflow에 영구 false 조건을 달아 비활성화한다.
+  - `Jira Link` workflow를 제거하고, Jira key metadata는 required GitHub Actions check가 아니라 팀 규칙으로 문서화한다.
+- Final decision: `.github/workflows/jira-link.yml`을 제거하고 문서화된 branch protection required check 목록에서 `jira-link`를 제거한다. merge 시점의 `Jira Complete Issue` workflow는 유지한다.
+- Rationale: PR마다 실행되는 Jira metadata 검증 job은 중단하면서, `main` 또는 `develop` merge 후 Jira issue 완료 자동화는 보존한다.
+- Affected files: `.github/workflows/jira-link.yml`, `docs/conventions/jira.md`, `docs/testing/jira-test-matrix.md`, `docs/decision-log.md`.
+- Follow-up review notes: GitHub branch protection의 `main`, `develop` required status checks에서도 `jira-link`를 제거해야 한다. 그렇지 않으면 GitHub가 삭제된 check를 계속 기다릴 수 있다.
+
 ## ORBIT-228 personal server develop deployment boundary
 
 - Context: 공식 production 배포 경로가 완성되기 전에 `develop` 브랜치를 개인 서버에서 staging/demo로 검증할 수 있는 반복 가능한 절차가 필요하다.

@@ -6,7 +6,7 @@
 
 | 시점 | 실행 항목 | 목적 |
 | --- | --- | --- |
-| docs-only PR | Jira Link, 변경 Markdown UTF-8 읽기 검증 | 구현과 무관한 PR에서 제품 build/test/smoke 비용을 줄이고, PR 본문에 코드 테스트 미실행 사유를 남김 |
+| docs-only PR | 변경 Markdown UTF-8 읽기 검증 | 구현과 무관한 PR에서 제품 build/test/smoke 비용을 줄이고, PR 본문에 코드 테스트 미실행 사유를 남김 |
 | automation-only PR | automation JSON 검증, Node script syntax check, 필요한 경우 `pnpm lint` | workflow/script/schema 변경 자체를 검증하되 Playwright smoke와 Python worker 테스트는 관련 변경이 있을 때만 실행 |
 | CI workflow 변경 PR | 변경된 workflow가 참조하는 관련 job 실행, `ci.yml` 변경 시 Playwright smoke를 제외한 빠른 gate 실행 | CI 정의 자체가 깨졌는지 merge 전에 확인 |
 | app/API/shared/worker/compose/env/lockfile PR | `node infra/scripts/check-env.mjs`, `pnpm build`, `pnpm lint`, `pnpm test`, Python `ruff/mypy/pytest`, `docker compose config --quiet` 중 변경 경로와 관련된 job | merge 전 빠른 회귀 차단 |
