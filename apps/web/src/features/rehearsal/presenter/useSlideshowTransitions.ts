@@ -5,8 +5,12 @@ import {
   computeSettledElementStates,
   createSlideshowAnimationPlan
 } from "./slideshowStepModel";
-
-const maxTransitionDurationMs = 500;
+import {
+  getSequencedEntryTransitionDurationMs,
+  getSlideshowTransitionDurationMs,
+  maxTransitionDurationMs,
+  sequenceEntryAnimationsByOrder
+} from "./slideshowTransitionTiming";
 
 export function useSlideshowTransitions(args: {
   deck: Deck;
@@ -59,7 +63,7 @@ export function useSlideshowTransitions(args: {
     const isSlideChange = previousAddress.slideId !== args.slide.slideId;
     const stepDelta = args.stepIndex - previousAddress.stepIndex;
     const transitionAnimations = isSlideChange
-      ? plan.entryAnimations
+      ? sequenceEntryAnimationsByOrder(plan.entryAnimations)
       : stepDelta === 1
         ? plan.triggerSteps[args.stepIndex - 1]?.animations ?? []
         : [];
@@ -77,7 +81,9 @@ export function useSlideshowTransitions(args: {
       targetStates,
       transitionAnimations
     );
-    const durationMs = getSlideshowTransitionDurationMs(transitionAnimations);
+    const durationMs = isSlideChange
+      ? getSequencedEntryTransitionDurationMs(transitionAnimations)
+      : getSlideshowTransitionDurationMs(transitionAnimations);
     const startedAt = performance.now();
 
     setDisplayStates(startStates);
@@ -240,15 +246,6 @@ function applyDelay(
     (elapsedMs - effectiveDelayMs) / effectiveDurationMs;
 
   return Math.min(1, Math.max(0, delayedProgress));
-}
-
-export function getSlideshowTransitionDurationMs(animations: DeckAnimation[]) {
-  return Math.max(
-    1,
-    ...animations.map((animation) =>
-      Math.min(animation.durationMs + animation.delayMs, maxTransitionDurationMs)
-    )
-  );
 }
 
 function cloneElementStates(states: Record<string, ElementPresentationState>) {

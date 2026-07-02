@@ -114,12 +114,15 @@ export function PresentWindow(props: {
 
 export function PresentWindowContent(props: {
   identity: PresentationChannelIdentity;
+  isFullscreen?: boolean;
   snapshot: PresentWindowSnapshot;
   viewport?: ViewportSize;
 }) {
   const { identity, snapshot } = props;
   const rootRef = useRef<HTMLDivElement>(null);
   const liveViewport = usePresentWindowViewport();
+  const liveIsFullscreen = usePresentWindowFullscreenState();
+  const isFullscreen = props.isFullscreen ?? liveIsFullscreen;
   const scale = getSlideWindowScale(snapshot.deck, props.viewport ?? liveViewport);
 
   return (
@@ -141,16 +144,18 @@ export function PresentWindowContent(props: {
           triggerAnimationIds={snapshot.triggerAnimationIds}
         />
       </div>
-      <button
-        className="present-window-fullscreen"
-        type="button"
-        onClick={() => {
-          void requestPresentWindowFullscreen(rootRef.current);
-        }}
-      >
-        <Maximize2 size={17} />
-        전체화면
-      </button>
+      {!isFullscreen ? (
+        <button
+          className="present-window-fullscreen"
+          type="button"
+          onClick={() => {
+            void requestPresentWindowFullscreen(rootRef.current);
+          }}
+        >
+          <Maximize2 size={17} />
+          전체화면
+        </button>
+      ) : null}
     </PresentWindowShell>
   );
 }
@@ -222,6 +227,28 @@ function usePresentWindowViewport() {
   return viewport;
 }
 
+function usePresentWindowFullscreenState() {
+  const [isFullscreen, setIsFullscreen] = useState(readPresentWindowFullscreenState);
+
+  useEffect(() => {
+    if (typeof document === "undefined") {
+      return;
+    }
+
+    const updateFullscreenState = () => {
+      setIsFullscreen(readPresentWindowFullscreenState());
+    };
+
+    document.addEventListener("fullscreenchange", updateFullscreenState);
+
+    return () => {
+      document.removeEventListener("fullscreenchange", updateFullscreenState);
+    };
+  }, []);
+
+  return isFullscreen;
+}
+
 function readViewportSize(): ViewportSize {
   if (typeof window === "undefined") {
     return { height: 0, width: 0 };
@@ -231,6 +258,10 @@ function readViewportSize(): ViewportSize {
     height: window.innerHeight,
     width: window.innerWidth
   };
+}
+
+function readPresentWindowFullscreenState() {
+  return typeof document !== "undefined" && Boolean(document.fullscreenElement);
 }
 
 export async function requestPresentWindowFullscreen(target: HTMLElement | null) {

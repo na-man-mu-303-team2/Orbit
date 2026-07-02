@@ -2,6 +2,23 @@ import { useEffect } from "react";
 
 export type PresenterKeyboardCommand = "next-step" | "previous-slide";
 
+const presenterKeyboardIgnoredTargetSelector = [
+  "[contenteditable='true']",
+  "input",
+  "textarea",
+  "select",
+  "button",
+  "a[href]",
+  "[role='button']",
+  "[role='link']",
+  "[role='menuitem']",
+  "[role='checkbox']",
+  "[role='radio']",
+  "[role='switch']",
+  "[role='tab']",
+  "[role='textbox']"
+].join(", ");
+
 export function usePresenterKeyboard(args: {
   enabled?: boolean;
   onNextStep: () => void;
@@ -46,7 +63,7 @@ export function usePresenterKeyboard(args: {
 export function getPresenterKeyboardCommand(
   event: Pick<KeyboardEvent, "key" | "target">
 ): PresenterKeyboardCommand | null {
-  if (isPresenterKeyboardEditableTarget(event.target)) {
+  if (isPresenterKeyboardIgnoredTarget(event.target)) {
     return null;
   }
 
@@ -66,22 +83,37 @@ export function getPresenterKeyboardCommand(
   return null;
 }
 
-export function isPresenterKeyboardEditableTarget(target: EventTarget | null) {
-  if (typeof HTMLElement !== "undefined" && target instanceof HTMLElement) {
+export function isPresenterKeyboardIgnoredTarget(target: EventTarget | null) {
+  if (isElementLike(target)) {
     return (
-      target.isContentEditable ||
-      target instanceof HTMLInputElement ||
-      target instanceof HTMLTextAreaElement ||
-      target instanceof HTMLSelectElement ||
-      Boolean(target.closest("[contenteditable='true'], input, textarea, select"))
+      Boolean(target.isContentEditable) ||
+      Boolean(target.closest(presenterKeyboardIgnoredTargetSelector))
     );
   }
 
   if (typeof Node !== "undefined" && target instanceof Node) {
     return Boolean(
-      target.parentElement?.closest("[contenteditable='true'], input, textarea, select")
+      target.parentElement?.closest(presenterKeyboardIgnoredTargetSelector)
     );
   }
 
   return false;
+}
+
+export function isPresenterKeyboardEditableTarget(target: EventTarget | null) {
+  return isPresenterKeyboardIgnoredTarget(target);
+}
+
+function isElementLike(
+  target: EventTarget | null
+): target is EventTarget & {
+  closest: (selector: string) => unknown;
+  isContentEditable?: boolean;
+} {
+  return (
+    typeof target === "object" &&
+    target !== null &&
+    "closest" in target &&
+    typeof target.closest === "function"
+  );
 }

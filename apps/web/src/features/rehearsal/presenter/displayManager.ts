@@ -72,13 +72,19 @@ export function createDisplayManager(port: DisplayBrowserPort = createBrowserDis
       try {
         const details = await port.getScreenDetails();
         const currentScreen = details.currentScreen;
-        const screens = details.screens.map((screen, screenIndex) =>
-          toScreenDescriptor(screen, screenIndex, currentScreen)
-        );
+        const screens = details.screens
+          .map((screen, screenIndex) => ({
+            descriptor: toScreenDescriptor(screen, screenIndex, currentScreen),
+            screen
+          }))
+          .filter(({ descriptor, screen }) =>
+            currentScreen ? !isSameScreen(screen, currentScreen) : !descriptor.isPrimary
+          )
+          .map(({ descriptor }) => descriptor);
 
         return {
           ok: true,
-          value: screens.filter((screen) => !screen.isPrimary)
+          value: screens
         };
       } catch (cause) {
         return createDisplayError(
@@ -157,14 +163,7 @@ function toScreenDescriptor(
   screenIndex: number,
   currentScreen?: ScreenLike
 ): DisplayScreenDescriptor {
-  const isPrimary =
-    Boolean(screen.isPrimary) ||
-    (currentScreen
-      ? screen.left === currentScreen.left &&
-        screen.top === currentScreen.top &&
-        screen.width === currentScreen.width &&
-        screen.height === currentScreen.height
-      : screenIndex === 0);
+  const isPrimary = Boolean(screen.isPrimary) || (!currentScreen && screenIndex === 0);
 
   return {
     height: screen.availHeight ?? screen.height,
@@ -175,6 +174,19 @@ function toScreenDescriptor(
     top: screen.top,
     width: screen.availWidth ?? screen.width
   };
+}
+
+function isSameScreen(screen: ScreenLike, currentScreen?: ScreenLike) {
+  if (!currentScreen) {
+    return false;
+  }
+
+  return (
+    screen.left === currentScreen.left &&
+    screen.top === currentScreen.top &&
+    screen.width === currentScreen.width &&
+    screen.height === currentScreen.height
+  );
 }
 
 function createDisplayError(

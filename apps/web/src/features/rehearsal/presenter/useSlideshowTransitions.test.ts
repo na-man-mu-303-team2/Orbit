@@ -2,7 +2,6 @@ import type { DeckAnimation } from "@orbit/shared";
 import { describe, expect, it } from "vitest";
 import {
   createSlideshowTransitionStartStates,
-  getSlideshowTransitionDurationMs,
   interpolateSlideshowTransitionStates
 } from "./useSlideshowTransitions";
 
@@ -17,10 +16,6 @@ const fadeOutAnimation: DeckAnimation = {
 };
 
 describe("useSlideshowTransitions helpers", () => {
-  it("caps effective transition duration at 500ms", () => {
-    expect(getSlideshowTransitionDurationMs([fadeOutAnimation])).toBe(500);
-  });
-
   it("creates visible start states for exit animations", () => {
     const startStates = createSlideshowTransitionStartStates(
       {
@@ -145,4 +140,5 @@ describe("useSlideshowTransitions helpers", () => {
 
     expect(states.el_delayed).toMatchObject({ opacity: 1, visible: true });
   });
+
 });

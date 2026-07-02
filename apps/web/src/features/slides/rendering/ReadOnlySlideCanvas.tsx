@@ -8,6 +8,7 @@ import {
 import type { ComponentType } from "react";
 import { ElementNodeContent } from "./elementRendering";
 import { getRenderableSlideElements } from "./elementNormalization";
+import { getHighlightOverlayElements } from "./highlightOverlayElements";
 import { SlideBackground } from "./SlideBackground";
 import { getActiveHighlightElementIds, HighlightOverlay } from "./highlightOverlay";
 
@@ -45,6 +46,11 @@ export function ReadOnlySlideCanvas(props: {
   const { deck, elementStates = {}, highlights = [], scale = 1, slide, stageRef } = props;
   const elements = getRenderableSlideElements(slide, deck.canvas);
   const activeHighlightElementIds = getActiveHighlightElementIds(highlights);
+  const highlightElements = getHighlightOverlayElements({
+    activeHighlightElementIds,
+    deck,
+    slide
+  });
 
   return (
     <div
@@ -82,15 +88,13 @@ export function ReadOnlySlideCanvas(props: {
                 slide={slide}
               />
             ))}
-            {elements
-              .filter((element) => activeHighlightElementIds.has(element.elementId))
-              .map((element) => (
-                <HighlightOverlay
-                  element={element}
-                  key={`highlight-${element.elementId}`}
-                  state={elementStates[element.elementId]}
-                />
-              ))}
+            {highlightElements.map((element) => (
+              <HighlightOverlay
+                element={element}
+                key={`highlight-${element.elementId}`}
+                state={elementStates[element.elementId]}
+              />
+            ))}
           </Layer>
         </Stage>
       </SlideBackground>

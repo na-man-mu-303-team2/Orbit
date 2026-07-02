@@ -105,6 +105,129 @@ describe("displayManager", () => {
     });
   });
 
+  it("keeps a primary external screen when the presenter is on another screen", async () => {
+    const manager = createDisplayManager({
+      getScreenDetails: async () => ({
+        currentScreen: {
+          height: 900,
+          isPrimary: false,
+          label: "노트북",
+          left: 0,
+          top: 0,
+          width: 1440
+        },
+        screens: [
+          {
+            height: 900,
+            isPrimary: false,
+            label: "노트북",
+            left: 0,
+            top: 0,
+            width: 1440
+          },
+          {
+            availHeight: 1080,
+            availWidth: 1920,
+            height: 1080,
+            isPrimary: true,
+            label: "HDMI",
+            left: 1440,
+            top: 0,
+            width: 1920
+          }
+        ]
+      }),
+      open: () => null
+    });
+
+    await expect(manager.listExternalScreens()).resolves.toEqual({
+      ok: true,
+      value: [
+        {
+          height: 1080,
+          isPrimary: true,
+          label: "HDMI",
+          left: 1440,
+          screenIndex: 1,
+          top: 0,
+          width: 1920
+        }
+      ]
+    });
+  });
+
+  it("excludes the current screen even when it is non-primary", async () => {
+    const manager = createDisplayManager({
+      getScreenDetails: async () => ({
+        currentScreen: {
+          height: 900,
+          isPrimary: false,
+          label: "노트북",
+          left: 0,
+          top: 0,
+          width: 1440
+        },
+        screens: [
+          {
+            height: 900,
+            isPrimary: false,
+            label: "노트북",
+            left: 0,
+            top: 0,
+            width: 1440
+          }
+        ]
+      }),
+      open: () => null
+    });
+
+    await expect(manager.listExternalScreens()).resolves.toEqual({
+      ok: true,
+      value: []
+    });
+  });
+
+  it("falls back to primary filtering when current screen is unavailable", async () => {
+    const manager = createDisplayManager({
+      getScreenDetails: async () => ({
+        screens: [
+          {
+            height: 900,
+            isPrimary: true,
+            label: "Primary",
+            left: 0,
+            top: 0,
+            width: 1440
+          },
+          {
+            height: 1080,
+            isPrimary: false,
+            label: "HDMI",
+            left: 1440,
+            top: 0,
+            width: 1920
+          }
+        ]
+      }),
+      open: () => null
+    });
+
+    await expect(manager.listExternalScreens()).resolves.toEqual({
+      ok: true,
+      value: [
+        {
+          height: 1080,
+          isPrimary: false,
+          label: "HDMI",
+          left: 1440,
+          screenIndex: 1,
+          top: 0,
+          width: 1920
+        }
+      ]
+    });
+  });
+
   it("reports unsupported Window Management separately", async () => {
     const manager = createDisplayManager({
       open: () => null

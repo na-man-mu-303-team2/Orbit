@@ -73,6 +73,7 @@ import { DisplayControls } from "./presenter/DisplayControls";
 import { SingleScreenPresenter } from "./presenter/SingleScreenPresenter";
 import { SlideshowRenderer } from "./presenter/SlideshowRenderer";
 import { createSlideshowAnimationPlan } from "./presenter/slideshowStepModel";
+import { getNextPresenterStepState } from "./presenter/presenterStepNavigation";
 import { usePresentationChannelPublisher } from "./presenter/usePresentationChannelPublisher";
 import { usePresenterKeyboard } from "./presenter/usePresenterKeyboard";
 
@@ -1819,14 +1820,14 @@ export function RehearsalWorkspace(props: {
     if (!deck || !slideshowAnimationPlan) return;
     cancelPendingAutoAdvance("cancelled");
 
-    setPresenterStepIndex((currentStep) => {
-      if (currentStep < slideshowAnimationPlan.maxStepIndex) {
-        return currentStep + 1;
-      }
-
-      setCurrentSlideIndex((current) => Math.min(deck.slides.length - 1, current + 1));
-      return 0;
+    const nextState = getNextPresenterStepState({
+      currentSlideIndex,
+      currentStepIndex: presenterStepIndex,
+      maxStepIndex: slideshowAnimationPlan.maxStepIndex,
+      slideCount: deck.slides.length
     });
+    setPresenterStepIndex(nextState.stepIndex);
+    setCurrentSlideIndex(nextState.slideIndex);
   };
   const finishRehearsal = () => {
     const projectId = deck?.projectId ?? props.projectId ?? demoIds.projectId;

@@ -180,6 +180,53 @@ describe("PresentWindow", () => {
     expect(html).toContain("data-scale=\"0.5\"");
   });
 
+  it("hides the fullscreen CTA once the slide window is fullscreen", () => {
+    const snapshotMessage = createPresenterSnapshotMessage({
+      deck: p0AnimationDeck,
+      identity,
+      sentAt: 10,
+      state: createPresenterSlideshowState(p0AnimationDeck),
+      triggerAnimationIds: []
+    });
+    const html = renderToStaticMarkup(
+      <PresentWindowContent
+        identity={identity}
+        isFullscreen={true}
+        snapshot={{
+          deck: snapshotMessage.deck,
+          state: snapshotMessage.state,
+          triggerAnimationIds: []
+        }}
+      />
+    );
+
+    expect(html).not.toContain("전체화면");
+    expect(html).not.toContain("present-window-fullscreen");
+  });
+
+  it("keeps the fullscreen CTA visible before fullscreen is active", () => {
+    const snapshotMessage = createPresenterSnapshotMessage({
+      deck: p0AnimationDeck,
+      identity,
+      sentAt: 10,
+      state: createPresenterSlideshowState(p0AnimationDeck),
+      triggerAnimationIds: []
+    });
+    const html = renderToStaticMarkup(
+      <PresentWindowContent
+        identity={identity}
+        isFullscreen={false}
+        snapshot={{
+          deck: snapshotMessage.deck,
+          state: snapshotMessage.state,
+          triggerAnimationIds: []
+        }}
+      />
+    );
+
+    expect(html).toContain("전체화면");
+  });
+
   it("handles blocked fullscreen requests without leaking a rejected promise", async () => {
     const requestFullscreen = vi.fn().mockRejectedValue(new Error("blocked"));
 
