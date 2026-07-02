@@ -162,7 +162,6 @@ describe("processGenerateDeckJob", () => {
             }
           ],
           keywords: [],
-          animations: [],
           aiNotes: {
             emphasisPoints: ["message"],
             sourceEvidence: [{ fileId: "file_1" }]

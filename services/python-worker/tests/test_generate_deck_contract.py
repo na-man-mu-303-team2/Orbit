@@ -1779,7 +1779,6 @@ def test_refiner_shrinks_clamps_and_corrects_text_contrast() -> None:
                     }
                 ],
                 "keywords": [],
-                "animations": [],
             }
         ],
     }
@@ -1895,7 +1894,6 @@ def test_generate_deck_reports_advisory_design_quality_issues() -> None:
                     },
                 ],
                 "keywords": [],
-                "animations": [],
             }
         ],
     }
@@ -2249,7 +2247,6 @@ def text_overlap_deck(elements: list[dict[str, Any]]) -> dict[str, Any]:
                 "speakerNotes": "notes",
                 "elements": elements,
                 "keywords": [],
-                "animations": [],
             }
         ],
     }

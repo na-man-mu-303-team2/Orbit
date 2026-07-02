@@ -3043,10 +3043,6 @@ def assemble_slide_from_imported_blueprint(
         elements,
         limit=element_limit_for_slide({"order": slide_plan.order, "elements": elements}),
     )
-    title_element = next(
-        (element for element in elements if element.get("role") == "title"),
-        elements[0],
-    )
     raw_style = imported_slide.get("style")
     style: dict[str, Any] = raw_style if isinstance(raw_style, dict) else {}
 
@@ -3071,17 +3067,6 @@ def assemble_slide_from_imported_blueprint(
                 "abbreviations": [],
             }
             for index, keyword in enumerate(slide_plan.keywords, start=1)
-        ],
-        "animations": [
-            {
-                "animationId": f"anim_{slide_plan.order}_1",
-                "elementId": title_element["elementId"],
-                "type": "fade-in",
-                "order": 1,
-                "durationMs": 400,
-                "delayMs": 0,
-                "easing": "ease-out",
-            }
         ],
         "aiNotes": {
             "emphasisPoints": [slide_plan.message],
@@ -3234,8 +3219,6 @@ def assemble_process_cards_slide(
         elements,
         limit=int(slide_preset.get("maxElements", 64)),
     )
-    title_element = next(element for element in elements if element["role"] == "title")
-
     return {
         "slideId": f"slide_{slide_plan.order}",
         "order": slide_plan.order,
@@ -3257,17 +3240,6 @@ def assemble_process_cards_slide(
                 "abbreviations": [],
             }
             for index, keyword in enumerate(slide_plan.keywords, start=1)
-        ],
-        "animations": [
-            {
-                "animationId": f"anim_{slide_plan.order}_1",
-                "elementId": title_element["elementId"],
-                "type": "fade-in",
-                "order": 1,
-                "durationMs": 400,
-                "delayMs": 0,
-                "easing": "ease-out",
-            }
         ],
         "aiNotes": {
             "emphasisPoints": [slide_plan.message],
