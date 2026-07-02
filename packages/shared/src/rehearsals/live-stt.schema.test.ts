@@ -34,10 +34,11 @@ describe("liveSttEventSchema", () => {
         type: "animation-cue",
         slideId: "slide_1",
         keywordId: "kw_1",
-        cue: "emphasis",
+        cue: "animation-trigger",
+        animationId: "anim_1",
         text: "ORBIT"
       })
-    ).toMatchObject({ type: "animation-cue", cue: "emphasis" });
+    ).toMatchObject({ type: "animation-cue", cue: "animation-trigger" });
   });
 
   it("rejects invalid keyword coverage", () => {
@@ -45,7 +46,7 @@ describe("liveSttEventSchema", () => {
       type: "slide-advance",
       fromSlideId: "slide_1",
       toSlideId: "slide_2",
-      reason: "keyword-coverage",
+      reason: "script-progress",
       coverage: 1.2
     });
 

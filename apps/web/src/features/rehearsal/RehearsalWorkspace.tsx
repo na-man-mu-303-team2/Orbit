@@ -1,4 +1,8 @@
 import {
+  type AnimationRenderState,
+  type AnimationSequenceStep
+} from "@orbit/editor-core";
+import {
   demoIds,
   type AssetUploadUrlResponse,
   type CompleteRehearsalAudioUploadResponse,
@@ -44,7 +48,9 @@ import {
   Volume2
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { resolveEditorAssetUrl } from "../editor/shared/editorAssetUrl";
+import { resolveEditorAssetUrl } from "../shared/assetUrl";
+import { SlideCanvasRenderer } from "../slide-render/canvas/SlideCanvasRenderer";
+import { useSlideAnimationPlayback } from "../slide-render/canvas/animationPlayback";
 import {
   LiveSttAdapterError,
   type LiveSttAdapter,
@@ -69,6 +75,10 @@ import {
   type RehearsalCommandDefinition
 } from "./rehearsalCommands";
 import { SherpaLiveSttAdapter } from "./sherpaOnnxLiveSttAdapter";
+import {
+  evaluateLiveScriptProgress,
+  type LiveScriptProgressAnalysis
+} from "./liveScriptProgress";
 
 export {
   LiveSttAdapterError,
@@ -794,28 +804,29 @@ export function evaluateLiveTranscript(
 }
 
 export function shouldAutoAdvanceLiveSlide(options: {
-  analysis: Pick<LiveTranscriptAnalysis, "coverage" | "missingKeywordIds">;
+  analysis: Pick<LiveScriptProgressAnalysis, "coverage" | "lastSentenceMatched">;
   currentSlideIndex: number;
   slideCount: number;
-  keywordCount: number;
   alreadyAdvanced: boolean;
 }) {
   return (
-    options.keywordCount > 0 &&
     !options.alreadyAdvanced &&
     options.currentSlideIndex < options.slideCount - 1 &&
-    options.analysis.coverage >= liveAutoAdvanceCoverageThreshold
+    options.analysis.coverage >= liveAutoAdvanceCoverageThreshold &&
+    options.analysis.lastSentenceMatched
   );
 }
 
 export function shouldCompleteLiveSlideAdvance(
   options: {
     confirmedCommand: RehearsalCommandCandidate | null;
-  } & Parameters<typeof shouldAutoAdvanceLiveSlide>[0]
+    currentSlideIndex: number;
+    slideCount: number;
+  }
 ) {
   return (
     isAdvanceSlideCommand(options.confirmedCommand) &&
-    shouldAutoAdvanceLiveSlide(options)
+    options.currentSlideIndex < options.slideCount - 1
   );
 }
 
@@ -1137,6 +1148,8 @@ export function RehearsalWorkspace(props: {
   );
   const [liveKeywordState, setLiveKeywordState] =
     useState<LiveTranscriptAnalysis | null>(null);
+  const [liveScriptProgress, setLiveScriptProgress] =
+    useState<LiveScriptProgressAnalysis | null>(null);
   const [liveAudioLevel, setLiveAudioLevel] =
     useState<LiveSttAudioLevelEvent | null>(null);
   const [liveDebugPcmRecording, setLiveDebugPcmRecording] =
@@ -1177,6 +1190,11 @@ export function RehearsalWorkspace(props: {
   );
   const autoAdvancedSlideIdsRef = useRef(new Set<string>());
   const autoAdvanceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingLiveSlideAdvanceRef = useRef<{
+    fromSlideId: Slide["slideId"];
+    coverage: number;
+    reason: LiveSttSlideAdvanceEvent["reason"];
+  } | null>(null);
 
   useEffect(() => {
     if (props.initialDeck) {
@@ -1267,6 +1285,9 @@ export function RehearsalWorkspace(props: {
   }, []);
 
   const currentSlide = deck?.slides[currentSlideIndex] ?? null;
+  const slideAnimationPlayback = useSlideAnimationPlayback(currentSlide);
+  const slideAnimationPlaybackIsPlayingRef = useRef(slideAnimationPlayback.isPlaying);
+  slideAnimationPlaybackIsPlayingRef.current = slideAnimationPlayback.isPlaying;
   const canRecord = Boolean(deck) && !["recording", "uploading", "processing"].includes(phase);
   const isLiveSttActive = liveStatus === "starting" || liveStatus === "listening";
   const isReportBusy = ["recording", "uploading", "processing"].includes(phase);
@@ -1304,6 +1325,33 @@ export function RehearsalWorkspace(props: {
       shouldUseLiveSttHotwordBias(biasMode) ? nextBiasContext : null
     );
   }, [currentSlide?.slideId, currentSlideIndex, deck]);
+
+  useEffect(() => {
+    if (slideAnimationPlayback.isPlaying) {
+      return;
+    }
+
+    const pendingAdvance = pendingLiveSlideAdvanceRef.current;
+    const deckSnapshot = deckRef.current;
+    const slideIndex = currentSlideIndexRef.current;
+    if (!pendingAdvance || !deckSnapshot) {
+      return;
+    }
+
+    const currentSlideSnapshot = deckSnapshot.slides[slideIndex];
+    if (currentSlideSnapshot?.slideId !== pendingAdvance.fromSlideId) {
+      pendingLiveSlideAdvanceRef.current = null;
+      return;
+    }
+
+    pendingLiveSlideAdvanceRef.current = null;
+    scheduleAutoAdvance(
+      deckSnapshot,
+      slideIndex,
+      pendingAdvance.coverage,
+      pendingAdvance.reason
+    );
+  }, [slideAnimationPlayback.isPlaying]);
 
   async function startRecording() {
     if (!deck || !canRecord) return;
@@ -1559,6 +1607,7 @@ export function RehearsalWorkspace(props: {
       ? applyLiveTranscriptBias(transcript, biasContext)
       : transcript;
     const analysis = evaluateLiveTranscript(slide, matchingTranscript);
+    const scriptProgress = evaluateLiveScriptProgress(slide, matchingTranscript);
     const confirmedCommand = confirmRehearsalCommandCandidate(
       liveCommandConfirmationRef.current,
       detectRehearsalCommandCandidate(event)
@@ -1569,18 +1618,33 @@ export function RehearsalWorkspace(props: {
         ? liveKeywordStateRef.current.detectedKeywords.map((keyword) => keyword.keywordId)
         : []
     );
-    const newlyDetected = analysis.detectedKeywords.find(
+    const newlyDetectedKeywords = analysis.detectedKeywords.filter(
       (keyword) => !previousDetectedIds.has(keyword.keywordId)
     );
 
-    if (newlyDetected) {
-      setLiveCue({
-        type: "animation-cue",
-        slideId: slide.slideId,
-        keywordId: newlyDetected.keywordId,
-        cue: "emphasis",
-        text: newlyDetected.text
-      });
+    const latestKeywordCue = newlyDetectedKeywords.reduce<LiveSttAnimationCueEvent | null>(
+      (_currentCue, keyword) => {
+        const keywordTriggerResult = slideAnimationPlayback.triggerKeyword(
+          keyword.keywordId
+        );
+
+        return {
+          type: "animation-cue",
+          slideId: slide.slideId,
+          keywordId: keyword.keywordId,
+          cue:
+            keywordTriggerResult.step && keywordTriggerResult.status !== "ignored"
+              ? "animation-trigger"
+              : "emphasis",
+          animationId: keywordTriggerResult.step?.animationId ?? null,
+          text: keyword.text
+        };
+      },
+      null
+    );
+
+    if (latestKeywordCue) {
+      setLiveCue(latestKeywordCue);
     }
 
     if (isEmphasisCommand(confirmedCommand)) {
@@ -1589,43 +1653,54 @@ export function RehearsalWorkspace(props: {
         slideId: slide.slideId,
         keywordId: "command-emphasis",
         cue: "emphasis",
+        animationId: null,
         text: confirmedCommand.phrase
       });
     }
 
     setLiveKeywordState(analysis);
+    setLiveScriptProgress(scriptProgress);
     liveKeywordStateRef.current = analysis;
     setLiveStatus("listening");
 
-    const autoAdvanceOptions = {
-      analysis,
-      currentSlideIndex: slideIndex,
-      slideCount: deckSnapshot.slides.length,
-      keywordCount: slide.keywords.length,
-      alreadyAdvanced: autoAdvancedSlideIdsRef.current.has(slide.slideId)
-    };
     if (
       shouldCompleteLiveSlideAdvance({
         confirmedCommand,
-        ...autoAdvanceOptions
+        currentSlideIndex: slideIndex,
+        slideCount: deckSnapshot.slides.length
       })
     ) {
       cancelPendingAutoAdvance("cancelled");
-      completeLiveSlideAdvance(deckSnapshot, slideIndex, analysis.coverage);
-    } else if (shouldAutoAdvanceLiveSlide(autoAdvanceOptions)) {
-      scheduleAutoAdvance(deckSnapshot, slideIndex, analysis.coverage);
+      completeLiveCommandAdvance(deckSnapshot, slideIndex, scriptProgress.coverage);
+    } else if (
+      shouldAutoAdvanceLiveSlide({
+        analysis: scriptProgress,
+        currentSlideIndex: slideIndex,
+        slideCount: deckSnapshot.slides.length,
+        alreadyAdvanced: autoAdvancedSlideIdsRef.current.has(slide.slideId)
+      })
+    ) {
+      requestLiveSlideAdvance(
+        deckSnapshot,
+        slideIndex,
+        scriptProgress.coverage,
+        "script-progress"
+      );
     }
   }
 
   function resetLiveTranscriptForSlide(slide: Slide | null) {
     const nextBuffer = createLiveTranscriptBuffer();
     const nextKeywordState = slide ? evaluateLiveTranscript(slide, "") : null;
+    const nextScriptProgress = slide ? evaluateLiveScriptProgress(slide, "") : null;
 
     liveTranscriptBufferRef.current = nextBuffer;
     liveKeywordStateRef.current = nextKeywordState;
     liveCommandConfirmationRef.current = createRehearsalCommandConfirmationState();
+    pendingLiveSlideAdvanceRef.current = null;
     setLiveTranscriptBuffer(nextBuffer);
     setLiveKeywordState(nextKeywordState);
+    setLiveScriptProgress(nextScriptProgress);
     setLiveCue(null);
   }
 
@@ -1650,7 +1725,8 @@ export function RehearsalWorkspace(props: {
   function scheduleAutoAdvance(
     deckSnapshot: Deck,
     fromSlideIndex: number,
-    coverage: number
+    coverage: number,
+    reason: LiveSttSlideAdvanceEvent["reason"]
   ) {
     const fromSlide = deckSnapshot.slides[fromSlideIndex];
     const toSlide = deckSnapshot.slides[fromSlideIndex + 1];
@@ -1672,14 +1748,25 @@ export function RehearsalWorkspace(props: {
         return;
       }
 
-      completeLiveSlideAdvance(deckSnapshot, fromSlideIndex, coverage);
+      if (slideAnimationPlaybackIsPlayingRef.current) {
+        pendingLiveSlideAdvanceRef.current = {
+          fromSlideId: fromSlide.slideId,
+          coverage,
+          reason
+        };
+        setAutoAdvanceState("pending");
+        return;
+      }
+
+      completeLiveSlideAdvance(deckSnapshot, fromSlideIndex, coverage, reason);
     }, props.autoAdvanceDelayMs ?? defaultLiveAutoAdvanceDelayMs);
   }
 
   function completeLiveSlideAdvance(
     deckSnapshot: Deck,
     fromSlideIndex: number,
-    coverage: number
+    coverage: number,
+    reason: LiveSttSlideAdvanceEvent["reason"]
   ) {
     const fromSlide = deckSnapshot.slides[fromSlideIndex];
     const toSlide = deckSnapshot.slides[fromSlideIndex + 1];
@@ -1693,16 +1780,65 @@ export function RehearsalWorkspace(props: {
       type: "slide-advance",
       fromSlideId: fromSlide.slideId,
       toSlideId: toSlide.slideId,
-      reason: "keyword-coverage",
+      reason,
       coverage
     });
     setAutoAdvanceState("advanced");
   }
 
+  function requestLiveSlideAdvance(
+    deckSnapshot: Deck,
+    fromSlideIndex: number,
+    coverage: number,
+    reason: LiveSttSlideAdvanceEvent["reason"]
+  ) {
+    const fromSlide = deckSnapshot.slides[fromSlideIndex];
+    if (!fromSlide) {
+      return;
+    }
+
+    if (slideAnimationPlayback.isPlaying) {
+      pendingLiveSlideAdvanceRef.current = {
+        fromSlideId: fromSlide.slideId,
+        coverage,
+        reason
+      };
+      setAutoAdvanceState("pending");
+      return;
+    }
+
+    scheduleAutoAdvance(deckSnapshot, fromSlideIndex, coverage, reason);
+  }
+
+  function completeLiveCommandAdvance(
+    deckSnapshot: Deck,
+    fromSlideIndex: number,
+    coverage: number
+  ) {
+    if (slideAnimationPlayback.advance()) {
+      return;
+    }
+
+    completeLiveSlideAdvance(
+      deckSnapshot,
+      fromSlideIndex,
+      coverage,
+      "voice-command"
+    );
+  }
+
   function cancelPendingAutoAdvance(nextState: "idle" | "cancelled" = "cancelled") {
+    const hadPendingAdvance =
+      autoAdvanceTimerRef.current !== null || pendingLiveSlideAdvanceRef.current !== null;
+
     if (autoAdvanceTimerRef.current) {
       clearTimeout(autoAdvanceTimerRef.current);
       autoAdvanceTimerRef.current = null;
+    }
+
+    pendingLiveSlideAdvanceRef.current = null;
+
+    if (hadPendingAdvance) {
       setAutoAdvanceState(nextState);
     }
   }
@@ -1755,11 +1891,22 @@ export function RehearsalWorkspace(props: {
 
   const goPrevious = () => {
     cancelPendingAutoAdvance("cancelled");
+
+    if (slideAnimationPlayback.isPlaying || slideAnimationPlayback.currentStepIndex > 0) {
+      slideAnimationPlayback.reset();
+      return;
+    }
+
     setCurrentSlideIndex((current) => Math.max(0, current - 1));
   };
   const goNext = () => {
     if (!deck) return;
     cancelPendingAutoAdvance("cancelled");
+
+    if (slideAnimationPlayback.advance()) {
+      return;
+    }
+
     setCurrentSlideIndex((current) => Math.min(deck.slides.length - 1, current + 1));
   };
   const finishRehearsal = () => {
@@ -1782,7 +1929,8 @@ export function RehearsalWorkspace(props: {
   const liveDetectedKeywordIds = new Set(
     liveKeywordState?.detectedKeywords.map((keyword) => keyword.keywordId) ?? []
   );
-  const liveCoveragePercent = Math.round((liveKeywordState?.coverage ?? 0) * 100);
+  const liveKeywordCoveragePercent = Math.round((liveKeywordState?.coverage ?? 0) * 100);
+  const liveScriptProgressPercent = Math.round((liveScriptProgress?.coverage ?? 0) * 100);
   const liveMissingKeywordIds = new Set(liveKeywordState?.missingKeywordIds ?? []);
   const checklistKeywords = getChecklistKeywords(currentSlide);
   const scriptParagraphs = buildScriptParagraphs(currentSlide);
@@ -1913,7 +2061,13 @@ export function RehearsalWorkspace(props: {
         <section className="rehearsal-presenter-main">
           <div className="rehearsal-stage-wrap">
             {currentSlide ? (
-              <DeckSlidePreview deck={deck} slide={currentSlide} />
+              <DeckSlidePreview
+                activePlaybackStep={slideAnimationPlayback.playbackStep}
+                animationRenderState={slideAnimationPlayback.renderState}
+                deck={deck}
+                playbackProgress={slideAnimationPlayback.playbackProgress}
+                slide={currentSlide}
+              />
             ) : (
               <div className="rehearsal-empty-stage">
                 {"\ubc1c\ud45c\uc790\ub8cc \ub85c\ub529 \uc911"}
@@ -2093,7 +2247,12 @@ export function RehearsalWorkspace(props: {
             ) : null}
 
             <div className="rehearsal-live-coverage">
-              <strong>{liveCoveragePercent}%</strong>
+              <strong>{liveScriptProgressPercent}%</strong>
+              <span>script progress</span>
+            </div>
+
+            <div className="rehearsal-live-coverage">
+              <strong>{liveKeywordCoveragePercent}%</strong>
               <span>keyword coverage</span>
             </div>
 
@@ -2119,17 +2278,27 @@ export function RehearsalWorkspace(props: {
             {liveCue && (
               <div className="job-status" aria-live="polite">
                 <div>
-                  <strong>emphasis</strong>
+                  <strong>
+                    {liveCue.cue === "animation-trigger" ? "animation trigger" : "emphasis"}
+                  </strong>
                   <span>{liveCue.text}</span>
                 </div>
-                <p>현재 슬라이드에서 키워드를 감지했습니다.</p>
+                <p>
+                  {liveCue.cue === "animation-trigger"
+                    ? "현재 슬라이드 애니메이션을 실행하거나 대기열에 추가했습니다."
+                    : "현재 슬라이드에서 키워드를 감지했습니다."}
+                </p>
               </div>
             )}
 
             {liveSlideAdvance && (
               <div className="project-status-message project-status-success">
                 <CheckCircle2 size={18} />
-                <span>키워드 {Math.round(liveSlideAdvance.coverage * 100)}% 감지로 자동 전환</span>
+                <span>
+                  {liveSlideAdvance.reason === "script-progress"
+                    ? `대본 진행도 ${Math.round(liveSlideAdvance.coverage * 100)}%로 자동 전환`
+                    : "음성 명령으로 다음 슬라이드로 이동"}
+                </span>
               </div>
             )}
 
@@ -2503,14 +2672,44 @@ export function RehearsalReportPage(props: {
   );
 }
 
-function DeckSlidePreview(props: { deck: Deck | null; slide: Slide }) {
-  const { deck, slide } = props;
+function DeckSlidePreview(props: {
+  activePlaybackStep?: AnimationSequenceStep | null;
+  animationRenderState?: AnimationRenderState | null;
+  deck: Deck | null;
+  playbackProgress?: number | null;
+  slide: Slide;
+}) {
+  const {
+    activePlaybackStep,
+    animationRenderState,
+    deck,
+    playbackProgress,
+    slide
+  } = props;
   const backgroundColor = slide.style.backgroundColor ?? deck?.theme.backgroundColor ?? "#ffffff";
   const textColor = slide.style.textColor ?? deck?.theme.textColor ?? "#15202b";
   const titleText = getSlideTitle(slide);
   const bodyTexts = getSlideBodyTexts(slide);
   const keywords = getChecklistKeywords(slide);
   const thumbnailUrl = resolveEditorAssetUrl(slide.thumbnailUrl);
+
+  if (typeof document !== "undefined" && deck) {
+    return (
+      <div
+        className="rehearsal-slide-preview canvas-preview"
+        style={{ backgroundColor, color: textColor }}
+      >
+        <SlideCanvasRenderer
+          activePlaybackStep={activePlaybackStep}
+          animationRenderState={animationRenderState}
+          className="rehearsal-slide-canvas"
+          deck={deck}
+          playbackProgress={playbackProgress}
+          slide={slide}
+        />
+      </div>
+    );
+  }
 
   if (thumbnailUrl) {
     return (

@@ -6,10 +6,13 @@ export {
   buildAnimationSequence,
   completeAnimationRuntimeState,
   createInitialAnimationRuntimeState,
+  findFirstPendingKeywordAnimationStep,
   getActiveAnimationStep,
+  getNextPendingAnimationStep,
   getAnimationStepKind,
   resetAnimationRuntimeState,
   resolveAnimationRenderState,
+  triggerAnimationRuntimeState,
 } from "./animations/runtime";
 export type {
   ApplyDeckPatchError,
@@ -223,6 +226,10 @@ export function createDemoDeck(): Deck {
             durationMs: 400,
             delayMs: 0,
             easing: "ease-out",
+            trigger: {
+              source: "keyword",
+              keywordId: "kw_1"
+            }
           },
           {
             animationId: "anim_2",
@@ -231,7 +238,11 @@ export function createDemoDeck(): Deck {
             order: 2,
             durationMs: 600,
             delayMs: 120,
-            easing: "ease-in-out"
+            easing: "ease-in-out",
+            trigger: {
+              source: "keyword",
+              keywordId: "kw_2"
+            }
           }
         ],
       },
@@ -372,7 +383,11 @@ export function createDemoDeck(): Deck {
             order: 1,
             durationMs: 500,
             delayMs: 0,
-            easing: "ease-out"
+            easing: "ease-out",
+            trigger: {
+              source: "keyword",
+              keywordId: "kw_3"
+            }
           }
         ]
       }

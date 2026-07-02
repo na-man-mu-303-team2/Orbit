@@ -2015,6 +2015,18 @@ button:disabled {
   padding: 0;
 }
 
+.rehearsal-presenter-shell .rehearsal-slide-preview.canvas-preview {
+  background: #ffffff;
+  grid-template-rows: minmax(0, 1fr);
+  overflow: hidden;
+  padding: 0;
+}
+
+.rehearsal-slide-canvas {
+  height: 100%;
+  width: 100%;
+}
+
 .rehearsal-slide-image {
   display: block;
   height: 100%;

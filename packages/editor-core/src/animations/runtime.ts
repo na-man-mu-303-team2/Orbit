@@ -50,6 +50,7 @@ export function buildAnimationSequence(slide: Slide): AnimationSequence {
         durationMs: animation.durationMs,
         delayMs: animation.delayMs,
         easing: animation.easing,
+        trigger: animation.trigger,
         kind,
         initialVisible: kind === "enter" ? false : targetVisible,
         finalVisible: kind === "exit" ? false : targetVisible,
@@ -92,30 +93,12 @@ export function advanceAnimationRuntimeState(
   sequence: AnimationSequence,
   state: AnimationRuntimeState,
 ): AnimationRuntimeState {
-  if (state.currentStepIndex >= sequence.steps.length) {
-    return {
-      ...state,
-      currentStepIndex: sequence.steps.length,
-      lastTriggeredAnimationId: null,
-      status: "completed",
-    };
+  const nextStep = getNextPendingAnimationStep(sequence, state);
+  if (!nextStep) {
+    return createCompletedRuntimeState(sequence, state.executedAnimationIds);
   }
 
-  const nextStep = sequence.steps[state.currentStepIndex];
-  const nextExecutedAnimationIds = state.executedAnimationIds.includes(
-    nextStep.animationId,
-  )
-    ? state.executedAnimationIds
-    : [...state.executedAnimationIds, nextStep.animationId];
-  const nextStepIndex = state.currentStepIndex + 1;
-
-  return {
-    slideId: state.slideId,
-    currentStepIndex: nextStepIndex,
-    executedAnimationIds: nextExecutedAnimationIds,
-    lastTriggeredAnimationId: nextStep.animationId,
-    status: nextStepIndex >= sequence.steps.length ? "completed" : "pending",
-  };
+  return triggerAnimationRuntimeState(sequence, state, nextStep.animationId);
 }
 
 export function resetAnimationRuntimeState(
@@ -127,13 +110,10 @@ export function resetAnimationRuntimeState(
 export function completeAnimationRuntimeState(
   sequence: AnimationSequence,
 ): AnimationRuntimeState {
-  return {
-    slideId: sequence.slideId,
-    currentStepIndex: sequence.steps.length,
-    executedAnimationIds: sequence.steps.map((step) => step.animationId),
-    lastTriggeredAnimationId: null,
-    status: "completed",
-  };
+  return createCompletedRuntimeState(
+    sequence,
+    sequence.steps.map((step) => step.animationId),
+  );
 }
 
 export function getActiveAnimationStep(
@@ -149,6 +129,68 @@ export function getActiveAnimationStep(
       (step) => step.animationId === state.lastTriggeredAnimationId,
     ) ?? null
   );
+}
+
+export function getNextPendingAnimationStep(
+  sequence: AnimationSequence,
+  state: AnimationRuntimeState,
+): AnimationSequenceStep | null {
+  const nextStepIndex = getNextPendingAnimationStepIndex(sequence, state);
+
+  if (nextStepIndex === null) {
+    return null;
+  }
+
+  return sequence.steps[nextStepIndex] ?? null;
+}
+
+export function findFirstPendingKeywordAnimationStep(
+  sequence: AnimationSequence,
+  state: AnimationRuntimeState,
+  keywordId: string,
+): AnimationSequenceStep | null {
+  const executedAnimationIds = new Set(state.executedAnimationIds);
+
+  return (
+    sequence.steps.find(
+      (step) =>
+        !executedAnimationIds.has(step.animationId) &&
+        step.trigger?.source === "keyword" &&
+        step.trigger.keywordId === keywordId,
+    ) ?? null
+  );
+}
+
+export function triggerAnimationRuntimeState(
+  sequence: AnimationSequence,
+  state: AnimationRuntimeState,
+  animationId: string,
+): AnimationRuntimeState {
+  const stepIndex = sequence.steps.findIndex(
+    (step) => step.animationId === animationId,
+  );
+
+  if (stepIndex < 0 || state.executedAnimationIds.includes(animationId)) {
+    return state;
+  }
+
+  const step = sequence.steps[stepIndex];
+  const nextExecutedAnimationIds = [
+    ...state.executedAnimationIds,
+    step.animationId,
+  ];
+  const nextStepIndex = getNextPendingAnimationStepIndex(sequence, {
+    ...state,
+    executedAnimationIds: nextExecutedAnimationIds,
+  });
+
+  return {
+    slideId: state.slideId,
+    currentStepIndex: nextStepIndex ?? sequence.steps.length,
+    executedAnimationIds: nextExecutedAnimationIds,
+    lastTriggeredAnimationId: step.animationId,
+    status: nextStepIndex === null ? "completed" : "pending",
+  };
 }
 
 export function resolveAnimationRenderState(
@@ -225,4 +267,32 @@ function createInitialResolvedElementState(
   }
 
   return resolvedElementState;
+}
+
+function getNextPendingAnimationStepIndex(
+  sequence: AnimationSequence,
+  state: Pick<AnimationRuntimeState, "executedAnimationIds">,
+) {
+  const executedAnimationIds = new Set(state.executedAnimationIds);
+
+  for (const [index, step] of sequence.steps.entries()) {
+    if (!executedAnimationIds.has(step.animationId)) {
+      return index;
+    }
+  }
+
+  return null;
+}
+
+function createCompletedRuntimeState(
+  sequence: AnimationSequence,
+  executedAnimationIds: string[],
+): AnimationRuntimeState {
+  return {
+    slideId: sequence.slideId,
+    currentStepIndex: sequence.steps.length,
+    executedAnimationIds,
+    lastTriggeredAnimationId: null,
+    status: "completed",
+  };
 }

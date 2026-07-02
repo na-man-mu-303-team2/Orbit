@@ -1,5 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import type { Job, Project } from "@orbit/shared";
+import type { ReactNode } from "react";
+import { forwardRef } from "react";
 import { describe, expect, it, vi } from "vitest";
 import {
   buildGenerateDeckPayload,
@@ -15,6 +17,40 @@ import {
   pollExtractJob,
   shouldRenderAppFrame
 } from "./App";
+
+vi.mock("react-konva", () => {
+  const Group = forwardRef<HTMLDivElement, { children?: ReactNode }>(
+    ({ children }, _ref) => <div>{children}</div>
+  );
+  const Layer = forwardRef<HTMLDivElement, { children?: ReactNode }>(
+    ({ children }, _ref) => <div>{children}</div>
+  );
+  const Stage = forwardRef<HTMLDivElement, { children?: ReactNode }>(
+    ({ children }, _ref) => <div>{children}</div>
+  );
+  const Text = ({
+    children,
+    text
+  }: {
+    children?: ReactNode;
+    text?: string;
+  }) => <span>{text ?? children}</span>;
+
+  return {
+    Arrow: () => <span data-konva-arrow="true" />,
+    Circle: () => <span data-konva-circle="true" />,
+    Group,
+    Image: () => <span data-konva-image="true" />,
+    Layer,
+    Line: () => <span data-konva-line="true" />,
+    Rect: () => <span data-konva-rect="true" />,
+    RegularPolygon: () => <span data-konva-polygon="true" />,
+    Shape: () => <span data-konva-shape="true" />,
+    Stage,
+    Star: () => <span data-konva-star="true" />,
+    Text
+  };
+});
 
 describe("App shell routing", () => {
   it("keeps the login page outside the shared navigation shell", () => {
