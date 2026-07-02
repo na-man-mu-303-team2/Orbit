@@ -82,11 +82,12 @@ export function computeSettledElementStates(args: {
     slide: args.slide,
     triggerAnimationIds: args.triggerAnimationIds
   });
-  const states = createBaseElementStates(args.deck, args.slide);
+  const baseStates = createBaseElementStates(args.deck, args.slide);
+  const states = cloneElementStates(baseStates);
 
   // 복원 경로에서는 진입 자동 재생을 이미 끝난 상태로 취급해 창 재열기 때 반복 재생을 막는다.
   for (const animation of plan.entryAnimations) {
-    applySettledAnimation(states, animation);
+    applySettledAnimation(states, animation, baseStates[animation.elementId]);
   }
 
   plan.triggerSteps.forEach((step, stepIndex) => {
@@ -95,7 +96,7 @@ export function computeSettledElementStates(args: {
     }
 
     for (const animation of step.animations) {
-      applySettledAnimation(states, animation);
+      applySettledAnimation(states, animation, baseStates[animation.elementId]);
     }
   });
 
@@ -110,7 +111,7 @@ export function clampSlideshowStepIndex(stepIndex: number, maxStepIndex: number)
   return Math.min(Math.max(0, Math.trunc(stepIndex)), Math.max(0, maxStepIndex));
 }
 
-function createBaseElementStates(deck: Deck, slide: Slide) {
+export function createBaseElementStates(deck: Deck, slide: Slide) {
   const states: Record<string, ElementPresentationState> = {};
 
   for (const element of slide.elements) {
@@ -137,7 +138,8 @@ function createBaseElementState(element: DeckElement): ElementPresentationState 
 
 function applySettledAnimation(
   states: Record<string, ElementPresentationState>,
-  animation: DeckAnimation
+  animation: DeckAnimation,
+  baseState: ElementPresentationState | undefined
 ) {
   const state = states[animation.elementId];
 
@@ -150,7 +152,7 @@ function applySettledAnimation(
     case "fade-in":
     case "zoom-in":
       state.visible = true;
-      state.opacity = state.opacity ?? 1;
+      state.opacity = baseState?.opacity ?? 1;
       state.scaleX = 1;
       state.scaleY = 1;
       break;
@@ -166,9 +168,15 @@ function applySettledAnimation(
       state.scaleY = 0;
       break;
     case "rotate":
-      state.rotation = state.rotation ?? 0;
+      state.rotation = baseState?.rotation ?? 0;
       break;
   }
+}
+
+function cloneElementStates(states: Record<string, ElementPresentationState>) {
+  return Object.fromEntries(
+    Object.entries(states).map(([elementId, state]) => [elementId, { ...state }])
+  );
 }
 
 function compareEntryAnimations(

@@ -1,3 +1,5 @@
+import fs from "node:fs";
+import path from "node:path";
 import type { DeckAnimation } from "@orbit/shared";
 import { describe, expect, it } from "vitest";
 import {
@@ -32,11 +34,19 @@ describe("useSlideshowTransitions helpers", () => {
           visible: false
         }
       },
-      [fadeOutAnimation]
+      [fadeOutAnimation],
+      {
+        el_target: {
+          opacity: 0.55,
+          scaleX: 1,
+          scaleY: 1,
+          visible: true
+        }
+      }
     );
 
     expect(startStates.el_target).toMatchObject({
-      opacity: 1,
+      opacity: 0.55,
       scaleX: 1,
       scaleY: 1,
       visible: true
@@ -194,5 +204,35 @@ describe("useSlideshowTransitions helpers", () => {
       150
     ]);
     expect(getSlideshowTransitionDurationMs(timeline)).toBe(300);
+  });
+
+  it("uses settled state on the first reduced-motion render", () => {
+    const source = fs.readFileSync(
+      path.join(
+        process.cwd(),
+        "src/features/rehearsal/presenter/useSlideshowTransitions.ts"
+      ),
+      "utf8"
+    );
+    const initialStateStart = source.indexOf("const [displayStates, setDisplayStates]");
+    const initialStateEnd = source.indexOf("const previousAddressRef");
+    const initialStateBlock = source.slice(initialStateStart, initialStateEnd);
+
+    expect(initialStateBlock).toContain("!args.reducedMotion");
+  });
+
+  it("does not replay entry transitions when restoring a later slide step", () => {
+    const source = fs.readFileSync(
+      path.join(
+        process.cwd(),
+        "src/features/rehearsal/presenter/useSlideshowTransitions.ts"
+      ),
+      "utf8"
+    );
+    const effectStart = source.indexOf("useEffect(() =>");
+    const effectEnd = source.indexOf("const startStates =");
+    const transitionSelectionBlock = source.slice(effectStart, effectEnd);
+
+    expect(transitionSelectionBlock).toContain("isSlideChange && args.stepIndex === 0");
   });
 });

@@ -107,6 +107,43 @@ describe("slideshowStepModel", () => {
     expect(states.el_group_label).toMatchObject({ visible: false, opacity: 0 });
   });
 
+  it("restores base opacity when an element re-enters after an exit step", () => {
+    const slideWithReentry = {
+      ...slide,
+      animations: [
+        {
+          animationId: "anim_highlight_exit",
+          elementId: "el_highlight",
+          type: "fade-out",
+          order: 1,
+          durationMs: 300,
+          delayMs: 0,
+          easing: "ease-out"
+        },
+        {
+          animationId: "anim_highlight_reentry",
+          elementId: "el_highlight",
+          type: "fade-in",
+          order: 2,
+          durationMs: 300,
+          delayMs: 0,
+          easing: "ease-out"
+        }
+      ]
+    } satisfies typeof slide;
+    const states = computeSettledElementStates({
+      deck: p0AnimationDeck,
+      slide: slideWithReentry,
+      stepIndex: 2,
+      triggerAnimationIds: ["anim_highlight_exit", "anim_highlight_reentry"]
+    });
+
+    expect(states.el_highlight).toMatchObject({
+      visible: true,
+      opacity: 0.55
+    });
+  });
+
   it("clamps step indexes at command boundaries", () => {
     expect(clampSlideshowStepIndex(-3, 2)).toBe(0);
     expect(clampSlideshowStepIndex(1.8, 2)).toBe(1);

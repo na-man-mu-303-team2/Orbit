@@ -124,7 +124,29 @@ describe("RehearsalWorkspace", () => {
     expect(handleNextPresenterStepBody).toContain(
       "currentSlideIndexRef.current >= deck.slides.length - 1"
     );
-    expect(handleNextPresenterStepBody.indexOf("return currentStep")).toBeLessThan(
+    expect(
+      handleNextPresenterStepBody.indexOf(
+        "if (currentSlideIndexRef.current >= deck.slides.length - 1)"
+      )
+    ).toBeLessThan(
+      handleNextPresenterStepBody.indexOf("setCurrentSlideIndex")
+    );
+    expect(handleNextPresenterStepBody.indexOf("return;")).toBeLessThan(
+      handleNextPresenterStepBody.indexOf("setCurrentSlideIndex")
+    );
+  });
+
+  it("moves slides outside of the presenter step state updater", () => {
+    const source = fs.readFileSync(
+      path.join(process.cwd(), "src/features/rehearsal/RehearsalWorkspace.tsx"),
+      "utf8"
+    );
+    const start = source.indexOf("const handleNextPresenterStep");
+    const end = source.indexOf("const finishRehearsal");
+    const handleNextPresenterStepBody = source.slice(start, end);
+
+    expect(handleNextPresenterStepBody).not.toContain("setPresenterStepIndex((currentStep)");
+    expect(handleNextPresenterStepBody.indexOf("setPresenterStepIndex(0)")).toBeLessThan(
       handleNextPresenterStepBody.indexOf("setCurrentSlideIndex")
     );
   });

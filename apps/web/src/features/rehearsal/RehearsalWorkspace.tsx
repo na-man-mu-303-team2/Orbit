@@ -1790,18 +1790,19 @@ export function RehearsalWorkspace(props: {
     if (!deck || !slideshowAnimationPlan) return;
     cancelPendingAutoAdvance("cancelled");
 
-    setPresenterStepIndex((currentStep) => {
-      if (currentStep < slideshowAnimationPlan.maxStepIndex) {
-        return currentStep + 1;
-      }
+    if (presenterStepIndex < slideshowAnimationPlan.maxStepIndex) {
+      setPresenterStepIndex(
+        Math.min(presenterStepIndex + 1, slideshowAnimationPlan.maxStepIndex)
+      );
+      return;
+    }
 
-      if (currentSlideIndexRef.current >= deck.slides.length - 1) {
-        return currentStep;
-      }
+    if (currentSlideIndexRef.current >= deck.slides.length - 1) {
+      return;
+    }
 
-      setCurrentSlideIndex((current) => Math.min(deck.slides.length - 1, current + 1));
-      return 0;
-    });
+    setPresenterStepIndex(0);
+    setCurrentSlideIndex((current) => Math.min(deck.slides.length - 1, current + 1));
   };
   const finishRehearsal = () => {
     const projectId = deck?.projectId ?? props.projectId ?? demoIds.projectId;
