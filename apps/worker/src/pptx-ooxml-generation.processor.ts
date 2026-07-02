@@ -4,13 +4,11 @@ import {
   qualityReportSchema,
   templateBlueprintSchema,
   templateBlueprintIdSchema,
-  templateBlueprintSlotSchema,
   type Deck,
   type DeckCanvas,
   type Job,
   type QualityReport,
   type TemplateBlueprint,
-  type TemplateBlueprintSlot
 } from "@orbit/shared";
 import type { StoragePort } from "@orbit/storage";
 import { randomUUID } from "crypto";
@@ -23,38 +21,23 @@ const pptxOoxmlGenerationPayloadSchema = z.object({
   request: z.object({
     fileId: z.string().min(1),
     topic: z.string().trim().optional(),
-    prompt: z.string().trim().optional()
-  })
+    prompt: z.string().trim().optional(),
+  }),
 });
 
 const generatedDesignAssetSchema = z.object({
   assetId: z.string().min(1),
   fileName: z.string().min(1),
   mimeType: z.string().min(1),
-  contentBase64: z.string().min(1)
+  contentBase64: z.string().min(1),
 });
 
 const pptxOoxmlGenerationWorkerResponseSchema = z.object({
   canvas: deckCanvasSchema,
-  templateBlueprint: templateBlueprintSchema
-    .extend({
-      sourcePackageFileId: z.string().min(1).optional(),
-      currentPackageFileId: z.string().min(1).optional(),
-      slides: z
-        .array(
-          z.object({
-            slideIndex: z.number().int().positive(),
-            sourceSlideIndex: z.number().int().positive(),
-            renderAssetFileId: z.string().min(1).optional(),
-            slots: z.array(templateBlueprintSlotSchema).default([])
-          })
-        )
-        .min(1)
-    })
-    .passthrough(),
+  templateBlueprint: templateBlueprintSchema.passthrough(),
   qualityReport: qualityReportSchema,
   assets: z.array(generatedDesignAssetSchema).default([]),
-  warnings: z.array(z.string()).default([])
+  warnings: z.array(z.string()).default([]),
 });
 
 const pptxOoxmlGenerationJobResultSchema = z.object({
@@ -63,7 +46,7 @@ const pptxOoxmlGenerationJobResultSchema = z.object({
   sourceFileId: z.string().min(1),
   currentPackageFileId: z.string().min(1),
   qualityReport: qualityReportSchema,
-  warnings: z.array(z.string()).default([])
+  warnings: z.array(z.string()).default([]),
 });
 
 type PptxOoxmlGenerationWorkerResponse = z.infer<
@@ -111,7 +94,7 @@ export async function processPptxOoxmlGenerationJob(
   dataSource: DataSource,
   storage: Pick<StoragePort, "getSignedReadUrl" | "putObject">,
   pythonWorkerUrl: string,
-  rawPayload: unknown
+  rawPayload: unknown,
 ): Promise<Job> {
   const payloadResult = pptxOoxmlGenerationPayloadSchema.safeParse(rawPayload);
   if (!payloadResult.success) {
@@ -132,7 +115,7 @@ export async function processPptxOoxmlGenerationJob(
       jobId,
       0,
       "PPTX_OOXML_GENERATION_PAYLOAD_INVALID",
-      payloadResult.error.message
+      payloadResult.error.message,
     );
   }
 
@@ -142,7 +125,7 @@ export async function processPptxOoxmlGenerationJob(
     progress: 10,
     message: "PPTX OOXML generation running.",
     result: null,
-    error: null
+    error: null,
   });
 
   let asset: ProjectAssetRow;
@@ -151,14 +134,14 @@ export async function processPptxOoxmlGenerationJob(
     asset = await loadPptxAsset(
       dataSource,
       payload.projectId,
-      payload.request.fileId
+      payload.request.fileId,
     );
     generated = await generatePptxOoxmlWithPython(
       storage,
       pythonWorkerUrl,
       payload.projectId,
       asset,
-      payload.request
+      payload.request,
     );
   } catch (error) {
     return failJob(
@@ -166,7 +149,7 @@ export async function processPptxOoxmlGenerationJob(
       payload.jobId,
       10,
       "PPTX_OOXML_GENERATION_SOURCE_FAILED",
-      error instanceof Error ? error.message : "PPTX OOXML generation failed."
+      error instanceof Error ? error.message : "PPTX OOXML generation failed.",
     );
   }
 
@@ -175,17 +158,18 @@ export async function processPptxOoxmlGenerationJob(
       dataSource,
       storage,
       payload.projectId,
-      generated
+      generated,
     );
-    const templateBlueprint = pptxOoxmlGenerationWorkerResponseSchema.shape.templateBlueprint.parse(
-      replaceAssetRefs(generated.templateBlueprint, assetRefs.fileIds)
-    );
+    const templateBlueprint =
+      pptxOoxmlGenerationWorkerResponseSchema.shape.templateBlueprint.parse(
+        replaceAssetRefs(generated.templateBlueprint, assetRefs.fileIds),
+      );
     const deck = buildOoxmlDeck(
       payload.projectId,
       asset,
       generated.canvas,
       templateBlueprint,
-      assetRefs.urls
+      assetRefs.urls,
     );
 
     await saveDeck(dataSource, deck);
@@ -194,7 +178,7 @@ export async function processPptxOoxmlGenerationJob(
       payload.projectId,
       deck.deckId,
       templateBlueprint,
-      generated.qualityReport
+      generated.qualityReport,
     );
 
     const result = pptxOoxmlGenerationJobResultSchema.parse({
@@ -203,7 +187,7 @@ export async function processPptxOoxmlGenerationJob(
       sourceFileId: payload.request.fileId,
       currentPackageFileId: templateBlueprint.currentPackageFileId,
       qualityReport: generated.qualityReport,
-      warnings: generated.warnings
+      warnings: generated.warnings,
     });
 
     return updateJob(dataSource, payload.jobId, {
@@ -211,7 +195,7 @@ export async function processPptxOoxmlGenerationJob(
       progress: 100,
       message: "PPTX OOXML generation completed.",
       result,
-      error: null
+      error: null,
     });
   } catch (error) {
     return failJob(
@@ -219,7 +203,9 @@ export async function processPptxOoxmlGenerationJob(
       payload.jobId,
       75,
       "PPTX_OOXML_GENERATION_SAVE_FAILED",
-      error instanceof Error ? error.message : "PPTX OOXML generation save failed."
+      error instanceof Error
+        ? error.message
+        : "PPTX OOXML generation save failed.",
     );
   }
 }
@@ -227,7 +213,7 @@ export async function processPptxOoxmlGenerationJob(
 async function loadPptxAsset(
   dataSource: DataSource,
   projectId: string,
-  fileId: string
+  fileId: string,
 ): Promise<ProjectAssetRow> {
   const rows = readQueryRows<ProjectAssetRow>(
     await dataSource.query(
@@ -236,8 +222,8 @@ async function loadPptxAsset(
         FROM project_assets
         WHERE file_id = $1
       `,
-      [fileId]
-    )
+      [fileId],
+    ),
   );
   const asset = rows[0];
 
@@ -265,7 +251,7 @@ async function generatePptxOoxmlWithPython(
   pythonWorkerUrl: string,
   projectId: string,
   asset: ProjectAssetRow,
-  request: PptxOoxmlGenerationRequest
+  request: PptxOoxmlGenerationRequest,
 ): Promise<PptxOoxmlGenerationWorkerResponse> {
   const readUrl = await storage.getSignedReadUrl(asset.storage_key);
   const sourceResponse = await fetch(readUrl);
@@ -281,9 +267,9 @@ async function generatePptxOoxmlWithPython(
   form.append(
     "file",
     new Blob([Buffer.from(await sourceResponse.arrayBuffer())], {
-      type: asset.mime_type
+      type: asset.mime_type,
     }),
-    asset.original_name
+    asset.original_name,
   );
 
   const response = await fetch(
@@ -291,13 +277,13 @@ async function generatePptxOoxmlWithPython(
     {
       method: "POST",
       body: form,
-      signal: AbortSignal.timeout(180_000)
-    }
+      signal: AbortSignal.timeout(180_000),
+    },
   );
 
   if (!response.ok) {
     throw new Error(
-      (await response.text()) || "Python worker PPTX OOXML generation failed."
+      (await response.text()) || "Python worker PPTX OOXML generation failed.",
     );
   }
 
@@ -308,11 +294,11 @@ async function saveGeneratedDesignAssets(
   dataSource: DataSource,
   storage: Pick<StoragePort, "putObject">,
   projectId: string,
-  generated: PptxOoxmlGenerationWorkerResponse
+  generated: PptxOoxmlGenerationWorkerResponse,
 ): Promise<SavedAssetRefs> {
   const refs: SavedAssetRefs = {
     fileIds: new Map(),
-    urls: new Map()
+    urls: new Map(),
   };
 
   for (const asset of generated.assets) {
@@ -326,7 +312,7 @@ async function saveGeneratedDesignAssets(
       key: storageKey,
       body,
       contentType: asset.mimeType,
-      purpose: "design-asset"
+      purpose: "design-asset",
     });
     await dataSource.query(
       `
@@ -343,8 +329,8 @@ async function saveGeneratedDesignAssets(
         originalName,
         asset.mimeType,
         body.byteLength,
-        url
-      ]
+        url,
+      ],
     );
 
     refs.fileIds.set(`asset:${asset.assetId}`, fileId);
@@ -359,7 +345,7 @@ function buildOoxmlDeck(
   asset: ProjectAssetRow,
   canvas: DeckCanvas,
   templateBlueprint: OoxmlTemplateBlueprint,
-  assetUrls: Map<string, string>
+  assetUrls: Map<string, string>,
 ): Deck {
   const title = titleFromFileName(asset.original_name);
 
@@ -371,7 +357,7 @@ function buildOoxmlDeck(
     metadata: {
       language: "ko",
       locale: "ko-KR",
-      sourceType: "import"
+      sourceType: "import",
     },
     canvas,
     theme: {
@@ -385,7 +371,7 @@ function buildOoxmlDeck(
         secondary: "#7c3aed",
         surface: "#ffffff",
         muted: "#f3f4f6",
-        border: "#d1d5db"
+        border: "#d1d5db",
       },
       typography: {
         headingFontFamily: "Inter",
@@ -393,9 +379,9 @@ function buildOoxmlDeck(
         titleSize: 56,
         headingSize: 36,
         bodySize: 24,
-        captionSize: 16
+        captionSize: 16,
       },
-      effects: { borderRadius: 8 }
+      effects: { borderRadius: 8 },
     },
     slides: templateBlueprint.slides.map((slide, index) => {
       const renderAssetRef = `asset:slide_render_${slide.sourceSlideIndex}`;
@@ -415,23 +401,25 @@ function buildOoxmlDeck(
           fullSlideImageElement(slide.sourceSlideIndex, canvas, renderUrl),
           ...slide.slots
             .filter(isReplaceableSlot)
-            .map((slot, slotIndex) => slotOverlayElement(slot, 1000 + slotIndex))
+            .map((slot, slotIndex) =>
+              slotOverlayElement(slot, 1000 + slotIndex),
+            ),
         ],
         keywords: [],
         animations: [],
         aiNotes: {
           emphasisPoints: [],
-          sourceEvidence: []
-        }
+          sourceEvidence: [],
+        },
       };
-    })
+    }),
   });
 }
 
 function fullSlideImageElement(
   slideIndex: number,
   canvas: DeckCanvas,
-  src: string
+  src: string,
 ) {
   return {
     elementId: `el_ooxml_${slideIndex}_render`,
@@ -451,12 +439,15 @@ function fullSlideImageElement(
       alt: `Slide ${slideIndex}`,
       fit: "stretch",
       focusX: 0.5,
-      focusY: 0.5
-    }
+      focusY: 0.5,
+    },
   };
 }
 
-function slotOverlayElement(slot: TemplateBlueprintSlot, zIndex: number) {
+function slotOverlayElement(
+  slot: OoxmlTemplateBlueprint["slides"][number]["slots"][number],
+  zIndex: number,
+) {
   return {
     elementId: slot.elementId,
     type: "rect",
@@ -474,19 +465,23 @@ function slotOverlayElement(slot: TemplateBlueprintSlot, zIndex: number) {
       fill: "transparent",
       stroke: "transparent",
       strokeWidth: 0,
-      borderRadius: 0
-    }
+      borderRadius: 0,
+    },
   };
 }
 
-function isReplaceableSlot(slot: TemplateBlueprintSlot) {
+function isReplaceableSlot(
+  slot: OoxmlTemplateBlueprint["slides"][number]["slots"][number],
+) {
   return (
     (slot.usage === "content-slot" || slot.usage === "media-slot") &&
     slot.replaceMode === "replace"
   );
 }
 
-function deckRoleForSlot(slot: TemplateBlueprintSlot) {
+function deckRoleForSlot(
+  slot: OoxmlTemplateBlueprint["slides"][number]["slots"][number],
+) {
   if (["title", "subtitle", "body", "caption"].includes(slot.slotRole)) {
     return slot.slotRole;
   }
@@ -508,7 +503,7 @@ async function saveDeck(dataSource: DataSource, deck: Deck): Promise<void> {
         version = EXCLUDED.version,
         updated_at = EXCLUDED.updated_at
     `,
-    [deck.projectId, deck.deckId, deck, deck.version]
+    [deck.projectId, deck.deckId, deck, deck.version],
   );
 }
 
@@ -517,7 +512,7 @@ async function saveTemplateBlueprint(
   projectId: string,
   deckId: string,
   templateBlueprint: TemplateBlueprint,
-  qualityReport: QualityReport
+  qualityReport: QualityReport,
 ): Promise<void> {
   await dataSource.query(
     `
@@ -541,8 +536,8 @@ async function saveTemplateBlueprint(
       deckId,
       templateBlueprint.sourceFileId,
       templateBlueprint,
-      qualityReport
-    ]
+      qualityReport,
+    ],
   );
 }
 
@@ -559,8 +554,8 @@ function replaceAssetRefs(value: unknown, refs: Map<string, string>): unknown {
     return Object.fromEntries(
       Object.entries(value).map(([key, item]) => [
         key,
-        replaceAssetRefs(item, refs)
-      ])
+        replaceAssetRefs(item, refs),
+      ]),
     );
   }
 
@@ -572,14 +567,14 @@ async function failJob(
   jobId: string,
   progress: number,
   code: string,
-  message: string
+  message: string,
 ): Promise<Job> {
   return updateJob(dataSource, jobId, {
     status: "failed",
     progress,
     message: "PPTX OOXML generation failed.",
     result: null,
-    error: { code, message }
+    error: { code, message },
   });
 }
 
@@ -592,7 +587,7 @@ async function updateJob(
     message: string;
     result: Record<string, unknown> | null;
     error: { code: string; message: string } | null;
-  }
+  },
 ): Promise<Job> {
   const rows = await dataSource.query(
     `
@@ -606,7 +601,14 @@ async function updateJob(
       WHERE job_id = $1
       RETURNING *
     `,
-    [jobId, patch.status, patch.progress, patch.message, patch.result, patch.error]
+    [
+      jobId,
+      patch.status,
+      patch.progress,
+      patch.message,
+      patch.result,
+      patch.error,
+    ],
   );
 
   const row = readFirstQueryRow<JobRow>(rows);
@@ -650,7 +652,7 @@ function rowToJob(row: JobRow): Job {
     result: row.result,
     error: row.error,
     createdAt: toIso(row.created_at),
-    updatedAt: toIso(row.updated_at)
+    updatedAt: toIso(row.updated_at),
   };
 }
 
@@ -666,13 +668,13 @@ function toIso(value: Date | string): string {
 function workerUrl(baseUrl: string, path: string): string {
   return new URL(
     path,
-    baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`
+    baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`,
   ).toString();
 }
 
 function createAssetContentUrl(projectId: string, fileId: string): string {
   return `/api/v1/projects/${encodeURIComponent(projectId)}/assets/${encodeURIComponent(
-    fileId
+    fileId,
   )}/content`;
 }
 

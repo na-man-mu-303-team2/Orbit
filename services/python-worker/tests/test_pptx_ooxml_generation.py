@@ -16,6 +16,7 @@ from app.ai.pptx_ooxml_generation import (
     insert_media_slot_image,
     render_pptx_to_png_assets,
     replace_content_slot_text,
+    sync_pptx_ooxml,
 )
 
 
@@ -23,7 +24,9 @@ def test_no_ai_generation_preserves_package_entries(tmp_path: Path) -> None:
     pptx_path = sample_pptx(tmp_path)
 
     result = generate_pptx_ooxml(pptx_path, "file_template", render=False)
-    package_asset = next(asset for asset in result.assets if asset.asset_id == "current_package")
+    package_asset = next(
+        asset for asset in result.assets if asset.asset_id == "current_package"
+    )
     package_bytes = base64.b64decode(package_asset.content_base64)
 
     assert package_bytes == pptx_path.read_bytes()
@@ -43,8 +46,7 @@ def test_extracts_slots_and_replaces_content_slot_text(tmp_path: Path) -> None:
         for slot in slots
     )
     assert all(
-        slot["source"].get("slidePart") == "ppt/slides/slide1.xml"
-        for slot in slots
+        slot["source"].get("slidePart") == "ppt/slides/slide1.xml" for slot in slots
     )
 
     replaced = replace_content_slot_text(
@@ -80,6 +82,55 @@ def test_inserts_media_slot_image_relationship(tmp_path: Path) -> None:
 
     assert inserted.relationship_id.encode() in rels
     assert inserted.relationship_id.encode() in slide
+
+
+def test_sync_pptx_ooxml_applies_text_and_frame_patch(tmp_path: Path) -> None:
+    pptx_path = sample_pptx(tmp_path)
+    generated = generate_pptx_ooxml(pptx_path, "file_template", render=False)
+    title_slot = next(
+        slot
+        for slot in generated.template_blueprint["slides"][0]["slots"]
+        if slot["usage"] == "content-slot"
+    )
+
+    result = sync_pptx_ooxml(
+        pptx_path,
+        template_blueprint=generated.template_blueprint,
+        deck_canvas={
+            "preset": "wide-16-9",
+            "width": 1920,
+            "height": 1080,
+            "aspectRatio": "16:9",
+        },
+        synced_deck_version=2,
+        render=False,
+        operations=[
+            {
+                "type": "update_element_props",
+                "slideId": "slide_import_file_template_1",
+                "elementId": title_slot["elementId"],
+                "props": {"text": "Synced Title"},
+            },
+            {
+                "type": "update_element_frame",
+                "slideId": "slide_import_file_template_1",
+                "elementId": title_slot["elementId"],
+                "frame": {"x": 96, "y": 48, "width": 640, "height": 120},
+            },
+        ],
+    )
+    package_asset = next(
+        asset for asset in result.assets if asset.asset_id == "current_package"
+    )
+    package_bytes = base64.b64decode(package_asset.content_base64)
+
+    with zipfile.ZipFile(BytesIO(package_bytes), "r") as package:
+        slide_xml = package.read("ppt/slides/slide1.xml")
+
+    assert b"Synced Title" in slide_xml
+    assert b"Placeholder Title" not in slide_xml
+    assert b'x="609600"' in slide_xml
+    assert b'cx="4064000"' in slide_xml
 
 
 def test_renders_slide_pngs_when_libreoffice_is_available(tmp_path: Path) -> None:
@@ -118,7 +169,9 @@ def sample_pptx(tmp_path: Path) -> Path:
     slide = presentation.slides.add_slide(presentation.slide_layouts[0])
     slide.shapes.title.text_frame.text = "Placeholder Title"
     slide.placeholders[1].text_frame.text = "Placeholder Subtitle"
-    slide.shapes.add_picture(str(image_path), Inches(7), Inches(2), Inches(2), Inches(2))
+    slide.shapes.add_picture(
+        str(image_path), Inches(7), Inches(2), Inches(2), Inches(2)
+    )
     presentation.save(pptx_path)
     return pptx_path
 

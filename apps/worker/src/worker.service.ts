@@ -1,10 +1,12 @@
 import {
   generateDeckQueueName,
   pptxImportQueueName,
+  pptxOoxmlGenerationQueueName,
+  pptxOoxmlSyncQueueName,
   redisConnectionOptions,
   referenceExtractQueueName,
   rehearsalSttQueueName,
-  workerHealthCheckQueueName
+  workerHealthCheckQueueName,
 } from "@orbit/job-queue";
 import { loadOrbitConfig } from "@orbit/config";
 import type { Job as OrbitJob } from "@orbit/shared";
@@ -16,13 +18,12 @@ import type { DataSource } from "typeorm";
 import { processGenerateDeckJob } from "./generate-deck.processor";
 import { serializeLogError } from "./logging";
 import { processPptxOoxmlGenerationJob } from "./pptx-ooxml-generation.processor";
+import { processPptxOoxmlSyncJob } from "./pptx-ooxml-sync.processor";
 import { processPptxImportJob } from "./pptx-import.processor";
 import { processReferenceExtractJob } from "./reference-extract.processor";
 import { processRehearsalSttJob } from "./rehearsal-stt.processor";
 import { workerStorage } from "./storage";
 import { processWorkerHealthCheckJob } from "./worker-health-check.processor";
-
-const pptxOoxmlGenerationQueueName = "pptx-ooxml-generation";
 
 @Injectable()
 export class WorkerService implements OnModuleInit, OnModuleDestroy {
@@ -32,15 +33,16 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
     rehearsalSttQueueName,
     generateDeckQueueName,
     pptxOoxmlGenerationQueueName,
+    pptxOoxmlSyncQueueName,
     pptxImportQueueName,
-    workerHealthCheckQueueName
+    workerHealthCheckQueueName,
   ];
   private workers: BullMqWorker[] = [];
 
   constructor(
     @InjectDataSource() private readonly dataSource: DataSource,
     @InjectPinoLogger(WorkerService.name)
-    private readonly logger: PinoLogger
+    private readonly logger: PinoLogger,
   ) {}
 
   onModuleInit() {
@@ -48,9 +50,9 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
       {
         event: "worker.ready",
         driver: this.config.JOB_QUEUE_DRIVER,
-        queueNames: this.queueNames
+        queueNames: this.queueNames,
       },
-      "Worker ready."
+      "Worker ready.",
     );
     if (this.config.JOB_QUEUE_DRIVER === "sqs") {
       throw new Error("SqsJobQueue adapter is not implemented yet.");
@@ -62,48 +64,56 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
         processReferenceExtractJob(
           this.dataSource,
           this.config.PYTHON_WORKER_URL,
-          job.data
-        )
+          job.data,
+        ),
       ),
       this.createWorker(rehearsalSttQueueName, (job) =>
         processRehearsalSttJob(
           this.dataSource,
           storage,
           this.config.PYTHON_WORKER_URL,
-          job.data
-        )
+          job.data,
+        ),
       ),
       this.createWorker(generateDeckQueueName, (job) =>
         processGenerateDeckJob(
           this.dataSource,
           storage,
           this.config.PYTHON_WORKER_URL,
-          job.data
-        )
+          job.data,
+        ),
       ),
       this.createWorker(pptxOoxmlGenerationQueueName, (job) =>
         processPptxOoxmlGenerationJob(
           this.dataSource,
           storage,
           this.config.PYTHON_WORKER_URL,
-          job.data
-        )
+          job.data,
+        ),
+      ),
+      this.createWorker(pptxOoxmlSyncQueueName, (job) =>
+        processPptxOoxmlSyncJob(
+          this.dataSource,
+          storage,
+          this.config.PYTHON_WORKER_URL,
+          job.data,
+        ),
       ),
       this.createWorker(pptxImportQueueName, (job) =>
         processPptxImportJob(
           this.dataSource,
           storage,
           this.config.PYTHON_WORKER_URL,
-          job.data
-        )
+          job.data,
+        ),
       ),
       this.createWorker(workerHealthCheckQueueName, (job) =>
         processWorkerHealthCheckJob(
           this.dataSource,
           this.config.PYTHON_WORKER_URL,
-          job.data
-        )
-      )
+          job.data,
+        ),
+      ),
     ];
   }
 
@@ -112,22 +122,22 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
     this.logger.info(
       {
         event: "worker.stopped",
-        queueNames: this.queueNames
+        queueNames: this.queueNames,
       },
-      "Worker stopped."
+      "Worker stopped.",
     );
   }
 
   private createWorker(
     queueName: string,
-    handler: (job: BullMqJob) => Promise<OrbitJob>
+    handler: (job: BullMqJob) => Promise<OrbitJob>,
   ): BullMqWorker {
     const worker = new BullMqWorker(
       queueName,
       (job) => this.processJob(queueName, job, () => handler(job)),
       {
-        connection: redisConnectionOptions(this.config.REDIS_URL)
-      }
+        connection: redisConnectionOptions(this.config.REDIS_URL),
+      },
     );
 
     worker.on("failed", (job, error) => {
@@ -138,9 +148,9 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
           bullJobId: job?.id,
           attemptsMade: job?.attemptsMade,
           ...jobPayloadFields(job?.data),
-          error: serializeLogError(error)
+          error: serializeLogError(error),
         },
-        "BullMQ job failed."
+        "BullMQ job failed.",
       );
     });
 
@@ -150,22 +160,22 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
   private async processJob(
     queueName: string,
     job: BullMqJob,
-    handler: () => Promise<OrbitJob>
+    handler: () => Promise<OrbitJob>,
   ): Promise<OrbitJob> {
     const startedAt = Date.now();
     const baseFields = {
       queueName,
       bullJobId: job.id,
       attemptsMade: job.attemptsMade,
-      ...jobPayloadFields(job.data)
+      ...jobPayloadFields(job.data),
     };
 
     this.logger.info(
       {
         event: "job.started",
-        ...baseFields
+        ...baseFields,
       },
-      "Job started."
+      "Job started.",
     );
 
     try {
@@ -183,9 +193,9 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
           projectId: result.projectId,
           status: result.status,
           durationMs,
-          error: result.error ?? undefined
+          error: result.error ?? undefined,
         },
-        "Job finished."
+        "Job finished.",
       );
       return result;
     } catch (error) {
@@ -194,9 +204,9 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
           event: "job.failed",
           ...baseFields,
           durationMs: Date.now() - startedAt,
-          error: serializeLogError(error)
+          error: serializeLogError(error),
         },
-        "Job failed."
+        "Job failed.",
       );
       throw error;
     }
@@ -213,7 +223,7 @@ function jobPayloadFields(data: unknown) {
     deckId: readString(payload, "deckId"),
     audioFileId: readString(payload, "audioFileId"),
     fileId: readString(payload, "fileId"),
-    fileCount: Array.isArray(payload.files) ? payload.files.length : undefined
+    fileCount: Array.isArray(payload.files) ? payload.files.length : undefined,
   };
 }
 

@@ -80,7 +80,9 @@ class ShapeTransform:
     translate_x: float = 0
     translate_y: float = 0
 
-    def rect(self, x: int, y: int, width: int, height: int) -> tuple[float, float, float, float]:
+    def rect(
+        self, x: int, y: int, width: int, height: int
+    ) -> tuple[float, float, float, float]:
         return (
             self.scale_x * x + self.translate_x,
             self.scale_y * y + self.translate_y,
@@ -328,6 +330,7 @@ def append_shape_elements(
         elements.append(element)
         slot_sources[element["elementId"]] = shape_slot_source(
             shape,
+            slide_index,
             element_path,
             decoration_only,
             fallback_type="image",
@@ -361,6 +364,7 @@ def append_shape_elements(
         elements.append(element)
         slot_sources[element["elementId"]] = shape_slot_source(
             shape,
+            slide_index,
             element_path,
             decoration_only,
             fallback_type="image",
@@ -373,6 +377,7 @@ def append_shape_elements(
         for element in table_items:
             slot_sources[element["elementId"]] = shape_slot_source(
                 shape,
+                slide_index,
                 element_path,
                 decoration_only,
                 fallback_type="table",
@@ -397,6 +402,7 @@ def append_shape_elements(
             elements.append(custom_shape)
             slot_sources[custom_shape["elementId"]] = shape_slot_source(
                 shape,
+                slide_index,
                 element_path,
                 decoration_only,
                 fallback_type="shape",
@@ -405,17 +411,23 @@ def append_shape_elements(
             warnings.append(
                 f"Unsupported PPTX freeform path on slide {slide_index}: {getattr(shape, 'name', 'freeform')}"
             )
-            fallback = append_fallback_shape(elements, element_id, frame, z_cursor, fill, stroke, locked)
+            fallback = append_fallback_shape(
+                elements, element_id, frame, z_cursor, fill, stroke, locked
+            )
             slot_sources[fallback["elementId"]] = shape_slot_source(
                 shape,
+                slide_index,
                 element_path,
                 decoration_only,
                 fallback_type="shape",
             )
     elif fill or stroke:
-        element = append_pptx_shape(elements, shape, element_id, frame, z_cursor, fill, stroke, locked)
+        element = append_pptx_shape(
+            elements, shape, element_id, frame, z_cursor, fill, stroke, locked
+        )
         slot_sources[element["elementId"]] = shape_slot_source(
             shape,
+            slide_index,
             element_path,
             decoration_only,
             fallback_type="shape",
@@ -440,6 +452,7 @@ def append_shape_elements(
         elements.append(element)
         slot_sources[element["elementId"]] = shape_slot_source(
             shape,
+            slide_index,
             element_path,
             decoration_only,
             fallback_type="shape",
@@ -640,12 +653,18 @@ def enum_token(value: Any) -> str:
 
 
 def is_line_preset(shape: Any, token: str) -> bool:
-    return getattr(shape, "shape_type", None) == MSO_SHAPE_TYPE.LINE or "connector" in token
+    return (
+        getattr(shape, "shape_type", None) == MSO_SHAPE_TYPE.LINE
+        or "connector" in token
+    )
 
 
 def has_arrow_head(shape: Any) -> bool:
     line = first_descendant(shape._element, "ln")
-    return first_child(line, "headEnd") is not None or first_child(line, "tailEnd") is not None
+    return (
+        first_child(line, "headEnd") is not None
+        or first_child(line, "tailEnd") is not None
+    )
 
 
 def preset_custom_shape_path(token: str) -> tuple[str, bool] | None:
@@ -666,9 +685,15 @@ def preset_custom_shape_path(token: str) -> tuple[str, bool] | None:
     if "chevron" in token:
         return "M 0 0 L 65 0 L 100 50 L 65 100 L 0 100 L 35 50 Z", True
     if "left_right_arrow" in token:
-        return "M 0 50 L 25 15 L 25 35 L 75 35 L 75 15 L 100 50 L 75 85 L 75 65 L 25 65 L 25 85 Z", True
+        return (
+            "M 0 50 L 25 15 L 25 35 L 75 35 L 75 15 L 100 50 L 75 85 L 75 65 L 25 65 L 25 85 Z",
+            True,
+        )
     if "up_down_arrow" in token:
-        return "M 50 0 L 85 25 L 65 25 L 65 75 L 85 75 L 50 100 L 15 75 L 35 75 L 35 25 L 15 25 Z", True
+        return (
+            "M 50 0 L 85 25 L 65 25 L 65 75 L 85 75 L 50 100 L 15 75 L 35 75 L 35 25 L 15 25 Z",
+            True,
+        )
     if "right_arrow" in token:
         return "M 0 25 L 65 25 L 65 0 L 100 50 L 65 100 L 65 75 L 0 75 Z", True
     if "left_arrow" in token:
@@ -682,6 +707,7 @@ def preset_custom_shape_path(token: str) -> tuple[str, bool] | None:
 
 def shape_slot_source(
     shape: Any,
+    slide_index: int,
     element_path: str,
     decoration_only: bool,
     *,
@@ -703,11 +729,25 @@ def shape_slot_source(
     source = {
         "type": source_type,
         "name": str(getattr(shape, "name", "") or "").strip() or "shape",
+        "slidePart": f"ppt/slides/slide{slide_index}.xml",
+        "shapeId": str(getattr(shape, "shape_id", "") or "0"),
+        "writable": source_type not in {"master", "layout"} and not decoration_only,
     }
     placeholder = placeholder_type(shape)
     if placeholder:
         source["placeholderType"] = placeholder
+    relationship_id = blip_relationship_id(shape)
+    if relationship_id:
+        source["relationshipId"] = relationship_id
     return source
+
+
+def blip_relationship_id(shape: Any) -> str:
+    element = getattr(shape, "_element", None)
+    if element is None:
+        return ""
+    blip = first_descendant(element, "blip")
+    return attr_by_local_name(blip, "embed") or ""
 
 
 def placeholder_type(shape: Any) -> str:
@@ -716,11 +756,7 @@ def placeholder_type(shape: Any) -> str:
     except Exception:
         return ""
     normalized = (
-        raw.lower()
-        .replace("(", " ")
-        .replace(")", " ")
-        .replace("_", "-")
-        .split()
+        raw.lower().replace("(", " ").replace(")", " ").replace("_", "-").split()
     )
     return normalized[0] if normalized else ""
 
@@ -734,10 +770,28 @@ def build_template_blueprint(
     return {
         "templateId": f"template_{safe_id(file_id)}",
         "sourceFileId": file_id,
+        "sourcePackageFileId": file_id,
+        "currentPackageFileId": file_id,
+        "ooxmlSyncedDeckVersion": 1,
         "slides": [
             {
                 "slideIndex": index + 1,
                 "sourceSlideIndex": int(slide.get("sourceSlideIndex", index + 1)),
+                "elementSources": [
+                    source
+                    for source in (
+                        template_element_source_for_element(
+                            element,
+                            slot_sources_by_slide[index].get(
+                                str(element.get("elementId", "")),
+                                infer_element_source(element),
+                            ),
+                        )
+                        for element in slide.get("elements", [])
+                        if isinstance(element, dict)
+                    )
+                    if source is not None
+                ],
                 "slots": [
                     slot
                     for slot in (
@@ -758,6 +812,45 @@ def build_template_blueprint(
             for index, slide in enumerate(slides)
         ],
     }
+
+
+def template_element_source_for_element(
+    element: dict[str, Any],
+    source: dict[str, Any],
+) -> dict[str, Any] | None:
+    element_id = str(element.get("elementId", ""))
+    slide_part = str(source.get("slidePart", ""))
+    shape_id = str(source.get("shapeId", ""))
+    if not element_id or not slide_part or not shape_id:
+        return None
+
+    source_type = str(source.get("type", "unknown"))
+    if source_type not in {
+        "placeholder",
+        "slide",
+        "layout",
+        "master",
+        "table",
+        "image",
+        "shape",
+        "unknown",
+    }:
+        source_type = "unknown"
+
+    element_source = {
+        "elementId": element_id,
+        "slidePart": slide_part,
+        "shapeId": shape_id,
+        "sourceType": source_type,
+        "writable": bool(source.get("writable", False)),
+    }
+    relationship_id = str(source.get("relationshipId", ""))
+    if relationship_id:
+        element_source["relationshipId"] = relationship_id
+    fallback_reason = str(source.get("fallbackReason", ""))
+    if fallback_reason:
+        element_source["fallbackReason"] = fallback_reason
+    return element_source
 
 
 def template_slot_for_element(
@@ -790,7 +883,11 @@ def template_slot_for_element(
         else:
             usage, replace_mode, confidence = "media-slot", "preserve", 0.55
     else:
-        usage, replace_mode, confidence = "decoration", "ignore", 0.85 if locked else 0.6
+        usage, replace_mode, confidence = (
+            "decoration",
+            "ignore",
+            0.85 if locked else 0.6,
+        )
 
     return {
         "elementId": element_id,
@@ -990,10 +1087,13 @@ def number_or_zero(value: Any) -> float:
 
 
 def safe_id(value: str) -> str:
-    return "".join(
-        char if char.isascii() and (char.isalnum() or char in "_-") else "_"
-        for char in value
-    ) or "pptx"
+    return (
+        "".join(
+            char if char.isascii() and (char.isalnum() or char in "_-") else "_"
+            for char in value
+        )
+        or "pptx"
+    )
 
 
 def next_z(z_cursor: list[int]) -> int:
@@ -1027,7 +1127,9 @@ def normalized_frame(
     }
 
 
-def group_transform_values(group_shape: Any) -> tuple[int, int, int, int, int, int, int, int]:
+def group_transform_values(
+    group_shape: Any,
+) -> tuple[int, int, int, int, int, int, int, int]:
     fallback_x = int(getattr(group_shape, "left", 0))
     fallback_y = int(getattr(group_shape, "top", 0))
     fallback_width = max(1, int(getattr(group_shape, "width", 1)))
@@ -1234,7 +1336,9 @@ def table_elements(
 
     y = frame["y"]
     for row_index, row in enumerate(table.rows):
-        row_height = max(1, round(frame["height"] * row_heights[row_index] / total_height))
+        row_height = max(
+            1, round(frame["height"] * row_heights[row_index] / total_height)
+        )
         x = frame["x"]
         for column_index, cell in enumerate(row.cells):
             column_width = max(
@@ -1246,7 +1350,9 @@ def table_elements(
                     "x": min(x, CANVAS_WIDTH - 1),
                     "y": min(y, CANVAS_HEIGHT - 1),
                     "width": min(column_width, CANVAS_WIDTH - min(x, CANVAS_WIDTH - 1)),
-                    "height": min(row_height, CANVAS_HEIGHT - min(y, CANVAS_HEIGHT - 1)),
+                    "height": min(
+                        row_height, CANVAS_HEIGHT - min(y, CANVAS_HEIGHT - 1)
+                    ),
                 }
                 fill = cell_fill_color(cell) or "#ffffff"
                 elements.append(
@@ -1327,7 +1433,9 @@ def freeform_element(
     }
 
 
-def custom_geometry_path(shape: Any) -> tuple[str, int, int, list[dict[str, Any]]] | None:
+def custom_geometry_path(
+    shape: Any,
+) -> tuple[str, int, int, list[dict[str, Any]]] | None:
     custom_geometry = first_descendant(shape._element, "custGeom")
     if custom_geometry is None:
         return None
@@ -1446,7 +1554,9 @@ def text_frame_text(text_frame: Any) -> str:
 
 
 def shape_text_props(shape: Any) -> dict[str, Any]:
-    font = first_font(shape.text_frame if bool(getattr(shape, "has_text_frame", False)) else None)
+    font = first_font(
+        shape.text_frame if bool(getattr(shape, "has_text_frame", False)) else None
+    )
     return text_props_for_font(font)
 
 
@@ -1520,11 +1630,14 @@ def imported_theme(slides: list[dict[str, Any]]) -> dict[str, Any]:
     )
     colors = imported_visible_colors(slides)
     text_color = imported_text_color(slides) or text_color_for_background(background)
-    accent = first_non_background_color(
-        colors,
-        background,
-        skip={text_color},
-    ) or text_color
+    accent = (
+        first_non_background_color(
+            colors,
+            background,
+            skip={text_color},
+        )
+        or text_color
+    )
     font_family = imported_font_family(slides)
     muted = "#f3f4f6" if is_light_color(background) else "#1f3a2e"
     border = "#d1d5db" if is_light_color(background) else "#7fa38c"
@@ -1566,11 +1679,14 @@ def imported_slide_style(
         background_color
     )
     colors = imported_visible_colors([slide])
-    accent = first_non_background_color(
-        colors,
-        background_color,
-        skip={text_color},
-    ) or text_color
+    accent = (
+        first_non_background_color(
+            colors,
+            background_color,
+            skip={text_color},
+        )
+        or text_color
+    )
     return {
         "layout": "title-content",
         "backgroundColor": background_color,

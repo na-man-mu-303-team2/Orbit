@@ -1,6 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { applyDeckPatch } from "@orbit/editor-core";
 import type { ApplyDeckPatchError } from "@orbit/editor-core";
+import { loadOrbitConfig } from "@orbit/config";
+import {
+  enqueuePptxOoxmlSyncJob,
+  type EnqueuePptxOoxmlSyncJobInput,
+} from "@orbit/job-queue";
 import {
   appendDeckPatchRequestSchema,
   appendDeckPatchResponseSchema,
@@ -13,7 +18,7 @@ import {
   listDeckSnapshotsResponseSchema,
   putDeckRequestSchema,
   putDeckResponseSchema,
-  restoreDeckSnapshotResponseSchema
+  restoreDeckSnapshotResponseSchema,
 } from "@orbit/shared";
 import type {
   AppendDeckPatchRequest,
@@ -28,12 +33,19 @@ import type {
   ListDeckSnapshotsResponse,
   PutDeckRequest,
   PutDeckResponse,
-  RestoreDeckSnapshotResponse
+  RestoreDeckSnapshotResponse,
 } from "@orbit/shared";
-import { HttpException, HttpStatus, Injectable } from "@nestjs/common";
+import {
+  HttpException,
+  HttpStatus,
+  Inject,
+  Injectable,
+  Optional,
+} from "@nestjs/common";
 import { InjectDataSource } from "@nestjs/typeorm";
 import { DataSource, EntityManager } from "typeorm";
 import { ZodError } from "zod";
+import { JobsService } from "../jobs/jobs.service";
 
 type DeckRow = {
   project_id: string;
@@ -65,12 +77,33 @@ type DeckPatchRow = {
   created_at: Date | string;
 };
 
+type TemplateBlueprintRow = {
+  template_id: string;
+  blueprint_json: unknown;
+};
+
+type PptxOoxmlSyncJobInput = {
+  deckId: string;
+  changeId: string;
+  targetDeckVersion: number;
+};
+
 type QueryExecutor = DataSource | EntityManager;
 const deckCheckpointPatchInterval = 20;
+export type PptxOoxmlSyncEnqueueJob = (
+  input: EnqueuePptxOoxmlSyncJobInput,
+) => Promise<void>;
+export const PPTX_OOXML_SYNC_ENQUEUE_JOB = "PPTX_OOXML_SYNC_ENQUEUE_JOB";
 
 @Injectable()
 export class DecksService {
-  constructor(@InjectDataSource() private readonly dataSource: DataSource) {}
+  constructor(
+    @InjectDataSource() private readonly dataSource: DataSource,
+    @Optional() private readonly jobsService?: JobsService,
+    @Optional()
+    @Inject(PPTX_OOXML_SYNC_ENQUEUE_JOB)
+    private readonly enqueueSyncJob: PptxOoxmlSyncEnqueueJob = enqueuePptxOoxmlSyncJob,
+  ) {}
 
   async getDeck(projectId: string): Promise<GetDeckResponse> {
     const deckRow = await this.findDeckRow(this.dataSource, projectId);
@@ -79,7 +112,7 @@ export class DecksService {
       throwDeckApiException(
         "DECK_NOT_FOUND",
         HttpStatus.NOT_FOUND,
-        `Deck not found for project: ${projectId}`
+        `Deck not found for project: ${projectId}`,
       );
     }
 
@@ -88,13 +121,13 @@ export class DecksService {
       parseDeckRow(deckRow),
       projectId,
       deckRow.deck_id,
-      toIso(deckRow.updated_at)
+      toIso(deckRow.updated_at),
     );
 
     return getDeckResponseSchema.parse({
       projectId,
       deck: deck.deck,
-      updatedAt: deck.updatedAt
+      updatedAt: deck.updatedAt,
     });
   }
 
@@ -106,47 +139,53 @@ export class DecksService {
         "PROJECT_MISMATCH",
         HttpStatus.BAD_REQUEST,
         "URL projectId must match deck.projectId",
-        [`projectId=${projectId}`, `deck.projectId=${request.deck.projectId}`]
+        [`projectId=${projectId}`, `deck.projectId=${request.deck.projectId}`],
       );
     }
 
     return this.dataSource.transaction(async (manager) => {
       const updatedAt = nowIso();
       const deck = await this.upsertDeck(manager, request.deck, updatedAt);
-      await this.deletePatchRowsUpToVersion(manager, projectId, deck.deckId, deck.version);
+      await this.deletePatchRowsUpToVersion(
+        manager,
+        projectId,
+        deck.deckId,
+        deck.version,
+      );
       const snapshot = await this.createSnapshot(
         manager,
         deck,
         request.snapshotReason ?? "deck-replaced",
-        updatedAt
+        updatedAt,
       );
 
       return putDeckResponseSchema.parse({
         deck,
         snapshot,
-        updatedAt
+        updatedAt,
       });
     });
   }
 
   async appendPatch(
     projectId: string,
-    body: unknown
+    body: unknown,
   ): Promise<AppendDeckPatchResponse> {
     const request = parseAppendDeckPatchRequest(body);
+    let syncInput: PptxOoxmlSyncJobInput | null = null;
 
-    return this.dataSource.transaction(async (manager) => {
+    const response = await this.dataSource.transaction(async (manager) => {
       const deckRow = await this.findDeckRowForUpdate(
         manager,
         projectId,
-        request.patch.deckId
+        request.patch.deckId,
       );
 
       if (!deckRow) {
         throwDeckApiException(
           "DECK_NOT_FOUND",
           HttpStatus.NOT_FOUND,
-          `Deck not found for project: ${projectId}`
+          `Deck not found for project: ${projectId}`,
         );
       }
 
@@ -158,7 +197,7 @@ export class DecksService {
           projectId,
           request.patch.deckId,
           toIso(deckRow.updated_at),
-          true
+          true,
         )
       ).deck;
 
@@ -167,16 +206,13 @@ export class DecksService {
           "PROJECT_MISMATCH",
           HttpStatus.BAD_REQUEST,
           "Stored deck projectId must match URL projectId",
-          [
-            `projectId=${projectId}`,
-            `deck.projectId=${currentDeck.projectId}`
-          ]
+          [`projectId=${projectId}`, `deck.projectId=${currentDeck.projectId}`],
         );
       }
 
       const updatedAt = nowIso();
       const applyResult = applyDeckPatch(currentDeck, request.patch, {
-        createdAt: updatedAt
+        createdAt: updatedAt,
       });
 
       if (!applyResult.ok) {
@@ -186,7 +222,8 @@ export class DecksService {
       await this.insertPatchLog(manager, projectId, applyResult.changeRecord);
       const shouldCheckpoint =
         Boolean(request.snapshotReason) ||
-        applyResult.deck.version - checkpointVersion >= deckCheckpointPatchInterval;
+        applyResult.deck.version - checkpointVersion >=
+          deckCheckpointPatchInterval;
       const deck = shouldCheckpoint
         ? await this.writeDeckCheckpoint(manager, applyResult.deck, updatedAt)
         : applyResult.deck;
@@ -196,16 +233,38 @@ export class DecksService {
             manager,
             deck,
             request.snapshotReason,
-            updatedAt
+            updatedAt,
           )
         : null;
+      const templateBlueprint = await this.findOoxmlTemplateBlueprint(
+        manager,
+        projectId,
+        deck.deckId,
+      );
+
+      if (templateBlueprint) {
+        syncInput = {
+          deckId: deck.deckId,
+          changeId: applyResult.changeRecord.changeId,
+          targetDeckVersion: deck.version,
+        };
+      }
 
       return appendDeckPatchResponseSchema.parse({
         deck,
         changeRecord: applyResult.changeRecord,
         snapshot,
-        updatedAt
+        updatedAt,
       });
+    });
+
+    const ooxmlSyncJob = syncInput
+      ? await this.enqueueOoxmlSync(projectId, syncInput)
+      : undefined;
+
+    return appendDeckPatchResponseSchema.parse({
+      ...response,
+      ooxmlSyncJob,
     });
   }
 
@@ -217,18 +276,18 @@ export class DecksService {
         WHERE project_id = $1
         ORDER BY created_at DESC, version DESC, snapshot_id DESC
       `,
-      [projectId]
+      [projectId],
     );
 
     return listDeckSnapshotsResponseSchema.parse({
       projectId,
-      snapshots: rows.map(parseSnapshotRow)
+      snapshots: rows.map(parseSnapshotRow),
     });
   }
 
   async restoreSnapshot(
     projectId: string,
-    snapshotId: string
+    snapshotId: string,
   ): Promise<RestoreDeckSnapshotResponse> {
     return this.dataSource.transaction(async (manager) => {
       const snapshotRow = await this.findSnapshotRow(manager, snapshotId);
@@ -237,7 +296,7 @@ export class DecksService {
         throwDeckApiException(
           "SNAPSHOT_NOT_FOUND",
           HttpStatus.NOT_FOUND,
-          `Snapshot not found: ${snapshotId}`
+          `Snapshot not found: ${snapshotId}`,
         );
       }
 
@@ -248,8 +307,8 @@ export class DecksService {
           "Snapshot does not belong to the requested project",
           [
             `projectId=${projectId}`,
-            `snapshot.projectId=${snapshotRow.project_id}`
-          ]
+            `snapshot.projectId=${snapshotRow.project_id}`,
+          ],
         );
       }
 
@@ -257,13 +316,18 @@ export class DecksService {
       const deck = parseDeckJson(snapshotRow.deck_json);
       await this.findDeckRowForUpdate(manager, projectId, deck.deckId);
       const updatedAt = nowIso();
-      await this.deletePatchRowsAfterVersion(manager, projectId, deck.deckId, deck.version);
+      await this.deletePatchRowsAfterVersion(
+        manager,
+        projectId,
+        deck.deckId,
+        deck.version,
+      );
       await this.writeDeckCheckpoint(manager, deck, updatedAt);
 
       return restoreDeckSnapshotResponseSchema.parse({
         deck,
         restoredSnapshot,
-        updatedAt
+        updatedAt,
       });
     });
   }
@@ -274,33 +338,33 @@ export class DecksService {
     projectId: string,
     deckId: string,
     checkpointUpdatedAt: string,
-    lockRows = false
+    lockRows = false,
   ): Promise<{ deck: Deck; updatedAt: string }> {
     const patchRows = await this.findPatchRowsAfterVersion(
       executor,
       projectId,
       deckId,
       checkpointDeck.version,
-      lockRows
+      lockRows,
     );
 
     if (patchRows.length === 0) {
       return {
         deck: checkpointDeck,
-        updatedAt: checkpointUpdatedAt
+        updatedAt: checkpointUpdatedAt,
       };
     }
 
     const deck = replayPatchRows(checkpointDeck, patchRows);
     return {
       deck,
-      updatedAt: toIso(patchRows.at(-1)?.created_at ?? nowIso())
+      updatedAt: toIso(patchRows.at(-1)?.created_at ?? nowIso()),
     };
   }
 
   private async findDeckRow(
     executor: QueryExecutor,
-    projectId: string
+    projectId: string,
   ): Promise<DeckRow | undefined> {
     const rows = await executor.query<DeckRow[]>(
       `
@@ -308,7 +372,7 @@ export class DecksService {
         FROM decks
         WHERE project_id = $1
       `,
-      [projectId]
+      [projectId],
     );
 
     return rows[0];
@@ -317,7 +381,7 @@ export class DecksService {
   private async findDeckRowForUpdate(
     manager: EntityManager,
     projectId: string,
-    deckId: string
+    deckId: string,
   ): Promise<DeckRow | undefined> {
     const rows = await manager.query<DeckRow[]>(
       `
@@ -326,7 +390,7 @@ export class DecksService {
         WHERE project_id = $1 AND deck_id = $2
         FOR UPDATE
       `,
-      [projectId, deckId]
+      [projectId, deckId],
     );
 
     return rows[0];
@@ -337,7 +401,7 @@ export class DecksService {
     projectId: string,
     deckId: string,
     version: number,
-    lockRows = false
+    lockRows = false,
   ): Promise<DeckPatchRow[]> {
     const rows = await executor.query<DeckPatchRow[]>(
       `
@@ -356,7 +420,7 @@ export class DecksService {
         ORDER BY after_version ASC, created_at ASC, change_id ASC
         ${lockRows ? "FOR UPDATE" : ""}
       `,
-      [projectId, deckId, version]
+      [projectId, deckId, version],
     );
 
     return rows;
@@ -365,7 +429,7 @@ export class DecksService {
   private async upsertDeck(
     executor: QueryExecutor,
     deck: Deck,
-    updatedAt: string
+    updatedAt: string,
   ): Promise<Deck> {
     const rows = await executor.query<DeckRow[]>(
       `
@@ -379,7 +443,7 @@ export class DecksService {
           updated_at = EXCLUDED.updated_at
         RETURNING project_id, deck_id, deck_json, version, updated_at
       `,
-      [deck.projectId, deck.deckId, deck, deck.version, updatedAt]
+      [deck.projectId, deck.deckId, deck, deck.version, updatedAt],
     );
 
     return parseDeckRow(rows[0]);
@@ -388,14 +452,14 @@ export class DecksService {
   private async writeDeckCheckpoint(
     executor: QueryExecutor,
     deck: Deck,
-    updatedAt: string
+    updatedAt: string,
   ): Promise<Deck> {
     const checkpointDeck = await this.upsertDeck(executor, deck, updatedAt);
     await this.deletePatchRowsUpToVersion(
       executor,
       checkpointDeck.projectId,
       checkpointDeck.deckId,
-      checkpointDeck.version
+      checkpointDeck.version,
     );
     return checkpointDeck;
   }
@@ -403,7 +467,7 @@ export class DecksService {
   private async insertPatchLog(
     manager: EntityManager,
     projectId: string,
-    changeRecord: DeckChangeRecord
+    changeRecord: DeckChangeRecord,
   ): Promise<void> {
     await manager.query(
       `
@@ -429,8 +493,8 @@ export class DecksService {
         changeRecord.source,
         changeRecord.actorUserId ?? null,
         JSON.stringify(changeRecord.operations),
-        changeRecord.createdAt
-      ]
+        changeRecord.createdAt,
+      ],
     );
   }
 
@@ -438,7 +502,7 @@ export class DecksService {
     executor: QueryExecutor,
     deck: Deck,
     reason: DeckSnapshotReason,
-    createdAt: string
+    createdAt: string,
   ): Promise<DeckSnapshot> {
     const snapshotId = deckSnapshotIdSchema.parse(`snapshot_${randomUUID()}`);
     const snapshotReason = deckSnapshotReasonSchema.parse(reason);
@@ -464,8 +528,8 @@ export class DecksService {
         deck,
         deck.version,
         snapshotReason,
-        createdAt
-      ]
+        createdAt,
+      ],
     );
 
     return parseSnapshotRow(rows[0]);
@@ -475,14 +539,14 @@ export class DecksService {
     executor: QueryExecutor,
     projectId: string,
     deckId: string,
-    version: number
+    version: number,
   ): Promise<void> {
     await executor.query(
       `
         DELETE FROM deck_patches
         WHERE project_id = $1 AND deck_id = $2 AND after_version > $3
       `,
-      [projectId, deckId, version]
+      [projectId, deckId, version],
     );
   }
 
@@ -490,20 +554,20 @@ export class DecksService {
     executor: QueryExecutor,
     projectId: string,
     deckId: string,
-    version: number
+    version: number,
   ): Promise<void> {
     await executor.query(
       `
         DELETE FROM deck_patches
         WHERE project_id = $1 AND deck_id = $2 AND after_version <= $3
       `,
-      [projectId, deckId, version]
+      [projectId, deckId, version],
     );
   }
 
   private async findSnapshotRow(
     manager: EntityManager,
-    snapshotId: string
+    snapshotId: string,
   ): Promise<DeckSnapshotRow | undefined> {
     const rows = await manager.query<DeckSnapshotRow[]>(
       `
@@ -512,10 +576,79 @@ export class DecksService {
         WHERE snapshot_id = $1
         FOR UPDATE
       `,
-      [snapshotId]
+      [snapshotId],
     );
 
     return rows[0];
+  }
+
+  private async findOoxmlTemplateBlueprint(
+    executor: QueryExecutor,
+    projectId: string,
+    deckId: string,
+  ): Promise<TemplateBlueprintRow | undefined> {
+    const rows = await executor.query<TemplateBlueprintRow[]>(
+      `
+        SELECT template_id, blueprint_json
+        FROM template_blueprints
+        WHERE project_id = $1 AND deck_id = $2
+        ORDER BY updated_at DESC, created_at DESC
+        LIMIT 1
+      `,
+      [projectId, deckId],
+    );
+    const row = rows[0];
+
+    if (!row || !isRecord(row.blueprint_json)) {
+      return undefined;
+    }
+
+    return typeof row.blueprint_json.currentPackageFileId === "string" ||
+      typeof row.blueprint_json.sourcePackageFileId === "string"
+      ? row
+      : undefined;
+  }
+
+  private async enqueueOoxmlSync(
+    projectId: string,
+    input: PptxOoxmlSyncJobInput,
+  ) {
+    if (!this.jobsService) {
+      return undefined;
+    }
+
+    const queuedJob = await this.jobsService.create({
+      projectId,
+      type: "pptx-ooxml-sync",
+      payload: input,
+    });
+
+    try {
+      const config = loadOrbitConfig(process.env, { service: "api" });
+      await this.enqueueSyncJob({
+        driver: config.JOB_QUEUE_DRIVER,
+        redisUrl: config.REDIS_URL,
+        jobId: queuedJob.jobId,
+        projectId,
+        ...input,
+      });
+      return queuedJob;
+    } catch (error) {
+      return (
+        (await this.jobsService.update(queuedJob.jobId, {
+          status: "failed",
+          progress: 0,
+          message: "PPTX OOXML sync enqueue failed.",
+          error: {
+            code: "PPTX_OOXML_SYNC_ENQUEUE_FAILED",
+            message:
+              error instanceof Error
+                ? error.message
+                : "PPTX OOXML sync enqueue failed.",
+          },
+        })) ?? queuedJob
+      );
+    }
   }
 }
 
@@ -527,7 +660,7 @@ function parsePutDeckRequest(body: unknown): PutDeckRequest {
       "DECK_VALIDATION_FAILED",
       HttpStatus.BAD_REQUEST,
       "Deck payload is invalid",
-      formatZodError(result.error)
+      formatZodError(result.error),
     );
   }
 
@@ -542,7 +675,7 @@ function parseAppendDeckPatchRequest(body: unknown): AppendDeckPatchRequest {
       "PATCH_VALIDATION_FAILED",
       HttpStatus.BAD_REQUEST,
       "Deck patch payload is invalid",
-      formatZodError(result.error)
+      formatZodError(result.error),
     );
   }
 
@@ -554,7 +687,7 @@ function parseDeckRow(row: DeckRow | undefined): Deck {
     throwDeckApiException(
       "DECK_NOT_FOUND",
       HttpStatus.NOT_FOUND,
-      "Deck row was not returned"
+      "Deck row was not returned",
     );
   }
 
@@ -571,12 +704,18 @@ function parseDeckJson(deckJson: unknown): Deck {
   return deckSchema.parse(normalizeLegacyDeckKeywords(deckJson));
 }
 
-function replayPatchRows(checkpointDeck: Deck, patchRows: DeckPatchRow[]): Deck {
+function replayPatchRows(
+  checkpointDeck: Deck,
+  patchRows: DeckPatchRow[],
+): Deck {
   let workingDeck = checkpointDeck;
   let expectedBeforeVersion = checkpointDeck.version;
 
   for (const patchRow of patchRows) {
-    if (patchRow.project_id !== checkpointDeck.projectId || patchRow.deck_id !== checkpointDeck.deckId) {
+    if (
+      patchRow.project_id !== checkpointDeck.projectId ||
+      patchRow.deck_id !== checkpointDeck.deckId
+    ) {
       throwDeckApiException(
         "PATCH_CHAIN_INVALID",
         HttpStatus.CONFLICT,
@@ -586,8 +725,8 @@ function replayPatchRows(checkpointDeck: Deck, patchRows: DeckPatchRow[]): Deck 
           `patch.projectId=${patchRow.project_id}`,
           `deck.deckId=${checkpointDeck.deckId}`,
           `patch.deckId=${patchRow.deck_id}`,
-          `patch.changeId=${patchRow.change_id}`
-        ]
+          `patch.changeId=${patchRow.change_id}`,
+        ],
       );
     }
 
@@ -604,8 +743,8 @@ function replayPatchRows(checkpointDeck: Deck, patchRows: DeckPatchRow[]): Deck 
           `checkpoint.version=${checkpointDeck.version}`,
           `expected.beforeVersion=${expectedBeforeVersion}`,
           `patch.beforeVersion=${patchRow.before_version}`,
-          `patch.changeId=${patchRow.change_id}`
-        ]
+          `patch.changeId=${patchRow.change_id}`,
+        ],
       );
     }
 
@@ -617,8 +756,8 @@ function replayPatchRows(checkpointDeck: Deck, patchRows: DeckPatchRow[]): Deck 
         [
           `patch.beforeVersion=${patchRow.before_version}`,
           `patch.afterVersion=${patchRow.after_version}`,
-          `patch.changeId=${patchRow.change_id}`
-        ]
+          `patch.changeId=${patchRow.change_id}`,
+        ],
       );
     }
 
@@ -626,10 +765,10 @@ function replayPatchRows(checkpointDeck: Deck, patchRows: DeckPatchRow[]): Deck 
       deckId: patchRow.deck_id,
       baseVersion: patchRow.before_version,
       source: patchRow.source,
-      operations: patchRow.operations
+      operations: patchRow.operations,
     });
     const result = applyDeckPatch(workingDeck, patch, {
-      createdAt: toIso(patchRow.created_at)
+      createdAt: toIso(patchRow.created_at),
     });
 
     if (!result.ok) {
@@ -644,8 +783,8 @@ function replayPatchRows(checkpointDeck: Deck, patchRows: DeckPatchRow[]): Deck 
         [
           `deck.version=${result.deck.version}`,
           `patch.afterVersion=${patchRow.after_version}`,
-          `patch.changeId=${patchRow.change_id}`
-        ]
+          `patch.changeId=${patchRow.change_id}`,
+        ],
       );
     }
 
@@ -664,7 +803,7 @@ function normalizeStoredDeckRowIdentity(row: DeckRow): unknown {
   return {
     ...row.deck_json,
     projectId: row.project_id,
-    deckId: row.deck_id
+    deckId: row.deck_id,
   };
 }
 
@@ -682,9 +821,9 @@ function normalizeLegacyDeckKeywords(deckJson: unknown): unknown {
 
       return {
         ...slide,
-        keywords: normalizeLegacySlideKeywords(slide.keywords)
+        keywords: normalizeLegacySlideKeywords(slide.keywords),
       };
-    })
+    }),
   };
 }
 
@@ -715,13 +854,13 @@ function normalizeLegacySlideKeywords(keywords: unknown[]): unknown[] {
         existingKeyword.synonyms,
         keyword.synonyms,
         keywordByTerm,
-        existingKeyword
+        existingKeyword,
       );
       existingKeyword.abbreviations = appendLegacyKeywordTerms(
         existingKeyword.abbreviations,
         keyword.abbreviations,
         keywordByTerm,
-        existingKeyword
+        existingKeyword,
       );
       continue;
     }
@@ -731,7 +870,7 @@ function normalizeLegacySlideKeywords(keywords: unknown[]): unknown[] {
       keywordId: normalizeLegacyKeywordId(keyword.keywordId, index),
       text,
       synonyms: [],
-      abbreviations: []
+      abbreviations: [],
     };
 
     keywordByTerm.set(textKey, normalizedKeyword);
@@ -739,13 +878,13 @@ function normalizeLegacySlideKeywords(keywords: unknown[]): unknown[] {
       normalizedKeyword.synonyms,
       keyword.synonyms,
       keywordByTerm,
-      normalizedKeyword
+      normalizedKeyword,
     );
     normalizedKeyword.abbreviations = appendLegacyKeywordTerms(
       normalizedKeyword.abbreviations,
       keyword.abbreviations,
       keywordByTerm,
-      normalizedKeyword
+      normalizedKeyword,
     );
     normalizedKeywords.push(normalizedKeyword);
   }
@@ -760,7 +899,9 @@ function normalizeLegacyKeywordId(value: unknown, index: number): string {
 
   const normalizedValue =
     typeof value === "string" || typeof value === "number"
-      ? String(value).trim().replace(/[^A-Za-z0-9_-]/g, "_")
+      ? String(value)
+          .trim()
+          .replace(/[^A-Za-z0-9_-]/g, "_")
       : "";
 
   return `kw_legacy_${normalizedValue || index + 1}`;
@@ -770,7 +911,7 @@ function appendLegacyKeywordTerms(
   current: unknown,
   incoming: unknown,
   keywordByTerm: Map<string, Record<string, unknown>>,
-  ownerKeyword: Record<string, unknown>
+  ownerKeyword: Record<string, unknown>,
 ): unknown {
   if (incoming === undefined) {
     return current;
@@ -829,7 +970,7 @@ function parseSnapshotRow(row: DeckSnapshotRow): DeckSnapshot {
     deckId: row.deck_id,
     version: row.version,
     reason: row.reason,
-    createdAt: toIso(row.created_at)
+    createdAt: toIso(row.created_at),
   });
 }
 
@@ -839,7 +980,7 @@ function throwApplyPatchException(error: ApplyDeckPatchError): never {
       "STALE_BASE_VERSION",
       HttpStatus.CONFLICT,
       error.message,
-      error.details ?? []
+      error.details ?? [],
     );
   }
 
@@ -848,7 +989,7 @@ function throwApplyPatchException(error: ApplyDeckPatchError): never {
       "PATCH_VALIDATION_FAILED",
       HttpStatus.BAD_REQUEST,
       error.message,
-      error.details ?? []
+      error.details ?? [],
     );
   }
 
@@ -857,7 +998,7 @@ function throwApplyPatchException(error: ApplyDeckPatchError): never {
       "DECK_VALIDATION_FAILED",
       HttpStatus.BAD_REQUEST,
       error.message,
-      error.details ?? []
+      error.details ?? [],
     );
   }
 
@@ -865,7 +1006,7 @@ function throwApplyPatchException(error: ApplyDeckPatchError): never {
     "PATCH_APPLY_FAILED",
     HttpStatus.BAD_REQUEST,
     error.message,
-    error.details ?? []
+    error.details ?? [],
   );
 }
 
@@ -873,12 +1014,12 @@ function throwDeckApiException(
   code: DeckApiErrorCode,
   status: HttpStatus,
   message: string,
-  details: string[] = []
+  details: string[] = [],
 ): never {
   const error = deckApiErrorSchema.parse({
     code,
     message,
-    details
+    details,
   } satisfies DeckApiError);
 
   throw new HttpException(error, status);

@@ -41,7 +41,9 @@ def test_import_pptx_design_extracts_editable_elements(tmp_path: Path) -> None:
     box.fill.solid()
     box.fill.fore_color.rgb = RGBColor(17, 34, 51)
     box.line.color.rgb = RGBColor(68, 85, 102)
-    slide.shapes.add_picture(str(image_path), Inches(7), Inches(2), Inches(2), Inches(2))
+    slide.shapes.add_picture(
+        str(image_path), Inches(7), Inches(2), Inches(2), Inches(2)
+    )
     presentation.save(pptx_path)
 
     result = import_pptx_design(pptx_path, "file_design")
@@ -77,16 +79,32 @@ def test_import_pptx_design_extracts_editable_elements(tmp_path: Path) -> None:
         for slot in result.template_blueprint["slides"][0]["slots"]
         if slot["elementId"].endswith("_text")
     )
+    title_source = next(
+        source
+        for source in result.template_blueprint["slides"][0]["elementSources"]
+        if source["elementId"] == title_slot["elementId"]
+    )
     image_slot = next(
         slot
         for slot in result.template_blueprint["slides"][0]["slots"]
         if slot["elementId"].endswith("_image")
     )
+    image_source = next(
+        source
+        for source in result.template_blueprint["slides"][0]["elementSources"]
+        if source["elementId"] == image_slot["elementId"]
+    )
+    assert result.template_blueprint["sourcePackageFileId"] == "file_design"
+    assert result.template_blueprint["currentPackageFileId"] == "file_design"
+    assert result.template_blueprint["ooxmlSyncedDeckVersion"] == 1
     assert title_slot["usage"] == "fixed-text"
     assert title_slot["replaceMode"] == "preserve"
     assert title_slot["confidence"] < 0.5
+    assert title_source["slidePart"] == "ppt/slides/slide1.xml"
+    assert title_source["writable"] is True
     assert image_slot["usage"] == "media-slot"
     assert image_slot["replaceMode"] == "preserve"
+    assert image_source["relationshipId"].startswith("rId")
     assert result.quality_report["metrics"]["pixelSimilarity"] is None
     assert result.quality_report["compositeScore"] <= 100
     assert result.assets[0].mime_type == "image/png"
@@ -133,7 +151,9 @@ def test_import_pptx_design_flattens_group_shapes(tmp_path: Path) -> None:
     )
     box.fill.solid()
     box.fill.fore_color.rgb = RGBColor(0, 128, 128)
-    textbox = slide.shapes.add_textbox(Inches(1.2), Inches(1.2), Inches(1.4), Inches(0.5))
+    textbox = slide.shapes.add_textbox(
+        Inches(1.2), Inches(1.2), Inches(1.4), Inches(0.5)
+    )
     textbox.text_frame.text = "Grouped text"
     slide.shapes.add_group_shape([box, textbox])
     presentation.save(pptx_path)
@@ -169,7 +189,9 @@ def test_import_pptx_design_converts_freeform_to_custom_shape(tmp_path: Path) ->
 
     result = import_pptx_design(pptx_path, "file_design")
     elements = result.blueprint["slides"][0]["elements"]
-    custom_shape = next(element for element in elements if element["type"] == "customShape")
+    custom_shape = next(
+        element for element in elements if element["type"] == "customShape"
+    )
     custom_slot = next(
         slot
         for slot in result.template_blueprint["slides"][0]["slots"]
@@ -280,7 +302,9 @@ def test_import_pptx_design_expands_table_cells(tmp_path: Path) -> None:
     presentation.slide_width = Inches(13.333333)
     presentation.slide_height = Inches(7.5)
     slide = presentation.slides.add_slide(presentation.slide_layouts[6])
-    table = slide.shapes.add_table(2, 2, Inches(1), Inches(1), Inches(4), Inches(2)).table
+    table = slide.shapes.add_table(
+        2, 2, Inches(1), Inches(1), Inches(4), Inches(2)
+    ).table
     table.cell(0, 0).text = "A"
     table.cell(0, 1).text = "B"
     table.cell(1, 0).text = "C"
@@ -330,7 +354,9 @@ def test_import_pptx_design_imports_layout_decorations(tmp_path: Path) -> None:
     decoration.fill.solid()
     decoration.fill.fore_color.rgb = RGBColor(34, 197, 94)
     slide = presentation.slides.add_slide(layout)
-    slide.shapes.add_textbox(Inches(1), Inches(1), Inches(4), Inches(1)).text_frame.text = "Slide"
+    slide.shapes.add_textbox(
+        Inches(1), Inches(1), Inches(4), Inches(1)
+    ).text_frame.text = "Slide"
     presentation.save(pptx_path)
 
     result = import_pptx_design(pptx_path, "file_design")
