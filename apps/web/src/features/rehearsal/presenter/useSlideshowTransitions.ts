@@ -1,4 +1,4 @@
-import type { Deck, DeckAnimation, Slide } from "@orbit/shared";
+import type { Deck, Slide } from "@orbit/shared";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ElementPresentationState } from "../../slides/rendering/ReadOnlySlideCanvas";
 import {
@@ -6,8 +6,17 @@ import {
   createBaseElementStates,
   createSlideshowAnimationPlan
 } from "./slideshowStepModel";
+import {
+  createSlideshowEntryTransitionTimeline,
+  getSlideshowTransitionDurationMs,
+  maxTransitionDurationMs,
+  type SlideshowTransitionAnimation
+} from "./slideshowTransitionTiming";
 
-const maxTransitionDurationMs = 500;
+export {
+  createSlideshowEntryTransitionTimeline,
+  getSlideshowTransitionDurationMs
+} from "./slideshowTransitionTiming";
 
 export function useSlideshowTransitions(args: {
   deck: Deck;
@@ -158,44 +167,6 @@ export function useSlideshowTransitions(args: {
   };
 }
 
-type SlideshowTransitionAnimation = DeckAnimation & {
-  transitionDelayMs?: number;
-};
-
-export function createSlideshowEntryTransitionTimeline(
-  animations: DeckAnimation[]
-): SlideshowTransitionAnimation[] {
-  const orderGroups = new Map<number, DeckAnimation[]>();
-
-  for (const animation of animations) {
-    const group = orderGroups.get(animation.order) ?? [];
-    group.push(animation);
-    orderGroups.set(animation.order, group);
-  }
-
-  let groupStartMs = 0;
-  const timeline: SlideshowTransitionAnimation[] = [];
-
-  for (const [, groupAnimations] of [...orderGroups.entries()].sort(
-    ([leftOrder], [rightOrder]) => leftOrder - rightOrder
-  )) {
-    const sortedGroupAnimations = [...groupAnimations].sort(
-      (left, right) => left.delayMs - right.delayMs
-    );
-
-    for (const animation of sortedGroupAnimations) {
-      timeline.push({
-        ...animation,
-        transitionDelayMs: groupStartMs + animation.delayMs
-      });
-    }
-
-    groupStartMs += getSlideshowTransitionDurationMs(sortedGroupAnimations);
-  }
-
-  return timeline;
-}
-
 export function createSlideshowTransitionStartStates(
   targetStates: Record<string, ElementPresentationState>,
   animations: SlideshowTransitionAnimation[],
@@ -315,18 +286,6 @@ function applyDelay(
     (elapsedMs - effectiveDelayMs) / effectiveDurationMs;
 
   return Math.min(1, Math.max(0, delayedProgress));
-}
-
-export function getSlideshowTransitionDurationMs(
-  animations: SlideshowTransitionAnimation[]
-) {
-  return Math.max(
-    1,
-    ...animations.map((animation) =>
-      (animation.transitionDelayMs ?? animation.delayMs) +
-      Math.min(animation.durationMs, maxTransitionDurationMs)
-    )
-  );
 }
 
 function cloneElementStates(states: Record<string, ElementPresentationState>) {

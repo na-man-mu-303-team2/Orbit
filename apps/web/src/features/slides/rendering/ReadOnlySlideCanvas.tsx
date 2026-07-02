@@ -8,6 +8,7 @@ import {
 import type { ComponentType } from "react";
 import { ElementNodeContent } from "./elementRendering";
 import { getRenderableSlideElements } from "./elementNormalization";
+import { getHighlightOverlayElements } from "./highlightOverlayElements";
 import { SlideBackground } from "./SlideBackground";
 import { getActiveHighlightElementIds, HighlightOverlay } from "./highlightOverlay";
 
@@ -16,6 +17,7 @@ type KonvaComponent = ComponentType<any>;
 const Group = KonvaGroup as unknown as KonvaComponent;
 const Layer = KonvaLayer as unknown as KonvaComponent;
 const Stage = KonvaStage as unknown as KonvaComponent;
+const inactiveHighlightElementIds = new Set<string>();
 
 export type ElementPresentationState = {
   opacity?: number;
@@ -45,6 +47,12 @@ export function ReadOnlySlideCanvas(props: {
   const { deck, elementStates = {}, highlights = [], scale = 1, slide, stageRef } = props;
   const elements = getRenderableSlideElements(slide, deck.canvas);
   const activeHighlightElementIds = getActiveHighlightElementIds(highlights);
+  const highlightElements = getHighlightOverlayElements({
+    activeHighlightElementIds,
+    deck,
+    elementStates,
+    slide
+  });
 
   return (
     <div
@@ -83,15 +91,13 @@ export function ReadOnlySlideCanvas(props: {
                 slide={slide}
               />
             ))}
-            {elements
-              .filter((element) => activeHighlightElementIds.has(element.elementId))
-              .map((element) => (
-                <HighlightOverlay
-                  element={element}
-                  key={`highlight-${element.elementId}`}
-                  state={elementStates[element.elementId]}
-                />
-              ))}
+            {highlightElements.map((element) => (
+              <HighlightOverlay
+                element={element}
+                key={`highlight-${element.elementId}`}
+                state={elementStates[element.elementId]}
+              />
+            ))}
           </Layer>
         </Stage>
       </SlideBackground>
@@ -119,6 +125,8 @@ function ReadOnlyElementNode(props: {
   } = props;
   const visible = presentationState?.visible ?? element.visible;
   const opacity = presentationState?.opacity ?? element.opacity;
+  const visibleHighlightElementIds =
+    visible && opacity !== 0 ? activeHighlightElementIds : inactiveHighlightElementIds;
   const frame = {
     x: presentationState?.x ?? element.x,
     y: presentationState?.y ?? element.y,
@@ -140,7 +148,7 @@ function ReadOnlyElementNode(props: {
     >
       <ElementNodeContent
         accentColor={accentColor}
-        activeHighlightElementIds={activeHighlightElementIds}
+        activeHighlightElementIds={visibleHighlightElementIds}
         deck={deck}
         element={element}
         elementStates={elementStates}

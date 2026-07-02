@@ -2,6 +2,25 @@ import { useEffect } from "react";
 
 export type PresenterKeyboardCommand = "next-step" | "previous-slide";
 
+const presenterKeyboardIgnoredTargetSelector = [
+  "[contenteditable]",
+  "[contenteditable='true']",
+  "input",
+  "textarea",
+  "select",
+  "button",
+  "a[href]",
+  "summary",
+  "[role='button']",
+  "[role='link']",
+  "[role='menuitem']",
+  "[role='checkbox']",
+  "[role='radio']",
+  "[role='switch']",
+  "[role='tab']",
+  "[role='textbox']"
+].join(", ");
+
 export function usePresenterKeyboard(args: {
   enabled?: boolean;
   onNextStep: () => void;
@@ -46,7 +65,7 @@ export function usePresenterKeyboard(args: {
 export function getPresenterKeyboardCommand(
   event: Pick<KeyboardEvent, "key" | "target">
 ): PresenterKeyboardCommand | null {
-  if (isPresenterKeyboardEditableTarget(event.target)) {
+  if (isPresenterKeyboardIgnoredTarget(event.target)) {
     return null;
   }
 
@@ -66,7 +85,7 @@ export function getPresenterKeyboardCommand(
   return null;
 }
 
-export function isPresenterKeyboardEditableTarget(target: EventTarget | null) {
+export function isPresenterKeyboardIgnoredTarget(target: EventTarget | null) {
   if (!target || typeof target !== "object") {
     return false;
   }
@@ -82,11 +101,8 @@ export function isPresenterKeyboardEditableTarget(target: EventTarget | null) {
   const tagName = element.tagName?.toLowerCase();
   const role = element.getAttribute?.("role")?.toLowerCase();
 
-  if (element.isContentEditable) {
-    return true;
-  }
-
   if (
+    element.isContentEditable ||
     tagName === "input" ||
     tagName === "textarea" ||
     tagName === "select" ||
@@ -94,21 +110,28 @@ export function isPresenterKeyboardEditableTarget(target: EventTarget | null) {
     tagName === "summary" ||
     (tagName === "a" && (element.hasAttribute?.("href") ?? false)) ||
     role === "button" ||
-    role === "link"
+    role === "link" ||
+    role === "menuitem" ||
+    role === "checkbox" ||
+    role === "radio" ||
+    role === "switch" ||
+    role === "tab" ||
+    role === "textbox"
   ) {
     return true;
   }
 
-  const interactiveSelector =
-    "[contenteditable], input, textarea, select, button, a[href], summary, [role='button'], [role='link']";
-
-  if (element.closest?.(interactiveSelector)) {
+  if (element.closest?.(presenterKeyboardIgnoredTargetSelector)) {
     return true;
   }
 
-  if (element.parentElement?.closest?.(interactiveSelector)) {
+  if (element.parentElement?.closest?.(presenterKeyboardIgnoredTargetSelector)) {
     return true;
   }
 
   return false;
+}
+
+export function isPresenterKeyboardEditableTarget(target: EventTarget | null) {
+  return isPresenterKeyboardIgnoredTarget(target);
 }

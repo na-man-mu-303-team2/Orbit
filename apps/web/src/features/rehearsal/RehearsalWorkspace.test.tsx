@@ -121,18 +121,13 @@ describe("RehearsalWorkspace", () => {
     const end = source.indexOf("const finishRehearsal");
     const handleNextPresenterStepBody = source.slice(start, end);
 
+    expect(handleNextPresenterStepBody).toContain("getNextPresenterStepState");
+    expect(handleNextPresenterStepBody).toContain("slideCount: deck.slides.length");
     expect(handleNextPresenterStepBody).toContain(
-      "currentSlideIndexRef.current >= deck.slides.length - 1"
+      "setPresenterStepIndex(nextState.stepIndex)"
     );
-    expect(
-      handleNextPresenterStepBody.indexOf(
-        "if (currentSlideIndexRef.current >= deck.slides.length - 1)"
-      )
-    ).toBeLessThan(
-      handleNextPresenterStepBody.indexOf("setCurrentSlideIndex")
-    );
-    expect(handleNextPresenterStepBody.indexOf("return;")).toBeLessThan(
-      handleNextPresenterStepBody.indexOf("setCurrentSlideIndex")
+    expect(handleNextPresenterStepBody).toContain(
+      "setCurrentSlideIndex(nextState.slideIndex)"
     );
   });
 
@@ -146,9 +141,9 @@ describe("RehearsalWorkspace", () => {
     const handleNextPresenterStepBody = source.slice(start, end);
 
     expect(handleNextPresenterStepBody).not.toContain("setPresenterStepIndex((currentStep)");
-    expect(handleNextPresenterStepBody.indexOf("setPresenterStepIndex(0)")).toBeLessThan(
-      handleNextPresenterStepBody.indexOf("setCurrentSlideIndex")
-    );
+    expect(
+      handleNextPresenterStepBody.indexOf("setPresenterStepIndex(nextState.stepIndex)")
+    ).toBeLessThan(handleNextPresenterStepBody.indexOf("setCurrentSlideIndex"));
   });
 
   it("requests microphone audio with live STT input quality constraints", async () => {

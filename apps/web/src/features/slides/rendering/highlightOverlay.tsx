@@ -14,8 +14,9 @@ export function HighlightOverlay(props: {
 }) {
   const { element, state } = props;
   const visible = state?.visible ?? element.visible;
+  const opacity = state?.opacity ?? element.opacity;
 
-  if (!visible) {
+  if (!visible || opacity === 0) {
     return null;
   }
 
