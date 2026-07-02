@@ -145,5 +145,7 @@ describe("createPresentationPublisherController", () => {
     expect(isPresentationPeerStale(null, 6000)).toBe(false);
     expect(isPresentationPeerStale(1000, 6000)).toBe(false);
     expect(isPresentationPeerStale(1000, 6001)).toBe(true);
+    expect(isPresentationPeerStale(null, 6001, 5000, null)).toBe(false);
+    expect(isPresentationPeerStale(null, 6001, 5000, 1000)).toBe(true);
   });
 });

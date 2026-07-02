@@ -49,6 +49,7 @@ export function usePresentationChannelPublisher(args: {
   const channelRef = useRef<PresentationChannelLike | null>(null);
   const controllerRef = useRef<PresentationPublisherController | null>(null);
   const lastPeerSeenAtRef = useRef<number | null>(null);
+  const peerWaitStartedAtRef = useRef<number | null>(null);
   const latestRef = useRef({ deck, state, triggerAnimationIds });
   latestRef.current = { deck, state, triggerAnimationIds };
 
@@ -62,8 +63,6 @@ export function usePresentationChannelPublisher(args: {
       return;
     }
 
-    setStatus("opening");
-    lastPeerSeenAtRef.current = Date.now();
     let channel: PresentationChannelLike;
     try {
       channel = channelFactory(getPresentationChannelName(identity));
@@ -102,6 +101,7 @@ export function usePresentationChannelPublisher(args: {
       identity,
       onPeerSeen: () => {
         lastPeerSeenAtRef.current = Date.now();
+        peerWaitStartedAtRef.current = null;
       },
       onStatusChange: setStatus
     });
@@ -130,7 +130,14 @@ export function usePresentationChannelPublisher(args: {
     }, 1000);
     const staleTimer = window.setInterval(() => {
       const lastPeerSeenAt = lastPeerSeenAtRef.current;
-      if (isPresentationPeerStale(lastPeerSeenAt, Date.now())) {
+      if (
+        isPresentationPeerStale(
+          lastPeerSeenAt,
+          Date.now(),
+          5000,
+          peerWaitStartedAtRef.current
+        )
+      ) {
         setStatus("stale");
       }
     }, 1000);
@@ -150,7 +157,15 @@ export function usePresentationChannelPublisher(args: {
   }, [deck, state, triggerAnimationIds]);
 
   return {
-    publishSnapshot: () => controllerRef.current?.publishSnapshot(),
+    publishSnapshot: () => {
+      if (!controllerRef.current) {
+        return;
+      }
+
+      peerWaitStartedAtRef.current = Date.now();
+      setStatus((current) => (current === "connected" ? current : "opening"));
+      controllerRef.current.publishSnapshot();
+    },
     sessionId,
     status
   };
@@ -208,9 +223,11 @@ export function createPresentationPublisherController(args: {
 export function isPresentationPeerStale(
   lastPeerSeenAt: number | null,
   now: number,
-  staleAfterMs = 5000
+  staleAfterMs = 5000,
+  peerWaitStartedAt: number | null = lastPeerSeenAt
 ) {
-  return lastPeerSeenAt !== null && now - lastPeerSeenAt > staleAfterMs;
+  const staleAnchor = lastPeerSeenAt ?? peerWaitStartedAt;
+  return staleAnchor !== null && now - staleAnchor > staleAfterMs;
 }
 
 function handlePublisherMessage(

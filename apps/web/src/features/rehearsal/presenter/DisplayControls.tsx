@@ -3,7 +3,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   createDisplayManager,
   type DisplayManagerErrorCode,
-  type DisplayManagerResult,
   type DisplayScreenDescriptor,
   type SlideWindowRef
 } from "./displayManager";
@@ -178,10 +177,4 @@ export function getDisplayStatusLabel(
   if (displayState === "manual-guide") return "수동 배치 안내";
   if (displayState === "failed") return "확인 필요";
   return "대기";
-}
-
-export function isDisplayResultError<T>(
-  result: DisplayManagerResult<T>
-): result is Extract<DisplayManagerResult<T>, { ok: false }> {
-  return !result.ok;
 }

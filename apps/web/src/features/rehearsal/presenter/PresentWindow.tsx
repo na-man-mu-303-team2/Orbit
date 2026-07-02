@@ -20,6 +20,11 @@ export type PresentWindowSnapshot = {
   triggerAnimationIds: string[];
 };
 
+type ViewportSize = {
+  height: number;
+  width: number;
+};
+
 type ChannelLike = Pick<BroadcastChannel, "close" | "postMessage"> & {
   onmessage: ((event: MessageEvent) => void) | null;
 };
@@ -110,10 +115,12 @@ export function PresentWindow(props: {
 export function PresentWindowContent(props: {
   identity: PresentationChannelIdentity;
   snapshot: PresentWindowSnapshot;
+  viewport?: ViewportSize;
 }) {
   const { identity, snapshot } = props;
   const rootRef = useRef<HTMLDivElement>(null);
-  const scale = getSlideWindowScale(snapshot.deck);
+  const liveViewport = usePresentWindowViewport();
+  const scale = getSlideWindowScale(snapshot.deck, props.viewport ?? liveViewport);
 
   return (
     <PresentWindowShell ref={rootRef}>
@@ -121,6 +128,7 @@ export function PresentWindowContent(props: {
         aria-label="슬라이드 전용 창"
         className="present-window-stage"
         data-deck-id={identity.deckId}
+        data-scale={scale}
         data-session-id={identity.sessionId}
       >
         <SlideshowRenderer
@@ -196,7 +204,25 @@ const PresentWindowShell = (props: {
   </main>
 );
 
-function readViewportSize() {
+function usePresentWindowViewport() {
+  const [viewport, setViewport] = useState(readViewportSize);
+
+  useEffect(() => {
+    const updateViewport = () => setViewport(readViewportSize());
+
+    window.addEventListener("resize", updateViewport);
+    document.addEventListener("fullscreenchange", updateViewport);
+
+    return () => {
+      window.removeEventListener("resize", updateViewport);
+      document.removeEventListener("fullscreenchange", updateViewport);
+    };
+  }, []);
+
+  return viewport;
+}
+
+function readViewportSize(): ViewportSize {
   if (typeof window === "undefined") {
     return { height: 0, width: 0 };
   }
@@ -207,12 +233,17 @@ function readViewportSize() {
   };
 }
 
-async function requestPresentWindowFullscreen(target: HTMLElement | null) {
+export async function requestPresentWindowFullscreen(target: HTMLElement | null) {
   if (!target || typeof target.requestFullscreen !== "function") {
-    return;
+    return false;
   }
 
-  await target.requestFullscreen();
+  try {
+    await target.requestFullscreen();
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function createBroadcastChannel(channelName: string): ChannelLike {

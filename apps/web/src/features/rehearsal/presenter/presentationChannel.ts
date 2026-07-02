@@ -81,13 +81,31 @@ export function getPresentationChannelName(identity: PresentationChannelIdentity
 
 export function createSlideWindowDeckSnapshot(deck: Deck): SlideWindowDeckSnapshot {
   return {
-    ...deck,
-    slides: deck.slides.map((slide) => ({
-      ...slide,
-      // 슬라이드 창은 렌더링 전용이므로 발표 대본과 추적 키워드를 받지 않는다.
-      keywords: [],
-      speakerNotes: ""
-    }))
+    canvas: deck.canvas,
+    deckId: deck.deckId,
+    metadata: deck.metadata,
+    projectId: deck.projectId,
+    slides: deck.slides.map(createSlideWindowSlideSnapshot),
+    targetDurationMinutes: deck.targetDurationMinutes,
+    theme: deck.theme,
+    title: deck.title,
+    version: deck.version
+  };
+}
+
+function createSlideWindowSlideSnapshot(slide: Deck["slides"][number]): Deck["slides"][number] {
+  return {
+    animations: slide.animations,
+    elements: slide.elements,
+    estimatedSeconds: slide.estimatedSeconds,
+    keywords: [],
+    order: slide.order,
+    // 슬라이드 창은 렌더링 전용이므로 발표 대본과 추적 키워드를 받지 않는다.
+    speakerNotes: "",
+    slideId: slide.slideId,
+    style: slide.style,
+    thumbnailUrl: slide.thumbnailUrl,
+    title: slide.title
   };
 }
 

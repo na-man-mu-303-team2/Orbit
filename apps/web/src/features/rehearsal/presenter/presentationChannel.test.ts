@@ -31,16 +31,43 @@ describe("presentationChannel", () => {
     ).not.toBe(getPresentationChannelName(identity));
   });
 
-  it("removes speaker notes and keywords from the slide-window deck snapshot", () => {
-    const snapshot = createSlideWindowDeckSnapshot(p0AnimationDeck);
+  it("keeps only render-required slide data in the slide-window deck snapshot", () => {
+    const deckWithPrivateNotes = {
+      ...p0AnimationDeck,
+      slides: p0AnimationDeck.slides.map((slide, index) =>
+        index === 0
+          ? {
+              ...slide,
+              aiNotes: {
+                emphasisPoints: ["발표자 전용 강조점"],
+                sourceEvidence: [
+                  {
+                    confidence: 0.9,
+                    fileId: "file_private_source",
+                    note: "내부 메모",
+                    quote: "내부 근거 원문"
+                  }
+                ]
+              },
+              presenterOnlyMarker: "슬라이드 창으로 보내면 안 되는 필드"
+            }
+          : slide
+      )
+    };
+    const snapshot = createSlideWindowDeckSnapshot(deckWithPrivateNotes);
+    const serialized = JSON.stringify(snapshot);
 
     expect(snapshot.deckId).toBe(p0AnimationDeck.deckId);
     expect(snapshot.slides[0]?.elements).toEqual(p0AnimationDeck.slides[0]?.elements);
     expect(snapshot.slides[0]?.animations).toEqual(p0AnimationDeck.slides[0]?.animations);
     expect(snapshot.slides[0]?.speakerNotes).toBe("");
     expect(snapshot.slides[0]?.keywords).toEqual([]);
-    expect(JSON.stringify(snapshot)).not.toContain("첫 문장입니다");
-    expect(JSON.stringify(snapshot)).not.toContain("두 번째 슬라이드입니다");
+    expect(serialized).not.toContain("첫 문장입니다");
+    expect(serialized).not.toContain("두 번째 슬라이드입니다");
+    expect(serialized).not.toContain("발표자 전용 강조점");
+    expect(serialized).not.toContain("내부 근거 원문");
+    expect(serialized).not.toContain("내부 메모");
+    expect(serialized).not.toContain("presenterOnlyMarker");
   });
 
   it("creates presenter snapshot messages without presenter-only content", () => {

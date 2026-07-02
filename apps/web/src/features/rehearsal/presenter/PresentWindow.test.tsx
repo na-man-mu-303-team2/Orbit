@@ -7,7 +7,8 @@ import {
   applyPresentWindowMessage,
   getSlideWindowScale,
   PresentWindow,
-  PresentWindowContent
+  PresentWindowContent,
+  requestPresentWindowFullscreen
 } from "./PresentWindow";
 import { createPresenterSlideshowState } from "./presenterStateStore";
 import {
@@ -154,5 +155,39 @@ describe("PresentWindow", () => {
   it("calculates the largest viewport scale that preserves the deck aspect", () => {
     expect(getSlideWindowScale(p0AnimationDeck, { height: 540, width: 960 })).toBe(0.5);
     expect(getSlideWindowScale(p0AnimationDeck, { height: 1080, width: 960 })).toBe(0.5);
+  });
+
+  it("renders slide-window scale from the current viewport", () => {
+    const snapshotMessage = createPresenterSnapshotMessage({
+      deck: p0AnimationDeck,
+      identity,
+      sentAt: 10,
+      state: createPresenterSlideshowState(p0AnimationDeck),
+      triggerAnimationIds: []
+    });
+    const html = renderToStaticMarkup(
+      <PresentWindowContent
+        identity={identity}
+        snapshot={{
+          deck: snapshotMessage.deck,
+          state: snapshotMessage.state,
+          triggerAnimationIds: []
+        }}
+        viewport={{ height: 540, width: 960 }}
+      />
+    );
+
+    expect(html).toContain("data-scale=\"0.5\"");
+  });
+
+  it("handles blocked fullscreen requests without leaking a rejected promise", async () => {
+    const requestFullscreen = vi.fn().mockRejectedValue(new Error("blocked"));
+
+    await expect(
+      requestPresentWindowFullscreen({
+        requestFullscreen
+      } as unknown as HTMLElement)
+    ).resolves.toBe(false);
+    expect(requestFullscreen).toHaveBeenCalled();
   });
 });
