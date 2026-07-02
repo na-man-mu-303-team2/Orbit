@@ -155,6 +155,10 @@ class GenerateDeckRequest(BaseModel):
         default_factory=list,
         alias="referenceKeywords",
     )
+    template_blueprint: dict[str, Any] | None = Field(
+        default=None,
+        alias="templateBlueprint",
+    )
     design_blueprint: dict[str, Any] | None = Field(
         default=None,
         alias="designBlueprint",
@@ -177,6 +181,7 @@ class RawInput(BaseModel):
     design_references: list[GenerateDeckReference]
     reference_keywords: list[GenerateDeckReferenceKeyword]
     reference_context: list[ReferenceContext]
+    template_blueprint: dict[str, Any] | None = None
     design_blueprint: dict[str, Any] | None = None
 
 
@@ -1619,8 +1624,16 @@ def analyze_input(
         design_references=request.design_references,
         reference_keywords=request.reference_keywords,
         reference_context=reference_context or [],
+        template_blueprint=normalize_template_blueprint(request.template_blueprint),
         design_blueprint=normalize_imported_design_blueprint(request.design_blueprint),
     )
+
+
+def normalize_template_blueprint(blueprint: dict[str, Any] | None) -> dict[str, Any] | None:
+    if not isinstance(blueprint, dict):
+        return None
+    slides = blueprint.get("slides")
+    return deepcopy(blueprint) if isinstance(slides, list) else None
 
 
 def normalize_imported_design_blueprint(blueprint: dict[str, Any] | None) -> dict[str, Any] | None:
@@ -3042,7 +3055,12 @@ def assemble_slide_from_imported_blueprint(
     if not imported_slide:
         return assemble_slide(raw_input, slide_plan, plan_visuals(slide_plan), theme)
 
-    elements = imported_elements_for_slide(imported_slide, slide_plan, theme)
+    elements = imported_elements_for_slide(
+        imported_slide,
+        slide_plan,
+        theme,
+        imported_template_slide_for_order(raw_input, slide_plan.order),
+    )
     elements = cap_elements(
         elements,
         limit=element_limit_for_slide({"order": slide_plan.order, "elements": elements}),
@@ -3096,18 +3114,42 @@ def imported_slide_for_order(
     return slide if isinstance(slide, dict) else None
 
 
+def imported_template_slide_for_order(
+    raw_input: RawInput,
+    order: int,
+) -> dict[str, Any] | None:
+    blueprint = raw_input.template_blueprint
+    if not isinstance(blueprint, dict):
+        return None
+    slides = blueprint.get("slides")
+    if not isinstance(slides, list) or not slides:
+        return None
+    slide = slides[(order - 1) % len(slides)]
+    return slide if isinstance(slide, dict) else None
+
+
 def imported_elements_for_slide(
     imported_slide: dict[str, Any],
     slide_plan: SlidePlan,
     theme: dict[str, Any],
+    template_slide: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     raw_elements = imported_slide.get("elements")
-    elements = [
-        normalize_imported_element(element, slide_plan.order, index)
-        for index, element in enumerate(raw_elements if isinstance(raw_elements, list) else [])
-        if isinstance(element, dict)
-    ]
-    inject_imported_text(elements, slide_plan, theme)
+    elements: list[dict[str, Any]] = []
+    elements_by_source_id: dict[str, dict[str, Any]] = {}
+    for index, element in enumerate(raw_elements if isinstance(raw_elements, list) else []):
+        if not isinstance(element, dict):
+            continue
+        normalized = normalize_imported_element(element, slide_plan.order, index)
+        elements.append(normalized)
+        source_id = str(element.get("elementId", "")).strip()
+        if source_id:
+            elements_by_source_id[source_id] = normalized
+
+    if template_slide is None:
+        inject_imported_text(elements, slide_plan, theme)
+    else:
+        inject_template_slot_text(elements_by_source_id, template_slide, slide_plan)
     if not any(element.get("role") == "title" for element in elements):
         elements.append(
             text_element(
@@ -3145,6 +3187,57 @@ def imported_elements_for_slide(
             )
         )
     return elements
+
+
+def inject_template_slot_text(
+    elements_by_source_id: dict[str, dict[str, Any]],
+    template_slide: dict[str, Any],
+    slide_plan: SlidePlan,
+) -> None:
+    slots = template_slide.get("slots")
+    body_used = False
+    keyword_index = 0
+
+    for slot in slots if isinstance(slots, list) else []:
+        if not is_replaceable_content_slot(slot):
+            continue
+        element = elements_by_source_id.get(str(slot.get("elementId", "")))
+        if not isinstance(element, dict) or element.get("type") != "text":
+            continue
+        props = element.get("props")
+        if not isinstance(props, dict):
+            continue
+
+        slot_role = str(slot.get("slotRole", "body"))
+        if slot_role == "title":
+            element["role"] = "title"
+            props["text"] = slide_plan.title
+        elif not body_used:
+            element["role"] = "subtitle" if slot_role == "subtitle" else "body"
+            props["text"] = slide_plan.message
+            body_used = True
+        else:
+            element["role"] = "caption"
+            props["text"] = (
+                slide_plan.keywords[keyword_index]
+                if keyword_index < len(slide_plan.keywords)
+                else ""
+            )
+            keyword_index += 1
+
+
+def is_replaceable_content_slot(slot: Any) -> bool:
+    if not isinstance(slot, dict):
+        return False
+    try:
+        confidence = float(slot.get("confidence", 0))
+    except (TypeError, ValueError):
+        confidence = 0
+    return (
+        slot.get("usage") == "content-slot"
+        and slot.get("replaceMode") == "replace"
+        and confidence >= 0.5
+    )
 
 
 def normalize_imported_element(

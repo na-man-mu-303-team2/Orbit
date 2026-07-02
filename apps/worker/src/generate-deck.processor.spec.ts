@@ -211,6 +211,8 @@ describe("processGenerateDeckJob", () => {
                 }
               ]
             },
+            templateBlueprint: templateBlueprint(),
+            qualityReport: qualityReport(),
             assets: [
               {
                 assetId: "image_1",
@@ -227,6 +229,9 @@ describe("processGenerateDeckJob", () => {
       expect(url).toBe("http://localhost:8000/ai/generate-deck");
       expect(JSON.parse(String(init?.body))).toMatchObject({
         designReferences: [{ fileId: "file_design" }],
+        templateBlueprint: expect.objectContaining({
+          templateId: "template_file_design"
+        }),
         designBlueprint: {
           slides: [
             {
@@ -274,6 +279,9 @@ describe("processGenerateDeckJob", () => {
       "http://localhost:8000/design/import-pptx",
       expect.objectContaining({ method: "POST" })
     );
+    expect(
+      query.mock.calls.some(([sql]) => String(sql).includes("template_blueprints"))
+    ).toBe(true);
   });
 
   it("fails when a design reference is not an uploaded PPTX asset", async () => {
@@ -315,6 +323,110 @@ describe("processGenerateDeckJob", () => {
     expect(job.status).toBe("failed");
     expect(job.error?.code).toBe("GENERATE_DECK_DESIGN_REFERENCE_FAILED");
     expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("loads a stored template blueprint when templateBlueprintId is provided", async () => {
+    const deck = createDeck();
+    const deckValidation = validation();
+    const query = vi.fn(async (sql: string, params: unknown[]) => {
+      if (sql.includes("UPDATE jobs")) {
+        return [
+          jobRow(
+            params[1] as "running" | "succeeded" | "failed",
+            params[2] as number,
+            params[4] as Record<string, unknown> | null,
+            params[5] as { code: string; message: string } | null
+          )
+        ];
+      }
+      if (sql.includes("FROM template_blueprints")) {
+        return [
+          {
+            template_id: "template_file_design",
+            project_id: "project-a",
+            deck_id: "deck_import_file_design",
+            source_file_id: "file_design",
+            blueprint_json: templateBlueprint(),
+            quality_report_json: qualityReport(),
+            deck_json: createDeck({
+              deckId: "deck_import_file_design",
+              metadata: { language: "ko", locale: "ko-KR", sourceType: "import" },
+              slides: [
+                {
+                  slideId: "slide_import_file_design_1",
+                  order: 1,
+                  title: "Template",
+                  thumbnailUrl: "",
+                  style: {},
+                  speakerNotes: "",
+                  elements: [
+                    {
+                      elementId: "el_imported_1_title",
+                      type: "text",
+                      role: "title",
+                      x: 120,
+                      y: 96,
+                      width: 1200,
+                      height: 120,
+                      rotation: 0,
+                      opacity: 1,
+                      zIndex: 2,
+                      locked: false,
+                      visible: true,
+                      props: {
+                        text: "Template title",
+                        fontSize: 52,
+                        fontWeight: "bold"
+                      }
+                    }
+                  ]
+                }
+              ]
+            })
+          }
+        ];
+      }
+      return [];
+    });
+    const fetchMock = vi.fn(async (input: string | URL, init?: RequestInit) => {
+      expect(String(input)).toBe("http://localhost:8000/ai/generate-deck");
+      expect(JSON.parse(String(init?.body))).toMatchObject({
+        templateBlueprintId: "template_file_design",
+        templateBlueprint: expect.objectContaining({
+          templateId: "template_file_design"
+        }),
+        designBlueprint: {
+          slides: [
+            {
+              elements: [
+                expect.objectContaining({
+                  elementId: "el_imported_1_title"
+                })
+              ]
+            }
+          ]
+        }
+      });
+      return new Response(JSON.stringify({ deck, warnings: [], validation: deckValidation }));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const job = await processGenerateDeckJob(
+      { query } as unknown as DataSource,
+      storage,
+      "http://localhost:8000",
+      {
+        ...payload,
+        request: {
+          ...payload.request,
+          designReferences: [],
+          templateBlueprintId: "template_file_design"
+        }
+      }
+    );
+
+    expect(job.status).toBe("succeeded");
+    expect(storage.getSignedReadUrl).not.toHaveBeenCalled();
   });
 });
 
@@ -376,6 +488,55 @@ function validation(
     designIssues: [],
     presentationIssues: [],
     ...overrides
+  };
+}
+
+function templateBlueprint() {
+  return {
+    templateId: "template_file_design",
+    sourceFileId: "file_design",
+    slides: [
+      {
+        slideIndex: 1,
+        sourceSlideIndex: 1,
+        slots: [
+          {
+            elementId: "el_imported_1_title",
+            usage: "content-slot",
+            slotRole: "title",
+            replaceMode: "replace",
+            confidence: 0.95,
+            bounds: { x: 120, y: 96, width: 1200, height: 120 },
+            source: { type: "placeholder", name: "Title 1" }
+          }
+        ]
+      }
+    ]
+  };
+}
+
+function qualityReport() {
+  return {
+    compositeScore: 84,
+    weights: {
+      geometry: 25,
+      text: 15,
+      color: 10,
+      layer: 10,
+      editability: 10,
+      pixelSimilarity: 30
+    },
+    metrics: {
+      geometry: 0.9,
+      text: 0.8,
+      color: 0.8,
+      layer: 0.9,
+      editability: 0.8,
+      pixelSimilarity: null
+    },
+    editabilityCoverage: 0.8,
+    capsApplied: [],
+    warnings: []
   };
 }
 

@@ -1,9 +1,14 @@
 import {
+  deckSchema,
   generateDeckJobResultSchema,
   generateDeckRequestSchema,
   generateDeckResponseSchema,
+  qualityReportSchema,
+  templateBlueprintSchema,
   type Deck,
-  type Job
+  type Job,
+  type QualityReport,
+  type TemplateBlueprint
 } from "@orbit/shared";
 import type { StoragePort } from "@orbit/storage";
 import { randomUUID } from "crypto";
@@ -18,6 +23,8 @@ const generateDeckPayloadSchema = z.object({
 
 const designImportResponseSchema = z.object({
   blueprint: z.record(z.unknown()).default({}),
+  templateBlueprint: templateBlueprintSchema,
+  qualityReport: qualityReportSchema,
   assets: z
     .array(
       z.object({
@@ -33,6 +40,11 @@ const designImportResponseSchema = z.object({
 
 type DesignImportResponse = z.infer<typeof designImportResponseSchema>;
 type GenerateDeckPayload = z.infer<typeof generateDeckPayloadSchema>;
+type DesignTemplateContext = {
+  designBlueprint?: Record<string, unknown>;
+  qualityReport?: QualityReport;
+  templateBlueprint?: TemplateBlueprint;
+};
 
 type JobRow = {
   job_id: string;
@@ -56,6 +68,16 @@ type ProjectAssetRow = {
   size: number;
   purpose: string;
   status: string;
+};
+
+type TemplateBlueprintRow = {
+  template_id: string;
+  project_id: string;
+  deck_id: string;
+  source_file_id: string;
+  blueprint_json: unknown;
+  quality_report_json: unknown;
+  deck_json: unknown;
 };
 
 const pptxMimeType =
@@ -99,9 +121,9 @@ export async function processGenerateDeckJob(
     error: null
   });
 
-  let designBlueprint: Record<string, unknown> | undefined;
+  let designTemplate: DesignTemplateContext = {};
   try {
-    designBlueprint = await importDesignBlueprint(
+    designTemplate = await resolveDesignTemplate(
       dataSource,
       storage,
       pythonWorkerUrl,
@@ -125,7 +147,12 @@ export async function processGenerateDeckJob(
       body: JSON.stringify({
         projectId: payload.projectId,
         ...payload.request,
-        ...(designBlueprint ? { designBlueprint } : {})
+        ...(designTemplate.designBlueprint
+          ? { designBlueprint: designTemplate.designBlueprint }
+          : {}),
+        ...(designTemplate.templateBlueprint
+          ? { templateBlueprint: designTemplate.templateBlueprint }
+          : {})
       }),
       signal: AbortSignal.timeout(120_000)
     });
@@ -189,14 +216,22 @@ export async function processGenerateDeckJob(
   }
 }
 
-async function importDesignBlueprint(
+async function resolveDesignTemplate(
   dataSource: DataSource,
   storage: Pick<StoragePort, "getSignedReadUrl" | "putObject">,
   pythonWorkerUrl: string,
   payload: GenerateDeckPayload
-): Promise<Record<string, unknown> | undefined> {
+): Promise<DesignTemplateContext> {
+  if (payload.request.templateBlueprintId) {
+    return loadTemplateBlueprintContext(
+      dataSource,
+      payload.projectId,
+      payload.request.templateBlueprintId
+    );
+  }
+
   if (payload.request.designReferences.length === 0) {
-    return undefined;
+    return {};
   }
 
   const assets = await loadDesignReferenceAssets(
@@ -241,7 +276,63 @@ async function importDesignBlueprint(
     payload.projectId,
     imported
   );
-  return replaceImportedAssetRefs(imported.blueprint, assetUrlMap);
+  const designBlueprint = replaceImportedAssetRefs(imported.blueprint, assetUrlMap);
+  await saveTemplateBlueprint(
+    dataSource,
+    payload.projectId,
+    `deck_import_${safeId(imported.templateBlueprint.sourceFileId)}`,
+    imported.templateBlueprint,
+    imported.qualityReport
+  );
+
+  return {
+    designBlueprint,
+    qualityReport: imported.qualityReport,
+    templateBlueprint: imported.templateBlueprint
+  };
+}
+
+async function loadTemplateBlueprintContext(
+  dataSource: DataSource,
+  projectId: string,
+  templateBlueprintId: string
+): Promise<DesignTemplateContext> {
+  const rows = readQueryRows<TemplateBlueprintRow>(
+    await dataSource.query(
+      `
+        SELECT
+          template_id,
+          project_id,
+          deck_id,
+          source_file_id,
+          blueprint_json,
+          quality_report_json,
+          (
+            SELECT deck_json
+            FROM decks
+            WHERE project_id = template_blueprints.project_id
+              AND deck_id = template_blueprints.deck_id
+            LIMIT 1
+          ) AS deck_json
+        FROM template_blueprints
+        WHERE template_id = $1
+      `,
+      [templateBlueprintId]
+    )
+  );
+  const row = rows[0];
+  if (!row) {
+    throw new Error(`Template blueprint not found: ${templateBlueprintId}`);
+  }
+  if (row.project_id !== projectId) {
+    throw new Error(`Template blueprint project mismatch: ${templateBlueprintId}`);
+  }
+
+  return {
+    designBlueprint: designBlueprintFromDeck(row.deck_json, row.source_file_id),
+    qualityReport: qualityReportSchema.parse(row.quality_report_json),
+    templateBlueprint: templateBlueprintSchema.parse(row.blueprint_json)
+  };
 }
 
 async function loadDesignReferenceAssets(
@@ -324,6 +415,62 @@ async function saveImportedDesignAssets(
   }
 
   return assetUrlMap;
+}
+
+async function saveTemplateBlueprint(
+  dataSource: DataSource,
+  projectId: string,
+  deckId: string,
+  templateBlueprint: TemplateBlueprint,
+  qualityReport: QualityReport
+): Promise<void> {
+  await dataSource.query(
+    `
+      INSERT INTO template_blueprints (
+        template_id, project_id, deck_id, source_file_id,
+        blueprint_json, quality_report_json, created_at, updated_at
+      )
+      VALUES ($1, $2, $3, $4, $5, $6, now(), now())
+      ON CONFLICT (template_id)
+      DO UPDATE SET
+        project_id = EXCLUDED.project_id,
+        deck_id = EXCLUDED.deck_id,
+        source_file_id = EXCLUDED.source_file_id,
+        blueprint_json = EXCLUDED.blueprint_json,
+        quality_report_json = EXCLUDED.quality_report_json,
+        updated_at = EXCLUDED.updated_at
+    `,
+    [
+      templateBlueprint.templateId,
+      projectId,
+      deckId,
+      templateBlueprint.sourceFileId,
+      templateBlueprint,
+      qualityReport
+    ]
+  );
+}
+
+function designBlueprintFromDeck(
+  deckJson: unknown,
+  sourceFileId: string
+): Record<string, unknown> {
+  const deck = deckSchema.parse(deckJson);
+  return {
+    sourceFileId,
+    canvas: {
+      width: deck.canvas.width,
+      height: deck.canvas.height
+    },
+    theme: deck.theme,
+    warnings: [],
+    slides: deck.slides.map((slide) => ({
+      sourceFileId,
+      sourceSlideIndex: slide.order,
+      style: slide.style,
+      elements: slide.elements
+    }))
+  };
 }
 
 function replaceImportedAssetRefs(
@@ -486,6 +633,10 @@ function createAssetContentUrl(projectId: string, fileId: string): string {
 
 function safeStorageName(fileName: string): string {
   return (fileName || "design-asset").replace(/[^a-zA-Z0-9._-]/g, "_");
+}
+
+function safeId(value: string): string {
+  return value.replace(/[^A-Za-z0-9_-]/g, "_") || "pptx";
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

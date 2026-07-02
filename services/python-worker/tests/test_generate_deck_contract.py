@@ -1726,6 +1726,79 @@ def test_orchestrator_passes_design_blueprint_to_design_and_layout_agents() -> N
     assert response.validation.passed is True
 
 
+def test_template_blueprint_replaces_only_replaceable_content_slots() -> None:
+    blueprint = minimal_imported_design_blueprint()
+    fixed_text = deepcopy(blueprint["slides"][0]["elements"][1])
+    fixed_text["elementId"] = "el_imported_1_fixed"
+    fixed_text["role"] = "caption"
+    fixed_text["y"] = 280
+    fixed_text["props"] = {
+        **fixed_text["props"],
+        "text": "Do not touch fixed text",
+    }
+    blueprint["slides"][0]["elements"].append(fixed_text)
+
+    response = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="ORBIT",
+            slideCountRange={"min": 1, "max": 1},
+            designReferences=[{"fileId": "file_design"}],
+            designBlueprint=blueprint,
+            templateBlueprint={
+                "templateId": "template_file_design",
+                "sourceFileId": "file_design",
+                "slides": [
+                    {
+                        "slideIndex": 1,
+                        "sourceSlideIndex": 1,
+                        "slots": [
+                            {
+                                "elementId": "el_imported_1_title",
+                                "usage": "content-slot",
+                                "slotRole": "title",
+                                "replaceMode": "replace",
+                                "confidence": 0.95,
+                                "bounds": {
+                                    "x": 120,
+                                    "y": 96,
+                                    "width": 1200,
+                                    "height": 120,
+                                },
+                                "source": {"type": "placeholder", "name": "Title 1"},
+                            },
+                            {
+                                "elementId": "el_imported_1_fixed",
+                                "usage": "fixed-text",
+                                "slotRole": "caption",
+                                "replaceMode": "preserve",
+                                "confidence": 0.9,
+                                "bounds": {
+                                    "x": 120,
+                                    "y": 280,
+                                    "width": 1200,
+                                    "height": 120,
+                                },
+                                "source": {"type": "layout", "name": "Footer"},
+                            },
+                        ],
+                    }
+                ],
+            },
+        )
+    )
+
+    text_values = [
+        element["props"]["text"]
+        for element in response.deck["slides"][0]["elements"]
+        if element["type"] == "text"
+    ]
+
+    assert "ORBIT" in text_values
+    assert "Do not touch fixed text" in text_values
+    assert "Original confidential title" not in text_values
+
+
 def test_refiner_shrinks_clamps_and_corrects_text_contrast() -> None:
     deck = {
         "deckId": "deck_ai_refine",
