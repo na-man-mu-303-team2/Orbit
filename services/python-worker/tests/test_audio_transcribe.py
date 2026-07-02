@@ -80,6 +80,25 @@ def test_transcribe_audio_returns_fixture_transcript(tmp_path: Path) -> None:
     assert provider.last_audio.data == b"fake wav bytes"
 
 
+def test_audio_reference_accepts_flac_mime_type(tmp_path: Path) -> None:
+    audio_path = tmp_path / "rehearsal.flac"
+    audio_path.write_bytes(b"fake flac bytes")
+
+    request = AudioTranscribeRequest.model_validate(
+        {
+            "runId": "run_demo_1",
+            "projectId": "project_demo_1",
+            "audio": {
+                "fileId": "file_demo_1",
+                "storageUrl": str(audio_path),
+                "mimeType": "audio/flac",
+            },
+        }
+    )
+
+    assert request.audio.mime_type == "audio/flac"
+
+
 def test_transcribe_audio_wraps_provider_failure(tmp_path: Path) -> None:
     audio_path = tmp_path / "rehearsal.wav"
     audio_path.write_bytes(b"fake wav bytes")
@@ -119,6 +138,23 @@ def test_missing_audio_file_returns_predictable_error(tmp_path: Path) -> None:
 def test_report_stt_provider_rejects_non_openai_values() -> None:
     with pytest.raises(ConfigError, match="REPORT_STT_PROVIDER"):
         load_config({**VALID_ENV, "REPORT_STT_PROVIDER": "sherpa"})
+
+
+def test_whisperx_report_stt_provider_is_not_implemented_yet() -> None:
+    config = load_config(
+        {
+            **VALID_ENV,
+            "REPORT_STT_PROVIDER": "whisperx",
+            "WHISPERX_API_URL": "https://whisperx.example.test/transcribe",
+            "WHISPERX_API_KEY": "whisperx-test-key",
+        }
+    )
+
+    with pytest.raises(AudioTranscriptionError) as error:
+        create_speech_to_text_provider(config)
+
+    assert error.value.code == "unsupported_provider"
+    assert "아직 지원하지 않습니다" in error.value.message
 
 
 def test_openai_stt_requires_api_key() -> None:

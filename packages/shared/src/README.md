@@ -21,18 +21,18 @@
 | `deck/deck-api.schema.ts` | 덱 저장/복원 API request, response, error, snapshot, patch log entry 계약. NestJS API와 web/editor/AI consumer가 같은 API 표면을 공유할 때 사용한다. |
 | `deck/ai-suggestion.schema.ts` | 저장된 AI 제안의 request/response, 상태, error, slide-scoped patch validation 계약. 생성/목록 조회는 deck을 바꾸지 않고, apply 응답은 deck patch 적용 결과를 포함한다. |
 | `deck/generate-deck.schema.ts` | AI 덱 생성 request, response, validation issue, job result 계약. API, worker, web이 같은 generate-deck payload를 검증할 때 사용한다. |
-| `deck/deck.schema.ts` | deck top-level 구조, metadata, canvas preset, theme, slide layout/style, slide, keyword schema와 `Deck`, `DeckCanvas`, `DeckMetadata`, `Slide`, `SlideLayout`, `SlideStyle`, `Keyword` 타입. |
+| `deck/deck.schema.ts` | deck top-level 구조, presenter timing, metadata, canvas preset, theme, slide layout/style, slide, keyword schema와 `Deck`, `DeckCanvas`, `DeckMetadata`, `Slide`, `SlideLayout`, `SlideStyle`, `Keyword` 타입. |
 | `deck/id.schema.ts` | deck 내부 ID prefix schema와 `DeckId`, `DeckSlideId`, `DeckElementId`, `DeckAnimationId`, `DeckKeywordId`, `DeckChangeId` 타입. |
 | `deck/patch.schema.ts` | deck 변경 요청과 적용 이력 schema. AI, 편집기, import가 전체 Deck JSON을 다시 만들지 않고 patch operation으로 변경을 전달할 때 사용한다. |
 | `deck/slide-object.schema.ts` | slide element schema, element type/role, 타입별 props, 좌표/크기/회전/투명도/z-index/잠금/표시 상태를 관리한다. |
 | `deck/animation.schema.ts` | animation schema와 MVP animation type. 객체/슬라이드 애니메이션 계약을 관리한다. |
 | `deck/chart.schema.ts` | chart type, 타입별 chart datum, chart style, chart schema. chart object props 검증에 사용한다. |
 | `deck/theme.schema.ts` | deck theme schema. deck 전체 기본 디자인 토큰, palette, typography, effects 계약을 관리한다. |
-| `files/file.schema.ts` | 파일 업로드 결과와 file purpose schema. |
+| `files/file.schema.ts` | 파일 업로드 결과, file purpose, rehearsal audio MIME schema와 runtime size limit 주입 helper. |
 | `jobs/job.schema.ts` | 비동기 Job 상태, type, 진행률, 결과/에러 schema. |
 | `projects/project.schema.ts` | 프로젝트 생성 요청과 프로젝트 응답 schema. |
 | `rehearsals/live-stt.schema.ts` | 발표/리허설 중 온디바이스 Live STT가 내보내는 local transcript, keyword, cue, slide advance event 계약. |
-| `rehearsals/rehearsal.schema.ts` | 리허설 run, audio upload-url/complete, run 조회 API 계약. |
+| `rehearsals/rehearsal.schema.ts` | 리허설 run, legacy upload-url/complete 요청, 후속 audio chunk begin/upload/complete, run meta, run 조회 API 계약. `completeRehearsalAudioUploadRequestSchema`는 `{ fileId }` legacy complete 요청이며 chunk manifest는 `completeRehearsalAudioChunkUploadRequestSchema`를 사용한다. |
 | `realtime/websocket.schema.ts` | WebSocket event envelope과 주요 payload schema. |
 | `presentation/presentation.schema.ts` | 발표 세션, 리허설 지표, 최종 보고서 schema. |
 
@@ -40,10 +40,10 @@
 
 ORBIT-14의 핵심 작업은 deck 계약을 더 엄격하게 만드는 것이다.
 
-- `deck/deck.schema.ts`: top-level 필드는 `deckId`, `projectId`, `title`, `version`, `metadata`, `canvas`, `theme`, `slides`로 관리한다. `width`, `height`는 top-level이 아니라 `canvas` 안에서만 관리한다.
+- `deck/deck.schema.ts`: top-level 필드는 `deckId`, `projectId`, `title`, `version`, `metadata`, `targetDurationMinutes`, `canvas`, `theme`, `slides`로 관리한다. `width`, `height`는 top-level이 아니라 `canvas` 안에서만 관리한다.
 - `deck/deck.schema.ts`: `1920x1080` 16:9, `1024x768` 4:3, `metadata.language = "ko"`, `metadata.locale = "ko-KR"` 강제 대상. `metadata`, `theme`는 입력 생략 시 기본값으로 채우고, `slides`는 최소 1개 이상으로 검증한다.
 - `deck/deck.schema.ts`: `theme`는 deck 전체 기본 디자인 토큰이다. `palette`, `typography`, `effects`를 포함하고, object props가 있으면 object props가 우선한다.
-- `deck/deck.schema.ts`: slide 필드는 `slideId`, `order`, `title`, `thumbnailUrl`, `style`, `speakerNotes`, `elements`, `keywords`, `animations`를 유지한다. `slide.style.layout`은 AI 생성 결과의 레이아웃 preset으로 사용하고, 슬라이드별 크기 override는 허용하지 않는다.
+- `deck/deck.schema.ts`: slide 필드는 `slideId`, `order`, `title`, `thumbnailUrl`, `estimatedSeconds`, `style`, `speakerNotes`, `elements`, `keywords`, `animations`를 유지한다. `estimatedSeconds`는 presenter 목표 시간 비교용 선택 필드이고, `slide.style.layout`은 AI 생성 결과의 레이아웃 preset으로 사용하며, 슬라이드별 크기 override는 허용하지 않는다.
 - `deck/id.schema.ts`: deck 내부 ID는 `deck_`, `slide_`, `el_`, `anim_`, `kw_`, `change_` prefix를 강제한다. `projectId`, `fileId`, `jobId`, `sessionId`, `userId` 등 다른 도메인 소유 ID는 여기서 강제하지 않는다.
 - `deck/patch.schema.ts`: `DeckPatchSchema`는 적용 요청, `DeckChangeRecordSchema`는 적용 완료 이력이다. patch는 `baseVersion` 기준으로 충돌을 확인하고, 적용 후 최종 Deck JSON은 반드시 `deckSchema`로 다시 검증한다.
 - `deck/patch.schema.ts`: patch operation은 deck 제목, slide 추가/수정/삭제/정렬, theme 수정, slide style 수정, element 추가/좌표/props/삭제, speakerNotes, keywords, animation 추가/수정/삭제를 지원한다. element props patch는 타입별 부분 업데이트를 위해 `record unknown`으로 받고, 적용된 최종 element는 `deckElementSchema`가 검증한다.

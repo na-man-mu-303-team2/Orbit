@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   assetUploadUrlRequestSchema,
+  createAssetUploadUrlRequestSchema,
   maxRehearsalAudioUploadSizeBytes,
 } from "./file.schema";
 
@@ -17,7 +18,7 @@ describe("assetUploadUrlRequestSchema", () => {
   });
 
   it("accepts OpenAI-compatible rehearsal audio MIME aliases", () => {
-    for (const mimeType of ["audio/mp3", "audio/x-m4a"] as const) {
+    for (const mimeType of ["audio/mp3", "audio/flac", "audio/x-m4a"] as const) {
       const result = assetUploadUrlRequestSchema.parse({
         originalName: "rehearsal.audio",
         mimeType,
@@ -51,8 +52,8 @@ describe("assetUploadUrlRequestSchema", () => {
     expect(result.success).toBe(false);
   });
 
-  it("rejects rehearsal audio MIME types that OpenAI report STT does not accept", () => {
-    for (const mimeType of ["audio/ogg", "audio/flac"] as const) {
+  it("rejects rehearsal audio MIME types outside the report STT contract", () => {
+    for (const mimeType of ["audio/ogg"] as const) {
       const result = assetUploadUrlRequestSchema.safeParse({
         originalName: "rehearsal.audio",
         mimeType,
@@ -64,7 +65,7 @@ describe("assetUploadUrlRequestSchema", () => {
     }
   });
 
-  it("rejects rehearsal audio above the OpenAI upload limit", () => {
+  it("rejects rehearsal audio above the rehearsal upload limit", () => {
     const result = assetUploadUrlRequestSchema.safeParse({
       originalName: "rehearsal.webm",
       mimeType: "audio/webm",
@@ -73,5 +74,35 @@ describe("assetUploadUrlRequestSchema", () => {
     });
 
     expect(result.success).toBe(false);
+  });
+
+  it("uses the configured rehearsal audio upload limit when provided", () => {
+    const schema = createAssetUploadUrlRequestSchema({
+      maxRehearsalAudioUploadSizeBytes: 1024,
+    });
+
+    const result = schema.safeParse({
+      originalName: "rehearsal.flac",
+      mimeType: "audio/flac",
+      size: 1025,
+      purpose: "rehearsal-audio",
+    });
+
+    expect(result.success).toBe(false);
+  });
+
+  it("allows a larger runtime rehearsal audio limit when the caller configures one", () => {
+    const schema = createAssetUploadUrlRequestSchema({
+      maxRehearsalAudioUploadSizeBytes: 209_715_200,
+    });
+
+    const result = schema.safeParse({
+      originalName: "rehearsal.flac",
+      mimeType: "audio/flac",
+      size: maxRehearsalAudioUploadSizeBytes + 1,
+      purpose: "rehearsal-audio",
+    });
+
+    expect(result.success).toBe(true);
   });
 });

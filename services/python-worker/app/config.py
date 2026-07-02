@@ -29,6 +29,10 @@ ENV_KEYS = {
     "JOB_QUEUE_DRIVER",
     "LIVE_STT_PROVIDER",
     "REPORT_STT_PROVIDER",
+    "REHEARSAL_AUDIO_MAX_BYTES",
+    "WHISPERX_API_URL",
+    "WHISPERX_API_KEY",
+    "WHISPERX_MODEL",
     "OCR_PROVIDER",
     "LLM_PROVIDER",
     "OPENAI_API_KEY",
@@ -51,6 +55,9 @@ LOCAL_DEFAULTS = {
     "S3_PUBLIC_ENDPOINT": "http://localhost:9000",
     "S3_BUCKET": "orbit-local",
 }
+
+OPENAI_REHEARSAL_AUDIO_MAX_BYTES = 25_000_000
+WHISPERX_REHEARSAL_AUDIO_MAX_BYTES = 209_715_200
 
 
 class ConfigError(RuntimeError):
@@ -77,7 +84,17 @@ class PythonWorkerConfig(BaseModel):
     s3_force_path_style: bool = Field(alias="S3_FORCE_PATH_STYLE")
     job_queue_driver: Literal["bullmq", "sqs"] = Field(alias="JOB_QUEUE_DRIVER")
     live_stt_provider: Literal["sherpa"] = Field(alias="LIVE_STT_PROVIDER")
-    report_stt_provider: Literal["openai"] = Field(alias="REPORT_STT_PROVIDER")
+    report_stt_provider: Literal["openai", "whisperx"] = Field(
+        alias="REPORT_STT_PROVIDER"
+    )
+    rehearsal_audio_max_bytes: int = Field(
+        default=OPENAI_REHEARSAL_AUDIO_MAX_BYTES,
+        alias="REHEARSAL_AUDIO_MAX_BYTES",
+        ge=1,
+    )
+    whisperx_api_url: str | None = Field(default=None, alias="WHISPERX_API_URL")
+    whisperx_api_key: str | None = Field(default=None, alias="WHISPERX_API_KEY")
+    whisperx_model: str | None = Field(default=None, alias="WHISPERX_MODEL")
     ocr_provider: Literal["python", "textract"] = Field(alias="OCR_PROVIDER")
     llm_provider: Literal["openai"] = Field(alias="LLM_PROVIDER")
     openai_api_key: str | None = Field(default=None, alias="OPENAI_API_KEY")
@@ -100,6 +117,23 @@ class PythonWorkerConfig(BaseModel):
             value = self.model_dump(by_alias=True).get(key)
             if not isinstance(value, str) or not _is_url(value):
                 errors.append(f"{key} must be a valid URL")
+
+        if self.report_stt_provider == "whisperx":
+            if not self.whisperx_api_url:
+                errors.append(
+                    "REPORT_STT_PROVIDER=whisperx일 때 WHISPERX_API_URL이 필요합니다."
+                )
+            elif not _is_url(self.whisperx_api_url):
+                errors.append("WHISPERX_API_URL은 올바른 URL이어야 합니다.")
+
+            if not self.whisperx_api_key:
+                errors.append(
+                    "REPORT_STT_PROVIDER=whisperx일 때 WHISPERX_API_KEY가 필요합니다."
+                )
+        elif self.rehearsal_audio_max_bytes > OPENAI_REHEARSAL_AUDIO_MAX_BYTES:
+            errors.append(
+                "REPORT_STT_PROVIDER=openai일 때 REHEARSAL_AUDIO_MAX_BYTES는 25000000 이하여야 합니다."
+            )
 
         if self.storage_driver == "minio":
             for key in [

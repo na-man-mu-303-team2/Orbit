@@ -19,6 +19,7 @@ SUPPORTED_AUDIO_MIME_TYPES = {
     "audio/mp4",
     "audio/mpeg",
     "audio/mpga",
+    "audio/flac",
     "audio/wav",
     "audio/webm",
     "audio/x-m4a",
@@ -183,14 +184,14 @@ def create_speech_to_text_provider(
     if config.report_stt_provider != "openai":
         raise AudioTranscriptionError(
             "unsupported_provider",
-            f"REPORT_STT_PROVIDER={config.report_stt_provider} is not supported for /audio/transcribe",
+            f"REPORT_STT_PROVIDER={config.report_stt_provider}는 /audio/transcribe에서 아직 지원하지 않습니다.",
             400,
         )
 
     if not config.openai_api_key:
         raise AudioTranscriptionError(
             "provider_not_configured",
-            "OPENAI_API_KEY is required when REPORT_STT_PROVIDER=openai",
+            "REPORT_STT_PROVIDER=openai일 때 OPENAI_API_KEY가 필요합니다.",
             500,
         )
 
@@ -310,6 +311,7 @@ def _extension_for_mime(mime_type: str) -> str:
         "audio/mp3": ".mp3",
         "audio/mp4": ".mp4",
         "audio/mpeg": ".mp3",
+        "audio/flac": ".flac",
         "audio/wav": ".wav",
         "audio/webm": ".webm",
         "audio/x-m4a": ".m4a",

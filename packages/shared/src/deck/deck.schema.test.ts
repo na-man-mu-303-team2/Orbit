@@ -8,6 +8,7 @@ type DeckValidationInput = {
   projectId: string;
   title: string;
   version: number;
+  targetDurationMinutes?: number;
   metadata: {
     language: string;
     locale: string;
@@ -32,6 +33,7 @@ type DeckValidationInput = {
     order: number;
     title: string;
     thumbnailUrl: string;
+    estimatedSeconds?: number;
     style: Record<string, unknown>;
     speakerNotes: string;
     aiNotes?: {
@@ -166,6 +168,35 @@ describe("deckSchema validation", () => {
   it("accepts a 1920x1080 wide-16-9 deck", () => {
     expectValidDeck(createValidDeck());
   });
+
+  it("defaults deck targetDurationMinutes to the generation request default", () => {
+    const deck = deckSchema.parse(createValidDeck());
+
+    expect(deck.targetDurationMinutes).toBe(10);
+  });
+
+  it("accepts explicit deck and slide presenter timing fields", () => {
+    const deck = createValidDeck();
+
+    deck.targetDurationMinutes = 20;
+    deck.slides[0].estimatedSeconds = 90;
+
+    const result = deckSchema.parse(deck);
+
+    expect(result.targetDurationMinutes).toBe(20);
+    expect(result.slides[0].estimatedSeconds).toBe(90);
+  });
+
+  it.each([0, -1, 1.5])(
+    "rejects invalid slide estimatedSeconds value %s",
+    (estimatedSeconds) => {
+      const deck = createValidDeck();
+
+      deck.slides[0].estimatedSeconds = estimatedSeconds;
+
+      expectInvalidDeck(deck);
+    }
+  );
 
   it("accepts a 1024x768 standard-4-3 deck", () => {
     const deck = createValidDeck();
