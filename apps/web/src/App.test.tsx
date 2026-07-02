@@ -15,6 +15,7 @@ import {
   getGeneratedDeckProjectTitle,
   getGenerateDeckJobResult,
   getJobResultFiles,
+  getRoute,
   mergeGeneratedProjectList,
   pollExtractJob,
   resolveGenerateDeckTargetProject,
@@ -56,7 +57,27 @@ describe("App shell routing", () => {
         runId: "run_demo_1"
       })
     ).toBe(false);
+    expect(
+      shouldRenderAppFrame({
+        name: "present",
+        deckId: "deck_demo_1",
+        sessionId: "session_demo_1"
+      })
+    ).toBe(false);
     expect(shouldRenderAppFrame({ name: "home" })).toBe(true);
+  });
+
+  it("parses presenter slide-window routes with an optional session id", () => {
+    expect(getRoute("/present/deck_demo_1", "?sessionId=session_demo_1")).toEqual({
+      name: "present",
+      deckId: "deck_demo_1",
+      sessionId: "session_demo_1"
+    });
+    expect(getRoute("/present/deck_demo_1")).toEqual({
+      name: "present",
+      deckId: "deck_demo_1",
+      sessionId: undefined
+    });
   });
 });
 

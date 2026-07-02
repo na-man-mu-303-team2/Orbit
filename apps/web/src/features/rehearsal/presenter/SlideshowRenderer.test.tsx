@@ -18,6 +18,8 @@ vi.mock("react-konva", () => {
         typeof props["data-highlight-element-id"] === "string"
           ? props["data-highlight-element-id"]
           : undefined,
+      "data-opacity":
+        typeof props.opacity === "number" ? String(props.opacity) : undefined,
       "data-testid":
         typeof props["data-testid"] === "string" ? props["data-testid"] : undefined
     };
@@ -112,6 +114,31 @@ describe("SlideshowRenderer", () => {
     expect(html).toContain("class=\"slideshow-renderer-thumbnail\"");
     expect(html).toContain("src=\"/slides/thumb.png\"");
     expect(html).not.toContain("data-testid=\"read-only-slide-stage\"");
+  });
+
+  it("starts first presenter render from entry animation start state", () => {
+    const html = renderToStaticMarkup(
+      <SlideshowRenderer
+        deck={p0AnimationDeck}
+        slideId="slide_p0_1"
+        stepIndex={0}
+      />
+    );
+
+    expect(html).toContain("data-element-id=\"el_title\" data-opacity=\"0\"");
+  });
+
+  it("restores settled state on first slide-window render", () => {
+    const html = renderToStaticMarkup(
+      <SlideshowRenderer
+        deck={p0AnimationDeck}
+        renderMode="slide-window"
+        slideId="slide_p0_1"
+        stepIndex={0}
+      />
+    );
+
+    expect(html).toContain("data-element-id=\"el_title\" data-opacity=\"1\"");
   });
 
   it("keeps renderer imports away from editor interaction modules", () => {

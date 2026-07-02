@@ -69,8 +69,12 @@ import {
   type RehearsalCommandDefinition
 } from "./rehearsalCommands";
 import { SherpaLiveSttAdapter } from "./sherpaOnnxLiveSttAdapter";
+import { DisplayControls } from "./presenter/DisplayControls";
+import { SingleScreenPresenter } from "./presenter/SingleScreenPresenter";
 import { SlideshowRenderer } from "./presenter/SlideshowRenderer";
 import { createSlideshowAnimationPlan } from "./presenter/slideshowStepModel";
+import { getNextPresenterStepState } from "./presenter/presenterStepNavigation";
+import { usePresentationChannelPublisher } from "./presenter/usePresentationChannelPublisher";
 import { usePresenterKeyboard } from "./presenter/usePresenterKeyboard";
 
 export {
@@ -1154,7 +1158,9 @@ export function RehearsalWorkspace(props: {
   const [isLiveDemoActive, setIsLiveDemoActive] = useState(false);
   const [isLiveStopModalOpen, setIsLiveStopModalOpen] = useState(false);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const [slideElapsedSeconds, setSlideElapsedSeconds] = useState(0);
   const [isTimerRunning, setIsTimerRunning] = useState(false);
+  const [isSingleScreenOpen, setIsSingleScreenOpen] = useState(false);
   const [timeMode, setTimeMode] = useState<RehearsalTimeMode>("stopwatch");
   const [timerDurationSeconds, setTimerDurationSeconds] = useState(5 * 60);
   const [elapsedTimeInput, setElapsedTimeInput] = useState("00:00");
@@ -1232,6 +1238,7 @@ export function RehearsalWorkspace(props: {
 
     const timer = window.setInterval(() => {
       setElapsedSeconds((current) => current + 1);
+      setSlideElapsedSeconds((current) => current + 1);
     }, 1000);
 
     return () => window.clearInterval(timer);
@@ -1271,7 +1278,26 @@ export function RehearsalWorkspace(props: {
   }, []);
 
   const currentSlide = deck?.slides[currentSlideIndex] ?? null;
+  const currentSlideTargetSeconds =
+    deck && currentSlide ? getSlideTargetSeconds(deck, currentSlide) : 0;
   const triggerAnimationIds = useMemo(() => [] as string[], [currentSlide?.slideId]);
+  const presentationChannelState = useMemo(
+    () =>
+      currentSlide
+        ? {
+            highlights: [],
+            slideId: currentSlide.slideId,
+            slideIndex: currentSlideIndex,
+            stepIndex: presenterStepIndex
+          }
+        : null,
+    [currentSlide?.slideId, currentSlideIndex, presenterStepIndex]
+  );
+  const presentationChannel = usePresentationChannelPublisher({
+    deck,
+    state: presentationChannelState,
+    triggerAnimationIds
+  });
   const slideshowAnimationPlan = currentSlide
     ? createSlideshowAnimationPlan({
         slide: currentSlide,
@@ -1301,6 +1327,10 @@ export function RehearsalWorkspace(props: {
   const canDownloadLiveSttDebugPcm = shouldShowLiveSttDebugPcmDownload(
     liveDebugPcmRecording
   );
+
+  useEffect(() => {
+    setSlideElapsedSeconds(0);
+  }, [currentSlide?.slideId]);
 
   usePresenterKeyboard({
     enabled: Boolean(deck),
@@ -1790,19 +1820,14 @@ export function RehearsalWorkspace(props: {
     if (!deck || !slideshowAnimationPlan) return;
     cancelPendingAutoAdvance("cancelled");
 
-    if (presenterStepIndex < slideshowAnimationPlan.maxStepIndex) {
-      setPresenterStepIndex(
-        Math.min(presenterStepIndex + 1, slideshowAnimationPlan.maxStepIndex)
-      );
-      return;
-    }
-
-    if (currentSlideIndexRef.current >= deck.slides.length - 1) {
-      return;
-    }
-
-    setPresenterStepIndex(0);
-    setCurrentSlideIndex((current) => Math.min(deck.slides.length - 1, current + 1));
+    const nextState = getNextPresenterStepState({
+      currentSlideIndex,
+      currentStepIndex: presenterStepIndex,
+      maxStepIndex: slideshowAnimationPlan.maxStepIndex,
+      slideCount: deck.slides.length
+    });
+    setPresenterStepIndex(nextState.stepIndex);
+    setCurrentSlideIndex(nextState.slideIndex);
   };
   const finishRehearsal = () => {
     const projectId = deck?.projectId ?? props.projectId ?? demoIds.projectId;
@@ -1829,6 +1854,21 @@ export function RehearsalWorkspace(props: {
   const checklistKeywords = getChecklistKeywords(currentSlide);
   const scriptParagraphs = buildScriptParagraphs(currentSlide);
   const hasDeletedRawAudio = Boolean(run?.rawAudioDeletedAt);
+
+  if (isSingleScreenOpen && deck && currentSlide) {
+    return (
+      <SingleScreenPresenter
+        deck={deck}
+        onExit={() => setIsSingleScreenOpen(false)}
+        slideElapsedLabel={formatClock(slideElapsedSeconds)}
+        slideId={currentSlide.slideId}
+        slideTargetLabel={formatClock(currentSlideTargetSeconds)}
+        stepIndex={presenterStepIndex}
+        totalTimeLabel={formatClock(displayedTimeSeconds)}
+        triggerAnimationIds={triggerAnimationIds}
+      />
+    );
+  }
 
   return (
     <main className="rehearsal-presenter-shell">
@@ -1872,6 +1912,25 @@ export function RehearsalWorkspace(props: {
           {"\ub9ac\ud5c8\uc124 \ub9c8\uce58\uae30"}
         </button>
         <h1 className="rehearsal-smoke-heading">리허설</h1>
+
+        {deck ? (
+          <div className="rehearsal-display-toolbar">
+            <DisplayControls
+              channelStatus={presentationChannel.status}
+              deckId={deck.deckId}
+              onPublishSnapshot={presentationChannel.publishSnapshot}
+              sessionId={presentationChannel.sessionId}
+            />
+            <button
+              className="presenter-single-screen-button"
+              type="button"
+              onClick={() => setIsSingleScreenOpen(true)}
+            >
+              <Monitor size={16} />
+              단일 화면
+            </button>
+          </div>
+        ) : null}
 
         <div className="rehearsal-timer-pill" aria-live="polite">
           <span className="timer-wave" aria-hidden="true">
@@ -2751,6 +2810,14 @@ function buildMissedKeywordLabels(deck: Deck | null, report: RehearsalReport | n
 
 function getTargetDurationSeconds(deck: Deck | null) {
   return Math.max(60, (deck?.slides.length ?? 7) * 40);
+}
+
+function getSlideTargetSeconds(deck: Deck, slide: Slide) {
+  if (slide.estimatedSeconds) {
+    return slide.estimatedSeconds;
+  }
+
+  return Math.max(1, Math.round((deck.targetDurationMinutes * 60) / deck.slides.length));
 }
 
 function buildSpeedSamples(wordsPerMinute: number) {

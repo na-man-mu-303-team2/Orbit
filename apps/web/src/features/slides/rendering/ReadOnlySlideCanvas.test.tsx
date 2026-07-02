@@ -139,6 +139,26 @@ describe("ReadOnlySlideCanvas", () => {
     expect(html).toContain("data-highlight-element-id=\"el_group_label\"");
   });
 
+  it("does not render grouped child highlights when the parent group is hidden", () => {
+    const html = renderToStaticMarkup(
+      <ReadOnlySlideCanvas
+        deck={p0AnimationDeck}
+        elementStates={{
+          el_group: {
+            opacity: 0,
+            visible: false
+          }
+        }}
+        highlights={[{ elementId: "el_group_label", active: true }]}
+        slide={slide}
+      />
+    );
+
+    expect(html).toContain("data-element-id=\"el_group\"");
+    expect(html).toContain("data-element-id=\"el_group_label\"");
+    expect(html).not.toContain("data-highlight-element-id=\"el_group_label\"");
+  });
+
   it("applies highlight events in order", () => {
     expect(
       [...getActiveHighlightElementIds([

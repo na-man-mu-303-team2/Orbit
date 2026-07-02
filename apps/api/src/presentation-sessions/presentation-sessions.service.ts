@@ -4,7 +4,8 @@ import {
   createAudienceAccessSessionRequestSchema,
   createAudienceAccessSessionResponseSchema,
   getCurrentAudienceAccessSessionResponseSchema,
-  updateAudienceAccessSessionStatusResponseSchema
+  updateAudienceAccessSessionStatusResponseSchema,
+  verifyAudienceAccessSessionResponseSchema
 } from "@orbit/shared";
 import type {
   AudienceAccessSession,
@@ -13,7 +14,7 @@ import type {
   GetCurrentAudienceAccessSessionResponse,
   UpdateAudienceAccessSessionStatusResponse
 } from "@orbit/shared";
-import { Injectable, NotFoundException } from "@nestjs/common";
+import { Injectable, NotFoundException, UnauthorizedException } from "@nestjs/common";
 import { InjectDataSource } from "@nestjs/typeorm";
 import { DataSource } from "typeorm";
 
@@ -23,6 +24,10 @@ type PresentationSessionRow = {
   status: AudienceAccessSessionStatus;
   created_at: Date | string;
   expires_at: Date | string;
+};
+
+type PresentationSessionWithPasswordRow = PresentationSessionRow & {
+  session_password_hash: string;
 };
 
 @Injectable()
@@ -93,6 +98,61 @@ export class PresentationSessionsService {
     return getCurrentAudienceAccessSessionResponseSchema.parse({
       session,
       audienceUrl: this.buildAudienceUrl(session.sessionId)
+    });
+  }
+
+  async getOpenSessionById(sessionId: string): Promise<AudienceAccessSession> {
+    const rows = await this.dataSource.query<PresentationSessionRow[]>(
+      `
+        SELECT session_id, project_id, status, created_at, expires_at
+        FROM presentation_sessions
+        WHERE session_id = $1
+          AND status = 'open'
+          AND expires_at > now()
+        LIMIT 1
+      `,
+      [sessionId]
+    );
+
+    const row = rows[0];
+    if (!row) {
+      throw new NotFoundException("Audience session not found");
+    }
+
+    return this.toSessionDto(row);
+  }
+
+  async verifyAudienceAccess(sessionId: string, passcode: string) {
+    const rows = await this.dataSource.query<PresentationSessionWithPasswordRow[]>(
+      `
+        SELECT
+          session_id,
+          session_password_hash,
+          project_id,
+          status,
+          created_at,
+          expires_at
+        FROM presentation_sessions
+        WHERE session_id = $1
+          AND status = 'open'
+          AND expires_at > now()
+        LIMIT 1
+      `,
+      [sessionId]
+    );
+    const row = rows[0];
+    if (!row) {
+      throw new NotFoundException("Invalid audience session or passcode");
+    }
+
+    const isValid = await argon2.verify(row.session_password_hash, passcode);
+    if (!isValid) {
+      throw new UnauthorizedException("Invalid audience session or passcode");
+    }
+
+    return verifyAudienceAccessSessionResponseSchema.parse({
+      verified: true,
+      session: this.toSessionDto(row)
     });
   }
 
