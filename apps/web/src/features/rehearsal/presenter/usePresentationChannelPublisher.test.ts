@@ -7,6 +7,7 @@ import {
 } from "./presentationChannel";
 import {
   createPresentationPublisherController,
+  isPresentationPeerStale,
   type PresentationChannelStatus
 } from "./usePresentationChannelPublisher";
 
@@ -138,5 +139,11 @@ describe("createPresentationPublisherController", () => {
     controller.handleIncoming(createSlideWindowHeartbeatMessage(identity, 50));
 
     expect(statuses).toEqual(["connected"]);
+  });
+
+  it("marks peer state stale only after the 5 second heartbeat window", () => {
+    expect(isPresentationPeerStale(null, 6000)).toBe(false);
+    expect(isPresentationPeerStale(1000, 6000)).toBe(false);
+    expect(isPresentationPeerStale(1000, 6001)).toBe(true);
   });
 });

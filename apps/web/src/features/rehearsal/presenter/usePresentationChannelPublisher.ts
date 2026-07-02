@@ -130,7 +130,7 @@ export function usePresentationChannelPublisher(args: {
     }, 1000);
     const staleTimer = window.setInterval(() => {
       const lastPeerSeenAt = lastPeerSeenAtRef.current;
-      if (lastPeerSeenAt !== null && Date.now() - lastPeerSeenAt > 5000) {
+      if (isPresentationPeerStale(lastPeerSeenAt, Date.now())) {
         setStatus("stale");
       }
     }, 1000);
@@ -203,6 +203,14 @@ export function createPresentationPublisherController(args: {
       }
     }
   };
+}
+
+export function isPresentationPeerStale(
+  lastPeerSeenAt: number | null,
+  now: number,
+  staleAfterMs = 5000
+) {
+  return lastPeerSeenAt !== null && now - lastPeerSeenAt > staleAfterMs;
 }
 
 function handlePublisherMessage(
