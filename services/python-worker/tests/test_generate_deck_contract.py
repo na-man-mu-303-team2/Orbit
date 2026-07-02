@@ -11,7 +11,9 @@ from app.ai.generate_deck import (
     ReferenceContext,
     SlideCountRange,
     choose_slide_count,
+    detect_text_overlap_candidates,
     generate_deck,
+    review_text_overlap_candidates,
 )
 from tests.test_config import VALID_ENV
 
@@ -1082,6 +1084,107 @@ def test_generate_deck_does_not_choose_media_preset_without_media() -> None:
     assert not has_element(slide, "el_1_media_placeholder")
 
 
+def test_text_overlap_candidates_ignore_empty_and_footer_text() -> None:
+    deck = text_overlap_deck(
+        [
+            text_box("el_a", 100, 100, "본문 A"),
+            text_box("el_b", 160, 130, "본문 B"),
+            text_box("el_empty", 100, 100, "  "),
+            text_box("el_footer", 100, 100, "Footer", role="footer"),
+        ]
+    )
+
+    candidates = detect_text_overlap_candidates(deck)
+
+    assert len(candidates) == 1
+    assert candidates[0].first_element_id == "el_a"
+    assert candidates[0].second_element_id == "el_b"
+    assert candidates[0].overlap_ratio >= 0.15
+
+
+def test_text_overlap_image_review_adds_unreadable_warning() -> None:
+    deck = text_overlap_deck(
+        [
+            text_box("el_a", 100, 100, "겹친 본문 A"),
+            text_box("el_b", 140, 120, "겹친 본문 B"),
+        ]
+    )
+    fake_client = FakeImageReviewClient(
+        {"unreadable": True, "reason": "두 텍스트가 같은 영역에 겹칩니다."}
+    )
+
+    issues = review_text_overlap_candidates(
+        deck,
+        detect_text_overlap_candidates(deck),
+        client=fake_client,
+        model="gpt-test",
+    )
+
+    assert len(issues) == 1
+    assert "이미지 검증" in issues[0].message
+    request = fake_client.requests[0]
+    assert request["model"] == "gpt-test"
+    content = request["input"][0]["content"]
+    assert content[1]["type"] == "input_image"
+    assert content[1]["image_url"].startswith("data:image/png;base64,")
+
+
+@pytest.mark.parametrize(
+    ("mode", "error"),
+    [
+        ("off", None),
+        ("auto", RuntimeError("image input unsupported")),
+    ],
+)
+def test_text_overlap_image_review_falls_back_without_failing(
+    mode: str,
+    error: Exception | None,
+) -> None:
+    deck = text_overlap_deck(
+        [
+            text_box("el_a", 100, 100, "본문 A"),
+            text_box("el_b", 150, 110, "본문 B"),
+        ]
+    )
+    client = FakeImageReviewClient(
+        {"unreadable": False, "reason": ""},
+        error=error,
+    )
+
+    issues = review_text_overlap_candidates(
+        deck,
+        detect_text_overlap_candidates(deck),
+        client=client,
+        image_review_mode=mode,  # type: ignore[arg-type]
+    )
+
+    assert len(issues) == 1
+    assert "el_a" in issues[0].message
+    if mode == "off":
+        assert client.requests == []
+
+
+def test_text_overlap_review_skips_llm_when_no_candidate_exists() -> None:
+    deck = text_overlap_deck(
+        [
+            text_box("el_a", 100, 100, "본문 A"),
+            text_box("el_b", 500, 100, "본문 B"),
+        ]
+    )
+    fake_client = FakeImageReviewClient(
+        {"unreadable": True, "reason": "should not run"}
+    )
+
+    issues = review_text_overlap_candidates(
+        deck,
+        detect_text_overlap_candidates(deck),
+        client=fake_client,
+    )
+
+    assert issues == []
+    assert fake_client.requests == []
+
+
 def test_generate_deck_endpoint_requires_llm_for_reference_generation() -> None:
     response = client().post(
         "/ai/generate-deck",
@@ -1507,6 +1610,130 @@ def element_by_role(slide: dict[str, Any], role: str) -> dict[str, Any]:
         for element in slide["elements"]
         if element["role"] == role
     )
+
+
+def text_overlap_deck(elements: list[dict[str, Any]]) -> dict[str, Any]:
+    return {
+        "deckId": "deck_overlap",
+        "projectId": "project_demo_1",
+        "title": "Overlap",
+        "version": 1,
+        "metadata": {
+            "language": "ko",
+            "locale": "ko-KR",
+            "createdFrom": {"topic": "Overlap", "references": []},
+        },
+        "canvas": {
+            "preset": "wide-16-9",
+            "width": 1920,
+            "height": 1080,
+            "aspectRatio": "16:9",
+        },
+        "theme": {
+            "name": "test",
+            "fontFamily": "Inter",
+            "backgroundColor": "#ffffff",
+            "textColor": "#111827",
+            "accentColor": "#2563eb",
+            "palette": {
+                "primary": "#2563eb",
+                "secondary": "#0f172a",
+                "accent": "#2563eb",
+                "background": "#ffffff",
+                "surface": "#f8fafc",
+                "text": "#111827",
+                "muted": "#64748b",
+                "border": "#cbd5e1",
+            },
+            "typography": {
+                "headingFontFamily": "Inter",
+                "bodyFontFamily": "Inter",
+                "monoFontFamily": "JetBrains Mono",
+                "scale": 1,
+            },
+            "effects": {"shadow": "none", "borderRadius": 8},
+        },
+        "slides": [
+            {
+                "slideId": "slide_overlap",
+                "order": 1,
+                "title": "Overlap",
+                "thumbnailUrl": "",
+                "style": {},
+                "speakerNotes": "notes",
+                "elements": elements,
+                "keywords": [],
+                "animations": [],
+            }
+        ],
+    }
+
+
+def text_box(
+    element_id: str,
+    x: int,
+    y: int,
+    text: str,
+    *,
+    role: str = "body",
+) -> dict[str, Any]:
+    return {
+        "elementId": element_id,
+        "type": "text",
+        "role": role,
+        "x": x,
+        "y": y,
+        "width": 300,
+        "height": 120,
+        "rotation": 0,
+        "opacity": 1,
+        "zIndex": 1,
+        "locked": False,
+        "visible": True,
+        "props": {
+            "text": text,
+            "fontFamily": "Inter",
+            "fontSize": 32,
+            "fontWeight": "normal",
+            "color": "#111827",
+            "align": "left",
+            "verticalAlign": "top",
+            "lineHeight": 1.2,
+        },
+    }
+
+
+class FakeImageReviewClient:
+    def __init__(
+        self,
+        payload: dict[str, object] | None = None,
+        *,
+        error: Exception | None = None,
+    ) -> None:
+        self.requests: list[dict[str, Any]] = []
+        self.responses = FakeImageReviewResponses(self, payload or {}, error)
+
+
+class FakeImageReviewResponses:
+    def __init__(
+        self,
+        parent: FakeImageReviewClient,
+        payload: dict[str, object],
+        error: Exception | None,
+    ) -> None:
+        self.parent = parent
+        self.payload = payload
+        self.error = error
+
+    def create(self, **kwargs: Any) -> object:
+        self.parent.requests.append(kwargs)
+        if self.error:
+            raise self.error
+        return type(
+            "Response",
+            (),
+            {"output_text": json.dumps(self.payload, ensure_ascii=False)},
+        )()
 
 
 class FakeOpenAIClient:

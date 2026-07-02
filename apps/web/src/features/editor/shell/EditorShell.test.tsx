@@ -3,6 +3,7 @@ import { demoIds } from "@orbit/shared";
 import type {
   AiSuggestion,
   Deck,
+  DeckElement,
   ListAiSuggestionsResponse
 } from "@orbit/shared";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -13,6 +14,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   EditorShell,
   EditorStateNotice,
+  getEditorValidationItems,
   mergeDeckIntoQueryCache,
   shouldApplyManualSaveResult,
   shouldHydrateDeckFromQuery
@@ -155,6 +157,33 @@ describe("editor shell", () => {
     expect(html).toContain("AI 제안 검토");
     expect(html).toContain("이미지");
     expect(html).toContain('data-testid="editor-slide-quickbar"');
+  });
+
+  it("returns a warning for unreadable text overlap", () => {
+    const deck = createDemoDeck();
+    deck.slides[0].elements = [
+      editorTextElement("text_a", 100, 100, "본문 A"),
+      editorTextElement("text_b", 150, 120, "본문 B")
+    ];
+
+    const items = getEditorValidationItems(deck);
+
+    expect(items).toHaveLength(1);
+    expect(items[0]).toMatchObject({
+      elementIds: ["text_a", "text_b"],
+      level: "warning",
+      slideId: deck.slides[0].slideId
+    });
+  });
+
+  it("does not warn for small decorative text overlap", () => {
+    const deck = createDemoDeck();
+    deck.slides[0].elements = [
+      editorTextElement("text_a", 100, 100, "본문 A"),
+      editorTextElement("text_b", 370, 100, "본문 B")
+    ];
+
+    expect(getEditorValidationItems(deck)).toEqual([]);
   });
 
   it("loads AI suggestions with the route project id", () => {
@@ -567,3 +596,35 @@ describe("editor shell", () => {
     expect(html).toContain("demo fallback");
   });
 });
+
+function editorTextElement(
+  elementId: string,
+  x: number,
+  y: number,
+  text: string
+): DeckElement {
+  return {
+    elementId,
+    type: "text",
+    role: "body",
+    x,
+    y,
+    width: 300,
+    height: 120,
+    rotation: 0,
+    opacity: 1,
+    zIndex: 1,
+    locked: false,
+    visible: true,
+    props: {
+      text,
+      fontFamily: "Inter",
+      fontSize: 32,
+      fontWeight: "normal",
+      color: "#111827",
+      align: "left",
+      verticalAlign: "top",
+      lineHeight: 1.2
+    }
+  };
+}

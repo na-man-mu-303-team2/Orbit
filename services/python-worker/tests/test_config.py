@@ -51,6 +51,15 @@ def test_openai_model_defaults_are_loaded_from_env() -> None:
     assert config.openai_embedding_model == "text-embedding-3-large"
 
 
+def test_ai_slide_image_review_mode_defaults_to_auto() -> None:
+    config = load_config(VALID_ENV)
+
+    assert config.ai_slide_image_review_mode == "auto"
+
+    with pytest.raises(ConfigError, match="AI_SLIDE_IMAGE_REVIEW_MODE"):
+        load_config({**VALID_ENV, "AI_SLIDE_IMAGE_REVIEW_MODE": "manual"})
+
+
 def test_live_and_report_stt_providers_are_separate_contracts() -> None:
     config = load_config(VALID_ENV)
 
