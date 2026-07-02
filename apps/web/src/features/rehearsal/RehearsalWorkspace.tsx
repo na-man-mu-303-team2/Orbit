@@ -68,7 +68,12 @@ import {
   type RehearsalCommandCandidate,
   type RehearsalCommandDefinition
 } from "./rehearsalCommands";
-import { SherpaLiveSttAdapter } from "./sherpaOnnxLiveSttAdapter";
+import {
+  LiveSttError,
+  type LiveSttPort,
+  type LiveSttResult
+} from "./stt/liveSttPort";
+import { SherpaLiveSttPort } from "./stt/sherpaLiveSttPort";
 import { DisplayControls } from "./presenter/DisplayControls";
 import { SingleScreenPresenter } from "./presenter/SingleScreenPresenter";
 import { SlideshowRenderer } from "./presenter/SlideshowRenderer";
@@ -1120,14 +1125,37 @@ function levenshteinDistance(left: string, right: string) {
   return previous[right.length] ?? 0;
 }
 
-function createDefaultLiveSttAdapter() {
-  return window.__orbitCreateLiveSttAdapter?.() ?? new SherpaLiveSttAdapter();
+function createDefaultLiveSttPort(options: {
+  legacyAdapter?: LiveSttAdapter;
+  onAudioLevel?: (event: LiveSttAudioLevelEvent) => void;
+  onDebugPcmAvailable?: (recording: LiveSttDebugPcmRecording) => void;
+  getDecodingMethod?: () => LiveSttDecodingMethod | null;
+} = {}) {
+  const { legacyAdapter, onAudioLevel, onDebugPcmAvailable, getDecodingMethod } =
+    options;
+  const sherpaOptions = {
+    onAudioLevel,
+    onDebugPcmAvailable,
+    getDecodingMethod
+  };
+
+  if (legacyAdapter) {
+    return new SherpaLiveSttPort({ ...sherpaOptions, adapter: legacyAdapter });
+  }
+
+  const windowAdapter = window.__orbitCreateLiveSttAdapter?.();
+  if (windowAdapter) {
+    return new SherpaLiveSttPort({ ...sherpaOptions, adapter: windowAdapter });
+  }
+
+  return new SherpaLiveSttPort(sherpaOptions);
 }
 
 export function RehearsalWorkspace(props: {
   initialDeck?: Deck;
   fallbackDeck?: Deck;
   liveSttAdapter?: LiveSttAdapter;
+  liveSttPort?: LiveSttPort;
   autoAdvanceDelayMs?: number;
   projectId?: string;
 }) {
@@ -1171,9 +1199,8 @@ export function RehearsalWorkspace(props: {
   const sessionRef = useRef<RecordingSession | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const liveDemoStreamRef = useRef<MediaStream | null>(null);
-  const liveSttAdapterRef = useRef<LiveSttAdapter | null>(
-    props.liveSttAdapter ?? null
-  );
+  const liveSttPortRef = useRef<LiveSttPort | null>(props.liveSttPort ?? null);
+  const liveSttSubscriptionCleanupRef = useRef<(() => void) | null>(null);
   const finishAfterReportRef = useRef(false);
   const deckRef = useRef<Deck | null>(props.initialDeck ?? null);
   const currentSlideIndexRef = useRef(0);
@@ -1270,8 +1297,9 @@ export function RehearsalWorkspace(props: {
   useEffect(() => {
     return () => {
       cancelPendingAutoAdvance("cancelled");
-      liveSttAdapterRef.current?.stop();
-      liveSttAdapterRef.current?.dispose();
+      cleanupLiveSttSubscriptions();
+      void liveSttPortRef.current?.stop();
+      void liveSttPortRef.current?.dispose();
       stopMediaStream(streamRef.current);
       stopMediaStream(liveDemoStreamRef.current);
     };
@@ -1351,8 +1379,10 @@ export function RehearsalWorkspace(props: {
       : null;
     liveBiasContextRef.current = nextBiasContext;
     const biasMode = getLiveSttBiasMode();
-    liveSttAdapterRef.current?.updateBiasContext?.(
-      shouldUseLiveSttHotwordBias(biasMode) ? nextBiasContext : null
+    void liveSttPortRef.current?.updateBiasPhrases(
+      shouldUseLiveSttHotwordBias(biasMode)
+        ? getBiasPhrasesFromContext(nextBiasContext)
+        : []
     );
   }, [currentSlide?.slideId, currentSlideIndex, deck]);
 
@@ -1466,7 +1496,8 @@ export function RehearsalWorkspace(props: {
 
   function stopLiveDemo(options: { showCompletionModal?: boolean } = {}) {
     const wasLiveDemoActive = isLiveDemoActive || isLiveSttActive;
-    liveSttAdapterRef.current?.stop();
+    cleanupLiveSttSubscriptions();
+    void liveSttPortRef.current?.stop();
     stopMediaStream(liveDemoStreamRef.current);
     liveDemoStreamRef.current = null;
     setLiveAudioLevel(null);
@@ -1487,7 +1518,8 @@ export function RehearsalWorkspace(props: {
     setPhase("uploading");
     setIsTimerRunning(false);
     cancelPendingAutoAdvance("cancelled");
-    liveSttAdapterRef.current?.stop();
+    cleanupLiveSttSubscriptions();
+    void liveSttPortRef.current?.stop();
     setLiveAudioLevel(null);
     setLiveStatus((current) =>
       current === "listening" || current === "starting" ? "stopped" : current
@@ -1544,9 +1576,16 @@ export function RehearsalWorkspace(props: {
   }
 
   async function startLiveStt(stream: MediaStream) {
-    const adapter =
-      props.liveSttAdapter ?? liveSttAdapterRef.current ?? createDefaultLiveSttAdapter();
-    liveSttAdapterRef.current = adapter;
+    const port =
+      props.liveSttPort ??
+      liveSttPortRef.current ??
+      createDefaultLiveSttPort({
+        legacyAdapter: props.liveSttAdapter,
+        onAudioLevel: setLiveAudioLevel,
+        onDebugPcmAvailable: setLiveDebugPcmRecording,
+        getDecodingMethod: getLiveSttDebugDecodingMethod
+      });
+    liveSttPortRef.current = port;
     const biasMode = getLiveSttBiasMode();
     const biasContext = deck && currentSlide
       ? getCurrentLiveBiasContext(deck, currentSlideIndex)
@@ -1555,24 +1594,26 @@ export function RehearsalWorkspace(props: {
     setLiveAudioLevel(null);
 
     try {
-      await adapter.start(
-        stream,
-        {
-          onPartialTranscript: handleLivePartialTranscript,
-          onError: handleLiveSttError,
-          onAudioLevel: setLiveAudioLevel,
-          onDebugPcmAvailable: setLiveDebugPcmRecording
-        },
-        {
-          biasContext: shouldUseLiveSttHotwordBias(biasMode) ? biasContext : null,
-          decodingMethod: getLiveSttDebugDecodingMethod()
-        }
-      );
+      cleanupLiveSttSubscriptions();
+      const unsubscribeResult = port.onResult(handleLiveSttResult);
+      const unsubscribeError = port.onError(handleLiveSttError);
+      liveSttSubscriptionCleanupRef.current = () => {
+        unsubscribeResult();
+        unsubscribeError();
+      };
+      await port.start({
+        language: "ko",
+        audioSource: stream,
+        biasPhrases: shouldUseLiveSttHotwordBias(biasMode)
+          ? getBiasPhrasesFromContext(biasContext)
+          : []
+      });
       setLiveStatus("listening");
       return true;
     } catch (cause) {
-      const error = toLiveSttAdapterError(cause);
-      setLiveStatus(error.code === "LIVE_STT_MODEL_UNAVAILABLE" ? "unavailable" : "failed");
+      cleanupLiveSttSubscriptions();
+      const error = toLiveSttError(cause);
+      setLiveStatus(isLiveSttUnavailable(error) ? "unavailable" : "failed");
       setLiveError(error.message);
       setLiveAudioLevel(null);
       cancelPendingAutoAdvance("cancelled");
@@ -1580,12 +1621,21 @@ export function RehearsalWorkspace(props: {
     }
   }
 
-  function handleLiveSttError(error: LiveSttAdapterError) {
-    setLiveStatus(error.code === "LIVE_STT_MODEL_UNAVAILABLE" ? "unavailable" : "failed");
+  function handleLiveSttError(error: LiveSttError) {
+    setLiveStatus(isLiveSttUnavailable(error) ? "unavailable" : "failed");
     setLiveError(error.message);
     setLiveAudioLevel(null);
     setIsTimerRunning(false);
     cancelPendingAutoAdvance("cancelled");
+  }
+
+  function handleLiveSttResult(result: LiveSttResult) {
+    handleLivePartialTranscript({
+      type: "partial-transcript",
+      transcript: result.text,
+      isFinal: result.isFinal,
+      confidence: result.confidence ?? null
+    });
   }
 
   function handleLivePartialTranscript(event: LiveSttPartialTranscriptEvent) {
@@ -1696,6 +1746,11 @@ export function RehearsalWorkspace(props: {
     });
     liveBiasContextRef.current = nextBiasContext;
     return nextBiasContext;
+  }
+
+  function cleanupLiveSttSubscriptions() {
+    liveSttSubscriptionCleanupRef.current?.();
+    liveSttSubscriptionCleanupRef.current = null;
   }
 
   function scheduleAutoAdvance(
@@ -2938,15 +2993,32 @@ function toRehearsalFlowMessage(cause: unknown) {
   return toErrorMessage(cause);
 }
 
-function toLiveSttAdapterError(cause: unknown) {
-  if (cause instanceof LiveSttAdapterError) {
+function toLiveSttError(cause: unknown) {
+  if (cause instanceof LiveSttError) {
     return cause;
   }
 
-  return new LiveSttAdapterError(
-    "LIVE_STT_START_FAILED",
-    cause instanceof Error ? cause.message : "Live STT瑜??쒖옉?섏? 紐삵뻽?듬땲??"
+  if (cause instanceof LiveSttAdapterError) {
+    return new LiveSttError(
+      cause.code === "LIVE_STT_MODEL_UNAVAILABLE"
+        ? "model_unavailable"
+        : "start_failed",
+      cause.message
+    );
+  }
+
+  return new LiveSttError(
+    "start_failed",
+    cause instanceof Error ? cause.message : "Live STT를 시작하지 못했습니다."
   );
+}
+
+function isLiveSttUnavailable(error: LiveSttError) {
+  return error.code === "model_unavailable" || error.code === "unsupported_runtime";
+}
+
+function getBiasPhrasesFromContext(context: LiveSttBiasContext | null) {
+  return context?.terms.map((term) => term.text) ?? [];
 }
 
 function toErrorMessage(cause: unknown) {
