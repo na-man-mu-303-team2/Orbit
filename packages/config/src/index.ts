@@ -162,9 +162,6 @@ export const orbitEnvSchema = z.object({
     "REHEARSAL_AUDIO_MAX_BYTES",
     defaultRehearsalAudioMaxBytes
   ),
-  WHISPERX_API_URL: optionalString,
-  WHISPERX_API_KEY: optionalString,
-  WHISPERX_MODEL: optionalString,
   OCR_PROVIDER: ocrProviderSchema,
   LLM_PROVIDER: llmProviderSchema,
   OPENAI_API_KEY: optionalString,
@@ -231,32 +228,7 @@ export const orbitEnvSchema = z.object({
     });
   }
 
-  if (value.REPORT_STT_PROVIDER === "whisperx") {
-    if (!value.WHISPERX_API_URL) {
-      context.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["WHISPERX_API_URL"],
-        message: "REPORT_STT_PROVIDER=whisperx일 때 WHISPERX_API_URL이 필요합니다."
-      });
-    } else {
-      const result = z.string().url().safeParse(value.WHISPERX_API_URL);
-      if (!result.success) {
-        context.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ["WHISPERX_API_URL"],
-          message: "WHISPERX_API_URL은 올바른 URL이어야 합니다."
-        });
-      }
-    }
-
-    if (!value.WHISPERX_API_KEY) {
-      context.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["WHISPERX_API_KEY"],
-        message: "REPORT_STT_PROVIDER=whisperx일 때 WHISPERX_API_KEY가 필요합니다."
-      });
-    }
-  } else if (value.REHEARSAL_AUDIO_MAX_BYTES > openAiRehearsalAudioMaxBytes) {
+  if (value.REHEARSAL_AUDIO_MAX_BYTES > openAiRehearsalAudioMaxBytes) {
     context.addIssue({
       code: z.ZodIssueCode.custom,
       path: ["REHEARSAL_AUDIO_MAX_BYTES"],
