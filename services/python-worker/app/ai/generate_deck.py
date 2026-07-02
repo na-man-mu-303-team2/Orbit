@@ -1367,7 +1367,7 @@ class DeckGenerationOrchestrator:
     ) -> list[dict[str, Any]]:
         slides = [
             assemble_slide_from_imported_blueprint(raw_input, slide_plan, theme)
-            if raw_input.design_blueprint
+            if has_imported_design_blueprint(raw_input)
             else assemble_slide(raw_input, slide_plan, plan_visuals(slide_plan), theme)
             for slide_plan in slide_plans
         ]
@@ -1551,9 +1551,9 @@ def unique_warnings(warnings: list[str]) -> list[str]:
 
 
 def imported_theme_from_blueprint(raw_input: RawInput) -> dict[str, Any] | None:
-    blueprint = raw_input.design_blueprint
-    if not isinstance(blueprint, dict):
+    if not has_imported_design_blueprint(raw_input):
         return None
+    blueprint = raw_input.design_blueprint
     theme = blueprint.get("theme")
     if not isinstance(theme, dict):
         return None
@@ -1568,6 +1568,10 @@ def imported_theme_from_blueprint(raw_input: RawInput) -> dict[str, Any] | None:
         "effects",
     }
     return deepcopy(theme) if required.issubset(theme.keys()) else None
+
+
+def has_imported_design_blueprint(raw_input: RawInput) -> bool:
+    return isinstance(raw_input.design_blueprint, dict)
 
 
 def imported_blueprint_warnings(raw_input: RawInput) -> list[str]:
@@ -3056,6 +3060,7 @@ def assemble_slide_from_imported_blueprint(
             "backgroundColor": str(style.get("backgroundColor", theme["backgroundColor"])),
             "textColor": str(style.get("textColor", theme["textColor"])),
             "accentColor": str(style.get("accentColor", theme["accentColor"])),
+            "fontFamily": str(style.get("fontFamily", theme["fontFamily"])),
         },
         "speakerNotes": slide_plan.speaker_notes,
         "elements": elements,
@@ -3081,9 +3086,9 @@ def imported_slide_for_order(
     raw_input: RawInput,
     order: int,
 ) -> dict[str, Any] | None:
-    blueprint = raw_input.design_blueprint
-    if not isinstance(blueprint, dict):
+    if not has_imported_design_blueprint(raw_input):
         return None
+    blueprint = raw_input.design_blueprint
     slides = blueprint.get("slides")
     if not isinstance(slides, list) or not slides:
         return None
@@ -3107,7 +3112,7 @@ def imported_elements_for_slide(
         elements.append(
             text_element(
                 slide_plan.order,
-                "imported_title_fallback",
+                "title_fallback",
                 "title",
                 slide_plan.title,
                 CANVAS.safe_x,
@@ -3125,7 +3130,7 @@ def imported_elements_for_slide(
         elements.append(
             text_element(
                 slide_plan.order,
-                "imported_body_fallback",
+                "body_fallback",
                 "body",
                 slide_plan.message,
                 CANVAS.safe_x,
@@ -3184,21 +3189,16 @@ def inject_imported_text(
         if index == 0:
             element["role"] = "title"
             props["text"] = slide_plan.title
-            props.setdefault("fontSize", theme["typography"]["titleSize"])
-            props.setdefault("fontWeight", "bold")
         elif index == 1:
             element["role"] = "body"
             props["text"] = slide_plan.message
-            props.setdefault("fontSize", theme["typography"]["bodySize"])
         else:
             element["role"] = "caption"
-            props["text"] = slide_plan.keywords[index - 2] if index - 2 < len(slide_plan.keywords) else ""
-            props.setdefault("fontSize", theme["typography"]["captionSize"])
-        props.setdefault("fontFamily", theme["fontFamily"])
-        props.setdefault("color", theme["textColor"])
-        props.setdefault("align", "left")
-        props.setdefault("verticalAlign", "top")
-        props.setdefault("lineHeight", 1.15)
+            props["text"] = (
+                slide_plan.keywords[index - 2]
+                if index - 2 < len(slide_plan.keywords)
+                else ""
+            )
 
 
 def assemble_process_cards_slide(
@@ -4436,11 +4436,7 @@ def validate_layout(deck: dict[str, Any]) -> list[ValidationIssue]:
 
 def element_limit_for_slide(slide: dict[str, Any]) -> int:
     process_prefix = f"el_{slide.get('order')}_process_card_"
-    imported_prefix = f"el_{slide.get('order')}_imported_"
-    if any(
-        str(element.get("elementId", "")).startswith(imported_prefix)
-        for element in slide.get("elements", [])
-    ):
+    if is_imported_slide(slide):
         return 80
     if any(
         str(element.get("elementId", "")).startswith(process_prefix)
@@ -4448,6 +4444,21 @@ def element_limit_for_slide(slide: dict[str, Any]) -> int:
     ):
         return 64
     return 14
+
+
+def is_imported_slide(slide: dict[str, Any]) -> bool:
+    order = slide.get("order")
+    return any(
+        is_imported_element(element, order)
+        for element in slide.get("elements", [])
+    )
+
+
+def is_imported_element(element: dict[str, Any], order: Any | None = None) -> bool:
+    element_id = str(element.get("elementId", ""))
+    if order is not None:
+        return element_id.startswith(f"el_{order}_imported_")
+    return re.match(r"^el_\d+_imported_", element_id) is not None
 
 
 def detect_text_overlap_candidates(deck: dict[str, Any]) -> list[TextOverlapCandidate]:
@@ -4885,7 +4896,7 @@ def validate_design(deck: dict[str, Any]) -> list[ValidationIssue]:
                             message="텍스트가 안전 영역 밖에 배치되었습니다.",
                         )
                     )
-        if len(elements) > 12:
+        if len(elements) > element_limit_for_slide(slide):
             issues.append(
                 ValidationIssue(
                     scope="slide",
@@ -5022,10 +5033,6 @@ def patch_deck(deck: dict[str, Any]) -> dict[str, Any]:
             element["y"] = max(0, min(element["y"], CANVAS.height - 1))
             element["width"] = max(1, min(element["width"], CANVAS.width - element["x"]))
             element["height"] = max(1, min(element["height"], CANVAS.height - element["y"]))
-        for z_index, element in enumerate(
-            sorted(slide["elements"], key=lambda item: item["zIndex"])
-        ):
-            element["zIndex"] = z_index
     return deck
 
 
@@ -5036,19 +5043,39 @@ def refine_design_issues(
     if not design_issues:
         return deck
 
+    element_paths = design_issue_element_paths(design_issues)
+    if not element_paths:
+        return deck
+
     refined = deepcopy(deck)
-    for slide in refined["slides"]:
+    for slide_index, element_index in element_paths:
+        if slide_index >= len(refined["slides"]):
+            continue
+        slide = refined["slides"][slide_index]
+        if element_index >= len(slide["elements"]):
+            continue
+        element = slide["elements"][element_index]
+        if element["type"] != "text" or is_imported_element(element, slide.get("order")):
+            continue
         background_color = slide.get("style", {}).get(
             "backgroundColor",
             refined.get("theme", {}).get("backgroundColor", "#ffffff"),
         )
-        for element in slide["elements"]:
-            if element["type"] != "text":
-                continue
-            shrink_text_to_fit(element)
-            clamp_text_to_safe_area(element)
-            correct_text_contrast(element, background_color)
+        shrink_text_to_fit(element)
+        clamp_text_to_safe_area(element)
+        correct_text_contrast(element, background_color)
     return refined
+
+
+def design_issue_element_paths(
+    design_issues: list[ValidationIssue],
+) -> set[tuple[int, int]]:
+    paths: set[tuple[int, int]] = set()
+    for issue in design_issues:
+        match = re.search(r"slides\.(\d+)\.elements\.(\d+)", issue.path)
+        if match:
+            paths.add((int(match.group(1)), int(match.group(2))))
+    return paths
 
 
 def shrink_text_to_fit(element: dict[str, Any]) -> None:

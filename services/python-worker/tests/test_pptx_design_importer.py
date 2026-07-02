@@ -25,8 +25,11 @@ def test_import_pptx_design_extracts_editable_elements(tmp_path: Path) -> None:
 
     title = slide.shapes.add_textbox(Inches(1), Inches(0.8), Inches(5), Inches(1))
     title.text_frame.text = "Original Title"
-    title.text_frame.paragraphs[0].runs[0].font.size = Pt(40)
-    title.text_frame.paragraphs[0].runs[0].font.bold = True
+    title_run = title.text_frame.paragraphs[0].runs[0]
+    title_run.font.size = Pt(40)
+    title_run.font.bold = True
+    title_run.font.name = "Aptos Display"
+    title_run.font.color.rgb = RGBColor(10, 20, 30)
 
     box = slide.shapes.add_shape(
         MSO_SHAPE.ROUNDED_RECTANGLE,
@@ -46,10 +49,19 @@ def test_import_pptx_design_extracts_editable_elements(tmp_path: Path) -> None:
     elements = slide_blueprint["elements"]
 
     assert slide_blueprint["style"]["backgroundColor"] == "#F0F8FF"
+    assert slide_blueprint["style"]["textColor"] == "#0A141E"
+    assert slide_blueprint["style"]["accentColor"] == "#112233"
+    assert slide_blueprint["style"]["fontFamily"] == "Aptos Display"
+    assert result.blueprint["theme"]["fontFamily"] == "Aptos Display"
+    assert result.blueprint["theme"]["textColor"] == "#0A141E"
+    assert result.blueprint["theme"]["accentColor"] == "#112233"
+    assert result.blueprint["theme"]["typography"]["bodyFontFamily"] == "Aptos Display"
     assert any(
         element["type"] == "text"
         and element["role"] == "title"
         and element["props"]["text"] == "Original Title"
+        and element["props"]["fontFamily"] == "Aptos Display"
+        and element["props"]["color"] == "#0A141E"
         for element in elements
     )
     assert any(

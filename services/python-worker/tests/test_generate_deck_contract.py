@@ -1,4 +1,5 @@
 import json
+from copy import deepcopy
 from typing import Any
 
 import pytest
@@ -2039,6 +2040,138 @@ def test_generate_deck_applies_imported_design_blueprint_without_schema_leak() -
     assert "designBlueprint" not in response.deck
     assert "Unsupported PPTX shape on slide 1: CHART" in response.warnings
     assert response.validation.passed is True
+
+
+def test_generate_deck_preserves_dense_imported_text_styles() -> None:
+    blueprint = minimal_imported_design_blueprint()
+    imported_slide = blueprint["slides"][0]
+    imported_slide["style"].update(
+        {
+            "textColor": "#fefefe",
+            "accentColor": "#d1d5db",
+            "fontFamily": "Aptos Display",
+        }
+    )
+    title = imported_slide["elements"][1]
+    title.update({"x": 20, "y": 20, "width": 260, "height": 24, "zIndex": 2})
+    title["props"].update(
+        {
+            "fontFamily": "Aptos Display",
+            "fontSize": 30,
+            "fontWeight": "bold",
+            "color": "#fefefe",
+            "align": "center",
+            "lineHeight": 1.3,
+        }
+    )
+    body = deepcopy(title)
+    body.update(
+        {
+            "elementId": "el_imported_1_body",
+            "role": "body",
+            "y": 64,
+            "height": 36,
+            "zIndex": 3,
+        }
+    )
+    body["props"] = {
+        **body["props"],
+        "text": "Original confidential body",
+        "fontSize": 26,
+        "fontWeight": "normal",
+        "align": "right",
+    }
+    imported_slide["elements"].append(body)
+    for index in range(13):
+        imported_slide["elements"].append(
+            {
+                "elementId": f"el_imported_1_decoration_{index}",
+                "type": "rect",
+                "role": "decoration",
+                "x": 400 + index,
+                "y": 900,
+                "width": 8,
+                "height": 8,
+                "rotation": 0,
+                "opacity": 1,
+                "zIndex": 4 + index,
+                "locked": True,
+                "visible": True,
+                "props": {
+                    "fill": "#d1d5db",
+                    "stroke": "transparent",
+                    "strokeWidth": 0,
+                    "borderRadius": 0,
+                },
+            }
+        )
+
+    response = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="ORBIT",
+            slideCountRange={"min": 1, "max": 1},
+            designReferences=[{"fileId": "file_design"}],
+            designBlueprint=blueprint,
+        )
+    )
+
+    slide = response.deck["slides"][0]
+    imported_title = element_by_role(slide, "title")
+    imported_body = element_by_role(slide, "body")
+
+    assert response.validation.passed is True
+    assert slide["style"]["fontFamily"] == "Aptos Display"
+    assert slide["style"]["textColor"] == "#fefefe"
+    assert slide["style"]["accentColor"] == "#d1d5db"
+    assert not any(
+        issue.path == "slides.0.elements"
+        for issue in response.validation.design_issues
+    )
+    assert not any("fallback" in element["elementId"] for element in slide["elements"])
+    assert imported_title["x"] == 20
+    assert imported_title["y"] == 20
+    assert imported_title["width"] == 260
+    assert imported_title["height"] == 24
+    assert imported_title["zIndex"] == 2
+    assert imported_title["props"]["fontFamily"] == "Aptos Display"
+    assert imported_title["props"]["fontSize"] == 30
+    assert imported_title["props"]["fontWeight"] == "bold"
+    assert imported_title["props"]["color"] == "#fefefe"
+    assert imported_title["props"]["align"] == "center"
+    assert imported_title["props"]["lineHeight"] == 1.3
+    assert imported_body["x"] == 20
+    assert imported_body["y"] == 64
+    assert imported_body["width"] == 260
+    assert imported_body["height"] == 36
+    assert imported_body["zIndex"] == 3
+    assert imported_body["props"]["fontFamily"] == "Aptos Display"
+    assert imported_body["props"]["fontSize"] == 26
+    assert imported_body["props"]["fontWeight"] == "normal"
+    assert imported_body["props"]["color"] == "#fefefe"
+    assert imported_body["props"]["align"] == "right"
+    assert "Original confidential" not in imported_title["props"]["text"]
+    assert "Original confidential" not in imported_body["props"]["text"]
+
+
+def test_generate_deck_adds_imported_body_fallback_only_when_missing() -> None:
+    response = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="ORBIT",
+            slideCountRange={"min": 1, "max": 1},
+            designReferences=[{"fileId": "file_design"}],
+            designBlueprint=minimal_imported_design_blueprint(),
+        )
+    )
+
+    element_ids = [
+        element["elementId"]
+        for element in response.deck["slides"][0]["elements"]
+    ]
+
+    assert "el_1_title_fallback" not in element_ids
+    assert "el_1_body_fallback" in element_ids
 
 
 def minimal_imported_design_blueprint() -> dict[str, Any]:

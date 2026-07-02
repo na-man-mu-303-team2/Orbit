@@ -187,10 +187,7 @@ def import_pptx_design(path: Path, file_id: str) -> PptxDesignImportResult:
             {
                 "sourceFileId": file_id,
                 "sourceSlideIndex": slide_index,
-                "style": {
-                    "layout": "title-content",
-                    "backgroundColor": background_color,
-                },
+                "style": imported_slide_style(elements, background_color),
                 "elements": elements,
             }
         )
@@ -941,13 +938,18 @@ def imported_theme(slides: list[dict[str, Any]]) -> dict[str, Any]:
         else "#ffffff"
     )
     colors = imported_visible_colors(slides)
-    accent = first_non_background_color(colors, background) or "#2563eb"
     text_color = imported_text_color(slides) or text_color_for_background(background)
+    accent = first_non_background_color(
+        colors,
+        background,
+        skip={text_color},
+    ) or text_color
+    font_family = imported_font_family(slides)
     muted = "#f3f4f6" if is_light_color(background) else "#1f3a2e"
     border = "#d1d5db" if is_light_color(background) else "#7fa38c"
     return {
         "name": "Imported PPTX",
-        "fontFamily": "Inter",
+        "fontFamily": font_family,
         "backgroundColor": background,
         "textColor": text_color,
         "accentColor": accent,
@@ -960,8 +962,8 @@ def imported_theme(slides: list[dict[str, Any]]) -> dict[str, Any]:
             "border": border,
         },
         "typography": {
-            "headingFontFamily": "Inter",
-            "bodyFontFamily": "Inter",
+            "headingFontFamily": font_family,
+            "bodyFontFamily": font_family,
             "titleSize": 56,
             "headingSize": 40,
             "bodySize": 24,
@@ -969,6 +971,49 @@ def imported_theme(slides: list[dict[str, Any]]) -> dict[str, Any]:
         },
         "effects": {"borderRadius": 8},
     }
+
+
+def imported_slide_style(
+    elements: list[dict[str, Any]],
+    background_color: str,
+) -> dict[str, Any]:
+    slide = {
+        "style": {"backgroundColor": background_color},
+        "elements": elements,
+    }
+    text_color = imported_text_color([slide]) or text_color_for_background(
+        background_color
+    )
+    colors = imported_visible_colors([slide])
+    accent = first_non_background_color(
+        colors,
+        background_color,
+        skip={text_color},
+    ) or text_color
+    return {
+        "layout": "title-content",
+        "backgroundColor": background_color,
+        "textColor": text_color,
+        "accentColor": accent,
+        "fontFamily": imported_font_family([slide]),
+    }
+
+
+def imported_font_family(slides: list[dict[str, Any]]) -> str:
+    counts: dict[str, int] = {}
+    first_seen: dict[str, int] = {}
+    for slide in slides:
+        for element in slide.get("elements", []):
+            if element.get("type") != "text":
+                continue
+            family = str(element.get("props", {}).get("fontFamily", "")).strip()
+            if not family:
+                continue
+            first_seen.setdefault(family, len(first_seen))
+            counts[family] = counts.get(family, 0) + 1
+    if not counts:
+        return "Inter"
+    return min(counts, key=lambda family: (-counts[family], first_seen[family]))
 
 
 def imported_visible_colors(slides: list[dict[str, Any]]) -> list[str]:
