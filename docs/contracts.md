@@ -724,10 +724,10 @@ TemplateBlueprint:
 
 ## PPTX OOXML generation contract
 
-PPTX OOXML generation uses an uploaded PPTX as the source of truth. The
-original OOXML package is preserved, the current package is stored as a
-derived `design-asset`, and rendered slide PNGs become locked full-slide image
-elements in `DeckSchema`. `Deck` and `DeckElement` schemas do not change.
+PPTX OOXML generation is legacy. New deck creation starts from
+`pptx-import`, which imports editable `DeckElement` objects and keeps the
+OOXML package in `TemplateBlueprint` sidecar fields. Rendered PNGs are
+thumbnail/fallback/sync verification assets, not the default editing layer.
 
 API:
 
@@ -754,16 +754,54 @@ TemplateBlueprint optional OOXML tracking fields:
 
 - `sourcePackageFileId`
 - `currentPackageFileId`
+- `ooxmlSyncedDeckVersion`
 - `slides[].renderAssetFileId`
+- `slides[].fallbackRenderAssetFileId`
+- `slides[].elementSources[]`
+- `slides[].elementSources[]`: `{ elementId, slidePart, shapeId, relationshipId?, sourceType, writable, fallbackReason? }`
 - `slots[].source.slidePart`
 - `slots[].source.shapeId`
 - `slots[].source.relationshipId`
+
+## PPTX OOXML sync contract
+
+Deck patch storage succeeds immediately. If the deck has an OOXML-backed
+`TemplateBlueprint`, `POST /api/v1/projects/:projectId/deck/patches` enqueues
+a background sync job and may include `ooxmlSyncJob` in the response.
+
+Job:
+
+- Job type: `pptx-ooxml-sync`
+- Queue name: `pptx-ooxml-sync`
+
+Job result:
+
+```json
+{
+  "deckId": "deck_import_file_1",
+  "templateId": "template_file_1",
+  "currentPackageFileId": "file_current_package",
+  "renderAssetFileIds": ["file_slide_1"],
+  "syncedDeckVersion": 2,
+  "warnings": []
+}
+```
+
+Supported first-pass patch operations:
+
+- `update_element_frame`
+- `update_element_props`
+- `add_element`
+- `delete_element`
+
+`zIndex` sync can warn without reverting the saved `DeckPatch`.
 
 Implementation locations:
 
 - `packages/shared/src/deck/pptx-ooxml-generation.schema.ts`
 - `apps/api/src/pptx-ooxml-generations`
 - `apps/worker/src/pptx-ooxml-generation.processor.ts`
+- `apps/worker/src/pptx-ooxml-sync.processor.ts`
 - `services/python-worker/app/ai/pptx_ooxml_generation.py`
 
 ## 파일 업로드 결과 구조

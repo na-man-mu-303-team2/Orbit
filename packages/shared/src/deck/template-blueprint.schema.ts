@@ -10,7 +10,7 @@ export const templateSlotUsageSchema = z.enum([
   "content-slot",
   "media-slot",
   "fixed-text",
-  "decoration"
+  "decoration",
 ]);
 
 export const templateSlotRoleSchema = z.enum([
@@ -23,20 +23,20 @@ export const templateSlotRoleSchema = z.enum([
   "chart",
   "table",
   "background",
-  "unknown"
+  "unknown",
 ]);
 
 export const templateSlotReplaceModeSchema = z.enum([
   "replace",
   "preserve",
-  "ignore"
+  "ignore",
 ]);
 
 export const templateSlotBoundsSchema = z.object({
   x: z.number().finite().nonnegative(),
   y: z.number().finite().nonnegative(),
   width: z.number().finite().positive(),
-  height: z.number().finite().positive()
+  height: z.number().finite().positive(),
 });
 
 export const templateSlotSourceSchema = z
@@ -49,15 +49,34 @@ export const templateSlotSourceSchema = z
       "table",
       "image",
       "shape",
-      "unknown"
+      "unknown",
     ]),
     name: z.string().min(1).optional(),
     placeholderType: z.string().min(1).optional(),
     slidePart: z.string().min(1).optional(),
     shapeId: z.string().min(1).optional(),
-    relationshipId: z.string().min(1).optional()
+    relationshipId: z.string().min(1).optional(),
   })
   .passthrough();
+
+export const templateElementSourceSchema = z.object({
+  elementId: deckElementIdSchema,
+  slidePart: z.string().min(1),
+  shapeId: z.string().min(1),
+  relationshipId: z.string().min(1).optional(),
+  sourceType: z.enum([
+    "placeholder",
+    "slide",
+    "layout",
+    "master",
+    "table",
+    "image",
+    "shape",
+    "unknown",
+  ]),
+  writable: z.boolean(),
+  fallbackReason: z.string().min(1).optional(),
+});
 
 export const templateBlueprintSlotSchema = z.object({
   elementId: deckElementIdSchema,
@@ -66,14 +85,16 @@ export const templateBlueprintSlotSchema = z.object({
   replaceMode: templateSlotReplaceModeSchema,
   confidence: z.number().finite().min(0).max(1),
   bounds: templateSlotBoundsSchema,
-  source: templateSlotSourceSchema
+  source: templateSlotSourceSchema,
 });
 
 export const templateBlueprintSlideSchema = z.object({
   slideIndex: z.number().int().positive(),
   sourceSlideIndex: z.number().int().positive(),
   renderAssetFileId: z.string().min(1).optional(),
-  slots: z.array(templateBlueprintSlotSchema).default([])
+  fallbackRenderAssetFileId: z.string().min(1).optional(),
+  elementSources: z.array(templateElementSourceSchema).default([]),
+  slots: z.array(templateBlueprintSlotSchema).default([]),
 });
 
 export const templateBlueprintSchema = z.object({
@@ -81,7 +102,8 @@ export const templateBlueprintSchema = z.object({
   sourceFileId: z.string().min(1),
   sourcePackageFileId: z.string().min(1).optional(),
   currentPackageFileId: z.string().min(1).optional(),
-  slides: z.array(templateBlueprintSlideSchema).min(1)
+  ooxmlSyncedDeckVersion: z.number().int().positive().optional(),
+  slides: z.array(templateBlueprintSlideSchema).min(1),
 });
 
 const qualityScoreSchema = z.number().finite().min(0).max(100);
@@ -94,7 +116,7 @@ export const qualityReportSchema = z.object({
     color: qualityScoreSchema,
     layer: qualityScoreSchema,
     editability: qualityScoreSchema,
-    pixelSimilarity: qualityScoreSchema.nullable()
+    pixelSimilarity: qualityScoreSchema.nullable(),
   }),
   weights: z.object({
     geometry: z.literal(25),
@@ -102,18 +124,18 @@ export const qualityReportSchema = z.object({
     color: z.literal(10),
     layer: z.literal(10),
     editability: z.literal(10),
-    pixelSimilarity: z.literal(30)
+    pixelSimilarity: z.literal(30),
   }),
   editabilityCoverage: z.number().finite().min(0).max(1),
   appliedCap: z.number().int().min(0).max(100).nullable().default(null),
-  notes: z.array(z.string()).default([])
+  notes: z.array(z.string()).default([]),
 });
 
 export const pptxImportJobResultSchema = z.object({
   deckId: deckIdSchema,
   templateId: templateBlueprintIdSchema,
   qualityReport: qualityReportSchema,
-  warnings: z.array(z.string()).default([])
+  warnings: z.array(z.string()).default([]),
 });
 
 export type TemplateBlueprintId = z.infer<typeof templateBlueprintIdSchema>;
@@ -123,7 +145,10 @@ export type TemplateSlotReplaceMode = z.infer<
   typeof templateSlotReplaceModeSchema
 >;
 export type TemplateBlueprintSlot = z.infer<typeof templateBlueprintSlotSchema>;
-export type TemplateBlueprintSlide = z.infer<typeof templateBlueprintSlideSchema>;
+export type TemplateElementSource = z.infer<typeof templateElementSourceSchema>;
+export type TemplateBlueprintSlide = z.infer<
+  typeof templateBlueprintSlideSchema
+>;
 export type TemplateBlueprint = z.infer<typeof templateBlueprintSchema>;
 export type QualityReport = z.infer<typeof qualityReportSchema>;
 export type PptxImportJobResult = z.infer<typeof pptxImportJobResultSchema>;

@@ -6,7 +6,7 @@ export const jobStatusSchema = z.enum([
   "queued",
   "running",
   "succeeded",
-  "failed"
+  "failed",
 ]);
 
 export const jobTypeSchema = z.enum([
@@ -15,10 +15,11 @@ export const jobTypeSchema = z.enum([
   "reference-extract",
   "ai-deck-generation",
   "pptx-ooxml-generation",
+  "pptx-ooxml-sync",
   "worker-health-check",
   "rehearsal-stt",
   "final-report-generation",
-  "report-pdf-export"
+  "report-pdf-export",
 ]);
 
 export const jobSchema = z.object({
@@ -32,11 +33,11 @@ export const jobSchema = z.object({
   error: z
     .object({
       code: z.string().min(1),
-      message: z.string().min(1)
+      message: z.string().min(1),
     })
     .nullable(),
   createdAt: isoDateTimeSchema,
-  updatedAt: isoDateTimeSchema
+  updatedAt: isoDateTimeSchema,
 });
 
 export type Job = z.infer<typeof jobSchema>;

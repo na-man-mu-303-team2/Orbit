@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { isoDateTimeSchema } from "../common/time.schema";
+import { jobSchema } from "../jobs/job.schema";
 import { deckSchema } from "./deck.schema";
 import { deckIdSchema } from "./id.schema";
 import { deckChangeRecordSchema, deckPatchSchema } from "./patch.schema";
@@ -10,12 +11,12 @@ type DeckApiIssuePath = Array<string | number>;
 function addMismatchIssue(
   ctx: z.RefinementCtx,
   path: DeckApiIssuePath,
-  message: string
+  message: string,
 ): void {
   ctx.addIssue({
     code: z.ZodIssueCode.custom,
     path,
-    message
+    message,
   });
 }
 
@@ -23,7 +24,7 @@ function requireMatchingProject(
   ctx: z.RefinementCtx,
   projectId: string,
   deckProjectId: string,
-  path: DeckApiIssuePath
+  path: DeckApiIssuePath,
 ): void {
   if (projectId !== deckProjectId) {
     addMismatchIssue(ctx, path, "projectId must match deck.projectId");
@@ -34,7 +35,7 @@ function requireMatchingDeckId(
   ctx: z.RefinementCtx,
   deckId: string,
   nestedDeckId: string,
-  path: DeckApiIssuePath
+  path: DeckApiIssuePath,
 ): void {
   if (deckId !== nestedDeckId) {
     addMismatchIssue(ctx, path, "deckId must match nested deckId");
@@ -45,7 +46,7 @@ function requireMatchingVersion(
   ctx: z.RefinementCtx,
   version: number,
   deckVersion: number,
-  path: DeckApiIssuePath
+  path: DeckApiIssuePath,
 ): void {
   if (version !== deckVersion) {
     addMismatchIssue(ctx, path, "version must match deck.version");
@@ -62,7 +63,7 @@ export const deckSnapshotReasonSchema = z.enum([
   "auto-save",
   "deck-replaced",
   "patch-applied",
-  "snapshot-restore"
+  "snapshot-restore",
 ]);
 
 export const deckApiErrorCodeSchema = z.enum([
@@ -75,13 +76,13 @@ export const deckApiErrorCodeSchema = z.enum([
   "SNAPSHOT_PROJECT_MISMATCH",
   "PATCH_APPLY_FAILED",
   "PATCH_CHAIN_INVALID",
-  "PATCH_CHAIN_CHECKPOINT_MISMATCH"
+  "PATCH_CHAIN_CHECKPOINT_MISMATCH",
 ]);
 
 export const deckApiErrorSchema = z.object({
   code: deckApiErrorCodeSchema,
   message: z.string().min(1),
-  details: z.array(z.string()).default([])
+  details: z.array(z.string()).default([]),
 });
 
 export const deckSnapshotSchema = z.object({
@@ -90,77 +91,79 @@ export const deckSnapshotSchema = z.object({
   deckId: deckIdSchema,
   version: z.number().int().positive(),
   reason: deckSnapshotReasonSchema,
-  createdAt: isoDateTimeSchema
+  createdAt: isoDateTimeSchema,
 });
 
 export const deckSnapshotDetailSchema = deckSnapshotSchema
   .extend({
-    deck: deckSchema
+    deck: deckSchema,
   })
   .superRefine((snapshot, ctx) => {
     requireMatchingProject(ctx, snapshot.projectId, snapshot.deck.projectId, [
       "deck",
-      "projectId"
+      "projectId",
     ]);
     requireMatchingDeckId(ctx, snapshot.deckId, snapshot.deck.deckId, [
       "deck",
-      "deckId"
+      "deckId",
     ]);
     requireMatchingVersion(ctx, snapshot.version, snapshot.deck.version, [
       "deck",
-      "version"
+      "version",
     ]);
   });
 
 export const deckPatchLogEntrySchema = z.object({
   projectId: deckApiProjectIdSchema,
-  changeRecord: deckChangeRecordSchema
+  changeRecord: deckChangeRecordSchema,
 });
 
 export const getDeckResponseSchema = z
   .object({
     projectId: deckApiProjectIdSchema,
     deck: deckSchema,
-    updatedAt: isoDateTimeSchema
+    updatedAt: isoDateTimeSchema,
   })
   .superRefine((response, ctx) => {
     requireMatchingProject(ctx, response.projectId, response.deck.projectId, [
       "deck",
-      "projectId"
+      "projectId",
     ]);
   });
 
 export const putDeckRequestSchema = z.object({
   deck: deckSchema,
-  snapshotReason: deckSnapshotReasonSchema.optional()
+  snapshotReason: deckSnapshotReasonSchema.optional(),
 });
 
 export const putDeckResponseSchema = z
   .object({
     deck: deckSchema,
     snapshot: deckSnapshotSchema,
-    updatedAt: isoDateTimeSchema
+    updatedAt: isoDateTimeSchema,
   })
   .superRefine((response, ctx) => {
     requireMatchingProject(
       ctx,
       response.snapshot.projectId,
       response.deck.projectId,
-      ["snapshot", "projectId"]
+      ["snapshot", "projectId"],
     );
     requireMatchingDeckId(ctx, response.snapshot.deckId, response.deck.deckId, [
       "snapshot",
-      "deckId"
+      "deckId",
     ]);
-    requireMatchingVersion(ctx, response.snapshot.version, response.deck.version, [
-      "snapshot",
-      "version"
-    ]);
+    requireMatchingVersion(
+      ctx,
+      response.snapshot.version,
+      response.deck.version,
+      ["snapshot", "version"],
+    );
   });
 
 export const appendDeckPatchRequestSchema = z.object({
   patch: deckPatchSchema,
-  snapshotReason: deckSnapshotReasonSchema.optional()
+  snapshotReason: deckSnapshotReasonSchema.optional(),
 });
 
 export const appendDeckPatchResponseSchema = z
@@ -168,43 +171,48 @@ export const appendDeckPatchResponseSchema = z
     deck: deckSchema,
     changeRecord: deckChangeRecordSchema,
     snapshot: deckSnapshotSchema.nullable(),
-    updatedAt: isoDateTimeSchema
+    ooxmlSyncJob: jobSchema.optional(),
+    updatedAt: isoDateTimeSchema,
   })
   .superRefine((response, ctx) => {
     requireMatchingDeckId(
       ctx,
       response.changeRecord.deckId,
       response.deck.deckId,
-      ["changeRecord", "deckId"]
+      ["changeRecord", "deckId"],
     );
     requireMatchingVersion(
       ctx,
       response.changeRecord.afterVersion,
       response.deck.version,
-      ["changeRecord", "afterVersion"]
+      ["changeRecord", "afterVersion"],
     );
     if (response.snapshot) {
       requireMatchingProject(
         ctx,
         response.snapshot.projectId,
         response.deck.projectId,
-        ["snapshot", "projectId"]
+        ["snapshot", "projectId"],
       );
-      requireMatchingDeckId(ctx, response.snapshot.deckId, response.deck.deckId, [
-        "snapshot",
-        "deckId"
-      ]);
-      requireMatchingVersion(ctx, response.snapshot.version, response.deck.version, [
-        "snapshot",
-        "version"
-      ]);
+      requireMatchingDeckId(
+        ctx,
+        response.snapshot.deckId,
+        response.deck.deckId,
+        ["snapshot", "deckId"],
+      );
+      requireMatchingVersion(
+        ctx,
+        response.snapshot.version,
+        response.deck.version,
+        ["snapshot", "version"],
+      );
     }
   });
 
 export const listDeckSnapshotsResponseSchema = z
   .object({
     projectId: deckApiProjectIdSchema,
-    snapshots: z.array(deckSnapshotSchema)
+    snapshots: z.array(deckSnapshotSchema),
   })
   .superRefine((response, ctx) => {
     response.snapshots.forEach((snapshot, index) => {
@@ -212,7 +220,7 @@ export const listDeckSnapshotsResponseSchema = z
         addMismatchIssue(
           ctx,
           ["snapshots", index, "projectId"],
-          "snapshot.projectId must match response.projectId"
+          "snapshot.projectId must match response.projectId",
         );
       }
     });
@@ -222,26 +230,26 @@ export const restoreDeckSnapshotResponseSchema = z
   .object({
     deck: deckSchema,
     restoredSnapshot: deckSnapshotSchema,
-    updatedAt: isoDateTimeSchema
+    updatedAt: isoDateTimeSchema,
   })
   .superRefine((response, ctx) => {
     requireMatchingProject(
       ctx,
       response.restoredSnapshot.projectId,
       response.deck.projectId,
-      ["restoredSnapshot", "projectId"]
+      ["restoredSnapshot", "projectId"],
     );
     requireMatchingDeckId(
       ctx,
       response.restoredSnapshot.deckId,
       response.deck.deckId,
-      ["restoredSnapshot", "deckId"]
+      ["restoredSnapshot", "deckId"],
     );
     requireMatchingVersion(
       ctx,
       response.restoredSnapshot.version,
       response.deck.version,
-      ["restoredSnapshot", "version"]
+      ["restoredSnapshot", "version"],
     );
   });
 

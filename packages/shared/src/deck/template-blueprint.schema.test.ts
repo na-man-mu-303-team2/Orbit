@@ -3,9 +3,10 @@ import { describe, expect, it } from "vitest";
 import {
   pptxOoxmlGenerationJobResultSchema,
   pptxOoxmlGenerationRequestSchema,
+  pptxOoxmlSyncJobResultSchema,
   pptxImportJobResultSchema,
   qualityReportSchema,
-  templateBlueprintSchema
+  templateBlueprintSchema,
 } from "../index";
 
 const qualityReport = {
@@ -16,7 +17,7 @@ const qualityReport = {
     color: 85,
     layer: 90,
     editability: 70,
-    pixelSimilarity: null
+    pixelSimilarity: null,
   },
   weights: {
     geometry: 25,
@@ -24,11 +25,11 @@ const qualityReport = {
     color: 10,
     layer: 10,
     editability: 10,
-    pixelSimilarity: 30
+    pixelSimilarity: 30,
   },
   editabilityCoverage: 0.7,
   appliedCap: null,
-  notes: ["pixel renderer unavailable"]
+  notes: ["pixel renderer unavailable"],
 };
 
 describe("templateBlueprintSchema", () => {
@@ -52,8 +53,8 @@ describe("templateBlueprintSchema", () => {
                 type: "placeholder",
                 placeholderType: "title",
                 slidePart: "ppt/slides/slide1.xml",
-                shapeId: "2"
-              }
+                shapeId: "2",
+              },
             },
             {
               elementId: "el_logo",
@@ -62,11 +63,11 @@ describe("templateBlueprintSchema", () => {
               replaceMode: "ignore",
               confidence: 0.8,
               bounds: { x: 1600, y: 40, width: 200, height: 80 },
-              source: { type: "master", name: "Logo" }
-            }
-          ]
-        }
-      ]
+              source: { type: "master", name: "Logo" },
+            },
+          ],
+        },
+      ],
     });
 
     expect(blueprint.slides[0].slots[0].usage).toBe("content-slot");
@@ -78,24 +79,39 @@ describe("templateBlueprintSchema", () => {
       sourceFileId: "file_1",
       sourcePackageFileId: "file_1",
       currentPackageFileId: "file_current",
+      ooxmlSyncedDeckVersion: 2,
       slides: [
         {
           slideIndex: 1,
           sourceSlideIndex: 1,
           renderAssetFileId: "file_slide_1",
-          slots: []
-        }
-      ]
+          fallbackRenderAssetFileId: "file_fallback_1",
+          elementSources: [
+            {
+              elementId: "el_title",
+              slidePart: "ppt/slides/slide1.xml",
+              shapeId: "2",
+              sourceType: "placeholder",
+              writable: true,
+            },
+          ],
+          slots: [],
+        },
+      ],
     });
 
     expect(blueprint.currentPackageFileId).toBe("file_current");
+    expect(blueprint.ooxmlSyncedDeckVersion).toBe(2);
     expect(blueprint.slides[0].renderAssetFileId).toBe("file_slide_1");
+    expect(blueprint.slides[0].elementSources[0]?.writable).toBe(true);
   });
 });
 
 describe("qualityReportSchema", () => {
   it("allows a missing pixel similarity score", () => {
-    expect(qualityReportSchema.parse(qualityReport).metrics.pixelSimilarity).toBeNull();
+    expect(
+      qualityReportSchema.parse(qualityReport).metrics.pixelSimilarity,
+    ).toBeNull();
   });
 });
 
@@ -105,7 +121,7 @@ describe("pptxImportJobResultSchema", () => {
       deckId: "deck_imported_1",
       templateId: "template_file_1",
       qualityReport,
-      warnings: ["Unsupported chart was skipped"]
+      warnings: ["Unsupported chart was skipped"],
     });
 
     expect(result.qualityReport.compositeScore).toBe(84);
@@ -118,8 +134,8 @@ describe("pptxOoxmlGeneration schemas", () => {
       pptxOoxmlGenerationRequestSchema.parse({
         fileId: "file_1",
         topic: "Topic",
-        prompt: "Prompt"
-      })
+        prompt: "Prompt",
+      }),
     ).toEqual({ fileId: "file_1", topic: "Topic", prompt: "Prompt" });
 
     const result = pptxOoxmlGenerationJobResultSchema.parse({
@@ -128,9 +144,22 @@ describe("pptxOoxmlGeneration schemas", () => {
       sourceFileId: "file_1",
       currentPackageFileId: "file_current",
       qualityReport,
-      warnings: ["media slot preserved"]
+      warnings: ["media slot preserved"],
     });
 
     expect(result.currentPackageFileId).toBe("file_current");
+  });
+
+  it("validates sync job result contracts", () => {
+    const result = pptxOoxmlSyncJobResultSchema.parse({
+      deckId: "deck_ooxml_1",
+      templateId: "template_file_1",
+      currentPackageFileId: "file_current",
+      renderAssetFileIds: ["file_slide_1"],
+      syncedDeckVersion: 2,
+      warnings: [],
+    });
+
+    expect(result.syncedDeckVersion).toBe(2);
   });
 });
