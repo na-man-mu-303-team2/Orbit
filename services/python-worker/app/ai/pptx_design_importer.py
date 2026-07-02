@@ -110,20 +110,28 @@ class ShapeTransform:
         )
 
 
-def import_pptx_design(path: Path, file_id: str) -> PptxDesignImportResult:
+def import_pptx_design(
+    path: Path,
+    file_id: str,
+    *,
+    canvas_width: int = CANVAS_WIDTH,
+    canvas_height: int = CANVAS_HEIGHT,
+) -> PptxDesignImportResult:
     presentation = Presentation(str(path))
     source_width_value = presentation.slide_width
     source_height_value = presentation.slide_height
+    canvas_width = max(1, int(canvas_width))
+    canvas_height = max(1, int(canvas_height))
     source_width = max(
         1,
-        int(source_width_value) if source_width_value is not None else CANVAS_WIDTH,
+        int(source_width_value) if source_width_value is not None else canvas_width,
     )
     source_height = max(
         1,
-        int(source_height_value) if source_height_value is not None else CANVAS_HEIGHT,
+        int(source_height_value) if source_height_value is not None else canvas_height,
     )
-    scale_x = CANVAS_WIDTH / source_width
-    scale_y = CANVAS_HEIGHT / source_height
+    scale_x = canvas_width / source_width
+    scale_y = canvas_height / source_height
     assets: list[ImportedDesignAsset] = []
     asset_colors: dict[str, str] = {}
     warnings: list[str] = []
@@ -141,8 +149,8 @@ def import_pptx_design(path: Path, file_id: str) -> PptxDesignImportResult:
                 role="background",
                 x=0,
                 y=0,
-                width=CANVAS_WIDTH,
-                height=CANVAS_HEIGHT,
+                width=canvas_width,
+                height=canvas_height,
                 z_index=0,
                 fill=background_color,
                 stroke="transparent",
@@ -162,6 +170,8 @@ def import_pptx_design(path: Path, file_id: str) -> PptxDesignImportResult:
                 slot_sources=slot_sources,
                 scale_x=scale_x,
                 scale_y=scale_y,
+                canvas_width=canvas_width,
+                canvas_height=canvas_height,
                 z_cursor=z_cursor,
                 transform=ShapeTransform(),
                 decoration_only=True,
@@ -179,6 +189,8 @@ def import_pptx_design(path: Path, file_id: str) -> PptxDesignImportResult:
             slot_sources=slot_sources,
             scale_x=scale_x,
             scale_y=scale_y,
+            canvas_width=canvas_width,
+            canvas_height=canvas_height,
             z_cursor=z_cursor,
             transform=ShapeTransform(),
             decoration_only=False,
@@ -205,8 +217,8 @@ def import_pptx_design(path: Path, file_id: str) -> PptxDesignImportResult:
         {
             "sourceFileId": file_id,
             "canvas": {
-                "width": CANVAS_WIDTH,
-                "height": CANVAS_HEIGHT,
+                "width": canvas_width,
+                "height": canvas_height,
             },
             "theme": imported_theme(slides),
             "slides": slides,
@@ -238,6 +250,8 @@ def append_shape_collection(
     slot_sources: dict[str, dict[str, Any]],
     scale_x: float,
     scale_y: float,
+    canvas_width: int,
+    canvas_height: int,
     z_cursor: list[int],
     transform: ShapeTransform,
     decoration_only: bool,
@@ -254,6 +268,8 @@ def append_shape_collection(
             slot_sources=slot_sources,
             scale_x=scale_x,
             scale_y=scale_y,
+            canvas_width=canvas_width,
+            canvas_height=canvas_height,
             z_cursor=z_cursor,
             transform=transform,
             decoration_only=decoration_only,
@@ -272,6 +288,8 @@ def append_shape_elements(
     slot_sources: dict[str, dict[str, Any]],
     scale_x: float,
     scale_y: float,
+    canvas_width: int,
+    canvas_height: int,
     z_cursor: list[int],
     transform: ShapeTransform,
     decoration_only: bool,
@@ -292,13 +310,22 @@ def append_shape_elements(
             slot_sources=slot_sources,
             scale_x=scale_x,
             scale_y=scale_y,
+            canvas_width=canvas_width,
+            canvas_height=canvas_height,
             z_cursor=z_cursor,
             transform=transform.for_group(shape),
             decoration_only=decoration_only,
         )
         return
 
-    frame = normalized_frame(shape, scale_x, scale_y, transform)
+    frame = normalized_frame(
+        shape,
+        scale_x,
+        scale_y,
+        canvas_width,
+        canvas_height,
+        transform,
+    )
     element_id = f"el_imported_{slide_index}_{element_path}"
     locked = decoration_only
     role = "decoration" if decoration_only else "media"
@@ -343,7 +370,11 @@ def append_shape_elements(
         assets.append(asset)
         if color:
             asset_colors[asset.asset_id] = color
-        image_role = "background" if is_full_canvas_frame(frame) else role
+        image_role = (
+            "background"
+            if is_full_canvas_frame(frame, canvas_width, canvas_height)
+            else role
+        )
         element = {
             **element_base(
                 element_id=f"{element_id}_image_fill",
@@ -372,7 +403,14 @@ def append_shape_elements(
         return
 
     if shape_type == MSO_SHAPE_TYPE.TABLE and not decoration_only:
-        table_items = table_elements(shape, element_id, frame, z_cursor)
+        table_items = table_elements(
+            shape,
+            element_id,
+            frame,
+            z_cursor,
+            canvas_width,
+            canvas_height,
+        )
         elements.extend(table_items)
         for element in table_items:
             slot_sources[element["elementId"]] = shape_slot_source(
@@ -1106,6 +1144,8 @@ def normalized_frame(
     shape: Any,
     scale_x: float,
     scale_y: float,
+    canvas_width: int,
+    canvas_height: int,
     transform: ShapeTransform | None = None,
 ) -> dict[str, int]:
     transformer = transform or ShapeTransform()
@@ -1120,10 +1160,10 @@ def normalized_frame(
     width = max(1, round(raw_width * scale_x))
     height = max(1, round(raw_height * scale_y))
     return {
-        "x": min(x, CANVAS_WIDTH - 1),
-        "y": min(y, CANVAS_HEIGHT - 1),
-        "width": min(width, CANVAS_WIDTH - min(x, CANVAS_WIDTH - 1)),
-        "height": min(height, CANVAS_HEIGHT - min(y, CANVAS_HEIGHT - 1)),
+        "x": min(x, canvas_width - 1),
+        "y": min(y, canvas_height - 1),
+        "width": min(width, canvas_width - min(x, canvas_width - 1)),
+        "height": min(height, canvas_height - min(y, canvas_height - 1)),
     }
 
 
@@ -1281,12 +1321,16 @@ def average_image_color(blob: bytes) -> str | None:
     return f"#{red:02X}{green:02X}{blue:02X}"
 
 
-def is_full_canvas_frame(frame: dict[str, int]) -> bool:
+def is_full_canvas_frame(
+    frame: dict[str, int],
+    canvas_width: int,
+    canvas_height: int,
+) -> bool:
     return (
         frame["x"] <= 4
         and frame["y"] <= 4
-        and frame["width"] >= CANVAS_WIDTH - 8
-        and frame["height"] >= CANVAS_HEIGHT - 8
+        and frame["width"] >= canvas_width - 8
+        and frame["height"] >= canvas_height - 8
     )
 
 
@@ -1326,6 +1370,8 @@ def table_elements(
     element_id: str,
     frame: dict[str, int],
     z_cursor: list[int],
+    canvas_width: int,
+    canvas_height: int,
 ) -> list[dict[str, Any]]:
     table = shape.table
     column_widths = [max(1, int(column.width)) for column in table.columns]
@@ -1347,11 +1393,15 @@ def table_elements(
             )
             if not bool(getattr(cell, "is_spanned", False)):
                 cell_frame = {
-                    "x": min(x, CANVAS_WIDTH - 1),
-                    "y": min(y, CANVAS_HEIGHT - 1),
-                    "width": min(column_width, CANVAS_WIDTH - min(x, CANVAS_WIDTH - 1)),
+                    "x": min(x, canvas_width - 1),
+                    "y": min(y, canvas_height - 1),
+                    "width": min(
+                        column_width,
+                        canvas_width - min(x, canvas_width - 1),
+                    ),
                     "height": min(
-                        row_height, CANVAS_HEIGHT - min(y, CANVAS_HEIGHT - 1)
+                        row_height,
+                        canvas_height - min(y, canvas_height - 1),
                     ),
                 }
                 fill = cell_fill_color(cell) or "#ffffff"

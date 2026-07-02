@@ -33,6 +33,35 @@ def test_no_ai_generation_preserves_package_entries(tmp_path: Path) -> None:
     assert zip_entry_hashes(package_bytes) == zip_entry_hashes(pptx_path.read_bytes())
     assert len(result.template_blueprint["slides"]) == 1
     assert result.template_blueprint["currentPackageFileId"] == "asset:current_package"
+    assert result.blueprint["slides"][0]["elements"]
+    assert any(
+        element["type"] == "text"
+        and element["props"]["text"] == "Placeholder Title"
+        for element in result.blueprint["slides"][0]["elements"]
+    )
+
+
+def test_generation_blueprint_uses_detected_canvas(tmp_path: Path) -> None:
+    pptx_path = sample_pptx(tmp_path, wide=False)
+
+    result = generate_pptx_ooxml(pptx_path, "file_template", render=False)
+    background = next(
+        element
+        for element in result.blueprint["slides"][0]["elements"]
+        if element["elementId"] == "el_imported_1_background"
+    )
+    title_slot = next(
+        slot
+        for slot in result.template_blueprint["slides"][0]["slots"]
+        if slot["usage"] == "content-slot"
+    )
+
+    assert result.canvas["preset"] == "standard-4-3"
+    assert result.blueprint["canvas"] == {"width": 1024, "height": 768}
+    assert background["width"] == 1024
+    assert background["height"] == 768
+    assert title_slot["bounds"]["width"] <= 1024
+    assert title_slot["bounds"]["height"] <= 768
 
 
 def test_extracts_slots_and_replaces_content_slot_text(tmp_path: Path) -> None:
@@ -158,13 +187,13 @@ def test_renders_slide_pngs_when_libreoffice_is_available(tmp_path: Path) -> Non
     assert base64.b64decode(assets[0].content_base64).startswith(b"\x89PNG")
 
 
-def sample_pptx(tmp_path: Path) -> Path:
+def sample_pptx(tmp_path: Path, *, wide: bool = True) -> Path:
     pptx_path = tmp_path / "template.pptx"
     image_path = tmp_path / "image.png"
     Image.new("RGB", (32, 32), "#ff0000").save(image_path)
 
     presentation = Presentation()
-    presentation.slide_width = Inches(13.333333)
+    presentation.slide_width = Inches(13.333333 if wide else 10)
     presentation.slide_height = Inches(7.5)
     slide = presentation.slides.add_slide(presentation.slide_layouts[0])
     slide.shapes.title.text_frame.text = "Placeholder Title"

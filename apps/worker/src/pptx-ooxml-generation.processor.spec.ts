@@ -33,7 +33,7 @@ describe("processPptxOoxmlGenerationJob", () => {
     vi.clearAllMocks();
   });
 
-  it("stores slide renders, current package, deck, template blueprint, and job result", async () => {
+  it("stores editable imported elements, slide renders, current package, template blueprint, and job result", async () => {
     const insertedDecks: unknown[] = [];
     const insertedBlueprints: unknown[] = [];
     const query = vi.fn(async (sql: string, params: unknown[]) => {
@@ -90,7 +90,7 @@ describe("processPptxOoxmlGenerationJob", () => {
     );
 
     expect(job.status, JSON.stringify(job.error)).toBe("succeeded");
-    expect(storage.putObject).toHaveBeenCalledTimes(2);
+    expect(storage.putObject).toHaveBeenCalledTimes(3);
     expect(storage.putObject).toHaveBeenCalledWith(
       expect.objectContaining({ contentType: "image/png", purpose: "design-asset" })
     );
@@ -107,7 +107,8 @@ describe("processPptxOoxmlGenerationJob", () => {
     expect(deck.slides[0].elements).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          type: "image",
+          elementId: "el_imported_1_background",
+          type: "rect",
           role: "background",
           locked: true,
           width: 1920,
@@ -115,14 +116,28 @@ describe("processPptxOoxmlGenerationJob", () => {
         }),
         expect.objectContaining({
           elementId: "el_slot_title",
-          type: "rect",
+          type: "text",
           role: "title",
-          locked: true,
+          locked: false,
           props: expect.objectContaining({
-            fill: "transparent",
-            stroke: "transparent"
+            text: "Editable PPTX Title"
+          })
+        }),
+        expect.objectContaining({
+          elementId: "el_slot_media",
+          type: "image",
+          role: "media",
+          props: expect.objectContaining({
+            src: expect.stringMatching(
+              /\/api\/v1\/projects\/project-a\/assets\/file_.*\/content/
+            )
           })
         })
+      ])
+    );
+    expect(deck.slides[0].elements).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ elementId: "el_ooxml_1_render" })
       ])
     );
 
@@ -234,6 +249,110 @@ function workerResponse() {
         }
       ]
     },
+    blueprint: {
+      theme: {
+        name: "Imported PPTX",
+        fontFamily: "Inter",
+        backgroundColor: "#ffffff",
+        textColor: "#111827",
+        accentColor: "#2563eb",
+        palette: {
+          primary: "#2563eb",
+          secondary: "#7c3aed",
+          surface: "#ffffff",
+          muted: "#f3f4f6",
+          border: "#d1d5db"
+        },
+        typography: {
+          headingFontFamily: "Inter",
+          bodyFontFamily: "Inter",
+          titleSize: 56,
+          headingSize: 40,
+          bodySize: 24,
+          captionSize: 16
+        },
+        effects: { borderRadius: 8 }
+      },
+      slides: [
+        {
+          sourceSlideIndex: 1,
+          style: {
+            layout: "title-content",
+            backgroundColor: "#ffffff",
+            textColor: "#111827",
+            accentColor: "#2563eb",
+            fontFamily: "Inter"
+          },
+          elements: [
+            {
+              elementId: "el_imported_1_background",
+              type: "rect",
+              role: "background",
+              x: 0,
+              y: 0,
+              width: 1920,
+              height: 1080,
+              rotation: 0,
+              opacity: 1,
+              zIndex: 0,
+              locked: true,
+              visible: true,
+              props: {
+                fill: "#ffffff",
+                stroke: "transparent",
+                strokeWidth: 0,
+                borderRadius: 0
+              }
+            },
+            {
+              elementId: "el_slot_title",
+              type: "text",
+              role: "title",
+              x: 100,
+              y: 80,
+              width: 800,
+              height: 120,
+              rotation: 0,
+              opacity: 1,
+              zIndex: 1,
+              locked: false,
+              visible: true,
+              props: {
+                text: "Editable PPTX Title",
+                fontFamily: "Inter",
+                fontSize: 44,
+                fontWeight: "bold",
+                color: "#111827",
+                align: "left",
+                verticalAlign: "top",
+                lineHeight: 1.2
+              }
+            },
+            {
+              elementId: "el_slot_media",
+              type: "image",
+              role: "media",
+              x: 900,
+              y: 200,
+              width: 420,
+              height: 240,
+              rotation: 0,
+              opacity: 1,
+              zIndex: 2,
+              locked: false,
+              visible: true,
+              props: {
+                src: "asset:image_1",
+                alt: "Imported image",
+                fit: "contain",
+                focusX: 0.5,
+                focusY: 0.5
+              }
+            }
+          ]
+        }
+      ]
+    },
     qualityReport: qualityReport(),
     assets: [
       {
@@ -247,6 +366,12 @@ function workerResponse() {
         fileName: "template.pptx",
         mimeType: pptxMimeType,
         contentBase64: Buffer.from("pptx").toString("base64")
+      },
+      {
+        assetId: "image_1",
+        fileName: "image-01.png",
+        mimeType: "image/png",
+        contentBase64: Buffer.from("image").toString("base64")
       }
     ],
     warnings: ["media slot preserved"]

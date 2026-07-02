@@ -59,6 +59,7 @@ class PptxOoxmlGenerationResult(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
     canvas: dict[str, Any]
+    blueprint: dict[str, Any]
     template_blueprint: dict[str, Any] = Field(alias="templateBlueprint")
     quality_report: dict[str, Any] = Field(alias="qualityReport")
     assets: list[ImportedDesignAsset] = Field(default_factory=list)
@@ -118,11 +119,17 @@ def generate_pptx_ooxml(
     render: bool = True,
 ) -> PptxOoxmlGenerationResult:
     canvas = detect_canvas(path)
-    imported = import_pptx_design(path, file_id)
+    imported = import_pptx_design(
+        path,
+        file_id,
+        canvas_width=canvas.width,
+        canvas_height=canvas.height,
+    )
     template_blueprint = prepare_template_blueprint(
         imported.template_blueprint,
         canvas,
         source_file_id=file_id,
+        source_canvas=imported.blueprint.get("canvas", {}),
     )
     warnings = list(imported.warnings)
     package_bytes = path.read_bytes()
@@ -171,6 +178,7 @@ def generate_pptx_ooxml(
 
     return PptxOoxmlGenerationResult(
         canvas=canvas.payload(),
+        blueprint=imported.blueprint,
         templateBlueprint=template_blueprint,
         qualityReport=quality_report,
         assets=assets,
@@ -242,12 +250,14 @@ def prepare_template_blueprint(
     canvas: CanvasSpec,
     *,
     source_file_id: str,
+    source_canvas: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     prepared = cast(dict[str, Any], json.loads(json.dumps(template_blueprint)))
     prepared["sourcePackageFileId"] = source_file_id
     prepared["currentPackageFileId"] = "asset:current_package"
-    scale_x = canvas.width / CANVAS_WIDTH
-    scale_y = canvas.height / CANVAS_HEIGHT
+    source_canvas = source_canvas or {}
+    scale_x = canvas.width / int_value(source_canvas.get("width"), CANVAS_WIDTH)
+    scale_y = canvas.height / int_value(source_canvas.get("height"), CANVAS_HEIGHT)
 
     for slide in prepared.get("slides", []):
         if not isinstance(slide, dict):

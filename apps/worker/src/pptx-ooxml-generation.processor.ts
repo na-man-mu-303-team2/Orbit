@@ -1,11 +1,15 @@
 import {
   deckCanvasSchema,
+  deckElementSchema,
   deckSchema,
   qualityReportSchema,
+  slideStyleSchema,
   templateBlueprintSchema,
   templateBlueprintIdSchema,
+  themeSchema,
   type Deck,
   type DeckCanvas,
+  type DeckElement,
   type Job,
   type QualityReport,
   type TemplateBlueprint,
@@ -32,8 +36,24 @@ const generatedDesignAssetSchema = z.object({
   contentBase64: z.string().min(1),
 });
 
+const ooxmlGenerationBlueprintSlideSchema = z
+  .object({
+    sourceSlideIndex: z.number().int().positive().optional(),
+    style: slideStyleSchema,
+    elements: z.array(deckElementSchema).default([]),
+  })
+  .passthrough();
+
+const ooxmlGenerationBlueprintSchema = z
+  .object({
+    theme: themeSchema.default({}),
+    slides: z.array(ooxmlGenerationBlueprintSlideSchema).min(1),
+  })
+  .passthrough();
+
 const pptxOoxmlGenerationWorkerResponseSchema = z.object({
   canvas: deckCanvasSchema,
+  blueprint: ooxmlGenerationBlueprintSchema,
   templateBlueprint: templateBlueprintSchema.passthrough(),
   qualityReport: qualityReportSchema,
   assets: z.array(generatedDesignAssetSchema).default([]),
@@ -57,6 +77,8 @@ type PptxOoxmlGenerationRequest = z.infer<
 >["request"];
 type OoxmlTemplateBlueprint =
   PptxOoxmlGenerationWorkerResponse["templateBlueprint"];
+type OoxmlGenerationBlueprint =
+  PptxOoxmlGenerationWorkerResponse["blueprint"];
 
 type SavedAssetRefs = {
   fileIds: Map<string, string>;
@@ -164,11 +186,16 @@ export async function processPptxOoxmlGenerationJob(
       pptxOoxmlGenerationWorkerResponseSchema.shape.templateBlueprint.parse(
         replaceAssetRefs(generated.templateBlueprint, assetRefs.fileIds),
       );
+    const editableBlueprint =
+      pptxOoxmlGenerationWorkerResponseSchema.shape.blueprint.parse(
+        replaceAssetRefs(generated.blueprint, assetRefs.urls),
+      );
     const deck = buildOoxmlDeck(
       payload.projectId,
       asset,
       generated.canvas,
       templateBlueprint,
+      editableBlueprint,
       assetRefs.urls,
     );
 
@@ -345,6 +372,7 @@ function buildOoxmlDeck(
   asset: ProjectAssetRow,
   canvas: DeckCanvas,
   templateBlueprint: OoxmlTemplateBlueprint,
+  editableBlueprint: OoxmlGenerationBlueprint,
   assetUrls: Map<string, string>,
 ): Deck {
   const title = titleFromFileName(asset.original_name);
@@ -360,30 +388,16 @@ function buildOoxmlDeck(
       sourceType: "import",
     },
     canvas,
-    theme: {
-      name: "OOXML PPTX",
-      fontFamily: "Inter",
-      backgroundColor: "#ffffff",
-      textColor: "#111827",
-      accentColor: "#2563eb",
-      palette: {
-        primary: "#2563eb",
-        secondary: "#7c3aed",
-        surface: "#ffffff",
-        muted: "#f3f4f6",
-        border: "#d1d5db",
-      },
-      typography: {
-        headingFontFamily: "Inter",
-        bodyFontFamily: "Inter",
-        titleSize: 56,
-        headingSize: 36,
-        bodySize: 24,
-        captionSize: 16,
-      },
-      effects: { borderRadius: 8 },
-    },
+    theme: editableBlueprint.theme,
     slides: templateBlueprint.slides.map((slide, index) => {
+      const editableSlide = editableSlideForSource(
+        editableBlueprint,
+        slide.sourceSlideIndex,
+        index,
+      );
+      if (!editableSlide) {
+        throw new Error(`Editable slide missing: ${slide.sourceSlideIndex}`);
+      }
       const renderAssetRef = `asset:slide_render_${slide.sourceSlideIndex}`;
       const renderUrl = assetUrls.get(renderAssetRef);
       if (!renderUrl) {
@@ -393,18 +407,11 @@ function buildOoxmlDeck(
       return {
         slideId: `slide_ooxml_${safeId(asset.file_id)}_${index + 1}`,
         order: index + 1,
-        title: `Slide ${index + 1}`,
+        title: slideTitleFromElements(editableSlide.elements, index + 1),
         thumbnailUrl: renderUrl,
-        style: { layout: "title-content", backgroundColor: "#ffffff" },
+        style: editableSlide.style,
         speakerNotes: "",
-        elements: [
-          fullSlideImageElement(slide.sourceSlideIndex, canvas, renderUrl),
-          ...slide.slots
-            .filter(isReplaceableSlot)
-            .map((slot, slotIndex) =>
-              slotOverlayElement(slot, 1000 + slotIndex),
-            ),
-        ],
+        elements: editableSlide.elements,
         keywords: [],
         animations: [],
         aiNotes: {
@@ -416,79 +423,32 @@ function buildOoxmlDeck(
   });
 }
 
-function fullSlideImageElement(
-  slideIndex: number,
-  canvas: DeckCanvas,
-  src: string,
-) {
-  return {
-    elementId: `el_ooxml_${slideIndex}_render`,
-    type: "image",
-    role: "background",
-    x: 0,
-    y: 0,
-    width: canvas.width,
-    height: canvas.height,
-    rotation: 0,
-    opacity: 1,
-    zIndex: 0,
-    locked: true,
-    visible: true,
-    props: {
-      src,
-      alt: `Slide ${slideIndex}`,
-      fit: "stretch",
-      focusX: 0.5,
-      focusY: 0.5,
-    },
-  };
-}
-
-function slotOverlayElement(
-  slot: OoxmlTemplateBlueprint["slides"][number]["slots"][number],
-  zIndex: number,
-) {
-  return {
-    elementId: slot.elementId,
-    type: "rect",
-    role: deckRoleForSlot(slot),
-    x: slot.bounds.x,
-    y: slot.bounds.y,
-    width: slot.bounds.width,
-    height: slot.bounds.height,
-    rotation: 0,
-    opacity: 1,
-    zIndex,
-    locked: true,
-    visible: true,
-    props: {
-      fill: "transparent",
-      stroke: "transparent",
-      strokeWidth: 0,
-      borderRadius: 0,
-    },
-  };
-}
-
-function isReplaceableSlot(
-  slot: OoxmlTemplateBlueprint["slides"][number]["slots"][number],
+function editableSlideForSource(
+  blueprint: OoxmlGenerationBlueprint,
+  sourceSlideIndex: number,
+  fallbackIndex: number,
 ) {
   return (
-    (slot.usage === "content-slot" || slot.usage === "media-slot") &&
-    slot.replaceMode === "replace"
+    blueprint.slides.find(
+      (slide, index) =>
+        (slide.sourceSlideIndex ?? index + 1) === sourceSlideIndex,
+    ) ?? blueprint.slides[fallbackIndex]
   );
 }
 
-function deckRoleForSlot(
-  slot: OoxmlTemplateBlueprint["slides"][number]["slots"][number],
-) {
-  if (["title", "subtitle", "body", "caption"].includes(slot.slotRole)) {
-    return slot.slotRole;
+function slideTitleFromElements(elements: DeckElement[], slideIndex: number) {
+  const titleElement =
+    elements.find((element) => element.type === "text" && element.role === "title") ??
+    elements.find((element) => element.type === "text");
+
+  if (titleElement?.type === "text") {
+    const title = titleElement.props.text.trim();
+    if (title) {
+      return title;
+    }
   }
-  if (slot.slotRole === "chart") {
-    return "chart";
-  }
-  return "media";
+
+  return `Slide ${slideIndex}`;
 }
 
 async function saveDeck(dataSource: DataSource, deck: Deck): Promise<void> {
