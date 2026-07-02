@@ -20,6 +20,7 @@ type DeckValidationInput = {
     createdFrom?: {
       topic: string;
       references: Array<{ fileId: string }>;
+      designReferences?: Array<{ fileId: string }>;
     };
   };
   canvas: {
@@ -197,6 +198,34 @@ describe("deckSchema validation", () => {
       expectInvalidDeck(deck);
     }
   );
+
+  it("accepts image crop focus controls", () => {
+    const deck = createValidDeck();
+
+    deck.slides[0].elements[0] = {
+      elementId: "el_1",
+      type: "image",
+      role: "media",
+      x: 120,
+      y: 80,
+      width: 640,
+      height: 360,
+      rotation: 0,
+      opacity: 1,
+      zIndex: 0,
+      locked: false,
+      visible: true,
+      props: {
+        alt: "Hero",
+        fit: "cover",
+        focusX: 0.25,
+        focusY: 0.75,
+        src: "/hero.png"
+      }
+    };
+
+    expectValidDeck(deck);
+  });
 
   it("accepts a 1024x768 standard-4-3 deck", () => {
     const deck = createValidDeck();
@@ -441,6 +470,24 @@ describe("deckSchema validation", () => {
     };
 
     expectValidDeck(deck);
+  });
+
+  it("defaults AI metadata design references to an empty list", () => {
+    const deck = createValidDeck();
+
+    deck.metadata = {
+      ...deck.metadata,
+      sourceType: "ai",
+      generatedBy: "ai",
+      createdFrom: {
+        topic: "AI design reference",
+        references: []
+      }
+    };
+
+    const result = deckSchema.parse(deck);
+
+    expect(result.metadata.createdFrom?.designReferences).toEqual([]);
   });
 
   it("rejects empty and duplicate slide keyword terms", () => {

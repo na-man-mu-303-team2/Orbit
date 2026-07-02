@@ -2,7 +2,9 @@ import { renderToStaticMarkup } from "react-dom/server";
 import type { Job, Project } from "@orbit/shared";
 import { describe, expect, it, vi } from "vitest";
 import {
+  buildDesignReferences,
   buildGenerateDeckPayload,
+  buildGenerateDeckDesignDirection,
   buildReferenceGenerationInput,
   createGeneratedDeckProject,
   ExtractResultItem,
@@ -13,6 +15,7 @@ import {
   getJobResultFiles,
   mergeGeneratedProjectList,
   pollExtractJob,
+  resolveGenerateDeckTargetProject,
   shouldRenderAppFrame
 } from "./App";
 
@@ -137,11 +140,13 @@ describe("AI deck generation flow", () => {
         tone: "professional"
       },
       design: {
+        profile: "executive-report",
         visualRhythm: "auto",
         densityTarget: "medium",
         mediaPolicy: "balanced",
         layoutDiversity: "varied"
       },
+      designReferences: [{ fileId: "file_design_1" }],
       referenceInput: {
         references: [{ fileId: "file_1" }],
         referenceKeywords: [{ text: "Deck" }],
@@ -157,14 +162,43 @@ describe("AI deck generation flow", () => {
       targetDurationMinutes: 10,
       slideCountRange: { min: 5, max: 8 },
       design: {
+        profile: "executive-report",
         visualRhythm: "auto",
         densityTarget: "medium",
         mediaPolicy: "balanced",
         layoutDiversity: "varied"
       },
       references: [{ fileId: "file_1" }],
+      designReferences: [{ fileId: "file_design_1" }],
       referenceKeywords: [{ text: "Deck" }]
     });
+  });
+
+  it("omits a design profile when the profile picker is automatic", () => {
+    expect(
+      buildGenerateDeckDesignDirection({
+        profile: "auto",
+        visualRhythm: "auto",
+        densityTarget: "medium",
+        mediaPolicy: "balanced",
+        layoutDiversity: "varied"
+      })
+    ).toEqual({
+      visualRhythm: "auto",
+      densityTarget: "medium",
+      mediaPolicy: "balanced",
+      layoutDiversity: "varied"
+    });
+
+    expect(
+      buildGenerateDeckDesignDirection({
+        profile: "editorial",
+        visualRhythm: "auto",
+        densityTarget: "medium",
+        mediaPolicy: "balanced",
+        layoutDiversity: "varied"
+      }).profile
+    ).toBe("editorial");
   });
 
   it("defaults an omitted design prompt to an empty string", () => {
@@ -181,11 +215,13 @@ describe("AI deck generation flow", () => {
         tone: "professional"
       },
       design: {
+        profile: "executive-report",
         visualRhythm: "auto",
         densityTarget: "medium",
         mediaPolicy: "balanced",
         layoutDiversity: "varied"
       },
+      designReferences: [],
       referenceInput: {
         references: [],
         referenceKeywords: [],
@@ -195,6 +231,28 @@ describe("AI deck generation flow", () => {
     });
 
     expect(payload.designPrompt).toBe("");
+  });
+
+  it("builds design references from PPTX role uploads", () => {
+    const pptx = new File(["pptx"], "design.pptx", {
+      type: "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+    });
+    const pdf = new File(["pdf"], "content.pdf", { type: "application/pdf" });
+    const uploadedFileIds = new Map([
+      ["design-only", "file_design"],
+      ["both", "file_both"]
+    ]);
+
+    expect(
+      buildDesignReferences(
+        [
+          { id: "content", file: pdf, role: "content" },
+          { id: "design-only", file: pptx, role: "design" },
+          { id: "both", file: pptx, role: "both" }
+        ],
+        uploadedFileIds
+      )
+    ).toEqual([{ fileId: "file_design" }, { fileId: "file_both" }]);
   });
 
   it("keeps a generated project at the top of the project list cache", () => {
@@ -268,6 +326,31 @@ describe("AI deck generation flow", () => {
     expect(getGeneratedDeckProjectTitle("   ")).toBe("AI 덱");
   });
 
+  it("uses a selected project as the generate-deck target", async () => {
+    const selected: Project = {
+      projectId: "project_selected",
+      workspaceId: "workspace_demo_1",
+      title: "Selected",
+      createdBy: "user_demo_1",
+      createdAt: "2026-06-29T00:00:00.000Z"
+    };
+    const fetcher = vi.fn(async () => new Response("unexpected", { status: 500 }));
+
+    await expect(
+      resolveGenerateDeckTargetProject({
+        fetcher,
+        projects: [selected],
+        selectedProjectId: selected.projectId,
+        topic: "새 주제"
+      })
+    ).resolves.toEqual({
+      created: false,
+      project: selected,
+      projectId: selected.projectId
+    });
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
   it("reads a generated deck job result and renders slide evidence", () => {
     const job: Job = {
       jobId: "job-2",
@@ -318,7 +401,13 @@ describe("AI deck generation flow", () => {
           passed: true,
           layoutIssues: [],
           contentIssues: [],
-          designIssues: [],
+          designIssues: [
+            {
+              scope: "element",
+              path: "slides.0.elements.0.props.data",
+              message: "근거 데이터가 없어 빈 차트 자리 표시자를 생성했습니다."
+            }
+          ],
           presentationIssues: []
         }
       },
@@ -338,6 +427,9 @@ describe("AI deck generation flow", () => {
     );
     expect(renderToStaticMarkup(<GeneratedDeckResult result={result} />)).toContain(
       "AI가 참고자료/주제 밀도를 기준으로 1장이 적정하다고 판단했습니다."
+    );
+    expect(renderToStaticMarkup(<GeneratedDeckResult result={result} />)).toContain(
+      "근거 데이터가 없어 빈 차트 자리 표시자를 생성했습니다."
     );
   });
 });

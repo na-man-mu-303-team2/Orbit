@@ -6,14 +6,20 @@ from fastapi.testclient import TestClient
 
 import app.main as api_module
 from app.ai.generate_deck import (
+    AgentOutput,
     DeckContentGenerationError,
+    DeckGenerationOrchestrator,
     GenerateDeckRequest,
     ReferenceContext,
     SlideCountRange,
+    ValidationIssue,
     choose_slide_count,
     detect_text_overlap_candidates,
     generate_deck,
+    icon_name_for_keyword,
+    refine_design_issues,
     review_text_overlap_candidates,
+    validate_and_patch,
 )
 from tests.test_config import VALID_ENV
 
@@ -647,6 +653,22 @@ def test_generate_deck_matches_game_ink_neon_profile_for_korean_hints() -> None:
     )
 
     assert response.deck["theme"]["name"] == "default-game-ink-neon-ai"
+
+
+def test_generate_deck_uses_design_prompt_profile_when_profile_is_auto() -> None:
+    response = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="Quarterly roadmap",
+            designPrompt="예쁜 모던 스타일로 세련되게",
+            slideCountRange={"min": 2, "max": 2},
+        )
+    )
+
+    theme = response.deck["theme"]
+    assert theme["name"] == "default-modern-lilac-ai"
+    assert theme["accentColor"] == "#7c3aed"
+    assert theme["palette"]["muted"] == "#f5f3ff"
 
 
 def test_generate_deck_report_template_keeps_explicit_game_prompt_theme() -> None:
@@ -1538,6 +1560,570 @@ def test_generate_deck_creates_diagram_elements_from_composition() -> None:
     assert len(bubbles) == 5
     assert element_by_id(bubble_slide, "el_3_bubble_1_label")["props"]["text"] == "초안"
     assert response.validation.passed is True
+
+
+def test_generate_deck_applies_v1_design_profile_to_theme_and_slots() -> None:
+    response = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="IR 피치",
+            slideCountRange={"min": 4, "max": 4},
+            template="pitch",
+            design={"profile": "startup-pitch", "layoutDiversity": "varied"},
+        )
+    )
+
+    assert response.deck["theme"]["name"] == "pitch-startup-pitch-ai"
+    assert response.deck["theme"]["backgroundColor"] == "#0f172a"
+    assert response.deck["slides"][0]["style"]["backgroundColor"] == "#0f172a"
+    assert response.validation.passed is True
+
+
+def test_generate_deck_applies_v2_process_cards_registry() -> None:
+    fake_client = FakeOpenAIClient(
+        {
+            "title": "AI slide pipeline",
+            "slides": [
+                slide_payload(
+                    "AI slide generation pipeline",
+                    "LLM output becomes editable Deck JSON.",
+                    "Walk through the deterministic deck assembly flow.",
+                    slide_type="process",
+                    slot_preset="insight_with_evidence",
+                    keywords=[
+                        "Input collection",
+                        "LLM flow",
+                        "Design request",
+                        "Layout selection",
+                        "Element assembly",
+                        "Validation handoff",
+                    ],
+                    visual_intent={
+                        "emphasis": "Editable slide JSON keeps generation stable.",
+                        "mood": "professional",
+                        "structure": "process cards",
+                        "paletteHint": "",
+                        "emphasisStyle": "",
+                        "composition": "process",
+                        "decorationDensity": "high",
+                        "mediaStyle": "",
+                    },
+                )
+            ],
+        }
+    )
+
+    response = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="AI slide generation pipeline",
+            prompt="Use a teal process cards design.",
+            slideCountRange={"min": 1, "max": 1},
+        ),
+        client=fake_client,
+    )
+
+    slide = response.deck["slides"][0]
+    elements = slide["elements"]
+    deck_text = json.dumps(response.deck, ensure_ascii=False)
+    cards = [
+        element
+        for element in elements
+        if element["elementId"].startswith("el_1_process_card_")
+        and element["type"] == "rect"
+    ]
+    arrows = [
+        element
+        for element in elements
+        if element["elementId"].startswith("el_1_process_arrow_")
+    ]
+    badges = [
+        element
+        for element in elements
+        if element["elementId"].startswith("el_1_process_badge_")
+        and element["type"] == "ellipse"
+    ]
+
+    assert response.deck["theme"]["name"] == "teal-professional-process"
+    assert response.deck["theme"]["accentColor"] == "#006878"
+    assert cards[0]["props"]["fill"] == "#ffffff"
+    assert cards[0]["props"]["stroke"] == "#c7d2d0"
+    assert cards[0]["props"]["shadow"]["blur"] == 16
+    assert element_by_id(slide, "el_1_process_callout")["props"]["stroke"] == "#c7d2d0"
+    assert len(cards) == 6
+    assert len(arrows) == 5
+    assert len(badges) == 6
+    assert has_element(slide, "el_1_process_callout")
+    assert icon_name_for_keyword("LLM flow") == "network-nodes"
+    assert icon_name_for_keyword("Design request") == "pen-monitor"
+    assert "stylePackId" not in deck_text
+    assert "slidePresetId" not in deck_text
+    assert "visualIntent" not in deck_text
+    assert response.validation.passed is True
+
+
+def test_generate_deck_does_not_invent_chart_data_without_source_numbers() -> None:
+    fake_client = FakeOpenAIClient(
+        {
+            "title": "차트 근거",
+            "slides": [
+                slide_payload(
+                    "성과 차트",
+                    "근거 데이터가 없으면 빈 차트로 남깁니다.",
+                    "데이터가 없을 때는 사용자가 직접 입력할 수 있도록 안내합니다.",
+                    slide_type="chart",
+                    slot_preset="insight_with_evidence",
+                )
+            ],
+        }
+    )
+
+    response = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="차트 근거",
+            prompt="차트 슬라이드 생성",
+            slideCountRange={"min": 1, "max": 1},
+        ),
+        client=fake_client,
+    )
+
+    chart = next(
+        element
+        for element in response.deck["slides"][0]["elements"]
+        if element["type"] == "chart"
+    )
+    assert chart["props"]["data"] == []
+    assert any("근거 데이터가 없어 빈 차트" in warning for warning in response.warnings)
+    assert response.validation.passed is True
+
+
+def test_agent_output_rejects_invalid_status() -> None:
+    with pytest.raises(ValueError):
+        AgentOutput.model_validate({"status": "done", "summary": "invalid"})
+
+
+def test_orchestrator_passes_design_blueprint_to_design_and_layout_agents() -> None:
+    blueprint = minimal_imported_design_blueprint()
+    orchestrator = DeckGenerationOrchestrator(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="ORBIT",
+            designReferences=[{"fileId": "file_design"}],
+            designBlueprint=blueprint,
+        )
+    )
+
+    response = orchestrator.run()
+    design_output = orchestrator.agent_outputs["DesignDirectorAgent"]
+    layout_output = orchestrator.agent_outputs["LayoutAgent"]
+
+    assert design_output.artifacts["designBlueprint"]["slides"][0]["elements"][0]["type"] == "rect"
+    assert layout_output.artifacts["designBlueprint"]["slides"][0]["elements"][1]["type"] == "text"
+    assert "agentOutputs" not in response.deck
+    assert "Original confidential" not in json.dumps(response.deck, ensure_ascii=False)
+    assert response.validation.passed is True
+
+
+def test_refiner_shrinks_clamps_and_corrects_text_contrast() -> None:
+    deck = {
+        "deckId": "deck_ai_refine",
+        "projectId": "project_demo_1",
+        "title": "ORBIT",
+        "version": 1,
+        "metadata": {
+            "language": "ko",
+            "locale": "ko-KR",
+            "sourceType": "ai",
+            "generatedBy": "ai",
+            "createdFrom": {"topic": "ORBIT", "references": []},
+        },
+        "canvas": {
+            "preset": "wide-16-9",
+            "width": 1920,
+            "height": 1080,
+            "aspectRatio": "16:9",
+        },
+        "theme": minimal_imported_design_blueprint()["theme"],
+        "slides": [
+            {
+                "slideId": "slide_1",
+                "order": 1,
+                "title": "ORBIT",
+                "thumbnailUrl": "",
+                "style": {"backgroundColor": "#ffffff"},
+                "speakerNotes": "notes",
+                "elements": [
+                    {
+                        "elementId": "el_1_text",
+                        "type": "text",
+                        "role": "body",
+                        "x": 80,
+                        "y": 80,
+                        "width": 260,
+                        "height": 44,
+                        "rotation": 0,
+                        "opacity": 1,
+                        "zIndex": 1,
+                        "locked": False,
+                        "visible": True,
+                        "props": {
+                            "text": "This copy is long enough to overflow the small frame.",
+                            "fontSize": 28,
+                            "fontWeight": "normal",
+                            "color": "#fefefe",
+                            "align": "left",
+                            "verticalAlign": "top",
+                            "lineHeight": 1.2,
+                        },
+                    }
+                ],
+                "keywords": [],
+                "animations": [],
+            }
+        ],
+    }
+
+    refined = refine_design_issues(
+        deck,
+        [ValidationIssue(scope="element", path="slides.0.elements.0", message="issue")],
+    )
+    element = refined["slides"][0]["elements"][0]
+
+    assert element["x"] == 120
+    assert element["y"] == 88
+    assert element["props"]["fontSize"] < 28
+    assert element["props"]["color"] == "#111827"
+
+
+def test_generate_deck_reports_advisory_design_quality_issues() -> None:
+    deck = {
+        "deckId": "deck_ai_quality",
+        "projectId": "project_demo_1",
+        "title": "ORBIT",
+        "version": 1,
+        "metadata": {
+            "language": "ko",
+            "locale": "ko-KR",
+            "sourceType": "ai",
+            "generatedBy": "ai",
+            "createdFrom": {"topic": "ORBIT", "references": []},
+        },
+        "canvas": {
+            "preset": "wide-16-9",
+            "width": 1920,
+            "height": 1080,
+            "aspectRatio": "16:9",
+        },
+        "theme": {
+            "name": "quality-test",
+            "fontFamily": "Inter",
+            "backgroundColor": "#ffffff",
+            "textColor": "#111827",
+            "accentColor": "#2563eb",
+            "palette": {
+                "primary": "#2563eb",
+                "secondary": "#f59e0b",
+                "surface": "#ffffff",
+                "muted": "#f8fafc",
+                "border": "#d8dee9",
+            },
+            "typography": {
+                "headingFontFamily": "Inter",
+                "bodyFontFamily": "Inter",
+                "titleSize": 60,
+                "headingSize": 42,
+                "bodySize": 26,
+                "captionSize": 18,
+            },
+            "effects": {"borderRadius": 8},
+        },
+        "slides": [
+            {
+                "slideId": "slide_1",
+                "order": 1,
+                "title": "ORBIT",
+                "thumbnailUrl": "",
+                "style": {"backgroundColor": "#ffffff"},
+                "speakerNotes": "발표자 노트",
+                "elements": [
+                    {
+                        "elementId": "el_1_text",
+                        "type": "text",
+                        "role": "body",
+                        "x": 80,
+                        "y": 80,
+                        "width": 220,
+                        "height": 32,
+                        "rotation": 0,
+                        "opacity": 1,
+                        "zIndex": 1,
+                        "locked": False,
+                        "visible": True,
+                        "props": {
+                            "text": "긴 텍스트가 좁은 상자 안에서 여러 줄로 넘칠 수 있습니다.",
+                            "fontSize": 28,
+                            "fontWeight": "normal",
+                            "color": "#fefefe",
+                            "align": "left",
+                            "verticalAlign": "top",
+                            "lineHeight": 1.2,
+                        },
+                    },
+                    {
+                        "elementId": "el_1_overlap",
+                        "type": "text",
+                        "role": "body",
+                        "x": 100,
+                        "y": 92,
+                        "width": 220,
+                        "height": 80,
+                        "rotation": 0,
+                        "opacity": 1,
+                        "zIndex": 2,
+                        "locked": False,
+                        "visible": True,
+                        "props": {
+                            "text": "겹침",
+                            "fontSize": 24,
+                            "fontWeight": "normal",
+                            "color": "#111827",
+                            "align": "left",
+                            "verticalAlign": "top",
+                            "lineHeight": 1.2,
+                        },
+                    },
+                ],
+                "keywords": [],
+                "animations": [],
+            }
+        ],
+    }
+
+    _, validation = validate_and_patch(deck)
+    messages = [issue.message for issue in validation.design_issues]
+
+    assert validation.passed is True
+    assert "텍스트가 상자 높이를 넘을 수 있습니다." in messages
+    assert "텍스트와 배경의 대비가 낮습니다." in messages
+    assert "텍스트가 안전 영역 밖에 배치되었습니다." in messages
+    assert any("겹칠 수 있습니다" in message for message in messages)
+
+
+def test_generate_deck_applies_imported_design_blueprint_without_schema_leak() -> None:
+    response = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="ORBIT",
+            designReferences=[{"fileId": "file_design"}],
+            designBlueprint={
+                "theme": {
+                    "name": "Imported PPTX",
+                    "fontFamily": "Inter",
+                    "backgroundColor": "#ffffff",
+                    "textColor": "#111827",
+                    "accentColor": "#2563eb",
+                    "palette": {
+                        "primary": "#2563eb",
+                        "secondary": "#7c3aed",
+                        "surface": "#ffffff",
+                        "muted": "#f3f4f6",
+                        "border": "#d1d5db",
+                    },
+                    "typography": {
+                        "headingFontFamily": "Inter",
+                        "bodyFontFamily": "Inter",
+                        "titleSize": 56,
+                        "headingSize": 40,
+                        "bodySize": 24,
+                        "captionSize": 16,
+                    },
+                    "effects": {"borderRadius": 8},
+                },
+                "warnings": ["Unsupported PPTX shape on slide 1: CHART"],
+                "slides": [
+                    {
+                        "style": {
+                            "layout": "title-content",
+                            "backgroundColor": "#ffffff",
+                        },
+                        "elements": [
+                            {
+                                "elementId": "el_imported_1_background",
+                                "type": "rect",
+                                "role": "background",
+                                "x": 0,
+                                "y": 0,
+                                "width": 1920,
+                                "height": 1080,
+                                "rotation": 0,
+                                "opacity": 1,
+                                "zIndex": 0,
+                                "locked": True,
+                                "visible": True,
+                                "props": {
+                                    "fill": "#ffffff",
+                                    "stroke": "transparent",
+                                    "strokeWidth": 0,
+                                    "borderRadius": 0,
+                                },
+                            },
+                            {
+                                "elementId": "el_imported_1_title",
+                                "type": "text",
+                                "role": "title",
+                                "x": 120,
+                                "y": 96,
+                                "width": 1200,
+                                "height": 120,
+                                "rotation": 0,
+                                "opacity": 1,
+                                "zIndex": 2,
+                                "locked": False,
+                                "visible": True,
+                                "props": {
+                                    "text": "Original confidential title",
+                                    "fontFamily": "Inter",
+                                    "fontSize": 52,
+                                    "fontWeight": "bold",
+                                    "color": "#111827",
+                                    "align": "left",
+                                    "verticalAlign": "top",
+                                    "lineHeight": 1.15,
+                                },
+                            },
+                            {
+                                "elementId": "el_imported_1_body",
+                                "type": "text",
+                                "role": "body",
+                                "x": 120,
+                                "y": 280,
+                                "width": 1200,
+                                "height": 220,
+                                "rotation": 0,
+                                "opacity": 1,
+                                "zIndex": 3,
+                                "locked": False,
+                                "visible": True,
+                                "props": {
+                                    "text": "Original confidential body",
+                                    "fontFamily": "Inter",
+                                    "fontSize": 28,
+                                    "fontWeight": "normal",
+                                    "color": "#111827",
+                                    "align": "left",
+                                    "verticalAlign": "top",
+                                    "lineHeight": 1.15,
+                                },
+                            },
+                        ],
+                    }
+                ],
+            },
+        )
+    )
+
+    slide = response.deck["slides"][0]
+    text = "\n".join(
+        str(element["props"].get("text", ""))
+        for element in slide["elements"]
+        if element["type"] == "text"
+    )
+
+    assert response.deck["metadata"]["createdFrom"]["designReferences"] == [
+        {"fileId": "file_design"}
+    ]
+    assert all(
+        element["elementId"].startswith("el_1_imported_")
+        for element in slide["elements"]
+    )
+    assert "Original confidential" not in text
+    assert "designBlueprint" not in response.deck
+    assert "Unsupported PPTX shape on slide 1: CHART" in response.warnings
+    assert response.validation.passed is True
+
+
+def minimal_imported_design_blueprint() -> dict[str, Any]:
+    return {
+        "theme": {
+            "name": "Imported PPTX",
+            "fontFamily": "Inter",
+            "backgroundColor": "#ffffff",
+            "textColor": "#111827",
+            "accentColor": "#2563eb",
+            "palette": {
+                "primary": "#2563eb",
+                "secondary": "#7c3aed",
+                "surface": "#ffffff",
+                "muted": "#f3f4f6",
+                "border": "#d1d5db",
+            },
+            "typography": {
+                "headingFontFamily": "Inter",
+                "bodyFontFamily": "Inter",
+                "titleSize": 56,
+                "headingSize": 40,
+                "bodySize": 24,
+                "captionSize": 16,
+            },
+            "effects": {"borderRadius": 8},
+        },
+        "warnings": [],
+        "slides": [
+            {
+                "style": {
+                    "layout": "title-content",
+                    "backgroundColor": "#ffffff",
+                },
+                "elements": [
+                    {
+                        "elementId": "el_imported_1_background",
+                        "type": "rect",
+                        "role": "background",
+                        "x": 0,
+                        "y": 0,
+                        "width": 1920,
+                        "height": 1080,
+                        "rotation": 0,
+                        "opacity": 1,
+                        "zIndex": 0,
+                        "locked": True,
+                        "visible": True,
+                        "props": {
+                            "fill": "#ffffff",
+                            "stroke": "transparent",
+                            "strokeWidth": 0,
+                            "borderRadius": 0,
+                        },
+                    },
+                    {
+                        "elementId": "el_imported_1_title",
+                        "type": "text",
+                        "role": "title",
+                        "x": 120,
+                        "y": 96,
+                        "width": 1200,
+                        "height": 120,
+                        "rotation": 0,
+                        "opacity": 1,
+                        "zIndex": 2,
+                        "locked": False,
+                        "visible": True,
+                        "props": {
+                            "text": "Original confidential title",
+                            "fontFamily": "Inter",
+                            "fontSize": 52,
+                            "fontWeight": "bold",
+                            "color": "#111827",
+                            "align": "left",
+                            "verticalAlign": "top",
+                            "lineHeight": 1.15,
+                        },
+                    },
+                ],
+            }
+        ],
+    }
 
 
 def slide_payload(

@@ -125,6 +125,62 @@ describe("ExtractService", () => {
       ]
     });
   });
+
+  it("uses provided fileIds for project asset backed extraction", async () => {
+    const job: Job = {
+      jobId: "job-2",
+      projectId: "project-a",
+      type: "reference-extract",
+      status: "queued",
+      progress: 0,
+      message: "Job queued",
+      result: null,
+      error: null,
+      createdAt: "2026-06-27T00:00:00.000Z",
+      updatedAt: "2026-06-27T00:00:00.000Z"
+    };
+    const jobsService = {
+      create: vi.fn(async () => job),
+      update: vi.fn()
+    } as unknown as JobsService;
+    const enqueueJob = vi.fn(async () => undefined);
+
+    await new ExtractService(jobsService, enqueueJob, createLogger()).extract(
+      [
+        {
+          originalname: "design.pptx",
+          mimetype:
+            "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+          buffer: Buffer.from("pptx")
+        }
+      ],
+      "project-a",
+      ["file_design_1"]
+    );
+
+    expect(jobsService.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        payload: {
+          files: [
+            expect.objectContaining({
+              fileId: "file_design_1",
+              originalName: "design.pptx"
+            })
+          ]
+        }
+      })
+    );
+    expect(enqueueJob).toHaveBeenCalledWith(
+      expect.objectContaining({
+        files: [
+          expect.objectContaining({
+            fileId: "file_design_1",
+            originalName: "design.pptx"
+          })
+        ]
+      })
+    );
+  });
 });
 
 function createLogger() {

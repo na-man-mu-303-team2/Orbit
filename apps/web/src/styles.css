@@ -1089,6 +1089,15 @@ button:disabled {
   margin-top: 4px;
 }
 
+.file-list select {
+  background: #ffffff;
+  border: 1px solid #c9c7bf;
+  border-radius: 6px;
+  color: #202226;
+  flex: 0 0 132px;
+  min-height: 36px;
+}
+
 .file-list button {
   background: rgba(170, 61, 44, 0.1);
   border: 0;

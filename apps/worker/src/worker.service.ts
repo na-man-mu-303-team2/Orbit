@@ -69,6 +69,7 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
       this.createWorker(generateDeckQueueName, (job) =>
         processGenerateDeckJob(
           this.dataSource,
+          storage,
           this.config.PYTHON_WORKER_URL,
           job.data
         )

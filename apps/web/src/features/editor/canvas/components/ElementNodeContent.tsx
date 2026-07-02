@@ -103,17 +103,13 @@ export function ElementNodeContent(props: {
 
   if (element.type === "chart") {
     const chart = element.props as Chart;
-    const values = chart.data.map((datum) =>
-      "value" in datum ? Math.abs(datum.value) : Math.abs(datum.y)
-    );
-    const maxValue = Math.max(1, ...values);
-    const barWidth = frame.width / Math.max(chart.data.length, 1);
+    const colors = chart.style.colors.length > 0 ? chart.style.colors : [accentColor];
 
     return (
       <Group listening={false}>
         <Rect
-          cornerRadius={18}
-          fill="#fff"
+          cornerRadius={deck.theme.effects.borderRadius}
+          fill={chart.style.backgroundColor ?? "#fff"}
           stroke={accentColor}
           strokeWidth={2}
           width={frame.width}
@@ -127,23 +123,61 @@ export function ElementNodeContent(props: {
           x={14}
           y={12}
         />
-        {chart.data.slice(0, 6).map((datum, index) => {
-          const value = "value" in datum ? Math.abs(datum.value) : Math.abs(datum.y);
-          const height = Math.max(18, ((frame.height - 84) * value) / maxValue);
+        {chart.data.length === 0 ? (
+          <Text
+            align="center"
+            fill="#64748b"
+            fontSize={16}
+            height={frame.height - 72}
+            text="데이터 입력 필요"
+            verticalAlign="middle"
+            width={frame.width}
+            y={48}
+          />
+        ) : chart.type === "line" ? (
+          <Line
+            points={lineChartPoints(chart, frame.width, frame.height)}
+            stroke={colors[0]}
+            strokeWidth={4}
+            tension={0.35}
+          />
+        ) : chart.type === "pie" || chart.type === "doughnut" ? (
+          <Shape
+            sceneFunc={(context: Konva.Context, shape: Konva.Shape) => {
+              drawRadialChart(context, shape, chart, colors, frame.width, frame.height);
+            }}
+          />
+        ) : chart.type === "scatter" ? (
+          chart.data.slice(0, 24).map((datum, index) => (
+            <Circle
+              key={`${datum.label ?? "point"}-${index}`}
+              fill={colors[index % colors.length]}
+              radius={7}
+              x={scatterPointX(chart, datum.x, frame.width)}
+              y={scatterPointY(chart, datum.y, frame.height)}
+            />
+          ))
+        ) : (
+          chart.data.slice(0, 8).map((datum, index) => {
+            const value = Math.abs(datum.value);
+            const maxValue = Math.max(1, ...chart.data.map((item) => Math.abs(item.value)));
+            const barWidth = frame.width / Math.max(chart.data.length, 1);
+            const height = Math.max(18, ((frame.height - 84) * value) / maxValue);
 
-          return (
-            <Group key={`${datum.label ?? "item"}-${index}`}>
-              <Rect
-                fill={chart.style.colors[index] ?? accentColor}
-                x={14 + index * barWidth}
-                y={frame.height - height - 24}
-                width={Math.max(18, barWidth - 16)}
-                height={height}
-                cornerRadius={8}
-              />
-            </Group>
-          );
-        })}
+            return (
+              <Group key={`${datum.label}-${index}`}>
+                <Rect
+                  fill={colors[index % colors.length]}
+                  x={14 + index * barWidth}
+                  y={frame.height - height - 24}
+                  width={Math.max(18, barWidth - 16)}
+                  height={height}
+                  cornerRadius={8}
+                />
+              </Group>
+            );
+          })
+        )}
       </Group>
     );
   }
@@ -434,4 +468,73 @@ export function ElementNodeContent(props: {
       />
     </Group>
   );
+}
+
+function lineChartPoints(chart: Chart, width: number, height: number) {
+  const values = chart.data.map((datum) =>
+    "value" in datum ? datum.value : "y" in datum ? datum.y : 0
+  );
+  const minValue = Math.min(0, ...values);
+  const maxValue = Math.max(1, ...values);
+  const plotHeight = height - 96;
+  const plotTop = 64;
+  const step = width / Math.max(chart.data.length - 1, 1);
+
+  return values.flatMap((value, index) => [
+    18 + index * Math.max(1, step - 24 / Math.max(chart.data.length, 1)),
+    plotTop + plotHeight - ((value - minValue) / Math.max(1, maxValue - minValue)) * plotHeight
+  ]);
+}
+
+function drawRadialChart(
+  context: Konva.Context,
+  shape: Konva.Shape,
+  chart: Chart,
+  colors: string[],
+  width: number,
+  height: number
+) {
+  const data = chart.data.filter((datum) => "value" in datum);
+  const total = data.reduce((sum, datum) => sum + Math.max(0, datum.value), 0);
+  const radius = Math.max(24, Math.min(width, height - 64) / 2 - 20);
+  const centerX = width / 2;
+  const centerY = height / 2 + 18;
+  let start = -Math.PI / 2;
+
+  data.forEach((datum, index) => {
+    const angle = (Math.max(0, datum.value) / Math.max(1, total)) * Math.PI * 2;
+    context.beginPath();
+    context.moveTo(centerX, centerY);
+    context.arc(centerX, centerY, radius, start, start + angle);
+    context.closePath();
+    shape.fill(colors[index % colors.length]);
+    shape.stroke("#ffffff");
+    shape.strokeWidth(2);
+    context.fillStrokeShape(shape);
+    start += angle;
+  });
+
+  if (chart.type === "doughnut") {
+    context.beginPath();
+    context.arc(centerX, centerY, radius * 0.52, 0, Math.PI * 2);
+    context.closePath();
+    shape.fill(chart.style.backgroundColor ?? "#ffffff");
+    shape.stroke(chart.style.backgroundColor ?? "#ffffff");
+    shape.strokeWidth(0);
+    context.fillStrokeShape(shape);
+  }
+}
+
+function scatterPointX(chart: Chart, value: number, width: number) {
+  const values = chart.data.map((datum) => ("x" in datum ? datum.x : 0));
+  const minValue = Math.min(...values);
+  const maxValue = Math.max(...values);
+  return 28 + ((value - minValue) / Math.max(1, maxValue - minValue)) * (width - 56);
+}
+
+function scatterPointY(chart: Chart, value: number, height: number) {
+  const values = chart.data.map((datum) => ("y" in datum ? datum.y : 0));
+  const minValue = Math.min(...values);
+  const maxValue = Math.max(...values);
+  return height - 28 - ((value - minValue) / Math.max(1, maxValue - minValue)) * (height - 92);
 }

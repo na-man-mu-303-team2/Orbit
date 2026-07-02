@@ -1,4 +1,4 @@
-import { createDemoDeck } from "@orbit/editor-core";
+import { applyDeckPatch, createDemoDeck } from "@orbit/editor-core";
 import { demoIds } from "@orbit/shared";
 import type {
   AiSuggestion,
@@ -14,11 +14,13 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   EditorShell,
   EditorStateNotice,
+  createDistributeSelectionPatch,
   getEditorValidationItems,
   mergeDeckIntoQueryCache,
   shouldApplyManualSaveResult,
   shouldHydrateDeckFromQuery
 } from "./EditorShell";
+import { createShrinkToFitTextProps } from "./components/SelectionQuickBar";
 import { resolveEditorAssetUrl } from "../shared/editorAssetUrl";
 import { aiSuggestionsQueryKey } from "../suggestions/api/suggestionApi";
 
@@ -157,6 +159,7 @@ describe("editor shell", () => {
     expect(html).toContain("AI 제안 검토");
     expect(html).toContain("이미지");
     expect(html).toContain('data-testid="editor-slide-quickbar"');
+    expect(html).toContain("테마 배경");
   });
 
   it("returns a warning for unreadable text overlap", () => {
@@ -166,7 +169,7 @@ describe("editor shell", () => {
       editorTextElement("text_b", 150, 120, "본문 B")
     ];
 
-    const items = getEditorValidationItems(deck);
+    const items = getEditorValidationItems(deck, deck.slides[0]);
 
     expect(items).toHaveLength(1);
     expect(items[0]).toMatchObject({
@@ -183,7 +186,7 @@ describe("editor shell", () => {
       editorTextElement("text_b", 370, 100, "본문 B")
     ];
 
-    expect(getEditorValidationItems(deck)).toEqual([]);
+    expect(getEditorValidationItems(deck, deck.slides[0])).toEqual([]);
   });
 
   it("loads AI suggestions with the route project id", () => {
@@ -465,6 +468,224 @@ describe("editor shell", () => {
     expect(html).toContain('data-stroke-width="3"');
     expect(html).toContain('data-corner-radius="24"');
     expect(html).not.toContain("GROUP");
+  });
+
+  it("reports editable AI deck validation warnings", () => {
+    const deck = createDemoDeck();
+    const firstSlide = deck.slides[0];
+
+    firstSlide.style.backgroundColor = "#ffffff";
+    firstSlide.elements.push(
+      {
+        elementId: "el_missing_alt",
+        type: "image",
+        role: "media",
+        x: 100,
+        y: 100,
+        width: 320,
+        height: 180,
+        rotation: 0,
+        opacity: 1,
+        zIndex: 20,
+        locked: false,
+        visible: true,
+        props: {
+          alt: "",
+          fit: "cover",
+          focusX: 0.5,
+          focusY: 0.5,
+          src: "/asset.png"
+        }
+      } as Deck["slides"][number]["elements"][number],
+      {
+        elementId: "el_empty_chart",
+        type: "chart",
+        role: "chart",
+        x: 460,
+        y: 100,
+        width: 420,
+        height: 260,
+        rotation: 0,
+        opacity: 1,
+        zIndex: 21,
+        locked: false,
+        visible: true,
+        props: {
+          type: "bar",
+          title: "빈 차트",
+          data: [],
+          style: {
+            colors: ["#2563eb"],
+            showLegend: false,
+            legendPosition: "bottom",
+            showDataLabels: false,
+            showGrid: true,
+            xAxisTitle: "",
+            yAxisTitle: "",
+            unit: ""
+          }
+        }
+      } as Deck["slides"][number]["elements"][number],
+      {
+        elementId: "el_overflow",
+        type: "text",
+        role: "body",
+        x: 120,
+        y: 420,
+        width: 180,
+        height: 28,
+        rotation: 0,
+        opacity: 1,
+        zIndex: 22,
+        locked: false,
+        visible: true,
+        props: {
+          text: "좁은 상자를 넘치는 긴 텍스트입니다.",
+          fontSize: 28,
+          fontWeight: "normal",
+          color: "#fefefe",
+          align: "left",
+          verticalAlign: "top",
+          lineHeight: 1.2
+        }
+      } as Deck["slides"][number]["elements"][number],
+      {
+        elementId: "el_1_imported_icon_customShape",
+        type: "customShape",
+        role: "decoration",
+        x: 1000,
+        y: 120,
+        width: 120,
+        height: 120,
+        rotation: 0,
+        opacity: 1,
+        zIndex: 23,
+        locked: true,
+        visible: true,
+        props: {
+          closed: true,
+          fill: "#FFE99C",
+          nodes: [
+            { x: 0, y: 0, mode: "corner" },
+            { x: 120, y: 0, mode: "corner" },
+            { x: 120, y: 120, mode: "corner" }
+          ],
+          stroke: "transparent",
+          strokeWidth: 0,
+          viewBoxHeight: 120,
+          viewBoxWidth: 120,
+          pathData: "M 0 0 L 120 0 L 120 120 Z"
+        }
+      } as Deck["slides"][number]["elements"][number],
+      {
+        elementId: "el_manual_customShape",
+        type: "customShape",
+        role: "highlight",
+        x: 1140,
+        y: 120,
+        width: 120,
+        height: 120,
+        rotation: 0,
+        opacity: 1,
+        zIndex: 24,
+        locked: false,
+        visible: true,
+        props: {
+          closed: true,
+          fill: "#f5edff",
+          nodes: [
+            { x: 0, y: 0, mode: "corner" },
+            { x: 120, y: 0, mode: "corner" },
+            { x: 120, y: 120, mode: "corner" }
+          ],
+          stroke: "#9333ea",
+          strokeWidth: 2,
+          viewBoxHeight: 120,
+          viewBoxWidth: 120,
+          pathData: "M 0 0 L 120 0 L 120 120 Z"
+        }
+      } as Deck["slides"][number]["elements"][number]
+    );
+
+    const validationItems = getEditorValidationItems(deck, firstSlide);
+    const messages = validationItems.map((item) => item.message);
+    const riskElementIds = validationItems
+      .filter((item) => item.severity === "risk")
+      .map((item) => item.elementId);
+
+    expect(messages).toContain("이미지 대체 텍스트가 비어 있습니다.");
+    expect(messages).toContain("차트 데이터가 비어 있습니다.");
+    expect(messages).toContain("텍스트가 상자 높이를 넘을 수 있습니다.");
+    expect(messages).toContain("텍스트와 배경 대비가 낮습니다.");
+    expect(riskElementIds).not.toContain("el_1_imported_icon_customShape");
+    expect(riskElementIds).toContain("el_manual_customShape");
+  });
+
+  it("shrinks overflowing text to fit the element frame", () => {
+    const element = {
+      elementId: "el_overflow",
+      type: "text",
+      role: "body",
+      x: 0,
+      y: 0,
+      width: 120,
+      height: 32,
+      rotation: 0,
+      opacity: 1,
+      zIndex: 0,
+      locked: false,
+      visible: true,
+      props: {
+        text: "상자 안에 맞추기 어려운 긴 텍스트입니다.",
+        fontSize: 32,
+        fontWeight: "normal",
+        color: "#111827",
+        align: "left",
+        verticalAlign: "top",
+        lineHeight: 1.2
+      }
+    } as Extract<Deck["slides"][number]["elements"][number], { type: "text" }>;
+
+    const props = createShrinkToFitTextProps(element);
+
+    expect(props.fontSize).toBeLessThan(32);
+    expect(props.lineHeight).toBeLessThanOrEqual(1.15);
+  });
+
+  it("builds a patch that distributes selected elements evenly", () => {
+    const deck = createDemoDeck();
+    const slide = deck.slides[0];
+
+    slide.elements = [100, 400, 900].map((x, index) => ({
+      elementId: `el_${index + 1}`,
+      type: "rect",
+      role: "highlight",
+      x,
+      y: 100,
+      width: 100,
+      height: 80,
+      rotation: 0,
+      opacity: 1,
+      zIndex: index,
+      locked: false,
+      visible: true,
+      props: {
+        fill: "#ffffff",
+        stroke: "#111827",
+        strokeWidth: 1,
+        borderRadius: 0
+      }
+    })) as Deck["slides"][number]["elements"];
+
+    const patch = createDistributeSelectionPatch(deck, slide, slide.elements, "x");
+    expect(patch).not.toBeNull();
+
+    const result = applyDeckPatch(deck, patch!);
+    expect(result.ok).toBe(true);
+
+    if (result.ok) {
+      expect(result.deck.slides[0].elements[1].x).toBe(500);
+    }
   });
 
   it("keeps the newer local deck when a stale save response tries to update the query cache", () => {

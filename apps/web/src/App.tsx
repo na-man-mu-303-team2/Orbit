@@ -30,7 +30,8 @@ import orbitLogo from "./assets/orbit-logo.png";
 import {
   createProject,
   fetchProjects,
-  ProjectAssetWorkspace
+  ProjectAssetWorkspace,
+  uploadProjectAsset
 } from "./features/projects/ProjectAssetWorkspace";
 import {
   RehearsalReportPage,
@@ -91,14 +92,29 @@ type GenerateDeckPayloadInput = {
     tone: string;
   };
   design: GenerateDeckDesignDirection;
+  designReferences: Array<{ fileId: string }>;
   referenceInput: ReferenceGenerationInput;
 };
 
 type GenerateDeckDesignDirection = {
+  profile?:
+    | "executive-report"
+    | "startup-pitch"
+    | "editorial"
+    | "technical"
+    | "training";
   visualRhythm: "auto" | "clean" | "editorial" | "bold" | "technical";
   densityTarget: "low" | "medium" | "high";
   mediaPolicy: "avoid" | "balanced" | "placeholder-ok";
   layoutDiversity: "stable" | "varied";
+};
+type GenerateDeckDesignProfile = NonNullable<GenerateDeckDesignDirection["profile"]>;
+type GenerateDeckDesignProfileChoice = "auto" | GenerateDeckDesignProfile;
+
+type GenerateDeckTargetProject = {
+  created: boolean;
+  project: Project | null;
+  projectId: string;
 };
 
 type PresentationKeyword = {
@@ -107,9 +123,12 @@ type PresentationKeyword = {
   priority: "high" | "medium" | "low" | string;
 };
 
-type UploadFile = {
+export type UploadRole = "content" | "design" | "both";
+
+export type UploadFile = {
   id: string;
   file: File;
+  role: UploadRole;
 };
 
 type RejectedFile = {
@@ -970,6 +989,8 @@ function GenerateDeckView() {
   const [audience, setAudience] = useState("general");
   const [purpose, setPurpose] = useState("inform");
   const [tone, setTone] = useState("professional");
+  const [designProfile, setDesignProfile] =
+    useState<GenerateDeckDesignProfileChoice>("auto");
   const [visualRhythm, setVisualRhythm] =
     useState<GenerateDeckDesignDirection["visualRhythm"]>("auto");
   const [densityTarget, setDensityTarget] =
@@ -1007,17 +1028,6 @@ function GenerateDeckView() {
     () => buildReferenceGenerationInput(extractedFiles),
     [extractedFiles]
   );
-
-  useEffect(() => {
-    if (!projectsQuery.data || selectedProjectId) {
-      return;
-    }
-
-    const firstProject = projectsQuery.data[0];
-    if (firstProject) {
-      setSelectedProjectId(firstProject.projectId);
-    }
-  }, [projectsQuery.data, selectedProjectId]);
 
   const handleCreateProject = async () => {
     const trimmedTitle = newProjectTitle.trim();
@@ -1070,10 +1080,28 @@ function GenerateDeckView() {
     setGenerateError("");
   };
 
+  const updateUploadRole = (id: string, role: UploadRole) => {
+    setUploads((current) =>
+      current.map((upload) =>
+        upload.id === id
+          ? { ...upload, role: normalizeUploadRole(upload.file, role) }
+          : upload
+      )
+    );
+    setExtractedFiles([]);
+    setExtractJob(null);
+    setGenerateError("");
+  };
+
   const extractReferences = async (
-    projectId: string
+    projectId: string,
+    uploadedAssetFileIds: Map<string, string>
   ): Promise<ReferenceGenerationInput> => {
-    if (uploads.length === 0) {
+    const contentUploads = uploads.filter((upload) =>
+      upload.role === "content" || upload.role === "both"
+    );
+
+    if (contentUploads.length === 0) {
       return {
         references: [],
         referenceKeywords: [],
@@ -1084,7 +1112,10 @@ function GenerateDeckView() {
 
     const formData = new FormData();
     formData.append("projectId", projectId);
-    uploads.forEach(({ file }) => formData.append("files", file));
+    contentUploads.forEach((upload) => {
+      formData.append("files", upload.file);
+      formData.append("fileIds", uploadedAssetFileIds.get(upload.id) ?? "");
+    });
 
     setGenerationStep("extracting");
     setExtractJob(null);
@@ -1116,11 +1147,31 @@ function GenerateDeckView() {
     const files = getJobResultFiles(job);
     setExtractedFiles(files);
     const input = buildReferenceGenerationInput(files);
-    if (input.references.length === 0) {
+    if (contentUploads.length > 0 && input.references.length === 0) {
       throw new Error("참고자료 처리에 성공한 파일이 없어 덱 생성을 중단했습니다.");
     }
 
     return input;
+  };
+
+  const uploadDesignReferences = async (projectId: string) => {
+    const uploadedAssetFileIds = new Map<string, string>();
+
+    for (const upload of uploads) {
+      if (upload.role !== "design" && upload.role !== "both") continue;
+      if (!isPptxFile(upload.file)) {
+        throw new Error("디자인 참조는 PPTX 파일만 사용할 수 있습니다.");
+      }
+
+      const uploaded = await uploadProjectAsset(
+        projectId,
+        upload.file,
+        "pptx-import"
+      );
+      uploadedAssetFileIds.set(upload.id, uploaded.fileId);
+    }
+
+    return uploadedAssetFileIds;
   };
 
   const generateDeck = async () => {
@@ -1136,8 +1187,18 @@ function GenerateDeckView() {
     setResult(null);
 
     try {
-      const project = await createGeneratedDeckProject(topic);
-      const referenceInput = await extractReferences(project.projectId);
+      const targetProject = await resolveGenerateDeckTargetProject({
+        projects: projectsQuery.data ?? [],
+        selectedProjectId,
+        topic
+      });
+      const uploadedAssetFileIds = await uploadDesignReferences(
+        targetProject.projectId
+      );
+      const referenceInput = await extractReferences(
+        targetProject.projectId,
+        uploadedAssetFileIds
+      );
       setGenerationStep("generating");
       const payload = buildGenerateDeckPayload({
         topic,
@@ -1148,11 +1209,18 @@ function GenerateDeckView() {
         maxSlides,
         template,
         metadata: { audience, purpose, tone },
-        design: { visualRhythm, densityTarget, mediaPolicy, layoutDiversity },
+        design: buildGenerateDeckDesignDirection({
+          profile: designProfile,
+          visualRhythm,
+          densityTarget,
+          mediaPolicy,
+          layoutDiversity
+        }),
+        designReferences: buildDesignReferences(uploads, uploadedAssetFileIds),
         referenceInput
       });
       const response = await fetch(
-        `/api/v1/projects/${project.projectId}/jobs/generate-deck`,
+        `/api/v1/projects/${targetProject.projectId}/jobs/generate-deck`,
         {
           method: "POST",
           headers: { "content-type": "application/json" },
@@ -1182,9 +1250,11 @@ function GenerateDeckView() {
       }
 
       setResult(generatedResult);
-      queryClient.setQueryData<Project[]>(["projects"], (current) =>
-        mergeGeneratedProjectList(current, project)
-      );
+      if (targetProject.created && targetProject.project) {
+        queryClient.setQueryData<Project[]>(["projects"], (current) =>
+          mergeGeneratedProjectList(current, targetProject.project as Project)
+        );
+      }
       queryClient.setQueryData(["deck", generatedResult.deck.projectId], generatedResult.deck);
       navigateTo(getGeneratedDeckProjectPath(generatedResult));
     } catch (error) {
@@ -1374,6 +1444,21 @@ function GenerateDeckView() {
 
             <div className="form-grid">
               <SelectField
+                label="Profile"
+                value={designProfile}
+                onChange={(value) =>
+                  setDesignProfile(value as GenerateDeckDesignProfileChoice)
+                }
+                options={[
+                  "auto",
+                  "executive-report",
+                  "startup-pitch",
+                  "editorial",
+                  "technical",
+                  "training"
+                ]}
+              />
+              <SelectField
                 label="Visual rhythm"
                 value={visualRhythm}
                 onChange={(value) =>
@@ -1456,7 +1541,7 @@ function GenerateDeckView() {
 
             {uploads.length > 0 && (
               <ul className="file-list" aria-label="덱 생성 참고자료 파일">
-                {uploads.map(({ id, file }) => (
+                {uploads.map(({ id, file, role }) => (
                   <li key={id}>
                     <div>
                       <span className="file-name">{file.name}</span>
@@ -1464,6 +1549,22 @@ function GenerateDeckView() {
                         {getExtension(file.name).toUpperCase()} · {formatBytes(file.size)}
                       </span>
                     </div>
+                    <select
+                      value={role}
+                      onChange={(event) =>
+                        updateUploadRole(id, event.target.value as UploadRole)
+                      }
+                      disabled={isGenerating || !isPptxFile(file)}
+                      aria-label={`${file.name} 역할`}
+                    >
+                      <option value="content">내용 참조</option>
+                      {isPptxFile(file) ? (
+                        <>
+                          <option value="design">디자인 참조</option>
+                          <option value="both">둘 다</option>
+                        </>
+                      ) : null}
+                    </select>
                     <button
                       type="button"
                       onClick={() => removeUpload(id)}
@@ -1571,6 +1672,18 @@ function isAllowedFile(file: File) {
   return isAllowedDocument || isImage;
 }
 
+function isPptxFile(file: File) {
+  return (
+    getExtension(file.name) === "pptx" &&
+    file.type ===
+      "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+  );
+}
+
+function normalizeUploadRole(file: File, role: UploadRole): UploadRole {
+  return isPptxFile(file) ? role : "content";
+}
+
 function formatBytes(bytes: number) {
   if (bytes === 0) return "0 B";
 
@@ -1591,7 +1704,7 @@ function collectUploadFiles(fileList: FileList | File[]) {
 
   Array.from(fileList).forEach((file) => {
     if (isAllowedFile(file)) {
-      acceptedFiles.push({ id: createUploadId(file), file });
+      acceptedFiles.push({ id: createUploadId(file), file, role: "content" });
       return;
     }
 
@@ -1672,6 +1785,27 @@ export function createGeneratedDeckProject(topic: string, fetcher: Fetcher = fet
   return createProject(getGeneratedDeckProjectTitle(topic), fetcher);
 }
 
+export async function resolveGenerateDeckTargetProject(args: {
+  fetcher?: Fetcher;
+  projects: Project[];
+  selectedProjectId: string;
+  topic: string;
+}): Promise<GenerateDeckTargetProject> {
+  const selectedProjectId = args.selectedProjectId.trim();
+  if (selectedProjectId) {
+    return {
+      created: false,
+      project:
+        args.projects.find((project) => project.projectId === selectedProjectId) ??
+        null,
+      projectId: selectedProjectId
+    };
+  }
+
+  const project = await createGeneratedDeckProject(args.topic, args.fetcher);
+  return { created: true, project, projectId: project.projectId };
+}
+
 export function buildGenerateDeckPayload(input: GenerateDeckPayloadInput) {
   return {
     topic: input.topic,
@@ -1683,8 +1817,41 @@ export function buildGenerateDeckPayload(input: GenerateDeckPayloadInput) {
     metadata: input.metadata,
     design: input.design,
     references: input.referenceInput.references,
+    designReferences: input.designReferences,
     referenceKeywords: input.referenceInput.referenceKeywords
   };
+}
+
+export function buildDesignReferences(
+  uploads: UploadFile[],
+  uploadedAssetFileIds: Map<string, string>
+) {
+  return uploads
+    .filter((upload) => upload.role === "design" || upload.role === "both")
+    .map((upload) => uploadedAssetFileIds.get(upload.id))
+    .filter((fileId): fileId is string => Boolean(fileId))
+    .map((fileId) => ({ fileId }));
+}
+
+export function buildGenerateDeckDesignDirection(input: {
+  densityTarget: GenerateDeckDesignDirection["densityTarget"];
+  layoutDiversity: GenerateDeckDesignDirection["layoutDiversity"];
+  mediaPolicy: GenerateDeckDesignDirection["mediaPolicy"];
+  profile: GenerateDeckDesignProfileChoice;
+  visualRhythm: GenerateDeckDesignDirection["visualRhythm"];
+}): GenerateDeckDesignDirection {
+  const design: GenerateDeckDesignDirection = {
+    visualRhythm: input.visualRhythm,
+    densityTarget: input.densityTarget,
+    mediaPolicy: input.mediaPolicy,
+    layoutDiversity: input.layoutDiversity
+  };
+
+  if (input.profile !== "auto") {
+    design.profile = input.profile;
+  }
+
+  return design;
 }
 
 export function mergeGeneratedProjectList(
@@ -1744,7 +1911,14 @@ export function GeneratedDeckResult(props: { result: GenerateDeckJobResult }) {
         </div>
         <strong>{deck.slides.length} slides</strong>
       </header>
-      {warnings.length > 0 ? <p>{warnings.join(" 쨌 ")}</p> : null}
+      {warnings.length > 0 ? <p>{warnings.join(" · ")}</p> : null}
+      {validation.designIssues.length > 0 ? (
+        <ul>
+          {validation.designIssues.map((issue, index) => (
+            <li key={`${issue.path}-${index}`}>{issue.message}</li>
+          ))}
+        </ul>
+      ) : null}
       <p>validation {validation.passed ? "passed" : "failed"}</p>
       <div className="generated-slide-grid">
         {deck.slides.map((slide) => (

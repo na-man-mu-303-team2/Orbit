@@ -33,6 +33,17 @@ export const generateDeckMetadataSchema = z
 
 export const generateDeckDesignSchema = z
   .object({
+    profile: z
+      .enum([
+        "executive-report",
+        "startup-pitch",
+        "editorial",
+        "technical",
+        "training"
+      ])
+      .optional(),
+    stylePackId: z.string().trim().min(1).optional(),
+    slidePresetId: z.string().trim().min(1).optional(),
     visualRhythm: z
       .enum(["auto", "clean", "editorial", "bold", "technical"])
       .default("auto"),
@@ -70,6 +81,7 @@ export const generateDeckRequestSchema = z.object({
   metadata: generateDeckMetadataSchema,
   design: generateDeckDesignSchema,
   references: z.array(generateDeckReferenceSchema).default([]),
+  designReferences: z.array(generateDeckReferenceSchema).default([]),
   referenceKeywords: z.array(generateDeckReferenceKeywordSchema).default([])
 });
 

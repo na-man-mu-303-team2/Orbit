@@ -18,7 +18,7 @@ describe("ExtractController", () => {
 
     await controller.extract(files, { projectId: "project_ai_1" });
 
-    expect(service.extract).toHaveBeenCalledWith(files, "project_ai_1");
+    expect(service.extract).toHaveBeenCalledWith(files, "project_ai_1", undefined);
   });
 
   it("falls back to the demo project when projectId is omitted", async () => {
@@ -27,7 +27,21 @@ describe("ExtractController", () => {
 
     await controller.extract(files, {});
 
-    expect(service.extract).toHaveBeenCalledWith(files, demoIds.projectId);
+    expect(service.extract).toHaveBeenCalledWith(files, demoIds.projectId, undefined);
+  });
+
+  it("forwards multipart fileIds for project asset backed references", async () => {
+    const service = createService();
+    const controller = new ExtractController(service);
+
+    await controller.extract(files, {
+      projectId: "project_ai_1",
+      fileIds: ["file_design_1"]
+    });
+
+    expect(service.extract).toHaveBeenCalledWith(files, "project_ai_1", [
+      "file_design_1"
+    ]);
   });
 });
 

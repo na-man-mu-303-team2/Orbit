@@ -225,7 +225,7 @@ API:
 - 객체 `props`는 object type별 schema로 검증한다. 전체 객체에 대해 `z.record(z.unknown())`를 열어두지 않는다.
 - `text.props`는 `text`, `fontFamily`, `fontSize`, `fontWeight`, `color`, `align`, `verticalAlign`, `lineHeight`를 사용한다.
 - `text.props.fontFamily`, `text.props.color`가 생략되면 renderer/export/AI normalize 단계에서 각각 `slide.style.fontFamily` > `deck.theme.fontFamily`, `slide.style.textColor` > `deck.theme.textColor` 순서로 기본값을 사용한다.
-- `image.props`는 `src`, `alt`, `fit`을 사용하고, `fit`은 `contain`, `cover`, `stretch`만 허용한다.
+- `image.props`는 `src`, `alt`, `fit`, `focusX`, `focusY`를 사용하고, `fit`은 `contain`, `cover`, `stretch`만 허용한다. `focusX`, `focusY`는 `cover` crop 기준점이며 0부터 1 사이 값이다.
 - `chart.props`는 `chart.schema.ts`의 chart schema를 그대로 사용한다.
 - `rect`, `ellipse`, `line`, `arrow`, `polygon`, `star`, `ring`은 공통 shape props인 `fill`, `stroke`, `strokeWidth`, `borderRadius`, `shadow`를 사용한다.
 - `customShape.props`만 MVP 확장 지점으로 `record unknown`을 허용한다.
@@ -565,12 +565,16 @@ AI 덱 생성은 사용자 입력과 참고자료 fileId를 받아 비동기 Job
     "tone": "professional"
   },
   "design": {
+    "profile": "technical",
+    "stylePackId": "teal-professional-process",
+    "slidePresetId": "process-cards-horizontal-6",
     "visualRhythm": "technical",
     "densityTarget": "medium",
     "mediaPolicy": "balanced",
     "layoutDiversity": "stable"
   },
   "references": [{ "fileId": "file_1" }],
+  "designReferences": [{ "fileId": "file_design_1" }],
   "referenceKeywords": [{ "text": "실시간 발표 피드백" }]
 }
 ```
@@ -604,6 +608,9 @@ AI 덱 생성은 사용자 입력과 참고자료 fileId를 받아 비동기 Job
 - MVP `metadata.purpose`는 `inform`, `persuade`, `teach`, `report`만 허용한다.
 - MVP `metadata.tone`은 `professional`, `friendly`, `confident`, `concise`만 허용한다.
 - 요청의 `design`은 선택 필드이며 생략 시 `{ visualRhythm: "auto", densityTarget: "medium", mediaPolicy: "balanced", layoutDiversity: "stable" }`로 정규화한다.
+- `design.profile`은 선택 필드이며 `executive-report`, `startup-pitch`, `editorial`, `technical`, `training`만 허용한다. profile은 기존 `theme`, `slide.style`, `SlotPreset` 선택 가중치로만 매핑하고 최종 Deck에 별도 중간 구조를 저장하지 않는다.
+- `design.stylePackId`는 선택 필드이며 worker 내부 curated style pack ID를 강제한다. 값이 없으면 worker selector가 자동 선택한다.
+- `design.slidePresetId`는 선택 필드이며 worker 내부 slide recipe ID를 강제한다. 값이 없으면 worker selector가 slide intent와 step count를 기준으로 자동 선택한다.
 - `design.visualRhythm`은 `auto`, `clean`, `editorial`, `bold`, `technical`만 허용한다.
 - `design.densityTarget`은 `low`, `medium`, `high`만 허용한다.
 - `design.mediaPolicy`는 `avoid`, `balanced`, `placeholder-ok`만 허용하며, source 없는 media placeholder는 `placeholder-ok`에서만 허용한다.
@@ -612,8 +619,10 @@ AI 덱 생성은 사용자 입력과 참고자료 fileId를 받아 비동기 Job
 - Python worker의 `/ai/generate-deck`은 `projectId`와 요청 본문을 받아 최종 `DeckSchema`를 만든다.
 - LLM/provider가 만드는 내용은 outline, message, design intent까지로 제한하고, 좌표/크기/zIndex는 코드 기반 layout engine이 계산한다.
 - LLM은 좌표, 크기, zIndex를 만들지 않는다. layout preset 후보 탐색과 최종 좌표 계산은 worker 코드가 수행한다.
-- `slotPreset`, `visualIntent`, `mediaIntent`, `layoutCandidates` 같은 생성 중간 필드는 최종 `DeckSchema`에 저장하지 않는다.
+- `slotPreset`, `stylePackId`, `slidePresetId`, `visualIntent`, `mediaIntent`, `layoutCandidates` 같은 생성 중간 필드는 최종 `DeckSchema`에 저장하지 않는다.
 - 생성 결과의 디자인은 새 배열 없이 기존 `deck.theme`, `slide.style`, `slide.elements`, chart props, `slide.animations`에 매핑한다.
+- Python worker는 source data가 없는 chart 숫자를 임의 생성하지 않는다. 근거 데이터가 없으면 `chart.props.data: []`인 editable chart placeholder와 `warnings`/`validation.designIssues`를 남긴다.
+- `validation.designIssues`는 overflow, contrast, collision, safe area, density, placeholder media, chart data provenance 같은 advisory warning을 담는다. 이 warning이 있어도 `validation.passed`가 true이면 worker는 deck을 저장한다.
 - worker는 Python 응답을 shared `generateDeckResponseSchema`와 `deckSchema`로 검증한 뒤 `decks`에 저장하고 job result에 `{ deckId, deck, warnings, validation }`을 저장한다.
 
 구현 위치:
@@ -648,6 +657,7 @@ AI 덱 생성은 사용자 입력과 참고자료 fileId를 받아 비동기 Job
 - `export-result`
 - `report-result`
 - `thumbnail`
+- `design-asset`
 
 결정 사항:
 

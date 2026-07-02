@@ -131,6 +131,7 @@ import {
   shouldApplyManualSaveResult,
   shouldHydrateDeckFromQuery
 } from "./utils/deckState";
+import { createThemeCascadePatch } from "./utils/themeCascadePatch";
 import "../editor-shell.css";
 
 interface HealthResponse {
@@ -258,6 +259,15 @@ type ElementClipboardState = {
   element: DeckElement;
   pasteCount: number;
 };
+export type EditorValidationItem = {
+  elementId?: string;
+  elementIds?: string[];
+  level?: "warning";
+  message: string;
+  slideId?: string;
+  severity: "warning" | "risk";
+};
+type DistributeAxis = "x" | "y";
 type HistoryEntry = {
   deck: Deck;
   slideIndex: number;
@@ -272,12 +282,6 @@ type ImageUploadTarget =
       slideId: string;
       type: "replace";
     };
-export type EditorValidationItem = {
-  elementIds: string[];
-  level: "warning";
-  message: string;
-  slideId: string;
-};
 type ElementFrameChange = {
   role?: DeckElementRole | null;
   x?: number;
@@ -1267,17 +1271,6 @@ export function EditorShell(props: { projectId?: string }) {
   const visibleElements = currentSlide
     ? getRenderableSlideElements(currentSlide, deck.canvas)
     : [];
-  const editorValidationItems = useMemo(
-    () => getEditorValidationItems(deck),
-    [deck]
-  );
-  const currentSlideValidationItems = useMemo(
-    () =>
-      currentSlide
-        ? editorValidationItems.filter((item) => item.slideId === currentSlide.slideId)
-        : [],
-    [currentSlide, editorValidationItems]
-  );
   const stageScale = 0.44;
   const currentSlideAnimations = useMemo(
     () =>
@@ -1287,6 +1280,10 @@ export function EditorShell(props: { projectId?: string }) {
           )
         : [],
     [currentSlide]
+  );
+  const currentSlideValidationItems = useMemo(
+    () => (currentSlide ? getEditorValidationItems(deck, currentSlide) : []),
+    [currentSlide, deck]
   );
   const selectedKeyword =
     currentSlide?.keywords.find(
@@ -1925,6 +1922,10 @@ export function EditorShell(props: { projectId?: string }) {
     }));
   }
 
+  function handleThemeChange(theme: Record<string, unknown>) {
+    commitPatch((currentDeck) => createThemeCascadePatch(currentDeck, theme));
+  }
+
   function openImageFilePicker(target: ImageUploadTarget) {
     if (isImageUploadPending) {
       return;
@@ -2035,6 +2036,8 @@ export function EditorShell(props: { projectId?: string }) {
             props: {
               alt: file.name,
               fit: "contain",
+              focusX: 0.5,
+              focusY: 0.5,
               src: normalizedUploadedUrl
             }
             }),
@@ -2555,6 +2558,23 @@ export function EditorShell(props: { projectId?: string }) {
       setLastPatchLabel(
         error instanceof Error ? `실패 · ${error.message}` : "실패 · unknown"
       );
+    }
+  }
+
+  function handleDistributeSelectedElements(axis: DistributeAxis) {
+    if (!currentSlide || selectedElements.length < 3) {
+      return;
+    }
+
+    const patch = createDistributeSelectionPatch(
+      deck,
+      currentSlide,
+      selectedElements,
+      axis
+    );
+
+    if (patch) {
+      commitPatch(patch);
     }
   }
 
@@ -3941,59 +3961,71 @@ export function EditorShell(props: { projectId?: string }) {
               </div>
             </div>
 
-            <SelectionQuickBar
-              key={`quickbar-${selectedElement?.elementId ?? currentSlide?.slideId ?? "none"}`}
-              customShapeEditActive={isCustomShapeEditingSelection}
-              element={selectedElement}
-              slide={selectedElementIds.length > 1 ? null : currentSlide}
-              showIds={showIds}
-              onToggleCustomShapeClosed={() => {
-                if (!selectedElement || !currentSlide || selectedElement.type !== "customShape") {
-                  return;
-                }
-                handleCommitCustomShapeGeometry(
-                  currentSlide.slideId,
-                  selectedElement.elementId,
-                  getCustomShapeAbsoluteNodes(selectedElement),
-                  !(selectedElement.props as CustomShapeElementProps).closed
-                );
-              }}
-              onToggleCustomShapeEdit={() => {
-                if (!selectedElement || selectedElement.type !== "customShape") {
-                  return;
-                }
-                setEditingElementId(null);
-                setCustomShapeEditElementId((current) =>
-                  current === selectedElement.elementId ? null : selectedElement.elementId
-                );
-              }}
-              onChangeFrame={(frame) => {
-                if (!selectedElement || !currentSlide) {
-                  return;
-                }
-                handleElementFrameChange(
-                  currentSlide.slideId,
-                  selectedElement.elementId,
-                  frame
-                );
-              }}
-              onChangeProps={(props) => {
-                if (!selectedElement || !currentSlide) {
-                  return;
-                }
-                handleElementPropsChange(
-                  currentSlide.slideId,
-                  selectedElement.elementId,
-                  props
-                );
-              }}
-              onChangeSlideStyle={(style) => {
-                if (!currentSlide) {
-                  return;
-                }
-                handleSlideStyleChange(currentSlide.slideId, style);
-              }}
-            />
+            {selectedElementIds.length > 1 ? (
+              <MultiSelectionQuickBar
+                canDistribute={selectedElements.length >= 3}
+                selectedCount={selectedElementIds.length}
+                onDistributeX={() => handleDistributeSelectedElements("x")}
+                onDistributeY={() => handleDistributeSelectedElements("y")}
+              />
+            ) : (
+              <SelectionQuickBar
+                key={`quickbar-${selectedElement?.elementId ?? currentSlide?.slideId ?? "none"}`}
+                canvas={deck.canvas}
+                customShapeEditActive={isCustomShapeEditingSelection}
+                element={selectedElement}
+                slide={currentSlide}
+                showIds={showIds}
+                theme={deck.theme}
+                onToggleCustomShapeClosed={() => {
+                  if (!selectedElement || !currentSlide || selectedElement.type !== "customShape") {
+                    return;
+                  }
+                  handleCommitCustomShapeGeometry(
+                    currentSlide.slideId,
+                    selectedElement.elementId,
+                    getCustomShapeAbsoluteNodes(selectedElement),
+                    !(selectedElement.props as CustomShapeElementProps).closed
+                  );
+                }}
+                onToggleCustomShapeEdit={() => {
+                  if (!selectedElement || selectedElement.type !== "customShape") {
+                    return;
+                  }
+                  setEditingElementId(null);
+                  setCustomShapeEditElementId((current) =>
+                    current === selectedElement.elementId ? null : selectedElement.elementId
+                  );
+                }}
+                onChangeFrame={(frame) => {
+                  if (!selectedElement || !currentSlide) {
+                    return;
+                  }
+                  handleElementFrameChange(
+                    currentSlide.slideId,
+                    selectedElement.elementId,
+                    frame
+                  );
+                }}
+                onChangeProps={(props) => {
+                  if (!selectedElement || !currentSlide) {
+                    return;
+                  }
+                  handleElementPropsChange(
+                    currentSlide.slideId,
+                    selectedElement.elementId,
+                    props
+                  );
+                }}
+                onChangeSlideStyle={(style) => {
+                  if (!currentSlide) {
+                    return;
+                  }
+                  handleSlideStyleChange(currentSlide.slideId, style);
+                }}
+                onChangeTheme={handleThemeChange}
+              />
+            )}
           </div>
 
           <div className="canvas-scroll">
@@ -4108,24 +4140,7 @@ export function EditorShell(props: { projectId?: string }) {
                 </div>
               </div>
               <div className="assistant-panel-slot">
-                {currentSlideValidationItems.length > 0 ? (
-                  <section
-                    className="suggestion-card"
-                    data-testid="editor-validation-items"
-                  >
-                    <strong>품질 경고</strong>
-                    <div className="stack-list">
-                      {currentSlideValidationItems.map((item) => (
-                        <div
-                          className="stack-item compact"
-                          key={`${item.slideId}-${item.elementIds.join("-")}`}
-                        >
-                          <span>{item.message}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </section>
-                ) : null}
+                <ValidationPanel items={currentSlideValidationItems} />
                 <SuggestionPanel
                   deck={deck}
                   projectId={projectId}
@@ -4359,6 +4374,229 @@ function getSlideBackgroundSize(fit: NonNullable<Slide["style"]["backgroundImage
   }
 
   return fit;
+}
+
+function MultiSelectionQuickBar(props: {
+  canDistribute: boolean;
+  selectedCount: number;
+  onDistributeX: () => void;
+  onDistributeY: () => void;
+}) {
+  return (
+    <section className="selection-quickbar" data-testid="editor-multi-selection-quickbar">
+      <div className="selection-quickbar-fields">
+        <span className="quickbar-inline-hint">
+          {props.selectedCount}개 선택됨
+        </span>
+        <button
+          className="quickbar-action-chip"
+          disabled={!props.canDistribute}
+          type="button"
+          onClick={props.onDistributeX}
+        >
+          가로 분배
+        </button>
+        <button
+          className="quickbar-action-chip"
+          disabled={!props.canDistribute}
+          type="button"
+          onClick={props.onDistributeY}
+        >
+          세로 분배
+        </button>
+      </div>
+    </section>
+  );
+}
+
+export function createDistributeSelectionPatch(
+  deck: Deck,
+  slide: Slide,
+  elements: DeckElement[],
+  axis: DistributeAxis
+): DeckPatch | null {
+  if (elements.length < 3) {
+    return null;
+  }
+
+  const sortedElements = [...elements].sort(
+    (left, right) => getElementCenter(left, axis) - getElementCenter(right, axis)
+  );
+  const firstCenter = getElementCenter(sortedElements[0], axis);
+  const lastCenter = getElementCenter(sortedElements[sortedElements.length - 1], axis);
+  const step = (lastCenter - firstCenter) / (sortedElements.length - 1);
+  const operations: DeckPatch["operations"] = sortedElements.map((element, index) => {
+    const center = firstCenter + step * index;
+    const nextPosition =
+      axis === "x"
+        ? Math.round(center - element.width / 2)
+        : Math.round(center - element.height / 2);
+
+    return {
+      type: "update_element_frame",
+      slideId: slide.slideId,
+      elementId: element.elementId,
+      frame: normalizeElementFrameDraft(
+        deck.canvas,
+        element,
+        axis === "x" ? { x: nextPosition } : { y: nextPosition }
+      )
+    };
+  });
+
+  return {
+    deckId: deck.deckId,
+    baseVersion: deck.version,
+    source: "user",
+    operations
+  };
+}
+
+function getElementCenter(element: DeckElement, axis: DistributeAxis) {
+  return axis === "x"
+    ? element.x + element.width / 2
+    : element.y + element.height / 2;
+}
+
+function ValidationPanel(props: { items: EditorValidationItem[] }) {
+  return (
+    <section className="suggestion-card">
+      <strong>검증</strong>
+      <div className="stack-list">
+        {props.items.length > 0 ? (
+          props.items.map((item, index) => (
+            <div className="stack-item compact" key={`${item.message}-${index}`}>
+              <span>{item.severity === "risk" ? "export risk" : "warning"}</span>
+              <strong>{item.message}</strong>
+              {item.elementId ? <small>{item.elementId}</small> : null}
+            </div>
+          ))
+        ) : (
+          <div className="stack-item compact">
+            <span>warning 없음</span>
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
+export function getEditorValidationItems(
+  deck: Deck,
+  slide?: Slide
+): EditorValidationItem[] {
+  const slides = slide ? [slide] : deck.slides;
+  return slides.flatMap((targetSlide) =>
+    getEditorSlideValidationItems(deck, targetSlide)
+  );
+}
+
+function getEditorSlideValidationItems(
+  deck: Deck,
+  slide: Slide
+): EditorValidationItem[] {
+  const backgroundColor = slide.style.backgroundColor ?? deck.theme.backgroundColor;
+  const items: EditorValidationItem[] = [];
+
+  for (const element of slide.elements) {
+    if (!element.visible) continue;
+
+    if (element.elementId.endsWith("_media_placeholder")) {
+      items.push({
+        elementId: element.elementId,
+        message: "이미지 자리 표시자가 남아 있습니다.",
+        severity: "warning"
+      });
+    }
+
+    if (element.type === "image" && !element.props.alt.trim()) {
+      items.push({
+        elementId: element.elementId,
+        message: "이미지 대체 텍스트가 비어 있습니다.",
+        severity: "warning"
+      });
+    }
+
+    if (element.type === "chart" && element.props.data.length === 0) {
+      items.push({
+        elementId: element.elementId,
+        message: "차트 데이터가 비어 있습니다.",
+        severity: "warning"
+      });
+    }
+
+    if (element.type === "text") {
+      if (isEditorTextOverflowing(element)) {
+        items.push({
+          elementId: element.elementId,
+          message: "텍스트가 상자 높이를 넘을 수 있습니다.",
+          severity: "warning"
+        });
+      }
+
+      const color = element.props.color ?? slide.style.textColor ?? deck.theme.textColor;
+      if (isHexColor(color) && isHexColor(backgroundColor) && contrastRatio(color, backgroundColor) < 4.5) {
+        items.push({
+          elementId: element.elementId,
+          message: "텍스트와 배경 대비가 낮습니다.",
+          severity: "warning"
+        });
+      }
+    }
+
+    if (shouldReportExportShapeRisk(element)) {
+      items.push({
+        elementId: element.elementId,
+        message: "내보내기에서 모양이 달라질 수 있습니다.",
+        severity: "risk"
+      });
+    }
+  }
+
+  items.push(...getEditorTextOverlapValidationItems(slide));
+
+  return items;
+}
+
+function shouldReportExportShapeRisk(element: DeckElement) {
+  if (element.type === "group") return true;
+  if (element.type !== "customShape") return false;
+  return !(element.role === "decoration" && element.elementId.includes("_imported_"));
+}
+
+function isEditorTextOverflowing(element: Extract<DeckElement, { type: "text" }>) {
+  const text = element.props.text;
+  if (!text) return false;
+
+  const fontSize = element.props.fontSize;
+  const characterWidth = Math.max(1, fontSize * 0.56);
+  const charactersPerLine = Math.max(1, Math.floor(element.width / characterWidth));
+  const estimatedLines = text
+    .split("\n")
+    .reduce(
+      (sum, line) => sum + Math.max(1, Math.ceil(line.length / charactersPerLine)),
+      0
+    );
+
+  return estimatedLines * fontSize * element.props.lineHeight > element.height * 1.08;
+}
+
+function isHexColor(value: string) {
+  return /^#[0-9a-f]{6}$/i.test(value);
+}
+
+function contrastRatio(first: string, second: string) {
+  const lighter = Math.max(relativeLuminance(first), relativeLuminance(second));
+  const darker = Math.min(relativeLuminance(first), relativeLuminance(second));
+  return (lighter + 0.05) / (darker + 0.05);
+}
+
+function relativeLuminance(color: string) {
+  const values = [1, 3, 5].map((index) => parseInt(color.slice(index, index + 2), 16) / 255);
+  const [red, green, blue] = values.map((value) =>
+    value <= 0.03928 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4
+  );
+  return 0.2126 * red + 0.7152 * green + 0.0722 * blue;
 }
 
 function clampBackgroundOverlayOpacity(opacity: number) {
@@ -4672,35 +4910,34 @@ function formatBytes(bytes: number) {
   return `${value.toFixed(value >= 10 || index === 0 ? 0 : 1)} ${units[index]}`;
 }
 
-export function getEditorValidationItems(deck: Deck): EditorValidationItem[] {
-  return deck.slides.flatMap((slide) => {
-    const textElements = slide.elements.filter(isReadableEditorTextElement);
-    const items: EditorValidationItem[] = [];
+function getEditorTextOverlapValidationItems(slide: Slide): EditorValidationItem[] {
+  const textElements = slide.elements.filter(isReadableEditorTextElement);
+  const items: EditorValidationItem[] = [];
 
-    for (let leftIndex = 0; leftIndex < textElements.length; leftIndex += 1) {
-      for (
-        let rightIndex = leftIndex + 1;
-        rightIndex < textElements.length;
-        rightIndex += 1
-      ) {
-        const first = textElements[leftIndex];
-        const second = textElements[rightIndex];
+  for (let leftIndex = 0; leftIndex < textElements.length; leftIndex += 1) {
+    for (
+      let rightIndex = leftIndex + 1;
+      rightIndex < textElements.length;
+      rightIndex += 1
+    ) {
+      const first = textElements[leftIndex];
+      const second = textElements[rightIndex];
 
-        if (getElementOverlapRatio(first, second) < editorTextOverlapWarningRatio) {
-          continue;
-        }
+      if (getElementOverlapRatio(first, second) < editorTextOverlapWarningRatio) {
+        continue;
+      }
 
-        items.push({
-          elementIds: [first.elementId, second.elementId],
-          level: "warning",
+      items.push({
+        elementIds: [first.elementId, second.elementId],
+        level: "warning",
+        severity: "warning",
           message: "텍스트 요소가 겹쳐 읽기 어려울 수 있습니다.",
           slideId: slide.slideId
-        });
-      }
+      });
     }
+  }
 
-    return items;
-  });
+  return items;
 }
 
 function isReadableEditorTextElement(element: DeckElement) {
@@ -4787,12 +5024,14 @@ function getDefaultImageInsertFrame(
 
 export function getImageElementLayout(args: {
   fit: ImageElementProps["fit"];
+  focusX?: number;
+  focusY?: number;
   frameHeight: number;
   frameWidth: number;
   imageHeight: number;
   imageWidth: number;
 }) {
-  const { fit, frameHeight, frameWidth, imageHeight, imageWidth } = args;
+  const { fit, focusX = 0.5, focusY = 0.5, frameHeight, frameWidth, imageHeight, imageWidth } = args;
 
   if (fit === "stretch") {
     return {
@@ -4823,12 +5062,13 @@ export function getImageElementLayout(args: {
 
   if (imageRatio > frameRatio) {
     const cropWidth = imageHeight * frameRatio;
+    const maxCropX = Math.max(0, imageWidth - cropWidth);
 
     return {
       crop: {
         height: imageHeight,
         width: cropWidth,
-        x: (imageWidth - cropWidth) / 2,
+        x: maxCropX * clampUnit(focusX),
         y: 0
       },
       height: frameHeight,
@@ -4839,17 +5079,22 @@ export function getImageElementLayout(args: {
   }
 
   const cropHeight = imageWidth / frameRatio;
+  const maxCropY = Math.max(0, imageHeight - cropHeight);
 
   return {
     crop: {
       height: cropHeight,
       width: imageWidth,
       x: 0,
-      y: (imageHeight - cropHeight) / 2
+      y: maxCropY * clampUnit(focusY)
     },
     height: frameHeight,
     width: frameWidth,
     x: 0,
     y: 0
   };
+}
+
+function clampUnit(value: number) {
+  return Math.max(0, Math.min(1, Number.isFinite(value) ? value : 0.5));
 }

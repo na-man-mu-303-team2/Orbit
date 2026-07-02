@@ -105,7 +105,9 @@ export const imageFitSchema = z.enum(["contain", "cover", "stretch"]);
 export const imageElementPropsSchema = z.object({
   src: z.string().min(1),
   alt: z.string().default(""),
-  fit: imageFitSchema.default("contain")
+  fit: imageFitSchema.default("contain"),
+  focusX: z.number().finite().min(0).max(1).default(0.5),
+  focusY: z.number().finite().min(0).max(1).default(0.5)
 });
 
 export const groupElementPropsSchema = z

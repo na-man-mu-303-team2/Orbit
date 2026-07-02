@@ -2,8 +2,15 @@ import { describe, expect, it } from "vitest";
 import {
   assetUploadUrlRequestSchema,
   createAssetUploadUrlRequestSchema,
+  filePurposeSchema,
   maxRehearsalAudioUploadSizeBytes,
 } from "./file.schema";
+
+describe("filePurposeSchema", () => {
+  it("accepts internal design assets", () => {
+    expect(filePurposeSchema.parse("design-asset")).toBe("design-asset");
+  });
+});
 
 describe("assetUploadUrlRequestSchema", () => {
   it("accepts rehearsal audio uploads with audio MIME types", () => {
@@ -36,6 +43,17 @@ describe("assetUploadUrlRequestSchema", () => {
       mimeType: "audio/webm",
       size: 1024,
       purpose: "reference-material",
+    });
+
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects direct uploads for internal design assets", () => {
+    const result = assetUploadUrlRequestSchema.safeParse({
+      originalName: "design.png",
+      mimeType: "image/png",
+      size: 1024,
+      purpose: "design-asset",
     });
 
     expect(result.success).toBe(false);

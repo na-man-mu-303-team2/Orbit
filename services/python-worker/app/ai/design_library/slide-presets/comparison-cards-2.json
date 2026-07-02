@@ -1,0 +1,7 @@
+{
+  "id": "comparison-cards-2",
+  "intent": "comparison",
+  "cardCount": 2,
+  "layout": "two-column",
+  "maxElements": 24
+}
