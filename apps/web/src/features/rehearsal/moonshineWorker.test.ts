@@ -1,10 +1,13 @@
 import { dirname, resolve } from "node:path";
+import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import * as vm from "node:vm";
 import { createServer, type ViteDevServer } from "vite";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const webRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
+const adapterEntryPath =
+  "/src/features/rehearsal/moonshineLiveSttAdapter.ts";
 const workerFilePath =
   "/src/features/rehearsal/moonshineWorker.ts?worker_file&type=classic";
 
@@ -15,6 +18,14 @@ describe("moonshineWorker", () => {
     await server?.close();
     server = null;
     vi.restoreAllMocks();
+  });
+
+  it("creates the Transformers.js worker as a module worker", async () => {
+    const source = await readFile(resolve(webRoot, adapterEntryPath.slice(1)), "utf8");
+
+    expect(source).toMatch(
+      /new Worker\(\s*new URL\("\.\/moonshineWorker\.ts", import\.meta\.url\),\s*\{\s*type: "module"\s*\}\s*\)/
+    );
   });
 
   it("loads a Transformers.js ASR pipeline and transcribes audio segments", async () => {

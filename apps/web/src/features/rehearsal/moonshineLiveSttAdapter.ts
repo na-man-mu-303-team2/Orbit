@@ -681,7 +681,9 @@ function createMoonshineWorker(): MoonshineWorker {
     );
   }
 
-  return new Worker(new URL("./moonshineWorker.ts", import.meta.url));
+  return new Worker(new URL("./moonshineWorker.ts", import.meta.url), {
+    type: "module"
+  });
 }
 
 function parsePartialTranscriptMessage(
