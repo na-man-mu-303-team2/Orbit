@@ -71,6 +71,7 @@ import {
 import { SherpaLiveSttAdapter } from "./sherpaOnnxLiveSttAdapter";
 import { SlideshowRenderer } from "./presenter/SlideshowRenderer";
 import { createSlideshowAnimationPlan } from "./presenter/slideshowStepModel";
+import { usePresentationChannelPublisher } from "./presenter/usePresentationChannelPublisher";
 import { usePresenterKeyboard } from "./presenter/usePresenterKeyboard";
 
 export {
@@ -1272,6 +1273,23 @@ export function RehearsalWorkspace(props: {
 
   const currentSlide = deck?.slides[currentSlideIndex] ?? null;
   const triggerAnimationIds = useMemo(() => [] as string[], [currentSlide?.slideId]);
+  const presentationChannelState = useMemo(
+    () =>
+      currentSlide
+        ? {
+            highlights: [],
+            slideId: currentSlide.slideId,
+            slideIndex: currentSlideIndex,
+            stepIndex: presenterStepIndex
+          }
+        : null,
+    [currentSlide?.slideId, currentSlideIndex, presenterStepIndex]
+  );
+  usePresentationChannelPublisher({
+    deck,
+    state: presentationChannelState,
+    triggerAnimationIds
+  });
   const slideshowAnimationPlan = currentSlide
     ? createSlideshowAnimationPlan({
         slide: currentSlide,
