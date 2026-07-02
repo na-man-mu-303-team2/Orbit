@@ -305,6 +305,7 @@ def generate_ai_deck(
             model=config.openai_model,
             api_key=config.openai_api_key,
             reference_context=_generate_deck_reference_context(payload, config),
+            image_review_mode=config.ai_slide_image_review_mode,
         )
     except DeckContentGenerationError as error:
         raise HTTPException(status_code=503, detail=str(error)) from error

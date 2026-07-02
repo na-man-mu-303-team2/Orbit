@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import base64
 import json
 import re
+import textwrap
 from dataclasses import dataclass
+from io import BytesIO
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -16,6 +19,7 @@ VisualRhythm = Literal["auto", "clean", "editorial", "bold", "technical"]
 DensityTarget = Literal["low", "medium", "high"]
 MediaPolicy = Literal["avoid", "balanced", "placeholder-ok"]
 LayoutDiversity = Literal["stable", "varied"]
+ImageReviewMode = Literal["auto", "off"]
 SlideType = Literal[
     "title",
     "cover",
@@ -299,6 +303,11 @@ class GenerateDeckResponse(BaseModel):
     validation: ValidationResult
 
 
+class SlideTextOverlapReview(BaseModel):
+    unreadable: bool
+    reason: str = ""
+
+
 class DeckContentGenerationError(RuntimeError):
     pass
 
@@ -339,6 +348,7 @@ class TextOverlapCandidate:
 
 CANVAS = Canvas()
 TEXT_OVERLAP_WARNING_RATIO = 0.15
+MAX_IMAGE_REVIEW_SLIDES = 3
 SLIDE_TYPES: tuple[SlideType, ...] = (
     "title",
     "cover",
@@ -1070,6 +1080,33 @@ DECK_CONTENT_RESPONSE_FORMAT: dict[str, Any] = {
     }
 }
 
+TEXT_OVERLAP_REVIEW_INSTRUCTIONS = """
+You review one slide preview for text-on-text overlap only.
+Return JSON only.
+
+Rules:
+- unreadable=true only when overlapping text would be hard for a human to read.
+- Ignore decorative shapes, image placeholders, charts, and footer text.
+- Do not evaluate layout taste, wording, contrast, or grammar.
+""".strip()
+
+TEXT_OVERLAP_REVIEW_RESPONSE_FORMAT: dict[str, Any] = {
+    "format": {
+        "type": "json_schema",
+        "name": "slide_text_overlap_review",
+        "strict": True,
+        "schema": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "unreadable": {"type": "boolean"},
+                "reason": {"type": "string"},
+            },
+            "required": ["unreadable", "reason"],
+        },
+    }
+}
+
 
 def generate_deck(
     request: GenerateDeckRequest,
@@ -1078,6 +1115,7 @@ def generate_deck(
     model: str | None = None,
     api_key: str | None = None,
     reference_context: list[ReferenceContext] | None = None,
+    image_review_mode: ImageReviewMode = "auto",
 ) -> GenerateDeckResponse:
     raw_input = analyze_input(request, reference_context=reference_context)
     outline, slide_plans = plan_deck_content(
@@ -1124,6 +1162,17 @@ def generate_deck(
         "slides": slides,
     }
     deck, validation = validate_and_patch(deck)
+    text_overlap_candidates = detect_text_overlap_candidates(deck)
+    validation.design_issues.extend(
+        review_text_overlap_candidates(
+            deck,
+            text_overlap_candidates,
+            client=client,
+            model=model,
+            api_key=api_key,
+            image_review_mode=image_review_mode,
+        )
+    )
     warnings = []
     if not raw_input.references:
         warnings.append("참고자료 없이 topic-only generation으로 생성했습니다.")
@@ -3244,6 +3293,247 @@ def text_overlap_candidate_issues(
     ]
 
 
+def review_text_overlap_candidates(
+    deck: dict[str, Any],
+    candidates: list[TextOverlapCandidate],
+    *,
+    client: Any | None = None,
+    model: str | None = None,
+    api_key: str | None = None,
+    image_review_mode: ImageReviewMode = "auto",
+) -> list[ValidationIssue]:
+    if not candidates:
+        return []
+
+    fallback_issues = text_overlap_candidate_issues(candidates)
+    if image_review_mode == "off" or (client is None and not api_key):
+        return fallback_issues
+
+    api_client = client
+    if api_client is None:
+        from openai import OpenAI
+
+        api_client = OpenAI(api_key=api_key)
+
+    groups = group_text_overlap_candidates(candidates)
+    issues: list[ValidationIssue] = []
+    for slide_index, slide_candidates in groups[:MAX_IMAGE_REVIEW_SLIDES]:
+        try:
+            slide = deck["slides"][slide_index]
+            preview_png = render_slide_preview_png(deck, slide)
+            review = review_slide_text_overlap(
+                api_client,
+                model=model,
+                preview_png=preview_png,
+                candidates=slide_candidates,
+            )
+        except Exception:
+            return fallback_issues
+
+        if review.unreadable:
+            issues.append(text_overlap_review_issue(slide_candidates, review.reason))
+
+    unreviewed_candidates = [
+        candidate
+        for _, slide_candidates in groups[MAX_IMAGE_REVIEW_SLIDES:]
+        for candidate in slide_candidates
+    ]
+    issues.extend(text_overlap_candidate_issues(unreviewed_candidates))
+    return issues
+
+
+def group_text_overlap_candidates(
+    candidates: list[TextOverlapCandidate],
+) -> list[tuple[int, list[TextOverlapCandidate]]]:
+    grouped: dict[int, list[TextOverlapCandidate]] = {}
+    for candidate in candidates:
+        grouped.setdefault(candidate.slide_index, []).append(candidate)
+    return sorted(grouped.items())
+
+
+def review_slide_text_overlap(
+    client: Any,
+    *,
+    model: str | None,
+    preview_png: bytes,
+    candidates: list[TextOverlapCandidate],
+) -> SlideTextOverlapReview:
+    image_url = "data:image/png;base64," + base64.b64encode(preview_png).decode(
+        "ascii"
+    )
+    response = client.responses.create(
+        model=model or "gpt-4o-mini",
+        instructions=TEXT_OVERLAP_REVIEW_INSTRUCTIONS,
+        input=[
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "input_text",
+                        "text": text_overlap_review_prompt(candidates),
+                    },
+                    {
+                        "type": "input_image",
+                        "image_url": image_url,
+                    },
+                ],
+            }
+        ],
+        text=TEXT_OVERLAP_REVIEW_RESPONSE_FORMAT,
+    )
+    return SlideTextOverlapReview.model_validate_json(
+        str(getattr(response, "output_text", "")).strip()
+    )
+
+
+def text_overlap_review_prompt(candidates: list[TextOverlapCandidate]) -> str:
+    candidate_lines = [
+        (
+            f"- {candidate.first_element_id} vs {candidate.second_element_id}: "
+            f"overlap_ratio={candidate.overlap_ratio:.2f}"
+        )
+        for candidate in candidates
+    ]
+    return "\n".join(
+        [
+            "Review whether these candidate text overlaps are actually unreadable.",
+            "Candidates:",
+            *candidate_lines,
+        ]
+    )
+
+
+def text_overlap_review_issue(
+    candidates: list[TextOverlapCandidate],
+    reason: str,
+) -> ValidationIssue:
+    candidate = max(candidates, key=lambda item: item.overlap_ratio)
+    message = "이미지 검증 결과 텍스트 겹침으로 읽기 어렵습니다."
+    if reason.strip():
+        message = f"{message} {reason.strip()[:160]}"
+    return ValidationIssue(
+        scope="slide",
+        path=f"slides.{candidate.slide_index}.elements",
+        message=message,
+    )
+
+
+def render_slide_preview_png(deck: dict[str, Any], slide: dict[str, Any]) -> bytes:
+    from PIL import Image, ImageDraw
+
+    canvas = deck.get("canvas", {})
+    width = int(canvas.get("width") or CANVAS.width)
+    height = int(canvas.get("height") or CANVAS.height)
+    theme = deck.get("theme", {})
+    slide_style = slide.get("style", {})
+    background = preview_color(
+        slide_style.get("backgroundColor") or theme.get("backgroundColor"),
+        "#ffffff",
+    ) or "#ffffff"
+    image = Image.new("RGB", (width, height), background)
+    draw = ImageDraw.Draw(image)
+
+    for element in sorted(
+        slide.get("elements", []),
+        key=lambda item: int(item.get("zIndex", 0)),
+    ):
+        if element.get("visible") is False:
+            continue
+
+        render_preview_element(draw, element, theme)
+
+    buffer = BytesIO()
+    image.save(buffer, format="PNG")
+    return buffer.getvalue()
+
+
+def render_preview_element(
+    draw: Any,
+    element: dict[str, Any],
+    theme: dict[str, Any],
+) -> None:
+    left = float(element.get("x", 0))
+    top = float(element.get("y", 0))
+    right = left + float(element.get("width", 0))
+    bottom = top + float(element.get("height", 0))
+    props = element.get("props", {})
+    element_type = element.get("type")
+
+    if element_type in {"rect", "ellipse", "polygon", "star", "ring", "customShape"}:
+        fill = preview_color(props.get("fill"), "transparent")
+        outline = preview_color(props.get("stroke"), "transparent")
+        stroke_width = max(1, int(props.get("strokeWidth") or 1))
+        if element_type == "ellipse":
+            draw.ellipse(
+                [left, top, right, bottom],
+                fill=fill,
+                outline=outline,
+                width=stroke_width,
+            )
+        else:
+            draw.rectangle(
+                [left, top, right, bottom],
+                fill=fill,
+                outline=outline,
+                width=stroke_width,
+            )
+        return
+
+    if element_type in {"image", "chart"}:
+        draw.rectangle([left, top, right, bottom], fill="#e5e7eb", outline="#94a3b8")
+        return
+
+    if element_type != "text":
+        return
+
+    font_size = max(8, int(props.get("fontSize") or 24))
+    text = str(props.get("text", ""))
+    if not text.strip():
+        return
+
+    font = preview_font(font_size)
+    color = preview_color(
+        props.get("color") or theme.get("textColor"),
+        "#111827",
+    ) or "#111827"
+    draw.multiline_text(
+        (left, top),
+        wrap_preview_text(text, font_size, max(1.0, right - left)),
+        fill=color,
+        font=font,
+        spacing=max(2, int(font_size * 0.18)),
+    )
+
+
+def preview_font(font_size: int) -> Any:
+    from PIL import ImageFont
+
+    for font_name in ("malgun.ttf", "DejaVuSans.ttf", "Arial.ttf"):
+        try:
+            return ImageFont.truetype(font_name, font_size)
+        except OSError:
+            continue
+    return ImageFont.load_default()
+
+
+def wrap_preview_text(text: str, font_size: int, width: float) -> str:
+    max_chars = max(1, int(width / max(1.0, font_size * 0.55)))
+    return "\n".join(textwrap.wrap(text, width=max_chars)[:8])
+
+
+def preview_color(value: Any, fallback: str) -> str | None:
+    from PIL import ImageColor
+
+    color = value if isinstance(value, str) and value else fallback
+    if color == "transparent":
+        return None
+    try:
+        ImageColor.getrgb(color)
+    except ValueError:
+        color = fallback
+    return None if color == "transparent" else color
+
+
 def validate_content(deck: dict[str, Any]) -> list[ValidationIssue]:
     issues: list[ValidationIssue] = []
     topic = deck["metadata"]["createdFrom"]["topic"]
@@ -3313,7 +3603,6 @@ def validate_design(deck: dict[str, Any]) -> list[ValidationIssue]:
                         message="배경 요소가 텍스트보다 위에 있습니다.",
                     )
                 )
-    issues.extend(text_overlap_candidate_issues(detect_text_overlap_candidates(deck)))
     return issues
 
 
