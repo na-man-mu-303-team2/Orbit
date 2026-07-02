@@ -78,6 +78,26 @@ describe("SingleScreenPresenter", () => {
     expect(html).not.toContain("키워드 체크리스트");
   });
 
+  it("hides fullscreen controls after fullscreen is active", () => {
+    const html = renderToStaticMarkup(
+      <SingleScreenPresenter
+        deck={p0AnimationDeck}
+        isFullscreen={true}
+        onExit={() => {}}
+        slideElapsedLabel="00:12"
+        slideId="slide_p0_1"
+        slideTargetLabel="01:00"
+        stepIndex={1}
+        totalTimeLabel="03:20"
+        triggerAnimationIds={["anim_image_zoom_in"]}
+      />
+    );
+
+    expect(html).toContain("발표 타이머");
+    expect(html).not.toContain("전체화면 시작");
+    expect(html).not.toContain("단일 화면 종료");
+  });
+
   it("calculates fullscreen scale from the viewport", () => {
     expect(getSingleScreenScale(p0AnimationDeck, { height: 540, width: 960 })).toBe(0.5);
   });

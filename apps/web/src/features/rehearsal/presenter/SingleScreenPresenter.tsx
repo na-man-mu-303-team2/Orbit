@@ -7,6 +7,7 @@ import { SlideshowRenderer } from "./SlideshowRenderer";
 export function SingleScreenPresenter(props: {
   deck: Deck;
   highlights?: SlideRuntimeHighlight[];
+  isFullscreen?: boolean;
   onExit: () => void;
   slideElapsedLabel: string;
   slideId: string;
@@ -28,6 +29,8 @@ export function SingleScreenPresenter(props: {
   } = props;
   const rootRef = useRef<HTMLDivElement>(null);
   const [fullscreenRequested, setFullscreenRequested] = useState(false);
+  const liveIsFullscreen = useSingleScreenFullscreenState();
+  const isFullscreen = props.isFullscreen ?? liveIsFullscreen;
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -71,22 +74,24 @@ export function SingleScreenPresenter(props: {
           현재 슬라이드 <strong>{slideElapsedLabel}</strong> / {slideTargetLabel}
         </span>
       </div>
-      <div className="single-screen-actions">
-        <button
-          type="button"
-          onClick={() => {
-            void requestSingleScreenFullscreen(rootRef.current).then((ok) => {
-              setFullscreenRequested(ok);
-            });
-          }}
-        >
-          <Maximize2 size={17} />
-          전체화면 시작
-        </button>
-        <button type="button" onClick={onExit} aria-label="단일 화면 종료">
-          <X size={18} />
-        </button>
-      </div>
+      {!isFullscreen ? (
+        <div className="single-screen-actions">
+          <button
+            type="button"
+            onClick={() => {
+              void requestSingleScreenFullscreen(rootRef.current).then((ok) => {
+                setFullscreenRequested(ok);
+              });
+            }}
+          >
+            <Maximize2 size={17} />
+            전체화면 시작
+          </button>
+          <button type="button" onClick={onExit} aria-label="단일 화면 종료">
+            <X size={18} />
+          </button>
+        </div>
+      ) : null}
     </main>
   );
 }
@@ -121,4 +126,25 @@ function readViewportSize() {
     height: window.innerHeight,
     width: window.innerWidth
   };
+}
+
+function useSingleScreenFullscreenState() {
+  const [isFullscreen, setIsFullscreen] = useState(readSingleScreenFullscreenState);
+
+  useEffect(() => {
+    const updateFullscreenState = () => {
+      setIsFullscreen(readSingleScreenFullscreenState());
+    };
+
+    document.addEventListener("fullscreenchange", updateFullscreenState);
+    return () => {
+      document.removeEventListener("fullscreenchange", updateFullscreenState);
+    };
+  }, []);
+
+  return isFullscreen;
+}
+
+function readSingleScreenFullscreenState() {
+  return typeof document !== "undefined" && Boolean(document.fullscreenElement);
 }
