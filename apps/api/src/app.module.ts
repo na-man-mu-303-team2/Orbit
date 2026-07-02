@@ -12,6 +12,7 @@ import { databaseOptions } from "./database/data-source";
 import { ExtractModule } from "./extract/extract.module";
 import { GenerateDeckModule } from "./generate-deck/generate-deck.module";
 import { ProjectsModule } from "./projects/projects.module";
+import { PresentationSessionsModule } from "./presentation-sessions/presentation-sessions.module";
 import { ReferencesModule } from "./references/references.module";
 import { RealtimeGateway } from "./realtime/realtime.gateway";
 import { RehearsalsModule } from "./rehearsals/rehearsals.module";
@@ -29,6 +30,7 @@ import { RehearsalsModule } from "./rehearsals/rehearsals.module";
     ExtractModule,
     GenerateDeckModule,
     JobsModule,
+    PresentationSessionsModule,
     ReferencesModule,
     RehearsalsModule
   ],

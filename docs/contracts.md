@@ -86,6 +86,7 @@ API:
   "projectId": "project_demo_1",
   "title": "Demo Deck",
   "version": 1,
+  "targetDurationMinutes": 10,
   "metadata": {
     "language": "ko",
     "locale": "ko-KR"
@@ -127,6 +128,7 @@ API:
       "order": 1,
       "title": "Opening",
       "thumbnailUrl": "/files/thumbnails/slide_1.png",
+      "estimatedSeconds": 60,
       "style": {
         "layout": "title-content",
         "backgroundColor": "#ffffff"
@@ -173,9 +175,10 @@ API:
 
 결정 사항:
 
-- DeckSchema 최상위 필드는 `deckId`, `projectId`, `title`, `version`, `metadata`, `canvas`, `theme`, `slides`로 구성한다.
+- DeckSchema 최상위 필드는 `deckId`, `projectId`, `title`, `version`, `metadata`, `targetDurationMinutes`, `canvas`, `theme`, `slides`로 구성한다.
 - `deckId`, `projectId`, `title`, `version`, `canvas`, `slides`는 필수로 검증한다.
 - `metadata`, `theme`는 생성 입력에서 생략할 수 있지만, schema parse 후 normalized Deck JSON에는 항상 포함한다.
+- `targetDurationMinutes`는 발표 전체 목표 시간(분)이며 양의 정수만 허용한다. 생략 시 AI 덱 생성 요청 기본값과 같은 `10`으로 정규화한다.
 - `width`, `height`는 top-level에 두지 않고 반드시 `canvas.width`, `canvas.height`로 둔다.
 - 지원하는 deck canvas preset은 `wide-16-9`와 `standard-4-3`이다.
 - `wide-16-9`는 `1920x1080`, `standard-4-3`은 `1024x768`만 허용한다.
@@ -202,7 +205,8 @@ API:
 - 슬라이드 배경은 `slide.style.backgroundImage` > `slide.style.backgroundColor` > `deck.theme.backgroundColor` 순서로 해석한다.
 - `theme` 변경은 기존 `slide.style`이나 object props를 자동으로 덮어쓰지 않는다. 전체 테마 적용은 별도의 apply theme 동작으로 처리한다.
 - `slides`는 최소 1개 이상이어야 한다. 새 덱 생성 시에는 빈 덱 대신 기본 슬라이드 1장을 생성한다.
-- SlideSchema 필드는 `slideId`, `order`, `title`, `thumbnailUrl`, `style`, `speakerNotes`, `elements`, `keywords`, `animations`를 유지한다.
+- SlideSchema 필드는 `slideId`, `order`, `title`, `thumbnailUrl`, `estimatedSeconds`, `style`, `speakerNotes`, `elements`, `keywords`, `animations`를 유지한다.
+- `estimatedSeconds`는 슬라이드별 목표 발표 시간(초)이며 선택 필드다. 생략된 경우 presenter UI는 `targetDurationMinutes / slides.length` 기반 균등 분배로 폴백한다.
 - AI 생성 slide는 선택적 `aiNotes`를 포함할 수 있다. `aiNotes`는 `emphasisPoints`와 검토용 `sourceEvidence`만 담고, 디자인 전용 배열은 만들지 않는다.
 - `order`는 사용자에게 보이는 슬라이드 번호와 맞춰 `1`부터 시작하는 양의 정수로 관리한다. 배열 index가 필요하면 애플리케이션 내부에서 `order - 1`로 변환한다.
 - 1차 스프린트 MVP에서는 슬라이드별 크기 override를 허용하지 않는다. 모든 슬라이드는 deck top-level의 `canvas` 크기와 비율을 따른다.
@@ -652,7 +656,7 @@ AI 덱 생성은 사용자 입력과 참고자료 fileId를 받아 비동기 Job
 - `url`은 임시로 로컬 경로를 쓰되, 이후 S3 signed URL로 교체할 수 있게 유지한다.
 - 업로드 요청은 `POST /api/v1/projects/:projectId/assets/upload-url`로 시작한다.
 - 업로드 완료 처리는 `POST /api/v1/projects/:projectId/assets/complete`에서 `fileId`를 받아 위 구조를 반환한다.
-- 1차 구현에서 허용하는 mime type은 purpose별로 제한한다. 문서/이미지 purpose는 PDF, PPTX, DOCX, JPEG, PNG, WebP를 허용하고 최대 크기는 50MiB다. `rehearsal-audio`는 report STT 경로에서 OpenAI가 받는 MP3, MP4, MPEG, MPGA, M4A, WAV, WebM 계열만 허용하고 최대 크기는 25MB다.
+- 1차 구현에서 허용하는 mime type은 purpose별로 제한한다. 문서/이미지 purpose는 PDF, PPTX, DOCX, JPEG, PNG, WebP를 허용하고 최대 크기는 50MiB다. `rehearsal-audio`는 report STT 경로에서 MP3, MP4, MPEG, MPGA, M4A, FLAC, WAV, WebM 계열만 허용한다. `REPORT_STT_PROVIDER=openai`의 기본/최대 크기는 25MB이고, `REPORT_STT_PROVIDER=whisperx`는 200MiB 기본값과 env 기반 상향을 허용한다.
 - upload URL을 발급한 뒤 complete가 호출되지 않은 파일은 `pending` metadata로 남기고, 정리 정책은 후속 작업에서 결정한다.
 - 분석이 끝난 `rehearsal-audio` raw object는 삭제하고, metadata는 `status=deleted`, `deletedAt`으로 추적한다.
 
@@ -681,7 +685,9 @@ AI 덱 생성은 사용자 입력과 참고자료 fileId를 받아 비동기 Job
 
 리허설 종료 뒤 녹음 파일을 전사하고 코칭 리포트를 생성한다.
 
-- STT provider env: `REPORT_STT_PROVIDER=openai`
+- STT provider env: `REPORT_STT_PROVIDER=openai | whisperx`
+- WhisperX env: `WHISPERX_API_URL`, `WHISPERX_API_KEY`, `WHISPERX_MODEL`
+- rehearsal audio limit env: `REHEARSAL_AUDIO_MAX_BYTES=25000000` when `REPORT_STT_PROVIDER=openai`; `209715200` is the WhisperX baseline.
 - LLM provider env: `LLM_PROVIDER=openai`
 - 실행 위치: API/worker/Python worker
 - 목적: 억양, 말 속도, 톤, 발음, 키워드 누락, 청중 반응 등을 종합한 리포트와 코칭 생성
@@ -691,7 +697,7 @@ AI 덱 생성은 사용자 입력과 참고자료 fileId를 받아 비동기 Job
 
 ## 리포트용 리허설 Run 및 STT 계약
 
-리포트용 리허설 녹음은 run 단위로 생성하고, run에 연결된 `rehearsal-audio` 업로드가 완료된 뒤 `rehearsal-stt` Job을 시작한다. 이 계약은 실시간 발표 제어용 Live STT 계약이 아니다.
+리포트용 리허설 녹음은 run 단위로 생성하고, 현재 구현된 upload-url 기반 `rehearsal-audio` 업로드가 완료된 뒤 `rehearsal-stt` Job을 시작한다. 이 계약은 실시간 발표 제어용 Live STT 계약이 아니다.
 
 Run 상태:
 
@@ -724,18 +730,36 @@ API:
   - request: `{ "deckId": "deck_demo_1" }`
   - response: `{ "run": RehearsalRun }`
 - `POST /api/v1/rehearsals/:runId/audio/upload-url`
-  - request: `{ "originalName": "rehearsal.webm", "mimeType": "audio/webm", "size": 1234 }`
-  - 서버가 purpose를 `rehearsal-audio`로 고정한다.
+  - request: `{ "originalName": "rehearsal.webm", "mimeType": "audio/webm", "size": 1048576 }`
+  - `size`는 service runtime schema에서 `REPORT_STT_PROVIDER`와 `REHEARSAL_AUDIO_MAX_BYTES` 기준으로 검증한다.
   - response: `{ "run": RehearsalRun, "upload": AssetUploadUrlResponse }`
 - `POST /api/v1/rehearsals/:runId/audio/complete`
   - request: `{ "fileId": "file_audio_1" }`
-  - 업로드 완료 검증 뒤 `rehearsal-stt` Job을 enqueue한다.
+  - run에 연결된 `fileId`만 허용하고, 업로드 완료 확인 뒤 `rehearsal-stt` Job을 enqueue한다.
   - response: `{ "run": RehearsalRun, "job": Job }`
 - `GET /api/v1/rehearsals/:runId`
   - response: `{ "run": RehearsalRun }`
 - `GET /api/v1/rehearsals/:runId/report`
   - response: `{ "run": RehearsalRun, "report": RehearsalReport | null }`
   - run이 아직 `processing`이거나 과거 run에 `report_json`이 없으면 `report`는 `null`이다.
+
+후속 구현 예정 API:
+
+- `POST /api/v1/rehearsals/:runId/audio-begin`
+  - request: `{ "codec": "flac", "sampleRate": 16000, "channels": 1, "chunkDurationMs": 30000 }`
+  - response: `{ "run": RehearsalRun }`
+- `POST /api/v1/rehearsals/:runId/audio-chunks/:index`
+  - params: `index`는 `0`부터 시작하는 정수다. route segment로 들어오는 문자열 숫자는 shared schema에서 정수로 변환한다.
+  - body: `audio/flac` chunk binary. 서버는 chunk별 hash 검증과 중복 업로드 멱등 처리를 담당한다.
+  - response: `{ "run": RehearsalRun }`
+- `POST /api/v1/rehearsals/:runId/audio-complete`
+  - request: `{ "chunkCount": 3, "totalDurationMs": 90000, "totalSizeBytes": 1048576, "sha256": "<64 hex>" }`
+  - 청크 수, 전체 길이, runtime 크기 한도, 조립 결과 sha256을 검증한 뒤 `rehearsal-stt` Job을 enqueue한다.
+  - response: `{ "run": RehearsalRun, "job": Job }`
+- `PATCH /api/v1/rehearsals/:runId/meta`
+  - request: `{ "slideTimeline": [{ "slideId": "slide_1", "enteredAt": "2026-07-02T00:00:00.000Z" }], "missedKeywords": [{ "slideId": "slide_1", "keywordId": "kw_1" }], "adviceEvents": [{ "type": "pace-too-fast", "at": "2026-07-02T00:00:30.000Z" }] }`
+  - transcript, speaker notes, raw audio, script 원문은 받지 않는다.
+  - response: `{ "run": RehearsalRun }`
 
 Report 응답 구조:
 

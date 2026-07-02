@@ -1,9 +1,9 @@
 import type { EnqueueRehearsalSttJobInput } from "@orbit/job-queue";
 import { loadOrbitConfig } from "@orbit/config";
 import {
-  assetUploadUrlRequestSchema,
   completeRehearsalAudioUploadRequestSchema,
   completeRehearsalAudioUploadResponseSchema,
+  createAssetUploadUrlRequestSchema,
   createRehearsalAudioUploadUrlRequestSchema,
   createRehearsalAudioUploadUrlResponseSchema,
   createRehearsalRunRequestSchema,
@@ -32,6 +32,9 @@ export const REHEARSAL_STT_ENQUEUE_JOB = "REHEARSAL_STT_ENQUEUE_JOB";
 @Injectable()
 export class RehearsalsService {
   private readonly config = loadOrbitConfig(process.env, { service: "api" });
+  private readonly rehearsalAudioUploadRequestSchema = createAssetUploadUrlRequestSchema({
+    maxRehearsalAudioUploadSizeBytes: this.config.REHEARSAL_AUDIO_MAX_BYTES
+  });
 
   constructor(
     @InjectRepository(RehearsalRunEntity)
@@ -84,7 +87,7 @@ export class RehearsalsService {
 
     const upload = await this.filesService.createUploadUrl(
       run.projectId,
-      assetUploadUrlRequestSchema.parse({
+      parseRequest(this.rehearsalAudioUploadRequestSchema, {
         ...request,
         purpose: "rehearsal-audio"
       })

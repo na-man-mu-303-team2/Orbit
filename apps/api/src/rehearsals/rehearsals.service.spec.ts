@@ -108,6 +108,10 @@ const reportJson = {
 
 describe("RehearsalsService", () => {
   beforeEach(() => {
+    delete process.env.REHEARSAL_AUDIO_MAX_BYTES;
+    delete process.env.WHISPERX_API_URL;
+    delete process.env.WHISPERX_API_KEY;
+    delete process.env.WHISPERX_MODEL;
     Object.assign(process.env, validEnv);
   });
 
@@ -156,6 +160,53 @@ describe("RehearsalsService", () => {
         originalName: "rehearsal.webm",
         mimeType: "audio/webm",
         size: 1024,
+        purpose: "rehearsal-audio"
+      })
+    );
+  });
+
+  it("uses REHEARSAL_AUDIO_MAX_BYTES when validating rehearsal uploads", async () => {
+    Object.assign(process.env, {
+      ...validEnv,
+      REHEARSAL_AUDIO_MAX_BYTES: "1024"
+    });
+    const service = createService();
+    const run = await createRun(service);
+
+    await expect(
+      service.createAudioUploadUrl(run.runId, {
+        originalName: "rehearsal.flac",
+        mimeType: "audio/flac",
+        size: 1025
+      })
+    ).rejects.toBeInstanceOf(BadRequestException);
+
+    expect(service.testFilesService.createUploadUrl).not.toHaveBeenCalled();
+  });
+
+  it("does not block WhisperX-sized uploads in the upload-url request schema", async () => {
+    Object.assign(process.env, {
+      ...validEnv,
+      REPORT_STT_PROVIDER: "whisperx",
+      WHISPERX_API_URL: "https://whisperx.example.test/transcribe",
+      WHISPERX_API_KEY: "whisperx-test-key",
+      REHEARSAL_AUDIO_MAX_BYTES: "209715200"
+    });
+    const service = createService();
+    const run = await createRun(service);
+
+    await service.createAudioUploadUrl(run.runId, {
+      originalName: "rehearsal.flac",
+      mimeType: "audio/flac",
+      size: 25_000_001
+    });
+
+    expect(service.testFilesService.createUploadUrl).toHaveBeenCalledWith(
+      "project-a",
+      expect.objectContaining({
+        originalName: "rehearsal.flac",
+        mimeType: "audio/flac",
+        size: 25_000_001,
         purpose: "rehearsal-audio"
       })
     );

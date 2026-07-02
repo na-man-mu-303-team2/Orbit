@@ -56,10 +56,52 @@ def test_live_and_report_stt_providers_are_separate_contracts() -> None:
 
     assert config.live_stt_provider == "sherpa"
     assert config.report_stt_provider == "openai"
+    assert config.rehearsal_audio_max_bytes == 25_000_000
     with pytest.raises(ConfigError, match="LIVE_STT_PROVIDER"):
         load_config({**VALID_ENV, "LIVE_STT_PROVIDER": "openai"})
     with pytest.raises(ConfigError, match="REPORT_STT_PROVIDER"):
         load_config({**VALID_ENV, "REPORT_STT_PROVIDER": "sherpa"})
+
+
+def test_whisperx_report_stt_requires_endpoint_and_key() -> None:
+    with pytest.raises(ConfigError, match="WHISPERX_API_URL.*WHISPERX_API_KEY"):
+        load_config({**VALID_ENV, "REPORT_STT_PROVIDER": "whisperx"})
+
+
+def test_whisperx_report_stt_config_loads_when_complete() -> None:
+    config = load_config(
+        {
+            **VALID_ENV,
+            "REPORT_STT_PROVIDER": "whisperx",
+            "WHISPERX_API_URL": "https://whisperx.example.test/transcribe",
+            "WHISPERX_API_KEY": "whisperx-test-key",
+            "WHISPERX_MODEL": "large-v3",
+            "REHEARSAL_AUDIO_MAX_BYTES": "1048576",
+        }
+    )
+
+    assert config.report_stt_provider == "whisperx"
+    assert config.whisperx_model == "large-v3"
+    assert config.rehearsal_audio_max_bytes == 1_048_576
+
+
+def test_openai_report_stt_rejects_large_audio_limit() -> None:
+    with pytest.raises(ConfigError, match="REHEARSAL_AUDIO_MAX_BYTES"):
+        load_config({**VALID_ENV, "REHEARSAL_AUDIO_MAX_BYTES": "25000001"})
+
+
+def test_whisperx_report_stt_allows_large_audio_limit() -> None:
+    config = load_config(
+        {
+            **VALID_ENV,
+            "REPORT_STT_PROVIDER": "whisperx",
+            "WHISPERX_API_URL": "https://whisperx.example.test/transcribe",
+            "WHISPERX_API_KEY": "whisperx-test-key",
+            "REHEARSAL_AUDIO_MAX_BYTES": "209715200",
+        }
+    )
+
+    assert config.rehearsal_audio_max_bytes == 209_715_200
 
 
 def test_missing_required_env_fails_with_readable_error() -> None:

@@ -1085,6 +1085,7 @@ def generate_deck(
         "projectId": raw_input.project_id,
         "title": outline.title,
         "version": 1,
+        "targetDurationMinutes": raw_input.target_duration_minutes,
         "metadata": {
             "language": "ko",
             "locale": "ko-KR",
