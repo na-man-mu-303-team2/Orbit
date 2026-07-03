@@ -94,6 +94,16 @@ def test_extracts_slots_and_replaces_content_slot_text(tmp_path: Path) -> None:
     assert b"Placeholder Title" not in slide_xml
 
 
+def test_generation_includes_imported_image_assets(tmp_path: Path) -> None:
+    pptx_path = sample_pptx(tmp_path)
+
+    result = generate_pptx_ooxml(pptx_path, "file_template", render=False)
+    image_asset = next(asset for asset in result.assets if asset.asset_id == "image_1")
+
+    assert image_asset.mime_type == "image/png"
+    assert base64.b64decode(image_asset.content_base64).startswith(b"\x89PNG")
+
+
 def test_inserts_media_slot_image_relationship(tmp_path: Path) -> None:
     pptx_path = sample_pptx(tmp_path)
     image = BytesIO()

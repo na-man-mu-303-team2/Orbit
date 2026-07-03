@@ -5,7 +5,9 @@ from xml.etree import ElementTree as ET
 
 from PIL import Image
 from pptx import Presentation
+from pptx.chart.data import ChartData
 from pptx.dml.color import RGBColor
+from pptx.enum.chart import XL_CHART_TYPE
 from pptx.enum.shapes import MSO_SHAPE
 from pptx.oxml import parse_xml
 from pptx.util import Inches, Pt
@@ -777,6 +779,50 @@ def test_ooxml_visual_tree_importer_preserves_text_box_geometry(
     assert text["props"]["verticalAlign"] == "middle"
     assert text["props"]["lineHeight"] == 1.3
     assert shape["rotation"] == 30
+
+
+def test_ooxml_visual_tree_importer_falls_back_graphic_frames(
+    tmp_path: Path,
+) -> None:
+    pptx_path = tmp_path / "graphic-frame.pptx"
+    presentation = Presentation()
+    presentation.slide_width = Inches(13.333333)
+    presentation.slide_height = Inches(7.5)
+    slide = presentation.slides.add_slide(presentation.slide_layouts[6])
+    slide.shapes.add_table(2, 2, Inches(1), Inches(1), Inches(3), Inches(1.2))
+    chart_data = ChartData()
+    chart_data.categories = ["A", "B"]
+    chart_data.add_series("Series 1", (1, 2))
+    slide.shapes.add_chart(
+        XL_CHART_TYPE.COLUMN_CLUSTERED,
+        Inches(5),
+        Inches(1),
+        Inches(3),
+        Inches(2),
+        chart_data,
+    )
+    presentation.save(pptx_path)
+
+    result = import_pptx_ooxml_visual_tree(pptx_path, "file_design")
+    elements = result.blueprint["slides"][0]["elements"]
+    fallback_images = [
+        element
+        for element in elements
+        if element["type"] == "image"
+        and str(element["props"]["src"]).startswith("asset:shape_render_")
+    ]
+
+    assert len(fallback_images) == 2
+    assert any(
+        "OOXML graphicFrame rendered as image fallback on slide 1: table"
+        in warning
+        for warning in result.warnings
+    )
+    assert any(
+        "OOXML graphicFrame rendered as image fallback on slide 1: chart"
+        in warning
+        for warning in result.warnings
+    )
 
 
 def test_ooxml_visual_tree_importer_is_default(

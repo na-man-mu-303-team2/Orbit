@@ -160,6 +160,7 @@ def generate_pptx_ooxml(
     assets = [
         package_asset("current_package", package_bytes, f"{safe_file_stem(path)}.pptx")
     ]
+    assets.extend(imported.assets)
     if render:
         slide_render_assets = render_pptx_to_png_assets(package_bytes, canvas)
         assets.extend(slide_render_assets)

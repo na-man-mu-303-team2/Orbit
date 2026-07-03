@@ -368,6 +368,24 @@ def append_visual_tree(
                 locked=locked,
             )
             continue
+        if tag == "graphicFrame":
+            if locked and placeholder_key(child) is not None:
+                continue
+            append_graphic_frame(
+                part_path=part_path,
+                frame_element=child,
+                slide_index=slide_index,
+                source_name=source_name,
+                child_index=child_index,
+                scale=scale,
+                transform=transform,
+                state=state,
+                elements=elements,
+                slot_sources=slot_sources,
+                placeholder_frames=placeholder_frames,
+                locked=locked,
+            )
+            continue
         if tag not in {"sp", "pic", "cxnSp"}:
             if tag not in {"nvGrpSpPr", "grpSpPr"}:
                 state.warnings.append(
@@ -395,6 +413,51 @@ def append_visual_tree(
             placeholder_frames=placeholder_frames,
             locked=locked,
         )
+
+
+def append_graphic_frame(
+    *,
+    part_path: str,
+    frame_element: ET.Element[Any],
+    slide_index: int,
+    source_name: str,
+    child_index: int,
+    scale: OoxmlScale,
+    transform: OoxmlTransform,
+    state: OoxmlImportState,
+    elements: list[dict[str, Any]],
+    slot_sources: dict[str, dict[str, Any]],
+    placeholder_frames: dict[tuple[str, str], dict[str, int]],
+    locked: bool,
+) -> None:
+    shape_id = shape_identifier(frame_element, child_index)
+    frame = shape_frame(frame_element, scale, transform, placeholder_frames)
+    if frame is None:
+        state.warnings.append(
+            f"OOXML graphicFrame has no resolved transform on slide {slide_index}: {shape_id}"
+        )
+        return
+
+    frame_kind = graphic_frame_kind(frame_element)
+    reason = f"unsupported {frame_kind} graphicFrame"
+    source = shape_source(frame_element, part_path, shape_id, source_name, locked)
+    source["type"] = "table" if frame_kind == "table" else "unknown"
+    source["fallbackReason"] = reason
+    fallback_element = shape_fallback_image_element(
+        shape=frame_element,
+        slide_index=slide_index,
+        source_name=source_name,
+        shape_id=shape_id,
+        frame=frame,
+        z_index=state.next_z(),
+        locked=locked,
+        reason=reason,
+    )
+    elements.append(fallback_element)
+    slot_sources[str(fallback_element["elementId"])] = source
+    state.warnings.append(
+        f"OOXML graphicFrame rendered as image fallback on slide {slide_index}: {frame_kind}"
+    )
 
 
 def append_group_shape(
@@ -1538,6 +1601,14 @@ def shape_identifier(shape: ET.Element[Any], fallback_index: int) -> str:
 def shape_name(shape: ET.Element[Any]) -> str:
     c_nv_pr = first_local_descendant(shape, "cNvPr")
     return str(c_nv_pr.get("descr") or c_nv_pr.get("name") or "") if c_nv_pr is not None else ""
+
+
+def graphic_frame_kind(frame_element: ET.Element[Any]) -> str:
+    if first_local_descendant(frame_element, "tbl") is not None:
+        return "table"
+    if first_local_descendant(frame_element, "chart") is not None:
+        return "chart"
+    return "graphic"
 
 
 def element_id(

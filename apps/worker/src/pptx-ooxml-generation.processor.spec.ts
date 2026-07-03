@@ -258,6 +258,81 @@ describe("processPptxOoxmlGenerationJob", () => {
     );
   });
 
+  it("keeps resolved object fallback images as editable image elements", async () => {
+    const insertedDecks: unknown[] = [];
+    const query = vi.fn(async (sql: string, params: unknown[]) => {
+      if (sql.includes("UPDATE jobs")) {
+        return [
+          jobRow(
+            params[1] as "running" | "succeeded" | "failed",
+            params[2] as number,
+            params[4] as Record<string, unknown> | null,
+            params[5] as { code: string; message: string } | null
+          )
+        ];
+      }
+      if (sql.includes("FROM project_assets")) {
+        return [
+          {
+            file_id: "file_template",
+            project_id: "project-a",
+            storage_key: "projects/project-a/assets/file_template-template.pptx",
+            mime_type: pptxMimeType,
+            original_name: "template.pptx",
+            size: 12,
+            purpose: "pptx-import",
+            status: "uploaded"
+          }
+        ];
+      }
+      if (sql.includes("INSERT INTO decks")) {
+        insertedDecks.push(params[2]);
+      }
+      return [];
+    });
+    const fetchMock = vi.fn(async (input: string | URL) => {
+      const url = String(input);
+      if (url === "http://storage.local/template.pptx") {
+        return new Response("pptx-bytes");
+      }
+      if (url.endsWith("/ai/pptx-ooxml-generation")) {
+        return new Response(JSON.stringify(workerResponseWithResolvedFallback()));
+      }
+
+      return new Response("unexpected", { status: 500 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const job = await processPptxOoxmlGenerationJob(
+      { query } as unknown as DataSource,
+      storage,
+      "http://localhost:8000",
+      payload
+    );
+
+    const deck = insertedDecks[0] as {
+      slides: Array<{
+        elements: Array<{ elementId: string; props?: { src?: string } }>;
+        style: { backgroundImage?: { src?: string } };
+      }>;
+    };
+    expect(job.status, JSON.stringify(job.error)).toBe("succeeded");
+    expect(deck.slides[0].style.backgroundImage).toBeUndefined();
+    expect(deck.slides[0].elements).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          elementId: "el_ooxml_1_slide_99_fallback_image",
+          type: "image",
+          props: expect.objectContaining({
+            src: expect.stringMatching(
+              /\/api\/v1\/projects\/project-a\/assets\/file_.*\/content/
+            )
+          })
+        })
+      ])
+    );
+  });
+
   it("fails when the source asset is not a PPTX import upload", async () => {
     const query = vi.fn(async (sql: string, params: unknown[]) => {
       if (sql.includes("UPDATE jobs")) {
@@ -507,6 +582,17 @@ function workerResponseWithUnresolvedFallback() {
     }
   ];
   response.assets = response.assets.filter((asset) => asset.assetId !== "image_1");
+  return response;
+}
+
+function workerResponseWithResolvedFallback() {
+  const response = workerResponseWithUnresolvedFallback();
+  response.assets.push({
+    assetId: "shape_render_1_slide_99",
+    fileName: "shape-render.png",
+    mimeType: "image/png",
+    contentBase64: Buffer.from("shape").toString("base64")
+  });
   return response;
 }
 
