@@ -6,6 +6,7 @@ import type {
   BrowserSpeechRecognitionAvailabilityOptions,
   BrowserSpeechRecognitionGlobal
 } from "./browserSpeechRecognition";
+import type { LiveSttResult } from "./liveSttPort";
 import { WebSpeechLiveSttPort } from "./webSpeechLiveSttPort";
 
 runLiveSttPortContractTests("WebSpeech", () => {
@@ -75,7 +76,7 @@ describe("WebSpeechLiveSttPort", () => {
     expect(recognition.continuous).toBe(true);
     expect(recognition.interimResults).toBe(true);
     expect(recognition.lang).toBe("ko-KR");
-    expect(recognition.maxAlternatives).toBe(1);
+    expect(recognition.maxAlternatives).toBe(3);
     expect(recognition.processLocally).toBe(true);
     expect(recognition.startCount).toBe(1);
     expect(recognition.startCalls).toEqual([undefined]);
@@ -102,6 +103,52 @@ describe("WebSpeechLiveSttPort", () => {
     });
 
     expect(recognition.startCalls).toEqual([audioTrack]);
+  });
+
+  it("final result에는 alternatives를 방출하고 interim result에는 생략한다", async () => {
+    const recognition = new FakeSpeechRecognition();
+    const port = new WebSpeechLiveSttPort({
+      createRecognition: () => recognition,
+      recognitionConstructor: FakeSpeechRecognition,
+      now: () => 1000
+    });
+    const results: LiveSttResult[] = [];
+    port.onResult((result) => results.push(result));
+
+    await port.start({ language: "ko", audioSource: fakeMediaStream() });
+    recognition.emitResult({
+      text: "중간",
+      isFinal: false,
+      alternatives: [
+        { text: "중간", confidence: 0.4 },
+        { text: "중안", confidence: 0.2 }
+      ]
+    });
+    recognition.emitResult({
+      text: "결재 승인",
+      isFinal: true,
+      alternatives: [
+        { text: "결재 승인", confidence: 0.8 },
+        { text: "결제 승인", confidence: 0.6 }
+      ]
+    });
+
+    expect(results[0]).toEqual({
+      text: "중간",
+      isFinal: false,
+      timestampMs: [0, 0],
+      confidence: 0.4
+    });
+    expect(results[1]).toEqual({
+      text: "결재 승인",
+      isFinal: true,
+      timestampMs: [0, 0],
+      confidence: 0.8,
+      alternatives: [
+        { text: "결재 승인", confidence: 0.8 },
+        { text: "결제 승인", confidence: 0.6 }
+      ]
+    });
   });
 
   it("start와 updateBiasPhrases에서 Web Speech phrases를 적용한다", async () => {
@@ -267,18 +314,31 @@ class FakeSpeechRecognition {
     this.abortCount += 1;
   }
 
-  emitResult(result: { text: string; isFinal?: boolean; confidence?: number }) {
+  emitResult(result: {
+    text: string;
+    isFinal?: boolean;
+    confidence?: number;
+    alternatives?: Array<{ text: string; confidence?: number }>;
+  }) {
+    const alternatives = result.alternatives ?? [
+      { text: result.text, confidence: result.confidence }
+    ];
     this.onresult?.({
       resultIndex: 0,
       results: {
         length: 1,
         0: {
           isFinal: result.isFinal ?? false,
-          length: 1,
-          0: {
-            transcript: result.text,
-            confidence: result.confidence
-          }
+          length: alternatives.length,
+          ...Object.fromEntries(
+            alternatives.map((alternative, index) => [
+              index,
+              {
+                transcript: alternative.text,
+                confidence: alternative.confidence
+              }
+            ])
+          )
         }
       }
     });

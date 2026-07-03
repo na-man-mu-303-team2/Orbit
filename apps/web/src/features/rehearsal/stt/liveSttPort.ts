@@ -37,11 +37,17 @@ export type LiveSttSessionConfig = {
   biasPhrases?: readonly LiveSttBiasPhrase[];
 };
 
+export type LiveSttAlternative = {
+  text: string;
+  confidence?: number;
+};
+
 export type LiveSttResult = {
   text: string;
   isFinal: boolean;
   timestampMs: [number, number];
   confidence?: number;
+  alternatives?: LiveSttAlternative[];
 };
 
 export type LiveSttErrorCode =

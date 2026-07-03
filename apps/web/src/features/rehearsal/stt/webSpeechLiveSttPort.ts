@@ -5,11 +5,13 @@ import {
   type BrowserSpeechRecognitionConstructor,
   type BrowserSpeechRecognitionErrorEvent,
   type BrowserSpeechRecognitionEvent,
+  type BrowserSpeechRecognitionResult,
   type BrowserSpeechRecognitionGlobal
 } from "./browserSpeechRecognition";
 import {
   LiveSttError,
   normalizeLiveSttBiasPhrases,
+  type LiveSttAlternative,
   type LiveSttBiasPhrase,
   type LiveSttCapabilities,
   type LiveSttPort,
@@ -30,6 +32,7 @@ export type BrowserSpeechRecognitionFactory = () => BrowserSpeechRecognition;
 
 export const WEB_SPEECH_LANGUAGE = "ko-KR";
 export const WEB_SPEECH_QUALITY = "command";
+export const WEB_SPEECH_MAX_ALTERNATIVES = 3;
 export const WEB_SPEECH_LANGUAGE_PACK_OPTIONS = {
   langs: [WEB_SPEECH_LANGUAGE],
   processLocally: true,
@@ -121,7 +124,7 @@ export class WebSpeechLiveSttPort implements LiveSttPort {
     recognition.continuous = true;
     recognition.interimResults = true;
     recognition.lang = lang;
-    recognition.maxAlternatives = 1;
+    recognition.maxAlternatives = WEB_SPEECH_MAX_ALTERNATIVES;
     recognition.onresult = (event) => this.handleResult(event);
     recognition.onerror = (event) => this.handleError(event);
     recognition.onend = () => {
@@ -212,13 +215,15 @@ export class WebSpeechLiveSttPort implements LiveSttPort {
         continue;
       }
 
+      const alternatives = result.isFinal ? collectFinalAlternatives(result) : [];
       this.emitResult({
         text,
         isFinal: result.isFinal,
         timestampMs: [elapsedMs, elapsedMs],
         ...(typeof alternative.confidence === "number"
           ? { confidence: alternative.confidence }
-          : {})
+          : {}),
+        ...(alternatives.length > 1 ? { alternatives } : {})
       });
     }
   }
@@ -296,6 +301,28 @@ function getDefaultBrowserSpeechRecognitionConstructor() {
   }
 
   return getBrowserSpeechRecognitionConstructor();
+}
+
+function collectFinalAlternatives(
+  result: BrowserSpeechRecognitionResult
+): LiveSttAlternative[] {
+  const alternatives: LiveSttAlternative[] = [];
+  for (let index = 0; index < result.length; index += 1) {
+    const alternative = result[index];
+    const text = alternative?.transcript.trim();
+    if (!alternative || !text) {
+      continue;
+    }
+
+    alternatives.push({
+      text,
+      ...(typeof alternative.confidence === "number"
+        ? { confidence: alternative.confidence }
+        : {})
+    });
+  }
+
+  return alternatives;
 }
 
 function getDefaultBrowserSpeechRecognitionGlobal(): BrowserSpeechRecognitionGlobal {
