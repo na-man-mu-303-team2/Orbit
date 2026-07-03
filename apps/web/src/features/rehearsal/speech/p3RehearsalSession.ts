@@ -1,6 +1,10 @@
 import type { RehearsalRunMeta } from "@orbit/shared";
 
-import type { LiveSttPort, LiveSttResult } from "../stt/liveSttPort";
+import type {
+  LiveSttBiasPhrase,
+  LiveSttPort,
+  LiveSttResult
+} from "../stt/liveSttPort";
 import { createDefaultPhraseExtractor } from "./phraseExtractor";
 import { buildSpeechTrackingBiasPhrases } from "./speechBiasPhrases";
 import {
@@ -253,7 +257,7 @@ export function createP3RehearsalSession(
 export function buildBiasPhrasesForSlide(
   slide: P3RehearsalSessionSlide,
   config: SpeechTrackingConfigOverride = {}
-) {
+): LiveSttBiasPhrase[] {
   const extractor = createDefaultPhraseExtractor({
     ...config,
     controlPhrases: slide.controlPhrases,
@@ -279,7 +283,15 @@ export function buildBiasPhrasesForSlide(
     keywords: slide.keywords,
     representativePhrases,
     legacyPhrases: slide.legacyPhrases
-  }).map((term) => term.text);
+  }).map((term) => ({
+    text: term.text,
+    weight: term.weight,
+    source: term.source,
+    ...(term.keywordId === undefined ? {} : { keywordId: term.keywordId }),
+    ...(term.canonicalText === undefined
+      ? {}
+      : { canonicalText: term.canonicalText })
+  }));
 }
 
 function applyEventsToLog(

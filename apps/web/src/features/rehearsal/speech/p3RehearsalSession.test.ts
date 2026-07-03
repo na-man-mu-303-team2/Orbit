@@ -54,7 +54,20 @@ describe("p3RehearsalSession", () => {
     expect(port.start).toHaveBeenCalledWith({
       language: "ko",
       audioSource: {},
-      biasPhrases: expect.arrayContaining(["다음 슬라이드", "생성형 AI"])
+      biasPhrases: expect.arrayContaining([
+        expect.objectContaining({
+          text: "다음 슬라이드",
+          weight: 1,
+          source: "control-phrase"
+        }),
+        expect.objectContaining({
+          text: "생성형 AI",
+          weight: 0.94,
+          source: "keyword",
+          keywordId: "kw_ai",
+          canonicalText: "생성형 AI"
+        })
+      ])
     });
     expect(session.getState()).toMatchObject({
       status: "running",

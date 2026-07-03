@@ -19,7 +19,22 @@ runLiveSttPortContractTests("Sherpa", () => {
     audioSource: fakeMediaStream(),
     emitResult: (result) => adapter.emitTranscript(result),
     emitError: (error) => adapter.emitError(error),
-    readBiasPhrases: () => adapter.latestBiasPhrases()
+    readBiasPhrases: () => adapter.latestBiasPhrases(),
+    expectedBiasPhrasesAfterUpdate: [
+      {
+        text: "두 번째",
+        weight: 0.8,
+        source: "synonym",
+        keywordId: "kw_second",
+        canonicalText: "둘째"
+      },
+      {
+        text: "세 번째",
+        weight: 1,
+        source: "control-phrase",
+        canonicalText: "세 번째"
+      }
+    ]
   };
 });
 
@@ -128,7 +143,17 @@ class FakeLegacyAdapter implements LiveSttAdapter {
 
   latestBiasPhrases() {
     const latest = this.biasContexts[this.biasContexts.length - 1];
-    return latest?.terms.map((term) => term.text) ?? [];
+    return (
+      latest?.terms.map((term) => ({
+        text: term.text,
+        weight: term.weight,
+        source: term.source,
+        ...(term.keywordId === undefined ? {} : { keywordId: term.keywordId }),
+        ...(term.canonicalText === undefined
+          ? {}
+          : { canonicalText: term.canonicalText })
+      })) ?? []
+    );
   }
 }
 

@@ -92,12 +92,34 @@ describe("P3 speech fixture harness", () => {
       biasPhraseBudget: 9
     });
 
-    expect(phrases).toContain("다음 슬라이드");
-    expect(phrases).toContain("이전 슬라이드");
-    expect(phrases).toContain("검토 로그");
-    expect(phrases).toContain("생성형 AI");
-    expect(phrases).not.toContain("레거시 제목");
-    expect(phrases).not.toContain("감사합니다");
+    expect(phrases).toContainEqual(
+      expect.objectContaining({
+        text: "다음 슬라이드",
+        weight: 1,
+        source: "control-phrase"
+      })
+    );
+    expect(phrases).toContainEqual(
+      expect.objectContaining({
+        text: "이전 슬라이드",
+        source: "control-phrase"
+      })
+    );
+    expect(phrases).toContainEqual(
+      expect.objectContaining({
+        text: "검토 로그",
+        source: "cue-trigger"
+      })
+    );
+    expect(phrases).toContainEqual(
+      expect.objectContaining({
+        text: "생성형 AI",
+        weight: 0.94,
+        source: "keyword"
+      })
+    );
+    expect(phrases.map((phrase) => phrase.text)).not.toContain("레거시 제목");
+    expect(phrases.map((phrase) => phrase.text)).not.toContain("감사합니다");
   });
 
   it("renders the default panel without fixture transcript text and hides advice in live mode", () => {

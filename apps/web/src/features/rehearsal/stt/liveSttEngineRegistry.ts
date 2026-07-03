@@ -1,9 +1,10 @@
 import { type LiveSttEngineId, type LiveSttPort } from "./liveSttPort";
 import { MoonshineLiveSttPort } from "./moonshineLiveSttPort";
+import { RerankingLiveSttPort } from "./rerankingLiveSttPort";
 import { createSherpaLiveSttPort } from "./sherpaLiveSttPort";
 import { WebSpeechLiveSttPort } from "./webSpeechLiveSttPort";
 
-export const defaultLiveSttEngineId: LiveSttEngineId = "sherpa";
+export const defaultLiveSttEngineId: LiveSttEngineId = "web-speech";
 
 export function createLiveSttPort(
   engineId: LiveSttEngineId = defaultLiveSttEngineId
@@ -12,7 +13,9 @@ export function createLiveSttPort(
     case "sherpa":
       return createSherpaLiveSttPort();
     case "web-speech":
-      return new WebSpeechLiveSttPort({ consentGranted: false });
+      return new RerankingLiveSttPort(
+        new WebSpeechLiveSttPort({ processLocally: true })
+      );
     case "moonshine":
       return new MoonshineLiveSttPort();
   }

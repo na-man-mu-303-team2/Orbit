@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   LiveSttError,
+  type LiveSttBiasPhrase,
   type LiveSttPort,
   type LiveSttResult
 } from "./liveSttPort";
@@ -10,8 +11,8 @@ type ContractHarness = {
   audioSource: MediaStream;
   emitResult: (result: { text: string; isFinal?: boolean; confidence?: number }) => void;
   emitError: (error: LiveSttError) => void;
-  readBiasPhrases: () => string[];
-  expectedBiasPhrasesAfterUpdate?: string[];
+  readBiasPhrases: () => LiveSttBiasPhrase[];
+  expectedBiasPhrasesAfterUpdate?: LiveSttBiasPhrase[];
 };
 
 export function runLiveSttPortContractTests(
@@ -27,7 +28,7 @@ export function runLiveSttPortContractTests(
       await harness.port.start({
         language: "ko",
         audioSource: harness.audioSource,
-        biasPhrases: ["오르빗"]
+        biasPhrases: [{ text: "오르빗", weight: 1, source: "keyword" }]
       });
       harness.emitResult({ text: "오르빗 리허설", isFinal: false, confidence: 0.8 });
       harness.emitResult({ text: "오르빗 리허설 완료", isFinal: true, confidence: 0.9 });
@@ -54,12 +55,37 @@ export function runLiveSttPortContractTests(
       await harness.port.start({
         language: "ko",
         audioSource: harness.audioSource,
-        biasPhrases: ["첫 번째"]
+        biasPhrases: [{ text: "첫 번째", weight: 1, source: "keyword" }]
       });
-      harness.port.updateBiasPhrases(["두 번째", "두 번째", "  세 번째  "]);
+      harness.port.updateBiasPhrases([
+        {
+          text: "두 번째",
+          weight: 0.4,
+          source: "keyword",
+          keywordId: "kw_second",
+          canonicalText: "두 번째"
+        },
+        {
+          text: "두 번째",
+          weight: 0.8,
+          source: "synonym",
+          keywordId: "kw_second",
+          canonicalText: "둘째"
+        },
+        { text: "  세 번째  ", weight: 1 }
+      ]);
 
       expect(harness.readBiasPhrases()).toEqual(
-        harness.expectedBiasPhrasesAfterUpdate ?? ["두 번째", "세 번째"]
+        harness.expectedBiasPhrasesAfterUpdate ?? [
+          {
+            text: "두 번째",
+            weight: 0.8,
+            source: "synonym",
+            keywordId: "kw_second",
+            canonicalText: "둘째"
+          },
+          { text: "세 번째", weight: 1 }
+        ]
       );
     });
 

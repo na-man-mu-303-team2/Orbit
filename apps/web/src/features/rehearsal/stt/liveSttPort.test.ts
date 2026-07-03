@@ -45,8 +45,55 @@ describe("liveSttPort", () => {
 
   it("bias phrase를 trim, 공백 정규화, 중복 제거한다", () => {
     expect(
-      normalizeLiveSttBiasPhrases(["  오르빗  ", "오르빗", "Live   STT", ""])
-    ).toEqual(["오르빗", "Live STT"]);
+      normalizeLiveSttBiasPhrases([
+        { text: "  오르빗  ", weight: 1 },
+        { text: "오르빗", weight: 1 },
+        { text: "Live   STT", weight: 1 },
+        { text: "", weight: 1 }
+      ])
+    ).toEqual([
+      { text: "오르빗", weight: 1 },
+      { text: "Live STT", weight: 1 }
+    ]);
+  });
+
+  it("weighted bias phrase metadata를 보존하고 높은 weight 중복을 유지한다", () => {
+    expect(
+      normalizeLiveSttBiasPhrases([
+        {
+          text: "  결재  ",
+          weight: 0.4,
+          source: "keyword",
+          keywordId: "kw_old",
+          canonicalText: "결재"
+        },
+        {
+          text: "결재",
+          weight: 1.4,
+          source: "synonym",
+          keywordId: "kw_new",
+          canonicalText: "결제"
+        },
+        {
+          text: "Live   STT",
+          weight: -0.2,
+          source: "legacy"
+        }
+      ])
+    ).toEqual([
+      {
+        text: "결재",
+        weight: 1,
+        source: "synonym",
+        keywordId: "kw_new",
+        canonicalText: "결제"
+      },
+      {
+        text: "Live STT",
+        weight: 0,
+        source: "legacy"
+      }
+    ]);
   });
 
   it("typed error 이름을 고정한다", () => {

@@ -24,25 +24,67 @@ export type BrowserSpeechRecognitionErrorEvent = {
   message?: string;
 };
 
+export type BrowserSpeechRecognitionPhrase = {
+  phrase: string;
+  boost: number;
+};
+
+export type BrowserSpeechRecognitionPhraseConstructor = new (
+  phrase: string,
+  boost: number
+) => BrowserSpeechRecognitionPhrase;
+
 export type BrowserSpeechRecognition = {
   continuous: boolean;
   interimResults: boolean;
   lang: string;
   maxAlternatives: number;
+  processLocally?: boolean;
+  phrases?: BrowserSpeechRecognitionPhrase[];
   onresult: ((event: BrowserSpeechRecognitionEvent) => void) | null;
   onerror: ((event: BrowserSpeechRecognitionErrorEvent) => void) | null;
   onend: (() => void) | null;
-  start: () => void;
+  start: (audioTrack?: MediaStreamTrack) => void;
   stop: () => void;
   abort: () => void;
 };
 
-export type BrowserSpeechRecognitionConstructor = new () => BrowserSpeechRecognition;
+export type BrowserSpeechRecognitionAvailability =
+  | "available"
+  | "downloadable"
+  | "downloading"
+  | "unavailable";
+
+export type BrowserSpeechRecognitionQuality =
+  | "command"
+  | "dictation"
+  | "conversation";
+
+export type BrowserSpeechRecognitionAvailabilityOptions = {
+  langs: string[];
+  processLocally?: boolean;
+  quality?: BrowserSpeechRecognitionQuality;
+};
+
+export type BrowserSpeechRecognitionConstructor = {
+  new (): BrowserSpeechRecognition;
+  available?: (
+    options: BrowserSpeechRecognitionAvailabilityOptions
+  ) => Promise<BrowserSpeechRecognitionAvailability>;
+  install?: (
+    options: BrowserSpeechRecognitionAvailabilityOptions
+  ) => Promise<boolean>;
+};
+
+export type BrowserSpeechRecognitionGlobal = {
+  SpeechRecognitionPhrase?: BrowserSpeechRecognitionPhraseConstructor;
+};
 
 declare global {
   interface Window {
     SpeechRecognition?: BrowserSpeechRecognitionConstructor;
     webkitSpeechRecognition?: BrowserSpeechRecognitionConstructor;
+    SpeechRecognitionPhrase?: BrowserSpeechRecognitionPhraseConstructor;
   }
 }
 

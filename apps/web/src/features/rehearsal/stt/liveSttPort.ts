@@ -9,10 +9,37 @@ export type LiveSttCapabilities = {
   languages: string[];
 };
 
+export type LiveSttBiasPhraseSource =
+  | "control-phrase"
+  | "final-trigger"
+  | "cue-trigger"
+  | "keyword"
+  | "synonym"
+  | "abbreviation"
+  | "representative-phrase"
+  | "legacy"
+  | "title"
+  | "slide-text"
+  | "speaker-notes"
+  | "nearby-slide-text";
+
+export type LiveSttBiasPhrase = {
+  text: string;
+  weight: number;
+  source?: LiveSttBiasPhraseSource;
+  keywordId?: string;
+  canonicalText?: string;
+};
+
 export type LiveSttSessionConfig = {
   language: "ko";
   audioSource: MediaStream;
-  biasPhrases?: string[];
+  biasPhrases?: readonly LiveSttBiasPhrase[];
+};
+
+export type LiveSttAlternative = {
+  text: string;
+  confidence?: number;
 };
 
 export type LiveSttResult = {
@@ -20,6 +47,7 @@ export type LiveSttResult = {
   isFinal: boolean;
   timestampMs: [number, number];
   confidence?: number;
+  alternatives?: LiveSttAlternative[];
 };
 
 export type LiveSttErrorCode =
@@ -46,7 +74,7 @@ export type LiveSttPort = {
   readonly capabilities: LiveSttCapabilities;
   start: (config: LiveSttSessionConfig) => Promise<void>;
   stop: () => Promise<void>;
-  updateBiasPhrases: (phrases: string[]) => void | Promise<void>;
+  updateBiasPhrases: (phrases: readonly LiveSttBiasPhrase[]) => void | Promise<void>;
   onResult: (cb: (result: LiveSttResult) => void) => LiveSttUnsubscribe;
   onError: (cb: (error: LiveSttError) => void) => LiveSttUnsubscribe;
   dispose: () => void | Promise<void>;
@@ -67,19 +95,61 @@ export function mapPartialTranscriptToLiveSttResult(
   };
 }
 
-export function normalizeLiveSttBiasPhrases(phrases: readonly string[] = []) {
-  const normalized: string[] = [];
-  const seen = new Set<string>();
+export function normalizeLiveSttBiasPhrases(
+  phrases: readonly LiveSttBiasPhrase[] = []
+): LiveSttBiasPhrase[] {
+  const normalized: LiveSttBiasPhrase[] = [];
+  const indexesByText = new Map<string, number>();
 
   for (const phrase of phrases) {
-    const text = phrase.trim().replace(/\s+/g, " ");
-    if (!text || seen.has(text)) {
+    const next = normalizeLiveSttBiasPhrase(phrase);
+    if (!next) {
       continue;
     }
 
-    seen.add(text);
-    normalized.push(text);
+    const index = indexesByText.get(next.text);
+    if (index === undefined) {
+      indexesByText.set(next.text, normalized.length);
+      normalized.push(next);
+      continue;
+    }
+
+    const existing = normalized[index];
+    if (existing && existing.weight < next.weight) {
+      normalized[index] = next;
+    }
   }
 
   return normalized;
+}
+
+function normalizeLiveSttBiasPhrase(
+  phrase: LiveSttBiasPhrase
+): LiveSttBiasPhrase | null {
+  const text = normalizeLiveSttBiasPhraseText(phrase.text);
+  if (!text) {
+    return null;
+  }
+
+  const weight = Number.isFinite(phrase.weight)
+    ? clamp(phrase.weight, 0, 1)
+    : 0;
+
+  return {
+    text,
+    weight,
+    ...(phrase.source === undefined ? {} : { source: phrase.source }),
+    ...(phrase.keywordId === undefined ? {} : { keywordId: phrase.keywordId }),
+    ...(phrase.canonicalText === undefined
+      ? {}
+      : { canonicalText: phrase.canonicalText })
+  };
+}
+
+function normalizeLiveSttBiasPhraseText(value: string) {
+  return value.trim().replace(/\s+/g, " ");
+}
+
+function clamp(value: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, value));
 }

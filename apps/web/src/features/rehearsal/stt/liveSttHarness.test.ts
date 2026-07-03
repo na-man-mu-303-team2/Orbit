@@ -61,7 +61,10 @@ describe("liveSttHarness", () => {
 
     expect(metrics.phraseRecall).toBe(1);
     expect(metrics.keywordHitRate).toBe(1);
-    expect(port.startedConfig?.biasPhrases).toEqual(["발표 화면", "오르빗"]);
+    expect(port.startedConfig?.biasPhrases).toEqual([
+      { text: "발표 화면", weight: 1, source: "legacy" },
+      { text: "오르빗", weight: 1, source: "keyword" }
+    ]);
     expect(port.disposed).toBe(true);
   });
 });

@@ -11,6 +11,7 @@ import {
   LiveSttError,
   mapPartialTranscriptToLiveSttResult,
   normalizeLiveSttBiasPhrases,
+  type LiveSttBiasPhrase,
   type LiveSttCapabilities,
   type LiveSttErrorCode,
   type LiveSttPort,
@@ -90,7 +91,7 @@ export class SherpaLiveSttPort implements LiveSttPort {
     this.adapter.stop();
   }
 
-  updateBiasPhrases(phrases: string[]) {
+  updateBiasPhrases(phrases: readonly LiveSttBiasPhrase[]) {
     this.adapter.updateBiasContext?.(toSherpaBiasContext(phrases));
   }
 
@@ -132,12 +133,15 @@ export function createSherpaLiveSttPort() {
   return new SherpaLiveSttPort();
 }
 
-function toSherpaBiasContext(phrases: readonly string[] = []): LiveSttBiasContext | null {
-  const terms = normalizeLiveSttBiasPhrases(phrases).map((text) => ({
-    text,
-    source: "control-phrase" as const,
-    weight: 1,
-    canonicalText: text
+function toSherpaBiasContext(
+  phrases: readonly LiveSttBiasPhrase[] = []
+): LiveSttBiasContext | null {
+  const terms = normalizeLiveSttBiasPhrases(phrases).map((phrase) => ({
+    text: phrase.text,
+    source: toSherpaBiasSource(phrase.source),
+    weight: phrase.weight,
+    ...(phrase.keywordId === undefined ? {} : { keywordId: phrase.keywordId }),
+    canonicalText: phrase.canonicalText ?? phrase.text
   }));
 
   if (terms.length === 0) {
@@ -148,6 +152,28 @@ function toSherpaBiasContext(phrases: readonly string[] = []): LiveSttBiasContex
     slideId: "live-stt-port",
     terms
   };
+}
+
+function toSherpaBiasSource(
+  source: ReturnType<typeof normalizeLiveSttBiasPhrases>[number]["source"]
+): LiveSttBiasContext["terms"][number]["source"] {
+  switch (source) {
+    case "keyword":
+    case "synonym":
+    case "abbreviation":
+    case "title":
+    case "slide-text":
+    case "speaker-notes":
+    case "nearby-slide-text":
+    case "control-phrase":
+      return source;
+    case "final-trigger":
+    case "cue-trigger":
+    case "representative-phrase":
+    case "legacy":
+    case undefined:
+      return "control-phrase";
+  }
 }
 
 function mapAdapterError(error: unknown) {

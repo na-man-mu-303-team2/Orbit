@@ -29,7 +29,6 @@ import {
   getRehearsalMicrophoneAudioConstraints,
   shouldCompleteLiveSlideAdvance,
   normalizeRecordingMimeType,
-  normalizeLiveTranscriptText,
   rehearsalMicrophoneAudioConstraints,
   rehearsalRawMicrophoneAudioConstraints,
   renderLiveTranscriptBuffer,
@@ -42,6 +41,7 @@ import {
   shouldShowLiveSttDebugPcmDownload,
   shouldAutoAdvanceLiveSlide
 } from "./RehearsalWorkspace";
+import { normalizeLiveTranscriptText } from "./stt/liveTranscriptText";
 import {
   confirmRehearsalCommandCandidate,
   createRehearsalCommandConfirmationState,
@@ -219,6 +219,23 @@ describe("RehearsalWorkspace", () => {
       "pendingP3SlideIndexRef.current ?? currentSlideIndexRef.current"
     );
     expect(startP3TrackingBody).toContain("session.enterSlide(latestSlideIndex)");
+  });
+
+  it("passes live STT bias phrases on slide changes regardless of bias mode", () => {
+    const source = fs.readFileSync(
+      rehearsalWorkspaceSourcePath,
+      "utf8"
+    );
+    const effectStart = source.indexOf("resetLiveTranscriptForSlide(currentSlide)");
+    const effectEnd = source.indexOf("const p3Session = p3SessionRef.current", effectStart);
+    const slideChangeEffectBody = source.slice(effectStart, effectEnd);
+    const compactEffectBody = slideChangeEffectBody.replace(/\s+/g, "");
+
+    expect(compactEffectBody).toContain(
+      "updateBiasPhrases(getBiasPhrasesFromContext(nextBiasContext))"
+    );
+    expect(slideChangeEffectBody).not.toContain("shouldUseLiveSttHotwordBias");
+    expect(source).not.toContain("function shouldUseLiveSttHotwordBias");
   });
 
   it("syncs current P3 advice state into the session log", () => {

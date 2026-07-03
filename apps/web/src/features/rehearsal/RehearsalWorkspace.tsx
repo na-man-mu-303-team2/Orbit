@@ -70,11 +70,13 @@ import {
 } from "./rehearsalCommands";
 import {
   LiveSttError,
+  type LiveSttBiasPhrase,
   type LiveSttEngineId,
   type LiveSttPort,
   type LiveSttResult
 } from "./stt/liveSttPort";
 import { createLiveSttPort } from "./stt/liveSttEngineRegistry";
+import { normalizeLiveTranscriptText } from "./stt/liveTranscriptText";
 import { SherpaLiveSttPort } from "./stt/sherpaLiveSttPort";
 import { DisplayControls } from "./presenter/DisplayControls";
 import { SingleScreenPresenter } from "./presenter/SingleScreenPresenter";
@@ -573,10 +575,6 @@ export function createRecordingSession(
   };
 }
 
-export function normalizeLiveTranscriptText(value: string) {
-  return value.toLocaleLowerCase("ko-KR").replace(/\s+/g, "").trim();
-}
-
 export function getLiveSttBiasMode(): LiveSttBiasMode {
   if (typeof window === "undefined") {
     return "combined";
@@ -981,10 +979,6 @@ function readBrowserLocalStorage() {
 
 function shouldUseLiveSttPostprocessBias(mode: LiveSttBiasMode) {
   return mode === "postprocess" || mode === "combined";
-}
-
-function shouldUseLiveSttHotwordBias(mode: LiveSttBiasMode) {
-  return mode === "hotword" || mode === "combined";
 }
 
 function normalizeBiasTermText(value: string) {
@@ -1495,11 +1489,8 @@ export function RehearsalWorkspace(props: {
         })
       : null;
     liveBiasContextRef.current = nextBiasContext;
-    const biasMode = getLiveSttBiasMode();
     void liveSttPortRef.current?.updateBiasPhrases(
-      shouldUseLiveSttHotwordBias(biasMode)
-        ? getBiasPhrasesFromContext(nextBiasContext)
-        : []
+      getBiasPhrasesFromContext(nextBiasContext)
     );
     const p3Session = p3SessionRef.current;
     if (p3Session && (isLiveDemoActive || phase === "recording")) {
@@ -3179,8 +3170,20 @@ function isLiveSttUnavailable(error: LiveSttError) {
   return error.code === "model_unavailable" || error.code === "unsupported_runtime";
 }
 
-function getBiasPhrasesFromContext(context: LiveSttBiasContext | null) {
-  return context?.terms.map((term) => term.text) ?? [];
+function getBiasPhrasesFromContext(
+  context: LiveSttBiasContext | null
+): LiveSttBiasPhrase[] {
+  return (
+    context?.terms.map((term) => ({
+      text: term.text,
+      weight: term.weight,
+      source: term.source,
+      ...(term.keywordId === undefined ? {} : { keywordId: term.keywordId }),
+      ...(term.canonicalText === undefined
+        ? {}
+        : { canonicalText: term.canonicalText })
+    })) ?? []
+  );
 }
 
 function toErrorMessage(cause: unknown) {
