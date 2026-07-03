@@ -1,5 +1,4 @@
 import type { Deck } from "@orbit/shared";
-import { clampSlideshowStepIndex } from "./slideshowStepModel";
 
 export type PresenterHighlightState = {
   active: boolean;
@@ -10,11 +9,9 @@ export type PresenterSlideshowState = {
   highlights: PresenterHighlightState[];
   slideId: string;
   slideIndex: number;
-  stepIndex: number;
 };
 
 export type PresenterSlideshowCommand =
-  | { type: "next-step"; maxStepIndex: number }
   | { type: "next-slide"; slideCount: number; slides: Deck["slides"] }
   | { type: "previous-slide"; slides: Deck["slides"] }
   | { type: "set-slide"; slideIndex: number; slides: Deck["slides"] }
@@ -26,8 +23,7 @@ export function createPresenterSlideshowState(deck: Deck): PresenterSlideshowSta
   return {
     highlights: [],
     slideId: firstSlide?.slideId ?? "",
-    slideIndex: 0,
-    stepIndex: 0
+    slideIndex: 0
   };
 }
 
@@ -36,18 +32,6 @@ export function applyPresenterSlideshowCommand(
   command: PresenterSlideshowCommand
 ): PresenterSlideshowState {
   switch (command.type) {
-    case "next-step": {
-      const maxStepIndex = Math.max(0, command.maxStepIndex);
-
-      if (state.stepIndex < maxStepIndex) {
-        return {
-          ...state,
-          stepIndex: clampSlideshowStepIndex(state.stepIndex + 1, maxStepIndex)
-        };
-      }
-
-      return state;
-    }
     case "next-slide":
       return moveToSlide(state, command.slides, state.slideIndex + 1);
     case "previous-slide":
@@ -65,31 +49,6 @@ export function applyPresenterSlideshowCommand(
   }
 }
 
-export function nextStepOrSlide(args: {
-  maxStepIndex: number;
-  slides: Deck["slides"];
-  state: PresenterSlideshowState;
-}) {
-  const stepped = applyPresenterSlideshowCommand(args.state, {
-    type: "next-step",
-    maxStepIndex: args.maxStepIndex
-  });
-
-  if (stepped !== args.state || args.state.stepIndex < args.maxStepIndex) {
-    return stepped;
-  }
-
-  if (args.state.slideIndex >= args.slides.length - 1) {
-    return args.state;
-  }
-
-  return applyPresenterSlideshowCommand(args.state, {
-    type: "next-slide",
-    slideCount: args.slides.length,
-    slides: args.slides
-  });
-}
-
 function moveToSlide(
   state: PresenterSlideshowState,
   slides: Deck["slides"],
@@ -99,8 +58,7 @@ function moveToSlide(
     return {
       ...state,
       slideId: "",
-      slideIndex: 0,
-      stepIndex: 0
+      slideIndex: 0
     };
   }
 
@@ -109,9 +67,7 @@ function moveToSlide(
   return {
     ...state,
     slideId: slides[slideIndex]?.slideId ?? state.slideId,
-    slideIndex,
-    // 슬라이드 이동은 항상 복원 가능한 진입 상태에서 시작한다.
-    stepIndex: 0
+    slideIndex
   };
 }
 

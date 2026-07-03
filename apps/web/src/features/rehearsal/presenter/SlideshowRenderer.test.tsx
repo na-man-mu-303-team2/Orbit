@@ -1,11 +1,13 @@
 import fs from "node:fs";
 import path from "node:path";
+import type { DeckAnimation } from "@orbit/shared";
 import type { ReactNode } from "react";
 import { forwardRef } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import { p0AnimationDeck } from "./__fixtures__/animationDeck";
 import { SlideshowRenderer } from "./SlideshowRenderer";
+import type { SlideshowRuntimeSnapshot } from "./slideshowRuntime";
 
 vi.mock("react-konva", () => {
   function attrs(props: Record<string, unknown>) {
@@ -60,14 +62,20 @@ vi.mock("react-konva", () => {
 });
 
 describe("SlideshowRenderer", () => {
-  it("renders from presenter state props without presenter-only dependencies", () => {
+  const runtime: SlideshowRuntimeSnapshot = {
+    executedAnimationIds: [],
+    isComplete: false,
+    stepIndex: 1,
+    triggerAnimationIds: ["anim_image_zoom_in", "anim_group_fade_out"]
+  };
+
+  it("renders from runtime snapshot props without presenter-only dependencies", () => {
     const html = renderToStaticMarkup(
       <SlideshowRenderer
         deck={p0AnimationDeck}
         highlights={[{ elementId: "el_image", active: true }]}
+        runtime={runtime}
         slideId="slide_p0_1"
-        stepIndex={1}
-        triggerAnimationIds={["anim_image_zoom_in", "anim_group_fade_out"]}
       />
     );
 
@@ -81,8 +89,13 @@ describe("SlideshowRenderer", () => {
     const html = renderToStaticMarkup(
       <SlideshowRenderer
         deck={p0AnimationDeck}
+        runtime={{
+          executedAnimationIds: [],
+          isComplete: true,
+          stepIndex: 0,
+          triggerAnimationIds: []
+        }}
         slideId="slide_missing"
-        stepIndex={0}
       />
     );
 
@@ -106,8 +119,13 @@ describe("SlideshowRenderer", () => {
     const html = renderToStaticMarkup(
       <SlideshowRenderer
         deck={thumbnailDeck}
+        runtime={{
+          executedAnimationIds: [],
+          isComplete: true,
+          stepIndex: 0,
+          triggerAnimationIds: []
+        }}
         slideId="slide_thumbnail_only"
-        stepIndex={0}
       />
     );
 
@@ -120,8 +138,13 @@ describe("SlideshowRenderer", () => {
     const html = renderToStaticMarkup(
       <SlideshowRenderer
         deck={p0AnimationDeck}
+        runtime={{
+          executedAnimationIds: [],
+          isComplete: false,
+          stepIndex: 0,
+          triggerAnimationIds: []
+        }}
         slideId="slide_p0_1"
-        stepIndex={0}
       />
     );
 
@@ -133,12 +156,58 @@ describe("SlideshowRenderer", () => {
       <SlideshowRenderer
         deck={p0AnimationDeck}
         renderMode="slide-window"
+        runtime={{
+          executedAnimationIds: [],
+          isComplete: true,
+          stepIndex: 0,
+          triggerAnimationIds: []
+        }}
         slideId="slide_p0_1"
-        stepIndex={0}
       />
     );
 
     expect(html).toContain("data-element-id=\"el_title\" data-opacity=\"1\"");
+  });
+
+  it("keeps grouped targets hidden before a trigger fade-in executes", () => {
+    const groupFadeInAnimation: DeckAnimation = {
+      animationId: "anim_group_fade_in",
+      elementId: "el_group",
+      type: "fade-in",
+      order: 12,
+      durationMs: 300,
+      delayMs: 0,
+      easing: "ease-out"
+    };
+    const groupFadeInDeck = {
+      ...p0AnimationDeck,
+      slides: [
+        {
+          ...p0AnimationDeck.slides[0]!,
+          animations: [
+            ...p0AnimationDeck.slides[0]!.animations.filter(
+              (animation) => animation.elementId !== "el_group"
+            ),
+            groupFadeInAnimation
+          ]
+        },
+        ...p0AnimationDeck.slides.slice(1)
+      ]
+    };
+    const html = renderToStaticMarkup(
+      <SlideshowRenderer
+        deck={groupFadeInDeck}
+        runtime={{
+          executedAnimationIds: [],
+          isComplete: false,
+          stepIndex: 0,
+          triggerAnimationIds: ["anim_group_fade_in"]
+        }}
+        slideId="slide_p0_1"
+      />
+    );
+
+    expect(html).toContain("data-element-id=\"el_group\" data-opacity=\"0\"");
   });
 
   it("keeps renderer imports away from editor interaction modules", () => {
@@ -164,7 +233,7 @@ describe("SlideshowRenderer", () => {
     }
   });
 
-  it("uses a stable default trigger animation iterable", () => {
+  it("accepts runtime snapshot as the only playback input", () => {
     const source = fs.readFileSync(
       path.join(
         process.cwd(),
@@ -173,7 +242,8 @@ describe("SlideshowRenderer", () => {
       "utf8"
     );
 
-    expect(source).toContain("emptyTriggerAnimationIds");
-    expect(source).not.toContain("triggerAnimationIds = []");
+    expect(source).toContain("runtime: SlideshowRuntimeSnapshot");
+    expect(source).not.toContain("stepIndex?:");
+    expect(source).not.toContain("triggerAnimationIds?:");
   });
 });

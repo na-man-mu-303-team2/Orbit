@@ -4,6 +4,7 @@ import type { ReactNode, Ref } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { SlideshowRenderer } from "./SlideshowRenderer";
 import type { PresenterSlideshowState } from "./presenterStateStore";
+import type { SlideshowRuntimeSnapshot } from "./slideshowRuntime";
 import {
   createSlideWindowHeartbeatMessage,
   createSlideWindowReadyMessage,
@@ -16,8 +17,8 @@ import {
 
 export type PresentWindowSnapshot = {
   deck: Deck;
+  runtime: SlideshowRuntimeSnapshot;
   state: PresenterSlideshowState;
-  triggerAnimationIds: string[];
 };
 
 type ViewportSize = {
@@ -138,10 +139,9 @@ export function PresentWindowContent(props: {
           deck={snapshot.deck}
           highlights={snapshot.state.highlights}
           renderMode="slide-window"
+          runtime={snapshot.runtime}
           scale={scale}
           slideId={snapshot.state.slideId}
-          stepIndex={snapshot.state.stepIndex}
-          triggerAnimationIds={snapshot.triggerAnimationIds}
         />
       </div>
       {!isFullscreen ? (
@@ -167,16 +167,16 @@ export function applyPresentWindowMessage(
   if (message.type === "presenter-snapshot") {
     return {
       deck: message.deck,
+      runtime: message.runtime,
       state: message.state,
-      triggerAnimationIds: message.triggerAnimationIds
     };
   }
 
   if (message.type === "presenter-state" && current) {
     return {
       ...current,
+      runtime: message.runtime,
       state: message.state,
-      triggerAnimationIds: message.triggerAnimationIds
     };
   }
 

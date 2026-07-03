@@ -2,6 +2,7 @@ import type { Deck } from "@orbit/shared";
 import { Maximize2, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { SlideRuntimeHighlight } from "../../slides/rendering";
+import type { SlideshowRuntimeSnapshot } from "./slideshowRuntime";
 import { SlideshowRenderer } from "./SlideshowRenderer";
 
 export function SingleScreenPresenter(props: {
@@ -9,23 +10,21 @@ export function SingleScreenPresenter(props: {
   highlights?: SlideRuntimeHighlight[];
   isFullscreen?: boolean;
   onExit: () => void;
+  runtime: SlideshowRuntimeSnapshot;
   slideElapsedLabel: string;
   slideId: string;
   slideTargetLabel: string;
-  stepIndex: number;
   totalTimeLabel: string;
-  triggerAnimationIds: string[];
 }) {
   const {
     deck,
     highlights = [],
     onExit,
+    runtime,
     slideElapsedLabel,
     slideId,
     slideTargetLabel,
-    stepIndex,
-    totalTimeLabel,
-    triggerAnimationIds
+    totalTimeLabel
   } = props;
   const rootRef = useRef<HTMLDivElement>(null);
   const [fullscreenRequested, setFullscreenRequested] = useState(false);
@@ -60,10 +59,9 @@ export function SingleScreenPresenter(props: {
           deck={deck}
           highlights={highlights}
           renderMode="single-screen"
+          runtime={runtime}
           scale={getSingleScreenScale(deck)}
           slideId={slideId}
-          stepIndex={stepIndex}
-          triggerAnimationIds={triggerAnimationIds}
         />
       </div>
       <div className="single-screen-timer-overlay" aria-label="발표 타이머">

@@ -97,7 +97,7 @@ describe("RehearsalWorkspace", () => {
     expect(html).toContain("Speaker notes");
   });
 
-  it("resets presenter step when live auto advance completes", () => {
+  it("resets playback state before live auto advance moves to the next slide", () => {
     const source = fs.readFileSync(
       path.join(process.cwd(), "src/features/rehearsal/RehearsalWorkspace.tsx"),
       "utf8"
@@ -106,13 +106,15 @@ describe("RehearsalWorkspace", () => {
     const end = source.indexOf("function cancelPendingAutoAdvance");
     const completeLiveSlideAdvanceBody = source.slice(start, end);
 
-    expect(completeLiveSlideAdvanceBody).toContain("setPresenterStepIndex(0)");
-    expect(completeLiveSlideAdvanceBody.indexOf("setPresenterStepIndex(0)")).toBeLessThan(
-      completeLiveSlideAdvanceBody.indexOf("setCurrentSlideIndex")
+    expect(completeLiveSlideAdvanceBody).toContain("moveToSlideWithFreshRuntime");
+    expect(
+      completeLiveSlideAdvanceBody.indexOf("moveToSlideWithFreshRuntime")
+    ).toBeLessThan(
+      completeLiveSlideAdvanceBody.indexOf("setLiveSlideAdvance")
     );
   });
 
-  it("keeps the presenter step on the last slide when no next slide exists", () => {
+  it("keeps the current slide when click fallback has no further runtime step", () => {
     const source = fs.readFileSync(
       path.join(process.cwd(), "src/features/rehearsal/RehearsalWorkspace.tsx"),
       "utf8"
@@ -121,11 +123,8 @@ describe("RehearsalWorkspace", () => {
     const end = source.indexOf("const finishRehearsal");
     const handleNextPresenterStepBody = source.slice(start, end);
 
-    expect(handleNextPresenterStepBody).toContain("getNextPresenterStepState");
+    expect(handleNextPresenterStepBody).toContain("currentSlideshowRuntime.advanceOnClick");
     expect(handleNextPresenterStepBody).toContain("slideCount: deck.slides.length");
-    expect(handleNextPresenterStepBody).toContain(
-      "setPresenterStepIndex(nextState.stepIndex)"
-    );
     expect(handleNextPresenterStepBody).toContain(
       "setCurrentSlideIndex(nextState.slideIndex)"
     );
@@ -140,10 +139,22 @@ describe("RehearsalWorkspace", () => {
     const end = source.indexOf("const finishRehearsal");
     const handleNextPresenterStepBody = source.slice(start, end);
 
-    expect(handleNextPresenterStepBody).not.toContain("setPresenterStepIndex((currentStep)");
+    expect(handleNextPresenterStepBody).not.toContain("setPresenterStepIndex");
+    expect(handleNextPresenterStepBody).toContain("applyPresenterPlayback(nextState.playbackState)");
     expect(
-      handleNextPresenterStepBody.indexOf("setPresenterStepIndex(nextState.stepIndex)")
+      handleNextPresenterStepBody.indexOf("applyPresenterPlayback(nextState.playbackState)")
     ).toBeLessThan(handleNextPresenterStepBody.indexOf("setCurrentSlideIndex"));
+  });
+
+  it("exposes a test-only runtime bridge for rehearsal playback e2e coverage", () => {
+    const source = fs.readFileSync(
+      path.join(process.cwd(), "src/features/rehearsal/RehearsalWorkspace.tsx"),
+      "utf8"
+    );
+
+    expect(source).toContain("__ORBIT_ENABLE_TEST_API__");
+    expect(source).toContain("__ORBIT_TEST_API__");
+    expect(source).toContain("triggerKeywordPlayback(keywordId)");
   });
 
   it("requests microphone audio with live STT input quality constraints", async () => {

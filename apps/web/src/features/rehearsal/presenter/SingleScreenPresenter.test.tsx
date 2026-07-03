@@ -4,6 +4,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import { p0AnimationDeck } from "./__fixtures__/animationDeck";
 import { getSingleScreenScale, SingleScreenPresenter } from "./SingleScreenPresenter";
+import type { SlideshowRuntimeSnapshot } from "./slideshowRuntime";
 
 vi.mock("react-konva", () => {
   function attrs(props: Record<string, unknown>) {
@@ -52,17 +53,23 @@ vi.mock("react-konva", () => {
 });
 
 describe("SingleScreenPresenter", () => {
+  const runtime: SlideshowRuntimeSnapshot = {
+    executedAnimationIds: [],
+    isComplete: false,
+    stepIndex: 1,
+    triggerAnimationIds: ["anim_image_zoom_in"]
+  };
+
   it("renders the slide with only approved timer overlay content", () => {
     const html = renderToStaticMarkup(
       <SingleScreenPresenter
         deck={p0AnimationDeck}
         onExit={() => {}}
+        runtime={runtime}
         slideElapsedLabel="00:12"
         slideId="slide_p0_1"
         slideTargetLabel="01:00"
-        stepIndex={1}
         totalTimeLabel="03:20"
-        triggerAnimationIds={["anim_image_zoom_in"]}
       />
     );
 
@@ -84,12 +91,11 @@ describe("SingleScreenPresenter", () => {
         deck={p0AnimationDeck}
         isFullscreen={true}
         onExit={() => {}}
+        runtime={runtime}
         slideElapsedLabel="00:12"
         slideId="slide_p0_1"
         slideTargetLabel="01:00"
-        stepIndex={1}
         totalTimeLabel="03:20"
-        triggerAnimationIds={["anim_image_zoom_in"]}
       />
     );
 

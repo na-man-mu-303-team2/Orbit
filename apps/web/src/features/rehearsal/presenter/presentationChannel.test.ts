@@ -12,10 +12,18 @@ import {
   isPresentationChannelMessage,
   matchesPresentationChannelIdentity
 } from "./presentationChannel";
+import type { SlideshowRuntimeSnapshot } from "./slideshowRuntime";
 
 const identity = {
   deckId: p0AnimationDeck.deckId,
   sessionId: "session-presenter-1"
+};
+
+const runtime: SlideshowRuntimeSnapshot = {
+  executedAnimationIds: [],
+  isComplete: false,
+  stepIndex: 1,
+  triggerAnimationIds: ["anim_image_zoom_in"]
 };
 
 describe("presentationChannel", () => {
@@ -74,13 +82,12 @@ describe("presentationChannel", () => {
     const message = createPresenterSnapshotMessage({
       deck: p0AnimationDeck,
       identity,
+      runtime,
       sentAt: 10,
       state: {
         ...createPresenterSlideshowState(p0AnimationDeck),
-        highlights: [{ elementId: "el_body", active: true }],
-        stepIndex: 1
-      },
-      triggerAnimationIds: ["anim_image_zoom_in"]
+        highlights: [{ elementId: "el_body", active: true }]
+      }
     });
     const serialized = JSON.stringify(message);
 
@@ -89,10 +96,9 @@ describe("presentationChannel", () => {
       sessionId: "session-presenter-1",
       sentAt: 10,
       type: "presenter-snapshot",
-      triggerAnimationIds: ["anim_image_zoom_in"],
+      runtime,
       state: {
         slideId: "slide_p0_1",
-        stepIndex: 1,
         highlights: [{ elementId: "el_body", active: true }]
       }
     });
@@ -105,9 +111,14 @@ describe("presentationChannel", () => {
   it("validates channel messages and ignores wrong identities", () => {
     const matching = createPresenterStateMessage({
       identity,
+      runtime: {
+        executedAnimationIds: [],
+        isComplete: true,
+        stepIndex: 0,
+        triggerAnimationIds: []
+      },
       sentAt: 20,
-      state: createPresenterSlideshowState(p0AnimationDeck),
-      triggerAnimationIds: []
+      state: createPresenterSlideshowState(p0AnimationDeck)
     });
     const wrongSession = {
       ...matching,

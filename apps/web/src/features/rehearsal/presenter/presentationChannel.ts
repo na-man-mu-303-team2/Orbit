@@ -1,4 +1,5 @@
 import type { Deck } from "@orbit/shared";
+import type { SlideshowRuntimeSnapshot } from "./slideshowRuntime";
 import type { PresenterSlideshowState } from "./presenterStateStore";
 
 export const presentationChannelPrefix = "orbit:presenter-screen";
@@ -13,19 +14,19 @@ export type SlideWindowDeckSnapshot = Deck;
 export type PresenterSnapshotMessage = {
   deck: SlideWindowDeckSnapshot;
   deckId: string;
+  runtime: SlideshowRuntimeSnapshot;
   sentAt: number;
   sessionId: string;
   state: PresenterSlideshowState;
-  triggerAnimationIds: string[];
   type: "presenter-snapshot";
 };
 
 export type PresenterStateMessage = {
   deckId: string;
+  runtime: SlideshowRuntimeSnapshot;
   sentAt: number;
   sessionId: string;
   state: PresenterSlideshowState;
-  triggerAnimationIds: string[];
   type: "presenter-state";
 };
 
@@ -129,11 +130,14 @@ export function isPresentationChannelMessage(
     case "presenter-snapshot":
       return (
         isRecord(value.deck) &&
-        isPresenterSlideshowState(value.state) &&
-        isStringArray(value.triggerAnimationIds)
+        isSlideshowRuntimeSnapshot(value.runtime) &&
+        isPresenterSlideshowState(value.state)
       );
     case "presenter-state":
-      return isPresenterSlideshowState(value.state) && isStringArray(value.triggerAnimationIds);
+      return (
+        isSlideshowRuntimeSnapshot(value.runtime) &&
+        isPresenterSlideshowState(value.state)
+      );
     case "presenter-heartbeat":
     case "slide-window-ready":
     case "slide-window-heartbeat":
@@ -153,33 +157,33 @@ export function matchesPresentationChannelIdentity(
 export function createPresenterSnapshotMessage(args: {
   deck: Deck;
   identity: PresentationChannelIdentity;
+  runtime: SlideshowRuntimeSnapshot;
   sentAt?: number;
   state: PresenterSlideshowState;
-  triggerAnimationIds?: Iterable<string>;
 }): PresenterSnapshotMessage {
   return {
     deck: createSlideWindowDeckSnapshot(args.deck),
     deckId: args.identity.deckId,
+    runtime: args.runtime,
     sentAt: args.sentAt ?? Date.now(),
     sessionId: args.identity.sessionId,
     state: args.state,
-    triggerAnimationIds: Array.from(args.triggerAnimationIds ?? []),
     type: "presenter-snapshot"
   };
 }
 
 export function createPresenterStateMessage(args: {
   identity: PresentationChannelIdentity;
+  runtime: SlideshowRuntimeSnapshot;
   sentAt?: number;
   state: PresenterSlideshowState;
-  triggerAnimationIds?: Iterable<string>;
 }): PresenterStateMessage {
   return {
     deckId: args.identity.deckId,
+    runtime: args.runtime,
     sentAt: args.sentAt ?? Date.now(),
     sessionId: args.identity.sessionId,
     state: args.state,
-    triggerAnimationIds: Array.from(args.triggerAnimationIds ?? []),
     type: "presenter-state"
   };
 }
@@ -228,7 +232,6 @@ function isPresenterSlideshowState(value: unknown): value is PresenterSlideshowS
   return (
     typeof value.slideId === "string" &&
     typeof value.slideIndex === "number" &&
-    typeof value.stepIndex === "number" &&
     Array.isArray(value.highlights) &&
     value.highlights.every(
       (highlight) =>
@@ -236,6 +239,19 @@ function isPresenterSlideshowState(value: unknown): value is PresenterSlideshowS
         typeof highlight.elementId === "string" &&
         typeof highlight.active === "boolean"
     )
+  );
+}
+
+function isSlideshowRuntimeSnapshot(value: unknown): value is SlideshowRuntimeSnapshot {
+  if (!isRecord(value)) {
+    return false;
+  }
+
+  return (
+    isStringArray(value.executedAnimationIds) &&
+    typeof value.isComplete === "boolean" &&
+    typeof value.stepIndex === "number" &&
+    isStringArray(value.triggerAnimationIds)
   );
 }
 

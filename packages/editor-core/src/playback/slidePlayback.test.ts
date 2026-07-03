@@ -157,16 +157,34 @@ describe("slidePlayback", () => {
     expect(repeated).toBeNull();
   });
 
-  it("returns slide advance actions without mutating playback state", () => {
+  it("skips click fallback for animations already executed by an action", () => {
+    const slide = createSlide();
+    const initialState = createSlidePlaybackState();
+    const cueResult = executeSlideAction(slide, initialState, slide.actions[0]!);
+    const nextAnimation = getNextClickAnimation(slide, cueResult!.state);
+
+    expect(nextAnimation?.animationId).toBe("anim_1");
+
+    const clickResult = playNextClickAnimation(slide, cueResult!.state);
+
+    expect(clickResult?.animation.animationId).toBe("anim_1");
+    expect(playNextClickAnimation(slide, clickResult!.state)).toBeNull();
+  });
+
+  it("executes slide advance actions once and records runtime progress", () => {
     const slide = createSlide();
     const action = slide.actions[1];
-    const state = createSlidePlaybackState();
-    const result = executeSlideAction(slide, state, action);
+    const initialState = createSlidePlaybackState();
+    const result = executeSlideAction(slide, initialState, action);
 
-    expect(result).toEqual({
+    expect(result).toMatchObject({
       kind: "go-to-next-slide",
       action,
-      state
+      state: {
+        executedStepIds: ["action:act_2"]
+      }
     });
+
+    expect(executeSlideAction(slide, result!.state, action)).toBeNull();
   });
 });

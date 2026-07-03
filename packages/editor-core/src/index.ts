@@ -60,8 +60,11 @@ export {
 export { createAddSlidePatch, createSlideId } from "./patches/slideOperations";
 export {
   createSlidePlaybackState,
+  executeTriggeredActions,
   executeSlideAction,
+  getExecutedAnimationIds,
   getNextClickAnimation,
+  getTriggeredAnimationIds,
   playNextClickAnimation,
   resolveCueActions,
   resolveTriggeredActions
@@ -69,8 +72,16 @@ export {
 export type {
   ClickPlaybackResult,
   SlideActionExecutionResult,
-  SlidePlaybackState
+  SlidePlaybackState,
+  SlideRuntimeTrigger,
+  TriggeredActionExecutionResult
 } from "./playback/slidePlayback";
+export { createSlideRuntimeAdapter } from "./playback/slideRuntime";
+export type {
+  SlideRuntimeAdapter,
+  SlideRuntimeAdvanceResult,
+  SlideRuntimeSnapshot
+} from "./playback/slideRuntime";
 
 export function createDemoDeck(): Deck {
   return deckSchema.parse({

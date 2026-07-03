@@ -80,20 +80,22 @@ describe("PresentWindow", () => {
     const snapshotMessage = createPresenterSnapshotMessage({
       deck: p0AnimationDeck,
       identity,
-      sentAt: 10,
-      state: {
-        ...createPresenterSlideshowState(p0AnimationDeck),
-        stepIndex: 1
+      runtime: {
+        executedAnimationIds: [],
+        isComplete: false,
+        stepIndex: 1,
+        triggerAnimationIds: ["anim_image_zoom_in"]
       },
-      triggerAnimationIds: ["anim_image_zoom_in"]
+      sentAt: 10,
+      state: createPresenterSlideshowState(p0AnimationDeck)
     });
     const html = renderToStaticMarkup(
       <PresentWindowContent
         identity={identity}
         snapshot={{
           deck: snapshotMessage.deck,
+          runtime: snapshotMessage.runtime,
           state: snapshotMessage.state,
-          triggerAnimationIds: snapshotMessage.triggerAnimationIds
         }}
       />
     );
@@ -113,20 +115,29 @@ describe("PresentWindow", () => {
     const snapshotMessage = createPresenterSnapshotMessage({
       deck: p0AnimationDeck,
       identity,
+      runtime: {
+        executedAnimationIds: [],
+        isComplete: true,
+        stepIndex: 0,
+        triggerAnimationIds: []
+      },
       sentAt: 10,
       state: initialState,
-      triggerAnimationIds: []
     });
     const stateMessage = createPresenterStateMessage({
       identity,
+      runtime: {
+        executedAnimationIds: [],
+        isComplete: false,
+        stepIndex: 0,
+        triggerAnimationIds: ["anim_image_zoom_in"]
+      },
       sentAt: 20,
       state: {
         ...initialState,
         slideId: "slide_p0_2",
-        slideIndex: 1,
-        stepIndex: 0
-      },
-      triggerAnimationIds: ["anim_image_zoom_in"]
+        slideIndex: 1
+      }
     });
 
     const snapshot = applyPresentWindowMessage(null, snapshotMessage);
@@ -135,18 +146,23 @@ describe("PresentWindow", () => {
     expect(snapshot?.deck.deckId).toBe("deck_p0_animation");
     expect(updated?.state).toMatchObject({
       slideId: "slide_p0_2",
-      slideIndex: 1,
-      stepIndex: 0
+      slideIndex: 1
     });
-    expect(updated?.triggerAnimationIds).toEqual(["anim_image_zoom_in"]);
+    expect(updated?.runtime.executedAnimationIds).toEqual([]);
+    expect(updated?.runtime.triggerAnimationIds).toEqual(["anim_image_zoom_in"]);
   });
 
   it("ignores state-only updates before a full snapshot", () => {
     const message = createPresenterStateMessage({
       identity,
+      runtime: {
+        executedAnimationIds: [],
+        isComplete: true,
+        stepIndex: 0,
+        triggerAnimationIds: []
+      },
       sentAt: 20,
-      state: createPresenterSlideshowState(p0AnimationDeck),
-      triggerAnimationIds: []
+      state: createPresenterSlideshowState(p0AnimationDeck)
     });
 
     expect(applyPresentWindowMessage(null, message)).toBeNull();
@@ -161,17 +177,22 @@ describe("PresentWindow", () => {
     const snapshotMessage = createPresenterSnapshotMessage({
       deck: p0AnimationDeck,
       identity,
+      runtime: {
+        executedAnimationIds: [],
+        isComplete: true,
+        stepIndex: 0,
+        triggerAnimationIds: []
+      },
       sentAt: 10,
-      state: createPresenterSlideshowState(p0AnimationDeck),
-      triggerAnimationIds: []
+      state: createPresenterSlideshowState(p0AnimationDeck)
     });
     const html = renderToStaticMarkup(
       <PresentWindowContent
         identity={identity}
         snapshot={{
           deck: snapshotMessage.deck,
+          runtime: snapshotMessage.runtime,
           state: snapshotMessage.state,
-          triggerAnimationIds: []
         }}
         viewport={{ height: 540, width: 960 }}
       />
@@ -184,9 +205,14 @@ describe("PresentWindow", () => {
     const snapshotMessage = createPresenterSnapshotMessage({
       deck: p0AnimationDeck,
       identity,
+      runtime: {
+        executedAnimationIds: [],
+        isComplete: true,
+        stepIndex: 0,
+        triggerAnimationIds: []
+      },
       sentAt: 10,
-      state: createPresenterSlideshowState(p0AnimationDeck),
-      triggerAnimationIds: []
+      state: createPresenterSlideshowState(p0AnimationDeck)
     });
     const html = renderToStaticMarkup(
       <PresentWindowContent
@@ -194,8 +220,8 @@ describe("PresentWindow", () => {
         isFullscreen={true}
         snapshot={{
           deck: snapshotMessage.deck,
+          runtime: snapshotMessage.runtime,
           state: snapshotMessage.state,
-          triggerAnimationIds: []
         }}
       />
     );
@@ -208,9 +234,14 @@ describe("PresentWindow", () => {
     const snapshotMessage = createPresenterSnapshotMessage({
       deck: p0AnimationDeck,
       identity,
+      runtime: {
+        executedAnimationIds: [],
+        isComplete: true,
+        stepIndex: 0,
+        triggerAnimationIds: []
+      },
       sentAt: 10,
-      state: createPresenterSlideshowState(p0AnimationDeck),
-      triggerAnimationIds: []
+      state: createPresenterSlideshowState(p0AnimationDeck)
     });
     const html = renderToStaticMarkup(
       <PresentWindowContent
@@ -218,8 +249,8 @@ describe("PresentWindow", () => {
         isFullscreen={false}
         snapshot={{
           deck: snapshotMessage.deck,
+          runtime: snapshotMessage.runtime,
           state: snapshotMessage.state,
-          triggerAnimationIds: []
         }}
       />
     );

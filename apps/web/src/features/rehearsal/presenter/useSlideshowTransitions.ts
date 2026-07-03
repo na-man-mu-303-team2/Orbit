@@ -20,6 +20,7 @@ export {
 
 export function useSlideshowTransitions(args: {
   deck: Deck;
+  executedAnimationIds?: Iterable<string>;
   playInitialEntryAnimations?: boolean;
   reducedMotion: boolean;
   slide: Slide;
@@ -27,6 +28,10 @@ export function useSlideshowTransitions(args: {
   triggerAnimationIds?: Iterable<string>;
 }) {
   const playInitialEntryAnimations = args.playInitialEntryAnimations ?? true;
+  const executedAnimationIds = useMemo(
+    () => [...(args.executedAnimationIds ?? [])],
+    [args.executedAnimationIds]
+  );
   const triggerAnimationIds = useMemo(
     () => [...(args.triggerAnimationIds ?? [])],
     [args.triggerAnimationIds]
@@ -43,11 +48,12 @@ export function useSlideshowTransitions(args: {
     () =>
       computeSettledElementStates({
         deck: args.deck,
+        executedAnimationIds,
         slide: args.slide,
         stepIndex: args.stepIndex,
         triggerAnimationIds
       }),
-    [args.deck, args.slide, args.stepIndex, triggerAnimationIds]
+    [args.deck, executedAnimationIds, args.slide, args.stepIndex, triggerAnimationIds]
   );
   const baseStates = useMemo(
     () => createBaseElementStates(args.deck, args.slide),
@@ -69,6 +75,7 @@ export function useSlideshowTransitions(args: {
     slideId: string;
     stepIndex: number;
   } | null>(null);
+  const previousExecutedAnimationIdsRef = useRef<string[]>(executedAnimationIds);
   const frameRef = useRef<number | null>(null);
   const settledStatesRef = useRef(targetStates);
 
@@ -79,6 +86,8 @@ export function useSlideshowTransitions(args: {
       slideId: args.slide.slideId,
       stepIndex: args.stepIndex
     };
+    const previousExecutedAnimationIds = previousExecutedAnimationIdsRef.current;
+    previousExecutedAnimationIdsRef.current = executedAnimationIds;
     settledStatesRef.current = targetStates;
 
     if (frameRef.current !== null) {
@@ -95,12 +104,23 @@ export function useSlideshowTransitions(args: {
     const shouldPlaySlideEntry = isSlideChange && args.stepIndex === 0;
     const stepDelta =
       previousAddress === null ? 0 : args.stepIndex - previousAddress.stepIndex;
+    const newlyExecutedAnimationIds = new Set(
+      executedAnimationIds.filter(
+        (animationId) => !previousExecutedAnimationIds.includes(animationId)
+      )
+    );
     const transitionAnimations = isInitialEntry || shouldPlaySlideEntry
       ? createSlideshowEntryTransitionTimeline(plan.entryAnimations)
-      : stepDelta === 1
-        ? plan.triggerSteps[args.stepIndex - 1]?.animations ?? []
-        : [];
-    const shouldPlayTransition = isInitialEntry || shouldPlaySlideEntry || stepDelta === 1;
+      : collectTransitionAnimations({
+          newlyExecutedAnimationIds,
+          plan,
+          stepDelta,
+          stepIndex: args.stepIndex
+        });
+    const shouldPlayTransition =
+      isInitialEntry ||
+      shouldPlaySlideEntry ||
+      transitionAnimations.length > 0;
 
     if (
       args.reducedMotion ||
@@ -152,6 +172,7 @@ export function useSlideshowTransitions(args: {
     };
   }, [
     args.reducedMotion,
+    executedAnimationIds,
     args.slide.slideId,
     args.stepIndex,
     baseStates,
@@ -292,6 +313,28 @@ function cloneElementStates(states: Record<string, ElementPresentationState>) {
   return Object.fromEntries(
     Object.entries(states).map(([elementId, state]) => [elementId, { ...state }])
   );
+}
+
+function collectTransitionAnimations(args: {
+  newlyExecutedAnimationIds: Set<string>;
+  plan: ReturnType<typeof createSlideshowAnimationPlan>;
+  stepDelta: number;
+  stepIndex: number;
+}) {
+  const animations = new Map<string, SlideshowTransitionAnimation>();
+  const manualStepAnimations =
+    args.stepDelta === 1 ? args.plan.triggerSteps[args.stepIndex - 1]?.animations ?? [] : [];
+  const explicitlyExecutedAnimations = args.plan.triggerSteps.flatMap((step) =>
+    step.animations.filter((animation) =>
+      args.newlyExecutedAnimationIds.has(animation.animationId)
+    )
+  );
+
+  for (const animation of [...manualStepAnimations, ...explicitlyExecutedAnimations]) {
+    animations.set(animation.animationId, animation);
+  }
+
+  return [...animations.values()];
 }
 
 function lerp(start: number, end: number, progress: number) {

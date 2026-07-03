@@ -10,10 +10,18 @@ import {
   isPresentationPeerStale,
   type PresentationChannelStatus
 } from "./usePresentationChannelPublisher";
+import type { SlideshowRuntimeSnapshot } from "./slideshowRuntime";
 
 const identity = {
   deckId: p0AnimationDeck.deckId,
   sessionId: "session-presenter-1"
+};
+
+const runtime: SlideshowRuntimeSnapshot = {
+  executedAnimationIds: [],
+  isComplete: false,
+  stepIndex: 0,
+  triggerAnimationIds: ["anim_image_zoom_in"]
 };
 
 describe("createPresentationPublisherController", () => {
@@ -36,10 +44,10 @@ describe("createPresentationPublisherController", () => {
           }))
         },
         deckId: identity.deckId,
+        runtime,
         sentAt: 10,
         sessionId: identity.sessionId,
         state: createPresenterSlideshowState(p0AnimationDeck),
-        triggerAnimationIds: ["anim_image_zoom_in"],
         type: "presenter-snapshot"
       }),
       getState: () => null,
@@ -52,9 +60,11 @@ describe("createPresentationPublisherController", () => {
     expect(posted).toHaveLength(1);
     expect(posted[0]).toMatchObject({
       deckId: "deck_p0_animation",
+      runtime: {
+        triggerAnimationIds: ["anim_image_zoom_in"]
+      },
       sessionId: "session-presenter-1",
-      type: "presenter-snapshot",
-      triggerAnimationIds: ["anim_image_zoom_in"]
+      type: "presenter-snapshot"
     });
     expect(JSON.stringify(posted[0])).not.toContain("첫 문장입니다");
     expect(statuses).toEqual(["connected"]);
@@ -65,8 +75,7 @@ describe("createPresentationPublisherController", () => {
     const state = {
       ...createPresenterSlideshowState(p0AnimationDeck),
       slideId: "slide_p0_2",
-      slideIndex: 1,
-      stepIndex: 0
+      slideIndex: 1
     };
     const controller = createPresentationPublisherController({
       channel: {
@@ -76,10 +85,15 @@ describe("createPresentationPublisherController", () => {
       getSnapshot: () => null,
       getState: () => ({
         deckId: identity.deckId,
+        runtime: {
+          executedAnimationIds: [],
+          isComplete: true,
+          stepIndex: 0,
+          triggerAnimationIds: []
+        },
         sentAt: 30,
         sessionId: identity.sessionId,
         state,
-        triggerAnimationIds: [],
         type: "presenter-state"
       }),
       identity
@@ -90,10 +104,15 @@ describe("createPresentationPublisherController", () => {
     expect(posted).toEqual([
       {
         deckId: "deck_p0_animation",
+        runtime: {
+          executedAnimationIds: [],
+          isComplete: true,
+          stepIndex: 0,
+          triggerAnimationIds: []
+        },
         sentAt: 30,
         sessionId: "session-presenter-1",
         state,
-        triggerAnimationIds: [],
         type: "presenter-state"
       }
     ]);

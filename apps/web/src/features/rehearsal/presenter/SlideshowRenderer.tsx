@@ -5,32 +5,29 @@ import {
   type SlideRuntimeHighlight
 } from "../../slides/rendering";
 import { resolveEditorAssetUrl } from "../../editor/shared/editorAssetUrl";
+import type { SlideshowRuntimeSnapshot } from "./slideshowRuntime";
 import { useReducedMotion } from "./useReducedMotion";
 import { useSlideshowTransitions } from "./useSlideshowTransitions";
 
 export type SlideshowRenderMode = "presenter" | "slide-window" | "single-screen";
-
-const emptyTriggerAnimationIds: readonly string[] = [];
 
 export function SlideshowRenderer(props: {
   deck: Deck;
   highlights?: SlideRuntimeHighlight[];
   playInitialEntryAnimations?: boolean;
   renderMode?: SlideshowRenderMode;
+  runtime: SlideshowRuntimeSnapshot;
   scale?: number;
   slideId: string;
-  stepIndex: number;
-  triggerAnimationIds?: Iterable<string>;
 }) {
   const {
     deck,
     highlights = [],
     playInitialEntryAnimations: playInitialEntryAnimationsProp,
     renderMode = "presenter",
+    runtime,
     scale = 1,
-    slideId,
-    stepIndex,
-    triggerAnimationIds = emptyTriggerAnimationIds
+    slideId
   } = props;
   const playInitialEntryAnimations =
     playInitialEntryAnimationsProp ?? renderMode !== "slide-window";
@@ -48,20 +45,22 @@ export function SlideshowRenderer(props: {
   return (
     <SlideshowRendererContent
       deck={deck}
+      executedAnimationIds={runtime.executedAnimationIds}
       highlights={highlights}
       playInitialEntryAnimations={playInitialEntryAnimations}
       reducedMotion={reducedMotion}
       renderMode={renderMode}
       scale={scale}
       slide={slide}
-      stepIndex={stepIndex}
-      triggerAnimationIds={triggerAnimationIds}
+      stepIndex={runtime.stepIndex}
+      triggerAnimationIds={runtime.triggerAnimationIds}
     />
   );
 }
 
 function SlideshowRendererContent(props: {
   deck: Deck;
+  executedAnimationIds?: Iterable<string>;
   highlights: SlideRuntimeHighlight[];
   playInitialEntryAnimations: boolean;
   reducedMotion: boolean;
@@ -73,6 +72,7 @@ function SlideshowRendererContent(props: {
 }) {
   const {
     deck,
+    executedAnimationIds,
     highlights,
     playInitialEntryAnimations,
     reducedMotion,
@@ -84,6 +84,7 @@ function SlideshowRendererContent(props: {
   } = props;
   const { elementStates } = useSlideshowTransitions({
     deck,
+    executedAnimationIds,
     playInitialEntryAnimations,
     reducedMotion,
     slide,

@@ -3,7 +3,8 @@ import { p0AnimationDeck } from "./__fixtures__/animationDeck";
 import {
   clampSlideshowStepIndex,
   computeSettledElementStates,
-  createSlideshowAnimationPlan
+  createSlideshowAnimationPlan,
+  deriveCompletedSlideshowStepIndex
 } from "./slideshowStepModel";
 
 const slide = p0AnimationDeck.slides[0]!;
@@ -79,6 +80,38 @@ describe("slideshowStepModel", () => {
     expect(step3.el_custom?.rotation).toBe(0);
   });
 
+  it("applies explicitly executed trigger animations without advancing the legacy step index", () => {
+    const states = computeSettledElementStates({
+      deck: p0AnimationDeck,
+      executedAnimationIds: ["anim_image_zoom_in"],
+      slide,
+      stepIndex: 0,
+      triggerAnimationIds: [
+        "anim_image_zoom_in",
+        "anim_group_fade_out",
+        "anim_chart_zoom_out"
+      ]
+    });
+    const plan = createSlideshowAnimationPlan({
+      slide,
+      triggerAnimationIds: [
+        "anim_image_zoom_in",
+        "anim_group_fade_out",
+        "anim_chart_zoom_out"
+      ]
+    });
+
+    expect(states.el_image).toMatchObject({ visible: true, scaleX: 1, scaleY: 1 });
+    expect(states.el_group?.visible).toBe(true);
+    expect(deriveCompletedSlideshowStepIndex(plan, ["anim_image_zoom_in"])).toBe(0);
+    expect(
+      deriveCompletedSlideshowStepIndex(plan, [
+        "anim_image_zoom_in",
+        "anim_group_fade_out"
+      ])
+    ).toBe(1);
+  });
+
   it("keeps grouped children in presentation state for child-targeted animations", () => {
     const slideWithChildAnimation = {
       ...slide,
@@ -105,6 +138,34 @@ describe("slideshowStepModel", () => {
     expect(states.el_group).toBeDefined();
     expect(states.el_group_rect).toBeDefined();
     expect(states.el_group_label).toMatchObject({ visible: false, opacity: 0 });
+  });
+
+  it("keeps group targets hidden until a trigger fade-in step executes", () => {
+    const slideWithGroupFadeIn = {
+      ...slide,
+      animations: [
+        ...slide.animations,
+        {
+          animationId: "anim_group_fade_in",
+          elementId: "el_group",
+          type: "fade-in",
+          order: 12,
+          durationMs: 300,
+          delayMs: 0,
+          easing: "ease-out"
+        }
+      ]
+    } satisfies typeof slide;
+    const states = computeSettledElementStates({
+      deck: p0AnimationDeck,
+      slide: slideWithGroupFadeIn,
+      stepIndex: 0,
+      triggerAnimationIds: ["anim_group_fade_in"]
+    });
+
+    expect(states.el_group).toMatchObject({ visible: false, opacity: 0 });
+    expect(states.el_group_rect).toBeDefined();
+    expect(states.el_group_label).toBeDefined();
   });
 
   it("restores base opacity when an element re-enters after an exit step", () => {

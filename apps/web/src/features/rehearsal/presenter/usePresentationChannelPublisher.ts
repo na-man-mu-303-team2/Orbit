@@ -1,6 +1,7 @@
 import type { Deck } from "@orbit/shared";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { PresenterSlideshowState } from "./presenterStateStore";
+import type { SlideshowRuntimeSnapshot } from "./slideshowRuntime";
 import {
   createPresentationSessionId,
   createPresenterHeartbeatMessage,
@@ -40,18 +41,23 @@ export type PresentationPublisherController = {
 export function usePresentationChannelPublisher(args: {
   channelFactory?: PresentationChannelFactory;
   deck: Deck | null;
+  runtime: SlideshowRuntimeSnapshot | null;
   state: PresenterSlideshowState | null;
-  triggerAnimationIds: string[];
 }) {
-  const { channelFactory = createBroadcastChannel, deck, state, triggerAnimationIds } = args;
+  const {
+    channelFactory = createBroadcastChannel,
+    deck,
+    runtime,
+    state,
+  } = args;
   const [sessionId] = useState(() => createPresentationSessionId());
   const [status, setStatus] = useState<PresentationChannelStatus>("idle");
   const channelRef = useRef<PresentationChannelLike | null>(null);
   const controllerRef = useRef<PresentationPublisherController | null>(null);
   const lastPeerSeenAtRef = useRef<number | null>(null);
   const peerWaitStartedAtRef = useRef<number | null>(null);
-  const latestRef = useRef({ deck, state, triggerAnimationIds });
-  latestRef.current = { deck, state, triggerAnimationIds };
+  const latestRef = useRef({ deck, runtime, state });
+  latestRef.current = { deck, runtime, state };
 
   const identity = useMemo<PresentationChannelIdentity | null>(
     () => (deck ? { deckId: deck.deckId, sessionId } : null),
@@ -82,8 +88,13 @@ export function usePresentationChannelPublisher(args: {
         return createPresenterSnapshotMessage({
           deck: latest.deck,
           identity,
+          runtime: latest.runtime ?? {
+            executedAnimationIds: [],
+            isComplete: true,
+            stepIndex: 0,
+            triggerAnimationIds: []
+          },
           state: latest.state,
-          triggerAnimationIds: latest.triggerAnimationIds
         });
       },
       getState: () => {
@@ -94,8 +105,13 @@ export function usePresentationChannelPublisher(args: {
 
         return createPresenterStateMessage({
           identity,
+          runtime: latest.runtime ?? {
+            executedAnimationIds: [],
+            isComplete: true,
+            stepIndex: 0,
+            triggerAnimationIds: []
+          },
           state: latest.state,
-          triggerAnimationIds: latest.triggerAnimationIds
         });
       },
       identity,
@@ -154,7 +170,7 @@ export function usePresentationChannelPublisher(args: {
     }
 
     controllerRef.current?.publishState();
-  }, [deck, state, triggerAnimationIds]);
+  }, [deck, runtime, state]);
 
   return {
     publishSnapshot: () => {

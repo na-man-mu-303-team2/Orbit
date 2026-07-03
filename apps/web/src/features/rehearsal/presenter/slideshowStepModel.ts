@@ -74,6 +74,7 @@ export function createSlideshowAnimationPlan(
 
 export function computeSettledElementStates(args: {
   deck: Deck;
+  executedAnimationIds?: Iterable<string>;
   slide: Slide;
   stepIndex: number;
   triggerAnimationIds?: Iterable<string>;
@@ -84,23 +85,69 @@ export function computeSettledElementStates(args: {
   });
   const baseStates = createBaseElementStates(args.deck, args.slide);
   const states = cloneElementStates(baseStates);
+  const executedAnimationIds = args.executedAnimationIds
+    ? new Set(args.executedAnimationIds)
+    : null;
 
   // 복원 경로에서는 진입 자동 재생을 이미 끝난 상태로 취급해 창 재열기 때 반복 재생을 막는다.
   for (const animation of plan.entryAnimations) {
     applySettledAnimation(states, animation, baseStates[animation.elementId]);
   }
 
+  let hasBlockedPendingStep = false;
   plan.triggerSteps.forEach((step, stepIndex) => {
-    if (stepIndex + 1 > args.stepIndex) {
+    const isCompletedStep = stepIndex + 1 <= args.stepIndex;
+    const executedAnimations = executedAnimationIds
+      ? step.animations.filter((animation) =>
+          executedAnimationIds.has(animation.animationId)
+        )
+      : [];
+    const hasExplicitExecution = executedAnimations.length > 0;
+    const shouldApplyStep = isCompletedStep || hasExplicitExecution;
+
+    if (!shouldApplyStep) {
+      if (!hasBlockedPendingStep) {
+        for (const animation of step.animations) {
+          applyPendingAnimation(states, animation);
+        }
+        hasBlockedPendingStep = true;
+      }
+
       return;
     }
 
     for (const animation of step.animations) {
+      if (
+        !isCompletedStep &&
+        executedAnimationIds &&
+        !executedAnimationIds.has(animation.animationId)
+      ) {
+        continue;
+      }
+
       applySettledAnimation(states, animation, baseStates[animation.elementId]);
     }
   });
 
   return states;
+}
+
+export function deriveCompletedSlideshowStepIndex(
+  plan: SlideshowAnimationPlan,
+  executedAnimationIds: Iterable<string>
+) {
+  const executedIds = new Set(executedAnimationIds);
+  let completedStepCount = 0;
+
+  for (const step of plan.triggerSteps) {
+    if (!step.animations.every((animation) => executedIds.has(animation.animationId))) {
+      break;
+    }
+
+    completedStepCount += 1;
+  }
+
+  return completedStepCount;
 }
 
 export function clampSlideshowStepIndex(stepIndex: number, maxStepIndex: number) {
@@ -169,6 +216,36 @@ function applySettledAnimation(
       break;
     case "rotate":
       state.rotation = baseState?.rotation ?? 0;
+      break;
+  }
+}
+
+function applyPendingAnimation(
+  states: Record<string, ElementPresentationState>,
+  animation: DeckAnimation
+) {
+  const state = states[animation.elementId];
+
+  if (!state) {
+    return;
+  }
+
+  switch (animation.type) {
+    case "appear":
+    case "fade-in":
+      state.visible = false;
+      state.opacity = 0;
+      break;
+    case "zoom-in":
+      state.visible = false;
+      state.opacity = 0;
+      state.scaleX = 0;
+      state.scaleY = 0;
+      break;
+    case "disappear":
+    case "fade-out":
+    case "zoom-out":
+    case "rotate":
       break;
   }
 }
