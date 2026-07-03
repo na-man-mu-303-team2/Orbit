@@ -1,4 +1,4 @@
-import type { LiveSttPort, LiveSttResult } from "./liveSttPort";
+import type { LiveSttBiasPhrase, LiveSttPort, LiveSttResult } from "./liveSttPort";
 
 export type LiveSttHarnessScenario = {
   id: string;
@@ -29,10 +29,7 @@ export async function runLiveSttHarness(options: {
     await port.start({
       language: "ko",
       audioSource: options.audioSource,
-      biasPhrases: [
-        ...options.scenario.expectedPhrases,
-        ...options.scenario.expectedKeywords
-      ]
+      biasPhrases: getScenarioBiasPhrases(options.scenario)
     });
     await options.drive(port);
     await port.stop();
@@ -41,6 +38,23 @@ export async function runLiveSttHarness(options: {
     unsubscribe();
     await port.dispose();
   }
+}
+
+function getScenarioBiasPhrases(
+  scenario: LiveSttHarnessScenario
+): LiveSttBiasPhrase[] {
+  return [
+    ...scenario.expectedPhrases.map((text) => ({
+      text,
+      weight: 1,
+      source: "legacy" as const
+    })),
+    ...scenario.expectedKeywords.map((text) => ({
+      text,
+      weight: 1,
+      source: "keyword" as const
+    }))
+  ];
 }
 
 export function scoreLiveSttResults(

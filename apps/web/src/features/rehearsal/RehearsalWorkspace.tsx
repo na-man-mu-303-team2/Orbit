@@ -70,6 +70,7 @@ import {
 } from "./rehearsalCommands";
 import {
   LiveSttError,
+  type LiveSttBiasPhrase,
   type LiveSttEngineId,
   type LiveSttPort,
   type LiveSttResult
@@ -3179,8 +3180,20 @@ function isLiveSttUnavailable(error: LiveSttError) {
   return error.code === "model_unavailable" || error.code === "unsupported_runtime";
 }
 
-function getBiasPhrasesFromContext(context: LiveSttBiasContext | null) {
-  return context?.terms.map((term) => term.text) ?? [];
+function getBiasPhrasesFromContext(
+  context: LiveSttBiasContext | null
+): LiveSttBiasPhrase[] {
+  return (
+    context?.terms.map((term) => ({
+      text: term.text,
+      weight: term.weight,
+      source: term.source,
+      ...(term.keywordId === undefined ? {} : { keywordId: term.keywordId }),
+      ...(term.canonicalText === undefined
+        ? {}
+        : { canonicalText: term.canonicalText })
+    })) ?? []
+  );
 }
 
 function toErrorMessage(cause: unknown) {
