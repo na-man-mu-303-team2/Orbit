@@ -14,7 +14,7 @@
 
 ## Phase 1: Contextual biasing (phrases)
 
-- [ ] T2: `LiveSttBiasPhrase` + 통합 source union + migration-only 유니온 입력 추가, 3개 포트 계약 갱신 (M)
+- [x] T2: `LiveSttBiasPhrase` + 통합 source union + migration-only 유니온 입력 추가, 3개 포트 계약 갱신 (M)
 - [ ] T3: 생산자 가중치/metadata 전환 - `buildBiasPhrasesForSlide`, `getBiasPhrasesFromContext`, `liveSttHarness` (M, deps: T2)
 - [ ] T4: `string` 입력 제거, `LiveSttBiasPhrase[]` weighted-only 계약으로 고정 (S, deps: T3)
 - [ ] T5: `stt/webSpeechPhrases.ts` 신규 - feature detection, `weight -> boost`, apply helper (S, deps: T2)

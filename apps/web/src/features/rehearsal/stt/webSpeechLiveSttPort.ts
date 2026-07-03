@@ -8,6 +8,7 @@ import {
 } from "./browserSpeechRecognition";
 import {
   LiveSttError,
+  type LiveSttBiasPhraseInput,
   type LiveSttCapabilities,
   type LiveSttPort,
   type LiveSttResult,
@@ -128,7 +129,7 @@ export class WebSpeechLiveSttPort implements LiveSttPort {
     recognition?.stop();
   }
 
-  updateBiasPhrases(_phrases: string[]) {
+  updateBiasPhrases(_phrases: readonly LiveSttBiasPhraseInput[]) {
     // Web Speech의 contextual biasing 지원은 브라우저별 편차가 커서 P2에서는 후처리 매칭만 사용한다.
   }
 

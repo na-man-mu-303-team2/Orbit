@@ -2,6 +2,8 @@ import {
   LiveSttError,
   normalizeLiveSttBiasPhrases,
   type LiveSttCapabilities,
+  type LiveSttBiasPhrase,
+  type LiveSttBiasPhraseInput,
   type LiveSttPort,
   type LiveSttResult,
   type LiveSttSessionConfig,
@@ -50,7 +52,7 @@ export class MoonshineLiveSttPort implements LiveSttPort {
   private readonly errorSubscribers = new Set<(error: LiveSttError) => void>();
   private runtime: MoonshineRuntime | null = null;
   private startedAtMs: number | null = null;
-  private biasPhrases: string[] = [];
+  private biasPhrases: LiveSttBiasPhrase[] = [];
 
   constructor(private readonly options: MoonshineLiveSttPortOptions = {}) {
     this.now = options.now ?? (() => Date.now());
@@ -84,7 +86,7 @@ export class MoonshineLiveSttPort implements LiveSttPort {
     this.runtime?.stop();
   }
 
-  updateBiasPhrases(phrases: string[]) {
+  updateBiasPhrases(phrases: readonly LiveSttBiasPhraseInput[]) {
     this.biasPhrases = normalizeLiveSttBiasPhrases(phrases);
   }
 
