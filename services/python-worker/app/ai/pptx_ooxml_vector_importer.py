@@ -1241,7 +1241,8 @@ def image_element(
 
     props: dict[str, Any] = {
         "src": f"asset:{asset_id}",
-        "alt": shape_name(shape) or "Imported image",
+        "alt": shape_name(shape)
+        or ("Imported SVG" if is_svg_mime_type(mime_type) else "Imported image"),
         "fit": "stretch",
         "focusX": 0.5,
         "focusY": 0.5,
@@ -1258,7 +1259,7 @@ def image_element(
             z_index=z_index,
             locked=locked or role == "background",
         ),
-        "type": "image",
+        "type": "svg" if is_svg_mime_type(mime_type) else "image",
         "props": props,
     }
 
@@ -2348,7 +2349,13 @@ def extension_for_mime_type(mime_type: str) -> str:
     subtype = mime_type.rsplit("/", maxsplit=1)[-1].lower()
     if subtype == "jpeg":
         return "jpg"
+    if subtype in {"svg", "svg+xml"}:
+        return "svg"
     return subtype if subtype in {"png", "jpg", "gif", "webp"} else "png"
+
+
+def is_svg_mime_type(mime_type: str) -> bool:
+    return mime_type.lower() in {"image/svg+xml", "image/svg"}
 
 
 def is_full_canvas_frame(frame: dict[str, int], scale: OoxmlScale) -> bool:

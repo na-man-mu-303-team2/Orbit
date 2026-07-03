@@ -14,6 +14,7 @@ export const deckElementTypeSchema = z.enum([
   "star",
   "ring",
   "image",
+  "svg",
   "group",
   "customShape",
   "chart",
@@ -194,6 +195,8 @@ export const imageElementPropsSchema = z.object({
   crop: imageCropSchema.optional()
 });
 
+export const svgElementPropsSchema = imageElementPropsSchema;
+
 export const groupElementPropsSchema = z
   .object({
     childElementIds: z.array(deckElementIdSchema).default([])
@@ -287,6 +290,11 @@ export const imageElementSchema = deckElementBaseSchema.extend({
   props: imageElementPropsSchema
 });
 
+export const svgElementSchema = deckElementBaseSchema.extend({
+  type: z.literal("svg"),
+  props: svgElementPropsSchema
+});
+
 export const groupElementSchema = deckElementBaseSchema.extend({
   type: z.literal("group"),
   props: groupElementPropsSchema
@@ -317,6 +325,7 @@ export const deckElementSchema = z.discriminatedUnion("type", [
   starElementSchema,
   ringElementSchema,
   imageElementSchema,
+  svgElementSchema,
   groupElementSchema,
   customShapeElementSchema,
   chartElementSchema,
@@ -340,6 +349,7 @@ export type TextFontWeight = z.infer<typeof textFontWeightSchema>;
 export type TextElementProps = z.infer<typeof textElementPropsSchema>;
 export type ImageFit = z.infer<typeof imageFitSchema>;
 export type ImageElementProps = z.infer<typeof imageElementPropsSchema>;
+export type SvgElementProps = z.infer<typeof svgElementPropsSchema>;
 export type GroupElementProps = z.infer<typeof groupElementPropsSchema>;
 export type TableCellProps = z.infer<typeof tableCellPropsSchema>;
 export type TableElementProps = z.infer<typeof tableElementPropsSchema>;

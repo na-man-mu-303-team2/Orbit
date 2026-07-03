@@ -198,6 +198,10 @@ export function ElementNodeContent(props: {
     return <ImageElementContent frame={frame} imageProps={element.props} />;
   }
 
+  if (element.type === "svg") {
+    return <ImageElementContent frame={frame} imageProps={element.props} />;
+  }
+
   if (element.type === "table") {
     return (
       <TableElementContent

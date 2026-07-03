@@ -39,7 +39,10 @@ function getEditorSlideValidationItems(
       });
     }
 
-    if (element.type === "image" && !element.props.alt.trim()) {
+    if (
+      (element.type === "image" || element.type === "svg") &&
+      !element.props.alt.trim()
+    ) {
       items.push({
         elementId: element.elementId,
         message: "이미지 대체 텍스트가 비어 있습니다.",

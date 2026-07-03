@@ -959,7 +959,7 @@ def slot_role_for_element(element: dict[str, Any]) -> str:
     role = str(element.get("role", "unknown"))
     if role in {"title", "subtitle", "body", "caption", "background"}:
         return role
-    if element.get("type") == "image":
+    if element.get("type") in {"image", "svg"}:
         return "image"
     if element.get("type") == "chart":
         return "chart"
@@ -974,7 +974,7 @@ def infer_element_source(element: dict[str, Any]) -> dict[str, Any]:
         return {"type": "master"}
     if "_layout_" in element_id:
         return {"type": "layout"}
-    if element.get("type") == "image":
+    if element.get("type") in {"image", "svg"}:
         return {"type": "image"}
     if "_cell_" in element_id:
         return {"type": "table"}
@@ -1058,7 +1058,23 @@ def editable_element_coverage(slides: list[dict[str, Any]]) -> float:
         element
         for element in elements
         if not bool(element.get("locked", False))
-        and element.get("type") in {"text", "image", "chart", "customShape"}
+        and element.get("type")
+        in {
+            "arrow",
+            "chart",
+            "customShape",
+            "ellipse",
+            "group",
+            "image",
+            "line",
+            "polygon",
+            "rect",
+            "ring",
+            "star",
+            "svg",
+            "table",
+            "text",
+        }
     ]
     return round(len(editable) / len(elements), 3)
 
@@ -1315,6 +1331,8 @@ def extension_for_mime_type(mime_type: str) -> str:
     subtype = mime_type.rsplit("/", maxsplit=1)[-1].lower()
     if subtype == "jpeg":
         return "jpg"
+    if subtype in {"svg", "svg+xml"}:
+        return "svg"
     if subtype in {"png", "jpg", "gif", "webp"}:
         return subtype
     return "png"

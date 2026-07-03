@@ -327,6 +327,43 @@ describe("ReadOnlySlideCanvas", () => {
     expect(html).toContain("D");
   });
 
+  it("renders editable SVG media elements", () => {
+    const svgSlide = {
+      ...slide,
+      elements: [
+        {
+          elementId: "el_svg",
+          type: "svg" as const,
+          role: "media" as const,
+          x: 100,
+          y: 100,
+          width: 240,
+          height: 160,
+          rotation: 0,
+          opacity: 1,
+          zIndex: 1,
+          locked: false,
+          visible: true,
+          props: {
+            alt: "Vector mark",
+            fit: "stretch" as const,
+            focusX: 0.5,
+            focusY: 0.5,
+            src: "/assets/vector.svg"
+          }
+        }
+      ]
+    };
+    const html = renderToStaticMarkup(
+      <ReadOnlySlideCanvas
+        deck={{ ...p0AnimationDeck, slides: [svgSlide] }}
+        slide={svgSlide}
+      />
+    );
+
+    expect(html).toContain("Vector mark");
+  });
+
   it("renders editable line chart legends", () => {
     const chartSlide = {
       ...slide,

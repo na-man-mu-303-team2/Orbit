@@ -12,7 +12,11 @@ from pptx.enum.shapes import MSO_SHAPE
 from pptx.oxml import parse_xml
 from pptx.util import Inches, Pt
 
-from app.ai.pptx_design_importer import blip_fill_asset, import_pptx_design
+from app.ai.pptx_design_importer import (
+    blip_fill_asset,
+    build_quality_report,
+    import_pptx_design,
+)
 from app.ai.pptx_ooxml_vector_importer import (
     VECTOR_IMPORT_FLAG,
     import_pptx_design_with_optional_ooxml_vector,
@@ -973,6 +977,61 @@ def test_ooxml_visual_tree_importer_falls_back_graphic_frames(
     )
 
 
+def test_ooxml_visual_tree_importer_preserves_svg_as_editable_media(
+    tmp_path: Path,
+) -> None:
+    pptx_path = tmp_path / "svg-media.pptx"
+    image_path = tmp_path / "placeholder.png"
+    Image.new("RGB", (32, 32), "#2563EB").save(image_path)
+    presentation = Presentation()
+    presentation.slide_width = Inches(13.333333)
+    presentation.slide_height = Inches(7.5)
+    slide = presentation.slides.add_slide(presentation.slide_layouts[6])
+    slide.shapes.add_picture(
+        str(image_path),
+        Inches(1),
+        Inches(1),
+        Inches(2),
+        Inches(2),
+    )
+    presentation.save(pptx_path)
+    replace_first_picture_with_svg(pptx_path)
+
+    result = import_pptx_ooxml_visual_tree(pptx_path, "file_design")
+    elements = result.blueprint["slides"][0]["elements"]
+    svg = next(element for element in elements if element["type"] == "svg")
+    svg_slot = next(
+        slot
+        for slot in result.template_blueprint["slides"][0]["slots"]
+        if slot["elementId"] == svg["elementId"]
+    )
+
+    assert svg["role"] == "media"
+    assert svg["props"]["src"] == "asset:image_1"
+    assert result.assets[0].file_name == "image_1.svg"
+    assert result.assets[0].mime_type == "image/svg+xml"
+    assert svg_slot["slotRole"] == "image"
+    assert svg_slot["source"]["relationshipId"].startswith("rId")
+
+
+def test_quality_report_counts_supported_deck_elements_as_editable() -> None:
+    report = build_quality_report(
+        [
+            {
+                "elements": [
+                    editable_element("el_rect", "rect"),
+                    editable_element("el_table", "table"),
+                    editable_element("el_svg", "svg"),
+                ]
+            }
+        ],
+        [],
+    )
+
+    assert report["editabilityCoverage"] == 1
+    assert report["metrics"]["editability"] == 100
+
+
 def test_ooxml_visual_tree_importer_is_default(
     tmp_path: Path,
     monkeypatch: object,
@@ -1170,3 +1229,68 @@ def replace_shape_fill_with_pattern(shape: object) -> None:
             """
         ),
     )
+
+
+def replace_first_picture_with_svg(pptx_path: Path) -> None:
+    with zipfile.ZipFile(pptx_path, "r") as package:
+        entries = {
+            info.filename: package.read(info.filename)
+            for info in package.infolist()
+        }
+
+    rels_path = "ppt/slides/_rels/slide1.xml.rels"
+    rels_root = ET.fromstring(entries[rels_path])
+    for relationship in rels_root:
+        if str(relationship.get("Type", "")).endswith("/image"):
+            relationship.set("Target", "../media/image1.svg")
+            break
+    entries[rels_path] = ET.tostring(
+        rels_root,
+        encoding="utf-8",
+        xml_declaration=True,
+    )
+
+    content_types_root = ET.fromstring(entries["[Content_Types].xml"])
+    namespace = str(content_types_root.tag).split("}", maxsplit=1)[0].strip("{")
+    has_svg_default = any(
+        child.get("Extension") == "svg"
+        for child in list(content_types_root)
+        if child.tag.endswith("Default")
+    )
+    if not has_svg_default:
+        ET.SubElement(
+            content_types_root,
+            f"{{{namespace}}}Default",
+            Extension="svg",
+            ContentType="image/svg+xml",
+        )
+    entries["[Content_Types].xml"] = ET.tostring(
+        content_types_root,
+        encoding="utf-8",
+        xml_declaration=True,
+    )
+    entries["ppt/media/image1.svg"] = (
+        b'<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32">'
+        b'<rect width="32" height="32" fill="#2563EB"/>'
+        b"</svg>"
+    )
+
+    rewritten_path = pptx_path.with_suffix(".rewritten.pptx")
+    with zipfile.ZipFile(rewritten_path, "w", zipfile.ZIP_DEFLATED) as package:
+        for filename, content in entries.items():
+            package.writestr(filename, content)
+    rewritten_path.replace(pptx_path)
+
+
+def editable_element(element_id: str, element_type: str) -> dict[str, object]:
+    return {
+        "elementId": element_id,
+        "type": element_type,
+        "role": "media",
+        "x": 10,
+        "y": 10,
+        "width": 100,
+        "height": 80,
+        "locked": False,
+        "visible": True,
+    }

@@ -598,7 +598,7 @@ function collectSlideAssetUrls(slide: Slide) {
   }
 
   for (const element of slide.elements) {
-    if (element.type === "image" && element.props.src) {
+    if ((element.type === "image" || element.type === "svg") && element.props.src) {
       urls.add(element.props.src);
     }
   }
@@ -633,7 +633,7 @@ function normalizeDeckAssetUrls(deck: Deck) {
           }
         : slide.style,
       elements: slide.elements.map((element) =>
-        element.type === "image"
+        element.type === "image" || element.type === "svg"
           ? {
               ...element,
               props: {

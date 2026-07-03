@@ -227,6 +227,34 @@ describe("deckSchema validation", () => {
     expectValidDeck(deck);
   });
 
+  it("accepts editable SVG media elements", () => {
+    const deck = createValidDeck();
+
+    deck.slides[0].elements[0] = {
+      elementId: "el_1",
+      type: "svg",
+      role: "media",
+      x: 120,
+      y: 80,
+      width: 320,
+      height: 180,
+      rotation: 0,
+      opacity: 1,
+      zIndex: 0,
+      locked: false,
+      visible: true,
+      props: {
+        alt: "Vector logo",
+        fit: "stretch",
+        focusX: 0.5,
+        focusY: 0.5,
+        src: "/logo.svg"
+      }
+    };
+
+    expectValidDeck(deck);
+  });
+
   it("accepts high fidelity PPTX visual props", () => {
     const deck = createValidDeck();
 

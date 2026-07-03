@@ -229,7 +229,7 @@ export function SelectionQuickBar(props: {
         >
           {element.visible ? <Eye size={16} /> : <EyeOff size={16} />}
         </button>
-        {element.type === "image" ? (
+        {element.type === "image" || element.type === "svg" ? (
           <span className="quickbar-inline-hint">
             우클릭해 이미지를 바꿀 수 있습니다
           </span>
@@ -430,7 +430,7 @@ function ElementQuickBarFields(props: {
     );
   }
 
-  if (element.type === "image") {
+  if (element.type === "image" || element.type === "svg") {
     const imageProps = element.props as ImageElementProps;
 
     return (
