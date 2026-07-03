@@ -781,6 +781,34 @@ def test_ooxml_visual_tree_importer_preserves_text_box_geometry(
     assert shape["rotation"] == 30
 
 
+def test_ooxml_visual_tree_importer_preserves_vertical_text_mode(
+    tmp_path: Path,
+) -> None:
+    pptx_path = tmp_path / "vertical-text.pptx"
+    presentation = Presentation()
+    presentation.slide_width = Inches(13.333333)
+    presentation.slide_height = Inches(7.5)
+    slide = presentation.slides.add_slide(presentation.slide_layouts[6])
+    textbox = slide.shapes.add_textbox(
+        Inches(1),
+        Inches(1.7),
+        Inches(1),
+        Inches(4.8),
+    )
+    textbox.text_frame.text = "VERTICAL"
+    textbox._element.txBody.bodyPr.set("vert", "vert270")
+    presentation.save(pptx_path)
+
+    result = import_pptx_ooxml_visual_tree(pptx_path, "file_design")
+    text = next(
+        element
+        for element in result.blueprint["slides"][0]["elements"]
+        if element["type"] == "text" and element["props"]["text"] == "VERTICAL"
+    )
+
+    assert text["props"]["writingMode"] == "vertical-270"
+
+
 def test_ooxml_visual_tree_importer_falls_back_graphic_frames(
     tmp_path: Path,
 ) -> None:

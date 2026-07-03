@@ -262,6 +262,7 @@ describe("deckSchema validation", () => {
               color: "#2563eb"
             }
           ],
+          writingMode: "vertical-270",
           bullet: {
             enabled: true,
             character: "\u2022",

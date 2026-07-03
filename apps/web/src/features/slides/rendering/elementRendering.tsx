@@ -6,6 +6,7 @@ import type {
   DeckElement,
   GroupElementProps,
   ShapeElementProps,
+  TextElementRun,
   Slide,
   TextElementProps
 } from "@orbit/shared";
@@ -38,7 +39,10 @@ import {
   drawCustomShapeScene,
   getCustomShapeDataArray
 } from "../../editor/canvas/custom-shape/render";
-import { getTextElementLayout } from "../../editor/canvas/text/textLayout";
+import {
+  getKonvaFontStyle,
+  getTextElementLayout
+} from "../../editor/canvas/text/textLayout";
 import { getGroupedChildPreviewFrame } from "../../editor/canvas/utils/canvasElementUtils";
 
 type KonvaComponent = ComponentType<any>;
@@ -96,15 +100,60 @@ export function ElementNodeContent(props: {
       slide,
       theme: deck.theme
     });
+    const textProps = element.props as TextElementProps;
+
+    if (textProps.writingMode === "vertical-270") {
+      return (
+        <Text
+          align={textProps.align}
+          fill={textLayout.color}
+          fontFamily={textLayout.fontFamily}
+          fontSize={textLayout.fontSize}
+          fontStyle={textLayout.fontStyle}
+          lineHeight={textProps.lineHeight}
+          listening={false}
+          padding={0}
+          rotation={-90}
+          text={textLayout.text}
+          width={frame.height}
+          wrap="word"
+          x={0}
+          y={frame.height}
+        />
+      );
+    }
+
+    if (shouldRenderTextRuns(textProps)) {
+      return (
+        <Group listening={false}>
+          {layoutTextRuns(textProps, textLayout).map((segment, index) => (
+            <Text
+              fill={segment.color}
+              fontFamily={segment.fontFamily}
+              fontSize={segment.fontSize}
+              fontStyle={segment.fontStyle}
+              key={`${segment.text}-${index}`}
+              lineHeight={textProps.lineHeight}
+              listening={false}
+              padding={0}
+              text={segment.text}
+              width={Math.max(1, segment.width)}
+              x={segment.x}
+              y={segment.y}
+            />
+          ))}
+        </Group>
+      );
+    }
 
     return (
       <Text
-        align={element.props.align}
+        align={textProps.align}
         fill={textLayout.color}
         fontFamily={textLayout.fontFamily}
         fontSize={textLayout.fontSize}
         fontStyle={textLayout.fontStyle}
-        lineHeight={element.props.lineHeight}
+        lineHeight={textProps.lineHeight}
         listening={false}
         padding={0}
         text={textLayout.text}
@@ -519,6 +568,92 @@ export function ElementNodeContent(props: {
       />
     </Group>
   );
+}
+
+type TextLayout = ReturnType<typeof getTextElementLayout>;
+
+function shouldRenderTextRuns(props: TextElementProps) {
+  return (props.runs?.filter((run) => run.text.length > 0).length ?? 0) > 1;
+}
+
+function layoutTextRuns(props: TextElementProps, layout: TextLayout) {
+  const runs = props.runs ?? [];
+  const lineHeight = layout.fontSize * props.lineHeight;
+  let x = layout.contentX;
+  let y = layout.y;
+
+  return runs.flatMap((run) => {
+    const segments = run.text.split(/(\n)/);
+    const result: Array<{
+      color: string;
+      fontFamily: string;
+      fontSize: number;
+      fontStyle: "normal" | "bold";
+      text: string;
+      width: number;
+      x: number;
+      y: number;
+    }> = [];
+
+    for (const text of segments) {
+      if (text === "\n") {
+        x = layout.contentX;
+        y += lineHeight;
+        continue;
+      }
+      if (!text) {
+        continue;
+      }
+      const style = textRunStyle(run, props, layout);
+      const width = measureRunText(text, style);
+      result.push({ ...style, text, width, x, y });
+      x += width;
+    }
+
+    return result;
+  });
+}
+
+function textRunStyle(
+  run: TextElementRun,
+  props: TextElementProps,
+  layout: TextLayout
+): {
+  color: string;
+  fontFamily: string;
+  fontSize: number;
+  fontStyle: "normal" | "bold";
+} {
+  const fontWeight = run.fontWeight ?? props.fontWeight;
+
+  return {
+    color: run.color ?? layout.color,
+    fontFamily: run.fontFamily ?? layout.fontFamily,
+    fontSize: run.fontSize ?? layout.fontSize,
+    fontStyle: getKonvaFontStyle(fontWeight)
+  };
+}
+
+function measureRunText(
+  text: string,
+  style: {
+    fontFamily: string;
+    fontSize: number;
+    fontStyle: "normal" | "bold";
+  }
+) {
+  if (typeof document === "undefined") {
+    return text.length * style.fontSize * 0.55;
+  }
+
+  const canvas = document.createElement("canvas");
+  const context = canvas.getContext("2d");
+  if (!context) {
+    return text.length * style.fontSize * 0.55;
+  }
+  const weight = style.fontStyle === "bold" ? 700 : 400;
+  context.font = `${weight} ${style.fontSize}px ${style.fontFamily}`;
+  return context.measureText(text).width;
 }
 
 function getSolidPaint(paint: DeckElementPaint | undefined, fallback: string) {

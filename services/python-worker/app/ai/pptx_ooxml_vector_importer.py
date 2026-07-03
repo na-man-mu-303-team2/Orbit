@@ -1126,6 +1126,7 @@ def text_element(
         "color": first_run.get("color", "#111827"),
         "align": paragraph_align(body),
         "verticalAlign": text_vertical_align(body),
+        "writingMode": text_writing_mode(body),
         "lineHeight": paragraph_line_height(body),
     }
     bullet = paragraph_bullet(body)
@@ -1227,6 +1228,12 @@ def text_vertical_align(body: ET.Element[Any]) -> str:
         "mid": "middle",
         "b": "bottom",
     }.get(anchor, "top")
+
+
+def text_writing_mode(body: ET.Element[Any]) -> str:
+    body_pr = first_local_child(body, "bodyPr")
+    vertical = str(body_pr.get("vert", "horz")) if body_pr is not None else "horz"
+    return "vertical-270" if vertical == "vert270" else "horizontal"
 
 
 def paragraph_line_height(body: ET.Element[Any]) -> float:

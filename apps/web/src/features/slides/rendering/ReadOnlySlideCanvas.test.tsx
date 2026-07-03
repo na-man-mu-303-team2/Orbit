@@ -45,7 +45,25 @@ vi.mock("react-konva", () => {
       </div>
     )
   );
-  const Text = ({ text }: { text?: string }) => <span>{text}</span>;
+  const Text = ({
+    fill,
+    fontSize,
+    rotation,
+    text
+  }: {
+    fill?: string;
+    fontSize?: number;
+    rotation?: number;
+    text?: string;
+  }) => (
+    <span
+      data-fill={fill}
+      data-font-size={fontSize === undefined ? undefined : String(fontSize)}
+      data-rotation={rotation === undefined ? undefined : String(rotation)}
+    >
+      {text}
+    </span>
+  );
 
   return {
     Arrow: () => <span data-konva-arrow="true" />,
@@ -124,6 +142,103 @@ describe("ReadOnlySlideCanvas", () => {
 
     expect(html).toContain("data-element-id=\"el_group_label\"");
     expect(html).toContain("data-opacity=\"0\"");
+  });
+
+  it("renders styled text runs separately", () => {
+    const richSlide = {
+      ...slide,
+      elements: [
+        {
+          elementId: "el_rich_text",
+          type: "text" as const,
+          role: "body" as const,
+          x: 100,
+          y: 100,
+          width: 600,
+          height: 120,
+          rotation: 0,
+          opacity: 1,
+          zIndex: 1,
+          locked: false,
+          visible: true,
+          props: {
+            text: "Hello World",
+            runs: [
+              {
+                text: "Hello ",
+                baseline: "normal" as const,
+                color: "#111827",
+                fontSize: 48,
+                fontWeight: "bold" as const
+              },
+              {
+                text: "World",
+                baseline: "normal" as const,
+                color: "#2563eb",
+                fontSize: 36,
+                fontWeight: "normal" as const
+              }
+            ],
+            fontSize: 48,
+            fontWeight: "normal" as const,
+            align: "left" as const,
+            verticalAlign: "top" as const,
+            lineHeight: 1.15
+          }
+        }
+      ]
+    };
+    const html = renderToStaticMarkup(
+      <ReadOnlySlideCanvas
+        deck={{ ...p0AnimationDeck, slides: [richSlide] }}
+        slide={richSlide}
+      />
+    );
+
+    expect(html).toContain("data-fill=\"#111827\"");
+    expect(html).toContain("data-font-size=\"48\"");
+    expect(html).toContain("data-fill=\"#2563eb\"");
+    expect(html).toContain("data-font-size=\"36\"");
+  });
+
+  it("renders vertical PPT text as rotated text", () => {
+    const verticalSlide = {
+      ...slide,
+      elements: [
+        {
+          elementId: "el_vertical_text",
+          type: "text" as const,
+          role: "body" as const,
+          x: 100,
+          y: 100,
+          width: 120,
+          height: 480,
+          rotation: 0,
+          opacity: 1,
+          zIndex: 1,
+          locked: false,
+          visible: true,
+          props: {
+            text: "VERTICAL",
+            fontSize: 36,
+            fontWeight: "normal" as const,
+            align: "left" as const,
+            verticalAlign: "top" as const,
+            writingMode: "vertical-270" as const,
+            lineHeight: 1.15
+          }
+        }
+      ]
+    };
+    const html = renderToStaticMarkup(
+      <ReadOnlySlideCanvas
+        deck={{ ...p0AnimationDeck, slides: [verticalSlide] }}
+        slide={verticalSlide}
+      />
+    );
+
+    expect(html).toContain("data-rotation=\"-90\"");
+    expect(html).toContain("VERTICAL");
   });
 
   it("renders active highlights for grouped child elements", () => {

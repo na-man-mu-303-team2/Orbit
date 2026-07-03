@@ -97,6 +97,7 @@ export const textAlignSchema = z.enum([
 ]);
 
 export const textVerticalAlignSchema = z.enum(["top", "middle", "bottom"]);
+export const textWritingModeSchema = z.enum(["horizontal", "vertical-270"]);
 
 export const textFontWeightSchema = z.union([
   z.enum(["normal", "medium", "semibold", "bold"]),
@@ -128,6 +129,7 @@ export const textElementPropsSchema = z
     color: themeColorSchema.optional(),
     align: textAlignSchema.default("left"),
     verticalAlign: textVerticalAlignSchema.default("top"),
+    writingMode: textWritingModeSchema.optional(),
     lineHeight: z.number().finite().positive().default(1.2),
     bullet: textElementBulletSchema.optional()
   })
