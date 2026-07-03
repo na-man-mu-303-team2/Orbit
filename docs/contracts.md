@@ -139,7 +139,8 @@ API:
           "keywordId": "kw_1",
           "text": "ORBIT",
           "synonyms": ["발표 도우미"],
-          "abbreviations": []
+          "abbreviations": [],
+          "required": true
         }
       ],
       "elements": [
@@ -172,8 +173,8 @@ API:
         {
           "actionId": "act_1",
           "trigger": {
-            "kind": "cue",
-            "cue": "강조"
+            "kind": "keyword",
+            "keywordId": "kw_1"
           },
           "effect": {
             "kind": "play-animation",
@@ -270,10 +271,13 @@ API:
 - animation `order`는 `1`부터 시작하는 양의 정수로 관리한다.
 - `durationMs`, `delayMs`, `easing`은 입력에서 생략할 수 있지만, schema parse 후 normalized Deck JSON에는 각각 `400`, `0`, `"ease-out"` 기본값으로 포함한다.
 - `easing`은 `linear`, `ease-in`, `ease-out`, `ease-in-out`만 허용한다.
+- `slide.keywords[]`는 `required` boolean을 포함한다. 이 값은 발표 중 반드시 언급해야 하는 keyword 여부를 나타내며 기본값은 `true`다.
+- 애니메이션 trigger, 다음 슬라이드 trigger 같은 발표 제어 분류는 keyword 필드에 중복 저장하지 않고 연결된 `slide.actions`로부터 파생한다.
 - 키워드 기반 authored action은 `slide.actions` flat list에 저장한다.
-- 각 action은 `act_` prefix를 따르는 `actionId`와 `cue` trigger를 가진다.
+- 각 action은 `act_` prefix를 따르는 `actionId`와 legacy `cue` 또는 `keywordId` 기반 trigger를 가진다.
 - action effect는 `play-animation`, `go-to-next-slide`만 허용한다.
 - `play-animation` effect는 같은 slide 안에 있는 `animationId`만 참조할 수 있다.
+- `keyword` trigger는 같은 slide 안에 있는 `keywordId`만 참조할 수 있다.
 - 밑줄 애니메이션은 1차 스프린트 MVP가 아니라 폴리싱 범위로 둔다.
 - AI 생성 결과도 최종적으로 deck JSON으로 변환한다.
 - 리허설은 `speakerNotes`, `keywords.text`, `keywords.synonyms`, `keywords.abbreviations`를 기준으로 연결한다.

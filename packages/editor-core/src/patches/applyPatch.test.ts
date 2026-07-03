@@ -80,6 +80,7 @@ function createPatchTestDeck(): Deck {
         text: "ORBIT",
         synonyms: ["발표 도우미"],
         abbreviations: ["OBT"],
+        required: true,
       },
     ],
     elements: [createTextElement("el_1")],
@@ -382,6 +383,7 @@ describe("applyDeckPatch", () => {
               text: "패치",
               synonyms: [],
               abbreviations: [],
+              required: true,
             },
           ],
         },
@@ -455,6 +457,7 @@ describe("applyDeckPatch", () => {
         text: "패치",
         synonyms: [],
         abbreviations: [],
+        required: true,
       },
     ]);
     expect(slide.animations).toHaveLength(1);
@@ -502,6 +505,37 @@ describe("applyDeckPatch", () => {
     );
 
     expect(result.deck.slides[0].animations).toEqual([]);
+    expect(result.deck.slides[0].actions).toEqual([]);
+  });
+
+  it("deletes keyword-triggered slide actions when the keyword is removed", () => {
+    const deck = createPatchTestDeck();
+
+    deck.slides[0].actions = [
+      {
+        actionId: "act_1",
+        trigger: {
+          kind: "keyword",
+          keywordId: "kw_1",
+        },
+        effect: {
+          kind: "go-to-next-slide",
+        },
+      },
+    ];
+
+    const result = applyPatchOrFail(
+      deck,
+      createPatch([
+        {
+          type: "replace_keywords",
+          slideId: "slide_1",
+          keywords: [],
+        },
+      ]),
+    );
+
+    expect(result.deck.slides[0].keywords).toEqual([]);
     expect(result.deck.slides[0].actions).toEqual([]);
   });
 

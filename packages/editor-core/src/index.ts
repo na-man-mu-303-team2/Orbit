@@ -11,6 +11,35 @@ export type {
   DeckPatchVersionMetadata
 } from "./patches/deckPatch";
 export {
+  createAddAnimationWithKeywordTriggerPatch,
+  createKeyword,
+  createKeywordId,
+  createReplaceKeywordsPatch,
+  createSlideActionId,
+  createUpdateAnimationKeywordTriggerPatch,
+  createUpsertAdvanceSlideKeywordActionPatch,
+  deriveKeywordUsage,
+  findKeywordByTerm,
+  getAnimationTriggerAction,
+  getKeywordTriggerLabel
+} from "./patches/actionOperations";
+export type { DerivedKeywordUsage } from "./patches/actionOperations";
+export {
+  createAddAnimationPatch,
+  createAnimationId,
+  createDefaultAnimation,
+  createDeleteAnimationPatch,
+  createUpdateAnimationPatch,
+  getElementAnimations,
+  getNextAnimationOrder,
+  validateSlideAnimations
+} from "./patches/animationOperations";
+export type {
+  SlideAnimationDanglingTargetDiagnostic,
+  SlideAnimationDiagnostics,
+  SlideAnimationOrderDiagnostic
+} from "./patches/animationOperations";
+export {
   createElementFramePatch,
   normalizeElementFrameDraft
 } from "./patches/elementFrame";
@@ -34,7 +63,8 @@ export {
   executeSlideAction,
   getNextClickAnimation,
   playNextClickAnimation,
-  resolveCueActions
+  resolveCueActions,
+  resolveTriggeredActions
 } from "./playback/slidePlayback";
 export type {
   ClickPlaybackResult,
@@ -361,7 +391,7 @@ export function createDemoDeck(): Deck {
           {
             animationId: "anim_3",
             elementId: "el_7",
-            type: "appear",
+            type: "fade-in",
             order: 1,
             durationMs: 500,
             delayMs: 0,

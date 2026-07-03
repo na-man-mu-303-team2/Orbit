@@ -1,13 +1,28 @@
 import {
-  createGroupedElementFramePatch,
+  createAddAnimationPatch,
   createAddElementPatch,
+  createAddAnimationWithKeywordTriggerPatch,
   createAddSlidePatch,
+  createKeyword,
+  createDefaultAnimation,
   createDemoDeck,
+  createDeleteAnimationPatch,
   createElementId,
+  createReplaceKeywordsPatch,
+  createUpdateAnimationKeywordTriggerPatch,
+  createUpsertAdvanceSlideKeywordActionPatch,
+  deriveKeywordUsage,
+  findKeywordByTerm,
+  getAnimationTriggerAction,
+  getKeywordTriggerLabel,
+  createGroupedElementFramePatch,
+  createUpdateAnimationPatch,
+  getElementAnimations,
   getGroupChildElements,
   getGroupedSelectionBounds,
   createSlideId,
-  createUpdateElementPropsPatch
+  createUpdateElementPropsPatch,
+  validateSlideAnimations
 } from "../../../../../../packages/editor-core/src/index";
 import { applyDeckPatch } from "../../../../../../packages/editor-core/src/patches/applyPatch";
 import {
@@ -37,6 +52,9 @@ import {
   getCustomShapeAbsoluteNodes,
   normalizeCustomShapeAbsoluteGeometry
 } from "../canvas/custom-shape/geometry";
+import {
+  AnimationEditorModal
+} from "./components/AnimationEditorModal";
 import {
   EmptyCanvasState,
   EmptyPanel
@@ -78,8 +96,10 @@ import type {
   CustomShapeNode,
   Deck,
   DeckCanvas,
+  DeckAnimation,
   DeckElement,
   DeckElementRole,
+  Keyword,
   DeckPatch,
   GroupElementProps,
   ImageElementProps,
@@ -792,6 +812,7 @@ export function EditorShell(props: { projectId?: string }) {
   const [projectPresenceUsers, setProjectPresenceUsers] = useState<ProjectPresenceUser[]>([]);
   const [isPresenceDebugOpen, setIsPresenceDebugOpen] = useState(false);
   const [isAudienceLinkModalOpen, setIsAudienceLinkModalOpen] = useState(false);
+  const [isAnimationEditorModalOpen, setIsAnimationEditorModalOpen] = useState(false);
   const [lastPresenceAt, setLastPresenceAt] = useState<string | null>(null);
   const [socketErrorMessage, setSocketErrorMessage] = useState("");
   const [socketId, setSocketId] = useState("");
@@ -1014,6 +1035,10 @@ export function EditorShell(props: { projectId?: string }) {
         : [],
     [currentSlide]
   );
+  const currentSlideKeywordUsage = useMemo(
+    () => (currentSlide ? deriveKeywordUsage(currentSlide) : {}),
+    [currentSlide]
+  );
   const selectedKeyword =
     currentSlide?.keywords.find(
       (keyword) => keyword.keywordId === selectedKeywordId
@@ -1026,6 +1051,50 @@ export function EditorShell(props: { projectId?: string }) {
     selectedElementIds.length === 1
       ? selectedElements.find((element) => element.elementId === selectedElementId) ?? null
       : null;
+  const selectedElementAnimations = useMemo(
+    () =>
+      currentSlide && selectedElement
+        ? getElementAnimations(currentSlide, selectedElement.elementId)
+        : [],
+    [currentSlide, selectedElement]
+  );
+  const selectedElementAnimationTriggerLabels = useMemo(
+    () =>
+      currentSlide
+        ? Object.fromEntries(
+            selectedElementAnimations.map((animation) => {
+              const triggerAction = getAnimationTriggerAction(
+                currentSlide,
+                animation.animationId
+              );
+
+              return [
+                animation.animationId,
+                triggerAction
+                  ? getKeywordTriggerLabel(currentSlide, triggerAction.trigger)
+                  : "트리거 없음"
+              ];
+            })
+          )
+        : {},
+    [currentSlide, selectedElementAnimations]
+  );
+  const currentSlideAnimationDiagnostics = useMemo(
+    () =>
+      currentSlide
+        ? validateSlideAnimations(currentSlide, selectedElement?.elementId)
+        : null,
+    [currentSlide, selectedElement?.elementId]
+  );
+  useEffect(() => {
+    if (!isAnimationEditorModalOpen) {
+      return;
+    }
+
+    if (!currentSlide || !selectedElement) {
+      setIsAnimationEditorModalOpen(false);
+    }
+  }, [currentSlide, isAnimationEditorModalOpen, selectedElement]);
   const isCustomShapeEditingSelection =
     selectedElement?.type === "customShape" &&
     selectedElement.elementId === customShapeEditElementId;
@@ -1649,6 +1718,127 @@ export function EditorShell(props: { projectId?: string }) {
         }
       ]
     }));
+  }
+
+  function handleReplaceKeywords(slideId: string, update: (keywords: Keyword[]) => Keyword[]) {
+    commitPatch((currentDeck) => {
+      const slide = currentDeck.slides.find((candidate) => candidate.slideId === slideId);
+
+      if (!slide) {
+        throw new Error(`slide not found: ${slideId}`);
+      }
+
+      return createReplaceKeywordsPatch(currentDeck, slideId, update(slide.keywords));
+    });
+  }
+
+  function handleSpeakerNotesKeywordSelection(rawValue: string) {
+    if (!currentSlide) {
+      return;
+    }
+
+    const matchedKeyword = findKeywordByTerm(currentSlide, rawValue);
+    if (matchedKeyword) {
+      setSelectedKeywordId(matchedKeyword.keywordId);
+      return;
+    }
+
+    const nextKeyword = createKeyword(workingDeckRef.current, rawValue, {
+      required: false
+    });
+    setSelectedKeywordId(nextKeyword.keywordId);
+    handleReplaceKeywords(currentSlide.slideId, (keywords) => [...keywords, nextKeyword]);
+  }
+
+  function handleToggleKeywordRequired(slideId: string, keywordId: string) {
+    handleReplaceKeywords(slideId, (keywords) =>
+      keywords.map((keyword) =>
+        keyword.keywordId === keywordId
+          ? { ...keyword, required: !keyword.required }
+          : keyword
+      )
+    );
+  }
+
+  function handleToggleAdvanceSlideKeyword(
+    slideId: string,
+    keywordId: string,
+    enabled: boolean
+  ) {
+    const patch = createUpsertAdvanceSlideKeywordActionPatch(
+      workingDeckRef.current,
+      slideId,
+      keywordId,
+      enabled
+    );
+
+    if (!patch) {
+      return;
+    }
+
+    commitPatch(patch);
+  }
+
+  function handleAddAnimation(
+    slideId: string,
+    elementId: string,
+    keywordId?: string | null,
+    draft?: Partial<Pick<DeckAnimation, "delayMs" | "durationMs" | "type">>
+  ) {
+    commitPatch((currentDeck) => {
+      const slide = currentDeck.slides.find((candidate) => candidate.slideId === slideId);
+
+      if (!slide) {
+        throw new Error(`slide not found: ${slideId}`);
+      }
+
+      const animation = {
+        ...createDefaultAnimation(currentDeck, slide, elementId),
+        ...draft
+      };
+
+      if (!keywordId) {
+        return createAddAnimationPatch(currentDeck, slideId, animation);
+      }
+
+      return createAddAnimationWithKeywordTriggerPatch(
+        currentDeck,
+        slideId,
+        animation,
+        keywordId
+      );
+    });
+  }
+
+  function handleUpdateAnimation(
+    slideId: string,
+    animationId: string,
+    animation: Partial<DeckAnimation>
+  ) {
+    commitPatch((currentDeck) =>
+      createUpdateAnimationPatch(currentDeck, slideId, animationId, animation)
+    );
+  }
+
+  function handleDeleteAnimation(slideId: string, animationId: string) {
+    commitPatch((currentDeck) =>
+      createDeleteAnimationPatch(currentDeck, slideId, animationId)
+    );
+  }
+
+  function handleAssignAnimationTrigger(
+    slideId: string,
+    animationId: string,
+    keywordId: string
+  ) {
+    commitPatch((currentDeck) =>
+      createUpdateAnimationKeywordTriggerPatch(
+        currentDeck,
+        slideId,
+        animationId,
+        keywordId
+      )
+    );
   }
 
   function openImageFilePicker(target: ImageUploadTarget) {
@@ -3211,6 +3401,66 @@ export function EditorShell(props: { projectId?: string }) {
         projectId={projectId}
         onClose={() => setIsAudienceLinkModalOpen(false)}
       />
+      <AnimationEditorModal
+        animationDiagnostics={
+          currentSlideAnimationDiagnostics ?? {
+            danglingAnimations: [],
+            duplicateOrders: [],
+            selectedElementEmpty: false
+          }
+        }
+        animationTriggerLabels={selectedElementAnimationTriggerLabels}
+        animations={selectedElementAnimations}
+        canCreateAnimation={Boolean(currentSlide && selectedElement && selectedKeyword)}
+        element={selectedElement}
+        isOpen={isAnimationEditorModalOpen}
+        keywords={currentSlide?.keywords ?? []}
+        notes={currentSlide?.speakerNotes ?? ""}
+        selectedKeywordId={selectedKeywordId}
+        selectedKeywordLabel={selectedKeyword?.text ?? null}
+        showIds={showIds}
+        slide={currentSlide}
+        onAddAnimation={(draft) => {
+          if (!currentSlide || !selectedElement) {
+            return;
+          }
+
+          handleAddAnimation(
+            currentSlide.slideId,
+            selectedElement.elementId,
+            selectedKeyword?.keywordId,
+            draft
+          );
+        }}
+        onAssignSelectedKeywordToAnimation={(animationId) => {
+          if (!currentSlide || !selectedKeyword) {
+            return;
+          }
+
+          handleAssignAnimationTrigger(
+            currentSlide.slideId,
+            animationId,
+            selectedKeyword.keywordId
+          );
+        }}
+        onClose={() => setIsAnimationEditorModalOpen(false)}
+        onDeleteAnimation={(animationId) => {
+          if (!currentSlide) {
+            return;
+          }
+
+          handleDeleteAnimation(currentSlide.slideId, animationId);
+        }}
+        onSelectKeyword={setSelectedKeywordId}
+        onSelectKeywordText={handleSpeakerNotesKeywordSelection}
+        onUpdateAnimation={(animationId, animation) => {
+          if (!currentSlide) {
+            return;
+          }
+
+          handleUpdateAnimation(currentSlide.slideId, animationId, animation);
+        }}
+      />
       {isPresenceDebugOpen
         ? createPortal(
             <div
@@ -3463,6 +3713,21 @@ export function EditorShell(props: { projectId?: string }) {
                   <ImagePlus size={14} />
                   이미지
                 </button>
+                <button
+                  className={`tool-button ${selectedElementAnimations.length > 0 ? "active" : ""}`}
+                  disabled={!currentSlide || !selectedElement}
+                  type="button"
+                  onClick={() => {
+                    if (!currentSlide || !selectedElement) {
+                      return;
+                    }
+
+                    setIsAnimationEditorModalOpen(true);
+                  }}
+                >
+                  <Sparkles size={14} />
+                  애니메이션
+                </button>
               </div>
 
               <div className="tool-group">
@@ -3485,11 +3750,29 @@ export function EditorShell(props: { projectId?: string }) {
             </div>
 
             <SelectionQuickBar
+              animations={selectedElementAnimations}
+              animationDiagnostics={
+                currentSlideAnimationDiagnostics ?? {
+                  danglingAnimations: [],
+                  duplicateOrders: [],
+                  selectedElementEmpty: false
+                }
+              }
+              canCreateAnimation={Boolean(currentSlide && selectedElement)}
               key={`quickbar-${selectedElement?.elementId ?? currentSlide?.slideId ?? "none"}`}
               customShapeEditActive={isCustomShapeEditingSelection}
               element={selectedElement}
+              selectedKeywordLabel={selectedKeyword?.text ?? null}
               slide={selectedElementIds.length > 1 ? null : currentSlide}
               showIds={showIds}
+              onOpenAnimationEditor={() => setIsAnimationEditorModalOpen(true)}
+              onDeleteAnimation={(animationId) => {
+                if (!currentSlide) {
+                  return;
+                }
+
+                handleDeleteAnimation(currentSlide.slideId, animationId);
+              }}
               onToggleCustomShapeClosed={() => {
                 if (!selectedElement || !currentSlide || selectedElement.type !== "customShape") {
                   return;
@@ -3614,15 +3897,45 @@ export function EditorShell(props: { projectId?: string }) {
                 selectedKeywordId={selectedKeywordId}
                 showIds={showIds}
                 onSelectKeyword={setSelectedKeywordId}
+                onSelectKeywordText={handleSpeakerNotesKeywordSelection}
               />
               <KeywordList
                 keywords={currentSlide?.keywords ?? []}
                 selectedKeywordId={selectedKeywordId}
                 showIds={showIds}
+                usageByKeywordId={currentSlideKeywordUsage}
                 onSelectKeyword={setSelectedKeywordId}
               />
               {selectedKeyword ? (
-                <KeywordDetail keyword={selectedKeyword} showIds={showIds} />
+                <KeywordDetail
+                  keyword={selectedKeyword}
+                  showIds={showIds}
+                  usage={currentSlideKeywordUsage[selectedKeyword.keywordId] ?? null}
+                  onToggleAdvanceSlide={() => {
+                    if (!currentSlide) {
+                      return;
+                    }
+
+                    handleToggleAdvanceSlideKeyword(
+                      currentSlide.slideId,
+                      selectedKeyword.keywordId,
+                      !(
+                        currentSlideKeywordUsage[selectedKeyword.keywordId]?.advancesSlide ??
+                        false
+                      )
+                    );
+                  }}
+                  onToggleRequired={() => {
+                    if (!currentSlide) {
+                      return;
+                    }
+
+                    handleToggleKeywordRequired(
+                      currentSlide.slideId,
+                      selectedKeyword.keywordId
+                    );
+                  }}
+                />
               ) : null}
             </section>
           </div>
@@ -3699,6 +4012,9 @@ export function EditorShell(props: { projectId?: string }) {
               }
             : null
         )}
+      </div>
+      <div data-testid="editor-animations-debug" hidden>
+        {JSON.stringify(currentSlide?.animations ?? [])}
       </div>
 
       {isDev ? (

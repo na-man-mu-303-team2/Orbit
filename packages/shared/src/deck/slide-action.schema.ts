@@ -1,13 +1,27 @@
 import { z } from "zod";
 
-import { deckActionIdSchema, deckAnimationIdSchema } from "./id.schema";
+import {
+  deckActionIdSchema,
+  deckAnimationIdSchema,
+  deckKeywordIdSchema
+} from "./id.schema";
 
 export const slideActionCueSchema = z.string().trim().min(1);
 
-export const slideActionTriggerSchema = z.object({
+export const cueSlideActionTriggerSchema = z.object({
   kind: z.literal("cue"),
   cue: slideActionCueSchema
 });
+
+export const keywordSlideActionTriggerSchema = z.object({
+  kind: z.literal("keyword"),
+  keywordId: deckKeywordIdSchema
+});
+
+export const slideActionTriggerSchema = z.discriminatedUnion("kind", [
+  cueSlideActionTriggerSchema,
+  keywordSlideActionTriggerSchema
+]);
 
 export const playAnimationActionEffectSchema = z.object({
   kind: z.literal("play-animation"),
@@ -42,6 +56,10 @@ export const slideActionPatchSchema = z
   );
 
 export type SlideActionCue = z.infer<typeof slideActionCueSchema>;
+export type CueSlideActionTrigger = z.infer<typeof cueSlideActionTriggerSchema>;
+export type KeywordSlideActionTrigger = z.infer<
+  typeof keywordSlideActionTriggerSchema
+>;
 export type DeckSlideActionTrigger = z.infer<typeof slideActionTriggerSchema>;
 export type PlayAnimationActionEffect = z.infer<
   typeof playAnimationActionEffectSchema

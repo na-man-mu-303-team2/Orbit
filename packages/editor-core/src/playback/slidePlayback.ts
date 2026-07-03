@@ -61,15 +61,37 @@ export function resolveCueActions(
   slide: Slide,
   cue: string
 ): DeckSlideAction[] {
-  const normalizedCue = normalizeCue(cue);
+  return resolveTriggeredActions(slide, { cue });
+}
 
-  if (!normalizedCue) {
+export function resolveTriggeredActions(
+  slide: Slide,
+  trigger: {
+    cue?: string;
+    keywordId?: string;
+  }
+): DeckSlideAction[] {
+  const normalizedCue = trigger.cue ? normalizeCue(trigger.cue) : "";
+
+  if (!normalizedCue && !trigger.keywordId) {
     return [];
   }
 
-  return slide.actions.filter(
-    (action) => normalizeCue(action.trigger.cue) === normalizedCue
-  );
+  return slide.actions.filter((action) => {
+    if (
+      normalizedCue &&
+      action.trigger.kind === "cue" &&
+      normalizeCue(action.trigger.cue) === normalizedCue
+    ) {
+      return true;
+    }
+
+    return (
+      trigger.keywordId !== undefined &&
+      action.trigger.kind === "keyword" &&
+      action.trigger.keywordId === trigger.keywordId
+    );
+  });
 }
 
 export function executeSlideAction(
