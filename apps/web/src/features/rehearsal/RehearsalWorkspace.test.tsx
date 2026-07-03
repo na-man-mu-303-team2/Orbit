@@ -1,5 +1,5 @@
 import fs from "node:fs";
-import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { createDemoDeck } from "@orbit/editor-core";
 import type { Job, RehearsalReport, RehearsalRun } from "@orbit/shared";
 import type { ReactNode } from "react";
@@ -48,6 +48,9 @@ import {
 import { resolveEditorAssetUrl } from "../editor/shared/editorAssetUrl";
 
 const createdAt = "2026-06-29T00:00:00.000Z";
+const rehearsalWorkspaceSourcePath = fileURLToPath(
+  new URL("./RehearsalWorkspace.tsx", import.meta.url)
+);
 
 vi.mock("react-konva", () => {
   const Group = forwardRef<HTMLDivElement, { children?: ReactNode }>(
@@ -89,7 +92,8 @@ describe("RehearsalWorkspace", () => {
     expect(html).toContain("Live STT");
     expect(html).toContain("Live STT 시작");
     expect(html).toContain("Live STT 종료");
-    expect(html).toContain("Live STT 시작을 눌러 테스트하세요");
+    expect(html).not.toContain("Live STT 시작을 눌러 테스트하세요");
+    expect(html).not.toContain("Partial transcript");
     expect(html).toContain("Mic input");
     expect(html).toContain("입력 대기");
     expect(html).toContain("-100 dB RMS");
@@ -99,7 +103,7 @@ describe("RehearsalWorkspace", () => {
 
   it("resets presenter step when live auto advance completes", () => {
     const source = fs.readFileSync(
-      path.join(process.cwd(), "src/features/rehearsal/RehearsalWorkspace.tsx"),
+      rehearsalWorkspaceSourcePath,
       "utf8"
     );
     const start = source.indexOf("function completeLiveSlideAdvance");
@@ -114,7 +118,7 @@ describe("RehearsalWorkspace", () => {
 
   it("keeps the presenter step on the last slide when no next slide exists", () => {
     const source = fs.readFileSync(
-      path.join(process.cwd(), "src/features/rehearsal/RehearsalWorkspace.tsx"),
+      rehearsalWorkspaceSourcePath,
       "utf8"
     );
     const start = source.indexOf("const handleNextPresenterStep");
@@ -133,7 +137,7 @@ describe("RehearsalWorkspace", () => {
 
   it("moves slides outside of the presenter step state updater", () => {
     const source = fs.readFileSync(
-      path.join(process.cwd(), "src/features/rehearsal/RehearsalWorkspace.tsx"),
+      rehearsalWorkspaceSourcePath,
       "utf8"
     );
     const start = source.indexOf("const handleNextPresenterStep");
