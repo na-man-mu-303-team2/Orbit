@@ -606,6 +606,63 @@ def test_ooxml_visual_tree_importer_honors_hidden_master_shapes(
     assert "#223344" not in fills
 
 
+def test_ooxml_visual_tree_importer_preserves_text_box_geometry(
+    tmp_path: Path,
+) -> None:
+    pptx_path = tmp_path / "text-geometry.pptx"
+    presentation = Presentation()
+    presentation.slide_width = Inches(13.333333)
+    presentation.slide_height = Inches(7.5)
+    slide = presentation.slides.add_slide(presentation.slide_layouts[6])
+
+    textbox = slide.shapes.add_textbox(
+        Inches(1),
+        Inches(1),
+        Inches(4),
+        Inches(2),
+    )
+    textbox.text_frame.text = "Inset text"
+    body_pr = textbox._element.txBody.bodyPr
+    body_pr.set("lIns", str(int(Inches(0.5))))
+    body_pr.set("rIns", str(int(Inches(0.25))))
+    body_pr.set("tIns", str(int(Inches(0.25))))
+    body_pr.set("bIns", str(int(Inches(0.25))))
+    body_pr.set("anchor", "mid")
+    rotated_box = slide.shapes.add_shape(
+        MSO_SHAPE.RECTANGLE,
+        Inches(6),
+        Inches(1),
+        Inches(2),
+        Inches(1),
+    )
+    rotated_box.rotation = 30
+    rotated_box.fill.solid()
+    rotated_box.fill.fore_color.rgb = RGBColor(238, 68, 68)
+    presentation.save(pptx_path)
+    set_first_text_paragraph_line_spacing(pptx_path, 1, 130000)
+
+    result = import_pptx_ooxml_visual_tree(pptx_path, "file_design")
+    elements = result.blueprint["slides"][0]["elements"]
+    text = next(
+        element
+        for element in elements
+        if element["type"] == "text" and element["props"]["text"] == "Inset text"
+    )
+    shape = next(
+        element
+        for element in elements
+        if element["type"] == "rect" and element["props"]["fill"] == "#EE4444"
+    )
+
+    assert text["x"] == 216
+    assert text["y"] == 180
+    assert text["width"] == 468
+    assert text["height"] == 216
+    assert text["props"]["verticalAlign"] == "middle"
+    assert text["props"]["lineHeight"] == 1.3
+    assert shape["rotation"] == 30
+
+
 def test_ooxml_visual_tree_importer_is_default(
     tmp_path: Path,
     monkeypatch: object,
@@ -710,6 +767,43 @@ def set_slide_show_master_shapes(
         if item.tag.rsplit("}", maxsplit=1)[-1] == "cSld"
     )
     common_slide_data.set("showMasterSp", "1" if show else "0")
+    entries[slide_path] = ET.tostring(root, encoding="utf-8", xml_declaration=True)
+
+    with zipfile.ZipFile(pptx_path, "w") as package:
+        for name, content in entries.items():
+            package.writestr(name, content)
+
+
+def set_first_text_paragraph_line_spacing(
+    pptx_path: Path,
+    slide_index: int,
+    spacing_pct: int,
+) -> None:
+    with zipfile.ZipFile(pptx_path, "r") as package:
+        entries = {item.filename: package.read(item.filename) for item in package.infolist()}
+
+    slide_path = f"ppt/slides/slide{slide_index}.xml"
+    root = ET.fromstring(entries[slide_path])
+    paragraph = next(
+        item for item in root.iter() if item.tag.rsplit("}", maxsplit=1)[-1] == "p"
+    )
+    namespace = paragraph.tag.rsplit("}", maxsplit=1)[0].lstrip("{")
+    paragraph_props = next(
+        (
+            item
+            for item in list(paragraph)
+            if item.tag.rsplit("}", maxsplit=1)[-1] == "pPr"
+        ),
+        None,
+    )
+    if paragraph_props is None:
+        paragraph_props = ET.Element(f"{{{namespace}}}pPr")
+        paragraph.insert(0, paragraph_props)
+    for child in list(paragraph_props):
+        if child.tag.rsplit("}", maxsplit=1)[-1] == "lnSpc":
+            paragraph_props.remove(child)
+    line_spacing = ET.SubElement(paragraph_props, f"{{{namespace}}}lnSpc")
+    ET.SubElement(line_spacing, f"{{{namespace}}}spcPct", {"val": str(spacing_pct)})
     entries[slide_path] = ET.tostring(root, encoding="utf-8", xml_declaration=True)
 
     with zipfile.ZipFile(pptx_path, "w") as package:

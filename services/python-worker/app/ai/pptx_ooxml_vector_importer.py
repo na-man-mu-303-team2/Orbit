@@ -532,6 +532,7 @@ def append_shape(
         source_name=source_name,
         shape_id=shape_id,
         frame=frame,
+        scale=scale,
         z_index=state.next_z(),
         locked=locked,
         theme_colors=state.theme_colors,
@@ -697,6 +698,7 @@ def text_element(
     source_name: str,
     shape_id: str,
     frame: dict[str, int],
+    scale: OoxmlScale,
     z_index: int,
     locked: bool,
     theme_colors: dict[str, str],
@@ -709,6 +711,7 @@ def text_element(
     if not text.strip():
         return None
     first_run = next((run for run in runs if str(run.get("text", "")).strip()), runs[0])
+    text_frame = text_content_frame(body, frame, scale)
     props: dict[str, Any] = {
         "text": text,
         "runs": runs,
@@ -717,8 +720,8 @@ def text_element(
         "fontWeight": first_run.get("fontWeight", "normal"),
         "color": first_run.get("color", "#111827"),
         "align": paragraph_align(body),
-        "verticalAlign": "top",
-        "lineHeight": 1.15,
+        "verticalAlign": text_vertical_align(body),
+        "lineHeight": paragraph_line_height(body),
     }
     bullet = paragraph_bullet(body)
     if bullet:
@@ -727,7 +730,7 @@ def text_element(
         **element_base(
             element_id=element_id(slide_index, source_name, shape_id, "text"),
             role="body",
-            frame=frame,
+            frame=text_frame,
             z_index=z_index,
             locked=locked,
         ),
@@ -804,6 +807,51 @@ def paragraph_align(body: ET.Element[Any]) -> str:
         "r": "right",
         "just": "justify",
     }.get(align, "left")
+
+
+def text_vertical_align(body: ET.Element[Any]) -> str:
+    body_pr = first_local_child(body, "bodyPr")
+    anchor = str(body_pr.get("anchor", "t")) if body_pr is not None else "t"
+    return {
+        "mid": "middle",
+        "b": "bottom",
+    }.get(anchor, "top")
+
+
+def paragraph_line_height(body: ET.Element[Any]) -> float:
+    first_paragraph = first_local_child(body, "p")
+    p_pr = first_local_child(first_paragraph, "pPr") if first_paragraph is not None else None
+    line_spacing = first_local_child(p_pr, "lnSpc") if p_pr is not None else None
+    spacing_pct = first_local_child(line_spacing, "spcPct")
+    if spacing_pct is None:
+        return 1.15
+    return max(0.5, min(4, int_attr(spacing_pct, "val", 115000) / 100000))
+
+
+def text_content_frame(
+    body: ET.Element[Any],
+    frame: dict[str, int],
+    scale: OoxmlScale,
+) -> dict[str, int]:
+    body_pr = first_local_child(body, "bodyPr")
+    if body_pr is None:
+        return frame
+
+    left = max(0, round(int_attr(body_pr, "lIns", 0) * scale.scale_x))
+    right = max(0, round(int_attr(body_pr, "rIns", 0) * scale.scale_x))
+    top = max(0, round(int_attr(body_pr, "tIns", 0) * scale.scale_y))
+    bottom = max(0, round(int_attr(body_pr, "bIns", 0) * scale.scale_y))
+    max_horizontal_inset = max(0, frame["width"] - 1)
+    max_vertical_inset = max(0, frame["height"] - 1)
+    horizontal_inset = min(left + right, max_horizontal_inset)
+    vertical_inset = min(top + bottom, max_vertical_inset)
+    return {
+        **frame,
+        "x": frame["x"] + min(left, horizontal_inset),
+        "y": frame["y"] + min(top, vertical_inset),
+        "width": max(1, frame["width"] - horizontal_inset),
+        "height": max(1, frame["height"] - vertical_inset),
+    }
 
 
 def paragraph_bullet(body: ET.Element[Any]) -> dict[str, Any] | None:
@@ -1015,11 +1063,13 @@ def shape_frame(
     y = max(0, round(raw_y * scale.scale_y))
     width = max(1, round(raw_width * scale.scale_x))
     height = max(1, round(raw_height * scale.scale_y))
+    rotation = round(int_attr(xfrm, "rot", 0) / 60000)
     return {
         "x": min(x, scale.canvas_width - 1),
         "y": min(y, scale.canvas_height - 1),
         "width": min(width, scale.canvas_width - min(x, scale.canvas_width - 1)),
         "height": min(height, scale.canvas_height - min(y, scale.canvas_height - 1)),
+        "rotation": rotation,
     }
 
 
@@ -1111,7 +1161,7 @@ def element_base(
         "y": frame["y"],
         "width": frame["width"],
         "height": frame["height"],
-        "rotation": 0,
+        "rotation": frame.get("rotation", 0),
         "opacity": 1,
         "zIndex": z_index,
         "locked": locked,
