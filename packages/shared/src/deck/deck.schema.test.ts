@@ -434,6 +434,34 @@ describe("deckSchema validation", () => {
     expectValidDeck(deck);
   });
 
+  it("accepts an editable table element", () => {
+    const deck = createValidDeck();
+
+    deck.slides[0].elements[0] = {
+      ...deck.slides[0].elements[0],
+      type: "table",
+      role: "table",
+      props: {
+        rows: [
+          [
+            { text: "A", fill: "#EFF6FF", borderColor: "#93C5FD" },
+            { text: "B", fill: "#EFF6FF", borderColor: "#93C5FD" }
+          ],
+          [
+            { text: "C", borderColor: "#CBD5E1" },
+            { text: "D", borderColor: "#CBD5E1" }
+          ]
+        ],
+        columnWidths: [240, 240],
+        rowHeights: [80, 80],
+        borderColor: "#CBD5E1",
+        borderWidth: 1
+      }
+    };
+
+    expectValidDeck(deck);
+  });
+
   it("accepts a custom shape with typed path editing props", () => {
     const deck = createValidDeck();
 

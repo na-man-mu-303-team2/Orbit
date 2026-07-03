@@ -216,10 +216,10 @@ API:
 - prefix 뒤에는 영문, 숫자, `_`, `-`만 허용한다.
 - `projectId`, `fileId`, `jobId`, `sessionId`, `userId`, `runId`, `reportId`, `roomId`는 다른 도메인 소유 ID이므로 ORBIT-14 deck schema에서는 prefix를 강제하지 않고 non-empty string만 검증한다.
 - 좌표 단위는 `px` 기준으로 한다.
-- 지원하는 객체 타입은 `text`, `rect`, `ellipse`, `line`, `arrow`, `polygon`, `star`, `ring`, `image`, `group`, `customShape`, `chart`이다.
+- 지원하는 객체 타입은 `text`, `rect`, `ellipse`, `line`, `arrow`, `polygon`, `star`, `ring`, `image`, `group`, `customShape`, `chart`, `table`이다.
 - 기존 임시 타입인 `shape`, `video`는 1차 스프린트 deck schema에서 허용하지 않는다.
 - AI가 생성한 배경, 장식, 강조 박스, 라인, 아이콘도 별도 `designElements` 배열을 만들지 않고 `slide.elements`에 넣는다.
-- 객체 역할은 공통 `role` 필드로 표현하고, `background`, `decoration`, `title`, `subtitle`, `body`, `caption`, `media`, `chart`, `highlight`, `footer`만 허용한다.
+- 객체 역할은 공통 `role` 필드로 표현하고, `background`, `decoration`, `title`, `subtitle`, `body`, `caption`, `media`, `chart`, `table`, `highlight`, `footer`만 허용한다.
 - `role`은 렌더링 필수값이 아니라 AI 생성, 편집 UI, export, 접근성 보조를 위한 의미 정보다.
 - `background`, `decoration` 역할의 element는 사용자가 기본 편집 중 실수로 움직이지 않도록 `locked: true`와 낮은 `zIndex`를 권장한다. schema에서는 강제하지 않는다.
 - 객체 `props`는 object type별 schema로 검증한다. 전체 객체에 대해 `z.record(z.unknown())`를 열어두지 않는다.
@@ -227,6 +227,7 @@ API:
 - `text.props.fontFamily`, `text.props.color`가 생략되면 renderer/export/AI normalize 단계에서 각각 `slide.style.fontFamily` > `deck.theme.fontFamily`, `slide.style.textColor` > `deck.theme.textColor` 순서로 기본값을 사용한다.
 - `image.props`는 `src`, `alt`, `fit`, `focusX`, `focusY`, `crop`을 사용하고, `fit`은 `contain`, `cover`, `stretch`만 허용한다. `focusX`, `focusY`는 `cover` crop 기준점이며 0부터 1 사이 값이다. `crop`은 OOXML `srcRect`를 left/top/right/bottom 0..1 비율로 보존한다.
 - `chart.props`는 `chart.schema.ts`의 chart schema를 그대로 사용한다.
+- `table.props`는 `rows`, `columnWidths`, `rowHeights`, `borderColor`, `borderWidth`를 사용한다. 각 cell은 `text`, `fill`, `textColor`, `fontFamily`, `fontSize`, `fontWeight`, `align`, `verticalAlign`, `borderColor`, `borderWidth`, `colSpan`, `rowSpan`을 보존한다.
 - `rect`, `ellipse`, `line`, `arrow`, `polygon`, `star`, `ring`은 공통 shape props인 `fill`, `stroke`, `strokeWidth`, `borderRadius`, `dash`, `lineCap`, `lineJoin`, `shadow`를 사용한다. `fill`/`stroke`는 `#RRGGBB`, `transparent`, linear gradient paint를 허용한다.
 - `customShape.props`만 MVP 확장 지점으로 `record unknown`을 허용한다.
 - `group.props`는 `childElementIds`만 가진다.

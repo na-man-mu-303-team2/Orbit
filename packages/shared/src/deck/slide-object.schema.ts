@@ -16,7 +16,8 @@ export const deckElementTypeSchema = z.enum([
   "image",
   "group",
   "customShape",
-  "chart"
+  "chart",
+  "table"
 ]);
 
 export const deckElementRoleSchema = z.enum([
@@ -28,6 +29,7 @@ export const deckElementRoleSchema = z.enum([
   "caption",
   "media",
   "chart",
+  "table",
   "highlight",
   "footer"
 ]);
@@ -198,6 +200,31 @@ export const groupElementPropsSchema = z
   })
   .default({});
 
+export const tableCellPropsSchema = z.object({
+  text: z.string().default(""),
+  fill: deckElementPaintSchema.default("transparent"),
+  textColor: themeColorSchema.optional(),
+  fontFamily: z.string().min(1).optional(),
+  fontSize: z.number().finite().positive().default(18),
+  fontWeight: textFontWeightSchema.default("normal"),
+  align: textAlignSchema.default("left"),
+  verticalAlign: textVerticalAlignSchema.default("middle"),
+  borderColor: themeColorSchema.default("#CBD5E1"),
+  borderWidth: z.number().finite().nonnegative().default(1),
+  colSpan: z.number().int().positive().default(1),
+  rowSpan: z.number().int().positive().default(1)
+});
+
+export const tableElementPropsSchema = z
+  .object({
+    rows: z.array(z.array(tableCellPropsSchema)).default([]),
+    columnWidths: z.array(z.number().finite().positive()).optional(),
+    rowHeights: z.array(z.number().finite().positive()).optional(),
+    borderColor: themeColorSchema.default("#CBD5E1"),
+    borderWidth: z.number().finite().nonnegative().default(1)
+  })
+  .default({});
+
 export const customShapeNodeModeSchema = z.enum(["corner", "smooth"]);
 
 export const customShapeNodeSchema = z.object({
@@ -275,6 +302,11 @@ export const chartElementSchema = deckElementBaseSchema.extend({
   props: chartSchema
 });
 
+export const tableElementSchema = deckElementBaseSchema.extend({
+  type: z.literal("table"),
+  props: tableElementPropsSchema
+});
+
 export const deckElementSchema = z.discriminatedUnion("type", [
   textElementSchema,
   rectElementSchema,
@@ -287,7 +319,8 @@ export const deckElementSchema = z.discriminatedUnion("type", [
   imageElementSchema,
   groupElementSchema,
   customShapeElementSchema,
-  chartElementSchema
+  chartElementSchema,
+  tableElementSchema
 ]);
 
 export type DeckElementType = z.infer<typeof deckElementTypeSchema>;
@@ -308,6 +341,8 @@ export type TextElementProps = z.infer<typeof textElementPropsSchema>;
 export type ImageFit = z.infer<typeof imageFitSchema>;
 export type ImageElementProps = z.infer<typeof imageElementPropsSchema>;
 export type GroupElementProps = z.infer<typeof groupElementPropsSchema>;
+export type TableCellProps = z.infer<typeof tableCellPropsSchema>;
+export type TableElementProps = z.infer<typeof tableElementPropsSchema>;
 export type CustomShapeNodeMode = z.infer<typeof customShapeNodeModeSchema>;
 export type CustomShapeNode = z.infer<typeof customShapeNodeSchema>;
 export type CustomShapeElementProps = z.infer<
