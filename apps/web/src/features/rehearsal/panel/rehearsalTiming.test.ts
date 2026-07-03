@@ -109,6 +109,23 @@ describe("rehearsalTiming", () => {
     ).toBe(24);
   });
 
+  it("compares STT segment timestamps against elapsed session time", () => {
+    expect(
+      calculateFinalTranscriptWpm({
+        segments: [
+          {
+            text: "하나 둘 셋 넷 다섯 여섯",
+            isFinal: true,
+            timestampMs: [1_000, 6_000]
+          }
+        ],
+        nowMs: 1_700_000_020_000,
+        startedAtMs: 1_700_000_000_000,
+        windowMs: 30_000
+      })
+    ).toBe(18);
+  });
+
   it("maps WPM and overtime to advice state", () => {
     expect(
       getTimingAdviceState({

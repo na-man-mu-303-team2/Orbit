@@ -78,19 +78,19 @@ export function createRehearsalTimingSnapshot(options: {
 
 export function calculateFinalTranscriptWpm(options: FinalTranscriptWpmOptions) {
   const windowMs = options.windowMs ?? 30000;
-  const elapsedMs = Math.max(0, options.nowMs - options.startedAtMs);
-  const denominatorMs = Math.min(windowMs, elapsedMs);
+  const elapsedNowMs = Math.max(0, options.nowMs - options.startedAtMs);
+  const denominatorMs = Math.min(windowMs, elapsedNowMs);
 
   if (denominatorMs <= 0) {
     return 0;
   }
 
-  const windowStartMs = Math.max(options.startedAtMs, options.nowMs - windowMs);
+  const windowStartElapsedMs = Math.max(0, elapsedNowMs - windowMs);
   const wordCount = options.segments
     .filter((segment) => segment.isFinal)
     .filter((segment) => {
       const [, endMs] = segment.timestampMs;
-      return endMs >= windowStartMs && endMs <= options.nowMs;
+      return endMs >= windowStartElapsedMs && endMs <= elapsedNowMs;
     })
     .reduce((total, segment) => total + countWhitespaceWords(segment.text), 0);
 
