@@ -29,7 +29,6 @@ import {
   getRehearsalMicrophoneAudioConstraints,
   shouldCompleteLiveSlideAdvance,
   normalizeRecordingMimeType,
-  normalizeLiveTranscriptText,
   rehearsalMicrophoneAudioConstraints,
   rehearsalRawMicrophoneAudioConstraints,
   renderLiveTranscriptBuffer,
@@ -42,6 +41,7 @@ import {
   shouldShowLiveSttDebugPcmDownload,
   shouldAutoAdvanceLiveSlide
 } from "./RehearsalWorkspace";
+import { normalizeLiveTranscriptText } from "./stt/liveTranscriptText";
 import {
   confirmRehearsalCommandCandidate,
   createRehearsalCommandConfirmationState,

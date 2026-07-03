@@ -43,7 +43,7 @@
 
 ## Phase 3: Alternatives reranking
 
-- [ ] T10: 공통 `stt/liveTranscriptText.ts` 추출 - `normalizeLiveTranscriptText` 공유 (S, deps: T4)
+- [x] T10: 공통 `stt/liveTranscriptText.ts` 추출 - `normalizeLiveTranscriptText` 공유 (S, deps: T4)
 - [ ] T11: `stt/koreanTextSimilarity.ts` 신규 - NFD 자모 정규화 + contains/sliding-window score (M, deps: T10)
 - [ ] T12: `stt/alternativeReranker.ts` 신규 - `bestScore > originalScore && bestScore >= 0.75` 교체 기준 (S, deps: T11)
 - [ ] T13: `LiveSttResult.alternatives` optional 추가 + Web Speech final alternatives 방출, `maxAlternatives=3` (S, deps: T4)

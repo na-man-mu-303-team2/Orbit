@@ -76,6 +76,7 @@ import {
   type LiveSttResult
 } from "./stt/liveSttPort";
 import { createLiveSttPort } from "./stt/liveSttEngineRegistry";
+import { normalizeLiveTranscriptText } from "./stt/liveTranscriptText";
 import { SherpaLiveSttPort } from "./stt/sherpaLiveSttPort";
 import { DisplayControls } from "./presenter/DisplayControls";
 import { SingleScreenPresenter } from "./presenter/SingleScreenPresenter";
@@ -572,10 +573,6 @@ export function createRecordingSession(
       }
     }
   };
-}
-
-export function normalizeLiveTranscriptText(value: string) {
-  return value.toLocaleLowerCase("ko-KR").replace(/\s+/g, "").trim();
 }
 
 export function getLiveSttBiasMode(): LiveSttBiasMode {
