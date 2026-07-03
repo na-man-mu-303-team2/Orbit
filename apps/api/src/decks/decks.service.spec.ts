@@ -277,13 +277,15 @@ function createLegacyKeywordDeck(deck: Deck): Deck {
       keywordId: "kw_one",
       text: " ORBIT ",
       synonyms: ["발표 도우미", "", "발표 도우미"],
-      abbreviations: ["OD", "od", " "]
+      abbreviations: ["OD", "od", " "],
+      required: true
     },
     {
       keywordId: "kw_two",
       text: "orbit",
       synonyms: ["ORBIT", "리허설"],
-      abbreviations: ["발표 도우미", "STT"]
+      abbreviations: ["발표 도우미", "STT"],
+      required: true
     }
   ];
 
@@ -296,7 +298,8 @@ function createNormalizedLegacyKeywords(): Deck["slides"][number]["keywords"] {
       keywordId: "kw_one",
       text: "ORBIT",
       synonyms: ["발표 도우미", "리허설"],
-      abbreviations: ["OD", "STT"]
+      abbreviations: ["OD", "STT"],
+      required: true
     }
   ];
 }
@@ -781,13 +784,15 @@ describe("DecksService", () => {
                     keywordId: "kw_one",
                     text: "ORBIT",
                     synonyms: [""],
-                    abbreviations: []
+                    abbreviations: [],
+                    required: true
                   },
                   {
                     keywordId: "kw_two",
                     text: "orbit",
                     synonyms: [],
-                    abbreviations: []
+                    abbreviations: [],
+                    required: true
                   }
                 ]
               }

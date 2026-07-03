@@ -53,7 +53,8 @@ ORBIT-14의 핵심 작업은 deck 계약을 더 엄격하게 만드는 것이다
 - `deck/slide-object.schema.ts`: `text`, `image`, `chart`, `group`, `customShape`는 타입별 props로 검증한다. 도형류는 공통 shape props를 사용하고, `customShape`는 `pathData`, `viewBoxWidth`, `viewBoxHeight`, `closed`, `nodes` 기반 편집 계약으로 관리한다. AI 디자인 의미는 공통 `role` 필드로 표현하고, 배경/장식 요소도 `slide.elements` flat list에 유지한다.
 - `deck/chart.schema.ts`: unsupported chart type 거부 대상. `chart` object의 `props`는 이 schema로 검증한다. `data: []`는 빈 차트 편집을 위해 허용하고, `bar`/`line`, `pie`/`doughnut`, `scatter`는 타입별 data와 value 범위를 따로 검증한다. chart 내부 텍스트는 `style.fontFamily`와 title/axis/legend/data label font size 필드로 조정한다.
 - `deck/animation.schema.ts`: `appear`, `disappear`, `fade-in`, `fade-out`, `zoom-in`, `zoom-out`, `rotate`만 MVP animation type으로 허용한다. animation은 `slide.animations` flat list에 저장하고 `elementId`로 대상 객체를 참조한다. `order`는 `1`부터 시작하며 `durationMs`, `delayMs`, `easing`은 기본값으로 정규화한다.
-- `deck/slide-action.schema.ts`: keyword-authored action은 `slide.actions` flat list에 저장한다. 초기 trigger는 `cue`만 지원하고, effect는 `play-animation`, `go-to-next-slide`만 허용한다. `play-animation`은 같은 slide의 `animationId`만 참조할 수 있다.
+- `deck/deck.schema.ts`: `slide.keywords[]`는 `keywordId`, `text`, `synonyms`, `abbreviations`, `required`를 저장한다. `required`는 발표 중 반드시 언급해야 하는 keyword 여부를 나타내며 기본값은 `true`다. animation-trigger, next-slide 분류는 keyword 자체가 아니라 연결된 action으로부터 파생한다.
+- `deck/slide-action.schema.ts`: keyword-authored action은 `slide.actions` flat list에 저장한다. trigger는 legacy `cue`와 신규 `keyword`를 모두 지원하고, effect는 `play-animation`, `go-to-next-slide`만 허용한다. `play-animation`은 같은 slide의 `animationId`만 참조하고, `keyword` trigger는 같은 slide의 `keywordId`만 참조할 수 있다.
 
 ## ORBIT-15 작업 메모
 

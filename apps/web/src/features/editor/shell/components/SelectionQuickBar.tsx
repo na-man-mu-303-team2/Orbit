@@ -2,6 +2,7 @@ import type {
   Chart,
   CustomShapeElementProps,
   DeckElement,
+  DeckAnimation,
   ImageElementProps,
   ShapeElementProps,
   Slide,
@@ -15,12 +16,18 @@ import {
   getCustomShapePaint,
   getCustomShapeStrokeWidth
 } from "../../canvas/custom-shape/geometry";
+import type { SlideAnimationDiagnostics } from "../../../../../../../packages/editor-core/src/index";
 import { IdBadge } from "./EditorIdBadge";
 
 export function SelectionQuickBar(props: {
+  animations: DeckAnimation[];
+  animationDiagnostics: SlideAnimationDiagnostics;
+  canCreateAnimation: boolean;
   customShapeEditActive: boolean;
   element: DeckElement | null;
+  selectedKeywordLabel: string | null;
   slide: Slide | null;
+  onOpenAnimationEditor: () => void;
   onChangeFrame: (frame: {
     role?: DeckElement["role"] | null;
     x?: number;
@@ -39,18 +46,25 @@ export function SelectionQuickBar(props: {
     textColor?: string | null;
     accentColor?: string | null;
   }) => void;
+  onDeleteAnimation: (animationId: string) => void;
   onToggleCustomShapeClosed: () => void;
   onToggleCustomShapeEdit: () => void;
   showIds: boolean;
 }) {
   const {
+    animations,
+    animationDiagnostics,
+    canCreateAnimation,
     customShapeEditActive,
     element,
+    onOpenAnimationEditor,
     onChangeFrame,
     onChangeProps,
     onChangeSlideStyle,
+    onDeleteAnimation,
     onToggleCustomShapeClosed,
     onToggleCustomShapeEdit,
+    selectedKeywordLabel,
     showIds,
     slide
   } = props;
@@ -60,6 +74,14 @@ export function SelectionQuickBar(props: {
   }
 
   if (!element && slide) {
+    const danglingAnimations = animationDiagnostics.danglingAnimations
+      .map((diagnostic) =>
+        slide.animations.find(
+          (animation) => animation.animationId === diagnostic.animationId
+        )
+      )
+      .filter(Boolean) as DeckAnimation[];
+
     return (
       <section className="selection-quickbar" data-testid="editor-slide-quickbar">
         {showIds ? (
@@ -74,6 +96,24 @@ export function SelectionQuickBar(props: {
             value={slide.style.backgroundColor ?? "#ffffff"}
             onCommit={(value) => onChangeSlideStyle({ backgroundColor: value })}
           />
+          {danglingAnimations.length > 0 ? (
+            <>
+              <span className="quickbar-inline-hint quickbar-inline-hint-warning">
+                정리 필요한 애니메이션 {danglingAnimations.length}개
+              </span>
+              {danglingAnimations.map((animation) => (
+                <button
+                  className="quickbar-action-chip"
+                  key={animation.animationId}
+                  type="button"
+                  onClick={() => onDeleteAnimation(animation.animationId)}
+                >
+                  {showIds ? <IdBadge id={animation.animationId} /> : null}
+                  삭제
+                </button>
+              ))}
+            </>
+          ) : null}
         </div>
       </section>
     );
@@ -142,6 +182,30 @@ export function SelectionQuickBar(props: {
             우클릭해 이미지를 바꿀 수 있습니다
           </span>
         ) : null}
+        <div className="quickbar-divider" />
+        <button
+          className="quickbar-action-chip"
+          type="button"
+          onClick={onOpenAnimationEditor}
+        >
+          {animations.length > 0 ? "애니메이션 편집" : "애니메이션 추가"}
+        </button>
+        {animations.length > 0 ? (
+          <span className="quickbar-inline-hint">
+            {`애니메이션 ${animations.length}개 연결됨`}
+          </span>
+        ) : (
+          <span className="quickbar-inline-hint">
+            아직 연결된 애니메이션이 없습니다
+          </span>
+        )}
+        <span className="quickbar-inline-hint">
+          {selectedKeywordLabel
+            ? `선택 키워드: ${selectedKeywordLabel}`
+            : canCreateAnimation
+              ? "키워드는 나중에 연결할 수 있습니다"
+              : "애니메이션을 편집하려면 요소를 선택하세요"}
+        </span>
       </div>
     </section>
   );
@@ -379,19 +443,24 @@ function ElementQuickBarFields(props: {
   return null;
 }
 
-function QuickBarSelectField(props: {
+export function QuickBarSelectField(props: {
   className?: string;
+  disabled?: boolean;
   label: string;
   value: string;
   options: Array<{ value: string; label: string }>;
   onChange: (value: string) => void;
 }) {
-  const { className, label, onChange, options, value } = props;
+  const { className, disabled = false, label, onChange, options, value } = props;
 
   return (
     <label className={["property-field", className].filter(Boolean).join(" ")}>
       <span>{label}</span>
-      <select value={value} onChange={(event) => onChange(event.target.value)}>
+      <select
+        disabled={disabled}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+      >
         {options.map((option) => (
           <option key={option.value} value={option.value}>
             {option.label}
@@ -402,16 +471,26 @@ function QuickBarSelectField(props: {
   );
 }
 
-function PropertyNumberField(props: {
+export function PropertyNumberField(props: {
   className?: string;
+  disabled?: boolean;
   label: string;
   min?: number;
   max?: number;
   step?: string;
-  onCommit: (value: number) => void;
+  onCommit: (value: number) => boolean | void;
   value: number;
 }) {
-  const { className, label, max, min, onCommit, step = "1", value } = props;
+  const {
+    className,
+    disabled = false,
+    label,
+    max,
+    min,
+    onCommit,
+    step = "1",
+    value
+  } = props;
   const [draftValue, setDraftValue] = useState(String(value));
 
   useEffect(() => {
@@ -422,8 +501,8 @@ function PropertyNumberField(props: {
     const nextValue = Number(nextRawValue);
 
     if (Number.isFinite(nextValue)) {
-      onCommit(nextValue);
-      setDraftValue(String(nextValue));
+      const committed = onCommit(nextValue);
+      setDraftValue(String(committed === false ? value : nextValue));
       return;
     }
 
@@ -434,6 +513,7 @@ function PropertyNumberField(props: {
     <label className={["property-field", className].filter(Boolean).join(" ")}>
       <span>{label}</span>
       <input
+        disabled={disabled}
         max={max}
         min={min}
         step={step}
