@@ -775,58 +775,7 @@ def append_group_shape(
     placeholder_frames: dict[tuple[str, str], dict[str, int]],
     locked: bool,
 ) -> None:
-    group_id = shape_identifier(group, child_index)
     group_transform = transform.for_group(group)
-    group_frame = shape_frame(
-        group,
-        scale,
-        transform,
-        placeholder_frames,
-    ) or group_visual_frame(
-        group,
-        scale,
-        group_transform,
-        state.theme_colors,
-        placeholder_frames,
-    )
-    if group_frame is not None and group_has_visual_content(
-        group,
-        scale,
-        group_transform,
-        state.theme_colors,
-        placeholder_frames,
-    ):
-        source = shape_source(group, part_path, group_id, source_name, locked)
-        source["fallbackReason"] = "group visual fallback"
-        fallback_element = shape_fallback_image_element(
-            shape=group,
-            slide_index=slide_index,
-            source_name=source_name,
-            shape_id=group_id,
-            frame=group_frame,
-            z_index=state.next_z(),
-            locked=locked,
-            reason="group visual fallback",
-        )
-        elements.append(fallback_element)
-        slot_sources[str(fallback_element["elementId"])] = source
-        state.warnings.append(
-            f"OOXML group rendered as image fallback on slide {slide_index}: {group_id}"
-        )
-        append_group_text_elements(
-            part_path=part_path,
-            group=group,
-            slide_index=slide_index,
-            source_name=source_name,
-            scale=scale,
-            transform=group_transform,
-            state=state,
-            elements=elements,
-            slot_sources=slot_sources,
-            placeholder_frames=placeholder_frames,
-            locked=locked,
-        )
-        return
 
     rels = relationships_for_part(package, part_path)
     for child_index, child in enumerate(list(group), start=1):
@@ -1430,7 +1379,7 @@ def unsupported_geometry_reason(shape: ET.Element[Any]) -> str | None:
     sp_pr = first_local_child(shape, "spPr")
     if sp_pr is None:
         return None
-    if first_local_child(sp_pr, "custGeom") is not None:
+    if first_local_child(sp_pr, "custGeom") is not None and not custom_geometry_path(shape):
         return "unsupported custom geometry"
     token = preset_token(shape)
     if supported_preset_token(token, local_name(shape)):
@@ -1510,7 +1459,12 @@ def visual_shape_element(
     warnings: list[str],
 ) -> dict[str, Any]:
     token = preset_token(shape)
-    element_type = shape_type_for_preset(token, local_name(shape))
+    custom_geometry = custom_geometry_path(shape)
+    element_type = (
+        "customShape"
+        if custom_geometry
+        else shape_type_for_preset(token, local_name(shape))
+    )
     props: dict[str, Any] = {
         "fill": fill,
         "stroke": stroke,
@@ -1521,15 +1475,33 @@ def visual_shape_element(
     if shadow:
         props["shadow"] = shadow
     if element_type == "customShape":
-        custom_path = preset_custom_shape_path(token)
-        if custom_path:
-            path_data, closed = custom_path
+        path_data: str
+        closed: bool
+        view_box_width: int
+        view_box_height: int
+        nodes: list[dict[str, Any]]
+        if custom_geometry:
+            path_data = str(custom_geometry["pathData"])
+            closed = bool(custom_geometry["closed"])
+            view_box_width = int(custom_geometry["viewBoxWidth"])
+            view_box_height = int(custom_geometry["viewBoxHeight"])
+            nodes = list(custom_geometry["nodes"])
         else:
-            warnings.append(
-                f"Unsupported OOXML preset converted to rect on slide {slide_index}: {token}"
-            )
-            element_type = "rect"
-            path_data, closed = "", True
+            custom_path = preset_custom_shape_path(token)
+            if custom_path:
+                path_data, closed = custom_path
+                view_box_width = 100
+                view_box_height = 100
+                nodes = []
+            else:
+                warnings.append(
+                    f"Unsupported OOXML preset converted to rect on slide {slide_index}: {token}"
+                )
+                element_type = "rect"
+                path_data, closed = "", True
+                view_box_width = frame["width"]
+                view_box_height = frame["height"]
+                nodes = []
         if element_type == "customShape":
             return {
                 **element_base(
@@ -1542,13 +1514,13 @@ def visual_shape_element(
                 "type": "customShape",
                 "props": {
                     "pathData": path_data,
-                    "viewBoxWidth": 100,
-                    "viewBoxHeight": 100,
+                    "viewBoxWidth": view_box_width,
+                    "viewBoxHeight": view_box_height,
                     "fill": fill,
                     "stroke": stroke,
                     "strokeWidth": stroke_width,
                     "closed": closed,
-                    "nodes": [],
+                    "nodes": nodes,
                     **stroke_extras,
                     **({"shadow": shadow} if shadow else {}),
                 },
@@ -1565,6 +1537,99 @@ def visual_shape_element(
         ),
         "type": element_type,
         "props": props,
+    }
+
+
+def custom_geometry_path(shape: ET.Element[Any]) -> dict[str, Any] | None:
+    cust_geom = first_local_descendant(shape, "custGeom")
+    path = first_local_descendant(cust_geom, "path")
+    if path is None:
+        return None
+
+    view_box_width = max(1, int_attr(path, "w", 1))
+    view_box_height = max(1, int_attr(path, "h", 1))
+    segments: list[str] = []
+    nodes: list[dict[str, Any]] = []
+    closed = False
+
+    for command in list(path):
+        command_name = local_name(command)
+        if command_name == "moveTo":
+            point = first_local_child(command, "pt")
+            if point is None:
+                return None
+            x = int_attr(point, "x", 0)
+            y = int_attr(point, "y", 0)
+            segments.append(f"M {x} {y}")
+            nodes.append({"x": x, "y": y, "mode": "corner"})
+        elif command_name == "lnTo":
+            point = first_local_child(command, "pt")
+            if point is None:
+                return None
+            x = int_attr(point, "x", 0)
+            y = int_attr(point, "y", 0)
+            segments.append(f"L {x} {y}")
+            nodes.append({"x": x, "y": y, "mode": "corner"})
+        elif command_name == "quadBezTo":
+            points = direct_local_children(command, "pt")
+            if len(points) != 2:
+                return None
+            control_x = int_attr(points[0], "x", 0)
+            control_y = int_attr(points[0], "y", 0)
+            end_x = int_attr(points[1], "x", 0)
+            end_y = int_attr(points[1], "y", 0)
+            segments.append(f"Q {control_x} {control_y} {end_x} {end_y}")
+            nodes.append(
+                {
+                    "x": end_x,
+                    "y": end_y,
+                    "inX": control_x,
+                    "inY": control_y,
+                    "mode": "smooth",
+                }
+            )
+        elif command_name == "cubicBezTo":
+            points = direct_local_children(command, "pt")
+            if len(points) != 3:
+                return None
+            control_1_x = int_attr(points[0], "x", 0)
+            control_1_y = int_attr(points[0], "y", 0)
+            control_2_x = int_attr(points[1], "x", 0)
+            control_2_y = int_attr(points[1], "y", 0)
+            end_x = int_attr(points[2], "x", 0)
+            end_y = int_attr(points[2], "y", 0)
+            segments.append(
+                "C "
+                f"{control_1_x} {control_1_y} "
+                f"{control_2_x} {control_2_y} "
+                f"{end_x} {end_y}"
+            )
+            if nodes:
+                nodes[-1]["outX"] = control_1_x
+                nodes[-1]["outY"] = control_1_y
+            nodes.append(
+                {
+                    "x": end_x,
+                    "y": end_y,
+                    "inX": control_2_x,
+                    "inY": control_2_y,
+                    "mode": "smooth",
+                }
+            )
+        elif command_name == "close":
+            segments.append("Z")
+            closed = True
+        else:
+            return None
+
+    if not segments:
+        return None
+    return {
+        "pathData": " ".join(segments),
+        "viewBoxWidth": view_box_width,
+        "viewBoxHeight": view_box_height,
+        "closed": closed,
+        "nodes": nodes,
     }
 
 

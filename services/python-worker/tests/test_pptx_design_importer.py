@@ -219,6 +219,46 @@ def test_import_pptx_design_converts_freeform_to_custom_shape(tmp_path: Path) ->
     assert custom_slot["replaceMode"] == "ignore"
 
 
+def test_ooxml_visual_tree_converts_freeform_to_custom_shape(tmp_path: Path) -> None:
+    pptx_path = tmp_path / "ooxml-freeform.pptx"
+    presentation = Presentation()
+    presentation.slide_width = Inches(13.333333)
+    presentation.slide_height = Inches(7.5)
+    slide = presentation.slides.add_slide(presentation.slide_layouts[6])
+
+    builder = slide.shapes.build_freeform(Inches(1), Inches(2))
+    builder.move_to(0, 0)
+    builder.add_line_segments(
+        [(Inches(1.2), Inches(0.2)), (Inches(2.2), Inches(1.4)), (0, Inches(1.8))]
+    )
+    freeform = builder.convert_to_shape()
+    freeform.fill.solid()
+    freeform.fill.fore_color.rgb = RGBColor(124, 58, 237)
+    freeform.line.color.rgb = RGBColor(17, 24, 39)
+    presentation.save(pptx_path)
+
+    result = import_pptx_ooxml_visual_tree(pptx_path, "file_design")
+    elements = result.blueprint["slides"][0]["elements"]
+    fallback_images = [
+        element
+        for element in elements
+        if element["type"] == "image"
+        and str(element["props"]["src"]).startswith("asset:shape_render_1_slide_")
+    ]
+    custom_shape = next(
+        element for element in elements if element["type"] == "customShape"
+    )
+
+    assert len(fallback_images) == 0
+    assert custom_shape["props"]["fill"] == "#7C3AED"
+    assert custom_shape["props"]["stroke"] == "#111827"
+    assert "L" in custom_shape["props"]["pathData"]
+    assert custom_shape["props"]["viewBoxWidth"] > 0
+    assert custom_shape["props"]["viewBoxHeight"] > 0
+    assert len(custom_shape["props"]["nodes"]) >= 4
+    assert not any("unsupported custom geometry" in warning for warning in result.warnings)
+
+
 def test_import_pptx_design_preserves_common_preset_shape_types(
     tmp_path: Path,
 ) -> None:
@@ -437,7 +477,7 @@ def test_ooxml_visual_tree_keeps_picture_fill_as_editable_image(
     assert picture_fill["zIndex"] < text["zIndex"]
 
 
-def test_ooxml_visual_tree_uses_single_image_fallback_for_group_visuals(
+def test_ooxml_visual_tree_keeps_group_visual_children_editable(
     tmp_path: Path,
 ) -> None:
     pptx_path = tmp_path / "group-visual.pptx"
@@ -478,15 +518,16 @@ def test_ooxml_visual_tree_uses_single_image_fallback_for_group_visuals(
         and str(element["props"]["src"]).startswith("asset:shape_render_1_slide_")
     ]
 
-    assert len(fallback_images) == 1
+    assert len(fallback_images) == 0
+    assert any(element["type"] == "rect" for element in elements)
+    assert any(element["type"] == "ellipse" for element in elements)
     assert any(
         element["type"] == "text" and element["props"]["text"] == "Group text"
         for element in elements
     )
-    assert not any(element["type"] == "ellipse" for element in elements)
 
 
-def test_ooxml_visual_tree_uses_group_fallback_for_supported_icon_shapes(
+def test_ooxml_visual_tree_keeps_supported_icon_group_shapes_editable(
     tmp_path: Path,
 ) -> None:
     pptx_path = tmp_path / "supported-icon-group.pptx"
@@ -527,8 +568,10 @@ def test_ooxml_visual_tree_uses_group_fallback_for_supported_icon_shapes(
         if element["type"] == "text" and element["props"]["text"] == "Grouped label"
     )
 
-    assert len(fallback_images) == 1
-    assert fallback_images[0]["zIndex"] < text["zIndex"]
+    assert len(fallback_images) == 0
+    assert any(element["type"] == "ellipse" for element in elements)
+    assert any(element["type"] == "customShape" for element in elements)
+    assert text["zIndex"] > 0
 
 
 def test_blip_fill_asset_extracts_embedded_image_and_color() -> None:
