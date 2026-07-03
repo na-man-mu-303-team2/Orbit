@@ -342,20 +342,28 @@ describe("RehearsalWorkspace", () => {
     expect(html).toContain(String(deck.slides.length));
     expect(html).toContain("120");
     expect(html).toContain("75%");
+    expect(html).toContain("키워드 커버리지");
     expect(html).toContain("불필요한 표현");
     expect(html).toContain("긴 멈춤");
+    expect(html).toContain("서버 리포트가 확인한 누락 키워드만 표시합니다.");
+    expect(html).toContain("슬라이드별 시간");
+    expect(html).toContain("QnA 피드백");
+    expect(html).toContain("질문 수");
+    expect(html).not.toContain("종합 발표 점수");
+    expect(html).not.toContain("/ 100");
+    expect(html).not.toContain("속도 안정성");
     expect(html).not.toContain("민감한 전사 원문");
     expect(html).not.toContain("dB");
-    expect(html).not.toContain("슬라이드별 목표 시간 / 실제 시간");
   });
 
-  it("does not show missing keyword candidates for full keyword coverage", () => {
+  it("does not infer missing keyword candidates from deck data", () => {
     const deck = createDemoDeck();
     const html = renderToStaticMarkup(
       <RehearsalReportPage
         initialDeck={deck}
         initialRun={runFixture("succeeded")}
         initialReport={reportFixture({
+          missedKeywords: [],
           metrics: {
             durationSeconds: 90,
             wordsPerMinute: 120,
@@ -369,7 +377,7 @@ describe("RehearsalWorkspace", () => {
       />
     );
 
-    expect(html).toContain("이번 리허설에서 누락된 키워드가 없습니다.");
+    expect(html).toContain("공식 누락 키워드 상세 데이터가 없습니다.");
     expect(html).not.toContain("핵심 키워드 커버리지가 낮을 때만 누락 후보를 표시합니다.");
   });
 
@@ -966,6 +974,10 @@ describe("runRehearsalUploadFlow", () => {
         return new Response(null, { status: 200 });
       }
 
+      if (url === "/api/v1/rehearsals/run-1/meta") {
+        return jsonResponse({ run: runFixture("uploading") });
+      }
+
       if (url === "/api/v1/rehearsals/run-1/audio/complete") {
         return jsonResponse({
           run: runFixture("processing", {
@@ -1001,6 +1013,7 @@ describe("runRehearsalUploadFlow", () => {
       projectId: "project-a",
       deckId: "deck-a",
       audioFile,
+      slideTimeline: [{ slideId: "slide_1", enteredAt: "2026-06-29T00:00:00.000Z" }],
       fetcher,
       pollDelayMs: 0
     });
@@ -1011,6 +1024,7 @@ describe("runRehearsalUploadFlow", () => {
       "/api/v1/projects/project-a/rehearsals",
       "/api/v1/rehearsals/run-1/audio/upload-url",
       "http://storage.local/rehearsal.webm",
+      "/api/v1/rehearsals/run-1/meta",
       "/api/v1/rehearsals/run-1/audio/complete",
       "/api/jobs/job-1",
       "/api/jobs/job-1",
@@ -1023,6 +1037,10 @@ describe("runRehearsalUploadFlow", () => {
       method: "PUT",
       headers: { "content-type": "audio/webm" },
       body: audioFile
+    });
+    expect(calls[3]?.init).toMatchObject({
+      method: "PATCH",
+      headers: { "content-type": "application/json" }
     });
   });
 
@@ -1175,6 +1193,16 @@ function reportFixture(patch: Partial<RehearsalReport> = {}): RehearsalReport {
       fillerWordCount: 2,
       pauseCount: 1,
       keywordCoverage: 0.75
+    },
+    speedSamples: [{ startSecond: 0, endSecond: 10, wordsPerMinute: 120 }],
+    fillerWordDetails: [{ word: "음", count: 2 }],
+    pauseDetails: [{ startSecond: 12, endSecond: 14, durationSeconds: 2 }],
+    missedKeywords: [{ slideId: "slide_1", keywordId: "kw_1", text: "ORBIT" }],
+    slideTimings: [{ slideId: "slide_1", targetSeconds: 60, actualSeconds: 52 }],
+    qnaSummary: {
+      questionCount: 0,
+      questionSummary: "",
+      unclearTopics: []
     },
     coaching: {
       status: "succeeded",

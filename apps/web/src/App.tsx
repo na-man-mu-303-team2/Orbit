@@ -189,6 +189,20 @@ const reportMockupReport: RehearsalReport = {
     pauseCount: 2,
     keywordCoverage: 0.86
   },
+  speedSamples: [
+    { startSecond: 0, endSecond: 30, wordsPerMinute: 118 },
+    { startSecond: 30, endSecond: 60, wordsPerMinute: 132 },
+    { startSecond: 60, endSecond: 90, wordsPerMinute: 126 }
+  ],
+  fillerWordDetails: [{ word: "음", count: 3 }],
+  pauseDetails: [{ startSecond: 144, endSecond: 146, durationSeconds: 2 }],
+  missedKeywords: [{ slideId: "slide_1", keywordId: "kw_1", text: "핵심 메시지" }],
+  slideTimings: [{ slideId: "slide_1", targetSeconds: 60, actualSeconds: 58 }],
+  qnaSummary: {
+    questionCount: 0,
+    questionSummary: "",
+    unclearTopics: []
+  },
   coaching: {
     status: "succeeded",
     summary: "핵심 메시지는 안정적으로 전달됐고, 속도도 발표 시간에 잘 맞습니다.",
