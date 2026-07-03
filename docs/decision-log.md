@@ -242,3 +242,51 @@
 - Rationale: report API가 Job 기록에 덜 묶이고, 민감 발화 원문 보존을 최소화하며, ORBIT-38 범위 안에서 presenter-only 기본 접근을 현재 구조와 충돌 없이 제공할 수 있다.
 - Affected files: `packages/shared/src/rehearsals/rehearsal.schema.ts`, `apps/api/src/rehearsals/**`, `apps/api/src/database/migrations/2026062903000-AddRehearsalReportColumns.ts`, `apps/worker/src/rehearsal-stt.processor.ts`, `apps/web/src/features/rehearsal/RehearsalWorkspace.tsx`, `docs/contracts.md`, `docs/decision-log.md`.
 - Follow-up review notes: ORBIT-37에서 실제 점수 산식과 transcript 보존 opt-in 정책이 확정되면 `RehearsalReport` schema, worker 저장 정책, UI 노출 조건을 함께 재검토한다.
+
+## ORBIT-113 rehearsal report score boundary
+
+- Context: 리허설 리포트 화면이 `RehearsalReport.metrics`의 기본 지표를 바탕으로 종합 발표 점수, 전달력, 속도 안정성, 키워드 회수 점수를 프론트엔드에서 계산해 표시하고 있었다. 하지만 `docs/contracts.md`는 ORBIT-37의 고급 0-100 점수 산식이 확정되기 전까지 점수를 계약과 UI에 포함하지 않는다고 정의한다.
+- Options considered:
+  - 기존 UI 계산 점수를 임시 점수로 유지한다.
+  - `RehearsalReport`에 `score` 계열 필드를 추가하고 현재 프론트 산식을 공식화한다.
+  - ORBIT-37 전까지 점수 필드를 계약에서 거부하고 UI는 공식 `report_json`의 원시 지표와 coaching만 표시한다.
+- Final decision: `score`, `deliveryScore`, `speedScore` 같은 0-100 점수 필드는 ORBIT-37 전까지 `RehearsalReport` 계약에서 거부한다. UI는 점수 블록을 제거하고 `durationSeconds`, `wordsPerMinute`, `keywordCoverage`, `fillerWordCount`, `pauseCount`, `coaching`처럼 worker가 저장한 공식 값만 표시한다.
+- Rationale: 산식 없는 점수를 공식 리포트처럼 보여주면 사용자와 팀이 분석 품질을 과신할 수 있다. 계약을 먼저 고정해 worker, API, UI가 같은 데이터 원본을 따르게 한다.
+- Affected files: `packages/shared/src/rehearsals/rehearsal.schema.ts`, `packages/shared/src/rehearsals/rehearsal.schema.test.ts`, `apps/web/src/features/rehearsal/RehearsalWorkspace.tsx`, `apps/web/src/features/rehearsal/RehearsalWorkspace.test.tsx`, `docs/contracts.md`, `docs/decision-log.md`.
+- Follow-up review notes: ORBIT-37에서 점수 산식과 평가 기준이 확정되면 shared schema에 공식 점수 필드를 추가하고, worker에서 계산해 `report_json`에 저장한 뒤 UI가 그 필드만 표시하도록 재검토한다.
+
+## ORBIT-114 rehearsal report detail generation
+
+- Context: ORBIT-113에서 산식 없는 0-100 점수는 계약과 UI에서 제거했지만, 리허설 리포트에는 말 속도 변화, 습관어 상세, pause 상세, 누락 키워드 상세처럼 UI가 추정하지 않고 공식 `report_json`에서 읽을 수 있는 상세 재료가 필요하다.
+- Options considered:
+  - UI가 평균값과 deck keyword를 사용해 상세 지표를 계속 추정한다.
+  - Python worker가 상세 지표를 만들고 TS worker가 shared `RehearsalReport` schema 검증 후 `report_json`에 저장한다.
+  - 상세 지표를 별도 테이블에 저장한다.
+- Final decision: `speedSamples`, `fillerWordDetails`, `pauseDetails`, `missedKeywords`를 `RehearsalReport` 공식 필드로 추가한다. Python worker가 가능한 값만 계산하고 값이 부족하면 빈 배열을 반환하며, TS worker는 분석 응답을 safe fallback으로 검증한 뒤 shared schema를 통과한 리포트만 저장한다.
+- Rationale: 상세 지표를 `report_json`에 함께 저장하면 API, worker, UI가 같은 공식 원본을 공유하고, UI가 평균값이나 deck만으로 누락 키워드와 속도 변화를 추정하지 않아도 된다. 점수 산식은 여전히 ORBIT-37 전까지 제외한다.
+- Affected files: `packages/shared/src/rehearsals/rehearsal.schema.ts`, `packages/shared/src/rehearsals/rehearsal.schema.test.ts`, `services/python-worker/app/main.py`, `services/python-worker/app/rehearsal.py`, `services/python-worker/tests/test_rehearsal_analyze.py`, `apps/worker/src/rehearsal-stt.processor.ts`, `apps/worker/src/rehearsal-stt.processor.spec.ts`, `docs/contracts.md`, `docs/decision-log.md`.
+- Follow-up review notes: UI 후속 작업은 `speedSamples`, `fillerWordDetails`, `pauseDetails`, `missedKeywords`만 사용해 상세 섹션을 렌더링하고, 필드가 빈 배열이면 추정값 대신 empty state를 보여준다.
+
+## ORBIT-116 rehearsal run meta and slide timing policy
+
+- Context: 리허설 리포트에 슬라이드별 실제 체류 시간을 표시하려면 녹음 완료 전에 web이 slide 진입 이벤트를 API에 저장해야 한다. 기존 계약에는 `PATCH /api/v1/rehearsals/:runId/meta`가 설계되어 있었지만 DB 저장, API 구현, worker 조회, web 업로드 순서가 연결되어 있지 않았다.
+- Options considered:
+  - web이 리포트 화면에서 deck과 평균 발표 시간으로 slide timing을 추정한다.
+  - `rehearsal_runs.meta_json`에 원문 없는 사건 정보만 저장하고, worker가 report 생성 시 공식 `slideTimings`를 계산한다.
+  - Python worker에 slide timing 계산을 위임한다.
+- Final decision: `rehearsal_runs.meta_json`을 공식 run meta 저장 위치로 추가하고, web은 `audio/complete` 전에 `slideTimeline`, `missedKeywords`, `adviceEvents`만 PATCH한다. worker는 `slideTimeline`의 연속된 slide 진입 시각 차이로 `slideTimings`를 계산하며, 종료 시각이 없는 마지막 slide는 실제 시간을 추정하지 않는다.
+- Rationale: transcript, speaker notes, raw audio, script 원문 없이도 리포트에 필요한 사건 정보만 저장할 수 있고, deck 목표 시간과 run meta를 함께 읽을 수 있는 TS worker가 공식 report JSON을 일관되게 조립할 수 있다.
+- Affected files: `packages/shared/src/rehearsals/rehearsal.schema.ts`, `apps/api/src/rehearsals/**`, `apps/api/src/database/migrations/2026070301000-AddRehearsalRunMetaJson.ts`, `apps/worker/src/rehearsal-stt.processor.ts`, `apps/web/src/features/rehearsal/RehearsalWorkspace.tsx`, `docs/contracts.md`, `docs/decision-log.md`.
+- Follow-up review notes: chunked audio upload이 구현되면 meta PATCH와 audio-complete 사이의 ordering을 동일하게 유지하고, 녹음 종료 시각을 별도 meta 필드로 추가할지 검토한다.
+
+## ORBIT-117 QnA report minimal contract
+
+- Context: 청중 QnA 기반 피드백을 리허설 리포트에 표시해야 하지만, 현재 audience 기능은 입장/검증 중심이고 질문 원문 저장 API가 아직 없다. 계약 문서는 질문 원문을 report에 저장하지 않는 정책을 이미 정의한다.
+- Options considered:
+  - 질문 원문 배열을 report에 저장한다.
+  - 기존 `packages/shared/src/presentation/presentation.schema.ts`의 레거시 `reportSchema.questionCount`를 리허설 report로 재사용한다.
+  - `RehearsalReport`에 원문 없는 `qnaSummary`만 추가하고 실제 질문 데이터 소스는 후속 작업으로 둔다.
+- Final decision: `RehearsalReport.qnaSummary`는 `questionCount`, `questionSummary`, `unclearTopics[].topic`, optional `slideId`만 포함한다. 현재 PR에서는 기본값으로 질문 수 0과 빈 요약을 저장하고, UI는 empty state를 표시한다. 레거시 presentation report schema는 외부 참조 가능성을 고려해 이번 범위에서 삭제하지 않는다.
+- Rationale: 질문 원문과 발표자 발화 원문을 리포트에 섞지 않는 보안/보존 정책을 지키면서, 후속 audience 질문 저장 API가 생겼을 때 연결할 최소 계약을 먼저 고정한다.
+- Affected files: `packages/shared/src/rehearsals/rehearsal.schema.ts`, `apps/web/src/features/rehearsal/RehearsalWorkspace.tsx`, `apps/worker/src/rehearsal-stt.processor.ts`, `docs/contracts.md`, `docs/decision-log.md`.
+- Follow-up review notes: audience 질문 생성/저장 API가 구현되면 원문 보존 범위, 요약 생성 위치, slideId 매핑 정책을 별도 결정으로 기록한 뒤 `qnaSummary` 생성 로직을 연결한다.
