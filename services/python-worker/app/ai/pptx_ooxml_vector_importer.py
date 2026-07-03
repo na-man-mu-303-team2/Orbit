@@ -441,9 +441,27 @@ def append_graphic_frame(
         return
 
     frame_kind = graphic_frame_kind(frame_element)
-    reason = f"unsupported {frame_kind} graphicFrame"
     source = shape_source(frame_element, part_path, shape_id, source_name, locked)
-    source["type"] = "table" if frame_kind == "table" else "unknown"
+    if frame_kind == "table":
+        element = table_element(
+            frame_element=frame_element,
+            slide_index=slide_index,
+            source_name=source_name,
+            shape_id=shape_id,
+            frame=frame,
+            scale=scale,
+            z_index=state.next_z(),
+            locked=locked,
+            theme_colors=state.theme_colors,
+        )
+        if element:
+            source["type"] = "table"
+            elements.append(element)
+            slot_sources[str(element["elementId"])] = source
+            return
+
+    reason = f"unsupported {frame_kind} graphicFrame"
+    source["type"] = "unknown"
     source["fallbackReason"] = reason
     fallback_element = shape_fallback_image_element(
         shape=frame_element,
@@ -460,6 +478,127 @@ def append_graphic_frame(
     state.warnings.append(
         f"OOXML graphicFrame rendered as image fallback on slide {slide_index}: {frame_kind}"
     )
+
+
+def table_element(
+    *,
+    frame_element: ET.Element[Any],
+    slide_index: int,
+    source_name: str,
+    shape_id: str,
+    frame: dict[str, int],
+    scale: OoxmlScale,
+    z_index: int,
+    locked: bool,
+    theme_colors: dict[str, str],
+) -> dict[str, Any] | None:
+    table = first_local_descendant(frame_element, "tbl")
+    if table is None:
+        return None
+    rows = table_rows(table, scale, theme_colors)
+    if not rows:
+        return None
+    return {
+        **element_base(
+            element_id=element_id(slide_index, source_name, shape_id, "table"),
+            role="table",
+            frame=frame,
+            z_index=z_index,
+            locked=locked,
+        ),
+        "type": "table",
+        "props": {
+            "rows": rows,
+            "columnWidths": table_column_widths(table, scale),
+            "rowHeights": table_row_heights(table, scale),
+            "borderColor": "#CBD5E1",
+            "borderWidth": 1,
+        },
+    }
+
+
+def table_rows(
+    table: ET.Element[Any],
+    scale: OoxmlScale,
+    theme_colors: dict[str, str],
+) -> list[list[dict[str, Any]]]:
+    rows: list[list[dict[str, Any]]] = []
+    for row in direct_local_children(table, "tr"):
+        cells = [
+            table_cell(cell, scale, theme_colors)
+            for cell in direct_local_children(row, "tc")
+        ]
+        if cells:
+            rows.append(cells)
+    return rows
+
+
+def table_cell(
+    cell: ET.Element[Any],
+    scale: OoxmlScale,
+    theme_colors: dict[str, str],
+) -> dict[str, Any]:
+    body = first_local_child(cell, "txBody")
+    runs = text_runs(body, scale, theme_colors) if body is not None else []
+    text = "".join(str(run.get("text", "")) for run in runs)
+    tc_pr = first_local_child(cell, "tcPr")
+    border_color, border_width = table_cell_border(tc_pr, scale, theme_colors)
+    props: dict[str, Any] = {
+        "text": text,
+        "fill": solid_color(first_local_child(tc_pr, "solidFill"), theme_colors)
+        or "transparent",
+        "fontSize": 18,
+        "fontWeight": "normal",
+        "align": paragraph_align(body) if body is not None else "left",
+        "verticalAlign": text_vertical_align(body) if body is not None else "middle",
+        "borderColor": border_color,
+        "borderWidth": border_width,
+        "colSpan": max(1, int_attr(tc_pr, "gridSpan", 1)),
+        "rowSpan": max(1, int_attr(tc_pr, "rowSpan", 1)),
+    }
+    first_run = next((run for run in runs if str(run.get("text", "")).strip()), None)
+    if first_run:
+        if first_run.get("fontFamily"):
+            props["fontFamily"] = first_run["fontFamily"]
+        if first_run.get("fontSize"):
+            props["fontSize"] = first_run["fontSize"]
+        if first_run.get("fontWeight"):
+            props["fontWeight"] = first_run["fontWeight"]
+        if first_run.get("color"):
+            props["textColor"] = first_run["color"]
+    return props
+
+
+def table_column_widths(table: ET.Element[Any], scale: OoxmlScale) -> list[int]:
+    grid = first_local_child(table, "tblGrid")
+    return [
+        max(1, round(int_attr(column, "w", 1) * scale.scale_x))
+        for column in direct_local_children(grid, "gridCol")
+    ] if grid is not None else []
+
+
+def table_row_heights(table: ET.Element[Any], scale: OoxmlScale) -> list[int]:
+    return [
+        max(1, round(int_attr(row, "h", 1) * scale.scale_y))
+        for row in direct_local_children(table, "tr")
+    ]
+
+
+def table_cell_border(
+    tc_pr: ET.Element[Any] | None,
+    scale: OoxmlScale,
+    theme_colors: dict[str, str],
+) -> tuple[str, float]:
+    for border_name in ("lnL", "lnR", "lnT", "lnB"):
+        border = first_local_child(tc_pr, border_name)
+        if border is None:
+            continue
+        return (
+            solid_color(first_local_child(border, "solidFill"), theme_colors)
+            or "#CBD5E1",
+            round(max(0, int_attr(border, "w", 12700) * scale.average_scale), 2),
+        )
+    return "#CBD5E1", 1
 
 
 def append_group_shape(

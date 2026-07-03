@@ -909,7 +909,16 @@ def test_ooxml_visual_tree_importer_falls_back_graphic_frames(
     presentation.slide_width = Inches(13.333333)
     presentation.slide_height = Inches(7.5)
     slide = presentation.slides.add_slide(presentation.slide_layouts[6])
-    slide.shapes.add_table(2, 2, Inches(1), Inches(1), Inches(3), Inches(1.2))
+    table_shape = slide.shapes.add_table(
+        2,
+        2,
+        Inches(1),
+        Inches(1),
+        Inches(3),
+        Inches(1.2),
+    )
+    table_shape.table.cell(0, 0).text = "A"
+    table_shape.table.cell(1, 1).text = "B"
     chart_data = ChartData()
     chart_data.categories = ["A", "B"]
     chart_data.add_series("Series 1", (1, 2))
@@ -931,9 +940,12 @@ def test_ooxml_visual_tree_importer_falls_back_graphic_frames(
         if element["type"] == "image"
         and str(element["props"]["src"]).startswith("asset:shape_render_")
     ]
+    table = next(element for element in elements if element["type"] == "table")
 
-    assert len(fallback_images) == 2
-    assert any(
+    assert len(fallback_images) == 1
+    assert table["props"]["rows"][0][0]["text"] == "A"
+    assert table["props"]["rows"][1][1]["text"] == "B"
+    assert not any(
         "OOXML graphicFrame rendered as image fallback on slide 1: table"
         in warning
         for warning in result.warnings
