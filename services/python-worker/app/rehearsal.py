@@ -64,8 +64,43 @@ COACHING_RESPONSE_FORMAT: dict[str, Any] = {
 @dataclass(frozen=True)
 class DeckKeyword:
     text: str
+    keyword_id: str = ""
+    slide_id: str = ""
     synonyms: list[str] = field(default_factory=list)
     abbreviations: list[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class SpeedSample:
+    start_second: float
+    end_second: float
+    words_per_minute: float
+
+
+@dataclass(frozen=True)
+class FillerWordDetail:
+    word: str
+    count: int
+
+
+@dataclass(frozen=True)
+class PauseDetail:
+    start_second: float
+    end_second: float
+    duration_seconds: float
+
+
+@dataclass(frozen=True)
+class MissedKeywordDetail:
+    slide_id: str
+    keyword_id: str
+    text: str
+
+
+@dataclass(frozen=True)
+class KeywordAnalysis:
+    coverage: float
+    missed: list[MissedKeywordDetail] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -74,6 +109,10 @@ class RehearsalMetricsResult:
     filler_word_count: int
     pause_count: int
     keyword_coverage: float
+    speed_samples: list[SpeedSample] = field(default_factory=list)
+    filler_word_details: list[FillerWordDetail] = field(default_factory=list)
+    pause_details: list[PauseDetail] = field(default_factory=list)
+    missed_keywords: list[MissedKeywordDetail] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -96,11 +135,17 @@ def analyze_rehearsal_metrics(
     # TODO: 현재 산식은 MVP 휴리스틱이므로, 문서화된 리허설 평가 기준에 맞춰 재검토한다.
     words = transcript_words(transcript)
     minutes = max(duration_seconds / 60, 1 / 60)
+    keyword_result = analyze_keywords(transcript, deck_keywords)
+    pause_details = find_pause_details(segments)
     return RehearsalMetricsResult(
         words_per_minute=round(len(words) / minutes, 2),
         filler_word_count=count_filler_words(words),
-        pause_count=count_pauses(segments),
-        keyword_coverage=keyword_coverage(transcript, deck_keywords),
+        pause_count=len(pause_details),
+        keyword_coverage=keyword_result.coverage,
+        speed_samples=build_speed_samples(segments),
+        filler_word_details=count_filler_word_details(words),
+        pause_details=pause_details,
+        missed_keywords=keyword_result.missed,
     )
 
 
@@ -187,9 +232,25 @@ def count_filler_words(words: list[str]) -> int:
     return sum(1 for word in words if word in FILLER_WORDS)
 
 
+def count_filler_word_details(words: list[str]) -> list[FillerWordDetail]:
+    counts: dict[str, int] = {}
+    for word in words:
+        if word in FILLER_WORDS:
+            counts[word] = counts.get(word, 0) + 1
+
+    return [
+        FillerWordDetail(word=word, count=count)
+        for word, count in sorted(counts.items(), key=lambda item: (-item[1], item[0]))
+    ]
+
+
 def count_pauses(segments: list[TranscriptSegment]) -> int:
+    return len(find_pause_details(segments))
+
+
+def find_pause_details(segments: list[TranscriptSegment]) -> list[PauseDetail]:
     # 현재는 STT 구간 사이의 공백이 1초 이상이면 pause로 간주한다.
-    pauses = 0
+    pauses: list[PauseDetail] = []
     previous_end: float | None = None
 
     for segment in segments:
@@ -198,7 +259,13 @@ def count_pauses(segments: list[TranscriptSegment]) -> int:
             and segment.start_seconds is not None
             and segment.start_seconds - previous_end >= 1.0
         ):
-            pauses += 1
+            pauses.append(
+                PauseDetail(
+                    start_second=round(previous_end, 2),
+                    end_second=round(segment.start_seconds, 2),
+                    duration_seconds=round(segment.start_seconds - previous_end, 2),
+                )
+            )
 
         if segment.end_seconds is not None:
             previous_end = segment.end_seconds
@@ -207,12 +274,20 @@ def count_pauses(segments: list[TranscriptSegment]) -> int:
 
 
 def keyword_coverage(transcript: str, deck_keywords: list[DeckKeyword]) -> float:
+    return analyze_keywords(transcript, deck_keywords).coverage
+
+
+def analyze_keywords(
+    transcript: str,
+    deck_keywords: list[DeckKeyword],
+) -> KeywordAnalysis:
     # 현재 키워드 커버리지는 유의어/약어 후보의 단순 부분 문자열 매칭으로 계산한다.
     if not deck_keywords:
-        return 0.0
+        return KeywordAnalysis(coverage=0.0)
 
     normalized_transcript = transcript.lower()
     matched = 0
+    missed: list[MissedKeywordDetail] = []
     for keyword in deck_keywords:
         candidates = [
             candidate.strip().lower()
@@ -221,8 +296,41 @@ def keyword_coverage(transcript: str, deck_keywords: list[DeckKeyword]) -> float
         ]
         if any(candidate in normalized_transcript for candidate in candidates):
             matched += 1
+        elif keyword.slide_id and keyword.keyword_id and keyword.text.strip():
+            missed.append(
+                MissedKeywordDetail(
+                    slide_id=keyword.slide_id,
+                    keyword_id=keyword.keyword_id,
+                    text=keyword.text.strip(),
+                )
+            )
 
-    return round(matched / len(deck_keywords), 4)
+    return KeywordAnalysis(coverage=round(matched / len(deck_keywords), 4), missed=missed)
+
+
+def build_speed_samples(segments: list[TranscriptSegment]) -> list[SpeedSample]:
+    samples: list[SpeedSample] = []
+    for segment in segments:
+        if segment.start_seconds is None or segment.end_seconds is None:
+            continue
+
+        duration_seconds = segment.end_seconds - segment.start_seconds
+        if duration_seconds <= 0:
+            continue
+
+        word_count = len(transcript_words(segment.text))
+        if word_count == 0:
+            continue
+
+        samples.append(
+            SpeedSample(
+                start_second=round(segment.start_seconds, 2),
+                end_second=round(segment.end_seconds, 2),
+                words_per_minute=round(word_count / (duration_seconds / 60), 2),
+            )
+        )
+
+    return samples
 
 
 def string_list(value: object) -> list[str]:

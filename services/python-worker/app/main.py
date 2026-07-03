@@ -114,6 +114,8 @@ class ReferenceSearchResponse(BaseModel):
 
 
 class DeckKeywordRequest(BaseModel):
+    keyword_id: str = Field(default="", alias="keywordId")
+    slide_id: str = Field(default="", alias="slideId")
     text: str
     synonyms: list[str] = Field(default_factory=list)
     abbreviations: list[str] = Field(default_factory=list)
@@ -142,12 +144,51 @@ class RehearsalCoachingResponse(BaseModel):
     message: str = ""
 
 
+class RehearsalSpeedSampleResponse(BaseModel):
+    start_second: float = Field(alias="startSecond", ge=0)
+    end_second: float = Field(alias="endSecond", ge=0)
+    words_per_minute: float = Field(alias="wordsPerMinute", ge=0)
+
+
+class RehearsalFillerWordDetailResponse(BaseModel):
+    word: str
+    count: int = Field(ge=0)
+
+
+class RehearsalPauseDetailResponse(BaseModel):
+    start_second: float = Field(alias="startSecond", ge=0)
+    end_second: float = Field(alias="endSecond", ge=0)
+    duration_seconds: float = Field(alias="durationSeconds", ge=0)
+
+
+class RehearsalMissedKeywordResponse(BaseModel):
+    slide_id: str = Field(alias="slideId")
+    keyword_id: str = Field(alias="keywordId")
+    text: str
+
+
 class RehearsalAnalyzeResponse(BaseModel):
     run_id: str = Field(alias="runId")
     words_per_minute: float = Field(alias="wordsPerMinute")
     filler_word_count: int = Field(alias="fillerWordCount")
     pause_count: int = Field(alias="pauseCount")
     keyword_coverage: float = Field(alias="keywordCoverage")
+    speed_samples: list[RehearsalSpeedSampleResponse] = Field(
+        default_factory=list,
+        alias="speedSamples",
+    )
+    filler_word_details: list[RehearsalFillerWordDetailResponse] = Field(
+        default_factory=list,
+        alias="fillerWordDetails",
+    )
+    pause_details: list[RehearsalPauseDetailResponse] = Field(
+        default_factory=list,
+        alias="pauseDetails",
+    )
+    missed_keywords: list[RehearsalMissedKeywordResponse] = Field(
+        default_factory=list,
+        alias="missedKeywords",
+    )
     coaching: RehearsalCoachingResponse
 
 
@@ -318,6 +359,8 @@ def analyze_rehearsal(
     config = _config(request)
     deck_keywords = [
         DeckKeyword(
+            keyword_id=keyword.keyword_id,
+            slide_id=keyword.slide_id,
             text=keyword.text,
             synonyms=keyword.synonyms,
             abbreviations=keyword.abbreviations,
@@ -346,6 +389,37 @@ def analyze_rehearsal(
         fillerWordCount=metrics.filler_word_count,
         pauseCount=metrics.pause_count,
         keywordCoverage=metrics.keyword_coverage,
+        speedSamples=[
+            RehearsalSpeedSampleResponse(
+                startSecond=sample.start_second,
+                endSecond=sample.end_second,
+                wordsPerMinute=sample.words_per_minute,
+            )
+            for sample in metrics.speed_samples
+        ],
+        fillerWordDetails=[
+            RehearsalFillerWordDetailResponse(
+                word=detail.word,
+                count=detail.count,
+            )
+            for detail in metrics.filler_word_details
+        ],
+        pauseDetails=[
+            RehearsalPauseDetailResponse(
+                startSecond=detail.start_second,
+                endSecond=detail.end_second,
+                durationSeconds=detail.duration_seconds,
+            )
+            for detail in metrics.pause_details
+        ],
+        missedKeywords=[
+            RehearsalMissedKeywordResponse(
+                slideId=keyword.slide_id,
+                keywordId=keyword.keyword_id,
+                text=keyword.text,
+            )
+            for keyword in metrics.missed_keywords
+        ],
         coaching=RehearsalCoachingResponse(
             status="succeeded",
             summary=coaching.summary,
