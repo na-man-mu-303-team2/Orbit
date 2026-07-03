@@ -49,6 +49,7 @@ THEME_REL_TYPE = (
 VECTOR_IMPORT_FLAG = "ORBIT_PPTX_OOXML_VECTOR_IMPORT"
 DEFAULT_TEXT_BODY_HORIZONTAL_INSET_EMU = 91440
 DEFAULT_TEXT_BODY_VERTICAL_INSET_EMU = 45720
+DEFAULT_PPTX_FONT_FAMILY = "Aptos, Calibri, Arial, sans-serif"
 FALLBACK_SCHEME_COLORS = {
     "bg1": "#FFFFFF",
     "tx1": "#111827",
@@ -1486,7 +1487,7 @@ def text_element(
         "runs": runs,
         "paragraphs": paragraphs,
         "bodyInset": text_body_inset(body, scale),
-        "fontFamily": first_run.get("fontFamily", "Inter"),
+        "fontFamily": first_run.get("fontFamily", DEFAULT_PPTX_FONT_FAMILY),
         "fontSize": first_run.get("fontSize", 24),
         "fontWeight": first_run.get("fontWeight", "normal"),
         "color": first_run.get("color", "#111827"),
