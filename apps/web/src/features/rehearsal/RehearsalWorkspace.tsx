@@ -1426,19 +1426,6 @@ export function RehearsalWorkspace(props: {
         : [],
     [currentSlide?.slideId, currentSlide?.speakerNotes]
   );
-  const triggerAnimationIds = useMemo(() => [] as string[], [currentSlide?.slideId]);
-  const presentationChannelState = useMemo(
-    () =>
-      currentSlide
-        ? {
-            highlights: [],
-            slideId: currentSlide.slideId,
-            slideIndex: currentSlideIndex,
-            stepIndex: presenterStepIndex
-          }
-        : null,
-    [currentSlide?.slideId, currentSlideIndex, presenterStepIndex]
-  );
   const triggerAnimationIds = slideshowRuntime?.triggerAnimationIds ?? [];
   const slideshowAnimationPlan = currentSlide
     ? createSlideshowAnimationPlan({
@@ -1959,6 +1946,8 @@ export function RehearsalWorkspace(props: {
       slideIndex,
       triggerResult
     };
+  }
+
   function handleLiveSttResult(result: LiveSttResult) {
     handleLivePartialTranscript({
       type: "partial-transcript",

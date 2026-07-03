@@ -154,13 +154,14 @@ describe("RehearsalWorkspace", () => {
 
   it("exposes a test-only runtime bridge for rehearsal playback e2e coverage", () => {
     const source = fs.readFileSync(
-      path.join(process.cwd(), "src/features/rehearsal/RehearsalWorkspace.tsx"),
+      rehearsalWorkspaceSourcePath,
       "utf8"
     );
 
     expect(source).toContain("__ORBIT_ENABLE_TEST_API__");
     expect(source).toContain("__ORBIT_TEST_API__");
     expect(source).toContain("triggerKeywordPlayback(keywordId)");
+  });
 
   it("creates fallback Live STT ports from the selected presenter engine", () => {
     const source = fs.readFileSync(
