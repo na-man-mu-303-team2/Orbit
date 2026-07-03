@@ -242,7 +242,7 @@ def test_shape_fallback_assets_crop_from_slide_render() -> None:
     assert warnings == []
     assert assets[0].asset_id == "shape_render_1_slide_2"
     assert assets[0].mime_type == "image/png"
-    assert crop.size == (34, 29)
+    assert crop.size == (30, 25)
 
 
 def test_strip_text_from_pptx_package_removes_text_bodies(tmp_path: Path) -> None:

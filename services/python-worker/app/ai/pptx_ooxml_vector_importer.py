@@ -47,7 +47,6 @@ THEME_REL_TYPE = (
     "http://schemas.openxmlformats.org/officeDocument/2006/relationships/theme"
 )
 VECTOR_IMPORT_FLAG = "ORBIT_PPTX_OOXML_VECTOR_IMPORT"
-FALLBACK_IMAGE_PADDING = 2
 FALLBACK_SCHEME_COLORS = {
     "bg1": "#FFFFFF",
     "tx1": "#111827",
@@ -479,8 +478,19 @@ def append_group_shape(
     locked: bool,
 ) -> None:
     group_id = shape_identifier(group, child_index)
-    group_frame = shape_frame(group, scale, transform, placeholder_frames)
     group_transform = transform.for_group(group)
+    group_frame = shape_frame(
+        group,
+        scale,
+        transform,
+        placeholder_frames,
+    ) or group_visual_frame(
+        group,
+        scale,
+        group_transform,
+        state.theme_colors,
+        placeholder_frames,
+    )
     if group_frame is not None and group_has_visual_content(
         group,
         scale,
@@ -677,6 +687,52 @@ def group_has_visual_content(
     return False
 
 
+def group_visual_frame(
+    group: ET.Element[Any],
+    scale: OoxmlScale,
+    transform: OoxmlTransform,
+    theme_colors: dict[str, str],
+    placeholder_frames: dict[tuple[str, str], dict[str, int]],
+) -> dict[str, int] | None:
+    frames: list[dict[str, int]] = []
+    for child in list(group):
+        tag = local_name(child)
+        if tag == "grpSp":
+            frame = group_visual_frame(
+                child,
+                scale,
+                transform.for_group(child),
+                theme_colors,
+                placeholder_frames,
+            )
+        elif tag in {"sp", "pic", "cxnSp"} and shape_has_visual_content(
+            child,
+            scale,
+            transform,
+            theme_colors,
+            placeholder_frames,
+        ):
+            frame = shape_frame(child, scale, transform, placeholder_frames)
+        else:
+            frame = None
+        if frame is not None:
+            frames.append(frame)
+
+    if not frames:
+        return None
+    left = min(frame["x"] for frame in frames)
+    top = min(frame["y"] for frame in frames)
+    right = max(frame["x"] + frame["width"] for frame in frames)
+    bottom = max(frame["y"] + frame["height"] for frame in frames)
+    return {
+        "x": left,
+        "y": top,
+        "width": max(1, right - left),
+        "height": max(1, bottom - top),
+        "rotation": 0,
+    }
+
+
 def shape_has_visual_content(
     shape: ET.Element[Any],
     scale: OoxmlScale,
@@ -692,7 +748,24 @@ def shape_has_visual_content(
         return True
     fill = shape_fill(shape, theme_colors)
     stroke, _, _ = shape_stroke(shape, scale, theme_colors)
-    return bool(fill != "transparent" or stroke != "transparent")
+    return bool(
+        fill != "transparent"
+        or stroke != "transparent"
+        or shape_uses_default_visual_style(shape)
+    )
+
+
+def shape_uses_default_visual_style(shape: ET.Element[Any]) -> bool:
+    body = first_local_child(shape, "txBody")
+    return (
+        local_name(shape) == "sp"
+        and first_local_descendant(shape, "prstGeom") is not None
+        and (body is None or not text_body_plain_text(body).strip())
+    )
+
+
+def text_body_plain_text(body: ET.Element[Any]) -> str:
+    return "".join(node.text or "" for node in body.iter() if local_name(node) == "t")
 
 
 def append_shape(
@@ -912,12 +985,11 @@ def shape_fallback_image_element(
     reason: str,
 ) -> dict[str, Any]:
     asset_id = shape_fallback_asset_id(slide_index, source_name, shape_id)
-    fallback_frame = padded_fallback_frame(frame)
     return {
         **element_base(
             element_id=element_id(slide_index, source_name, shape_id, "fallback_image"),
             role="decoration",
-            frame=fallback_frame,
+            frame=frame,
             z_index=z_index,
             locked=locked,
         ),
@@ -929,20 +1001,6 @@ def shape_fallback_image_element(
             "focusX": 0.5,
             "focusY": 0.5,
         },
-    }
-
-
-def padded_fallback_frame(frame: dict[str, int]) -> dict[str, int]:
-    x = max(0, int(frame["x"]) - FALLBACK_IMAGE_PADDING)
-    y = max(0, int(frame["y"]) - FALLBACK_IMAGE_PADDING)
-    right = int(frame["x"]) + int(frame["width"]) + FALLBACK_IMAGE_PADDING
-    bottom = int(frame["y"]) + int(frame["height"]) + FALLBACK_IMAGE_PADDING
-    return {
-        **frame,
-        "x": x,
-        "y": y,
-        "width": max(1, right - x),
-        "height": max(1, bottom - y),
     }
 
 

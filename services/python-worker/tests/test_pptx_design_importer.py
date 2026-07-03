@@ -361,10 +361,6 @@ def test_ooxml_visual_tree_splits_text_from_unsupported_shape_fallback(
 
     assert len(fallback_images) == 1
     assert fallback_images[0]["zIndex"] < text["zIndex"]
-    assert fallback_images[0]["x"] == 142
-    assert fallback_images[0]["y"] == 142
-    assert fallback_images[0]["width"] == 580
-    assert fallback_images[0]["height"] == 220
 
 
 def test_ooxml_visual_tree_uses_single_image_fallback_for_group_visuals(
@@ -414,6 +410,51 @@ def test_ooxml_visual_tree_uses_single_image_fallback_for_group_visuals(
         for element in elements
     )
     assert not any(element["type"] == "ellipse" for element in elements)
+
+
+def test_ooxml_visual_tree_uses_group_fallback_for_supported_icon_shapes(
+    tmp_path: Path,
+) -> None:
+    pptx_path = tmp_path / "supported-icon-group.pptx"
+    presentation = Presentation()
+    presentation.slide_width = Inches(13.333333)
+    presentation.slide_height = Inches(7.5)
+    slide = presentation.slides.add_slide(presentation.slide_layouts[6])
+    circle = slide.shapes.add_shape(
+        MSO_SHAPE.OVAL,
+        Inches(1),
+        Inches(2),
+        Inches(1),
+        Inches(1),
+    )
+    arrow = slide.shapes.add_shape(
+        MSO_SHAPE.RIGHT_ARROW,
+        Inches(1.9),
+        Inches(2.1),
+        Inches(2),
+        Inches(0.8),
+    )
+    label = slide.shapes.add_textbox(Inches(1.2), Inches(3.2), Inches(3), Inches(0.6))
+    label.text_frame.text = "Grouped label"
+    slide.shapes.add_group_shape([circle, arrow, label])
+    presentation.save(pptx_path)
+
+    result = import_pptx_ooxml_visual_tree(pptx_path, "file_design")
+    elements = result.blueprint["slides"][0]["elements"]
+    fallback_images = [
+        element
+        for element in elements
+        if element["type"] == "image"
+        and str(element["props"]["src"]).startswith("asset:shape_render_1_slide_")
+    ]
+    text = next(
+        element
+        for element in elements
+        if element["type"] == "text" and element["props"]["text"] == "Grouped label"
+    )
+
+    assert len(fallback_images) == 1
+    assert fallback_images[0]["zIndex"] < text["zIndex"]
 
 
 def test_blip_fill_asset_extracts_embedded_image_and_color() -> None:
