@@ -5,12 +5,12 @@
 ## Phase 0: SODA baseline + Chrome Stable 스파이크
 
 - [x] T0: 기본 엔진을 Web Speech on-device로 확정하고 ko-KR 언어팩 옵션(`quality: "command"`) 테스트 보강 (M)
-- [ ] T1: Chrome Stable ko-KR Web Speech 실측 → `docs/spikes/web-speech-ko-biasing.md` (S, T0-T15와 병렬 가능)
+- [x] T1: Chrome Stable ko-KR Web Speech 실측 → `docs/spikes/web-speech-ko-biasing.md` (S, T0-T15와 병렬 가능)
 
 ### Checkpoint 0
 
 - [x] T0 테스트 통과
-- [ ] T1 미완료 시 PR 리스크에 Chrome Stable 실측 미완료 명시
+- [x] T1 완료 - Chrome Stable API 표면과 headless fake-audio 결과 문서화
 
 ## Phase 1: Contextual biasing (phrases)
 
