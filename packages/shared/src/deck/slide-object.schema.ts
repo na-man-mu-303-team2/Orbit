@@ -64,10 +64,18 @@ export const deckElementLinearGradientPaintSchema = z.object({
   stops: z.array(deckElementGradientStopSchema).min(2)
 });
 
+export const deckElementPatternPaintSchema = z.object({
+  type: z.literal("pattern"),
+  preset: z.string().min(1).default("pct20"),
+  foreground: themeColorSchema,
+  background: themeColorSchema.default("#FFFFFF")
+});
+
 export const deckElementPaintSchema = z.union([
   themeColorSchema,
   z.literal("transparent"),
-  deckElementLinearGradientPaintSchema
+  deckElementLinearGradientPaintSchema,
+  deckElementPatternPaintSchema
 ]);
 
 export const deckElementShadowSchema = z.object({
@@ -337,6 +345,9 @@ export type DeckElementRole = z.infer<typeof deckElementRoleSchema>;
 export type DeckElementPaint = z.infer<typeof deckElementPaintSchema>;
 export type DeckElementLinearGradientPaint = z.infer<
   typeof deckElementLinearGradientPaintSchema
+>;
+export type DeckElementPatternPaint = z.infer<
+  typeof deckElementPatternPaintSchema
 >;
 export type DeckElementShadow = z.infer<typeof deckElementShadowSchema>;
 export type ShapeElementProps = z.infer<typeof shapeElementPropsSchema>;

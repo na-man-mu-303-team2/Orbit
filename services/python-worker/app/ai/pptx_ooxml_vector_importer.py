@@ -1320,8 +1320,6 @@ def unsupported_geometry_reason(shape: ET.Element[Any]) -> str | None:
         return None
     if first_local_child(sp_pr, "custGeom") is not None:
         return "unsupported custom geometry"
-    if first_local_child(sp_pr, "pattFill") is not None:
-        return "unsupported pattern fill"
     if first_local_child(sp_pr, "blipFill") is not None:
         return "unsupported shape image fill"
 
@@ -1802,6 +1800,9 @@ def shape_fill(
         paint = gradient_paint(grad, theme_colors)
         if paint:
             return paint
+    pattern = pattern_paint(first_local_child(sp_pr, "pattFill"), theme_colors)
+    if pattern:
+        return pattern
     solid = solid_color(first_local_child(sp_pr, "solidFill"), theme_colors)
     return solid or "transparent"
 
@@ -1888,6 +1889,22 @@ def gradient_paint(
         "type": "linear-gradient",
         "angle": angle,
         "stops": sorted(stops, key=lambda stop: float(stop["offset"])),
+    }
+
+
+def pattern_paint(
+    pattern: ET.Element[Any] | None,
+    theme_colors: dict[str, str],
+) -> dict[str, Any] | None:
+    if pattern is None:
+        return None
+    foreground = solid_color(first_local_child(pattern, "fgClr"), theme_colors)
+    background = solid_color(first_local_child(pattern, "bgClr"), theme_colors)
+    return {
+        "type": "pattern",
+        "preset": str(pattern.get("prst", "pct20")),
+        "foreground": foreground or "#111827",
+        "background": background or "#FFFFFF",
     }
 
 

@@ -1078,6 +1078,10 @@ function getSolidPaint(paint: DeckElementPaint | undefined, fallback: string) {
     return paint;
   }
 
+  if (paint.type === "pattern") {
+    return paint.foreground;
+  }
+
   return paint.stops[0]?.color ?? fallback;
 }
 
@@ -1087,6 +1091,10 @@ function getFillRenderProps(
 ) {
   if (!paint || typeof paint === "string") {
     return { fill: getSolidPaint(paint, frame.fallback) };
+  }
+
+  if (paint.type === "pattern") {
+    return getPatternFillRenderProps(paint);
   }
 
   const radians = (paint.angle * Math.PI) / 180;
@@ -1108,6 +1116,59 @@ function getFillRenderProps(
       y: frame.height / 2 - dy
     }
   };
+}
+
+function getPatternFillRenderProps(
+  paint: Extract<DeckElementPaint, { type: "pattern" }>
+) {
+  const pattern = createPatternCanvas(paint);
+  if (!pattern) {
+    return { fill: paint.background };
+  }
+
+  return {
+    fill: paint.background,
+    fillPatternImage: pattern,
+    fillPatternRepeat: "repeat"
+  };
+}
+
+function createPatternCanvas(
+  paint: Extract<DeckElementPaint, { type: "pattern" }>
+) {
+  if (typeof document === "undefined") {
+    return null;
+  }
+
+  const canvas = document.createElement("canvas");
+  canvas.width = 12;
+  canvas.height = 12;
+  const context = canvas.getContext("2d");
+  if (!context) {
+    return null;
+  }
+
+  context.fillStyle = paint.background;
+  context.fillRect(0, 0, canvas.width, canvas.height);
+  context.strokeStyle = paint.foreground;
+  context.fillStyle = paint.foreground;
+  context.lineWidth = 2;
+
+  if (paint.preset.toLowerCase().includes("diag")) {
+    context.beginPath();
+    context.moveTo(-2, 12);
+    context.lineTo(12, -2);
+    context.moveTo(4, 14);
+    context.lineTo(14, 4);
+    context.stroke();
+    return canvas;
+  }
+
+  context.globalAlpha = paint.preset.toLowerCase().includes("pct") ? 0.55 : 1;
+  context.fillRect(2, 2, 3, 3);
+  context.fillRect(8, 8, 3, 3);
+  context.globalAlpha = 1;
+  return canvas;
 }
 
 function getStrokeRenderProps(props: ShapeElementProps | CustomShapeElementProps) {

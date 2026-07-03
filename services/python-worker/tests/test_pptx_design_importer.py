@@ -328,7 +328,7 @@ def test_ooxml_visual_tree_keeps_complex_text_editable(
     assert not any("multi-paragraph text layout" in warning for warning in result.warnings)
 
 
-def test_ooxml_visual_tree_splits_text_from_unsupported_shape_fallback(
+def test_ooxml_visual_tree_keeps_pattern_shape_editable_with_separate_text(
     tmp_path: Path,
 ) -> None:
     pptx_path = tmp_path / "shape-with-text.pptx"
@@ -357,14 +357,27 @@ def test_ooxml_visual_tree_splits_text_from_unsupported_shape_fallback(
         if element["type"] == "image"
         and str(element["props"]["src"]).startswith("asset:shape_render_1_slide_")
     ]
+    pattern_shape = next(
+        element
+        for element in elements
+        if element["type"] == "rect"
+        and isinstance(element["props"].get("fill"), dict)
+        and element["props"]["fill"].get("type") == "pattern"
+    )
     text = next(
         element
         for element in elements
         if element["type"] == "text" and element["props"]["text"] == "Editable label"
     )
 
-    assert len(fallback_images) == 1
-    assert fallback_images[0]["zIndex"] < text["zIndex"]
+    assert len(fallback_images) == 0
+    assert pattern_shape["props"]["fill"] == {
+        "type": "pattern",
+        "preset": "pct20",
+        "foreground": "#111827",
+        "background": "#F59E0B",
+    }
+    assert pattern_shape["zIndex"] < text["zIndex"]
 
 
 def test_ooxml_visual_tree_uses_single_image_fallback_for_group_visuals(

@@ -255,6 +255,28 @@ describe("deckSchema validation", () => {
     expectValidDeck(deck);
   });
 
+  it("accepts editable pattern fill props", () => {
+    const deck = createValidDeck();
+
+    deck.slides[0].elements[0] = {
+      ...deck.slides[0].elements[0],
+      type: "rect",
+      role: "decoration",
+      props: {
+        fill: {
+          type: "pattern",
+          preset: "pct20",
+          foreground: "#111827",
+          background: "#F59E0B"
+        },
+        stroke: "transparent",
+        strokeWidth: 0
+      }
+    };
+
+    expectValidDeck(deck);
+  });
+
   it("accepts high fidelity PPTX visual props", () => {
     const deck = createValidDeck();
 

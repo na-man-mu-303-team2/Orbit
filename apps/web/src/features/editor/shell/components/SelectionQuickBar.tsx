@@ -643,6 +643,10 @@ function solidPaintForControl(paint: DeckElementPaint, fallback: string) {
     return paint;
   }
 
+  if (paint.type === "pattern") {
+    return paint.foreground;
+  }
+
   return paint.stops[0]?.color ?? fallback;
 }
 

@@ -218,6 +218,10 @@ function solidColorForTheme(value: DeckElementPaint | string | undefined) {
     return value;
   }
 
+  if (value.type === "pattern") {
+    return value.foreground;
+  }
+
   return value.stops[0]?.color;
 }
 

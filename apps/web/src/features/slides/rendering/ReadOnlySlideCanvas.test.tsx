@@ -364,6 +364,47 @@ describe("ReadOnlySlideCanvas", () => {
     expect(html).toContain("Vector mark");
   });
 
+  it("renders editable pattern filled shapes", () => {
+    const patternSlide = {
+      ...slide,
+      elements: [
+        {
+          elementId: "el_pattern",
+          type: "rect" as const,
+          role: "decoration" as const,
+          x: 100,
+          y: 100,
+          width: 240,
+          height: 160,
+          rotation: 0,
+          opacity: 1,
+          zIndex: 1,
+          locked: false,
+          visible: true,
+          props: {
+            fill: {
+              type: "pattern" as const,
+              preset: "pct20",
+              foreground: "#111827",
+              background: "#F59E0B"
+            },
+            stroke: "transparent" as const,
+            strokeWidth: 0,
+            borderRadius: 0
+          }
+        }
+      ]
+    };
+    const html = renderToStaticMarkup(
+      <ReadOnlySlideCanvas
+        deck={{ ...p0AnimationDeck, slides: [patternSlide] }}
+        slide={patternSlide}
+      />
+    );
+
+    expect(html).toContain("data-element-id=\"el_pattern\"");
+  });
+
   it("renders editable line chart legends", () => {
     const chartSlide = {
       ...slide,
