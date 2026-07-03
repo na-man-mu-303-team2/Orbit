@@ -953,6 +953,7 @@ def test_ooxml_visual_tree_importer_falls_back_graphic_frames(
         {"label": "A", "value": 1.0},
         {"label": "B", "value": 2.0},
     ]
+    assert chart["props"]["style"]["colors"][0] == "#4F81BD"
     assert not any(
         "OOXML graphicFrame rendered as image fallback on slide 1: table"
         in warning

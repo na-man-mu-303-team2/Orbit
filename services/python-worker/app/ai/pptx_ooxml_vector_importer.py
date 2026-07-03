@@ -541,7 +541,7 @@ def chart_element(
             "title": chart_title(chart),
             "data": data,
             "style": {
-                "colors": ["#2563EB", "#7C3AED", "#0EA5E9", "#10B981"],
+                "colors": ["#4F81BD", "#C0504D", "#9BBB59", "#8064A2"],
                 "showLegend": True,
                 "legendPosition": "bottom",
                 "showDataLabels": False,

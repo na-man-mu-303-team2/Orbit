@@ -59,6 +59,8 @@ const RegularPolygon = KonvaRegularPolygon as unknown as KonvaComponent;
 const Shape = KonvaShape as unknown as KonvaComponent;
 const Text = KonvaText as unknown as KonvaComponent;
 
+const officeChartColors = ["#4F81BD", "#C0504D", "#9BBB59", "#8064A2"];
+
 export type SlideElementFrame = {
   x: number;
   y: number;
@@ -595,15 +597,16 @@ function CartesianChartContent(props: {
   );
   const values = data.map((datum) => datum.value);
   const maxValue = niceChartMax(Math.max(1, ...values));
+  const isLineChart = chart.type === "line";
   const plot = {
     height: frame.height * 0.72,
-    width: frame.width * 0.91,
+    width: frame.width * (isLineChart ? 0.73 : 0.91),
     x: frame.width * 0.07,
     y: frame.height * 0.18
   };
   const tickCount = 10;
   const slotWidth = plot.width / Math.max(1, data.length);
-  const seriesColor = chart.style.colors[0] ?? "#4F81BD";
+  const seriesColor = chart.style.colors[0] ?? officeChartColors[0] ?? accentColor;
 
   return (
     <Group listening={false}>
@@ -647,7 +650,7 @@ function CartesianChartContent(props: {
         stroke="#8A8A8A"
         strokeWidth={1}
       />
-      {chart.type === "line" ? (
+      {isLineChart ? (
         <LineChartSeries
           data={data}
           maxValue={maxValue}
@@ -684,6 +687,14 @@ function CartesianChartContent(props: {
           y={plot.y + plot.height + 20}
         />
       ))}
+      {isLineChart && chart.style.showLegend !== false ? (
+        <ChartLegend
+          color={seriesColor}
+          frame={frame}
+          label="Series 1"
+          plot={plot}
+        />
+      ) : null}
     </Group>
   );
 }
@@ -695,9 +706,9 @@ function LineChartSeries(props: {
   seriesColor: string;
 }) {
   const { data, maxValue, plot, seriesColor } = props;
-  const step = plot.width / Math.max(1, data.length - 1);
+  const slotWidth = plot.width / Math.max(1, data.length);
   const points = data.flatMap((datum, index) => [
-    plot.x + step * index,
+    plot.x + slotWidth * (index + 0.5),
     plot.y + plot.height - (plot.height * datum.value) / maxValue
   ]);
 
@@ -705,16 +716,36 @@ function LineChartSeries(props: {
     <Group listening={false}>
       <Line points={points} stroke={seriesColor} strokeWidth={4} tension={0} />
       {data.map((datum, index) => (
-        <Circle
-          fill="#FFFFFF"
+        <Rect
+          fill={seriesColor}
           key={`${datum.label}-marker-${index}`}
-          radius={7}
           stroke={seriesColor}
-          strokeWidth={3}
-          x={plot.x + step * index}
-          y={plot.y + plot.height - (plot.height * datum.value) / maxValue}
+          strokeWidth={1}
+          width={10}
+          height={10}
+          x={plot.x + slotWidth * (index + 0.5) - 5}
+          y={plot.y + plot.height - (plot.height * datum.value) / maxValue - 5}
         />
       ))}
+    </Group>
+  );
+}
+
+function ChartLegend(props: {
+  color: string;
+  frame: SlideElementFrame;
+  label: string;
+  plot: { height: number; width: number; x: number; y: number };
+}) {
+  const { color, frame, label, plot } = props;
+  const x = Math.min(frame.width - 170, plot.x + plot.width + frame.width * 0.04);
+  const y = plot.y + plot.height * 0.44;
+
+  return (
+    <Group listening={false} x={x} y={y}>
+      <Line points={[0, 12, 42, 12]} stroke={color} strokeWidth={4} />
+      <Rect fill={color} height={18} width={18} x={12} y={3} />
+      <Text fill="#000000" fontSize={32} listening={false} text={label} x={56} y={-5} />
     </Group>
   );
 }
@@ -725,11 +756,9 @@ function PieChartContent(props: { chart: Chart; frame: SlideElementFrame }) {
     "value" in datum
   );
   const total = data.reduce((sum, datum) => sum + Math.max(0, datum.value), 0) || 1;
-  const radius = Math.min(frame.width, frame.height) * 0.34;
-  const center = { x: frame.width / 2, y: frame.height * 0.56 };
-  const colors = chart.style.colors.length
-    ? chart.style.colors
-    : ["#4F81BD", "#C0504D", "#9BBB59", "#8064A2"];
+  const radius = Math.min(frame.width, frame.height) * 0.4;
+  const center = { x: frame.width / 2, y: frame.height * 0.57 };
+  const colors = chart.style.colors.length ? chart.style.colors : officeChartColors;
   let startAngle = -90;
 
   return (
@@ -773,7 +802,13 @@ function PieChartContent(props: { chart: Chart; frame: SlideElementFrame }) {
 }
 
 function niceChartMax(value: number) {
-  return Math.ceil(value * 2) / 2;
+  if (value <= 0) {
+    return 1;
+  }
+  const magnitude = 10 ** Math.floor(Math.log10(value));
+  const normalized = value / magnitude;
+  const nice = normalized <= 1 ? 1 : normalized <= 2 ? 2 : normalized <= 5 ? 5 : 10;
+  return nice * magnitude;
 }
 
 function formatChartTick(value: number) {

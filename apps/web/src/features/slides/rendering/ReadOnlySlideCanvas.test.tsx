@@ -327,6 +327,57 @@ describe("ReadOnlySlideCanvas", () => {
     expect(html).toContain("D");
   });
 
+  it("renders editable line chart legends", () => {
+    const chartSlide = {
+      ...slide,
+      elements: [
+        {
+          elementId: "el_chart",
+          type: "chart" as const,
+          role: "chart" as const,
+          x: 100,
+          y: 100,
+          width: 640,
+          height: 360,
+          rotation: 0,
+          opacity: 1,
+          zIndex: 1,
+          locked: false,
+          visible: true,
+          props: {
+            type: "line" as const,
+            title: "Line Chart",
+            data: [
+              { label: "A", value: 4.3 },
+              { label: "B", value: 2.5 },
+              { label: "C", value: 3.5 },
+              { label: "D", value: 4.5 }
+            ],
+            style: {
+              colors: ["#4F81BD"],
+              showLegend: true,
+              legendPosition: "right" as const,
+              showDataLabels: false,
+              showGrid: true,
+              xAxisTitle: "",
+              yAxisTitle: "",
+              unit: ""
+            }
+          }
+        }
+      ]
+    };
+    const html = renderToStaticMarkup(
+      <ReadOnlySlideCanvas
+        deck={{ ...p0AnimationDeck, slides: [chartSlide] }}
+        slide={chartSlide}
+      />
+    );
+
+    expect(html).toContain("Line Chart");
+    expect(html).toContain("Series 1");
+  });
+
   it("renders vertical PPT text as rotated text", () => {
     const verticalSlide = {
       ...slide,
