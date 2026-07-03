@@ -160,6 +160,63 @@ describe("p3RehearsalSession", () => {
     expect(session.getState().snapshot?.hitKeywordIds).toEqual(["kw_ai"]);
     expect(port.updateBiasPhrases).toHaveBeenCalled();
   });
+
+  it("passes slide control phrases to the tracker extraction path", async () => {
+    const port = createMockLiveSttPort();
+    const session = createP3RehearsalSession({
+      slides: [
+        {
+          slideId: "slide_control",
+          speakerNotes: "다음 슬라이드. 제품 가치를 설명합니다.",
+          keywords: [],
+          controlPhrases: ["다음 슬라이드"]
+        }
+      ],
+      port,
+      now: () => 40_000
+    });
+
+    await session.start({
+      audioSource: {} as MediaStream,
+      slideIndex: 0
+    });
+
+    port.emit({
+      text: "다음 슬라이드",
+      isFinal: true,
+      timestampMs: [0, 500]
+    });
+
+    expect(session.getState().snapshot).toMatchObject({
+      matchableSentenceCount: 1,
+      sentenceCoverage: 0,
+      effectiveCoverage: 0
+    });
+  });
+
+  it("finalizes active advice state into local run meta", async () => {
+    const port = createMockLiveSttPort();
+    const session = createP3RehearsalSession({
+      slides,
+      port,
+      now: createNow([50_000, 51_000])
+    });
+
+    await session.start({
+      audioSource: {} as MediaStream,
+      slideIndex: 0
+    });
+
+    session.setAdviceState("pace-too-fast", true);
+    session.setAdviceState("slide-overtime", true);
+
+    const meta = await session.stop();
+
+    expect(meta.adviceEvents.map((event) => event.type)).toEqual([
+      "pace-too-fast",
+      "slide-overtime"
+    ]);
+  });
 });
 
 const slides: P3RehearsalSessionSlide[] = [

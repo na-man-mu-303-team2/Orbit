@@ -212,6 +212,7 @@ export function createP3RehearsalSession(
       slideId: slide.slideId,
       speakerNotes: slide.speakerNotes,
       keywords: slide.keywords,
+      controlPhrases: slide.controlPhrases,
       threshold: input.threshold,
       config: input.config
     });

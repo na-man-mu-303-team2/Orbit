@@ -140,4 +140,40 @@ describe("SpeechTracker", () => {
       hitKeywordIds: ["kw_orbit"]
     });
   });
+
+  it("제어 문구와 겹치는 대본 문장은 coverage 후보에서 제외한다", () => {
+    const tracker = createSpeechTracker({
+      slideId: "slide_1",
+      speakerNotes: "다음 슬라이드. 제품 가치를 설명합니다.",
+      controlPhrases: ["다음 슬라이드"],
+      keywords: []
+    });
+
+    expect(tracker.snapshot().matchableSentenceCount).toBe(1);
+
+    const commandEvents = tracker.acceptResult({
+      text: "다음 슬라이드",
+      isFinal: true,
+      timestampMs: [0, 500]
+    });
+
+    expect(commandEvents.map((event) => event.type)).not.toContain(
+      "sentence-covered"
+    );
+    expect(tracker.snapshot()).toMatchObject({
+      sentenceCoverage: 0,
+      effectiveCoverage: 0
+    });
+
+    tracker.acceptResult({
+      text: "제품 가치를 설명합니다",
+      isFinal: true,
+      timestampMs: [500, 1500]
+    });
+
+    expect(tracker.snapshot()).toMatchObject({
+      sentenceCoverage: 1,
+      effectiveCoverage: 1
+    });
+  });
 });

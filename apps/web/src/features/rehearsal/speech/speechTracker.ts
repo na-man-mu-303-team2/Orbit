@@ -28,6 +28,7 @@ export type CreateSpeechTrackerInput = {
   slideId: string;
   speakerNotes: string;
   keywords: readonly SpeechTrackerKeyword[];
+  controlPhrases?: readonly string[];
   threshold?: number;
   config?: SpeechTrackingConfigOverride;
 };
@@ -42,7 +43,10 @@ export type SpeechTracker = {
 export function createSpeechTracker(input: CreateSpeechTrackerInput): SpeechTracker {
   const config = mergeSpeechTrackingConfig(input.config);
   const threshold = input.threshold ?? 0.7;
-  const extractor = createDefaultPhraseExtractor(input.config);
+  const extractor = createDefaultPhraseExtractor({
+    ...input.config,
+    controlPhrases: input.controlPhrases
+  });
   const sentences = extractor.extract(input.speakerNotes);
   const matchableSentenceIds = sentences
     .filter((sentence) => sentence.matchable)

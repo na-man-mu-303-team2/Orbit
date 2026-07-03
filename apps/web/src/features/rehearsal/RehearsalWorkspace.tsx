@@ -70,9 +70,11 @@ import {
 } from "./rehearsalCommands";
 import {
   LiveSttError,
+  type LiveSttEngineId,
   type LiveSttPort,
   type LiveSttResult
 } from "./stt/liveSttPort";
+import { createLiveSttPort } from "./stt/liveSttEngineRegistry";
 import { SherpaLiveSttPort } from "./stt/sherpaLiveSttPort";
 import { DisplayControls } from "./presenter/DisplayControls";
 import { SingleScreenPresenter } from "./presenter/SingleScreenPresenter";
@@ -1159,29 +1161,40 @@ function levenshteinDistance(left: string, right: string) {
 }
 
 function createDefaultLiveSttPort(options: {
+  engineId?: LiveSttEngineId;
   legacyAdapter?: LiveSttAdapter;
   onAudioLevel?: (event: LiveSttAudioLevelEvent) => void;
   onDebugPcmAvailable?: (recording: LiveSttDebugPcmRecording) => void;
   getDecodingMethod?: () => LiveSttDecodingMethod | null;
 } = {}) {
-  const { legacyAdapter, onAudioLevel, onDebugPcmAvailable, getDecodingMethod } =
+  const {
+    engineId,
+    legacyAdapter,
+    onAudioLevel,
+    onDebugPcmAvailable,
+    getDecodingMethod
+  } =
     options;
   const sherpaOptions = {
     onAudioLevel,
     onDebugPcmAvailable,
     getDecodingMethod
   };
+  const shouldUseSherpaCompatibility = !engineId || engineId === "sherpa";
 
-  if (legacyAdapter) {
+  if (shouldUseSherpaCompatibility && legacyAdapter) {
     return new SherpaLiveSttPort({ ...sherpaOptions, adapter: legacyAdapter });
   }
 
-  const windowAdapter = window.__orbitCreateLiveSttAdapter?.();
-  if (windowAdapter) {
-    return new SherpaLiveSttPort({ ...sherpaOptions, adapter: windowAdapter });
+  if (shouldUseSherpaCompatibility) {
+    const windowAdapter = window.__orbitCreateLiveSttAdapter?.();
+    if (windowAdapter) {
+      return new SherpaLiveSttPort({ ...sherpaOptions, adapter: windowAdapter });
+    }
+    return new SherpaLiveSttPort(sherpaOptions);
   }
 
-  return new SherpaLiveSttPort(sherpaOptions);
+  return createLiveSttPort(engineId);
 }
 
 export function RehearsalWorkspace(props: {
@@ -1241,6 +1254,7 @@ export function RehearsalWorkspace(props: {
   const liveSttPortRef = useRef<LiveSttPort | null>(props.liveSttPort ?? null);
   const liveSttSubscriptionCleanupRef = useRef<(() => void) | null>(null);
   const p3SessionRef = useRef<P3RehearsalSession | null>(null);
+  const pendingP3SlideIndexRef = useRef<number | null>(null);
   const finishAfterReportRef = useRef(false);
   const deckRef = useRef<Deck | null>(props.initialDeck ?? null);
   const currentSlideIndexRef = useRef(0);
@@ -1341,6 +1355,7 @@ export function RehearsalWorkspace(props: {
       cleanupLiveSttSubscriptions();
       const p3Session = p3SessionRef.current;
       p3SessionRef.current = null;
+      pendingP3SlideIndexRef.current = null;
       if (p3Session) {
         void p3Session.stop();
       } else {
@@ -1450,6 +1465,15 @@ export function RehearsalWorkspace(props: {
   });
 
   useEffect(() => {
+    const p3Session = p3SessionRef.current;
+    if (!p3Session || p3Session.getState().status !== "running") {
+      return;
+    }
+
+    syncP3AdviceState(p3Session);
+  }, [p3AdviceState.pace, p3AdviceState.slideOvertime]);
+
+  useEffect(() => {
     setSlideElapsedSeconds(0);
   }, [currentSlide?.slideId]);
 
@@ -1477,9 +1501,15 @@ export function RehearsalWorkspace(props: {
         ? getBiasPhrasesFromContext(nextBiasContext)
         : []
     );
-    if (p3SessionRef.current && isLiveDemoActive) {
-      p3SessionRef.current.enterSlide(currentSlideIndex);
-      setP3SessionState(p3SessionRef.current.getState());
+    const p3Session = p3SessionRef.current;
+    if (p3Session && (isLiveDemoActive || phase === "recording")) {
+      const p3State = p3Session.getState();
+      if (p3State.status === "starting") {
+        pendingP3SlideIndexRef.current = currentSlideIndex;
+      } else if (p3State.status === "running") {
+        p3Session.enterSlide(currentSlideIndex);
+        setP3SessionState(p3Session.getState());
+      }
     }
   }, [currentSlide?.slideId, currentSlideIndex, deck]);
 
@@ -1533,7 +1563,7 @@ export function RehearsalWorkspace(props: {
       session.start();
       setPhase("recording");
       setIsTimerRunning(true);
-      void startLiveStt(stream);
+      void startP3Tracking(stream);
     } catch (cause) {
       stopMediaStream(stream);
       if (streamRef.current === stream) {
@@ -1567,7 +1597,7 @@ export function RehearsalWorkspace(props: {
     try {
       stream = await requestRehearsalMicrophoneStream(navigator.mediaDevices);
       liveDemoStreamRef.current = stream;
-      const started = await startP3LiveStt(stream);
+      const started = await startP3Tracking(stream);
       if (!started) {
         stopMediaStream(stream);
         if (liveDemoStreamRef.current === stream) {
@@ -1596,6 +1626,7 @@ export function RehearsalWorkspace(props: {
     cleanupLiveSttSubscriptions();
     const p3Session = p3SessionRef.current;
     p3SessionRef.current = null;
+    pendingP3SlideIndexRef.current = null;
     if (p3Session) {
       void p3Session.stop().then((meta) => {
         setP3RunMeta(meta);
@@ -1625,7 +1656,17 @@ export function RehearsalWorkspace(props: {
     setIsTimerRunning(false);
     cancelPendingAutoAdvance("cancelled");
     cleanupLiveSttSubscriptions();
-    void liveSttPortRef.current?.stop();
+    const p3Session = p3SessionRef.current;
+    p3SessionRef.current = null;
+    pendingP3SlideIndexRef.current = null;
+    if (p3Session) {
+      void p3Session.stop().then((meta) => {
+        setP3RunMeta(meta);
+        setP3SessionState(p3Session.getState());
+      });
+    } else {
+      void liveSttPortRef.current?.stop();
+    }
     setLiveAudioLevel(null);
     setLiveStatus((current) =>
       current === "listening" || current === "starting" ? "stopped" : current
@@ -1681,69 +1722,41 @@ export function RehearsalWorkspace(props: {
     setTimerDurationSeconds(Math.min(nextSeconds, 60 * 60 * 24 - 1));
   }
 
-  async function startLiveStt(stream: MediaStream) {
-    const port =
-      props.liveSttPort ??
-      liveSttPortRef.current ??
-      createDefaultLiveSttPort({
-        legacyAdapter: props.liveSttAdapter,
-        onAudioLevel: setLiveAudioLevel,
-        onDebugPcmAvailable: setLiveDebugPcmRecording,
-        getDecodingMethod: getLiveSttDebugDecodingMethod
-      });
-    liveSttPortRef.current = port;
-    const biasMode = getLiveSttBiasMode();
-    const biasContext = deck && currentSlide
-      ? getCurrentLiveBiasContext(deck, currentSlideIndex)
-      : null;
-    setLiveStatus("starting");
-    setLiveAudioLevel(null);
-
-    try {
-      cleanupLiveSttSubscriptions();
-      const unsubscribeResult = port.onResult(handleLiveSttResult);
-      const unsubscribeError = port.onError(handleLiveSttError);
-      liveSttSubscriptionCleanupRef.current = () => {
-        unsubscribeResult();
-        unsubscribeError();
-      };
-      await port.start({
-        language: "ko",
-        audioSource: stream,
-        biasPhrases: shouldUseLiveSttHotwordBias(biasMode)
-          ? getBiasPhrasesFromContext(biasContext)
-          : []
-      });
-      setLiveStatus("listening");
-      return true;
-    } catch (cause) {
-      cleanupLiveSttSubscriptions();
-      const error = toLiveSttError(cause);
-      setLiveStatus(isLiveSttUnavailable(error) ? "unavailable" : "failed");
-      setLiveError(error.message);
-      setLiveAudioLevel(null);
-      cancelPendingAutoAdvance("cancelled");
-      return false;
+  function getOrCreateLiveSttPort() {
+    if (props.liveSttPort) {
+      liveSttPortRef.current = props.liveSttPort;
+      return props.liveSttPort;
     }
+
+    const cachedPort = liveSttPortRef.current;
+    if (cachedPort?.engineId === presenterSettings.sttEngine) {
+      return cachedPort;
+    }
+
+    cachedPort?.dispose();
+    const port = createDefaultLiveSttPort({
+      engineId: presenterSettings.sttEngine,
+      legacyAdapter: props.liveSttAdapter,
+      onAudioLevel: setLiveAudioLevel,
+      onDebugPcmAvailable: setLiveDebugPcmRecording,
+      getDecodingMethod: getLiveSttDebugDecodingMethod
+    });
+    liveSttPortRef.current = port;
+    return port;
   }
 
-  async function startP3LiveStt(stream: MediaStream) {
-    if (!deck || !currentSlide) {
+  async function startP3Tracking(stream: MediaStream) {
+    const deckSnapshot = deckRef.current ?? deck;
+    const startSlideIndex = currentSlideIndexRef.current;
+    if (!deckSnapshot?.slides[startSlideIndex]) {
       return false;
     }
 
-    const port =
-      props.liveSttPort ??
-      liveSttPortRef.current ??
-      createDefaultLiveSttPort({
-        legacyAdapter: props.liveSttAdapter,
-        onAudioLevel: setLiveAudioLevel,
-        onDebugPcmAvailable: setLiveDebugPcmRecording,
-        getDecodingMethod: getLiveSttDebugDecodingMethod
-      });
+    const port = getOrCreateLiveSttPort();
     liveSttPortRef.current = port;
     setLiveStatus("starting");
     setLiveAudioLevel(null);
+    pendingP3SlideIndexRef.current = null;
     cleanupLiveSttSubscriptions();
 
     const unsubscribeResult = port.onResult(handleLiveSttResult);
@@ -1755,7 +1768,7 @@ export function RehearsalWorkspace(props: {
 
     let session: P3RehearsalSession | null = null;
     session = createP3RehearsalSession({
-      slides: buildP3SessionSlides(deck),
+      slides: buildP3SessionSlides(deckSnapshot),
       port,
       threshold: presenterSettings.advancePolicy.threshold,
       config: {
@@ -1782,15 +1795,32 @@ export function RehearsalWorkspace(props: {
     try {
       await session.start({
         audioSource: stream,
-        slideIndex: currentSlideIndex
+        slideIndex: startSlideIndex
       });
+      if (p3SessionRef.current !== session) {
+        return false;
+      }
+      const latestSlideIndex =
+        pendingP3SlideIndexRef.current ?? currentSlideIndexRef.current;
+      pendingP3SlideIndexRef.current = null;
+      if (
+        latestSlideIndex !== startSlideIndex &&
+        deckSnapshot.slides[latestSlideIndex]
+      ) {
+        session.enterSlide(latestSlideIndex);
+      }
+      syncP3AdviceState(session);
       setP3RunMeta(null);
       setP3SessionState(session.getState());
       setLiveStatus("listening");
       return true;
     } catch (cause) {
+      if (p3SessionRef.current !== session) {
+        return false;
+      }
       cleanupLiveSttSubscriptions();
       p3SessionRef.current = null;
+      pendingP3SlideIndexRef.current = null;
       const error = toLiveSttError(cause);
       setLiveStatus(isLiveSttUnavailable(error) ? "unavailable" : "failed");
       setLiveError(error.message);
@@ -1798,6 +1828,18 @@ export function RehearsalWorkspace(props: {
       cancelPendingAutoAdvance("cancelled");
       return false;
     }
+  }
+
+  function syncP3AdviceState(p3Session: P3RehearsalSession) {
+    p3Session.setAdviceState("slide-overtime", p3AdviceState.slideOvertime);
+    p3Session.setAdviceState(
+      "pace-too-fast",
+      p3AdviceState.pace === "too-fast"
+    );
+    p3Session.setAdviceState(
+      "pace-too-slow",
+      p3AdviceState.pace === "too-slow"
+    );
   }
 
   function handleLiveSttError(error: LiveSttError) {
