@@ -1,5 +1,5 @@
 import fs from "node:fs";
-import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { createDemoDeck } from "@orbit/editor-core";
 import type { Job, RehearsalReport, RehearsalRun } from "@orbit/shared";
 import type { ReactNode } from "react";
@@ -34,9 +34,11 @@ import {
   rehearsalRawMicrophoneAudioConstraints,
   renderLiveTranscriptBuffer,
   requestRehearsalMicrophoneStream,
+  resetRehearsalTimerState,
   resolveRehearsalReportLoadState,
   runRehearsalUploadFlow,
   selectRecordingMimeType,
+  shouldRenderRehearsalThumbnailImage,
   shouldShowLiveSttDebugPcmDownload,
   shouldAutoAdvanceLiveSlide
 } from "./RehearsalWorkspace";
@@ -48,6 +50,9 @@ import {
 import { resolveEditorAssetUrl } from "../editor/shared/editorAssetUrl";
 
 const createdAt = "2026-06-29T00:00:00.000Z";
+const rehearsalWorkspaceSourcePath = fileURLToPath(
+  new URL("./RehearsalWorkspace.tsx", import.meta.url)
+);
 
 vi.mock("react-konva", () => {
   const Group = forwardRef<HTMLDivElement, { children?: ReactNode }>(
@@ -89,7 +94,8 @@ describe("RehearsalWorkspace", () => {
     expect(html).toContain("Live STT");
     expect(html).toContain("Live STT 시작");
     expect(html).toContain("Live STT 종료");
-    expect(html).toContain("Live STT 시작을 눌러 테스트하세요");
+    expect(html).not.toContain("Live STT 시작을 눌러 테스트하세요");
+    expect(html).not.toContain("Partial transcript");
     expect(html).toContain("Mic input");
     expect(html).toContain("입력 대기");
     expect(html).toContain("-100 dB RMS");
@@ -99,7 +105,7 @@ describe("RehearsalWorkspace", () => {
 
   it("resets presenter step when live auto advance completes", () => {
     const source = fs.readFileSync(
-      path.join(process.cwd(), "src/features/rehearsal/RehearsalWorkspace.tsx"),
+      rehearsalWorkspaceSourcePath,
       "utf8"
     );
     const start = source.indexOf("function completeLiveSlideAdvance");
@@ -114,7 +120,7 @@ describe("RehearsalWorkspace", () => {
 
   it("keeps the presenter step on the last slide when no next slide exists", () => {
     const source = fs.readFileSync(
-      path.join(process.cwd(), "src/features/rehearsal/RehearsalWorkspace.tsx"),
+      rehearsalWorkspaceSourcePath,
       "utf8"
     );
     const start = source.indexOf("const handleNextPresenterStep");
@@ -133,7 +139,7 @@ describe("RehearsalWorkspace", () => {
 
   it("moves slides outside of the presenter step state updater", () => {
     const source = fs.readFileSync(
-      path.join(process.cwd(), "src/features/rehearsal/RehearsalWorkspace.tsx"),
+      rehearsalWorkspaceSourcePath,
       "utf8"
     );
     const start = source.indexOf("const handleNextPresenterStep");
@@ -144,6 +150,95 @@ describe("RehearsalWorkspace", () => {
     expect(
       handleNextPresenterStepBody.indexOf("setPresenterStepIndex(nextState.stepIndex)")
     ).toBeLessThan(handleNextPresenterStepBody.indexOf("setCurrentSlideIndex"));
+  });
+
+  it("creates fallback Live STT ports from the selected presenter engine", () => {
+    const source = fs.readFileSync(
+      rehearsalWorkspaceSourcePath,
+      "utf8"
+    );
+    const defaultStart = source.indexOf("function createDefaultLiveSttPort");
+    const defaultEnd = source.indexOf("export function RehearsalWorkspace");
+    const createDefaultLiveSttPortBody = source.slice(defaultStart, defaultEnd);
+    const start = source.indexOf("function getOrCreateLiveSttPort");
+    const end = source.indexOf("async function startP3Tracking");
+    const getOrCreateLiveSttPortBody = source.slice(start, end);
+
+    expect(createDefaultLiveSttPortBody).toContain(
+      'const shouldUseSherpaCompatibility = !engineId || engineId === "sherpa"'
+    );
+    expect(createDefaultLiveSttPortBody).toContain(
+      "shouldUseSherpaCompatibility && legacyAdapter"
+    );
+    expect(createDefaultLiveSttPortBody).toContain("return createLiveSttPort(engineId)");
+    expect(getOrCreateLiveSttPortBody).toContain(
+      "props.liveSttPort"
+    );
+    expect(getOrCreateLiveSttPortBody).toContain(
+      "cachedPort?.engineId === presenterSettings.sttEngine"
+    );
+    expect(getOrCreateLiveSttPortBody).toContain("cachedPort?.dispose()");
+    expect(getOrCreateLiveSttPortBody).toContain(
+      "engineId: presenterSettings.sttEngine"
+    );
+  });
+
+  it("routes report recording through the P3 tracking session", () => {
+    const source = fs.readFileSync(
+      rehearsalWorkspaceSourcePath,
+      "utf8"
+    );
+    const recordingStart = source.indexOf("async function startRecording");
+    const recordingEnd = source.indexOf("async function startLiveDemo");
+    const startRecordingBody = source.slice(recordingStart, recordingEnd);
+    const stopStart = source.indexOf("function stopRecording");
+    const stopEnd = source.indexOf("function handleTimePrimaryAction");
+    const stopRecordingBody = source.slice(stopStart, stopEnd);
+
+    expect(startRecordingBody).toContain("void startP3Tracking(stream)");
+    expect(startRecordingBody).not.toContain("startLiveStt(stream)");
+    expect(stopRecordingBody).toContain("const p3Session = p3SessionRef.current");
+    expect(stopRecordingBody).toContain("p3Session.stop().then((meta)");
+    expect(stopRecordingBody).toContain("setP3RunMeta(meta)");
+  });
+
+  it("resynchronizes P3 tracking when the slide changes while STT is starting", () => {
+    const source = fs.readFileSync(
+      rehearsalWorkspaceSourcePath,
+      "utf8"
+    );
+    const effectStart = source.indexOf("pendingP3SlideIndexRef.current = currentSlideIndex");
+    const trackingStart = source.indexOf("async function startP3Tracking");
+    const trackingEnd = source.indexOf("function syncP3AdviceState");
+    const startP3TrackingBody = source.slice(trackingStart, trackingEnd);
+
+    expect(source.slice(effectStart - 120, effectStart + 120)).toContain(
+      'p3State.status === "starting"'
+    );
+    expect(startP3TrackingBody).toContain(
+      "pendingP3SlideIndexRef.current ?? currentSlideIndexRef.current"
+    );
+    expect(startP3TrackingBody).toContain("session.enterSlide(latestSlideIndex)");
+  });
+
+  it("syncs current P3 advice state into the session log", () => {
+    const source = fs.readFileSync(
+      rehearsalWorkspaceSourcePath,
+      "utf8"
+    );
+    const start = source.indexOf("function syncP3AdviceState");
+    const end = source.indexOf("function handleLiveSttError");
+    const syncP3AdviceStateBody = source.slice(start, end);
+
+    expect(syncP3AdviceStateBody).toContain(
+      'p3Session.setAdviceState("slide-overtime", p3AdviceState.slideOvertime)'
+    );
+    expect(syncP3AdviceStateBody).toContain(
+      'p3Session.setAdviceState(\n      "pace-too-fast"'
+    );
+    expect(syncP3AdviceStateBody).toContain(
+      'p3Session.setAdviceState(\n      "pace-too-slow"'
+    );
   });
 
   it("requests microphone audio with live STT input quality constraints", async () => {
@@ -417,6 +512,42 @@ describe("RehearsalWorkspace", () => {
     expect(getRehearsalFinishPath("project-a", runFixture("succeeded"))).toBe(
       "/rehearsal/project-a/report/run-1"
     );
+  });
+
+  it("falls back to slide labels when a thumbnail image has failed to load", () => {
+    const failedThumbnailUrls = new Set(["/files/thumbnails/slide_1.png"]);
+
+    expect(
+      shouldRenderRehearsalThumbnailImage(
+        "/files/thumbnails/slide_1.png",
+        failedThumbnailUrls
+      )
+    ).toBe(false);
+    expect(
+      shouldRenderRehearsalThumbnailImage(
+        "/files/thumbnails/slide_2.png",
+        failedThumbnailUrls
+      )
+    ).toBe(true);
+    expect(shouldRenderRehearsalThumbnailImage("", failedThumbnailUrls)).toBe(
+      false
+    );
+  });
+
+  it("resets total and current-slide timer state together", () => {
+    const setElapsedSeconds = vi.fn();
+    const setSlideElapsedSeconds = vi.fn();
+    const setIsTimerRunning = vi.fn();
+
+    resetRehearsalTimerState({
+      setElapsedSeconds,
+      setSlideElapsedSeconds,
+      setIsTimerRunning
+    });
+
+    expect(setElapsedSeconds).toHaveBeenCalledWith(0);
+    expect(setSlideElapsedSeconds).toHaveBeenCalledWith(0);
+    expect(setIsTimerRunning).toHaveBeenCalledWith(false);
   });
 
   it("matches live STT keywords with normalized Korean aliases", () => {
@@ -846,7 +977,7 @@ describe("RehearsalWorkspace", () => {
     ).toBeNull();
   });
 
-  it("keeps the default sherpa adapter as an explicit unavailable shell", async () => {
+  it("keeps the sherpa adapter as an explicit unavailable shell", async () => {
     await expect(
       new SherpaLiveSttAdapter().start({ getTracks: () => [] } as unknown as MediaStream, {
         onPartialTranscript: () => undefined,

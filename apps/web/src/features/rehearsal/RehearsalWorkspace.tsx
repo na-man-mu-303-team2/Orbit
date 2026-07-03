@@ -17,6 +17,7 @@ import {
   type PutDeckResponse,
   type RehearsalReport,
   type RehearsalRun,
+  type RehearsalRunMeta,
   type Slide
 } from "@orbit/shared";
 import {
@@ -37,7 +38,6 @@ import {
   Presentation,
   RotateCcw,
   Save,
-  Sparkles,
   Square,
   Target,
   TrendingUp,
@@ -70,9 +70,11 @@ import {
 } from "./rehearsalCommands";
 import {
   LiveSttError,
+  type LiveSttEngineId,
   type LiveSttPort,
   type LiveSttResult
 } from "./stt/liveSttPort";
+import { createLiveSttPort } from "./stt/liveSttEngineRegistry";
 import { SherpaLiveSttPort } from "./stt/sherpaLiveSttPort";
 import { DisplayControls } from "./presenter/DisplayControls";
 import { SingleScreenPresenter } from "./presenter/SingleScreenPresenter";
@@ -81,6 +83,22 @@ import { createSlideshowAnimationPlan } from "./presenter/slideshowStepModel";
 import { getNextPresenterStepState } from "./presenter/presenterStepNavigation";
 import { usePresentationChannelPublisher } from "./presenter/usePresentationChannelPublisher";
 import { usePresenterKeyboard } from "./presenter/usePresenterKeyboard";
+import { RehearsalPanel } from "./panel/RehearsalPanel";
+import {
+  calculateFinalTranscriptWpm,
+  getDeckTargetSeconds as getRehearsalDeckTargetSeconds,
+  getTimingAdviceState,
+  type RehearsalTimingSnapshot
+} from "./panel/rehearsalTiming";
+import { usePresenterSettings } from "./settings/presenterSettings";
+import { createDefaultPhraseExtractor } from "./speech/phraseExtractor";
+import {
+  createP3RehearsalSession,
+  type P3RehearsalSession,
+  type P3RehearsalSessionState
+} from "./speech/p3RehearsalSession";
+import { defaultSpeechTrackingConfig } from "./speech/speechTrackingConfig";
+import type { SpeechTrackerSnapshot } from "./speech/speechTrackingEvents";
 
 export {
   LiveSttAdapterError,
@@ -385,6 +403,23 @@ export function getRehearsalFinishPath(
   }
 
   return `/project/${encodeURIComponent(projectId)}`;
+}
+
+export function resetRehearsalTimerState(actions: {
+  setElapsedSeconds: (value: number) => void;
+  setSlideElapsedSeconds: (value: number) => void;
+  setIsTimerRunning: (value: boolean) => void;
+}) {
+  actions.setElapsedSeconds(0);
+  actions.setSlideElapsedSeconds(0);
+  actions.setIsTimerRunning(false);
+}
+
+export function shouldRenderRehearsalThumbnailImage(
+  thumbnailUrl: string,
+  failedThumbnailUrls: ReadonlySet<string>
+) {
+  return Boolean(thumbnailUrl && !failedThumbnailUrls.has(thumbnailUrl));
 }
 
 export async function pollRehearsalJob(
@@ -1126,29 +1161,40 @@ function levenshteinDistance(left: string, right: string) {
 }
 
 function createDefaultLiveSttPort(options: {
+  engineId?: LiveSttEngineId;
   legacyAdapter?: LiveSttAdapter;
   onAudioLevel?: (event: LiveSttAudioLevelEvent) => void;
   onDebugPcmAvailable?: (recording: LiveSttDebugPcmRecording) => void;
   getDecodingMethod?: () => LiveSttDecodingMethod | null;
 } = {}) {
-  const { legacyAdapter, onAudioLevel, onDebugPcmAvailable, getDecodingMethod } =
+  const {
+    engineId,
+    legacyAdapter,
+    onAudioLevel,
+    onDebugPcmAvailable,
+    getDecodingMethod
+  } =
     options;
   const sherpaOptions = {
     onAudioLevel,
     onDebugPcmAvailable,
     getDecodingMethod
   };
+  const shouldUseSherpaCompatibility = !engineId || engineId === "sherpa";
 
-  if (legacyAdapter) {
+  if (shouldUseSherpaCompatibility && legacyAdapter) {
     return new SherpaLiveSttPort({ ...sherpaOptions, adapter: legacyAdapter });
   }
 
-  const windowAdapter = window.__orbitCreateLiveSttAdapter?.();
-  if (windowAdapter) {
-    return new SherpaLiveSttPort({ ...sherpaOptions, adapter: windowAdapter });
+  if (shouldUseSherpaCompatibility) {
+    const windowAdapter = window.__orbitCreateLiveSttAdapter?.();
+    if (windowAdapter) {
+      return new SherpaLiveSttPort({ ...sherpaOptions, adapter: windowAdapter });
+    }
+    return new SherpaLiveSttPort(sherpaOptions);
   }
 
-  return new SherpaLiveSttPort(sherpaOptions);
+  return createLiveSttPort(engineId);
 }
 
 export function RehearsalWorkspace(props: {
@@ -1168,7 +1214,7 @@ export function RehearsalWorkspace(props: {
   const [, setJob] = useState<Job | null>(null);
   const [liveStatus, setLiveStatus] = useState<LiveSttStatus>("idle");
   const [liveError, setLiveError] = useState("");
-  const [liveTranscriptBuffer, setLiveTranscriptBuffer] = useState(
+  const [, setLiveTranscriptBuffer] = useState(
     createLiveTranscriptBuffer
   );
   const [liveKeywordState, setLiveKeywordState] =
@@ -1180,6 +1226,9 @@ export function RehearsalWorkspace(props: {
   const [liveCue, setLiveCue] = useState<LiveSttAnimationCueEvent | null>(null);
   const [liveSlideAdvance, setLiveSlideAdvance] =
     useState<LiveSttSlideAdvanceEvent | null>(null);
+  const [p3SessionState, setP3SessionState] =
+    useState<P3RehearsalSessionState | null>(null);
+  const [p3RunMeta, setP3RunMeta] = useState<RehearsalRunMeta | null>(null);
   const [autoAdvanceState, setAutoAdvanceState] = useState<
     "idle" | "pending" | "advanced" | "cancelled"
   >("idle");
@@ -1188,6 +1237,9 @@ export function RehearsalWorkspace(props: {
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [slideElapsedSeconds, setSlideElapsedSeconds] = useState(0);
   const [isTimerRunning, setIsTimerRunning] = useState(false);
+  const [failedThumbnailUrls, setFailedThumbnailUrls] = useState<
+    ReadonlySet<string>
+  >(() => new Set());
   const [isSingleScreenOpen, setIsSingleScreenOpen] = useState(false);
   const [timeMode, setTimeMode] = useState<RehearsalTimeMode>("stopwatch");
   const [timerDurationSeconds, setTimerDurationSeconds] = useState(5 * 60);
@@ -1201,6 +1253,8 @@ export function RehearsalWorkspace(props: {
   const liveDemoStreamRef = useRef<MediaStream | null>(null);
   const liveSttPortRef = useRef<LiveSttPort | null>(props.liveSttPort ?? null);
   const liveSttSubscriptionCleanupRef = useRef<(() => void) | null>(null);
+  const p3SessionRef = useRef<P3RehearsalSession | null>(null);
+  const pendingP3SlideIndexRef = useRef<number | null>(null);
   const finishAfterReportRef = useRef(false);
   const deckRef = useRef<Deck | null>(props.initialDeck ?? null);
   const currentSlideIndexRef = useRef(0);
@@ -1214,6 +1268,7 @@ export function RehearsalWorkspace(props: {
   );
   const autoAdvancedSlideIdsRef = useRef(new Set<string>());
   const autoAdvanceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const { settings: presenterSettings } = usePresenterSettings();
 
   useEffect(() => {
     if (props.initialDeck) {
@@ -1298,7 +1353,14 @@ export function RehearsalWorkspace(props: {
     return () => {
       cancelPendingAutoAdvance("cancelled");
       cleanupLiveSttSubscriptions();
-      void liveSttPortRef.current?.stop();
+      const p3Session = p3SessionRef.current;
+      p3SessionRef.current = null;
+      pendingP3SlideIndexRef.current = null;
+      if (p3Session) {
+        void p3Session.stop();
+      } else {
+        void liveSttPortRef.current?.stop();
+      }
       void liveSttPortRef.current?.dispose();
       stopMediaStream(streamRef.current);
       stopMediaStream(liveDemoStreamRef.current);
@@ -1308,6 +1370,24 @@ export function RehearsalWorkspace(props: {
   const currentSlide = deck?.slides[currentSlideIndex] ?? null;
   const currentSlideTargetSeconds =
     deck && currentSlide ? getSlideTargetSeconds(deck, currentSlide) : 0;
+  const p3Sentences = useMemo(
+    () =>
+      currentSlide
+        ? createDefaultPhraseExtractor({
+            controlPhrases: defaultRehearsalCommandConfig.map(
+              (command) => command.phrases
+            ).flatMap(
+              (phrases) => phrases
+            ),
+            keywordTerms: (currentSlide.keywords ?? []).flatMap((keyword) => [
+              keyword.text,
+              ...keyword.synonyms,
+              ...keyword.abbreviations
+            ])
+          }).extract(currentSlide.speakerNotes)
+        : [],
+    [currentSlide?.slideId, currentSlide?.speakerNotes]
+  );
   const triggerAnimationIds = useMemo(() => [] as string[], [currentSlide?.slideId]);
   const presentationChannelState = useMemo(
     () =>
@@ -1338,11 +1418,6 @@ export function RehearsalWorkspace(props: {
   const canStartLiveDemo =
     Boolean(deck) && !isReportBusy && !isLiveSttActive && !isLiveDemoActive;
   const canStopLiveDemo = isLiveDemoActive && isLiveSttActive;
-  const liveTranscriptPlaceholder =
-    liveStatus === "idle"
-      ? "Live STT 시작을 눌러 테스트하세요"
-      : "마이크 입력을 기다리는 중";
-  const liveTranscript = renderLiveTranscriptBuffer(liveTranscriptBuffer);
   const liveAudioLevelLabel = getLiveAudioLevelLabel(liveAudioLevel);
   const liveAudioLevelPercent = getLiveAudioLevelPercent(liveAudioLevel);
   const liveAudioMeterState = liveAudioLevel
@@ -1355,6 +1430,48 @@ export function RehearsalWorkspace(props: {
   const canDownloadLiveSttDebugPcm = shouldShowLiveSttDebugPcmDownload(
     liveDebugPcmRecording
   );
+  const p3TimingSnapshot: RehearsalTimingSnapshot = deck
+    ? {
+        deckTargetSeconds: getRehearsalDeckTargetSeconds(deck),
+        elapsedSeconds,
+        remainingSeconds: getRehearsalDeckTargetSeconds(deck) - elapsedSeconds,
+        currentSlideElapsedSeconds: slideElapsedSeconds,
+        currentSlideTargetSeconds,
+        currentSlideOvertime:
+          currentSlideTargetSeconds > 0 &&
+          slideElapsedSeconds > currentSlideTargetSeconds
+      }
+    : {
+        deckTargetSeconds: 0,
+        elapsedSeconds: 0,
+        remainingSeconds: 0,
+        currentSlideElapsedSeconds: 0,
+        currentSlideTargetSeconds: 0,
+        currentSlideOvertime: false
+      };
+  const p3WordsPerMinute =
+    p3SessionState?.startedAtMs !== null && p3SessionState?.startedAtMs !== undefined
+      ? calculateFinalTranscriptWpm({
+          segments: p3SessionState.finalSegments,
+          nowMs: p3SessionState.startedAtMs + elapsedSeconds * 1000,
+          startedAtMs: p3SessionState.startedAtMs,
+          windowMs: 30000
+        })
+      : 0;
+  const p3AdviceState = getTimingAdviceState({
+    wordsPerMinute: p3WordsPerMinute,
+    currentSlideOvertime: p3TimingSnapshot.currentSlideOvertime,
+    paceAdvice: presenterSettings.paceAdvice
+  });
+
+  useEffect(() => {
+    const p3Session = p3SessionRef.current;
+    if (!p3Session || p3Session.getState().status !== "running") {
+      return;
+    }
+
+    syncP3AdviceState(p3Session);
+  }, [p3AdviceState.pace, p3AdviceState.slideOvertime]);
 
   useEffect(() => {
     setSlideElapsedSeconds(0);
@@ -1384,6 +1501,16 @@ export function RehearsalWorkspace(props: {
         ? getBiasPhrasesFromContext(nextBiasContext)
         : []
     );
+    const p3Session = p3SessionRef.current;
+    if (p3Session && (isLiveDemoActive || phase === "recording")) {
+      const p3State = p3Session.getState();
+      if (p3State.status === "starting") {
+        pendingP3SlideIndexRef.current = currentSlideIndex;
+      } else if (p3State.status === "running") {
+        p3Session.enterSlide(currentSlideIndex);
+        setP3SessionState(p3Session.getState());
+      }
+    }
   }, [currentSlide?.slideId, currentSlideIndex, deck]);
 
   async function startRecording() {
@@ -1436,7 +1563,7 @@ export function RehearsalWorkspace(props: {
       session.start();
       setPhase("recording");
       setIsTimerRunning(true);
-      void startLiveStt(stream);
+      void startP3Tracking(stream);
     } catch (cause) {
       stopMediaStream(stream);
       if (streamRef.current === stream) {
@@ -1470,7 +1597,7 @@ export function RehearsalWorkspace(props: {
     try {
       stream = await requestRehearsalMicrophoneStream(navigator.mediaDevices);
       liveDemoStreamRef.current = stream;
-      const started = await startLiveStt(stream);
+      const started = await startP3Tracking(stream);
       if (!started) {
         stopMediaStream(stream);
         if (liveDemoStreamRef.current === stream) {
@@ -1497,7 +1624,17 @@ export function RehearsalWorkspace(props: {
   function stopLiveDemo(options: { showCompletionModal?: boolean } = {}) {
     const wasLiveDemoActive = isLiveDemoActive || isLiveSttActive;
     cleanupLiveSttSubscriptions();
-    void liveSttPortRef.current?.stop();
+    const p3Session = p3SessionRef.current;
+    p3SessionRef.current = null;
+    pendingP3SlideIndexRef.current = null;
+    if (p3Session) {
+      void p3Session.stop().then((meta) => {
+        setP3RunMeta(meta);
+        setP3SessionState(p3Session.getState());
+      });
+    } else {
+      void liveSttPortRef.current?.stop();
+    }
     stopMediaStream(liveDemoStreamRef.current);
     liveDemoStreamRef.current = null;
     setLiveAudioLevel(null);
@@ -1519,7 +1656,17 @@ export function RehearsalWorkspace(props: {
     setIsTimerRunning(false);
     cancelPendingAutoAdvance("cancelled");
     cleanupLiveSttSubscriptions();
-    void liveSttPortRef.current?.stop();
+    const p3Session = p3SessionRef.current;
+    p3SessionRef.current = null;
+    pendingP3SlideIndexRef.current = null;
+    if (p3Session) {
+      void p3Session.stop().then((meta) => {
+        setP3RunMeta(meta);
+        setP3SessionState(p3Session.getState());
+      });
+    } else {
+      void liveSttPortRef.current?.stop();
+    }
     setLiveAudioLevel(null);
     setLiveStatus((current) =>
       current === "listening" || current === "starting" ? "stopped" : current
@@ -1575,43 +1722,105 @@ export function RehearsalWorkspace(props: {
     setTimerDurationSeconds(Math.min(nextSeconds, 60 * 60 * 24 - 1));
   }
 
-  async function startLiveStt(stream: MediaStream) {
-    const port =
-      props.liveSttPort ??
-      liveSttPortRef.current ??
-      createDefaultLiveSttPort({
-        legacyAdapter: props.liveSttAdapter,
-        onAudioLevel: setLiveAudioLevel,
-        onDebugPcmAvailable: setLiveDebugPcmRecording,
-        getDecodingMethod: getLiveSttDebugDecodingMethod
-      });
+  function getOrCreateLiveSttPort() {
+    if (props.liveSttPort) {
+      liveSttPortRef.current = props.liveSttPort;
+      return props.liveSttPort;
+    }
+
+    const cachedPort = liveSttPortRef.current;
+    if (cachedPort?.engineId === presenterSettings.sttEngine) {
+      return cachedPort;
+    }
+
+    cachedPort?.dispose();
+    const port = createDefaultLiveSttPort({
+      engineId: presenterSettings.sttEngine,
+      legacyAdapter: props.liveSttAdapter,
+      onAudioLevel: setLiveAudioLevel,
+      onDebugPcmAvailable: setLiveDebugPcmRecording,
+      getDecodingMethod: getLiveSttDebugDecodingMethod
+    });
     liveSttPortRef.current = port;
-    const biasMode = getLiveSttBiasMode();
-    const biasContext = deck && currentSlide
-      ? getCurrentLiveBiasContext(deck, currentSlideIndex)
-      : null;
+    return port;
+  }
+
+  async function startP3Tracking(stream: MediaStream) {
+    const deckSnapshot = deckRef.current ?? deck;
+    const startSlideIndex = currentSlideIndexRef.current;
+    if (!deckSnapshot?.slides[startSlideIndex]) {
+      return false;
+    }
+
+    const port = getOrCreateLiveSttPort();
+    liveSttPortRef.current = port;
     setLiveStatus("starting");
     setLiveAudioLevel(null);
+    pendingP3SlideIndexRef.current = null;
+    cleanupLiveSttSubscriptions();
+
+    const unsubscribeResult = port.onResult(handleLiveSttResult);
+    const unsubscribeError = port.onError(handleLiveSttError);
+    liveSttSubscriptionCleanupRef.current = () => {
+      unsubscribeResult();
+      unsubscribeError();
+    };
+
+    let session: P3RehearsalSession | null = null;
+    session = createP3RehearsalSession({
+      slides: buildP3SessionSlides(deckSnapshot),
+      port,
+      threshold: presenterSettings.advancePolicy.threshold,
+      config: {
+        ...presenterSettings.speechTracking,
+        paceAdvice: {
+          ...presenterSettings.paceAdvice,
+          movingAverageWindowMs:
+            defaultSpeechTrackingConfig.paceAdvice.movingAverageWindowMs
+        }
+      },
+      onEvents: () => {
+        if (session) {
+          setP3SessionState(session.getState());
+        }
+      },
+      onSnapshot: () => {
+        if (session) {
+          setP3SessionState(session.getState());
+        }
+      }
+    });
+    p3SessionRef.current = session;
 
     try {
-      cleanupLiveSttSubscriptions();
-      const unsubscribeResult = port.onResult(handleLiveSttResult);
-      const unsubscribeError = port.onError(handleLiveSttError);
-      liveSttSubscriptionCleanupRef.current = () => {
-        unsubscribeResult();
-        unsubscribeError();
-      };
-      await port.start({
-        language: "ko",
+      await session.start({
         audioSource: stream,
-        biasPhrases: shouldUseLiveSttHotwordBias(biasMode)
-          ? getBiasPhrasesFromContext(biasContext)
-          : []
+        slideIndex: startSlideIndex
       });
+      if (p3SessionRef.current !== session) {
+        return false;
+      }
+      const latestSlideIndex =
+        pendingP3SlideIndexRef.current ?? currentSlideIndexRef.current;
+      pendingP3SlideIndexRef.current = null;
+      if (
+        latestSlideIndex !== startSlideIndex &&
+        deckSnapshot.slides[latestSlideIndex]
+      ) {
+        session.enterSlide(latestSlideIndex);
+      }
+      syncP3AdviceState(session);
+      setP3RunMeta(null);
+      setP3SessionState(session.getState());
       setLiveStatus("listening");
       return true;
     } catch (cause) {
+      if (p3SessionRef.current !== session) {
+        return false;
+      }
       cleanupLiveSttSubscriptions();
+      p3SessionRef.current = null;
+      pendingP3SlideIndexRef.current = null;
       const error = toLiveSttError(cause);
       setLiveStatus(isLiveSttUnavailable(error) ? "unavailable" : "failed");
       setLiveError(error.message);
@@ -1619,6 +1828,18 @@ export function RehearsalWorkspace(props: {
       cancelPendingAutoAdvance("cancelled");
       return false;
     }
+  }
+
+  function syncP3AdviceState(p3Session: P3RehearsalSession) {
+    p3Session.setAdviceState("slide-overtime", p3AdviceState.slideOvertime);
+    p3Session.setAdviceState(
+      "pace-too-fast",
+      p3AdviceState.pace === "too-fast"
+    );
+    p3Session.setAdviceState(
+      "pace-too-slow",
+      p3AdviceState.pace === "too-slow"
+    );
   }
 
   function handleLiveSttError(error: LiveSttError) {
@@ -1901,13 +2122,15 @@ export function RehearsalWorkspace(props: {
     navigateToPath(getRehearsalFinishPath(projectId, run));
   };
 
-  const liveDetectedKeywordIds = new Set(
-    liveKeywordState?.detectedKeywords.map((keyword) => keyword.keywordId) ?? []
-  );
-  const liveCoveragePercent = Math.round((liveKeywordState?.coverage ?? 0) * 100);
-  const liveMissingKeywordIds = new Set(liveKeywordState?.missingKeywordIds ?? []);
   const checklistKeywords = getChecklistKeywords(currentSlide);
-  const scriptParagraphs = buildScriptParagraphs(currentSlide);
+  const p3PanelSnapshot =
+    currentSlide && p3SessionState?.snapshot?.slideId === currentSlide.slideId
+      ? p3SessionState.snapshot
+      : createEmptySpeechTrackerSnapshot({
+          slideId: currentSlide?.slideId ?? "slide-empty",
+          matchableSentenceCount: p3Sentences.filter((sentence) => sentence.matchable)
+            .length
+        });
   const hasDeletedRawAudio = Boolean(run?.rawAudioDeletedAt);
 
   if (isSingleScreenOpen && deck && currentSlide) {
@@ -2000,8 +2223,11 @@ export function RehearsalWorkspace(props: {
               value={timeMode}
               onChange={(event) => {
                 setTimeMode(event.target.value as RehearsalTimeMode);
-                setElapsedSeconds(0);
-                setIsTimerRunning(false);
+                resetRehearsalTimerState({
+                  setElapsedSeconds,
+                  setSlideElapsedSeconds,
+                  setIsTimerRunning
+                });
               }}
             >
               <option value="stopwatch">{"\uc2a4\ud1b1\uc6cc\uce58"}</option>
@@ -2045,8 +2271,11 @@ export function RehearsalWorkspace(props: {
             type="button"
             aria-label="Reset timer"
             onClick={() => {
-              setElapsedSeconds(0);
-              setIsTimerRunning(false);
+              resetRehearsalTimerState({
+                setElapsedSeconds,
+                setSlideElapsedSeconds,
+                setIsTimerRunning
+              });
             }}
           >
             <RotateCcw size={15} />
@@ -2134,6 +2363,11 @@ export function RehearsalWorkspace(props: {
               }
 
               const thumbnailUrl = resolveEditorAssetUrl(slide.thumbnailUrl);
+              const shouldRenderThumbnailImage =
+                shouldRenderRehearsalThumbnailImage(
+                  thumbnailUrl,
+                  failedThumbnailUrls
+                );
               return (
                 <button
                   className={`rehearsal-context-thumb ${offset === 0 ? "active" : ""}`}
@@ -2146,9 +2380,19 @@ export function RehearsalWorkspace(props: {
                   }}
                 >
                   <span className="rehearsal-context-thumb-preview">
-                    {thumbnailUrl ? (
+                    {shouldRenderThumbnailImage ? (
                       <img
                         alt={`${getSlideTitle(slide)} thumbnail`}
+                        onError={() => {
+                          setFailedThumbnailUrls((current) => {
+                            if (current.has(thumbnailUrl)) {
+                              return current;
+                            }
+                            const next = new Set(current);
+                            next.add(thumbnailUrl);
+                            return next;
+                          });
+                        }}
                         src={thumbnailUrl}
                       />
                     ) : (
@@ -2167,39 +2411,36 @@ export function RehearsalWorkspace(props: {
         </section>
 
         <aside className="rehearsal-presenter-side">
+          <RehearsalPanel
+            mode="rehearsal"
+            timing={p3TimingSnapshot}
+            wordsPerMinute={p3WordsPerMinute}
+            adviceState={p3AdviceState}
+            keywords={checklistKeywords}
+            sentences={p3Sentences}
+            snapshot={p3PanelSnapshot}
+          />
+
           <section className="rehearsal-assist-card checklist-card">
             <header>
               <span>
-                <Sparkles size={16} />
-                {"\ud0a4\uc6cc\ub4dc \uccb4\ud06c\ub9ac\uc2a4\ud2b8"}
+                <Mic size={16} />
+                Live STT
               </span>
               <button type="button" aria-label="More checklist options">
                 <MoreHorizontal size={18} />
               </button>
             </header>
-            <div className="keyword-check-list">
-              {checklistKeywords.length > 0 ? (
-                checklistKeywords.map((keyword) => {
-                  const isDetected = liveDetectedKeywordIds.has(keyword.keywordId);
-                  return (
-                    <div className="keyword-check-item" key={keyword.keywordId}>
-                      {isDetected ? (
-                        <CheckCircle2 size={20} />
-                      ) : (
-                        <span className="empty-check" />
-                      )}
-                      <strong>{keyword.text}</strong>
-                    </div>
-                  );
-                })
-              ) : (
-                <div className="keyword-empty-state">강조 키워드가 없습니다</div>
-              )}
-            </div>
 
             <div className={`rehearsal-live-status rehearsal-live-status-${liveStatus}`}>
               <strong>{liveStatus}</strong>
-              <span>{autoAdvanceState === "pending" ? "자동 전환 대기" : "자동 전환 활성"}</span>
+              <span>
+                {p3RunMeta
+                  ? `로컬 메타 ${p3RunMeta.slideTimeline.length}개 슬라이드`
+                  : autoAdvanceState === "pending"
+                    ? "자동 전환 대기"
+                    : "자동 전환 활성"}
+              </span>
             </div>
 
             <div className="rehearsal-live-actions">
@@ -2247,11 +2488,6 @@ export function RehearsalWorkspace(props: {
                   : "-100 dB RMS"}
               </small>
             </div>
-
-            <div className="rehearsal-live-transcript">
-              <span>Partial transcript</span>
-              <p>{liveTranscript || liveTranscriptPlaceholder}</p>
-            </div>
             {canDownloadLiveSttDebugPcm ? (
               <button
                 className="secondary-action"
@@ -2266,30 +2502,6 @@ export function RehearsalWorkspace(props: {
                 모델 입력 WAV 다운로드
               </button>
             ) : null}
-
-            <div className="rehearsal-live-coverage">
-              <strong>{liveCoveragePercent}%</strong>
-              <span>keyword coverage</span>
-            </div>
-
-            <div className="rehearsal-live-keywords">
-              {(currentSlide?.keywords ?? []).length > 0 ? (
-                currentSlide?.keywords.map((keyword) => {
-                  const state = liveDetectedKeywordIds.has(keyword.keywordId)
-                    ? "detected"
-                    : liveMissingKeywordIds.has(keyword.keywordId)
-                      ? "missing"
-                      : "idle";
-                  return (
-                    <span className={`live-keyword live-keyword-${state}`} key={keyword.keywordId}>
-                      {keyword.text}
-                    </span>
-                  );
-                })
-              ) : (
-                <span className="live-keyword live-keyword-idle">키워드 없음</span>
-              )}
-            </div>
 
             {liveCue && (
               <div className="job-status" aria-live="polite">
@@ -2314,25 +2526,6 @@ export function RehearsalWorkspace(props: {
                 <span>{liveError}</span>
               </div>
             )}
-          </section>
-
-          <section className="rehearsal-assist-card script-card">
-            <header>
-              <span>
-                <Sparkles size={16} />
-                {"\ub300\ubcf8"}
-              </span>
-              <button type="button" aria-label="Collapse script">
-                <ChevronRight size={18} />
-              </button>
-            </header>
-            <div className="script-body">
-              {scriptParagraphs.map((paragraph, index) => (
-                <p key={`${paragraph}-${index}`}>
-                  {renderHighlightedScriptText(paragraph, checklistKeywords)}
-                </p>
-              ))}
-            </div>
           </section>
         </aside>
       </section>
@@ -2703,6 +2896,35 @@ function getChecklistKeywords(slide: Slide | null): Keyword[] {
   return slide?.keywords ?? [];
 }
 
+function buildP3SessionSlides(deck: Deck) {
+  return deck.slides.map((slide) => ({
+    slideId: slide.slideId,
+    speakerNotes: slide.speakerNotes,
+    keywords: slide.keywords ?? [],
+    controlPhrases: defaultRehearsalCommandConfig.flatMap(
+      (command) => command.phrases
+    ),
+    legacyPhrases: [slide.title, ...getSlideBodyTexts(slide)].filter(Boolean)
+  }));
+}
+
+function createEmptySpeechTrackerSnapshot(options: {
+  slideId: string;
+  matchableSentenceCount: number;
+}): SpeechTrackerSnapshot {
+  return {
+    slideId: options.slideId,
+    coveredSentenceIds: [],
+    matchableSentenceCount: options.matchableSentenceCount,
+    sentenceCoverage: 0,
+    wordCoverage: 0,
+    effectiveCoverage: 0,
+    finalSentenceSpoken: false,
+    hitKeywordIds: [],
+    provisionalMissingKeywordIds: []
+  };
+}
+
 function getNearbySlides(deck: Deck, currentSlideIndex: number) {
   return deck.slides.filter(
     (_slide, index) =>
@@ -2720,66 +2942,6 @@ function isAdvanceSlideCommand(
   candidate: RehearsalCommandCandidate | null
 ): candidate is RehearsalCommandCandidate & { action: "advance-slide" } {
   return candidate?.action === "advance-slide";
-}
-
-function buildScriptParagraphs(slide: Slide | null) {
-  if (!slide) {
-    return ["\ub300\ubcf8\uc774 \uc5c6\uc2b5\ub2c8\ub2e4."];
-  }
-
-  const notes = slide.speakerNotes
-    .split(/\n+/)
-    .map((line) => line.trim())
-    .filter(Boolean);
-
-  if (notes.length > 0) {
-    return notes.slice(0, 4);
-  }
-
-  return ["\ub300\ubcf8\uc774 \uc5c6\uc2b5\ub2c8\ub2e4."];
-}
-
-function renderHighlightedScriptText(paragraph: string, keywords: Keyword[]) {
-  const keywordTexts = Array.from(
-    new Set(
-      keywords
-        .map((keyword) => keyword.text.trim())
-        .filter(Boolean)
-        .sort((left, right) => right.length - left.length)
-    )
-  );
-
-  if (keywordTexts.length === 0) {
-    return paragraph;
-  }
-
-  const keywordPattern = new RegExp(
-    `(${keywordTexts.map(escapeRegExp).join("|")})`,
-    "gi"
-  );
-  const normalizedKeywordTexts = new Set(
-    keywordTexts.map((keyword) => keyword.toLocaleLowerCase())
-  );
-
-  return paragraph.split(keywordPattern).map((part, index) => {
-    if (!part) {
-      return null;
-    }
-
-    if (normalizedKeywordTexts.has(part.toLocaleLowerCase())) {
-      return (
-        <span className="script-keyword-highlight" key={`${part}-${index}`}>
-          {part}
-        </span>
-      );
-    }
-
-    return part;
-  });
-}
-
-function escapeRegExp(value: string) {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function formatEmptyReportMessage(status: RehearsalReportStatus, error: string) {

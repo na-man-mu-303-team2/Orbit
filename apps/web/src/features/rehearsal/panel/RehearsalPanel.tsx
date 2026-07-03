@@ -1,0 +1,235 @@
+import {
+  AlertTriangle,
+  CheckCircle2,
+  Circle,
+  Clock3,
+  Gauge,
+  Timer
+} from "lucide-react";
+import type { ReactNode } from "react";
+
+import type {
+  ExtractedSentence,
+  SpeechTrackerSnapshot
+} from "../speech/speechTrackingEvents";
+import type {
+  RehearsalTimingSnapshot,
+  TimingAdviceState,
+  TimingPaceState
+} from "./rehearsalTiming";
+import {
+  KeywordHighlightedText,
+  type KeywordHighlightKeyword
+} from "../../shared/KeywordHighlightedText";
+
+export type RehearsalPanelMode = "rehearsal" | "live";
+
+export type RehearsalPanelKeyword = KeywordHighlightKeyword;
+
+export type RehearsalPanelProps = {
+  mode: RehearsalPanelMode;
+  timing: RehearsalTimingSnapshot;
+  wordsPerMinute: number;
+  adviceState: TimingAdviceState;
+  keywords: readonly RehearsalPanelKeyword[];
+  sentences: readonly ExtractedSentence[];
+  snapshot: SpeechTrackerSnapshot;
+};
+
+export function RehearsalPanel(props: RehearsalPanelProps) {
+  const hitKeywordIds = new Set(props.snapshot.hitKeywordIds);
+  const provisionalMissingKeywordIds = new Set(
+    props.snapshot.provisionalMissingKeywordIds
+  );
+  const coveredSentenceIds = new Set(props.snapshot.coveredSentenceIds);
+  const showAdvice = props.mode === "rehearsal";
+
+  return (
+    <section className="rehearsal-panel" aria-label="발표 진행 패널">
+      <div className="rehearsal-panel-timers">
+        <TimerMetric
+          icon={<Timer aria-hidden="true" size={16} />}
+          label="남은 시간"
+          value={formatDuration(props.timing.remainingSeconds)}
+          tone={props.timing.remainingSeconds < 0 ? "warning" : "normal"}
+        />
+        <TimerMetric
+          icon={<Clock3 aria-hidden="true" size={16} />}
+          label="현재 슬라이드"
+          value={`${formatDuration(props.timing.currentSlideElapsedSeconds)} / ${formatDuration(
+            props.timing.currentSlideTargetSeconds
+          )}`}
+          tone={props.timing.currentSlideOvertime ? "warning" : "normal"}
+        />
+      </div>
+
+      <section className="rehearsal-panel-section" aria-label="키워드 체크리스트">
+        <div className="rehearsal-panel-section-heading">
+          <span>키워드</span>
+          <strong>
+            {hitKeywordIds.size}/{props.keywords.length}
+          </strong>
+        </div>
+        {props.keywords.length > 0 ? (
+          <ul className="rehearsal-panel-keywords">
+            {props.keywords.map((keyword) => {
+              const hit = hitKeywordIds.has(keyword.keywordId);
+              const provisionalMissing = provisionalMissingKeywordIds.has(
+                keyword.keywordId
+              );
+
+              return (
+                <li
+                  className={[
+                    "rehearsal-panel-keyword",
+                    hit ? "rehearsal-panel-keyword-hit" : "",
+                    provisionalMissing ? "rehearsal-panel-keyword-missing" : ""
+                  ]
+                    .filter(Boolean)
+                    .join(" ")}
+                  key={keyword.keywordId}
+                >
+                  {hit ? (
+                    <CheckCircle2 aria-hidden="true" size={16} />
+                  ) : (
+                    <Circle aria-hidden="true" size={16} />
+                  )}
+                  <span>{keyword.text}</span>
+                  <em>{hit ? "체크됨" : provisionalMissing ? "미확인" : "대기"}</em>
+                </li>
+              );
+            })}
+          </ul>
+        ) : (
+          <p className="rehearsal-panel-empty">키워드 없음</p>
+        )}
+      </section>
+
+      <section className="rehearsal-panel-section rehearsal-panel-script" aria-label="발표 대본">
+        <div className="rehearsal-panel-section-heading">
+          <span>대본</span>
+          <strong>{Math.round(props.snapshot.effectiveCoverage * 100)}%</strong>
+        </div>
+        <div className="rehearsal-panel-script-body" data-auto-scroll="false">
+          {props.sentences.length > 0 ? (
+            props.sentences.map((sentence) => {
+              const covered = coveredSentenceIds.has(sentence.sentenceId);
+              return (
+                <p
+                  className={[
+                    "rehearsal-panel-sentence",
+                    covered ? "rehearsal-panel-sentence-covered" : "",
+                    !sentence.matchable ? "rehearsal-panel-sentence-unmatchable" : ""
+                  ]
+                    .filter(Boolean)
+                    .join(" ")}
+                  key={sentence.sentenceId}
+                >
+                  <span>
+                    <KeywordHighlightedText
+                      keywords={props.keywords}
+                      text={sentence.text}
+                    />
+                  </span>
+                  {covered ? <em>체크됨</em> : null}
+                  {!sentence.matchable ? <em>매칭 제외</em> : null}
+                </p>
+              );
+            })
+          ) : (
+            <p className="rehearsal-panel-empty">대본 없음</p>
+          )}
+        </div>
+      </section>
+
+      {showAdvice ? (
+        <section className="rehearsal-panel-section" aria-label="실시간 조언">
+          <div className="rehearsal-panel-section-heading">
+            <span>조언</span>
+            <strong>{props.wordsPerMinute} WPM</strong>
+          </div>
+          <div className="rehearsal-panel-advice">
+            <AdviceBadge
+              icon={<Gauge aria-hidden="true" size={16} />}
+              label="말 속도"
+              value={getPaceLabel(props.adviceState.pace)}
+              active={props.adviceState.pace !== "normal"}
+            />
+            <AdviceBadge
+              icon={<AlertTriangle aria-hidden="true" size={16} />}
+              label="슬라이드 시간 초과"
+              value={props.adviceState.slideOvertime ? "초과" : "정상"}
+              active={props.adviceState.slideOvertime}
+            />
+          </div>
+        </section>
+      ) : null}
+    </section>
+  );
+}
+
+function TimerMetric(props: {
+  icon: ReactNode;
+  label: string;
+  value: string;
+  tone: "normal" | "warning";
+}) {
+  return (
+    <div
+      className={[
+        "rehearsal-panel-timer",
+        props.tone === "warning" ? "rehearsal-panel-timer-warning" : ""
+      ]
+        .filter(Boolean)
+        .join(" ")}
+    >
+      {props.icon}
+      <span>{props.label}</span>
+      <strong>{props.value}</strong>
+    </div>
+  );
+}
+
+function AdviceBadge(props: {
+  icon: ReactNode;
+  label: string;
+  value: string;
+  active: boolean;
+}) {
+  return (
+    <div
+      className={[
+        "rehearsal-panel-advice-badge",
+        props.active ? "rehearsal-panel-advice-active" : ""
+      ]
+        .filter(Boolean)
+        .join(" ")}
+    >
+      {props.icon}
+      <span>{props.label}</span>
+      <strong>{props.value}</strong>
+    </div>
+  );
+}
+
+function getPaceLabel(pace: TimingPaceState) {
+  switch (pace) {
+    case "too-fast":
+      return "빠름";
+    case "too-slow":
+      return "느림";
+    case "normal":
+      return "적정";
+  }
+}
+
+function formatDuration(totalSeconds: number) {
+  const sign = totalSeconds < 0 ? "-" : "";
+  const absoluteSeconds = Math.abs(totalSeconds);
+  const minutes = Math.floor(absoluteSeconds / 60);
+  const seconds = absoluteSeconds % 60;
+
+  return `${sign}${minutes.toString().padStart(2, "0")}:${seconds
+    .toString()
+    .padStart(2, "0")}`;
+}
