@@ -463,6 +463,7 @@ function createDeck(overrides: Record<string, unknown> = {}) {
         elements: [],
         keywords: [],
         animations: [],
+        actions: [],
         aiNotes: {
           emphasisPoints: ["message"],
           sourceEvidence: [{ fileId: "file_1" }]

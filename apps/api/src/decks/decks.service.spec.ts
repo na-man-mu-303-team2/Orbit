@@ -380,13 +380,15 @@ function createLegacyKeywordDeck(deck: Deck): Deck {
       text: " ORBIT ",
       synonyms: ["발표 도우미", "", "발표 도우미"],
       abbreviations: ["OD", "od", " "],
+      required: true
     },
     {
       keywordId: "kw_two",
       text: "orbit",
       synonyms: ["ORBIT", "리허설"],
       abbreviations: ["발표 도우미", "STT"],
-    },
+      required: true
+    }
   ];
 
   return legacyDeck;
@@ -399,7 +401,8 @@ function createNormalizedLegacyKeywords(): Deck["slides"][number]["keywords"] {
       text: "ORBIT",
       synonyms: ["발표 도우미", "리허설"],
       abbreviations: ["OD", "STT"],
-    },
+      required: true
+    }
   ];
 }
 
@@ -951,17 +954,19 @@ describe("DecksService", () => {
                     text: "ORBIT",
                     synonyms: [""],
                     abbreviations: [],
+                    required: true
                   },
                   {
                     keywordId: "kw_two",
                     text: "orbit",
                     synonyms: [],
                     abbreviations: [],
-                  },
-                ],
-              },
-            ],
-          },
+                    required: true
+                  }
+                ]
+              }
+            ]
+          }
         }),
       HttpStatus.BAD_REQUEST,
       "PATCH_VALIDATION_FAILED",

@@ -60,6 +60,7 @@ const deckRow = {
         style: {},
         elements: [],
         animations: [],
+        actions: [],
         keywords: [
           {
             keywordId: "kw_1",
@@ -282,7 +283,8 @@ describe("processRehearsalSttJob", () => {
         keywordId: "kw_1",
         text: "LATEST",
         synonyms: ["최신"],
-        abbreviations: []
+        abbreviations: [],
+        required: true
       }
     ]);
   });

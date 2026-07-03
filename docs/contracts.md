@@ -139,7 +139,8 @@ API:
           "keywordId": "kw_1",
           "text": "ORBIT",
           "synonyms": ["발표 도우미"],
-          "abbreviations": []
+          "abbreviations": [],
+          "required": true
         }
       ],
       "elements": [
@@ -166,6 +167,19 @@ API:
           "durationMs": 400,
           "delayMs": 0,
           "easing": "ease-out"
+        }
+      ],
+      "actions": [
+        {
+          "actionId": "act_1",
+          "trigger": {
+            "kind": "keyword",
+            "keywordId": "kw_1"
+          },
+          "effect": {
+            "kind": "play-animation",
+            "animationId": "anim_1"
+          }
         }
       ]
     }
@@ -205,14 +219,14 @@ API:
 - 슬라이드 배경은 `slide.style.backgroundImage` > `slide.style.backgroundColor` > `deck.theme.backgroundColor` 순서로 해석한다.
 - `theme` 변경은 기존 `slide.style`이나 object props를 자동으로 덮어쓰지 않는다. 전체 테마 적용은 별도의 apply theme 동작으로 처리한다.
 - `slides`는 최소 1개 이상이어야 한다. 새 덱 생성 시에는 빈 덱 대신 기본 슬라이드 1장을 생성한다.
-- SlideSchema 필드는 `slideId`, `order`, `title`, `thumbnailUrl`, `estimatedSeconds`, `style`, `speakerNotes`, `elements`, `keywords`, `animations`를 유지한다. `thumbnailUrl`은 imported/image-only slide처럼 `elements`가 비어 있는 발표자 렌더링 fallback에 사용할 수 있다.
+- SlideSchema 필드는 `slideId`, `order`, `title`, `thumbnailUrl`, `estimatedSeconds`, `style`, `speakerNotes`, `elements`, `keywords`, `animations`, `actions`를 유지한다. `thumbnailUrl`은 imported/image-only slide처럼 `elements`가 비어 있는 발표자 렌더링 fallback에 사용할 수 있다.
 - `estimatedSeconds`는 슬라이드별 목표 발표 시간(초)이며 선택 필드다. 생략된 경우 presenter UI는 `targetDurationMinutes / slides.length` 기반 균등 분배로 폴백한다.
 - AI 생성 slide는 선택적 `aiNotes`를 포함할 수 있다. `aiNotes`는 `emphasisPoints`와 검토용 `sourceEvidence`만 담고, 디자인 전용 배열은 만들지 않는다.
 - `order`는 사용자에게 보이는 슬라이드 번호와 맞춰 `1`부터 시작하는 양의 정수로 관리한다. 배열 index가 필요하면 애플리케이션 내부에서 `order - 1`로 변환한다.
 - 1차 스프린트 MVP에서는 슬라이드별 크기 override를 허용하지 않는다. 모든 슬라이드는 deck top-level의 `canvas` 크기와 비율을 따른다.
 - SlideSchema에는 `width`, `height`, `canvas`, `aspectRatio` 같은 슬라이드별 크기 필드를 두지 않는다.
 - 슬라이드 식별자는 `slideId`, 객체 식별자는 `elementId`로 통일한다.
-- Deck 내부 ID는 prefix를 강제한다. `deckId`는 `deck_`, `slideId`는 `slide_`, `elementId`는 `el_`, `animationId`는 `anim_`, `keywordId`는 `kw_`, `changeId`는 `change_`로 시작해야 한다.
+- Deck 내부 ID는 prefix를 강제한다. `deckId`는 `deck_`, `slideId`는 `slide_`, `elementId`는 `el_`, `animationId`는 `anim_`, `actionId`는 `act_`, `keywordId`는 `kw_`, `changeId`는 `change_`로 시작해야 한다.
 - prefix 뒤에는 영문, 숫자, `_`, `-`만 허용한다.
 - `projectId`, `fileId`, `jobId`, `sessionId`, `userId`, `runId`, `reportId`, `roomId`는 다른 도메인 소유 ID이므로 ORBIT-14 deck schema에서는 prefix를 강제하지 않고 non-empty string만 검증한다.
 - 좌표 단위는 `px` 기준으로 한다.
@@ -258,6 +272,13 @@ API:
 - animation `order`는 `1`부터 시작하는 양의 정수로 관리한다.
 - `durationMs`, `delayMs`, `easing`은 입력에서 생략할 수 있지만, schema parse 후 normalized Deck JSON에는 각각 `400`, `0`, `"ease-out"` 기본값으로 포함한다.
 - `easing`은 `linear`, `ease-in`, `ease-out`, `ease-in-out`만 허용한다.
+- `slide.keywords[]`는 `required` boolean을 포함한다. 이 값은 발표 중 반드시 언급해야 하는 keyword 여부를 나타내며 기본값은 `true`다.
+- 애니메이션 trigger, 다음 슬라이드 trigger 같은 발표 제어 분류는 keyword 필드에 중복 저장하지 않고 연결된 `slide.actions`로부터 파생한다.
+- 키워드 기반 authored action은 `slide.actions` flat list에 저장한다.
+- 각 action은 `act_` prefix를 따르는 `actionId`와 legacy `cue` 또는 `keywordId` 기반 trigger를 가진다.
+- action effect는 `play-animation`, `go-to-next-slide`만 허용한다.
+- `play-animation` effect는 같은 slide 안에 있는 `animationId`만 참조할 수 있다.
+- `keyword` trigger는 같은 slide 안에 있는 `keywordId`만 참조할 수 있다.
 - 밑줄 애니메이션은 1차 스프린트 MVP가 아니라 폴리싱 범위로 둔다.
 - AI 생성 결과도 최종적으로 deck JSON으로 변환한다.
 - 리허설은 `speakerNotes`, `keywords.text`, `keywords.synonyms`, `keywords.abbreviations`를 기준으로 연결한다.
@@ -328,6 +349,9 @@ DeckPatch 결정 사항:
 - `add_animation`: animation 추가
 - `update_animation`: animation 부분 수정
 - `delete_animation`: animation 삭제
+- `add_slide_action`: slide action 추가
+- `update_slide_action`: slide action 부분 수정
+- `delete_slide_action`: slide action 삭제
 
 patch 적용 규칙:
 
@@ -849,7 +873,7 @@ Implementation locations:
 - `url`은 임시로 로컬 경로를 쓰되, 이후 S3 signed URL로 교체할 수 있게 유지한다.
 - 업로드 요청은 `POST /api/v1/projects/:projectId/assets/upload-url`로 시작한다.
 - 업로드 완료 처리는 `POST /api/v1/projects/:projectId/assets/complete`에서 `fileId`를 받아 위 구조를 반환한다.
-- 1차 구현에서 허용하는 mime type은 purpose별로 제한한다. 문서/이미지 purpose는 PDF, PPTX, DOCX, JPEG, PNG, WebP를 허용하고 최대 크기는 50MiB다. `rehearsal-audio`는 현재 구현된 OpenAI report STT 경로에서 MP3, MP4, MPEG, MPGA, M4A, FLAC, WAV, WebM 계열만 허용하며 기본/최대 크기는 25MB다. WhisperX 대용량 업로드 한도는 provider 구현이 들어가는 후속 작업에서 다시 연다.
+- 1차 구현에서 허용하는 mime type은 purpose별로 제한한다. 문서/이미지 purpose는 PDF, PPTX, DOCX, JPEG, PNG, WebP를 허용하고 최대 크기는 50MiB다. `rehearsal-audio`는 MP3, MP4, MPEG, MPGA, M4A, FLAC, WAV, WebM 계열만 허용한다. `REPORT_STT_PROVIDER=openai` 경로에서는 `REHEARSAL_AUDIO_MAX_BYTES` 기본값과 최대값을 25MB로 유지한다. WhisperX는 현재 별도 provider 최대 크기 계약을 정의하지 않는다.
 - upload URL을 발급한 뒤 complete가 호출되지 않은 파일은 `pending` metadata로 남기고, 정리 정책은 후속 작업에서 결정한다.
 - 분석이 끝난 `rehearsal-audio` raw object는 삭제하고, metadata는 `status=deleted`, `deletedAt`으로 추적한다.
 
@@ -878,8 +902,8 @@ Implementation locations:
 
 리허설 종료 뒤 녹음 파일을 전사하고 코칭 리포트를 생성한다.
 
-- STT provider env: `REPORT_STT_PROVIDER=openai`
-- WhisperX env: 후속 `ReportSttProvider` 구현 전까지 선택할 수 없다.
+- STT provider env: `REPORT_STT_PROVIDER=openai | whisperx`
+- WhisperX env: `WHISPERX_API_URL`, `WHISPERX_API_KEY`, `WHISPERX_MODEL`, `WHISPERX_TIMEOUT_MS`
 - rehearsal audio limit env: `REHEARSAL_AUDIO_MAX_BYTES=25000000`
 - LLM provider env: `LLM_PROVIDER=openai`
 - 실행 위치: API/worker/Python worker

@@ -51,6 +51,7 @@ type DeckValidationInput = {
       text: string;
       synonyms: string[];
       abbreviations: string[];
+      required?: boolean;
     }>;
     elements: Array<Record<string, unknown>>;
     animations: Array<{
@@ -61,6 +62,26 @@ type DeckValidationInput = {
       durationMs: number;
       delayMs: number;
       easing: string;
+    }>;
+    actions?: Array<{
+      actionId: string;
+      trigger:
+        | {
+            kind: "cue";
+            cue: string;
+          }
+        | {
+            kind: "keyword";
+            keywordId: string;
+          };
+      effect:
+        | {
+            kind: "play-animation";
+            animationId: string;
+          }
+        | {
+            kind: "go-to-next-slide";
+          };
     }>;
   }>;
 };
@@ -125,7 +146,8 @@ const createValidDeck = (): DeckValidationInput => ({
           delayMs: 0,
           easing: "ease-out"
         }
-      ]
+      ],
+      actions: []
     }
   ]
 });
@@ -176,6 +198,16 @@ describe("deckSchema validation", () => {
     expect(deck.targetDurationMinutes).toBe(10);
   });
 
+  it("defaults slide actions to an empty list", () => {
+    const deck = createValidDeck();
+
+    delete deck.slides[0].actions;
+
+    const result = deckSchema.parse(deck);
+
+    expect(result.slides[0].actions).toEqual([]);
+  });
+
   it("accepts explicit deck and slide presenter timing fields", () => {
     const deck = createValidDeck();
 
@@ -186,6 +218,95 @@ describe("deckSchema validation", () => {
 
     expect(result.targetDurationMinutes).toBe(20);
     expect(result.slides[0].estimatedSeconds).toBe(90);
+  });
+
+  it("accepts cue-driven slide actions", () => {
+    const deck = createValidDeck();
+
+    deck.slides[0].actions = [
+      {
+        actionId: "act_1",
+        trigger: {
+          kind: "cue",
+          cue: "강조"
+        },
+        effect: {
+          kind: "play-animation",
+          animationId: "anim_1"
+        }
+      },
+      {
+        actionId: "act_2",
+        trigger: {
+          kind: "cue",
+          cue: "다음"
+        },
+        effect: {
+          kind: "go-to-next-slide"
+        }
+      }
+    ];
+
+    expectValidDeck(deck);
+  });
+
+  it("accepts keyword-triggered slide actions", () => {
+    const deck = createValidDeck();
+
+    deck.slides[0].actions = [
+      {
+        actionId: "act_1",
+        trigger: {
+          kind: "keyword",
+          keywordId: "kw_1"
+        },
+        effect: {
+          kind: "play-animation",
+          animationId: "anim_1"
+        }
+      }
+    ];
+
+    expectValidDeck(deck);
+  });
+
+  it("rejects slide actions that target missing animations", () => {
+    const deck = createValidDeck();
+
+    deck.slides[0].actions = [
+      {
+        actionId: "act_1",
+        trigger: {
+          kind: "cue",
+          cue: "강조"
+        },
+        effect: {
+          kind: "play-animation",
+          animationId: "anim_missing"
+        }
+      }
+    ];
+
+    expectInvalidDeck(deck);
+  });
+
+  it("rejects keyword-triggered slide actions that target missing keywords", () => {
+    const deck = createValidDeck();
+
+    deck.slides[0].actions = [
+      {
+        actionId: "act_1",
+        trigger: {
+          kind: "keyword",
+          keywordId: "kw_missing"
+        },
+        effect: {
+          kind: "go-to-next-slide"
+        }
+      }
+    ];
+
+    expectInvalidDeck(deck);
   });
 
   it.each([0, -1, 1.5])(

@@ -154,6 +154,7 @@ describe("generateDeckJobResultSchema", () => {
             elements: [],
             keywords: [],
             animations: [],
+            actions: [],
             aiNotes: {
               emphasisPoints: ["핵심 메시지"],
               sourceEvidence: [{ fileId: "file_1" }]

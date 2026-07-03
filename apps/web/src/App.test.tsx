@@ -627,6 +627,7 @@ describe("AI deck generation flow", () => {
               elements: [],
               keywords: [],
               animations: [],
+              actions: [],
               aiNotes: {
                 emphasisPoints: ["핵심 메시지"],
                 sourceEvidence: [{ fileId: "file_1", note: "근거 후보" }]

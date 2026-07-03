@@ -233,6 +233,9 @@ function getSuggestionOperationSlideId(
     case "add_animation":
     case "update_animation":
     case "delete_animation":
+    case "add_slide_action":
+    case "update_slide_action":
+    case "delete_slide_action":
       return operation.slideId;
     default:
       return null;

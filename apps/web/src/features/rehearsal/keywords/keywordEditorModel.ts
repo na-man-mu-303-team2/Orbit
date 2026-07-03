@@ -18,7 +18,8 @@ export function createKeyword(
     keywordId: createKeywordId(),
     text: text.trim(),
     synonyms: [],
-    abbreviations: []
+    abbreviations: [],
+    required: true
   });
 }
 

@@ -38,6 +38,7 @@ function createSlide(slideId: string, order: number): Slide {
     elements: [],
     keywords: [],
     animations: [],
+    actions: [],
   };
 }
 
@@ -79,6 +80,7 @@ function createPatchTestDeck(): Deck {
         text: "ORBIT",
         synonyms: ["발표 도우미"],
         abbreviations: ["OBT"],
+        required: true,
       },
     ],
     elements: [createTextElement("el_1")],
@@ -93,6 +95,7 @@ function createPatchTestDeck(): Deck {
         easing: "ease-out",
       },
     ],
+    actions: [],
   };
 
   return {
@@ -312,9 +315,25 @@ describe("applyDeckPatch", () => {
     }
   });
 
-  it("deletes an element and removes animations targeting it", () => {
+  it("deletes an element and removes animations and actions targeting it", () => {
+    const deck = createPatchTestDeck();
+
+    deck.slides[0].actions = [
+      {
+        actionId: "act_1",
+        trigger: {
+          kind: "cue",
+          cue: "강조",
+        },
+        effect: {
+          kind: "play-animation",
+          animationId: "anim_1",
+        },
+      },
+    ];
+
     const result = applyPatchOrFail(
-      createPatchTestDeck(),
+      deck,
       createPatch([
         {
           type: "delete_element",
@@ -326,9 +345,10 @@ describe("applyDeckPatch", () => {
 
     expect(result.deck.slides[0].elements).toEqual([]);
     expect(result.deck.slides[0].animations).toEqual([]);
+    expect(result.deck.slides[0].actions).toEqual([]);
   });
 
-  it("applies theme, slide style, notes, keywords, and animation operations", () => {
+  it("applies theme, slide style, notes, animation, and slide action operations", () => {
     const result = applyPatchOrFail(
       createPatchTestDeck(),
       createPatch([
@@ -363,6 +383,7 @@ describe("applyDeckPatch", () => {
               text: "패치",
               synonyms: [],
               abbreviations: [],
+              required: true,
             },
           ],
         },
@@ -392,6 +413,35 @@ describe("applyDeckPatch", () => {
           slideId: "slide_1",
           animationId: "anim_2",
         },
+        {
+          type: "add_slide_action",
+          slideId: "slide_1",
+          action: {
+            actionId: "act_1",
+            trigger: {
+              kind: "cue",
+              cue: "강조",
+            },
+            effect: {
+              kind: "play-animation",
+              animationId: "anim_1",
+            },
+          },
+        },
+        {
+          type: "update_slide_action",
+          slideId: "slide_1",
+          actionId: "act_1",
+          action: {
+            trigger: {
+              kind: "cue",
+              cue: "다음",
+            },
+            effect: {
+              kind: "go-to-next-slide",
+            },
+          },
+        },
       ]),
     );
     const slide = result.deck.slides[0];
@@ -407,10 +457,86 @@ describe("applyDeckPatch", () => {
         text: "패치",
         synonyms: [],
         abbreviations: [],
+        required: true,
       },
     ]);
     expect(slide.animations).toHaveLength(1);
     expect(slide.animations[0].durationMs).toBe(1000);
+    expect(slide.actions).toEqual([
+      {
+        actionId: "act_1",
+        trigger: {
+          kind: "cue",
+          cue: "다음",
+        },
+        effect: {
+          kind: "go-to-next-slide",
+        },
+      },
+    ]);
+  });
+
+  it("deletes slide actions that target a deleted animation", () => {
+    const deck = createPatchTestDeck();
+
+    deck.slides[0].actions = [
+      {
+        actionId: "act_1",
+        trigger: {
+          kind: "cue",
+          cue: "강조",
+        },
+        effect: {
+          kind: "play-animation",
+          animationId: "anim_1",
+        },
+      },
+    ];
+
+    const result = applyPatchOrFail(
+      deck,
+      createPatch([
+        {
+          type: "delete_animation",
+          slideId: "slide_1",
+          animationId: "anim_1",
+        },
+      ]),
+    );
+
+    expect(result.deck.slides[0].animations).toEqual([]);
+    expect(result.deck.slides[0].actions).toEqual([]);
+  });
+
+  it("deletes keyword-triggered slide actions when the keyword is removed", () => {
+    const deck = createPatchTestDeck();
+
+    deck.slides[0].actions = [
+      {
+        actionId: "act_1",
+        trigger: {
+          kind: "keyword",
+          keywordId: "kw_1",
+        },
+        effect: {
+          kind: "go-to-next-slide",
+        },
+      },
+    ];
+
+    const result = applyPatchOrFail(
+      deck,
+      createPatch([
+        {
+          type: "replace_keywords",
+          slideId: "slide_1",
+          keywords: [],
+        },
+      ]),
+    );
+
+    expect(result.deck.slides[0].keywords).toEqual([]);
+    expect(result.deck.slides[0].actions).toEqual([]);
   });
 
   it("fails when deckId does not match", () => {
@@ -513,6 +639,36 @@ describe("applyDeckPatch", () => {
       ok: false,
       error: {
         code: "ELEMENT_NOT_FOUND",
+      },
+    });
+  });
+
+  it("fails when a slide action targets a missing animation", () => {
+    const result = applyDeckPatch(
+      createPatchTestDeck(),
+      createPatch([
+        {
+          type: "add_slide_action",
+          slideId: "slide_1",
+          action: {
+            actionId: "act_1",
+            trigger: {
+              kind: "cue",
+              cue: "강조",
+            },
+            effect: {
+              kind: "play-animation",
+              animationId: "anim_missing",
+            },
+          },
+        },
+      ]),
+    );
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: {
+        code: "SLIDE_ACTION_ANIMATION_NOT_FOUND",
       },
     });
   });
