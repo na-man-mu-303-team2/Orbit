@@ -1,6 +1,8 @@
 import {
   getBrowserSpeechRecognitionConstructor,
   type BrowserSpeechRecognition,
+  type BrowserSpeechRecognitionAvailabilityOptions,
+  type BrowserSpeechRecognitionConstructor,
   type BrowserSpeechRecognitionErrorEvent,
   type BrowserSpeechRecognitionEvent
 } from "./browserSpeechRecognition";
@@ -15,22 +17,29 @@ import {
 
 export type BrowserSpeechRecognitionFactory = () => BrowserSpeechRecognition;
 
+export const WEB_SPEECH_LANGUAGE = "ko-KR";
+export const WEB_SPEECH_QUALITY = "command";
+export const WEB_SPEECH_LANGUAGE_PACK_OPTIONS = {
+  langs: [WEB_SPEECH_LANGUAGE],
+  processLocally: true,
+  quality: WEB_SPEECH_QUALITY
+} satisfies BrowserSpeechRecognitionAvailabilityOptions;
+
 type WebSpeechLiveSttPortOptions = {
-  consentGranted: boolean;
+  consentGranted?: boolean;
   createRecognition?: BrowserSpeechRecognitionFactory | null;
+  recognitionConstructor?: BrowserSpeechRecognitionConstructor | null;
+  processLocally?: boolean;
   now?: () => number;
 };
 
 export class WebSpeechLiveSttPort implements LiveSttPort {
   readonly engineId = "web-speech";
-  readonly capabilities: LiveSttCapabilities = {
-    onDevice: false,
-    streaming: true,
-    keywordBiasing: false,
-    languages: ["ko"]
-  };
+  readonly capabilities: LiveSttCapabilities;
 
   private readonly createRecognition: BrowserSpeechRecognitionFactory | null;
+  private readonly recognitionConstructor: BrowserSpeechRecognitionConstructor | null;
+  private readonly processLocally: boolean;
   private readonly now: () => number;
   private readonly resultSubscribers = new Set<(result: LiveSttResult) => void>();
   private readonly errorSubscribers = new Set<(error: LiveSttError) => void>();
@@ -38,15 +47,29 @@ export class WebSpeechLiveSttPort implements LiveSttPort {
   private startedAtMs: number | null = null;
 
   constructor(private readonly options: WebSpeechLiveSttPortOptions) {
+    const Recognition =
+      options.recognitionConstructor === undefined
+        ? getDefaultBrowserSpeechRecognitionConstructor()
+        : options.recognitionConstructor;
+    this.recognitionConstructor = Recognition;
     this.createRecognition =
       options.createRecognition === undefined
-        ? createDefaultBrowserSpeechRecognition
+        ? Recognition
+          ? () => new Recognition()
+          : null
         : options.createRecognition;
+    this.processLocally = options.processLocally ?? true;
     this.now = options.now ?? (() => Date.now());
+    this.capabilities = {
+      onDevice: this.processLocally,
+      streaming: true,
+      keywordBiasing: false,
+      languages: ["ko"]
+    };
   }
 
   async start(config: LiveSttSessionConfig) {
-    if (!this.options.consentGranted) {
+    if (!this.processLocally && !this.options.consentGranted) {
       throw new LiveSttError(
         "consent_required",
         "Web Speech는 브라우저에 따라 외부 인식 서비스를 사용할 수 있어 명시적 동의가 필요합니다."
@@ -61,12 +84,24 @@ export class WebSpeechLiveSttPort implements LiveSttPort {
     }
 
     const recognition = this.createRecognition();
+    const lang = config.language === "ko" ? WEB_SPEECH_LANGUAGE : config.language;
+    if (this.processLocally) {
+      if (!("processLocally" in recognition)) {
+        throw new LiveSttError(
+          "unsupported_runtime",
+          "이 브라우저는 온디바이스 Web Speech 인식을 지원하지 않습니다."
+        );
+      }
+      await this.ensureLocalLanguagePack(lang);
+      recognition.processLocally = true;
+    }
+
     this.recognition = recognition;
     this.startedAtMs = this.now();
 
     recognition.continuous = true;
     recognition.interimResults = true;
-    recognition.lang = config.language === "ko" ? "ko-KR" : config.language;
+    recognition.lang = lang;
     recognition.maxAlternatives = 1;
     recognition.onresult = (event) => this.handleResult(event);
     recognition.onerror = (event) => this.handleError(event);
@@ -144,6 +179,51 @@ export class WebSpeechLiveSttPort implements LiveSttPort {
     }
   }
 
+  private async ensureLocalLanguagePack(lang: string) {
+    const Recognition = this.recognitionConstructor;
+    if (!Recognition?.available) {
+      throw new LiveSttError(
+        "unsupported_runtime",
+        "이 브라우저는 온디바이스 Web Speech 언어팩 확인을 지원하지 않습니다."
+      );
+    }
+
+    const options =
+      lang === WEB_SPEECH_LANGUAGE
+        ? WEB_SPEECH_LANGUAGE_PACK_OPTIONS
+        : ({
+            langs: [lang],
+            processLocally: true,
+            quality: WEB_SPEECH_QUALITY
+          } satisfies BrowserSpeechRecognitionAvailabilityOptions);
+    const availability = await Recognition.available(options);
+    if (availability === "available") {
+      return;
+    }
+
+    if (availability === "unavailable") {
+      throw new LiveSttError(
+        "model_unavailable",
+        `${lang} 온디바이스 Web Speech 언어팩을 사용할 수 없습니다.`
+      );
+    }
+
+    if (!Recognition.install) {
+      throw new LiveSttError(
+        "model_unavailable",
+        `${lang} 온디바이스 Web Speech 언어팩 설치 API를 사용할 수 없습니다.`
+      );
+    }
+
+    const installed = await Recognition.install(options);
+    if (!installed) {
+      throw new LiveSttError(
+        "model_unavailable",
+        `${lang} 온디바이스 Web Speech 언어팩 설치에 실패했습니다.`
+      );
+    }
+  }
+
   private handleError(event: BrowserSpeechRecognitionErrorEvent) {
     this.emitError(
       new LiveSttError(
@@ -166,14 +246,10 @@ export class WebSpeechLiveSttPort implements LiveSttPort {
   }
 }
 
-function createDefaultBrowserSpeechRecognition() {
-  const Recognition = getBrowserSpeechRecognitionConstructor();
-  if (!Recognition) {
-    throw new LiveSttError(
-      "unsupported_runtime",
-      "이 브라우저는 Web Speech 인식을 지원하지 않습니다."
-    );
+function getDefaultBrowserSpeechRecognitionConstructor() {
+  if (typeof window === "undefined") {
+    return null;
   }
 
-  return new Recognition();
+  return getBrowserSpeechRecognitionConstructor();
 }

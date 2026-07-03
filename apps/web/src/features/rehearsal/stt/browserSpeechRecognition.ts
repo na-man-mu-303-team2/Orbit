@@ -29,6 +29,7 @@ export type BrowserSpeechRecognition = {
   interimResults: boolean;
   lang: string;
   maxAlternatives: number;
+  processLocally?: boolean;
   onresult: ((event: BrowserSpeechRecognitionEvent) => void) | null;
   onerror: ((event: BrowserSpeechRecognitionErrorEvent) => void) | null;
   onend: (() => void) | null;
@@ -37,7 +38,32 @@ export type BrowserSpeechRecognition = {
   abort: () => void;
 };
 
-export type BrowserSpeechRecognitionConstructor = new () => BrowserSpeechRecognition;
+export type BrowserSpeechRecognitionAvailability =
+  | "available"
+  | "downloadable"
+  | "downloading"
+  | "unavailable";
+
+export type BrowserSpeechRecognitionQuality =
+  | "command"
+  | "dictation"
+  | "conversation";
+
+export type BrowserSpeechRecognitionAvailabilityOptions = {
+  langs: string[];
+  processLocally?: boolean;
+  quality?: BrowserSpeechRecognitionQuality;
+};
+
+export type BrowserSpeechRecognitionConstructor = {
+  new (): BrowserSpeechRecognition;
+  available?: (
+    options: BrowserSpeechRecognitionAvailabilityOptions
+  ) => Promise<BrowserSpeechRecognitionAvailability>;
+  install?: (
+    options: BrowserSpeechRecognitionAvailabilityOptions
+  ) => Promise<boolean>;
+};
 
 declare global {
   interface Window {
