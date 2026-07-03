@@ -85,6 +85,16 @@ import { createSlideshowAnimationPlan } from "./presenter/slideshowStepModel";
 import { getNextPresenterStepState } from "./presenter/presenterStepNavigation";
 import { usePresentationChannelPublisher } from "./presenter/usePresentationChannelPublisher";
 import { usePresenterKeyboard } from "./presenter/usePresenterKeyboard";
+import { AutoAdvanceSettings } from "./advance/AutoAdvanceSettings";
+import { AutoAdvanceStatus } from "./advance/AutoAdvanceStatus";
+import { defaultAutoAdvanceConfig } from "./advance/autoAdvanceConfig";
+import {
+  cancelAdvanceCountdown,
+  createInitialAdvanceControllerState,
+  evaluateAdvanceController,
+  resetAdvanceControllerForSlide,
+  type AdvanceControllerState
+} from "./advance/advanceController";
 import { RehearsalPanel } from "./panel/RehearsalPanel";
 import {
   calculateFinalTranscriptWpm,
@@ -99,8 +109,17 @@ import {
   type P3RehearsalSession,
   type P3RehearsalSessionState
 } from "./speech/p3RehearsalSession";
+import {
+  createPauseDetector,
+  type PauseDetector,
+  type PauseDetectorEvent,
+  type PauseDetectorSnapshot
+} from "./speech/pauseDetector";
 import { defaultSpeechTrackingConfig } from "./speech/speechTrackingConfig";
-import type { SpeechTrackerSnapshot } from "./speech/speechTrackingEvents";
+import type {
+  SpeechTrackerSnapshot,
+  SpeechTrackingEvent
+} from "./speech/speechTrackingEvents";
 
 export {
   LiveSttAdapterError,
@@ -179,8 +198,6 @@ export const rehearsalRawMicrophoneAudioConstraints: MediaTrackConstraints = {
   autoGainControl: false,
   channelCount: 1
 };
-const liveAutoAdvanceCoverageThreshold = 0.8;
-const defaultLiveAutoAdvanceDelayMs = 800;
 const liveSttBiasModeStorageKey = "orbit.liveStt.biasMode";
 const liveSttRawMicDebugStorageKey = "orbit.liveStt.debugRawMic";
 const liveSttDebugDecodingMethodStorageKey =
@@ -838,32 +855,6 @@ export function evaluateLiveTranscript(
   };
 }
 
-export function shouldAutoAdvanceLiveSlide(options: {
-  analysis: Pick<LiveTranscriptAnalysis, "coverage" | "missingKeywordIds">;
-  currentSlideIndex: number;
-  slideCount: number;
-  keywordCount: number;
-  alreadyAdvanced: boolean;
-}) {
-  return (
-    options.keywordCount > 0 &&
-    !options.alreadyAdvanced &&
-    options.currentSlideIndex < options.slideCount - 1 &&
-    options.analysis.coverage >= liveAutoAdvanceCoverageThreshold
-  );
-}
-
-export function shouldCompleteLiveSlideAdvance(
-  options: {
-    confirmedCommand: RehearsalCommandCandidate | null;
-  } & Parameters<typeof shouldAutoAdvanceLiveSlide>[0]
-) {
-  return (
-    isAdvanceSlideCommand(options.confirmedCommand) &&
-    shouldAutoAdvanceLiveSlide(options)
-  );
-}
-
 export function getLiveAudioLevelLabel(level: LiveSttAudioLevelEvent | null) {
   if (!level) {
     return "입력 대기";
@@ -1196,7 +1187,6 @@ export function RehearsalWorkspace(props: {
   fallbackDeck?: Deck;
   liveSttAdapter?: LiveSttAdapter;
   liveSttPort?: LiveSttPort;
-  autoAdvanceDelayMs?: number;
   projectId?: string;
 }) {
   const [deck, setDeck] = useState<Deck | null>(props.initialDeck ?? null);
@@ -1223,9 +1213,13 @@ export function RehearsalWorkspace(props: {
   const [p3SessionState, setP3SessionState] =
     useState<P3RehearsalSessionState | null>(null);
   const [p3RunMeta, setP3RunMeta] = useState<RehearsalRunMeta | null>(null);
-  const [autoAdvanceState, setAutoAdvanceState] = useState<
-    "idle" | "pending" | "advanced" | "cancelled"
-  >("idle");
+  const [advanceControllerState, setAdvanceControllerState] =
+    useState<AdvanceControllerState>(() => createInitialAdvanceControllerState());
+  const [autoAdvanceNowMs, setAutoAdvanceNowMs] = useState(0);
+  const [lastSentenceSpokenAtMs, setLastSentenceSpokenAtMs] =
+    useState<number | null>(null);
+  const [pauseDetectorSnapshot, setPauseDetectorSnapshot] =
+    useState<PauseDetectorSnapshot | null>(null);
   const [isLiveDemoActive, setIsLiveDemoActive] = useState(false);
   const [isLiveStopModalOpen, setIsLiveStopModalOpen] = useState(false);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
@@ -1260,9 +1254,13 @@ export function RehearsalWorkspace(props: {
   const liveCommandConfirmationRef = useRef(
     createRehearsalCommandConfirmationState()
   );
-  const autoAdvancedSlideIdsRef = useRef(new Set<string>());
-  const autoAdvanceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const { settings: presenterSettings } = usePresenterSettings();
+  const advanceControllerStateRef = useRef<AdvanceControllerState>(
+    createInitialAdvanceControllerState()
+  );
+  const lastSentenceSpokenAtMsRef = useRef<number | null>(null);
+  const pauseDetectorRef = useRef<PauseDetector | null>(null);
+  const { settings: presenterSettings, save: savePresenterSettings } =
+    usePresenterSettings();
 
   useEffect(() => {
     if (props.initialDeck) {
@@ -1345,7 +1343,7 @@ export function RehearsalWorkspace(props: {
 
   useEffect(() => {
     return () => {
-      cancelPendingAutoAdvance("cancelled");
+      resetAutoAdvanceRuntimeState(currentSlide?.slideId ?? null);
       cleanupLiveSttSubscriptions();
       const p3Session = p3SessionRef.current;
       p3SessionRef.current = null;
@@ -1360,6 +1358,17 @@ export function RehearsalWorkspace(props: {
       stopMediaStream(liveDemoStreamRef.current);
     };
   }, []);
+
+  useEffect(() => {
+    pauseDetectorRef.current = createPauseDetector({
+      config: presenterSettings.pauseDetector,
+      pauseMs: presenterSettings.advancePolicy.pauseMs
+    });
+    setPauseDetectorSnapshot(null);
+  }, [
+    presenterSettings.advancePolicy.pauseMs,
+    presenterSettings.pauseDetector.silenceThresholdDb
+  ]);
 
   const currentSlide = deck?.slides[currentSlideIndex] ?? null;
   const currentSlideTargetSeconds =
@@ -1406,8 +1415,12 @@ export function RehearsalWorkspace(props: {
         triggerAnimationIds
       })
     : null;
+  const remainingTriggerSteps = slideshowAnimationPlan
+    ? Math.max(0, slideshowAnimationPlan.maxStepIndex - presenterStepIndex)
+    : 0;
   const canRecord = Boolean(deck) && !["recording", "uploading", "processing"].includes(phase);
   const isLiveSttActive = liveStatus === "starting" || liveStatus === "listening";
+  const isP3TrackingActive = p3SessionState?.status === "running";
   const isReportBusy = ["recording", "uploading", "processing"].includes(phase);
   const canStartLiveDemo =
     Boolean(deck) && !isReportBusy && !isLiveSttActive && !isLiveDemoActive;
@@ -1482,6 +1495,7 @@ export function RehearsalWorkspace(props: {
   });
 
   useEffect(() => {
+    resetAutoAdvanceRuntimeState(currentSlide?.slideId ?? null);
     resetLiveTranscriptForSlide(currentSlide);
     const nextBiasContext = deck && currentSlide
       ? buildLiveSttBiasContext(currentSlide, {
@@ -1518,8 +1532,7 @@ export function RehearsalWorkspace(props: {
     setLiveDebugPcmRecording(null);
     resetLiveTranscriptForSlide(currentSlide);
     setLiveSlideAdvance(null);
-    setAutoAdvanceState("idle");
-    autoAdvancedSlideIdsRef.current.clear();
+    resetAutoAdvanceRuntimeState(currentSlide?.slideId ?? null);
 
     if (!navigator.mediaDevices?.getUserMedia) {
       setError("??釉뚮씪?곗???留덉씠???뱀쓬??吏?먰븯吏 ?딆뒿?덈떎.");
@@ -1574,8 +1587,7 @@ export function RehearsalWorkspace(props: {
     setLiveDebugPcmRecording(null);
     resetLiveTranscriptForSlide(currentSlide);
     setLiveSlideAdvance(null);
-    setAutoAdvanceState("idle");
-    autoAdvancedSlideIdsRef.current.clear();
+    resetAutoAdvanceRuntimeState(currentSlide?.slideId ?? null);
 
     if (!navigator.mediaDevices?.getUserMedia) {
       setLiveError("이 브라우저는 마이크 녹음을 지원하지 않습니다.");
@@ -1634,7 +1646,7 @@ export function RehearsalWorkspace(props: {
     setLiveStatus((current) =>
       current === "listening" || current === "starting" ? "stopped" : current
     );
-    cancelPendingAutoAdvance("cancelled");
+    resetAutoAdvanceRuntimeState(currentSlide?.slideId ?? null);
     if (options.showCompletionModal && wasLiveDemoActive) {
       setIsLiveStopModalOpen(true);
     }
@@ -1645,7 +1657,7 @@ export function RehearsalWorkspace(props: {
 
     setPhase("uploading");
     setIsTimerRunning(false);
-    cancelPendingAutoAdvance("cancelled");
+    resetAutoAdvanceRuntimeState(currentSlide?.slideId ?? null);
     cleanupLiveSttSubscriptions();
     const p3Session = p3SessionRef.current;
     p3SessionRef.current = null;
@@ -1770,7 +1782,8 @@ export function RehearsalWorkspace(props: {
             defaultSpeechTrackingConfig.paceAdvice.movingAverageWindowMs
         }
       },
-      onEvents: () => {
+      onEvents: (events) => {
+        handleP3Events(events);
         if (session) {
           setP3SessionState(session.getState());
         }
@@ -1816,7 +1829,7 @@ export function RehearsalWorkspace(props: {
       setLiveStatus(isLiveSttUnavailable(error) ? "unavailable" : "failed");
       setLiveError(error.message);
       setLiveAudioLevel(null);
-      cancelPendingAutoAdvance("cancelled");
+      resetAutoAdvanceRuntimeState(currentSlide?.slideId ?? null);
       return false;
     }
   }
@@ -1833,15 +1846,129 @@ export function RehearsalWorkspace(props: {
     );
   }
 
+  function ensurePauseDetector() {
+    if (!pauseDetectorRef.current) {
+      pauseDetectorRef.current = createPauseDetector({
+        config: presenterSettings.pauseDetector,
+        pauseMs: presenterSettings.advancePolicy.pauseMs
+      });
+    }
+
+    return pauseDetectorRef.current;
+  }
+
+  function updatePauseDetector(event: PauseDetectorEvent) {
+    const atMs = "atMs" in event && typeof event.atMs === "number" ? event.atMs : Date.now();
+    const detector = ensurePauseDetector();
+    detector.accept(event);
+    setPauseDetectorSnapshot(detector.snapshot(atMs));
+    setAutoAdvanceNowMs(atMs);
+  }
+
+  function updateAdvanceControllerState(nextState: AdvanceControllerState) {
+    advanceControllerStateRef.current = nextState;
+    setAdvanceControllerState(nextState);
+  }
+
+  function resetAutoAdvanceRuntimeState(slideId: string | null) {
+    pauseDetectorRef.current?.accept({ type: "reset" });
+    setPauseDetectorSnapshot(null);
+    setLastSentenceSpokenAtMs(null);
+    lastSentenceSpokenAtMsRef.current = null;
+    updateAdvanceControllerState(
+      slideId
+        ? resetAdvanceControllerForSlide(slideId)
+        : createInitialAdvanceControllerState()
+    );
+  }
+
+  function cancelAutoAdvanceForManualCommand() {
+    const result = cancelAdvanceCountdown(
+      advanceControllerStateRef.current,
+      "manual"
+    );
+    updateAdvanceControllerState(result.state);
+  }
+
+  function handleP3Events(events: SpeechTrackingEvent[]) {
+    if (events.some((event) => event.type === "last-sentence-spoken")) {
+      const spokenAt = Date.now();
+      lastSentenceSpokenAtMsRef.current = spokenAt;
+      setLastSentenceSpokenAtMs(spokenAt);
+    }
+  }
+
+  function runAdvanceControllerEvaluation(input: {
+    effectiveCoverage: number;
+    finalSentenceSpoken: boolean;
+    remainingTriggerSteps: number;
+  }) {
+    if (!deck || !currentSlide) {
+      return;
+    }
+
+    const nowMs = Date.now();
+    const detector = ensurePauseDetector();
+    const pause = pauseDetectorSnapshot ?? detector.snapshot(nowMs);
+    const result = evaluateAdvanceController(
+      advanceControllerStateRef.current,
+      {
+        effectiveCoverage: input.effectiveCoverage,
+        finalSentenceSpoken: input.finalSentenceSpoken,
+        finalSentenceSpokenAtMs: lastSentenceSpokenAtMsRef.current,
+        isLastSlide: currentSlideIndex >= deck.slides.length - 1,
+        mode: "rehearsal",
+        nowMs,
+        pause: {
+          isPaused: pause.isPaused,
+          silenceDurationMs: pause.silenceDurationMs
+        },
+        policy: presenterSettings.advancePolicy,
+        remainingTriggerSteps: input.remainingTriggerSteps,
+        slideId: currentSlide.slideId
+      },
+      defaultAutoAdvanceConfig
+    );
+
+    updateAdvanceControllerState(result.state);
+    setAutoAdvanceNowMs(nowMs);
+
+    for (const command of result.commands) {
+      if (command.type !== "advance-slide") {
+        continue;
+      }
+
+      const nextSlide = deck.slides[currentSlideIndex + 1];
+      if (!nextSlide) {
+        continue;
+      }
+
+      setPresenterStepIndex(0);
+      setCurrentSlideIndex(currentSlideIndex + 1);
+      setLiveSlideAdvance({
+        type: "slide-advance",
+        fromSlideId: currentSlide.slideId,
+        toSlideId: nextSlide.slideId,
+        reason: "keyword-coverage",
+        coverage: input.effectiveCoverage
+      });
+    }
+  }
+
   function handleLiveSttError(error: LiveSttError) {
     setLiveStatus(isLiveSttUnavailable(error) ? "unavailable" : "failed");
     setLiveError(error.message);
     setLiveAudioLevel(null);
     setIsTimerRunning(false);
-    cancelPendingAutoAdvance("cancelled");
+    resetAutoAdvanceRuntimeState(currentSlide?.slideId ?? null);
   }
 
   function handleLiveSttResult(result: LiveSttResult) {
+    updatePauseDetector({
+      type: "transcript-activity",
+      atMs: Date.now(),
+      isFinal: result.isFinal
+    });
     handleLivePartialTranscript({
       type: "partial-transcript",
       transcript: result.text,
@@ -1910,23 +2037,9 @@ export function RehearsalWorkspace(props: {
     liveKeywordStateRef.current = analysis;
     setLiveStatus("listening");
 
-    const autoAdvanceOptions = {
-      analysis,
-      currentSlideIndex: slideIndex,
-      slideCount: deckSnapshot.slides.length,
-      keywordCount: slide.keywords.length,
-      alreadyAdvanced: autoAdvancedSlideIdsRef.current.has(slide.slideId)
-    };
-    if (
-      shouldCompleteLiveSlideAdvance({
-        confirmedCommand,
-        ...autoAdvanceOptions
-      })
-    ) {
-      cancelPendingAutoAdvance("cancelled");
-      completeLiveSlideAdvance(deckSnapshot, slideIndex, analysis.coverage);
-    } else if (shouldAutoAdvanceLiveSlide(autoAdvanceOptions)) {
-      scheduleAutoAdvance(deckSnapshot, slideIndex, analysis.coverage);
+    if (isAdvanceSlideCommand(confirmedCommand)) {
+      cancelAutoAdvanceForManualCommand();
+      goNext();
     }
   }
 
@@ -1963,67 +2076,6 @@ export function RehearsalWorkspace(props: {
   function cleanupLiveSttSubscriptions() {
     liveSttSubscriptionCleanupRef.current?.();
     liveSttSubscriptionCleanupRef.current = null;
-  }
-
-  function scheduleAutoAdvance(
-    deckSnapshot: Deck,
-    fromSlideIndex: number,
-    coverage: number
-  ) {
-    const fromSlide = deckSnapshot.slides[fromSlideIndex];
-    const toSlide = deckSnapshot.slides[fromSlideIndex + 1];
-    if (!fromSlide || !toSlide) {
-      return;
-    }
-
-    if (autoAdvanceTimerRef.current) {
-      return;
-    }
-
-    setAutoAdvanceState("pending");
-    autoAdvanceTimerRef.current = setTimeout(() => {
-      autoAdvanceTimerRef.current = null;
-      const latestDeck = deckRef.current;
-      const latestIndex = currentSlideIndexRef.current;
-      if (latestDeck?.slides[latestIndex]?.slideId !== fromSlide.slideId) {
-        setAutoAdvanceState("cancelled");
-        return;
-      }
-
-      completeLiveSlideAdvance(deckSnapshot, fromSlideIndex, coverage);
-    }, props.autoAdvanceDelayMs ?? defaultLiveAutoAdvanceDelayMs);
-  }
-
-  function completeLiveSlideAdvance(
-    deckSnapshot: Deck,
-    fromSlideIndex: number,
-    coverage: number
-  ) {
-    const fromSlide = deckSnapshot.slides[fromSlideIndex];
-    const toSlide = deckSnapshot.slides[fromSlideIndex + 1];
-    if (!fromSlide || !toSlide) {
-      return;
-    }
-
-    autoAdvancedSlideIdsRef.current.add(fromSlide.slideId);
-    setPresenterStepIndex(0);
-    setCurrentSlideIndex(fromSlideIndex + 1);
-    setLiveSlideAdvance({
-      type: "slide-advance",
-      fromSlideId: fromSlide.slideId,
-      toSlideId: toSlide.slideId,
-      reason: "keyword-coverage",
-      coverage
-    });
-    setAutoAdvanceState("advanced");
-  }
-
-  function cancelPendingAutoAdvance(nextState: "idle" | "cancelled" = "cancelled") {
-    if (autoAdvanceTimerRef.current) {
-      clearTimeout(autoAdvanceTimerRef.current);
-      autoAdvanceTimerRef.current = null;
-      setAutoAdvanceState(nextState);
-    }
   }
 
   async function submitRecording(activeDeck: Deck, audioFile: File) {
@@ -2073,19 +2125,19 @@ export function RehearsalWorkspace(props: {
   }
 
   const goPrevious = () => {
-    cancelPendingAutoAdvance("cancelled");
+    cancelAutoAdvanceForManualCommand();
     setPresenterStepIndex(0);
     setCurrentSlideIndex((current) => Math.max(0, current - 1));
   };
   const goNext = () => {
     if (!deck) return;
-    cancelPendingAutoAdvance("cancelled");
+    cancelAutoAdvanceForManualCommand();
     setPresenterStepIndex(0);
     setCurrentSlideIndex((current) => Math.min(deck.slides.length - 1, current + 1));
   };
   const handleNextPresenterStep = () => {
     if (!deck || !slideshowAnimationPlan) return;
-    cancelPendingAutoAdvance("cancelled");
+    cancelAutoAdvanceForManualCommand();
 
     const nextState = getNextPresenterStepState({
       currentSlideIndex,
@@ -2123,6 +2175,60 @@ export function RehearsalWorkspace(props: {
             .length
         });
   const hasDeletedRawAudio = Boolean(run?.rawAudioDeletedAt);
+
+  useEffect(() => {
+    if (!isP3TrackingActive || !liveAudioLevel) {
+      return;
+    }
+
+    updatePauseDetector({
+      type: "audio-level",
+      atMs: Date.now(),
+      rmsDb: liveAudioLevel.rmsDb
+    });
+  }, [isP3TrackingActive, liveAudioLevel?.rmsDb]);
+
+  useEffect(() => {
+    if (!isP3TrackingActive) {
+      resetAutoAdvanceRuntimeState(currentSlide?.slideId ?? null);
+      return;
+    }
+
+    const timer = window.setInterval(() => {
+      updatePauseDetector({ type: "tick", atMs: Date.now() });
+    }, 250);
+
+    return () => window.clearInterval(timer);
+  }, [currentSlide?.slideId, isP3TrackingActive]);
+
+  useEffect(() => {
+    if (!deck || !currentSlide || !isP3TrackingActive) {
+      return;
+    }
+
+    runAdvanceControllerEvaluation({
+      effectiveCoverage: p3PanelSnapshot.effectiveCoverage,
+      finalSentenceSpoken: p3PanelSnapshot.finalSentenceSpoken,
+      remainingTriggerSteps
+    });
+  }, [
+    currentSlide?.slideId,
+    currentSlideIndex,
+    deck?.slides.length,
+    isP3TrackingActive,
+    lastSentenceSpokenAtMs,
+    pauseDetectorSnapshot?.isPaused,
+    pauseDetectorSnapshot?.silenceDurationMs,
+    p3PanelSnapshot.effectiveCoverage,
+    p3PanelSnapshot.finalSentenceSpoken,
+    presenterSettings.advancePolicy.countdownMs,
+    presenterSettings.advancePolicy.live,
+    presenterSettings.advancePolicy.pauseMs,
+    presenterSettings.advancePolicy.rehearsal,
+    presenterSettings.advancePolicy.threshold,
+    presenterStepIndex,
+    remainingTriggerSteps
+  ]);
 
   if (isSingleScreenOpen && deck && currentSlide) {
     return (
@@ -2173,7 +2279,11 @@ export function RehearsalWorkspace(props: {
       ) : null}
       <header className="rehearsal-presenter-topbar">
         <button
-          className="rehearsal-exit-button"
+          className={`rehearsal-exit-button ${
+            advanceControllerState.status === "finish-suggested"
+              ? "auto-advance-finish-highlight"
+              : ""
+          }`}
           type="button"
           onClick={finishRehearsal}
         >
@@ -2366,6 +2476,7 @@ export function RehearsalWorkspace(props: {
                   style={{ gridColumn }}
                   type="button"
                   onClick={() => {
+                    cancelAutoAdvanceForManualCommand();
                     setPresenterStepIndex(0);
                     setCurrentSlideIndex(slideIndex);
                   }}
@@ -2428,11 +2539,27 @@ export function RehearsalWorkspace(props: {
               <span>
                 {p3RunMeta
                   ? `로컬 메타 ${p3RunMeta.slideTimeline.length}개 슬라이드`
-                  : autoAdvanceState === "pending"
-                    ? "자동 전환 대기"
+                  : advanceControllerState.status === "countdown"
+                    ? "자동 전환 카운트다운"
+                    : advanceControllerState.status === "blocked-by-builds"
+                      ? "빌드 대기"
+                      : advanceControllerState.status === "finish-suggested"
+                        ? "종료 제안"
                     : "자동 전환 활성"}
               </span>
             </div>
+
+            <AutoAdvanceStatus
+              countdownMs={presenterSettings.advancePolicy.countdownMs}
+              nowMs={autoAdvanceNowMs}
+              onFinish={finishRehearsal}
+              state={advanceControllerState}
+            />
+
+            <AutoAdvanceSettings
+              policy={presenterSettings.advancePolicy}
+              saveSettings={savePresenterSettings}
+            />
 
             <div className="rehearsal-live-actions">
               <button

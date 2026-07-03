@@ -22,6 +22,7 @@ export type AdvanceControllerCommand =
 export type AdvanceControllerState = {
   countdownStartedAtMs: number | null;
   manualGuidanceShown: boolean;
+  remainingTriggerSteps: number;
   slideId: string | null;
   status: AdvanceControllerStatus;
 };
@@ -51,6 +52,7 @@ export function createInitialAdvanceControllerState(): AdvanceControllerState {
   return {
     countdownStartedAtMs: null,
     manualGuidanceShown: false,
+    remainingTriggerSteps: 0,
     slideId: null,
     status: "tracking"
   };
@@ -62,6 +64,7 @@ export function resetAdvanceControllerForSlide(
   return {
     countdownStartedAtMs: null,
     manualGuidanceShown: false,
+    remainingTriggerSteps: 0,
     slideId,
     status: "tracking"
   };
@@ -77,6 +80,7 @@ export function cancelAdvanceCountdown(
       state: {
         ...state,
         countdownStartedAtMs: null,
+        remainingTriggerSteps: 0,
         status: reason === "manual" ? "tracking" : state.status
       }
     };
@@ -87,6 +91,7 @@ export function cancelAdvanceCountdown(
     state: {
       ...state,
       countdownStartedAtMs: null,
+      remainingTriggerSteps: 0,
       status: reason === "manual" ? "tracking" : "ready"
     }
   };
@@ -109,6 +114,7 @@ export function evaluateAdvanceController(
       state: {
         ...nextBaseState,
         countdownStartedAtMs: null,
+        remainingTriggerSteps: 0,
         status: "disabled"
       }
     };
@@ -134,6 +140,7 @@ export function evaluateAdvanceController(
         ...nextBaseState,
         countdownStartedAtMs: null,
         manualGuidanceShown: shouldShowManualGuidance(snapshot, config),
+        remainingTriggerSteps: snapshot.remainingTriggerSteps,
         status: "blocked-by-builds"
       }
     };
@@ -146,6 +153,7 @@ export function evaluateAdvanceController(
         ...nextBaseState,
         countdownStartedAtMs: null,
         manualGuidanceShown: shouldShowManualGuidance(snapshot, config),
+        remainingTriggerSteps: 0,
         status: "tracking"
       }
     };
@@ -158,6 +166,7 @@ export function evaluateAdvanceController(
       state: {
         ...nextBaseState,
         countdownStartedAtMs: null,
+        remainingTriggerSteps: 0,
         status: "finish-suggested"
       }
     };
@@ -174,6 +183,7 @@ export function evaluateAdvanceController(
         state: {
           ...nextBaseState,
           countdownStartedAtMs: null,
+          remainingTriggerSteps: 0,
           status: "ready"
         }
       };
@@ -187,10 +197,11 @@ export function evaluateAdvanceController(
       return {
         commands,
         state: {
-          ...nextBaseState,
-          countdownStartedAtMs: null,
-          status: "tracking"
-        }
+        ...nextBaseState,
+        countdownStartedAtMs: null,
+        remainingTriggerSteps: 0,
+        status: "tracking"
+      }
       };
     }
 
@@ -209,6 +220,7 @@ export function evaluateAdvanceController(
       state: {
         ...nextBaseState,
         countdownStartedAtMs: snapshot.nowMs,
+        remainingTriggerSteps: 0,
         status: "countdown"
       }
     };
@@ -219,6 +231,7 @@ export function evaluateAdvanceController(
     state: {
       ...nextBaseState,
       countdownStartedAtMs: null,
+      remainingTriggerSteps: 0,
       status: "ready"
     }
   };

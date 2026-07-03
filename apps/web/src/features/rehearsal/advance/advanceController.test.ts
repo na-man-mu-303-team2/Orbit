@@ -10,6 +10,7 @@ import {
   evaluateAdvanceController,
   type AdvanceControllerSnapshot
 } from "./advanceController";
+import { createP4FixtureSnapshot } from "./__fixtures__/p4AutoAdvanceFixture";
 
 describe("advanceController", () => {
   it("starts countdown immediately when ready enters after an existing pause", () => {
@@ -111,6 +112,7 @@ describe("advanceController", () => {
       state: {
         countdownStartedAtMs: null,
         manualGuidanceShown: false,
+        remainingTriggerSteps: 0,
         slideId: "slide-1",
         status: "tracking"
       }
@@ -120,10 +122,10 @@ describe("advanceController", () => {
   it("blocks auto advance while trigger steps remain", () => {
     const result = evaluateAdvanceController(
       createInitialAdvanceControllerState(),
-      createSnapshot({
+      createP4FixtureSnapshot({
         effectiveCoverage: 0.95,
         finalSentenceSpoken: true,
-        remainingTriggerSteps: 2
+        slideIndex: 1
       }),
       defaultAutoAdvanceConfig
     );
@@ -138,17 +140,18 @@ describe("advanceController", () => {
   it("suggests finish on the last slide without countdown", () => {
     const result = evaluateAdvanceController(
       createInitialAdvanceControllerState(),
-      createSnapshot({
+      createP4FixtureSnapshot({
         effectiveCoverage: 0.95,
         finalSentenceSpoken: true,
         isLastSlide: true,
-        pause: { isPaused: true, silenceDurationMs: 2000 }
+        pause: { isPaused: true, silenceDurationMs: 2000 },
+        slideIndex: 2
       }),
       defaultAutoAdvanceConfig
     );
 
     expect(result.commands).toEqual([
-      { type: "suggest-finish", slideId: "slide-1" }
+      { type: "suggest-finish", slideId: "p4-slide-final" }
     ]);
     expect(result.state).toMatchObject({
       countdownStartedAtMs: null,
