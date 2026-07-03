@@ -56,6 +56,7 @@ const deckRow = {
         slideId: "slide_1",
         order: 1,
         title: "slide",
+        estimatedSeconds: 60,
         notes: "",
         style: {},
         elements: [],
@@ -68,6 +69,17 @@ const deckRow = {
             abbreviations: []
           }
         ]
+      },
+      {
+        slideId: "slide_2",
+        order: 2,
+        title: "next slide",
+        estimatedSeconds: 60,
+        notes: "",
+        style: {},
+        elements: [],
+        animations: [],
+        keywords: []
       }
     ]
   }
@@ -86,6 +98,7 @@ describe("processRehearsalSttJob", () => {
       .mockResolvedValueOnce([assetRow])
       .mockResolvedValueOnce([deckRow])
       .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([runMetaRow()])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([runRow()])
       .mockResolvedValueOnce([
@@ -132,7 +145,11 @@ describe("processRehearsalSttJob", () => {
               wordsPerMinute: 120,
               fillerWordCount: 1,
               pauseCount: 0,
-              keywordCoverage: 1,
+              keywordCoverage: 0.5,
+              speedSamples: [{ startSecond: 0, endSecond: 3.5, wordsPerMinute: 120 }],
+              fillerWordDetails: [{ word: "음", count: 1 }],
+              pauseDetails: [{ startSecond: 1, endSecond: 2.2, durationSeconds: 1.2 }],
+              missedKeywords: [{ slideId: "slide_1", keywordId: "kw_1", text: "ORBIT" }],
               coaching: { status: "succeeded", summary: "clear" }
             })
           )
@@ -164,7 +181,13 @@ describe("processRehearsalSttJob", () => {
     );
     expect(query).toHaveBeenCalledWith(
       expect.stringContaining("report_json"),
-      expect.arrayContaining([expect.stringContaining('"reportId":"report_run-a"'), false])
+      expect.arrayContaining([
+        expect.stringContaining('"reportId":"report_run-a"'),
+        expect.stringContaining('"speedSamples":[{"startSecond":0,"endSecond":3.5,"wordsPerMinute":120}]'),
+        expect.stringContaining('"missedKeywords":[{"slideId":"slide_1","keywordId":"kw_1","text":"ORBIT"}]'),
+        expect.stringContaining('"slideTimings":[{"slideId":"slide_1","targetSeconds":60,"actualSeconds":45}]'),
+        false
+      ])
     );
     expect(query).toHaveBeenCalledWith(
       expect.stringContaining("UPDATE jobs"),
@@ -180,7 +203,9 @@ describe("processRehearsalSttJob", () => {
           report: expect.objectContaining({
             reportId: "report_run-a",
             transcriptRetained: false,
-            transcript: null
+            transcript: null,
+            fillerWordDetails: [{ word: "음", count: 1 }],
+            pauseDetails: [{ startSecond: 1, endSecond: 2.2, durationSeconds: 1.2 }]
           })
         }),
         null
@@ -218,6 +243,7 @@ describe("processRehearsalSttJob", () => {
           operations: updatedKeywordPatchOperations
         }
       ])
+      .mockResolvedValueOnce([runMetaRow()])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([runRow()])
       .mockResolvedValueOnce([
@@ -279,6 +305,7 @@ describe("processRehearsalSttJob", () => {
     const analyzeBody = JSON.parse(String(analyzeCall?.[1]?.body));
     expect(analyzeBody.deckKeywords).toEqual([
       {
+        slideId: "slide_1",
         keywordId: "kw_1",
         text: "LATEST",
         synonyms: ["최신"],
@@ -295,6 +322,7 @@ describe("processRehearsalSttJob", () => {
       .mockResolvedValueOnce([assetRow])
       .mockResolvedValueOnce([deckRow])
       .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([runMetaRow()])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([runRow()])
       .mockResolvedValueOnce([
@@ -329,6 +357,7 @@ describe("processRehearsalSttJob", () => {
       .mockResolvedValueOnce([assetRow])
       .mockResolvedValueOnce([deckRow])
       .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([runMetaRow()])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([runRow()])
       .mockResolvedValueOnce([
@@ -380,6 +409,7 @@ describe("processRehearsalSttJob", () => {
       .mockResolvedValueOnce([assetRow])
       .mockResolvedValueOnce([deckRow])
       .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([runMetaRow()])
       .mockResolvedValueOnce([runRow()])
       .mockResolvedValueOnce([
         jobRow("failed", 90, null, {
@@ -440,6 +470,7 @@ describe("processRehearsalSttJob", () => {
       .mockResolvedValueOnce([assetRow])
       .mockResolvedValueOnce([deckRow])
       .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([runMetaRow()])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([runRow()])
       .mockResolvedValueOnce([
@@ -534,4 +565,17 @@ function jobRow(
 
 function runRow() {
   return { run_id: "run-a" };
+}
+
+function runMetaRow() {
+  return {
+    meta_json: {
+      slideTimeline: [
+        { slideId: "slide_1", enteredAt: "2026-06-27T00:00:00.000Z" },
+        { slideId: "slide_2", enteredAt: "2026-06-27T00:00:45.000Z" }
+      ],
+      missedKeywords: [],
+      adviceEvents: []
+    }
+  };
 }

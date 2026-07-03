@@ -1,9 +1,13 @@
 import type { StoragePort } from "@orbit/storage";
 import {
+  type Deck,
   deckSchema,
   rehearsalReportSchema,
+  rehearsalRunMetaSchema,
   type Job,
-  type RehearsalReport
+  type RehearsalReport,
+  type RehearsalReportSlideTiming,
+  type RehearsalRunMeta
 } from "@orbit/shared";
 import type { DataSource } from "typeorm";
 import { z } from "zod";
@@ -37,6 +41,10 @@ const deckPatchRowSchema = z.object({
   operations: z.array(z.record(z.unknown()))
 });
 
+const rehearsalRunMetaRowSchema = z.object({
+  meta_json: z.record(z.unknown()).nullable().optional()
+});
+
 const transcribeResponseSchema = z.object({
   runId: z.string().min(1),
   projectId: z.string().min(1),
@@ -49,12 +57,47 @@ const transcribeResponseSchema = z.object({
   segments: z.array(z.record(z.unknown()))
 });
 
+const analyzeSpeedSampleSchema = z
+  .object({
+    startSecond: z.number().nonnegative(),
+    endSecond: z.number().nonnegative(),
+    wordsPerMinute: z.number().nonnegative()
+  })
+  .strict();
+
+const analyzeFillerWordDetailSchema = z
+  .object({
+    word: z.string().trim().min(1),
+    count: z.number().int().nonnegative()
+  })
+  .strict();
+
+const analyzePauseDetailSchema = z
+  .object({
+    startSecond: z.number().nonnegative(),
+    endSecond: z.number().nonnegative(),
+    durationSeconds: z.number().nonnegative()
+  })
+  .strict();
+
+const analyzeMissedKeywordSchema = z
+  .object({
+    slideId: z.string().min(1),
+    keywordId: z.string().min(1),
+    text: z.string().trim().min(1)
+  })
+  .strict();
+
 const analyzeResponseSchema = z.object({
   runId: z.string().min(1),
   wordsPerMinute: z.number().nonnegative(),
   fillerWordCount: z.number().int().nonnegative(),
   pauseCount: z.number().int().nonnegative(),
   keywordCoverage: z.number().min(0).max(1),
+  speedSamples: z.array(analyzeSpeedSampleSchema).default([]),
+  fillerWordDetails: z.array(analyzeFillerWordDetailSchema).default([]),
+  pauseDetails: z.array(analyzePauseDetailSchema).default([]),
+  missedKeywords: z.array(analyzeMissedKeywordSchema).default([]),
   coaching: z.record(z.unknown()).optional()
 });
 
@@ -116,11 +159,13 @@ export async function processRehearsalSttJob(
   }
 
   let asset: AudioAssetRow;
-  let deckKeywords: DeckKeywordPayload[];
+  let deckContext: DeckAnalysisContext;
+  let runMeta: RehearsalRunMeta;
   let storageUrl: string;
   try {
     asset = await loadAudioAsset(dataSource, payload);
-    deckKeywords = await loadDeckKeywords(dataSource, payload.projectId, payload.deckId);
+    deckContext = await loadDeckAnalysisContext(dataSource, payload.projectId, payload.deckId);
+    runMeta = await loadRehearsalRunMeta(dataSource, payload);
     storageUrl = await storage.getSignedReadUrl(asset.storage_key);
   } catch (error) {
     return failJobAndRun(
@@ -179,7 +224,7 @@ export async function processRehearsalSttJob(
     analysis = await analyzeTranscript(
       pythonWorkerUrl,
       payload,
-      deckKeywords,
+      deckContext.deckKeywords,
       transcribePayload
     );
   } catch (error) {
@@ -209,7 +254,14 @@ export async function processRehearsalSttJob(
 
   let report: RehearsalReport;
   try {
-    report = buildRehearsalReport(payload, transcribePayload, analysis, rawAudioDeletedAt);
+    report = buildRehearsalReport(
+      payload,
+      transcribePayload,
+      analysis,
+      rawAudioDeletedAt,
+      deckContext,
+      runMeta
+    );
   } catch (error) {
     return failJobAndRun(
       dataSource,
@@ -242,7 +294,9 @@ function buildRehearsalReport(
   payload: RehearsalSttPayload,
   transcription: z.infer<typeof transcribeResponseSchema>,
   analysis: z.infer<typeof analyzeResponseSchema>,
-  generatedAt: string
+  generatedAt: string,
+  deckContext: DeckAnalysisContext,
+  runMeta: RehearsalRunMeta
 ): RehearsalReport {
   return rehearsalReportSchema.parse({
     reportId: `report_${payload.runId}`,
@@ -257,6 +311,16 @@ function buildRehearsalReport(
       fillerWordCount: analysis.fillerWordCount,
       pauseCount: analysis.pauseCount,
       keywordCoverage: analysis.keywordCoverage
+    },
+    speedSamples: analysis.speedSamples,
+    fillerWordDetails: analysis.fillerWordDetails,
+    pauseDetails: analysis.pauseDetails,
+    missedKeywords: buildReportMissedKeywords(analysis.missedKeywords, runMeta, deckContext),
+    slideTimings: buildSlideTimings(deckContext.deck, runMeta),
+    qnaSummary: {
+      questionCount: 0,
+      questionSummary: "",
+      unclearTopics: []
     },
     coaching: analysis.coaching ?? null,
     generatedAt
@@ -334,7 +398,7 @@ async function loadAudioAsset(dataSource: DataSource, payload: RehearsalSttPaylo
   return audioAssetRowSchema.parse(row);
 }
 
-async function loadDeckKeywords(
+async function loadDeckAnalysisContext(
   dataSource: DataSource,
   projectId: string,
   deckId: string
@@ -352,7 +416,10 @@ async function loadDeckKeywords(
   const checkpoint = deckRowSchema.parse(row);
   const checkpointDeck = deckSchema.parse(checkpoint.deck_json);
   const slideKeywords = new Map(
-    checkpointDeck.slides.map((slide) => [slide.slideId, slide.keywords])
+    checkpointDeck.slides.map((slide) => [
+      slide.slideId,
+      slide.keywords.map((keyword) => ({ ...keyword, slideId: slide.slideId }))
+    ])
   );
   const patchRows = await dataSource.query(
     `
@@ -400,6 +467,7 @@ async function loadDeckKeywords(
               abbreviations?: unknown;
             };
             return {
+              slideId: operation.slideId,
               keywordId:
                 typeof record.keywordId === "string" ? record.keywordId : "",
               text: typeof record.text === "string" ? record.text : "",
@@ -421,7 +489,105 @@ async function loadDeckKeywords(
     expectedBeforeVersion = patchRow.after_version;
   }
 
-  return checkpointDeck.slides.flatMap((slide) => slideKeywords.get(slide.slideId) ?? []);
+  return {
+    deck: checkpointDeck,
+    deckKeywords: checkpointDeck.slides.flatMap((slide) => slideKeywords.get(slide.slideId) ?? [])
+  };
+}
+
+async function loadRehearsalRunMeta(dataSource: DataSource, payload: RehearsalSttPayload) {
+  const rows = await dataSource.query(
+    `
+      SELECT meta_json
+      FROM rehearsal_runs
+      WHERE run_id = $1 AND project_id = $2
+    `,
+    [payload.runId, payload.projectId]
+  );
+
+  const row = readFirstQueryRow<unknown>(rows);
+  if (!row) {
+    throw new Error(`Rehearsal run not found: ${payload.runId}`);
+  }
+
+  const parsedRow = rehearsalRunMetaRowSchema.parse(row);
+  return rehearsalRunMetaSchema.parse(parsedRow.meta_json ?? {});
+}
+
+function buildReportMissedKeywords(
+  analysisKeywords: z.infer<typeof analyzeMissedKeywordSchema>[],
+  runMeta: RehearsalRunMeta,
+  deckContext: DeckAnalysisContext
+) {
+  const keywordTextByKey = new Map(
+    deckContext.deckKeywords.map((keyword) => [
+      `${keyword.slideId}:${keyword.keywordId}`,
+      keyword.text
+    ])
+  );
+  const byKey = new Map<string, z.infer<typeof analyzeMissedKeywordSchema>>();
+
+  for (const keyword of analysisKeywords) {
+    byKey.set(`${keyword.slideId}:${keyword.keywordId}`, keyword);
+  }
+
+  for (const keyword of runMeta.missedKeywords) {
+    const key = `${keyword.slideId}:${keyword.keywordId}`;
+    if (byKey.has(key)) {
+      continue;
+    }
+
+    const text = keywordTextByKey.get(key);
+    if (text) {
+      byKey.set(key, { ...keyword, text });
+    }
+  }
+
+  return Array.from(byKey.values());
+}
+
+function buildSlideTimings(
+  deck: Deck,
+  runMeta: RehearsalRunMeta
+): RehearsalReportSlideTiming[] {
+  const slideIds = new Set(deck.slides.map((slide) => slide.slideId));
+  const timeline = runMeta.slideTimeline.filter((entry) => slideIds.has(entry.slideId));
+  const timings: RehearsalReportSlideTiming[] = [];
+
+  for (let index = 0; index < timeline.length - 1; index += 1) {
+    const entry = timeline[index];
+    const nextEntry = timeline[index + 1];
+    if (!entry || !nextEntry || entry.slideId === nextEntry.slideId) {
+      continue;
+    }
+
+    const enteredAt = Date.parse(entry.enteredAt);
+    const exitedAt = Date.parse(nextEntry.enteredAt);
+    if (Number.isNaN(enteredAt) || Number.isNaN(exitedAt) || exitedAt <= enteredAt) {
+      continue;
+    }
+
+    const slide = deck.slides.find((candidate) => candidate.slideId === entry.slideId);
+    if (!slide) {
+      continue;
+    }
+
+    timings.push({
+      slideId: entry.slideId,
+      targetSeconds: getSlideTargetSeconds(deck, slide),
+      actualSeconds: Math.round((exitedAt - enteredAt) / 1000)
+    });
+  }
+
+  return timings;
+}
+
+function getSlideTargetSeconds(deck: Deck, slide: Deck["slides"][number]) {
+  if (slide.estimatedSeconds) {
+    return slide.estimatedSeconds;
+  }
+
+  return Math.max(1, Math.round((deck.targetDurationMinutes * 60) / deck.slides.length));
 }
 
 async function failAfterDelete(
@@ -643,10 +809,16 @@ function toIso(value: Date | string | undefined): string {
 }
 
 type DeckKeywordPayload = {
+  slideId: string;
   keywordId: string;
   text: string;
   synonyms: string[];
   abbreviations: string[];
+};
+
+type DeckAnalysisContext = {
+  deck: Deck;
+  deckKeywords: DeckKeywordPayload[];
 };
 
 function workerUrl(baseUrl: string, path: string): string {
