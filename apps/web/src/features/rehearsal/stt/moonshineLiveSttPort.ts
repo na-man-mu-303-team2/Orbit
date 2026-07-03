@@ -3,7 +3,6 @@ import {
   normalizeLiveSttBiasPhrases,
   type LiveSttCapabilities,
   type LiveSttBiasPhrase,
-  type LiveSttBiasPhraseInput,
   type LiveSttPort,
   type LiveSttResult,
   type LiveSttSessionConfig,
@@ -86,7 +85,7 @@ export class MoonshineLiveSttPort implements LiveSttPort {
     this.runtime?.stop();
   }
 
-  updateBiasPhrases(phrases: readonly LiveSttBiasPhraseInput[]) {
+  updateBiasPhrases(phrases: readonly LiveSttBiasPhrase[]) {
     this.biasPhrases = normalizeLiveSttBiasPhrases(phrases);
   }
 

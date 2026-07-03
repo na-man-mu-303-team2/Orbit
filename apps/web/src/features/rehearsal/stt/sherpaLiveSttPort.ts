@@ -11,7 +11,7 @@ import {
   LiveSttError,
   mapPartialTranscriptToLiveSttResult,
   normalizeLiveSttBiasPhrases,
-  type LiveSttBiasPhraseInput,
+  type LiveSttBiasPhrase,
   type LiveSttCapabilities,
   type LiveSttErrorCode,
   type LiveSttPort,
@@ -91,7 +91,7 @@ export class SherpaLiveSttPort implements LiveSttPort {
     this.adapter.stop();
   }
 
-  updateBiasPhrases(phrases: readonly LiveSttBiasPhraseInput[]) {
+  updateBiasPhrases(phrases: readonly LiveSttBiasPhrase[]) {
     this.adapter.updateBiasContext?.(toSherpaBiasContext(phrases));
   }
 
@@ -134,7 +134,7 @@ export function createSherpaLiveSttPort() {
 }
 
 function toSherpaBiasContext(
-  phrases: readonly LiveSttBiasPhraseInput[] = []
+  phrases: readonly LiveSttBiasPhrase[] = []
 ): LiveSttBiasContext | null {
   const terms = normalizeLiveSttBiasPhrases(phrases).map((phrase) => ({
     text: phrase.text,

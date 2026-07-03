@@ -28,7 +28,7 @@ export function runLiveSttPortContractTests(
       await harness.port.start({
         language: "ko",
         audioSource: harness.audioSource,
-        biasPhrases: ["오르빗"]
+        biasPhrases: [{ text: "오르빗", weight: 1, source: "keyword" }]
       });
       harness.emitResult({ text: "오르빗 리허설", isFinal: false, confidence: 0.8 });
       harness.emitResult({ text: "오르빗 리허설 완료", isFinal: true, confidence: 0.9 });
@@ -55,7 +55,7 @@ export function runLiveSttPortContractTests(
       await harness.port.start({
         language: "ko",
         audioSource: harness.audioSource,
-        biasPhrases: ["첫 번째"]
+        biasPhrases: [{ text: "첫 번째", weight: 1, source: "keyword" }]
       });
       harness.port.updateBiasPhrases([
         {
@@ -72,7 +72,7 @@ export function runLiveSttPortContractTests(
           keywordId: "kw_second",
           canonicalText: "둘째"
         },
-        "  세 번째  "
+        { text: "  세 번째  ", weight: 1 }
       ]);
 
       expect(harness.readBiasPhrases()).toEqual(

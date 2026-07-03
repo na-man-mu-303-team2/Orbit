@@ -31,12 +31,10 @@ export type LiveSttBiasPhrase = {
   canonicalText?: string;
 };
 
-export type LiveSttBiasPhraseInput = string | LiveSttBiasPhrase;
-
 export type LiveSttSessionConfig = {
   language: "ko";
   audioSource: MediaStream;
-  biasPhrases?: readonly LiveSttBiasPhraseInput[];
+  biasPhrases?: readonly LiveSttBiasPhrase[];
 };
 
 export type LiveSttResult = {
@@ -70,9 +68,7 @@ export type LiveSttPort = {
   readonly capabilities: LiveSttCapabilities;
   start: (config: LiveSttSessionConfig) => Promise<void>;
   stop: () => Promise<void>;
-  updateBiasPhrases: (
-    phrases: readonly LiveSttBiasPhraseInput[]
-  ) => void | Promise<void>;
+  updateBiasPhrases: (phrases: readonly LiveSttBiasPhrase[]) => void | Promise<void>;
   onResult: (cb: (result: LiveSttResult) => void) => LiveSttUnsubscribe;
   onError: (cb: (error: LiveSttError) => void) => LiveSttUnsubscribe;
   dispose: () => void | Promise<void>;
@@ -94,7 +90,7 @@ export function mapPartialTranscriptToLiveSttResult(
 }
 
 export function normalizeLiveSttBiasPhrases(
-  phrases: readonly LiveSttBiasPhraseInput[] = []
+  phrases: readonly LiveSttBiasPhrase[] = []
 ): LiveSttBiasPhrase[] {
   const normalized: LiveSttBiasPhrase[] = [];
   const indexesByText = new Map<string, number>();
@@ -122,13 +118,8 @@ export function normalizeLiveSttBiasPhrases(
 }
 
 function normalizeLiveSttBiasPhrase(
-  phrase: LiveSttBiasPhraseInput
+  phrase: LiveSttBiasPhrase
 ): LiveSttBiasPhrase | null {
-  if (typeof phrase === "string") {
-    const text = normalizeLiveSttBiasPhraseText(phrase);
-    return text ? { text, weight: 1 } : null;
-  }
-
   const text = normalizeLiveSttBiasPhraseText(phrase.text);
   if (!text) {
     return null;

@@ -43,9 +43,14 @@ describe("liveSttPort", () => {
     });
   });
 
-  it("legacy string bias phrase를 weighted phrase로 정규화한다", () => {
+  it("bias phrase를 trim, 공백 정규화, 중복 제거한다", () => {
     expect(
-      normalizeLiveSttBiasPhrases(["  오르빗  ", "오르빗", "Live   STT", ""])
+      normalizeLiveSttBiasPhrases([
+        { text: "  오르빗  ", weight: 1 },
+        { text: "오르빗", weight: 1 },
+        { text: "Live   STT", weight: 1 },
+        { text: "", weight: 1 }
+      ])
     ).toEqual([
       { text: "오르빗", weight: 1 },
       { text: "Live STT", weight: 1 }
