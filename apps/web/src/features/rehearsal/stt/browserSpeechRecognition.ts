@@ -44,7 +44,7 @@ export type BrowserSpeechRecognition = {
   onresult: ((event: BrowserSpeechRecognitionEvent) => void) | null;
   onerror: ((event: BrowserSpeechRecognitionErrorEvent) => void) | null;
   onend: (() => void) | null;
-  start: () => void;
+  start: (audioTrack?: MediaStreamTrack) => void;
   stop: () => void;
   abort: () => void;
 };
