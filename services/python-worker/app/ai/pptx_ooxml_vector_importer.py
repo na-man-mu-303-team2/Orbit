@@ -609,13 +609,13 @@ def chart_values(series: ET.Element[Any]) -> list[float]:
 def chart_cache_values(cache: ET.Element[Any] | None) -> list[str]:
     if cache is None:
         return []
-    points = [
-        point
-        for point in direct_local_children(cache, "pt")
-        if first_local_child(point, "v") is not None
-    ]
-    points.sort(key=lambda point: int_attr(point, "idx", 0))
-    return [str(first_local_child(point, "v").text or "") for point in points]
+    points: list[tuple[ET.Element[Any], ET.Element[Any]]] = []
+    for point in direct_local_children(cache, "pt"):
+        value = first_local_child(point, "v")
+        if value is not None:
+            points.append((point, value))
+    points.sort(key=lambda item: int_attr(item[0], "idx", 0))
+    return [str(value.text or "") for _, value in points]
 
 
 def table_element(
