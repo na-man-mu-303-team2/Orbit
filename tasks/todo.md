@@ -32,7 +32,7 @@
 ## Phase 2: 오디오 입력 라우팅
 
 - [x] T8: `stt/webSpeechAudioTrack.ts` 신규 - live audio track 추출 + `start(track)` 폴백 helper (S)
-- [ ] T9: `WebSpeechLiveSttPort`에 `config.audioSource` track routing 연결, `start(audioTrack?)` 타입 확장 (S, deps: T8)
+- [x] T9: `WebSpeechLiveSttPort`에 `config.audioSource` track routing 연결, `start(audioTrack?)` 타입 확장 (S, deps: T8)
 
 ### Checkpoint 2
 

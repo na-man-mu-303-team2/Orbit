@@ -78,12 +78,30 @@ describe("WebSpeechLiveSttPort", () => {
     expect(recognition.maxAlternatives).toBe(1);
     expect(recognition.processLocally).toBe(true);
     expect(recognition.startCount).toBe(1);
+    expect(recognition.startCalls).toEqual([undefined]);
     expect(port.capabilities.onDevice).toBe(true);
     expect(port.capabilities.keywordBiasing).toBe(true);
     expect(FakeSpeechRecognition.availableCalls).toEqual([
       { langs: ["ko-KR"], processLocally: true, quality: "command" }
     ]);
     expect(FakeSpeechRecognition.installCalls).toEqual([]);
+  });
+
+  it("config.audioSource의 live audio track으로 recognition을 시작한다", async () => {
+    const recognition = new FakeSpeechRecognition();
+    const audioTrack = fakeMediaStreamTrack("audio", "live");
+    const port = new WebSpeechLiveSttPort({
+      createRecognition: () => recognition,
+      recognitionConstructor: FakeSpeechRecognition,
+      now: () => 1000
+    });
+
+    await port.start({
+      language: "ko",
+      audioSource: fakeMediaStream([audioTrack])
+    });
+
+    expect(recognition.startCalls).toEqual([audioTrack]);
   });
 
   it("start와 updateBiasPhrases에서 Web Speech phrases를 적용한다", async () => {
@@ -225,6 +243,7 @@ class FakeSpeechRecognition {
   onerror: BrowserSpeechRecognition["onerror"] = null;
   onend: BrowserSpeechRecognition["onend"] = null;
   startCount = 0;
+  startCalls: Array<MediaStreamTrack | undefined> = [];
   stopCount = 0;
   abortCount = 0;
 
@@ -234,8 +253,9 @@ class FakeSpeechRecognition {
     }
   }
 
-  start() {
+  start(audioTrack?: MediaStreamTrack) {
     this.startCount += 1;
+    this.startCalls.push(audioTrack);
   }
 
   stop() {
@@ -280,6 +300,16 @@ const fakeSpeechRecognitionGlobal: BrowserSpeechRecognitionGlobal = {
   SpeechRecognitionPhrase: FakeSpeechRecognitionPhrase
 };
 
-function fakeMediaStream() {
-  return { getTracks: () => [] } as unknown as MediaStream;
+function fakeMediaStream(tracks: MediaStreamTrack[] = []) {
+  return {
+    getAudioTracks: () => tracks.filter((track) => track.kind === "audio"),
+    getTracks: () => tracks
+  } as unknown as MediaStream;
+}
+
+function fakeMediaStreamTrack(
+  kind: string,
+  readyState: MediaStreamTrackState
+) {
+  return { kind, readyState } as MediaStreamTrack;
 }

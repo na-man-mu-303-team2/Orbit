@@ -21,6 +21,10 @@ import {
   applyWebSpeechPhrases,
   isWebSpeechPhrasesSupported
 } from "./webSpeechPhrases";
+import {
+  resolveWebSpeechAudioTrack,
+  startRecognitionWithAudioTrack
+} from "./webSpeechAudioTrack";
 
 export type BrowserSpeechRecognitionFactory = () => BrowserSpeechRecognition;
 
@@ -134,7 +138,10 @@ export class WebSpeechLiveSttPort implements LiveSttPort {
     );
 
     try {
-      recognition.start();
+      startRecognitionWithAudioTrack(
+        recognition,
+        resolveWebSpeechAudioTrack(config.audioSource)
+      );
     } catch (error) {
       this.startedAtMs = null;
       this.recognition = null;
