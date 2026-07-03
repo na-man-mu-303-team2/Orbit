@@ -242,3 +242,15 @@
 - Rationale: report API가 Job 기록에 덜 묶이고, 민감 발화 원문 보존을 최소화하며, ORBIT-38 범위 안에서 presenter-only 기본 접근을 현재 구조와 충돌 없이 제공할 수 있다.
 - Affected files: `packages/shared/src/rehearsals/rehearsal.schema.ts`, `apps/api/src/rehearsals/**`, `apps/api/src/database/migrations/2026062903000-AddRehearsalReportColumns.ts`, `apps/worker/src/rehearsal-stt.processor.ts`, `apps/web/src/features/rehearsal/RehearsalWorkspace.tsx`, `docs/contracts.md`, `docs/decision-log.md`.
 - Follow-up review notes: ORBIT-37에서 실제 점수 산식과 transcript 보존 opt-in 정책이 확정되면 `RehearsalReport` schema, worker 저장 정책, UI 노출 조건을 함께 재검토한다.
+
+## ORBIT GitHub Actions CI removal policy
+
+- Context: 기존 CI workflow의 `typescript` job이 실패하고 있으며, 사용자는 이미지에 표시된 CI job(`detect-changes`, `automation-check`, `typescript`, `python-worker`, `compose-config`, `playwright-smoke`)에 해당하는 CI 코드를 일단 모두 제거하도록 승인했다.
+- Options considered:
+  - 실패한 `typescript` job만 임시 비활성화한다.
+  - `playwright-smoke`처럼 전체 CI job을 skip 상태로 보존한다.
+  - `.github/workflows/ci.yml`을 제거하고 PR 검증은 수동 체크리스트로 전환한다.
+- Final decision: `.github/workflows/ci.yml`을 삭제해 GitHub Actions CI job을 제거한다. 개인 서버 배포용 `.github/workflows/deploy-personal-staging.yml`은 CI가 아니라 staging deploy workflow이므로 유지한다.
+- Rationale: 사용자가 요청한 CI 코드 삭제 범위를 이미지의 CI job 전체로 해석하고, 배포 자동화까지 함께 제거하는 과도한 변경은 피한다. PR 검증은 수동 명령과 PR 본문 증거로 남긴다.
+- Affected files: `.github/workflows/ci.yml`, `.github/pull_request_template.md`, `docs/testing/test-matrix.md`, `README.md`, `docs/decision-log.md`.
+- Follow-up review notes: GitHub branch protection에 삭제된 CI job이 required check로 남아 있으면 GitHub 설정에서 제거해야 한다. CI를 다시 도입할 때는 `pnpm test:smoke` 범위와 Python worker OS/Python 버전 차이를 먼저 정리한다.
