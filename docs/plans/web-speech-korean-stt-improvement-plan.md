@@ -1,6 +1,6 @@
 # Design Record: Web Speech(SODA) 한국어 인식률 개선
 
-**Status:** 구현 계획 구체화 완료 - 세부 태스크는 [tasks/plan.md](../../tasks/plan.md), 체크리스트는 [tasks/todo.md](../../tasks/todo.md)를 따른다.
+**Status:** 구현 완료 - 세부 태스크는 [tasks/plan.md](../../tasks/plan.md), 완료 체크리스트는 [tasks/todo.md](../../tasks/todo.md)를 따른다.
 **Date:** 2026-07-03
 **Scope:** `apps/web/src/features/rehearsal` - Web Speech 라이브 STT 경로
 **Manual browser target:** 최신 Chrome Stable
