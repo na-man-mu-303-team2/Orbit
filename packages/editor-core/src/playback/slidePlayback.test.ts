@@ -7,7 +7,8 @@ import {
   executeSlideAction,
   getNextClickAnimation,
   playNextClickAnimation,
-  resolveCueActions
+  resolveCueActions,
+  resolveTriggeredActions
 } from "./slidePlayback";
 
 function createSlide(): Slide {
@@ -42,7 +43,15 @@ function createSlide(): Slide {
         }
       }
     ],
-    keywords: [],
+    keywords: [
+      {
+        keywordId: "kw_1",
+        text: "강조",
+        synonyms: [],
+        abbreviations: [],
+        required: false
+      }
+    ],
     animations: [
       {
         animationId: "anim_1",
@@ -110,6 +119,24 @@ describe("slidePlayback", () => {
     const actions = resolveCueActions(slide, "  강조 ");
 
     expect(actions.map((action) => action.actionId)).toEqual(["act_1"]);
+  });
+
+  it("resolves keyword-triggered actions by keywordId", () => {
+    const slide = createSlide();
+    slide.actions.push({
+      actionId: "act_3",
+      trigger: {
+        kind: "keyword",
+        keywordId: "kw_1"
+      },
+      effect: {
+        kind: "go-to-next-slide"
+      }
+    });
+
+    const actions = resolveTriggeredActions(slide, { keywordId: "kw_1" });
+
+    expect(actions.map((action) => action.actionId)).toEqual(["act_3"]);
   });
 
   it("executes cue-driven animation actions once", () => {

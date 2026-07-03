@@ -66,6 +66,7 @@ function keyword(
     keywordId,
     text,
     synonyms,
-    abbreviations
+    abbreviations,
+    required: true
   };
 }

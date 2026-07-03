@@ -78,7 +78,8 @@ export const keywordSchema = z.object({
   keywordId: deckKeywordIdSchema,
   text: keywordTermSchema,
   synonyms: z.array(keywordTermSchema).default([]),
-  abbreviations: z.array(keywordTermSchema).default([])
+  abbreviations: z.array(keywordTermSchema).default([]),
+  required: z.boolean().default(true)
 });
 
 export const slideKeywordsSchema = z
@@ -179,6 +180,7 @@ export const slideSchema = z
   })
   .superRefine((slide, ctx) => {
     const actionIds = new Set<string>();
+    const keywordIds = new Set(slide.keywords.map((keyword) => keyword.keywordId));
     const animationIds = new Set(
       slide.animations.map((animation) => animation.animationId)
     );
@@ -192,6 +194,17 @@ export const slideSchema = z
         });
       } else {
         actionIds.add(action.actionId);
+      }
+
+      if (
+        action.trigger.kind === "keyword" &&
+        !keywordIds.has(action.trigger.keywordId)
+      ) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["actions", actionIndex, "trigger", "keywordId"],
+          message: "slide action must target a keyword in the same slide"
+        });
       }
 
       if (

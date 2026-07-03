@@ -305,6 +305,7 @@ function applyOperation(
       }
 
       slide.keywords = cloneJson(operation.keywords);
+      removeActionsForMissingKeywords(slide);
       return { ok: true };
     }
 
@@ -404,6 +405,16 @@ function applyOperation(
       }
 
       if (
+        operation.action.trigger.kind === "keyword" &&
+        !findKeyword(slide, operation.action.trigger.keywordId)
+      ) {
+        return slideActionKeywordNotFound(
+          operation.type,
+          operation.action.trigger.keywordId,
+        );
+      }
+
+      if (
         operation.action.effect.kind === "play-animation" &&
         !findAnimation(slide, operation.action.effect.animationId)
       ) {
@@ -431,6 +442,16 @@ function applyOperation(
       }
 
       if (operation.action.trigger) {
+        if (
+          operation.action.trigger.kind === "keyword" &&
+          !findKeyword(slide, operation.action.trigger.keywordId)
+        ) {
+          return slideActionKeywordNotFound(
+            operation.type,
+            operation.action.trigger.keywordId,
+          );
+        }
+
         action.trigger = cloneJson(operation.action.trigger);
       }
 
@@ -521,6 +542,10 @@ function findSlideAction(
   return slide.actions.find((action) => action.actionId === actionId);
 }
 
+function findKeyword(slide: Slide, keywordId: string) {
+  return slide.keywords.find((keyword) => keyword.keywordId === keywordId);
+}
+
 function removeElementFromGroups(slide: Slide, elementId: string): void {
   for (const element of slide.elements) {
     if (element.type !== "group") {
@@ -546,6 +571,15 @@ function removeActionsForAnimations(
     (action) =>
       action.effect.kind !== "play-animation" ||
       !animationIdSet.has(action.effect.animationId),
+  );
+}
+
+function removeActionsForMissingKeywords(slide: Slide): void {
+  const keywordIds = new Set(slide.keywords.map((keyword) => keyword.keywordId));
+
+  slide.actions = slide.actions.filter(
+    (action) =>
+      action.trigger.kind !== "keyword" || keywordIds.has(action.trigger.keywordId),
   );
 }
 
@@ -673,6 +707,20 @@ function unsupportedOperation(operation: unknown): OperationResult {
   return failure("UNSUPPORTED_OPERATION", "Patch operation is not supported", {
     operationType,
   });
+}
+
+function slideActionKeywordNotFound(
+  operationType: string,
+  keywordId: string,
+): ApplyDeckPatchFailure {
+  return failure(
+    "SLIDE_ACTION_KEYWORD_NOT_FOUND",
+    "Slide action keyword target was not found",
+    {
+      operationType,
+      details: [`keywordId=${keywordId}`],
+    },
+  );
 }
 
 function failure(

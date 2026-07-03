@@ -50,6 +50,7 @@ type DeckValidationInput = {
       text: string;
       synonyms: string[];
       abbreviations: string[];
+      required?: boolean;
     }>;
     elements: Array<Record<string, unknown>>;
     animations: Array<{
@@ -63,10 +64,15 @@ type DeckValidationInput = {
     }>;
     actions?: Array<{
       actionId: string;
-      trigger: {
-        kind: string;
-        cue: string;
-      };
+      trigger:
+        | {
+            kind: "cue";
+            cue: string;
+          }
+        | {
+            kind: "keyword";
+            keywordId: string;
+          };
       effect:
         | {
             kind: "play-animation";
@@ -243,6 +249,26 @@ describe("deckSchema validation", () => {
     expectValidDeck(deck);
   });
 
+  it("accepts keyword-triggered slide actions", () => {
+    const deck = createValidDeck();
+
+    deck.slides[0].actions = [
+      {
+        actionId: "act_1",
+        trigger: {
+          kind: "keyword",
+          keywordId: "kw_1"
+        },
+        effect: {
+          kind: "play-animation",
+          animationId: "anim_1"
+        }
+      }
+    ];
+
+    expectValidDeck(deck);
+  });
+
   it("rejects slide actions that target missing animations", () => {
     const deck = createValidDeck();
 
@@ -256,6 +282,25 @@ describe("deckSchema validation", () => {
         effect: {
           kind: "play-animation",
           animationId: "anim_missing"
+        }
+      }
+    ];
+
+    expectInvalidDeck(deck);
+  });
+
+  it("rejects keyword-triggered slide actions that target missing keywords", () => {
+    const deck = createValidDeck();
+
+    deck.slides[0].actions = [
+      {
+        actionId: "act_1",
+        trigger: {
+          kind: "keyword",
+          keywordId: "kw_missing"
+        },
+        effect: {
+          kind: "go-to-next-slide"
         }
       }
     ];

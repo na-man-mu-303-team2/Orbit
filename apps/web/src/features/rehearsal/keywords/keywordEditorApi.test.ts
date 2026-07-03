@@ -113,7 +113,8 @@ describe("keyword editor API helpers", () => {
         keywordId: "kw_rehearsal",
         text: "리허설",
         synonyms: ["발표 연습"],
-        abbreviations: ["STT"]
+        abbreviations: ["STT"],
+        required: true
       }
     ];
     const updatedDeck = applyKeywordsForResponse(deck, slideId, keywords);

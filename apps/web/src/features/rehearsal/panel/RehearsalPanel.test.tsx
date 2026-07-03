@@ -56,7 +56,8 @@ describe("RehearsalPanel", () => {
           keywordId: "kw_ai",
           text: "생성형 AI",
           synonyms: ["인공지능"],
-          abbreviations: ["OAI"]
+          abbreviations: ["OAI"],
+          required: true
         }
       ],
       sentences: [
@@ -119,13 +120,15 @@ const keywords: Keyword[] = [
     keywordId: "kw_ai",
     text: "생성형 AI",
     synonyms: [],
-    abbreviations: []
+    abbreviations: [],
+    required: true
   },
   {
     keywordId: "kw_privacy",
     text: "프라이버시",
     synonyms: [],
-    abbreviations: []
+    abbreviations: [],
+    required: true
   }
 ];
 

@@ -398,6 +398,7 @@ async function loadDeckKeywords(
               text?: unknown;
               synonyms?: unknown;
               abbreviations?: unknown;
+              required?: unknown;
             };
             return {
               keywordId:
@@ -408,7 +409,9 @@ async function loadDeckKeywords(
                 : [],
               abbreviations: Array.isArray(record.abbreviations)
                 ? record.abbreviations.filter((value): value is string => typeof value === "string")
-                : []
+                : [],
+              required:
+                typeof record.required === "boolean" ? record.required : true
             };
           })
           .filter(
@@ -647,6 +650,7 @@ type DeckKeywordPayload = {
   text: string;
   synonyms: string[];
   abbreviations: string[];
+  required: boolean;
 };
 
 function workerUrl(baseUrl: string, path: string): string {

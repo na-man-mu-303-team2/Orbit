@@ -559,13 +559,15 @@ describe("RehearsalWorkspace", () => {
           keywordId: "kw_1",
           text: "ORBIT",
           synonyms: ["오르빗"],
-          abbreviations: []
+          abbreviations: [],
+          required: true
         },
         {
           keywordId: "kw_2",
           text: "Live STT",
           synonyms: ["실시간 음성 인식"],
-          abbreviations: ["stt"]
+          abbreviations: ["stt"],
+          required: true
         }
       ]
     };
@@ -593,7 +595,8 @@ describe("RehearsalWorkspace", () => {
           keywordId: "kw_orbit",
           text: "ORBIT",
           synonyms: ["오르빗"],
-          abbreviations: ["OBT"]
+          abbreviations: ["OBT"],
+          required: true
         }
       ],
       elements: [
@@ -698,7 +701,8 @@ describe("RehearsalWorkspace", () => {
           keywordId: "kw_orbit",
           text: "오르빗",
           synonyms: [],
-          abbreviations: []
+          abbreviations: [],
+          required: true
         }
       ]
     };
@@ -722,7 +726,8 @@ describe("RehearsalWorkspace", () => {
           keywordId: "kw_orbit",
           text: "오르빗",
           synonyms: [],
-          abbreviations: []
+          abbreviations: [],
+          required: true
         }
       ]
     };
@@ -749,7 +754,8 @@ describe("RehearsalWorkspace", () => {
           keywordId: "kw_stt",
           text: "음성 인식",
           synonyms: [],
-          abbreviations: ["STT"]
+          abbreviations: ["STT"],
+          required: true
         }
       ]
     };
@@ -767,7 +773,8 @@ describe("RehearsalWorkspace", () => {
       keywordId: `kw_${index}`,
       text: `키워드${index}`,
       synonyms: [`동의어${index}`],
-      abbreviations: [`약어${index}`]
+      abbreviations: [`약어${index}`],
+      required: true
     }));
     const slide = {
       ...createDemoDeck().slides[0]!,
@@ -837,13 +844,15 @@ describe("RehearsalWorkspace", () => {
           keywordId: "kw_1",
           text: "ORBIT",
           synonyms: ["오르빗"],
-          abbreviations: []
+          abbreviations: [],
+          required: true
         },
         {
           keywordId: "kw_2",
           text: "Live STT",
           synonyms: ["실시간 음성 인식"],
-          abbreviations: ["stt"]
+          abbreviations: ["stt"],
+          required: true
         }
       ]
     };
