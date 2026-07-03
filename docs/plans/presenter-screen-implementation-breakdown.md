@@ -30,7 +30,7 @@ This document keeps the P0-P7 milestone structure from the source plan and break
 
 - `SttPort` is split into `LiveSttPort` for browser live control and `ReportSttProvider` for server report transcription.
 - Live STT engines: Sherpa, Moonshine, Web Speech. WhisperX is not selectable for live control.
-- Report STT provider: OpenAI. WhisperX calls an external hosted API only after the P2.5 provider implementation lands.
+- Report STT provider: OpenAI. WhisperX calls an external hosted API only after Task P2.11 lands.
 - WhisperX implementation starts with a contract spike defining endpoint, auth, audio input, transcript, and segment response shape, but is not selectable in the current runtime config.
 - Chunk upload replaces `/api/v1/rehearsals/:runId/audio/upload-url`.
 - Chunk endpoints:
@@ -158,7 +158,7 @@ P0/P1, P2/P3/P4/P5, and P6 can run as parallel tracks after the contract baselin
 **Implementation plan:**
 - Keep `reportSttProviderSchema` openai-only until the WhisperX provider is implemented.
 - Add `REHEARSAL_AUDIO_MAX_BYTES` with default/example `25000000`.
-- Keep WhisperX env keys out of runtime config until P2.5.
+- Keep WhisperX env keys out of runtime config until Task P2.11.
 - Mirror validation in `services/python-worker/app/config.py`.
 - Update `.env.example` and `docs/conventions/environment.md`.
 
@@ -891,23 +891,43 @@ P0/P1, P2/P3/P4/P5, and P6 can run as parallel tracks after the contract baselin
 
 ## P2: STT Abstractions
 
-### Task P2.1: Define `LiveSttPort`
+### P2 Scope Clarifications
+
+- This milestone follows the resolved split in this breakdown: browser live control uses `LiveSttPort`; server report transcription uses `ReportSttProvider`.
+- WhisperX is report-only. It is not selectable for live control and does not appear in presenter STT engine settings.
+- New browser STT files live under `apps/web/src/features/rehearsal/stt`. Existing root-level rehearsal STT files move only when a task explicitly requires it.
+- Browser live engine selection is modeled as `presenterSettings.sttEngine`; this milestone defines the engine ids and factory boundary, while the P3 presenter settings store owns localStorage persistence.
+- `LIVE_STT_PROVIDER` remains server/runtime config with the current `sherpa` value; P2 does not expand it to Web Speech or Moonshine.
+- `LiveSttSessionConfig.audioSource` is a `MediaStream`, matching the current Sherpa adapter and the later microphone fork used by Live STT, PauseDetector, and Recorder.
+- `LiveSttPort.updateBiasPhrases(phrases)` is required. Engines without native keyword biasing keep the method as a no-op and rely on SpeechTracker client-side matching.
+- Web Speech is treated as `onDevice: false` for consent purposes because browser implementations can use remote recognition. Selecting it must pass the same user consent gate as any non-local live engine.
+- Moonshine is a new manifest-based local model adapter under `/models/live-stt/moonshine/.../manifest.json`. CI uses mocked runtime output; real model execution is local/manual.
+- WhisperX uses an Orbit-defined hosted API contract with `WHISPERX_API_URL`, `WHISPERX_API_KEY`, `WHISPERX_MODEL`, and `WHISPERX_TIMEOUT_MS`; auth is `Authorization: Bearer ...`; audio is sent as `multipart/form-data`.
+
+### Task P2.1: Define `LiveSttPort` Contract
 
 **Description:** Replace the current ad hoc Live STT adapter surface with a stable port for browser live control engines.
 
-**Feature/spec:** Browser-only live STT: Sherpa, Moonshine, Web Speech.
+**Feature/spec:** Browser-only live STT: Sherpa, Moonshine, Web Speech. `LiveSttPort` is not used by report transcription.
 
-**Tech stack:** TypeScript interfaces, Vitest, existing `LiveSttAdapter`.
+**Tech stack:** TypeScript interfaces, Vitest, existing `LiveSttAdapter` event shapes.
 
 **Implementation plan:**
-- Define `LiveSttPort`, `LiveSttSessionConfig`, `LiveSttResult`, and `LiveSttError`.
-- Add capabilities `{ onDevice, streaming, keywordBiasing, languages }`.
-- Add an adapter bridge so existing Sherpa implementation can satisfy the port.
+- Create `apps/web/src/features/rehearsal/stt/liveSttPort.ts`.
+- Define `LiveSttEngineId = "sherpa" | "web-speech" | "moonshine"`.
+- Define `LiveSttCapabilities = { onDevice, streaming, keywordBiasing, languages }`.
+- Define `LiveSttSessionConfig = { language: "ko"; audioSource: MediaStream; biasPhrases?: string[] }`.
+- Define `LiveSttResult = { text, isFinal, timestampMs, confidence? }` where `timestampMs` is session-relative `[startMs, endMs]`.
+- Define `LiveSttError` with typed codes for unsupported runtime, missing model, permission/consent, start failure, and provider runtime failure.
+- Define the port methods: `start(config)`, `stop()`, `updateBiasPhrases(phrases)`, `onResult(cb)`, `onError(cb)`, and `dispose()`.
+- Add a small result mapper so current `LiveSttPartialTranscriptEvent` payloads can be converted without changing shared schemas in this task.
 - Keep transcript/debug logging rules from `live-stt-keyword-control.md`.
 
 **Acceptance criteria:**
-- SpeechTracker can consume only `LiveSttPort`, not Sherpa-specific APIs.
-- Current Sherpa path still works through the bridge.
+- The port can represent partial and final Korean recognition results without exposing engine-specific objects.
+- Bias phrases are part of the contract and can be updated after `start`.
+- The contract does not include raw audio, transcript storage, or report STT fields.
+- SpeechTracker can be implemented against `LiveSttPort` only.
 
 **Verification:**
 - `pnpm --filter @orbit/web test -- liveSttPort`
@@ -916,78 +936,260 @@ P0/P1, P2/P3/P4/P5, and P6 can run as parallel tracks after the contract baselin
 
 **Files likely touched:**
 - `apps/web/src/features/rehearsal/stt/liveSttPort.ts`
-- `apps/web/src/features/rehearsal/stt/sherpaLiveSttPort.ts`
+- `apps/web/src/features/rehearsal/stt/liveSttPort.test.ts`
 - `apps/web/src/features/rehearsal/liveStt.ts`
 
-**Estimated scope:** Medium
+**Estimated scope:** Small
 
-### Task P2.2: Add WebSpeech and Moonshine Live Adapters
+### Task P2.2: Bridge Sherpa to `LiveSttPort`
 
-**Description:** Implement additional live engines behind `LiveSttPort`.
+**Description:** Wrap the existing Sherpa implementation so the current live STT path works through the new port before adding engines.
 
-**Feature/spec:** WebSpeechAdapter and new MoonshineAdapter.
+**Feature/spec:** Existing Sherpa live recognition, current bias context behavior, current debug/privacy rules.
 
-**Tech stack:** Browser SpeechRecognition API, Web Worker/WASM or ONNX runtime path for Moonshine, existing local model assets.
+**Tech stack:** TypeScript, current `SherpaOnnxLiveSttAdapter`, Vitest.
 
 **Implementation plan:**
-- Implement Web Speech adapter with Korean language support and browser support guards.
-- Implement a Moonshine adapter as new code using the local Moonshine model asset path.
-- Report unsupported runtime as a typed `LiveSttError`.
-- Keep both adapters hidden behind settings until contract tests pass.
+- Add `sherpaLiveSttPort.ts` that adapts `SherpaOnnxLiveSttAdapter` to `LiveSttPort`.
+- Map `LiveSttSessionConfig.biasPhrases` into the existing `LiveSttBiasContext` shape.
+- Map `updateBiasPhrases` to the current `updateBiasContext` path.
+- Map `LiveSttAdapterError` codes into `LiveSttError`.
+- Preserve existing debug latency, transcript debug gate, PCM debug, and audio level internals without adding them to the public port.
+- Keep `SherpaOnnxLiveSttAdapter` available for old tests until the consumer migration task removes direct usage.
 
 **Acceptance criteria:**
-- Unsupported browsers fail gracefully.
-- Both adapters satisfy the same contract tests as Sherpa using mocked engine outputs.
-- No server audio upload is introduced for live control.
+- The existing Sherpa start/stop path still works through the bridge.
+- Sherpa declares `onDevice: true`, `streaming: true`, `keywordBiasing: true`, and Korean language support.
+- Existing transcript debug logging remains gated behind `orbit.liveStt.debugLatency`.
+- No server request is introduced for live control.
 
 **Verification:**
-- `pnpm --filter @orbit/web test -- webSpeechLiveSttPort`
-- `pnpm --filter @orbit/web test -- moonshineLiveSttPort`
-- Manual local engine harness for real Moonshine model.
+- `pnpm --filter @orbit/web test -- sherpaLiveSttPort`
+- `pnpm --filter @orbit/web test -- sherpaOnnxLiveSttAdapter`
 
 **Dependencies:** Task P2.1
 
 **Files likely touched:**
-- `apps/web/src/features/rehearsal/stt/webSpeechLiveSttPort.ts`
-- `apps/web/src/features/rehearsal/stt/moonshineLiveSttPort.ts`
-- `apps/web/src/features/rehearsal/stt/*.test.ts`
-- `apps/web/public/models/live-stt/README.md`
+- `apps/web/src/features/rehearsal/stt/sherpaLiveSttPort.ts`
+- `apps/web/src/features/rehearsal/stt/sherpaLiveSttPort.test.ts`
+- `apps/web/src/features/rehearsal/sherpaOnnxLiveSttAdapter.ts`
+- `apps/web/src/features/rehearsal/liveStt.ts`
+
+**Estimated scope:** Small
+
+### Task P2.3: Add Live STT Contract Test Kit
+
+**Description:** Create reusable contract tests that every `LiveSttPort` implementation must pass.
+
+**Feature/spec:** Same result semantics, stop behavior, bias update behavior, and typed error behavior across Sherpa, Web Speech, and Moonshine.
+
+**Tech stack:** Vitest, fake `MediaStream`, mocked engine outputs.
+
+**Implementation plan:**
+- Add `liveSttPortContract.ts` test helper that accepts a port factory and scripted engine output.
+- Cover `start`, `stop`, `onResult` unsubscribe, `onError` unsubscribe, `updateBiasPhrases`, and post-stop stale result suppression.
+- Cover partial-to-final ordering and session-relative timestamps.
+- Cover unsupported runtime and missing model errors without requiring real browser APIs or models.
+- Keep fixture transcripts small and free of speaker notes or private script text.
+
+**Acceptance criteria:**
+- Sherpa bridge passes the shared contract tests.
+- New adapters can opt into the same test helper with adapter-specific mocked runtime.
+- CI does not require microphone access, Web Speech support, ONNX files, or Moonshine model files.
+
+**Verification:**
+- `pnpm --filter @orbit/web test -- liveSttPortContract`
+
+**Dependencies:** Task P2.1, Task P2.2
+
+**Files likely touched:**
+- `apps/web/src/features/rehearsal/stt/liveSttPortContract.test.ts`
+- `apps/web/src/features/rehearsal/stt/testDoubles.ts`
+- `apps/web/src/features/rehearsal/stt/sherpaLiveSttPort.test.ts`
+
+**Estimated scope:** Small
+
+### Task P2.4: Add Engine Registry and Rehearsal Consumer Seam
+
+**Description:** Route the current rehearsal live STT consumer through `LiveSttPort` while keeping the default Sherpa behavior.
+
+**Feature/spec:** Engine ids for `presenterSettings.sttEngine`, default `sherpa`, no `LIVE_STT_PROVIDER` expansion.
+
+**Tech stack:** React, TypeScript, current `RehearsalWorkspace`, Vitest/Testing Library.
+
+**Implementation plan:**
+- Add `liveSttEngineRegistry.ts` with `createLiveSttPort(engineId)` and default `sherpa`.
+- Export the engine id type for the P3 presenter settings store.
+- Keep browser live engine selection separate from `packages/shared` runtime config and Python `LIVE_STT_PROVIDER`.
+- Update `RehearsalWorkspace` or its start-live-STT seam to accept a `LiveSttPort` test double.
+- Convert current callbacks to `onResult`/`onError` subscriptions and call `updateBiasPhrases` when the active slide changes.
+- Keep UI copy and existing manual live demo behavior unchanged in this task.
+
+**Acceptance criteria:**
+- Rehearsal live STT starts through `LiveSttPort`, not directly through `LiveSttAdapter`.
+- Existing tests can inject a fake `LiveSttPort`.
+- Default runtime behavior remains Sherpa.
+- No API, Worker, or env config changes are required for live engine switching.
+
+**Verification:**
+- `pnpm --filter @orbit/web test -- RehearsalWorkspace`
+- `pnpm --filter @orbit/web test -- liveSttEngineRegistry`
+
+**Dependencies:** Task P2.1, Task P2.2
+
+**Files likely touched:**
+- `apps/web/src/features/rehearsal/stt/liveSttEngineRegistry.ts`
+- `apps/web/src/features/rehearsal/stt/liveSttEngineRegistry.test.ts`
+- `apps/web/src/features/rehearsal/RehearsalWorkspace.tsx`
+- `apps/web/src/features/rehearsal/RehearsalWorkspace.test.tsx`
 
 **Estimated scope:** Medium
 
-### Task P2.3: Build Live STT Evaluation Harness
+### Task P2.5: Add Web Speech Live Adapter
+
+**Description:** Implement Web Speech behind `LiveSttPort` with explicit browser support and consent handling.
+
+**Feature/spec:** Web Speech live adapter, Korean language, non-local consent gate.
+
+**Tech stack:** Browser `SpeechRecognition` / `webkitSpeechRecognition`, TypeScript browser API guards, Vitest with mocked recognition object.
+
+**Implementation plan:**
+- Add `webSpeechLiveSttPort.ts`.
+- Detect `SpeechRecognition` or `webkitSpeechRecognition`; report `unsupported_runtime` when absent.
+- Declare capabilities `{ onDevice:false, streaming:true, keywordBiasing:false, languages:["ko"] }`.
+- Require an explicit consent flag in adapter construction or start options before starting because `onDevice:false`.
+- Set recognition language to Korean and emit `LiveSttResult` for interim/final results.
+- Treat `updateBiasPhrases` as a no-op and rely on SpeechTracker matching.
+- Map browser recognition errors to typed `LiveSttError` without logging transcript text.
+
+**Acceptance criteria:**
+- Unsupported browsers fail gracefully before attempting recognition.
+- Starting without the required consent fails with a typed permission/consent error.
+- Interim and final mocked recognition events produce normalized `LiveSttResult` values.
+- Web Speech passes the common `LiveSttPort` contract tests.
+
+**Verification:**
+- `pnpm --filter @orbit/web test -- webSpeechLiveSttPort`
+- Manual Chrome smoke test with Korean recognition when available.
+
+**Dependencies:** Task P2.1, Task P2.3
+
+**Files likely touched:**
+- `apps/web/src/features/rehearsal/stt/webSpeechLiveSttPort.ts`
+- `apps/web/src/features/rehearsal/stt/webSpeechLiveSttPort.test.ts`
+- `apps/web/src/features/rehearsal/stt/browserSpeechRecognition.ts`
+
+**Estimated scope:** Medium
+
+### Task P2.6: Define Moonshine Manifest and Runtime Loader
+
+**Description:** Add the local model manifest contract and loader boundary needed by the Moonshine adapter.
+
+**Feature/spec:** Manifest-based local Moonshine model under `/models/live-stt/moonshine/.../manifest.json`.
+
+**Tech stack:** TypeScript manifest parser, Zod or defensive validation, Web Worker loader test doubles.
+
+**Implementation plan:**
+- Add `moonshineManifest.ts` with a manifest shape for model id, runtime files, model files, sample rate, supported language, and version.
+- Add default manifest URL under `/models/live-stt/moonshine/korean/manifest.json`.
+- Add `apps/web/public/models/live-stt/moonshine/README.md` explaining that large model/runtime assets are not committed.
+- Add a loader that fetches and validates the manifest without instantiating the real model.
+- Mirror the existing Sherpa manifest test pattern for missing fields, invalid URLs, and unsupported language/sample rate.
+
+**Acceptance criteria:**
+- The adapter can load a valid manifest and reject malformed ones before starting recognition.
+- Large Moonshine model artifacts are not committed.
+- The README gives the exact local asset directory and manifest filename expected by the adapter.
+
+**Verification:**
+- `pnpm --filter @orbit/web test -- moonshineManifest`
+
+**Dependencies:** Task P2.1
+
+**Files likely touched:**
+- `apps/web/src/features/rehearsal/stt/moonshineManifest.ts`
+- `apps/web/src/features/rehearsal/stt/moonshineManifest.test.ts`
+- `apps/web/public/models/live-stt/moonshine/README.md`
+
+**Estimated scope:** Small
+
+### Task P2.7: Add Moonshine Live Adapter
+
+**Description:** Implement the Moonshine live adapter against the manifest loader and `LiveSttPort`.
+
+**Feature/spec:** Local Moonshine live recognition, mocked in CI, real model only in local/manual harness.
+
+**Tech stack:** TypeScript, Web Worker boundary, local model manifest from Task P2.6, Vitest mocked runtime.
+
+**Implementation plan:**
+- Add `moonshineLiveSttPort.ts`.
+- Use the manifest loader from Task P2.6.
+- Run recognition inside a worker-like boundary so the main thread is not blocked.
+- Declare capabilities `{ onDevice:true, streaming:false, keywordBiasing:false, languages:["ko"] }` for the first implementation.
+- Implement pseudo-streaming by emitting final segment results for short buffered windows; leave native streaming as a future adapter optimization.
+- Treat `updateBiasPhrases` as a no-op and rely on SpeechTracker matching.
+- Map model missing, worker load, and runtime failures to typed `LiveSttError`.
+- Register the adapter in `liveSttEngineRegistry`.
+
+**Acceptance criteria:**
+- Moonshine passes common contract tests with mocked runtime output.
+- Missing local model assets produce a typed missing-model error.
+- The adapter does not require server audio upload or remote STT calls.
+- Registry can create Moonshine by `sttEngine="moonshine"`.
+
+**Verification:**
+- `pnpm --filter @orbit/web test -- moonshineLiveSttPort`
+- Manual local Moonshine model harness from Task P2.8
+
+**Dependencies:** Task P2.1, Task P2.3, Task P2.6
+
+**Files likely touched:**
+- `apps/web/src/features/rehearsal/stt/moonshineLiveSttPort.ts`
+- `apps/web/src/features/rehearsal/stt/moonshineLiveSttPort.test.ts`
+- `apps/web/src/features/rehearsal/stt/moonshineWorker.ts`
+- `apps/web/src/features/rehearsal/stt/liveSttEngineRegistry.ts`
+
+**Estimated scope:** Medium
+
+### Task P2.8: Build Live STT Evaluation Harness
 
 **Description:** Create a repeatable fixture harness for live STT adapters.
 
-**Feature/spec:** Small committed WAV/FLAC fixtures; CI mocks only; real model harness local/manual.
+**Feature/spec:** Small committed WAV/FLAC fixtures; CI mocked adapters; real Sherpa/Web Speech/Moonshine execution local/manual.
 
-**Tech stack:** Vitest, committed fixtures under the web feature, optional local harness script.
+**Tech stack:** Vitest, committed fixtures under the web feature, optional local harness script, JSON metrics output.
 
 **Implementation plan:**
-- Add small Korean fixture audio and expected phrases.
-- Add mocked adapter contract tests in CI.
+- Add small Korean fixture metadata and expected phrases. Audio fixtures must be short and safe to commit; if real audio is not committed, use deterministic mocked transcript fixtures in CI.
+- Add a harness runner that accepts any `LiveSttPort` factory.
+- Record metrics: phrase recall, keyword hit rate, first partial latency, first final latency, and error code.
+- Add mocked adapter runs in CI.
 - Add an optional local script/test mode that runs actual Sherpa/Moonshine/WebSpeech when model/browser support exists.
-- Record metrics: phrase recall, keyword hit rate, latency.
+- Document how to place local model assets before running the real-engine harness.
 
 **Acceptance criteria:**
 - CI does not require large ONNX models.
 - Fixture data is small enough to commit.
 - The same expected scenario can run against all adapters.
+- Harness output is deterministic for mocked adapters.
+- Real-engine harness is clearly marked local/manual and does not block CI.
 
 **Verification:**
 - `pnpm --filter @orbit/web test -- liveSttHarness`
 - Manual local harness documented.
 
-**Dependencies:** Task P2.1
+**Dependencies:** Task P2.3, Task P2.5, Task P2.7
 
 **Files likely touched:**
 - `apps/web/src/features/rehearsal/stt/__fixtures__/`
 - `apps/web/src/features/rehearsal/stt/liveSttHarness.ts`
 - `apps/web/src/features/rehearsal/stt/liveSttHarness.test.ts`
+- `apps/web/src/features/rehearsal/stt/README.md`
+- `apps/web/package.json`
 
 **Estimated scope:** Medium
 
-### Task P2.4: WhisperX API Contract Spike
+### Task P2.9: Write WhisperX Report STT API Contract
 
 **Description:** Define the external WhisperX hosted API contract before implementing the provider.
 
@@ -996,15 +1198,20 @@ P0/P1, P2/P3/P4/P5, and P6 can run as parallel tracks after the contract baselin
 **Tech stack:** Markdown spec, Python worker provider protocol, no external call in CI.
 
 **Implementation plan:**
-- Define request shape: auth, audio delivery, language, model, and timeout expectations.
-- Define response shape: transcript, language, provider, model, duration, segments with start/end seconds.
+- Add `docs/specs/whisperx-report-stt-provider.md`.
+- Define env keys: `WHISPERX_API_URL`, `WHISPERX_API_KEY`, `WHISPERX_MODEL`, `WHISPERX_TIMEOUT_MS`.
+- Define auth: `Authorization: Bearer <WHISPERX_API_KEY>`.
+- Define request: `multipart/form-data` with `file`, `language`, `model`, and optional `diarization=false`.
+- Define response: `transcript`, `language`, `provider`, `model`, `durationSeconds`, and `segments[{ text, startSeconds, endSeconds }]`.
 - Define error mapping to existing `AudioTranscriptionError`.
 - Document privacy and logging constraints.
+- Document that this provider never receives live-control microphone streams; it only receives assembled rehearsal audio from P6.
 
 **Acceptance criteria:**
 - Provider implementation can be written from the contract without further product decisions.
 - Contract excludes live STT usage.
 - No secrets or transcript payloads are logged.
+- Timeout, auth failure, malformed response, empty transcript, and provider 5xx mappings are specified.
 
 **Verification:**
 - Human review of the contract before provider implementation.
@@ -1013,39 +1220,79 @@ P0/P1, P2/P3/P4/P5, and P6 can run as parallel tracks after the contract baselin
 
 **Files likely touched:**
 - `docs/specs/whisperx-report-stt-provider.md`
-- `services/python-worker/app/audio/transcribe.py`
+- `docs/conventions/environment.md`
 
 **Estimated scope:** Small
 
-### Task P2.5: Implement `ReportSttProvider` Selection
+### Task P2.10: Formalize `ReportSttProvider` and Preserve OpenAI Behavior
 
-**Description:** Extend server report STT to support OpenAI or WhisperX providers.
+**Description:** Rename/formalize the existing Python worker report STT provider contract without changing OpenAI runtime behavior.
 
-**Feature/spec:** `REPORT_STT_PROVIDER=openai | whisperx`.
+**Feature/spec:** Report transcription is separate from browser live STT.
 
-**Tech stack:** Python worker, Pydantic, HTTP client, pytest.
+**Tech stack:** Python worker, `Protocol`, Pydantic, pytest.
 
 **Implementation plan:**
-- Rename or formalize the existing `SpeechToTextProvider` as the report provider contract.
+- Rename or alias `SpeechToTextProvider` to `ReportSttProvider` in `services/python-worker/app/audio/transcribe.py`.
 - Keep OpenAI behavior unchanged.
-- Add `WhisperXSpeechToTextProvider` using the spike contract.
-- Add tests for provider selection, missing config, successful response, provider failure, and timeout.
-- Ensure `audio/flac` is accepted by the worker request model.
+- Keep `REPORT_STT_PROVIDER=openai` as the only accepted config value in this task.
+- Update tests and dependency injection names to the report-provider terminology.
+- Ensure `audio/flac` remains accepted by the worker request model.
+- Keep all error messages free of transcript text, raw audio, speaker notes, scripts, API keys, and tokens.
 
 **Acceptance criteria:**
-- `REPORT_STT_PROVIDER=openai` remains backward compatible.
-- `REPORT_STT_PROVIDER=whisperx` calls only the configured external endpoint.
-- Provider responses normalize to the existing `AudioTranscribeResponse`.
+- OpenAI report transcription tests pass unchanged in behavior.
+- `REPORT_STT_PROVIDER=whisperx` is still rejected until Task P2.11.
+- Worker API response still normalizes to `AudioTranscribeResponse`.
 
 **Verification:**
 - `cd services/python-worker && uv run pytest tests/test_audio_transcribe.py tests/test_config.py`
 
-**Dependencies:** Task P2.4
+**Dependencies:** Task C0.3
 
 **Files likely touched:**
 - `services/python-worker/app/audio/transcribe.py`
 - `services/python-worker/tests/test_audio_transcribe.py`
 - `services/python-worker/tests/test_config.py`
+
+**Estimated scope:** Small
+
+### Task P2.11: Add WhisperX `ReportSttProvider` Selection
+
+**Description:** Extend server report STT to support OpenAI or the hosted WhisperX provider contract from Task P2.9.
+
+**Feature/spec:** `REPORT_STT_PROVIDER=openai | whisperx`, report-only WhisperX provider.
+
+**Tech stack:** Python worker, Pydantic, `urllib` or existing HTTP client pattern, pytest.
+
+**Implementation plan:**
+- Extend Python config validation to allow `REPORT_STT_PROVIDER=whisperx`.
+- Add `WHISPERX_API_URL`, `WHISPERX_API_KEY`, `WHISPERX_MODEL`, and `WHISPERX_TIMEOUT_MS` validation.
+- Keep `REHEARSAL_AUDIO_MAX_BYTES` capped at `25000000` for OpenAI; add a separate WhisperX max-size rule only if the contract doc defines one.
+- Add `WhisperXSpeechToTextProvider` using the spike contract.
+- Send audio as `multipart/form-data` with Bearer auth.
+- Normalize WhisperX response to `ProviderTranscription` / `AudioTranscribeResponse`.
+- Add tests for provider selection, missing config, successful response, malformed response, empty transcript, provider failure, auth failure, and timeout.
+- Update `.env.example` and environment docs.
+
+**Acceptance criteria:**
+- `REPORT_STT_PROVIDER=openai` remains backward compatible.
+- `REPORT_STT_PROVIDER=whisperx` calls only the configured external endpoint.
+- Provider responses normalize to the existing `AudioTranscribeResponse`.
+- No API key, transcript, raw audio, or script content is logged.
+
+**Verification:**
+- `cd services/python-worker && uv run pytest tests/test_audio_transcribe.py tests/test_config.py`
+
+**Dependencies:** Task P2.9, Task P2.10
+
+**Files likely touched:**
+- `services/python-worker/app/audio/transcribe.py`
+- `services/python-worker/app/config.py`
+- `services/python-worker/tests/test_audio_transcribe.py`
+- `services/python-worker/tests/test_config.py`
+- `.env.example`
+- `docs/conventions/environment.md`
 
 **Estimated scope:** Medium
 
@@ -1053,8 +1300,11 @@ P0/P1, P2/P3/P4/P5, and P6 can run as parallel tracks after the contract baselin
 
 - [ ] Live STT consumers use `LiveSttPort`.
 - [ ] Sherpa, Moonshine, and Web Speech have common contract tests.
+- [ ] `presenterSettings.sttEngine` engine ids are defined, while persistence remains in P3.
+- [ ] Web Speech requires explicit consent because it is treated as non-local.
 - [ ] WhisperX is implemented only as a report provider.
 - [ ] Large model tests are local/manual, not required in CI.
+- [ ] `LIVE_STT_PROVIDER` remains unchanged and is not used for browser engine selection.
 
 ## P3: Speech Tracking and Rehearsal Panel
 
@@ -1545,7 +1795,7 @@ P0/P1, P2/P3/P4/P5, and P6 can run as parallel tracks after the contract baselin
 - `pnpm --filter @orbit/api test -- rehearsals`
 - `pnpm --filter @orbit/worker test -- rehearsal-stt`
 
-**Dependencies:** Task P6.4, Task P2.5
+**Dependencies:** Task P6.4, Task P2.11
 
 **Files likely touched:**
 - `apps/api/src/rehearsals/rehearsals.service.ts`
@@ -1754,7 +2004,7 @@ P0/P1, P2/P3/P4/P5, and P6 can run as parallel tracks after the contract baselin
 |---|---:|---|
 | Monolithic `RehearsalWorkspace.tsx` becomes harder to change | High | Extract ports and pure modules first; keep UI rewrites scoped by task |
 | Moonshine adapter runtime complexity | Medium | CI uses contract mocks; real engine harness remains local/manual |
-| WhisperX hosted API mismatch | High | Require P2.4 contract spike before provider implementation |
+| WhisperX hosted API mismatch | High | Require Task P2.9 contract spike before provider implementation |
 | FLAC encoder performance | High | Run P6.1 before Recorder; keep encoding off the main thread |
 | Chunk temp object leaks | Medium | Delete on success; use 1 day S3/MinIO TTL for incomplete/failed chunks |
 | Auto advance false positives | High | Keep pause + countdown + resume cancel; never advance on cue alone |

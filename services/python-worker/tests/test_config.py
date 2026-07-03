@@ -63,16 +63,27 @@ def test_live_and_report_stt_providers_are_separate_contracts() -> None:
         load_config({**VALID_ENV, "REPORT_STT_PROVIDER": "sherpa"})
 
 
-def test_whisperx_report_stt_is_rejected_until_provider_is_implemented() -> None:
-    with pytest.raises(ConfigError, match="REPORT_STT_PROVIDER"):
-        load_config(
-            {
-                **VALID_ENV,
-                "REPORT_STT_PROVIDER": "whisperx",
-                "WHISPERX_API_URL": "https://whisperx.example.test/transcribe",
-                "WHISPERX_API_KEY": "whisperx-test-key",
-            }
-        )
+def test_whisperx_report_stt_provider_accepts_required_config() -> None:
+    config = load_config(
+        {
+            **VALID_ENV,
+            "REPORT_STT_PROVIDER": "whisperx",
+            "WHISPERX_API_URL": "https://whisperx.example.test/transcribe",
+            "WHISPERX_API_KEY": "whisperx-test-key",
+            "WHISPERX_MODEL": "large-v3",
+            "WHISPERX_TIMEOUT_MS": "45000",
+        }
+    )
+
+    assert config.report_stt_provider == "whisperx"
+    assert config.whisperx_api_url == "https://whisperx.example.test/transcribe"
+    assert config.whisperx_model == "large-v3"
+    assert config.whisperx_timeout_ms == 45_000
+
+
+def test_whisperx_report_stt_requires_endpoint_key_and_model() -> None:
+    with pytest.raises(ConfigError, match="WHISPERX_API_URL"):
+        load_config({**VALID_ENV, "REPORT_STT_PROVIDER": "whisperx"})
 
 
 def test_openai_report_stt_rejects_large_audio_limit() -> None:

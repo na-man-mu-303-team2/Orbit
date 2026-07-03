@@ -113,13 +113,49 @@ describe("ORBIT env validation", () => {
     ).toThrow(/REPORT_STT_PROVIDER/);
   });
 
-  it("rejects WhisperX report STT until the provider is implemented", () => {
+  it("accepts WhisperX report STT when hosted provider config exists", () => {
+    const config = loadOrbitConfig(
+      {
+        ...validEnv,
+        REPORT_STT_PROVIDER: "whisperx",
+        WHISPERX_API_URL: "https://whisperx.example.test/transcribe",
+        WHISPERX_API_KEY: "whisperx-test-key",
+        WHISPERX_MODEL: "large-v3",
+        WHISPERX_TIMEOUT_MS: "45000"
+      },
+      { service: "api" }
+    );
+
+    expect(config.REPORT_STT_PROVIDER).toBe("whisperx");
+    expect(config.WHISPERX_API_URL).toBe(
+      "https://whisperx.example.test/transcribe"
+    );
+    expect(config.WHISPERX_MODEL).toBe("large-v3");
+    expect(config.WHISPERX_TIMEOUT_MS).toBe(45000);
+  });
+
+  it("requires WhisperX hosted provider config when selected", () => {
     expect(() =>
       loadOrbitConfig(
         { ...validEnv, REPORT_STT_PROVIDER: "whisperx" },
         { service: "api" }
       )
-    ).toThrow(/REPORT_STT_PROVIDER/);
+    ).toThrow(/WHISPERX_API_URL/);
+  });
+
+  it("rejects invalid WhisperX hosted provider URLs when selected", () => {
+    expect(() =>
+      loadOrbitConfig(
+        {
+          ...validEnv,
+          REPORT_STT_PROVIDER: "whisperx",
+          WHISPERX_API_URL: "not-a-url",
+          WHISPERX_API_KEY: "whisperx-test-key",
+          WHISPERX_MODEL: "large-v3"
+        },
+        { service: "api" }
+      )
+    ).toThrow(/WHISPERX_API_URL must be a valid URL/);
   });
 
   it("rejects OpenAI report STT audio limits above the single-file path limit", () => {
