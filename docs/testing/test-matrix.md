@@ -2,18 +2,17 @@
 
 이 문서는 기능 범위와 자동/수동 검증을 연결한다. PR에서는 이 표의 "검증 앵커"와 실제 테스트 결과를 함께 확인한다.
 
-## CI Policy
+## Verification Policy
 
 | 시점 | 실행 항목 | 목적 |
 | --- | --- | --- |
-| docs-only PR | 변경 Markdown UTF-8 읽기 검증 | 구현과 무관한 PR에서 제품 build/test/smoke 비용을 줄이고, PR 본문에 코드 테스트 미실행 사유를 남김 |
-| automation-only PR | automation JSON 검증, Node script syntax check, 필요한 경우 `pnpm lint` | workflow/script/schema 변경 자체를 검증하되 Playwright smoke와 Python worker 테스트는 관련 변경이 있을 때만 실행 |
-| CI workflow 변경 PR | 변경된 workflow가 참조하는 관련 job 실행, `ci.yml` 변경 시 Playwright smoke를 제외한 빠른 gate 실행 | CI 정의 자체가 깨졌는지 merge 전에 확인 |
-| app/API/shared/worker/compose/env/lockfile PR | `node infra/scripts/check-env.mjs`, `pnpm build`, `pnpm lint`, `pnpm test`, Python `ruff/mypy/pytest`, `docker compose config --quiet` 중 변경 경로와 관련된 job | merge 전 빠른 회귀 차단 |
-| `main`/`develop` push | Playwright smoke를 제외한 전체 빠른 gate 재실행 | merge 후 base branch 조합 검증 |
+| docs-only PR | 변경 Markdown UTF-8 읽기 확인 | 구현과 무관한 PR에서 코드 테스트 미실행 사유를 PR 본문에 남김 |
+| automation-only PR | automation JSON 확인, Node script syntax check, 필요한 경우 `pnpm lint` | workflow/script/schema 변경 자체를 수동으로 검증 |
+| app/API/shared/worker/compose/env/lockfile PR | `node infra/scripts/check-env.mjs`, `pnpm build`, `pnpm lint`, `pnpm test`, Python `ruff/mypy/pytest`, `docker compose config --quiet` 중 변경 경로와 관련된 명령 | merge 전 빠른 회귀를 수동으로 확인 |
+| `main`/`develop` push | 자동 CI 없음 | merge 후 base branch 조합 검증은 필요 시 수동으로 실행 |
 | 수동 또는 scheduled | `pnpm test:smoke`, 전체 Playwright E2E, 1000명 load test, 실제 브라우저 STT 측정 | 무겁거나 환경 의존적인 검증 |
 
-임시 정책: `playwright-smoke` CI job은 안정성 재검토 전까지 자동화 테스트에서 skip한다. 수동 검증이 필요하면 로컬 또는 별도 실행 환경에서 `pnpm test:smoke`를 사용한다.
+현재 GitHub Actions CI workflow는 제거되어 PR 자동 검사 job을 실행하지 않는다. 수동 검증이 필요하면 로컬 또는 별도 실행 환경에서 위 명령을 실행하고 PR 본문에 결과를 남긴다.
 
 ## PR Review Rule
 
@@ -27,7 +26,7 @@
 | 기능 ID | 범위 | 주요 완료 기준 | 검증 앵커 |
 | --- | --- | --- | --- |
 | ORBIT-1 | 시작 준비 epic | 로컬 서비스, migration, 온디바이스 STT 기준 준비 | `pnpm build`, `pnpm lint`, Python pytest, Compose, STT 문서 review |
-| ORBIT-2 | 프로젝트 scaffold | workspace build/test, Compose 서비스 시작 | CI `typescript`, `python-worker`, `compose-config`, `playwright-smoke` |
+| ORBIT-2 | 프로젝트 scaffold | workspace build/test, Compose 서비스 시작 | 수동 `pnpm build`, `pnpm test`, Python pytest, Compose 검증 |
 | ORBIT-3 | DB migration | pgvector 연결, migration run/revert | migration spec, `pnpm db:migration:run`, `pnpm db:migration:revert` |
 | ORBIT-4 | 온디바이스 STT spike | model artifact, size/load/latency/keyword 기준 문서화 | `docs/spikes/on-device-stt.md`, manual Chrome evidence |
 | ORBIT-5 | M0 checkpoint | 시작 준비 결과 점검 | Compose health, migration, STT doc checklist |
@@ -82,11 +81,11 @@
 | ORBIT-54 | Final report | events/Q&A/polls/speech metrics | planned Python/API report tests |
 | ORBIT-55 | Report export | PDF export and improvement suggestions | planned export/report tests |
 | ORBIT-56 | M7 checkpoint | MVP full flow | release Playwright flow |
-| ORBIT-57 | Release hardening epic | CI and deployment docs ready | 하위 ORBIT-58..61 테스트 |
-| ORBIT-58 | PR auto checks | PR checks, Docker build, Playwright smoke | `.github/workflows/ci.yml`, `pnpm test:smoke` |
+| ORBIT-57 | Release hardening epic | 수동 검증과 deployment docs ready | 하위 ORBIT-58..61 테스트 |
+| ORBIT-58 | PR verification | PR 수동 검증, Docker build, Playwright smoke | PR template 검증표, `pnpm test:smoke` |
 | ORBIT-59 | Privacy/retention tests | raw audio delete, no live upload, script privacy, no auto apply | planned API/Python privacy regression tests |
 | ORBIT-60 | Staging docs | staging deployment runbook | docs review checklist |
-| ORBIT-61 | Release checkpoint | CI/release readiness | required checks and release checklist |
+| ORBIT-61 | Release checkpoint | release readiness | 수동 검증 결과와 release checklist |
 | ORBIT-222 | Scoring thresholds | score weights and filler/pause thresholds | planned metrics unit tests after policy approval |
 | ORBIT-223 | Live STT microphone input | getUserMedia constraints, unsupported fallback, keyword evidence | planned web unit tests plus manual Chrome evidence |
 
@@ -94,7 +93,7 @@
 
 | 테스트 범위 | 상위 기능/domain | Required test level |
 | --- | --- | --- |
-| ORBIT-68 | ORBIT-2 scaffold | CI build/lint/test/Compose smoke |
+| ORBIT-68 | ORBIT-2 scaffold | build/lint/test/Compose smoke |
 | ORBIT-71 | ORBIT-3 migration | migration unit plus run/revert |
 | ORBIT-75 | ORBIT-4 STT spike | manual browser plus spike doc evidence |
 | ORBIT-81 | ORBIT-7 env | env schema/script tests |
