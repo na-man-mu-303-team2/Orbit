@@ -17,6 +17,7 @@ from app.ai.pptx_ooxml_generation import (
     render_pptx_to_png_assets,
     replace_content_slot_text,
     shape_fallback_assets,
+    strip_text_from_pptx_package,
     sync_pptx_ooxml,
 )
 from app.ai.pptx_design_importer import ImportedDesignAsset
@@ -232,6 +233,18 @@ def test_shape_fallback_assets_crop_from_slide_render() -> None:
     assert assets[0].asset_id == "shape_render_1_slide_2"
     assert assets[0].mime_type == "image/png"
     assert crop.size == (30, 25)
+
+
+def test_strip_text_from_pptx_package_removes_text_bodies(tmp_path: Path) -> None:
+    pptx_path = sample_pptx(tmp_path)
+
+    stripped = strip_text_from_pptx_package(pptx_path.read_bytes())
+
+    with zipfile.ZipFile(BytesIO(stripped), "r") as package:
+        slide_xml = package.read("ppt/slides/slide1.xml")
+
+    assert b"Placeholder Title" not in slide_xml
+    assert b"<p:txBody>" not in slide_xml
 
 
 def sample_pptx(tmp_path: Path, *, wide: bool = True) -> Path:

@@ -263,7 +263,7 @@ def test_import_pptx_design_preserves_common_preset_shape_types(
     assert all(path.startswith("M ") for path in custom_paths)
 
 
-def test_ooxml_visual_tree_uses_image_fallback_for_complex_text_layout(
+def test_ooxml_visual_tree_keeps_complex_text_editable(
     tmp_path: Path,
 ) -> None:
     pptx_path = tmp_path / "complex-text.pptx"
@@ -280,26 +280,103 @@ def test_ooxml_visual_tree_uses_image_fallback_for_complex_text_layout(
 
     result = import_pptx_ooxml_visual_tree(pptx_path, "file_design")
     elements = result.blueprint["slides"][0]["elements"]
-    fallback = next(
+    text = next(element for element in elements if element["type"] == "text")
+
+    assert text["props"]["text"] == "First paragraph\nSecond paragraph"
+    assert not any(
+        element["type"] == "image"
+        and str(element["props"]["src"]).startswith("asset:shape_render_1_slide_")
+        for element in elements
+    )
+    assert not any("multi-paragraph text layout" in warning for warning in result.warnings)
+
+
+def test_ooxml_visual_tree_splits_text_from_unsupported_shape_fallback(
+    tmp_path: Path,
+) -> None:
+    pptx_path = tmp_path / "shape-with-text.pptx"
+    presentation = Presentation()
+    presentation.slide_width = Inches(13.333333)
+    presentation.slide_height = Inches(7.5)
+    slide = presentation.slides.add_slide(presentation.slide_layouts[6])
+
+    shape = slide.shapes.add_shape(
+        MSO_SHAPE.RECTANGLE,
+        Inches(1),
+        Inches(1),
+        Inches(4),
+        Inches(1.5),
+    )
+    shape.text_frame.text = "Editable label"
+    replace_shape_fill_with_pattern(shape)
+    presentation.save(pptx_path)
+
+    result = import_pptx_ooxml_visual_tree(pptx_path, "file_design")
+    elements = result.blueprint["slides"][0]["elements"]
+
+    fallback_images = [
         element
         for element in elements
         if element["type"] == "image"
         and str(element["props"]["src"]).startswith("asset:shape_render_1_slide_")
-    )
-    source = next(
-        source
-        for source in result.template_blueprint["slides"][0]["elementSources"]
-        if source["elementId"] == fallback["elementId"]
+    ]
+    text = next(
+        element
+        for element in elements
+        if element["type"] == "text" and element["props"]["text"] == "Editable label"
     )
 
-    assert not any(
-        element["type"] == "text"
-        and "First paragraph" in element["props"].get("text", "")
+    assert len(fallback_images) == 1
+    assert fallback_images[0]["zIndex"] < text["zIndex"]
+
+
+def test_ooxml_visual_tree_uses_single_image_fallback_for_group_visuals(
+    tmp_path: Path,
+) -> None:
+    pptx_path = tmp_path / "group-visual.pptx"
+    presentation = Presentation()
+    presentation.slide_width = Inches(13.333333)
+    presentation.slide_height = Inches(7.5)
+    slide = presentation.slides.add_slide(presentation.slide_layouts[6])
+
+    box_a = slide.shapes.add_shape(
+        MSO_SHAPE.RECTANGLE,
+        Inches(1),
+        Inches(1),
+        Inches(1),
+        Inches(1),
+    )
+    box_a.fill.solid()
+    box_a.fill.fore_color.rgb = RGBColor(245, 158, 11)
+    box_b = slide.shapes.add_shape(
+        MSO_SHAPE.OVAL,
+        Inches(2.2),
+        Inches(1),
+        Inches(1),
+        Inches(1),
+    )
+    box_b.fill.solid()
+    box_b.fill.fore_color.rgb = RGBColor(37, 99, 235)
+    label = slide.shapes.add_textbox(Inches(1.1), Inches(2.2), Inches(2), Inches(0.5))
+    label.text_frame.text = "Group text"
+    slide.shapes.add_group_shape([box_a, box_b, label])
+    presentation.save(pptx_path)
+
+    result = import_pptx_ooxml_visual_tree(pptx_path, "file_design")
+    elements = result.blueprint["slides"][0]["elements"]
+    fallback_images = [
+        element
+        for element in elements
+        if element["type"] == "image"
+        and str(element["props"]["src"]).startswith("asset:shape_render_1_slide_")
+    ]
+
+    assert len(fallback_images) == 1
+    assert any(
+        element["type"] == "text" and element["props"]["text"] == "Group text"
         for element in elements
     )
-    assert fallback["props"]["fit"] == "stretch"
-    assert source["fallbackReason"] == "multi-paragraph text layout"
-    assert any("image fallback" in warning for warning in result.warnings)
+    assert not any(element["type"] == "ellipse" for element in elements)
 
 
 def test_blip_fill_asset_extracts_embedded_image_and_color() -> None:
@@ -872,6 +949,30 @@ def replace_shape_fill_with_gradient(shape: object) -> None:
               </a:gsLst>
               <a:lin ang="5400000" scaled="1"/>
             </a:gradFill>
+            """
+        ),
+    )
+
+
+def replace_shape_fill_with_pattern(shape: object) -> None:
+    sp_pr = shape._element.spPr
+    for child in list(sp_pr):
+        if child.tag.rsplit("}", maxsplit=1)[-1] in {
+            "solidFill",
+            "gradFill",
+            "noFill",
+            "pattFill",
+        }:
+            sp_pr.remove(child)
+    sp_pr.insert(
+        0,
+        parse_xml(
+            """
+            <a:pattFill xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"
+                        prst="pct20">
+              <a:fgClr><a:srgbClr val="111827"/></a:fgClr>
+              <a:bgClr><a:srgbClr val="F59E0B"/></a:bgClr>
+            </a:pattFill>
             """
         ),
     )

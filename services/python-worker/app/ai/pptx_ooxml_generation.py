@@ -163,8 +163,14 @@ def generate_pptx_ooxml(
     if render:
         slide_render_assets = render_pptx_to_png_assets(package_bytes, canvas)
         assets.extend(slide_render_assets)
+        fallback_render_assets = slide_render_assets
+        if blueprint_has_shape_fallbacks(imported.blueprint):
+            fallback_render_assets = render_pptx_to_png_assets(
+                strip_text_from_pptx_package(package_bytes),
+                canvas,
+            )
         assets.extend(
-            shape_fallback_assets(imported.blueprint, slide_render_assets, warnings)
+            shape_fallback_assets(imported.blueprint, fallback_render_assets, warnings)
         )
 
     quality_report = dict(imported.quality_report)
@@ -1053,6 +1059,52 @@ def shape_fallback_assets(
             seen_asset_ids.add(asset_id)
 
     return assets
+
+
+def blueprint_has_shape_fallbacks(blueprint: dict[str, Any]) -> bool:
+    slides = blueprint.get("slides", [])
+    if not isinstance(slides, list):
+        return False
+    return any(
+        isinstance(element, dict)
+        and shape_fallback_asset_id_from_element(element) is not None
+        for slide in slides
+        if isinstance(slide, dict)
+        for element in slide.get("elements", [])
+    )
+
+
+def strip_text_from_pptx_package(package_bytes: bytes) -> bytes:
+    changed_entries: dict[str, bytes] = {}
+    with zipfile.ZipFile(BytesIO(package_bytes), "r") as package:
+        for name in package.namelist():
+            if not is_presentation_visual_part(name):
+                continue
+            root = ET.fromstring(package.read(name))
+            if remove_text_bodies(root):
+                changed_entries[name] = xml_bytes(root)
+        if not changed_entries:
+            return package_bytes
+        return rewrite_zip(package, changed_entries)
+
+
+def is_presentation_visual_part(name: str) -> bool:
+    return (
+        name.startswith("ppt/slides/slide")
+        or name.startswith("ppt/slideLayouts/slideLayout")
+        or name.startswith("ppt/slideMasters/slideMaster")
+    ) and name.endswith(".xml")
+
+
+def remove_text_bodies(element: ET.Element[Any]) -> bool:
+    changed = False
+    for child in list(element):
+        if local_name(child) == "txBody":
+            element.remove(child)
+            changed = True
+        elif remove_text_bodies(child):
+            changed = True
+    return changed
 
 
 def slide_render_assets_by_index(

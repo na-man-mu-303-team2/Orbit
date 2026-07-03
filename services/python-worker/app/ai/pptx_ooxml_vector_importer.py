@@ -358,6 +358,7 @@ def append_visual_tree(
                 group=child,
                 slide_index=slide_index,
                 source_name=source_name,
+                child_index=child_index,
                 scale=scale,
                 transform=transform,
                 state=state,
@@ -404,6 +405,7 @@ def append_group_shape(
     group: ET.Element[Any],
     slide_index: int,
     source_name: str,
+    child_index: int,
     scale: OoxmlScale,
     transform: OoxmlTransform,
     state: OoxmlImportState,
@@ -412,7 +414,48 @@ def append_group_shape(
     placeholder_frames: dict[tuple[str, str], dict[str, int]],
     locked: bool,
 ) -> None:
+    group_id = shape_identifier(group, child_index)
+    group_frame = shape_frame(group, scale, transform, placeholder_frames)
     group_transform = transform.for_group(group)
+    if group_frame is not None and group_has_visual_content(
+        group,
+        scale,
+        group_transform,
+        state.theme_colors,
+        placeholder_frames,
+    ):
+        source = shape_source(group, part_path, group_id, source_name, locked)
+        source["fallbackReason"] = "group visual fallback"
+        fallback_element = shape_fallback_image_element(
+            shape=group,
+            slide_index=slide_index,
+            source_name=source_name,
+            shape_id=group_id,
+            frame=group_frame,
+            z_index=state.next_z(),
+            locked=locked,
+            reason="group visual fallback",
+        )
+        elements.append(fallback_element)
+        slot_sources[str(fallback_element["elementId"])] = source
+        state.warnings.append(
+            f"OOXML group rendered as image fallback on slide {slide_index}: {group_id}"
+        )
+        append_group_text_elements(
+            part_path=part_path,
+            group=group,
+            slide_index=slide_index,
+            source_name=source_name,
+            scale=scale,
+            transform=group_transform,
+            state=state,
+            elements=elements,
+            slot_sources=slot_sources,
+            placeholder_frames=placeholder_frames,
+            locked=locked,
+        )
+        return
+
     rels = relationships_for_part(package, part_path)
     for child_index, child in enumerate(list(group), start=1):
         tag = local_name(child)
@@ -424,6 +467,7 @@ def append_group_shape(
                 group=child,
                 slide_index=slide_index,
                 source_name=source_name,
+                child_index=child_index,
                 scale=scale,
                 transform=group_transform,
                 state=state,
@@ -450,6 +494,141 @@ def append_group_shape(
                 placeholder_frames=placeholder_frames,
                 locked=locked,
             )
+
+
+def append_group_text_elements(
+    *,
+    part_path: str,
+    group: ET.Element[Any],
+    slide_index: int,
+    source_name: str,
+    scale: OoxmlScale,
+    transform: OoxmlTransform,
+    state: OoxmlImportState,
+    elements: list[dict[str, Any]],
+    slot_sources: dict[str, dict[str, Any]],
+    placeholder_frames: dict[tuple[str, str], dict[str, int]],
+    locked: bool,
+) -> None:
+    for child_index, child in enumerate(list(group), start=1):
+        tag = local_name(child)
+        if tag == "grpSp":
+            append_group_text_elements(
+                part_path=part_path,
+                group=child,
+                slide_index=slide_index,
+                source_name=source_name,
+                scale=scale,
+                transform=transform.for_group(child),
+                state=state,
+                elements=elements,
+                slot_sources=slot_sources,
+                placeholder_frames=placeholder_frames,
+                locked=locked,
+            )
+        elif tag in {"sp", "cxnSp"}:
+            append_shape_text_only(
+                part_path=part_path,
+                shape=child,
+                slide_index=slide_index,
+                source_name=source_name,
+                child_index=child_index,
+                scale=scale,
+                transform=transform,
+                state=state,
+                elements=elements,
+                slot_sources=slot_sources,
+                placeholder_frames=placeholder_frames,
+                locked=locked,
+            )
+
+
+def append_shape_text_only(
+    *,
+    part_path: str,
+    shape: ET.Element[Any],
+    slide_index: int,
+    source_name: str,
+    child_index: int,
+    scale: OoxmlScale,
+    transform: OoxmlTransform,
+    state: OoxmlImportState,
+    elements: list[dict[str, Any]],
+    slot_sources: dict[str, dict[str, Any]],
+    placeholder_frames: dict[tuple[str, str], dict[str, int]],
+    locked: bool,
+) -> None:
+    shape_id = shape_identifier(shape, child_index)
+    frame = shape_frame(shape, scale, transform, placeholder_frames)
+    if frame is None:
+        return
+    text_element_payload = text_element(
+        shape=shape,
+        slide_index=slide_index,
+        source_name=source_name,
+        shape_id=shape_id,
+        frame=frame,
+        scale=scale,
+        z_index=state.next_z(),
+        locked=locked,
+        theme_colors=state.theme_colors,
+    )
+    if text_element_payload:
+        elements.append(text_element_payload)
+        slot_sources[str(text_element_payload["elementId"])] = shape_source(
+            shape,
+            part_path,
+            shape_id,
+            source_name,
+            locked,
+        )
+
+
+def group_has_visual_content(
+    group: ET.Element[Any],
+    scale: OoxmlScale,
+    transform: OoxmlTransform,
+    theme_colors: dict[str, str],
+    placeholder_frames: dict[tuple[str, str], dict[str, int]],
+) -> bool:
+    for child in list(group):
+        tag = local_name(child)
+        if tag == "grpSp":
+            if group_has_visual_content(
+                child,
+                scale,
+                transform.for_group(child),
+                theme_colors,
+                placeholder_frames,
+            ):
+                return True
+        elif tag in {"sp", "pic", "cxnSp"} and shape_has_visual_content(
+            child,
+            scale,
+            transform,
+            theme_colors,
+            placeholder_frames,
+        ):
+            return True
+    return False
+
+
+def shape_has_visual_content(
+    shape: ET.Element[Any],
+    scale: OoxmlScale,
+    transform: OoxmlTransform,
+    theme_colors: dict[str, str],
+    placeholder_frames: dict[tuple[str, str], dict[str, int]],
+) -> bool:
+    if shape_frame(shape, scale, transform, placeholder_frames) is None:
+        return False
+    if local_name(shape) in {"pic", "cxnSp"}:
+        return True
+    if unsupported_geometry_reason(shape) or unsupported_effect_reason(shape):
+        return True
+    fill = shape_fill(shape, theme_colors)
+    stroke, _, _ = shape_stroke(shape, scale, theme_colors)
+    return bool(fill != "transparent" or stroke != "transparent")
 
 
 def append_shape(
@@ -498,6 +677,26 @@ def append_shape(
             f"OOXML shape rendered as image fallback on slide {slide_index}: "
             f"{fallback_reason}"
         )
+        text_element_payload = text_element(
+            shape=shape,
+            slide_index=slide_index,
+            source_name=source_name,
+            shape_id=shape_id,
+            frame=frame,
+            scale=scale,
+            z_index=state.next_z(),
+            locked=locked,
+            theme_colors=state.theme_colors,
+        )
+        if text_element_payload:
+            elements.append(text_element_payload)
+            slot_sources[str(text_element_payload["elementId"])] = shape_source(
+                shape,
+                part_path,
+                shape_id,
+                source_name,
+                locked,
+            )
         return
 
     if local_name(shape) == "pic":
@@ -683,10 +882,6 @@ def shape_image_fallback_reason(shape: ET.Element[Any]) -> str | None:
     effect_reason = unsupported_effect_reason(shape)
     if effect_reason:
         return effect_reason
-
-    body = first_local_child(shape, "txBody")
-    if body is not None:
-        return unsupported_text_reason(body)
 
     return None
 
