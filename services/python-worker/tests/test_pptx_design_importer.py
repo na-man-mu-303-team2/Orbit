@@ -942,6 +942,11 @@ def test_ooxml_visual_tree_importer_falls_back_graphic_frames(
     ]
     table = next(element for element in elements if element["type"] == "table")
     chart = next(element for element in elements if element["type"] == "chart")
+    chart_slot = next(
+        slot
+        for slot in result.template_blueprint["slides"][0]["slots"]
+        if slot["elementId"] == chart["elementId"]
+    )
 
     assert len(fallback_images) == 0
     assert table["props"]["rows"][0][0]["text"] == "A"
@@ -954,6 +959,8 @@ def test_ooxml_visual_tree_importer_falls_back_graphic_frames(
         {"label": "B", "value": 2.0},
     ]
     assert chart["props"]["style"]["colors"][0] == "#4F81BD"
+    assert chart_slot["slotRole"] == "chart"
+    assert chart_slot["source"]["type"] == "unknown"
     assert not any(
         "OOXML graphicFrame rendered as image fallback on slide 1: table"
         in warning

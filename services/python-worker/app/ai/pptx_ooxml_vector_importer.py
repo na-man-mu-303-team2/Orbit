@@ -475,7 +475,7 @@ def append_graphic_frame(
             locked=locked,
         )
         if element:
-            source["type"] = "chart"
+            source["type"] = "unknown"
             elements.append(element)
             slot_sources[str(element["elementId"])] = source
             return
