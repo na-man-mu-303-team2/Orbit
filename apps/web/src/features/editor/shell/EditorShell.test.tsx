@@ -4,7 +4,8 @@ import type {
   AiSuggestion,
   Deck,
   DeckElement,
-  ListAiSuggestionsResponse
+  ListAiSuggestionsResponse,
+  TableElementProps
 } from "@orbit/shared";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
@@ -18,10 +19,15 @@ import {
   getEditorValidationItems,
   mergeDeckIntoQueryCache,
   shouldApplyManualSaveResult,
+  shouldRefreshImportedSlideThumbnails,
   shouldHydrateDeckFromQuery,
   uploadAndImportPptxTemplate
 } from "./EditorShell";
-import { createShrinkToFitTextProps } from "./components/SelectionQuickBar";
+import {
+  createShrinkToFitTextProps,
+  parseTableDataDraft,
+  tableDataDraft
+} from "./components/SelectionQuickBar";
 import { resolveEditorAssetUrl } from "../shared/editorAssetUrl";
 import { aiSuggestionsQueryKey } from "../suggestions/api/suggestionApi";
 
@@ -154,6 +160,7 @@ describe("editor shell", () => {
 
     expect(html).toContain(deck.title);
     expect(html).toContain("Opening");
+    expect(html).toContain('title="표"');
     expect(html).not.toContain("Data Contract");
     expect(html).toContain("발표 메모");
     expect(html).toContain("저장됨");
@@ -349,6 +356,69 @@ describe("editor shell", () => {
 
     expect(html).toContain("http://assets.example.test/slide_1.png");
     expect(html).not.toContain("미리보기 준비됨");
+  });
+
+  it("marks imported PPTX slide renders for thumbnail refresh", () => {
+    const deck = createDemoDeck();
+
+    deck.slides[0].thumbnailUrl = "asset:slide_render_1";
+
+    expect(shouldRefreshImportedSlideThumbnails(deck)).toBe(true);
+
+    deck.slides[0].thumbnailUrl =
+      "http://assets.example.test/slide-01-thumbnail-v2.png";
+
+    expect(shouldRefreshImportedSlideThumbnails(deck)).toBe(false);
+  });
+
+  it("keeps table quickbar edits in editable table props", () => {
+    const table: TableElementProps = {
+      borderColor: "#CBD5E1",
+      borderWidth: 1,
+      columnWidths: [120, 120],
+      rowHeights: [40, 40],
+      rows: [
+        [
+          {
+            align: "center",
+            borderColor: "#CBD5E1",
+            borderWidth: 1,
+            colSpan: 1,
+            fill: "#EFF6FF",
+            fontSize: 18,
+            fontWeight: "bold",
+            rowSpan: 1,
+            text: "A",
+            verticalAlign: "middle"
+          },
+          {
+            align: "center",
+            borderColor: "#CBD5E1",
+            borderWidth: 1,
+            colSpan: 1,
+            fill: "#EFF6FF",
+            fontSize: 18,
+            fontWeight: "bold",
+            rowSpan: 1,
+            text: "B",
+            verticalAlign: "middle"
+          }
+        ]
+      ]
+    };
+
+    expect(tableDataDraft(table)).toBe("A\tB");
+
+    const patch = parseTableDataDraft("Name\tScore\nAda\t95", table, 240, 120);
+
+    expect(patch).toMatchObject({
+      columnWidths: [120, 120],
+      rowHeights: [40, 40],
+      rows: [
+        [{ text: "Name" }, { text: "Score" }],
+        [{ text: "Ada" }, { text: "95" }]
+      ]
+    });
   });
 
   it("applies manual save results only while the saved snapshot is still current", () => {

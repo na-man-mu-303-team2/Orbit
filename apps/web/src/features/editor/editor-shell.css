@@ -1401,6 +1401,10 @@
   width: 240px;
 }
 
+.compact-property-field-table {
+  width: 320px;
+}
+
 .compact-property-field-color {
   width: 82px;
 }
@@ -1410,11 +1414,17 @@
 }
 
 .compact-property-field input,
-.compact-property-field select {
+.compact-property-field select,
+.compact-property-field textarea {
   min-height: 38px;
   padding: 8px 10px;
   border-radius: 8px;
   font-size: 13px;
+}
+
+.compact-property-field textarea {
+  resize: vertical;
+  min-height: 58px;
 }
 
 .compact-property-field input[type="color"] {

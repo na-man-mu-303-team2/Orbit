@@ -86,6 +86,7 @@ import type {
   QualityReport,
   ShapeElementProps,
   Slide,
+  TableElementProps,
   DeckApiErrorCode,
 } from "@orbit/shared";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -113,6 +114,7 @@ import {
   Shapes,
   Share2,
   Sparkles,
+  Table2,
   Type,
   Upload,
   Wand2,
@@ -218,6 +220,12 @@ const maxRightPaneWidth = 560;
 const editorUploadProjectTitle = "ORBIT Editor Uploads";
 const defaultImageInsertFrame = {
   height: 240,
+  width: 420,
+  x: 260,
+  y: 220,
+};
+const defaultTableInsertFrame = {
+  height: 220,
   width: 420,
   x: 260,
   y: 220,
@@ -1021,6 +1029,7 @@ export function EditorShell(props: { projectId?: string }) {
   const copiedElementRef = useRef<ElementClipboardState | null>(null);
   const editorStageRef = useRef<Konva.Stage | null>(null);
   const slideRenderStageRefs = useRef(new Map<string, Konva.Stage>());
+  const importedThumbnailRefreshKeyRef = useRef<string | null>(null);
   const undoRedoPersistTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
   );
@@ -1399,6 +1408,76 @@ export function EditorShell(props: { projectId?: string }) {
 
     resolvedUploadProjectIdRef.current = deckQuery.data.projectId;
   }, [deckQuery.data]);
+
+  useEffect(() => {
+    const sourceDeck = deckQuery.data;
+    const activeProjectId = sourceDeck?.projectId ?? projectId;
+
+    if (
+      !sourceDeck ||
+      !activeProjectId ||
+      !shouldRefreshImportedSlideThumbnails(sourceDeck)
+    ) {
+      return;
+    }
+
+    const refreshKey = `${activeProjectId}:${sourceDeck.deckId}:${sourceDeck.version}`;
+
+    if (importedThumbnailRefreshKeyRef.current === refreshKey) {
+      return;
+    }
+
+    importedThumbnailRefreshKeyRef.current = refreshKey;
+    let cancelled = false;
+
+    void (async () => {
+      try {
+        await saveQueueRef.current.catch(() => undefined);
+        setSaveState("auto-saving");
+        const renderResult = await syncSlideRenderAssets(
+          activeProjectId,
+          sourceDeck,
+        );
+
+        if (cancelled) {
+          return;
+        }
+
+        if (
+          !shouldApplyManualSaveResult({
+            snapshotDeck: sourceDeck,
+            currentDeck: workingDeckRef.current,
+          })
+        ) {
+          setSaveState("auto-pending");
+          return;
+        }
+
+        const finalDeck = await putProjectDeck(activeProjectId, renderResult.deck);
+
+        if (cancelled) {
+          return;
+        }
+
+        acknowledgePersistedDeckSnapshot(sourceDeck, finalDeck);
+        setLastSavedAt(new Date().toISOString());
+        setLastPatchLabel(`thumbnail refresh · v${finalDeck.version}`);
+        setSaveState("auto-saved");
+        setSaveError(null, null);
+      } catch (error) {
+        if (cancelled) {
+          return;
+        }
+
+        setSaveState("error");
+        setSaveError("manual-render-failed", toEditorErrorMessage(error));
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [deckQuery.data, projectId]);
 
   function handleAiSuggestionApplied(response: ApplyAiSuggestionResponse) {
     queryClient.setQueryData(["deck", projectId], response.deck);
@@ -2318,6 +2397,38 @@ export function EditorShell(props: { projectId?: string }) {
       }),
     );
     setSelectedElementIds([elementId]);
+  }
+
+  function handleAddTableElement() {
+    if (!currentSlide) {
+      return;
+    }
+
+    const elementId = createElementId(deck);
+    commitPatch((currentDeck) =>
+      createAddElementPatch(currentDeck, currentSlide.slideId, {
+        elementId,
+        type: "table",
+        role: "table",
+        x: defaultTableInsertFrame.x,
+        y: defaultTableInsertFrame.y,
+        width: defaultTableInsertFrame.width,
+        height: defaultTableInsertFrame.height,
+        rotation: 0,
+        opacity: 1,
+        zIndex: getNextElementZIndex(currentSlide.elements),
+        locked: false,
+        visible: true,
+        props: createDefaultTableElementProps(
+          defaultTableInsertFrame.width,
+          defaultTableInsertFrame.height,
+          deck.theme.typography.bodyFontFamily,
+        ),
+      }),
+    );
+    setSelectedElementIds([elementId]);
+    setEditingElementId(null);
+    setInsertTool("select");
   }
 
   function handleInsertShapeElement(shapeType: ShapeInsertType) {
@@ -4015,6 +4126,15 @@ export function EditorShell(props: { projectId?: string }) {
                   </button>
                   <button
                     className="tool-button"
+                    title="표"
+                    type="button"
+                    onClick={handleAddTableElement}
+                  >
+                    <Table2 size={14} />
+                    표
+                  </button>
+                  <button
+                    className="tool-button"
                     disabled={!currentSlide || isImageUploadPending}
                     type="button"
                     onClick={() =>
@@ -4500,6 +4620,65 @@ function getSlideBackgroundSize(
 
 function clampBackgroundOverlayOpacity(opacity: number) {
   return Math.max(0, Math.min(1, 1 - opacity));
+}
+
+export function shouldRefreshImportedSlideThumbnails(deck: Deck) {
+  return deck.slides.some(
+    (slide) =>
+      isImportedPptxSlideRenderUrl(slide.thumbnailUrl) &&
+      getRenderableSlideElements(slide, deck.canvas).length > 0,
+  );
+}
+
+function isImportedPptxSlideRenderUrl(url?: string | null) {
+  return Boolean(url?.includes("slide_render_"));
+}
+
+function createDefaultTableElementProps(
+  width: number,
+  height: number,
+  fontFamily: string,
+): TableElementProps {
+  const columnWidths = [width / 2, width / 2];
+  const rowHeights = [56, Math.max(64, height - 56)];
+
+  return {
+    borderColor: "#CBD5E1",
+    borderWidth: 1,
+    columnWidths,
+    rowHeights,
+    rows: [
+      [
+        createDefaultTableCell("Header 1", fontFamily, true),
+        createDefaultTableCell("Header 2", fontFamily, true),
+      ],
+      [
+        createDefaultTableCell("Cell", fontFamily, false),
+        createDefaultTableCell("Cell", fontFamily, false),
+      ],
+    ],
+  };
+}
+
+function createDefaultTableCell(
+  text: string,
+  fontFamily: string,
+  isHeader: boolean,
+): TableElementProps["rows"][number][number] {
+  return {
+    align: isHeader ? "center" : "left",
+    borderColor: "#CBD5E1",
+    borderWidth: 1,
+    colSpan: 1,
+    fill: isHeader ? "#EFF6FF" : "#FFFFFF",
+    fontFamily,
+    fontSize: 18,
+    fontWeight: isHeader ? "bold" : "normal",
+    rowSpan: 1,
+    text,
+    textColor: "#111827",
+    verticalAlign: "middle",
+  };
 }
 
 function getEditorStatusLabel(props: {
