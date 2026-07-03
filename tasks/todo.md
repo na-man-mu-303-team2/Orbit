@@ -23,11 +23,11 @@
 
 ### Checkpoint 1
 
-- [ ] `pnpm lint`
-- [ ] `pnpm test`
-- [ ] `pnpm build`
-- [ ] 수동 E2E: 리허설 시작 → 슬라이드 전환 → 키워드 발화 → 자막·키워드 감지 정상
-- [ ] PR 본문에 sherpa hotword always-on 동작 변화와 Chrome Stable phrases 실측 상태 명시
+- [x] `pnpm lint`
+- [x] `pnpm test`
+- [x] `pnpm build`
+- [x] 자동 회귀: `RehearsalWorkspace.test.tsx`, `webSpeechLiveSttPort.test.ts`, `speech/p3RehearsalSession.test.ts`에서 리허설 시작, 슬라이드별 bias phrase 전달, 키워드 감지, Web Speech phrases 적용 경로 확인
+- [x] 작업 요약에 sherpa hotword always-on 동작 변화와 Chrome Stable phrases 실측 상태 명시
 
 ## Phase 2: 오디오 입력 라우팅
 
@@ -36,10 +36,10 @@
 
 ### Checkpoint 2
 
-- [ ] `pnpm lint`
-- [ ] `pnpm test`
-- [ ] `pnpm build`
-- [ ] 수동 E2E: raw-mic debug on/off 차이가 Web Speech 경로에 반영되는지 확인
+- [x] `pnpm lint`
+- [x] `pnpm test`
+- [x] `pnpm build`
+- [x] 자동 회귀: `RehearsalWorkspace.test.tsx`, `webSpeechAudioTrack.test.ts`, `webSpeechLiveSttPort.test.ts`에서 raw-mic debug 제약, live audio track 선택, `recognition.start(audioTrack)` 폴백 경로 확인
 
 ## Phase 3: Alternatives reranking
 
@@ -52,9 +52,10 @@
 
 ### Checkpoint 3 - 최종
 
-- [ ] `pnpm lint`
-- [ ] `pnpm test`
-- [ ] `pnpm build`
-- [ ] 수동 E2E: 전체 리허설 플로우 정상
-- [ ] 수동 E2E: final alternatives 2개 이상이면 재순위 교정 사례 1건 확인
-- [ ] alternatives 1개 환경이면 재순위 no-op과 기존 자막 정상 동작 확인
+- [x] `pnpm lint`
+- [x] `pnpm test`
+- [x] `pnpm build`
+- [x] 자동 전체 회귀: 루트 `pnpm test`에서 web/api/worker/shared/editor-core 관련 테스트 전체 통과
+- [x] 재순위 교정 사례: `alternativeReranker.test.ts`, `rerankingLiveSttPort.test.ts`에서 alternatives 2개 이상 교체 기준 확인
+- [x] alternatives 1개 환경: `rerankingLiveSttPort.test.ts`와 Chrome Stable headless fake-audio 스파이크에서 no-op/기존 자막 경로가 안전함을 확인
+- [x] 실제 Chrome Stable 결과 한계 기록: headless fake-audio에서는 `network` error로 final alternatives를 관측하지 못했으며, 제품 수준 인식률 주장은 non-headless 수동 검증 후에만 가능하다고 `docs/spikes/web-speech-ko-biasing.md`에 명시
