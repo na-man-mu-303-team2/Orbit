@@ -6,6 +6,7 @@ import type {
   DeckElement,
   GroupElementProps,
   ShapeElementProps,
+  TextElementParagraph,
   TextElementRun,
   Slide,
   TextElementProps
@@ -120,6 +121,31 @@ export function ElementNodeContent(props: {
           x={0}
           y={frame.height}
         />
+      );
+    }
+
+    if (shouldRenderTextParagraphs(textProps)) {
+      return (
+        <Group listening={false}>
+          {layoutTextParagraphs(textProps, textLayout).map((paragraph, index) => (
+            <Text
+              align={paragraph.align}
+              fill={paragraph.color}
+              fontFamily={paragraph.fontFamily}
+              fontSize={paragraph.fontSize}
+              fontStyle={paragraph.fontStyle}
+              key={`${paragraph.text}-${index}`}
+              lineHeight={paragraph.lineHeight}
+              listening={false}
+              padding={0}
+              text={paragraph.text}
+              width={Math.max(1, paragraph.width)}
+              wrap="word"
+              x={paragraph.x}
+              y={paragraph.y}
+            />
+          ))}
+        </Group>
       );
     }
 
@@ -574,6 +600,80 @@ type TextLayout = ReturnType<typeof getTextElementLayout>;
 
 function shouldRenderTextRuns(props: TextElementProps) {
   return (props.runs?.filter((run) => run.text.length > 0).length ?? 0) > 1;
+}
+
+function shouldRenderTextParagraphs(props: TextElementProps) {
+  return (
+    (props.paragraphs?.filter((paragraph) => paragraphText(paragraph)).length ?? 0) >
+    0
+  );
+}
+
+function layoutTextParagraphs(props: TextElementProps, layout: TextLayout) {
+  const paragraphs = props.paragraphs ?? [];
+  const result: Array<{
+    align: TextElementProps["align"];
+    color: string;
+    fontFamily: string;
+    fontSize: number;
+    fontStyle: "normal" | "bold";
+    lineHeight: number;
+    text: string;
+    width: number;
+    x: number;
+    y: number;
+  }> = [];
+  let y = layout.y;
+
+  for (const paragraph of paragraphs) {
+    const text = paragraphText(paragraph);
+    if (!text) {
+      continue;
+    }
+    y += paragraph.spaceBefore ?? 0;
+    const style = paragraphStyle(paragraph, props, layout);
+    const indent = paragraph.indent ?? 0;
+    const prefix = paragraph.bullet?.enabled ? `${paragraph.bullet.character} ` : "";
+    const width = Math.max(1, layout.width - indent);
+    result.push({
+      ...style,
+      text: `${prefix}${text}`,
+      width,
+      x: layout.contentX + indent,
+      y
+    });
+    const measured = measureRunText(text, style);
+    const lineCount = Math.max(1, Math.ceil(measured / width));
+    y += lineCount * style.fontSize * style.lineHeight + (paragraph.spaceAfter ?? 0);
+  }
+
+  return result;
+}
+
+function paragraphText(paragraph: TextElementParagraph) {
+  if (paragraph.runs?.length) {
+    return paragraph.runs.map((run) => run.text).join("");
+  }
+
+  return paragraph.text;
+}
+
+function paragraphStyle(
+  paragraph: TextElementParagraph,
+  props: TextElementProps,
+  layout: TextLayout
+) {
+  const run = paragraph.runs?.find((item) => item.text.trim()) ?? paragraph.runs?.[0];
+  const fontWeight = run?.fontWeight ?? paragraph.fontWeight ?? props.fontWeight;
+
+  return {
+    align: paragraph.align ?? props.align,
+    color: run?.color ?? paragraph.color ?? layout.color,
+    fontFamily: run?.fontFamily ?? paragraph.fontFamily ?? layout.fontFamily,
+    fontSize: run?.fontSize ?? paragraph.fontSize ?? layout.fontSize,
+    fontStyle: getKonvaFontStyle(fontWeight),
+    lineHeight: paragraph.lineHeight ?? props.lineHeight
+  };
 }
 
 function layoutTextRuns(props: TextElementProps, layout: TextLayout) {

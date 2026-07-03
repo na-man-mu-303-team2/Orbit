@@ -1,4 +1,9 @@
-import type { Deck, Slide, TextElementProps } from "@orbit/shared";
+import type {
+  Deck,
+  Slide,
+  TextElementParagraph,
+  TextElementProps
+} from "@orbit/shared";
 import { Text as KonvaTextShape } from "konva/lib/shapes/Text";
 
 const textElementPadding = 4;
@@ -21,11 +26,17 @@ export function getCssFontWeight(fontWeight: TextElementProps["fontWeight"]) {
   }
 }
 
-export function getKonvaFontStyle(fontWeight: TextElementProps["fontWeight"]) {
+export function getKonvaFontStyle(
+  fontWeight: TextElementProps["fontWeight"]
+): "normal" | "bold" {
   return getCssFontWeight(fontWeight) >= 600 ? "bold" : "normal";
 }
 
 export function getTextElementText(props: TextElementProps) {
+  if (props.paragraphs?.length) {
+    return props.paragraphs.map(getParagraphText).join("\n");
+  }
+
   if (props.runs?.length) {
     return props.runs.map((run) => run.text).join("");
   }
@@ -34,7 +45,29 @@ export function getTextElementText(props: TextElementProps) {
 }
 
 function getPrimaryTextRun(props: TextElementProps) {
+  const paragraph = props.paragraphs?.find((item) => getParagraphText(item).trim());
+  const paragraphRun =
+    paragraph?.runs?.find((run) => run.text.trim().length > 0) ??
+    paragraph?.runs?.[0];
+  if (paragraphRun) {
+    return {
+      ...paragraphRun,
+      color: paragraphRun.color ?? paragraph?.color,
+      fontFamily: paragraphRun.fontFamily ?? paragraph?.fontFamily,
+      fontSize: paragraphRun.fontSize ?? paragraph?.fontSize,
+      fontWeight: paragraphRun.fontWeight ?? paragraph?.fontWeight
+    };
+  }
+
   return props.runs?.find((run) => run.text.trim().length > 0) ?? props.runs?.[0];
+}
+
+function getParagraphText(paragraph: TextElementParagraph) {
+  if (paragraph.runs?.length) {
+    return paragraph.runs.map((run) => run.text).join("");
+  }
+
+  return paragraph.text;
 }
 
 export function getTextElementLayout(args: {

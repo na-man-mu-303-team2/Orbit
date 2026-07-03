@@ -201,6 +201,73 @@ describe("ReadOnlySlideCanvas", () => {
     expect(html).toContain("data-font-size=\"36\"");
   });
 
+  it("renders PPT text paragraphs from paragraph props", () => {
+    const paragraphSlide = {
+      ...slide,
+      elements: [
+        {
+          elementId: "el_paragraph_text",
+          type: "text" as const,
+          role: "body" as const,
+          x: 100,
+          y: 100,
+          width: 600,
+          height: 240,
+          rotation: 0,
+          opacity: 1,
+          zIndex: 1,
+          locked: false,
+          visible: true,
+          props: {
+            text: "First paragraph\nSecond paragraph",
+            paragraphs: [
+              {
+                text: "First paragraph",
+                runs: [
+                  {
+                    text: "First paragraph",
+                    baseline: "normal" as const,
+                    fontSize: 40,
+                    fontWeight: "bold" as const,
+                    color: "#111827"
+                  }
+                ],
+                align: "left" as const,
+                lineHeight: 1.1,
+                spaceBefore: 0,
+                spaceAfter: 12,
+                indent: 0
+              },
+              {
+                text: "Second paragraph",
+                align: "left" as const,
+                lineHeight: 1.2,
+                spaceBefore: 0,
+                spaceAfter: 0,
+                indent: 0
+              }
+            ],
+            fontSize: 36,
+            fontWeight: "normal" as const,
+            align: "left" as const,
+            verticalAlign: "top" as const,
+            lineHeight: 1.15
+          }
+        }
+      ]
+    };
+    const html = renderToStaticMarkup(
+      <ReadOnlySlideCanvas
+        deck={{ ...p0AnimationDeck, slides: [paragraphSlide] }}
+        slide={paragraphSlide}
+      />
+    );
+
+    expect(html).toContain("First paragraph");
+    expect(html).toContain("Second paragraph");
+    expect(html).toContain("data-font-size=\"40\"");
+  });
+
   it("renders vertical PPT text as rotated text", () => {
     const verticalSlide = {
       ...slide,
