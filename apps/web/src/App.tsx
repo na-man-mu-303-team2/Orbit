@@ -1,5 +1,7 @@
 ﻿import {
+  deckSchema,
   demoIds,
+  type Deck,
   type DeckElement,
   type GenerateDeckJobResult,
   type Job,
@@ -40,6 +42,7 @@ import {
 } from "./features/rehearsal/RehearsalWorkspace";
 import { AudienceSessionPage } from "./pages/audience/AudienceSessionPage";
 import { PresentWindow } from "./features/rehearsal/presenter/PresentWindow";
+import { ReadOnlySlideCanvas } from "./features/slides/rendering";
 
 type Fetcher = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 
@@ -146,7 +149,10 @@ export type Route =
   | { name: "present"; deckId: string; sessionId?: string }
   | { name: "rehearsal"; projectId: string }
   | { name: "rehearsal-report"; projectId: string; runId: string }
-  | { name: "report-mockup" };
+  | { name: "report-mockup" }
+  | { name: "deck-render" };
+
+export const deckRenderPayloadStorageKey = "orbit.deckRenderPayload.v1";
 
 type AuthUser = {
   userId: string;
@@ -283,6 +289,9 @@ export function getRoute(
   if (normalized === "/upload") return { name: "upload" };
   if (normalized === "/project") return { name: "project-list" };
   if (normalized === "/report_mockup") return { name: "report-mockup" };
+  if (normalized === "/__deck-render" && isDeckRenderRouteEnabled()) {
+    return { name: "deck-render" };
+  }
 
   const audienceSessionMatch = normalized.match(/^\/audience\/([^/]+)$/);
   if (audienceSessionMatch) {
@@ -378,7 +387,8 @@ export function shouldRenderAppFrame(route: Route) {
     route.name !== "present" &&
     route.name !== "rehearsal-report" &&
     route.name !== "report-mockup" &&
-    route.name !== "audience-session"
+    route.name !== "audience-session" &&
+    route.name !== "deck-render"
   );
 }
 
@@ -425,7 +435,58 @@ function renderRoute(route: Route, user?: AuthUser) {
       />
     );
   }
+  if (route.name === "deck-render") {
+    return <DeckRenderPage />;
+  }
   return <HomePage user={user} />;
+}
+
+export function isDeckRenderRouteEnabled() {
+  return import.meta.env.DEV || import.meta.env.MODE === "test";
+}
+
+export function DeckRenderPage() {
+  const payload = readDeckRenderPayload();
+  if (!payload) {
+    return <div data-testid="deck-render-error">Deck render payload missing.</div>;
+  }
+
+  const slide = payload.deck.slides[payload.slideIndex];
+  if (!slide) {
+    return <div data-testid="deck-render-error">Deck render slide missing.</div>;
+  }
+
+  return (
+    <main
+      aria-label="Deck render fixture"
+      data-testid="deck-render-page"
+      style={{ margin: 0, padding: 0 }}
+    >
+      <ReadOnlySlideCanvas deck={payload.deck} slide={slide} />
+    </main>
+  );
+}
+
+function readDeckRenderPayload(): { deck: Deck; slideIndex: number } | null {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  try {
+    const raw = window.localStorage.getItem(deckRenderPayloadStorageKey);
+    if (!raw) {
+      return null;
+    }
+    const parsed = JSON.parse(raw) as { deck?: unknown; slideIndex?: unknown };
+    const deck = deckSchema.parse(parsed.deck);
+    const slideIndex =
+      typeof parsed.slideIndex === "number" && Number.isInteger(parsed.slideIndex)
+        ? parsed.slideIndex
+        : 0;
+    return { deck, slideIndex };
+  } catch {
+    return null;
+  }
 }
 
 function AppFrame(props: {

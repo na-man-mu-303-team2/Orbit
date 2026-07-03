@@ -12,6 +12,7 @@ import {
   createGeneratedDeckProject,
   ExtractResultItem,
   GeneratedDeckResult,
+  deckRenderPayloadStorageKey,
   getGeneratedDeckProjectPath,
   getGeneratedDeckProjectTitle,
   getGenerateDeckJobResult,
@@ -81,6 +82,14 @@ describe("App shell routing", () => {
       deckId: "deck_demo_1",
       sessionId: undefined
     });
+  });
+
+  it("keeps the deck render fixture outside the shared navigation shell", () => {
+    const route = getRoute("/__deck-render");
+
+    expect(route).toEqual({ name: "deck-render" });
+    expect(shouldRenderAppFrame(route)).toBe(false);
+    expect(deckRenderPayloadStorageKey).toBe("orbit.deckRenderPayload.v1");
   });
 });
 
