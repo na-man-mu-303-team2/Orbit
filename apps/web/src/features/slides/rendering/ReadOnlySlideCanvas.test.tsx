@@ -81,6 +81,21 @@ vi.mock("react-konva", () => {
   };
 });
 
+function tableCell(text: string, fill: string) {
+  return {
+    align: "left" as const,
+    borderColor: "#CBD5E1",
+    borderWidth: 1,
+    colSpan: 1,
+    fill,
+    fontSize: 18,
+    fontWeight: "normal" as const,
+    rowSpan: 1,
+    text,
+    verticalAlign: "middle" as const
+  };
+}
+
 describe("ReadOnlySlideCanvas", () => {
   const slide = p0AnimationDeck.slides[0]!;
 
@@ -266,6 +281,50 @@ describe("ReadOnlySlideCanvas", () => {
     expect(html).toContain("First paragraph");
     expect(html).toContain("Second paragraph");
     expect(html).toContain("data-font-size=\"40\"");
+  });
+
+  it("renders editable table cells", () => {
+    const tableSlide = {
+      ...slide,
+      elements: [
+        {
+          elementId: "el_table",
+          type: "table" as const,
+          role: "table" as const,
+          x: 100,
+          y: 100,
+          width: 480,
+          height: 180,
+          rotation: 0,
+          opacity: 1,
+          zIndex: 1,
+          locked: false,
+          visible: true,
+          props: {
+            rows: [
+              [
+                tableCell("A", "#EFF6FF"),
+                tableCell("B", "#EFF6FF")
+              ],
+              [tableCell("C", "transparent"), tableCell("D", "transparent")]
+            ],
+            columnWidths: [240, 240],
+            rowHeights: [90, 90],
+            borderColor: "#CBD5E1",
+            borderWidth: 1
+          }
+        }
+      ]
+    };
+    const html = renderToStaticMarkup(
+      <ReadOnlySlideCanvas
+        deck={{ ...p0AnimationDeck, slides: [tableSlide] }}
+        slide={tableSlide}
+      />
+    );
+
+    expect(html).toContain("A");
+    expect(html).toContain("D");
   });
 
   it("renders vertical PPT text as rotated text", () => {

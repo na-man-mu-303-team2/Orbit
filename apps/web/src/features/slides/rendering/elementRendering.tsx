@@ -6,6 +6,7 @@ import type {
   DeckElement,
   GroupElementProps,
   ShapeElementProps,
+  TableElementProps,
   TextElementParagraph,
   TextElementRun,
   Slide,
@@ -193,6 +194,15 @@ export function ElementNodeContent(props: {
 
   if (element.type === "image") {
     return <ImageElementContent frame={frame} imageProps={element.props} />;
+  }
+
+  if (element.type === "table") {
+    return (
+      <TableElementContent
+        frame={frame}
+        table={element.props as TableElementProps}
+      />
+    );
   }
 
   if (element.type === "chart") {
@@ -597,6 +607,98 @@ export function ElementNodeContent(props: {
 }
 
 type TextLayout = ReturnType<typeof getTextElementLayout>;
+
+function TableElementContent(props: {
+  frame: SlideElementFrame;
+  table: TableElementProps;
+}) {
+  const { frame, table } = props;
+  const rows = table.rows ?? [];
+  const rowCount = Math.max(1, rows.length);
+  const columnCount = Math.max(1, ...rows.map((row) => row.length));
+  const columnWidths = distributeTableSizes(
+    table.columnWidths,
+    columnCount,
+    frame.width
+  );
+  const rowHeights = distributeTableSizes(table.rowHeights, rowCount, frame.height);
+  const rowOffsets = cumulativeOffsets(rowHeights);
+  const columnOffsets = cumulativeOffsets(columnWidths);
+
+  return (
+    <Group listening={false}>
+      {rows.flatMap((row, rowIndex) =>
+        row.map((cell, columnIndex) => {
+          const colSpan = Math.max(1, cell.colSpan ?? 1);
+          const rowSpan = Math.max(1, cell.rowSpan ?? 1);
+          const width = sumRange(columnWidths, columnIndex, colSpan);
+          const height = sumRange(rowHeights, rowIndex, rowSpan);
+          const x = columnOffsets[columnIndex] ?? 0;
+          const y = rowOffsets[rowIndex] ?? 0;
+
+          return (
+            <Group key={`${rowIndex}-${columnIndex}`} listening={false} x={x} y={y}>
+              <Rect
+                {...getFillRenderProps(cell.fill ?? "transparent", {
+                  fallback: "transparent",
+                  height,
+                  width
+                })}
+                stroke={cell.borderColor ?? table.borderColor}
+                strokeWidth={cell.borderWidth ?? table.borderWidth}
+                width={width}
+                height={height}
+              />
+              <Text
+                align={cell.align ?? "left"}
+                fill={cell.textColor ?? "#111827"}
+                fontFamily={cell.fontFamily}
+                fontSize={cell.fontSize ?? 18}
+                fontStyle={getKonvaFontStyle(cell.fontWeight ?? "normal")}
+                height={Math.max(1, height - 12)}
+                listening={false}
+                padding={6}
+                text={cell.text ?? ""}
+                verticalAlign={cell.verticalAlign ?? "middle"}
+                width={Math.max(1, width - 12)}
+              />
+            </Group>
+          );
+        })
+      )}
+    </Group>
+  );
+}
+
+function distributeTableSizes(
+  explicitSizes: number[] | undefined,
+  count: number,
+  total: number
+) {
+  if (explicitSizes?.length === count) {
+    const explicitTotal = explicitSizes.reduce((sum, size) => sum + size, 0);
+    if (explicitTotal > 0) {
+      return explicitSizes.map((size) => (size / explicitTotal) * total);
+    }
+  }
+
+  return Array.from({ length: count }, () => total / count);
+}
+
+function cumulativeOffsets(sizes: number[]) {
+  let offset = 0;
+  return sizes.map((size) => {
+    const current = offset;
+    offset += size;
+    return current;
+  });
+}
+
+function sumRange(values: number[], start: number, count: number) {
+  return values
+    .slice(start, Math.min(values.length, start + count))
+    .reduce((sum, value) => sum + value, 0);
+}
 
 function shouldRenderTextRuns(props: TextElementProps) {
   return (props.runs?.filter((run) => run.text.length > 0).length ?? 0) > 1;
