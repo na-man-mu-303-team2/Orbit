@@ -4,10 +4,12 @@ import {
   type BrowserSpeechRecognitionAvailabilityOptions,
   type BrowserSpeechRecognitionConstructor,
   type BrowserSpeechRecognitionErrorEvent,
-  type BrowserSpeechRecognitionEvent
+  type BrowserSpeechRecognitionEvent,
+  type BrowserSpeechRecognitionGlobal
 } from "./browserSpeechRecognition";
 import {
   LiveSttError,
+  normalizeLiveSttBiasPhrases,
   type LiveSttBiasPhrase,
   type LiveSttCapabilities,
   type LiveSttPort,
@@ -15,6 +17,10 @@ import {
   type LiveSttSessionConfig,
   type LiveSttUnsubscribe
 } from "./liveSttPort";
+import {
+  applyWebSpeechPhrases,
+  isWebSpeechPhrasesSupported
+} from "./webSpeechPhrases";
 
 export type BrowserSpeechRecognitionFactory = () => BrowserSpeechRecognition;
 
@@ -30,6 +36,7 @@ type WebSpeechLiveSttPortOptions = {
   consentGranted?: boolean;
   createRecognition?: BrowserSpeechRecognitionFactory | null;
   recognitionConstructor?: BrowserSpeechRecognitionConstructor | null;
+  speechRecognitionGlobal?: BrowserSpeechRecognitionGlobal;
   processLocally?: boolean;
   now?: () => number;
 };
@@ -40,12 +47,14 @@ export class WebSpeechLiveSttPort implements LiveSttPort {
 
   private readonly createRecognition: BrowserSpeechRecognitionFactory | null;
   private readonly recognitionConstructor: BrowserSpeechRecognitionConstructor | null;
+  private readonly speechRecognitionGlobal: BrowserSpeechRecognitionGlobal;
   private readonly processLocally: boolean;
   private readonly now: () => number;
   private readonly resultSubscribers = new Set<(result: LiveSttResult) => void>();
   private readonly errorSubscribers = new Set<(error: LiveSttError) => void>();
   private recognition: BrowserSpeechRecognition | null = null;
   private startedAtMs: number | null = null;
+  private biasPhrases: LiveSttBiasPhrase[] = [];
 
   constructor(private readonly options: WebSpeechLiveSttPortOptions) {
     const Recognition =
@@ -60,6 +69,8 @@ export class WebSpeechLiveSttPort implements LiveSttPort {
           : null
         : options.createRecognition;
     this.processLocally = options.processLocally ?? true;
+    this.speechRecognitionGlobal =
+      options.speechRecognitionGlobal ?? getDefaultBrowserSpeechRecognitionGlobal();
     this.now = options.now ?? (() => Date.now());
     this.capabilities = {
       onDevice: this.processLocally,
@@ -99,6 +110,9 @@ export class WebSpeechLiveSttPort implements LiveSttPort {
 
     this.recognition = recognition;
     this.startedAtMs = this.now();
+    this.biasPhrases = normalizeLiveSttBiasPhrases(
+      config.biasPhrases ?? this.biasPhrases
+    );
 
     recognition.continuous = true;
     recognition.interimResults = true;
@@ -109,6 +123,15 @@ export class WebSpeechLiveSttPort implements LiveSttPort {
     recognition.onend = () => {
       this.startedAtMs = null;
     };
+    this.capabilities.keywordBiasing = isWebSpeechPhrasesSupported(
+      recognition,
+      this.speechRecognitionGlobal
+    );
+    applyWebSpeechPhrases(
+      recognition,
+      this.biasPhrases,
+      this.speechRecognitionGlobal
+    );
 
     try {
       recognition.start();
@@ -129,8 +152,17 @@ export class WebSpeechLiveSttPort implements LiveSttPort {
     recognition?.stop();
   }
 
-  updateBiasPhrases(_phrases: readonly LiveSttBiasPhrase[]) {
-    // Web Speech의 contextual biasing 지원은 브라우저별 편차가 커서 P2에서는 후처리 매칭만 사용한다.
+  updateBiasPhrases(phrases: readonly LiveSttBiasPhrase[]) {
+    this.biasPhrases = normalizeLiveSttBiasPhrases(phrases);
+    if (!this.recognition) {
+      return;
+    }
+
+    this.capabilities.keywordBiasing = applyWebSpeechPhrases(
+      this.recognition,
+      this.biasPhrases,
+      this.speechRecognitionGlobal
+    );
   }
 
   onResult(cb: (result: LiveSttResult) => void): LiveSttUnsubscribe {
@@ -153,6 +185,10 @@ export class WebSpeechLiveSttPort implements LiveSttPort {
     this.errorSubscribers.clear();
     this.recognition?.abort();
     this.recognition = null;
+  }
+
+  readBiasPhrasesForTest() {
+    return this.biasPhrases;
   }
 
   private handleResult(event: BrowserSpeechRecognitionEvent) {
@@ -253,4 +289,12 @@ function getDefaultBrowserSpeechRecognitionConstructor() {
   }
 
   return getBrowserSpeechRecognitionConstructor();
+}
+
+function getDefaultBrowserSpeechRecognitionGlobal(): BrowserSpeechRecognitionGlobal {
+  if (typeof window === "undefined") {
+    return globalThis as BrowserSpeechRecognitionGlobal;
+  }
+
+  return window;
 }

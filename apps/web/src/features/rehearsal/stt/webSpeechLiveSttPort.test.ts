@@ -3,16 +3,18 @@ import { runLiveSttPortContractTests } from "./liveSttPortContract";
 import type {
   BrowserSpeechRecognition,
   BrowserSpeechRecognitionAvailability,
-  BrowserSpeechRecognitionAvailabilityOptions
+  BrowserSpeechRecognitionAvailabilityOptions,
+  BrowserSpeechRecognitionGlobal
 } from "./browserSpeechRecognition";
 import { WebSpeechLiveSttPort } from "./webSpeechLiveSttPort";
 
 runLiveSttPortContractTests("WebSpeech", () => {
-  const recognition = new FakeSpeechRecognition();
+  const recognition = new FakeSpeechRecognition({ phrases: [] });
   const port = new WebSpeechLiveSttPort({
     consentGranted: true,
     createRecognition: () => recognition,
     recognitionConstructor: FakeSpeechRecognition,
+    speechRecognitionGlobal: fakeSpeechRecognitionGlobal,
     now: () => 1000
   });
 
@@ -21,8 +23,7 @@ runLiveSttPortContractTests("WebSpeech", () => {
     audioSource: fakeMediaStream(),
     emitResult: (result) => recognition.emitResult(result),
     emitError: (error) => recognition.emitError(error.message),
-    readBiasPhrases: () => [],
-    expectedBiasPhrasesAfterUpdate: []
+    readBiasPhrases: () => port.readBiasPhrasesForTest()
   };
 });
 
@@ -61,10 +62,11 @@ describe("WebSpeechLiveSttPort", () => {
   });
 
   it("Korean on-device continuous interim recognition 설정으로 시작한다", async () => {
-    const recognition = new FakeSpeechRecognition();
+    const recognition = new FakeSpeechRecognition({ phrases: [] });
     const port = new WebSpeechLiveSttPort({
       createRecognition: () => recognition,
       recognitionConstructor: FakeSpeechRecognition,
+      speechRecognitionGlobal: fakeSpeechRecognitionGlobal,
       now: () => 1000
     });
 
@@ -77,10 +79,60 @@ describe("WebSpeechLiveSttPort", () => {
     expect(recognition.processLocally).toBe(true);
     expect(recognition.startCount).toBe(1);
     expect(port.capabilities.onDevice).toBe(true);
+    expect(port.capabilities.keywordBiasing).toBe(true);
     expect(FakeSpeechRecognition.availableCalls).toEqual([
       { langs: ["ko-KR"], processLocally: true, quality: "command" }
     ]);
     expect(FakeSpeechRecognition.installCalls).toEqual([]);
+  });
+
+  it("start와 updateBiasPhrases에서 Web Speech phrases를 적용한다", async () => {
+    const recognition = new FakeSpeechRecognition({ phrases: [] });
+    const port = new WebSpeechLiveSttPort({
+      createRecognition: () => recognition,
+      recognitionConstructor: FakeSpeechRecognition,
+      speechRecognitionGlobal: fakeSpeechRecognitionGlobal,
+      now: () => 1000
+    });
+
+    port.updateBiasPhrases([{ text: "시작 전", weight: 0.5 }]);
+    await port.start({
+      language: "ko",
+      audioSource: fakeMediaStream(),
+      biasPhrases: [{ text: "오르빗", weight: 1 }]
+    });
+
+    expect(recognition.phrases).toEqual([
+      new FakeSpeechRecognitionPhrase("오르빗", 5)
+    ]);
+
+    port.updateBiasPhrases([{ text: "결재", weight: 0.45 }]);
+
+    expect(recognition.phrases).toEqual([
+      new FakeSpeechRecognitionPhrase("결재", 2.8)
+    ]);
+    expect(port.readBiasPhrasesForTest()).toEqual([
+      { text: "결재", weight: 0.45 }
+    ]);
+  });
+
+  it("phrases 미지원 환경에서는 no-op으로 시작한다", async () => {
+    const recognition = new FakeSpeechRecognition();
+    const port = new WebSpeechLiveSttPort({
+      createRecognition: () => recognition,
+      recognitionConstructor: FakeSpeechRecognition,
+      speechRecognitionGlobal: fakeSpeechRecognitionGlobal,
+      now: () => 1000
+    });
+
+    await port.start({
+      language: "ko",
+      audioSource: fakeMediaStream(),
+      biasPhrases: [{ text: "오르빗", weight: 1 }]
+    });
+
+    expect(recognition.startCount).toBe(1);
+    expect(port.capabilities.keywordBiasing).toBe(false);
   });
 
   it("온디바이스 언어팩이 downloadable이면 설치 후 시작한다", async () => {
@@ -163,6 +215,7 @@ class FakeSpeechRecognition {
     return FakeSpeechRecognition.installResult;
   }
 
+  declare phrases?: FakeSpeechRecognitionPhrase[];
   continuous = false;
   interimResults = false;
   lang = "";
@@ -174,6 +227,12 @@ class FakeSpeechRecognition {
   startCount = 0;
   stopCount = 0;
   abortCount = 0;
+
+  constructor(options: { phrases?: FakeSpeechRecognitionPhrase[] } = {}) {
+    if (options.phrases) {
+      this.phrases = options.phrases;
+    }
+  }
 
   start() {
     this.startCount += 1;
@@ -209,6 +268,17 @@ class FakeSpeechRecognition {
     this.onerror?.({ error: "test-error", message });
   }
 }
+
+class FakeSpeechRecognitionPhrase {
+  constructor(
+    readonly phrase: string,
+    readonly boost: number
+  ) {}
+}
+
+const fakeSpeechRecognitionGlobal: BrowserSpeechRecognitionGlobal = {
+  SpeechRecognitionPhrase: FakeSpeechRecognitionPhrase
+};
 
 function fakeMediaStream() {
   return { getTracks: () => [] } as unknown as MediaStream;

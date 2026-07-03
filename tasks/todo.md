@@ -18,7 +18,7 @@
 - [x] T3: 생산자 가중치/metadata 전환 - `buildBiasPhrasesForSlide`, `getBiasPhrasesFromContext`, `liveSttHarness` (M, deps: T2)
 - [x] T4: `string` 입력 제거, `LiveSttBiasPhrase[]` weighted-only 계약으로 고정 (S, deps: T3)
 - [x] T5: `stt/webSpeechPhrases.ts` 신규 - feature detection, `weight -> boost`, apply helper (S, deps: T2)
-- [ ] T6: `WebSpeechLiveSttPort`에 phrases start/update 연결, `keywordBiasing` capability 갱신 (S, deps: T2, T5)
+- [x] T6: `WebSpeechLiveSttPort`에 phrases start/update 연결, `keywordBiasing` capability 갱신 (S, deps: T2, T5)
 - [ ] T7: `shouldUseLiveSttHotwordBias` 게이트 제거, 전 엔진 bias phrase 항상 전달 (S, deps: T3)
 
 ### Checkpoint 1
