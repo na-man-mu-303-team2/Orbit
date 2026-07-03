@@ -34,9 +34,11 @@ import {
   rehearsalRawMicrophoneAudioConstraints,
   renderLiveTranscriptBuffer,
   requestRehearsalMicrophoneStream,
+  resetRehearsalTimerState,
   resolveRehearsalReportLoadState,
   runRehearsalUploadFlow,
   selectRecordingMimeType,
+  shouldRenderRehearsalThumbnailImage,
   shouldShowLiveSttDebugPcmDownload,
   shouldAutoAdvanceLiveSlide
 } from "./RehearsalWorkspace";
@@ -421,6 +423,42 @@ describe("RehearsalWorkspace", () => {
     expect(getRehearsalFinishPath("project-a", runFixture("succeeded"))).toBe(
       "/rehearsal/project-a/report/run-1"
     );
+  });
+
+  it("falls back to slide labels when a thumbnail image has failed to load", () => {
+    const failedThumbnailUrls = new Set(["/files/thumbnails/slide_1.png"]);
+
+    expect(
+      shouldRenderRehearsalThumbnailImage(
+        "/files/thumbnails/slide_1.png",
+        failedThumbnailUrls
+      )
+    ).toBe(false);
+    expect(
+      shouldRenderRehearsalThumbnailImage(
+        "/files/thumbnails/slide_2.png",
+        failedThumbnailUrls
+      )
+    ).toBe(true);
+    expect(shouldRenderRehearsalThumbnailImage("", failedThumbnailUrls)).toBe(
+      false
+    );
+  });
+
+  it("resets total and current-slide timer state together", () => {
+    const setElapsedSeconds = vi.fn();
+    const setSlideElapsedSeconds = vi.fn();
+    const setIsTimerRunning = vi.fn();
+
+    resetRehearsalTimerState({
+      setElapsedSeconds,
+      setSlideElapsedSeconds,
+      setIsTimerRunning
+    });
+
+    expect(setElapsedSeconds).toHaveBeenCalledWith(0);
+    expect(setSlideElapsedSeconds).toHaveBeenCalledWith(0);
+    expect(setIsTimerRunning).toHaveBeenCalledWith(false);
   });
 
   it("matches live STT keywords with normalized Korean aliases", () => {

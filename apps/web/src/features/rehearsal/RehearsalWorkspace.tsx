@@ -403,6 +403,23 @@ export function getRehearsalFinishPath(
   return `/project/${encodeURIComponent(projectId)}`;
 }
 
+export function resetRehearsalTimerState(actions: {
+  setElapsedSeconds: (value: number) => void;
+  setSlideElapsedSeconds: (value: number) => void;
+  setIsTimerRunning: (value: boolean) => void;
+}) {
+  actions.setElapsedSeconds(0);
+  actions.setSlideElapsedSeconds(0);
+  actions.setIsTimerRunning(false);
+}
+
+export function shouldRenderRehearsalThumbnailImage(
+  thumbnailUrl: string,
+  failedThumbnailUrls: ReadonlySet<string>
+) {
+  return Boolean(thumbnailUrl && !failedThumbnailUrls.has(thumbnailUrl));
+}
+
 export async function pollRehearsalJob(
   jobId: string,
   options: {
@@ -1207,6 +1224,9 @@ export function RehearsalWorkspace(props: {
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [slideElapsedSeconds, setSlideElapsedSeconds] = useState(0);
   const [isTimerRunning, setIsTimerRunning] = useState(false);
+  const [failedThumbnailUrls, setFailedThumbnailUrls] = useState<
+    ReadonlySet<string>
+  >(() => new Set());
   const [isSingleScreenOpen, setIsSingleScreenOpen] = useState(false);
   const [timeMode, setTimeMode] = useState<RehearsalTimeMode>("stopwatch");
   const [timerDurationSeconds, setTimerDurationSeconds] = useState(5 * 60);
@@ -2161,8 +2181,11 @@ export function RehearsalWorkspace(props: {
               value={timeMode}
               onChange={(event) => {
                 setTimeMode(event.target.value as RehearsalTimeMode);
-                setElapsedSeconds(0);
-                setIsTimerRunning(false);
+                resetRehearsalTimerState({
+                  setElapsedSeconds,
+                  setSlideElapsedSeconds,
+                  setIsTimerRunning
+                });
               }}
             >
               <option value="stopwatch">{"\uc2a4\ud1b1\uc6cc\uce58"}</option>
@@ -2206,8 +2229,11 @@ export function RehearsalWorkspace(props: {
             type="button"
             aria-label="Reset timer"
             onClick={() => {
-              setElapsedSeconds(0);
-              setIsTimerRunning(false);
+              resetRehearsalTimerState({
+                setElapsedSeconds,
+                setSlideElapsedSeconds,
+                setIsTimerRunning
+              });
             }}
           >
             <RotateCcw size={15} />
@@ -2295,6 +2321,11 @@ export function RehearsalWorkspace(props: {
               }
 
               const thumbnailUrl = resolveEditorAssetUrl(slide.thumbnailUrl);
+              const shouldRenderThumbnailImage =
+                shouldRenderRehearsalThumbnailImage(
+                  thumbnailUrl,
+                  failedThumbnailUrls
+                );
               return (
                 <button
                   className={`rehearsal-context-thumb ${offset === 0 ? "active" : ""}`}
@@ -2307,9 +2338,19 @@ export function RehearsalWorkspace(props: {
                   }}
                 >
                   <span className="rehearsal-context-thumb-preview">
-                    {thumbnailUrl ? (
+                    {shouldRenderThumbnailImage ? (
                       <img
                         alt={`${getSlideTitle(slide)} thumbnail`}
+                        onError={() => {
+                          setFailedThumbnailUrls((current) => {
+                            if (current.has(thumbnailUrl)) {
+                              return current;
+                            }
+                            const next = new Set(current);
+                            next.add(thumbnailUrl);
+                            return next;
+                          });
+                        }}
                         src={thumbnailUrl}
                       />
                     ) : (
