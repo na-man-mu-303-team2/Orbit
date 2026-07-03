@@ -1,3 +1,4 @@
+import type { Keyword } from "@orbit/shared";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
@@ -47,12 +48,43 @@ describe("RehearsalPanel", () => {
 
     expect(html).toContain('data-auto-scroll="false"');
   });
+
+  it("highlights direct keywords and aliases inside script sentences", () => {
+    const html = renderPanel({
+      keywords: [
+        {
+          keywordId: "kw_ai",
+          text: "생성형 AI",
+          synonyms: ["인공지능"],
+          abbreviations: ["OAI"]
+        }
+      ],
+      sentences: [
+        {
+          sentenceId: "sentence_aliases",
+          text: "생성형 AI는 인공지능 초안을 OAI 흐름으로 정리합니다.",
+          index: 0,
+          isFinalTrigger: true,
+          matchable: true,
+          candidates: []
+        }
+      ]
+    });
+
+    expect(html).toContain('<span class="keyword-mark ">');
+    expect(html).toContain("<strong>생성형 AI</strong>");
+    expect(html).toContain("<strong>인공지능</strong>");
+    expect(html).toContain("<strong>OAI</strong>");
+    expect(html).not.toContain("<button");
+  });
 });
 
 function renderPanel(
   overrides: {
     mode?: "rehearsal" | "live";
     transcriptText?: string;
+    keywords?: Keyword[];
+    sentences?: ExtractedSentence[];
   } = {}
 ) {
   return renderToStaticMarkup(
@@ -61,8 +93,8 @@ function renderPanel(
       timing={timing}
       wordsPerMinute={140}
       adviceState={adviceState}
-      keywords={keywords}
-      sentences={sentences}
+      keywords={overrides.keywords ?? keywords}
+      sentences={overrides.sentences ?? sentences}
       snapshot={snapshot}
     />
   );
@@ -82,14 +114,18 @@ const adviceState: TimingAdviceState = {
   slideOvertime: true
 };
 
-const keywords = [
+const keywords: Keyword[] = [
   {
     keywordId: "kw_ai",
-    text: "생성형 AI"
+    text: "생성형 AI",
+    synonyms: [],
+    abbreviations: []
   },
   {
     keywordId: "kw_privacy",
-    text: "프라이버시"
+    text: "프라이버시",
+    synonyms: [],
+    abbreviations: []
   }
 ];
 

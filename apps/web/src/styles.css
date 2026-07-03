@@ -3609,6 +3609,30 @@ button:disabled {
   padding: 2px 0 2px 10px;
 }
 
+.rehearsal-panel .keyword-mark {
+  align-items: center;
+  background: #eff6ff;
+  border: 0;
+  border-radius: 5px;
+  color: #2563eb;
+  display: inline-flex;
+  gap: 5px;
+  margin: 0 1px;
+  min-height: 0;
+  padding: 1px 4px;
+  vertical-align: baseline;
+}
+
+.rehearsal-panel .keyword-mark strong {
+  font-weight: 900;
+}
+
+.rehearsal-panel button.keyword-mark:hover,
+.rehearsal-panel .keyword-mark.selected {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
 .rehearsal-panel-sentence-covered {
   border-color: #22a35a;
   color: #64748b;

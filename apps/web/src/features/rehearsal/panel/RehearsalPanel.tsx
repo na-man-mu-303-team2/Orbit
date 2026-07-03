@@ -17,13 +17,14 @@ import type {
   TimingAdviceState,
   TimingPaceState
 } from "./rehearsalTiming";
+import {
+  KeywordHighlightedText,
+  type KeywordHighlightKeyword
+} from "../../shared/KeywordHighlightedText";
 
 export type RehearsalPanelMode = "rehearsal" | "live";
 
-export type RehearsalPanelKeyword = {
-  keywordId: string;
-  text: string;
-};
+export type RehearsalPanelKeyword = KeywordHighlightKeyword;
 
 export type RehearsalPanelProps = {
   mode: RehearsalPanelMode;
@@ -124,7 +125,12 @@ export function RehearsalPanel(props: RehearsalPanelProps) {
                     .join(" ")}
                   key={sentence.sentenceId}
                 >
-                  <span>{sentence.text}</span>
+                  <span>
+                    <KeywordHighlightedText
+                      keywords={props.keywords}
+                      text={sentence.text}
+                    />
+                  </span>
                   {covered ? <em>체크됨</em> : null}
                   {!sentence.matchable ? <em>매칭 제외</em> : null}
                 </p>
