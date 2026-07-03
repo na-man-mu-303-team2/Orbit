@@ -29,6 +29,9 @@ export class RehearsalRunEntity {
   @Column({ name: "report_json", nullable: true, type: "jsonb" })
   reportJson!: Record<string, unknown> | null;
 
+  @Column({ default: {}, name: "meta_json", type: "jsonb" })
+  metaJson!: Record<string, unknown>;
+
   @Column({ default: false, name: "transcript_retained", type: "boolean" })
   transcriptRetained!: boolean;
 

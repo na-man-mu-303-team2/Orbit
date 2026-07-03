@@ -10,6 +10,8 @@ import {
   createRehearsalRunResponseSchema,
   getRehearsalReportResponseSchema,
   getRehearsalRunResponseSchema,
+  updateRehearsalRunMetaRequestSchema,
+  updateRehearsalRunMetaResponseSchema,
   type RehearsalRun
 } from "@orbit/shared";
 import { BadRequestException, Inject, Injectable, NotFoundException } from "@nestjs/common";
@@ -67,6 +69,7 @@ export class RehearsalsService {
         status: "created",
         error: null,
         reportJson: null,
+        metaJson: {},
         transcriptRetained: false,
         rawAudioDeletedAt: null,
         createdAt: now,
@@ -200,6 +203,21 @@ export class RehearsalsService {
       );
       throw error;
     }
+  }
+
+  async updateRunMeta(runId: string, body: unknown) {
+    const request = parseRequest(updateRehearsalRunMetaRequestSchema, body);
+    const run = await this.getRunEntity(runId);
+
+    if (!["created", "uploading", "processing"].includes(run.status)) {
+      throw new BadRequestException("Rehearsal run is not accepting meta updates.");
+    }
+
+    run.metaJson = request;
+    run.updatedAt = new Date();
+    const savedRun = await this.rehearsalRuns.save(run);
+
+    return updateRehearsalRunMetaResponseSchema.parse({ run: toRehearsalRun(savedRun) });
   }
 
   async getRun(runId: string) {

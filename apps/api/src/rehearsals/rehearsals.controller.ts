@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post } from "@nestjs/common";
+import { Body, Controller, Get, Param, Patch, Post } from "@nestjs/common";
 import { RehearsalsService } from "./rehearsals.service";
 
 @Controller()
@@ -18,6 +18,11 @@ export class RehearsalsController {
   @Post("api/v1/rehearsals/:runId/audio/complete")
   completeAudioUpload(@Param("runId") runId: string, @Body() body: unknown) {
     return this.rehearsalsService.completeAudioUpload(runId, body);
+  }
+
+  @Patch("api/v1/rehearsals/:runId/meta")
+  updateRunMeta(@Param("runId") runId: string, @Body() body: unknown) {
+    return this.rehearsalsService.updateRunMeta(runId, body);
   }
 
   @Get("api/v1/rehearsals/:runId")
