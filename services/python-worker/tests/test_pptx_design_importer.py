@@ -677,6 +677,15 @@ def test_ooxml_visual_tree_importer_preserves_vector_props(
     assert text["props"]["runs"][0]["fontWeight"] == "bold"
     assert text["props"]["runs"][1]["fontSize"] == 56
     assert text["props"]["runs"][1]["color"] == "#2563EB"
+    assert text["props"]["paragraphs"][0]["text"] == "Hello World"
+    assert text["props"]["paragraphs"][0]["runs"][0]["fontWeight"] == "bold"
+    assert text["props"]["paragraphs"][0]["runs"][1]["color"] == "#2563EB"
+    assert text["props"]["bodyInset"] == {
+        "left": 14,
+        "right": 14,
+        "top": 7,
+        "bottom": 7,
+    }
 
     gradient_shape = next(
         element
@@ -854,6 +863,13 @@ def test_ooxml_visual_tree_importer_preserves_text_box_geometry(
     assert text["height"] == 216
     assert text["props"]["verticalAlign"] == "middle"
     assert text["props"]["lineHeight"] == 1.3
+    assert text["props"]["paragraphs"][0]["lineHeight"] == 1.3
+    assert text["props"]["bodyInset"] == {
+        "left": 72,
+        "right": 36,
+        "top": 36,
+        "bottom": 36,
+    }
     assert shape["rotation"] == 30
 
 

@@ -47,6 +47,8 @@ THEME_REL_TYPE = (
     "http://schemas.openxmlformats.org/officeDocument/2006/relationships/theme"
 )
 VECTOR_IMPORT_FLAG = "ORBIT_PPTX_OOXML_VECTOR_IMPORT"
+DEFAULT_TEXT_BODY_HORIZONTAL_INSET_EMU = 91440
+DEFAULT_TEXT_BODY_VERTICAL_INSET_EMU = 45720
 FALLBACK_SCHEME_COLORS = {
     "bg1": "#FFFFFF",
     "tx1": "#111827",
@@ -1185,7 +1187,8 @@ def text_element(
     body = first_local_child(shape, "txBody")
     if body is None:
         return None
-    runs = text_runs(body, scale, theme_colors)
+    paragraphs = text_paragraphs(body, scale, theme_colors)
+    runs = flatten_paragraph_runs(paragraphs)
     text = "".join(str(run.get("text", "")) for run in runs)
     if not text.strip():
         return None
@@ -1194,6 +1197,8 @@ def text_element(
     props: dict[str, Any] = {
         "text": text,
         "runs": runs,
+        "paragraphs": paragraphs,
+        "bodyInset": text_body_inset(body, scale),
         "fontFamily": first_run.get("fontFamily", "Inter"),
         "fontSize": first_run.get("fontSize", 24),
         "fontWeight": first_run.get("fontWeight", "normal"),
@@ -1217,6 +1222,70 @@ def text_element(
         "type": "text",
         "props": props,
     }
+
+
+def text_paragraphs(
+    body: ET.Element[Any],
+    scale: OoxmlScale,
+    theme_colors: dict[str, str],
+) -> list[dict[str, Any]]:
+    paragraphs: list[dict[str, Any]] = []
+    for paragraph in direct_local_children(body, "p"):
+        runs = paragraph_runs(paragraph, scale, theme_colors)
+        text = "".join(str(run.get("text", "")) for run in runs)
+        if not text:
+            continue
+        props: dict[str, Any] = {
+            "text": text,
+            "runs": runs,
+            "align": paragraph_align_value(paragraph),
+            "lineHeight": paragraph_line_height_value(paragraph),
+            "spaceBefore": paragraph_spacing_px(paragraph, "spcBef", scale),
+            "spaceAfter": paragraph_spacing_px(paragraph, "spcAft", scale),
+            "indent": paragraph_indent_px(paragraph, scale),
+        }
+        bullet = paragraph_bullet_value(paragraph)
+        if bullet:
+            props["bullet"] = bullet
+        first_run = next(
+            (run for run in runs if str(run.get("text", "")).strip()),
+            runs[0],
+        )
+        for key in ("fontFamily", "fontSize", "fontWeight", "color"):
+            if key in first_run:
+                props[key] = first_run[key]
+        paragraphs.append(props)
+    if paragraphs:
+        return paragraphs
+
+    plain = "".join(node.text or "" for node in body.iter() if local_name(node) == "t")
+    return [{"text": plain, "runs": [{"text": plain, "baseline": "normal"}]}] if plain else []
+
+
+def paragraph_runs(
+    paragraph: ET.Element[Any],
+    scale: OoxmlScale,
+    theme_colors: dict[str, str],
+) -> list[dict[str, Any]]:
+    runs: list[dict[str, Any]] = []
+    for child in list(paragraph):
+        name = local_name(child)
+        if name == "r":
+            text = "".join(node.text or "" for node in child.iter() if local_name(node) == "t")
+            if text:
+                runs.append({"text": text, **run_props(child, scale, theme_colors)})
+        elif name == "br":
+            runs.append({"text": "\n", "baseline": "normal"})
+    return runs
+
+
+def flatten_paragraph_runs(paragraphs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    runs: list[dict[str, Any]] = []
+    for paragraph_index, paragraph in enumerate(paragraphs):
+        if paragraph_index > 0 and runs:
+            runs.append({"text": "\n", "baseline": "normal"})
+        runs.extend(paragraph.get("runs", []))
+    return runs
 
 
 def text_runs(
@@ -1286,7 +1355,11 @@ def run_typeface(r_pr: ET.Element[Any]) -> str | None:
 
 def paragraph_align(body: ET.Element[Any]) -> str:
     first_paragraph = first_local_child(body, "p")
-    p_pr = first_local_child(first_paragraph, "pPr") if first_paragraph is not None else None
+    return paragraph_align_value(first_paragraph) if first_paragraph is not None else "left"
+
+
+def paragraph_align_value(paragraph: ET.Element[Any]) -> str:
+    p_pr = first_local_child(paragraph, "pPr")
     align = str(p_pr.get("algn", "left")) if p_pr is not None else "left"
     return {
         "ctr": "center",
@@ -1312,7 +1385,15 @@ def text_writing_mode(body: ET.Element[Any]) -> str:
 
 def paragraph_line_height(body: ET.Element[Any]) -> float:
     first_paragraph = first_local_child(body, "p")
-    p_pr = first_local_child(first_paragraph, "pPr") if first_paragraph is not None else None
+    return (
+        paragraph_line_height_value(first_paragraph)
+        if first_paragraph is not None
+        else 1.15
+    )
+
+
+def paragraph_line_height_value(paragraph: ET.Element[Any]) -> float:
+    p_pr = first_local_child(paragraph, "pPr")
     line_spacing = first_local_child(p_pr, "lnSpc") if p_pr is not None else None
     spacing_pct = first_local_child(line_spacing, "spcPct")
     if spacing_pct is None:
@@ -1329,10 +1410,11 @@ def text_content_frame(
     if body_pr is None:
         return frame
 
-    left = max(0, round(int_attr(body_pr, "lIns", 0) * scale.scale_x))
-    right = max(0, round(int_attr(body_pr, "rIns", 0) * scale.scale_x))
-    top = max(0, round(int_attr(body_pr, "tIns", 0) * scale.scale_y))
-    bottom = max(0, round(int_attr(body_pr, "bIns", 0) * scale.scale_y))
+    inset = text_body_inset(body, scale)
+    left = inset["left"]
+    right = inset["right"]
+    top = inset["top"]
+    bottom = inset["bottom"]
     max_horizontal_inset = max(0, frame["width"] - 1)
     max_vertical_inset = max(0, frame["height"] - 1)
     horizontal_inset = min(left + right, max_horizontal_inset)
@@ -1346,9 +1428,49 @@ def text_content_frame(
     }
 
 
+def text_body_inset(body: ET.Element[Any], scale: OoxmlScale) -> dict[str, int]:
+    body_pr = first_local_child(body, "bodyPr")
+    if body_pr is None:
+        return {"left": 0, "right": 0, "top": 0, "bottom": 0}
+    return {
+        "left": max(
+            0,
+            round(
+                int_attr(body_pr, "lIns", DEFAULT_TEXT_BODY_HORIZONTAL_INSET_EMU)
+                * scale.scale_x
+            ),
+        ),
+        "right": max(
+            0,
+            round(
+                int_attr(body_pr, "rIns", DEFAULT_TEXT_BODY_HORIZONTAL_INSET_EMU)
+                * scale.scale_x
+            ),
+        ),
+        "top": max(
+            0,
+            round(
+                int_attr(body_pr, "tIns", DEFAULT_TEXT_BODY_VERTICAL_INSET_EMU)
+                * scale.scale_y
+            ),
+        ),
+        "bottom": max(
+            0,
+            round(
+                int_attr(body_pr, "bIns", DEFAULT_TEXT_BODY_VERTICAL_INSET_EMU)
+                * scale.scale_y
+            ),
+        ),
+    }
+
+
 def paragraph_bullet(body: ET.Element[Any]) -> dict[str, Any] | None:
     first_paragraph = first_local_child(body, "p")
-    p_pr = first_local_child(first_paragraph, "pPr") if first_paragraph is not None else None
+    return paragraph_bullet_value(first_paragraph) if first_paragraph is not None else None
+
+
+def paragraph_bullet_value(paragraph: ET.Element[Any]) -> dict[str, Any] | None:
+    p_pr = first_local_child(paragraph, "pPr")
     if p_pr is None:
         return None
     bullet = first_local_child(p_pr, "buChar")
@@ -1359,6 +1481,22 @@ def paragraph_bullet(body: ET.Element[Any]) -> dict[str, Any] | None:
         "character": str(bullet.get("char", "\u2022")),
         "indent": max(0, round(int_attr(p_pr, "marL", 0) / 12700)),
     }
+
+
+def paragraph_indent_px(paragraph: ET.Element[Any], scale: OoxmlScale) -> int:
+    p_pr = first_local_child(paragraph, "pPr")
+    return round(int_attr(p_pr, "marL", 0) * scale.scale_x) if p_pr is not None else 0
+
+
+def paragraph_spacing_px(
+    paragraph: ET.Element[Any],
+    tag_name: str,
+    scale: OoxmlScale,
+) -> int:
+    p_pr = first_local_child(paragraph, "pPr")
+    spacing = first_local_child(p_pr, tag_name) if p_pr is not None else None
+    points = first_local_child(spacing, "spcPts") if spacing is not None else None
+    return round(int_attr(points, "val", 0) / 100 * 12700 * scale.average_scale)
 
 
 def shape_fill(
