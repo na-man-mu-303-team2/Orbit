@@ -1,5 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import {
+  defaultAutoAdvancePolicy,
+  defaultPauseDetectorConfig
+} from "../advance/autoAdvanceConfig";
 import { defaultLiveSttEngineId } from "../stt/liveSttEngineRegistry";
 import { defaultSpeechTrackingConfig } from "../speech/speechTrackingConfig";
 import {
@@ -22,13 +26,14 @@ describe("presenterSettings", () => {
     expect(defaultPresenterSettings).toEqual({
       sttEngine: defaultLiveSttEngineId,
       advancePolicy: {
-        rehearsal: true,
-        live: true,
-        threshold: 0.7
+        ...defaultAutoAdvancePolicy
       },
       paceAdvice: {
         slowWpm: defaultSpeechTrackingConfig.paceAdvice.slowWpm,
         fastWpm: defaultSpeechTrackingConfig.paceAdvice.fastWpm
+      },
+      pauseDetector: {
+        ...defaultPauseDetectorConfig
       },
       recording: {
         enabled: true
@@ -44,14 +49,13 @@ describe("presenterSettings", () => {
     });
   });
 
-  it("does not expose mode, debug transcript, or P4 timing fields as persisted settings", () => {
+  it("does not expose mode, debug transcript, or P4 UI-only fields as persisted settings", () => {
     const serialized = JSON.stringify(defaultPresenterSettings);
 
     expect(serialized).not.toContain("mode");
     expect(serialized).not.toContain("showDebugTranscript");
     expect(serialized).not.toContain("debugTranscript");
-    expect(serialized).not.toContain("pauseMs");
-    expect(serialized).not.toContain("countdownMs");
+    expect(serialized).not.toContain("manualGuidanceDelayMs");
   });
 
   it("loads persisted settings with defensive normalization", () => {
@@ -61,13 +65,18 @@ describe("presenterSettings", () => {
       JSON.stringify({
         sttEngine: "web-speech",
         advancePolicy: {
+          countdownMs: 2500,
           rehearsal: false,
           live: true,
+          pauseMs: 900,
           threshold: 0.99
         },
         paceAdvice: {
           slowWpm: 70,
           fastWpm: 150
+        },
+        pauseDetector: {
+          silenceThresholdDb: -48
         },
         recording: {
           enabled: false
@@ -89,13 +98,18 @@ describe("presenterSettings", () => {
     expect(loadPresenterSettings(storage)).toEqual({
       sttEngine: "web-speech",
       advancePolicy: {
+        countdownMs: 2500,
         rehearsal: false,
         live: true,
+        pauseMs: 900,
         threshold: 0.95
       },
       paceAdvice: {
         slowWpm: 70,
         fastWpm: 150
+      },
+      pauseDetector: {
+        silenceThresholdDb: -48
       },
       recording: {
         enabled: false
@@ -143,7 +157,7 @@ describe("presenterSettings", () => {
     const saved = savePresenterSettings(
       {
         sttEngine: "moonshine",
-        advancePolicy: { threshold: 0.4 },
+        advancePolicy: { countdownMs: 0, pauseMs: 0, threshold: 0.4 },
         paceAdvice: { slowWpm: 95 }
       },
       storage
@@ -151,7 +165,11 @@ describe("presenterSettings", () => {
 
     expect(saved).toMatchObject({
       sttEngine: "moonshine",
-      advancePolicy: { threshold: 0.5 },
+      advancePolicy: {
+        countdownMs: defaultAutoAdvancePolicy.countdownMs,
+        pauseMs: defaultAutoAdvancePolicy.pauseMs,
+        threshold: 0.5
+      },
       paceAdvice: { slowWpm: 95, fastWpm: 130 }
     });
     expect(loadPresenterSettings(storage)).toEqual(saved);
