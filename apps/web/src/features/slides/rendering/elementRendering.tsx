@@ -206,49 +206,12 @@ export function ElementNodeContent(props: {
   }
 
   if (element.type === "chart") {
-    const chart = element.props as Chart;
-    const values = chart.data.map((datum) =>
-      "value" in datum ? Math.abs(datum.value) : Math.abs(datum.y)
-    );
-    const maxValue = Math.max(1, ...values);
-    const barWidth = frame.width / Math.max(chart.data.length, 1);
-
     return (
-      <Group listening={false}>
-        <Rect
-          cornerRadius={18}
-          fill="#fff"
-          stroke={accentColor}
-          strokeWidth={2}
-          width={frame.width}
-          height={frame.height}
-        />
-        <Text
-          fill="#0f172a"
-          fontSize={18}
-          fontStyle="bold"
-          text={chart.title || `${chart.type} chart`}
-          x={14}
-          y={12}
-        />
-        {chart.data.slice(0, 6).map((datum, index) => {
-          const value = "value" in datum ? Math.abs(datum.value) : Math.abs(datum.y);
-          const height = Math.max(18, ((frame.height - 84) * value) / maxValue);
-
-          return (
-            <Group key={`${datum.label ?? "item"}-${index}`}>
-              <Rect
-                fill={chart.style.colors[index] ?? accentColor}
-                x={14 + index * barWidth}
-                y={frame.height - height - 24}
-                width={Math.max(18, barWidth - 16)}
-                height={height}
-                cornerRadius={8}
-              />
-            </Group>
-          );
-        })}
-      </Group>
+      <ChartElementContent
+        accentColor={accentColor}
+        chart={element.props as Chart}
+        frame={frame}
+      />
     );
   }
 
@@ -607,6 +570,215 @@ export function ElementNodeContent(props: {
 }
 
 type TextLayout = ReturnType<typeof getTextElementLayout>;
+
+function ChartElementContent(props: {
+  accentColor: string;
+  chart: Chart;
+  frame: SlideElementFrame;
+}) {
+  const { accentColor, chart, frame } = props;
+  if (chart.type === "pie" || chart.type === "doughnut") {
+    return <PieChartContent chart={chart} frame={frame} />;
+  }
+
+  return <CartesianChartContent accentColor={accentColor} chart={chart} frame={frame} />;
+}
+
+function CartesianChartContent(props: {
+  accentColor: string;
+  chart: Chart;
+  frame: SlideElementFrame;
+}) {
+  const { accentColor, chart, frame } = props;
+  const data = chart.data.filter((datum): datum is { label: string; value: number } =>
+    "value" in datum
+  );
+  const values = data.map((datum) => datum.value);
+  const maxValue = niceChartMax(Math.max(1, ...values));
+  const plot = {
+    height: frame.height * 0.72,
+    width: frame.width * 0.91,
+    x: frame.width * 0.07,
+    y: frame.height * 0.18
+  };
+  const tickCount = 10;
+  const slotWidth = plot.width / Math.max(1, data.length);
+  const seriesColor = chart.style.colors[0] ?? "#4F81BD";
+
+  return (
+    <Group listening={false}>
+      <Text
+        align="center"
+        fill={chart.style.textColor ?? "#000000"}
+        fontFamily={chart.style.fontFamily}
+        fontSize={chart.style.titleFontSize ?? 34}
+        fontStyle="bold"
+        listening={false}
+        text={chart.title || `${chart.type} chart`}
+        width={frame.width}
+        x={0}
+        y={frame.height * 0.04}
+      />
+      {Array.from({ length: tickCount + 1 }, (_, index) => {
+        const value = (maxValue * index) / tickCount;
+        const y = plot.y + plot.height - (plot.height * value) / maxValue;
+        return (
+          <Group key={`tick-${index}`} listening={false}>
+            <Line
+              points={[plot.x, y, plot.x + plot.width, y]}
+              stroke="#8A8A8A"
+              strokeWidth={1}
+            />
+            <Text
+              align="right"
+              fill="#000000"
+              fontSize={28}
+              listening={false}
+              text={formatChartTick(value)}
+              width={plot.x - 12}
+              x={0}
+              y={y - 16}
+            />
+          </Group>
+        );
+      })}
+      <Line
+        points={[plot.x, plot.y, plot.x, plot.y + plot.height, plot.x + plot.width, plot.y + plot.height]}
+        stroke="#8A8A8A"
+        strokeWidth={1}
+      />
+      {chart.type === "line" ? (
+        <LineChartSeries
+          data={data}
+          maxValue={maxValue}
+          plot={plot}
+          seriesColor={seriesColor}
+        />
+      ) : (
+        data.map((datum, index) => {
+          const barHeight = (plot.height * datum.value) / maxValue;
+          const barWidth = slotWidth * 0.4;
+          return (
+            <Rect
+              fill={seriesColor || accentColor}
+              height={barHeight}
+              key={`${datum.label}-${index}`}
+              listening={false}
+              width={barWidth}
+              x={plot.x + slotWidth * index + (slotWidth - barWidth) / 2}
+              y={plot.y + plot.height - barHeight}
+            />
+          );
+        })
+      )}
+      {data.map((datum, index) => (
+        <Text
+          align="center"
+          fill="#000000"
+          fontSize={30}
+          key={`${datum.label}-label-${index}`}
+          listening={false}
+          text={datum.label}
+          width={slotWidth}
+          x={plot.x + slotWidth * index}
+          y={plot.y + plot.height + 20}
+        />
+      ))}
+    </Group>
+  );
+}
+
+function LineChartSeries(props: {
+  data: Array<{ label: string; value: number }>;
+  maxValue: number;
+  plot: { height: number; width: number; x: number; y: number };
+  seriesColor: string;
+}) {
+  const { data, maxValue, plot, seriesColor } = props;
+  const step = plot.width / Math.max(1, data.length - 1);
+  const points = data.flatMap((datum, index) => [
+    plot.x + step * index,
+    plot.y + plot.height - (plot.height * datum.value) / maxValue
+  ]);
+
+  return (
+    <Group listening={false}>
+      <Line points={points} stroke={seriesColor} strokeWidth={4} tension={0} />
+      {data.map((datum, index) => (
+        <Circle
+          fill="#FFFFFF"
+          key={`${datum.label}-marker-${index}`}
+          radius={7}
+          stroke={seriesColor}
+          strokeWidth={3}
+          x={plot.x + step * index}
+          y={plot.y + plot.height - (plot.height * datum.value) / maxValue}
+        />
+      ))}
+    </Group>
+  );
+}
+
+function PieChartContent(props: { chart: Chart; frame: SlideElementFrame }) {
+  const { chart, frame } = props;
+  const data = chart.data.filter((datum): datum is { label: string; value: number } =>
+    "value" in datum
+  );
+  const total = data.reduce((sum, datum) => sum + Math.max(0, datum.value), 0) || 1;
+  const radius = Math.min(frame.width, frame.height) * 0.34;
+  const center = { x: frame.width / 2, y: frame.height * 0.56 };
+  const colors = chart.style.colors.length
+    ? chart.style.colors
+    : ["#4F81BD", "#C0504D", "#9BBB59", "#8064A2"];
+  let startAngle = -90;
+
+  return (
+    <Group listening={false}>
+      <Text
+        align="center"
+        fill={chart.style.textColor ?? "#000000"}
+        fontSize={chart.style.titleFontSize ?? 34}
+        fontStyle="bold"
+        listening={false}
+        text={chart.title || "Pie Chart"}
+        width={frame.width}
+        x={0}
+        y={frame.height * 0.04}
+      />
+      {data.map((datum, index) => {
+        const angle = (Math.max(0, datum.value) / total) * 360;
+        const sliceStartAngle = startAngle;
+        const sliceEndAngle = startAngle + angle;
+        startAngle = sliceEndAngle;
+        const slice = (
+          <Shape
+            fill={colors[index % colors.length]}
+            key={`${datum.label}-${index}`}
+            listening={false}
+            sceneFunc={(context: Konva.Context, shape: Konva.Shape) => {
+              const start = (sliceStartAngle * Math.PI) / 180;
+              const end = (sliceEndAngle * Math.PI) / 180;
+              context.beginPath();
+              context.moveTo(center.x, center.y);
+              context.arc(center.x, center.y, radius, start, end, false);
+              context.closePath();
+              context.fillStrokeShape(shape);
+            }}
+          />
+        );
+        return slice;
+      })}
+    </Group>
+  );
+}
+
+function niceChartMax(value: number) {
+  return Math.ceil(value * 2) / 2;
+}
+
+function formatChartTick(value: number) {
+  return Number.isInteger(value) ? String(value) : value.toFixed(1);
+}
 
 function TableElementContent(props: {
   frame: SlideElementFrame;
