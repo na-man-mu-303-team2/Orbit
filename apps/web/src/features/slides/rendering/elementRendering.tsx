@@ -599,10 +599,10 @@ function CartesianChartContent(props: {
   const maxValue = niceChartMax(Math.max(1, ...values));
   const isLineChart = chart.type === "line";
   const plot = {
-    height: frame.height * 0.72,
+    height: frame.height * 0.716,
     width: frame.width * (isLineChart ? 0.73 : 0.91),
-    x: frame.width * 0.07,
-    y: frame.height * 0.18
+    x: frame.width * 0.0715,
+    y: frame.height * 0.185
   };
   const tickCount = 10;
   const slotWidth = plot.width / Math.max(1, data.length);
