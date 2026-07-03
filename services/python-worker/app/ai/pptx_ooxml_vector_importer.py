@@ -43,7 +43,32 @@ SLIDE_MASTER_REL_TYPE = (
 IMAGE_REL_TYPE = (
     "http://schemas.openxmlformats.org/officeDocument/2006/relationships/image"
 )
+THEME_REL_TYPE = (
+    "http://schemas.openxmlformats.org/officeDocument/2006/relationships/theme"
+)
 VECTOR_IMPORT_FLAG = "ORBIT_PPTX_OOXML_VECTOR_IMPORT"
+FALLBACK_SCHEME_COLORS = {
+    "bg1": "#FFFFFF",
+    "tx1": "#111827",
+    "bg2": "#FFFFFF",
+    "tx2": "#111827",
+    "accent1": "#2563EB",
+    "accent2": "#7C3AED",
+    "accent3": "#0EA5E9",
+    "accent4": "#10B981",
+    "accent5": "#F59E0B",
+    "accent6": "#EF4444",
+    "dk1": "#111827",
+    "lt1": "#FFFFFF",
+    "dk2": "#111827",
+    "lt2": "#FFFFFF",
+}
+SCHEME_COLOR_ALIASES = {
+    "bg1": "lt1",
+    "tx1": "dk1",
+    "bg2": "lt2",
+    "tx2": "dk2",
+}
 
 
 def import_pptx_design_with_optional_ooxml_vector(
@@ -170,6 +195,7 @@ class OoxmlTransform:
 class OoxmlImportState:
     assets: list[ImportedDesignAsset]
     asset_colors: dict[str, str]
+    theme_colors: dict[str, str]
     warnings: list[str]
     z_cursor: int = 1
 
@@ -199,7 +225,12 @@ def import_pptx_ooxml_visual_tree(
         )
         slide_parts = presentation_slide_parts(package)
         content_types = content_type_map(package)
-        state = OoxmlImportState(assets=[], asset_colors={}, warnings=[])
+        state = OoxmlImportState(
+            assets=[],
+            asset_colors={},
+            theme_colors=theme_color_map(package),
+            warnings=[],
+        )
         slides: list[dict[str, Any]] = []
         slot_sources_by_slide: list[dict[str, dict[str, Any]]] = []
 
@@ -258,7 +289,7 @@ def import_pptx_ooxml_visual_tree(
                 )
 
             assign_text_roles(elements)
-            background = slide_background_color(slide) or "#FFFFFF"
+            background = slide_background_color(slide, state.theme_colors) or "#FFFFFF"
             slides.append(
                 {
                     "sourceFileId": file_id,
@@ -467,9 +498,13 @@ def append_shape(
             slot_sources[str(element["elementId"])] = source
         return
 
-    fill = shape_fill(shape)
-    stroke, stroke_width, stroke_extras = shape_stroke(shape, scale)
-    shadow = shape_shadow(shape, scale)
+    fill = shape_fill(shape, state.theme_colors)
+    stroke, stroke_width, stroke_extras = shape_stroke(
+        shape,
+        scale,
+        state.theme_colors,
+    )
+    shadow = shape_shadow(shape, scale, state.theme_colors)
     if fill != "transparent" or stroke != "transparent":
         shape_element_payload = visual_shape_element(
             shape=shape,
@@ -497,6 +532,7 @@ def append_shape(
         frame=frame,
         z_index=state.next_z(),
         locked=locked,
+        theme_colors=state.theme_colors,
     )
     if text_element_payload:
         elements.append(text_element_payload)
@@ -661,11 +697,12 @@ def text_element(
     frame: dict[str, int],
     z_index: int,
     locked: bool,
+    theme_colors: dict[str, str],
 ) -> dict[str, Any] | None:
     body = first_local_child(shape, "txBody")
     if body is None:
         return None
-    runs = text_runs(body)
+    runs = text_runs(body, theme_colors)
     text = "".join(str(run.get("text", "")) for run in runs)
     if not text.strip():
         return None
@@ -697,7 +734,10 @@ def text_element(
     }
 
 
-def text_runs(body: ET.Element[Any]) -> list[dict[str, Any]]:
+def text_runs(
+    body: ET.Element[Any],
+    theme_colors: dict[str, str],
+) -> list[dict[str, Any]]:
     runs: list[dict[str, Any]] = []
     paragraphs = direct_local_children(body, "p")
     for paragraph_index, paragraph in enumerate(paragraphs):
@@ -708,7 +748,7 @@ def text_runs(body: ET.Element[Any]) -> list[dict[str, Any]]:
             if name == "r":
                 text = "".join(node.text or "" for node in child.iter() if local_name(node) == "t")
                 if text:
-                    runs.append({"text": text, **run_props(child)})
+                    runs.append({"text": text, **run_props(child, theme_colors)})
             elif name == "br":
                 runs.append({"text": "\n", "baseline": "normal"})
     if not runs:
@@ -718,7 +758,10 @@ def text_runs(body: ET.Element[Any]) -> list[dict[str, Any]]:
     return runs
 
 
-def run_props(run: ET.Element[Any]) -> dict[str, Any]:
+def run_props(
+    run: ET.Element[Any],
+    theme_colors: dict[str, str],
+) -> dict[str, Any]:
     r_pr = first_local_child(run, "rPr")
     props: dict[str, Any] = {"baseline": "normal"}
     if r_pr is None:
@@ -731,7 +774,7 @@ def run_props(run: ET.Element[Any]) -> dict[str, Any]:
         props["fontSize"] = max(8, round(size / 100))
     if r_pr.get("b") in {"1", "true"}:
         props["fontWeight"] = "bold"
-    color = solid_color(first_local_child(r_pr, "solidFill"))
+    color = solid_color(first_local_child(r_pr, "solidFill"), theme_colors)
     if color:
         props["color"] = color
     baseline = int_attr(r_pr, "baseline", 0)
@@ -776,7 +819,10 @@ def paragraph_bullet(body: ET.Element[Any]) -> dict[str, Any] | None:
     }
 
 
-def shape_fill(shape: ET.Element[Any]) -> Any:
+def shape_fill(
+    shape: ET.Element[Any],
+    theme_colors: dict[str, str],
+) -> Any:
     sp_pr = first_local_child(shape, "spPr")
     if sp_pr is None:
         return "transparent"
@@ -784,23 +830,24 @@ def shape_fill(shape: ET.Element[Any]) -> Any:
         return "transparent"
     grad = first_local_child(sp_pr, "gradFill")
     if grad is not None:
-        paint = gradient_paint(grad)
+        paint = gradient_paint(grad, theme_colors)
         if paint:
             return paint
-    solid = solid_color(first_local_child(sp_pr, "solidFill"))
+    solid = solid_color(first_local_child(sp_pr, "solidFill"), theme_colors)
     return solid or "transparent"
 
 
 def shape_stroke(
     shape: ET.Element[Any],
     scale: OoxmlScale,
+    theme_colors: dict[str, str],
 ) -> tuple[Any, float, dict[str, Any]]:
     sp_pr = first_local_child(shape, "spPr")
     line = first_local_child(sp_pr, "ln") if sp_pr is not None else None
     if line is None or first_local_child(line, "noFill") is not None:
         return "transparent", 0, {}
-    solid = solid_color(first_local_child(line, "solidFill"))
-    grad = gradient_paint(first_local_child(line, "gradFill"))
+    solid = solid_color(first_local_child(line, "solidFill"), theme_colors)
+    grad = gradient_paint(first_local_child(line, "gradFill"), theme_colors)
     stroke: Any = grad or solid or "transparent"
     width = int_attr(line, "w", 12700 if stroke != "transparent" else 0)
     extras: dict[str, Any] = {}
@@ -842,7 +889,10 @@ def line_join(line: ET.Element[Any]) -> str | None:
     return None
 
 
-def gradient_paint(gradient: ET.Element[Any] | None) -> dict[str, Any] | None:
+def gradient_paint(
+    gradient: ET.Element[Any] | None,
+    theme_colors: dict[str, str],
+) -> dict[str, Any] | None:
     if gradient is None:
         return None
     stops = []
@@ -850,7 +900,7 @@ def gradient_paint(gradient: ET.Element[Any] | None) -> dict[str, Any] | None:
     for stop in list(stop_list) if stop_list is not None else []:
         if local_name(stop) != "gs":
             continue
-        color = solid_color(stop)
+        color = solid_color(stop, theme_colors)
         if not color:
             continue
         alpha = first_local_descendant(stop, "alpha")
@@ -872,41 +922,41 @@ def gradient_paint(gradient: ET.Element[Any] | None) -> dict[str, Any] | None:
     }
 
 
-def solid_color(container: ET.Element[Any] | None) -> str | None:
+def solid_color(
+    container: ET.Element[Any] | None,
+    theme_colors: dict[str, str],
+) -> str | None:
     if container is None:
         return None
     srgb = first_local_descendant(container, "srgbClr")
     if srgb is not None and srgb.get("val"):
-        return f"#{str(srgb.get('val')).upper()}"
+        return apply_color_transforms(f"#{str(srgb.get('val')).upper()}", srgb)
+    sys = first_local_descendant(container, "sysClr")
+    if sys is not None:
+        last = sys.get("lastClr")
+        if last:
+            return apply_color_transforms(f"#{str(last).upper()}", sys)
     scheme = first_local_descendant(container, "schemeClr")
     if scheme is not None:
-        return scheme_color(str(scheme.get("val", "")))
+        color = scheme_color(str(scheme.get("val", "")), theme_colors)
+        return apply_color_transforms(color, scheme) if color else None
     return None
 
 
-def scheme_color(value: str) -> str | None:
-    return {
-        "bg1": "#FFFFFF",
-        "tx1": "#111827",
-        "accent1": "#2563EB",
-        "accent2": "#7C3AED",
-        "accent3": "#0EA5E9",
-        "accent4": "#10B981",
-        "accent5": "#F59E0B",
-        "accent6": "#EF4444",
-        "dk1": "#111827",
-        "lt1": "#FFFFFF",
-    }.get(value)
+def scheme_color(value: str, theme_colors: dict[str, str]) -> str | None:
+    lookup = SCHEME_COLOR_ALIASES.get(value, value)
+    return theme_colors.get(value) or theme_colors.get(lookup) or FALLBACK_SCHEME_COLORS.get(value)
 
 
 def shape_shadow(
     shape: ET.Element[Any],
     scale: OoxmlScale,
+    theme_colors: dict[str, str],
 ) -> dict[str, Any] | None:
     shadow = first_local_descendant(shape, "outerShdw")
     if shadow is None:
         return None
-    color = solid_color(shadow) or "#000000"
+    color = solid_color(shadow, theme_colors) or "#000000"
     blur = round(int_attr(shadow, "blurRad", 0) * scale.average_scale, 2)
     distance = int_attr(shadow, "dist", 0) * scale.average_scale
     direction = math.radians(int_attr(shadow, "dir", 0) / 60000)
@@ -1132,9 +1182,104 @@ def presentation_size_emu(package: zipfile.ZipFile) -> tuple[int, int]:
     )
 
 
-def slide_background_color(slide: ET.Element[Any]) -> str | None:
+def theme_color_map(package: zipfile.ZipFile) -> dict[str, str]:
+    theme_part = presentation_theme_part(package) or first_theme_part(package)
+    theme = read_xml(package, theme_part)
+    color_scheme = first_local_descendant(theme, "clrScheme") if theme is not None else None
+    if color_scheme is None:
+        return FALLBACK_SCHEME_COLORS
+
+    colors: dict[str, str] = {}
+    for item in list(color_scheme):
+        key = local_name(item)
+        color = theme_color_value(item)
+        if color:
+            colors[key] = color
+    for alias, target in SCHEME_COLOR_ALIASES.items():
+        if target in colors:
+            colors[alias] = colors[target]
+    return {**FALLBACK_SCHEME_COLORS, **colors}
+
+
+def presentation_theme_part(package: zipfile.ZipFile) -> str | None:
+    rels = relationships_for_part(package, "ppt/presentation.xml")
+    return relationship_target_by_type("ppt/presentation.xml", rels, THEME_REL_TYPE)
+
+
+def first_theme_part(package: zipfile.ZipFile) -> str | None:
+    return next(
+        (
+            name
+            for name in package.namelist()
+            if name.startswith("ppt/theme/theme") and name.endswith(".xml")
+        ),
+        None,
+    )
+
+
+def theme_color_value(item: ET.Element[Any]) -> str | None:
+    srgb = first_local_child(item, "srgbClr")
+    if srgb is not None and srgb.get("val"):
+        return f"#{str(srgb.get('val')).upper()}"
+    sys = first_local_child(item, "sysClr")
+    if sys is not None and sys.get("lastClr"):
+        return f"#{str(sys.get('lastClr')).upper()}"
+    scheme = first_local_child(item, "schemeClr")
+    if scheme is not None:
+        return FALLBACK_SCHEME_COLORS.get(str(scheme.get("val", "")))
+    return None
+
+
+def apply_color_transforms(color: str, color_node: ET.Element[Any]) -> str:
+    red = int(color[1:3], 16)
+    green = int(color[3:5], 16)
+    blue = int(color[5:7], 16)
+
+    for transform in list(color_node):
+        name = local_name(transform)
+        value = int_attr(transform, "val", 100000) / 100000
+        if name == "lumMod":
+            red, green, blue = (
+                round(red * value),
+                round(green * value),
+                round(blue * value),
+            )
+        elif name == "lumOff":
+            red, green, blue = (
+                round(red + 255 * value),
+                round(green + 255 * value),
+                round(blue + 255 * value),
+            )
+        elif name == "tint":
+            red, green, blue = (
+                round(red + (255 - red) * value),
+                round(green + (255 - green) * value),
+                round(blue + (255 - blue) * value),
+            )
+        elif name == "shade":
+            red, green, blue = (
+                round(red * value),
+                round(green * value),
+                round(blue * value),
+            )
+
+    return f"#{clamp_rgb(red):02X}{clamp_rgb(green):02X}{clamp_rgb(blue):02X}"
+
+
+def clamp_rgb(value: int) -> int:
+    return max(0, min(255, value))
+
+
+def slide_background_color(
+    slide: ET.Element[Any],
+    theme_colors: dict[str, str],
+) -> str | None:
     background = first_local_descendant(slide, "bgPr")
-    return solid_color(first_local_child(background, "solidFill")) if background is not None else None
+    return (
+        solid_color(first_local_child(background, "solidFill"), theme_colors)
+        if background is not None
+        else None
+    )
 
 
 def relationships_for_part(

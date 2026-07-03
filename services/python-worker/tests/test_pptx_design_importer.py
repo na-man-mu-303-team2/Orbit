@@ -1,5 +1,7 @@
+import zipfile
 from io import BytesIO
 from pathlib import Path
+from xml.etree import ElementTree as ET
 
 from PIL import Image
 from pptx import Presentation
@@ -512,6 +514,57 @@ def test_ooxml_visual_tree_importer_preserves_vector_props(
     )
 
 
+def test_ooxml_visual_tree_importer_resolves_theme_scheme_colors(
+    tmp_path: Path,
+) -> None:
+    pptx_path = tmp_path / "theme-colors.pptx"
+    presentation = Presentation()
+    presentation.slide_width = Inches(13.333333)
+    presentation.slide_height = Inches(7.5)
+    slide = presentation.slides.add_slide(presentation.slide_layouts[6])
+
+    accent_shape = slide.shapes.add_shape(
+        MSO_SHAPE.RECTANGLE,
+        Inches(1),
+        Inches(1),
+        Inches(2),
+        Inches(1),
+    )
+    replace_shape_fill_with_scheme(accent_shape, "accent4")
+
+    transformed_shape = slide.shapes.add_shape(
+        MSO_SHAPE.RECTANGLE,
+        Inches(4),
+        Inches(1),
+        Inches(2),
+        Inches(1),
+    )
+    replace_shape_fill_with_scheme(
+        transformed_shape,
+        "accent5",
+        '<a:lumMod val="50000"/>',
+    )
+    presentation.save(pptx_path)
+    replace_theme_colors(
+        pptx_path,
+        {
+            "accent4": "FFEDA9",
+            "accent5": "808080",
+        },
+    )
+
+    result = import_pptx_ooxml_visual_tree(pptx_path, "file_design")
+    fills = {
+        element["props"]["fill"]
+        for element in result.blueprint["slides"][0]["elements"]
+        if element["type"] == "rect"
+    }
+
+    assert "#FFEDA9" in fills
+    assert "#404040" in fills
+    assert "#10B981" not in fills
+
+
 def test_ooxml_visual_tree_importer_is_default(
     tmp_path: Path,
     monkeypatch: object,
@@ -548,6 +601,56 @@ def test_ooxml_visual_tree_importer_is_default(
         str(element["elementId"]).startswith("el_imported_")
         for element in fallback_result.blueprint["slides"][0]["elements"]
     )
+
+
+def replace_shape_fill_with_scheme(
+    shape: object,
+    scheme: str,
+    transforms: str = "",
+) -> None:
+    sp_pr = shape._element.spPr
+    for child in list(sp_pr):
+        if child.tag.rsplit("}", maxsplit=1)[-1] in {"solidFill", "gradFill", "noFill"}:
+            sp_pr.remove(child)
+    sp_pr.insert(
+        0,
+        parse_xml(
+            f"""
+            <a:solidFill xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
+              <a:schemeClr val="{scheme}">
+                {transforms}
+              </a:schemeClr>
+            </a:solidFill>
+            """
+        ),
+    )
+
+
+def replace_theme_colors(pptx_path: Path, colors: dict[str, str]) -> None:
+    with zipfile.ZipFile(pptx_path, "r") as package:
+        entries = {item.filename: package.read(item.filename) for item in package.infolist()}
+
+    theme_path = next(
+        name
+        for name in entries
+        if name.startswith("ppt/theme/theme") and name.endswith(".xml")
+    )
+    root = ET.fromstring(entries[theme_path])
+    for item in root.iter():
+        key = item.tag.rsplit("}", maxsplit=1)[-1]
+        if key not in colors:
+            continue
+        item.clear()
+        ET.SubElement(
+            item,
+            "{http://schemas.openxmlformats.org/drawingml/2006/main}srgbClr",
+            {"val": colors[key]},
+        )
+    entries[theme_path] = ET.tostring(root, encoding="utf-8", xml_declaration=True)
+
+    with zipfile.ZipFile(pptx_path, "w") as package:
+        for name, content in entries.items():
+            package.writestr(name, content)
 
 
 def replace_shape_fill_with_gradient(shape: object) -> None:
