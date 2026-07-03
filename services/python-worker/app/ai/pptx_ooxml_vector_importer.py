@@ -660,9 +660,9 @@ def table_rows(
     theme_colors: dict[str, str],
 ) -> list[list[dict[str, Any]]]:
     rows: list[list[dict[str, Any]]] = []
-    for row in direct_local_children(table, "tr"):
+    for row_index, row in enumerate(direct_local_children(table, "tr")):
         cells = [
-            table_cell(cell, scale, theme_colors)
+            table_cell(cell, row_index, scale, theme_colors)
             for cell in direct_local_children(row, "tc")
         ]
         if cells:
@@ -672,6 +672,7 @@ def table_rows(
 
 def table_cell(
     cell: ET.Element[Any],
+    row_index: int,
     scale: OoxmlScale,
     theme_colors: dict[str, str],
 ) -> dict[str, Any]:
@@ -680,11 +681,13 @@ def table_cell(
     text = "".join(str(run.get("text", "")) for run in runs)
     tc_pr = first_local_child(cell, "tcPr")
     border_color, border_width = table_cell_border(tc_pr, scale, theme_colors)
+    explicit_fill = solid_color(first_local_child(tc_pr, "solidFill"), theme_colors)
+    default_fill, default_text_color = default_table_cell_colors(row_index)
     props: dict[str, Any] = {
         "text": text,
-        "fill": solid_color(first_local_child(tc_pr, "solidFill"), theme_colors)
-        or "transparent",
-        "fontSize": 18,
+        "fill": explicit_fill or default_fill,
+        "textColor": default_text_color,
+        "fontSize": 32,
         "fontWeight": "normal",
         "align": paragraph_align(body) if body is not None else "left",
         "verticalAlign": text_vertical_align(body) if body is not None else "middle",
@@ -704,6 +707,14 @@ def table_cell(
         if first_run.get("color"):
             props["textColor"] = first_run["color"]
     return props
+
+
+def default_table_cell_colors(row_index: int) -> tuple[str, str]:
+    if row_index == 0:
+        return "#4F81BD", "#FFFFFF"
+    if row_index % 2 == 1:
+        return "#D0D8E8", "#000000"
+    return "#E9EDF5", "#000000"
 
 
 def table_column_widths(table: ET.Element[Any], scale: OoxmlScale) -> list[int]:
@@ -735,7 +746,7 @@ def table_cell_border(
             or "#CBD5E1",
             round(max(0, int_attr(border, "w", 12700) * scale.average_scale), 2),
         )
-    return "#CBD5E1", 1
+    return "#FFFFFF", 1
 
 
 def append_group_shape(

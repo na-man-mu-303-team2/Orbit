@@ -945,6 +945,8 @@ def test_ooxml_visual_tree_importer_falls_back_graphic_frames(
 
     assert len(fallback_images) == 0
     assert table["props"]["rows"][0][0]["text"] == "A"
+    assert table["props"]["rows"][0][0]["fill"] == "#4F81BD"
+    assert table["props"]["rows"][0][0]["textColor"] == "#FFFFFF"
     assert table["props"]["rows"][1][1]["text"] == "B"
     assert chart["props"]["type"] == "bar"
     assert chart["props"]["data"] == [
