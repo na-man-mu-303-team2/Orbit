@@ -265,6 +265,37 @@ def test_import_pptx_design_preserves_common_preset_shape_types(
     assert all(path.startswith("M ") for path in custom_paths)
 
 
+def test_ooxml_visual_tree_importer_converts_camel_case_preset_arrow(
+    tmp_path: Path,
+) -> None:
+    pptx_path = tmp_path / "ooxml-preset-arrow.pptx"
+    presentation = Presentation()
+    presentation.slide_width = Inches(13.333333)
+    presentation.slide_height = Inches(7.5)
+    slide = presentation.slides.add_slide(presentation.slide_layouts[6])
+    arrow = slide.shapes.add_shape(
+        MSO_SHAPE.RIGHT_ARROW,
+        Inches(1),
+        Inches(1),
+        Inches(2),
+        Inches(1),
+    )
+    arrow.fill.solid()
+    arrow.fill.fore_color.rgb = RGBColor(37, 99, 235)
+    presentation.save(pptx_path)
+
+    result = import_pptx_ooxml_visual_tree(pptx_path, "file_design")
+    elements = result.blueprint["slides"][0]["elements"]
+
+    assert any(element["type"] == "customShape" for element in elements)
+    assert not any(
+        element["type"] == "image"
+        and str(element["props"]["src"]).startswith("asset:shape_render_")
+        for element in elements
+    )
+    assert not any("unsupported preset rightArrow" in warning for warning in result.warnings)
+
+
 def test_ooxml_visual_tree_keeps_complex_text_editable(
     tmp_path: Path,
 ) -> None:

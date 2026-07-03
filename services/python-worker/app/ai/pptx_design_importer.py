@@ -708,6 +708,7 @@ def has_arrow_head(shape: Any) -> bool:
 
 
 def preset_custom_shape_path(token: str) -> tuple[str, bool] | None:
+    token = normalized_preset_token(token)
     if "triangle" in token:
         if "right" in token:
             return "M 0 0 L 100 100 L 0 100 Z", True
@@ -743,6 +744,15 @@ def preset_custom_shape_path(token: str) -> tuple[str, bool] | None:
     if "down_arrow" in token:
         return "M 25 0 L 25 65 L 0 65 L 50 100 L 100 65 L 75 65 L 75 0 Z", True
     return None
+
+
+def normalized_preset_token(token: str) -> str:
+    chars: list[str] = []
+    for index, char in enumerate(token):
+        if char.isupper() and index > 0:
+            chars.append("_")
+        chars.append(char.lower() if char != "-" else "_")
+    return "".join(chars)
 
 
 def shape_slot_source(
