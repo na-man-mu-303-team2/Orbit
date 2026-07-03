@@ -1147,6 +1147,25 @@ def append_shape(
             slot_sources[str(element["elementId"])] = source
         return
 
+    picture_fill_element = shape_picture_fill_element(
+        package=package,
+        content_types=content_types,
+        rels=rels,
+        part_path=part_path,
+        shape=shape,
+        slide_index=slide_index,
+        source_name=source_name,
+        shape_id=shape_id,
+        frame=frame,
+        scale=scale,
+        z_index=state.next_z(),
+        locked=locked,
+        state=state,
+    )
+    if picture_fill_element:
+        elements.append(picture_fill_element)
+        slot_sources[str(picture_fill_element["elementId"])] = source
+
     fill = shape_fill(shape, state.theme_colors)
     stroke, stroke_width, stroke_extras = shape_stroke(
         shape,
@@ -1212,6 +1231,113 @@ def image_element(
             f"OOXML image has no relationship on slide {slide_index}: {shape_id}"
         )
         return None
+    asset = image_asset_from_relationship(
+        package=package,
+        content_types=content_types,
+        rels=rels,
+        part_path=part_path,
+        relationship_id=relationship_id,
+        slide_index=slide_index,
+        shape_id=shape_id,
+        state=state,
+    )
+    if asset is None:
+        return None
+    asset_id, mime_type = asset
+
+    props: dict[str, Any] = {
+        "src": f"asset:{asset_id}",
+        "alt": shape_name(shape)
+        or ("Imported SVG" if is_svg_mime_type(mime_type) else "Imported image"),
+        "fit": "stretch",
+        "focusX": 0.5,
+        "focusY": 0.5,
+    }
+    crop = image_crop(shape)
+    if crop:
+        props["crop"] = crop
+    role = "background" if is_full_canvas_frame(frame, scale) else "media"
+    return {
+        **element_base(
+            element_id=element_id(slide_index, source_name, shape_id, "image"),
+            role=role,
+            frame=frame,
+            z_index=z_index,
+            locked=locked or role == "background",
+        ),
+        "type": "svg" if is_svg_mime_type(mime_type) else "image",
+        "props": props,
+    }
+
+
+def shape_picture_fill_element(
+    *,
+    package: zipfile.ZipFile,
+    content_types: dict[str, str],
+    rels: dict[str, dict[str, str]],
+    part_path: str,
+    shape: ET.Element[Any],
+    slide_index: int,
+    source_name: str,
+    shape_id: str,
+    frame: dict[str, int],
+    scale: OoxmlScale,
+    z_index: int,
+    locked: bool,
+    state: OoxmlImportState,
+) -> dict[str, Any] | None:
+    sp_pr = first_local_child(shape, "spPr")
+    if first_local_child(sp_pr, "blipFill") is None:
+        return None
+    relationship_id = attr_by_local_name(first_local_descendant(shape, "blip"), "embed")
+    if not relationship_id:
+        return None
+    asset = image_asset_from_relationship(
+        package=package,
+        content_types=content_types,
+        rels=rels,
+        part_path=part_path,
+        relationship_id=relationship_id,
+        slide_index=slide_index,
+        shape_id=shape_id,
+        state=state,
+    )
+    if asset is None:
+        return None
+    asset_id, mime_type = asset
+    crop = image_crop(shape)
+    role = "background" if is_full_canvas_frame(frame, scale) else "media"
+    return {
+        **element_base(
+            element_id=element_id(slide_index, source_name, shape_id, "picture_fill"),
+            role=role,
+            frame=frame,
+            z_index=z_index,
+            locked=locked or role == "background",
+        ),
+        "type": "svg" if is_svg_mime_type(mime_type) else "image",
+        "props": {
+            "src": f"asset:{asset_id}",
+            "alt": shape_name(shape) or "Shape picture fill",
+            "fit": "stretch",
+            "focusX": 0.5,
+            "focusY": 0.5,
+            **({"crop": crop} if crop else {}),
+        },
+    }
+
+
+def image_asset_from_relationship(
+    *,
+    package: zipfile.ZipFile,
+    content_types: dict[str, str],
+    rels: dict[str, dict[str, str]],
+    part_path: str,
+    relationship_id: str,
+    slide_index: int,
+    shape_id: str,
+    state: OoxmlImportState,
+) -> tuple[str, str] | None:
     rel = rels.get(relationship_id)
     if not rel:
         state.warnings.append(
@@ -1238,30 +1364,7 @@ def image_element(
     color = average_image_color(blob)
     if color:
         state.asset_colors[asset_id] = color
-
-    props: dict[str, Any] = {
-        "src": f"asset:{asset_id}",
-        "alt": shape_name(shape)
-        or ("Imported SVG" if is_svg_mime_type(mime_type) else "Imported image"),
-        "fit": "stretch",
-        "focusX": 0.5,
-        "focusY": 0.5,
-    }
-    crop = image_crop(shape)
-    if crop:
-        props["crop"] = crop
-    role = "background" if is_full_canvas_frame(frame, scale) else "media"
-    return {
-        **element_base(
-            element_id=element_id(slide_index, source_name, shape_id, "image"),
-            role=role,
-            frame=frame,
-            z_index=z_index,
-            locked=locked or role == "background",
-        ),
-        "type": "svg" if is_svg_mime_type(mime_type) else "image",
-        "props": props,
-    }
+    return asset_id, mime_type
 
 
 def shape_fallback_image_element(
@@ -1320,9 +1423,6 @@ def unsupported_geometry_reason(shape: ET.Element[Any]) -> str | None:
         return None
     if first_local_child(sp_pr, "custGeom") is not None:
         return "unsupported custom geometry"
-    if first_local_child(sp_pr, "blipFill") is not None:
-        return "unsupported shape image fill"
-
     token = preset_token(shape)
     if supported_preset_token(token, local_name(shape)):
         return None

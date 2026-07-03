@@ -380,6 +380,60 @@ def test_ooxml_visual_tree_keeps_pattern_shape_editable_with_separate_text(
     assert pattern_shape["zIndex"] < text["zIndex"]
 
 
+def test_ooxml_visual_tree_keeps_picture_fill_as_editable_image(
+    tmp_path: Path,
+) -> None:
+    pptx_path = tmp_path / "picture-fill.pptx"
+    image_path = tmp_path / "fill.png"
+    Image.new("RGB", (32, 32), "#47604D").save(image_path)
+    presentation = Presentation()
+    presentation.slide_width = Inches(13.333333)
+    presentation.slide_height = Inches(7.5)
+    slide = presentation.slides.add_slide(presentation.slide_layouts[6])
+    picture = slide.shapes.add_picture(
+        str(image_path),
+        Inches(7),
+        Inches(1),
+        Inches(1),
+        Inches(1),
+    )
+    shape = slide.shapes.add_shape(
+        MSO_SHAPE.RECTANGLE,
+        Inches(1),
+        Inches(1),
+        Inches(4),
+        Inches(1.5),
+    )
+    shape.text_frame.text = "Picture fill label"
+    replace_shape_fill_with_blip(shape, embedded_blip_relationship_id(picture))
+    presentation.save(pptx_path)
+
+    result = import_pptx_ooxml_visual_tree(pptx_path, "file_design")
+    elements = result.blueprint["slides"][0]["elements"]
+    fallback_images = [
+        element
+        for element in elements
+        if element["type"] == "image"
+        and str(element["props"]["src"]).startswith("asset:shape_render_1_slide_")
+    ]
+    picture_fill = next(
+        element
+        for element in elements
+        if str(element["elementId"]).endswith("_picture_fill")
+    )
+    text = next(
+        element
+        for element in elements
+        if element["type"] == "text"
+        and element["props"]["text"] == "Picture fill label"
+    )
+
+    assert len(fallback_images) == 0
+    assert picture_fill["type"] == "image"
+    assert str(picture_fill["props"]["src"]).startswith("asset:image_")
+    assert picture_fill["zIndex"] < text["zIndex"]
+
+
 def test_ooxml_visual_tree_uses_single_image_fallback_for_group_visuals(
     tmp_path: Path,
 ) -> None:
@@ -1242,6 +1296,40 @@ def replace_shape_fill_with_pattern(shape: object) -> None:
             """
         ),
     )
+
+
+def replace_shape_fill_with_blip(shape: object, relationship_id: str) -> None:
+    sp_pr = shape._element.spPr
+    for child in list(sp_pr):
+        if child.tag.rsplit("}", maxsplit=1)[-1] in {
+            "solidFill",
+            "gradFill",
+            "noFill",
+            "pattFill",
+            "blipFill",
+        }:
+            sp_pr.remove(child)
+    sp_pr.insert(
+        0,
+        parse_xml(
+            f"""
+            <a:blipFill xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"
+                        xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+              <a:blip r:embed="{relationship_id}"/>
+            </a:blipFill>
+            """
+        ),
+    )
+
+
+def embedded_blip_relationship_id(shape: object) -> str:
+    for node in shape._element.iter():
+        if node.tag.rsplit("}", maxsplit=1)[-1] != "blip":
+            continue
+        for key, value in node.attrib.items():
+            if key.rsplit("}", maxsplit=1)[-1] == "embed":
+                return str(value)
+    raise AssertionError("shape has no embedded blip relationship")
 
 
 def replace_first_picture_with_svg(pptx_path: Path) -> None:
