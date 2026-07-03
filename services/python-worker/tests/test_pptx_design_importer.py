@@ -599,7 +599,7 @@ def test_ooxml_visual_tree_importer_preserves_vector_props(
         if element["type"] == "text" and element["props"]["text"] == "Hello World"
     )
     assert text["props"]["runs"][0]["fontWeight"] == "bold"
-    assert text["props"]["runs"][1]["fontSize"] == 28
+    assert text["props"]["runs"][1]["fontSize"] == 56
     assert text["props"]["runs"][1]["color"] == "#2563EB"
 
     gradient_shape = next(

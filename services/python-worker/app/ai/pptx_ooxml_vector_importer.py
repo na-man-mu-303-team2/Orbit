@@ -1111,7 +1111,7 @@ def text_element(
     body = first_local_child(shape, "txBody")
     if body is None:
         return None
-    runs = text_runs(body, theme_colors)
+    runs = text_runs(body, scale, theme_colors)
     text = "".join(str(run.get("text", "")) for run in runs)
     if not text.strip():
         return None
@@ -1146,6 +1146,7 @@ def text_element(
 
 def text_runs(
     body: ET.Element[Any],
+    scale: OoxmlScale,
     theme_colors: dict[str, str],
 ) -> list[dict[str, Any]]:
     runs: list[dict[str, Any]] = []
@@ -1158,7 +1159,7 @@ def text_runs(
             if name == "r":
                 text = "".join(node.text or "" for node in child.iter() if local_name(node) == "t")
                 if text:
-                    runs.append({"text": text, **run_props(child, theme_colors)})
+                    runs.append({"text": text, **run_props(child, scale, theme_colors)})
             elif name == "br":
                 runs.append({"text": "\n", "baseline": "normal"})
     if not runs:
@@ -1170,6 +1171,7 @@ def text_runs(
 
 def run_props(
     run: ET.Element[Any],
+    scale: OoxmlScale,
     theme_colors: dict[str, str],
 ) -> dict[str, Any]:
     r_pr = first_local_child(run, "rPr")
@@ -1181,7 +1183,7 @@ def run_props(
         props["fontFamily"] = typeface
     size = int_attr(r_pr, "sz", 0)
     if size > 0:
-        props["fontSize"] = max(8, round(size / 100))
+        props["fontSize"] = font_size_to_canvas_px(size / 100, scale)
     if r_pr.get("b") in {"1", "true"}:
         props["fontWeight"] = "bold"
     color = solid_color(first_local_child(r_pr, "solidFill"), theme_colors)
@@ -1193,6 +1195,10 @@ def run_props(
     elif baseline < 0:
         props["baseline"] = "subscript"
     return props
+
+
+def font_size_to_canvas_px(size_pt: float, scale: OoxmlScale) -> int:
+    return max(8, round(size_pt * 12700 * scale.average_scale))
 
 
 def run_typeface(r_pr: ET.Element[Any]) -> str | None:
