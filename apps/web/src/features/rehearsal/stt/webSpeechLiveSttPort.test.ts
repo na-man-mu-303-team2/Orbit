@@ -252,8 +252,9 @@ describe("WebSpeechLiveSttPort", () => {
 
   it("registry에서 Web Speech 엔진을 생성한다", async () => {
     const { createLiveSttPort } = await import("./liveSttEngineRegistry");
+    const { RerankingLiveSttPort } = await import("./rerankingLiveSttPort");
 
-    expect(createLiveSttPort("web-speech")).toBeInstanceOf(WebSpeechLiveSttPort);
+    expect(createLiveSttPort("web-speech")).toBeInstanceOf(RerankingLiveSttPort);
   });
 });
 

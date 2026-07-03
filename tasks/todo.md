@@ -48,7 +48,7 @@
 - [x] T12: `stt/alternativeReranker.ts` 신규 - `bestScore > originalScore && bestScore >= 0.75` 교체 기준 (S, deps: T11)
 - [x] T13: `LiveSttResult.alternatives` optional 추가 + Web Speech final alternatives 방출, `maxAlternatives=3` (S, deps: T4)
 - [x] T14: `stt/rerankingLiveSttPort.ts` 신규 - final alternatives 데코레이터, 소비자 방출 전 alternatives 제거 (M, deps: T12, T13)
-- [ ] T15: registry에서 web-speech 포트를 `RerankingLiveSttPort`로 래핑 (XS, deps: T14)
+- [x] T15: registry에서 web-speech 포트를 `RerankingLiveSttPort`로 래핑 (XS, deps: T14)
 
 ### Checkpoint 3 - 최종
 
