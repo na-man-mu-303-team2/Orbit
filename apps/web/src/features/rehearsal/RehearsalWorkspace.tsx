@@ -984,10 +984,6 @@ function shouldUseLiveSttPostprocessBias(mode: LiveSttBiasMode) {
   return mode === "postprocess" || mode === "combined";
 }
 
-function shouldUseLiveSttHotwordBias(mode: LiveSttBiasMode) {
-  return mode === "hotword" || mode === "combined";
-}
-
 function normalizeBiasTermText(value: string) {
   return value.replace(/\s+/g, " ").trim();
 }
@@ -1496,11 +1492,8 @@ export function RehearsalWorkspace(props: {
         })
       : null;
     liveBiasContextRef.current = nextBiasContext;
-    const biasMode = getLiveSttBiasMode();
     void liveSttPortRef.current?.updateBiasPhrases(
-      shouldUseLiveSttHotwordBias(biasMode)
-        ? getBiasPhrasesFromContext(nextBiasContext)
-        : []
+      getBiasPhrasesFromContext(nextBiasContext)
     );
     const p3Session = p3SessionRef.current;
     if (p3Session && (isLiveDemoActive || phase === "recording")) {
