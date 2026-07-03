@@ -13,6 +13,7 @@
 **/.pytest_cache
 **/.ruff_cache
 **/.mypy_cache
+.codex-test-tmp
 **/uploads
 **/tmp
 **/minio-data
