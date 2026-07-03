@@ -330,6 +330,10 @@ def test_ooxml_visual_tree_splits_text_from_unsupported_shape_fallback(
 
     assert len(fallback_images) == 1
     assert fallback_images[0]["zIndex"] < text["zIndex"]
+    assert fallback_images[0]["x"] == 142
+    assert fallback_images[0]["y"] == 142
+    assert fallback_images[0]["width"] == 580
+    assert fallback_images[0]["height"] == 220
 
 
 def test_ooxml_visual_tree_uses_single_image_fallback_for_group_visuals(

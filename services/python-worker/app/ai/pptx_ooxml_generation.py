@@ -1141,11 +1141,12 @@ def element_crop_box(
     element: dict[str, Any],
     image_size: tuple[int, int],
 ) -> tuple[int, int, int, int] | None:
+    padding = 2
     image_width, image_height = image_size
-    x = math_floor_float(element.get("x"))
-    y = math_floor_float(element.get("y"))
-    width = math_ceil_float(element.get("width"))
-    height = math_ceil_float(element.get("height"))
+    x = math_floor_float(element.get("x")) - padding
+    y = math_floor_float(element.get("y")) - padding
+    width = math_ceil_float(element.get("width")) + padding * 2
+    height = math_ceil_float(element.get("height")) + padding * 2
     if width <= 0 or height <= 0:
         return None
     left = max(0, min(image_width, x))

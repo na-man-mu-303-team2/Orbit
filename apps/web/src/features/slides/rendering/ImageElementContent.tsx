@@ -51,13 +51,15 @@ export function ImageElementContent(props: {
       clipWidth={frame.width}
       clipHeight={frame.height}
     >
-      <Rect
-        fill="#f8fafc"
-        stroke={image ? "#cbd5e1" : "#93c5fd"}
-        strokeWidth={1}
-        width={frame.width}
-        height={frame.height}
-      />
+      {image && layout ? null : (
+        <Rect
+          fill="#f8fafc"
+          stroke="#93c5fd"
+          strokeWidth={1}
+          width={frame.width}
+          height={frame.height}
+        />
+      )}
       {image && layout ? (
         <KonvaImage
           crop={layout.crop}

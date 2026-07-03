@@ -47,6 +47,7 @@ THEME_REL_TYPE = (
     "http://schemas.openxmlformats.org/officeDocument/2006/relationships/theme"
 )
 VECTOR_IMPORT_FLAG = "ORBIT_PPTX_OOXML_VECTOR_IMPORT"
+FALLBACK_IMAGE_PADDING = 2
 FALLBACK_SCHEME_COLORS = {
     "bg1": "#FFFFFF",
     "tx1": "#111827",
@@ -911,11 +912,12 @@ def shape_fallback_image_element(
     reason: str,
 ) -> dict[str, Any]:
     asset_id = shape_fallback_asset_id(slide_index, source_name, shape_id)
+    fallback_frame = padded_fallback_frame(frame)
     return {
         **element_base(
             element_id=element_id(slide_index, source_name, shape_id, "fallback_image"),
             role="decoration",
-            frame=frame,
+            frame=fallback_frame,
             z_index=z_index,
             locked=locked,
         ),
@@ -927,6 +929,20 @@ def shape_fallback_image_element(
             "focusX": 0.5,
             "focusY": 0.5,
         },
+    }
+
+
+def padded_fallback_frame(frame: dict[str, int]) -> dict[str, int]:
+    x = max(0, int(frame["x"]) - FALLBACK_IMAGE_PADDING)
+    y = max(0, int(frame["y"]) - FALLBACK_IMAGE_PADDING)
+    right = int(frame["x"]) + int(frame["width"]) + FALLBACK_IMAGE_PADDING
+    bottom = int(frame["y"]) + int(frame["height"]) + FALLBACK_IMAGE_PADDING
+    return {
+        **frame,
+        "x": x,
+        "y": y,
+        "width": max(1, right - x),
+        "height": max(1, bottom - y),
     }
 
 
