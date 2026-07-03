@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import json
+import math
+import re
+import uuid
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Annotated, Any, Protocol
@@ -26,6 +30,8 @@ SUPPORTED_AUDIO_MIME_TYPES = {
     "audio/x-wav",
     "video/mp4",
 }
+
+_MULTIPART_SAFE_FILENAME_RE = re.compile(r"[^A-Za-z0-9._-]+")
 
 
 class AudioTranscriptionError(RuntimeError):
@@ -100,12 +106,15 @@ class ProviderTranscription(BaseModel):
     segments: list[TranscriptSegment] = Field(default_factory=list)
 
 
-class SpeechToTextProvider(Protocol):
+class ReportSttProvider(Protocol):
     name: str
     model: str
 
     def transcribe(self, audio: AudioContent) -> ProviderTranscription:
         pass
+
+
+SpeechToTextProvider = ReportSttProvider
 
 
 class OpenAISpeechToTextProvider:
@@ -159,9 +168,66 @@ class OpenAISpeechToTextProvider:
         )
 
 
+class WhisperXSpeechToTextProvider:
+    name = "whisperx"
+
+    def __init__(
+        self,
+        *,
+        api_url: str,
+        api_key: str,
+        model: str,
+        language: str,
+        timeout_ms: int,
+        opener: Any = urlopen,
+    ) -> None:
+        self.model = model
+        self._api_url = api_url
+        self._api_key = api_key
+        self._language = language
+        self._timeout_seconds = timeout_ms / 1000
+        self._opener = opener
+
+    def transcribe(self, audio: AudioContent) -> ProviderTranscription:
+        body, content_type = _build_whisperx_multipart_body(
+            audio,
+            {
+                "language": _openai_language(self._language),
+                "model": self.model,
+                "diarization": "false",
+            },
+        )
+        request = UrlRequest(
+            self._api_url,
+            data=body,
+            headers={
+                "Authorization": f"Bearer {self._api_key}",
+                "Content-Type": content_type,
+                "User-Agent": "orbit-python-worker",
+            },
+            method="POST",
+        )
+
+        try:
+            with self._opener(request, timeout=self._timeout_seconds) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+        except Exception as exc:  # pragma: no cover - concrete paths use fakes.
+            raise AudioTranscriptionError(
+                "stt_provider_failed",
+                "WhisperX transcription request failed",
+                502,
+            ) from exc
+
+        return _parse_whisperx_response(
+            payload,
+            fallback_language=self._language,
+            fallback_model=self.model,
+        )
+
+
 def get_speech_to_text_provider(
     request: Request,
-) -> SpeechToTextProvider:
+) -> ReportSttProvider:
     config = getattr(request.app.state, "config", None)
     if not isinstance(config, PythonWorkerConfig):
         raise to_http_exception(
@@ -180,7 +246,27 @@ def get_speech_to_text_provider(
 
 def create_speech_to_text_provider(
     config: PythonWorkerConfig,
-) -> SpeechToTextProvider:
+) -> ReportSttProvider:
+    if config.report_stt_provider == "whisperx":
+        if not (
+            config.whisperx_api_url
+            and config.whisperx_api_key
+            and config.whisperx_model
+        ):
+            raise AudioTranscriptionError(
+                "provider_not_configured",
+                "REPORT_STT_PROVIDER=whisperx일 때 WHISPERX_API_URL, WHISPERX_API_KEY, WHISPERX_MODEL이 필요합니다.",
+                500,
+            )
+
+        return WhisperXSpeechToTextProvider(
+            api_url=config.whisperx_api_url,
+            api_key=config.whisperx_api_key,
+            model=config.whisperx_model,
+            language=config.transcribe_language_code,
+            timeout_ms=config.whisperx_timeout_ms,
+        )
+
     if not config.openai_api_key:
         raise AudioTranscriptionError(
             "provider_not_configured",
@@ -197,7 +283,7 @@ def create_speech_to_text_provider(
 
 def transcribe_rehearsal_audio(
     payload: AudioTranscribeRequest,
-    provider: SpeechToTextProvider,
+    provider: ReportSttProvider,
 ) -> AudioTranscribeResponse:
     audio = read_audio_content(payload.audio)
 
@@ -276,7 +362,7 @@ def to_http_exception(error: AudioTranscriptionError) -> HTTPException:
 
 
 ReportSttProviderDependency = Annotated[
-    SpeechToTextProvider,
+    ReportSttProvider,
     Depends(get_speech_to_text_provider),
 ]
 
@@ -348,3 +434,122 @@ def _read_segments(data: Any) -> list[TranscriptSegment]:
         )
 
     return segments
+
+
+def _parse_whisperx_response(
+    payload: Any, *, fallback_language: str, fallback_model: str
+) -> ProviderTranscription:
+    transcript = _read_field(payload, "transcript", "")
+    if not isinstance(transcript, str) or not transcript.strip():
+        raise AudioTranscriptionError(
+            "empty_transcript",
+            "WhisperX provider returned an empty transcript",
+            502,
+        )
+
+    language = _read_field(payload, "language", fallback_language)
+    provider = _read_field(payload, "provider", "whisperx")
+    model = _read_field(payload, "model", fallback_model)
+    duration = _read_optional_float(payload, "durationSeconds")
+
+    if not isinstance(language, str) or not language:
+        language = fallback_language
+    if not isinstance(provider, str) or not provider:
+        provider = "whisperx"
+    if not isinstance(model, str) or not model:
+        model = fallback_model
+
+    return ProviderTranscription(
+        transcript=transcript,
+        language=language,
+        provider=provider,
+        model=model,
+        duration_seconds=duration,
+        segments=_read_whisperx_segments(payload),
+    )
+
+
+def _read_whisperx_segments(data: Any) -> list[TranscriptSegment]:
+    raw_segments = _read_field(data, "segments", [])
+    if not isinstance(raw_segments, list):
+        raise _malformed_whisperx_segments_error()
+
+    segments: list[TranscriptSegment] = []
+    for raw_segment in raw_segments:
+        text = _read_field(raw_segment, "text", None)
+        if not isinstance(text, str) or not text.strip():
+            raise _malformed_whisperx_segments_error()
+
+        start_seconds = _read_required_whisperx_float(raw_segment, "startSeconds")
+        end_seconds = _read_required_whisperx_float(raw_segment, "endSeconds")
+        if end_seconds < start_seconds:
+            raise _malformed_whisperx_segments_error()
+
+        segments.append(
+            TranscriptSegment(
+                text=text,
+                startSeconds=start_seconds,
+                endSeconds=end_seconds,
+            )
+        )
+
+    return segments
+
+
+def _read_required_whisperx_float(data: Any, field: str) -> float:
+    value = _read_field(data, field, None)
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise _malformed_whisperx_segments_error()
+
+    number = float(value)
+    if not math.isfinite(number) or number < 0:
+        raise _malformed_whisperx_segments_error()
+
+    return number
+
+
+def _malformed_whisperx_segments_error() -> AudioTranscriptionError:
+    return AudioTranscriptionError(
+        "malformed_provider_response",
+        "WhisperX provider returned malformed segments",
+        502,
+    )
+
+
+def _build_whisperx_multipart_body(
+    audio: AudioContent, fields: Mapping[str, str]
+) -> tuple[bytes, str]:
+    boundary = f"orbit-whisperx-{uuid.uuid4().hex}"
+    chunks: list[bytes] = []
+
+    for key, value in fields.items():
+        chunks.extend(
+            [
+                f"--{boundary}\r\n".encode(),
+                f'Content-Disposition: form-data; name="{key}"\r\n\r\n'.encode(),
+                value.encode(),
+                b"\r\n",
+            ]
+        )
+
+    chunks.extend(
+        [
+            f"--{boundary}\r\n".encode(),
+            (
+                'Content-Disposition: form-data; name="file"; '
+                f'filename="{_sanitize_multipart_filename(audio.file_name)}"\r\n'
+            ).encode(),
+            f"Content-Type: {audio.mime_type}\r\n\r\n".encode(),
+            audio.data,
+            b"\r\n",
+            f"--{boundary}--\r\n".encode(),
+        ]
+    )
+
+    return b"".join(chunks), f"multipart/form-data; boundary={boundary}"
+
+
+def _sanitize_multipart_filename(file_name: str) -> str:
+    base_name = Path(file_name).name.replace("\x00", "")
+    safe_name = _MULTIPART_SAFE_FILENAME_RE.sub("_", base_name).strip("._-")
+    return safe_name or "audio.audio"
