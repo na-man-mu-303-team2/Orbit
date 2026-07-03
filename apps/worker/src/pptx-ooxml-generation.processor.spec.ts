@@ -170,6 +170,94 @@ describe("processPptxOoxmlGenerationJob", () => {
     });
   });
 
+  it("uses the rendered slide background when fallback image assets are unresolved", async () => {
+    const insertedDecks: unknown[] = [];
+    const query = vi.fn(async (sql: string, params: unknown[]) => {
+      if (sql.includes("UPDATE jobs")) {
+        return [
+          jobRow(
+            params[1] as "running" | "succeeded" | "failed",
+            params[2] as number,
+            params[4] as Record<string, unknown> | null,
+            params[5] as { code: string; message: string } | null
+          )
+        ];
+      }
+      if (sql.includes("FROM project_assets")) {
+        return [
+          {
+            file_id: "file_template",
+            project_id: "project-a",
+            storage_key: "projects/project-a/assets/file_template-template.pptx",
+            mime_type: pptxMimeType,
+            original_name: "template.pptx",
+            size: 12,
+            purpose: "pptx-import",
+            status: "uploaded"
+          }
+        ];
+      }
+      if (sql.includes("INSERT INTO decks")) {
+        insertedDecks.push(params[2]);
+      }
+      return [];
+    });
+    const fetchMock = vi.fn(async (input: string | URL) => {
+      const url = String(input);
+      if (url === "http://storage.local/template.pptx") {
+        return new Response("pptx-bytes");
+      }
+      if (url.endsWith("/ai/pptx-ooxml-generation")) {
+        return new Response(JSON.stringify(workerResponseWithUnresolvedFallback()));
+      }
+
+      return new Response("unexpected", { status: 500 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const job = await processPptxOoxmlGenerationJob(
+      { query } as unknown as DataSource,
+      storage,
+      "http://localhost:8000",
+      payload
+    );
+
+    const deck = insertedDecks[0] as {
+      slides: Array<{
+        elements: Array<Record<string, unknown>>;
+        style: { backgroundImage?: { src?: string; fit?: string; opacity?: number } };
+      }>;
+    };
+    expect(job.status, JSON.stringify(job.error)).toBe("succeeded");
+    expect(deck.slides[0].style.backgroundImage).toMatchObject({
+      src: expect.stringMatching(
+        /\/api\/v1\/projects\/project-a\/assets\/file_.*\/content/
+      ),
+      fit: "stretch",
+      opacity: 1
+    });
+    expect(deck.slides[0].elements).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          elementId: "el_ooxml_1_slide_99_fallback_image"
+        })
+      ])
+    );
+    expect(deck.slides[0].elements).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          elementId: "el_slot_title",
+          type: "rect",
+          role: "title",
+          props: expect.objectContaining({
+            fill: "transparent",
+            stroke: "transparent"
+          })
+        })
+      ])
+    );
+  });
+
   it("fails when the source asset is not a PPTX import upload", async () => {
     const query = vi.fn(async (sql: string, params: unknown[]) => {
       if (sql.includes("UPDATE jobs")) {
@@ -391,6 +479,35 @@ function workerResponse() {
     ],
     warnings: ["media slot preserved"]
   };
+}
+
+function workerResponseWithUnresolvedFallback() {
+  const response = workerResponse();
+  response.blueprint.slides[0].elements = [
+    {
+      elementId: "el_ooxml_1_slide_99_fallback_image",
+      type: "image",
+      role: "decoration",
+      x: 120,
+      y: 90,
+      width: 480,
+      height: 260,
+      rotation: 0,
+      opacity: 1,
+      zIndex: 2,
+      locked: false,
+      visible: true,
+      props: {
+        src: "asset:shape_render_1_slide_99",
+        alt: "Unsupported preset",
+        fit: "stretch",
+        focusX: 0.5,
+        focusY: 0.5
+      }
+    }
+  ];
+  response.assets = response.assets.filter((asset) => asset.assetId !== "image_1");
+  return response;
 }
 
 function jobRow(

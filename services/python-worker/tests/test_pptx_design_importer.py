@@ -263,6 +263,45 @@ def test_import_pptx_design_preserves_common_preset_shape_types(
     assert all(path.startswith("M ") for path in custom_paths)
 
 
+def test_ooxml_visual_tree_uses_image_fallback_for_complex_text_layout(
+    tmp_path: Path,
+) -> None:
+    pptx_path = tmp_path / "complex-text.pptx"
+    presentation = Presentation()
+    presentation.slide_width = Inches(13.333333)
+    presentation.slide_height = Inches(7.5)
+    slide = presentation.slides.add_slide(presentation.slide_layouts[6])
+
+    textbox = slide.shapes.add_textbox(Inches(1), Inches(1), Inches(4), Inches(1.5))
+    textbox.text_frame.text = "First paragraph"
+    second = textbox.text_frame.add_paragraph()
+    second.text = "Second paragraph"
+    presentation.save(pptx_path)
+
+    result = import_pptx_ooxml_visual_tree(pptx_path, "file_design")
+    elements = result.blueprint["slides"][0]["elements"]
+    fallback = next(
+        element
+        for element in elements
+        if element["type"] == "image"
+        and str(element["props"]["src"]).startswith("asset:shape_render_1_slide_")
+    )
+    source = next(
+        source
+        for source in result.template_blueprint["slides"][0]["elementSources"]
+        if source["elementId"] == fallback["elementId"]
+    )
+
+    assert not any(
+        element["type"] == "text"
+        and "First paragraph" in element["props"].get("text", "")
+        for element in elements
+    )
+    assert fallback["props"]["fit"] == "stretch"
+    assert source["fallbackReason"] == "multi-paragraph text layout"
+    assert any("image fallback" in warning for warning in result.warnings)
+
+
 def test_blip_fill_asset_extracts_embedded_image_and_color() -> None:
     image_buffer = BytesIO()
     Image.new("RGB", (4, 4), "#47604D").save(image_buffer, format="PNG")

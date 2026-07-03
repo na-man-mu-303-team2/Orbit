@@ -400,11 +400,14 @@ function buildOoxmlDeck(
       const blueprintSlide =
         blueprintSlides.get(slide.sourceSlideIndex) ?? blueprint.slides[index];
       const visualElements = blueprintSlide?.elements ?? [];
+      const useSnapshotFallback =
+        visualElements.length === 0 ||
+        visualElements.some(elementHasUnresolvedAssetRef);
       if (!renderUrl) {
         throw new Error(`Rendered slide asset missing: ${renderAssetRef}`);
       }
       const elements =
-        visualElements.length > 0
+        !useSnapshotFallback
           ? visualElements
           : slide.slots
               .filter(isReplaceableSlot)
@@ -420,7 +423,7 @@ function buildOoxmlDeck(
         style: {
           ...(blueprintSlide?.style ?? {}),
           layout: "title-content",
-          ...(visualElements.length === 0
+          ...(useSnapshotFallback
             ? {
                 backgroundImage: {
                   src: renderUrl,
@@ -442,6 +445,14 @@ function buildOoxmlDeck(
       };
     }),
   });
+}
+
+function elementHasUnresolvedAssetRef(element: unknown): boolean {
+  if (!isRecord(element) || !isRecord(element.props)) {
+    return false;
+  }
+  const src = element.props.src;
+  return typeof src === "string" && src.startsWith("asset:");
 }
 
 function slotOverlayElement(

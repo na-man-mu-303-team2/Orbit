@@ -479,6 +479,27 @@ def append_shape(
         return
 
     source = shape_source(shape, part_path, shape_id, source_name, locked)
+    fallback_reason = shape_image_fallback_reason(shape)
+    if fallback_reason:
+        source["fallbackReason"] = fallback_reason
+        fallback_element = shape_fallback_image_element(
+            shape=shape,
+            slide_index=slide_index,
+            source_name=source_name,
+            shape_id=shape_id,
+            frame=frame,
+            z_index=state.next_z(),
+            locked=locked,
+            reason=fallback_reason,
+        )
+        elements.append(fallback_element)
+        slot_sources[str(fallback_element["elementId"])] = source
+        state.warnings.append(
+            f"OOXML shape rendered as image fallback on slide {slide_index}: "
+            f"{fallback_reason}"
+        )
+        return
+
     if local_name(shape) == "pic":
         element = image_element(
             package=package,
@@ -614,6 +635,132 @@ def image_element(
         "type": "image",
         "props": props,
     }
+
+
+def shape_fallback_image_element(
+    *,
+    shape: ET.Element[Any],
+    slide_index: int,
+    source_name: str,
+    shape_id: str,
+    frame: dict[str, int],
+    z_index: int,
+    locked: bool,
+    reason: str,
+) -> dict[str, Any]:
+    asset_id = shape_fallback_asset_id(slide_index, source_name, shape_id)
+    return {
+        **element_base(
+            element_id=element_id(slide_index, source_name, shape_id, "fallback_image"),
+            role="decoration",
+            frame=frame,
+            z_index=z_index,
+            locked=locked,
+        ),
+        "type": "image",
+        "props": {
+            "src": f"asset:{asset_id}",
+            "alt": shape_name(shape) or reason,
+            "fit": "stretch",
+            "focusX": 0.5,
+            "focusY": 0.5,
+        },
+    }
+
+
+def shape_fallback_asset_id(slide_index: int, source_name: str, shape_id: str) -> str:
+    return f"shape_render_{slide_index}_{safe_id(source_name)}_{safe_id(shape_id)}"
+
+
+def shape_image_fallback_reason(shape: ET.Element[Any]) -> str | None:
+    if local_name(shape) == "pic":
+        return None
+
+    geometry_reason = unsupported_geometry_reason(shape)
+    if geometry_reason:
+        return geometry_reason
+
+    effect_reason = unsupported_effect_reason(shape)
+    if effect_reason:
+        return effect_reason
+
+    body = first_local_child(shape, "txBody")
+    if body is not None:
+        return unsupported_text_reason(body)
+
+    return None
+
+
+def unsupported_geometry_reason(shape: ET.Element[Any]) -> str | None:
+    sp_pr = first_local_child(shape, "spPr")
+    if sp_pr is None:
+        return None
+    if first_local_child(sp_pr, "custGeom") is not None:
+        return "unsupported custom geometry"
+    if first_local_child(sp_pr, "pattFill") is not None:
+        return "unsupported pattern fill"
+    if first_local_child(sp_pr, "blipFill") is not None:
+        return "unsupported shape image fill"
+
+    token = preset_token(shape)
+    if supported_preset_token(token, local_name(shape)):
+        return None
+    return f"unsupported preset {token}"
+
+
+def supported_preset_token(token: str, tag: str) -> bool:
+    return (
+        tag == "cxnSp"
+        or token in {"rect", "roundRect", "line", "straightConnector1", "ellipse", "oval"}
+        or "donut" in token
+        or "star" in token
+        or preset_custom_shape_path(token) is not None
+    )
+
+
+def unsupported_effect_reason(shape: ET.Element[Any]) -> str | None:
+    if first_local_descendant(shape, "effectDag") is not None:
+        return "unsupported effect graph"
+    if first_local_descendant(shape, "scene3d") is not None:
+        return "unsupported 3D scene"
+    if first_local_descendant(shape, "sp3d") is not None:
+        return "unsupported 3D shape"
+
+    effect_list = first_local_descendant(shape, "effectLst")
+    if effect_list is None:
+        return None
+    unsupported = [
+        local_name(child)
+        for child in list(effect_list)
+        if local_name(child) != "outerShdw"
+    ]
+    if unsupported:
+        return f"unsupported effect {unsupported[0]}"
+    return None
+
+
+def unsupported_text_reason(body: ET.Element[Any]) -> str | None:
+    body_pr = first_local_child(body, "bodyPr")
+    text_direction = str(body_pr.get("vert", "")) if body_pr is not None else ""
+    if text_direction and text_direction != "horz":
+        return "unsupported vertical text"
+    if first_local_descendant(body, "fld") is not None:
+        return "unsupported text field"
+
+    paragraphs = [
+        paragraph
+        for paragraph in direct_local_children(body, "p")
+        if paragraph_plain_text(paragraph).strip()
+    ]
+    if len(paragraphs) > 1:
+        return "multi-paragraph text layout"
+    return None
+
+
+def paragraph_plain_text(paragraph: ET.Element[Any]) -> str:
+    return "".join(
+        node.text or "" for node in paragraph.iter() if local_name(node) == "t"
+    )
 
 
 def visual_shape_element(

@@ -16,8 +16,10 @@ from app.ai.pptx_ooxml_generation import (
     insert_media_slot_image,
     render_pptx_to_png_assets,
     replace_content_slot_text,
+    shape_fallback_assets,
     sync_pptx_ooxml,
 )
+from app.ai.pptx_design_importer import ImportedDesignAsset
 
 
 def test_no_ai_generation_preserves_package_entries(tmp_path: Path) -> None:
@@ -185,6 +187,51 @@ def test_renders_slide_pngs_when_libreoffice_is_available(tmp_path: Path) -> Non
     assert len(assets) == 1
     assert assets[0].mime_type == "image/png"
     assert base64.b64decode(assets[0].content_base64).startswith(b"\x89PNG")
+
+
+def test_shape_fallback_assets_crop_from_slide_render() -> None:
+    slide_render = BytesIO()
+    Image.new("RGB", (100, 80), "#336699").save(slide_render, format="PNG")
+    warnings: list[str] = []
+
+    assets = shape_fallback_assets(
+        {
+            "slides": [
+                {
+                    "sourceSlideIndex": 1,
+                    "elements": [
+                        {
+                            "type": "image",
+                            "x": 10,
+                            "y": 15,
+                            "width": 30,
+                            "height": 25,
+                            "props": {
+                                "src": "asset:shape_render_1_slide_2",
+                            },
+                        }
+                    ],
+                }
+            ]
+        },
+        [
+            ImportedDesignAsset(
+                assetId="slide_render_1",
+                fileName="slide-01.png",
+                mimeType="image/png",
+                contentBase64=base64.b64encode(slide_render.getvalue()).decode(
+                    "ascii"
+                ),
+            )
+        ],
+        warnings,
+    )
+    crop = Image.open(BytesIO(base64.b64decode(assets[0].content_base64)))
+
+    assert warnings == []
+    assert assets[0].asset_id == "shape_render_1_slide_2"
+    assert assets[0].mime_type == "image/png"
+    assert crop.size == (30, 25)
 
 
 def sample_pptx(tmp_path: Path, *, wide: bool = True) -> Path:
