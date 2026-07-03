@@ -1,11 +1,13 @@
 ﻿import {
   deckSchema,
   demoIds,
+  pptxImportJobResultSchema,
   type Deck,
   type DeckElement,
   type GenerateDeckJobResult,
   type Job,
   type PptxOoxmlGenerationJobResult,
+  type PptxImportJobResult,
   type Project,
   type ProjectMemberRole,
   type ProjectMemberStatus,
@@ -22,6 +24,7 @@ import {
   LogOut,
   MessageSquareText,
   Monitor,
+  Paperclip,
   Plus,
   Search,
   Sparkles
@@ -934,6 +937,48 @@ function ProjectAccessRequestPage(props: { projectId: string }) {
 }
 
 function HomePage(props: { user?: AuthUser }) {
+  const queryClient = useQueryClient();
+  const [prompt, setPrompt] = useState("");
+  const [selectedPptx, setSelectedPptx] = useState<File | null>(null);
+  const [status, setStatus] = useState("");
+  const [error, setError] = useState("");
+  const [isImporting, setIsImporting] = useState(false);
+  const validationMessage = selectedPptx ? getHomePptxValidationMessage(selectedPptx) : "";
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!selectedPptx || validationMessage || isImporting) return;
+
+    setIsImporting(true);
+    setError("");
+    setStatus("프로젝트 생성 중...");
+
+    try {
+      const project = await createProject(getHomePptxProjectTitle(prompt, selectedPptx));
+      setStatus("PPTX 업로드 중...");
+      const uploaded = await uploadProjectAsset(project.projectId, selectedPptx, "pptx-import");
+      setStatus("PPTX 변환 중...");
+      await importPptxToProject(project.projectId, uploaded.fileId);
+      await queryClient.invalidateQueries({ queryKey: ["projects"] });
+      await queryClient.invalidateQueries({ queryKey: ["deck", project.projectId] });
+      navigateTo(`/project/${encodeURIComponent(project.projectId)}`);
+    } catch (submitError) {
+      setError(
+        submitError instanceof Error ? submitError.message : "PPTX를 가져오지 못했습니다."
+      );
+      setStatus("");
+    } finally {
+      setIsImporting(false);
+    }
+  }
+
+  function handleFileChange(event: ChangeEvent<HTMLInputElement>) {
+    setSelectedPptx(event.target.files?.[0] ?? null);
+    setError("");
+    setStatus("");
+    event.target.value = "";
+  }
+
   return (
     <section className="home-page">
       <header className="page-heading">
@@ -945,10 +990,33 @@ function HomePage(props: { user?: AuthUser }) {
           <MessageSquareText size={30} />
         </div>
         <h2>무엇을 발표 자료로 만들까요?</h2>
-        <div className="chat-input-shell">
-          <input placeholder="발표 주제, 자료 구성, 슬라이드 방향을 입력하세요" />
-          <button type="button">전송</button>
-        </div>
+        <form className="chat-input-shell" onSubmit={(event) => void handleSubmit(event)}>
+          <label className="chat-attach-button" aria-label="PPTX 첨부">
+            <Paperclip size={18} />
+            <input
+              type="file"
+              accept={pptxAccept}
+              disabled={isImporting}
+              onChange={handleFileChange}
+            />
+          </label>
+          <input
+            value={prompt}
+            onChange={(event) => setPrompt(event.target.value)}
+            placeholder="발표 주제, 자료 구성, 슬라이드 방향을 입력하세요"
+          />
+          <button type="submit" disabled={!selectedPptx || !!validationMessage || isImporting}>
+            {isImporting ? "처리 중" : "전송"}
+          </button>
+        </form>
+        {selectedPptx ? (
+          <p className="chat-file-status">
+            {selectedPptx.name} · {formatBytes(selectedPptx.size)}
+          </p>
+        ) : null}
+        {validationMessage ? <p className="chat-file-error">{validationMessage}</p> : null}
+        {status ? <p className="chat-file-status">{status}</p> : null}
+        {error ? <p className="chat-file-error">{error}</p> : null}
         <button className="link-action" type="button" onClick={() => navigateTo("/upload")}>
           기존 PPT 사용하기
         </button>
@@ -1534,6 +1602,78 @@ export function buildPptxOoxmlGenerationPayload(input: {
     ...(input.topic?.trim() ? { topic: input.topic.trim() } : {}),
     ...(input.prompt?.trim() ? { prompt: input.prompt.trim() } : {})
   };
+}
+
+export async function importPptxToProject(
+  projectId: string,
+  fileId: string,
+  fetcher: Fetcher = fetch,
+  options: { delayMs?: number; timeoutMs?: number } = {}
+): Promise<PptxImportJobResult> {
+  const response = await fetcher(
+    `/api/v1/projects/${encodeURIComponent(projectId)}/pptx-imports`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ fileId })
+    }
+  );
+
+  if (!response.ok) {
+    throw new Error(await readApiError(response, "PPTX 변환을 시작하지 못했습니다."));
+  }
+
+  const { job } = (await response.json()) as { job: Job };
+  const completed = await pollJob(job.jobId, fetcher, options);
+
+  if (completed.status === "failed") {
+    throw new Error(completed.error?.message || completed.message || "PPTX 변환에 실패했습니다.");
+  }
+
+  return pptxImportJobResultSchema.parse(completed.result);
+}
+
+export async function pollJob(
+  jobId: string,
+  fetcher: Fetcher = fetch,
+  options: { delayMs?: number; timeoutMs?: number } = {}
+): Promise<Job> {
+  const delayMs = options.delayMs ?? 1200;
+  const timeoutAt = Date.now() + (options.timeoutMs ?? 120_000);
+
+  for (;;) {
+    const response = await fetcher(`/api/jobs/${encodeURIComponent(jobId)}`);
+    if (!response.ok) {
+      throw new Error(await readApiError(response, "작업 상태를 확인하지 못했습니다."));
+    }
+
+    const job = (await response.json()) as Job;
+    if (job.status === "succeeded" || job.status === "failed") {
+      return job;
+    }
+
+    if (Date.now() > timeoutAt) {
+      throw new Error("PPTX 변환 시간이 초과되었습니다.");
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, delayMs));
+  }
+}
+
+function getHomePptxValidationMessage(file: File) {
+  if (!isPptxFile(file)) {
+    return "PPTX 파일만 첨부할 수 있습니다.";
+  }
+
+  if (file.size <= 0) {
+    return "빈 PPTX 파일은 첨부할 수 없습니다.";
+  }
+
+  return null;
+}
+
+function getHomePptxProjectTitle(prompt: string, file: File) {
+  return prompt.trim() || file.name.replace(/\.pptx$/i, "") || "PPTX 발표자료";
 }
 
 export function getGeneratedDeckProjectTitle(topic: string) {
