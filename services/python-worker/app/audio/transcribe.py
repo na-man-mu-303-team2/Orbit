@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import math
+import re
 import uuid
 from collections.abc import Mapping
 from pathlib import Path
@@ -28,6 +30,8 @@ SUPPORTED_AUDIO_MIME_TYPES = {
     "audio/x-wav",
     "video/mp4",
 }
+
+_MULTIPART_SAFE_FILENAME_RE = re.compile(r"[^A-Za-z0-9._-]+")
 
 
 class AudioTranscriptionError(RuntimeError):
@@ -468,27 +472,48 @@ def _parse_whisperx_response(
 def _read_whisperx_segments(data: Any) -> list[TranscriptSegment]:
     raw_segments = _read_field(data, "segments", [])
     if not isinstance(raw_segments, list):
-        raise AudioTranscriptionError(
-            "malformed_provider_response",
-            "WhisperX provider returned malformed segments",
-            502,
-        )
+        raise _malformed_whisperx_segments_error()
 
     segments: list[TranscriptSegment] = []
     for raw_segment in raw_segments:
-        text = _read_field(raw_segment, "text", "")
-        if not isinstance(text, str) or not text:
-            continue
+        text = _read_field(raw_segment, "text", None)
+        if not isinstance(text, str) or not text.strip():
+            raise _malformed_whisperx_segments_error()
+
+        start_seconds = _read_required_whisperx_float(raw_segment, "startSeconds")
+        end_seconds = _read_required_whisperx_float(raw_segment, "endSeconds")
+        if end_seconds < start_seconds:
+            raise _malformed_whisperx_segments_error()
 
         segments.append(
             TranscriptSegment(
                 text=text,
-                startSeconds=_read_optional_float(raw_segment, "startSeconds"),
-                endSeconds=_read_optional_float(raw_segment, "endSeconds"),
+                startSeconds=start_seconds,
+                endSeconds=end_seconds,
             )
         )
 
     return segments
+
+
+def _read_required_whisperx_float(data: Any, field: str) -> float:
+    value = _read_field(data, field, None)
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise _malformed_whisperx_segments_error()
+
+    number = float(value)
+    if not math.isfinite(number) or number < 0:
+        raise _malformed_whisperx_segments_error()
+
+    return number
+
+
+def _malformed_whisperx_segments_error() -> AudioTranscriptionError:
+    return AudioTranscriptionError(
+        "malformed_provider_response",
+        "WhisperX provider returned malformed segments",
+        502,
+    )
 
 
 def _build_whisperx_multipart_body(
@@ -512,7 +537,7 @@ def _build_whisperx_multipart_body(
             f"--{boundary}\r\n".encode(),
             (
                 'Content-Disposition: form-data; name="file"; '
-                f'filename="{audio.file_name}"\r\n'
+                f'filename="{_sanitize_multipart_filename(audio.file_name)}"\r\n'
             ).encode(),
             f"Content-Type: {audio.mime_type}\r\n\r\n".encode(),
             audio.data,
@@ -522,3 +547,9 @@ def _build_whisperx_multipart_body(
     )
 
     return b"".join(chunks), f"multipart/form-data; boundary={boundary}"
+
+
+def _sanitize_multipart_filename(file_name: str) -> str:
+    base_name = Path(file_name).name.replace("\x00", "")
+    safe_name = _MULTIPART_SAFE_FILENAME_RE.sub("_", base_name).strip("._-")
+    return safe_name or "audio.audio"

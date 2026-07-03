@@ -264,6 +264,64 @@ def test_whisperx_provider_posts_multipart_and_normalizes_response() -> None:
     assert result.segments[0].end_seconds == 2.5
 
 
+def test_whisperx_provider_sanitizes_multipart_filename() -> None:
+    calls: list[object] = []
+
+    def fake_urlopen(request: object, *, timeout: float) -> FakeHttpResponse:
+        calls.append(request)
+        return FakeHttpResponse(
+            {
+                "transcript": "파일명 테스트",
+                "segments": [
+                    {
+                        "text": "파일명 테스트",
+                        "startSeconds": 0,
+                        "endSeconds": 1,
+                    }
+                ],
+            }
+        )
+
+    provider = WhisperXSpeechToTextProvider(
+        api_url="https://whisperx.example.test/transcribe",
+        api_key="whisperx-test-key",
+        model="large-v3",
+        language="ko-KR",
+        timeout_ms=30_000,
+        opener=fake_urlopen,
+    )
+
+    provider.transcribe(
+        AudioContent(
+            data=b"fake flac bytes",
+            file_name=(
+                'deck"\\\r\nX-Injected: yes\r\n\r\n--fake-part\r\n'
+                'Content-Disposition: form-data; name="owned"\r\n\r\npayload\x00.flac'
+            ),
+            mime_type="audio/flac",
+        )
+    )
+
+    request = calls[0]
+    body = request.data.decode("latin1")  # type: ignore[attr-defined]
+    file_header = next(
+        line for line in body.split("\r\n") if 'name="file"; filename=' in line
+    )
+
+    assert file_header == (
+        'Content-Disposition: form-data; name="file"; '
+        'filename="deck_X-Injected_yes_--fake-part_Content-Disposition_'
+        'form-data_name_owned_payload.flac"'
+    )
+    safe_filename = file_header.split('filename="', maxsplit=1)[1].removesuffix('"')
+    assert "\r" not in file_header
+    assert "\n" not in file_header
+    assert "\x00" not in file_header
+    assert "\\" not in safe_filename
+    assert "X-Injected: yes\r\n" not in body
+    assert 'name="owned"' not in body
+
+
 def test_whisperx_provider_rejects_empty_transcript() -> None:
     provider = WhisperXSpeechToTextProvider(
         api_url="https://whisperx.example.test/transcribe",
@@ -297,6 +355,43 @@ def test_whisperx_provider_rejects_malformed_segments() -> None:
         timeout_ms=30_000,
         opener=lambda _request, *, timeout: FakeHttpResponse(
             {"transcript": "발표 화면 테스트", "segments": {"text": "invalid"}}
+        ),
+    )
+
+    with pytest.raises(AudioTranscriptionError) as error:
+        provider.transcribe(
+            AudioContent(
+                data=b"fake flac bytes",
+                file_name="rehearsal.flac",
+                mime_type="audio/flac",
+            )
+        )
+
+    assert error.value.code == "malformed_provider_response"
+
+
+@pytest.mark.parametrize(
+    "segment",
+    [
+        {"text": "발표 화면 테스트", "endSeconds": 2.5},
+        {"text": "발표 화면 테스트", "startSeconds": "0", "endSeconds": 2.5},
+        {"text": "발표 화면 테스트", "startSeconds": 0, "endSeconds": "2.5"},
+        {"text": "발표 화면 테스트", "startSeconds": -1, "endSeconds": 2.5},
+        {"text": "발표 화면 테스트", "startSeconds": 3, "endSeconds": 2.5},
+        {"text": "", "startSeconds": 0, "endSeconds": 2.5},
+    ],
+)
+def test_whisperx_provider_rejects_malformed_segment_fields(
+    segment: dict[str, object],
+) -> None:
+    provider = WhisperXSpeechToTextProvider(
+        api_url="https://whisperx.example.test/transcribe",
+        api_key="whisperx-test-key",
+        model="large-v3",
+        language="ko-KR",
+        timeout_ms=30_000,
+        opener=lambda _request, *, timeout: FakeHttpResponse(
+            {"transcript": "발표 화면 테스트", "segments": [segment]}
         ),
     )
 

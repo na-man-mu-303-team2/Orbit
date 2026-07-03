@@ -143,6 +143,21 @@ describe("ORBIT env validation", () => {
     ).toThrow(/WHISPERX_API_URL/);
   });
 
+  it("rejects invalid WhisperX hosted provider URLs when selected", () => {
+    expect(() =>
+      loadOrbitConfig(
+        {
+          ...validEnv,
+          REPORT_STT_PROVIDER: "whisperx",
+          WHISPERX_API_URL: "not-a-url",
+          WHISPERX_API_KEY: "whisperx-test-key",
+          WHISPERX_MODEL: "large-v3"
+        },
+        { service: "api" }
+      )
+    ).toThrow(/WHISPERX_API_URL must be a valid URL/);
+  });
+
   it("rejects OpenAI report STT audio limits above the single-file path limit", () => {
     expect(() =>
       loadOrbitConfig(

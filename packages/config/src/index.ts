@@ -81,6 +81,23 @@ const optionalString = z.preprocess((value) => {
 const requiredUrl = (name: string) =>
   requiredString(name).pipe(z.string().url(`${name} must be a valid URL`));
 
+const optionalUrl = (name: string) =>
+  optionalString.pipe(
+    z
+      .string()
+      .refine(isValidAbsoluteUrl, `${name} must be a valid URL`)
+      .optional()
+  );
+
+const isValidAbsoluteUrl = (url: string): boolean => {
+  try {
+    const parsed = new URL(url);
+    return Boolean(parsed.protocol && parsed.host);
+  } catch {
+    return false;
+  }
+};
+
 const usesHttpProtocol = (url: string): boolean => new URL(url).protocol === "http:";
 
 const requiredPort = (name: string) =>
@@ -168,7 +185,7 @@ export const orbitEnvSchema = z.object({
   OPENAI_MODEL: requiredString("OPENAI_MODEL"),
   OPENAI_TRANSCRIPTION_MODEL: requiredString("OPENAI_TRANSCRIPTION_MODEL"),
   OPENAI_EMBEDDING_MODEL: requiredString("OPENAI_EMBEDDING_MODEL"),
-  WHISPERX_API_URL: optionalString,
+  WHISPERX_API_URL: optionalUrl("WHISPERX_API_URL"),
   WHISPERX_API_KEY: optionalString,
   WHISPERX_MODEL: optionalString,
   WHISPERX_TIMEOUT_MS: optionalPositiveInteger("WHISPERX_TIMEOUT_MS", 30000),
