@@ -199,6 +199,7 @@ class OoxmlImportState:
     assets: list[ImportedDesignAsset]
     asset_colors: dict[str, str]
     theme_colors: dict[str, str]
+    theme_styles: OoxmlThemeStyles
     warnings: list[str]
     z_cursor: int = 1
 
@@ -206,6 +207,12 @@ class OoxmlImportState:
         value = self.z_cursor
         self.z_cursor += 1
         return value
+
+
+@dataclass(frozen=True)
+class OoxmlThemeStyles:
+    line_styles: tuple[ET.Element[Any], ...] = ()
+    effect_styles: tuple[ET.Element[Any], ...] = ()
 
 
 def import_pptx_ooxml_visual_tree(
@@ -232,6 +239,7 @@ def import_pptx_ooxml_visual_tree(
             assets=[],
             asset_colors={},
             theme_colors=theme_color_map(package),
+            theme_styles=theme_style_matrix(package),
             warnings=[],
         )
         slides: list[dict[str, Any]] = []
@@ -1171,8 +1179,9 @@ def append_shape(
         shape,
         scale,
         state.theme_colors,
+        state.theme_styles,
     )
-    shadow = shape_shadow(shape, scale, state.theme_colors)
+    shadow = shape_shadow(shape, scale, state.theme_colors, state.theme_styles)
     if fill != "transparent" or stroke != "transparent":
         shape_element_payload = visual_shape_element(
             shape=shape,
@@ -1911,12 +1920,21 @@ def shape_stroke(
     shape: ET.Element[Any],
     scale: OoxmlScale,
     theme_colors: dict[str, str],
+    theme_styles: OoxmlThemeStyles | None = None,
 ) -> tuple[Any, float, dict[str, Any]]:
     sp_pr = first_local_child(shape, "spPr")
     line = first_local_child(sp_pr, "ln") if sp_pr is not None else None
+    placeholder_color: str | None = None
+    if line is None:
+        line = referenced_theme_line_style(shape, theme_styles)
+        placeholder_color = style_reference_color(shape, "lnRef", theme_colors)
     if line is None or first_local_child(line, "noFill") is not None:
         return "transparent", 0, {}
-    solid = solid_color(first_local_child(line, "solidFill"), theme_colors)
+    solid = solid_color_with_placeholder(
+        first_local_child(line, "solidFill"),
+        theme_colors,
+        placeholder_color,
+    )
     grad = gradient_paint(first_local_child(line, "gradFill"), theme_colors)
     stroke: Any = grad or solid or "transparent"
     width = int_attr(line, "w", 12700 if stroke != "transparent" else 0)
@@ -1934,6 +1952,36 @@ def shape_stroke(
     if join:
         extras["lineJoin"] = join
     return stroke, round(max(0, width * scale.average_scale), 2), extras
+
+
+def referenced_theme_line_style(
+    shape: ET.Element[Any],
+    theme_styles: OoxmlThemeStyles | None,
+) -> ET.Element[Any] | None:
+    if theme_styles is None:
+        return None
+    style = first_local_child(shape, "style")
+    line_ref = first_local_child(style, "lnRef") if style is not None else None
+    return theme_style_by_index(theme_styles.line_styles, int_attr(line_ref, "idx", 0))
+
+
+def style_reference_color(
+    shape: ET.Element[Any],
+    reference_name: str,
+    theme_colors: dict[str, str],
+) -> str | None:
+    style = first_local_child(shape, "style")
+    reference = first_local_child(style, reference_name) if style is not None else None
+    return solid_color(reference, theme_colors) if reference is not None else None
+
+
+def theme_style_by_index(
+    styles: tuple[ET.Element[Any], ...],
+    index: int,
+) -> ET.Element[Any] | None:
+    if index <= 0 or index > len(styles):
+        return None
+    return styles[index - 1]
 
 
 def line_dash(line: ET.Element[Any]) -> list[int] | None:
@@ -2008,6 +2056,20 @@ def pattern_paint(
     }
 
 
+def solid_color_with_placeholder(
+    container: ET.Element[Any] | None,
+    theme_colors: dict[str, str],
+    placeholder_color: str | None,
+) -> str | None:
+    color = solid_color(container, theme_colors)
+    if color or container is None or not placeholder_color:
+        return color
+    scheme = first_local_descendant(container, "schemeClr")
+    if scheme is not None and str(scheme.get("val", "")) == "phClr":
+        return apply_color_transforms(placeholder_color, scheme)
+    return None
+
+
 def solid_color(
     container: ET.Element[Any] | None,
     theme_colors: dict[str, str],
@@ -2038,11 +2100,16 @@ def shape_shadow(
     shape: ET.Element[Any],
     scale: OoxmlScale,
     theme_colors: dict[str, str],
+    theme_styles: OoxmlThemeStyles | None = None,
 ) -> dict[str, Any] | None:
     shadow = first_local_descendant(shape, "outerShdw")
+    placeholder_color: str | None = None
+    if shadow is None:
+        shadow = referenced_theme_outer_shadow(shape, theme_styles)
+        placeholder_color = style_reference_color(shape, "effectRef", theme_colors)
     if shadow is None:
         return None
-    color = solid_color(shadow, theme_colors) or "#000000"
+    color = solid_color_with_placeholder(shadow, theme_colors, placeholder_color) or "#000000"
     blur = round(int_attr(shadow, "blurRad", 0) * scale.average_scale, 2)
     distance = int_attr(shadow, "dist", 0) * scale.average_scale
     direction = math.radians(int_attr(shadow, "dir", 0) / 60000)
@@ -2054,6 +2121,21 @@ def shape_shadow(
         "offsetY": round(math.sin(direction) * distance, 2),
         "opacity": max(0, min(1, int_attr(alpha, "val", 25000) / 100000)),
     }
+
+
+def referenced_theme_outer_shadow(
+    shape: ET.Element[Any],
+    theme_styles: OoxmlThemeStyles | None,
+) -> ET.Element[Any] | None:
+    if theme_styles is None:
+        return None
+    style = first_local_child(shape, "style")
+    effect_ref = first_local_child(style, "effectRef") if style is not None else None
+    effect_style = theme_style_by_index(
+        theme_styles.effect_styles,
+        int_attr(effect_ref, "idx", 0),
+    )
+    return first_local_descendant(effect_style, "outerShdw")
 
 
 def image_crop(shape: ET.Element[Any]) -> dict[str, float] | None:
@@ -2300,6 +2382,28 @@ def theme_color_map(package: zipfile.ZipFile) -> dict[str, str]:
         if target in colors:
             colors[alias] = colors[target]
     return {**FALLBACK_SCHEME_COLORS, **colors}
+
+
+def theme_style_matrix(package: zipfile.ZipFile) -> OoxmlThemeStyles:
+    theme_part = presentation_theme_part(package) or first_theme_part(package)
+    theme = read_xml(package, theme_part)
+    if theme is None:
+        return OoxmlThemeStyles()
+    format_scheme = first_local_descendant(theme, "fmtScheme")
+    line_style_list = first_local_child(format_scheme, "lnStyleLst")
+    effect_style_list = first_local_child(format_scheme, "effectStyleLst")
+    return OoxmlThemeStyles(
+        line_styles=(
+            tuple(direct_local_children(line_style_list, "ln"))
+            if line_style_list is not None
+            else ()
+        ),
+        effect_styles=(
+            tuple(direct_local_children(effect_style_list, "effectStyle"))
+            if effect_style_list is not None
+            else ()
+        ),
+    )
 
 
 def presentation_theme_part(package: zipfile.ZipFile) -> str | None:

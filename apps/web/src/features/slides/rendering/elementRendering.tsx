@@ -1154,17 +1154,22 @@ function createPatternCanvas(
   context.fillStyle = paint.foreground;
   context.lineWidth = 2;
 
-  if (paint.preset.toLowerCase().includes("diag")) {
+  const preset = paint.preset.toLowerCase();
+  const isDiagonalPattern = preset.includes("diag") || preset === "pct20";
+  if (isDiagonalPattern) {
+    context.lineWidth = preset === "pct20" ? 1 : 2;
+    context.globalAlpha = preset === "pct20" ? 0.42 : 1;
     context.beginPath();
-    context.moveTo(-2, 12);
-    context.lineTo(12, -2);
-    context.moveTo(4, 14);
-    context.lineTo(14, 4);
+    for (let offset = -12; offset <= 24; offset += 6) {
+      context.moveTo(offset, 12);
+      context.lineTo(offset + 12, 0);
+    }
     context.stroke();
+    context.globalAlpha = 1;
     return canvas;
   }
 
-  context.globalAlpha = paint.preset.toLowerCase().includes("pct") ? 0.55 : 1;
+  context.globalAlpha = preset.includes("pct") ? 0.55 : 1;
   context.fillRect(2, 2, 3, 3);
   context.fillRect(8, 8, 3, 3);
   context.globalAlpha = 1;

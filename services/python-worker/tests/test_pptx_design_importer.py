@@ -377,6 +377,9 @@ def test_ooxml_visual_tree_keeps_pattern_shape_editable_with_separate_text(
         "foreground": "#111827",
         "background": "#F59E0B",
     }
+    assert pattern_shape["props"]["stroke"] != "transparent"
+    assert pattern_shape["props"]["strokeWidth"] > 0
+    assert pattern_shape["props"]["shadow"]["blur"] > 0
     assert pattern_shape["zIndex"] < text["zIndex"]
 
 
