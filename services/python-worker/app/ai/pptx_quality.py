@@ -7,6 +7,7 @@ from typing import Any
 from PIL import Image
 
 SSIM_PASS_THRESHOLD = 0.95
+SSIM_WINDOW_SIZE = 16
 
 
 def image_ssim(golden_png: bytes, candidate_png: bytes) -> float:
@@ -18,8 +19,41 @@ def image_ssim(golden_png: bytes, candidate_png: bytes) -> float:
     if candidate.size != golden.size:
         candidate = candidate.resize(golden.size)
 
-    golden_pixels = list(golden.getdata())
-    candidate_pixels = list(candidate.getdata())
+    scores: list[float] = []
+    weights: list[int] = []
+    for box in ssim_windows(golden.size):
+        golden_window = golden.crop(box)
+        candidate_window = candidate.crop(box)
+        area = (box[2] - box[0]) * (box[3] - box[1])
+        scores.append(
+            image_ssim_for_pixels(
+                list(golden_window.getdata()),
+                list(candidate_window.getdata()),
+            )
+            * area
+        )
+        weights.append(area)
+
+    if not scores:
+        return 0.0
+    return round(max(0.0, min(1.0, sum(scores) / sum(weights))), 4)
+
+
+def ssim_windows(size: tuple[int, int]) -> list[tuple[int, int, int, int]]:
+    width, height = size
+    return [
+        (
+            x,
+            y,
+            min(width, x + SSIM_WINDOW_SIZE),
+            min(height, y + SSIM_WINDOW_SIZE),
+        )
+        for y in range(0, height, SSIM_WINDOW_SIZE)
+        for x in range(0, width, SSIM_WINDOW_SIZE)
+    ]
+
+
+def image_ssim_for_pixels(golden_pixels: list[int], candidate_pixels: list[int]) -> float:
     if not golden_pixels or len(golden_pixels) != len(candidate_pixels):
         return 0.0
 
@@ -44,7 +78,7 @@ def image_ssim(golden_png: bytes, candidate_png: bytes) -> float:
     )
     if denominator == 0:
         return 1.0 if golden_pixels == candidate_pixels else 0.0
-    return round(max(0.0, min(1.0, numerator / denominator)), 4)
+    return max(0.0, min(1.0, numerator / denominator))
 
 
 def pixel_similarity_quality(
