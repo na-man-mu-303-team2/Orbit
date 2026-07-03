@@ -119,10 +119,34 @@ export const textElementBulletSchema = z.object({
   indent: z.number().finite().nonnegative().default(0)
 });
 
+export const textElementParagraphSchema = z.object({
+  text: z.string().default(""),
+  runs: z.array(textElementRunSchema).optional(),
+  fontFamily: z.string().min(1).optional(),
+  fontSize: z.number().finite().positive().optional(),
+  fontWeight: textFontWeightSchema.optional(),
+  color: themeColorSchema.optional(),
+  align: textAlignSchema.default("left"),
+  lineHeight: z.number().finite().positive().default(1.2),
+  spaceBefore: z.number().finite().nonnegative().default(0),
+  spaceAfter: z.number().finite().nonnegative().default(0),
+  indent: z.number().finite().default(0),
+  bullet: textElementBulletSchema.optional()
+});
+
+export const textElementBodyInsetSchema = z.object({
+  left: z.number().finite().nonnegative().default(0),
+  right: z.number().finite().nonnegative().default(0),
+  top: z.number().finite().nonnegative().default(0),
+  bottom: z.number().finite().nonnegative().default(0)
+});
+
 export const textElementPropsSchema = z
   .object({
     text: z.string().default(""),
     runs: z.array(textElementRunSchema).optional(),
+    paragraphs: z.array(textElementParagraphSchema).optional(),
+    bodyInset: textElementBodyInsetSchema.optional(),
     fontFamily: z.string().min(1).optional(),
     fontSize: z.number().finite().positive().default(24),
     fontWeight: textFontWeightSchema.default("normal"),
@@ -276,6 +300,7 @@ export type DeckElementShadow = z.infer<typeof deckElementShadowSchema>;
 export type ShapeElementProps = z.infer<typeof shapeElementPropsSchema>;
 export type TextElementRun = z.infer<typeof textElementRunSchema>;
 export type TextElementBullet = z.infer<typeof textElementBulletSchema>;
+export type TextElementParagraph = z.infer<typeof textElementParagraphSchema>;
 export type TextAlign = z.infer<typeof textAlignSchema>;
 export type TextVerticalAlign = z.infer<typeof textVerticalAlignSchema>;
 export type TextFontWeight = z.infer<typeof textFontWeightSchema>;

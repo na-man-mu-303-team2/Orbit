@@ -223,7 +223,7 @@ API:
 - `role`은 렌더링 필수값이 아니라 AI 생성, 편집 UI, export, 접근성 보조를 위한 의미 정보다.
 - `background`, `decoration` 역할의 element는 사용자가 기본 편집 중 실수로 움직이지 않도록 `locked: true`와 낮은 `zIndex`를 권장한다. schema에서는 강제하지 않는다.
 - 객체 `props`는 object type별 schema로 검증한다. 전체 객체에 대해 `z.record(z.unknown())`를 열어두지 않는다.
-- `text.props`는 `text`, `runs`, `fontFamily`, `fontSize`, `fontWeight`, `color`, `align`, `verticalAlign`, `lineHeight`, `bullet`을 사용한다. `runs`는 PPTX OOXML rich text import에서 run-level font/color/weight를 보존하기 위한 optional field다.
+- `text.props`는 `text`, `runs`, `paragraphs`, `bodyInset`, `fontFamily`, `fontSize`, `fontWeight`, `color`, `align`, `verticalAlign`, `lineHeight`, `bullet`을 사용한다. `runs`는 기존 단일 paragraph 호환 field이고, `paragraphs`는 PPTX OOXML import에서 paragraph별 run/font/color/spacing/indent/bullet을 보존하기 위한 optional field다. `bodyInset`은 PPT text box 내부 여백을 px 단위로 보존한다.
 - `text.props.fontFamily`, `text.props.color`가 생략되면 renderer/export/AI normalize 단계에서 각각 `slide.style.fontFamily` > `deck.theme.fontFamily`, `slide.style.textColor` > `deck.theme.textColor` 순서로 기본값을 사용한다.
 - `image.props`는 `src`, `alt`, `fit`, `focusX`, `focusY`, `crop`을 사용하고, `fit`은 `contain`, `cover`, `stretch`만 허용한다. `focusX`, `focusY`는 `cover` crop 기준점이며 0부터 1 사이 값이다. `crop`은 OOXML `srcRect`를 left/top/right/bottom 0..1 비율로 보존한다.
 - `chart.props`는 `chart.schema.ts`의 chart schema를 그대로 사용한다.

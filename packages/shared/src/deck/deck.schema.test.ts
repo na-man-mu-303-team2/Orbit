@@ -262,6 +262,38 @@ describe("deckSchema validation", () => {
               color: "#2563eb"
             }
           ],
+          paragraphs: [
+            {
+              text: "Hello World",
+              runs: [
+                {
+                  text: "Hello ",
+                  fontFamily: "Aptos",
+                  fontSize: 36,
+                  fontWeight: "bold",
+                  color: "#111827"
+                },
+                {
+                  text: "World",
+                  fontFamily: "Aptos",
+                  fontSize: 36,
+                  fontWeight: "normal",
+                  color: "#2563eb"
+                }
+              ],
+              align: "left",
+              lineHeight: 1.15,
+              spaceBefore: 0,
+              spaceAfter: 8,
+              indent: 12
+            }
+          ],
+          bodyInset: {
+            left: 14,
+            right: 14,
+            top: 7,
+            bottom: 7
+          },
           writingMode: "vertical-270",
           bullet: {
             enabled: true,
