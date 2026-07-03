@@ -941,16 +941,22 @@ def test_ooxml_visual_tree_importer_falls_back_graphic_frames(
         and str(element["props"]["src"]).startswith("asset:shape_render_")
     ]
     table = next(element for element in elements if element["type"] == "table")
+    chart = next(element for element in elements if element["type"] == "chart")
 
-    assert len(fallback_images) == 1
+    assert len(fallback_images) == 0
     assert table["props"]["rows"][0][0]["text"] == "A"
     assert table["props"]["rows"][1][1]["text"] == "B"
+    assert chart["props"]["type"] == "bar"
+    assert chart["props"]["data"] == [
+        {"label": "A", "value": 1.0},
+        {"label": "B", "value": 2.0},
+    ]
     assert not any(
         "OOXML graphicFrame rendered as image fallback on slide 1: table"
         in warning
         for warning in result.warnings
     )
-    assert any(
+    assert not any(
         "OOXML graphicFrame rendered as image fallback on slide 1: chart"
         in warning
         for warning in result.warnings

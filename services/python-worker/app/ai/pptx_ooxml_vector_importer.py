@@ -374,6 +374,7 @@ def append_visual_tree(
             if locked and placeholder_key(child) is not None:
                 continue
             append_graphic_frame(
+                package=package,
                 part_path=part_path,
                 frame_element=child,
                 slide_index=slide_index,
@@ -419,6 +420,7 @@ def append_visual_tree(
 
 def append_graphic_frame(
     *,
+    package: zipfile.ZipFile,
     part_path: str,
     frame_element: ET.Element[Any],
     slide_index: int,
@@ -459,6 +461,23 @@ def append_graphic_frame(
             elements.append(element)
             slot_sources[str(element["elementId"])] = source
             return
+    if frame_kind == "chart":
+        element = chart_element(
+            package=package,
+            part_path=part_path,
+            frame_element=frame_element,
+            slide_index=slide_index,
+            source_name=source_name,
+            shape_id=shape_id,
+            frame=frame,
+            z_index=state.next_z(),
+            locked=locked,
+        )
+        if element:
+            source["type"] = "chart"
+            elements.append(element)
+            slot_sources[str(element["elementId"])] = source
+            return
 
     reason = f"unsupported {frame_kind} graphicFrame"
     source["type"] = "unknown"
@@ -478,6 +497,124 @@ def append_graphic_frame(
     state.warnings.append(
         f"OOXML graphicFrame rendered as image fallback on slide {slide_index}: {frame_kind}"
     )
+
+
+def chart_element(
+    *,
+    package: zipfile.ZipFile,
+    part_path: str,
+    frame_element: ET.Element[Any],
+    slide_index: int,
+    source_name: str,
+    shape_id: str,
+    frame: dict[str, int],
+    z_index: int,
+    locked: bool,
+) -> dict[str, Any] | None:
+    chart_ref = first_local_descendant(frame_element, "chart")
+    relationship_id = attr_by_local_name(chart_ref, "id")
+    if not relationship_id:
+        return None
+    rel = relationships_for_part(package, part_path).get(relationship_id)
+    if not rel:
+        return None
+    chart_part = resolve_part_path(part_path, rel.get("Target", ""))
+    chart = read_xml(package, chart_part)
+    if chart is None:
+        return None
+    chart_type = chart_type_value(chart)
+    data = chart_data(chart, chart_type)
+    if not data:
+        return None
+    return {
+        **element_base(
+            element_id=element_id(slide_index, source_name, shape_id, "chart"),
+            role="chart",
+            frame=frame,
+            z_index=z_index,
+            locked=locked,
+        ),
+        "type": "chart",
+        "props": {
+            "type": chart_type,
+            "title": chart_title(chart),
+            "data": data,
+            "style": {
+                "colors": ["#2563EB", "#7C3AED", "#0EA5E9", "#10B981"],
+                "showLegend": True,
+                "legendPosition": "bottom",
+                "showDataLabels": False,
+                "showGrid": True,
+                "xAxisTitle": "",
+                "yAxisTitle": "",
+                "unit": "",
+            },
+        },
+    }
+
+
+def chart_type_value(chart: ET.Element[Any]) -> str:
+    if first_local_descendant(chart, "lineChart") is not None:
+        return "line"
+    if first_local_descendant(chart, "pieChart") is not None:
+        return "pie"
+    if first_local_descendant(chart, "doughnutChart") is not None:
+        return "doughnut"
+    return "bar"
+
+
+def chart_title(chart: ET.Element[Any]) -> str:
+    title = first_local_descendant(chart, "title")
+    if title is None:
+        return ""
+    return "".join(node.text or "" for node in title.iter() if local_name(node) == "t")
+
+
+def chart_data(chart: ET.Element[Any], chart_type: str) -> list[dict[str, Any]]:
+    series = first_local_descendant(chart, "ser")
+    if series is None:
+        return []
+    labels = chart_labels(series)
+    values = chart_values(series)
+    result: list[dict[str, Any]] = []
+    for index, value in enumerate(values):
+        label = labels[index] if index < len(labels) else f"Item {index + 1}"
+        result.append({"label": label, "value": value})
+    if chart_type in {"pie", "doughnut"}:
+        return [{"label": item["label"], "value": max(0, item["value"])} for item in result]
+    return result
+
+
+def chart_labels(series: ET.Element[Any]) -> list[str]:
+    category = first_local_child(series, "cat")
+    cache = first_local_descendant(category, "strCache")
+    if cache is None:
+        cache = first_local_descendant(category, "numCache")
+    return chart_cache_values(cache)
+
+
+def chart_values(series: ET.Element[Any]) -> list[float]:
+    values = first_local_child(series, "val")
+    cache = first_local_descendant(values, "numCache")
+    result: list[float] = []
+    for value in chart_cache_values(cache):
+        try:
+            result.append(float(value))
+        except ValueError:
+            result.append(0)
+    return result
+
+
+def chart_cache_values(cache: ET.Element[Any] | None) -> list[str]:
+    if cache is None:
+        return []
+    points = [
+        point
+        for point in direct_local_children(cache, "pt")
+        if first_local_child(point, "v") is not None
+    ]
+    points.sort(key=lambda point: int_attr(point, "idx", 0))
+    return [str(first_local_child(point, "v").text or "") for point in points]
 
 
 def table_element(
