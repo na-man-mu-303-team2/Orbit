@@ -24,12 +24,23 @@ export type BrowserSpeechRecognitionErrorEvent = {
   message?: string;
 };
 
+export type BrowserSpeechRecognitionPhrase = {
+  phrase: string;
+  boost: number;
+};
+
+export type BrowserSpeechRecognitionPhraseConstructor = new (
+  phrase: string,
+  boost: number
+) => BrowserSpeechRecognitionPhrase;
+
 export type BrowserSpeechRecognition = {
   continuous: boolean;
   interimResults: boolean;
   lang: string;
   maxAlternatives: number;
   processLocally?: boolean;
+  phrases?: BrowserSpeechRecognitionPhrase[];
   onresult: ((event: BrowserSpeechRecognitionEvent) => void) | null;
   onerror: ((event: BrowserSpeechRecognitionErrorEvent) => void) | null;
   onend: (() => void) | null;
@@ -65,10 +76,15 @@ export type BrowserSpeechRecognitionConstructor = {
   ) => Promise<boolean>;
 };
 
+export type BrowserSpeechRecognitionGlobal = {
+  SpeechRecognitionPhrase?: BrowserSpeechRecognitionPhraseConstructor;
+};
+
 declare global {
   interface Window {
     SpeechRecognition?: BrowserSpeechRecognitionConstructor;
     webkitSpeechRecognition?: BrowserSpeechRecognitionConstructor;
+    SpeechRecognitionPhrase?: BrowserSpeechRecognitionPhraseConstructor;
   }
 }
 
