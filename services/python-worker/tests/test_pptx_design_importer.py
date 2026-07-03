@@ -565,6 +565,47 @@ def test_ooxml_visual_tree_importer_resolves_theme_scheme_colors(
     assert "#10B981" not in fills
 
 
+def test_ooxml_visual_tree_importer_honors_hidden_master_shapes(
+    tmp_path: Path,
+) -> None:
+    pptx_path = tmp_path / "hidden-master.pptx"
+    presentation = Presentation()
+    presentation.slide_width = Inches(13.333333)
+    presentation.slide_height = Inches(7.5)
+    master = presentation.slide_master
+    master.shapes._spTree.add_autoshape(
+        100,
+        "Master Decoration",
+        "rect",
+        Inches(0.25),
+        Inches(0.25),
+        Inches(1),
+        Inches(0.5),
+    )
+    decoration = master.shapes[-1]
+    decoration.fill.solid()
+    decoration.fill.fore_color.rgb = RGBColor(34, 51, 68)
+
+    slide = presentation.slides.add_slide(presentation.slide_layouts[6])
+    slide.shapes.add_textbox(
+        Inches(1),
+        Inches(1),
+        Inches(3),
+        Inches(1),
+    ).text_frame.text = "Slide only"
+    presentation.save(pptx_path)
+    set_slide_show_master_shapes(pptx_path, 1, False)
+
+    result = import_pptx_ooxml_visual_tree(pptx_path, "file_design")
+    fills = [
+        element["props"]["fill"]
+        for element in result.blueprint["slides"][0]["elements"]
+        if element["type"] == "rect"
+    ]
+
+    assert "#223344" not in fills
+
+
 def test_ooxml_visual_tree_importer_is_default(
     tmp_path: Path,
     monkeypatch: object,
@@ -647,6 +688,29 @@ def replace_theme_colors(pptx_path: Path, colors: dict[str, str]) -> None:
             {"val": colors[key]},
         )
     entries[theme_path] = ET.tostring(root, encoding="utf-8", xml_declaration=True)
+
+    with zipfile.ZipFile(pptx_path, "w") as package:
+        for name, content in entries.items():
+            package.writestr(name, content)
+
+
+def set_slide_show_master_shapes(
+    pptx_path: Path,
+    slide_index: int,
+    show: bool,
+) -> None:
+    with zipfile.ZipFile(pptx_path, "r") as package:
+        entries = {item.filename: package.read(item.filename) for item in package.infolist()}
+
+    slide_path = f"ppt/slides/slide{slide_index}.xml"
+    root = ET.fromstring(entries[slide_path])
+    common_slide_data = next(
+        item
+        for item in root.iter()
+        if item.tag.rsplit("}", maxsplit=1)[-1] == "cSld"
+    )
+    common_slide_data.set("showMasterSp", "1" if show else "0")
+    entries[slide_path] = ET.tostring(root, encoding="utf-8", xml_declaration=True)
 
     with zipfile.ZipFile(pptx_path, "w") as package:
         for name, content in entries.items():

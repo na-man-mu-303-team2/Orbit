@@ -272,6 +272,8 @@ def import_pptx_ooxml_visual_tree(
             ):
                 if part is None or root is None:
                     continue
+                if source_name == "master" and not slide_shows_master_shapes(slide):
+                    continue
                 append_visual_tree(
                     package=package,
                     content_types=content_types,
@@ -1180,6 +1182,11 @@ def presentation_size_emu(package: zipfile.ZipFile) -> tuple[int, int]:
         max(1, int_attr(size, "cx", 12192000)),
         max(1, int_attr(size, "cy", 6858000)),
     )
+
+
+def slide_shows_master_shapes(slide: ET.Element[Any]) -> bool:
+    common_slide_data = first_local_child(slide, "cSld")
+    return common_slide_data is None or common_slide_data.get("showMasterSp") != "0"
 
 
 def theme_color_map(package: zipfile.ZipFile) -> dict[str, str]:
