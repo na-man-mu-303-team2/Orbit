@@ -8,7 +8,7 @@ The top-level `## Current State` and `## Resume Checkpoint` sections are the sou
 
 ## Current State
 
-- Last completed milestone: 4
+- Last completed milestone: 5
 - Next milestone: 6
 - Integration branch: `feature/audience`
 - Current expected branch: `feature/audience`
