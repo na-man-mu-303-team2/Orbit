@@ -141,4 +141,26 @@ describe("AudienceEntrance", () => {
     expect(html).toContain("응답 제출");
     expect(html).toContain('type="number"');
   });
+
+  it("renders enabled reaction controls with accessible names", () => {
+    const html = renderToStaticMarkup(
+      <AudienceLiveShell
+        activeInteraction={null}
+        connectionStatus="connected"
+        features={{
+          ...disabledFeatures,
+          reactionsEnabled: true,
+        }}
+        participant={participant}
+        recentReactions={["clap", "heart"]}
+        state={null}
+      />,
+    );
+
+    expect(html).toContain("Reactions");
+    expect(html).toContain('aria-label="박수 반응 보내기"');
+    expect(html).toContain('aria-label="최근 반응"');
+    expect(html).toContain("👏");
+    expect(html).toContain("❤");
+  });
 });

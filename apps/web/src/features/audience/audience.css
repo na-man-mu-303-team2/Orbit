@@ -292,6 +292,38 @@
   margin: 0;
 }
 
+.audience-reaction-buttons {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.audience-reaction-buttons button {
+  font-size: 1rem;
+  min-width: 0;
+  padding: 0 6px;
+}
+
+.audience-reaction-stream {
+  align-items: center;
+  display: flex;
+  gap: 6px;
+  min-height: 28px;
+}
+
+.audience-reaction-stream span {
+  align-items: center;
+  background: #ffffff;
+  border: 1px solid #dbe3ee;
+  border-radius: 999px;
+  display: inline-flex;
+  font-size: 1rem;
+  height: 28px;
+  justify-content: center;
+  min-width: 28px;
+  padding: 0 7px;
+}
+
 .audience-participant-label {
   color: #0f172a;
   font-weight: 700;

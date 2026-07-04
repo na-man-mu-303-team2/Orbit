@@ -4,6 +4,7 @@ import {
   audienceEffectStatePayloadSchema,
   audienceFeatureSettingsPayloadSchema,
   audiencePrivateRoomPayloadSchema,
+  audienceReactionPayloadSchema,
   audienceRoomIdSchema,
   audienceSlideStatePayloadSchema,
   audienceStatePayloadSchema,
@@ -105,6 +106,26 @@ describe("websocket audience schemas", () => {
     expect(audienceFeatureSettingsPayloadSchema.parse({ features })).toEqual({
       features,
     });
+
+    expect(
+      audienceReactionPayloadSchema.parse({
+        sessionId: "session_1",
+        audienceId: participant.audienceId,
+        reaction: "clap",
+      }),
+    ).toEqual({
+      sessionId: "session_1",
+      audienceId: participant.audienceId,
+      reaction: "clap",
+    });
+
+    expect(() =>
+      audienceReactionPayloadSchema.parse({
+        sessionId: "session_1",
+        audienceId: participant.audienceId,
+        reaction: "custom",
+      }),
+    ).toThrow();
 
     expect(
       audiencePrivateRoomPayloadSchema.parse({

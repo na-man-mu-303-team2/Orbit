@@ -1,8 +1,10 @@
 import {
   audienceFeatureSettingsPayloadSchema,
+  audienceReactionPayloadSchema,
   audienceSlideStatePayloadSchema,
   audienceStatePayloadSchema,
   type AudienceFeatureSettings,
+  type AudienceReactionPayload,
   type AudienceRealtimeState,
   type AudienceStateResponse,
   type WebsocketEvent,
@@ -33,6 +35,7 @@ export type AudienceRealtimeConnection = {
 export function connectAudienceRealtime(args: {
   onError: (message: string) => void;
   onFeatureSettings: (features: AudienceFeatureSettings) => void;
+  onReaction?: (payload: AudienceReactionPayload) => void;
   onSlideState: (state: AudienceRealtimeState) => void;
   onState: (state: AudienceStateResponse) => void;
   onStatus: (status: AudienceRealtimeStatus) => void;
@@ -65,6 +68,11 @@ export function connectAudienceRealtime(args: {
     args.onFeatureSettings(payload.features);
   }
 
+  function handleReaction(event: WebsocketEvent) {
+    const payload = audienceReactionPayloadSchema.parse(event.payload);
+    args.onReaction?.(payload);
+  }
+
   function handleAudienceError(error: { message?: string }) {
     args.onStatus("error");
     args.onError(error.message ?? "청중 실시간 연결에 실패했습니다.");
@@ -85,6 +93,7 @@ export function connectAudienceRealtime(args: {
   socket.on("audience:state", handleState);
   socket.on("audience:slide-state", handleSlideState);
   socket.on("audience:feature-settings", handleFeatureSettings);
+  socket.on("audience:reaction", handleReaction);
   socket.on("disconnect", handleDisconnect);
 
   if (socket.connected) {
@@ -99,6 +108,7 @@ export function connectAudienceRealtime(args: {
       socket.off("audience:state", handleState);
       socket.off("audience:slide-state", handleSlideState);
       socket.off("audience:feature-settings", handleFeatureSettings);
+      socket.off("audience:reaction", handleReaction);
       socket.off("disconnect", handleDisconnect);
       socket.disconnect();
     },

@@ -10,6 +10,7 @@ import {
   fetchAudienceQuestionStatus,
   fetchAudienceQuestionAnswer,
   updateAiAnswerFeedback,
+  submitAudienceReaction,
 } from "./audienceApi";
 
 describe("audience API", () => {
@@ -349,5 +350,21 @@ describe("audience API", () => {
         feedback: "unresolved",
       }),
     ).resolves.toMatchObject({ answer: { sourceReferences: ["file_1"] } });
+  });
+
+  it("submits audience reactions", async () => {
+    const fetcher = vi.fn(
+      async (_input: RequestInfo | URL, init?: RequestInit) => {
+        expect(JSON.parse(String(init?.body))).toEqual({ reaction: "clap" });
+        return new Response(
+          JSON.stringify({ reaction: "clap", accepted: true }),
+        );
+      },
+    );
+    vi.stubGlobal("fetch", fetcher);
+
+    await expect(
+      submitAudienceReaction({ sessionId: "session_1", reaction: "clap" }),
+    ).resolves.toEqual({ reaction: "clap", accepted: true });
   });
 });

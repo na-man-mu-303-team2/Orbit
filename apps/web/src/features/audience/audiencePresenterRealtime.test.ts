@@ -101,4 +101,33 @@ describe("audience presenter realtime publisher", () => {
       },
     );
   });
+
+  it("receives reaction events from the presenter room", () => {
+    const socket = createFakeSocket();
+    const onReaction = vi.fn();
+    createAudiencePresenterRealtimePublisher({
+      onReaction,
+      sessionId: "session_1",
+      socketFactory: () => socket,
+    });
+
+    socket.trigger("audience:reaction", {
+      type: "audience:reaction",
+      roomId: "presentation:session_1:presenter",
+      sessionId: "session_1",
+      userId: "audience_00000000-0000-4000-8000-000000000001",
+      sentAt: "2026-07-05T00:00:00.000Z",
+      payload: {
+        sessionId: "session_1",
+        audienceId: "audience_00000000-0000-4000-8000-000000000001",
+        reaction: "heart",
+      },
+    });
+
+    expect(onReaction).toHaveBeenCalledWith({
+      sessionId: "session_1",
+      audienceId: "audience_00000000-0000-4000-8000-000000000001",
+      reaction: "heart",
+    });
+  });
 });

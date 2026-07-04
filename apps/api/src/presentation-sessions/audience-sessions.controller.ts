@@ -29,6 +29,7 @@ import {
   verifyAudienceAccessToken,
 } from "./audience-access-cookie";
 import { PresentationSessionsService } from "./presentation-sessions.service";
+import { AudienceRealtimeGateway } from "../realtime/audience-realtime.gateway";
 
 type SignedCookieRequest = Request & {
   signedCookies?: Record<string, string | false | undefined>;
@@ -41,6 +42,7 @@ export class AudienceSessionsController {
 
   constructor(
     private readonly presentationSessionsService: PresentationSessionsService,
+    private readonly audienceRealtimeGateway: AudienceRealtimeGateway,
   ) {}
 
   @Get("join/:joinCode")
@@ -234,6 +236,28 @@ export class AudienceSessionsController {
       questionId,
       body: body ?? {},
     });
+  }
+
+  @Post(":sessionId/audience/reactions")
+  async submitReaction(
+    @Param("sessionId") sessionId: string,
+    @Body() body: unknown,
+    @Req() request: SignedCookieRequest,
+  ) {
+    const { payload, token } = this.requireAudienceAccess(sessionId, request);
+
+    const result = await this.presentationSessionsService.submitReaction({
+      sessionId,
+      audienceId: payload.audienceId,
+      tokenHash: hashAudienceAccessToken(this.config, token),
+      body: body ?? {},
+    });
+    this.audienceRealtimeGateway.broadcastReaction({
+      sessionId,
+      audienceId: payload.audienceId,
+      reaction: result.reaction,
+    });
+    return result;
   }
 
   private async tryGetExistingAccess(

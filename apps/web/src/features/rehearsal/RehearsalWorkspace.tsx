@@ -15,6 +15,7 @@ import {
   type LiveSttPartialTranscriptEvent,
   type LiveSttSlideAdvanceEvent,
   type PutDeckResponse,
+  type ReactionType,
   type RehearsalReport,
   type RehearsalRun,
   type RehearsalRunMeta,
@@ -1281,6 +1282,9 @@ export function RehearsalWorkspace(props: {
   const [audienceSessionId, setAudienceSessionId] = useState<string | null>(null);
   const [audiencePublisher, setAudiencePublisher] =
     useState<AudiencePresenterRealtimePublisher | null>(null);
+  const [recentAudienceReactions, setRecentAudienceReactions] = useState<
+    ReactionType[]
+  >([]);
   const [timeMode, setTimeMode] = useState<RehearsalTimeMode>("stopwatch");
   const [timerDurationSeconds, setTimerDurationSeconds] = useState(5 * 60);
   const [elapsedTimeInput, setElapsedTimeInput] = useState("00:00");
@@ -1494,10 +1498,17 @@ export function RehearsalWorkspace(props: {
       audiencePublisherRef.current?.disconnect();
       audiencePublisherRef.current = null;
       setAudiencePublisher(null);
+      setRecentAudienceReactions([]);
       return;
     }
 
+    setRecentAudienceReactions([]);
     const publisher = createAudiencePresenterRealtimePublisher({
+      onReaction: (payload) => {
+        setRecentAudienceReactions((current) =>
+          [payload.reaction, ...current].slice(0, 5)
+        );
+      },
       sessionId: audienceSessionId
     });
     audiencePublisherRef.current = publisher;
@@ -2668,6 +2679,7 @@ export function RehearsalWorkspace(props: {
             <AudiencePresenterPanel
               projectId={props.projectId}
               publisher={audiencePublisher}
+              recentReactions={recentAudienceReactions}
             />
           ) : null}
 

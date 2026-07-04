@@ -7,9 +7,11 @@ import {
 import { loadOrbitConfig } from "@orbit/config";
 import {
   audienceFeatureSettingsPayloadSchema,
+  audienceReactionPayloadSchema,
   audienceSlideStatePayloadSchema,
   updateAudienceFeatureSettingsRequestSchema,
   type AudienceRealtimeState,
+  type ReactionType,
 } from "@orbit/shared";
 import {
   ConnectedSocket,
@@ -214,6 +216,29 @@ export class AudienceRealtimeGateway {
     this.server
       .to(audienceSessionRoomId(input.sessionId))
       .emit("audience:feature-settings", event);
+    return event;
+  }
+
+  broadcastReaction(input: {
+    sessionId: string;
+    audienceId: string;
+    reaction: ReactionType;
+  }) {
+    const payload = audienceReactionPayloadSchema.parse(input);
+    const event = createRealtimeEvent({
+      type: "audience:reaction",
+      roomId: audienceSessionRoomId(input.sessionId),
+      sessionId: input.sessionId,
+      userId: input.audienceId,
+      payload,
+    });
+
+    this.server
+      .to(audienceSessionRoomId(input.sessionId))
+      .emit("audience:reaction", event);
+    this.server
+      .to(audiencePresenterRoomId(input.sessionId))
+      .emit("audience:reaction", event);
     return event;
   }
 

@@ -15,6 +15,7 @@ import {
   deckIdSchema,
   deckSlideIdSchema,
 } from "../deck/id.schema";
+import { reactionTypeSchema } from "../interactions/interaction.schema";
 
 export const websocketEventTypeSchema = z.enum([
   "project-joined",
@@ -98,6 +99,14 @@ export const audienceFeatureSettingsPayloadSchema = z
   })
   .strict();
 
+export const audienceReactionPayloadSchema = z
+  .object({
+    sessionId: z.string().min(1),
+    audienceId: audienceIdSchema,
+    reaction: reactionTypeSchema,
+  })
+  .strict();
+
 export const audiencePrivateRoomPayloadSchema = z
   .object({
     sessionId: z.string().min(1),
@@ -122,6 +131,9 @@ export type AudienceEffectStatePayload = z.infer<
 >;
 export type AudienceFeatureSettingsPayload = z.infer<
   typeof audienceFeatureSettingsPayloadSchema
+>;
+export type AudienceReactionPayload = z.infer<
+  typeof audienceReactionPayloadSchema
 >;
 export type AudiencePrivateRoomPayload = z.infer<
   typeof audiencePrivateRoomPayloadSchema

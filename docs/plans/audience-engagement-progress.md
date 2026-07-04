@@ -11,12 +11,12 @@ The top-level `## Current State` and `## Resume Checkpoint` sections are the sou
 - Last completed milestone: 7
 - Next milestone: 8
 - Integration branch: `feature/audience`
-- Current expected branch: `feature/audience`
+- Current expected branch: `feature/audience-m08-reactions`
 - Goal status: in progress
 
 ## Resume Checkpoint
 
-- Current branch: `feature/audience`
+- Current branch: `feature/audience-m08-reactions`
 - Next milestone: 8
 - Resume first checks:
   - Run `git status --short --branch`.
@@ -25,7 +25,7 @@ The top-level `## Current State` and `## Resume Checkpoint` sections are the sou
   - Read relevant product-plan sections for reactions, show/hide behavior, throttling, event storage, and aggregate reporting.
   - Read `apps/api/src/presentation-sessions/*`, `apps/api/src/realtime/audience-realtime.gateway.ts`, and existing audience active-card UI before editing.
 - Blocked: no
-- Notes: Milestone 7 implementation completed on `feature/audience-m07-ai-qna` and is ready to resume at Milestone 8 after local merge.
+- Notes: Milestone 8 implementation is active.
 
 ## Milestone Log
 
@@ -313,6 +313,19 @@ The top-level `## Current State` and `## Resume Checkpoint` sections are the sou
   - Current branch: `feature/audience`
   - Next milestone: 8
   - Resume first checks: read Milestone 8 plan, confirm `feature/audience` status, and implement reactions.
+
+## Milestone 8 Start - 2026-07-05
+
+- Branch: `feature/audience-m08-reactions`
+- Scope: emoji reaction set, presenter show/hide setting via existing `reactionsEnabled`, audience reaction controls, 5/sec participant throttle, event append, realtime-compatible payload, and aggregate-ready counts.
+- Acceptance criteria: enabled reactions are visible to audience/presenter surfaces; disabled reactions hide controls and reject submit; rate limit prevents excessive events; reaction bursts do not affect slide state paths; raw reaction events stay out of survey CSV; controls have accessible names.
+- Likely files: `packages/shared/src/interactions/*`, `apps/api/src/presentation-sessions/*`, `apps/api/src/realtime/audience-realtime.gateway.ts`, `apps/web/src/features/audience/*`, `apps/web/src/features/rehearsal/presenter/*`.
+- Verification plan: shared reaction schema tests, API reaction submit/rate-limit tests, web enabled/disabled UI/API tests, `pnpm audience:checkpoint`.
+- Major risks: full floating reaction animation can be polished later; this milestone prioritizes event correctness and accessible controls.
+- Resume checkpoint snapshot:
+  - Current branch: `feature/audience-m08-reactions`
+  - Next milestone: 8
+  - Resume first checks: inspect reaction rules, existing feature toggle behavior, and audience active-card UI before editing.
 
 ## Progress Entry Template
 

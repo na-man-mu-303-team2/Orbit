@@ -1,6 +1,7 @@
 import type {
   AudienceFeatureSettings,
   PresentationSession,
+  ReactionType,
 } from "@orbit/shared";
 import { BarChart3, ExternalLink, QrCode, Users } from "lucide-react";
 import { useEffect, useState } from "react";
@@ -30,12 +31,14 @@ import "./audienceFeatureControls.css";
 type AudiencePresenterPanelProps = {
   projectId: string;
   publisher?: AudiencePresenterRealtimePublisher | null;
+  recentReactions?: ReactionType[];
   variant?: "overlay" | "page";
 };
 
 export function AudiencePresenterPanel({
   projectId,
   publisher = null,
+  recentReactions: controlledRecentReactions,
   variant = "overlay",
 }: AudiencePresenterPanelProps) {
   const [session, setSession] = useState<PresentationSession | null>(null);
@@ -46,6 +49,7 @@ export function AudiencePresenterPanel({
   );
   const [fallbackPublisher, setFallbackPublisher] =
     useState<AudiencePresenterRealtimePublisher | null>(null);
+  const [recentReactions, setRecentReactions] = useState<ReactionType[]>([]);
   const [busyKey, setBusyKey] = useState<AudienceFeatureKey | null>(null);
   const [isEntryBusy, setIsEntryBusy] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -112,6 +116,11 @@ export function AudiencePresenterPanel({
     }
 
     const nextPublisher = createAudiencePresenterRealtimePublisher({
+      onReaction: (payload) => {
+        setRecentReactions((current) =>
+          [payload.reaction, ...current].slice(0, 5),
+        );
+      },
       sessionId: session.sessionId,
     });
     setFallbackPublisher(nextPublisher);
@@ -179,6 +188,7 @@ export function AudiencePresenterPanel({
   }
 
   const isOpen = session?.entryStatus === "open";
+  const visibleRecentReactions = controlledRecentReactions ?? recentReactions;
   const titleId =
     variant === "page"
       ? "audience-presenter-control-title"
@@ -252,6 +262,10 @@ export function AudiencePresenterPanel({
             onToggle={(key, enabled) => void handleFeatureToggle(key, enabled)}
           />
 
+          {features?.reactionsEnabled ? (
+            <AudiencePresenterReactionStrip reactions={visibleRecentReactions} />
+          ) : null}
+
           <div
             className="audience-presenter-results"
             aria-label="청중 결과 요약"
@@ -272,6 +286,34 @@ export function AudiencePresenterPanel({
         </p>
       ) : null}
     </section>
+  );
+}
+
+const presenterReactionSymbols: Record<ReactionType, string> = {
+  clap: "👏",
+  heart: "❤",
+  laugh: "ㅎㅎ",
+  wow: "!",
+};
+
+function AudiencePresenterReactionStrip({
+  reactions,
+}: {
+  reactions: ReactionType[];
+}) {
+  return (
+    <div className="audience-presenter-reactions" aria-label="최근 청중 반응">
+      <span>최근 반응</span>
+      <div>
+        {reactions.length > 0
+          ? reactions.map((reaction, index) => (
+              <strong key={`${reaction}-${index}`}>
+                {presenterReactionSymbols[reaction]}
+              </strong>
+            ))
+          : "대기 중"}
+      </div>
+    </div>
   );
 }
 

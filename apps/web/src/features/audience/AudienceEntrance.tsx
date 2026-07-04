@@ -3,11 +3,13 @@ import type {
   AudienceFeatureSettings,
   AudienceParticipant,
   AudiencePublicSession,
+  AudienceReactionPayload,
   AudienceRealtimeState,
   AudienceStateResponse,
   InteractionAnswer,
   InteractionQuestion,
   AudienceQuestion,
+  ReactionType,
   SessionInteraction,
 } from "@orbit/shared";
 import { CheckCircle2, Loader2 } from "lucide-react";
@@ -22,6 +24,7 @@ import {
   lookupAudienceSession,
   submitAudienceInteractionResponse,
   submitAudienceQuestion,
+  submitAudienceReaction,
   updateAiAnswerFeedback,
 } from "./audienceApi";
 import { audienceCopy } from "./audienceCopy";
@@ -50,6 +53,7 @@ export function AudienceEntrance({ initialJoinCode }: AudienceEntranceProps) {
     useState<AudienceActiveInteractionResponse | null>(null);
   const [connectionStatus, setConnectionStatus] =
     useState<AudienceRealtimeStatus>("idle");
+  const [recentReactions, setRecentReactions] = useState<ReactionType[]>([]);
   const [errorMessage, setErrorMessage] = useState("");
   const [loadingState, setLoadingState] = useState<LoadingState>(
     initialJoinCode ? "lookup" : "idle",
@@ -159,6 +163,7 @@ export function AudienceEntrance({ initialJoinCode }: AudienceEntranceProps) {
       setAudienceState(null);
       setActiveInteraction(null);
       setConnectionStatus("idle");
+      setRecentReactions([]);
       return;
     }
 
@@ -194,6 +199,11 @@ export function AudienceEntrance({ initialJoinCode }: AudienceEntranceProps) {
           setAudienceState((current) =>
             current ? { ...current, features } : current,
           );
+        }
+      },
+      onReaction: (payload) => {
+        if (!isCancelled) {
+          setRecentReactions((current) => toRecentReactions(current, payload));
         }
       },
       onSlideState: (state) => {
@@ -345,6 +355,7 @@ export function AudienceEntrance({ initialJoinCode }: AudienceEntranceProps) {
               connectionStatus={connectionStatus}
               features={audienceState?.features ?? null}
               participant={participant}
+              recentReactions={recentReactions}
               state={audienceState?.state ?? null}
             />
             <section className="audience-waiting-room" aria-live="polite">
@@ -382,10 +393,17 @@ export function AudienceLiveShell(props: {
   connectionStatus: AudienceRealtimeStatus;
   features: AudienceFeatureSettings | null;
   participant: AudienceParticipant;
+  recentReactions?: ReactionType[];
   state: AudienceRealtimeState | null;
 }) {
-  const { activeInteraction, connectionStatus, features, participant, state } =
-    props;
+  const {
+    activeInteraction,
+    connectionStatus,
+    features,
+    participant,
+    recentReactions = [],
+    state,
+  } = props;
   const slideSnapshotUrl = readSlideSnapshotUrl(state?.effectState ?? {});
   const slideLabel =
     state?.slideIndex !== null && state?.slideIndex !== undefined
@@ -425,6 +443,7 @@ export function AudienceLiveShell(props: {
       <AudienceActiveCards
         activeInteraction={activeInteraction}
         features={features}
+        recentReactions={recentReactions}
         sessionId={participant.sessionId}
       />
       <p className="audience-participant-label">{participant.nickname}</p>
@@ -435,14 +454,21 @@ export function AudienceLiveShell(props: {
 function AudienceActiveCards({
   activeInteraction,
   features,
+  recentReactions,
   sessionId,
 }: {
   activeInteraction: SessionInteraction | null;
   features: AudienceFeatureSettings | null;
+  recentReactions: ReactionType[];
   sessionId: string;
 }) {
   const cards = getAudienceActiveCards(features);
-  if (cards.length === 0 && !activeInteraction && !features?.qnaEnabled) {
+  if (
+    cards.length === 0 &&
+    !activeInteraction &&
+    !features?.qnaEnabled &&
+    !features?.reactionsEnabled
+  ) {
     return null;
   }
 
@@ -451,6 +477,12 @@ function AudienceActiveCards({
       {features?.qnaEnabled ? <AudienceQnaCard sessionId={sessionId} /> : null}
       {activeInteraction ? (
         <AudienceInteractionCard interaction={activeInteraction} />
+      ) : null}
+      {features?.reactionsEnabled ? (
+        <AudienceReactionCard
+          recentReactions={recentReactions}
+          sessionId={sessionId}
+        />
       ) : null}
       {cards.map((card) => (
         <article className="audience-active-card" key={card.label}>
@@ -473,11 +505,96 @@ function getAudienceActiveCards(features: AudienceFeatureSettings | null) {
     features.aiQnaEnabled ? { action: "AI 답변 대기", label: "AI Q&A" } : null,
     features.pollsEnabled ? { action: "대기 중", label: "Poll" } : null,
     features.quizzesEnabled ? { action: "대기 중", label: "Quiz" } : null,
-    features.reactionsEnabled
-      ? { action: "반응 보내기", label: "Reactions" }
-      : null,
     features.surveyEnabled ? { action: "설문 작성", label: "Survey" } : null,
   ].filter((card): card is { action: string; label: string } => Boolean(card));
+}
+
+const reactionButtons: Array<{
+  type: ReactionType;
+  label: string;
+  symbol: string;
+}> = [
+  { type: "clap", label: "박수", symbol: "👏" },
+  { type: "heart", label: "좋아요", symbol: "❤" },
+  { type: "wow", label: "놀람", symbol: "!" },
+  { type: "laugh", label: "웃음", symbol: "ㅎㅎ" },
+];
+
+function AudienceReactionCard({
+  recentReactions,
+  sessionId,
+}: {
+  recentReactions: ReactionType[];
+  sessionId: string;
+}) {
+  const [message, setMessage] = useState("");
+  const [errorMessage, setErrorMessage] = useState("");
+
+  async function handleReaction(reaction: ReactionType) {
+    setMessage("");
+    setErrorMessage("");
+    try {
+      await submitAudienceReaction({ sessionId, reaction });
+      setMessage("반응을 보냈습니다.");
+    } catch (error) {
+      setErrorMessage(
+        error instanceof Error
+          ? error.message
+          : audienceCopy["reaction.rateLimited"],
+      );
+    }
+  }
+
+  return (
+    <article className="audience-active-card audience-interaction-card">
+      <span>Reactions</span>
+      <div className="audience-reaction-buttons" aria-label="반응 보내기">
+        {reactionButtons.map((reaction) => (
+          <button
+            aria-label={`${reaction.label} 반응 보내기`}
+            key={reaction.type}
+            type="button"
+            onClick={() => void handleReaction(reaction.type)}
+          >
+            {reaction.symbol}
+          </button>
+        ))}
+      </div>
+      {recentReactions.length > 0 ? (
+        <div className="audience-reaction-stream" aria-label="최근 반응">
+          {recentReactions.map((reaction, index) => (
+            <span key={`${reaction}-${index}`}>
+              {getReactionSymbol(reaction)}
+            </span>
+          ))}
+        </div>
+      ) : null}
+      {message ? (
+        <p className="audience-interaction-status" role="status">
+          {message}
+        </p>
+      ) : null}
+      {errorMessage ? (
+        <p className="audience-error" role="alert">
+          {errorMessage}
+        </p>
+      ) : null}
+    </article>
+  );
+}
+
+function getReactionSymbol(reaction: ReactionType) {
+  return (
+    reactionButtons.find((button) => button.type === reaction)?.symbol ??
+    reaction
+  );
+}
+
+function toRecentReactions(
+  current: ReactionType[],
+  payload: AudienceReactionPayload,
+) {
+  return [payload.reaction, ...current].slice(0, 5);
 }
 
 function AudienceQnaCard({ sessionId }: { sessionId: string }) {
