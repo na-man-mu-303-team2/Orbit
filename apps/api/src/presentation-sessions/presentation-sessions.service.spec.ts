@@ -2,6 +2,7 @@ import {
   BadRequestException,
   ConflictException,
   ForbiddenException,
+  GoneException,
   UnauthorizedException,
 } from "@nestjs/common";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -1204,6 +1205,7 @@ describe("PresentationSessionsService", () => {
   it("exports survey-only CSV with nickname and contact fields", async () => {
     const query = vi
       .fn()
+      .mockResolvedValueOnce([])
       .mockResolvedValueOnce([surveyFormRow])
       .mockResolvedValueOnce([
         {
@@ -1236,5 +1238,147 @@ describe("PresentationSessionsService", () => {
     expect(csv).toContain("orbit");
     expect(csv).toContain("person@example.com");
     expect(csv).not.toContain("reaction");
+  });
+
+  it("returns presenter session aggregate results and survey responses", async () => {
+    const query = vi.fn(async (sql: string) => {
+      if (sql.includes("SELECT session_id") && sql.includes("presentation_sessions")) {
+        return [{ session_id: "session_existing" }];
+      }
+      if (sql.includes("FROM audience_questions")) {
+        return [{ total: "2", unanswered: "1" }];
+      }
+      if (sql.includes("type = 'reaction.sent'")) {
+        return [{ reaction: "clap", count: "3" }];
+      }
+      if (sql.includes("FROM session_interactions")) {
+        return [
+          {
+            interaction_id: "interaction_00000000-0000-4000-8000-000000000001",
+            kind: "poll",
+            title: "만족도",
+            response_count: "4",
+          },
+        ];
+      }
+      if (sql.includes("SELECT count(*) AS response_count")) {
+        return [{ response_count: "1" }];
+      }
+      if (sql.includes("INSERT INTO audience_aggregate_reports")) {
+        return [
+          {
+            report_id: "audience_report_00000000-0000-4000-8000-000000000001",
+            session_id: "session_existing",
+            status: "preliminary",
+            aggregate_json: {
+              qna: { total: 2, unanswered: 1 },
+              reactions: { clap: 3 },
+              interactions: [],
+              survey: { responseCount: 1 },
+            },
+            generated_at: "2026-07-05T00:00:00.000Z",
+            raw_data_deleted_at: null,
+          },
+        ];
+      }
+      if (sql.includes("FROM session_survey_responses AS responses")) {
+        return [
+          {
+            response_id: "survey_response_00000000-0000-4000-8000-000000000001",
+            survey_id: surveyFormRow.survey_id,
+            session_id: "session_existing",
+            audience_id: "audience_00000000-0000-4000-8000-000000000001",
+            submitted_at: "2026-07-05T00:35:00.000Z",
+            answers_json: {},
+            contact_consent: false,
+            contact_answers_json: {},
+          },
+        ];
+      }
+      return [];
+    });
+    const service = new PresentationSessionsService({
+      query,
+    } as unknown as DataSource);
+
+    await expect(
+      service.getSessionResults({
+        projectId: "project_1",
+        sessionId: "session_existing",
+      }),
+    ).resolves.toMatchObject({
+      report: { status: "preliminary" },
+      surveyResponses: [{ contactConsent: false }],
+    });
+  });
+
+  it("returns gone for survey CSV after raw data cleanup", async () => {
+    const service = new PresentationSessionsService({
+      query: vi.fn(async () => [
+        { raw_data_deleted_at: "2026-08-04T00:00:00.000Z" },
+      ]),
+    } as unknown as DataSource);
+
+    await expect(
+      service.exportSessionSurveyCsv({
+        projectId: "project_1",
+        sessionId: "session_existing",
+      }),
+    ).rejects.toBeInstanceOf(GoneException);
+  });
+
+  it("cleans up expired raw audience data while retaining aggregate reports", async () => {
+    const query = vi.fn(async (sql: string) => {
+      if (sql.includes("WHERE raw_data_delete_after <= $1")) {
+        return [endedSessionRow];
+      }
+      if (sql.includes("SELECT raw_data_deleted_at")) return [];
+      if (sql.includes("SELECT session_id")) return [{ session_id: "session_existing" }];
+      if (sql.includes("FROM audience_questions")) {
+        return [{ total: "0", unanswered: "0" }];
+      }
+      if (sql.includes("type = 'reaction.sent'")) return [];
+      if (sql.includes("FROM session_interactions")) return [];
+      if (sql.includes("SELECT count(*) AS response_count")) {
+        return [{ response_count: "0" }];
+      }
+      if (sql.includes("INSERT INTO audience_aggregate_reports")) {
+        return [
+          {
+            report_id: "audience_report_00000000-0000-4000-8000-000000000001",
+            session_id: "session_existing",
+            status: "final",
+            aggregate_json: {
+              qna: { total: 0, unanswered: 0 },
+              reactions: {},
+              interactions: [],
+              survey: { responseCount: 0 },
+            },
+            generated_at: "2026-07-05T00:00:00.000Z",
+            raw_data_deleted_at: null,
+          },
+        ];
+      }
+      return [];
+    });
+    const service = new PresentationSessionsService({
+      query,
+    } as unknown as DataSource);
+
+    await expect(
+      service.cleanupExpiredAudienceRawData(
+        new Date("2026-08-05T00:00:00.000Z"),
+      ),
+    ).resolves.toEqual({ cleanedCount: 1 });
+    expect(
+      query.mock.calls.some((call) =>
+        String(call[0]).includes("DELETE FROM session_survey_responses"),
+      ),
+    ).toBe(true);
+    expect(
+      query.mock.calls.some((call) =>
+        String(call[0]).includes("DELETE FROM audience_aggregate_reports"),
+      ),
+    ).toBe(false);
   });
 });

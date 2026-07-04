@@ -4,6 +4,7 @@ import {
   createInteractionLibraryItemRequestSchema,
   interactionAnswerSchema,
   audienceQuestionResponseSchema,
+  audienceAggregateReportSchema,
   interactionDraftSchema,
   interactionQuestionSchema,
   presenterQuestionQueueResponseSchema,
@@ -235,5 +236,31 @@ describe("interaction schemas", () => {
         },
       }),
     ).toThrow("sensitive or unique identifying");
+  });
+
+  it("validates anonymous audience aggregate reports", () => {
+    expect(
+      audienceAggregateReportSchema.parse({
+        reportId: "audience_report_00000000-0000-4000-8000-000000000001",
+        sessionId: "session_1",
+        status: "final",
+        aggregate: {
+          qna: { total: 2, unanswered: 1 },
+          reactions: { clap: 3 },
+        },
+        generatedAt: "2026-07-05T00:00:00.000Z",
+        rawDataDeletedAt: null,
+      }),
+    ).toMatchObject({ status: "final" });
+    expect(() =>
+      audienceAggregateReportSchema.parse({
+        reportId: "audience_report_00000000-0000-4000-8000-000000000001",
+        sessionId: "session_1",
+        status: "final",
+        aggregate: { rawAudio: "private" },
+        generatedAt: "2026-07-05T00:00:00.000Z",
+        rawDataDeletedAt: null,
+      }),
+    ).toThrow("rawAudio");
   });
 });

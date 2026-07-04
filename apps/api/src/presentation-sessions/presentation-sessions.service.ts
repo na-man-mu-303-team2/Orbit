@@ -3,6 +3,7 @@ import {
   assertAudienceSafePayload,
   audienceStateResponseSchema,
   audienceActiveInteractionResponseSchema,
+  audienceAggregateReportSchema,
   createAdHocSessionInteractionRequestSchema,
   createInteractionLibraryItemRequestSchema,
   createInteractionLibraryItemResponseSchema,
@@ -19,6 +20,7 @@ import {
   audienceQuestionAnswerResponseSchema,
   selectSessionInteractionsRequestSchema,
   sessionInteractionResponseSchema,
+  sessionResultsResponseSchema,
   sessionSurveyFormResponseSchema,
   submitAudienceQuestionRequestSchema,
   submitInteractionResponseRequestSchema,
@@ -37,6 +39,7 @@ import {
 } from "@orbit/shared";
 import type {
   AudienceEventType,
+  AudienceAggregateReport,
   AudienceFeatureSettings,
   AudienceJoinResponse,
   AudienceParticipant,
@@ -66,6 +69,7 @@ import {
   BadRequestException,
   ConflictException,
   ForbiddenException,
+  GoneException,
   Injectable,
   NotFoundException,
   UnauthorizedException,
@@ -205,6 +209,15 @@ type SessionSurveyResponseRow = {
 
 type SessionSurveyCsvRow = SessionSurveyResponseRow & {
   nickname: string;
+};
+
+type AudienceAggregateReportRow = {
+  report_id: string;
+  session_id: string;
+  status: "preliminary" | "final";
+  aggregate_json: Record<string, unknown> | string;
+  generated_at: Date | string;
+  raw_data_deleted_at: Date | string | null;
 };
 
 type JoinAudienceInput = {
@@ -758,6 +771,11 @@ export class PresentationSessionsService {
       actorId: input.actorId,
       type: "session.ended",
       payload: { sessionId: input.sessionId },
+    });
+    await this.generateAudienceAggregateReport({
+      projectId: input.projectId,
+      sessionId: input.sessionId,
+      status: "preliminary",
     });
 
     return { session };
@@ -1777,6 +1795,11 @@ export class PresentationSessionsService {
   }
 
   async exportSessionSurveyCsv(input: ProjectSessionInput): Promise<string> {
+    const rawDataDeletedAt = await this.findRawDataDeletedAt(input.sessionId);
+    if (rawDataDeletedAt) {
+      throw new GoneException("원본 설문 데이터 보관 기간이 종료되었습니다.");
+    }
+
     const survey = await this.findSessionSurveyForm(input);
     if (!survey) {
       return "submittedAt,nickname\n";
@@ -1807,6 +1830,45 @@ export class PresentationSessionsService {
     );
 
     return buildSurveyCsv(survey, rows);
+  }
+
+  async getSessionResults(input: ProjectSessionInput) {
+    const report = await this.generateAudienceAggregateReport({
+      ...input,
+      status: "preliminary",
+    });
+    const surveyResponses = await this.listSurveyResponses(input);
+    return sessionResultsResponseSchema.parse({ report, surveyResponses });
+  }
+
+  async cleanupExpiredAudienceRawData(now = new Date()) {
+    const sessions = await this.dataSource.query<PresentationSessionRow[]>(
+      `
+        ${selectPresentationSessionSql()}
+        WHERE raw_data_delete_after <= $1
+      `,
+      [now],
+    );
+    let cleanedCount = 0;
+
+    for (const row of sessions) {
+      const session = this.toSessionDto(row);
+      const deletedAt = await this.findRawDataDeletedAt(session.sessionId);
+      if (deletedAt) {
+        continue;
+      }
+
+      await this.generateAudienceAggregateReport({
+        projectId: session.projectId,
+        sessionId: session.sessionId,
+        status: "final",
+      });
+      await this.deleteAudienceRawData(session.sessionId);
+      await this.markAggregateRawDataDeleted(session.sessionId, now);
+      cleanedCount += 1;
+    }
+
+    return { cleanedCount };
   }
 
   async getInteractionResults(input: ProjectSessionInput & {
@@ -1999,6 +2061,194 @@ export class PresentationSessionsService {
 
     if (!rows[0]) {
       throw new NotFoundException("Presentation session not found");
+    }
+  }
+
+  private async generateAudienceAggregateReport(input: ProjectSessionInput & {
+    status: "preliminary" | "final";
+  }): Promise<AudienceAggregateReport> {
+    await this.assertSessionBelongsToProject(input.projectId, input.sessionId);
+    const aggregate = await this.buildAudienceAggregate(input.sessionId);
+    const rows = await this.dataSource.query<AudienceAggregateReportRow[]>(
+      `
+        INSERT INTO audience_aggregate_reports (
+          report_id,
+          session_id,
+          status,
+          aggregate_json,
+          generated_at
+        )
+        VALUES ($1, $2, $3, $4::jsonb, now())
+        ON CONFLICT (session_id)
+        DO UPDATE SET
+          status = EXCLUDED.status,
+          aggregate_json = EXCLUDED.aggregate_json,
+          generated_at = now()
+        RETURNING
+          report_id,
+          session_id,
+          status,
+          aggregate_json,
+          generated_at,
+          raw_data_deleted_at
+      `,
+      [
+        `audience_report_${randomUUID()}`,
+        input.sessionId,
+        input.status,
+        JSON.stringify(aggregate),
+      ],
+    );
+
+    return this.toAggregateReportDto(rows[0]);
+  }
+
+  private async buildAudienceAggregate(sessionId: string) {
+    const [qnaRows, reactionRows, interactionRows, surveyRows] =
+      await Promise.all([
+        this.dataSource.query<
+          { total: number | string; unanswered: number | string }[]
+        >(
+          `
+            SELECT
+              count(*) AS total,
+              count(*) FILTER (WHERE status = 'pending') AS unanswered
+            FROM audience_questions
+            WHERE session_id = $1
+          `,
+          [sessionId],
+        ),
+        this.dataSource.query<{ reaction: string | null; count: string }[]>(
+          `
+            SELECT payload_json ->> 'reaction' AS reaction, count(*) AS count
+            FROM audience_events
+            WHERE session_id = $1
+              AND type = 'reaction.sent'
+            GROUP BY payload_json ->> 'reaction'
+          `,
+          [sessionId],
+        ),
+        this.dataSource.query<
+          {
+            interaction_id: string;
+            kind: string;
+            title: string;
+            response_count: number | string;
+          }[]
+        >(
+          `
+            SELECT
+              interactions.interaction_id,
+              interactions.kind,
+              interactions.title,
+              count(responses.response_id) AS response_count
+            FROM session_interactions AS interactions
+            LEFT JOIN interaction_responses AS responses
+              ON responses.interaction_id = interactions.interaction_id
+            WHERE interactions.session_id = $1
+            GROUP BY interactions.interaction_id, interactions.kind, interactions.title
+            ORDER BY interactions.display_order ASC
+          `,
+          [sessionId],
+        ),
+        this.dataSource.query<{ response_count: number | string }[]>(
+          `
+            SELECT count(*) AS response_count
+            FROM session_survey_responses
+            WHERE session_id = $1
+          `,
+          [sessionId],
+        ),
+      ]);
+
+    return {
+      qna: {
+        total: Number(qnaRows[0]?.total ?? 0),
+        unanswered: Number(qnaRows[0]?.unanswered ?? 0),
+      },
+      reactions: Object.fromEntries(
+        reactionRows
+          .filter((row) => row.reaction)
+          .map((row) => [row.reaction!, Number(row.count)]),
+      ),
+      interactions: interactionRows.map((row) => ({
+        interactionId: row.interaction_id,
+        kind: row.kind,
+        title: row.title,
+        responseCount: Number(row.response_count),
+      })),
+      survey: {
+        responseCount: Number(surveyRows[0]?.response_count ?? 0),
+      },
+    };
+  }
+
+  private async listSurveyResponses(
+    input: ProjectSessionInput,
+  ): Promise<SurveyResponse[]> {
+    await this.assertSessionBelongsToProject(input.projectId, input.sessionId);
+    const rows = await this.dataSource.query<SessionSurveyResponseRow[]>(
+      `
+        SELECT
+          responses.response_id,
+          responses.survey_id,
+          responses.session_id,
+          responses.audience_id,
+          responses.submitted_at,
+          responses.answers_json,
+          responses.contact_consent,
+          responses.contact_answers_json
+        FROM session_survey_responses AS responses
+        WHERE responses.session_id = $1
+        ORDER BY responses.submitted_at ASC
+      `,
+      [input.sessionId],
+    );
+
+    return rows.map((row) => this.toSurveyResponseDto(row));
+  }
+
+  private async findRawDataDeletedAt(
+    sessionId: string,
+  ): Promise<string | null> {
+    const rows = await this.dataSource.query<
+      { raw_data_deleted_at: Date | string | null }[]
+    >(
+      `
+        SELECT raw_data_deleted_at
+        FROM audience_aggregate_reports
+        WHERE session_id = $1
+        LIMIT 1
+      `,
+      [sessionId],
+    );
+
+    return rows[0]?.raw_data_deleted_at
+      ? toIso(rows[0].raw_data_deleted_at)
+      : null;
+  }
+
+  private async markAggregateRawDataDeleted(sessionId: string, deletedAt: Date) {
+    await this.dataSource.query(
+      `
+        UPDATE audience_aggregate_reports
+        SET raw_data_deleted_at = $2
+        WHERE session_id = $1
+      `,
+      [sessionId, deletedAt],
+    );
+  }
+
+  private async deleteAudienceRawData(sessionId: string) {
+    for (const statement of [
+      "DELETE FROM session_survey_responses WHERE session_id = $1",
+      "DELETE FROM interaction_responses WHERE session_id = $1",
+      "DELETE FROM audience_question_answers WHERE session_id = $1",
+      "DELETE FROM audience_questions WHERE session_id = $1",
+      "DELETE FROM audience_events WHERE session_id = $1",
+      "DELETE FROM audience_participants WHERE session_id = $1",
+    ]) {
+      await this.dataSource.query(statement, [sessionId]);
     }
   }
 
@@ -2517,6 +2767,19 @@ export class PresentationSessionsService {
       contactConsent: row.contact_consent,
       contactAnswers: normalizeJsonRecord(row.contact_answers_json),
     };
+  }
+
+  private toAggregateReportDto(
+    row: AudienceAggregateReportRow,
+  ): AudienceAggregateReport {
+    return audienceAggregateReportSchema.parse({
+      reportId: row.report_id,
+      sessionId: row.session_id,
+      status: row.status,
+      aggregate: normalizeJsonRecord(row.aggregate_json),
+      generatedAt: toIso(row.generated_at),
+      rawDataDeletedAt: toNullableIso(row.raw_data_deleted_at),
+    });
   }
 
   private toQuestionAnswerDto(

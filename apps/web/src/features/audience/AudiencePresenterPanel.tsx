@@ -9,6 +9,7 @@ import { useEffect, useState } from "react";
 import {
   fetchAudienceFeatureSettings,
   fetchCurrentAudienceAccessSession,
+  fetchSessionResults,
   fetchSessionSurveyForm,
   sessionSurveyCsvUrl,
   updateAudienceAccessEntryStatus,
@@ -51,6 +52,8 @@ export function AudiencePresenterPanel({
     null,
   );
   const [surveyTitle, setSurveyTitle] = useState("");
+  const [results, setResults] =
+    useState<Awaited<ReturnType<typeof fetchSessionResults>> | null>(null);
   const [fallbackPublisher, setFallbackPublisher] =
     useState<AudiencePresenterRealtimePublisher | null>(null);
   const [recentReactions, setRecentReactions] = useState<ReactionType[]>([]);
@@ -93,9 +96,14 @@ export function AudiencePresenterPanel({
           projectId,
           sessionId: nextSession.sessionId,
         });
+        const nextResults = await fetchSessionResults({
+          projectId,
+          sessionId: nextSession.sessionId,
+        }).catch(() => null);
         if (!isCancelled) {
           setFeatures(settings.features);
           setSurveyTitle(survey.survey?.title ?? "");
+          setResults(nextResults);
         }
       })
       .catch((error) => {
@@ -325,8 +333,7 @@ export function AudiencePresenterPanel({
               <BarChart3 size={15} />
               결과
             </span>
-            <p>활성 상호작용 없음</p>
-            <p>Q&A 대기열 0개</p>
+            <AudiencePresenterResultsSummary results={results} />
           </div>
         </>
       ) : null}
@@ -337,6 +344,47 @@ export function AudiencePresenterPanel({
         </p>
       ) : null}
     </section>
+  );
+}
+
+export function AudiencePresenterResultsSummary({
+  results,
+}: {
+  results: Awaited<ReturnType<typeof fetchSessionResults>> | null;
+}) {
+  if (!results) {
+    return (
+      <>
+        <p>결과 준비 중</p>
+        <p>Q&A 대기열 0개</p>
+      </>
+    );
+  }
+
+  const aggregate = results.report.aggregate as {
+    interactions?: Array<{ title: string; responseCount: number }>;
+    qna?: { total: number; unanswered: number };
+    reactions?: Record<string, number>;
+    survey?: { responseCount: number };
+  };
+  const reactionTotal = Object.values(aggregate.reactions ?? {}).reduce(
+    (sum, count) => sum + Number(count),
+    0,
+  );
+
+  return (
+    <>
+      <p>
+        Q&A {aggregate.qna?.total ?? 0}개, 미답변{" "}
+        {aggregate.qna?.unanswered ?? 0}개
+      </p>
+      <p>반응 {reactionTotal}개</p>
+      <p>상호작용 {aggregate.interactions?.length ?? 0}개</p>
+      <p>
+        설문 응답 {aggregate.survey?.responseCount ?? 0}개, 개별 응답{" "}
+        {results.surveyResponses.length}개
+      </p>
+    </>
   );
 }
 

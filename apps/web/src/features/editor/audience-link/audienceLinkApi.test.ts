@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   fetchAudienceFeatureSettings,
+  fetchSessionResults,
   fetchSessionSurveyForm,
   sessionSurveyCsvUrl,
   updateAudienceAccessEntryStatus,
@@ -161,6 +162,34 @@ describe("audience link API", () => {
       sessionSurveyCsvUrl({ projectId: "project_1", sessionId: "session_1" }),
     ).toBe(
       "/api/v1/projects/project_1/presentation-sessions/session_1/survey.csv",
+    );
+  });
+
+  it("fetches presenter audience results", async () => {
+    const fetcher = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            report: {
+              reportId: "audience_report_00000000-0000-4000-8000-000000000001",
+              sessionId: "session_1",
+              status: "preliminary",
+              aggregate: { qna: { total: 1, unanswered: 1 } },
+              generatedAt: "2026-07-05T00:00:00.000Z",
+              rawDataDeletedAt: null,
+            },
+            surveyResponses: [],
+          }),
+        ),
+    );
+    vi.stubGlobal("fetch", fetcher);
+
+    await expect(
+      fetchSessionResults({ projectId: "project_1", sessionId: "session_1" }),
+    ).resolves.toMatchObject({ report: { status: "preliminary" } });
+    expect(fetcher).toHaveBeenCalledWith(
+      "/api/v1/projects/project_1/presentation-sessions/session_1/results",
+      expect.objectContaining({ credentials: "include", method: "GET" }),
     );
   });
 });
