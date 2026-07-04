@@ -8,24 +8,24 @@ The top-level `## Current State` and `## Resume Checkpoint` sections are the sou
 
 ## Current State
 
-- Last completed milestone: 8
-- Next milestone: 9
+- Last completed milestone: 9
+- Next milestone: 10
 - Integration branch: `feature/audience`
-- Current expected branch: `feature/audience-m09-survey`
+- Current expected branch: `feature/audience`
 - Goal status: in progress
 
 ## Resume Checkpoint
 
-- Current branch: `feature/audience-m09-survey`
-- Next milestone: 9
+- Current branch: `feature/audience`
+- Next milestone: 10
 - Resume first checks:
   - Run `git status --short --branch`.
   - Read `docs/plans/audience-engagement-execution-protocol.md`.
-  - Read Milestone 9 in `docs/plans/audience-engagement-implementation-plan.md`.
-  - Read relevant product-plan sections for post-session survey, consent, 24-hour window, CSV exclusions, and feature gating.
-  - Read existing interaction/Q&A/reaction contracts before adding survey contracts and tables.
+  - Read Milestone 10 in `docs/plans/audience-engagement-implementation-plan.md`.
+  - Read relevant product-plan sections for presenter results, Q&A queue, reaction aggregates, survey aggregate/individual results, and audience access boundaries.
+  - Read existing interaction, question, reaction, and survey storage/query helpers before adding report endpoints.
 - Blocked: no
-- Notes: Milestone 9 implementation is active.
+- Notes: Milestone 9 is locally merged; Milestone 10 results/reporting work is next.
 
 ## Milestone Log
 
@@ -369,6 +369,37 @@ The top-level `## Current State` and `## Resume Checkpoint` sections are the sou
   - Current branch: `feature/audience-m09-survey`
   - Next milestone: 9
   - Resume first checks: inspect shared survey schemas, presentation session service/controller, migration registration, and audience active/survey UI before editing.
+
+## Milestone 9 Complete - 2026-07-05
+
+- Milestone branch: `feature/audience-m09-survey`
+- Local commits:
+  - `955785c` `feat: 청중 세션 설문 추가`
+  - `7744a39` `chore: 청중 설문 마일스톤 병합`
+- Merged into `feature/audience`: yes
+- Change summary: added session-owned survey schemas, contact consent validation, survey tables and migration registration, presenter start/end endpoints with survey lock and one-hour close window, presenter survey get/upsert/CSV endpoints, audience survey get/submit endpoints, session-ended realtime broadcast, audience post-end survey UI, presenter default survey setup/CSV link, and targeted shared/API/web tests.
+- Acceptance criteria evidence: survey upsert checks session `draft` status and form `locked_at`; `startSession` locks existing survey forms; `endSession` sets `survey_closes_at` one hour out and broadcasts `audience:session-ended`; submit requires signed audience access, `joinedBeforeEnd`, ended session, enabled survey, open window, required answers, contact consent for contact answers, and unique `(survey_id, audience_id)`; CSV is built only from `session_survey_responses` joined to nicknames and does not read Q&A/poll/quiz/reaction raw rows.
+- Self-review:
+  - Correctness: tests cover form lock, required answers, duplicate submit, CSV shape, routing, migration SQL, realtime session-ended payload, and audience/presenter web API/UI paths.
+  - Security/privacy: survey/contact payloads remain audience-safe; contact fields reject sensitive/unique identifying prompt categories; CSV includes survey rows only and does not include tokens/cookies/raw event data.
+  - Contract/schema compatibility: shared survey wrappers back API and web; session-ended websocket payload uses public session fields only.
+  - Architecture boundary: survey data is stored in M9-specific tables and uses presentation-sessions route/service patterns; no reporting dashboard work from M10 was added.
+  - Missing test risk: real DB migration run/revert could not run because Docker daemon is unavailable; full browser auto-transition is covered by realtime/unit paths but not Playwright.
+- Verification:
+  - `pnpm --filter @orbit/shared test -- src/interactions/interaction.schema.test.ts src/realtime/websocket.schema.test.ts`: pass
+  - `pnpm --filter @orbit/api test -- src/database/migrations/2026070504000-CreateSessionSurveys.spec.ts src/presentation-sessions/presentation-sessions.service.spec.ts src/presentation-sessions/presentation-sessions.controller.spec.ts src/presentation-sessions/audience-sessions.controller.spec.ts src/realtime/audience-realtime.gateway.spec.ts`: pass
+  - `pnpm --filter @orbit/web test -- src/features/audience/AudienceEntrance.test.tsx src/features/audience/audienceApi.test.ts src/features/audience/audienceRealtime.test.ts src/features/editor/audience-link/audienceLinkApi.test.ts`: pass
+  - `pnpm --filter @orbit/shared lint`: pass
+  - `pnpm --filter @orbit/api lint`: pass
+  - `pnpm --filter @orbit/web lint`: pass
+  - `pnpm audience:checkpoint`: pass before completion checkpoint update
+  - `git diff --check`: pass
+  - `docker compose up -d postgres`: failed because Docker daemon is not running, so `pnpm db:migration:run` and `pnpm db:migration:revert` were not run against a local database.
+- Remaining risks or next milestone carryover: run migration run/revert once Docker is available; run real two-browser session-ended-to-survey flow in M11 hardening.
+- Resume checkpoint snapshot:
+  - Current branch: `feature/audience`
+  - Next milestone: 10
+  - Resume first checks: read Milestone 10 plan, confirm `feature/audience` status, and implement presenter results/reporting surfaces.
 
 ## Progress Entry Template
 
