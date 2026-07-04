@@ -134,7 +134,7 @@ describe("processRehearsalSttJob", () => {
               language: "ko-KR",
               provider: "fake",
               model: "fake-transcriber",
-              durationSeconds: 3.5,
+              durationSeconds: 90,
               segments: [{ text: "안녕하세요 ORBIT 발표입니다" }]
             })
           )
@@ -186,7 +186,7 @@ describe("processRehearsalSttJob", () => {
         expect.stringContaining('"reportId":"report_run-a"'),
         expect.stringContaining('"speedSamples":[{"startSecond":0,"endSecond":3.5,"wordsPerMinute":120}]'),
         expect.stringContaining('"missedKeywords":[{"slideId":"slide_1","keywordId":"kw_1","text":"ORBIT"}]'),
-        expect.stringContaining('"slideTimings":[{"slideId":"slide_1","targetSeconds":60,"actualSeconds":45}]'),
+        expect.stringContaining('"slideTimings":[{"slideId":"slide_1","targetSeconds":60,"actualSeconds":45},{"slideId":"slide_2","targetSeconds":60,"actualSeconds":45}]'),
         false
       ])
     );

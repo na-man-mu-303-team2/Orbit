@@ -3299,7 +3299,7 @@ button:disabled {
 .report-mini-metrics {
   display: grid;
   gap: 8px;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .report-speed-gauge {
@@ -3358,6 +3358,10 @@ button:disabled {
   line-height: 1;
   position: relative;
   z-index: 1;
+}
+
+.report-speed-gauge strong.report-speed-warning {
+  font-size: 1.35rem;
 }
 
 .report-large-metric strong {

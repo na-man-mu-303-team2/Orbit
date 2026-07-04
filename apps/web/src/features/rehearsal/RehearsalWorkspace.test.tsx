@@ -496,6 +496,31 @@ describe("RehearsalWorkspace", () => {
     expect(html).not.toContain("dB");
   });
 
+  it("calculates completion percent from official slide timings", () => {
+    const deck = createDemoDeck();
+    const completedSlide = deck.slides[0]!;
+    const expectedPercent = `${Math.round((1 / deck.slides.length) * 100)}%`;
+    const html = renderToStaticMarkup(
+      <RehearsalReportPage
+        initialDeck={deck}
+        initialRun={runFixture("succeeded")}
+        initialReport={reportFixture({
+          slideTimings: [
+            {
+              slideId: completedSlide.slideId,
+              targetSeconds: 60,
+              actualSeconds: 52
+            }
+          ]
+        })}
+        projectId="project-a"
+        runId="run-1"
+      />
+    );
+
+    expect(html).toContain(`<span>완료율</span><strong>${expectedPercent}</strong>`);
+  });
+
   it("does not describe an extreme speaking speed as stable", () => {
     const html = renderToStaticMarkup(
       <RehearsalReportPage
@@ -515,8 +540,9 @@ describe("RehearsalWorkspace", () => {
       />
     );
 
-    expect(html).toContain("3600");
+    expect(html).toContain("확인 필요");
     expect(html).toContain("발표 시간 데이터가 불안정해 속도 판단을 확인해야 합니다.");
+    expect(html).not.toContain("3600");
     expect(html).not.toContain("권장 범위 안에서 안정적인 속도로 발표했어요.");
   });
 

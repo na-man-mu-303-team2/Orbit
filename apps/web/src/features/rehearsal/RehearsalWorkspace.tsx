@@ -2785,10 +2785,10 @@ export function RehearsalReportPage(props: {
   const slideTimings = report?.slideTimings ?? [];
   const qnaSummary = report?.qnaSummary;
   const speedAssessment = report ? getSpeakingSpeedAssessment(report.metrics.wordsPerMinute) : null;
-  const durationDelta = report
-    ? formatSignedDuration(report.metrics.durationSeconds - getTargetDurationSeconds(deck))
-    : "0:00";
-  const completionPercent = slideCount ? "100%" : "-";
+  const speakingSpeedValue = report
+    ? formatSpeakingSpeedValue(report.metrics.wordsPerMinute)
+    : "-";
+  const completionPercent = formatRehearsalCompletionPercent(deck, slideTimings);
 
   return (
     <main className="rehearsal-report-page">
@@ -2876,7 +2876,7 @@ export function RehearsalReportPage(props: {
                 <div className="report-score-list">
                   <div>
                     <span>평균 속도</span>
-                    <strong>{Math.round(report.metrics.wordsPerMinute)} wpm</strong>
+                    <strong>{speakingSpeedValue}</strong>
                   </div>
                   <div>
                     <span>키워드 커버리지</span>
@@ -2904,10 +2904,6 @@ export function RehearsalReportPage(props: {
                     <strong>{formatDuration(getTargetDurationSeconds(deck))}</strong>
                   </div>
                   <div>
-                    <span>전회 대비</span>
-                    <strong>{durationDelta}</strong>
-                  </div>
-                  <div>
                     <span>완료율</span>
                     <strong>{completionPercent}</strong>
                   </div>
@@ -2929,7 +2925,9 @@ export function RehearsalReportPage(props: {
                 >
                   <span className="speed-mark speed-mark-left">100</span>
                   <span className="speed-mark speed-mark-right">150</span>
-                  <strong>{Math.round(report.metrics.wordsPerMinute)}</strong>
+                  <strong className={speedAssessment?.isUnreliable ? "report-speed-warning" : undefined}>
+                    {speedAssessment?.displayValue ?? "-"}
+                  </strong>
                 </div>
                 <p>{speedAssessment?.message}</p>
               </section>
@@ -3215,6 +3213,8 @@ function buildCoachingDetail(report: RehearsalReport | null, deck: Deck | null) 
 function getSpeakingSpeedAssessment(wordsPerMinute: number) {
   if (isUnreliableSpeakingSpeed(wordsPerMinute)) {
     return {
+      displayValue: "확인 필요",
+      isUnreliable: true,
       meterValue: 180,
       message: "발표 시간 데이터가 불안정해 속도 판단을 확인해야 합니다."
     };
@@ -3222,6 +3222,8 @@ function getSpeakingSpeedAssessment(wordsPerMinute: number) {
 
   if (wordsPerMinute <= 0) {
     return {
+      displayValue: "-",
+      isUnreliable: true,
       meterValue: 80,
       message: "발표 시간 데이터를 확인할 수 없어 속도 판단이 어렵습니다."
     };
@@ -3229,6 +3231,8 @@ function getSpeakingSpeedAssessment(wordsPerMinute: number) {
 
   if (wordsPerMinute < 100) {
     return {
+      displayValue: String(Math.round(wordsPerMinute)),
+      isUnreliable: false,
       meterValue: clamp(Math.round(wordsPerMinute), 80, 180),
       message: "권장 범위보다 다소 느린 속도로 발표했어요."
     };
@@ -3236,12 +3240,16 @@ function getSpeakingSpeedAssessment(wordsPerMinute: number) {
 
   if (wordsPerMinute <= 150) {
     return {
+      displayValue: String(Math.round(wordsPerMinute)),
+      isUnreliable: false,
       meterValue: clamp(Math.round(wordsPerMinute), 80, 180),
       message: "권장 범위 안에서 안정적인 속도로 발표했어요."
     };
   }
 
   return {
+    displayValue: String(Math.round(wordsPerMinute)),
+    isUnreliable: false,
     meterValue: clamp(Math.round(wordsPerMinute), 80, 180),
     message: "권장 범위보다 빠른 속도로 발표했어요."
   };
@@ -3249,6 +3257,40 @@ function getSpeakingSpeedAssessment(wordsPerMinute: number) {
 
 function isUnreliableSpeakingSpeed(wordsPerMinute: number) {
   return !Number.isFinite(wordsPerMinute) || wordsPerMinute > 250;
+}
+
+function formatSpeakingSpeedValue(wordsPerMinute: number) {
+  if (isUnreliableSpeakingSpeed(wordsPerMinute)) {
+    return "확인 필요";
+  }
+
+  if (wordsPerMinute <= 0) {
+    return "-";
+  }
+
+  return `${Math.round(wordsPerMinute)} wpm`;
+}
+
+function formatRehearsalCompletionPercent(
+  deck: Deck | null,
+  slideTimings: RehearsalReport["slideTimings"]
+) {
+  const totalSlides = deck?.slides.length ?? 0;
+  if (totalSlides <= 0 || slideTimings.length === 0) {
+    return "-";
+  }
+
+  const deckSlideIds = new Set(deck?.slides.map((slide) => slide.slideId));
+  const completedSlideIds = new Set(
+    slideTimings
+      .filter((timing) => timing.actualSeconds > 0 && deckSlideIds.has(timing.slideId))
+      .map((timing) => timing.slideId)
+  );
+  if (completedSlideIds.size === 0) {
+    return "-";
+  }
+
+  return `${Math.min(100, Math.round((completedSlideIds.size / totalSlides) * 100))}%`;
 }
 
 function getTargetDurationSeconds(deck: Deck | null) {
@@ -3261,11 +3303,6 @@ function getSlideTargetSeconds(deck: Deck, slide: Slide) {
   }
 
   return Math.max(1, Math.round((deck.targetDurationMinutes * 60) / deck.slides.length));
-}
-
-function formatSignedDuration(totalSeconds: number) {
-  const sign = totalSeconds >= 0 ? "" : "-";
-  return `${sign}${formatDuration(Math.abs(totalSeconds))}`;
 }
 
 function formatDuration(totalSeconds: number) {

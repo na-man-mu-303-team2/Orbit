@@ -10,7 +10,8 @@ from app.audio.transcribe import TranscriptSegment
 FILLER_WORDS = {
     "음",
     "어",
-    "그",
+    "그니까",
+    "그러니까",
     "저기",
     "약간",
     "뭐",
@@ -18,6 +19,8 @@ FILLER_WORDS = {
     "uh",
     "like",
 }
+
+LONG_PAUSE_THRESHOLD_SECONDS = 1.0
 
 COACHING_INSTRUCTIONS = """
 You are a Korean presentation rehearsal coach for ORBIT.
@@ -241,13 +244,7 @@ def resolve_speaking_duration_seconds(
     if duration_seconds > 0:
         return duration_seconds
 
-    timed_segments: list[tuple[float, float]] = []
-    for segment in segments:
-        if segment.start_seconds is None or segment.end_seconds is None:
-            continue
-        if segment.end_seconds <= segment.start_seconds:
-            continue
-        timed_segments.append((segment.start_seconds, segment.end_seconds))
+    timed_segments = valid_timed_segments(segments)
 
     if not timed_segments:
         return 0
@@ -285,28 +282,37 @@ def count_pauses(segments: list[TranscriptSegment]) -> int:
 
 
 def find_pause_details(segments: list[TranscriptSegment]) -> list[PauseDetail]:
-    # 현재는 STT 구간 사이의 공백이 1초 이상이면 pause로 간주한다.
     pauses: list[PauseDetail] = []
     previous_end: float | None = None
 
-    for segment in segments:
+    for start_seconds, end_seconds in valid_timed_segments(segments):
         if (
             previous_end is not None
-            and segment.start_seconds is not None
-            and segment.start_seconds - previous_end >= 1.0
+            and start_seconds - previous_end >= LONG_PAUSE_THRESHOLD_SECONDS
         ):
             pauses.append(
                 PauseDetail(
                     start_second=round(previous_end, 2),
-                    end_second=round(segment.start_seconds, 2),
-                    duration_seconds=round(segment.start_seconds - previous_end, 2),
+                    end_second=round(start_seconds, 2),
+                    duration_seconds=round(start_seconds - previous_end, 2),
                 )
             )
 
-        if segment.end_seconds is not None:
-            previous_end = segment.end_seconds
+        previous_end = end_seconds if previous_end is None else max(previous_end, end_seconds)
 
     return pauses
+
+
+def valid_timed_segments(segments: list[TranscriptSegment]) -> list[tuple[float, float]]:
+    timed_segments: list[tuple[float, float]] = []
+    for segment in segments:
+        if segment.start_seconds is None or segment.end_seconds is None:
+            continue
+        if segment.end_seconds <= segment.start_seconds:
+            continue
+        timed_segments.append((segment.start_seconds, segment.end_seconds))
+
+    return sorted(timed_segments, key=lambda segment: (segment[0], segment[1]))
 
 
 def keyword_coverage(transcript: str, deck_keywords: list[DeckKeyword]) -> float:

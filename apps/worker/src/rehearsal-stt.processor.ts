@@ -316,7 +316,11 @@ function buildRehearsalReport(
     fillerWordDetails: analysis.fillerWordDetails,
     pauseDetails: analysis.pauseDetails,
     missedKeywords: buildReportMissedKeywords(analysis.missedKeywords, runMeta, deckContext),
-    slideTimings: buildSlideTimings(deckContext.deck, runMeta),
+    slideTimings: buildSlideTimings(
+      deckContext.deck,
+      runMeta,
+      transcription.durationSeconds ?? 0
+    ),
     qnaSummary: {
       questionCount: 0,
       questionSummary: "",
@@ -551,22 +555,37 @@ function buildReportMissedKeywords(
 
 function buildSlideTimings(
   deck: Deck,
-  runMeta: RehearsalRunMeta
+  runMeta: RehearsalRunMeta,
+  durationSeconds: number
 ): RehearsalReportSlideTiming[] {
   const slideIds = new Set(deck.slides.map((slide) => slide.slideId));
   const timeline = runMeta.slideTimeline.filter((entry) => slideIds.has(entry.slideId));
   const timings: RehearsalReportSlideTiming[] = [];
+  const firstEnteredAt = Date.parse(timeline[0]?.enteredAt ?? "");
+  const fallbackEndedAt =
+    Number.isFinite(durationSeconds) && durationSeconds > 0 && !Number.isNaN(firstEnteredAt)
+      ? firstEnteredAt + durationSeconds * 1000
+      : null;
 
-  for (let index = 0; index < timeline.length - 1; index += 1) {
+  for (let index = 0; index < timeline.length; index += 1) {
     const entry = timeline[index];
     const nextEntry = timeline[index + 1];
-    if (!entry || !nextEntry || entry.slideId === nextEntry.slideId) {
+    if (!entry) {
       continue;
     }
 
     const enteredAt = Date.parse(entry.enteredAt);
-    const exitedAt = Date.parse(nextEntry.enteredAt);
-    if (Number.isNaN(enteredAt) || Number.isNaN(exitedAt) || exitedAt <= enteredAt) {
+    const exitedAt = nextEntry ? Date.parse(nextEntry.enteredAt) : fallbackEndedAt;
+    if (
+      Number.isNaN(enteredAt) ||
+      exitedAt === null ||
+      Number.isNaN(exitedAt) ||
+      exitedAt <= enteredAt
+    ) {
+      continue;
+    }
+
+    if (nextEntry && entry.slideId === nextEntry.slideId) {
       continue;
     }
 
