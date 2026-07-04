@@ -42,6 +42,7 @@ describe("audience realtime client", () => {
 
     connectAudienceRealtime({
       onError: vi.fn(),
+      onFeatureSettings: vi.fn(),
       onSlideState: vi.fn(),
       onState: vi.fn(),
       onStatus,
@@ -61,9 +62,11 @@ describe("audience realtime client", () => {
     const socket = createFakeSocket();
     const onState = vi.fn();
     const onSlideState = vi.fn();
+    const onFeatureSettings = vi.fn();
 
     connectAudienceRealtime({
       onError: vi.fn(),
+      onFeatureSettings,
       onSlideState,
       onState,
       onStatus: vi.fn(),
@@ -130,6 +133,25 @@ describe("audience realtime client", () => {
         },
       },
     });
+    socket.trigger("audience:feature-settings", {
+      type: "audience:feature-settings",
+      roomId: "presentation:session_1:audience",
+      sessionId: "session_1",
+      userId: "user_1",
+      sentAt: now,
+      payload: {
+        features: {
+          sessionId: "session_1",
+          qnaEnabled: true,
+          aiQnaEnabled: false,
+          pollsEnabled: true,
+          quizzesEnabled: false,
+          reactionsEnabled: false,
+          surveyEnabled: false,
+          updatedAt: now,
+        },
+      },
+    });
 
     expect(onState).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -139,6 +161,9 @@ describe("audience realtime client", () => {
     expect(onSlideState).toHaveBeenCalledWith(
       expect.objectContaining({ slideId: "slide_2" }),
     );
+    expect(onFeatureSettings).toHaveBeenCalledWith(
+      expect.objectContaining({ qnaEnabled: true, pollsEnabled: true }),
+    );
   });
 
   it("reports reconnecting status on disconnect and removes handlers on cleanup", () => {
@@ -146,6 +171,7 @@ describe("audience realtime client", () => {
     const onStatus = vi.fn();
     const connection = connectAudienceRealtime({
       onError: vi.fn(),
+      onFeatureSettings: vi.fn(),
       onSlideState: vi.fn(),
       onState: vi.fn(),
       onStatus,
@@ -159,6 +185,10 @@ describe("audience realtime client", () => {
     expect(onStatus).toHaveBeenCalledWith("reconnecting");
     expect(socket.off).toHaveBeenCalledWith(
       "audience:state",
+      expect.any(Function),
+    );
+    expect(socket.off).toHaveBeenCalledWith(
+      "audience:feature-settings",
       expect.any(Function),
     );
     expect(socket.disconnect).toHaveBeenCalled();

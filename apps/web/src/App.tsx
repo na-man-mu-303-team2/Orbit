@@ -52,6 +52,7 @@ import {
   RehearsalReportPage,
   RehearsalWorkspace,
 } from "./features/rehearsal/RehearsalWorkspace";
+import { AudiencePresenterControlPage } from "./features/audience/AudiencePresenterPanel";
 import { AudienceSessionPage } from "./pages/audience/AudienceSessionPage";
 import { PresentWindow } from "./features/rehearsal/presenter/PresentWindow";
 import { ReadOnlySlideCanvas } from "./features/slides/rendering";
@@ -165,6 +166,7 @@ export type Route =
   | { name: "project-list" }
   | { name: "project-editor"; projectId: string }
   | { name: "project-request"; projectId: string }
+  | { name: "audience-control"; projectId: string }
   | { name: "audience-join"; joinCode?: string }
   | { name: "present"; deckId: string; sessionId?: string }
   | { name: "rehearsal"; projectId: string }
@@ -364,6 +366,16 @@ export function getRoute(pathname?: string, search?: string): Route {
     };
   }
 
+  const audienceControlMatch = normalized.match(
+    /^\/audience\/([^/]+)\/control$/,
+  );
+  if (audienceControlMatch) {
+    return {
+      name: "audience-control",
+      projectId: decodeURIComponent(audienceControlMatch[1]),
+    };
+  }
+
   const projectRequestMatch = normalized.match(/^\/project\/([^/]+)\/request$/);
   if (projectRequestMatch) {
     return {
@@ -482,6 +494,13 @@ function renderRoute(route: Route, user?: AuthUser) {
   if (route.name === "audience-join") {
     return <AudienceSessionPage joinCode={route.joinCode} />;
   }
+  if (route.name === "audience-control") {
+    return (
+      <ProjectAccessGate projectId={route.projectId}>
+        <AudiencePresenterControlPage projectId={route.projectId} />
+      </ProjectAccessGate>
+    );
+  }
   if (route.name === "present") {
     return <PresentWindow deckId={route.deckId} sessionId={route.sessionId} />;
   }
@@ -582,6 +601,7 @@ function AppFrame(props: {
   const activeProjectId =
     route.name === "project-editor" ||
     route.name === "project-request" ||
+    route.name === "audience-control" ||
     route.name === "rehearsal" ||
     route.name === "rehearsal-report"
       ? route.projectId
@@ -646,7 +666,9 @@ function AppFrame(props: {
           />
           <SidebarButton
             active={
-              route.name === "rehearsal" || route.name === "rehearsal-report"
+              route.name === "rehearsal" ||
+              route.name === "rehearsal-report" ||
+              route.name === "audience-control"
             }
             icon={<Monitor size={15} />}
             label="리허설 시작"

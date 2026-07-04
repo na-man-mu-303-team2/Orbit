@@ -192,6 +192,41 @@
   margin: 0;
 }
 
+.audience-active-cards {
+  display: grid;
+  gap: 8px;
+}
+
+.audience-active-card {
+  align-items: center;
+  background: #f8fafc;
+  border: 1px solid #dbe3ee;
+  border-radius: 8px;
+  display: flex;
+  gap: 10px;
+  justify-content: space-between;
+  min-height: 44px;
+  padding: 8px 10px;
+}
+
+.audience-active-card span {
+  color: #0f172a;
+  font-size: 0.83rem;
+  font-weight: 900;
+}
+
+.audience-active-card button {
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  border-radius: 7px;
+  color: #1e40af;
+  font-size: 0.78rem;
+  font-weight: 900;
+  min-height: 30px;
+  padding: 0 10px;
+  white-space: nowrap;
+}
+
 .audience-participant-label {
   color: #0f172a;
   font-weight: 700;

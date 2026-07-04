@@ -1,4 +1,5 @@
 import type {
+  AudienceFeatureSettings,
   AudienceParticipant,
   AudiencePublicSession,
   AudienceRealtimeState,
@@ -175,6 +176,13 @@ export function AudienceEntrance({ initialJoinCode }: AudienceEntranceProps) {
           setErrorMessage(message);
         }
       },
+      onFeatureSettings: (features) => {
+        if (!isCancelled) {
+          setAudienceState((current) =>
+            current ? { ...current, features } : current,
+          );
+        }
+      },
       onSlideState: (state) => {
         if (!isCancelled) {
           setAudienceState((current) =>
@@ -281,6 +289,7 @@ export function AudienceEntrance({ initialJoinCode }: AudienceEntranceProps) {
           <>
             <AudienceLiveShell
               connectionStatus={connectionStatus}
+              features={audienceState?.features ?? null}
               participant={participant}
               state={audienceState?.state ?? null}
             />
@@ -316,10 +325,11 @@ export function AudienceEntrance({ initialJoinCode }: AudienceEntranceProps) {
 
 export function AudienceLiveShell(props: {
   connectionStatus: AudienceRealtimeStatus;
+  features: AudienceFeatureSettings | null;
   participant: AudienceParticipant;
   state: AudienceRealtimeState | null;
 }) {
-  const { connectionStatus, participant, state } = props;
+  const { connectionStatus, features, participant, state } = props;
   const slideSnapshotUrl = readSlideSnapshotUrl(state?.effectState ?? {});
   const slideLabel =
     state?.slideIndex !== null && state?.slideIndex !== undefined
@@ -356,9 +366,51 @@ export function AudienceLiveShell(props: {
       <p className="audience-connection-status" role="status">
         {toConnectionStatusCopy(connectionStatus)}
       </p>
+      <AudienceActiveCards features={features} />
       <p className="audience-participant-label">{participant.nickname}</p>
     </section>
   );
+}
+
+function AudienceActiveCards({
+  features,
+}: {
+  features: AudienceFeatureSettings | null;
+}) {
+  const cards = getAudienceActiveCards(features);
+  if (cards.length === 0) {
+    return null;
+  }
+
+  return (
+    <section className="audience-active-cards" aria-label="활성 청중 기능">
+      {cards.map((card) => (
+        <article className="audience-active-card" key={card.label}>
+          <span>{card.label}</span>
+          <button type="button" disabled>
+            {card.action}
+          </button>
+        </article>
+      ))}
+    </section>
+  );
+}
+
+function getAudienceActiveCards(features: AudienceFeatureSettings | null) {
+  if (!features) {
+    return [];
+  }
+
+  return [
+    features.qnaEnabled ? { action: "질문 보내기", label: "Q&A" } : null,
+    features.aiQnaEnabled ? { action: "AI 답변 대기", label: "AI Q&A" } : null,
+    features.pollsEnabled ? { action: "투표 참여", label: "Poll" } : null,
+    features.quizzesEnabled ? { action: "퀴즈 참여", label: "Quiz" } : null,
+    features.reactionsEnabled
+      ? { action: "반응 보내기", label: "Reactions" }
+      : null,
+    features.surveyEnabled ? { action: "설문 작성", label: "Survey" } : null,
+  ].filter((card): card is { action: string; label: string } => Boolean(card));
 }
 
 function readSlideSnapshotUrl(payload: Record<string, unknown>) {

@@ -10,6 +10,7 @@ import {
 } from "@nestjs/common";
 import {
   createPresentationSessionRequestSchema,
+  updateAudienceFeatureSettingsRequestSchema,
   updatePresentationSessionEntryRequestSchema,
 } from "@orbit/shared";
 import type { Request } from "express";
@@ -78,6 +79,41 @@ export class PresentationSessionsController {
       sessionId,
       input.entryStatus,
     );
+  }
+
+  @Get(":sessionId/features")
+  async getFeatureSettings(
+    @Param("projectId") projectId: string,
+    @Param("sessionId") sessionId: string,
+    @Req() request: SignedCookieRequest,
+  ) {
+    const user = await this.getCurrentUser(request);
+    await this.projectsService.assertCanReadProject(projectId, user.userId);
+    return this.presentationSessionsService.getAudienceFeatureSettings(
+      projectId,
+      sessionId,
+    );
+  }
+
+  @Patch(":sessionId/features")
+  async updateFeatureSettings(
+    @Param("projectId") projectId: string,
+    @Param("sessionId") sessionId: string,
+    @Body() body: unknown,
+    @Req() request: SignedCookieRequest,
+  ) {
+    const input = parseRequest(
+      updateAudienceFeatureSettingsRequestSchema,
+      body ?? {},
+    );
+    const user = await this.getCurrentUser(request);
+    await this.projectsService.assertCanWriteProject(projectId, user.userId);
+    return this.presentationSessionsService.updateAudienceFeatureSettings({
+      projectId,
+      sessionId,
+      actorId: user.userId,
+      settings: input,
+    });
   }
 
   private async getCurrentUser(request: SignedCookieRequest) {

@@ -6,7 +6,9 @@ import {
 } from "@orbit/realtime";
 import { loadOrbitConfig } from "@orbit/config";
 import {
+  audienceFeatureSettingsPayloadSchema,
   audienceSlideStatePayloadSchema,
+  updateAudienceFeatureSettingsRequestSchema,
   type AudienceRealtimeState,
 } from "@orbit/shared";
 import {
@@ -33,6 +35,12 @@ import { PresentationSessionsService } from "../presentation-sessions/presentati
 const orbitConfig = loadOrbitConfig(process.env, { service: "api" });
 const realtimeCorsOrigins = resolveAllowedWebOrigins(orbitConfig.WEB_ORIGIN);
 const audienceJoinBodySchema = z.object({ sessionId: z.string().min(1) });
+const audienceFeatureSettingsUpdateBodySchema = z
+  .object({
+    sessionId: z.string().min(1),
+    settings: updateAudienceFeatureSettingsRequestSchema,
+  })
+  .strict();
 const audienceSlideStateUpdateBodySchema = z
   .object({
     sessionId: z.string().min(1),
@@ -111,20 +119,20 @@ export class AudienceRealtimeGateway {
     @MessageBody() body: unknown,
   ) {
     const { sessionId } = audienceJoinBodySchema.parse(body);
-    const userId = await this.requirePresenterWriteAccess(client, sessionId);
-    if (!userId) {
+    const presenter = await this.requirePresenterWriteAccess(client, sessionId);
+    if (!presenter) {
       return emitAudienceError(client, "Presenter permission required.");
     }
 
     await client.join(audiencePresenterRoomId(sessionId));
     client.data.audiencePresenterSessionId = sessionId;
-    client.data.userId = userId;
+    client.data.userId = presenter.userId;
 
     const event = createRealtimeEvent({
       type: "audience:join",
       roomId: audiencePresenterRoomId(sessionId),
       sessionId,
-      userId,
+      userId: presenter.userId,
       payload: { sessionId },
     });
 
@@ -138,18 +146,18 @@ export class AudienceRealtimeGateway {
     @MessageBody() body: unknown,
   ) {
     const input = audienceSlideStateUpdateBodySchema.parse(body);
-    const userId = await this.requirePresenterWriteAccess(
+    const presenter = await this.requirePresenterWriteAccess(
       client,
       input.sessionId,
     );
-    if (!userId) {
+    if (!presenter) {
       return emitAudienceError(client, "Presenter permission required.");
     }
 
     const state =
       await this.presentationSessionsService.updateAudienceRealtimeState({
         sessionId: input.sessionId,
-        actorId: userId,
+        actorId: presenter.userId,
         slideId: input.slideId,
         slideIndex: input.slideIndex,
         effectState: input.effectState,
@@ -162,13 +170,50 @@ export class AudienceRealtimeGateway {
       type: "audience:slide-state",
       roomId: audienceSessionRoomId(input.sessionId),
       sessionId: input.sessionId,
-      userId,
+      userId: presenter.userId,
       payload,
     });
 
     this.server
       .to(audienceSessionRoomId(input.sessionId))
       .emit("audience:slide-state", event);
+    return event;
+  }
+
+  @SubscribeMessage("audience:feature-settings:update")
+  async handleFeatureSettingsUpdate(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() body: unknown,
+  ) {
+    const input = audienceFeatureSettingsUpdateBodySchema.parse(body);
+    const presenter = await this.requirePresenterWriteAccess(
+      client,
+      input.sessionId,
+    );
+    if (!presenter) {
+      return emitAudienceError(client, "Presenter permission required.");
+    }
+
+    const response =
+      await this.presentationSessionsService.updateAudienceFeatureSettings({
+        projectId: presenter.projectId,
+        sessionId: input.sessionId,
+        actorId: presenter.userId,
+        settings: input.settings,
+      });
+
+    const payload = audienceFeatureSettingsPayloadSchema.parse(response);
+    const event = createRealtimeEvent({
+      type: "audience:feature-settings",
+      roomId: audienceSessionRoomId(input.sessionId),
+      sessionId: input.sessionId,
+      userId: presenter.userId,
+      payload,
+    });
+
+    this.server
+      .to(audienceSessionRoomId(input.sessionId))
+      .emit("audience:feature-settings", event);
     return event;
   }
 
@@ -208,7 +253,10 @@ export class AudienceRealtimeGateway {
         session.projectId,
         user.userId,
       );
-      return user.userId;
+      return {
+        projectId: session.projectId,
+        userId: user.userId,
+      };
     } catch {
       return null;
     }

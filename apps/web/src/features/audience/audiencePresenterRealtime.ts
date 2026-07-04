@@ -1,5 +1,7 @@
-import type { PresenterSlideshowState } from "../rehearsal/presenter/presenterStateStore";
+import type { UpdateAudienceFeatureSettingsRequest } from "@orbit/shared";
 import { io } from "socket.io-client";
+
+import type { PresenterSlideshowState } from "../rehearsal/presenter/presenterStateStore";
 
 export type AudiencePresenterRealtimeStatus =
   | "idle"
@@ -17,6 +19,9 @@ export type AudiencePresenterRealtimeSocket = {
 
 export type AudiencePresenterRealtimePublisher = {
   disconnect: () => void;
+  publishFeatureSettings: (
+    settings: UpdateAudienceFeatureSettingsRequest,
+  ) => void;
   publishState: (args: {
     state: PresenterSlideshowState;
     triggerAnimationIds: string[];
@@ -64,6 +69,12 @@ export function createAudiencePresenterRealtimePublisher(args: {
       socket.off("connect_error", handleConnectError);
       socket.off("audience:error", handleError);
       socket.disconnect();
+    },
+    publishFeatureSettings: (settings) => {
+      socket.emit("audience:feature-settings:update", {
+        sessionId: args.sessionId,
+        settings,
+      });
     },
     publishState: ({ state, triggerAnimationIds }) => {
       socket.emit("audience:slide-state:update", {

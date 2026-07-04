@@ -5,6 +5,8 @@ import {
   createPresentationSessionRequestSchema,
   createPresentationSessionResponseSchema,
   getCurrentPresentationSessionResponseSchema,
+  updateAudienceFeatureSettingsRequestSchema,
+  updateAudienceFeatureSettingsResponseSchema,
   updatePresentationSessionEntryResponseSchema,
 } from "@orbit/shared";
 import type {
@@ -19,6 +21,8 @@ import type {
   PresentationEntryStatus,
   PresentationSession,
   PresentationSessionStatus,
+  UpdateAudienceFeatureSettingsRequest,
+  UpdateAudienceFeatureSettingsResponse,
   UpdatePresentationSessionEntryResponse,
 } from "@orbit/shared";
 import {
@@ -89,6 +93,13 @@ type UpdateAudienceRealtimeStateInput = {
   slideIndex: number | null;
   effectState: Record<string, unknown>;
   activeInteractionId?: string | null;
+};
+
+type UpdateAudienceFeatureSettingsInput = {
+  projectId: string;
+  sessionId: string;
+  actorId: string;
+  settings: UpdateAudienceFeatureSettingsRequest;
 };
 
 @Injectable()
@@ -326,7 +337,7 @@ export class PresentationSessionsService {
     const me = await this.getAudienceMe(sessionId, audienceId, tokenHash);
     const [state, features] = await Promise.all([
       this.getAudienceRealtimeState(sessionId),
-      this.getAudienceFeatureSettings(sessionId),
+      this.getAudienceFeatureSettingsForSession(sessionId),
     ]);
 
     return audienceStateResponseSchema.parse({
@@ -386,6 +397,83 @@ export class PresentationSessionsService {
     });
 
     return state;
+  }
+
+  async getAudienceFeatureSettings(
+    projectId: string,
+    sessionId: string,
+  ): Promise<UpdateAudienceFeatureSettingsResponse> {
+    const features = await this.getAudienceFeatureSettingsForProject(
+      projectId,
+      sessionId,
+    );
+    return updateAudienceFeatureSettingsResponseSchema.parse({ features });
+  }
+
+  async updateAudienceFeatureSettings(
+    input: UpdateAudienceFeatureSettingsInput,
+  ): Promise<UpdateAudienceFeatureSettingsResponse> {
+    const patch = updateAudienceFeatureSettingsRequestSchema.parse(
+      input.settings,
+    );
+    const current = await this.getAudienceFeatureSettingsForProject(
+      input.projectId,
+      input.sessionId,
+    );
+    const next = normalizeAudienceFeatureSettingsUpdate(current, patch);
+
+    const rows = await this.dataSource.query<AudienceFeatureSettingsRow[]>(
+      `
+        UPDATE audience_feature_settings AS features
+        SET
+          qna_enabled = $3,
+          ai_qna_enabled = $4,
+          polls_enabled = $5,
+          quizzes_enabled = $6,
+          reactions_enabled = $7,
+          survey_enabled = $8,
+          updated_at = now()
+        FROM presentation_sessions AS sessions
+        WHERE features.session_id = $1
+          AND sessions.session_id = features.session_id
+          AND sessions.project_id = $2
+        RETURNING
+          features.session_id,
+          features.qna_enabled,
+          features.ai_qna_enabled,
+          features.polls_enabled,
+          features.quizzes_enabled,
+          features.reactions_enabled,
+          features.survey_enabled,
+          features.updated_at
+      `,
+      [
+        input.sessionId,
+        input.projectId,
+        next.qnaEnabled,
+        next.aiQnaEnabled,
+        next.pollsEnabled,
+        next.quizzesEnabled,
+        next.reactionsEnabled,
+        next.surveyEnabled,
+      ],
+    );
+
+    const row = rows[0];
+    if (!row) {
+      throw new NotFoundException("Audience feature settings not found");
+    }
+
+    const features = this.toFeatureSettingsDto(row);
+    await this.appendAudienceEvent({
+      sessionId: input.sessionId,
+      actorType: "presenter",
+      actorId: input.actorId,
+      type: "feature.changed",
+      payload: { features },
+    });
+
+    return updateAudienceFeatureSettingsResponseSchema.parse({ features });
   }
 
   async updateEntryStatus(
@@ -509,7 +597,7 @@ export class PresentationSessionsService {
     return this.toRealtimeStateDto(row);
   }
 
-  private async getAudienceFeatureSettings(
+  private async getAudienceFeatureSettingsForSession(
     sessionId: string,
   ): Promise<AudienceFeatureSettings> {
     const rows = await this.dataSource.query<AudienceFeatureSettingsRow[]>(
@@ -528,6 +616,39 @@ export class PresentationSessionsService {
         LIMIT 1
       `,
       [sessionId],
+    );
+
+    const row = rows[0];
+    if (!row) {
+      throw new NotFoundException("Audience feature settings not found");
+    }
+
+    return this.toFeatureSettingsDto(row);
+  }
+
+  private async getAudienceFeatureSettingsForProject(
+    projectId: string,
+    sessionId: string,
+  ): Promise<AudienceFeatureSettings> {
+    const rows = await this.dataSource.query<AudienceFeatureSettingsRow[]>(
+      `
+        SELECT
+          features.session_id,
+          features.qna_enabled,
+          features.ai_qna_enabled,
+          features.polls_enabled,
+          features.quizzes_enabled,
+          features.reactions_enabled,
+          features.survey_enabled,
+          features.updated_at
+        FROM audience_feature_settings AS features
+        INNER JOIN presentation_sessions AS sessions
+          ON sessions.session_id = features.session_id
+        WHERE sessions.project_id = $1
+          AND features.session_id = $2
+        LIMIT 1
+      `,
+      [projectId, sessionId],
     );
 
     const row = rows[0];
@@ -727,6 +848,26 @@ function normalizeJsonRecord(
   }
 
   return assertAudienceSafePayload(value);
+}
+
+function normalizeAudienceFeatureSettingsUpdate(
+  current: AudienceFeatureSettings,
+  patch: UpdateAudienceFeatureSettingsRequest,
+): AudienceFeatureSettings {
+  const next = {
+    ...current,
+    ...patch,
+  };
+
+  if (patch.aiQnaEnabled === true) {
+    next.qnaEnabled = true;
+  }
+
+  if (patch.qnaEnabled === false) {
+    next.aiQnaEnabled = false;
+  }
+
+  return next;
 }
 
 function generateJoinCode(): string {

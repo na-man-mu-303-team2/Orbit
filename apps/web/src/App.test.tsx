@@ -104,6 +104,16 @@ describe("App shell routing", () => {
     expect(shouldRenderAppFrame({ name: "audience-join" })).toBe(false);
   });
 
+  it("parses presenter audience control routes inside the shared shell", () => {
+    const route = getRoute("/audience/project%20a/control");
+
+    expect(route).toEqual({
+      name: "audience-control",
+      projectId: "project a",
+    });
+    expect(shouldRenderAppFrame(route)).toBe(true);
+  });
+
   it("keeps the deck render fixture outside the shared navigation shell", () => {
     const route = getRoute("/__deck-render");
 

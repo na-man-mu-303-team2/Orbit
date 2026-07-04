@@ -83,4 +83,22 @@ describe("audience presenter realtime publisher", () => {
       "speakerNotes",
     );
   });
+
+  it("publishes feature settings updates for live audience clients", () => {
+    const socket = createFakeSocket();
+    const publisher = createAudiencePresenterRealtimePublisher({
+      sessionId: "session_1",
+      socketFactory: () => socket,
+    });
+
+    publisher.publishFeatureSettings({ pollsEnabled: true });
+
+    expect(socket.emit).toHaveBeenCalledWith(
+      "audience:feature-settings:update",
+      {
+        sessionId: "session_1",
+        settings: { pollsEnabled: true },
+      },
+    );
+  });
 });

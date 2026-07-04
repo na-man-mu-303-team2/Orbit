@@ -156,6 +156,40 @@ describe("AudienceRealtimeGateway", () => {
     });
   });
 
+  it("requires presenter write access before broadcasting feature settings", async () => {
+    const { gateway, service, serverEmit } = await createGateway();
+    const client = createSocket({
+      cookie: createAuthCookie("auth_session_1"),
+    });
+
+    const event = await gateway.handleFeatureSettingsUpdate(client, {
+      sessionId: session.sessionId,
+      settings: { pollsEnabled: true },
+    });
+
+    expect(service.updateAudienceFeatureSettings).toHaveBeenCalledWith({
+      projectId: session.projectId,
+      sessionId: session.sessionId,
+      actorId: "user_1",
+      settings: { pollsEnabled: true },
+    });
+    expect(serverEmit).toHaveBeenCalledWith(
+      "audience:feature-settings",
+      expect.objectContaining({
+        type: "audience:feature-settings",
+        payload: {
+          features: expect.objectContaining({
+            pollsEnabled: true,
+          }),
+        },
+      }),
+    );
+    expect(event).toMatchObject({
+      type: "audience:feature-settings",
+      roomId: audienceSessionRoomId(session.sessionId),
+    });
+  });
+
   it("rejects presenter slide updates without auth", async () => {
     const { gateway, service, serverEmit } = await createGateway();
     const client = createSocket();
@@ -173,6 +207,24 @@ describe("AudienceRealtimeGateway", () => {
     });
 
     expect(service.updateAudienceRealtimeState).not.toHaveBeenCalled();
+    expect(serverEmit).not.toHaveBeenCalled();
+  });
+
+  it("rejects presenter feature updates without auth", async () => {
+    const { gateway, service, serverEmit } = await createGateway();
+    const client = createSocket();
+
+    await expect(
+      gateway.handleFeatureSettingsUpdate(client, {
+        sessionId: session.sessionId,
+        settings: { pollsEnabled: true },
+      }),
+    ).resolves.toEqual({
+      event: "audience:error",
+      data: { message: "Presenter permission required." },
+    });
+
+    expect(service.updateAudienceFeatureSettings).not.toHaveBeenCalled();
     expect(serverEmit).not.toHaveBeenCalled();
   });
 });
@@ -200,6 +252,13 @@ async function createGateway() {
       slideIndex: 1,
       effectState: { highlightId: "shape_2" },
       updatedAt: "2026-07-05T00:03:00.000Z",
+    })),
+    updateAudienceFeatureSettings: vi.fn(async () => ({
+      features: {
+        ...features,
+        pollsEnabled: true,
+        updatedAt: "2026-07-05T00:03:00.000Z",
+      },
     })),
   };
   const auth = {

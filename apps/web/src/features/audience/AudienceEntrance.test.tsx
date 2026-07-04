@@ -11,6 +11,17 @@ const participant = {
   joinedBeforeEnd: true,
 };
 
+const disabledFeatures = {
+  sessionId: "session_1",
+  qnaEnabled: false,
+  aiQnaEnabled: false,
+  pollsEnabled: false,
+  quizzesEnabled: false,
+  reactionsEnabled: false,
+  surveyEnabled: false,
+  updatedAt: "2026-07-05T00:00:00.000Z",
+};
+
 describe("AudienceEntrance", () => {
   it("renders the public join code form with accessible labels", () => {
     const html = renderToStaticMarkup(<AudienceEntrance />);
@@ -25,6 +36,7 @@ describe("AudienceEntrance", () => {
     const html = renderToStaticMarkup(
       <AudienceLiveShell
         connectionStatus="connected"
+        features={disabledFeatures}
         participant={participant}
         state={{
           sessionId: "session_1",
@@ -49,6 +61,7 @@ describe("AudienceEntrance", () => {
     const html = renderToStaticMarkup(
       <AudienceLiveShell
         connectionStatus="reconnecting"
+        features={disabledFeatures}
         participant={participant}
         state={{
           sessionId: "session_1",
@@ -64,5 +77,26 @@ describe("AudienceEntrance", () => {
     expect(html).toContain("슬라이드 준비 중");
     expect(html).toContain("연결을 다시 시도하고 있습니다.");
     expect(html).toContain('role="img"');
+    expect(html).not.toContain("질문 보내기");
+  });
+
+  it("renders only enabled audience feature cards", () => {
+    const html = renderToStaticMarkup(
+      <AudienceLiveShell
+        connectionStatus="connected"
+        features={{
+          ...disabledFeatures,
+          qnaEnabled: true,
+          pollsEnabled: true,
+        }}
+        participant={participant}
+        state={null}
+      />,
+    );
+
+    expect(html).toContain("질문 보내기");
+    expect(html).toContain("투표 참여");
+    expect(html).not.toContain("퀴즈 참여");
+    expect(html).not.toContain("설문 작성");
   });
 });

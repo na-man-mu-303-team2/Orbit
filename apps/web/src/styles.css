@@ -718,7 +718,8 @@ button:disabled {
 .project-thumb {
   align-items: center;
   aspect-ratio: 16 / 9;
-  background: linear-gradient(135deg, rgba(37, 99, 235, 0.16), transparent 52%), #f8fafc;
+  background:
+    linear-gradient(135deg, rgba(37, 99, 235, 0.16), transparent 52%), #f8fafc;
   border: 1px solid #e5e7eb;
   border-radius: 6px;
   display: flex;
@@ -1031,8 +1032,16 @@ button:disabled {
 
 .drop-zone {
   background:
-    linear-gradient(180deg, rgba(247, 247, 241, 0.84), rgba(255, 253, 248, 0.95)),
-    repeating-linear-gradient(45deg, rgba(13, 115, 119, 0.05) 0 1px, transparent 1px 16px);
+    linear-gradient(
+      180deg,
+      rgba(247, 247, 241, 0.84),
+      rgba(255, 253, 248, 0.95)
+    ),
+    repeating-linear-gradient(
+      45deg,
+      rgba(13, 115, 119, 0.05) 0 1px,
+      transparent 1px 16px
+    );
   border: 2px dashed #aeb5ad;
   border-radius: 8px;
   cursor: pointer;
@@ -1051,7 +1060,11 @@ button:disabled {
 .drop-zone.is-dragging {
   background:
     linear-gradient(180deg, rgba(232, 247, 242, 0.95), rgba(255, 253, 248, 1)),
-    repeating-linear-gradient(45deg, rgba(13, 115, 119, 0.08) 0 1px, transparent 1px 16px);
+    repeating-linear-gradient(
+      45deg,
+      rgba(13, 115, 119, 0.08) 0 1px,
+      transparent 1px 16px
+    );
   border-color: #0d7377;
   transform: translateY(-2px);
 }
@@ -1243,7 +1256,8 @@ button:disabled {
 .deck-preview-placeholder {
   align-items: center;
   aspect-ratio: 16 / 9;
-  background: linear-gradient(135deg, rgba(15, 118, 110, 0.12), transparent 60%), #f8fafc;
+  background:
+    linear-gradient(135deg, rgba(15, 118, 110, 0.12), transparent 60%), #f8fafc;
   border: 1px solid #d9e1e7;
   border-radius: 8px;
   color: #0f766e;
@@ -2121,7 +2135,8 @@ button:disabled {
   background: transparent;
   border: 0;
   color: #0f172a;
-  font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+  font-family:
+    ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
   font-size: 0.86rem;
   font-weight: 900;
   height: 26px;
@@ -2375,7 +2390,8 @@ button:disabled {
 
 .single-screen-timer-overlay strong {
   color: #ffffff;
-  font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+  font-family:
+    ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
   font-size: 0.92rem;
 }
 
@@ -2580,7 +2596,9 @@ button:disabled {
   width: 42px;
 }
 
-.rehearsal-presenter-shell .rehearsal-slide-controls button[aria-label="다음 애니메이션 스텝"] {
+.rehearsal-presenter-shell
+  .rehearsal-slide-controls
+  button[aria-label="다음 애니메이션 스텝"] {
   border-radius: 8px;
   font-size: 0.82rem;
   font-weight: 900;
@@ -2765,7 +2783,10 @@ button:disabled {
   background: #ffffff;
   border-left: 1px solid #e5e7eb;
   display: grid;
-  grid-template-rows: minmax(320px, 1fr) minmax(240px, 0.85fr);
+  grid-template-rows:
+    minmax(260px, 0.85fr)
+    minmax(220px, 0.7fr)
+    minmax(230px, 0.72fr);
   height: calc(100vh - 58px);
   min-height: 0;
   overflow: hidden;
@@ -2978,7 +2999,9 @@ button:disabled {
   width: 100%;
 }
 
-.rehearsal-report-topbar-actions .report-user-dropdown button:hover:not(:disabled) {
+.rehearsal-report-topbar-actions
+  .report-user-dropdown
+  button:hover:not(:disabled) {
   background: #f1f5f9;
 }
 
@@ -4002,7 +4025,7 @@ button:disabled {
 
   .rehearsal-presenter-side {
     border-left: 0;
-    grid-template-rows: auto auto;
+    grid-template-rows: auto auto auto;
   }
 
   .rehearsal-filmstrip {

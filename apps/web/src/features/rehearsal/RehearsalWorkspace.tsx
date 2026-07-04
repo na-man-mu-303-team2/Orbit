@@ -48,6 +48,7 @@ import {
   createAudiencePresenterRealtimePublisher,
   type AudiencePresenterRealtimePublisher
 } from "../audience/audiencePresenterRealtime";
+import { AudiencePresenterPanel } from "../audience/AudiencePresenterPanel";
 import { fetchCurrentAudienceAccessSession } from "../editor/audience-link/audienceLinkApi";
 import { resolveEditorAssetUrl } from "../editor/shared/editorAssetUrl";
 import {
@@ -1278,6 +1279,8 @@ export function RehearsalWorkspace(props: {
   >(() => new Set());
   const [isSingleScreenOpen, setIsSingleScreenOpen] = useState(false);
   const [audienceSessionId, setAudienceSessionId] = useState<string | null>(null);
+  const [audiencePublisher, setAudiencePublisher] =
+    useState<AudiencePresenterRealtimePublisher | null>(null);
   const [timeMode, setTimeMode] = useState<RehearsalTimeMode>("stopwatch");
   const [timerDurationSeconds, setTimerDurationSeconds] = useState(5 * 60);
   const [elapsedTimeInput, setElapsedTimeInput] = useState("00:00");
@@ -1490,6 +1493,7 @@ export function RehearsalWorkspace(props: {
     if (!audienceSessionId) {
       audiencePublisherRef.current?.disconnect();
       audiencePublisherRef.current = null;
+      setAudiencePublisher(null);
       return;
     }
 
@@ -1497,12 +1501,14 @@ export function RehearsalWorkspace(props: {
       sessionId: audienceSessionId
     });
     audiencePublisherRef.current = publisher;
+    setAudiencePublisher(publisher);
 
     return () => {
       publisher.disconnect();
       if (audiencePublisherRef.current === publisher) {
         audiencePublisherRef.current = null;
       }
+      setAudiencePublisher(null);
     };
   }, [audienceSessionId]);
 
@@ -2657,6 +2663,13 @@ export function RehearsalWorkspace(props: {
             sentences={p3Sentences}
             snapshot={p3PanelSnapshot}
           />
+
+          {props.projectId ? (
+            <AudiencePresenterPanel
+              projectId={props.projectId}
+              publisher={audiencePublisher}
+            />
+          ) : null}
 
           <section className="rehearsal-assist-card checklist-card">
             <header>

@@ -8,6 +8,7 @@ import {
   audienceJoinRequestSchema,
   audienceRealtimeStateSchema,
   audienceSafePayloadSchema,
+  updateAudienceFeatureSettingsRequestSchema,
 } from "./audience.schema";
 
 const now = "2026-07-05T00:00:00.000Z";
@@ -77,6 +78,21 @@ describe("audience schemas", () => {
         updatedAt: now,
       }),
     ).toThrow();
+
+    expect(
+      updateAudienceFeatureSettingsRequestSchema.parse({ aiQnaEnabled: true }),
+    ).toEqual({
+      aiQnaEnabled: true,
+    });
+    expect(() => updateAudienceFeatureSettingsRequestSchema.parse({})).toThrow(
+      "at least one audience feature setting is required",
+    );
+    expect(() =>
+      updateAudienceFeatureSettingsRequestSchema.parse({
+        qnaEnabled: false,
+        aiQnaEnabled: true,
+      }),
+    ).toThrow("aiQnaEnabled requires qnaEnabled");
   });
 
   it("keeps presenter-owned fields out of audience join responses", () => {

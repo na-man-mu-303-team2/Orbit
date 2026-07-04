@@ -328,6 +328,138 @@ describe("PresentationSessionsService", () => {
     });
   });
 
+  it("updates feature settings, normalizes AI Q&A dependencies, and appends an event", async () => {
+    const query = vi
+      .fn()
+      .mockResolvedValueOnce([
+        {
+          session_id: "session_existing",
+          qna_enabled: false,
+          ai_qna_enabled: false,
+          polls_enabled: false,
+          quizzes_enabled: false,
+          reactions_enabled: false,
+          survey_enabled: false,
+          updated_at: "2026-07-05T00:02:00.000Z",
+        },
+      ])
+      .mockResolvedValueOnce([
+        {
+          session_id: "session_existing",
+          qna_enabled: true,
+          ai_qna_enabled: true,
+          polls_enabled: false,
+          quizzes_enabled: false,
+          reactions_enabled: false,
+          survey_enabled: false,
+          updated_at: "2026-07-05T00:04:00.000Z",
+        },
+      ])
+      .mockResolvedValueOnce([]);
+    const service = new PresentationSessionsService({
+      query,
+    } as unknown as DataSource);
+
+    await expect(
+      service.updateAudienceFeatureSettings({
+        projectId: "project_1",
+        sessionId: "session_existing",
+        actorId: "user_1",
+        settings: { aiQnaEnabled: true },
+      }),
+    ).resolves.toMatchObject({
+      features: {
+        sessionId: "session_existing",
+        qnaEnabled: true,
+        aiQnaEnabled: true,
+      },
+    });
+
+    expect(query.mock.calls[0][0]).toContain(
+      "INNER JOIN presentation_sessions",
+    );
+    expect(query.mock.calls[1][0]).toContain(
+      "UPDATE audience_feature_settings",
+    );
+    expect(query.mock.calls[1][1]).toEqual([
+      "session_existing",
+      "project_1",
+      true,
+      true,
+      false,
+      false,
+      false,
+      false,
+    ]);
+    expect(query.mock.calls[2][0]).toContain("INSERT INTO audience_events");
+    expect(query.mock.calls[2][1][4]).toBe("feature.changed");
+    expect(query.mock.calls[2][1][5]).toMatchObject({
+      features: {
+        qnaEnabled: true,
+        aiQnaEnabled: true,
+      },
+    });
+  });
+
+  it("disables AI Q&A when presenter disables Q&A", async () => {
+    const query = vi
+      .fn()
+      .mockResolvedValueOnce([
+        {
+          session_id: "session_existing",
+          qna_enabled: true,
+          ai_qna_enabled: true,
+          polls_enabled: true,
+          quizzes_enabled: false,
+          reactions_enabled: false,
+          survey_enabled: false,
+          updated_at: "2026-07-05T00:02:00.000Z",
+        },
+      ])
+      .mockResolvedValueOnce([
+        {
+          session_id: "session_existing",
+          qna_enabled: false,
+          ai_qna_enabled: false,
+          polls_enabled: true,
+          quizzes_enabled: false,
+          reactions_enabled: false,
+          survey_enabled: false,
+          updated_at: "2026-07-05T00:04:00.000Z",
+        },
+      ])
+      .mockResolvedValueOnce([]);
+    const service = new PresentationSessionsService({
+      query,
+    } as unknown as DataSource);
+
+    await expect(
+      service.updateAudienceFeatureSettings({
+        projectId: "project_1",
+        sessionId: "session_existing",
+        actorId: "user_1",
+        settings: { qnaEnabled: false },
+      }),
+    ).resolves.toMatchObject({
+      features: {
+        qnaEnabled: false,
+        aiQnaEnabled: false,
+        pollsEnabled: true,
+      },
+    });
+
+    expect(query.mock.calls[1][1]).toEqual([
+      "session_existing",
+      "project_1",
+      false,
+      false,
+      true,
+      false,
+      false,
+      false,
+    ]);
+  });
+
   it("rejects unsafe presenter realtime payloads before persistence", async () => {
     const service = new PresentationSessionsService({
       query: vi.fn(),
