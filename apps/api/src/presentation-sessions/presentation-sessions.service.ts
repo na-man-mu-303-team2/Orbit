@@ -19,17 +19,21 @@ import {
   audienceQuestionAnswerResponseSchema,
   selectSessionInteractionsRequestSchema,
   sessionInteractionResponseSchema,
+  sessionSurveyFormResponseSchema,
   submitAudienceQuestionRequestSchema,
   submitInteractionResponseRequestSchema,
   submitInteractionResponseResponseSchema,
   submitReactionRequestSchema,
   submitReactionResponseSchema,
+  submitSurveyResponseRequestSchema,
+  submitSurveyResponseResponseSchema,
   updateAiAnswerFeedbackRequestSchema,
   updateAiReferenceSelectionRequestSchema,
   updateAiReferenceSelectionResponseSchema,
   updateAudienceFeatureSettingsRequestSchema,
   updateAudienceFeatureSettingsResponseSchema,
   updatePresentationSessionEntryResponseSchema,
+  upsertSessionSurveyFormRequestSchema,
 } from "@orbit/shared";
 import type {
   AudienceEventType,
@@ -52,11 +56,14 @@ import type {
   PresentationSession,
   PresentationSessionStatus,
   SessionInteraction,
+  SurveyForm,
+  SurveyResponse,
   UpdateAudienceFeatureSettingsRequest,
   UpdateAudienceFeatureSettingsResponse,
   UpdatePresentationSessionEntryResponse,
 } from "@orbit/shared";
 import {
+  BadRequestException,
   ConflictException,
   ForbiddenException,
   Injectable,
@@ -172,6 +179,32 @@ type AudienceQuestionAnswerRow = {
   feedback: "resolved" | "unresolved" | null;
   escalated_to_presenter: boolean;
   created_at: Date | string;
+};
+
+type SessionSurveyFormRow = {
+  survey_id: string;
+  session_id: string;
+  title: string;
+  questions_json: InteractionQuestion[] | string;
+  contact_json: SurveyForm["contact"] | string;
+  locked_at: Date | string | null;
+  created_at: Date | string;
+  updated_at: Date | string;
+};
+
+type SessionSurveyResponseRow = {
+  response_id: string;
+  survey_id: string;
+  session_id: string;
+  audience_id: string;
+  submitted_at: Date | string;
+  answers_json: Record<string, unknown> | string;
+  contact_consent: boolean;
+  contact_answers_json: Record<string, unknown> | string;
+};
+
+type SessionSurveyCsvRow = SessionSurveyResponseRow & {
+  nickname: string;
 };
 
 type JoinAudienceInput = {
@@ -619,6 +652,175 @@ export class PresentationSessionsService {
 
     return updatePresentationSessionEntryResponseSchema.parse({
       session: this.toSessionDto(row),
+    });
+  }
+
+  async startSession(input: {
+    projectId: string;
+    sessionId: string;
+    actorId: string;
+  }) {
+    const rows = await this.dataSource.query<PresentationSessionRow[]>(
+      `
+        UPDATE presentation_sessions
+        SET status = 'live',
+            started_at = COALESCE(started_at, now())
+        WHERE project_id = $1
+          AND session_id = $2
+          AND status = 'draft'
+        RETURNING
+          session_id,
+          project_id,
+          deck_id,
+          presenter_user_id,
+          join_code,
+          status,
+          entry_status,
+          audience_slide_render_mode,
+          created_at,
+          started_at,
+          ended_at,
+          survey_closes_at,
+          raw_data_delete_after
+      `,
+      [input.projectId, input.sessionId],
+    );
+
+    const row = rows[0];
+    if (!row) {
+      throw new BadRequestException("세션을 시작할 수 없습니다.");
+    }
+
+    await this.dataSource.query(
+      `
+        UPDATE session_survey_forms
+        SET locked_at = COALESCE(locked_at, now()),
+            updated_at = now()
+        WHERE session_id = $1
+      `,
+      [input.sessionId],
+    );
+
+    const session = this.toSessionDto(row);
+    await this.appendAudienceEvent({
+      sessionId: input.sessionId,
+      actorType: "presenter",
+      actorId: input.actorId,
+      type: "session.started",
+      payload: { sessionId: input.sessionId },
+    });
+
+    return { session };
+  }
+
+  async endSession(input: {
+    projectId: string;
+    sessionId: string;
+    actorId: string;
+  }) {
+    const rows = await this.dataSource.query<PresentationSessionRow[]>(
+      `
+        UPDATE presentation_sessions
+        SET status = 'ended',
+            entry_status = 'closed',
+            ended_at = COALESCE(ended_at, now()),
+            survey_closes_at = COALESCE(survey_closes_at, now() + interval '1 hour')
+        WHERE project_id = $1
+          AND session_id = $2
+          AND status IN ('draft', 'live')
+        RETURNING
+          session_id,
+          project_id,
+          deck_id,
+          presenter_user_id,
+          join_code,
+          status,
+          entry_status,
+          audience_slide_render_mode,
+          created_at,
+          started_at,
+          ended_at,
+          survey_closes_at,
+          raw_data_delete_after
+      `,
+      [input.projectId, input.sessionId],
+    );
+
+    const row = rows[0];
+    if (!row) {
+      throw new BadRequestException("세션을 종료할 수 없습니다.");
+    }
+
+    const session = this.toSessionDto(row);
+    await this.appendAudienceEvent({
+      sessionId: input.sessionId,
+      actorType: "presenter",
+      actorId: input.actorId,
+      type: "session.ended",
+      payload: { sessionId: input.sessionId },
+    });
+
+    return { session };
+  }
+
+  async getSessionSurveyForm(input: ProjectSessionInput) {
+    const survey = await this.findSessionSurveyForm(input);
+    return sessionSurveyFormResponseSchema.parse({ survey });
+  }
+
+  async upsertSessionSurveyForm(input: ProjectSessionInput & { body: unknown }) {
+    const request = upsertSessionSurveyFormRequestSchema.parse(input.body);
+    const session = await this.getProjectSession(input);
+    if (session.status !== "draft") {
+      throw new BadRequestException("세션 시작 후에는 설문을 수정할 수 없습니다.");
+    }
+
+    const rows = await this.dataSource.query<SessionSurveyFormRow[]>(
+      `
+        INSERT INTO session_survey_forms (
+          survey_id,
+          session_id,
+          title,
+          questions_json,
+          contact_json,
+          locked_at,
+          created_at,
+          updated_at
+        )
+        VALUES ($1, $2, $3, $4::jsonb, $5::jsonb, null, now(), now())
+        ON CONFLICT (session_id)
+        DO UPDATE SET
+          title = EXCLUDED.title,
+          questions_json = EXCLUDED.questions_json,
+          contact_json = EXCLUDED.contact_json,
+          updated_at = now()
+        WHERE session_survey_forms.locked_at IS NULL
+        RETURNING
+          survey_id,
+          session_id,
+          title,
+          questions_json,
+          contact_json,
+          locked_at,
+          created_at,
+          updated_at
+      `,
+      [
+        `survey_${randomUUID()}`,
+        input.sessionId,
+        request.title,
+        JSON.stringify(request.questions),
+        JSON.stringify(request.contact),
+      ],
+    );
+
+    const row = rows[0];
+    if (!row) {
+      throw new BadRequestException("세션 시작 후에는 설문을 수정할 수 없습니다.");
+    }
+
+    return sessionSurveyFormResponseSchema.parse({
+      survey: this.toSurveyFormDto(row),
     });
   }
 
@@ -1455,6 +1657,158 @@ export class PresentationSessionsService {
     });
   }
 
+  async getAudienceSurveyForm(input: {
+    sessionId: string;
+    audienceId: string;
+    tokenHash: string;
+  }) {
+    await this.getAudienceMe(input.sessionId, input.audienceId, input.tokenHash);
+    const features = await this.getAudienceFeatureSettingsForSession(
+      input.sessionId,
+    );
+    if (!features.surveyEnabled) {
+      return sessionSurveyFormResponseSchema.parse({ survey: null });
+    }
+
+    const survey = await this.findSessionSurveyForm({
+      sessionId: input.sessionId,
+    });
+    return sessionSurveyFormResponseSchema.parse({ survey });
+  }
+
+  async submitSurveyResponse(input: {
+    sessionId: string;
+    audienceId: string;
+    tokenHash: string;
+    body: unknown;
+  }) {
+    const request = submitSurveyResponseRequestSchema.parse(input.body);
+    const { participant } = await this.getAudienceMe(
+      input.sessionId,
+      input.audienceId,
+      input.tokenHash,
+    );
+    if (!participant.joinedBeforeEnd) {
+      throw new ForbiddenException("설문 제출 대상이 아닙니다.");
+    }
+
+    const [session, features, survey] = await Promise.all([
+      this.getSessionById(input.sessionId),
+      this.getAudienceFeatureSettingsForSession(input.sessionId),
+      this.findSessionSurveyForm({ sessionId: input.sessionId }),
+    ]);
+    if (!features.surveyEnabled || !survey) {
+      throw new ForbiddenException("현재 설문이 열려 있지 않습니다.");
+    }
+    if (session.status !== "ended" || !session.endedAt) {
+      throw new ForbiddenException("발표 종료 후 설문을 제출할 수 있습니다.");
+    }
+
+    const closesAt = session.surveyClosesAt
+      ? new Date(session.surveyClosesAt)
+      : new Date(new Date(session.endedAt).getTime() + 60 * 60 * 1000);
+    if (Date.now() > closesAt.getTime()) {
+      throw new ForbiddenException("설문 응답 시간이 종료되었습니다.");
+    }
+
+    validateSurveyAnswers(survey.questions, request.answers, "answers");
+    if (!survey.contact.enabled && Object.keys(request.contactAnswers).length) {
+      throw new BadRequestException("연락처 수집이 비활성화되어 있습니다.");
+    }
+    if (request.contactConsent) {
+      validateSurveyAnswers(
+        survey.contact.fields,
+        request.contactAnswers,
+        "contactAnswers",
+      );
+    }
+
+    try {
+      const rows = await this.dataSource.query<SessionSurveyResponseRow[]>(
+        `
+          INSERT INTO session_survey_responses (
+            response_id,
+            survey_id,
+            session_id,
+            audience_id,
+            answers_json,
+            contact_consent,
+            contact_answers_json,
+            submitted_at
+          )
+          VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7::jsonb, now())
+          RETURNING
+            response_id,
+            survey_id,
+            session_id,
+            audience_id,
+            submitted_at,
+            answers_json,
+            contact_consent,
+            contact_answers_json
+        `,
+        [
+          `survey_response_${randomUUID()}`,
+          survey.surveyId,
+          input.sessionId,
+          input.audienceId,
+          JSON.stringify(request.answers),
+          request.contactConsent,
+          JSON.stringify(request.contactAnswers),
+        ],
+      );
+
+      const response = this.toSurveyResponseDto(rows[0]);
+      await this.appendAudienceEvent({
+        sessionId: input.sessionId,
+        actorType: "audience",
+        actorId: input.audienceId,
+        type: "survey.submitted",
+        payload: { surveyId: survey.surveyId, responseId: response.responseId },
+      });
+
+      return submitSurveyResponseResponseSchema.parse({ response });
+    } catch (error) {
+      if (isPostgresUniqueViolation(error)) {
+        throw new ConflictException("이미 설문을 제출했습니다.");
+      }
+      throw error;
+    }
+  }
+
+  async exportSessionSurveyCsv(input: ProjectSessionInput): Promise<string> {
+    const survey = await this.findSessionSurveyForm(input);
+    if (!survey) {
+      return "submittedAt,nickname\n";
+    }
+
+    const rows = await this.dataSource.query<SessionSurveyCsvRow[]>(
+      `
+        SELECT
+          responses.response_id,
+          responses.survey_id,
+          responses.session_id,
+          responses.audience_id,
+          responses.submitted_at,
+          responses.answers_json,
+          responses.contact_consent,
+          responses.contact_answers_json,
+          participants.nickname
+        FROM session_survey_responses AS responses
+        INNER JOIN audience_participants AS participants
+          ON participants.audience_id = responses.audience_id
+        INNER JOIN presentation_sessions AS sessions
+          ON sessions.session_id = responses.session_id
+        WHERE sessions.project_id = $1
+          AND responses.session_id = $2
+        ORDER BY responses.submitted_at ASC
+      `,
+      [input.projectId, input.sessionId],
+    );
+
+    return buildSurveyCsv(survey, rows);
+  }
+
   async getInteractionResults(input: ProjectSessionInput & {
     interactionId: string;
     audienceVisible?: boolean;
@@ -1940,6 +2294,73 @@ export class PresentationSessionsService {
     return this.toSessionDto(row);
   }
 
+  private async getProjectSession(
+    input: ProjectSessionInput,
+  ): Promise<PresentationSession> {
+    const rows = await this.dataSource.query<PresentationSessionRow[]>(
+      `
+        ${selectPresentationSessionSql()}
+        WHERE project_id = $1
+          AND session_id = $2
+        LIMIT 1
+      `,
+      [input.projectId, input.sessionId],
+    );
+
+    const row = rows[0];
+    if (!row) {
+      throw new NotFoundException("Presentation session not found");
+    }
+
+    return this.toSessionDto(row);
+  }
+
+  private async findSessionSurveyForm(input: {
+    projectId?: string;
+    sessionId: string;
+  }): Promise<SurveyForm | null> {
+    const rows = input.projectId
+      ? await this.dataSource.query<SessionSurveyFormRow[]>(
+          `
+            SELECT
+              forms.survey_id,
+              forms.session_id,
+              forms.title,
+              forms.questions_json,
+              forms.contact_json,
+              forms.locked_at,
+              forms.created_at,
+              forms.updated_at
+            FROM session_survey_forms AS forms
+            INNER JOIN presentation_sessions AS sessions
+              ON sessions.session_id = forms.session_id
+            WHERE sessions.project_id = $1
+              AND forms.session_id = $2
+            LIMIT 1
+          `,
+          [input.projectId, input.sessionId],
+        )
+      : await this.dataSource.query<SessionSurveyFormRow[]>(
+          `
+            SELECT
+              survey_id,
+              session_id,
+              title,
+              questions_json,
+              contact_json,
+              locked_at,
+              created_at,
+              updated_at
+            FROM session_survey_forms
+            WHERE session_id = $1
+            LIMIT 1
+          `,
+          [input.sessionId],
+        );
+
+    return rows[0] ? this.toSurveyFormDto(rows[0]) : null;
+  }
+
   private buildAudienceUrl(joinCode: string) {
     return `/join/${encodeURIComponent(joinCode)}`;
   }
@@ -2060,6 +2481,41 @@ export class PresentationSessionsService {
       status: row.status,
       submittedAt: toIso(row.submitted_at),
       answeredAt: toNullableIso(row.answered_at),
+    };
+  }
+
+  private toSurveyFormDto(row: SessionSurveyFormRow): SurveyForm {
+    const questions =
+      typeof row.questions_json === "string"
+        ? (JSON.parse(row.questions_json) as InteractionQuestion[])
+        : row.questions_json;
+    const contact =
+      typeof row.contact_json === "string"
+        ? (JSON.parse(row.contact_json) as SurveyForm["contact"])
+        : row.contact_json;
+
+    return sessionSurveyFormResponseSchema.parse({
+      survey: {
+        surveyId: row.survey_id,
+        sessionId: row.session_id,
+        title: row.title,
+        questions,
+        contact,
+        lockedAt: toNullableIso(row.locked_at),
+      },
+    }).survey!;
+  }
+
+  private toSurveyResponseDto(row: SessionSurveyResponseRow): SurveyResponse {
+    return {
+      responseId: row.response_id,
+      surveyId: row.survey_id,
+      sessionId: row.session_id,
+      audienceId: row.audience_id,
+      submittedAt: toIso(row.submitted_at),
+      answers: normalizeJsonRecord(row.answers_json),
+      contactConsent: row.contact_consent,
+      contactAnswers: normalizeJsonRecord(row.contact_answers_json),
     };
   }
 
@@ -2309,6 +2765,151 @@ function normalizeAudienceFeatureSettingsUpdate(
   }
 
   return next;
+}
+
+function validateSurveyAnswers(
+  questions: InteractionQuestion[],
+  answers: Record<string, unknown>,
+  label: "answers" | "contactAnswers",
+) {
+  for (const question of questions) {
+    if (question.type.startsWith("quiz-")) {
+      throw new BadRequestException("설문에는 퀴즈 문항을 사용할 수 없습니다.");
+    }
+
+    const value = answers[question.questionId];
+    if (isMissingSurveyAnswer(value)) {
+      if ("required" in question && question.required) {
+        throw new BadRequestException(
+          `${label}.${question.questionId} 필수 응답입니다.`,
+        );
+      }
+      continue;
+    }
+
+    if (question.type === "choice") {
+      validateChoiceAnswer(question, value);
+    } else if (question.type === "scale") {
+      if (
+        typeof value !== "number" ||
+        !Number.isInteger(value) ||
+        value < question.min ||
+        value > question.max
+      ) {
+        throw new BadRequestException(
+          `${label}.${question.questionId} 응답 범위가 올바르지 않습니다.`,
+        );
+      }
+    } else if (question.type === "open-text") {
+      if (typeof value !== "string" || value.length > question.maxLength) {
+        throw new BadRequestException(
+          `${label}.${question.questionId} 응답 형식이 올바르지 않습니다.`,
+        );
+      }
+    } else if (question.type === "ranking") {
+      validateRankingAnswer(question, value);
+    }
+  }
+}
+
+function isMissingSurveyAnswer(value: unknown) {
+  return (
+    value === undefined ||
+    value === null ||
+    value === "" ||
+    (Array.isArray(value) && value.length === 0)
+  );
+}
+
+function validateChoiceAnswer(
+  question: Extract<InteractionQuestion, { type: "choice" }>,
+  value: unknown,
+) {
+  const optionIds = new Set(question.options.map((option) => option.optionId));
+  const values = Array.isArray(value) ? value : [value];
+  if (!question.allowMultiple && values.length !== 1) {
+    throw new BadRequestException(`${question.questionId} 단일 선택 문항입니다.`);
+  }
+  if (
+    values.length === 0 ||
+    !values.every((item) => typeof item === "string" && optionIds.has(item))
+  ) {
+    throw new BadRequestException(
+      `${question.questionId} 선택지가 올바르지 않습니다.`,
+    );
+  }
+}
+
+function validateRankingAnswer(
+  question: Extract<InteractionQuestion, { type: "ranking" }>,
+  value: unknown,
+) {
+  if (!Array.isArray(value)) {
+    throw new BadRequestException(
+      `${question.questionId} 순위 응답 형식이 올바르지 않습니다.`,
+    );
+  }
+
+  const optionIds = new Set(question.options.map((option) => option.optionId));
+  const uniqueValues = new Set(value);
+  if (
+    value.length > question.options.length ||
+    uniqueValues.size !== value.length ||
+    !value.every((item) => typeof item === "string" && optionIds.has(item))
+  ) {
+    throw new BadRequestException(
+      `${question.questionId} 순위 응답 값이 올바르지 않습니다.`,
+    );
+  }
+}
+
+function buildSurveyCsv(survey: SurveyForm, rows: SessionSurveyCsvRow[]) {
+  const surveyQuestions = survey.questions;
+  const contactFields = survey.contact.fields;
+  const headers = [
+    "submittedAt",
+    "nickname",
+    ...surveyQuestions.map((question) => `answer:${question.prompt}`),
+    "contactConsent",
+    ...contactFields.map((field) => `contact:${field.prompt}`),
+  ];
+  const lines = [headers.map(csvEscape).join(",")];
+
+  for (const row of rows) {
+    const answers = normalizeJsonRecord(row.answers_json);
+    const contactAnswers = normalizeJsonRecord(row.contact_answers_json);
+    lines.push(
+      [
+        toIso(row.submitted_at),
+        row.nickname,
+        ...surveyQuestions.map((question) =>
+          csvValue(answers[question.questionId]),
+        ),
+        row.contact_consent ? "true" : "false",
+        ...contactFields.map((field) =>
+          csvValue(contactAnswers[field.questionId]),
+        ),
+      ]
+        .map(csvEscape)
+        .join(","),
+    );
+  }
+
+  return `${lines.join("\n")}\n`;
+}
+
+function csvValue(value: unknown) {
+  if (value === undefined || value === null) {
+    return "";
+  }
+  if (Array.isArray(value) || typeof value === "object") {
+    return JSON.stringify(value);
+  }
+  return String(value);
+}
+
+function csvEscape(value: string) {
+  return /[",\n]/.test(value) ? `"${value.replaceAll("\"", "\"\"")}"` : value;
 }
 
 function generateJoinCode(): string {

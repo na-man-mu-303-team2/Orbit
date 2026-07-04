@@ -11,6 +11,7 @@ import type {
   AudienceQuestion,
   ReactionType,
   SessionInteraction,
+  SurveyForm,
 } from "@orbit/shared";
 import { CheckCircle2, Loader2 } from "lucide-react";
 import { type FormEvent, useEffect, useMemo, useState } from "react";
@@ -18,6 +19,7 @@ import { type FormEvent, useEffect, useMemo, useState } from "react";
 import {
   fetchAudienceActiveInteraction,
   fetchAudienceQuestionAnswer,
+  fetchAudienceSurvey,
   fetchAudienceState,
   fetchAudienceMe,
   joinAudienceSession,
@@ -25,6 +27,7 @@ import {
   submitAudienceInteractionResponse,
   submitAudienceQuestion,
   submitAudienceReaction,
+  submitAudienceSurvey,
   updateAiAnswerFeedback,
 } from "./audienceApi";
 import { audienceCopy } from "./audienceCopy";
@@ -51,6 +54,7 @@ export function AudienceEntrance({ initialJoinCode }: AudienceEntranceProps) {
     useState<AudienceStateResponse | null>(null);
   const [activeInteraction, setActiveInteraction] =
     useState<AudienceActiveInteractionResponse | null>(null);
+  const [surveyForm, setSurveyForm] = useState<SurveyForm | null>(null);
   const [connectionStatus, setConnectionStatus] =
     useState<AudienceRealtimeStatus>("idle");
   const [recentReactions, setRecentReactions] = useState<ReactionType[]>([]);
@@ -162,6 +166,7 @@ export function AudienceEntrance({ initialJoinCode }: AudienceEntranceProps) {
     if (!session || !participant) {
       setAudienceState(null);
       setActiveInteraction(null);
+      setSurveyForm(null);
       setConnectionStatus("idle");
       setRecentReactions([]);
       return;
@@ -206,6 +211,14 @@ export function AudienceEntrance({ initialJoinCode }: AudienceEntranceProps) {
           setRecentReactions((current) => toRecentReactions(current, payload));
         }
       },
+      onSessionEnded: (payload) => {
+        if (!isCancelled) {
+          setSession(payload.session);
+          setAudienceState((current) =>
+            current ? { ...current, session: payload.session } : current,
+          );
+        }
+      },
       onSlideState: (state) => {
         if (!isCancelled) {
           setAudienceState((current) =>
@@ -233,6 +246,44 @@ export function AudienceEntrance({ initialJoinCode }: AudienceEntranceProps) {
       connection.disconnect();
     };
   }, [participant?.audienceId, session?.sessionId]);
+
+  useEffect(() => {
+    if (
+      !session ||
+      !participant ||
+      session.status !== "ended" ||
+      !audienceState?.features.surveyEnabled
+    ) {
+      setSurveyForm(null);
+      return;
+    }
+
+    let isCancelled = false;
+    void fetchAudienceSurvey({ sessionId: session.sessionId })
+      .then((payload) => {
+        if (!isCancelled) {
+          setSurveyForm(payload.survey);
+        }
+      })
+      .catch((error) => {
+        if (!isCancelled) {
+          setErrorMessage(
+            error instanceof Error
+              ? error.message
+              : "설문을 불러오지 못했습니다.",
+          );
+        }
+      });
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [
+    audienceState?.features.surveyEnabled,
+    participant?.audienceId,
+    session?.sessionId,
+    session?.status,
+  ]);
 
   useEffect(() => {
     const sessionId = session?.sessionId;
@@ -357,6 +408,7 @@ export function AudienceEntrance({ initialJoinCode }: AudienceEntranceProps) {
               participant={participant}
               recentReactions={recentReactions}
               state={audienceState?.state ?? null}
+              survey={surveyForm}
             />
             <section className="audience-waiting-room" aria-live="polite">
               <CheckCircle2 size={24} />
@@ -395,6 +447,7 @@ export function AudienceLiveShell(props: {
   participant: AudienceParticipant;
   recentReactions?: ReactionType[];
   state: AudienceRealtimeState | null;
+  survey?: SurveyForm | null;
 }) {
   const {
     activeInteraction,
@@ -403,6 +456,7 @@ export function AudienceLiveShell(props: {
     participant,
     recentReactions = [],
     state,
+    survey = null,
   } = props;
   const slideSnapshotUrl = readSlideSnapshotUrl(state?.effectState ?? {});
   const slideLabel =
@@ -446,6 +500,7 @@ export function AudienceLiveShell(props: {
         recentReactions={recentReactions}
         sessionId={participant.sessionId}
       />
+      {survey ? <AudienceSurveyCard survey={survey} /> : null}
       <p className="audience-participant-label">{participant.nickname}</p>
     </section>
   );
@@ -595,6 +650,209 @@ function toRecentReactions(
   payload: AudienceReactionPayload,
 ) {
   return [payload.reaction, ...current].slice(0, 5);
+}
+
+function AudienceSurveyCard({ survey }: { survey: SurveyForm }) {
+  const [answers, setAnswers] = useState<Record<string, unknown>>({});
+  const [contactAnswers, setContactAnswers] = useState<Record<string, unknown>>(
+    {},
+  );
+  const [contactConsent, setContactConsent] = useState(false);
+  const [statusMessage, setStatusMessage] = useState("");
+  const [errorMessage, setErrorMessage] = useState("");
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setStatusMessage("");
+    setErrorMessage("");
+    try {
+      await submitAudienceSurvey({
+        sessionId: survey.sessionId,
+        answers,
+        contactConsent,
+        contactAnswers: contactConsent ? contactAnswers : {},
+      });
+      setStatusMessage(audienceCopy["survey.submitted"]);
+    } catch (error) {
+      setErrorMessage(
+        error instanceof Error
+          ? error.message
+          : audienceCopy["survey.windowExpired"],
+      );
+    }
+  }
+
+  return (
+    <article className="audience-active-card audience-survey-card">
+      <span>{survey.title}</span>
+      <form onSubmit={(event) => void handleSubmit(event)}>
+        {survey.questions.map((question) => (
+          <SurveyQuestionField
+            key={question.questionId}
+            onChange={(value) =>
+              setAnswers((current) => ({
+                ...current,
+                [question.questionId]: value,
+              }))
+            }
+            question={question}
+            value={answers[question.questionId]}
+          />
+        ))}
+        {survey.contact.enabled ? (
+          <fieldset className="audience-survey-contact">
+            <legend>연락처</legend>
+            <label>
+              <input
+                checked={contactConsent}
+                type="checkbox"
+                onChange={(event) => setContactConsent(event.target.checked)}
+              />
+              {survey.contact.consentText}
+            </label>
+            <p>{audienceCopy["survey.contact.sensitiveWarning"]}</p>
+            {contactConsent
+              ? survey.contact.fields.map((question) => (
+                  <SurveyQuestionField
+                    key={question.questionId}
+                    onChange={(value) =>
+                      setContactAnswers((current) => ({
+                        ...current,
+                        [question.questionId]: value,
+                      }))
+                    }
+                    question={question}
+                    value={contactAnswers[question.questionId]}
+                  />
+                ))
+              : null}
+          </fieldset>
+        ) : null}
+        <button type="submit">{audienceCopy["survey.submit"]}</button>
+      </form>
+      {statusMessage ? (
+        <p className="audience-interaction-status" role="status">
+          {statusMessage}
+        </p>
+      ) : null}
+      {errorMessage ? (
+        <p className="audience-error" role="alert">
+          {errorMessage}
+        </p>
+      ) : null}
+    </article>
+  );
+}
+
+function SurveyQuestionField({
+  onChange,
+  question,
+  value,
+}: {
+  onChange: (value: unknown) => void;
+  question: InteractionQuestion;
+  value: unknown;
+}) {
+  const label = `${question.prompt}${"required" in question && question.required ? " *" : ""}`;
+
+  if (question.type === "scale") {
+    return (
+      <label>
+        <span>{label}</span>
+        <input
+          max={question.max}
+          min={question.min}
+          required={question.required}
+          type="number"
+          value={typeof value === "number" ? value : ""}
+          onChange={(event) => onChange(Number(event.target.value))}
+        />
+      </label>
+    );
+  }
+
+  if (question.type === "choice") {
+    if (question.allowMultiple) {
+      const selected = Array.isArray(value) ? value : [];
+      return (
+        <fieldset>
+          <legend>{label}</legend>
+          {question.options.map((option) => (
+            <label key={option.optionId}>
+              <input
+                checked={selected.includes(option.optionId)}
+                type="checkbox"
+                value={option.optionId}
+                onChange={(event) => {
+                  onChange(
+                    event.target.checked
+                      ? [...selected, option.optionId]
+                      : selected.filter((item) => item !== option.optionId),
+                  );
+                }}
+              />
+              {option.label}
+            </label>
+          ))}
+        </fieldset>
+      );
+    }
+
+    return (
+      <label>
+        <span>{label}</span>
+        <select
+          required={question.required}
+          value={typeof value === "string" ? value : ""}
+          onChange={(event) => onChange(event.target.value)}
+        >
+          <option value="">선택</option>
+          {question.options.map((option) => (
+            <option key={option.optionId} value={option.optionId}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+      </label>
+    );
+  }
+
+  if (question.type === "open-text") {
+    return (
+      <label>
+        <span>{label}</span>
+        <textarea
+          maxLength={question.maxLength}
+          required={question.required}
+          value={typeof value === "string" ? value : ""}
+          onChange={(event) => onChange(event.target.value)}
+        />
+      </label>
+    );
+  }
+
+  if (question.type === "ranking") {
+    return (
+      <label>
+        <span>{label}</span>
+        <input
+          required={question.required}
+          type="text"
+          value={Array.isArray(value) ? value.join(",") : ""}
+          onChange={(event) =>
+            onChange(
+              event.target.value
+                .split(",")
+                .map((item) => item.trim())
+                .filter(Boolean),
+            )
+          }
+        />
+      </label>
+    );
+  }
+
+  return null;
 }
 
 function AudienceQnaCard({ sessionId }: { sessionId: string }) {

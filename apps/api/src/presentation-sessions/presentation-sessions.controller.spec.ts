@@ -22,18 +22,38 @@ function createController() {
   const service = {
     getAudienceFeatureSettings: vi.fn(async () => ({ features })),
     updateAudienceFeatureSettings: vi.fn(async () => ({ features })),
+    startSession: vi.fn(async () => ({
+      session: { sessionId: "session_existing" },
+    })),
+    endSession: vi.fn(async () => ({
+      session: {
+        sessionId: "session_existing",
+        projectId: "project_1",
+        presenterUserId: "user_1",
+        joinCode: "123456",
+        status: "ended",
+        entryStatus: "closed",
+      },
+    })),
+    getSessionSurveyForm: vi.fn(async () => ({ survey: null })),
+    upsertSessionSurveyForm: vi.fn(async () => ({ survey: null })),
+    exportSessionSurveyCsv: vi.fn(async () => "submittedAt,nickname\n"),
   } as unknown as PresentationSessionsService;
   const projects = {
     assertCanReadProject: vi.fn(async () => ({ projectId: "project_1" })),
     assertCanWriteProject: vi.fn(async () => ({ projectId: "project_1" })),
   };
+  const audienceRealtimeGateway = {
+    broadcastSessionEnded: vi.fn(),
+  };
   const controller = new PresentationSessionsController(
     auth as any,
     service,
     projects as any,
+    audienceRealtimeGateway as any,
   );
 
-  return { auth, controller, projects, service };
+  return { audienceRealtimeGateway, auth, controller, projects, service };
 }
 
 function createRequest(sessionId: string | false | undefined = "auth_1") {
@@ -117,5 +137,63 @@ describe("PresentationSessionsController", () => {
 
     expect(projects.assertCanReadProject).not.toHaveBeenCalled();
     expect(service.getAudienceFeatureSettings).not.toHaveBeenCalled();
+  });
+
+  it("starts and ends sessions through presenter project write access", async () => {
+    const { audienceRealtimeGateway, controller, projects, service } =
+      createController();
+
+    await expect(
+      controller.startSession("project_1", "session_existing", createRequest()),
+    ).resolves.toMatchObject({ session: { sessionId: "session_existing" } });
+    await expect(
+      controller.endSession("project_1", "session_existing", createRequest()),
+    ).resolves.toMatchObject({ session: { status: "ended" } });
+
+    expect(projects.assertCanWriteProject).toHaveBeenCalledWith(
+      "project_1",
+      "user_1",
+    );
+    expect(service.startSession).toHaveBeenCalledWith({
+      projectId: "project_1",
+      sessionId: "session_existing",
+      actorId: "user_1",
+    });
+    expect(audienceRealtimeGateway.broadcastSessionEnded).toHaveBeenCalledWith(
+      expect.objectContaining({ sessionId: "session_existing" }),
+    );
+  });
+
+  it("routes survey form and CSV presenter endpoints", async () => {
+    const { controller, projects, service } = createController();
+
+    await expect(
+      controller.getSurveyForm("project_1", "session_existing", createRequest()),
+    ).resolves.toEqual({ survey: null });
+    await expect(
+      controller.upsertSurveyForm(
+        "project_1",
+        "session_existing",
+        { title: "설문", questions: [], contact: { enabled: false, consentText: "동의", fields: [] } },
+        createRequest(),
+      ),
+    ).resolves.toEqual({ survey: null });
+    await expect(
+      controller.exportSurveyCsv(
+        "project_1",
+        "session_existing",
+        createRequest(),
+      ),
+    ).resolves.toBe("submittedAt,nickname\n");
+
+    expect(projects.assertCanReadProject).toHaveBeenCalledWith(
+      "project_1",
+      "user_1",
+    );
+    expect(service.upsertSessionSurveyForm).toHaveBeenCalledWith({
+      projectId: "project_1",
+      sessionId: "session_existing",
+      body: expect.objectContaining({ title: "설문" }),
+    });
   });
 });

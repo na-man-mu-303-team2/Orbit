@@ -107,6 +107,12 @@ export const audienceReactionPayloadSchema = z
   })
   .strict();
 
+export const audienceSessionEndedPayloadSchema = z
+  .object({
+    session: audiencePublicSessionSchema,
+  })
+  .strict();
+
 export const audiencePrivateRoomPayloadSchema = z
   .object({
     sessionId: z.string().min(1),
@@ -134,6 +140,9 @@ export type AudienceFeatureSettingsPayload = z.infer<
 >;
 export type AudienceReactionPayload = z.infer<
   typeof audienceReactionPayloadSchema
+>;
+export type AudienceSessionEndedPayload = z.infer<
+  typeof audienceSessionEndedPayloadSchema
 >;
 export type AudiencePrivateRoomPayload = z.infer<
   typeof audiencePrivateRoomPayloadSchema

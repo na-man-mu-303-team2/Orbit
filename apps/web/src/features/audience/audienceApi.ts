@@ -7,8 +7,10 @@ import type {
   AudienceStateResponse,
   InteractionAnswer,
   ReactionType,
+  SessionSurveyFormResponse,
   SubmitReactionResponse,
   SubmitInteractionResponseResponse,
+  SubmitSurveyResponseResponse,
 } from "@orbit/shared";
 
 export async function lookupAudienceSession(
@@ -258,6 +260,57 @@ export async function submitAudienceReaction(args: {
   }
 
   return response.json() as Promise<SubmitReactionResponse>;
+}
+
+export async function fetchAudienceSurvey(args: {
+  sessionId: string;
+}): Promise<SessionSurveyFormResponse> {
+  const response = await fetch(
+    `/api/v1/presentation-sessions/${encodeURIComponent(
+      args.sessionId,
+    )}/audience/survey`,
+    {
+      credentials: "include",
+      method: "GET",
+    },
+  );
+
+  if (!response.ok) {
+    throw await readAudienceError(response);
+  }
+
+  return response.json() as Promise<SessionSurveyFormResponse>;
+}
+
+export async function submitAudienceSurvey(args: {
+  answers: Record<string, unknown>;
+  contactAnswers: Record<string, unknown>;
+  contactConsent: boolean;
+  sessionId: string;
+}): Promise<SubmitSurveyResponseResponse> {
+  const response = await fetch(
+    `/api/v1/presentation-sessions/${encodeURIComponent(
+      args.sessionId,
+    )}/audience/survey`,
+    {
+      body: JSON.stringify({
+        answers: args.answers,
+        contactConsent: args.contactConsent,
+        contactAnswers: args.contactAnswers,
+      }),
+      credentials: "include",
+      headers: {
+        "content-type": "application/json",
+      },
+      method: "POST",
+    },
+  );
+
+  if (!response.ok) {
+    throw await readAudienceError(response);
+  }
+
+  return response.json() as Promise<SubmitSurveyResponseResponse>;
 }
 
 async function readAudienceError(response: Response) {

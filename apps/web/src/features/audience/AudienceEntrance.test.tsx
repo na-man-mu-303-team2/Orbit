@@ -163,4 +163,46 @@ describe("AudienceEntrance", () => {
     expect(html).toContain("👏");
     expect(html).toContain("❤");
   });
+
+  it("renders an ended-session survey with contact consent warning", () => {
+    const html = renderToStaticMarkup(
+      <AudienceLiveShell
+        activeInteraction={null}
+        connectionStatus="connected"
+        features={{
+          ...disabledFeatures,
+          surveyEnabled: true,
+        }}
+        participant={participant}
+        state={null}
+        survey={{
+          surveyId: "survey_00000000-0000-4000-8000-000000000001",
+          sessionId: "session_1",
+          title: "발표 설문",
+          questions: [
+            {
+              type: "scale",
+              questionId: "question_00000000-0000-4000-8000-000000000001",
+              prompt: "발표 만족도",
+              required: true,
+              min: 1,
+              max: 5,
+            },
+          ],
+          contact: {
+            enabled: true,
+            consentText: "후속 연락에 동의합니다.",
+            fields: [],
+          },
+          lockedAt: null,
+        }}
+      />,
+    );
+
+    expect(html).toContain("발표 설문");
+    expect(html).toContain("발표 만족도");
+    expect(html).toContain("후속 연락에 동의합니다.");
+    expect(html).toContain("민감정보 또는 고유식별정보");
+    expect(html).toContain("설문 제출");
+  });
 });

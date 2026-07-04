@@ -23,6 +23,7 @@ import { CreateTemplateBlueprints2026070301000 } from "./migrations/202607030100
 import { CreateAudienceInteractions2026070501000 } from "./migrations/2026070501000-CreateAudienceInteractions";
 import { CreateAudienceQuestions2026070502000 } from "./migrations/2026070502000-CreateAudienceQuestions";
 import { CreateAudienceQuestionAnswers2026070503000 } from "./migrations/2026070503000-CreateAudienceQuestionAnswers";
+import { CreateSessionSurveys2026070504000 } from "./migrations/2026070504000-CreateSessionSurveys";
 
 loadDotenv({ path: "../../.env.local" });
 loadDotenv({ path: ".env.local" });
@@ -57,7 +58,8 @@ export const databaseOptions: DataSourceOptions = {
     CreateTemplateBlueprints2026070301000,
     CreateAudienceInteractions2026070501000,
     CreateAudienceQuestions2026070502000,
-    CreateAudienceQuestionAnswers2026070503000
+    CreateAudienceQuestionAnswers2026070503000,
+    CreateSessionSurveys2026070504000
   ],
   migrationsTableName: "typeorm_migrations",
   synchronize: false,

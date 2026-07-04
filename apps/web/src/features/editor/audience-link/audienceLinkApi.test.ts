@@ -2,8 +2,11 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   fetchAudienceFeatureSettings,
+  fetchSessionSurveyForm,
+  sessionSurveyCsvUrl,
   updateAudienceAccessEntryStatus,
   updateAudienceFeatureSettings,
+  upsertSessionSurveyForm,
 } from "./audienceLinkApi";
 
 const features = {
@@ -100,5 +103,64 @@ describe("audience link API", () => {
         sessionId: "session_1",
       }),
     ).resolves.toMatchObject({ entryStatus: "open" });
+  });
+
+  it("fetches and upserts presenter survey forms", async () => {
+    const survey = {
+      surveyId: "survey_00000000-0000-4000-8000-000000000001",
+      sessionId: "session_1",
+      title: "발표 설문",
+      questions: [],
+      contact: {
+        enabled: false,
+        consentText: "동의",
+        fields: [],
+      },
+      lockedAt: null,
+    };
+    const fetcher = vi.fn(
+      async (_input: RequestInfo | URL, init?: RequestInit) => {
+        if (init?.method === "PUT") {
+          expect(JSON.parse(String(init.body))).toEqual({
+            title: "발표 설문",
+            questions: [],
+            contact: {
+              enabled: false,
+              consentText: "동의",
+              fields: [],
+            },
+          });
+        }
+        return new Response(JSON.stringify({ survey }));
+      },
+    );
+    vi.stubGlobal("fetch", fetcher);
+
+    await expect(
+      fetchSessionSurveyForm({
+        projectId: "project_1",
+        sessionId: "session_1",
+      }),
+    ).resolves.toEqual({ survey });
+    await expect(
+      upsertSessionSurveyForm({
+        projectId: "project_1",
+        sessionId: "session_1",
+        form: {
+          title: "발표 설문",
+          questions: [],
+          contact: {
+            enabled: false,
+            consentText: "동의",
+            fields: [],
+          },
+        },
+      }),
+    ).resolves.toEqual({ survey });
+    expect(
+      sessionSurveyCsvUrl({ projectId: "project_1", sessionId: "session_1" }),
+    ).toBe(
+      "/api/v1/projects/project_1/presentation-sessions/session_1/survey.csv",
+    );
   });
 });

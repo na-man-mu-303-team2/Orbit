@@ -324,6 +324,52 @@
   padding: 0 7px;
 }
 
+.audience-survey-card form,
+.audience-survey-card fieldset,
+.audience-survey-card label {
+  display: grid;
+  gap: 8px;
+}
+
+.audience-survey-card fieldset {
+  border: 1px solid #dbe3ee;
+  border-radius: 8px;
+  margin: 0;
+  padding: 10px;
+}
+
+.audience-survey-card legend,
+.audience-survey-card label span {
+  color: #0f172a;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.audience-survey-card input,
+.audience-survey-card select,
+.audience-survey-card textarea {
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  color: #0f172a;
+  font: inherit;
+  min-height: 36px;
+  min-width: 0;
+  padding: 7px 9px;
+}
+
+.audience-survey-card textarea {
+  min-height: 84px;
+  resize: vertical;
+}
+
+.audience-survey-contact p {
+  color: #64748b;
+  font-size: 0.74rem;
+  line-height: 1.35;
+  margin: 0;
+}
+
 .audience-participant-label {
   color: #0f172a;
   font-weight: 700;

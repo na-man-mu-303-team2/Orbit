@@ -1,10 +1,12 @@
 import {
   audienceFeatureSettingsPayloadSchema,
   audienceReactionPayloadSchema,
+  audienceSessionEndedPayloadSchema,
   audienceSlideStatePayloadSchema,
   audienceStatePayloadSchema,
   type AudienceFeatureSettings,
   type AudienceReactionPayload,
+  type AudienceSessionEndedPayload,
   type AudienceRealtimeState,
   type AudienceStateResponse,
   type WebsocketEvent,
@@ -36,6 +38,7 @@ export function connectAudienceRealtime(args: {
   onError: (message: string) => void;
   onFeatureSettings: (features: AudienceFeatureSettings) => void;
   onReaction?: (payload: AudienceReactionPayload) => void;
+  onSessionEnded?: (payload: AudienceSessionEndedPayload) => void;
   onSlideState: (state: AudienceRealtimeState) => void;
   onState: (state: AudienceStateResponse) => void;
   onStatus: (status: AudienceRealtimeStatus) => void;
@@ -73,6 +76,11 @@ export function connectAudienceRealtime(args: {
     args.onReaction?.(payload);
   }
 
+  function handleSessionEnded(event: WebsocketEvent) {
+    const payload = audienceSessionEndedPayloadSchema.parse(event.payload);
+    args.onSessionEnded?.(payload);
+  }
+
   function handleAudienceError(error: { message?: string }) {
     args.onStatus("error");
     args.onError(error.message ?? "청중 실시간 연결에 실패했습니다.");
@@ -94,6 +102,7 @@ export function connectAudienceRealtime(args: {
   socket.on("audience:slide-state", handleSlideState);
   socket.on("audience:feature-settings", handleFeatureSettings);
   socket.on("audience:reaction", handleReaction);
+  socket.on("audience:session-ended", handleSessionEnded);
   socket.on("disconnect", handleDisconnect);
 
   if (socket.connected) {
@@ -109,6 +118,7 @@ export function connectAudienceRealtime(args: {
       socket.off("audience:slide-state", handleSlideState);
       socket.off("audience:feature-settings", handleFeatureSettings);
       socket.off("audience:reaction", handleReaction);
+      socket.off("audience:session-ended", handleSessionEnded);
       socket.off("disconnect", handleDisconnect);
       socket.disconnect();
     },

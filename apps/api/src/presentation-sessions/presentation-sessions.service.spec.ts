@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   ForbiddenException,
   UnauthorizedException,
@@ -22,6 +23,47 @@ const activeSessionRow = {
   ended_at: null,
   survey_closes_at: null,
   raw_data_delete_after: "2026-08-04T00:00:00.000Z",
+};
+
+const endedSessionRow = {
+  ...activeSessionRow,
+  status: "ended" as const,
+  entry_status: "closed" as const,
+  started_at: "2026-07-05T00:00:00.000Z",
+  ended_at: "2026-07-05T00:30:00.000Z",
+  survey_closes_at: "2999-07-05T01:30:00.000Z",
+};
+
+const surveyFormRow = {
+  survey_id: "survey_00000000-0000-4000-8000-000000000001",
+  session_id: "session_existing",
+  title: "발표 설문",
+  questions_json: [
+    {
+      type: "scale" as const,
+      questionId: "question_00000000-0000-4000-8000-000000000001",
+      prompt: "만족도",
+      required: true,
+      min: 1 as const,
+      max: 5 as const,
+    },
+  ],
+  contact_json: {
+    enabled: true,
+    consentText: "후속 연락에 동의합니다.",
+    fields: [
+      {
+        type: "open-text" as const,
+        questionId: "question_00000000-0000-4000-8000-000000000002",
+        prompt: "이메일",
+        required: false,
+        maxLength: 160,
+      },
+    ],
+  },
+  locked_at: null,
+  created_at: "2026-07-05T00:00:00.000Z",
+  updated_at: "2026-07-05T00:00:00.000Z",
 };
 
 describe("PresentationSessionsService", () => {
@@ -986,5 +1028,213 @@ describe("PresentationSessionsService", () => {
         body: { reaction: "clap" },
       }),
     ).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it("upserts survey forms only while the session is draft", async () => {
+    const query = vi
+      .fn()
+      .mockResolvedValueOnce([activeSessionRow])
+      .mockResolvedValueOnce([surveyFormRow]);
+    const service = new PresentationSessionsService({
+      query,
+    } as unknown as DataSource);
+
+    await expect(
+      service.upsertSessionSurveyForm({
+        projectId: "project_1",
+        sessionId: "session_existing",
+        body: {
+          title: "발표 설문",
+          questions: surveyFormRow.questions_json,
+          contact: surveyFormRow.contact_json,
+        },
+      }),
+    ).resolves.toMatchObject({ survey: { title: "발표 설문" } });
+    expect(query.mock.calls[1][0]).toContain(
+      "INSERT INTO session_survey_forms",
+    );
+
+    const lockedService = new PresentationSessionsService({
+      query: vi.fn(async () => [{ ...activeSessionRow, status: "live" }]),
+    } as unknown as DataSource);
+    await expect(
+      lockedService.upsertSessionSurveyForm({
+        projectId: "project_1",
+        sessionId: "session_existing",
+        body: {
+          title: "발표 설문",
+          questions: [],
+          contact: surveyFormRow.contact_json,
+        },
+      }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it("submits eligible survey responses and rejects missing required answers", async () => {
+    const participantRow = {
+      audience_id: "audience_00000000-0000-4000-8000-000000000001",
+      session_id: "session_existing",
+      nickname: "orbit",
+      joined_at: "2026-07-05T00:00:00.000Z",
+      last_seen_at: "2026-07-05T00:00:00.000Z",
+      joined_before_end: true,
+    };
+    const featureRow = {
+      session_id: "session_existing",
+      qna_enabled: false,
+      ai_qna_enabled: false,
+      polls_enabled: false,
+      quizzes_enabled: false,
+      reactions_enabled: false,
+      survey_enabled: true,
+      updated_at: "2026-07-05T00:00:00.000Z",
+    };
+    const responseRow = {
+      response_id: "survey_response_00000000-0000-4000-8000-000000000001",
+      survey_id: surveyFormRow.survey_id,
+      session_id: "session_existing",
+      audience_id: participantRow.audience_id,
+      submitted_at: "2026-07-05T00:35:00.000Z",
+      answers_json: {
+        "question_00000000-0000-4000-8000-000000000001": 5,
+      },
+      contact_consent: false,
+      contact_answers_json: {},
+    };
+    const query = vi.fn(async (sql: string) => {
+      if (sql.includes("UPDATE audience_participants")) return [participantRow];
+      if (sql.includes("FROM presentation_sessions")) return [endedSessionRow];
+      if (sql.includes("FROM audience_feature_settings")) return [featureRow];
+      if (sql.includes("FROM session_survey_forms")) return [surveyFormRow];
+      if (sql.includes("INSERT INTO session_survey_responses")) {
+        return [responseRow];
+      }
+      return [];
+    });
+    const service = new PresentationSessionsService({
+      query,
+    } as unknown as DataSource);
+
+    await expect(
+      service.submitSurveyResponse({
+        sessionId: "session_existing",
+        audienceId: participantRow.audience_id,
+        tokenHash: "token_hash",
+        body: {
+          answers: {
+            "question_00000000-0000-4000-8000-000000000001": 5,
+          },
+          contactConsent: false,
+          contactAnswers: {},
+        },
+      }),
+    ).resolves.toMatchObject({
+      response: { contactConsent: false },
+    });
+
+    await expect(
+      service.submitSurveyResponse({
+        sessionId: "session_existing",
+        audienceId: participantRow.audience_id,
+        tokenHash: "token_hash",
+        body: {
+          answers: {},
+          contactConsent: false,
+          contactAnswers: {},
+        },
+      }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it("rejects duplicate survey submissions", async () => {
+    const query = vi.fn(async (sql: string) => {
+      if (sql.includes("UPDATE audience_participants")) {
+        return [
+          {
+            audience_id: "audience_00000000-0000-4000-8000-000000000001",
+            session_id: "session_existing",
+            nickname: "orbit",
+            joined_at: "2026-07-05T00:00:00.000Z",
+            last_seen_at: "2026-07-05T00:00:00.000Z",
+            joined_before_end: true,
+          },
+        ];
+      }
+      if (sql.includes("FROM presentation_sessions")) return [endedSessionRow];
+      if (sql.includes("FROM audience_feature_settings")) {
+        return [
+          {
+            session_id: "session_existing",
+            qna_enabled: false,
+            ai_qna_enabled: false,
+            polls_enabled: false,
+            quizzes_enabled: false,
+            reactions_enabled: false,
+            survey_enabled: true,
+            updated_at: "2026-07-05T00:00:00.000Z",
+          },
+        ];
+      }
+      if (sql.includes("FROM session_survey_forms")) return [surveyFormRow];
+      if (sql.includes("INSERT INTO session_survey_responses")) {
+        throw Object.assign(new Error("duplicate"), { code: "23505" });
+      }
+      return [];
+    });
+    const service = new PresentationSessionsService({
+      query,
+    } as unknown as DataSource);
+
+    await expect(
+      service.submitSurveyResponse({
+        sessionId: "session_existing",
+        audienceId: "audience_00000000-0000-4000-8000-000000000001",
+        tokenHash: "token_hash",
+        body: {
+          answers: {
+            "question_00000000-0000-4000-8000-000000000001": 5,
+          },
+          contactConsent: false,
+          contactAnswers: {},
+        },
+      }),
+    ).rejects.toBeInstanceOf(ConflictException);
+  });
+
+  it("exports survey-only CSV with nickname and contact fields", async () => {
+    const query = vi
+      .fn()
+      .mockResolvedValueOnce([surveyFormRow])
+      .mockResolvedValueOnce([
+        {
+          response_id: "survey_response_00000000-0000-4000-8000-000000000001",
+          survey_id: surveyFormRow.survey_id,
+          session_id: "session_existing",
+          audience_id: "audience_00000000-0000-4000-8000-000000000001",
+          submitted_at: "2026-07-05T00:35:00.000Z",
+          answers_json: {
+            "question_00000000-0000-4000-8000-000000000001": 4,
+          },
+          contact_consent: true,
+          contact_answers_json: {
+            "question_00000000-0000-4000-8000-000000000002":
+              "person@example.com",
+          },
+          nickname: "orbit",
+        },
+      ]);
+    const service = new PresentationSessionsService({
+      query,
+    } as unknown as DataSource);
+
+    const csv = await service.exportSessionSurveyCsv({
+      projectId: "project_1",
+      sessionId: "session_existing",
+    });
+
+    expect(csv).toContain("submittedAt,nickname,answer:만족도");
+    expect(csv).toContain("orbit");
+    expect(csv).toContain("person@example.com");
+    expect(csv).not.toContain("reaction");
   });
 });
