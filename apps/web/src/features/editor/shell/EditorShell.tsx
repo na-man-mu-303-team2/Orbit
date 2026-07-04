@@ -76,6 +76,7 @@ import { EditorExitConfirmModal } from "./components/EditorExitConfirmModal";
 import {
   ShareAccessModal
 } from "./components/ShareAccessModal";
+import { HistoryChevronIcon } from "./components/HistoryChevronIcon";
 import { SelectionQuickBar } from "./components/SelectionQuickBar";
 import {
   useEditorPersistenceState,
@@ -3949,22 +3950,22 @@ export function EditorShell(props: { projectId?: string }) {
             <div className="editor-toolbar">
               <div className="tool-group">
                 <button
-                  className="icon-button"
+                  className="icon-button history-nav-button"
                   disabled={undoStack.length === 0}
                   type="button"
                   title="Undo"
                   onClick={handleUndo}
                 >
-                  ‹
+                  <HistoryChevronIcon className="history-nav-icon" direction="left" />
                 </button>
                 <button
-                  className="icon-button"
+                  className="icon-button history-nav-button"
                   disabled={redoStack.length === 0}
                   type="button"
                   title="Redo"
                   onClick={handleRedo}
                 >
-                  ›
+                  <HistoryChevronIcon className="history-nav-icon" direction="right" />
                 </button>
                 <button
                   className={`icon-button ${insertTool === "select" ? "selected-tool" : ""}`}

@@ -1516,8 +1516,7 @@
   align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
-  padding: 12px 12px 10px;
-  border-bottom: 1px solid var(--line);
+  padding: 16px 12px 8px;
 }
 
 .animation-side-pane-title {
@@ -1529,7 +1528,9 @@
 
 .animation-side-pane-title strong {
   display: block;
-  font-size: 15px;
+  font-size: 24px;
+  font-weight: 900;
+  letter-spacing: -0.02em;
 }
 
 .animation-side-pane-title span {
@@ -1619,7 +1620,7 @@
   justify-content: space-between;
   gap: 12px;
   min-height: 60px;
-  padding: 0 32px;
+  padding: 0 16px 0 12px;
   background: #fff;
   overflow-x: auto;
   overflow-y: visible;
@@ -1650,6 +1651,19 @@
   width: 38px;
   padding: 0;
   font-size: 21px;
+}
+
+.history-nav-button {
+  width: 34px;
+  min-height: 34px;
+  padding: 0;
+}
+
+.history-nav-icon {
+  width: 7px;
+  height: 12px;
+  display: block;
+  overflow: visible;
 }
 
 .selected-tool {
@@ -2974,6 +2988,12 @@
 .animation-panel-section-header strong {
   color: var(--ink);
   font-size: 18px;
+}
+
+.animation-panel-overview-section .animation-panel-section-header strong {
+  color: #475569;
+  font-size: 14px;
+  font-weight: 800;
 }
 
 .animation-inspector-status-pill {

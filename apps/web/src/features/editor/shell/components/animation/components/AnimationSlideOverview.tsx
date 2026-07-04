@@ -45,6 +45,7 @@ export function AnimationSlideOverview(props: {
           {animations.length}개
         </span>
       }
+      className="animation-panel-overview-section"
       title="이 슬라이드의 애니메이션"
     >
       {animations.length > 0 ? (
