@@ -15,11 +15,16 @@ import {
   listSessionInteractionsResponseSchema,
   markAudienceQuestionAnsweredResponseSchema,
   presenterQuestionQueueResponseSchema,
+  qnaWorkerAnswerResponseSchema,
+  audienceQuestionAnswerResponseSchema,
   selectSessionInteractionsRequestSchema,
   sessionInteractionResponseSchema,
   submitAudienceQuestionRequestSchema,
   submitInteractionResponseRequestSchema,
   submitInteractionResponseResponseSchema,
+  updateAiAnswerFeedbackRequestSchema,
+  updateAiReferenceSelectionRequestSchema,
+  updateAiReferenceSelectionResponseSchema,
   updateAudienceFeatureSettingsRequestSchema,
   updateAudienceFeatureSettingsResponseSchema,
   updatePresentationSessionEntryResponseSchema,
@@ -32,6 +37,7 @@ import type {
   AudienceRealtimeState,
   AudienceStateResponse,
   AudienceQuestion,
+  AudienceQuestionAnswer,
   CreatePresentationSessionResponse,
   GetCurrentPresentationSessionResponse,
   InteractionAnswer,
@@ -39,6 +45,7 @@ import type {
   InteractionResponse,
   InteractionResults,
   ProjectInteractionLibraryItem,
+  QnaWorkerAnswerResponse,
   PresentationEntryStatus,
   PresentationSession,
   PresentationSessionStatus,
@@ -150,6 +157,19 @@ type AudienceQuestionRow = {
   status: "pending" | "answered";
   submitted_at: Date | string;
   answered_at: Date | string | null;
+};
+
+type AudienceQuestionAnswerRow = {
+  question_id: string;
+  session_id: string;
+  audience_id: string;
+  answer_text: string | null;
+  source_references_json: string[] | string;
+  confidence: number | string | null;
+  failure_reason: "low-confidence" | "no-grounding" | "timeout" | "worker-error" | null;
+  feedback: "resolved" | "unresolved" | null;
+  escalated_to_presenter: boolean;
+  created_at: Date | string;
 };
 
 type JoinAudienceInput = {
@@ -1163,8 +1183,13 @@ export class PresentationSessionsService {
       payload: { questionId },
     });
 
+    const question = this.toAudienceQuestionDto(rows[0]);
+    if (features.aiQnaEnabled) {
+      await this.createAiAnswerForQuestion(question);
+    }
+
     return audienceQuestionResponseSchema.parse({
-      question: this.toAudienceQuestionDto(rows[0]),
+      question,
     });
   }
 
@@ -1270,6 +1295,123 @@ export class PresentationSessionsService {
 
     return markAudienceQuestionAnsweredResponseSchema.parse({
       question: this.toAudienceQuestionDto(row),
+    });
+  }
+
+  async updateAiReferenceSelection(input: ProjectSessionInput, body: unknown) {
+    const parsed = updateAiReferenceSelectionRequestSchema.parse(body);
+    await this.assertSessionBelongsToProject(input.projectId, input.sessionId);
+    const rows = await this.dataSource.query<
+      { selected_reference_ids_json: string[] | string }[]
+    >(
+      `
+        UPDATE presentation_sessions
+        SET selected_reference_ids_json = $3::jsonb
+        WHERE project_id = $1
+          AND session_id = $2
+        RETURNING selected_reference_ids_json
+      `,
+      [input.projectId, input.sessionId, parsed.referenceIds],
+    );
+    const value = rows[0]?.selected_reference_ids_json ?? [];
+    return updateAiReferenceSelectionResponseSchema.parse({
+      referenceIds:
+        typeof value === "string" ? (JSON.parse(value) as string[]) : value,
+    });
+  }
+
+  async getAudienceQuestionAnswer(input: {
+    sessionId: string;
+    audienceId: string;
+    tokenHash: string;
+    questionId: string;
+  }) {
+    const questionResponse = await this.getAudienceQuestionStatus(input);
+    const rows = await this.dataSource.query<AudienceQuestionAnswerRow[]>(
+      `
+        SELECT
+          question_id,
+          session_id,
+          audience_id,
+          answer_text,
+          source_references_json,
+          confidence,
+          failure_reason,
+          feedback,
+          escalated_to_presenter,
+          created_at
+        FROM audience_question_answers
+        WHERE session_id = $1
+          AND audience_id = $2
+          AND question_id = $3
+        LIMIT 1
+      `,
+      [input.sessionId, input.audienceId, input.questionId],
+    );
+
+    return audienceQuestionAnswerResponseSchema.parse({
+      question: questionResponse.question,
+      answer: rows[0] ? this.toQuestionAnswerDto(rows[0]) : null,
+    });
+  }
+
+  async updateAiAnswerFeedback(input: {
+    sessionId: string;
+    audienceId: string;
+    tokenHash: string;
+    questionId: string;
+    body: unknown;
+  }) {
+    const feedback = updateAiAnswerFeedbackRequestSchema.parse(input.body);
+    await this.getAudienceQuestionStatus(input);
+    const escalated = feedback.feedback === "unresolved";
+    const rows = await this.dataSource.query<AudienceQuestionAnswerRow[]>(
+      `
+        UPDATE audience_question_answers
+        SET feedback = $4,
+            escalated_to_presenter = escalated_to_presenter OR $5
+        WHERE session_id = $1
+          AND audience_id = $2
+          AND question_id = $3
+        RETURNING
+          question_id,
+          session_id,
+          audience_id,
+          answer_text,
+          source_references_json,
+          confidence,
+          failure_reason,
+          feedback,
+          escalated_to_presenter,
+          created_at
+      `,
+      [
+        input.sessionId,
+        input.audienceId,
+        input.questionId,
+        feedback.feedback,
+        escalated,
+      ],
+    );
+
+    if (escalated) {
+      await this.dataSource.query(
+        `
+          UPDATE audience_questions
+          SET status = 'pending',
+              answered_at = NULL
+          WHERE session_id = $1
+            AND question_id = $2
+        `,
+        [input.sessionId, input.questionId],
+      );
+    }
+
+    return audienceQuestionAnswerResponseSchema.parse({
+      question: (
+        await this.getAudienceQuestionStatus(input)
+      ).question,
+      answer: rows[0] ? this.toQuestionAnswerDto(rows[0]) : null,
     });
   }
 
@@ -1464,6 +1606,135 @@ export class PresentationSessionsService {
     if (!rows[0]) {
       throw new NotFoundException("Presentation session not found");
     }
+  }
+
+  private async createAiAnswerForQuestion(
+    question: AudienceQuestion,
+  ): Promise<AudienceQuestionAnswer> {
+    const session = await this.getSessionById(question.sessionId);
+    const [selectedReferenceIds, publicSlideContext] = await Promise.all([
+      this.getSelectedReferenceIds(question.sessionId),
+      this.getPublicSlideContext(question.sessionId),
+    ]);
+
+    let workerResponse: QnaWorkerAnswerResponse;
+    try {
+      workerResponse = await callQnaWorker({
+        projectId: session.projectId,
+        sessionId: question.sessionId,
+        questionId: question.questionId,
+        questionText: question.text,
+        publicSlideContext,
+        selectedReferenceIds,
+      });
+    } catch (error) {
+      workerResponse = {
+        status: error instanceof DOMException && error.name === "TimeoutError"
+          ? "failed"
+          : "failed",
+        failureReason:
+          error instanceof DOMException && error.name === "TimeoutError"
+            ? "timeout"
+            : "worker-error",
+        sourceReferences: [],
+        confidence: null,
+      };
+    }
+
+    const rowInput =
+      workerResponse.status === "answered"
+        ? {
+            answerText: workerResponse.answerText,
+            sourceReferences: workerResponse.sourceReferences,
+            confidence: workerResponse.confidence,
+            failureReason: null,
+            escalatedToPresenter: false,
+          }
+        : {
+            answerText: null,
+            sourceReferences: workerResponse.sourceReferences,
+            confidence: workerResponse.confidence,
+            failureReason: workerResponse.failureReason,
+            escalatedToPresenter: true,
+          };
+
+    const rows = await this.dataSource.query<AudienceQuestionAnswerRow[]>(
+      `
+        INSERT INTO audience_question_answers (
+          question_id,
+          session_id,
+          audience_id,
+          answer_text,
+          source_references_json,
+          confidence,
+          failure_reason,
+          feedback,
+          escalated_to_presenter,
+          created_at
+        )
+        VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, NULL, $8, now())
+        ON CONFLICT (question_id)
+        DO UPDATE SET
+          answer_text = EXCLUDED.answer_text,
+          source_references_json = EXCLUDED.source_references_json,
+          confidence = EXCLUDED.confidence,
+          failure_reason = EXCLUDED.failure_reason,
+          escalated_to_presenter = EXCLUDED.escalated_to_presenter
+        RETURNING
+          question_id,
+          session_id,
+          audience_id,
+          answer_text,
+          source_references_json,
+          confidence,
+          failure_reason,
+          feedback,
+          escalated_to_presenter,
+          created_at
+      `,
+      [
+        question.questionId,
+        question.sessionId,
+        question.audienceId,
+        rowInput.answerText,
+        rowInput.sourceReferences,
+        rowInput.confidence,
+        rowInput.failureReason,
+        rowInput.escalatedToPresenter,
+      ],
+    );
+
+    return this.toQuestionAnswerDto(rows[0]);
+  }
+
+  private async getSelectedReferenceIds(sessionId: string): Promise<string[]> {
+    const rows = await this.dataSource.query<
+      { selected_reference_ids_json: string[] | string }[]
+    >(
+      `
+        SELECT selected_reference_ids_json
+        FROM presentation_sessions
+        WHERE session_id = $1
+        LIMIT 1
+      `,
+      [sessionId],
+    );
+    const value = rows[0]?.selected_reference_ids_json ?? [];
+    return typeof value === "string" ? (JSON.parse(value) as string[]) : value;
+  }
+
+  private async getPublicSlideContext(sessionId: string): Promise<string> {
+    const rows = await this.dataSource.query<{ slide_id: string | null }[]>(
+      `
+        SELECT slide_id
+        FROM audience_realtime_state
+        WHERE session_id = $1
+        LIMIT 1
+      `,
+      [sessionId],
+    );
+    const slideId = rows[0]?.slide_id;
+    return slideId ? `Current public slide: ${slideId}` : "";
   }
 
   private async getSessionInteractions(
@@ -1752,6 +2023,28 @@ export class PresentationSessionsService {
     };
   }
 
+  private toQuestionAnswerDto(
+    row: AudienceQuestionAnswerRow,
+  ): AudienceQuestionAnswer {
+    const sourceReferences =
+      typeof row.source_references_json === "string"
+        ? (JSON.parse(row.source_references_json) as string[])
+        : row.source_references_json;
+
+    return {
+      questionId: row.question_id,
+      sessionId: row.session_id,
+      audienceId: row.audience_id,
+      answerText: row.answer_text,
+      sourceReferences,
+      confidence: row.confidence === null ? null : Number(row.confidence),
+      failureReason: row.failure_reason,
+      feedback: row.feedback,
+      escalatedToPresenter: row.escalated_to_presenter,
+      createdAt: toIso(row.created_at),
+    };
+  }
+
   private toCreateResponse(
     row: PresentationSessionRow,
   ): CreatePresentationSessionResponse {
@@ -1980,6 +2273,35 @@ function normalizeAudienceFeatureSettingsUpdate(
 
 function generateJoinCode(): string {
   return String(randomInt(0, 1_000_000)).padStart(6, "0");
+}
+
+async function callQnaWorker(input: {
+  projectId: string;
+  sessionId: string;
+  questionId: string;
+  questionText: string;
+  publicSlideContext: string;
+  selectedReferenceIds: string[];
+}): Promise<QnaWorkerAnswerResponse> {
+  const baseUrl = process.env.PYTHON_WORKER_URL ?? "http://localhost:8000";
+  const response = await fetch(`${baseUrl}/qna/answer`, {
+    body: JSON.stringify({
+      ...input,
+      retrievalLimit: 5,
+      confidenceThreshold: 0.65,
+    }),
+    headers: {
+      "content-type": "application/json",
+    },
+    method: "POST",
+    signal: AbortSignal.timeout(5000),
+  });
+
+  if (!response.ok) {
+    throw new Error("Q&A worker failed");
+  }
+
+  return qnaWorkerAnswerResponseSchema.parse(await response.json());
 }
 
 function toAudiencePublicSession(session: PresentationSession) {

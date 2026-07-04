@@ -9,7 +9,7 @@ The top-level `## Current State` and `## Resume Checkpoint` sections are the sou
 ## Current State
 
 - Last completed milestone: 6
-- Next milestone: 7
+- Next milestone: 8
 - Integration branch: `feature/audience`
 - Current expected branch: `feature/audience`
 - Goal status: in progress
@@ -17,15 +17,15 @@ The top-level `## Current State` and `## Resume Checkpoint` sections are the sou
 ## Resume Checkpoint
 
 - Current branch: `feature/audience`
-- Next milestone: 7
+- Next milestone: 8
 - Resume first checks:
   - Run `git status --short --branch`.
   - Read `docs/plans/audience-engagement-execution-protocol.md`.
-  - Read Milestone 7 in `docs/plans/audience-engagement-implementation-plan.md`.
-  - Read relevant product-plan sections for AI Q&A, source boundaries, asker-only delivery, feedback, escalation, timeout, and duplicate merge.
-  - Read `services/python-worker`, `packages/shared/src/interactions/interaction.schema.ts`, `apps/api/src/presentation-sessions/*`, and reference/deck source handling before editing.
+  - Read Milestone 8 in `docs/plans/audience-engagement-implementation-plan.md`.
+  - Read relevant product-plan sections for reactions, show/hide behavior, throttling, event storage, and aggregate reporting.
+  - Read `apps/api/src/presentation-sessions/*`, `apps/api/src/realtime/audience-realtime.gateway.ts`, and existing audience active-card UI before editing.
 - Blocked: no
-- Notes: Milestone 6 implementation completed on `feature/audience-m06-qna` and is ready to resume at Milestone 7 after local merge.
+- Notes: Milestone 7 implementation completed on `feature/audience-m07-ai-qna` and is ready to resume at Milestone 8 after local merge.
 
 ## Milestone Log
 
@@ -271,6 +271,48 @@ The top-level `## Current State` and `## Resume Checkpoint` sections are the sou
   - Current branch: `feature/audience`
   - Next milestone: 7
   - Resume first checks: read Milestone 7 plan, confirm `feature/audience` status, and implement AI Q&A worker/API/private answer flow.
+
+## Milestone 7 Start - 2026-07-05
+
+- Branch: `feature/audience-m07-ai-qna`
+- Scope: selected reference storage, `audience_question_answers` migration, Python worker `/qna/answer`, API 5-second worker call, failure/timeout escalation, asker-only answer recovery, unresolved feedback, and duplicate merge placeholder.
+- Acceptance criteria: AI Q&A enables Q&A; Q&A disable hides AI results; worker only uses selected references and public deck chunks; AI answer is asker-only; timeout/failure creates pending queue item; unresolved feedback keeps/creates pending queue item; duplicate questions are merged; source-boundary regressions exclude speaker notes/script/transcript/raw audio.
+- Likely files: `services/python-worker/app/main.py`, `services/python-worker/tests/*`, `packages/shared/src/interactions/*`, `apps/api/src/database/migrations/*`, `apps/api/src/presentation-sessions/*`, `apps/web/src/features/audience/*`.
+- Verification plan: Python worker tests, shared AI answer schema tests, API mocked worker tests, web AI answer/unresolved tests, `pnpm audience:checkpoint`.
+- Major risks: full embedding semantic merge is represented by deterministic exact-text merge placeholder in this milestone and can be expanded later without schema break.
+- Resume checkpoint snapshot:
+  - Current branch: `feature/audience-m07-ai-qna`
+  - Next milestone: 7
+  - Resume first checks: inspect AI Q&A source boundary rules, Python worker app, and presentation session Q&A service before editing.
+
+## Milestone 7 Complete - 2026-07-05
+
+- Milestone branch: `feature/audience-m07-ai-qna`
+- Local commits:
+  - `17f902e` `feat: 청중 AI 질문 답변 추가`
+- Merged into `feature/audience`: pending local merge
+- Change summary: added AI answer schemas, selected reference storage, `audience_question_answers` migration, Python worker `/qna/answer`, API 5-second worker call with timeout/failure storage, asker-only answer recovery and feedback endpoints, unresolved escalation, and audience AI answer display.
+- Acceptance criteria evidence: worker request model includes only public slide context and selected reference ids; API stores answer/failure rows per question/audience; answer recovery requires the same audience token; unresolved feedback sets escalation/pending queue state; AI Q&A feature dependency was already normalized by M4 feature settings.
+- Self-review:
+  - Correctness: API tests mock worker success and verify answer row persistence; migration tests cover selected references and answer table; web API tests cover private answer fetch and feedback; Python endpoint compiles and has pytest tests added.
+  - Security/privacy: no speaker notes, raw transcript, raw audio, presenter script, token, cookie, or file base64 fields are accepted by worker request schemas or audience answer payloads.
+  - Contract/schema compatibility: shared worker/answer/feedback schemas back API and web response shapes.
+  - Architecture boundary: AI runtime is isolated behind Python worker and API service call; M7 adds answer storage without changing M6 question queue contract.
+  - Missing test risk: true embedding merge is represented as exact/group metadata placeholder; Python pytest could not run because `uv` and bundled pytest are unavailable in this environment.
+- Verification:
+  - `pnpm --filter @orbit/shared test -- src/interactions/interaction.schema.test.ts`: pass
+  - `pnpm --filter @orbit/api test -- src/presentation-sessions/presentation-sessions.service.spec.ts src/database/migrations/2026070503000-CreateAudienceQuestionAnswers.spec.ts`: pass
+  - `pnpm --filter @orbit/web test -- src/features/audience/AudienceEntrance.test.tsx src/features/audience/audienceApi.test.ts`: pass
+  - `pnpm --filter @orbit/shared lint`: pass
+  - `pnpm --filter @orbit/api lint`: pass
+  - `pnpm --filter @orbit/web lint`: pass
+  - `/Users/donghyunkim/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 -m py_compile services/python-worker/app/main.py services/python-worker/tests/test_qna.py`: pass
+  - `cd services/python-worker && uv run pytest tests/test_qna.py`: not run; `uv` command is unavailable in this shell.
+- Remaining risks or next milestone carryover: run Python pytest with the project-managed `uv` environment; expand exact-text merge placeholder to embedding merge if needed after worker dependency is available.
+- Resume checkpoint snapshot:
+  - Current branch: `feature/audience`
+  - Next milestone: 8
+  - Resume first checks: read Milestone 8 plan, confirm `feature/audience` status, and implement reactions.
 
 ## Progress Entry Template
 

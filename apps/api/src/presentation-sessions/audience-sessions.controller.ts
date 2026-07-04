@@ -202,6 +202,40 @@ export class AudienceSessionsController {
     });
   }
 
+  @Get(":sessionId/audience/questions/:questionId/answer")
+  async getQuestionAnswer(
+    @Param("sessionId") sessionId: string,
+    @Param("questionId") questionId: string,
+    @Req() request: SignedCookieRequest,
+  ) {
+    const { payload, token } = this.requireAudienceAccess(sessionId, request);
+
+    return this.presentationSessionsService.getAudienceQuestionAnswer({
+      sessionId,
+      audienceId: payload.audienceId,
+      tokenHash: hashAudienceAccessToken(this.config, token),
+      questionId,
+    });
+  }
+
+  @Post(":sessionId/audience/questions/:questionId/feedback")
+  async updateQuestionFeedback(
+    @Param("sessionId") sessionId: string,
+    @Param("questionId") questionId: string,
+    @Body() body: unknown,
+    @Req() request: SignedCookieRequest,
+  ) {
+    const { payload, token } = this.requireAudienceAccess(sessionId, request);
+
+    return this.presentationSessionsService.updateAiAnswerFeedback({
+      sessionId,
+      audienceId: payload.audienceId,
+      tokenHash: hashAudienceAccessToken(this.config, token),
+      questionId,
+      body: body ?? {},
+    });
+  }
+
   private async tryGetExistingAccess(
     sessionId: string,
     request: SignedCookieRequest,

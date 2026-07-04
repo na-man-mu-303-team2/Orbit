@@ -276,6 +276,22 @@
   margin: 0;
 }
 
+.audience-ai-answer {
+  background: #ffffff;
+  border: 1px solid #dbe3ee;
+  border-radius: 7px;
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+}
+
+.audience-ai-answer p {
+  color: #0f172a;
+  font-size: 0.84rem;
+  line-height: 1.45;
+  margin: 0;
+}
+
 .audience-participant-label {
   color: #0f172a;
   font-weight: 700;

@@ -8,6 +8,8 @@ import {
   submitAudienceInteractionResponse,
   submitAudienceQuestion,
   fetchAudienceQuestionStatus,
+  fetchAudienceQuestionAnswer,
+  updateAiAnswerFeedback,
 } from "./audienceApi";
 
 describe("audience API", () => {
@@ -295,5 +297,57 @@ describe("audience API", () => {
         questionId: "question_00000000-0000-4000-8000-000000000001",
       }),
     ).resolves.toMatchObject({ question: { status: "pending" } });
+  });
+
+  it("fetches private AI answers and sends unresolved feedback", async () => {
+    const payload = {
+      question: {
+        questionId: "question_00000000-0000-4000-8000-000000000001",
+        questionGroupId: "question_00000000-0000-4000-8000-000000000001",
+        sessionId: "session_1",
+        audienceId: "audience_00000000-0000-4000-8000-000000000001",
+        text: "질문입니다",
+        status: "pending",
+        submittedAt: "2026-07-05T00:00:00.000Z",
+        answeredAt: null,
+      },
+      answer: {
+        questionId: "question_00000000-0000-4000-8000-000000000001",
+        sessionId: "session_1",
+        audienceId: "audience_00000000-0000-4000-8000-000000000001",
+        answerText: "AI 답변",
+        sourceReferences: ["file_1"],
+        confidence: 0.82,
+        failureReason: null,
+        feedback: null,
+        escalatedToPresenter: false,
+        createdAt: "2026-07-05T00:00:00.000Z",
+      },
+    };
+    const fetcher = vi.fn(
+      async (_input: RequestInfo | URL, init?: RequestInit) => {
+        if (init?.method === "POST") {
+          expect(JSON.parse(String(init.body))).toEqual({
+            feedback: "unresolved",
+          });
+        }
+        return new Response(JSON.stringify(payload));
+      },
+    );
+    vi.stubGlobal("fetch", fetcher);
+
+    await expect(
+      fetchAudienceQuestionAnswer({
+        sessionId: "session_1",
+        questionId: "question_00000000-0000-4000-8000-000000000001",
+      }),
+    ).resolves.toMatchObject({ answer: { answerText: "AI 답변" } });
+    await expect(
+      updateAiAnswerFeedback({
+        sessionId: "session_1",
+        questionId: "question_00000000-0000-4000-8000-000000000001",
+        feedback: "unresolved",
+      }),
+    ).resolves.toMatchObject({ answer: { sourceReferences: ["file_1"] } });
   });
 });

@@ -15,12 +15,14 @@ import { type FormEvent, useEffect, useMemo, useState } from "react";
 
 import {
   fetchAudienceActiveInteraction,
+  fetchAudienceQuestionAnswer,
   fetchAudienceState,
   fetchAudienceMe,
   joinAudienceSession,
   lookupAudienceSession,
   submitAudienceInteractionResponse,
   submitAudienceQuestion,
+  updateAiAnswerFeedback,
 } from "./audienceApi";
 import { audienceCopy } from "./audienceCopy";
 import {
@@ -481,6 +483,7 @@ function getAudienceActiveCards(features: AudienceFeatureSettings | null) {
 function AudienceQnaCard({ sessionId }: { sessionId: string }) {
   const [questionText, setQuestionText] = useState("");
   const [question, setQuestion] = useState<AudienceQuestion | null>(null);
+  const [answerText, setAnswerText] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -493,9 +496,35 @@ function AudienceQnaCard({ sessionId }: { sessionId: string }) {
       });
       setQuestion(response.question);
       setQuestionText("");
+      const answer = await fetchAudienceQuestionAnswer({
+        sessionId,
+        questionId: response.question.questionId,
+      });
+      setAnswerText(answer.answer?.answerText ?? "");
     } catch (error) {
       setErrorMessage(
         error instanceof Error ? error.message : audienceCopy["qna.error.rateLimited"],
+      );
+    }
+  }
+
+  async function handleUnresolved() {
+    if (!question) {
+      return;
+    }
+
+    setErrorMessage("");
+    try {
+      await updateAiAnswerFeedback({
+        sessionId,
+        questionId: question.questionId,
+        feedback: "unresolved",
+      });
+      setQuestion({ ...question, status: "pending" });
+      setAnswerText(audienceCopy["ai.answer.escalated"]);
+    } catch (error) {
+      setErrorMessage(
+        error instanceof Error ? error.message : audienceCopy["ai.answer.escalated"],
       );
     }
   }
@@ -524,6 +553,14 @@ function AudienceQnaCard({ sessionId }: { sessionId: string }) {
             ? "발표자가 답변한 질문입니다."
             : "발표자 대기열에 질문을 전달했습니다."}
         </p>
+      ) : null}
+      {answerText ? (
+        <div className="audience-ai-answer" role="status">
+          <p>{answerText}</p>
+          <button type="button" onClick={() => void handleUnresolved()}>
+            {audienceCopy["ai.answer.unresolvedCta"]}
+          </button>
+        </div>
       ) : null}
       {errorMessage ? (
         <p className="audience-error" role="alert">

@@ -2,6 +2,7 @@ import type {
   AudienceActiveInteractionResponse,
   AudienceJoinResponse,
   AudienceQuestionResponse,
+  AudienceQuestionAnswerResponse,
   AudienceSessionLookupResponse,
   AudienceStateResponse,
   InteractionAnswer,
@@ -183,6 +184,53 @@ export async function fetchAudienceQuestionStatus(args: {
   }
 
   return response.json() as Promise<AudienceQuestionResponse>;
+}
+
+export async function fetchAudienceQuestionAnswer(args: {
+  sessionId: string;
+  questionId: string;
+}): Promise<AudienceQuestionAnswerResponse> {
+  const response = await fetch(
+    `/api/v1/presentation-sessions/${encodeURIComponent(
+      args.sessionId,
+    )}/audience/questions/${encodeURIComponent(args.questionId)}/answer`,
+    {
+      credentials: "include",
+      method: "GET",
+    },
+  );
+
+  if (!response.ok) {
+    throw await readAudienceError(response);
+  }
+
+  return response.json() as Promise<AudienceQuestionAnswerResponse>;
+}
+
+export async function updateAiAnswerFeedback(args: {
+  sessionId: string;
+  questionId: string;
+  feedback: "resolved" | "unresolved";
+}): Promise<AudienceQuestionAnswerResponse> {
+  const response = await fetch(
+    `/api/v1/presentation-sessions/${encodeURIComponent(
+      args.sessionId,
+    )}/audience/questions/${encodeURIComponent(args.questionId)}/feedback`,
+    {
+      body: JSON.stringify({ feedback: args.feedback }),
+      credentials: "include",
+      headers: {
+        "content-type": "application/json",
+      },
+      method: "POST",
+    },
+  );
+
+  if (!response.ok) {
+    throw await readAudienceError(response);
+  }
+
+  return response.json() as Promise<AudienceQuestionAnswerResponse>;
 }
 
 async function readAudienceError(response: Response) {
