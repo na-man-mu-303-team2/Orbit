@@ -8,8 +8,8 @@ The top-level `## Current State` and `## Resume Checkpoint` sections are the sou
 
 ## Current State
 
-- Last completed milestone: 2
-- Next milestone: 3
+- Last completed milestone: 3
+- Next milestone: 4
 - Integration branch: `feature/audience`
 - Current expected branch: `feature/audience`
 - Goal status: in progress
@@ -17,15 +17,15 @@ The top-level `## Current State` and `## Resume Checkpoint` sections are the sou
 ## Resume Checkpoint
 
 - Current branch: `feature/audience`
-- Next milestone: 3
+- Next milestone: 4
 - Resume first checks:
   - Run `git status --short --branch`.
   - Read `docs/plans/audience-engagement-execution-protocol.md`.
-  - Read Milestone 3 in `docs/plans/audience-engagement-implementation-plan.md`.
-  - Read relevant product-plan sections for realtime recovery, slide/effect sync, mobile render gate, storage, and privacy boundaries.
-  - Read `docs/contracts.md`, `packages/shared/src/realtime/websocket.schema.ts`, and relevant audience schemas before editing realtime payloads.
+  - Read Milestone 4 in `docs/plans/audience-engagement-implementation-plan.md`.
+  - Read relevant product-plan sections for presenter feature controls, setup, selected interactions, survey draft status, AI reference selection, and disabled feature hiding.
+  - Read shared audience feature schemas and existing presenter/editor UI patterns before editing controls.
 - Blocked: no
-- Notes: Milestones 1-2 implementation was already present on `feature/audience`; progress was recovered after verification.
+- Notes: Milestones 1-3 implementation was already present on `feature/audience`; progress was recovered after verification.
 
 ## Milestone Log
 
@@ -106,6 +106,47 @@ The top-level `## Current State` and `## Resume Checkpoint` sections are the sou
   - Current branch: `feature/audience`
   - Next milestone: 3
   - Resume first checks: read Milestone 3 plan, confirm `feature/audience` status, and verify realtime gateway/state files before editing.
+
+## Milestone 3 Start - 2026-07-05
+
+- Branch: `feature/audience-m03-realtime-state`
+- Scope: audience realtime contracts, gateway rooms, state snapshot persistence, REST recovery, presenter slide/effect publish, audience reconnect handling, and image-first slide shell fallback.
+- Acceptance criteria: current slide/effect state after join; realtime updates; reconnect restores final state; audience payload excludes presenter-only fields; assistive status text for slide/reconnect state.
+- Likely files: `apps/api/src/realtime/audience-realtime.gateway.ts`, `apps/api/src/presentation-sessions/*`, `packages/realtime/src/index.ts`, `apps/web/src/features/audience/*`, `apps/web/src/features/slides/rendering/*`, `apps/web/src/features/rehearsal/presenter/*`.
+- Verification plan: realtime gateway tests, API snapshot endpoint tests, web audience recovery tests, Playwright presenter/two-audience smoke when browser environment is available.
+- Major risks: 2-second mobile render gate and real multi-client browser behavior require final E2E/browser verification.
+- Resume checkpoint snapshot:
+  - Current branch: `feature/audience-m03-realtime-state`
+  - Next milestone: 3
+  - Resume first checks: inspect realtime payload schemas, gateway room auth, and audience reconnect logic before merge.
+
+## Milestone 3 Complete - 2026-07-05
+
+- Milestone branch: `feature/audience-m03-realtime-state`
+- Local commits:
+  - `850b8e5` `feat: 청중 실시간 상태 계약 추가`
+  - `9dfbfd0` `feat: 청중 실시간 상태 API 추가`
+  - `58eaae6` `feat: 청중 실시간 화면 복구 추가`
+  - `1689693` `chore: 청중 실시간 상태 병합`
+- Merged into `feature/audience`: yes
+- Change summary: added audience realtime room helpers and shared event payload schemas, `AudienceRealtimeGateway`, REST state recovery, persisted realtime state updates, audience websocket client, presenter publisher, and image-first audience slide shell fallback.
+- Acceptance criteria evidence: gateway tests validate audience/private room joins and authorization; service tests validate safe state persistence and event append; web tests validate reconnect/status updates and slide state rendering; shared realtime tests reject unsafe audience payloads.
+- Self-review:
+  - Correctness: gateway and REST recovery paths are covered by unit tests; audience shell uses persisted state when websocket reconnects.
+  - Security/privacy: realtime payload schemas reuse `audienceSafePayloadSchema` and service rejects unsafe effect payloads before persistence/broadcast.
+  - Contract/schema compatibility: room IDs and websocket event names are shared across `packages/realtime`, API gateway, and web clients.
+  - Architecture boundary: realtime gateway is separate from the existing collaboration gateway and uses audience session rooms.
+  - Missing test risk: Playwright two-audience smoke and real mobile 2-second display check were not run during checkpoint recovery.
+- Verification:
+  - `pnpm --filter @orbit/api test -- src/realtime/audience-realtime.gateway.spec.ts src/presentation-sessions/presentation-sessions.service.spec.ts`: pass
+  - `pnpm --filter @orbit/web test -- src/features/audience/audienceRealtime.test.ts src/features/audience/AudienceEntrance.test.tsx src/features/slides/rendering/ReadOnlySlideCanvas.test.tsx`: pass
+  - `pnpm --filter @orbit/realtime test`: pass
+  - Playwright presenter/two-audience smoke: not run; deferred to Milestone 11 hardening.
+- Remaining risks or next milestone carryover: run browser/mobile render gate verification once the full flow is assembled.
+- Resume checkpoint snapshot:
+  - Current branch: `feature/audience`
+  - Next milestone: 4
+  - Resume first checks: read Milestone 4 plan, confirm `feature/audience` status, and verify feature settings UI/API before editing.
 
 ## Progress Entry Template
 
