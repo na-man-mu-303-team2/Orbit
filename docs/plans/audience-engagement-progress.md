@@ -8,24 +8,24 @@ The top-level `## Current State` and `## Resume Checkpoint` sections are the sou
 
 ## Current State
 
-- Last completed milestone: 9
-- Next milestone: 10
+- Last completed milestone: 10
+- Next milestone: 11
 - Integration branch: `feature/audience`
-- Current expected branch: `feature/audience-m10-results`
+- Current expected branch: `feature/audience`
 - Goal status: in progress
 
 ## Resume Checkpoint
 
-- Current branch: `feature/audience-m10-results`
-- Next milestone: 10
+- Current branch: `feature/audience`
+- Next milestone: 11
 - Resume first checks:
   - Run `git status --short --branch`.
   - Read `docs/plans/audience-engagement-execution-protocol.md`.
-  - Read Milestone 10 in `docs/plans/audience-engagement-implementation-plan.md`.
-  - Read relevant product-plan sections for presenter results, Q&A queue, reaction aggregates, survey aggregate/individual results, and audience access boundaries.
-  - Read existing interaction, question, reaction, and survey storage/query helpers before adding report endpoints.
+  - Read Milestone 11 in `docs/plans/audience-engagement-implementation-plan.md`.
+  - Read relevant product-plan sections for final hardening, accessibility, browser smoke, and launch readiness.
+  - Verify `feature/audience` is clean before creating the Milestone 11 branch.
 - Blocked: no
-- Notes: Milestone 10 implementation is active.
+- Notes: Milestone 10 is locally merged; Milestone 11 hardening is next.
 
 ## Milestone Log
 
@@ -413,6 +413,37 @@ The top-level `## Current State` and `## Resume Checkpoint` sections are the sou
   - Current branch: `feature/audience-m10-results`
   - Next milestone: 10
   - Resume first checks: inspect existing result aggregation, Q&A/survey/reaction storage, presenter panel, and CSV export behavior before editing.
+
+## Milestone 10 Complete - 2026-07-05
+
+- Milestone branch: `feature/audience-m10-results`
+- Local commits:
+  - `5578443` `feat: 청중 결과 리포트 추가`
+  - `9955d9a` `chore: 청중 결과 마일스톤 병합`
+- Merged into `feature/audience`: yes
+- Change summary: added shared anonymous aggregate report and session-results contracts, `audience_aggregate_reports` migration and registration, presenter results endpoint, preliminary report generation on session end, final aggregate generation during retention cleanup, raw audience data cleanup service path, survey CSV gone guard after cleanup, presenter results API client, and accessible text summaries for Q&A, reactions, interactions, survey response counts, and individual survey responses.
+- Acceptance criteria evidence: presenter results are exposed only through the authenticated project-scoped presentation-session controller; no audience presenter-results route was added; `exportSessionSurveyCsv` returns `GoneException` when aggregate raw data deletion is marked; cleanup deletes raw audience participant/event/question/answer/interaction/survey rows while retaining anonymous `audience_aggregate_reports`; web results summaries render text labels for aggregate totals.
+- Self-review:
+  - Correctness: tests cover report schema safety, migration SQL, presenter route delegation, aggregate results, survey response listing, CSV gone behavior, and retention cleanup retaining the aggregate.
+  - Security/privacy: aggregate report payloads are parsed through `audienceSafePayloadSchema`; presenter results endpoint requires project read access; raw cleanup removes contact-bearing survey responses and participant identifiers while leaving anonymous counts.
+  - Contract/schema compatibility: API and web use shared `audienceAggregateReportSchema` and `sessionResultsResponseSchema`.
+  - Architecture boundary: reporting stays in presentation-sessions service/controller and M10 report table; cleanup is exposed as a service path without adding deployment/scheduler behavior outside the milestone.
+  - Missing test risk: real DB migration run/revert could not run because Docker daemon is unavailable; full charting/browser E2E remains for Milestone 11 hardening.
+- Verification:
+  - `pnpm --filter @orbit/shared test -- src/interactions/interaction.schema.test.ts`: pass
+  - `pnpm --filter @orbit/api test -- src/database/migrations/2026070505000-CreateAudienceAggregateReports.spec.ts src/presentation-sessions/presentation-sessions.service.spec.ts src/presentation-sessions/presentation-sessions.controller.spec.ts`: pass
+  - `pnpm --filter @orbit/web test -- src/features/audience/AudiencePresenterPanel.test.tsx src/features/editor/audience-link/audienceLinkApi.test.ts`: pass
+  - `pnpm --filter @orbit/shared lint`: pass
+  - `pnpm --filter @orbit/api lint`: pass
+  - `pnpm --filter @orbit/web lint`: pass
+  - `git diff --check`: pass
+  - `pnpm audience:checkpoint`: pass before completion checkpoint update
+  - `docker compose up -d postgres`: failed because Docker daemon is not running, so `pnpm db:migration:run` and `pnpm db:migration:revert` were not run against a local database.
+- Remaining risks or next milestone carryover: run DB migration run/revert once Docker is available; perform final browser/mobile accessibility and multi-client smoke in Milestone 11.
+- Resume checkpoint snapshot:
+  - Current branch: `feature/audience`
+  - Next milestone: 11
+  - Resume first checks: read Milestone 11 plan, confirm `feature/audience` status, and run final hardening/browser accessibility checks before completion.
 
 ## Progress Entry Template
 
