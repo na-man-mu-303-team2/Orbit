@@ -14,6 +14,12 @@ describe("jobTypeSchema", () => {
     );
   });
 
+  it("accepts AI template deck generation jobs", () => {
+    expect(jobTypeSchema.parse("ai-template-deck-generation")).toBe(
+      "ai-template-deck-generation",
+    );
+  });
+
   it("accepts PPTX OOXML sync jobs", () => {
     expect(jobTypeSchema.parse("pptx-ooxml-sync")).toBe("pptx-ooxml-sync");
   });

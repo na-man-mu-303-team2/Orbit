@@ -798,6 +798,71 @@ TemplateBlueprint optional OOXML tracking fields:
 - `slots[].source.shapeId`
 - `slots[].source.relationshipId`
 
+## AI template deck generation contract
+
+Home screen AI generation uses one master job to combine content references
+with a PPTX design template. The worker runs content extraction and PPTX OOXML
+template conversion in parallel, then generates a deck, applies generated text
+back into the PPTX package, and saves the final deck for the editor.
+
+API:
+
+- `POST /api/v1/projects/:projectId/jobs/ai-template-deck-generation`
+- Job type: `ai-template-deck-generation`
+- Queue name: `ai-template-deck-generation`
+
+Request:
+
+```json
+{
+  "topic": "발표 주제",
+  "prompt": "내용 지시사항",
+  "designPrompt": "디자인 지시사항",
+  "targetDurationMinutes": 10,
+  "slideCountRange": { "min": 5, "max": 8 },
+  "template": "default",
+  "metadata": {
+    "audience": "general",
+    "purpose": "inform",
+    "tone": "professional"
+  },
+  "design": {
+    "visualRhythm": "auto",
+    "densityTarget": "medium",
+    "mediaPolicy": "balanced",
+    "layoutDiversity": "stable"
+  },
+  "assets": [
+    { "fileId": "file_content_1", "role": "content" },
+    { "fileId": "file_design_1", "role": "design" }
+  ]
+}
+```
+
+Rules:
+
+- `assets[].role` is `content`, `design`, or `both`.
+- Exactly one `design` or `both` asset is required.
+- The design asset must be an uploaded PPTX with `purpose: "pptx-import"`.
+- Content assets are sent through `/documents/parse` and become
+  `references`/`referenceKeywords` for `/ai/generate-deck`.
+- The design PPTX is sent through `/ai/pptx-ooxml-generation`; the final
+  generated text is applied through `/ai/pptx-ooxml-apply-slot-texts`.
+
+Job result:
+
+```json
+{
+  "deckId": "deck_ai_project_1",
+  "templateId": "template_file_design_1",
+  "sourceFileId": "file_design_1",
+  "currentPackageFileId": "file_current_package",
+  "contentReferenceFileIds": ["file_content_1"],
+  "qualityReport": "{ QualityReport }",
+  "warnings": []
+}
+```
+
 ## PPTX OOXML sync contract
 
 Deck patch storage succeeds immediately. If the deck has an OOXML-backed
@@ -1058,6 +1123,9 @@ PPTX import/export, 참고자료 추출, AI 생성, 리허설 STT, 최종 보고
 - `deck-export`
 - `reference-extract`
 - `ai-deck-generation`
+- `ai-template-deck-generation`
+- `pptx-ooxml-generation`
+- `pptx-ooxml-sync`
 - `worker-health-check`
 - `rehearsal-stt`
 - `final-report-generation`

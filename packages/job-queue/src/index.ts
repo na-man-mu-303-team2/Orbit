@@ -3,8 +3,10 @@ import {
   JobType,
   demoIds,
   generateDeckRequestSchema,
+  aiTemplateDeckGenerationRequestSchema,
   jobSchema,
   nowIso,
+  type AiTemplateDeckGenerationRequest,
   type PptxOoxmlGenerationRequest,
   type GenerateDeckRequest,
 } from "@orbit/shared";
@@ -32,6 +34,8 @@ export const rehearsalSttQueueName = "rehearsal-stt";
 export const rehearsalSttJobName = "rehearsal-stt";
 export const generateDeckQueueName = "generate-deck";
 export const generateDeckJobName = "generate-deck";
+export const aiTemplateDeckGenerationQueueName = "ai-template-deck-generation";
+export const aiTemplateDeckGenerationJobName = "ai-template-deck-generation";
 export const pptxImportQueueName = "pptx-import";
 export const pptxImportJobName = "pptx-import";
 export const pptxOoxmlGenerationQueueName = "pptx-ooxml-generation";
@@ -79,6 +83,18 @@ export interface GenerateDeckBullMqPayload {
 }
 
 export interface EnqueueGenerateDeckJobInput extends GenerateDeckBullMqPayload {
+  driver: "bullmq" | "sqs";
+  redisUrl: string;
+}
+
+export interface AiTemplateDeckGenerationBullMqPayload {
+  jobId: string;
+  projectId: string;
+  request: AiTemplateDeckGenerationRequest;
+}
+
+export interface EnqueueAiTemplateDeckGenerationJobInput
+  extends AiTemplateDeckGenerationBullMqPayload {
   driver: "bullmq" | "sqs";
   redisUrl: string;
 }
@@ -191,6 +207,28 @@ export async function enqueueGenerateDeckJob(
       projectId: input.projectId,
       request: generateDeckRequestSchema.parse(input.request),
     } satisfies GenerateDeckBullMqPayload);
+  } finally {
+    await queue.close();
+  }
+}
+
+export async function enqueueAiTemplateDeckGenerationJob(
+  input: EnqueueAiTemplateDeckGenerationJobInput,
+): Promise<void> {
+  if (input.driver === "sqs") {
+    throw new Error("SqsJobQueue adapter is not implemented yet.");
+  }
+
+  const queue = new Queue(aiTemplateDeckGenerationQueueName, {
+    connection: redisConnectionOptions(input.redisUrl),
+  });
+
+  try {
+    await queue.add(aiTemplateDeckGenerationJobName, {
+      jobId: input.jobId,
+      projectId: input.projectId,
+      request: aiTemplateDeckGenerationRequestSchema.parse(input.request),
+    } satisfies AiTemplateDeckGenerationBullMqPayload);
   } finally {
     await queue.close();
   }
