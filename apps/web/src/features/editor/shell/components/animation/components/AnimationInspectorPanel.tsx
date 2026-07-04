@@ -5,6 +5,7 @@ import { AnimationExistingList } from "./AnimationExistingList";
 import { AnimationInspectorEmptyState } from "./AnimationInspectorEmptyState";
 import { AnimationPanelComposerEmpty } from "./AnimationPanelComposerEmpty";
 import { AnimationSelectionSummary } from "./AnimationSelectionSummary";
+import { AnimationSlideOverview } from "./AnimationSlideOverview";
 import type { AnimationEditorPanelProps } from "../types";
 import { useAnimationInspectorModel } from "../hooks/useAnimationInspectorModel";
 
@@ -13,8 +14,12 @@ export function AnimationInspectorPanel(props: AnimationEditorPanelProps) {
     animations,
     canCreateAnimation,
     element,
+    preferredAnimationId,
+    slideAnimations,
+    slideElements,
     onAddAnimation,
     onDeleteAnimation,
+    onSelectSlideAnimation,
     showIds,
     onUpdateAnimation
   } = props;
@@ -29,10 +34,22 @@ export function AnimationInspectorPanel(props: AnimationEditorPanelProps) {
     startCreating,
     summary,
     updateDraft
-  } = useAnimationInspectorModel(animations);
+  } = useAnimationInspectorModel(animations, preferredAnimationId);
 
   if (!element) {
-    return <AnimationInspectorEmptyState />;
+    return slideAnimations.length > 0 ? (
+      <section className="property-panel animation-inspector-panel">
+        <AnimationSlideOverview
+          animations={slideAnimations}
+          elements={slideElements}
+          focusedAnimationId={preferredAnimationId}
+          showIds={showIds}
+          onSelectAnimation={onSelectSlideAnimation}
+        />
+      </section>
+    ) : (
+      <AnimationInspectorEmptyState />
+    );
   }
 
   return (

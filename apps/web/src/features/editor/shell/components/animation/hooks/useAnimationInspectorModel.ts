@@ -7,9 +7,12 @@ import {
 import { useAnimationDrafts } from "./useAnimationDrafts";
 import { useAnimationPanelState } from "./useAnimationPanelState";
 
-export function useAnimationInspectorModel(animations: DeckAnimation[]) {
+export function useAnimationInspectorModel(
+  animations: DeckAnimation[],
+  preferredAnimationId?: string | null
+) {
   const { draftByType, updateDraft } = useAnimationDrafts();
-  const panelState = useAnimationPanelState(animations);
+  const panelState = useAnimationPanelState(animations, preferredAnimationId);
   const summary = buildAnimationSummary(animations, {
     emptyLabel: "미설정",
     multiDetail: (primaryLabel, count) =>

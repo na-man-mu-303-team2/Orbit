@@ -11,4 +11,5 @@ export { AnimationRangeField } from "./AnimationRangeField";
 export { AnimationSelectionSummary } from "./AnimationSelectionSummary";
 export { AnimationSidePanel } from "./AnimationSidePanel";
 export { AnimationSidePanelFrame } from "./AnimationSidePanelFrame";
+export { AnimationSlideOverview } from "./AnimationSlideOverview";
 export { AnimationTimingFields } from "./AnimationTimingFields";

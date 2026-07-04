@@ -860,6 +860,8 @@ export function EditorShell(props: { projectId?: string }) {
   const [isAudienceLinkModalOpen, setIsAudienceLinkModalOpen] = useState(false);
   const [isExitConfirmOpen, setIsExitConfirmOpen] = useState(false);
   const [isExitSaving, setIsExitSaving] = useState(false);
+  const [animationPanelFocusedAnimationId, setAnimationPanelFocusedAnimationId] =
+    useState<string | null>(null);
   const [lastPresenceAt, setLastPresenceAt] = useState<string | null>(null);
   const [socketErrorMessage, setSocketErrorMessage] = useState("");
   const [socketId, setSocketId] = useState("");
@@ -1111,19 +1113,26 @@ export function EditorShell(props: { projectId?: string }) {
     selectedElementIds.length === 1
       ? selectedElements.find((element) => element.elementId === selectedElementId) ?? null
       : null;
+  const selectedAnimationPanelElement =
+    selectedElement ??
+    (selectedElementIds.length === 1
+      ? currentSlide?.elements.find(
+          (element) => element.elementId === selectedElementId
+        ) ?? null
+      : null);
   const selectedElementAnimations = useMemo(
     () =>
-      currentSlide && selectedElement
-        ? getElementAnimations(currentSlide, selectedElement.elementId)
+      currentSlide && selectedAnimationPanelElement
+        ? getElementAnimations(currentSlide, selectedAnimationPanelElement.elementId)
         : [],
-    [currentSlide, selectedElement]
+    [currentSlide, selectedAnimationPanelElement]
   );
   const currentSlideAnimationDiagnostics = useMemo(
     () =>
       currentSlide
-        ? validateSlideAnimations(currentSlide, selectedElement?.elementId)
+        ? validateSlideAnimations(currentSlide, selectedAnimationPanelElement?.elementId)
         : null,
-    [currentSlide, selectedElement?.elementId]
+    [currentSlide, selectedAnimationPanelElement?.elementId]
   );
   const {
     canPlay: canPlayCurrentSlideAnimations,
@@ -2105,6 +2114,14 @@ export function EditorShell(props: { projectId?: string }) {
 
   function openAnimationInspector() {
     setIsAnimationPanelOpen(true);
+  }
+
+  function handleSelectSlideAnimationFromPanel(animation: DeckAnimation) {
+    setAnimationPanelFocusedAnimationId(animation.animationId);
+    setEditingElementId(null);
+    setCustomShapeEditElementId(null);
+    setElementContextMenu(null);
+    setSelectedElementIds([animation.elementId]);
   }
 
   function openImageFilePicker(target: ImageUploadTarget) {
@@ -3887,17 +3904,20 @@ export function EditorShell(props: { projectId?: string }) {
           <AnimationSidePanel
             animations={selectedElementAnimations}
             canPlaySlideAnimations={canPlayCurrentSlideAnimations}
-            canCreateAnimation={Boolean(currentSlide && selectedElement)}
-            element={selectedElement}
+            canCreateAnimation={Boolean(currentSlide && selectedAnimationPanelElement)}
+            element={selectedAnimationPanelElement}
             isPlayingSlideAnimations={isPlayingCurrentSlideAnimations}
+            preferredAnimationId={animationPanelFocusedAnimationId}
+            slideAnimations={currentSlideAnimations}
+            slideElements={currentSlide?.elements ?? []}
             onAddAnimation={(draft) => {
-              if (!currentSlide || !selectedElement) {
+              if (!currentSlide || !selectedAnimationPanelElement) {
                 return;
               }
 
               handleAddAnimation(
                 currentSlide.slideId,
-                selectedElement.elementId,
+                selectedAnimationPanelElement.elementId,
                 null,
                 draft
               );
@@ -3913,6 +3933,7 @@ export function EditorShell(props: { projectId?: string }) {
 
               handleDeleteAnimation(currentSlide.slideId, animationId);
             }}
+            onSelectSlideAnimation={handleSelectSlideAnimationFromPanel}
             onUpdateAnimation={(animationId, animation) => {
               if (!currentSlide) {
                 return;
@@ -3995,11 +4016,15 @@ export function EditorShell(props: { projectId?: string }) {
                   이미지
                 </button>
                 <button
-                  className={`tool-button ${selectedElementAnimations.length > 0 ? "active" : ""}`}
-                  disabled={!currentSlide || !selectedElement}
+                  className={`tool-button ${
+                    isAnimationPanelOpen || selectedElementAnimations.length > 0
+                      ? "active"
+                      : ""
+                  }`}
+                  disabled={!currentSlide}
                   type="button"
                   onClick={() => {
-                    if (!currentSlide || !selectedElement) {
+                    if (!currentSlide) {
                       return;
                     }
                     openAnimationInspector();

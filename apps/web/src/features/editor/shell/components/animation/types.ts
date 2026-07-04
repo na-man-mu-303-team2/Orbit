@@ -18,8 +18,12 @@ export type AnimationEditorPanelProps = {
   animations: DeckAnimation[];
   canCreateAnimation: boolean;
   element: DeckElement | null;
+  preferredAnimationId?: string | null;
+  slideAnimations: DeckAnimation[];
+  slideElements: DeckElement[];
   onAddAnimation: (draft: AnimationDraftInput) => void;
   onDeleteAnimation: (animationId: string) => void;
+  onSelectSlideAnimation: (animation: DeckAnimation) => void;
   onUpdateAnimation: (
     animationId: string,
     patch: Partial<DeckAnimation>

@@ -19,12 +19,16 @@ export function AnimationSidePanel(props: AnimationSidePanelProps) {
     canCreateAnimation,
     element,
     isPlayingSlideAnimations,
+    preferredAnimationId,
+    slideAnimations,
+    slideElements,
     onAddAnimation,
     showIds,
     onClose,
     onPlaySlideAnimations,
     onResizeStart,
     onDeleteAnimation,
+    onSelectSlideAnimation,
     onUpdateAnimation
   } = props;
 
@@ -44,8 +48,12 @@ export function AnimationSidePanel(props: AnimationSidePanelProps) {
         animations={animations}
         canCreateAnimation={canCreateAnimation}
         element={element}
+        preferredAnimationId={preferredAnimationId}
+        slideAnimations={slideAnimations}
+        slideElements={slideElements}
         onAddAnimation={onAddAnimation}
         onDeleteAnimation={onDeleteAnimation}
+        onSelectSlideAnimation={onSelectSlideAnimation}
         showIds={showIds}
         onUpdateAnimation={onUpdateAnimation}
       />

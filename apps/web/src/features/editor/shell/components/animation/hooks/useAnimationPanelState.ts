@@ -3,12 +3,25 @@ import { useEffect, useMemo, useState } from "react";
 
 import type { AnimationPanelMode, SupportedAnimationType } from "../types";
 
-export function useAnimationPanelState(animations: DeckAnimation[]) {
+export function useAnimationPanelState(
+  animations: DeckAnimation[],
+  preferredAnimationId?: string | null
+) {
   const [selectedAnimationId, setSelectedAnimationId] = useState<string | null>(
     animations[0]?.animationId ?? null
   );
   const [creationType, setCreationType] =
     useState<SupportedAnimationType | null>(null);
+
+  useEffect(() => {
+    if (
+      preferredAnimationId &&
+      animations.some((animation) => animation.animationId === preferredAnimationId)
+    ) {
+      setSelectedAnimationId(preferredAnimationId);
+      setCreationType(null);
+    }
+  }, [animations, preferredAnimationId]);
 
   useEffect(() => {
     if (creationType !== null) {
