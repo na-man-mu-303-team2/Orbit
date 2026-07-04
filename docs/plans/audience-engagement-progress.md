@@ -8,8 +8,8 @@ The top-level `## Current State` and `## Resume Checkpoint` sections are the sou
 
 ## Current State
 
-- Last completed milestone: 1
-- Next milestone: 2
+- Last completed milestone: 2
+- Next milestone: 3
 - Integration branch: `feature/audience`
 - Current expected branch: `feature/audience`
 - Goal status: in progress
@@ -17,15 +17,15 @@ The top-level `## Current State` and `## Resume Checkpoint` sections are the sou
 ## Resume Checkpoint
 
 - Current branch: `feature/audience`
-- Next milestone: 2
+- Next milestone: 3
 - Resume first checks:
   - Run `git status --short --branch`.
   - Read `docs/plans/audience-engagement-execution-protocol.md`.
-  - Read Milestone 2 in `docs/plans/audience-engagement-implementation-plan.md`.
-  - Read relevant product-plan sections for entry, identity, privacy, join code, token, and feature rules.
-  - Read `docs/contracts.md` and relevant `packages/shared` schemas before editing shared contracts or API payloads.
+  - Read Milestone 3 in `docs/plans/audience-engagement-implementation-plan.md`.
+  - Read relevant product-plan sections for realtime recovery, slide/effect sync, mobile render gate, storage, and privacy boundaries.
+  - Read `docs/contracts.md`, `packages/shared/src/realtime/websocket.schema.ts`, and relevant audience schemas before editing realtime payloads.
 - Blocked: no
-- Notes: Milestone 1 implementation was already present on `feature/audience`; progress was recovered after verification.
+- Notes: Milestones 1-2 implementation was already present on `feature/audience`; progress was recovered after verification.
 
 ## Milestone Log
 
@@ -67,6 +67,45 @@ The top-level `## Current State` and `## Resume Checkpoint` sections are the sou
   - Current branch: `feature/audience`
   - Next milestone: 2
   - Resume first checks: read Milestone 2 plan, confirm `feature/audience` status, and verify join flow files before editing.
+
+## Milestone 2 Start - 2026-07-05
+
+- Branch: `feature/audience-m02-join-flow`
+- Scope: presenter session preparation, 6-digit join code/QR URL, public `/join` and `/join/:joinCode`, nickname join, signed audience cookie, pre-live waiting state, rejoin, entry close, and join rate limit.
+- Acceptance criteria: presenter can prepare/share session; audience joins before live and waits; same browser restores participant; duplicate nickname is rejected; closed entry blocks new joins but `/me` succeeds; 10/min IP+joinCode rate limit; accessible form labels and errors.
+- Likely files: `apps/api/src/presentation-sessions/*`, `apps/web/src/features/audience/*`, `apps/web/src/pages/audience/*`, `apps/web/src/App.tsx`, `apps/web/src/features/editor/audience-link/*`.
+- Verification plan: API presentation-session tests, web audience entrance and audience-link API tests, manual mobile check when dev server is available.
+- Major risks: signed cookie recovery must not bypass session scoping; duplicate nickname and entry-closed errors must remain user-safe.
+- Resume checkpoint snapshot:
+  - Current branch: `feature/audience-m02-join-flow`
+  - Next milestone: 2
+  - Resume first checks: verify join/rejoin/entry-close API and `/join` UI before merge.
+
+## Milestone 2 Complete - 2026-07-05
+
+- Milestone branch: `feature/audience-m02-join-flow`
+- Local commits:
+  - `dc5218f` `feat: 청중 닉네임 입장 API 추가`
+  - `4f9db82` `feat: 청중 입장 화면 추가`
+  - `a136b97` `chore: 청중 입장 흐름 병합`
+- Merged into `feature/audience`: yes
+- Change summary: added join-code lookup and join endpoints, signed `HttpOnly` audience access cookie handling, participant restore, join rate limiting, `/join` routes, nickname form, waiting state, and editor audience link QR/code updates.
+- Acceptance criteria evidence: `AudienceSessionsController` implements lookup, join, `/audience/me`, and rate limit; `PresentationSessionsService` creates/restores participants and rejects duplicate nicknames/closed entry; `AudienceEntrance` provides `/join` and direct join-code flows with Korean copy, labels, live error regions, and waiting state.
+- Self-review:
+  - Correctness: API tests cover create, join, duplicate nickname, rejoin, entry close, and state recovery; web tests cover join route and audience API behavior.
+  - Security/privacy: audience token is signed and hashed for persistence; audience restore checks session-bound token payload and token hash.
+  - Contract/schema compatibility: join request/response and lookup payloads use shared Zod wrappers.
+  - Architecture boundary: presenter endpoints remain under project-scoped controller; audience endpoints stay under `presentation-sessions` public/audience route group.
+  - Missing test risk: manual two-browser mobile check was not run in this environment.
+- Verification:
+  - `pnpm --filter @orbit/api test -- src/presentation-sessions`: pass
+  - `pnpm --filter @orbit/web test -- src/features/audience/AudienceEntrance.test.tsx src/features/editor/audience-link/audienceLinkApi.test.ts`: pass
+  - Manual mobile check with two browser sessions: not run; no dev server/browser session started for checkpoint recovery.
+- Remaining risks or next milestone carryover: complete manual mobile join/rejoin check during final E2E hardening.
+- Resume checkpoint snapshot:
+  - Current branch: `feature/audience`
+  - Next milestone: 3
+  - Resume first checks: read Milestone 3 plan, confirm `feature/audience` status, and verify realtime gateway/state files before editing.
 
 ## Progress Entry Template
 
