@@ -1,3 +1,5 @@
+import fs from "node:fs";
+import { fileURLToPath } from "node:url";
 import type { ReactNode } from "react";
 import { forwardRef } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -66,6 +68,9 @@ const identity = {
   deckId: p0AnimationDeck.deckId,
   sessionId: "session-presenter-1"
 };
+const presentWindowSourcePath = fileURLToPath(
+  new URL("./PresentWindow.tsx", import.meta.url)
+);
 
 describe("PresentWindow", () => {
   it("shows a Korean error state when opened without a presenter session", () => {
@@ -74,6 +79,7 @@ describe("PresentWindow", () => {
     expect(html).toContain("발표자 화면에서 슬라이드 창을 열어주세요");
     expect(html).not.toContain("첫 문장입니다");
     expect(html).not.toContain("Partial transcript");
+    expectNoAutoAdvancePresenterStatus(html);
   });
 
   it("renders a received sanitized snapshot without presenter-only content", () => {
@@ -106,6 +112,14 @@ describe("PresentWindow", () => {
     expect(html).not.toContain("첫 문장입니다");
     expect(html).not.toContain("두 번째 슬라이드입니다");
     expect(html).not.toContain("Partial transcript");
+    expectNoAutoAdvancePresenterStatus(html);
+  });
+
+  it("does not import presenter-only auto advance status UI", () => {
+    const source = fs.readFileSync(presentWindowSourcePath, "utf8");
+
+    expect(source).not.toContain("AutoAdvanceStatus");
+    expect(source).not.toContain("auto-advance-status");
   });
 
   it("applies full snapshots before state-only updates", () => {
@@ -238,3 +252,11 @@ describe("PresentWindow", () => {
     expect(requestFullscreen).toHaveBeenCalled();
   });
 });
+
+function expectNoAutoAdvancePresenterStatus(html: string) {
+  expect(html).not.toContain("자동 전환까지");
+  expect(html).not.toContain("빌드 2개 남음");
+  expect(html).not.toContain("발표 종료 준비됨");
+  expect(html).not.toContain("수동으로 넘겨주세요");
+  expect(html).not.toContain("auto-advance-status");
+}

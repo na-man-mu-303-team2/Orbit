@@ -4,18 +4,28 @@ import type { ReactNode } from "react";
 import { forwardRef } from "react";
 import { describe, expect, it, vi } from "vitest";
 import {
+  buildAiTemplateDeckGenerationPayload,
+  buildDesignReferences,
   buildGenerateDeckPayload,
+  buildGenerateDeckDesignDirection,
+  buildPptxOoxmlGenerationPayload,
   buildReferenceGenerationInput,
   createGeneratedDeckProject,
   ExtractResultItem,
   GeneratedDeckResult,
+  deckRenderPayloadStorageKey,
   getGeneratedDeckProjectPath,
   getGeneratedDeckProjectTitle,
+  getAiTemplateDeckGenerationJobResult,
   getGenerateDeckJobResult,
+  getPptxOoxmlGeneratedProjectPath,
+  getPptxOoxmlGenerationJobResult,
   getJobResultFiles,
   getRoute,
   mergeGeneratedProjectList,
+  pollJob,
   pollExtractJob,
+  resolveGenerateDeckTargetProject,
   shouldRenderAppFrame
 } from "./App";
 
@@ -75,6 +85,18 @@ describe("App shell routing", () => {
       deckId: "deck_demo_1",
       sessionId: undefined
     });
+  });
+
+  it("keeps the deck render fixture outside the shared navigation shell", () => {
+    const route = getRoute("/__deck-render");
+
+    expect(route).toEqual({ name: "deck-render" });
+    expect(shouldRenderAppFrame(route)).toBe(false);
+    expect(deckRenderPayloadStorageKey).toBe("orbit.deckRenderPayload.v1");
+  });
+
+  it("does not expose the old upload workspace route", () => {
+    expect(getRoute("/upload")).toEqual({ name: "home" });
   });
 });
 
@@ -170,6 +192,167 @@ describe("reference extraction upload flow", () => {
 });
 
 describe("AI deck generation flow", () => {
+  it("builds a PPTX OOXML generation payload without old generate-deck fields", () => {
+    expect(
+      buildPptxOoxmlGenerationPayload({
+        fileId: "file_template",
+        topic: " ORBIT ",
+        prompt: " Keep source package "
+      })
+    ).toEqual({
+      fileId: "file_template",
+      topic: "ORBIT",
+      prompt: "Keep source package"
+    });
+    expect(
+      buildPptxOoxmlGenerationPayload({
+        fileId: "file_template",
+        topic: " ",
+        prompt: ""
+      })
+    ).toEqual({ fileId: "file_template" });
+  });
+
+  it("reads a PPTX OOXML generation job result", () => {
+    const job: Job = {
+      jobId: "job-ooxml",
+      projectId: "project-a",
+      type: "pptx-ooxml-generation",
+      status: "succeeded",
+      progress: 100,
+      message: "PPTX OOXML generation completed.",
+      result: {
+        deckId: "deck_ooxml_file_template",
+        templateId: "template_file_template",
+        sourceFileId: "file_template",
+        currentPackageFileId: "file_current",
+        qualityReport: {
+          compositeScore: 90,
+          metrics: {
+            geometry: 90,
+            text: 90,
+            color: 90,
+            layer: 90,
+            editability: 90,
+            pixelSimilarity: null
+          },
+          weights: {
+            geometry: 25,
+            text: 15,
+            color: 10,
+            layer: 10,
+            editability: 10,
+            pixelSimilarity: 30
+          },
+          editabilityCoverage: 0.9,
+          appliedCap: null,
+          notes: []
+        },
+        warnings: []
+      },
+      error: null,
+      createdAt: "2026-06-27T00:00:00.000Z",
+      updatedAt: "2026-06-27T00:00:01.000Z"
+    };
+
+    expect(getPptxOoxmlGenerationJobResult(job)?.deckId).toBe(
+      "deck_ooxml_file_template"
+    );
+    expect(getPptxOoxmlGeneratedProjectPath("project-a")).toBe(
+      "/project/project-a"
+    );
+  });
+
+  it("builds a home AI template deck payload with file roles", () => {
+    const pptx = new File(["pptx"], "design.pptx", {
+      type: "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+    });
+    const pdf = new File(["pdf"], "content.pdf", { type: "application/pdf" });
+    const uploadedFileIds = new Map([
+      ["content", "file_content"],
+      ["design", "file_design"]
+    ]);
+
+    expect(
+      buildAiTemplateDeckGenerationPayload({
+        topic: " ORBIT ",
+        prompt: " 핵심 메시지 ",
+        designPrompt: " 리포트 톤 ",
+        duration: 12,
+        tone: "confident",
+        uploads: [
+          { id: "content", file: pdf, role: "content" },
+          { id: "design", file: pptx, role: "design" }
+        ],
+        uploadedAssetFileIds: uploadedFileIds
+      })
+    ).toMatchObject({
+      topic: "ORBIT",
+      prompt: "핵심 메시지",
+      designPrompt: "리포트 톤",
+      targetDurationMinutes: 12,
+      metadata: {
+        audience: "general",
+        purpose: "inform",
+        tone: "confident"
+      },
+      assets: [
+        { fileId: "file_content", role: "content" },
+        { fileId: "file_design", role: "design" }
+      ]
+    });
+  });
+
+  it("reads an AI template deck generation job result", () => {
+    const job: Job = {
+      jobId: "job-template",
+      projectId: "project-a",
+      type: "ai-template-deck-generation",
+      status: "succeeded",
+      progress: 100,
+      message: "AI template deck generation completed.",
+      result: {
+        deckId: "deck_ai_project_a",
+        templateId: "template_file_design",
+        sourceFileId: "file_design",
+        currentPackageFileId: "file_current",
+        contentReferenceFileIds: ["file_content"],
+        qualityReport: {
+          compositeScore: 90,
+          metrics: {
+            geometry: 90,
+            text: 90,
+            color: 90,
+            layer: 90,
+            editability: 90,
+            pixelSimilarity: null
+          },
+          weights: {
+            geometry: 25,
+            text: 15,
+            color: 10,
+            layer: 10,
+            editability: 10,
+            pixelSimilarity: 30
+          },
+          editabilityCoverage: 0.9,
+          appliedCap: null,
+          notes: []
+        },
+        warnings: []
+      },
+      error: null,
+      createdAt: "2026-07-04T00:00:00.000Z",
+      updatedAt: "2026-07-04T00:00:01.000Z"
+    };
+
+    expect(getAiTemplateDeckGenerationJobResult(job)).toMatchObject({
+      deckId: "deck_ai_project_a",
+      currentPackageFileId: "file_current",
+      contentReferenceFileIds: ["file_content"]
+    });
+  });
+
   it("builds a generate-deck payload with design direction", () => {
     const payload = buildGenerateDeckPayload({
       topic: "ORBIT",
@@ -185,11 +368,13 @@ describe("AI deck generation flow", () => {
         tone: "professional"
       },
       design: {
+        profile: "executive-report",
         visualRhythm: "auto",
         densityTarget: "medium",
         mediaPolicy: "balanced",
         layoutDiversity: "varied"
       },
+      designReferences: [{ fileId: "file_design_1" }],
       referenceInput: {
         references: [{ fileId: "file_1" }],
         referenceKeywords: [{ text: "Deck" }],
@@ -205,14 +390,43 @@ describe("AI deck generation flow", () => {
       targetDurationMinutes: 10,
       slideCountRange: { min: 5, max: 8 },
       design: {
+        profile: "executive-report",
         visualRhythm: "auto",
         densityTarget: "medium",
         mediaPolicy: "balanced",
         layoutDiversity: "varied"
       },
       references: [{ fileId: "file_1" }],
+      designReferences: [{ fileId: "file_design_1" }],
       referenceKeywords: [{ text: "Deck" }]
     });
+  });
+
+  it("omits a design profile when the profile picker is automatic", () => {
+    expect(
+      buildGenerateDeckDesignDirection({
+        profile: "auto",
+        visualRhythm: "auto",
+        densityTarget: "medium",
+        mediaPolicy: "balanced",
+        layoutDiversity: "varied"
+      })
+    ).toEqual({
+      visualRhythm: "auto",
+      densityTarget: "medium",
+      mediaPolicy: "balanced",
+      layoutDiversity: "varied"
+    });
+
+    expect(
+      buildGenerateDeckDesignDirection({
+        profile: "editorial",
+        visualRhythm: "auto",
+        densityTarget: "medium",
+        mediaPolicy: "balanced",
+        layoutDiversity: "varied"
+      }).profile
+    ).toBe("editorial");
   });
 
   it("defaults an omitted design prompt to an empty string", () => {
@@ -229,11 +443,13 @@ describe("AI deck generation flow", () => {
         tone: "professional"
       },
       design: {
+        profile: "executive-report",
         visualRhythm: "auto",
         densityTarget: "medium",
         mediaPolicy: "balanced",
         layoutDiversity: "varied"
       },
+      designReferences: [],
       referenceInput: {
         references: [],
         referenceKeywords: [],
@@ -243,6 +459,28 @@ describe("AI deck generation flow", () => {
     });
 
     expect(payload.designPrompt).toBe("");
+  });
+
+  it("builds design references from PPTX role uploads", () => {
+    const pptx = new File(["pptx"], "design.pptx", {
+      type: "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+    });
+    const pdf = new File(["pdf"], "content.pdf", { type: "application/pdf" });
+    const uploadedFileIds = new Map([
+      ["design-only", "file_design"],
+      ["both", "file_both"]
+    ]);
+
+    expect(
+      buildDesignReferences(
+        [
+          { id: "content", file: pdf, role: "content" },
+          { id: "design-only", file: pptx, role: "design" },
+          { id: "both", file: pptx, role: "both" }
+        ],
+        uploadedFileIds
+      )
+    ).toEqual([{ fileId: "file_design" }, { fileId: "file_both" }]);
   });
 
   it("keeps a generated project at the top of the project list cache", () => {
@@ -316,6 +554,55 @@ describe("AI deck generation flow", () => {
     expect(getGeneratedDeckProjectTitle("   ")).toBe("AI 덱");
   });
 
+  it("uses a selected project as the generate-deck target", async () => {
+    const selected: Project = {
+      projectId: "project_selected",
+      workspaceId: "workspace_demo_1",
+      title: "Selected",
+      createdBy: "user_demo_1",
+      createdAt: "2026-06-29T00:00:00.000Z"
+    };
+    const fetcher = vi.fn(async () => new Response("unexpected", { status: 500 }));
+
+    await expect(
+      resolveGenerateDeckTargetProject({
+        fetcher,
+        projects: [selected],
+        selectedProjectId: selected.projectId,
+        topic: "새 주제"
+      })
+    ).resolves.toEqual({
+      created: false,
+      project: selected,
+      projectId: selected.projectId
+    });
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it("polls generic jobs through the API job route", async () => {
+    const fetcher = vi.fn(async (_input: RequestInfo | URL) =>
+      new Response(
+        JSON.stringify({
+          jobId: "job_done",
+          projectId: "project_pptx",
+          type: "pptx-import",
+          status: "succeeded",
+          progress: 100,
+          message: "done",
+          result: null,
+          error: null,
+          createdAt: "2026-07-03T00:00:00.000Z",
+          updatedAt: "2026-07-03T00:00:00.000Z"
+        })
+      )
+    );
+
+    await expect(pollJob("job_done", fetcher)).resolves.toMatchObject({
+      jobId: "job_done"
+    });
+    expect(String(fetcher.mock.calls[0][0])).toBe("/api/jobs/job_done");
+  });
+
   it("reads a generated deck job result and renders slide evidence", () => {
     const job: Job = {
       jobId: "job-2",
@@ -354,6 +641,7 @@ describe("AI deck generation flow", () => {
               elements: [],
               keywords: [],
               animations: [],
+              actions: [],
               aiNotes: {
                 emphasisPoints: ["핵심 메시지"],
                 sourceEvidence: [{ fileId: "file_1", note: "근거 후보" }]
@@ -366,7 +654,13 @@ describe("AI deck generation flow", () => {
           passed: true,
           layoutIssues: [],
           contentIssues: [],
-          designIssues: [],
+          designIssues: [
+            {
+              scope: "element",
+              path: "slides.0.elements.0.props.data",
+              message: "근거 데이터가 없어 빈 차트 자리 표시자를 생성했습니다."
+            }
+          ],
           presentationIssues: []
         }
       },
@@ -386,6 +680,9 @@ describe("AI deck generation flow", () => {
     );
     expect(renderToStaticMarkup(<GeneratedDeckResult result={result} />)).toContain(
       "AI가 참고자료/주제 밀도를 기준으로 1장이 적정하다고 판단했습니다."
+    );
+    expect(renderToStaticMarkup(<GeneratedDeckResult result={result} />)).toContain(
+      "근거 데이터가 없어 빈 차트 자리 표시자를 생성했습니다."
     );
   });
 });

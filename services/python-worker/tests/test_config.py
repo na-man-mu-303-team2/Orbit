@@ -51,6 +51,15 @@ def test_openai_model_defaults_are_loaded_from_env() -> None:
     assert config.openai_embedding_model == "text-embedding-3-large"
 
 
+def test_ai_slide_image_review_mode_defaults_to_auto() -> None:
+    config = load_config(VALID_ENV)
+
+    assert config.ai_slide_image_review_mode == "auto"
+
+    with pytest.raises(ConfigError, match="AI_SLIDE_IMAGE_REVIEW_MODE"):
+        load_config({**VALID_ENV, "AI_SLIDE_IMAGE_REVIEW_MODE": "manual"})
+
+
 def test_live_and_report_stt_providers_are_separate_contracts() -> None:
     config = load_config(VALID_ENV)
 
@@ -63,16 +72,27 @@ def test_live_and_report_stt_providers_are_separate_contracts() -> None:
         load_config({**VALID_ENV, "REPORT_STT_PROVIDER": "sherpa"})
 
 
-def test_whisperx_report_stt_is_rejected_until_provider_is_implemented() -> None:
-    with pytest.raises(ConfigError, match="REPORT_STT_PROVIDER"):
-        load_config(
-            {
-                **VALID_ENV,
-                "REPORT_STT_PROVIDER": "whisperx",
-                "WHISPERX_API_URL": "https://whisperx.example.test/transcribe",
-                "WHISPERX_API_KEY": "whisperx-test-key",
-            }
-        )
+def test_whisperx_report_stt_provider_accepts_required_config() -> None:
+    config = load_config(
+        {
+            **VALID_ENV,
+            "REPORT_STT_PROVIDER": "whisperx",
+            "WHISPERX_API_URL": "https://whisperx.example.test/transcribe",
+            "WHISPERX_API_KEY": "whisperx-test-key",
+            "WHISPERX_MODEL": "large-v3",
+            "WHISPERX_TIMEOUT_MS": "45000",
+        }
+    )
+
+    assert config.report_stt_provider == "whisperx"
+    assert config.whisperx_api_url == "https://whisperx.example.test/transcribe"
+    assert config.whisperx_model == "large-v3"
+    assert config.whisperx_timeout_ms == 45_000
+
+
+def test_whisperx_report_stt_requires_endpoint_key_and_model() -> None:
+    with pytest.raises(ConfigError, match="WHISPERX_API_URL"):
+        load_config({**VALID_ENV, "REPORT_STT_PROVIDER": "whisperx"})
 
 
 def test_openai_report_stt_rejects_large_audio_limit() -> None:

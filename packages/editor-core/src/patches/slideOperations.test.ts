@@ -21,7 +21,8 @@ describe("slide operation helpers", () => {
       speakerNotes: "",
       elements: [],
       keywords: [],
-      animations: []
+      animations: [],
+      actions: []
     });
     const result = applyDeckPatch(deck, patch);
 

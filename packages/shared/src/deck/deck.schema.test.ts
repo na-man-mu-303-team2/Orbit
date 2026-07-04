@@ -20,6 +20,7 @@ type DeckValidationInput = {
     createdFrom?: {
       topic: string;
       references: Array<{ fileId: string }>;
+      designReferences?: Array<{ fileId: string }>;
     };
   };
   canvas: {
@@ -50,6 +51,7 @@ type DeckValidationInput = {
       text: string;
       synonyms: string[];
       abbreviations: string[];
+      required?: boolean;
     }>;
     elements: Array<Record<string, unknown>>;
     animations: Array<{
@@ -60,6 +62,26 @@ type DeckValidationInput = {
       durationMs: number;
       delayMs: number;
       easing: string;
+    }>;
+    actions?: Array<{
+      actionId: string;
+      trigger:
+        | {
+            kind: "cue";
+            cue: string;
+          }
+        | {
+            kind: "keyword";
+            keywordId: string;
+          };
+      effect:
+        | {
+            kind: "play-animation";
+            animationId: string;
+          }
+        | {
+            kind: "go-to-next-slide";
+          };
     }>;
   }>;
 };
@@ -124,7 +146,8 @@ const createValidDeck = (): DeckValidationInput => ({
           delayMs: 0,
           easing: "ease-out"
         }
-      ]
+      ],
+      actions: []
     }
   ]
 });
@@ -175,6 +198,16 @@ describe("deckSchema validation", () => {
     expect(deck.targetDurationMinutes).toBe(10);
   });
 
+  it("defaults slide actions to an empty list", () => {
+    const deck = createValidDeck();
+
+    delete deck.slides[0].actions;
+
+    const result = deckSchema.parse(deck);
+
+    expect(result.slides[0].actions).toEqual([]);
+  });
+
   it("accepts explicit deck and slide presenter timing fields", () => {
     const deck = createValidDeck();
 
@@ -187,6 +220,95 @@ describe("deckSchema validation", () => {
     expect(result.slides[0].estimatedSeconds).toBe(90);
   });
 
+  it("accepts cue-driven slide actions", () => {
+    const deck = createValidDeck();
+
+    deck.slides[0].actions = [
+      {
+        actionId: "act_1",
+        trigger: {
+          kind: "cue",
+          cue: "강조"
+        },
+        effect: {
+          kind: "play-animation",
+          animationId: "anim_1"
+        }
+      },
+      {
+        actionId: "act_2",
+        trigger: {
+          kind: "cue",
+          cue: "다음"
+        },
+        effect: {
+          kind: "go-to-next-slide"
+        }
+      }
+    ];
+
+    expectValidDeck(deck);
+  });
+
+  it("accepts keyword-triggered slide actions", () => {
+    const deck = createValidDeck();
+
+    deck.slides[0].actions = [
+      {
+        actionId: "act_1",
+        trigger: {
+          kind: "keyword",
+          keywordId: "kw_1"
+        },
+        effect: {
+          kind: "play-animation",
+          animationId: "anim_1"
+        }
+      }
+    ];
+
+    expectValidDeck(deck);
+  });
+
+  it("rejects slide actions that target missing animations", () => {
+    const deck = createValidDeck();
+
+    deck.slides[0].actions = [
+      {
+        actionId: "act_1",
+        trigger: {
+          kind: "cue",
+          cue: "강조"
+        },
+        effect: {
+          kind: "play-animation",
+          animationId: "anim_missing"
+        }
+      }
+    ];
+
+    expectInvalidDeck(deck);
+  });
+
+  it("rejects keyword-triggered slide actions that target missing keywords", () => {
+    const deck = createValidDeck();
+
+    deck.slides[0].actions = [
+      {
+        actionId: "act_1",
+        trigger: {
+          kind: "keyword",
+          keywordId: "kw_missing"
+        },
+        effect: {
+          kind: "go-to-next-slide"
+        }
+      }
+    ];
+
+    expectInvalidDeck(deck);
+  });
+
   it.each([0, -1, 1.5])(
     "rejects invalid slide estimatedSeconds value %s",
     (estimatedSeconds) => {
@@ -197,6 +319,217 @@ describe("deckSchema validation", () => {
       expectInvalidDeck(deck);
     }
   );
+
+  it("accepts image crop focus controls", () => {
+    const deck = createValidDeck();
+
+    deck.slides[0].elements[0] = {
+      elementId: "el_1",
+      type: "image",
+      role: "media",
+      x: 120,
+      y: 80,
+      width: 640,
+      height: 360,
+      rotation: 0,
+      opacity: 1,
+      zIndex: 0,
+      locked: false,
+      visible: true,
+      props: {
+        alt: "Hero",
+        fit: "cover",
+        focusX: 0.25,
+        focusY: 0.75,
+        src: "/hero.png"
+      }
+    };
+
+    expectValidDeck(deck);
+  });
+
+  it("accepts editable SVG media elements", () => {
+    const deck = createValidDeck();
+
+    deck.slides[0].elements[0] = {
+      elementId: "el_1",
+      type: "svg",
+      role: "media",
+      x: 120,
+      y: 80,
+      width: 320,
+      height: 180,
+      rotation: 0,
+      opacity: 1,
+      zIndex: 0,
+      locked: false,
+      visible: true,
+      props: {
+        alt: "Vector logo",
+        fit: "stretch",
+        focusX: 0.5,
+        focusY: 0.5,
+        src: "/logo.svg"
+      }
+    };
+
+    expectValidDeck(deck);
+  });
+
+  it("accepts editable pattern fill props", () => {
+    const deck = createValidDeck();
+
+    deck.slides[0].elements[0] = {
+      ...deck.slides[0].elements[0],
+      type: "rect",
+      role: "decoration",
+      props: {
+        fill: {
+          type: "pattern",
+          preset: "pct20",
+          foreground: "#111827",
+          background: "#F59E0B"
+        },
+        stroke: "transparent",
+        strokeWidth: 0
+      }
+    };
+
+    expectValidDeck(deck);
+  });
+
+  it("accepts high fidelity PPTX visual props", () => {
+    const deck = createValidDeck();
+
+    deck.slides[0].elements = [
+      {
+        elementId: "el_text",
+        type: "text",
+        role: "title",
+        x: 120,
+        y: 80,
+        width: 640,
+        height: 120,
+        rotation: 0,
+        opacity: 1,
+        zIndex: 0,
+        locked: false,
+        visible: true,
+        props: {
+          text: "Hello World",
+          runs: [
+            {
+              text: "Hello ",
+              fontFamily: "Aptos",
+              fontSize: 36,
+              fontWeight: "bold",
+              color: "#111827"
+            },
+            {
+              text: "World",
+              fontFamily: "Aptos",
+              fontSize: 36,
+              fontWeight: "normal",
+              color: "#2563eb"
+            }
+          ],
+          paragraphs: [
+            {
+              text: "Hello World",
+              runs: [
+                {
+                  text: "Hello ",
+                  fontFamily: "Aptos",
+                  fontSize: 36,
+                  fontWeight: "bold",
+                  color: "#111827"
+                },
+                {
+                  text: "World",
+                  fontFamily: "Aptos",
+                  fontSize: 36,
+                  fontWeight: "normal",
+                  color: "#2563eb"
+                }
+              ],
+              align: "left",
+              lineHeight: 1.15,
+              spaceBefore: 0,
+              spaceAfter: 8,
+              indent: 12
+            }
+          ],
+          bodyInset: {
+            left: 14,
+            right: 14,
+            top: 7,
+            bottom: 7
+          },
+          writingMode: "vertical-270",
+          bullet: {
+            enabled: true,
+            character: "\u2022",
+            indent: 24
+          }
+        }
+      },
+      {
+        elementId: "el_shape",
+        type: "rect",
+        role: "decoration",
+        x: 80,
+        y: 240,
+        width: 400,
+        height: 180,
+        rotation: 0,
+        opacity: 1,
+        zIndex: 1,
+        locked: false,
+        visible: true,
+        props: {
+          fill: {
+            type: "linear-gradient",
+            angle: 90,
+            stops: [
+              { offset: 0, color: "#2563eb", opacity: 1 },
+              { offset: 1, color: "#7c3aed", opacity: 0.75 }
+            ]
+          },
+          stroke: "#111827",
+          strokeWidth: 2,
+          dash: [8, 4],
+          lineCap: "round",
+          lineJoin: "round"
+        }
+      },
+      {
+        elementId: "el_image",
+        type: "image",
+        role: "media",
+        x: 520,
+        y: 240,
+        width: 320,
+        height: 180,
+        rotation: 0,
+        opacity: 1,
+        zIndex: 2,
+        locked: false,
+        visible: true,
+        props: {
+          src: "/image.png",
+          fit: "stretch",
+          crop: {
+            left: 0.1,
+            top: 0.05,
+            right: 0.2,
+            bottom: 0.15
+          }
+        }
+      }
+    ];
+
+    expectValidDeck(deck);
+  });
 
   it("accepts a 1024x768 standard-4-3 deck", () => {
     const deck = createValidDeck();
@@ -266,6 +599,34 @@ describe("deckSchema validation", () => {
       props: {
         type: "bar",
         data: []
+      }
+    };
+
+    expectValidDeck(deck);
+  });
+
+  it("accepts an editable table element", () => {
+    const deck = createValidDeck();
+
+    deck.slides[0].elements[0] = {
+      ...deck.slides[0].elements[0],
+      type: "table",
+      role: "table",
+      props: {
+        rows: [
+          [
+            { text: "A", fill: "#EFF6FF", borderColor: "#93C5FD" },
+            { text: "B", fill: "#EFF6FF", borderColor: "#93C5FD" }
+          ],
+          [
+            { text: "C", borderColor: "#CBD5E1" },
+            { text: "D", borderColor: "#CBD5E1" }
+          ]
+        ],
+        columnWidths: [240, 240],
+        rowHeights: [80, 80],
+        borderColor: "#CBD5E1",
+        borderWidth: 1
       }
     };
 
@@ -441,6 +802,24 @@ describe("deckSchema validation", () => {
     };
 
     expectValidDeck(deck);
+  });
+
+  it("defaults AI metadata design references to an empty list", () => {
+    const deck = createValidDeck();
+
+    deck.metadata = {
+      ...deck.metadata,
+      sourceType: "ai",
+      generatedBy: "ai",
+      createdFrom: {
+        topic: "AI design reference",
+        references: []
+      }
+    };
+
+    const result = deckSchema.parse(deck);
+
+    expect(result.metadata.createdFrom?.designReferences).toEqual([]);
   });
 
   it("rejects empty and duplicate slide keyword terms", () => {

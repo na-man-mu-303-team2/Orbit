@@ -372,7 +372,8 @@ function createDeck(): Deck {
         speakerNotes: "기존 발표 메모",
         elements: [],
         keywords: [],
-        animations: []
+        animations: [],
+        actions: []
       }
     ]
   });

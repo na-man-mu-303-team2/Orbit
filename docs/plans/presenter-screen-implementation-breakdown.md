@@ -30,7 +30,7 @@ This document keeps the P0-P7 milestone structure from the source plan and break
 
 - `SttPort` is split into `LiveSttPort` for browser live control and `ReportSttProvider` for server report transcription.
 - Live STT engines: Sherpa, Moonshine, Web Speech. WhisperX is not selectable for live control.
-- Report STT provider: OpenAI. WhisperX calls an external hosted API only after the P2.5 provider implementation lands.
+- Report STT provider: OpenAI. WhisperX calls an external hosted API only after Task P2.11 lands.
 - WhisperX implementation starts with a contract spike defining endpoint, auth, audio input, transcript, and segment response shape, but is not selectable in the current runtime config.
 - Chunk upload replaces `/api/v1/rehearsals/:runId/audio/upload-url`.
 - Chunk endpoints:
@@ -158,7 +158,7 @@ P0/P1, P2/P3/P4/P5, and P6 can run as parallel tracks after the contract baselin
 **Implementation plan:**
 - Keep `reportSttProviderSchema` openai-only until the WhisperX provider is implemented.
 - Add `REHEARSAL_AUDIO_MAX_BYTES` with default/example `25000000`.
-- Keep WhisperX env keys out of runtime config until P2.5.
+- Keep WhisperX env keys out of runtime config until Task P2.11.
 - Mirror validation in `services/python-worker/app/config.py`.
 - Update `.env.example` and `docs/conventions/environment.md`.
 
@@ -891,23 +891,43 @@ P0/P1, P2/P3/P4/P5, and P6 can run as parallel tracks after the contract baselin
 
 ## P2: STT Abstractions
 
-### Task P2.1: Define `LiveSttPort`
+### P2 Scope Clarifications
+
+- This milestone follows the resolved split in this breakdown: browser live control uses `LiveSttPort`; server report transcription uses `ReportSttProvider`.
+- WhisperX is report-only. It is not selectable for live control and does not appear in presenter STT engine settings.
+- New browser STT files live under `apps/web/src/features/rehearsal/stt`. Existing root-level rehearsal STT files move only when a task explicitly requires it.
+- Browser live engine selection is modeled as `presenterSettings.sttEngine`; this milestone defines the engine ids and factory boundary, while the P3 presenter settings store owns localStorage persistence.
+- `LIVE_STT_PROVIDER` remains server/runtime config with the current `sherpa` value; P2 does not expand it to Web Speech or Moonshine.
+- `LiveSttSessionConfig.audioSource` is a `MediaStream`, matching the current Sherpa adapter and the later microphone fork used by Live STT, PauseDetector, and Recorder.
+- `LiveSttPort.updateBiasPhrases(phrases)` is required. Engines without native keyword biasing keep the method as a no-op and rely on SpeechTracker client-side matching.
+- Web Speech is treated as `onDevice: false` for consent purposes because browser implementations can use remote recognition. Selecting it must pass the same user consent gate as any non-local live engine.
+- Moonshine is a new manifest-based local model adapter under `/models/live-stt/moonshine/.../manifest.json`. CI uses mocked runtime output; real model execution is local/manual.
+- WhisperX uses an Orbit-defined hosted API contract with `WHISPERX_API_URL`, `WHISPERX_API_KEY`, `WHISPERX_MODEL`, and `WHISPERX_TIMEOUT_MS`; auth is `Authorization: Bearer ...`; audio is sent as `multipart/form-data`.
+
+### Task P2.1: Define `LiveSttPort` Contract
 
 **Description:** Replace the current ad hoc Live STT adapter surface with a stable port for browser live control engines.
 
-**Feature/spec:** Browser-only live STT: Sherpa, Moonshine, Web Speech.
+**Feature/spec:** Browser-only live STT: Sherpa, Moonshine, Web Speech. `LiveSttPort` is not used by report transcription.
 
-**Tech stack:** TypeScript interfaces, Vitest, existing `LiveSttAdapter`.
+**Tech stack:** TypeScript interfaces, Vitest, existing `LiveSttAdapter` event shapes.
 
 **Implementation plan:**
-- Define `LiveSttPort`, `LiveSttSessionConfig`, `LiveSttResult`, and `LiveSttError`.
-- Add capabilities `{ onDevice, streaming, keywordBiasing, languages }`.
-- Add an adapter bridge so existing Sherpa implementation can satisfy the port.
+- Create `apps/web/src/features/rehearsal/stt/liveSttPort.ts`.
+- Define `LiveSttEngineId = "sherpa" | "web-speech" | "moonshine"`.
+- Define `LiveSttCapabilities = { onDevice, streaming, keywordBiasing, languages }`.
+- Define `LiveSttSessionConfig = { language: "ko"; audioSource: MediaStream; biasPhrases?: string[] }`.
+- Define `LiveSttResult = { text, isFinal, timestampMs, confidence? }` where `timestampMs` is session-relative `[startMs, endMs]`.
+- Define `LiveSttError` with typed codes for unsupported runtime, missing model, permission/consent, start failure, and provider runtime failure.
+- Define the port methods: `start(config)`, `stop()`, `updateBiasPhrases(phrases)`, `onResult(cb)`, `onError(cb)`, and `dispose()`.
+- Add a small result mapper so current `LiveSttPartialTranscriptEvent` payloads can be converted without changing shared schemas in this task.
 - Keep transcript/debug logging rules from `live-stt-keyword-control.md`.
 
 **Acceptance criteria:**
-- SpeechTracker can consume only `LiveSttPort`, not Sherpa-specific APIs.
-- Current Sherpa path still works through the bridge.
+- The port can represent partial and final Korean recognition results without exposing engine-specific objects.
+- Bias phrases are part of the contract and can be updated after `start`.
+- The contract does not include raw audio, transcript storage, or report STT fields.
+- SpeechTracker can be implemented against `LiveSttPort` only.
 
 **Verification:**
 - `pnpm --filter @orbit/web test -- liveSttPort`
@@ -916,78 +936,260 @@ P0/P1, P2/P3/P4/P5, and P6 can run as parallel tracks after the contract baselin
 
 **Files likely touched:**
 - `apps/web/src/features/rehearsal/stt/liveSttPort.ts`
-- `apps/web/src/features/rehearsal/stt/sherpaLiveSttPort.ts`
+- `apps/web/src/features/rehearsal/stt/liveSttPort.test.ts`
 - `apps/web/src/features/rehearsal/liveStt.ts`
 
-**Estimated scope:** Medium
+**Estimated scope:** Small
 
-### Task P2.2: Add WebSpeech and Moonshine Live Adapters
+### Task P2.2: Bridge Sherpa to `LiveSttPort`
 
-**Description:** Implement additional live engines behind `LiveSttPort`.
+**Description:** Wrap the existing Sherpa implementation so the current live STT path works through the new port before adding engines.
 
-**Feature/spec:** WebSpeechAdapter and new MoonshineAdapter.
+**Feature/spec:** Existing Sherpa live recognition, current bias context behavior, current debug/privacy rules.
 
-**Tech stack:** Browser SpeechRecognition API, Web Worker/WASM or ONNX runtime path for Moonshine, existing local model assets.
+**Tech stack:** TypeScript, current `SherpaOnnxLiveSttAdapter`, Vitest.
 
 **Implementation plan:**
-- Implement Web Speech adapter with Korean language support and browser support guards.
-- Implement a Moonshine adapter as new code using the local Moonshine model asset path.
-- Report unsupported runtime as a typed `LiveSttError`.
-- Keep both adapters hidden behind settings until contract tests pass.
+- Add `sherpaLiveSttPort.ts` that adapts `SherpaOnnxLiveSttAdapter` to `LiveSttPort`.
+- Map `LiveSttSessionConfig.biasPhrases` into the existing `LiveSttBiasContext` shape.
+- Map `updateBiasPhrases` to the current `updateBiasContext` path.
+- Map `LiveSttAdapterError` codes into `LiveSttError`.
+- Preserve existing debug latency, transcript debug gate, PCM debug, and audio level internals without adding them to the public port.
+- Keep `SherpaOnnxLiveSttAdapter` available for old tests until the consumer migration task removes direct usage.
 
 **Acceptance criteria:**
-- Unsupported browsers fail gracefully.
-- Both adapters satisfy the same contract tests as Sherpa using mocked engine outputs.
-- No server audio upload is introduced for live control.
+- The existing Sherpa start/stop path still works through the bridge.
+- Sherpa declares `onDevice: true`, `streaming: true`, `keywordBiasing: true`, and Korean language support.
+- Existing transcript debug logging remains gated behind `orbit.liveStt.debugLatency`.
+- No server request is introduced for live control.
 
 **Verification:**
-- `pnpm --filter @orbit/web test -- webSpeechLiveSttPort`
-- `pnpm --filter @orbit/web test -- moonshineLiveSttPort`
-- Manual local engine harness for real Moonshine model.
+- `pnpm --filter @orbit/web test -- sherpaLiveSttPort`
+- `pnpm --filter @orbit/web test -- sherpaOnnxLiveSttAdapter`
 
 **Dependencies:** Task P2.1
 
 **Files likely touched:**
-- `apps/web/src/features/rehearsal/stt/webSpeechLiveSttPort.ts`
-- `apps/web/src/features/rehearsal/stt/moonshineLiveSttPort.ts`
-- `apps/web/src/features/rehearsal/stt/*.test.ts`
-- `apps/web/public/models/live-stt/README.md`
+- `apps/web/src/features/rehearsal/stt/sherpaLiveSttPort.ts`
+- `apps/web/src/features/rehearsal/stt/sherpaLiveSttPort.test.ts`
+- `apps/web/src/features/rehearsal/sherpaOnnxLiveSttAdapter.ts`
+- `apps/web/src/features/rehearsal/liveStt.ts`
+
+**Estimated scope:** Small
+
+### Task P2.3: Add Live STT Contract Test Kit
+
+**Description:** Create reusable contract tests that every `LiveSttPort` implementation must pass.
+
+**Feature/spec:** Same result semantics, stop behavior, bias update behavior, and typed error behavior across Sherpa, Web Speech, and Moonshine.
+
+**Tech stack:** Vitest, fake `MediaStream`, mocked engine outputs.
+
+**Implementation plan:**
+- Add `liveSttPortContract.ts` test helper that accepts a port factory and scripted engine output.
+- Cover `start`, `stop`, `onResult` unsubscribe, `onError` unsubscribe, `updateBiasPhrases`, and post-stop stale result suppression.
+- Cover partial-to-final ordering and session-relative timestamps.
+- Cover unsupported runtime and missing model errors without requiring real browser APIs or models.
+- Keep fixture transcripts small and free of speaker notes or private script text.
+
+**Acceptance criteria:**
+- Sherpa bridge passes the shared contract tests.
+- New adapters can opt into the same test helper with adapter-specific mocked runtime.
+- CI does not require microphone access, Web Speech support, ONNX files, or Moonshine model files.
+
+**Verification:**
+- `pnpm --filter @orbit/web test -- liveSttPortContract`
+
+**Dependencies:** Task P2.1, Task P2.2
+
+**Files likely touched:**
+- `apps/web/src/features/rehearsal/stt/liveSttPortContract.test.ts`
+- `apps/web/src/features/rehearsal/stt/testDoubles.ts`
+- `apps/web/src/features/rehearsal/stt/sherpaLiveSttPort.test.ts`
+
+**Estimated scope:** Small
+
+### Task P2.4: Add Engine Registry and Rehearsal Consumer Seam
+
+**Description:** Route the current rehearsal live STT consumer through `LiveSttPort` while keeping the default Sherpa behavior.
+
+**Feature/spec:** Engine ids for `presenterSettings.sttEngine`, default `sherpa`, no `LIVE_STT_PROVIDER` expansion.
+
+**Tech stack:** React, TypeScript, current `RehearsalWorkspace`, Vitest/Testing Library.
+
+**Implementation plan:**
+- Add `liveSttEngineRegistry.ts` with `createLiveSttPort(engineId)` and default `sherpa`.
+- Export the engine id type for the P3 presenter settings store.
+- Keep browser live engine selection separate from `packages/shared` runtime config and Python `LIVE_STT_PROVIDER`.
+- Update `RehearsalWorkspace` or its start-live-STT seam to accept a `LiveSttPort` test double.
+- Convert current callbacks to `onResult`/`onError` subscriptions and call `updateBiasPhrases` when the active slide changes.
+- Keep UI copy and existing manual live demo behavior unchanged in this task.
+
+**Acceptance criteria:**
+- Rehearsal live STT starts through `LiveSttPort`, not directly through `LiveSttAdapter`.
+- Existing tests can inject a fake `LiveSttPort`.
+- Default runtime behavior remains Sherpa.
+- No API, Worker, or env config changes are required for live engine switching.
+
+**Verification:**
+- `pnpm --filter @orbit/web test -- RehearsalWorkspace`
+- `pnpm --filter @orbit/web test -- liveSttEngineRegistry`
+
+**Dependencies:** Task P2.1, Task P2.2
+
+**Files likely touched:**
+- `apps/web/src/features/rehearsal/stt/liveSttEngineRegistry.ts`
+- `apps/web/src/features/rehearsal/stt/liveSttEngineRegistry.test.ts`
+- `apps/web/src/features/rehearsal/RehearsalWorkspace.tsx`
+- `apps/web/src/features/rehearsal/RehearsalWorkspace.test.tsx`
 
 **Estimated scope:** Medium
 
-### Task P2.3: Build Live STT Evaluation Harness
+### Task P2.5: Add Web Speech Live Adapter
+
+**Description:** Implement Web Speech behind `LiveSttPort` with explicit browser support and consent handling.
+
+**Feature/spec:** Web Speech live adapter, Korean language, non-local consent gate.
+
+**Tech stack:** Browser `SpeechRecognition` / `webkitSpeechRecognition`, TypeScript browser API guards, Vitest with mocked recognition object.
+
+**Implementation plan:**
+- Add `webSpeechLiveSttPort.ts`.
+- Detect `SpeechRecognition` or `webkitSpeechRecognition`; report `unsupported_runtime` when absent.
+- Declare capabilities `{ onDevice:false, streaming:true, keywordBiasing:false, languages:["ko"] }`.
+- Require an explicit consent flag in adapter construction or start options before starting because `onDevice:false`.
+- Set recognition language to Korean and emit `LiveSttResult` for interim/final results.
+- Treat `updateBiasPhrases` as a no-op and rely on SpeechTracker matching.
+- Map browser recognition errors to typed `LiveSttError` without logging transcript text.
+
+**Acceptance criteria:**
+- Unsupported browsers fail gracefully before attempting recognition.
+- Starting without the required consent fails with a typed permission/consent error.
+- Interim and final mocked recognition events produce normalized `LiveSttResult` values.
+- Web Speech passes the common `LiveSttPort` contract tests.
+
+**Verification:**
+- `pnpm --filter @orbit/web test -- webSpeechLiveSttPort`
+- Manual Chrome smoke test with Korean recognition when available.
+
+**Dependencies:** Task P2.1, Task P2.3
+
+**Files likely touched:**
+- `apps/web/src/features/rehearsal/stt/webSpeechLiveSttPort.ts`
+- `apps/web/src/features/rehearsal/stt/webSpeechLiveSttPort.test.ts`
+- `apps/web/src/features/rehearsal/stt/browserSpeechRecognition.ts`
+
+**Estimated scope:** Medium
+
+### Task P2.6: Define Moonshine Manifest and Runtime Loader
+
+**Description:** Add the local model manifest contract and loader boundary needed by the Moonshine adapter.
+
+**Feature/spec:** Manifest-based local Moonshine model under `/models/live-stt/moonshine/.../manifest.json`.
+
+**Tech stack:** TypeScript manifest parser, Zod or defensive validation, Web Worker loader test doubles.
+
+**Implementation plan:**
+- Add `moonshineManifest.ts` with a manifest shape for model id, runtime files, model files, sample rate, supported language, and version.
+- Add default manifest URL under `/models/live-stt/moonshine/korean/manifest.json`.
+- Add `apps/web/public/models/live-stt/moonshine/README.md` explaining that large model/runtime assets are not committed.
+- Add a loader that fetches and validates the manifest without instantiating the real model.
+- Mirror the existing Sherpa manifest test pattern for missing fields, invalid URLs, and unsupported language/sample rate.
+
+**Acceptance criteria:**
+- The adapter can load a valid manifest and reject malformed ones before starting recognition.
+- Large Moonshine model artifacts are not committed.
+- The README gives the exact local asset directory and manifest filename expected by the adapter.
+
+**Verification:**
+- `pnpm --filter @orbit/web test -- moonshineManifest`
+
+**Dependencies:** Task P2.1
+
+**Files likely touched:**
+- `apps/web/src/features/rehearsal/stt/moonshineManifest.ts`
+- `apps/web/src/features/rehearsal/stt/moonshineManifest.test.ts`
+- `apps/web/public/models/live-stt/moonshine/README.md`
+
+**Estimated scope:** Small
+
+### Task P2.7: Add Moonshine Live Adapter
+
+**Description:** Implement the Moonshine live adapter against the manifest loader and `LiveSttPort`.
+
+**Feature/spec:** Local Moonshine live recognition, mocked in CI, real model only in local/manual harness.
+
+**Tech stack:** TypeScript, Web Worker boundary, local model manifest from Task P2.6, Vitest mocked runtime.
+
+**Implementation plan:**
+- Add `moonshineLiveSttPort.ts`.
+- Use the manifest loader from Task P2.6.
+- Run recognition inside a worker-like boundary so the main thread is not blocked.
+- Declare capabilities `{ onDevice:true, streaming:false, keywordBiasing:false, languages:["ko"] }` for the first implementation.
+- Implement pseudo-streaming by emitting final segment results for short buffered windows; leave native streaming as a future adapter optimization.
+- Treat `updateBiasPhrases` as a no-op and rely on SpeechTracker matching.
+- Map model missing, worker load, and runtime failures to typed `LiveSttError`.
+- Register the adapter in `liveSttEngineRegistry`.
+
+**Acceptance criteria:**
+- Moonshine passes common contract tests with mocked runtime output.
+- Missing local model assets produce a typed missing-model error.
+- The adapter does not require server audio upload or remote STT calls.
+- Registry can create Moonshine by `sttEngine="moonshine"`.
+
+**Verification:**
+- `pnpm --filter @orbit/web test -- moonshineLiveSttPort`
+- Manual local Moonshine model harness from Task P2.8
+
+**Dependencies:** Task P2.1, Task P2.3, Task P2.6
+
+**Files likely touched:**
+- `apps/web/src/features/rehearsal/stt/moonshineLiveSttPort.ts`
+- `apps/web/src/features/rehearsal/stt/moonshineLiveSttPort.test.ts`
+- `apps/web/src/features/rehearsal/stt/moonshineWorker.ts`
+- `apps/web/src/features/rehearsal/stt/liveSttEngineRegistry.ts`
+
+**Estimated scope:** Medium
+
+### Task P2.8: Build Live STT Evaluation Harness
 
 **Description:** Create a repeatable fixture harness for live STT adapters.
 
-**Feature/spec:** Small committed WAV/FLAC fixtures; CI mocks only; real model harness local/manual.
+**Feature/spec:** Small committed WAV/FLAC fixtures; CI mocked adapters; real Sherpa/Web Speech/Moonshine execution local/manual.
 
-**Tech stack:** Vitest, committed fixtures under the web feature, optional local harness script.
+**Tech stack:** Vitest, committed fixtures under the web feature, optional local harness script, JSON metrics output.
 
 **Implementation plan:**
-- Add small Korean fixture audio and expected phrases.
-- Add mocked adapter contract tests in CI.
+- Add small Korean fixture metadata and expected phrases. Audio fixtures must be short and safe to commit; if real audio is not committed, use deterministic mocked transcript fixtures in CI.
+- Add a harness runner that accepts any `LiveSttPort` factory.
+- Record metrics: phrase recall, keyword hit rate, first partial latency, first final latency, and error code.
+- Add mocked adapter runs in CI.
 - Add an optional local script/test mode that runs actual Sherpa/Moonshine/WebSpeech when model/browser support exists.
-- Record metrics: phrase recall, keyword hit rate, latency.
+- Document how to place local model assets before running the real-engine harness.
 
 **Acceptance criteria:**
 - CI does not require large ONNX models.
 - Fixture data is small enough to commit.
 - The same expected scenario can run against all adapters.
+- Harness output is deterministic for mocked adapters.
+- Real-engine harness is clearly marked local/manual and does not block CI.
 
 **Verification:**
 - `pnpm --filter @orbit/web test -- liveSttHarness`
 - Manual local harness documented.
 
-**Dependencies:** Task P2.1
+**Dependencies:** Task P2.3, Task P2.5, Task P2.7
 
 **Files likely touched:**
 - `apps/web/src/features/rehearsal/stt/__fixtures__/`
 - `apps/web/src/features/rehearsal/stt/liveSttHarness.ts`
 - `apps/web/src/features/rehearsal/stt/liveSttHarness.test.ts`
+- `apps/web/src/features/rehearsal/stt/README.md`
+- `apps/web/package.json`
 
 **Estimated scope:** Medium
 
-### Task P2.4: WhisperX API Contract Spike
+### Task P2.9: Write WhisperX Report STT API Contract
 
 **Description:** Define the external WhisperX hosted API contract before implementing the provider.
 
@@ -996,15 +1198,20 @@ P0/P1, P2/P3/P4/P5, and P6 can run as parallel tracks after the contract baselin
 **Tech stack:** Markdown spec, Python worker provider protocol, no external call in CI.
 
 **Implementation plan:**
-- Define request shape: auth, audio delivery, language, model, and timeout expectations.
-- Define response shape: transcript, language, provider, model, duration, segments with start/end seconds.
+- Add `docs/specs/whisperx-report-stt-provider.md`.
+- Define env keys: `WHISPERX_API_URL`, `WHISPERX_API_KEY`, `WHISPERX_MODEL`, `WHISPERX_TIMEOUT_MS`.
+- Define auth: `Authorization: Bearer <WHISPERX_API_KEY>`.
+- Define request: `multipart/form-data` with `file`, `language`, `model`, and optional `diarization=false`.
+- Define response: `transcript`, `language`, `provider`, `model`, `durationSeconds`, and `segments[{ text, startSeconds, endSeconds }]`.
 - Define error mapping to existing `AudioTranscriptionError`.
 - Document privacy and logging constraints.
+- Document that this provider never receives live-control microphone streams; it only receives assembled rehearsal audio from P6.
 
 **Acceptance criteria:**
 - Provider implementation can be written from the contract without further product decisions.
 - Contract excludes live STT usage.
 - No secrets or transcript payloads are logged.
+- Timeout, auth failure, malformed response, empty transcript, and provider 5xx mappings are specified.
 
 **Verification:**
 - Human review of the contract before provider implementation.
@@ -1013,39 +1220,79 @@ P0/P1, P2/P3/P4/P5, and P6 can run as parallel tracks after the contract baselin
 
 **Files likely touched:**
 - `docs/specs/whisperx-report-stt-provider.md`
-- `services/python-worker/app/audio/transcribe.py`
+- `docs/conventions/environment.md`
 
 **Estimated scope:** Small
 
-### Task P2.5: Implement `ReportSttProvider` Selection
+### Task P2.10: Formalize `ReportSttProvider` and Preserve OpenAI Behavior
 
-**Description:** Extend server report STT to support OpenAI or WhisperX providers.
+**Description:** Rename/formalize the existing Python worker report STT provider contract without changing OpenAI runtime behavior.
 
-**Feature/spec:** `REPORT_STT_PROVIDER=openai | whisperx`.
+**Feature/spec:** Report transcription is separate from browser live STT.
 
-**Tech stack:** Python worker, Pydantic, HTTP client, pytest.
+**Tech stack:** Python worker, `Protocol`, Pydantic, pytest.
 
 **Implementation plan:**
-- Rename or formalize the existing `SpeechToTextProvider` as the report provider contract.
+- Rename or alias `SpeechToTextProvider` to `ReportSttProvider` in `services/python-worker/app/audio/transcribe.py`.
 - Keep OpenAI behavior unchanged.
-- Add `WhisperXSpeechToTextProvider` using the spike contract.
-- Add tests for provider selection, missing config, successful response, provider failure, and timeout.
-- Ensure `audio/flac` is accepted by the worker request model.
+- Keep `REPORT_STT_PROVIDER=openai` as the only accepted config value in this task.
+- Update tests and dependency injection names to the report-provider terminology.
+- Ensure `audio/flac` remains accepted by the worker request model.
+- Keep all error messages free of transcript text, raw audio, speaker notes, scripts, API keys, and tokens.
 
 **Acceptance criteria:**
-- `REPORT_STT_PROVIDER=openai` remains backward compatible.
-- `REPORT_STT_PROVIDER=whisperx` calls only the configured external endpoint.
-- Provider responses normalize to the existing `AudioTranscribeResponse`.
+- OpenAI report transcription tests pass unchanged in behavior.
+- `REPORT_STT_PROVIDER=whisperx` is still rejected until Task P2.11.
+- Worker API response still normalizes to `AudioTranscribeResponse`.
 
 **Verification:**
 - `cd services/python-worker && uv run pytest tests/test_audio_transcribe.py tests/test_config.py`
 
-**Dependencies:** Task P2.4
+**Dependencies:** Task C0.3
 
 **Files likely touched:**
 - `services/python-worker/app/audio/transcribe.py`
 - `services/python-worker/tests/test_audio_transcribe.py`
 - `services/python-worker/tests/test_config.py`
+
+**Estimated scope:** Small
+
+### Task P2.11: Add WhisperX `ReportSttProvider` Selection
+
+**Description:** Extend server report STT to support OpenAI or the hosted WhisperX provider contract from Task P2.9.
+
+**Feature/spec:** `REPORT_STT_PROVIDER=openai | whisperx`, report-only WhisperX provider.
+
+**Tech stack:** Python worker, Pydantic, `urllib` or existing HTTP client pattern, pytest.
+
+**Implementation plan:**
+- Extend Python config validation to allow `REPORT_STT_PROVIDER=whisperx`.
+- Add `WHISPERX_API_URL`, `WHISPERX_API_KEY`, `WHISPERX_MODEL`, and `WHISPERX_TIMEOUT_MS` validation.
+- Keep `REHEARSAL_AUDIO_MAX_BYTES` capped at `25000000` for OpenAI; add a separate WhisperX max-size rule only if the contract doc defines one.
+- Add `WhisperXSpeechToTextProvider` using the spike contract.
+- Send audio as `multipart/form-data` with Bearer auth.
+- Normalize WhisperX response to `ProviderTranscription` / `AudioTranscribeResponse`.
+- Add tests for provider selection, missing config, successful response, malformed response, empty transcript, provider failure, auth failure, and timeout.
+- Update `.env.example` and environment docs.
+
+**Acceptance criteria:**
+- `REPORT_STT_PROVIDER=openai` remains backward compatible.
+- `REPORT_STT_PROVIDER=whisperx` calls only the configured external endpoint.
+- Provider responses normalize to the existing `AudioTranscribeResponse`.
+- No API key, transcript, raw audio, or script content is logged.
+
+**Verification:**
+- `cd services/python-worker && uv run pytest tests/test_audio_transcribe.py tests/test_config.py`
+
+**Dependencies:** Task P2.9, Task P2.10
+
+**Files likely touched:**
+- `services/python-worker/app/audio/transcribe.py`
+- `services/python-worker/app/config.py`
+- `services/python-worker/tests/test_audio_transcribe.py`
+- `services/python-worker/tests/test_config.py`
+- `.env.example`
+- `docs/conventions/environment.md`
 
 **Estimated scope:** Medium
 
@@ -1053,8 +1300,11 @@ P0/P1, P2/P3/P4/P5, and P6 can run as parallel tracks after the contract baselin
 
 - [ ] Live STT consumers use `LiveSttPort`.
 - [ ] Sherpa, Moonshine, and Web Speech have common contract tests.
+- [ ] `presenterSettings.sttEngine` engine ids are defined, while persistence remains in P3.
+- [ ] Web Speech requires explicit consent because it is treated as non-local.
 - [ ] WhisperX is implemented only as a report provider.
 - [ ] Large model tests are local/manual, not required in CI.
+- [ ] `LIVE_STT_PROVIDER` remains unchanged and is not used for browser engine selection.
 
 ## P3: Speech Tracking and Rehearsal Panel
 
@@ -1190,28 +1440,111 @@ P0/P1, P2/P3/P4/P5, and P6 can run as parallel tracks after the contract baselin
 
 ## P4: Auto Advance
 
-### Task P4.1: Implement PauseDetector
+### P4 Resolved Decisions
 
-**Description:** Detect speech pauses using RMS and transcript inactivity.
+- `PauseDetector` owns its own config. `pauseDetector.silenceThresholdDb` defaults to `-55` but must not import the Live STT silence constant directly.
+- Pause activity uses partial and final STT updates. Any transcript activity resets the pause timer; P3 content decisions still use final-only transcripts.
+- If auto-advance becomes `ready` while silence has already lasted at least `pauseMs`, countdown starts immediately.
+- `pauseMs` and `countdownMs` are persisted in schema/localStorage but are not exposed in P4 UI.
+- Threshold UI uses a 5% stepper from 50% to 95%.
+- Manual guidance appears when the final sentence was spoken more than 5 seconds ago and auto-advance is still not eligible.
+- Manual commands cancel countdown and pass through immediately. Manual `nextStep` executes the step and returns auto-advance tracking to the current slide.
+- Auto-advance eligibility requires no remaining trigger steps on the current slide. If build steps remain, show a "remaining builds" badge instead of advancing.
+- The last slide never starts countdown. When ready, presenter UI shows a non-blocking finish suggestion and highlights the finish button; no modal and no automatic finish.
 
-**Feature/spec:** D6, default pause 700ms with config.
+### P4 Scope Boundary
 
-**Tech stack:** Web Audio API, existing audio-level utilities, Vitest.
+**In scope**
+- Browser-local pause/activity detection from audio level events and Live STT result activity.
+- Pure `AdvanceController` policy/state machine.
+- Presenter-only countdown, manual guidance, remaining-build, and finish-suggestion UI.
+- Global presenter settings for mode enablement, threshold, hidden timing values, and pause detector config.
+- Wiring to existing P0 manual commands and P3 `SpeechTracker` snapshots/events.
+
+**Out of scope**
+- Recorder/run atomic start-stop and upload lifecycle, owned by P7.
+- Cue-triggered advance, owned by P5 and still gated by `AdvanceController`.
+- Slide-window or audience countdown UI. P4 UI is presenter-only.
+- Exposing `pauseMs`, `countdownMs`, `manualGuidanceDelayMs`, or `silenceThresholdDb` controls in the UI.
+
+### Task P4.1: Define Auto-Advance Config and Settings Extensions
+
+**Description:** Add the P4 policy and pause detector defaults before implementing detection or UI. This keeps STT audio-level tuning, auto-advance timing, and user-visible threshold settings separated.
+
+**Feature/spec:** D2, D3, D6, P4-D1, P4-D4, P4-D5, P4-D6.
+
+**Tech stack:** TypeScript config module, existing `presenterSettings` localStorage store, Vitest.
 
 **Implementation plan:**
-- Reuse existing audio level calculations where possible.
-- Combine RMS silence and no transcript update windows.
-- Emit `pause-started` and `speech-resumed`.
-- Keep Recorder and Live STT independent of PauseDetector.
+- Add `apps/web/src/features/rehearsal/advance/autoAdvanceConfig.ts`.
+- Define defaults:
+  - `advancePolicy.pauseMs = 700`
+  - `advancePolicy.countdownMs = 2000`
+  - `autoAdvance.manualGuidanceDelayMs = 5000`
+  - `pauseDetector.silenceThresholdDb = -55`
+- Extend `PresenterAdvancePolicySettings` with persisted hidden fields `pauseMs` and `countdownMs`.
+- Add top-level persisted `pauseDetector: { silenceThresholdDb }` to `PresenterSettings`.
+- Clamp persisted settings defensively:
+  - `threshold`: `0.5..0.95`
+  - `pauseMs`, `countdownMs`: positive integers
+  - `silenceThresholdDb`: finite dB number
+- Validate P4 config-only `manualGuidanceDelayMs` as a positive integer.
+- Keep `manualGuidanceDelayMs` in P4 config only unless a later decision makes it user-persisted.
+- Update tests for corrupt localStorage, partial settings migration, clamping, and 5% threshold step helper.
 
 **Acceptance criteria:**
-- Silence alone does not falsely pause while transcript is actively updating.
-- Speech resume cancels pause state.
+- Existing `orbit:presenter:global:v1` values without P4 fields load with defaults.
+- `pauseDetector.silenceThresholdDb` default equals `-55` without importing Live STT constants.
+- `pauseMs` and `countdownMs` persist but no UI task exposes controls for them.
+- Threshold normalization still accepts only `0.5..0.95`, and UI helpers expose 5% increments.
+
+**Verification:**
+- `pnpm --filter @orbit/web test -- presenterSettings`
+- `pnpm --filter @orbit/web test -- autoAdvanceConfig`
+
+**Dependencies:** Task P3.7
+
+**Files likely touched:**
+- `apps/web/src/features/rehearsal/advance/autoAdvanceConfig.ts`
+- `apps/web/src/features/rehearsal/advance/autoAdvanceConfig.test.ts`
+- `apps/web/src/features/rehearsal/settings/presenterSettings.ts`
+- `apps/web/src/features/rehearsal/settings/presenterSettings.test.ts`
+
+**Estimated scope:** Small
+
+### Task P4.2: Implement `PauseDetector`
+
+**Description:** Detect speech pause and speech resume from two activity sources: microphone RMS silence and transcript activity. The detector is independent from Recorder and Live STT engine implementations.
+
+**Feature/spec:** D6, P4-D1, P4-D2, P4-D3.
+
+**Tech stack:** TypeScript pure reducer/state machine, existing `LiveSttAudioLevelEvent` shape, Vitest fake clock.
+
+**Implementation plan:**
+- Add `apps/web/src/features/rehearsal/speech/pauseDetector.ts`.
+- Model inputs as explicit events:
+  - `audio-level` with `rmsDb`, `atMs`
+  - `transcript-activity` with `isFinal`, `atMs`
+  - `tick` with `atMs`
+  - `reset`
+- Treat partial and final STT results as `transcript-activity`.
+- Track the latest non-silent audio timestamp and latest transcript activity timestamp separately.
+- Consider the user paused only when audio has been silent for `pauseMs` and no transcript activity has occurred during the same window.
+- Expose current silence duration so `AdvanceController` can start countdown immediately when it enters `ready` after an already-long pause.
+- Emit logical events `pause-started` and `speech-resumed` once per state transition; do not emit repeated pause events on every tick.
+- Keep the module free of React, `LiveSttPort` concrete adapters, Recorder, and Web Audio node ownership.
+
+**Acceptance criteria:**
+- Silence alone does not start pause while partial or final transcript updates are still arriving.
+- Partial transcript activity resets the pause timer even though P3 content tracking ignores partials.
+- Existing silence duration is available when auto-advance enters `ready`.
+- Speech resume is emitted when audio becomes non-silent or transcript activity resumes.
+- Reset clears pause state and timestamps on slide changes or session stop.
 
 **Verification:**
 - `pnpm --filter @orbit/web test -- pauseDetector`
 
-**Dependencies:** Task P2.1
+**Dependencies:** Task P2.1, Task P4.1
 
 **Files likely touched:**
 - `apps/web/src/features/rehearsal/speech/pauseDetector.ts`
@@ -1219,73 +1552,254 @@ P0/P1, P2/P3/P4/P5, and P6 can run as parallel tracks after the contract baselin
 
 **Estimated scope:** Small
 
-### Task P4.2: Implement AdvanceController
+### Task P4.3: Implement `AdvanceController` State Machine
 
-**Description:** Add the auto-advance state machine.
+**Description:** Implement the pure policy layer that converts P3 speech coverage, P4 pause state, trigger-step state, mode settings, and manual override events into presenter commands.
 
-**Feature/spec:** tracking -> ready -> countdown -> advance/cancel, manual override.
+**Feature/spec:** D2, D3, D6, P4-D3, P4-D7, P4-D8, P4-D9.
 
-**Tech stack:** TypeScript pure state machine, Vitest.
+**Tech stack:** TypeScript pure state machine, Vitest fixture tables.
 
 **Implementation plan:**
-- Model states and transitions as pure functions.
-- Consume coverage, last sentence, pause, resume, manual override, previous slide, last slide.
-- Output commands for presenter state store.
-- Do not auto-advance when coverage is below threshold.
+- Add `apps/web/src/features/rehearsal/advance/advanceController.ts`.
+- Model states:
+  - `disabled`
+  - `tracking`
+  - `ready`
+  - `countdown`
+  - `blocked-by-builds`
+  - `finish-suggested`
+- Define input snapshot:
+  - `mode`
+  - `slideId`
+  - `isLastSlide`
+  - `effectiveCoverage`
+  - `threshold`
+  - `finalSentenceSpoken`
+  - `remainingTriggerSteps`
+  - `pauseState`
+  - `nowMs`
+  - `policy`
+- Ready eligibility is: mode enabled, coverage `>= threshold`, final sentence spoken, and `remainingTriggerSteps === 0`.
+- If `remainingTriggerSteps > 0`, return `blocked-by-builds` and never emit auto-advance.
+- If `isLastSlide`, return `finish-suggested` and never enter countdown.
+- On `ready`, enter `countdown` immediately when `pauseState.silenceDurationMs >= pauseMs`; otherwise wait for `pause-started`.
+- During `countdown`, emit `advance-slide` only after `countdownMs` elapses without `speech-resumed`.
+- Manual commands cancel countdown and pass through. Manual `nextStep` returns state to `tracking`; manual slide changes reset to `tracking` for the destination slide.
+- Keep command output abstract: `advance-slide`, `cancel-countdown`, `show-builds-remaining`, `suggest-finish`; actual state store calls happen in integration.
 
 **Acceptance criteria:**
-- 70% plus final sentence plus pause starts countdown.
-- Speech resume cancels countdown.
-- Manual override always passes immediately.
-- Last slide suggests finish instead of advancing.
+- 70% coverage + final sentence + no remaining builds + existing pause starts countdown without waiting for a new pause edge.
+- Speech resume during countdown cancels countdown and returns to `ready`.
+- Manual `nextStep` during countdown cancels countdown, passes through the step command, and returns to `tracking`.
+- Remaining trigger steps block auto-advance and expose the remaining count.
+- Last slide produces finish suggestion without countdown or automatic finish.
+- Disabled rehearsal/live mode never emits auto-advance commands.
 
 **Verification:**
 - `pnpm --filter @orbit/web test -- advanceController`
 
-**Dependencies:** Task P3.2, Task P4.1
+**Dependencies:** Task P0.7, Task P3.5, Task P4.1, Task P4.2
 
 **Files likely touched:**
 - `apps/web/src/features/rehearsal/advance/advanceController.ts`
 - `apps/web/src/features/rehearsal/advance/advanceController.test.ts`
 
-**Estimated scope:** Small
+**Estimated scope:** Medium
 
-### Task P4.3: Add Auto-Advance UI and Settings
+### Task P4.4: Wire Auto-Advance Runtime Into `RehearsalWorkspace`
 
-**Description:** Add presenter-visible countdown, cancel behavior, threshold settings, and manual guidance.
+**Description:** Connect P3 session snapshots, P0 trigger-step state, live audio level updates, Live STT result activity, and presenter commands to the pure P4 modules.
 
-**Feature/spec:** D2, D3, D6.
+**Feature/spec:** D2, D3, D6, P4-D2, P4-D3, P4-D7, P4-D8, P4-D9.
 
-**Tech stack:** React, presenter settings.
+**Tech stack:** React hooks/refs, existing `RehearsalWorkspace`, `presenterStateStore`, `SlideshowRenderer` step model, Testing Library.
 
 **Implementation plan:**
-- Add mode-specific toggles for rehearsal and live.
-- Add threshold control from 50 to 95.
-- Show countdown only in presenter view.
-- Show manual guidance badge when coverage remains low for a configured duration.
+- Add a small hook or local adapter such as `useAutoAdvanceRuntime`.
+- Feed `PauseDetector` with:
+  - existing live audio level events from the active microphone/STT path
+  - every Live STT result as transcript activity, including partial results
+  - controlled ticks while a P3 session is running
+- Feed `AdvanceController` with the latest P3 snapshot, `presenterSettings.advancePolicy`, P4 config, current mode, current slide index, and remaining trigger steps from the slideshow plan.
+- Compute `remainingTriggerSteps = maxStepIndex - stepIndex` for the current slide.
+- On `advance-slide`, call the existing presenter state command path for next slide and reset P3 transition-gating state for the new slide.
+- On manual `nextStep`, `nextSlide`, `previousSlide`, or `setSlide`, notify `AdvanceController` before executing the existing command so countdown state is cancelled.
+- Reset `PauseDetector` and `AdvanceController` on P3 stop, slide change, and deck change.
+- Do not send countdown, guidance, finish, transcript, or speaker notes to `presentationChannel`.
 
 **Acceptance criteria:**
-- Slide window never shows countdown UI.
-- Threshold settings persist globally.
-- Guidance badge never forces automatic advance.
+- Auto-advance works with mocked P3 snapshots and mocked audio/STT activity without Recorder or run APIs.
+- Countdown is cancelled before any manual command mutates state.
+- A slide with remaining trigger steps never auto-advances; manual step execution is still allowed.
+- Slide-window channel payloads are unchanged and do not include P4 presenter-only UI state.
+- Session stop leaves no active timer or stale auto-advance state.
 
 **Verification:**
-- `pnpm --filter @orbit/web test -- AutoAdvancePanel`
-- Manual countdown/cancel smoke test.
+- `pnpm --filter @orbit/web test -- RehearsalWorkspace`
+- `pnpm --filter @orbit/web test -- presentationChannel`
 
-**Dependencies:** Task P3.3, Task P4.2
+**Dependencies:** Task P3.10, Task P4.2, Task P4.3
 
 **Files likely touched:**
-- `apps/web/src/features/rehearsal/advance/AutoAdvancePanel.tsx`
+- `apps/web/src/features/rehearsal/advance/useAutoAdvanceRuntime.ts`
+- `apps/web/src/features/rehearsal/advance/useAutoAdvanceRuntime.test.tsx`
 - `apps/web/src/features/rehearsal/RehearsalWorkspace.tsx`
+- `apps/web/src/features/rehearsal/RehearsalWorkspace.test.tsx`
+
+**Estimated scope:** Medium
+
+### Task P4.5: Add Presenter-Only Auto-Advance Status UI
+
+**Description:** Add the presenter UI that explains auto-advance state without leaking anything to the slide window: countdown, countdown cancellation state, manual guidance, remaining builds, and final-slide finish suggestion.
+
+**Feature/spec:** D2, D3, D6, P4-D6, P4-D8, P4-D9.
+
+**Tech stack:** React, Testing Library, existing rehearsal panel/topbar styles, lucide icons where buttons need icons.
+
+**Implementation plan:**
+- Add `apps/web/src/features/rehearsal/advance/AutoAdvanceStatus.tsx`.
+- Render countdown only in presenter layout, never in `PresentWindow` or `SingleScreenPresenter`.
+- Render manual guidance when final sentence was spoken and `manualGuidanceDelayMs` has elapsed but auto-advance is not eligible.
+- Render remaining-build badge when `remainingTriggerSteps > 0`, using copy that includes the count.
+- Render final-slide finish suggestion as a non-blocking badge and expose a prop that allows the existing finish/stop button to be highlighted.
+- Keep all status UI free of transcript text, speaker notes, keyword labels, raw audio references, and run metadata.
+- Add component tests for each state and a privacy assertion that slide-window components do not import or render `AutoAdvanceStatus`.
+
+**Acceptance criteria:**
+- Countdown is visible only in presenter view while the controller is in `countdown`.
+- Speech resume or any manual command removes the countdown UI.
+- Manual guidance never triggers automatic advance.
+- Remaining-build badge blocks only auto-advance; manual controls remain available.
+- Last-slide finish suggestion does not open a modal and does not stop the run automatically.
+- Slide-window and single-screen fallback do not mount this presenter-only status UI.
+
+**Verification:**
+- `pnpm --filter @orbit/web test -- AutoAdvanceStatus`
+- `pnpm --filter @orbit/web test -- PresentWindow`
+- `pnpm --filter @orbit/web test -- SingleScreenPresenter`
+
+**Dependencies:** Task P4.3, Task P4.4
+
+**Files likely touched:**
+- `apps/web/src/features/rehearsal/advance/AutoAdvanceStatus.tsx`
+- `apps/web/src/features/rehearsal/advance/AutoAdvanceStatus.test.tsx`
+- `apps/web/src/features/rehearsal/RehearsalWorkspace.tsx`
+- `apps/web/src/features/rehearsal/RehearsalWorkspace.test.tsx`
+
+**Estimated scope:** Medium
+
+### Task P4.6: Add Auto-Advance Settings UI
+
+**Description:** Add the small user-facing settings surface for mode enablement and coverage threshold only. Hidden timing and pause detector values stay persisted/configured but not exposed.
+
+**Feature/spec:** D2, D3, P4-D4, P4-D5.
+
+**Tech stack:** React, existing `usePresenterSettings`, Testing Library.
+
+**Implementation plan:**
+- Add `apps/web/src/features/rehearsal/advance/AutoAdvanceSettings.tsx`.
+- Render rehearsal and live auto-advance on/off toggles backed by `presenterSettings.advancePolicy.rehearsal` and `.live`.
+- Render a threshold stepper with values `50, 55, 60, ..., 95`.
+- Persist threshold as decimal ratio `0.5..0.95`.
+- Do not render controls for `pauseMs`, `countdownMs`, `manualGuidanceDelayMs`, or `pauseDetector.silenceThresholdDb`.
+- Keep settings UI in presenter mode only.
+
+**Acceptance criteria:**
+- Rehearsal and live toggles persist globally.
+- Threshold stepper changes in 5% increments and never writes a value outside `0.5..0.95`.
+- Hidden P4 timing and silence settings remain loadable from schema but absent from the UI DOM.
+- Changing settings updates the running controller on the next runtime snapshot without restarting STT.
+
+**Verification:**
+- `pnpm --filter @orbit/web test -- AutoAdvanceSettings`
+- `pnpm --filter @orbit/web test -- presenterSettings`
+- `pnpm --filter @orbit/web test -- RehearsalWorkspace`
+
+**Dependencies:** Task P4.1, Task P4.4
+
+**Files likely touched:**
+- `apps/web/src/features/rehearsal/advance/AutoAdvanceSettings.tsx`
+- `apps/web/src/features/rehearsal/advance/AutoAdvanceSettings.test.tsx`
+- `apps/web/src/features/rehearsal/RehearsalWorkspace.tsx`
+- `apps/web/src/features/rehearsal/settings/presenterSettings.test.ts`
+
+**Estimated scope:** Small
+
+### Task P4.7: Add P4 Fixture Harness and Regression Gate
+
+**Description:** Add end-to-end-ish P4 fixtures that prove auto-advance behavior across speech coverage, final sentence, pause timing, manual override, remaining builds, and last-slide finish suggestion.
+
+**Feature/spec:** P4 milestone gate.
+
+**Tech stack:** Vitest fake timers, Testing Library, mocked `LiveSttPort`, P3 fixture deck/transcripts, P0 animation fixture deck.
+
+**Implementation plan:**
+- Add a P4 fixture deck with:
+  - at least two slides
+  - Korean speaker notes with final-sentence trigger
+  - one slide with no remaining trigger steps
+  - one slide with cue-referenced trigger steps still remaining
+  - a final slide
+- Script mocked STT result activity where partials keep pause from starting, then final coverage and last sentence become true.
+- Script audio level events for speech, silence under `pauseMs`, silence over `pauseMs`, and speech resume during countdown.
+- Test the happy path: 70%+final sentence+no remaining builds+pause -> countdown -> auto next slide.
+- Test cancellation: countdown + speech resume -> no advance.
+- Test manual override: countdown + manual `nextStep` -> cancel, step executes, tracking resumes.
+- Test blocked builds: ready conditions met but `remainingTriggerSteps > 0` -> remaining-build badge and no advance.
+- Test final slide: ready conditions met -> finish suggestion and highlighted finish action, no countdown.
+- Add privacy assertions that P4 status does not appear in `/present/:deckId` slide-window output.
+
+**Acceptance criteria:**
+- The full P4 gate is covered by deterministic tests without microphone, real STT model, Recorder, or backend APIs.
+- There are zero auto-advances while partial transcript activity continues during otherwise silent audio.
+- There are zero auto-advances when build steps remain or on the last slide.
+- Countdown UI and manual guidance are presenter-only.
+
+**Verification:**
+- `pnpm --filter @orbit/web test -- pauseDetector`
+- `pnpm --filter @orbit/web test -- advanceController`
+- `pnpm --filter @orbit/web test -- AutoAdvanceStatus`
+- `pnpm --filter @orbit/web test -- AutoAdvanceSettings`
+- `pnpm --filter @orbit/web test -- RehearsalWorkspace`
+
+**Dependencies:** Tasks P4.1-P4.6
+
+**Files likely touched:**
+- `apps/web/src/features/rehearsal/advance/__fixtures__/p4AutoAdvanceFixture.ts`
+- `apps/web/src/features/rehearsal/advance/*.test.ts`
+- `apps/web/src/features/rehearsal/RehearsalWorkspace.test.tsx`
+- `apps/web/src/features/rehearsal/presenter/PresentWindow.test.tsx`
 
 **Estimated scope:** Medium
 
 ### Checkpoint: P4
 
-- [ ] State machine path coverage is complete.
-- [ ] Countdown advances and cancels correctly.
-- [ ] Manual controls retain priority.
+- [ ] P4 decision IDs `P4-D1` through `P4-D9` are reflected in config, controller tests, and presenter UI tests.
+- [ ] `PauseDetector` uses separate P4 config and does not import Live STT silence defaults.
+- [ ] Partial and final STT activity both reset pause detection.
+- [ ] Ready-after-existing-silence enters countdown immediately.
+- [ ] Auto-advance requires threshold, final sentence, no remaining trigger steps, and pause/countdown completion.
+- [ ] Countdown cancels on speech resume and every manual command.
+- [ ] Manual `nextStep` during countdown executes the step and returns tracking to the current slide.
+- [ ] Remaining build steps show a presenter-only badge and block only auto-advance.
+- [ ] Last slide shows a presenter-only finish suggestion without countdown, modal, or automatic stop.
+- [ ] Threshold UI persists in 5% increments from 50% to 95%; `pauseMs`, `countdownMs`, `manualGuidanceDelayMs`, and `silenceThresholdDb` are not exposed in UI.
+- [ ] Slide-window and single-screen fallback never render countdown, guidance, build, or finish-suggestion UI.
+- [ ] Mocked fixture E2E proves 70%+final sentence+pause -> countdown -> advance and countdown+speech resume -> cancel.
+
+### P4 Implementation Notes
+
+- P4 config and threshold helpers live in `apps/web/src/features/rehearsal/advance/autoAdvanceConfig.ts`.
+- `PresenterSettings` now persists `advancePolicy.pauseMs`, `advancePolicy.countdownMs`, and `pauseDetector.silenceThresholdDb`; `manualGuidanceDelayMs` remains code config only and is not persisted.
+- `PauseDetector` is implemented in `apps/web/src/features/rehearsal/speech/pauseDetector.ts` and uses P4 config instead of importing Live STT silence constants.
+- `AdvanceController` is implemented in `apps/web/src/features/rehearsal/advance/advanceController.ts`; it blocks auto advance while trigger steps remain and never starts countdown on the final slide.
+- Presenter-only UI lives in `AutoAdvanceStatus.tsx` and `AutoAdvanceSettings.tsx`; `/present/:deckId` and `SingleScreenPresenter` do not receive countdown, guidance, remaining-build, or finish-suggestion state.
+- `RehearsalWorkspace` routes partial and final STT results into `PauseDetector`, routes P3 snapshots into `AdvanceController`, and treats spoken advance commands as manual overrides.
+- The P4 fixture harness lives under `apps/web/src/features/rehearsal/advance/__fixtures__/p4AutoAdvanceFixture.ts`.
+- Verified commands for this implementation:
+  - `pnpm --filter @orbit/web test -- AutoAdvanceStatus AutoAdvanceSettings RehearsalWorkspace PresentWindow SingleScreenPresenter advanceController pauseDetector presenterSettings`
+  - `pnpm --filter @orbit/web build`
 
 ## P5: Speech Cues and Animation Execution
 
@@ -1545,7 +2059,7 @@ P0/P1, P2/P3/P4/P5, and P6 can run as parallel tracks after the contract baselin
 - `pnpm --filter @orbit/api test -- rehearsals`
 - `pnpm --filter @orbit/worker test -- rehearsal-stt`
 
-**Dependencies:** Task P6.4, Task P2.5
+**Dependencies:** Task P6.4, Task P2.11
 
 **Files likely touched:**
 - `apps/api/src/rehearsals/rehearsals.service.ts`
@@ -1754,7 +2268,7 @@ P0/P1, P2/P3/P4/P5, and P6 can run as parallel tracks after the contract baselin
 |---|---:|---|
 | Monolithic `RehearsalWorkspace.tsx` becomes harder to change | High | Extract ports and pure modules first; keep UI rewrites scoped by task |
 | Moonshine adapter runtime complexity | Medium | CI uses contract mocks; real engine harness remains local/manual |
-| WhisperX hosted API mismatch | High | Require P2.4 contract spike before provider implementation |
+| WhisperX hosted API mismatch | High | Require Task P2.9 contract spike before provider implementation |
 | FLAC encoder performance | High | Run P6.1 before Recorder; keep encoding off the main thread |
 | Chunk temp object leaks | Medium | Delete on success; use 1 day S3/MinIO TTL for incomplete/failed chunks |
 | Auto advance false positives | High | Keep pause + countdown + resume cancel; never advance on cue alone |

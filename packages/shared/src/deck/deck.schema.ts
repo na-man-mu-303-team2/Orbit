@@ -6,6 +6,7 @@ import {
   deckKeywordIdSchema,
   deckSlideIdSchema
 } from "./id.schema";
+import { slideActionSchema } from "./slide-action.schema";
 import { deckElementSchema } from "./slide-object.schema";
 import { themeColorSchema, themeSchema } from "./theme.schema";
 
@@ -38,7 +39,8 @@ export const deckCreatedFromReferenceSchema = z.object({
 
 export const deckCreatedFromSchema = z.object({
   topic: z.string().min(1),
-  references: z.array(deckCreatedFromReferenceSchema).default([])
+  references: z.array(deckCreatedFromReferenceSchema).default([]),
+  designReferences: z.array(deckCreatedFromReferenceSchema).default([])
 });
 
 export const deckMetadataSchema = z.object({
@@ -77,7 +79,8 @@ export const keywordSchema = z.object({
   keywordId: deckKeywordIdSchema,
   text: keywordTermSchema,
   synonyms: z.array(keywordTermSchema).default([]),
-  abbreviations: z.array(keywordTermSchema).default([])
+  abbreviations: z.array(keywordTermSchema).default([]),
+  required: z.boolean().default(true)
 });
 
 export const slideKeywordsSchema = z
@@ -161,19 +164,62 @@ export const slideAiNotesSchema = z
   })
   .default({});
 
-export const slideSchema = z.object({
-  slideId: deckSlideIdSchema,
-  order: slideOrderSchema,
-  title: z.string().default(""),
-  thumbnailUrl: z.string().default(""),
-  estimatedSeconds: z.number().int().positive().optional(),
-  style: slideStyleSchema,
-  speakerNotes: z.string().default(""),
-  elements: z.array(deckElementSchema).default([]),
-  keywords: slideKeywordsSchema.default([]),
-  animations: z.array(animationSchema).default([]),
-  aiNotes: slideAiNotesSchema.optional()
-});
+export const slideSchema = z
+  .object({
+    slideId: deckSlideIdSchema,
+    order: slideOrderSchema,
+    title: z.string().default(""),
+    thumbnailUrl: z.string().default(""),
+    estimatedSeconds: z.number().int().positive().optional(),
+    style: slideStyleSchema,
+    speakerNotes: z.string().default(""),
+    elements: z.array(deckElementSchema).default([]),
+    keywords: slideKeywordsSchema.default([]),
+    animations: z.array(animationSchema).default([]),
+    actions: z.array(slideActionSchema).default([]),
+    aiNotes: slideAiNotesSchema.optional()
+  })
+  .superRefine((slide, ctx) => {
+    const actionIds = new Set<string>();
+    const keywordIds = new Set(slide.keywords.map((keyword) => keyword.keywordId));
+    const animationIds = new Set(
+      slide.animations.map((animation) => animation.animationId)
+    );
+
+    slide.actions.forEach((action, actionIndex) => {
+      if (actionIds.has(action.actionId)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["actions", actionIndex, "actionId"],
+          message: "slide action IDs must be unique within the same slide"
+        });
+      } else {
+        actionIds.add(action.actionId);
+      }
+
+      if (
+        action.trigger.kind === "keyword" &&
+        !keywordIds.has(action.trigger.keywordId)
+      ) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["actions", actionIndex, "trigger", "keywordId"],
+          message: "slide action must target a keyword in the same slide"
+        });
+      }
+
+      if (
+        action.effect.kind === "play-animation" &&
+        !animationIds.has(action.effect.animationId)
+      ) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["actions", actionIndex, "effect", "animationId"],
+          message: "slide action must target an animation in the same slide"
+        });
+      }
+    });
+  });
 
 export const deckSchema = z.object({
   deckId: deckIdSchema,

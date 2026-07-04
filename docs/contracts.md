@@ -139,7 +139,8 @@ API:
           "keywordId": "kw_1",
           "text": "ORBIT",
           "synonyms": ["발표 도우미"],
-          "abbreviations": []
+          "abbreviations": [],
+          "required": true
         }
       ],
       "elements": [
@@ -166,6 +167,19 @@ API:
           "durationMs": 400,
           "delayMs": 0,
           "easing": "ease-out"
+        }
+      ],
+      "actions": [
+        {
+          "actionId": "act_1",
+          "trigger": {
+            "kind": "keyword",
+            "keywordId": "kw_1"
+          },
+          "effect": {
+            "kind": "play-animation",
+            "animationId": "anim_1"
+          }
         }
       ]
     }
@@ -205,29 +219,30 @@ API:
 - 슬라이드 배경은 `slide.style.backgroundImage` > `slide.style.backgroundColor` > `deck.theme.backgroundColor` 순서로 해석한다.
 - `theme` 변경은 기존 `slide.style`이나 object props를 자동으로 덮어쓰지 않는다. 전체 테마 적용은 별도의 apply theme 동작으로 처리한다.
 - `slides`는 최소 1개 이상이어야 한다. 새 덱 생성 시에는 빈 덱 대신 기본 슬라이드 1장을 생성한다.
-- SlideSchema 필드는 `slideId`, `order`, `title`, `thumbnailUrl`, `estimatedSeconds`, `style`, `speakerNotes`, `elements`, `keywords`, `animations`를 유지한다. `thumbnailUrl`은 imported/image-only slide처럼 `elements`가 비어 있는 발표자 렌더링 fallback에 사용할 수 있다.
+- SlideSchema 필드는 `slideId`, `order`, `title`, `thumbnailUrl`, `estimatedSeconds`, `style`, `speakerNotes`, `elements`, `keywords`, `animations`, `actions`를 유지한다. `thumbnailUrl`은 imported/image-only slide처럼 `elements`가 비어 있는 발표자 렌더링 fallback에 사용할 수 있다.
 - `estimatedSeconds`는 슬라이드별 목표 발표 시간(초)이며 선택 필드다. 생략된 경우 presenter UI는 `targetDurationMinutes / slides.length` 기반 균등 분배로 폴백한다.
 - AI 생성 slide는 선택적 `aiNotes`를 포함할 수 있다. `aiNotes`는 `emphasisPoints`와 검토용 `sourceEvidence`만 담고, 디자인 전용 배열은 만들지 않는다.
 - `order`는 사용자에게 보이는 슬라이드 번호와 맞춰 `1`부터 시작하는 양의 정수로 관리한다. 배열 index가 필요하면 애플리케이션 내부에서 `order - 1`로 변환한다.
 - 1차 스프린트 MVP에서는 슬라이드별 크기 override를 허용하지 않는다. 모든 슬라이드는 deck top-level의 `canvas` 크기와 비율을 따른다.
 - SlideSchema에는 `width`, `height`, `canvas`, `aspectRatio` 같은 슬라이드별 크기 필드를 두지 않는다.
 - 슬라이드 식별자는 `slideId`, 객체 식별자는 `elementId`로 통일한다.
-- Deck 내부 ID는 prefix를 강제한다. `deckId`는 `deck_`, `slideId`는 `slide_`, `elementId`는 `el_`, `animationId`는 `anim_`, `keywordId`는 `kw_`, `changeId`는 `change_`로 시작해야 한다.
+- Deck 내부 ID는 prefix를 강제한다. `deckId`는 `deck_`, `slideId`는 `slide_`, `elementId`는 `el_`, `animationId`는 `anim_`, `actionId`는 `act_`, `keywordId`는 `kw_`, `changeId`는 `change_`로 시작해야 한다.
 - prefix 뒤에는 영문, 숫자, `_`, `-`만 허용한다.
 - `projectId`, `fileId`, `jobId`, `sessionId`, `userId`, `runId`, `reportId`, `roomId`는 다른 도메인 소유 ID이므로 ORBIT-14 deck schema에서는 prefix를 강제하지 않고 non-empty string만 검증한다.
 - 좌표 단위는 `px` 기준으로 한다.
-- 지원하는 객체 타입은 `text`, `rect`, `ellipse`, `line`, `arrow`, `polygon`, `star`, `ring`, `image`, `group`, `customShape`, `chart`이다.
+- 지원하는 객체 타입은 `text`, `rect`, `ellipse`, `line`, `arrow`, `polygon`, `star`, `ring`, `image`, `group`, `customShape`, `chart`, `table`이다.
 - 기존 임시 타입인 `shape`, `video`는 1차 스프린트 deck schema에서 허용하지 않는다.
 - AI가 생성한 배경, 장식, 강조 박스, 라인, 아이콘도 별도 `designElements` 배열을 만들지 않고 `slide.elements`에 넣는다.
-- 객체 역할은 공통 `role` 필드로 표현하고, `background`, `decoration`, `title`, `subtitle`, `body`, `caption`, `media`, `chart`, `highlight`, `footer`만 허용한다.
+- 객체 역할은 공통 `role` 필드로 표현하고, `background`, `decoration`, `title`, `subtitle`, `body`, `caption`, `media`, `chart`, `table`, `highlight`, `footer`만 허용한다.
 - `role`은 렌더링 필수값이 아니라 AI 생성, 편집 UI, export, 접근성 보조를 위한 의미 정보다.
 - `background`, `decoration` 역할의 element는 사용자가 기본 편집 중 실수로 움직이지 않도록 `locked: true`와 낮은 `zIndex`를 권장한다. schema에서는 강제하지 않는다.
 - 객체 `props`는 object type별 schema로 검증한다. 전체 객체에 대해 `z.record(z.unknown())`를 열어두지 않는다.
-- `text.props`는 `text`, `fontFamily`, `fontSize`, `fontWeight`, `color`, `align`, `verticalAlign`, `lineHeight`를 사용한다.
+- `text.props`는 `text`, `runs`, `paragraphs`, `bodyInset`, `fontFamily`, `fontSize`, `fontWeight`, `color`, `align`, `verticalAlign`, `lineHeight`, `bullet`을 사용한다. `runs`는 기존 단일 paragraph 호환 field이고, `paragraphs`는 PPTX OOXML import에서 paragraph별 run/font/color/spacing/indent/bullet을 보존하기 위한 optional field다. `bodyInset`은 PPT text box 내부 여백을 px 단위로 보존한다.
 - `text.props.fontFamily`, `text.props.color`가 생략되면 renderer/export/AI normalize 단계에서 각각 `slide.style.fontFamily` > `deck.theme.fontFamily`, `slide.style.textColor` > `deck.theme.textColor` 순서로 기본값을 사용한다.
-- `image.props`는 `src`, `alt`, `fit`을 사용하고, `fit`은 `contain`, `cover`, `stretch`만 허용한다.
+- `image.props`는 `src`, `alt`, `fit`, `focusX`, `focusY`, `crop`을 사용하고, `fit`은 `contain`, `cover`, `stretch`만 허용한다. `focusX`, `focusY`는 `cover` crop 기준점이며 0부터 1 사이 값이다. `crop`은 OOXML `srcRect`를 left/top/right/bottom 0..1 비율로 보존한다.
 - `chart.props`는 `chart.schema.ts`의 chart schema를 그대로 사용한다.
-- `rect`, `ellipse`, `line`, `arrow`, `polygon`, `star`, `ring`은 공통 shape props인 `fill`, `stroke`, `strokeWidth`, `borderRadius`, `shadow`를 사용한다.
+- `table.props`는 `rows`, `columnWidths`, `rowHeights`, `borderColor`, `borderWidth`를 사용한다. 각 cell은 `text`, `fill`, `textColor`, `fontFamily`, `fontSize`, `fontWeight`, `align`, `verticalAlign`, `borderColor`, `borderWidth`, `colSpan`, `rowSpan`을 보존한다.
+- `rect`, `ellipse`, `line`, `arrow`, `polygon`, `star`, `ring`은 공통 shape props인 `fill`, `stroke`, `strokeWidth`, `borderRadius`, `dash`, `lineCap`, `lineJoin`, `shadow`를 사용한다. `fill`/`stroke`는 `#RRGGBB`, `transparent`, linear gradient paint를 허용한다.
 - `customShape.props`만 MVP 확장 지점으로 `record unknown`을 허용한다.
 - `group.props`는 `childElementIds`만 가진다.
 - group은 child element를 직접 중첩하지 않는다. 실제 child element는 `slide.elements` flat list에 그대로 두고, group은 `childElementIds`로 묶음 관계만 표현한다.
@@ -257,6 +272,13 @@ API:
 - animation `order`는 `1`부터 시작하는 양의 정수로 관리한다.
 - `durationMs`, `delayMs`, `easing`은 입력에서 생략할 수 있지만, schema parse 후 normalized Deck JSON에는 각각 `400`, `0`, `"ease-out"` 기본값으로 포함한다.
 - `easing`은 `linear`, `ease-in`, `ease-out`, `ease-in-out`만 허용한다.
+- `slide.keywords[]`는 `required` boolean을 포함한다. 이 값은 발표 중 반드시 언급해야 하는 keyword 여부를 나타내며 기본값은 `true`다.
+- 애니메이션 trigger, 다음 슬라이드 trigger 같은 발표 제어 분류는 keyword 필드에 중복 저장하지 않고 연결된 `slide.actions`로부터 파생한다.
+- 키워드 기반 authored action은 `slide.actions` flat list에 저장한다.
+- 각 action은 `act_` prefix를 따르는 `actionId`와 legacy `cue` 또는 `keywordId` 기반 trigger를 가진다.
+- action effect는 `play-animation`, `go-to-next-slide`만 허용한다.
+- `play-animation` effect는 같은 slide 안에 있는 `animationId`만 참조할 수 있다.
+- `keyword` trigger는 같은 slide 안에 있는 `keywordId`만 참조할 수 있다.
 - 밑줄 애니메이션은 1차 스프린트 MVP가 아니라 폴리싱 범위로 둔다.
 - AI 생성 결과도 최종적으로 deck JSON으로 변환한다.
 - 리허설은 `speakerNotes`, `keywords.text`, `keywords.synonyms`, `keywords.abbreviations`를 기준으로 연결한다.
@@ -327,6 +349,9 @@ DeckPatch 결정 사항:
 - `add_animation`: animation 추가
 - `update_animation`: animation 부분 수정
 - `delete_animation`: animation 삭제
+- `add_slide_action`: slide action 추가
+- `update_slide_action`: slide action 부분 수정
+- `delete_slide_action`: slide action 삭제
 
 patch 적용 규칙:
 
@@ -565,12 +590,17 @@ AI 덱 생성은 사용자 입력과 참고자료 fileId를 받아 비동기 Job
     "tone": "professional"
   },
   "design": {
+    "profile": "technical",
+    "stylePackId": "teal-professional-process",
+    "slidePresetId": "process-cards-horizontal-6",
     "visualRhythm": "technical",
     "densityTarget": "medium",
     "mediaPolicy": "balanced",
     "layoutDiversity": "stable"
   },
   "references": [{ "fileId": "file_1" }],
+  "designReferences": [{ "fileId": "file_design_1" }],
+  "templateBlueprintId": "template_file_design_1",
   "referenceKeywords": [{ "text": "실시간 발표 피드백" }]
 }
 ```
@@ -597,6 +627,7 @@ AI 덱 생성은 사용자 입력과 참고자료 fileId를 받아 비동기 Job
 - API 시작점은 `POST /api/v1/projects/:projectId/jobs/generate-deck`이다.
 - Job type은 기존 `ai-deck-generation`을 사용하고 상태값은 공통 `queued`, `running`, `succeeded`, `failed`만 사용한다.
 - 요청의 `references`는 `{ fileId: string }[]`이며 비어 있으면 topic-only generation으로 처리한다.
+- 요청의 `templateBlueprintId`는 선택 필드이며, AI 생성에 템플릿 의미 정보를 직접 넣지 않고 저장된 `TemplateBlueprint` sidecar만 참조한다.
 - 요청의 `referenceKeywords`는 `{ text: string }[]` 선택 필드이며 기본값은 `[]`이다. 참고자료 처리 결과의 주요 키워드를 전달할 때 사용한다.
 - 요청의 `designPrompt`는 선택 필드이며 기본값은 없다. 값이 있으면 콘텐츠 지시가 아니라 시각 스타일 지시로만 사용하고, LLM은 `visualIntent.paletteHint`에 `background:#RRGGBB` 같은 검증 가능한 theme token을 제안한다.
 - 기존 클라이언트처럼 `designPrompt` 없이 `prompt`만 보내는 요청은 계속 허용한다. worker는 하위 호환을 위해 명확한 디자인 문구만 fallback으로 분리하고, 분리되지 않은 값은 기존 콘텐츠 prompt로 처리한다.
@@ -604,6 +635,9 @@ AI 덱 생성은 사용자 입력과 참고자료 fileId를 받아 비동기 Job
 - MVP `metadata.purpose`는 `inform`, `persuade`, `teach`, `report`만 허용한다.
 - MVP `metadata.tone`은 `professional`, `friendly`, `confident`, `concise`만 허용한다.
 - 요청의 `design`은 선택 필드이며 생략 시 `{ visualRhythm: "auto", densityTarget: "medium", mediaPolicy: "balanced", layoutDiversity: "stable" }`로 정규화한다.
+- `design.profile`은 선택 필드이며 `executive-report`, `startup-pitch`, `editorial`, `technical`, `training`만 허용한다. profile은 기존 `theme`, `slide.style`, `SlotPreset` 선택 가중치로만 매핑하고 최종 Deck에 별도 중간 구조를 저장하지 않는다.
+- `design.stylePackId`는 선택 필드이며 worker 내부 curated style pack ID를 강제한다. 값이 없으면 worker selector가 자동 선택한다.
+- `design.slidePresetId`는 선택 필드이며 worker 내부 slide recipe ID를 강제한다. 값이 없으면 worker selector가 slide intent와 step count를 기준으로 자동 선택한다.
 - `design.visualRhythm`은 `auto`, `clean`, `editorial`, `bold`, `technical`만 허용한다.
 - `design.densityTarget`은 `low`, `medium`, `high`만 허용한다.
 - `design.mediaPolicy`는 `avoid`, `balanced`, `placeholder-ok`만 허용하며, source 없는 media placeholder는 `placeholder-ok`에서만 허용한다.
@@ -612,9 +646,12 @@ AI 덱 생성은 사용자 입력과 참고자료 fileId를 받아 비동기 Job
 - Python worker의 `/ai/generate-deck`은 `projectId`와 요청 본문을 받아 최종 `DeckSchema`를 만든다.
 - LLM/provider가 만드는 내용은 outline, message, design intent까지로 제한하고, 좌표/크기/zIndex는 코드 기반 layout engine이 계산한다.
 - LLM은 좌표, 크기, zIndex를 만들지 않는다. layout preset 후보 탐색과 최종 좌표 계산은 worker 코드가 수행한다.
-- `slotPreset`, `visualIntent`, `mediaIntent`, `layoutCandidates` 같은 생성 중간 필드는 최종 `DeckSchema`에 저장하지 않는다.
+- `slotPreset`, `stylePackId`, `slidePresetId`, `visualIntent`, `mediaIntent`, `layoutCandidates` 같은 생성 중간 필드는 최종 `DeckSchema`에 저장하지 않는다.
 - 생성 결과의 디자인은 새 배열 없이 기존 `deck.theme`, `slide.style`, `slide.elements`, chart props, `slide.animations`에 매핑한다.
+- Python worker는 source data가 없는 chart 숫자를 임의 생성하지 않는다. 근거 데이터가 없으면 `chart.props.data: []`인 editable chart placeholder와 `warnings`/`validation.designIssues`를 남긴다.
+- `validation.designIssues`는 overflow, contrast, collision, safe area, density, placeholder media, chart data provenance 같은 advisory warning을 담는다. 이 warning이 있어도 `validation.passed`가 true이면 worker는 deck을 저장한다.
 - worker는 Python 응답을 shared `generateDeckResponseSchema`와 `deckSchema`로 검증한 뒤 `decks`에 저장하고 job result에 `{ deckId, deck, warnings, validation }`을 저장한다.
+- 후속 AI 생성이 템플릿을 사용할 때는 `TemplateBlueprint.slots` 중 `usage`가 `content-slot` 또는 `media-slot`이고 `replaceMode`가 `replace`인 slot만 수정한다. `fixed-text`, `decoration`, `preserve`, 낮은 confidence slot은 수정하지 않는다.
 
 구현 위치:
 
@@ -622,6 +659,250 @@ AI 덱 생성은 사용자 입력과 참고자료 fileId를 받아 비동기 Job
 - `services/python-worker/app/ai/generate_deck.py`
 - `apps/api/src/generate-deck`
 - `apps/worker/src/generate-deck.processor.ts`
+
+## PPTX import, Template Blueprint, Quality Report 계약
+
+PPTX import는 최종 편집/렌더링용 `Deck`과 템플릿 의미 sidecar인 `TemplateBlueprint`를 분리한다. `Deck`/`DeckElement` schema는 변경하지 않고, 템플릿 의미 판단은 `packages/shared/src/deck/template-blueprint.schema.ts`의 sidecar를 원본으로 둔다.
+
+API:
+
+- `POST /api/v1/projects/:projectId/pptx-imports`
+- request: `{ "fileId": "file_1" }`
+- response: `{ "job": "{ JobSchema }" }`
+- Job type: `pptx-import`
+
+PPTX import job result:
+
+```json
+{
+  "deckId": "deck_import_file_1",
+  "templateId": "template_file_1",
+  "qualityReport": {
+    "compositeScore": 82,
+    "metrics": {
+      "geometry": 90,
+      "text": 80,
+      "color": 80,
+      "layer": 90,
+      "editability": 60,
+      "pixelSimilarity": null
+    },
+    "weights": {
+      "geometry": 25,
+      "text": 15,
+      "color": 10,
+      "layer": 10,
+      "editability": 10,
+      "pixelSimilarity": 30
+    },
+    "editabilityCoverage": 0.6,
+    "appliedCap": null,
+    "slideReports": [
+      {
+        "slideIndex": 1,
+        "status": "not_evaluated",
+        "ssim": null,
+        "reasons": ["candidate renderer unavailable"],
+        "fallback": "none"
+      }
+    ],
+    "notes": ["pixel renderer unavailable"]
+  },
+  "warnings": []
+}
+```
+
+TemplateBlueprint:
+
+```json
+{
+  "templateId": "template_file_1",
+  "sourceFileId": "file_1",
+  "slides": [
+    {
+      "slideIndex": 1,
+      "sourceSlideIndex": 1,
+      "slots": [
+        {
+          "elementId": "el_imported_1_slide_1_text",
+          "usage": "content-slot",
+          "slotRole": "title",
+          "replaceMode": "replace",
+          "confidence": 0.95,
+          "bounds": { "x": 120, "y": 80, "width": 800, "height": 120 },
+          "source": { "type": "placeholder", "placeholderType": "title" }
+        }
+      ]
+    }
+  ]
+}
+```
+
+결정 사항:
+
+- Python worker의 `/design/import-pptx`는 기존 `blueprint`, `assets`, `warnings`와 함께 `templateBlueprint`, `qualityReport`를 반환한다.
+- `ORBIT_PPTX_OOXML_VECTOR_IMPORT` 기본값은 `true`이며, Python worker는 OOXML XML 직접 파서 기반 visual tree를 먼저 사용한다. 지원하지 않는 OOXML 효과는 임의 변환하지 않고 `warnings`에 남기며, 파서 실패 시 기존 `python-pptx` importer로 fallback한다. `false`로 설정하면 기존 `python-pptx` importer를 사용한다.
+- Worker는 imported image asset을 기존 `design-asset` 저장 흐름으로 저장하고 asset ref를 API asset content URL로 교체한 뒤 `DeckSchema`로 검증해 `decks`에 저장한다.
+- `templateBlueprint`와 `qualityReport`는 `template_blueprints` 테이블에 저장한다.
+- placeholder `p:ph`에서 온 텍스트/미디어는 `content-slot` 또는 `media-slot`과 `replace`로 분류한다.
+- master/layout 유래 요소, 반복 텍스트, 직접 그린 애매한 텍스트 박스는 기본적으로 `decoration` 또는 `fixed-text`이며 `preserve`/`ignore`와 낮은 confidence를 사용한다.
+- Quality composite score는 geometry 25, text 15, color 10, layer 10, editability 10, pixel similarity 30 가중치를 사용한다.
+- pixel renderer가 없으면 `pixelSimilarity: null`로 두고 나머지 항목을 재가중한다. slide별 평가는 `qualityReport.slideReports[]`에 `passed`, `vectorization_failed`, `not_evaluated`와 `ssim`, 실패 사유, fallback 후보를 남긴다.
+- `editabilityCoverage < 0.5`면 총점 cap 70, `< 0.2`면 cap 50을 적용해 whole-slide image 변환이 높은 점수를 받지 못하게 한다.
+
+구현 위치:
+
+- `packages/shared/src/deck/template-blueprint.schema.ts`
+- `services/python-worker/app/ai/pptx_design_importer.py`
+- `apps/api/src/pptx-imports`
+- `apps/worker/src/pptx-import.processor.ts`
+
+## PPTX OOXML generation contract
+
+PPTX OOXML generation is legacy. New deck creation starts from
+`pptx-import`, which imports editable `DeckElement` objects and keeps the
+OOXML package in `TemplateBlueprint` sidecar fields. Rendered PNGs are
+thumbnail/fallback/sync verification assets, not the default editing layer.
+
+API:
+
+- `POST /api/v1/projects/:projectId/pptx-ooxml-generations`
+- request: `{ "fileId": "file_1", "topic": "optional", "prompt": "optional" }`
+- response: `{ "job": "{ JobSchema }" }`
+- Job type: `pptx-ooxml-generation`
+- Queue name: `pptx-ooxml-generation`
+
+Job result:
+
+```json
+{
+  "deckId": "deck_ooxml_file_1",
+  "templateId": "template_file_1",
+  "sourceFileId": "file_1",
+  "currentPackageFileId": "file_current_package",
+  "qualityReport": "{ QualityReport }",
+  "warnings": []
+}
+```
+
+TemplateBlueprint optional OOXML tracking fields:
+
+- `sourcePackageFileId`
+- `currentPackageFileId`
+- `ooxmlSyncedDeckVersion`
+- `slides[].renderAssetFileId`
+- `slides[].fallbackRenderAssetFileId`
+- `slides[].elementSources[]`
+- `slides[].elementSources[]`: `{ elementId, slidePart, shapeId, relationshipId?, sourceType, writable, fallbackReason? }`
+- `slots[].source.slidePart`
+- `slots[].source.shapeId`
+- `slots[].source.relationshipId`
+
+## AI template deck generation contract
+
+Home screen AI generation uses one master job to combine content references
+with a PPTX design template. The worker runs content extraction and PPTX OOXML
+template conversion in parallel, then generates a deck, applies generated text
+back into the PPTX package, and saves the final deck for the editor.
+
+API:
+
+- `POST /api/v1/projects/:projectId/jobs/ai-template-deck-generation`
+- Job type: `ai-template-deck-generation`
+- Queue name: `ai-template-deck-generation`
+
+Request:
+
+```json
+{
+  "topic": "발표 주제",
+  "prompt": "내용 지시사항",
+  "designPrompt": "디자인 지시사항",
+  "targetDurationMinutes": 10,
+  "slideCountRange": { "min": 5, "max": 8 },
+  "template": "default",
+  "metadata": {
+    "audience": "general",
+    "purpose": "inform",
+    "tone": "professional"
+  },
+  "design": {
+    "visualRhythm": "auto",
+    "densityTarget": "medium",
+    "mediaPolicy": "balanced",
+    "layoutDiversity": "stable"
+  },
+  "assets": [
+    { "fileId": "file_content_1", "role": "content" },
+    { "fileId": "file_design_1", "role": "design" }
+  ]
+}
+```
+
+Rules:
+
+- `assets[].role` is `content`, `design`, or `both`.
+- Exactly one `design` or `both` asset is required.
+- The design asset must be an uploaded PPTX with `purpose: "pptx-import"`.
+- Content assets are sent through `/documents/parse` and become
+  `references`/`referenceKeywords` for `/ai/generate-deck`.
+- The design PPTX is sent through `/ai/pptx-ooxml-generation`; the final
+  generated text is applied through `/ai/pptx-ooxml-apply-slot-texts`.
+
+Job result:
+
+```json
+{
+  "deckId": "deck_ai_project_1",
+  "templateId": "template_file_design_1",
+  "sourceFileId": "file_design_1",
+  "currentPackageFileId": "file_current_package",
+  "contentReferenceFileIds": ["file_content_1"],
+  "qualityReport": "{ QualityReport }",
+  "warnings": []
+}
+```
+
+## PPTX OOXML sync contract
+
+Deck patch storage succeeds immediately. If the deck has an OOXML-backed
+`TemplateBlueprint`, `POST /api/v1/projects/:projectId/deck/patches` enqueues
+a background sync job and may include `ooxmlSyncJob` in the response.
+
+Job:
+
+- Job type: `pptx-ooxml-sync`
+- Queue name: `pptx-ooxml-sync`
+
+Job result:
+
+```json
+{
+  "deckId": "deck_import_file_1",
+  "templateId": "template_file_1",
+  "currentPackageFileId": "file_current_package",
+  "renderAssetFileIds": ["file_slide_1"],
+  "syncedDeckVersion": 2,
+  "warnings": []
+}
+```
+
+Supported first-pass patch operations:
+
+- `update_element_frame`
+- `update_element_props`
+- `add_element`
+- `delete_element`
+
+`zIndex` sync can warn without reverting the saved `DeckPatch`.
+
+Implementation locations:
+
+- `packages/shared/src/deck/pptx-ooxml-generation.schema.ts`
+- `apps/api/src/pptx-ooxml-generations`
+- `apps/worker/src/pptx-ooxml-generation.processor.ts`
+- `apps/worker/src/pptx-ooxml-sync.processor.ts`
+- `services/python-worker/app/ai/pptx_ooxml_generation.py`
 
 ## 파일 업로드 결과 구조
 
@@ -648,6 +929,7 @@ AI 덱 생성은 사용자 입력과 참고자료 fileId를 받아 비동기 Job
 - `export-result`
 - `report-result`
 - `thumbnail`
+- `design-asset`
 
 결정 사항:
 
@@ -656,7 +938,7 @@ AI 덱 생성은 사용자 입력과 참고자료 fileId를 받아 비동기 Job
 - `url`은 임시로 로컬 경로를 쓰되, 이후 S3 signed URL로 교체할 수 있게 유지한다.
 - 업로드 요청은 `POST /api/v1/projects/:projectId/assets/upload-url`로 시작한다.
 - 업로드 완료 처리는 `POST /api/v1/projects/:projectId/assets/complete`에서 `fileId`를 받아 위 구조를 반환한다.
-- 1차 구현에서 허용하는 mime type은 purpose별로 제한한다. 문서/이미지 purpose는 PDF, PPTX, DOCX, JPEG, PNG, WebP를 허용하고 최대 크기는 50MiB다. `rehearsal-audio`는 현재 구현된 OpenAI report STT 경로에서 MP3, MP4, MPEG, MPGA, M4A, FLAC, WAV, WebM 계열만 허용하며 기본/최대 크기는 25MB다. WhisperX 대용량 업로드 한도는 provider 구현이 들어가는 후속 작업에서 다시 연다.
+- 1차 구현에서 허용하는 mime type은 purpose별로 제한한다. 문서/이미지 purpose는 PDF, PPTX, DOCX, JPEG, PNG, WebP를 허용하고 최대 크기는 50MiB다. `rehearsal-audio`는 MP3, MP4, MPEG, MPGA, M4A, FLAC, WAV, WebM 계열만 허용한다. `REPORT_STT_PROVIDER=openai` 경로에서는 `REHEARSAL_AUDIO_MAX_BYTES` 기본값과 최대값을 25MB로 유지한다. WhisperX는 현재 별도 provider 최대 크기 계약을 정의하지 않는다.
 - upload URL을 발급한 뒤 complete가 호출되지 않은 파일은 `pending` metadata로 남기고, 정리 정책은 후속 작업에서 결정한다.
 - 분석이 끝난 `rehearsal-audio` raw object는 삭제하고, metadata는 `status=deleted`, `deletedAt`으로 추적한다.
 
@@ -685,8 +967,8 @@ AI 덱 생성은 사용자 입력과 참고자료 fileId를 받아 비동기 Job
 
 리허설 종료 뒤 녹음 파일을 전사하고 코칭 리포트를 생성한다.
 
-- STT provider env: `REPORT_STT_PROVIDER=openai`
-- WhisperX env: 후속 `ReportSttProvider` 구현 전까지 선택할 수 없다.
+- STT provider env: `REPORT_STT_PROVIDER=openai | whisperx`
+- WhisperX env: `WHISPERX_API_URL`, `WHISPERX_API_KEY`, `WHISPERX_MODEL`, `WHISPERX_TIMEOUT_MS`
 - rehearsal audio limit env: `REHEARSAL_AUDIO_MAX_BYTES=25000000`
 - LLM provider env: `LLM_PROVIDER=openai`
 - 실행 위치: API/worker/Python worker
@@ -886,6 +1168,9 @@ PPTX import/export, 참고자료 추출, AI 생성, 리허설 STT, 최종 보고
 - `deck-export`
 - `reference-extract`
 - `ai-deck-generation`
+- `ai-template-deck-generation`
+- `pptx-ooxml-generation`
+- `pptx-ooxml-sync`
 - `worker-health-check`
 - `rehearsal-stt`
 - `final-report-generation`

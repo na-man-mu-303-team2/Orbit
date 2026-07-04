@@ -1,5 +1,5 @@
 import fs from "node:fs";
-import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { createDemoDeck } from "@orbit/editor-core";
 import type { Job, RehearsalReport, RehearsalRun } from "@orbit/shared";
 import type { ReactNode } from "react";
@@ -27,19 +27,32 @@ import {
   getLiveAudioLevelPercent,
   getLiveSttDebugDecodingMethod,
   getRehearsalMicrophoneAudioConstraints,
-  shouldCompleteLiveSlideAdvance,
+  getRemainingTriggerStepsForSlide,
   normalizeRecordingMimeType,
-  normalizeLiveTranscriptText,
   rehearsalMicrophoneAudioConstraints,
   rehearsalRawMicrophoneAudioConstraints,
   renderLiveTranscriptBuffer,
   requestRehearsalMicrophoneStream,
+  resetRehearsalTimerState,
   resolveRehearsalReportLoadState,
   runRehearsalUploadFlow,
   selectRecordingMimeType,
-  shouldShowLiveSttDebugPcmDownload,
-  shouldAutoAdvanceLiveSlide
+  shouldRenderRehearsalThumbnailImage,
+  shouldShowLiveSttDebugPcmDownload
 } from "./RehearsalWorkspace";
+import {
+  defaultAutoAdvanceConfig,
+  defaultAutoAdvancePolicy
+} from "./advance/autoAdvanceConfig";
+import {
+  cancelAdvanceCountdown,
+  createInitialAdvanceControllerState,
+  evaluateAdvanceController
+} from "./advance/advanceController";
+import { p0AnimationDeck } from "./presenter/__fixtures__/animationDeck";
+import { getNextPresenterStepState } from "./presenter/presenterStepNavigation";
+import { normalizeLiveTranscriptText } from "./stt/liveTranscriptText";
+import { createPauseDetector } from "./speech/pauseDetector";
 import {
   confirmRehearsalCommandCandidate,
   createRehearsalCommandConfirmationState,
@@ -48,6 +61,9 @@ import {
 import { resolveEditorAssetUrl } from "../editor/shared/editorAssetUrl";
 
 const createdAt = "2026-06-29T00:00:00.000Z";
+const rehearsalWorkspaceSourcePath = fileURLToPath(
+  new URL("./RehearsalWorkspace.tsx", import.meta.url)
+);
 
 vi.mock("react-konva", () => {
   const Group = forwardRef<HTMLDivElement, { children?: ReactNode }>(
@@ -89,7 +105,8 @@ describe("RehearsalWorkspace", () => {
     expect(html).toContain("Live STT");
     expect(html).toContain("Live STT 시작");
     expect(html).toContain("Live STT 종료");
-    expect(html).toContain("Live STT 시작을 눌러 테스트하세요");
+    expect(html).not.toContain("Live STT 시작을 눌러 테스트하세요");
+    expect(html).not.toContain("Partial transcript");
     expect(html).toContain("Mic input");
     expect(html).toContain("입력 대기");
     expect(html).toContain("-100 dB RMS");
@@ -97,24 +114,26 @@ describe("RehearsalWorkspace", () => {
     expect(html).toContain("Speaker notes");
   });
 
-  it("resets presenter step when live auto advance completes", () => {
+  it("resets presenter step when P4 auto advance command completes", () => {
     const source = fs.readFileSync(
-      path.join(process.cwd(), "src/features/rehearsal/RehearsalWorkspace.tsx"),
+      rehearsalWorkspaceSourcePath,
       "utf8"
     );
-    const start = source.indexOf("function completeLiveSlideAdvance");
-    const end = source.indexOf("function cancelPendingAutoAdvance");
-    const completeLiveSlideAdvanceBody = source.slice(start, end);
+    const start = source.indexOf("function runAdvanceControllerEvaluation");
+    const end = source.indexOf("function handleLiveSttError");
+    const autoAdvanceBody = source.slice(start, end);
 
-    expect(completeLiveSlideAdvanceBody).toContain("setPresenterStepIndex(0)");
-    expect(completeLiveSlideAdvanceBody.indexOf("setPresenterStepIndex(0)")).toBeLessThan(
-      completeLiveSlideAdvanceBody.indexOf("setCurrentSlideIndex")
+    expect(autoAdvanceBody).toContain("evaluateAdvanceController");
+    expect(autoAdvanceBody).toContain("command.type !== \"advance-slide\"");
+    expect(autoAdvanceBody).toContain("setPresenterStepIndex(0)");
+    expect(autoAdvanceBody.indexOf("setPresenterStepIndex(0)")).toBeLessThan(
+      autoAdvanceBody.indexOf("setCurrentSlideIndex")
     );
   });
 
   it("keeps the presenter step on the last slide when no next slide exists", () => {
     const source = fs.readFileSync(
-      path.join(process.cwd(), "src/features/rehearsal/RehearsalWorkspace.tsx"),
+      rehearsalWorkspaceSourcePath,
       "utf8"
     );
     const start = source.indexOf("const handleNextPresenterStep");
@@ -133,7 +152,7 @@ describe("RehearsalWorkspace", () => {
 
   it("moves slides outside of the presenter step state updater", () => {
     const source = fs.readFileSync(
-      path.join(process.cwd(), "src/features/rehearsal/RehearsalWorkspace.tsx"),
+      rehearsalWorkspaceSourcePath,
       "utf8"
     );
     const start = source.indexOf("const handleNextPresenterStep");
@@ -148,7 +167,7 @@ describe("RehearsalWorkspace", () => {
 
   it("routes the top timer play button through report recording", () => {
     const source = fs.readFileSync(
-      path.join(process.cwd(), "src/features/rehearsal/RehearsalWorkspace.tsx"),
+      rehearsalWorkspaceSourcePath,
       "utf8"
     );
     const start = source.indexOf("async function handleTimePrimaryAction");
@@ -159,6 +178,112 @@ describe("RehearsalWorkspace", () => {
     expect(handleTimePrimaryActionBody).toContain('if (phase === "recording")');
     expect(handleTimePrimaryActionBody).toContain("stopRecording()");
     expect(handleTimePrimaryActionBody).toContain("stopLiveDemo()");
+  });
+
+  it("creates fallback Live STT ports from the selected presenter engine", () => {
+    const source = fs.readFileSync(
+      rehearsalWorkspaceSourcePath,
+      "utf8"
+    );
+    const defaultStart = source.indexOf("function createDefaultLiveSttPort");
+    const defaultEnd = source.indexOf("export function RehearsalWorkspace");
+    const createDefaultLiveSttPortBody = source.slice(defaultStart, defaultEnd);
+    const start = source.indexOf("function getOrCreateLiveSttPort");
+    const end = source.indexOf("async function startP3Tracking");
+    const getOrCreateLiveSttPortBody = source.slice(start, end);
+
+    expect(createDefaultLiveSttPortBody).toContain(
+      'const shouldUseSherpaCompatibility = !engineId || engineId === "sherpa"'
+    );
+    expect(createDefaultLiveSttPortBody).toContain(
+      "shouldUseSherpaCompatibility && legacyAdapter"
+    );
+    expect(createDefaultLiveSttPortBody).toContain("return createLiveSttPort(engineId)");
+    expect(getOrCreateLiveSttPortBody).toContain(
+      "props.liveSttPort"
+    );
+    expect(getOrCreateLiveSttPortBody).toContain(
+      "cachedPort?.engineId === presenterSettings.sttEngine"
+    );
+    expect(getOrCreateLiveSttPortBody).toContain("cachedPort?.dispose()");
+    expect(getOrCreateLiveSttPortBody).toContain(
+      "engineId: presenterSettings.sttEngine"
+    );
+  });
+
+  it("routes report recording through the P3 tracking session", () => {
+    const source = fs.readFileSync(
+      rehearsalWorkspaceSourcePath,
+      "utf8"
+    );
+    const recordingStart = source.indexOf("async function startRecording");
+    const recordingEnd = source.indexOf("async function startLiveDemo");
+    const startRecordingBody = source.slice(recordingStart, recordingEnd);
+    const stopStart = source.indexOf("function stopRecording");
+    const stopEnd = source.indexOf("function handleTimePrimaryAction");
+    const stopRecordingBody = source.slice(stopStart, stopEnd);
+
+    expect(startRecordingBody).toContain("void startP3Tracking(stream)");
+    expect(startRecordingBody).not.toContain("startLiveStt(stream)");
+    expect(stopRecordingBody).toContain("const p3Session = p3SessionRef.current");
+    expect(stopRecordingBody).toContain("p3Session.stop().then((meta)");
+    expect(stopRecordingBody).toContain("setP3RunMeta(meta)");
+  });
+
+  it("resynchronizes P3 tracking when the slide changes while STT is starting", () => {
+    const source = fs.readFileSync(
+      rehearsalWorkspaceSourcePath,
+      "utf8"
+    );
+    const effectStart = source.indexOf("pendingP3SlideIndexRef.current = currentSlideIndex");
+    const trackingStart = source.indexOf("async function startP3Tracking");
+    const trackingEnd = source.indexOf("function syncP3AdviceState");
+    const startP3TrackingBody = source.slice(trackingStart, trackingEnd);
+
+    expect(source.slice(effectStart - 120, effectStart + 120)).toContain(
+      'p3State.status === "starting"'
+    );
+    expect(startP3TrackingBody).toContain(
+      "pendingP3SlideIndexRef.current ?? currentSlideIndexRef.current"
+    );
+    expect(startP3TrackingBody).toContain("session.enterSlide(latestSlideIndex)");
+  });
+
+  it("passes live STT bias phrases on slide changes regardless of bias mode", () => {
+    const source = fs.readFileSync(
+      rehearsalWorkspaceSourcePath,
+      "utf8"
+    );
+    const effectStart = source.indexOf("resetLiveTranscriptForSlide(currentSlide)");
+    const effectEnd = source.indexOf("const p3Session = p3SessionRef.current", effectStart);
+    const slideChangeEffectBody = source.slice(effectStart, effectEnd);
+    const compactEffectBody = slideChangeEffectBody.replace(/\s+/g, "");
+
+    expect(compactEffectBody).toContain(
+      "updateBiasPhrases(getBiasPhrasesFromContext(nextBiasContext))"
+    );
+    expect(slideChangeEffectBody).not.toContain("shouldUseLiveSttHotwordBias");
+    expect(source).not.toContain("function shouldUseLiveSttHotwordBias");
+  });
+
+  it("syncs current P3 advice state into the session log", () => {
+    const source = fs.readFileSync(
+      rehearsalWorkspaceSourcePath,
+      "utf8"
+    );
+    const start = source.indexOf("function syncP3AdviceState");
+    const end = source.indexOf("function handleLiveSttError");
+    const syncP3AdviceStateBody = source.slice(start, end);
+
+    expect(syncP3AdviceStateBody).toContain(
+      'p3Session.setAdviceState("slide-overtime", p3AdviceState.slideOvertime)'
+    );
+    expect(syncP3AdviceStateBody).toContain(
+      'p3Session.setAdviceState(\n      "pace-too-fast"'
+    );
+    expect(syncP3AdviceStateBody).toContain(
+      'p3Session.setAdviceState(\n      "pace-too-slow"'
+    );
   });
 
   it("requests microphone audio with live STT input quality constraints", async () => {
@@ -488,6 +613,42 @@ describe("RehearsalWorkspace", () => {
     );
   });
 
+  it("falls back to slide labels when a thumbnail image has failed to load", () => {
+    const failedThumbnailUrls = new Set(["/files/thumbnails/slide_1.png"]);
+
+    expect(
+      shouldRenderRehearsalThumbnailImage(
+        "/files/thumbnails/slide_1.png",
+        failedThumbnailUrls
+      )
+    ).toBe(false);
+    expect(
+      shouldRenderRehearsalThumbnailImage(
+        "/files/thumbnails/slide_2.png",
+        failedThumbnailUrls
+      )
+    ).toBe(true);
+    expect(shouldRenderRehearsalThumbnailImage("", failedThumbnailUrls)).toBe(
+      false
+    );
+  });
+
+  it("resets total and current-slide timer state together", () => {
+    const setElapsedSeconds = vi.fn();
+    const setSlideElapsedSeconds = vi.fn();
+    const setIsTimerRunning = vi.fn();
+
+    resetRehearsalTimerState({
+      setElapsedSeconds,
+      setSlideElapsedSeconds,
+      setIsTimerRunning
+    });
+
+    expect(setElapsedSeconds).toHaveBeenCalledWith(0);
+    expect(setSlideElapsedSeconds).toHaveBeenCalledWith(0);
+    expect(setIsTimerRunning).toHaveBeenCalledWith(false);
+  });
+
   it("matches live STT keywords with normalized Korean aliases", () => {
     const slide = {
       ...createDemoDeck().slides[0]!,
@@ -497,13 +658,15 @@ describe("RehearsalWorkspace", () => {
           keywordId: "kw_1",
           text: "ORBIT",
           synonyms: ["오르빗"],
-          abbreviations: []
+          abbreviations: [],
+          required: true
         },
         {
           keywordId: "kw_2",
           text: "Live STT",
           synonyms: ["실시간 음성 인식"],
-          abbreviations: ["stt"]
+          abbreviations: ["stt"],
+          required: true
         }
       ]
     };
@@ -531,7 +694,8 @@ describe("RehearsalWorkspace", () => {
           keywordId: "kw_orbit",
           text: "ORBIT",
           synonyms: ["오르빗"],
-          abbreviations: ["OBT"]
+          abbreviations: ["OBT"],
+          required: true
         }
       ],
       elements: [
@@ -636,7 +800,8 @@ describe("RehearsalWorkspace", () => {
           keywordId: "kw_orbit",
           text: "오르빗",
           synonyms: [],
-          abbreviations: []
+          abbreviations: [],
+          required: true
         }
       ]
     };
@@ -660,7 +825,8 @@ describe("RehearsalWorkspace", () => {
           keywordId: "kw_orbit",
           text: "오르빗",
           synonyms: [],
-          abbreviations: []
+          abbreviations: [],
+          required: true
         }
       ]
     };
@@ -687,7 +853,8 @@ describe("RehearsalWorkspace", () => {
           keywordId: "kw_stt",
           text: "음성 인식",
           synonyms: [],
-          abbreviations: ["STT"]
+          abbreviations: ["STT"],
+          required: true
         }
       ]
     };
@@ -705,7 +872,8 @@ describe("RehearsalWorkspace", () => {
       keywordId: `kw_${index}`,
       text: `키워드${index}`,
       synonyms: [`동의어${index}`],
-      abbreviations: [`약어${index}`]
+      abbreviations: [`약어${index}`],
+      required: true
     }));
     const slide = {
       ...createDemoDeck().slides[0]!,
@@ -775,13 +943,15 @@ describe("RehearsalWorkspace", () => {
           keywordId: "kw_1",
           text: "ORBIT",
           synonyms: ["오르빗"],
-          abbreviations: []
+          abbreviations: [],
+          required: true
         },
         {
           keywordId: "kw_2",
           text: "Live STT",
           synonyms: ["실시간 음성 인식"],
-          abbreviations: ["stt"]
+          abbreviations: ["stt"],
+          required: true
         }
       ]
     };
@@ -824,39 +994,205 @@ describe("RehearsalWorkspace", () => {
     expect(renderLiveTranscriptBuffer(buffer)).toBe("새 슬라이드");
   });
 
-  it("decides auto-advance only when keyword coverage reaches 80%", () => {
-    expect(
-      shouldAutoAdvanceLiveSlide({
-        analysis: { coverage: 0.8, missingKeywordIds: ["kw_5"] },
-        currentSlideIndex: 0,
-        slideCount: 2,
-        keywordCount: 5,
-        alreadyAdvanced: false
-      })
-    ).toBe(true);
+  it("delegates auto-advance policy to the P4 controller instead of keyword coverage timers", () => {
+    const source = fs.readFileSync(rehearsalWorkspaceSourcePath, "utf8");
+    const start = source.indexOf("function handleLivePartialTranscript");
+    const end = source.indexOf("function resetLiveTranscriptForSlide");
+    const handlerBody = source.slice(start, end);
 
-    expect(
-      shouldAutoAdvanceLiveSlide({
-        analysis: { coverage: 0.75, missingKeywordIds: ["kw_4"] },
-        currentSlideIndex: 0,
-        slideCount: 2,
-        keywordCount: 4,
-        alreadyAdvanced: false
-      })
-    ).toBe(false);
-
-    expect(
-      shouldAutoAdvanceLiveSlide({
-        analysis: { coverage: 1, missingKeywordIds: [] },
-        currentSlideIndex: 1,
-        slideCount: 2,
-        keywordCount: 1,
-        alreadyAdvanced: false
-      })
-    ).toBe(false);
+    expect(handlerBody).not.toContain("shouldAutoAdvanceLiveSlide");
+    expect(handlerBody).not.toContain("scheduleAutoAdvance");
+    expect(source).toContain("evaluateAdvanceController");
+    expect(source).toContain("remainingTriggerSteps");
   });
 
-  it("does not let advance commands bypass keyword coverage policy", () => {
+  it("keeps production trigger animations empty until P5 wires CueProvider", () => {
+    const source = fs.readFileSync(rehearsalWorkspaceSourcePath, "utf8");
+
+    expect(source).toContain(
+      "const triggerAnimationIds = useMemo(() => [] as string[], [currentSlide?.slideId])"
+    );
+  });
+
+  it("computes remaining trigger steps when P4 fixtures inject cue-referenced animations", () => {
+    const slide = p0AnimationDeck.slides[0]!;
+    const triggerAnimationIds = [
+      "anim_image_zoom_in",
+      "anim_group_fade_out",
+      "anim_chart_zoom_out"
+    ];
+
+    expect(
+      getRemainingTriggerStepsForSlide({
+        slide,
+        stepIndex: 0,
+        triggerAnimationIds: []
+      })
+    ).toBe(0);
+    expect(
+      getRemainingTriggerStepsForSlide({
+        slide,
+        stepIndex: 0,
+        triggerAnimationIds
+      })
+    ).toBe(2);
+    expect(
+      getRemainingTriggerStepsForSlide({
+        slide,
+        stepIndex: 1,
+        triggerAnimationIds
+      })
+    ).toBe(1);
+    expect(
+      getRemainingTriggerStepsForSlide({
+        slide,
+        stepIndex: 2,
+        triggerAnimationIds
+      })
+    ).toBe(0);
+  });
+
+  it("proves P4 auto-advance gates with fixture speech, pause, and build steps", () => {
+    const slide = p0AnimationDeck.slides[0]!;
+    const triggerAnimationIds = [
+      "anim_image_zoom_in",
+      "anim_group_fade_out",
+      "anim_chart_zoom_out"
+    ];
+    const pauseDetector = createPauseDetector({
+      config: { silenceThresholdDb: -55 },
+      pauseMs: defaultAutoAdvancePolicy.pauseMs
+    });
+    pauseDetector.accept({ type: "audio-level", atMs: 0, rmsDb: -60 });
+    pauseDetector.accept({ type: "tick", atMs: 700 });
+    const pause = pauseDetector.snapshot(700);
+
+    const blocked = evaluateAdvanceController(
+      createInitialAdvanceControllerState(),
+      {
+        effectiveCoverage: 0.7,
+        finalSentenceSpoken: true,
+        finalSentenceSpokenAtMs: 100,
+        isLastSlide: false,
+        mode: "rehearsal",
+        nowMs: 700,
+        pause,
+        policy: defaultAutoAdvancePolicy,
+        remainingTriggerSteps: getRemainingTriggerStepsForSlide({
+          slide,
+          stepIndex: 0,
+          triggerAnimationIds
+        }),
+        slideId: slide.slideId
+      },
+      defaultAutoAdvanceConfig
+    );
+
+    expect(blocked.commands).toContainEqual({
+      type: "show-builds-remaining",
+      remainingTriggerSteps: 2
+    });
+    expect(blocked.commands).not.toContainEqual({
+      type: "advance-slide",
+      slideId: slide.slideId
+    });
+    expect(
+      getNextPresenterStepState({
+        currentSlideIndex: 0,
+        currentStepIndex: 0,
+        maxStepIndex: 2,
+        slideCount: p0AnimationDeck.slides.length
+      })
+    ).toMatchObject({ slideIndex: 0, stepIndex: 1 });
+
+    const countdown = evaluateAdvanceController(
+      createInitialAdvanceControllerState(),
+      {
+        effectiveCoverage: 0.7,
+        finalSentenceSpoken: true,
+        finalSentenceSpokenAtMs: 100,
+        isLastSlide: false,
+        mode: "rehearsal",
+        nowMs: 700,
+        pause,
+        policy: defaultAutoAdvancePolicy,
+        remainingTriggerSteps: getRemainingTriggerStepsForSlide({
+          slide,
+          stepIndex: 2,
+          triggerAnimationIds
+        }),
+        slideId: slide.slideId
+      },
+      defaultAutoAdvanceConfig
+    );
+    const advanced = evaluateAdvanceController(
+      countdown.state,
+      {
+        effectiveCoverage: 0.7,
+        finalSentenceSpoken: true,
+        finalSentenceSpokenAtMs: 100,
+        isLastSlide: false,
+        mode: "rehearsal",
+        nowMs: 2700,
+        pause: { isPaused: true, silenceDurationMs: 2700 },
+        policy: defaultAutoAdvancePolicy,
+        remainingTriggerSteps: 0,
+        slideId: slide.slideId
+      },
+      defaultAutoAdvanceConfig
+    );
+
+    expect(countdown.state.status).toBe("countdown");
+    expect(advanced.commands).toEqual([
+      { type: "advance-slide", slideId: slide.slideId }
+    ]);
+    expect(
+      evaluateAdvanceController(
+        countdown.state,
+        {
+          effectiveCoverage: 0.7,
+          finalSentenceSpoken: true,
+          finalSentenceSpokenAtMs: 100,
+          isLastSlide: false,
+          mode: "rehearsal",
+          nowMs: 900,
+          pause: { isPaused: false, silenceDurationMs: 0 },
+          policy: defaultAutoAdvancePolicy,
+          remainingTriggerSteps: 0,
+          slideId: slide.slideId
+        },
+        defaultAutoAdvanceConfig
+      ).commands
+    ).toEqual([{ type: "cancel-countdown", reason: "speech-resumed" }]);
+    expect(cancelAdvanceCountdown(countdown.state, "manual").state.status).toBe(
+      "tracking"
+    );
+
+    const finalSlide = p0AnimationDeck.slides[1]!;
+    const finish = evaluateAdvanceController(
+      createInitialAdvanceControllerState(),
+      {
+        effectiveCoverage: 1,
+        finalSentenceSpoken: true,
+        finalSentenceSpokenAtMs: 100,
+        isLastSlide: true,
+        mode: "rehearsal",
+        nowMs: 700,
+        pause,
+        policy: defaultAutoAdvancePolicy,
+        remainingTriggerSteps: 0,
+        slideId: finalSlide.slideId
+      },
+      defaultAutoAdvanceConfig
+    );
+
+    expect(finish.commands).toEqual([
+      { type: "suggest-finish", slideId: finalSlide.slideId }
+    ]);
+    expect(finish.state.status).toBe("finish-suggested");
+  });
+
+  it("treats spoken advance commands as manual overrides", () => {
     const state = createRehearsalCommandConfirmationState();
     const confirmedCommand = confirmRehearsalCommandCandidate(
       state,
@@ -868,35 +1204,12 @@ describe("RehearsalWorkspace", () => {
     );
 
     expect(confirmedCommand).toMatchObject({ action: "advance-slide" });
-    expect(
-      shouldAutoAdvanceLiveSlide({
-        analysis: { coverage: 0.2, missingKeywordIds: ["kw_2", "kw_3"] },
-        currentSlideIndex: 0,
-        slideCount: 2,
-        keywordCount: 3,
-        alreadyAdvanced: false
-      })
-    ).toBe(false);
-    expect(
-      shouldCompleteLiveSlideAdvance({
-        confirmedCommand,
-        analysis: { coverage: 0.2, missingKeywordIds: ["kw_2", "kw_3"] },
-        currentSlideIndex: 0,
-        slideCount: 2,
-        keywordCount: 3,
-        alreadyAdvanced: false
-      })
-    ).toBe(false);
-    expect(
-      shouldCompleteLiveSlideAdvance({
-        confirmedCommand,
-        analysis: { coverage: 0.8, missingKeywordIds: [] },
-        currentSlideIndex: 0,
-        slideCount: 2,
-        keywordCount: 3,
-        alreadyAdvanced: false
-      })
-    ).toBe(true);
+    const source = fs.readFileSync(rehearsalWorkspaceSourcePath, "utf8");
+    const start = source.indexOf("if (isAdvanceSlideCommand(confirmedCommand))");
+    const commandBody = source.slice(start, start + 180);
+
+    expect(commandBody).toContain("cancelAutoAdvanceForManualCommand()");
+    expect(commandBody).toContain("goNext()");
     expect(
       detectRehearsalCommandCandidate({
         transcript: "안녕하세요. 다음 슬라이드는.",
@@ -906,7 +1219,7 @@ describe("RehearsalWorkspace", () => {
     ).toBeNull();
   });
 
-  it("keeps the default sherpa adapter as an explicit unavailable shell", async () => {
+  it("keeps the sherpa adapter as an explicit unavailable shell", async () => {
     await expect(
       new SherpaLiveSttAdapter().start({ getTracks: () => [] } as unknown as MediaStream, {
         onPartialTranscript: () => undefined,

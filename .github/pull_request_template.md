@@ -4,6 +4,7 @@
 
 ## 테스트/검증
 
+- [ ] 수동 검증 결과를 아래 검증표에 기록
 - [ ] `pnpm build`
 - [ ] `pnpm lint`
 - [ ] `pnpm test`

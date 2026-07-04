@@ -1,18 +1,19 @@
 import { z } from "zod";
 
 import { isoDateTimeSchema } from "../common/time.schema";
-import { deckSchema } from "./deck.schema";
+import { deckSchema, type Deck } from "./deck.schema";
 import {
   deckPatchOperationSchema,
   deckPatchSchema,
-  deckChangeRecordSchema
+  deckChangeRecordSchema,
+  type DeckChangeRecord
 } from "./patch.schema";
 import {
   deckChangeIdSchema,
   deckIdSchema,
   deckSlideIdSchema
 } from "./id.schema";
-import { deckSnapshotSchema } from "./deck-api.schema";
+import { deckSnapshotSchema, type DeckSnapshot } from "./deck-api.schema";
 
 const aiSuggestionIssuePath = {
   patch: ["patch"],
@@ -161,7 +162,13 @@ export const listAiSuggestionsResponseSchema = z.object({
   suggestions: z.array(aiSuggestionSchema)
 });
 
-export const applyAiSuggestionResponseSchema = z.object({
+export const applyAiSuggestionResponseSchema: z.ZodType<{
+  suggestion: z.infer<typeof aiSuggestionSchema>;
+  deck: Deck;
+  changeRecord: DeckChangeRecord;
+  snapshot: DeckSnapshot;
+  updatedAt: string;
+}, z.ZodTypeDef, unknown> = z.object({
   suggestion: aiSuggestionSchema,
   deck: deckSchema,
   changeRecord: deckChangeRecordSchema,
@@ -226,6 +233,9 @@ function getSuggestionOperationSlideId(
     case "add_animation":
     case "update_animation":
     case "delete_animation":
+    case "add_slide_action":
+    case "update_slide_action":
+    case "delete_slide_action":
       return operation.slideId;
     default:
       return null;

@@ -465,6 +465,7 @@ async function loadDeckAnalysisContext(
               text?: unknown;
               synonyms?: unknown;
               abbreviations?: unknown;
+              required?: unknown;
             };
             return {
               slideId: operation.slideId,
@@ -476,7 +477,9 @@ async function loadDeckAnalysisContext(
                 : [],
               abbreviations: Array.isArray(record.abbreviations)
                 ? record.abbreviations.filter((value): value is string => typeof value === "string")
-                : []
+                : [],
+              required:
+                typeof record.required === "boolean" ? record.required : true
             };
           })
           .filter(
@@ -814,6 +817,7 @@ type DeckKeywordPayload = {
   text: string;
   synonyms: string[];
   abbreviations: string[];
+  required: boolean;
 };
 
 type DeckAnalysisContext = {

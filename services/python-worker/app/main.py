@@ -1,6 +1,7 @@
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
+import json
 from typing import Any, Literal, cast
 from uuid import uuid4
 
@@ -14,6 +15,22 @@ from app.ai.generate_deck import (
     GenerateDeckResponse,
     ReferenceContext,
     generate_deck,
+)
+from app.ai.pptx_design_importer import (
+    ImportedDesignAsset,
+    PptxDesignImportResult,
+)
+from app.ai.pptx_ooxml_generation import (
+    PptxOoxmlGenerationError,
+    PptxOoxmlGenerationResult,
+    PptxOoxmlSyncResult,
+    UnsupportedPptxAspectRatioError,
+    apply_slot_texts_to_pptx_ooxml,
+    generate_pptx_ooxml,
+    sync_pptx_ooxml,
+)
+from app.ai.pptx_ooxml_vector_importer import (
+    import_pptx_design_with_optional_ooxml_vector,
 )
 from app.audio.transcribe import (
     AudioTranscribeRequest,
@@ -323,6 +340,165 @@ async def parse_documents(
     return {"files": extracted_files}
 
 
+@app.post("/design/import-pptx", response_model=PptxDesignImportResult)
+async def import_pptx_design_endpoint(
+    files: list[UploadFile] = File(...),
+    project_id: str = Form("default"),
+    file_ids: list[str] | None = Form(None),
+) -> PptxDesignImportResult:
+    if not files:
+        raise HTTPException(status_code=400, detail="At least one file is required.")
+
+    from pathlib import Path
+    from tempfile import TemporaryDirectory
+
+    slides: list[dict[str, Any]] = []
+    assets: list[ImportedDesignAsset] = []
+    warnings: list[str] = []
+    theme: dict[str, Any] | None = None
+    template_blueprint: dict[str, Any] | None = None
+    quality_report: dict[str, Any] | None = None
+
+    with TemporaryDirectory(prefix="orbit-design-") as temp_dir:
+        temp_path = Path(temp_dir)
+
+        for index, upload in enumerate(files):
+            safe_name = Path(upload.filename or "upload.pptx").name
+            source_path = temp_path / safe_name
+            source_path.write_bytes(await upload.read())
+            file_id = (
+                file_ids[index]
+                if file_ids and index < len(file_ids) and file_ids[index].strip()
+                else f"file_{uuid4()}"
+            )
+            result = await run_in_threadpool(
+                import_pptx_design_with_optional_ooxml_vector,
+                source_path,
+                file_id,
+            )
+            remapped = _remap_import_asset_ids(result, len(assets))
+            slides.extend(
+                cast(list[dict[str, Any]], remapped.blueprint.get("slides", []))
+            )
+            assets.extend(remapped.assets)
+            warnings.extend(remapped.warnings)
+            if theme is None and isinstance(remapped.blueprint.get("theme"), dict):
+                theme = cast(dict[str, Any], remapped.blueprint["theme"])
+            if template_blueprint is None:
+                template_blueprint = remapped.template_blueprint
+            if quality_report is None:
+                quality_report = remapped.quality_report
+
+    return PptxDesignImportResult(
+        blueprint={
+            "projectId": project_id,
+            "canvas": {"width": 1920, "height": 1080},
+            "theme": theme or {},
+            "slides": slides,
+            "warnings": warnings,
+        },
+        templateBlueprint=template_blueprint or {},
+        qualityReport=quality_report or {},
+        assets=assets,
+        warnings=warnings,
+    )
+
+
+@app.post("/ai/pptx-ooxml-generation", response_model=PptxOoxmlGenerationResult)
+async def generate_pptx_ooxml_endpoint(
+    request: Request,
+    file: UploadFile = File(...),
+    project_id: str = Form("default"),
+    file_id: str = Form(...),
+    topic: str = Form(""),
+    prompt: str = Form(""),
+) -> PptxOoxmlGenerationResult:
+    from pathlib import Path
+    from tempfile import TemporaryDirectory
+
+    del project_id
+
+    worker_config = _config(request)
+    with TemporaryDirectory(prefix="orbit-ooxml-") as temp_dir:
+        source_path = Path(temp_dir) / Path(file.filename or "upload.pptx").name
+        source_path.write_bytes(await file.read())
+        try:
+            return await run_in_threadpool(
+                generate_pptx_ooxml,
+                source_path,
+                file_id,
+                topic=topic,
+                prompt=prompt,
+                api_key=worker_config.openai_api_key,
+                model=worker_config.openai_model,
+            )
+        except UnsupportedPptxAspectRatioError as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+        except PptxOoxmlGenerationError as error:
+            raise HTTPException(status_code=503, detail=str(error)) from error
+
+
+@app.post("/ai/pptx-ooxml-sync", response_model=PptxOoxmlSyncResult)
+async def sync_pptx_ooxml_endpoint(
+    file: UploadFile = File(...),
+    template_blueprint: str = Form(...),
+    operations: str = Form(...),
+    deck_canvas: str = Form(...),
+    synced_deck_version: int = Form(...),
+    render: bool = Form(True),
+) -> PptxOoxmlSyncResult:
+    from pathlib import Path
+    from tempfile import TemporaryDirectory
+
+    with TemporaryDirectory(prefix="orbit-ooxml-sync-") as temp_dir:
+        source_path = Path(temp_dir) / Path(file.filename or "current.pptx").name
+        source_path.write_bytes(await file.read())
+        try:
+            return await run_in_threadpool(
+                sync_pptx_ooxml,
+                source_path,
+                template_blueprint=json.loads(template_blueprint),
+                operations=json.loads(operations),
+                deck_canvas=json.loads(deck_canvas),
+                synced_deck_version=synced_deck_version,
+                render=render,
+            )
+        except (json.JSONDecodeError, TypeError, ValueError) as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+        except PptxOoxmlGenerationError as error:
+            raise HTTPException(status_code=503, detail=str(error)) from error
+
+
+@app.post("/ai/pptx-ooxml-apply-slot-texts", response_model=PptxOoxmlSyncResult)
+async def apply_pptx_ooxml_slot_texts_endpoint(
+    file: UploadFile = File(...),
+    template_blueprint: str = Form(...),
+    slot_texts: str = Form(...),
+    render: bool = Form(True),
+) -> PptxOoxmlSyncResult:
+    from pathlib import Path
+    from tempfile import TemporaryDirectory
+
+    with TemporaryDirectory(prefix="orbit-ooxml-apply-") as temp_dir:
+        source_path = Path(temp_dir) / Path(file.filename or "current.pptx").name
+        source_path.write_bytes(await file.read())
+        try:
+            raw_slot_texts = json.loads(slot_texts)
+            if not isinstance(raw_slot_texts, list):
+                raise ValueError("slot_texts must be a JSON array.")
+            return await run_in_threadpool(
+                apply_slot_texts_to_pptx_ooxml,
+                source_path,
+                template_blueprint=json.loads(template_blueprint),
+                slot_texts=[str(text) for text in raw_slot_texts],
+                render=render,
+            )
+        except (json.JSONDecodeError, TypeError, ValueError) as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+        except PptxOoxmlGenerationError as error:
+            raise HTTPException(status_code=503, detail=str(error)) from error
+
+
 @app.post("/audio/transcribe", response_model=AudioTranscribeResponse)
 def transcribe_audio(
     payload: AudioTranscribeRequest,
@@ -346,6 +522,7 @@ def generate_ai_deck(
             model=config.openai_model,
             api_key=config.openai_api_key,
             reference_context=_generate_deck_reference_context(payload, config),
+            image_review_mode=config.ai_slide_image_review_mode,
         )
     except DeckContentGenerationError as error:
         raise HTTPException(status_code=503, detail=str(error)) from error
@@ -429,6 +606,52 @@ def analyze_rehearsal(
             message=coaching.message,
         ),
     )
+
+
+def _remap_import_asset_ids(
+    result: PptxDesignImportResult,
+    offset: int,
+) -> PptxDesignImportResult:
+    if offset == 0:
+        return result
+
+    replacements: dict[str, str] = {}
+    assets: list[ImportedDesignAsset] = []
+    for index, asset in enumerate(result.assets, start=1):
+        next_id = f"image_{offset + index}"
+        replacements[f"asset:{asset.asset_id}"] = f"asset:{next_id}"
+        assets.append(
+            ImportedDesignAsset(
+                assetId=next_id,
+                fileName=asset.file_name.replace(asset.asset_id, next_id, 1),
+                mimeType=asset.mime_type,
+                contentBase64=asset.content_base64,
+            )
+        )
+
+    return PptxDesignImportResult(
+        blueprint=cast(
+            dict[str, Any],
+            _replace_import_asset_refs(result.blueprint, replacements),
+        ),
+        templateBlueprint=result.template_blueprint,
+        qualityReport=result.quality_report,
+        assets=assets,
+        warnings=result.warnings,
+    )
+
+
+def _replace_import_asset_refs(value: Any, replacements: dict[str, str]) -> Any:
+    if isinstance(value, str):
+        return replacements.get(value, value)
+    if isinstance(value, list):
+        return [_replace_import_asset_refs(item, replacements) for item in value]
+    if isinstance(value, dict):
+        return {
+            key: _replace_import_asset_refs(item, replacements)
+            for key, item in value.items()
+        }
+    return value
 
 
 def _config(request: Request) -> PythonWorkerConfig:
