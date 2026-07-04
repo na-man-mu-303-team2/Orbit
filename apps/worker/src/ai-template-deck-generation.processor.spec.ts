@@ -1,0 +1,457 @@
+import type { StoragePort } from "@orbit/storage";
+import type { DataSource } from "typeorm";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { processAiTemplateDeckGenerationJob } from "./ai-template-deck-generation.processor";
+
+const pptxMimeType =
+  "application/vnd.openxmlformats-officedocument.presentationml.presentation";
+
+const payload = {
+  jobId: "job-template",
+  projectId: "project-a",
+  request: {
+    topic: "ORBIT",
+    prompt: "핵심 메시지",
+    designPrompt: "차분한 리포트",
+    targetDurationMinutes: 10,
+    assets: [
+      { fileId: "file_content", role: "content" },
+      { fileId: "file_design", role: "design" }
+    ]
+  }
+};
+
+const storage: Pick<StoragePort, "getSignedReadUrl" | "putObject"> = {
+  getSignedReadUrl: vi.fn(async (key: string) => `http://storage.local/${key}`),
+  putObject: vi.fn(async (input: { key: string; contentType: string }) => ({
+    key: input.key,
+    url: "http://storage.local/generated",
+    contentType: input.contentType,
+    purpose: "design-asset" as const,
+    size: 3
+  }))
+};
+
+describe("processAiTemplateDeckGenerationJob", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.clearAllMocks();
+  });
+
+  it("extracts content and converts the design PPTX before saving the final AI deck", async () => {
+    const insertedDecks: unknown[] = [];
+    const insertedBlueprints: unknown[] = [];
+    const query = vi.fn(async (sql: string, params: unknown[]) => {
+      if (sql.includes("UPDATE jobs")) {
+        return [
+          jobRow(
+            params[1] as "running" | "succeeded" | "failed",
+            params[2] as number,
+            params[4] as Record<string, unknown> | null,
+            params[5] as { code: string; message: string } | null
+          )
+        ];
+      }
+      if (sql.includes("FROM project_assets")) {
+        return [
+          {
+            file_id: "file_content",
+            project_id: "project-a",
+            storage_key: "projects/project-a/assets/file_content.pdf",
+            mime_type: "application/pdf",
+            original_name: "content.pdf",
+            size: 12,
+            purpose: "reference-material",
+            status: "uploaded"
+          },
+          {
+            file_id: "file_design",
+            project_id: "project-a",
+            storage_key: "projects/project-a/assets/file_design.pptx",
+            mime_type: pptxMimeType,
+            original_name: "design.pptx",
+            size: 24,
+            purpose: "pptx-import",
+            status: "uploaded"
+          }
+        ];
+      }
+      if (sql.includes("INSERT INTO decks")) {
+        insertedDecks.push(params[2]);
+      }
+      if (sql.includes("INSERT INTO template_blueprints")) {
+        insertedBlueprints.push(params[4]);
+      }
+      return [];
+    });
+    const fetchMock = vi.fn(async (input: string | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.startsWith("http://storage.local/")) {
+        return new Response(url.endsWith(".pptx") ? "pptx-bytes" : "content-bytes");
+      }
+      if (url.endsWith("/documents/parse")) {
+        return new Response(
+          JSON.stringify({
+            files: [
+              {
+                referenceDocumentId: "file_content",
+                fileName: "content.pdf",
+                kind: "pdf",
+                status: "succeeded",
+                rawText: "reference",
+                keywords: [{ keyword: "ORBIT" }]
+              }
+            ]
+          })
+        );
+      }
+      if (url.endsWith("/ai/pptx-ooxml-generation")) {
+        return new Response(JSON.stringify(ooxmlGenerationResponse()));
+      }
+      if (url.endsWith("/ai/generate-deck")) {
+        expect(JSON.parse(String(init?.body))).toMatchObject({
+          topic: "ORBIT",
+          references: [{ fileId: "file_content" }],
+          designReferences: [{ fileId: "file_design" }],
+          referenceKeywords: [{ text: "ORBIT" }],
+          templateBlueprint: expect.objectContaining({
+            templateId: "template_file_design"
+          })
+        });
+        return new Response(JSON.stringify(generateDeckResponse()));
+      }
+      if (url.endsWith("/ai/pptx-ooxml-apply-slot-texts")) {
+        return new Response(JSON.stringify(ooxmlApplyResponse()));
+      }
+
+      return new Response("unexpected", { status: 500 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const job = await processAiTemplateDeckGenerationJob(
+      { query } as unknown as DataSource,
+      storage,
+      "http://localhost:8000",
+      payload
+    );
+
+    expect(job.status, JSON.stringify(job.error)).toBe("succeeded");
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://localhost:8000/documents/parse",
+      expect.objectContaining({ method: "POST" })
+    );
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://localhost:8000/ai/pptx-ooxml-generation",
+      expect.objectContaining({ method: "POST" })
+    );
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://localhost:8000/ai/pptx-ooxml-apply-slot-texts",
+      expect.objectContaining({ method: "POST" })
+    );
+    const deck = insertedDecks[0] as {
+      slides: Array<{ thumbnailUrl: string }>;
+    };
+    expect(deck.slides[0].thumbnailUrl).toMatch(
+      /\/api\/v1\/projects\/project-a\/assets\/file_.*\/content/
+    );
+    const blueprint = insertedBlueprints.at(-1) as {
+      currentPackageFileId: string;
+      slides: Array<{ renderAssetFileId: string }>;
+    };
+    expect(blueprint.currentPackageFileId).toMatch(/^file_/);
+    expect(blueprint.slides[0].renderAssetFileId).toMatch(/^file_/);
+    expect(job.result).toMatchObject({
+      deckId: "deck_ai_project_a",
+      sourceFileId: "file_design",
+      currentPackageFileId: blueprint.currentPackageFileId,
+      contentReferenceFileIds: ["file_content"]
+    });
+  });
+});
+
+function ooxmlGenerationResponse() {
+  return {
+    canvas: {
+      preset: "wide-16-9",
+      width: 1920,
+      height: 1080,
+      aspectRatio: "16:9"
+    },
+    blueprint: {
+      theme: theme(),
+      slides: [
+        {
+          sourceSlideIndex: 1,
+          style: { layout: "title-content" },
+          elements: [
+            {
+              elementId: "el_title",
+              type: "text",
+              role: "title",
+              x: 100,
+              y: 80,
+              width: 900,
+              height: 120,
+              rotation: 0,
+              opacity: 1,
+              zIndex: 1,
+              locked: false,
+              visible: true,
+              props: {
+                text: "Template",
+                fontSize: 48,
+                fontWeight: "bold",
+                color: "#111827",
+                align: "left",
+                verticalAlign: "top",
+                lineHeight: 1.2
+              }
+            }
+          ]
+        }
+      ]
+    },
+    templateBlueprint: templateBlueprint(),
+    qualityReport: qualityReport(),
+    assets: [
+      {
+        assetId: "current_package",
+        fileName: "design.pptx",
+        mimeType: pptxMimeType,
+        contentBase64: Buffer.from("pptx").toString("base64")
+      },
+      {
+        assetId: "slide_render_1",
+        fileName: "slide-01.png",
+        mimeType: "image/png",
+        contentBase64: Buffer.from("png").toString("base64")
+      }
+    ],
+    warnings: []
+  };
+}
+
+function ooxmlApplyResponse() {
+  return {
+    assets: [
+      {
+        assetId: "current_package",
+        fileName: "design.pptx",
+        mimeType: pptxMimeType,
+        contentBase64: Buffer.from("final-pptx").toString("base64")
+      },
+      {
+        assetId: "slide_render_1",
+        fileName: "slide-01.png",
+        mimeType: "image/png",
+        contentBase64: Buffer.from("final-png").toString("base64")
+      }
+    ],
+    warnings: []
+  };
+}
+
+function generateDeckResponse() {
+  return {
+    deck: {
+      deckId: "deck_ai_project_a",
+      projectId: "project-a",
+      title: "ORBIT",
+      version: 1,
+      targetDurationMinutes: 10,
+      metadata: {
+        language: "ko",
+        locale: "ko-KR",
+        sourceType: "ai",
+        generatedBy: "ai",
+        audience: "general",
+        purpose: "inform",
+        tone: "professional",
+        createdFrom: {
+          topic: "ORBIT",
+          references: [{ fileId: "file_content" }],
+          designReferences: [{ fileId: "file_design" }]
+        }
+      },
+      canvas: {
+        preset: "wide-16-9",
+        width: 1920,
+        height: 1080,
+        aspectRatio: "16:9"
+      },
+      theme: theme(),
+      slides: [
+        {
+          slideId: "slide_1",
+          order: 1,
+          title: "ORBIT",
+          thumbnailUrl: "",
+          style: { layout: "title-content" },
+          speakerNotes: "발표 대본",
+          elements: [
+            {
+              elementId: "el_1_imported_0_text",
+              type: "text",
+              role: "body",
+              x: 100,
+              y: 240,
+              width: 900,
+              height: 180,
+              rotation: 0,
+              opacity: 1,
+              zIndex: 2,
+              locked: false,
+              visible: true,
+              props: {
+                text: "핵심 메시지",
+                fontSize: 32,
+                color: "#111827",
+                align: "left",
+                verticalAlign: "top",
+                lineHeight: 1.2
+              }
+            }
+          ],
+          keywords: [
+            {
+              keywordId: "kw_1_1",
+              text: "ORBIT",
+              synonyms: [],
+              abbreviations: []
+            }
+          ],
+          animations: [],
+          actions: [],
+          aiNotes: {
+            emphasisPoints: ["핵심 메시지"],
+            sourceEvidence: [{ fileId: "file_content" }]
+          }
+        }
+      ]
+    },
+    warnings: [],
+    validation: {
+      passed: true,
+      layoutIssues: [],
+      contentIssues: [],
+      designIssues: [],
+      presentationIssues: []
+    }
+  };
+}
+
+function templateBlueprint() {
+  return {
+    templateId: "template_file_design",
+    sourceFileId: "file_design",
+    sourcePackageFileId: "file_design",
+    currentPackageFileId: "asset:current_package",
+    slides: [
+      {
+        slideIndex: 1,
+        sourceSlideIndex: 1,
+        renderAssetFileId: "asset:slide_render_1",
+        slots: [
+          {
+            elementId: "el_title",
+            usage: "content-slot",
+            slotRole: "title",
+            replaceMode: "replace",
+            confidence: 0.95,
+            bounds: { x: 100, y: 80, width: 900, height: 120 },
+            source: {
+              type: "placeholder",
+              slidePart: "ppt/slides/slide1.xml",
+              shapeId: "2"
+            }
+          },
+          {
+            elementId: "el_body",
+            usage: "content-slot",
+            slotRole: "body",
+            replaceMode: "replace",
+            confidence: 0.9,
+            bounds: { x: 100, y: 240, width: 900, height: 180 },
+            source: {
+              type: "placeholder",
+              slidePart: "ppt/slides/slide1.xml",
+              shapeId: "3"
+            }
+          }
+        ]
+      }
+    ]
+  };
+}
+
+function theme() {
+  return {
+    name: "Imported PPTX",
+    fontFamily: "Inter",
+    backgroundColor: "#ffffff",
+    textColor: "#111827",
+    accentColor: "#2563eb",
+    palette: {
+      primary: "#2563eb",
+      secondary: "#7c3aed",
+      surface: "#ffffff",
+      muted: "#f3f4f6",
+      border: "#d1d5db"
+    },
+    typography: {
+      headingFontFamily: "Inter",
+      bodyFontFamily: "Inter",
+      titleSize: 56,
+      headingSize: 40,
+      bodySize: 24,
+      captionSize: 16
+    },
+    effects: { borderRadius: 8 }
+  };
+}
+
+function qualityReport() {
+  return {
+    compositeScore: 84,
+    metrics: {
+      geometry: 90,
+      text: 82,
+      color: 86,
+      layer: 88,
+      editability: 80,
+      pixelSimilarity: null
+    },
+    weights: {
+      geometry: 25,
+      text: 15,
+      color: 10,
+      layer: 10,
+      editability: 10,
+      pixelSimilarity: 30
+    },
+    editabilityCoverage: 0.8,
+    appliedCap: null,
+    slideReports: [],
+    notes: []
+  };
+}
+
+function jobRow(
+  status: "running" | "succeeded" | "failed",
+  progress: number,
+  result: Record<string, unknown> | null,
+  error: { code: string; message: string } | null
+) {
+  return {
+    job_id: "job-template",
+    project_id: "project-a",
+    type: "ai-template-deck-generation",
+    status,
+    progress,
+    message: status,
+    result,
+    error,
+    created_at: "2026-07-04T00:00:00.000Z",
+    updated_at: "2026-07-04T00:00:01.000Z"
+  };
+}

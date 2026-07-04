@@ -1,4 +1,5 @@
 import {
+  aiTemplateDeckGenerationQueueName,
   generateDeckQueueName,
   pptxImportQueueName,
   pptxOoxmlGenerationQueueName,
@@ -15,6 +16,7 @@ import { InjectDataSource } from "@nestjs/typeorm";
 import { type Job as BullMqJob, Worker as BullMqWorker } from "bullmq";
 import { InjectPinoLogger, PinoLogger } from "nestjs-pino";
 import type { DataSource } from "typeorm";
+import { processAiTemplateDeckGenerationJob } from "./ai-template-deck-generation.processor";
 import { processGenerateDeckJob } from "./generate-deck.processor";
 import { serializeLogError } from "./logging";
 import { processPptxOoxmlGenerationJob } from "./pptx-ooxml-generation.processor";
@@ -32,6 +34,7 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
     referenceExtractQueueName,
     rehearsalSttQueueName,
     generateDeckQueueName,
+    aiTemplateDeckGenerationQueueName,
     pptxOoxmlGenerationQueueName,
     pptxOoxmlSyncQueueName,
     pptxImportQueueName,
@@ -77,6 +80,14 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
       ),
       this.createWorker(generateDeckQueueName, (job) =>
         processGenerateDeckJob(
+          this.dataSource,
+          storage,
+          this.config.PYTHON_WORKER_URL,
+          job.data,
+        ),
+      ),
+      this.createWorker(aiTemplateDeckGenerationQueueName, (job) =>
+        processAiTemplateDeckGenerationJob(
           this.dataSource,
           storage,
           this.config.PYTHON_WORKER_URL,
