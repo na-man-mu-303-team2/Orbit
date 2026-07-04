@@ -1,4 +1,8 @@
 import {
+  createSlidePlaybackState,
+  type SlidePlaybackState
+} from "@orbit/editor-core";
+import {
   demoIds,
   type AssetUploadUrlResponse,
   type CompleteRehearsalAudioUploadResponse,
@@ -1256,6 +1260,9 @@ export function RehearsalWorkspace(props: {
   const [p3SessionState, setP3SessionState] =
     useState<P3RehearsalSessionState | null>(null);
   const [p3RunMeta, setP3RunMeta] = useState<RehearsalRunMeta | null>(null);
+  const [slidePlaybackState, setSlidePlaybackState] = useState(
+    createSlidePlaybackState
+  );
   const [advanceControllerState, setAdvanceControllerState] =
     useState<AdvanceControllerState>(() => createInitialAdvanceControllerState());
   const [autoAdvanceNowMs, setAutoAdvanceNowMs] = useState(0);
@@ -1298,6 +1305,9 @@ export function RehearsalWorkspace(props: {
   const liveBiasContextRef = useRef<LiveSttBiasContext | null>(null);
   const liveCommandConfirmationRef = useRef(
     createRehearsalCommandConfirmationState()
+  );
+  const slidePlaybackStateRef = useRef<SlidePlaybackState>(
+    createSlidePlaybackState()
   );
   const advanceControllerStateRef = useRef<AdvanceControllerState>(
     createInitialAdvanceControllerState()
@@ -1349,6 +1359,10 @@ export function RehearsalWorkspace(props: {
   useEffect(() => {
     liveKeywordStateRef.current = liveKeywordState;
   }, [liveKeywordState]);
+
+  useEffect(() => {
+    slidePlaybackStateRef.current = slidePlaybackState;
+  }, [slidePlaybackState]);
 
   useEffect(() => {
     if (!isTimerRunning) {
@@ -1565,6 +1579,9 @@ export function RehearsalWorkspace(props: {
   useEffect(() => {
     resetAutoAdvanceRuntimeState(currentSlide?.slideId ?? null);
     resetLiveTranscriptForSlide(currentSlide);
+    const nextSlidePlaybackState = createSlidePlaybackState();
+    slidePlaybackStateRef.current = nextSlidePlaybackState;
+    setSlidePlaybackState(nextSlidePlaybackState);
     const nextBiasContext = deck && currentSlide
       ? buildLiveSttBiasContext(currentSlide, {
           nearbySlides: getNearbySlides(deck, currentSlideIndex)
