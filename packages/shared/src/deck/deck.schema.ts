@@ -327,15 +327,20 @@ export const deckSchema = z.object({
   slides: z.array(slideSchema).min(1)
 });
 
-export type Deck = z.infer<typeof deckSchema>;
-export type DeckCanvas = z.infer<typeof deckCanvasSchema>;
-export type DeckMetadata = z.infer<typeof deckMetadataSchema>;
-export type DeckSourceType = z.infer<typeof deckSourceTypeSchema>;
-export type AiDeckAudience = z.infer<typeof aiDeckAudienceSchema>;
-export type AiDeckPurpose = z.infer<typeof aiDeckPurposeSchema>;
-export type AiDeckTone = z.infer<typeof aiDeckToneSchema>;
-export type DeckCreatedFrom = z.infer<typeof deckCreatedFromSchema>;
-export type Slide = z.infer<typeof slideSchema>;
+// Input 타입은 외부/레거시 deck JSON처럼 schema default 적용 전 값을 표현한다.
+// 예: SlideInput에서는 speechCues를 생략할 수 있지만, parse 후 Slide에는 []로 정규화되어 항상 존재한다.
+export type DeckInput = z.input<typeof deckSchema>;
+export type SlideInput = z.input<typeof slideSchema>;
+
+export type Deck = z.output<typeof deckSchema>;
+export type DeckCanvas = z.output<typeof deckCanvasSchema>;
+export type DeckMetadata = z.output<typeof deckMetadataSchema>;
+export type DeckSourceType = z.output<typeof deckSourceTypeSchema>;
+export type AiDeckAudience = z.output<typeof aiDeckAudienceSchema>;
+export type AiDeckPurpose = z.output<typeof aiDeckPurposeSchema>;
+export type AiDeckTone = z.output<typeof aiDeckToneSchema>;
+export type DeckCreatedFrom = z.output<typeof deckCreatedFromSchema>;
+export type Slide = z.output<typeof slideSchema>;
 export type SlideLayout = z.infer<typeof slideLayoutSchema>;
 export type SlideStyle = z.infer<typeof slideStyleSchema>;
 export type SlideBackgroundImage = z.infer<typeof slideBackgroundImageSchema>;

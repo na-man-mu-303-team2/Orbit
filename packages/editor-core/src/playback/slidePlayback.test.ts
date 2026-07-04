@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { slideSchema } from "@orbit/shared";
 import type { Slide } from "@orbit/shared";
 
 import {
@@ -12,7 +13,7 @@ import {
 } from "./slidePlayback";
 
 function createSlide(): Slide {
-  return {
+  return slideSchema.parse({
     slideId: "slide_1",
     order: 1,
     title: "Slide",
@@ -95,7 +96,7 @@ function createSlide(): Slide {
         }
       }
     ]
-  };
+  });
 }
 
 describe("slidePlayback", () => {

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { slideSchema } from "@orbit/shared";
 import type {
   Deck,
   DeckElement,
@@ -28,7 +29,7 @@ function createPatch(
 }
 
 function createSlide(slideId: string, order: number): Slide {
-  return {
+  return slideSchema.parse({
     slideId,
     order,
     title: `Slide ${order}`,
@@ -39,7 +40,7 @@ function createSlide(slideId: string, order: number): Slide {
     keywords: [],
     animations: [],
     actions: [],
-  };
+  });
 }
 
 function createTextElement(elementId: string): DeckElement {

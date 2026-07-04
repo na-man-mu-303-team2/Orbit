@@ -1,4 +1,5 @@
-import type { Deck, Slide, DeckPatch } from "@orbit/shared";
+import { deckPatchSchema } from "@orbit/shared";
+import type { Deck, DeckPatch, SlideInput } from "@orbit/shared";
 
 export function createSlideId(deck: Deck) {
   const existingIds = new Set(deck.slides.map((slide) => slide.slideId));
@@ -15,9 +16,10 @@ export function createSlideId(deck: Deck) {
 
 export function createAddSlidePatch(
   deck: Deck,
-  slide: Slide
+  slide: SlideInput
 ): DeckPatch {
-  return {
+  // SlideInput은 default 적용 전 입력이라 speechCues를 생략할 수 있고, 반환 patch는 parse 후 정규화한다.
+  return deckPatchSchema.parse({
     deckId: deck.deckId,
     baseVersion: deck.version,
     source: "user",
@@ -27,5 +29,5 @@ export function createAddSlidePatch(
         slide
       }
     ]
-  };
+  });
 }
