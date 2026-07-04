@@ -39,7 +39,8 @@ export const deckCreatedFromReferenceSchema = z.object({
 
 export const deckCreatedFromSchema = z.object({
   topic: z.string().min(1),
-  references: z.array(deckCreatedFromReferenceSchema).default([])
+  references: z.array(deckCreatedFromReferenceSchema).default([]),
+  designReferences: z.array(deckCreatedFromReferenceSchema).default([])
 });
 
 export const deckMetadataSchema = z.object({

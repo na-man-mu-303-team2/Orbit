@@ -26,7 +26,28 @@ describe("generateDeckRequestSchema", () => {
       layoutDiversity: "stable"
     });
     expect(request.template).toBe("default");
+    expect(request.designReferences).toEqual([]);
     expect(request.referenceKeywords).toEqual([]);
+  });
+
+  it("accepts design references separately from content references", () => {
+    const request = generateDeckRequestSchema.parse({
+      topic: "AI deck generation",
+      references: [{ fileId: "file_content" }],
+      designReferences: [{ fileId: "file_design" }]
+    });
+
+    expect(request.references).toEqual([{ fileId: "file_content" }]);
+    expect(request.designReferences).toEqual([{ fileId: "file_design" }]);
+  });
+
+  it("accepts only a template blueprint id for imported template semantics", () => {
+    const request = generateDeckRequestSchema.parse({
+      topic: "AI deck generation",
+      templateBlueprintId: "template_file_design"
+    });
+
+    expect(request.templateBlueprintId).toBe("template_file_design");
   });
 
   it("normalizes design direction defaults", () => {
@@ -45,6 +66,30 @@ describe("generateDeckRequestSchema", () => {
       mediaPolicy: "placeholder-ok",
       layoutDiversity: "varied"
     });
+  });
+
+  it("accepts v1 design profiles", () => {
+    const request = generateDeckRequestSchema.parse({
+      topic: "AI deck generation",
+      design: {
+        profile: "startup-pitch"
+      }
+    });
+
+    expect(request.design.profile).toBe("startup-pitch");
+  });
+
+  it("accepts optional v2 design preset overrides", () => {
+    const request = generateDeckRequestSchema.parse({
+      topic: "AI deck generation",
+      design: {
+        stylePackId: "teal-professional-process",
+        slidePresetId: "process-cards-horizontal-6"
+      }
+    });
+
+    expect(request.design.stylePackId).toBe("teal-professional-process");
+    expect(request.design.slidePresetId).toBe("process-cards-horizontal-6");
   });
 
   it("accepts an optional design prompt", () => {

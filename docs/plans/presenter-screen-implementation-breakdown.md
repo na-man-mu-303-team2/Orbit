@@ -1440,28 +1440,111 @@ P0/P1, P2/P3/P4/P5, and P6 can run as parallel tracks after the contract baselin
 
 ## P4: Auto Advance
 
-### Task P4.1: Implement PauseDetector
+### P4 Resolved Decisions
 
-**Description:** Detect speech pauses using RMS and transcript inactivity.
+- `PauseDetector` owns its own config. `pauseDetector.silenceThresholdDb` defaults to `-55` but must not import the Live STT silence constant directly.
+- Pause activity uses partial and final STT updates. Any transcript activity resets the pause timer; P3 content decisions still use final-only transcripts.
+- If auto-advance becomes `ready` while silence has already lasted at least `pauseMs`, countdown starts immediately.
+- `pauseMs` and `countdownMs` are persisted in schema/localStorage but are not exposed in P4 UI.
+- Threshold UI uses a 5% stepper from 50% to 95%.
+- Manual guidance appears when the final sentence was spoken more than 5 seconds ago and auto-advance is still not eligible.
+- Manual commands cancel countdown and pass through immediately. Manual `nextStep` executes the step and returns auto-advance tracking to the current slide.
+- Auto-advance eligibility requires no remaining trigger steps on the current slide. If build steps remain, show a "remaining builds" badge instead of advancing.
+- The last slide never starts countdown. When ready, presenter UI shows a non-blocking finish suggestion and highlights the finish button; no modal and no automatic finish.
 
-**Feature/spec:** D6, default pause 700ms with config.
+### P4 Scope Boundary
 
-**Tech stack:** Web Audio API, existing audio-level utilities, Vitest.
+**In scope**
+- Browser-local pause/activity detection from audio level events and Live STT result activity.
+- Pure `AdvanceController` policy/state machine.
+- Presenter-only countdown, manual guidance, remaining-build, and finish-suggestion UI.
+- Global presenter settings for mode enablement, threshold, hidden timing values, and pause detector config.
+- Wiring to existing P0 manual commands and P3 `SpeechTracker` snapshots/events.
+
+**Out of scope**
+- Recorder/run atomic start-stop and upload lifecycle, owned by P7.
+- Cue-triggered advance, owned by P5 and still gated by `AdvanceController`.
+- Slide-window or audience countdown UI. P4 UI is presenter-only.
+- Exposing `pauseMs`, `countdownMs`, `manualGuidanceDelayMs`, or `silenceThresholdDb` controls in the UI.
+
+### Task P4.1: Define Auto-Advance Config and Settings Extensions
+
+**Description:** Add the P4 policy and pause detector defaults before implementing detection or UI. This keeps STT audio-level tuning, auto-advance timing, and user-visible threshold settings separated.
+
+**Feature/spec:** D2, D3, D6, P4-D1, P4-D4, P4-D5, P4-D6.
+
+**Tech stack:** TypeScript config module, existing `presenterSettings` localStorage store, Vitest.
 
 **Implementation plan:**
-- Reuse existing audio level calculations where possible.
-- Combine RMS silence and no transcript update windows.
-- Emit `pause-started` and `speech-resumed`.
-- Keep Recorder and Live STT independent of PauseDetector.
+- Add `apps/web/src/features/rehearsal/advance/autoAdvanceConfig.ts`.
+- Define defaults:
+  - `advancePolicy.pauseMs = 700`
+  - `advancePolicy.countdownMs = 2000`
+  - `autoAdvance.manualGuidanceDelayMs = 5000`
+  - `pauseDetector.silenceThresholdDb = -55`
+- Extend `PresenterAdvancePolicySettings` with persisted hidden fields `pauseMs` and `countdownMs`.
+- Add top-level persisted `pauseDetector: { silenceThresholdDb }` to `PresenterSettings`.
+- Clamp persisted settings defensively:
+  - `threshold`: `0.5..0.95`
+  - `pauseMs`, `countdownMs`: positive integers
+  - `silenceThresholdDb`: finite dB number
+- Validate P4 config-only `manualGuidanceDelayMs` as a positive integer.
+- Keep `manualGuidanceDelayMs` in P4 config only unless a later decision makes it user-persisted.
+- Update tests for corrupt localStorage, partial settings migration, clamping, and 5% threshold step helper.
 
 **Acceptance criteria:**
-- Silence alone does not falsely pause while transcript is actively updating.
-- Speech resume cancels pause state.
+- Existing `orbit:presenter:global:v1` values without P4 fields load with defaults.
+- `pauseDetector.silenceThresholdDb` default equals `-55` without importing Live STT constants.
+- `pauseMs` and `countdownMs` persist but no UI task exposes controls for them.
+- Threshold normalization still accepts only `0.5..0.95`, and UI helpers expose 5% increments.
+
+**Verification:**
+- `pnpm --filter @orbit/web test -- presenterSettings`
+- `pnpm --filter @orbit/web test -- autoAdvanceConfig`
+
+**Dependencies:** Task P3.7
+
+**Files likely touched:**
+- `apps/web/src/features/rehearsal/advance/autoAdvanceConfig.ts`
+- `apps/web/src/features/rehearsal/advance/autoAdvanceConfig.test.ts`
+- `apps/web/src/features/rehearsal/settings/presenterSettings.ts`
+- `apps/web/src/features/rehearsal/settings/presenterSettings.test.ts`
+
+**Estimated scope:** Small
+
+### Task P4.2: Implement `PauseDetector`
+
+**Description:** Detect speech pause and speech resume from two activity sources: microphone RMS silence and transcript activity. The detector is independent from Recorder and Live STT engine implementations.
+
+**Feature/spec:** D6, P4-D1, P4-D2, P4-D3.
+
+**Tech stack:** TypeScript pure reducer/state machine, existing `LiveSttAudioLevelEvent` shape, Vitest fake clock.
+
+**Implementation plan:**
+- Add `apps/web/src/features/rehearsal/speech/pauseDetector.ts`.
+- Model inputs as explicit events:
+  - `audio-level` with `rmsDb`, `atMs`
+  - `transcript-activity` with `isFinal`, `atMs`
+  - `tick` with `atMs`
+  - `reset`
+- Treat partial and final STT results as `transcript-activity`.
+- Track the latest non-silent audio timestamp and latest transcript activity timestamp separately.
+- Consider the user paused only when audio has been silent for `pauseMs` and no transcript activity has occurred during the same window.
+- Expose current silence duration so `AdvanceController` can start countdown immediately when it enters `ready` after an already-long pause.
+- Emit logical events `pause-started` and `speech-resumed` once per state transition; do not emit repeated pause events on every tick.
+- Keep the module free of React, `LiveSttPort` concrete adapters, Recorder, and Web Audio node ownership.
+
+**Acceptance criteria:**
+- Silence alone does not start pause while partial or final transcript updates are still arriving.
+- Partial transcript activity resets the pause timer even though P3 content tracking ignores partials.
+- Existing silence duration is available when auto-advance enters `ready`.
+- Speech resume is emitted when audio becomes non-silent or transcript activity resumes.
+- Reset clears pause state and timestamps on slide changes or session stop.
 
 **Verification:**
 - `pnpm --filter @orbit/web test -- pauseDetector`
 
-**Dependencies:** Task P2.1
+**Dependencies:** Task P2.1, Task P4.1
 
 **Files likely touched:**
 - `apps/web/src/features/rehearsal/speech/pauseDetector.ts`
@@ -1469,73 +1552,254 @@ P0/P1, P2/P3/P4/P5, and P6 can run as parallel tracks after the contract baselin
 
 **Estimated scope:** Small
 
-### Task P4.2: Implement AdvanceController
+### Task P4.3: Implement `AdvanceController` State Machine
 
-**Description:** Add the auto-advance state machine.
+**Description:** Implement the pure policy layer that converts P3 speech coverage, P4 pause state, trigger-step state, mode settings, and manual override events into presenter commands.
 
-**Feature/spec:** tracking -> ready -> countdown -> advance/cancel, manual override.
+**Feature/spec:** D2, D3, D6, P4-D3, P4-D7, P4-D8, P4-D9.
 
-**Tech stack:** TypeScript pure state machine, Vitest.
+**Tech stack:** TypeScript pure state machine, Vitest fixture tables.
 
 **Implementation plan:**
-- Model states and transitions as pure functions.
-- Consume coverage, last sentence, pause, resume, manual override, previous slide, last slide.
-- Output commands for presenter state store.
-- Do not auto-advance when coverage is below threshold.
+- Add `apps/web/src/features/rehearsal/advance/advanceController.ts`.
+- Model states:
+  - `disabled`
+  - `tracking`
+  - `ready`
+  - `countdown`
+  - `blocked-by-builds`
+  - `finish-suggested`
+- Define input snapshot:
+  - `mode`
+  - `slideId`
+  - `isLastSlide`
+  - `effectiveCoverage`
+  - `threshold`
+  - `finalSentenceSpoken`
+  - `remainingTriggerSteps`
+  - `pauseState`
+  - `nowMs`
+  - `policy`
+- Ready eligibility is: mode enabled, coverage `>= threshold`, final sentence spoken, and `remainingTriggerSteps === 0`.
+- If `remainingTriggerSteps > 0`, return `blocked-by-builds` and never emit auto-advance.
+- If `isLastSlide`, return `finish-suggested` and never enter countdown.
+- On `ready`, enter `countdown` immediately when `pauseState.silenceDurationMs >= pauseMs`; otherwise wait for `pause-started`.
+- During `countdown`, emit `advance-slide` only after `countdownMs` elapses without `speech-resumed`.
+- Manual commands cancel countdown and pass through. Manual `nextStep` returns state to `tracking`; manual slide changes reset to `tracking` for the destination slide.
+- Keep command output abstract: `advance-slide`, `cancel-countdown`, `show-builds-remaining`, `suggest-finish`; actual state store calls happen in integration.
 
 **Acceptance criteria:**
-- 70% plus final sentence plus pause starts countdown.
-- Speech resume cancels countdown.
-- Manual override always passes immediately.
-- Last slide suggests finish instead of advancing.
+- 70% coverage + final sentence + no remaining builds + existing pause starts countdown without waiting for a new pause edge.
+- Speech resume during countdown cancels countdown and returns to `ready`.
+- Manual `nextStep` during countdown cancels countdown, passes through the step command, and returns to `tracking`.
+- Remaining trigger steps block auto-advance and expose the remaining count.
+- Last slide produces finish suggestion without countdown or automatic finish.
+- Disabled rehearsal/live mode never emits auto-advance commands.
 
 **Verification:**
 - `pnpm --filter @orbit/web test -- advanceController`
 
-**Dependencies:** Task P3.2, Task P4.1
+**Dependencies:** Task P0.7, Task P3.5, Task P4.1, Task P4.2
 
 **Files likely touched:**
 - `apps/web/src/features/rehearsal/advance/advanceController.ts`
 - `apps/web/src/features/rehearsal/advance/advanceController.test.ts`
 
-**Estimated scope:** Small
+**Estimated scope:** Medium
 
-### Task P4.3: Add Auto-Advance UI and Settings
+### Task P4.4: Wire Auto-Advance Runtime Into `RehearsalWorkspace`
 
-**Description:** Add presenter-visible countdown, cancel behavior, threshold settings, and manual guidance.
+**Description:** Connect P3 session snapshots, P0 trigger-step state, live audio level updates, Live STT result activity, and presenter commands to the pure P4 modules.
 
-**Feature/spec:** D2, D3, D6.
+**Feature/spec:** D2, D3, D6, P4-D2, P4-D3, P4-D7, P4-D8, P4-D9.
 
-**Tech stack:** React, presenter settings.
+**Tech stack:** React hooks/refs, existing `RehearsalWorkspace`, `presenterStateStore`, `SlideshowRenderer` step model, Testing Library.
 
 **Implementation plan:**
-- Add mode-specific toggles for rehearsal and live.
-- Add threshold control from 50 to 95.
-- Show countdown only in presenter view.
-- Show manual guidance badge when coverage remains low for a configured duration.
+- Add a small hook or local adapter such as `useAutoAdvanceRuntime`.
+- Feed `PauseDetector` with:
+  - existing live audio level events from the active microphone/STT path
+  - every Live STT result as transcript activity, including partial results
+  - controlled ticks while a P3 session is running
+- Feed `AdvanceController` with the latest P3 snapshot, `presenterSettings.advancePolicy`, P4 config, current mode, current slide index, and remaining trigger steps from the slideshow plan.
+- Compute `remainingTriggerSteps = maxStepIndex - stepIndex` for the current slide.
+- On `advance-slide`, call the existing presenter state command path for next slide and reset P3 transition-gating state for the new slide.
+- On manual `nextStep`, `nextSlide`, `previousSlide`, or `setSlide`, notify `AdvanceController` before executing the existing command so countdown state is cancelled.
+- Reset `PauseDetector` and `AdvanceController` on P3 stop, slide change, and deck change.
+- Do not send countdown, guidance, finish, transcript, or speaker notes to `presentationChannel`.
 
 **Acceptance criteria:**
-- Slide window never shows countdown UI.
-- Threshold settings persist globally.
-- Guidance badge never forces automatic advance.
+- Auto-advance works with mocked P3 snapshots and mocked audio/STT activity without Recorder or run APIs.
+- Countdown is cancelled before any manual command mutates state.
+- A slide with remaining trigger steps never auto-advances; manual step execution is still allowed.
+- Slide-window channel payloads are unchanged and do not include P4 presenter-only UI state.
+- Session stop leaves no active timer or stale auto-advance state.
 
 **Verification:**
-- `pnpm --filter @orbit/web test -- AutoAdvancePanel`
-- Manual countdown/cancel smoke test.
+- `pnpm --filter @orbit/web test -- RehearsalWorkspace`
+- `pnpm --filter @orbit/web test -- presentationChannel`
 
-**Dependencies:** Task P3.3, Task P4.2
+**Dependencies:** Task P3.10, Task P4.2, Task P4.3
 
 **Files likely touched:**
-- `apps/web/src/features/rehearsal/advance/AutoAdvancePanel.tsx`
+- `apps/web/src/features/rehearsal/advance/useAutoAdvanceRuntime.ts`
+- `apps/web/src/features/rehearsal/advance/useAutoAdvanceRuntime.test.tsx`
 - `apps/web/src/features/rehearsal/RehearsalWorkspace.tsx`
+- `apps/web/src/features/rehearsal/RehearsalWorkspace.test.tsx`
+
+**Estimated scope:** Medium
+
+### Task P4.5: Add Presenter-Only Auto-Advance Status UI
+
+**Description:** Add the presenter UI that explains auto-advance state without leaking anything to the slide window: countdown, countdown cancellation state, manual guidance, remaining builds, and final-slide finish suggestion.
+
+**Feature/spec:** D2, D3, D6, P4-D6, P4-D8, P4-D9.
+
+**Tech stack:** React, Testing Library, existing rehearsal panel/topbar styles, lucide icons where buttons need icons.
+
+**Implementation plan:**
+- Add `apps/web/src/features/rehearsal/advance/AutoAdvanceStatus.tsx`.
+- Render countdown only in presenter layout, never in `PresentWindow` or `SingleScreenPresenter`.
+- Render manual guidance when final sentence was spoken and `manualGuidanceDelayMs` has elapsed but auto-advance is not eligible.
+- Render remaining-build badge when `remainingTriggerSteps > 0`, using copy that includes the count.
+- Render final-slide finish suggestion as a non-blocking badge and expose a prop that allows the existing finish/stop button to be highlighted.
+- Keep all status UI free of transcript text, speaker notes, keyword labels, raw audio references, and run metadata.
+- Add component tests for each state and a privacy assertion that slide-window components do not import or render `AutoAdvanceStatus`.
+
+**Acceptance criteria:**
+- Countdown is visible only in presenter view while the controller is in `countdown`.
+- Speech resume or any manual command removes the countdown UI.
+- Manual guidance never triggers automatic advance.
+- Remaining-build badge blocks only auto-advance; manual controls remain available.
+- Last-slide finish suggestion does not open a modal and does not stop the run automatically.
+- Slide-window and single-screen fallback do not mount this presenter-only status UI.
+
+**Verification:**
+- `pnpm --filter @orbit/web test -- AutoAdvanceStatus`
+- `pnpm --filter @orbit/web test -- PresentWindow`
+- `pnpm --filter @orbit/web test -- SingleScreenPresenter`
+
+**Dependencies:** Task P4.3, Task P4.4
+
+**Files likely touched:**
+- `apps/web/src/features/rehearsal/advance/AutoAdvanceStatus.tsx`
+- `apps/web/src/features/rehearsal/advance/AutoAdvanceStatus.test.tsx`
+- `apps/web/src/features/rehearsal/RehearsalWorkspace.tsx`
+- `apps/web/src/features/rehearsal/RehearsalWorkspace.test.tsx`
+
+**Estimated scope:** Medium
+
+### Task P4.6: Add Auto-Advance Settings UI
+
+**Description:** Add the small user-facing settings surface for mode enablement and coverage threshold only. Hidden timing and pause detector values stay persisted/configured but not exposed.
+
+**Feature/spec:** D2, D3, P4-D4, P4-D5.
+
+**Tech stack:** React, existing `usePresenterSettings`, Testing Library.
+
+**Implementation plan:**
+- Add `apps/web/src/features/rehearsal/advance/AutoAdvanceSettings.tsx`.
+- Render rehearsal and live auto-advance on/off toggles backed by `presenterSettings.advancePolicy.rehearsal` and `.live`.
+- Render a threshold stepper with values `50, 55, 60, ..., 95`.
+- Persist threshold as decimal ratio `0.5..0.95`.
+- Do not render controls for `pauseMs`, `countdownMs`, `manualGuidanceDelayMs`, or `pauseDetector.silenceThresholdDb`.
+- Keep settings UI in presenter mode only.
+
+**Acceptance criteria:**
+- Rehearsal and live toggles persist globally.
+- Threshold stepper changes in 5% increments and never writes a value outside `0.5..0.95`.
+- Hidden P4 timing and silence settings remain loadable from schema but absent from the UI DOM.
+- Changing settings updates the running controller on the next runtime snapshot without restarting STT.
+
+**Verification:**
+- `pnpm --filter @orbit/web test -- AutoAdvanceSettings`
+- `pnpm --filter @orbit/web test -- presenterSettings`
+- `pnpm --filter @orbit/web test -- RehearsalWorkspace`
+
+**Dependencies:** Task P4.1, Task P4.4
+
+**Files likely touched:**
+- `apps/web/src/features/rehearsal/advance/AutoAdvanceSettings.tsx`
+- `apps/web/src/features/rehearsal/advance/AutoAdvanceSettings.test.tsx`
+- `apps/web/src/features/rehearsal/RehearsalWorkspace.tsx`
+- `apps/web/src/features/rehearsal/settings/presenterSettings.test.ts`
+
+**Estimated scope:** Small
+
+### Task P4.7: Add P4 Fixture Harness and Regression Gate
+
+**Description:** Add end-to-end-ish P4 fixtures that prove auto-advance behavior across speech coverage, final sentence, pause timing, manual override, remaining builds, and last-slide finish suggestion.
+
+**Feature/spec:** P4 milestone gate.
+
+**Tech stack:** Vitest fake timers, Testing Library, mocked `LiveSttPort`, P3 fixture deck/transcripts, P0 animation fixture deck.
+
+**Implementation plan:**
+- Add a P4 fixture deck with:
+  - at least two slides
+  - Korean speaker notes with final-sentence trigger
+  - one slide with no remaining trigger steps
+  - one slide with cue-referenced trigger steps still remaining
+  - a final slide
+- Script mocked STT result activity where partials keep pause from starting, then final coverage and last sentence become true.
+- Script audio level events for speech, silence under `pauseMs`, silence over `pauseMs`, and speech resume during countdown.
+- Test the happy path: 70%+final sentence+no remaining builds+pause -> countdown -> auto next slide.
+- Test cancellation: countdown + speech resume -> no advance.
+- Test manual override: countdown + manual `nextStep` -> cancel, step executes, tracking resumes.
+- Test blocked builds: ready conditions met but `remainingTriggerSteps > 0` -> remaining-build badge and no advance.
+- Test final slide: ready conditions met -> finish suggestion and highlighted finish action, no countdown.
+- Add privacy assertions that P4 status does not appear in `/present/:deckId` slide-window output.
+
+**Acceptance criteria:**
+- The full P4 gate is covered by deterministic tests without microphone, real STT model, Recorder, or backend APIs.
+- There are zero auto-advances while partial transcript activity continues during otherwise silent audio.
+- There are zero auto-advances when build steps remain or on the last slide.
+- Countdown UI and manual guidance are presenter-only.
+
+**Verification:**
+- `pnpm --filter @orbit/web test -- pauseDetector`
+- `pnpm --filter @orbit/web test -- advanceController`
+- `pnpm --filter @orbit/web test -- AutoAdvanceStatus`
+- `pnpm --filter @orbit/web test -- AutoAdvanceSettings`
+- `pnpm --filter @orbit/web test -- RehearsalWorkspace`
+
+**Dependencies:** Tasks P4.1-P4.6
+
+**Files likely touched:**
+- `apps/web/src/features/rehearsal/advance/__fixtures__/p4AutoAdvanceFixture.ts`
+- `apps/web/src/features/rehearsal/advance/*.test.ts`
+- `apps/web/src/features/rehearsal/RehearsalWorkspace.test.tsx`
+- `apps/web/src/features/rehearsal/presenter/PresentWindow.test.tsx`
 
 **Estimated scope:** Medium
 
 ### Checkpoint: P4
 
-- [ ] State machine path coverage is complete.
-- [ ] Countdown advances and cancels correctly.
-- [ ] Manual controls retain priority.
+- [ ] P4 decision IDs `P4-D1` through `P4-D9` are reflected in config, controller tests, and presenter UI tests.
+- [ ] `PauseDetector` uses separate P4 config and does not import Live STT silence defaults.
+- [ ] Partial and final STT activity both reset pause detection.
+- [ ] Ready-after-existing-silence enters countdown immediately.
+- [ ] Auto-advance requires threshold, final sentence, no remaining trigger steps, and pause/countdown completion.
+- [ ] Countdown cancels on speech resume and every manual command.
+- [ ] Manual `nextStep` during countdown executes the step and returns tracking to the current slide.
+- [ ] Remaining build steps show a presenter-only badge and block only auto-advance.
+- [ ] Last slide shows a presenter-only finish suggestion without countdown, modal, or automatic stop.
+- [ ] Threshold UI persists in 5% increments from 50% to 95%; `pauseMs`, `countdownMs`, `manualGuidanceDelayMs`, and `silenceThresholdDb` are not exposed in UI.
+- [ ] Slide-window and single-screen fallback never render countdown, guidance, build, or finish-suggestion UI.
+- [ ] Mocked fixture E2E proves 70%+final sentence+pause -> countdown -> advance and countdown+speech resume -> cancel.
+
+### P4 Implementation Notes
+
+- P4 config and threshold helpers live in `apps/web/src/features/rehearsal/advance/autoAdvanceConfig.ts`.
+- `PresenterSettings` now persists `advancePolicy.pauseMs`, `advancePolicy.countdownMs`, and `pauseDetector.silenceThresholdDb`; `manualGuidanceDelayMs` remains code config only and is not persisted.
+- `PauseDetector` is implemented in `apps/web/src/features/rehearsal/speech/pauseDetector.ts` and uses P4 config instead of importing Live STT silence constants.
+- `AdvanceController` is implemented in `apps/web/src/features/rehearsal/advance/advanceController.ts`; it blocks auto advance while trigger steps remain and never starts countdown on the final slide.
+- Presenter-only UI lives in `AutoAdvanceStatus.tsx` and `AutoAdvanceSettings.tsx`; `/present/:deckId` and `SingleScreenPresenter` do not receive countdown, guidance, remaining-build, or finish-suggestion state.
+- `RehearsalWorkspace` routes partial and final STT results into `PauseDetector`, routes P3 snapshots into `AdvanceController`, and treats spoken advance commands as manual overrides.
+- The P4 fixture harness lives under `apps/web/src/features/rehearsal/advance/__fixtures__/p4AutoAdvanceFixture.ts`.
+- Verified commands for this implementation:
+  - `pnpm --filter @orbit/web test -- AutoAdvanceStatus AutoAdvanceSettings RehearsalWorkspace PresentWindow SingleScreenPresenter advanceController pauseDetector presenterSettings`
+  - `pnpm --filter @orbit/web build`
 
 ## P5: Speech Cues and Animation Execution
 

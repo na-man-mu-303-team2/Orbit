@@ -1,0 +1,16 @@
+{
+  "input": "download-tray",
+  "입력": "download-tray",
+  "수집": "download-tray",
+  "llm": "network-nodes",
+  "model": "network-nodes",
+  "design": "pen-monitor",
+  "디자인": "pen-monitor",
+  "layout": "layout-grid",
+  "레이아웃": "layout-grid",
+  "element": "blocks",
+  "조립": "blocks",
+  "validation": "document-check",
+  "검증": "document-check",
+  "전달": "document-check"
+}

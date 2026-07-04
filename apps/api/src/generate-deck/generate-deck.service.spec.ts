@@ -1,5 +1,6 @@
 import type { Job } from "@orbit/shared";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { FilesService } from "../files/files.service";
 import type { JobsService } from "../jobs/jobs.service";
 import type { ProjectsService } from "../projects/projects.service";
 import { GenerateDeckService } from "./generate-deck.service";
@@ -116,6 +117,101 @@ describe("GenerateDeckService", () => {
         designPrompt: "retro pixel palette"
       })
     });
+  });
+
+  it("validates PPTX design references before enqueue", async () => {
+    const job: Job = {
+      jobId: "job-design",
+      projectId: "project_generated_1",
+      type: "ai-deck-generation",
+      status: "queued",
+      progress: 0,
+      message: "Job queued",
+      result: null,
+      error: null,
+      createdAt: "2026-06-27T00:00:00.000Z",
+      updatedAt: "2026-06-27T00:00:00.000Z"
+    };
+    const jobsService = {
+      create: vi.fn(async () => job),
+      update: vi.fn()
+    } as unknown as JobsService;
+    const projectsService = {
+      getAccessibleProject: vi.fn(async () => ({
+        projectId: "project_generated_1",
+        workspaceId: "workspace_demo_1",
+        title: "AI deck",
+        createdBy: "user_demo_1",
+        createdAt: "2026-06-27T00:00:00.000Z"
+      }))
+    } as unknown as ProjectsService;
+    const enqueueJob = vi.fn(async () => undefined);
+    const filesService = {
+      getUploadedAsset: vi.fn(async () => ({
+        fileId: "file_design_1",
+        projectId: "project_generated_1",
+        mimeType:
+          "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+      }))
+    } as unknown as FilesService;
+
+    await new GenerateDeckService(
+      jobsService,
+      projectsService,
+      enqueueJob,
+      filesService
+    ).createJob("project_generated_1", {
+      topic: "AI deck",
+      designReferences: [{ fileId: "file_design_1" }]
+    });
+
+    expect(filesService.getUploadedAsset).toHaveBeenCalledWith(
+      "project_generated_1",
+      "file_design_1"
+    );
+    expect(enqueueJob).toHaveBeenCalledWith(
+      expect.objectContaining({
+        request: expect.objectContaining({
+          designReferences: [{ fileId: "file_design_1" }]
+        })
+      })
+    );
+  });
+
+  it("rejects non-PPTX design references", async () => {
+    const jobsService = {
+      create: vi.fn(),
+      update: vi.fn()
+    } as unknown as JobsService;
+    const projectsService = {
+      getAccessibleProject: vi.fn(async () => ({
+        projectId: "project_generated_1",
+        workspaceId: "workspace_demo_1",
+        title: "AI deck",
+        createdBy: "user_demo_1",
+        createdAt: "2026-06-27T00:00:00.000Z"
+      }))
+    } as unknown as ProjectsService;
+    const filesService = {
+      getUploadedAsset: vi.fn(async () => ({
+        fileId: "file_pdf",
+        projectId: "project_generated_1",
+        mimeType: "application/pdf"
+      }))
+    } as unknown as FilesService;
+
+    await expect(
+      new GenerateDeckService(
+        jobsService,
+        projectsService,
+        vi.fn(async () => undefined),
+        filesService
+      ).createJob("project_generated_1", {
+        topic: "AI deck",
+        designReferences: [{ fileId: "file_pdf" }]
+      })
+    ).rejects.toThrow("Design references must be uploaded PPTX files.");
+    expect(jobsService.create).not.toHaveBeenCalled();
   });
 
   it("accepts a non-demo project id for AI deck generation", async () => {

@@ -1,10 +1,17 @@
 import {
+  deckSchema,
   generateDeckJobResultSchema,
   generateDeckRequestSchema,
   generateDeckResponseSchema,
+  qualityReportSchema,
+  templateBlueprintSchema,
   type Deck,
-  type Job
+  type Job,
+  type QualityReport,
+  type TemplateBlueprint
 } from "@orbit/shared";
+import type { StoragePort } from "@orbit/storage";
+import { randomUUID } from "crypto";
 import type { DataSource } from "typeorm";
 import { z } from "zod";
 
@@ -13,6 +20,31 @@ const generateDeckPayloadSchema = z.object({
   projectId: z.string().min(1),
   request: generateDeckRequestSchema
 });
+
+const designImportResponseSchema = z.object({
+  blueprint: z.record(z.unknown()).default({}),
+  templateBlueprint: templateBlueprintSchema,
+  qualityReport: qualityReportSchema,
+  assets: z
+    .array(
+      z.object({
+        assetId: z.string().min(1),
+        fileName: z.string().min(1),
+        mimeType: z.string().min(1),
+        contentBase64: z.string().min(1)
+      })
+    )
+    .default([]),
+  warnings: z.array(z.string()).default([])
+});
+
+type DesignImportResponse = z.infer<typeof designImportResponseSchema>;
+type GenerateDeckPayload = z.infer<typeof generateDeckPayloadSchema>;
+type DesignTemplateContext = {
+  designBlueprint?: Record<string, unknown>;
+  qualityReport?: QualityReport;
+  templateBlueprint?: TemplateBlueprint;
+};
 
 type JobRow = {
   job_id: string;
@@ -27,8 +59,33 @@ type JobRow = {
   updated_at: Date | string;
 };
 
+type ProjectAssetRow = {
+  file_id: string;
+  project_id: string;
+  storage_key: string;
+  mime_type: string;
+  original_name: string;
+  size: number;
+  purpose: string;
+  status: string;
+};
+
+type TemplateBlueprintRow = {
+  template_id: string;
+  project_id: string;
+  deck_id: string;
+  source_file_id: string;
+  blueprint_json: unknown;
+  quality_report_json: unknown;
+  deck_json: unknown;
+};
+
+const pptxMimeType =
+  "application/vnd.openxmlformats-officedocument.presentationml.presentation";
+
 export async function processGenerateDeckJob(
   dataSource: DataSource,
+  storage: Pick<StoragePort, "getSignedReadUrl" | "putObject">,
   pythonWorkerUrl: string,
   rawPayload: unknown
 ): Promise<Job> {
@@ -64,6 +121,24 @@ export async function processGenerateDeckJob(
     error: null
   });
 
+  let designTemplate: DesignTemplateContext = {};
+  try {
+    designTemplate = await resolveDesignTemplate(
+      dataSource,
+      storage,
+      pythonWorkerUrl,
+      payload
+    );
+  } catch (error) {
+    return failJob(
+      dataSource,
+      payload.jobId,
+      15,
+      "GENERATE_DECK_DESIGN_REFERENCE_FAILED",
+      error instanceof Error ? error.message : "Design reference import failed."
+    );
+  }
+
   let response: Response;
   try {
     response = await fetch(workerUrl(pythonWorkerUrl, "/ai/generate-deck"), {
@@ -71,7 +146,13 @@ export async function processGenerateDeckJob(
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
         projectId: payload.projectId,
-        ...payload.request
+        ...payload.request,
+        ...(designTemplate.designBlueprint
+          ? { designBlueprint: designTemplate.designBlueprint }
+          : {}),
+        ...(designTemplate.templateBlueprint
+          ? { templateBlueprint: designTemplate.templateBlueprint }
+          : {})
       }),
       signal: AbortSignal.timeout(120_000)
     });
@@ -133,6 +214,292 @@ export async function processGenerateDeckJob(
         : "Python worker returned invalid deck generation response."
     );
   }
+}
+
+async function resolveDesignTemplate(
+  dataSource: DataSource,
+  storage: Pick<StoragePort, "getSignedReadUrl" | "putObject">,
+  pythonWorkerUrl: string,
+  payload: GenerateDeckPayload
+): Promise<DesignTemplateContext> {
+  if (payload.request.templateBlueprintId) {
+    return loadTemplateBlueprintContext(
+      dataSource,
+      payload.projectId,
+      payload.request.templateBlueprintId
+    );
+  }
+
+  if (payload.request.designReferences.length === 0) {
+    return {};
+  }
+
+  const assets = await loadDesignReferenceAssets(
+    dataSource,
+    payload.projectId,
+    payload.request.designReferences.map((reference) => reference.fileId)
+  );
+  const form = new FormData();
+  form.append("project_id", payload.projectId);
+
+  for (const asset of assets) {
+    const readUrl = await storage.getSignedReadUrl(asset.storage_key);
+    const response = await fetch(readUrl);
+    if (!response.ok) {
+      throw new Error(`Design reference content unavailable: ${asset.file_id}`);
+    }
+
+    form.append("file_ids", asset.file_id);
+    form.append(
+      "files",
+      new Blob([Buffer.from(await response.arrayBuffer())], {
+        type: asset.mime_type
+      }),
+      asset.original_name
+    );
+  }
+
+  const response = await fetch(workerUrl(pythonWorkerUrl, "/design/import-pptx"), {
+    method: "POST",
+    body: form,
+    signal: AbortSignal.timeout(120_000)
+  });
+
+  if (!response.ok) {
+    throw new Error((await response.text()) || "Design reference import failed.");
+  }
+
+  const imported = designImportResponseSchema.parse(await response.json());
+  const assetUrlMap = await saveImportedDesignAssets(
+    dataSource,
+    storage,
+    payload.projectId,
+    imported
+  );
+  const designBlueprint = replaceImportedAssetRefs(imported.blueprint, assetUrlMap);
+  await saveTemplateBlueprint(
+    dataSource,
+    payload.projectId,
+    `deck_import_${safeId(imported.templateBlueprint.sourceFileId)}`,
+    imported.templateBlueprint,
+    imported.qualityReport
+  );
+
+  return {
+    designBlueprint,
+    qualityReport: imported.qualityReport,
+    templateBlueprint: imported.templateBlueprint
+  };
+}
+
+async function loadTemplateBlueprintContext(
+  dataSource: DataSource,
+  projectId: string,
+  templateBlueprintId: string
+): Promise<DesignTemplateContext> {
+  const rows = readQueryRows<TemplateBlueprintRow>(
+    await dataSource.query(
+      `
+        SELECT
+          template_id,
+          project_id,
+          deck_id,
+          source_file_id,
+          blueprint_json,
+          quality_report_json,
+          (
+            SELECT deck_json
+            FROM decks
+            WHERE project_id = template_blueprints.project_id
+              AND deck_id = template_blueprints.deck_id
+            LIMIT 1
+          ) AS deck_json
+        FROM template_blueprints
+        WHERE template_id = $1
+      `,
+      [templateBlueprintId]
+    )
+  );
+  const row = rows[0];
+  if (!row) {
+    throw new Error(`Template blueprint not found: ${templateBlueprintId}`);
+  }
+  if (row.project_id !== projectId) {
+    throw new Error(`Template blueprint project mismatch: ${templateBlueprintId}`);
+  }
+
+  return {
+    designBlueprint: designBlueprintFromDeck(row.deck_json, row.source_file_id),
+    qualityReport: qualityReportSchema.parse(row.quality_report_json),
+    templateBlueprint: templateBlueprintSchema.parse(row.blueprint_json)
+  };
+}
+
+async function loadDesignReferenceAssets(
+  dataSource: DataSource,
+  projectId: string,
+  fileIds: string[]
+): Promise<ProjectAssetRow[]> {
+  const rows = readQueryRows<ProjectAssetRow>(
+    await dataSource.query(
+      `
+        SELECT file_id, project_id, storage_key, mime_type, original_name, size, purpose, status
+        FROM project_assets
+        WHERE file_id = ANY($1)
+      `,
+      [fileIds]
+    )
+  );
+  const byFileId = new Map(rows.map((row) => [row.file_id, row]));
+
+  return fileIds.map((fileId) => {
+    const asset = byFileId.get(fileId);
+    if (!asset) {
+      throw new Error(`Design reference asset not found: ${fileId}`);
+    }
+    if (asset.project_id !== projectId) {
+      throw new Error(`Design reference project mismatch: ${fileId}`);
+    }
+    if (asset.status !== "uploaded") {
+      throw new Error(`Design reference asset is not uploaded: ${fileId}`);
+    }
+    if (asset.mime_type !== pptxMimeType) {
+      throw new Error(`Design reference must be PPTX: ${fileId}`);
+    }
+
+    return asset;
+  });
+}
+
+async function saveImportedDesignAssets(
+  dataSource: DataSource,
+  storage: Pick<StoragePort, "putObject">,
+  projectId: string,
+  imported: DesignImportResponse
+): Promise<Map<string, string>> {
+  const assetUrlMap = new Map<string, string>();
+
+  for (const asset of imported.assets) {
+    const fileId = `file_${randomUUID()}`;
+    const originalName = safeStorageName(asset.fileName);
+    const storageKey = `projects/${projectId}/assets/${fileId}-${originalName}`;
+    const body = Buffer.from(asset.contentBase64, "base64");
+    const url = createAssetContentUrl(projectId, fileId);
+
+    await storage.putObject({
+      key: storageKey,
+      body,
+      contentType: asset.mimeType,
+      purpose: "design-asset"
+    });
+    await dataSource.query(
+      `
+        INSERT INTO project_assets (
+          file_id, project_id, storage_key, original_name, mime_type, size, url,
+          purpose, status, created_at, uploaded_at, deleted_at
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7, 'design-asset', 'uploaded', now(), now(), null)
+      `,
+      [
+        fileId,
+        projectId,
+        storageKey,
+        originalName,
+        asset.mimeType,
+        body.byteLength,
+        url
+      ]
+    );
+
+    assetUrlMap.set(`asset:${asset.assetId}`, url);
+  }
+
+  return assetUrlMap;
+}
+
+async function saveTemplateBlueprint(
+  dataSource: DataSource,
+  projectId: string,
+  deckId: string,
+  templateBlueprint: TemplateBlueprint,
+  qualityReport: QualityReport
+): Promise<void> {
+  await dataSource.query(
+    `
+      INSERT INTO template_blueprints (
+        template_id, project_id, deck_id, source_file_id,
+        blueprint_json, quality_report_json, created_at, updated_at
+      )
+      VALUES ($1, $2, $3, $4, $5, $6, now(), now())
+      ON CONFLICT (template_id)
+      DO UPDATE SET
+        project_id = EXCLUDED.project_id,
+        deck_id = EXCLUDED.deck_id,
+        source_file_id = EXCLUDED.source_file_id,
+        blueprint_json = EXCLUDED.blueprint_json,
+        quality_report_json = EXCLUDED.quality_report_json,
+        updated_at = EXCLUDED.updated_at
+    `,
+    [
+      templateBlueprint.templateId,
+      projectId,
+      deckId,
+      templateBlueprint.sourceFileId,
+      templateBlueprint,
+      qualityReport
+    ]
+  );
+}
+
+function designBlueprintFromDeck(
+  deckJson: unknown,
+  sourceFileId: string
+): Record<string, unknown> {
+  const deck = deckSchema.parse(deckJson);
+  return {
+    sourceFileId,
+    canvas: {
+      width: deck.canvas.width,
+      height: deck.canvas.height
+    },
+    theme: deck.theme,
+    warnings: [],
+    slides: deck.slides.map((slide) => ({
+      sourceFileId,
+      sourceSlideIndex: slide.order,
+      style: slide.style,
+      elements: slide.elements
+    }))
+  };
+}
+
+function replaceImportedAssetRefs(
+  value: unknown,
+  assetUrlMap: Map<string, string>
+): Record<string, unknown> {
+  const replaced = replaceValue(value, assetUrlMap);
+  return isRecord(replaced) ? replaced : {};
+}
+
+function replaceValue(value: unknown, assetUrlMap: Map<string, string>): unknown {
+  if (typeof value === "string") {
+    return assetUrlMap.get(value) ?? value;
+  }
+
+  if (Array.isArray(value)) {
+    return value.map((item) => replaceValue(item, assetUrlMap));
+  }
+
+  if (isRecord(value)) {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, item]) => [
+        key,
+        replaceValue(item, assetUrlMap)
+      ])
+    );
+  }
+
+  return value;
 }
 
 async function saveDeck(
@@ -218,6 +585,15 @@ function readFirstQueryRow<T>(queryResult: unknown): T | null {
   return (first as T | undefined) ?? null;
 }
 
+function readQueryRows<T>(queryResult: unknown): T[] {
+  if (!Array.isArray(queryResult)) {
+    return [];
+  }
+
+  const first = queryResult[0];
+  return (Array.isArray(first) ? first : queryResult) as T[];
+}
+
 function rowToJob(row: JobRow): Job {
   return {
     jobId: row.job_id,
@@ -247,4 +623,22 @@ function workerUrl(baseUrl: string, path: string): string {
     path,
     baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`
   ).toString();
+}
+
+function createAssetContentUrl(projectId: string, fileId: string): string {
+  return `/api/v1/projects/${encodeURIComponent(projectId)}/assets/${encodeURIComponent(
+    fileId
+  )}/content`;
+}
+
+function safeStorageName(fileName: string): string {
+  return (fileName || "design-asset").replace(/[^a-zA-Z0-9._-]/g, "_");
+}
+
+function safeId(value: string): string {
+  return value.replace(/[^A-Za-z0-9_-]/g, "_") || "pptx";
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

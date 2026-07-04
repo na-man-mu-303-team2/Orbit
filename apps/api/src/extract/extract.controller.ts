@@ -19,8 +19,21 @@ interface UploadedExtractFile {
   buffer: Buffer;
 }
 
-const extractRequestSchema = z.object({
-  projectId: z.string().trim().min(1).optional()
+const extractRequestSchema: z.ZodType<{
+  projectId?: string;
+  fileIds?: string[];
+}, z.ZodTypeDef, unknown> = z.object({
+  projectId: z.string().trim().min(1).optional(),
+  fileIds: z
+    .preprocess(
+      (value) =>
+        Array.isArray(value)
+          ? value
+          : typeof value === "string"
+            ? [value]
+            : undefined,
+      z.array(z.string()).optional()
+    )
 });
 
 @Controller("extract")
@@ -37,10 +50,14 @@ export class ExtractController {
       throw new BadRequestException("At least one file is required.");
     }
 
-    const { projectId } = parseRequest(extractRequestSchema, body ?? {});
+    const { fileIds, projectId } = parseRequest(extractRequestSchema, body ?? {});
 
     try {
-      return await this.extractService.extract(files, projectId ?? demoIds.projectId);
+      return await this.extractService.extract(
+        files,
+        projectId ?? demoIds.projectId,
+        fileIds
+      );
     } catch (error) {
       if (error instanceof BadGatewayException) {
         throw error;

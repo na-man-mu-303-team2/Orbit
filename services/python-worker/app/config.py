@@ -32,6 +32,7 @@ ENV_KEYS = {
     "REHEARSAL_AUDIO_MAX_BYTES",
     "OCR_PROVIDER",
     "LLM_PROVIDER",
+    "AI_SLIDE_IMAGE_REVIEW_MODE",
     "OPENAI_API_KEY",
     "OPENAI_MODEL",
     "OPENAI_TRANSCRIPTION_MODEL",
@@ -94,6 +95,10 @@ class PythonWorkerConfig(BaseModel):
     )
     ocr_provider: Literal["python", "textract"] = Field(alias="OCR_PROVIDER")
     llm_provider: Literal["openai"] = Field(alias="LLM_PROVIDER")
+    ai_slide_image_review_mode: Literal["auto", "off"] = Field(
+        default="auto",
+        alias="AI_SLIDE_IMAGE_REVIEW_MODE",
+    )
     openai_api_key: str | None = Field(default=None, alias="OPENAI_API_KEY")
     openai_model: str = Field(alias="OPENAI_MODEL", min_length=1)
     openai_transcription_model: str = Field(

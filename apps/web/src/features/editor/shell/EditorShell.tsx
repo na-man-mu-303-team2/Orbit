@@ -35,6 +35,12 @@ import {
   meResponseSchema,
   putDeckResponseSchema
 } from "@orbit/shared";
+import { jobSchema, type Job } from "../../../../../../packages/shared/src/jobs/job.schema";
+import {
+  pptxImportJobResultSchema,
+  type PptxImportJobResult,
+  type QualityReport
+} from "../../../../../../packages/shared/src/deck/template-blueprint.schema";
 import { createProject, fetchProjects, uploadProjectAsset } from "../../projects/ProjectAssetWorkspace";
 import {
   normalizeEditorAssetUrl,
@@ -86,6 +92,7 @@ import {
 } from "./hooks/useEditorPersistenceState";
 import { useProjectShareAccess } from "./hooks/useProjectShareAccess";
 import { beginHorizontalPaneResize } from "./utils/beginHorizontalPaneResize";
+import { createThemeCascadePatch } from "./utils/themeCascadePatch";
 export {
   EditorStateNotice
 } from "./components/EditorStateNotice";
@@ -249,6 +256,11 @@ const defaultImageInsertFrame = {
 };
 const editorImageAccept = ".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp";
 const editorImageMimeTypes = new Set(["image/jpeg", "image/png", "image/webp"]);
+const pptxMimeType =
+  "application/vnd.openxmlformats-officedocument.presentationml.presentation";
+const pptxImportAccept =
+  ".pptx,application/vnd.openxmlformats-officedocument.presentationml.presentation";
+const ooxmlSyncJobEventName = "orbit:ooxml-sync-job";
 
 type TopMenu = "file" | "resize" | "editMode" | "quickEdit" | "presentation";
 type SlidePanelView = "thumbnail" | "list";
@@ -324,6 +336,26 @@ type ElementFrameChange = {
   locked?: boolean;
   visible?: boolean;
 };
+type PptxImportState =
+  | { status: "idle"; warnings: string[]; qualityReport: null; message: string }
+  | {
+      status: "uploading" | "importing";
+      warnings: string[];
+      qualityReport: null;
+      message: string;
+    }
+  | {
+      status: "succeeded";
+      warnings: string[];
+      qualityReport: QualityReport;
+      message: string;
+    }
+  | {
+      status: "error";
+      warnings: string[];
+      qualityReport: null;
+      message: string;
+    };
 
 async function fetchHealth(): Promise<HealthResponse> {
   const response = await fetch("/api/health");
@@ -810,8 +842,20 @@ async function appendProjectDeckPatch(
     throw await readResponseError(response, "Deck save failed");
   }
 
-  const payload = appendDeckPatchResponseSchema.parse(await response.json());
+  const payload = appendDeckPatchResponseSchema.parse(await response.json()) as {
+    deck: Deck;
+    ooxmlSyncJob?: Job;
+  };
+  emitOoxmlSyncJob(payload.ooxmlSyncJob);
   return payload.deck;
+}
+
+function emitOoxmlSyncJob(job: Job | undefined) {
+  if (!job || typeof window === "undefined") {
+    return;
+  }
+
+  window.dispatchEvent(new CustomEvent<Job>(ooxmlSyncJobEventName, { detail: job }));
 }
 
 async function fetchDeck(projectId: string): Promise<Deck> {
@@ -822,6 +866,98 @@ async function fetchDeck(projectId: string): Promise<Deck> {
   }
 
   return putProjectDeck(projectId, createSeedDeck(projectId));
+}
+
+export async function createPptxImportJob(
+  projectId: string,
+  fileId: string,
+  fetcher: typeof fetch = fetch
+): Promise<Job> {
+  const response = await fetcher(
+    `/api/v1/projects/${encodeURIComponent(projectId)}/pptx-imports`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ fileId })
+    }
+  );
+
+  if (!response.ok) {
+    throw new Error(await readPlainError(response, "PPTX import job creation failed"));
+  }
+
+  const payload = (await response.json()) as { job?: unknown };
+  return jobSchema.parse(payload.job);
+}
+
+export async function waitForPptxImportJob(
+  jobId: string,
+  fetcher: typeof fetch = fetch,
+  options: { pollIntervalMs?: number; timeoutMs?: number } = {}
+): Promise<Job> {
+  const pollIntervalMs = options.pollIntervalMs ?? 1200;
+  const timeoutMs = options.timeoutMs ?? 120_000;
+  const startedAt = Date.now();
+
+  for (;;) {
+    const response = await fetcher(`/api/jobs/${encodeURIComponent(jobId)}`);
+
+    if (!response.ok) {
+      throw new Error(await readPlainError(response, "PPTX import job fetch failed"));
+    }
+
+    const job = jobSchema.parse(await response.json());
+    if (job.status === "succeeded" || job.status === "failed") {
+      return job;
+    }
+
+    if (Date.now() - startedAt > timeoutMs) {
+      throw new Error("PPTX import job timed out.");
+    }
+
+    await delay(pollIntervalMs);
+  }
+}
+
+export async function uploadAndImportPptxTemplate(
+  projectId: string,
+  file: File,
+  options: {
+    fetcher?: typeof fetch;
+    onPhase?: (phase: "uploading" | "importing") => void;
+    pollIntervalMs?: number;
+    timeoutMs?: number;
+  } = {}
+): Promise<PptxImportJobResult> {
+  const validationMessage = getPptxImportValidationMessage(file);
+  if (validationMessage) {
+    throw new Error(validationMessage);
+  }
+
+  const fetcher = options.fetcher ?? fetch;
+  options.onPhase?.("uploading");
+  const uploaded = await uploadProjectAsset(projectId, file, "pptx-import", fetcher);
+  options.onPhase?.("importing");
+  const queuedJob = await createPptxImportJob(projectId, uploaded.fileId, fetcher);
+  const job = await waitForPptxImportJob(queuedJob.jobId, fetcher, {
+    pollIntervalMs: options.pollIntervalMs,
+    timeoutMs: options.timeoutMs
+  });
+
+  if (job.status === "failed") {
+    throw new Error(job.error?.message ?? "PPTX import failed.");
+  }
+
+  return pptxImportJobResultSchema.parse(job.result);
+}
+
+async function readPlainError(response: Response, fallbackMessage: string) {
+  const text = await response.text();
+  return text || fallbackMessage;
+}
+
+function delay(ms: number) {
+  return new Promise<void>((resolve) => setTimeout(resolve, ms));
 }
 
 async function fetchEditorSessionDebug(): Promise<Exclude<EditorSessionDebugState, { status: "idle" | "loading" | "error" }>> {
@@ -895,17 +1031,25 @@ export function EditorShell(props: { projectId?: string }) {
   const [elementContextMenu, setElementContextMenu] =
     useState<ElementContextMenuState | null>(null);
   const [isImageUploadPending, setIsImageUploadPending] = useState(false);
+  const [pptxImportState, setPptxImportState] = useState<PptxImportState>({
+    status: "idle",
+    warnings: [],
+    qualityReport: null,
+    message: ""
+  });
   const [isRehearsalPreparing, setIsRehearsalPreparing] = useState(false);
   const [undoStack, setUndoStack] = useState<HistoryEntry[]>([]);
   const [redoStack, setRedoStack] = useState<HistoryEntry[]>([]);
   const topbarRef = useRef<HTMLElement | null>(null);
   const shapeMenuButtonRef = useRef<HTMLButtonElement | null>(null);
   const imageFileInputRef = useRef<HTMLInputElement | null>(null);
+  const pptxFileInputRef = useRef<HTMLInputElement | null>(null);
   const copiedElementRef = useRef<ElementClipboardState | null>(null);
   const editorStageRef = useRef<Konva.Stage | null>(null);
   const slideRenderStageRefs = useRef(new Map<string, Konva.Stage>());
   const undoRedoPersistTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [renderingDeck, setRenderingDeck] = useState<Deck | null>(null);
+  const [ooxmlSyncJob, setOoxmlSyncJob] = useState<Job | null>(null);
 
   const health = useQuery({
     queryKey: ["health"],
@@ -1011,6 +1155,46 @@ export function EditorShell(props: { projectId?: string }) {
     };
   }, [isPresenceDebugOpen]);
 
+  useEffect(() => {
+    function handleOoxmlSyncJob(event: Event) {
+      const job = (event as CustomEvent<Job>).detail;
+      setOoxmlSyncJob(jobSchema.parse(job));
+    }
+
+    window.addEventListener(ooxmlSyncJobEventName, handleOoxmlSyncJob);
+    return () =>
+      window.removeEventListener(ooxmlSyncJobEventName, handleOoxmlSyncJob);
+  }, []);
+
+  useEffect(() => {
+    if (!ooxmlSyncJob || ["succeeded", "failed"].includes(ooxmlSyncJob.status)) {
+      return;
+    }
+
+    let isCancelled = false;
+    const intervalId = window.setInterval(() => {
+      void fetch(`/api/jobs/${encodeURIComponent(ooxmlSyncJob.jobId)}`)
+        .then(async (response) => {
+          if (!response.ok) {
+            return null;
+          }
+
+          return jobSchema.parse(await response.json());
+        })
+        .then((job) => {
+          if (!isCancelled && job) {
+            setOoxmlSyncJob(job);
+          }
+        })
+        .catch(() => undefined);
+    }, 1800);
+
+    return () => {
+      isCancelled = true;
+      window.clearInterval(intervalId);
+    };
+  }, [ooxmlSyncJob]);
+
   const loadedDeck = deckQuery.data ?? fallbackDeck;
   const [deck, setDeck] = useState<Deck>(loadedDeck);
   const {
@@ -1078,6 +1262,7 @@ export function EditorShell(props: { projectId?: string }) {
     isUsingFallbackDeck,
     saveState
   });
+  const ooxmlSyncStatus = getOoxmlSyncStatus(ooxmlSyncJob);
   function hasUnsavedEditorChanges() {
     return hasPendingEditorChanges({
       hasUnackedLocalChanges: hasUnackedLocalChangesRef.current,
@@ -1206,7 +1391,12 @@ export function EditorShell(props: { projectId?: string }) {
   const isDev = import.meta.env.DEV;
   const fileMenuItems = [
     { action: "new", icon: FolderPlus, label: "새 프레젠테이션", meta: "빈 덱" },
-    { action: "import", icon: Upload, label: "PPTX 가져오기", meta: "업로드" },
+    {
+      action: "import",
+      icon: Upload,
+      label: "PPTX 가져오기",
+      meta: pptxImportMenuMeta(pptxImportState)
+    },
     {
       action: "save",
       icon: Cloud,
@@ -1853,6 +2043,10 @@ export function EditorShell(props: { projectId?: string }) {
     }));
   }
 
+  function handleThemeChange(theme: Record<string, unknown>) {
+    commitPatch((currentDeck) => createThemeCascadePatch(currentDeck, theme));
+  }
+
   function handleReplaceKeywords(slideId: string, update: (keywords: Keyword[]) => Keyword[]) {
     commitPatch((currentDeck) => {
       const slide = currentDeck.slides.find((candidate) => candidate.slideId === slideId);
@@ -2135,6 +2329,15 @@ export function EditorShell(props: { projectId?: string }) {
     imageFileInputRef.current?.click();
   }
 
+  function openPptxFilePicker() {
+    if (pptxImportState.status === "uploading" || pptxImportState.status === "importing") {
+      return;
+    }
+
+    setActiveTopMenu(null);
+    pptxFileInputRef.current?.click();
+  }
+
   function rememberUploadProject(projectId: string) {
     resolvedUploadProjectIdRef.current = projectId;
   }
@@ -2253,6 +2456,78 @@ export function EditorShell(props: { projectId?: string }) {
     }
   }
 
+  async function handlePptxFileSelection(file: File) {
+    const validationMessage = getPptxImportValidationMessage(file);
+
+    if (validationMessage) {
+      setPptxImportState({
+        status: "error",
+        warnings: [],
+        qualityReport: null,
+        message: validationMessage
+      });
+      return;
+    }
+
+    setPptxImportState({
+      status: "uploading",
+      warnings: [],
+      qualityReport: null,
+      message: "PPTX 업로드 중..."
+    });
+
+    try {
+      pendingPatchInputsRef.current = [];
+      await saveQueueRef.current.catch(() => undefined);
+
+      const activeProjectId = await resolveUploadProject(
+        workingDeckRef.current.projectId || projectId
+      );
+      const importResult = await uploadAndImportPptxTemplate(activeProjectId, file, {
+        onPhase: (phase) =>
+          setPptxImportState({
+            status: phase,
+            warnings: [],
+            qualityReport: null,
+            message: phase === "uploading" ? "PPTX 업로드 중..." : "PPTX 변환 중..."
+          })
+      });
+      const refetchResult = await deckQuery.refetch();
+      const importedDeck = refetchResult.data;
+
+      if (importedDeck) {
+        queryClient.setQueryData(["deck", projectId], importedDeck);
+        markHydratedPersistedDeck(importedDeck, setDeck);
+        setCurrentSlideIndex(0);
+        resetSpeakerNotesEditState(importedDeck.slides[0]?.speakerNotes ?? "");
+        setUndoStack([]);
+        setRedoStack([]);
+        setSelectedElementIds([]);
+        setSelectedKeywordId(null);
+        setEditingElementId(null);
+        setCustomShapeEditElementId(null);
+        setElementContextMenu(null);
+        setLastPatchLabel(`PPTX 가져오기 · v${importedDeck.version}`);
+        setSaveState("manual-saved");
+        setSaveError(null, null);
+      }
+
+      setPptxImportState({
+        status: "succeeded",
+        warnings: importResult.warnings,
+        qualityReport: importResult.qualityReport,
+        message: "PPTX 가져오기 완료"
+      });
+    } catch (error) {
+      setPptxImportState({
+        status: "error",
+        warnings: [],
+        qualityReport: null,
+        message: toEditorErrorMessage(error)
+      });
+    }
+  }
+
   function handleImageFileInputChange(event: ChangeEvent<HTMLInputElement>) {
     const [file] = Array.from(event.target.files ?? []);
     const target = imageUploadTargetRef.current;
@@ -2265,6 +2540,18 @@ export function EditorShell(props: { projectId?: string }) {
     }
 
     void handleImageFileSelection(file, target);
+  }
+
+  function handlePptxFileInputChange(event: ChangeEvent<HTMLInputElement>) {
+    const [file] = Array.from(event.target.files ?? []);
+
+    event.target.value = "";
+
+    if (!file) {
+      return;
+    }
+
+    void handlePptxFileSelection(file);
   }
 
   function handleAddTextElement() {
@@ -3466,6 +3753,11 @@ export function EditorShell(props: { projectId?: string }) {
                       role="menuitem"
                       type="button"
                       onClick={() => {
+                        if (action === "import") {
+                          openPptxFilePicker();
+                          return;
+                        }
+
                         if (action === "save") {
                           void handleSaveDeck();
                         }
@@ -3587,6 +3879,14 @@ export function EditorShell(props: { projectId?: string }) {
             recoveryHint={saveErrorMessage ? getSaveRecoveryHint(saveErrorCode) : null}
             statusLabel={saveStatusLabel}
           />
+          {ooxmlSyncStatus ? (
+            <span
+              className={`ooxml-sync-pill ${ooxmlSyncStatus.kind}`}
+              title={ooxmlSyncStatus.detail}
+            >
+              {ooxmlSyncStatus.label}
+            </span>
+          ) : null}
           <div className="top-action-menu">
             <button
               aria-expanded={activeTopMenu === "presentation"}
@@ -4065,12 +4365,14 @@ export function EditorShell(props: { projectId?: string }) {
                 }
               }
               canCreateAnimation={Boolean(currentSlide && selectedElement)}
+              canvas={deck.canvas}
               key={`quickbar-${selectedElement?.elementId ?? currentSlide?.slideId ?? "none"}`}
               customShapeEditActive={isCustomShapeEditingSelection}
               element={selectedElement}
               selectedKeywordLabel={selectedKeyword?.text ?? null}
               slide={selectedElementIds.length > 1 ? null : currentSlide}
               showIds={showIds}
+              theme={deck.theme}
               onOpenAnimationEditor={openAnimationInspector}
               onDeleteAnimation={(animationId) => {
                 if (!currentSlide) {
@@ -4125,6 +4427,7 @@ export function EditorShell(props: { projectId?: string }) {
                 }
                 handleSlideStyleChange(currentSlide.slideId, style);
               }}
+              onChangeTheme={handleThemeChange}
             />
           </div>
 
@@ -4322,6 +4625,7 @@ export function EditorShell(props: { projectId?: string }) {
                 </div>
               </div>
               <div className="assistant-panel-slot">
+                <PptxImportQualityPanel state={pptxImportState} />
                 <SuggestionPanel
                   deck={deck}
                   projectId={projectId}
@@ -4498,6 +4802,13 @@ export function EditorShell(props: { projectId?: string }) {
           type="file"
           onChange={handleImageFileInputChange}
         />
+        <input
+          ref={pptxFileInputRef}
+          accept={pptxImportAccept}
+          hidden
+          type="file"
+          onChange={handlePptxFileInputChange}
+        />
       </main>
       {shapeMenuOverlay}
       {elementContextMenuOverlay}
@@ -4609,6 +4920,52 @@ function getEditorStatusLabel(props: {
   return "저장됨";
 }
 
+function getOoxmlSyncStatus(job: Job | null) {
+  if (!job || job.type !== "pptx-ooxml-sync") {
+    return null;
+  }
+
+  const warnings = readOoxmlSyncWarnings(job);
+  if (job.status === "failed") {
+    return {
+      detail: job.error?.message ?? "PPTX OOXML sync failed.",
+      kind: "failed",
+      label: "OOXML sync failed"
+    };
+  }
+
+  if (job.status === "succeeded") {
+    return {
+      detail: warnings.join("\n") || "PPTX OOXML sync completed.",
+      kind: warnings.length > 0 ? "warning" : "succeeded",
+      label: warnings.length > 0 ? "OOXML sync warnings" : "OOXML synced"
+    };
+  }
+
+  return {
+    detail: job.message || "PPTX OOXML sync is queued.",
+    kind: "pending",
+    label: "OOXML sync pending"
+  };
+}
+
+function readOoxmlSyncWarnings(job: Job): string[] {
+  const warnings = job.result?.warnings;
+  return Array.isArray(warnings)
+    ? warnings.filter((warning): warning is string => typeof warning === "string")
+    : [];
+}
+
+function pptxImportMenuMeta(state: PptxImportState) {
+  if (state.status === "uploading") return "업로드 중...";
+  if (state.status === "importing") return "변환 중...";
+  if (state.status === "succeeded" && state.qualityReport) {
+    return `품질 ${state.qualityReport.compositeScore}`;
+  }
+  if (state.status === "error") return "실패";
+  return "업로드";
+}
+
 function isSaveInFlight(saveState: SaveState) {
   return saveState === "auto-saving" || saveState === "manual-saving";
 }
@@ -4650,6 +5007,41 @@ function getSaveRecoveryHint(saveErrorCode: SaveErrorCode | null) {
     default:
       return null;
   }
+}
+
+function PptxImportQualityPanel(props: { state: PptxImportState }) {
+  const { state } = props;
+  if (state.status === "idle") {
+    return null;
+  }
+
+  return (
+    <section
+      className="suggestion-card pptx-import-quality"
+      data-testid="pptx-import-quality"
+    >
+      <strong>PPTX 가져오기</strong>
+      <div className="stack-list">
+        <div className="stack-item compact">
+          <span>{state.message}</span>
+          {state.qualityReport ? (
+            <strong>{state.qualityReport.compositeScore}/100</strong>
+          ) : null}
+        </div>
+        {state.qualityReport ? (
+          <div className="stack-item compact">
+            <span>편집 가능</span>
+            <strong>{Math.round(state.qualityReport.editabilityCoverage * 100)}%</strong>
+          </div>
+        ) : null}
+        {state.warnings.slice(0, 3).map((warning) => (
+          <div className="stack-item compact" key={warning}>
+            <span>{warning}</span>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
 }
 
 function formatLastSavedAtLabel(lastSavedAt: string | null): string | null {
@@ -4815,6 +5207,25 @@ function isSupportedEditorImageFile(file: Pick<File, "name" | "type">) {
 
   const extension = file.name.split(".").pop()?.toLowerCase() ?? "";
   return extension === "jpg" || extension === "jpeg" || extension === "png" || extension === "webp";
+}
+
+function getPptxImportValidationMessage(file: Pick<File, "name" | "size" | "type">) {
+  const extension = file.name.split(".").pop()?.toLowerCase() ?? "";
+  const isPptx = file.type === pptxMimeType || extension === "pptx";
+
+  if (!isPptx) {
+    return "PPTX 파일만 가져올 수 있습니다.";
+  }
+
+  if (file.size > maxAssetUploadSizeBytes) {
+    return `PPTX 파일 크기는 최대 ${formatBytes(maxAssetUploadSizeBytes)}까지 가능합니다.`;
+  }
+
+  if (file.size <= 0) {
+    return "빈 PPTX 파일은 가져올 수 없습니다.";
+  }
+
+  return "";
 }
 
 function formatBytes(bytes: number) {
