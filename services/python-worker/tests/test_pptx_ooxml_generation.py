@@ -95,6 +95,43 @@ def test_extracts_slots_and_replaces_content_slot_text(tmp_path: Path) -> None:
     assert b"Placeholder Title" not in slide_xml
 
 
+def test_replaces_content_slot_text_by_shape_id(tmp_path: Path) -> None:
+    pptx_path, first_shape_id, second_shape_id = sample_textbox_pptx(tmp_path)
+    template_blueprint = {
+        "slides": [
+            {
+                "slideIndex": 1,
+                "sourceSlideIndex": 1,
+                "slots": [
+                    {
+                        "usage": "fixed-text",
+                        "replaceMode": "preserve",
+                        "source": {"shapeId": first_shape_id},
+                    },
+                    {
+                        "usage": "content-slot",
+                        "replaceMode": "replace",
+                        "source": {"shapeId": second_shape_id},
+                    },
+                ],
+            }
+        ]
+    }
+
+    replaced = replace_content_slot_text(
+        pptx_path.read_bytes(),
+        template_blueprint,
+        ["Target AI text"],
+    )
+
+    with zipfile.ZipFile(BytesIO(replaced), "r") as package:
+        slide_xml = package.read("ppt/slides/slide1.xml")
+
+    assert b"Keep original text" in slide_xml
+    assert b"Target AI text" in slide_xml
+    assert b"Replace original text" not in slide_xml
+
+
 def test_generation_includes_imported_image_assets(tmp_path: Path) -> None:
     pptx_path = sample_pptx(tmp_path)
 
@@ -299,6 +336,20 @@ def sample_pptx(tmp_path: Path, *, wide: bool = True) -> Path:
     )
     presentation.save(pptx_path)
     return pptx_path
+
+
+def sample_textbox_pptx(tmp_path: Path) -> tuple[Path, str, str]:
+    pptx_path = tmp_path / "textboxes.pptx"
+    presentation = Presentation()
+    presentation.slide_width = Inches(13.333333)
+    presentation.slide_height = Inches(7.5)
+    slide = presentation.slides.add_slide(presentation.slide_layouts[6])
+    first = slide.shapes.add_textbox(Inches(1), Inches(1), Inches(4), Inches(1))
+    first.text_frame.text = "Keep original text"
+    second = slide.shapes.add_textbox(Inches(1), Inches(2), Inches(4), Inches(1))
+    second.text_frame.text = "Replace original text"
+    presentation.save(pptx_path)
+    return pptx_path, str(first.shape_id), str(second.shape_id)
 
 
 def zip_entry_hashes(package_bytes: bytes) -> dict[str, str]:

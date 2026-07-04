@@ -109,7 +109,8 @@ describe("processAiTemplateDeckGenerationJob", () => {
         return new Response(JSON.stringify(ooxmlGenerationResponse()));
       }
       if (url.endsWith("/ai/generate-deck")) {
-        expect(JSON.parse(String(init?.body))).toMatchObject({
+        const body = JSON.parse(String(init?.body));
+        expect(body).toMatchObject({
           topic: "ORBIT",
           references: [{ fileId: "file_content" }],
           designReferences: [{ fileId: "file_design" }],
@@ -118,9 +119,22 @@ describe("processAiTemplateDeckGenerationJob", () => {
             templateId: "template_file_design"
           })
         });
+        expect(body.templateBlueprint.slides[0].slots).toMatchObject([
+          { usage: "content-slot", replaceMode: "replace", slotRole: "title" },
+          { usage: "content-slot", replaceMode: "replace", slotRole: "body" }
+        ]);
         return new Response(JSON.stringify(generateDeckResponse()));
       }
       if (url.endsWith("/ai/pptx-ooxml-apply-slot-texts")) {
+        const form = init?.body as FormData;
+        expect(JSON.parse(String(form.get("template_blueprint"))).slides[0].slots)
+          .toMatchObject([
+            { usage: "content-slot", replaceMode: "replace", slotRole: "title" },
+            { usage: "content-slot", replaceMode: "replace", slotRole: "body" }
+          ]);
+        const slotTexts = JSON.parse(String(form.get("slot_texts")));
+        expect(slotTexts).toHaveLength(2);
+        expect(slotTexts[0]).toBe("ORBIT");
         return new Response(JSON.stringify(ooxmlApplyResponse()));
       }
 
@@ -354,28 +368,30 @@ function templateBlueprint() {
         slots: [
           {
             elementId: "el_title",
-            usage: "content-slot",
+            usage: "fixed-text",
             slotRole: "title",
-            replaceMode: "replace",
-            confidence: 0.95,
+            replaceMode: "preserve",
+            confidence: 0.45,
             bounds: { x: 100, y: 80, width: 900, height: 120 },
             source: {
-              type: "placeholder",
+              type: "slide",
               slidePart: "ppt/slides/slide1.xml",
-              shapeId: "2"
+              shapeId: "2",
+              writable: true
             }
           },
           {
             elementId: "el_body",
-            usage: "content-slot",
+            usage: "fixed-text",
             slotRole: "body",
-            replaceMode: "replace",
-            confidence: 0.9,
+            replaceMode: "preserve",
+            confidence: 0.45,
             bounds: { x: 100, y: 240, width: 900, height: 180 },
             source: {
-              type: "placeholder",
+              type: "slide",
               slidePart: "ppt/slides/slide1.xml",
-              shapeId: "3"
+              shapeId: "3",
+              writable: true
             }
           }
         ]

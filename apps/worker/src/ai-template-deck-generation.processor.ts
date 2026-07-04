@@ -460,8 +460,10 @@ async function prepareDesignTemplate(
     projectId,
     generated,
   );
-  const templateBlueprint = templateBlueprintSchema.parse(
-    replaceAssetRefs(generated.templateBlueprint, assetRefs.fileIds),
+  const templateBlueprint = promoteAiTemplateContentSlots(
+    templateBlueprintSchema.parse(
+      replaceAssetRefs(generated.templateBlueprint, assetRefs.fileIds),
+    ),
   );
   const designBlueprint = replaceAssetRefs(
     generated.blueprint,
@@ -475,6 +477,50 @@ async function prepareDesignTemplate(
     qualityReport: generated.qualityReport,
     warnings: generated.warnings,
   };
+}
+
+function promoteAiTemplateContentSlots(
+  templateBlueprint: TemplateBlueprint,
+): TemplateBlueprint {
+  return templateBlueprintSchema.parse({
+    ...templateBlueprint,
+    slides: templateBlueprint.slides.map((slide) => {
+      const hasContentSlots = slide.slots.some(
+        (slot) => slot.usage === "content-slot" && slot.replaceMode === "replace",
+      );
+      if (hasContentSlots) return slide;
+
+      return {
+        ...slide,
+        slots: slide.slots.map((slot) =>
+          isPromotableAiTextSlot(slot)
+            ? {
+                ...slot,
+                usage: "content-slot",
+                replaceMode: "replace",
+                confidence: Math.max(slot.confidence, 0.65),
+              }
+            : slot,
+        ),
+      };
+    }),
+  });
+}
+
+function isPromotableAiTextSlot(
+  slot: TemplateBlueprint["slides"][number]["slots"][number],
+): boolean {
+  const source = slot.source as Record<string, unknown>;
+  const writable = source.writable;
+  return (
+    slot.usage === "fixed-text" &&
+    slot.replaceMode === "preserve" &&
+    ["title", "subtitle", "body", "caption"].includes(slot.slotRole) &&
+    slot.source.type === "slide" &&
+    typeof slot.source.shapeId === "string" &&
+    slot.source.shapeId.trim() !== "" &&
+    (writable === true || writable === undefined)
+  );
 }
 
 async function generatePptxOoxmlWithPython(

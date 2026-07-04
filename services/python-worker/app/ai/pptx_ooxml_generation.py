@@ -791,7 +791,7 @@ def replace_content_slot_text(
     if not texts:
         return package_bytes
 
-    replacements_by_slide: dict[int, list[str]] = {}
+    replacements_by_slide: dict[int, list[tuple[dict[str, Any], str]]] = {}
     text_cursor = 0
     for slide in template_blueprint.get("slides", []):
         if not isinstance(slide, dict):
@@ -800,43 +800,76 @@ def replace_content_slot_text(
             slide.get("sourceSlideIndex"),
             int_value(slide.get("slideIndex"), 1),
         )
-        count = sum(
-            1
-            for slot in slide.get("slots", [])
-            if isinstance(slot, dict)
-            and slot.get("usage") == "content-slot"
-            and slot.get("replaceMode") == "replace"
-        )
-        if count:
-            replacements_by_slide[slide_index] = texts[
-                text_cursor : text_cursor + count
-            ]
-            text_cursor += count
+        for slot in slide.get("slots", []):
+            if (
+                not isinstance(slot, dict)
+                or slot.get("usage") != "content-slot"
+                or slot.get("replaceMode") != "replace"
+                or text_cursor >= len(texts)
+            ):
+                continue
+            replacements_by_slide.setdefault(slide_index, []).append(
+                (slot, texts[text_cursor])
+            )
+            text_cursor += 1
 
     changed_entries: dict[str, bytes] = {}
     with zipfile.ZipFile(BytesIO(package_bytes), "r") as source:
-        for slide_index, slide_texts in replacements_by_slide.items():
+        for slide_index, replacements in replacements_by_slide.items():
             entry = f"ppt/slides/slide{slide_index}.xml"
-            changed_entries[entry] = replace_slide_texts(
-                source.read(entry), slide_texts
+            changed_entries[entry] = replace_slide_slot_texts(
+                source.read(entry), replacements
             )
         return rewrite_zip(source, changed_entries)
 
 
 def replace_slide_texts(slide_xml: bytes, texts: list[str]) -> bytes:
+    return replace_slide_slot_texts(slide_xml, [({}, text) for text in texts])
+
+
+def replace_slide_slot_texts(
+    slide_xml: bytes,
+    replacements: list[tuple[dict[str, Any], str]],
+) -> bytes:
     root = ET.fromstring(slide_xml)
     text_shapes = sorted(
         (shape for shape in root.iter(P_SP) if list(shape.iter(A_T))),
         key=lambda shape: 0 if next(shape.iter(P_PH), None) is not None else 1,
     )
-    for shape, text in zip(text_shapes, texts, strict=False):
-        nodes = list(shape.iter(A_T))
-        if not nodes:
+    fallback_cursor = 0
+    used_shape_ids: set[str] = set()
+
+    for slot, text in replacements:
+        shape = shape_for_slot(root, slot)
+        if shape is None:
+            while fallback_cursor < len(text_shapes):
+                candidate = text_shapes[fallback_cursor]
+                fallback_cursor += 1
+                candidate_id = shape_id_for_element(candidate)
+                if candidate_id not in used_shape_ids:
+                    shape = candidate
+                    break
+        if shape is None:
             continue
-        nodes[0].text = text
-        for node in nodes[1:]:
-            node.text = ""
+        used_shape_ids.add(shape_id_for_element(shape))
+        replace_shape_text(shape, text)
     return xml_bytes(root)
+
+
+def shape_for_slot(root: ET.Element[Any], slot: dict[str, Any]) -> ET.Element[Any] | None:
+    source = slot.get("source")
+    if not isinstance(source, dict):
+        return None
+    shape_id = str(source.get("shapeId", "")).strip()
+    if not shape_id:
+        return None
+    shape, _parent = find_shape_by_id(root, shape_id)
+    return shape
+
+
+def shape_id_for_element(shape: ET.Element[Any]) -> str:
+    c_nv_pr = first_local_descendant(shape, "cNvPr")
+    return str(c_nv_pr.get("id", "")) if c_nv_pr is not None else ""
 
 
 def insert_media_slot_image(
