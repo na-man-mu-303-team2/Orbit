@@ -11,7 +11,6 @@ import {
 import {
   createQrDataUrl,
   formatAudienceExpiresAt,
-  formatAudienceTimeRemaining,
   resolveAbsoluteAudienceUrl,
   toAudienceLinkErrorMessage,
 } from "./audienceLinkUtils";
@@ -38,21 +37,6 @@ export function AudienceLinkModal({
   const [isAudienceLinkLoading, setIsAudienceLinkLoading] = useState(false);
   const [isAudienceCloseConfirming, setIsAudienceCloseConfirming] =
     useState(false);
-  const [audienceNowMs, setAudienceNowMs] = useState(() => Date.now());
-
-  useEffect(() => {
-    if (!isOpen) {
-      return;
-    }
-
-    setAudienceNowMs(Date.now());
-    const timerId = window.setInterval(
-      () => setAudienceNowMs(Date.now()),
-      60_000,
-    );
-
-    return () => window.clearInterval(timerId);
-  }, [isOpen]);
 
   useEffect(() => {
     if (!isOpen) {
@@ -184,7 +168,7 @@ export function AudienceLinkModal({
         <header>
           <div>
             <strong>청중 링크/QR</strong>
-            <span>4자리 입장 비밀번호로 보호되는 청중 입장 링크입니다.</span>
+            <span>6자리 입장 코드로 청중이 바로 참여할 수 있습니다.</span>
           </div>
           <button
             className="audience-link-close-button"
@@ -199,7 +183,7 @@ export function AudienceLinkModal({
           <section className="audience-link-current">
             <div className="audience-link-status-row">
               <span
-                className={`audience-link-status audience-link-status-${audienceSession.status}`}
+                className={`audience-link-status audience-link-status-${audienceSession.entryStatus}`}
               >
                 {audienceSession.entryStatus === "open"
                   ? "입장 열림"
@@ -214,14 +198,9 @@ export function AudienceLinkModal({
               )}
             </div>
             <div className="audience-link-expiry-summary">
-              <strong>
-                {formatAudienceTimeRemaining(
-                  audienceSession.rawDataDeleteAfter,
-                  audienceNowMs,
-                )}
-              </strong>
+              <strong>코드 {audienceSession.joinCode}</strong>
               <span>
-                보관 만료{" "}
+                데이터 보관{" "}
                 {formatAudienceExpiresAt(audienceSession.rawDataDeleteAfter)}
               </span>
             </div>
@@ -300,7 +279,10 @@ export function AudienceLinkModal({
           <section className="audience-link-create">
             <label>
               <span>입장 코드</span>
-              <div className="audience-pin-inputs" aria-label="6자리 입장 코드">
+              <div
+                className="audience-pin-inputs audience-pin-preview"
+                aria-label="6자리 입장 코드"
+              >
                 <input
                   aria-label="6자리 입장 코드"
                   readOnly

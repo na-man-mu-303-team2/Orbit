@@ -1,167 +1,231 @@
-import { MessageSquareText, MonitorPlay } from "lucide-react";
-import { useEffect, useState } from "react";
+import type { AudienceParticipant, AudiencePublicSession } from "@orbit/shared";
+import { CheckCircle2, Loader2 } from "lucide-react";
+import { type FormEvent, useEffect, useMemo, useState } from "react";
 
 import {
-  getAudienceSessionAccess,
-  verifyAudienceSessionPasscode
+  fetchAudienceMe,
+  joinAudienceSession,
+  lookupAudienceSession,
 } from "./audienceApi";
+import { audienceCopy } from "./audienceCopy";
 import "./audience.css";
 
 type AudienceEntranceProps = {
-  sessionId: string;
+  initialJoinCode?: string;
 };
 
-type AudienceRoom = "questions" | "stream";
+type LoadingState = "idle" | "lookup" | "join" | "restore";
 
-export function AudienceEntrance({ sessionId }: AudienceEntranceProps) {
-  const [passcode, setPasscode] = useState("");
-  const [isVerified, setIsVerified] = useState(false);
-  const [selectedRoom, setSelectedRoom] = useState<AudienceRoom | null>(null);
+export function AudienceEntrance({ initialJoinCode }: AudienceEntranceProps) {
+  const [joinCode, setJoinCode] = useState(() => initialJoinCode ?? "");
+  const [nickname, setNickname] = useState("");
+  const [session, setSession] = useState<AudiencePublicSession | null>(null);
+  const [participant, setParticipant] = useState<AudienceParticipant | null>(
+    null,
+  );
   const [errorMessage, setErrorMessage] = useState("");
-  const [isVerifying, setIsVerifying] = useState(false);
-  const [isCheckingAccess, setIsCheckingAccess] = useState(true);
+  const [loadingState, setLoadingState] = useState<LoadingState>(
+    initialJoinCode ? "lookup" : "idle",
+  );
+
+  const normalizedJoinCode = useMemo(
+    () => joinCode.replace(/\D/g, "").slice(0, 6),
+    [joinCode],
+  );
+  const canLookup = normalizedJoinCode.length === 6 && loadingState === "idle";
+  const canJoin =
+    Boolean(session) && nickname.trim().length > 0 && loadingState === "idle";
 
   useEffect(() => {
-    let isMounted = true;
-
-    async function checkAccess() {
-      try {
-        await getAudienceSessionAccess(sessionId);
-        if (isMounted) {
-          setIsVerified(true);
-        }
-      } catch {
-        if (isMounted) {
-          setIsVerified(false);
-        }
-      } finally {
-        if (isMounted) {
-          setIsCheckingAccess(false);
-        }
-      }
-    }
-
-    void checkAccess();
-
-    return () => {
-      isMounted = false;
-    };
-  }, [sessionId]);
-
-  function updatePasscode(value: string) {
-    setPasscode(value.replace(/\D/g, "").slice(0, 4));
-  }
-
-  async function handleVerifyPasscode() {
-    if (passcode.length !== 4 || isVerifying) {
+    if (!initialJoinCode) {
       return;
     }
 
+    let isCancelled = false;
+    void loadSession(initialJoinCode, isCancelled);
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [initialJoinCode]);
+
+  async function loadSession(code: string, isCancelled = false) {
+    setLoadingState("lookup");
     setErrorMessage("");
-    setIsVerifying(true);
+
     try {
-      await verifyAudienceSessionPasscode({ passcode, sessionId });
-      setIsVerified(true);
+      const payload = await lookupAudienceSession(code);
+      if (isCancelled) {
+        return;
+      }
+
+      setJoinCode(payload.session.joinCode);
+      setSession(payload.session);
+      setLoadingState("restore");
+
+      try {
+        const restored = await fetchAudienceMe({
+          sessionId: payload.session.sessionId,
+        });
+        if (!isCancelled) {
+          setParticipant(restored.participant);
+          setSession(restored.session);
+        }
+      } catch {
+        // No existing audience cookie; continue with nickname entry.
+      }
+    } catch (error) {
+      if (!isCancelled) {
+        setSession(null);
+        setParticipant(null);
+        setErrorMessage(
+          error instanceof Error
+            ? error.message
+            : audienceCopy["join.error.notFound"],
+        );
+      }
+    } finally {
+      if (!isCancelled) {
+        setLoadingState("idle");
+      }
+    }
+  }
+
+  async function handleCodeSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!canLookup) {
+      return;
+    }
+
+    await loadSession(normalizedJoinCode);
+  }
+
+  async function handleJoinSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!session || !canJoin) {
+      return;
+    }
+
+    setLoadingState("join");
+    setErrorMessage("");
+
+    try {
+      const payload = await joinAudienceSession({
+        joinCode: session.joinCode,
+        nickname,
+      });
+      setSession(payload.session);
+      setParticipant(payload.participant);
     } catch (error) {
       setErrorMessage(
         error instanceof Error
           ? error.message
-          : "청중 입장 비밀번호를 확인하지 못했습니다."
+          : audienceCopy["join.error.notFound"],
       );
     } finally {
-      setIsVerifying(false);
+      setLoadingState("idle");
     }
   }
 
+  const isLoading = loadingState !== "idle";
+
   return (
     <main className="audience-page">
-      <section className="audience-entry-panel" aria-labelledby="audience-title">
+      <section
+        className="audience-entry-panel"
+        aria-labelledby="audience-title"
+      >
         <div className="audience-entry-heading">
           <span>ORBIT Audience</span>
           <h1 id="audience-title">청중 입장</h1>
-          <p>
-            {isVerified
-              ? "입장할 공간을 선택해 주세요."
-              : "발표자가 공유한 4자리 비밀번호를 입력해 주세요."}
-          </p>
         </div>
 
-        {isCheckingAccess ? (
-          <div className="audience-access-loading" role="status">
-            입장 상태 확인 중
-          </div>
-        ) : !isVerified ? (
-          <>
-            <label className="audience-passcode-field">
-              <span>입장 비밀번호</span>
-              <div className="audience-passcode-boxes" aria-label="4자리 입장 비밀번호">
-                <input
-                  aria-label="4자리 입장 비밀번호"
-                  inputMode="numeric"
-                  maxLength={4}
-                  pattern="[0-9]*"
-                  type="text"
-                  value={passcode}
-                  onChange={(event) => updatePasscode(event.target.value)}
-                />
-                {[0, 1, 2, 3].map((index) => (
-                  <span key={index} aria-hidden="true">
-                    {passcode[index] ?? ""}
-                  </span>
-                ))}
-              </div>
+        {!session ? (
+          <form className="audience-form" onSubmit={handleCodeSubmit}>
+            <label className="audience-field" htmlFor="audience-join-code">
+              <span>{audienceCopy["join.code.label"]}</span>
+              <input
+                autoComplete="one-time-code"
+                id="audience-join-code"
+                inputMode="numeric"
+                maxLength={6}
+                pattern="[0-9]{6}"
+                placeholder={audienceCopy["join.code.placeholder"]}
+                value={normalizedJoinCode}
+                onChange={(event) => setJoinCode(event.target.value)}
+              />
             </label>
-
-            {errorMessage ? (
-              <p className="audience-error" role="alert">
-                {errorMessage}
-              </p>
-            ) : null}
-
             <button
               className="audience-enter-button"
-              type="button"
-              onClick={() => void handleVerifyPasscode()}
-              disabled={passcode.length !== 4 || isVerifying}
+              type="submit"
+              disabled={!canLookup}
             >
-              {isVerifying ? "확인 중" : "비밀번호 확인"}
+              {loadingState === "lookup" ? "확인 중" : "코드 확인"}
             </button>
-          </>
-        ) : (
-          <>
-            <div className="audience-verified-badge">비밀번호 확인 완료</div>
-            <div className="audience-room-grid" aria-label="입장할 방 선택">
-              <button
-                className={selectedRoom === "questions" ? "selected" : ""}
-                type="button"
-                onClick={() => setSelectedRoom("questions")}
-              >
-                <MessageSquareText size={20} />
-                <strong>질문방</strong>
-                <small>발표자에게 질문을 남깁니다.</small>
-              </button>
-              <button
-                className={selectedRoom === "stream" ? "selected" : ""}
-                type="button"
-                onClick={() => setSelectedRoom("stream")}
-              >
-                <MonitorPlay size={20} />
-                <strong>스트리밍 방</strong>
-                <small>발표 화면을 함께 봅니다.</small>
-              </button>
+          </form>
+        ) : null}
+
+        {session && !participant ? (
+          <form className="audience-form" onSubmit={handleJoinSubmit}>
+            <div className="audience-session-code">
+              <span>{audienceCopy["join.code.label"]}</span>
+              <strong>{session.joinCode}</strong>
             </div>
+            {session.entryStatus === "closed" ? (
+              <p className="audience-error" role="alert">
+                {audienceCopy["join.error.closed"]}
+              </p>
+            ) : (
+              <>
+                <label className="audience-field" htmlFor="audience-nickname">
+                  <span>{audienceCopy["join.nickname.label"]}</span>
+                  <input
+                    autoComplete="nickname"
+                    id="audience-nickname"
+                    maxLength={40}
+                    value={nickname}
+                    onChange={(event) => setNickname(event.target.value)}
+                  />
+                </label>
+                <button
+                  className="audience-enter-button"
+                  type="submit"
+                  disabled={!canJoin}
+                >
+                  {loadingState === "join"
+                    ? "입장 중"
+                    : audienceCopy["join.submit"]}
+                </button>
+              </>
+            )}
+          </form>
+        ) : null}
 
-            <button
-              className="audience-enter-button"
-              type="button"
-              disabled={selectedRoom === null}
-            >
-              입장하기
-            </button>
-          </>
-        )}
+        {participant ? (
+          <section className="audience-waiting-room" aria-live="polite">
+            <CheckCircle2 size={24} />
+            <div>
+              <h2>{audienceCopy["waiting.title"]}</h2>
+              <p>{audienceCopy["waiting.body"]}</p>
+              <small>{participant.nickname}</small>
+            </div>
+          </section>
+        ) : null}
 
-        <p className="audience-session-meta">세션 {sessionId}</p>
+        {isLoading ? (
+          <p className="audience-access-loading" role="status">
+            <Loader2 size={16} aria-hidden="true" />
+            {loadingState === "restore"
+              ? audienceCopy["connection.reconnecting"]
+              : "확인 중"}
+          </p>
+        ) : null}
+
+        {errorMessage ? (
+          <p className="audience-error" role="alert">
+            {errorMessage}
+          </p>
+        ) : null}
       </section>
     </main>
   );

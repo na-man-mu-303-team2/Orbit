@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  audienceJoinResponseSchema,
   audienceEventSchema,
   audienceFeatureSettingsSchema,
   audienceJoinRequestSchema,
@@ -75,5 +76,28 @@ describe("audience schemas", () => {
         updatedAt: now,
       }),
     ).toThrow();
+  });
+
+  it("keeps presenter-owned fields out of audience join responses", () => {
+    const result = audienceJoinResponseSchema.safeParse({
+      session: {
+        sessionId: "session_1",
+        projectId: "project_1",
+        joinCode: "123456",
+        status: "draft",
+        entryStatus: "open",
+        presenterUserId: "user_1",
+      },
+      participant: {
+        audienceId: "audience_00000000-0000-4000-8000-000000000001",
+        sessionId: "session_1",
+        nickname: "orbit",
+        joinedAt: now,
+        lastSeenAt: now,
+        joinedBeforeEnd: true,
+      },
+    });
+
+    expect(result.success).toBe(false);
   });
 });

@@ -188,6 +188,11 @@
   width: max-content;
 }
 
+.audience-pin-preview {
+  grid-template-columns: minmax(0, 1fr);
+  width: 100%;
+}
+
 .audience-pin-inputs input {
   background: transparent;
   border: 0;
@@ -202,6 +207,19 @@
   position: absolute;
   width: 206px;
   z-index: 2;
+}
+
+.audience-pin-preview input {
+  background: #f8fbff;
+  border: 1px solid #bfdbfe;
+  color: #1e3a8a;
+  font-size: 0.9rem;
+  height: 40px;
+  letter-spacing: 0;
+  opacity: 1;
+  padding: 0 10px;
+  position: static;
+  width: 100%;
 }
 
 .audience-pin-inputs span {
@@ -330,7 +348,8 @@
   color: #9f1239;
 }
 
-.audience-link-confirm-actions .audience-link-confirm-danger:hover:not(:disabled) {
+.audience-link-confirm-actions
+  .audience-link-confirm-danger:hover:not(:disabled) {
   background: #fecdd3;
   border-color: #e11d48;
   color: #881337;

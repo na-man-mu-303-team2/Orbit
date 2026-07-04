@@ -1,6 +1,9 @@
-import type { AudienceSessionLookupResponse } from "@orbit/shared";
+import type {
+  AudienceJoinResponse,
+  AudienceSessionLookupResponse,
+} from "@orbit/shared";
 
-export async function getAudienceSessionAccess(
+export async function lookupAudienceSession(
   joinCode: string,
 ): Promise<AudienceSessionLookupResponse> {
   const response = await fetch(
@@ -12,30 +15,75 @@ export async function getAudienceSessionAccess(
   );
 
   if (!response.ok) {
-    throw new Error("입장 링크 또는 비밀번호를 확인해 주세요.");
+    throw await readAudienceError(response);
   }
 
   return response.json() as Promise<AudienceSessionLookupResponse>;
 }
 
-export async function verifyAudienceSessionPasscode(args: {
-  passcode: string;
-  sessionId: string;
-}): Promise<AudienceSessionLookupResponse> {
+export async function joinAudienceSession(args: {
+  joinCode: string;
+  nickname: string;
+}): Promise<AudienceJoinResponse> {
   const response = await fetch(
-    `/api/v1/presentation-sessions/join/${encodeURIComponent(args.sessionId)}`,
+    `/api/v1/presentation-sessions/join/${encodeURIComponent(args.joinCode)}`,
     {
+      body: JSON.stringify({ nickname: args.nickname }),
       credentials: "include",
       headers: {
         "content-type": "application/json",
       },
+      method: "POST",
+    },
+  );
+
+  if (!response.ok) {
+    throw await readAudienceError(response);
+  }
+
+  return response.json() as Promise<AudienceJoinResponse>;
+}
+
+export async function fetchAudienceMe(args: {
+  sessionId: string;
+}): Promise<AudienceJoinResponse> {
+  const response = await fetch(
+    `/api/v1/presentation-sessions/${encodeURIComponent(
+      args.sessionId,
+    )}/audience/me`,
+    {
+      credentials: "include",
       method: "GET",
     },
   );
 
   if (!response.ok) {
-    throw new Error("입장 링크 또는 비밀번호를 확인해 주세요.");
+    throw await readAudienceError(response);
   }
 
-  return response.json() as Promise<AudienceSessionLookupResponse>;
+  return response.json() as Promise<AudienceJoinResponse>;
+}
+
+async function readAudienceError(response: Response) {
+  const fallback = mapStatusToMessage(response.status);
+  try {
+    const payload = (await response.json()) as { message?: unknown };
+    if (typeof payload.message === "string" && payload.message.length > 0) {
+      return new Error(payload.message);
+    }
+  } catch {
+    // Use fallback below when the response body is not JSON.
+  }
+
+  return new Error(fallback);
+}
+
+function mapStatusToMessage(status: number) {
+  if (status === 403) return "현재 새 입장이 닫혀 있습니다.";
+  if (status === 409) return "이미 사용 중인 닉네임입니다.";
+  if (status === 429) {
+    return "입장 시도가 많습니다. 잠시 후 다시 시도해 주세요.";
+  }
+
+  return "입장 코드를 확인해 주세요.";
 }

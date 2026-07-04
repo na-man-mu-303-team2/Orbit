@@ -88,22 +88,26 @@ export const audienceJoinRequestSchema = z
   })
   .strict();
 
+export const audiencePublicSessionSchema = presentationSessionSchema
+  .pick({
+    sessionId: true,
+    projectId: true,
+    joinCode: true,
+    status: true,
+    entryStatus: true,
+  })
+  .strict();
+
 export const audienceJoinResponseSchema = z
   .object({
-    session: presentationSessionSchema,
+    session: audiencePublicSessionSchema,
     participant: audienceParticipantSchema,
   })
   .strict();
 
 export const audienceSessionLookupResponseSchema = z
   .object({
-    session: presentationSessionSchema.pick({
-      sessionId: true,
-      projectId: true,
-      joinCode: true,
-      status: true,
-      entryStatus: true,
-    }),
+    session: audiencePublicSessionSchema,
   })
   .strict();
 
@@ -195,6 +199,7 @@ export type AudienceFeatureSettings = z.infer<
 >;
 export type AudienceRealtimeState = z.infer<typeof audienceRealtimeStateSchema>;
 export type AudienceJoinRequest = z.infer<typeof audienceJoinRequestSchema>;
+export type AudiencePublicSession = z.infer<typeof audiencePublicSessionSchema>;
 export type AudienceJoinResponse = z.infer<typeof audienceJoinResponseSchema>;
 export type AudienceSessionLookupResponse = z.infer<
   typeof audienceSessionLookupResponseSchema
