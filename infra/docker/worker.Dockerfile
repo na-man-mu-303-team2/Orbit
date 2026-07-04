@@ -17,6 +17,6 @@ COPY packages/realtime/package.json packages/realtime/package.json
 RUN pnpm install --frozen-lockfile
 
 COPY . .
-RUN pnpm --filter "./packages/*" build
+RUN pnpm --filter @orbit/worker... --workspace-concurrency=1 build
 
 CMD ["pnpm", "--filter", "@orbit/worker", "dev"]
