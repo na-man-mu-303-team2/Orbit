@@ -133,6 +133,7 @@ describe("processAiTemplateDeckGenerationJob", () => {
           .toEqual([1, 2, 3, 4, 5]);
         expect(blueprint.slides.map((slide: { cloneSourceSlideIndex: number }) => slide.cloneSourceSlideIndex))
           .toEqual([3, 3, 3, 3, 3]);
+        expect(blueprint.slides[0].cloneSourceSlidePart).toBe("ppt/slides/slide3.xml");
         expect(blueprint.slides[0].slots[0].slotRole).toBe("title");
         expect(blueprint.slides[0].slots[1].slotRole).toBe("body");
         const slotTexts = JSON.parse(String(form.get("slot_texts")));

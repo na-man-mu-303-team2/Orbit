@@ -637,11 +637,15 @@ function cloneTemplateBlueprintSlide(
   slideIndex: number,
 ): TemplateBlueprint["slides"][number] {
   const slidePart = `ppt/slides/slide${slideIndex}.xml`;
+  const cloneSourceSlidePart =
+    slide.slots.find((slot) => typeof slot.source.slidePart === "string")?.source.slidePart ??
+    slide.elementSources.find((source) => typeof source.slidePart === "string")?.slidePart;
   return {
     ...slide,
     slideIndex,
     sourceSlideIndex: slideIndex,
     cloneSourceSlideIndex: slide.sourceSlideIndex,
+    cloneSourceSlidePart,
     renderAssetFileId: `asset:slide_render_${slideIndex}`,
     elementSources: slide.elementSources.map((source) => ({
       ...source,

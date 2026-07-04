@@ -852,13 +852,15 @@ def clone_selected_slide_parts(
                 int_value(slide.get("slideIndex"), 1),
             )
             source_index = int_value(slide.get("cloneSourceSlideIndex"), target_index)
-            source_entry = f"ppt/slides/slide{source_index}.xml"
+            source_entry = str(
+                slide.get("cloneSourceSlidePart") or f"ppt/slides/slide{source_index}.xml"
+            )
             target_entry = f"ppt/slides/slide{target_index}.xml"
             if source_entry not in source.namelist():
                 raise PptxOoxmlGenerationError(f"PPTX source slide missing: {source_entry}")
             changed_entries[target_entry] = source.read(source_entry)
 
-            source_rels = f"ppt/slides/_rels/slide{source_index}.xml.rels"
+            source_rels = rels_part_for_slide_part(source_entry)
             target_rels = f"ppt/slides/_rels/slide{target_index}.xml.rels"
             if source_rels in source.namelist():
                 changed_entries[target_rels] = source.read(source_rels)
@@ -879,6 +881,11 @@ def clone_selected_slide_parts(
             [target_index for target_index, _rel_id in slide_ids],
         )
         return rewrite_zip(source, changed_entries)
+
+
+def rels_part_for_slide_part(slide_part: str) -> str:
+    path, name = slide_part.rsplit("/", maxsplit=1)
+    return f"{path}/_rels/{name}.rels"
 
 
 def presentation_with_slide_list(

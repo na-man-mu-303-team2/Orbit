@@ -275,6 +275,38 @@ def test_apply_slot_texts_clones_reused_template_slide(
     assert b"AI Second" in second_slide_xml
 
 
+def test_apply_slot_texts_clones_source_slide_part_not_ordinal(
+    tmp_path: Path,
+) -> None:
+    pptx_path = sample_pptx(tmp_path)
+    generated = generate_pptx_ooxml(pptx_path, "file_template", render=False)
+    source_slide = generated.template_blueprint["slides"][0]
+    template_blueprint = {
+        **generated.template_blueprint,
+        "slides": [
+            {
+                **cloned_template_slide(source_slide, 1),
+                "cloneSourceSlideIndex": 5,
+                "cloneSourceSlidePart": "ppt/slides/slide1.xml",
+            }
+        ],
+    }
+
+    result = apply_slot_texts_to_pptx_ooxml(
+        pptx_path,
+        template_blueprint=template_blueprint,
+        slot_texts=["AI Part", "AI Subtitle"],
+        render=False,
+    )
+    package_asset = next(
+        asset for asset in result.assets if asset.asset_id == "current_package"
+    )
+    package_bytes = base64.b64decode(package_asset.content_base64)
+
+    with zipfile.ZipFile(BytesIO(package_bytes), "r") as package:
+        assert b"AI Part" in package.read("ppt/slides/slide1.xml")
+
+
 def test_renders_slide_pngs_when_libreoffice_is_available(tmp_path: Path) -> None:
     if not (shutil.which("libreoffice") or shutil.which("soffice")):
         pytest.skip("LibreOffice is not installed.")
@@ -394,6 +426,7 @@ def cloned_template_slide(source_slide: dict, target_index: int) -> dict:
     slide["slideIndex"] = target_index
     slide["sourceSlideIndex"] = target_index
     slide["cloneSourceSlideIndex"] = source_slide["sourceSlideIndex"]
+    slide["cloneSourceSlidePart"] = source_slide["slots"][0]["source"]["slidePart"]
     slide["renderAssetFileId"] = f"asset:slide_render_{target_index}"
     slide_part = f"ppt/slides/slide{target_index}.xml"
     for slot in slide.get("slots", []):
