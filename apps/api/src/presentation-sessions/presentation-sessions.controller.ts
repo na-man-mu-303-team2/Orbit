@@ -6,11 +6,11 @@ import {
   Patch,
   Post,
   Req,
-  UnauthorizedException
+  UnauthorizedException,
 } from "@nestjs/common";
 import {
-  createAudienceAccessSessionRequestSchema,
-  updateAudienceAccessSessionStatusRequestSchema
+  createPresentationSessionRequestSchema,
+  updatePresentationSessionEntryRequestSchema,
 } from "@orbit/shared";
 import type { Request } from "express";
 import { authSessionCookieName } from "../auth/auth.constants";
@@ -28,13 +28,13 @@ export class PresentationSessionsController {
   constructor(
     private readonly authService: AuthService,
     private readonly presentationSessionsService: PresentationSessionsService,
-    private readonly projectsService: ProjectsService
+    private readonly projectsService: ProjectsService,
   ) {}
 
   @Get("current")
   async getCurrent(
     @Param("projectId") projectId: string,
-    @Req() request: SignedCookieRequest
+    @Req() request: SignedCookieRequest,
   ) {
     const user = await this.getCurrentUser(request);
     await this.projectsService.assertCanReadProject(projectId, user.userId);
@@ -45,28 +45,38 @@ export class PresentationSessionsController {
   async create(
     @Param("projectId") projectId: string,
     @Body() body: unknown,
-    @Req() request: SignedCookieRequest
+    @Req() request: SignedCookieRequest,
   ) {
-    const input = parseRequest(createAudienceAccessSessionRequestSchema, body ?? {});
+    const input = parseRequest(
+      createPresentationSessionRequestSchema,
+      body ?? {},
+    );
     const user = await this.getCurrentUser(request);
     await this.projectsService.assertCanWriteProject(projectId, user.userId);
-    return this.presentationSessionsService.create(projectId, input);
+    return this.presentationSessionsService.create(
+      projectId,
+      user.userId,
+      input,
+    );
   }
 
-  @Patch(":sessionId/status")
-  async updateStatus(
+  @Patch(":sessionId/entry")
+  async updateEntryStatus(
     @Param("projectId") projectId: string,
     @Param("sessionId") sessionId: string,
     @Body() body: unknown,
-    @Req() request: SignedCookieRequest
+    @Req() request: SignedCookieRequest,
   ) {
-    const input = parseRequest(updateAudienceAccessSessionStatusRequestSchema, body ?? {});
+    const input = parseRequest(
+      updatePresentationSessionEntryRequestSchema,
+      body ?? {},
+    );
     const user = await this.getCurrentUser(request);
     await this.projectsService.assertCanWriteProject(projectId, user.userId);
-    return this.presentationSessionsService.updateStatus(
+    return this.presentationSessionsService.updateEntryStatus(
       projectId,
       sessionId,
-      input.status
+      input.entryStatus,
     );
   }
 

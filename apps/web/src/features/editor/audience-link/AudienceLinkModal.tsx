@@ -1,4 +1,4 @@
-import type { AudienceAccessSession } from "@orbit/shared";
+import type { PresentationSession } from "@orbit/shared";
 import { Share2, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
@@ -6,32 +6,32 @@ import { createPortal } from "react-dom";
 import {
   closeAudienceAccessSession,
   createAudienceAccessSession,
-  fetchCurrentAudienceAccessSession
+  fetchCurrentAudienceAccessSession,
 } from "./audienceLinkApi";
 import {
   createQrDataUrl,
   formatAudienceExpiresAt,
   formatAudienceTimeRemaining,
   resolveAbsoluteAudienceUrl,
-  toAudienceLinkErrorMessage
+  toAudienceLinkErrorMessage,
 } from "./audienceLinkUtils";
 import "./audience-link.css";
 
 type AudienceLinkModalProps = {
+  deckId: string;
   isOpen: boolean;
   onClose: () => void;
   projectId: string;
 };
 
 export function AudienceLinkModal({
+  deckId,
   isOpen,
   onClose,
-  projectId
+  projectId,
 }: AudienceLinkModalProps) {
-  const [audiencePasscode, setAudiencePasscode] = useState("");
-  const [audienceExpiresInHours, setAudienceExpiresInHours] = useState(2);
   const [audienceSession, setAudienceSession] =
-    useState<AudienceAccessSession | null>(null);
+    useState<PresentationSession | null>(null);
   const [audienceUrl, setAudienceUrl] = useState("");
   const [audienceQrDataUrl, setAudienceQrDataUrl] = useState("");
   const [audienceLinkError, setAudienceLinkError] = useState("");
@@ -46,7 +46,10 @@ export function AudienceLinkModal({
     }
 
     setAudienceNowMs(Date.now());
-    const timerId = window.setInterval(() => setAudienceNowMs(Date.now()), 60_000);
+    const timerId = window.setInterval(
+      () => setAudienceNowMs(Date.now()),
+      60_000,
+    );
 
     return () => window.clearInterval(timerId);
   }, [isOpen]);
@@ -71,7 +74,9 @@ export function AudienceLinkModal({
           ? resolveAbsoluteAudienceUrl(payload.audienceUrl)
           : "";
         setAudienceUrl(nextAudienceUrl);
-        setAudienceQrDataUrl(nextAudienceUrl ? await createQrDataUrl(nextAudienceUrl) : "");
+        setAudienceQrDataUrl(
+          nextAudienceUrl ? await createQrDataUrl(nextAudienceUrl) : "",
+        );
       })
       .catch((error) => {
         if (!isCancelled) {
@@ -97,13 +102,8 @@ export function AudienceLinkModal({
     onClose();
   }
 
-  function updateAudiencePasscode(value: string) {
-    setAudiencePasscode(value.replace(/\D/g, "").slice(0, 4));
-  }
-
   async function handleCreateAudienceLink() {
-    if (!/^\d{4}$/.test(audiencePasscode) || isAudienceLinkLoading) {
-      setAudienceLinkError("4자리 숫자 비밀번호를 입력해 주세요.");
+    if (isAudienceLinkLoading) {
       return;
     }
 
@@ -112,15 +112,13 @@ export function AudienceLinkModal({
 
     try {
       const payload = await createAudienceAccessSession({
-        expiresInHours: audienceExpiresInHours,
-        passcode: audiencePasscode,
-        projectId
+        deckId,
+        projectId,
       });
       const nextAudienceUrl = resolveAbsoluteAudienceUrl(payload.audienceUrl);
       setAudienceSession(payload.session);
       setAudienceUrl(nextAudienceUrl);
       setAudienceQrDataUrl(await createQrDataUrl(nextAudienceUrl));
-      setAudiencePasscode("");
       setIsAudienceCloseConfirming(false);
     } catch (error) {
       setAudienceLinkError(toAudienceLinkErrorMessage(error));
@@ -140,7 +138,7 @@ export function AudienceLinkModal({
     try {
       await closeAudienceAccessSession({
         projectId,
-        sessionId: audienceSession.sessionId
+        sessionId: audienceSession.sessionId,
       });
       setAudienceSession(null);
       setAudienceUrl("");
@@ -155,7 +153,11 @@ export function AudienceLinkModal({
   }
 
   async function handleCopyAudienceUrl() {
-    if (!audienceUrl || typeof navigator === "undefined" || !navigator.clipboard) {
+    if (
+      !audienceUrl ||
+      typeof navigator === "undefined" ||
+      !navigator.clipboard
+    ) {
       return;
     }
 
@@ -199,7 +201,9 @@ export function AudienceLinkModal({
               <span
                 className={`audience-link-status audience-link-status-${audienceSession.status}`}
               >
-                {audienceSession.status === "open" ? "입장 열림" : "입장 닫힘"}
+                {audienceSession.entryStatus === "open"
+                  ? "입장 열림"
+                  : "입장 닫힘"}
               </span>
             </div>
             <div className="audience-link-qr-frame">
@@ -211,9 +215,15 @@ export function AudienceLinkModal({
             </div>
             <div className="audience-link-expiry-summary">
               <strong>
-                {formatAudienceTimeRemaining(audienceSession.expiresAt, audienceNowMs)}
+                {formatAudienceTimeRemaining(
+                  audienceSession.rawDataDeleteAfter,
+                  audienceNowMs,
+                )}
               </strong>
-              <span>만료 {formatAudienceExpiresAt(audienceSession.expiresAt)}</span>
+              <span>
+                보관 만료{" "}
+                {formatAudienceExpiresAt(audienceSession.rawDataDeleteAfter)}
+              </span>
             </div>
             <label className="audience-link-url-field">
               <span>주소 영역</span>
@@ -231,11 +241,18 @@ export function AudienceLinkModal({
                 className="audience-link-session-close"
                 type="button"
                 onClick={() => setIsAudienceCloseConfirming(true)}
-                disabled={isAudienceLinkLoading || audienceSession.status === "closed"}
+                disabled={
+                  isAudienceLinkLoading ||
+                  audienceSession.entryStatus === "closed"
+                }
               >
                 세션 닫기
               </button>
-              <button className="audience-link-modal-dismiss" type="button" onClick={closeModal}>
+              <button
+                className="audience-link-modal-dismiss"
+                type="button"
+                onClick={closeModal}
+              >
                 닫기
               </button>
             </div>
@@ -282,36 +299,14 @@ export function AudienceLinkModal({
         {!audienceSession ? (
           <section className="audience-link-create">
             <label>
-              <span>입장 비밀번호</span>
-              <div className="audience-pin-inputs" aria-label="4자리 입장 비밀번호">
+              <span>입장 코드</span>
+              <div className="audience-pin-inputs" aria-label="6자리 입장 코드">
                 <input
-                  aria-label="4자리 입장 비밀번호"
-                  inputMode="numeric"
-                  maxLength={4}
-                  pattern="[0-9]*"
-                  type="text"
-                  value={audiencePasscode}
-                  onChange={(event) => updateAudiencePasscode(event.target.value)}
+                  aria-label="6자리 입장 코드"
+                  readOnly
+                  value="자동 생성"
                 />
-                {[0, 1, 2, 3].map((index) => (
-                  <span key={index} aria-hidden="true">
-                    {audiencePasscode[index] ?? ""}
-                  </span>
-                ))}
               </div>
-            </label>
-            <label className="audience-expiry-field">
-              <span>링크 유효시간</span>
-              <select
-                value={audienceExpiresInHours}
-                onChange={(event) => setAudienceExpiresInHours(Number(event.target.value))}
-              >
-                <option value={1}>1시간</option>
-                <option value={2}>2시간</option>
-                <option value={6}>6시간</option>
-                <option value={12}>12시간</option>
-                <option value={24}>24시간</option>
-              </select>
             </label>
             <button
               className="audience-link-primary"
@@ -330,6 +325,6 @@ export function AudienceLinkModal({
         ) : null}
       </section>
     </div>,
-    document.body
+    document.body,
   );
 }

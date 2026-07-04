@@ -5,35 +5,23 @@ export class AddUniqueOpenPresentationSession2026070202000 implements MigrationI
 
   async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(`
-      WITH ranked_open_sessions AS (
-        SELECT
-          session_id,
-          row_number() OVER (
-            PARTITION BY project_id
-            ORDER BY created_at DESC, session_id DESC
-          ) AS row_number
-        FROM presentation_sessions
-        WHERE status = 'open'
-      )
-      UPDATE presentation_sessions
-      SET status = 'closed'
-      WHERE session_id IN (
-        SELECT session_id
-        FROM ranked_open_sessions
-        WHERE row_number > 1
-      )
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_presentation_sessions_active_join_code
+      ON presentation_sessions (join_code)
+      WHERE status IN ('draft', 'live')
     `);
-
     await queryRunner.query(`
-      CREATE UNIQUE INDEX IF NOT EXISTS idx_presentation_sessions_one_open_per_project
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_presentation_sessions_one_active_per_project
       ON presentation_sessions (project_id)
-      WHERE status = 'open'
+      WHERE status IN ('draft', 'live')
     `);
   }
 
   async down(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(`
-      DROP INDEX IF EXISTS idx_presentation_sessions_one_open_per_project
+      DROP INDEX IF EXISTS idx_presentation_sessions_one_active_per_project
+    `);
+    await queryRunner.query(`
+      DROP INDEX IF EXISTS idx_presentation_sessions_active_join_code
     `);
   }
 }

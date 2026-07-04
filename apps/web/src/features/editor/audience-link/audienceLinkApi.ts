@@ -1,76 +1,74 @@
 import type {
-  AudienceAccessSession,
-  CreateAudienceAccessSessionResponse,
-  GetCurrentAudienceAccessSessionResponse
+  CreatePresentationSessionResponse,
+  GetCurrentPresentationSessionResponse,
+  PresentationSession,
 } from "@orbit/shared";
 
 export async function fetchCurrentAudienceAccessSession(
-  projectId: string
-): Promise<GetCurrentAudienceAccessSessionResponse> {
+  projectId: string,
+): Promise<GetCurrentPresentationSessionResponse> {
   const response = await fetch(
     `/api/v1/projects/${encodeURIComponent(projectId)}/presentation-sessions/current`,
     {
-      credentials: "include"
-    }
+      credentials: "include",
+    },
   );
 
   if (!response.ok) {
     throw await readResponseError(response, "Audience session fetch failed");
   }
 
-  return response.json() as Promise<GetCurrentAudienceAccessSessionResponse>;
+  return response.json() as Promise<GetCurrentPresentationSessionResponse>;
 }
 
 export async function createAudienceAccessSession(args: {
-  expiresInHours: number;
-  passcode: string;
+  deckId: string;
   projectId: string;
-}): Promise<CreateAudienceAccessSessionResponse> {
+}): Promise<CreatePresentationSessionResponse> {
   const response = await fetch(
     `/api/v1/projects/${encodeURIComponent(args.projectId)}/presentation-sessions`,
     {
       body: JSON.stringify({
-        expiresInHours: args.expiresInHours,
-        passcode: args.passcode
+        deckId: args.deckId,
       }),
       credentials: "include",
       headers: {
-        "content-type": "application/json"
+        "content-type": "application/json",
       },
-      method: "POST"
-    }
+      method: "POST",
+    },
   );
 
   if (!response.ok) {
     throw await readResponseError(response, "Audience session create failed");
   }
 
-  return response.json() as Promise<CreateAudienceAccessSessionResponse>;
+  return response.json() as Promise<CreatePresentationSessionResponse>;
 }
 
 export async function closeAudienceAccessSession(args: {
   projectId: string;
   sessionId: string;
-}): Promise<AudienceAccessSession> {
+}): Promise<PresentationSession> {
   const response = await fetch(
     `/api/v1/projects/${encodeURIComponent(
-      args.projectId
-    )}/presentation-sessions/${encodeURIComponent(args.sessionId)}/status`,
+      args.projectId,
+    )}/presentation-sessions/${encodeURIComponent(args.sessionId)}/entry`,
     {
-      body: JSON.stringify({ status: "closed" }),
+      body: JSON.stringify({ entryStatus: "closed" }),
       credentials: "include",
       headers: {
-        "content-type": "application/json"
+        "content-type": "application/json",
       },
-      method: "PATCH"
-    }
+      method: "PATCH",
+    },
   );
 
   if (!response.ok) {
     throw await readResponseError(response, "Audience session close failed");
   }
 
-  const payload = (await response.json()) as { session: AudienceAccessSession };
+  const payload = (await response.json()) as { session: PresentationSession };
   return payload.session;
 }
 
