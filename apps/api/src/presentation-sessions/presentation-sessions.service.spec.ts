@@ -1,3 +1,8 @@
+import {
+  ConflictException,
+  ForbiddenException,
+  UnauthorizedException,
+} from "@nestjs/common";
 import { describe, expect, it, vi } from "vitest";
 import type { DataSource } from "typeorm";
 
@@ -83,5 +88,134 @@ describe("PresentationSessionsService", () => {
     });
 
     expect(query).toHaveBeenCalledTimes(3);
+  });
+
+  it("creates an audience participant for a draft session", async () => {
+    const query = vi
+      .fn()
+      .mockResolvedValueOnce([
+        {
+          audience_id: "audience_00000000-0000-4000-8000-000000000001",
+          session_id: "session_existing",
+          nickname: "orbit",
+          joined_at: "2026-07-05T00:00:01.000Z",
+          last_seen_at: "2026-07-05T00:00:01.000Z",
+          joined_before_end: true,
+        },
+      ])
+      .mockResolvedValueOnce([]);
+
+    const service = new PresentationSessionsService({
+      query,
+    } as unknown as DataSource);
+
+    await expect(
+      service.joinAudience(service["toSessionDto"](activeSessionRow), {
+        audienceId: "audience_00000000-0000-4000-8000-000000000001",
+        nickname: "orbit",
+        tokenHash: "token_hash",
+      }),
+    ).resolves.toMatchObject({
+      session: {
+        sessionId: "session_existing",
+        joinCode: "123456",
+        status: "draft",
+      },
+      participant: {
+        audienceId: "audience_00000000-0000-4000-8000-000000000001",
+        nickname: "orbit",
+      },
+    });
+
+    expect(query.mock.calls[0][0]).toContain(
+      "INSERT INTO audience_participants",
+    );
+    expect(query.mock.calls[1][0]).toContain("INSERT INTO audience_events");
+  });
+
+  it("rejects duplicate nicknames in the same session", async () => {
+    const query = vi
+      .fn()
+      .mockRejectedValueOnce(
+        Object.assign(new Error("duplicate nickname"), { code: "23505" }),
+      );
+    const service = new PresentationSessionsService({
+      query,
+    } as unknown as DataSource);
+
+    await expect(
+      service.joinAudience(service["toSessionDto"](activeSessionRow), {
+        audienceId: "audience_00000000-0000-4000-8000-000000000001",
+        nickname: "orbit",
+        tokenHash: "token_hash",
+      }),
+    ).rejects.toBeInstanceOf(ConflictException);
+  });
+
+  it("blocks new joins when entry is closed", async () => {
+    const service = new PresentationSessionsService({
+      query: vi.fn(),
+    } as unknown as DataSource);
+
+    await expect(
+      service.joinAudience(
+        service["toSessionDto"]({
+          ...activeSessionRow,
+          entry_status: "closed",
+        }),
+        {
+          audienceId: "audience_00000000-0000-4000-8000-000000000001",
+          nickname: "orbit",
+          tokenHash: "token_hash",
+        },
+      ),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it("restores an existing participant by audience token hash", async () => {
+    const query = vi
+      .fn()
+      .mockResolvedValueOnce([
+        {
+          audience_id: "audience_00000000-0000-4000-8000-000000000001",
+          session_id: "session_existing",
+          nickname: "orbit",
+          joined_at: "2026-07-05T00:00:01.000Z",
+          last_seen_at: "2026-07-05T00:01:00.000Z",
+          joined_before_end: true,
+        },
+      ])
+      .mockResolvedValueOnce([activeSessionRow]);
+    const service = new PresentationSessionsService({
+      query,
+    } as unknown as DataSource);
+
+    await expect(
+      service.getAudienceMe(
+        "session_existing",
+        "audience_00000000-0000-4000-8000-000000000001",
+        "token_hash",
+      ),
+    ).resolves.toMatchObject({
+      participant: {
+        audienceId: "audience_00000000-0000-4000-8000-000000000001",
+        nickname: "orbit",
+      },
+    });
+  });
+
+  it("rejects rejoin when the token hash does not match", async () => {
+    const query = vi.fn().mockResolvedValueOnce([]);
+    const service = new PresentationSessionsService({
+      query,
+    } as unknown as DataSource);
+
+    await expect(
+      service.getAudienceMe(
+        "session_existing",
+        "audience_00000000-0000-4000-8000-000000000001",
+        "wrong_hash",
+      ),
+    ).rejects.toBeInstanceOf(UnauthorizedException);
   });
 });

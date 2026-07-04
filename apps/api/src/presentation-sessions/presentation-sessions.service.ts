@@ -6,6 +6,8 @@ import {
   updatePresentationSessionEntryResponseSchema,
 } from "@orbit/shared";
 import type {
+  AudienceJoinResponse,
+  AudienceParticipant,
   CreatePresentationSessionResponse,
   GetCurrentPresentationSessionResponse,
   PresentationEntryStatus,
@@ -13,7 +15,13 @@ import type {
   PresentationSessionStatus,
   UpdatePresentationSessionEntryResponse,
 } from "@orbit/shared";
-import { Injectable, NotFoundException } from "@nestjs/common";
+import {
+  ConflictException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+  UnauthorizedException,
+} from "@nestjs/common";
 import { InjectDataSource } from "@nestjs/typeorm";
 import { DataSource } from "typeorm";
 
@@ -31,6 +39,21 @@ type PresentationSessionRow = {
   ended_at: Date | string | null;
   survey_closes_at: Date | string | null;
   raw_data_delete_after: Date | string;
+};
+
+type AudienceParticipantRow = {
+  audience_id: string;
+  session_id: string;
+  nickname: string;
+  joined_at: Date | string;
+  last_seen_at: Date | string;
+  joined_before_end: boolean;
+};
+
+type JoinAudienceInput = {
+  audienceId: string;
+  nickname: string;
+  tokenHash: string;
 };
 
 @Injectable()
@@ -171,6 +194,92 @@ export class PresentationSessionsService {
     return this.toSessionDto(row);
   }
 
+  async joinAudience(
+    session: PresentationSession,
+    input: JoinAudienceInput,
+  ): Promise<AudienceJoinResponse> {
+    if (session.status === "ended") {
+      throw new NotFoundException("입장 코드를 확인해 주세요.");
+    }
+
+    if (session.entryStatus === "closed") {
+      throw new ForbiddenException("현재 새 입장이 닫혀 있습니다.");
+    }
+
+    try {
+      const rows = await this.dataSource.query<AudienceParticipantRow[]>(
+        `
+          INSERT INTO audience_participants (
+            audience_id,
+            session_id,
+            nickname,
+            token_hash,
+            joined_at,
+            last_seen_at,
+            joined_before_end
+          )
+          VALUES ($1, $2, $3, $4, now(), now(), true)
+          RETURNING
+            audience_id,
+            session_id,
+            nickname,
+            joined_at,
+            last_seen_at,
+            joined_before_end
+        `,
+        [input.audienceId, session.sessionId, input.nickname, input.tokenHash],
+      );
+
+      const participant = this.toParticipantDto(rows[0]);
+      await this.appendAudienceEvent(session.sessionId, participant.audienceId);
+
+      return {
+        session: toAudiencePublicSession(session),
+        participant,
+      };
+    } catch (error) {
+      if (!isPostgresUniqueViolation(error)) {
+        throw error;
+      }
+
+      throw new ConflictException("이미 사용 중인 닉네임입니다.");
+    }
+  }
+
+  async getAudienceMe(
+    sessionId: string,
+    audienceId: string,
+    tokenHash: string,
+  ): Promise<AudienceJoinResponse> {
+    const rows = await this.dataSource.query<AudienceParticipantRow[]>(
+      `
+        UPDATE audience_participants
+        SET last_seen_at = now()
+        WHERE session_id = $1
+          AND audience_id = $2
+          AND token_hash = $3
+        RETURNING
+          audience_id,
+          session_id,
+          nickname,
+          joined_at,
+          last_seen_at,
+          joined_before_end
+      `,
+      [sessionId, audienceId, tokenHash],
+    );
+
+    const row = rows[0];
+    if (!row) {
+      throw new UnauthorizedException("Audience access required");
+    }
+
+    return {
+      session: toAudiencePublicSession(await this.getSessionById(sessionId)),
+      participant: this.toParticipantDto(row),
+    };
+  }
+
   async updateEntryStatus(
     projectId: string,
     sessionId: string,
@@ -265,6 +374,47 @@ export class PresentationSessionsService {
     );
   }
 
+  private async appendAudienceEvent(
+    sessionId: string,
+    audienceId: string,
+  ): Promise<void> {
+    await this.dataSource.query(
+      `
+        INSERT INTO audience_events (
+          event_id,
+          session_id,
+          actor_type,
+          actor_id,
+          type,
+          payload_json,
+          occurred_at
+        )
+        VALUES ($1, $2, 'audience', $3, 'audience.joined', '{}'::jsonb, now())
+      `,
+      [`event_${randomUUID()}`, sessionId, audienceId],
+    );
+  }
+
+  private async getSessionById(
+    sessionId: string,
+  ): Promise<PresentationSession> {
+    const rows = await this.dataSource.query<PresentationSessionRow[]>(
+      `
+        ${selectPresentationSessionSql()}
+        WHERE session_id = $1
+        LIMIT 1
+      `,
+      [sessionId],
+    );
+
+    const row = rows[0];
+    if (!row) {
+      throw new NotFoundException("Presentation session not found");
+    }
+
+    return this.toSessionDto(row);
+  }
+
   private buildAudienceUrl(joinCode: string) {
     return `/join/${encodeURIComponent(joinCode)}`;
   }
@@ -284,6 +434,17 @@ export class PresentationSessionsService {
       endedAt: toNullableIso(row.ended_at),
       surveyClosesAt: toNullableIso(row.survey_closes_at),
       rawDataDeleteAfter: toIso(row.raw_data_delete_after),
+    };
+  }
+
+  private toParticipantDto(row: AudienceParticipantRow): AudienceParticipant {
+    return {
+      audienceId: row.audience_id,
+      sessionId: row.session_id,
+      nickname: row.nickname,
+      joinedAt: toIso(row.joined_at),
+      lastSeenAt: toIso(row.last_seen_at),
+      joinedBeforeEnd: row.joined_before_end,
     };
   }
 
@@ -339,4 +500,14 @@ function toNullableIso(value: Date | string | null) {
 
 function generateJoinCode(): string {
   return String(randomInt(0, 1_000_000)).padStart(6, "0");
+}
+
+function toAudiencePublicSession(session: PresentationSession) {
+  return {
+    sessionId: session.sessionId,
+    projectId: session.projectId,
+    joinCode: session.joinCode,
+    status: session.status,
+    entryStatus: session.entryStatus,
+  };
 }

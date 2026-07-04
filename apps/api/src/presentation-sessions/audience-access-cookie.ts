@@ -1,4 +1,4 @@
-import { createHmac, randomUUID } from "node:crypto";
+import { createHmac } from "node:crypto";
 import type { OrbitConfig } from "@orbit/config";
 import type { PresentationSession } from "@orbit/shared";
 import type { CookieOptions } from "express";
@@ -19,10 +19,11 @@ export type VerifiedAudienceAccessToken = AudienceAccessTokenPayload;
 export function createAudienceAccessToken(
   config: OrbitConfig,
   session: PresentationSession,
+  audienceId: string,
   userAgent: string,
 ): string {
   const payload: AudienceAccessTokenPayload = {
-    audienceId: `audience_${randomUUID()}`,
+    audienceId,
     sessionId: session.sessionId,
     projectId: session.projectId,
     uaHash: hashUserAgent(config.SESSION_SECRET, userAgent),
@@ -31,6 +32,15 @@ export function createAudienceAccessToken(
   };
 
   return Buffer.from(JSON.stringify(payload), "utf8").toString("base64url");
+}
+
+export function hashAudienceAccessToken(
+  config: OrbitConfig,
+  token: string,
+): string {
+  return createHmac("sha256", config.SESSION_SECRET)
+    .update(token)
+    .digest("base64url");
 }
 
 export function verifyAudienceAccessToken(
