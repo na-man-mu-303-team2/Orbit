@@ -3620,6 +3620,25 @@
   border-color: #fecdd3;
 }
 
+.validation-card {
+  border: 1px solid var(--line);
+  background: #fff;
+}
+
+.validation-item {
+  cursor: default;
+}
+
+.validation-item:hover {
+  border-color: #bfdbfe;
+  background: #eff6ff;
+}
+
+.validation-item-risk {
+  border-color: #fed7aa;
+  background: #fff7ed;
+}
+
 .suggestion-card-header {
   align-items: flex-start;
 }
