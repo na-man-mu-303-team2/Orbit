@@ -25,7 +25,7 @@ export function createDeckCueProvider(deck: Deck): CueProvider {
   const cuesBySlideId = new Map<string, RuntimeSpeechCue[]>();
 
   for (const slide of deck.slides) {
-    const cues = slide.speechCues
+    const cues = (slide.speechCues ?? [])
       .filter((cue) => cue.enabled)
       .map((cue) => ({ ...cue, slideId: slide.slideId }));
     cuesBySlideId.set(slide.slideId, cues);

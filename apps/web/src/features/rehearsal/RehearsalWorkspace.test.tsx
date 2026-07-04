@@ -937,10 +937,12 @@ describe("RehearsalWorkspace", () => {
     expect(source).toContain("remainingTriggerSteps");
   });
 
-  it("keeps production trigger animations empty until P5 wires CueProvider", () => {
+  it("derives production trigger animations from P5 CueProvider", () => {
     const source = fs.readFileSync(rehearsalWorkspaceSourcePath, "utf8");
 
-    expect(source).toContain(
+    expect(source).toContain("getCueReferencedAnimationIds");
+    expect(source).toContain("createPresenterCueProvider");
+    expect(source).not.toContain(
       "const triggerAnimationIds = useMemo(() => [] as string[], [currentSlide?.slideId])"
     );
   });
@@ -1001,6 +1003,10 @@ describe("RehearsalWorkspace", () => {
     const blocked = evaluateAdvanceController(
       createInitialAdvanceControllerState(),
       {
+        advanceCueGate: {
+          matched: false,
+          required: false
+        },
         effectiveCoverage: 0.7,
         finalSentenceSpoken: true,
         finalSentenceSpokenAtMs: 100,
@@ -1039,6 +1045,10 @@ describe("RehearsalWorkspace", () => {
     const countdown = evaluateAdvanceController(
       createInitialAdvanceControllerState(),
       {
+        advanceCueGate: {
+          matched: false,
+          required: false
+        },
         effectiveCoverage: 0.7,
         finalSentenceSpoken: true,
         finalSentenceSpokenAtMs: 100,
@@ -1059,6 +1069,10 @@ describe("RehearsalWorkspace", () => {
     const advanced = evaluateAdvanceController(
       countdown.state,
       {
+        advanceCueGate: {
+          matched: false,
+          required: false
+        },
         effectiveCoverage: 0.7,
         finalSentenceSpoken: true,
         finalSentenceSpokenAtMs: 100,
@@ -1081,6 +1095,10 @@ describe("RehearsalWorkspace", () => {
       evaluateAdvanceController(
         countdown.state,
         {
+          advanceCueGate: {
+            matched: false,
+            required: false
+          },
           effectiveCoverage: 0.7,
           finalSentenceSpoken: true,
           finalSentenceSpokenAtMs: 100,
@@ -1103,6 +1121,10 @@ describe("RehearsalWorkspace", () => {
     const finish = evaluateAdvanceController(
       createInitialAdvanceControllerState(),
       {
+        advanceCueGate: {
+          matched: false,
+          required: false
+        },
         effectiveCoverage: 1,
         finalSentenceSpoken: true,
         finalSentenceSpokenAtMs: 100,

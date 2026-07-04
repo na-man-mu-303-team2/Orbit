@@ -175,6 +175,33 @@ describe("advanceController", () => {
     expect(result.state.manualGuidanceShown).toBe(true);
   });
 
+  it("blocks readiness until a required advance speech cue is matched", () => {
+    const blocked = evaluateAdvanceController(
+      createInitialAdvanceControllerState(),
+      createSnapshot({
+        advanceCueGate: { matched: false, required: true },
+        effectiveCoverage: 0.9,
+        finalSentenceSpoken: true,
+        pause: { isPaused: true, silenceDurationMs: 900 }
+      }),
+      defaultAutoAdvanceConfig
+    );
+    const matched = evaluateAdvanceController(
+      blocked.state,
+      createSnapshot({
+        advanceCueGate: { matched: true, required: true },
+        effectiveCoverage: 0.9,
+        finalSentenceSpoken: true,
+        pause: { isPaused: true, silenceDurationMs: 900 }
+      }),
+      defaultAutoAdvanceConfig
+    );
+
+    expect(blocked.commands).toEqual([]);
+    expect(blocked.state.status).toBe("tracking");
+    expect(matched.state.status).toBe("countdown");
+  });
+
   it("clears manual guidance when auto advance becomes eligible again", () => {
     const guided = evaluateAdvanceController(
       createInitialAdvanceControllerState(),
@@ -310,6 +337,10 @@ function createSnapshot(
   overrides: Partial<AdvanceControllerSnapshot> = {}
 ): AdvanceControllerSnapshot {
   return {
+    advanceCueGate: {
+      matched: false,
+      required: false
+    },
     effectiveCoverage: 0,
     finalSentenceSpoken: false,
     finalSentenceSpokenAtMs: null,
