@@ -1,0 +1,498 @@
+import { expect, test, type Page } from "@playwright/test";
+
+const now = "2026-07-05T00:00:00.000Z";
+const session = {
+  sessionId: "session_1",
+  projectId: "project_1",
+  joinCode: "123456",
+  status: "live",
+  entryStatus: "open",
+};
+const endedSession = {
+  ...session,
+  status: "ended",
+  entryStatus: "closed",
+};
+const presenterSession = {
+  ...session,
+  deckId: "deck_1",
+  presenterUserId: "user_1",
+  audienceSlideRenderMode: "image-first",
+  createdAt: now,
+  startedAt: now,
+  endedAt: null,
+  surveyClosesAt: null,
+  rawDataDeleteAfter: "2026-08-04T00:00:00.000Z",
+};
+const participant = {
+  audienceId: "audience_00000000-0000-4000-8000-000000000001",
+  sessionId: "session_1",
+  nickname: "orbit",
+  joinedAt: now,
+  lastSeenAt: now,
+  joinedBeforeEnd: true,
+};
+const allFeatures = {
+  sessionId: "session_1",
+  qnaEnabled: true,
+  aiQnaEnabled: true,
+  pollsEnabled: true,
+  quizzesEnabled: true,
+  reactionsEnabled: true,
+  surveyEnabled: true,
+  updatedAt: now,
+};
+const pollInteraction = {
+  interactionId: "interaction_00000000-0000-4000-8000-000000000001",
+  sessionId: "session_1",
+  kind: "poll",
+  title: "만족도 투표",
+  questions: [
+    {
+      type: "scale",
+      questionId: "question_00000000-0000-4000-8000-000000000001",
+      prompt: "발표 만족도를 골라 주세요.",
+      required: true,
+      min: 1,
+      max: 5,
+    },
+  ],
+  resultVisibility: "live",
+  quizScoring: "none",
+  source: "ad-hoc",
+  order: 0,
+  activatedAt: now,
+  closedAt: null,
+};
+const quizInteraction = {
+  ...pollInteraction,
+  interactionId: "interaction_00000000-0000-4000-8000-000000000002",
+  kind: "quiz",
+  title: "이해도 퀴즈",
+  questions: [
+    {
+      type: "quiz-true-false",
+      questionId: "question_00000000-0000-4000-8000-000000000002",
+      prompt: "청중은 로그인 없이 참여한다.",
+      correctAnswer: true,
+    },
+  ],
+  resultVisibility: "after-close",
+  quizScoring: "correct-count",
+};
+
+test.describe("audience engagement hardened smoke", () => {
+  test("rejects duplicate nicknames and then restores a mobile live audience surface", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await mockAudienceSession(page, { duplicateFirstNickname: true });
+
+    await page.goto("/join/123456");
+    await page.getByLabel("닉네임").fill("orbit");
+    await page.getByRole("button", { name: "입장하기" }).click();
+    await expect(page.getByRole("alert")).toContainText(
+      "이미 사용 중인 닉네임입니다.",
+    );
+
+    const startedAt = Date.now();
+    await page.getByLabel("닉네임").fill("orbit2");
+    await page.getByRole("button", { name: "입장하기" }).click();
+
+    await expect(
+      page.getByRole("heading", { name: "현재 슬라이드 1" }),
+    ).toBeVisible();
+    expect(Date.now() - startedAt).toBeLessThan(2_000);
+    await expect(page.getByLabel("활성 청중 기능")).toBeVisible();
+    await expect(page.locator("main")).not.toContainText("speakerNotes");
+    await expect(page.locator("main")).not.toContainText("presenterScript");
+    await expect(page.locator("main")).not.toContainText("rawAudio");
+  });
+
+  test("submits Q&A, poll, and reactions from the audience UI", async ({
+    page,
+  }) => {
+    await mockAudienceSession(page, { interaction: pollInteraction });
+    await page.goto("/join/123456");
+    await joinAs(page, "orbit");
+
+    await page.getByLabel("질문").fill("AI가 답할 수 있나요?");
+    await page.getByRole("button", { name: "질문 보내기" }).click();
+    await expect(
+      page.getByText("근거가 부족해 발표자에게 전달했습니다."),
+    ).toBeVisible();
+    await page.getByRole("button", { name: "발표자에게 답변 요청" }).click();
+    await expect(
+      page.getByText("발표자 대기열에 질문을 전달했습니다."),
+    ).toBeVisible();
+
+    await page.getByLabel("1-5").fill("5");
+    await page.getByRole("button", { name: "응답 제출" }).click();
+    await expect(page.getByText("응답이 저장되었습니다.")).toBeVisible();
+
+    await page.getByRole("button", { name: "박수 반응 보내기" }).click();
+    await expect(
+      page.getByRole("status").filter({ hasText: "반응을 보냈습니다." }),
+    ).toBeVisible();
+  });
+
+  test("submits a quiz response from the audience UI", async ({ page }) => {
+    await mockAudienceSession(page, { interaction: quizInteraction });
+    await page.goto("/join/123456");
+    await joinAs(page, "orbit");
+
+    await page.getByLabel("참").check();
+    await page.getByRole("button", { name: "퀴즈 제출" }).click();
+    await expect(page.getByText("퀴즈 응답이 제출되었습니다.")).toBeVisible();
+  });
+
+  test("opens the post-session survey and submits contact-consented answers", async ({
+    page,
+  }) => {
+    await mockAudienceSession(page, {
+      activeSession: endedSession,
+      interaction: null,
+      restoreAudience: true,
+      surveyEnabled: true,
+    });
+
+    await page.goto("/join/123456");
+
+    await expect(page.getByText("발표 설문")).toBeVisible();
+    await page.getByLabel("발표 만족도 *").fill("5");
+    await page.getByLabel(/후속 연락/).check();
+    await page.getByLabel("이메일").fill("person@example.com");
+    await page.getByRole("button", { name: "설문 제출" }).click();
+    await expect(page.getByText("설문이 제출되었습니다.")).toBeVisible();
+  });
+
+  test("shows presenter results and a survey-only CSV export link", async ({
+    page,
+  }) => {
+    await mockPresenterResults(page);
+
+    await page.goto("/audience/project_1/control");
+
+    await expect(page.getByLabel("청중 결과 요약")).toContainText(
+      "Q&A 2개, 미답변 1개",
+    );
+    await expect(page.getByLabel("청중 결과 요약")).toContainText("반응 3개");
+    await expect(page.getByLabel("청중 결과 요약")).toContainText(
+      "설문 응답 1개, 개별 응답 1개",
+    );
+    await expect(page.getByRole("link", { name: "CSV" })).toHaveAttribute(
+      "href",
+      "/api/v1/projects/project_1/presentation-sessions/session_1/survey.csv",
+    );
+  });
+});
+
+async function joinAs(page: Page, nickname: string) {
+  await page.getByLabel("닉네임").fill(nickname);
+  await page.getByRole("button", { name: "입장하기" }).click();
+  await expect(page.locator(".audience-participant-label")).toHaveText(
+    nickname,
+  );
+}
+
+async function mockAudienceSession(
+  page: Page,
+  options: {
+    activeSession?: typeof session;
+    duplicateFirstNickname?: boolean;
+    interaction?: typeof pollInteraction | typeof quizInteraction | null;
+    restoreAudience?: boolean;
+    surveyEnabled?: boolean;
+  } = {},
+) {
+  const activeSession = options.activeSession ?? session;
+  const interaction = options.interaction ?? pollInteraction;
+  let joinAttempts = 0;
+
+  await page.route("**/api/v1/auth/me", (route) =>
+    route.fulfill({
+      status: 401,
+      json: { message: "Authentication required" },
+    }),
+  );
+  await page.route("**/socket.io/**", (route) =>
+    route.fulfill({
+      status: 404,
+      json: { message: "Socket mocked for audience smoke" },
+    }),
+  );
+  await page.route(
+    "**/api/v1/presentation-sessions/join/123456",
+    async (route) => {
+      if (route.request().method() === "GET") {
+        return route.fulfill({ json: { session: activeSession } });
+      }
+
+      joinAttempts += 1;
+      if (options.duplicateFirstNickname && joinAttempts === 1) {
+        return route.fulfill({
+          status: 409,
+          json: { message: "이미 사용 중인 닉네임입니다." },
+        });
+      }
+
+      return route.fulfill({
+        json: {
+          session: activeSession,
+          participant: {
+            ...participant,
+            nickname: joinAttempts > 1 ? "orbit2" : "orbit",
+          },
+        },
+      });
+    },
+  );
+  await page.route(
+    "**/api/v1/presentation-sessions/session_1/audience/me",
+    (route) =>
+      route.fulfill(
+        options.restoreAudience
+          ? {
+              json: {
+                session: activeSession,
+                participant,
+              },
+            }
+          : {
+              status: 401,
+              json: { message: "Audience access required" },
+            },
+      ),
+  );
+  await page.route(
+    "**/api/v1/presentation-sessions/session_1/audience/state",
+    (route) =>
+      route.fulfill({
+        json: {
+          session: activeSession,
+          participant,
+          state: {
+            sessionId: "session_1",
+            slideId: "slide_1",
+            slideIndex: 0,
+            effectState: {
+              slideSnapshotUrl: "data:image/gif;base64,R0lGODlhAQABAAAAACw=",
+            },
+            activeInteractionId: interaction?.interactionId ?? null,
+            updatedAt: now,
+          },
+          features: {
+            ...allFeatures,
+            surveyEnabled: options.surveyEnabled ?? allFeatures.surveyEnabled,
+          },
+        },
+      }),
+  );
+  await page.route(
+    "**/api/v1/presentation-sessions/session_1/audience/interactions/active",
+    (route) => route.fulfill({ json: { interaction, results: null } }),
+  );
+  await page.route(
+    "**/api/v1/presentation-sessions/session_1/audience/interactions/*/respond",
+    (route) => route.fulfill({ json: { response: { accepted: true } } }),
+  );
+  await page.route(
+    "**/api/v1/presentation-sessions/session_1/audience/questions",
+    (route) =>
+      route.fulfill({
+        json: {
+          question: {
+            questionId: "question_00000000-0000-4000-8000-000000000010",
+            questionGroupId: "question_00000000-0000-4000-8000-000000000010",
+            sessionId: "session_1",
+            audienceId: participant.audienceId,
+            text: "AI가 답할 수 있나요?",
+            status: "pending",
+            submittedAt: now,
+            answeredAt: null,
+          },
+        },
+      }),
+  );
+  await page.route(
+    "**/api/v1/presentation-sessions/session_1/audience/questions/*/answer",
+    (route) =>
+      route.fulfill({
+        json: {
+          answer: {
+            answerId: "answer_00000000-0000-4000-8000-000000000001",
+            questionId: "question_00000000-0000-4000-8000-000000000010",
+            sessionId: "session_1",
+            audienceId: participant.audienceId,
+            answerText: "근거가 부족해 발표자에게 전달했습니다.",
+            status: "failed",
+            confidence: 0,
+            feedback: null,
+            createdAt: now,
+            updatedAt: now,
+          },
+        },
+      }),
+  );
+  await page.route(
+    "**/api/v1/presentation-sessions/session_1/audience/questions/*/feedback",
+    (route) => route.fulfill({ json: { answer: null } }),
+  );
+  await page.route(
+    "**/api/v1/presentation-sessions/session_1/audience/reactions",
+    (route) => route.fulfill({ json: { reaction: "clap", accepted: true } }),
+  );
+  await page.route(
+    "**/api/v1/presentation-sessions/session_1/audience/survey",
+    (route) => {
+      if (route.request().method() === "GET") {
+        return route.fulfill({
+          json: {
+            survey: {
+              surveyId: "survey_00000000-0000-4000-8000-000000000001",
+              sessionId: "session_1",
+              title: "발표 설문",
+              questions: [
+                {
+                  type: "scale",
+                  questionId: "question_00000000-0000-4000-8000-000000000020",
+                  prompt: "발표 만족도",
+                  required: true,
+                  min: 1,
+                  max: 5,
+                },
+              ],
+              contact: {
+                enabled: true,
+                consentText: "후속 연락을 위해 연락처 제공에 동의합니다.",
+                fields: [
+                  {
+                    type: "open-text",
+                    questionId: "question_00000000-0000-4000-8000-000000000021",
+                    prompt: "이메일",
+                    required: false,
+                    maxLength: 160,
+                  },
+                ],
+              },
+              lockedAt: now,
+            },
+          },
+        });
+      }
+
+      return route.fulfill({
+        json: {
+          response: {
+            responseId: "survey_response_00000000-0000-4000-8000-000000000001",
+            surveyId: "survey_00000000-0000-4000-8000-000000000001",
+            sessionId: "session_1",
+            audienceId: participant.audienceId,
+            submittedAt: now,
+            answers: {},
+            contactConsent: true,
+            contactAnswers: {},
+          },
+        },
+      });
+    },
+  );
+}
+
+async function mockPresenterResults(page: Page) {
+  await page.route("**/api/v1/auth/me", (route) =>
+    route.fulfill({
+      json: {
+        user: {
+          userId: "user_1",
+          email: "presenter@example.com",
+          createdAt: now,
+        },
+      },
+    }),
+  );
+  await page.route("**/socket.io/**", (route) =>
+    route.fulfill({ status: 404, json: { message: "Socket mocked" } }),
+  );
+  await page.route("**/api/v1/projects/project_1/access", (route) =>
+    route.fulfill({
+      json: {
+        project: {
+          projectId: "project_1",
+          workspaceId: "workspace_1",
+          title: "Audience Smoke",
+          createdAt: now,
+          updatedAt: now,
+        },
+        membership: {
+          role: "owner",
+          status: "accepted",
+        },
+      },
+    }),
+  );
+  await page.route(
+    "**/api/v1/projects/project_1/presentation-sessions/current",
+    (route) =>
+      route.fulfill({
+        json: {
+          session: presenterSession,
+          audienceUrl: "/join/123456",
+        },
+      }),
+  );
+  await page.route(
+    "**/api/v1/projects/project_1/presentation-sessions/session_1/features",
+    (route) => route.fulfill({ json: { features: allFeatures } }),
+  );
+  await page.route(
+    "**/api/v1/projects/project_1/presentation-sessions/session_1/survey",
+    (route) =>
+      route.fulfill({
+        json: {
+          survey: {
+            surveyId: "survey_00000000-0000-4000-8000-000000000001",
+            sessionId: "session_1",
+            title: "발표 설문",
+            questions: [],
+            contact: { enabled: false, consentText: "동의", fields: [] },
+            lockedAt: null,
+          },
+        },
+      }),
+  );
+  await page.route(
+    "**/api/v1/projects/project_1/presentation-sessions/session_1/results",
+    (route) =>
+      route.fulfill({
+        json: {
+          report: {
+            reportId: "audience_report_00000000-0000-4000-8000-000000000001",
+            sessionId: "session_1",
+            status: "preliminary",
+            aggregate: {
+              qna: { total: 2, unanswered: 1 },
+              reactions: { clap: 2, heart: 1 },
+              interactions: [{ title: "만족도 투표", responseCount: 1 }],
+              survey: { responseCount: 1 },
+            },
+            generatedAt: now,
+            rawDataDeletedAt: null,
+          },
+          surveyResponses: [
+            {
+              responseId:
+                "survey_response_00000000-0000-4000-8000-000000000001",
+              surveyId: "survey_00000000-0000-4000-8000-000000000001",
+              sessionId: "session_1",
+              audienceId: participant.audienceId,
+              submittedAt: now,
+              answers: {},
+              contactConsent: false,
+              contactAnswers: {},
+            },
+          ],
+        },
+      }),
+  );
+}

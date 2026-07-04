@@ -11,21 +11,21 @@ The top-level `## Current State` and `## Resume Checkpoint` sections are the sou
 - Last completed milestone: 10
 - Next milestone: 11
 - Integration branch: `feature/audience`
-- Current expected branch: `feature/audience`
+- Current expected branch: `feature/audience-m11-hardening`
 - Goal status: in progress
 
 ## Resume Checkpoint
 
-- Current branch: `feature/audience`
+- Current branch: `feature/audience-m11-hardening`
 - Next milestone: 11
 - Resume first checks:
   - Run `git status --short --branch`.
   - Read `docs/plans/audience-engagement-execution-protocol.md`.
   - Read Milestone 11 in `docs/plans/audience-engagement-implementation-plan.md`.
   - Read relevant product-plan sections for final hardening, accessibility, browser smoke, and launch readiness.
-  - Verify `feature/audience` is clean before creating the Milestone 11 branch.
+  - Verify final hardening tests, security regression coverage, accessibility text/labels, and docs updates.
 - Blocked: no
-- Notes: Milestone 10 is locally merged; Milestone 11 hardening is next.
+- Notes: Milestone 11 hardening is active.
 
 ## Milestone Log
 
@@ -444,6 +444,19 @@ The top-level `## Current State` and `## Resume Checkpoint` sections are the sou
   - Current branch: `feature/audience`
   - Next milestone: 11
   - Resume first checks: read Milestone 11 plan, confirm `feature/audience` status, and run final hardening/browser accessibility checks before completion.
+
+## Milestone 11 Start - 2026-07-05
+
+- Branch: `feature/audience-m11-hardening`
+- Scope: final end-to-end hardening, smoke coverage, mobile/accessibility checks, security regression checks for audience-safe payloads, documentation alignment, and release-readiness verification across shared/API/web/Python worker.
+- Acceptance criteria: full E2E or documented local-environment blocker, `pnpm build`, `pnpm lint`, `pnpm test`, `pnpm test:smoke`, `docker compose config`, and Python worker tests pass or are explicitly accounted for; no audience endpoint or websocket payload exposes presenter-only or secret fields; implementation docs and plan links are current; join, active card, presenter overlay, survey, and results screens have accessible labels/summaries.
+- Likely files: `docs/contracts.md`, `docs/plans/audience-engagement-product-plan.md`, `docs/testing/*`, E2E/smoke test files, and small UI/API test hardening files as needed.
+- Verification plan: inspect scripts and existing smoke/E2E setup, add or harden smoke/security/accessibility tests, run targeted tests, run final `pnpm build`, `pnpm lint`, `pnpm test`, `pnpm test:smoke`, `docker compose config`, `cd services/python-worker && uv run pytest`, `pnpm audience:checkpoint`, and `git diff --check`.
+- Major risks: Docker daemon and `uv` availability may block DB/Python full verification; browser E2E may require dev-server or Playwright configuration not present in this environment.
+- Resume checkpoint snapshot:
+  - Current branch: `feature/audience-m11-hardening`
+  - Next milestone: 11
+  - Resume first checks: inspect smoke/E2E scripts, audience-safe payload tests, web accessibility tests, and docs before editing.
 
 ## Progress Entry Template
 

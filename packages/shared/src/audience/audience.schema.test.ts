@@ -32,7 +32,11 @@ describe("audience schemas", () => {
       { audio: [{ rawAudio: "base64" }] },
       { presenterScript: "private script" },
       { fileBase64: "Zm9v" },
+      { nested: { apiKey: "private key" } },
       { nested: { token: "secret token" } },
+      { nested: { cookie: "session=value" } },
+      { nested: { password: "plain text" } },
+      { nested: { secret: "secret value" } },
     ];
 
     for (const payload of unsafePayloads) {
