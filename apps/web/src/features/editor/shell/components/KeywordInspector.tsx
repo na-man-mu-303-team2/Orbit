@@ -127,16 +127,44 @@ export function KeywordDetail(props: {
   keyword: Keyword;
   showIds: boolean;
   usage?: KeywordUsageSummary | null;
+  onClearSelection?: () => void;
+  onDeleteKeyword?: () => void;
   onToggleAdvanceSlide?: () => void;
   onToggleRequired?: () => void;
 }) {
-  const { keyword, onToggleAdvanceSlide, onToggleRequired, showIds, usage } = props;
+  const {
+    keyword,
+    onClearSelection,
+    onDeleteKeyword,
+    onToggleAdvanceSlide,
+    onToggleRequired,
+    showIds,
+    usage
+  } = props;
 
   return (
     <section className="keyword-detail-card">
       <div className="keyword-detail-header">
-        <strong>{keyword.text}</strong>
-        {showIds ? <IdBadge id={keyword.keywordId} /> : null}
+        <div>
+          <strong>{keyword.text}</strong>
+          {showIds ? <IdBadge id={keyword.keywordId} /> : null}
+        </div>
+        <div className="keyword-detail-actions">
+          <button
+            className="keyword-detail-action"
+            type="button"
+            onClick={onClearSelection}
+          >
+            선택 해제
+          </button>
+          <button
+            className="keyword-detail-action danger"
+            type="button"
+            onClick={onDeleteKeyword}
+          >
+            키워드 삭제
+          </button>
+        </div>
       </div>
       <div className="keyword-badge-row">
         {keyword.required ? <small className="keyword-badge">필수</small> : null}
