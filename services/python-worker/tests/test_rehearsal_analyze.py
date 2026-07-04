@@ -7,6 +7,7 @@ from app.audio.transcribe import TranscriptSegment
 from app.config import load_config
 from app.rehearsal import (
     DeckKeyword,
+    FillerWordDetail,
     RehearsalMetricsResult,
     analyze_rehearsal_metrics,
     generate_rehearsal_coaching,
@@ -54,6 +55,101 @@ def test_analyze_rehearsal_metrics_counts_pauses_fillers_and_keywords() -> None:
     assert metrics.filler_word_count == 1
     assert metrics.pause_count == 1
     assert metrics.keyword_coverage == 1
+
+
+def test_analyze_rehearsal_metrics_builds_safe_report_details() -> None:
+    metrics = analyze_rehearsal_metrics(
+        transcript="음 오늘은 ORBIT 발표입니다",
+        duration_seconds=30,
+        segments=[
+            TranscriptSegment(text="음 오늘은 ORBIT", startSeconds=0, endSeconds=2),
+            TranscriptSegment(text="발표입니다", startSeconds=3.5, endSeconds=5),
+        ],
+        deck_keywords=[
+            DeckKeyword(keyword_id="kw_1", slide_id="slide_1", text="ORBIT"),
+            DeckKeyword(keyword_id="kw_2", slide_id="slide_1", text="리포트"),
+        ],
+    )
+
+    assert metrics.speed_samples[0].words_per_minute == 90
+    assert metrics.filler_word_details == [FillerWordDetail(word="음", count=1)]
+    assert metrics.pause_details[0].duration_seconds == 1.5
+    assert metrics.missed_keywords[0].keyword_id == "kw_2"
+    assert metrics.keyword_coverage == 0.5
+
+
+def test_analyze_rehearsal_metrics_uses_segment_duration_when_total_duration_is_missing() -> None:
+    metrics = analyze_rehearsal_metrics(
+        transcript="하나 둘 셋 넷 다섯 여섯",
+        duration_seconds=0,
+        segments=[
+            TranscriptSegment(text="하나 둘 셋", startSeconds=10, endSeconds=20),
+            TranscriptSegment(text="넷 다섯 여섯", startSeconds=20, endSeconds=40),
+        ],
+        deck_keywords=[],
+    )
+
+    assert metrics.words_per_minute == 12
+
+
+def test_analyze_rehearsal_metrics_does_not_inflate_speed_without_duration_data() -> None:
+    metrics = analyze_rehearsal_metrics(
+        transcript="하나 둘 셋 넷 다섯 여섯",
+        duration_seconds=0,
+        segments=[],
+        deck_keywords=[],
+    )
+
+    assert metrics.words_per_minute == 0
+
+
+def test_analyze_rehearsal_metrics_does_not_count_contextual_geu_as_filler() -> None:
+    metrics = analyze_rehearsal_metrics(
+        transcript="그 프로젝트는 음 안정적이고 그니까 다음으로 넘어가겠습니다",
+        duration_seconds=30,
+        segments=[],
+        deck_keywords=[],
+    )
+
+    assert metrics.filler_word_count == 2
+    assert metrics.filler_word_details == [
+        FillerWordDetail(word="그니까", count=1),
+        FillerWordDetail(word="음", count=1),
+    ]
+
+
+def test_analyze_rehearsal_metrics_sorts_segments_before_counting_pauses() -> None:
+    metrics = analyze_rehearsal_metrics(
+        transcript="하나 둘 셋",
+        duration_seconds=5,
+        segments=[
+            TranscriptSegment(text="셋", startSeconds=2.9, endSeconds=4),
+            TranscriptSegment(text="하나", startSeconds=0, endSeconds=1),
+            TranscriptSegment(text="겹침", startSeconds=0.5, endSeconds=1.5),
+            TranscriptSegment(text="무시", startSeconds=None, endSeconds=None),
+        ],
+        deck_keywords=[],
+    )
+
+    assert metrics.pause_count == 1
+    assert metrics.pause_details[0].start_second == 1.5
+    assert metrics.pause_details[0].end_second == 2.9
+    assert metrics.pause_details[0].duration_seconds == 1.4
+
+
+def test_analyze_rehearsal_metrics_ignores_short_segment_gaps() -> None:
+    metrics = analyze_rehearsal_metrics(
+        transcript="하나 둘",
+        duration_seconds=3,
+        segments=[
+            TranscriptSegment(text="하나", startSeconds=0, endSeconds=1),
+            TranscriptSegment(text="둘", startSeconds=1.9, endSeconds=3),
+        ],
+        deck_keywords=[],
+    )
+
+    assert metrics.pause_count == 0
+    assert metrics.pause_details == []
 
 
 def test_generate_rehearsal_coaching_parses_structured_llm_response() -> None:

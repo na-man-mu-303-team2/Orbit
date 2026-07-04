@@ -1,4 +1,10 @@
-import type { DeckCanvas, DeckElement, GroupElementProps, Slide } from "@orbit/shared";
+import {
+  deckElementSchema,
+  type DeckCanvas,
+  type DeckElement,
+  type GroupElementProps,
+  type Slide
+} from "@orbit/shared";
 import { normalizeElementFrameDraft } from "@orbit/editor-core";
 
 export function getRenderableSlideElements(slide: Slide, canvas: DeckCanvas) {
@@ -24,21 +30,22 @@ export function getRenderableSlideElements(slide: Slide, canvas: DeckCanvas) {
 
 export function normalizeRenderableElement(
   canvas: DeckCanvas,
-  element: DeckElement
+  element: unknown
 ): DeckElement {
-  const frame = normalizeElementFrameDraft(canvas, element, {});
+  const elementDraft = element as DeckElement;
+  const frame = normalizeElementFrameDraft(canvas, elementDraft, {});
 
-  return {
-    ...element,
+  return deckElementSchema.parse({
+    ...elementDraft,
     role: frame.role ?? undefined,
-    x: frame.x ?? element.x,
-    y: frame.y ?? element.y,
-    width: frame.width ?? element.width,
-    height: frame.height ?? element.height,
-    rotation: frame.rotation ?? element.rotation,
-    opacity: frame.opacity ?? element.opacity,
-    zIndex: frame.zIndex ?? element.zIndex,
-    locked: frame.locked ?? element.locked,
-    visible: frame.visible ?? element.visible
-  };
+    x: frame.x ?? elementDraft.x,
+    y: frame.y ?? elementDraft.y,
+    width: frame.width ?? elementDraft.width,
+    height: frame.height ?? elementDraft.height,
+    rotation: frame.rotation ?? elementDraft.rotation,
+    opacity: frame.opacity ?? elementDraft.opacity,
+    zIndex: frame.zIndex ?? elementDraft.zIndex,
+    locked: frame.locked ?? elementDraft.locked,
+    visible: frame.visible ?? elementDraft.visible
+  });
 }

@@ -1024,6 +1024,10 @@ API:
 - `GET /api/v1/rehearsals/:runId/report`
   - response: `{ "run": RehearsalRun, "report": RehearsalReport | null }`
   - run이 아직 `processing`이거나 과거 run에 `report_json`이 없으면 `report`는 `null`이다.
+- `PATCH /api/v1/rehearsals/:runId/meta`
+  - request: `{ "slideTimeline": [{ "slideId": "slide_1", "enteredAt": "2026-07-02T00:00:00.000Z" }], "missedKeywords": [{ "slideId": "slide_1", "keywordId": "kw_1" }], "adviceEvents": [{ "type": "pace-too-fast", "at": "2026-07-02T00:00:30.000Z" }] }`
+  - transcript, speaker notes, raw audio, script 원문은 받지 않는다.
+  - response: `{ "run": RehearsalRun }`
 
 후속 구현 예정 API:
 
@@ -1038,12 +1042,10 @@ API:
   - request: `{ "chunkCount": 3, "totalDurationMs": 90000, "totalSizeBytes": 1048576, "sha256": "<64 hex>" }`
   - 청크 수, 전체 길이, runtime 크기 한도, 조립 결과 sha256을 검증한 뒤 `rehearsal-stt` Job을 enqueue한다.
   - response: `{ "run": RehearsalRun, "job": Job }`
-- `PATCH /api/v1/rehearsals/:runId/meta`
-  - request: `{ "slideTimeline": [{ "slideId": "slide_1", "enteredAt": "2026-07-02T00:00:00.000Z" }], "missedKeywords": [{ "slideId": "slide_1", "keywordId": "kw_1" }], "adviceEvents": [{ "type": "pace-too-fast", "at": "2026-07-02T00:00:30.000Z" }] }`
-  - transcript, speaker notes, raw audio, script 원문은 받지 않는다.
-  - response: `{ "run": RehearsalRun }`
 
 Report 응답 구조:
+
+리허설 Report 계약은 `rehearsal_runs.report_json`에 저장되는 서버 생성 결과만 공식 값으로 본다. MVP 단계의 공식 지표는 `metrics`의 원시 측정값과 `coaching` 요약이며, 프론트엔드는 이 계약에 없는 0-100 점수나 상세 평가값을 별도로 계산해 공식 점수처럼 표시하지 않는다.
 
 ```json
 {
@@ -1059,6 +1061,45 @@ Report 응답 구조:
     "fillerWordCount": 2,
     "pauseCount": 1,
     "keywordCoverage": 0.75
+  },
+  "speedSamples": [
+    {
+      "startSecond": 0,
+      "endSecond": 5,
+      "wordsPerMinute": 120
+    }
+  ],
+  "fillerWordDetails": [
+    {
+      "word": "음",
+      "count": 2
+    }
+  ],
+  "pauseDetails": [
+    {
+      "startSecond": 2,
+      "endSecond": 3.5,
+      "durationSeconds": 1.5
+    }
+  ],
+  "missedKeywords": [
+    {
+      "slideId": "slide_1",
+      "keywordId": "kw_1",
+      "text": "핵심 메시지"
+    }
+  ],
+  "slideTimings": [
+    {
+      "slideId": "slide_1",
+      "targetSeconds": 60,
+      "actualSeconds": 52
+    }
+  ],
+  "qnaSummary": {
+    "questionCount": 0,
+    "questionSummary": "",
+    "unclearTopics": []
   },
   "coaching": {
     "status": "succeeded",
@@ -1083,6 +1124,10 @@ Report 응답 구조:
 - `transcript_retained` 기본값은 `false`이며, `false`일 때 `report.transcript`는 반드시 `null`이다.
 - `GET /api/v1/rehearsals/:runId/report` 접근은 현재 프로젝트 접근 경계(`ProjectsService.getAccessibleProject`)를 재사용한다.
 - ORBIT-37의 고급 0-100 점수 산식은 이 계약에 포함하지 않으며, 실제 산식이 확정되기 전까지 UI에서도 점수를 표시하지 않는다.
+- `score`, `deliveryScore`, `speedScore`처럼 산식이 확정되지 않은 점수 필드는 `RehearsalReport`에 저장하지 않는다.
+- 말 속도 변화는 `speedSamples`, 습관어 상세는 `fillerWordDetails`, pause 상세는 `pauseDetails`, 누락 키워드 상세는 `missedKeywords`를 공식 필드로 사용한다. 값이 부족하면 빈 배열을 저장하며, UI는 deck 또는 평균값만으로 상세 지표를 추정하지 않는다.
+- 슬라이드별 목표/실제 시간은 `slideTimings`를 공식 필드로 사용한다. `targetSeconds`는 deck의 `estimatedSeconds` 또는 `targetDurationMinutes` 기반 목표값이고, `actualSeconds`는 `PATCH /api/v1/rehearsals/:runId/meta`의 `slideTimeline`에서 연속된 slide 진입 시각 차이로 계산한다. 종료 시각이 없는 마지막 slide는 실제 시간을 추정하지 않는다.
+- 청중 QnA 기반 피드백은 질문 원문을 저장하지 않고 `qnaSummary.questionCount`, `qnaSummary.questionSummary`, `qnaSummary.unclearTopics[].topic`, optional `slideId`만 report에 저장한다. 현재 audience 질문 저장 API가 없으면 기본값은 질문 수 0과 빈 요약이다.
 
 구현 위치:
 

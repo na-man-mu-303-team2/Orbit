@@ -49,6 +49,60 @@ describe("rehearsalReportSchema", () => {
 
     expect(result.success).toBe(false);
   });
+
+  it("rejects provisional 0-100 score fields before ORBIT-37 defines the formula", () => {
+    const topLevelScore = rehearsalReportSchema.safeParse({
+      ...rehearsalReportFixture(),
+      score: 88
+    });
+    const metricScores = rehearsalReportSchema.safeParse({
+      ...rehearsalReportFixture(),
+      metrics: {
+        ...rehearsalReportFixture().metrics,
+        deliveryScore: 91,
+        speedScore: 84
+      }
+    });
+
+    expect(topLevelScore.success).toBe(false);
+    expect(metricScores.success).toBe(false);
+  });
+
+  it("accepts worker-generated report detail fields without 0-100 scores", () => {
+    const report = rehearsalReportSchema.parse({
+      ...rehearsalReportFixture(),
+      speedSamples: [{ startSecond: 0, endSecond: 5, wordsPerMinute: 120 }],
+      fillerWordDetails: [{ word: "음", count: 2 }],
+      pauseDetails: [{ startSecond: 2, endSecond: 3.5, durationSeconds: 1.5 }],
+      missedKeywords: [{ slideId: "slide_1", keywordId: "kw_1", text: "ORBIT" }],
+      slideTimings: [{ slideId: "slide_1", targetSeconds: 60, actualSeconds: 52 }],
+      qnaSummary: {
+        questionCount: 1,
+        questionSummary: "가격 정책 질문이 있었습니다.",
+        unclearTopics: [{ topic: "가격 정책", slideId: "slide_1" }]
+      }
+    });
+
+    expect(report.speedSamples).toHaveLength(1);
+    expect(report.fillerWordDetails[0]?.word).toBe("음");
+    expect(report.pauseDetails[0]?.durationSeconds).toBe(1.5);
+    expect(report.missedKeywords[0]?.keywordId).toBe("kw_1");
+    expect(report.slideTimings[0]?.actualSeconds).toBe(52);
+    expect(report.qnaSummary.questionCount).toBe(1);
+  });
+
+  it("defaults optional official detail sections to empty values", () => {
+    const report = rehearsalReportSchema.parse(rehearsalReportFixture());
+
+    expect(report.speedSamples).toEqual([]);
+    expect(report.missedKeywords).toEqual([]);
+    expect(report.slideTimings).toEqual([]);
+    expect(report.qnaSummary).toEqual({
+      questionCount: 0,
+      questionSummary: "",
+      unclearTopics: []
+    });
+  });
 });
 
 describe("getRehearsalReportResponseSchema", () => {

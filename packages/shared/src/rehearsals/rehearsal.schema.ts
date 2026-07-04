@@ -40,7 +40,61 @@ export const rehearsalReportMetricsSchema = z.object({
   fillerWordCount: z.number().int().nonnegative(),
   pauseCount: z.number().int().nonnegative(),
   keywordCoverage: z.number().min(0).max(1)
-});
+}).strict();
+
+export const rehearsalReportSpeedSampleSchema = z
+  .object({
+    startSecond: z.number().nonnegative(),
+    endSecond: z.number().nonnegative(),
+    wordsPerMinute: z.number().nonnegative()
+  })
+  .strict();
+
+export const rehearsalReportFillerWordDetailSchema = z
+  .object({
+    word: z.string().trim().min(1),
+    count: z.number().int().nonnegative()
+  })
+  .strict();
+
+export const rehearsalReportPauseDetailSchema = z
+  .object({
+    startSecond: z.number().nonnegative(),
+    endSecond: z.number().nonnegative(),
+    durationSeconds: z.number().nonnegative()
+  })
+  .strict();
+
+export const rehearsalReportMissedKeywordSchema = z
+  .object({
+    slideId: deckSlideIdSchema,
+    keywordId: deckKeywordIdSchema,
+    text: z.string().trim().min(1)
+  })
+  .strict();
+
+export const rehearsalReportSlideTimingSchema = z
+  .object({
+    slideId: deckSlideIdSchema,
+    targetSeconds: z.number().nonnegative(),
+    actualSeconds: z.number().nonnegative()
+  })
+  .strict();
+
+export const rehearsalReportQnaTopicSchema = z
+  .object({
+    topic: z.string().trim().min(1),
+    slideId: deckSlideIdSchema.optional()
+  })
+  .strict();
+
+export const rehearsalReportQnaSummarySchema = z
+  .object({
+    questionCount: z.number().int().nonnegative(),
+    questionSummary: z.string().default(""),
+    unclearTopics: z.array(rehearsalReportQnaTopicSchema).default([])
+  })
+  .strict();
 
 export const rehearsalReportCoachingSchema = z.object({
   status: z.literal("succeeded"),
@@ -60,9 +114,20 @@ export const rehearsalReportSchema = z
     transcriptRetained: z.boolean(),
     transcript: z.string().nullable(),
     metrics: rehearsalReportMetricsSchema,
+    speedSamples: z.array(rehearsalReportSpeedSampleSchema).default([]),
+    fillerWordDetails: z.array(rehearsalReportFillerWordDetailSchema).default([]),
+    pauseDetails: z.array(rehearsalReportPauseDetailSchema).default([]),
+    missedKeywords: z.array(rehearsalReportMissedKeywordSchema).default([]),
+    slideTimings: z.array(rehearsalReportSlideTimingSchema).default([]),
+    qnaSummary: rehearsalReportQnaSummarySchema.default({
+      questionCount: 0,
+      questionSummary: "",
+      unclearTopics: []
+    }),
     coaching: rehearsalReportCoachingSchema.nullable(),
     generatedAt: isoDateTimeSchema
   })
+  .strict()
   .superRefine((report, context) => {
     if (!report.transcriptRetained && report.transcript !== null) {
       context.addIssue({
@@ -189,6 +254,10 @@ export type RehearsalRunError = z.infer<typeof rehearsalRunErrorSchema>;
 export type RehearsalRun = z.infer<typeof rehearsalRunSchema>;
 export type RehearsalReportMetrics = z.infer<typeof rehearsalReportMetricsSchema>;
 export type RehearsalReportCoaching = z.infer<typeof rehearsalReportCoachingSchema>;
+export type RehearsalReportSlideTiming = z.infer<
+  typeof rehearsalReportSlideTimingSchema
+>;
+export type RehearsalReportQnaSummary = z.infer<typeof rehearsalReportQnaSummarySchema>;
 export type RehearsalReport = z.infer<typeof rehearsalReportSchema>;
 export type CreateRehearsalRunRequest = z.infer<typeof createRehearsalRunRequestSchema>;
 export type CreateRehearsalRunResponse = z.infer<typeof createRehearsalRunResponseSchema>;

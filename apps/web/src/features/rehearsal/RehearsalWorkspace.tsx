@@ -18,7 +18,8 @@ import {
   type RehearsalReport,
   type RehearsalRun,
   type RehearsalRunMeta,
-  type Slide
+  type Slide,
+  type UpdateRehearsalRunMetaRequest
 } from "@orbit/shared";
 import {
   BarChart3,
@@ -40,7 +41,6 @@ import {
   Save,
   Square,
   Target,
-  TrendingUp,
   Volume2
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -148,6 +148,7 @@ type RehearsalFlowStage =
   | "run"
   | "upload-url"
   | "storage-put"
+  | "meta"
   | "complete"
   | "job-poll"
   | "run-fetch"
@@ -360,6 +361,25 @@ export async function completeRehearsalAudioUpload(
   return (await response.json()) as CompleteRehearsalAudioUploadResponse;
 }
 
+export async function updateRehearsalRunMeta(
+  runId: string,
+  meta: UpdateRehearsalRunMetaRequest,
+  fetcher: Fetcher = fetch
+) {
+  const response = await fetcher(`/api/v1/rehearsals/${runId}/meta`, {
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(meta)
+  });
+
+  if (!response.ok) {
+    throw new RehearsalFlowError(
+      "meta",
+      await readErrorMessage(response, "리허설 진행 메타데이터를 저장하지 못했습니다.")
+    );
+  }
+}
+
 export async function fetchRehearsalRun(runId: string, fetcher: Fetcher = fetch) {
   const response = await fetcher(`/api/v1/rehearsals/${runId}`);
   if (!response.ok) {
@@ -485,6 +505,8 @@ export async function runRehearsalUploadFlow(options: {
   onJobUpdate?: (job: Job) => void;
   pollDelayMs?: number;
   pollTimeoutMs?: number;
+  runMeta?: RehearsalRunMeta | null;
+  slideTimeline?: UpdateRehearsalRunMetaRequest["slideTimeline"];
 }) {
   const fetcher = options.fetcher ?? fetch;
   const created = await createRehearsalRun(options.projectId, options.deckId, fetcher);
@@ -495,6 +517,27 @@ export async function runRehearsalUploadFlow(options: {
   );
 
   await uploadRehearsalAudio(uploadResponse.upload, options.audioFile, fetcher);
+
+  const runMeta = options.runMeta ?? (options.slideTimeline?.length
+    ? {
+        slideTimeline: options.slideTimeline,
+        missedKeywords: [],
+        adviceEvents: []
+      }
+    : null);
+
+  if (
+    runMeta &&
+    (runMeta.slideTimeline.length > 0 ||
+      runMeta.missedKeywords.length > 0 ||
+      runMeta.adviceEvents.length > 0)
+  ) {
+    try {
+      await updateRehearsalRunMeta(created.run.runId, runMeta, fetcher);
+    } catch {
+      // Report generation can continue without optional slide timing metadata.
+    }
+  }
 
   const completed = await completeRehearsalAudioUpload(
     created.run.runId,
@@ -1242,6 +1285,8 @@ export function RehearsalWorkspace(props: {
   const liveSttPortRef = useRef<LiveSttPort | null>(props.liveSttPort ?? null);
   const liveSttSubscriptionCleanupRef = useRef<(() => void) | null>(null);
   const p3SessionRef = useRef<P3RehearsalSession | null>(null);
+  const p3RunMetaRef = useRef<RehearsalRunMeta | null>(null);
+  const pendingP3RunMetaRef = useRef<Promise<RehearsalRunMeta> | null>(null);
   const pendingP3SlideIndexRef = useRef<number | null>(null);
   const finishAfterReportRef = useRef(false);
   const deckRef = useRef<Deck | null>(props.initialDeck ?? null);
@@ -1634,10 +1679,14 @@ export function RehearsalWorkspace(props: {
     p3SessionRef.current = null;
     pendingP3SlideIndexRef.current = null;
     if (p3Session) {
-      void p3Session.stop().then((meta) => {
+      const runMetaPromise = p3Session.stop().then((meta) => {
+        p3RunMetaRef.current = meta;
         setP3RunMeta(meta);
         setP3SessionState(p3Session.getState());
+        return meta;
       });
+      pendingP3RunMetaRef.current = runMetaPromise;
+      void runMetaPromise;
     } else {
       void liveSttPortRef.current?.stop();
     }
@@ -1666,10 +1715,14 @@ export function RehearsalWorkspace(props: {
     p3SessionRef.current = null;
     pendingP3SlideIndexRef.current = null;
     if (p3Session) {
-      void p3Session.stop().then((meta) => {
+      const runMetaPromise = p3Session.stop().then((meta) => {
+        p3RunMetaRef.current = meta;
         setP3RunMeta(meta);
         setP3SessionState(p3Session.getState());
+        return meta;
       });
+      pendingP3RunMetaRef.current = runMetaPromise;
+      void runMetaPromise;
     } else {
       void liveSttPortRef.current?.stop();
     }
@@ -1683,11 +1736,14 @@ export function RehearsalWorkspace(props: {
     sessionRef.current = null;
   }
 
-  function handleTimePrimaryAction() {
+  async function handleTimePrimaryAction() {
     if (isTimerRunning) {
-      setIsTimerRunning(false);
       if (phase === "recording") {
         stopRecording();
+      } else if (isLiveDemoActive || isLiveSttActive) {
+        stopLiveDemo();
+      } else {
+        setIsTimerRunning(false);
       }
       return;
     }
@@ -1696,7 +1752,7 @@ export function RehearsalWorkspace(props: {
       setElapsedSeconds(0);
     }
 
-    setIsTimerRunning(true);
+    await startRecording();
   }
 
   function commitElapsedTimeInput(value: string) {
@@ -1817,6 +1873,8 @@ export function RehearsalWorkspace(props: {
         session.enterSlide(latestSlideIndex);
       }
       syncP3AdviceState(session);
+      p3RunMetaRef.current = null;
+      pendingP3RunMetaRef.current = null;
       setP3RunMeta(null);
       setP3SessionState(session.getState());
       setLiveStatus("listening");
@@ -2086,10 +2144,14 @@ export function RehearsalWorkspace(props: {
     setError("");
 
     try {
+      const runMeta = pendingP3RunMetaRef.current
+        ? await pendingP3RunMetaRef.current
+        : p3RunMetaRef.current;
       const result = await runRehearsalUploadFlow({
         projectId: activeDeck.projectId,
         deckId: activeDeck.deckId,
         audioFile,
+        runMeta,
         onJobUpdate: (nextJob) => {
           setJob(nextJob);
           setPhase("processing");
@@ -2367,7 +2429,8 @@ export function RehearsalWorkspace(props: {
           <button
             type="button"
             aria-label={isTimerRunning ? "Pause time" : "Start time"}
-            onClick={handleTimePrimaryAction}
+            onClick={() => void handleTimePrimaryAction()}
+            disabled={!isTimerRunning && !canRecord}
           >
             {isTimerRunning ? <Square size={16} /> : <PlayCircle size={16} />}
           </button>
@@ -2716,18 +2779,16 @@ export function RehearsalReportPage(props: {
 
   const reportDate = formatReportDate(report?.generatedAt ?? run?.updatedAt ?? run?.createdAt);
   const slideCount = deck?.slides.length;
-  const reportScore = report ? calculateReportScore(report) : 0;
-  const deliveryScore = report ? calculateDeliveryScore(report) : 0;
-  const speedScore = report ? calculateSpeedScore(report) : 0;
-  const keywordScore = report ? Math.round(report.metrics.keywordCoverage * 100) : 0;
-  const speedSamples = report ? buildSpeedSamples(report.metrics.wordsPerMinute) : [];
   const coachingHeadline = buildCoachingHeadline(report);
   const coachingDetail = buildCoachingDetail(report, deck);
-  const missedKeywords = buildMissedKeywordLabels(deck, report);
-  const durationDelta = report
-    ? formatSignedDuration(report.metrics.durationSeconds - getTargetDurationSeconds(deck))
-    : "0:00";
-  const completionPercent = slideCount ? "100%" : "-";
+  const missedKeywords = report?.missedKeywords ?? [];
+  const slideTimings = report?.slideTimings ?? [];
+  const qnaSummary = report?.qnaSummary;
+  const speedAssessment = report ? getSpeakingSpeedAssessment(report.metrics.wordsPerMinute) : null;
+  const speakingSpeedValue = report
+    ? formatSpeakingSpeedValue(report.metrics.wordsPerMinute)
+    : "-";
+  const completionPercent = formatRehearsalCompletionPercent(deck, slideTimings);
 
   return (
     <main className="rehearsal-report-page">
@@ -2808,27 +2869,22 @@ export function RehearsalReportPage(props: {
           {report ? (
             <div className="rehearsal-report-document-grid">
               <section className="report-overview-card">
-                <div className="report-score-block">
-                  <span>종합 발표 점수</span>
-                  <strong>{reportScore}</strong>
-                  <small>/ 100</small>
-                </div>
                 <div className="report-overview-copy">
                   <h2>{coachingHeadline}</h2>
                   <p>{coachingDetail}</p>
                 </div>
                 <div className="report-score-list">
                   <div>
-                    <span>전달력</span>
-                    <strong>{deliveryScore}</strong>
+                    <span>평균 속도</span>
+                    <strong>{speakingSpeedValue}</strong>
                   </div>
                   <div>
-                    <span>속도 안정성</span>
-                    <strong>{speedScore}</strong>
+                    <span>키워드 커버리지</span>
+                    <strong>{Math.round(report.metrics.keywordCoverage * 100)}%</strong>
                   </div>
                   <div>
-                    <span>키워드 회수</span>
-                    <strong>{keywordScore}</strong>
+                    <span>코칭 상태</span>
+                    <strong>{report.coaching?.status ?? "대기"}</strong>
                   </div>
                 </div>
               </section>
@@ -2848,10 +2904,6 @@ export function RehearsalReportPage(props: {
                     <strong>{formatDuration(getTargetDurationSeconds(deck))}</strong>
                   </div>
                   <div>
-                    <span>전회 대비</span>
-                    <strong>{durationDelta}</strong>
-                  </div>
-                  <div>
                     <span>완료율</span>
                     <strong>{completionPercent}</strong>
                   </div>
@@ -2869,13 +2921,15 @@ export function RehearsalReportPage(props: {
                   aria-label="평균 발표 속도"
                   aria-valuemin={80}
                   aria-valuemax={180}
-                  aria-valuenow={Math.round(report.metrics.wordsPerMinute)}
+                  aria-valuenow={speedAssessment?.meterValue ?? 80}
                 >
                   <span className="speed-mark speed-mark-left">100</span>
                   <span className="speed-mark speed-mark-right">150</span>
-                  <strong>{Math.round(report.metrics.wordsPerMinute)}</strong>
+                  <strong className={speedAssessment?.isUnreliable ? "report-speed-warning" : undefined}>
+                    {speedAssessment?.displayValue ?? "-"}
+                  </strong>
                 </div>
-                <p>권장 범위 안에서 안정적인 속도로 발표했어요.</p>
+                <p>{speedAssessment?.message}</p>
               </section>
 
               <section className="report-voice-card report-dashboard-card">
@@ -2904,44 +2958,70 @@ export function RehearsalReportPage(props: {
                 <p>실전 발표 중 다시 알려줄 핵심 데이터입니다.</p>
                 {missedKeywords.length > 0 ? (
                   <>
+                    <span className="report-keyword-count">
+                      총 {missedKeywords.length}개
+                    </span>
                     <div className="report-keyword-chips">
                       {missedKeywords.map((keyword) => (
-                        <span key={keyword}>{keyword}</span>
+                        <span key={`${keyword.slideId}-${keyword.keywordId}`}>{keyword.text}</span>
                       ))}
                     </div>
                     <strong className="report-keyword-warning">
-                      핵심 키워드 커버리지가 낮을 때만 누락 후보를 표시합니다.
+                      서버 리포트가 확인한 누락 키워드만 표시합니다.
                     </strong>
                   </>
                 ) : (
                   <strong className="report-keyword-empty">
-                    이번 리허설에서 누락된 키워드가 없습니다.
+                    공식 누락 키워드 상세 데이터가 없습니다.
                   </strong>
                 )}
               </section>
 
-              <section className="report-speed-change-card report-dashboard-card">
+              <section className="report-dashboard-card">
                 <h2>
-                  <TrendingUp size={20} />
-                  말 속도 변화
+                  <CalendarDays size={20} />
+                  슬라이드별 시간
                 </h2>
-                <p>긴장하거나 설명이 꼬인 구간을 찾습니다.</p>
-                <div className="report-speed-chart" aria-label="말 속도 변화">
-                  <div className="report-speed-band" />
-                  {speedSamples.map((value, index) => (
-                    <i
-                      key={`${value}-${index}`}
-                      style={{
-                        left: `${(index / Math.max(1, speedSamples.length - 1)) * 100}%`,
-                        bottom: `${clamp((value - 70) / 140 * 100, 4, 92)}%`
-                      }}
-                    />
-                  ))}
-                  <span>words/min</span>
-                  <b>200</b>
-                  <b>150</b>
-                  <b>100</b>
+                {slideTimings.length > 0 ? (
+                  <div className="report-official-metrics">
+                    {slideTimings.slice(0, 4).map((timing) => (
+                      <div key={timing.slideId}>
+                        <span>{formatSlideTimingLabel(deck, timing.slideId)}</span>
+                        <strong>
+                          {formatDuration(timing.actualSeconds)} / {formatDuration(timing.targetSeconds)}
+                        </strong>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <strong className="report-keyword-empty">
+                    공식 슬라이드 시간 데이터가 아직 없습니다.
+                  </strong>
+                )}
+              </section>
+
+              <section className="report-dashboard-card">
+                <h2>
+                  <BarChart3 size={20} />
+                  QnA 피드백
+                </h2>
+                <div className="report-official-metrics">
+                  <div>
+                    <span>질문 수</span>
+                    <strong>{qnaSummary?.questionCount ?? 0}개</strong>
+                  </div>
                 </div>
+                <p>
+                  {qnaSummary?.questionSummary ||
+                    "질문 원문은 저장하지 않으며, 요약 데이터가 생기면 이 영역에 표시합니다."}
+                </p>
+                {qnaSummary?.unclearTopics.length ? (
+                  <div className="report-keyword-chips">
+                    {qnaSummary.unclearTopics.map((topic) => (
+                      <span key={`${topic.slideId ?? "general"}-${topic.topic}`}>{topic.topic}</span>
+                    ))}
+                  </div>
+                ) : null}
               </section>
 
               <section className="report-coaching-card report-dashboard-card">
@@ -3092,25 +3172,6 @@ function formatEmptyReportMessage(status: RehearsalReportStatus, error: string) 
   return "보고서 대기 중";
 }
 
-function calculateReportScore(report: RehearsalReport) {
-  const deliveryScore = calculateDeliveryScore(report);
-  const speedScore = calculateSpeedScore(report);
-  const keywordScore = Math.round(report.metrics.keywordCoverage * 100);
-
-  return clamp(Math.round(deliveryScore * 0.45 + speedScore * 0.3 + keywordScore * 0.25), 0, 100);
-}
-
-function calculateDeliveryScore(report: RehearsalReport) {
-  const fillerPenalty = Math.min(20, report.metrics.fillerWordCount * 4);
-  const pausePenalty = Math.min(18, report.metrics.pauseCount * 3);
-  return clamp(Math.round(96 - fillerPenalty - pausePenalty), 45, 99);
-}
-
-function calculateSpeedScore(report: RehearsalReport) {
-  const distanceFromIdeal = Math.abs(report.metrics.wordsPerMinute - 130);
-  return clamp(Math.round(96 - distanceFromIdeal * 0.75), 45, 99);
-}
-
 function buildCoachingHeadline(report: RehearsalReport | null) {
   if (report?.coaching?.summary) {
     return report.coaching.summary;
@@ -3122,6 +3183,10 @@ function buildCoachingHeadline(report: RehearsalReport | null) {
 
   if (report.metrics.keywordCoverage < 0.8) {
     return "핵심 흐름은 안정적이지만, 일부 키워드 회수가 부족했어요.";
+  }
+
+  if (isUnreliableSpeakingSpeed(report.metrics.wordsPerMinute)) {
+    return "발표 속도 분석 시간이 불안정해 결과 확인이 필요해요.";
   }
 
   if (report.metrics.wordsPerMinute > 150) {
@@ -3145,29 +3210,91 @@ function buildCoachingDetail(report: RehearsalReport | null, deck: Deck | null) 
   return `다음 리허설은 ${focus} 슬라이드의 자료 설명을 짧게 줄이고, 누락 키워드를 노트에 고정하는 데 집중하면 됩니다.`;
 }
 
-function buildMissedKeywordLabels(deck: Deck | null, report: RehearsalReport | null) {
-  if (!report) {
-    return [];
+function getSpeakingSpeedAssessment(wordsPerMinute: number) {
+  if (isUnreliableSpeakingSpeed(wordsPerMinute)) {
+    return {
+      displayValue: "확인 필요",
+      isUnreliable: true,
+      meterValue: 180,
+      message: "발표 시간 데이터가 불안정해 속도 판단을 확인해야 합니다."
+    };
   }
 
-  if (report.metrics.keywordCoverage >= 1) {
-    return [];
+  if (wordsPerMinute <= 0) {
+    return {
+      displayValue: "-",
+      isUnreliable: true,
+      meterValue: 80,
+      message: "발표 시간 데이터를 확인할 수 없어 속도 판단이 어렵습니다."
+    };
   }
 
-  const allKeywords = deck?.slides.flatMap((slide) => slide.keywords.map((keyword) => keyword.text)) ?? [];
-  const fallbackKeywords = ["디코더", "실시간 보정", "사용자 피드백", "오류율 4.8%"];
-  const keywordPool = allKeywords.length > 0 ? allKeywords : fallbackKeywords;
-  const missingCount = clamp(
-    Math.ceil((1 - report.metrics.keywordCoverage) * Math.max(3, keywordPool.length)),
-    0,
-    4
+  if (wordsPerMinute < 100) {
+    return {
+      displayValue: String(Math.round(wordsPerMinute)),
+      isUnreliable: false,
+      meterValue: clamp(Math.round(wordsPerMinute), 80, 180),
+      message: "권장 범위보다 다소 느린 속도로 발표했어요."
+    };
+  }
+
+  if (wordsPerMinute <= 150) {
+    return {
+      displayValue: String(Math.round(wordsPerMinute)),
+      isUnreliable: false,
+      meterValue: clamp(Math.round(wordsPerMinute), 80, 180),
+      message: "권장 범위 안에서 안정적인 속도로 발표했어요."
+    };
+  }
+
+  return {
+    displayValue: String(Math.round(wordsPerMinute)),
+    isUnreliable: false,
+    meterValue: clamp(Math.round(wordsPerMinute), 80, 180),
+    message: "권장 범위보다 빠른 속도로 발표했어요."
+  };
+}
+
+function isUnreliableSpeakingSpeed(wordsPerMinute: number) {
+  return !Number.isFinite(wordsPerMinute) || wordsPerMinute > 250;
+}
+
+function formatSpeakingSpeedValue(wordsPerMinute: number) {
+  if (isUnreliableSpeakingSpeed(wordsPerMinute)) {
+    return "확인 필요";
+  }
+
+  if (wordsPerMinute <= 0) {
+    return "-";
+  }
+
+  return `${Math.round(wordsPerMinute)} wpm`;
+}
+
+function formatRehearsalCompletionPercent(
+  deck: Deck | null,
+  slideTimings: RehearsalReport["slideTimings"]
+) {
+  const totalSlides = deck?.slides.length ?? 0;
+  if (totalSlides <= 0 || slideTimings.length === 0) {
+    return "-";
+  }
+
+  const deckSlideIds = new Set(deck?.slides.map((slide) => slide.slideId));
+  const completedSlideIds = new Set(
+    slideTimings
+      .filter((timing) => timing.actualSeconds > 0 && deckSlideIds.has(timing.slideId))
+      .map((timing) => timing.slideId)
   );
+  if (completedSlideIds.size === 0) {
+    return "-";
+  }
 
-  return Array.from(new Set(keywordPool)).slice(0, missingCount);
+  return `${Math.min(100, Math.round((completedSlideIds.size / totalSlides) * 100))}%`;
 }
 
 function getTargetDurationSeconds(deck: Deck | null) {
-  return Math.max(60, (deck?.slides.length ?? 7) * 40);
+  return Math.max(60, (deck?.targetDurationMinutes ?? 10) * 60);
 }
 
 function getSlideTargetSeconds(deck: Deck, slide: Slide) {
@@ -3178,21 +3305,16 @@ function getSlideTargetSeconds(deck: Deck, slide: Slide) {
   return Math.max(1, Math.round((deck.targetDurationMinutes * 60) / deck.slides.length));
 }
 
-function buildSpeedSamples(wordsPerMinute: number) {
-  const base = Math.round(wordsPerMinute);
-  return [base - 28, base + 54, base + 68, base + 42, base + 60, base + 30, base - 10, base - 46, base - 52, base - 38, base + 26, base + 48, base + 38];
-}
-
-function formatSignedDuration(totalSeconds: number) {
-  const sign = totalSeconds >= 0 ? "" : "-";
-  return `${sign}${formatDuration(Math.abs(totalSeconds))}`;
-}
-
 function formatDuration(totalSeconds: number) {
   const safeSeconds = Math.max(0, Math.floor(totalSeconds));
   const minutes = Math.floor(safeSeconds / 60);
   const seconds = (safeSeconds % 60).toString().padStart(2, "0");
   return `${minutes}:${seconds}`;
+}
+
+function formatSlideTimingLabel(deck: Deck | null, slideId: string) {
+  const slide = deck?.slides.find((candidate) => candidate.slideId === slideId);
+  return slide ? `Slide ${slide.order}` : slideId;
 }
 
 function formatReportDate(value?: string) {

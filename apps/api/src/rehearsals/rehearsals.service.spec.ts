@@ -222,6 +222,39 @@ describe("RehearsalsService", () => {
     });
   });
 
+  it("stores strict rehearsal run meta before audio completion", async () => {
+    const service = createService();
+    const run = await createRun(service);
+
+    const result = await service.updateRunMeta(run.runId, {
+      slideTimeline: [{ slideId: "slide_1", enteredAt: "2026-07-02T00:00:00.000Z" }],
+      missedKeywords: [{ slideId: "slide_1", keywordId: "kw_1" }],
+      adviceEvents: [{ type: "pace-too-fast", at: "2026-07-02T00:00:30.000Z" }]
+    });
+
+    expect(result.run.runId).toBe(run.runId);
+    expect((await service.testRehearsalRuns.findOne({ where: { runId: run.runId } }))?.metaJson)
+      .toEqual({
+        slideTimeline: [{ slideId: "slide_1", enteredAt: "2026-07-02T00:00:00.000Z" }],
+        missedKeywords: [{ slideId: "slide_1", keywordId: "kw_1" }],
+        adviceEvents: [{ type: "pace-too-fast", at: "2026-07-02T00:00:30.000Z" }]
+      });
+  });
+
+  it("rejects sensitive rehearsal run meta fields", async () => {
+    const service = createService();
+    const run = await createRun(service);
+
+    await expect(
+      service.updateRunMeta(run.runId, {
+        slideTimeline: [],
+        missedKeywords: [],
+        adviceEvents: [],
+        transcript: "민감한 전사 원문"
+      })
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
   it("marks the run and job failed when enqueue fails", async () => {
     const deleteUploadedAsset = vi.fn(async () => rawAudioDeletedAt);
     const jobsService = {

@@ -27,6 +27,7 @@ import {
 } from "react-konva";
 import type { ComponentType } from "react";
 import type { ElementPresentationState } from "./ReadOnlySlideCanvas";
+import { normalizeRenderableElement } from "./elementNormalization";
 import { HighlightOverlay } from "./highlightOverlay";
 
 import { ImageElementContent } from "./ImageElementContent";
@@ -254,9 +255,10 @@ export function ElementNodeContent(props: {
     return (
       <Group listening={false}>
         {childElements.map((childElement) => {
+          const renderableChildElement = normalizeRenderableElement(deck.canvas, childElement);
           const childPresentationState = elementStates?.[childElement.elementId];
           const presentedChildElement = applyPresentationStateToElement(
-            childElement,
+            renderableChildElement,
             childPresentationState
           );
           const childFrame = getGroupedChildPreviewFrame({
@@ -1214,7 +1216,7 @@ function applyPresentationStateToElement<T extends DeckElement>(
     return element;
   }
 
-  return {
+  const presentedElement: DeckElement = {
     ...element,
     height: state.height ?? element.height,
     opacity: state.opacity ?? element.opacity,
@@ -1224,4 +1226,6 @@ function applyPresentationStateToElement<T extends DeckElement>(
     x: state.x ?? element.x,
     y: state.y ?? element.y
   };
+
+  return presentedElement;
 }
