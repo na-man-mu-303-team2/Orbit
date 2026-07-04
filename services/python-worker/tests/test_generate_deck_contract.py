@@ -1728,6 +1728,12 @@ def test_orchestrator_passes_design_blueprint_to_design_and_layout_agents() -> N
 
 def test_template_blueprint_replaces_only_replaceable_content_slots() -> None:
     blueprint = minimal_imported_design_blueprint()
+    title_text = blueprint["slides"][0]["elements"][1]
+    title_text["props"] = {
+        **title_text["props"],
+        "paragraphs": [{"text": "Original confidential title"}],
+        "runs": [{"text": "Original confidential title"}],
+    }
     fixed_text = deepcopy(blueprint["slides"][0]["elements"][1])
     fixed_text["elementId"] = "el_imported_1_fixed"
     fixed_text["role"] = "caption"
@@ -1735,6 +1741,8 @@ def test_template_blueprint_replaces_only_replaceable_content_slots() -> None:
     fixed_text["props"] = {
         **fixed_text["props"],
         "text": "Do not touch fixed text",
+        "paragraphs": [{"text": "Do not touch fixed text"}],
+        "runs": [{"text": "Do not touch fixed text"}],
     }
     blueprint["slides"][0]["elements"].append(fixed_text)
 
@@ -1797,6 +1805,20 @@ def test_template_blueprint_replaces_only_replaceable_content_slots() -> None:
     assert "ORBIT" in text_values
     assert "Do not touch fixed text" in text_values
     assert "Original confidential title" not in text_values
+    replaced_title = next(
+        element
+        for element in response.deck["slides"][0]["elements"]
+        if element["type"] == "text" and element["props"]["text"] == "ORBIT"
+    )
+    preserved_fixed = next(
+        element
+        for element in response.deck["slides"][0]["elements"]
+        if element["type"] == "text"
+        and element["props"]["text"] == "Do not touch fixed text"
+    )
+    assert "paragraphs" not in replaced_title["props"]
+    assert "runs" not in replaced_title["props"]
+    assert preserved_fixed["props"]["paragraphs"][0]["text"] == "Do not touch fixed text"
 
 
 def test_refiner_shrinks_clamps_and_corrects_text_contrast() -> None:

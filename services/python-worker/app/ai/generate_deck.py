@@ -3215,19 +3215,28 @@ def inject_template_slot_text(
         slot_role = str(slot.get("slotRole", "body"))
         if slot_role == "title":
             element["role"] = "title"
-            props["text"] = slide_plan.title
+            replace_text_props(props, slide_plan.title)
         elif not body_used:
             element["role"] = "subtitle" if slot_role == "subtitle" else "body"
-            props["text"] = slide_plan.message
+            replace_text_props(props, slide_plan.message)
             body_used = True
         else:
             element["role"] = "caption"
-            props["text"] = (
-                slide_plan.keywords[keyword_index]
-                if keyword_index < len(slide_plan.keywords)
-                else ""
+            replace_text_props(
+                props,
+                (
+                    slide_plan.keywords[keyword_index]
+                    if keyword_index < len(slide_plan.keywords)
+                    else ""
+                ),
             )
             keyword_index += 1
+
+
+def replace_text_props(props: dict[str, Any], text: str) -> None:
+    props["text"] = text
+    props.pop("paragraphs", None)
+    props.pop("runs", None)
 
 
 def is_replaceable_content_slot(slot: Any) -> bool:
