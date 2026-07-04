@@ -45,7 +45,7 @@ export function AutoAdvanceStatus(props: {
     );
   }
 
-  if (state.manualGuidanceShown) {
+  if (state.status === "tracking" && state.manualGuidanceShown) {
     return (
       <div className="auto-advance-status auto-advance-status-guidance" role="status">
         <AlertCircle size={18} />

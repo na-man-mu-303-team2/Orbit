@@ -80,6 +80,7 @@ export function cancelAdvanceCountdown(
       state: {
         ...state,
         countdownStartedAtMs: null,
+        manualGuidanceShown: reason === "manual" ? false : state.manualGuidanceShown,
         remainingTriggerSteps: 0,
         status: reason === "manual" ? "tracking" : state.status
       }
@@ -91,6 +92,7 @@ export function cancelAdvanceCountdown(
     state: {
       ...state,
       countdownStartedAtMs: null,
+      manualGuidanceShown: false,
       remainingTriggerSteps: 0,
       status: reason === "manual" ? "tracking" : "ready"
     }
@@ -114,6 +116,7 @@ export function evaluateAdvanceController(
       state: {
         ...nextBaseState,
         countdownStartedAtMs: null,
+        manualGuidanceShown: false,
         remainingTriggerSteps: 0,
         status: "disabled"
       }
@@ -166,6 +169,7 @@ export function evaluateAdvanceController(
       state: {
         ...nextBaseState,
         countdownStartedAtMs: null,
+        manualGuidanceShown: false,
         remainingTriggerSteps: 0,
         status: "finish-suggested"
       }
@@ -183,6 +187,7 @@ export function evaluateAdvanceController(
         state: {
           ...nextBaseState,
           countdownStartedAtMs: null,
+          manualGuidanceShown: false,
           remainingTriggerSteps: 0,
           status: "ready"
         }
@@ -197,17 +202,21 @@ export function evaluateAdvanceController(
       return {
         commands,
         state: {
-        ...nextBaseState,
-        countdownStartedAtMs: null,
-        remainingTriggerSteps: 0,
-        status: "tracking"
-      }
+          ...nextBaseState,
+          countdownStartedAtMs: null,
+          manualGuidanceShown: false,
+          remainingTriggerSteps: 0,
+          status: "tracking"
+        }
       };
     }
 
     return {
       commands,
-      state: nextBaseState
+      state: {
+        ...nextBaseState,
+        manualGuidanceShown: false
+      }
     };
   }
 
@@ -220,6 +229,7 @@ export function evaluateAdvanceController(
       state: {
         ...nextBaseState,
         countdownStartedAtMs: snapshot.nowMs,
+        manualGuidanceShown: false,
         remainingTriggerSteps: 0,
         status: "countdown"
       }
@@ -231,6 +241,7 @@ export function evaluateAdvanceController(
     state: {
       ...nextBaseState,
       countdownStartedAtMs: null,
+      manualGuidanceShown: false,
       remainingTriggerSteps: 0,
       status: "ready"
     }

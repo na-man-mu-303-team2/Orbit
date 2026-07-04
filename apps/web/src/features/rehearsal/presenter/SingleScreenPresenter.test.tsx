@@ -1,3 +1,5 @@
+import fs from "node:fs";
+import { fileURLToPath } from "node:url";
 import type { ReactNode } from "react";
 import { forwardRef } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -51,6 +53,10 @@ vi.mock("react-konva", () => {
   };
 });
 
+const singleScreenPresenterSourcePath = fileURLToPath(
+  new URL("./SingleScreenPresenter.tsx", import.meta.url)
+);
+
 describe("SingleScreenPresenter", () => {
   it("renders the slide with only approved timer overlay content", () => {
     const html = renderToStaticMarkup(
@@ -76,6 +82,7 @@ describe("SingleScreenPresenter", () => {
     expect(html).not.toContain("첫 문장입니다");
     expect(html).not.toContain("Partial transcript");
     expect(html).not.toContain("키워드 체크리스트");
+    expectNoAutoAdvancePresenterStatus(html);
   });
 
   it("hides fullscreen controls after fullscreen is active", () => {
@@ -96,9 +103,25 @@ describe("SingleScreenPresenter", () => {
     expect(html).toContain("발표 타이머");
     expect(html).not.toContain("전체화면 시작");
     expect(html).not.toContain("단일 화면 종료");
+    expectNoAutoAdvancePresenterStatus(html);
   });
 
   it("calculates fullscreen scale from the viewport", () => {
     expect(getSingleScreenScale(p0AnimationDeck, { height: 540, width: 960 })).toBe(0.5);
   });
+
+  it("does not import presenter-only auto advance status UI", () => {
+    const source = fs.readFileSync(singleScreenPresenterSourcePath, "utf8");
+
+    expect(source).not.toContain("AutoAdvanceStatus");
+    expect(source).not.toContain("auto-advance-status");
+  });
 });
+
+function expectNoAutoAdvancePresenterStatus(html: string) {
+  expect(html).not.toContain("자동 전환까지");
+  expect(html).not.toContain("빌드 2개 남음");
+  expect(html).not.toContain("발표 종료 준비됨");
+  expect(html).not.toContain("수동으로 넘겨주세요");
+  expect(html).not.toContain("auto-advance-status");
+}

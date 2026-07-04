@@ -44,6 +44,27 @@ describe("AutoAdvanceStatus", () => {
     expect(html).not.toContain("자동 전환까지");
   });
 
+  it("removes countdown UI after cancellation returns to ready or tracking", () => {
+    expect(renderStatus({ status: "ready" })).toBe("");
+    expect(renderStatus({ status: "tracking" })).toBe("");
+  });
+
+  it("does not render stale manual guidance after eligibility recovers", () => {
+    expect(
+      renderStatus({
+        manualGuidanceShown: true,
+        status: "ready"
+      })
+    ).toBe("");
+    expect(
+      renderStatus({
+        countdownStartedAtMs: 1000,
+        manualGuidanceShown: true,
+        status: "countdown"
+      })
+    ).not.toContain("수동으로 넘겨주세요");
+  });
+
   it("renders nothing for ordinary tracking state", () => {
     expect(renderStatus({ status: "tracking" })).toBe("");
   });

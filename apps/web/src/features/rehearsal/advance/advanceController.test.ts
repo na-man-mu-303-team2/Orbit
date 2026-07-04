@@ -175,6 +175,84 @@ describe("advanceController", () => {
     expect(result.state.manualGuidanceShown).toBe(true);
   });
 
+  it("clears manual guidance when auto advance becomes eligible again", () => {
+    const guided = evaluateAdvanceController(
+      createInitialAdvanceControllerState(),
+      createSnapshot({
+        effectiveCoverage: 0.4,
+        finalSentenceSpoken: true,
+        finalSentenceSpokenAtMs: 1000,
+        nowMs: 6000
+      }),
+      defaultAutoAdvanceConfig
+    );
+
+    const ready = evaluateAdvanceController(
+      guided.state,
+      createSnapshot({
+        effectiveCoverage: 0.8,
+        finalSentenceSpoken: true,
+        finalSentenceSpokenAtMs: 1000,
+        nowMs: 6200
+      }),
+      defaultAutoAdvanceConfig
+    );
+    const countdown = evaluateAdvanceController(
+      guided.state,
+      createSnapshot({
+        effectiveCoverage: 0.8,
+        finalSentenceSpoken: true,
+        finalSentenceSpokenAtMs: 1000,
+        nowMs: 6200,
+        pause: { isPaused: true, silenceDurationMs: 900 }
+      }),
+      defaultAutoAdvanceConfig
+    );
+    const finish = evaluateAdvanceController(
+      guided.state,
+      createSnapshot({
+        effectiveCoverage: 0.8,
+        finalSentenceSpoken: true,
+        finalSentenceSpokenAtMs: 1000,
+        isLastSlide: true,
+        nowMs: 6200,
+        pause: { isPaused: true, silenceDurationMs: 900 }
+      }),
+      defaultAutoAdvanceConfig
+    );
+    const disabled = evaluateAdvanceController(
+      guided.state,
+      createSnapshot({
+        effectiveCoverage: 0.8,
+        finalSentenceSpoken: true,
+        finalSentenceSpokenAtMs: 1000,
+        nowMs: 6200,
+        policy: {
+          ...defaultAutoAdvancePolicy,
+          rehearsal: false
+        }
+      }),
+      defaultAutoAdvanceConfig
+    );
+
+    expect(ready.state).toMatchObject({
+      manualGuidanceShown: false,
+      status: "ready"
+    });
+    expect(countdown.state).toMatchObject({
+      manualGuidanceShown: false,
+      status: "countdown"
+    });
+    expect(finish.state).toMatchObject({
+      manualGuidanceShown: false,
+      status: "finish-suggested"
+    });
+    expect(disabled.state).toMatchObject({
+      manualGuidanceShown: false,
+      status: "disabled"
+    });
+  });
+
   it("respects mode-specific disabled policy", () => {
     const result = evaluateAdvanceController(
       createInitialAdvanceControllerState(),
@@ -191,6 +269,40 @@ describe("advanceController", () => {
 
     expect(result.commands).toEqual([]);
     expect(result.state.status).toBe("disabled");
+  });
+
+  it("respects live mode policy independently from rehearsal mode", () => {
+    const disabledLive = evaluateAdvanceController(
+      createInitialAdvanceControllerState(),
+      createSnapshot({
+        effectiveCoverage: 1,
+        finalSentenceSpoken: true,
+        mode: "live",
+        policy: {
+          ...defaultAutoAdvancePolicy,
+          live: false,
+          rehearsal: true
+        }
+      }),
+      defaultAutoAdvanceConfig
+    );
+    const enabledLive = evaluateAdvanceController(
+      createInitialAdvanceControllerState(),
+      createSnapshot({
+        effectiveCoverage: 1,
+        finalSentenceSpoken: true,
+        mode: "live",
+        policy: {
+          ...defaultAutoAdvancePolicy,
+          live: true,
+          rehearsal: false
+        }
+      }),
+      defaultAutoAdvanceConfig
+    );
+
+    expect(disabledLive.state.status).toBe("disabled");
+    expect(enabledLive.state.status).toBe("ready");
   });
 });
 

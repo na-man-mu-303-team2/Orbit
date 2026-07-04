@@ -1416,7 +1416,10 @@ export function RehearsalWorkspace(props: {
       })
     : null;
   const remainingTriggerSteps = slideshowAnimationPlan
-    ? Math.max(0, slideshowAnimationPlan.maxStepIndex - presenterStepIndex)
+    ? getRemainingTriggerStepsFromPlan(
+        slideshowAnimationPlan.maxStepIndex,
+        presenterStepIndex
+      )
     : 0;
   const canRecord = Boolean(deck) && !["recording", "uploading", "processing"].includes(phase);
   const isLiveSttActive = liveStatus === "starting" || liveStatus === "listening";
@@ -3024,6 +3027,26 @@ function buildP3SessionSlides(deck: Deck) {
     ),
     legacyPhrases: [slide.title, ...getSlideBodyTexts(slide)].filter(Boolean)
   }));
+}
+
+export function getRemainingTriggerStepsFromPlan(
+  maxStepIndex: number,
+  stepIndex: number
+) {
+  return Math.max(0, maxStepIndex - stepIndex);
+}
+
+export function getRemainingTriggerStepsForSlide(options: {
+  slide: Slide;
+  stepIndex: number;
+  triggerAnimationIds: Iterable<string>;
+}) {
+  const plan = createSlideshowAnimationPlan({
+    slide: options.slide,
+    triggerAnimationIds: options.triggerAnimationIds
+  });
+
+  return getRemainingTriggerStepsFromPlan(plan.maxStepIndex, options.stepIndex);
 }
 
 function createEmptySpeechTrackerSnapshot(options: {

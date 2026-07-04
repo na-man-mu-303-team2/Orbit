@@ -1,8 +1,13 @@
+import { Children, isValidElement, type ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 
 import { defaultAutoAdvancePolicy } from "./autoAdvanceConfig";
 import { AutoAdvanceSettings } from "./AutoAdvanceSettings";
+import {
+  defaultPresenterSettings,
+  type PresenterSettingsUpdater
+} from "../settings/presenterSettings";
 
 describe("AutoAdvanceSettings", () => {
   it("renders mode toggles and a 5 percent threshold value", () => {
@@ -22,13 +27,117 @@ describe("AutoAdvanceSettings", () => {
     expect(html).not.toContain("silenceThresholdDb");
     expect(html).not.toContain("침묵");
   });
+
+  it("persists rehearsal and live toggle changes through settings updaters", () => {
+    const saveSettings = vi.fn();
+    const element = renderSettingsElement(saveSettings);
+    const [rehearsalToggle, liveToggle] = findElementsByType(element, "input");
+
+    rehearsalToggle.props.onChange({ target: { checked: false } });
+    liveToggle.props.onChange({ target: { checked: false } });
+
+    expect(applySettingsUpdater(saveSettings.mock.calls[0]![0])).toMatchObject({
+      advancePolicy: {
+        live: true,
+        rehearsal: false
+      }
+    });
+    expect(applySettingsUpdater(saveSettings.mock.calls[1]![0])).toMatchObject({
+      advancePolicy: {
+        live: false,
+        rehearsal: true
+      }
+    });
+  });
+
+  it("persists threshold changes in five percent steps within the allowed range", () => {
+    const saveSettings = vi.fn();
+    const element = renderSettingsElement(saveSettings);
+
+    findButtonByLabel(element, "자동 전환 기준 낮추기").props.onClick();
+    findButtonByLabel(element, "자동 전환 기준 높이기").props.onClick();
+
+    expect(applySettingsUpdater(saveSettings.mock.calls[0]![0])).toMatchObject({
+      advancePolicy: {
+        threshold: 0.65
+      }
+    });
+    expect(applySettingsUpdater(saveSettings.mock.calls[1]![0])).toMatchObject({
+      advancePolicy: {
+        threshold: 0.75
+      }
+    });
+
+    expect(
+      findButtonByLabel(
+        renderSettingsElement(vi.fn(), { threshold: 0.5 }),
+        "자동 전환 기준 낮추기"
+      ).props.disabled
+    ).toBe(true);
+    expect(
+      findButtonByLabel(
+        renderSettingsElement(vi.fn(), { threshold: 0.95 }),
+        "자동 전환 기준 높이기"
+      ).props.disabled
+    ).toBe(true);
+  });
 });
 
 function renderSettings() {
   return renderToStaticMarkup(
-    <AutoAdvanceSettings
-      policy={defaultAutoAdvancePolicy}
-      saveSettings={vi.fn()}
-    />
+    renderSettingsElement(vi.fn())
   );
+}
+
+function renderSettingsElement(
+  saveSettings: (updater: PresenterSettingsUpdater) => void,
+  policyPatch: Partial<typeof defaultAutoAdvancePolicy> = {}
+) {
+  return AutoAdvanceSettings({
+    policy: {
+      ...defaultAutoAdvancePolicy,
+      ...policyPatch
+    },
+    saveSettings
+  });
+}
+
+function applySettingsUpdater(updater: PresenterSettingsUpdater) {
+  return typeof updater === "function"
+    ? updater(defaultPresenterSettings)
+    : updater;
+}
+
+function findElementsByType(element: ReactNode, type: string) {
+  return findElements(element, (candidate) => candidate.type === type);
+}
+
+function findButtonByLabel(element: ReactNode, label: string) {
+  const match = findElements(element, (candidate) => candidate.props["aria-label"] === label)[0];
+  if (!match) {
+    throw new Error(`Button not found: ${label}`);
+  }
+  return match;
+}
+
+function findElements(
+  node: ReactNode,
+  predicate: (candidate: any) => boolean
+): any[] {
+  const matches: any[] = [];
+
+  function visit(current: ReactNode) {
+    if (!isValidElement(current)) {
+      return;
+    }
+
+    if (predicate(current)) {
+      matches.push(current);
+    }
+
+    Children.forEach((current.props as { children?: ReactNode }).children, visit);
+  }
+
+  Children.forEach(node, visit);
+  return matches;
 }
