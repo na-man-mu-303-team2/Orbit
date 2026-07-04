@@ -205,4 +205,66 @@ describe("AudienceEntrance", () => {
     expect(html).toContain("민감정보 또는 고유식별정보");
     expect(html).toContain("설문 제출");
   });
+
+  it("renders active participation surfaces with labels and without presenter-only fields", () => {
+    const html = renderToStaticMarkup(
+      <AudienceLiveShell
+        activeInteraction={{
+          interactionId: "interaction_00000000-0000-4000-8000-000000000101",
+          sessionId: "session_1",
+          kind: "quiz",
+          title: "이해도 확인",
+          questions: [
+            {
+              type: "quiz-true-false",
+              questionId: "question_00000000-0000-4000-8000-000000000101",
+              prompt: "청중은 로그인 없이 참여한다.",
+              correctAnswer: true,
+            },
+          ],
+          resultVisibility: "after-close",
+          quizScoring: "correct-count",
+          source: "ad-hoc",
+          order: 0,
+          activatedAt: "2026-07-05T00:00:00.000Z",
+          closedAt: null,
+        }}
+        connectionStatus="connected"
+        features={{
+          ...disabledFeatures,
+          qnaEnabled: true,
+          aiQnaEnabled: true,
+          quizzesEnabled: true,
+          reactionsEnabled: true,
+        }}
+        participant={participant}
+        recentReactions={["wow"]}
+        state={{
+          sessionId: "session_1",
+          slideId: "slide_1",
+          slideIndex: 1,
+          effectState: {
+            slideSnapshotUrl: "https://cdn.example.test/audience-safe.png",
+          },
+          activeInteractionId:
+            "interaction_00000000-0000-4000-8000-000000000101",
+          updatedAt: "2026-07-05T00:00:00.000Z",
+        }}
+      />,
+    );
+
+    expect(html).toContain('aria-labelledby="audience-current-slide-title"');
+    expect(html).toContain("현재 슬라이드 2");
+    expect(html).toContain("질문");
+    expect(html).toContain("질문 보내기");
+    expect(html).toContain("청중은 로그인 없이 참여한다.");
+    expect(html).toContain("퀴즈 제출");
+    expect(html).toContain('aria-label="반응 보내기"');
+    expect(html).toContain('aria-label="놀람 반응 보내기"');
+    expect(html).not.toContain("speakerNotes");
+    expect(html).not.toContain("rawTranscript");
+    expect(html).not.toContain("rawAudio");
+    expect(html).not.toContain("presenterScript");
+    expect(html).not.toContain("fileBase64");
+  });
 });

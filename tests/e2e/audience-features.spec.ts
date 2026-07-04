@@ -49,7 +49,8 @@ test.describe("audience feature cards", () => {
 
     await expect(page.getByLabel("활성 청중 기능")).toBeVisible();
     await expect(page.getByText("질문 보내기")).toBeVisible();
-    await expect(page.getByText("투표 참여")).toBeVisible();
+    await expect(page.getByText("Poll", { exact: true })).toBeVisible();
+    await expect(page.getByText("대기 중")).toBeVisible();
     await expect(page.getByText("퀴즈 참여")).toHaveCount(0);
     await expect(page.getByText("설문 작성")).toHaveCount(0);
   });
