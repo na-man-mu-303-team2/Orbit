@@ -34,11 +34,11 @@ describe("AnimationInspectorPanel", () => {
       />
     );
 
-    expect(html).toContain("페이드 인");
-    expect(html).toContain("페이드 아웃");
-    expect(html).toContain("추가");
+    expect(html).toContain("연결된 애니메이션");
+    expect(html).toContain("새 효과 추가");
+    expect(html).toContain("애니메이션 수정");
     expect(html).toContain("재생 시간");
-    expect(html).toContain("효과 순서");
+    expect(html).toContain("애니메이션 제거");
   });
 
   it("renders an empty property state when no element is selected", () => {

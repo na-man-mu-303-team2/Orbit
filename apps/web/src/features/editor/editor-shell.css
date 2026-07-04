@@ -586,6 +586,81 @@
   cursor: not-allowed;
 }
 
+.editor-exit-modal-backdrop {
+  align-items: center;
+  background: rgba(15, 23, 42, 0.58);
+  display: flex;
+  inset: 0;
+  justify-content: center;
+  padding: 24px;
+  position: fixed;
+  z-index: 95;
+}
+
+.editor-exit-modal {
+  width: min(480px, calc(100vw - 48px));
+  display: grid;
+  gap: 18px;
+  padding: 24px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: #fff;
+  box-shadow: 0 28px 80px rgba(15, 23, 42, 0.28);
+}
+
+.editor-exit-modal-copy {
+  display: grid;
+  gap: 6px;
+}
+
+.editor-exit-modal-copy strong {
+  color: var(--ink);
+  font-size: 18px;
+}
+
+.editor-exit-modal-copy p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.editor-exit-modal-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.editor-exit-primary-button,
+.editor-exit-secondary-button {
+  min-height: 44px;
+  border-radius: 12px;
+  font-size: 14px;
+  font-weight: 900;
+}
+
+.editor-exit-secondary-button {
+  border: 1px solid var(--line);
+  background: #fff;
+  color: #334155;
+}
+
+.editor-exit-primary-button {
+  border: 1px solid #93c5fd;
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
+.editor-exit-secondary-button:hover:not(:disabled) {
+  border-color: #cbd5e1;
+  background: #f8fafc;
+}
+
+.editor-exit-primary-button:hover:not(:disabled) {
+  background: #bfdbfe;
+  border-color: #60a5fa;
+}
+
 .share-modal-backdrop {
   align-items: center;
   background: rgba(15, 23, 42, 0.58);
@@ -1231,6 +1306,9 @@
 
 .slides-pane.collapsed {
   grid-template-rows: auto 1fr;
+  overflow: visible;
+  border-right: 0;
+  background: transparent;
 }
 
 .slides-pane-header {
@@ -1238,6 +1316,18 @@
   align-items: center;
   gap: 6px;
   padding: 10px 7px;
+}
+
+.slides-pane.collapsed .slides-pane-header {
+  position: absolute;
+  top: 14px;
+  left: 14px;
+  z-index: 8;
+  padding: 0;
+}
+
+.slides-pane.collapsed .collapse-slides-button {
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
 }
 
 .add-slide-button {
@@ -1358,6 +1448,10 @@
   gap: 8px;
   padding: 0 6px 10px;
   overflow-y: auto;
+}
+
+.slides-pane.collapsed .collapsed-slide-rail {
+  display: none;
 }
 
 .rail-slide-button {
@@ -1500,6 +1594,10 @@
 .slides-pane-resizer:focus-visible {
   background: rgba(49, 87, 245, 0.2);
   outline: none;
+}
+
+.slides-pane.collapsed .slides-pane-resizer {
+  display: none;
 }
 
 .stage-pane {
@@ -2837,6 +2935,11 @@
   background: #f8fbff;
 }
 
+.animation-panel-effect-button.linked {
+  background: #f8fafc;
+  border-color: #d8e0ef;
+}
+
 .animation-panel-effect-icon {
   width: 56px;
   height: 56px;
@@ -2850,6 +2953,11 @@
 .animation-panel-effect-button.selected .animation-panel-effect-icon {
   background: #dbeafe;
   color: #2563eb;
+}
+
+.animation-panel-effect-button.linked .animation-panel-effect-icon {
+  background: #eef2f7;
+  color: #94a3b8;
 }
 
 .animation-panel-effect-button strong {
@@ -2879,6 +2987,70 @@
   margin: 0;
   color: var(--muted);
   font-size: 12px;
+}
+
+.animation-panel-existing-list {
+  display: grid;
+  gap: 10px;
+}
+
+.animation-panel-existing-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  width: 100%;
+  padding: 14px;
+  border: 1px solid #cfd9ea;
+  border-radius: 14px;
+  background: #fff;
+  text-align: left;
+}
+
+.animation-panel-existing-item.selected {
+  border-color: #2563eb;
+  box-shadow: inset 0 0 0 1px #2563eb;
+  background: #f8fbff;
+}
+
+.animation-panel-existing-main {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.animation-panel-existing-main strong {
+  color: var(--ink);
+  font-size: 15px;
+}
+
+.animation-panel-existing-main span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.animation-panel-existing-order {
+  width: 28px;
+  height: 28px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 999px;
+  background: #eff6ff;
+  color: #1d4ed8;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.animation-panel-form-card {
+  padding: 16px;
+  border: 1px solid #d8e0ef;
+  border-radius: 16px;
+  background: #fff;
+}
+
+.animation-panel-timing-fields {
+  display: grid;
+  gap: 16px;
 }
 
 .animation-range-field {

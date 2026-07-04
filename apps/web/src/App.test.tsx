@@ -49,6 +49,12 @@ describe("App shell routing", () => {
     expect(shouldRenderAppFrame({ name: "login" })).toBe(false);
     expect(
       shouldRenderAppFrame({
+        name: "project-editor",
+        projectId: "project_demo_1"
+      })
+    ).toBe(false);
+    expect(
+      shouldRenderAppFrame({
         name: "rehearsal-report",
         projectId: "project_demo_1",
         runId: "run_demo_1"

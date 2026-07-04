@@ -71,6 +71,7 @@ import {
   KeywordList
 } from "./components/KeywordInspector";
 import { EditorSaveControl } from "./components/EditorSaveControl";
+import { EditorExitConfirmModal } from "./components/EditorExitConfirmModal";
 import {
   ShareAccessModal
 } from "./components/ShareAccessModal";
@@ -135,7 +136,8 @@ import {
   Sparkles,
   Type,
   Upload,
-  Wand2
+  Wand2,
+  FolderOpen,
 } from "lucide-react";
 import type { ChangeEvent, CSSProperties, PointerEvent as ReactPointerEvent } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -208,7 +210,7 @@ declare global {
 }
 
 const fallbackDeck = createDemoDeck();
-const collapsedSlidesPaneWidth = 52;
+const collapsedSlidesPaneWidth = 0;
 const defaultSlidesPaneWidth = 176;
 const minSlidesPaneWidth = 132;
 
@@ -658,6 +660,25 @@ function navigateToRehearsal(projectId: string) {
   window.dispatchEvent(new PopStateEvent("popstate"));
 }
 
+function navigateToProjectList() {
+  window.history.pushState({}, "", "/project");
+  window.dispatchEvent(new PopStateEvent("popstate"));
+}
+
+function hasPendingEditorChanges(args: {
+  hasUnackedLocalChanges: boolean;
+  pendingPatchCount: number;
+  saveState: SaveState;
+}) {
+  return (
+    args.hasUnackedLocalChanges ||
+    args.pendingPatchCount > 0 ||
+    args.saveState === "auto-pending" ||
+    isSaveInFlight(args.saveState) ||
+    args.saveState === "error"
+  );
+}
+
 function normalizeProjectPresenceUsers(
   event: ProjectPresenceEvent,
   projectId: string
@@ -817,6 +838,8 @@ export function EditorShell(props: { projectId?: string }) {
   const [projectPresenceUsers, setProjectPresenceUsers] = useState<ProjectPresenceUser[]>([]);
   const [isPresenceDebugOpen, setIsPresenceDebugOpen] = useState(false);
   const [isAudienceLinkModalOpen, setIsAudienceLinkModalOpen] = useState(false);
+  const [isExitConfirmOpen, setIsExitConfirmOpen] = useState(false);
+  const [isExitSaving, setIsExitSaving] = useState(false);
   const [lastPresenceAt, setLastPresenceAt] = useState<string | null>(null);
   const [socketErrorMessage, setSocketErrorMessage] = useState("");
   const [socketId, setSocketId] = useState("");
@@ -1026,6 +1049,13 @@ export function EditorShell(props: { projectId?: string }) {
     isUsingFallbackDeck,
     saveState
   });
+  function hasUnsavedEditorChanges() {
+    return hasPendingEditorChanges({
+      hasUnackedLocalChanges: hasUnackedLocalChangesRef.current,
+      pendingPatchCount: pendingPatchInputsRef.current.length,
+      saveState
+    });
+  }
   const visibleElements = currentSlide
     ? getRenderableSlideElements(currentSlide, deck.canvas)
     : [];
@@ -1069,6 +1099,62 @@ export function EditorShell(props: { projectId?: string }) {
         : null,
     [currentSlide, selectedElement?.elementId]
   );
+
+  useEffect(() => {
+    function handleBeforeUnload(event: BeforeUnloadEvent) {
+      if (!hasPendingEditorChanges({
+        hasUnackedLocalChanges: hasUnackedLocalChangesRef.current,
+        pendingPatchCount: pendingPatchInputsRef.current.length,
+        saveState
+      })) {
+        return;
+      }
+
+      event.preventDefault();
+      event.returnValue = "";
+    }
+
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, [hasUnackedLocalChangesRef, pendingPatchInputsRef, saveState]);
+
+  function handleExitToProjectList() {
+    if (hasUnsavedEditorChanges()) {
+      setActiveTopMenu(null);
+      setIsExitConfirmOpen(true);
+      return;
+    }
+
+    setActiveTopMenu(null);
+    navigateToProjectList();
+  }
+
+  function handleDiscardAndExit() {
+    setIsExitConfirmOpen(false);
+    navigateToProjectList();
+  }
+
+  async function handleSaveAndExit() {
+    if (isExitSaving) {
+      return;
+    }
+
+    setIsExitSaving(true);
+
+    try {
+      const saved = await handleSaveDeck();
+
+      if (!saved) {
+        return;
+      }
+
+      setIsExitConfirmOpen(false);
+      navigateToProjectList();
+    } finally {
+      setIsExitSaving(false);
+    }
+  }
+
   const isCustomShapeEditingSelection =
     selectedElement?.type === "customShape" &&
     selectedElement.elementId === customShapeEditElementId;
@@ -1287,7 +1373,7 @@ export function EditorShell(props: { projectId?: string }) {
     if (!activeProjectId) {
       setSaveState("error");
       setSaveError("missing-project", "저장할 프로젝트를 찾지 못했습니다.");
-      return;
+      return false;
     }
 
     setSaveState("manual-saving");
@@ -1316,17 +1402,20 @@ export function EditorShell(props: { projectId?: string }) {
         setLastPatchLabel(`수동 저장 · v${finalDeck.version}`);
         setSaveState("manual-saved");
         setSaveError(null, null);
+        return true;
       } catch (renderError) {
         acknowledgePersistedDeckSnapshot(deckSnapshot, persistedDeck);
         setLastPatchLabel(`수동 저장 · 렌더 실패 · v${persistedDeck.version}`);
         setSaveState("error");
         setSaveError("manual-render-failed", toEditorErrorMessage(renderError));
+        return false;
       }
     } catch (error) {
       setLastPatchLabel(`저장 실패 · ${toEditorErrorMessage(error)}`);
       setSaveState("error");
       setSaveError("auto-save-failed", toEditorErrorMessage(error));
       void deckQuery.refetch();
+      return false;
     }
   }
 
@@ -3026,6 +3115,15 @@ export function EditorShell(props: { projectId?: string }) {
           <div className="menu-stack">
             <div className="menu-row">
               <button
+                aria-label="프로젝트 목록으로 이동"
+                className="top-icon-button"
+                title="프로젝트 목록으로 이동"
+                type="button"
+                onClick={handleExitToProjectList}
+              >
+                <FolderOpen size={15} />
+              </button>
+              <button
                 aria-expanded={activeTopMenu === "file"}
                 aria-haspopup="menu"
                 className={`top-menu-button ${activeTopMenu === "file" ? "active" : ""}`}
@@ -3339,6 +3437,18 @@ export function EditorShell(props: { projectId?: string }) {
         projectId={projectId}
         onClose={() => setIsAudienceLinkModalOpen(false)}
       />
+      {isExitConfirmOpen
+        ? createPortal(
+            <EditorExitConfirmModal
+              isSaving={isExitSaving}
+              onDiscard={handleDiscardAndExit}
+              onSaveAndExit={() => {
+                void handleSaveAndExit();
+              }}
+            />,
+            document.body
+          )
+        : null}
       {isPresenceDebugOpen
         ? createPortal(
             <div
@@ -3449,23 +3559,7 @@ export function EditorShell(props: { projectId?: string }) {
             </button>
           </div>
 
-          {isSlidesPaneCollapsed ? (
-            <div className="collapsed-slide-rail">
-              {deck.slides.map((slide, index) => (
-                <button
-                  className={`rail-slide-button ${
-                    index === currentSlideIndex ? "active" : ""
-                  }`}
-                  key={slide.slideId}
-                  type="button"
-                  title={slide.title || `슬라이드 ${index + 1}`}
-                  onClick={() => setCurrentSlideIndex(index)}
-                >
-                  {index + 1}
-                </button>
-              ))}
-            </div>
-          ) : (
+          {isSlidesPaneCollapsed ? null : (
             <div className={`slides-list ${slidePanelView}-view`}>
               {hasSlides ? (
                 deck.slides.map((slide, index) => (

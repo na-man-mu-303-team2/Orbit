@@ -372,6 +372,7 @@ export function App() {
 export function shouldRenderAppFrame(route: Route) {
   return (
     route.name !== "login" &&
+    route.name !== "project-editor" &&
     route.name !== "present" &&
     route.name !== "rehearsal-report" &&
     route.name !== "report-mockup" &&

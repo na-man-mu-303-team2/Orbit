@@ -92,3 +92,23 @@ export function buildAnimationSummary(
     tone: "active"
   };
 }
+
+export function formatAnimationSeconds(value: number) {
+  return `${(value / 1000).toFixed(1)}s`;
+}
+
+export function formatAnimationTimingSummary(animation: DeckAnimation) {
+  return `${formatAnimationSeconds(animation.durationMs)} · 지연 ${formatAnimationSeconds(animation.delayMs)}`;
+}
+
+export function isSupportedAnimationType(
+  type: DeckAnimation["type"]
+): type is (typeof supportedAnimationCards)[number]["value"] {
+  return type === "fade-in" || type === "fade-out";
+}
+
+export function getLinkedSupportedAnimationTypes(animations: DeckAnimation[]) {
+  return animations
+    .map((animation) => animation.type)
+    .filter(isSupportedAnimationType);
+}

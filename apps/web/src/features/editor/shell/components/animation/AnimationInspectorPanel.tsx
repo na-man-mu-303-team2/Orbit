@@ -1,14 +1,12 @@
-import {
-  buildAnimationSummary
-} from "./animationUi";
-import { AnimationConnectionList } from "./AnimationConnectionList";
-import { AnimationEffectPicker } from "./AnimationEffectPicker";
+import { AnimationCreateEditor } from "./AnimationCreateEditor";
+import { AnimationCreatePicker } from "./AnimationCreatePicker";
+import { AnimationExistingEditor } from "./AnimationExistingEditor";
+import { AnimationExistingList } from "./AnimationExistingList";
 import { AnimationInspectorEmptyState } from "./AnimationInspectorEmptyState";
+import { AnimationPanelComposerEmpty } from "./AnimationPanelComposerEmpty";
 import { AnimationSelectionSummary } from "./AnimationSelectionSummary";
-import { AnimationTimingSection } from "./AnimationTimingSection";
 import type { AnimationEditorPanelProps } from "./types";
-import { useAnimationDrafts } from "./useAnimationDrafts";
-import { useEffect, useState } from "react";
+import { useAnimationInspectorModel } from "./useAnimationInspectorModel";
 
 export function AnimationInspectorPanel(props: AnimationEditorPanelProps) {
   const {
@@ -20,63 +18,65 @@ export function AnimationInspectorPanel(props: AnimationEditorPanelProps) {
     showIds,
     onUpdateAnimation
   } = props;
-  const { draftByType, updateDraft } = useAnimationDrafts();
-  const [selectedType, setSelectedType] = useState<"fade-in" | "fade-out">("fade-in");
-
-  useEffect(() => {
-    if (animations.some((animation) => animation.type === selectedType)) {
-      return;
-    }
-
-    if (animations.some((animation) => animation.type === "fade-in")) {
-      setSelectedType("fade-in");
-      return;
-    }
-
-    if (animations.some((animation) => animation.type === "fade-out")) {
-      setSelectedType("fade-out");
-    }
-  }, [animations, selectedType]);
+  const {
+    creationType,
+    draftByType,
+    linkedTypes,
+    mode,
+    selectAnimation,
+    selectedAnimation,
+    selectedAnimationId,
+    startCreating,
+    summary,
+    updateDraft
+  } = useAnimationInspectorModel(animations);
 
   if (!element) {
     return <AnimationInspectorEmptyState />;
   }
-
-  const animationSummary = buildAnimationSummary(animations, {
-    emptyLabel: "미설정",
-    multiDetail: (primaryLabel, count) =>
-      `${primaryLabel} 포함 ${count}개의 애니메이션이 연결되어 있습니다.`,
-    multiLabel: (count) => `${count}개 연결`
-  });
-  const selectedAnimation = animations.find((animation) => animation.type === selectedType);
 
   return (
     <section className="property-panel animation-inspector-panel">
       <AnimationSelectionSummary
         element={element}
         showIds={showIds}
-        summaryLabel={animationSummary.label}
-        summaryTone={animationSummary.tone}
+        summaryLabel={summary.label}
+        summaryTone={summary.tone}
       />
 
-      <AnimationEffectPicker
-        animationsCount={animations.length}
-        selectedType={selectedType}
-        onSelectType={setSelectedType}
+      <AnimationExistingList
+        animations={animations}
+        selectedAnimationId={selectedAnimationId}
+        onSelectAnimation={selectAnimation}
       />
 
-      <AnimationTimingSection
-        animation={selectedAnimation}
-        canCreateAnimation={canCreateAnimation}
-        draft={draftByType[selectedType]}
-        selectedType={selectedType}
-        onAddAnimation={onAddAnimation}
-        onDeleteAnimation={onDeleteAnimation}
-        onDraftChange={(patch) => updateDraft(selectedType, patch)}
-        onUpdateAnimation={onUpdateAnimation}
+      <AnimationCreatePicker
+        creationType={creationType}
+        linkedTypes={linkedTypes}
+        onStartCreating={startCreating}
       />
 
-      <AnimationConnectionList animations={animations} />
+      {mode === "editing-existing" && selectedAnimation ? (
+        <AnimationExistingEditor
+          animation={selectedAnimation}
+          onDeleteAnimation={onDeleteAnimation}
+          onUpdateAnimation={onUpdateAnimation}
+        />
+      ) : null}
+
+      {mode === "creating-new" && creationType ? (
+        <AnimationCreateEditor
+          canCreateAnimation={canCreateAnimation}
+          draft={draftByType[creationType]}
+          type={creationType}
+          onAddAnimation={onAddAnimation}
+          onDraftChange={(patch) => updateDraft(creationType, patch)}
+        />
+      ) : null}
+
+      {mode === "idle" ? (
+        <AnimationPanelComposerEmpty hasAnimations={animations.length > 0} />
+      ) : null}
     </section>
   );
 }
