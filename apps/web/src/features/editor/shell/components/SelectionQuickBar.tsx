@@ -17,7 +17,7 @@ import {
   getCustomShapeStrokeWidth
 } from "../../canvas/custom-shape/geometry";
 import type { SlideAnimationDiagnostics } from "../../../../../../../packages/editor-core/src/index";
-import { buildAnimationSummary } from "./animation/animationUi";
+import { buildAnimationSummary } from "./animation";
 import { IdBadge } from "./EditorIdBadge";
 
 export function SelectionQuickBar(props: {

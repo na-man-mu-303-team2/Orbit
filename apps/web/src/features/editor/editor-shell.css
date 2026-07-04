@@ -3202,12 +3202,33 @@
 .animation-panel-preview-button {
   width: 100%;
   min-height: 48px;
-  border: 1px solid #cfd9ea;
+  border: 1px solid #2563eb;
   border-radius: 12px;
-  background: #fff;
-  color: #94a3b8;
+  background: linear-gradient(180deg, #3b82f6 0%, #2563eb 100%);
+  box-shadow: 0 10px 24px rgba(37, 99, 235, 0.22);
+  color: #fff;
   font-size: 14px;
   font-weight: 900;
+  transition:
+    background 140ms ease,
+    border-color 140ms ease,
+    box-shadow 140ms ease,
+    transform 140ms ease;
+}
+
+.animation-panel-preview-button:hover:not(:disabled) {
+  border-color: #1d4ed8;
+  background: linear-gradient(180deg, #2563eb 0%, #1d4ed8 100%);
+  box-shadow: 0 14px 28px rgba(37, 99, 235, 0.28);
+  transform: translateY(-1px);
+}
+
+.animation-panel-preview-button:disabled {
+  border-color: #cfd9ea;
+  background: #eef2f7;
+  box-shadow: none;
+  color: #94a3b8;
+  transform: none;
 }
 
 .property-grid {

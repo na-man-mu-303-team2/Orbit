@@ -5,8 +5,8 @@ import { AnimationExistingList } from "./AnimationExistingList";
 import { AnimationInspectorEmptyState } from "./AnimationInspectorEmptyState";
 import { AnimationPanelComposerEmpty } from "./AnimationPanelComposerEmpty";
 import { AnimationSelectionSummary } from "./AnimationSelectionSummary";
-import type { AnimationEditorPanelProps } from "./types";
-import { useAnimationInspectorModel } from "./useAnimationInspectorModel";
+import type { AnimationEditorPanelProps } from "../types";
+import { useAnimationInspectorModel } from "../hooks/useAnimationInspectorModel";
 
 export function AnimationInspectorPanel(props: AnimationEditorPanelProps) {
   const {

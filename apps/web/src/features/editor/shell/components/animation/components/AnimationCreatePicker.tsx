@@ -1,8 +1,8 @@
 import { Check } from "lucide-react";
 
 import { AnimationPanelSection } from "./AnimationPanelSection";
-import { supportedAnimationCards } from "./animationUi";
-import type { SupportedAnimationType } from "./types";
+import { supportedAnimationCards } from "../utils/animationUi";
+import type { SupportedAnimationType } from "../types";
 
 export function AnimationCreatePicker(props: {
   creationType: SupportedAnimationType | null;

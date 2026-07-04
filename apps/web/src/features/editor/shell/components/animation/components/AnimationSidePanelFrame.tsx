@@ -1,5 +1,5 @@
 import type { PointerEvent as ReactPointerEvent, ReactNode } from "react";
-import { PanelLeftClose, Sparkles } from "lucide-react";
+import { Sparkles, X } from "lucide-react";
 
 type AnimationSidePanelFrameProps = {
   children: ReactNode;
@@ -33,7 +33,7 @@ export function AnimationSidePanelFrame(props: AnimationSidePanelFrameProps) {
             type="button"
             onClick={onClose}
           >
-            <PanelLeftClose size={16} />
+            <X size={16} />
           </button>
         </div>
 

@@ -4,7 +4,7 @@ import { AnimationPanelSection } from "./AnimationPanelSection";
 import {
   formatAnimationTimingSummary,
   getAnimationTypeLabel
-} from "./animationUi";
+} from "../utils/animationUi";
 
 export function AnimationExistingList(props: {
   animations: DeckAnimation[];

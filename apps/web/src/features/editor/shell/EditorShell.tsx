@@ -53,7 +53,8 @@ import {
   AnimationSidePanel,
   defaultAnimationPaneWidth,
   maxAnimationPaneWidth,
-  minAnimationPaneWidth
+  minAnimationPaneWidth,
+  useEditorAnimationPreview
 } from "./components/animation";
 import {
   EmptyCanvasState,
@@ -1099,6 +1100,15 @@ export function EditorShell(props: { projectId?: string }) {
         : null,
     [currentSlide, selectedElement?.elementId]
   );
+  const {
+    canPlay: canPlayCurrentSlideAnimations,
+    elementStates: animationPreviewElementStates,
+    isPlaying: isPlayingCurrentSlideAnimations,
+    play: playCurrentSlideAnimations
+  } = useEditorAnimationPreview({
+    deck,
+    slide: currentSlide
+  });
 
   useEffect(() => {
     function handleBeforeUnload(event: BeforeUnloadEvent) {
@@ -3618,8 +3628,10 @@ export function EditorShell(props: { projectId?: string }) {
         {isAnimationPanelOpen ? (
           <AnimationSidePanel
             animations={selectedElementAnimations}
+            canPlaySlideAnimations={canPlayCurrentSlideAnimations}
             canCreateAnimation={Boolean(currentSlide && selectedElement)}
             element={selectedElement}
+            isPlayingSlideAnimations={isPlayingCurrentSlideAnimations}
             onAddAnimation={(draft) => {
               if (!currentSlide || !selectedElement) {
                 return;
@@ -3634,6 +3646,7 @@ export function EditorShell(props: { projectId?: string }) {
             }}
             showIds={showIds}
             onClose={() => setIsAnimationPanelOpen(false)}
+            onPlaySlideAnimations={playCurrentSlideAnimations}
             onResizeStart={handleAnimationPaneResizeStart}
             onDeleteAnimation={(animationId) => {
               if (!currentSlide) {
@@ -3847,7 +3860,9 @@ export function EditorShell(props: { projectId?: string }) {
                   <EditableCanvas
                     customShapeEditElementId={customShapeEditElementId}
                     deck={deck}
+                    disableInteractions={isPlayingCurrentSlideAnimations}
                     editingElementId={editingElementId}
+                    elementStates={animationPreviewElementStates}
                     insertTool={insertTool}
                     selectedElementIds={selectedElementIds}
                     showIds={showIds}

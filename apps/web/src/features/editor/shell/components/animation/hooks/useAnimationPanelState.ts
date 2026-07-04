@@ -1,7 +1,7 @@
 import type { DeckAnimation } from "@orbit/shared";
 import { useEffect, useMemo, useState } from "react";
 
-import type { AnimationPanelMode, SupportedAnimationType } from "./types";
+import type { AnimationPanelMode, SupportedAnimationType } from "../types";
 
 export function useAnimationPanelState(animations: DeckAnimation[]) {
   const [selectedAnimationId, setSelectedAnimationId] = useState<string | null>(

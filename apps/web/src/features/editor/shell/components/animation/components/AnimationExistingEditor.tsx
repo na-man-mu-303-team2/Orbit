@@ -1,7 +1,7 @@
 import type { DeckAnimation } from "@orbit/shared";
 
 import { AnimationPanelSection } from "./AnimationPanelSection";
-import { getAnimationTypeLabel } from "./animationUi";
+import { getAnimationTypeLabel } from "../utils/animationUi";
 import { AnimationTimingFields } from "./AnimationTimingFields";
 
 export function AnimationExistingEditor(props: {

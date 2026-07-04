@@ -1,8 +1,8 @@
 import type { DeckElement } from "@orbit/shared";
 import { BarChart3, Image as ImageIcon, Shapes, Type } from "lucide-react";
 
-import { IdBadge } from "../EditorIdBadge";
-import { getAnimationElementLabel } from "./animationUi";
+import { IdBadge } from "../../EditorIdBadge";
+import { getAnimationElementLabel } from "../utils/animationUi";
 
 function getElementIcon(element: DeckElement) {
   switch (element.type) {

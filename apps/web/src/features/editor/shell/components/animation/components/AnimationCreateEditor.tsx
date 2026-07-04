@@ -1,7 +1,11 @@
 import { AnimationPanelSection } from "./AnimationPanelSection";
-import { getAnimationTypeLabel } from "./animationUi";
+import { getAnimationTypeLabel } from "../utils/animationUi";
 import { AnimationTimingFields } from "./AnimationTimingFields";
-import type { AnimationDraftInput, AnimationTimingDraft, SupportedAnimationType } from "./types";
+import type {
+  AnimationDraftInput,
+  AnimationTimingDraft,
+  SupportedAnimationType
+} from "../types";
 
 export function AnimationCreateEditor(props: {
   canCreateAnimation: boolean;

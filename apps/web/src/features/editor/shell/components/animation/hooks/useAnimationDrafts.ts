@@ -1,6 +1,6 @@
 import { useState } from "react";
 
-import type { SupportedAnimationType } from "./types";
+import type { SupportedAnimationType } from "../types";
 
 type AnimationDraftState = Record<
   SupportedAnimationType,

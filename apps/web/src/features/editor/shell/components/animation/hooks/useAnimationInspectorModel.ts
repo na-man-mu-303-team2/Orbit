@@ -1,6 +1,9 @@
 import type { DeckAnimation } from "@orbit/shared";
 
-import { buildAnimationSummary, getLinkedSupportedAnimationTypes } from "./animationUi";
+import {
+  buildAnimationSummary,
+  getLinkedSupportedAnimationTypes
+} from "../utils/animationUi";
 import { useAnimationDrafts } from "./useAnimationDrafts";
 import { useAnimationPanelState } from "./useAnimationPanelState";
 
