@@ -71,6 +71,35 @@ export const audienceFeatureSettingsSchema = z
     message: "aiQnaEnabled requires qnaEnabled",
   });
 
+const audienceFeatureSettingsUpdateFields = {
+  qnaEnabled: z.boolean().optional(),
+  aiQnaEnabled: z.boolean().optional(),
+  pollsEnabled: z.boolean().optional(),
+  quizzesEnabled: z.boolean().optional(),
+  reactionsEnabled: z.boolean().optional(),
+  surveyEnabled: z.boolean().optional(),
+};
+
+export const updateAudienceFeatureSettingsRequestSchema = z
+  .object(audienceFeatureSettingsUpdateFields)
+  .strict()
+  .refine((settings) => Object.keys(settings).length > 0, {
+    message: "at least one audience feature setting is required",
+  })
+  .refine(
+    (settings) =>
+      !(settings.qnaEnabled === false && settings.aiQnaEnabled === true),
+    {
+      message: "aiQnaEnabled requires qnaEnabled",
+    },
+  );
+
+export const updateAudienceFeatureSettingsResponseSchema = z
+  .object({
+    features: audienceFeatureSettingsSchema,
+  })
+  .strict();
+
 export const audienceRealtimeStateSchema = z
   .object({
     sessionId: z.string().min(1),
@@ -208,6 +237,12 @@ export type AudienceFeatureSettings = z.infer<
 >;
 export type AudienceRealtimeState = z.infer<typeof audienceRealtimeStateSchema>;
 export type AudienceJoinRequest = z.infer<typeof audienceJoinRequestSchema>;
+export type UpdateAudienceFeatureSettingsRequest = z.infer<
+  typeof updateAudienceFeatureSettingsRequestSchema
+>;
+export type UpdateAudienceFeatureSettingsResponse = z.infer<
+  typeof updateAudienceFeatureSettingsResponseSchema
+>;
 export type AudiencePublicSession = z.infer<typeof audiencePublicSessionSchema>;
 export type AudienceJoinResponse = z.infer<typeof audienceJoinResponseSchema>;
 export type AudienceSessionLookupResponse = z.infer<
