@@ -603,32 +603,17 @@ function selectTemplateBlueprintSlides(
   generatedSlideCount: number,
 ): TemplateBlueprint {
   const sourceSlides = templateBlueprint.slides;
-  if (generatedSlideCount > sourceSlides.length) {
-    throw new Error(
-      `Generated slide count (${generatedSlideCount}) exceeds template slide count (${sourceSlides.length}); repeated template slides require PPTX slide cloning.`,
-    );
-  }
-
   const bySourceIndex = new Map(
     sourceSlides.map((slide) => [slide.sourceSlideIndex, slide]),
   );
-  const usedSourceIndexes = new Set<number>();
   const selected: Array<TemplateBlueprint["slides"][number] | undefined> =
     Array.from({ length: generatedSlideCount });
 
   for (const item of templateSelection ?? []) {
     const slide = bySourceIndex.get(item.sourceSlideIndex);
-    const targetIndex = item.generatedOrder - 1;
-    if (
-      !slide ||
-      item.generatedOrder < 1 ||
-      item.generatedOrder > generatedSlideCount ||
-      selected[targetIndex] ||
-      usedSourceIndexes.has(slide.sourceSlideIndex)
-    ) {
+    if (!slide || item.generatedOrder < 1 || item.generatedOrder > generatedSlideCount) {
       continue;
     }
-    usedSourceIndexes.add(slide.sourceSlideIndex);
     selected[item.generatedOrder - 1] = {
       ...slide,
       slideIndex: item.generatedOrder,
@@ -637,26 +622,39 @@ function selectTemplateBlueprintSlides(
   }
 
   const slides = selected.map((slide, index) => {
-    if (slide) {
-      return { ...slide, slideIndex: index + 1 };
-    }
-    const fallback = sourceSlides.find(
-      (sourceSlide) => !usedSourceIndexes.has(sourceSlide.sourceSlideIndex),
-    );
-    if (!fallback) {
-      throw new Error("Unable to select unique template slides for generated deck.");
-    }
-    usedSourceIndexes.add(fallback.sourceSlideIndex);
-    return {
-      ...fallback,
-      slideIndex: index + 1,
-    };
+    const sourceSlide = slide ?? sourceSlides[index % sourceSlides.length];
+    return cloneTemplateBlueprintSlide(sourceSlide, index + 1);
   });
 
   return templateBlueprintSchema.parse({
     ...templateBlueprint,
     slides,
   });
+}
+
+function cloneTemplateBlueprintSlide(
+  slide: TemplateBlueprint["slides"][number],
+  slideIndex: number,
+): TemplateBlueprint["slides"][number] {
+  const slidePart = `ppt/slides/slide${slideIndex}.xml`;
+  return {
+    ...slide,
+    slideIndex,
+    sourceSlideIndex: slideIndex,
+    cloneSourceSlideIndex: slide.sourceSlideIndex,
+    renderAssetFileId: `asset:slide_render_${slideIndex}`,
+    elementSources: slide.elementSources.map((source) => ({
+      ...source,
+      slidePart,
+    })),
+    slots: slide.slots.map((slot) => ({
+      ...slot,
+      source: {
+        ...slot.source,
+        slidePart,
+      },
+    })),
+  };
 }
 
 async function applyGeneratedContentToPptx(

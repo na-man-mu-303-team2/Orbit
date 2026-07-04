@@ -130,7 +130,9 @@ describe("processAiTemplateDeckGenerationJob", () => {
         const form = init?.body as FormData;
         const blueprint = JSON.parse(String(form.get("template_blueprint")));
         expect(blueprint.slides.map((slide: { sourceSlideIndex: number }) => slide.sourceSlideIndex))
-          .toEqual([3, 1, 2, 4, 5]);
+          .toEqual([1, 2, 3, 4, 5]);
+        expect(blueprint.slides.map((slide: { cloneSourceSlideIndex: number }) => slide.cloneSourceSlideIndex))
+          .toEqual([3, 3, 3, 3, 3]);
         expect(blueprint.slides[0].slots[0].slotRole).toBe("title");
         expect(blueprint.slides[0].slots[1].slotRole).toBe("body");
         const slotTexts = JSON.parse(String(form.get("slot_texts")));
@@ -175,7 +177,7 @@ describe("processAiTemplateDeckGenerationJob", () => {
     };
     expect(blueprint.currentPackageFileId).toMatch(/^file_/);
     expect(blueprint.slides.map((slide) => slide.sourceSlideIndex)).toEqual([
-      3, 1, 2, 4, 5
+      1, 2, 3, 4, 5
     ]);
     expect(blueprint.slides[0].renderAssetFileId).toMatch(/^file_/);
     expect(job.result).toMatchObject({

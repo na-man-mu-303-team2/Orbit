@@ -861,6 +861,11 @@ Rules:
   `{ generatedOrder, sourceSlideIndex, selectionReason }`. The API worker uses
   this mapping to filter/reorder `TemplateBlueprint.slides` before slot text
   extraction, PPTX apply, render asset linking, and sidecar save.
+- If a reference layout is reused or selected out of source order, the API
+  worker saves generated slides as sequential `sourceSlideIndex` values and
+  stores the original PPTX page in `cloneSourceSlideIndex`. The Python worker
+  clones that source page into the generated slide part before applying text,
+  so the saved PPTX package and sidecar have the same slide count and order.
 - `TemplateBlueprint.slides[]` may include semantic selection metadata:
   `slideRole`, `layoutType`, `contentCapacity`, and `selectionReason`.
 

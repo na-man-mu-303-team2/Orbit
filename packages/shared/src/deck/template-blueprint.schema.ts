@@ -94,6 +94,7 @@ export const templateBlueprintSlotSchema = z.object({
 export const templateBlueprintSlideSchema = z.object({
   slideIndex: z.number().int().positive(),
   sourceSlideIndex: z.number().int().positive(),
+  cloneSourceSlideIndex: z.number().int().positive().optional(),
   slideRole: z.string().trim().min(1).optional(),
   layoutType: z.string().trim().min(1).optional(),
   contentCapacity: z.enum(["low", "medium", "high"]).optional(),
