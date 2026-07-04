@@ -227,6 +227,55 @@
   white-space: nowrap;
 }
 
+.audience-interaction-card {
+  align-items: stretch;
+  display: grid;
+  justify-content: stretch;
+}
+
+.audience-interaction-card form,
+.audience-interaction-card fieldset {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+}
+
+.audience-interaction-card fieldset {
+  border: 0;
+  padding: 0;
+}
+
+.audience-interaction-card legend {
+  color: #0f172a;
+  font-size: 0.9rem;
+  font-weight: 800;
+  line-height: 1.35;
+  padding: 0;
+}
+
+.audience-interaction-options {
+  display: grid;
+  gap: 8px;
+}
+
+.audience-interaction-options label {
+  align-items: center;
+  background: #ffffff;
+  border: 1px solid #dbe3ee;
+  border-radius: 7px;
+  display: flex;
+  gap: 8px;
+  min-height: 36px;
+  padding: 8px;
+}
+
+.audience-interaction-status {
+  color: #166534;
+  font-size: 0.82rem;
+  font-weight: 800;
+  margin: 0;
+}
+
 .audience-participant-label {
   color: #0f172a;
   font-weight: 700;

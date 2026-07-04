@@ -20,6 +20,7 @@ import { CreatePresentationSessions2026070201000 } from "./migrations/2026070201
 import { AddUniqueOpenPresentationSession2026070202000 } from "./migrations/2026070202000-AddUniqueOpenPresentationSession";
 import { AddRehearsalRunMetaJson2026070301000 } from "./migrations/2026070301000-AddRehearsalRunMetaJson";
 import { CreateTemplateBlueprints2026070301000 } from "./migrations/2026070301000-CreateTemplateBlueprints";
+import { CreateAudienceInteractions2026070501000 } from "./migrations/2026070501000-CreateAudienceInteractions";
 
 loadDotenv({ path: "../../.env.local" });
 loadDotenv({ path: ".env.local" });
@@ -51,7 +52,8 @@ export const databaseOptions: DataSourceOptions = {
     CreatePresentationSessions2026070201000,
     AddUniqueOpenPresentationSession2026070202000,
     AddRehearsalRunMetaJson2026070301000,
-    CreateTemplateBlueprints2026070301000
+    CreateTemplateBlueprints2026070301000,
+    CreateAudienceInteractions2026070501000
   ],
   migrationsTableName: "typeorm_migrations",
   synchronize: false,

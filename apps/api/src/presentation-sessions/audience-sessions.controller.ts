@@ -138,6 +138,38 @@ export class AudienceSessionsController {
     return audienceStateResponseSchema.parse(result);
   }
 
+  @Post(":sessionId/audience/interactions/:interactionId/respond")
+  async submitInteractionResponse(
+    @Param("sessionId") sessionId: string,
+    @Param("interactionId") interactionId: string,
+    @Body() body: unknown,
+    @Req() request: SignedCookieRequest,
+  ) {
+    const { payload, token } = this.requireAudienceAccess(sessionId, request);
+
+    return this.presentationSessionsService.submitInteractionResponse({
+      sessionId,
+      interactionId,
+      audienceId: payload.audienceId,
+      tokenHash: hashAudienceAccessToken(this.config, token),
+      body: body ?? {},
+    });
+  }
+
+  @Get(":sessionId/audience/interactions/active")
+  async getActiveInteraction(
+    @Param("sessionId") sessionId: string,
+    @Req() request: SignedCookieRequest,
+  ) {
+    const { payload, token } = this.requireAudienceAccess(sessionId, request);
+
+    return this.presentationSessionsService.getAudienceActiveInteraction({
+      sessionId,
+      audienceId: payload.audienceId,
+      tokenHash: hashAudienceAccessToken(this.config, token),
+    });
+  }
+
   private async tryGetExistingAccess(
     sessionId: string,
     request: SignedCookieRequest,

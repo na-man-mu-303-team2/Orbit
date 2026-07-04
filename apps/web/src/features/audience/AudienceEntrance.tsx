@@ -1,18 +1,24 @@
 import type {
+  AudienceActiveInteractionResponse,
   AudienceFeatureSettings,
   AudienceParticipant,
   AudiencePublicSession,
   AudienceRealtimeState,
   AudienceStateResponse,
+  InteractionAnswer,
+  InteractionQuestion,
+  SessionInteraction,
 } from "@orbit/shared";
 import { CheckCircle2, Loader2 } from "lucide-react";
 import { type FormEvent, useEffect, useMemo, useState } from "react";
 
 import {
+  fetchAudienceActiveInteraction,
   fetchAudienceState,
   fetchAudienceMe,
   joinAudienceSession,
   lookupAudienceSession,
+  submitAudienceInteractionResponse,
 } from "./audienceApi";
 import { audienceCopy } from "./audienceCopy";
 import {
@@ -36,6 +42,8 @@ export function AudienceEntrance({ initialJoinCode }: AudienceEntranceProps) {
   );
   const [audienceState, setAudienceState] =
     useState<AudienceStateResponse | null>(null);
+  const [activeInteraction, setActiveInteraction] =
+    useState<AudienceActiveInteractionResponse | null>(null);
   const [connectionStatus, setConnectionStatus] =
     useState<AudienceRealtimeStatus>("idle");
   const [errorMessage, setErrorMessage] = useState("");
@@ -145,6 +153,7 @@ export function AudienceEntrance({ initialJoinCode }: AudienceEntranceProps) {
   useEffect(() => {
     if (!session || !participant) {
       setAudienceState(null);
+      setActiveInteraction(null);
       setConnectionStatus("idle");
       return;
     }
@@ -210,6 +219,46 @@ export function AudienceEntrance({ initialJoinCode }: AudienceEntranceProps) {
       connection.disconnect();
     };
   }, [participant?.audienceId, session?.sessionId]);
+
+  useEffect(() => {
+    const sessionId = session?.sessionId;
+    const activeInteractionId = audienceState?.state.activeInteractionId;
+    const features = audienceState?.features;
+    const hasEnabledInteractionFeature =
+      Boolean(features?.pollsEnabled) || Boolean(features?.quizzesEnabled);
+    if (
+      !sessionId ||
+      !participant ||
+      !activeInteractionId ||
+      !hasEnabledInteractionFeature
+    ) {
+      setActiveInteraction(null);
+      return;
+    }
+
+    let isCancelled = false;
+    void fetchAudienceActiveInteraction({ sessionId })
+      .then((payload) => {
+        if (!isCancelled) {
+          setActiveInteraction(payload);
+        }
+      })
+      .catch(() => {
+        if (!isCancelled) {
+          setActiveInteraction(null);
+        }
+      });
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [
+    audienceState?.features.pollsEnabled,
+    audienceState?.features.quizzesEnabled,
+    audienceState?.state.activeInteractionId,
+    participant,
+    session?.sessionId,
+  ]);
 
   const isLoading = loadingState !== "idle";
 
@@ -288,6 +337,7 @@ export function AudienceEntrance({ initialJoinCode }: AudienceEntranceProps) {
         {participant ? (
           <>
             <AudienceLiveShell
+              activeInteraction={activeInteraction?.interaction ?? null}
               connectionStatus={connectionStatus}
               features={audienceState?.features ?? null}
               participant={participant}
@@ -324,12 +374,14 @@ export function AudienceEntrance({ initialJoinCode }: AudienceEntranceProps) {
 }
 
 export function AudienceLiveShell(props: {
+  activeInteraction: SessionInteraction | null;
   connectionStatus: AudienceRealtimeStatus;
   features: AudienceFeatureSettings | null;
   participant: AudienceParticipant;
   state: AudienceRealtimeState | null;
 }) {
-  const { connectionStatus, features, participant, state } = props;
+  const { activeInteraction, connectionStatus, features, participant, state } =
+    props;
   const slideSnapshotUrl = readSlideSnapshotUrl(state?.effectState ?? {});
   const slideLabel =
     state?.slideIndex !== null && state?.slideIndex !== undefined
@@ -366,24 +418,32 @@ export function AudienceLiveShell(props: {
       <p className="audience-connection-status" role="status">
         {toConnectionStatusCopy(connectionStatus)}
       </p>
-      <AudienceActiveCards features={features} />
+      <AudienceActiveCards
+        activeInteraction={activeInteraction}
+        features={features}
+      />
       <p className="audience-participant-label">{participant.nickname}</p>
     </section>
   );
 }
 
 function AudienceActiveCards({
+  activeInteraction,
   features,
 }: {
+  activeInteraction: SessionInteraction | null;
   features: AudienceFeatureSettings | null;
 }) {
   const cards = getAudienceActiveCards(features);
-  if (cards.length === 0) {
+  if (cards.length === 0 && !activeInteraction) {
     return null;
   }
 
   return (
     <section className="audience-active-cards" aria-label="활성 청중 기능">
+      {activeInteraction ? (
+        <AudienceInteractionCard interaction={activeInteraction} />
+      ) : null}
       {cards.map((card) => (
         <article className="audience-active-card" key={card.label}>
           <span>{card.label}</span>
@@ -404,13 +464,208 @@ function getAudienceActiveCards(features: AudienceFeatureSettings | null) {
   return [
     features.qnaEnabled ? { action: "질문 보내기", label: "Q&A" } : null,
     features.aiQnaEnabled ? { action: "AI 답변 대기", label: "AI Q&A" } : null,
-    features.pollsEnabled ? { action: "투표 참여", label: "Poll" } : null,
-    features.quizzesEnabled ? { action: "퀴즈 참여", label: "Quiz" } : null,
+    features.pollsEnabled ? { action: "대기 중", label: "Poll" } : null,
+    features.quizzesEnabled ? { action: "대기 중", label: "Quiz" } : null,
     features.reactionsEnabled
       ? { action: "반응 보내기", label: "Reactions" }
       : null,
     features.surveyEnabled ? { action: "설문 작성", label: "Survey" } : null,
   ].filter((card): card is { action: string; label: string } => Boolean(card));
+}
+
+function AudienceInteractionCard({
+  interaction,
+}: {
+  interaction: SessionInteraction;
+}) {
+  const [selectedValue, setSelectedValue] = useState("");
+  const [message, setMessage] = useState("");
+  const [errorMessage, setErrorMessage] = useState("");
+  const question = interaction.questions[0];
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setMessage("");
+    setErrorMessage("");
+
+    const answer = buildAnswer(question, selectedValue);
+    if (!answer) {
+      setErrorMessage("응답을 선택해 주세요.");
+      return;
+    }
+
+    try {
+      await submitAudienceInteractionResponse({
+        sessionId: interaction.sessionId,
+        interactionId: interaction.interactionId,
+        questionId: question.questionId,
+        answer,
+      });
+      setMessage(
+        interaction.kind === "quiz"
+          ? "퀴즈 응답이 제출되었습니다."
+          : "응답이 저장되었습니다.",
+      );
+    } catch (error) {
+      setErrorMessage(
+        error instanceof Error ? error.message : "응답을 제출하지 못했습니다.",
+      );
+    }
+  }
+
+  return (
+    <article className="audience-active-card audience-interaction-card">
+      <span>{interaction.kind === "quiz" ? "Quiz" : "Poll"}</span>
+      <form onSubmit={(event) => void handleSubmit(event)}>
+        <fieldset>
+          <legend>{question.prompt}</legend>
+          <InteractionQuestionInput
+            question={question}
+            value={selectedValue}
+            onChange={setSelectedValue}
+          />
+        </fieldset>
+        <button type="submit">
+          {interaction.kind === "quiz" ? "퀴즈 제출" : "응답 제출"}
+        </button>
+      </form>
+      {message ? (
+        <p className="audience-interaction-status" role="status">
+          {message}
+        </p>
+      ) : null}
+      {errorMessage ? (
+        <p className="audience-error" role="alert">
+          {errorMessage}
+        </p>
+      ) : null}
+    </article>
+  );
+}
+
+function InteractionQuestionInput(props: {
+  question: InteractionQuestion;
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  const { question, value, onChange } = props;
+  if (
+    question.type === "choice" ||
+    question.type === "quiz-multiple-choice" ||
+    question.type === "ranking"
+  ) {
+    return (
+      <div className="audience-interaction-options">
+        {question.options.map((option) => (
+          <label key={option.optionId}>
+            <input
+              checked={value === option.optionId}
+              name={question.questionId}
+              type="radio"
+              value={option.optionId}
+              onChange={(event) => onChange(event.target.value)}
+            />
+            <span>{option.label}</span>
+          </label>
+        ))}
+      </div>
+    );
+  }
+
+  if (question.type === "scale") {
+    return (
+      <label className="audience-field" htmlFor={question.questionId}>
+        <span>1-5</span>
+        <input
+          id={question.questionId}
+          inputMode="numeric"
+          max={5}
+          min={1}
+          type="number"
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+        />
+      </label>
+    );
+  }
+
+  if (question.type === "quiz-true-false") {
+    return (
+      <div className="audience-interaction-options">
+        <label>
+          <input
+            checked={value === "true"}
+            name={question.questionId}
+            type="radio"
+            value="true"
+            onChange={(event) => onChange(event.target.value)}
+          />
+          <span>참</span>
+        </label>
+        <label>
+          <input
+            checked={value === "false"}
+            name={question.questionId}
+            type="radio"
+            value="false"
+            onChange={(event) => onChange(event.target.value)}
+          />
+          <span>거짓</span>
+        </label>
+      </div>
+    );
+  }
+
+  return (
+    <label className="audience-field" htmlFor={question.questionId}>
+      <span>답변</span>
+      <textarea
+        id={question.questionId}
+        maxLength={1000}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+      />
+    </label>
+  );
+}
+
+function buildAnswer(
+  question: InteractionQuestion,
+  value: string,
+): InteractionAnswer | null {
+  if (!value.trim()) {
+    return null;
+  }
+
+  if (question.type === "scale") {
+    return { type: "scale", value: Number(value) };
+  }
+
+  if (question.type === "open-text") {
+    return { type: "open-text", text: value };
+  }
+
+  if (question.type === "ranking") {
+    return {
+      type: "ranking",
+      orderedOptionIds: [
+        value,
+        ...question.options
+          .map((option) => option.optionId)
+          .filter((optionId) => optionId !== value),
+      ].slice(0, 5),
+    };
+  }
+
+  if (question.type === "quiz-true-false") {
+    return { type: "quiz-true-false", answer: value === "true" };
+  }
+
+  if (question.type === "quiz-multiple-choice") {
+    return { type: "quiz-multiple-choice", selectedOptionIds: [value] };
+  }
+
+  return { type: "choice", selectedOptionIds: [value] };
 }
 
 function readSlideSnapshotUrl(payload: Record<string, unknown>) {

@@ -9,7 +9,11 @@ import {
 export const interactionIdSchema = z
   .string()
   .regex(/^interaction_[0-9a-f-]{36}$/);
+export const libraryInteractionIdSchema = z
+  .string()
+  .regex(/^library_interaction_[0-9a-f-]{36}$/);
 export const questionIdSchema = z.string().regex(/^question_[0-9a-f-]{36}$/);
+export const responseIdSchema = z.string().regex(/^response_[0-9a-f-]{36}$/);
 export const surveyIdSchema = z.string().regex(/^survey_[0-9a-f-]{36}$/);
 
 export const interactionKindSchema = z.enum(["poll", "quiz"]);
@@ -106,6 +110,189 @@ export const sessionInteractionSchema = z
   })
   .strict();
 
+export const interactionDraftSchema = z
+  .object({
+    kind: interactionKindSchema,
+    title: z.string().trim().min(1).max(160),
+    questions: z.array(interactionQuestionSchema).min(1),
+    resultVisibility: interactionResultVisibilitySchema.default("hidden"),
+    quizScoring: quizScoringSchema.default("none"),
+  })
+  .strict()
+  .superRefine((draft, context) => {
+    const hasQuizQuestion = draft.questions.some((question) =>
+      question.type.startsWith("quiz-"),
+    );
+    const hasPollQuestion = draft.questions.some(
+      (question) => !question.type.startsWith("quiz-"),
+    );
+
+    if (draft.kind === "poll" && hasQuizQuestion) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "poll interactions cannot include quiz questions",
+        path: ["questions"],
+      });
+    }
+
+    if (draft.kind === "quiz" && hasPollQuestion) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "quiz interactions cannot include poll questions",
+        path: ["questions"],
+      });
+    }
+  });
+
+export const projectInteractionLibraryItemSchema = z
+  .object({
+    libraryInteractionId: libraryInteractionIdSchema,
+    projectId: z.string().min(1),
+    title: z.string().trim().min(1).max(160),
+    kind: interactionKindSchema,
+    questions: z.array(interactionQuestionSchema).min(1),
+    resultVisibility: interactionResultVisibilitySchema,
+    quizScoring: quizScoringSchema,
+    createdAt: isoDateTimeSchema,
+    updatedAt: isoDateTimeSchema,
+  })
+  .strict();
+
+export const createInteractionLibraryItemRequestSchema = interactionDraftSchema;
+
+export const createInteractionLibraryItemResponseSchema = z
+  .object({
+    interaction: projectInteractionLibraryItemSchema,
+  })
+  .strict();
+
+export const listInteractionLibraryItemsResponseSchema = z
+  .object({
+    interactions: z.array(projectInteractionLibraryItemSchema),
+  })
+  .strict();
+
+export const selectSessionInteractionsRequestSchema = z
+  .object({
+    libraryInteractionIds: z.array(libraryInteractionIdSchema).max(20),
+  })
+  .strict();
+
+export const listSessionInteractionsResponseSchema = z
+  .object({
+    interactions: z.array(sessionInteractionSchema),
+  })
+  .strict();
+
+export const createAdHocSessionInteractionRequestSchema =
+  interactionDraftSchema;
+
+export const sessionInteractionResponseSchema = z
+  .object({
+    interaction: sessionInteractionSchema,
+  })
+  .strict();
+
+export const interactionAnswerSchema = z.discriminatedUnion("type", [
+  z
+    .object({
+      type: z.literal("choice"),
+      selectedOptionIds: z.array(z.string().min(1)).min(1).max(10),
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal("scale"),
+      value: z.number().int().min(1).max(5),
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal("open-text"),
+      text: z.string().trim().min(1).max(1000),
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal("ranking"),
+      orderedOptionIds: z.array(z.string().min(1)).min(2).max(5),
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal("quiz-multiple-choice"),
+      selectedOptionIds: z.array(z.string().min(1)).min(1).max(10),
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal("quiz-true-false"),
+      answer: z.boolean(),
+    })
+    .strict(),
+]);
+
+export const interactionResponseSchema = z
+  .object({
+    responseId: responseIdSchema,
+    interactionId: interactionIdSchema,
+    sessionId: z.string().min(1),
+    audienceId: audienceIdSchema,
+    questionId: questionIdSchema,
+    answer: interactionAnswerSchema,
+    isCorrect: z.boolean().nullable(),
+    score: z.number().nonnegative(),
+    submittedAt: isoDateTimeSchema,
+    updatedAt: isoDateTimeSchema,
+  })
+  .strict();
+
+export const submitInteractionResponseRequestSchema = z
+  .object({
+    questionId: questionIdSchema,
+    answer: interactionAnswerSchema,
+  })
+  .strict();
+
+export const submitInteractionResponseResponseSchema = z
+  .object({
+    response: interactionResponseSchema,
+  })
+  .strict();
+
+export const interactionQuestionResultSchema = z
+  .object({
+    questionId: questionIdSchema,
+    responseCount: z.number().int().nonnegative(),
+    optionCounts: z.record(z.number().int().nonnegative()).default({}),
+    average: z.number().nullable().default(null),
+    openTextResponses: z.array(z.string()).default([]),
+  })
+  .strict();
+
+export const interactionResultsSchema = z
+  .object({
+    interactionId: interactionIdSchema,
+    sessionId: z.string().min(1),
+    visibleToAudience: z.boolean(),
+    responseCount: z.number().int().nonnegative(),
+    questionResults: z.array(interactionQuestionResultSchema),
+  })
+  .strict();
+
+export const interactionResultsResponseSchema = z
+  .object({
+    results: interactionResultsSchema,
+  })
+  .strict();
+
+export const audienceActiveInteractionResponseSchema = z
+  .object({
+    interaction: sessionInteractionSchema.nullable(),
+    results: interactionResultsSchema.nullable(),
+  })
+  .strict();
+
 export const questionStatusSchema = z.enum(["pending", "answered"]);
 
 export const audienceQuestionSchema = z
@@ -177,7 +364,20 @@ export const surveyResponseSchema = z
   );
 
 export type InteractionQuestion = z.infer<typeof interactionQuestionSchema>;
+export type InteractionDraft = z.infer<typeof interactionDraftSchema>;
+export type ProjectInteractionLibraryItem = z.infer<
+  typeof projectInteractionLibraryItemSchema
+>;
 export type SessionInteraction = z.infer<typeof sessionInteractionSchema>;
+export type InteractionAnswer = z.infer<typeof interactionAnswerSchema>;
+export type InteractionResponse = z.infer<typeof interactionResponseSchema>;
+export type SubmitInteractionResponseResponse = z.infer<
+  typeof submitInteractionResponseResponseSchema
+>;
+export type InteractionResults = z.infer<typeof interactionResultsSchema>;
+export type AudienceActiveInteractionResponse = z.infer<
+  typeof audienceActiveInteractionResponseSchema
+>;
 export type AudienceQuestion = z.infer<typeof audienceQuestionSchema>;
 export type AudienceQuestionAnswer = z.infer<
   typeof audienceQuestionAnswerSchema

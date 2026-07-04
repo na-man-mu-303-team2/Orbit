@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  createInteractionLibraryItemRequestSchema,
+  interactionAnswerSchema,
+  interactionDraftSchema,
   interactionQuestionSchema,
+  submitInteractionResponseRequestSchema,
   surveyResponseSchema,
 } from "./interaction.schema";
 
@@ -17,6 +21,95 @@ describe("interaction schemas", () => {
           optionId: `option_${index}`,
           label: `Option ${index}`,
         })),
+      }),
+    ).toThrow();
+  });
+
+  it("rejects scale answers outside the fixed one to five range", () => {
+    expect(() =>
+      interactionQuestionSchema.parse({
+        type: "scale",
+        questionId: "question_00000000-0000-4000-8000-000000000011",
+        prompt: "만족도",
+        required: true,
+        min: 0,
+        max: 10,
+      }),
+    ).toThrow();
+  });
+
+  it("keeps poll and quiz drafts type-safe", () => {
+    expect(
+      createInteractionLibraryItemRequestSchema.parse({
+        kind: "poll",
+        title: "만족도",
+        questions: [
+          {
+            type: "scale",
+            questionId: "question_00000000-0000-4000-8000-000000000012",
+            prompt: "어땠나요?",
+            required: true,
+            min: 1,
+            max: 5,
+          },
+        ],
+        resultVisibility: "live",
+      }),
+    ).toMatchObject({
+      kind: "poll",
+      quizScoring: "none",
+      resultVisibility: "live",
+    });
+
+    expect(() =>
+      interactionDraftSchema.parse({
+        kind: "poll",
+        title: "퀴즈가 섞인 투표",
+        questions: [
+          {
+            type: "quiz-true-false",
+            questionId: "question_00000000-0000-4000-8000-000000000013",
+            prompt: "맞나요?",
+            correctAnswer: true,
+          },
+        ],
+      }),
+    ).toThrow("poll interactions cannot include quiz questions");
+
+    expect(() =>
+      interactionDraftSchema.parse({
+        kind: "quiz",
+        title: "투표가 섞인 퀴즈",
+        questions: [
+          {
+            type: "open-text",
+            questionId: "question_00000000-0000-4000-8000-000000000014",
+            prompt: "의견",
+            required: false,
+          },
+        ],
+      }),
+    ).toThrow("quiz interactions cannot include poll questions");
+  });
+
+  it("validates audience answer request shapes", () => {
+    expect(
+      submitInteractionResponseRequestSchema.parse({
+        questionId: "question_00000000-0000-4000-8000-000000000015",
+        answer: { type: "scale", value: 5 },
+      }),
+    ).toEqual({
+      questionId: "question_00000000-0000-4000-8000-000000000015",
+      answer: { type: "scale", value: 5 },
+    });
+
+    expect(() =>
+      interactionAnswerSchema.parse({ type: "scale", value: 6 }),
+    ).toThrow();
+    expect(() =>
+      interactionAnswerSchema.parse({
+        type: "ranking",
+        orderedOptionIds: ["a", "b", "c", "d", "e", "f"],
       }),
     ).toThrow();
   });

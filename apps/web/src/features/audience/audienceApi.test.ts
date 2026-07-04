@@ -1,9 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  fetchAudienceActiveInteraction,
   fetchAudienceMe,
   fetchAudienceState,
   joinAudienceSession,
   lookupAudienceSession,
+  submitAudienceInteractionResponse,
 } from "./audienceApi";
 
 describe("audience API", () => {
@@ -174,5 +176,89 @@ describe("audience API", () => {
     await expect(
       joinAudienceSession({ joinCode: "123456", nickname: "orbit" }),
     ).rejects.toThrow("이미 사용 중인 닉네임입니다.");
+  });
+
+  it("fetches the active audience interaction", async () => {
+    const fetcher = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            interaction: {
+              interactionId: "interaction_00000000-0000-4000-8000-000000000001",
+              sessionId: "session_1",
+              kind: "poll",
+              title: "만족도",
+              questions: [
+                {
+                  type: "scale",
+                  questionId: "question_00000000-0000-4000-8000-000000000001",
+                  prompt: "만족도",
+                  required: true,
+                  min: 1,
+                  max: 5,
+                },
+              ],
+              resultVisibility: "live",
+              quizScoring: "none",
+              source: "ad-hoc",
+              order: 0,
+              activatedAt: "2026-07-05T00:00:00.000Z",
+              closedAt: null,
+            },
+            results: null,
+          }),
+        ),
+    );
+    vi.stubGlobal("fetch", fetcher);
+
+    await expect(
+      fetchAudienceActiveInteraction({ sessionId: "session_1" }),
+    ).resolves.toMatchObject({
+      interaction: { title: "만족도" },
+    });
+    expect(fetcher).toHaveBeenCalledWith(
+      "/api/v1/presentation-sessions/session_1/audience/interactions/active",
+      expect.objectContaining({ method: "GET", credentials: "include" }),
+    );
+  });
+
+  it("submits audience interaction responses without token fields", async () => {
+    const fetcher = vi.fn(
+      async (_input: RequestInfo | URL, init?: RequestInit) => {
+        expect(JSON.parse(String(init?.body))).toEqual({
+          questionId: "question_00000000-0000-4000-8000-000000000001",
+          answer: { type: "scale", value: 5 },
+        });
+        return new Response(
+          JSON.stringify({
+            response: {
+              responseId: "response_00000000-0000-4000-8000-000000000001",
+              interactionId:
+                "interaction_00000000-0000-4000-8000-000000000001",
+              sessionId: "session_1",
+              audienceId: "audience_00000000-0000-4000-8000-000000000001",
+              questionId: "question_00000000-0000-4000-8000-000000000001",
+              answer: { type: "scale", value: 5 },
+              isCorrect: null,
+              score: 0,
+              submittedAt: "2026-07-05T00:00:00.000Z",
+              updatedAt: "2026-07-05T00:00:00.000Z",
+            },
+          }),
+        );
+      },
+    );
+    vi.stubGlobal("fetch", fetcher);
+
+    await expect(
+      submitAudienceInteractionResponse({
+        sessionId: "session_1",
+        interactionId: "interaction_00000000-0000-4000-8000-000000000001",
+        questionId: "question_00000000-0000-4000-8000-000000000001",
+        answer: { type: "scale", value: 5 },
+      }),
+    ).resolves.toMatchObject({
+      response: { answer: { value: 5 } },
+    });
   });
 });

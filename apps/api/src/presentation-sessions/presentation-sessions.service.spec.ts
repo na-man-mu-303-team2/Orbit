@@ -475,4 +475,195 @@ describe("PresentationSessionsService", () => {
       }),
     ).rejects.toThrow("audience payload must not include speakerNotes");
   });
+
+  it("creates interaction library items and copies them into a session", async () => {
+    const libraryRow = {
+      library_interaction_id:
+        "library_interaction_00000000-0000-4000-8000-000000000001",
+      project_id: "project_1",
+      title: "오늘 발표 만족도",
+      kind: "poll" as const,
+      questions_json: [
+        {
+          type: "scale" as const,
+          questionId: "question_00000000-0000-4000-8000-000000000001",
+          prompt: "만족도를 골라 주세요.",
+          required: true,
+          min: 1 as const,
+          max: 5 as const,
+        },
+      ],
+      result_visibility: "live" as const,
+      quiz_scoring: "none" as const,
+      created_at: "2026-07-05T00:00:00.000Z",
+      updated_at: "2026-07-05T00:00:00.000Z",
+    };
+    const sessionInteractionRow = {
+      interaction_id: "interaction_00000000-0000-4000-8000-000000000001",
+      session_id: "session_existing",
+      kind: "poll" as const,
+      title: "오늘 발표 만족도",
+      questions_json: libraryRow.questions_json,
+      result_visibility: "live" as const,
+      quiz_scoring: "none" as const,
+      source: "library" as const,
+      display_order: 0,
+      activated_at: null,
+      closed_at: null,
+    };
+    const query = vi
+      .fn()
+      .mockResolvedValueOnce([libraryRow])
+      .mockResolvedValueOnce([{ session_id: "session_existing" }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([libraryRow])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ session_id: "session_existing" }])
+      .mockResolvedValueOnce([sessionInteractionRow]);
+    const service = new PresentationSessionsService({
+      query,
+    } as unknown as DataSource);
+
+    await expect(
+      service.createLibraryInteraction("project_1", {
+        kind: "poll",
+        title: "오늘 발표 만족도",
+        questions: libraryRow.questions_json,
+        resultVisibility: "live",
+      }),
+    ).resolves.toMatchObject({
+      interaction: {
+        libraryInteractionId:
+          "library_interaction_00000000-0000-4000-8000-000000000001",
+        kind: "poll",
+        title: "오늘 발표 만족도",
+      },
+    });
+
+    await expect(
+      service.selectSessionInteractions(
+        { projectId: "project_1", sessionId: "session_existing" },
+        {
+          libraryInteractionIds: [
+            "library_interaction_00000000-0000-4000-8000-000000000001",
+          ],
+        },
+      ),
+    ).resolves.toMatchObject({
+      interactions: [
+        {
+          interactionId: "interaction_00000000-0000-4000-8000-000000000001",
+          source: "library",
+          order: 0,
+        },
+      ],
+    });
+
+    expect(query.mock.calls[4][0]).toContain(
+      "INSERT INTO session_interactions",
+    );
+  });
+
+  it("allows poll response edits but rejects quiz response edits", async () => {
+    const pollInteractionRow = {
+      interaction_id: "interaction_00000000-0000-4000-8000-000000000001",
+      session_id: "session_existing",
+      kind: "poll" as const,
+      title: "만족도",
+      questions_json: [
+        {
+          type: "scale" as const,
+          questionId: "question_00000000-0000-4000-8000-000000000001",
+          prompt: "만족도",
+          required: true,
+          min: 1 as const,
+          max: 5 as const,
+        },
+      ],
+      result_visibility: "live" as const,
+      quiz_scoring: "none" as const,
+      source: "ad-hoc" as const,
+      display_order: 0,
+      activated_at: "2026-07-05T00:00:00.000Z",
+      closed_at: null,
+    };
+    const responseRow = {
+      response_id: "response_00000000-0000-4000-8000-000000000001",
+      interaction_id: pollInteractionRow.interaction_id,
+      session_id: "session_existing",
+      audience_id: "audience_00000000-0000-4000-8000-000000000001",
+      question_id: "question_00000000-0000-4000-8000-000000000001",
+      answer_json: { type: "scale" as const, value: 5 },
+      is_correct: null,
+      score: 0,
+      submitted_at: "2026-07-05T00:00:01.000Z",
+      updated_at: "2026-07-05T00:00:02.000Z",
+    };
+    const query = vi
+      .fn()
+      .mockResolvedValueOnce([
+        {
+          audience_id: "audience_00000000-0000-4000-8000-000000000001",
+          session_id: "session_existing",
+          nickname: "orbit",
+          joined_at: "2026-07-05T00:00:00.000Z",
+          last_seen_at: "2026-07-05T00:00:00.000Z",
+          joined_before_end: true,
+        },
+      ])
+      .mockResolvedValueOnce([activeSessionRow])
+      .mockResolvedValueOnce([pollInteractionRow])
+      .mockResolvedValueOnce([responseRow])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        {
+          audience_id: "audience_00000000-0000-4000-8000-000000000001",
+          session_id: "session_existing",
+          nickname: "orbit",
+          joined_at: "2026-07-05T00:00:00.000Z",
+          last_seen_at: "2026-07-05T00:00:00.000Z",
+          joined_before_end: true,
+        },
+      ])
+      .mockResolvedValueOnce([activeSessionRow])
+      .mockResolvedValueOnce([{ ...pollInteractionRow, kind: "quiz" }])
+      .mockRejectedValueOnce(
+        Object.assign(new Error("duplicate quiz response"), { code: "23505" }),
+      );
+    const service = new PresentationSessionsService({
+      query,
+    } as unknown as DataSource);
+
+    await expect(
+      service.submitInteractionResponse({
+        sessionId: "session_existing",
+        audienceId: "audience_00000000-0000-4000-8000-000000000001",
+        tokenHash: "token_hash",
+        interactionId: pollInteractionRow.interaction_id,
+        body: {
+          questionId: "question_00000000-0000-4000-8000-000000000001",
+          answer: { type: "scale", value: 5 },
+        },
+      }),
+    ).resolves.toMatchObject({
+      response: {
+        answer: { type: "scale", value: 5 },
+      },
+    });
+
+    await expect(
+      service.submitInteractionResponse({
+        sessionId: "session_existing",
+        audienceId: "audience_00000000-0000-4000-8000-000000000001",
+        tokenHash: "token_hash",
+        interactionId: pollInteractionRow.interaction_id,
+        body: {
+          questionId: "question_00000000-0000-4000-8000-000000000001",
+          answer: { type: "scale", value: 5 },
+        },
+      }),
+    ).rejects.toBeInstanceOf(ConflictException);
+
+    expect(query.mock.calls[3][0]).toContain("ON CONFLICT");
+  });
 });

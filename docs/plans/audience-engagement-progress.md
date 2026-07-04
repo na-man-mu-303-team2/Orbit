@@ -11,12 +11,12 @@ The top-level `## Current State` and `## Resume Checkpoint` sections are the sou
 - Last completed milestone: 4
 - Next milestone: 5
 - Integration branch: `feature/audience`
-- Current expected branch: `feature/audience`
+- Current expected branch: `feature/audience-m05-interactions`
 - Goal status: in progress
 
 ## Resume Checkpoint
 
-- Current branch: `feature/audience`
+- Current branch: `feature/audience-m05-interactions`
 - Next milestone: 5
 - Resume first checks:
   - Run `git status --short --branch`.
@@ -25,7 +25,7 @@ The top-level `## Current State` and `## Resume Checkpoint` sections are the sou
   - Read relevant product-plan sections for polls, quizzes, interaction library, result visibility, scoring, and one-active-interaction rules.
   - Read `packages/shared/src/interactions/interaction.schema.ts`, `apps/api/src/presentation-sessions/*`, and existing audience/presenter UI patterns before editing.
 - Blocked: no
-- Notes: Milestones 1-4 implementation was already present on `feature/audience`; progress was recovered after verification. Milestone 5 is the next implementation milestone.
+- Notes: Milestones 1-4 implementation was already present on `feature/audience`; progress was recovered after verification. Milestone 5 implementation is active.
 
 ## Milestone Log
 
@@ -187,6 +187,19 @@ The top-level `## Current State` and `## Resume Checkpoint` sections are the sou
   - Current branch: `feature/audience`
   - Next milestone: 5
   - Resume first checks: read Milestone 5 plan, confirm `feature/audience` status, and implement poll/quiz interaction library and session interaction engine.
+
+## Milestone 5 Start - 2026-07-05
+
+- Branch: `feature/audience-m05-interactions`
+- Scope: project interaction library CRUD for polls/quizzes, session interaction copy/activation/close, poll/quiz response submission/editing, one-active-interaction enforcement, result visibility and aggregation, audience active-card forms, and presenter control/results summaries.
+- Acceptance criteria: one active poll/quiz at a time; poll response editable before close; quiz response final; ranking max 5 and scale 1-5 validation; result visibility honored; presenter sees live/post-close aggregates; accessible interaction forms and validation errors.
+- Likely files: `packages/shared/src/interactions/*`, `apps/api/src/database/migrations/*`, `apps/api/src/presentation-sessions/*`, `apps/web/src/features/audience/*`, `apps/web/src/features/rehearsal/presenter/*`.
+- Verification plan: shared interaction schema tests, API tests for library/session interaction/response flows, web active-card and presenter controls tests, `pnpm audience:checkpoint`.
+- Major risks: implementing enough session interaction behavior without leaking future survey/Q&A table scope; preserving M1 migration split by creating only M5 feature tables here.
+- Resume checkpoint snapshot:
+  - Current branch: `feature/audience-m05-interactions`
+  - Next milestone: 5
+  - Resume first checks: inspect interaction schemas, presentation session service/controller, and audience active card UI before editing.
 
 ## Progress Entry Template
 
