@@ -302,3 +302,15 @@
 - Rationale: 사용자가 요청한 CI 코드 삭제 범위를 이미지의 CI job 전체로 해석하고, 배포 자동화까지 함께 제거하는 과도한 변경은 피한다. PR 검증은 수동 명령과 PR 본문 증거로 남긴다.
 - Affected files: `.github/workflows/ci.yml`, `.github/pull_request_template.md`, `docs/testing/test-matrix.md`, `README.md`, `docs/decision-log.md`.
 - Follow-up review notes: GitHub branch protection에 삭제된 CI job이 required check로 남아 있으면 GitHub 설정에서 제거해야 한다. CI를 다시 도입할 때는 `pnpm test:smoke` 범위와 Python worker OS/Python 버전 차이를 먼저 정리한다.
+
+## ORBIT TypeScript CI restore policy
+
+- Context: 전체 CI 제거 뒤 사용자는 삭제된 CI 중 `typescript` 자동 검증만 다시 되살리도록 요청했다. 기존 `typescript` job은 `check-env`, `pnpm build`, `pnpm lint`, `pnpm test`를 실행했다.
+- Options considered:
+  - 기존 `.github/workflows/ci.yml` 전체를 복원한다.
+  - `typescript` job만 별도 workflow로 복원한다.
+  - build/lint만 실행하고 test는 제외한다.
+- Final decision: `.github/workflows/typescript-ci.yml`을 새로 추가해 TypeScript 관련 path의 PR과 `develop` push에서 `check-env`, `pnpm build`, `pnpm lint`, `pnpm test`만 실행한다. Python worker, Compose, Playwright smoke, automation-check, detect-changes job은 복원하지 않는다.
+- Rationale: 사용자가 요청한 복구 범위를 TypeScript 자동 검증으로 제한하면서, 기존 `typescript` job의 핵심 회귀 검증은 유지한다. 별도 workflow로 분리해 전체 CI 삭제 결정과 충돌하지 않도록 한다.
+- Affected files: `.github/workflows/typescript-ci.yml`, `.env.staging.example`, `.env.production.example`, `apps/web/src/features/editor/shell/EditorShell.test.tsx`, `docs/testing/test-matrix.md`, `README.md`, `docs/decision-log.md`.
+- Follow-up review notes: GitHub branch protection required check로 `typescript`를 다시 지정할지는 첫 PR 실행 결과를 확인한 뒤 별도 결정한다. Python worker/Compose/Playwright smoke 자동화 재도입은 별도 안정화 PR에서 검토한다.

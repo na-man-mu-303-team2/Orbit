@@ -211,7 +211,7 @@ describe("editor shell", () => {
 
     expect(html).toContain(deck.title);
     expect(html).toContain("Opening");
-    expect(html).toContain('title="표"');
+    expect(html).toContain("차트");
     expect(html).not.toContain("Data Contract");
     expect(html).toContain("발표 메모");
     expect(html).toContain("저장됨");

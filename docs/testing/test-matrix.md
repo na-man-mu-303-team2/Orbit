@@ -8,11 +8,12 @@
 | --- | --- | --- |
 | docs-only PR | 변경 Markdown UTF-8 읽기 확인 | 구현과 무관한 PR에서 코드 테스트 미실행 사유를 PR 본문에 남김 |
 | automation-only PR | automation JSON 확인, Node script syntax check, 필요한 경우 `pnpm lint` | workflow/script/schema 변경 자체를 수동으로 검증 |
-| app/API/shared/worker/compose/env/lockfile PR | `node infra/scripts/check-env.mjs`, `pnpm build`, `pnpm lint`, `pnpm test`, Python `ruff/mypy/pytest`, `docker compose config --quiet` 중 변경 경로와 관련된 명령 | merge 전 빠른 회귀를 수동으로 확인 |
-| `main`/`develop` push | 자동 CI 없음 | merge 후 base branch 조합 검증은 필요 시 수동으로 실행 |
+| app/API/shared/worker/compose/env/lockfile PR | TypeScript CI: `node infra/scripts/check-env.mjs`, `pnpm build`, `pnpm lint`, `pnpm test`; 수동: Python `ruff/mypy/pytest`, `docker compose config --quiet` 중 변경 경로와 관련된 명령 | merge 전 빠른 TypeScript 회귀는 자동 확인하고, Python/Compose 계층은 필요 시 수동 확인 |
+| `develop` push | TypeScript CI 자동 실행 | merge 후 base branch TypeScript 조합 검증 |
+| `main` push | 자동 CI 없음 | release branch 조합 검증은 필요 시 수동으로 실행 |
 | 수동 또는 scheduled | `pnpm test:smoke`, 전체 Playwright E2E, 1000명 load test, 실제 브라우저 STT 측정 | 무겁거나 환경 의존적인 검증 |
 
-현재 GitHub Actions CI workflow는 제거되어 PR 자동 검사 job을 실행하지 않는다. 수동 검증이 필요하면 로컬 또는 별도 실행 환경에서 위 명령을 실행하고 PR 본문에 결과를 남긴다.
+현재 GitHub Actions CI는 TypeScript 검증만 자동 실행한다. Python worker, Docker Compose, Playwright smoke처럼 환경 의존성이 큰 검증이 필요하면 로컬 또는 별도 실행 환경에서 실행하고 PR 본문에 결과를 남긴다.
 
 ## PR Review Rule
 
