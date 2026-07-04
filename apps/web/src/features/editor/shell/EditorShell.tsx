@@ -9,12 +9,9 @@ import {
   createDeleteAnimationPatch,
   createElementId,
   createReplaceKeywordsPatch,
-  createUpdateAnimationKeywordTriggerPatch,
   createUpsertAdvanceSlideKeywordActionPatch,
   deriveKeywordUsage,
   findKeywordByTerm,
-  getAnimationTriggerAction,
-  getKeywordTriggerLabel,
   createGroupedElementFramePatch,
   createUpdateAnimationPatch,
   getElementAnimations,
@@ -53,8 +50,11 @@ import {
   normalizeCustomShapeAbsoluteGeometry
 } from "../canvas/custom-shape/geometry";
 import {
-  AnimationEditorModal
-} from "./components/AnimationEditorModal";
+  AnimationSidePanel,
+  defaultAnimationPaneWidth,
+  maxAnimationPaneWidth,
+  minAnimationPaneWidth
+} from "./components/animation";
 import {
   EmptyCanvasState,
   EmptyPanel
@@ -82,6 +82,7 @@ import {
   type SaveState
 } from "./hooks/useEditorPersistenceState";
 import { useProjectShareAccess } from "./hooks/useProjectShareAccess";
+import { beginHorizontalPaneResize } from "./utils/beginHorizontalPaneResize";
 export {
   EditorStateNotice
 } from "./components/EditorStateNotice";
@@ -805,14 +806,17 @@ export function EditorShell(props: { projectId?: string }) {
   const queryClient = useQueryClient();
   const [currentSlideIndex, setCurrentSlideIndex] = useState(0);
   const [isDataViewOpen, setIsDataViewOpen] = useState(false);
+  const [isAnimationPanelOpen, setIsAnimationPanelOpen] = useState(false);
   const [isRightPanelOpen, setIsRightPanelOpen] = useState(true);
   const [isSlidesPaneCollapsed, setIsSlidesPaneCollapsed] = useState(false);
   const [slidesPaneWidth, setSlidesPaneWidth] = useState(defaultSlidesPaneWidth);
+  const [animationPaneWidth, setAnimationPaneWidth] = useState(
+    defaultAnimationPaneWidth
+  );
   const [rightPaneWidth, setRightPaneWidth] = useState(defaultRightPaneWidth);
   const [projectPresenceUsers, setProjectPresenceUsers] = useState<ProjectPresenceUser[]>([]);
   const [isPresenceDebugOpen, setIsPresenceDebugOpen] = useState(false);
   const [isAudienceLinkModalOpen, setIsAudienceLinkModalOpen] = useState(false);
-  const [isAnimationEditorModalOpen, setIsAnimationEditorModalOpen] = useState(false);
   const [lastPresenceAt, setLastPresenceAt] = useState<string | null>(null);
   const [socketErrorMessage, setSocketErrorMessage] = useState("");
   const [socketId, setSocketId] = useState("");
@@ -1058,27 +1062,6 @@ export function EditorShell(props: { projectId?: string }) {
         : [],
     [currentSlide, selectedElement]
   );
-  const selectedElementAnimationTriggerLabels = useMemo(
-    () =>
-      currentSlide
-        ? Object.fromEntries(
-            selectedElementAnimations.map((animation) => {
-              const triggerAction = getAnimationTriggerAction(
-                currentSlide,
-                animation.animationId
-              );
-
-              return [
-                animation.animationId,
-                triggerAction
-                  ? getKeywordTriggerLabel(currentSlide, triggerAction.trigger)
-                  : "트리거 없음"
-              ];
-            })
-          )
-        : {},
-    [currentSlide, selectedElementAnimations]
-  );
   const currentSlideAnimationDiagnostics = useMemo(
     () =>
       currentSlide
@@ -1086,15 +1069,6 @@ export function EditorShell(props: { projectId?: string }) {
         : null,
     [currentSlide, selectedElement?.elementId]
   );
-  useEffect(() => {
-    if (!isAnimationEditorModalOpen) {
-      return;
-    }
-
-    if (!currentSlide || !selectedElement) {
-      setIsAnimationEditorModalOpen(false);
-    }
-  }, [currentSlide, isAnimationEditorModalOpen, selectedElement]);
   const isCustomShapeEditingSelection =
     selectedElement?.type === "customShape" &&
     selectedElement.elementId === customShapeEditElementId;
@@ -1147,7 +1121,6 @@ export function EditorShell(props: { projectId?: string }) {
     { action: "rehearsal", icon: Sparkles, label: "리허설 시작", meta: "키워드 체크" },
     { action: "audience-link", icon: Share2, label: "청중 링크/QR", meta: "공유 준비" }
   ] as const;
-
   useEffect(() => {
     const persistedDeck = deckQuery.data;
 
@@ -1826,19 +1799,8 @@ export function EditorShell(props: { projectId?: string }) {
     );
   }
 
-  function handleAssignAnimationTrigger(
-    slideId: string,
-    animationId: string,
-    keywordId: string
-  ) {
-    commitPatch((currentDeck) =>
-      createUpdateAnimationKeywordTriggerPatch(
-        currentDeck,
-        slideId,
-        animationId,
-        keywordId
-      )
-    );
+  function openAnimationInspector() {
+    setIsAnimationPanelOpen(true);
   }
 
   function openImageFilePicker(target: ImageUploadTarget) {
@@ -2612,65 +2574,41 @@ export function EditorShell(props: { projectId?: string }) {
   function handleSlidesPaneResizeStart(
     event: ReactPointerEvent<HTMLButtonElement>
   ) {
-    event.preventDefault();
-    setIsSlidesPaneCollapsed(false);
-
-    const startX = event.clientX;
-    const startWidth = isSlidesPaneCollapsed
-      ? minSlidesPaneWidth
-      : slidesPaneWidth;
-
-    function handlePointerMove(pointerEvent: PointerEvent) {
-      const nextWidth = Math.min(
-        maxSlidesPaneWidth,
-        Math.max(minSlidesPaneWidth, startWidth + pointerEvent.clientX - startX)
-      );
-      setSlidesPaneWidth(nextWidth);
-    }
-
-    function handlePointerUp() {
-      document.body.style.cursor = "";
-      document.body.style.userSelect = "";
-      window.removeEventListener("pointermove", handlePointerMove);
-      window.removeEventListener("pointerup", handlePointerUp);
-    }
-
-    document.body.style.cursor = "col-resize";
-    document.body.style.userSelect = "none";
-    window.addEventListener("pointermove", handlePointerMove);
-    window.addEventListener("pointerup", handlePointerUp);
+    beginHorizontalPaneResize({
+      direction: "expand-right",
+      event,
+      maxWidth: maxSlidesPaneWidth,
+      minWidth: minSlidesPaneWidth,
+      onResizeStart: () => setIsSlidesPaneCollapsed(false),
+      onWidthChange: setSlidesPaneWidth,
+      startWidth: isSlidesPaneCollapsed ? minSlidesPaneWidth : slidesPaneWidth
+    });
   }
 
   function handleRightPaneResizeStart(
     event: ReactPointerEvent<HTMLButtonElement>
   ) {
-    event.preventDefault();
+    beginHorizontalPaneResize({
+      direction: "expand-left",
+      event,
+      maxWidth: maxRightPaneWidth,
+      minWidth: minRightPaneWidth,
+      onWidthChange: setRightPaneWidth,
+      startWidth: rightPaneWidth
+    });
+  }
 
-    const startX = event.clientX;
-    const startWidth = rightPaneWidth;
-
-    function handlePointerMove(pointerEvent: PointerEvent) {
-      const nextWidth = Math.min(
-        maxRightPaneWidth,
-        Math.max(
-          minRightPaneWidth,
-          startWidth + (startX - pointerEvent.clientX)
-        )
-      );
-      setRightPaneWidth(nextWidth);
-    }
-
-    function handlePointerUp() {
-      document.body.style.cursor = "";
-      document.body.style.userSelect = "";
-      window.removeEventListener("pointermove", handlePointerMove);
-      window.removeEventListener("pointerup", handlePointerUp);
-    }
-
-    document.body.style.cursor = "col-resize";
-    document.body.style.userSelect = "none";
-    window.addEventListener("pointermove", handlePointerMove);
-    window.addEventListener("pointerup", handlePointerUp);
+  function handleAnimationPaneResizeStart(
+    event: ReactPointerEvent<HTMLButtonElement>
+  ) {
+    beginHorizontalPaneResize({
+      direction: "expand-right",
+      event,
+      maxWidth: maxAnimationPaneWidth,
+      minWidth: minAnimationPaneWidth,
+      onWidthChange: setAnimationPaneWidth,
+      startWidth: animationPaneWidth
+    });
   }
 
   useEffect(() => {
@@ -3401,66 +3339,6 @@ export function EditorShell(props: { projectId?: string }) {
         projectId={projectId}
         onClose={() => setIsAudienceLinkModalOpen(false)}
       />
-      <AnimationEditorModal
-        animationDiagnostics={
-          currentSlideAnimationDiagnostics ?? {
-            danglingAnimations: [],
-            duplicateOrders: [],
-            selectedElementEmpty: false
-          }
-        }
-        animationTriggerLabels={selectedElementAnimationTriggerLabels}
-        animations={selectedElementAnimations}
-        canCreateAnimation={Boolean(currentSlide && selectedElement && selectedKeyword)}
-        element={selectedElement}
-        isOpen={isAnimationEditorModalOpen}
-        keywords={currentSlide?.keywords ?? []}
-        notes={currentSlide?.speakerNotes ?? ""}
-        selectedKeywordId={selectedKeywordId}
-        selectedKeywordLabel={selectedKeyword?.text ?? null}
-        showIds={showIds}
-        slide={currentSlide}
-        onAddAnimation={(draft) => {
-          if (!currentSlide || !selectedElement) {
-            return;
-          }
-
-          handleAddAnimation(
-            currentSlide.slideId,
-            selectedElement.elementId,
-            selectedKeyword?.keywordId,
-            draft
-          );
-        }}
-        onAssignSelectedKeywordToAnimation={(animationId) => {
-          if (!currentSlide || !selectedKeyword) {
-            return;
-          }
-
-          handleAssignAnimationTrigger(
-            currentSlide.slideId,
-            animationId,
-            selectedKeyword.keywordId
-          );
-        }}
-        onClose={() => setIsAnimationEditorModalOpen(false)}
-        onDeleteAnimation={(animationId) => {
-          if (!currentSlide) {
-            return;
-          }
-
-          handleDeleteAnimation(currentSlide.slideId, animationId);
-        }}
-        onSelectKeyword={setSelectedKeywordId}
-        onSelectKeywordText={handleSpeakerNotesKeywordSelection}
-        onUpdateAnimation={(animationId, animation) => {
-          if (!currentSlide) {
-            return;
-          }
-
-          handleUpdateAnimation(currentSlide.slideId, animationId, animation);
-        }}
-      />
       {isPresenceDebugOpen
         ? createPortal(
             <div
@@ -3533,12 +3411,13 @@ export function EditorShell(props: { projectId?: string }) {
       ) : null}
 
       <section
-        className={`editor-panel ${isRightPanelOpen ? "" : "right-panel-closed"} ${
-          isSlidesPaneCollapsed ? "slides-panel-collapsed" : ""
-        }`}
+        className={`editor-panel ${isAnimationPanelOpen ? "animation-panel-open" : ""} ${
+          isRightPanelOpen ? "" : "right-panel-closed"
+        } ${isSlidesPaneCollapsed ? "slides-panel-collapsed" : ""}`}
         aria-label="Presentation editor"
         style={
           {
+            "--animation-pane-width": `${animationPaneWidth}px`,
             "--slides-pane-width": `${
               isSlidesPaneCollapsed ? collapsedSlidesPaneWidth : slidesPaneWidth
             }px`,
@@ -3642,6 +3521,43 @@ export function EditorShell(props: { projectId?: string }) {
           />
         </aside>
 
+        {isAnimationPanelOpen ? (
+          <AnimationSidePanel
+            animations={selectedElementAnimations}
+            canCreateAnimation={Boolean(currentSlide && selectedElement)}
+            element={selectedElement}
+            onAddAnimation={(draft) => {
+              if (!currentSlide || !selectedElement) {
+                return;
+              }
+
+              handleAddAnimation(
+                currentSlide.slideId,
+                selectedElement.elementId,
+                null,
+                draft
+              );
+            }}
+            showIds={showIds}
+            onClose={() => setIsAnimationPanelOpen(false)}
+            onResizeStart={handleAnimationPaneResizeStart}
+            onDeleteAnimation={(animationId) => {
+              if (!currentSlide) {
+                return;
+              }
+
+              handleDeleteAnimation(currentSlide.slideId, animationId);
+            }}
+            onUpdateAnimation={(animationId, animation) => {
+              if (!currentSlide) {
+                return;
+              }
+
+              handleUpdateAnimation(currentSlide.slideId, animationId, animation);
+            }}
+          />
+        ) : null}
+
         <section className="stage-pane">
           <div className="stage-top-controls">
             <div className="editor-toolbar">
@@ -3721,8 +3637,7 @@ export function EditorShell(props: { projectId?: string }) {
                     if (!currentSlide || !selectedElement) {
                       return;
                     }
-
-                    setIsAnimationEditorModalOpen(true);
+                    openAnimationInspector();
                   }}
                 >
                   <Sparkles size={14} />
@@ -3765,7 +3680,7 @@ export function EditorShell(props: { projectId?: string }) {
               selectedKeywordLabel={selectedKeyword?.text ?? null}
               slide={selectedElementIds.length > 1 ? null : currentSlide}
               showIds={showIds}
-              onOpenAnimationEditor={() => setIsAnimationEditorModalOpen(true)}
+              onOpenAnimationEditor={openAnimationInspector}
               onDeleteAnimation={(animationId) => {
                 if (!currentSlide) {
                   return;

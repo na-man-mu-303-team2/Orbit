@@ -43,8 +43,9 @@ describe("SelectionQuickBar", () => {
     );
 
     expect(html).toContain("애니메이션 편집");
-    expect(html).toContain("애니메이션 1개 연결됨");
-    expect(html).toContain("선택 키워드: ORBIT");
+    expect(html).toContain("나타나기");
+    expect(html).not.toContain("나타나기 1개가 연결되어 있습니다.");
+    expect(html).not.toContain("선택 키워드: ORBIT");
     expect(html).not.toContain("재생");
     expect(html).not.toContain("지연");
   });
@@ -73,7 +74,8 @@ describe("SelectionQuickBar", () => {
       />
     );
 
-    expect(html).toContain("애니메이션 추가");
+    expect(html).toContain("애니메이션 편집");
+    expect(html).toContain("애니메이션 없음");
   });
 
   it("renders dangling animation cleanup in slide quickbar", () => {

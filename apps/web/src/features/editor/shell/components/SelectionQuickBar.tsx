@@ -17,6 +17,7 @@ import {
   getCustomShapeStrokeWidth
 } from "../../canvas/custom-shape/geometry";
 import type { SlideAnimationDiagnostics } from "../../../../../../../packages/editor-core/src/index";
+import { buildAnimationSummary } from "./animation/animationUi";
 import { IdBadge } from "./EditorIdBadge";
 
 export function SelectionQuickBar(props: {
@@ -54,7 +55,6 @@ export function SelectionQuickBar(props: {
   const {
     animations,
     animationDiagnostics,
-    canCreateAnimation,
     customShapeEditActive,
     element,
     onOpenAnimationEditor,
@@ -64,7 +64,6 @@ export function SelectionQuickBar(props: {
     onDeleteAnimation,
     onToggleCustomShapeClosed,
     onToggleCustomShapeEdit,
-    selectedKeywordLabel,
     showIds,
     slide
   } = props;
@@ -125,6 +124,9 @@ export function SelectionQuickBar(props: {
 
   const showOpacityControl = element.type !== "text";
   const showMeta = showIds;
+  const animationSummary = buildAnimationSummary(animations, {
+    emptyLabel: "애니메이션 없음"
+  });
 
   return (
     <section className="selection-quickbar" data-testid="editor-element-quickbar">
@@ -183,29 +185,17 @@ export function SelectionQuickBar(props: {
           </span>
         ) : null}
         <div className="quickbar-divider" />
+        <span className={`quickbar-status-pill ${animationSummary.tone}`}>
+          {animationSummary.label}
+        </span>
         <button
           className="quickbar-action-chip"
           type="button"
           onClick={onOpenAnimationEditor}
         >
-          {animations.length > 0 ? "애니메이션 편집" : "애니메이션 추가"}
+          <span>애니메이션 편집</span>
+          <PenLine aria-hidden="true" size={14} />
         </button>
-        {animations.length > 0 ? (
-          <span className="quickbar-inline-hint">
-            {`애니메이션 ${animations.length}개 연결됨`}
-          </span>
-        ) : (
-          <span className="quickbar-inline-hint">
-            아직 연결된 애니메이션이 없습니다
-          </span>
-        )}
-        <span className="quickbar-inline-hint">
-          {selectedKeywordLabel
-            ? `선택 키워드: ${selectedKeywordLabel}`
-            : canCreateAnimation
-              ? "키워드는 나중에 연결할 수 있습니다"
-              : "애니메이션을 편집하려면 요소를 선택하세요"}
-        </span>
       </div>
     </section>
   );
