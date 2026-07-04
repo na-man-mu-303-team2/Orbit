@@ -246,6 +246,37 @@ def sync_pptx_ooxml(
     )
 
 
+def apply_slot_texts_to_pptx_ooxml(
+    path: Path,
+    *,
+    template_blueprint: dict[str, Any],
+    slot_texts: list[str],
+    render: bool = True,
+) -> PptxOoxmlSyncResult:
+    canvas = detect_canvas(path)
+    package_bytes = replace_content_slot_text(
+        path.read_bytes(),
+        template_blueprint,
+        slot_texts,
+    )
+    assets = [
+        package_asset("current_package", package_bytes, f"{safe_file_stem(path)}.pptx")
+    ]
+    warnings: list[str] = []
+
+    if render:
+        try:
+            assets.extend(render_pptx_to_png_assets(package_bytes, canvas))
+        except PptxRenderUnavailableError as error:
+            warnings.append(str(error))
+
+    return PptxOoxmlSyncResult(
+        assets=assets,
+        elementSources=[],
+        warnings=warnings,
+    )
+
+
 def detect_canvas(path: Path) -> CanvasSpec:
     presentation = Presentation(str(path))
     width = max(1, int(presentation.slide_width or 1))

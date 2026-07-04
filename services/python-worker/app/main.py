@@ -25,6 +25,7 @@ from app.ai.pptx_ooxml_generation import (
     PptxOoxmlGenerationResult,
     PptxOoxmlSyncResult,
     UnsupportedPptxAspectRatioError,
+    apply_slot_texts_to_pptx_ooxml,
     generate_pptx_ooxml,
     sync_pptx_ooxml,
 )
@@ -419,6 +420,36 @@ async def sync_pptx_ooxml_endpoint(
                 operations=json.loads(operations),
                 deck_canvas=json.loads(deck_canvas),
                 synced_deck_version=synced_deck_version,
+                render=render,
+            )
+        except (json.JSONDecodeError, TypeError, ValueError) as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+        except PptxOoxmlGenerationError as error:
+            raise HTTPException(status_code=503, detail=str(error)) from error
+
+
+@app.post("/ai/pptx-ooxml-apply-slot-texts", response_model=PptxOoxmlSyncResult)
+async def apply_pptx_ooxml_slot_texts_endpoint(
+    file: UploadFile = File(...),
+    template_blueprint: str = Form(...),
+    slot_texts: str = Form(...),
+    render: bool = Form(True),
+) -> PptxOoxmlSyncResult:
+    from pathlib import Path
+    from tempfile import TemporaryDirectory
+
+    with TemporaryDirectory(prefix="orbit-ooxml-apply-") as temp_dir:
+        source_path = Path(temp_dir) / Path(file.filename or "current.pptx").name
+        source_path.write_bytes(await file.read())
+        try:
+            raw_slot_texts = json.loads(slot_texts)
+            if not isinstance(raw_slot_texts, list):
+                raise ValueError("slot_texts must be a JSON array.")
+            return await run_in_threadpool(
+                apply_slot_texts_to_pptx_ooxml,
+                source_path,
+                template_blueprint=json.loads(template_blueprint),
+                slot_texts=[str(text) for text in raw_slot_texts],
                 render=render,
             )
         except (json.JSONDecodeError, TypeError, ValueError) as error:

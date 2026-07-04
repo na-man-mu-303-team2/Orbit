@@ -12,6 +12,7 @@ from pptx.util import Inches
 
 from app.ai.pptx_ooxml_generation import (
     PptxRenderUnavailableError,
+    apply_slot_texts_to_pptx_ooxml,
     generate_pptx_ooxml,
     insert_media_slot_image,
     render_pptx_to_png_assets,
@@ -173,6 +174,31 @@ def test_sync_pptx_ooxml_applies_text_and_frame_patch(tmp_path: Path) -> None:
     assert b"Placeholder Title" not in slide_xml
     assert b'x="609600"' in slide_xml
     assert b'cx="4064000"' in slide_xml
+
+
+def test_apply_slot_texts_to_pptx_ooxml_updates_package(
+    tmp_path: Path,
+) -> None:
+    pptx_path = sample_pptx(tmp_path)
+    generated = generate_pptx_ooxml(pptx_path, "file_template", render=False)
+
+    result = apply_slot_texts_to_pptx_ooxml(
+        pptx_path,
+        template_blueprint=generated.template_blueprint,
+        slot_texts=["AI Title", "AI Subtitle"],
+        render=False,
+    )
+    package_asset = next(
+        asset for asset in result.assets if asset.asset_id == "current_package"
+    )
+    package_bytes = base64.b64decode(package_asset.content_base64)
+
+    with zipfile.ZipFile(BytesIO(package_bytes), "r") as package:
+        slide_xml = package.read("ppt/slides/slide1.xml")
+
+    assert result.warnings == []
+    assert b"AI Title" in slide_xml
+    assert b"Placeholder Title" not in slide_xml
 
 
 def test_renders_slide_pngs_when_libreoffice_is_available(tmp_path: Path) -> None:
