@@ -6,7 +6,14 @@ import {
   Gauge,
   Timer
 } from "lucide-react";
-import type { ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode
+} from "react";
 
 import type {
   ExtractedSentence,
@@ -41,8 +48,52 @@ export function RehearsalPanel(props: RehearsalPanelProps) {
   const provisionalMissingKeywordIds = new Set(
     props.snapshot.provisionalMissingKeywordIds
   );
-  const coveredSentenceIds = new Set(props.snapshot.coveredSentenceIds);
+  const coveredSentenceIds = useMemo(
+    () => new Set(props.snapshot.coveredSentenceIds),
+    [props.snapshot.coveredSentenceIds]
+  );
+  const sentenceRefs = useRef(new Map<string, HTMLParagraphElement>());
+  const [isScriptAutoFollowEnabled, setIsScriptAutoFollowEnabled] = useState(true);
+  const focusSentenceId = useMemo(
+    () =>
+      getRehearsalScriptFocusSentenceId(
+        props.sentences,
+        props.snapshot.coveredSentenceIds
+      ),
+    [props.sentences, props.snapshot.coveredSentenceIds]
+  );
   const showAdvice = props.mode === "rehearsal";
+
+  const scrollScriptToFocus = useCallback(
+    (behavior: ScrollBehavior) => {
+      if (!focusSentenceId) {
+        return;
+      }
+
+      sentenceRefs.current.get(focusSentenceId)?.scrollIntoView({
+        block: "nearest",
+        behavior
+      });
+    },
+    [focusSentenceId]
+  );
+
+  useEffect(() => {
+    setIsScriptAutoFollowEnabled(true);
+  }, [props.snapshot.slideId]);
+
+  useEffect(() => {
+    if (!isScriptAutoFollowEnabled) {
+      return;
+    }
+
+    scrollScriptToFocus("smooth");
+  }, [
+    isScriptAutoFollowEnabled,
+    props.snapshot.coveredSentenceIds,
+    props.snapshot.slideId,
+    scrollScriptToFocus
+  ]);
 
   return (
     <section className="rehearsal-panel" aria-label="발표 진행 패널">
@@ -108,9 +159,28 @@ export function RehearsalPanel(props: RehearsalPanelProps) {
       <section className="rehearsal-panel-section rehearsal-panel-script" aria-label="발표 대본">
         <div className="rehearsal-panel-section-heading">
           <span>대본</span>
-          <strong>{Math.round(props.snapshot.effectiveCoverage * 100)}%</strong>
+          <div className="rehearsal-panel-heading-actions">
+            {!isScriptAutoFollowEnabled ? (
+              <button
+                className="rehearsal-panel-follow-button"
+                type="button"
+                onClick={() => {
+                  setIsScriptAutoFollowEnabled(true);
+                  scrollScriptToFocus("smooth");
+                }}
+              >
+                따라가기
+              </button>
+            ) : null}
+            <strong>{Math.round(props.snapshot.effectiveCoverage * 100)}%</strong>
+          </div>
         </div>
-        <div className="rehearsal-panel-script-body" data-auto-scroll="false">
+        <div
+          className="rehearsal-panel-script-body"
+          data-auto-scroll={isScriptAutoFollowEnabled ? "true" : "paused"}
+          onPointerDown={() => setIsScriptAutoFollowEnabled(false)}
+          onWheel={() => setIsScriptAutoFollowEnabled(false)}
+        >
           {props.sentences.length > 0 ? (
             props.sentences.map((sentence) => {
               const covered = coveredSentenceIds.has(sentence.sentenceId);
@@ -123,7 +193,16 @@ export function RehearsalPanel(props: RehearsalPanelProps) {
                   ]
                     .filter(Boolean)
                     .join(" ")}
+                  data-sentence-id={sentence.sentenceId}
                   key={sentence.sentenceId}
+                  ref={(node) => {
+                    if (node) {
+                      sentenceRefs.current.set(sentence.sentenceId, node);
+                      return;
+                    }
+
+                    sentenceRefs.current.delete(sentence.sentenceId);
+                  }}
                 >
                   <span>
                     <KeywordHighlightedText
@@ -165,6 +244,44 @@ export function RehearsalPanel(props: RehearsalPanelProps) {
         </section>
       ) : null}
     </section>
+  );
+}
+
+export function getRehearsalScriptFocusSentenceId(
+  sentences: readonly ExtractedSentence[],
+  coveredSentenceIdsInput: ReadonlySet<string> | readonly string[]
+) {
+  const coveredSentenceIds =
+    coveredSentenceIdsInput instanceof Set
+      ? coveredSentenceIdsInput
+      : new Set(coveredSentenceIdsInput);
+  let lastCoveredMatchableIndex = -1;
+
+  sentences.forEach((sentence, index) => {
+    if (sentence.matchable && coveredSentenceIds.has(sentence.sentenceId)) {
+      lastCoveredMatchableIndex = index;
+    }
+  });
+
+  const nextMatchableSentence = sentences
+    .slice(lastCoveredMatchableIndex + 1)
+    .find(
+      (sentence) =>
+        sentence.matchable && !coveredSentenceIds.has(sentence.sentenceId)
+    );
+
+  if (nextMatchableSentence) {
+    return nextMatchableSentence.sentenceId;
+  }
+
+  if (lastCoveredMatchableIndex >= 0) {
+    return sentences[lastCoveredMatchableIndex]?.sentenceId ?? null;
+  }
+
+  return (
+    sentences.find((sentence) => sentence.matchable)?.sentenceId ??
+    sentences[0]?.sentenceId ??
+    null
   );
 }
 
