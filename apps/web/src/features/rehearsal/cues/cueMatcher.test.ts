@@ -38,6 +38,26 @@ describe("cueMatcher", () => {
     ]);
   });
 
+  it("tailCharacters 밖의 오래된 final transcript는 이후 cue matching에 사용하지 않는다", () => {
+    const matcher = createCueMatcher({ tailCharacters: 4 });
+
+    matcher.acceptResult(
+      { text: "오래된 핵심", isFinal: true, timestampMs: [0, 500] },
+      [createCue({ cueId: "cue_old_1", phrase: "오래된 핵심" })]
+    );
+    matcher.acceptResult(
+      { text: "중간 발화가 충분히 깁니다", isFinal: true, timestampMs: [500, 900] },
+      []
+    );
+
+    const matches = matcher.acceptResult(
+      { text: "지표", isFinal: true, timestampMs: [900, 1200] },
+      [createCue({ cueId: "cue_old_1", phrase: "오래된 핵심 지표" })]
+    );
+
+    expect(matches).toEqual([]);
+  });
+
   it("여러 cue가 동시에 매칭되면 provider 순서대로 반환한다", () => {
     const matcher = createCueMatcher();
     const matches = matcher.acceptResult(

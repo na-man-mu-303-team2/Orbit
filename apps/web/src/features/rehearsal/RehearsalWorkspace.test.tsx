@@ -1,7 +1,12 @@
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import { createDemoDeck } from "@orbit/editor-core";
-import type { Job, RehearsalReport, RehearsalRun } from "@orbit/shared";
+import {
+  deckSchema,
+  type Job,
+  type RehearsalReport,
+  type RehearsalRun
+} from "@orbit/shared";
 import type { ReactNode } from "react";
 import { forwardRef } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -12,6 +17,7 @@ import {
   RehearsalFlowError,
   RehearsalWorkspace,
   SherpaLiveSttAdapter,
+  applyCueEngineCommandsToPresenterState,
   applyLiveTranscriptBias,
   applyLiveTranscriptEvent,
   buildLiveSttBiasContext,
@@ -59,6 +65,7 @@ import {
   detectRehearsalCommandCandidate
 } from "./rehearsalCommands";
 import { resolveEditorAssetUrl } from "../editor/shared/editorAssetUrl";
+import { createPresenterCueProvider } from "./cues/cueProvider";
 
 const createdAt = "2026-06-29T00:00:00.000Z";
 const rehearsalWorkspaceSourcePath = fileURLToPath(
@@ -947,6 +954,84 @@ describe("RehearsalWorkspace", () => {
     );
   });
 
+  it("stops cue next-step execution after the command origin slide changes", () => {
+    const deck = createCueCommandBoundaryDeck();
+    const provider = createPresenterCueProvider({ deck });
+    const result = applyCueEngineCommandsToPresenterState({
+      advanceCueMatchedSlideId: "slide_p0_1",
+      commands: [
+        {
+          type: "next-step",
+          animationId: "anim_image_zoom_in",
+          cueId: "cue_first_step",
+          slideId: "slide_p0_1"
+        },
+        {
+          type: "next-step",
+          animationId: "anim_image_zoom_in",
+          cueId: "cue_second_step",
+          slideId: "slide_p0_1"
+        }
+      ],
+      cueProvider: provider,
+      deck,
+      highlights: [{ elementId: "el_body", active: true }],
+      slideIndex: 0,
+      stepIndex: 1
+    });
+
+    expect(result).toMatchObject({
+      advanceCueMatchedSlideId: null,
+      advanceCueMatchedSlideIdChanged: true,
+      nextStepExecuted: true,
+      slideIndex: 1,
+      stepIndex: 0
+    });
+    expect(result.highlights).toEqual([]);
+  });
+
+  it("applies same-slide cue highlights, steps, and advance gate together", () => {
+    const deck = createCueCommandBoundaryDeck();
+    const provider = createPresenterCueProvider({ deck });
+    const result = applyCueEngineCommandsToPresenterState({
+      advanceCueMatchedSlideId: null,
+      commands: [
+        {
+          type: "set-highlight",
+          active: true,
+          cueId: "cue_highlight_body",
+          elementId: "el_body",
+          slideId: "slide_p0_1"
+        },
+        {
+          type: "next-step",
+          animationId: "anim_image_zoom_in",
+          cueId: "cue_first_step",
+          slideId: "slide_p0_1"
+        },
+        {
+          type: "mark-advance-cue-matched",
+          cueId: "cue_advance_gate",
+          slideId: "slide_p0_1"
+        }
+      ],
+      cueProvider: provider,
+      deck,
+      highlights: [],
+      slideIndex: 0,
+      stepIndex: 0
+    });
+
+    expect(result).toMatchObject({
+      advanceCueMatchedSlideId: "slide_p0_1",
+      advanceCueMatchedSlideIdChanged: true,
+      nextStepExecuted: true,
+      slideIndex: 0,
+      stepIndex: 1
+    });
+    expect(result.highlights).toEqual([{ elementId: "el_body", active: true }]);
+  });
+
   it("computes remaining trigger steps when P4 fixtures inject cue-referenced animations", () => {
     const slide = p0AnimationDeck.slides[0]!;
     const triggerAnimationIds = [
@@ -1431,6 +1516,67 @@ describe("fetchRehearsalReport", () => {
     expect(result.report?.transcript).toBeNull();
   });
 });
+
+function createCueCommandBoundaryDeck() {
+  return deckSchema.parse({
+    ...p0AnimationDeck,
+    deckId: "deck_p5_command_boundary",
+    slides: p0AnimationDeck.slides.map((slide, index) => {
+      if (index === 0) {
+        return {
+          ...slide,
+          speechCues: [
+            {
+              cueId: "cue_boundary_animation",
+              trigger: { phrases: ["이미지 확대"] },
+              action: {
+                type: "animation",
+                animationId: "anim_image_zoom_in"
+              },
+              source: "user"
+            },
+            {
+              cueId: "cue_boundary_advance",
+              trigger: { phrases: ["다음 장"] },
+              action: { type: "advance-slide" },
+              source: "user"
+            }
+          ]
+        };
+      }
+
+      if (index === 1) {
+        return {
+          ...slide,
+          animations: [
+            {
+              animationId: "anim_second_title",
+              elementId: "el_second_title",
+              type: "fade-in",
+              order: 1,
+              durationMs: 400,
+              delayMs: 0,
+              easing: "ease-out"
+            }
+          ],
+          speechCues: [
+            {
+              cueId: "cue_second_animation",
+              trigger: { phrases: ["두 번째"] },
+              action: {
+                type: "animation",
+                animationId: "anim_second_title"
+              },
+              source: "user"
+            }
+          ]
+        };
+      }
+
+      return slide;
+    })
+  });
+}
 
 class FakeMediaRecorder {
   static isTypeSupported(mimeType: string) {

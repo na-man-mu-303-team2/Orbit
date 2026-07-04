@@ -34,7 +34,7 @@ export function createCueMatcher(options: {
     options.diceThreshold ?? defaultSpeechTrackingConfig.diceThreshold;
   const tailCharacters =
     options.tailCharacters ?? defaultSpeechTrackingConfig.matchingTailCharacters;
-  let previousFinalTranscript = "";
+  let previousFinalTail = "";
 
   function acceptResult(
     result: Pick<LiveSttResult, "text" | "isFinal" | "timestampMs">,
@@ -45,11 +45,14 @@ export function createCueMatcher(options: {
     }
 
     const finalSegmentWindow = createFinalSegmentWindow({
-      previousFinalTranscript,
+      previousFinalTranscript: previousFinalTail,
       latestFinalSegment: result.text,
       tailCharacters
     });
-    previousFinalTranscript = appendTranscript(previousFinalTranscript, result.text);
+    previousFinalTail = toTranscriptTail(
+      appendTranscript(previousFinalTail, result.text),
+      tailCharacters
+    );
 
     const matches: CueMatch[] = [];
     for (const cue of cues) {
@@ -73,7 +76,7 @@ export function createCueMatcher(options: {
   return {
     acceptResult,
     reset: () => {
-      previousFinalTranscript = "";
+      previousFinalTail = "";
     }
   };
 }
@@ -104,4 +107,13 @@ function matchCue(
 
 function appendTranscript(current: string, next: string) {
   return [current.trim(), next.trim()].filter(Boolean).join(" ");
+}
+
+function toTranscriptTail(value: string, tailCharacters: number) {
+  const normalizedTailCharacters = Math.max(0, tailCharacters);
+  if (normalizedTailCharacters === 0) {
+    return "";
+  }
+
+  return Array.from(value.trim()).slice(-normalizedTailCharacters).join("").trim();
 }
