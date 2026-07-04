@@ -1568,10 +1568,7 @@ export function RehearsalWorkspace(props: {
 
   useEffect(() => {
     resetAutoAdvanceRuntimeState(currentSlide?.slideId ?? null);
-    resetLiveTranscriptForSlide(currentSlide);
-    const nextSlidePlaybackState = createSlidePlaybackState();
-    slidePlaybackStateRef.current = nextSlidePlaybackState;
-    setSlidePlaybackState(nextSlidePlaybackState);
+    resetLivePlaybackForSlide(currentSlide);
     const nextBiasContext = deck && currentSlide
       ? buildLiveSttBiasContext(currentSlide, {
           nearbySlides: getNearbySlides(deck, currentSlideIndex)
@@ -1605,8 +1602,7 @@ export function RehearsalWorkspace(props: {
     setLiveError("");
     setLiveAudioLevel(null);
     setLiveDebugPcmRecording(null);
-    resetLiveTranscriptForSlide(currentSlide);
-    setLiveSlideAdvance(null);
+    resetLivePlaybackForSlide(currentSlide);
     resetAutoAdvanceRuntimeState(currentSlide?.slideId ?? null);
 
     if (!navigator.mediaDevices?.getUserMedia) {
@@ -1660,8 +1656,7 @@ export function RehearsalWorkspace(props: {
     setLiveError("");
     setLiveAudioLevel(null);
     setLiveDebugPcmRecording(null);
-    resetLiveTranscriptForSlide(currentSlide);
-    setLiveSlideAdvance(null);
+    resetLivePlaybackForSlide(currentSlide);
     resetAutoAdvanceRuntimeState(currentSlide?.slideId ?? null);
 
     if (!navigator.mediaDevices?.getUserMedia) {
@@ -1725,6 +1720,7 @@ export function RehearsalWorkspace(props: {
     setLiveStatus((current) =>
       current === "listening" || current === "starting" ? "stopped" : current
     );
+    resetLivePlaybackForSlide(currentSlide);
     resetAutoAdvanceRuntimeState(currentSlide?.slideId ?? null);
     if (options.showCompletionModal && wasLiveDemoActive) {
       setIsLiveStopModalOpen(true);
@@ -1736,6 +1732,7 @@ export function RehearsalWorkspace(props: {
 
     setPhase("uploading");
     setIsTimerRunning(false);
+    resetLivePlaybackForSlide(currentSlide);
     resetAutoAdvanceRuntimeState(currentSlide?.slideId ?? null);
     cleanupLiveSttSubscriptions();
     const p3Session = p3SessionRef.current;
@@ -2226,6 +2223,14 @@ export function RehearsalWorkspace(props: {
     setLiveTranscriptBuffer(nextBuffer);
     setLiveKeywordState(nextKeywordState);
     setLiveCue(null);
+  }
+
+  function resetLivePlaybackForSlide(slide: Slide | null) {
+    resetLiveTranscriptForSlide(slide);
+    const nextSlidePlaybackState = createSlidePlaybackState();
+    slidePlaybackStateRef.current = nextSlidePlaybackState;
+    setSlidePlaybackState(nextSlidePlaybackState);
+    setLiveSlideAdvance(null);
   }
 
   function getCurrentLiveBiasContext(deckSnapshot: Deck, slideIndex: number) {
