@@ -15,7 +15,7 @@
   type ProjectMemberRole,
   type ProjectMemberStatus,
   type RehearsalReport,
-  type RehearsalRun
+  type RehearsalRun,
 } from "@orbit/shared";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -30,9 +30,15 @@ import {
   Paperclip,
   Plus,
   Search,
-  Sparkles
+  Sparkles,
 } from "lucide-react";
-import type { CSSProperties, ChangeEvent, DragEvent, FormEvent, ReactNode } from "react";
+import type {
+  CSSProperties,
+  ChangeEvent,
+  DragEvent,
+  FormEvent,
+  ReactNode,
+} from "react";
 import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import { createDemoDeck } from "../../../packages/editor-core/src/index";
 import orbitLogo from "./assets/orbit-logo.png";
@@ -40,17 +46,20 @@ import {
   createProject,
   fetchProjects,
   resolveAssetMimeType,
-  uploadProjectAsset
+  uploadProjectAsset,
 } from "./features/projects/ProjectAssetWorkspace";
 import {
   RehearsalReportPage,
-  RehearsalWorkspace
+  RehearsalWorkspace,
 } from "./features/rehearsal/RehearsalWorkspace";
 import { AudienceSessionPage } from "./pages/audience/AudienceSessionPage";
 import { PresentWindow } from "./features/rehearsal/presenter/PresentWindow";
 import { ReadOnlySlideCanvas } from "./features/slides/rendering";
 
-type Fetcher = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
+type Fetcher = (
+  input: RequestInfo | URL,
+  init?: RequestInit,
+) => Promise<Response>;
 
 type ExtractedFile = {
   referenceDocumentId?: string;
@@ -119,7 +128,9 @@ type GenerateDeckDesignDirection = {
   mediaPolicy: "avoid" | "balanced" | "placeholder-ok";
   layoutDiversity: "stable" | "varied";
 };
-type GenerateDeckDesignProfile = NonNullable<GenerateDeckDesignDirection["profile"]>;
+type GenerateDeckDesignProfile = NonNullable<
+  GenerateDeckDesignDirection["profile"]
+>;
 type GenerateDeckDesignProfileChoice = "auto" | GenerateDeckDesignProfile;
 
 type GenerateDeckTargetProject = {
@@ -154,7 +165,7 @@ export type Route =
   | { name: "project-list" }
   | { name: "project-editor"; projectId: string }
   | { name: "project-request"; projectId: string }
-  | { name: "audience-session"; sessionId: string }
+  | { name: "audience-join"; joinCode?: string }
   | { name: "present"; deckId: string; sessionId?: string }
   | { name: "rehearsal"; projectId: string }
   | { name: "rehearsal-report"; projectId: string; runId: string }
@@ -179,16 +190,20 @@ type ProjectAccessResponse = {
 
 const EditorShell = lazy(() =>
   import("./features/editor/shell/EditorShell").then((module) => ({
-    default: module.EditorShell
-  }))
+    default: module.EditorShell,
+  })),
 );
 
 const templates = [
-  { id: "blank", title: "새 프레젠테이션", description: "빈 슬라이드에서 시작" },
+  {
+    id: "blank",
+    title: "새 프레젠테이션",
+    description: "빈 슬라이드에서 시작",
+  },
   { id: "pitch", title: "피치덱", description: "문제, 해결책, 시장 흐름" },
   { id: "lesson", title: "수업 자료", description: "학습 목표와 활동 중심" },
   { id: "report", title: "보고서", description: "요약과 근거 중심" },
-  { id: "workshop", title: "워크숍", description: "진행 순서와 실습 구성" }
+  { id: "workshop", title: "워크숍", description: "진행 순서와 실습 구성" },
 ];
 const demoDeck = createDemoDeck();
 const reportMockupRunId = "run_report_mockup";
@@ -203,7 +218,7 @@ const reportMockupRun: RehearsalRun = {
   error: null,
   rawAudioDeletedAt: null,
   createdAt: "2026-07-01T08:54:12.000Z",
-  updatedAt: reportMockupGeneratedAt
+  updatedAt: reportMockupGeneratedAt,
 };
 const reportMockupReport: RehearsalReport = {
   reportId: "report_mockup",
@@ -217,44 +232,47 @@ const reportMockupReport: RehearsalReport = {
     wordsPerMinute: 128,
     fillerWordCount: 3,
     pauseCount: 2,
-    keywordCoverage: 0.86
+    keywordCoverage: 0.86,
   },
   speedSamples: [
     { startSecond: 0, endSecond: 30, wordsPerMinute: 118 },
     { startSecond: 30, endSecond: 60, wordsPerMinute: 132 },
-    { startSecond: 60, endSecond: 90, wordsPerMinute: 126 }
+    { startSecond: 60, endSecond: 90, wordsPerMinute: 126 },
   ],
   fillerWordDetails: [{ word: "음", count: 3 }],
   pauseDetails: [{ startSecond: 144, endSecond: 146, durationSeconds: 2 }],
-  missedKeywords: [{ slideId: "slide_1", keywordId: "kw_1", text: "핵심 메시지" }],
+  missedKeywords: [
+    { slideId: "slide_1", keywordId: "kw_1", text: "핵심 메시지" },
+  ],
   slideTimings: [{ slideId: "slide_1", targetSeconds: 60, actualSeconds: 58 }],
   qnaSummary: {
     questionCount: 0,
     questionSummary: "",
-    unclearTopics: []
+    unclearTopics: [],
   },
   coaching: {
     status: "succeeded",
-    summary: "핵심 메시지는 안정적으로 전달됐고, 속도도 발표 시간에 잘 맞습니다.",
+    summary:
+      "핵심 메시지는 안정적으로 전달됐고, 속도도 발표 시간에 잘 맞습니다.",
     strengths: [
       "도입부에서 발표 목적을 빠르게 제시했습니다.",
       "중요 키워드를 반복해 청중이 흐름을 따라가기 좋았습니다.",
-      "슬라이드 전환 사이의 멈춤이 과하지 않았습니다."
+      "슬라이드 전환 사이의 멈춤이 과하지 않았습니다.",
     ],
     improvements: [
       "중간 설명에서 일부 filler 표현이 반복됩니다.",
       "마무리 전에 다음 행동을 더 명확하게 요청하면 좋습니다.",
-      "수치가 있는 문장은 한 번 더 천천히 읽는 편이 좋습니다."
+      "수치가 있는 문장은 한 번 더 천천히 읽는 편이 좋습니다.",
     ],
     nextPracticeFocus:
       "다음 연습에서는 결론 슬라이드의 CTA 문장을 먼저 고정하고, 수치 설명 구간의 호흡을 조금 더 길게 가져가세요.",
-    message: ""
+    message: "",
   },
-  generatedAt: reportMockupGeneratedAt
+  generatedAt: reportMockupGeneratedAt,
 };
 const pptxAccept = [
   "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-  ".pptx"
+  ".pptx",
 ].join(",");
 const homeAssetAccept = [
   ...allowedAssetMimeTypes,
@@ -264,14 +282,14 @@ const homeAssetAccept = [
   ".jpg",
   ".jpeg",
   ".png",
-  ".webp"
+  ".webp",
 ].join(",");
 const pptxMimeType =
   "application/vnd.openxmlformats-officedocument.presentationml.presentation";
 
 async function fetchCurrentUser(): Promise<AuthUser> {
   const response = await fetch("/api/v1/auth/me", {
-    credentials: "include"
+    credentials: "include",
   });
   if (!response.ok) {
     throw new Error("Unauthenticated");
@@ -280,19 +298,26 @@ async function fetchCurrentUser(): Promise<AuthUser> {
   return "user" in payload ? payload.user : payload;
 }
 
-async function fetchProjectAccess(projectId: string): Promise<ProjectAccessResponse> {
-  const response = await fetch(`/api/v1/projects/${encodeURIComponent(projectId)}/access`, {
-    credentials: "include"
-  });
+async function fetchProjectAccess(
+  projectId: string,
+): Promise<ProjectAccessResponse> {
+  const response = await fetch(
+    `/api/v1/projects/${encodeURIComponent(projectId)}/access`,
+    {
+      credentials: "include",
+    },
+  );
   if (!response.ok) {
-    throw new Error(await readApiError(response, "프로젝트 권한을 확인하지 못했습니다."));
+    throw new Error(
+      await readApiError(response, "프로젝트 권한을 확인하지 못했습니다."),
+    );
   }
   return response.json() as Promise<ProjectAccessResponse>;
 }
 
 async function requestProjectAccess(
   projectId: string,
-  role: Exclude<ProjectMemberRole, "owner">
+  role: Exclude<ProjectMemberRole, "owner">,
 ): Promise<ProjectAccessResponse> {
   const response = await fetch(
     `/api/v1/projects/${encodeURIComponent(projectId)}/access-requests`,
@@ -300,21 +325,21 @@ async function requestProjectAccess(
       body: JSON.stringify({ role }),
       credentials: "include",
       headers: { "Content-Type": "application/json" },
-      method: "POST"
-    }
+      method: "POST",
+    },
   );
   if (!response.ok) {
-    throw new Error(await readApiError(response, "프로젝트 권한 요청에 실패했습니다."));
+    throw new Error(
+      await readApiError(response, "프로젝트 권한 요청에 실패했습니다."),
+    );
   }
   return response.json() as Promise<ProjectAccessResponse>;
 }
 
-export function getRoute(
-  pathname?: string,
-  search?: string
-): Route {
+export function getRoute(pathname?: string, search?: string): Route {
   const currentPathname =
-    pathname ?? (typeof window === "undefined" ? "/" : window.location.pathname);
+    pathname ??
+    (typeof window === "undefined" ? "/" : window.location.pathname);
   const currentSearch =
     search ?? (typeof window === "undefined" ? "" : window.location.search);
   const normalized = currentPathname.replace(/\/+$/, "") || "/";
@@ -327,36 +352,51 @@ export function getRoute(
     return { name: "deck-render" };
   }
 
-  const audienceSessionMatch = normalized.match(/^\/audience\/([^/]+)$/);
-  if (audienceSessionMatch) {
+  if (normalized === "/join") {
+    return { name: "audience-join" };
+  }
+
+  const audienceJoinMatch = normalized.match(/^\/join\/([^/]+)$/);
+  if (audienceJoinMatch) {
     return {
-      name: "audience-session",
-      sessionId: decodeURIComponent(audienceSessionMatch[1])
+      name: "audience-join",
+      joinCode: decodeURIComponent(audienceJoinMatch[1]),
     };
   }
 
   const projectRequestMatch = normalized.match(/^\/project\/([^/]+)\/request$/);
   if (projectRequestMatch) {
-    return { name: "project-request", projectId: decodeURIComponent(projectRequestMatch[1]) };
+    return {
+      name: "project-request",
+      projectId: decodeURIComponent(projectRequestMatch[1]),
+    };
   }
 
   const projectMatch = normalized.match(/^\/project\/([^/]+)$/);
   if (projectMatch) {
-    return { name: "project-editor", projectId: decodeURIComponent(projectMatch[1]) };
+    return {
+      name: "project-editor",
+      projectId: decodeURIComponent(projectMatch[1]),
+    };
   }
 
-  const rehearsalReportMatch = normalized.match(/^\/rehearsal\/([^/]+)\/report\/([^/]+)$/);
+  const rehearsalReportMatch = normalized.match(
+    /^\/rehearsal\/([^/]+)\/report\/([^/]+)$/,
+  );
   if (rehearsalReportMatch) {
     return {
       name: "rehearsal-report",
       projectId: decodeURIComponent(rehearsalReportMatch[1]),
-      runId: decodeURIComponent(rehearsalReportMatch[2])
+      runId: decodeURIComponent(rehearsalReportMatch[2]),
     };
   }
 
   const rehearsalMatch = normalized.match(/^\/rehearsal\/([^/]+)$/);
   if (rehearsalMatch) {
-    return { name: "rehearsal", projectId: decodeURIComponent(rehearsalMatch[1]) };
+    return {
+      name: "rehearsal",
+      projectId: decodeURIComponent(rehearsalMatch[1]),
+    };
   }
 
   const presentMatch = normalized.match(/^\/present\/([^/]+)$/);
@@ -366,7 +406,7 @@ export function getRoute(
     return {
       name: "present",
       deckId: decodeURIComponent(presentMatch[1]),
-      sessionId
+      sessionId,
     };
   }
 
@@ -390,7 +430,7 @@ export function App() {
   const auth = useQuery({
     queryKey: ["auth", "me"],
     queryFn: fetchCurrentUser,
-    retry: false
+    retry: false,
   });
 
   useEffect(() => {
@@ -405,11 +445,7 @@ export function App() {
   }
 
   return (
-    <AppFrame
-      isAuthenticated={auth.isSuccess}
-      route={route}
-      user={auth.data}
-    >
+    <AppFrame isAuthenticated={auth.isSuccess} route={route} user={auth.data}>
       {renderRoute(route, auth.data)}
     </AppFrame>
   );
@@ -422,13 +458,14 @@ export function shouldRenderAppFrame(route: Route) {
     route.name !== "present" &&
     route.name !== "rehearsal-report" &&
     route.name !== "report-mockup" &&
-    route.name !== "audience-session" &&
+    route.name !== "audience-join" &&
     route.name !== "deck-render"
   );
 }
 
 function renderRoute(route: Route, user?: AuthUser) {
-  if (route.name === "login") return <LoginPage isAuthenticated={Boolean(user)} />;
+  if (route.name === "login")
+    return <LoginPage isAuthenticated={Boolean(user)} />;
   if (route.name === "create-deck") return <GenerateDeckView />;
   if (route.name === "project-list") return <ProjectListPage />;
   if (route.name === "project-editor") {
@@ -440,9 +477,10 @@ function renderRoute(route: Route, user?: AuthUser) {
       </ProjectAccessGate>
     );
   }
-  if (route.name === "project-request") return <ProjectAccessRequestPage projectId={route.projectId} />;
-  if (route.name === "audience-session") {
-    return <AudienceSessionPage sessionId={route.sessionId} />;
+  if (route.name === "project-request")
+    return <ProjectAccessRequestPage projectId={route.projectId} />;
+  if (route.name === "audience-join") {
+    return <AudienceSessionPage joinCode={route.joinCode} />;
   }
   if (route.name === "present") {
     return <PresentWindow deckId={route.deckId} sessionId={route.sessionId} />;
@@ -451,12 +489,16 @@ function renderRoute(route: Route, user?: AuthUser) {
     return (
       <RehearsalWorkspace
         projectId={route.projectId}
-        fallbackDeck={route.projectId === demoIds.projectId ? demoDeck : undefined}
+        fallbackDeck={
+          route.projectId === demoIds.projectId ? demoDeck : undefined
+        }
       />
     );
   }
   if (route.name === "rehearsal-report") {
-    return <RehearsalReportPage projectId={route.projectId} runId={route.runId} />;
+    return (
+      <RehearsalReportPage projectId={route.projectId} runId={route.runId} />
+    );
   }
   if (route.name === "report-mockup") {
     return (
@@ -482,12 +524,16 @@ export function isDeckRenderRouteEnabled() {
 export function DeckRenderPage() {
   const payload = readDeckRenderPayload();
   if (!payload) {
-    return <div data-testid="deck-render-error">Deck render payload missing.</div>;
+    return (
+      <div data-testid="deck-render-error">Deck render payload missing.</div>
+    );
   }
 
   const slide = payload.deck.slides[payload.slideIndex];
   if (!slide) {
-    return <div data-testid="deck-render-error">Deck render slide missing.</div>;
+    return (
+      <div data-testid="deck-render-error">Deck render slide missing.</div>
+    );
   }
 
   return (
@@ -514,7 +560,8 @@ function readDeckRenderPayload(): { deck: Deck; slideIndex: number } | null {
     const parsed = JSON.parse(raw) as { deck?: unknown; slideIndex?: unknown };
     const deck = deckSchema.parse(parsed.deck);
     const slideIndex =
-      typeof parsed.slideIndex === "number" && Number.isInteger(parsed.slideIndex)
+      typeof parsed.slideIndex === "number" &&
+      Number.isInteger(parsed.slideIndex)
         ? parsed.slideIndex
         : 0;
     return { deck, slideIndex };
@@ -550,7 +597,7 @@ function AppFrame(props: {
     try {
       await fetch("/api/v1/auth/logout", {
         credentials: "include",
-        method: "POST"
+        method: "POST",
       });
       queryClient.setQueryData(["auth", "me"], undefined);
       await queryClient.invalidateQueries({ queryKey: ["auth", "me"] });
@@ -598,7 +645,9 @@ function AppFrame(props: {
             onClick={() => navigateTo("/createdeck")}
           />
           <SidebarButton
-            active={route.name === "rehearsal" || route.name === "rehearsal-report"}
+            active={
+              route.name === "rehearsal" || route.name === "rehearsal-report"
+            }
             icon={<Monitor size={15} />}
             label="리허설 시작"
             onClick={() => navigateTo(`/rehearsal/${activeProjectId}`)}
@@ -607,7 +656,9 @@ function AppFrame(props: {
             {isAuthenticated ? (
               <>
                 <div className="report-user-trigger" aria-label="현재 사용자">
-                  <span className="report-avatar" aria-hidden="true">{userInitial}</span>
+                  <span className="report-avatar" aria-hidden="true">
+                    {userInitial}
+                  </span>
                   <span>{userLabel}</span>
                 </div>
                 <button
@@ -647,7 +698,11 @@ function SidebarButton(props: {
 }) {
   return (
     <button
-      className={props.active ? "rehearsal-report-nav-item active" : "rehearsal-report-nav-item"}
+      className={
+        props.active
+          ? "rehearsal-report-nav-item active"
+          : "rehearsal-report-nav-item"
+      }
       type="button"
       onClick={props.onClick}
     >
@@ -688,9 +743,9 @@ function LoginPage(props: { isAuthenticated: boolean }) {
         body: JSON.stringify({ email, password }),
         credentials: "include",
         headers: {
-          "Content-Type": "application/json"
+          "Content-Type": "application/json",
         },
-        method: "POST"
+        method: "POST",
       });
 
       if (!response.ok) {
@@ -705,7 +760,7 @@ function LoginPage(props: { isAuthenticated: boolean }) {
           ? cause.message
           : mode === "register"
             ? "회원가입에 실패했습니다."
-            : "로그인에 실패했습니다."
+            : "로그인에 실패했습니다.",
       );
     } finally {
       setIsSubmitting(false);
@@ -722,7 +777,11 @@ function LoginPage(props: { isAuthenticated: boolean }) {
             ? "처음 사용하는 환경이라면 계정을 먼저 생성하세요."
             : "계정으로 로그인하면 Orbit 작업 공간으로 이동합니다."}
         </p>
-        <div className="login-mode-switch" role="tablist" aria-label="인증 방식">
+        <div
+          className="login-mode-switch"
+          role="tablist"
+          aria-label="인증 방식"
+        >
           <button
             type="button"
             className={mode === "login" ? "active" : ""}
@@ -758,7 +817,9 @@ function LoginPage(props: { isAuthenticated: boolean }) {
         <label>
           <span>비밀번호</span>
           <input
-            autoComplete={mode === "register" ? "new-password" : "current-password"}
+            autoComplete={
+              mode === "register" ? "new-password" : "current-password"
+            }
             minLength={8}
             onChange={(event) => setPassword(event.target.value)}
             placeholder="비밀번호"
@@ -829,7 +890,7 @@ function ProjectAccessGate(props: { children: ReactNode; projectId: string }) {
   const access = useQuery({
     queryKey: ["project-access", props.projectId],
     queryFn: () => fetchProjectAccess(props.projectId),
-    retry: false
+    retry: false,
   });
 
   useEffect(() => {
@@ -840,8 +901,10 @@ function ProjectAccessGate(props: { children: ReactNode; projectId: string }) {
   }, [access.data?.membership, access.isSuccess, props.projectId]);
 
   if (access.isLoading) return <EditorLoadingFallback />;
-  if (access.isError) return <ProjectAccessError onRetry={() => void access.refetch()} />;
-  if (access.data?.membership?.status !== "accepted") return <EditorLoadingFallback />;
+  if (access.isError)
+    return <ProjectAccessError onRetry={() => void access.refetch()} />;
+  if (access.data?.membership?.status !== "accepted")
+    return <EditorLoadingFallback />;
 
   return <>{props.children}</>;
 }
@@ -852,7 +915,9 @@ function ProjectAccessError(props: { onRetry: () => void }) {
       <article className="project-request-card">
         <span className="eyebrow">Project access</span>
         <h1>프로젝트 권한을 확인하지 못했습니다.</h1>
-        <p>잠시 후 다시 시도하거나 프로젝트 소유자에게 권한 상태를 확인해 주세요.</p>
+        <p>
+          잠시 후 다시 시도하거나 프로젝트 소유자에게 권한 상태를 확인해 주세요.
+        </p>
         <button type="button" onClick={props.onRetry}>
           다시 확인
         </button>
@@ -863,13 +928,14 @@ function ProjectAccessError(props: { onRetry: () => void }) {
 
 function ProjectAccessRequestPage(props: { projectId: string }) {
   const queryClient = useQueryClient();
-  const [role, setRole] = useState<Exclude<ProjectMemberRole, "owner">>("editor");
+  const [role, setRole] =
+    useState<Exclude<ProjectMemberRole, "owner">>("editor");
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const access = useQuery({
     queryKey: ["project-access", props.projectId],
     queryFn: () => fetchProjectAccess(props.projectId),
-    retry: false
+    retry: false,
   });
 
   const membership = access.data?.membership;
@@ -891,7 +957,9 @@ function ProjectAccessRequestPage(props: { projectId: string }) {
       queryClient.setQueryData(["project-access", props.projectId], response);
     } catch (cause) {
       setError(
-        cause instanceof Error ? cause.message : "프로젝트 권한 요청에 실패했습니다."
+        cause instanceof Error
+          ? cause.message
+          : "프로젝트 권한 요청에 실패했습니다.",
       );
     } finally {
       setIsSubmitting(false);
@@ -934,7 +1002,11 @@ function ProjectAccessRequestPage(props: { projectId: string }) {
           이 프로젝트는 승인된 사용자만 열 수 있습니다. 필요한 권한을 선택해서
           프로젝트 소유자에게 요청하세요.
         </p>
-        <div className="project-request-options" role="radiogroup" aria-label="요청 권한">
+        <div
+          className="project-request-options"
+          role="radiogroup"
+          aria-label="요청 권한"
+        >
           <label className={role === "editor" ? "active" : ""}>
             <input
               checked={role === "editor"}
@@ -972,9 +1044,9 @@ function HomePage(props: { user?: AuthUser }) {
   const [topic, setTopic] = useState("");
   const [prompt, setPrompt] = useState("");
   const [designPrompt, setDesignPrompt] = useState("");
-  const [tone, setTone] = useState<"professional" | "friendly" | "confident" | "concise">(
-    "professional"
-  );
+  const [tone, setTone] = useState<
+    "professional" | "friendly" | "confident" | "concise"
+  >("professional");
   const [duration, setDuration] = useState(10);
   const [uploads, setUploads] = useState<UploadFile[]>([]);
   const [rejected, setRejected] = useState<RejectedFile[]>([]);
@@ -984,7 +1056,7 @@ function HomePage(props: { user?: AuthUser }) {
   const [isImporting, setIsImporting] = useState(false);
   const totalSize = useMemo(
     () => uploads.reduce((sum, upload) => sum + upload.file.size, 0),
-    [uploads]
+    [uploads],
   );
   const validationMessage = getHomeGenerationValidationMessage(topic, uploads);
 
@@ -1011,7 +1083,7 @@ function HomePage(props: { user?: AuthUser }) {
         const uploaded = await uploadProjectAsset(
           project.projectId,
           upload.file,
-          getAiTemplateUploadPurpose(upload)
+          getAiTemplateUploadPurpose(upload),
         );
         uploadedAssets.set(upload.id, uploaded.fileId);
       }
@@ -1023,7 +1095,7 @@ function HomePage(props: { user?: AuthUser }) {
         duration,
         tone,
         uploads,
-        uploadedAssetFileIds: uploadedAssets
+        uploadedAssetFileIds: uploadedAssets,
       });
       setStatus("AI 덱 생성 중...");
       const response = await fetch(
@@ -1031,25 +1103,29 @@ function HomePage(props: { user?: AuthUser }) {
         {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify(payload)
-        }
+          body: JSON.stringify(payload),
+        },
       );
 
       if (!response.ok) {
-        throw new Error(await readApiError(response, "AI 덱 생성을 시작하지 못했습니다."));
+        throw new Error(
+          await readApiError(response, "AI 덱 생성을 시작하지 못했습니다."),
+        );
       }
 
       const data = (await response.json()) as AiTemplateDeckGenerationResponse;
       setJob(data.job);
       const completed = await pollJob(data.job.jobId, fetch, {
         timeoutMs: 300_000,
-        delayMs: 1200
+        delayMs: 1200,
       });
       setJob(completed);
 
       if (completed.status === "failed") {
         throw new Error(
-          completed.error?.message || completed.message || "AI 덱 생성에 실패했습니다."
+          completed.error?.message ||
+            completed.message ||
+            "AI 덱 생성에 실패했습니다.",
         );
       }
 
@@ -1059,11 +1135,15 @@ function HomePage(props: { user?: AuthUser }) {
       }
 
       await queryClient.invalidateQueries({ queryKey: ["projects"] });
-      await queryClient.invalidateQueries({ queryKey: ["deck", project.projectId] });
+      await queryClient.invalidateQueries({
+        queryKey: ["deck", project.projectId],
+      });
       navigateTo(`/project/${encodeURIComponent(project.projectId)}`);
     } catch (submitError) {
       setError(
-        submitError instanceof Error ? submitError.message : "AI 덱 생성에 실패했습니다."
+        submitError instanceof Error
+          ? submitError.message
+          : "AI 덱 생성에 실패했습니다.",
       );
       setStatus("");
     } finally {
@@ -1096,7 +1176,9 @@ function HomePage(props: { user?: AuthUser }) {
 
   function updateUploadRole(id: string, role: UploadRole) {
     setUploads((current) =>
-      current.map((upload) => (upload.id === id ? { ...upload, role } : upload))
+      current.map((upload) =>
+        upload.id === id ? { ...upload, role } : upload,
+      ),
     );
     setError("");
     setStatus("");
@@ -1114,7 +1196,10 @@ function HomePage(props: { user?: AuthUser }) {
           <MessageSquareText size={30} />
         </div>
         <h2>무엇을 발표 자료로 만들까요?</h2>
-        <form className="home-ai-form" onSubmit={(event) => void handleSubmit(event)}>
+        <form
+          className="home-ai-form"
+          onSubmit={(event) => void handleSubmit(event)}
+        >
           <div className="chat-input-shell home-topic-row">
             <label className="chat-attach-button" aria-label="첨부파일 추가">
               <Paperclip size={18} />
@@ -1179,7 +1264,9 @@ function HomePage(props: { user?: AuthUser }) {
                 max={120}
                 value={duration}
                 disabled={isImporting}
-                onChange={(event) => setDuration(Number(event.target.value) || 1)}
+                onChange={(event) =>
+                  setDuration(Number(event.target.value) || 1)
+                }
               />
             </label>
           </div>
@@ -1196,18 +1283,25 @@ function HomePage(props: { user?: AuthUser }) {
                     <div>
                       <span className="file-name">{file.name}</span>
                       <span className="file-detail">
-                        {getExtension(file.name).toUpperCase()} · {formatBytes(file.size)}
+                        {getExtension(file.name).toUpperCase()} ·{" "}
+                        {formatBytes(file.size)}
                       </span>
                     </div>
                     <select
                       value={role}
-                      onChange={(event) => updateUploadRole(id, event.target.value as UploadRole)}
+                      onChange={(event) =>
+                        updateUploadRole(id, event.target.value as UploadRole)
+                      }
                       disabled={isImporting}
                       aria-label={`${file.name} 역할`}
                     >
                       <option value="content">내용 참고</option>
-                      {isPptxFile(file) ? <option value="design">디자인 참고</option> : null}
-                      {isPptxFile(file) ? <option value="both">둘 다</option> : null}
+                      {isPptxFile(file) ? (
+                        <option value="design">디자인 참고</option>
+                      ) : null}
+                      {isPptxFile(file) ? (
+                        <option value="both">둘 다</option>
+                      ) : null}
                     </select>
                     <button
                       type="button"
@@ -1258,7 +1352,7 @@ function ProjectListPage() {
   const projects = useQuery({
     queryKey: ["projects"],
     queryFn: () => fetchProjects(),
-    retry: false
+    retry: false,
   });
 
   async function handleCreateProject() {
@@ -1280,21 +1374,33 @@ function ProjectListPage() {
           <span>프로젝트</span>
           <h1>프로젝트 불러오기</h1>
         </div>
-        <button type="button" className="ghost-button" onClick={() => void projects.refetch()}>
+        <button
+          type="button"
+          className="ghost-button"
+          onClick={() => void projects.refetch()}
+        >
           <Search size={16} />
           새로고침
         </button>
       </header>
 
-      <TemplateRail title="템플릿" onCreateProject={handleCreateProject} isCreating={isCreating} />
+      <TemplateRail
+        title="템플릿"
+        onCreateProject={handleCreateProject}
+        isCreating={isCreating}
+      />
 
       <section className="project-history">
         <div className="section-heading">
           <h2>최근 에디팅한 프로젝트</h2>
           <span>{projects.data?.length ?? 0}개</span>
         </div>
-        {projects.isLoading ? <p className="empty-state">프로젝트를 불러오는 중입니다.</p> : null}
-        {projects.isError ? <p className="empty-state">프로젝트 목록을 불러오지 못했습니다.</p> : null}
+        {projects.isLoading ? (
+          <p className="empty-state">프로젝트를 불러오는 중입니다.</p>
+        ) : null}
+        {projects.isError ? (
+          <p className="empty-state">프로젝트 목록을 불러오지 못했습니다.</p>
+        ) : null}
         <div className="project-grid">
           {(projects.data ?? []).map((project) => (
             <ProjectCard key={project.projectId} project={project} />
@@ -1368,7 +1474,9 @@ function GenerateDeckView() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [generateError, setGenerateError] = useState("");
   const [generateJob, setGenerateJob] = useState<Job | null>(null);
-  const [result, setResult] = useState<PptxOoxmlGenerationJobResult | null>(null);
+  const [result, setResult] = useState<PptxOoxmlGenerationJobResult | null>(
+    null,
+  );
   const [selectedProjectId, setSelectedProjectId] = useState("");
   const [newProjectTitle, setNewProjectTitle] = useState("PPTX 기반 발표자료");
   const [isCreatingProject, setIsCreatingProject] = useState(false);
@@ -1376,11 +1484,11 @@ function GenerateDeckView() {
   const projectsQuery = useQuery({
     queryKey: ["projects", "generate-deck"],
     queryFn: () => fetchProjects(),
-    retry: false
+    retry: false,
   });
   const totalSize = useMemo(
     () => uploads.reduce((sum, upload) => sum + upload.file.size, 0),
-    [uploads]
+    [uploads],
   );
   const selectedPptx = uploads[0]?.file ?? null;
 
@@ -1400,7 +1508,9 @@ function GenerateDeckView() {
       await projectsQuery.refetch();
     } catch (error) {
       setProjectError(
-        error instanceof Error ? error.message : "프로젝트를 만들지 못했습니다."
+        error instanceof Error
+          ? error.message
+          : "프로젝트를 만들지 못했습니다.",
       );
     } finally {
       setIsCreatingProject(false);
@@ -1451,25 +1561,25 @@ function GenerateDeckView() {
       const targetProject = await resolveGenerateDeckTargetProject({
         projects: projectsQuery.data ?? [],
         selectedProjectId,
-        topic: topic || selectedPptx.name
+        topic: topic || selectedPptx.name,
       });
       const uploaded = await uploadProjectAsset(
         targetProject.projectId,
         selectedPptx,
-        "pptx-import"
+        "pptx-import",
       );
       const payload = buildPptxOoxmlGenerationPayload({
         fileId: uploaded.fileId,
         topic,
-        prompt
+        prompt,
       });
       const response = await fetch(
         `/api/v1/projects/${targetProject.projectId}/pptx-ooxml-generations`,
         {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify(payload)
-        }
+          body: JSON.stringify(payload),
+        },
       );
 
       if (!response.ok) {
@@ -1481,11 +1591,13 @@ function GenerateDeckView() {
       setGenerateJob(data.job);
 
       const job = await pollExtractJob(data.job.jobId, {
-        onUpdate: setGenerateJob
+        onUpdate: setGenerateJob,
       });
 
       if (job.status === "failed") {
-        throw new Error(job.error?.message || job.message || "PPTX 덱 생성에 실패했습니다.");
+        throw new Error(
+          job.error?.message || job.message || "PPTX 덱 생성에 실패했습니다.",
+        );
       }
 
       const generatedResult = getPptxOoxmlGenerationJobResult(job);
@@ -1496,16 +1608,16 @@ function GenerateDeckView() {
       setResult(generatedResult);
       if (targetProject.created && targetProject.project) {
         queryClient.setQueryData<Project[]>(["projects"], (current) =>
-          mergeGeneratedProjectList(current, targetProject.project as Project)
+          mergeGeneratedProjectList(current, targetProject.project as Project),
         );
       }
       await queryClient.invalidateQueries({
-        queryKey: ["deck", targetProject.projectId]
+        queryKey: ["deck", targetProject.projectId],
       });
       navigateTo(getPptxOoxmlGeneratedProjectPath(targetProject.projectId));
     } catch (error) {
       setGenerateError(
-        error instanceof Error ? error.message : "PPTX 덱 생성에 실패했습니다."
+        error instanceof Error ? error.message : "PPTX 덱 생성에 실패했습니다.",
       );
     } finally {
       setIsGenerating(false);
@@ -1527,7 +1639,10 @@ function GenerateDeckView() {
             <h1 id="generate-title">PPTX로 덱 생성</h1>
           </div>
 
-          <section className="generate-reference-panel" aria-labelledby="generate-project-title">
+          <section
+            className="generate-reference-panel"
+            aria-labelledby="generate-project-title"
+          >
             <div className="reference-panel-heading">
               <span className="eyebrow" id="generate-project-title">
                 Target project
@@ -1567,9 +1682,13 @@ function GenerateDeckView() {
               className="extract-button"
               type="button"
               onClick={() => void handleCreateProject()}
-              disabled={isGenerating || isCreatingProject || !newProjectTitle.trim()}
+              disabled={
+                isGenerating || isCreatingProject || !newProjectTitle.trim()
+              }
             >
-              {isCreatingProject ? "프로젝트 생성 중..." : "새 프로젝트 만들고 선택"}
+              {isCreatingProject
+                ? "프로젝트 생성 중..."
+                : "새 프로젝트 만들고 선택"}
             </button>
 
             {projectsQuery.isError ? (
@@ -1587,7 +1706,10 @@ function GenerateDeckView() {
 
           <label>
             <span>Topic</span>
-            <input value={topic} onChange={(event) => setTopic(event.target.value)} />
+            <input
+              value={topic}
+              onChange={(event) => setTopic(event.target.value)}
+            />
           </label>
 
           <label>
@@ -1619,11 +1741,17 @@ function GenerateDeckView() {
               onDragLeave={() => setIsDragging(false)}
               onDrop={handleDrop}
             >
-              <input type="file" accept={pptxAccept} onChange={handleFileChange} />
+              <input
+                type="file"
+                accept={pptxAccept}
+                onChange={handleFileChange}
+              />
               <span className="upload-mark" aria-hidden="true">
                 +
               </span>
-              <span className="drop-title">PPTX 파일을 끌어오거나 선택하세요</span>
+              <span className="drop-title">
+                PPTX 파일을 끌어오거나 선택하세요
+              </span>
               <span className="drop-meta">PPTX 1개</span>
             </label>
 
@@ -1649,7 +1777,8 @@ function GenerateDeckView() {
                     <div>
                       <span className="file-name">{file.name}</span>
                       <span className="file-detail">
-                        {getExtension(file.name).toUpperCase()} · {formatBytes(file.size)}
+                        {getExtension(file.name).toUpperCase()} ·{" "}
+                        {formatBytes(file.size)}
                       </span>
                     </div>
                     <button
@@ -1692,13 +1821,16 @@ function GenerateDeckView() {
         </form>
 
         <section className="generate-result" aria-live="polite">
-          {result ? <PptxOoxmlGenerationResult result={result} /> : <DeckPreviewPlaceholder />}
+          {result ? (
+            <PptxOoxmlGenerationResult result={result} />
+          ) : (
+            <DeckPreviewPlaceholder />
+          )}
         </section>
       </section>
     </main>
   );
 }
-
 
 function DeckPreviewPlaceholder() {
   return (
@@ -1724,7 +1856,10 @@ function formatBytes(bytes: number) {
   if (bytes === 0) return "0 B";
 
   const units = ["B", "KB", "MB", "GB"];
-  const index = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
+  const index = Math.min(
+    Math.floor(Math.log(bytes) / Math.log(1024)),
+    units.length - 1,
+  );
   const value = bytes / 1024 ** index;
 
   return `${value.toFixed(value >= 10 || index === 0 ? 0 : 1)} ${units[index]}`;
@@ -1735,14 +1870,20 @@ function createUploadId(file: File) {
 }
 
 function getAiTemplateUploadPurpose(upload: UploadFile): FilePurpose {
-  if ((upload.role === "design" || upload.role === "both") && isPptxFile(upload.file)) {
+  if (
+    (upload.role === "design" || upload.role === "both") &&
+    isPptxFile(upload.file)
+  ) {
     return "pptx-import";
   }
 
   return "reference-material";
 }
 
-function getHomeGenerationValidationMessage(topic: string, uploads: UploadFile[]) {
+function getHomeGenerationValidationMessage(
+  topic: string,
+  uploads: UploadFile[],
+) {
   if (!topic.trim()) {
     return "발표 주제를 입력하세요.";
   }
@@ -1752,7 +1893,7 @@ function getHomeGenerationValidationMessage(topic: string, uploads: UploadFile[]
   }
 
   const designUploads = uploads.filter(
-    (upload) => upload.role === "design" || upload.role === "both"
+    (upload) => upload.role === "design" || upload.role === "both",
   );
   if (designUploads.length !== 1) {
     return "디자인 참고 PPTX를 정확히 1개 선택하세요.";
@@ -1774,7 +1915,7 @@ function collectHomeUploadFiles(fileList: FileList | File[]) {
     if (!mimeType) {
       rejectedFiles.push({
         name: file.name,
-        reason: "PDF, PPTX, DOCX, JPG, PNG, WebP 파일만 첨부할 수 있습니다."
+        reason: "PDF, PPTX, DOCX, JPG, PNG, WebP 파일만 첨부할 수 있습니다.",
       });
       return;
     }
@@ -1782,7 +1923,7 @@ function collectHomeUploadFiles(fileList: FileList | File[]) {
     if (file.size > maxAssetUploadSizeBytes) {
       rejectedFiles.push({
         name: file.name,
-        reason: `${formatBytes(maxAssetUploadSizeBytes)} 이하 파일만 첨부할 수 있습니다.`
+        reason: `${formatBytes(maxAssetUploadSizeBytes)} 이하 파일만 첨부할 수 있습니다.`,
       });
       return;
     }
@@ -1790,7 +1931,7 @@ function collectHomeUploadFiles(fileList: FileList | File[]) {
     if (file.size <= 0) {
       rejectedFiles.push({
         name: file.name,
-        reason: "빈 파일은 첨부할 수 없습니다."
+        reason: "빈 파일은 첨부할 수 없습니다.",
       });
       return;
     }
@@ -1798,7 +1939,7 @@ function collectHomeUploadFiles(fileList: FileList | File[]) {
     acceptedFiles.push({
       id: createUploadId(file),
       file,
-      role: isPptxFile(file) ? "design" : "content"
+      role: isPptxFile(file) ? "design" : "content",
     });
   });
 
@@ -1838,7 +1979,7 @@ function collectPptxUploadFiles(fileList: FileList | File[]) {
 
     rejectedFiles.push({
       name: file.name,
-      reason: "PPTX 파일 1개만 업로드할 수 있습니다."
+      reason: "PPTX 파일 1개만 업로드할 수 있습니다.",
     });
   });
 
@@ -1863,7 +2004,7 @@ export async function pollExtractJob(
     fetcher?: Fetcher;
     onUpdate?: (job: Job) => void;
     timeoutMs?: number;
-  } = {}
+  } = {},
 ): Promise<Job> {
   const delayMs = options.delayMs ?? 1000;
   const fetcher = options.fetcher ?? fetch;
@@ -1894,7 +2035,9 @@ export function getJobResultFiles(job: Job): ExtractedFile[] {
   return Array.isArray(result?.files) ? result.files : [];
 }
 
-export function getGenerateDeckJobResult(job: Job): GenerateDeckJobResult | null {
+export function getGenerateDeckJobResult(
+  job: Job,
+): GenerateDeckJobResult | null {
   const result = job.result as GenerateDeckJobResult | null;
   return result?.deck ? result : null;
 }
@@ -1908,14 +2051,14 @@ export function getPptxOoxmlGeneratedProjectPath(projectId: string) {
 }
 
 export function getPptxOoxmlGenerationJobResult(
-  job: Job
+  job: Job,
 ): PptxOoxmlGenerationJobResult | null {
   const result = job.result as PptxOoxmlGenerationJobResult | null;
   return result?.deckId && result?.currentPackageFileId ? result : null;
 }
 
 export function getAiTemplateDeckGenerationJobResult(
-  job: Job
+  job: Job,
 ): AiTemplateDeckGenerationJobResult | null {
   const parsed = aiTemplateDeckGenerationJobResultSchema.safeParse(job.result);
   return parsed.success ? parsed.data : null;
@@ -1940,14 +2083,14 @@ export function buildAiTemplateDeckGenerationPayload(input: {
     metadata: {
       audience: "general",
       purpose: "inform",
-      tone: input.tone
+      tone: input.tone,
     },
     design: buildGenerateDeckDesignDirection({
       profile: "auto",
       visualRhythm: "auto",
       densityTarget: "medium",
       mediaPolicy: "balanced",
-      layoutDiversity: "stable"
+      layoutDiversity: "stable",
     }),
     assets: input.uploads.map((upload) => {
       const fileId = input.uploadedAssetFileIds.get(upload.id);
@@ -1955,7 +2098,7 @@ export function buildAiTemplateDeckGenerationPayload(input: {
         throw new Error(`${upload.file.name} 업로드 결과를 찾지 못했습니다.`);
       }
       return { fileId, role: upload.role };
-    })
+    }),
   };
 }
 
@@ -1967,14 +2110,14 @@ export function buildPptxOoxmlGenerationPayload(input: {
   return {
     fileId: input.fileId,
     ...(input.topic?.trim() ? { topic: input.topic.trim() } : {}),
-    ...(input.prompt?.trim() ? { prompt: input.prompt.trim() } : {})
+    ...(input.prompt?.trim() ? { prompt: input.prompt.trim() } : {}),
   };
 }
 
 export async function pollJob(
   jobId: string,
   fetcher: Fetcher = fetch,
-  options: { delayMs?: number; timeoutMs?: number } = {}
+  options: { delayMs?: number; timeoutMs?: number } = {},
 ): Promise<Job> {
   const delayMs = options.delayMs ?? 1200;
   const timeoutAt = Date.now() + (options.timeoutMs ?? 120_000);
@@ -1982,7 +2125,9 @@ export async function pollJob(
   for (;;) {
     const response = await fetcher(`/api/jobs/${encodeURIComponent(jobId)}`);
     if (!response.ok) {
-      throw new Error(await readApiError(response, "작업 상태를 확인하지 못했습니다."));
+      throw new Error(
+        await readApiError(response, "작업 상태를 확인하지 못했습니다."),
+      );
     }
 
     const job = (await response.json()) as Job;
@@ -2002,7 +2147,10 @@ export function getGeneratedDeckProjectTitle(topic: string) {
   return topic.trim() || "AI 덱";
 }
 
-export function createGeneratedDeckProject(topic: string, fetcher: Fetcher = fetch) {
+export function createGeneratedDeckProject(
+  topic: string,
+  fetcher: Fetcher = fetch,
+) {
   return createProject(getGeneratedDeckProjectTitle(topic), fetcher);
 }
 
@@ -2017,9 +2165,10 @@ export async function resolveGenerateDeckTargetProject(args: {
     return {
       created: false,
       project:
-        args.projects.find((project) => project.projectId === selectedProjectId) ??
-        null,
-      projectId: selectedProjectId
+        args.projects.find(
+          (project) => project.projectId === selectedProjectId,
+        ) ?? null,
+      projectId: selectedProjectId,
     };
   }
 
@@ -2039,13 +2188,13 @@ export function buildGenerateDeckPayload(input: GenerateDeckPayloadInput) {
     design: input.design,
     references: input.referenceInput.references,
     designReferences: input.designReferences,
-    referenceKeywords: input.referenceInput.referenceKeywords
+    referenceKeywords: input.referenceInput.referenceKeywords,
   };
 }
 
 export function buildDesignReferences(
   uploads: UploadFile[],
-  uploadedAssetFileIds: Map<string, string>
+  uploadedAssetFileIds: Map<string, string>,
 ) {
   return uploads
     .filter((upload) => upload.role === "design" || upload.role === "both")
@@ -2065,7 +2214,7 @@ export function buildGenerateDeckDesignDirection(input: {
     visualRhythm: input.visualRhythm,
     densityTarget: input.densityTarget,
     mediaPolicy: input.mediaPolicy,
-    layoutDiversity: input.layoutDiversity
+    layoutDiversity: input.layoutDiversity,
   };
 
   if (input.profile !== "auto") {
@@ -2077,7 +2226,7 @@ export function buildGenerateDeckDesignDirection(input: {
 
 export function mergeGeneratedProjectList(
   current: Project[] | undefined,
-  project: Project
+  project: Project,
 ) {
   return current?.some((item) => item.projectId === project.projectId)
     ? current
@@ -2085,7 +2234,7 @@ export function mergeGeneratedProjectList(
 }
 
 export function buildReferenceGenerationInput(
-  files: ExtractedFile[]
+  files: ExtractedFile[],
 ): ReferenceGenerationInput {
   const references: Array<{ fileId: string }> = [];
   const referenceKeywords: Array<{ text: string }> = [];
@@ -2225,7 +2374,7 @@ function GeneratedSlideElement(props: {
     height: `${(element.height / canvas.height) * 100}%`,
     opacity: element.opacity,
     transform: `rotate(${element.rotation}deg)`,
-    zIndex: element.zIndex
+    zIndex: element.zIndex,
   };
 
   if (element.type === "text") {
@@ -2238,7 +2387,7 @@ function GeneratedSlideElement(props: {
           fontSize: `max(8px, ${(element.props.fontSize / canvas.width) * 100}cqw)`,
           fontWeight: element.props.fontWeight,
           lineHeight: element.props.lineHeight,
-          textAlign: element.props.align
+          textAlign: element.props.align,
         }}
       >
         {element.props.text}
@@ -2246,7 +2395,12 @@ function GeneratedSlideElement(props: {
     );
   }
 
-  return <div className="generated-slide-element generated-slide-shape" style={baseStyle} />;
+  return (
+    <div
+      className="generated-slide-element generated-slide-shape"
+      style={baseStyle}
+    />
+  );
 }
 
 export function ExtractResultItem(props: { result: ExtractedFile }) {
@@ -2263,7 +2417,9 @@ export function ExtractResultItem(props: { result: ExtractedFile }) {
       {result.indexingStatus ? (
         <p>
           {result.indexingStatus}
-          {typeof result.chunkCount === "number" ? ` 쨌 ${result.chunkCount} chunks` : ""}
+          {typeof result.chunkCount === "number"
+            ? ` 쨌 ${result.chunkCount} chunks`
+            : ""}
           {result.indexingMessage ? ` 쨌 ${result.indexingMessage}` : ""}
         </p>
       ) : null}

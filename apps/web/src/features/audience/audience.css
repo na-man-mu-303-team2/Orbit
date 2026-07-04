@@ -1,24 +1,22 @@
 .audience-page {
   align-items: center;
-  background:
-    radial-gradient(circle at top left, rgba(37, 99, 235, 0.12), transparent 32%),
-    linear-gradient(180deg, #f8fbff 0%, #eef4ff 100%);
+  background: #f6f8fb;
   color: #0f172a;
   display: flex;
   min-height: 100vh;
-  padding: 22px;
+  padding: 18px;
 }
 
 .audience-entry-panel {
-  background: rgba(255, 255, 255, 0.94);
-  border: 1px solid #dbeafe;
-  border-radius: 18px;
-  box-shadow: 0 22px 60px rgba(15, 23, 42, 0.14);
+  background: #ffffff;
+  border: 1px solid #dbe3ee;
+  border-radius: 14px;
+  box-shadow: 0 18px 42px rgba(15, 23, 42, 0.12);
   display: grid;
   gap: 18px;
   margin: 0 auto;
-  max-width: 430px;
-  padding: 24px;
+  max-width: 420px;
+  padding: 22px;
   width: 100%;
 }
 
@@ -41,128 +39,56 @@
   margin: 0;
 }
 
-.audience-entry-heading p {
-  color: #475569;
-  font-size: 0.92rem;
-  line-height: 1.45;
-  margin: 0;
-}
-
-.audience-passcode-field {
+.audience-form,
+.audience-field {
   display: grid;
   gap: 10px;
 }
 
-.audience-passcode-field > span {
+.audience-field > span,
+.audience-session-code span {
   color: #334155;
   font-size: 0.86rem;
   font-weight: 900;
 }
 
-.audience-passcode-boxes {
-  display: grid;
-  gap: 10px;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  position: relative;
-}
-
-.audience-passcode-boxes input {
-  background: transparent;
-  border: 0;
-  color: transparent;
-  caret-color: #2563eb;
-  font-size: 1px;
-  inset: 0;
-  opacity: 0.01;
-  position: absolute;
-  width: 100%;
-  z-index: 2;
-}
-
-.audience-passcode-boxes span {
-  align-items: center;
-  aspect-ratio: 1;
-  background: #f8fbff;
-  border: 1px solid #bfdbfe;
+.audience-field input {
+  background: #f8fafc;
+  border: 1px solid #cbd5e1;
   border-radius: 10px;
-  color: #1e3a8a;
-  display: inline-flex;
-  font-size: 1.35rem;
-  font-weight: 900;
-  justify-content: center;
-}
-
-.audience-passcode-boxes:focus-within span {
-  border-color: #2563eb;
-  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.13);
-}
-
-.audience-room-grid {
-  display: grid;
-  gap: 10px;
-}
-
-.audience-verified-badge {
-  background: #dcfce7;
-  border: 1px solid #bbf7d0;
-  border-radius: 999px;
-  color: #166534;
-  font-size: 0.82rem;
-  font-weight: 900;
-  justify-self: start;
-  padding: 6px 11px;
-}
-
-.audience-access-loading {
-  background: #f8fbff;
-  border: 1px solid #dbeafe;
-  border-radius: 12px;
-  color: #334155;
-  font-size: 0.92rem;
-  font-weight: 800;
-  padding: 14px;
-  text-align: center;
-}
-
-.audience-room-grid button {
-  align-items: start;
-  background: #ffffff;
-  border: 1px solid #dbeafe;
-  border-radius: 12px;
-  color: #1e3a8a;
-  cursor: pointer;
-  display: grid;
-  gap: 5px;
-  grid-template-columns: auto 1fr;
-  padding: 14px;
-  text-align: left;
-}
-
-.audience-room-grid button svg {
-  grid-row: span 2;
-  margin-top: 1px;
-}
-
-.audience-room-grid button strong {
   color: #0f172a;
-  font-size: 0.95rem;
+  font-size: 1rem;
+  min-height: 46px;
+  min-width: 0;
+  padding: 0 12px;
 }
 
-.audience-room-grid button small {
-  color: #64748b;
-  font-size: 0.8rem;
-}
-
-.audience-room-grid button.selected {
-  background: #eff6ff;
+.audience-field input:focus {
   border-color: #2563eb;
-  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.16);
+  outline: none;
+}
+
+.audience-session-code {
+  align-items: center;
+  background: #f8fafc;
+  border: 1px solid #dbe3ee;
+  border-radius: 10px;
+  display: flex;
+  justify-content: space-between;
+  padding: 11px 12px;
+}
+
+.audience-session-code strong {
+  color: #0f172a;
+  font-size: 1.15rem;
+  letter-spacing: 0.08em;
 }
 
 .audience-enter-button {
   background: #2563eb;
   border: 1px solid #1d4ed8;
-  border-radius: 12px;
+  border-radius: 10px;
   color: #ffffff;
   cursor: pointer;
   font-size: 0.96rem;
@@ -170,11 +96,34 @@
   min-height: 46px;
 }
 
+.audience-enter-button:focus {
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.2);
+  outline: none;
+}
+
 .audience-enter-button:disabled {
-  background: #dbeafe;
-  border-color: #bfdbfe;
+  background: #dbe3ee;
+  border-color: #cbd5e1;
   color: #64748b;
   cursor: not-allowed;
+}
+
+.audience-access-loading {
+  align-items: center;
+  background: #f8fafc;
+  border: 1px solid #dbe3ee;
+  border-radius: 10px;
+  color: #334155;
+  display: inline-flex;
+  font-size: 0.9rem;
+  font-weight: 800;
+  gap: 8px;
+  margin: 0;
+  padding: 12px;
+}
+
+.audience-access-loading svg {
+  animation: audience-spin 900ms linear infinite;
 }
 
 .audience-error {
@@ -187,10 +136,52 @@
   padding: 10px 12px;
 }
 
-.audience-session-meta {
-  color: #94a3b8;
-  font-size: 0.76rem;
+.audience-waiting-room {
+  align-items: start;
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  border-radius: 12px;
+  color: #14532d;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: auto 1fr;
+  padding: 14px;
+}
+
+.audience-waiting-room h2 {
+  color: #14532d;
+  font-size: 1rem;
+  margin: 0 0 4px;
+}
+
+.audience-waiting-room p {
+  color: #166534;
+  font-size: 0.9rem;
+  line-height: 1.45;
   margin: 0;
+}
+
+.audience-waiting-room small {
+  color: #334155;
+  display: block;
+  font-size: 0.8rem;
+  font-weight: 800;
+  margin-top: 8px;
   overflow-wrap: anywhere;
-  text-align: center;
+}
+
+@keyframes audience-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (max-width: 360px) {
+  .audience-page {
+    padding: 12px;
+  }
+
+  .audience-entry-panel {
+    padding: 18px;
+  }
 }
