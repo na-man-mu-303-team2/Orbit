@@ -1,5 +1,4 @@
-import { AnimationCreateEditor } from "./AnimationCreateEditor";
-import { AnimationCreatePicker } from "./AnimationCreatePicker";
+import { AnimationCreateFlow } from "./AnimationCreateFlow";
 import { AnimationExistingEditor } from "./AnimationExistingEditor";
 import { AnimationExistingList } from "./AnimationExistingList";
 import { AnimationInspectorEmptyState } from "./AnimationInspectorEmptyState";
@@ -8,17 +7,24 @@ import { AnimationSelectionSummary } from "./AnimationSelectionSummary";
 import { AnimationSlideOverview } from "./AnimationSlideOverview";
 import type { AnimationEditorPanelProps } from "../types";
 import { useAnimationInspectorModel } from "../hooks/useAnimationInspectorModel";
+import { buildSlideAnimationOrdinalLabelMap } from "../utils/animationUi";
 
 export function AnimationInspectorPanel(props: AnimationEditorPanelProps) {
   const {
     animations,
     canCreateAnimation,
     element,
+    keywordOptions,
+    keywordTriggerRestrictionMessage,
+    keywordTriggerWarningMessage,
     preferredAnimationId,
+    selectedKeywordId,
+    selectedKeywordLabel,
     slideAnimations,
     slideElements,
     onAddAnimation,
     onDeleteAnimation,
+    onSelectKeyword,
     onSelectSlideAnimation,
     showIds,
     onUpdateAnimation
@@ -35,6 +41,8 @@ export function AnimationInspectorPanel(props: AnimationEditorPanelProps) {
     summary,
     updateDraft
   } = useAnimationInspectorModel(animations, preferredAnimationId);
+  const ordinalLabelByAnimationId =
+    buildSlideAnimationOrdinalLabelMap(slideAnimations);
 
   if (!element) {
     return slideAnimations.length > 0 ? (
@@ -43,6 +51,7 @@ export function AnimationInspectorPanel(props: AnimationEditorPanelProps) {
           animations={slideAnimations}
           elements={slideElements}
           focusedAnimationId={preferredAnimationId}
+          ordinalLabelByAnimationId={ordinalLabelByAnimationId}
           showIds={showIds}
           onSelectAnimation={onSelectSlideAnimation}
         />
@@ -63,13 +72,30 @@ export function AnimationInspectorPanel(props: AnimationEditorPanelProps) {
 
       <AnimationExistingList
         animations={animations}
+        ordinalLabelByAnimationId={ordinalLabelByAnimationId}
         selectedAnimationId={selectedAnimationId}
         onSelectAnimation={selectAnimation}
       />
 
-      <AnimationCreatePicker
+      <AnimationCreateFlow
+        canCreateAnimation={canCreateAnimation}
         creationType={creationType}
+        draft={creationType ? draftByType[creationType] : null}
+        keywordOptions={keywordOptions}
+        keywordTriggerRestrictionMessage={keywordTriggerRestrictionMessage}
+        keywordTriggerWarningMessage={keywordTriggerWarningMessage}
         linkedTypes={linkedTypes}
+        selectedKeywordId={selectedKeywordId}
+        selectedKeywordLabel={selectedKeywordLabel}
+        onAddAnimation={onAddAnimation}
+        onDraftChange={(patch) => {
+          if (!creationType) {
+            return;
+          }
+
+          updateDraft(creationType, patch);
+        }}
+        onSelectKeyword={onSelectKeyword}
         onStartCreating={startCreating}
       />
 
@@ -78,16 +104,6 @@ export function AnimationInspectorPanel(props: AnimationEditorPanelProps) {
           animation={selectedAnimation}
           onDeleteAnimation={onDeleteAnimation}
           onUpdateAnimation={onUpdateAnimation}
-        />
-      ) : null}
-
-      {mode === "creating-new" && creationType ? (
-        <AnimationCreateEditor
-          canCreateAnimation={canCreateAnimation}
-          draft={draftByType[creationType]}
-          type={creationType}
-          onAddAnimation={onAddAnimation}
-          onDraftChange={(patch) => updateDraft(creationType, patch)}
         />
       ) : null}
 

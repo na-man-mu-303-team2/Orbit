@@ -66,6 +66,12 @@ describe("slideshowStepModel", () => {
     expect(step0.el_highlight?.visible).toBe(false);
     expect(step0.el_group?.visible).toBe(true);
     expect(step0.el_chart?.visible).toBe(true);
+    expect(step0.el_image).toMatchObject({
+      visible: false,
+      opacity: 0,
+      scaleX: 0,
+      scaleY: 0
+    });
 
     expect(step1.el_image).toMatchObject({ visible: true, scaleX: 1, scaleY: 1 });
     expect(step1.el_group).toMatchObject({ visible: false, opacity: 0 });

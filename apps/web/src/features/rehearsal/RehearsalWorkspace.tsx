@@ -1,4 +1,8 @@
 import {
+  createSlidePlaybackState,
+  type SlidePlaybackState
+} from "@orbit/editor-core";
+import {
   demoIds,
   type AssetUploadUrlResponse,
   type CompleteRehearsalAudioUploadResponse,
@@ -78,6 +82,12 @@ import {
 import { createLiveSttPort } from "./stt/liveSttEngineRegistry";
 import { normalizeLiveTranscriptText } from "./stt/liveTranscriptText";
 import { SherpaLiveSttPort } from "./stt/sherpaLiveSttPort";
+import {
+  resolveCueTriggeredActions,
+  resolveKeywordTriggeredActions,
+  getTriggerAnimationIdsForSlide,
+  resolveTriggeredActionPlaybackUpdate
+} from "./playback/triggeredActionPlayback";
 import { DisplayControls } from "./presenter/DisplayControls";
 import { SingleScreenPresenter } from "./presenter/SingleScreenPresenter";
 import { SlideshowRenderer } from "./presenter/SlideshowRenderer";
@@ -1256,6 +1266,9 @@ export function RehearsalWorkspace(props: {
   const [p3SessionState, setP3SessionState] =
     useState<P3RehearsalSessionState | null>(null);
   const [p3RunMeta, setP3RunMeta] = useState<RehearsalRunMeta | null>(null);
+  const [slidePlaybackState, setSlidePlaybackState] = useState(
+    createSlidePlaybackState
+  );
   const [advanceControllerState, setAdvanceControllerState] =
     useState<AdvanceControllerState>(() => createInitialAdvanceControllerState());
   const [autoAdvanceNowMs, setAutoAdvanceNowMs] = useState(0);
@@ -1298,6 +1311,10 @@ export function RehearsalWorkspace(props: {
   const liveBiasContextRef = useRef<LiveSttBiasContext | null>(null);
   const liveCommandConfirmationRef = useRef(
     createRehearsalCommandConfirmationState()
+  );
+  const presenterStepIndexRef = useRef(0);
+  const slidePlaybackStateRef = useRef<SlidePlaybackState>(
+    createSlidePlaybackState()
   );
   const advanceControllerStateRef = useRef<AdvanceControllerState>(
     createInitialAdvanceControllerState()
@@ -1347,8 +1364,16 @@ export function RehearsalWorkspace(props: {
   }, [currentSlideIndex]);
 
   useEffect(() => {
+    presenterStepIndexRef.current = presenterStepIndex;
+  }, [presenterStepIndex]);
+
+  useEffect(() => {
     liveKeywordStateRef.current = liveKeywordState;
   }, [liveKeywordState]);
+
+  useEffect(() => {
+    slidePlaybackStateRef.current = slidePlaybackState;
+  }, [slidePlaybackState]);
 
   useEffect(() => {
     if (!isTimerRunning) {
@@ -1436,7 +1461,10 @@ export function RehearsalWorkspace(props: {
         : [],
     [currentSlide?.slideId, currentSlide?.speakerNotes]
   );
-  const triggerAnimationIds = useMemo(() => [] as string[], [currentSlide?.slideId]);
+  const triggerAnimationIds = useMemo(
+    () => (currentSlide ? getTriggerAnimationIdsForSlide(currentSlide) : []),
+    [currentSlide]
+  );
   const presentationChannelState = useMemo(
     () =>
       currentSlide
@@ -1544,7 +1572,7 @@ export function RehearsalWorkspace(props: {
 
   useEffect(() => {
     resetAutoAdvanceRuntimeState(currentSlide?.slideId ?? null);
-    resetLiveTranscriptForSlide(currentSlide);
+    resetLivePlaybackForSlide(currentSlide);
     const nextBiasContext = deck && currentSlide
       ? buildLiveSttBiasContext(currentSlide, {
           nearbySlides: getNearbySlides(deck, currentSlideIndex)
@@ -1578,8 +1606,7 @@ export function RehearsalWorkspace(props: {
     setLiveError("");
     setLiveAudioLevel(null);
     setLiveDebugPcmRecording(null);
-    resetLiveTranscriptForSlide(currentSlide);
-    setLiveSlideAdvance(null);
+    resetLivePlaybackForSlide(currentSlide);
     resetAutoAdvanceRuntimeState(currentSlide?.slideId ?? null);
 
     if (!navigator.mediaDevices?.getUserMedia) {
@@ -1633,8 +1660,7 @@ export function RehearsalWorkspace(props: {
     setLiveError("");
     setLiveAudioLevel(null);
     setLiveDebugPcmRecording(null);
-    resetLiveTranscriptForSlide(currentSlide);
-    setLiveSlideAdvance(null);
+    resetLivePlaybackForSlide(currentSlide);
     resetAutoAdvanceRuntimeState(currentSlide?.slideId ?? null);
 
     if (!navigator.mediaDevices?.getUserMedia) {
@@ -1701,6 +1727,7 @@ export function RehearsalWorkspace(props: {
     setLiveStatus((current) =>
       current === "listening" || current === "starting" ? "stopped" : current
     );
+    resetLivePlaybackForSlide(currentSlide);
     resetAutoAdvanceRuntimeState(currentSlide?.slideId ?? null);
     if (options.showCompletionModal && wasLiveDemoActive) {
       setIsLiveStopModalOpen(true);
@@ -1712,6 +1739,7 @@ export function RehearsalWorkspace(props: {
 
     setPhase("uploading");
     setIsTimerRunning(false);
+    resetLivePlaybackForSlide(currentSlide);
     resetAutoAdvanceRuntimeState(currentSlide?.slideId ?? null);
     cleanupLiveSttSubscriptions();
     const p3Session = p3SessionRef.current;
@@ -2070,6 +2098,11 @@ export function RehearsalWorkspace(props: {
       liveCommandConfirmationRef.current,
       detectRehearsalCommandCandidate(event)
     );
+    const slideTriggerAnimationIds = getTriggerAnimationIdsForSlide(slide);
+    const slideAnimationPlan = createSlideshowAnimationPlan({
+      slide,
+      triggerAnimationIds: slideTriggerAnimationIds
+    });
 
     const previousDetectedIds = new Set(
       liveKeywordStateRef.current?.slideId === slide.slideId
@@ -2088,6 +2121,13 @@ export function RehearsalWorkspace(props: {
         cue: "emphasis",
         text: newlyDetected.text
       });
+
+      applyTriggeredSlideActions(
+        slide,
+        slideAnimationPlan,
+        resolveKeywordTriggeredActions(slide, newlyDetected.keywordId),
+        deckSnapshot.slides.length
+      );
     }
 
     if (isEmphasisCommand(confirmedCommand)) {
@@ -2098,6 +2138,13 @@ export function RehearsalWorkspace(props: {
         cue: "emphasis",
         text: confirmedCommand.phrase
       });
+
+      applyTriggeredSlideActions(
+        slide,
+        slideAnimationPlan,
+        resolveCueTriggeredActions(slide, "emphasis"),
+        deckSnapshot.slides.length
+      );
     }
 
     setLiveKeywordState(analysis);
@@ -2107,6 +2154,43 @@ export function RehearsalWorkspace(props: {
     if (isAdvanceSlideCommand(confirmedCommand)) {
       cancelAutoAdvanceForManualCommand();
       goNext();
+    }
+  }
+
+  function applyTriggeredSlideActions(
+    slide: Slide,
+    slideAnimationPlan: ReturnType<typeof createSlideshowAnimationPlan>,
+    actions: Slide["actions"],
+    slideCount: number
+  ) {
+    if (actions.length === 0) {
+      return;
+    }
+
+    const playbackUpdate = resolveTriggeredActionPlaybackUpdate({
+      actions,
+      playbackState: slidePlaybackStateRef.current,
+      presenterStepIndex: presenterStepIndexRef.current,
+      slide,
+      slideAnimationPlan
+    });
+
+    if (playbackUpdate.playbackState !== slidePlaybackStateRef.current) {
+      slidePlaybackStateRef.current = playbackUpdate.playbackState;
+      setSlidePlaybackState(playbackUpdate.playbackState);
+    }
+
+    if (playbackUpdate.shouldAdvanceSlide) {
+      cancelAutoAdvanceForManualCommand();
+      presenterStepIndexRef.current = 0;
+      setPresenterStepIndex(0);
+      setCurrentSlideIndex((current) => Math.min(slideCount - 1, current + 1));
+      return;
+    }
+
+    if (playbackUpdate.presenterStepIndex !== presenterStepIndexRef.current) {
+      presenterStepIndexRef.current = playbackUpdate.presenterStepIndex;
+      setPresenterStepIndex(playbackUpdate.presenterStepIndex);
     }
   }
 
@@ -2120,6 +2204,14 @@ export function RehearsalWorkspace(props: {
     setLiveTranscriptBuffer(nextBuffer);
     setLiveKeywordState(nextKeywordState);
     setLiveCue(null);
+  }
+
+  function resetLivePlaybackForSlide(slide: Slide | null) {
+    resetLiveTranscriptForSlide(slide);
+    const nextSlidePlaybackState = createSlidePlaybackState();
+    slidePlaybackStateRef.current = nextSlidePlaybackState;
+    setSlidePlaybackState(nextSlidePlaybackState);
+    setLiveSlideAdvance(null);
   }
 
   function getCurrentLiveBiasContext(deckSnapshot: Deck, slideIndex: number) {

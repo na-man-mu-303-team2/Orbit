@@ -57,9 +57,11 @@ import {
 } from "../canvas/custom-shape/geometry";
 import {
   AnimationSidePanel,
+  buildAnimationKeywordTriggerPolicy,
   defaultAnimationPaneWidth,
   maxAnimationPaneWidth,
   minAnimationPaneWidth,
+  toAnimationKeywordTriggerOptions,
   useEditorAnimationPreview
 } from "./components/animation";
 import {
@@ -1298,6 +1300,10 @@ export function EditorShell(props: { projectId?: string }) {
     () => (currentSlide ? deriveKeywordUsage(currentSlide) : {}),
     [currentSlide]
   );
+  const animationPanelKeywordOptions = useMemo(
+    () => toAnimationKeywordTriggerOptions(currentSlide?.keywords ?? []),
+    [currentSlide?.keywords]
+  );
   const selectedKeyword =
     currentSlide?.keywords.find(
       (keyword) => keyword.keywordId === selectedKeywordId
@@ -1323,6 +1329,21 @@ export function EditorShell(props: { projectId?: string }) {
         ? getElementAnimations(currentSlide, selectedAnimationPanelElement.elementId)
         : [],
     [currentSlide, selectedAnimationPanelElement]
+  );
+  const animationKeywordTriggerPolicy = useMemo(
+    () =>
+      buildAnimationKeywordTriggerPolicy({
+        element: selectedAnimationPanelElement,
+        keywordId: selectedKeywordId,
+        slideAnimations: currentSlide?.animations ?? [],
+        usageByKeywordId: currentSlideKeywordUsage
+      }),
+    [
+      currentSlide?.animations,
+      currentSlideKeywordUsage,
+      selectedAnimationPanelElement,
+      selectedKeywordId
+    ]
   );
   const currentSlideAnimationDiagnostics = useMemo(
     () =>
@@ -4225,10 +4246,19 @@ export function EditorShell(props: { projectId?: string }) {
             canCreateAnimation={Boolean(currentSlide && selectedAnimationPanelElement)}
             element={selectedAnimationPanelElement}
             isPlayingSlideAnimations={isPlayingCurrentSlideAnimations}
+            keywordOptions={animationPanelKeywordOptions}
+            keywordTriggerRestrictionMessage={
+              animationKeywordTriggerPolicy.restrictionMessage
+            }
+            keywordTriggerWarningMessage={
+              animationKeywordTriggerPolicy.warningMessage
+            }
             preferredAnimationId={animationPanelFocusedAnimationId}
+            selectedKeywordId={selectedKeywordId}
+            selectedKeywordLabel={selectedKeyword?.text ?? null}
             slideAnimations={currentSlideAnimations}
             slideElements={currentSlide?.elements ?? []}
-            onAddAnimation={(draft) => {
+            onAddAnimation={(draft, keywordId) => {
               if (!currentSlide || !selectedAnimationPanelElement) {
                 return;
               }
@@ -4236,7 +4266,7 @@ export function EditorShell(props: { projectId?: string }) {
               handleAddAnimation(
                 currentSlide.slideId,
                 selectedAnimationPanelElement.elementId,
-                null,
+                keywordId,
                 draft
               );
             }}
@@ -4251,6 +4281,7 @@ export function EditorShell(props: { projectId?: string }) {
 
               handleDeleteAnimation(currentSlide.slideId, animationId);
             }}
+            onSelectKeyword={handleSelectKeyword}
             onSelectSlideAnimation={handleSelectSlideAnimationFromPanel}
             onUpdateAnimation={(animationId, animation) => {
               if (!currentSlide) {
