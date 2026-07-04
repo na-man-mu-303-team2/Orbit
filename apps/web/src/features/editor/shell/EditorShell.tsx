@@ -825,6 +825,8 @@ export function EditorShell(props: { projectId?: string }) {
     useState<SlidePanelView>("thumbnail");
   const [showIds, setShowIds] = useState(false);
   const [selectedKeywordId, setSelectedKeywordId] = useState<string | null>(null);
+  const [isSpeakerNotesEditing, setIsSpeakerNotesEditing] = useState(false);
+  const [speakerNotesDraft, setSpeakerNotesDraft] = useState("");
   const [selectedElementIds, setSelectedElementIds] = useState<string[]>([]);
   const [activeTopMenu, setActiveTopMenu] = useState<TopMenu | null>(null);
   const [lastPatchLabel, setLastPatchLabel] = useState("편집 없음");
@@ -1732,6 +1734,68 @@ export function EditorShell(props: { projectId?: string }) {
     });
   }
 
+  function handleSelectKeyword(keywordId: string) {
+    setSelectedKeywordId((current) => (current === keywordId ? null : keywordId));
+  }
+
+  function handleStartSpeakerNotesEdit() {
+    setSelectedKeywordId(null);
+    setSpeakerNotesDraft(currentSlide?.speakerNotes ?? "");
+    setIsSpeakerNotesEditing(true);
+  }
+
+  function handleCancelSpeakerNotesEdit() {
+    setSpeakerNotesDraft(currentSlide?.speakerNotes ?? "");
+    setIsSpeakerNotesEditing(false);
+  }
+
+  function handleSaveSpeakerNotesEdit() {
+    if (!currentSlide) {
+      return;
+    }
+
+    const slideId = currentSlide.slideId;
+    const nextSpeakerNotes = speakerNotesDraft;
+
+    if (nextSpeakerNotes !== currentSlide.speakerNotes) {
+      commitPatch((currentDeck) => ({
+        deckId: currentDeck.deckId,
+        baseVersion: currentDeck.version,
+        source: "user",
+        operations: [
+          {
+            type: "update_speaker_notes",
+            slideId,
+            speakerNotes: nextSpeakerNotes
+          }
+        ]
+      }));
+    }
+
+    setIsSpeakerNotesEditing(false);
+  }
+
+  function handleDeleteSelectedKeyword(slideId: string, keywordId: string) {
+    const usage = currentSlideKeywordUsage[keywordId];
+    const hasLinkedActions =
+      Boolean(usage?.advancesSlide) || (usage?.animationIds.length ?? 0) > 0;
+
+    if (
+      hasLinkedActions &&
+      typeof window !== "undefined" &&
+      !window.confirm(
+        "연결된 애니메이션 또는 다음 슬라이드 트리거가 함께 제거될 수 있습니다. 삭제할까요?"
+      )
+    ) {
+      return;
+    }
+
+    handleReplaceKeywords(slideId, (keywords) =>
+      keywords.filter((keyword) => keyword.keywordId !== keywordId)
+    );
+    setSelectedKeywordId(null);
+  }
+
   function handleSpeakerNotesKeywordSelection(rawValue: string) {
     if (!currentSlide) {
       return;
@@ -1739,7 +1803,7 @@ export function EditorShell(props: { projectId?: string }) {
 
     const matchedKeyword = findKeywordByTerm(currentSlide, rawValue);
     if (matchedKeyword) {
-      setSelectedKeywordId(matchedKeyword.keywordId);
+      handleSelectKeyword(matchedKeyword.keywordId);
       return;
     }
 
@@ -2758,6 +2822,11 @@ export function EditorShell(props: { projectId?: string }) {
   }, [currentSlide, selectedKeywordId]);
 
   useEffect(() => {
+    setIsSpeakerNotesEditing(false);
+    setSpeakerNotesDraft(currentSlide?.speakerNotes ?? "");
+  }, [currentSlide?.slideId]);
+
+  useEffect(() => {
     setSelectedElementIds((current) =>
       current.filter((elementId) =>
         currentSlide?.elements.some((element) => element.elementId === elementId)
@@ -3451,7 +3520,7 @@ export function EditorShell(props: { projectId?: string }) {
 
           handleDeleteAnimation(currentSlide.slideId, animationId);
         }}
-        onSelectKeyword={setSelectedKeywordId}
+        onSelectKeyword={handleSelectKeyword}
         onSelectKeywordText={handleSpeakerNotesKeywordSelection}
         onUpdateAnimation={(animationId, animation) => {
           if (!currentSlide) {
@@ -3882,61 +3951,111 @@ export function EditorShell(props: { projectId?: string }) {
 
             <section className="script-panel">
               <div className="script-panel-header">
-                <strong>발표 메모</strong>
-                <span>
-                  {currentSlide && showIds ? (
-                    <IdBadge id={currentSlide.slideId} />
-                  ) : (
-                    currentSlide?.title || `슬라이드 ${currentSlideIndex + 1}`
-                  )}
-                </span>
+                <div>
+                  <strong>발표 메모</strong>
+                  <span>
+                    {currentSlide && showIds ? (
+                      <IdBadge id={currentSlide.slideId} />
+                    ) : (
+                      currentSlide?.title || `슬라이드 ${currentSlideIndex + 1}`
+                    )}
+                  </span>
+                </div>
+                {isSpeakerNotesEditing ? (
+                  <div className="script-panel-actions">
+                    <button
+                      className="script-panel-action"
+                      type="button"
+                      onClick={handleCancelSpeakerNotesEdit}
+                    >
+                      취소
+                    </button>
+                    <button
+                      className="script-panel-action primary"
+                      type="button"
+                      onClick={handleSaveSpeakerNotesEdit}
+                    >
+                      저장
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    className="script-panel-action"
+                    type="button"
+                    onClick={handleStartSpeakerNotesEdit}
+                  >
+                    수정
+                  </button>
+                )}
               </div>
-              <KeywordHighlightedNotes
-                keywords={currentSlide?.keywords ?? []}
-                notes={currentSlide?.speakerNotes ?? ""}
-                selectedKeywordId={selectedKeywordId}
-                showIds={showIds}
-                onSelectKeyword={setSelectedKeywordId}
-                onSelectKeywordText={handleSpeakerNotesKeywordSelection}
-              />
-              <KeywordList
-                keywords={currentSlide?.keywords ?? []}
-                selectedKeywordId={selectedKeywordId}
-                showIds={showIds}
-                usageByKeywordId={currentSlideKeywordUsage}
-                onSelectKeyword={setSelectedKeywordId}
-              />
-              {selectedKeyword ? (
-                <KeywordDetail
-                  keyword={selectedKeyword}
-                  showIds={showIds}
-                  usage={currentSlideKeywordUsage[selectedKeyword.keywordId] ?? null}
-                  onToggleAdvanceSlide={() => {
-                    if (!currentSlide) {
-                      return;
-                    }
-
-                    handleToggleAdvanceSlideKeyword(
-                      currentSlide.slideId,
-                      selectedKeyword.keywordId,
-                      !(
-                        currentSlideKeywordUsage[selectedKeyword.keywordId]?.advancesSlide ??
-                        false
-                      )
-                    );
-                  }}
-                  onToggleRequired={() => {
-                    if (!currentSlide) {
-                      return;
-                    }
-
-                    handleToggleKeywordRequired(
-                      currentSlide.slideId,
-                      selectedKeyword.keywordId
-                    );
-                  }}
+              {isSpeakerNotesEditing ? (
+                <textarea
+                  className="script-notes-editor"
+                  aria-label="발표 메모 수정"
+                  value={speakerNotesDraft}
+                  onChange={(event) => setSpeakerNotesDraft(event.target.value)}
                 />
-              ) : null}
+              ) : (
+                <>
+                  <KeywordHighlightedNotes
+                    keywords={currentSlide?.keywords ?? []}
+                    notes={currentSlide?.speakerNotes ?? ""}
+                    selectedKeywordId={selectedKeywordId}
+                    showIds={showIds}
+                    onSelectKeyword={handleSelectKeyword}
+                    onSelectKeywordText={handleSpeakerNotesKeywordSelection}
+                  />
+                  <KeywordList
+                    keywords={currentSlide?.keywords ?? []}
+                    selectedKeywordId={selectedKeywordId}
+                    showIds={showIds}
+                    usageByKeywordId={currentSlideKeywordUsage}
+                    onSelectKeyword={handleSelectKeyword}
+                  />
+                  {selectedKeyword ? (
+                    <KeywordDetail
+                      keyword={selectedKeyword}
+                      showIds={showIds}
+                      usage={currentSlideKeywordUsage[selectedKeyword.keywordId] ?? null}
+                      onClearSelection={() => setSelectedKeywordId(null)}
+                      onDeleteKeyword={() => {
+                        if (!currentSlide) {
+                          return;
+                        }
+
+                        handleDeleteSelectedKeyword(
+                          currentSlide.slideId,
+                          selectedKeyword.keywordId
+                        );
+                      }}
+                      onToggleAdvanceSlide={() => {
+                        if (!currentSlide) {
+                          return;
+                        }
+
+                        handleToggleAdvanceSlideKeyword(
+                          currentSlide.slideId,
+                          selectedKeyword.keywordId,
+                          !(
+                            currentSlideKeywordUsage[selectedKeyword.keywordId]
+                              ?.advancesSlide ?? false
+                          )
+                        );
+                      }}
+                      onToggleRequired={() => {
+                        if (!currentSlide) {
+                          return;
+                        }
+
+                        handleToggleKeywordRequired(
+                          currentSlide.slideId,
+                          selectedKeyword.keywordId
+                        );
+                      }}
+                    />
+                  ) : null}
+                </>
+              )}
             </section>
           </div>
         </section>

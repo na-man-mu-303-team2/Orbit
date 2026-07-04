@@ -151,6 +151,7 @@ describe("editor shell", () => {
     expect(html).toContain("Opening");
     expect(html).not.toContain("Data Contract");
     expect(html).toContain("발표 메모");
+    expect(html).toContain("수정");
     expect(html).toContain("저장됨");
     expect(html).toContain("AI 제안 검토");
     expect(html).toContain("이미지");
