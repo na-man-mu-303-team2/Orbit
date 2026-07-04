@@ -1,13 +1,19 @@
 import { randomInt, randomUUID } from "node:crypto";
 import {
+  assertAudienceSafePayload,
+  audienceStateResponseSchema,
   createPresentationSessionRequestSchema,
   createPresentationSessionResponseSchema,
   getCurrentPresentationSessionResponseSchema,
   updatePresentationSessionEntryResponseSchema,
 } from "@orbit/shared";
 import type {
+  AudienceEventType,
+  AudienceFeatureSettings,
   AudienceJoinResponse,
   AudienceParticipant,
+  AudienceRealtimeState,
+  AudienceStateResponse,
   CreatePresentationSessionResponse,
   GetCurrentPresentationSessionResponse,
   PresentationEntryStatus,
@@ -50,10 +56,39 @@ type AudienceParticipantRow = {
   joined_before_end: boolean;
 };
 
+type AudienceRealtimeStateRow = {
+  session_id: string;
+  slide_id: string | null;
+  slide_index: number | null;
+  effect_state_json: Record<string, unknown> | string | null;
+  active_interaction_id: string | null;
+  updated_at: Date | string;
+};
+
+type AudienceFeatureSettingsRow = {
+  session_id: string;
+  qna_enabled: boolean;
+  ai_qna_enabled: boolean;
+  polls_enabled: boolean;
+  quizzes_enabled: boolean;
+  reactions_enabled: boolean;
+  survey_enabled: boolean;
+  updated_at: Date | string;
+};
+
 type JoinAudienceInput = {
   audienceId: string;
   nickname: string;
   tokenHash: string;
+};
+
+type UpdateAudienceRealtimeStateInput = {
+  sessionId: string;
+  actorId: string;
+  slideId: string | null;
+  slideIndex: number | null;
+  effectState: Record<string, unknown>;
+  activeInteractionId?: string | null;
 };
 
 @Injectable()
@@ -231,7 +266,10 @@ export class PresentationSessionsService {
       );
 
       const participant = this.toParticipantDto(rows[0]);
-      await this.appendAudienceEvent(session.sessionId, participant.audienceId);
+      await this.appendAudienceJoinedEvent(
+        session.sessionId,
+        participant.audienceId,
+      );
 
       return {
         session: toAudiencePublicSession(session),
@@ -278,6 +316,76 @@ export class PresentationSessionsService {
       session: toAudiencePublicSession(await this.getSessionById(sessionId)),
       participant: this.toParticipantDto(row),
     };
+  }
+
+  async getAudienceState(
+    sessionId: string,
+    audienceId: string,
+    tokenHash: string,
+  ): Promise<AudienceStateResponse> {
+    const me = await this.getAudienceMe(sessionId, audienceId, tokenHash);
+    const [state, features] = await Promise.all([
+      this.getAudienceRealtimeState(sessionId),
+      this.getAudienceFeatureSettings(sessionId),
+    ]);
+
+    return audienceStateResponseSchema.parse({
+      ...me,
+      state,
+      features,
+    });
+  }
+
+  async updateAudienceRealtimeState(
+    input: UpdateAudienceRealtimeStateInput,
+  ): Promise<AudienceRealtimeState> {
+    const effectState = assertAudienceSafePayload(input.effectState);
+    const rows = await this.dataSource.query<AudienceRealtimeStateRow[]>(
+      `
+        UPDATE audience_realtime_state
+        SET
+          slide_id = $2,
+          slide_index = $3,
+          effect_state_json = $4::jsonb,
+          active_interaction_id = $5,
+          updated_at = now()
+        WHERE session_id = $1
+        RETURNING
+          session_id,
+          slide_id,
+          slide_index,
+          effect_state_json,
+          active_interaction_id,
+          updated_at
+      `,
+      [
+        input.sessionId,
+        input.slideId,
+        input.slideIndex,
+        effectState,
+        input.activeInteractionId ?? null,
+      ],
+    );
+
+    const row = rows[0];
+    if (!row) {
+      throw new NotFoundException("Audience realtime state not found");
+    }
+
+    const state = this.toRealtimeStateDto(row);
+    await this.appendAudienceEvent({
+      sessionId: input.sessionId,
+      actorType: "presenter",
+      actorId: input.actorId,
+      type: "slide.changed",
+      payload: {
+        slideId: state.slideId,
+        slideIndex: state.slideIndex,
+        effectState: state.effectState,
+      },
+    });
+
+    return state;
   }
 
   async updateEntryStatus(
@@ -374,10 +482,83 @@ export class PresentationSessionsService {
     );
   }
 
-  private async appendAudienceEvent(
+  private async getAudienceRealtimeState(
+    sessionId: string,
+  ): Promise<AudienceRealtimeState> {
+    const rows = await this.dataSource.query<AudienceRealtimeStateRow[]>(
+      `
+        SELECT
+          session_id,
+          slide_id,
+          slide_index,
+          effect_state_json,
+          active_interaction_id,
+          updated_at
+        FROM audience_realtime_state
+        WHERE session_id = $1
+        LIMIT 1
+      `,
+      [sessionId],
+    );
+
+    const row = rows[0];
+    if (!row) {
+      throw new NotFoundException("Audience realtime state not found");
+    }
+
+    return this.toRealtimeStateDto(row);
+  }
+
+  private async getAudienceFeatureSettings(
+    sessionId: string,
+  ): Promise<AudienceFeatureSettings> {
+    const rows = await this.dataSource.query<AudienceFeatureSettingsRow[]>(
+      `
+        SELECT
+          session_id,
+          qna_enabled,
+          ai_qna_enabled,
+          polls_enabled,
+          quizzes_enabled,
+          reactions_enabled,
+          survey_enabled,
+          updated_at
+        FROM audience_feature_settings
+        WHERE session_id = $1
+        LIMIT 1
+      `,
+      [sessionId],
+    );
+
+    const row = rows[0];
+    if (!row) {
+      throw new NotFoundException("Audience feature settings not found");
+    }
+
+    return this.toFeatureSettingsDto(row);
+  }
+
+  private async appendAudienceJoinedEvent(
     sessionId: string,
     audienceId: string,
   ): Promise<void> {
+    await this.appendAudienceEvent({
+      sessionId,
+      actorType: "audience",
+      actorId: audienceId,
+      type: "audience.joined",
+      payload: {},
+    });
+  }
+
+  private async appendAudienceEvent(input: {
+    sessionId: string;
+    actorType: "audience" | "presenter" | "system";
+    actorId: string | null;
+    type: AudienceEventType;
+    payload: Record<string, unknown>;
+  }): Promise<void> {
+    const payload = assertAudienceSafePayload(input.payload);
     await this.dataSource.query(
       `
         INSERT INTO audience_events (
@@ -389,9 +570,16 @@ export class PresentationSessionsService {
           payload_json,
           occurred_at
         )
-        VALUES ($1, $2, 'audience', $3, 'audience.joined', '{}'::jsonb, now())
+        VALUES ($1, $2, $3, $4, $5, $6::jsonb, now())
       `,
-      [`event_${randomUUID()}`, sessionId, audienceId],
+      [
+        `event_${randomUUID()}`,
+        input.sessionId,
+        input.actorType,
+        input.actorId,
+        input.type,
+        payload,
+      ],
     );
   }
 
@@ -448,6 +636,34 @@ export class PresentationSessionsService {
     };
   }
 
+  private toRealtimeStateDto(
+    row: AudienceRealtimeStateRow,
+  ): AudienceRealtimeState {
+    return {
+      sessionId: row.session_id,
+      slideId: row.slide_id,
+      slideIndex: row.slide_index,
+      effectState: normalizeJsonRecord(row.effect_state_json),
+      activeInteractionId: row.active_interaction_id,
+      updatedAt: toIso(row.updated_at),
+    };
+  }
+
+  private toFeatureSettingsDto(
+    row: AudienceFeatureSettingsRow,
+  ): AudienceFeatureSettings {
+    return {
+      sessionId: row.session_id,
+      qnaEnabled: row.qna_enabled,
+      aiQnaEnabled: row.ai_qna_enabled,
+      pollsEnabled: row.polls_enabled,
+      quizzesEnabled: row.quizzes_enabled,
+      reactionsEnabled: row.reactions_enabled,
+      surveyEnabled: row.survey_enabled,
+      updatedAt: toIso(row.updated_at),
+    };
+  }
+
   private toCreateResponse(
     row: PresentationSessionRow,
   ): CreatePresentationSessionResponse {
@@ -496,6 +712,21 @@ function toIso(value: Date | string) {
 
 function toNullableIso(value: Date | string | null) {
   return value === null ? null : toIso(value);
+}
+
+function normalizeJsonRecord(
+  value: Record<string, unknown> | string | null,
+): Record<string, unknown> {
+  if (value === null) {
+    return {};
+  }
+
+  if (typeof value === "string") {
+    const parsed: unknown = JSON.parse(value);
+    return assertAudienceSafePayload(parsed);
+  }
+
+  return assertAudienceSafePayload(value);
 }
 
 function generateJoinCode(): string {

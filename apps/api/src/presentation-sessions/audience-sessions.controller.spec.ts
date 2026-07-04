@@ -44,6 +44,7 @@ function createController(
       participant,
     })),
     getAudienceMe: vi.fn(),
+    getAudienceState: vi.fn(),
     ...overrides,
   } as unknown as PresentationSessionsService;
 
@@ -193,5 +194,72 @@ describe("AudienceSessionsController", () => {
     await expect(
       controller.getMe("session_existing", createRequest()),
     ).rejects.toBeInstanceOf(UnauthorizedException);
+  });
+
+  it("returns audience state with the signed audience cookie", async () => {
+    const serviceState = {
+      session: {
+        sessionId: session.sessionId,
+        projectId: session.projectId,
+        joinCode: session.joinCode,
+        status: session.status,
+        entryStatus: session.entryStatus,
+      },
+      participant,
+      state: {
+        sessionId: session.sessionId,
+        slideId: "slide_1",
+        slideIndex: 0,
+        effectState: {},
+        activeInteractionId: null,
+        updatedAt: "2026-07-05T00:02:00.000Z",
+      },
+      features: {
+        sessionId: session.sessionId,
+        qnaEnabled: false,
+        aiQnaEnabled: false,
+        pollsEnabled: false,
+        quizzesEnabled: false,
+        reactionsEnabled: false,
+        surveyEnabled: false,
+        updatedAt: "2026-07-05T00:02:00.000Z",
+      },
+    };
+    const { controller, service } = createController({
+      getAudienceState: vi.fn(async () => serviceState),
+    });
+    const response = { cookie: vi.fn() } as any;
+    await controller.joinSession(
+      "123456",
+      { nickname: "orbit" },
+      createRequest({ userAgent: "vitest-state" }),
+      response,
+    );
+    const signedAudienceToken = response.cookie.mock.calls[0][1] as string;
+
+    await expect(
+      controller.getState(
+        "session_existing",
+        createRequest({
+          signedAudienceToken,
+          userAgent: "vitest-state",
+        }),
+      ),
+    ).resolves.toMatchObject({
+      participant: {
+        nickname: "orbit",
+      },
+      state: {
+        slideId: "slide_1",
+      },
+      features: {
+        qnaEnabled: false,
+      },
+    });
+    expect(service.getAudienceState).toHaveBeenCalledWith(
+      "session_existing",
+      expect.stringMatching(/^audience_[0-9a-f-]{36}$/),
+      expect.any(String),
+    );
   });
 });
