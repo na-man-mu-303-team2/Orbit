@@ -132,7 +132,7 @@ describe("processAiTemplateDeckGenerationJob", () => {
         const form = init?.body as FormData;
         const blueprint = JSON.parse(String(form.get("template_blueprint")));
         expect(blueprint.slides.map((slide: { sourceSlideIndex: number }) => slide.sourceSlideIndex))
-          .toEqual([3, 5, 7, 9, 10]);
+          .toEqual([3, 1, 2, 4, 5]);
         expect(blueprint.slides[0].slots).toMatchObject([
           { usage: "content-slot", replaceMode: "replace", slotRole: "title" },
           { usage: "content-slot", replaceMode: "replace", slotRole: "body" }
@@ -180,7 +180,7 @@ describe("processAiTemplateDeckGenerationJob", () => {
     };
     expect(blueprint.currentPackageFileId).toMatch(/^file_/);
     expect(blueprint.slides.map((slide) => slide.sourceSlideIndex)).toEqual([
-      3, 5, 7, 9, 10
+      3, 1, 2, 4, 5
     ]);
     expect(blueprint.slides[0].renderAssetFileId).toMatch(/^file_/);
     expect(job.result).toMatchObject({
@@ -265,7 +265,7 @@ function ooxmlApplyResponse() {
 }
 
 function generateDeckResponse() {
-  const selection = [3, 5, 7, 9, 10];
+  const selection = [3, 3, 3, 3, 3];
   return {
     deck: {
       deckId: "deck_ai_project_a",

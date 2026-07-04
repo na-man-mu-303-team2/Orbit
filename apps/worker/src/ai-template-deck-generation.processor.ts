@@ -603,15 +603,32 @@ function selectTemplateBlueprintSlides(
   generatedSlideCount: number,
 ): TemplateBlueprint {
   const sourceSlides = templateBlueprint.slides;
+  if (generatedSlideCount > sourceSlides.length) {
+    throw new Error(
+      `Generated slide count (${generatedSlideCount}) exceeds template slide count (${sourceSlides.length}); repeated template slides require PPTX slide cloning.`,
+    );
+  }
+
   const bySourceIndex = new Map(
     sourceSlides.map((slide) => [slide.sourceSlideIndex, slide]),
   );
+  const usedSourceIndexes = new Set<number>();
   const selected: Array<TemplateBlueprint["slides"][number] | undefined> =
     Array.from({ length: generatedSlideCount });
 
   for (const item of templateSelection ?? []) {
     const slide = bySourceIndex.get(item.sourceSlideIndex);
-    if (!slide || item.generatedOrder > generatedSlideCount) continue;
+    const targetIndex = item.generatedOrder - 1;
+    if (
+      !slide ||
+      item.generatedOrder < 1 ||
+      item.generatedOrder > generatedSlideCount ||
+      selected[targetIndex] ||
+      usedSourceIndexes.has(slide.sourceSlideIndex)
+    ) {
+      continue;
+    }
+    usedSourceIndexes.add(slide.sourceSlideIndex);
     selected[item.generatedOrder - 1] = {
       ...slide,
       slideIndex: item.generatedOrder,
@@ -619,10 +636,22 @@ function selectTemplateBlueprintSlides(
     };
   }
 
-  const slides = selected.map((slide, index) => ({
-    ...(slide ?? sourceSlides[index % sourceSlides.length]),
-    slideIndex: index + 1,
-  }));
+  const slides = selected.map((slide, index) => {
+    if (slide) {
+      return { ...slide, slideIndex: index + 1 };
+    }
+    const fallback = sourceSlides.find(
+      (sourceSlide) => !usedSourceIndexes.has(sourceSlide.sourceSlideIndex),
+    );
+    if (!fallback) {
+      throw new Error("Unable to select unique template slides for generated deck.");
+    }
+    usedSourceIndexes.add(fallback.sourceSlideIndex);
+    return {
+      ...fallback,
+      slideIndex: index + 1,
+    };
+  });
 
   return templateBlueprintSchema.parse({
     ...templateBlueprint,
