@@ -27,7 +27,7 @@ import {
   getLiveAudioLevelPercent,
   getLiveSttDebugDecodingMethod,
   getRehearsalMicrophoneAudioConstraints,
-  shouldCompleteLiveSlideAdvance,
+  getRemainingTriggerStepsForSlide,
   normalizeRecordingMimeType,
   rehearsalMicrophoneAudioConstraints,
   rehearsalRawMicrophoneAudioConstraints,
@@ -38,10 +38,21 @@ import {
   runRehearsalUploadFlow,
   selectRecordingMimeType,
   shouldRenderRehearsalThumbnailImage,
-  shouldShowLiveSttDebugPcmDownload,
-  shouldAutoAdvanceLiveSlide
+  shouldShowLiveSttDebugPcmDownload
 } from "./RehearsalWorkspace";
+import {
+  defaultAutoAdvanceConfig,
+  defaultAutoAdvancePolicy
+} from "./advance/autoAdvanceConfig";
+import {
+  cancelAdvanceCountdown,
+  createInitialAdvanceControllerState,
+  evaluateAdvanceController
+} from "./advance/advanceController";
+import { p0AnimationDeck } from "./presenter/__fixtures__/animationDeck";
+import { getNextPresenterStepState } from "./presenter/presenterStepNavigation";
 import { normalizeLiveTranscriptText } from "./stt/liveTranscriptText";
+import { createPauseDetector } from "./speech/pauseDetector";
 import {
   confirmRehearsalCommandCandidate,
   createRehearsalCommandConfirmationState,
@@ -103,18 +114,20 @@ describe("RehearsalWorkspace", () => {
     expect(html).toContain("Speaker notes");
   });
 
-  it("resets presenter step when live auto advance completes", () => {
+  it("resets presenter step when P4 auto advance command completes", () => {
     const source = fs.readFileSync(
       rehearsalWorkspaceSourcePath,
       "utf8"
     );
-    const start = source.indexOf("function completeLiveSlideAdvance");
-    const end = source.indexOf("function cancelPendingAutoAdvance");
-    const completeLiveSlideAdvanceBody = source.slice(start, end);
+    const start = source.indexOf("function runAdvanceControllerEvaluation");
+    const end = source.indexOf("function handleLiveSttError");
+    const autoAdvanceBody = source.slice(start, end);
 
-    expect(completeLiveSlideAdvanceBody).toContain("setPresenterStepIndex(0)");
-    expect(completeLiveSlideAdvanceBody.indexOf("setPresenterStepIndex(0)")).toBeLessThan(
-      completeLiveSlideAdvanceBody.indexOf("setCurrentSlideIndex")
+    expect(autoAdvanceBody).toContain("evaluateAdvanceController");
+    expect(autoAdvanceBody).toContain("command.type !== \"advance-slide\"");
+    expect(autoAdvanceBody).toContain("setPresenterStepIndex(0)");
+    expect(autoAdvanceBody.indexOf("setPresenterStepIndex(0)")).toBeLessThan(
+      autoAdvanceBody.indexOf("setCurrentSlideIndex")
     );
   });
 
@@ -912,39 +925,205 @@ describe("RehearsalWorkspace", () => {
     expect(renderLiveTranscriptBuffer(buffer)).toBe("새 슬라이드");
   });
 
-  it("decides auto-advance only when keyword coverage reaches 80%", () => {
-    expect(
-      shouldAutoAdvanceLiveSlide({
-        analysis: { coverage: 0.8, missingKeywordIds: ["kw_5"] },
-        currentSlideIndex: 0,
-        slideCount: 2,
-        keywordCount: 5,
-        alreadyAdvanced: false
-      })
-    ).toBe(true);
+  it("delegates auto-advance policy to the P4 controller instead of keyword coverage timers", () => {
+    const source = fs.readFileSync(rehearsalWorkspaceSourcePath, "utf8");
+    const start = source.indexOf("function handleLivePartialTranscript");
+    const end = source.indexOf("function resetLiveTranscriptForSlide");
+    const handlerBody = source.slice(start, end);
 
-    expect(
-      shouldAutoAdvanceLiveSlide({
-        analysis: { coverage: 0.75, missingKeywordIds: ["kw_4"] },
-        currentSlideIndex: 0,
-        slideCount: 2,
-        keywordCount: 4,
-        alreadyAdvanced: false
-      })
-    ).toBe(false);
-
-    expect(
-      shouldAutoAdvanceLiveSlide({
-        analysis: { coverage: 1, missingKeywordIds: [] },
-        currentSlideIndex: 1,
-        slideCount: 2,
-        keywordCount: 1,
-        alreadyAdvanced: false
-      })
-    ).toBe(false);
+    expect(handlerBody).not.toContain("shouldAutoAdvanceLiveSlide");
+    expect(handlerBody).not.toContain("scheduleAutoAdvance");
+    expect(source).toContain("evaluateAdvanceController");
+    expect(source).toContain("remainingTriggerSteps");
   });
 
-  it("does not let advance commands bypass keyword coverage policy", () => {
+  it("keeps production trigger animations empty until P5 wires CueProvider", () => {
+    const source = fs.readFileSync(rehearsalWorkspaceSourcePath, "utf8");
+
+    expect(source).toContain(
+      "const triggerAnimationIds = useMemo(() => [] as string[], [currentSlide?.slideId])"
+    );
+  });
+
+  it("computes remaining trigger steps when P4 fixtures inject cue-referenced animations", () => {
+    const slide = p0AnimationDeck.slides[0]!;
+    const triggerAnimationIds = [
+      "anim_image_zoom_in",
+      "anim_group_fade_out",
+      "anim_chart_zoom_out"
+    ];
+
+    expect(
+      getRemainingTriggerStepsForSlide({
+        slide,
+        stepIndex: 0,
+        triggerAnimationIds: []
+      })
+    ).toBe(0);
+    expect(
+      getRemainingTriggerStepsForSlide({
+        slide,
+        stepIndex: 0,
+        triggerAnimationIds
+      })
+    ).toBe(2);
+    expect(
+      getRemainingTriggerStepsForSlide({
+        slide,
+        stepIndex: 1,
+        triggerAnimationIds
+      })
+    ).toBe(1);
+    expect(
+      getRemainingTriggerStepsForSlide({
+        slide,
+        stepIndex: 2,
+        triggerAnimationIds
+      })
+    ).toBe(0);
+  });
+
+  it("proves P4 auto-advance gates with fixture speech, pause, and build steps", () => {
+    const slide = p0AnimationDeck.slides[0]!;
+    const triggerAnimationIds = [
+      "anim_image_zoom_in",
+      "anim_group_fade_out",
+      "anim_chart_zoom_out"
+    ];
+    const pauseDetector = createPauseDetector({
+      config: { silenceThresholdDb: -55 },
+      pauseMs: defaultAutoAdvancePolicy.pauseMs
+    });
+    pauseDetector.accept({ type: "audio-level", atMs: 0, rmsDb: -60 });
+    pauseDetector.accept({ type: "tick", atMs: 700 });
+    const pause = pauseDetector.snapshot(700);
+
+    const blocked = evaluateAdvanceController(
+      createInitialAdvanceControllerState(),
+      {
+        effectiveCoverage: 0.7,
+        finalSentenceSpoken: true,
+        finalSentenceSpokenAtMs: 100,
+        isLastSlide: false,
+        mode: "rehearsal",
+        nowMs: 700,
+        pause,
+        policy: defaultAutoAdvancePolicy,
+        remainingTriggerSteps: getRemainingTriggerStepsForSlide({
+          slide,
+          stepIndex: 0,
+          triggerAnimationIds
+        }),
+        slideId: slide.slideId
+      },
+      defaultAutoAdvanceConfig
+    );
+
+    expect(blocked.commands).toContainEqual({
+      type: "show-builds-remaining",
+      remainingTriggerSteps: 2
+    });
+    expect(blocked.commands).not.toContainEqual({
+      type: "advance-slide",
+      slideId: slide.slideId
+    });
+    expect(
+      getNextPresenterStepState({
+        currentSlideIndex: 0,
+        currentStepIndex: 0,
+        maxStepIndex: 2,
+        slideCount: p0AnimationDeck.slides.length
+      })
+    ).toMatchObject({ slideIndex: 0, stepIndex: 1 });
+
+    const countdown = evaluateAdvanceController(
+      createInitialAdvanceControllerState(),
+      {
+        effectiveCoverage: 0.7,
+        finalSentenceSpoken: true,
+        finalSentenceSpokenAtMs: 100,
+        isLastSlide: false,
+        mode: "rehearsal",
+        nowMs: 700,
+        pause,
+        policy: defaultAutoAdvancePolicy,
+        remainingTriggerSteps: getRemainingTriggerStepsForSlide({
+          slide,
+          stepIndex: 2,
+          triggerAnimationIds
+        }),
+        slideId: slide.slideId
+      },
+      defaultAutoAdvanceConfig
+    );
+    const advanced = evaluateAdvanceController(
+      countdown.state,
+      {
+        effectiveCoverage: 0.7,
+        finalSentenceSpoken: true,
+        finalSentenceSpokenAtMs: 100,
+        isLastSlide: false,
+        mode: "rehearsal",
+        nowMs: 2700,
+        pause: { isPaused: true, silenceDurationMs: 2700 },
+        policy: defaultAutoAdvancePolicy,
+        remainingTriggerSteps: 0,
+        slideId: slide.slideId
+      },
+      defaultAutoAdvanceConfig
+    );
+
+    expect(countdown.state.status).toBe("countdown");
+    expect(advanced.commands).toEqual([
+      { type: "advance-slide", slideId: slide.slideId }
+    ]);
+    expect(
+      evaluateAdvanceController(
+        countdown.state,
+        {
+          effectiveCoverage: 0.7,
+          finalSentenceSpoken: true,
+          finalSentenceSpokenAtMs: 100,
+          isLastSlide: false,
+          mode: "rehearsal",
+          nowMs: 900,
+          pause: { isPaused: false, silenceDurationMs: 0 },
+          policy: defaultAutoAdvancePolicy,
+          remainingTriggerSteps: 0,
+          slideId: slide.slideId
+        },
+        defaultAutoAdvanceConfig
+      ).commands
+    ).toEqual([{ type: "cancel-countdown", reason: "speech-resumed" }]);
+    expect(cancelAdvanceCountdown(countdown.state, "manual").state.status).toBe(
+      "tracking"
+    );
+
+    const finalSlide = p0AnimationDeck.slides[1]!;
+    const finish = evaluateAdvanceController(
+      createInitialAdvanceControllerState(),
+      {
+        effectiveCoverage: 1,
+        finalSentenceSpoken: true,
+        finalSentenceSpokenAtMs: 100,
+        isLastSlide: true,
+        mode: "rehearsal",
+        nowMs: 700,
+        pause,
+        policy: defaultAutoAdvancePolicy,
+        remainingTriggerSteps: 0,
+        slideId: finalSlide.slideId
+      },
+      defaultAutoAdvanceConfig
+    );
+
+    expect(finish.commands).toEqual([
+      { type: "suggest-finish", slideId: finalSlide.slideId }
+    ]);
+    expect(finish.state.status).toBe("finish-suggested");
+  });
+
+  it("treats spoken advance commands as manual overrides", () => {
     const state = createRehearsalCommandConfirmationState();
     const confirmedCommand = confirmRehearsalCommandCandidate(
       state,
@@ -956,35 +1135,12 @@ describe("RehearsalWorkspace", () => {
     );
 
     expect(confirmedCommand).toMatchObject({ action: "advance-slide" });
-    expect(
-      shouldAutoAdvanceLiveSlide({
-        analysis: { coverage: 0.2, missingKeywordIds: ["kw_2", "kw_3"] },
-        currentSlideIndex: 0,
-        slideCount: 2,
-        keywordCount: 3,
-        alreadyAdvanced: false
-      })
-    ).toBe(false);
-    expect(
-      shouldCompleteLiveSlideAdvance({
-        confirmedCommand,
-        analysis: { coverage: 0.2, missingKeywordIds: ["kw_2", "kw_3"] },
-        currentSlideIndex: 0,
-        slideCount: 2,
-        keywordCount: 3,
-        alreadyAdvanced: false
-      })
-    ).toBe(false);
-    expect(
-      shouldCompleteLiveSlideAdvance({
-        confirmedCommand,
-        analysis: { coverage: 0.8, missingKeywordIds: [] },
-        currentSlideIndex: 0,
-        slideCount: 2,
-        keywordCount: 3,
-        alreadyAdvanced: false
-      })
-    ).toBe(true);
+    const source = fs.readFileSync(rehearsalWorkspaceSourcePath, "utf8");
+    const start = source.indexOf("if (isAdvanceSlideCommand(confirmedCommand))");
+    const commandBody = source.slice(start, start + 180);
+
+    expect(commandBody).toContain("cancelAutoAdvanceForManualCommand()");
+    expect(commandBody).toContain("goNext()");
     expect(
       detectRehearsalCommandCandidate({
         transcript: "안녕하세요. 다음 슬라이드는.",

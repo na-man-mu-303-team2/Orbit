@@ -100,6 +100,35 @@ describe("presentationChannel", () => {
     expect(serialized).not.toContain("transcript");
     expect(serialized).not.toContain("rawAudio");
     expect(serialized).not.toContain("runId");
+    expect(serialized).not.toContain("autoAdvance");
+    expect(serialized).not.toContain("countdownStartedAtMs");
+    expect(serialized).not.toContain("manualGuidance");
+    expect(serialized).not.toContain("remainingTriggerSteps");
+    expect(serialized).not.toContain("finish-suggested");
+  });
+
+  it("creates presenter state messages without P4 presenter-only status", () => {
+    const message = createPresenterStateMessage({
+      identity,
+      sentAt: 20,
+      state: createPresenterSlideshowState(p0AnimationDeck),
+      triggerAnimationIds: ["anim_image_zoom_in"]
+    });
+    const serialized = JSON.stringify(message);
+
+    expect(message).toMatchObject({
+      state: {
+        slideId: "slide_p0_1",
+        stepIndex: 0
+      },
+      triggerAnimationIds: ["anim_image_zoom_in"],
+      type: "presenter-state"
+    });
+    expect(serialized).not.toContain("autoAdvance");
+    expect(serialized).not.toContain("countdownStartedAtMs");
+    expect(serialized).not.toContain("manualGuidance");
+    expect(serialized).not.toContain("remainingTriggerSteps");
+    expect(serialized).not.toContain("finish-suggested");
   });
 
   it("validates channel messages and ignores wrong identities", () => {

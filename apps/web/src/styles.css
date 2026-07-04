@@ -1647,6 +1647,86 @@ button:disabled {
   border-color: #fecdd3;
 }
 
+.auto-advance-status {
+  align-items: center;
+  border: 1px solid #d9e1e7;
+  border-radius: 8px;
+  color: #15202b;
+  display: flex;
+  gap: 10px;
+  min-height: 40px;
+  padding: 9px 11px;
+}
+
+.auto-advance-status svg {
+  color: #2563eb;
+  flex: 0 0 auto;
+}
+
+.auto-advance-status span {
+  font-size: 0.84rem;
+  font-weight: 800;
+}
+
+.auto-advance-status button {
+  margin-left: auto;
+  min-height: 30px;
+  padding: 0 10px;
+}
+
+.auto-advance-status-countdown {
+  background: #eff6ff;
+  border-color: #bfdbfe;
+}
+
+.auto-advance-status-blocked,
+.auto-advance-status-guidance {
+  background: #fffbeb;
+  border-color: #fde68a;
+}
+
+.auto-advance-status-finish {
+  background: #ecfdf5;
+  border-color: #bbf7d0;
+}
+
+.auto-advance-settings {
+  border: 1px solid #d9e1e7;
+  border-radius: 8px;
+  display: grid;
+  gap: 10px;
+  padding: 11px;
+}
+
+.auto-advance-toggle,
+.auto-advance-threshold-stepper {
+  align-items: center;
+  color: #334155;
+  display: flex;
+  font-size: 0.82rem;
+  font-weight: 800;
+  gap: 8px;
+  justify-content: space-between;
+}
+
+.auto-advance-toggle {
+  justify-content: flex-start;
+}
+
+.auto-advance-toggle input {
+  accent-color: #2563eb;
+}
+
+.auto-advance-threshold-stepper button {
+  height: 28px;
+  padding: 0;
+  width: 28px;
+}
+
+.auto-advance-finish-highlight {
+  box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.22);
+}
+
 .rehearsal-live-transcript,
 .rehearsal-live-coverage {
   background: #f8fafb;

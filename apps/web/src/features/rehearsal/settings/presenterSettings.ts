@@ -1,6 +1,11 @@
 import { useCallback, useState } from "react";
 
 import {
+  defaultAutoAdvancePolicy,
+  defaultPauseDetectorConfig,
+  normalizeAutoAdvanceThreshold
+} from "../advance/autoAdvanceConfig";
+import {
   type HybridCoverageConfig,
   defaultSpeechTrackingConfig
 } from "../speech/speechTrackingConfig";
@@ -18,8 +23,10 @@ const liveSttEngineIds: readonly LiveSttEngineId[] = [
 ];
 
 export type PresenterAdvancePolicySettings = {
+  countdownMs: number;
   rehearsal: boolean;
   live: boolean;
+  pauseMs: number;
   threshold: number;
 };
 
@@ -30,6 +37,10 @@ export type PresenterPaceAdviceSettings = {
 
 export type PresenterRecordingSettings = {
   enabled: boolean;
+};
+
+export type PresenterPauseDetectorSettings = {
+  silenceThresholdDb: number;
 };
 
 export type PresenterSpeechTrackingSettings = {
@@ -44,6 +55,7 @@ export type PresenterSettings = {
   sttEngine: LiveSttEngineId;
   advancePolicy: PresenterAdvancePolicySettings;
   paceAdvice: PresenterPaceAdviceSettings;
+  pauseDetector: PresenterPauseDetectorSettings;
   recording: PresenterRecordingSettings;
   speechTracking: PresenterSpeechTrackingSettings;
 };
@@ -62,13 +74,14 @@ type DeepPartial<T> = {
 export const defaultPresenterSettings: PresenterSettings = Object.freeze({
   sttEngine: defaultLiveSttEngineId,
   advancePolicy: Object.freeze({
-    rehearsal: true,
-    live: true,
-    threshold: 0.7
+    ...defaultAutoAdvancePolicy
   }),
   paceAdvice: Object.freeze({
     slowWpm: defaultSpeechTrackingConfig.paceAdvice.slowWpm,
     fastWpm: defaultSpeechTrackingConfig.paceAdvice.fastWpm
+  }),
+  pauseDetector: Object.freeze({
+    ...defaultPauseDetectorConfig
   }),
   recording: Object.freeze({
     enabled: true
@@ -174,6 +187,7 @@ function normalizePresenterSettings(
   const value = isRecord(input) ? input : {};
   const advancePolicy = isRecord(value.advancePolicy) ? value.advancePolicy : {};
   const paceAdvice = isRecord(value.paceAdvice) ? value.paceAdvice : {};
+  const pauseDetector = isRecord(value.pauseDetector) ? value.pauseDetector : {};
   const recording = isRecord(value.recording) ? value.recording : {};
   const speechTracking = isRecord(value.speechTracking) ? value.speechTracking : {};
   const hybridCoverage = isRecord(speechTracking.hybridCoverage)
@@ -192,21 +206,32 @@ function normalizePresenterSettings(
       ? value.sttEngine
       : fallback.sttEngine,
     advancePolicy: {
+      countdownMs: integerOrFallback(
+        advancePolicy.countdownMs,
+        fallback.advancePolicy.countdownMs,
+        1
+      ),
       rehearsal: booleanOrFallback(
         advancePolicy.rehearsal,
         fallback.advancePolicy.rehearsal
       ),
       live: booleanOrFallback(advancePolicy.live, fallback.advancePolicy.live),
-      threshold: clamp(
-        numberOrFallback(
-          advancePolicy.threshold,
-          fallback.advancePolicy.threshold
-        ),
-        0.5,
-        0.95
+      pauseMs: integerOrFallback(
+        advancePolicy.pauseMs,
+        fallback.advancePolicy.pauseMs,
+        1
+      ),
+      threshold: normalizeAutoAdvanceThreshold(
+        numberOrFallback(advancePolicy.threshold, fallback.advancePolicy.threshold)
       )
     },
     paceAdvice: pacePair,
+    pauseDetector: {
+      silenceThresholdDb: numberOrFallback(
+        pauseDetector.silenceThresholdDb,
+        fallback.pauseDetector.silenceThresholdDb
+      )
+    },
     recording: {
       enabled: booleanOrFallback(recording.enabled, fallback.recording.enabled)
     },
@@ -278,6 +303,10 @@ function mergePresenterSettingsInput(
     paceAdvice: {
       ...current.paceAdvice,
       ...patch.paceAdvice
+    },
+    pauseDetector: {
+      ...current.pauseDetector,
+      ...patch.pauseDetector
     },
     recording: {
       ...current.recording,
