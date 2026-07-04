@@ -164,6 +164,7 @@ export const audienceEventTypeSchema = z.enum([
   "feature.changed",
   "interaction.activated",
   "interaction.closed",
+  "interaction.responded",
   "question.submitted",
   "question.answered",
   "reaction.sent",

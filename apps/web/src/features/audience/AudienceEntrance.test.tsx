@@ -35,6 +35,7 @@ describe("AudienceEntrance", () => {
   it("renders current slide recovery state with assistive status text", () => {
     const html = renderToStaticMarkup(
       <AudienceLiveShell
+        activeInteraction={null}
         connectionStatus="connected"
         features={disabledFeatures}
         participant={participant}
@@ -60,6 +61,7 @@ describe("AudienceEntrance", () => {
   it("renders a readable fallback when the slide image snapshot is missing", () => {
     const html = renderToStaticMarkup(
       <AudienceLiveShell
+        activeInteraction={null}
         connectionStatus="reconnecting"
         features={disabledFeatures}
         participant={participant}
@@ -83,6 +85,7 @@ describe("AudienceEntrance", () => {
   it("renders only enabled audience feature cards", () => {
     const html = renderToStaticMarkup(
       <AudienceLiveShell
+        activeInteraction={null}
         connectionStatus="connected"
         features={{
           ...disabledFeatures,
@@ -95,8 +98,47 @@ describe("AudienceEntrance", () => {
     );
 
     expect(html).toContain("질문 보내기");
-    expect(html).toContain("투표 참여");
-    expect(html).not.toContain("퀴즈 참여");
+    expect(html).toContain("대기 중");
     expect(html).not.toContain("설문 작성");
+  });
+
+  it("renders an active poll response form", () => {
+    const html = renderToStaticMarkup(
+      <AudienceLiveShell
+        activeInteraction={{
+          interactionId: "interaction_00000000-0000-4000-8000-000000000001",
+          sessionId: "session_1",
+          kind: "poll",
+          title: "만족도",
+          questions: [
+            {
+              type: "scale",
+              questionId: "question_00000000-0000-4000-8000-000000000001",
+              prompt: "만족도를 골라 주세요.",
+              required: true,
+              min: 1,
+              max: 5,
+            },
+          ],
+          resultVisibility: "live",
+          quizScoring: "none",
+          source: "ad-hoc",
+          order: 0,
+          activatedAt: "2026-07-05T00:00:00.000Z",
+          closedAt: null,
+        }}
+        connectionStatus="connected"
+        features={{
+          ...disabledFeatures,
+          pollsEnabled: true,
+        }}
+        participant={participant}
+        state={null}
+      />,
+    );
+
+    expect(html).toContain("만족도를 골라 주세요.");
+    expect(html).toContain("응답 제출");
+    expect(html).toContain('type="number"');
   });
 });

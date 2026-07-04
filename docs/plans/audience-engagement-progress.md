@@ -9,7 +9,7 @@ The top-level `## Current State` and `## Resume Checkpoint` sections are the sou
 ## Current State
 
 - Last completed milestone: 4
-- Next milestone: 5
+- Next milestone: 6
 - Integration branch: `feature/audience`
 - Current expected branch: `feature/audience`
 - Goal status: in progress
@@ -17,15 +17,15 @@ The top-level `## Current State` and `## Resume Checkpoint` sections are the sou
 ## Resume Checkpoint
 
 - Current branch: `feature/audience`
-- Next milestone: 5
+- Next milestone: 6
 - Resume first checks:
   - Run `git status --short --branch`.
   - Read `docs/plans/audience-engagement-execution-protocol.md`.
-  - Read Milestone 5 in `docs/plans/audience-engagement-implementation-plan.md`.
-  - Read relevant product-plan sections for polls, quizzes, interaction library, result visibility, scoring, and one-active-interaction rules.
-  - Read `packages/shared/src/interactions/interaction.schema.ts`, `apps/api/src/presentation-sessions/*`, and existing audience/presenter UI patterns before editing.
+  - Read Milestone 6 in `docs/plans/audience-engagement-implementation-plan.md`.
+  - Read relevant product-plan sections for Q&A without AI, presenter queue, rate limits, privacy, and merge-ready question model.
+  - Read `packages/shared/src/interactions/interaction.schema.ts`, `apps/api/src/presentation-sessions/*`, and existing audience active-card UI before editing.
 - Blocked: no
-- Notes: Milestones 1-4 implementation was already present on `feature/audience`; progress was recovered after verification. Milestone 5 is the next implementation milestone.
+- Notes: Milestone 5 implementation completed on `feature/audience-m05-interactions` and is ready to resume at Milestone 6 after local merge.
 
 ## Milestone Log
 
@@ -187,6 +187,48 @@ The top-level `## Current State` and `## Resume Checkpoint` sections are the sou
   - Current branch: `feature/audience`
   - Next milestone: 5
   - Resume first checks: read Milestone 5 plan, confirm `feature/audience` status, and implement poll/quiz interaction library and session interaction engine.
+
+## Milestone 5 Start - 2026-07-05
+
+- Branch: `feature/audience-m05-interactions`
+- Scope: project interaction library CRUD for polls/quizzes, session interaction copy/activation/close, poll/quiz response submission/editing, one-active-interaction enforcement, result visibility and aggregation, audience active-card forms, and presenter control/results summaries.
+- Acceptance criteria: one active poll/quiz at a time; poll response editable before close; quiz response final; ranking max 5 and scale 1-5 validation; result visibility honored; presenter sees live/post-close aggregates; accessible interaction forms and validation errors.
+- Likely files: `packages/shared/src/interactions/*`, `apps/api/src/database/migrations/*`, `apps/api/src/presentation-sessions/*`, `apps/web/src/features/audience/*`, `apps/web/src/features/rehearsal/presenter/*`.
+- Verification plan: shared interaction schema tests, API tests for library/session interaction/response flows, web active-card and presenter controls tests, `pnpm audience:checkpoint`.
+- Major risks: implementing enough session interaction behavior without leaking future survey/Q&A table scope; preserving M1 migration split by creating only M5 feature tables here.
+- Resume checkpoint snapshot:
+  - Current branch: `feature/audience-m05-interactions`
+  - Next milestone: 5
+  - Resume first checks: inspect interaction schemas, presentation session service/controller, and audience active card UI before editing.
+
+## Milestone 5 Complete - 2026-07-05
+
+- Milestone branch: `feature/audience-m05-interactions`
+- Local commits:
+  - `268426d` `feat: 청중 투표 퀴즈 상호작용 추가`
+- Merged into `feature/audience`: pending local merge
+- Change summary: added shared poll/quiz library, session interaction, response, active interaction, and result schemas; created M5 interaction tables; added presenter library/session/activation/close/results endpoints; added audience active interaction and response endpoints; implemented poll/quiz response validation, poll edit and quiz finality rules, one-active DB index, aggregation, and audience active-card forms.
+- Acceptance criteria evidence: migration creates only `project_interaction_library`, `session_interactions`, and `interaction_responses`; shared schema tests cover ranking max 5, fixed 1-5 scale, poll/quiz draft boundaries, and response shapes; API service tests cover library copy, poll response edit upsert, quiz duplicate conflict, and migration SQL; web tests cover active poll rendering and interaction API requests.
+- Self-review:
+  - Correctness: response validation checks question/answer type compatibility, option membership, poll edit behavior, quiz duplicate rejection, and basic quiz scoring.
+  - Security/privacy: audience response endpoint requires signed audience cookie and token hash; presenter endpoints require project read/write checks; response payloads do not include token/cookie fields.
+  - Contract/schema compatibility: request/response DTOs are shared through `packages/shared` and parsed at service/API boundaries.
+  - Architecture boundary: M5 tables stay within interaction library/session/response scope and do not create Q&A, AI answer, survey, or aggregate report tables.
+  - Missing test risk: real DB migration run/revert and Playwright poll/quiz scenario were not run because Docker/dev-server browser verification is deferred to M11.
+- Verification:
+  - `pnpm --filter @orbit/shared test -- src/interactions/interaction.schema.test.ts src/audience/audience.schema.test.ts`: pass
+  - `pnpm --filter @orbit/api test -- src/presentation-sessions/presentation-sessions.service.spec.ts`: pass
+  - `pnpm --filter @orbit/web test -- src/features/audience/AudienceEntrance.test.tsx src/features/audience/audienceApi.test.ts`: pass
+  - `pnpm --filter @orbit/api lint`: pass
+  - `pnpm --filter @orbit/web lint`: pass
+  - `pnpm --filter @orbit/shared lint`: pass
+  - `pnpm db:migration:run`: not run; Docker daemon is not running for local Postgres.
+  - `pnpm db:migration:revert`: not run; Docker daemon is not running for local Postgres.
+- Remaining risks or next milestone carryover: presenter detailed authoring/results UI is functional through endpoints and basic audience card but needs richer live controls in M10/M11 hardening; run real DB and Playwright flows later.
+- Resume checkpoint snapshot:
+  - Current branch: `feature/audience`
+  - Next milestone: 6
+  - Resume first checks: read Milestone 6 plan, confirm `feature/audience` status, and implement non-AI Q&A question queue.
 
 ## Progress Entry Template
 

@@ -2,9 +2,20 @@ import { randomInt, randomUUID } from "node:crypto";
 import {
   assertAudienceSafePayload,
   audienceStateResponseSchema,
+  audienceActiveInteractionResponseSchema,
+  createAdHocSessionInteractionRequestSchema,
+  createInteractionLibraryItemRequestSchema,
+  createInteractionLibraryItemResponseSchema,
   createPresentationSessionRequestSchema,
   createPresentationSessionResponseSchema,
   getCurrentPresentationSessionResponseSchema,
+  interactionResultsResponseSchema,
+  listInteractionLibraryItemsResponseSchema,
+  listSessionInteractionsResponseSchema,
+  selectSessionInteractionsRequestSchema,
+  sessionInteractionResponseSchema,
+  submitInteractionResponseRequestSchema,
+  submitInteractionResponseResponseSchema,
   updateAudienceFeatureSettingsRequestSchema,
   updateAudienceFeatureSettingsResponseSchema,
   updatePresentationSessionEntryResponseSchema,
@@ -18,9 +29,15 @@ import type {
   AudienceStateResponse,
   CreatePresentationSessionResponse,
   GetCurrentPresentationSessionResponse,
+  InteractionAnswer,
+  InteractionQuestion,
+  InteractionResponse,
+  InteractionResults,
+  ProjectInteractionLibraryItem,
   PresentationEntryStatus,
   PresentationSession,
   PresentationSessionStatus,
+  SessionInteraction,
   UpdateAudienceFeatureSettingsRequest,
   UpdateAudienceFeatureSettingsResponse,
   UpdatePresentationSessionEntryResponse,
@@ -80,6 +97,45 @@ type AudienceFeatureSettingsRow = {
   updated_at: Date | string;
 };
 
+type ProjectInteractionLibraryRow = {
+  library_interaction_id: string;
+  project_id: string;
+  title: string;
+  kind: "poll" | "quiz";
+  questions_json: InteractionQuestion[] | string;
+  result_visibility: "hidden" | "manual" | "after-close" | "live";
+  quiz_scoring: "none" | "correct-count" | "speed-bonus";
+  created_at: Date | string;
+  updated_at: Date | string;
+};
+
+type SessionInteractionRow = {
+  interaction_id: string;
+  session_id: string;
+  kind: "poll" | "quiz";
+  title: string;
+  questions_json: InteractionQuestion[] | string;
+  result_visibility: "hidden" | "manual" | "after-close" | "live";
+  quiz_scoring: "none" | "correct-count" | "speed-bonus";
+  source: "library" | "ad-hoc";
+  display_order: number;
+  activated_at: Date | string | null;
+  closed_at: Date | string | null;
+};
+
+type InteractionResponseRow = {
+  response_id: string;
+  interaction_id: string;
+  session_id: string;
+  audience_id: string;
+  question_id: string;
+  answer_json: InteractionAnswer | string;
+  is_correct: boolean | null;
+  score: number | string;
+  submitted_at: Date | string;
+  updated_at: Date | string;
+};
+
 type JoinAudienceInput = {
   audienceId: string;
   nickname: string;
@@ -100,6 +156,11 @@ type UpdateAudienceFeatureSettingsInput = {
   sessionId: string;
   actorId: string;
   settings: UpdateAudienceFeatureSettingsRequest;
+};
+
+type ProjectSessionInput = {
+  projectId: string;
+  sessionId: string;
 };
 
 @Injectable()
@@ -520,6 +581,550 @@ export class PresentationSessionsService {
     });
   }
 
+  async createLibraryInteraction(projectId: string, body: unknown) {
+    const input = createInteractionLibraryItemRequestSchema.parse(body);
+    const rows = await this.dataSource.query<ProjectInteractionLibraryRow[]>(
+      `
+        INSERT INTO project_interaction_library (
+          library_interaction_id,
+          project_id,
+          title,
+          kind,
+          questions_json,
+          result_visibility,
+          quiz_scoring,
+          created_at,
+          updated_at
+        )
+        VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, now(), now())
+        RETURNING
+          library_interaction_id,
+          project_id,
+          title,
+          kind,
+          questions_json,
+          result_visibility,
+          quiz_scoring,
+          created_at,
+          updated_at
+      `,
+      [
+        `library_interaction_${randomUUID()}`,
+        projectId,
+        input.title,
+        input.kind,
+        input.questions,
+        input.resultVisibility,
+        input.quizScoring,
+      ],
+    );
+
+    return createInteractionLibraryItemResponseSchema.parse({
+      interaction: this.toLibraryInteractionDto(rows[0]),
+    });
+  }
+
+  async listLibraryInteractions(projectId: string) {
+    const rows = await this.dataSource.query<ProjectInteractionLibraryRow[]>(
+      `
+        SELECT
+          library_interaction_id,
+          project_id,
+          title,
+          kind,
+          questions_json,
+          result_visibility,
+          quiz_scoring,
+          created_at,
+          updated_at
+        FROM project_interaction_library
+        WHERE project_id = $1
+        ORDER BY updated_at DESC
+      `,
+      [projectId],
+    );
+
+    return listInteractionLibraryItemsResponseSchema.parse({
+      interactions: rows.map((row) => this.toLibraryInteractionDto(row)),
+    });
+  }
+
+  async selectSessionInteractions(input: ProjectSessionInput, body: unknown) {
+    const parsed = selectSessionInteractionsRequestSchema.parse(body);
+    await this.assertSessionBelongsToProject(input.projectId, input.sessionId);
+
+    await this.dataSource.query(
+      `
+        DELETE FROM session_interactions
+        WHERE session_id = $1
+          AND source = 'library'
+          AND activated_at IS NULL
+      `,
+      [input.sessionId],
+    );
+
+    if (parsed.libraryInteractionIds.length === 0) {
+      return listSessionInteractionsResponseSchema.parse({
+        interactions: await this.getSessionInteractions(input),
+      });
+    }
+
+    const libraryRows =
+      await this.dataSource.query<ProjectInteractionLibraryRow[]>(
+        `
+          SELECT
+            library_interaction_id,
+            project_id,
+            title,
+            kind,
+            questions_json,
+            result_visibility,
+            quiz_scoring,
+            created_at,
+            updated_at
+          FROM project_interaction_library
+          WHERE project_id = $1
+            AND library_interaction_id = ANY($2)
+        `,
+        [input.projectId, parsed.libraryInteractionIds],
+      );
+    const byId = new Map(
+      libraryRows.map((row) => [row.library_interaction_id, row]),
+    );
+
+    for (let index = 0; index < parsed.libraryInteractionIds.length; index += 1) {
+      const libraryInteractionId = parsed.libraryInteractionIds[index];
+      const row = byId.get(libraryInteractionId);
+      if (!row) {
+        throw new NotFoundException("Interaction library item not found");
+      }
+
+      await this.dataSource.query(
+        `
+          INSERT INTO session_interactions (
+            interaction_id,
+            session_id,
+            library_interaction_id,
+            kind,
+            title,
+            questions_json,
+            result_visibility,
+            quiz_scoring,
+            source,
+            display_order,
+            created_at
+          )
+          VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8, 'library', $9, now())
+        `,
+        [
+          `interaction_${randomUUID()}`,
+          input.sessionId,
+          row.library_interaction_id,
+          row.kind,
+          row.title,
+          normalizeQuestions(row.questions_json),
+          row.result_visibility,
+          row.quiz_scoring,
+          index,
+        ],
+      );
+    }
+
+    return listSessionInteractionsResponseSchema.parse({
+      interactions: await this.getSessionInteractions(input),
+    });
+  }
+
+  async listSessionInteractions(input: ProjectSessionInput) {
+    return listSessionInteractionsResponseSchema.parse({
+      interactions: await this.getSessionInteractions(input),
+    });
+  }
+
+  async createAdHocSessionInteraction(input: ProjectSessionInput, body: unknown) {
+    const parsed = createAdHocSessionInteractionRequestSchema.parse(body);
+    await this.assertSessionBelongsToProject(input.projectId, input.sessionId);
+    const rows = await this.dataSource.query<SessionInteractionRow[]>(
+      `
+        INSERT INTO session_interactions (
+          interaction_id,
+          session_id,
+          kind,
+          title,
+          questions_json,
+          result_visibility,
+          quiz_scoring,
+          source,
+          display_order,
+          created_at
+        )
+        VALUES (
+          $1,
+          $2,
+          $3,
+          $4,
+          $5::jsonb,
+          $6,
+          $7,
+          'ad-hoc',
+          (
+            SELECT COALESCE(MAX(display_order), -1) + 1
+            FROM session_interactions
+            WHERE session_id = $2
+          ),
+          now()
+        )
+        RETURNING
+          interaction_id,
+          session_id,
+          kind,
+          title,
+          questions_json,
+          result_visibility,
+          quiz_scoring,
+          source,
+          display_order,
+          activated_at,
+          closed_at
+      `,
+      [
+        `interaction_${randomUUID()}`,
+        input.sessionId,
+        parsed.kind,
+        parsed.title,
+        parsed.questions,
+        parsed.resultVisibility,
+        parsed.quizScoring,
+      ],
+    );
+
+    return sessionInteractionResponseSchema.parse({
+      interaction: this.toSessionInteractionDto(rows[0]),
+    });
+  }
+
+  async activateSessionInteraction(input: ProjectSessionInput & {
+    interactionId: string;
+    actorId: string;
+  }) {
+    await this.assertSessionBelongsToProject(input.projectId, input.sessionId);
+
+    try {
+      const rows = await this.dataSource.query<SessionInteractionRow[]>(
+        `
+          UPDATE session_interactions
+          SET activated_at = COALESCE(activated_at, now())
+          WHERE session_id = $1
+            AND interaction_id = $2
+            AND closed_at IS NULL
+          RETURNING
+            interaction_id,
+            session_id,
+            kind,
+            title,
+            questions_json,
+            result_visibility,
+            quiz_scoring,
+            source,
+            display_order,
+            activated_at,
+            closed_at
+        `,
+        [input.sessionId, input.interactionId],
+      );
+
+      const row = rows[0];
+      if (!row) {
+        throw new NotFoundException("Session interaction not found");
+      }
+
+      await this.updateAudienceRealtimeState({
+        sessionId: input.sessionId,
+        actorId: input.actorId,
+        slideId: null,
+        slideIndex: null,
+        effectState: {},
+        activeInteractionId: input.interactionId,
+      });
+
+      return sessionInteractionResponseSchema.parse({
+        interaction: this.toSessionInteractionDto(row),
+      });
+    } catch (error) {
+      if (isPostgresUniqueViolation(error)) {
+        throw new ConflictException("이미 활성화된 상호작용이 있습니다.");
+      }
+
+      throw error;
+    }
+  }
+
+  async closeSessionInteraction(input: ProjectSessionInput & {
+    interactionId: string;
+    actorId: string;
+  }) {
+    await this.assertSessionBelongsToProject(input.projectId, input.sessionId);
+    const rows = await this.dataSource.query<SessionInteractionRow[]>(
+      `
+        UPDATE session_interactions
+        SET closed_at = COALESCE(closed_at, now())
+        WHERE session_id = $1
+          AND interaction_id = $2
+        RETURNING
+          interaction_id,
+          session_id,
+          kind,
+          title,
+          questions_json,
+          result_visibility,
+          quiz_scoring,
+          source,
+          display_order,
+          activated_at,
+          closed_at
+      `,
+      [input.sessionId, input.interactionId],
+    );
+
+    const row = rows[0];
+    if (!row) {
+      throw new NotFoundException("Session interaction not found");
+    }
+
+    await this.updateAudienceRealtimeState({
+      sessionId: input.sessionId,
+      actorId: input.actorId,
+      slideId: null,
+      slideIndex: null,
+      effectState: {},
+      activeInteractionId: null,
+    });
+
+    return sessionInteractionResponseSchema.parse({
+      interaction: this.toSessionInteractionDto(row),
+    });
+  }
+
+  async submitInteractionResponse(input: {
+    sessionId: string;
+    audienceId: string;
+    tokenHash: string;
+    interactionId: string;
+    body: unknown;
+  }) {
+    await this.getAudienceMe(input.sessionId, input.audienceId, input.tokenHash);
+    const request = submitInteractionResponseRequestSchema.parse(input.body);
+    const interaction = await this.getActiveInteraction(
+      input.sessionId,
+      input.interactionId,
+    );
+    const question = interaction.questions.find(
+      (candidate) => candidate.questionId === request.questionId,
+    );
+    if (!question) {
+      throw new NotFoundException("Interaction question not found");
+    }
+
+    validateAnswerForQuestion(question, request.answer);
+    const { isCorrect, score } = scoreInteractionAnswer(question, request.answer);
+    const responseId = `response_${randomUUID()}`;
+    const isPoll = interaction.kind === "poll";
+
+    try {
+      const rows = await this.dataSource.query<InteractionResponseRow[]>(
+        isPoll
+          ? `
+              INSERT INTO interaction_responses (
+                response_id,
+                interaction_id,
+                session_id,
+                audience_id,
+                question_id,
+                answer_json,
+                is_correct,
+                score,
+                submitted_at,
+                updated_at
+              )
+              VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8, now(), now())
+              ON CONFLICT (interaction_id, audience_id, question_id)
+              DO UPDATE SET
+                answer_json = EXCLUDED.answer_json,
+                is_correct = EXCLUDED.is_correct,
+                score = EXCLUDED.score,
+                updated_at = now()
+              RETURNING
+                response_id,
+                interaction_id,
+                session_id,
+                audience_id,
+                question_id,
+                answer_json,
+                is_correct,
+                score,
+                submitted_at,
+                updated_at
+            `
+          : `
+              INSERT INTO interaction_responses (
+                response_id,
+                interaction_id,
+                session_id,
+                audience_id,
+                question_id,
+                answer_json,
+                is_correct,
+                score,
+                submitted_at,
+                updated_at
+              )
+              VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8, now(), now())
+              RETURNING
+                response_id,
+                interaction_id,
+                session_id,
+                audience_id,
+                question_id,
+                answer_json,
+                is_correct,
+                score,
+                submitted_at,
+                updated_at
+            `,
+        [
+          responseId,
+          input.interactionId,
+          input.sessionId,
+          input.audienceId,
+          request.questionId,
+          request.answer,
+          isCorrect,
+          score,
+        ],
+      );
+
+      await this.appendAudienceEvent({
+        sessionId: input.sessionId,
+        actorType: "audience",
+        actorId: input.audienceId,
+        type: "interaction.responded",
+        payload: {
+          interactionId: input.interactionId,
+          questionId: request.questionId,
+        },
+      });
+
+      return submitInteractionResponseResponseSchema.parse({
+        response: this.toInteractionResponseDto(rows[0]),
+      });
+    } catch (error) {
+      if (isPostgresUniqueViolation(error) && !isPoll) {
+        throw new ConflictException("퀴즈 응답은 제출 후 수정할 수 없습니다.");
+      }
+
+      throw error;
+    }
+  }
+
+  async getAudienceActiveInteraction(input: {
+    sessionId: string;
+    audienceId: string;
+    tokenHash: string;
+  }) {
+    await this.getAudienceMe(input.sessionId, input.audienceId, input.tokenHash);
+    const features = await this.getAudienceFeatureSettingsForSession(
+      input.sessionId,
+    );
+    const rows = await this.dataSource.query<SessionInteractionRow[]>(
+      `
+        SELECT
+          interaction_id,
+          session_id,
+          kind,
+          title,
+          questions_json,
+          result_visibility,
+          quiz_scoring,
+          source,
+          display_order,
+          activated_at,
+          closed_at
+        FROM session_interactions
+        WHERE session_id = $1
+          AND activated_at IS NOT NULL
+          AND closed_at IS NULL
+        ORDER BY activated_at DESC
+        LIMIT 1
+      `,
+      [input.sessionId],
+    );
+
+    const row = rows[0];
+    if (!row) {
+      return audienceActiveInteractionResponseSchema.parse({
+        interaction: null,
+        results: null,
+      });
+    }
+
+    const interaction = this.toSessionInteractionDto(row);
+    const enabled =
+      (interaction.kind === "poll" && features.pollsEnabled) ||
+      (interaction.kind === "quiz" && features.quizzesEnabled);
+    if (!enabled) {
+      return audienceActiveInteractionResponseSchema.parse({
+        interaction: null,
+        results: null,
+      });
+    }
+
+    const resultsResponse = await this.getInteractionResults({
+      projectId: (await this.getSessionById(input.sessionId)).projectId,
+      sessionId: input.sessionId,
+      interactionId: interaction.interactionId,
+      audienceVisible: true,
+    });
+
+    return audienceActiveInteractionResponseSchema.parse({
+      interaction,
+      results: resultsResponse.results,
+    });
+  }
+
+  async getInteractionResults(input: ProjectSessionInput & {
+    interactionId: string;
+    audienceVisible?: boolean;
+  }) {
+    const interaction = await this.getSessionInteractionForProject(input);
+    const responses = await this.dataSource.query<InteractionResponseRow[]>(
+      `
+        SELECT
+          response_id,
+          interaction_id,
+          session_id,
+          audience_id,
+          question_id,
+          answer_json,
+          is_correct,
+          score,
+          submitted_at,
+          updated_at
+        FROM interaction_responses
+        WHERE session_id = $1
+          AND interaction_id = $2
+      `,
+      [input.sessionId, input.interactionId],
+    );
+
+    const results = aggregateInteractionResults(
+      interaction,
+      responses.map((row) => this.toInteractionResponseDto(row)),
+      Boolean(input.audienceVisible),
+    );
+
+    return interactionResultsResponseSchema.parse({ results });
+  }
+
   private async findCurrentActiveSession(
     projectId: string,
   ): Promise<PresentationSessionRow | null> {
@@ -659,6 +1264,124 @@ export class PresentationSessionsService {
     return this.toFeatureSettingsDto(row);
   }
 
+  private async assertSessionBelongsToProject(
+    projectId: string,
+    sessionId: string,
+  ): Promise<void> {
+    const rows = await this.dataSource.query<{ session_id: string }[]>(
+      `
+        SELECT session_id
+        FROM presentation_sessions
+        WHERE project_id = $1
+          AND session_id = $2
+        LIMIT 1
+      `,
+      [projectId, sessionId],
+    );
+
+    if (!rows[0]) {
+      throw new NotFoundException("Presentation session not found");
+    }
+  }
+
+  private async getSessionInteractions(
+    input: ProjectSessionInput,
+  ): Promise<SessionInteraction[]> {
+    await this.assertSessionBelongsToProject(input.projectId, input.sessionId);
+    const rows = await this.dataSource.query<SessionInteractionRow[]>(
+      `
+        SELECT
+          interaction_id,
+          session_id,
+          kind,
+          title,
+          questions_json,
+          result_visibility,
+          quiz_scoring,
+          source,
+          display_order,
+          activated_at,
+          closed_at
+        FROM session_interactions
+        WHERE session_id = $1
+        ORDER BY display_order ASC
+      `,
+      [input.sessionId],
+    );
+
+    return rows.map((row) => this.toSessionInteractionDto(row));
+  }
+
+  private async getActiveInteraction(
+    sessionId: string,
+    interactionId: string,
+  ): Promise<SessionInteraction> {
+    const rows = await this.dataSource.query<SessionInteractionRow[]>(
+      `
+        SELECT
+          interaction_id,
+          session_id,
+          kind,
+          title,
+          questions_json,
+          result_visibility,
+          quiz_scoring,
+          source,
+          display_order,
+          activated_at,
+          closed_at
+        FROM session_interactions
+        WHERE session_id = $1
+          AND interaction_id = $2
+          AND activated_at IS NOT NULL
+          AND closed_at IS NULL
+        LIMIT 1
+      `,
+      [sessionId, interactionId],
+    );
+
+    const row = rows[0];
+    if (!row) {
+      throw new NotFoundException("Active interaction not found");
+    }
+
+    return this.toSessionInteractionDto(row);
+  }
+
+  private async getSessionInteractionForProject(
+    input: ProjectSessionInput & { interactionId: string },
+  ): Promise<SessionInteraction> {
+    await this.assertSessionBelongsToProject(input.projectId, input.sessionId);
+    const rows = await this.dataSource.query<SessionInteractionRow[]>(
+      `
+        SELECT
+          interaction_id,
+          session_id,
+          kind,
+          title,
+          questions_json,
+          result_visibility,
+          quiz_scoring,
+          source,
+          display_order,
+          activated_at,
+          closed_at
+        FROM session_interactions
+        WHERE session_id = $1
+          AND interaction_id = $2
+        LIMIT 1
+      `,
+      [input.sessionId, input.interactionId],
+    );
+
+    const row = rows[0];
+    if (!row) {
+      throw new NotFoundException("Session interaction not found");
+    }
+
+    return this.toSessionInteractionDto(row);
+  }
+
   private async appendAudienceJoinedEvent(
     sessionId: string,
     audienceId: string,
@@ -785,6 +1508,55 @@ export class PresentationSessionsService {
     };
   }
 
+  private toLibraryInteractionDto(
+    row: ProjectInteractionLibraryRow,
+  ): ProjectInteractionLibraryItem {
+    return {
+      libraryInteractionId: row.library_interaction_id,
+      projectId: row.project_id,
+      title: row.title,
+      kind: row.kind,
+      questions: normalizeQuestions(row.questions_json),
+      resultVisibility: row.result_visibility,
+      quizScoring: row.quiz_scoring,
+      createdAt: toIso(row.created_at),
+      updatedAt: toIso(row.updated_at),
+    };
+  }
+
+  private toSessionInteractionDto(row: SessionInteractionRow): SessionInteraction {
+    return {
+      interactionId: row.interaction_id,
+      sessionId: row.session_id,
+      kind: row.kind,
+      title: row.title,
+      questions: normalizeQuestions(row.questions_json),
+      resultVisibility: row.result_visibility,
+      quizScoring: row.quiz_scoring,
+      source: row.source,
+      order: row.display_order,
+      activatedAt: toNullableIso(row.activated_at),
+      closedAt: toNullableIso(row.closed_at),
+    };
+  }
+
+  private toInteractionResponseDto(
+    row: InteractionResponseRow,
+  ): InteractionResponse {
+    return {
+      responseId: row.response_id,
+      interactionId: row.interaction_id,
+      sessionId: row.session_id,
+      audienceId: row.audience_id,
+      questionId: row.question_id,
+      answer: normalizeInteractionAnswer(row.answer_json),
+      isCorrect: row.is_correct,
+      score: Number(row.score),
+      submittedAt: toIso(row.submitted_at),
+      updatedAt: toIso(row.updated_at),
+    };
+  }
+
   private toCreateResponse(
     row: PresentationSessionRow,
   ): CreatePresentationSessionResponse {
@@ -848,6 +1620,147 @@ function normalizeJsonRecord(
   }
 
   return assertAudienceSafePayload(value);
+}
+
+function normalizeQuestions(value: InteractionQuestion[] | string) {
+  return typeof value === "string"
+    ? (JSON.parse(value) as InteractionQuestion[])
+    : value;
+}
+
+function normalizeInteractionAnswer(value: InteractionAnswer | string) {
+  return typeof value === "string"
+    ? (JSON.parse(value) as InteractionAnswer)
+    : value;
+}
+
+function validateAnswerForQuestion(
+  question: InteractionQuestion,
+  answer: InteractionAnswer,
+) {
+  if (question.type !== answer.type) {
+    throw new ConflictException("질문 유형과 응답 유형이 일치하지 않습니다.");
+  }
+
+  if (
+    (question.type === "choice" || question.type === "quiz-multiple-choice") &&
+    answer.type === question.type
+  ) {
+    const optionIds = new Set(question.options.map((option) => option.optionId));
+    const selected = answer.selectedOptionIds;
+    if (
+      (question.type === "choice" && !question.allowMultiple && selected.length > 1) ||
+      selected.some((optionId) => !optionIds.has(optionId))
+    ) {
+      throw new ConflictException("선택한 보기가 유효하지 않습니다.");
+    }
+  }
+
+  if (question.type === "ranking" && answer.type === "ranking") {
+    const optionIds = new Set(question.options.map((option) => option.optionId));
+    if (answer.orderedOptionIds.some((optionId) => !optionIds.has(optionId))) {
+      throw new ConflictException("선택한 순위 보기가 유효하지 않습니다.");
+    }
+  }
+}
+
+function scoreInteractionAnswer(
+  question: InteractionQuestion,
+  answer: InteractionAnswer,
+): { isCorrect: boolean | null; score: number } {
+  if (question.type === "quiz-true-false" && answer.type === "quiz-true-false") {
+    const isCorrect = question.correctAnswer === answer.answer;
+    return { isCorrect, score: isCorrect ? 1 : 0 };
+  }
+
+  if (
+    question.type === "quiz-multiple-choice" &&
+    answer.type === "quiz-multiple-choice"
+  ) {
+    const expected = [...question.correctOptionIds].sort();
+    const actual = [...answer.selectedOptionIds].sort();
+    const isCorrect =
+      expected.length === actual.length &&
+      expected.every((optionId, index) => optionId === actual[index]);
+    return { isCorrect, score: isCorrect ? 1 : 0 };
+  }
+
+  return { isCorrect: null, score: 0 };
+}
+
+function aggregateInteractionResults(
+  interaction: SessionInteraction,
+  responses: InteractionResponse[],
+  audienceVisible: boolean,
+): InteractionResults {
+  const visibleToAudience =
+    !audienceVisible ||
+    interaction.resultVisibility === "live" ||
+    interaction.resultVisibility === "manual" ||
+    (interaction.resultVisibility === "after-close" &&
+      interaction.closedAt !== null);
+
+  const questionResults = interaction.questions.map((question) => {
+    const questionResponses = responses.filter(
+      (response) => response.questionId === question.questionId,
+    );
+    const optionCounts: Record<string, number> = {};
+    const openTextResponses: string[] = [];
+    const scaleValues: number[] = [];
+
+    for (const response of questionResponses) {
+      const answer = response.answer;
+      if (
+        (answer.type === "choice" || answer.type === "quiz-multiple-choice") &&
+        "selectedOptionIds" in answer
+      ) {
+        for (const optionId of answer.selectedOptionIds) {
+          optionCounts[optionId] = (optionCounts[optionId] ?? 0) + 1;
+        }
+      }
+
+      if (answer.type === "quiz-true-false") {
+        const key = String(answer.answer);
+        optionCounts[key] = (optionCounts[key] ?? 0) + 1;
+      }
+
+      if (answer.type === "ranking") {
+        answer.orderedOptionIds.forEach((optionId, index) => {
+          optionCounts[optionId] = (optionCounts[optionId] ?? 0) + index + 1;
+        });
+      }
+
+      if (answer.type === "scale") {
+        scaleValues.push(answer.value);
+      }
+
+      if (answer.type === "open-text") {
+        openTextResponses.push(answer.text);
+      }
+    }
+
+    const average =
+      scaleValues.length === 0
+        ? null
+        : scaleValues.reduce((sum, value) => sum + value, 0) /
+          scaleValues.length;
+
+    return {
+      questionId: question.questionId,
+      responseCount: questionResponses.length,
+      optionCounts: visibleToAudience ? optionCounts : {},
+      average: visibleToAudience ? average : null,
+      openTextResponses: visibleToAudience ? openTextResponses : [],
+    };
+  });
+
+  return {
+    interactionId: interaction.interactionId,
+    sessionId: interaction.sessionId,
+    visibleToAudience,
+    responseCount: responses.length,
+    questionResults,
+  };
 }
 
 function normalizeAudienceFeatureSettingsUpdate(
