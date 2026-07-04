@@ -17,8 +17,7 @@ COPY packages/realtime/package.json packages/realtime/package.json
 RUN pnpm install --frozen-lockfile
 
 COPY . .
-RUN pnpm --filter "./packages/*" build
-RUN pnpm --filter "@orbit/api" build
+RUN pnpm --filter @orbit/api... --workspace-concurrency=1 build
 
 EXPOSE 3000
 

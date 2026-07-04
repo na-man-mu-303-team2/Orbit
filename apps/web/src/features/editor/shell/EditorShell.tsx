@@ -98,9 +98,12 @@ export {
 } from "./components/EditorStateNotice";
 export {
   mergeDeckIntoQueryCache,
+  buildSlideThumbnailPatch,
   shouldApplyManualSaveResult,
   shouldHydrateDeckFromQuery
 } from "./utils/deckState";
+export { createDistributeSelectionPatch } from "./utils/selectionDistribution";
+export { getEditorValidationItems } from "../ai/quality/editorValidation";
 import type {
   ApplyAiSuggestionResponse,
   CustomShapeElementProps,
@@ -2438,6 +2441,8 @@ export function EditorShell(props: { projectId?: string }) {
             props: {
               alt: file.name,
               fit: "contain",
+              focusX: 0.5,
+              focusY: 0.5,
               src: normalizedUploadedUrl
             }
             }),
@@ -5061,6 +5066,10 @@ function formatLastSavedAtLabel(lastSavedAt: string | null): string | null {
     second: "2-digit",
     hour12: false
   }).format(date);
+}
+
+export function shouldRefreshImportedSlideThumbnails(deck: Deck) {
+  return deck.slides.some((slide) => slide.thumbnailUrl?.startsWith("asset:"));
 }
 
 
