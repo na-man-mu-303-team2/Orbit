@@ -6,6 +6,8 @@ import {
   joinAudienceSession,
   lookupAudienceSession,
   submitAudienceInteractionResponse,
+  submitAudienceQuestion,
+  fetchAudienceQuestionStatus,
 } from "./audienceApi";
 
 describe("audience API", () => {
@@ -260,5 +262,38 @@ describe("audience API", () => {
     ).resolves.toMatchObject({
       response: { answer: { value: 5 } },
     });
+  });
+
+  it("submits and fetches private audience question status", async () => {
+    const question = {
+      questionId: "question_00000000-0000-4000-8000-000000000001",
+      questionGroupId: "question_00000000-0000-4000-8000-000000000001",
+      sessionId: "session_1",
+      audienceId: "audience_00000000-0000-4000-8000-000000000001",
+      text: "질문입니다",
+      status: "pending",
+      submittedAt: "2026-07-05T00:00:00.000Z",
+      answeredAt: null,
+    };
+    const fetcher = vi.fn(
+      async (_input: RequestInfo | URL, init?: RequestInit) => {
+        if (init?.method === "POST") {
+          expect(JSON.parse(String(init.body))).toEqual({ text: "질문입니다" });
+        }
+
+        return new Response(JSON.stringify({ question }));
+      },
+    );
+    vi.stubGlobal("fetch", fetcher);
+
+    await expect(
+      submitAudienceQuestion({ sessionId: "session_1", text: "질문입니다" }),
+    ).resolves.toMatchObject({ question: { text: "질문입니다" } });
+    await expect(
+      fetchAudienceQuestionStatus({
+        sessionId: "session_1",
+        questionId: "question_00000000-0000-4000-8000-000000000001",
+      }),
+    ).resolves.toMatchObject({ question: { status: "pending" } });
   });
 });

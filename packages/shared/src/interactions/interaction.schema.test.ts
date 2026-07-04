@@ -3,8 +3,11 @@ import { describe, expect, it } from "vitest";
 import {
   createInteractionLibraryItemRequestSchema,
   interactionAnswerSchema,
+  audienceQuestionResponseSchema,
   interactionDraftSchema,
   interactionQuestionSchema,
+  presenterQuestionQueueResponseSchema,
+  submitAudienceQuestionRequestSchema,
   submitInteractionResponseRequestSchema,
   surveyResponseSchema,
 } from "./interaction.schema";
@@ -112,6 +115,30 @@ describe("interaction schemas", () => {
         orderedOptionIds: ["a", "b", "c", "d", "e", "f"],
       }),
     ).toThrow();
+  });
+
+  it("validates private audience Q&A wrappers", () => {
+    expect(
+      submitAudienceQuestionRequestSchema.parse({ text: "  질문입니다  " }),
+    ).toEqual({ text: "질문입니다" });
+
+    const question = {
+      questionId: "question_00000000-0000-4000-8000-000000000021",
+      questionGroupId: "question_00000000-0000-4000-8000-000000000021",
+      sessionId: "session_1",
+      audienceId: "audience_00000000-0000-4000-8000-000000000001",
+      text: "질문입니다",
+      status: "pending",
+      submittedAt: "2026-07-05T00:00:00.000Z",
+      answeredAt: null,
+    };
+
+    expect(audienceQuestionResponseSchema.parse({ question })).toEqual({
+      question,
+    });
+    expect(
+      presenterQuestionQueueResponseSchema.parse({ questions: [question] }),
+    ).toEqual({ questions: [question] });
   });
 
   it("requires contact consent before contact answers are stored", () => {

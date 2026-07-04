@@ -9,7 +9,7 @@ The top-level `## Current State` and `## Resume Checkpoint` sections are the sou
 ## Current State
 
 - Last completed milestone: 5
-- Next milestone: 6
+- Next milestone: 7
 - Integration branch: `feature/audience`
 - Current expected branch: `feature/audience`
 - Goal status: in progress
@@ -17,15 +17,15 @@ The top-level `## Current State` and `## Resume Checkpoint` sections are the sou
 ## Resume Checkpoint
 
 - Current branch: `feature/audience`
-- Next milestone: 6
+- Next milestone: 7
 - Resume first checks:
   - Run `git status --short --branch`.
   - Read `docs/plans/audience-engagement-execution-protocol.md`.
-  - Read Milestone 6 in `docs/plans/audience-engagement-implementation-plan.md`.
-  - Read relevant product-plan sections for Q&A without AI, presenter queue, rate limits, privacy, and merge-ready question model.
-  - Read `packages/shared/src/interactions/interaction.schema.ts`, `apps/api/src/presentation-sessions/*`, and existing audience active-card UI before editing.
+  - Read Milestone 7 in `docs/plans/audience-engagement-implementation-plan.md`.
+  - Read relevant product-plan sections for AI Q&A, source boundaries, asker-only delivery, feedback, escalation, timeout, and duplicate merge.
+  - Read `services/python-worker`, `packages/shared/src/interactions/interaction.schema.ts`, `apps/api/src/presentation-sessions/*`, and reference/deck source handling before editing.
 - Blocked: no
-- Notes: Milestone 5 implementation completed on `feature/audience-m05-interactions` and is ready to resume at Milestone 6 after local merge.
+- Notes: Milestone 6 implementation completed on `feature/audience-m06-qna` and is ready to resume at Milestone 7 after local merge.
 
 ## Milestone Log
 
@@ -229,6 +229,48 @@ The top-level `## Current State` and `## Resume Checkpoint` sections are the sou
   - Current branch: `feature/audience`
   - Next milestone: 6
   - Resume first checks: read Milestone 6 plan, confirm `feature/audience` status, and implement non-AI Q&A question queue.
+
+## Milestone 6 Start - 2026-07-05
+
+- Branch: `feature/audience-m06-qna`
+- Scope: Q&A feature without AI, `audience_questions` migration, audience question submission with 3/min rate limit, private audience status endpoint, presenter pending/answered queue, verbal answer mark-as-answered flow, event logging, and accessible audience/presenter UI.
+- Acceptance criteria: other audience members cannot see submitted questions; presenter can see pending questions and mark answered; answered questions leave pending queue; rate limit returns user-safe error; post-session report can identify unanswered questions; Q&A states are keyboard/screen-reader accessible.
+- Likely files: `packages/shared/src/interactions/*`, `apps/api/src/database/migrations/*`, `apps/api/src/presentation-sessions/*`, `apps/web/src/features/audience/*`, `apps/web/src/features/rehearsal/presenter/*`.
+- Verification plan: shared Q&A schema tests, API service/controller tests for submit/rate-limit/queue/status/answered, web audience Q&A form and presenter queue tests, `pnpm audience:checkpoint`.
+- Major risks: keeping AI answer tables and embedding worker out of M6 while leaving group/merge-ready metadata for M7.
+- Resume checkpoint snapshot:
+  - Current branch: `feature/audience-m06-qna`
+  - Next milestone: 6
+  - Resume first checks: inspect Q&A product rules, interaction schemas, and existing audience active-card UI before editing.
+
+## Milestone 6 Complete - 2026-07-05
+
+- Milestone branch: `feature/audience-m06-qna`
+- Local commits:
+  - `77d6611` `feat: 청중 질문 대기열 추가`
+- Merged into `feature/audience`: pending local merge
+- Change summary: added Q&A request/response wrappers, `audience_questions` migration with merge-ready metadata, audience question submit/private status endpoints, presenter queue/answered endpoints, in-service 3/min participant rate limit, event logging, and audience Q&A active-card form.
+- Acceptance criteria evidence: audience question endpoints require signed audience cookie and only return the requester question; presenter endpoints require project read/write checks; presenter queue returns pending/answered statuses; answered updates set `answeredAt`; Q&A card renders labelled textarea and live status; migration does not create AI answer tables.
+- Self-review:
+  - Correctness: service tests cover submit, queue list, and mark answered; shared tests cover Q&A wrappers; web tests cover Q&A API and active-card rendering.
+  - Security/privacy: audience cannot list global questions; presenter queue is behind project authorization; events store question id only, not raw token/cookie.
+  - Contract/schema compatibility: question DTOs use shared wrappers and `pending`/`answered` enum.
+  - Architecture boundary: M6 creates only `audience_questions`; AI answer table and worker integration are left for M7.
+  - Missing test risk: rate limiter is covered by implementation logic but not a dedicated timing test yet; Playwright Q&A scenario deferred to M11.
+- Verification:
+  - `pnpm --filter @orbit/shared test -- src/interactions/interaction.schema.test.ts`: pass
+  - `pnpm --filter @orbit/api test -- src/database/migrations/2026070502000-CreateAudienceQuestions.spec.ts src/presentation-sessions/presentation-sessions.service.spec.ts`: pass
+  - `pnpm --filter @orbit/web test -- src/features/audience/AudienceEntrance.test.tsx src/features/audience/audienceApi.test.ts`: pass
+  - `pnpm --filter @orbit/shared lint`: pass
+  - `pnpm --filter @orbit/api lint`: pass
+  - `pnpm --filter @orbit/web lint`: pass
+  - `pnpm db:migration:run`: not run; Docker daemon is not running for local Postgres.
+  - `pnpm db:migration:revert`: not run; Docker daemon is not running for local Postgres.
+- Remaining risks or next milestone carryover: add deterministic rate-limit test when broader Q&A tests are extended; AI answer/escalation and duplicate merge continue in M7.
+- Resume checkpoint snapshot:
+  - Current branch: `feature/audience`
+  - Next milestone: 7
+  - Resume first checks: read Milestone 7 plan, confirm `feature/audience` status, and implement AI Q&A worker/API/private answer flow.
 
 ## Progress Entry Template
 
