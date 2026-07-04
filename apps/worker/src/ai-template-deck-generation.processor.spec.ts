@@ -14,6 +14,7 @@ const payload = {
     prompt: "핵심 메시지",
     designPrompt: "차분한 리포트",
     targetDurationMinutes: 10,
+    slideCountRange: { min: 4, max: 6 },
     assets: [
       { fileId: "file_content", role: "content" },
       { fileId: "file_design", role: "design" }
@@ -115,10 +116,12 @@ describe("processAiTemplateDeckGenerationJob", () => {
           references: [{ fileId: "file_content" }],
           designReferences: [{ fileId: "file_design" }],
           referenceKeywords: [{ text: "ORBIT" }],
+          slideCountRange: { min: 4, max: 6 },
           templateBlueprint: expect.objectContaining({
             templateId: "template_file_design"
           })
         });
+        expect(body.templateBlueprint.slides).toHaveLength(10);
         expect(body.templateBlueprint.slides[0].slots).toMatchObject([
           { usage: "content-slot", replaceMode: "replace", slotRole: "title" },
           { usage: "content-slot", replaceMode: "replace", slotRole: "body" }
@@ -127,13 +130,15 @@ describe("processAiTemplateDeckGenerationJob", () => {
       }
       if (url.endsWith("/ai/pptx-ooxml-apply-slot-texts")) {
         const form = init?.body as FormData;
-        expect(JSON.parse(String(form.get("template_blueprint"))).slides[0].slots)
-          .toMatchObject([
-            { usage: "content-slot", replaceMode: "replace", slotRole: "title" },
-            { usage: "content-slot", replaceMode: "replace", slotRole: "body" }
-          ]);
+        const blueprint = JSON.parse(String(form.get("template_blueprint")));
+        expect(blueprint.slides.map((slide: { sourceSlideIndex: number }) => slide.sourceSlideIndex))
+          .toEqual([3, 5, 7, 9, 10]);
+        expect(blueprint.slides[0].slots).toMatchObject([
+          { usage: "content-slot", replaceMode: "replace", slotRole: "title" },
+          { usage: "content-slot", replaceMode: "replace", slotRole: "body" }
+        ]);
         const slotTexts = JSON.parse(String(form.get("slot_texts")));
-        expect(slotTexts).toHaveLength(2);
+        expect(slotTexts).toHaveLength(10);
         expect(slotTexts[0]).toBe("ORBIT");
         return new Response(JSON.stringify(ooxmlApplyResponse()));
       }
@@ -165,14 +170,18 @@ describe("processAiTemplateDeckGenerationJob", () => {
     const deck = insertedDecks[0] as {
       slides: Array<{ thumbnailUrl: string }>;
     };
+    expect(deck.slides).toHaveLength(5);
     expect(deck.slides[0].thumbnailUrl).toMatch(
       /\/api\/v1\/projects\/project-a\/assets\/file_.*\/content/
     );
     const blueprint = insertedBlueprints.at(-1) as {
       currentPackageFileId: string;
-      slides: Array<{ renderAssetFileId: string }>;
+      slides: Array<{ renderAssetFileId: string; sourceSlideIndex: number }>;
     };
     expect(blueprint.currentPackageFileId).toMatch(/^file_/);
+    expect(blueprint.slides.map((slide) => slide.sourceSlideIndex)).toEqual([
+      3, 5, 7, 9, 10
+    ]);
     expect(blueprint.slides[0].renderAssetFileId).toMatch(/^file_/);
     expect(job.result).toMatchObject({
       deckId: "deck_ai_project_a",
@@ -225,7 +234,7 @@ function ooxmlGenerationResponse() {
         }
       ]
     },
-    templateBlueprint: templateBlueprint(),
+    templateBlueprint: templateBlueprint(10),
     qualityReport: qualityReport(),
     assets: [
       {
@@ -234,12 +243,7 @@ function ooxmlGenerationResponse() {
         mimeType: pptxMimeType,
         contentBase64: Buffer.from("pptx").toString("base64")
       },
-      {
-        assetId: "slide_render_1",
-        fileName: "slide-01.png",
-        mimeType: "image/png",
-        contentBase64: Buffer.from("png").toString("base64")
-      }
+      ...renderAssets("png", 10)
     ],
     warnings: []
   };
@@ -254,18 +258,14 @@ function ooxmlApplyResponse() {
         mimeType: pptxMimeType,
         contentBase64: Buffer.from("final-pptx").toString("base64")
       },
-      {
-        assetId: "slide_render_1",
-        fileName: "slide-01.png",
-        mimeType: "image/png",
-        contentBase64: Buffer.from("final-png").toString("base64")
-      }
+      ...renderAssets("final-png", 10)
     ],
     warnings: []
   };
 }
 
 function generateDeckResponse() {
+  const selection = [3, 5, 7, 9, 10];
   return {
     deck: {
       deckId: "deck_ai_project_a",
@@ -294,55 +294,13 @@ function generateDeckResponse() {
         aspectRatio: "16:9"
       },
       theme: theme(),
-      slides: [
-        {
-          slideId: "slide_1",
-          order: 1,
-          title: "ORBIT",
-          thumbnailUrl: "",
-          style: { layout: "title-content" },
-          speakerNotes: "발표 대본",
-          elements: [
-            {
-              elementId: "el_1_imported_0_text",
-              type: "text",
-              role: "body",
-              x: 100,
-              y: 240,
-              width: 900,
-              height: 180,
-              rotation: 0,
-              opacity: 1,
-              zIndex: 2,
-              locked: false,
-              visible: true,
-              props: {
-                text: "핵심 메시지",
-                fontSize: 32,
-                color: "#111827",
-                align: "left",
-                verticalAlign: "top",
-                lineHeight: 1.2
-              }
-            }
-          ],
-          keywords: [
-            {
-              keywordId: "kw_1_1",
-              text: "ORBIT",
-              synonyms: [],
-              abbreviations: []
-            }
-          ],
-          animations: [],
-          actions: [],
-          aiNotes: {
-            emphasisPoints: ["핵심 메시지"],
-            sourceEvidence: [{ fileId: "file_content" }]
-          }
-        }
-      ]
+      slides: selection.map((_, index) => deckSlide(index + 1))
     },
+    templateSelection: selection.map((sourceSlideIndex, index) => ({
+      generatedOrder: index + 1,
+      sourceSlideIndex,
+      selectionReason: `matched source slide ${sourceSlideIndex}`
+    })),
     warnings: [],
     validation: {
       passed: true,
@@ -354,50 +312,118 @@ function generateDeckResponse() {
   };
 }
 
-function templateBlueprint() {
+function deckSlide(order: number) {
+  return {
+    slideId: `slide_${order}`,
+    order,
+    title: order === 1 ? "ORBIT" : `ORBIT ${order}`,
+    thumbnailUrl: "",
+    style: { layout: "title-content" },
+    speakerNotes: "발표 대본",
+    elements: [
+      {
+        elementId: `el_${order}_imported_0_text`,
+        type: "text",
+        role: "body",
+        x: 100,
+        y: 240,
+        width: 900,
+        height: 180,
+        rotation: 0,
+        opacity: 1,
+        zIndex: 2,
+        locked: false,
+        visible: true,
+        props: {
+          text: `핵심 메시지 ${order}`,
+          fontSize: 32,
+          color: "#111827",
+          align: "left",
+          verticalAlign: "top",
+          lineHeight: 1.2
+        }
+      }
+    ],
+    keywords: [
+      {
+        keywordId: `kw_${order}_1`,
+        text: "ORBIT",
+        synonyms: [],
+        abbreviations: []
+      }
+    ],
+    animations: [],
+    actions: [],
+    aiNotes: {
+      emphasisPoints: [`핵심 메시지 ${order}`],
+      sourceEvidence: [{ fileId: "file_content" }]
+    }
+  };
+}
+
+function templateBlueprint(slideCount = 1) {
   return {
     templateId: "template_file_design",
     sourceFileId: "file_design",
     sourcePackageFileId: "file_design",
     currentPackageFileId: "asset:current_package",
-    slides: [
+    slides: Array.from({ length: slideCount }, (_, index) =>
+      templateBlueprintSlide(index + 1)
+    )
+  };
+}
+
+function templateBlueprintSlide(sourceSlideIndex: number) {
+  return {
+    slideIndex: sourceSlideIndex,
+    sourceSlideIndex,
+    slideRole: sourceSlideIndex === 1 ? "cover" : "body",
+    layoutType: "title-content",
+    contentCapacity: "medium",
+    renderAssetFileId: `asset:slide_render_${sourceSlideIndex}`,
+    slots: [
       {
-        slideIndex: 1,
-        sourceSlideIndex: 1,
-        renderAssetFileId: "asset:slide_render_1",
-        slots: [
-          {
-            elementId: "el_title",
-            usage: "fixed-text",
-            slotRole: "title",
-            replaceMode: "preserve",
-            confidence: 0.45,
-            bounds: { x: 100, y: 80, width: 900, height: 120 },
-            source: {
-              type: "slide",
-              slidePart: "ppt/slides/slide1.xml",
-              shapeId: "2",
-              writable: true
-            }
-          },
-          {
-            elementId: "el_body",
-            usage: "fixed-text",
-            slotRole: "body",
-            replaceMode: "preserve",
-            confidence: 0.45,
-            bounds: { x: 100, y: 240, width: 900, height: 180 },
-            source: {
-              type: "slide",
-              slidePart: "ppt/slides/slide1.xml",
-              shapeId: "3",
-              writable: true
-            }
-          }
-        ]
+        elementId: `el_title_${sourceSlideIndex}`,
+        usage: "fixed-text",
+        slotRole: "title",
+        replaceMode: "preserve",
+        confidence: 0.45,
+        bounds: { x: 100, y: 80, width: 900, height: 120 },
+        source: {
+          type: "slide",
+          slidePart: `ppt/slides/slide${sourceSlideIndex}.xml`,
+          shapeId: "2",
+          writable: true
+        }
+      },
+      {
+        elementId: `el_body_${sourceSlideIndex}`,
+        usage: "fixed-text",
+        slotRole: "body",
+        replaceMode: "preserve",
+        confidence: 0.45,
+        bounds: { x: 100, y: 240, width: 900, height: 180 },
+        source: {
+          type: "slide",
+          slidePart: `ppt/slides/slide${sourceSlideIndex}.xml`,
+          shapeId: "3",
+          writable: true
+        }
       }
     ]
   };
+}
+
+function renderAssets(content: string, count: number) {
+  return Array.from({ length: count }, (_, index) => {
+    const slideNumber = index + 1;
+    return {
+      assetId: `slide_render_${slideNumber}`,
+      fileName: `slide-${String(slideNumber).padStart(2, "0")}.png`,
+      mimeType: "image/png",
+      contentBase64: Buffer.from(content).toString("base64")
+    };
+  });
 }
 
 function theme() {

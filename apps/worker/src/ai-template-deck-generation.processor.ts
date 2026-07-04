@@ -6,6 +6,7 @@ import {
   qualityReportSchema,
   templateBlueprintSchema,
   type Deck,
+  type TemplateSelectionItem,
   type Job,
   type QualityReport,
   type TemplateBlueprint,
@@ -237,11 +238,16 @@ export async function processAiTemplateDeckGenerationJob(
   }
 
   try {
+    const selectedTemplateBlueprint = selectTemplateBlueprintSlides(
+      design.templateBlueprint,
+      generatedDeck.templateSelection,
+      generatedDeck.deck.slides.length,
+    );
     const applyResult = await applyGeneratedContentToPptx(
       storage,
       pythonWorkerUrl,
       design.asset,
-      design.templateBlueprint,
+      selectedTemplateBlueprint,
       generatedDeck.deck,
     );
     const finalAssetRefs = await saveGeneratedAssets(
@@ -251,7 +257,7 @@ export async function processAiTemplateDeckGenerationJob(
       applyResult,
     );
     const finalTemplateBlueprint = templateBlueprintSchema.parse(
-      applyFinalTemplateAssetRefs(design.templateBlueprint, finalAssetRefs.fileIds),
+      applyFinalTemplateAssetRefs(selectedTemplateBlueprint, finalAssetRefs.fileIds),
     );
     const finalDeck = applyFinalRenderAssetsToDeck(
       generatedDeck.deck,
@@ -562,10 +568,6 @@ async function generateDeckWithPython(
   content: ContentPreparation,
   design: DesignPreparation,
 ) {
-  const templateSlideCount = Math.max(
-    1,
-    Math.min(20, design.templateBlueprint.slides.length),
-  );
   const response = await fetch(workerUrl(pythonWorkerUrl, "/ai/generate-deck"), {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -575,7 +577,6 @@ async function generateDeckWithPython(
       prompt: request.prompt ?? "",
       designPrompt: request.designPrompt ?? "",
       targetDurationMinutes: request.targetDurationMinutes,
-      slideCountRange: { min: templateSlideCount, max: templateSlideCount },
       template: request.template,
       metadata: request.metadata,
       design: request.design,
@@ -584,6 +585,7 @@ async function generateDeckWithPython(
       referenceKeywords: content.referenceKeywords,
       designBlueprint: design.designBlueprint,
       templateBlueprint: design.templateBlueprint,
+      slideCountRange: request.slideCountRange,
     }),
     signal: AbortSignal.timeout(180_000),
   });
@@ -593,6 +595,39 @@ async function generateDeckWithPython(
   }
 
   return generateDeckResponseSchema.parse(await response.json());
+}
+
+function selectTemplateBlueprintSlides(
+  templateBlueprint: TemplateBlueprint,
+  templateSelection: TemplateSelectionItem[] | undefined,
+  generatedSlideCount: number,
+): TemplateBlueprint {
+  const sourceSlides = templateBlueprint.slides;
+  const bySourceIndex = new Map(
+    sourceSlides.map((slide) => [slide.sourceSlideIndex, slide]),
+  );
+  const selected: Array<TemplateBlueprint["slides"][number] | undefined> =
+    Array.from({ length: generatedSlideCount });
+
+  for (const item of templateSelection ?? []) {
+    const slide = bySourceIndex.get(item.sourceSlideIndex);
+    if (!slide || item.generatedOrder > generatedSlideCount) continue;
+    selected[item.generatedOrder - 1] = {
+      ...slide,
+      slideIndex: item.generatedOrder,
+      selectionReason: item.selectionReason ?? slide.selectionReason,
+    };
+  }
+
+  const slides = selected.map((slide, index) => ({
+    ...(slide ?? sourceSlides[index % sourceSlides.length]),
+    slideIndex: index + 1,
+  }));
+
+  return templateBlueprintSchema.parse({
+    ...templateBlueprint,
+    slides,
+  });
 }
 
 async function applyGeneratedContentToPptx(
