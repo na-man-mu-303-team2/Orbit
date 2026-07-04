@@ -41,6 +41,7 @@ import {
   normalizeDraftRect
 } from "./utils/canvasInteractionUtils";
 import {
+  HighlightOverlay,
   ReadOnlySlideCanvas,
   type ElementPresentationState
 } from "../../slides/rendering";
@@ -263,6 +264,7 @@ export function EditableCanvas(props: {
   slide: Slide;
   stageScale: number;
   stageRef: MutableRefObject<Konva.Stage | null>;
+  validationHighlightElementIds?: string[];
   visibleElements: DeckElement[];
   onClearSelection: () => void;
   onCommitElementProps: (elementId: string, props: Record<string, unknown>) => void;
@@ -318,6 +320,7 @@ export function EditableCanvas(props: {
     slide,
     stageScale,
     stageRef,
+    validationHighlightElementIds = [],
     visibleElements,
     onClearSelection,
     onCommitElementProps,
@@ -353,6 +356,7 @@ export function EditableCanvas(props: {
             candidate.type === "customShape"
         ) ?? null)
       : null;
+  const validationHighlightElementIdSet = new Set(validationHighlightElementIds);
 
   useEffect(() => {
     const transformer = transformerRef.current;
@@ -528,6 +532,15 @@ export function EditableCanvas(props: {
               }
             />
           ))}
+          {visibleElements
+            .filter((element) => validationHighlightElementIdSet.has(element.elementId))
+            .map((element) => (
+              <HighlightOverlay
+                element={element}
+                key={`validation-highlight-${element.elementId}`}
+                state={elementStates?.[element.elementId]}
+              />
+            ))}
           {customShapeInsertDraft ? (
             <CustomShapeInsertOverlay
               draft={customShapeInsertDraft}

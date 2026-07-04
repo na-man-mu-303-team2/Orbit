@@ -101,8 +101,15 @@ export const generateDeckValidationSchema = z.object({
   presentationIssues: z.array(generateDeckValidationIssueSchema).default([])
 });
 
+export const templateSelectionItemSchema = z.object({
+  generatedOrder: z.number().int().positive(),
+  sourceSlideIndex: z.number().int().positive(),
+  selectionReason: z.string().trim().min(1).optional()
+});
+
 export const generateDeckResponseSchema = z.object({
   deck: deckSchema,
+  templateSelection: z.array(templateSelectionItemSchema).optional(),
   warnings: z.array(z.string()).default([]),
   validation: generateDeckValidationSchema
 });
@@ -136,5 +143,6 @@ export type GenerateDeckValidationIssue = z.infer<
   typeof generateDeckValidationIssueSchema
 >;
 export type GenerateDeckValidation = z.infer<typeof generateDeckValidationSchema>;
+export type TemplateSelectionItem = z.infer<typeof templateSelectionItemSchema>;
 export type GenerateDeckResponse = z.infer<typeof generateDeckResponseSchema>;
 export type GenerateDeckJobResult = z.infer<typeof generateDeckJobResultSchema>;

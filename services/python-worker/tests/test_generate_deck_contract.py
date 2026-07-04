@@ -1821,6 +1821,79 @@ def test_template_blueprint_replaces_only_replaceable_content_slots() -> None:
     assert preserved_fixed["props"]["paragraphs"][0]["text"] == "Do not touch fixed text"
 
 
+def test_template_blueprint_does_not_inject_body_into_toc_slots() -> None:
+    blueprint = minimal_imported_design_blueprint()
+    title_text = blueprint["slides"][0]["elements"][1]
+    first_toc_item = deepcopy(title_text)
+    first_toc_item["elementId"] = "el_imported_1_toc_item_1"
+    first_toc_item["role"] = "caption"
+    first_toc_item["y"] = 280
+    first_toc_item["props"] = {
+        **first_toc_item["props"],
+        "text": "Original agenda item",
+    }
+    second_toc_item = deepcopy(first_toc_item)
+    second_toc_item["elementId"] = "el_imported_1_toc_item_2"
+    second_toc_item["y"] = 380
+    blueprint["slides"][0]["elements"].extend([first_toc_item, second_toc_item])
+
+    response = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="ORBIT",
+            slideCountRange={"min": 1, "max": 1},
+            designReferences=[{"fileId": "file_design"}],
+            designBlueprint=blueprint,
+            templateBlueprint={
+                "templateId": "template_file_design",
+                "sourceFileId": "file_design",
+                "slides": [
+                    {
+                        "slideIndex": 1,
+                        "sourceSlideIndex": 1,
+                        "slideRole": "toc",
+                        "layoutType": "toc",
+                        "contentCapacity": "medium",
+                        "slots": [
+                            {
+                                "elementId": "el_imported_1_title",
+                                "usage": "content-slot",
+                                "slotRole": "title",
+                                "replaceMode": "replace",
+                                "confidence": 0.95,
+                            },
+                            {
+                                "elementId": "el_imported_1_toc_item_1",
+                                "usage": "content-slot",
+                                "slotRole": "label",
+                                "replaceMode": "replace",
+                                "confidence": 0.95,
+                            },
+                            {
+                                "elementId": "el_imported_1_toc_item_2",
+                                "usage": "content-slot",
+                                "slotRole": "label",
+                                "replaceMode": "replace",
+                                "confidence": 0.95,
+                            },
+                        ],
+                    }
+                ],
+            },
+        )
+    )
+
+    slide = response.deck["slides"][0]
+    text_values = [
+        element["props"]["text"]
+        for element in slide["elements"]
+        if element["type"] == "text"
+    ]
+
+    assert "ORBIT를 ORBIT 중심으로 소개합니다." not in text_values
+    assert not any(element["role"] == "body" for element in slide["elements"])
+
+
 def test_refiner_shrinks_clamps_and_corrects_text_contrast() -> None:
     deck = {
         "deckId": "deck_ai_refine",
@@ -2269,6 +2342,48 @@ def test_generate_deck_adds_imported_body_fallback_only_when_missing() -> None:
     assert "el_1_body_fallback" in element_ids
 
 
+def test_generate_deck_keeps_requested_slide_range_with_large_template() -> None:
+    design_blueprint, template_blueprint = semantic_imported_blueprints(10)
+
+    response = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="ORBIT",
+            targetDurationMinutes=5,
+            slideCountRange={"min": 4, "max": 6},
+            designReferences=[{"fileId": "file_design"}],
+            designBlueprint=design_blueprint,
+            templateBlueprint=template_blueprint,
+        )
+    )
+
+    assert 4 <= len(response.deck["slides"]) <= 6
+    assert len(response.template_selection) == len(response.deck["slides"])
+    assert all(1 <= item.source_slide_index <= 10 for item in response.template_selection)
+
+
+def test_generate_deck_selects_semantic_reference_subset_instead_of_first_slides() -> None:
+    design_blueprint, template_blueprint = semantic_imported_blueprints(15)
+
+    response = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="ORBIT",
+            targetDurationMinutes=5,
+            slideCountRange={"min": 5, "max": 5},
+            designReferences=[{"fileId": "file_design"}],
+            designBlueprint=design_blueprint,
+            templateBlueprint=template_blueprint,
+        )
+    )
+
+    selected = [item.source_slide_index for item in response.template_selection]
+
+    assert selected != [1, 2, 3, 4, 5]
+    assert selected[0] == 7
+    assert 15 in selected
+
+
 def minimal_imported_design_blueprint() -> dict[str, Any]:
     return {
         "theme": {
@@ -2350,6 +2465,113 @@ def minimal_imported_design_blueprint() -> dict[str, Any]:
             }
         ],
     }
+
+
+def semantic_imported_blueprints(
+    slide_count: int,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    base = minimal_imported_design_blueprint()
+    slides = [semantic_imported_slide(index) for index in range(1, slide_count + 1)]
+    base["slides"] = slides
+    template = {
+        "templateId": "template_file_design",
+        "sourceFileId": "file_design",
+        "slides": [
+            semantic_template_slide(index) for index in range(1, slide_count + 1)
+        ],
+    }
+    return base, template
+
+
+def semantic_imported_slide(source_index: int) -> dict[str, Any]:
+    roles = semantic_roles_for_source(source_index)
+    return {
+        "sourceSlideIndex": source_index,
+        "style": {
+            "layout": semantic_layout_for_source(source_index),
+            "backgroundColor": "#ffffff",
+        },
+        "elements": [
+            {
+                "elementId": f"el_imported_{source_index}_{role}",
+                "type": "text",
+                "role": role,
+                "x": 120,
+                "y": 96 + offset * 120,
+                "width": 1200,
+                "height": 100,
+                "rotation": 0,
+                "opacity": 1,
+                "zIndex": offset + 1,
+                "locked": False,
+                "visible": True,
+                "props": {
+                    "text": f"{role} {source_index}",
+                    "fontFamily": "Inter",
+                    "fontSize": 44 if role == "title" else 26,
+                    "fontWeight": "bold" if role == "title" else "normal",
+                    "color": "#111827",
+                    "align": "left",
+                    "verticalAlign": "top",
+                    "lineHeight": 1.2,
+                },
+            }
+            for offset, role in enumerate(roles)
+        ],
+    }
+
+
+def semantic_template_slide(source_index: int) -> dict[str, Any]:
+    roles = semantic_roles_for_source(source_index)
+    return {
+        "slideIndex": source_index,
+        "sourceSlideIndex": source_index,
+        "slideRole": semantic_slide_role_for_source(source_index),
+        "layoutType": semantic_layout_for_source(source_index),
+        "contentCapacity": "low" if source_index in {1, 2, 3, 4, 5, 7, 15} else "high",
+        "slots": [
+            {
+                "elementId": f"el_imported_{source_index}_{role}",
+                "usage": "content-slot",
+                "slotRole": role,
+                "replaceMode": "replace",
+                "confidence": 0.95,
+                "bounds": {"x": 120, "y": 96, "width": 1200, "height": 100},
+                "source": {
+                    "type": "slide",
+                    "slidePart": f"ppt/slides/slide{source_index}.xml",
+                    "shapeId": str(offset + 1),
+                },
+            }
+            for offset, role in enumerate(roles)
+        ],
+    }
+
+
+def semantic_roles_for_source(source_index: int) -> list[str]:
+    if source_index == 7:
+        return ["title", "subtitle"]
+    if source_index == 15:
+        return ["title", "body"]
+    if source_index >= 8:
+        return ["title", "body", "caption", "label"]
+    return ["caption"]
+
+
+def semantic_slide_role_for_source(source_index: int) -> str:
+    if source_index == 7:
+        return "cover"
+    if source_index == 15:
+        return "summary"
+    return "body" if source_index >= 8 else "decorative"
+
+
+def semantic_layout_for_source(source_index: int) -> str:
+    if source_index == 7:
+        return "title"
+    if source_index >= 8:
+        return "body"
+    return "decorative"
 
 
 def slide_payload(

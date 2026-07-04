@@ -215,6 +215,7 @@ describe("editor shell", () => {
     expect(html).not.toContain("Data Contract");
     expect(html).toContain("발표 메모");
     expect(html).toContain("저장됨");
+    expect(html).toContain("AI 검증");
     expect(html).toContain("AI 제안 검토");
     expect(html).toContain("이미지");
     expect(html).toContain('data-testid="editor-slide-quickbar"');
@@ -246,6 +247,24 @@ describe("editor shell", () => {
     ];
 
     expect(getEditorValidationItems(deck, deck.slides[0])).toEqual([]);
+  });
+
+  it("returns a warning for duplicated readable text", () => {
+    const deck = createDemoDeck();
+    deck.slides[0].elements = [
+      editorTextElement("text_a", 100, 100, "반복되는 본문 문장입니다."),
+      editorTextElement("text_b", 500, 100, "반복되는 본문 문장입니다.")
+    ];
+
+    const items = getEditorValidationItems(deck, deck.slides[0]);
+
+    expect(items).toContainEqual(
+      expect.objectContaining({
+        elementIds: ["text_a", "text_b"],
+        message: "같은 텍스트가 여러 요소에 반복되어 있습니다.",
+        severity: "warning"
+      })
+    );
   });
 
   it("loads AI suggestions with the route project id", () => {

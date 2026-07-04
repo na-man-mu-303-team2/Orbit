@@ -157,6 +157,8 @@ import { createPortal, flushSync } from "react-dom";
 import { io } from "socket.io-client";
 import type { Socket as ClientSocket } from "socket.io-client";
 import { AudienceLinkModal } from "../audience-link/AudienceLinkModal";
+import { ValidationPanel } from "../ai/quality/ValidationPanel";
+import { getEditorValidationItems } from "../ai/quality/editorValidation";
 import { SuggestionPanel } from "../suggestions/components/SuggestionPanel";
 import {
   mergeDeckIntoQueryCache,
@@ -1021,6 +1023,8 @@ export function EditorShell(props: { projectId?: string }) {
     string | null
   >(null);
   const [selectedElementIds, setSelectedElementIds] = useState<string[]>([]);
+  const [validationHighlightElementIds, setValidationHighlightElementIds] =
+    useState<string[]>([]);
   const [activeTopMenu, setActiveTopMenu] = useState<TopMenu | null>(null);
   const [lastPatchLabel, setLastPatchLabel] = useState("편집 없음");
   const [insertTool, setInsertTool] = useState<InsertTool>("select");
@@ -1276,6 +1280,10 @@ export function EditorShell(props: { projectId?: string }) {
   const visibleElements = currentSlide
     ? getRenderableSlideElements(currentSlide, deck.canvas)
     : [];
+  const editorValidationItems = useMemo(
+    () => getEditorValidationItems(deck, currentSlide ?? undefined),
+    [deck, currentSlide]
+  );
   const stageScale = 0.44;
   const currentSlideAnimations = useMemo(
     () =>
@@ -1332,6 +1340,10 @@ export function EditorShell(props: { projectId?: string }) {
     deck,
     slide: currentSlide
   });
+
+  useEffect(() => {
+    setValidationHighlightElementIds([]);
+  }, [currentSlide?.slideId]);
 
   useEffect(() => {
     function handleBeforeUnload(event: BeforeUnloadEvent) {
@@ -4461,6 +4473,7 @@ export function EditorShell(props: { projectId?: string }) {
                     slide={currentSlide}
                     stageScale={stageScale}
                     stageRef={editorStageRef}
+                    validationHighlightElementIds={validationHighlightElementIds}
                     visibleElements={visibleElements}
                     onClearSelection={handleCanvasBackgroundSelectionClear}
                     onCommitElementFrame={handleElementFrameChange}
@@ -4631,6 +4644,10 @@ export function EditorShell(props: { projectId?: string }) {
               </div>
               <div className="assistant-panel-slot">
                 <PptxImportQualityPanel state={pptxImportState} />
+                <ValidationPanel
+                  items={editorValidationItems}
+                  onHighlightElementIds={setValidationHighlightElementIds}
+                />
                 <SuggestionPanel
                   deck={deck}
                   projectId={projectId}

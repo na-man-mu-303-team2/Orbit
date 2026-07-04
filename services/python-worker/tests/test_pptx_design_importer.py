@@ -13,7 +13,9 @@ from pptx.oxml import parse_xml
 from pptx.util import Inches, Pt
 
 from app.ai.pptx_design_importer import (
+    assign_text_roles,
     blip_fill_asset,
+    build_template_blueprint,
     build_quality_report,
     import_pptx_design,
 )
@@ -147,6 +149,116 @@ def test_import_pptx_design_marks_placeholders_as_replaceable_slots(
     assert len(replaceable) >= 2
     assert {slot["source"]["type"] for slot in replaceable} == {"placeholder"}
     assert any(slot["slotRole"] == "title" for slot in replaceable)
+
+
+def test_assign_text_roles_uses_semantic_summary_for_plain_shapes() -> None:
+    elements = [
+        text_element("title", "Quarterly growth", 96, 80, 44),
+        text_element("body", "Revenue improved across all regions.", 120, 260, 24),
+        text_element("metric", "42%", 1200, 300, 52),
+        text_element("footer", "ORBIT confidential", 100, 940, 12),
+    ]
+
+    assign_text_roles(elements, {}, slide_index=2, slide_count=8)
+
+    assert [element["role"] for element in elements] == [
+        "title",
+        "body",
+        "highlight",
+        "caption",
+    ]
+    assert elements[2]["templateSlotRole"] == "metric"
+
+
+def test_assign_text_roles_does_not_force_numeric_prefix_to_page_number() -> None:
+    elements = [
+        text_element("section", "01", 96, 120, 32),
+        text_element("title", "Market overview", 220, 120, 40),
+    ]
+
+    assign_text_roles(elements, {}, slide_index=2, slide_count=8)
+
+    assert elements[0]["role"] == "caption"
+    assert elements[0]["templateSlotRole"] == "label"
+
+
+def test_build_template_blueprint_preserves_semantic_slot_roles() -> None:
+    slide = {
+        "sourceSlideIndex": 1,
+        "style": {"layout": "title-content"},
+        "elements": [
+            text_element("title", "Title", 100, 80, 44, role="title"),
+            text_element("body", "Body", 100, 240, 24, role="body"),
+            text_element("caption", "Caption", 100, 900, 14, role="caption"),
+            {
+                **text_element("metric", "42%", 1200, 240, 48, role="highlight"),
+                "templateSlotRole": "metric",
+            },
+            {
+                "elementId": "el_cell_1",
+                "type": "rect",
+                "role": "unknown",
+                "x": 100,
+                "y": 500,
+                "width": 200,
+                "height": 60,
+                "props": {},
+            },
+            {"elementId": "chart_1", "type": "chart", "role": "chart", "x": 0, "y": 0, "width": 1, "height": 1, "props": {}},
+            {"elementId": "image_1", "type": "image", "role": "image", "x": 0, "y": 0, "width": 1, "height": 1, "props": {}},
+        ],
+    }
+    sources = {
+        "image_1": {"type": "placeholder", "slidePart": "ppt/slides/slide1.xml", "shapeId": "7"},
+    }
+
+    blueprint = build_template_blueprint("file_design", [slide], [sources])
+    slot_roles = {slot["elementId"]: slot["slotRole"] for slot in blueprint["slides"][0]["slots"]}
+
+    assert blueprint["slides"][0]["slideRole"] == "metric"
+    assert blueprint["slides"][0]["contentCapacity"] == "medium"
+    assert slot_roles["title"] == "title"
+    assert slot_roles["body"] == "body"
+    assert slot_roles["caption"] == "caption"
+    assert slot_roles["metric"] == "metric"
+    assert slot_roles["el_cell_1"] == "table"
+    assert slot_roles["chart_1"] == "chart"
+    assert slot_roles["image_1"] == "image_placeholder"
+
+
+def text_element(
+    element_id: str,
+    text: str,
+    x: int,
+    y: int,
+    font_size: int,
+    *,
+    role: str = "body",
+) -> dict[str, object]:
+    return {
+        "elementId": element_id,
+        "type": "text",
+        "role": role,
+        "x": x,
+        "y": y,
+        "width": 520,
+        "height": 90,
+        "rotation": 0,
+        "opacity": 1,
+        "zIndex": 1,
+        "locked": False,
+        "visible": True,
+        "props": {
+            "text": text,
+            "fontSize": font_size,
+            "fontFamily": "Inter",
+            "fontWeight": "normal",
+            "color": "#111827",
+            "align": "left",
+            "verticalAlign": "top",
+            "lineHeight": 1.2,
+        },
+    }
 
 
 def test_import_pptx_design_flattens_group_shapes(tmp_path: Path) -> None:

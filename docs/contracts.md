@@ -848,6 +848,27 @@ Rules:
   `references`/`referenceKeywords` for `/ai/generate-deck`.
 - The design PPTX is sent through `/ai/pptx-ooxml-generation`; the final
   generated text is applied through `/ai/pptx-ooxml-apply-slot-texts`.
+- `slideCountRange` is the authoritative user-requested generation range.
+  The reference PPTX page count never overrides it.
+- `referenceSlideCount` means the number of slides imported from the design
+  PPTX. It is only the size of the reusable layout pool.
+- `requestedSlideCountRange` is the exact `{ min, max }` forwarded from the
+  home request to `/ai/generate-deck`.
+- `targetSlideCount` is the Python worker's selected count inside
+  `requestedSlideCountRange`; `generatedSlideCount` is the final
+  `deck.slides.length` and must stay inside that requested range.
+- `templateSelection` maps each generated slide to a reference layout:
+  `{ generatedOrder, sourceSlideIndex, selectionReason }`. The API worker uses
+  this mapping to filter/reorder `TemplateBlueprint.slides` before slot text
+  extraction, PPTX apply, render asset linking, and sidecar save.
+- If a reference layout is reused or selected out of source order, the API
+  worker saves generated slides as sequential `sourceSlideIndex` values and
+  stores the original PPTX page in `cloneSourceSlideIndex` and the actual
+  OOXML part in `cloneSourceSlidePart`. The Python worker clones that source
+  part into the generated slide part before applying text, so the saved PPTX
+  package and sidecar have the same slide count and order.
+- `TemplateBlueprint.slides[]` may include semantic selection metadata:
+  `slideRole`, `layoutType`, `contentCapacity`, and `selectionReason`.
 
 Job result:
 

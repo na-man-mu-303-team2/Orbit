@@ -36,6 +36,9 @@ CONTENT_TYPES_NS = "http://schemas.openxmlformats.org/package/2006/content-types
 IMAGE_REL_TYPE = (
     "http://schemas.openxmlformats.org/officeDocument/2006/relationships/image"
 )
+SLIDE_REL_TYPE = (
+    "http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide"
+)
 P_SP = f"{{{PML_NS}}}sp"
 P_PIC = f"{{{PML_NS}}}pic"
 P_PH = f"{{{PML_NS}}}ph"
@@ -254,8 +257,12 @@ def apply_slot_texts_to_pptx_ooxml(
     render: bool = True,
 ) -> PptxOoxmlSyncResult:
     canvas = detect_canvas(path)
-    package_bytes = replace_content_slot_text(
+    selected_package_bytes = clone_selected_slide_parts(
         path.read_bytes(),
+        template_blueprint,
+    )
+    package_bytes = replace_content_slot_text(
+        selected_package_bytes,
         template_blueprint,
         slot_texts,
     )
@@ -821,6 +828,122 @@ def replace_content_slot_text(
                 source.read(entry), replacements
             )
         return rewrite_zip(source, changed_entries)
+
+
+def clone_selected_slide_parts(
+    package_bytes: bytes,
+    template_blueprint: dict[str, Any],
+) -> bytes:
+    slides = [
+        slide
+        for slide in template_blueprint.get("slides", [])
+        if isinstance(slide, dict)
+    ]
+    if not slides:
+        return package_bytes
+
+    with zipfile.ZipFile(BytesIO(package_bytes), "r") as source:
+        changed_entries: dict[str, bytes] = {}
+        slide_ids: list[tuple[int, str]] = []
+
+        for slide in slides:
+            target_index = int_value(
+                slide.get("sourceSlideIndex"),
+                int_value(slide.get("slideIndex"), 1),
+            )
+            source_index = int_value(slide.get("cloneSourceSlideIndex"), target_index)
+            source_entry = str(
+                slide.get("cloneSourceSlidePart") or f"ppt/slides/slide{source_index}.xml"
+            )
+            target_entry = f"ppt/slides/slide{target_index}.xml"
+            if source_entry not in source.namelist():
+                raise PptxOoxmlGenerationError(f"PPTX source slide missing: {source_entry}")
+            changed_entries[target_entry] = source.read(source_entry)
+
+            source_rels = rels_part_for_slide_part(source_entry)
+            target_rels = f"ppt/slides/_rels/slide{target_index}.xml.rels"
+            if source_rels in source.namelist():
+                changed_entries[target_rels] = source.read(source_rels)
+
+            rel_id = f"rIdOrbitSlide{target_index}"
+            slide_ids.append((target_index, rel_id))
+
+        changed_entries["ppt/presentation.xml"] = presentation_with_slide_list(
+            source.read("ppt/presentation.xml"),
+            slide_ids,
+        )
+        changed_entries["ppt/_rels/presentation.xml.rels"] = presentation_rels_with_slides(
+            source.read("ppt/_rels/presentation.xml.rels"),
+            slide_ids,
+        )
+        changed_entries["[Content_Types].xml"] = ensure_slide_overrides(
+            source.read("[Content_Types].xml"),
+            [target_index for target_index, _rel_id in slide_ids],
+        )
+        return rewrite_zip(source, changed_entries)
+
+
+def rels_part_for_slide_part(slide_part: str) -> str:
+    path, name = slide_part.rsplit("/", maxsplit=1)
+    return f"{path}/_rels/{name}.rels"
+
+
+def presentation_with_slide_list(
+    presentation_xml: bytes,
+    slide_ids: list[tuple[int, str]],
+) -> bytes:
+    root = ET.fromstring(presentation_xml)
+    slide_id_list = first_local_child(root, "sldIdLst")
+    if slide_id_list is None:
+        slide_id_list = ET.SubElement(root, f"{{{PML_NS}}}sldIdLst")
+    for child in list(slide_id_list):
+        slide_id_list.remove(child)
+    for offset, (_slide_index, rel_id) in enumerate(slide_ids, start=1):
+        ET.SubElement(
+            slide_id_list,
+            f"{{{PML_NS}}}sldId",
+            {"id": str(255 + offset), f"{{{REL_NS}}}id": rel_id},
+        )
+    return xml_bytes(root)
+
+
+def presentation_rels_with_slides(
+    rels_xml: bytes,
+    slide_ids: list[tuple[int, str]],
+) -> bytes:
+    root = ET.fromstring(rels_xml)
+    for child in list(root):
+        if child.get("Type") == SLIDE_REL_TYPE:
+            root.remove(child)
+    for slide_index, rel_id in slide_ids:
+        ET.SubElement(
+            root,
+            f"{{{PKG_REL_NS}}}Relationship",
+            {
+                "Id": rel_id,
+                "Type": SLIDE_REL_TYPE,
+                "Target": f"slides/slide{slide_index}.xml",
+            },
+        )
+    return xml_bytes(root)
+
+
+def ensure_slide_overrides(content_types_xml: bytes, slide_indexes: list[int]) -> bytes:
+    root = ET.fromstring(content_types_xml)
+    existing = {child.get("PartName") for child in list(root)}
+    for slide_index in slide_indexes:
+        part_name = f"/ppt/slides/slide{slide_index}.xml"
+        if part_name in existing:
+            continue
+        ET.SubElement(
+            root,
+            f"{{{CONTENT_TYPES_NS}}}Override",
+            {
+                "PartName": part_name,
+                "ContentType": "application/vnd.openxmlformats-officedocument.presentationml.slide+xml",
+            },
+        )
+    return xml_bytes(root)
 
 
 def replace_slide_texts(slide_xml: bytes, texts: list[str]) -> bytes:

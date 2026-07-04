@@ -561,7 +561,7 @@ button:disabled {
 }
 
 .home-options-grid {
-  grid-template-columns: minmax(0, 1fr) 160px;
+  grid-template-columns: minmax(0, 1fr) repeat(3, minmax(112px, 140px));
 }
 
 .home-prompt-grid label,

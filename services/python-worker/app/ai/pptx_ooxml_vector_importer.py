@@ -301,7 +301,12 @@ def import_pptx_ooxml_visual_tree(
                     locked=source_name != "slide",
                 )
 
-            assign_text_roles(elements)
+            assign_text_roles(
+                elements,
+                slot_sources,
+                slide_index=slide_index,
+                slide_count=len(slide_parts),
+            )
             background = slide_background_color(slide, state.theme_colors) or "#FFFFFF"
             slides.append(
                 {
