@@ -1436,7 +1436,27 @@ export function RehearsalWorkspace(props: {
         : [],
     [currentSlide?.slideId, currentSlide?.speakerNotes]
   );
-  const triggerAnimationIds = useMemo(() => [] as string[], [currentSlide?.slideId]);
+  const triggerAnimationIds = useMemo(() => {
+    if (!currentSlide) {
+      return [];
+    }
+
+    const validAnimationIds = new Set(
+      currentSlide.animations.map((animation) => animation.animationId)
+    );
+
+    return Array.from(
+      new Set(
+        currentSlide.actions
+          .flatMap((action) =>
+            action.effect.kind === "play-animation"
+              ? [action.effect.animationId]
+              : []
+          )
+          .filter((animationId) => validAnimationIds.has(animationId))
+      )
+    );
+  }, [currentSlide]);
   const presentationChannelState = useMemo(
     () =>
       currentSlide
