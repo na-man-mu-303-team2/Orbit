@@ -10,6 +10,9 @@ export const audienceCopy = {
   "waiting.title": "발표가 곧 시작됩니다.",
   "waiting.body": "발표자가 세션을 시작하면 자동으로 화면이 전환됩니다.",
   "connection.reconnecting": "연결을 다시 시도하고 있습니다.",
+  "qna.input.placeholder": "궁금한 점을 입력해 주세요.",
+  "qna.submit": "질문 보내기",
+  "qna.error.rateLimited": "질문은 1분에 3개까지 보낼 수 있습니다.",
 } as const;
 
 export type AudienceCopyKey = keyof typeof audienceCopy;

@@ -10,10 +10,14 @@ import {
   createPresentationSessionResponseSchema,
   getCurrentPresentationSessionResponseSchema,
   interactionResultsResponseSchema,
+  audienceQuestionResponseSchema,
   listInteractionLibraryItemsResponseSchema,
   listSessionInteractionsResponseSchema,
+  markAudienceQuestionAnsweredResponseSchema,
+  presenterQuestionQueueResponseSchema,
   selectSessionInteractionsRequestSchema,
   sessionInteractionResponseSchema,
+  submitAudienceQuestionRequestSchema,
   submitInteractionResponseRequestSchema,
   submitInteractionResponseResponseSchema,
   updateAudienceFeatureSettingsRequestSchema,
@@ -27,6 +31,7 @@ import type {
   AudienceParticipant,
   AudienceRealtimeState,
   AudienceStateResponse,
+  AudienceQuestion,
   CreatePresentationSessionResponse,
   GetCurrentPresentationSessionResponse,
   InteractionAnswer,
@@ -136,6 +141,17 @@ type InteractionResponseRow = {
   updated_at: Date | string;
 };
 
+type AudienceQuestionRow = {
+  question_id: string;
+  question_group_id: string;
+  session_id: string;
+  audience_id: string;
+  text: string;
+  status: "pending" | "answered";
+  submitted_at: Date | string;
+  answered_at: Date | string | null;
+};
+
 type JoinAudienceInput = {
   audienceId: string;
   nickname: string;
@@ -165,6 +181,8 @@ type ProjectSessionInput = {
 
 @Injectable()
 export class PresentationSessionsService {
+  private readonly questionRateLimiter = new ParticipantRateLimiter(3, 60_000);
+
   constructor(@InjectDataSource() private readonly dataSource: DataSource) {}
 
   async create(
@@ -1091,6 +1109,170 @@ export class PresentationSessionsService {
     });
   }
 
+  async submitAudienceQuestion(input: {
+    sessionId: string;
+    audienceId: string;
+    tokenHash: string;
+    body: unknown;
+  }) {
+    await this.getAudienceMe(input.sessionId, input.audienceId, input.tokenHash);
+    const features = await this.getAudienceFeatureSettingsForSession(
+      input.sessionId,
+    );
+    if (!features.qnaEnabled) {
+      throw new ForbiddenException("현재 Q&A가 열려 있지 않습니다.");
+    }
+
+    const key = `${input.sessionId}:${input.audienceId}`;
+    if (!this.questionRateLimiter.consume(key)) {
+      throw new ConflictException("질문은 1분에 3개까지 보낼 수 있습니다.");
+    }
+
+    const request = submitAudienceQuestionRequestSchema.parse(input.body);
+    const questionId = `question_${randomUUID()}`;
+    const rows = await this.dataSource.query<AudienceQuestionRow[]>(
+      `
+        INSERT INTO audience_questions (
+          question_id,
+          question_group_id,
+          session_id,
+          audience_id,
+          text,
+          status,
+          submitted_at
+        )
+        VALUES ($1, $1, $2, $3, $4, 'pending', now())
+        RETURNING
+          question_id,
+          question_group_id,
+          session_id,
+          audience_id,
+          text,
+          status,
+          submitted_at,
+          answered_at
+      `,
+      [questionId, input.sessionId, input.audienceId, request.text],
+    );
+
+    await this.appendAudienceEvent({
+      sessionId: input.sessionId,
+      actorType: "audience",
+      actorId: input.audienceId,
+      type: "question.submitted",
+      payload: { questionId },
+    });
+
+    return audienceQuestionResponseSchema.parse({
+      question: this.toAudienceQuestionDto(rows[0]),
+    });
+  }
+
+  async getAudienceQuestionStatus(input: {
+    sessionId: string;
+    audienceId: string;
+    tokenHash: string;
+    questionId: string;
+  }) {
+    await this.getAudienceMe(input.sessionId, input.audienceId, input.tokenHash);
+    const rows = await this.dataSource.query<AudienceQuestionRow[]>(
+      `
+        SELECT
+          question_id,
+          question_group_id,
+          session_id,
+          audience_id,
+          text,
+          status,
+          submitted_at,
+          answered_at
+        FROM audience_questions
+        WHERE session_id = $1
+          AND audience_id = $2
+          AND question_id = $3
+        LIMIT 1
+      `,
+      [input.sessionId, input.audienceId, input.questionId],
+    );
+
+    const row = rows[0];
+    if (!row) {
+      throw new NotFoundException("Audience question not found");
+    }
+
+    return audienceQuestionResponseSchema.parse({
+      question: this.toAudienceQuestionDto(row),
+    });
+  }
+
+  async listPresenterQuestions(input: ProjectSessionInput) {
+    await this.assertSessionBelongsToProject(input.projectId, input.sessionId);
+    const rows = await this.dataSource.query<AudienceQuestionRow[]>(
+      `
+        SELECT
+          question_id,
+          question_group_id,
+          session_id,
+          audience_id,
+          text,
+          status,
+          submitted_at,
+          answered_at
+        FROM audience_questions
+        WHERE session_id = $1
+        ORDER BY status ASC, submitted_at ASC
+      `,
+      [input.sessionId],
+    );
+
+    return presenterQuestionQueueResponseSchema.parse({
+      questions: rows.map((row) => this.toAudienceQuestionDto(row)),
+    });
+  }
+
+  async markQuestionAnswered(input: ProjectSessionInput & {
+    questionId: string;
+    actorId: string;
+  }) {
+    await this.assertSessionBelongsToProject(input.projectId, input.sessionId);
+    const rows = await this.dataSource.query<AudienceQuestionRow[]>(
+      `
+        UPDATE audience_questions
+        SET status = 'answered',
+            answered_at = COALESCE(answered_at, now())
+        WHERE session_id = $1
+          AND question_id = $2
+        RETURNING
+          question_id,
+          question_group_id,
+          session_id,
+          audience_id,
+          text,
+          status,
+          submitted_at,
+          answered_at
+      `,
+      [input.sessionId, input.questionId],
+    );
+
+    const row = rows[0];
+    if (!row) {
+      throw new NotFoundException("Audience question not found");
+    }
+
+    await this.appendAudienceEvent({
+      sessionId: input.sessionId,
+      actorType: "presenter",
+      actorId: input.actorId,
+      type: "question.answered",
+      payload: { questionId: input.questionId },
+    });
+
+    return markAudienceQuestionAnsweredResponseSchema.parse({
+      question: this.toAudienceQuestionDto(row),
+    });
+  }
+
   async getInteractionResults(input: ProjectSessionInput & {
     interactionId: string;
     audienceVisible?: boolean;
@@ -1557,6 +1739,19 @@ export class PresentationSessionsService {
     };
   }
 
+  private toAudienceQuestionDto(row: AudienceQuestionRow): AudienceQuestion {
+    return {
+      questionId: row.question_id,
+      questionGroupId: row.question_group_id,
+      sessionId: row.session_id,
+      audienceId: row.audience_id,
+      text: row.text,
+      status: row.status,
+      submittedAt: toIso(row.submitted_at),
+      answeredAt: toNullableIso(row.answered_at),
+    };
+  }
+
   private toCreateResponse(
     row: PresentationSessionRow,
   ): CreatePresentationSessionResponse {
@@ -1795,4 +1990,31 @@ function toAudiencePublicSession(session: PresentationSession) {
     status: session.status,
     entryStatus: session.entryStatus,
   };
+}
+
+class ParticipantRateLimiter {
+  private readonly attempts = new Map<
+    string,
+    { count: number; resetAt: number }
+  >();
+
+  constructor(
+    private readonly limit: number,
+    private readonly windowMs: number,
+  ) {}
+
+  consume(key: string, now = Date.now()): boolean {
+    const current = this.attempts.get(key);
+    if (!current || current.resetAt <= now) {
+      this.attempts.set(key, { count: 1, resetAt: now + this.windowMs });
+      return true;
+    }
+
+    if (current.count >= this.limit) {
+      return false;
+    }
+
+    current.count += 1;
+    return true;
+  }
 }

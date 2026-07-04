@@ -300,12 +300,34 @@ export const audienceQuestionSchema = z
     questionId: questionIdSchema,
     sessionId: z.string().min(1),
     audienceId: audienceIdSchema,
+    questionGroupId: questionIdSchema,
     text: z.string().trim().min(1).max(1000),
     status: questionStatusSchema,
     submittedAt: isoDateTimeSchema,
     answeredAt: isoDateTimeSchema.nullable(),
   })
   .strict();
+
+export const submitAudienceQuestionRequestSchema = z
+  .object({
+    text: z.string().trim().min(1).max(1000),
+  })
+  .strict();
+
+export const audienceQuestionResponseSchema = z
+  .object({
+    question: audienceQuestionSchema,
+  })
+  .strict();
+
+export const presenterQuestionQueueResponseSchema = z
+  .object({
+    questions: z.array(audienceQuestionSchema),
+  })
+  .strict();
+
+export const markAudienceQuestionAnsweredResponseSchema =
+  audienceQuestionResponseSchema;
 
 export const aiAnswerFailureReasonSchema = z.enum([
   "low-confidence",
@@ -379,6 +401,12 @@ export type AudienceActiveInteractionResponse = z.infer<
   typeof audienceActiveInteractionResponseSchema
 >;
 export type AudienceQuestion = z.infer<typeof audienceQuestionSchema>;
+export type AudienceQuestionResponse = z.infer<
+  typeof audienceQuestionResponseSchema
+>;
+export type PresenterQuestionQueueResponse = z.infer<
+  typeof presenterQuestionQueueResponseSchema
+>;
 export type AudienceQuestionAnswer = z.infer<
   typeof audienceQuestionAnswerSchema
 >;

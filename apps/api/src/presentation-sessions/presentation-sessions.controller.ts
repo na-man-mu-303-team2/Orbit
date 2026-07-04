@@ -234,6 +234,37 @@ export class PresentationSessionsController {
     });
   }
 
+  @Get(":sessionId/questions")
+  async listPresenterQuestions(
+    @Param("projectId") projectId: string,
+    @Param("sessionId") sessionId: string,
+    @Req() request: SignedCookieRequest,
+  ) {
+    const user = await this.getCurrentUser(request);
+    await this.projectsService.assertCanReadProject(projectId, user.userId);
+    return this.presentationSessionsService.listPresenterQuestions({
+      projectId,
+      sessionId,
+    });
+  }
+
+  @Patch(":sessionId/questions/:questionId/answered")
+  async markQuestionAnswered(
+    @Param("projectId") projectId: string,
+    @Param("sessionId") sessionId: string,
+    @Param("questionId") questionId: string,
+    @Req() request: SignedCookieRequest,
+  ) {
+    const user = await this.getCurrentUser(request);
+    await this.projectsService.assertCanWriteProject(projectId, user.userId);
+    return this.presentationSessionsService.markQuestionAnswered({
+      projectId,
+      sessionId,
+      questionId,
+      actorId: user.userId,
+    });
+  }
+
   private async getCurrentUser(request: SignedCookieRequest) {
     const sessionId = getSignedSessionId(request);
     if (!sessionId) {

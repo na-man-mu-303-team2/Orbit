@@ -1,6 +1,7 @@
 import type {
   AudienceActiveInteractionResponse,
   AudienceJoinResponse,
+  AudienceQuestionResponse,
   AudienceSessionLookupResponse,
   AudienceStateResponse,
   InteractionAnswer,
@@ -136,6 +137,52 @@ export async function submitAudienceInteractionResponse(args: {
   }
 
   return response.json() as Promise<SubmitInteractionResponseResponse>;
+}
+
+export async function submitAudienceQuestion(args: {
+  sessionId: string;
+  text: string;
+}): Promise<AudienceQuestionResponse> {
+  const response = await fetch(
+    `/api/v1/presentation-sessions/${encodeURIComponent(
+      args.sessionId,
+    )}/audience/questions`,
+    {
+      body: JSON.stringify({ text: args.text }),
+      credentials: "include",
+      headers: {
+        "content-type": "application/json",
+      },
+      method: "POST",
+    },
+  );
+
+  if (!response.ok) {
+    throw await readAudienceError(response);
+  }
+
+  return response.json() as Promise<AudienceQuestionResponse>;
+}
+
+export async function fetchAudienceQuestionStatus(args: {
+  sessionId: string;
+  questionId: string;
+}): Promise<AudienceQuestionResponse> {
+  const response = await fetch(
+    `/api/v1/presentation-sessions/${encodeURIComponent(
+      args.sessionId,
+    )}/audience/questions/${encodeURIComponent(args.questionId)}`,
+    {
+      credentials: "include",
+      method: "GET",
+    },
+  );
+
+  if (!response.ok) {
+    throw await readAudienceError(response);
+  }
+
+  return response.json() as Promise<AudienceQuestionResponse>;
 }
 
 async function readAudienceError(response: Response) {

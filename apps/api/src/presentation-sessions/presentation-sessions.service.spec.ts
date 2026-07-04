@@ -666,4 +666,93 @@ describe("PresentationSessionsService", () => {
 
     expect(query.mock.calls[3][0]).toContain("ON CONFLICT");
   });
+
+  it("submits audience questions and lets presenter mark them answered", async () => {
+    const participantRow = {
+      audience_id: "audience_00000000-0000-4000-8000-000000000001",
+      session_id: "session_existing",
+      nickname: "orbit",
+      joined_at: "2026-07-05T00:00:00.000Z",
+      last_seen_at: "2026-07-05T00:00:00.000Z",
+      joined_before_end: true,
+    };
+    const questionRow = {
+      question_id: "question_00000000-0000-4000-8000-000000000001",
+      question_group_id: "question_00000000-0000-4000-8000-000000000001",
+      session_id: "session_existing",
+      audience_id: "audience_00000000-0000-4000-8000-000000000001",
+      text: "질문입니다",
+      status: "pending" as const,
+      submitted_at: "2026-07-05T00:00:01.000Z",
+      answered_at: null,
+    };
+    const answeredQuestionRow = {
+      ...questionRow,
+      status: "answered" as const,
+      answered_at: "2026-07-05T00:01:00.000Z",
+    };
+    const query = vi
+      .fn()
+      .mockResolvedValueOnce([participantRow])
+      .mockResolvedValueOnce([activeSessionRow])
+      .mockResolvedValueOnce([
+        {
+          session_id: "session_existing",
+          qna_enabled: true,
+          ai_qna_enabled: false,
+          polls_enabled: false,
+          quizzes_enabled: false,
+          reactions_enabled: false,
+          survey_enabled: false,
+          updated_at: "2026-07-05T00:00:00.000Z",
+        },
+      ])
+      .mockResolvedValueOnce([questionRow])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ session_id: "session_existing" }])
+      .mockResolvedValueOnce([questionRow])
+      .mockResolvedValueOnce([{ session_id: "session_existing" }])
+      .mockResolvedValueOnce([answeredQuestionRow])
+      .mockResolvedValueOnce([]);
+    const service = new PresentationSessionsService({
+      query,
+    } as unknown as DataSource);
+
+    await expect(
+      service.submitAudienceQuestion({
+        sessionId: "session_existing",
+        audienceId: "audience_00000000-0000-4000-8000-000000000001",
+        tokenHash: "token_hash",
+        body: { text: "질문입니다" },
+      }),
+    ).resolves.toMatchObject({
+      question: {
+        text: "질문입니다",
+        status: "pending",
+      },
+    });
+
+    await expect(
+      service.listPresenterQuestions({
+        projectId: "project_1",
+        sessionId: "session_existing",
+      }),
+    ).resolves.toMatchObject({
+      questions: [{ status: "pending" }],
+    });
+
+    await expect(
+      service.markQuestionAnswered({
+        projectId: "project_1",
+        sessionId: "session_existing",
+        questionId: "question_00000000-0000-4000-8000-000000000001",
+        actorId: "user_1",
+      }),
+    ).resolves.toMatchObject({
+      question: { status: "answered" },
+    });
+
+    expect(query.mock.calls[3][0]).toContain("INSERT INTO audience_questions");
+    expect(query.mock.calls[8][0]).toContain("UPDATE audience_questions");
+  });
 });

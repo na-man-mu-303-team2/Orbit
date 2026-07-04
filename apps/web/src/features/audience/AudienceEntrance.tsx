@@ -7,6 +7,7 @@ import type {
   AudienceStateResponse,
   InteractionAnswer,
   InteractionQuestion,
+  AudienceQuestion,
   SessionInteraction,
 } from "@orbit/shared";
 import { CheckCircle2, Loader2 } from "lucide-react";
@@ -19,6 +20,7 @@ import {
   joinAudienceSession,
   lookupAudienceSession,
   submitAudienceInteractionResponse,
+  submitAudienceQuestion,
 } from "./audienceApi";
 import { audienceCopy } from "./audienceCopy";
 import {
@@ -421,6 +423,7 @@ export function AudienceLiveShell(props: {
       <AudienceActiveCards
         activeInteraction={activeInteraction}
         features={features}
+        sessionId={participant.sessionId}
       />
       <p className="audience-participant-label">{participant.nickname}</p>
     </section>
@@ -430,17 +433,20 @@ export function AudienceLiveShell(props: {
 function AudienceActiveCards({
   activeInteraction,
   features,
+  sessionId,
 }: {
   activeInteraction: SessionInteraction | null;
   features: AudienceFeatureSettings | null;
+  sessionId: string;
 }) {
   const cards = getAudienceActiveCards(features);
-  if (cards.length === 0 && !activeInteraction) {
+  if (cards.length === 0 && !activeInteraction && !features?.qnaEnabled) {
     return null;
   }
 
   return (
     <section className="audience-active-cards" aria-label="활성 청중 기능">
+      {features?.qnaEnabled ? <AudienceQnaCard sessionId={sessionId} /> : null}
       {activeInteraction ? (
         <AudienceInteractionCard interaction={activeInteraction} />
       ) : null}
@@ -462,7 +468,6 @@ function getAudienceActiveCards(features: AudienceFeatureSettings | null) {
   }
 
   return [
-    features.qnaEnabled ? { action: "질문 보내기", label: "Q&A" } : null,
     features.aiQnaEnabled ? { action: "AI 답변 대기", label: "AI Q&A" } : null,
     features.pollsEnabled ? { action: "대기 중", label: "Poll" } : null,
     features.quizzesEnabled ? { action: "대기 중", label: "Quiz" } : null,
@@ -471,6 +476,62 @@ function getAudienceActiveCards(features: AudienceFeatureSettings | null) {
       : null,
     features.surveyEnabled ? { action: "설문 작성", label: "Survey" } : null,
   ].filter((card): card is { action: string; label: string } => Boolean(card));
+}
+
+function AudienceQnaCard({ sessionId }: { sessionId: string }) {
+  const [questionText, setQuestionText] = useState("");
+  const [question, setQuestion] = useState<AudienceQuestion | null>(null);
+  const [errorMessage, setErrorMessage] = useState("");
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setErrorMessage("");
+    try {
+      const response = await submitAudienceQuestion({
+        sessionId,
+        text: questionText,
+      });
+      setQuestion(response.question);
+      setQuestionText("");
+    } catch (error) {
+      setErrorMessage(
+        error instanceof Error ? error.message : audienceCopy["qna.error.rateLimited"],
+      );
+    }
+  }
+
+  return (
+    <article className="audience-active-card audience-interaction-card">
+      <span>Q&A</span>
+      <form onSubmit={(event) => void handleSubmit(event)}>
+        <label className="audience-field" htmlFor="audience-qna-question">
+          <span>질문</span>
+          <textarea
+            id="audience-qna-question"
+            maxLength={1000}
+            placeholder={audienceCopy["qna.input.placeholder"]}
+            value={questionText}
+            onChange={(event) => setQuestionText(event.target.value)}
+          />
+        </label>
+        <button type="submit" disabled={!questionText.trim()}>
+          {audienceCopy["qna.submit"]}
+        </button>
+      </form>
+      {question ? (
+        <p className="audience-interaction-status" role="status">
+          {question.status === "answered"
+            ? "발표자가 답변한 질문입니다."
+            : "발표자 대기열에 질문을 전달했습니다."}
+        </p>
+      ) : null}
+      {errorMessage ? (
+        <p className="audience-error" role="alert">
+          {errorMessage}
+        </p>
+      ) : null}
+    </article>
+  );
 }
 
 function AudienceInteractionCard({

@@ -11,12 +11,12 @@ The top-level `## Current State` and `## Resume Checkpoint` sections are the sou
 - Last completed milestone: 5
 - Next milestone: 6
 - Integration branch: `feature/audience`
-- Current expected branch: `feature/audience`
+- Current expected branch: `feature/audience-m06-qna`
 - Goal status: in progress
 
 ## Resume Checkpoint
 
-- Current branch: `feature/audience`
+- Current branch: `feature/audience-m06-qna`
 - Next milestone: 6
 - Resume first checks:
   - Run `git status --short --branch`.
@@ -25,7 +25,7 @@ The top-level `## Current State` and `## Resume Checkpoint` sections are the sou
   - Read relevant product-plan sections for Q&A without AI, presenter queue, rate limits, privacy, and merge-ready question model.
   - Read `packages/shared/src/interactions/interaction.schema.ts`, `apps/api/src/presentation-sessions/*`, and existing audience active-card UI before editing.
 - Blocked: no
-- Notes: Milestone 5 implementation completed on `feature/audience-m05-interactions` and is ready to resume at Milestone 6 after local merge.
+- Notes: Milestone 6 implementation is active.
 
 ## Milestone Log
 
@@ -229,6 +229,19 @@ The top-level `## Current State` and `## Resume Checkpoint` sections are the sou
   - Current branch: `feature/audience`
   - Next milestone: 6
   - Resume first checks: read Milestone 6 plan, confirm `feature/audience` status, and implement non-AI Q&A question queue.
+
+## Milestone 6 Start - 2026-07-05
+
+- Branch: `feature/audience-m06-qna`
+- Scope: Q&A feature without AI, `audience_questions` migration, audience question submission with 3/min rate limit, private audience status endpoint, presenter pending/answered queue, verbal answer mark-as-answered flow, event logging, and accessible audience/presenter UI.
+- Acceptance criteria: other audience members cannot see submitted questions; presenter can see pending questions and mark answered; answered questions leave pending queue; rate limit returns user-safe error; post-session report can identify unanswered questions; Q&A states are keyboard/screen-reader accessible.
+- Likely files: `packages/shared/src/interactions/*`, `apps/api/src/database/migrations/*`, `apps/api/src/presentation-sessions/*`, `apps/web/src/features/audience/*`, `apps/web/src/features/rehearsal/presenter/*`.
+- Verification plan: shared Q&A schema tests, API service/controller tests for submit/rate-limit/queue/status/answered, web audience Q&A form and presenter queue tests, `pnpm audience:checkpoint`.
+- Major risks: keeping AI answer tables and embedding worker out of M6 while leaving group/merge-ready metadata for M7.
+- Resume checkpoint snapshot:
+  - Current branch: `feature/audience-m06-qna`
+  - Next milestone: 6
+  - Resume first checks: inspect Q&A product rules, interaction schemas, and existing audience active-card UI before editing.
 
 ## Progress Entry Template
 
