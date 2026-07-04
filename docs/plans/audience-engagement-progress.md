@@ -9,23 +9,23 @@ The top-level `## Current State` and `## Resume Checkpoint` sections are the sou
 ## Current State
 
 - Last completed milestone: 5
-- Next milestone: 6
+- Next milestone: 7
 - Integration branch: `feature/audience`
-- Current expected branch: `feature/audience-m06-qna`
+- Current expected branch: `feature/audience`
 - Goal status: in progress
 
 ## Resume Checkpoint
 
-- Current branch: `feature/audience-m06-qna`
-- Next milestone: 6
+- Current branch: `feature/audience`
+- Next milestone: 7
 - Resume first checks:
   - Run `git status --short --branch`.
   - Read `docs/plans/audience-engagement-execution-protocol.md`.
-  - Read Milestone 6 in `docs/plans/audience-engagement-implementation-plan.md`.
-  - Read relevant product-plan sections for Q&A without AI, presenter queue, rate limits, privacy, and merge-ready question model.
-  - Read `packages/shared/src/interactions/interaction.schema.ts`, `apps/api/src/presentation-sessions/*`, and existing audience active-card UI before editing.
+  - Read Milestone 7 in `docs/plans/audience-engagement-implementation-plan.md`.
+  - Read relevant product-plan sections for AI Q&A, source boundaries, asker-only delivery, feedback, escalation, timeout, and duplicate merge.
+  - Read `services/python-worker`, `packages/shared/src/interactions/interaction.schema.ts`, `apps/api/src/presentation-sessions/*`, and reference/deck source handling before editing.
 - Blocked: no
-- Notes: Milestone 6 implementation is active.
+- Notes: Milestone 6 implementation completed on `feature/audience-m06-qna` and is ready to resume at Milestone 7 after local merge.
 
 ## Milestone Log
 
@@ -242,6 +242,35 @@ The top-level `## Current State` and `## Resume Checkpoint` sections are the sou
   - Current branch: `feature/audience-m06-qna`
   - Next milestone: 6
   - Resume first checks: inspect Q&A product rules, interaction schemas, and existing audience active-card UI before editing.
+
+## Milestone 6 Complete - 2026-07-05
+
+- Milestone branch: `feature/audience-m06-qna`
+- Local commits:
+  - `77d6611` `feat: 청중 질문 대기열 추가`
+- Merged into `feature/audience`: pending local merge
+- Change summary: added Q&A request/response wrappers, `audience_questions` migration with merge-ready metadata, audience question submit/private status endpoints, presenter queue/answered endpoints, in-service 3/min participant rate limit, event logging, and audience Q&A active-card form.
+- Acceptance criteria evidence: audience question endpoints require signed audience cookie and only return the requester question; presenter endpoints require project read/write checks; presenter queue returns pending/answered statuses; answered updates set `answeredAt`; Q&A card renders labelled textarea and live status; migration does not create AI answer tables.
+- Self-review:
+  - Correctness: service tests cover submit, queue list, and mark answered; shared tests cover Q&A wrappers; web tests cover Q&A API and active-card rendering.
+  - Security/privacy: audience cannot list global questions; presenter queue is behind project authorization; events store question id only, not raw token/cookie.
+  - Contract/schema compatibility: question DTOs use shared wrappers and `pending`/`answered` enum.
+  - Architecture boundary: M6 creates only `audience_questions`; AI answer table and worker integration are left for M7.
+  - Missing test risk: rate limiter is covered by implementation logic but not a dedicated timing test yet; Playwright Q&A scenario deferred to M11.
+- Verification:
+  - `pnpm --filter @orbit/shared test -- src/interactions/interaction.schema.test.ts`: pass
+  - `pnpm --filter @orbit/api test -- src/database/migrations/2026070502000-CreateAudienceQuestions.spec.ts src/presentation-sessions/presentation-sessions.service.spec.ts`: pass
+  - `pnpm --filter @orbit/web test -- src/features/audience/AudienceEntrance.test.tsx src/features/audience/audienceApi.test.ts`: pass
+  - `pnpm --filter @orbit/shared lint`: pass
+  - `pnpm --filter @orbit/api lint`: pass
+  - `pnpm --filter @orbit/web lint`: pass
+  - `pnpm db:migration:run`: not run; Docker daemon is not running for local Postgres.
+  - `pnpm db:migration:revert`: not run; Docker daemon is not running for local Postgres.
+- Remaining risks or next milestone carryover: add deterministic rate-limit test when broader Q&A tests are extended; AI answer/escalation and duplicate merge continue in M7.
+- Resume checkpoint snapshot:
+  - Current branch: `feature/audience`
+  - Next milestone: 7
+  - Resume first checks: read Milestone 7 plan, confirm `feature/audience` status, and implement AI Q&A worker/API/private answer flow.
 
 ## Progress Entry Template
 
