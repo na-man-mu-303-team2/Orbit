@@ -194,7 +194,9 @@ function getEditorDuplicateTextValidationItems(slide: Slide): EditorValidationIt
     }));
 }
 
-function isReadableEditorTextElement(element: DeckElement) {
+function isReadableEditorTextElement(
+  element: DeckElement
+): element is Extract<DeckElement, { type: "text" }> {
   return (
     element.type === "text" &&
     element.visible !== false &&
