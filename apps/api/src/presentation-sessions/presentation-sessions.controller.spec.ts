@@ -38,6 +38,17 @@ function createController() {
     getSessionSurveyForm: vi.fn(async () => ({ survey: null })),
     upsertSessionSurveyForm: vi.fn(async () => ({ survey: null })),
     exportSessionSurveyCsv: vi.fn(async () => "submittedAt,nickname\n"),
+    getSessionResults: vi.fn(async () => ({
+      report: {
+        reportId: "audience_report_00000000-0000-4000-8000-000000000001",
+        sessionId: "session_existing",
+        status: "preliminary",
+        aggregate: { qna: { total: 0, unanswered: 0 } },
+        generatedAt: "2026-07-05T00:00:00.000Z",
+        rawDataDeletedAt: null,
+      },
+      surveyResponses: [],
+    })),
   } as unknown as PresentationSessionsService;
   const projects = {
     assertCanReadProject: vi.fn(async () => ({ projectId: "project_1" })),
@@ -194,6 +205,27 @@ describe("PresentationSessionsController", () => {
       projectId: "project_1",
       sessionId: "session_existing",
       body: expect.objectContaining({ title: "설문" }),
+    });
+  });
+
+  it("routes presenter results endpoint behind project read access", async () => {
+    const { controller, projects, service } = createController();
+
+    await expect(
+      controller.getSessionResults(
+        "project_1",
+        "session_existing",
+        createRequest(),
+      ),
+    ).resolves.toMatchObject({ report: { status: "preliminary" } });
+
+    expect(projects.assertCanReadProject).toHaveBeenCalledWith(
+      "project_1",
+      "user_1",
+    );
+    expect(service.getSessionResults).toHaveBeenCalledWith({
+      projectId: "project_1",
+      sessionId: "session_existing",
     });
   });
 });

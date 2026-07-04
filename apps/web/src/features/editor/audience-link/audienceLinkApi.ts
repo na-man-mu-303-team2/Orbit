@@ -3,6 +3,7 @@ import type {
   GetCurrentPresentationSessionResponse,
   PresentationEntryStatus,
   PresentationSession,
+  SessionResultsResponse,
   SessionSurveyFormResponse,
   UpsertSessionSurveyFormRequest,
   UpdateAudienceFeatureSettingsRequest,
@@ -189,6 +190,27 @@ export function sessionSurveyCsvUrl(args: {
   sessionId: string;
 }) {
   return `${surveyFormUrl(args.projectId, args.sessionId)}.csv`;
+}
+
+export async function fetchSessionResults(args: {
+  projectId: string;
+  sessionId: string;
+}): Promise<SessionResultsResponse> {
+  const response = await fetch(
+    `/api/v1/projects/${encodeURIComponent(
+      args.projectId,
+    )}/presentation-sessions/${encodeURIComponent(args.sessionId)}/results`,
+    {
+      credentials: "include",
+      method: "GET",
+    },
+  );
+
+  if (!response.ok) {
+    throw await readResponseError(response, "Audience results fetch failed");
+  }
+
+  return response.json() as Promise<SessionResultsResponse>;
 }
 
 function surveyFormUrl(projectId: string, sessionId: string) {

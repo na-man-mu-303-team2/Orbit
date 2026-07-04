@@ -551,6 +551,29 @@ export const submitSurveyResponseResponseSchema = z
   })
   .strict();
 
+export const audienceAggregateReportStatusSchema = z.enum([
+  "preliminary",
+  "final",
+]);
+
+export const audienceAggregateReportSchema = z
+  .object({
+    reportId: z.string().regex(/^audience_report_[0-9a-f-]{36}$/),
+    sessionId: z.string().min(1),
+    status: audienceAggregateReportStatusSchema,
+    aggregate: audienceSafePayloadSchema,
+    generatedAt: isoDateTimeSchema,
+    rawDataDeletedAt: isoDateTimeSchema.nullable(),
+  })
+  .strict();
+
+export const sessionResultsResponseSchema = z
+  .object({
+    report: audienceAggregateReportSchema,
+    surveyResponses: z.array(surveyResponseSchema),
+  })
+  .strict();
+
 export type InteractionQuestion = z.infer<typeof interactionQuestionSchema>;
 export type InteractionDraft = z.infer<typeof interactionDraftSchema>;
 export type ProjectInteractionLibraryItem = z.infer<
@@ -602,6 +625,12 @@ export type SubmitSurveyResponseRequest = z.infer<
 >;
 export type SubmitSurveyResponseResponse = z.infer<
   typeof submitSurveyResponseResponseSchema
+>;
+export type AudienceAggregateReport = z.infer<
+  typeof audienceAggregateReportSchema
+>;
+export type SessionResultsResponse = z.infer<
+  typeof sessionResultsResponseSchema
 >;
 
 function containsForbiddenContactText(value: string) {

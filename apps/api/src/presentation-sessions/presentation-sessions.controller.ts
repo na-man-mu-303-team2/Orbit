@@ -197,6 +197,20 @@ export class PresentationSessionsController {
     });
   }
 
+  @Get(":sessionId/results")
+  async getSessionResults(
+    @Param("projectId") projectId: string,
+    @Param("sessionId") sessionId: string,
+    @Req() request: SignedCookieRequest,
+  ) {
+    const user = await this.getCurrentUser(request);
+    await this.projectsService.assertCanReadProject(projectId, user.userId);
+    return this.presentationSessionsService.getSessionResults({
+      projectId,
+      sessionId,
+    });
+  }
+
   @Get("interactions/library")
   async listInteractionLibrary(
     @Param("projectId") projectId: string,

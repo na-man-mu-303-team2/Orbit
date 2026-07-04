@@ -11,12 +11,12 @@ The top-level `## Current State` and `## Resume Checkpoint` sections are the sou
 - Last completed milestone: 9
 - Next milestone: 10
 - Integration branch: `feature/audience`
-- Current expected branch: `feature/audience`
+- Current expected branch: `feature/audience-m10-results`
 - Goal status: in progress
 
 ## Resume Checkpoint
 
-- Current branch: `feature/audience`
+- Current branch: `feature/audience-m10-results`
 - Next milestone: 10
 - Resume first checks:
   - Run `git status --short --branch`.
@@ -25,7 +25,7 @@ The top-level `## Current State` and `## Resume Checkpoint` sections are the sou
   - Read relevant product-plan sections for presenter results, Q&A queue, reaction aggregates, survey aggregate/individual results, and audience access boundaries.
   - Read existing interaction, question, reaction, and survey storage/query helpers before adding report endpoints.
 - Blocked: no
-- Notes: Milestone 9 is locally merged; Milestone 10 results/reporting work is next.
+- Notes: Milestone 10 implementation is active.
 
 ## Milestone Log
 
@@ -400,6 +400,19 @@ The top-level `## Current State` and `## Resume Checkpoint` sections are the sou
   - Current branch: `feature/audience`
   - Next milestone: 10
   - Resume first checks: read Milestone 10 plan, confirm `feature/audience` status, and implement presenter results/reporting surfaces.
+
+## Milestone 10 Start - 2026-07-05
+
+- Branch: `feature/audience-m10-results`
+- Scope: presenter live/post-session results endpoint and UI, reaction/Q&A/interaction/survey aggregates, individual survey responses for presenters, aggregate report table, preliminary/final report generation, survey CSV raw-data deletion guard, and retention cleanup service path.
+- Acceptance criteria: presenter can view live and post-session results; audience has no presenter result endpoint; survey CSV returns gone after raw data deletion while aggregate remains; cleanup deletes raw rows/contact data after retention and retains anonymous aggregate; result summaries have accessible labels/text.
+- Likely files: `packages/shared/src/interactions/*`, `apps/api/src/database/migrations/*`, `apps/api/src/presentation-sessions/*`, `apps/web/src/features/audience/*`, `apps/web/src/features/editor/*`, `apps/web/src/features/rehearsal/presenter/*`.
+- Verification plan: shared report schema tests, migration tests, API aggregation/CSV/cleanup authorization tests, web results screen tests, `pnpm audience:checkpoint`.
+- Major risks: full charting can sprawl; keep M10 to structured summaries/tables and anonymous aggregate data while preserving raw-data cleanup semantics.
+- Resume checkpoint snapshot:
+  - Current branch: `feature/audience-m10-results`
+  - Next milestone: 10
+  - Resume first checks: inspect existing result aggregation, Q&A/survey/reaction storage, presenter panel, and CSV export behavior before editing.
 
 ## Progress Entry Template
 
