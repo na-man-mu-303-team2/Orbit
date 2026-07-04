@@ -537,6 +537,65 @@ button:disabled {
   opacity: 0.55;
 }
 
+.home-ai-form {
+  display: grid;
+  gap: 14px;
+  max-width: 760px;
+  width: 100%;
+}
+
+.home-topic-row {
+  max-width: none;
+}
+
+.home-prompt-grid,
+.home-options-grid {
+  display: grid;
+  gap: 12px;
+  text-align: left;
+  width: 100%;
+}
+
+.home-prompt-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.home-options-grid {
+  grid-template-columns: minmax(0, 1fr) 160px;
+}
+
+.home-prompt-grid label,
+.home-options-grid label {
+  color: #374151;
+  display: grid;
+  font-size: 0.82rem;
+  font-weight: 800;
+  gap: 6px;
+}
+
+.home-prompt-grid textarea,
+.home-options-grid input,
+.home-options-grid select {
+  background: #f9fafb;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  color: #111827;
+  min-height: 42px;
+  padding: 10px 12px;
+  width: 100%;
+}
+
+.home-prompt-grid textarea {
+  min-height: 92px;
+  resize: vertical;
+}
+
+.home-upload-list,
+.home-job-status {
+  text-align: left;
+  width: 100%;
+}
+
 .chat-file-status,
 .chat-file-error {
   font-size: 0.88rem;
@@ -1729,7 +1788,9 @@ button:disabled {
 
   .template-row,
   .project-grid,
-  .chat-input-shell {
+  .chat-input-shell,
+  .home-prompt-grid,
+  .home-options-grid {
     grid-template-columns: 1fr;
   }
 

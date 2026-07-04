@@ -1,9 +1,14 @@
 ﻿import {
+  aiTemplateDeckGenerationJobResultSchema,
+  allowedAssetMimeTypes,
   deckSchema,
   demoIds,
+  maxAssetUploadSizeBytes,
   pptxImportJobResultSchema,
+  type AiTemplateDeckGenerationJobResult,
   type Deck,
   type DeckElement,
+  type FilePurpose,
   type GenerateDeckJobResult,
   type Job,
   type PptxOoxmlGenerationJobResult,
@@ -37,6 +42,7 @@ import {
   createProject,
   fetchProjects,
   ProjectAssetWorkspace,
+  resolveAssetMimeType,
   uploadProjectAsset
 } from "./features/projects/ProjectAssetWorkspace";
 import {
@@ -72,6 +78,10 @@ type JobResult = {
 };
 
 type PptxOoxmlGenerationResponse = {
+  job: Job;
+};
+
+type AiTemplateDeckGenerationResponse = {
   job: Job;
 };
 
@@ -236,6 +246,18 @@ const pptxAccept = [
   "application/vnd.openxmlformats-officedocument.presentationml.presentation",
   ".pptx"
 ].join(",");
+const homeAssetAccept = [
+  ...allowedAssetMimeTypes,
+  ".pdf",
+  ".pptx",
+  ".docx",
+  ".jpg",
+  ".jpeg",
+  ".png",
+  ".webp"
+].join(",");
+const pptxMimeType =
+  "application/vnd.openxmlformats-officedocument.presentationml.presentation";
 
 async function fetchCurrentUser(): Promise<AuthUser> {
   const response = await fetch("/api/v1/auth/me", {
@@ -938,33 +960,101 @@ function ProjectAccessRequestPage(props: { projectId: string }) {
 
 function HomePage(props: { user?: AuthUser }) {
   const queryClient = useQueryClient();
+  const [topic, setTopic] = useState("");
   const [prompt, setPrompt] = useState("");
-  const [selectedPptx, setSelectedPptx] = useState<File | null>(null);
+  const [designPrompt, setDesignPrompt] = useState("");
+  const [tone, setTone] = useState<"professional" | "friendly" | "confident" | "concise">(
+    "professional"
+  );
+  const [duration, setDuration] = useState(10);
+  const [uploads, setUploads] = useState<UploadFile[]>([]);
+  const [rejected, setRejected] = useState<RejectedFile[]>([]);
   const [status, setStatus] = useState("");
   const [error, setError] = useState("");
+  const [job, setJob] = useState<Job | null>(null);
   const [isImporting, setIsImporting] = useState(false);
-  const validationMessage = selectedPptx ? getHomePptxValidationMessage(selectedPptx) : "";
+  const totalSize = useMemo(
+    () => uploads.reduce((sum, upload) => sum + upload.file.size, 0),
+    [uploads]
+  );
+  const validationMessage = getHomeGenerationValidationMessage(topic, uploads);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!selectedPptx || validationMessage || isImporting) return;
+    if (isImporting) return;
+
+    if (validationMessage) {
+      setError(validationMessage);
+      return;
+    }
 
     setIsImporting(true);
     setError("");
+    setJob(null);
     setStatus("프로젝트 생성 중...");
 
     try {
-      const project = await createProject(getHomePptxProjectTitle(prompt, selectedPptx));
-      setStatus("PPTX 업로드 중...");
-      const uploaded = await uploadProjectAsset(project.projectId, selectedPptx, "pptx-import");
-      setStatus("PPTX 변환 중...");
-      await importPptxToProject(project.projectId, uploaded.fileId);
+      const project = await createProject(getGeneratedDeckProjectTitle(topic));
+      const uploadedAssets = new Map<string, string>();
+
+      for (const upload of uploads) {
+        setStatus(`${upload.file.name} 업로드 중...`);
+        const uploaded = await uploadProjectAsset(
+          project.projectId,
+          upload.file,
+          getAiTemplateUploadPurpose(upload)
+        );
+        uploadedAssets.set(upload.id, uploaded.fileId);
+      }
+
+      const payload = buildAiTemplateDeckGenerationPayload({
+        topic,
+        prompt,
+        designPrompt,
+        duration,
+        tone,
+        uploads,
+        uploadedAssetFileIds: uploadedAssets
+      });
+      setStatus("AI 덱 생성 중...");
+      const response = await fetch(
+        `/api/v1/projects/${encodeURIComponent(project.projectId)}/jobs/ai-template-deck-generation`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(payload)
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error(await readApiError(response, "AI 덱 생성을 시작하지 못했습니다."));
+      }
+
+      const data = (await response.json()) as AiTemplateDeckGenerationResponse;
+      setJob(data.job);
+      const completed = await pollJob(data.job.jobId, fetch, {
+        timeoutMs: 300_000,
+        delayMs: 1200
+      });
+      setJob(completed);
+
+      if (completed.status === "failed") {
+        throw new Error(
+          completed.error?.message || completed.message || "AI 덱 생성에 실패했습니다."
+        );
+      }
+
+      const result = getAiTemplateDeckGenerationJobResult(completed);
+      if (!result) {
+        throw new Error("AI 덱 생성 결과를 읽지 못했습니다.");
+      }
+
       await queryClient.invalidateQueries({ queryKey: ["projects"] });
       await queryClient.invalidateQueries({ queryKey: ["deck", project.projectId] });
       navigateTo(`/project/${encodeURIComponent(project.projectId)}`);
     } catch (submitError) {
       setError(
-        submitError instanceof Error ? submitError.message : "PPTX를 가져오지 못했습니다."
+        submitError instanceof Error ? submitError.message : "AI 덱 생성에 실패했습니다."
       );
       setStatus("");
     } finally {
@@ -973,10 +1063,35 @@ function HomePage(props: { user?: AuthUser }) {
   }
 
   function handleFileChange(event: ChangeEvent<HTMLInputElement>) {
-    setSelectedPptx(event.target.files?.[0] ?? null);
+    if (event.target.files) {
+      addFiles(event.target.files);
+    }
+    event.target.value = "";
+  }
+
+  function addFiles(fileList: FileList | File[]) {
+    const { acceptedFiles, rejectedFiles } = collectHomeUploadFiles(fileList);
+    setUploads((current) => mergeUploadFiles(current, acceptedFiles));
+    setRejected(rejectedFiles);
     setError("");
     setStatus("");
-    event.target.value = "";
+    setJob(null);
+  }
+
+  function removeUpload(id: string) {
+    setUploads((current) => current.filter((upload) => upload.id !== id));
+    setError("");
+    setStatus("");
+    setJob(null);
+  }
+
+  function updateUploadRole(id: string, role: UploadRole) {
+    setUploads((current) =>
+      current.map((upload) => (upload.id === id ? { ...upload, role } : upload))
+    );
+    setError("");
+    setStatus("");
+    setJob(null);
   }
 
   return (
@@ -990,31 +1105,136 @@ function HomePage(props: { user?: AuthUser }) {
           <MessageSquareText size={30} />
         </div>
         <h2>무엇을 발표 자료로 만들까요?</h2>
-        <form className="chat-input-shell" onSubmit={(event) => void handleSubmit(event)}>
-          <label className="chat-attach-button" aria-label="PPTX 첨부">
-            <Paperclip size={18} />
+        <form className="home-ai-form" onSubmit={(event) => void handleSubmit(event)}>
+          <div className="chat-input-shell home-topic-row">
+            <label className="chat-attach-button" aria-label="첨부파일 추가">
+              <Paperclip size={18} />
+              <input
+                type="file"
+                accept={homeAssetAccept}
+                multiple
+                disabled={isImporting}
+                onChange={handleFileChange}
+              />
+            </label>
             <input
-              type="file"
-              accept={pptxAccept}
-              disabled={isImporting}
-              onChange={handleFileChange}
+              value={topic}
+              onChange={(event) => setTopic(event.target.value)}
+              placeholder="발표 주제"
             />
-          </label>
-          <input
-            value={prompt}
-            onChange={(event) => setPrompt(event.target.value)}
-            placeholder="발표 주제, 자료 구성, 슬라이드 방향을 입력하세요"
-          />
-          <button type="submit" disabled={!selectedPptx || !!validationMessage || isImporting}>
-            {isImporting ? "처리 중" : "전송"}
-          </button>
+            <button type="submit" disabled={!!validationMessage || isImporting}>
+              {isImporting ? "처리 중" : "전송"}
+            </button>
+          </div>
+
+          <div className="home-prompt-grid">
+            <label>
+              <span>관련 프롬프트</span>
+              <textarea
+                value={prompt}
+                onChange={(event) => setPrompt(event.target.value)}
+                placeholder="핵심 메시지, 포함할 내용, 제외할 내용"
+                disabled={isImporting}
+              />
+            </label>
+            <label>
+              <span>디자인 프롬프트</span>
+              <textarea
+                value={designPrompt}
+                onChange={(event) => setDesignPrompt(event.target.value)}
+                placeholder="톤앤매너, 색감, 레이아웃 방향"
+                disabled={isImporting}
+              />
+            </label>
+          </div>
+
+          <div className="home-options-grid">
+            <label>
+              <span>발표 톤</span>
+              <select
+                value={tone}
+                onChange={(event) => setTone(event.target.value as typeof tone)}
+                disabled={isImporting}
+              >
+                <option value="professional">Professional</option>
+                <option value="friendly">Friendly</option>
+                <option value="confident">Confident</option>
+                <option value="concise">Concise</option>
+              </select>
+            </label>
+            <label>
+              <span>발표 시간</span>
+              <input
+                type="number"
+                min={1}
+                max={120}
+                value={duration}
+                disabled={isImporting}
+                onChange={(event) => setDuration(Number(event.target.value) || 1)}
+              />
+            </label>
+          </div>
+
+          {uploads.length > 0 ? (
+            <div className="home-upload-list">
+              <div className="upload-summary" aria-live="polite">
+                <span>{uploads.length}개 파일</span>
+                <span>{formatBytes(totalSize)}</span>
+              </div>
+              <ul className="file-list" aria-label="홈 AI 덱 첨부파일">
+                {uploads.map(({ id, file, role }) => (
+                  <li key={id}>
+                    <div>
+                      <span className="file-name">{file.name}</span>
+                      <span className="file-detail">
+                        {getExtension(file.name).toUpperCase()} · {formatBytes(file.size)}
+                      </span>
+                    </div>
+                    <select
+                      value={role}
+                      onChange={(event) => updateUploadRole(id, event.target.value as UploadRole)}
+                      disabled={isImporting}
+                      aria-label={`${file.name} 역할`}
+                    >
+                      <option value="content">내용 참고</option>
+                      {isPptxFile(file) ? <option value="design">디자인 참고</option> : null}
+                      {isPptxFile(file) ? <option value="both">둘 다</option> : null}
+                    </select>
+                    <button
+                      type="button"
+                      onClick={() => removeUpload(id)}
+                      aria-label={`${file.name} 제거`}
+                      disabled={isImporting}
+                    >
+                      ×
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
         </form>
-        {selectedPptx ? (
-          <p className="chat-file-status">
-            {selectedPptx.name} · {formatBytes(selectedPptx.size)}
-          </p>
+        {rejected.length > 0 ? (
+          <div className="rejection-list" role="alert">
+            {rejected.map((file) => (
+              <p key={file.name}>
+                <strong>{file.name}</strong> {file.reason}
+              </p>
+            ))}
+          </div>
         ) : null}
-        {validationMessage ? <p className="chat-file-error">{validationMessage}</p> : null}
+        {validationMessage && uploads.length > 0 ? (
+          <p className="chat-file-error">{validationMessage}</p>
+        ) : null}
+        {job ? (
+          <div className="job-status home-job-status" aria-live="polite">
+            <div>
+              <strong>{job.status}</strong>
+              <span>{job.progress}%</span>
+            </div>
+            {job.message ? <p>{job.message}</p> : null}
+          </div>
+        ) : null}
         {status ? <p className="chat-file-status">{status}</p> : null}
         {error ? <p className="chat-file-error">{error}</p> : null}
         <button className="link-action" type="button" onClick={() => navigateTo("/upload")}>
@@ -1490,8 +1710,7 @@ function getExtension(fileName: string) {
 function isPptxFile(file: File) {
   return (
     getExtension(file.name) === "pptx" &&
-    file.type ===
-      "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+    resolveAssetMimeType(file) === pptxMimeType
   );
 }
 
@@ -1507,6 +1726,98 @@ function formatBytes(bytes: number) {
 
 function createUploadId(file: File) {
   return `${file.name}-${file.size}-${file.lastModified}`;
+}
+
+function getAiTemplateUploadPurpose(upload: UploadFile): FilePurpose {
+  if ((upload.role === "design" || upload.role === "both") && isPptxFile(upload.file)) {
+    return "pptx-import";
+  }
+
+  return "reference-material";
+}
+
+function getHomeGenerationValidationMessage(topic: string, uploads: UploadFile[]) {
+  if (!topic.trim()) {
+    return "발표 주제를 입력하세요.";
+  }
+
+  if (uploads.length === 0) {
+    return "파일을 하나 이상 첨부하세요.";
+  }
+
+  const designUploads = uploads.filter(
+    (upload) => upload.role === "design" || upload.role === "both"
+  );
+  if (designUploads.length !== 1) {
+    return "디자인 참고 PPTX를 정확히 1개 선택하세요.";
+  }
+
+  if (!isPptxFile(designUploads[0].file)) {
+    return "디자인 참고 파일은 PPTX여야 합니다.";
+  }
+
+  return "";
+}
+
+function collectHomeUploadFiles(fileList: FileList | File[]) {
+  const acceptedFiles: UploadFile[] = [];
+  const rejectedFiles: RejectedFile[] = [];
+
+  Array.from(fileList).forEach((file) => {
+    const mimeType = resolveAssetMimeType(file);
+    if (!mimeType) {
+      rejectedFiles.push({
+        name: file.name,
+        reason: "PDF, PPTX, DOCX, JPG, PNG, WebP 파일만 첨부할 수 있습니다."
+      });
+      return;
+    }
+
+    if (file.size > maxAssetUploadSizeBytes) {
+      rejectedFiles.push({
+        name: file.name,
+        reason: `${formatBytes(maxAssetUploadSizeBytes)} 이하 파일만 첨부할 수 있습니다.`
+      });
+      return;
+    }
+
+    if (file.size <= 0) {
+      rejectedFiles.push({
+        name: file.name,
+        reason: "빈 파일은 첨부할 수 없습니다."
+      });
+      return;
+    }
+
+    acceptedFiles.push({
+      id: createUploadId(file),
+      file,
+      role: isPptxFile(file) ? "design" : "content"
+    });
+  });
+
+  return { acceptedFiles, rejectedFiles };
+}
+
+function mergeUploadFiles(current: UploadFile[], next: UploadFile[]) {
+  const byId = new Map(current.map((upload) => [upload.id, upload]));
+  for (const upload of next) {
+    byId.set(upload.id, upload);
+  }
+
+  let hasDesign = false;
+  return Array.from(byId.values()).map((upload) => {
+    if (!isPptxFile(upload.file)) {
+      return { ...upload, role: "content" as const };
+    }
+    if ((upload.role === "design" || upload.role === "both") && hasDesign) {
+      return { ...upload, role: "content" as const };
+    }
+    if (upload.role === "design" || upload.role === "both") {
+      hasDesign = true;
+    }
+    return upload;
+  });
 }
 
 function collectPptxUploadFiles(fileList: FileList | File[]) {
@@ -1526,6 +1837,11 @@ function collectPptxUploadFiles(fileList: FileList | File[]) {
   });
 
   return { acceptedFiles, rejectedFiles };
+}
+
+function clampInteger(value: number, min: number, max: number) {
+  if (!Number.isFinite(value)) return min;
+  return Math.max(min, Math.min(max, Math.round(value)));
 }
 function EditorLoadingFallback() {
   return (
@@ -1590,6 +1906,51 @@ export function getPptxOoxmlGenerationJobResult(
 ): PptxOoxmlGenerationJobResult | null {
   const result = job.result as PptxOoxmlGenerationJobResult | null;
   return result?.deckId && result?.currentPackageFileId ? result : null;
+}
+
+export function getAiTemplateDeckGenerationJobResult(
+  job: Job
+): AiTemplateDeckGenerationJobResult | null {
+  const parsed = aiTemplateDeckGenerationJobResultSchema.safeParse(job.result);
+  return parsed.success ? parsed.data : null;
+}
+
+export function buildAiTemplateDeckGenerationPayload(input: {
+  designPrompt: string;
+  duration: number;
+  prompt: string;
+  tone: "professional" | "friendly" | "confident" | "concise";
+  topic: string;
+  uploadedAssetFileIds: Map<string, string>;
+  uploads: UploadFile[];
+}) {
+  return {
+    topic: input.topic.trim(),
+    prompt: input.prompt.trim(),
+    designPrompt: input.designPrompt.trim(),
+    targetDurationMinutes: clampInteger(input.duration, 1, 120),
+    slideCountRange: { min: 5, max: 8 },
+    template: "default",
+    metadata: {
+      audience: "general",
+      purpose: "inform",
+      tone: input.tone
+    },
+    design: buildGenerateDeckDesignDirection({
+      profile: "auto",
+      visualRhythm: "auto",
+      densityTarget: "medium",
+      mediaPolicy: "balanced",
+      layoutDiversity: "stable"
+    }),
+    assets: input.uploads.map((upload) => {
+      const fileId = input.uploadedAssetFileIds.get(upload.id);
+      if (!fileId) {
+        throw new Error(`${upload.file.name} 업로드 결과를 찾지 못했습니다.`);
+      }
+      return { fileId, role: upload.role };
+    })
+  };
 }
 
 export function buildPptxOoxmlGenerationPayload(input: {
@@ -1658,22 +2019,6 @@ export async function pollJob(
 
     await new Promise((resolve) => setTimeout(resolve, delayMs));
   }
-}
-
-function getHomePptxValidationMessage(file: File) {
-  if (!isPptxFile(file)) {
-    return "PPTX 파일만 첨부할 수 있습니다.";
-  }
-
-  if (file.size <= 0) {
-    return "빈 PPTX 파일은 첨부할 수 없습니다.";
-  }
-
-  return null;
-}
-
-function getHomePptxProjectTitle(prompt: string, file: File) {
-  return prompt.trim() || file.name.replace(/\.pptx$/i, "") || "PPTX 발표자료";
 }
 
 export function getGeneratedDeckProjectTitle(topic: string) {

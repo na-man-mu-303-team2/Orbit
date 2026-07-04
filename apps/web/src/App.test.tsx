@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import { forwardRef } from "react";
 import { describe, expect, it, vi } from "vitest";
 import {
+  buildAiTemplateDeckGenerationPayload,
   buildDesignReferences,
   buildGenerateDeckPayload,
   buildGenerateDeckDesignDirection,
@@ -15,6 +16,7 @@ import {
   deckRenderPayloadStorageKey,
   getGeneratedDeckProjectPath,
   getGeneratedDeckProjectTitle,
+  getAiTemplateDeckGenerationJobResult,
   getGenerateDeckJobResult,
   getPptxOoxmlGeneratedProjectPath,
   getPptxOoxmlGenerationJobResult,
@@ -256,6 +258,96 @@ describe("AI deck generation flow", () => {
     expect(getPptxOoxmlGeneratedProjectPath("project-a")).toBe(
       "/project/project-a"
     );
+  });
+
+  it("builds a home AI template deck payload with file roles", () => {
+    const pptx = new File(["pptx"], "design.pptx", {
+      type: "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+    });
+    const pdf = new File(["pdf"], "content.pdf", { type: "application/pdf" });
+    const uploadedFileIds = new Map([
+      ["content", "file_content"],
+      ["design", "file_design"]
+    ]);
+
+    expect(
+      buildAiTemplateDeckGenerationPayload({
+        topic: " ORBIT ",
+        prompt: " 핵심 메시지 ",
+        designPrompt: " 리포트 톤 ",
+        duration: 12,
+        tone: "confident",
+        uploads: [
+          { id: "content", file: pdf, role: "content" },
+          { id: "design", file: pptx, role: "design" }
+        ],
+        uploadedAssetFileIds: uploadedFileIds
+      })
+    ).toMatchObject({
+      topic: "ORBIT",
+      prompt: "핵심 메시지",
+      designPrompt: "리포트 톤",
+      targetDurationMinutes: 12,
+      metadata: {
+        audience: "general",
+        purpose: "inform",
+        tone: "confident"
+      },
+      assets: [
+        { fileId: "file_content", role: "content" },
+        { fileId: "file_design", role: "design" }
+      ]
+    });
+  });
+
+  it("reads an AI template deck generation job result", () => {
+    const job: Job = {
+      jobId: "job-template",
+      projectId: "project-a",
+      type: "ai-template-deck-generation",
+      status: "succeeded",
+      progress: 100,
+      message: "AI template deck generation completed.",
+      result: {
+        deckId: "deck_ai_project_a",
+        templateId: "template_file_design",
+        sourceFileId: "file_design",
+        currentPackageFileId: "file_current",
+        contentReferenceFileIds: ["file_content"],
+        qualityReport: {
+          compositeScore: 90,
+          metrics: {
+            geometry: 90,
+            text: 90,
+            color: 90,
+            layer: 90,
+            editability: 90,
+            pixelSimilarity: null
+          },
+          weights: {
+            geometry: 25,
+            text: 15,
+            color: 10,
+            layer: 10,
+            editability: 10,
+            pixelSimilarity: 30
+          },
+          editabilityCoverage: 0.9,
+          appliedCap: null,
+          notes: []
+        },
+        warnings: []
+      },
+      error: null,
+      createdAt: "2026-07-04T00:00:00.000Z",
+      updatedAt: "2026-07-04T00:00:01.000Z"
+    };
+
+    expect(getAiTemplateDeckGenerationJobResult(job)).toMatchObject({
+      deckId: "deck_ai_project_a",
+      currentPackageFileId: "file_current",
+      contentReferenceFileIds: ["file_content"]
+    });
   });
 
   it("builds a generate-deck payload with design direction", () => {
