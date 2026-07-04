@@ -1286,7 +1286,7 @@ export function RehearsalWorkspace(props: {
   const liveSttSubscriptionCleanupRef = useRef<(() => void) | null>(null);
   const p3SessionRef = useRef<P3RehearsalSession | null>(null);
   const p3RunMetaRef = useRef<RehearsalRunMeta | null>(null);
-  const pendingP3RunMetaRef = useRef<Promise<RehearsalRunMeta> | null>(null);
+  const pendingP3RunMetaRef = useRef<Promise<RehearsalRunMeta | null> | null>(null);
   const pendingP3SlideIndexRef = useRef<number | null>(null);
   const finishAfterReportRef = useRef(false);
   const deckRef = useRef<Deck | null>(props.initialDeck ?? null);
@@ -1679,12 +1679,15 @@ export function RehearsalWorkspace(props: {
     p3SessionRef.current = null;
     pendingP3SlideIndexRef.current = null;
     if (p3Session) {
-      const runMetaPromise = p3Session.stop().then((meta) => {
-        p3RunMetaRef.current = meta;
-        setP3RunMeta(meta);
-        setP3SessionState(p3Session.getState());
-        return meta;
-      });
+      const runMetaPromise = p3Session
+        .stop()
+        .then((meta) => {
+          p3RunMetaRef.current = meta;
+          setP3RunMeta(meta);
+          setP3SessionState(p3Session.getState());
+          return meta;
+        })
+        .catch(() => null);
       pendingP3RunMetaRef.current = runMetaPromise;
       void runMetaPromise;
     } else {
@@ -1715,12 +1718,15 @@ export function RehearsalWorkspace(props: {
     p3SessionRef.current = null;
     pendingP3SlideIndexRef.current = null;
     if (p3Session) {
-      const runMetaPromise = p3Session.stop().then((meta) => {
-        p3RunMetaRef.current = meta;
-        setP3RunMeta(meta);
-        setP3SessionState(p3Session.getState());
-        return meta;
-      });
+      const runMetaPromise = p3Session
+        .stop()
+        .then((meta) => {
+          p3RunMetaRef.current = meta;
+          setP3RunMeta(meta);
+          setP3SessionState(p3Session.getState());
+          return meta;
+        })
+        .catch(() => null);
       pendingP3RunMetaRef.current = runMetaPromise;
       void runMetaPromise;
     } else {

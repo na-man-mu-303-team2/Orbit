@@ -186,7 +186,7 @@ describe("processRehearsalSttJob", () => {
         expect.stringContaining('"reportId":"report_run-a"'),
         expect.stringContaining('"speedSamples":[{"startSecond":0,"endSecond":3.5,"wordsPerMinute":120}]'),
         expect.stringContaining('"missedKeywords":[{"slideId":"slide_1","keywordId":"kw_1","text":"ORBIT"}]'),
-        expect.stringContaining('"slideTimings":[{"slideId":"slide_1","targetSeconds":60,"actualSeconds":45},{"slideId":"slide_2","targetSeconds":60,"actualSeconds":45}]'),
+        expect.stringContaining('"slideTimings":[{"slideId":"slide_1","targetSeconds":60,"actualSeconds":45}]'),
         false
       ])
     );
@@ -217,7 +217,7 @@ describe("processRehearsalSttJob", () => {
   it("replays patch-only deck updates before rehearsal analysis", async () => {
     const updatedKeywordPatchOperations = [
       {
-        type: "update_slide_keywords",
+        type: "replace_keywords",
         slideId: "slide_1",
         keywords: [
           {
@@ -237,6 +237,7 @@ describe("processRehearsalSttJob", () => {
       .mockResolvedValueOnce([{ ...deckRow, version: 1 }])
       .mockResolvedValueOnce([
         {
+          project_id: "project-a",
           deck_id: "deck-a",
           before_version: 1,
           after_version: 2,
@@ -314,6 +315,184 @@ describe("processRehearsalSttJob", () => {
         required: true
       }
     ]);
+  });
+
+  it("builds slide timings from replayed deck patches", async () => {
+    const addedSlide = {
+      slideId: "slide_3",
+      order: 3,
+      title: "patched slide",
+      estimatedSeconds: 30,
+      notes: "",
+      style: {},
+      elements: [],
+      animations: [],
+      actions: [],
+      keywords: []
+    };
+    const query = vi
+      .fn()
+      .mockResolvedValueOnce([jobRow("running", 10, null, null)])
+      .mockResolvedValueOnce([runRow()])
+      .mockResolvedValueOnce([assetRow])
+      .mockResolvedValueOnce([deckRow])
+      .mockResolvedValueOnce([
+        {
+          project_id: "project-a",
+          deck_id: "deck-a",
+          before_version: 1,
+          after_version: 2,
+          source: "user",
+          operations: [{ type: "add_slide", slide: addedSlide }]
+        }
+      ])
+      .mockResolvedValueOnce([
+        {
+          meta_json: {
+            slideTimeline: [
+              { slideId: "slide_1", enteredAt: "2026-06-27T00:00:00.000Z" },
+              { slideId: "slide_3", enteredAt: "2026-06-27T00:00:20.000Z" },
+              { slideId: "slide_2", enteredAt: "2026-06-27T00:00:50.000Z" }
+            ],
+            missedKeywords: [],
+            adviceEvents: []
+          }
+        }
+      ])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([runRow()])
+      .mockResolvedValueOnce([
+        jobRow(
+          "succeeded",
+          100,
+          {
+            transcriptRetained: false,
+            transcript: null,
+            report: {
+              reportId: "report_run-a",
+              transcriptRetained: false,
+              transcript: null
+            },
+            rawAudioDeletedAt: "2026-06-27T00:00:02.000Z"
+          },
+          null
+        )
+      ]);
+    const storage = createStorage();
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({
+              runId: "run-a",
+              projectId: "project-a",
+              fileId: "file-audio",
+              transcript: "안녕하세요 ORBIT 발표입니다",
+              language: "ko-KR",
+              provider: "fake",
+              model: "fake-transcriber",
+              durationSeconds: 90,
+              segments: [{ text: "안녕하세요 ORBIT 발표입니다" }]
+            })
+          )
+        )
+        .mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({
+              runId: "run-a",
+              wordsPerMinute: 120,
+              fillerWordCount: 0,
+              pauseCount: 0,
+              keywordCoverage: 1
+            })
+          )
+        )
+    );
+
+    await processRehearsalSttJob(
+      { query } as unknown as DataSource,
+      storage,
+      "http://localhost:8000",
+      payload
+    );
+
+    expect(query).toHaveBeenCalledWith(
+      expect.stringContaining("report_json"),
+      expect.arrayContaining([
+        expect.stringContaining(
+          '"slideTimings":[{"slideId":"slide_1","targetSeconds":60,"actualSeconds":20},{"slideId":"slide_3","targetSeconds":30,"actualSeconds":30}]'
+        )
+      ])
+    );
+  });
+
+  it("does not re-add client-side missed keywords that transcript analysis matched", async () => {
+    const query = vi
+      .fn()
+      .mockResolvedValueOnce([jobRow("running", 10, null, null)])
+      .mockResolvedValueOnce([runRow()])
+      .mockResolvedValueOnce([assetRow])
+      .mockResolvedValueOnce([deckRow])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        {
+          meta_json: {
+            slideTimeline: [],
+            missedKeywords: [{ slideId: "slide_1", keywordId: "kw_1" }],
+            adviceEvents: []
+          }
+        }
+      ])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([runRow()])
+      .mockResolvedValueOnce([jobRow("succeeded", 100, {}, null)]);
+    const storage = createStorage();
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({
+              runId: "run-a",
+              projectId: "project-a",
+              fileId: "file-audio",
+              transcript: "안녕하세요 ORBIT 발표입니다",
+              language: "ko-KR",
+              provider: "fake",
+              model: "fake-transcriber",
+              durationSeconds: 10,
+              segments: [{ text: "안녕하세요 ORBIT 발표입니다" }]
+            })
+          )
+        )
+        .mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({
+              runId: "run-a",
+              wordsPerMinute: 120,
+              fillerWordCount: 0,
+              pauseCount: 0,
+              keywordCoverage: 1,
+              missedKeywords: []
+            })
+          )
+        )
+    );
+
+    await processRehearsalSttJob(
+      { query } as unknown as DataSource,
+      storage,
+      "http://localhost:8000",
+      payload
+    );
+
+    expect(query).toHaveBeenCalledWith(
+      expect.stringContaining("report_json"),
+      expect.arrayContaining([expect.stringContaining('"missedKeywords":[]')])
+    );
   });
 
   it("deletes raw audio and marks the job failed when STT fails", async () => {

@@ -226,8 +226,28 @@ describe("RehearsalWorkspace", () => {
     expect(startRecordingBody).toContain("void startP3Tracking(stream)");
     expect(startRecordingBody).not.toContain("startLiveStt(stream)");
     expect(stopRecordingBody).toContain("const p3Session = p3SessionRef.current");
-    expect(stopRecordingBody).toContain("p3Session.stop().then((meta)");
+    expect(stopRecordingBody).toContain("p3Session");
+    expect(stopRecordingBody).toContain(".stop()");
+    expect(stopRecordingBody).toContain(".then((meta)");
+    expect(stopRecordingBody).toContain(".catch(() => null)");
     expect(stopRecordingBody).toContain("setP3RunMeta(meta)");
+  });
+
+  it("continues report upload when optional P3 run meta fails", () => {
+    const source = fs.readFileSync(
+      rehearsalWorkspaceSourcePath,
+      "utf8"
+    );
+    const stopStart = source.indexOf("function stopRecording");
+    const stopEnd = source.indexOf("function handleTimePrimaryAction");
+    const stopRecordingBody = source.slice(stopStart, stopEnd);
+    const submitStart = source.indexOf("async function submitRecording");
+    const submitEnd = source.indexOf("function handleTimePrimaryAction", submitStart);
+    const submitRecordingBody = source.slice(submitStart, submitEnd);
+
+    expect(stopRecordingBody).toContain(".catch(() => null)");
+    expect(submitRecordingBody).toContain("await pendingP3RunMetaRef.current");
+    expect(submitRecordingBody).toContain("runRehearsalUploadFlow");
   });
 
   it("resynchronizes P3 tracking when the slide changes while STT is starting", () => {
