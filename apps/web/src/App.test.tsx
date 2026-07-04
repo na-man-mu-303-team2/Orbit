@@ -22,7 +22,6 @@ import {
   getPptxOoxmlGenerationJobResult,
   getJobResultFiles,
   getRoute,
-  importPptxToProject,
   mergeGeneratedProjectList,
   pollJob,
   pollExtractJob,
@@ -94,6 +93,10 @@ describe("App shell routing", () => {
     expect(route).toEqual({ name: "deck-render" });
     expect(shouldRenderAppFrame(route)).toBe(false);
     expect(deckRenderPayloadStorageKey).toBe("orbit.deckRenderPayload.v1");
+  });
+
+  it("does not expose the old upload workspace route", () => {
+    expect(getRoute("/upload")).toEqual({ name: "home" });
   });
 });
 
@@ -574,87 +577,6 @@ describe("AI deck generation flow", () => {
       projectId: selected.projectId
     });
     expect(fetcher).not.toHaveBeenCalled();
-  });
-
-  it("creates and waits for a PPTX import job", async () => {
-    let pollCount = 0;
-    const fetcher = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
-
-      if (url.endsWith("/pptx-imports")) {
-        expect(init?.method).toBe("POST");
-        expect(JSON.parse(String(init?.body))).toEqual({ fileId: "file_pptx" });
-        return new Response(
-          JSON.stringify({
-            job: {
-              jobId: "job_pptx",
-              projectId: "project_pptx",
-              type: "pptx-import",
-              status: "queued",
-              progress: 0,
-              message: "queued",
-              result: null,
-              error: null,
-              createdAt: "2026-07-03T00:00:00.000Z",
-              updatedAt: "2026-07-03T00:00:00.000Z"
-            }
-          })
-        );
-      }
-
-      if (url.endsWith("/jobs/job_pptx")) {
-        pollCount += 1;
-        return new Response(
-          JSON.stringify({
-            jobId: "job_pptx",
-            projectId: "project_pptx",
-            type: "pptx-import",
-            status: pollCount === 1 ? "running" : "succeeded",
-            progress: pollCount === 1 ? 50 : 100,
-            message: "done",
-            result: {
-              deckId: "deck_imported",
-              templateId: "template_imported",
-              qualityReport: {
-                compositeScore: 82,
-                metrics: {
-                  geometry: 90,
-                  text: 80,
-                  color: 80,
-                  layer: 90,
-                  editability: 60,
-                  pixelSimilarity: null
-                },
-                weights: {
-                  geometry: 25,
-                  text: 15,
-                  color: 10,
-                  layer: 10,
-                  editability: 10,
-                  pixelSimilarity: 30
-                },
-                editabilityCoverage: 0.6,
-                appliedCap: null,
-                notes: []
-              },
-              warnings: []
-            },
-            error: null,
-            createdAt: "2026-07-03T00:00:00.000Z",
-            updatedAt: "2026-07-03T00:00:00.000Z"
-          })
-        );
-      }
-
-      return new Response("unexpected request", { status: 500 });
-    });
-
-    await expect(
-      importPptxToProject("project_pptx", "file_pptx", fetcher, { delayMs: 0 })
-    ).resolves.toMatchObject({
-      deckId: "deck_imported"
-    });
-    expect(pollCount).toBe(2);
   });
 
   it("polls generic jobs through the API job route", async () => {

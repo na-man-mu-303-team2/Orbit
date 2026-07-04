@@ -4,7 +4,6 @@
   deckSchema,
   demoIds,
   maxAssetUploadSizeBytes,
-  pptxImportJobResultSchema,
   type AiTemplateDeckGenerationJobResult,
   type Deck,
   type DeckElement,
@@ -12,7 +11,6 @@
   type GenerateDeckJobResult,
   type Job,
   type PptxOoxmlGenerationJobResult,
-  type PptxImportJobResult,
   type Project,
   type ProjectMemberRole,
   type ProjectMemberStatus,
@@ -41,7 +39,6 @@ import orbitLogo from "./assets/orbit-logo.png";
 import {
   createProject,
   fetchProjects,
-  ProjectAssetWorkspace,
   resolveAssetMimeType,
   uploadProjectAsset
 } from "./features/projects/ProjectAssetWorkspace";
@@ -154,7 +151,6 @@ export type Route =
   | { name: "login" }
   | { name: "home" }
   | { name: "create-deck" }
-  | { name: "upload" }
   | { name: "project-list" }
   | { name: "project-editor"; projectId: string }
   | { name: "project-request"; projectId: string }
@@ -311,7 +307,6 @@ export function getRoute(
 
   if (normalized === "/login") return { name: "login" };
   if (normalized === "/createdeck") return { name: "create-deck" };
-  if (normalized === "/upload") return { name: "upload" };
   if (normalized === "/project") return { name: "project-list" };
   if (normalized === "/report_mockup") return { name: "report-mockup" };
   if (normalized === "/__deck-render" && isDeckRenderRouteEnabled()) {
@@ -420,7 +415,6 @@ export function shouldRenderAppFrame(route: Route) {
 function renderRoute(route: Route, user?: AuthUser) {
   if (route.name === "login") return <LoginPage isAuthenticated={Boolean(user)} />;
   if (route.name === "create-deck") return <GenerateDeckView />;
-  if (route.name === "upload") return <ProjectAssetWorkspace />;
   if (route.name === "project-list") return <ProjectListPage />;
   if (route.name === "project-editor") {
     return (
@@ -1237,9 +1231,6 @@ function HomePage(props: { user?: AuthUser }) {
         ) : null}
         {status ? <p className="chat-file-status">{status}</p> : null}
         {error ? <p className="chat-file-error">{error}</p> : null}
-        <button className="link-action" type="button" onClick={() => navigateTo("/upload")}>
-          기존 PPT 사용하기
-        </button>
       </section>
 
       <TemplateRail title="최근 열어본 템플릿" />
@@ -1965,35 +1956,6 @@ export function buildPptxOoxmlGenerationPayload(input: {
   };
 }
 
-export async function importPptxToProject(
-  projectId: string,
-  fileId: string,
-  fetcher: Fetcher = fetch,
-  options: { delayMs?: number; timeoutMs?: number } = {}
-): Promise<PptxImportJobResult> {
-  const response = await fetcher(
-    `/api/v1/projects/${encodeURIComponent(projectId)}/pptx-imports`,
-    {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ fileId })
-    }
-  );
-
-  if (!response.ok) {
-    throw new Error(await readApiError(response, "PPTX 변환을 시작하지 못했습니다."));
-  }
-
-  const { job } = (await response.json()) as { job: Job };
-  const completed = await pollJob(job.jobId, fetcher, options);
-
-  if (completed.status === "failed") {
-    throw new Error(completed.error?.message || completed.message || "PPTX 변환에 실패했습니다.");
-  }
-
-  return pptxImportJobResultSchema.parse(completed.result);
-}
-
 export async function pollJob(
   jobId: string,
   fetcher: Fetcher = fetch,
@@ -2014,7 +1976,7 @@ export async function pollJob(
     }
 
     if (Date.now() > timeoutAt) {
-      throw new Error("PPTX 변환 시간이 초과되었습니다.");
+      throw new Error("작업 시간이 초과되었습니다.");
     }
 
     await new Promise((resolve) => setTimeout(resolve, delayMs));
