@@ -13,7 +13,11 @@ export const p5CueFixtureDeck: Deck = deckSchema.parse({
             {
               cueId: "cue_p5_highlight_body",
               trigger: {
-                phrases: ["본문 강조"]
+                phrases: ["본문 강조"],
+                scriptAnchor: {
+                  start: 0,
+                  end: 5
+                }
               },
               action: {
                 type: "highlight",

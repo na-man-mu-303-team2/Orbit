@@ -38,16 +38,23 @@ describe("P5 speech cue fixture", () => {
     });
     const matcher = createCueMatcher();
     const engine = createCueEngine();
+    const cues = provider.getCues(slide.slideId);
     const matches = matcher.acceptResult(
       {
         text: "본문 강조 이미지 확대 다음 장으로",
         isFinal: true,
         timestampMs: [0, 1200]
       },
-      provider.getCues(slide.slideId)
+      cues
     );
     const commands = engine.executeMatches(matches);
 
+    expect(cues.map((cue) => cue.cueId)).toEqual([
+      "cue_p5_highlight_body",
+      "cue_p5_animate_image",
+      "cue_p5_advance_gate"
+    ]);
+    expect(cues[0]?.trigger.scriptAnchor).toEqual({ start: 0, end: 5 });
     expect(getCuePhrasesForSlide(provider, slide.slideId)).toEqual([
       "본문 강조",
       "이미지 확대",
@@ -61,6 +68,8 @@ describe("P5 speech cue fixture", () => {
       "cue_p5_animate_image",
       "cue_p5_advance_gate"
     ]);
+    expect(matches[0]).not.toHaveProperty("scriptAnchor");
+    expect(matches[0]).not.toHaveProperty("transcript");
     expect(commands).toEqual([
       {
         type: "set-highlight",
