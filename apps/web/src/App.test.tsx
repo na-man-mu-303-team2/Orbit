@@ -18,11 +18,13 @@ import {
   getGeneratedDeckProjectTitle,
   getAiTemplateDeckGenerationJobResult,
   getGenerateDeckJobResult,
+  getHomeGenerationValidationMessage,
   getPptxOoxmlGeneratedProjectPath,
   getPptxOoxmlGenerationJobResult,
   getJobResultFiles,
   getRoute,
   mergeGeneratedProjectList,
+  parseHomeIntegerInput,
   pollJob,
   pollExtractJob,
   resolveGenerateDeckTargetProject,
@@ -285,6 +287,8 @@ describe("AI deck generation flow", () => {
         prompt: " 핵심 메시지 ",
         designPrompt: " 리포트 톤 ",
         duration: 12,
+        minSlides: 4,
+        maxSlides: 6,
         tone: "confident",
         uploads: [
           { id: "content", file: pdf, role: "content" },
@@ -297,6 +301,7 @@ describe("AI deck generation flow", () => {
       prompt: "핵심 메시지",
       designPrompt: "리포트 톤",
       targetDurationMinutes: 12,
+      slideCountRange: { min: 4, max: 6 },
       metadata: {
         audience: "general",
         purpose: "inform",
@@ -307,6 +312,25 @@ describe("AI deck generation flow", () => {
         { fileId: "file_design", role: "design" }
       ]
     });
+  });
+
+  it("keeps home number inputs empty until submit validation", () => {
+    expect(parseHomeIntegerInput("")).toBeNull();
+    expect(parseHomeIntegerInput("25")).toBe(25);
+  });
+
+  it("rejects invalid home generation duration and slide ranges", () => {
+    const pptx = new File(["pptx"], "design.pptx", {
+      type: "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+    });
+    const uploads = [{ id: "design", file: pptx, role: "design" as const }];
+
+    expect(getHomeGenerationValidationMessage("ORBIT", uploads, "0", "5", "8")).toBe(
+      "발표 시간은 1~120분으로 입력하세요."
+    );
+    expect(getHomeGenerationValidationMessage("ORBIT", uploads, "10", "9", "8")).toBe(
+      "최소 슬라이드 수는 최대 슬라이드 수보다 클 수 없습니다."
+    );
   });
 
   it("reads an AI template deck generation job result", () => {

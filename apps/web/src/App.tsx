@@ -975,7 +975,9 @@ function HomePage(props: { user?: AuthUser }) {
   const [tone, setTone] = useState<"professional" | "friendly" | "confident" | "concise">(
     "professional"
   );
-  const [duration, setDuration] = useState(10);
+  const [durationInput, setDurationInput] = useState("10");
+  const [minSlidesInput, setMinSlidesInput] = useState("5");
+  const [maxSlidesInput, setMaxSlidesInput] = useState("8");
   const [uploads, setUploads] = useState<UploadFile[]>([]);
   const [rejected, setRejected] = useState<RejectedFile[]>([]);
   const [status, setStatus] = useState("");
@@ -986,7 +988,13 @@ function HomePage(props: { user?: AuthUser }) {
     () => uploads.reduce((sum, upload) => sum + upload.file.size, 0),
     [uploads]
   );
-  const validationMessage = getHomeGenerationValidationMessage(topic, uploads);
+  const validationMessage = getHomeGenerationValidationMessage(
+    topic,
+    uploads,
+    durationInput,
+    minSlidesInput,
+    maxSlidesInput
+  );
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -1020,7 +1028,9 @@ function HomePage(props: { user?: AuthUser }) {
         topic,
         prompt,
         designPrompt,
-        duration,
+        duration: parseHomeIntegerInput(durationInput) ?? 10,
+        minSlides: parseHomeIntegerInput(minSlidesInput) ?? 5,
+        maxSlides: parseHomeIntegerInput(maxSlidesInput) ?? 8,
         tone,
         uploads,
         uploadedAssetFileIds: uploadedAssets
@@ -1177,9 +1187,31 @@ function HomePage(props: { user?: AuthUser }) {
                 type="number"
                 min={1}
                 max={120}
-                value={duration}
+                value={durationInput}
                 disabled={isImporting}
-                onChange={(event) => setDuration(Number(event.target.value) || 1)}
+                onChange={(event) => setDurationInput(event.target.value)}
+              />
+            </label>
+            <label>
+              <span>최소 슬라이드</span>
+              <input
+                type="number"
+                min={1}
+                max={20}
+                value={minSlidesInput}
+                disabled={isImporting}
+                onChange={(event) => setMinSlidesInput(event.target.value)}
+              />
+            </label>
+            <label>
+              <span>최대 슬라이드</span>
+              <input
+                type="number"
+                min={1}
+                max={20}
+                value={maxSlidesInput}
+                disabled={isImporting}
+                onChange={(event) => setMaxSlidesInput(event.target.value)}
               />
             </label>
           </div>
@@ -1742,7 +1774,13 @@ function getAiTemplateUploadPurpose(upload: UploadFile): FilePurpose {
   return "reference-material";
 }
 
-function getHomeGenerationValidationMessage(topic: string, uploads: UploadFile[]) {
+export function getHomeGenerationValidationMessage(
+  topic: string,
+  uploads: UploadFile[],
+  durationInput = "10",
+  minSlidesInput = "5",
+  maxSlidesInput = "8"
+) {
   if (!topic.trim()) {
     return "발표 주제를 입력하세요.";
   }
@@ -1760,6 +1798,28 @@ function getHomeGenerationValidationMessage(topic: string, uploads: UploadFile[]
 
   if (!isPptxFile(designUploads[0].file)) {
     return "디자인 참고 파일은 PPTX여야 합니다.";
+  }
+
+  const duration = parseHomeIntegerInput(durationInput);
+  if (duration === null || duration < 1 || duration > 120) {
+    return "발표 시간은 1~120분으로 입력하세요.";
+  }
+
+  const minSlides = parseHomeIntegerInput(minSlidesInput);
+  const maxSlides = parseHomeIntegerInput(maxSlidesInput);
+  if (
+    minSlides === null ||
+    maxSlides === null ||
+    minSlides < 1 ||
+    minSlides > 20 ||
+    maxSlides < 1 ||
+    maxSlides > 20
+  ) {
+    return "슬라이드 수는 1~20장으로 입력하세요.";
+  }
+
+  if (minSlides > maxSlides) {
+    return "최소 슬라이드 수는 최대 슬라이드 수보다 클 수 없습니다.";
   }
 
   return "";
@@ -1849,6 +1909,13 @@ function clampInteger(value: number, min: number, max: number) {
   if (!Number.isFinite(value)) return min;
   return Math.max(min, Math.min(max, Math.round(value)));
 }
+
+export function parseHomeIntegerInput(value: string) {
+  const trimmed = value.trim();
+  if (!/^\d+$/.test(trimmed)) return null;
+  const parsed = Number(trimmed);
+  return Number.isSafeInteger(parsed) ? parsed : null;
+}
 function EditorLoadingFallback() {
   return (
     <section className="loading-page">
@@ -1924,6 +1991,8 @@ export function getAiTemplateDeckGenerationJobResult(
 export function buildAiTemplateDeckGenerationPayload(input: {
   designPrompt: string;
   duration: number;
+  maxSlides: number;
+  minSlides: number;
   prompt: string;
   tone: "professional" | "friendly" | "confident" | "concise";
   topic: string;
@@ -1935,7 +2004,10 @@ export function buildAiTemplateDeckGenerationPayload(input: {
     prompt: input.prompt.trim(),
     designPrompt: input.designPrompt.trim(),
     targetDurationMinutes: clampInteger(input.duration, 1, 120),
-    slideCountRange: { min: 5, max: 8 },
+    slideCountRange: {
+      min: clampInteger(input.minSlides, 1, 20),
+      max: clampInteger(input.maxSlides, 1, 20)
+    },
     template: "default",
     metadata: {
       audience: "general",
