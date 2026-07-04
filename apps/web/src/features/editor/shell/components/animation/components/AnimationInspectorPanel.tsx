@@ -15,6 +15,8 @@ export function AnimationInspectorPanel(props: AnimationEditorPanelProps) {
     canCreateAnimation,
     element,
     keywordOptions,
+    keywordTriggerRestrictionMessage,
+    keywordTriggerWarningMessage,
     preferredAnimationId,
     selectedKeywordId,
     selectedKeywordLabel,
@@ -80,6 +82,8 @@ export function AnimationInspectorPanel(props: AnimationEditorPanelProps) {
         creationType={creationType}
         draft={creationType ? draftByType[creationType] : null}
         keywordOptions={keywordOptions}
+        keywordTriggerRestrictionMessage={keywordTriggerRestrictionMessage}
+        keywordTriggerWarningMessage={keywordTriggerWarningMessage}
         linkedTypes={linkedTypes}
         selectedKeywordId={selectedKeywordId}
         selectedKeywordLabel={selectedKeywordLabel}

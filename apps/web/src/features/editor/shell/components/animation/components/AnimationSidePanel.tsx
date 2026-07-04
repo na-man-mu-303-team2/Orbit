@@ -20,6 +20,8 @@ export function AnimationSidePanel(props: AnimationSidePanelProps) {
     element,
     isPlayingSlideAnimations,
     keywordOptions,
+    keywordTriggerRestrictionMessage,
+    keywordTriggerWarningMessage,
     preferredAnimationId,
     selectedKeywordId,
     selectedKeywordLabel,
@@ -53,6 +55,8 @@ export function AnimationSidePanel(props: AnimationSidePanelProps) {
         canCreateAnimation={canCreateAnimation}
         element={element}
         keywordOptions={keywordOptions}
+        keywordTriggerRestrictionMessage={keywordTriggerRestrictionMessage}
+        keywordTriggerWarningMessage={keywordTriggerWarningMessage}
         preferredAnimationId={preferredAnimationId}
         selectedKeywordId={selectedKeywordId}
         selectedKeywordLabel={selectedKeywordLabel}

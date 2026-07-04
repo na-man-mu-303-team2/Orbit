@@ -3,10 +3,18 @@ import type { AnimationKeywordTriggerOption } from "../models";
 
 export function AnimationKeywordPicker(props: {
   keywordOptions: AnimationKeywordTriggerOption[];
+  keywordTriggerRestrictionMessage?: string | null;
+  keywordTriggerWarningMessage?: string | null;
   selectedKeywordId: string | null;
   onSelectKeyword: (keywordId: string) => void;
 }) {
-  const { keywordOptions, selectedKeywordId, onSelectKeyword } = props;
+  const {
+    keywordOptions,
+    keywordTriggerRestrictionMessage = null,
+    keywordTriggerWarningMessage = null,
+    selectedKeywordId,
+    onSelectKeyword
+  } = props;
 
   return (
     <AnimationPanelSection
@@ -22,6 +30,16 @@ export function AnimationKeywordPicker(props: {
       <p className="animation-panel-section-note">
         키워드를 고르면 새 애니메이션이 음성 트리거와 함께 연결됩니다.
       </p>
+      {keywordTriggerRestrictionMessage ? (
+        <div className="animation-editor-warning">
+          {keywordTriggerRestrictionMessage}
+        </div>
+      ) : null}
+      {!keywordTriggerRestrictionMessage && keywordTriggerWarningMessage ? (
+        <div className="animation-editor-warning">
+          {keywordTriggerWarningMessage}
+        </div>
+      ) : null}
       {keywordOptions.length > 0 ? (
         <div className="keyword-strip animation-panel-keyword-strip">
           {keywordOptions.map((keyword) => (

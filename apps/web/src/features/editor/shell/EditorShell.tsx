@@ -1321,6 +1321,55 @@ export function EditorShell(props: { projectId?: string }) {
         : [],
     [currentSlide, selectedAnimationPanelElement]
   );
+  const selectedKeywordAnimationStepCount = useMemo(() => {
+    if (!currentSlide || !selectedKeywordId) {
+      return 0;
+    }
+
+    const usage = currentSlideKeywordUsage[selectedKeywordId];
+    if (!usage || usage.animationIds.length === 0) {
+      return 0;
+    }
+
+    const orderByAnimationId = new Map(
+      currentSlide.animations.map((animation) => [
+        animation.animationId,
+        animation.order
+      ])
+    );
+
+    return new Set(
+      usage.animationIds
+        .map((animationId) => orderByAnimationId.get(animationId))
+        .filter((order): order is number => order !== undefined)
+    ).size;
+  }, [currentSlide, currentSlideKeywordUsage, selectedKeywordId]);
+  const animationKeywordTriggerRestrictionMessage = useMemo(() => {
+    if (!selectedKeywordId || !selectedAnimationPanelElement) {
+      return null;
+    }
+
+    return selectedAnimationPanelElement.type === "group"
+      ? null
+      : "키워드 트리거 애니메이션은 그룹 요소에만 연결할 수 있습니다. 여러 요소를 함께 반응시키려면 먼저 그룹으로 묶어 주세요.";
+  }, [selectedAnimationPanelElement, selectedKeywordId]);
+  const animationKeywordTriggerWarningMessage = useMemo(() => {
+    if (!selectedKeywordId || animationKeywordTriggerRestrictionMessage) {
+      return null;
+    }
+
+    if (selectedKeywordAnimationStepCount <= 0) {
+      return null;
+    }
+
+    return selectedKeywordAnimationStepCount === 1
+      ? "선택된 키워드는 이미 다른 애니메이션 스텝에 연결되어 있습니다. 지금 추가하면 한 키워드가 여러 스텝을 순서대로 실행할 수 있습니다."
+      : `선택된 키워드는 이미 ${selectedKeywordAnimationStepCount}개 스텝에 연결되어 있습니다. 지금 추가하면 한 키워드가 여러 스텝을 한 번에 건너뛸 수 있습니다.`;
+  }, [
+    animationKeywordTriggerRestrictionMessage,
+    selectedKeywordAnimationStepCount,
+    selectedKeywordId
+  ]);
   const currentSlideAnimationDiagnostics = useMemo(
     () =>
       currentSlide
@@ -4219,6 +4268,10 @@ export function EditorShell(props: { projectId?: string }) {
             element={selectedAnimationPanelElement}
             isPlayingSlideAnimations={isPlayingCurrentSlideAnimations}
             keywordOptions={animationPanelKeywordOptions}
+            keywordTriggerRestrictionMessage={
+              animationKeywordTriggerRestrictionMessage
+            }
+            keywordTriggerWarningMessage={animationKeywordTriggerWarningMessage}
             preferredAnimationId={animationPanelFocusedAnimationId}
             selectedKeywordId={selectedKeywordId}
             selectedKeywordLabel={selectedKeyword?.text ?? null}

@@ -20,6 +20,8 @@ export type AnimationEditorPanelProps = {
   canCreateAnimation: boolean;
   element: DeckElement | null;
   keywordOptions: AnimationKeywordTriggerOption[];
+  keywordTriggerRestrictionMessage?: string | null;
+  keywordTriggerWarningMessage?: string | null;
   preferredAnimationId?: string | null;
   selectedKeywordId: string | null;
   selectedKeywordLabel: string | null;
