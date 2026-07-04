@@ -8,6 +8,7 @@
     "pnpm": ">=10.0.0"
   },
   "scripts": {
+    "audience:checkpoint": "node infra/scripts/check-audience-progress.mjs",
     "build": "turbo run build",
     "clean": "turbo run clean && rm -rf node_modules",
     "compose:down": "docker compose down --remove-orphans",
