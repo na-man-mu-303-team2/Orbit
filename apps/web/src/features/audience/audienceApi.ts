@@ -1,42 +1,41 @@
-import type { VerifyAudienceAccessSessionResponse } from "@orbit/shared";
+import type { AudienceSessionLookupResponse } from "@orbit/shared";
 
 export async function getAudienceSessionAccess(
-  sessionId: string
-): Promise<VerifyAudienceAccessSessionResponse> {
+  joinCode: string,
+): Promise<AudienceSessionLookupResponse> {
   const response = await fetch(
-    `/api/v1/audience-sessions/${encodeURIComponent(sessionId)}/access`,
+    `/api/v1/presentation-sessions/join/${encodeURIComponent(joinCode)}`,
     {
       credentials: "include",
-      method: "GET"
-    }
+      method: "GET",
+    },
   );
 
   if (!response.ok) {
     throw new Error("입장 링크 또는 비밀번호를 확인해 주세요.");
   }
 
-  return response.json() as Promise<VerifyAudienceAccessSessionResponse>;
+  return response.json() as Promise<AudienceSessionLookupResponse>;
 }
 
 export async function verifyAudienceSessionPasscode(args: {
   passcode: string;
   sessionId: string;
-}): Promise<VerifyAudienceAccessSessionResponse> {
+}): Promise<AudienceSessionLookupResponse> {
   const response = await fetch(
-    `/api/v1/audience-sessions/${encodeURIComponent(args.sessionId)}/verify`,
+    `/api/v1/presentation-sessions/join/${encodeURIComponent(args.sessionId)}`,
     {
-      body: JSON.stringify({ passcode: args.passcode }),
       credentials: "include",
       headers: {
-        "content-type": "application/json"
+        "content-type": "application/json",
       },
-      method: "POST"
-    }
+      method: "GET",
+    },
   );
 
   if (!response.ok) {
     throw new Error("입장 링크 또는 비밀번호를 확인해 주세요.");
   }
 
-  return response.json() as Promise<VerifyAudienceAccessSessionResponse>;
+  return response.json() as Promise<AudienceSessionLookupResponse>;
 }

@@ -1,6 +1,6 @@
 import { createHmac, randomUUID } from "node:crypto";
 import type { OrbitConfig } from "@orbit/config";
-import type { AudienceAccessSession } from "@orbit/shared";
+import type { PresentationSession } from "@orbit/shared";
 import type { CookieOptions } from "express";
 
 export const audienceAccessCookieName = "orbit_audience_access";
@@ -18,8 +18,8 @@ export type VerifiedAudienceAccessToken = AudienceAccessTokenPayload;
 
 export function createAudienceAccessToken(
   config: OrbitConfig,
-  session: AudienceAccessSession,
-  userAgent: string
+  session: PresentationSession,
+  userAgent: string,
 ): string {
   const payload: AudienceAccessTokenPayload = {
     audienceId: `audience_${randomUUID()}`,
@@ -27,7 +27,7 @@ export function createAudienceAccessToken(
     projectId: session.projectId,
     uaHash: hashUserAgent(config.SESSION_SECRET, userAgent),
     issuedAt: new Date().toISOString(),
-    expiresAt: session.expiresAt
+    expiresAt: session.rawDataDeleteAfter,
   };
 
   return Buffer.from(JSON.stringify(payload), "utf8").toString("base64url");
@@ -37,7 +37,7 @@ export function verifyAudienceAccessToken(
   config: OrbitConfig,
   token: string,
   userAgent: string,
-  now = new Date()
+  now = new Date(),
 ): VerifiedAudienceAccessToken | null {
   const payload = decodeAudienceAccessToken(token);
   if (!payload) {
@@ -57,7 +57,7 @@ export function verifyAudienceAccessToken(
 
 export function audienceAccessCookieOptions(
   config: OrbitConfig,
-  expiresAt: string
+  expiresAt: string,
 ): CookieOptions {
   return {
     expires: new Date(expiresAt),
@@ -65,11 +65,13 @@ export function audienceAccessCookieOptions(
     path: "/",
     sameSite: "lax",
     secure: shouldUseSecureCookie(config),
-    signed: true
+    signed: true,
   };
 }
 
-function decodeAudienceAccessToken(token: string): AudienceAccessTokenPayload | null {
+function decodeAudienceAccessToken(
+  token: string,
+): AudienceAccessTokenPayload | null {
   try {
     const value = JSON.parse(Buffer.from(token, "base64url").toString("utf8"));
     if (!isAudienceAccessTokenPayload(value)) {
@@ -83,7 +85,7 @@ function decodeAudienceAccessToken(token: string): AudienceAccessTokenPayload | 
 }
 
 function isAudienceAccessTokenPayload(
-  value: unknown
+  value: unknown,
 ): value is AudienceAccessTokenPayload {
   if (typeof value !== "object" || value === null) {
     return false;

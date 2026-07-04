@@ -1,6 +1,7 @@
 export * from "./common/demo-ids";
 export * from "./common/time.schema";
 export * from "./auth/auth.schema";
+export * from "./audience/audience.schema";
 export * from "./config/runtime";
 export * from "./deck/animation.schema";
 export * from "./deck/ai-suggestion.schema";
@@ -17,6 +18,7 @@ export * from "./deck/slide-object.schema";
 export * from "./deck/template-blueprint.schema";
 export * from "./deck/theme.schema";
 export * from "./files/file.schema";
+export * from "./interactions/interaction.schema";
 export * from "./jobs/job.schema";
 export * from "./presentation/presentation.schema";
 export * from "./projects/project.schema";

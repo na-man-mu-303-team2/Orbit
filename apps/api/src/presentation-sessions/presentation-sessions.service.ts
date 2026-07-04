@@ -1,33 +1,36 @@
-import { randomUUID } from "node:crypto";
-import * as argon2 from "argon2";
+import { randomInt, randomUUID } from "node:crypto";
 import {
-  createAudienceAccessSessionRequestSchema,
-  createAudienceAccessSessionResponseSchema,
-  getCurrentAudienceAccessSessionResponseSchema,
-  updateAudienceAccessSessionStatusResponseSchema,
-  verifyAudienceAccessSessionResponseSchema
+  createPresentationSessionRequestSchema,
+  createPresentationSessionResponseSchema,
+  getCurrentPresentationSessionResponseSchema,
+  updatePresentationSessionEntryResponseSchema,
 } from "@orbit/shared";
 import type {
-  AudienceAccessSession,
-  AudienceAccessSessionStatus,
-  CreateAudienceAccessSessionResponse,
-  GetCurrentAudienceAccessSessionResponse,
-  UpdateAudienceAccessSessionStatusResponse
+  CreatePresentationSessionResponse,
+  GetCurrentPresentationSessionResponse,
+  PresentationEntryStatus,
+  PresentationSession,
+  PresentationSessionStatus,
+  UpdatePresentationSessionEntryResponse,
 } from "@orbit/shared";
-import { Injectable, NotFoundException, UnauthorizedException } from "@nestjs/common";
+import { Injectable, NotFoundException } from "@nestjs/common";
 import { InjectDataSource } from "@nestjs/typeorm";
 import { DataSource } from "typeorm";
 
 type PresentationSessionRow = {
   session_id: string;
   project_id: string;
-  status: AudienceAccessSessionStatus;
+  deck_id: string;
+  presenter_user_id: string;
+  join_code: string;
+  status: PresentationSessionStatus;
+  entry_status: PresentationEntryStatus;
+  audience_slide_render_mode: "image-first";
   created_at: Date | string;
-  expires_at: Date | string;
-};
-
-type PresentationSessionWithPasswordRow = PresentationSessionRow & {
-  session_password_hash: string;
+  started_at: Date | string | null;
+  ended_at: Date | string | null;
+  survey_closes_at: Date | string | null;
+  raw_data_delete_after: Date | string;
 };
 
 @Injectable()
@@ -36,208 +39,283 @@ export class PresentationSessionsService {
 
   async create(
     projectId: string,
-    body: unknown
-  ): Promise<CreateAudienceAccessSessionResponse> {
-    const input = createAudienceAccessSessionRequestSchema.parse(body);
-    await this.closeExpiredOpenSessions(projectId);
-    const currentOpenSession = await this.findCurrentOpenSession(projectId);
-    if (currentOpenSession) {
-      return this.toCreateResponse(currentOpenSession);
+    presenterUserId: string,
+    body: unknown,
+  ): Promise<CreatePresentationSessionResponse> {
+    const input = createPresentationSessionRequestSchema.parse(body);
+    const currentActiveSession = await this.findCurrentActiveSession(projectId);
+    if (currentActiveSession) {
+      return this.toCreateResponse(currentActiveSession);
     }
 
     const sessionId = `session_${randomUUID()}`;
     const now = new Date();
-    const expiresAt = new Date(now.getTime() + input.expiresInHours * 60 * 60 * 1000);
-    const passwordHash = await argon2.hash(input.passcode, {
-      type: argon2.argon2id
-    });
+    const rawDataDeleteAfter = new Date(
+      now.getTime() + 30 * 24 * 60 * 60 * 1000,
+    );
 
     try {
       const rows = await this.dataSource.query<PresentationSessionRow[]>(
         `
           INSERT INTO presentation_sessions (
             session_id,
-            session_password_hash,
             project_id,
+            deck_id,
+            presenter_user_id,
+            join_code,
             status,
+            entry_status,
+            audience_slide_render_mode,
             created_at,
-            expires_at
+            raw_data_delete_after
           )
-          VALUES ($1, $2, $3, 'open', $4, $5)
-          RETURNING session_id, project_id, status, created_at, expires_at
+          VALUES ($1, $2, $3, $4, $5, 'draft', 'open', 'image-first', $6, $7)
+          RETURNING
+            session_id,
+            project_id,
+            deck_id,
+            presenter_user_id,
+            join_code,
+            status,
+            entry_status,
+            audience_slide_render_mode,
+            created_at,
+            started_at,
+            ended_at,
+            survey_closes_at,
+            raw_data_delete_after
         `,
-        [sessionId, passwordHash, projectId, now, expiresAt]
+        [
+          sessionId,
+          projectId,
+          input.deckId,
+          presenterUserId,
+          generateJoinCode(),
+          now,
+          rawDataDeleteAfter,
+        ],
       );
 
+      await this.insertDefaultAudienceState(sessionId);
       return this.toCreateResponse(rows[0]);
     } catch (error) {
       if (!isPostgresUniqueViolation(error)) {
         throw error;
       }
 
-      const racedOpenSession = await this.findCurrentOpenSession(projectId);
-      if (!racedOpenSession) {
+      const racedActiveSession = await this.findCurrentActiveSession(projectId);
+      if (!racedActiveSession) {
         throw error;
       }
 
-      return this.toCreateResponse(racedOpenSession);
+      return this.toCreateResponse(racedActiveSession);
     }
   }
 
-  async getCurrent(projectId: string): Promise<GetCurrentAudienceAccessSessionResponse> {
-    const row = await this.findCurrentOpenSession(projectId);
+  async getCurrent(
+    projectId: string,
+  ): Promise<GetCurrentPresentationSessionResponse> {
+    const row = await this.findCurrentActiveSession(projectId);
 
     if (!row) {
-      return getCurrentAudienceAccessSessionResponseSchema.parse({
+      return getCurrentPresentationSessionResponseSchema.parse({
         session: null,
-        audienceUrl: null
+        audienceUrl: null,
       });
     }
 
     const session = this.toSessionDto(row);
-    return getCurrentAudienceAccessSessionResponseSchema.parse({
+    return getCurrentPresentationSessionResponseSchema.parse({
       session,
-      audienceUrl: this.buildAudienceUrl(session.sessionId)
+      audienceUrl: this.buildAudienceUrl(session.joinCode),
     });
   }
 
-  async getOpenSessionById(sessionId: string): Promise<AudienceAccessSession> {
+  async getActiveSessionById(sessionId: string): Promise<PresentationSession> {
     const rows = await this.dataSource.query<PresentationSessionRow[]>(
       `
-        SELECT session_id, project_id, status, created_at, expires_at
-        FROM presentation_sessions
+        ${selectPresentationSessionSql()}
         WHERE session_id = $1
-          AND status = 'open'
-          AND expires_at > now()
+          AND status IN ('draft', 'live')
         LIMIT 1
       `,
-      [sessionId]
+      [sessionId],
     );
 
-    const row = rows[0];
-    if (!row) {
-      throw new NotFoundException("Audience session not found");
-    }
-
-    return this.toSessionDto(row);
-  }
-
-  async verifyAudienceAccess(sessionId: string, passcode: string) {
-    const rows = await this.dataSource.query<PresentationSessionWithPasswordRow[]>(
-      `
-        SELECT
-          session_id,
-          session_password_hash,
-          project_id,
-          status,
-          created_at,
-          expires_at
-        FROM presentation_sessions
-        WHERE session_id = $1
-          AND status = 'open'
-          AND expires_at > now()
-        LIMIT 1
-      `,
-      [sessionId]
-    );
-    const row = rows[0];
-    if (!row) {
-      throw new NotFoundException("Invalid audience session or passcode");
-    }
-
-    const isValid = await argon2.verify(row.session_password_hash, passcode);
-    if (!isValid) {
-      throw new UnauthorizedException("Invalid audience session or passcode");
-    }
-
-    return verifyAudienceAccessSessionResponseSchema.parse({
-      verified: true,
-      session: this.toSessionDto(row)
-    });
-  }
-
-  private async closeExpiredOpenSessions(projectId: string): Promise<void> {
-    await this.dataSource.query(
-      `
-        UPDATE presentation_sessions
-        SET status = 'closed'
-        WHERE project_id = $1
-          AND status = 'open'
-          AND expires_at <= now()
-      `,
-      [projectId]
-    );
-  }
-
-  private async findCurrentOpenSession(
-    projectId: string
-  ): Promise<PresentationSessionRow | null> {
-    const rows = await this.dataSource.query<PresentationSessionRow[]>(
-      `
-        SELECT session_id, project_id, status, created_at, expires_at
-        FROM presentation_sessions
-        WHERE project_id = $1
-          AND status = 'open'
-          AND expires_at > now()
-        ORDER BY created_at DESC
-        LIMIT 1
-      `,
-      [projectId]
-    );
-
-    return rows[0] ?? null;
-  }
-
-  async updateStatus(
-    projectId: string,
-    sessionId: string,
-    status: AudienceAccessSessionStatus
-  ): Promise<UpdateAudienceAccessSessionStatusResponse> {
-    const result = await this.dataSource.query<
-      PresentationSessionRow[] | [PresentationSessionRow[], number]
-    >(
-      `
-        UPDATE presentation_sessions
-        SET status = $1
-        WHERE project_id = $2
-          AND session_id = $3
-        RETURNING session_id, project_id, status, created_at, expires_at
-      `,
-      [status, projectId, sessionId]
-    );
-
-    const rows = (Array.isArray(result[0]) ? result[0] : result) as PresentationSessionRow[];
     const row = rows[0];
     if (!row) {
       throw new NotFoundException("Presentation session not found");
     }
 
-    return updateAudienceAccessSessionStatusResponseSchema.parse({
-      session: this.toSessionDto(row)
+    return this.toSessionDto(row);
+  }
+
+  async getActiveSessionByJoinCode(
+    joinCode: string,
+  ): Promise<PresentationSession> {
+    const rows = await this.dataSource.query<PresentationSessionRow[]>(
+      `
+        ${selectPresentationSessionSql()}
+        WHERE join_code = $1
+          AND status IN ('draft', 'live')
+        LIMIT 1
+      `,
+      [joinCode],
+    );
+
+    const row = rows[0];
+    if (!row) {
+      throw new NotFoundException("Presentation session not found");
+    }
+
+    return this.toSessionDto(row);
+  }
+
+  async updateEntryStatus(
+    projectId: string,
+    sessionId: string,
+    entryStatus: PresentationEntryStatus,
+  ): Promise<UpdatePresentationSessionEntryResponse> {
+    const result = await this.dataSource.query<
+      PresentationSessionRow[] | [PresentationSessionRow[], number]
+    >(
+      `
+        UPDATE presentation_sessions
+        SET entry_status = $1
+        WHERE project_id = $2
+          AND session_id = $3
+        RETURNING
+          session_id,
+          project_id,
+          deck_id,
+          presenter_user_id,
+          join_code,
+          status,
+          entry_status,
+          audience_slide_render_mode,
+          created_at,
+          started_at,
+          ended_at,
+          survey_closes_at,
+          raw_data_delete_after
+      `,
+      [entryStatus, projectId, sessionId],
+    );
+
+    const rows = (
+      Array.isArray(result[0]) ? result[0] : result
+    ) as PresentationSessionRow[];
+    const row = rows[0];
+    if (!row) {
+      throw new NotFoundException("Presentation session not found");
+    }
+
+    return updatePresentationSessionEntryResponseSchema.parse({
+      session: this.toSessionDto(row),
     });
   }
 
-  private buildAudienceUrl(sessionId: string) {
-    return `/audience/${encodeURIComponent(sessionId)}`;
+  private async findCurrentActiveSession(
+    projectId: string,
+  ): Promise<PresentationSessionRow | null> {
+    const rows = await this.dataSource.query<PresentationSessionRow[]>(
+      `
+        ${selectPresentationSessionSql()}
+        WHERE project_id = $1
+          AND status IN ('draft', 'live')
+        ORDER BY created_at DESC
+        LIMIT 1
+      `,
+      [projectId],
+    );
+
+    return rows[0] ?? null;
   }
 
-  private toSessionDto(row: PresentationSessionRow): AudienceAccessSession {
+  private async insertDefaultAudienceState(sessionId: string): Promise<void> {
+    await this.dataSource.query(
+      `
+        INSERT INTO audience_feature_settings (
+          session_id,
+          qna_enabled,
+          ai_qna_enabled,
+          polls_enabled,
+          quizzes_enabled,
+          reactions_enabled,
+          survey_enabled,
+          updated_at
+        )
+        VALUES ($1, false, false, false, false, false, false, now())
+      `,
+      [sessionId],
+    );
+    await this.dataSource.query(
+      `
+        INSERT INTO audience_realtime_state (
+          session_id,
+          slide_id,
+          slide_index,
+          effect_state_json,
+          active_interaction_id,
+          updated_at
+        )
+        VALUES ($1, NULL, NULL, '{}'::jsonb, NULL, now())
+      `,
+      [sessionId],
+    );
+  }
+
+  private buildAudienceUrl(joinCode: string) {
+    return `/join/${encodeURIComponent(joinCode)}`;
+  }
+
+  private toSessionDto(row: PresentationSessionRow): PresentationSession {
     return {
       sessionId: row.session_id,
       projectId: row.project_id,
+      deckId: row.deck_id,
+      presenterUserId: row.presenter_user_id,
+      joinCode: row.join_code,
       status: row.status,
+      entryStatus: row.entry_status,
+      audienceSlideRenderMode: row.audience_slide_render_mode,
       createdAt: toIso(row.created_at),
-      expiresAt: toIso(row.expires_at)
+      startedAt: toNullableIso(row.started_at),
+      endedAt: toNullableIso(row.ended_at),
+      surveyClosesAt: toNullableIso(row.survey_closes_at),
+      rawDataDeleteAfter: toIso(row.raw_data_delete_after),
     };
   }
 
-  private toCreateResponse(row: PresentationSessionRow): CreateAudienceAccessSessionResponse {
+  private toCreateResponse(
+    row: PresentationSessionRow,
+  ): CreatePresentationSessionResponse {
     const session = this.toSessionDto(row);
-    return createAudienceAccessSessionResponseSchema.parse({
+    return createPresentationSessionResponseSchema.parse({
       session,
-      audienceUrl: this.buildAudienceUrl(session.sessionId)
+      audienceUrl: this.buildAudienceUrl(session.joinCode),
     });
   }
+}
+
+function selectPresentationSessionSql() {
+  return `
+    SELECT
+      session_id,
+      project_id,
+      deck_id,
+      presenter_user_id,
+      join_code,
+      status,
+      entry_status,
+      audience_slide_render_mode,
+      created_at,
+      started_at,
+      ended_at,
+      survey_closes_at,
+      raw_data_delete_after
+    FROM presentation_sessions
+  `;
 }
 
 function isPostgresUniqueViolation(error: unknown): boolean {
@@ -250,5 +328,15 @@ function isPostgresUniqueViolation(error: unknown): boolean {
 }
 
 function toIso(value: Date | string) {
-  return value instanceof Date ? value.toISOString() : new Date(value).toISOString();
+  return value instanceof Date
+    ? value.toISOString()
+    : new Date(value).toISOString();
+}
+
+function toNullableIso(value: Date | string | null) {
+  return value === null ? null : toIso(value);
+}
+
+function generateJoinCode(): string {
+  return String(randomInt(0, 1_000_000)).padStart(6, "0");
 }
