@@ -15,6 +15,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   EditorShell,
   EditorStateNotice,
+  buildSlideThumbnailPatch,
   createDistributeSelectionPatch,
   getEditorValidationItems,
   mergeDeckIntoQueryCache,
@@ -369,6 +370,27 @@ describe("editor shell", () => {
       "http://assets.example.test/slide-01-thumbnail-v2.png";
 
     expect(shouldRefreshImportedSlideThumbnails(deck)).toBe(false);
+  });
+
+  it("builds a slide thumbnail patch without resending the full deck", () => {
+    const baseDeck = createDemoDeck();
+    const renderedDeck = structuredClone(baseDeck);
+
+    renderedDeck.slides[0].thumbnailUrl =
+      "/api/v1/projects/project-a/assets/file-thumb/content";
+
+    expect(buildSlideThumbnailPatch(baseDeck, renderedDeck)).toMatchObject({
+      baseVersion: baseDeck.version,
+      deckId: baseDeck.deckId,
+      operations: [
+        {
+          slideId: baseDeck.slides[0].slideId,
+          thumbnailUrl: renderedDeck.slides[0].thumbnailUrl,
+          type: "update_slide"
+        }
+      ],
+      source: "system"
+    });
   });
 
   it("keeps table quickbar edits in editable table props", () => {

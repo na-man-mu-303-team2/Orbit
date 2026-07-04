@@ -152,6 +152,7 @@ import { AudienceLinkModal } from "../audience-link/AudienceLinkModal";
 import { SuggestionPanel } from "../suggestions/components/SuggestionPanel";
 import { MultiSelectionQuickBar } from "./components/MultiSelectionQuickBar";
 import {
+  buildSlideThumbnailPatch,
   mergeDeckIntoQueryCache,
   shouldApplyManualSaveResult,
   shouldHydrateDeckFromQuery,
@@ -168,6 +169,7 @@ export {
   type EditorValidationItem,
 } from "../ai/quality/editorValidation";
 export { createDistributeSelectionPatch } from "./utils/selectionDistribution";
+export { buildSlideThumbnailPatch } from "./utils/deckState";
 
 interface HealthResponse {
   status: string;
@@ -1506,8 +1508,9 @@ export function EditorShell(props: { projectId?: string }) {
       try {
         await saveQueueRef.current.catch(() => undefined);
         setSaveState("auto-saving");
-        const renderResult = await syncSlideRenderAssets(
+        const finalDeck = await renderAndPersistSlideThumbnails(
           activeProjectId,
+          persistedBaseDeckRef.current ?? sourceDeck,
           sourceDeck,
         );
 
@@ -1522,12 +1525,6 @@ export function EditorShell(props: { projectId?: string }) {
           })
         ) {
           setSaveState("auto-pending");
-          return;
-        }
-
-        const finalDeck = await putProjectDeck(activeProjectId, renderResult.deck);
-
-        if (cancelled) {
           return;
         }
 
@@ -1599,6 +1596,22 @@ export function EditorShell(props: { projectId?: string }) {
     hasHydratedPersistedBaseRef.current = true;
     pendingPatchInputsRef.current = [];
     return false;
+  }
+
+  async function renderAndPersistSlideThumbnails(
+    activeProjectId: string,
+    baseDeck: Deck,
+    renderSourceDeck: Deck,
+  ) {
+    const renderResult = await syncSlideRenderAssets(
+      activeProjectId,
+      renderSourceDeck,
+    );
+    const thumbnailPatch = buildSlideThumbnailPatch(baseDeck, renderResult.deck);
+
+    return thumbnailPatch
+      ? appendProjectDeckPatch(activeProjectId, thumbnailPatch)
+      : baseDeck;
   }
 
   async function syncSlideRenderAssets(
@@ -1687,26 +1700,36 @@ export function EditorShell(props: { projectId?: string }) {
     try {
       await saveQueueRef.current.catch(() => undefined);
 
-      const persistedDeck = await putProjectDeck(activeProjectId, deckSnapshot);
-      let finalDeck = persistedDeck;
-      acknowledgePersistedDeckSnapshot(deckSnapshot, persistedDeck);
-      setLastSavedAt(new Date().toISOString());
+      while (pendingPatchInputsRef.current.length > 0) {
+        await flushPendingSaveBatch();
+      }
 
       try {
-        const renderResult = await syncSlideRenderAssets(
-          activeProjectId,
-          finalDeck,
-        );
+        const thumbnailBaseDeck =
+          persistedBaseDeckRef.current ?? deckQuery.data ?? deckSnapshot;
 
-        finalDeck = await putProjectDeck(activeProjectId, renderResult.deck);
+        if (
+          !shouldApplyManualSaveResult({
+            snapshotDeck: deckSnapshot,
+            currentDeck: workingDeckRef.current,
+          })
+        ) {
+          setSaveState("auto-pending");
+          return;
+        }
+
+        const finalDeck = await renderAndPersistSlideThumbnails(
+          activeProjectId,
+          thumbnailBaseDeck,
+          deckSnapshot,
+        );
         setLastSavedAt(new Date().toISOString());
         acknowledgePersistedDeckSnapshot(deckSnapshot, finalDeck);
         setLastPatchLabel(`수동 저장 · v${finalDeck.version}`);
         setSaveState("manual-saved");
         setSaveError(null, null);
       } catch (renderError) {
-        acknowledgePersistedDeckSnapshot(deckSnapshot, persistedDeck);
-        setLastPatchLabel(`수동 저장 · 렌더 실패 · v${persistedDeck.version}`);
+        setLastPatchLabel("수동 저장 · 렌더 실패");
         setSaveState("error");
         setSaveError("manual-render-failed", toEditorErrorMessage(renderError));
       }
@@ -1748,16 +1771,15 @@ export function EditorShell(props: { projectId?: string }) {
     try {
       await saveQueueRef.current.catch(() => undefined);
 
+      while (pendingPatchInputsRef.current.length > 0) {
+        await flushPendingSaveBatch();
+      }
+
       const deckSnapshot = structuredClone(
         normalizeDeckAssetUrls(workingDeckRef.current),
       );
-      const persistedDeck = await putProjectDeck(activeProjectId, deckSnapshot);
-      acknowledgePersistedDeckSnapshot(deckSnapshot, persistedDeck);
-      const renderResult = await syncSlideRenderAssets(
-        activeProjectId,
-        persistedDeck,
-      );
-      setLastSavedAt(new Date().toISOString());
+      const thumbnailBaseDeck =
+        persistedBaseDeckRef.current ?? deckQuery.data ?? deckSnapshot;
 
       if (
         !shouldApplyManualSaveResult({
@@ -1770,21 +1792,13 @@ export function EditorShell(props: { projectId?: string }) {
         );
       }
 
-      const finalDeck =
-        renderResult.deck.slides.length > 0
-          ? await appendProjectDeckPatch(activeProjectId, {
-              baseVersion: persistedDeck.version,
-              deckId: persistedDeck.deckId,
-              operations: renderResult.deck.slides.map((slide) => ({
-                slideId: slide.slideId,
-                thumbnailUrl: slide.thumbnailUrl,
-                type: "update_slide" as const,
-              })),
-              source: "system",
-            })
-          : persistedDeck;
+      const finalDeck = await renderAndPersistSlideThumbnails(
+        activeProjectId,
+        thumbnailBaseDeck,
+        deckSnapshot,
+      );
 
-      applyPersistedDeck(finalDeck);
+      acknowledgePersistedDeckSnapshot(deckSnapshot, finalDeck);
       setLastSavedAt(new Date().toISOString());
       setLastPatchLabel(`리허설 준비 완료 · v${finalDeck.version}`);
       setSaveState("manual-saved");
@@ -1835,6 +1849,7 @@ export function EditorShell(props: { projectId?: string }) {
     try {
       let buildResult = buildPatchBatch(basePersistedDeck, batchInputs);
       let persistedDeck: Deck;
+      let thumbnailError: unknown = null;
 
       try {
         persistedDeck = await appendProjectDeckPatch(
@@ -1863,6 +1878,15 @@ export function EditorShell(props: { projectId?: string }) {
         );
       }
 
+      try {
+        persistedDeck = await renderAndPersistSlideThumbnails(
+          activeProjectId,
+          persistedDeck,
+          persistedDeck,
+        );
+      } catch (error) {
+        thumbnailError = error;
+      }
       persistedBaseDeckRef.current = persistedDeck;
       setLastSavedAt(new Date().toISOString());
 
@@ -1872,7 +1896,15 @@ export function EditorShell(props: { projectId?: string }) {
 
       if (persistedDeck.version >= workingDeckRef.current.version) {
         applyAckedPersistedDeck(persistedDeck);
-        setSaveState(recoveredConflict ? "conflict-recovered" : "auto-saved");
+        if (thumbnailError) {
+          setSaveState("error");
+          setSaveError(
+            "manual-render-failed",
+            toEditorErrorMessage(thumbnailError),
+          );
+        } else {
+          setSaveState(recoveredConflict ? "conflict-recovered" : "auto-saved");
+        }
       }
     } catch (error) {
       if (recoveredConflict && error instanceof Error) {
