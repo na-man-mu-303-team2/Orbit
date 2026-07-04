@@ -41,7 +41,6 @@ import {
   Sparkles,
   Square,
   Target,
-  TrendingUp,
   Volume2
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -1546,11 +1545,14 @@ export function RehearsalWorkspace(props: {
     sessionRef.current = null;
   }
 
-  function handleTimePrimaryAction() {
+  async function handleTimePrimaryAction() {
     if (isTimerRunning) {
-      setIsTimerRunning(false);
       if (phase === "recording") {
         stopRecording();
+      } else if (isLiveDemoActive || isLiveSttActive) {
+        stopLiveDemo();
+      } else {
+        setIsTimerRunning(false);
       }
       return;
     }
@@ -1559,7 +1561,7 @@ export function RehearsalWorkspace(props: {
       setElapsedSeconds(0);
     }
 
-    setIsTimerRunning(true);
+    await startRecording();
   }
 
   function commitElapsedTimeInput(value: string) {
@@ -2044,7 +2046,8 @@ export function RehearsalWorkspace(props: {
           <button
             type="button"
             aria-label={isTimerRunning ? "Pause time" : "Start time"}
-            onClick={handleTimePrimaryAction}
+            onClick={() => void handleTimePrimaryAction()}
+            disabled={!isTimerRunning && !canRecord}
           >
             {isTimerRunning ? <Square size={16} /> : <PlayCircle size={16} />}
           </button>
@@ -2409,12 +2412,12 @@ export function RehearsalReportPage(props: {
 
   const reportDate = formatReportDate(report?.generatedAt ?? run?.updatedAt ?? run?.createdAt);
   const slideCount = deck?.slides.length;
-  const speedSamples = report?.speedSamples ?? [];
   const coachingHeadline = buildCoachingHeadline(report);
   const coachingDetail = buildCoachingDetail(report, deck);
   const missedKeywords = report?.missedKeywords ?? [];
   const slideTimings = report?.slideTimings ?? [];
   const qnaSummary = report?.qnaSummary;
+  const speedAssessment = report ? getSpeakingSpeedAssessment(report.metrics.wordsPerMinute) : null;
   const durationDelta = report
     ? formatSignedDuration(report.metrics.durationSeconds - getTargetDurationSeconds(deck))
     : "0:00";
@@ -2555,13 +2558,13 @@ export function RehearsalReportPage(props: {
                   aria-label="평균 발표 속도"
                   aria-valuemin={80}
                   aria-valuemax={180}
-                  aria-valuenow={Math.round(report.metrics.wordsPerMinute)}
+                  aria-valuenow={speedAssessment?.meterValue ?? 80}
                 >
                   <span className="speed-mark speed-mark-left">100</span>
                   <span className="speed-mark speed-mark-right">150</span>
                   <strong>{Math.round(report.metrics.wordsPerMinute)}</strong>
                 </div>
-                <p>권장 범위 안에서 안정적인 속도로 발표했어요.</p>
+                <p>{speedAssessment?.message}</p>
               </section>
 
               <section className="report-voice-card report-dashboard-card">
@@ -2590,6 +2593,9 @@ export function RehearsalReportPage(props: {
                 <p>실전 발표 중 다시 알려줄 핵심 데이터입니다.</p>
                 {missedKeywords.length > 0 ? (
                   <>
+                    <span className="report-keyword-count">
+                      총 {missedKeywords.length}개
+                    </span>
                     <div className="report-keyword-chips">
                       {missedKeywords.map((keyword) => (
                         <span key={`${keyword.slideId}-${keyword.keywordId}`}>{keyword.text}</span>
@@ -2602,36 +2608,6 @@ export function RehearsalReportPage(props: {
                 ) : (
                   <strong className="report-keyword-empty">
                     공식 누락 키워드 상세 데이터가 없습니다.
-                  </strong>
-                )}
-              </section>
-
-              <section className="report-speed-change-card report-dashboard-card">
-                <h2>
-                  <TrendingUp size={20} />
-                  말 속도 변화
-                </h2>
-                <p>긴장하거나 설명이 꼬인 구간을 찾습니다.</p>
-                {speedSamples.length > 0 ? (
-                  <div className="report-speed-chart" aria-label="말 속도 변화">
-                    <div className="report-speed-band" />
-                    {speedSamples.map((sample, index) => (
-                      <i
-                        key={`${sample.startSecond}-${sample.endSecond}-${index}`}
-                        style={{
-                          left: `${(index / Math.max(1, speedSamples.length - 1)) * 100}%`,
-                          bottom: `${clamp((sample.wordsPerMinute - 70) / 140 * 100, 4, 92)}%`
-                        }}
-                      />
-                    ))}
-                    <span>words/min</span>
-                    <b>200</b>
-                    <b>150</b>
-                    <b>100</b>
-                  </div>
-                ) : (
-                  <strong className="report-keyword-empty">
-                    공식 말 속도 변화 데이터가 아직 없습니다.
                   </strong>
                 )}
               </section>
@@ -2855,6 +2831,10 @@ function buildCoachingHeadline(report: RehearsalReport | null) {
     return "핵심 흐름은 안정적이지만, 일부 키워드 회수가 부족했어요.";
   }
 
+  if (isUnreliableSpeakingSpeed(report.metrics.wordsPerMinute)) {
+    return "발표 속도 분석 시간이 불안정해 결과 확인이 필요해요.";
+  }
+
   if (report.metrics.wordsPerMinute > 150) {
     return "핵심 메시지는 좋지만, 빠르게 지나간 구간이 있어요.";
   }
@@ -2874,6 +2854,45 @@ function buildCoachingDetail(report: RehearsalReport | null, deck: Deck | null) 
   const nextSlide = deck?.slides[Math.min(2, Math.max(0, deck.slides.length - 1))];
   const focus = nextSlide?.title ? `"${nextSlide.title}"` : "다음";
   return `다음 리허설은 ${focus} 슬라이드의 자료 설명을 짧게 줄이고, 누락 키워드를 노트에 고정하는 데 집중하면 됩니다.`;
+}
+
+function getSpeakingSpeedAssessment(wordsPerMinute: number) {
+  if (isUnreliableSpeakingSpeed(wordsPerMinute)) {
+    return {
+      meterValue: 180,
+      message: "발표 시간 데이터가 불안정해 속도 판단을 확인해야 합니다."
+    };
+  }
+
+  if (wordsPerMinute <= 0) {
+    return {
+      meterValue: 80,
+      message: "발표 시간 데이터를 확인할 수 없어 속도 판단이 어렵습니다."
+    };
+  }
+
+  if (wordsPerMinute < 100) {
+    return {
+      meterValue: clamp(Math.round(wordsPerMinute), 80, 180),
+      message: "권장 범위보다 다소 느린 속도로 발표했어요."
+    };
+  }
+
+  if (wordsPerMinute <= 150) {
+    return {
+      meterValue: clamp(Math.round(wordsPerMinute), 80, 180),
+      message: "권장 범위 안에서 안정적인 속도로 발표했어요."
+    };
+  }
+
+  return {
+    meterValue: clamp(Math.round(wordsPerMinute), 80, 180),
+    message: "권장 범위보다 빠른 속도로 발표했어요."
+  };
+}
+
+function isUnreliableSpeakingSpeed(wordsPerMinute: number) {
+  return !Number.isFinite(wordsPerMinute) || wordsPerMinute > 250;
 }
 
 function getTargetDurationSeconds(deck: Deck | null) {

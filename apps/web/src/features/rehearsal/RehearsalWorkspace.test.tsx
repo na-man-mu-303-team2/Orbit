@@ -146,6 +146,21 @@ describe("RehearsalWorkspace", () => {
     ).toBeLessThan(handleNextPresenterStepBody.indexOf("setCurrentSlideIndex"));
   });
 
+  it("routes the top timer play button through report recording", () => {
+    const source = fs.readFileSync(
+      path.join(process.cwd(), "src/features/rehearsal/RehearsalWorkspace.tsx"),
+      "utf8"
+    );
+    const start = source.indexOf("async function handleTimePrimaryAction");
+    const end = source.indexOf("function commitElapsedTimeInput");
+    const handleTimePrimaryActionBody = source.slice(start, end);
+
+    expect(handleTimePrimaryActionBody).toContain("await startRecording()");
+    expect(handleTimePrimaryActionBody).toContain('if (phase === "recording")');
+    expect(handleTimePrimaryActionBody).toContain("stopRecording()");
+    expect(handleTimePrimaryActionBody).toContain("stopLiveDemo()");
+  });
+
   it("requests microphone audio with live STT input quality constraints", async () => {
     const stream = { getTracks: () => [] } as unknown as MediaStream;
     const getUserMedia = vi.fn(async () => stream);
@@ -356,6 +371,30 @@ describe("RehearsalWorkspace", () => {
     expect(html).not.toContain("dB");
   });
 
+  it("does not describe an extreme speaking speed as stable", () => {
+    const html = renderToStaticMarkup(
+      <RehearsalReportPage
+        initialDeck={createDemoDeck()}
+        initialRun={runFixture("succeeded")}
+        initialReport={reportFixture({
+          metrics: {
+            durationSeconds: 0,
+            wordsPerMinute: 3600,
+            fillerWordCount: 0,
+            pauseCount: 0,
+            keywordCoverage: 1
+          }
+        })}
+        projectId="project-a"
+        runId="run-1"
+      />
+    );
+
+    expect(html).toContain("3600");
+    expect(html).toContain("발표 시간 데이터가 불안정해 속도 판단을 확인해야 합니다.");
+    expect(html).not.toContain("권장 범위 안에서 안정적인 속도로 발표했어요.");
+  });
+
   it("does not infer missing keyword candidates from deck data", () => {
     const deck = createDemoDeck();
     const html = renderToStaticMarkup(
@@ -379,6 +418,28 @@ describe("RehearsalWorkspace", () => {
 
     expect(html).toContain("공식 누락 키워드 상세 데이터가 없습니다.");
     expect(html).not.toContain("핵심 키워드 커버리지가 낮을 때만 누락 후보를 표시합니다.");
+  });
+
+  it("renders a dense official missing keyword list without dropping entries", () => {
+    const missedKeywords = Array.from({ length: 24 }, (_, index) => ({
+      slideId: `slide_${(index % 3) + 1}`,
+      keywordId: `kw_dense_${index}`,
+      text: `매우긴누락키워드${index}발표흐름핵심데이터`
+    }));
+    const html = renderToStaticMarkup(
+      <RehearsalReportPage
+        initialDeck={createDemoDeck()}
+        initialRun={runFixture("succeeded")}
+        initialReport={reportFixture({ missedKeywords })}
+        projectId="project-a"
+        runId="run-1"
+      />
+    );
+
+    expect(html).toContain("총 24개");
+    expect(html).toContain("매우긴누락키워드0발표흐름핵심데이터");
+    expect(html).toContain("매우긴누락키워드23발표흐름핵심데이터");
+    expect(html).toContain("서버 리포트가 확인한 누락 키워드만 표시합니다.");
   });
 
   it("maps failed and mismatched report responses to failed page state", () => {

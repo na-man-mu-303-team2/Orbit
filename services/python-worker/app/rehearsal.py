@@ -134,11 +134,17 @@ def analyze_rehearsal_metrics(
 ) -> RehearsalMetricsResult:
     # TODO: 현재 산식은 MVP 휴리스틱이므로, 문서화된 리허설 평가 기준에 맞춰 재검토한다.
     words = transcript_words(transcript)
-    minutes = max(duration_seconds / 60, 1 / 60)
+    speaking_duration_seconds = resolve_speaking_duration_seconds(
+        duration_seconds,
+        segments,
+    )
     keyword_result = analyze_keywords(transcript, deck_keywords)
     pause_details = find_pause_details(segments)
     return RehearsalMetricsResult(
-        words_per_minute=round(len(words) / minutes, 2),
+        words_per_minute=calculate_words_per_minute(
+            len(words),
+            speaking_duration_seconds,
+        ),
         filler_word_count=count_filler_words(words),
         pause_count=len(pause_details),
         keyword_coverage=keyword_result.coverage,
@@ -226,6 +232,36 @@ def generate_rehearsal_coaching(
 
 def transcript_words(transcript: str) -> list[str]:
     return re.findall(r"[\w가-힣']+", transcript.lower())
+
+
+def resolve_speaking_duration_seconds(
+    duration_seconds: float,
+    segments: list[TranscriptSegment],
+) -> float:
+    if duration_seconds > 0:
+        return duration_seconds
+
+    timed_segments: list[tuple[float, float]] = []
+    for segment in segments:
+        if segment.start_seconds is None or segment.end_seconds is None:
+            continue
+        if segment.end_seconds <= segment.start_seconds:
+            continue
+        timed_segments.append((segment.start_seconds, segment.end_seconds))
+
+    if not timed_segments:
+        return 0
+
+    start_seconds = min(start for start, _end in timed_segments)
+    end_seconds = max(end for _start, end in timed_segments)
+    return max(0, end_seconds - start_seconds)
+
+
+def calculate_words_per_minute(word_count: int, duration_seconds: float) -> float:
+    if word_count <= 0 or duration_seconds <= 0:
+        return 0.0
+
+    return round(word_count / (duration_seconds / 60), 2)
 
 
 def count_filler_words(words: list[str]) -> int:

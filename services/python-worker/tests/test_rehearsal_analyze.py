@@ -78,6 +78,31 @@ def test_analyze_rehearsal_metrics_builds_safe_report_details() -> None:
     assert metrics.keyword_coverage == 0.5
 
 
+def test_analyze_rehearsal_metrics_uses_segment_duration_when_total_duration_is_missing() -> None:
+    metrics = analyze_rehearsal_metrics(
+        transcript="하나 둘 셋 넷 다섯 여섯",
+        duration_seconds=0,
+        segments=[
+            TranscriptSegment(text="하나 둘 셋", startSeconds=10, endSeconds=20),
+            TranscriptSegment(text="넷 다섯 여섯", startSeconds=20, endSeconds=40),
+        ],
+        deck_keywords=[],
+    )
+
+    assert metrics.words_per_minute == 12
+
+
+def test_analyze_rehearsal_metrics_does_not_inflate_speed_without_duration_data() -> None:
+    metrics = analyze_rehearsal_metrics(
+        transcript="하나 둘 셋 넷 다섯 여섯",
+        duration_seconds=0,
+        segments=[],
+        deck_keywords=[],
+    )
+
+    assert metrics.words_per_minute == 0
+
+
 def test_generate_rehearsal_coaching_parses_structured_llm_response() -> None:
     coaching = generate_rehearsal_coaching(
         transcript="ORBIT 발표입니다",
