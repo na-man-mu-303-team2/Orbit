@@ -1,12 +1,23 @@
-import type { PresentationSession } from "@orbit/shared";
+import type {
+  AudienceFeatureSettings,
+  PresentationSession,
+} from "@orbit/shared";
 import { Share2, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 
 import {
+  AudienceFeatureSettingsControls,
+  AudienceSessionSetupSummary,
+  type AudienceFeatureKey,
+  normalizeAudienceFeaturePatch,
+} from "../../audience/AudienceFeatureSettingsControls";
+import {
   closeAudienceAccessSession,
   createAudienceAccessSession,
+  fetchAudienceFeatureSettings,
   fetchCurrentAudienceAccessSession,
+  updateAudienceFeatureSettings,
 } from "./audienceLinkApi";
 import {
   createQrDataUrl,
@@ -33,6 +44,10 @@ export function AudienceLinkModal({
     useState<PresentationSession | null>(null);
   const [audienceUrl, setAudienceUrl] = useState("");
   const [audienceQrDataUrl, setAudienceQrDataUrl] = useState("");
+  const [audienceFeatures, setAudienceFeatures] =
+    useState<AudienceFeatureSettings | null>(null);
+  const [audienceFeatureBusyKey, setAudienceFeatureBusyKey] =
+    useState<AudienceFeatureKey | null>(null);
   const [audienceLinkError, setAudienceLinkError] = useState("");
   const [isAudienceLinkLoading, setIsAudienceLinkLoading] = useState(false);
   const [isAudienceCloseConfirming, setIsAudienceCloseConfirming] =
@@ -61,6 +76,17 @@ export function AudienceLinkModal({
         setAudienceQrDataUrl(
           nextAudienceUrl ? await createQrDataUrl(nextAudienceUrl) : "",
         );
+        if (payload.session) {
+          const settings = await fetchAudienceFeatureSettings({
+            projectId,
+            sessionId: payload.session.sessionId,
+          });
+          if (!isCancelled) {
+            setAudienceFeatures(settings.features);
+          }
+        } else {
+          setAudienceFeatures(null);
+        }
       })
       .catch((error) => {
         if (!isCancelled) {
@@ -68,6 +94,7 @@ export function AudienceLinkModal({
           setAudienceSession(null);
           setAudienceUrl("");
           setAudienceQrDataUrl("");
+          setAudienceFeatures(null);
         }
       })
       .finally(() => {
@@ -103,6 +130,11 @@ export function AudienceLinkModal({
       setAudienceSession(payload.session);
       setAudienceUrl(nextAudienceUrl);
       setAudienceQrDataUrl(await createQrDataUrl(nextAudienceUrl));
+      const settings = await fetchAudienceFeatureSettings({
+        projectId,
+        sessionId: payload.session.sessionId,
+      });
+      setAudienceFeatures(settings.features);
       setIsAudienceCloseConfirming(false);
     } catch (error) {
       setAudienceLinkError(toAudienceLinkErrorMessage(error));
@@ -127,6 +159,7 @@ export function AudienceLinkModal({
       setAudienceSession(null);
       setAudienceUrl("");
       setAudienceQrDataUrl("");
+      setAudienceFeatures(null);
       setIsAudienceCloseConfirming(false);
     } catch (error) {
       setAudienceLinkError(toAudienceLinkErrorMessage(error));
@@ -146,6 +179,31 @@ export function AudienceLinkModal({
     }
 
     await navigator.clipboard.writeText(audienceUrl);
+  }
+
+  async function handleFeatureToggle(
+    key: AudienceFeatureKey,
+    enabled: boolean,
+  ) {
+    if (!audienceSession || !audienceFeatures || audienceFeatureBusyKey) {
+      return;
+    }
+
+    setAudienceFeatureBusyKey(key);
+    setAudienceLinkError("");
+
+    try {
+      const response = await updateAudienceFeatureSettings({
+        projectId,
+        sessionId: audienceSession.sessionId,
+        settings: normalizeAudienceFeaturePatch(key, enabled),
+      });
+      setAudienceFeatures(response.features);
+    } catch (error) {
+      setAudienceLinkError(toAudienceLinkErrorMessage(error));
+    } finally {
+      setAudienceFeatureBusyKey(null);
+    }
   }
 
   if (!isOpen) {
@@ -208,6 +266,24 @@ export function AudienceLinkModal({
               <span>주소 영역</span>
               <input readOnly value={audienceUrl} />
             </label>
+            <section
+              className="audience-link-feature-setup"
+              aria-label="청중 기능 설정"
+            >
+              <div className="audience-link-subheading">
+                <strong>청중 기능</strong>
+                <span>세션 시작 시 선택한 설정으로 청중 화면이 열립니다.</span>
+              </div>
+              <AudienceFeatureSettingsControls
+                busyKey={audienceFeatureBusyKey}
+                disabled={isAudienceLinkLoading}
+                features={audienceFeatures}
+                onToggle={(key, enabled) =>
+                  void handleFeatureToggle(key, enabled)
+                }
+              />
+              <AudienceSessionSetupSummary />
+            </section>
             <div className="audience-link-actions">
               <button
                 type="button"
@@ -234,6 +310,12 @@ export function AudienceLinkModal({
               >
                 닫기
               </button>
+              <a
+                className="audience-link-control-link"
+                href={`/audience/${encodeURIComponent(projectId)}/control`}
+              >
+                상세 제어
+              </a>
             </div>
           </section>
         ) : null}

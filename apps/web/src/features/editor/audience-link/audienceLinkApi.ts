@@ -1,7 +1,10 @@
 import type {
   CreatePresentationSessionResponse,
   GetCurrentPresentationSessionResponse,
+  PresentationEntryStatus,
   PresentationSession,
+  UpdateAudienceFeatureSettingsRequest,
+  UpdateAudienceFeatureSettingsResponse,
 } from "@orbit/shared";
 
 export async function fetchCurrentAudienceAccessSession(
@@ -50,12 +53,23 @@ export async function closeAudienceAccessSession(args: {
   projectId: string;
   sessionId: string;
 }): Promise<PresentationSession> {
+  return updateAudienceAccessEntryStatus({
+    ...args,
+    entryStatus: "closed",
+  });
+}
+
+export async function updateAudienceAccessEntryStatus(args: {
+  entryStatus: PresentationEntryStatus;
+  projectId: string;
+  sessionId: string;
+}): Promise<PresentationSession> {
   const response = await fetch(
     `/api/v1/projects/${encodeURIComponent(
       args.projectId,
     )}/presentation-sessions/${encodeURIComponent(args.sessionId)}/entry`,
     {
-      body: JSON.stringify({ entryStatus: "closed" }),
+      body: JSON.stringify({ entryStatus: args.entryStatus }),
       credentials: "include",
       headers: {
         "content-type": "application/json",
@@ -70,6 +84,59 @@ export async function closeAudienceAccessSession(args: {
 
   const payload = (await response.json()) as { session: PresentationSession };
   return payload.session;
+}
+
+export async function fetchAudienceFeatureSettings(args: {
+  projectId: string;
+  sessionId: string;
+}): Promise<UpdateAudienceFeatureSettingsResponse> {
+  const response = await fetch(
+    `/api/v1/projects/${encodeURIComponent(
+      args.projectId,
+    )}/presentation-sessions/${encodeURIComponent(args.sessionId)}/features`,
+    {
+      credentials: "include",
+      method: "GET",
+    },
+  );
+
+  if (!response.ok) {
+    throw await readResponseError(
+      response,
+      "Audience feature settings fetch failed",
+    );
+  }
+
+  return response.json() as Promise<UpdateAudienceFeatureSettingsResponse>;
+}
+
+export async function updateAudienceFeatureSettings(args: {
+  projectId: string;
+  sessionId: string;
+  settings: UpdateAudienceFeatureSettingsRequest;
+}): Promise<UpdateAudienceFeatureSettingsResponse> {
+  const response = await fetch(
+    `/api/v1/projects/${encodeURIComponent(
+      args.projectId,
+    )}/presentation-sessions/${encodeURIComponent(args.sessionId)}/features`,
+    {
+      body: JSON.stringify(args.settings),
+      credentials: "include",
+      headers: {
+        "content-type": "application/json",
+      },
+      method: "PATCH",
+    },
+  );
+
+  if (!response.ok) {
+    throw await readResponseError(
+      response,
+      "Audience feature settings update failed",
+    );
+  }
+
+  return response.json() as Promise<UpdateAudienceFeatureSettingsResponse>;
 }
 
 async function readResponseError(response: Response, fallbackMessage: string) {
