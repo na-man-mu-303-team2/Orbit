@@ -111,6 +111,15 @@ export const audienceSessionLookupResponseSchema = z
   })
   .strict();
 
+export const audienceStateResponseSchema = z
+  .object({
+    session: audiencePublicSessionSchema,
+    participant: audienceParticipantSchema,
+    state: audienceRealtimeStateSchema,
+    features: audienceFeatureSettingsSchema,
+  })
+  .strict();
+
 export const audienceEventActorTypeSchema = z.enum([
   "audience",
   "presenter",
@@ -204,5 +213,6 @@ export type AudienceJoinResponse = z.infer<typeof audienceJoinResponseSchema>;
 export type AudienceSessionLookupResponse = z.infer<
   typeof audienceSessionLookupResponseSchema
 >;
+export type AudienceStateResponse = z.infer<typeof audienceStateResponseSchema>;
 export type AudienceEvent = z.infer<typeof audienceEventSchema>;
 export type AudienceEventType = z.infer<typeof audienceEventTypeSchema>;

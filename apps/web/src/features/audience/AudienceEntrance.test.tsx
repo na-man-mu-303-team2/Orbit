@@ -1,6 +1,15 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { AudienceEntrance } from "./AudienceEntrance";
+import { AudienceEntrance, AudienceLiveShell } from "./AudienceEntrance";
+
+const participant = {
+  audienceId: "audience_00000000-0000-4000-8000-000000000001",
+  sessionId: "session_1",
+  nickname: "orbit",
+  joinedAt: "2026-07-05T00:00:00.000Z",
+  lastSeenAt: "2026-07-05T00:00:00.000Z",
+  joinedBeforeEnd: true,
+};
 
 describe("AudienceEntrance", () => {
   it("renders the public join code form with accessible labels", () => {
@@ -10,5 +19,50 @@ describe("AudienceEntrance", () => {
     expect(html).toContain("입장 코드");
     expect(html).toContain("6자리 숫자");
     expect(html).toContain('id="audience-join-code"');
+  });
+
+  it("renders current slide recovery state with assistive status text", () => {
+    const html = renderToStaticMarkup(
+      <AudienceLiveShell
+        connectionStatus="connected"
+        participant={participant}
+        state={{
+          sessionId: "session_1",
+          slideId: "slide_1",
+          slideIndex: 0,
+          effectState: {
+            slideSnapshotUrl: "https://cdn.example.test/slide_1.png",
+          },
+          activeInteractionId: null,
+          updatedAt: "2026-07-05T00:00:00.000Z",
+        }}
+      />,
+    );
+
+    expect(html).toContain("현재 슬라이드 1");
+    expect(html).toContain("실시간 연결됨");
+    expect(html).toContain("https://cdn.example.test/slide_1.png");
+    expect(html).toContain("orbit");
+  });
+
+  it("renders a readable fallback when the slide image snapshot is missing", () => {
+    const html = renderToStaticMarkup(
+      <AudienceLiveShell
+        connectionStatus="reconnecting"
+        participant={participant}
+        state={{
+          sessionId: "session_1",
+          slideId: "slide_1",
+          slideIndex: 0,
+          effectState: {},
+          activeInteractionId: null,
+          updatedAt: "2026-07-05T00:00:00.000Z",
+        }}
+      />,
+    );
+
+    expect(html).toContain("슬라이드 준비 중");
+    expect(html).toContain("연결을 다시 시도하고 있습니다.");
+    expect(html).toContain('role="img"');
   });
 });

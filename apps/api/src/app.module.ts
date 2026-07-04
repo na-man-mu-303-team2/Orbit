@@ -17,6 +17,7 @@ import { PptxImportsModule } from "./pptx-imports/pptx-imports.module";
 import { ProjectsModule } from "./projects/projects.module";
 import { PresentationSessionsModule } from "./presentation-sessions/presentation-sessions.module";
 import { ReferencesModule } from "./references/references.module";
+import { AudienceRealtimeGateway } from "./realtime/audience-realtime.gateway";
 import { RealtimeGateway } from "./realtime/realtime.gateway";
 import { RehearsalsModule } from "./rehearsals/rehearsals.module";
 
@@ -38,8 +39,8 @@ import { RehearsalsModule } from "./rehearsals/rehearsals.module";
     JobsModule,
     PresentationSessionsModule,
     ReferencesModule,
-    RehearsalsModule
+    RehearsalsModule,
   ],
-  providers: [RealtimeGateway]
+  providers: [AudienceRealtimeGateway, RealtimeGateway],
 })
 export class AppModule {}

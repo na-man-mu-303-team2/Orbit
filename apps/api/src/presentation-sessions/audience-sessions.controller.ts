@@ -18,6 +18,7 @@ import {
   audienceJoinCodeParamsSchema,
   audienceJoinResponseSchema,
   audienceSessionLookupResponseSchema,
+  audienceStateResponseSchema,
 } from "@orbit/shared";
 import { parseRequest } from "../common/zod-request";
 import {
@@ -111,19 +112,7 @@ export class AudienceSessionsController {
     @Param("sessionId") sessionId: string,
     @Req() request: SignedCookieRequest,
   ) {
-    const token = getSignedAudienceAccessToken(request);
-    if (!token) {
-      throw new UnauthorizedException("Audience access required");
-    }
-
-    const payload = verifyAudienceAccessToken(
-      this.config,
-      token,
-      getUserAgent(request),
-    );
-    if (!payload || payload.sessionId !== sessionId) {
-      throw new UnauthorizedException("Audience access required");
-    }
+    const { payload, token } = this.requireAudienceAccess(sessionId, request);
 
     const result = await this.presentationSessionsService.getAudienceMe(
       sessionId,
@@ -132,6 +121,21 @@ export class AudienceSessionsController {
     );
 
     return audienceJoinResponseSchema.parse(result);
+  }
+
+  @Get(":sessionId/audience/state")
+  async getState(
+    @Param("sessionId") sessionId: string,
+    @Req() request: SignedCookieRequest,
+  ) {
+    const { payload, token } = this.requireAudienceAccess(sessionId, request);
+    const result = await this.presentationSessionsService.getAudienceState(
+      sessionId,
+      payload.audienceId,
+      hashAudienceAccessToken(this.config, token),
+    );
+
+    return audienceStateResponseSchema.parse(result);
   }
 
   private async tryGetExistingAccess(
@@ -162,6 +166,27 @@ export class AudienceSessionsController {
     } catch {
       return null;
     }
+  }
+
+  private requireAudienceAccess(
+    sessionId: string,
+    request: SignedCookieRequest,
+  ) {
+    const token = getSignedAudienceAccessToken(request);
+    if (!token) {
+      throw new UnauthorizedException("Audience access required");
+    }
+
+    const payload = verifyAudienceAccessToken(
+      this.config,
+      token,
+      getUserAgent(request),
+    );
+    if (!payload || payload.sessionId !== sessionId) {
+      throw new UnauthorizedException("Audience access required");
+    }
+
+    return { payload, token };
   }
 }
 

@@ -4,6 +4,7 @@ import {
   audienceJoinResponseSchema,
   audienceEventSchema,
   audienceFeatureSettingsSchema,
+  audienceStateResponseSchema,
   audienceJoinRequestSchema,
   audienceRealtimeStateSchema,
   audienceSafePayloadSchema,
@@ -95,6 +96,47 @@ describe("audience schemas", () => {
         joinedAt: now,
         lastSeenAt: now,
         joinedBeforeEnd: true,
+      },
+    });
+
+    expect(result.success).toBe(false);
+  });
+
+  it("wraps audience REST state without exposing presenter-only session fields", () => {
+    const result = audienceStateResponseSchema.safeParse({
+      session: {
+        sessionId: "session_1",
+        projectId: "project_1",
+        joinCode: "123456",
+        status: "live",
+        entryStatus: "open",
+        presenterUserId: "user_1",
+      },
+      participant: {
+        audienceId: "audience_00000000-0000-4000-8000-000000000001",
+        sessionId: "session_1",
+        nickname: "orbit",
+        joinedAt: now,
+        lastSeenAt: now,
+        joinedBeforeEnd: true,
+      },
+      state: {
+        sessionId: "session_1",
+        slideId: "slide_1",
+        slideIndex: 0,
+        effectState: {},
+        activeInteractionId: null,
+        updatedAt: now,
+      },
+      features: {
+        sessionId: "session_1",
+        qnaEnabled: false,
+        aiQnaEnabled: false,
+        pollsEnabled: false,
+        quizzesEnabled: false,
+        reactionsEnabled: false,
+        surveyEnabled: false,
+        updatedAt: now,
       },
     });
 

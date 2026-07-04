@@ -1,13 +1,23 @@
-import type { AudienceParticipant, AudiencePublicSession } from "@orbit/shared";
+import type {
+  AudienceParticipant,
+  AudiencePublicSession,
+  AudienceRealtimeState,
+  AudienceStateResponse,
+} from "@orbit/shared";
 import { CheckCircle2, Loader2 } from "lucide-react";
 import { type FormEvent, useEffect, useMemo, useState } from "react";
 
 import {
+  fetchAudienceState,
   fetchAudienceMe,
   joinAudienceSession,
   lookupAudienceSession,
 } from "./audienceApi";
 import { audienceCopy } from "./audienceCopy";
+import {
+  connectAudienceRealtime,
+  type AudienceRealtimeStatus,
+} from "./audienceRealtime";
 import "./audience.css";
 
 type AudienceEntranceProps = {
@@ -23,6 +33,10 @@ export function AudienceEntrance({ initialJoinCode }: AudienceEntranceProps) {
   const [participant, setParticipant] = useState<AudienceParticipant | null>(
     null,
   );
+  const [audienceState, setAudienceState] =
+    useState<AudienceStateResponse | null>(null);
+  const [connectionStatus, setConnectionStatus] =
+    useState<AudienceRealtimeStatus>("idle");
   const [errorMessage, setErrorMessage] = useState("");
   const [loadingState, setLoadingState] = useState<LoadingState>(
     initialJoinCode ? "lookup" : "idle",
@@ -127,6 +141,68 @@ export function AudienceEntrance({ initialJoinCode }: AudienceEntranceProps) {
     }
   }
 
+  useEffect(() => {
+    if (!session || !participant) {
+      setAudienceState(null);
+      setConnectionStatus("idle");
+      return;
+    }
+
+    let isCancelled = false;
+    setConnectionStatus("connecting");
+    void fetchAudienceState({ sessionId: session.sessionId })
+      .then((payload) => {
+        if (!isCancelled) {
+          setSession(payload.session);
+          setParticipant(payload.participant);
+          setAudienceState(payload);
+        }
+      })
+      .catch((error) => {
+        if (!isCancelled) {
+          setErrorMessage(
+            error instanceof Error
+              ? error.message
+              : "청중 화면 상태를 불러오지 못했습니다.",
+          );
+          setConnectionStatus("error");
+        }
+      });
+
+    const connection = connectAudienceRealtime({
+      onError: (message) => {
+        if (!isCancelled) {
+          setErrorMessage(message);
+        }
+      },
+      onSlideState: (state) => {
+        if (!isCancelled) {
+          setAudienceState((current) =>
+            current ? { ...current, state } : current,
+          );
+        }
+      },
+      onState: (payload) => {
+        if (!isCancelled) {
+          setSession(payload.session);
+          setParticipant(payload.participant);
+          setAudienceState(payload);
+        }
+      },
+      onStatus: (status) => {
+        if (!isCancelled) {
+          setConnectionStatus(status);
+        }
+      },
+      sessionId: session.sessionId,
+    });
+
+    return () => {
+      isCancelled = true;
+      connection.disconnect();
+    };
+  }, [participant?.audienceId, session?.sessionId]);
+
   const isLoading = loadingState !== "idle";
 
   return (
@@ -202,14 +278,21 @@ export function AudienceEntrance({ initialJoinCode }: AudienceEntranceProps) {
         ) : null}
 
         {participant ? (
-          <section className="audience-waiting-room" aria-live="polite">
-            <CheckCircle2 size={24} />
-            <div>
-              <h2>{audienceCopy["waiting.title"]}</h2>
-              <p>{audienceCopy["waiting.body"]}</p>
-              <small>{participant.nickname}</small>
-            </div>
-          </section>
+          <>
+            <AudienceLiveShell
+              connectionStatus={connectionStatus}
+              participant={participant}
+              state={audienceState?.state ?? null}
+            />
+            <section className="audience-waiting-room" aria-live="polite">
+              <CheckCircle2 size={24} />
+              <div>
+                <h2>{audienceCopy["waiting.title"]}</h2>
+                <p>{audienceCopy["waiting.body"]}</p>
+                <small>{participant.nickname}</small>
+              </div>
+            </section>
+          </>
         ) : null}
 
         {isLoading ? (
@@ -229,4 +312,64 @@ export function AudienceEntrance({ initialJoinCode }: AudienceEntranceProps) {
       </section>
     </main>
   );
+}
+
+export function AudienceLiveShell(props: {
+  connectionStatus: AudienceRealtimeStatus;
+  participant: AudienceParticipant;
+  state: AudienceRealtimeState | null;
+}) {
+  const { connectionStatus, participant, state } = props;
+  const slideSnapshotUrl = readSlideSnapshotUrl(state?.effectState ?? {});
+  const slideLabel =
+    state?.slideIndex !== null && state?.slideIndex !== undefined
+      ? `현재 슬라이드 ${state.slideIndex + 1}`
+      : "현재 슬라이드 대기 중";
+
+  return (
+    <section
+      className="audience-live-shell"
+      aria-labelledby="audience-current-slide-title"
+    >
+      <div className="audience-slide-frame">
+        <h2 id="audience-current-slide-title">{slideLabel}</h2>
+        {slideSnapshotUrl ? (
+          <img
+            alt={slideLabel}
+            className="audience-slide-snapshot"
+            src={slideSnapshotUrl}
+          />
+        ) : (
+          <div
+            className="audience-slide-fallback"
+            role="img"
+            aria-label={
+              state?.slideId
+                ? `${slideLabel} 이미지 준비 중`
+                : "발표가 시작되면 슬라이드가 표시됩니다."
+            }
+          >
+            <span>{state?.slideId ? "슬라이드 준비 중" : "대기 중"}</span>
+          </div>
+        )}
+      </div>
+      <p className="audience-connection-status" role="status">
+        {toConnectionStatusCopy(connectionStatus)}
+      </p>
+      <p className="audience-participant-label">{participant.nickname}</p>
+    </section>
+  );
+}
+
+function readSlideSnapshotUrl(payload: Record<string, unknown>) {
+  const value = payload.slideSnapshotUrl;
+  return typeof value === "string" && value.length > 0 ? value : "";
+}
+
+function toConnectionStatusCopy(status: AudienceRealtimeStatus) {
+  if (status === "connected") return "실시간 연결됨";
+  if (status === "reconnecting") return audienceCopy["connection.reconnecting"];
+  if (status === "error") return "실시간 연결을 확인해 주세요.";
+  if (status === "connecting") return "실시간 연결 중";
+  return "실시간 연결 대기 중";
 }
