@@ -40,7 +40,10 @@ import {
   commitCustomShapeEditGeometry,
   normalizeDraftRect
 } from "./utils/canvasInteractionUtils";
-import { ReadOnlySlideCanvas } from "../../slides/rendering";
+import {
+  ReadOnlySlideCanvas,
+  type ElementPresentationState
+} from "../../slides/rendering";
 
 export { getRenderableSlideElements } from "../../slides/rendering";
 
@@ -251,8 +254,10 @@ export function getDefaultImageInsertFrame(
 export function EditableCanvas(props: {
   customShapeEditElementId: string | null;
   deck: Deck;
+  disableInteractions?: boolean;
   editingElementId: string | null;
   insertTool: InsertTool;
+  elementStates?: Record<string, ElementPresentationState> | null;
   selectedElementIds: string[];
   showIds: boolean;
   slide: Slide;
@@ -304,7 +309,9 @@ export function EditableCanvas(props: {
   const {
     customShapeEditElementId,
     deck,
+    disableInteractions = false,
     editingElementId,
+    elementStates,
     insertTool,
     selectedElementIds,
     showIds,
@@ -474,9 +481,9 @@ export function EditableCanvas(props: {
         scaleX={stageScale}
         scaleY={stageScale}
         width={deck.canvas.width * stageScale}
-        onMouseDown={stageMouseHandlers.onMouseDown}
-        onMouseMove={stageMouseHandlers.onMouseMove}
-        onMouseUp={stageMouseHandlers.onMouseUp}
+        onMouseDown={disableInteractions ? undefined : stageMouseHandlers.onMouseDown}
+        onMouseMove={disableInteractions ? undefined : stageMouseHandlers.onMouseMove}
+        onMouseUp={disableInteractions ? undefined : stageMouseHandlers.onMouseUp}
       >
         <Layer>
           {visibleElements.map((element) => (
@@ -484,9 +491,10 @@ export function EditableCanvas(props: {
               key={element.elementId}
               accentColor={slide.style.accentColor ?? deck.theme.accentColor}
               deck={deck}
-              disablePointerEvents={insertTool !== "select"}
+              disablePointerEvents={disableInteractions || insertTool !== "select"}
               element={element}
               isSelected={selectedElementIds.includes(element.elementId)}
+              presentationState={elementStates?.[element.elementId]}
               selectedCount={selectedElementIds.length}
               showIds={showIds}
               slide={slide}
@@ -553,18 +561,22 @@ export function EditableCanvas(props: {
               width: Math.max(1, nextBox.width),
               height: Math.max(1, nextBox.height)
             })}
-            enabledAnchors={[
-              "top-left",
-              "top-center",
-              "top-right",
-              "middle-left",
-              "middle-right",
-              "bottom-left",
-              "bottom-center",
-              "bottom-right"
-            ]}
+            enabledAnchors={
+              disableInteractions
+                ? []
+                : [
+                    "top-left",
+                    "top-center",
+                    "top-right",
+                    "middle-left",
+                    "middle-right",
+                    "bottom-left",
+                    "bottom-center",
+                    "bottom-right"
+                  ]
+            }
             ignoreStroke
-            rotateEnabled
+            rotateEnabled={!disableInteractions}
             rotationSnaps={[0, 45, 90, 135, 180, 225, 270, 315]}
           />
         </Layer>

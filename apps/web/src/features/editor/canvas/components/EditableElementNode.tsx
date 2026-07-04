@@ -15,6 +15,7 @@ import {
 } from "react-konva";
 import type { ComponentType } from "react";
 import { useEffect, useState } from "react";
+import type { ElementPresentationState } from "../../../slides/rendering";
 
 import {
   CustomShapeEditOverlay,
@@ -52,6 +53,7 @@ export function EditableElementNode(props: {
   disablePointerEvents: boolean;
   element: DeckElement;
   isSelected: boolean;
+  presentationState?: ElementPresentationState;
   selectedCount: number;
   showIds: boolean;
   slide: Slide;
@@ -76,6 +78,7 @@ export function EditableElementNode(props: {
     disablePointerEvents,
     element,
     isSelected,
+    presentationState,
     selectedCount,
     showIds,
     slide,
@@ -95,11 +98,11 @@ export function EditableElementNode(props: {
     rotation: number;
   } | null>(null);
   const frame = previewFrame ?? {
-    x: element.x,
-    y: element.y,
-    width: element.width,
-    height: element.height,
-    rotation: element.rotation,
+    x: presentationState?.x ?? element.x,
+    y: presentationState?.y ?? element.y,
+    width: presentationState?.width ?? element.width,
+    height: presentationState?.height ?? element.height,
+    rotation: presentationState?.rotation ?? element.rotation
   };
   const isMultiSelected = isSelected && selectedCount > 1;
   const selectionHitFill = isSelected
@@ -147,9 +150,15 @@ export function EditableElementNode(props: {
         !disablePointerEvents && !element.locked && !customShapeEditDraft
       }
       listening={!disablePointerEvents}
-      opacity={element.visible ? element.opacity : 0}
+      opacity={
+        (presentationState?.visible ?? element.visible)
+          ? (presentationState?.opacity ?? element.opacity)
+          : 0
+      }
       ref={onMountNode}
       rotation={frame.rotation}
+      scaleX={presentationState?.scaleX ?? 1}
+      scaleY={presentationState?.scaleY ?? 1}
       x={frame.x}
       y={frame.y}
       onClick={(event: Konva.KonvaEventObject<MouseEvent>) =>
