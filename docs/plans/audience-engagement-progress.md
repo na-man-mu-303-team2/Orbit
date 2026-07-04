@@ -8,8 +8,8 @@ The top-level `## Current State` and `## Resume Checkpoint` sections are the sou
 
 ## Current State
 
-- Last completed milestone: 3
-- Next milestone: 4
+- Last completed milestone: 4
+- Next milestone: 5
 - Integration branch: `feature/audience`
 - Current expected branch: `feature/audience`
 - Goal status: in progress
@@ -17,15 +17,15 @@ The top-level `## Current State` and `## Resume Checkpoint` sections are the sou
 ## Resume Checkpoint
 
 - Current branch: `feature/audience`
-- Next milestone: 4
+- Next milestone: 5
 - Resume first checks:
   - Run `git status --short --branch`.
   - Read `docs/plans/audience-engagement-execution-protocol.md`.
-  - Read Milestone 4 in `docs/plans/audience-engagement-implementation-plan.md`.
-  - Read relevant product-plan sections for presenter feature controls, setup, selected interactions, survey draft status, AI reference selection, and disabled feature hiding.
-  - Read shared audience feature schemas and existing presenter/editor UI patterns before editing controls.
+  - Read Milestone 5 in `docs/plans/audience-engagement-implementation-plan.md`.
+  - Read relevant product-plan sections for polls, quizzes, interaction library, result visibility, scoring, and one-active-interaction rules.
+  - Read `packages/shared/src/interactions/interaction.schema.ts`, `apps/api/src/presentation-sessions/*`, and existing audience/presenter UI patterns before editing.
 - Blocked: no
-- Notes: Milestones 1-3 implementation was already present on `feature/audience`; progress was recovered after verification.
+- Notes: Milestones 1-4 implementation was already present on `feature/audience`; progress was recovered after verification. Milestone 5 is the next implementation milestone.
 
 ## Milestone Log
 
@@ -147,6 +147,46 @@ The top-level `## Current State` and `## Resume Checkpoint` sections are the sou
   - Current branch: `feature/audience`
   - Next milestone: 4
   - Resume first checks: read Milestone 4 plan, confirm `feature/audience` status, and verify feature settings UI/API before editing.
+
+## Milestone 4 Start - 2026-07-05
+
+- Branch: `feature/audience-m04-feature-controls`
+- Scope: presenter feature toggles, setup/overlay/control surfaces, entry open/close controls, feature-settings API, realtime feature broadcast, and audience UI hiding disabled features.
+- Acceptance criteria: new sessions start with all features disabled; presenter can toggle while live; disabled features hidden from audience UI without deleting data; feature changes reflect without refresh; setup/overlay controls are keyboard reachable and labelled.
+- Likely files: `apps/api/src/presentation-sessions/*`, `apps/api/src/realtime/audience-realtime.gateway.ts`, `apps/web/src/features/editor/*`, `apps/web/src/features/rehearsal/presenter/*`, `apps/web/src/features/audience/*`.
+- Verification plan: API feature settings tests, web presenter/audience controls tests, Playwright check for hide/show when dev server is available.
+- Major risks: selected prepared interactions, survey draft status, and AI reference selection are represented as setup placeholders until their data models land in later milestones.
+- Resume checkpoint snapshot:
+  - Current branch: `feature/audience-m04-feature-controls`
+  - Next milestone: 4
+  - Resume first checks: inspect feature settings schemas/API/UI and disabled feature hiding before merge.
+
+## Milestone 4 Complete - 2026-07-05
+
+- Milestone branch: `feature/audience-m04-feature-controls`
+- Local commits:
+  - `cc58d0b` `feat: 청중 기능 설정 API 추가`
+  - `cb46b60` `feat: 청중 기능 제어 화면 추가`
+  - `2c0bb62` `test: 청중 기능 카드 스모크 추가`
+  - `30f79ab` `chore: 청중 기능 제어 병합`
+- Merged into `feature/audience`: yes
+- Change summary: added feature settings GET/PATCH, dependency normalization for AI Q&A and Q&A, realtime feature broadcast hooks, presenter QR/code and feature controls, editor audience setup UI, and audience active-card hiding for disabled features.
+- Acceptance criteria evidence: service tests verify defaults and AI/Q&A dependency normalization; controller tests verify project-scoped access to feature settings; web tests verify setup sections and active cards; audience realtime client applies feature updates without refresh.
+- Self-review:
+  - Correctness: API/web tests cover feature setting updates, dependency normalization, UI toggles, and disabled feature hiding.
+  - Security/privacy: presenter feature endpoints require authenticated user and project read/write checks; audience clients only receive shared feature settings.
+  - Contract/schema compatibility: feature updates use shared `updateAudienceFeatureSettingsRequestSchema` and `audienceFeatureSettingsSchema`.
+  - Architecture boundary: feature control logic stays in presentation-sessions service/controller and audience/presenter UI components.
+  - Missing test risk: Playwright hide/show check was not run because the repo Playwright config does not auto-start a dev server.
+- Verification:
+  - `pnpm --filter @orbit/api test -- src/presentation-sessions/presentation-sessions.controller.spec.ts src/presentation-sessions/presentation-sessions.service.spec.ts`: pass
+  - `pnpm --filter @orbit/web test -- src/features/audience/AudienceFeatureSettingsControls.test.tsx src/features/audience/AudiencePresenterPanel.test.tsx src/features/audience/AudienceEntrance.test.tsx tests/e2e/audience-features.spec.ts`: pass for Vitest-discovered web tests; `tests/e2e/audience-features.spec.ts` is Playwright and not executed by Vitest.
+  - Playwright hide/show smoke: not run; deferred to Milestone 11 with a running dev server.
+- Remaining risks or next milestone carryover: implement real interaction selection/copy behavior in Milestone 5 and replace setup placeholders with backed data.
+- Resume checkpoint snapshot:
+  - Current branch: `feature/audience`
+  - Next milestone: 5
+  - Resume first checks: read Milestone 5 plan, confirm `feature/audience` status, and implement poll/quiz interaction library and session interaction engine.
 
 ## Progress Entry Template
 
