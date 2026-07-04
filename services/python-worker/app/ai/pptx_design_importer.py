@@ -964,6 +964,19 @@ def template_slot_for_element(
 
 
 def slot_role_for_element(element: dict[str, Any]) -> str:
+    template_slot_role = str(element.get("templateSlotRole", ""))
+    if template_slot_role in {
+        "title",
+        "subtitle",
+        "body",
+        "caption",
+        "label",
+        "metric",
+        "image_placeholder",
+        "background",
+    }:
+        return template_slot_role
+
     role = str(element.get("role", "unknown"))
     if role in {
         "title",
@@ -989,7 +1002,7 @@ def template_slide_metadata(slide: dict[str, Any]) -> dict[str, str]:
     elements = [
         element for element in slide.get("elements", []) if isinstance(element, dict)
     ]
-    roles = {str(element.get("role", "")) for element in elements}
+    roles = {slot_role_for_element(element) for element in elements}
     element_types = {str(element.get("type", "")) for element in elements}
     content_count = sum(
         1
@@ -1777,7 +1790,10 @@ def assign_text_roles(
             slide_index=slide_index,
             slide_count=slide_count,
         )
-        element["role"] = slot_role_from_semantic_role(semantic_role)
+        element["role"] = deck_role_from_semantic_role(semantic_role)
+        template_slot_role = template_slot_role_from_semantic_role(semantic_role)
+        if template_slot_role != element["role"]:
+            element["templateSlotRole"] = template_slot_role
 
 
 def text_shape_summaries(
@@ -1868,7 +1884,7 @@ def infer_text_semantic_role(
     return "body_text" if len(text) > 48 else "caption"
 
 
-def slot_role_from_semantic_role(semantic_role: str) -> str:
+def deck_role_from_semantic_role(semantic_role: str) -> str:
     if semantic_role in {
         "cover_title",
         "section_title",
@@ -1882,10 +1898,21 @@ def slot_role_from_semantic_role(semantic_role: str) -> str:
     if semantic_role in {"body_text", "bullet_item", "card_body"}:
         return "body"
     if semantic_role == "metric_value":
-        return "metric"
-    if semantic_role in {"metric_label", "toc_item_number", "toc_item_label", "section_number"}:
-        return "label"
+        return "highlight"
     return "caption"
+
+
+def template_slot_role_from_semantic_role(semantic_role: str) -> str:
+    if semantic_role == "metric_value":
+        return "metric"
+    if semantic_role in {
+        "metric_label",
+        "toc_item_number",
+        "toc_item_label",
+        "section_number",
+    }:
+        return "label"
+    return deck_role_from_semantic_role(semantic_role)
 
 
 def looks_like_numeric_token(text: str) -> bool:

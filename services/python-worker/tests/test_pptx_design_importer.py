@@ -164,9 +164,10 @@ def test_assign_text_roles_uses_semantic_summary_for_plain_shapes() -> None:
     assert [element["role"] for element in elements] == [
         "title",
         "body",
-        "metric",
+        "highlight",
         "caption",
     ]
+    assert elements[2]["templateSlotRole"] == "metric"
 
 
 def test_assign_text_roles_does_not_force_numeric_prefix_to_page_number() -> None:
@@ -177,8 +178,8 @@ def test_assign_text_roles_does_not_force_numeric_prefix_to_page_number() -> Non
 
     assign_text_roles(elements, {}, slide_index=2, slide_count=8)
 
-    assert elements[0]["role"] == "label"
-    assert elements[0]["role"] != "caption"
+    assert elements[0]["role"] == "caption"
+    assert elements[0]["templateSlotRole"] == "label"
 
 
 def test_build_template_blueprint_preserves_semantic_slot_roles() -> None:
@@ -189,7 +190,10 @@ def test_build_template_blueprint_preserves_semantic_slot_roles() -> None:
             text_element("title", "Title", 100, 80, 44, role="title"),
             text_element("body", "Body", 100, 240, 24, role="body"),
             text_element("caption", "Caption", 100, 900, 14, role="caption"),
-            text_element("metric", "42%", 1200, 240, 48, role="metric"),
+            {
+                **text_element("metric", "42%", 1200, 240, 48, role="highlight"),
+                "templateSlotRole": "metric",
+            },
             {
                 "elementId": "el_cell_1",
                 "type": "rect",
