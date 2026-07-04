@@ -944,6 +944,27 @@ describe("RehearsalWorkspace", () => {
     expect(source).toContain("remainingTriggerSteps");
   });
 
+  it("skips speech cue matching after a built-in navigation command consumes a live STT result", () => {
+    const source = fs.readFileSync(rehearsalWorkspaceSourcePath, "utf8");
+    const resultStart = source.indexOf("function handleLiveSttResult");
+    const resultEnd = source.indexOf("function handleLivePartialTranscript");
+    const resultBody = source.slice(resultStart, resultEnd);
+    const handlerStart = source.indexOf("function handleLivePartialTranscript");
+    const handlerEnd = source.indexOf("function resetLiveTranscriptForSlide");
+    const handlerBody = source.slice(handlerStart, handlerEnd);
+
+    expect(resultBody).toContain(
+      "const navigationConsumed = handleLivePartialTranscript"
+    );
+    expect(resultBody).toContain("if (!navigationConsumed)");
+    expect(resultBody.indexOf("handleLivePartialTranscript")).toBeLessThan(
+      resultBody.indexOf("handleSpeechCueResult(result)")
+    );
+    expect(handlerBody).toContain("goNext()");
+    expect(handlerBody).toContain("return true");
+    expect(handlerBody).toContain("return false");
+  });
+
   it("derives production trigger animations from P5 CueProvider", () => {
     const source = fs.readFileSync(rehearsalWorkspaceSourcePath, "utf8");
 
@@ -954,7 +975,7 @@ describe("RehearsalWorkspace", () => {
     );
   });
 
-  it("stops cue next-step execution after the command origin slide changes", () => {
+  it("ignores cue next-step commands after the referenced animation step has passed", () => {
     const deck = createCueCommandBoundaryDeck();
     const provider = createPresenterCueProvider({ deck });
     const result = applyCueEngineCommandsToPresenterState({
@@ -981,11 +1002,46 @@ describe("RehearsalWorkspace", () => {
     });
 
     expect(result).toMatchObject({
+      advanceCueMatchedSlideId: "slide_p0_1",
+      advanceCueMatchedSlideIdChanged: false,
+      changed: false,
+      nextStepExecuted: false,
+      slideIndex: 0,
+      stepIndex: 1
+    });
+    expect(result.highlights).toEqual([{ elementId: "el_body", active: true }]);
+  });
+
+  it("coalesces same-order animation cues into a single presenter step", () => {
+    const deck = createCueCommandBoundaryDeck();
+    const provider = createPresenterCueProvider({ deck });
+    const result = applyCueEngineCommandsToPresenterState({
       advanceCueMatchedSlideId: null,
-      advanceCueMatchedSlideIdChanged: true,
-      nextStepExecuted: true,
-      slideIndex: 1,
+      commands: [
+        {
+          type: "next-step",
+          animationId: "anim_image_zoom_in",
+          cueId: "cue_first_step",
+          slideId: "slide_p0_1"
+        },
+        {
+          type: "next-step",
+          animationId: "anim_group_fade_out",
+          cueId: "cue_same_order_step",
+          slideId: "slide_p0_1"
+        }
+      ],
+      cueProvider: provider,
+      deck,
+      highlights: [],
+      slideIndex: 0,
       stepIndex: 0
+    });
+
+    expect(result).toMatchObject({
+      nextStepExecuted: true,
+      slideIndex: 0,
+      stepIndex: 1
     });
     expect(result.highlights).toEqual([]);
   });
@@ -1532,6 +1588,15 @@ function createCueCommandBoundaryDeck() {
               action: {
                 type: "animation",
                 animationId: "anim_image_zoom_in"
+              },
+              source: "user"
+            },
+            {
+              cueId: "cue_boundary_same_order_animation",
+              trigger: { phrases: ["그룹 페이드"] },
+              action: {
+                type: "animation",
+                animationId: "anim_group_fade_out"
               },
               source: "user"
             },

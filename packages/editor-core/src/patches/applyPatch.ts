@@ -282,6 +282,11 @@ function applyOperation(
         (animation) => animation.elementId !== operation.elementId,
       );
       removeActionsForAnimations(slide, removedAnimationIds);
+      removeSpeechCuesForDeletedTargets(
+        slide,
+        operation.elementId,
+        removedAnimationIds,
+      );
       removeElementFromGroups(slide, operation.elementId);
       return { ok: true };
     }
@@ -294,6 +299,7 @@ function applyOperation(
       }
 
       slide.speakerNotes = operation.speakerNotes;
+      removeOutOfRangeSpeechCueScriptAnchors(slide);
       return { ok: true };
     }
 
@@ -383,6 +389,7 @@ function applyOperation(
 
       slide.animations.splice(animationIndex, 1);
       removeActionsForAnimations(slide, [operation.animationId]);
+      removeSpeechCuesForDeletedTargets(slide, null, [operation.animationId]);
       return { ok: true };
     }
 
@@ -572,6 +579,49 @@ function removeActionsForAnimations(
       action.effect.kind !== "play-animation" ||
       !animationIdSet.has(action.effect.animationId),
   );
+}
+
+function removeSpeechCuesForDeletedTargets(
+  slide: Slide,
+  elementId: string | null,
+  animationIds: string[],
+): void {
+  if (!elementId && animationIds.length === 0) {
+    return;
+  }
+
+  const animationIdSet = new Set(animationIds);
+  slide.speechCues = slide.speechCues.filter((cue) => {
+    if (cue.action.type === "highlight") {
+      return cue.action.elementId !== elementId;
+    }
+
+    if (cue.action.type === "animation") {
+      return !animationIdSet.has(cue.action.animationId);
+    }
+
+    return true;
+  });
+}
+
+function removeOutOfRangeSpeechCueScriptAnchors(slide: Slide): void {
+  const speakerNotesLength = slide.speakerNotes.length;
+
+  slide.speechCues = slide.speechCues.map((cue) => {
+    const scriptAnchor = cue.trigger.scriptAnchor;
+
+    if (!scriptAnchor || scriptAnchor.end <= speakerNotesLength) {
+      return cue;
+    }
+
+    const trigger = { ...cue.trigger };
+    delete trigger.scriptAnchor;
+
+    return {
+      ...cue,
+      trigger,
+    };
+  });
 }
 
 function removeActionsForMissingKeywords(slide: Slide): void {

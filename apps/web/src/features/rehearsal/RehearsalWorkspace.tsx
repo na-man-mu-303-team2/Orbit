@@ -2103,13 +2103,15 @@ export function RehearsalWorkspace(props: {
       atMs: Date.now(),
       isFinal: result.isFinal
     });
-    handleLivePartialTranscript({
+    const navigationConsumed = handleLivePartialTranscript({
       type: "partial-transcript",
       transcript: result.text,
       isFinal: result.isFinal,
       confidence: result.confidence ?? null
     });
-    handleSpeechCueResult(result);
+    if (!navigationConsumed) {
+      handleSpeechCueResult(result);
+    }
   }
 
   function handleLivePartialTranscript(event: LiveSttPartialTranscriptEvent) {
@@ -2117,7 +2119,7 @@ export function RehearsalWorkspace(props: {
     const slideIndex = currentSlideIndexRef.current;
     const slide = deckSnapshot?.slides[slideIndex];
     if (!deckSnapshot || !slide) {
-      return;
+      return false;
     }
 
     const nextBuffer = applyLiveTranscriptEvent(
@@ -2146,7 +2148,10 @@ export function RehearsalWorkspace(props: {
     if (isAdvanceSlideCommand(confirmedCommand)) {
       cancelAutoAdvanceForManualCommand();
       goNext();
+      return true;
     }
+
+    return false;
   }
 
   function resetLiveTranscriptForSlide(slide: Slide | null) {
@@ -2231,14 +2236,25 @@ export function RehearsalWorkspace(props: {
 
   const goPrevious = () => {
     cancelAutoAdvanceForManualCommand();
+    const nextSlideIndex = Math.max(0, currentSlideIndexRef.current - 1);
+    presenterStepIndexRef.current = 0;
+    currentSlideIndexRef.current = nextSlideIndex;
     setPresenterStepIndex(0);
-    setCurrentSlideIndex((current) => Math.max(0, current - 1));
+    setCurrentSlideIndex(nextSlideIndex);
   };
   const goNext = () => {
-    if (!deck) return;
+    const deckSnapshot = deckRef.current;
+    if (!deckSnapshot) return;
+
     cancelAutoAdvanceForManualCommand();
+    const nextSlideIndex = Math.min(
+      deckSnapshot.slides.length - 1,
+      currentSlideIndexRef.current + 1
+    );
+    presenterStepIndexRef.current = 0;
+    currentSlideIndexRef.current = nextSlideIndex;
     setPresenterStepIndex(0);
-    setCurrentSlideIndex((current) => Math.min(deck.slides.length - 1, current + 1));
+    setCurrentSlideIndex(nextSlideIndex);
   };
   const handleNextPresenterStep = () => {
     if (!deck || !slideshowAnimationPlan) return;
@@ -3192,6 +3208,16 @@ export function applyCueEngineCommandsToPresenterState(options: {
             slide.slideId
           )
         });
+        const nextTriggerStep = plan.triggerSteps[nextStepIndex];
+
+        if (
+          !nextTriggerStep?.animations.some(
+            (animation) => animation.animationId === command.animationId
+          )
+        ) {
+          break;
+        }
+
         const nextState = getNextPresenterStepState({
           currentSlideIndex: nextSlideIndex,
           currentStepIndex: nextStepIndex,
