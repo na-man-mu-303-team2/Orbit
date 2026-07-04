@@ -8,24 +8,24 @@ The top-level `## Current State` and `## Resume Checkpoint` sections are the sou
 
 ## Current State
 
-- Last completed milestone: 7
-- Next milestone: 8
+- Last completed milestone: 8
+- Next milestone: 9
 - Integration branch: `feature/audience`
-- Current expected branch: `feature/audience-m08-reactions`
+- Current expected branch: `feature/audience`
 - Goal status: in progress
 
 ## Resume Checkpoint
 
-- Current branch: `feature/audience-m08-reactions`
-- Next milestone: 8
+- Current branch: `feature/audience`
+- Next milestone: 9
 - Resume first checks:
   - Run `git status --short --branch`.
   - Read `docs/plans/audience-engagement-execution-protocol.md`.
-  - Read Milestone 8 in `docs/plans/audience-engagement-implementation-plan.md`.
-  - Read relevant product-plan sections for reactions, show/hide behavior, throttling, event storage, and aggregate reporting.
-  - Read `apps/api/src/presentation-sessions/*`, `apps/api/src/realtime/audience-realtime.gateway.ts`, and existing audience active-card UI before editing.
+  - Read Milestone 9 in `docs/plans/audience-engagement-implementation-plan.md`.
+  - Read relevant product-plan sections for post-session survey, consent, 24-hour window, CSV exclusions, and feature gating.
+  - Read existing interaction/Q&A/reaction contracts before adding survey contracts and tables.
 - Blocked: no
-- Notes: Milestone 8 implementation is active.
+- Notes: Milestone 8 is locally merged; Milestone 9 survey work is next.
 
 ## Milestone Log
 
@@ -326,6 +326,36 @@ The top-level `## Current State` and `## Resume Checkpoint` sections are the sou
   - Current branch: `feature/audience-m08-reactions`
   - Next milestone: 8
   - Resume first checks: inspect reaction rules, existing feature toggle behavior, and audience active-card UI before editing.
+
+## Milestone 8 Complete - 2026-07-05
+
+- Milestone branch: `feature/audience-m08-reactions`
+- Local commits:
+  - `7fd4de4` `feat: 청중 실시간 반응 추가`
+  - `f103d34` `chore: 청중 반응 마일스톤 병합`
+- Merged into `feature/audience`: yes
+- Change summary: added shared reaction request/response and websocket payload schemas, audience reaction submit endpoint, 5/sec per-participant throttle, audience event append, realtime `audience:reaction` broadcast to audience and presenter rooms, audience reaction controls/recent stream, presenter recent reaction strip, and API/web tests for submit, disabled, rate limit, broadcast, and client receipt.
+- Acceptance criteria evidence: `reactionsEnabled` controls audience visibility and service acceptance; disabled submissions throw `ForbiddenException`; rate limit test rejects the sixth same-participant reaction within the window; reaction submit stores `reaction.sent` in `audience_events`; gateway emits `audience:reaction` without touching slide-state update paths; survey CSV is not implemented in M8 and no raw reaction export path was added; reaction buttons have per-type accessible names and a non-animation recent reaction stream.
+- Self-review:
+  - Correctness: shared schema, service, controller, gateway, audience client, presenter client, and render tests cover the M8 data flow.
+  - Security/privacy: reaction payloads include only `sessionId`, `audienceId`, and enum `reaction`; token/cookie values stay in signed cookie verification and are never emitted.
+  - Contract/schema compatibility: API/web/gateway use shared Zod schemas for reaction requests, responses, and websocket payloads.
+  - Architecture boundary: changes stay within audience presentation session, realtime, web audience/presenter surfaces, and shared contracts; no survey/report tables were added early.
+  - Missing test risk: full floating reaction animation and real browser burst/slide-update concurrency were not run; synthetic unit coverage verifies broadcast and rate-limit behavior.
+- Verification:
+  - `pnpm --filter @orbit/shared test -- src/interactions/interaction.schema.test.ts src/realtime/websocket.schema.test.ts`: pass
+  - `pnpm --filter @orbit/api test -- src/presentation-sessions/presentation-sessions.service.spec.ts src/presentation-sessions/audience-sessions.controller.spec.ts src/realtime/audience-realtime.gateway.spec.ts`: pass
+  - `pnpm --filter @orbit/web test -- src/features/audience/AudienceEntrance.test.tsx src/features/audience/audienceApi.test.ts src/features/audience/audienceRealtime.test.ts src/features/audience/audiencePresenterRealtime.test.ts`: pass
+  - `pnpm --filter @orbit/shared lint`: pass
+  - `pnpm --filter @orbit/api lint`: pass after narrowing the controller spec mock literal type
+  - `pnpm --filter @orbit/web lint`: pass
+  - `pnpm audience:checkpoint`: pass before completion checkpoint update
+  - `git diff --check`: pass
+- Remaining risks or next milestone carryover: run a real two-browser reaction burst while slide updates are publishing during M11 hardening; polish floating reaction animation if product wants more visual motion.
+- Resume checkpoint snapshot:
+  - Current branch: `feature/audience`
+  - Next milestone: 9
+  - Resume first checks: read Milestone 9 plan, confirm `feature/audience` status, and implement survey forms/submission/export boundaries.
 
 ## Progress Entry Template
 
