@@ -4,7 +4,10 @@ import { describe, expect, it } from "vitest";
 
 import type { ExtractedSentence, SpeechTrackerSnapshot } from "../speech/speechTrackingEvents";
 import type { RehearsalTimingSnapshot, TimingAdviceState } from "./rehearsalTiming";
-import { RehearsalPanel } from "./RehearsalPanel";
+import {
+  RehearsalPanel,
+  getRehearsalScriptFocusSentenceId
+} from "./RehearsalPanel";
 
 describe("RehearsalPanel", () => {
   it("renders rehearsal timers, keyword state, script state, and advice", () => {
@@ -43,10 +46,10 @@ describe("RehearsalPanel", () => {
     expect(html).not.toContain("transcript");
   });
 
-  it("marks the script region as non auto-scrolling", () => {
+  it("marks the script region as auto-following by default", () => {
     const html = renderPanel();
 
-    expect(html).toContain('data-auto-scroll="false"');
+    expect(html).toContain('data-auto-scroll="true"');
   });
 
   it("highlights direct keywords and aliases inside script sentences", () => {
@@ -77,6 +80,22 @@ describe("RehearsalPanel", () => {
     expect(html).toContain("<strong>인공지능</strong>");
     expect(html).toContain("<strong>OAI</strong>");
     expect(html).not.toContain("<button");
+  });
+
+  it("selects the next matchable script sentence as the auto-scroll focus", () => {
+    expect(
+      getRehearsalScriptFocusSentenceId(sentences, new Set(["sentence_1"]))
+    ).toBe("sentence_3");
+    expect(
+      getRehearsalScriptFocusSentenceId(sentences, [
+        "sentence_1",
+        "sentence_3"
+      ])
+    ).toBe("sentence_3");
+    expect(getRehearsalScriptFocusSentenceId(sentences, [])).toBe(
+      "sentence_1"
+    );
+    expect(getRehearsalScriptFocusSentenceId([], [])).toBeNull();
   });
 });
 

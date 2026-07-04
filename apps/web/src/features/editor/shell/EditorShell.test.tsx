@@ -15,6 +15,8 @@ import {
   EditorStateNotice,
   mergeDeckIntoQueryCache,
   shouldApplyManualSaveResult,
+  shouldPromptSpeakerNotesDraftDiscard,
+  shouldPromptSpeakerNotesOverwrite,
   shouldHydrateDeckFromQuery
 } from "./EditorShell";
 import { resolveEditorAssetUrl } from "../shared/editorAssetUrl";
@@ -102,6 +104,54 @@ describe("editor shell", () => {
     vi.stubGlobal("fetch", vi.fn());
   });
 
+  it("prompts before discarding a dirty speaker notes draft", () => {
+    expect(
+      shouldPromptSpeakerNotesDraftDiscard({
+        draft: "수정 중인 메모",
+        isEditing: true,
+        savedDraftBase: "기존 메모"
+      })
+    ).toBe(true);
+    expect(
+      shouldPromptSpeakerNotesDraftDiscard({
+        draft: "기존 메모",
+        isEditing: true,
+        savedDraftBase: "기존 메모"
+      })
+    ).toBe(false);
+    expect(
+      shouldPromptSpeakerNotesDraftDiscard({
+        draft: "수정 중인 메모",
+        isEditing: false,
+        savedDraftBase: "기존 메모"
+      })
+    ).toBe(false);
+  });
+
+  it("prompts before overwriting externally changed speaker notes", () => {
+    expect(
+      shouldPromptSpeakerNotesOverwrite({
+        currentNotes: "AI 제안으로 바뀐 메모",
+        draft: "사용자가 입력한 메모",
+        savedDraftBase: "기존 메모"
+      })
+    ).toBe(true);
+    expect(
+      shouldPromptSpeakerNotesOverwrite({
+        currentNotes: "AI 제안으로 바뀐 메모",
+        draft: "AI 제안으로 바뀐 메모",
+        savedDraftBase: "기존 메모"
+      })
+    ).toBe(false);
+    expect(
+      shouldPromptSpeakerNotesOverwrite({
+        currentNotes: "기존 메모",
+        draft: "사용자가 입력한 메모",
+        savedDraftBase: "기존 메모"
+      })
+    ).toBe(false);
+  });
+
   it("rewrites local minio asset URLs to the same-origin asset proxy", () => {
     vi.stubGlobal("window", {
       location: {
@@ -151,6 +201,7 @@ describe("editor shell", () => {
     expect(html).toContain("Opening");
     expect(html).not.toContain("Data Contract");
     expect(html).toContain("발표 메모");
+    expect(html).toContain("수정");
     expect(html).toContain("저장됨");
     expect(html).toContain("AI 제안 검토");
     expect(html).toContain("이미지");

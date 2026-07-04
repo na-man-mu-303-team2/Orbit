@@ -3546,6 +3546,23 @@ button:disabled {
   color: #111827;
 }
 
+.rehearsal-panel-heading-actions {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+}
+
+.rehearsal-panel-follow-button {
+  min-height: 24px;
+  padding: 0 8px;
+  border: 1px solid #bfdbfe;
+  border-radius: 999px;
+  background: #eff6ff;
+  color: #1d4ed8;
+  font-size: 0.72rem;
+  font-weight: 900;
+}
+
 .rehearsal-panel-keywords,
 .rehearsal-panel-script-body,
 .rehearsal-panel-advice {

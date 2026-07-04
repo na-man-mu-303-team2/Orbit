@@ -187,6 +187,25 @@ type EditorSessionDebugState =
     }
   | { status: "error"; message: string };
 
+export function shouldPromptSpeakerNotesDraftDiscard(input: {
+  draft: string;
+  isEditing: boolean;
+  savedDraftBase: string;
+}) {
+  return input.isEditing && input.draft !== input.savedDraftBase;
+}
+
+export function shouldPromptSpeakerNotesOverwrite(input: {
+  currentNotes: string;
+  draft: string;
+  savedDraftBase: string;
+}) {
+  return (
+    input.currentNotes !== input.savedDraftBase &&
+    input.draft !== input.currentNotes
+  );
+}
+
 declare global {
   interface Window {
     __ORBIT_EDITOR_TEST_API__?: {
@@ -853,6 +872,12 @@ export function EditorShell(props: { projectId?: string }) {
     useState<SlidePanelView>("thumbnail");
   const [showIds, setShowIds] = useState(false);
   const [selectedKeywordId, setSelectedKeywordId] = useState<string | null>(null);
+  const [isSpeakerNotesEditing, setIsSpeakerNotesEditing] = useState(false);
+  const [speakerNotesDraft, setSpeakerNotesDraft] = useState("");
+  const [speakerNotesDraftBase, setSpeakerNotesDraftBase] = useState("");
+  const [speakerNotesEditSlideId, setSpeakerNotesEditSlideId] = useState<
+    string | null
+  >(null);
   const [selectedElementIds, setSelectedElementIds] = useState<string[]>([]);
   const [activeTopMenu, setActiveTopMenu] = useState<TopMenu | null>(null);
   const [lastPatchLabel, setLastPatchLabel] = useState("편집 없음");
@@ -1386,6 +1411,10 @@ export function EditorShell(props: { projectId?: string }) {
       return false;
     }
 
+    if (!commitSpeakerNotesDraftIfDirty()) {
+      return;
+    }
+
     setSaveState("manual-saving");
     setSaveError(null, null);
     setActiveTopMenu(null);
@@ -1445,6 +1474,10 @@ export function EditorShell(props: { projectId?: string }) {
     if (!activeProjectId) {
       setSaveState("error");
       setSaveError("missing-project", "저장할 프로젝트를 찾지 못했습니다.");
+      return;
+    }
+
+    if (!commitSpeakerNotesDraftIfDirty()) {
       return;
     }
 
@@ -1699,6 +1732,10 @@ export function EditorShell(props: { projectId?: string }) {
   }
 
   function handleUndo() {
+    if (undoStack.length === 0 || !confirmDiscardSpeakerNotesDraft()) {
+      return;
+    }
+
     setUndoStack((current) => {
       const previous = current.at(-1);
       if (!previous) {
@@ -1708,12 +1745,17 @@ export function EditorShell(props: { projectId?: string }) {
         deck: workingDeckRef.current,
         slideIndex: currentSlideIndex
       };
+      const previousSlideIndex = Math.max(
+        0,
+        Math.min(previous.slideIndex, previous.deck.slides.length - 1)
+      );
+      resetSpeakerNotesEditState(
+        previous.deck.slides[previousSlideIndex]?.speakerNotes ?? ""
+      );
       replaceWorkingDeck(previous.deck);
       setRedoStack((redoCurrent) => [...redoCurrent, currentEntry]);
       setDeck(previous.deck);
-      setCurrentSlideIndex(
-        Math.max(0, Math.min(previous.slideIndex, previous.deck.slides.length - 1))
-      );
+      setCurrentSlideIndex(previousSlideIndex);
       setSelectedElementIds([]);
       setSelectedKeywordId(null);
       setEditingElementId(null);
@@ -1729,11 +1771,22 @@ export function EditorShell(props: { projectId?: string }) {
   }
 
   function handleRedo() {
+    if (redoStack.length === 0 || !confirmDiscardSpeakerNotesDraft()) {
+      return;
+    }
+
     setRedoStack((current) => {
       const next = current.at(-1);
       if (!next) {
         return current;
       }
+      const nextSlideIndex = Math.max(
+        0,
+        Math.min(next.slideIndex, next.deck.slides.length - 1)
+      );
+      resetSpeakerNotesEditState(
+        next.deck.slides[nextSlideIndex]?.speakerNotes ?? ""
+      );
       setUndoStack((undoCurrent) => [
         ...undoCurrent.slice(-49),
         {
@@ -1743,9 +1796,7 @@ export function EditorShell(props: { projectId?: string }) {
       ]);
       replaceWorkingDeck(next.deck);
       setDeck(next.deck);
-      setCurrentSlideIndex(
-        Math.max(0, Math.min(next.slideIndex, next.deck.slides.length - 1))
-      );
+      setCurrentSlideIndex(nextSlideIndex);
       setSelectedElementIds([]);
       setSelectedKeywordId(null);
       setEditingElementId(null);
@@ -1804,6 +1855,160 @@ export function EditorShell(props: { projectId?: string }) {
     });
   }
 
+  function handleSelectKeyword(keywordId: string) {
+    setSelectedKeywordId((current) => (current === keywordId ? null : keywordId));
+  }
+
+  function resetSpeakerNotesEditState(notes: string) {
+    setIsSpeakerNotesEditing(false);
+    setSpeakerNotesDraft(notes);
+    setSpeakerNotesDraftBase(notes);
+    setSpeakerNotesEditSlideId(null);
+  }
+
+  function confirmDiscardSpeakerNotesDraft() {
+    if (
+      !shouldPromptSpeakerNotesDraftDiscard({
+        draft: speakerNotesDraft,
+        isEditing: isSpeakerNotesEditing,
+        savedDraftBase: speakerNotesDraftBase
+      })
+    ) {
+      return true;
+    }
+
+    return (
+      typeof window === "undefined" ||
+      window.confirm(
+        "저장하지 않은 발표 메모 수정 내용이 있습니다. 이동하면 초안이 사라집니다. 계속할까요?"
+      )
+    );
+  }
+
+  function handleSelectSlideIndex(index: number) {
+    if (index === currentSlideIndex) {
+      return;
+    }
+
+    if (!confirmDiscardSpeakerNotesDraft()) {
+      return;
+    }
+
+    resetSpeakerNotesEditState(deck.slides[index]?.speakerNotes ?? "");
+    setCurrentSlideIndex(index);
+  }
+
+  function handleStartSpeakerNotesEdit() {
+    const currentNotes = currentSlide?.speakerNotes ?? "";
+    setSelectedKeywordId(null);
+    setSpeakerNotesDraft(currentNotes);
+    setSpeakerNotesDraftBase(currentNotes);
+    setSpeakerNotesEditSlideId(currentSlide?.slideId ?? null);
+    setIsSpeakerNotesEditing(true);
+  }
+
+  function handleCancelSpeakerNotesEdit() {
+    resetSpeakerNotesEditState(currentSlide?.speakerNotes ?? "");
+  }
+
+  function commitSpeakerNotesDraftIfDirty() {
+    if (
+      !shouldPromptSpeakerNotesDraftDiscard({
+        draft: speakerNotesDraft,
+        isEditing: isSpeakerNotesEditing,
+        savedDraftBase: speakerNotesDraftBase
+      })
+    ) {
+      return true;
+    }
+
+    const slideId = speakerNotesEditSlideId;
+    const targetSlide = workingDeckRef.current.slides.find(
+      (slide) => slide.slideId === slideId
+    );
+
+    if (!slideId || !targetSlide) {
+      resetSpeakerNotesEditState(currentSlide?.speakerNotes ?? "");
+      return false;
+    }
+
+    if (
+      shouldPromptSpeakerNotesOverwrite({
+        currentNotes: targetSlide.speakerNotes,
+        draft: speakerNotesDraft,
+        savedDraftBase: speakerNotesDraftBase
+      }) &&
+      typeof window !== "undefined" &&
+      !window.confirm(
+        "편집 중 발표 메모가 다른 작업으로 변경되었습니다. 현재 초안으로 덮어쓸까요?"
+      )
+    ) {
+      return false;
+    }
+
+    const nextSpeakerNotes = speakerNotesDraft;
+
+    if (nextSpeakerNotes !== targetSlide.speakerNotes) {
+      commitPatch((currentDeck) => ({
+        deckId: currentDeck.deckId,
+        baseVersion: currentDeck.version,
+        source: "user",
+        operations: [
+          {
+            type: "update_speaker_notes",
+            slideId,
+            speakerNotes: nextSpeakerNotes
+          }
+        ]
+      }));
+    }
+
+    resetSpeakerNotesEditState(nextSpeakerNotes);
+    return true;
+  }
+
+  function handleSaveSpeakerNotesEdit() {
+    if (!currentSlide) {
+      resetSpeakerNotesEditState("");
+      return;
+    }
+
+    const hasDirtyDraft = shouldPromptSpeakerNotesDraftDiscard({
+      draft: speakerNotesDraft,
+      isEditing: isSpeakerNotesEditing,
+      savedDraftBase: speakerNotesDraftBase
+    });
+
+    if (!commitSpeakerNotesDraftIfDirty()) {
+      return;
+    }
+
+    if (!hasDirtyDraft) {
+      resetSpeakerNotesEditState(currentSlide.speakerNotes);
+    }
+  }
+
+  function handleDeleteSelectedKeyword(slideId: string, keywordId: string) {
+    const usage = currentSlideKeywordUsage[keywordId];
+    const hasLinkedActions =
+      Boolean(usage?.advancesSlide) || (usage?.animationIds.length ?? 0) > 0;
+
+    if (
+      hasLinkedActions &&
+      typeof window !== "undefined" &&
+      !window.confirm(
+        "연결된 애니메이션 또는 다음 슬라이드 트리거가 함께 제거될 수 있습니다. 삭제할까요?"
+      )
+    ) {
+      return;
+    }
+
+    handleReplaceKeywords(slideId, (keywords) =>
+      keywords.filter((keyword) => keyword.keywordId !== keywordId)
+    );
+    setSelectedKeywordId(null);
+  }
+
   function handleSpeakerNotesKeywordSelection(rawValue: string) {
     if (!currentSlide) {
       return;
@@ -1811,7 +2016,7 @@ export function EditorShell(props: { projectId?: string }) {
 
     const matchedKeyword = findKeywordByTerm(currentSlide, rawValue);
     if (matchedKeyword) {
-      setSelectedKeywordId(matchedKeyword.keywordId);
+      handleSelectKeyword(matchedKeyword.keywordId);
       return;
     }
 
@@ -1984,7 +2189,7 @@ export function EditorShell(props: { projectId?: string }) {
             }),
           activeDeck
         );
-        setCurrentSlideIndex(targetSlideIndex);
+        handleSelectSlideIndex(targetSlideIndex);
         setSelectedElementIds([target.elementId]);
       } else {
         const elementId = createElementId(activeDeck);
@@ -2017,7 +2222,7 @@ export function EditorShell(props: { projectId?: string }) {
             }),
           activeDeck
         );
-        setCurrentSlideIndex(targetSlideIndex);
+        handleSelectSlideIndex(targetSlideIndex);
         setSelectedElementIds([elementId]);
         setEditingElementId(null);
         setInsertTool("select");
@@ -2203,8 +2408,13 @@ export function EditorShell(props: { projectId?: string }) {
   }
 
   function handleAddSlide() {
+    if (!confirmDiscardSpeakerNotesDraft()) {
+      return;
+    }
+
     const slideId = createSlideId(deck);
     const nextOrder = deck.slides.length + 1;
+    resetSpeakerNotesEditState("");
     commitPatch((currentDeck) =>
       createAddSlidePatch(currentDeck, {
         slideId,
@@ -2793,6 +3003,38 @@ export function EditorShell(props: { projectId?: string }) {
       setSelectedKeywordId(null);
     }
   }, [currentSlide, selectedKeywordId]);
+
+  useEffect(() => {
+    const currentNotes = currentSlide?.speakerNotes ?? "";
+
+    if (!isSpeakerNotesEditing) {
+      setSpeakerNotesDraft(currentNotes);
+      setSpeakerNotesDraftBase(currentNotes);
+      setSpeakerNotesEditSlideId(null);
+      return;
+    }
+
+    if (!currentSlide || currentSlide.slideId !== speakerNotesEditSlideId) {
+      resetSpeakerNotesEditState(currentNotes);
+      return;
+    }
+
+    if (currentNotes === speakerNotesDraftBase) {
+      return;
+    }
+
+    if (speakerNotesDraft === speakerNotesDraftBase) {
+      setSpeakerNotesDraft(currentNotes);
+      setSpeakerNotesDraftBase(currentNotes);
+    }
+  }, [
+    currentSlide?.slideId,
+    currentSlide?.speakerNotes,
+    isSpeakerNotesEditing,
+    speakerNotesDraft,
+    speakerNotesDraftBase,
+    speakerNotesEditSlideId
+  ]);
 
   useEffect(() => {
     setSelectedElementIds((current) =>
@@ -3569,7 +3811,23 @@ export function EditorShell(props: { projectId?: string }) {
             </button>
           </div>
 
-          {isSlidesPaneCollapsed ? null : (
+          {isSlidesPaneCollapsed ? (
+            <div className="collapsed-slide-rail">
+              {deck.slides.map((slide, index) => (
+                <button
+                  className={`rail-slide-button ${
+                    index === currentSlideIndex ? "active" : ""
+                  }`}
+                  key={slide.slideId}
+                  type="button"
+                  title={slide.title || `슬라이드 ${index + 1}`}
+                  onClick={() => handleSelectSlideIndex(index)}
+                >
+                  {index + 1}
+                </button>
+              ))}
+            </div>
+          ) : (
             <div className={`slides-list ${slidePanelView}-view`}>
               {hasSlides ? (
                 deck.slides.map((slide, index) => (
@@ -3577,7 +3835,7 @@ export function EditorShell(props: { projectId?: string }) {
                     className={`slide-item ${index === currentSlideIndex ? "active" : ""}`}
                     key={slide.slideId}
                     type="button"
-                    onClick={() => setCurrentSlideIndex(index)}
+                    onClick={() => handleSelectSlideIndex(index)}
                   >
                     <span className="slide-number">{index + 1}</span>
                     {showIds ? <IdBadge id={slide.slideId} /> : null}
@@ -3906,61 +4164,111 @@ export function EditorShell(props: { projectId?: string }) {
 
             <section className="script-panel">
               <div className="script-panel-header">
-                <strong>발표 메모</strong>
-                <span>
-                  {currentSlide && showIds ? (
-                    <IdBadge id={currentSlide.slideId} />
-                  ) : (
-                    currentSlide?.title || `슬라이드 ${currentSlideIndex + 1}`
-                  )}
-                </span>
+                <div>
+                  <strong>발표 메모</strong>
+                  <span>
+                    {currentSlide && showIds ? (
+                      <IdBadge id={currentSlide.slideId} />
+                    ) : (
+                      currentSlide?.title || `슬라이드 ${currentSlideIndex + 1}`
+                    )}
+                  </span>
+                </div>
+                {isSpeakerNotesEditing ? (
+                  <div className="script-panel-actions">
+                    <button
+                      className="script-panel-action"
+                      type="button"
+                      onClick={handleCancelSpeakerNotesEdit}
+                    >
+                      취소
+                    </button>
+                    <button
+                      className="script-panel-action primary"
+                      type="button"
+                      onClick={handleSaveSpeakerNotesEdit}
+                    >
+                      저장
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    className="script-panel-action"
+                    type="button"
+                    onClick={handleStartSpeakerNotesEdit}
+                  >
+                    수정
+                  </button>
+                )}
               </div>
-              <KeywordHighlightedNotes
-                keywords={currentSlide?.keywords ?? []}
-                notes={currentSlide?.speakerNotes ?? ""}
-                selectedKeywordId={selectedKeywordId}
-                showIds={showIds}
-                onSelectKeyword={setSelectedKeywordId}
-                onSelectKeywordText={handleSpeakerNotesKeywordSelection}
-              />
-              <KeywordList
-                keywords={currentSlide?.keywords ?? []}
-                selectedKeywordId={selectedKeywordId}
-                showIds={showIds}
-                usageByKeywordId={currentSlideKeywordUsage}
-                onSelectKeyword={setSelectedKeywordId}
-              />
-              {selectedKeyword ? (
-                <KeywordDetail
-                  keyword={selectedKeyword}
-                  showIds={showIds}
-                  usage={currentSlideKeywordUsage[selectedKeyword.keywordId] ?? null}
-                  onToggleAdvanceSlide={() => {
-                    if (!currentSlide) {
-                      return;
-                    }
-
-                    handleToggleAdvanceSlideKeyword(
-                      currentSlide.slideId,
-                      selectedKeyword.keywordId,
-                      !(
-                        currentSlideKeywordUsage[selectedKeyword.keywordId]?.advancesSlide ??
-                        false
-                      )
-                    );
-                  }}
-                  onToggleRequired={() => {
-                    if (!currentSlide) {
-                      return;
-                    }
-
-                    handleToggleKeywordRequired(
-                      currentSlide.slideId,
-                      selectedKeyword.keywordId
-                    );
-                  }}
+              {isSpeakerNotesEditing ? (
+                <textarea
+                  className="script-notes-editor"
+                  aria-label="발표 메모 수정"
+                  value={speakerNotesDraft}
+                  onChange={(event) => setSpeakerNotesDraft(event.target.value)}
                 />
-              ) : null}
+              ) : (
+                <>
+                  <KeywordHighlightedNotes
+                    keywords={currentSlide?.keywords ?? []}
+                    notes={currentSlide?.speakerNotes ?? ""}
+                    selectedKeywordId={selectedKeywordId}
+                    showIds={showIds}
+                    onSelectKeyword={handleSelectKeyword}
+                    onSelectKeywordText={handleSpeakerNotesKeywordSelection}
+                  />
+                  <KeywordList
+                    keywords={currentSlide?.keywords ?? []}
+                    selectedKeywordId={selectedKeywordId}
+                    showIds={showIds}
+                    usageByKeywordId={currentSlideKeywordUsage}
+                    onSelectKeyword={handleSelectKeyword}
+                  />
+                  {selectedKeyword ? (
+                    <KeywordDetail
+                      keyword={selectedKeyword}
+                      showIds={showIds}
+                      usage={currentSlideKeywordUsage[selectedKeyword.keywordId] ?? null}
+                      onClearSelection={() => setSelectedKeywordId(null)}
+                      onDeleteKeyword={() => {
+                        if (!currentSlide) {
+                          return;
+                        }
+
+                        handleDeleteSelectedKeyword(
+                          currentSlide.slideId,
+                          selectedKeyword.keywordId
+                        );
+                      }}
+                      onToggleAdvanceSlide={() => {
+                        if (!currentSlide) {
+                          return;
+                        }
+
+                        handleToggleAdvanceSlideKeyword(
+                          currentSlide.slideId,
+                          selectedKeyword.keywordId,
+                          !(
+                            currentSlideKeywordUsage[selectedKeyword.keywordId]
+                              ?.advancesSlide ?? false
+                          )
+                        );
+                      }}
+                      onToggleRequired={() => {
+                        if (!currentSlide) {
+                          return;
+                        }
+
+                        handleToggleKeywordRequired(
+                          currentSlide.slideId,
+                          selectedKeyword.keywordId
+                        );
+                      }}
+                    />
+                  ) : null}
+                </>
+              )}
             </section>
           </div>
         </section>
