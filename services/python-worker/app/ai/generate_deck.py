@@ -327,8 +327,22 @@ class ValidationResult(BaseModel):
     )
 
 
+class TemplateSelectionItem(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    generated_order: int = Field(alias="generatedOrder", ge=1)
+    source_slide_index: int = Field(alias="sourceSlideIndex", ge=1)
+    selection_reason: str = Field(default="", alias="selectionReason")
+
+
 class GenerateDeckResponse(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
     deck: dict[str, Any]
+    template_selection: list[TemplateSelectionItem] = Field(
+        default_factory=list,
+        alias="templateSelection",
+    )
     warnings: list[str] = Field(default_factory=list)
     validation: ValidationResult
 
@@ -1269,7 +1283,8 @@ class DeckGenerationOrchestrator:
         self.run_source_grounding_agent(raw_input)
         outline, slide_plans = self.run_narrative_agent(raw_input)
         slide_plans, theme = self.run_design_director_agent(raw_input, slide_plans)
-        slides = self.run_layout_agent(raw_input, slide_plans, theme)
+        template_selection = template_selection_for_slide_plans(raw_input, slide_plans)
+        slides = self.run_layout_agent(raw_input, slide_plans, theme, template_selection)
         deck = self.build_deck(raw_input, outline, theme, slides)
         self.run_chart_data_agent(deck)
         self.run_media_agent(deck)
@@ -1281,7 +1296,12 @@ class DeckGenerationOrchestrator:
                 *self.agent_warnings(),
             ]
         )
-        return GenerateDeckResponse(deck=deck, warnings=warnings, validation=validation)
+        return GenerateDeckResponse(
+            deck=deck,
+            templateSelection=template_selection,
+            warnings=warnings,
+            validation=validation,
+        )
 
     def record(
         self,
@@ -1369,9 +1389,17 @@ class DeckGenerationOrchestrator:
         raw_input: RawInput,
         slide_plans: list[SlidePlan],
         theme: dict[str, Any],
+        template_selection: list[TemplateSelectionItem],
     ) -> list[dict[str, Any]]:
         slides = [
-            assemble_slide_from_imported_blueprint(raw_input, slide_plan, theme)
+            assemble_slide_from_imported_blueprint(
+                raw_input,
+                slide_plan,
+                theme,
+                template_selection[slide_plan.order - 1]
+                if slide_plan.order <= len(template_selection)
+                else None,
+            )
             if has_imported_design_blueprint(raw_input)
             else assemble_slide(raw_input, slide_plan, plan_visuals(slide_plan), theme)
             for slide_plan in slide_plans
@@ -3048,12 +3076,185 @@ def assemble_slide(
     }
 
 
+def template_selection_for_slide_plans(
+    raw_input: RawInput,
+    slide_plans: list[SlidePlan],
+) -> list[TemplateSelectionItem]:
+    design_slides = imported_design_slides(raw_input)
+    if not design_slides:
+        return []
+    template_slides = {
+        positive_int(slide.get("sourceSlideIndex"), index + 1): slide
+        for index, slide in enumerate(imported_template_slides(raw_input))
+        if isinstance(slide, dict)
+    }
+    usage: dict[int, int] = {}
+    selection: list[TemplateSelectionItem] = []
+
+    for slide_plan in slide_plans:
+        source_slide_index, reason = select_imported_source_slide(
+            slide_plan,
+            design_slides,
+            template_slides,
+            usage,
+        )
+        usage[source_slide_index] = usage.get(source_slide_index, 0) + 1
+        selection.append(
+            TemplateSelectionItem(
+                generatedOrder=slide_plan.order,
+                sourceSlideIndex=source_slide_index,
+                selectionReason=reason,
+            )
+        )
+    return selection
+
+
+def imported_design_slides(raw_input: RawInput) -> list[dict[str, Any]]:
+    blueprint = raw_input.design_blueprint
+    if not isinstance(blueprint, dict):
+        return []
+    slides = blueprint.get("slides")
+    return [
+        slide for slide in slides if isinstance(slide, dict)
+    ] if isinstance(slides, list) else []
+
+
+def imported_template_slides(raw_input: RawInput) -> list[dict[str, Any]]:
+    blueprint = raw_input.template_blueprint
+    if not isinstance(blueprint, dict):
+        return []
+    slides = blueprint.get("slides")
+    return [
+        slide for slide in slides if isinstance(slide, dict)
+    ] if isinstance(slides, list) else []
+
+
+def select_imported_source_slide(
+    slide_plan: SlidePlan,
+    design_slides: list[dict[str, Any]],
+    template_slides: dict[int, dict[str, Any]],
+    usage: dict[int, int],
+) -> tuple[int, str]:
+    candidates: list[tuple[int, int, int, str]] = []
+    for index, slide in enumerate(design_slides):
+        source_index = positive_int(slide.get("sourceSlideIndex"), index + 1)
+        template_slide = template_slides.get(source_index, {})
+        score, reason = imported_slide_match_score(slide_plan, slide, template_slide)
+        score -= usage.get(source_index, 0) * 2
+        candidates.append((score, -abs(source_index - slide_plan.order), -source_index, reason))
+
+    score, _, negative_source_index, reason = max(candidates)
+    return -negative_source_index, f"{reason}; score={score}"
+
+
+def imported_slide_match_score(
+    slide_plan: SlidePlan,
+    slide: dict[str, Any],
+    template_slide: dict[str, Any],
+) -> tuple[int, str]:
+    profile = imported_slide_profile(slide, template_slide)
+    score = 0
+    reasons: list[str] = []
+
+    if slide_plan.slide_type in {"title", "cover"}:
+        if profile["slide_role"] in {"cover", "title", "section"}:
+            score += 10
+            reasons.append("cover/title role")
+        if profile["capacity"] == "low":
+            score += 2
+    elif slide_plan.slide_type == "summary":
+        if profile["slide_role"] in {"closing", "summary", "section"}:
+            score += 8
+            reasons.append("closing role")
+        if profile["layout"] in {"title", "body"}:
+            score += 2
+    elif slide_plan.slide_type in {"data", "chart"}:
+        if "metric" in profile["roles"] or profile["slide_role"] in {"metric", "chart"}:
+            score += 9
+            reasons.append("metric/chart role")
+        if profile["layout"] in {"metric", "chart"}:
+            score += 4
+    elif slide_plan.slide_type in {"comparison", "process", "feature-grid"}:
+        if profile["layout"] in {"comparison", "two-column", "body"}:
+            score += 6
+            reasons.append("structured body layout")
+        if profile["capacity"] in {"medium", "high"}:
+            score += 3
+    elif "body" in profile["roles"] or profile["capacity"] in {"medium", "high"}:
+        score += 5
+        reasons.append("body capacity")
+
+    score += slot_preset_profile_score(slide_plan.slot_preset, profile)
+    if not reasons:
+        reasons.append("fallback semantic match")
+    return score, ", ".join(reasons)
+
+
+def imported_slide_profile(
+    slide: dict[str, Any],
+    template_slide: dict[str, Any],
+) -> dict[str, Any]:
+    elements = [
+        element for element in slide.get("elements", []) if isinstance(element, dict)
+    ]
+    slots = [
+        slot for slot in template_slide.get("slots", []) if isinstance(slot, dict)
+    ]
+    roles = {
+        str(element.get("role", ""))
+        for element in elements
+        if str(element.get("role", ""))
+    } | {
+        str(slot.get("slotRole", ""))
+        for slot in slots
+        if str(slot.get("slotRole", ""))
+    }
+    slide_role = str(template_slide.get("slideRole") or "")
+    style = slide.get("style") if isinstance(slide.get("style"), dict) else {}
+    layout = str(template_slide.get("layoutType") or style.get("layout") or "")
+    capacity = str(template_slide.get("contentCapacity") or "")
+    if not capacity:
+        content_count = len(
+            roles & {"title", "subtitle", "body", "caption", "label", "metric"}
+        )
+        capacity = "low" if content_count <= 2 else "medium" if content_count <= 5 else "high"
+    return {
+        "roles": roles,
+        "slide_role": slide_role or ("metric" if "metric" in roles else "body"),
+        "layout": layout or "body",
+        "capacity": capacity,
+    }
+
+
+def slot_preset_profile_score(
+    slot_preset: SlotPreset | None,
+    profile: dict[str, Any],
+) -> int:
+    if slot_preset in {"title_center", "title_full_bleed_image"}:
+        return 4 if profile["layout"] == "title" else 0
+    if slot_preset in {"metric_cards", "big_number_focus"}:
+        return 4 if "metric" in profile["roles"] else 0
+    if slot_preset in {"before_after", "us_vs_them", "criteria_table"}:
+        return 4 if profile["layout"] in {"comparison", "two-column"} else 0
+    if slot_preset in {"title_left_visual_right", "insight_with_evidence"}:
+        return 3 if profile["capacity"] in {"medium", "high"} else 0
+    return 0
+
+
 def assemble_slide_from_imported_blueprint(
     raw_input: RawInput,
     slide_plan: SlidePlan,
     theme: dict[str, Any],
+    template_selection: TemplateSelectionItem | None = None,
 ) -> dict[str, Any]:
-    imported_slide = imported_slide_for_order(raw_input, slide_plan.order)
+    source_slide_index = (
+        template_selection.source_slide_index if template_selection is not None else None
+    )
+    imported_slide = imported_slide_for_order(
+        raw_input,
+        slide_plan.order,
+        source_slide_index,
+    )
     if not imported_slide:
         return assemble_slide(raw_input, slide_plan, plan_visuals(slide_plan), theme)
 
@@ -3061,7 +3262,11 @@ def assemble_slide_from_imported_blueprint(
         imported_slide,
         slide_plan,
         theme,
-        imported_template_slide_for_order(raw_input, slide_plan.order),
+        imported_template_slide_for_order(
+            raw_input,
+            slide_plan.order,
+            source_slide_index,
+        ),
     )
     elements = cap_elements(
         elements,
@@ -3105,6 +3310,7 @@ def assemble_slide_from_imported_blueprint(
 def imported_slide_for_order(
     raw_input: RawInput,
     order: int,
+    source_slide_index: int | None = None,
 ) -> dict[str, Any] | None:
     if not has_imported_design_blueprint(raw_input):
         return None
@@ -3114,6 +3320,13 @@ def imported_slide_for_order(
     slides = blueprint.get("slides")
     if not isinstance(slides, list) or not slides:
         return None
+    if source_slide_index is not None:
+        for slide in slides:
+            if (
+                isinstance(slide, dict)
+                and positive_int(slide.get("sourceSlideIndex"), 0) == source_slide_index
+            ):
+                return slide
     slide = slides[(order - 1) % len(slides)]
     return slide if isinstance(slide, dict) else None
 
@@ -3121,6 +3334,7 @@ def imported_slide_for_order(
 def imported_template_slide_for_order(
     raw_input: RawInput,
     order: int,
+    source_slide_index: int | None = None,
 ) -> dict[str, Any] | None:
     blueprint = raw_input.template_blueprint
     if not isinstance(blueprint, dict):
@@ -3128,8 +3342,23 @@ def imported_template_slide_for_order(
     slides = blueprint.get("slides")
     if not isinstance(slides, list) or not slides:
         return None
+    if source_slide_index is not None:
+        for slide in slides:
+            if (
+                isinstance(slide, dict)
+                and positive_int(slide.get("sourceSlideIndex"), 0) == source_slide_index
+            ):
+                return slide
     slide = slides[(order - 1) % len(slides)]
     return slide if isinstance(slide, dict) else None
+
+
+def positive_int(value: Any, fallback: int) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return fallback
+    return parsed if parsed > 0 else fallback
 
 
 def imported_elements_for_slide(
