@@ -43,7 +43,7 @@
 | D14 | 동일 order 실행 | 같은 `order` = 같은 스텝 그룹 = **동시 실행**(스키마상 order 중복 허용 확인). 각자의 delayMs/durationMs는 해당 order 그룹 시작 기준 개별 적용, 렌더 tie-break는 배열 인덱스 |
 | D15 | presenterSettings scope | **전역 단일**(1차 최소). localStorage key `orbit:presenter:global:v1` — 버전 suffix로 마이그레이션 대비. 덱별 오버라이드는 필요 확인 시 후속(`orbit:presenter:deck:<deckId>:v1` 예약) |
 | D16 | 문장 분할·구절 추출 방식 | **결정론적 휴리스틱**(문장부호 분리 + 조사 stopword 목록 + 2~4어절 추출). NLP 라이브러리 미도입. 조건: ① `PhraseExtractor` 인터페이스 격리+config 외부화, ② 대본·전사 **대칭 정규화**, ③ 조사 제거는 어간 2음절 이상 남을 때만 1회, ④ P3 하네스 매칭률 미달 시에만 형태소 분석기 v2 검토(근거 기반 승격) |
-| D17 | W1 확정 전 큐 공급 | **내부 config가 1차 CueProvider 구현체.** config 스키마는 W1 제안 `speechCueSchema`의 부분집합을 **그대로 미러링**(`{slideId, trigger.phrases, action{type, animationId\|elementId}}`) — W1 확정 시 데이터 변환 없이 로더 교체만. config 빈 덱 = 전부 자동 재생(D13 기본 동작)이므로 프로덕션은 W1 출시 전까지 자연 퇴화 상태로 동작, 내부 config는 개발·데모·E2E의 실데이터 검증용. 타 담당에게 계약 선제공 요구 없음(병렬 트랙 원칙) |
+| D17 | W1 확정 전 큐 공급 | **Deck `slide.speechCues[]`가 1차 CueProvider 입력.** 슬라이드에 enabled Deck cue가 없을 때만 내부 config fallback을 사용한다. 내부 config 스키마는 W1 제안 `speechCueSchema`의 부분집합을 미러링해 provider 교체 없이 테스트·데모 데이터를 공급한다. Deck/internal cue가 모두 비어 있으면 전부 자동 재생(D13 기본 동작)으로 자연 퇴화한다. |
 | D18 | P0 렌더러 구현 경계 | 읽기 전용 렌더링 공용 모듈은 `apps/web/src/features/slides/rendering`에 둔다. P0는 `triggerAnimationIds` 입력 포트만 받고 실제 `CueProvider` 연결은 P5에서 수행한다. `zoom-in`은 최종 표시, `zoom-out`은 최종 숨김, `rotate`는 360도 transient 후 원래 rotation으로 복원된다. |
 
 **결정 대기 항목: 없음.** 구현 중 새 모호점 발생 시 임의 판단하지 않고 D# 추가 질의 후 진행.
@@ -204,7 +204,7 @@ interface SttResult {
 
 ### 5.7 CueEngine — 발화 기반 강조/애니메이션
 
-- `CueProvider` 인터페이스로 큐 소스 격리(D17): 1차 구현 = 내부 config(기존 web-internal 방식 승계). **config 스키마는 W1 제안 스키마의 부분집합을 미러링**해 W1 확정 시 로더 교체만으로 전환 — 소비 로직·데이터 모델 무변경. config 빈 덱은 D13에 의해 전부 자동 재생으로 자연 퇴화(별도 모드 불필요). P0는 `getCues(slideId)`에서 파생한 트리거 animationId 집합만 사용, phrases는 P5에서 사용.
+- `CueProvider` 인터페이스로 큐 소스 격리(D17): 현재 구현은 Deck `slide.speechCues[]`를 우선 사용하고, 해당 슬라이드에 enabled Deck cue가 없을 때만 내부 config fallback을 사용한다. config 빈 덱은 D13에 의해 전부 자동 재생으로 자연 퇴화(별도 모드 불필요). P0는 `getCues(slideId)`에서 파생한 트리거 animationId 집합만 사용, phrases는 P5에서 사용.
 - 트리거 매칭(SpeechTracker 구절 매칭 재사용) 시: `highlight` → StateStore 강조 토글, `animation` → `next-step` 커맨드, `advance-slide` → AdvanceController ready 조건과 AND(단독 전환 금지 — 기존 원칙 승계).
 
 ### 5.8 RehearsalPanel — 발표자 뷰 우측 패널 (D10·D11)
