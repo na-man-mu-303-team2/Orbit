@@ -1216,7 +1216,7 @@ function applyPresentationStateToElement<T extends DeckElement>(
     return element;
   }
 
-  const presentedElement: DeckElement = {
+  const presentedElement: T = {
     ...element,
     height: state.height ?? element.height,
     opacity: state.opacity ?? element.opacity,
