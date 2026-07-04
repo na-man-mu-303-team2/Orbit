@@ -44,6 +44,11 @@ import {
   Volume2
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  createAudiencePresenterRealtimePublisher,
+  type AudiencePresenterRealtimePublisher
+} from "../audience/audiencePresenterRealtime";
+import { fetchCurrentAudienceAccessSession } from "../editor/audience-link/audienceLinkApi";
 import { resolveEditorAssetUrl } from "../editor/shared/editorAssetUrl";
 import {
   LiveSttAdapterError,
@@ -1272,6 +1277,7 @@ export function RehearsalWorkspace(props: {
     ReadonlySet<string>
   >(() => new Set());
   const [isSingleScreenOpen, setIsSingleScreenOpen] = useState(false);
+  const [audienceSessionId, setAudienceSessionId] = useState<string | null>(null);
   const [timeMode, setTimeMode] = useState<RehearsalTimeMode>("stopwatch");
   const [timerDurationSeconds, setTimerDurationSeconds] = useState(5 * 60);
   const [elapsedTimeInput, setElapsedTimeInput] = useState("00:00");
@@ -1304,6 +1310,7 @@ export function RehearsalWorkspace(props: {
   );
   const lastSentenceSpokenAtMsRef = useRef<number | null>(null);
   const pauseDetectorRef = useRef<PauseDetector | null>(null);
+  const audiencePublisherRef = useRef<AudiencePresenterRealtimePublisher | null>(null);
   const { settings: presenterSettings, save: savePresenterSettings } =
     usePresenterSettings();
 
@@ -1345,6 +1352,31 @@ export function RehearsalWorkspace(props: {
   useEffect(() => {
     currentSlideIndexRef.current = currentSlideIndex;
   }, [currentSlideIndex]);
+
+  useEffect(() => {
+    if (!props.projectId) {
+      setAudienceSessionId(null);
+      return;
+    }
+
+    let isCancelled = false;
+
+    void fetchCurrentAudienceAccessSession(props.projectId)
+      .then((payload) => {
+        if (!isCancelled) {
+          setAudienceSessionId(payload.session?.sessionId ?? null);
+        }
+      })
+      .catch(() => {
+        if (!isCancelled) {
+          setAudienceSessionId(null);
+        }
+      });
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [props.projectId]);
 
   useEffect(() => {
     liveKeywordStateRef.current = liveKeywordState;
@@ -1454,6 +1486,37 @@ export function RehearsalWorkspace(props: {
     state: presentationChannelState,
     triggerAnimationIds
   });
+  useEffect(() => {
+    if (!audienceSessionId) {
+      audiencePublisherRef.current?.disconnect();
+      audiencePublisherRef.current = null;
+      return;
+    }
+
+    const publisher = createAudiencePresenterRealtimePublisher({
+      sessionId: audienceSessionId
+    });
+    audiencePublisherRef.current = publisher;
+
+    return () => {
+      publisher.disconnect();
+      if (audiencePublisherRef.current === publisher) {
+        audiencePublisherRef.current = null;
+      }
+    };
+  }, [audienceSessionId]);
+
+  useEffect(() => {
+    if (!presentationChannelState) {
+      return;
+    }
+
+    audiencePublisherRef.current?.publishState({
+      state: presentationChannelState,
+      triggerAnimationIds
+    });
+  }, [presentationChannelState, triggerAnimationIds]);
+
   const slideshowAnimationPlan = currentSlide
     ? createSlideshowAnimationPlan({
         slide: currentSlide,

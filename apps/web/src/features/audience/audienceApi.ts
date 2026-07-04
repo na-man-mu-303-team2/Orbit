@@ -1,6 +1,7 @@
 import type {
   AudienceJoinResponse,
   AudienceSessionLookupResponse,
+  AudienceStateResponse,
 } from "@orbit/shared";
 
 export async function lookupAudienceSession(
@@ -62,6 +63,26 @@ export async function fetchAudienceMe(args: {
   }
 
   return response.json() as Promise<AudienceJoinResponse>;
+}
+
+export async function fetchAudienceState(args: {
+  sessionId: string;
+}): Promise<AudienceStateResponse> {
+  const response = await fetch(
+    `/api/v1/presentation-sessions/${encodeURIComponent(
+      args.sessionId,
+    )}/audience/state`,
+    {
+      credentials: "include",
+      method: "GET",
+    },
+  );
+
+  if (!response.ok) {
+    throw await readAudienceError(response);
+  }
+
+  return response.json() as Promise<AudienceStateResponse>;
 }
 
 async function readAudienceError(response: Response) {

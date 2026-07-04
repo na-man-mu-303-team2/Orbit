@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   fetchAudienceMe,
+  fetchAudienceState,
   joinAudienceSession,
   lookupAudienceSession,
 } from "./audienceApi";
@@ -106,6 +107,60 @@ describe("audience API", () => {
     });
     expect(fetcher).toHaveBeenCalledWith(
       "/api/v1/presentation-sessions/session_1/audience/me",
+      expect.objectContaining({ method: "GET", credentials: "include" }),
+    );
+  });
+
+  it("fetches audience realtime state recovery by session id", async () => {
+    const fetcher = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            session: {
+              sessionId: "session_1",
+              projectId: "project_1",
+              joinCode: "123456",
+              status: "live",
+              entryStatus: "open",
+            },
+            participant: {
+              audienceId: "audience_00000000-0000-4000-8000-000000000001",
+              sessionId: "session_1",
+              nickname: "orbit",
+              joinedAt: "2026-07-05T00:00:00.000Z",
+              lastSeenAt: "2026-07-05T00:00:00.000Z",
+              joinedBeforeEnd: true,
+            },
+            state: {
+              sessionId: "session_1",
+              slideId: "slide_1",
+              slideIndex: 0,
+              effectState: { stepIndex: 1 },
+              activeInteractionId: null,
+              updatedAt: "2026-07-05T00:00:00.000Z",
+            },
+            features: {
+              sessionId: "session_1",
+              qnaEnabled: false,
+              aiQnaEnabled: false,
+              pollsEnabled: false,
+              quizzesEnabled: false,
+              reactionsEnabled: false,
+              surveyEnabled: false,
+              updatedAt: "2026-07-05T00:00:00.000Z",
+            },
+          }),
+        ),
+    );
+    vi.stubGlobal("fetch", fetcher);
+
+    await expect(
+      fetchAudienceState({ sessionId: "session_1" }),
+    ).resolves.toMatchObject({
+      state: { slideId: "slide_1", effectState: { stepIndex: 1 } },
+    });
+    expect(fetcher).toHaveBeenCalledWith(
+      "/api/v1/presentation-sessions/session_1/audience/state",
       expect.objectContaining({ method: "GET", credentials: "include" }),
     );
   });
