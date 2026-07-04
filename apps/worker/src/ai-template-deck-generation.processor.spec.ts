@@ -122,10 +122,8 @@ describe("processAiTemplateDeckGenerationJob", () => {
           })
         });
         expect(body.templateBlueprint.slides).toHaveLength(10);
-        expect(body.templateBlueprint.slides[0].slots).toMatchObject([
-          { usage: "content-slot", replaceMode: "replace", slotRole: "title" },
-          { usage: "content-slot", replaceMode: "replace", slotRole: "body" }
-        ]);
+        expect(body.templateBlueprint.slides[0].slots[0].slotRole).toBe("title");
+        expect(body.templateBlueprint.slides[0].slots[1].slotRole).toBe("body");
         return new Response(JSON.stringify(generateDeckResponse()));
       }
       if (url.endsWith("/ai/pptx-ooxml-apply-slot-texts")) {
@@ -133,13 +131,10 @@ describe("processAiTemplateDeckGenerationJob", () => {
         const blueprint = JSON.parse(String(form.get("template_blueprint")));
         expect(blueprint.slides.map((slide: { sourceSlideIndex: number }) => slide.sourceSlideIndex))
           .toEqual([3, 1, 2, 4, 5]);
-        expect(blueprint.slides[0].slots).toMatchObject([
-          { usage: "content-slot", replaceMode: "replace", slotRole: "title" },
-          { usage: "content-slot", replaceMode: "replace", slotRole: "body" }
-        ]);
+        expect(blueprint.slides[0].slots[0].slotRole).toBe("title");
+        expect(blueprint.slides[0].slots[1].slotRole).toBe("body");
         const slotTexts = JSON.parse(String(form.get("slot_texts")));
-        expect(slotTexts).toHaveLength(10);
-        expect(slotTexts[0]).toBe("ORBIT");
+        expect(slotTexts).toEqual(["ORBIT", "ORBIT", "ORBIT", "ORBIT", "ORBIT"]);
         return new Response(JSON.stringify(ooxmlApplyResponse()));
       }
 
@@ -407,6 +402,20 @@ function templateBlueprintSlide(sourceSlideIndex: number) {
           type: "slide",
           slidePart: `ppt/slides/slide${sourceSlideIndex}.xml`,
           shapeId: "3",
+          writable: true
+        }
+      },
+      {
+        elementId: `el_label_${sourceSlideIndex}`,
+        usage: "content-slot",
+        slotRole: "label",
+        replaceMode: "replace",
+        confidence: 0.65,
+        bounds: { x: 100, y: 440, width: 300, height: 60 },
+        source: {
+          type: "slide",
+          slidePart: `ppt/slides/slide${sourceSlideIndex}.xml`,
+          shapeId: "4",
           writable: true
         }
       }

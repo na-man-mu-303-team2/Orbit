@@ -99,6 +99,7 @@ type DeckPatchRow = {
 type SavedSyncAssets = {
   currentPackageFileId: string;
   renderAssetFileIds: string[];
+  renderAssetFileIdsByAssetId: Map<string, string>;
 };
 
 const pptxMimeType =
@@ -332,11 +333,11 @@ async function syncPptxOoxmlWithPython(
   }
 
   const form = new FormData();
+  const ooxmlOperations = operations
+    .filter(isOoxmlSyncOperation)
+    .map((operation) => withSourceSlideId(operation, templateBlueprint));
   form.append("template_blueprint", JSON.stringify(templateBlueprint));
-  form.append(
-    "operations",
-    JSON.stringify(operations.filter(isOoxmlSyncOperation)),
-  );
+  form.append("operations", JSON.stringify(ooxmlOperations));
   form.append("deck_canvas", JSON.stringify(deckCanvas));
   form.append("synced_deck_version", String(payload.targetDeckVersion));
   form.append("render", "true");
@@ -382,6 +383,7 @@ async function saveSyncAssets(
   synced: PptxOoxmlSyncWorkerResponse,
 ): Promise<SavedSyncAssets> {
   const renderAssetFileIds: string[] = [];
+  const renderAssetFileIdsByAssetId = new Map<string, string>();
   let currentPackageFileId = "";
 
   for (const asset of synced.assets) {
@@ -420,6 +422,7 @@ async function saveSyncAssets(
       currentPackageFileId = fileId;
     } else if (asset.assetId.startsWith("slide_render_")) {
       renderAssetFileIds.push(fileId);
+      renderAssetFileIdsByAssetId.set(asset.assetId, fileId);
     }
   }
 
@@ -427,7 +430,7 @@ async function saveSyncAssets(
     throw new Error("PPTX OOXML sync did not return a current package asset.");
   }
 
-  return { currentPackageFileId, renderAssetFileIds };
+  return { currentPackageFileId, renderAssetFileIds, renderAssetFileIdsByAssetId };
 }
 
 function withSyncResult(
@@ -443,6 +446,7 @@ function withSyncResult(
     slides: templateBlueprint.slides.map((slide, index) => ({
       ...slide,
       renderAssetFileId:
+        assets.renderAssetFileIdsByAssetId.get(`slide_render_${slide.sourceSlideIndex}`) ??
         assets.renderAssetFileIds[index] ?? slide.renderAssetFileId,
       elementSources: mergeElementSources(
         slide.elementSources,
@@ -452,6 +456,25 @@ function withSyncResult(
       ),
     })),
   });
+}
+
+function withSourceSlideId(
+  operation: DeckPatchOperation,
+  templateBlueprint: TemplateBlueprint,
+): DeckPatchOperation {
+  if (!("slideId" in operation)) return operation;
+  const generatedSlideIndex = slideIndexFromId(operation.slideId);
+  const sourceSlideIndex = templateBlueprint.slides.find(
+    (slide) => slide.slideIndex === generatedSlideIndex,
+  )?.sourceSlideIndex;
+  if (!sourceSlideIndex || sourceSlideIndex === generatedSlideIndex) return operation;
+  return { ...operation, slideId: `slide_${sourceSlideIndex}` } as DeckPatchOperation;
+}
+
+function slideIndexFromId(slideId: string): number {
+  const suffix = slideId.split("_").at(-1);
+  const index = Number.parseInt(suffix ?? "", 10);
+  return Number.isFinite(index) && index > 0 ? index : 1;
 }
 
 function mergeElementSources(

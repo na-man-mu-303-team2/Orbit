@@ -713,7 +713,7 @@ function slotTextsFromDeck(deck: Deck, templateBlueprint: TemplateBlueprint): st
         continue;
       }
 
-      if (!bodyUsed) {
+      if (["body", "subtitle", "caption"].includes(slot.slotRole) && !bodyUsed) {
         texts.push(primarySlideBodyText(slide));
         bodyUsed = true;
         continue;
