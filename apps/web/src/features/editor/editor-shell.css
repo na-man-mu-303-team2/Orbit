@@ -139,6 +139,38 @@
   color: var(--muted);
 }
 
+.ooxml-sync-pill {
+  max-width: 170px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 7px 10px;
+  border: 1px solid #bfdbfe;
+  border-radius: 999px;
+  background: #eff6ff;
+  color: #1d4ed8;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.ooxml-sync-pill.failed {
+  border-color: #fecaca;
+  background: #fef2f2;
+  color: #b91c1c;
+}
+
+.ooxml-sync-pill.warning {
+  border-color: #fde68a;
+  background: #fffbeb;
+  color: #92400e;
+}
+
+.ooxml-sync-pill.succeeded {
+  border-color: #bbf7d0;
+  background: #f0fdf4;
+  color: #166534;
+}
+
 .topbar-divider {
   width: 1px;
   height: 30px;
@@ -1738,6 +1770,10 @@
   width: 240px;
 }
 
+.compact-property-field-table {
+  width: 320px;
+}
+
 .compact-property-field-color {
   width: 82px;
 }
@@ -1747,11 +1783,17 @@
 }
 
 .compact-property-field input,
-.compact-property-field select {
+.compact-property-field select,
+.compact-property-field textarea {
   min-height: 38px;
   padding: 8px 10px;
   border-radius: 8px;
   font-size: 13px;
+}
+
+.compact-property-field textarea {
+  resize: vertical;
+  min-height: 58px;
 }
 
 .compact-property-field input[type="color"] {
@@ -1946,8 +1988,9 @@
   line-height: 1;
   white-space: nowrap;
   overflow: hidden;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
-    "Liberation Mono", "Courier New", monospace;
+  font-family:
+    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
+    "Courier New", monospace;
   letter-spacing: 0.02em;
 }
 

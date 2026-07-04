@@ -3,9 +3,12 @@ import {
   JobType,
   demoIds,
   generateDeckRequestSchema,
+  aiTemplateDeckGenerationRequestSchema,
   jobSchema,
   nowIso,
-  type GenerateDeckRequest
+  type AiTemplateDeckGenerationRequest,
+  type PptxOoxmlGenerationRequest,
+  type GenerateDeckRequest,
 } from "@orbit/shared";
 import { Queue } from "bullmq";
 
@@ -31,6 +34,14 @@ export const rehearsalSttQueueName = "rehearsal-stt";
 export const rehearsalSttJobName = "rehearsal-stt";
 export const generateDeckQueueName = "generate-deck";
 export const generateDeckJobName = "generate-deck";
+export const aiTemplateDeckGenerationQueueName = "ai-template-deck-generation";
+export const aiTemplateDeckGenerationJobName = "ai-template-deck-generation";
+export const pptxImportQueueName = "pptx-import";
+export const pptxImportJobName = "pptx-import";
+export const pptxOoxmlGenerationQueueName = "pptx-ooxml-generation";
+export const pptxOoxmlGenerationJobName = "pptx-ooxml-generation";
+export const pptxOoxmlSyncQueueName = "pptx-ooxml-sync";
+export const pptxOoxmlSyncJobName = "pptx-ooxml-sync";
 export const workerHealthCheckQueueName = "worker-health-check";
 export const workerHealthCheckJobName = "worker-health-check";
 
@@ -47,8 +58,7 @@ export interface ReferenceExtractBullMqPayload {
   files: ReferenceExtractBullMqFile[];
 }
 
-export interface EnqueueReferenceExtractJobInput
-  extends ReferenceExtractBullMqPayload {
+export interface EnqueueReferenceExtractJobInput extends ReferenceExtractBullMqPayload {
   driver: "bullmq" | "sqs";
   redisUrl: string;
 }
@@ -77,33 +87,79 @@ export interface EnqueueGenerateDeckJobInput extends GenerateDeckBullMqPayload {
   redisUrl: string;
 }
 
+export interface AiTemplateDeckGenerationBullMqPayload {
+  jobId: string;
+  projectId: string;
+  request: AiTemplateDeckGenerationRequest;
+}
+
+export interface EnqueueAiTemplateDeckGenerationJobInput
+  extends AiTemplateDeckGenerationBullMqPayload {
+  driver: "bullmq" | "sqs";
+  redisUrl: string;
+}
+
+export interface PptxImportBullMqPayload {
+  jobId: string;
+  projectId: string;
+  fileId: string;
+}
+
+export interface EnqueuePptxImportJobInput extends PptxImportBullMqPayload {
+  driver: "bullmq" | "sqs";
+  redisUrl: string;
+}
+
+export interface PptxOoxmlGenerationBullMqPayload {
+  jobId: string;
+  projectId: string;
+  request: PptxOoxmlGenerationRequest;
+}
+
+export interface EnqueuePptxOoxmlGenerationJobInput extends PptxOoxmlGenerationBullMqPayload {
+  driver: "bullmq" | "sqs";
+  redisUrl: string;
+}
+
+export interface PptxOoxmlSyncBullMqPayload {
+  jobId: string;
+  projectId: string;
+  deckId: string;
+  changeId: string;
+  targetDeckVersion: number;
+}
+
+export interface EnqueuePptxOoxmlSyncJobInput extends PptxOoxmlSyncBullMqPayload {
+  driver: "bullmq" | "sqs";
+  redisUrl: string;
+}
+
 export interface WorkerHealthCheckBullMqPayload {
   jobId: string;
   projectId: string;
 }
 
-export interface EnqueueWorkerHealthCheckJobInput
-  extends WorkerHealthCheckBullMqPayload {
+export interface EnqueueWorkerHealthCheckJobInput extends WorkerHealthCheckBullMqPayload {
   driver: "bullmq" | "sqs";
   redisUrl: string;
 }
 
 export async function enqueueReferenceExtractJob(
-  input: EnqueueReferenceExtractJobInput
+  input: EnqueueReferenceExtractJobInput,
 ): Promise<void> {
   if (input.driver === "sqs") {
     throw new Error("SqsJobQueue adapter is not implemented yet.");
   }
 
   const queue = new Queue(referenceExtractQueueName, {
-    connection: redisConnectionOptions(input.redisUrl)
+    connection: redisConnectionOptions(input.redisUrl),
   });
 
   try {
     await queue.add(referenceExtractJobName, {
       jobId: input.jobId,
       projectId: input.projectId,
-      files: input.files
+      files: input.files,
     } satisfies ReferenceExtractBullMqPayload);
   } finally {
     await queue.close();
@@ -111,14 +167,14 @@ export async function enqueueReferenceExtractJob(
 }
 
 export async function enqueueRehearsalSttJob(
-  input: EnqueueRehearsalSttJobInput
+  input: EnqueueRehearsalSttJobInput,
 ): Promise<void> {
   if (input.driver === "sqs") {
     throw new Error("SqsJobQueue adapter is not implemented yet.");
   }
 
   const queue = new Queue(rehearsalSttQueueName, {
-    connection: redisConnectionOptions(input.redisUrl)
+    connection: redisConnectionOptions(input.redisUrl),
   });
 
   try {
@@ -127,7 +183,7 @@ export async function enqueueRehearsalSttJob(
       projectId: input.projectId,
       runId: input.runId,
       deckId: input.deckId,
-      audioFileId: input.audioFileId
+      audioFileId: input.audioFileId,
     } satisfies RehearsalSttBullMqPayload);
   } finally {
     await queue.close();
@@ -135,42 +191,132 @@ export async function enqueueRehearsalSttJob(
 }
 
 export async function enqueueGenerateDeckJob(
-  input: EnqueueGenerateDeckJobInput
+  input: EnqueueGenerateDeckJobInput,
 ): Promise<void> {
   if (input.driver === "sqs") {
     throw new Error("SqsJobQueue adapter is not implemented yet.");
   }
 
   const queue = new Queue(generateDeckQueueName, {
-    connection: redisConnectionOptions(input.redisUrl)
+    connection: redisConnectionOptions(input.redisUrl),
   });
 
   try {
     await queue.add(generateDeckJobName, {
       jobId: input.jobId,
       projectId: input.projectId,
-      request: generateDeckRequestSchema.parse(input.request)
+      request: generateDeckRequestSchema.parse(input.request),
     } satisfies GenerateDeckBullMqPayload);
   } finally {
     await queue.close();
   }
 }
 
+export async function enqueueAiTemplateDeckGenerationJob(
+  input: EnqueueAiTemplateDeckGenerationJobInput,
+): Promise<void> {
+  if (input.driver === "sqs") {
+    throw new Error("SqsJobQueue adapter is not implemented yet.");
+  }
+
+  const queue = new Queue(aiTemplateDeckGenerationQueueName, {
+    connection: redisConnectionOptions(input.redisUrl),
+  });
+
+  try {
+    await queue.add(aiTemplateDeckGenerationJobName, {
+      jobId: input.jobId,
+      projectId: input.projectId,
+      request: aiTemplateDeckGenerationRequestSchema.parse(input.request),
+    } satisfies AiTemplateDeckGenerationBullMqPayload);
+  } finally {
+    await queue.close();
+  }
+}
+
+export async function enqueuePptxImportJob(
+  input: EnqueuePptxImportJobInput,
+): Promise<void> {
+  if (input.driver === "sqs") {
+    throw new Error("SqsJobQueue adapter is not implemented yet.");
+  }
+
+  const queue = new Queue(pptxImportQueueName, {
+    connection: redisConnectionOptions(input.redisUrl),
+  });
+
+  try {
+    await queue.add(pptxImportJobName, {
+      jobId: input.jobId,
+      projectId: input.projectId,
+      fileId: input.fileId,
+    } satisfies PptxImportBullMqPayload);
+  } finally {
+    await queue.close();
+  }
+}
+
+export async function enqueuePptxOoxmlGenerationJob(
+  input: EnqueuePptxOoxmlGenerationJobInput,
+): Promise<void> {
+  if (input.driver === "sqs") {
+    throw new Error("SqsJobQueue adapter is not implemented yet.");
+  }
+
+  const queue = new Queue(pptxOoxmlGenerationQueueName, {
+    connection: redisConnectionOptions(input.redisUrl),
+  });
+
+  try {
+    await queue.add(pptxOoxmlGenerationJobName, {
+      jobId: input.jobId,
+      projectId: input.projectId,
+      request: input.request,
+    } satisfies PptxOoxmlGenerationBullMqPayload);
+  } finally {
+    await queue.close();
+  }
+}
+
+export async function enqueuePptxOoxmlSyncJob(
+  input: EnqueuePptxOoxmlSyncJobInput,
+): Promise<void> {
+  if (input.driver === "sqs") {
+    throw new Error("SqsJobQueue adapter is not implemented yet.");
+  }
+
+  const queue = new Queue(pptxOoxmlSyncQueueName, {
+    connection: redisConnectionOptions(input.redisUrl),
+  });
+
+  try {
+    await queue.add(pptxOoxmlSyncJobName, {
+      jobId: input.jobId,
+      projectId: input.projectId,
+      deckId: input.deckId,
+      changeId: input.changeId,
+      targetDeckVersion: input.targetDeckVersion,
+    } satisfies PptxOoxmlSyncBullMqPayload);
+  } finally {
+    await queue.close();
+  }
+}
+
 export async function enqueueWorkerHealthCheckJob(
-  input: EnqueueWorkerHealthCheckJobInput
+  input: EnqueueWorkerHealthCheckJobInput,
 ): Promise<void> {
   if (input.driver === "sqs") {
     throw new Error("SqsJobQueue adapter is not implemented yet.");
   }
 
   const queue = new Queue(workerHealthCheckQueueName, {
-    connection: redisConnectionOptions(input.redisUrl)
+    connection: redisConnectionOptions(input.redisUrl),
   });
 
   try {
     await queue.add(workerHealthCheckJobName, {
       jobId: input.jobId,
-      projectId: input.projectId
+      projectId: input.projectId,
     } satisfies WorkerHealthCheckBullMqPayload);
   } finally {
     await queue.close();
@@ -183,7 +329,8 @@ export function redisConnectionOptions(redisUrl: string) {
     throw new Error("REDIS_URL must use redis:// or rediss://.");
   }
 
-  const db = url.pathname.length > 1 ? Number(url.pathname.slice(1)) : undefined;
+  const db =
+    url.pathname.length > 1 ? Number(url.pathname.slice(1)) : undefined;
   if (db !== undefined && !Number.isInteger(db)) {
     throw new Error("REDIS_URL database index must be an integer.");
   }
@@ -195,7 +342,7 @@ export function redisConnectionOptions(redisUrl: string) {
     password: url.password ? decodeURIComponent(url.password) : undefined,
     port: url.port ? Number(url.port) : 6379,
     tls: url.protocol === "rediss:" ? {} : undefined,
-    username: url.username ? decodeURIComponent(url.username) : undefined
+    username: url.username ? decodeURIComponent(url.username) : undefined,
   };
 }
 
@@ -216,7 +363,7 @@ export class InMemoryJobQueue implements JobQueuePort {
       result: input.payload ?? null,
       error: null,
       createdAt: now,
-      updatedAt: now
+      updatedAt: now,
     });
 
     this.jobs.set(job.jobId, job);
@@ -236,7 +383,7 @@ export class InMemoryJobQueue implements JobQueuePort {
     const job = jobSchema.parse({
       ...current,
       ...patch,
-      updatedAt: nowIso()
+      updatedAt: nowIso(),
     });
     this.jobs.set(jobId, job);
     return job;

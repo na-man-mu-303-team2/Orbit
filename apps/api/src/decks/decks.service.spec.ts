@@ -2,13 +2,14 @@ import { HttpException, HttpStatus } from "@nestjs/common";
 import {
   deckApiErrorSchema,
   deckSchema,
+  jobSchema,
   type Deck,
   type DeckApiError,
   type DeckPatch,
-  type DeckSnapshotReason
+  type DeckSnapshotReason,
 } from "@orbit/shared";
 import type { DataSource } from "typeorm";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { DecksService } from "./decks.service";
 
 type StoredDeckRow = {
@@ -41,14 +42,22 @@ type StoredSnapshotRow = {
   created_at: string;
 };
 
+type StoredTemplateBlueprintRow = {
+  template_id: string;
+  project_id: string;
+  deck_id: string;
+  blueprint_json: unknown;
+};
+
 class InMemoryDeckDataSource {
   readonly decks = new Map<string, StoredDeckRow>();
   readonly patchRows: StoredPatchRow[] = [];
   readonly snapshotRows: StoredSnapshotRow[] = [];
+  readonly templateBlueprintRows: StoredTemplateBlueprintRow[] = [];
   readonly executedQueries: string[] = [];
 
   async transaction<T>(
-    run: (manager: InMemoryDeckDataSource) => Promise<T>
+    run: (manager: InMemoryDeckDataSource) => Promise<T>,
   ): Promise<T> {
     return run(this);
   }
@@ -77,7 +86,9 @@ class InMemoryDeckDataSource {
 
     if (
       query.startsWith("SELECT change_id, project_id, deck_id") &&
-      query.includes("WHERE project_id = $1 AND deck_id = $2 AND after_version > $3")
+      query.includes(
+        "WHERE project_id = $1 AND deck_id = $2 AND after_version > $3",
+      )
     ) {
       const [projectId, deckId, version] = params as [string, string, number];
       return this.patchRows
@@ -85,12 +96,12 @@ class InMemoryDeckDataSource {
           (row) =>
             row.project_id === projectId &&
             row.deck_id === deckId &&
-            row.after_version > version
+            row.after_version > version,
         )
         .sort((left, right) =>
           left.after_version !== right.after_version
             ? left.after_version - right.after_version
-            : left.created_at.localeCompare(right.created_at)
+            : left.created_at.localeCompare(right.created_at),
         )
         .map(clonePatchRow) as T;
     }
@@ -101,14 +112,14 @@ class InMemoryDeckDataSource {
         string,
         Deck,
         number,
-        string
+        string,
       ];
       const row: StoredDeckRow = {
         project_id: projectId,
         deck_id: deckId,
         deck_json: cloneJson(deck),
         version,
-        updated_at: updatedAt
+        updated_at: updatedAt,
       };
 
       this.decks.set(projectId, row);
@@ -125,7 +136,7 @@ class InMemoryDeckDataSource {
         source,
         actorUserId,
         operations,
-        createdAt
+        createdAt,
       ] = params as [
         string,
         string,
@@ -135,7 +146,7 @@ class InMemoryDeckDataSource {
         string,
         string | null,
         DeckPatch["operations"] | string,
-        string
+        string,
       ];
       const normalizedOperations =
         typeof operations === "string"
@@ -151,14 +162,22 @@ class InMemoryDeckDataSource {
         source,
         actor_user_id: actorUserId,
         operations: cloneJson(normalizedOperations),
-        created_at: createdAt
+        created_at: createdAt,
       });
       return [] as T;
     }
 
     if (query.startsWith("INSERT INTO deck_snapshots")) {
       const [snapshotId, projectId, deckId, deck, version, reason, createdAt] =
-        params as [string, string, string, Deck, number, DeckSnapshotReason, string];
+        params as [
+          string,
+          string,
+          string,
+          Deck,
+          number,
+          DeckSnapshotReason,
+          string,
+        ];
       const row: StoredSnapshotRow = {
         snapshot_id: snapshotId,
         project_id: projectId,
@@ -166,7 +185,7 @@ class InMemoryDeckDataSource {
         deck_json: cloneJson(deck),
         version,
         reason,
-        created_at: createdAt
+        created_at: createdAt,
       };
 
       this.snapshotRows.push(row);
@@ -175,7 +194,9 @@ class InMemoryDeckDataSource {
 
     if (
       query.startsWith("DELETE FROM deck_patches") &&
-      query.includes("WHERE project_id = $1 AND deck_id = $2 AND after_version > $3")
+      query.includes(
+        "WHERE project_id = $1 AND deck_id = $2 AND after_version > $3",
+      )
     ) {
       const [projectId, deckId, version] = params as [string, string, number];
       for (let index = this.patchRows.length - 1; index >= 0; index -= 1) {
@@ -193,7 +214,9 @@ class InMemoryDeckDataSource {
 
     if (
       query.startsWith("DELETE FROM deck_patches") &&
-      query.includes("WHERE project_id = $1 AND deck_id = $2 AND after_version <= $3")
+      query.includes(
+        "WHERE project_id = $1 AND deck_id = $2 AND after_version <= $3",
+      )
     ) {
       const [projectId, deckId, version] = params as [string, string, number];
       for (let index = this.patchRows.length - 1; index >= 0; index -= 1) {
@@ -222,12 +245,25 @@ class InMemoryDeckDataSource {
     }
 
     if (
+      query.startsWith("SELECT template_id, blueprint_json") &&
+      query.includes("FROM template_blueprints")
+    ) {
+      const [projectId, deckId] = params as [string, string];
+      return this.templateBlueprintRows
+        .filter((row) => row.project_id === projectId && row.deck_id === deckId)
+        .map((row) => ({
+          template_id: row.template_id,
+          blueprint_json: cloneJson(row.blueprint_json),
+        })) as T;
+    }
+
+    if (
       query.startsWith("SELECT snapshot_id, project_id, deck_id") &&
       query.includes("WHERE snapshot_id = $1")
     ) {
       const [snapshotId] = params as [string];
       const row = this.snapshotRows.find(
-        (snapshot) => snapshot.snapshot_id === snapshotId
+        (snapshot) => snapshot.snapshot_id === snapshotId,
       );
       return (row ? [cloneSnapshotRow(row)] : []) as T;
     }
@@ -243,6 +279,72 @@ function createService() {
   return { dataSource, service };
 }
 
+function createJob(jobId = "job_sync_1") {
+  return jobSchema.parse({
+    jobId,
+    projectId: "project_demo_1",
+    type: "pptx-ooxml-sync",
+    status: "queued",
+    progress: 0,
+    message: "Job queued",
+    result: null,
+    error: null,
+    createdAt: "2026-07-03T00:00:00.000Z",
+    updatedAt: "2026-07-03T00:00:00.000Z",
+  });
+}
+
+function stubOrbitEnv() {
+  const values = {
+    NODE_ENV: "test",
+    APP_ENV: "local",
+    WEB_PORT: "5173",
+    API_PORT: "3000",
+    WORKER_PORT: "3001",
+    PYTHON_WORKER_PORT: "8000",
+    WEB_ORIGIN: "http://localhost:5173",
+    API_BASE_URL: "http://localhost:3000",
+    PYTHON_WORKER_URL: "http://localhost:8000",
+    DATABASE_URL: "postgres://orbit:orbit@localhost:5432/orbit",
+    REDIS_URL: "redis://localhost:6379",
+    SESSION_SECRET: "local-session-secret-change-me",
+    COOKIE_SECRET: "local-cookie-secret-change-me",
+    STORAGE_DRIVER: "minio",
+    S3_ENDPOINT: "http://localhost:9000",
+    S3_PUBLIC_ENDPOINT: "http://localhost:9000",
+    S3_BUCKET: "orbit-local",
+    S3_REGION: "ap-northeast-2",
+    S3_ACCESS_KEY_ID: "orbit",
+    S3_SECRET_ACCESS_KEY: "orbit-password",
+    S3_FORCE_PATH_STYLE: "true",
+    JOB_QUEUE_DRIVER: "bullmq",
+    LIVE_STT_PROVIDER: "sherpa",
+    REPORT_STT_PROVIDER: "openai",
+    OCR_PROVIDER: "python",
+    LLM_PROVIDER: "openai",
+    OPENAI_API_KEY: "",
+    OPENAI_MODEL: "gpt-4.1-mini",
+    OPENAI_TRANSCRIPTION_MODEL: "gpt-4o-transcribe",
+    OPENAI_EMBEDDING_MODEL: "text-embedding-3-small",
+    AWS_REGION: "ap-northeast-2",
+    AWS_ACCESS_KEY_ID: "",
+    AWS_SECRET_ACCESS_KEY: "",
+    TRANSCRIBE_LANGUAGE_CODE: "ko-KR",
+    TEXTRACT_ENABLED: "false",
+    LOG_LEVEL: "debug",
+    LOG_PRETTY: "false",
+    DEMO_USER_ID: "user_demo_1",
+    DEMO_WORKSPACE_ID: "workspace_demo_1",
+    DEMO_PROJECT_ID: "project_demo_1",
+    DEMO_DECK_ID: "deck_demo_1",
+    DEMO_SESSION_ID: "session_demo_1",
+  };
+
+  for (const [key, value] of Object.entries(values)) {
+    vi.stubEnv(key, value);
+  }
+}
+
 function createDeck(): Deck {
   return deckSchema.parse({
     deckId: "deck_demo_1",
@@ -251,21 +353,21 @@ function createDeck(): Deck {
     version: 1,
     metadata: {
       language: "ko",
-      locale: "ko-KR"
+      locale: "ko-KR",
     },
     canvas: {
       preset: "wide-16-9",
       width: 1920,
       height: 1080,
-      aspectRatio: "16:9"
+      aspectRatio: "16:9",
     },
     slides: [
       {
         slideId: "slide_intro",
         order: 1,
-        title: "소개"
-      }
-    ]
+        title: "소개",
+      },
+    ],
   });
 }
 
@@ -307,21 +409,21 @@ function createNormalizedLegacyKeywords(): Deck["slides"][number]["keywords"] {
 function seedStoredDeck(
   dataSource: InMemoryDeckDataSource,
   deck: Deck,
-  deckJson: unknown
+  deckJson: unknown,
 ): void {
   dataSource.decks.set(deck.projectId, {
     project_id: deck.projectId,
     deck_id: deck.deckId,
     deck_json: cloneJson(deckJson),
     version: deck.version,
-    updated_at: "2026-06-29T00:00:00.000Z"
+    updated_at: "2026-06-29T00:00:00.000Z",
   });
 }
 
 function createUpdateTitlePatch(
   deck: Deck,
   title: string,
-  baseVersion = deck.version
+  baseVersion = deck.version,
 ): DeckPatch {
   return {
     deckId: deck.deckId,
@@ -330,16 +432,16 @@ function createUpdateTitlePatch(
     operations: [
       {
         type: "update_deck",
-        title
-      }
-    ]
+        title,
+      },
+    ],
   };
 }
 
 async function expectDeckApiError(
   action: () => Promise<unknown>,
   status: HttpStatus,
-  code: DeckApiError["code"]
+  code: DeckApiError["code"],
 ): Promise<DeckApiError> {
   try {
     await action();
@@ -364,25 +466,28 @@ function normalizeSql(sql: string): string {
 function cloneDeckRow(row: StoredDeckRow): StoredDeckRow {
   return {
     ...row,
-    deck_json: cloneJson(row.deck_json)
+    deck_json: cloneJson(row.deck_json),
   };
 }
 
 function cloneSnapshotRow(row: StoredSnapshotRow): StoredSnapshotRow {
   return {
     ...row,
-    deck_json: cloneJson(row.deck_json)
+    deck_json: cloneJson(row.deck_json),
   };
 }
 
 function clonePatchRow(row: StoredPatchRow): StoredPatchRow {
   return {
     ...row,
-    operations: cloneJson(row.operations)
+    operations: cloneJson(row.operations),
   };
 }
 
-function compareSnapshotRows(a: StoredSnapshotRow, b: StoredSnapshotRow): number {
+function compareSnapshotRows(
+  a: StoredSnapshotRow,
+  b: StoredSnapshotRow,
+): number {
   const createdAtOrder = b.created_at.localeCompare(a.created_at);
   if (createdAtOrder !== 0) {
     return createdAtOrder;
@@ -399,6 +504,10 @@ function cloneJson<T>(value: T): T {
 }
 
 describe("DecksService", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
   it("stores and reads a current deck with an automatic snapshot", async () => {
     const { service } = createService();
     const deck = createDeck();
@@ -411,19 +520,19 @@ describe("DecksService", () => {
       deckId: deck.deckId,
       projectId: deck.projectId,
       title: deck.title,
-      version: 1
+      version: 1,
     });
     expect(putResponse.snapshot).toMatchObject({
       projectId: deck.projectId,
       deckId: deck.deckId,
       version: 1,
-      reason: "deck-replaced"
+      reason: "deck-replaced",
     });
     expect(putResponse.snapshot.snapshotId).toMatch(/^snapshot_/);
     expect(getResponse.deck.title).toBe(deck.title);
     expect(snapshotResponse.snapshots).toHaveLength(1);
     expect(snapshotResponse.snapshots[0]?.snapshotId).toBe(
-      putResponse.snapshot.snapshotId
+      putResponse.snapshot.snapshotId,
     );
   });
 
@@ -436,7 +545,7 @@ describe("DecksService", () => {
     const response = await service.getDeck(deck.projectId);
 
     expect(response.deck.slides[0].keywords).toEqual(
-      createNormalizedLegacyKeywords()
+      createNormalizedLegacyKeywords(),
     );
   });
 
@@ -459,7 +568,7 @@ describe("DecksService", () => {
     const staleDeck = {
       ...deck,
       projectId: "project_stale",
-      deckId: "deck_stale"
+      deckId: "deck_stale",
     };
 
     seedStoredDeck(dataSource, deck, staleDeck);
@@ -477,21 +586,21 @@ describe("DecksService", () => {
     seedStoredDeck(dataSource, deck, createLegacyKeywordDeck(deck));
 
     const response = await service.appendPatch(deck.projectId, {
-      patch: createUpdateTitlePatch(deck, "수정된 덱")
+      patch: createUpdateTitlePatch(deck, "수정된 덱"),
     });
     const getResponse = await service.getDeck(deck.projectId);
 
     expect(response.deck.title).toBe("수정된 덱");
     expect(response.deck.slides[0].keywords).toEqual(
-      createNormalizedLegacyKeywords()
+      createNormalizedLegacyKeywords(),
     );
     expect(getResponse.deck).toMatchObject({
       title: "수정된 덱",
       slides: [
         {
-          keywords: createNormalizedLegacyKeywords()
-        }
-      ]
+          keywords: createNormalizedLegacyKeywords(),
+        },
+      ],
     });
   });
 
@@ -501,7 +610,7 @@ describe("DecksService", () => {
     await service.putDeck(deck.projectId, { deck });
 
     const patchResponse = await service.appendPatch(deck.projectId, {
-      patch: createUpdateTitlePatch(deck, "수정된 덱")
+      patch: createUpdateTitlePatch(deck, "수정된 덱"),
     });
     const getResponse = await service.getDeck(deck.projectId);
     const snapshotResponse = await service.listSnapshots(deck.projectId);
@@ -512,19 +621,74 @@ describe("DecksService", () => {
       deckId: deck.deckId,
       beforeVersion: 1,
       afterVersion: 2,
-      source: "user"
+      source: "user",
     });
     expect(patchResponse.snapshot).toBeNull();
     expect(dataSource.patchRows).toHaveLength(1);
     expect(dataSource.patchRows[0]).toMatchObject({
       deck_id: deck.deckId,
       before_version: 1,
-      after_version: 2
+      after_version: 2,
     });
     expect(dataSource.decks.get(deck.projectId)?.version).toBe(1);
     expect(getResponse.deck.version).toBe(2);
     expect(getResponse.deck.title).toBe("수정된 덱");
-    expect(snapshotResponse.snapshots.map((snapshot) => snapshot.version).sort()).toEqual([1]);
+    expect(
+      snapshotResponse.snapshots.map((snapshot) => snapshot.version).sort(),
+    ).toEqual([1]);
+  });
+
+  it("enqueues OOXML sync after patching an OOXML-backed deck", async () => {
+    stubOrbitEnv();
+    const dataSource = new InMemoryDeckDataSource();
+    const deck = createDeck();
+    const syncJob = createJob();
+    const jobsService = {
+      create: vi.fn(async () => syncJob),
+      update: vi.fn(),
+    };
+    const enqueueSyncJob = vi.fn(async () => undefined);
+    const service = new DecksService(
+      dataSource as unknown as DataSource,
+      jobsService as never,
+      enqueueSyncJob,
+    );
+
+    await service.putDeck(deck.projectId, { deck });
+    dataSource.templateBlueprintRows.push({
+      template_id: "template_file_1",
+      project_id: deck.projectId,
+      deck_id: deck.deckId,
+      blueprint_json: {
+        templateId: "template_file_1",
+        sourceFileId: "file_1",
+        currentPackageFileId: "file_current",
+        slides: [{ slideIndex: 1, sourceSlideIndex: 1, slots: [] }],
+      },
+    });
+
+    const response = await service.appendPatch(deck.projectId, {
+      patch: createUpdateTitlePatch(deck, "Updated deck"),
+    });
+
+    expect(response.ooxmlSyncJob?.jobId).toBe(syncJob.jobId);
+    expect(jobsService.create).toHaveBeenCalledWith({
+      projectId: deck.projectId,
+      type: "pptx-ooxml-sync",
+      payload: {
+        deckId: deck.deckId,
+        changeId: response.changeRecord.changeId,
+        targetDeckVersion: 2,
+      },
+    });
+    expect(enqueueSyncJob).toHaveBeenCalledWith(
+      expect.objectContaining({
+        jobId: syncJob.jobId,
+        projectId: deck.projectId,
+        deckId: deck.deckId,
+        targetDeckVersion: 2,
+      }),
+    );
   });
 
   it("restores a snapshot into the current deck", async () => {
@@ -532,31 +696,31 @@ describe("DecksService", () => {
     const deck = createDeck();
     const putResponse = await service.putDeck(deck.projectId, { deck });
     await service.appendPatch(deck.projectId, {
-      patch: createUpdateTitlePatch(deck, "수정된 덱")
+      patch: createUpdateTitlePatch(deck, "수정된 덱"),
     });
 
     const restoreResponse = await service.restoreSnapshot(
       deck.projectId,
-      putResponse.snapshot.snapshotId
+      putResponse.snapshot.snapshotId,
     );
     const getResponse = await service.getDeck(deck.projectId);
 
     expect(restoreResponse.restoredSnapshot.snapshotId).toBe(
-      putResponse.snapshot.snapshotId
+      putResponse.snapshot.snapshotId,
     );
     expect(restoreResponse.deck).toMatchObject({
       title: deck.title,
-      version: 1
+      version: 1,
     });
     expect(getResponse.deck).toMatchObject({
       title: deck.title,
-      version: 1
+      version: 1,
     });
     expect(dataSource.patchRows).toHaveLength(0);
     expect(
       dataSource.executedQueries.some((query) =>
-        query.includes("WHERE project_id = $1 AND deck_id = $2 FOR UPDATE")
-      )
+        query.includes("WHERE project_id = $1 AND deck_id = $2 FOR UPDATE"),
+      ),
     ).toBe(true);
   });
 
@@ -566,7 +730,7 @@ describe("DecksService", () => {
     await service.putDeck(deck.projectId, { deck });
 
     const patched = await service.appendPatch(deck.projectId, {
-      patch: createUpdateTitlePatch(deck, "수정된 덱")
+      patch: createUpdateTitlePatch(deck, "수정된 덱"),
     });
 
     expect(dataSource.patchRows).toHaveLength(1);
@@ -588,23 +752,23 @@ describe("DecksService", () => {
       deck_json: createLegacyKeywordDeck(deck),
       version: deck.version,
       reason: "deck-replaced",
-      created_at: "2026-06-29T00:00:00.000Z"
+      created_at: "2026-06-29T00:00:00.000Z",
     });
 
     const response = await service.restoreSnapshot(
       deck.projectId,
-      "snapshot_legacy_keywords"
+      "snapshot_legacy_keywords",
     );
 
     expect(response.deck.slides[0].keywords).toEqual(
-      createNormalizedLegacyKeywords()
+      createNormalizedLegacyKeywords(),
     );
     expect(dataSource.decks.get(deck.projectId)?.deck_json).toMatchObject({
       slides: [
         {
-          keywords: createNormalizedLegacyKeywords()
-        }
-      ]
+          keywords: createNormalizedLegacyKeywords(),
+        },
+      ],
     });
   });
 
@@ -616,16 +780,13 @@ describe("DecksService", () => {
     const error = await expectDeckApiError(
       () =>
         service.appendPatch(deck.projectId, {
-          patch: createUpdateTitlePatch(deck, "수정된 덱", 2)
+          patch: createUpdateTitlePatch(deck, "수정된 덱", 2),
         }),
       HttpStatus.CONFLICT,
-      "STALE_BASE_VERSION"
+      "STALE_BASE_VERSION",
     );
 
-    expect(error.details).toEqual([
-      "deck.version=1",
-      "patch.baseVersion=2"
-    ]);
+    expect(error.details).toEqual(["deck.version=1", "patch.baseVersion=2"]);
   });
 
   it("rejects reads when stored patch chain does not start from the checkpoint version", async () => {
@@ -641,13 +802,13 @@ describe("DecksService", () => {
       source: "user",
       actor_user_id: null,
       operations: createUpdateTitlePatch(deck, "수정된 덱", 2).operations,
-      created_at: "2026-06-30T00:00:00.000Z"
+      created_at: "2026-06-30T00:00:00.000Z",
     });
 
     const error = await expectDeckApiError(
       () => service.getDeck(deck.projectId),
       HttpStatus.CONFLICT,
-      "PATCH_CHAIN_CHECKPOINT_MISMATCH"
+      "PATCH_CHAIN_CHECKPOINT_MISMATCH",
     );
 
     expect(error.details).toContain("checkpoint.version=1");
@@ -666,8 +827,12 @@ describe("DecksService", () => {
       after_version: 3,
       source: "user",
       actor_user_id: null,
-      operations: createUpdateTitlePatch({ ...deck, version: 2 }, "세 번째 덱", 2).operations,
-      created_at: "2026-06-30T00:00:00.000Z"
+      operations: createUpdateTitlePatch(
+        { ...deck, version: 2 },
+        "세 번째 덱",
+        2,
+      ).operations,
+      created_at: "2026-06-30T00:00:00.000Z",
     });
     dataSource.patchRows.push({
       change_id: "change_gap_middle",
@@ -677,14 +842,18 @@ describe("DecksService", () => {
       after_version: 5,
       source: "user",
       actor_user_id: null,
-      operations: createUpdateTitlePatch({ ...deck, version: 4 }, "수정된 덱", 4).operations,
-      created_at: "2026-06-30T00:00:01.000Z"
+      operations: createUpdateTitlePatch(
+        { ...deck, version: 4 },
+        "수정된 덱",
+        4,
+      ).operations,
+      created_at: "2026-06-30T00:00:01.000Z",
     });
 
     const error = await expectDeckApiError(
       () => service.getDeck(deck.projectId),
       HttpStatus.CONFLICT,
-      "PATCH_CHAIN_INVALID"
+      "PATCH_CHAIN_INVALID",
     );
 
     expect(error.details).toContain("expected.beforeVersion=3");
@@ -704,13 +873,13 @@ describe("DecksService", () => {
       source: "user",
       actor_user_id: null,
       operations: createUpdateTitlePatch(deck, "수정된 덱").operations,
-      created_at: "2026-06-30T00:00:00.000Z"
+      created_at: "2026-06-30T00:00:00.000Z",
     });
 
     const error = await expectDeckApiError(
       () => service.getDeck(deck.projectId),
       HttpStatus.CONFLICT,
-      "PATCH_CHAIN_INVALID"
+      "PATCH_CHAIN_INVALID",
     );
 
     expect(error.details).toContain("patch.beforeVersion=1");
@@ -723,7 +892,7 @@ describe("DecksService", () => {
     await expectDeckApiError(
       () => service.getDeck("project_demo_1"),
       HttpStatus.NOT_FOUND,
-      "DECK_NOT_FOUND"
+      "DECK_NOT_FOUND",
     );
   });
 
@@ -734,10 +903,10 @@ describe("DecksService", () => {
     await expectDeckApiError(
       () =>
         service.appendPatch(deck.projectId, {
-          patch: createUpdateTitlePatch(deck, "수정된 덱")
+          patch: createUpdateTitlePatch(deck, "수정된 덱"),
         }),
       HttpStatus.NOT_FOUND,
-      "DECK_NOT_FOUND"
+      "DECK_NOT_FOUND",
     );
   });
 
@@ -753,11 +922,11 @@ describe("DecksService", () => {
             deckId: deck.deckId,
             baseVersion: deck.version,
             source: "user",
-            operations: []
-          }
+            operations: [],
+          },
         }),
       HttpStatus.BAD_REQUEST,
-      "PATCH_VALIDATION_FAILED"
+      "PATCH_VALIDATION_FAILED",
     );
 
     expect(error.details.join("\n")).toContain("operations");
@@ -800,7 +969,7 @@ describe("DecksService", () => {
           }
         }),
       HttpStatus.BAD_REQUEST,
-      "PATCH_VALIDATION_FAILED"
+      "PATCH_VALIDATION_FAILED",
     );
 
     expect(error.details.join("\n")).toContain("keywords");
@@ -812,14 +981,14 @@ describe("DecksService", () => {
       ...createDeck(),
       metadata: {
         language: "en",
-        locale: "ko-KR"
-      }
+        locale: "ko-KR",
+      },
     };
 
     const error = await expectDeckApiError(
       () => service.putDeck("project_demo_1", { deck: invalidDeck }),
       HttpStatus.BAD_REQUEST,
-      "DECK_VALIDATION_FAILED"
+      "DECK_VALIDATION_FAILED",
     );
 
     expect(error.details.join("\n")).toContain("metadata.language");
@@ -831,7 +1000,7 @@ describe("DecksService", () => {
     await expectDeckApiError(
       () => service.restoreSnapshot("project_demo_1", "snapshot_missing_1"),
       HttpStatus.NOT_FOUND,
-      "SNAPSHOT_NOT_FOUND"
+      "SNAPSHOT_NOT_FOUND",
     );
   });
 
@@ -844,15 +1013,15 @@ describe("DecksService", () => {
       () =>
         service.restoreSnapshot(
           "project_other_1",
-          putResponse.snapshot.snapshotId
+          putResponse.snapshot.snapshotId,
         ),
       HttpStatus.BAD_REQUEST,
-      "SNAPSHOT_PROJECT_MISMATCH"
+      "SNAPSHOT_PROJECT_MISMATCH",
     );
 
     expect(error.details).toEqual([
       "projectId=project_other_1",
-      "snapshot.projectId=project_demo_1"
+      "snapshot.projectId=project_demo_1",
     ]);
   });
 
@@ -863,12 +1032,12 @@ describe("DecksService", () => {
     const error = await expectDeckApiError(
       () => service.putDeck("project_other_1", { deck }),
       HttpStatus.BAD_REQUEST,
-      "PROJECT_MISMATCH"
+      "PROJECT_MISMATCH",
     );
 
     expect(error.details).toEqual([
       "projectId=project_other_1",
-      "deck.projectId=project_demo_1"
+      "deck.projectId=project_demo_1",
     ]);
   });
 });

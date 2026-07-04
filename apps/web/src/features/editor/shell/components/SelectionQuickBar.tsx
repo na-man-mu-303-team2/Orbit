@@ -1,14 +1,19 @@
 import type {
   Chart,
+  ChartType,
   CustomShapeElementProps,
-  DeckElement,
+  Deck,
   DeckAnimation,
+  DeckElement,
+  DeckElementPaint,
   ImageElementProps,
   ShapeElementProps,
   Slide,
+  TableCellProps,
+  TableElementProps,
   TextElementProps
 } from "@orbit/shared";
-import { Lock, LockOpen, Eye, EyeOff, PenLine } from "lucide-react";
+import { AlignCenter, ArrowDown, ArrowUp, Eye, EyeOff, Lock, LockOpen, PenLine } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import {
@@ -23,10 +28,12 @@ export function SelectionQuickBar(props: {
   animations: DeckAnimation[];
   animationDiagnostics: SlideAnimationDiagnostics;
   canCreateAnimation: boolean;
+  canvas: Deck["canvas"] | null;
   customShapeEditActive: boolean;
   element: DeckElement | null;
   selectedKeywordLabel: string | null;
   slide: Slide | null;
+  theme: Deck["theme"] | null;
   onOpenAnimationEditor: () => void;
   onChangeFrame: (frame: {
     role?: DeckElement["role"] | null;
@@ -46,6 +53,7 @@ export function SelectionQuickBar(props: {
     textColor?: string | null;
     accentColor?: string | null;
   }) => void;
+  onChangeTheme: (theme: Record<string, unknown>) => void;
   onDeleteAnimation: (animationId: string) => void;
   onToggleCustomShapeClosed: () => void;
   onToggleCustomShapeEdit: () => void;
@@ -56,17 +64,20 @@ export function SelectionQuickBar(props: {
     animationDiagnostics,
     canCreateAnimation,
     customShapeEditActive,
+    canvas,
     element,
     onOpenAnimationEditor,
     onChangeFrame,
     onChangeProps,
     onChangeSlideStyle,
+    onChangeTheme,
     onDeleteAnimation,
     onToggleCustomShapeClosed,
     onToggleCustomShapeEdit,
     selectedKeywordLabel,
     showIds,
-    slide
+    slide,
+    theme
   } = props;
 
   if (!element && !slide) {
@@ -96,8 +107,50 @@ export function SelectionQuickBar(props: {
             value={slide.style.backgroundColor ?? "#ffffff"}
             onCommit={(value) => onChangeSlideStyle({ backgroundColor: value })}
           />
+          <PropertyColorField
+            className="compact-property-field compact-property-field-color"
+            label="글자색"
+            value={slide.style.textColor ?? "#111827"}
+            onCommit={(value) => onChangeSlideStyle({ textColor: value })}
+          />
+          <PropertyColorField
+            className="compact-property-field compact-property-field-color"
+            label="강조색"
+            value={slide.style.accentColor ?? "#2563eb"}
+            onCommit={(value) => onChangeSlideStyle({ accentColor: value })}
+          />
+          <div className="quickbar-divider" />
+          <PropertyColorField
+            className="compact-property-field compact-property-field-color"
+            label="테마 배경"
+            value={theme?.backgroundColor ?? "#ffffff"}
+            onCommit={(value) => onChangeTheme({ backgroundColor: value })}
+          />
+          <PropertyColorField
+            className="compact-property-field compact-property-field-color"
+            label="테마 강조"
+            value={theme?.accentColor ?? "#2563eb"}
+            onCommit={(value) =>
+              onChangeTheme({ accentColor: value, palette: { primary: value } })
+            }
+          />
+          <PropertyNumberField
+            className="compact-property-field compact-property-field-sm"
+            label="본문 크기"
+            min={8}
+            onCommit={(value) => onChangeTheme({ typography: { bodySize: value } })}
+            value={theme?.typography.bodySize ?? 26}
+          />
+          <PropertyNumberField
+            className="compact-property-field compact-property-field-sm"
+            label="둥글기"
+            min={0}
+            onCommit={(value) => onChangeTheme({ effects: { borderRadius: value } })}
+            value={theme?.effects.borderRadius ?? 8}
+          />
           {danglingAnimations.length > 0 ? (
             <>
+              <div className="quickbar-divider" />
               <span className="quickbar-inline-hint quickbar-inline-hint-warning">
                 정리 필요한 애니메이션 {danglingAnimations.length}개
               </span>
@@ -142,6 +195,48 @@ export function SelectionQuickBar(props: {
           onToggleCustomShapeEdit={onToggleCustomShapeEdit}
         />
         <div className="quickbar-divider" />
+        <button
+          className="quickbar-toggle"
+          aria-label="앞으로 보내기"
+          title="앞으로 보내기"
+          type="button"
+          onClick={() => onChangeFrame({ zIndex: element.zIndex + 1 })}
+        >
+          <ArrowUp size={16} />
+        </button>
+        <button
+          className="quickbar-toggle"
+          aria-label="뒤로 보내기"
+          title="뒤로 보내기"
+          type="button"
+          onClick={() => onChangeFrame({ zIndex: Math.max(0, element.zIndex - 1) })}
+        >
+          <ArrowDown size={16} />
+        </button>
+        {canvas ? (
+          <>
+            <button
+              className="quickbar-toggle"
+              aria-label="가로 가운데 정렬"
+              title="가로 가운데 정렬"
+              type="button"
+              onClick={() =>
+                onChangeFrame({ x: Math.round((canvas.width - element.width) / 2) })
+              }
+            >
+              <AlignCenter size={16} />
+            </button>
+            <button
+              className="quickbar-action-chip"
+              type="button"
+              onClick={() =>
+                onChangeFrame({ y: Math.round((canvas.height - element.height) / 2) })
+              }
+            >
+              세로 가운데
+            </button>
+          </>
+        ) : null}
         <PropertyNumberField
           className="compact-property-field compact-property-field-sm"
           label="회전"
@@ -177,7 +272,7 @@ export function SelectionQuickBar(props: {
         >
           {element.visible ? <Eye size={16} /> : <EyeOff size={16} />}
         </button>
-        {element.type === "image" ? (
+        {element.type === "image" || element.type === "svg" ? (
           <span className="quickbar-inline-hint">
             우클릭해 이미지를 바꿀 수 있습니다
           </span>
@@ -279,6 +374,13 @@ function ElementQuickBarFields(props: {
           value={textProps.verticalAlign}
           onChange={(value) => onChangeProps({ verticalAlign: value })}
         />
+        <button
+          className="quickbar-action-chip"
+          type="button"
+          onClick={() => onChangeProps(createShrinkToFitTextProps(element))}
+        >
+          맞춤 축소
+        </button>
       </>
     );
   }
@@ -299,14 +401,14 @@ function ElementQuickBarFields(props: {
         <PropertyColorField
           className="compact-property-field compact-property-field-color"
           label="채우기"
-          value={shapeProps.fill === "transparent" ? "#dbeafe" : shapeProps.fill}
+          value={solidPaintForControl(shapeProps.fill, "#dbeafe")}
           onCommit={(value) => onChangeProps({ fill: value })}
         />
         <PropertyColorField
           className="compact-property-field compact-property-field-color"
           label="선 색"
           value={
-            shapeProps.stroke === "transparent" ? "#2563eb" : shapeProps.stroke
+            solidPaintForControl(shapeProps.stroke, "#2563eb")
           }
           onCommit={(value) => onChangeProps({ stroke: value })}
         />
@@ -395,21 +497,80 @@ function ElementQuickBarFields(props: {
     );
   }
 
-  if (element.type === "image") {
+  if (element.type === "image" || element.type === "svg") {
     const imageProps = element.props as ImageElementProps;
 
     return (
-      <QuickBarSelectField
-        className="compact-property-field compact-property-field-sm"
-        label="채우기"
-        options={[
-          { label: "맞춤", value: "contain" },
-          { label: "채우기", value: "cover" },
-          { label: "늘리기", value: "stretch" }
-        ]}
-        value={imageProps.fit}
-        onChange={(value) => onChangeProps({ fit: value })}
-      />
+      <>
+        <QuickBarSelectField
+          className="compact-property-field compact-property-field-sm"
+          label="채우기"
+          options={[
+            { label: "맞춤", value: "contain" },
+            { label: "채우기", value: "cover" },
+            { label: "늘리기", value: "stretch" }
+          ]}
+          value={imageProps.fit}
+          onChange={(value) => onChangeProps({ fit: value })}
+        />
+        <PropertyTextField
+          className="compact-property-field compact-property-field-lg"
+          label="대체 텍스트"
+          value={imageProps.alt}
+          onCommit={(value) => onChangeProps({ alt: value })}
+        />
+        <PropertyNumberField
+          className="compact-property-field compact-property-field-sm"
+          label="초점 X"
+          max={1}
+          min={0}
+          step="0.05"
+          value={imageProps.focusX ?? 0.5}
+          onCommit={(value) => onChangeProps({ focusX: clampUnit(value) })}
+        />
+        <PropertyNumberField
+          className="compact-property-field compact-property-field-sm"
+          label="초점 Y"
+          max={1}
+          min={0}
+          step="0.05"
+          value={imageProps.focusY ?? 0.5}
+          onCommit={(value) => onChangeProps({ focusY: clampUnit(value) })}
+        />
+      </>
+    );
+  }
+
+  if (element.type === "table") {
+    const tableProps = element.props as TableElementProps;
+
+    return (
+      <>
+        <PropertyTextAreaField
+          className="compact-property-field compact-property-field-table"
+          label="표 내용"
+          value={tableDataDraft(tableProps)}
+          onCommit={(value) =>
+            onChangeProps(parseTableDataDraft(value, tableProps, element.width, element.height))
+          }
+        />
+        <PropertyColorField
+          className="compact-property-field compact-property-field-color"
+          label="선"
+          value={tableProps.borderColor ?? "#CBD5E1"}
+          onCommit={(value) => onChangeProps({ borderColor: value })}
+        />
+        <PropertyNumberField
+          className="compact-property-field compact-property-field-sm"
+          label="선두께"
+          min={0}
+          onCommit={(value) => onChangeProps({ borderWidth: value })}
+          value={tableProps.borderWidth ?? 1}
+        />
+        <span className="quickbar-inline-hint">
+          행은 줄바꿈, 셀은 탭으로 구분합니다.
+        </span>
+      </>
     );
   }
 
@@ -431,16 +592,245 @@ function ElementQuickBarFields(props: {
             { label: "막대", value: "bar" },
             { label: "선", value: "line" },
             { label: "원형", value: "pie" },
-            { label: "도넛", value: "doughnut" }
+            { label: "도넛", value: "doughnut" },
+            { label: "산점도", value: "scatter" }
           ]}
           value={chart.type}
-          onChange={(value) => onChangeProps({ type: value })}
+          onChange={(value) =>
+            onChangeProps(chartTypePatch(chart, value as ChartType))
+          }
+        />
+        <PropertyTextField
+          className="compact-property-field compact-property-field-lg"
+          label="데이터"
+          value={chartDataDraft(chart)}
+          onCommit={(value) => onChangeProps({ data: parseChartDataDraft(value, chart.type) })}
+        />
+        <PropertyColorField
+          className="compact-property-field compact-property-field-color"
+          label="색상"
+          value={chart.style.colors[0] ?? "#2563eb"}
+          onCommit={(value) =>
+            onChangeProps({
+              style: {
+                ...chart.style,
+                colors: [value, ...chart.style.colors.slice(1)]
+              }
+            })
+          }
         />
       </>
     );
   }
 
   return null;
+}
+
+export function createShrinkToFitTextProps(
+  element: Extract<DeckElement, { type: "text" }>
+) {
+  const lineHeight = Math.min(element.props.lineHeight, 1.15);
+  const minFontSize = 8;
+
+  for (
+    let fontSize = Math.floor(element.props.fontSize);
+    fontSize >= minFontSize;
+    fontSize -= 1
+  ) {
+    if (estimateTextHeight(element.props.text, element.width, fontSize, lineHeight) <= element.height) {
+      return { fontSize, lineHeight };
+    }
+  }
+
+  return { fontSize: minFontSize, lineHeight: 1.05 };
+}
+
+function estimateTextHeight(
+  text: string,
+  width: number,
+  fontSize: number,
+  lineHeight: number
+) {
+  const characterWidth = Math.max(1, fontSize * 0.56);
+  const charactersPerLine = Math.max(1, Math.floor(width / characterWidth));
+  const lineCount = text
+    .split("\n")
+    .reduce(
+      (sum, line) => sum + Math.max(1, Math.ceil(line.length / charactersPerLine)),
+      0
+    );
+
+  return lineCount * fontSize * lineHeight;
+}
+
+function clampUnit(value: number) {
+  return Math.max(0, Math.min(1, Number.isFinite(value) ? value : 0.5));
+}
+
+function chartTypePatch(chart: Chart, type: ChartType) {
+  return {
+    type,
+    data: convertChartData(chart, type)
+  };
+}
+
+function convertChartData(chart: Chart, type: ChartType): Array<Record<string, number | string>> {
+  if (type === "scatter") {
+    return chart.data.map((datum, index) => ({
+      label: datum.label ?? `P${index + 1}`,
+      x: "x" in datum ? datum.x : index + 1,
+      y: "y" in datum ? datum.y : "value" in datum ? datum.value : 0
+    }));
+  }
+
+  return chart.data.map((datum, index) => ({
+    label: datum.label ?? `항목 ${index + 1}`,
+    value: "value" in datum ? datum.value : datum.y
+  }));
+}
+
+function chartDataDraft(chart: Chart) {
+  if (chart.type === "scatter") {
+    return chart.data
+      .map((datum, index) => `${datum.label ?? `P${index + 1}`}:${datum.x}:${datum.y}`)
+      .join(", ");
+  }
+
+  return chart.data
+    .map((datum) => `${datum.label}:${datum.value}`)
+    .join(", ");
+}
+
+function parseChartDataDraft(value: string, type: ChartType): Array<Record<string, number | string>> {
+  const entries = value
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+
+  if (type === "scatter") {
+    return entries.map((entry, index) => {
+      const [label = `항목 ${index + 1}`, first = "0", second = "0"] = entry
+        .split(":")
+        .map((part) => part.trim());
+      return {
+        label,
+        x: Number(first) || 0,
+        y: Number(second) || 0
+      };
+    });
+  }
+
+  return entries.map((entry, index) => {
+    const [label = `항목 ${index + 1}`, first = "0"] = entry
+      .split(":")
+      .map((part) => part.trim());
+    return {
+      label,
+      value:
+        type === "pie" || type === "doughnut"
+          ? Math.max(0, Number(first) || 0)
+          : Number(first) || 0
+    };
+  });
+}
+
+export function tableDataDraft(table: TableElementProps) {
+  return table.rows
+    .map((row) => row.map((cell) => cell.text).join("\t"))
+    .join("\n");
+}
+
+export function parseTableDataDraft(
+  value: string,
+  table: TableElementProps,
+  width: number,
+  height: number
+): Record<string, unknown> {
+  const rowTexts = value
+    .replace(/\r\n/g, "\n")
+    .split("\n")
+    .map((row) => row.split("\t"));
+  const rowCount = Math.max(1, rowTexts.length);
+  const columnCount = Math.max(
+    1,
+    rowTexts.reduce((maxColumns, row) => Math.max(maxColumns, row.length), 0)
+  );
+  const rows = rowTexts.map((row, rowIndex) =>
+    Array.from({ length: columnCount }, (_, columnIndex) => ({
+      ...getTableCellTemplate(table, rowIndex, columnIndex),
+      text: row[columnIndex] ?? ""
+    }))
+  );
+
+  return {
+    columnWidths: normalizeTableTrackSizes(
+      table.columnWidths,
+      columnCount,
+      width
+    ),
+    rowHeights: normalizeTableTrackSizes(table.rowHeights, rowCount, height),
+    rows
+  };
+}
+
+function getTableCellTemplate(
+  table: TableElementProps,
+  rowIndex: number,
+  columnIndex: number
+): TableCellProps {
+  return {
+    ...(table.rows[rowIndex]?.[columnIndex] ??
+      table.rows[rowIndex]?.[0] ??
+      table.rows[0]?.[columnIndex] ??
+      table.rows[0]?.[0] ??
+      createQuickBarTableCell())
+  };
+}
+
+function normalizeTableTrackSizes(
+  sizes: number[] | undefined,
+  count: number,
+  total: number
+) {
+  const fallbackSize = Math.max(1, total / Math.max(1, count));
+
+  return Array.from({ length: count }, (_, index) =>
+    Number.isFinite(sizes?.[index]) && Number(sizes?.[index]) > 0
+      ? Number(sizes?.[index])
+      : fallbackSize
+  );
+}
+
+function createQuickBarTableCell(): TableCellProps {
+  return {
+    align: "left",
+    borderColor: "#CBD5E1",
+    borderWidth: 1,
+    colSpan: 1,
+    fill: "#FFFFFF",
+    fontSize: 18,
+    fontWeight: "normal",
+    rowSpan: 1,
+    text: "",
+    textColor: "#111827",
+    verticalAlign: "middle"
+  };
+}
+
+function solidPaintForControl(paint: DeckElementPaint, fallback: string) {
+  if (paint === "transparent") {
+    return fallback;
+  }
+
+  if (typeof paint === "string") {
+    return paint;
+  }
+
+  if (paint.type === "pattern") {
+    return paint.foreground;
+  }
+
+  return paint.stops[0]?.color ?? fallback;
 }
 
 export function QuickBarSelectField(props: {
@@ -481,16 +871,7 @@ export function PropertyNumberField(props: {
   onCommit: (value: number) => boolean | void;
   value: number;
 }) {
-  const {
-    className,
-    disabled = false,
-    label,
-    max,
-    min,
-    onCommit,
-    step = "1",
-    value
-  } = props;
+  const { className, disabled = false, label, max, min, onCommit, step = "1", value } = props;
   const [draftValue, setDraftValue] = useState(String(value));
 
   useEffect(() => {
@@ -560,6 +941,43 @@ function PropertyTextField(props: {
         onChange={(event) => setDraftValue(event.target.value)}
         onKeyDown={(event) => {
           if (event.key === "Enter") {
+            commitValue(event.currentTarget.value);
+            event.currentTarget.blur();
+          }
+        }}
+      />
+    </label>
+  );
+}
+
+function PropertyTextAreaField(props: {
+  className?: string;
+  label: string;
+  value: string;
+  onCommit: (value: string) => void;
+}) {
+  const { className, label, onCommit, value } = props;
+  const [draftValue, setDraftValue] = useState(value);
+
+  useEffect(() => {
+    setDraftValue(value);
+  }, [value]);
+
+  function commitValue(nextValue: string) {
+    onCommit(nextValue);
+    setDraftValue(nextValue);
+  }
+
+  return (
+    <label className={["property-field", className].filter(Boolean).join(" ")}>
+      <span>{label}</span>
+      <textarea
+        rows={2}
+        value={draftValue}
+        onBlur={(event) => commitValue(event.target.value)}
+        onChange={(event) => setDraftValue(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
             commitValue(event.currentTarget.value);
             event.currentTarget.blur();
           }

@@ -1,8 +1,16 @@
 ﻿import {
+  aiTemplateDeckGenerationJobResultSchema,
+  allowedAssetMimeTypes,
+  deckSchema,
   demoIds,
+  maxAssetUploadSizeBytes,
+  type AiTemplateDeckGenerationJobResult,
+  type Deck,
   type DeckElement,
+  type FilePurpose,
   type GenerateDeckJobResult,
   type Job,
+  type PptxOoxmlGenerationJobResult,
   type Project,
   type ProjectMemberRole,
   type ProjectMemberStatus,
@@ -19,6 +27,7 @@ import {
   LogOut,
   MessageSquareText,
   Monitor,
+  Paperclip,
   Plus,
   Search,
   Sparkles
@@ -30,7 +39,8 @@ import orbitLogo from "./assets/orbit-logo.png";
 import {
   createProject,
   fetchProjects,
-  ProjectAssetWorkspace
+  resolveAssetMimeType,
+  uploadProjectAsset
 } from "./features/projects/ProjectAssetWorkspace";
 import {
   RehearsalReportPage,
@@ -38,6 +48,7 @@ import {
 } from "./features/rehearsal/RehearsalWorkspace";
 import { AudienceSessionPage } from "./pages/audience/AudienceSessionPage";
 import { PresentWindow } from "./features/rehearsal/presenter/PresentWindow";
+import { ReadOnlySlideCanvas } from "./features/slides/rendering";
 
 type Fetcher = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 
@@ -63,12 +74,11 @@ type JobResult = {
   files?: ExtractedFile[];
 };
 
-type ExtractResponse = {
-  files: ExtractedFile[];
+type PptxOoxmlGenerationResponse = {
   job: Job;
 };
 
-type GenerateDeckResponse = {
+type AiTemplateDeckGenerationResponse = {
   job: Job;
 };
 
@@ -93,14 +103,29 @@ type GenerateDeckPayloadInput = {
     tone: string;
   };
   design: GenerateDeckDesignDirection;
+  designReferences: Array<{ fileId: string }>;
   referenceInput: ReferenceGenerationInput;
 };
 
 type GenerateDeckDesignDirection = {
+  profile?:
+    | "executive-report"
+    | "startup-pitch"
+    | "editorial"
+    | "technical"
+    | "training";
   visualRhythm: "auto" | "clean" | "editorial" | "bold" | "technical";
   densityTarget: "low" | "medium" | "high";
   mediaPolicy: "avoid" | "balanced" | "placeholder-ok";
   layoutDiversity: "stable" | "varied";
+};
+type GenerateDeckDesignProfile = NonNullable<GenerateDeckDesignDirection["profile"]>;
+type GenerateDeckDesignProfileChoice = "auto" | GenerateDeckDesignProfile;
+
+type GenerateDeckTargetProject = {
+  created: boolean;
+  project: Project | null;
+  projectId: string;
 };
 
 type PresentationKeyword = {
@@ -109,9 +134,12 @@ type PresentationKeyword = {
   priority: "high" | "medium" | "low" | string;
 };
 
-type UploadFile = {
+export type UploadRole = "content" | "design" | "both";
+
+export type UploadFile = {
   id: string;
   file: File;
+  role: UploadRole;
 };
 
 type RejectedFile = {
@@ -123,7 +151,6 @@ export type Route =
   | { name: "login" }
   | { name: "home" }
   | { name: "create-deck" }
-  | { name: "upload" }
   | { name: "project-list" }
   | { name: "project-editor"; projectId: string }
   | { name: "project-request"; projectId: string }
@@ -131,7 +158,10 @@ export type Route =
   | { name: "present"; deckId: string; sessionId?: string }
   | { name: "rehearsal"; projectId: string }
   | { name: "rehearsal-report"; projectId: string; runId: string }
-  | { name: "report-mockup" };
+  | { name: "report-mockup" }
+  | { name: "deck-render" };
+
+export const deckRenderPayloadStorageKey = "orbit.deckRenderPayload.v1";
 
 type AuthUser = {
   userId: string;
@@ -208,22 +238,22 @@ const reportMockupReport: RehearsalReport = {
   },
   generatedAt: reportMockupGeneratedAt
 };
-const allowedExtensions = ["pdf", "docx", "pptx"];
-const allowedMimeTypes = new Set([
-  "application/pdf",
-  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-  "application/vnd.openxmlformats-officedocument.presentationml.presentation"
-]);
-const imagePrefix = "image/";
-const accept = [
-  "application/pdf",
-  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+const pptxAccept = [
   "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-  "image/*",
-  ".pdf",
-  ".docx",
   ".pptx"
 ].join(",");
+const homeAssetAccept = [
+  ...allowedAssetMimeTypes,
+  ".pdf",
+  ".pptx",
+  ".docx",
+  ".jpg",
+  ".jpeg",
+  ".png",
+  ".webp"
+].join(",");
+const pptxMimeType =
+  "application/vnd.openxmlformats-officedocument.presentationml.presentation";
 
 async function fetchCurrentUser(): Promise<AuthUser> {
   const response = await fetch("/api/v1/auth/me", {
@@ -277,9 +307,11 @@ export function getRoute(
 
   if (normalized === "/login") return { name: "login" };
   if (normalized === "/createdeck") return { name: "create-deck" };
-  if (normalized === "/upload") return { name: "upload" };
   if (normalized === "/project") return { name: "project-list" };
   if (normalized === "/report_mockup") return { name: "report-mockup" };
+  if (normalized === "/__deck-render" && isDeckRenderRouteEnabled()) {
+    return { name: "deck-render" };
+  }
 
   const audienceSessionMatch = normalized.match(/^\/audience\/([^/]+)$/);
   if (audienceSessionMatch) {
@@ -375,14 +407,14 @@ export function shouldRenderAppFrame(route: Route) {
     route.name !== "present" &&
     route.name !== "rehearsal-report" &&
     route.name !== "report-mockup" &&
-    route.name !== "audience-session"
+    route.name !== "audience-session" &&
+    route.name !== "deck-render"
   );
 }
 
 function renderRoute(route: Route, user?: AuthUser) {
   if (route.name === "login") return <LoginPage isAuthenticated={Boolean(user)} />;
   if (route.name === "create-deck") return <GenerateDeckView />;
-  if (route.name === "upload") return <ProjectAssetWorkspace />;
   if (route.name === "project-list") return <ProjectListPage />;
   if (route.name === "project-editor") {
     return (
@@ -422,7 +454,58 @@ function renderRoute(route: Route, user?: AuthUser) {
       />
     );
   }
+  if (route.name === "deck-render") {
+    return <DeckRenderPage />;
+  }
   return <HomePage user={user} />;
+}
+
+export function isDeckRenderRouteEnabled() {
+  return import.meta.env.DEV || import.meta.env.MODE === "test";
+}
+
+export function DeckRenderPage() {
+  const payload = readDeckRenderPayload();
+  if (!payload) {
+    return <div data-testid="deck-render-error">Deck render payload missing.</div>;
+  }
+
+  const slide = payload.deck.slides[payload.slideIndex];
+  if (!slide) {
+    return <div data-testid="deck-render-error">Deck render slide missing.</div>;
+  }
+
+  return (
+    <main
+      aria-label="Deck render fixture"
+      data-testid="deck-render-page"
+      style={{ margin: 0, padding: 0 }}
+    >
+      <ReadOnlySlideCanvas deck={payload.deck} slide={slide} />
+    </main>
+  );
+}
+
+function readDeckRenderPayload(): { deck: Deck; slideIndex: number } | null {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  try {
+    const raw = window.localStorage.getItem(deckRenderPayloadStorageKey);
+    if (!raw) {
+      return null;
+    }
+    const parsed = JSON.parse(raw) as { deck?: unknown; slideIndex?: unknown };
+    const deck = deckSchema.parse(parsed.deck);
+    const slideIndex =
+      typeof parsed.slideIndex === "number" && Number.isInteger(parsed.slideIndex)
+        ? parsed.slideIndex
+        : 0;
+    return { deck, slideIndex };
+  } catch {
+    return null;
+  }
 }
 
 function AppFrame(props: {
@@ -870,6 +953,141 @@ function ProjectAccessRequestPage(props: { projectId: string }) {
 }
 
 function HomePage(props: { user?: AuthUser }) {
+  const queryClient = useQueryClient();
+  const [topic, setTopic] = useState("");
+  const [prompt, setPrompt] = useState("");
+  const [designPrompt, setDesignPrompt] = useState("");
+  const [tone, setTone] = useState<"professional" | "friendly" | "confident" | "concise">(
+    "professional"
+  );
+  const [duration, setDuration] = useState(10);
+  const [uploads, setUploads] = useState<UploadFile[]>([]);
+  const [rejected, setRejected] = useState<RejectedFile[]>([]);
+  const [status, setStatus] = useState("");
+  const [error, setError] = useState("");
+  const [job, setJob] = useState<Job | null>(null);
+  const [isImporting, setIsImporting] = useState(false);
+  const totalSize = useMemo(
+    () => uploads.reduce((sum, upload) => sum + upload.file.size, 0),
+    [uploads]
+  );
+  const validationMessage = getHomeGenerationValidationMessage(topic, uploads);
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (isImporting) return;
+
+    if (validationMessage) {
+      setError(validationMessage);
+      return;
+    }
+
+    setIsImporting(true);
+    setError("");
+    setJob(null);
+    setStatus("프로젝트 생성 중...");
+
+    try {
+      const project = await createProject(getGeneratedDeckProjectTitle(topic));
+      const uploadedAssets = new Map<string, string>();
+
+      for (const upload of uploads) {
+        setStatus(`${upload.file.name} 업로드 중...`);
+        const uploaded = await uploadProjectAsset(
+          project.projectId,
+          upload.file,
+          getAiTemplateUploadPurpose(upload)
+        );
+        uploadedAssets.set(upload.id, uploaded.fileId);
+      }
+
+      const payload = buildAiTemplateDeckGenerationPayload({
+        topic,
+        prompt,
+        designPrompt,
+        duration,
+        tone,
+        uploads,
+        uploadedAssetFileIds: uploadedAssets
+      });
+      setStatus("AI 덱 생성 중...");
+      const response = await fetch(
+        `/api/v1/projects/${encodeURIComponent(project.projectId)}/jobs/ai-template-deck-generation`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(payload)
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error(await readApiError(response, "AI 덱 생성을 시작하지 못했습니다."));
+      }
+
+      const data = (await response.json()) as AiTemplateDeckGenerationResponse;
+      setJob(data.job);
+      const completed = await pollJob(data.job.jobId, fetch, {
+        timeoutMs: 300_000,
+        delayMs: 1200
+      });
+      setJob(completed);
+
+      if (completed.status === "failed") {
+        throw new Error(
+          completed.error?.message || completed.message || "AI 덱 생성에 실패했습니다."
+        );
+      }
+
+      const result = getAiTemplateDeckGenerationJobResult(completed);
+      if (!result) {
+        throw new Error("AI 덱 생성 결과를 읽지 못했습니다.");
+      }
+
+      await queryClient.invalidateQueries({ queryKey: ["projects"] });
+      await queryClient.invalidateQueries({ queryKey: ["deck", project.projectId] });
+      navigateTo(`/project/${encodeURIComponent(project.projectId)}`);
+    } catch (submitError) {
+      setError(
+        submitError instanceof Error ? submitError.message : "AI 덱 생성에 실패했습니다."
+      );
+      setStatus("");
+    } finally {
+      setIsImporting(false);
+    }
+  }
+
+  function handleFileChange(event: ChangeEvent<HTMLInputElement>) {
+    if (event.target.files) {
+      addFiles(event.target.files);
+    }
+    event.target.value = "";
+  }
+
+  function addFiles(fileList: FileList | File[]) {
+    const { acceptedFiles, rejectedFiles } = collectHomeUploadFiles(fileList);
+    setUploads((current) => mergeUploadFiles(current, acceptedFiles));
+    setRejected(rejectedFiles);
+    setError("");
+    setStatus("");
+    setJob(null);
+  }
+
+  function removeUpload(id: string) {
+    setUploads((current) => current.filter((upload) => upload.id !== id));
+    setError("");
+    setStatus("");
+    setJob(null);
+  }
+
+  function updateUploadRole(id: string, role: UploadRole) {
+    setUploads((current) =>
+      current.map((upload) => (upload.id === id ? { ...upload, role } : upload))
+    );
+    setError("");
+    setStatus("");
+    setJob(null);
+  }
+
   return (
     <section className="home-page">
       <header className="page-heading">
@@ -881,13 +1099,138 @@ function HomePage(props: { user?: AuthUser }) {
           <MessageSquareText size={30} />
         </div>
         <h2>무엇을 발표 자료로 만들까요?</h2>
-        <div className="chat-input-shell">
-          <input placeholder="발표 주제, 자료 구성, 슬라이드 방향을 입력하세요" />
-          <button type="button">전송</button>
-        </div>
-        <button className="link-action" type="button" onClick={() => navigateTo("/upload")}>
-          기존 PPT 사용하기
-        </button>
+        <form className="home-ai-form" onSubmit={(event) => void handleSubmit(event)}>
+          <div className="chat-input-shell home-topic-row">
+            <label className="chat-attach-button" aria-label="첨부파일 추가">
+              <Paperclip size={18} />
+              <input
+                type="file"
+                accept={homeAssetAccept}
+                multiple
+                disabled={isImporting}
+                onChange={handleFileChange}
+              />
+            </label>
+            <input
+              value={topic}
+              onChange={(event) => setTopic(event.target.value)}
+              placeholder="발표 주제"
+            />
+            <button type="submit" disabled={!!validationMessage || isImporting}>
+              {isImporting ? "처리 중" : "전송"}
+            </button>
+          </div>
+
+          <div className="home-prompt-grid">
+            <label>
+              <span>관련 프롬프트</span>
+              <textarea
+                value={prompt}
+                onChange={(event) => setPrompt(event.target.value)}
+                placeholder="핵심 메시지, 포함할 내용, 제외할 내용"
+                disabled={isImporting}
+              />
+            </label>
+            <label>
+              <span>디자인 프롬프트</span>
+              <textarea
+                value={designPrompt}
+                onChange={(event) => setDesignPrompt(event.target.value)}
+                placeholder="톤앤매너, 색감, 레이아웃 방향"
+                disabled={isImporting}
+              />
+            </label>
+          </div>
+
+          <div className="home-options-grid">
+            <label>
+              <span>발표 톤</span>
+              <select
+                value={tone}
+                onChange={(event) => setTone(event.target.value as typeof tone)}
+                disabled={isImporting}
+              >
+                <option value="professional">Professional</option>
+                <option value="friendly">Friendly</option>
+                <option value="confident">Confident</option>
+                <option value="concise">Concise</option>
+              </select>
+            </label>
+            <label>
+              <span>발표 시간</span>
+              <input
+                type="number"
+                min={1}
+                max={120}
+                value={duration}
+                disabled={isImporting}
+                onChange={(event) => setDuration(Number(event.target.value) || 1)}
+              />
+            </label>
+          </div>
+
+          {uploads.length > 0 ? (
+            <div className="home-upload-list">
+              <div className="upload-summary" aria-live="polite">
+                <span>{uploads.length}개 파일</span>
+                <span>{formatBytes(totalSize)}</span>
+              </div>
+              <ul className="file-list" aria-label="홈 AI 덱 첨부파일">
+                {uploads.map(({ id, file, role }) => (
+                  <li key={id}>
+                    <div>
+                      <span className="file-name">{file.name}</span>
+                      <span className="file-detail">
+                        {getExtension(file.name).toUpperCase()} · {formatBytes(file.size)}
+                      </span>
+                    </div>
+                    <select
+                      value={role}
+                      onChange={(event) => updateUploadRole(id, event.target.value as UploadRole)}
+                      disabled={isImporting}
+                      aria-label={`${file.name} 역할`}
+                    >
+                      <option value="content">내용 참고</option>
+                      {isPptxFile(file) ? <option value="design">디자인 참고</option> : null}
+                      {isPptxFile(file) ? <option value="both">둘 다</option> : null}
+                    </select>
+                    <button
+                      type="button"
+                      onClick={() => removeUpload(id)}
+                      aria-label={`${file.name} 제거`}
+                      disabled={isImporting}
+                    >
+                      ×
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+        </form>
+        {rejected.length > 0 ? (
+          <div className="rejection-list" role="alert">
+            {rejected.map((file) => (
+              <p key={file.name}>
+                <strong>{file.name}</strong> {file.reason}
+              </p>
+            ))}
+          </div>
+        ) : null}
+        {validationMessage && uploads.length > 0 ? (
+          <p className="chat-file-error">{validationMessage}</p>
+        ) : null}
+        {job ? (
+          <div className="job-status home-job-status" aria-live="polite">
+            <div>
+              <strong>{job.status}</strong>
+              <span>{job.progress}%</span>
+            </div>
+            {job.message ? <p>{job.message}</p> : null}
+          </div>
+        ) : null}
+        {status ? <p className="chat-file-status">{status}</p> : null}
+        {error ? <p className="chat-file-error">{error}</p> : null}
       </section>
 
       <TemplateRail title="최근 열어본 템플릿" />
@@ -1002,38 +1345,17 @@ function ProjectCard(props: { project: Project }) {
 
 function GenerateDeckView() {
   const queryClient = useQueryClient();
-  const [topic, setTopic] = useState("AI 덱 생성 파이프라인");
-  const [prompt, setPrompt] = useState("참고자료를 바탕으로 발표 흐름과 핵심 메시지를 정리");
-  const [designPrompt, setDesignPrompt] = useState("");
-  const [duration, setDuration] = useState(10);
-  const [minSlides, setMinSlides] = useState(5);
-  const [maxSlides, setMaxSlides] = useState(8);
-  const [template, setTemplate] = useState("report");
-  const [audience, setAudience] = useState("general");
-  const [purpose, setPurpose] = useState("inform");
-  const [tone, setTone] = useState("professional");
-  const [visualRhythm, setVisualRhythm] =
-    useState<GenerateDeckDesignDirection["visualRhythm"]>("auto");
-  const [densityTarget, setDensityTarget] =
-    useState<GenerateDeckDesignDirection["densityTarget"]>("medium");
-  const [mediaPolicy, setMediaPolicy] =
-    useState<GenerateDeckDesignDirection["mediaPolicy"]>("balanced");
-  const [layoutDiversity, setLayoutDiversity] =
-    useState<GenerateDeckDesignDirection["layoutDiversity"]>("varied");
+  const [topic, setTopic] = useState("");
+  const [prompt, setPrompt] = useState("");
   const [uploads, setUploads] = useState<UploadFile[]>([]);
   const [rejected, setRejected] = useState<RejectedFile[]>([]);
   const [isDragging, setIsDragging] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
-  const [generationStep, setGenerationStep] = useState<
-    "idle" | "extracting" | "generating"
-  >("idle");
   const [generateError, setGenerateError] = useState("");
-  const [extractJob, setExtractJob] = useState<Job | null>(null);
   const [generateJob, setGenerateJob] = useState<Job | null>(null);
-  const [extractedFiles, setExtractedFiles] = useState<ExtractedFile[]>([]);
-  const [result, setResult] = useState<GenerateDeckJobResult | null>(null);
+  const [result, setResult] = useState<PptxOoxmlGenerationJobResult | null>(null);
   const [selectedProjectId, setSelectedProjectId] = useState("");
-  const [newProjectTitle, setNewProjectTitle] = useState("AI 생성 발표자료");
+  const [newProjectTitle, setNewProjectTitle] = useState("PPTX 기반 발표자료");
   const [isCreatingProject, setIsCreatingProject] = useState(false);
   const [projectError, setProjectError] = useState("");
   const projectsQuery = useQuery({
@@ -1045,21 +1367,7 @@ function GenerateDeckView() {
     () => uploads.reduce((sum, upload) => sum + upload.file.size, 0),
     [uploads]
   );
-  const referenceSummary = useMemo(
-    () => buildReferenceGenerationInput(extractedFiles),
-    [extractedFiles]
-  );
-
-  useEffect(() => {
-    if (!projectsQuery.data || selectedProjectId) {
-      return;
-    }
-
-    const firstProject = projectsQuery.data[0];
-    if (firstProject) {
-      setSelectedProjectId(firstProject.projectId);
-    }
-  }, [projectsQuery.data, selectedProjectId]);
+  const selectedPptx = uploads[0]?.file ?? null;
 
   const handleCreateProject = async () => {
     const trimmedTitle = newProjectTitle.trim();
@@ -1085,10 +1393,13 @@ function GenerateDeckView() {
   };
 
   const addFiles = (fileList: FileList | File[]) => {
-    const { acceptedFiles, rejectedFiles } = collectUploadFiles(fileList);
+    const { acceptedFiles, rejectedFiles } = collectPptxUploadFiles(fileList);
 
-    setUploads((current) => appendUniqueUploads(current, acceptedFiles));
+    setUploads(acceptedFiles.slice(0, 1));
     setRejected(rejectedFiles);
+    setGenerateError("");
+    setGenerateJob(null);
+    setResult(null);
   };
 
   const handleFileChange = (event: ChangeEvent<HTMLInputElement>) => {
@@ -1107,94 +1418,38 @@ function GenerateDeckView() {
 
   const removeUpload = (id: string) => {
     setUploads((current) => current.filter((upload) => upload.id !== id));
-    setExtractedFiles([]);
-    setExtractJob(null);
     setGenerateError("");
-  };
-
-  const extractReferences = async (
-    projectId: string
-  ): Promise<ReferenceGenerationInput> => {
-    if (uploads.length === 0) {
-      return {
-        references: [],
-        referenceKeywords: [],
-        succeededFiles: [],
-        failedFiles: []
-      };
-    }
-
-    const formData = new FormData();
-    formData.append("projectId", projectId);
-    uploads.forEach(({ file }) => formData.append("files", file));
-
-    setGenerationStep("extracting");
-    setExtractJob(null);
-    setExtractedFiles([]);
-
-    const response = await fetch("/api/extract", {
-      method: "POST",
-      body: formData
-    });
-
-    if (!response.ok) {
-      const message = await response.text();
-      throw new Error(message || "참고자료 처리에 실패했습니다.");
-    }
-
-    const data = (await response.json()) as ExtractResponse;
-    setExtractJob(data.job);
-
-    const job = await pollExtractJob(data.job.jobId, {
-      onUpdate: setExtractJob
-    });
-
-    if (job.status === "failed") {
-      throw new Error(
-        job.error?.message || job.message || "참고자료 처리에 실패했습니다."
-      );
-    }
-
-    const files = getJobResultFiles(job);
-    setExtractedFiles(files);
-    const input = buildReferenceGenerationInput(files);
-    if (input.references.length === 0) {
-      throw new Error("참고자료 처리에 성공한 파일이 없어 덱 생성을 중단했습니다.");
-    }
-
-    return input;
+    setGenerateJob(null);
+    setResult(null);
   };
 
   const generateDeck = async () => {
-    if (!topic.trim() || isGenerating) return;
+    if (!selectedPptx || isGenerating) return;
 
     setIsGenerating(true);
-    setGenerationStep("idle");
     setGenerateError("");
     setProjectError("");
-    setExtractJob(null);
     setGenerateJob(null);
-    setExtractedFiles([]);
     setResult(null);
 
     try {
-      const project = await createGeneratedDeckProject(topic);
-      const referenceInput = await extractReferences(project.projectId);
-      setGenerationStep("generating");
-      const payload = buildGenerateDeckPayload({
+      const targetProject = await resolveGenerateDeckTargetProject({
+        projects: projectsQuery.data ?? [],
+        selectedProjectId,
+        topic: topic || selectedPptx.name
+      });
+      const uploaded = await uploadProjectAsset(
+        targetProject.projectId,
+        selectedPptx,
+        "pptx-import"
+      );
+      const payload = buildPptxOoxmlGenerationPayload({
+        fileId: uploaded.fileId,
         topic,
-        prompt,
-        designPrompt,
-        duration,
-        minSlides,
-        maxSlides,
-        template,
-        metadata: { audience, purpose, tone },
-        design: { visualRhythm, densityTarget, mediaPolicy, layoutDiversity },
-        referenceInput
+        prompt
       });
       const response = await fetch(
-        `/api/v1/projects/${project.projectId}/jobs/generate-deck`,
+        `/api/v1/projects/${targetProject.projectId}/pptx-ooxml-generations`,
         {
           method: "POST",
           headers: { "content-type": "application/json" },
@@ -1204,10 +1459,10 @@ function GenerateDeckView() {
 
       if (!response.ok) {
         const message = await response.text();
-        throw new Error(message || "AI 덱 생성에 실패했습니다.");
+        throw new Error(message || "PPTX 덱 생성에 실패했습니다.");
       }
 
-      const data = (await response.json()) as GenerateDeckResponse;
+      const data = (await response.json()) as PptxOoxmlGenerationResponse;
       setGenerateJob(data.job);
 
       const job = await pollExtractJob(data.job.jobId, {
@@ -1215,35 +1470,32 @@ function GenerateDeckView() {
       });
 
       if (job.status === "failed") {
-        throw new Error(job.error?.message || job.message || "AI 덱 생성에 실패했습니다.");
+        throw new Error(job.error?.message || job.message || "PPTX 덱 생성에 실패했습니다.");
       }
 
-      const generatedResult = getGenerateDeckJobResult(job);
+      const generatedResult = getPptxOoxmlGenerationJobResult(job);
       if (!generatedResult) {
-        throw new Error("AI 덱 생성 결과를 읽지 못했습니다.");
+        throw new Error("PPTX 덱 생성 결과를 읽지 못했습니다.");
       }
 
       setResult(generatedResult);
-      queryClient.setQueryData<Project[]>(["projects"], (current) =>
-        mergeGeneratedProjectList(current, project)
-      );
-      queryClient.setQueryData(["deck", generatedResult.deck.projectId], generatedResult.deck);
-      navigateTo(getGeneratedDeckProjectPath(generatedResult));
+      if (targetProject.created && targetProject.project) {
+        queryClient.setQueryData<Project[]>(["projects"], (current) =>
+          mergeGeneratedProjectList(current, targetProject.project as Project)
+        );
+      }
+      await queryClient.invalidateQueries({
+        queryKey: ["deck", targetProject.projectId]
+      });
+      navigateTo(getPptxOoxmlGeneratedProjectPath(targetProject.projectId));
     } catch (error) {
       setGenerateError(
-        error instanceof Error ? error.message : "AI 덱 생성에 실패했습니다."
+        error instanceof Error ? error.message : "PPTX 덱 생성에 실패했습니다."
       );
     } finally {
       setIsGenerating(false);
-      setGenerationStep("idle");
     }
   };
-  const submitLabel =
-    generationStep === "extracting"
-      ? "참고자료 처리 중..."
-      : generationStep === "generating"
-        ? "덱 생성 중..."
-        : "덱 생성";
 
   return (
     <main className="app-shell generate-app-shell">
@@ -1256,8 +1508,8 @@ function GenerateDeckView() {
           }}
         >
           <div className="panel-copy">
-            <span className="eyebrow">Orbit issue #26</span>
-            <h1 id="generate-title">AI 덱 생성</h1>
+            <span className="eyebrow">PPTX OOXML</span>
+            <h1 id="generate-title">PPTX로 덱 생성</h1>
           </div>
 
           <section className="generate-reference-panel" aria-labelledby="generate-project-title">
@@ -1265,7 +1517,7 @@ function GenerateDeckView() {
               <span className="eyebrow" id="generate-project-title">
                 Target project
               </span>
-              <p>AI 생성 결과를 저장하고 바로 에디터에서 열 프로젝트</p>
+              <p>생성된 덱을 저장하고 바로 에디터에서 열 프로젝트</p>
             </div>
 
             <label>
@@ -1291,7 +1543,7 @@ function GenerateDeckView() {
                   value={newProjectTitle}
                   onChange={(event) => setNewProjectTitle(event.target.value)}
                   disabled={isGenerating || isCreatingProject}
-                  placeholder="AI 생성 발표자료"
+                  placeholder="PPTX 기반 발표자료"
                 />
               </label>
             </div>
@@ -1324,134 +1576,13 @@ function GenerateDeckView() {
           </label>
 
           <label>
-            <span>내용</span>
+            <span>Prompt</span>
             <textarea
               value={prompt}
               onChange={(event) => setPrompt(event.target.value)}
-              placeholder="예: 테트리스의 역사, 기본 규칙, 유명한 전략을 소개하는 발표자료"
+              placeholder="원본 템플릿의 교체 가능한 텍스트 슬롯에 반영할 지시사항"
             />
           </label>
-
-          <div className="form-grid">
-            <label>
-              <span>Duration</span>
-              <input
-                min={1}
-                max={120}
-                type="number"
-                value={duration}
-                onChange={(event) => setDuration(Number(event.target.value))}
-              />
-            </label>
-            <label>
-              <span>Min slides</span>
-              <input
-                min={1}
-                max={20}
-                type="number"
-                value={minSlides}
-                onChange={(event) => setMinSlides(Number(event.target.value))}
-              />
-            </label>
-            <label>
-              <span>Max slides</span>
-              <input
-                min={1}
-                max={20}
-                type="number"
-                value={maxSlides}
-                onChange={(event) => setMaxSlides(Number(event.target.value))}
-              />
-            </label>
-          </div>
-
-          <div className="form-grid">
-            <SelectField
-              label="Template"
-              value={template}
-              onChange={setTemplate}
-              options={["default", "pitch", "report", "lesson"]}
-            />
-            <SelectField
-              label="Audience"
-              value={audience}
-              onChange={setAudience}
-              options={["general", "executive", "technical", "sales"]}
-            />
-            <SelectField
-              label="Purpose"
-              value={purpose}
-              onChange={setPurpose}
-              options={["inform", "persuade", "teach", "report"]}
-            />
-          </div>
-
-          <div className="form-grid">
-            <SelectField
-              label="Tone"
-              value={tone}
-              onChange={setTone}
-              options={["professional", "friendly", "confident", "concise"]}
-            />
-          </div>
-
-          <section
-            className="generate-reference-panel"
-            aria-labelledby="generate-design-title"
-          >
-            <div className="reference-panel-heading">
-              <span className="eyebrow" id="generate-design-title">
-                Design Direction
-              </span>
-            </div>
-
-            <label>
-              <span>디자인 방향</span>
-              <textarea
-                value={designPrompt}
-                onChange={(event) => setDesignPrompt(event.target.value)}
-                placeholder="예: 테트리스 색감, 고전 게임, 픽셀 아트 느낌"
-              />
-            </label>
-
-            <div className="form-grid">
-              <SelectField
-                label="Visual rhythm"
-                value={visualRhythm}
-                onChange={(value) =>
-                  setVisualRhythm(value as GenerateDeckDesignDirection["visualRhythm"])
-                }
-                options={["auto", "clean", "editorial", "bold", "technical"]}
-              />
-              <SelectField
-                label="Density"
-                value={densityTarget}
-                onChange={(value) =>
-                  setDensityTarget(value as GenerateDeckDesignDirection["densityTarget"])
-                }
-                options={["low", "medium", "high"]}
-              />
-            </div>
-
-            <div className="form-grid">
-              <SelectField
-                label="Media"
-                value={mediaPolicy}
-                onChange={(value) =>
-                  setMediaPolicy(value as GenerateDeckDesignDirection["mediaPolicy"])
-                }
-                options={["avoid", "balanced", "placeholder-ok"]}
-              />
-              <SelectField
-                label="Layout diversity"
-                value={layoutDiversity}
-                onChange={(value) =>
-                  setLayoutDiversity(value as GenerateDeckDesignDirection["layoutDiversity"])
-                }
-                options={["stable", "varied"]}
-              />
-            </div>
-          </section>
 
           <section
             className="generate-reference-panel"
@@ -1459,9 +1590,9 @@ function GenerateDeckView() {
           >
             <div className="reference-panel-heading">
               <span className="eyebrow" id="generate-reference-title">
-                References
+                PPTX source
               </span>
-              <p>PDF, DOCX, PPTX와 이미지 파일</p>
+              <p>원본 OOXML package를 보존할 PPTX 파일</p>
             </div>
 
             <label
@@ -1473,12 +1604,12 @@ function GenerateDeckView() {
               onDragLeave={() => setIsDragging(false)}
               onDrop={handleDrop}
             >
-              <input type="file" accept={accept} multiple onChange={handleFileChange} />
+              <input type="file" accept={pptxAccept} onChange={handleFileChange} />
               <span className="upload-mark" aria-hidden="true">
                 +
               </span>
-              <span className="drop-title">파일을 끌어오거나 선택하세요</span>
-              <span className="drop-meta">PDF · DOCX · PPTX · JPG · PNG · GIF · WEBP</span>
+              <span className="drop-title">PPTX 파일을 끌어오거나 선택하세요</span>
+              <span className="drop-meta">PPTX 1개</span>
             </label>
 
             <div className="upload-summary" aria-live="polite">
@@ -1497,7 +1628,7 @@ function GenerateDeckView() {
             )}
 
             {uploads.length > 0 && (
-              <ul className="file-list" aria-label="덱 생성 참고자료 파일">
+              <ul className="file-list" aria-label="덱 생성 PPTX 파일">
                 {uploads.map(({ id, file }) => (
                   <li key={id}>
                     <div>
@@ -1520,35 +1651,18 @@ function GenerateDeckView() {
             )}
           </section>
 
-          <button className="extract-button" type="submit" disabled={isGenerating}>
-            {isGenerating ? submitLabel : "덱 생성"}
+          <button
+            className="extract-button"
+            type="submit"
+            disabled={isGenerating || !selectedPptx}
+          >
+            {isGenerating ? "덱 생성 중..." : "덱 생성"}
           </button>
-
-          {extractJob && (
-            <div className="job-status" aria-live="polite">
-              <div>
-                <strong>reference {extractJob.status}</strong>
-                <span>{extractJob.progress}%</span>
-              </div>
-              {extractJob.message && <p>{extractJob.message}</p>}
-            </div>
-          )}
-
-          {extractedFiles.length > 0 && (
-            <div className="job-status" aria-live="polite">
-              <p>
-                참고자료 {referenceSummary.succeededFiles.length}개 사용
-                {referenceSummary.failedFiles.length > 0
-                  ? ` · ${referenceSummary.failedFiles.length}개 실패`
-                  : ""}
-              </p>
-            </div>
-          )}
 
           {generateJob && (
             <div className="job-status" aria-live="polite">
               <div>
-                <strong>deck {generateJob.status}</strong>
+                <strong>pptx {generateJob.status}</strong>
                 <span>{generateJob.progress}%</span>
               </div>
               {generateJob.message && <p>{generateJob.message}</p>}
@@ -1563,30 +1677,10 @@ function GenerateDeckView() {
         </form>
 
         <section className="generate-result" aria-live="polite">
-          {result ? <GeneratedDeckResult result={result} /> : <DeckPreviewPlaceholder />}
+          {result ? <PptxOoxmlGenerationResult result={result} /> : <DeckPreviewPlaceholder />}
         </section>
       </section>
     </main>
-  );
-}
-
-function SelectField(props: {
-  label: string;
-  value: string;
-  options: string[];
-  onChange: (value: string) => void;
-}) {
-  return (
-    <label>
-      <span>{props.label}</span>
-      <select value={props.value} onChange={(event) => props.onChange(event.target.value)}>
-        {props.options.map((option) => (
-          <option key={option} value={option}>
-            {option}
-          </option>
-        ))}
-      </select>
-    </label>
   );
 }
 
@@ -1595,7 +1689,7 @@ function DeckPreviewPlaceholder() {
   return (
     <div className="deck-preview-placeholder">
       <Sparkles size={28} />
-      <span>AI deck</span>
+      <span>PPTX deck</span>
     </div>
   );
 }
@@ -1604,13 +1698,11 @@ function getExtension(fileName: string) {
   return fileName.split(".").pop()?.toLowerCase() ?? "";
 }
 
-function isAllowedFile(file: File) {
-  const extension = getExtension(file.name);
-  const isAllowedDocument =
-    allowedExtensions.includes(extension) && allowedMimeTypes.has(file.type);
-  const isImage = file.type.startsWith(imagePrefix);
-
-  return isAllowedDocument || isImage;
+function isPptxFile(file: File) {
+  return (
+    getExtension(file.name) === "pptx" &&
+    resolveAssetMimeType(file) === pptxMimeType
+  );
 }
 
 function formatBytes(bytes: number) {
@@ -1627,30 +1719,120 @@ function createUploadId(file: File) {
   return `${file.name}-${file.size}-${file.lastModified}`;
 }
 
-function collectUploadFiles(fileList: FileList | File[]) {
+function getAiTemplateUploadPurpose(upload: UploadFile): FilePurpose {
+  if ((upload.role === "design" || upload.role === "both") && isPptxFile(upload.file)) {
+    return "pptx-import";
+  }
+
+  return "reference-material";
+}
+
+function getHomeGenerationValidationMessage(topic: string, uploads: UploadFile[]) {
+  if (!topic.trim()) {
+    return "발표 주제를 입력하세요.";
+  }
+
+  if (uploads.length === 0) {
+    return "파일을 하나 이상 첨부하세요.";
+  }
+
+  const designUploads = uploads.filter(
+    (upload) => upload.role === "design" || upload.role === "both"
+  );
+  if (designUploads.length !== 1) {
+    return "디자인 참고 PPTX를 정확히 1개 선택하세요.";
+  }
+
+  if (!isPptxFile(designUploads[0].file)) {
+    return "디자인 참고 파일은 PPTX여야 합니다.";
+  }
+
+  return "";
+}
+
+function collectHomeUploadFiles(fileList: FileList | File[]) {
   const acceptedFiles: UploadFile[] = [];
   const rejectedFiles: RejectedFile[] = [];
 
   Array.from(fileList).forEach((file) => {
-    if (isAllowedFile(file)) {
-      acceptedFiles.push({ id: createUploadId(file), file });
+    const mimeType = resolveAssetMimeType(file);
+    if (!mimeType) {
+      rejectedFiles.push({
+        name: file.name,
+        reason: "PDF, PPTX, DOCX, JPG, PNG, WebP 파일만 첨부할 수 있습니다."
+      });
       return;
     }
 
-    rejectedFiles.push({
-      name: file.name,
-      reason: "PDF, DOCX, PPTX 또는 이미지 파일만 업로드할 수 있습니다."
+    if (file.size > maxAssetUploadSizeBytes) {
+      rejectedFiles.push({
+        name: file.name,
+        reason: `${formatBytes(maxAssetUploadSizeBytes)} 이하 파일만 첨부할 수 있습니다.`
+      });
+      return;
+    }
+
+    if (file.size <= 0) {
+      rejectedFiles.push({
+        name: file.name,
+        reason: "빈 파일은 첨부할 수 없습니다."
+      });
+      return;
+    }
+
+    acceptedFiles.push({
+      id: createUploadId(file),
+      file,
+      role: isPptxFile(file) ? "design" : "content"
     });
   });
 
   return { acceptedFiles, rejectedFiles };
 }
 
-function appendUniqueUploads(current: UploadFile[], acceptedFiles: UploadFile[]) {
-  const existingIds = new Set(current.map((upload) => upload.id));
-  const nextFiles = acceptedFiles.filter((upload) => !existingIds.has(upload.id));
+function mergeUploadFiles(current: UploadFile[], next: UploadFile[]) {
+  const byId = new Map(current.map((upload) => [upload.id, upload]));
+  for (const upload of next) {
+    byId.set(upload.id, upload);
+  }
 
-  return [...current, ...nextFiles];
+  let hasDesign = false;
+  return Array.from(byId.values()).map((upload) => {
+    if (!isPptxFile(upload.file)) {
+      return { ...upload, role: "content" as const };
+    }
+    if ((upload.role === "design" || upload.role === "both") && hasDesign) {
+      return { ...upload, role: "content" as const };
+    }
+    if (upload.role === "design" || upload.role === "both") {
+      hasDesign = true;
+    }
+    return upload;
+  });
+}
+
+function collectPptxUploadFiles(fileList: FileList | File[]) {
+  const acceptedFiles: UploadFile[] = [];
+  const rejectedFiles: RejectedFile[] = [];
+
+  Array.from(fileList).forEach((file) => {
+    if (isPptxFile(file)) {
+      acceptedFiles.push({ id: createUploadId(file), file, role: "design" });
+      return;
+    }
+
+    rejectedFiles.push({
+      name: file.name,
+      reason: "PPTX 파일 1개만 업로드할 수 있습니다."
+    });
+  });
+
+  return { acceptedFiles, rejectedFiles };
+}
+
+function clampInteger(value: number, min: number, max: number) {
+  if (!Number.isFinite(value)) return min;
+  return Math.max(min, Math.min(max, Math.round(value)));
 }
 function EditorLoadingFallback() {
   return (
@@ -1706,12 +1888,128 @@ export function getGeneratedDeckProjectPath(result: GenerateDeckJobResult) {
   return `/project/${encodeURIComponent(result.deck.projectId)}`;
 }
 
+export function getPptxOoxmlGeneratedProjectPath(projectId: string) {
+  return `/project/${encodeURIComponent(projectId)}`;
+}
+
+export function getPptxOoxmlGenerationJobResult(
+  job: Job
+): PptxOoxmlGenerationJobResult | null {
+  const result = job.result as PptxOoxmlGenerationJobResult | null;
+  return result?.deckId && result?.currentPackageFileId ? result : null;
+}
+
+export function getAiTemplateDeckGenerationJobResult(
+  job: Job
+): AiTemplateDeckGenerationJobResult | null {
+  const parsed = aiTemplateDeckGenerationJobResultSchema.safeParse(job.result);
+  return parsed.success ? parsed.data : null;
+}
+
+export function buildAiTemplateDeckGenerationPayload(input: {
+  designPrompt: string;
+  duration: number;
+  prompt: string;
+  tone: "professional" | "friendly" | "confident" | "concise";
+  topic: string;
+  uploadedAssetFileIds: Map<string, string>;
+  uploads: UploadFile[];
+}) {
+  return {
+    topic: input.topic.trim(),
+    prompt: input.prompt.trim(),
+    designPrompt: input.designPrompt.trim(),
+    targetDurationMinutes: clampInteger(input.duration, 1, 120),
+    slideCountRange: { min: 5, max: 8 },
+    template: "default",
+    metadata: {
+      audience: "general",
+      purpose: "inform",
+      tone: input.tone
+    },
+    design: buildGenerateDeckDesignDirection({
+      profile: "auto",
+      visualRhythm: "auto",
+      densityTarget: "medium",
+      mediaPolicy: "balanced",
+      layoutDiversity: "stable"
+    }),
+    assets: input.uploads.map((upload) => {
+      const fileId = input.uploadedAssetFileIds.get(upload.id);
+      if (!fileId) {
+        throw new Error(`${upload.file.name} 업로드 결과를 찾지 못했습니다.`);
+      }
+      return { fileId, role: upload.role };
+    })
+  };
+}
+
+export function buildPptxOoxmlGenerationPayload(input: {
+  fileId: string;
+  topic?: string;
+  prompt?: string;
+}) {
+  return {
+    fileId: input.fileId,
+    ...(input.topic?.trim() ? { topic: input.topic.trim() } : {}),
+    ...(input.prompt?.trim() ? { prompt: input.prompt.trim() } : {})
+  };
+}
+
+export async function pollJob(
+  jobId: string,
+  fetcher: Fetcher = fetch,
+  options: { delayMs?: number; timeoutMs?: number } = {}
+): Promise<Job> {
+  const delayMs = options.delayMs ?? 1200;
+  const timeoutAt = Date.now() + (options.timeoutMs ?? 120_000);
+
+  for (;;) {
+    const response = await fetcher(`/api/jobs/${encodeURIComponent(jobId)}`);
+    if (!response.ok) {
+      throw new Error(await readApiError(response, "작업 상태를 확인하지 못했습니다."));
+    }
+
+    const job = (await response.json()) as Job;
+    if (job.status === "succeeded" || job.status === "failed") {
+      return job;
+    }
+
+    if (Date.now() > timeoutAt) {
+      throw new Error("작업 시간이 초과되었습니다.");
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, delayMs));
+  }
+}
+
 export function getGeneratedDeckProjectTitle(topic: string) {
   return topic.trim() || "AI 덱";
 }
 
 export function createGeneratedDeckProject(topic: string, fetcher: Fetcher = fetch) {
   return createProject(getGeneratedDeckProjectTitle(topic), fetcher);
+}
+
+export async function resolveGenerateDeckTargetProject(args: {
+  fetcher?: Fetcher;
+  projects: Project[];
+  selectedProjectId: string;
+  topic: string;
+}): Promise<GenerateDeckTargetProject> {
+  const selectedProjectId = args.selectedProjectId.trim();
+  if (selectedProjectId) {
+    return {
+      created: false,
+      project:
+        args.projects.find((project) => project.projectId === selectedProjectId) ??
+        null,
+      projectId: selectedProjectId
+    };
+  }
+
+  const project = await createGeneratedDeckProject(args.topic, args.fetcher);
+  return { created: true, project, projectId: project.projectId };
 }
 
 export function buildGenerateDeckPayload(input: GenerateDeckPayloadInput) {
@@ -1725,8 +2023,41 @@ export function buildGenerateDeckPayload(input: GenerateDeckPayloadInput) {
     metadata: input.metadata,
     design: input.design,
     references: input.referenceInput.references,
+    designReferences: input.designReferences,
     referenceKeywords: input.referenceInput.referenceKeywords
   };
+}
+
+export function buildDesignReferences(
+  uploads: UploadFile[],
+  uploadedAssetFileIds: Map<string, string>
+) {
+  return uploads
+    .filter((upload) => upload.role === "design" || upload.role === "both")
+    .map((upload) => uploadedAssetFileIds.get(upload.id))
+    .filter((fileId): fileId is string => Boolean(fileId))
+    .map((fileId) => ({ fileId }));
+}
+
+export function buildGenerateDeckDesignDirection(input: {
+  densityTarget: GenerateDeckDesignDirection["densityTarget"];
+  layoutDiversity: GenerateDeckDesignDirection["layoutDiversity"];
+  mediaPolicy: GenerateDeckDesignDirection["mediaPolicy"];
+  profile: GenerateDeckDesignProfileChoice;
+  visualRhythm: GenerateDeckDesignDirection["visualRhythm"];
+}): GenerateDeckDesignDirection {
+  const design: GenerateDeckDesignDirection = {
+    visualRhythm: input.visualRhythm,
+    densityTarget: input.densityTarget,
+    mediaPolicy: input.mediaPolicy,
+    layoutDiversity: input.layoutDiversity
+  };
+
+  if (input.profile !== "auto") {
+    design.profile = input.profile;
+  }
+
+  return design;
 }
 
 export function mergeGeneratedProjectList(
@@ -1774,6 +2105,27 @@ export function buildReferenceGenerationInput(
   return { references, referenceKeywords, succeededFiles, failedFiles };
 }
 
+function PptxOoxmlGenerationResult(props: {
+  result: PptxOoxmlGenerationJobResult;
+}) {
+  const { result } = props;
+
+  return (
+    <div className="generated-deck">
+      <header className="result-heading">
+        <div>
+          <span>PPTX OOXML deck</span>
+          <h2>{result.deckId}</h2>
+        </div>
+        <strong>{result.qualityReport.compositeScore}</strong>
+      </header>
+      {result.warnings.length > 0 ? <p>{result.warnings.join(" · ")}</p> : null}
+      <p>template {result.templateId}</p>
+      <p>package {result.currentPackageFileId}</p>
+    </div>
+  );
+}
+
 export function GeneratedDeckResult(props: { result: GenerateDeckJobResult }) {
   const { deck, validation, warnings } = props.result;
 
@@ -1786,7 +2138,14 @@ export function GeneratedDeckResult(props: { result: GenerateDeckJobResult }) {
         </div>
         <strong>{deck.slides.length} slides</strong>
       </header>
-      {warnings.length > 0 ? <p>{warnings.join(" 쨌 ")}</p> : null}
+      {warnings.length > 0 ? <p>{warnings.join(" · ")}</p> : null}
+      {validation.designIssues.length > 0 ? (
+        <ul>
+          {validation.designIssues.map((issue, index) => (
+            <li key={`${issue.path}-${index}`}>{issue.message}</li>
+          ))}
+        </ul>
+      ) : null}
       <p>validation {validation.passed ? "passed" : "failed"}</p>
       <div className="generated-slide-grid">
         {deck.slides.map((slide) => (

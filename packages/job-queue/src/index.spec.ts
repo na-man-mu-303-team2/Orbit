@@ -1,8 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   InMemoryJobQueue,
+  aiTemplateDeckGenerationJobName,
+  aiTemplateDeckGenerationQueueName,
+  enqueueAiTemplateDeckGenerationJob,
+  enqueuePptxOoxmlGenerationJob,
   enqueueRehearsalSttJob,
   enqueueWorkerHealthCheckJob,
+  pptxOoxmlGenerationJobName,
+  pptxOoxmlGenerationQueueName,
   workerHealthCheckJobName,
   workerHealthCheckQueueName
 } from "./index";
@@ -84,6 +90,79 @@ describe("enqueueWorkerHealthCheckJob", () => {
     expect(queueMock.add).toHaveBeenCalledWith(workerHealthCheckJobName, {
       jobId: "job-1",
       projectId: "project-a"
+    });
+    expect(queueMock.close).toHaveBeenCalled();
+  });
+});
+
+describe("enqueuePptxOoxmlGenerationJob", () => {
+  it("adds a PPTX OOXML generation job to BullMQ", async () => {
+    await enqueuePptxOoxmlGenerationJob({
+      driver: "bullmq",
+      redisUrl: "redis://localhost:6379",
+      jobId: "job-1",
+      projectId: "project-a",
+      request: { fileId: "file_1", topic: "Topic" }
+    });
+
+    expect(queueMock.Queue).toHaveBeenCalledWith(pptxOoxmlGenerationQueueName, {
+      connection: expect.objectContaining({
+        host: "localhost",
+        port: 6379
+      })
+    });
+    expect(queueMock.add).toHaveBeenCalledWith(pptxOoxmlGenerationJobName, {
+      jobId: "job-1",
+      projectId: "project-a",
+      request: { fileId: "file_1", topic: "Topic" }
+    });
+    expect(queueMock.close).toHaveBeenCalled();
+  });
+});
+
+describe("enqueueAiTemplateDeckGenerationJob", () => {
+  it("adds an AI template deck generation job to BullMQ", async () => {
+    await enqueueAiTemplateDeckGenerationJob({
+      driver: "bullmq",
+      redisUrl: "redis://localhost:6379",
+      jobId: "job-template",
+      projectId: "project-a",
+      request: {
+        topic: "ORBIT",
+        targetDurationMinutes: 10,
+        slideCountRange: { min: 5, max: 8 },
+        template: "default",
+        metadata: {
+          audience: "general",
+          purpose: "inform",
+          tone: "professional"
+        },
+        design: {
+          visualRhythm: "auto",
+          densityTarget: "medium",
+          mediaPolicy: "balanced",
+          layoutDiversity: "stable"
+        },
+        assets: [{ fileId: "file_design", role: "design" }]
+      }
+    });
+
+    expect(queueMock.Queue).toHaveBeenCalledWith(
+      aiTemplateDeckGenerationQueueName,
+      {
+        connection: expect.objectContaining({
+          host: "localhost",
+          port: 6379
+        })
+      }
+    );
+    expect(queueMock.add).toHaveBeenCalledWith(aiTemplateDeckGenerationJobName, {
+      jobId: "job-template",
+      projectId: "project-a",
+      request: expect.objectContaining({
+        topic: "ORBIT",
+        assets: [{ fileId: "file_design", role: "design" }]
+      })
     });
     expect(queueMock.close).toHaveBeenCalled();
   });

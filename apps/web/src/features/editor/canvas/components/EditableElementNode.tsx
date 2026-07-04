@@ -4,19 +4,22 @@ import type {
   DeckElement,
   GroupElementProps,
   Slide,
-  TextElementProps
+  TextElementProps,
 } from "@orbit/shared";
 import { getGroupChildElements } from "../../../../../../../packages/editor-core/src/index";
 import type Konva from "konva";
 import {
   Group as KonvaGroup,
   Rect as KonvaRect,
-  Text as KonvaText
+  Text as KonvaText,
 } from "react-konva";
 import type { ComponentType } from "react";
 import { useEffect, useState } from "react";
 
-import { CustomShapeEditOverlay, getCustomShapeOverlayViewBox } from "./CustomShapeOverlays";
+import {
+  CustomShapeEditOverlay,
+  getCustomShapeOverlayViewBox,
+} from "./CustomShapeOverlays";
 import { ElementNodeContent } from "./ElementNodeContent";
 import { getTextElementLayout } from "../text/textLayout";
 import {
@@ -26,7 +29,7 @@ import {
   getCanvasIdBadgeOffset,
   getCanvasIdBadgeWidth,
   getDisplayIdLabel,
-  getGroupedChildPreviewFrame
+  getGroupedChildPreviewFrame,
 } from "../utils/canvasElementUtils";
 
 type KonvaComponent = ComponentType<any>;
@@ -82,7 +85,7 @@ export function EditableElementNode(props: {
     onCommitFrame,
     onMountNode,
     onOpenContextMenu,
-    onSelect
+    onSelect,
   } = props;
   const [previewFrame, setPreviewFrame] = useState<{
     x: number;
@@ -96,7 +99,7 @@ export function EditableElementNode(props: {
     y: element.y,
     width: element.width,
     height: element.height,
-    rotation: element.rotation
+    rotation: element.rotation,
   };
   const isMultiSelected = isSelected && selectedCount > 1;
   const selectionHitFill = isSelected
@@ -113,7 +116,7 @@ export function EditableElementNode(props: {
     badgeHeight: CANVAS_ID_BADGE_HEIGHT,
     badgeWidth: canvasIdBadgeWidth,
     canvas: deck.canvas,
-    frame
+    frame,
   });
 
   useEffect(() => {
@@ -121,7 +124,16 @@ export function EditableElementNode(props: {
   }, [element.height, element.rotation, element.width, element.x, element.y]);
 
   function handlePointerSelect(append: boolean) {
-    if (!append && element.type === "text" && isSelected && selectedCount === 1) {
+    if (element.locked) {
+      return;
+    }
+
+    if (
+      !append &&
+      element.type === "text" &&
+      isSelected &&
+      selectedCount === 1
+    ) {
       onDoubleClick();
       return;
     }
@@ -131,7 +143,9 @@ export function EditableElementNode(props: {
 
   return (
     <Group
-      draggable={!disablePointerEvents && !element.locked && !customShapeEditDraft}
+      draggable={
+        !disablePointerEvents && !element.locked && !customShapeEditDraft
+      }
       listening={!disablePointerEvents}
       opacity={element.visible ? element.opacity : 0}
       ref={onMountNode}
@@ -142,9 +156,17 @@ export function EditableElementNode(props: {
         handlePointerSelect(Boolean(event.evt.shiftKey))
       }
       onContextMenu={(event: Konva.KonvaEventObject<PointerEvent>) => {
+        if (element.locked) {
+          return;
+        }
+
         const shouldKeepSelection = isSelected && selectedCount > 1;
 
-        if (element.type !== "image" && element.type !== "group" && !shouldKeepSelection) {
+        if (
+          element.type !== "image" &&
+          element.type !== "group" &&
+          !shouldKeepSelection
+        ) {
           return;
         }
 
@@ -155,7 +177,7 @@ export function EditableElementNode(props: {
         onOpenContextMenu(event.evt.clientX, event.evt.clientY);
       }}
       onDblClick={() => {
-        if (element.type === "text") {
+        if (!element.locked && element.type === "text") {
           onDoubleClick();
         }
       }}
@@ -166,7 +188,7 @@ export function EditableElementNode(props: {
           y: event.target.y(),
           width: frame.width,
           height: frame.height,
-          rotation: event.target.rotation()
+          rotation: event.target.rotation(),
         });
       }}
       onTap={() => handlePointerSelect(false)}
@@ -181,7 +203,7 @@ export function EditableElementNode(props: {
           y: node.y(),
           width: Math.max(1, frame.width * node.scaleX()),
           height: Math.max(1, frame.height * node.scaleY()),
-          rotation: node.rotation()
+          rotation: node.rotation(),
         };
 
         node.scaleX(1);
@@ -202,7 +224,7 @@ export function EditableElementNode(props: {
           y: node.y(),
           width: nextWidth,
           height: nextHeight,
-          rotation: node.rotation()
+          rotation: node.rotation(),
         });
       }}
     >
@@ -238,7 +260,7 @@ export function EditableElementNode(props: {
           onCommitDraft={onCommitCustomShapeEditDraft}
           {...getCustomShapeOverlayViewBox({
             elementProps: element.props as CustomShapeElementProps,
-            frame
+            frame,
           })}
         />
       ) : null}
@@ -302,7 +324,10 @@ function ElementInteractionHitTargets(props: {
 
   if (element.type === "group") {
     const groupProps = element.props as GroupElementProps;
-    const childElements = getGroupChildElements(slide, groupProps.childElementIds);
+    const childElements = getGroupChildElements(
+      slide,
+      groupProps.childElementIds,
+    );
 
     return (
       <>
@@ -310,7 +335,7 @@ function ElementInteractionHitTargets(props: {
           const childFrame = getGroupedChildPreviewFrame({
             childElement,
             currentGroupFrame: element,
-            previewGroupFrame: frame
+            previewGroupFrame: frame,
           });
 
           return (
@@ -337,7 +362,7 @@ function ElementInteractionHitTargets(props: {
       frame,
       props: element.props as TextElementProps,
       slide,
-      theme: deck.theme
+      theme: deck.theme,
     });
 
     return (

@@ -1,4 +1,5 @@
 import json
+from copy import deepcopy
 from typing import Any
 
 import pytest
@@ -6,12 +7,20 @@ from fastapi.testclient import TestClient
 
 import app.main as api_module
 from app.ai.generate_deck import (
+    AgentOutput,
     DeckContentGenerationError,
+    DeckGenerationOrchestrator,
     GenerateDeckRequest,
     ReferenceContext,
     SlideCountRange,
+    ValidationIssue,
     choose_slide_count,
+    detect_text_overlap_candidates,
     generate_deck,
+    icon_name_for_keyword,
+    refine_design_issues,
+    review_text_overlap_candidates,
+    validate_and_patch,
 )
 from tests.test_config import VALID_ENV
 
@@ -647,6 +656,22 @@ def test_generate_deck_matches_game_ink_neon_profile_for_korean_hints() -> None:
     assert response.deck["theme"]["name"] == "default-game-ink-neon-ai"
 
 
+def test_generate_deck_uses_design_prompt_profile_when_profile_is_auto() -> None:
+    response = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="Quarterly roadmap",
+            designPrompt="예쁜 모던 스타일로 세련되게",
+            slideCountRange={"min": 2, "max": 2},
+        )
+    )
+
+    theme = response.deck["theme"]
+    assert theme["name"] == "default-modern-lilac-ai"
+    assert theme["accentColor"] == "#7c3aed"
+    assert theme["palette"]["muted"] == "#f5f3ff"
+
+
 def test_generate_deck_report_template_keeps_explicit_game_prompt_theme() -> None:
     fake_client = FakeOpenAIClient(
         {
@@ -1082,6 +1107,107 @@ def test_generate_deck_does_not_choose_media_preset_without_media() -> None:
     assert not has_element(slide, "el_1_media_placeholder")
 
 
+def test_text_overlap_candidates_ignore_empty_and_footer_text() -> None:
+    deck = text_overlap_deck(
+        [
+            text_box("el_a", 100, 100, "본문 A"),
+            text_box("el_b", 160, 130, "본문 B"),
+            text_box("el_empty", 100, 100, "  "),
+            text_box("el_footer", 100, 100, "Footer", role="footer"),
+        ]
+    )
+
+    candidates = detect_text_overlap_candidates(deck)
+
+    assert len(candidates) == 1
+    assert candidates[0].first_element_id == "el_a"
+    assert candidates[0].second_element_id == "el_b"
+    assert candidates[0].overlap_ratio >= 0.15
+
+
+def test_text_overlap_image_review_adds_unreadable_warning() -> None:
+    deck = text_overlap_deck(
+        [
+            text_box("el_a", 100, 100, "겹친 본문 A"),
+            text_box("el_b", 140, 120, "겹친 본문 B"),
+        ]
+    )
+    fake_client = FakeImageReviewClient(
+        {"unreadable": True, "reason": "두 텍스트가 같은 영역에 겹칩니다."}
+    )
+
+    issues = review_text_overlap_candidates(
+        deck,
+        detect_text_overlap_candidates(deck),
+        client=fake_client,
+        model="gpt-test",
+    )
+
+    assert len(issues) == 1
+    assert "이미지 검증" in issues[0].message
+    request = fake_client.requests[0]
+    assert request["model"] == "gpt-test"
+    content = request["input"][0]["content"]
+    assert content[1]["type"] == "input_image"
+    assert content[1]["image_url"].startswith("data:image/png;base64,")
+
+
+@pytest.mark.parametrize(
+    ("mode", "error"),
+    [
+        ("off", None),
+        ("auto", RuntimeError("image input unsupported")),
+    ],
+)
+def test_text_overlap_image_review_falls_back_without_failing(
+    mode: str,
+    error: Exception | None,
+) -> None:
+    deck = text_overlap_deck(
+        [
+            text_box("el_a", 100, 100, "본문 A"),
+            text_box("el_b", 150, 110, "본문 B"),
+        ]
+    )
+    client = FakeImageReviewClient(
+        {"unreadable": False, "reason": ""},
+        error=error,
+    )
+
+    issues = review_text_overlap_candidates(
+        deck,
+        detect_text_overlap_candidates(deck),
+        client=client,
+        image_review_mode=mode,  # type: ignore[arg-type]
+    )
+
+    assert len(issues) == 1
+    assert "el_a" in issues[0].message
+    if mode == "off":
+        assert client.requests == []
+
+
+def test_text_overlap_review_skips_llm_when_no_candidate_exists() -> None:
+    deck = text_overlap_deck(
+        [
+            text_box("el_a", 100, 100, "본문 A"),
+            text_box("el_b", 500, 100, "본문 B"),
+        ]
+    )
+    fake_client = FakeImageReviewClient(
+        {"unreadable": True, "reason": "should not run"}
+    )
+
+    issues = review_text_overlap_candidates(
+        deck,
+        detect_text_overlap_candidates(deck),
+        client=fake_client,
+    )
+
+    assert issues == []
+    assert fake_client.requests == []
+
+
 def test_generate_deck_endpoint_requires_llm_for_reference_generation() -> None:
     response = client().post(
         "/ai/generate-deck",
@@ -1437,6 +1563,795 @@ def test_generate_deck_creates_diagram_elements_from_composition() -> None:
     assert response.validation.passed is True
 
 
+def test_generate_deck_applies_v1_design_profile_to_theme_and_slots() -> None:
+    response = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="IR 피치",
+            slideCountRange={"min": 4, "max": 4},
+            template="pitch",
+            design={"profile": "startup-pitch", "layoutDiversity": "varied"},
+        )
+    )
+
+    assert response.deck["theme"]["name"] == "pitch-startup-pitch-ai"
+    assert response.deck["theme"]["backgroundColor"] == "#0f172a"
+    assert response.deck["slides"][0]["style"]["backgroundColor"] == "#0f172a"
+    assert response.validation.passed is True
+
+
+def test_generate_deck_applies_v2_process_cards_registry() -> None:
+    fake_client = FakeOpenAIClient(
+        {
+            "title": "AI slide pipeline",
+            "slides": [
+                slide_payload(
+                    "AI slide generation pipeline",
+                    "LLM output becomes editable Deck JSON.",
+                    "Walk through the deterministic deck assembly flow.",
+                    slide_type="process",
+                    slot_preset="insight_with_evidence",
+                    keywords=[
+                        "Input collection",
+                        "LLM flow",
+                        "Design request",
+                        "Layout selection",
+                        "Element assembly",
+                        "Validation handoff",
+                    ],
+                    visual_intent={
+                        "emphasis": "Editable slide JSON keeps generation stable.",
+                        "mood": "professional",
+                        "structure": "process cards",
+                        "paletteHint": "",
+                        "emphasisStyle": "",
+                        "composition": "process",
+                        "decorationDensity": "high",
+                        "mediaStyle": "",
+                    },
+                )
+            ],
+        }
+    )
+
+    response = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="AI slide generation pipeline",
+            prompt="Use a teal process cards design.",
+            slideCountRange={"min": 1, "max": 1},
+        ),
+        client=fake_client,
+    )
+
+    slide = response.deck["slides"][0]
+    elements = slide["elements"]
+    deck_text = json.dumps(response.deck, ensure_ascii=False)
+    cards = [
+        element
+        for element in elements
+        if element["elementId"].startswith("el_1_process_card_")
+        and element["type"] == "rect"
+    ]
+    arrows = [
+        element
+        for element in elements
+        if element["elementId"].startswith("el_1_process_arrow_")
+    ]
+    badges = [
+        element
+        for element in elements
+        if element["elementId"].startswith("el_1_process_badge_")
+        and element["type"] == "ellipse"
+    ]
+
+    assert response.deck["theme"]["name"] == "teal-professional-process"
+    assert response.deck["theme"]["accentColor"] == "#006878"
+    assert cards[0]["props"]["fill"] == "#ffffff"
+    assert cards[0]["props"]["stroke"] == "#c7d2d0"
+    assert cards[0]["props"]["shadow"]["blur"] == 16
+    assert element_by_id(slide, "el_1_process_callout")["props"]["stroke"] == "#c7d2d0"
+    assert len(cards) == 6
+    assert len(arrows) == 5
+    assert len(badges) == 6
+    assert has_element(slide, "el_1_process_callout")
+    assert icon_name_for_keyword("LLM flow") == "network-nodes"
+    assert icon_name_for_keyword("Design request") == "pen-monitor"
+    assert "stylePackId" not in deck_text
+    assert "slidePresetId" not in deck_text
+    assert "visualIntent" not in deck_text
+    assert response.validation.passed is True
+
+
+def test_generate_deck_does_not_invent_chart_data_without_source_numbers() -> None:
+    fake_client = FakeOpenAIClient(
+        {
+            "title": "차트 근거",
+            "slides": [
+                slide_payload(
+                    "성과 차트",
+                    "근거 데이터가 없으면 빈 차트로 남깁니다.",
+                    "데이터가 없을 때는 사용자가 직접 입력할 수 있도록 안내합니다.",
+                    slide_type="chart",
+                    slot_preset="insight_with_evidence",
+                )
+            ],
+        }
+    )
+
+    response = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="차트 근거",
+            prompt="차트 슬라이드 생성",
+            slideCountRange={"min": 1, "max": 1},
+        ),
+        client=fake_client,
+    )
+
+    chart = next(
+        element
+        for element in response.deck["slides"][0]["elements"]
+        if element["type"] == "chart"
+    )
+    assert chart["props"]["data"] == []
+    assert any("근거 데이터가 없어 빈 차트" in warning for warning in response.warnings)
+    assert response.validation.passed is True
+
+
+def test_agent_output_rejects_invalid_status() -> None:
+    with pytest.raises(ValueError):
+        AgentOutput.model_validate({"status": "done", "summary": "invalid"})
+
+
+def test_orchestrator_passes_design_blueprint_to_design_and_layout_agents() -> None:
+    blueprint = minimal_imported_design_blueprint()
+    orchestrator = DeckGenerationOrchestrator(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="ORBIT",
+            designReferences=[{"fileId": "file_design"}],
+            designBlueprint=blueprint,
+        )
+    )
+
+    response = orchestrator.run()
+    design_output = orchestrator.agent_outputs["DesignDirectorAgent"]
+    layout_output = orchestrator.agent_outputs["LayoutAgent"]
+
+    assert design_output.artifacts["designBlueprint"]["slides"][0]["elements"][0]["type"] == "rect"
+    assert layout_output.artifacts["designBlueprint"]["slides"][0]["elements"][1]["type"] == "text"
+    assert "agentOutputs" not in response.deck
+    assert "Original confidential" not in json.dumps(response.deck, ensure_ascii=False)
+    assert response.validation.passed is True
+
+
+def test_template_blueprint_replaces_only_replaceable_content_slots() -> None:
+    blueprint = minimal_imported_design_blueprint()
+    title_text = blueprint["slides"][0]["elements"][1]
+    title_text["props"] = {
+        **title_text["props"],
+        "paragraphs": [{"text": "Original confidential title"}],
+        "runs": [{"text": "Original confidential title"}],
+    }
+    fixed_text = deepcopy(blueprint["slides"][0]["elements"][1])
+    fixed_text["elementId"] = "el_imported_1_fixed"
+    fixed_text["role"] = "caption"
+    fixed_text["y"] = 280
+    fixed_text["props"] = {
+        **fixed_text["props"],
+        "text": "Do not touch fixed text",
+        "paragraphs": [{"text": "Do not touch fixed text"}],
+        "runs": [{"text": "Do not touch fixed text"}],
+    }
+    blueprint["slides"][0]["elements"].append(fixed_text)
+
+    response = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="ORBIT",
+            slideCountRange={"min": 1, "max": 1},
+            designReferences=[{"fileId": "file_design"}],
+            designBlueprint=blueprint,
+            templateBlueprint={
+                "templateId": "template_file_design",
+                "sourceFileId": "file_design",
+                "slides": [
+                    {
+                        "slideIndex": 1,
+                        "sourceSlideIndex": 1,
+                        "slots": [
+                            {
+                                "elementId": "el_imported_1_title",
+                                "usage": "content-slot",
+                                "slotRole": "title",
+                                "replaceMode": "replace",
+                                "confidence": 0.95,
+                                "bounds": {
+                                    "x": 120,
+                                    "y": 96,
+                                    "width": 1200,
+                                    "height": 120,
+                                },
+                                "source": {"type": "placeholder", "name": "Title 1"},
+                            },
+                            {
+                                "elementId": "el_imported_1_fixed",
+                                "usage": "fixed-text",
+                                "slotRole": "caption",
+                                "replaceMode": "preserve",
+                                "confidence": 0.9,
+                                "bounds": {
+                                    "x": 120,
+                                    "y": 280,
+                                    "width": 1200,
+                                    "height": 120,
+                                },
+                                "source": {"type": "layout", "name": "Footer"},
+                            },
+                        ],
+                    }
+                ],
+            },
+        )
+    )
+
+    text_values = [
+        element["props"]["text"]
+        for element in response.deck["slides"][0]["elements"]
+        if element["type"] == "text"
+    ]
+
+    assert "ORBIT" in text_values
+    assert "Do not touch fixed text" in text_values
+    assert "Original confidential title" not in text_values
+    replaced_title = next(
+        element
+        for element in response.deck["slides"][0]["elements"]
+        if element["type"] == "text" and element["props"]["text"] == "ORBIT"
+    )
+    preserved_fixed = next(
+        element
+        for element in response.deck["slides"][0]["elements"]
+        if element["type"] == "text"
+        and element["props"]["text"] == "Do not touch fixed text"
+    )
+    assert "paragraphs" not in replaced_title["props"]
+    assert "runs" not in replaced_title["props"]
+    assert preserved_fixed["props"]["paragraphs"][0]["text"] == "Do not touch fixed text"
+
+
+def test_refiner_shrinks_clamps_and_corrects_text_contrast() -> None:
+    deck = {
+        "deckId": "deck_ai_refine",
+        "projectId": "project_demo_1",
+        "title": "ORBIT",
+        "version": 1,
+        "metadata": {
+            "language": "ko",
+            "locale": "ko-KR",
+            "sourceType": "ai",
+            "generatedBy": "ai",
+            "createdFrom": {"topic": "ORBIT", "references": []},
+        },
+        "canvas": {
+            "preset": "wide-16-9",
+            "width": 1920,
+            "height": 1080,
+            "aspectRatio": "16:9",
+        },
+        "theme": minimal_imported_design_blueprint()["theme"],
+        "slides": [
+            {
+                "slideId": "slide_1",
+                "order": 1,
+                "title": "ORBIT",
+                "thumbnailUrl": "",
+                "style": {"backgroundColor": "#ffffff"},
+                "speakerNotes": "notes",
+                "elements": [
+                    {
+                        "elementId": "el_1_text",
+                        "type": "text",
+                        "role": "body",
+                        "x": 80,
+                        "y": 80,
+                        "width": 260,
+                        "height": 44,
+                        "rotation": 0,
+                        "opacity": 1,
+                        "zIndex": 1,
+                        "locked": False,
+                        "visible": True,
+                        "props": {
+                            "text": "This copy is long enough to overflow the small frame.",
+                            "fontSize": 28,
+                            "fontWeight": "normal",
+                            "color": "#fefefe",
+                            "align": "left",
+                            "verticalAlign": "top",
+                            "lineHeight": 1.2,
+                        },
+                    }
+                ],
+                "keywords": [],
+            }
+        ],
+    }
+
+    refined = refine_design_issues(
+        deck,
+        [ValidationIssue(scope="element", path="slides.0.elements.0", message="issue")],
+    )
+    element = refined["slides"][0]["elements"][0]
+
+    assert element["x"] == 120
+    assert element["y"] == 88
+    assert element["props"]["fontSize"] < 28
+    assert element["props"]["color"] == "#111827"
+
+
+def test_generate_deck_reports_advisory_design_quality_issues() -> None:
+    deck = {
+        "deckId": "deck_ai_quality",
+        "projectId": "project_demo_1",
+        "title": "ORBIT",
+        "version": 1,
+        "metadata": {
+            "language": "ko",
+            "locale": "ko-KR",
+            "sourceType": "ai",
+            "generatedBy": "ai",
+            "createdFrom": {"topic": "ORBIT", "references": []},
+        },
+        "canvas": {
+            "preset": "wide-16-9",
+            "width": 1920,
+            "height": 1080,
+            "aspectRatio": "16:9",
+        },
+        "theme": {
+            "name": "quality-test",
+            "fontFamily": "Inter",
+            "backgroundColor": "#ffffff",
+            "textColor": "#111827",
+            "accentColor": "#2563eb",
+            "palette": {
+                "primary": "#2563eb",
+                "secondary": "#f59e0b",
+                "surface": "#ffffff",
+                "muted": "#f8fafc",
+                "border": "#d8dee9",
+            },
+            "typography": {
+                "headingFontFamily": "Inter",
+                "bodyFontFamily": "Inter",
+                "titleSize": 60,
+                "headingSize": 42,
+                "bodySize": 26,
+                "captionSize": 18,
+            },
+            "effects": {"borderRadius": 8},
+        },
+        "slides": [
+            {
+                "slideId": "slide_1",
+                "order": 1,
+                "title": "ORBIT",
+                "thumbnailUrl": "",
+                "style": {"backgroundColor": "#ffffff"},
+                "speakerNotes": "발표자 노트",
+                "elements": [
+                    {
+                        "elementId": "el_1_text",
+                        "type": "text",
+                        "role": "body",
+                        "x": 80,
+                        "y": 80,
+                        "width": 220,
+                        "height": 32,
+                        "rotation": 0,
+                        "opacity": 1,
+                        "zIndex": 1,
+                        "locked": False,
+                        "visible": True,
+                        "props": {
+                            "text": "긴 텍스트가 좁은 상자 안에서 여러 줄로 넘칠 수 있습니다.",
+                            "fontSize": 28,
+                            "fontWeight": "normal",
+                            "color": "#fefefe",
+                            "align": "left",
+                            "verticalAlign": "top",
+                            "lineHeight": 1.2,
+                        },
+                    },
+                    {
+                        "elementId": "el_1_overlap",
+                        "type": "text",
+                        "role": "body",
+                        "x": 100,
+                        "y": 92,
+                        "width": 220,
+                        "height": 80,
+                        "rotation": 0,
+                        "opacity": 1,
+                        "zIndex": 2,
+                        "locked": False,
+                        "visible": True,
+                        "props": {
+                            "text": "겹침",
+                            "fontSize": 24,
+                            "fontWeight": "normal",
+                            "color": "#111827",
+                            "align": "left",
+                            "verticalAlign": "top",
+                            "lineHeight": 1.2,
+                        },
+                    },
+                ],
+                "keywords": [],
+            }
+        ],
+    }
+
+    _, validation = validate_and_patch(deck)
+    messages = [issue.message for issue in validation.design_issues]
+
+    assert validation.passed is True
+    assert "텍스트가 상자 높이를 넘을 수 있습니다." in messages
+    assert "텍스트와 배경의 대비가 낮습니다." in messages
+    assert "텍스트가 안전 영역 밖에 배치되었습니다." in messages
+    assert any("겹칠 수 있습니다" in message for message in messages)
+
+
+def test_generate_deck_applies_imported_design_blueprint_without_schema_leak() -> None:
+    response = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="ORBIT",
+            designReferences=[{"fileId": "file_design"}],
+            designBlueprint={
+                "theme": {
+                    "name": "Imported PPTX",
+                    "fontFamily": "Inter",
+                    "backgroundColor": "#ffffff",
+                    "textColor": "#111827",
+                    "accentColor": "#2563eb",
+                    "palette": {
+                        "primary": "#2563eb",
+                        "secondary": "#7c3aed",
+                        "surface": "#ffffff",
+                        "muted": "#f3f4f6",
+                        "border": "#d1d5db",
+                    },
+                    "typography": {
+                        "headingFontFamily": "Inter",
+                        "bodyFontFamily": "Inter",
+                        "titleSize": 56,
+                        "headingSize": 40,
+                        "bodySize": 24,
+                        "captionSize": 16,
+                    },
+                    "effects": {"borderRadius": 8},
+                },
+                "warnings": ["Unsupported PPTX shape on slide 1: CHART"],
+                "slides": [
+                    {
+                        "style": {
+                            "layout": "title-content",
+                            "backgroundColor": "#ffffff",
+                        },
+                        "elements": [
+                            {
+                                "elementId": "el_imported_1_background",
+                                "type": "rect",
+                                "role": "background",
+                                "x": 0,
+                                "y": 0,
+                                "width": 1920,
+                                "height": 1080,
+                                "rotation": 0,
+                                "opacity": 1,
+                                "zIndex": 0,
+                                "locked": True,
+                                "visible": True,
+                                "props": {
+                                    "fill": "#ffffff",
+                                    "stroke": "transparent",
+                                    "strokeWidth": 0,
+                                    "borderRadius": 0,
+                                },
+                            },
+                            {
+                                "elementId": "el_imported_1_title",
+                                "type": "text",
+                                "role": "title",
+                                "x": 120,
+                                "y": 96,
+                                "width": 1200,
+                                "height": 120,
+                                "rotation": 0,
+                                "opacity": 1,
+                                "zIndex": 2,
+                                "locked": False,
+                                "visible": True,
+                                "props": {
+                                    "text": "Original confidential title",
+                                    "fontFamily": "Inter",
+                                    "fontSize": 52,
+                                    "fontWeight": "bold",
+                                    "color": "#111827",
+                                    "align": "left",
+                                    "verticalAlign": "top",
+                                    "lineHeight": 1.15,
+                                },
+                            },
+                            {
+                                "elementId": "el_imported_1_body",
+                                "type": "text",
+                                "role": "body",
+                                "x": 120,
+                                "y": 280,
+                                "width": 1200,
+                                "height": 220,
+                                "rotation": 0,
+                                "opacity": 1,
+                                "zIndex": 3,
+                                "locked": False,
+                                "visible": True,
+                                "props": {
+                                    "text": "Original confidential body",
+                                    "fontFamily": "Inter",
+                                    "fontSize": 28,
+                                    "fontWeight": "normal",
+                                    "color": "#111827",
+                                    "align": "left",
+                                    "verticalAlign": "top",
+                                    "lineHeight": 1.15,
+                                },
+                            },
+                        ],
+                    }
+                ],
+            },
+        )
+    )
+
+    slide = response.deck["slides"][0]
+    text = "\n".join(
+        str(element["props"].get("text", ""))
+        for element in slide["elements"]
+        if element["type"] == "text"
+    )
+
+    assert response.deck["metadata"]["createdFrom"]["designReferences"] == [
+        {"fileId": "file_design"}
+    ]
+    assert all(
+        element["elementId"].startswith("el_1_imported_")
+        for element in slide["elements"]
+    )
+    assert "Original confidential" not in text
+    assert "designBlueprint" not in response.deck
+    assert "Unsupported PPTX shape on slide 1: CHART" in response.warnings
+    assert response.validation.passed is True
+
+
+def test_generate_deck_preserves_dense_imported_text_styles() -> None:
+    blueprint = minimal_imported_design_blueprint()
+    imported_slide = blueprint["slides"][0]
+    imported_slide["style"].update(
+        {
+            "textColor": "#fefefe",
+            "accentColor": "#d1d5db",
+            "fontFamily": "Aptos Display",
+        }
+    )
+    title = imported_slide["elements"][1]
+    title.update({"x": 20, "y": 20, "width": 260, "height": 24, "zIndex": 2})
+    title["props"].update(
+        {
+            "fontFamily": "Aptos Display",
+            "fontSize": 30,
+            "fontWeight": "bold",
+            "color": "#fefefe",
+            "align": "center",
+            "lineHeight": 1.3,
+        }
+    )
+    body = deepcopy(title)
+    body.update(
+        {
+            "elementId": "el_imported_1_body",
+            "role": "body",
+            "y": 64,
+            "height": 36,
+            "zIndex": 3,
+        }
+    )
+    body["props"] = {
+        **body["props"],
+        "text": "Original confidential body",
+        "fontSize": 26,
+        "fontWeight": "normal",
+        "align": "right",
+    }
+    imported_slide["elements"].append(body)
+    for index in range(13):
+        imported_slide["elements"].append(
+            {
+                "elementId": f"el_imported_1_decoration_{index}",
+                "type": "rect",
+                "role": "decoration",
+                "x": 400 + index,
+                "y": 900,
+                "width": 8,
+                "height": 8,
+                "rotation": 0,
+                "opacity": 1,
+                "zIndex": 4 + index,
+                "locked": True,
+                "visible": True,
+                "props": {
+                    "fill": "#d1d5db",
+                    "stroke": "transparent",
+                    "strokeWidth": 0,
+                    "borderRadius": 0,
+                },
+            }
+        )
+
+    response = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="ORBIT",
+            slideCountRange={"min": 1, "max": 1},
+            designReferences=[{"fileId": "file_design"}],
+            designBlueprint=blueprint,
+        )
+    )
+
+    slide = response.deck["slides"][0]
+    imported_title = element_by_role(slide, "title")
+    imported_body = element_by_role(slide, "body")
+
+    assert response.validation.passed is True
+    assert slide["style"]["fontFamily"] == "Aptos Display"
+    assert slide["style"]["textColor"] == "#fefefe"
+    assert slide["style"]["accentColor"] == "#d1d5db"
+    assert not any(
+        issue.path == "slides.0.elements"
+        for issue in response.validation.design_issues
+    )
+    assert not any("fallback" in element["elementId"] for element in slide["elements"])
+    assert imported_title["x"] == 20
+    assert imported_title["y"] == 20
+    assert imported_title["width"] == 260
+    assert imported_title["height"] == 24
+    assert imported_title["zIndex"] == 2
+    assert imported_title["props"]["fontFamily"] == "Aptos Display"
+    assert imported_title["props"]["fontSize"] == 30
+    assert imported_title["props"]["fontWeight"] == "bold"
+    assert imported_title["props"]["color"] == "#fefefe"
+    assert imported_title["props"]["align"] == "center"
+    assert imported_title["props"]["lineHeight"] == 1.3
+    assert imported_body["x"] == 20
+    assert imported_body["y"] == 64
+    assert imported_body["width"] == 260
+    assert imported_body["height"] == 36
+    assert imported_body["zIndex"] == 3
+    assert imported_body["props"]["fontFamily"] == "Aptos Display"
+    assert imported_body["props"]["fontSize"] == 26
+    assert imported_body["props"]["fontWeight"] == "normal"
+    assert imported_body["props"]["color"] == "#fefefe"
+    assert imported_body["props"]["align"] == "right"
+    assert "Original confidential" not in imported_title["props"]["text"]
+    assert "Original confidential" not in imported_body["props"]["text"]
+
+
+def test_generate_deck_adds_imported_body_fallback_only_when_missing() -> None:
+    response = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="ORBIT",
+            slideCountRange={"min": 1, "max": 1},
+            designReferences=[{"fileId": "file_design"}],
+            designBlueprint=minimal_imported_design_blueprint(),
+        )
+    )
+
+    element_ids = [
+        element["elementId"]
+        for element in response.deck["slides"][0]["elements"]
+    ]
+
+    assert "el_1_title_fallback" not in element_ids
+    assert "el_1_body_fallback" in element_ids
+
+
+def minimal_imported_design_blueprint() -> dict[str, Any]:
+    return {
+        "theme": {
+            "name": "Imported PPTX",
+            "fontFamily": "Inter",
+            "backgroundColor": "#ffffff",
+            "textColor": "#111827",
+            "accentColor": "#2563eb",
+            "palette": {
+                "primary": "#2563eb",
+                "secondary": "#7c3aed",
+                "surface": "#ffffff",
+                "muted": "#f3f4f6",
+                "border": "#d1d5db",
+            },
+            "typography": {
+                "headingFontFamily": "Inter",
+                "bodyFontFamily": "Inter",
+                "titleSize": 56,
+                "headingSize": 40,
+                "bodySize": 24,
+                "captionSize": 16,
+            },
+            "effects": {"borderRadius": 8},
+        },
+        "warnings": [],
+        "slides": [
+            {
+                "style": {
+                    "layout": "title-content",
+                    "backgroundColor": "#ffffff",
+                },
+                "elements": [
+                    {
+                        "elementId": "el_imported_1_background",
+                        "type": "rect",
+                        "role": "background",
+                        "x": 0,
+                        "y": 0,
+                        "width": 1920,
+                        "height": 1080,
+                        "rotation": 0,
+                        "opacity": 1,
+                        "zIndex": 0,
+                        "locked": True,
+                        "visible": True,
+                        "props": {
+                            "fill": "#ffffff",
+                            "stroke": "transparent",
+                            "strokeWidth": 0,
+                            "borderRadius": 0,
+                        },
+                    },
+                    {
+                        "elementId": "el_imported_1_title",
+                        "type": "text",
+                        "role": "title",
+                        "x": 120,
+                        "y": 96,
+                        "width": 1200,
+                        "height": 120,
+                        "rotation": 0,
+                        "opacity": 1,
+                        "zIndex": 2,
+                        "locked": False,
+                        "visible": True,
+                        "props": {
+                            "text": "Original confidential title",
+                            "fontFamily": "Inter",
+                            "fontSize": 52,
+                            "fontWeight": "bold",
+                            "color": "#111827",
+                            "align": "left",
+                            "verticalAlign": "top",
+                            "lineHeight": 1.15,
+                        },
+                    },
+                ],
+            }
+        ],
+    }
+
+
 def slide_payload(
     title: str,
     message: str,
@@ -1507,6 +2422,129 @@ def element_by_role(slide: dict[str, Any], role: str) -> dict[str, Any]:
         for element in slide["elements"]
         if element["role"] == role
     )
+
+
+def text_overlap_deck(elements: list[dict[str, Any]]) -> dict[str, Any]:
+    return {
+        "deckId": "deck_overlap",
+        "projectId": "project_demo_1",
+        "title": "Overlap",
+        "version": 1,
+        "metadata": {
+            "language": "ko",
+            "locale": "ko-KR",
+            "createdFrom": {"topic": "Overlap", "references": []},
+        },
+        "canvas": {
+            "preset": "wide-16-9",
+            "width": 1920,
+            "height": 1080,
+            "aspectRatio": "16:9",
+        },
+        "theme": {
+            "name": "test",
+            "fontFamily": "Inter",
+            "backgroundColor": "#ffffff",
+            "textColor": "#111827",
+            "accentColor": "#2563eb",
+            "palette": {
+                "primary": "#2563eb",
+                "secondary": "#0f172a",
+                "accent": "#2563eb",
+                "background": "#ffffff",
+                "surface": "#f8fafc",
+                "text": "#111827",
+                "muted": "#64748b",
+                "border": "#cbd5e1",
+            },
+            "typography": {
+                "headingFontFamily": "Inter",
+                "bodyFontFamily": "Inter",
+                "monoFontFamily": "JetBrains Mono",
+                "scale": 1,
+            },
+            "effects": {"shadow": "none", "borderRadius": 8},
+        },
+        "slides": [
+            {
+                "slideId": "slide_overlap",
+                "order": 1,
+                "title": "Overlap",
+                "thumbnailUrl": "",
+                "style": {},
+                "speakerNotes": "notes",
+                "elements": elements,
+                "keywords": [],
+            }
+        ],
+    }
+
+
+def text_box(
+    element_id: str,
+    x: int,
+    y: int,
+    text: str,
+    *,
+    role: str = "body",
+) -> dict[str, Any]:
+    return {
+        "elementId": element_id,
+        "type": "text",
+        "role": role,
+        "x": x,
+        "y": y,
+        "width": 300,
+        "height": 120,
+        "rotation": 0,
+        "opacity": 1,
+        "zIndex": 1,
+        "locked": False,
+        "visible": True,
+        "props": {
+            "text": text,
+            "fontFamily": "Inter",
+            "fontSize": 32,
+            "fontWeight": "normal",
+            "color": "#111827",
+            "align": "left",
+            "verticalAlign": "top",
+            "lineHeight": 1.2,
+        },
+    }
+
+
+class FakeImageReviewClient:
+    def __init__(
+        self,
+        payload: dict[str, object] | None = None,
+        *,
+        error: Exception | None = None,
+    ) -> None:
+        self.requests: list[dict[str, Any]] = []
+        self.responses = FakeImageReviewResponses(self, payload or {}, error)
+
+
+class FakeImageReviewResponses:
+    def __init__(
+        self,
+        parent: FakeImageReviewClient,
+        payload: dict[str, object],
+        error: Exception | None,
+    ) -> None:
+        self.parent = parent
+        self.payload = payload
+        self.error = error
+
+    def create(self, **kwargs: Any) -> object:
+        self.parent.requests.append(kwargs)
+        if self.error:
+            raise self.error
+        return type(
+            "Response",
+            (),
+            {"output_text": json.dumps(self.payload, ensure_ascii=False)},
+        )()
 
 
 class FakeOpenAIClient:
