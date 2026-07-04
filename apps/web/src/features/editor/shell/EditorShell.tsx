@@ -1342,6 +1342,10 @@ export function EditorShell(props: { projectId?: string }) {
       return;
     }
 
+    if (!commitSpeakerNotesDraftIfDirty()) {
+      return;
+    }
+
     setSaveState("manual-saving");
     setSaveError(null, null);
     setActiveTopMenu(null);
@@ -1398,6 +1402,10 @@ export function EditorShell(props: { projectId?: string }) {
     if (!activeProjectId) {
       setSaveState("error");
       setSaveError("missing-project", "저장할 프로젝트를 찾지 못했습니다.");
+      return;
+    }
+
+    if (!commitSpeakerNotesDraftIfDirty()) {
       return;
     }
 
@@ -1831,19 +1839,31 @@ export function EditorShell(props: { projectId?: string }) {
     resetSpeakerNotesEditState(currentSlide?.speakerNotes ?? "");
   }
 
-  function handleSaveSpeakerNotesEdit() {
-    if (!currentSlide || currentSlide.slideId !== speakerNotesEditSlideId) {
-      resetSpeakerNotesEditState(currentSlide?.speakerNotes ?? "");
-      return;
+  function commitSpeakerNotesDraftIfDirty() {
+    if (
+      !shouldPromptSpeakerNotesDraftDiscard({
+        draft: speakerNotesDraft,
+        isEditing: isSpeakerNotesEditing,
+        savedDraftBase: speakerNotesDraftBase
+      })
+    ) {
+      return true;
     }
 
-    const slideId = currentSlide.slideId;
-    const nextSpeakerNotes = speakerNotesDraft;
+    const slideId = speakerNotesEditSlideId;
+    const targetSlide = workingDeckRef.current.slides.find(
+      (slide) => slide.slideId === slideId
+    );
+
+    if (!slideId || !targetSlide) {
+      resetSpeakerNotesEditState(currentSlide?.speakerNotes ?? "");
+      return false;
+    }
 
     if (
       shouldPromptSpeakerNotesOverwrite({
-        currentNotes: currentSlide.speakerNotes,
-        draft: nextSpeakerNotes,
+        currentNotes: targetSlide.speakerNotes,
+        draft: speakerNotesDraft,
         savedDraftBase: speakerNotesDraftBase
       }) &&
       typeof window !== "undefined" &&
@@ -1851,10 +1871,12 @@ export function EditorShell(props: { projectId?: string }) {
         "편집 중 발표 메모가 다른 작업으로 변경되었습니다. 현재 초안으로 덮어쓸까요?"
       )
     ) {
-      return;
+      return false;
     }
 
-    if (nextSpeakerNotes !== currentSlide.speakerNotes) {
+    const nextSpeakerNotes = speakerNotesDraft;
+
+    if (nextSpeakerNotes !== targetSlide.speakerNotes) {
       commitPatch((currentDeck) => ({
         deckId: currentDeck.deckId,
         baseVersion: currentDeck.version,
@@ -1870,6 +1892,28 @@ export function EditorShell(props: { projectId?: string }) {
     }
 
     resetSpeakerNotesEditState(nextSpeakerNotes);
+    return true;
+  }
+
+  function handleSaveSpeakerNotesEdit() {
+    if (!currentSlide) {
+      resetSpeakerNotesEditState("");
+      return;
+    }
+
+    const hasDirtyDraft = shouldPromptSpeakerNotesDraftDiscard({
+      draft: speakerNotesDraft,
+      isEditing: isSpeakerNotesEditing,
+      savedDraftBase: speakerNotesDraftBase
+    });
+
+    if (!commitSpeakerNotesDraftIfDirty()) {
+      return;
+    }
+
+    if (!hasDirtyDraft) {
+      resetSpeakerNotesEditState(currentSlide.speakerNotes);
+    }
   }
 
   function handleDeleteSelectedKeyword(slideId: string, keywordId: string) {
