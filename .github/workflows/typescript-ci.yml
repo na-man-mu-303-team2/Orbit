@@ -31,6 +31,8 @@ on:
       - "tsconfig*.json"
       # 환경변수 예시 파일이 바뀌면 검증을 다시 실행합니다.
       - ".env.example"
+      # staging/production 환경변수 예시 파일이 바뀌어도 검증을 다시 실행합니다.
+      - ".env.*.example"
       # 환경변수 검증 스크립트가 바뀌면 실행합니다.
       - "infra/scripts/check-env.mjs"
       # 이 workflow 파일 자체가 바뀌면 실행합니다.
@@ -62,6 +64,8 @@ on:
       - "tsconfig*.json"
       # 환경변수 예시 파일이 바뀌면 검증을 다시 실행합니다.
       - ".env.example"
+      # staging/production 환경변수 예시 파일이 바뀌어도 검증을 다시 실행합니다.
+      - ".env.*.example"
       # 환경변수 검증 스크립트가 바뀌면 실행합니다.
       - "infra/scripts/check-env.mjs"
       # 이 workflow 파일 자체가 바뀌면 실행합니다.
