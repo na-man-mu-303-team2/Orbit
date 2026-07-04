@@ -8,24 +8,22 @@ The top-level `## Current State` and `## Resume Checkpoint` sections are the sou
 
 ## Current State
 
-- Last completed milestone: 10
-- Next milestone: 11
+- Last completed milestone: 11
+- Next milestone: complete
 - Integration branch: `feature/audience`
-- Current expected branch: `feature/audience-m11-hardening`
-- Goal status: in progress
+- Current expected branch: `feature/audience`
+- Goal status: complete
 
 ## Resume Checkpoint
 
-- Current branch: `feature/audience-m11-hardening`
-- Next milestone: 11
+- Current branch: `feature/audience`
+- Next milestone: complete
 - Resume first checks:
   - Run `git status --short --branch`.
   - Read `docs/plans/audience-engagement-execution-protocol.md`.
-  - Read Milestone 11 in `docs/plans/audience-engagement-implementation-plan.md`.
-  - Read relevant product-plan sections for final hardening, accessibility, browser smoke, and launch readiness.
-  - Verify final hardening tests, security regression coverage, accessibility text/labels, and docs updates.
+  - Review the Milestone 11 completion entry and final verification notes below.
 - Blocked: no
-- Notes: Milestone 11 hardening is active.
+- Notes: Milestones 1-11 are locally implemented and merged into `feature/audience`.
 
 ## Milestone Log
 
@@ -457,6 +455,41 @@ The top-level `## Current State` and `## Resume Checkpoint` sections are the sou
   - Current branch: `feature/audience-m11-hardening`
   - Next milestone: 11
   - Resume first checks: inspect smoke/E2E scripts, audience-safe payload tests, web accessibility tests, and docs before editing.
+
+## Milestone 11 Complete - 2026-07-05
+
+- Milestone branch: `feature/audience-m11-hardening`
+- Local commits:
+  - `7d03524` `test: 청중 참여 최종 하드닝 추가`
+  - `52fb995` `chore: 청중 하드닝 마일스톤 병합`
+- Merged into `feature/audience`: yes
+- Change summary: added a route-mocked Playwright audience engagement smoke covering duplicate nickname rejection, mobile slide display timing, Q&A with AI fallback escalation, poll response, quiz response, reactions, post-session survey submission, presenter result summaries, and survey CSV link; updated the existing audience feature smoke to match current feature-card copy; expanded audience-safe payload security tests; added web SSR accessibility/privacy coverage for active participation surfaces; and documented the M11 verification matrix in `docs/testing/audience-engagement-m11.md`.
+- Acceptance criteria evidence: audience smoke verifies mobile `/join/:joinCode`, participation controls, survey, presenter results, and CSV link without exposing presenter-only fields; shared schemas reject `speakerNotes`, `rawTranscript`, `rawAudio`, `presenterScript`, `fileBase64`, and secret-like field names; presenter results remain project-authenticated routes and audience routes do not expose presenter results; docs/testing now links the audience hardening test anchors.
+- Self-review:
+  - Correctness: targeted unit, API, web, and audience Playwright smoke tests pass; full build/lint/test pass.
+  - Security/privacy: tests check sensitive field rejection and audience UI non-exposure of presenter-only fields; no real secrets or environment values were added to tracked files.
+  - Contract/schema compatibility: added tests build on existing shared audience, interaction, realtime, and presenter-results contracts rather than adding new runtime payload shapes.
+  - Architecture boundary: M11 changes are limited to tests and docs; no product runtime behavior or data contracts were changed.
+  - Missing test risk: full `pnpm test:smoke` still has non-audience local-environment failures because the local API is not running and the Vite proxy points at an unavailable staging host; Python worker pytest could not run because `uv` is unavailable in this shell.
+- Verification:
+  - `pnpm --filter @orbit/shared test -- src/audience/audience.schema.test.ts src/interactions/interaction.schema.test.ts src/realtime/websocket.schema.test.ts`: pass
+  - `pnpm --filter @orbit/web test -- src/features/audience/AudienceEntrance.test.tsx src/features/audience/AudiencePresenterPanel.test.tsx`: pass
+  - `pnpm exec playwright test tests/e2e/audience-engagement.spec.ts --workers=1`: pass, 5/5 tests
+  - `pnpm exec playwright test tests/e2e/audience-features.spec.ts --workers=1`: pass, 2/2 tests
+  - `pnpm lint`: pass
+  - `pnpm build`: pass
+  - `pnpm test`: pass
+  - `docker compose config`: pass
+  - `cd services/python-worker && uv run pytest`: not run; `uv` command is unavailable in this shell.
+  - `PYTHONPYCACHEPREFIX=/private/tmp/orbit-pycache python3 -m py_compile services/python-worker/app/main.py services/python-worker/tests/test_qna.py`: pass
+  - `pnpm test:smoke -- --workers=1`: partial; 9/14 passed, including all audience engagement and audience feature smoke tests. Failed tests were existing non-audience smoke/editor/AI suggestion flows blocked by local API/proxy availability (`127.0.0.1:3000` refused or staging proxy DNS unavailable).
+  - `git diff --check`: pass
+  - `pnpm audience:checkpoint`: pass before completion checkpoint update
+- Remaining risks or next milestone carryover: run full API-backed Playwright smoke with local API/Docker services available; run `uv run pytest` after installing or exposing `uv`; run DB migration run/revert for M9/M10 migrations once Docker daemon is available.
+- Resume checkpoint snapshot:
+  - Current branch: `feature/audience`
+  - Next milestone: complete
+  - Resume first checks: confirm final branch and review final verification notes.
 
 ## Progress Entry Template
 
