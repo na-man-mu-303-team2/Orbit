@@ -219,14 +219,14 @@ API:
 - 슬라이드 배경은 `slide.style.backgroundImage` > `slide.style.backgroundColor` > `deck.theme.backgroundColor` 순서로 해석한다.
 - `theme` 변경은 기존 `slide.style`이나 object props를 자동으로 덮어쓰지 않는다. 전체 테마 적용은 별도의 apply theme 동작으로 처리한다.
 - `slides`는 최소 1개 이상이어야 한다. 새 덱 생성 시에는 빈 덱 대신 기본 슬라이드 1장을 생성한다.
-- SlideSchema 필드는 `slideId`, `order`, `title`, `thumbnailUrl`, `estimatedSeconds`, `style`, `speakerNotes`, `elements`, `keywords`, `animations`, `actions`를 유지한다. `thumbnailUrl`은 imported/image-only slide처럼 `elements`가 비어 있는 발표자 렌더링 fallback에 사용할 수 있다.
+- SlideSchema 필드는 `slideId`, `order`, `title`, `thumbnailUrl`, `estimatedSeconds`, `style`, `speakerNotes`, `elements`, `keywords`, `animations`, `actions`, `speechCues`를 유지한다. `thumbnailUrl`은 imported/image-only slide처럼 `elements`가 비어 있는 발표자 렌더링 fallback에 사용할 수 있다.
 - `estimatedSeconds`는 슬라이드별 목표 발표 시간(초)이며 선택 필드다. 생략된 경우 presenter UI는 `targetDurationMinutes / slides.length` 기반 균등 분배로 폴백한다.
 - AI 생성 slide는 선택적 `aiNotes`를 포함할 수 있다. `aiNotes`는 `emphasisPoints`와 검토용 `sourceEvidence`만 담고, 디자인 전용 배열은 만들지 않는다.
 - `order`는 사용자에게 보이는 슬라이드 번호와 맞춰 `1`부터 시작하는 양의 정수로 관리한다. 배열 index가 필요하면 애플리케이션 내부에서 `order - 1`로 변환한다.
 - 1차 스프린트 MVP에서는 슬라이드별 크기 override를 허용하지 않는다. 모든 슬라이드는 deck top-level의 `canvas` 크기와 비율을 따른다.
 - SlideSchema에는 `width`, `height`, `canvas`, `aspectRatio` 같은 슬라이드별 크기 필드를 두지 않는다.
 - 슬라이드 식별자는 `slideId`, 객체 식별자는 `elementId`로 통일한다.
-- Deck 내부 ID는 prefix를 강제한다. `deckId`는 `deck_`, `slideId`는 `slide_`, `elementId`는 `el_`, `animationId`는 `anim_`, `actionId`는 `act_`, `keywordId`는 `kw_`, `changeId`는 `change_`로 시작해야 한다.
+- Deck 내부 ID는 prefix를 강제한다. `deckId`는 `deck_`, `slideId`는 `slide_`, `elementId`는 `el_`, `animationId`는 `anim_`, `actionId`는 `act_`, `cueId`는 `cue_`, `keywordId`는 `kw_`, `changeId`는 `change_`로 시작해야 한다.
 - prefix 뒤에는 영문, 숫자, `_`, `-`만 허용한다.
 - `projectId`, `fileId`, `jobId`, `sessionId`, `userId`, `runId`, `reportId`, `roomId`는 다른 도메인 소유 ID이므로 ORBIT-14 deck schema에서는 prefix를 강제하지 않고 non-empty string만 검증한다.
 - 좌표 단위는 `px` 기준으로 한다.
@@ -278,10 +278,16 @@ API:
 - action effect는 `play-animation`, `go-to-next-slide`만 허용한다.
 - `play-animation` effect는 같은 slide 안에 있는 `animationId`만 참조할 수 있다.
 - `keyword` trigger는 같은 slide 안에 있는 `keywordId`만 참조할 수 있다.
+- 발화 기반 presenter cue는 `slide.speechCues[]` flat list에 저장한다. 기존 `slide.actions`는 P5 runtime에서 읽거나 migration하지 않는다.
+- 각 speech cue는 `cue_` prefix를 따르는 `cueId`, `trigger.phrases`, 선택적 `trigger.scriptAnchor`, `action`, `source`, `enabled`를 가진다. 기존 덱 호환을 위해 `speechCues`는 생략 시 `[]`, `enabled`는 생략 시 `true`로 정규화한다.
+- `trigger.phrases`는 1개 이상의 non-empty string이다. P5 runtime matching은 이 phrases만 사용한다.
+- `trigger.scriptAnchor`는 `{ start, end }` 문자 오프셋이며 `0 <= start < end <= speakerNotes.length`를 만족해야 한다. 이 값은 W1 편집 UI와 향후 정밀 매칭을 위한 metadata이며, P5 runtime matching에는 사용하지 않는다.
+- speech cue `action`은 `{ type: "highlight", elementId }`, `{ type: "animation", animationId }`, `{ type: "advance-slide" }`만 허용한다. `highlight.elementId`와 `animation.animationId`는 같은 slide 안의 대상을 참조해야 한다.
+- `enabled:false` speech cue는 P5에서 matching, STT bias phrase, trigger animation ID, auto-advance gate 계산에서 모두 제외한다.
 - 밑줄 애니메이션은 1차 스프린트 MVP가 아니라 폴리싱 범위로 둔다.
 - AI 생성 결과도 최종적으로 deck JSON으로 변환한다.
 - 리허설은 `speakerNotes`, `keywords.text`, `keywords.synonyms`, `keywords.abbreviations`를 기준으로 연결한다.
-- 협업/발표 동기화는 `deck_`, `slide_`, `el_`, `anim_` prefix를 따르는 `deckId`, `slideId`, `elementId`, `animationId` 기준으로 처리한다.
+- 협업/발표 동기화는 `deck_`, `slide_`, `el_`, `anim_`, `cue_` prefix를 따르는 `deckId`, `slideId`, `elementId`, `animationId`, `cueId` 기준으로 처리한다.
 
 구현 위치:
 

@@ -10,7 +10,6 @@ import {
   type GetDeckResponse,
   type Job,
   type Keyword,
-  type LiveSttAnimationCueEvent,
   type LiveSttKeywordDetectedEvent,
   type LiveSttPartialTranscriptEvent,
   type LiveSttSlideAdvanceEvent,
@@ -81,6 +80,7 @@ import { SherpaLiveSttPort } from "./stt/sherpaLiveSttPort";
 import { DisplayControls } from "./presenter/DisplayControls";
 import { SingleScreenPresenter } from "./presenter/SingleScreenPresenter";
 import { SlideshowRenderer } from "./presenter/SlideshowRenderer";
+import type { SlideRuntimeHighlight } from "../slides/rendering";
 import { createSlideshowAnimationPlan } from "./presenter/slideshowStepModel";
 import { getNextPresenterStepState } from "./presenter/presenterStepNavigation";
 import { usePresentationChannelPublisher } from "./presenter/usePresentationChannelPublisher";
@@ -120,6 +120,16 @@ import type {
   SpeechTrackerSnapshot,
   SpeechTrackingEvent
 } from "./speech/speechTrackingEvents";
+import { createCueEngine, type CueEngineCommand } from "./cues/cueEngine";
+import { createCueMatcher } from "./cues/cueMatcher";
+import {
+  createPresenterCueProvider,
+  getCuePhrasesForSlide,
+  getCueReferencedAnimationIds,
+  hasEnabledAdvanceCue,
+  type CueProvider
+} from "./cues/cueProvider";
+import { defaultInternalCueProvider } from "./cues/internalCueConfig";
 
 export {
   LiveSttAdapterError,
@@ -1207,9 +1217,13 @@ export function RehearsalWorkspace(props: {
     useState<LiveSttAudioLevelEvent | null>(null);
   const [liveDebugPcmRecording, setLiveDebugPcmRecording] =
     useState<LiveSttDebugPcmRecording | null>(null);
-  const [liveCue, setLiveCue] = useState<LiveSttAnimationCueEvent | null>(null);
   const [liveSlideAdvance, setLiveSlideAdvance] =
     useState<LiveSttSlideAdvanceEvent | null>(null);
+  const [presenterHighlights, setPresenterHighlights] = useState<
+    SlideRuntimeHighlight[]
+  >([]);
+  const [advanceCueMatchedSlideId, setAdvanceCueMatchedSlideId] =
+    useState<string | null>(null);
   const [p3SessionState, setP3SessionState] =
     useState<P3RehearsalSessionState | null>(null);
   const [p3RunMeta, setP3RunMeta] = useState<RehearsalRunMeta | null>(null);
@@ -1246,6 +1260,7 @@ export function RehearsalWorkspace(props: {
   const finishAfterReportRef = useRef(false);
   const deckRef = useRef<Deck | null>(props.initialDeck ?? null);
   const currentSlideIndexRef = useRef(0);
+  const presenterStepIndexRef = useRef(0);
   const liveTranscriptBufferRef = useRef<LiveTranscriptBuffer>(
     createLiveTranscriptBuffer()
   );
@@ -1254,6 +1269,10 @@ export function RehearsalWorkspace(props: {
   const liveCommandConfirmationRef = useRef(
     createRehearsalCommandConfirmationState()
   );
+  const cueMatcherRef = useRef(createCueMatcher());
+  const cueEngineRef = useRef(createCueEngine());
+  const advanceCueMatchedSlideIdRef = useRef<string | null>(null);
+  const presenterHighlightsRef = useRef<SlideRuntimeHighlight[]>([]);
   const advanceControllerStateRef = useRef<AdvanceControllerState>(
     createInitialAdvanceControllerState()
   );
@@ -1302,8 +1321,20 @@ export function RehearsalWorkspace(props: {
   }, [currentSlideIndex]);
 
   useEffect(() => {
+    presenterStepIndexRef.current = presenterStepIndex;
+  }, [presenterStepIndex]);
+
+  useEffect(() => {
+    presenterHighlightsRef.current = presenterHighlights;
+  }, [presenterHighlights]);
+
+  useEffect(() => {
     liveKeywordStateRef.current = liveKeywordState;
   }, [liveKeywordState]);
+
+  useEffect(() => {
+    advanceCueMatchedSlideIdRef.current = advanceCueMatchedSlideId;
+  }, [advanceCueMatchedSlideId]);
 
   useEffect(() => {
     if (!isTimerRunning) {
@@ -1371,6 +1402,16 @@ export function RehearsalWorkspace(props: {
   ]);
 
   const currentSlide = deck?.slides[currentSlideIndex] ?? null;
+  const cueProvider = useMemo(
+    () =>
+      deck
+        ? createPresenterCueProvider({
+            deck,
+            internalProvider: defaultInternalCueProvider
+          })
+        : null,
+    [deck]
+  );
   const currentSlideTargetSeconds =
     deck && currentSlide ? getSlideTargetSeconds(deck, currentSlide) : 0;
   const p3Sentences = useMemo(
@@ -1391,18 +1432,24 @@ export function RehearsalWorkspace(props: {
         : [],
     [currentSlide?.slideId, currentSlide?.speakerNotes]
   );
-  const triggerAnimationIds = useMemo(() => [] as string[], [currentSlide?.slideId]);
+  const triggerAnimationIds = useMemo(
+    () =>
+      currentSlide && cueProvider
+        ? getCueReferencedAnimationIds(cueProvider, currentSlide.slideId)
+        : [],
+    [cueProvider, currentSlide?.slideId]
+  );
   const presentationChannelState = useMemo(
     () =>
       currentSlide
         ? {
-            highlights: [],
+            highlights: presenterHighlights,
             slideId: currentSlide.slideId,
             slideIndex: currentSlideIndex,
             stepIndex: presenterStepIndex
           }
         : null,
-    [currentSlide?.slideId, currentSlideIndex, presenterStepIndex]
+    [currentSlide?.slideId, currentSlideIndex, presenterHighlights, presenterStepIndex]
   );
   const presentationChannel = usePresentationChannelPublisher({
     deck,
@@ -1500,6 +1547,7 @@ export function RehearsalWorkspace(props: {
   useEffect(() => {
     resetAutoAdvanceRuntimeState(currentSlide?.slideId ?? null);
     resetLiveTranscriptForSlide(currentSlide);
+    resetCueRuntimeForSlide();
     const nextBiasContext = deck && currentSlide
       ? buildLiveSttBiasContext(currentSlide, {
           nearbySlides: getNearbySlides(deck, currentSlideIndex)
@@ -1534,6 +1582,7 @@ export function RehearsalWorkspace(props: {
     setLiveAudioLevel(null);
     setLiveDebugPcmRecording(null);
     resetLiveTranscriptForSlide(currentSlide);
+    resetCueRuntimeForSlide();
     setLiveSlideAdvance(null);
     resetAutoAdvanceRuntimeState(currentSlide?.slideId ?? null);
 
@@ -1589,6 +1638,7 @@ export function RehearsalWorkspace(props: {
     setLiveAudioLevel(null);
     setLiveDebugPcmRecording(null);
     resetLiveTranscriptForSlide(currentSlide);
+    resetCueRuntimeForSlide();
     setLiveSlideAdvance(null);
     resetAutoAdvanceRuntimeState(currentSlide?.slideId ?? null);
 
@@ -1774,7 +1824,13 @@ export function RehearsalWorkspace(props: {
 
     let session: P3RehearsalSession | null = null;
     session = createP3RehearsalSession({
-      slides: buildP3SessionSlides(deckSnapshot),
+      slides: buildP3SessionSlides(
+        deckSnapshot,
+        createPresenterCueProvider({
+          deck: deckSnapshot,
+          internalProvider: defaultInternalCueProvider
+        })
+      ),
       port,
       threshold: presenterSettings.advancePolicy.threshold,
       config: {
@@ -1893,6 +1949,74 @@ export function RehearsalWorkspace(props: {
     updateAdvanceControllerState(result.state);
   }
 
+  function resetCueRuntimeForSlide() {
+    cueMatcherRef.current.reset();
+    cueEngineRef.current.resetForSlideVisit();
+    advanceCueMatchedSlideIdRef.current = null;
+    setAdvanceCueMatchedSlideId(null);
+    presenterHighlightsRef.current = [];
+    setPresenterHighlights([]);
+  }
+
+  function applyCueEngineCommands(
+    commands: readonly CueEngineCommand[],
+    provider: CueProvider
+  ) {
+    const deckSnapshot = deckRef.current;
+    if (!deckSnapshot || commands.length === 0) {
+      return;
+    }
+
+    const result = applyCueEngineCommandsToPresenterState({
+      advanceCueMatchedSlideId: advanceCueMatchedSlideIdRef.current,
+      commands,
+      cueProvider: provider,
+      deck: deckSnapshot,
+      highlights: presenterHighlightsRef.current,
+      slideIndex: currentSlideIndexRef.current,
+      stepIndex: presenterStepIndexRef.current
+    });
+    if (!result.changed) {
+      return;
+    }
+
+    if (result.nextStepExecuted) {
+      cancelAutoAdvanceForManualCommand();
+    }
+
+    presenterHighlightsRef.current = result.highlights;
+    setPresenterHighlights(result.highlights);
+    presenterStepIndexRef.current = result.stepIndex;
+    currentSlideIndexRef.current = result.slideIndex;
+    setPresenterStepIndex(result.stepIndex);
+    setCurrentSlideIndex(result.slideIndex);
+
+    if (result.advanceCueMatchedSlideIdChanged) {
+      advanceCueMatchedSlideIdRef.current = result.advanceCueMatchedSlideId;
+      setAdvanceCueMatchedSlideId(result.advanceCueMatchedSlideId);
+    }
+  }
+
+  function handleSpeechCueResult(result: LiveSttResult) {
+    const deckSnapshot = deckRef.current;
+    const slideIndex = currentSlideIndexRef.current;
+    const slide = deckSnapshot?.slides[slideIndex];
+    if (!deckSnapshot || !slide) {
+      return;
+    }
+
+    const provider = createPresenterCueProvider({
+      deck: deckSnapshot,
+      internalProvider: defaultInternalCueProvider
+    });
+    const matches = cueMatcherRef.current.acceptResult(
+      result,
+      provider.getCues(slide.slideId)
+    );
+    const commands = cueEngineRef.current.executeMatches(matches);
+    applyCueEngineCommands(commands, provider);
+  }
+
   function handleP3Events(events: SpeechTrackingEvent[]) {
     if (events.some((event) => event.type === "last-sentence-spoken")) {
       const spokenAt = Date.now();
@@ -1916,6 +2040,13 @@ export function RehearsalWorkspace(props: {
     const result = evaluateAdvanceController(
       advanceControllerStateRef.current,
       {
+        advanceCueGate: {
+          matched:
+            advanceCueMatchedSlideIdRef.current === currentSlide.slideId,
+          required: cueProvider
+            ? hasEnabledAdvanceCue(cueProvider, currentSlide.slideId)
+            : false
+        },
         effectiveCoverage: input.effectiveCoverage,
         finalSentenceSpoken: input.finalSentenceSpoken,
         finalSentenceSpokenAtMs: lastSentenceSpokenAtMsRef.current,
@@ -1972,12 +2103,15 @@ export function RehearsalWorkspace(props: {
       atMs: Date.now(),
       isFinal: result.isFinal
     });
-    handleLivePartialTranscript({
+    const navigationConsumed = handleLivePartialTranscript({
       type: "partial-transcript",
       transcript: result.text,
       isFinal: result.isFinal,
       confidence: result.confidence ?? null
     });
+    if (!navigationConsumed) {
+      handleSpeechCueResult(result);
+    }
   }
 
   function handleLivePartialTranscript(event: LiveSttPartialTranscriptEvent) {
@@ -1985,7 +2119,7 @@ export function RehearsalWorkspace(props: {
     const slideIndex = currentSlideIndexRef.current;
     const slide = deckSnapshot?.slides[slideIndex];
     if (!deckSnapshot || !slide) {
-      return;
+      return false;
     }
 
     const nextBuffer = applyLiveTranscriptEvent(
@@ -2007,35 +2141,6 @@ export function RehearsalWorkspace(props: {
       detectRehearsalCommandCandidate(event)
     );
 
-    const previousDetectedIds = new Set(
-      liveKeywordStateRef.current?.slideId === slide.slideId
-        ? liveKeywordStateRef.current.detectedKeywords.map((keyword) => keyword.keywordId)
-        : []
-    );
-    const newlyDetected = analysis.detectedKeywords.find(
-      (keyword) => !previousDetectedIds.has(keyword.keywordId)
-    );
-
-    if (newlyDetected) {
-      setLiveCue({
-        type: "animation-cue",
-        slideId: slide.slideId,
-        keywordId: newlyDetected.keywordId,
-        cue: "emphasis",
-        text: newlyDetected.text
-      });
-    }
-
-    if (isEmphasisCommand(confirmedCommand)) {
-      setLiveCue({
-        type: "animation-cue",
-        slideId: slide.slideId,
-        keywordId: "command-emphasis",
-        cue: "emphasis",
-        text: confirmedCommand.phrase
-      });
-    }
-
     setLiveKeywordState(analysis);
     liveKeywordStateRef.current = analysis;
     setLiveStatus("listening");
@@ -2043,7 +2148,10 @@ export function RehearsalWorkspace(props: {
     if (isAdvanceSlideCommand(confirmedCommand)) {
       cancelAutoAdvanceForManualCommand();
       goNext();
+      return true;
     }
+
+    return false;
   }
 
   function resetLiveTranscriptForSlide(slide: Slide | null) {
@@ -2055,7 +2163,6 @@ export function RehearsalWorkspace(props: {
     liveCommandConfirmationRef.current = createRehearsalCommandConfirmationState();
     setLiveTranscriptBuffer(nextBuffer);
     setLiveKeywordState(nextKeywordState);
-    setLiveCue(null);
   }
 
   function getCurrentLiveBiasContext(deckSnapshot: Deck, slideIndex: number) {
@@ -2129,14 +2236,25 @@ export function RehearsalWorkspace(props: {
 
   const goPrevious = () => {
     cancelAutoAdvanceForManualCommand();
+    const nextSlideIndex = Math.max(0, currentSlideIndexRef.current - 1);
+    presenterStepIndexRef.current = 0;
+    currentSlideIndexRef.current = nextSlideIndex;
     setPresenterStepIndex(0);
-    setCurrentSlideIndex((current) => Math.max(0, current - 1));
+    setCurrentSlideIndex(nextSlideIndex);
   };
   const goNext = () => {
-    if (!deck) return;
+    const deckSnapshot = deckRef.current;
+    if (!deckSnapshot) return;
+
     cancelAutoAdvanceForManualCommand();
+    const nextSlideIndex = Math.min(
+      deckSnapshot.slides.length - 1,
+      currentSlideIndexRef.current + 1
+    );
+    presenterStepIndexRef.current = 0;
+    currentSlideIndexRef.current = nextSlideIndex;
     setPresenterStepIndex(0);
-    setCurrentSlideIndex((current) => Math.min(deck.slides.length - 1, current + 1));
+    setCurrentSlideIndex(nextSlideIndex);
   };
   const handleNextPresenterStep = () => {
     if (!deck || !slideshowAnimationPlan) return;
@@ -2217,7 +2335,9 @@ export function RehearsalWorkspace(props: {
   }, [
     currentSlide?.slideId,
     currentSlideIndex,
+    cueProvider,
     deck?.slides.length,
+    advanceCueMatchedSlideId,
     isP3TrackingActive,
     lastSentenceSpokenAtMs,
     pauseDetectorSnapshot?.isPaused,
@@ -2237,6 +2357,7 @@ export function RehearsalWorkspace(props: {
     return (
       <SingleScreenPresenter
         deck={deck}
+        highlights={presenterHighlights}
         onExit={() => setIsSingleScreenOpen(false)}
         slideElapsedLabel={formatClock(slideElapsedSeconds)}
         slideId={currentSlide.slideId}
@@ -2404,6 +2525,7 @@ export function RehearsalWorkspace(props: {
             {deck && currentSlide ? (
               <SlideshowRenderer
                 deck={deck}
+                highlights={presenterHighlights}
                 scale={0.44}
                 slideId={currentSlide.slideId}
                 stepIndex={presenterStepIndex}
@@ -2623,16 +2745,6 @@ export function RehearsalWorkspace(props: {
                 모델 입력 WAV 다운로드
               </button>
             ) : null}
-
-            {liveCue && (
-              <div className="job-status" aria-live="polite">
-                <div>
-                  <strong>emphasis</strong>
-                  <span>{liveCue.text}</span>
-                </div>
-                <p>현재 슬라이드에서 키워드를 감지했습니다.</p>
-              </div>
-            )}
 
             {liveSlideAdvance && (
               <div className="project-status-message project-status-success">
@@ -3017,7 +3129,134 @@ function getChecklistKeywords(slide: Slide | null): Keyword[] {
   return slide?.keywords ?? [];
 }
 
-function buildP3SessionSlides(deck: Deck) {
+export type CueCommandPresenterStateResult = {
+  advanceCueMatchedSlideId: string | null;
+  advanceCueMatchedSlideIdChanged: boolean;
+  changed: boolean;
+  highlights: SlideRuntimeHighlight[];
+  nextStepExecuted: boolean;
+  slideIndex: number;
+  stepIndex: number;
+};
+
+export function applyCueEngineCommandsToPresenterState(options: {
+  advanceCueMatchedSlideId: string | null;
+  commands: readonly CueEngineCommand[];
+  cueProvider: CueProvider;
+  deck: Deck;
+  highlights: SlideRuntimeHighlight[];
+  slideIndex: number;
+  stepIndex: number;
+}): CueCommandPresenterStateResult {
+  const startingSlide = options.deck.slides[options.slideIndex];
+  let advanceCueMatchedSlideId = options.advanceCueMatchedSlideId;
+  let advanceCueMatchedSlideIdChanged = false;
+  let highlights = options.highlights;
+  let nextSlideIndex = options.slideIndex;
+  let nextStepIndex = options.stepIndex;
+  let nextStepExecuted = false;
+
+  const setAdvanceCueMatchedSlideId = (nextValue: string | null) => {
+    if (advanceCueMatchedSlideId === nextValue) {
+      return;
+    }
+
+    advanceCueMatchedSlideId = nextValue;
+    advanceCueMatchedSlideIdChanged = true;
+  };
+
+  if (!startingSlide || options.commands.length === 0) {
+    return {
+      advanceCueMatchedSlideId,
+      advanceCueMatchedSlideIdChanged,
+      changed: false,
+      highlights,
+      nextStepExecuted,
+      slideIndex: nextSlideIndex,
+      stepIndex: nextStepIndex
+    };
+  }
+
+  for (const command of options.commands) {
+    if (nextSlideIndex !== options.slideIndex) {
+      break;
+    }
+
+    if (command.slideId !== startingSlide.slideId) {
+      continue;
+    }
+
+    switch (command.type) {
+      case "set-highlight":
+        highlights = upsertSlideRuntimeHighlights(highlights, [
+          {
+            active: command.active,
+            elementId: command.elementId
+          }
+        ]);
+        break;
+      case "next-step": {
+        const slide = options.deck.slides[nextSlideIndex];
+        if (!slide) {
+          break;
+        }
+
+        const plan = createSlideshowAnimationPlan({
+          slide,
+          triggerAnimationIds: getCueReferencedAnimationIds(
+            options.cueProvider,
+            slide.slideId
+          )
+        });
+        const nextTriggerStep = plan.triggerSteps[nextStepIndex];
+
+        if (
+          !nextTriggerStep?.animations.some(
+            (animation) => animation.animationId === command.animationId
+          )
+        ) {
+          break;
+        }
+
+        const nextState = getNextPresenterStepState({
+          currentSlideIndex: nextSlideIndex,
+          currentStepIndex: nextStepIndex,
+          maxStepIndex: plan.maxStepIndex,
+          slideCount: options.deck.slides.length
+        });
+        nextStepExecuted = true;
+        nextSlideIndex = nextState.slideIndex;
+        nextStepIndex = nextState.stepIndex;
+
+        if (nextSlideIndex !== options.slideIndex) {
+          highlights = [];
+          setAdvanceCueMatchedSlideId(null);
+        }
+        break;
+      }
+      case "mark-advance-cue-matched":
+        setAdvanceCueMatchedSlideId(startingSlide.slideId);
+        break;
+    }
+  }
+
+  const changed =
+    nextStepExecuted ||
+    highlights !== options.highlights ||
+    advanceCueMatchedSlideIdChanged;
+
+  return {
+    advanceCueMatchedSlideId,
+    advanceCueMatchedSlideIdChanged,
+    changed,
+    highlights,
+    nextStepExecuted,
+    slideIndex: nextSlideIndex,
+    stepIndex: nextStepIndex
+  };
+}
+
+function buildP3SessionSlides(deck: Deck, cueProvider: CueProvider) {
   return deck.slides.map((slide) => ({
     slideId: slide.slideId,
     speakerNotes: slide.speakerNotes,
@@ -3025,6 +3264,7 @@ function buildP3SessionSlides(deck: Deck) {
     controlPhrases: defaultRehearsalCommandConfig.flatMap(
       (command) => command.phrases
     ),
+    cuePhrases: getCuePhrasesForSlide(cueProvider, slide.slideId),
     legacyPhrases: [slide.title, ...getSlideBodyTexts(slide)].filter(Boolean)
   }));
 }
@@ -3049,6 +3289,21 @@ export function getRemainingTriggerStepsForSlide(options: {
   return getRemainingTriggerStepsFromPlan(plan.maxStepIndex, options.stepIndex);
 }
 
+function upsertSlideRuntimeHighlights(
+  current: SlideRuntimeHighlight[],
+  nextHighlights: SlideRuntimeHighlight[]
+) {
+  const byElementId = new Map(
+    current.map((highlight) => [highlight.elementId, highlight])
+  );
+
+  for (const highlight of nextHighlights) {
+    byElementId.set(highlight.elementId, highlight);
+  }
+
+  return Array.from(byElementId.values());
+}
+
 function createEmptySpeechTrackerSnapshot(options: {
   slideId: string;
   matchableSentenceCount: number;
@@ -3071,12 +3326,6 @@ function getNearbySlides(deck: Deck, currentSlideIndex: number) {
     (_slide, index) =>
       index !== currentSlideIndex && Math.abs(index - currentSlideIndex) <= 2
   );
-}
-
-function isEmphasisCommand(
-  candidate: RehearsalCommandCandidate | null
-): candidate is RehearsalCommandCandidate & { cue: "emphasis" } {
-  return candidate?.action === "animation-cue" && candidate.cue === "emphasis";
 }
 
 function isAdvanceSlideCommand(

@@ -1,7 +1,12 @@
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import { createDemoDeck } from "@orbit/editor-core";
-import type { Job, RehearsalReport, RehearsalRun } from "@orbit/shared";
+import {
+  deckSchema,
+  type Job,
+  type RehearsalReport,
+  type RehearsalRun
+} from "@orbit/shared";
 import type { ReactNode } from "react";
 import { forwardRef } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -12,6 +17,7 @@ import {
   RehearsalFlowError,
   RehearsalWorkspace,
   SherpaLiveSttAdapter,
+  applyCueEngineCommandsToPresenterState,
   applyLiveTranscriptBias,
   applyLiveTranscriptEvent,
   buildLiveSttBiasContext,
@@ -59,6 +65,7 @@ import {
   detectRehearsalCommandCandidate
 } from "./rehearsalCommands";
 import { resolveEditorAssetUrl } from "../editor/shared/editorAssetUrl";
+import { createPresenterCueProvider } from "./cues/cueProvider";
 
 const createdAt = "2026-06-29T00:00:00.000Z";
 const rehearsalWorkspaceSourcePath = fileURLToPath(
@@ -937,12 +944,148 @@ describe("RehearsalWorkspace", () => {
     expect(source).toContain("remainingTriggerSteps");
   });
 
-  it("keeps production trigger animations empty until P5 wires CueProvider", () => {
+  it("skips speech cue matching after a built-in navigation command consumes a live STT result", () => {
+    const source = fs.readFileSync(rehearsalWorkspaceSourcePath, "utf8");
+    const resultStart = source.indexOf("function handleLiveSttResult");
+    const resultEnd = source.indexOf("function handleLivePartialTranscript");
+    const resultBody = source.slice(resultStart, resultEnd);
+    const handlerStart = source.indexOf("function handleLivePartialTranscript");
+    const handlerEnd = source.indexOf("function resetLiveTranscriptForSlide");
+    const handlerBody = source.slice(handlerStart, handlerEnd);
+
+    expect(resultBody).toContain(
+      "const navigationConsumed = handleLivePartialTranscript"
+    );
+    expect(resultBody).toContain("if (!navigationConsumed)");
+    expect(resultBody.indexOf("handleLivePartialTranscript")).toBeLessThan(
+      resultBody.indexOf("handleSpeechCueResult(result)")
+    );
+    expect(handlerBody).toContain("goNext()");
+    expect(handlerBody).toContain("return true");
+    expect(handlerBody).toContain("return false");
+  });
+
+  it("derives production trigger animations from P5 CueProvider", () => {
     const source = fs.readFileSync(rehearsalWorkspaceSourcePath, "utf8");
 
-    expect(source).toContain(
+    expect(source).toContain("getCueReferencedAnimationIds");
+    expect(source).toContain("createPresenterCueProvider");
+    expect(source).not.toContain(
       "const triggerAnimationIds = useMemo(() => [] as string[], [currentSlide?.slideId])"
     );
+  });
+
+  it("ignores cue next-step commands after the referenced animation step has passed", () => {
+    const deck = createCueCommandBoundaryDeck();
+    const provider = createPresenterCueProvider({ deck });
+    const result = applyCueEngineCommandsToPresenterState({
+      advanceCueMatchedSlideId: "slide_p0_1",
+      commands: [
+        {
+          type: "next-step",
+          animationId: "anim_image_zoom_in",
+          cueId: "cue_first_step",
+          slideId: "slide_p0_1"
+        },
+        {
+          type: "next-step",
+          animationId: "anim_image_zoom_in",
+          cueId: "cue_second_step",
+          slideId: "slide_p0_1"
+        }
+      ],
+      cueProvider: provider,
+      deck,
+      highlights: [{ elementId: "el_body", active: true }],
+      slideIndex: 0,
+      stepIndex: 1
+    });
+
+    expect(result).toMatchObject({
+      advanceCueMatchedSlideId: "slide_p0_1",
+      advanceCueMatchedSlideIdChanged: false,
+      changed: false,
+      nextStepExecuted: false,
+      slideIndex: 0,
+      stepIndex: 1
+    });
+    expect(result.highlights).toEqual([{ elementId: "el_body", active: true }]);
+  });
+
+  it("coalesces same-order animation cues into a single presenter step", () => {
+    const deck = createCueCommandBoundaryDeck();
+    const provider = createPresenterCueProvider({ deck });
+    const result = applyCueEngineCommandsToPresenterState({
+      advanceCueMatchedSlideId: null,
+      commands: [
+        {
+          type: "next-step",
+          animationId: "anim_image_zoom_in",
+          cueId: "cue_first_step",
+          slideId: "slide_p0_1"
+        },
+        {
+          type: "next-step",
+          animationId: "anim_group_fade_out",
+          cueId: "cue_same_order_step",
+          slideId: "slide_p0_1"
+        }
+      ],
+      cueProvider: provider,
+      deck,
+      highlights: [],
+      slideIndex: 0,
+      stepIndex: 0
+    });
+
+    expect(result).toMatchObject({
+      nextStepExecuted: true,
+      slideIndex: 0,
+      stepIndex: 1
+    });
+    expect(result.highlights).toEqual([]);
+  });
+
+  it("applies same-slide cue highlights, steps, and advance gate together", () => {
+    const deck = createCueCommandBoundaryDeck();
+    const provider = createPresenterCueProvider({ deck });
+    const result = applyCueEngineCommandsToPresenterState({
+      advanceCueMatchedSlideId: null,
+      commands: [
+        {
+          type: "set-highlight",
+          active: true,
+          cueId: "cue_highlight_body",
+          elementId: "el_body",
+          slideId: "slide_p0_1"
+        },
+        {
+          type: "next-step",
+          animationId: "anim_image_zoom_in",
+          cueId: "cue_first_step",
+          slideId: "slide_p0_1"
+        },
+        {
+          type: "mark-advance-cue-matched",
+          cueId: "cue_advance_gate",
+          slideId: "slide_p0_1"
+        }
+      ],
+      cueProvider: provider,
+      deck,
+      highlights: [],
+      slideIndex: 0,
+      stepIndex: 0
+    });
+
+    expect(result).toMatchObject({
+      advanceCueMatchedSlideId: "slide_p0_1",
+      advanceCueMatchedSlideIdChanged: true,
+      nextStepExecuted: true,
+      slideIndex: 0,
+      stepIndex: 1
+    });
+    expect(result.highlights).toEqual([{ elementId: "el_body", active: true }]);
   });
 
   it("computes remaining trigger steps when P4 fixtures inject cue-referenced animations", () => {
@@ -1001,6 +1144,10 @@ describe("RehearsalWorkspace", () => {
     const blocked = evaluateAdvanceController(
       createInitialAdvanceControllerState(),
       {
+        advanceCueGate: {
+          matched: false,
+          required: false
+        },
         effectiveCoverage: 0.7,
         finalSentenceSpoken: true,
         finalSentenceSpokenAtMs: 100,
@@ -1039,6 +1186,10 @@ describe("RehearsalWorkspace", () => {
     const countdown = evaluateAdvanceController(
       createInitialAdvanceControllerState(),
       {
+        advanceCueGate: {
+          matched: false,
+          required: false
+        },
         effectiveCoverage: 0.7,
         finalSentenceSpoken: true,
         finalSentenceSpokenAtMs: 100,
@@ -1059,6 +1210,10 @@ describe("RehearsalWorkspace", () => {
     const advanced = evaluateAdvanceController(
       countdown.state,
       {
+        advanceCueGate: {
+          matched: false,
+          required: false
+        },
         effectiveCoverage: 0.7,
         finalSentenceSpoken: true,
         finalSentenceSpokenAtMs: 100,
@@ -1081,6 +1236,10 @@ describe("RehearsalWorkspace", () => {
       evaluateAdvanceController(
         countdown.state,
         {
+          advanceCueGate: {
+            matched: false,
+            required: false
+          },
           effectiveCoverage: 0.7,
           finalSentenceSpoken: true,
           finalSentenceSpokenAtMs: 100,
@@ -1103,6 +1262,10 @@ describe("RehearsalWorkspace", () => {
     const finish = evaluateAdvanceController(
       createInitialAdvanceControllerState(),
       {
+        advanceCueGate: {
+          matched: false,
+          required: false
+        },
         effectiveCoverage: 1,
         finalSentenceSpoken: true,
         finalSentenceSpokenAtMs: 100,
@@ -1409,6 +1572,76 @@ describe("fetchRehearsalReport", () => {
     expect(result.report?.transcript).toBeNull();
   });
 });
+
+function createCueCommandBoundaryDeck() {
+  return deckSchema.parse({
+    ...p0AnimationDeck,
+    deckId: "deck_p5_command_boundary",
+    slides: p0AnimationDeck.slides.map((slide, index) => {
+      if (index === 0) {
+        return {
+          ...slide,
+          speechCues: [
+            {
+              cueId: "cue_boundary_animation",
+              trigger: { phrases: ["이미지 확대"] },
+              action: {
+                type: "animation",
+                animationId: "anim_image_zoom_in"
+              },
+              source: "user"
+            },
+            {
+              cueId: "cue_boundary_same_order_animation",
+              trigger: { phrases: ["그룹 페이드"] },
+              action: {
+                type: "animation",
+                animationId: "anim_group_fade_out"
+              },
+              source: "user"
+            },
+            {
+              cueId: "cue_boundary_advance",
+              trigger: { phrases: ["다음 장"] },
+              action: { type: "advance-slide" },
+              source: "user"
+            }
+          ]
+        };
+      }
+
+      if (index === 1) {
+        return {
+          ...slide,
+          animations: [
+            {
+              animationId: "anim_second_title",
+              elementId: "el_second_title",
+              type: "fade-in",
+              order: 1,
+              durationMs: 400,
+              delayMs: 0,
+              easing: "ease-out"
+            }
+          ],
+          speechCues: [
+            {
+              cueId: "cue_second_animation",
+              trigger: { phrases: ["두 번째"] },
+              action: {
+                type: "animation",
+                animationId: "anim_second_title"
+              },
+              source: "user"
+            }
+          ]
+        };
+      }
+
+      return slide;
+    })
+  });
+}
 
 class FakeMediaRecorder {
   static isTypeSupported(mimeType: string) {

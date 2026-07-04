@@ -2158,6 +2158,7 @@ export function EditorShell(props: { projectId?: string }) {
         },
         speakerNotes: "",
         keywords: [],
+        speechCues: [],
         elements: [
           {
             elementId: createElementId(deck),

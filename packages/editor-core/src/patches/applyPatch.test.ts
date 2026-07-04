@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { slideSchema } from "@orbit/shared";
 import type {
   Deck,
   DeckElement,
@@ -28,7 +29,7 @@ function createPatch(
 }
 
 function createSlide(slideId: string, order: number): Slide {
-  return {
+  return slideSchema.parse({
     slideId,
     order,
     title: `Slide ${order}`,
@@ -39,7 +40,7 @@ function createSlide(slideId: string, order: number): Slide {
     keywords: [],
     animations: [],
     actions: [],
-  };
+  });
 }
 
 function createTextElement(elementId: string): DeckElement {
@@ -315,7 +316,7 @@ describe("applyDeckPatch", () => {
     }
   });
 
-  it("deletes an element and removes animations and actions targeting it", () => {
+  it("deletes an element and removes animations, actions, and speech cues targeting it", () => {
     const deck = createPatchTestDeck();
 
     deck.slides[0].actions = [
@@ -329,6 +330,37 @@ describe("applyDeckPatch", () => {
           kind: "play-animation",
           animationId: "anim_1",
         },
+      },
+    ];
+    deck.slides[0].speechCues = [
+      {
+        cueId: "cue_highlight_deleted_element",
+        trigger: { phrases: ["강조"] },
+        action: {
+          type: "highlight",
+          elementId: "el_1",
+        },
+        enabled: true,
+        source: "user",
+      },
+      {
+        cueId: "cue_animation_deleted_element",
+        trigger: { phrases: ["등장"] },
+        action: {
+          type: "animation",
+          animationId: "anim_1",
+        },
+        enabled: true,
+        source: "user",
+      },
+      {
+        cueId: "cue_advance_kept",
+        trigger: { phrases: ["다음"] },
+        action: {
+          type: "advance-slide",
+        },
+        enabled: true,
+        source: "user",
       },
     ];
 
@@ -346,6 +378,62 @@ describe("applyDeckPatch", () => {
     expect(result.deck.slides[0].elements).toEqual([]);
     expect(result.deck.slides[0].animations).toEqual([]);
     expect(result.deck.slides[0].actions).toEqual([]);
+    expect(result.deck.slides[0].speechCues).toEqual([
+      {
+        cueId: "cue_advance_kept",
+        trigger: { phrases: ["다음"] },
+        action: {
+          type: "advance-slide",
+        },
+        enabled: true,
+        source: "user",
+      },
+    ]);
+  });
+
+  it("removes out-of-range speech cue script anchors when speaker notes shrink", () => {
+    const deck = createPatchTestDeck();
+
+    deck.slides[0].speakerNotes = "1234567890";
+    deck.slides[0].speechCues = [
+      {
+        cueId: "cue_anchor_out_of_range",
+        trigger: {
+          phrases: ["짧게"],
+          scriptAnchor: {
+            start: 2,
+            end: 9,
+          },
+        },
+        action: {
+          type: "advance-slide",
+        },
+        enabled: true,
+        source: "user",
+      },
+    ];
+
+    const result = applyPatchOrFail(
+      deck,
+      createPatch([
+        {
+          type: "update_speaker_notes",
+          slideId: "slide_1",
+          speakerNotes: "123",
+        },
+      ]),
+    );
+
+    expect(result.deck.slides[0].speakerNotes).toBe("123");
+    expect(result.deck.slides[0].speechCues[0]).toEqual({
+      cueId: "cue_anchor_out_of_range",
+      trigger: { phrases: ["짧게"] },
+      action: {
+        type: "advance-slide",
+      },
+      enabled: true,
+      source: "user",
+    });
   });
 
   it("applies theme, slide style, notes, animation, and slide action operations", () => {
@@ -476,7 +564,7 @@ describe("applyDeckPatch", () => {
     ]);
   });
 
-  it("deletes slide actions that target a deleted animation", () => {
+  it("deletes slide actions and speech cues that target a deleted animation", () => {
     const deck = createPatchTestDeck();
 
     deck.slides[0].actions = [
@@ -490,6 +578,27 @@ describe("applyDeckPatch", () => {
           kind: "play-animation",
           animationId: "anim_1",
         },
+      },
+    ];
+    deck.slides[0].speechCues = [
+      {
+        cueId: "cue_animation_deleted",
+        trigger: { phrases: ["등장"] },
+        action: {
+          type: "animation",
+          animationId: "anim_1",
+        },
+        enabled: true,
+        source: "user",
+      },
+      {
+        cueId: "cue_advance_kept",
+        trigger: { phrases: ["다음"] },
+        action: {
+          type: "advance-slide",
+        },
+        enabled: true,
+        source: "user",
       },
     ];
 
@@ -506,6 +615,17 @@ describe("applyDeckPatch", () => {
 
     expect(result.deck.slides[0].animations).toEqual([]);
     expect(result.deck.slides[0].actions).toEqual([]);
+    expect(result.deck.slides[0].speechCues).toEqual([
+      {
+        cueId: "cue_advance_kept",
+        trigger: { phrases: ["다음"] },
+        action: {
+          type: "advance-slide",
+        },
+        enabled: true,
+        source: "user",
+      },
+    ]);
   });
 
   it("deletes keyword-triggered slide actions when the keyword is removed", () => {

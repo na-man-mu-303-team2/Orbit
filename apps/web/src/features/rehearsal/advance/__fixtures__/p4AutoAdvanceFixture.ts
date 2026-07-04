@@ -42,11 +42,16 @@ export function createP4FixtureSnapshot(options: {
   nowMs?: number;
   pause?: AdvanceControllerSnapshot["pause"];
   policy?: AutoAdvancePolicy;
+  advanceCueGate?: AdvanceControllerSnapshot["advanceCueGate"];
   slideIndex?: number;
 } = {}): AdvanceControllerSnapshot {
   const slide = p4AutoAdvanceFixture.slides[options.slideIndex ?? 0]!;
 
   return {
+    advanceCueGate: options.advanceCueGate ?? {
+      matched: false,
+      required: false
+    },
     effectiveCoverage: options.effectiveCoverage ?? 0,
     finalSentenceSpoken: options.finalSentenceSpoken ?? false,
     finalSentenceSpokenAtMs: options.finalSentenceSpokenAtMs ?? null,

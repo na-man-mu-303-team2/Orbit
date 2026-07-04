@@ -82,6 +82,30 @@ type DeckValidationInput = {
             kind: "go-to-next-slide";
           };
     }>;
+    speechCues?: Array<{
+      cueId: string;
+      trigger: {
+        phrases: string[];
+        scriptAnchor?: {
+          start: number;
+          end: number;
+        };
+      };
+      action:
+        | {
+            type: "highlight";
+            elementId: string;
+          }
+        | {
+            type: "animation";
+            animationId: string;
+          }
+        | {
+            type: "advance-slide";
+          };
+      source: "ai" | "user";
+      enabled?: boolean;
+    }>;
   }>;
 };
 
@@ -207,6 +231,14 @@ describe("deckSchema validation", () => {
     expect(result.slides[0].actions).toEqual([]);
   });
 
+  it("defaults slide speech cues to an empty list", () => {
+    const deck = createValidDeck();
+
+    const result = deckSchema.parse(deck);
+
+    expect(result.slides[0].speechCues).toEqual([]);
+  });
+
   it("accepts explicit deck and slide presenter timing fields", () => {
     const deck = createValidDeck();
 
@@ -247,6 +279,160 @@ describe("deckSchema validation", () => {
     ];
 
     expectValidDeck(deck);
+  });
+
+  it("accepts slide speech cues and defaults enabled state", () => {
+    const deck = createValidDeck();
+
+    deck.slides[0].speakerNotes = "핵심 지표를 강조합니다. 다음 내용으로 넘어갑니다.";
+    deck.slides[0].speechCues = [
+      {
+        cueId: "cue_highlight_1",
+        trigger: {
+          phrases: ["핵심 지표"],
+          scriptAnchor: { start: 0, end: 5 }
+        },
+        action: {
+          type: "highlight",
+          elementId: "el_1"
+        },
+        source: "user"
+      },
+      {
+        cueId: "cue_animation_1",
+        trigger: {
+          phrases: ["강조합니다"]
+        },
+        action: {
+          type: "animation",
+          animationId: "anim_1"
+        },
+        source: "ai",
+        enabled: false
+      },
+      {
+        cueId: "cue_advance_1",
+        trigger: {
+          phrases: ["넘어갑니다"]
+        },
+        action: {
+          type: "advance-slide"
+        },
+        source: "user"
+      }
+    ];
+
+    const result = deckSchema.parse(deck);
+
+    expect(result.slides[0].speechCues[0].enabled).toBe(true);
+    expect(result.slides[0].speechCues[1].enabled).toBe(false);
+    expect(result.slides[0].speechCues[2].action).toEqual({
+      type: "advance-slide"
+    });
+  });
+
+  it("rejects invalid slide speech cue ids and empty phrases", () => {
+    const invalidIdDeck = createValidDeck();
+    invalidIdDeck.slides[0].speechCues = [
+      {
+        cueId: "bad_1",
+        trigger: { phrases: ["강조"] },
+        action: { type: "highlight", elementId: "el_1" },
+        source: "user"
+      }
+    ];
+
+    const emptyPhraseDeck = createValidDeck();
+    emptyPhraseDeck.slides[0].speechCues = [
+      {
+        cueId: "cue_empty_1",
+        trigger: { phrases: [] },
+        action: { type: "highlight", elementId: "el_1" },
+        source: "user"
+      }
+    ];
+
+    expectInvalidDeck(invalidIdDeck);
+    expectInvalidDeck(emptyPhraseDeck);
+  });
+
+  it("rejects duplicate slide speech cue ids", () => {
+    const deck = createValidDeck();
+
+    deck.slides[0].speechCues = [
+      {
+        cueId: "cue_duplicate_1",
+        trigger: { phrases: ["강조"] },
+        action: { type: "highlight", elementId: "el_1" },
+        source: "user"
+      },
+      {
+        cueId: "cue_duplicate_1",
+        trigger: { phrases: ["다음"] },
+        action: { type: "advance-slide" },
+        source: "ai"
+      }
+    ];
+
+    expectInvalidDeck(deck);
+  });
+
+  it("rejects slide speech cues with dangling element or animation targets", () => {
+    const missingElementDeck = createValidDeck();
+    missingElementDeck.slides[0].speechCues = [
+      {
+        cueId: "cue_missing_element_1",
+        trigger: { phrases: ["강조"] },
+        action: { type: "highlight", elementId: "el_missing" },
+        source: "user"
+      }
+    ];
+
+    const missingAnimationDeck = createValidDeck();
+    missingAnimationDeck.slides[0].speechCues = [
+      {
+        cueId: "cue_missing_animation_1",
+        trigger: { phrases: ["애니메이션"] },
+        action: { type: "animation", animationId: "anim_missing" },
+        source: "ai"
+      }
+    ];
+
+    expectInvalidDeck(missingElementDeck);
+    expectInvalidDeck(missingAnimationDeck);
+  });
+
+  it("rejects invalid slide speech cue script anchors", () => {
+    const reversedAnchorDeck = createValidDeck();
+    reversedAnchorDeck.slides[0].speakerNotes = "강조합니다.";
+    reversedAnchorDeck.slides[0].speechCues = [
+      {
+        cueId: "cue_reversed_anchor_1",
+        trigger: {
+          phrases: ["강조"],
+          scriptAnchor: { start: 4, end: 2 }
+        },
+        action: { type: "highlight", elementId: "el_1" },
+        source: "user"
+      }
+    ];
+
+    const outOfRangeAnchorDeck = createValidDeck();
+    outOfRangeAnchorDeck.slides[0].speakerNotes = "강조합니다.";
+    outOfRangeAnchorDeck.slides[0].speechCues = [
+      {
+        cueId: "cue_out_of_range_anchor_1",
+        trigger: {
+          phrases: ["강조"],
+          scriptAnchor: { start: 0, end: 100 }
+        },
+        action: { type: "highlight", elementId: "el_1" },
+        source: "user"
+      }
+    ];
+
+    expectInvalidDeck(reversedAnchorDeck);
+    expectInvalidDeck(outOfRangeAnchorDeck);
   });
 
   it("accepts keyword-triggered slide actions", () => {

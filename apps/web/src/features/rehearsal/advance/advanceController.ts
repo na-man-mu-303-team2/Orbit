@@ -28,6 +28,10 @@ export type AdvanceControllerState = {
 };
 
 export type AdvanceControllerSnapshot = {
+  advanceCueGate: {
+    matched: boolean;
+    required: boolean;
+  };
   effectiveCoverage: number;
   finalSentenceSpoken: boolean;
   finalSentenceSpokenAtMs: number | null;
@@ -125,7 +129,9 @@ export function evaluateAdvanceController(
 
   const meetsCoverage = snapshot.effectiveCoverage >= snapshot.policy.threshold;
   const hasFinalSentence = snapshot.finalSentenceSpoken;
-  const baseReady = meetsCoverage && hasFinalSentence;
+  const meetsAdvanceCueGate =
+    !snapshot.advanceCueGate.required || snapshot.advanceCueGate.matched;
+  const baseReady = meetsCoverage && hasFinalSentence && meetsAdvanceCueGate;
 
   if (snapshot.remainingTriggerSteps > 0 && baseReady) {
     commands.push({
