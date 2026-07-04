@@ -1,4 +1,5 @@
 import type { DeckAnimation, DeckElement } from "@orbit/shared";
+import type { AnimationKeywordTriggerOption } from "./models";
 
 export type SupportedAnimationType = "fade-in" | "fade-out";
 export type AnimationPanelMode =
@@ -18,11 +19,15 @@ export type AnimationEditorPanelProps = {
   animations: DeckAnimation[];
   canCreateAnimation: boolean;
   element: DeckElement | null;
+  keywordOptions: AnimationKeywordTriggerOption[];
   preferredAnimationId?: string | null;
+  selectedKeywordId: string | null;
+  selectedKeywordLabel: string | null;
   slideAnimations: DeckAnimation[];
   slideElements: DeckElement[];
-  onAddAnimation: (draft: AnimationDraftInput) => void;
+  onAddAnimation: (draft: AnimationDraftInput, keywordId?: string | null) => void;
   onDeleteAnimation: (animationId: string) => void;
+  onSelectKeyword: (keywordId: string) => void;
   onSelectSlideAnimation: (animation: DeckAnimation) => void;
   onUpdateAnimation: (
     animationId: string,

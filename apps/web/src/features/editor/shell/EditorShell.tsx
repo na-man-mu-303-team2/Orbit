@@ -60,6 +60,7 @@ import {
   defaultAnimationPaneWidth,
   maxAnimationPaneWidth,
   minAnimationPaneWidth,
+  toAnimationKeywordTriggerOptions,
   useEditorAnimationPreview
 } from "./components/animation";
 import {
@@ -1289,6 +1290,10 @@ export function EditorShell(props: { projectId?: string }) {
   const currentSlideKeywordUsage = useMemo(
     () => (currentSlide ? deriveKeywordUsage(currentSlide) : {}),
     [currentSlide]
+  );
+  const animationPanelKeywordOptions = useMemo(
+    () => toAnimationKeywordTriggerOptions(currentSlide?.keywords ?? []),
+    [currentSlide?.keywords]
   );
   const selectedKeyword =
     currentSlide?.keywords.find(
@@ -4213,10 +4218,13 @@ export function EditorShell(props: { projectId?: string }) {
             canCreateAnimation={Boolean(currentSlide && selectedAnimationPanelElement)}
             element={selectedAnimationPanelElement}
             isPlayingSlideAnimations={isPlayingCurrentSlideAnimations}
+            keywordOptions={animationPanelKeywordOptions}
             preferredAnimationId={animationPanelFocusedAnimationId}
+            selectedKeywordId={selectedKeywordId}
+            selectedKeywordLabel={selectedKeyword?.text ?? null}
             slideAnimations={currentSlideAnimations}
             slideElements={currentSlide?.elements ?? []}
-            onAddAnimation={(draft) => {
+            onAddAnimation={(draft, keywordId) => {
               if (!currentSlide || !selectedAnimationPanelElement) {
                 return;
               }
@@ -4224,7 +4232,7 @@ export function EditorShell(props: { projectId?: string }) {
               handleAddAnimation(
                 currentSlide.slideId,
                 selectedAnimationPanelElement.elementId,
-                null,
+                keywordId,
                 draft
               );
             }}
@@ -4239,6 +4247,7 @@ export function EditorShell(props: { projectId?: string }) {
 
               handleDeleteAnimation(currentSlide.slideId, animationId);
             }}
+            onSelectKeyword={handleSelectKeyword}
             onSelectSlideAnimation={handleSelectSlideAnimationFromPanel}
             onUpdateAnimation={(animationId, animation) => {
               if (!currentSlide) {

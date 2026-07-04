@@ -10,11 +10,21 @@ import type {
 export function AnimationCreateEditor(props: {
   canCreateAnimation: boolean;
   draft: AnimationTimingDraft;
+  selectedKeywordId: string | null;
+  selectedKeywordLabel: string | null;
   type: SupportedAnimationType;
-  onAddAnimation: (draft: AnimationDraftInput) => void;
+  onAddAnimation: (draft: AnimationDraftInput, keywordId?: string | null) => void;
   onDraftChange: (patch: Partial<AnimationTimingDraft>) => void;
 }) {
-  const { canCreateAnimation, draft, type, onAddAnimation, onDraftChange } = props;
+  const {
+    canCreateAnimation,
+    draft,
+    selectedKeywordId,
+    selectedKeywordLabel,
+    type,
+    onAddAnimation,
+    onDraftChange
+  } = props;
 
   return (
     <AnimationPanelSection
@@ -26,6 +36,11 @@ export function AnimationCreateEditor(props: {
       className="animation-panel-form-card"
       title="새 애니메이션 추가"
     >
+      <p className="animation-panel-section-note">
+        {selectedKeywordLabel
+          ? `선택된 키워드 "${selectedKeywordLabel}"로 음성 트리거를 함께 생성합니다.`
+          : "키워드를 선택하지 않으면 일반 애니메이션만 추가됩니다."}
+      </p>
       <AnimationTimingFields
         delayMs={draft.delayMs}
         durationMs={draft.durationMs}
@@ -42,7 +57,7 @@ export function AnimationCreateEditor(props: {
               delayMs: draft.delayMs,
               durationMs: draft.durationMs,
               type
-            })
+            }, selectedKeywordId)
           }
         >
           애니메이션 추가

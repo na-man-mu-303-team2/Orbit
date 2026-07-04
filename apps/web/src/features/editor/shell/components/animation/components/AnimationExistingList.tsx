@@ -8,10 +8,16 @@ import {
 
 export function AnimationExistingList(props: {
   animations: DeckAnimation[];
+  ordinalLabelByAnimationId: Record<string, string>;
   selectedAnimationId: string | null;
   onSelectAnimation: (animationId: string) => void;
 }) {
-  const { animations, selectedAnimationId, onSelectAnimation } = props;
+  const {
+    animations,
+    ordinalLabelByAnimationId,
+    selectedAnimationId,
+    onSelectAnimation
+  } = props;
 
   return (
     <AnimationPanelSection
@@ -37,8 +43,11 @@ export function AnimationExistingList(props: {
                 <strong>{getAnimationTypeLabel(animation.type)}</strong>
                 <span>{formatAnimationTimingSummary(animation)}</span>
               </div>
-              <span className="animation-panel-existing-order">
-                {animation.order}
+              <span
+                className="animation-panel-existing-order"
+                aria-label={`슬라이드 애니메이션 순서 ${ordinalLabelByAnimationId[animation.animationId] ?? "미정"}`}
+              >
+                {ordinalLabelByAnimationId[animation.animationId] ?? "미정"}
               </span>
             </button>
           );

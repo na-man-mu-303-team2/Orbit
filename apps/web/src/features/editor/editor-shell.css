@@ -3138,6 +3138,12 @@
   font-size: 12px;
 }
 
+.animation-panel-keyword-strip {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
+}
+
 .animation-panel-existing-list {
   display: grid;
   gap: 10px;
@@ -3185,15 +3191,19 @@
 }
 
 .animation-panel-existing-order {
-  width: 28px;
-  height: 28px;
-  display: inline-grid;
-  place-items: center;
+  min-width: 58px;
+  min-height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 10px;
   border-radius: 999px;
   background: #eff6ff;
   color: #1d4ed8;
   font-size: 12px;
   font-weight: 900;
+  line-height: 1;
+  white-space: nowrap;
 }
 
 .animation-panel-form-card {

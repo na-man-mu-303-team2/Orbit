@@ -27,6 +27,7 @@ export function AnimationSlideOverview(props: {
   animations: DeckAnimation[];
   elements: DeckElement[];
   focusedAnimationId?: string | null;
+  ordinalLabelByAnimationId: Record<string, string>;
   onSelectAnimation: (animation: DeckAnimation) => void;
   showIds: boolean;
 }) {
@@ -34,6 +35,7 @@ export function AnimationSlideOverview(props: {
     animations,
     elements,
     focusedAnimationId = null,
+    ordinalLabelByAnimationId,
     onSelectAnimation,
     showIds
   } = props;
@@ -68,8 +70,11 @@ export function AnimationSlideOverview(props: {
                   </span>
                 </div>
                 <div className="animation-panel-existing-side">
-                  <span className="animation-panel-existing-order">
-                    {animation.order}
+                  <span
+                    className="animation-panel-existing-order"
+                    aria-label={`슬라이드 애니메이션 순서 ${ordinalLabelByAnimationId[animation.animationId] ?? "미정"}`}
+                  >
+                    {ordinalLabelByAnimationId[animation.animationId] ?? "미정"}
                   </span>
                   {showIds ? <IdBadge id={animation.animationId} /> : null}
                 </div>
