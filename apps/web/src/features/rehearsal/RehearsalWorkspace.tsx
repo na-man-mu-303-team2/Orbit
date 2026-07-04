@@ -1,7 +1,5 @@
 import {
   createSlidePlaybackState,
-  executeSlideAction,
-  resolveTriggeredActions,
   type SlidePlaybackState
 } from "@orbit/editor-core";
 import {
@@ -84,6 +82,12 @@ import {
 import { createLiveSttPort } from "./stt/liveSttEngineRegistry";
 import { normalizeLiveTranscriptText } from "./stt/liveTranscriptText";
 import { SherpaLiveSttPort } from "./stt/sherpaLiveSttPort";
+import {
+  resolveCueTriggeredActions,
+  resolveKeywordTriggeredActions,
+  getTriggerAnimationIdsForSlide,
+  resolveTriggeredActionPlaybackUpdate
+} from "./playback/triggeredActionPlayback";
 import { DisplayControls } from "./presenter/DisplayControls";
 import { SingleScreenPresenter } from "./presenter/SingleScreenPresenter";
 import { SlideshowRenderer } from "./presenter/SlideshowRenderer";
@@ -2115,9 +2119,7 @@ export function RehearsalWorkspace(props: {
       applyTriggeredSlideActions(
         slide,
         slideAnimationPlan,
-        resolveTriggeredActions(slide, {
-          keywordId: newlyDetected.keywordId
-        }),
+        resolveKeywordTriggeredActions(slide, newlyDetected.keywordId),
         deckSnapshot.slides.length
       );
     }
@@ -2134,7 +2136,7 @@ export function RehearsalWorkspace(props: {
       applyTriggeredSlideActions(
         slide,
         slideAnimationPlan,
-        resolveTriggeredActions(slide, { cue: "emphasis" }),
+        resolveCueTriggeredActions(slide, "emphasis"),
         deckSnapshot.slides.length
       );
     }
@@ -2152,54 +2154,27 @@ export function RehearsalWorkspace(props: {
   function applyTriggeredSlideActions(
     slide: Slide,
     slideAnimationPlan: ReturnType<typeof createSlideshowAnimationPlan>,
-    actions: ReturnType<typeof resolveTriggeredActions>,
+    actions: Slide["actions"],
     slideCount: number
   ) {
     if (actions.length === 0) {
       return;
     }
 
-    let nextPlaybackState = slidePlaybackStateRef.current;
-    let nextPresenterStepIndex = presenterStepIndexRef.current;
-    let shouldAdvanceSlide = false;
+    const playbackUpdate = resolveTriggeredActionPlaybackUpdate({
+      actions,
+      playbackState: slidePlaybackStateRef.current,
+      presenterStepIndex: presenterStepIndexRef.current,
+      slide,
+      slideAnimationPlan
+    });
 
-    for (const action of actions) {
-      const result = executeSlideAction(slide, nextPlaybackState, action);
-
-      if (!result) {
-        continue;
-      }
-
-      nextPlaybackState = result.state;
-
-      if (result.kind === "play-animation") {
-        const triggerStepIndex = slideAnimationPlan.triggerSteps.findIndex((step) =>
-          step.animations.some(
-            (animation) =>
-              animation.animationId === result.animation.animationId
-          )
-        );
-
-        if (triggerStepIndex >= 0) {
-          nextPresenterStepIndex = Math.max(
-            nextPresenterStepIndex,
-            triggerStepIndex + 1
-          );
-        }
-
-        continue;
-      }
-
-      shouldAdvanceSlide = true;
-      break;
+    if (playbackUpdate.playbackState !== slidePlaybackStateRef.current) {
+      slidePlaybackStateRef.current = playbackUpdate.playbackState;
+      setSlidePlaybackState(playbackUpdate.playbackState);
     }
 
-    if (nextPlaybackState !== slidePlaybackStateRef.current) {
-      slidePlaybackStateRef.current = nextPlaybackState;
-      setSlidePlaybackState(nextPlaybackState);
-    }
-
-    if (shouldAdvanceSlide) {
+    if (playbackUpdate.shouldAdvanceSlide) {
       cancelAutoAdvanceForManualCommand();
       presenterStepIndexRef.current = 0;
       setPresenterStepIndex(0);
@@ -2207,9 +2182,9 @@ export function RehearsalWorkspace(props: {
       return;
     }
 
-    if (nextPresenterStepIndex !== presenterStepIndexRef.current) {
-      presenterStepIndexRef.current = nextPresenterStepIndex;
-      setPresenterStepIndex(nextPresenterStepIndex);
+    if (playbackUpdate.presenterStepIndex !== presenterStepIndexRef.current) {
+      presenterStepIndexRef.current = playbackUpdate.presenterStepIndex;
+      setPresenterStepIndex(playbackUpdate.presenterStepIndex);
     }
   }
 
@@ -3212,24 +3187,6 @@ function getSlideBodyTexts(slide: Slide) {
 
 function getChecklistKeywords(slide: Slide | null): Keyword[] {
   return slide?.keywords ?? [];
-}
-
-function getTriggerAnimationIdsForSlide(slide: Slide) {
-  const validAnimationIds = new Set(
-    slide.animations.map((animation) => animation.animationId)
-  );
-
-  return Array.from(
-    new Set(
-      slide.actions
-        .flatMap((action) =>
-          action.effect.kind === "play-animation"
-            ? [action.effect.animationId]
-            : []
-        )
-        .filter((animationId) => validAnimationIds.has(animationId))
-    )
-  );
 }
 
 function buildP3SessionSlides(deck: Deck) {
