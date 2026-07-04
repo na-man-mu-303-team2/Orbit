@@ -1014,6 +1014,8 @@ def template_slide_metadata(slide: dict[str, Any]) -> dict[str, str]:
         slide_role = "metric"
     elif "chart" in element_types:
         slide_role = "chart"
+    elif "label" in roles and "body" not in roles and content_count >= 3:
+        slide_role = "toc"
     elif "title" in roles and content_count <= 2:
         slide_role = "cover"
     elif "title" in roles and "body" not in roles:
@@ -1024,6 +1026,8 @@ def template_slide_metadata(slide: dict[str, Any]) -> dict[str, str]:
         layout_type = "title"
     elif slide_role in {"metric", "chart"}:
         layout_type = slide_role
+    elif slide_role == "toc":
+        layout_type = "toc"
     elif "image" in element_types:
         layout_type = "image"
 

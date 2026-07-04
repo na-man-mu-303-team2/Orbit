@@ -3156,6 +3156,10 @@ def imported_slide_match_score(
     score = 0
     reasons: list[str] = []
 
+    if profile["slide_role"] == "toc":
+        score -= 10
+        reasons.append("toc layout reserved")
+
     if slide_plan.slide_type in {"title", "cover"}:
         if profile["slide_role"] in {"cover", "title", "section"}:
             score += 10
@@ -3213,6 +3217,18 @@ def imported_slide_profile(
     style = slide.get("style") if isinstance(slide.get("style"), dict) else {}
     layout = str(template_slide.get("layoutType") or style.get("layout") or "")
     capacity = str(template_slide.get("contentCapacity") or "")
+    role_count = sum(
+        1
+        for role in [
+            *[str(element.get("role", "")) for element in elements],
+            *[str(slot.get("slotRole", "")) for slot in slots],
+        ]
+        if role in {"title", "subtitle", "body", "caption", "label", "metric"}
+    )
+    if not slide_role and "label" in roles and "body" not in roles and role_count >= 3:
+        slide_role = "toc"
+    if not layout and slide_role == "toc":
+        layout = "toc"
     if not capacity:
         content_count = len(
             roles & {"title", "subtitle", "body", "caption", "label", "metric"}
@@ -3401,7 +3417,9 @@ def imported_elements_for_slide(
                 theme["typography"]["headingFontFamily"],
             )
         )
-    if not any(element.get("role") == "body" for element in elements):
+    if not any(element.get("role") == "body" for element in elements) and should_add_imported_body_fallback(
+        template_slide,
+    ):
         elements.append(
             text_element(
                 slide_plan.order,
@@ -3428,6 +3446,7 @@ def inject_template_slot_text(
     slide_plan: SlidePlan,
 ) -> None:
     slots = template_slide.get("slots")
+    title_used = False
     body_used = False
     keyword_index = 0
 
@@ -3442,24 +3461,67 @@ def inject_template_slot_text(
             continue
 
         slot_role = str(slot.get("slotRole", "body"))
-        if slot_role == "title":
+        if slot_role == "title" and not title_used:
             element["role"] = "title"
             replace_text_props(props, slide_plan.title)
-        elif not body_used:
+            title_used = True
+        elif slot_role in {"body", "subtitle"} and not body_used:
             element["role"] = "subtitle" if slot_role == "subtitle" else "body"
             replace_text_props(props, slide_plan.message)
             body_used = True
-        else:
-            element["role"] = "caption"
+        elif not body_used:
+            element["role"] = deck_role_for_template_slot(slot_role)
             replace_text_props(
                 props,
-                (
-                    slide_plan.keywords[keyword_index]
-                    if keyword_index < len(slide_plan.keywords)
-                    else ""
-                ),
+                template_auxiliary_slot_text(slide_plan, keyword_index),
             )
             keyword_index += 1
+        else:
+            element["role"] = deck_role_for_template_slot(slot_role)
+            replace_text_props(
+                props,
+                template_auxiliary_slot_text(slide_plan, keyword_index),
+            )
+            keyword_index += 1
+
+
+def should_add_imported_body_fallback(template_slide: dict[str, Any] | None) -> bool:
+    return not is_toc_template_slide(template_slide)
+
+
+def is_toc_template_slide(template_slide: dict[str, Any] | None) -> bool:
+    if not isinstance(template_slide, dict):
+        return False
+    if str(template_slide.get("slideRole", "")) == "toc":
+        return True
+    if str(template_slide.get("layoutType", "")) == "toc":
+        return True
+
+    slots = [slot for slot in template_slide.get("slots", []) if isinstance(slot, dict)]
+    slot_roles = [str(slot.get("slotRole", "")) for slot in slots]
+    content_roles = [
+        role
+        for role in slot_roles
+        if role in {"title", "subtitle", "body", "caption", "label", "metric"}
+    ]
+    return "label" in slot_roles and "body" not in slot_roles and len(content_roles) >= 3
+
+
+def deck_role_for_template_slot(slot_role: str) -> str:
+    if slot_role in {"subtitle", "body", "caption"}:
+        return slot_role
+    if slot_role == "metric":
+        return "highlight"
+    return "caption"
+
+
+def template_auxiliary_slot_text(
+    slide_plan: SlidePlan,
+    keyword_index: int,
+) -> str:
+    if keyword_index < len(slide_plan.keywords):
+        return slide_plan.keywords[keyword_index]
+    return ""
 
 
 def replace_text_props(props: dict[str, Any], text: str) -> None:
