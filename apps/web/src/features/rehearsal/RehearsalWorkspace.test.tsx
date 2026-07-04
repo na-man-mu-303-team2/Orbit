@@ -249,21 +249,22 @@ describe("RehearsalWorkspace", () => {
     expect(startP3TrackingBody).toContain("session.enterSlide(latestSlideIndex)");
   });
 
-  it("passes live STT bias phrases on slide changes regardless of bias mode", () => {
+  it("passes live STT bias phrases on slide changes from the shared bias context", () => {
     const source = fs.readFileSync(
       rehearsalWorkspaceSourcePath,
       "utf8"
     );
-    const effectStart = source.indexOf("resetLiveTranscriptForSlide(currentSlide)");
+    const effectStart = source.indexOf("const nextBiasContext =");
     const effectEnd = source.indexOf("const p3Session = p3SessionRef.current", effectStart);
     const slideChangeEffectBody = source.slice(effectStart, effectEnd);
     const compactEffectBody = slideChangeEffectBody.replace(/\s+/g, "");
 
     expect(compactEffectBody).toContain(
-      "updateBiasPhrases(getBiasPhrasesFromContext(nextBiasContext))"
+      "voidliveSttPortRef.current?.updateBiasPhrases(getBiasPhrasesFromContext(nextBiasContext))"
     );
-    expect(slideChangeEffectBody).not.toContain("shouldUseLiveSttHotwordBias");
-    expect(source).not.toContain("function shouldUseLiveSttHotwordBias");
+    expect(slideChangeEffectBody).toContain("const nextBiasContext =");
+    expect(slideChangeEffectBody).toContain("buildLiveSttBiasContext(currentSlide");
+    expect(slideChangeEffectBody).toContain("nearbySlides: getNearbySlides");
   });
 
   it("syncs current P3 advice state into the session log", () => {
@@ -1032,12 +1033,17 @@ describe("RehearsalWorkspace", () => {
     expect(source).toContain("remainingTriggerSteps");
   });
 
-  it("keeps production trigger animations empty until P5 wires CueProvider", () => {
+  it("derives production trigger animations from slide actions", () => {
     const source = fs.readFileSync(rehearsalWorkspaceSourcePath, "utf8");
 
     expect(source).toContain(
-      "const triggerAnimationIds = useMemo(() => [] as string[], [currentSlide?.slideId])"
+      "const triggerAnimationIds = useMemo("
     );
+    expect(source).toContain(
+      "() => (currentSlide ? getTriggerAnimationIdsForSlide(currentSlide) : [])"
+    );
+    expect(source).toContain('import {');
+    expect(source).toContain('getTriggerAnimationIdsForSlide,');
   });
 
   it("computes remaining trigger steps when P4 fixtures inject cue-referenced animations", () => {
