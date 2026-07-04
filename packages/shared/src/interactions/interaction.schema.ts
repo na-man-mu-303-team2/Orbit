@@ -331,18 +331,82 @@ export const markAudienceQuestionAnsweredResponseSchema =
 
 export const aiAnswerFailureReasonSchema = z.enum([
   "low-confidence",
+  "no-grounding",
   "timeout",
   "worker-error",
 ]);
 
+export const aiAnswerFeedbackSchema = z.enum(["resolved", "unresolved"]);
+
 export const audienceQuestionAnswerSchema = z
   .object({
     questionId: questionIdSchema,
+    sessionId: z.string().min(1),
+    audienceId: audienceIdSchema,
     answerText: z.string().trim().min(1).nullable(),
     sourceReferences: z.array(z.string().min(1)).default([]),
     confidence: z.number().min(0).max(1).nullable(),
     failureReason: aiAnswerFailureReasonSchema.nullable(),
+    feedback: aiAnswerFeedbackSchema.nullable(),
+    escalatedToPresenter: z.boolean(),
     createdAt: isoDateTimeSchema,
+  })
+  .strict();
+
+export const qnaWorkerAnswerRequestSchema = z
+  .object({
+    projectId: z.string().min(1),
+    sessionId: z.string().min(1),
+    questionId: questionIdSchema,
+    questionText: z.string().trim().min(1).max(1000),
+    publicSlideContext: z.string().max(8000).default(""),
+    selectedReferenceIds: z.array(z.string().min(1)).default([]),
+    retrievalLimit: z.number().int().min(1).max(20).default(5),
+    confidenceThreshold: z.number().min(0).max(1).default(0.65),
+  })
+  .strict();
+
+export const qnaWorkerAnswerResponseSchema = z.discriminatedUnion("status", [
+  z
+    .object({
+      status: z.literal("answered"),
+      answerText: z.string().trim().min(1),
+      sourceReferences: z.array(z.string().min(1)).default([]),
+      confidence: z.number().min(0).max(1),
+    })
+    .strict(),
+  z
+    .object({
+      status: z.literal("failed"),
+      failureReason: aiAnswerFailureReasonSchema,
+      sourceReferences: z.array(z.string().min(1)).default([]),
+      confidence: z.number().min(0).max(1).nullable().default(null),
+    })
+    .strict(),
+]);
+
+export const audienceQuestionAnswerResponseSchema = z
+  .object({
+    question: audienceQuestionSchema,
+    answer: audienceQuestionAnswerSchema.nullable(),
+  })
+  .strict();
+
+export const updateAiAnswerFeedbackRequestSchema = z
+  .object({
+    feedback: aiAnswerFeedbackSchema,
+  })
+  .strict();
+
+export const updateAiReferenceSelectionRequestSchema = z
+  .object({
+    referenceIds: z.array(z.string().min(1)).max(50),
+  })
+  .strict();
+
+export const updateAiReferenceSelectionResponseSchema = z
+  .object({
+    referenceIds: z.array(z.string().min(1)),
   })
   .strict();
 
@@ -409,6 +473,15 @@ export type PresenterQuestionQueueResponse = z.infer<
 >;
 export type AudienceQuestionAnswer = z.infer<
   typeof audienceQuestionAnswerSchema
+>;
+export type QnaWorkerAnswerRequest = z.infer<
+  typeof qnaWorkerAnswerRequestSchema
+>;
+export type QnaWorkerAnswerResponse = z.infer<
+  typeof qnaWorkerAnswerResponseSchema
+>;
+export type AudienceQuestionAnswerResponse = z.infer<
+  typeof audienceQuestionAnswerResponseSchema
 >;
 export type SurveyForm = z.infer<typeof surveyFormSchema>;
 export type SurveyResponse = z.infer<typeof surveyResponseSchema>;

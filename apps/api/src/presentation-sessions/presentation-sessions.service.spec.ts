@@ -3,7 +3,7 @@ import {
   ForbiddenException,
   UnauthorizedException,
 } from "@nestjs/common";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { DataSource } from "typeorm";
 
 import { PresentationSessionsService } from "./presentation-sessions.service";
@@ -25,6 +25,10 @@ const activeSessionRow = {
 };
 
 describe("PresentationSessionsService", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   it("creates a draft session with a 6-digit join code and no passcode", async () => {
     const query = vi
       .fn()
@@ -754,5 +758,96 @@ describe("PresentationSessionsService", () => {
 
     expect(query.mock.calls[3][0]).toContain("INSERT INTO audience_questions");
     expect(query.mock.calls[8][0]).toContain("UPDATE audience_questions");
+  });
+
+  it("stores asker-only AI answers when AI Q&A is enabled", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        new Response(
+          JSON.stringify({
+            status: "answered",
+            answerText: "공개 자료 기반 답변",
+            sourceReferences: ["file_1"],
+            confidence: 0.82,
+          }),
+        ),
+      ),
+    );
+    const participantRow = {
+      audience_id: "audience_00000000-0000-4000-8000-000000000001",
+      session_id: "session_existing",
+      nickname: "orbit",
+      joined_at: "2026-07-05T00:00:00.000Z",
+      last_seen_at: "2026-07-05T00:00:00.000Z",
+      joined_before_end: true,
+    };
+    const questionRow = {
+      question_id: "question_00000000-0000-4000-8000-000000000001",
+      question_group_id: "question_00000000-0000-4000-8000-000000000001",
+      session_id: "session_existing",
+      audience_id: "audience_00000000-0000-4000-8000-000000000001",
+      text: "AI 질문입니다",
+      status: "pending" as const,
+      submitted_at: "2026-07-05T00:00:01.000Z",
+      answered_at: null,
+    };
+    const query = vi
+      .fn()
+      .mockResolvedValueOnce([participantRow])
+      .mockResolvedValueOnce([activeSessionRow])
+      .mockResolvedValueOnce([
+        {
+          session_id: "session_existing",
+          qna_enabled: true,
+          ai_qna_enabled: true,
+          polls_enabled: false,
+          quizzes_enabled: false,
+          reactions_enabled: false,
+          survey_enabled: false,
+          updated_at: "2026-07-05T00:00:00.000Z",
+        },
+      ])
+      .mockResolvedValueOnce([questionRow])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([activeSessionRow])
+      .mockResolvedValueOnce([{ selected_reference_ids_json: ["file_1"] }])
+      .mockResolvedValueOnce([{ slide_id: "slide_1" }])
+      .mockResolvedValueOnce([
+        {
+          question_id: "question_00000000-0000-4000-8000-000000000001",
+          session_id: "session_existing",
+          audience_id: "audience_00000000-0000-4000-8000-000000000001",
+          answer_text: "공개 자료 기반 답변",
+          source_references_json: ["file_1"],
+          confidence: 0.82,
+          failure_reason: null,
+          feedback: null,
+          escalated_to_presenter: false,
+          created_at: "2026-07-05T00:00:02.000Z",
+        },
+      ]);
+    const service = new PresentationSessionsService({
+      query,
+    } as unknown as DataSource);
+
+    await expect(
+      service.submitAudienceQuestion({
+        sessionId: "session_existing",
+        audienceId: "audience_00000000-0000-4000-8000-000000000001",
+        tokenHash: "token_hash",
+        body: { text: "AI 질문입니다" },
+      }),
+    ).resolves.toMatchObject({
+      question: { text: "AI 질문입니다" },
+    });
+
+    expect(fetch).toHaveBeenCalledWith(
+      "http://localhost:8000/qna/answer",
+      expect.objectContaining({ method: "POST" }),
+    );
+    expect(query.mock.calls[8][0]).toContain(
+      "INSERT INTO audience_question_answers",
+    );
   });
 });

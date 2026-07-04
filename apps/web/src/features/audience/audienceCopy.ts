@@ -13,6 +13,9 @@ export const audienceCopy = {
   "qna.input.placeholder": "궁금한 점을 입력해 주세요.",
   "qna.submit": "질문 보내기",
   "qna.error.rateLimited": "질문은 1분에 3개까지 보낼 수 있습니다.",
+  "ai.answer.pending": "AI가 답변을 찾고 있습니다.",
+  "ai.answer.escalated": "발표자에게 질문을 전달했습니다.",
+  "ai.answer.unresolvedCta": "발표자에게 답변 요청",
 } as const;
 
 export type AudienceCopyKey = keyof typeof audienceCopy;

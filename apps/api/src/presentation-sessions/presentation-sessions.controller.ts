@@ -265,6 +265,21 @@ export class PresentationSessionsController {
     });
   }
 
+  @Patch(":sessionId/ai-references")
+  async updateAiReferenceSelection(
+    @Param("projectId") projectId: string,
+    @Param("sessionId") sessionId: string,
+    @Body() body: unknown,
+    @Req() request: SignedCookieRequest,
+  ) {
+    const user = await this.getCurrentUser(request);
+    await this.projectsService.assertCanWriteProject(projectId, user.userId);
+    return this.presentationSessionsService.updateAiReferenceSelection(
+      { projectId, sessionId },
+      body ?? {},
+    );
+  }
+
   private async getCurrentUser(request: SignedCookieRequest) {
     const sessionId = getSignedSessionId(request);
     if (!sessionId) {

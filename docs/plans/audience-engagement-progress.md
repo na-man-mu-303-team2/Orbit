@@ -11,12 +11,12 @@ The top-level `## Current State` and `## Resume Checkpoint` sections are the sou
 - Last completed milestone: 6
 - Next milestone: 7
 - Integration branch: `feature/audience`
-- Current expected branch: `feature/audience`
+- Current expected branch: `feature/audience-m07-ai-qna`
 - Goal status: in progress
 
 ## Resume Checkpoint
 
-- Current branch: `feature/audience`
+- Current branch: `feature/audience-m07-ai-qna`
 - Next milestone: 7
 - Resume first checks:
   - Run `git status --short --branch`.
@@ -25,7 +25,7 @@ The top-level `## Current State` and `## Resume Checkpoint` sections are the sou
   - Read relevant product-plan sections for AI Q&A, source boundaries, asker-only delivery, feedback, escalation, timeout, and duplicate merge.
   - Read `services/python-worker`, `packages/shared/src/interactions/interaction.schema.ts`, `apps/api/src/presentation-sessions/*`, and reference/deck source handling before editing.
 - Blocked: no
-- Notes: Milestone 6 implementation completed on `feature/audience-m06-qna` and is ready to resume at Milestone 7 after local merge.
+- Notes: Milestone 7 implementation is active.
 
 ## Milestone Log
 
@@ -271,6 +271,19 @@ The top-level `## Current State` and `## Resume Checkpoint` sections are the sou
   - Current branch: `feature/audience`
   - Next milestone: 7
   - Resume first checks: read Milestone 7 plan, confirm `feature/audience` status, and implement AI Q&A worker/API/private answer flow.
+
+## Milestone 7 Start - 2026-07-05
+
+- Branch: `feature/audience-m07-ai-qna`
+- Scope: selected reference storage, `audience_question_answers` migration, Python worker `/qna/answer`, API 5-second worker call, failure/timeout escalation, asker-only answer recovery, unresolved feedback, and duplicate merge placeholder.
+- Acceptance criteria: AI Q&A enables Q&A; Q&A disable hides AI results; worker only uses selected references and public deck chunks; AI answer is asker-only; timeout/failure creates pending queue item; unresolved feedback keeps/creates pending queue item; duplicate questions are merged; source-boundary regressions exclude speaker notes/script/transcript/raw audio.
+- Likely files: `services/python-worker/app/main.py`, `services/python-worker/tests/*`, `packages/shared/src/interactions/*`, `apps/api/src/database/migrations/*`, `apps/api/src/presentation-sessions/*`, `apps/web/src/features/audience/*`.
+- Verification plan: Python worker tests, shared AI answer schema tests, API mocked worker tests, web AI answer/unresolved tests, `pnpm audience:checkpoint`.
+- Major risks: full embedding semantic merge is represented by deterministic exact-text merge placeholder in this milestone and can be expanded later without schema break.
+- Resume checkpoint snapshot:
+  - Current branch: `feature/audience-m07-ai-qna`
+  - Next milestone: 7
+  - Resume first checks: inspect AI Q&A source boundary rules, Python worker app, and presentation session Q&A service before editing.
 
 ## Progress Entry Template
 

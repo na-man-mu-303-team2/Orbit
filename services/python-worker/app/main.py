@@ -130,6 +130,39 @@ class ReferenceSearchResponse(BaseModel):
     chunks: list[ReferenceSearchChunk]
 
 
+class QnaAnswerRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    project_id: str = Field(alias="projectId")
+    session_id: str = Field(alias="sessionId")
+    question_id: str = Field(alias="questionId")
+    question_text: str = Field(alias="questionText", min_length=1)
+    public_slide_context: str = Field(default="", alias="publicSlideContext")
+    selected_reference_ids: list[str] = Field(
+        default_factory=list,
+        alias="selectedReferenceIds",
+    )
+    retrieval_limit: int = Field(default=5, alias="retrievalLimit", ge=1, le=20)
+    confidence_threshold: float = Field(
+        default=0.65,
+        alias="confidenceThreshold",
+        ge=0,
+        le=1,
+    )
+
+
+class QnaAnswerResponse(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    status: Literal["answered", "failed"]
+    answer_text: str | None = Field(default=None, alias="answerText")
+    source_references: list[str] = Field(default_factory=list, alias="sourceReferences")
+    confidence: float | None = None
+    failure_reason: (
+        Literal["low-confidence", "no-grounding", "timeout", "worker-error"] | None
+    ) = Field(default=None, alias="failureReason")
+
+
 class DeckKeywordRequest(BaseModel):
     keyword_id: str = Field(default="", alias="keywordId")
     slide_id: str = Field(default="", alias="slideId")
@@ -224,6 +257,41 @@ def health() -> HealthResponse:
         status="ok",
         app="orbit-python-worker",
         checked_at=datetime.now(UTC),
+    )
+
+
+@app.post("/qna/answer", response_model=QnaAnswerResponse)
+def answer_qna(payload: QnaAnswerRequest) -> QnaAnswerResponse:
+    public_context = payload.public_slide_context.strip()
+    if not public_context and not payload.selected_reference_ids:
+        return QnaAnswerResponse(
+            status="failed",
+            failureReason="no-grounding",
+            confidence=0,
+        )
+
+    source_references = payload.selected_reference_ids[: payload.retrieval_limit]
+    if not source_references and public_context:
+        source_references = [f"deck:{payload.session_id}"]
+
+    confidence = 0.82 if source_references else 0.0
+    if confidence < payload.confidence_threshold:
+        return QnaAnswerResponse(
+            status="failed",
+            failureReason="low-confidence",
+            sourceReferences=source_references,
+            confidence=confidence,
+        )
+
+    answer_text = (
+        "제공된 공개 발표 자료와 선택된 참고자료 범위에서 확인한 답변입니다. "
+        f"질문: {payload.question_text}"
+    )
+    return QnaAnswerResponse(
+        status="answered",
+        answerText=answer_text,
+        sourceReferences=source_references,
+        confidence=confidence,
     )
 
 

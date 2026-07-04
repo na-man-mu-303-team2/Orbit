@@ -22,6 +22,7 @@ import { AddRehearsalRunMetaJson2026070301000 } from "./migrations/2026070301000
 import { CreateTemplateBlueprints2026070301000 } from "./migrations/2026070301000-CreateTemplateBlueprints";
 import { CreateAudienceInteractions2026070501000 } from "./migrations/2026070501000-CreateAudienceInteractions";
 import { CreateAudienceQuestions2026070502000 } from "./migrations/2026070502000-CreateAudienceQuestions";
+import { CreateAudienceQuestionAnswers2026070503000 } from "./migrations/2026070503000-CreateAudienceQuestionAnswers";
 
 loadDotenv({ path: "../../.env.local" });
 loadDotenv({ path: ".env.local" });
@@ -55,7 +56,8 @@ export const databaseOptions: DataSourceOptions = {
     AddRehearsalRunMetaJson2026070301000,
     CreateTemplateBlueprints2026070301000,
     CreateAudienceInteractions2026070501000,
-    CreateAudienceQuestions2026070502000
+    CreateAudienceQuestions2026070502000,
+    CreateAudienceQuestionAnswers2026070503000
   ],
   migrationsTableName: "typeorm_migrations",
   synchronize: false,
