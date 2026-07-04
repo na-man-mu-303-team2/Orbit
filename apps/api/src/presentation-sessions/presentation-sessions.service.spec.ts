@@ -850,4 +850,141 @@ describe("PresentationSessionsService", () => {
       "INSERT INTO audience_question_answers",
     );
   });
+
+  it("submits enabled audience reactions as events", async () => {
+    const query = vi
+      .fn()
+      .mockResolvedValueOnce([
+        {
+          audience_id: "audience_00000000-0000-4000-8000-000000000001",
+          session_id: "session_existing",
+          nickname: "orbit",
+          joined_at: "2026-07-05T00:00:00.000Z",
+          last_seen_at: "2026-07-05T00:00:00.000Z",
+          joined_before_end: true,
+        },
+      ])
+      .mockResolvedValueOnce([activeSessionRow])
+      .mockResolvedValueOnce([
+        {
+          session_id: "session_existing",
+          qna_enabled: false,
+          ai_qna_enabled: false,
+          polls_enabled: false,
+          quizzes_enabled: false,
+          reactions_enabled: true,
+          survey_enabled: false,
+          updated_at: "2026-07-05T00:00:00.000Z",
+        },
+      ])
+      .mockResolvedValueOnce([]);
+    const service = new PresentationSessionsService({
+      query,
+    } as unknown as DataSource);
+
+    await expect(
+      service.submitReaction({
+        sessionId: "session_existing",
+        audienceId: "audience_00000000-0000-4000-8000-000000000001",
+        tokenHash: "token_hash",
+        body: { reaction: "clap" },
+      }),
+    ).resolves.toEqual({ reaction: "clap", accepted: true });
+
+    expect(query.mock.calls[3][0]).toContain("INSERT INTO audience_events");
+    expect(query.mock.calls[3][1][4]).toBe("reaction.sent");
+  });
+
+  it("rate limits audience reactions per participant", async () => {
+    const participantRow = {
+      audience_id: "audience_00000000-0000-4000-8000-000000000001",
+      session_id: "session_existing",
+      nickname: "orbit",
+      joined_at: "2026-07-05T00:00:00.000Z",
+      last_seen_at: "2026-07-05T00:00:00.000Z",
+      joined_before_end: true,
+    };
+    const featureRow = {
+      session_id: "session_existing",
+      qna_enabled: false,
+      ai_qna_enabled: false,
+      polls_enabled: false,
+      quizzes_enabled: false,
+      reactions_enabled: true,
+      survey_enabled: false,
+      updated_at: "2026-07-05T00:00:00.000Z",
+    };
+    const query = vi.fn(async (sql: string) => {
+      if (sql.includes("UPDATE audience_participants")) {
+        return [participantRow];
+      }
+      if (sql.includes("FROM presentation_sessions")) {
+        return [activeSessionRow];
+      }
+      if (sql.includes("FROM audience_feature_settings")) {
+        return [featureRow];
+      }
+      return [];
+    });
+    const service = new PresentationSessionsService({
+      query,
+    } as unknown as DataSource);
+    const input = {
+      sessionId: "session_existing",
+      audienceId: "audience_00000000-0000-4000-8000-000000000001",
+      tokenHash: "token_hash",
+      body: { reaction: "clap" },
+    };
+
+    for (let index = 0; index < 5; index += 1) {
+      await expect(service.submitReaction(input)).resolves.toEqual({
+        reaction: "clap",
+        accepted: true,
+      });
+    }
+
+    await expect(service.submitReaction(input)).rejects.toBeInstanceOf(
+      ConflictException,
+    );
+  });
+
+  it("rejects audience reactions when the feature is disabled", async () => {
+    const query = vi
+      .fn()
+      .mockResolvedValueOnce([
+        {
+          audience_id: "audience_00000000-0000-4000-8000-000000000001",
+          session_id: "session_existing",
+          nickname: "orbit",
+          joined_at: "2026-07-05T00:00:00.000Z",
+          last_seen_at: "2026-07-05T00:00:00.000Z",
+          joined_before_end: true,
+        },
+      ])
+      .mockResolvedValueOnce([activeSessionRow])
+      .mockResolvedValueOnce([
+        {
+          session_id: "session_existing",
+          qna_enabled: false,
+          ai_qna_enabled: false,
+          polls_enabled: false,
+          quizzes_enabled: false,
+          reactions_enabled: false,
+          survey_enabled: false,
+          updated_at: "2026-07-05T00:00:00.000Z",
+        },
+      ]);
+    const service = new PresentationSessionsService({
+      query,
+    } as unknown as DataSource);
+
+    await expect(
+      service.submitReaction({
+        sessionId: "session_existing",
+        audienceId: "audience_00000000-0000-4000-8000-000000000001",
+        tokenHash: "token_hash",
+        body: { reaction: "clap" },
+      }),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+  });
 });

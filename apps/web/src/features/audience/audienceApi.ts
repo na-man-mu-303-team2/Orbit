@@ -6,6 +6,8 @@ import type {
   AudienceSessionLookupResponse,
   AudienceStateResponse,
   InteractionAnswer,
+  ReactionType,
+  SubmitReactionResponse,
   SubmitInteractionResponseResponse,
 } from "@orbit/shared";
 
@@ -231,6 +233,31 @@ export async function updateAiAnswerFeedback(args: {
   }
 
   return response.json() as Promise<AudienceQuestionAnswerResponse>;
+}
+
+export async function submitAudienceReaction(args: {
+  sessionId: string;
+  reaction: ReactionType;
+}): Promise<SubmitReactionResponse> {
+  const response = await fetch(
+    `/api/v1/presentation-sessions/${encodeURIComponent(
+      args.sessionId,
+    )}/audience/reactions`,
+    {
+      body: JSON.stringify({ reaction: args.reaction }),
+      credentials: "include",
+      headers: {
+        "content-type": "application/json",
+      },
+      method: "POST",
+    },
+  );
+
+  if (!response.ok) {
+    throw await readAudienceError(response);
+  }
+
+  return response.json() as Promise<SubmitReactionResponse>;
 }
 
 async function readAudienceError(response: Response) {

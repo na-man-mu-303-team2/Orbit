@@ -22,6 +22,8 @@ import {
   submitAudienceQuestionRequestSchema,
   submitInteractionResponseRequestSchema,
   submitInteractionResponseResponseSchema,
+  submitReactionRequestSchema,
+  submitReactionResponseSchema,
   updateAiAnswerFeedbackRequestSchema,
   updateAiReferenceSelectionRequestSchema,
   updateAiReferenceSelectionResponseSchema,
@@ -202,6 +204,7 @@ type ProjectSessionInput = {
 @Injectable()
 export class PresentationSessionsService {
   private readonly questionRateLimiter = new ParticipantRateLimiter(3, 60_000);
+  private readonly reactionRateLimiter = new ParticipantRateLimiter(5, 1_000);
 
   constructor(@InjectDataSource() private readonly dataSource: DataSource) {}
 
@@ -1412,6 +1415,43 @@ export class PresentationSessionsService {
         await this.getAudienceQuestionStatus(input)
       ).question,
       answer: rows[0] ? this.toQuestionAnswerDto(rows[0]) : null,
+    });
+  }
+
+  async submitReaction(input: {
+    sessionId: string;
+    audienceId: string;
+    tokenHash: string;
+    body: unknown;
+  }) {
+    await this.getAudienceMe(input.sessionId, input.audienceId, input.tokenHash);
+    const features = await this.getAudienceFeatureSettingsForSession(
+      input.sessionId,
+    );
+    if (!features.reactionsEnabled) {
+      throw new ForbiddenException("현재 반응 보내기가 닫혀 있습니다.");
+    }
+
+    if (
+      !this.reactionRateLimiter.consume(
+        `${input.sessionId}:${input.audienceId}`,
+      )
+    ) {
+      throw new ConflictException("반응을 잠시 후 다시 보내 주세요.");
+    }
+
+    const request = submitReactionRequestSchema.parse(input.body);
+    await this.appendAudienceEvent({
+      sessionId: input.sessionId,
+      actorType: "audience",
+      actorId: input.audienceId,
+      type: "reaction.sent",
+      payload: { reaction: request.reaction },
+    });
+
+    return submitReactionResponseSchema.parse({
+      reaction: request.reaction,
+      accepted: true,
     });
   }
 

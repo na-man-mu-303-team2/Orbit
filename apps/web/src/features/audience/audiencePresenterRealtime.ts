@@ -1,4 +1,9 @@
-import type { UpdateAudienceFeatureSettingsRequest } from "@orbit/shared";
+import {
+  audienceReactionPayloadSchema,
+  type AudienceReactionPayload,
+  type UpdateAudienceFeatureSettingsRequest,
+  type WebsocketEvent,
+} from "@orbit/shared";
 import { io } from "socket.io-client";
 
 import type { PresenterSlideshowState } from "../rehearsal/presenter/presenterStateStore";
@@ -30,6 +35,7 @@ export type AudiencePresenterRealtimePublisher = {
 
 export function createAudiencePresenterRealtimePublisher(args: {
   onError?: (message: string) => void;
+  onReaction?: (payload: AudienceReactionPayload) => void;
   onStatus?: (status: AudiencePresenterRealtimeStatus) => void;
   sessionId: string;
   socketFactory?: () => AudiencePresenterRealtimeSocket;
@@ -55,9 +61,15 @@ export function createAudiencePresenterRealtimePublisher(args: {
     args.onError?.(error.message);
   }
 
+  function handleReaction(event: WebsocketEvent) {
+    const payload = audienceReactionPayloadSchema.parse(event.payload);
+    args.onReaction?.(payload);
+  }
+
   socket.on("connect", joinPresenterRoom);
   socket.on("connect_error", handleConnectError);
   socket.on("audience:error", handleError);
+  socket.on("audience:reaction", handleReaction);
 
   if (socket.connected) {
     joinPresenterRoom();
@@ -68,6 +80,7 @@ export function createAudiencePresenterRealtimePublisher(args: {
       socket.off("connect", joinPresenterRoom);
       socket.off("connect_error", handleConnectError);
       socket.off("audience:error", handleError);
+      socket.off("audience:reaction", handleReaction);
       socket.disconnect();
     },
     publishFeatureSettings: (settings) => {

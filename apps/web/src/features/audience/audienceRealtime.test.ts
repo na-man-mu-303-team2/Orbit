@@ -166,6 +166,41 @@ describe("audience realtime client", () => {
     );
   });
 
+  it("parses audience reaction events", () => {
+    const socket = createFakeSocket();
+    const onReaction = vi.fn();
+
+    connectAudienceRealtime({
+      onError: vi.fn(),
+      onFeatureSettings: vi.fn(),
+      onReaction,
+      onSlideState: vi.fn(),
+      onState: vi.fn(),
+      onStatus: vi.fn(),
+      sessionId: "session_1",
+      socketFactory: () => socket,
+    });
+
+    socket.trigger("audience:reaction", {
+      type: "audience:reaction",
+      roomId: "presentation:session_1:audience",
+      sessionId: "session_1",
+      userId: "audience_00000000-0000-4000-8000-000000000001",
+      sentAt: now,
+      payload: {
+        sessionId: "session_1",
+        audienceId: "audience_00000000-0000-4000-8000-000000000001",
+        reaction: "clap",
+      },
+    });
+
+    expect(onReaction).toHaveBeenCalledWith({
+      sessionId: "session_1",
+      audienceId: "audience_00000000-0000-4000-8000-000000000001",
+      reaction: "clap",
+    });
+  });
+
   it("reports reconnecting status on disconnect and removes handlers on cleanup", () => {
     const socket = createFakeSocket();
     const onStatus = vi.fn();

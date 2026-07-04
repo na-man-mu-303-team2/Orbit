@@ -293,6 +293,21 @@ export const audienceActiveInteractionResponseSchema = z
   })
   .strict();
 
+export const reactionTypeSchema = z.enum(["clap", "heart", "wow", "laugh"]);
+
+export const submitReactionRequestSchema = z
+  .object({
+    reaction: reactionTypeSchema,
+  })
+  .strict();
+
+export const submitReactionResponseSchema = z
+  .object({
+    reaction: reactionTypeSchema,
+    accepted: z.literal(true),
+  })
+  .strict();
+
 export const questionStatusSchema = z.enum(["pending", "answered"]);
 
 export const audienceQuestionSchema = z
@@ -463,6 +478,10 @@ export type SubmitInteractionResponseResponse = z.infer<
 export type InteractionResults = z.infer<typeof interactionResultsSchema>;
 export type AudienceActiveInteractionResponse = z.infer<
   typeof audienceActiveInteractionResponseSchema
+>;
+export type ReactionType = z.infer<typeof reactionTypeSchema>;
+export type SubmitReactionResponse = z.infer<
+  typeof submitReactionResponseSchema
 >;
 export type AudienceQuestion = z.infer<typeof audienceQuestionSchema>;
 export type AudienceQuestionResponse = z.infer<

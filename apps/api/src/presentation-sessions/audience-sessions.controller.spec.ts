@@ -47,9 +47,16 @@ function createController(
     getAudienceState: vi.fn(),
     ...overrides,
   } as unknown as PresentationSessionsService;
+  const audienceRealtimeGateway = {
+    broadcastReaction: vi.fn(),
+  };
 
   return {
-    controller: new AudienceSessionsController(service),
+    audienceRealtimeGateway,
+    controller: new AudienceSessionsController(
+      service,
+      audienceRealtimeGateway as any,
+    ),
     service,
   };
 }
@@ -261,5 +268,45 @@ describe("AudienceSessionsController", () => {
       expect.stringMatching(/^audience_[0-9a-f-]{36}$/),
       expect.any(String),
     );
+  });
+
+  it("broadcasts accepted reactions after saving the event", async () => {
+    const { audienceRealtimeGateway, controller, service } = createController({
+      submitReaction: vi.fn(async () => ({
+        reaction: "clap" as const,
+        accepted: true as const,
+      })),
+    });
+    const response = { cookie: vi.fn() } as any;
+    await controller.joinSession(
+      "123456",
+      { nickname: "orbit" },
+      createRequest({ userAgent: "vitest-reaction" }),
+      response,
+    );
+    const signedAudienceToken = response.cookie.mock.calls[0][1] as string;
+
+    await expect(
+      controller.submitReaction(
+        "session_existing",
+        { reaction: "clap" },
+        createRequest({
+          signedAudienceToken,
+          userAgent: "vitest-reaction",
+        }),
+      ),
+    ).resolves.toEqual({ reaction: "clap", accepted: true });
+
+    expect(service.submitReaction).toHaveBeenCalledWith({
+      sessionId: "session_existing",
+      audienceId: expect.stringMatching(/^audience_[0-9a-f-]{36}$/),
+      tokenHash: expect.any(String),
+      body: { reaction: "clap" },
+    });
+    expect(audienceRealtimeGateway.broadcastReaction).toHaveBeenCalledWith({
+      sessionId: "session_existing",
+      audienceId: expect.stringMatching(/^audience_[0-9a-f-]{36}$/),
+      reaction: "clap",
+    });
   });
 });

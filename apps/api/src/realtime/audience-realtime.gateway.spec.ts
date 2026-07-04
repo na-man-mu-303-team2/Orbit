@@ -190,6 +190,51 @@ describe("AudienceRealtimeGateway", () => {
     });
   });
 
+  it("broadcasts audience reactions to audience and presenter rooms", async () => {
+    const { gateway, serverEmit, serverTo } = await createGateway();
+
+    const event = gateway.broadcastReaction({
+      sessionId: session.sessionId,
+      audienceId: participant.audienceId,
+      reaction: "clap",
+    });
+
+    expect(serverEmit).toHaveBeenCalledTimes(2);
+    expect(serverTo).toHaveBeenNthCalledWith(
+      1,
+      audienceSessionRoomId(session.sessionId),
+    );
+    expect(serverTo).toHaveBeenNthCalledWith(
+      2,
+      "presentation:session_existing:presenter",
+    );
+    expect(serverEmit).toHaveBeenNthCalledWith(
+      1,
+      "audience:reaction",
+      expect.objectContaining({
+        type: "audience:reaction",
+        roomId: audienceSessionRoomId(session.sessionId),
+        payload: {
+          sessionId: session.sessionId,
+          audienceId: participant.audienceId,
+          reaction: "clap",
+        },
+      }),
+    );
+    expect(serverEmit).toHaveBeenNthCalledWith(
+      2,
+      "audience:reaction",
+      expect.objectContaining({
+        type: "audience:reaction",
+      }),
+    );
+    expect(event).toMatchObject({
+      type: "audience:reaction",
+      sessionId: session.sessionId,
+      userId: participant.audienceId,
+    });
+  });
+
   it("rejects presenter slide updates without auth", async () => {
     const { gateway, service, serverEmit } = await createGateway();
     const client = createSocket();
@@ -275,11 +320,12 @@ async function createGateway() {
     projects as any,
   );
   const serverEmit = vi.fn();
+  const serverTo = vi.fn(() => ({ emit: serverEmit }));
   gateway.server = {
-    to: vi.fn(() => ({ emit: serverEmit })),
+    to: serverTo,
   } as any;
 
-  return { auth, gateway, projects, serverEmit, service };
+  return { auth, gateway, projects, serverEmit, serverTo, service };
 }
 
 function createSocket(

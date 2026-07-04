@@ -7,6 +7,7 @@ import {
   interactionDraftSchema,
   interactionQuestionSchema,
   presenterQuestionQueueResponseSchema,
+  submitReactionRequestSchema,
   submitAudienceQuestionRequestSchema,
   submitInteractionResponseRequestSchema,
   surveyResponseSchema,
@@ -139,6 +140,15 @@ describe("interaction schemas", () => {
     expect(
       presenterQuestionQueueResponseSchema.parse({ questions: [question] }),
     ).toEqual({ questions: [question] });
+  });
+
+  it("validates the fixed audience reaction set", () => {
+    expect(submitReactionRequestSchema.parse({ reaction: "clap" })).toEqual({
+      reaction: "clap",
+    });
+    expect(() =>
+      submitReactionRequestSchema.parse({ reaction: "custom" }),
+    ).toThrow();
   });
 
   it("requires contact consent before contact answers are stored", () => {
