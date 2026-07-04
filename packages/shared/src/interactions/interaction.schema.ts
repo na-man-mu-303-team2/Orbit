@@ -15,6 +15,9 @@ export const libraryInteractionIdSchema = z
 export const questionIdSchema = z.string().regex(/^question_[0-9a-f-]{36}$/);
 export const responseIdSchema = z.string().regex(/^response_[0-9a-f-]{36}$/);
 export const surveyIdSchema = z.string().regex(/^survey_[0-9a-f-]{36}$/);
+export const surveyResponseIdSchema = z
+  .string()
+  .regex(/^survey_response_[0-9a-f-]{36}$/);
 
 export const interactionKindSchema = z.enum(["poll", "quiz"]);
 export const interactionResultVisibilitySchema = z.enum([
@@ -431,7 +434,27 @@ export const surveyConsentSectionSchema = z
     consentText: z.string().trim().min(1).max(1000),
     fields: z.array(interactionQuestionSchema).default([]),
   })
-  .strict();
+  .strict()
+  .superRefine((section, context) => {
+    for (const [index, field] of section.fields.entries()) {
+      if (field.type.startsWith("quiz-")) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "survey contact fields cannot include quiz questions",
+          path: ["fields", index, "type"],
+        });
+      }
+
+      if (containsForbiddenContactText(field.prompt)) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          message:
+            "contact fields must not request sensitive or unique identifying information",
+          path: ["fields", index, "prompt"],
+        });
+      }
+    }
+  });
 
 export const surveyFormSchema = z
   .object({
@@ -442,10 +465,52 @@ export const surveyFormSchema = z
     contact: surveyConsentSectionSchema,
     lockedAt: isoDateTimeSchema.nullable(),
   })
+  .strict()
+  .superRefine((form, context) => {
+    for (const [index, question] of form.questions.entries()) {
+      if (question.type.startsWith("quiz-")) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "survey questions cannot include quiz questions",
+          path: ["questions", index, "type"],
+        });
+      }
+    }
+  });
+
+export const upsertSessionSurveyFormRequestSchema = z
+  .object({
+    title: z.string().trim().min(1).max(160),
+    questions: z.array(interactionQuestionSchema).default([]),
+    contact: surveyConsentSectionSchema,
+  })
+  .strict()
+  .superRefine((form, context) => {
+    const validation = surveyFormSchema.safeParse({
+      surveyId: "survey_00000000-0000-4000-8000-000000000001",
+      sessionId: "session_validation",
+      title: form.title,
+      questions: form.questions,
+      contact: form.contact,
+      lockedAt: null,
+    });
+
+    if (!validation.success) {
+      for (const issue of validation.error.issues) {
+        context.addIssue(issue);
+      }
+    }
+  });
+
+export const sessionSurveyFormResponseSchema = z
+  .object({
+    survey: surveyFormSchema.nullable(),
+  })
   .strict();
 
 export const surveyResponseSchema = z
   .object({
+    responseId: surveyResponseIdSchema,
     surveyId: surveyIdSchema,
     sessionId: z.string().min(1),
     audienceId: audienceIdSchema,
@@ -463,6 +528,28 @@ export const surveyResponseSchema = z
       message: "contactAnswers require contactConsent",
     },
   );
+
+export const submitSurveyResponseRequestSchema = z
+  .object({
+    answers: audienceSafePayloadSchema.default({}),
+    contactConsent: z.boolean(),
+    contactAnswers: audienceSafePayloadSchema.default({}),
+  })
+  .strict()
+  .refine(
+    (response) =>
+      response.contactConsent ||
+      Object.keys(response.contactAnswers).length === 0,
+    {
+      message: "contactAnswers require contactConsent",
+    },
+  );
+
+export const submitSurveyResponseResponseSchema = z
+  .object({
+    response: surveyResponseSchema,
+  })
+  .strict();
 
 export type InteractionQuestion = z.infer<typeof interactionQuestionSchema>;
 export type InteractionDraft = z.infer<typeof interactionDraftSchema>;
@@ -504,3 +591,42 @@ export type AudienceQuestionAnswerResponse = z.infer<
 >;
 export type SurveyForm = z.infer<typeof surveyFormSchema>;
 export type SurveyResponse = z.infer<typeof surveyResponseSchema>;
+export type UpsertSessionSurveyFormRequest = z.infer<
+  typeof upsertSessionSurveyFormRequestSchema
+>;
+export type SessionSurveyFormResponse = z.infer<
+  typeof sessionSurveyFormResponseSchema
+>;
+export type SubmitSurveyResponseRequest = z.infer<
+  typeof submitSurveyResponseRequestSchema
+>;
+export type SubmitSurveyResponseResponse = z.infer<
+  typeof submitSurveyResponseResponseSchema
+>;
+
+function containsForbiddenContactText(value: string) {
+  const normalized = value.toLocaleLowerCase();
+  return forbiddenContactText.some((term) => normalized.includes(term));
+}
+
+const forbiddenContactText = [
+  "주민등록",
+  "resident registration",
+  "social security",
+  "ssn",
+  "passport",
+  "여권",
+  "driver",
+  "운전면허",
+  "credit card",
+  "카드번호",
+  "bank account",
+  "계좌",
+  "password",
+  "비밀번호",
+  "token",
+  "medical",
+  "health",
+  "건강",
+  "병력",
+];

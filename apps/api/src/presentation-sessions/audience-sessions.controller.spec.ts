@@ -45,6 +45,8 @@ function createController(
     })),
     getAudienceMe: vi.fn(),
     getAudienceState: vi.fn(),
+    getAudienceSurveyForm: vi.fn(),
+    submitSurveyResponse: vi.fn(),
     ...overrides,
   } as unknown as PresentationSessionsService;
   const audienceRealtimeGateway = {
@@ -307,6 +309,65 @@ describe("AudienceSessionsController", () => {
       sessionId: "session_existing",
       audienceId: expect.stringMatching(/^audience_[0-9a-f-]{36}$/),
       reaction: "clap",
+    });
+  });
+
+  it("routes audience survey recovery and submission with signed audience access", async () => {
+    const { controller, service } = createController({
+      getAudienceSurveyForm: vi.fn(async () => ({ survey: null })),
+      submitSurveyResponse: vi.fn(async () => ({
+        response: {
+          responseId:
+            "survey_response_00000000-0000-4000-8000-000000000001",
+          surveyId: "survey_00000000-0000-4000-8000-000000000001",
+          sessionId: "session_existing",
+          audienceId: "audience_00000000-0000-4000-8000-000000000001",
+          submittedAt: "2026-07-05T00:00:00.000Z",
+          answers: {},
+          contactConsent: false,
+          contactAnswers: {},
+        },
+      })),
+    });
+    const response = { cookie: vi.fn() } as any;
+    await controller.joinSession(
+      "123456",
+      { nickname: "orbit" },
+      createRequest({ userAgent: "vitest-survey" }),
+      response,
+    );
+    const signedAudienceToken = response.cookie.mock.calls[0][1] as string;
+
+    await expect(
+      controller.getSurvey(
+        "session_existing",
+        createRequest({
+          signedAudienceToken,
+          userAgent: "vitest-survey",
+        }),
+      ),
+    ).resolves.toEqual({ survey: null });
+    await expect(
+      controller.submitSurvey(
+        "session_existing",
+        { answers: {}, contactConsent: false, contactAnswers: {} },
+        createRequest({
+          signedAudienceToken,
+          userAgent: "vitest-survey",
+        }),
+      ),
+    ).resolves.toMatchObject({ response: { contactConsent: false } });
+
+    expect(service.getAudienceSurveyForm).toHaveBeenCalledWith({
+      sessionId: "session_existing",
+      audienceId: expect.stringMatching(/^audience_[0-9a-f-]{36}$/),
+      tokenHash: expect.any(String),
+    });
+    expect(service.submitSurveyResponse).toHaveBeenCalledWith({
+      sessionId: "session_existing",
+      audienceId: expect.stringMatching(/^audience_[0-9a-f-]{36}$/),
+      tokenHash: expect.any(String),
+      body: { answers: {}, contactConsent: false, contactAnswers: {} },
     });
   });
 });

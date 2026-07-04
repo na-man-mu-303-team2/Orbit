@@ -8,9 +8,11 @@ import { loadOrbitConfig } from "@orbit/config";
 import {
   audienceFeatureSettingsPayloadSchema,
   audienceReactionPayloadSchema,
+  audienceSessionEndedPayloadSchema,
   audienceSlideStatePayloadSchema,
   updateAudienceFeatureSettingsRequestSchema,
   type AudienceRealtimeState,
+  type PresentationSession,
   type ReactionType,
 } from "@orbit/shared";
 import {
@@ -239,6 +241,30 @@ export class AudienceRealtimeGateway {
     this.server
       .to(audiencePresenterRoomId(input.sessionId))
       .emit("audience:reaction", event);
+    return event;
+  }
+
+  broadcastSessionEnded(session: PresentationSession) {
+    const payload = audienceSessionEndedPayloadSchema.parse({
+      session: {
+        sessionId: session.sessionId,
+        projectId: session.projectId,
+        joinCode: session.joinCode,
+        status: session.status,
+        entryStatus: session.entryStatus,
+      },
+    });
+    const event = createRealtimeEvent({
+      type: "audience:session-ended",
+      roomId: audienceSessionRoomId(session.sessionId),
+      sessionId: session.sessionId,
+      userId: session.presenterUserId,
+      payload,
+    });
+
+    this.server
+      .to(audienceSessionRoomId(session.sessionId))
+      .emit("audience:session-ended", event);
     return event;
   }
 

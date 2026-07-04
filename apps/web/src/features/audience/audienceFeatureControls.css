@@ -281,6 +281,47 @@
   padding: 0 7px;
 }
 
+.audience-presenter-survey {
+  background: #f8fafc;
+  border: 1px solid #dbe3ee;
+  border-radius: 8px;
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+}
+
+.audience-presenter-survey span {
+  color: #0f172a;
+  font-size: 0.78rem;
+  font-weight: 900;
+}
+
+.audience-presenter-survey p {
+  color: #64748b;
+  font-size: 0.78rem;
+  line-height: 1.35;
+  margin: 0;
+}
+
+.audience-presenter-survey button,
+.audience-presenter-survey a {
+  align-items: center;
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  color: #1e3a8a;
+  display: inline-flex;
+  font-size: 0.78rem;
+  font-weight: 900;
+  justify-content: center;
+  min-height: 34px;
+  text-decoration: none;
+}
+
+.audience-presenter-survey button:disabled {
+  color: #94a3b8;
+}
+
 .audience-presenter-results p,
 .audience-presenter-muted,
 .audience-presenter-error {

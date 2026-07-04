@@ -10,7 +10,9 @@ import {
   submitReactionRequestSchema,
   submitAudienceQuestionRequestSchema,
   submitInteractionResponseRequestSchema,
+  submitSurveyResponseRequestSchema,
   surveyResponseSchema,
+  upsertSessionSurveyFormRequestSchema,
 } from "./interaction.schema";
 
 describe("interaction schemas", () => {
@@ -154,6 +156,7 @@ describe("interaction schemas", () => {
   it("requires contact consent before contact answers are stored", () => {
     expect(() =>
       surveyResponseSchema.parse({
+        responseId: "survey_response_00000000-0000-4000-8000-000000000001",
         surveyId: "survey_00000000-0000-4000-8000-000000000001",
         sessionId: "session_1",
         audienceId: "audience_00000000-0000-4000-8000-000000000001",
@@ -163,5 +166,74 @@ describe("interaction schemas", () => {
         contactAnswers: { email: "person@example.com" },
       }),
     ).toThrow();
+
+    expect(() =>
+      submitSurveyResponseRequestSchema.parse({
+        answers: {},
+        contactConsent: false,
+        contactAnswers: { email: "person@example.com" },
+      }),
+    ).toThrow("contactAnswers require contactConsent");
+  });
+
+  it("validates survey form and contact field boundaries", () => {
+    const form = {
+      title: "발표 설문",
+      questions: [
+        {
+          type: "scale" as const,
+          questionId: "question_00000000-0000-4000-8000-000000000001",
+          prompt: "발표 만족도",
+          required: true,
+          min: 1 as const,
+          max: 5 as const,
+        },
+      ],
+      contact: {
+        enabled: true,
+        consentText: "후속 연락에 동의합니다.",
+        fields: [
+          {
+            type: "open-text" as const,
+            questionId: "question_00000000-0000-4000-8000-000000000002",
+            prompt: "이메일",
+            required: false,
+            maxLength: 160,
+          },
+        ],
+      },
+    };
+
+    expect(upsertSessionSurveyFormRequestSchema.parse(form)).toEqual(form);
+    expect(() =>
+      upsertSessionSurveyFormRequestSchema.parse({
+        ...form,
+        questions: [
+          {
+            type: "quiz-true-false",
+            questionId: "question_00000000-0000-4000-8000-000000000003",
+            prompt: "퀴즈",
+            correctAnswer: true,
+          },
+        ],
+      }),
+    ).toThrow("survey questions cannot include quiz questions");
+    expect(() =>
+      upsertSessionSurveyFormRequestSchema.parse({
+        ...form,
+        contact: {
+          ...form.contact,
+          fields: [
+            {
+              type: "open-text",
+              questionId: "question_00000000-0000-4000-8000-000000000004",
+              prompt: "주민등록번호",
+              required: false,
+              maxLength: 160,
+            },
+          ],
+        },
+      }),
+    ).toThrow("sensitive or unique identifying");
   });
 });

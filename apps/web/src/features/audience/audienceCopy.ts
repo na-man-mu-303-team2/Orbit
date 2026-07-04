@@ -17,6 +17,11 @@ export const audienceCopy = {
   "ai.answer.escalated": "발표자에게 질문을 전달했습니다.",
   "ai.answer.unresolvedCta": "발표자에게 답변 요청",
   "reaction.rateLimited": "반응을 잠시 후 다시 보내 주세요.",
+  "survey.submit": "설문 제출",
+  "survey.submitted": "설문이 제출되었습니다.",
+  "survey.windowExpired": "설문 응답 시간이 종료되었습니다.",
+  "survey.contact.sensitiveWarning":
+    "민감정보 또는 고유식별정보는 입력하지 마세요.",
 } as const;
 
 export type AudienceCopyKey = keyof typeof audienceCopy;

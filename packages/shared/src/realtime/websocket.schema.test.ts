@@ -6,6 +6,7 @@ import {
   audiencePrivateRoomPayloadSchema,
   audienceReactionPayloadSchema,
   audienceRoomIdSchema,
+  audienceSessionEndedPayloadSchema,
   audienceSlideStatePayloadSchema,
   audienceStatePayloadSchema,
 } from "./websocket.schema";
@@ -135,6 +136,16 @@ describe("websocket audience schemas", () => {
     ).toEqual({
       sessionId: "session_1",
       audienceId: participant.audienceId,
+    });
+  });
+
+  it("validates audience session-ended payloads", () => {
+    expect(
+      audienceSessionEndedPayloadSchema.parse({
+        session: { ...session, status: "ended", entryStatus: "closed" },
+      }),
+    ).toEqual({
+      session: { ...session, status: "ended", entryStatus: "closed" },
     });
   });
 });

@@ -3,6 +3,7 @@ import {
   fetchAudienceActiveInteraction,
   fetchAudienceMe,
   fetchAudienceState,
+  fetchAudienceSurvey,
   joinAudienceSession,
   lookupAudienceSession,
   submitAudienceInteractionResponse,
@@ -11,6 +12,7 @@ import {
   fetchAudienceQuestionAnswer,
   updateAiAnswerFeedback,
   submitAudienceReaction,
+  submitAudienceSurvey,
 } from "./audienceApi";
 
 describe("audience API", () => {
@@ -366,5 +368,50 @@ describe("audience API", () => {
     await expect(
       submitAudienceReaction({ sessionId: "session_1", reaction: "clap" }),
     ).resolves.toEqual({ reaction: "clap", accepted: true });
+  });
+
+  it("fetches and submits audience surveys", async () => {
+    const fetcher = vi.fn(
+      async (_input: RequestInfo | URL, init?: RequestInit) => {
+        if (init?.method === "POST") {
+          expect(JSON.parse(String(init.body))).toEqual({
+            answers: { question_1: 5 },
+            contactConsent: false,
+            contactAnswers: {},
+          });
+          return new Response(
+            JSON.stringify({
+              response: {
+                responseId:
+                  "survey_response_00000000-0000-4000-8000-000000000001",
+                surveyId: "survey_00000000-0000-4000-8000-000000000001",
+                sessionId: "session_1",
+                audienceId:
+                  "audience_00000000-0000-4000-8000-000000000001",
+                submittedAt: "2026-07-05T00:00:00.000Z",
+                answers: { question_1: 5 },
+                contactConsent: false,
+                contactAnswers: {},
+              },
+            }),
+          );
+        }
+
+        return new Response(JSON.stringify({ survey: null }));
+      },
+    );
+    vi.stubGlobal("fetch", fetcher);
+
+    await expect(
+      fetchAudienceSurvey({ sessionId: "session_1" }),
+    ).resolves.toEqual({ survey: null });
+    await expect(
+      submitAudienceSurvey({
+        sessionId: "session_1",
+        answers: { question_1: 5 },
+        contactConsent: false,
+        contactAnswers: {},
+      }),
+    ).resolves.toMatchObject({ response: { contactConsent: false } });
   });
 });

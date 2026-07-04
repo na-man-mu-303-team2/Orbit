@@ -201,6 +201,43 @@ describe("audience realtime client", () => {
     });
   });
 
+  it("parses session-ended events", () => {
+    const socket = createFakeSocket();
+    const onSessionEnded = vi.fn();
+
+    connectAudienceRealtime({
+      onError: vi.fn(),
+      onFeatureSettings: vi.fn(),
+      onSessionEnded,
+      onSlideState: vi.fn(),
+      onState: vi.fn(),
+      onStatus: vi.fn(),
+      sessionId: "session_1",
+      socketFactory: () => socket,
+    });
+
+    socket.trigger("audience:session-ended", {
+      type: "audience:session-ended",
+      roomId: "presentation:session_1:audience",
+      sessionId: "session_1",
+      userId: "user_1",
+      sentAt: now,
+      payload: {
+        session: {
+          sessionId: "session_1",
+          projectId: "project_1",
+          joinCode: "123456",
+          status: "ended",
+          entryStatus: "closed",
+        },
+      },
+    });
+
+    expect(onSessionEnded).toHaveBeenCalledWith({
+      session: expect.objectContaining({ status: "ended" }),
+    });
+  });
+
   it("reports reconnecting status on disconnect and removes handlers on cleanup", () => {
     const socket = createFakeSocket();
     const onStatus = vi.fn();

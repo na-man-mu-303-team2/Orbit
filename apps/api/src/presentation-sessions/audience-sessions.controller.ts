@@ -260,6 +260,36 @@ export class AudienceSessionsController {
     return result;
   }
 
+  @Get(":sessionId/audience/survey")
+  async getSurvey(
+    @Param("sessionId") sessionId: string,
+    @Req() request: SignedCookieRequest,
+  ) {
+    const { payload, token } = this.requireAudienceAccess(sessionId, request);
+
+    return this.presentationSessionsService.getAudienceSurveyForm({
+      sessionId,
+      audienceId: payload.audienceId,
+      tokenHash: hashAudienceAccessToken(this.config, token),
+    });
+  }
+
+  @Post(":sessionId/audience/survey")
+  async submitSurvey(
+    @Param("sessionId") sessionId: string,
+    @Body() body: unknown,
+    @Req() request: SignedCookieRequest,
+  ) {
+    const { payload, token } = this.requireAudienceAccess(sessionId, request);
+
+    return this.presentationSessionsService.submitSurveyResponse({
+      sessionId,
+      audienceId: payload.audienceId,
+      tokenHash: hashAudienceAccessToken(this.config, token),
+      body: body ?? {},
+    });
+  }
+
   private async tryGetExistingAccess(
     sessionId: string,
     request: SignedCookieRequest,

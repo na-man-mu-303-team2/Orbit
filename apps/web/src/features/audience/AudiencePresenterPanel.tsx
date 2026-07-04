@@ -9,8 +9,11 @@ import { useEffect, useState } from "react";
 import {
   fetchAudienceFeatureSettings,
   fetchCurrentAudienceAccessSession,
+  fetchSessionSurveyForm,
+  sessionSurveyCsvUrl,
   updateAudienceAccessEntryStatus,
   updateAudienceFeatureSettings,
+  upsertSessionSurveyForm,
 } from "../editor/audience-link/audienceLinkApi";
 import {
   createQrDataUrl,
@@ -47,6 +50,7 @@ export function AudiencePresenterPanel({
   const [features, setFeatures] = useState<AudienceFeatureSettings | null>(
     null,
   );
+  const [surveyTitle, setSurveyTitle] = useState("");
   const [fallbackPublisher, setFallbackPublisher] =
     useState<AudiencePresenterRealtimePublisher | null>(null);
   const [recentReactions, setRecentReactions] = useState<ReactionType[]>([]);
@@ -85,8 +89,13 @@ export function AudiencePresenterPanel({
           projectId,
           sessionId: nextSession.sessionId,
         });
+        const survey = await fetchSessionSurveyForm({
+          projectId,
+          sessionId: nextSession.sessionId,
+        });
         if (!isCancelled) {
           setFeatures(settings.features);
+          setSurveyTitle(survey.survey?.title ?? "");
         }
       })
       .catch((error) => {
@@ -187,6 +196,24 @@ export function AudiencePresenterPanel({
     }
   }
 
+  async function handlePrepareDefaultSurvey() {
+    if (!session || session.status !== "draft") {
+      return;
+    }
+
+    setErrorMessage("");
+    try {
+      const response = await upsertSessionSurveyForm({
+        projectId,
+        sessionId: session.sessionId,
+        form: createDefaultSurveyForm(),
+      });
+      setSurveyTitle(response.survey?.title ?? "");
+    } catch (error) {
+      setErrorMessage(toAudienceLinkErrorMessage(error));
+    }
+  }
+
   const isOpen = session?.entryStatus === "open";
   const visibleRecentReactions = controlledRecentReactions ?? recentReactions;
   const titleId =
@@ -266,6 +293,30 @@ export function AudiencePresenterPanel({
             <AudiencePresenterReactionStrip reactions={visibleRecentReactions} />
           ) : null}
 
+          {features?.surveyEnabled ? (
+            <div className="audience-presenter-survey" aria-label="설문 설정">
+              <span>설문</span>
+              <p>{surveyTitle || "저장된 설문 없음"}</p>
+              <button
+                disabled={session.status !== "draft"}
+                type="button"
+                onClick={() => void handlePrepareDefaultSurvey()}
+              >
+                기본 설문 저장
+              </button>
+              {surveyTitle ? (
+                <a
+                  href={sessionSurveyCsvUrl({
+                    projectId,
+                    sessionId: session.sessionId,
+                  })}
+                >
+                  CSV
+                </a>
+              ) : null}
+            </div>
+          ) : null}
+
           <div
             className="audience-presenter-results"
             aria-label="청중 결과 요약"
@@ -287,6 +338,42 @@ export function AudiencePresenterPanel({
       ) : null}
     </section>
   );
+}
+
+function createDefaultSurveyForm() {
+  return {
+    title: "발표 설문",
+    questions: [
+      {
+        type: "scale" as const,
+        questionId: "question_00000000-0000-4000-8000-000000000901",
+        prompt: "발표 만족도",
+        required: true,
+        min: 1 as const,
+        max: 5 as const,
+      },
+      {
+        type: "open-text" as const,
+        questionId: "question_00000000-0000-4000-8000-000000000902",
+        prompt: "좋았던 점이나 개선 의견",
+        required: false,
+        maxLength: 500,
+      },
+    ],
+    contact: {
+      enabled: true,
+      consentText: "후속 연락을 위해 연락처를 제공하는 데 동의합니다.",
+      fields: [
+        {
+          type: "open-text" as const,
+          questionId: "question_00000000-0000-4000-8000-000000000903",
+          prompt: "이메일",
+          required: false,
+          maxLength: 160,
+        },
+      ],
+    },
+  };
 }
 
 const presenterReactionSymbols: Record<ReactionType, string> = {

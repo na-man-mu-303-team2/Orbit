@@ -11,12 +11,12 @@ The top-level `## Current State` and `## Resume Checkpoint` sections are the sou
 - Last completed milestone: 8
 - Next milestone: 9
 - Integration branch: `feature/audience`
-- Current expected branch: `feature/audience`
+- Current expected branch: `feature/audience-m09-survey`
 - Goal status: in progress
 
 ## Resume Checkpoint
 
-- Current branch: `feature/audience`
+- Current branch: `feature/audience-m09-survey`
 - Next milestone: 9
 - Resume first checks:
   - Run `git status --short --branch`.
@@ -25,7 +25,7 @@ The top-level `## Current State` and `## Resume Checkpoint` sections are the sou
   - Read relevant product-plan sections for post-session survey, consent, 24-hour window, CSV exclusions, and feature gating.
   - Read existing interaction/Q&A/reaction contracts before adding survey contracts and tables.
 - Blocked: no
-- Notes: Milestone 8 is locally merged; Milestone 9 survey work is next.
+- Notes: Milestone 9 implementation is active.
 
 ## Milestone Log
 
@@ -356,6 +356,19 @@ The top-level `## Current State` and `## Resume Checkpoint` sections are the sou
   - Current branch: `feature/audience`
   - Next milestone: 9
   - Resume first checks: read Milestone 9 plan, confirm `feature/audience` status, and implement survey forms/submission/export boundaries.
+
+## Milestone 9 Start - 2026-07-05
+
+- Branch: `feature/audience-m09-survey`
+- Scope: session-owned survey form CRUD while draft, survey tables, start-lock behavior, survey-enabled audience flow, post-end submission window, eligibility and duplicate checks, consent-gated contact fields, and survey-only CSV export.
+- Acceptance criteria: form cannot change after start; ineligible audience tokens cannot submit; eligible reconnecting participant can submit within 1 hour; duplicate submit is rejected; required questions block missing answers; contact answers require consent; CSV includes timestamp, nickname, survey answers, and contact fields only; UI controls and warnings are accessible.
+- Likely files: `packages/shared/src/interactions/*`, `apps/api/src/database/migrations/*`, `apps/api/src/presentation-sessions/*`, `apps/web/src/features/audience/*`, `apps/web/src/features/editor/*`, `apps/web/src/features/rehearsal/presenter/*`.
+- Verification plan: shared survey schema tests, migration tests, API service/controller tests for draft lock/eligibility/window/duplicate/CSV, web audience survey tests, `pnpm audience:checkpoint`.
+- Major risks: full survey builder UI can sprawl; keep M9 focused on backed session survey form, audience submission, and CSV contract while using compact presenter controls.
+- Resume checkpoint snapshot:
+  - Current branch: `feature/audience-m09-survey`
+  - Next milestone: 9
+  - Resume first checks: inspect shared survey schemas, presentation session service/controller, migration registration, and audience active/survey UI before editing.
 
 ## Progress Entry Template
 

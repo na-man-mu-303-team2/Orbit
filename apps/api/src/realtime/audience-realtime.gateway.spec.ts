@@ -235,6 +235,37 @@ describe("AudienceRealtimeGateway", () => {
     });
   });
 
+  it("broadcasts session-ended events with public session payloads", async () => {
+    const { gateway, serverEmit } = await createGateway();
+
+    const event = gateway.broadcastSessionEnded({
+      ...session,
+      status: "ended",
+      entryStatus: "closed",
+      endedAt: "2026-07-05T00:30:00.000Z",
+      startedAt: "2026-07-05T00:00:00.000Z",
+      surveyClosesAt: "2026-07-05T01:30:00.000Z",
+      rawDataDeleteAfter: "2026-08-04T00:00:00.000Z",
+    } as any);
+
+    expect(serverEmit).toHaveBeenCalledWith(
+      "audience:session-ended",
+      expect.objectContaining({
+        type: "audience:session-ended",
+        payload: {
+          session: {
+            sessionId: session.sessionId,
+            projectId: session.projectId,
+            joinCode: session.joinCode,
+            status: "ended",
+            entryStatus: "closed",
+          },
+        },
+      }),
+    );
+    expect(JSON.stringify(event.payload)).not.toContain("presenterUserId");
+  });
+
   it("rejects presenter slide updates without auth", async () => {
     const { gateway, service, serverEmit } = await createGateway();
     const client = createSocket();

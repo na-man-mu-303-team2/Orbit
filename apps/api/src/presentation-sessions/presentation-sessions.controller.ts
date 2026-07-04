@@ -2,9 +2,11 @@ import {
   Body,
   Controller,
   Get,
+  Header,
   Param,
   Patch,
   Post,
+  Put,
   Req,
   UnauthorizedException,
 } from "@nestjs/common";
@@ -18,6 +20,7 @@ import { authSessionCookieName } from "../auth/auth.constants";
 import { AuthService } from "../auth/auth.service";
 import { parseRequest } from "../common/zod-request";
 import { ProjectsService } from "../projects/projects.service";
+import { AudienceRealtimeGateway } from "../realtime/audience-realtime.gateway";
 import { PresentationSessionsService } from "./presentation-sessions.service";
 
 type SignedCookieRequest = Request & {
@@ -30,6 +33,7 @@ export class PresentationSessionsController {
     private readonly authService: AuthService,
     private readonly presentationSessionsService: PresentationSessionsService,
     private readonly projectsService: ProjectsService,
+    private readonly audienceRealtimeGateway: AudienceRealtimeGateway,
   ) {}
 
   @Get("current")
@@ -113,6 +117,83 @@ export class PresentationSessionsController {
       sessionId,
       actorId: user.userId,
       settings: input,
+    });
+  }
+
+  @Post(":sessionId/start")
+  async startSession(
+    @Param("projectId") projectId: string,
+    @Param("sessionId") sessionId: string,
+    @Req() request: SignedCookieRequest,
+  ) {
+    const user = await this.getCurrentUser(request);
+    await this.projectsService.assertCanWriteProject(projectId, user.userId);
+    return this.presentationSessionsService.startSession({
+      projectId,
+      sessionId,
+      actorId: user.userId,
+    });
+  }
+
+  @Post(":sessionId/end")
+  async endSession(
+    @Param("projectId") projectId: string,
+    @Param("sessionId") sessionId: string,
+    @Req() request: SignedCookieRequest,
+  ) {
+    const user = await this.getCurrentUser(request);
+    await this.projectsService.assertCanWriteProject(projectId, user.userId);
+    const result = await this.presentationSessionsService.endSession({
+      projectId,
+      sessionId,
+      actorId: user.userId,
+    });
+    this.audienceRealtimeGateway.broadcastSessionEnded(result.session);
+    return result;
+  }
+
+  @Get(":sessionId/survey")
+  async getSurveyForm(
+    @Param("projectId") projectId: string,
+    @Param("sessionId") sessionId: string,
+    @Req() request: SignedCookieRequest,
+  ) {
+    const user = await this.getCurrentUser(request);
+    await this.projectsService.assertCanReadProject(projectId, user.userId);
+    return this.presentationSessionsService.getSessionSurveyForm({
+      projectId,
+      sessionId,
+    });
+  }
+
+  @Put(":sessionId/survey")
+  async upsertSurveyForm(
+    @Param("projectId") projectId: string,
+    @Param("sessionId") sessionId: string,
+    @Body() body: unknown,
+    @Req() request: SignedCookieRequest,
+  ) {
+    const user = await this.getCurrentUser(request);
+    await this.projectsService.assertCanWriteProject(projectId, user.userId);
+    return this.presentationSessionsService.upsertSessionSurveyForm({
+      projectId,
+      sessionId,
+      body: body ?? {},
+    });
+  }
+
+  @Get(":sessionId/survey.csv")
+  @Header("content-type", "text/csv; charset=utf-8")
+  async exportSurveyCsv(
+    @Param("projectId") projectId: string,
+    @Param("sessionId") sessionId: string,
+    @Req() request: SignedCookieRequest,
+  ) {
+    const user = await this.getCurrentUser(request);
+    await this.projectsService.assertCanReadProject(projectId, user.userId);
+    return this.presentationSessionsService.exportSessionSurveyCsv({
+      projectId,
+      sessionId,
     });
   }
 

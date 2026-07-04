@@ -3,6 +3,8 @@ import type {
   GetCurrentPresentationSessionResponse,
   PresentationEntryStatus,
   PresentationSession,
+  SessionSurveyFormResponse,
+  UpsertSessionSurveyFormRequest,
   UpdateAudienceFeatureSettingsRequest,
   UpdateAudienceFeatureSettingsResponse,
 } from "@orbit/shared";
@@ -137,6 +139,62 @@ export async function updateAudienceFeatureSettings(args: {
   }
 
   return response.json() as Promise<UpdateAudienceFeatureSettingsResponse>;
+}
+
+export async function fetchSessionSurveyForm(args: {
+  projectId: string;
+  sessionId: string;
+}): Promise<SessionSurveyFormResponse> {
+  const response = await fetch(
+    surveyFormUrl(args.projectId, args.sessionId),
+    {
+      credentials: "include",
+      method: "GET",
+    },
+  );
+
+  if (!response.ok) {
+    throw await readResponseError(response, "Survey form fetch failed");
+  }
+
+  return response.json() as Promise<SessionSurveyFormResponse>;
+}
+
+export async function upsertSessionSurveyForm(args: {
+  form: UpsertSessionSurveyFormRequest;
+  projectId: string;
+  sessionId: string;
+}): Promise<SessionSurveyFormResponse> {
+  const response = await fetch(
+    surveyFormUrl(args.projectId, args.sessionId),
+    {
+      body: JSON.stringify(args.form),
+      credentials: "include",
+      headers: {
+        "content-type": "application/json",
+      },
+      method: "PUT",
+    },
+  );
+
+  if (!response.ok) {
+    throw await readResponseError(response, "Survey form save failed");
+  }
+
+  return response.json() as Promise<SessionSurveyFormResponse>;
+}
+
+export function sessionSurveyCsvUrl(args: {
+  projectId: string;
+  sessionId: string;
+}) {
+  return `${surveyFormUrl(args.projectId, args.sessionId)}.csv`;
+}
+
+function surveyFormUrl(projectId: string, sessionId: string) {
+  return `/api/v1/projects/${encodeURIComponent(
+    projectId,
+  )}/presentation-sessions/${encodeURIComponent(sessionId)}/survey`;
 }
 
 async function readResponseError(response: Response, fallbackMessage: string) {
