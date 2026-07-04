@@ -209,7 +209,7 @@ export class RehearsalsService {
     const request = parseRequest(updateRehearsalRunMetaRequestSchema, body);
     const run = await this.getRunEntity(runId);
 
-    if (!["created", "uploading", "processing"].includes(run.status)) {
+    if (!["created", "uploading"].includes(run.status)) {
       throw new BadRequestException("Rehearsal run is not accepting meta updates.");
     }
 

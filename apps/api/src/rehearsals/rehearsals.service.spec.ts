@@ -241,6 +241,25 @@ describe("RehearsalsService", () => {
       });
   });
 
+  it("rejects rehearsal run meta updates after processing starts", async () => {
+    const service = createService();
+    const run = await createRun(service);
+    await service.createAudioUploadUrl(run.runId, {
+      originalName: "rehearsal.webm",
+      mimeType: "audio/webm",
+      size: 1024
+    });
+    await service.completeAudioUpload(run.runId, { fileId: "file-audio" });
+
+    await expect(
+      service.updateRunMeta(run.runId, {
+        slideTimeline: [{ slideId: "slide_1", enteredAt: "2026-07-02T00:00:00.000Z" }],
+        missedKeywords: [],
+        adviceEvents: []
+      })
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
   it("rejects sensitive rehearsal run meta fields", async () => {
     const service = createService();
     const run = await createRun(service);

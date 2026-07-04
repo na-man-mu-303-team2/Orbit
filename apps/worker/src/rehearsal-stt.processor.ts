@@ -1,6 +1,7 @@
 import type { StoragePort } from "@orbit/storage";
 import {
   type Deck,
+  deckPatchSchema,
   deckSchema,
   rehearsalReportSchema,
   rehearsalRunMetaSchema,
@@ -38,6 +39,7 @@ const deckRowSchema = z.object({
 const deckPatchRowSchema = z.object({
   before_version: z.number().int().nonnegative(),
   after_version: z.number().int().nonnegative(),
+  source: z.enum(["user", "ai", "import", "system"]).default("user"),
   operations: z.array(z.record(z.unknown()))
 });
 
@@ -315,12 +317,8 @@ function buildRehearsalReport(
     speedSamples: analysis.speedSamples,
     fillerWordDetails: analysis.fillerWordDetails,
     pauseDetails: analysis.pauseDetails,
-    missedKeywords: buildReportMissedKeywords(analysis.missedKeywords, runMeta, deckContext),
-    slideTimings: buildSlideTimings(
-      deckContext.deck,
-      runMeta,
-      transcription.durationSeconds ?? 0
-    ),
+    missedKeywords: buildReportMissedKeywords(analysis.missedKeywords),
+    slideTimings: buildSlideTimings(deckContext.deck, runMeta),
     qnaSummary: {
       questionCount: 0,
       questionSummary: "",
@@ -419,15 +417,9 @@ async function loadDeckAnalysisContext(
 
   const checkpoint = deckRowSchema.parse(row);
   const checkpointDeck = deckSchema.parse(checkpoint.deck_json);
-  const slideKeywords = new Map(
-    checkpointDeck.slides.map((slide) => [
-      slide.slideId,
-      slide.keywords.map((keyword) => ({ ...keyword, slideId: slide.slideId }))
-    ])
-  );
   const patchRows = await dataSource.query(
     `
-      SELECT before_version, after_version, operations
+      SELECT before_version, after_version, source, operations
       FROM deck_patches
       WHERE project_id = $1 AND deck_id = $2 AND after_version > $3
       ORDER BY after_version ASC, created_at ASC, change_id ASC
@@ -435,6 +427,7 @@ async function loadDeckAnalysisContext(
     [projectId, deckId, checkpoint.version]
   );
 
+  let workingDeck = checkpointDeck;
   let expectedBeforeVersion = checkpointDeck.version;
   for (const rawPatchRow of patchRows) {
     const patchRow = deckPatchRowSchema.parse(rawPatchRow);
@@ -451,55 +444,86 @@ async function loadDeckAnalysisContext(
       );
     }
 
-    for (const operation of patchRow.operations) {
-      if (
-        (operation.type === "replace_keywords" ||
-          operation.type === "update_slide_keywords") &&
-        typeof operation.slideId === "string" &&
-        Array.isArray(operation.keywords)
-      ) {
-        const keywords = operation.keywords
-          .map((keyword) => {
-            if (!keyword || typeof keyword !== "object" || !("text" in keyword)) {
-              return null;
-            }
+    const patch = deckPatchSchema.parse({
+      deckId: workingDeck.deckId,
+      baseVersion: patchRow.before_version,
+      source: patchRow.source,
+      operations: patchRow.operations
+    });
+    workingDeck = applyReportDeckPatch(workingDeck, patch, patchRow.after_version);
 
-            const record = keyword as {
-              keywordId?: unknown;
-              text?: unknown;
-              synonyms?: unknown;
-              abbreviations?: unknown;
-              required?: unknown;
-            };
-            return {
-              slideId: operation.slideId,
-              keywordId:
-                typeof record.keywordId === "string" ? record.keywordId : "",
-              text: typeof record.text === "string" ? record.text : "",
-              synonyms: Array.isArray(record.synonyms)
-                ? record.synonyms.filter((value): value is string => typeof value === "string")
-                : [],
-              abbreviations: Array.isArray(record.abbreviations)
-                ? record.abbreviations.filter((value): value is string => typeof value === "string")
-                : [],
-              required:
-                typeof record.required === "boolean" ? record.required : true
-            };
-          })
-          .filter(
-            (keyword): keyword is DeckKeywordPayload =>
-              Boolean(keyword?.keywordId) && Boolean(keyword?.text)
-          );
-        slideKeywords.set(operation.slideId, keywords);
-      }
+    if (workingDeck.version !== patchRow.after_version) {
+      throw new Error(
+        `Stored patch history has an unexpected version transition: deck=${workingDeck.version}, patch=${patchRow.after_version}`
+      );
     }
+
     expectedBeforeVersion = patchRow.after_version;
   }
 
   return {
-    deck: checkpointDeck,
-    deckKeywords: checkpointDeck.slides.flatMap((slide) => slideKeywords.get(slide.slideId) ?? [])
+    deck: workingDeck,
+    deckKeywords: workingDeck.slides.flatMap((slide) =>
+      slide.keywords.map((keyword) => ({ ...keyword, slideId: slide.slideId }))
+    )
   };
+}
+
+function applyReportDeckPatch(
+  deck: Deck,
+  patch: ReturnType<typeof deckPatchSchema.parse>,
+  afterVersion: number
+) {
+  let nextDeck: Deck = { ...deck, version: afterVersion, slides: [...deck.slides] };
+
+  for (const operation of patch.operations) {
+    switch (operation.type) {
+      case "update_deck":
+        nextDeck = { ...nextDeck, title: operation.title };
+        break;
+      case "add_slide":
+        nextDeck = {
+          ...nextDeck,
+          slides: [...nextDeck.slides, operation.slide].sort((a, b) => a.order - b.order)
+        };
+        break;
+      case "delete_slide":
+        nextDeck = {
+          ...nextDeck,
+          slides: nextDeck.slides.filter((slide) => slide.slideId !== operation.slideId)
+        };
+        break;
+      case "reorder_slides": {
+        const orderBySlideId = new Map(
+          operation.slideOrders.map((slideOrder) => [slideOrder.slideId, slideOrder.order])
+        );
+        nextDeck = {
+          ...nextDeck,
+          slides: nextDeck.slides
+            .map((slide) => ({
+              ...slide,
+              order: orderBySlideId.get(slide.slideId) ?? slide.order
+            }))
+            .sort((a, b) => a.order - b.order)
+        };
+        break;
+      }
+      case "replace_keywords":
+        nextDeck = {
+          ...nextDeck,
+          slides: nextDeck.slides.map((slide) =>
+            slide.slideId === operation.slideId
+              ? { ...slide, keywords: operation.keywords }
+              : slide
+          )
+        };
+        break;
+      default:
+        break;
+    }
+  }
+
+  return deckSchema.parse(nextDeck);
 }
 
 async function loadRehearsalRunMeta(dataSource: DataSource, payload: RehearsalSttPayload) {
@@ -522,32 +546,12 @@ async function loadRehearsalRunMeta(dataSource: DataSource, payload: RehearsalSt
 }
 
 function buildReportMissedKeywords(
-  analysisKeywords: z.infer<typeof analyzeMissedKeywordSchema>[],
-  runMeta: RehearsalRunMeta,
-  deckContext: DeckAnalysisContext
+  analysisKeywords: z.infer<typeof analyzeMissedKeywordSchema>[]
 ) {
-  const keywordTextByKey = new Map(
-    deckContext.deckKeywords.map((keyword) => [
-      `${keyword.slideId}:${keyword.keywordId}`,
-      keyword.text
-    ])
-  );
   const byKey = new Map<string, z.infer<typeof analyzeMissedKeywordSchema>>();
 
   for (const keyword of analysisKeywords) {
     byKey.set(`${keyword.slideId}:${keyword.keywordId}`, keyword);
-  }
-
-  for (const keyword of runMeta.missedKeywords) {
-    const key = `${keyword.slideId}:${keyword.keywordId}`;
-    if (byKey.has(key)) {
-      continue;
-    }
-
-    const text = keywordTextByKey.get(key);
-    if (text) {
-      byKey.set(key, { ...keyword, text });
-    }
   }
 
   return Array.from(byKey.values());
@@ -555,30 +559,23 @@ function buildReportMissedKeywords(
 
 function buildSlideTimings(
   deck: Deck,
-  runMeta: RehearsalRunMeta,
-  durationSeconds: number
+  runMeta: RehearsalRunMeta
 ): RehearsalReportSlideTiming[] {
   const slideIds = new Set(deck.slides.map((slide) => slide.slideId));
   const timeline = runMeta.slideTimeline.filter((entry) => slideIds.has(entry.slideId));
   const timings: RehearsalReportSlideTiming[] = [];
-  const firstEnteredAt = Date.parse(timeline[0]?.enteredAt ?? "");
-  const fallbackEndedAt =
-    Number.isFinite(durationSeconds) && durationSeconds > 0 && !Number.isNaN(firstEnteredAt)
-      ? firstEnteredAt + durationSeconds * 1000
-      : null;
 
   for (let index = 0; index < timeline.length; index += 1) {
     const entry = timeline[index];
     const nextEntry = timeline[index + 1];
-    if (!entry) {
+    if (!entry || !nextEntry) {
       continue;
     }
 
     const enteredAt = Date.parse(entry.enteredAt);
-    const exitedAt = nextEntry ? Date.parse(nextEntry.enteredAt) : fallbackEndedAt;
+    const exitedAt = Date.parse(nextEntry.enteredAt);
     if (
       Number.isNaN(enteredAt) ||
-      exitedAt === null ||
       Number.isNaN(exitedAt) ||
       exitedAt <= enteredAt
     ) {
