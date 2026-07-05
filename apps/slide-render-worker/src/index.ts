@@ -18,7 +18,7 @@ export type SlideRenderJobResult = {
 
 export async function handleSlideRenderJob(
   job: SlideRenderJob,
-  storage: StoragePort,
+  storage: Pick<StoragePort, "putObject">,
 ): Promise<SlideRenderJobResult> {
   const snapshot = renderSlideSnapshot({
     deck: job.deck,

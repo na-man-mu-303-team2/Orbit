@@ -107,6 +107,8 @@ export interface AudienceSlideRenderBullMqPayload {
   projectId: string;
   sessionId: string;
   deck: Deck;
+  deckContentHash: string;
+  deckVersion: number;
   slideId: string;
 }
 
@@ -268,6 +270,8 @@ export async function enqueueAudienceSlideRenderJob(
       projectId: input.projectId,
       sessionId: input.sessionId,
       deck: input.deck,
+      deckContentHash: input.deckContentHash,
+      deckVersion: input.deckVersion,
       slideId: input.slideId,
     } satisfies AudienceSlideRenderBullMqPayload);
   } finally {

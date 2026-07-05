@@ -251,6 +251,9 @@ importers:
       '@orbit/shared':
         specifier: workspace:*
         version: link:../../packages/shared
+      '@orbit/slide-render-worker':
+        specifier: workspace:*
+        version: link:../slide-render-worker
       '@orbit/storage':
         specifier: workspace:*
         version: link:../../packages/storage

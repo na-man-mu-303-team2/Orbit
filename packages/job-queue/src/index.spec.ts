@@ -181,6 +181,8 @@ describe("enqueueAudienceSlideRenderJob", () => {
       projectId: "project-a",
       sessionId: "session-a",
       slideId: "slide_1",
+      deckContentHash: "deck-hash",
+      deckVersion: 1,
       deck: deckSchema.parse({
         deckId: "deck_1",
         projectId: "project-a",
@@ -226,6 +228,8 @@ describe("enqueueAudienceSlideRenderJob", () => {
       projectId: "project-a",
       sessionId: "session-a",
       slideId: "slide_1",
+      deckContentHash: "deck-hash",
+      deckVersion: 1,
       deck: expect.objectContaining({
         deckId: "deck_1"
       })

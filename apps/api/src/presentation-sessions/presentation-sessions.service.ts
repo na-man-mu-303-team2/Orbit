@@ -3125,6 +3125,8 @@ export class PresentationSessionsService {
             projectId: input.projectId,
             sessionId: input.sessionId,
             deck,
+            deckContentHash,
+            deckVersion: deck.version,
             slideId: slide.slideId,
           });
           this.logger?.info(

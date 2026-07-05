@@ -21,7 +21,7 @@ The audience engagement implementation is materially more complete than the prev
 
 Completed or substantially covered areas now include Korean audience join failure copy, explicit per-question manual result exposure, `speed-bonus` quiz scoring contracts and API behavior, multi-question audience poll/quiz response UI, presenter ad hoc interaction controls, duplicate Q&A grouping, private AI answer WebSocket broadcast and Web client receive handling, deterministic slide snapshot generation with durable per-slide session freeze/reuse, pre-start slide-render job scheduling, current-slide sanitized Deck JSON fallback rendering, selected-reference AI Q&A grounding, a dedicated slide-renderer package/worker skeleton, and regression coverage around those paths.
 
-Remaining partial areas are concentrated in the highest-fidelity items from the completion plan: worker result integration for prepared slide snapshots, broader fallback parity/E2E verification beyond the current slide, deeper AI Q&A timeout/manual escalation UI coverage, and new E2E scenarios for the completed flows.
+Remaining partial areas are concentrated in the highest-fidelity items from the completion plan: browser/E2E proof for slide snapshot and fallback parity, deeper AI Q&A timeout/manual escalation UI coverage, and new E2E scenarios for the completed flows.
 
 ## Verification Matrix
 
@@ -35,7 +35,7 @@ Remaining partial areas are concentrated in the highest-fidelity items from the 
 | Q&A duplicate merge | Pass | API service tests. | Similar questions reuse a group id through conservative cosine similarity at `>= 0.88`. |
 | Private AI answer delivery | Pass | API gateway tests and Web realtime tests. | API broadcasts `audience:private-answer`; Web client parses it and updates the Q&A card while REST recovery remains. |
 | AI Q&A grounding/generation | Partial | Python syntax compile; API/shared tests pass; Python tests updated but not runnable locally. | API now sends current public slide title/text without speaker notes, worker searches only `selectedReferenceIds`, enforces `0.78` top-source grounding, calls the configured OpenAI chat model only when `OPENAI_API_KEY` exists, and returns source type/title citations. E2E timeout/escalation UI coverage remains pending. |
-| Slide snapshots | Partial | API service tests, shared/job-queue tests, migration specs/run-revert, `@orbit/slide-renderer` tests, and `@orbit/slide-render-worker` tests/build pass. | Draft session creation now schedules `audience-slide-render` jobs for stale/missing slide snapshots, session start still refreshes/freezes generated URLs for all slides in a durable per-slide map, and presenter slide updates reuse the frozen URL. Worker result persistence into the frozen map and full E2E coverage remain pending. |
+| Slide snapshots | Partial | API service tests, worker processor tests, shared/job-queue tests, migration specs/run-revert, `@orbit/slide-renderer` tests, and `@orbit/slide-render-worker` tests/build pass. | Draft session creation schedules `audience-slide-render` jobs for stale/missing slide snapshots, the worker stores rendered snapshots and merges the result into `audience_slide_snapshots_json`, session start refreshes/freezes URLs for all slides, and presenter slide updates reuse the frozen URL. Full browser/E2E coverage remains pending. |
 | Audience slide rendering fallback | Partial | API service tests and Web audience tests pass. | Image-first rendering works when `slideSnapshotUrl` exists; snapshot storage failure now persists an audience-safe current-slide `slideFallback` Deck payload without `speakerNotes`/presenter script, and Web renders it through `SlideshowRenderer`. Pre-start fallback coverage and full E2E parity remain pending. |
 | Reactions | Pass | Existing API/gateway/Web tests pass. | No new gap found in this pass. |
 | Survey and contact collection | Pass | Existing API/Web tests pass. | No survey-specific regression found. |
@@ -62,6 +62,7 @@ Remaining partial areas are concentrated in the highest-fidelity items from the 
 - `packages/slide-renderer` renders deterministic SVG slide snapshots without speaker notes/raw transcript/raw audio/presenter script/file base64.
 - `apps/slide-render-worker` handles a slide-render job shape and writes the generated snapshot using purpose `audience-slide-snapshot`.
 - `packages/shared` and `@orbit/job-queue` include the `audience-slide-render` job type and BullMQ enqueue contract, and API draft session creation schedules per-slide render jobs when snapshots are missing or stale.
+- `apps/worker` consumes `audience-slide-render` jobs, writes snapshots through `StoragePort`, and merges each completed slide URL/content hash into the durable session snapshot map.
 - API session start generates all slide snapshots when storage/deck data are available, stores the frozen per-slide URL map in `presentation_sessions.audience_slide_snapshots_json`, and initializes the first public slide state with its frozen `slideSnapshotUrl`.
 - API presenter slide-state updates reuse the frozen per-slide `slideSnapshotUrl` and `slideSnapshotContentHash` from the session map, keeping effect state separate for reconnect recovery.
 - If snapshot storage fails during a presenter slide update, API persists a current-slide `slideFallback` Deck payload with presenter-only fields removed, and the audience Web shell renders it through `SlideshowRenderer` instead of the placeholder.
@@ -69,7 +70,7 @@ Remaining partial areas are concentrated in the highest-fidelity items from the 
 
 ## Remaining Gaps
 
-- **Slide snapshot lifecycle is not complete.** Snapshot jobs are now queued during draft session preparation, and snapshot URLs are frozen in a durable per-slide session map at session start, but worker completion is not yet persisted back into the frozen map before start.
+- **Slide snapshot lifecycle still needs browser proof.** Snapshot jobs are queued during draft session preparation, worker completion is persisted into the durable session map, and URLs are frozen at session start, but browser/E2E proof for prepared snapshots and missing-snapshot fallback remains pending.
 - **Deck JSON fallback still needs broader parity verification.** Snapshot storage failure now falls back to a sanitized current-slide Deck payload rendered through the shared slideshow renderer, but pre-start fallback generation, manual browser parity checks, and E2E coverage for missing snapshots are still pending.
 - **AI Q&A still needs broader flow proof.** Selected-reference retrieval, public slide context, `0.78` thresholding, and OpenAI-key-gated chat generation are implemented, but timeout/manual presenter escalation UI and E2E privacy/recovery coverage are still pending.
 - **Prepared presenter setup remains partial.** Core controls are wired, including prepared interaction selection/order and AI reference selection; remaining setup polish is E2E coverage and any richer asset metadata UX.
@@ -95,6 +96,9 @@ Remaining partial areas are concentrated in the highest-fidelity items from the 
 - `pnpm --filter @orbit/shared lint`
 - `pnpm --filter @orbit/job-queue lint`
 - `pnpm --filter @orbit/shared test -- src/interactions/interaction.schema.test.ts`
+- `pnpm --filter @orbit/worker test -- src/audience-slide-render.processor.spec.ts`
+- `pnpm --filter @orbit/worker lint`
+- `pnpm --filter @orbit/slide-render-worker lint`
 - `PYTHONPYCACHEPREFIX=/private/tmp/orbit-pycache python3 -m py_compile services/python-worker/app/main.py services/python-worker/app/references.py services/python-worker/tests/test_qna.py services/python-worker/tests/test_references.py`
 - `pnpm lint`
 - `pnpm build`
