@@ -779,47 +779,87 @@ def append_group_shape(
     slot_sources: dict[str, dict[str, Any]],
     placeholder_frames: dict[tuple[str, str], dict[str, int]],
     locked: bool,
-) -> None:
+) -> list[str]:
+    appended_start = len(elements)
     group_transform = transform.for_group(group)
 
     rels = relationships_for_part(package, part_path)
-    for child_index, child in enumerate(list(group), start=1):
+    child_element_ids: list[str] = []
+    for nested_index, child in enumerate(list(group), start=1):
         tag = local_name(child)
         if tag == "grpSp":
-            append_group_shape(
-                package=package,
-                content_types=content_types,
-                part_path=part_path,
-                group=child,
-                slide_index=slide_index,
-                source_name=source_name,
-                child_index=child_index,
-                scale=scale,
-                transform=group_transform,
-                state=state,
-                elements=elements,
-                slot_sources=slot_sources,
-                placeholder_frames=placeholder_frames,
-                locked=locked,
+            child_element_ids.extend(
+                append_group_shape(
+                    package=package,
+                    content_types=content_types,
+                    part_path=part_path,
+                    group=child,
+                    slide_index=slide_index,
+                    source_name=source_name,
+                    child_index=nested_index,
+                    scale=scale,
+                    transform=group_transform,
+                    state=state,
+                    elements=elements,
+                    slot_sources=slot_sources,
+                    placeholder_frames=placeholder_frames,
+                    locked=locked,
+                )
             )
         elif tag in {"sp", "pic", "cxnSp"}:
-            append_shape(
-                package=package,
-                content_types=content_types,
-                rels=rels,
-                part_path=part_path,
-                shape=child,
-                slide_index=slide_index,
-                source_name=source_name,
-                child_index=child_index,
-                scale=scale,
-                transform=group_transform,
-                state=state,
-                elements=elements,
-                slot_sources=slot_sources,
-                placeholder_frames=placeholder_frames,
-                locked=locked,
+            child_element_ids.extend(
+                append_shape(
+                    package=package,
+                    content_types=content_types,
+                    rels=rels,
+                    part_path=part_path,
+                    shape=child,
+                    slide_index=slide_index,
+                    source_name=source_name,
+                    child_index=nested_index,
+                    scale=scale,
+                    transform=group_transform,
+                    state=state,
+                    elements=elements,
+                    slot_sources=slot_sources,
+                    placeholder_frames=placeholder_frames,
+                    locked=locked,
+                )
             )
+
+    frame = group_visual_frame(
+        group,
+        scale,
+        group_transform,
+        state.theme_colors,
+        placeholder_frames,
+    )
+    if frame is None or not child_element_ids:
+        return []
+
+    child_z_indices = [
+        int(element.get("zIndex", 0))
+        for element in elements[appended_start:]
+        if str(element.get("elementId", "")) in child_element_ids
+    ]
+    group_id = shape_identifier(group, child_index)
+    group_element_id = element_id(slide_index, source_name, group_id, "group")
+    elements.append(
+        {
+            **element_base(
+                element_id=group_element_id,
+                role="decoration",
+                frame=frame,
+                z_index=max(child_z_indices, default=0),
+                locked=locked,
+            ),
+            "type": "group",
+            "props": {
+                "childElementIds": child_element_ids,
+            },
+        }
+    )
+    return [group_element_id]
 
 
 def append_group_text_elements(
@@ -1037,14 +1077,15 @@ def append_shape(
     slot_sources: dict[str, dict[str, Any]],
     placeholder_frames: dict[tuple[str, str], dict[str, int]],
     locked: bool,
-) -> None:
+) -> list[str]:
+    appended_start = len(elements)
     shape_id = shape_identifier(shape, child_index)
     frame = shape_frame(shape, scale, transform, placeholder_frames)
     if frame is None:
         state.warnings.append(
             f"OOXML shape has no resolved transform on slide {slide_index}: {shape_id}"
         )
-        return
+        return []
 
     source = shape_source(shape, part_path, shape_id, source_name, locked)
     fallback_reason = shape_image_fallback_reason(shape)
@@ -1086,7 +1127,11 @@ def append_shape(
                 source_name,
                 locked,
             )
-        return
+        return [
+            str(element.get("elementId", ""))
+            for element in elements[appended_start:]
+            if str(element.get("elementId", ""))
+        ]
 
     if local_name(shape) == "pic":
         element = image_element(
@@ -1107,7 +1152,11 @@ def append_shape(
         if element:
             elements.append(element)
             slot_sources[str(element["elementId"])] = source
-        return
+        return [
+            str(element.get("elementId", ""))
+            for element in elements[appended_start:]
+            if str(element.get("elementId", ""))
+        ]
 
     picture_fill_element = shape_picture_fill_element(
         package=package,
@@ -1169,6 +1218,12 @@ def append_shape(
     if text_element_payload:
         elements.append(text_element_payload)
         slot_sources[str(text_element_payload["elementId"])] = source
+
+    return [
+        str(element.get("elementId", ""))
+        for element in elements[appended_start:]
+        if str(element.get("elementId", ""))
+    ]
 
 
 def image_element(

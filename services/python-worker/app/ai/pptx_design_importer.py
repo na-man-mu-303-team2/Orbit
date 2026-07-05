@@ -262,25 +262,29 @@ def append_shape_collection(
     z_cursor: list[int],
     transform: ShapeTransform,
     decoration_only: bool,
-) -> None:
+) -> list[str]:
+    element_ids: list[str] = []
     for shape_index, shape in enumerate(shapes, start=1):
-        append_shape_elements(
-            shape,
-            slide_index=slide_index,
-            element_path=f"{path_prefix}_{shape_index}",
-            elements=elements,
-            assets=assets,
-            asset_colors=asset_colors,
-            warnings=warnings,
-            slot_sources=slot_sources,
-            scale_x=scale_x,
-            scale_y=scale_y,
-            canvas_width=canvas_width,
-            canvas_height=canvas_height,
-            z_cursor=z_cursor,
-            transform=transform,
-            decoration_only=decoration_only,
+        element_ids.extend(
+            append_shape_elements(
+                shape,
+                slide_index=slide_index,
+                element_path=f"{path_prefix}_{shape_index}",
+                elements=elements,
+                assets=assets,
+                asset_colors=asset_colors,
+                warnings=warnings,
+                slot_sources=slot_sources,
+                scale_x=scale_x,
+                scale_y=scale_y,
+                canvas_width=canvas_width,
+                canvas_height=canvas_height,
+                z_cursor=z_cursor,
+                transform=transform,
+                decoration_only=decoration_only,
+            )
         )
+    return element_ids
 
 
 def append_shape_elements(
@@ -300,13 +304,14 @@ def append_shape_elements(
     z_cursor: list[int],
     transform: ShapeTransform,
     decoration_only: bool,
-) -> None:
+) -> list[str]:
+    appended_start = len(elements)
     if decoration_only and bool(getattr(shape, "is_placeholder", False)):
-        return
+        return []
 
     shape_type = getattr(shape, "shape_type", None)
     if shape_type == MSO_SHAPE_TYPE.GROUP:
-        append_shape_collection(
+        child_element_ids = append_shape_collection(
             getattr(shape, "shapes", []),
             slide_index=slide_index,
             path_prefix=element_path,
@@ -323,7 +328,39 @@ def append_shape_elements(
             transform=transform.for_group(shape),
             decoration_only=decoration_only,
         )
-        return
+        if not child_element_ids:
+            return []
+
+        frame = normalized_frame(
+            shape,
+            scale_x,
+            scale_y,
+            canvas_width,
+            canvas_height,
+            transform,
+        )
+        child_z_indices = [
+            int(element.get("zIndex", 0))
+            for element in elements[appended_start:]
+            if str(element.get("elementId", "")) in child_element_ids
+        ]
+        group_element_id = f"el_imported_{slide_index}_{element_path}_group"
+        elements.append(
+            {
+                **element_base(
+                    element_id=group_element_id,
+                    role="decoration",
+                    frame=frame,
+                    z_index=max(child_z_indices, default=0),
+                    locked=decoration_only,
+                ),
+                "type": "group",
+                "props": {
+                    "childElementIds": child_element_ids,
+                },
+            }
+        )
+        return [group_element_id]
 
     frame = normalized_frame(
         shape,
@@ -369,7 +406,7 @@ def append_shape_elements(
             decoration_only,
             fallback_type="image",
         )
-        return
+        return [str(element["elementId"])]
 
     blip_asset = blip_fill_asset(shape, f"image_{len(assets) + 1}")
     if blip_asset is not None:
@@ -407,7 +444,7 @@ def append_shape_elements(
             decoration_only,
             fallback_type="image",
         )
-        return
+        return [str(element["elementId"])]
 
     if shape_type == MSO_SHAPE_TYPE.TABLE and not decoration_only:
         table_items = table_elements(
@@ -427,13 +464,13 @@ def append_shape_elements(
                 decoration_only,
                 fallback_type="table",
             )
-        return
+        return [str(element["elementId"]) for element in table_items]
 
     fill = shape_fill_color(shape)
     stroke = shape_line_color(shape)
     if shape_type == MSO_SHAPE_TYPE.FREEFORM:
         if not fill and not stroke:
-            return
+            return []
         custom_shape = freeform_element(
             shape,
             element_id=f"{element_id}_custom",
@@ -504,6 +541,12 @@ def append_shape_elements(
         )
     elif is_unsupported_complex_shape(shape):
         warnings.append(f"Unsupported PPTX shape on slide {slide_index}: {shape_type}")
+
+    return [
+        str(element.get("elementId", ""))
+        for element in elements[appended_start:]
+        if str(element.get("elementId", ""))
+    ]
 
 
 def append_fallback_shape(
@@ -874,6 +917,9 @@ def template_element_source_for_element(
     element: dict[str, Any],
     source: dict[str, Any],
 ) -> dict[str, Any] | None:
+    if str(element.get("type", "")) == "group":
+        return None
+
     element_id = str(element.get("elementId", ""))
     slide_part = str(source.get("slidePart", ""))
     shape_id = str(source.get("shapeId", ""))
@@ -914,6 +960,9 @@ def template_slot_for_element(
     source: dict[str, Any],
     repeated_texts: set[str],
 ) -> dict[str, Any] | None:
+    if str(element.get("type", "")) == "group":
+        return None
+
     element_id = str(element.get("elementId", ""))
     if not element_id:
         return None

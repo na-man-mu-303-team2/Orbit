@@ -261,7 +261,7 @@ def text_element(
     }
 
 
-def test_import_pptx_design_flattens_group_shapes(tmp_path: Path) -> None:
+def test_import_pptx_design_preserves_group_shapes(tmp_path: Path) -> None:
     pptx_path = tmp_path / "group.pptx"
     presentation = Presentation()
     presentation.slide_width = Inches(13.333333)
@@ -286,15 +286,20 @@ def test_import_pptx_design_flattens_group_shapes(tmp_path: Path) -> None:
 
     result = import_pptx_design(pptx_path, "file_design")
     elements = result.blueprint["slides"][0]["elements"]
+    group = next(element for element in elements if element["type"] == "group")
+    grouped_text = next(
+        element for element in elements if element["type"] == "text"
+    )
 
     assert not any("GROUP" in warning for warning in result.warnings)
+    assert len(group["props"]["childElementIds"]) == 2
     assert any(
         element["type"] == "rect" and element["props"]["fill"] == "#008080"
         for element in elements
     )
-    text = next(element for element in elements if element["type"] == "text")
-    assert text["props"]["text"] == "Grouped text"
-    assert 160 <= text["x"] <= 190
+    assert grouped_text["props"]["text"] == "Grouped text"
+    assert grouped_text["elementId"] in group["props"]["childElementIds"]
+    assert 160 <= grouped_text["x"] <= 190
 
 
 def test_import_pptx_design_converts_freeform_to_custom_shape(tmp_path: Path) -> None:
@@ -623,6 +628,7 @@ def test_ooxml_visual_tree_keeps_group_visual_children_editable(
 
     result = import_pptx_ooxml_visual_tree(pptx_path, "file_design")
     elements = result.blueprint["slides"][0]["elements"]
+    groups = [element for element in elements if element["type"] == "group"]
     fallback_images = [
         element
         for element in elements
@@ -631,6 +637,8 @@ def test_ooxml_visual_tree_keeps_group_visual_children_editable(
     ]
 
     assert len(fallback_images) == 0
+    assert len(groups) == 1
+    assert len(groups[0]["props"]["childElementIds"]) == 3
     assert any(element["type"] == "rect" for element in elements)
     assert any(element["type"] == "ellipse" for element in elements)
     assert any(
@@ -668,6 +676,7 @@ def test_ooxml_visual_tree_keeps_supported_icon_group_shapes_editable(
 
     result = import_pptx_ooxml_visual_tree(pptx_path, "file_design")
     elements = result.blueprint["slides"][0]["elements"]
+    group = next(element for element in elements if element["type"] == "group")
     fallback_images = [
         element
         for element in elements
@@ -681,6 +690,7 @@ def test_ooxml_visual_tree_keeps_supported_icon_group_shapes_editable(
     )
 
     assert len(fallback_images) == 0
+    assert len(group["props"]["childElementIds"]) == 3
     assert any(element["type"] == "ellipse" for element in elements)
     assert any(element["type"] == "customShape" for element in elements)
     assert text["zIndex"] > 0
