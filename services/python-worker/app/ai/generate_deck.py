@@ -3104,16 +3104,19 @@ def template_selection_for_slide_plans(
         if isinstance(slide, dict)
     }
     usage: dict[int, int] = {}
+    profile_usage: dict[str, int] = {}
     selection: list[TemplateSelectionItem] = []
 
     for slide_plan in slide_plans:
-        source_slide_index, reason = select_imported_source_slide(
+        source_slide_index, profile_key, reason = select_imported_source_slide(
             slide_plan,
             design_slides,
             template_slides,
             usage,
+            profile_usage,
         )
         usage[source_slide_index] = usage.get(source_slide_index, 0) + 1
+        profile_usage[profile_key] = profile_usage.get(profile_key, 0) + 1
         selection.append(
             TemplateSelectionItem(
                 generatedOrder=slide_plan.order,
@@ -3149,25 +3152,34 @@ def select_imported_source_slide(
     design_slides: list[dict[str, Any]],
     template_slides: dict[int, dict[str, Any]],
     usage: dict[int, int],
-) -> tuple[int, str]:
-    candidates: list[tuple[int, int, int, str]] = []
+    profile_usage: dict[str, int],
+) -> tuple[int, str, str]:
+    candidates: list[tuple[int, int, int, str, str]] = []
     for index, slide in enumerate(design_slides):
         source_index = positive_int(slide.get("sourceSlideIndex"), index + 1)
         template_slide = template_slides.get(source_index, {})
-        score, reason = imported_slide_match_score(slide_plan, slide, template_slide)
-        score -= usage.get(source_index, 0) * 2
-        candidates.append((score, -abs(source_index - slide_plan.order), -source_index, reason))
+        profile = imported_slide_profile(slide, template_slide)
+        profile_key = imported_slide_profile_key(profile)
+        score, reason = imported_slide_match_score(slide_plan, profile)
+        source_penalty = usage.get(source_index, 0) * 20
+        profile_penalty = profile_usage.get(profile_key, 0) * 6
+        score -= source_penalty + profile_penalty
+        if source_penalty:
+            reason = f"{reason}, source reuse penalty {source_penalty}"
+        if profile_penalty:
+            reason = f"{reason}, profile reuse penalty {profile_penalty}"
+        candidates.append(
+            (score, -abs(source_index - slide_plan.order), -source_index, profile_key, reason)
+        )
 
-    score, _, negative_source_index, reason = max(candidates)
-    return -negative_source_index, f"{reason}; score={score}"
+    score, _, negative_source_index, profile_key, reason = max(candidates)
+    return -negative_source_index, profile_key, f"{reason}; score={score}"
 
 
 def imported_slide_match_score(
     slide_plan: SlidePlan,
-    slide: dict[str, Any],
-    template_slide: dict[str, Any],
+    profile: dict[str, Any],
 ) -> tuple[int, str]:
-    profile = imported_slide_profile(slide, template_slide)
     score = 0
     reasons: list[str] = []
 
@@ -3224,6 +3236,18 @@ def imported_slide_match_score(
     if not reasons:
         reasons.append("fallback semantic match")
     return score, ", ".join(reasons)
+
+
+def imported_slide_profile_key(profile: dict[str, Any]) -> str:
+    roles = ",".join(sorted(str(role) for role in profile["roles"]))
+    return "|".join(
+        [
+            str(profile["slide_role"]),
+            str(profile["layout"]),
+            str(profile["capacity"]),
+            roles,
+        ]
+    )
 
 
 def imported_slide_profile(

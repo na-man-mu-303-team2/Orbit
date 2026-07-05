@@ -2519,6 +2519,44 @@ def test_generate_deck_does_not_reuse_cover_template_for_middle_slides() -> None
     assert selected[1] >= 8
 
 
+def test_generate_deck_spreads_repeated_template_profiles() -> None:
+    design_blueprint, template_blueprint = repeated_profile_imported_blueprints()
+    fake_client = FakeOpenAIClient(
+        {
+            "title": "Template profile selection",
+            "slides": [
+                slide_payload(
+                    f"Body slide {index}",
+                    "Explain the body message.",
+                    "Present the body content.",
+                    slide_type="problem",
+                    slot_preset="insight_with_evidence",
+                )
+                for index in range(1, 5)
+            ],
+        }
+    )
+
+    response = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="ORBIT",
+            targetDurationMinutes=4,
+            slideCountRange={"min": 4, "max": 4},
+            designReferences=[{"fileId": "file_design"}],
+            designBlueprint=design_blueprint,
+            templateBlueprint=template_blueprint,
+        ),
+        client=fake_client,
+    )
+
+    selected = [item.source_slide_index for item in response.template_selection]
+
+    assert selected[0] <= 3
+    assert selected[1] >= 4
+    assert len(set(selected)) == len(selected)
+
+
 def minimal_imported_design_blueprint() -> dict[str, Any]:
     return {
         "theme": {
@@ -2616,6 +2654,95 @@ def semantic_imported_blueprints(
         ],
     }
     return base, template
+
+
+def repeated_profile_imported_blueprints() -> tuple[dict[str, Any], dict[str, Any]]:
+    base = minimal_imported_design_blueprint()
+    slides = [
+        repeated_profile_imported_slide(index, index <= 3)
+        for index in range(1, 7)
+    ]
+    base["slides"] = slides
+    template = {
+        "templateId": "template_file_design",
+        "sourceFileId": "file_design",
+        "slides": [
+            repeated_profile_template_slide(index, index <= 3)
+            for index in range(1, 7)
+        ],
+    }
+    return base, template
+
+
+def repeated_profile_imported_slide(
+    source_index: int,
+    first_profile: bool,
+) -> dict[str, Any]:
+    roles = ["title", "body", "caption"] if first_profile else ["title", "body", "label"]
+    return {
+        "sourceSlideIndex": source_index,
+        "style": {
+            "layout": "body" if first_profile else "two-column",
+            "backgroundColor": "#ffffff",
+        },
+        "elements": [
+            {
+                "elementId": f"el_imported_{source_index}_{role}",
+                "type": "text",
+                "role": role,
+                "x": 120,
+                "y": 96 + offset * 120,
+                "width": 1200,
+                "height": 100,
+                "rotation": 0,
+                "opacity": 1,
+                "zIndex": offset + 1,
+                "locked": False,
+                "visible": True,
+                "props": {
+                    "text": f"{role} {source_index}",
+                    "fontFamily": "Inter",
+                    "fontSize": 44 if role == "title" else 26,
+                    "fontWeight": "bold" if role == "title" else "normal",
+                    "color": "#111827",
+                    "align": "left",
+                    "verticalAlign": "top",
+                    "lineHeight": 1.2,
+                },
+            }
+            for offset, role in enumerate(roles)
+        ],
+    }
+
+
+def repeated_profile_template_slide(
+    source_index: int,
+    first_profile: bool,
+) -> dict[str, Any]:
+    roles = ["title", "body", "caption"] if first_profile else ["title", "body", "label"]
+    return {
+        "slideIndex": source_index,
+        "sourceSlideIndex": source_index,
+        "slideRole": "body",
+        "layoutType": "body" if first_profile else "two-column",
+        "contentCapacity": "high",
+        "slots": [
+            {
+                "elementId": f"el_imported_{source_index}_{role}",
+                "usage": "content-slot",
+                "slotRole": role,
+                "replaceMode": "replace",
+                "confidence": 0.95,
+                "bounds": {"x": 120, "y": 96, "width": 1200, "height": 100},
+                "source": {
+                    "type": "slide",
+                    "slidePart": f"ppt/slides/slide{source_index}.xml",
+                    "shapeId": str(offset + 1),
+                },
+            }
+            for offset, role in enumerate(roles)
+        ],
+    }
 
 
 def semantic_imported_slide(source_index: int) -> dict[str, Any]:
