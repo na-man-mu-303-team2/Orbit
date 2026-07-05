@@ -394,6 +394,20 @@ export class PresentationSessionsController {
     );
   }
 
+  @Get(":sessionId/ai-references")
+  async getAiReferenceSelection(
+    @Param("projectId") projectId: string,
+    @Param("sessionId") sessionId: string,
+    @Req() request: SignedCookieRequest,
+  ) {
+    const user = await this.getCurrentUser(request);
+    await this.projectsService.assertCanReadProject(projectId, user.userId);
+    return this.presentationSessionsService.getAiReferenceSelection({
+      projectId,
+      sessionId,
+    });
+  }
+
   private async getCurrentUser(request: SignedCookieRequest) {
     const sessionId = getSignedSessionId(request);
     if (!sessionId) {

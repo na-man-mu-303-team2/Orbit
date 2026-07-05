@@ -11,9 +11,12 @@ import type {
   SessionInteractionResponse,
   SessionResultsResponse,
   SessionSurveyFormResponse,
+  UpdateAiReferenceSelectionRequest,
+  UpdateAiReferenceSelectionResponse,
   UpsertSessionSurveyFormRequest,
   UpdateAudienceFeatureSettingsRequest,
   UpdateAudienceFeatureSettingsResponse,
+  UploadedFile,
 } from "@orbit/shared";
 
 export async function fetchCurrentAudienceAccessSession(
@@ -250,6 +253,58 @@ export async function fetchInteractionLibrary(
   return response.json() as Promise<ListInteractionLibraryItemsResponse>;
 }
 
+export async function fetchProjectAssets(
+  projectId: string,
+): Promise<UploadedFile[]> {
+  const response = await fetch(projectAssetsUrl(projectId), {
+    credentials: "include",
+    method: "GET",
+  });
+
+  if (!response.ok) {
+    throw await readResponseError(response, "Project assets fetch failed");
+  }
+
+  return response.json() as Promise<UploadedFile[]>;
+}
+
+export async function fetchAiReferenceSelection(args: {
+  projectId: string;
+  sessionId: string;
+}): Promise<UpdateAiReferenceSelectionResponse> {
+  const response = await fetch(aiReferencesUrl(args), {
+    credentials: "include",
+    method: "GET",
+  });
+
+  if (!response.ok) {
+    throw await readResponseError(response, "AI reference selection fetch failed");
+  }
+
+  return response.json() as Promise<UpdateAiReferenceSelectionResponse>;
+}
+
+export async function updateAiReferenceSelection(args: {
+  projectId: string;
+  referenceIds: UpdateAiReferenceSelectionRequest["referenceIds"];
+  sessionId: string;
+}): Promise<UpdateAiReferenceSelectionResponse> {
+  const response = await fetch(aiReferencesUrl(args), {
+    body: JSON.stringify({ referenceIds: args.referenceIds }),
+    credentials: "include",
+    headers: {
+      "content-type": "application/json",
+    },
+    method: "PATCH",
+  });
+
+  if (!response.ok) {
+    throw await readResponseError(response, "AI reference selection update failed");
+  }
+
+  return response.json() as Promise<UpdateAiReferenceSelectionResponse>;
+}
+
 export async function selectSessionInteractions(args: {
   libraryInteractionIds: SelectSessionInteractionsRequest["libraryInteractionIds"];
   projectId: string;
@@ -403,6 +458,16 @@ function interactionLibraryUrl(projectId: string) {
   return `/api/v1/projects/${encodeURIComponent(
     projectId,
   )}/presentation-sessions/interactions/library`;
+}
+
+function projectAssetsUrl(projectId: string) {
+  return `/api/v1/projects/${encodeURIComponent(projectId)}/assets`;
+}
+
+function aiReferencesUrl(args: { projectId: string; sessionId: string }) {
+  return `/api/v1/projects/${encodeURIComponent(
+    args.projectId,
+  )}/presentation-sessions/${encodeURIComponent(args.sessionId)}/ai-references`;
 }
 
 async function readResponseError(response: Response, fallbackMessage: string) {

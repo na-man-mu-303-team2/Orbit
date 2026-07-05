@@ -3,6 +3,7 @@ import type {
   ProjectInteractionLibraryItem,
   SessionInteraction,
   UpdateAudienceFeatureSettingsRequest,
+  UploadedFile,
 } from "@orbit/shared";
 
 import "./audienceFeatureControls.css";
@@ -290,6 +291,59 @@ export function PreparedInteractionLibrarySelector(props: {
             <li key={interaction.libraryInteractionId}>{interaction.title}</li>
           ))}
         </ol>
+      ) : null}
+    </section>
+  );
+}
+
+export function AiReferenceSelectionControls(props: {
+  assets: UploadedFile[] | null;
+  disabled?: boolean;
+  onChange: (referenceIds: string[]) => void;
+  selectedReferenceIds: string[];
+}) {
+  const { assets, disabled = false, onChange, selectedReferenceIds } = props;
+  const references =
+    assets?.filter((asset) => asset.purpose === "reference-material") ?? null;
+
+  function toggleReference(fileId: string, checked: boolean) {
+    if (checked) {
+      onChange([...selectedReferenceIds, fileId]);
+      return;
+    }
+
+    onChange(selectedReferenceIds.filter((selectedId) => selectedId !== fileId));
+  }
+
+  return (
+    <section className="audience-ai-reference-selector" aria-label="AI Q&A 참고자료">
+      <strong>AI Q&A 참고자료</strong>
+      {references === null ? <p>참고자료 확인 중</p> : null}
+      {references?.length === 0 ? <p>선택 가능한 참고자료 없음</p> : null}
+      {references && references.length > 0 ? (
+        <ul>
+          {references.map((asset) => {
+            const selected = selectedReferenceIds.includes(asset.fileId);
+            return (
+              <li key={asset.fileId}>
+                <label>
+                  <input
+                    aria-label={`${asset.originalName} ${
+                      selected ? "선택 해제" : "선택"
+                    }`}
+                    checked={selected}
+                    disabled={disabled}
+                    type="checkbox"
+                    onChange={(event) =>
+                      toggleReference(asset.fileId, event.target.checked)
+                    }
+                  />
+                  <span>{asset.originalName}</span>
+                </label>
+              </li>
+            );
+          })}
+        </ul>
       ) : null}
     </section>
   );

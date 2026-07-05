@@ -1684,6 +1684,13 @@ export class PresentationSessionsService {
     });
   }
 
+  async getAiReferenceSelection(input: ProjectSessionInput) {
+    await this.assertSessionBelongsToProject(input.projectId, input.sessionId);
+    return updateAiReferenceSelectionResponseSchema.parse({
+      referenceIds: await this.getSelectedReferenceIds(input.sessionId),
+    });
+  }
+
   async getAudienceQuestionAnswer(input: {
     sessionId: string;
     audienceId: string;

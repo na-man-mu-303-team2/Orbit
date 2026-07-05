@@ -4,6 +4,7 @@ import type {
   ProjectInteractionLibraryItem,
   ReactionType,
   SessionInteraction,
+  UploadedFile,
 } from "@orbit/shared";
 import { BarChart3, ExternalLink, QrCode, Users } from "lucide-react";
 import { useEffect, useState } from "react";
@@ -14,14 +15,17 @@ import {
   createAdHocSessionInteraction,
   exposeInteractionQuestionResults,
   fetchAudienceFeatureSettings,
+  fetchAiReferenceSelection,
   fetchCurrentAudienceAccessSession,
   fetchInteractionLibrary,
   fetchPresenterQuestionQueue,
+  fetchProjectAssets,
   fetchSessionInteractions,
   fetchSessionResults,
   fetchSessionSurveyForm,
   selectSessionInteractions,
   sessionSurveyCsvUrl,
+  updateAiReferenceSelection,
   updateAudienceAccessEntryStatus,
   updateAudienceFeatureSettings,
   upsertSessionSurveyForm,
@@ -35,6 +39,7 @@ import type { AudiencePresenterRealtimePublisher } from "./audiencePresenterReal
 import { createAudiencePresenterRealtimePublisher } from "./audiencePresenterRealtime";
 import {
   applyAudienceFeaturePatch,
+  AiReferenceSelectionControls,
   AudienceFeatureSettingsControls,
   type AudienceFeatureKey,
   normalizeAudienceFeaturePatch,
@@ -71,8 +76,12 @@ export function AudiencePresenterPanel({
   const [interactionLibrary, setInteractionLibrary] = useState<
     ProjectInteractionLibraryItem[] | null
   >(null);
+  const [projectAssets, setProjectAssets] = useState<UploadedFile[] | null>(
+    null,
+  );
   const [selectedLibraryInteractionIds, setSelectedLibraryInteractionIds] =
     useState<string[]>([]);
+  const [selectedReferenceIds, setSelectedReferenceIds] = useState<string[]>([]);
   const [pendingQuestionCount, setPendingQuestionCount] = useState(0);
   const [fallbackPublisher, setFallbackPublisher] =
     useState<AudiencePresenterRealtimePublisher | null>(null);
@@ -80,6 +89,8 @@ export function AudiencePresenterPanel({
   const [busyKey, setBusyKey] = useState<AudienceFeatureKey | null>(null);
   const [isEntryBusy, setIsEntryBusy] = useState(false);
   const [isSelectionBusy, setIsSelectionBusy] = useState(false);
+  const [isReferenceSelectionBusy, setIsReferenceSelectionBusy] =
+    useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
 
@@ -128,6 +139,11 @@ export function AudiencePresenterPanel({
           sessionId: nextSession.sessionId,
         });
         const library = await fetchInteractionLibrary(projectId);
+        const assets = await fetchProjectAssets(projectId);
+        const aiReferences = await fetchAiReferenceSelection({
+          projectId,
+          sessionId: nextSession.sessionId,
+        });
         const questionQueue = await fetchPresenterQuestionQueue({
           projectId,
           sessionId: nextSession.sessionId,
@@ -141,9 +157,11 @@ export function AudiencePresenterPanel({
           setSurveyTitle(survey.survey?.title ?? "");
           setInteractions(nextInteractions.interactions);
           setInteractionLibrary(library.interactions);
+          setProjectAssets(assets);
           setSelectedLibraryInteractionIds(
             libraryIdsFromSessionInteractions(nextInteractions.interactions),
           );
+          setSelectedReferenceIds(aiReferences.referenceIds);
           setPendingQuestionCount(
             questionQueue.questions.filter(
               (question) => question.status === "pending",
@@ -161,7 +179,9 @@ export function AudiencePresenterPanel({
           setFeatures(null);
           setInteractions([]);
           setInteractionLibrary(null);
+          setProjectAssets(null);
           setSelectedLibraryInteractionIds([]);
+          setSelectedReferenceIds([]);
           setPendingQuestionCount(0);
         }
       })
@@ -311,6 +331,30 @@ export function AudiencePresenterPanel({
       setErrorMessage(toAudienceLinkErrorMessage(error));
     } finally {
       setIsSelectionBusy(false);
+    }
+  }
+
+  async function handleAiReferenceSelection(referenceIds: string[]) {
+    if (!session || session.status !== "draft" || isReferenceSelectionBusy) {
+      return;
+    }
+
+    const previousIds = selectedReferenceIds;
+    setSelectedReferenceIds(referenceIds);
+    setIsReferenceSelectionBusy(true);
+    setErrorMessage("");
+    try {
+      const response = await updateAiReferenceSelection({
+        projectId,
+        sessionId: session.sessionId,
+        referenceIds,
+      });
+      setSelectedReferenceIds(response.referenceIds);
+    } catch (error) {
+      setSelectedReferenceIds(previousIds);
+      setErrorMessage(toAudienceLinkErrorMessage(error));
+    } finally {
+      setIsReferenceSelectionBusy(false);
     }
   }
 
@@ -497,6 +541,17 @@ export function AudiencePresenterPanel({
             selectedLibraryInteractionIds={selectedLibraryInteractionIds}
             onChange={(libraryInteractionIds) =>
               void handlePreparedSelection(libraryInteractionIds)
+            }
+          />
+
+          <AiReferenceSelectionControls
+            assets={projectAssets}
+            disabled={
+              session.status !== "draft" || isReferenceSelectionBusy
+            }
+            selectedReferenceIds={selectedReferenceIds}
+            onChange={(referenceIds) =>
+              void handleAiReferenceSelection(referenceIds)
             }
           />
 

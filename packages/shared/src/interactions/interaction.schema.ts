@@ -628,6 +628,12 @@ export type QnaWorkerAnswerResponse = z.infer<
 export type AudienceQuestionAnswerResponse = z.infer<
   typeof audienceQuestionAnswerResponseSchema
 >;
+export type UpdateAiReferenceSelectionRequest = z.infer<
+  typeof updateAiReferenceSelectionRequestSchema
+>;
+export type UpdateAiReferenceSelectionResponse = z.infer<
+  typeof updateAiReferenceSelectionResponseSchema
+>;
 export type SurveyForm = z.infer<typeof surveyFormSchema>;
 export type SurveyResponse = z.infer<typeof surveyResponseSchema>;
 export type UpsertSessionSurveyFormRequest = z.infer<

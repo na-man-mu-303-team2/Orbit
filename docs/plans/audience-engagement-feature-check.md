@@ -21,7 +21,7 @@ The audience engagement implementation is materially more complete than the prev
 
 Completed or substantially covered areas now include Korean audience join failure copy, explicit per-question manual result exposure, `speed-bonus` quiz scoring contracts and API behavior, multi-question audience poll/quiz response UI, presenter ad hoc interaction controls, duplicate Q&A grouping, private AI answer WebSocket broadcast and Web client receive handling, deterministic slide snapshot generation attached to audience realtime state, a dedicated slide-renderer package/worker skeleton, and regression coverage around those paths.
 
-Remaining partial areas are concentrated in the highest-fidelity items from the completion plan: full session-preparation snapshot pre-generation and durable per-slide snapshot mapping, full-fidelity Deck JSON fallback rendering, true selected-reference retrieval plus OpenAI-backed grounded answer generation, AI reference selection controls, and new E2E scenarios for the completed flows.
+Remaining partial areas are concentrated in the highest-fidelity items from the completion plan: full session-preparation snapshot pre-generation and durable per-slide snapshot mapping, full-fidelity Deck JSON fallback rendering, true selected-reference retrieval plus OpenAI-backed grounded answer generation, and new E2E scenarios for the completed flows.
 
 ## Verification Matrix
 
@@ -30,7 +30,7 @@ Remaining partial areas are concentrated in the highest-fidelity items from the 
 | Shared contracts and migrations | Pass | `pnpm --filter @orbit/shared test`; API migration specs; local TypeORM run/revert. | Added manual result exposure contract, `timeLimitSeconds`, `audience-slide-snapshot` purpose, and `interaction.results.exposed` event type. |
 | Korean audience join/session copy | Pass | API/Web tests; source inspection. | Missing live session errors are normalized to `입장 코드를 확인해 주세요.` for audience-facing flows. |
 | Manual result visibility | Pass | API service tests; new exposure endpoint. | `manual` results stay hidden until the presenter exposes a specific question. |
-| Presenter live controls | Partial | Web tests pass for presenter panel and audience setup controls. | Prepared interaction library selection/manual ordering, ad hoc poll/quiz create, activate, close, result expose/hide, and queue summary exist; AI reference selection controls remain incomplete. |
+| Presenter live controls | Pass | Web tests pass for presenter panel and audience setup controls. | Prepared interaction library selection/manual ordering, AI reference selection controls, ad hoc poll/quiz create, activate, close, result expose/hide, and queue summary exist. |
 | Polls and quizzes | Pass | Shared/API/Web tests pass. | Multi-question response UI, speed-bonus scoring, and after-close quiz answer reveal are covered. |
 | Q&A duplicate merge | Pass | API service tests. | Similar questions reuse a group id through conservative cosine similarity at `>= 0.88`. |
 | Private AI answer delivery | Pass | API gateway tests and Web realtime tests. | API broadcasts `audience:private-answer`; Web client parses it and updates the Q&A card while REST recovery remains. |
@@ -53,6 +53,7 @@ Remaining partial areas are concentrated in the highest-fidelity items from the 
 - Presenter audience route `/presentations/:sessionId/audience` is wired, with legacy project route retained.
 - Presenter panel can select prepared library interactions, preserve manual order, create ad hoc poll/quiz sessions, activate/close interactions, expose/hide manual results, and display a Q&A queue summary.
 - Session interaction responses include nullable `libraryInteractionId`, allowing the setup UI to recover prepared selections after refresh.
+- Presenter setup can list project `reference-material` assets, recover selected AI reference ids, and update the session AI reference selection without exposing snapshot/internal assets as selectable references.
 - Q&A submission now conservatively merges duplicate/similar questions into the existing question group.
 - API broadcasts private AI answers to the audience private room when an answer exists.
 - Web realtime client parses `audience:private-answer`, and the Q&A card updates from that private push.
@@ -67,7 +68,7 @@ Remaining partial areas are concentrated in the highest-fidelity items from the 
 - **Slide snapshot lifecycle is not complete.** Snapshot generation is attached to session start and presenter slide updates, but it is not yet queued during session preparation for all slides or persisted as a durable per-slide snapshot map.
 - **Deck JSON fallback is not full fidelity.** The audience fallback is still a placeholder rather than a renderer-parity fallback for missing snapshots.
 - **AI Q&A is not true retrieval plus model generation.** Selected-reference chunk retrieval, public deck chunk search, thresholded grounding at `0.78`, and OpenAI chat completion are still partial/stubbed.
-- **Prepared presenter setup remains partial.** Real prepared interaction library selection and manual ordering are wired; AI reference selection controls are still incomplete.
+- **Prepared presenter setup remains partial.** Core controls are wired, including prepared interaction selection/order and AI reference selection; remaining setup polish is E2E coverage and any richer asset metadata UX.
 - **E2E coverage was not added in this pass.** Unit/integration coverage is broad, but the completion-plan Playwright scenarios for presenter preparing/running interactions and audience reveal/recovery are still pending.
 - **Python pytest could not run locally.** `uv` is not installed, and available Python environments do not have `pytest`; syntax compilation passed instead.
 

@@ -2,11 +2,14 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   fetchAudienceFeatureSettings,
+  fetchAiReferenceSelection,
   fetchInteractionLibrary,
+  fetchProjectAssets,
   fetchSessionResults,
   fetchSessionSurveyForm,
   selectSessionInteractions,
   sessionSurveyCsvUrl,
+  updateAiReferenceSelection,
   updateAudienceAccessEntryStatus,
   updateAudienceFeatureSettings,
   upsertSessionSurveyForm,
@@ -269,5 +272,50 @@ describe("audience link API", () => {
       "/api/v1/projects/project_1/presentation-sessions/session_1/interactions/select",
       expect.objectContaining({ credentials: "include", method: "POST" }),
     );
+  });
+
+  it("fetches project assets and saves AI reference selection", async () => {
+    const reference = {
+      fileId: "file_1",
+      projectId: "project_1",
+      originalName: "reference.pdf",
+      mimeType: "application/pdf",
+      size: 1200,
+      url: "/api/v1/projects/project_1/assets/file_1/content",
+      purpose: "reference-material",
+      createdAt: "2026-07-05T00:00:00.000Z",
+    };
+    const fetcher = vi.fn(
+      async (_input: RequestInfo | URL, init?: RequestInit) => {
+        if (init?.method === "PATCH") {
+          expect(JSON.parse(String(init.body))).toEqual({
+            referenceIds: ["file_1"],
+          });
+          return new Response(JSON.stringify({ referenceIds: ["file_1"] }));
+        }
+
+        if (String(_input).endsWith("/ai-references")) {
+          return new Response(JSON.stringify({ referenceIds: [] }));
+        }
+
+        return new Response(JSON.stringify([reference]));
+      },
+    );
+    vi.stubGlobal("fetch", fetcher);
+
+    await expect(fetchProjectAssets("project_1")).resolves.toEqual([reference]);
+    await expect(
+      fetchAiReferenceSelection({
+        projectId: "project_1",
+        sessionId: "session_1",
+      }),
+    ).resolves.toEqual({ referenceIds: [] });
+    await expect(
+      updateAiReferenceSelection({
+        projectId: "project_1",
+        sessionId: "session_1",
+        referenceIds: ["file_1"],
+      }),
+    ).resolves.toEqual({ referenceIds: ["file_1"] });
   });
 });

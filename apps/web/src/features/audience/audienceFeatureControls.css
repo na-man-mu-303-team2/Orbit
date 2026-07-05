@@ -196,6 +196,57 @@
   color: #94a3b8;
 }
 
+.audience-ai-reference-selector {
+  background: #f8fafc;
+  border: 1px solid #dbe3ee;
+  border-radius: 8px;
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+}
+
+.audience-ai-reference-selector > strong {
+  color: #0f172a;
+  font-size: 0.78rem;
+}
+
+.audience-ai-reference-selector p {
+  color: #64748b;
+  font-size: 0.76rem;
+  line-height: 1.35;
+  margin: 0;
+}
+
+.audience-ai-reference-selector ul {
+  display: grid;
+  gap: 7px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.audience-ai-reference-selector li {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  min-height: 38px;
+  padding: 7px 8px;
+}
+
+.audience-ai-reference-selector label {
+  align-items: center;
+  color: #0f172a;
+  display: inline-flex;
+  font-size: 0.78rem;
+  font-weight: 800;
+  gap: 8px;
+  min-width: 0;
+}
+
+.audience-ai-reference-selector label span {
+  overflow-wrap: anywhere;
+}
+
 .audience-presenter-panel {
   background: #ffffff;
   display: grid;

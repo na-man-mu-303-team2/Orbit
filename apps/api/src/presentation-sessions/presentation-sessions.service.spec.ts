@@ -1459,6 +1459,32 @@ describe("PresentationSessionsService", () => {
     );
   });
 
+  it("returns and updates selected AI reference ids for presenter setup", async () => {
+    const query = vi
+      .fn()
+      .mockResolvedValueOnce([{ session_id: "session_existing" }])
+      .mockResolvedValueOnce([{ selected_reference_ids_json: ["file_1"] }])
+      .mockResolvedValueOnce([{ session_id: "session_existing" }])
+      .mockResolvedValueOnce([{ selected_reference_ids_json: ["file_2"] }]);
+    const service = new PresentationSessionsService({
+      query,
+    } as unknown as DataSource);
+
+    await expect(
+      service.getAiReferenceSelection({
+        projectId: "project_1",
+        sessionId: "session_existing",
+      }),
+    ).resolves.toEqual({ referenceIds: ["file_1"] });
+
+    await expect(
+      service.updateAiReferenceSelection(
+        { projectId: "project_1", sessionId: "session_existing" },
+        { referenceIds: ["file_2"] },
+      ),
+    ).resolves.toEqual({ referenceIds: ["file_2"] });
+  });
+
   it("submits enabled audience reactions as events", async () => {
     const query = vi
       .fn()

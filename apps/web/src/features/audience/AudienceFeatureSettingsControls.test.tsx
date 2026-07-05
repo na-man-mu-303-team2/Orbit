@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   applyAudienceFeaturePatch,
+  AiReferenceSelectionControls,
   AudienceFeatureSettingsControls,
   PreparedInteractionLibrarySelector,
   AudienceSessionSetupSummary,
@@ -156,5 +157,41 @@ describe("AudienceFeatureSettingsControls", () => {
     expect(html).toContain('aria-label="준비된 투표 선택"');
     expect(html).toContain('aria-label="준비된 퀴즈 순서 올리기"');
     expect(html).not.toContain("Poll/Quiz library 연결 대기");
+  });
+
+  it("renders AI reference-material selection controls", () => {
+    const html = renderToStaticMarkup(
+      <AiReferenceSelectionControls
+        assets={[
+          {
+            fileId: "file_1",
+            projectId: "project_1",
+            originalName: "reference.pdf",
+            mimeType: "application/pdf",
+            size: 1200,
+            url: "/api/v1/projects/project_1/assets/file_1/content",
+            purpose: "reference-material",
+            createdAt: "2026-07-05T00:00:00.000Z",
+          },
+          {
+            fileId: "file_2",
+            projectId: "project_1",
+            originalName: "snapshot.svg",
+            mimeType: "image/svg+xml",
+            size: 1200,
+            url: "/snapshot.svg",
+            purpose: "audience-slide-snapshot",
+            createdAt: "2026-07-05T00:00:00.000Z",
+          },
+        ]}
+        selectedReferenceIds={["file_1"]}
+        onChange={() => undefined}
+      />,
+    );
+
+    expect(html).toContain("AI Q&amp;A 참고자료");
+    expect(html).toContain("reference.pdf");
+    expect(html).toContain('aria-label="reference.pdf 선택 해제"');
+    expect(html).not.toContain("snapshot.svg");
   });
 });
