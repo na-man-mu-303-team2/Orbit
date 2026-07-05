@@ -530,6 +530,7 @@ export class PresentationSessionsService {
     const effectState = await this.attachSlideSnapshotToEffectState({
       sessionId: input.sessionId,
       slideId: input.slideId,
+      slideIndex: input.slideIndex,
       effectState: assertAudienceSafePayload(input.effectState),
     });
     const rows = await this.dataSource.query<AudienceRealtimeStateRow[]>(
@@ -2919,6 +2920,7 @@ export class PresentationSessionsService {
   private async attachSlideSnapshotToEffectState(input: {
     sessionId: string;
     slideId: string | null;
+    slideIndex: number | null;
     effectState: Record<string, unknown>;
   }): Promise<Record<string, unknown>> {
     if (!input.slideId) {
@@ -2941,8 +2943,9 @@ export class PresentationSessionsService {
       });
     }
 
+    let deck: Deck | null = null;
     try {
-      const deck = await this.getSessionDeck(input.sessionId);
+      deck = await this.getSessionDeck(input.sessionId);
       if (!deck) {
         return input.effectState;
       }
@@ -2965,8 +2968,39 @@ export class PresentationSessionsService {
         slideSnapshotUrl: object.url,
       });
     } catch {
+      return deck
+        ? this.attachSlideFallbackToEffectState({
+            deck,
+            effectState: input.effectState,
+            slideId: input.slideId,
+            slideIndex: input.slideIndex,
+          })
+        : input.effectState;
+    }
+  }
+
+  private attachSlideFallbackToEffectState(input: {
+    deck: Deck;
+    effectState: Record<string, unknown>;
+    slideId: string;
+    slideIndex: number | null;
+  }) {
+    const fallbackDeck = buildAudienceSlideFallbackDeck(
+      input.deck,
+      input.slideId,
+    );
+    if (!fallbackDeck) {
       return input.effectState;
     }
+
+    return assertAudienceSafePayload({
+      ...input.effectState,
+      slideFallback: {
+        deck: fallbackDeck,
+        slideIndex: 0,
+        sourceSlideIndex: input.slideIndex,
+      },
+    });
   }
 
   private async initializeAudienceStateForStartedSession(input: {
@@ -3830,6 +3864,30 @@ function deckPublicContentHash(deck: Deck) {
   return createHash("sha256")
     .update(JSON.stringify(publicDeck))
     .digest("hex");
+}
+
+type AudienceSlideFallbackDeck = Omit<Deck, "slides"> & {
+  slides: Array<
+    Omit<Deck["slides"][number], "aiNotes" | "speakerNotes">
+  >;
+};
+
+function buildAudienceSlideFallbackDeck(
+  deck: Deck,
+  slideId: string,
+): AudienceSlideFallbackDeck | null {
+  const slide = deck.slides.find((candidate) => candidate.slideId === slideId);
+  if (!slide) {
+    return null;
+  }
+
+  const { aiNotes: _aiNotes, speakerNotes: _speakerNotes, ...publicSlide } =
+    slide;
+
+  return {
+    ...deck,
+    slides: [publicSlide],
+  };
 }
 
 async function callQnaWorker(input: {

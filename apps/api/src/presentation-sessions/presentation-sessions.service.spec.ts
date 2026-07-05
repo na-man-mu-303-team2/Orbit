@@ -773,6 +773,89 @@ describe("PresentationSessionsService", () => {
     expect(storage.putObject).not.toHaveBeenCalled();
   });
 
+  it("attaches an audience-safe slide fallback when snapshot storage fails", async () => {
+    const storage = {
+      putObject: vi.fn(async () => {
+        throw new Error("storage unavailable");
+      }),
+    } as unknown as StoragePort;
+    const query = vi.fn(async (sql: string, params?: unknown[]) => {
+      if (sql.includes("SELECT audience_slide_snapshots_json")) {
+        return [{ audience_slide_snapshots_json: {} }];
+      }
+
+      if (sql.includes("FROM presentation_sessions ps")) {
+        return [{ deck_json: audienceDeck }];
+      }
+
+      if (sql.includes("UPDATE audience_realtime_state")) {
+        return [
+          {
+            session_id: "session_existing",
+            slide_id: "slide_2",
+            slide_index: 0,
+            effect_state_json: params?.[3],
+            active_interaction_id: null,
+            updated_at: "2026-07-05T00:03:00.000Z",
+          },
+        ];
+      }
+
+      if (sql.includes("INSERT INTO audience_events")) {
+        return [];
+      }
+
+      return [];
+    });
+    const service = new PresentationSessionsService(
+      { query } as unknown as DataSource,
+      storage,
+    );
+
+    await expect(
+      service.updateAudienceRealtimeState({
+        sessionId: "session_existing",
+        actorId: "user_1",
+        slideId: "slide_2",
+        slideIndex: 0,
+        effectState: { stepIndex: 1 },
+      }),
+    ).resolves.toMatchObject({
+      effectState: {
+        stepIndex: 1,
+        slideFallback: {
+          deck: {
+            slides: [
+              expect.objectContaining({
+                slideId: "slide_2",
+              }),
+            ],
+          },
+          slideIndex: 0,
+        },
+      },
+    });
+
+    const updateCall = query.mock.calls.find(([sql]) =>
+      String(sql).includes("UPDATE audience_realtime_state"),
+    );
+    const updateParams = updateCall?.[1] as unknown[] | undefined;
+    const persistedEffectState = updateParams?.[3] as
+      | {
+          slideFallback?: {
+            deck?: { slides?: Array<Record<string, unknown>> };
+          };
+        }
+      | undefined;
+    const fallbackSlide =
+      persistedEffectState?.slideFallback?.deck?.slides?.[0];
+
+    expect(fallbackSlide).not.toHaveProperty("speakerNotes");
+    expect(JSON.stringify(updateCall?.[1]?.[3])).not.toContain(
+      "private presenter script",
+    );
+  });
+
   it("updates feature settings, normalizes AI Q&A dependencies, and appends an event", async () => {
     const query = vi
       .fn()

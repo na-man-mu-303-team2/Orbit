@@ -1,6 +1,38 @@
+import type { ReactNode } from "react";
+import { forwardRef } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { AudienceEntrance, AudienceLiveShell } from "./AudienceEntrance";
+
+vi.mock("react-konva", () => {
+  type MockKonvaProps = {
+    children?: ReactNode;
+    [key: string]: any;
+  };
+
+  const Group = forwardRef<HTMLDivElement, MockKonvaProps>(
+    ({ children }, ref) => <div ref={ref}>{children}</div>,
+  );
+  const Stage = forwardRef<HTMLDivElement, MockKonvaProps>(
+    ({ children }, ref) => <div ref={ref}>{children}</div>,
+  );
+  const Text = ({ text }: { text?: string }) => <span>{text}</span>;
+
+  return {
+    Arrow: () => <span data-konva-arrow="true" />,
+    Circle: () => <span data-konva-circle="true" />,
+    Group,
+    Image: () => <span data-konva-image="true" />,
+    Layer: ({ children }: { children?: ReactNode }) => <div>{children}</div>,
+    Line: () => <span data-konva-line="true" />,
+    Rect: () => <span data-konva-rect="true" />,
+    RegularPolygon: () => <span data-konva-polygon="true" />,
+    Shape: () => <span data-konva-shape="true" />,
+    Star: () => <span data-konva-star="true" />,
+    Stage,
+    Text,
+  };
+});
 
 const participant = {
   audienceId: "audience_00000000-0000-4000-8000-000000000001",
@@ -80,6 +112,70 @@ describe("AudienceEntrance", () => {
     expect(html).toContain("연결을 다시 시도하고 있습니다.");
     expect(html).toContain('role="img"');
     expect(html).not.toContain("질문 보내기");
+  });
+
+  it("renders the public slide fallback payload when snapshots are unavailable", () => {
+    const html = renderToStaticMarkup(
+      <AudienceLiveShell
+        activeInteraction={null}
+        connectionStatus="connected"
+        features={disabledFeatures}
+        participant={participant}
+        state={{
+          sessionId: "session_1",
+          slideId: "slide_1",
+          slideIndex: 0,
+          effectState: {
+            stepIndex: 1,
+            slideFallback: {
+              slideIndex: 0,
+              deck: {
+                deckId: "deck_1",
+                projectId: "project_1",
+                title: "Audience Deck",
+                version: 1,
+                canvas: {
+                  preset: "wide-16-9",
+                  width: 1920,
+                  height: 1080,
+                  aspectRatio: "16:9",
+                },
+                theme: {},
+                slides: [
+                  {
+                    slideId: "slide_1",
+                    order: 1,
+                    title: "공개 슬라이드",
+                    style: {},
+                    elements: [
+                      {
+                        elementId: "el_text",
+                        type: "text",
+                        x: 100,
+                        y: 120,
+                        width: 600,
+                        height: 80,
+                        rotation: 0,
+                        opacity: 1,
+                        visible: true,
+                        zIndex: 1,
+                        props: { text: "청중 공개 문장" },
+                      },
+                    ],
+                  },
+                ],
+              },
+            },
+          },
+          activeInteractionId: null,
+          updatedAt: "2026-07-05T00:00:00.000Z",
+        }}
+      />,
+    );
+
+    expect(html).toContain("청중 공개 문장");
+    expect(html).not.toContain("슬라이드 준비 중");
+    expect(html).not.toContain("presenter script");
   });
 
   it("renders only enabled audience feature cards", () => {

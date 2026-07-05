@@ -161,6 +161,7 @@
 }
 
 .audience-slide-snapshot,
+.audience-slide-deck-fallback,
 .audience-slide-fallback {
   aspect-ratio: 16 / 9;
   border-radius: 6px;
@@ -171,6 +172,15 @@
   background: #f8fafc;
   display: block;
   object-fit: contain;
+}
+
+.audience-slide-deck-fallback {
+  align-items: center;
+  background: #f8fafc;
+  display: flex;
+  justify-content: center;
+  min-height: 150px;
+  overflow: hidden;
 }
 
 .audience-slide-fallback {

@@ -6,6 +6,7 @@ import type {
   AudienceQuestionAnswerResponse,
   AudienceReactionPayload,
   AudienceRealtimeState,
+  Deck,
   AudienceStateResponse,
   InteractionAnswer,
   InteractionQuestion,
@@ -15,6 +16,7 @@ import type {
   SessionInteraction,
   SurveyForm,
 } from "@orbit/shared";
+import { deckSchema } from "@orbit/shared";
 import { CheckCircle2, Loader2 } from "lucide-react";
 import { type FormEvent, useEffect, useMemo, useState } from "react";
 
@@ -33,6 +35,7 @@ import {
   updateAiAnswerFeedback,
 } from "./audienceApi";
 import { audienceCopy } from "./audienceCopy";
+import { SlideshowRenderer } from "../rehearsal/presenter/SlideshowRenderer";
 import {
   connectAudienceRealtime,
   type AudienceRealtimeStatus,
@@ -474,7 +477,9 @@ export function AudienceLiveShell(props: {
     state,
     survey = null,
   } = props;
-  const slideSnapshotUrl = readSlideSnapshotUrl(state?.effectState ?? {});
+  const effectState = state?.effectState ?? {};
+  const slideSnapshotUrl = readSlideSnapshotUrl(effectState);
+  const slideFallback = readSlideFallback(effectState);
   const slideLabel =
     state?.slideIndex !== null && state?.slideIndex !== undefined
       ? `현재 슬라이드 ${state.slideIndex + 1}`
@@ -493,6 +498,18 @@ export function AudienceLiveShell(props: {
             className="audience-slide-snapshot"
             src={slideSnapshotUrl}
           />
+        ) : slideFallback ? (
+          <div className="audience-slide-deck-fallback" aria-label={slideLabel}>
+            <SlideshowRenderer
+              deck={slideFallback.deck}
+              highlights={readSlideHighlights(effectState)}
+              renderMode="single-screen"
+              scale={0.18}
+              slideId={slideFallback.slideId}
+              stepIndex={readSlideStepIndex(effectState)}
+              triggerAnimationIds={readTriggerAnimationIds(effectState)}
+            />
+          </div>
         ) : (
           <div
             className="audience-slide-fallback"
@@ -1342,6 +1359,73 @@ function formatInteractionAnswer(
 function readSlideSnapshotUrl(payload: Record<string, unknown>) {
   const value = payload.slideSnapshotUrl;
   return typeof value === "string" && value.length > 0 ? value : "";
+}
+
+type AudienceSlideFallback = {
+  deck: Deck;
+  slideId: string;
+};
+
+function readSlideFallback(
+  payload: Record<string, unknown>,
+): AudienceSlideFallback | null {
+  const value = payload.slideFallback;
+  if (!isRecord(value)) {
+    return null;
+  }
+
+  const parsedDeck = deckSchema.safeParse(value.deck);
+  if (!parsedDeck.success) {
+    return null;
+  }
+
+  const slideIndex =
+    typeof value.slideIndex === "number" ? Math.trunc(value.slideIndex) : 0;
+  const slide = parsedDeck.data.slides[slideIndex] ?? parsedDeck.data.slides[0];
+  if (!slide) {
+    return null;
+  }
+
+  return {
+    deck: parsedDeck.data,
+    slideId: slide.slideId,
+  };
+}
+
+function readSlideStepIndex(payload: Record<string, unknown>) {
+  const value = payload.stepIndex;
+  return typeof value === "number" ? Math.max(0, Math.trunc(value)) : 0;
+}
+
+function readTriggerAnimationIds(payload: Record<string, unknown>) {
+  const value = payload.triggerAnimationIds;
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === "string")
+    : [];
+}
+
+function readSlideHighlights(payload: Record<string, unknown>) {
+  const value = payload.highlights;
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.flatMap((item) => {
+    if (!isRecord(item) || typeof item.elementId !== "string") {
+      return [];
+    }
+
+    return [
+      {
+        active: item.active === true,
+        elementId: item.elementId,
+      },
+    ];
+  });
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function toConnectionStatusCopy(status: AudienceRealtimeStatus) {
