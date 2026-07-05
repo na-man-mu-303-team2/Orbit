@@ -237,17 +237,6 @@ export async function processAiTemplateDeckGenerationJob(
     );
   }
 
-  if (!generatedDeck.validation.passed) {
-    return failJob(
-      dataSource,
-      payload.jobId,
-      70,
-      "AI_TEMPLATE_DECK_GENERATION_VALIDATION_FAILED",
-      "Generated deck did not pass validation.",
-      { validation: generatedDeck.validation },
-    );
-  }
-
   try {
     const selectedTemplateBlueprint = selectTemplateBlueprintSlides(
       design.templateBlueprint,

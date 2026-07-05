@@ -141,7 +141,20 @@ describe("processAiTemplateDeckGenerationJob", () => {
             (slot: { usage: string }) => slot.usage
           )
         ).toEqual(["content-slot", "content-slot", "content-slot"]);
-        return new Response(JSON.stringify(generateDeckResponse()));
+        return new Response(
+          JSON.stringify(
+            generateDeckResponse("file_content", {
+              passed: false,
+              layoutIssues: [
+                {
+                  scope: "slide",
+                  path: "slides.0.elements",
+                  message: "Text elements overlap."
+                }
+              ]
+            })
+          )
+        );
       }
       if (url.endsWith("/ai/pptx-ooxml-apply-slot-texts")) {
         const form = init?.body as FormData;
@@ -572,7 +585,16 @@ function ooxmlApplyResponse(renderCount = 10) {
   };
 }
 
-function generateDeckResponse(referenceFileId = "file_content") {
+function generateDeckResponse(
+  referenceFileId = "file_content",
+  validationOverrides: Partial<{
+    passed: boolean;
+    layoutIssues: Array<Record<string, unknown>>;
+    contentIssues: Array<Record<string, unknown>>;
+    designIssues: Array<Record<string, unknown>>;
+    presentationIssues: Array<Record<string, unknown>>;
+  }> = {}
+) {
   const selection = [3, 3, 3, 3, 3];
   return {
     deck: {
@@ -615,7 +637,8 @@ function generateDeckResponse(referenceFileId = "file_content") {
       layoutIssues: [],
       contentIssues: [],
       designIssues: [],
-      presentationIssues: []
+      presentationIssues: [],
+      ...validationOverrides
     }
   };
 }

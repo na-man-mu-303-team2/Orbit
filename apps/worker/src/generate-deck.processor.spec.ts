@@ -35,6 +35,14 @@ describe("processGenerateDeckJob", () => {
     const deck = createDeck();
     const warnings = ["근거 데이터가 없어 빈 차트 자리 표시자를 생성했습니다."];
     const deckValidation = validation({
+      passed: false,
+      layoutIssues: [
+        {
+          scope: "slide",
+          path: "slides.0.elements",
+          message: "Text elements overlap."
+        }
+      ],
       designIssues: [
         {
           scope: "element",
@@ -90,6 +98,7 @@ describe("processGenerateDeckJob", () => {
     expect(query).toHaveBeenCalledTimes(3);
     expect(query.mock.calls[1][0]).toContain("INSERT INTO decks");
     expect(job.result?.warnings).toEqual(warnings);
+    expect(job.result).toMatchObject({ validation: { passed: false } });
   });
 
   it("marks the DB job failed when Python generation fails", async () => {
@@ -476,6 +485,7 @@ function createDeck(overrides: Record<string, unknown> = {}) {
 
 function validation(
   overrides: Partial<{
+    passed: boolean;
     layoutIssues: Array<Record<string, unknown>>;
     contentIssues: Array<Record<string, unknown>>;
     designIssues: Array<Record<string, unknown>>;
