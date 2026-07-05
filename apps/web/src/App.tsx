@@ -21,13 +21,8 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowRight,
   FileUp,
-  FolderOpen,
-  Home,
   LayoutTemplate,
-  LogIn,
-  LogOut,
   MessageSquareText,
-  Monitor,
   Paperclip,
   Plus,
   Search,
@@ -37,6 +32,7 @@ import type { CSSProperties, ChangeEvent, DragEvent, FormEvent, ReactNode } from
 import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import { createDemoDeck } from "../../../packages/editor-core/src/index";
 import orbitLogo from "./assets/orbit-logo.png";
+import { AppSidebar } from "./components/AppSidebar";
 import {
   createProject,
   fetchProjects,
@@ -421,6 +417,7 @@ export function shouldRenderAppFrame(route: Route) {
     route.name !== "login" &&
     route.name !== "project-editor" &&
     route.name !== "present" &&
+    route.name !== "rehearsal" &&
     route.name !== "rehearsal-report" &&
     route.name !== "report-mockup" &&
     route.name !== "audience-session" &&
@@ -567,97 +564,30 @@ function AppFrame(props: {
       }`}
     >
       <div className="orbit-product-body">
-        <aside className="orbit-product-nav" aria-label="Orbit navigation">
-          <button
-            className="orbit-product-nav-brand"
-            type="button"
-            onClick={() => navigateTo("/")}
-            aria-label="Orbit AI 홈"
-          >
-            <img alt="Orbit" className="brand-mark" src={orbitLogo} />
-          </button>
-          <SidebarButton
-            active={route.name === "home"}
-            icon={<Home size={15} />}
-            label="홈"
-            onClick={() => navigateTo("/")}
-          />
-          <SidebarButton
-            active={
-              route.name === "project-list" ||
-              route.name === "project-editor" ||
-              route.name === "project-request"
-            }
-            icon={<FolderOpen size={15} />}
-            label="프로젝트 목록"
-            onClick={() => navigateTo("/project")}
-          />
-          <SidebarButton
-            active={route.name === "create-deck"}
-            icon={<Sparkles size={15} />}
-            label="AI 덱 생성"
-            onClick={() => navigateTo("/createdeck")}
-          />
-          <SidebarButton
-            active={route.name === "rehearsal" || route.name === "rehearsal-report"}
-            icon={<Monitor size={15} />}
-            label="리허설 시작"
-            onClick={() => navigateTo(`/rehearsal/${activeProjectId}`)}
-          />
-          <div className="orbit-product-nav-account">
-            {isAuthenticated ? (
-              <>
-                <div className="report-user-trigger" aria-label="현재 사용자">
-                  <span className="report-avatar" aria-hidden="true">{userInitial}</span>
-                  <span>{userLabel}</span>
-                </div>
-                <button
-                  className="orbit-product-nav-logout"
-                  type="button"
-                  disabled={isLoggingOut}
-                  onClick={() => void handleLogout()}
-                >
-                  <LogOut size={16} />
-                  {isLoggingOut ? "로그아웃 중" : "로그아웃"}
-                </button>
-              </>
-            ) : (
-              <button
-                className="orbit-product-nav-logout"
-                type="button"
-                onClick={() => navigateTo("/login")}
-              >
-                <LogIn size={16} />
-                로그인
-              </button>
-            )}
-          </div>
-        </aside>
+        <AppSidebar
+          activeProjectId={activeProjectId}
+          isAuthenticated={isAuthenticated}
+          isCreateDeckActive={route.name === "create-deck"}
+          isHomeActive={route.name === "home"}
+          isLoggingOut={isLoggingOut}
+          isProjectActive={
+            route.name === "project-list" ||
+            route.name === "project-editor" ||
+            route.name === "project-request"
+          }
+          isRehearsalActive={route.name === "rehearsal" || route.name === "rehearsal-report"}
+          onCreateDeckClick={() => navigateTo("/createdeck")}
+          onHomeClick={() => navigateTo("/")}
+          onLoginClick={() => navigateTo("/login")}
+          onLogoutClick={() => void handleLogout()}
+          onProjectListClick={() => navigateTo("/project")}
+          onRehearsalClick={(projectId) => navigateTo(`/rehearsal/${projectId}`)}
+          userInitial={userInitial}
+          userLabel={userLabel}
+        />
         <section className="orbit-page">{children}</section>
       </div>
     </main>
-  );
-}
-
-function SidebarButton(props: {
-  active: boolean;
-  icon: ReactNode;
-  detail?: string;
-  label: string;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      className={props.active ? "rehearsal-report-nav-item active" : "rehearsal-report-nav-item"}
-      type="button"
-      onClick={props.onClick}
-    >
-      <strong>
-        {props.icon}
-        {props.label}
-      </strong>
-      {props.detail ? <span>{props.detail}</span> : null}
-    </button>
   );
 }
 
