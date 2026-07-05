@@ -31,7 +31,7 @@ Remaining partial areas are concentrated in the highest-fidelity items from the 
 | Korean audience join/session copy | Pass | API/Web tests; source inspection. | Missing live session errors are normalized to `입장 코드를 확인해 주세요.` for audience-facing flows. |
 | Manual result visibility | Pass | API service tests; new exposure endpoint. | `manual` results stay hidden until the presenter exposes a specific question. |
 | Presenter live controls | Pass | Web tests and audience Playwright smoke pass for presenter panel and audience setup controls. | Prepared interaction library selection/manual ordering, AI reference selection controls, ad hoc poll/quiz create, activate, close, result expose/hide, and queue summary exist. |
-| Polls and quizzes | Pass | Shared/API/Web tests and audience Playwright smoke pass. | Multi-question response UI, speed-bonus scoring, and after-close quiz answer reveal are covered. |
+| Polls and quizzes | Pass | Shared/API/Web tests and audience Playwright smoke pass. | Multi-question response UI, choice/ranking/open text/scale inputs, speed-bonus scoring, and after-close quiz answer reveal are covered. |
 | Q&A duplicate merge | Pass | API service tests. | Similar questions reuse a group id through conservative cosine similarity at `>= 0.88`. |
 | Private AI answer delivery | Pass | API gateway tests, Web realtime tests, and audience Playwright smoke pass. | API broadcasts `audience:private-answer`; Web client parses it and updates the Q&A card while REST recovery remains. The audience smoke verifies a recovered answer is visible to the asker and not to a second audience page. |
 | AI Q&A grounding/generation | Partial | Python syntax compile; API/shared tests pass; Python tests updated but not runnable locally; audience Playwright smoke covers recovery/privacy. | API now sends current public slide title/text without speaker notes, worker searches only `selectedReferenceIds`, enforces `0.78` top-source grounding, calls the configured OpenAI chat model only when `OPENAI_API_KEY` exists, and returns source type/title citations. Timeout UI coverage remains pending. |
@@ -67,7 +67,7 @@ Remaining partial areas are concentrated in the highest-fidelity items from the 
 - API presenter slide-state updates reuse the frozen per-slide `slideSnapshotUrl` and `slideSnapshotContentHash` from the session map, keeping effect state separate for reconnect recovery.
 - If snapshot storage fails during a presenter slide update, API persists a current-slide `slideFallback` Deck payload with presenter-only fields removed, and the audience Web shell renders it through `SlideshowRenderer` instead of the placeholder.
 - Python Q&A worker returns structured no-grounding failures when grounding/API key is absent and keeps citations to source type/title style.
-- Audience Playwright smoke covers join/session copy, Q&A fallback/escalation action, AI answer REST recovery/privacy, poll response, reaction send, quiz submit, after-close quiz answer reveal, frozen snapshot reconnect recovery, post-session survey, presenter prepared interaction selection/order, AI reference selection excluding slide snapshots, presenter results summary/CSV link, per-question manual result exposure, and Deck JSON slide fallback rendering when snapshots are unavailable.
+- Audience Playwright smoke covers join/session copy, Q&A fallback/escalation action, AI answer REST recovery/privacy, scale and multi-question poll responses, reaction send, quiz submit, after-close quiz answer reveal, frozen snapshot reconnect recovery, post-session survey, presenter prepared interaction selection/order, AI reference selection excluding slide snapshots, presenter results summary/CSV link, per-question manual result exposure, and Deck JSON slide fallback rendering when snapshots are unavailable.
 
 ## Remaining Gaps
 
@@ -75,7 +75,7 @@ Remaining partial areas are concentrated in the highest-fidelity items from the 
 - **Deck JSON fallback still needs broader parity verification.** Snapshot storage failure now falls back to a sanitized current-slide Deck payload rendered through the shared slideshow renderer, and the audience smoke covers the missing-snapshot fallback path. Pre-start fallback generation and manual visual parity checks are still pending.
 - **AI Q&A still needs timeout flow proof.** Selected-reference retrieval, public slide context, `0.78` thresholding, OpenAI-key-gated chat generation, and asker-only recovery are implemented, but timeout UI coverage is still pending.
 - **Prepared presenter setup has only polish-level gaps.** Core controls are wired and covered by Playwright for prepared interaction selection/order and AI reference selection; remaining setup polish is richer asset metadata UX.
-- **E2E coverage remains incomplete.** The hardened audience smoke now covers the core audience join, Q&A, AI answer privacy/recovery, poll, quiz, quiz reveal, reaction, survey, presenter preparation, presenter result summary, manual result exposure, slide reconnect, and slide fallback paths, but the completion-plan Playwright matrix for the full snapshot worker lifecycle and richer poll/quiz/survey edge cases remains partial.
+- **E2E coverage remains incomplete.** The hardened audience smoke now covers the core audience join, Q&A, AI answer privacy/recovery, poll question variants, quiz, quiz reveal, reaction, survey, presenter preparation, presenter result summary, manual result exposure, slide reconnect, and slide fallback paths, but the completion-plan Playwright matrix for the full snapshot worker lifecycle and richer survey edge cases remains partial.
 - **Python pytest could not run locally.** `uv` is not installed, and available Python environments do not have `pytest`; syntax compilation passed instead.
 
 ## Commands Run
@@ -100,7 +100,7 @@ Remaining partial areas are concentrated in the highest-fidelity items from the 
 - `pnpm --filter @orbit/worker test -- src/audience-slide-render.processor.spec.ts`
 - `pnpm --filter @orbit/worker lint`
 - `pnpm --filter @orbit/slide-render-worker lint`
-- `PLAYWRIGHT_BASE_URL=http://127.0.0.1:5174 pnpm exec playwright test tests/e2e/audience-engagement.spec.ts --reporter=list` (11 passed)
+- `PLAYWRIGHT_BASE_URL=http://127.0.0.1:5174 pnpm exec playwright test tests/e2e/audience-engagement.spec.ts --reporter=list` (12 passed)
 - `PYTHONPYCACHEPREFIX=/private/tmp/orbit-pycache python3 -m py_compile services/python-worker/app/main.py services/python-worker/app/references.py services/python-worker/tests/test_qna.py services/python-worker/tests/test_references.py`
 - `pnpm lint`
 - `pnpm build`

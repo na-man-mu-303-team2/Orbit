@@ -109,6 +109,41 @@ const manualPollInteraction = {
   resultVisibility: "manual",
   exposedResultQuestionIds: [],
 };
+const multiQuestionPollInteraction = {
+  ...pollInteraction,
+  interactionId: "interaction_00000000-0000-4000-8000-000000000004",
+  title: "다문항 투표",
+  questions: [
+    {
+      type: "choice",
+      questionId: "question_00000000-0000-4000-8000-000000000006",
+      prompt: "관심 주제를 골라 주세요.",
+      required: true,
+      allowMultiple: true,
+      options: [
+        { optionId: "product", label: "제품" },
+        { optionId: "market", label: "시장" },
+      ],
+    },
+    {
+      type: "ranking",
+      questionId: "question_00000000-0000-4000-8000-000000000007",
+      prompt: "우선순위를 골라 주세요.",
+      required: true,
+      options: [
+        { optionId: "speed", label: "속도" },
+        { optionId: "quality", label: "품질" },
+      ],
+    },
+    {
+      type: "open-text",
+      questionId: "question_00000000-0000-4000-8000-000000000008",
+      prompt: "추가 의견",
+      required: true,
+      maxLength: 500,
+    },
+  ],
+};
 const preparedPollItem = {
   libraryInteractionId: "library_interaction_00000000-0000-4000-8000-000000000001",
   projectId: "project_1",
@@ -222,6 +257,50 @@ test.describe("audience engagement hardened smoke", () => {
     await expect(
       page.getByRole("status").filter({ hasText: "반응을 보냈습니다." }),
     ).toBeVisible();
+  });
+
+  test("submits multiple poll question types from the audience UI", async ({
+    page,
+  }) => {
+    const submittedResponses: unknown[] = [];
+    await mockAudienceSession(page, {
+      interaction: multiQuestionPollInteraction,
+      onInteractionResponse: (payload) => submittedResponses.push(payload),
+    });
+    await page.goto("/join/123456");
+    await joinAs(page, "orbit");
+
+    await page.getByLabel("제품").check();
+    await page.getByLabel("시장").check();
+    await page.getByLabel("속도").check();
+    await page.getByLabel("품질").check();
+    await page.getByLabel("답변").fill("현장 질문을 더 받고 싶습니다.");
+    await page.getByRole("button", { name: "응답 제출" }).click();
+
+    await expect(page.getByText("응답이 저장되었습니다.")).toBeVisible();
+    expect(submittedResponses).toEqual([
+      {
+        questionId: "question_00000000-0000-4000-8000-000000000006",
+        answer: {
+          type: "choice",
+          selectedOptionIds: ["product", "market"],
+        },
+      },
+      {
+        questionId: "question_00000000-0000-4000-8000-000000000007",
+        answer: {
+          type: "ranking",
+          orderedOptionIds: ["speed", "quality"],
+        },
+      },
+      {
+        questionId: "question_00000000-0000-4000-8000-000000000008",
+        answer: {
+          type: "open-text",
+          text: "현장 질문을 더 받고 싶습니다.",
+        },
+      },
+    ]);
   });
 
   test("submits a quiz response from the audience UI", async ({ page }) => {
@@ -474,6 +553,7 @@ async function mockAudienceSession(
     duplicateFirstNickname?: boolean;
     effectState?: Record<string, unknown>;
     interaction?: typeof pollInteraction | typeof quizInteraction | null;
+    onInteractionResponse?: (payload: unknown) => void;
     quizReveal?: Array<Record<string, unknown>>;
     restoreAudience?: boolean;
     surveyEnabled?: boolean;
@@ -585,7 +665,10 @@ async function mockAudienceSession(
   );
   await page.route(
     "**/api/v1/presentation-sessions/session_1/audience/interactions/*/respond",
-    (route) => route.fulfill({ json: { response: { accepted: true } } }),
+    async (route) => {
+      options.onInteractionResponse?.(await route.request().postDataJSON());
+      return route.fulfill({ json: { response: { accepted: true } } });
+    },
   );
   await page.route(
     "**/api/v1/presentation-sessions/session_1/audience/questions",
