@@ -146,6 +146,61 @@ test.describe("audience engagement hardened smoke", () => {
     await expect(page.getByText("퀴즈 응답이 제출되었습니다.")).toBeVisible();
   });
 
+  test("renders the Deck JSON slide fallback when snapshots are unavailable", async ({
+    page,
+  }) => {
+    await mockAudienceSession(page, {
+      interaction: null,
+      effectState: {
+        stepIndex: 0,
+        slideFallback: {
+          slideIndex: 0,
+          deck: {
+            deckId: "deck_1",
+            projectId: "project_1",
+            title: "Audience Deck",
+            version: 1,
+            canvas: {
+              preset: "wide-16-9",
+              width: 1920,
+              height: 1080,
+              aspectRatio: "16:9",
+            },
+            slides: [
+              {
+                slideId: "slide_1",
+                order: 1,
+                title: "공개 슬라이드",
+                style: {},
+                elements: [
+                  {
+                    elementId: "el_1",
+                    type: "text",
+                    x: 120,
+                    y: 160,
+                    width: 800,
+                    height: 120,
+                    props: { text: "청중 공개 문장" },
+                  },
+                ],
+              },
+            ],
+          },
+        },
+      },
+    });
+    await page.goto("/join/123456");
+    await joinAs(page, "orbit");
+
+    await expect(page.locator(".slideshow-renderer")).toHaveAttribute(
+      "data-slide-id",
+      "slide_1",
+    );
+    await expect(page.locator(".audience-slide-fallback")).toHaveCount(0);
+    await expect(page.locator("main")).not.toContainText("speakerNotes");
+    await expect(page.locator("main")).not.toContainText("presenter script");
+  });
+
   test("opens the post-session survey and submits contact-consented answers", async ({
     page,
   }) => {
@@ -200,6 +255,7 @@ async function mockAudienceSession(
   options: {
     activeSession?: typeof session;
     duplicateFirstNickname?: boolean;
+    effectState?: Record<string, unknown>;
     interaction?: typeof pollInteraction | typeof quizInteraction | null;
     restoreAudience?: boolean;
     surveyEnabled?: boolean;
@@ -275,7 +331,7 @@ async function mockAudienceSession(
             sessionId: "session_1",
             slideId: "slide_1",
             slideIndex: 0,
-            effectState: {
+            effectState: options.effectState ?? {
               slideSnapshotUrl: "data:image/gif;base64,R0lGODlhAQABAAAAACw=",
             },
             activeInteractionId: interaction?.interactionId ?? null,
@@ -458,6 +514,41 @@ async function mockPresenterResults(page: Page) {
             contact: { enabled: false, consentText: "동의", fields: [] },
             lockedAt: null,
           },
+        },
+      }),
+  );
+  await page.route(
+    "**/api/v1/projects/project_1/presentation-sessions/session_1/interactions",
+    (route) => route.fulfill({ json: { interactions: [] } }),
+  );
+  await page.route(
+    "**/api/v1/projects/project_1/presentation-sessions/interactions/library",
+    (route) => route.fulfill({ json: { interactions: [] } }),
+  );
+  await page.route("**/api/v1/projects/project_1/assets", (route) =>
+    route.fulfill({ json: [] }),
+  );
+  await page.route(
+    "**/api/v1/projects/project_1/presentation-sessions/session_1/ai-references",
+    (route) => route.fulfill({ json: { referenceIds: [] } }),
+  );
+  await page.route(
+    "**/api/v1/projects/project_1/presentation-sessions/session_1/questions",
+    (route) =>
+      route.fulfill({
+        json: {
+          questions: [
+            {
+              questionId: "question_00000000-0000-4000-8000-000000000030",
+              questionGroupId: "question_00000000-0000-4000-8000-000000000030",
+              sessionId: "session_1",
+              audienceId: participant.audienceId,
+              text: "발표자 답변이 필요한 질문입니다.",
+              status: "pending",
+              submittedAt: now,
+              answeredAt: null,
+            },
+          ],
         },
       }),
   );
