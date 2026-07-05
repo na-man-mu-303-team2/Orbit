@@ -22,7 +22,7 @@ API, worker, web, Python worker는 시작 시 환경변수를 검증한다.
 ```txt
 STORAGE_DRIVER=minio | s3
 JOB_QUEUE_DRIVER=bullmq | sqs
-LIVE_STT_PROVIDER=sherpa
+LIVE_STT_PROVIDER=web-speech | sherpa
 REPORT_STT_PROVIDER=openai
 OCR_PROVIDER=python | textract
 LLM_PROVIDER=openai
@@ -75,7 +75,7 @@ ORBIT_PPTX_OOXML_VECTOR_IMPORT=true
 
 STT/AI provider는 목적별로 분리한다.
 
-- `LIVE_STT_PROVIDER=sherpa`: 발표/리허설 중 실시간 발화 인식, 애니메이션 cue, 강조, 키워드 누락 체크, 슬라이드 전환 제어에 쓰는 온디바이스 STT다.
+- `LIVE_STT_PROVIDER=web-speech | sherpa`: 발표/리허설 중 실시간 발화 인식, 애니메이션 cue, 강조, 키워드 누락 체크, 슬라이드 전환 제어에 쓰는 live-control STT다. 기본값은 브라우저 Web Speech 기반 `web-speech`이고, `sherpa`는 온디바이스 sherpa 경로를 명시적으로 선택할 때 사용한다.
 - `REPORT_STT_PROVIDER=openai | whisperx`: 리허설 종료 후 녹음 파일을 전사하고 코칭 리포트를 만들기 위한 서버 리포트 STT다. `whisperx`는 hosted API provider이며 live-control STT로 선택할 수 없다.
 - `LLM_PROVIDER=openai`: 전사 결과, 발표자료, 키워드, 청중 반응 등을 종합해 리포트와 코칭 문장을 생성하는 AI provider다.
 

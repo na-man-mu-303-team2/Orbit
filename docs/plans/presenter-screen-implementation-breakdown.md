@@ -897,7 +897,7 @@ P0/P1, P2/P3/P4/P5, and P6 can run as parallel tracks after the contract baselin
 - WhisperX is report-only. It is not selectable for live control and does not appear in presenter STT engine settings.
 - New browser STT files live under `apps/web/src/features/rehearsal/stt`. Existing root-level rehearsal STT files move only when a task explicitly requires it.
 - Browser live engine selection is modeled as `presenterSettings.sttEngine`; this milestone defines the engine ids and factory boundary, while the P3 presenter settings store owns localStorage persistence.
-- `LIVE_STT_PROVIDER` remains server/runtime config with the current `sherpa` value; P2 does not expand it to Web Speech or Moonshine.
+- `LIVE_STT_PROVIDER` remains server/runtime config and supports the current live-control providers `web-speech` and `sherpa`; P2 does not expand it to Moonshine.
 - `LiveSttSessionConfig.audioSource` is a `MediaStream`, matching the current Sherpa adapter and the later microphone fork used by Live STT, PauseDetector, and Recorder.
 - `LiveSttPort.updateBiasPhrases(phrases)` is required. Engines without native keyword biasing keep the method as a no-op and rely on SpeechTracker client-side matching.
 - Web Speech is treated as `onDevice: false` for consent purposes because browser implementations can use remote recognition. Selecting it must pass the same user consent gate as any non-local live engine.
@@ -1013,14 +1013,14 @@ P0/P1, P2/P3/P4/P5, and P6 can run as parallel tracks after the contract baselin
 
 **Description:** Route the current rehearsal live STT consumer through `LiveSttPort` while keeping the default Sherpa behavior.
 
-**Feature/spec:** Engine ids for `presenterSettings.sttEngine`, default `sherpa`, no `LIVE_STT_PROVIDER` expansion.
+**Feature/spec:** Engine ids for `presenterSettings.sttEngine`, default `web-speech`, and matching `LIVE_STT_PROVIDER` support for `web-speech` and `sherpa`.
 
 **Tech stack:** React, TypeScript, current `RehearsalWorkspace`, Vitest/Testing Library.
 
 **Implementation plan:**
 - Add `liveSttEngineRegistry.ts` with `createLiveSttPort(engineId)` and default `sherpa`.
 - Export the engine id type for the P3 presenter settings store.
-- Keep browser live engine selection separate from `packages/shared` runtime config and Python `LIVE_STT_PROVIDER`.
+- Keep browser live engine selection aligned with `packages/shared` runtime config and Python `LIVE_STT_PROVIDER`.
 - Update `RehearsalWorkspace` or its start-live-STT seam to accept a `LiveSttPort` test double.
 - Convert current callbacks to `onResult`/`onError` subscriptions and call `updateBiasPhrases` when the active slide changes.
 - Keep UI copy and existing manual live demo behavior unchanged in this task.
@@ -1304,7 +1304,7 @@ P0/P1, P2/P3/P4/P5, and P6 can run as parallel tracks after the contract baselin
 - [ ] Web Speech requires explicit consent because it is treated as non-local.
 - [ ] WhisperX is implemented only as a report provider.
 - [ ] Large model tests are local/manual, not required in CI.
-- [ ] `LIVE_STT_PROVIDER` remains unchanged and is not used for browser engine selection.
+- [ ] `LIVE_STT_PROVIDER` accepts `web-speech` and `sherpa` consistently across shared config, API/worker config, and Python worker config.
 
 ## P3: Speech Tracking and Rehearsal Panel
 

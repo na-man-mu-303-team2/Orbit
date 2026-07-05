@@ -20,7 +20,7 @@ VALID_ENV = {
     "S3_SECRET_ACCESS_KEY": "orbit-password",
     "S3_FORCE_PATH_STYLE": "true",
     "JOB_QUEUE_DRIVER": "bullmq",
-    "LIVE_STT_PROVIDER": "sherpa",
+    "LIVE_STT_PROVIDER": "web-speech",
     "REPORT_STT_PROVIDER": "openai",
     "OCR_PROVIDER": "python",
     "LLM_PROVIDER": "openai",
@@ -63,9 +63,13 @@ def test_ai_slide_image_review_mode_defaults_to_auto() -> None:
 def test_live_and_report_stt_providers_are_separate_contracts() -> None:
     config = load_config(VALID_ENV)
 
-    assert config.live_stt_provider == "sherpa"
+    assert config.live_stt_provider == "web-speech"
     assert config.report_stt_provider == "openai"
     assert config.rehearsal_audio_max_bytes == 25_000_000
+    assert (
+        load_config({**VALID_ENV, "LIVE_STT_PROVIDER": "sherpa"}).live_stt_provider
+        == "sherpa"
+    )
     with pytest.raises(ConfigError, match="LIVE_STT_PROVIDER"):
         load_config({**VALID_ENV, "LIVE_STT_PROVIDER": "openai"})
     with pytest.raises(ConfigError, match="REPORT_STT_PROVIDER"):

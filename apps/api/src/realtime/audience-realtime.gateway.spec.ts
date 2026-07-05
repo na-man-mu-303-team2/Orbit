@@ -433,7 +433,7 @@ function setTestEnv() {
   process.env.S3_ACCESS_KEY_ID = "test";
   process.env.S3_SECRET_ACCESS_KEY = "test";
   process.env.JOB_QUEUE_DRIVER = "bullmq";
-  process.env.LIVE_STT_PROVIDER = "sherpa";
+  process.env.LIVE_STT_PROVIDER = "web-speech";
   process.env.REPORT_STT_PROVIDER = "openai";
   process.env.OCR_PROVIDER = "python";
   process.env.LLM_PROVIDER = "openai";

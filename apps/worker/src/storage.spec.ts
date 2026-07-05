@@ -49,7 +49,7 @@ function stubWorkerEnv(overrides: Record<string, string> = {}) {
     S3_SECRET_ACCESS_KEY: "orbit-password",
     S3_FORCE_PATH_STYLE: "true",
     JOB_QUEUE_DRIVER: "bullmq",
-    LIVE_STT_PROVIDER: "sherpa",
+    LIVE_STT_PROVIDER: "web-speech",
     REPORT_STT_PROVIDER: "openai",
     OCR_PROVIDER: "python",
     LLM_PROVIDER: "openai",

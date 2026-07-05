@@ -84,7 +84,9 @@ class PythonWorkerConfig(BaseModel):
     s3_secret_access_key: str | None = Field(default=None, alias="S3_SECRET_ACCESS_KEY")
     s3_force_path_style: bool = Field(alias="S3_FORCE_PATH_STYLE")
     job_queue_driver: Literal["bullmq", "sqs"] = Field(alias="JOB_QUEUE_DRIVER")
-    live_stt_provider: Literal["sherpa"] = Field(alias="LIVE_STT_PROVIDER")
+    live_stt_provider: Literal["web-speech", "sherpa"] = Field(
+        alias="LIVE_STT_PROVIDER"
+    )
     report_stt_provider: Literal["openai", "whisperx"] = Field(
         alias="REPORT_STT_PROVIDER"
     )

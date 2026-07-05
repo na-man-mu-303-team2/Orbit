@@ -30,7 +30,7 @@ const validEnv = {
   S3_FORCE_PATH_STYLE: "true",
   JOB_QUEUE_DRIVER: "bullmq",
   STT_PROVIDER: "sherpa",
-  LIVE_STT_PROVIDER: "sherpa",
+  LIVE_STT_PROVIDER: "web-speech",
   REPORT_STT_PROVIDER: "openai",
   OCR_PROVIDER: "python",
   LLM_PROVIDER: "openai",
