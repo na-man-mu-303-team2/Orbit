@@ -859,17 +859,25 @@ function applyFinalRenderAssetsToDeck(
 ): Deck {
   return deckSchema.parse({
     ...deck,
+    metadata: {
+      ...deck.metadata,
+      thumbnailSource: "import-render",
+    },
     slides: deck.slides.map((slide, index) => {
-      const templateSlide =
-        templateBlueprint.slides[index] ?? templateBlueprint.slides[0];
-      const renderUrl = templateSlide
-        ? finalAssetUrls.get(`asset:slide_render_${templateSlide.sourceSlideIndex}`)
-        : undefined;
+      const templateSlide = templateBlueprint.slides[index];
+      if (!templateSlide) {
+        throw new Error(`Template slide missing for generated slide ${index + 1}.`);
+      }
+      const renderAssetRef = `asset:slide_render_${templateSlide.sourceSlideIndex}`;
+      const renderUrl = finalAssetUrls.get(renderAssetRef);
+      if (!renderUrl) {
+        throw new Error(`Rendered slide asset missing: ${renderAssetRef}`);
+      }
       return {
         ...slide,
-        thumbnailUrl: renderUrl ?? slide.thumbnailUrl,
+        thumbnailUrl: renderUrl,
         style:
-          renderUrl && slide.style.backgroundImage?.fit === "stretch"
+          slide.style.backgroundImage?.fit === "stretch"
             ? {
                 ...slide.style,
                 backgroundImage: {

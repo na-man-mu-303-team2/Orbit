@@ -187,12 +187,16 @@ describe("processAiTemplateDeckGenerationJob", () => {
       expect.objectContaining({ method: "POST" })
     );
     const deck = insertedDecks[0] as {
+      metadata: { thumbnailSource?: string };
       slides: Array<{ thumbnailUrl: string }>;
     };
     expect(deck.slides).toHaveLength(5);
-    expect(deck.slides[0].thumbnailUrl).toMatch(
-      /\/api\/v1\/projects\/project-a\/assets\/file_.*\/content/
-    );
+    expect(deck.metadata.thumbnailSource).toBe("import-render");
+    for (const slide of deck.slides) {
+      expect(slide.thumbnailUrl).toMatch(
+        /\/api\/v1\/projects\/project-a\/assets\/file_.*\/content/
+      );
+    }
     expect(insertedSnapshots).toHaveLength(1);
     expect(insertedSnapshots[0][1]).toBe("project-a");
     expect(insertedSnapshots[0][2]).toBe("deck_ai_project_a");
@@ -312,6 +316,97 @@ describe("processAiTemplateDeckGenerationJob", () => {
       contentReferenceFileIds: ["file_design"]
     });
   });
+
+  it("fails without saving the deck when final render thumbnails are incomplete", async () => {
+    const insertedDecks: unknown[] = [];
+    const query = vi.fn(async (sql: string, params: unknown[]) => {
+      if (sql.includes("UPDATE jobs")) {
+        return [
+          jobRow(
+            params[1] as "running" | "succeeded" | "failed",
+            params[2] as number,
+            params[4] as Record<string, unknown> | null,
+            params[5] as { code: string; message: string } | null
+          )
+        ];
+      }
+      if (sql.includes("FROM project_assets")) {
+        return [
+          {
+            file_id: "file_content",
+            project_id: "project-a",
+            storage_key: "projects/project-a/assets/file_content.pdf",
+            mime_type: "application/pdf",
+            original_name: "content.pdf",
+            size: 12,
+            purpose: "reference-material",
+            status: "uploaded"
+          },
+          {
+            file_id: "file_design",
+            project_id: "project-a",
+            storage_key: "projects/project-a/assets/file_design.pptx",
+            mime_type: pptxMimeType,
+            original_name: "design.pptx",
+            size: 24,
+            purpose: "pptx-import",
+            status: "uploaded"
+          }
+        ];
+      }
+      if (sql.includes("INSERT INTO decks")) {
+        insertedDecks.push(params[2]);
+      }
+      return [];
+    });
+    const fetchMock = vi.fn(async (input: string | URL) => {
+      const url = String(input);
+      if (url.startsWith("http://storage.local/")) {
+        return new Response(url.endsWith(".pptx") ? "pptx-bytes" : "content-bytes");
+      }
+      if (url.endsWith("/documents/parse")) {
+        return new Response(
+          JSON.stringify({
+            files: [
+              {
+                referenceDocumentId: "file_content",
+                fileName: "content.pdf",
+                kind: "pdf",
+                status: "succeeded",
+                rawText: "reference",
+                cleanedText: "cleaned reference",
+                keywords: [{ keyword: "ORBIT" }]
+              }
+            ]
+          })
+        );
+      }
+      if (url.endsWith("/ai/pptx-ooxml-generation")) {
+        return new Response(JSON.stringify(ooxmlGenerationResponse()));
+      }
+      if (url.endsWith("/ai/generate-deck")) {
+        return new Response(JSON.stringify(generateDeckResponse()));
+      }
+      if (url.endsWith("/ai/pptx-ooxml-apply-slot-texts")) {
+        return new Response(JSON.stringify(ooxmlApplyResponse(4)));
+      }
+
+      return new Response("unexpected", { status: 500 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const job = await processAiTemplateDeckGenerationJob(
+      { query } as unknown as DataSource,
+      storage,
+      "http://localhost:8000",
+      payload
+    );
+
+    expect(job.status).toBe("failed");
+    expect(job.error?.code).toBe("AI_TEMPLATE_DECK_GENERATION_SAVE_FAILED");
+    expect(job.error?.message).toContain("asset:slide_render_5");
+    expect(insertedDecks).toHaveLength(0);
+  });
 });
 
 function ooxmlGenerationResponse() {
@@ -371,7 +466,7 @@ function ooxmlGenerationResponse() {
   };
 }
 
-function ooxmlApplyResponse() {
+function ooxmlApplyResponse(renderCount = 10) {
   return {
     assets: [
       {
@@ -380,7 +475,7 @@ function ooxmlApplyResponse() {
         mimeType: pptxMimeType,
         contentBase64: Buffer.from("final-pptx").toString("base64")
       },
-      ...renderAssets("final-png", 10)
+      ...renderAssets("final-png", renderCount)
     ],
     warnings: []
   };
