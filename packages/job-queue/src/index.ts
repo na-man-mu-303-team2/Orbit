@@ -6,6 +6,7 @@ import {
   aiTemplateDeckGenerationRequestSchema,
   jobSchema,
   nowIso,
+  type Deck,
   type AiTemplateDeckGenerationRequest,
   type PptxOoxmlGenerationRequest,
   type GenerateDeckRequest,
@@ -36,6 +37,8 @@ export const generateDeckQueueName = "generate-deck";
 export const generateDeckJobName = "generate-deck";
 export const aiTemplateDeckGenerationQueueName = "ai-template-deck-generation";
 export const aiTemplateDeckGenerationJobName = "ai-template-deck-generation";
+export const audienceSlideRenderQueueName = "audience-slide-render";
+export const audienceSlideRenderJobName = "audience-slide-render";
 export const pptxImportQueueName = "pptx-import";
 export const pptxImportJobName = "pptx-import";
 export const pptxOoxmlGenerationQueueName = "pptx-ooxml-generation";
@@ -95,6 +98,20 @@ export interface AiTemplateDeckGenerationBullMqPayload {
 
 export interface EnqueueAiTemplateDeckGenerationJobInput
   extends AiTemplateDeckGenerationBullMqPayload {
+  driver: "bullmq" | "sqs";
+  redisUrl: string;
+}
+
+export interface AudienceSlideRenderBullMqPayload {
+  jobId: string;
+  projectId: string;
+  sessionId: string;
+  deck: Deck;
+  slideId: string;
+}
+
+export interface EnqueueAudienceSlideRenderJobInput
+  extends AudienceSlideRenderBullMqPayload {
   driver: "bullmq" | "sqs";
   redisUrl: string;
 }
@@ -229,6 +246,30 @@ export async function enqueueAiTemplateDeckGenerationJob(
       projectId: input.projectId,
       request: aiTemplateDeckGenerationRequestSchema.parse(input.request),
     } satisfies AiTemplateDeckGenerationBullMqPayload);
+  } finally {
+    await queue.close();
+  }
+}
+
+export async function enqueueAudienceSlideRenderJob(
+  input: EnqueueAudienceSlideRenderJobInput,
+): Promise<void> {
+  if (input.driver === "sqs") {
+    throw new Error("SqsJobQueue adapter is not implemented yet.");
+  }
+
+  const queue = new Queue(audienceSlideRenderQueueName, {
+    connection: redisConnectionOptions(input.redisUrl),
+  });
+
+  try {
+    await queue.add(audienceSlideRenderJobName, {
+      jobId: input.jobId,
+      projectId: input.projectId,
+      sessionId: input.sessionId,
+      deck: input.deck,
+      slideId: input.slideId,
+    } satisfies AudienceSlideRenderBullMqPayload);
   } finally {
     await queue.close();
   }

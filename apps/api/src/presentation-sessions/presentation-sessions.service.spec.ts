@@ -119,6 +119,50 @@ const audienceDeck = {
   ],
 };
 
+const validEnv = {
+  NODE_ENV: "test",
+  APP_ENV: "local",
+  WEB_PORT: "5173",
+  API_PORT: "3000",
+  WORKER_PORT: "3001",
+  PYTHON_WORKER_PORT: "8000",
+  WEB_ORIGIN: "http://localhost:5173",
+  API_BASE_URL: "http://localhost:3000",
+  PYTHON_WORKER_URL: "http://localhost:8000",
+  DATABASE_URL: "postgres://orbit:orbit@localhost:5432/orbit",
+  REDIS_URL: "redis://localhost:6379",
+  SESSION_SECRET: "test-session-secret",
+  COOKIE_SECRET: "test-cookie-secret",
+  STORAGE_DRIVER: "minio",
+  S3_ENDPOINT: "http://localhost:9000",
+  S3_PUBLIC_ENDPOINT: "http://localhost:9000",
+  S3_BUCKET: "orbit-local",
+  S3_REGION: "ap-northeast-2",
+  S3_ACCESS_KEY_ID: "orbit",
+  S3_SECRET_ACCESS_KEY: "orbit-password",
+  S3_FORCE_PATH_STYLE: "true",
+  JOB_QUEUE_DRIVER: "bullmq",
+  LIVE_STT_PROVIDER: "web-speech",
+  REPORT_STT_PROVIDER: "openai",
+  OCR_PROVIDER: "python",
+  LLM_PROVIDER: "openai",
+  OPENAI_API_KEY: "",
+  OPENAI_MODEL: "gpt-4.1-mini",
+  OPENAI_TRANSCRIPTION_MODEL: "gpt-4o-transcribe",
+  OPENAI_EMBEDDING_MODEL: "text-embedding-3-small",
+  AWS_REGION: "ap-northeast-2",
+  AWS_ACCESS_KEY_ID: "",
+  AWS_SECRET_ACCESS_KEY: "",
+  TRANSCRIBE_LANGUAGE_CODE: "ko-KR",
+  LOG_LEVEL: "info",
+  LOG_PRETTY: "false",
+  DEMO_USER_ID: "user_demo",
+  DEMO_WORKSPACE_ID: "workspace_demo",
+  DEMO_PROJECT_ID: "project_demo",
+  DEMO_DECK_ID: "deck_demo",
+  DEMO_SESSION_ID: "session_demo",
+};
+
 describe("PresentationSessionsService", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
@@ -157,6 +201,87 @@ describe("PresentationSessionsService", () => {
     expect(insertSql).toContain("join_code");
     expect(insertSql).not.toContain("passcode");
     expect(insertSql).not.toContain("session_password_hash");
+  });
+
+  it("queues audience slide render jobs during draft session preparation", async () => {
+    for (const [key, value] of Object.entries(validEnv)) {
+      vi.stubEnv(key, value);
+    }
+
+    const query = vi.fn(async (sql: string) => {
+      if (sql.includes("SELECT d.deck_json")) {
+        return [{ deck_json: audienceDeck }];
+      }
+
+      if (sql.includes("SELECT audience_slide_snapshots_json")) {
+        return [{ audience_slide_snapshots_json: {} }];
+      }
+
+      if (sql.includes("INSERT INTO presentation_sessions")) {
+        return [{ ...activeSessionRow, join_code: "654321" }];
+      }
+
+      if (
+        sql.includes("INSERT INTO audience_feature_settings") ||
+        sql.includes("INSERT INTO audience_realtime_state")
+      ) {
+        return [];
+      }
+
+      return [];
+    });
+    const jobsService = {
+      create: vi.fn(async (input: { payload?: Record<string, unknown> }) => ({
+        jobId: `job_${String(input.payload?.slideId)}`,
+        projectId: "project_1",
+        type: "audience-slide-render",
+      })),
+      update: vi.fn(),
+    };
+    const enqueueSlideRenderJob = vi.fn(async () => undefined);
+    const service = new PresentationSessionsService(
+      { query } as unknown as DataSource,
+      undefined,
+      jobsService as never,
+      enqueueSlideRenderJob,
+    );
+
+    await expect(
+      service.create("project_1", "user_1", {
+        deckId: "deck_1",
+      }),
+    ).resolves.toMatchObject({
+      session: {
+        sessionId: "session_existing",
+        status: "draft",
+      },
+    });
+
+    expect(jobsService.create).toHaveBeenCalledTimes(2);
+    expect(jobsService.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        projectId: "project_1",
+        type: "audience-slide-render",
+        payload: expect.objectContaining({
+          deckId: "deck_1",
+          deckVersion: 1,
+          sessionId: "session_existing",
+          slideId: "slide_2",
+        }),
+      }),
+    );
+    expect(enqueueSlideRenderJob).toHaveBeenCalledTimes(2);
+    expect(enqueueSlideRenderJob).toHaveBeenCalledWith(
+      expect.objectContaining({
+        driver: "bullmq",
+        redisUrl: "redis://localhost:6379",
+        jobId: "job_slide_2",
+        projectId: "project_1",
+        sessionId: "session_existing",
+        slideId: "slide_2",
+        deck: expect.objectContaining({ deckId: "deck_1" }),
+      }),
+    );
   });
 
   it("normalizes missing audience join sessions to Korean copy", async () => {

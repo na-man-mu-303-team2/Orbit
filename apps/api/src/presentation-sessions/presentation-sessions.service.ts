@@ -39,6 +39,11 @@ import {
   updatePresentationSessionEntryResponseSchema,
   upsertSessionSurveyFormRequestSchema,
 } from "@orbit/shared";
+import { loadOrbitConfig } from "@orbit/config";
+import {
+  enqueueAudienceSlideRenderJob,
+  type EnqueueAudienceSlideRenderJobInput,
+} from "@orbit/job-queue";
 import type {
   AudienceEventType,
   AudienceAggregateReport,
@@ -83,8 +88,18 @@ import {
 import { renderSlideSnapshot } from "@orbit/slide-renderer";
 import type { StoragePort } from "@orbit/storage";
 import { InjectDataSource } from "@nestjs/typeorm";
+import { InjectPinoLogger, PinoLogger } from "nestjs-pino";
 import { DataSource } from "typeorm";
 import { STORAGE_PORT } from "../files/files.service";
+import { JobsService } from "../jobs/jobs.service";
+import { serializeLogError } from "../logging";
+
+export type AudienceSlideRenderEnqueueJob = (
+  input: EnqueueAudienceSlideRenderJobInput,
+) => Promise<void>;
+
+export const AUDIENCE_SLIDE_RENDER_ENQUEUE_JOB =
+  "AUDIENCE_SLIDE_RENDER_ENQUEUE_JOB";
 
 type PresentationSessionRow = {
   session_id: string;
@@ -281,6 +296,15 @@ export class PresentationSessionsService {
     @Optional()
     @Inject(STORAGE_PORT)
     private readonly slideSnapshotStorage?: StoragePort,
+    @Optional()
+    private readonly jobsService?: JobsService,
+    @Optional()
+    @Inject(AUDIENCE_SLIDE_RENDER_ENQUEUE_JOB)
+    private readonly enqueueSlideRenderJob: AudienceSlideRenderEnqueueJob =
+      enqueueAudienceSlideRenderJob,
+    @Optional()
+    @InjectPinoLogger(PresentationSessionsService.name)
+    private readonly logger?: PinoLogger,
   ) {}
 
   async create(
@@ -343,7 +367,12 @@ export class PresentationSessionsService {
       );
 
       await this.insertDefaultAudienceState(sessionId);
-      return this.toCreateResponse(rows[0]);
+      const createdSession = rows[0];
+      await this.queueAudienceSlideSnapshotPreparation({
+        projectId,
+        sessionId: createdSession.session_id,
+      });
+      return this.toCreateResponse(createdSession);
     } catch (error) {
       if (!isPostgresUniqueViolation(error)) {
         throw error;
@@ -3026,6 +3055,116 @@ export class PresentationSessionsService {
       });
     } catch {
       // Snapshot and first-slide initialization must not block session start.
+    }
+  }
+
+  private async queueAudienceSlideSnapshotPreparation(input: {
+    projectId: string;
+    sessionId: string;
+  }) {
+    if (!this.jobsService) {
+      return;
+    }
+
+    try {
+      const deck = await this.getSessionDeck(input.sessionId);
+      if (!deck) {
+        return;
+      }
+
+      const deckContentHash = deckPublicContentHash(deck);
+      const orderedSlides = [...deck.slides].sort(
+        (left, right) => left.order - right.order,
+      );
+      const currentMap = await this.getAudienceSlideSnapshotMap(
+        input.sessionId,
+      );
+      const isCurrent =
+        currentMap?.deckVersion === deck.version &&
+        currentMap.deckContentHash === deckContentHash &&
+        orderedSlides.every((slide) =>
+          Boolean(currentMap.slides[slide.slideId]?.url),
+        );
+
+      if (isCurrent) {
+        return;
+      }
+
+      const config = loadOrbitConfig(process.env, { service: "api" });
+      for (const slide of orderedSlides) {
+        let queuedJob: Awaited<ReturnType<JobsService["create"]>> | null = null;
+        try {
+          queuedJob = await this.jobsService.create({
+            projectId: input.projectId,
+            type: "audience-slide-render",
+            payload: {
+              deckContentHash,
+              deckId: deck.deckId,
+              deckVersion: deck.version,
+              sessionId: input.sessionId,
+              slideId: slide.slideId,
+            },
+          });
+          await this.enqueueSlideRenderJob({
+            driver: config.JOB_QUEUE_DRIVER,
+            redisUrl: config.REDIS_URL,
+            jobId: queuedJob.jobId,
+            projectId: input.projectId,
+            sessionId: input.sessionId,
+            deck,
+            slideId: slide.slideId,
+          });
+          this.logger?.info(
+            {
+              event: "job.enqueued",
+              jobId: queuedJob.jobId,
+              jobType: queuedJob.type,
+              projectId: input.projectId,
+              sessionId: input.sessionId,
+              slideId: slide.slideId,
+              driver: config.JOB_QUEUE_DRIVER,
+            },
+            "Audience slide render job enqueued.",
+          );
+        } catch (error) {
+          if (queuedJob) {
+            await this.jobsService.update(queuedJob.jobId, {
+              status: "failed",
+              progress: 0,
+              message: "Audience slide render enqueue failed.",
+              error: {
+                code: "AUDIENCE_SLIDE_RENDER_ENQUEUE_FAILED",
+                message:
+                  error instanceof Error
+                    ? error.message
+                    : "Audience slide render enqueue failed.",
+              },
+            });
+          }
+          this.logger?.error(
+            {
+              event: "job.enqueue_failed",
+              jobId: queuedJob?.jobId,
+              jobType: "audience-slide-render",
+              projectId: input.projectId,
+              sessionId: input.sessionId,
+              slideId: slide.slideId,
+              error: serializeLogError(error),
+            },
+            "Audience slide render enqueue failed.",
+          );
+        }
+      }
+    } catch (error) {
+      this.logger?.error(
+        {
+          event: "audience.slide_snapshot_preparation_failed",
+          projectId: input.projectId,
+          sessionId: input.sessionId,
+          error: serializeLogError(error),
+        },
+        "Audience slide snapshot preparation failed.",
+      );
     }
   }
 
