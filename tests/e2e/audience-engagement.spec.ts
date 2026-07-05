@@ -310,6 +310,52 @@ test.describe("audience engagement hardened smoke", () => {
     await expect(page.locator("main")).not.toContainText("presenter script");
   });
 
+  test("restores the frozen slide snapshot on audience reconnect", async ({
+    page,
+  }) => {
+    await mockAudienceSession(page, {
+      effectState: {
+        slideSnapshotUrl: "https://cdn.example.test/frozen-slide.png",
+        slideSnapshotContentHash: "sha256-frozen",
+        stepIndex: 2,
+      },
+      interaction: null,
+      restoreAudience: true,
+    });
+
+    await page.goto("/join/123456");
+
+    await expect(page.locator(".audience-slide-snapshot")).toHaveAttribute(
+      "src",
+      "https://cdn.example.test/frozen-slide.png",
+    );
+    await expect(page.locator(".audience-slide-fallback")).toHaveCount(0);
+  });
+
+  test("keeps a recovered AI answer visible only to the asker", async ({
+    context,
+    page,
+  }) => {
+    await mockAudienceSession(page, {
+      aiAnswerText: "공개 슬라이드와 reference.pdf에 근거한 답변입니다.",
+      interaction: null,
+    });
+    await page.goto("/join/123456");
+    await joinAs(page, "asker");
+    await page.getByLabel("질문").fill("근거가 있는 답변인가요?");
+    await page.getByRole("button", { name: "질문 보내기" }).click();
+    await expect(page.getByText("근거한 답변입니다.")).toBeVisible();
+
+    const otherPage = await context.newPage();
+    await mockAudienceSession(otherPage, { interaction: null });
+    await otherPage.goto("/join/123456");
+    await joinAs(otherPage, "viewer");
+    await expect(otherPage.locator("main")).not.toContainText(
+      "근거한 답변입니다.",
+    );
+    await otherPage.close();
+  });
+
   test("opens the post-session survey and submits contact-consented answers", async ({
     page,
   }) => {
@@ -423,6 +469,7 @@ async function joinAs(page: Page, nickname: string) {
 async function mockAudienceSession(
   page: Page,
   options: {
+    aiAnswerText?: string;
     activeSession?: typeof session;
     duplicateFirstNickname?: boolean;
     effectState?: Record<string, unknown>;
@@ -435,6 +482,7 @@ async function mockAudienceSession(
   const activeSession = options.activeSession ?? session;
   const interaction = options.interaction ?? pollInteraction;
   let joinAttempts = 0;
+  let currentNickname = participant.nickname;
 
   await page.route("**/api/v1/auth/me", (route) =>
     route.fulfill({
@@ -463,12 +511,21 @@ async function mockAudienceSession(
         });
       }
 
+      const body = (await route.request().postDataJSON()) as {
+        nickname?: string;
+      };
+      const requestedNickname =
+        typeof body.nickname === "string" && body.nickname.trim().length > 0
+          ? body.nickname.trim()
+          : "orbit";
+      currentNickname = requestedNickname;
+
       return route.fulfill({
         json: {
           session: activeSession,
           participant: {
             ...participant,
-            nickname: joinAttempts > 1 ? "orbit2" : "orbit",
+            nickname: currentNickname,
           },
         },
       });
@@ -482,7 +539,7 @@ async function mockAudienceSession(
           ? {
               json: {
                 session: activeSession,
-                participant,
+                participant: { ...participant, nickname: currentNickname },
               },
             }
           : {
@@ -497,7 +554,7 @@ async function mockAudienceSession(
       route.fulfill({
         json: {
           session: activeSession,
-          participant,
+          participant: { ...participant, nickname: currentNickname },
           state: {
             sessionId: "session_1",
             slideId: "slide_1",
@@ -553,15 +610,31 @@ async function mockAudienceSession(
     (route) =>
       route.fulfill({
         json: {
+          question: {
+            questionId: "question_00000000-0000-4000-8000-000000000010",
+            questionGroupId: "question_00000000-0000-4000-8000-000000000010",
+            sessionId: "session_1",
+            audienceId: participant.audienceId,
+            text: "AI가 답할 수 있나요?",
+            status: options.aiAnswerText ? "answered" : "pending",
+            submittedAt: now,
+            answeredAt: options.aiAnswerText ? now : null,
+          },
           answer: {
             answerId: "answer_00000000-0000-4000-8000-000000000001",
             questionId: "question_00000000-0000-4000-8000-000000000010",
             sessionId: "session_1",
             audienceId: participant.audienceId,
-            answerText: "근거가 부족해 발표자에게 전달했습니다.",
-            status: "failed",
-            confidence: 0,
+            answerText:
+              options.aiAnswerText ?? "근거가 부족해 발표자에게 전달했습니다.",
+            status: options.aiAnswerText ? "answered" : "failed",
+            confidence: options.aiAnswerText ? 0.92 : 0,
+            sourceReferences: options.aiAnswerText
+              ? ["deck-slide:공개 슬라이드", "reference-material:reference.pdf"]
+              : [],
+            failureReason: options.aiAnswerText ? null : "no-grounding",
             feedback: null,
+            escalatedToPresenter: !options.aiAnswerText,
             createdAt: now,
             updatedAt: now,
           },
