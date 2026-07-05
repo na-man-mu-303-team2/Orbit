@@ -269,8 +269,11 @@ def test_apply_slot_texts_clones_reused_template_slide(
     presentation = Presentation(str(cloned_path))
     assert len(presentation.slides) == 2
     with zipfile.ZipFile(BytesIO(package_bytes), "r") as package:
+        content_types_xml = package.read("[Content_Types].xml")
         first_slide_xml = package.read("ppt/slides/slide1.xml")
         second_slide_xml = package.read("ppt/slides/slide2.xml")
+    assert b"<Types xmlns=" in content_types_xml
+    assert b"ns0:" not in content_types_xml
     assert b"AI First" in first_slide_xml
     assert b"AI Second" in second_slide_xml
 
