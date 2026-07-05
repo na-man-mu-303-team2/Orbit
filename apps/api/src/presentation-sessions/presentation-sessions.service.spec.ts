@@ -7,6 +7,7 @@ import {
 } from "@nestjs/common";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { DataSource } from "typeorm";
+import type { StoragePort } from "@orbit/storage";
 
 import { PresentationSessionsService } from "./presentation-sessions.service";
 
@@ -67,6 +68,39 @@ const surveyFormRow = {
   updated_at: "2026-07-05T00:00:00.000Z",
 };
 
+const audienceDeck = {
+  deckId: "deck_1",
+  projectId: "project_1",
+  title: "Audience Deck",
+  version: 1,
+  canvas: {
+    preset: "wide-16-9",
+    width: 1920,
+    height: 1080,
+    aspectRatio: "16:9",
+  },
+  slides: [
+    {
+      slideId: "slide_2",
+      order: 1,
+      title: "공개 슬라이드",
+      speakerNotes: "private presenter script",
+      style: {},
+      elements: [
+        {
+          elementId: "el_1",
+          type: "text",
+          x: 100,
+          y: 160,
+          width: 720,
+          height: 120,
+          props: { text: "청중 공개 문장" },
+        },
+      ],
+    },
+  ],
+};
+
 describe("PresentationSessionsService", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
@@ -105,6 +139,17 @@ describe("PresentationSessionsService", () => {
     expect(insertSql).toContain("join_code");
     expect(insertSql).not.toContain("passcode");
     expect(insertSql).not.toContain("session_password_hash");
+  });
+
+  it("normalizes missing audience join sessions to Korean copy", async () => {
+    const query = vi.fn().mockResolvedValueOnce([]);
+    const service = new PresentationSessionsService({
+      query,
+    } as unknown as DataSource);
+
+    await expect(service.getActiveSessionByJoinCode("123456")).rejects.toThrow(
+      "입장 코드를 확인해 주세요.",
+    );
   });
 
   it("returns the existing active session when concurrent creation hits the unique index", async () => {
@@ -373,6 +418,172 @@ describe("PresentationSessionsService", () => {
       slideIndex: 1,
       effectState: { highlightId: "shape_2" },
     });
+  });
+
+  it("renders and attaches an audience slide snapshot when storage is available", async () => {
+    const storage = {
+      putObject: vi.fn(async (input) => ({
+        key: input.key,
+        url: "https://cdn.example.test/audience-slide.svg",
+        contentType: input.contentType,
+        purpose: input.purpose,
+        size: typeof input.body === "string" ? input.body.length : 0,
+      })),
+    } as unknown as StoragePort;
+    const query = vi.fn(async (sql: string, params?: unknown[]) => {
+      if (sql.includes("FROM presentation_sessions ps")) {
+        return [{ deck_json: audienceDeck }];
+      }
+
+      if (sql.includes("UPDATE audience_realtime_state")) {
+        return [
+          {
+            session_id: "session_existing",
+            slide_id: "slide_2",
+            slide_index: 1,
+            effect_state_json: params?.[3],
+            active_interaction_id: null,
+            updated_at: "2026-07-05T00:03:00.000Z",
+          },
+        ];
+      }
+
+      if (sql.includes("INSERT INTO audience_events")) {
+        return [];
+      }
+
+      return [];
+    });
+    const service = new PresentationSessionsService(
+      { query } as unknown as DataSource,
+      storage,
+    );
+
+    await expect(
+      service.updateAudienceRealtimeState({
+        sessionId: "session_existing",
+        actorId: "user_1",
+        slideId: "slide_2",
+        slideIndex: 1,
+        effectState: { highlightId: "shape_2" },
+      }),
+    ).resolves.toMatchObject({
+      effectState: {
+        highlightId: "shape_2",
+        slideSnapshotUrl: "https://cdn.example.test/audience-slide.svg",
+      },
+    });
+
+    expect(storage.putObject).toHaveBeenCalledWith(
+      expect.objectContaining({
+        contentType: "image/svg+xml",
+        purpose: "audience-slide-snapshot",
+        key: expect.stringMatching(
+          /^audience-slide-snapshots\/session_existing\/slide_2-[a-f0-9]{64}\.svg$/,
+        ),
+      }),
+    );
+    expect(storage.putObject).toHaveBeenCalledWith(
+      expect.objectContaining({
+        body: expect.stringContaining("청중 공개 문장"),
+      }),
+    );
+    const eventCall = query.mock.calls.find(([sql]) =>
+      String(sql).includes("INSERT INTO audience_events"),
+    );
+    expect(eventCall?.[1]?.[5]).toMatchObject({
+      effectState: {
+        slideSnapshotUrl: "https://cdn.example.test/audience-slide.svg",
+      },
+    });
+  });
+
+  it("initializes the first slide snapshot when a session starts", async () => {
+    const storage = {
+      putObject: vi.fn(async (input) => ({
+        key: input.key,
+        url: "https://cdn.example.test/start-slide.svg",
+        contentType: input.contentType,
+        purpose: input.purpose,
+        size: typeof input.body === "string" ? input.body.length : 0,
+      })),
+    } as unknown as StoragePort;
+    const query = vi.fn(async (sql: string, params?: unknown[]) => {
+      if (sql.includes("UPDATE presentation_sessions")) {
+        return [
+          {
+            ...activeSessionRow,
+            status: "live",
+            started_at: "2026-07-05T00:01:00.000Z",
+          },
+        ];
+      }
+
+      if (sql.includes("UPDATE session_survey_forms")) {
+        return [];
+      }
+
+      if (sql.includes("FROM presentation_sessions ps")) {
+        return [{ deck_json: audienceDeck }];
+      }
+
+      if (sql.includes("UPDATE audience_realtime_state")) {
+        return [
+          {
+            session_id: "session_existing",
+            slide_id: "slide_2",
+            slide_index: 0,
+            effect_state_json: params?.[3],
+            active_interaction_id: null,
+            updated_at: "2026-07-05T00:01:00.000Z",
+          },
+        ];
+      }
+
+      if (sql.includes("INSERT INTO audience_events")) {
+        return [];
+      }
+
+      return [];
+    });
+    const service = new PresentationSessionsService(
+      { query } as unknown as DataSource,
+      storage,
+    );
+
+    await expect(
+      service.startSession({
+        projectId: "project_1",
+        sessionId: "session_existing",
+        actorId: "user_1",
+      }),
+    ).resolves.toMatchObject({
+      session: { sessionId: "session_existing", status: "live" },
+    });
+
+    expect(storage.putObject).toHaveBeenCalledWith(
+      expect.objectContaining({
+        key: expect.stringMatching(
+          /^audience-slide-snapshots\/session_existing\/slide_2-[a-f0-9]{64}\.svg$/,
+        ),
+        purpose: "audience-slide-snapshot",
+      }),
+    );
+    const eventPayloads = query.mock.calls
+      .filter(([sql]) => String(sql).includes("INSERT INTO audience_events"))
+      .map(([, params]) => params?.[5]);
+    expect(eventPayloads).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          effectState: expect.objectContaining({
+            slideSnapshotUrl: "https://cdn.example.test/start-slide.svg",
+          }),
+          slideId: "slide_2",
+          slideIndex: 0,
+        }),
+        { sessionId: "session_existing" },
+      ]),
+    );
   });
 
   it("updates feature settings, normalizes AI Q&A dependencies, and appends an event", async () => {
@@ -714,6 +925,292 @@ describe("PresentationSessionsService", () => {
     expect(query.mock.calls[3][0]).toContain("ON CONFLICT");
   });
 
+  it("scores speed-bonus quiz answers from remaining time", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-05T00:00:15.000Z"));
+    try {
+      const quizInteractionRow = {
+        interaction_id: "interaction_00000000-0000-4000-8000-000000000001",
+        session_id: "session_existing",
+        kind: "quiz" as const,
+        title: "속도 퀴즈",
+        questions_json: [
+          {
+            type: "quiz-true-false" as const,
+            questionId: "question_00000000-0000-4000-8000-000000000001",
+            prompt: "맞나요?",
+            correctAnswer: true,
+            timeLimitSeconds: 30,
+          },
+        ],
+        result_visibility: "after-close" as const,
+        quiz_scoring: "speed-bonus" as const,
+        source: "ad-hoc" as const,
+        display_order: 0,
+        activated_at: "2026-07-05T00:00:00.000Z",
+        closed_at: null,
+      };
+      const responseRow = {
+        response_id: "response_00000000-0000-4000-8000-000000000001",
+        interaction_id: quizInteractionRow.interaction_id,
+        session_id: "session_existing",
+        audience_id: "audience_00000000-0000-4000-8000-000000000001",
+        question_id: "question_00000000-0000-4000-8000-000000000001",
+        answer_json: { type: "quiz-true-false" as const, answer: true },
+        is_correct: true,
+        score: 750,
+        submitted_at: "2026-07-05T00:00:15.000Z",
+        updated_at: "2026-07-05T00:00:15.000Z",
+      };
+      const query = vi
+        .fn()
+        .mockResolvedValueOnce([
+          {
+            audience_id: "audience_00000000-0000-4000-8000-000000000001",
+            session_id: "session_existing",
+            nickname: "orbit",
+            joined_at: "2026-07-05T00:00:00.000Z",
+            last_seen_at: "2026-07-05T00:00:00.000Z",
+            joined_before_end: true,
+          },
+        ])
+        .mockResolvedValueOnce([activeSessionRow])
+        .mockResolvedValueOnce([quizInteractionRow])
+        .mockResolvedValueOnce([responseRow])
+        .mockResolvedValueOnce([]);
+      const service = new PresentationSessionsService({
+        query,
+      } as unknown as DataSource);
+
+      await expect(
+        service.submitInteractionResponse({
+          sessionId: "session_existing",
+          audienceId: "audience_00000000-0000-4000-8000-000000000001",
+          tokenHash: "token_hash",
+          interactionId: quizInteractionRow.interaction_id,
+          body: {
+            questionId: "question_00000000-0000-4000-8000-000000000001",
+            answer: { type: "quiz-true-false", answer: true },
+          },
+        }),
+      ).resolves.toMatchObject({
+        response: {
+          isCorrect: true,
+          score: 750,
+        },
+      });
+      expect(query.mock.calls[3][1][7]).toBe(750);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps after-close quizzes visible and returns the audience answer reveal", async () => {
+    const quizInteractionRow = {
+      interaction_id: "interaction_00000000-0000-4000-8000-000000000101",
+      session_id: "session_existing",
+      kind: "quiz" as const,
+      title: "이해도 확인",
+      questions_json: [
+        {
+          type: "quiz-true-false" as const,
+          questionId: "question_00000000-0000-4000-8000-000000000101",
+          prompt: "청중은 로그인 없이 참여한다.",
+          correctAnswer: true,
+        },
+      ],
+      result_visibility: "after-close" as const,
+      quiz_scoring: "correct-count" as const,
+      source: "ad-hoc" as const,
+      display_order: 0,
+      activated_at: "2026-07-05T00:00:00.000Z",
+      closed_at: null,
+    };
+    const closedQuizInteractionRow = {
+      ...quizInteractionRow,
+      closed_at: "2026-07-05T00:02:00.000Z",
+    };
+    const participantRow = {
+      audience_id: "audience_00000000-0000-4000-8000-000000000001",
+      session_id: "session_existing",
+      nickname: "orbit",
+      joined_at: "2026-07-05T00:00:00.000Z",
+      last_seen_at: "2026-07-05T00:00:00.000Z",
+      joined_before_end: true,
+    };
+    const featureRow = {
+      session_id: "session_existing",
+      qna_enabled: false,
+      ai_qna_enabled: false,
+      polls_enabled: false,
+      quizzes_enabled: true,
+      reactions_enabled: false,
+      survey_enabled: false,
+      updated_at: "2026-07-05T00:00:00.000Z",
+    };
+    const responseRow = {
+      response_id: "response_00000000-0000-4000-8000-000000000101",
+      interaction_id: quizInteractionRow.interaction_id,
+      session_id: "session_existing",
+      audience_id: "audience_00000000-0000-4000-8000-000000000001",
+      question_id: "question_00000000-0000-4000-8000-000000000101",
+      answer_json: { type: "quiz-true-false" as const, answer: false },
+      is_correct: false,
+      score: 0,
+      submitted_at: "2026-07-05T00:00:15.000Z",
+      updated_at: "2026-07-05T00:00:15.000Z",
+    };
+    const query = vi
+      .fn()
+      .mockResolvedValueOnce([{ session_id: "session_existing" }])
+      .mockResolvedValueOnce([closedQuizInteractionRow])
+      .mockResolvedValueOnce([
+        {
+          session_id: "session_existing",
+          slide_id: null,
+          slide_index: null,
+          effect_state_json: {},
+          active_interaction_id: quizInteractionRow.interaction_id,
+          updated_at: "2026-07-05T00:02:00.000Z",
+        },
+      ])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([participantRow])
+      .mockResolvedValueOnce([activeSessionRow])
+      .mockResolvedValueOnce([featureRow])
+      .mockResolvedValueOnce([closedQuizInteractionRow])
+      .mockResolvedValueOnce([activeSessionRow])
+      .mockResolvedValueOnce([{ session_id: "session_existing" }])
+      .mockResolvedValueOnce([closedQuizInteractionRow])
+      .mockResolvedValueOnce([responseRow])
+      .mockResolvedValueOnce([responseRow]);
+    const service = new PresentationSessionsService({
+      query,
+    } as unknown as DataSource);
+
+    await expect(
+      service.closeSessionInteraction({
+        projectId: "project_1",
+        sessionId: "session_existing",
+        interactionId: quizInteractionRow.interaction_id,
+        actorId: "user_1",
+      }),
+    ).resolves.toMatchObject({
+      interaction: { closedAt: "2026-07-05T00:02:00.000Z" },
+    });
+
+    const stateUpdateCall = query.mock.calls.find(([sql]) =>
+      String(sql).includes("UPDATE audience_realtime_state"),
+    );
+    expect(stateUpdateCall?.[1]?.[4]).toBe(quizInteractionRow.interaction_id);
+
+    await expect(
+      service.getAudienceActiveInteraction({
+        sessionId: "session_existing",
+        audienceId: "audience_00000000-0000-4000-8000-000000000001",
+        tokenHash: "token_hash",
+      }),
+    ).resolves.toMatchObject({
+      interaction: {
+        interactionId: quizInteractionRow.interaction_id,
+        closedAt: "2026-07-05T00:02:00.000Z",
+      },
+      quizReveal: [
+        {
+          questionId: "question_00000000-0000-4000-8000-000000000101",
+          correctAnswer: { type: "quiz-true-false", answer: true },
+          submittedAnswer: { type: "quiz-true-false", answer: false },
+          isCorrect: false,
+          score: 0,
+        },
+      ],
+    });
+  });
+
+  it("keeps manual interaction results hidden until the question is exposed", async () => {
+    const interactionRow = {
+      interaction_id: "interaction_00000000-0000-4000-8000-000000000001",
+      session_id: "session_existing",
+      kind: "poll" as const,
+      title: "만족도",
+      questions_json: [
+        {
+          type: "scale" as const,
+          questionId: "question_00000000-0000-4000-8000-000000000001",
+          prompt: "만족도",
+          required: true,
+          min: 1 as const,
+          max: 5 as const,
+        },
+      ],
+      result_visibility: "manual" as const,
+      quiz_scoring: "none" as const,
+      exposed_result_question_ids: [],
+      source: "ad-hoc" as const,
+      display_order: 0,
+      activated_at: "2026-07-05T00:00:00.000Z",
+      closed_at: null,
+    };
+    const responseRow = {
+      response_id: "response_00000000-0000-4000-8000-000000000001",
+      interaction_id: interactionRow.interaction_id,
+      session_id: "session_existing",
+      audience_id: "audience_00000000-0000-4000-8000-000000000001",
+      question_id: "question_00000000-0000-4000-8000-000000000001",
+      answer_json: { type: "scale" as const, value: 5 },
+      is_correct: null,
+      score: 0,
+      submitted_at: "2026-07-05T00:00:01.000Z",
+      updated_at: "2026-07-05T00:00:01.000Z",
+    };
+    const query = vi
+      .fn()
+      .mockResolvedValueOnce([{ session_id: "session_existing" }])
+      .mockResolvedValueOnce([interactionRow])
+      .mockResolvedValueOnce([responseRow])
+      .mockResolvedValueOnce([{ session_id: "session_existing" }])
+      .mockResolvedValueOnce([
+        {
+          ...interactionRow,
+          exposed_result_question_ids: [
+            "question_00000000-0000-4000-8000-000000000001",
+          ],
+        },
+      ])
+      .mockResolvedValueOnce([responseRow]);
+    const service = new PresentationSessionsService({
+      query,
+    } as unknown as DataSource);
+
+    await expect(
+      service.getInteractionResults({
+        projectId: "project_1",
+        sessionId: "session_existing",
+        interactionId: interactionRow.interaction_id,
+        audienceVisible: true,
+      }),
+    ).resolves.toMatchObject({
+      results: {
+        visibleToAudience: false,
+        questionResults: [{ responseCount: 0, average: null }],
+      },
+    });
+
+    await expect(
+      service.getInteractionResults({
+        projectId: "project_1",
+        sessionId: "session_existing",
+        interactionId: interactionRow.interaction_id,
+        audienceVisible: true,
+      }),
+    ).resolves.toMatchObject({
+      results: {
+        visibleToAudience: true,
+        questionResults: [{ responseCount: 1, average: 5 }],
+      },
+    });
+  });
+
   it("submits audience questions and lets presenter mark them answered", async () => {
     const participantRow = {
       audience_id: "audience_00000000-0000-4000-8000-000000000001",
@@ -754,6 +1251,7 @@ describe("PresentationSessionsService", () => {
           updated_at: "2026-07-05T00:00:00.000Z",
         },
       ])
+      .mockResolvedValueOnce([])
       .mockResolvedValueOnce([questionRow])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([{ session_id: "session_existing" }])
@@ -799,8 +1297,74 @@ describe("PresentationSessionsService", () => {
       question: { status: "answered" },
     });
 
-    expect(query.mock.calls[3][0]).toContain("INSERT INTO audience_questions");
-    expect(query.mock.calls[8][0]).toContain("UPDATE audience_questions");
+    expect(query.mock.calls[4][0]).toContain("INSERT INTO audience_questions");
+    expect(query.mock.calls[9][0]).toContain("UPDATE audience_questions");
+  });
+
+  it("merges highly similar audience questions into an existing group", async () => {
+    const participantRow = {
+      audience_id: "audience_00000000-0000-4000-8000-000000000002",
+      session_id: "session_existing",
+      nickname: "orbit2",
+      joined_at: "2026-07-05T00:00:00.000Z",
+      last_seen_at: "2026-07-05T00:00:00.000Z",
+      joined_before_end: true,
+    };
+    const existingQuestionRow = {
+      question_id: "question_00000000-0000-4000-8000-000000000001",
+      question_group_id: "question_00000000-0000-4000-8000-000000000001",
+      session_id: "session_existing",
+      audience_id: "audience_00000000-0000-4000-8000-000000000001",
+      text: "가격 정책은 어떻게 되나요",
+      status: "pending" as const,
+      submitted_at: "2026-07-05T00:00:01.000Z",
+      answered_at: null,
+    };
+    const mergedQuestionRow = {
+      ...existingQuestionRow,
+      question_id: "question_00000000-0000-4000-8000-000000000002",
+      audience_id: "audience_00000000-0000-4000-8000-000000000002",
+      text: "가격 정책은 어떻게 되나요?",
+    };
+    const query = vi
+      .fn()
+      .mockResolvedValueOnce([participantRow])
+      .mockResolvedValueOnce([activeSessionRow])
+      .mockResolvedValueOnce([
+        {
+          session_id: "session_existing",
+          qna_enabled: true,
+          ai_qna_enabled: false,
+          polls_enabled: false,
+          quizzes_enabled: false,
+          reactions_enabled: false,
+          survey_enabled: false,
+          updated_at: "2026-07-05T00:00:00.000Z",
+        },
+      ])
+      .mockResolvedValueOnce([existingQuestionRow])
+      .mockResolvedValueOnce([mergedQuestionRow])
+      .mockResolvedValueOnce([]);
+    const service = new PresentationSessionsService({
+      query,
+    } as unknown as DataSource);
+
+    await expect(
+      service.submitAudienceQuestion({
+        sessionId: "session_existing",
+        audienceId: "audience_00000000-0000-4000-8000-000000000002",
+        tokenHash: "token_hash",
+        body: { text: "가격 정책은 어떻게 되나요?" },
+      }),
+    ).resolves.toMatchObject({
+      question: {
+        questionGroupId: "question_00000000-0000-4000-8000-000000000001",
+      },
+    });
+
+    expect(query.mock.calls[4][1][1]).toBe(
+      "question_00000000-0000-4000-8000-000000000001",
+    );
   });
 
   it("stores asker-only AI answers when AI Q&A is enabled", async () => {
@@ -851,6 +1415,7 @@ describe("PresentationSessionsService", () => {
           updated_at: "2026-07-05T00:00:00.000Z",
         },
       ])
+      .mockResolvedValueOnce([])
       .mockResolvedValueOnce([questionRow])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([activeSessionRow])
@@ -889,7 +1454,7 @@ describe("PresentationSessionsService", () => {
       "http://localhost:8000/qna/answer",
       expect.objectContaining({ method: "POST" }),
     );
-    expect(query.mock.calls[8][0]).toContain(
+    expect(query.mock.calls[9][0]).toContain(
       "INSERT INTO audience_question_answers",
     );
   });

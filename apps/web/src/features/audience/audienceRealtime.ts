@@ -1,10 +1,12 @@
 import {
   audienceFeatureSettingsPayloadSchema,
+  audienceQuestionAnswerResponseSchema,
   audienceReactionPayloadSchema,
   audienceSessionEndedPayloadSchema,
   audienceSlideStatePayloadSchema,
   audienceStatePayloadSchema,
   type AudienceFeatureSettings,
+  type AudienceQuestionAnswerResponse,
   type AudienceReactionPayload,
   type AudienceSessionEndedPayload,
   type AudienceRealtimeState,
@@ -37,6 +39,7 @@ export type AudienceRealtimeConnection = {
 export function connectAudienceRealtime(args: {
   onError: (message: string) => void;
   onFeatureSettings: (features: AudienceFeatureSettings) => void;
+  onPrivateAnswer?: (payload: AudienceQuestionAnswerResponse) => void;
   onReaction?: (payload: AudienceReactionPayload) => void;
   onSessionEnded?: (payload: AudienceSessionEndedPayload) => void;
   onSlideState: (state: AudienceRealtimeState) => void;
@@ -76,6 +79,11 @@ export function connectAudienceRealtime(args: {
     args.onReaction?.(payload);
   }
 
+  function handlePrivateAnswer(event: WebsocketEvent) {
+    const payload = audienceQuestionAnswerResponseSchema.parse(event.payload);
+    args.onPrivateAnswer?.(payload);
+  }
+
   function handleSessionEnded(event: WebsocketEvent) {
     const payload = audienceSessionEndedPayloadSchema.parse(event.payload);
     args.onSessionEnded?.(payload);
@@ -101,6 +109,7 @@ export function connectAudienceRealtime(args: {
   socket.on("audience:state", handleState);
   socket.on("audience:slide-state", handleSlideState);
   socket.on("audience:feature-settings", handleFeatureSettings);
+  socket.on("audience:private-answer", handlePrivateAnswer);
   socket.on("audience:reaction", handleReaction);
   socket.on("audience:session-ended", handleSessionEnded);
   socket.on("disconnect", handleDisconnect);
@@ -117,6 +126,7 @@ export function connectAudienceRealtime(args: {
       socket.off("audience:state", handleState);
       socket.off("audience:slide-state", handleSlideState);
       socket.off("audience:feature-settings", handleFeatureSettings);
+      socket.off("audience:private-answer", handlePrivateAnswer);
       socket.off("audience:reaction", handleReaction);
       socket.off("audience:session-ended", handleSessionEnded);
       socket.off("disconnect", handleDisconnect);

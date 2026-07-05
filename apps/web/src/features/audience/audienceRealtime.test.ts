@@ -201,6 +201,62 @@ describe("audience realtime client", () => {
     });
   });
 
+  it("parses private AI answer events", () => {
+    const socket = createFakeSocket();
+    const onPrivateAnswer = vi.fn();
+
+    connectAudienceRealtime({
+      onError: vi.fn(),
+      onFeatureSettings: vi.fn(),
+      onPrivateAnswer,
+      onSlideState: vi.fn(),
+      onState: vi.fn(),
+      onStatus: vi.fn(),
+      sessionId: "session_1",
+      socketFactory: () => socket,
+    });
+
+    socket.trigger("audience:private-answer", {
+      type: "audience:private-answer",
+      roomId:
+        "presentation:session_1:audience:audience_00000000-0000-4000-8000-000000000001",
+      sessionId: "session_1",
+      userId: "audience_00000000-0000-4000-8000-000000000001",
+      sentAt: now,
+      payload: {
+        question: {
+          questionId: "question_00000000-0000-4000-8000-000000000001",
+          sessionId: "session_1",
+          audienceId: "audience_00000000-0000-4000-8000-000000000001",
+          questionGroupId: "question_00000000-0000-4000-8000-000000000001",
+          text: "핵심 요약은 무엇인가요?",
+          status: "answered",
+          submittedAt: now,
+          answeredAt: now,
+        },
+        answer: {
+          questionId: "question_00000000-0000-4000-8000-000000000001",
+          sessionId: "session_1",
+          audienceId: "audience_00000000-0000-4000-8000-000000000001",
+          answerText: "핵심 요약입니다.",
+          sourceReferences: ["deck-slide:Intro"],
+          confidence: 0.82,
+          failureReason: null,
+          feedback: null,
+          escalatedToPresenter: false,
+          createdAt: now,
+        },
+      },
+    });
+
+    expect(onPrivateAnswer).toHaveBeenCalledWith(
+      expect.objectContaining({
+        answer: expect.objectContaining({ answerText: "핵심 요약입니다." }),
+        question: expect.objectContaining({ status: "answered" }),
+      }),
+    );
+  });
+
   it("parses session-ended events", () => {
     const socket = createFakeSocket();
     const onSessionEnded = vi.fn();

@@ -1,5 +1,6 @@
 import type {
   AudienceFeatureSettings,
+  SessionInteraction,
   UpdateAudienceFeatureSettingsRequest,
 } from "@orbit/shared";
 
@@ -81,31 +82,78 @@ export function AudienceFeatureSettingsControls(props: {
   );
 }
 
-export function AudienceSessionSetupSummary() {
+export function AudienceSessionSetupSummary(props: {
+  interactions?: SessionInteraction[] | null;
+  selectedReferenceCount?: number | null;
+  surveyLocked?: boolean;
+  surveyTitle?: string;
+}) {
+  const {
+    interactions = null,
+    selectedReferenceCount = null,
+    surveyLocked = false,
+    surveyTitle = "",
+  } = props;
+  const orderedInteractions = [...(interactions ?? [])].sort(
+    (left, right) => left.order - right.order,
+  );
+
   return (
     <div className="audience-session-setup-summary">
       <section aria-label="선택된 세션 상호작용">
         <strong>선택된 상호작용</strong>
-        <p>Poll/Quiz library 연결 대기</p>
+        {interactions === null ? (
+          <p>상호작용 확인 중</p>
+        ) : orderedInteractions.length > 0 ? (
+          <ul>
+            {orderedInteractions.map((interaction) => (
+              <li key={interaction.interactionId}>
+                {interaction.title} · {interaction.kind === "poll" ? "Poll" : "Quiz"}
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p>선택된 상호작용 없음</p>
+        )}
       </section>
       <section aria-label="Poll과 Quiz 표시 순서">
         <strong>표시 순서</strong>
         <div className="audience-session-order-row" role="list">
-          <button type="button" disabled>
-            Poll
-          </button>
-          <button type="button" disabled>
-            Quiz
-          </button>
+          {orderedInteractions.length > 0 ? (
+            orderedInteractions.map((interaction, index) => (
+              <button
+                key={interaction.interactionId}
+                type="button"
+                disabled
+                aria-label={`${interaction.title} 표시 순서 ${index + 1}`}
+              >
+                {index + 1}
+              </button>
+            ))
+          ) : (
+            <button type="button" disabled>
+              없음
+            </button>
+          )}
         </div>
       </section>
       <section aria-label="설문 초안 상태">
         <strong>Survey</strong>
-        <p>초안 없음</p>
+        <p>
+          {surveyTitle
+            ? `${surveyTitle} · ${surveyLocked ? "잠김" : "초안"}`
+            : "저장된 설문 없음"}
+        </p>
       </section>
       <section aria-label="AI Q&A 참고자료 선택">
         <strong>AI Q&A 참고자료</strong>
-        <p>선택된 참고자료 없음</p>
+        <p>
+          {selectedReferenceCount === null
+            ? "참고자료 확인 중"
+            : selectedReferenceCount > 0
+              ? `${selectedReferenceCount}개 선택됨`
+              : "선택된 참고자료 없음"}
+        </p>
       </section>
     </div>
   );

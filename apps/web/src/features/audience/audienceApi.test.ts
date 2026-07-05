@@ -185,6 +185,23 @@ describe("audience API", () => {
     ).rejects.toThrow("이미 사용 중인 닉네임입니다.");
   });
 
+  it("normalizes missing-session API messages to audience Korean copy", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({ message: "Presentation session not found" }),
+            { status: 404 },
+          ),
+      ),
+    );
+
+    await expect(lookupAudienceSession("123456")).rejects.toThrow(
+      "입장 코드를 확인해 주세요.",
+    );
+  });
+
   it("fetches the active audience interaction", async () => {
     const fetcher = vi.fn(
       async () =>

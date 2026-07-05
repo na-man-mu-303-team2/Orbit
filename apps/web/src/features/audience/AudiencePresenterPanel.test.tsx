@@ -9,7 +9,10 @@ import {
 describe("AudiencePresenterPanel", () => {
   it("renders the presenter control/results route shell accessibly", () => {
     const html = renderToStaticMarkup(
-      <AudiencePresenterControlPage projectId="project_1" />,
+      <AudiencePresenterControlPage
+        projectId="project_1"
+        sessionId="session_1"
+      />,
     );
 
     expect(html).toContain("청중 제어");
@@ -17,6 +20,18 @@ describe("AudiencePresenterPanel", () => {
     expect(html).toContain(
       'aria-labelledby="audience-presenter-control-title"',
     );
+  });
+
+  it("renders a safe message for canonical audience routes without project context", () => {
+    const html = renderToStaticMarkup(
+      <AudiencePresenterControlPage
+        sessionId="session_1"
+        variant="missing-project"
+      />,
+    );
+
+    expect(html).toContain("청중 제어");
+    expect(html).toContain("프로젝트 정보를 포함한 상세 제어 링크");
   });
 
   it("renders aggregate result summaries as text", () => {

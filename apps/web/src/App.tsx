@@ -166,7 +166,7 @@ export type Route =
   | { name: "project-list" }
   | { name: "project-editor"; projectId: string }
   | { name: "project-request"; projectId: string }
-  | { name: "audience-control"; projectId: string }
+  | { name: "audience-control"; projectId?: string; sessionId?: string }
   | { name: "audience-join"; joinCode?: string }
   | { name: "present"; deckId: string; sessionId?: string }
   | { name: "rehearsal"; projectId: string }
@@ -376,6 +376,18 @@ export function getRoute(pathname?: string, search?: string): Route {
     };
   }
 
+  const presenterAudienceMatch = normalized.match(
+    /^\/presentations\/([^/]+)\/audience$/,
+  );
+  if (presenterAudienceMatch) {
+    const projectId = new URLSearchParams(currentSearch).get("projectId");
+    return {
+      name: "audience-control",
+      sessionId: decodeURIComponent(presenterAudienceMatch[1]),
+      projectId: projectId ? decodeURIComponent(projectId) : undefined,
+    };
+  }
+
   const projectRequestMatch = normalized.match(/^\/project\/([^/]+)\/request$/);
   if (projectRequestMatch) {
     return {
@@ -495,9 +507,20 @@ function renderRoute(route: Route, user?: AuthUser) {
     return <AudienceSessionPage joinCode={route.joinCode} />;
   }
   if (route.name === "audience-control") {
+    if (!route.projectId) {
+      return (
+        <AudiencePresenterControlPage
+          sessionId={route.sessionId}
+          variant="missing-project"
+        />
+      );
+    }
     return (
       <ProjectAccessGate projectId={route.projectId}>
-        <AudiencePresenterControlPage projectId={route.projectId} />
+        <AudiencePresenterControlPage
+          projectId={route.projectId}
+          sessionId={route.sessionId}
+        />
       </ProjectAccessGate>
     );
   }
@@ -604,7 +627,7 @@ function AppFrame(props: {
     route.name === "audience-control" ||
     route.name === "rehearsal" ||
     route.name === "rehearsal-report"
-      ? route.projectId
+      ? route.projectId ?? demoIds.projectId
       : demoIds.projectId;
   const isHomeDashboard = route.name === "home";
   const userLabel = user ? getUserLabel(user) : "로그인";

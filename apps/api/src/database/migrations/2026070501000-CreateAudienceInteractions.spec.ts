@@ -28,6 +28,7 @@ describe("CreateAudienceInteractions migration", () => {
     expect(sql).toContain("CREATE TABLE IF NOT EXISTS interaction_responses");
     expect(sql).toContain("idx_session_interactions_one_active");
     expect(sql).toContain("UNIQUE (interaction_id, audience_id, question_id)");
+    expect(sql).not.toContain("exposed_result_question_ids");
     expect(sql).not.toContain("CREATE TABLE IF NOT EXISTS audience_questions");
     expect(sql).not.toContain(
       "CREATE TABLE IF NOT EXISTS audience_question_answers",

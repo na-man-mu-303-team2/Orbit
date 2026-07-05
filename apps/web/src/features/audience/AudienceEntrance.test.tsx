@@ -124,6 +124,7 @@ describe("AudienceEntrance", () => {
           quizScoring: "none",
           source: "ad-hoc",
           order: 0,
+          exposedResultQuestionIds: [],
           activatedAt: "2026-07-05T00:00:00.000Z",
           closedAt: null,
         }}
@@ -226,6 +227,7 @@ describe("AudienceEntrance", () => {
           quizScoring: "correct-count",
           source: "ad-hoc",
           order: 0,
+          exposedResultQuestionIds: [],
           activatedAt: "2026-07-05T00:00:00.000Z",
           closedAt: null,
         }}
@@ -266,5 +268,110 @@ describe("AudienceEntrance", () => {
     expect(html).not.toContain("rawAudio");
     expect(html).not.toContain("presenterScript");
     expect(html).not.toContain("fileBase64");
+  });
+
+  it("renders quiz answer reveal after the interaction closes", () => {
+    const html = renderToStaticMarkup(
+      <AudienceLiveShell
+        activeInteraction={{
+          interactionId: "interaction_00000000-0000-4000-8000-000000000301",
+          sessionId: "session_1",
+          kind: "quiz",
+          title: "이해도 확인",
+          questions: [
+            {
+              type: "quiz-true-false",
+              questionId: "question_00000000-0000-4000-8000-000000000301",
+              prompt: "청중은 로그인 없이 참여한다.",
+              correctAnswer: true,
+            },
+          ],
+          resultVisibility: "after-close",
+          quizScoring: "correct-count",
+          source: "ad-hoc",
+          order: 0,
+          exposedResultQuestionIds: [],
+          activatedAt: "2026-07-05T00:00:00.000Z",
+          closedAt: "2026-07-05T00:02:00.000Z",
+        }}
+        connectionStatus="connected"
+        features={{
+          ...disabledFeatures,
+          quizzesEnabled: true,
+        }}
+        participant={participant}
+        quizReveal={[
+          {
+            questionId: "question_00000000-0000-4000-8000-000000000301",
+            correctAnswer: { type: "quiz-true-false", answer: true },
+            submittedAnswer: { type: "quiz-true-false", answer: false },
+            isCorrect: false,
+            score: 0,
+          },
+        ]}
+        state={null}
+      />,
+    );
+
+    expect(html).toContain("퀴즈 결과가 공개되었습니다.");
+    expect(html).toContain("청중은 로그인 없이 참여한다.");
+    expect(html).toContain("내 답");
+    expect(html).toContain("거짓");
+    expect(html).toContain("정답");
+    expect(html).toContain("참");
+    expect(html).toContain("오답입니다.");
+    expect(html).not.toContain("퀴즈 제출");
+  });
+
+  it("renders every question in a multi-question interaction", () => {
+    const html = renderToStaticMarkup(
+      <AudienceLiveShell
+        activeInteraction={{
+          interactionId: "interaction_00000000-0000-4000-8000-000000000201",
+          sessionId: "session_1",
+          kind: "poll",
+          title: "복합 투표",
+          questions: [
+            {
+              type: "choice",
+              questionId: "question_00000000-0000-4000-8000-000000000201",
+              prompt: "관심 주제를 모두 골라 주세요.",
+              required: true,
+              allowMultiple: true,
+              options: [
+                { optionId: "product", label: "제품" },
+                { optionId: "market", label: "시장" },
+              ],
+            },
+            {
+              type: "open-text",
+              questionId: "question_00000000-0000-4000-8000-000000000202",
+              prompt: "추가 의견",
+              required: false,
+              maxLength: 500,
+            },
+          ],
+          resultVisibility: "manual",
+          quizScoring: "none",
+          exposedResultQuestionIds: [],
+          source: "ad-hoc",
+          order: 0,
+          activatedAt: "2026-07-05T00:00:00.000Z",
+          closedAt: null,
+        }}
+        connectionStatus="connected"
+        features={{
+          ...disabledFeatures,
+          pollsEnabled: true,
+        }}
+        participant={participant}
+        state={null}
+      />,
+    );
+
+    expect(html).toContain("관심 주제를 모두 골라 주세요.");
+    expect(html).toContain("추가 의견");
+    expect(html).toContain('type="checkbox"');
+    expect(html).toContain("응답 제출");
   });
 });

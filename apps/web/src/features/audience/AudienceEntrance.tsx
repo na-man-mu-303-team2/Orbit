@@ -3,11 +3,13 @@ import type {
   AudienceFeatureSettings,
   AudienceParticipant,
   AudiencePublicSession,
+  AudienceQuestionAnswerResponse,
   AudienceReactionPayload,
   AudienceRealtimeState,
   AudienceStateResponse,
   InteractionAnswer,
   InteractionQuestion,
+  QuizAnswerRevealItem,
   AudienceQuestion,
   ReactionType,
   SessionInteraction,
@@ -58,6 +60,8 @@ export function AudienceEntrance({ initialJoinCode }: AudienceEntranceProps) {
   const [connectionStatus, setConnectionStatus] =
     useState<AudienceRealtimeStatus>("idle");
   const [recentReactions, setRecentReactions] = useState<ReactionType[]>([]);
+  const [privateAnswer, setPrivateAnswer] =
+    useState<AudienceQuestionAnswerResponse | null>(null);
   const [errorMessage, setErrorMessage] = useState("");
   const [loadingState, setLoadingState] = useState<LoadingState>(
     initialJoinCode ? "lookup" : "idle",
@@ -169,6 +173,7 @@ export function AudienceEntrance({ initialJoinCode }: AudienceEntranceProps) {
       setSurveyForm(null);
       setConnectionStatus("idle");
       setRecentReactions([]);
+      setPrivateAnswer(null);
       return;
     }
 
@@ -204,6 +209,11 @@ export function AudienceEntrance({ initialJoinCode }: AudienceEntranceProps) {
           setAudienceState((current) =>
             current ? { ...current, features } : current,
           );
+        }
+      },
+      onPrivateAnswer: (payload) => {
+        if (!isCancelled) {
+          setPrivateAnswer(payload);
         }
       },
       onReaction: (payload) => {
@@ -406,6 +416,8 @@ export function AudienceEntrance({ initialJoinCode }: AudienceEntranceProps) {
               connectionStatus={connectionStatus}
               features={audienceState?.features ?? null}
               participant={participant}
+              privateAnswer={privateAnswer}
+              quizReveal={activeInteraction?.quizReveal ?? []}
               recentReactions={recentReactions}
               state={audienceState?.state ?? null}
               survey={surveyForm}
@@ -445,6 +457,8 @@ export function AudienceLiveShell(props: {
   connectionStatus: AudienceRealtimeStatus;
   features: AudienceFeatureSettings | null;
   participant: AudienceParticipant;
+  privateAnswer?: AudienceQuestionAnswerResponse | null;
+  quizReveal?: QuizAnswerRevealItem[];
   recentReactions?: ReactionType[];
   state: AudienceRealtimeState | null;
   survey?: SurveyForm | null;
@@ -454,6 +468,8 @@ export function AudienceLiveShell(props: {
     connectionStatus,
     features,
     participant,
+    privateAnswer = null,
+    quizReveal = [],
     recentReactions = [],
     state,
     survey = null,
@@ -497,6 +513,8 @@ export function AudienceLiveShell(props: {
       <AudienceActiveCards
         activeInteraction={activeInteraction}
         features={features}
+        privateAnswer={privateAnswer}
+        quizReveal={quizReveal}
         recentReactions={recentReactions}
         sessionId={participant.sessionId}
       />
@@ -511,9 +529,13 @@ function AudienceActiveCards({
   features,
   recentReactions,
   sessionId,
+  privateAnswer,
+  quizReveal,
 }: {
   activeInteraction: SessionInteraction | null;
   features: AudienceFeatureSettings | null;
+  privateAnswer: AudienceQuestionAnswerResponse | null;
+  quizReveal: QuizAnswerRevealItem[];
   recentReactions: ReactionType[];
   sessionId: string;
 }) {
@@ -529,9 +551,14 @@ function AudienceActiveCards({
 
   return (
     <section className="audience-active-cards" aria-label="활성 청중 기능">
-      {features?.qnaEnabled ? <AudienceQnaCard sessionId={sessionId} /> : null}
+      {features?.qnaEnabled ? (
+        <AudienceQnaCard privateAnswer={privateAnswer} sessionId={sessionId} />
+      ) : null}
       {activeInteraction ? (
-        <AudienceInteractionCard interaction={activeInteraction} />
+        <AudienceInteractionCard
+          interaction={activeInteraction}
+          quizReveal={quizReveal}
+        />
       ) : null}
       {features?.reactionsEnabled ? (
         <AudienceReactionCard
@@ -855,11 +882,30 @@ function SurveyQuestionField({
   return null;
 }
 
-function AudienceQnaCard({ sessionId }: { sessionId: string }) {
+function AudienceQnaCard({
+  privateAnswer,
+  sessionId,
+}: {
+  privateAnswer: AudienceQuestionAnswerResponse | null;
+  sessionId: string;
+}) {
   const [questionText, setQuestionText] = useState("");
   const [question, setQuestion] = useState<AudienceQuestion | null>(null);
   const [answerText, setAnswerText] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
+
+  useEffect(() => {
+    if (
+      !privateAnswer ||
+      !question ||
+      privateAnswer.question.questionId !== question.questionId
+    ) {
+      return;
+    }
+
+    setQuestion(privateAnswer.question);
+    setAnswerText(privateAnswer.answer?.answerText ?? "");
+  }, [privateAnswer, question]);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -948,32 +994,46 @@ function AudienceQnaCard({ sessionId }: { sessionId: string }) {
 
 function AudienceInteractionCard({
   interaction,
+  quizReveal,
 }: {
   interaction: SessionInteraction;
+  quizReveal: QuizAnswerRevealItem[];
 }) {
-  const [selectedValue, setSelectedValue] = useState("");
+  const [answers, setAnswers] = useState<Record<string, string | string[]>>({});
   const [message, setMessage] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
-  const question = interaction.questions[0];
+  const showQuizReveal =
+    interaction.kind === "quiz" &&
+    interaction.closedAt !== null &&
+    quizReveal.length > 0;
+
+  function updateAnswer(questionId: string, value: string | string[]) {
+    setAnswers((current) => ({ ...current, [questionId]: value }));
+  }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setMessage("");
     setErrorMessage("");
 
-    const answer = buildAnswer(question, selectedValue);
-    if (!answer) {
-      setErrorMessage("응답을 선택해 주세요.");
-      return;
-    }
-
     try {
-      await submitAudienceInteractionResponse({
-        sessionId: interaction.sessionId,
-        interactionId: interaction.interactionId,
-        questionId: question.questionId,
-        answer,
-      });
+      for (const question of interaction.questions) {
+        const answer = buildAnswer(question, answers[question.questionId] ?? "");
+        if (!answer) {
+          if ("required" in question && !question.required) {
+            continue;
+          }
+          setErrorMessage("응답을 선택해 주세요.");
+          return;
+        }
+
+        await submitAudienceInteractionResponse({
+          sessionId: interaction.sessionId,
+          interactionId: interaction.interactionId,
+          questionId: question.questionId,
+          answer,
+        });
+      }
       setMessage(
         interaction.kind === "quiz"
           ? "퀴즈 응답이 제출되었습니다."
@@ -989,19 +1049,31 @@ function AudienceInteractionCard({
   return (
     <article className="audience-active-card audience-interaction-card">
       <span>{interaction.kind === "quiz" ? "Quiz" : "Poll"}</span>
-      <form onSubmit={(event) => void handleSubmit(event)}>
-        <fieldset>
-          <legend>{question.prompt}</legend>
-          <InteractionQuestionInput
-            question={question}
-            value={selectedValue}
-            onChange={setSelectedValue}
-          />
-        </fieldset>
-        <button type="submit">
-          {interaction.kind === "quiz" ? "퀴즈 제출" : "응답 제출"}
-        </button>
-      </form>
+      {showQuizReveal ? (
+        <QuizRevealList interaction={interaction} quizReveal={quizReveal} />
+      ) : interaction.closedAt !== null ? (
+        <p className="audience-interaction-status" role="status">
+          {interaction.kind === "quiz"
+            ? "퀴즈가 종료되었습니다."
+            : "응답이 종료되었습니다."}
+        </p>
+      ) : (
+        <form onSubmit={(event) => void handleSubmit(event)}>
+          {interaction.questions.map((question) => (
+            <fieldset key={question.questionId}>
+              <legend>{question.prompt}</legend>
+              <InteractionQuestionInput
+                question={question}
+                value={answers[question.questionId] ?? ""}
+                onChange={(value) => updateAnswer(question.questionId, value)}
+              />
+            </fieldset>
+          ))}
+          <button type="submit">
+            {interaction.kind === "quiz" ? "퀴즈 제출" : "응답 제출"}
+          </button>
+        </form>
+      )}
       {message ? (
         <p className="audience-interaction-status" role="status">
           {message}
@@ -1016,27 +1088,91 @@ function AudienceInteractionCard({
   );
 }
 
+function QuizRevealList({
+  interaction,
+  quizReveal,
+}: {
+  interaction: SessionInteraction;
+  quizReveal: QuizAnswerRevealItem[];
+}) {
+  return (
+    <div className="audience-quiz-reveal" role="status">
+      <p>퀴즈 결과가 공개되었습니다.</p>
+      {quizReveal.map((item) => {
+        const question = interaction.questions.find(
+          (candidate) => candidate.questionId === item.questionId,
+        );
+        if (!question) {
+          return null;
+        }
+
+        return (
+          <section key={item.questionId}>
+            <h3>{question.prompt}</h3>
+            <dl>
+              <div>
+                <dt>내 답</dt>
+                <dd>{formatInteractionAnswer(question, item.submittedAnswer)}</dd>
+              </div>
+              <div>
+                <dt>정답</dt>
+                <dd>{formatInteractionAnswer(question, item.correctAnswer)}</dd>
+              </div>
+              <div>
+                <dt>결과</dt>
+                <dd>
+                  {item.isCorrect === true
+                    ? "정답입니다."
+                    : item.isCorrect === false
+                      ? "오답입니다."
+                      : "제출한 답이 없습니다."}
+                </dd>
+              </div>
+              {item.score !== null ? (
+                <div>
+                  <dt>점수</dt>
+                  <dd>{item.score}</dd>
+                </div>
+              ) : null}
+            </dl>
+          </section>
+        );
+      })}
+    </div>
+  );
+}
+
 function InteractionQuestionInput(props: {
   question: InteractionQuestion;
-  value: string;
-  onChange: (value: string) => void;
+  value: string | string[];
+  onChange: (value: string | string[]) => void;
 }) {
   const { question, value, onChange } = props;
-  if (
-    question.type === "choice" ||
-    question.type === "quiz-multiple-choice" ||
-    question.type === "ranking"
-  ) {
+  if (question.type === "choice" || question.type === "quiz-multiple-choice") {
+    const selected = Array.isArray(value) ? value : value ? [value] : [];
+    const allowMultiple =
+      question.type === "choice" ? question.allowMultiple : true;
     return (
       <div className="audience-interaction-options">
         {question.options.map((option) => (
           <label key={option.optionId}>
             <input
-              checked={value === option.optionId}
+              checked={selected.includes(option.optionId)}
               name={question.questionId}
-              type="radio"
+              type={allowMultiple ? "checkbox" : "radio"}
               value={option.optionId}
-              onChange={(event) => onChange(event.target.value)}
+              onChange={(event) => {
+                if (!allowMultiple) {
+                  onChange(event.target.value);
+                  return;
+                }
+
+                onChange(
+                  event.target.checked
+                    ? [...selected, option.optionId]
+                    : selected.filter((item) => item !== option.optionId),
+                );
+              }}
             />
             <span>{option.label}</span>
           </label>
@@ -1046,6 +1182,7 @@ function InteractionQuestionInput(props: {
   }
 
   if (question.type === "scale") {
+    const textValue = typeof value === "string" ? value : "";
     return (
       <label className="audience-field" htmlFor={question.questionId}>
         <span>1-5</span>
@@ -1055,10 +1192,35 @@ function InteractionQuestionInput(props: {
           max={5}
           min={1}
           type="number"
-          value={value}
+          value={textValue}
           onChange={(event) => onChange(event.target.value)}
         />
       </label>
+    );
+  }
+
+  if (question.type === "ranking") {
+    const selected = Array.isArray(value) ? value : value ? [value] : [];
+    return (
+      <div className="audience-interaction-options">
+        {question.options.map((option) => (
+          <label key={option.optionId}>
+            <input
+              checked={selected.includes(option.optionId)}
+              name={question.questionId}
+              type="checkbox"
+              value={option.optionId}
+              onChange={(event) => {
+                const next = event.target.checked
+                  ? [...selected, option.optionId].slice(0, 5)
+                  : selected.filter((item) => item !== option.optionId);
+                onChange(next);
+              }}
+            />
+            <span>{option.label}</span>
+          </label>
+        ))}
+      </div>
     );
   }
 
@@ -1095,7 +1257,7 @@ function InteractionQuestionInput(props: {
       <textarea
         id={question.questionId}
         maxLength={1000}
-        value={value}
+        value={typeof value === "string" ? value : ""}
         onChange={(event) => onChange(event.target.value)}
       />
     </label>
@@ -1104,41 +1266,77 @@ function InteractionQuestionInput(props: {
 
 function buildAnswer(
   question: InteractionQuestion,
-  value: string,
+  value: string | string[],
 ): InteractionAnswer | null {
-  if (!value.trim()) {
+  const selectedValues = Array.isArray(value) ? value : value ? [value] : [];
+  const textValue = typeof value === "string" ? value.trim() : "";
+  if (selectedValues.length === 0 && !textValue) {
     return null;
   }
 
   if (question.type === "scale") {
-    return { type: "scale", value: Number(value) };
+    return { type: "scale", value: Number(textValue) };
   }
 
   if (question.type === "open-text") {
-    return { type: "open-text", text: value };
+    return { type: "open-text", text: textValue };
   }
 
   if (question.type === "ranking") {
     return {
       type: "ranking",
-      orderedOptionIds: [
-        value,
-        ...question.options
-          .map((option) => option.optionId)
-          .filter((optionId) => optionId !== value),
-      ].slice(0, 5),
+      orderedOptionIds: selectedValues.slice(0, 5),
     };
   }
 
   if (question.type === "quiz-true-false") {
-    return { type: "quiz-true-false", answer: value === "true" };
+    return { type: "quiz-true-false", answer: textValue === "true" };
   }
 
   if (question.type === "quiz-multiple-choice") {
-    return { type: "quiz-multiple-choice", selectedOptionIds: [value] };
+    return { type: "quiz-multiple-choice", selectedOptionIds: selectedValues };
   }
 
-  return { type: "choice", selectedOptionIds: [value] };
+  return { type: "choice", selectedOptionIds: selectedValues };
+}
+
+function formatInteractionAnswer(
+  question: InteractionQuestion,
+  answer: InteractionAnswer | null,
+) {
+  if (!answer) {
+    return "제출하지 않음";
+  }
+
+  if (answer.type === "quiz-true-false") {
+    return answer.answer ? "참" : "거짓";
+  }
+
+  if (
+    (answer.type === "choice" || answer.type === "quiz-multiple-choice") &&
+    (question.type === "choice" || question.type === "quiz-multiple-choice")
+  ) {
+    const labelsById = new Map(
+      question.options.map((option) => [option.optionId, option.label]),
+    );
+    return answer.selectedOptionIds
+      .map((optionId) => labelsById.get(optionId) ?? optionId)
+      .join(", ");
+  }
+
+  if (answer.type === "scale") {
+    return String(answer.value);
+  }
+
+  if (answer.type === "ranking") {
+    return answer.orderedOptionIds.join(", ");
+  }
+
+  if (answer.type === "open-text") {
+    return answer.text;
+  }
+
+  return "응답";
 }
 
 function readSlideSnapshotUrl(payload: Record<string, unknown>) {

@@ -2,13 +2,20 @@ import type {
   AudienceFeatureSettings,
   PresentationSession,
   ReactionType,
+  SessionInteraction,
 } from "@orbit/shared";
 import { BarChart3, ExternalLink, QrCode, Users } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import {
+  activateSessionInteraction,
+  closeSessionInteraction,
+  createAdHocSessionInteraction,
+  exposeInteractionQuestionResults,
   fetchAudienceFeatureSettings,
   fetchCurrentAudienceAccessSession,
+  fetchPresenterQuestionQueue,
+  fetchSessionInteractions,
   fetchSessionResults,
   fetchSessionSurveyForm,
   sessionSurveyCsvUrl,
@@ -36,6 +43,7 @@ type AudiencePresenterPanelProps = {
   projectId: string;
   publisher?: AudiencePresenterRealtimePublisher | null;
   recentReactions?: ReactionType[];
+  sessionId?: string;
   variant?: "overlay" | "page";
 };
 
@@ -43,6 +51,7 @@ export function AudiencePresenterPanel({
   projectId,
   publisher = null,
   recentReactions: controlledRecentReactions,
+  sessionId: requestedSessionId,
   variant = "overlay",
 }: AudiencePresenterPanelProps) {
   const [session, setSession] = useState<PresentationSession | null>(null);
@@ -54,6 +63,8 @@ export function AudiencePresenterPanel({
   const [surveyTitle, setSurveyTitle] = useState("");
   const [results, setResults] =
     useState<Awaited<ReturnType<typeof fetchSessionResults>> | null>(null);
+  const [interactions, setInteractions] = useState<SessionInteraction[]>([]);
+  const [pendingQuestionCount, setPendingQuestionCount] = useState(0);
   const [fallbackPublisher, setFallbackPublisher] =
     useState<AudiencePresenterRealtimePublisher | null>(null);
   const [recentReactions, setRecentReactions] = useState<ReactionType[]>([]);
@@ -87,6 +98,12 @@ export function AudiencePresenterPanel({
           setFeatures(null);
           return;
         }
+        if (
+          requestedSessionId &&
+          nextSession.sessionId !== requestedSessionId
+        ) {
+          setErrorMessage("현재 프로젝트의 활성 청중 세션을 표시합니다.");
+        }
 
         const settings = await fetchAudienceFeatureSettings({
           projectId,
@@ -96,6 +113,14 @@ export function AudiencePresenterPanel({
           projectId,
           sessionId: nextSession.sessionId,
         });
+        const nextInteractions = await fetchSessionInteractions({
+          projectId,
+          sessionId: nextSession.sessionId,
+        });
+        const questionQueue = await fetchPresenterQuestionQueue({
+          projectId,
+          sessionId: nextSession.sessionId,
+        }).catch(() => ({ questions: [] }));
         const nextResults = await fetchSessionResults({
           projectId,
           sessionId: nextSession.sessionId,
@@ -103,6 +128,12 @@ export function AudiencePresenterPanel({
         if (!isCancelled) {
           setFeatures(settings.features);
           setSurveyTitle(survey.survey?.title ?? "");
+          setInteractions(nextInteractions.interactions);
+          setPendingQuestionCount(
+            questionQueue.questions.filter(
+              (question) => question.status === "pending",
+            ).length,
+          );
           setResults(nextResults);
         }
       })
@@ -113,6 +144,8 @@ export function AudiencePresenterPanel({
           setAudienceUrl("");
           setAudienceQrDataUrl("");
           setFeatures(null);
+          setInteractions([]);
+          setPendingQuestionCount(0);
         }
       })
       .finally(() => {
@@ -124,7 +157,7 @@ export function AudiencePresenterPanel({
     return () => {
       isCancelled = true;
     };
-  }, [projectId]);
+  }, [projectId, requestedSessionId]);
 
   useEffect(() => {
     if (publisher || !session) {
@@ -222,6 +255,90 @@ export function AudiencePresenterPanel({
     }
   }
 
+  async function refreshInteractions() {
+    if (!session) {
+      return;
+    }
+
+    const response = await fetchSessionInteractions({
+      projectId,
+      sessionId: session.sessionId,
+    });
+    setInteractions(response.interactions);
+  }
+
+  async function handleCreateAdHoc(kind: "poll" | "quiz") {
+    if (!session) {
+      return;
+    }
+
+    setErrorMessage("");
+    try {
+      await createAdHocSessionInteraction({
+        projectId,
+        sessionId: session.sessionId,
+        interaction:
+          kind === "poll" ? createDefaultPollInteraction() : createDefaultQuizInteraction(),
+      });
+      await refreshInteractions();
+    } catch (error) {
+      setErrorMessage(toAudienceLinkErrorMessage(error));
+    }
+  }
+
+  async function handleInteractionCommand(
+    interaction: SessionInteraction,
+    command: "activate" | "close",
+  ) {
+    if (!session) {
+      return;
+    }
+
+    setErrorMessage("");
+    try {
+      if (command === "activate") {
+        await activateSessionInteraction({
+          projectId,
+          sessionId: session.sessionId,
+          interactionId: interaction.interactionId,
+        });
+      } else {
+        await closeSessionInteraction({
+          projectId,
+          sessionId: session.sessionId,
+          interactionId: interaction.interactionId,
+        });
+      }
+      await refreshInteractions();
+    } catch (error) {
+      setErrorMessage(toAudienceLinkErrorMessage(error));
+    }
+  }
+
+  async function handleExposeQuestion(
+    interaction: SessionInteraction,
+    questionId: string,
+    exposed: boolean,
+  ) {
+    if (!session) {
+      return;
+    }
+
+    setErrorMessage("");
+    try {
+      await exposeInteractionQuestionResults({
+        projectId,
+        sessionId: session.sessionId,
+        interactionId: interaction.interactionId,
+        questionId,
+        exposed,
+      });
+      await refreshInteractions();
+    } catch (error) {
+      setErrorMessage(toAudienceLinkErrorMessage(error));
+    }
+  }
+
   const isOpen = session?.entryStatus === "open";
   const visibleRecentReactions = controlledRecentReactions ?? recentReactions;
   const titleId =
@@ -242,7 +359,9 @@ export function AudiencePresenterPanel({
         {audienceUrl ? (
           <a
             aria-label="청중 상세 제어와 결과 열기"
-            href={`/audience/${encodeURIComponent(projectId)}/control`}
+            href={`/presentations/${encodeURIComponent(
+              session?.sessionId ?? "",
+            )}/audience?projectId=${encodeURIComponent(projectId)}`}
           >
             <ExternalLink size={15} />
           </a>
@@ -325,6 +444,25 @@ export function AudiencePresenterPanel({
             </div>
           ) : null}
 
+          <AudiencePresenterInteractionControls
+            interactions={interactions}
+            onActivate={(interaction) =>
+              void handleInteractionCommand(interaction, "activate")
+            }
+            onClose={(interaction) =>
+              void handleInteractionCommand(interaction, "close")
+            }
+            onCreateAdHoc={(kind) => void handleCreateAdHoc(kind)}
+            onExposeQuestion={(interaction, questionId, exposed) =>
+              void handleExposeQuestion(interaction, questionId, exposed)
+            }
+          />
+
+          <div className="audience-presenter-results" aria-label="Q&A 대기열">
+            <span>Q&A 대기열</span>
+            <p>답변 대기 {pendingQuestionCount}개</p>
+          </div>
+
           <div
             className="audience-presenter-results"
             aria-label="청중 결과 요약"
@@ -388,6 +526,97 @@ export function AudiencePresenterResultsSummary({
   );
 }
 
+function AudiencePresenterInteractionControls({
+  interactions,
+  onActivate,
+  onClose,
+  onCreateAdHoc,
+  onExposeQuestion,
+}: {
+  interactions: SessionInteraction[];
+  onActivate: (interaction: SessionInteraction) => void;
+  onClose: (interaction: SessionInteraction) => void;
+  onCreateAdHoc: (kind: "poll" | "quiz") => void;
+  onExposeQuestion: (
+    interaction: SessionInteraction,
+    questionId: string,
+    exposed: boolean,
+  ) => void;
+}) {
+  const orderedInteractions = [...interactions].sort(
+    (left, right) => left.order - right.order,
+  );
+
+  return (
+    <div
+      className="audience-presenter-results"
+      aria-label="상호작용 라이브 제어"
+    >
+      <span>Poll/Quiz</span>
+      <div className="audience-presenter-entry-actions">
+        <button type="button" onClick={() => onCreateAdHoc("poll")}>
+          Poll 추가
+        </button>
+        <button type="button" onClick={() => onCreateAdHoc("quiz")}>
+          Quiz 추가
+        </button>
+      </div>
+      {orderedInteractions.length === 0 ? <p>준비된 상호작용 없음</p> : null}
+      {orderedInteractions.map((interaction) => {
+        const isActive =
+          interaction.activatedAt !== null && interaction.closedAt === null;
+        return (
+          <section key={interaction.interactionId}>
+            <p>
+              {interaction.title} · {interaction.kind === "poll" ? "Poll" : "Quiz"}
+            </p>
+            <div className="audience-presenter-entry-actions">
+              <button
+                type="button"
+                disabled={isActive || interaction.closedAt !== null}
+                onClick={() => onActivate(interaction)}
+              >
+                활성화
+              </button>
+              <button
+                type="button"
+                disabled={!isActive}
+                onClick={() => onClose(interaction)}
+              >
+                닫기
+              </button>
+            </div>
+            {interaction.resultVisibility === "manual" ? (
+              <div className="audience-session-order-row" role="list">
+                {interaction.questions.map((question) => {
+                  const exposed = interaction.exposedResultQuestionIds.includes(
+                    question.questionId,
+                  );
+                  return (
+                    <button
+                      key={question.questionId}
+                      type="button"
+                      onClick={() =>
+                        onExposeQuestion(
+                          interaction,
+                          question.questionId,
+                          !exposed,
+                        )
+                      }
+                    >
+                      {exposed ? "결과 숨기기" : "결과 공개"}
+                    </button>
+                  );
+                })}
+              </div>
+            ) : null}
+          </section>
+        );
+      })}
+    </div>
+  );
+}
+
 function createDefaultSurveyForm() {
   return {
     title: "발표 설문",
@@ -424,6 +653,46 @@ function createDefaultSurveyForm() {
   };
 }
 
+function createDefaultPollInteraction() {
+  return {
+    kind: "poll" as const,
+    title: "즉석 투표",
+    resultVisibility: "manual" as const,
+    quizScoring: "none" as const,
+    questions: [
+      {
+        type: "choice" as const,
+        questionId: "question_00000000-0000-4000-8000-000000000911",
+        prompt: "어떤 선택지가 가장 적절한가요?",
+        required: true,
+        allowMultiple: false,
+        options: [
+          { optionId: "a", label: "A" },
+          { optionId: "b", label: "B" },
+        ],
+      },
+    ],
+  };
+}
+
+function createDefaultQuizInteraction() {
+  return {
+    kind: "quiz" as const,
+    title: "즉석 퀴즈",
+    resultVisibility: "after-close" as const,
+    quizScoring: "speed-bonus" as const,
+    questions: [
+      {
+        type: "quiz-true-false" as const,
+        questionId: "question_00000000-0000-4000-8000-000000000912",
+        prompt: "오늘 발표의 핵심 문장을 확인했습니다.",
+        correctAnswer: true,
+        timeLimitSeconds: 30,
+      },
+    ],
+  };
+}
+
 const presenterReactionSymbols: Record<ReactionType, string> = {
   clap: "👏",
   heart: "❤",
@@ -454,12 +723,43 @@ function AudiencePresenterReactionStrip({
 
 export function AudiencePresenterControlPage({
   projectId,
+  sessionId,
+  variant,
 }: {
-  projectId: string;
+  projectId?: string;
+  sessionId?: string;
+  variant?: "missing-project";
 }) {
+  if (!projectId) {
+    return (
+      <main className="audience-presenter-control-page">
+        <section
+          className="audience-presenter-panel audience-presenter-panel-page"
+          aria-labelledby="audience-presenter-control-title"
+        >
+          <header>
+            <span>
+              <Users size={16} />
+              <strong id="audience-presenter-control-title">청중 제어</strong>
+            </span>
+          </header>
+          <p className="audience-presenter-muted">
+            {variant === "missing-project" && sessionId
+              ? "프로젝트 정보를 포함한 상세 제어 링크로 다시 열어 주세요."
+              : "활성 청중 세션 없음"}
+          </p>
+        </section>
+      </main>
+    );
+  }
+
   return (
     <main className="audience-presenter-control-page">
-      <AudiencePresenterPanel projectId={projectId} variant="page" />
+      <AudiencePresenterPanel
+        projectId={projectId}
+        sessionId={sessionId}
+        variant="page"
+      />
     </main>
   );
 }

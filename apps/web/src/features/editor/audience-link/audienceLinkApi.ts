@@ -1,8 +1,12 @@
 import type {
   CreatePresentationSessionResponse,
+  CreateAdHocSessionInteractionRequest,
   GetCurrentPresentationSessionResponse,
+  ListSessionInteractionsResponse,
   PresentationEntryStatus,
   PresentationSession,
+  PresenterQuestionQueueResponse,
+  SessionInteractionResponse,
   SessionResultsResponse,
   SessionSurveyFormResponse,
   UpsertSessionSurveyFormRequest,
@@ -213,10 +217,146 @@ export async function fetchSessionResults(args: {
   return response.json() as Promise<SessionResultsResponse>;
 }
 
+export async function fetchSessionInteractions(args: {
+  projectId: string;
+  sessionId: string;
+}): Promise<ListSessionInteractionsResponse> {
+  const response = await fetch(sessionInteractionsUrl(args), {
+    credentials: "include",
+    method: "GET",
+  });
+
+  if (!response.ok) {
+    throw await readResponseError(response, "Session interactions fetch failed");
+  }
+
+  return response.json() as Promise<ListSessionInteractionsResponse>;
+}
+
+export async function createAdHocSessionInteraction(args: {
+  interaction: CreateAdHocSessionInteractionRequest;
+  projectId: string;
+  sessionId: string;
+}): Promise<SessionInteractionResponse> {
+  const response = await fetch(sessionInteractionsUrl(args), {
+    body: JSON.stringify(args.interaction),
+    credentials: "include",
+    headers: {
+      "content-type": "application/json",
+    },
+    method: "POST",
+  });
+
+  if (!response.ok) {
+    throw await readResponseError(response, "Session interaction create failed");
+  }
+
+  return response.json() as Promise<SessionInteractionResponse>;
+}
+
+export async function activateSessionInteraction(args: {
+  interactionId: string;
+  projectId: string;
+  sessionId: string;
+}): Promise<SessionInteractionResponse> {
+  return postInteractionCommand(args, "activate");
+}
+
+export async function closeSessionInteraction(args: {
+  interactionId: string;
+  projectId: string;
+  sessionId: string;
+}): Promise<SessionInteractionResponse> {
+  return postInteractionCommand(args, "close");
+}
+
+export async function exposeInteractionQuestionResults(args: {
+  exposed: boolean;
+  interactionId: string;
+  projectId: string;
+  questionId: string;
+  sessionId: string;
+}): Promise<SessionInteractionResponse> {
+  const response = await fetch(
+    `${sessionInteractionsUrl(args)}/${encodeURIComponent(
+      args.interactionId,
+    )}/results/exposure`,
+    {
+      body: JSON.stringify({
+        questionId: args.questionId,
+        exposed: args.exposed,
+      }),
+      credentials: "include",
+      headers: {
+        "content-type": "application/json",
+      },
+      method: "PATCH",
+    },
+  );
+
+  if (!response.ok) {
+    throw await readResponseError(response, "Result exposure update failed");
+  }
+
+  return response.json() as Promise<SessionInteractionResponse>;
+}
+
+export async function fetchPresenterQuestionQueue(args: {
+  projectId: string;
+  sessionId: string;
+}): Promise<PresenterQuestionQueueResponse> {
+  const response = await fetch(
+    `/api/v1/projects/${encodeURIComponent(
+      args.projectId,
+    )}/presentation-sessions/${encodeURIComponent(args.sessionId)}/questions`,
+    {
+      credentials: "include",
+      method: "GET",
+    },
+  );
+
+  if (!response.ok) {
+    throw await readResponseError(response, "Question queue fetch failed");
+  }
+
+  return response.json() as Promise<PresenterQuestionQueueResponse>;
+}
+
+async function postInteractionCommand(
+  args: {
+    interactionId: string;
+    projectId: string;
+    sessionId: string;
+  },
+  command: "activate" | "close",
+): Promise<SessionInteractionResponse> {
+  const response = await fetch(
+    `${sessionInteractionsUrl(args)}/${encodeURIComponent(
+      args.interactionId,
+    )}/${command}`,
+    {
+      credentials: "include",
+      method: "POST",
+    },
+  );
+
+  if (!response.ok) {
+    throw await readResponseError(response, `Session interaction ${command} failed`);
+  }
+
+  return response.json() as Promise<SessionInteractionResponse>;
+}
+
 function surveyFormUrl(projectId: string, sessionId: string) {
   return `/api/v1/projects/${encodeURIComponent(
     projectId,
   )}/presentation-sessions/${encodeURIComponent(sessionId)}/survey`;
+}
+
+function sessionInteractionsUrl(args: { projectId: string; sessionId: string }) {
+  return `/api/v1/projects/${encodeURIComponent(
+    args.projectId,
+  )}/presentation-sessions/${encodeURIComponent(args.sessionId)}/interactions`;
 }
 
 async function readResponseError(response: Response, fallbackMessage: string) {

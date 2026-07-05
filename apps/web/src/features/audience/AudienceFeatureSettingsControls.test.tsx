@@ -55,11 +55,44 @@ describe("AudienceFeatureSettingsControls", () => {
   });
 
   it("renders editor setup sections for prepared interactions and references", () => {
-    const html = renderToStaticMarkup(<AudienceSessionSetupSummary />);
+    const html = renderToStaticMarkup(
+      <AudienceSessionSetupSummary
+        interactions={[
+          {
+            interactionId: "interaction_00000000-0000-4000-8000-000000000001",
+            sessionId: "session_1",
+            kind: "poll",
+            title: "만족도",
+            questions: [
+              {
+                type: "scale",
+                questionId: "question_00000000-0000-4000-8000-000000000001",
+                prompt: "만족도",
+                required: true,
+                min: 1,
+                max: 5,
+              },
+            ],
+            resultVisibility: "manual",
+            quizScoring: "none",
+            exposedResultQuestionIds: [],
+            source: "library",
+            order: 0,
+            activatedAt: null,
+            closedAt: null,
+          },
+        ]}
+        selectedReferenceCount={2}
+        surveyTitle="발표 설문"
+      />,
+    );
 
     expect(html).toContain("선택된 상호작용");
+    expect(html).toContain("만족도");
     expect(html).toContain("표시 순서");
-    expect(html).toContain("Survey");
+    expect(html).toContain("발표 설문 · 초안");
     expect(html).toContain("AI Q&amp;A 참고자료");
+    expect(html).toContain("2개 선택됨");
+    expect(html).not.toContain("Poll/Quiz library 연결 대기");
   });
 });

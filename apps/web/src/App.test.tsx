@@ -105,11 +105,15 @@ describe("App shell routing", () => {
   });
 
   it("parses presenter audience control routes inside the shared shell", () => {
-    const route = getRoute("/audience/project%20a/control");
+    const route = getRoute(
+      "/presentations/session_1/audience",
+      "?projectId=project%20a",
+    );
 
     expect(route).toEqual({
       name: "audience-control",
       projectId: "project a",
+      sessionId: "session_1",
     });
     expect(shouldRenderAppFrame(route)).toBe(true);
   });

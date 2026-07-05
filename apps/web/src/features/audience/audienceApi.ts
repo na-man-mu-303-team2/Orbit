@@ -318,13 +318,25 @@ async function readAudienceError(response: Response) {
   try {
     const payload = (await response.json()) as { message?: unknown };
     if (typeof payload.message === "string" && payload.message.length > 0) {
-      return new Error(payload.message);
+      return new Error(normalizeAudienceErrorMessage(payload.message, fallback));
     }
   } catch {
     // Use fallback below when the response body is not JSON.
   }
 
   return new Error(fallback);
+}
+
+function normalizeAudienceErrorMessage(message: string, fallback: string) {
+  if (
+    message === "Presentation session not found" ||
+    message === "Session not found" ||
+    message === "Not Found"
+  ) {
+    return fallback;
+  }
+
+  return message;
 }
 
 function mapStatusToMessage(status: number) {

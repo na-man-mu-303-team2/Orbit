@@ -5,6 +5,7 @@ import {
   audienceActiveInteractionResponseSchema,
   audienceAggregateReportSchema,
   createAdHocSessionInteractionRequestSchema,
+  exposeInteractionQuestionResultsRequestSchema,
   createInteractionLibraryItemRequestSchema,
   createInteractionLibraryItemResponseSchema,
   createPresentationSessionRequestSchema,
@@ -18,6 +19,7 @@ import {
   presenterQuestionQueueResponseSchema,
   qnaWorkerAnswerResponseSchema,
   audienceQuestionAnswerResponseSchema,
+  deckSchema,
   selectSessionInteractionsRequestSchema,
   sessionInteractionResponseSchema,
   sessionResultsResponseSchema,
@@ -48,6 +50,7 @@ import type {
   AudienceQuestion,
   AudienceQuestionAnswer,
   CreatePresentationSessionResponse,
+  Deck,
   GetCurrentPresentationSessionResponse,
   InteractionAnswer,
   InteractionQuestion,
@@ -58,6 +61,7 @@ import type {
   PresentationEntryStatus,
   PresentationSession,
   PresentationSessionStatus,
+  QuizAnswerRevealItem,
   SessionInteraction,
   SurveyForm,
   SurveyResponse,
@@ -69,13 +73,18 @@ import {
   BadRequestException,
   ConflictException,
   ForbiddenException,
+  Inject,
   GoneException,
   Injectable,
   NotFoundException,
+  Optional,
   UnauthorizedException,
 } from "@nestjs/common";
+import { renderSlideSnapshot } from "@orbit/slide-renderer";
+import type { StoragePort } from "@orbit/storage";
 import { InjectDataSource } from "@nestjs/typeorm";
 import { DataSource } from "typeorm";
+import { STORAGE_PORT } from "../files/files.service";
 
 type PresentationSessionRow = {
   session_id: string;
@@ -142,6 +151,7 @@ type SessionInteractionRow = {
   questions_json: InteractionQuestion[] | string;
   result_visibility: "hidden" | "manual" | "after-close" | "live";
   quiz_scoring: "none" | "correct-count" | "speed-bonus";
+  exposed_result_question_ids?: string[] | string;
   source: "library" | "ad-hoc";
   display_order: number;
   activated_at: Date | string | null;
@@ -252,7 +262,12 @@ export class PresentationSessionsService {
   private readonly questionRateLimiter = new ParticipantRateLimiter(3, 60_000);
   private readonly reactionRateLimiter = new ParticipantRateLimiter(5, 1_000);
 
-  constructor(@InjectDataSource() private readonly dataSource: DataSource) {}
+  constructor(
+    @InjectDataSource() private readonly dataSource: DataSource,
+    @Optional()
+    @Inject(STORAGE_PORT)
+    private readonly slideSnapshotStorage?: StoragePort,
+  ) {}
 
   async create(
     projectId: string,
@@ -382,7 +397,7 @@ export class PresentationSessionsService {
 
     const row = rows[0];
     if (!row) {
-      throw new NotFoundException("Presentation session not found");
+      throw new NotFoundException("입장 코드를 확인해 주세요.");
     }
 
     return this.toSessionDto(row);
@@ -498,7 +513,11 @@ export class PresentationSessionsService {
   async updateAudienceRealtimeState(
     input: UpdateAudienceRealtimeStateInput,
   ): Promise<AudienceRealtimeState> {
-    const effectState = assertAudienceSafePayload(input.effectState);
+    const effectState = await this.attachSlideSnapshotToEffectState({
+      sessionId: input.sessionId,
+      slideId: input.slideId,
+      effectState: assertAudienceSafePayload(input.effectState),
+    });
     const rows = await this.dataSource.query<AudienceRealtimeStateRow[]>(
       `
         UPDATE audience_realtime_state
@@ -715,6 +734,10 @@ export class PresentationSessionsService {
     );
 
     const session = this.toSessionDto(row);
+    await this.initializeAudienceStateForStartedSession({
+      actorId: input.actorId,
+      sessionId: input.sessionId,
+    });
     await this.appendAudienceEvent({
       sessionId: input.sessionId,
       actorType: "presenter",
@@ -1043,6 +1066,7 @@ export class PresentationSessionsService {
           questions_json,
           result_visibility,
           quiz_scoring,
+          exposed_result_question_ids,
           source,
           display_order,
           activated_at,
@@ -1139,6 +1163,7 @@ export class PresentationSessionsService {
           questions_json,
           result_visibility,
           quiz_scoring,
+          exposed_result_question_ids,
           source,
           display_order,
           activated_at,
@@ -1152,13 +1177,97 @@ export class PresentationSessionsService {
       throw new NotFoundException("Session interaction not found");
     }
 
+    const interaction = this.toSessionInteractionDto(row);
+    const shouldKeepRevealVisible =
+      interaction.kind === "quiz" &&
+      interaction.resultVisibility === "after-close";
+
     await this.updateAudienceRealtimeState({
       sessionId: input.sessionId,
       actorId: input.actorId,
       slideId: null,
       slideIndex: null,
       effectState: {},
-      activeInteractionId: null,
+      activeInteractionId: shouldKeepRevealVisible ? input.interactionId : null,
+    });
+
+    return sessionInteractionResponseSchema.parse({
+      interaction,
+    });
+  }
+
+  async exposeInteractionQuestionResults(input: ProjectSessionInput & {
+    interactionId: string;
+    actorId: string;
+    body: unknown;
+  }) {
+    const request = exposeInteractionQuestionResultsRequestSchema.parse(
+      input.body,
+    );
+    const interaction = await this.getSessionInteractionForProject(input);
+    if (interaction.resultVisibility !== "manual") {
+      throw new ConflictException(
+        "수동 결과 공개는 manual visibility 상호작용에서만 사용할 수 있습니다.",
+      );
+    }
+
+    if (
+      !interaction.questions.some(
+        (question) => question.questionId === request.questionId,
+      )
+    ) {
+      throw new NotFoundException("Interaction question not found");
+    }
+
+    const exposedQuestionIds = new Set(interaction.exposedResultQuestionIds);
+    if (request.exposed) {
+      exposedQuestionIds.add(request.questionId);
+    } else {
+      exposedQuestionIds.delete(request.questionId);
+    }
+
+    const rows = await this.dataSource.query<SessionInteractionRow[]>(
+      `
+        UPDATE session_interactions
+        SET exposed_result_question_ids = $3::jsonb
+        WHERE session_id = $1
+          AND interaction_id = $2
+        RETURNING
+          interaction_id,
+          session_id,
+          kind,
+          title,
+          questions_json,
+          result_visibility,
+          quiz_scoring,
+          exposed_result_question_ids,
+          source,
+          display_order,
+          activated_at,
+          closed_at
+      `,
+      [
+        input.sessionId,
+        input.interactionId,
+        JSON.stringify([...exposedQuestionIds]),
+      ],
+    );
+
+    const row = rows[0];
+    if (!row) {
+      throw new NotFoundException("Session interaction not found");
+    }
+
+    await this.appendAudienceEvent({
+      sessionId: input.sessionId,
+      actorType: "presenter",
+      actorId: input.actorId,
+      type: "interaction.results.exposed",
+      payload: {
+        interactionId: input.interactionId,
+        questionId: request.questionId,
+        exposed: request.exposed,
+      },
     });
 
     return sessionInteractionResponseSchema.parse({
@@ -1187,7 +1296,11 @@ export class PresentationSessionsService {
     }
 
     validateAnswerForQuestion(question, request.answer);
-    const { isCorrect, score } = scoreInteractionAnswer(question, request.answer);
+    const { isCorrect, score } = scoreInteractionAnswer(
+      question,
+      request.answer,
+      interaction,
+    );
     const responseId = `response_${randomUUID()}`;
     const isPoll = interaction.kind === "poll";
 
@@ -1306,6 +1419,7 @@ export class PresentationSessionsService {
           questions_json,
           result_visibility,
           quiz_scoring,
+          exposed_result_question_ids,
           source,
           display_order,
           activated_at,
@@ -1313,7 +1427,10 @@ export class PresentationSessionsService {
         FROM session_interactions
         WHERE session_id = $1
           AND activated_at IS NOT NULL
-          AND closed_at IS NULL
+          AND (
+            closed_at IS NULL
+            OR (kind = 'quiz' AND result_visibility = 'after-close')
+          )
         ORDER BY activated_at DESC
         LIMIT 1
       `,
@@ -1346,9 +1463,16 @@ export class PresentationSessionsService {
       audienceVisible: true,
     });
 
+    const quizReveal = await this.getAudienceQuizReveal({
+      audienceId: input.audienceId,
+      interaction,
+      sessionId: input.sessionId,
+    });
+
     return audienceActiveInteractionResponseSchema.parse({
       interaction,
       results: resultsResponse.results,
+      quizReveal,
     });
   }
 
@@ -1373,6 +1497,9 @@ export class PresentationSessionsService {
 
     const request = submitAudienceQuestionRequestSchema.parse(input.body);
     const questionId = `question_${randomUUID()}`;
+    const questionGroupId =
+      (await this.findDuplicateQuestionGroup(input.sessionId, request.text)) ??
+      questionId;
     const rows = await this.dataSource.query<AudienceQuestionRow[]>(
       `
         INSERT INTO audience_questions (
@@ -1384,7 +1511,7 @@ export class PresentationSessionsService {
           status,
           submitted_at
         )
-        VALUES ($1, $1, $2, $3, $4, 'pending', now())
+        VALUES ($1, $2, $3, $4, $5, 'pending', now())
         RETURNING
           question_id,
           question_group_id,
@@ -1395,7 +1522,13 @@ export class PresentationSessionsService {
           submitted_at,
           answered_at
       `,
-      [questionId, input.sessionId, input.audienceId, request.text],
+      [
+        questionId,
+        questionGroupId,
+        input.sessionId,
+        input.audienceId,
+        request.text,
+      ],
     );
 
     await this.appendAudienceEvent({
@@ -2367,6 +2500,39 @@ export class PresentationSessionsService {
     return typeof value === "string" ? (JSON.parse(value) as string[]) : value;
   }
 
+  private async findDuplicateQuestionGroup(
+    sessionId: string,
+    text: string,
+  ): Promise<string | null> {
+    const rows = await this.dataSource.query<AudienceQuestionRow[]>(
+      `
+        SELECT DISTINCT ON (question_group_id)
+          question_id,
+          question_group_id,
+          session_id,
+          audience_id,
+          text,
+          status,
+          submitted_at,
+          answered_at
+        FROM audience_questions
+        WHERE session_id = $1
+        ORDER BY question_group_id, submitted_at ASC
+      `,
+      [sessionId],
+    );
+
+    let best: { groupId: string; score: number } | null = null;
+    for (const row of rows) {
+      const score = cosineSimilarity(text, row.text);
+      if (score >= 0.88 && (!best || score > best.score)) {
+        best = { groupId: row.question_group_id, score };
+      }
+    }
+
+    return best?.groupId ?? null;
+  }
+
   private async getPublicSlideContext(sessionId: string): Promise<string> {
     const rows = await this.dataSource.query<{ slide_id: string | null }[]>(
       `
@@ -2395,6 +2561,7 @@ export class PresentationSessionsService {
           questions_json,
           result_visibility,
           quiz_scoring,
+          exposed_result_question_ids,
           source,
           display_order,
           activated_at,
@@ -2423,6 +2590,7 @@ export class PresentationSessionsService {
           questions_json,
           result_visibility,
           quiz_scoring,
+          exposed_result_question_ids,
           source,
           display_order,
           activated_at,
@@ -2445,6 +2613,64 @@ export class PresentationSessionsService {
     return this.toSessionInteractionDto(row);
   }
 
+  private async getAudienceQuizReveal(input: {
+    audienceId: string;
+    interaction: SessionInteraction;
+    sessionId: string;
+  }): Promise<QuizAnswerRevealItem[]> {
+    if (
+      input.interaction.kind !== "quiz" ||
+      input.interaction.resultVisibility !== "after-close" ||
+      input.interaction.closedAt === null
+    ) {
+      return [];
+    }
+
+    const responses = await this.dataSource.query<InteractionResponseRow[]>(
+      `
+        SELECT
+          response_id,
+          interaction_id,
+          session_id,
+          audience_id,
+          question_id,
+          answer_json,
+          is_correct,
+          score,
+          submitted_at,
+          updated_at
+        FROM interaction_responses
+        WHERE session_id = $1
+          AND interaction_id = $2
+          AND audience_id = $3
+      `,
+      [input.sessionId, input.interaction.interactionId, input.audienceId],
+    );
+    const responsesByQuestionId = new Map(
+      responses
+        .map((row) => this.toInteractionResponseDto(row))
+        .map((response) => [response.questionId, response]),
+    );
+
+    return input.interaction.questions.flatMap((question) => {
+      const correctAnswer = correctAnswerForQuestion(question);
+      if (!correctAnswer) {
+        return [];
+      }
+
+      const response = responsesByQuestionId.get(question.questionId);
+      return [
+        {
+          questionId: question.questionId,
+          correctAnswer,
+          submittedAnswer: response?.answer ?? null,
+          isCorrect: response?.isCorrect ?? null,
+          score: response?.score ?? null,
+        },
+      ];
+    });
+  }
+
   private async getSessionInteractionForProject(
     input: ProjectSessionInput & { interactionId: string },
   ): Promise<SessionInteraction> {
@@ -2459,6 +2685,7 @@ export class PresentationSessionsService {
           questions_json,
           result_visibility,
           quiz_scoring,
+          exposed_result_question_ids,
           source,
           display_order,
           activated_at,
@@ -2657,6 +2884,86 @@ export class PresentationSessionsService {
     };
   }
 
+  private async attachSlideSnapshotToEffectState(input: {
+    sessionId: string;
+    slideId: string | null;
+    effectState: Record<string, unknown>;
+  }): Promise<Record<string, unknown>> {
+    if (!this.slideSnapshotStorage || !input.slideId) {
+      return input.effectState;
+    }
+
+    try {
+      const deck = await this.getSessionDeck(input.sessionId);
+      if (!deck) {
+        return input.effectState;
+      }
+
+      const snapshot = renderSlideSnapshot({
+        deck,
+        slideId: input.slideId,
+        effectState: input.effectState,
+      });
+      const object = await this.slideSnapshotStorage.putObject({
+        key: `audience-slide-snapshots/${input.sessionId}/${input.slideId}-${snapshot.contentHash}.svg`,
+        body: snapshot.body,
+        contentType: snapshot.contentType,
+        purpose: "audience-slide-snapshot",
+      });
+
+      return assertAudienceSafePayload({
+        ...input.effectState,
+        slideSnapshotContentHash: snapshot.contentHash,
+        slideSnapshotUrl: object.url,
+      });
+    } catch {
+      return input.effectState;
+    }
+  }
+
+  private async initializeAudienceStateForStartedSession(input: {
+    actorId: string;
+    sessionId: string;
+  }) {
+    try {
+      const deck = await this.getSessionDeck(input.sessionId);
+      const firstSlide = deck
+        ? [...deck.slides].sort((left, right) => left.order - right.order)[0]
+        : null;
+      if (!firstSlide) {
+        return;
+      }
+
+      await this.updateAudienceRealtimeState({
+        sessionId: input.sessionId,
+        actorId: input.actorId,
+        slideId: firstSlide.slideId,
+        slideIndex: 0,
+        effectState: {},
+        activeInteractionId: null,
+      });
+    } catch {
+      // Snapshot and first-slide initialization must not block session start.
+    }
+  }
+
+  private async getSessionDeck(sessionId: string): Promise<Deck | null> {
+    const rows = await this.dataSource.query<Array<{ deck_json: unknown }>>(
+      `
+        SELECT d.deck_json
+        FROM presentation_sessions ps
+        JOIN decks d
+          ON d.project_id = ps.project_id
+         AND d.deck_id = ps.deck_id
+        WHERE ps.session_id = $1
+        LIMIT 1
+      `,
+      [sessionId],
+    );
+    const deckJson = rows[0]?.deck_json;
+    return deckJson ? deckSchema.parse(deckJson) : null;
+  }
+
   private toFeatureSettingsDto(
     row: AudienceFeatureSettingsRow,
   ): AudienceFeatureSettings {
@@ -2697,6 +3004,9 @@ export class PresentationSessionsService {
       questions: normalizeQuestions(row.questions_json),
       resultVisibility: row.result_visibility,
       quizScoring: row.quiz_scoring,
+      exposedResultQuestionIds: normalizeStringArray(
+        row.exposed_result_question_ids,
+      ),
       source: row.source,
       order: row.display_order,
       activatedAt: toNullableIso(row.activated_at),
@@ -2881,6 +3191,14 @@ function normalizeInteractionAnswer(value: InteractionAnswer | string) {
     : value;
 }
 
+function normalizeStringArray(value: string[] | string | undefined) {
+  if (value === undefined) {
+    return [];
+  }
+
+  return typeof value === "string" ? (JSON.parse(value) as string[]) : value;
+}
+
 function validateAnswerForQuestion(
   question: InteractionQuestion,
   answer: InteractionAnswer,
@@ -2914,10 +3232,47 @@ function validateAnswerForQuestion(
 function scoreInteractionAnswer(
   question: InteractionQuestion,
   answer: InteractionAnswer,
+  interaction: SessionInteraction,
 ): { isCorrect: boolean | null; score: number } {
+  const scoreCorrectAnswer = (isCorrect: boolean) => {
+    if (!isCorrect) {
+      return 0;
+    }
+
+    if (interaction.quizScoring !== "speed-bonus") {
+      return 1;
+    }
+
+    if (
+      question.type !== "quiz-true-false" &&
+      question.type !== "quiz-multiple-choice"
+    ) {
+      return 0;
+    }
+
+    const timeLimitSeconds = question.timeLimitSeconds;
+    if (timeLimitSeconds === undefined) {
+      throw new ConflictException("퀴즈 제한 시간이 설정되지 않았습니다.");
+    }
+
+    const activatedAt = interaction.activatedAt
+      ? new Date(interaction.activatedAt).getTime()
+      : Date.now();
+    const elapsedSeconds = Math.max(0, (Date.now() - activatedAt) / 1000);
+    if (elapsedSeconds > timeLimitSeconds) {
+      throw new ConflictException("응답 시간이 종료되었습니다.");
+    }
+
+    const remainingTimeRatio = Math.max(
+      0,
+      timeLimitSeconds - elapsedSeconds,
+    ) / timeLimitSeconds;
+    return Math.round(500 + 500 * remainingTimeRatio);
+  };
+
   if (question.type === "quiz-true-false" && answer.type === "quiz-true-false") {
     const isCorrect = question.correctAnswer === answer.answer;
-    return { isCorrect, score: isCorrect ? 1 : 0 };
+    return { isCorrect, score: scoreCorrectAnswer(isCorrect) };
   }
 
   if (
@@ -2929,10 +3284,27 @@ function scoreInteractionAnswer(
     const isCorrect =
       expected.length === actual.length &&
       expected.every((optionId, index) => optionId === actual[index]);
-    return { isCorrect, score: isCorrect ? 1 : 0 };
+    return { isCorrect, score: scoreCorrectAnswer(isCorrect) };
   }
 
   return { isCorrect: null, score: 0 };
+}
+
+function correctAnswerForQuestion(
+  question: InteractionQuestion,
+): InteractionAnswer | null {
+  if (question.type === "quiz-true-false") {
+    return { type: "quiz-true-false", answer: question.correctAnswer };
+  }
+
+  if (question.type === "quiz-multiple-choice") {
+    return {
+      type: "quiz-multiple-choice",
+      selectedOptionIds: question.correctOptionIds,
+    };
+  }
+
+  return null;
 }
 
 function aggregateInteractionResults(
@@ -2940,17 +3312,36 @@ function aggregateInteractionResults(
   responses: InteractionResponse[],
   audienceVisible: boolean,
 ): InteractionResults {
+  const exposedQuestionIds = new Set(interaction.exposedResultQuestionIds);
+  const isQuestionVisible = (questionId: string) => {
+    if (!audienceVisible) {
+      return true;
+    }
+
+    if (interaction.resultVisibility === "live") {
+      return true;
+    }
+
+    if (interaction.resultVisibility === "after-close") {
+      return interaction.closedAt !== null;
+    }
+
+    if (interaction.resultVisibility === "manual") {
+      return exposedQuestionIds.has(questionId);
+    }
+
+    return false;
+  };
   const visibleToAudience =
     !audienceVisible ||
-    interaction.resultVisibility === "live" ||
-    interaction.resultVisibility === "manual" ||
-    (interaction.resultVisibility === "after-close" &&
-      interaction.closedAt !== null);
+    interaction.questions.some((question) =>
+      isQuestionVisible(question.questionId),
+    );
 
   const questionResults = interaction.questions.map((question) => {
-    const questionResponses = responses.filter(
-      (response) => response.questionId === question.questionId,
-    );
+    const questionResponses = isQuestionVisible(question.questionId)
+      ? responses.filter((response) => response.questionId === question.questionId)
+      : [];
     const optionCounts: Record<string, number> = {};
     const openTextResponses: string[] = [];
     const scaleValues: number[] = [];
@@ -3008,6 +3399,47 @@ function aggregateInteractionResults(
     responseCount: responses.length,
     questionResults,
   };
+}
+
+function cosineSimilarity(left: string, right: string) {
+  const leftVector = toTermVector(left);
+  const rightVector = toTermVector(right);
+  let dot = 0;
+  let leftMagnitude = 0;
+  let rightMagnitude = 0;
+
+  for (const count of leftVector.values()) {
+    leftMagnitude += count * count;
+  }
+  for (const count of rightVector.values()) {
+    rightMagnitude += count * count;
+  }
+  for (const [term, count] of leftVector) {
+    dot += count * (rightVector.get(term) ?? 0);
+  }
+
+  if (leftMagnitude === 0 || rightMagnitude === 0) {
+    return 0;
+  }
+
+  return dot / (Math.sqrt(leftMagnitude) * Math.sqrt(rightMagnitude));
+}
+
+function toTermVector(value: string) {
+  const normalized = value.toLocaleLowerCase("ko-KR").replace(/\s+/g, " ").trim();
+  const terms = normalized.split(" ").filter(Boolean);
+  for (let index = 0; index < normalized.length - 1; index += 1) {
+    const bigram = normalized.slice(index, index + 2).trim();
+    if (bigram.length === 2) {
+      terms.push(bigram);
+    }
+  }
+
+  const vector = new Map<string, number>();
+  for (const term of terms) {
+    vector.set(term, (vector.get(term) ?? 0) + 1);
+  }
+  return vector;
 }
 
 function normalizeAudienceFeatureSettingsUpdate(

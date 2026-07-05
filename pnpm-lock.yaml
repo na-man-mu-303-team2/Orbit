@@ -65,6 +65,9 @@ importers:
       '@orbit/shared':
         specifier: workspace:*
         version: link:../../packages/shared
+      '@orbit/slide-renderer':
+        specifier: workspace:*
+        version: link:../../packages/slide-renderer
       '@orbit/storage':
         specifier: workspace:*
         version: link:../../packages/storage
@@ -135,6 +138,28 @@ importers:
       ts-node:
         specifier: ^10.9.2
         version: 10.9.2(@types/node@24.13.2)(typescript@5.9.3)
+      typescript:
+        specifier: ^5.8.3
+        version: 5.9.3
+      vitest:
+        specifier: ^3.2.4
+        version: 3.2.6(@types/node@24.13.2)(terser@5.48.0)
+
+  apps/slide-render-worker:
+    dependencies:
+      '@orbit/shared':
+        specifier: workspace:*
+        version: link:../../packages/shared
+      '@orbit/slide-renderer':
+        specifier: workspace:*
+        version: link:../../packages/slide-renderer
+      '@orbit/storage':
+        specifier: workspace:*
+        version: link:../../packages/storage
+    devDependencies:
+      '@types/node':
+        specifier: ^24.0.0
+        version: 24.13.2
       typescript:
         specifier: ^5.8.3
         version: 5.9.3
@@ -352,6 +377,19 @@ importers:
       zod:
         specifier: ^3.25.76
         version: 3.25.76
+    devDependencies:
+      typescript:
+        specifier: ^5.8.3
+        version: 5.9.3
+      vitest:
+        specifier: ^3.2.4
+        version: 3.2.6(@types/node@24.13.2)(terser@5.48.0)
+
+  packages/slide-renderer:
+    dependencies:
+      '@orbit/shared':
+        specifier: workspace:*
+        version: link:../shared
     devDependencies:
       typescript:
         specifier: ^5.8.3

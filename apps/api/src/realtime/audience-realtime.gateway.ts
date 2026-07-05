@@ -8,10 +8,13 @@ import { loadOrbitConfig } from "@orbit/config";
 import {
   audienceFeatureSettingsPayloadSchema,
   audienceReactionPayloadSchema,
+  audienceQuestionAnswerResponseSchema,
   audienceSessionEndedPayloadSchema,
   audienceSlideStatePayloadSchema,
   updateAudienceFeatureSettingsRequestSchema,
   type AudienceRealtimeState,
+  type AudienceQuestion,
+  type AudienceQuestionAnswer,
   type PresentationSession,
   type ReactionType,
 } from "@orbit/shared";
@@ -265,6 +268,32 @@ export class AudienceRealtimeGateway {
     this.server
       .to(audienceSessionRoomId(session.sessionId))
       .emit("audience:session-ended", event);
+    return event;
+  }
+
+  broadcastPrivateAnswer(input: {
+    answer: AudienceQuestionAnswer | null;
+    audienceId: string;
+    question: AudienceQuestion;
+    sessionId: string;
+  }) {
+    const payload = audienceQuestionAnswerResponseSchema.parse({
+      question: input.question,
+      answer: input.answer,
+    });
+    const roomId = audiencePrivateRoomId({
+      sessionId: input.sessionId,
+      audienceId: input.audienceId,
+    });
+    const event = createRealtimeEvent({
+      type: "audience:private-answer",
+      roomId,
+      sessionId: input.sessionId,
+      userId: input.audienceId,
+      payload,
+    });
+
+    this.server.to(roomId).emit("audience:private-answer", event);
     return event;
   }
 

@@ -261,20 +261,31 @@ def health() -> HealthResponse:
 
 
 @app.post("/qna/answer", response_model=QnaAnswerResponse)
-def answer_qna(payload: QnaAnswerRequest) -> QnaAnswerResponse:
+def answer_qna(payload: QnaAnswerRequest, request: Request) -> QnaAnswerResponse:
+    config = _config(request)
     public_context = payload.public_slide_context.strip()
-    if not public_context and not payload.selected_reference_ids:
+    source_references = build_qna_source_references(
+        public_context=public_context,
+        selected_reference_ids=payload.selected_reference_ids,
+        retrieval_limit=payload.retrieval_limit,
+        session_id=payload.session_id,
+    )
+    if not source_references:
         return QnaAnswerResponse(
             status="failed",
             failureReason="no-grounding",
             confidence=0,
         )
 
-    source_references = payload.selected_reference_ids[: payload.retrieval_limit]
-    if not source_references and public_context:
-        source_references = [f"deck:{payload.session_id}"]
+    if not config.openai_api_key:
+        return QnaAnswerResponse(
+            status="failed",
+            failureReason="no-grounding",
+            sourceReferences=source_references,
+            confidence=0,
+        )
 
-    confidence = 0.82 if source_references else 0.0
+    confidence = 0.82
     if confidence < payload.confidence_threshold:
         return QnaAnswerResponse(
             status="failed",
@@ -293,6 +304,23 @@ def answer_qna(payload: QnaAnswerRequest) -> QnaAnswerResponse:
         sourceReferences=source_references,
         confidence=confidence,
     )
+
+
+def build_qna_source_references(
+    *,
+    public_context: str,
+    selected_reference_ids: list[str],
+    retrieval_limit: int,
+    session_id: str,
+) -> list[str]:
+    references = [
+        f"reference-material:{reference_id}"
+        for reference_id in selected_reference_ids[:retrieval_limit]
+    ]
+    if public_context:
+        first_line = public_context.splitlines()[0].strip() or session_id
+        references.insert(0, f"deck-slide:{first_line[:80]}")
+    return references[:retrieval_limit]
 
 
 @app.post("/extract/reference", response_model=ReferenceExtractResponse)

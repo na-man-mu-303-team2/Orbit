@@ -1,6 +1,7 @@
 import type {
   AudienceFeatureSettings,
   PresentationSession,
+  SessionInteraction,
 } from "@orbit/shared";
 import { Share2, X } from "lucide-react";
 import { useEffect, useState } from "react";
@@ -17,6 +18,8 @@ import {
   createAudienceAccessSession,
   fetchAudienceFeatureSettings,
   fetchCurrentAudienceAccessSession,
+  fetchSessionInteractions,
+  fetchSessionSurveyForm,
   updateAudienceFeatureSettings,
 } from "./audienceLinkApi";
 import {
@@ -46,6 +49,10 @@ export function AudienceLinkModal({
   const [audienceQrDataUrl, setAudienceQrDataUrl] = useState("");
   const [audienceFeatures, setAudienceFeatures] =
     useState<AudienceFeatureSettings | null>(null);
+  const [sessionInteractions, setSessionInteractions] = useState<
+    SessionInteraction[] | null
+  >(null);
+  const [setupSurveyTitle, setSetupSurveyTitle] = useState("");
   const [audienceFeatureBusyKey, setAudienceFeatureBusyKey] =
     useState<AudienceFeatureKey | null>(null);
   const [audienceLinkError, setAudienceLinkError] = useState("");
@@ -77,15 +84,29 @@ export function AudienceLinkModal({
           nextAudienceUrl ? await createQrDataUrl(nextAudienceUrl) : "",
         );
         if (payload.session) {
-          const settings = await fetchAudienceFeatureSettings({
-            projectId,
-            sessionId: payload.session.sessionId,
-          });
+          const [settings, interactions, survey] = await Promise.all([
+            fetchAudienceFeatureSettings({
+              projectId,
+              sessionId: payload.session.sessionId,
+            }),
+            fetchSessionInteractions({
+              projectId,
+              sessionId: payload.session.sessionId,
+            }),
+            fetchSessionSurveyForm({
+              projectId,
+              sessionId: payload.session.sessionId,
+            }).catch(() => ({ survey: null })),
+          ]);
           if (!isCancelled) {
             setAudienceFeatures(settings.features);
+            setSessionInteractions(interactions.interactions);
+            setSetupSurveyTitle(survey.survey?.title ?? "");
           }
         } else {
           setAudienceFeatures(null);
+          setSessionInteractions(null);
+          setSetupSurveyTitle("");
         }
       })
       .catch((error) => {
@@ -95,6 +116,8 @@ export function AudienceLinkModal({
           setAudienceUrl("");
           setAudienceQrDataUrl("");
           setAudienceFeatures(null);
+          setSessionInteractions(null);
+          setSetupSurveyTitle("");
         }
       })
       .finally(() => {
@@ -135,6 +158,8 @@ export function AudienceLinkModal({
         sessionId: payload.session.sessionId,
       });
       setAudienceFeatures(settings.features);
+      setSessionInteractions([]);
+      setSetupSurveyTitle("");
       setIsAudienceCloseConfirming(false);
     } catch (error) {
       setAudienceLinkError(toAudienceLinkErrorMessage(error));
@@ -160,6 +185,8 @@ export function AudienceLinkModal({
       setAudienceUrl("");
       setAudienceQrDataUrl("");
       setAudienceFeatures(null);
+      setSessionInteractions(null);
+      setSetupSurveyTitle("");
       setIsAudienceCloseConfirming(false);
     } catch (error) {
       setAudienceLinkError(toAudienceLinkErrorMessage(error));
@@ -282,7 +309,11 @@ export function AudienceLinkModal({
                   void handleFeatureToggle(key, enabled)
                 }
               />
-              <AudienceSessionSetupSummary />
+              <AudienceSessionSetupSummary
+                interactions={sessionInteractions}
+                selectedReferenceCount={null}
+                surveyTitle={setupSurveyTitle}
+              />
             </section>
             <div className="audience-link-actions">
               <button
@@ -312,7 +343,9 @@ export function AudienceLinkModal({
               </button>
               <a
                 className="audience-link-control-link"
-                href={`/audience/${encodeURIComponent(projectId)}/control`}
+                href={`/presentations/${encodeURIComponent(
+                  audienceSession.sessionId,
+                )}/audience?projectId=${encodeURIComponent(projectId)}`}
               >
                 상세 제어
               </a>

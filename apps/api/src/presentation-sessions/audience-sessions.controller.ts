@@ -179,13 +179,32 @@ export class AudienceSessionsController {
     @Req() request: SignedCookieRequest,
   ) {
     const { payload, token } = this.requireAudienceAccess(sessionId, request);
+    const tokenHash = hashAudienceAccessToken(this.config, token);
 
-    return this.presentationSessionsService.submitAudienceQuestion({
+    const result = await this.presentationSessionsService.submitAudienceQuestion({
       sessionId,
       audienceId: payload.audienceId,
-      tokenHash: hashAudienceAccessToken(this.config, token),
+      tokenHash,
       body: body ?? {},
     });
+
+    const answer =
+      await this.presentationSessionsService.getAudienceQuestionAnswer({
+        sessionId,
+        audienceId: payload.audienceId,
+        tokenHash,
+        questionId: result.question.questionId,
+      }).catch(() => null);
+    if (answer?.answer) {
+      this.audienceRealtimeGateway.broadcastPrivateAnswer({
+        sessionId,
+        audienceId: payload.audienceId,
+        question: answer.question,
+        answer: answer.answer,
+      });
+    }
+
+    return result;
   }
 
   @Get(":sessionId/audience/questions/:questionId")

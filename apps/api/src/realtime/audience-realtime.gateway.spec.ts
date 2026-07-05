@@ -266,6 +266,62 @@ describe("AudienceRealtimeGateway", () => {
     expect(JSON.stringify(event.payload)).not.toContain("presenterUserId");
   });
 
+  it("broadcasts AI answers only to the asker private room", async () => {
+    const { gateway, serverEmit, serverTo } = await createGateway();
+
+    const event = gateway.broadcastPrivateAnswer({
+      sessionId: session.sessionId,
+      audienceId: participant.audienceId,
+      question: {
+        questionId: "question_00000000-0000-4000-8000-000000000001",
+        questionGroupId: "question_00000000-0000-4000-8000-000000000001",
+        sessionId: session.sessionId,
+        audienceId: participant.audienceId,
+        text: "질문입니다",
+        status: "pending",
+        submittedAt: "2026-07-05T00:00:00.000Z",
+        answeredAt: null,
+      },
+      answer: {
+        questionId: "question_00000000-0000-4000-8000-000000000001",
+        sessionId: session.sessionId,
+        audienceId: participant.audienceId,
+        answerText: "비공개 답변",
+        sourceReferences: ["deck-slide:소개"],
+        confidence: 0.91,
+        failureReason: null,
+        feedback: null,
+        escalatedToPresenter: false,
+        createdAt: "2026-07-05T00:00:01.000Z",
+      },
+    });
+
+    expect(serverTo).toHaveBeenCalledWith(
+      audiencePrivateRoomId({
+        sessionId: session.sessionId,
+        audienceId: participant.audienceId,
+      }),
+    );
+    expect(serverTo).not.toHaveBeenCalledWith(
+      audienceSessionRoomId(session.sessionId),
+    );
+    expect(serverEmit).toHaveBeenCalledWith(
+      "audience:private-answer",
+      expect.objectContaining({
+        type: "audience:private-answer",
+        payload: expect.objectContaining({
+          answer: expect.objectContaining({ answerText: "비공개 답변" }),
+        }),
+      }),
+    );
+    expect(event.roomId).toBe(
+      audiencePrivateRoomId({
+        sessionId: session.sessionId,
+        audienceId: participant.audienceId,
+      }),
+    );
+  });
+
   it("rejects presenter slide updates without auth", async () => {
     const { gateway, service, serverEmit } = await createGateway();
     const client = createSocket();

@@ -313,6 +313,25 @@ export class PresentationSessionsController {
     });
   }
 
+  @Patch(":sessionId/interactions/:interactionId/results/exposure")
+  async exposeInteractionQuestionResults(
+    @Param("projectId") projectId: string,
+    @Param("sessionId") sessionId: string,
+    @Param("interactionId") interactionId: string,
+    @Body() body: unknown,
+    @Req() request: SignedCookieRequest,
+  ) {
+    const user = await this.getCurrentUser(request);
+    await this.projectsService.assertCanWriteProject(projectId, user.userId);
+    return this.presentationSessionsService.exposeInteractionQuestionResults({
+      projectId,
+      sessionId,
+      interactionId,
+      actorId: user.userId,
+      body: body ?? {},
+    });
+  }
+
   @Get(":sessionId/interactions/:interactionId/results")
   async getInteractionResults(
     @Param("projectId") projectId: string,

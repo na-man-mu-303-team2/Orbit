@@ -85,6 +85,7 @@ export const interactionQuestionSchema = z.discriminatedUnion("type", [
       prompt: z.string().trim().min(1).max(500),
       options: z.array(choiceOptionSchema).min(2).max(10),
       correctOptionIds: z.array(z.string().min(1)).min(1),
+      timeLimitSeconds: z.number().int().min(10).max(120).optional(),
     })
     .strict(),
   z
@@ -93,6 +94,7 @@ export const interactionQuestionSchema = z.discriminatedUnion("type", [
       questionId: questionIdSchema,
       prompt: z.string().trim().min(1).max(500),
       correctAnswer: z.boolean(),
+      timeLimitSeconds: z.number().int().min(10).max(120).optional(),
     })
     .strict(),
 ]);
@@ -106,12 +108,14 @@ export const sessionInteractionSchema = z
     questions: z.array(interactionQuestionSchema).min(1),
     resultVisibility: interactionResultVisibilitySchema,
     quizScoring: quizScoringSchema.default("none"),
+    exposedResultQuestionIds: z.array(questionIdSchema).default([]),
     source: z.enum(["library", "ad-hoc"]),
     order: z.number().int().nonnegative(),
     activatedAt: isoDateTimeSchema.nullable(),
     closedAt: isoDateTimeSchema.nullable(),
   })
-  .strict();
+  .strict()
+  .superRefine(validateInteractionShape);
 
 export const interactionDraftSchema = z
   .object({
@@ -122,30 +126,7 @@ export const interactionDraftSchema = z
     quizScoring: quizScoringSchema.default("none"),
   })
   .strict()
-  .superRefine((draft, context) => {
-    const hasQuizQuestion = draft.questions.some((question) =>
-      question.type.startsWith("quiz-"),
-    );
-    const hasPollQuestion = draft.questions.some(
-      (question) => !question.type.startsWith("quiz-"),
-    );
-
-    if (draft.kind === "poll" && hasQuizQuestion) {
-      context.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: "poll interactions cannot include quiz questions",
-        path: ["questions"],
-      });
-    }
-
-    if (draft.kind === "quiz" && hasPollQuestion) {
-      context.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: "quiz interactions cannot include poll questions",
-        path: ["questions"],
-      });
-    }
-  });
+  .superRefine(validateInteractionShape);
 
 export const projectInteractionLibraryItemSchema = z
   .object({
@@ -289,10 +270,28 @@ export const interactionResultsResponseSchema = z
   })
   .strict();
 
+export const quizAnswerRevealItemSchema = z
+  .object({
+    questionId: questionIdSchema,
+    correctAnswer: interactionAnswerSchema,
+    submittedAnswer: interactionAnswerSchema.nullable(),
+    isCorrect: z.boolean().nullable(),
+    score: z.number().nonnegative().nullable(),
+  })
+  .strict();
+
+export const exposeInteractionQuestionResultsRequestSchema = z
+  .object({
+    questionId: questionIdSchema,
+    exposed: z.boolean(),
+  })
+  .strict();
+
 export const audienceActiveInteractionResponseSchema = z
   .object({
     interaction: sessionInteractionSchema.nullable(),
     results: interactionResultsSchema.nullable(),
+    quizReveal: z.array(quizAnswerRevealItemSchema).default([]),
   })
   .strict();
 
@@ -580,12 +579,22 @@ export type ProjectInteractionLibraryItem = z.infer<
   typeof projectInteractionLibraryItemSchema
 >;
 export type SessionInteraction = z.infer<typeof sessionInteractionSchema>;
+export type ListSessionInteractionsResponse = z.infer<
+  typeof listSessionInteractionsResponseSchema
+>;
+export type CreateAdHocSessionInteractionRequest = z.infer<
+  typeof createAdHocSessionInteractionRequestSchema
+>;
+export type SessionInteractionResponse = z.infer<
+  typeof sessionInteractionResponseSchema
+>;
 export type InteractionAnswer = z.infer<typeof interactionAnswerSchema>;
 export type InteractionResponse = z.infer<typeof interactionResponseSchema>;
 export type SubmitInteractionResponseResponse = z.infer<
   typeof submitInteractionResponseResponseSchema
 >;
 export type InteractionResults = z.infer<typeof interactionResultsSchema>;
+export type QuizAnswerRevealItem = z.infer<typeof quizAnswerRevealItemSchema>;
 export type AudienceActiveInteractionResponse = z.infer<
   typeof audienceActiveInteractionResponseSchema
 >;
@@ -632,6 +641,54 @@ export type AudienceAggregateReport = z.infer<
 export type SessionResultsResponse = z.infer<
   typeof sessionResultsResponseSchema
 >;
+
+function validateInteractionShape(
+  interaction: {
+    kind: "poll" | "quiz";
+    questions: InteractionQuestion[];
+    quizScoring: "none" | "correct-count" | "speed-bonus";
+  },
+  context: z.RefinementCtx,
+) {
+  const hasQuizQuestion = interaction.questions.some((question) =>
+    question.type.startsWith("quiz-"),
+  );
+  const hasPollQuestion = interaction.questions.some(
+    (question) => !question.type.startsWith("quiz-"),
+  );
+
+  if (interaction.kind === "poll" && hasQuizQuestion) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "poll interactions cannot include quiz questions",
+      path: ["questions"],
+    });
+  }
+
+  if (interaction.kind === "quiz" && hasPollQuestion) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "quiz interactions cannot include poll questions",
+      path: ["questions"],
+    });
+  }
+
+  if (interaction.quizScoring === "speed-bonus") {
+    interaction.questions.forEach((question, index) => {
+      if (
+        (question.type === "quiz-true-false" ||
+          question.type === "quiz-multiple-choice") &&
+        question.timeLimitSeconds === undefined
+      ) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "timeLimitSeconds is required for speed-bonus quizzes",
+          path: ["questions", index, "timeLimitSeconds"],
+        });
+      }
+    });
+  }
+}
 
 function containsForbiddenContactText(value: string) {
   const normalized = value.toLocaleLowerCase();
