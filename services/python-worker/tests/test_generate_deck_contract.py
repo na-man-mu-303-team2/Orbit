@@ -362,7 +362,7 @@ def test_generate_deck_applies_monochrome_semantic_palette_from_design_prompt() 
         GenerateDeckRequest(
             projectId="project_demo_1",
             topic="Quarterly roadmap",
-            designPrompt="전문가, 모노톤, 블랙앤화이트, 깔끔한 디자인",
+            designPrompt="전문가, 모노톤, 블랙앤화이트 디자인",
             template="report",
             slideCountRange={"min": 1, "max": 1},
         ),
@@ -401,7 +401,7 @@ def test_generate_deck_applies_ocean_blue_semantic_palette_from_design_prompt() 
         GenerateDeckRequest(
             projectId="project_demo_1",
             topic="Quarterly roadmap",
-            designPrompt="바다 느낌으로 시원하고 깔끔한 디자인",
+            designPrompt="바다 느낌으로 시원한 디자인",
             template="report",
             slideCountRange={"min": 1, "max": 1},
         ),
@@ -484,6 +484,91 @@ def test_generate_deck_separates_design_prompt_from_content_prompt() -> None:
     assert "User prompt: History and core rules" in llm_input
     assert f"Design prompt: {design_prompt}" in llm_input
     assert design_prompt not in deck_text
+
+
+def test_generate_deck_applies_simple_basic_style_pack() -> None:
+    design_prompt = "심플 베이직 발표용 문서 스타일"
+    fake_client = FakeOpenAIClient(
+        {
+            "title": "AI 전환 전략",
+            "slides": [
+                slide_payload(
+                    "실행 관점",
+                    "핵심 실행 항목을 짧게 정리합니다.",
+                    "첫째, 실행 범위를 좁힙니다. 둘째, 검증 가능한 지표를 둡니다.",
+                    slide_type="solution",
+                    slot_preset="title_left_visual_right",
+                    keywords=["범위", "지표", "검증"],
+                )
+            ],
+        }
+    )
+
+    response = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="AI 전환 전략",
+            designPrompt=design_prompt,
+            design={"stylePackId": "simple-basic"},
+            slideCountRange={"min": 1, "max": 1},
+        ),
+        client=fake_client,
+    )
+
+    slide = response.deck["slides"][0]
+    deck_text = json.dumps(response.deck, ensure_ascii=False)
+    llm_input = str(fake_client.requests[0]["input"])
+    top_stripe = element_by_id(slide, "el_1_simple_basic_top_stripe")
+    divider = element_by_id(slide, "el_1_simple_basic_title_divider")
+
+    assert fake_client.requests[0]["model"] == "gpt-4.1-mini"
+    assert "Document mode: presentation" in llm_input
+    assert response.deck["theme"]["name"] == "simple-basic"
+    assert response.deck["theme"]["textColor"] == "#1A1A1A"
+    assert top_stripe["height"] == 6
+    assert divider["width"] == 56
+    assert has_element(slide, "el_1_simple_basic_content_box")
+    assert has_element(slide, "el_1_simple_basic_badge_1")
+    assert design_prompt not in deck_text
+    assert "stylePackId" not in deck_text
+    assert "visualIntent" not in deck_text
+    assert response.validation.passed is True
+
+
+def test_generate_deck_auto_selects_simple_basic_report_mode() -> None:
+    fake_client = FakeOpenAIClient(
+        {
+            "title": "보고서형 덱",
+            "slides": [
+                slide_payload(
+                    "판단 근거",
+                    "근거와 실행 조건을 본문에서 함께 확인할 수 있습니다.",
+                    "보고서형 문서에서는 독자가 이 본문만 읽어도 판단 기준을 이해할 수 있어야 합니다.",
+                    slide_type="data",
+                    slot_preset="insight_with_evidence",
+                    keywords=["근거", "조건"],
+                )
+            ],
+        }
+    )
+
+    response = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="AI 투자 검토",
+            designPrompt="깔끔한 제출용 보고서 스타일",
+            slideCountRange={"min": 1, "max": 1},
+        ),
+        client=fake_client,
+    )
+
+    llm_input = str(fake_client.requests[0]["input"])
+    deck_text = json.dumps(response.deck, ensure_ascii=False)
+
+    assert "Document mode: report/submission" in llm_input
+    assert response.deck["theme"]["name"] == "simple-basic"
+    assert "깔끔한 제출용 보고서 스타일" not in deck_text
+    assert response.validation.passed is True
 
 
 def test_generate_deck_applies_keyed_theme_tokens_from_palette_hint() -> None:

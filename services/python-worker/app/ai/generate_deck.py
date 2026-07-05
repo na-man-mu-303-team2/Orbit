@@ -430,6 +430,20 @@ MAX_IMAGE_REVIEW_SLIDES = 3
 STYLE_PACK_REGISTRY = load_json_registry(DESIGN_LIBRARY_DIR / "style-packs")
 SLIDE_PRESET_REGISTRY = load_json_registry(DESIGN_LIBRARY_DIR / "slide-presets")
 ICON_MAP = load_icon_map(DESIGN_LIBRARY_DIR / "icon-map.json")
+SIMPLE_BASIC_STYLE_PACK_ID = "simple-basic"
+SIMPLE_BASIC_STYLE_KEYWORDS = (
+    "simple basic",
+    "simple-basic",
+    "심플 베이직",
+    "심플",
+    "베이직",
+    "깔끔",
+    "제출용",
+    "보고용",
+    "발표용",
+)
+PRESENTATION_MODE_KEYWORDS = ("발표용", "presentation", "presenter")
+REPORT_MODE_KEYWORDS = ("제출용", "보고용", "report", "submission")
 SLIDE_TYPES: tuple[SlideType, ...] = (
     "title",
     "cover",
@@ -1094,6 +1108,12 @@ Rules:
 - Do not write design instructions into slide title, message, or speakerNotes.
 - Reflect design instructions through visualIntent.paletteHint, emphasisStyle,
   composition, decorationDensity, and mediaStyle.
+- The attached simple/basic style guide is a design and document-purpose guide,
+  not visible slide content. Do not quote or summarize it in slide text.
+- For presentation mode, keep slide messages as keywords or short sentences and
+  place concrete detail in speakerNotes.
+- For report/submission mode, make body messages self-contained enough to read
+  without a presenter, and prefer data/table/chart intent when the sources support it.
 - When suggesting colors, use machine-readable theme tokens:
   background:#RRGGBB text:#RRGGBB accent:#RRGGBB secondary:#RRGGBB
   surface:#RRGGBB muted:#RRGGBB border:#RRGGBB
@@ -1906,7 +1926,7 @@ def generate_content_plan_with_llm(
 
     try:
         response = api_client.responses.create(
-            model=model or "gpt-4o-mini",
+            model=model or "gpt-4.1-mini",
             instructions=DECK_CONTENT_INSTRUCTIONS,
             input=deck_content_prompt(raw_input),
             text=DECK_CONTENT_RESPONSE_FORMAT,
@@ -1954,6 +1974,7 @@ def deck_content_prompt(raw_input: RawInput) -> str:
             f"Audience: {raw_input.metadata.audience}",
             f"Purpose: {raw_input.metadata.purpose}",
             f"Tone: {raw_input.metadata.tone}",
+            f"Document mode: {document_mode_for(raw_input)}",
             f"Design profile: {raw_input.design.profile or '(auto)'}",
             f"Visual rhythm: {raw_input.design.visual_rhythm}",
             f"Density target: {raw_input.design.density_target}",
@@ -2344,6 +2365,9 @@ def select_style_pack(
     if override is not None:
         return override
 
+    if wants_simple_basic_style(raw_input):
+        return registry_item(STYLE_PACK_REGISTRY, SIMPLE_BASIC_STYLE_PACK_ID)
+
     text = " ".join(
         [
             raw_input.topic,
@@ -2361,6 +2385,20 @@ def select_style_pack(
     ):
         return registry_item(STYLE_PACK_REGISTRY, "teal-professional-process")
     return None
+
+
+def wants_simple_basic_style(raw_input: RawInput) -> bool:
+    text = " ".join([raw_input.design_prompt, raw_input.prompt]).casefold()
+    return has_any(text, list(SIMPLE_BASIC_STYLE_KEYWORDS))
+
+
+def document_mode_for(raw_input: RawInput) -> str:
+    text = " ".join([raw_input.design_prompt, raw_input.prompt]).casefold()
+    if has_any(text, list(REPORT_MODE_KEYWORDS)) or raw_input.metadata.purpose == "report":
+        return "report/submission"
+    if has_any(text, list(PRESENTATION_MODE_KEYWORDS)):
+        return "presentation"
+    return "auto"
 
 
 def apply_style_pack(
@@ -4053,6 +4091,13 @@ def design_elements(
         and not is_diagram_composition(composition)
     ):
         emphasis_style = "keyword-chips"
+    if theme.get("name") == SIMPLE_BASIC_STYLE_PACK_ID:
+        return simple_basic_design_elements(
+            slide_plan,
+            visual_plan,
+            theme,
+            emphasis_style,
+        )
     elements = [
         shape_element(
             slide_plan.order,
@@ -4213,6 +4258,173 @@ def design_elements(
     if emphasis_style == "keyword-chips" and slide_plan.order == 1:
         elements.extend(keyword_chip_elements(slide_plan, theme))
 
+    return elements
+
+
+def simple_basic_design_elements(
+    slide_plan: SlidePlan,
+    visual_plan: VisualPlan,
+    theme: dict[str, Any],
+    emphasis_style: str,
+) -> list[dict[str, Any]]:
+    layout = compose_layout(visual_plan)
+    slot_by_role = {slot.role: slot for slot in layout.slots}
+    title_slot = slot_by_role.get("title")
+    body_slot = slot_by_role.get("body")
+    divider_x = title_slot.x if title_slot else CANVAS.safe_x
+    divider_y = (
+        min(
+            body_slot.y - 42,
+            title_slot.y + title_slot.height + 24,
+        )
+        if title_slot and body_slot
+        else CANVAS.safe_y + 154
+    )
+    panel_slot = body_slot or slot_by_role.get("highlight")
+    elements: list[dict[str, Any]] = [
+        shape_element(
+            slide_plan.order,
+            "simple_basic_top_stripe",
+            "decoration",
+            0,
+            0,
+            CANVAS.width,
+            6,
+            1,
+            theme["accentColor"],
+            "transparent",
+        ),
+        shape_element(
+            slide_plan.order,
+            "simple_basic_side_rule",
+            "decoration",
+            CANVAS.safe_x - 28,
+            CANVAS.safe_y,
+            3,
+            CANVAS.safe_height,
+            1,
+            theme["palette"]["border"],
+            "transparent",
+        ),
+        text_element(
+            slide_plan.order,
+            "section_label",
+            "caption",
+            visual_plan.slide_type.replace("-", " ").upper(),
+            CANVAS.safe_x,
+            50,
+            220,
+            24,
+            2,
+            theme["palette"]["secondary"],
+            theme["typography"]["captionSize"],
+            "bold",
+            theme["typography"]["headingFontFamily"],
+        ),
+        shape_element(
+            slide_plan.order,
+            "simple_basic_title_divider",
+            "decoration",
+            divider_x,
+            max(0, divider_y),
+            56,
+            4,
+            2,
+            theme["accentColor"],
+            "transparent",
+        ),
+    ]
+    if panel_slot is not None and visual_plan.slot_preset != "title_full_bleed_image":
+        elements.append(
+            shape_element(
+                slide_plan.order,
+                "simple_basic_content_box",
+                "decoration",
+                max(0, panel_slot.x - 28),
+                max(0, panel_slot.y - 24),
+                min(CANVAS.width - panel_slot.x + 28, panel_slot.width + 56),
+                min(CANVAS.height - panel_slot.y + 24, panel_slot.height + 48),
+                2,
+                theme["palette"]["muted"],
+                theme["palette"]["border"],
+                8,
+            )
+        )
+    if slide_plan.keywords:
+        elements.extend(simple_basic_badge_elements(slide_plan, theme, panel_slot))
+    if emphasis_style == "keyword-chips" and slide_plan.order == 1:
+        elements.extend(keyword_chip_elements(slide_plan, theme))
+    elements.extend(
+        diagram_elements(
+            slide_plan,
+            normalize_composition(visual_plan.visual_intent.composition),
+            theme,
+        )
+    )
+    return elements
+
+
+def simple_basic_badge_elements(
+    slide_plan: SlidePlan,
+    theme: dict[str, Any],
+    panel_slot: LayoutSlot | None,
+) -> list[dict[str, Any]]:
+    x = (panel_slot.x if panel_slot else CANVAS.safe_x) + 8
+    y = (
+        min(CANVAS.height - 166, panel_slot.y + panel_slot.height + 34)
+        if panel_slot
+        else 792
+    )
+    elements: list[dict[str, Any]] = []
+    for index, keyword in enumerate(slide_plan.keywords[:3]):
+        badge_x = x + index * 238
+        elements.extend(
+            [
+                shape_element(
+                    slide_plan.order,
+                    f"simple_basic_badge_{index + 1}",
+                    "decoration",
+                    badge_x,
+                    y,
+                    44,
+                    44,
+                    4,
+                    theme["accentColor"],
+                    "transparent",
+                    element_type="ellipse",
+                ),
+                text_element(
+                    slide_plan.order,
+                    f"simple_basic_badge_{index + 1}_number",
+                    "caption",
+                    f"{index + 1}",
+                    badge_x + 14,
+                    y + 10,
+                    18,
+                    20,
+                    5,
+                    "#ffffff",
+                    theme["typography"]["captionSize"],
+                    "bold",
+                    theme["typography"]["headingFontFamily"],
+                ),
+                text_element(
+                    slide_plan.order,
+                    f"simple_basic_badge_{index + 1}_label",
+                    "caption",
+                    keyword,
+                    badge_x + 58,
+                    y + 9,
+                    150,
+                    26,
+                    5,
+                    theme["textColor"],
+                    theme["typography"]["captionSize"],
+                    "medium",
+                    theme["typography"]["bodyFontFamily"],
+                ),
+            ]
+        )
     return elements
 
 
@@ -4722,6 +4934,7 @@ def is_priority_element(element: dict[str, Any]) -> bool:
             "radial_",
             "bubble_",
             "metric_card",
+            "simple_basic_",
             "top_stripe",
         )
     )
