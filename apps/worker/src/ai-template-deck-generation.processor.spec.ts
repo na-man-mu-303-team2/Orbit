@@ -218,6 +218,97 @@ describe("processAiTemplateDeckGenerationJob", () => {
     });
   });
 
+  it("sends slide body text to caption template slots", async () => {
+    const query = vi.fn(async (sql: string, params: unknown[]) => {
+      if (sql.includes("UPDATE jobs")) {
+        return [
+          jobRow(
+            params[1] as "running" | "succeeded" | "failed",
+            params[2] as number,
+            params[4] as Record<string, unknown> | null,
+            params[5] as { code: string; message: string } | null
+          )
+        ];
+      }
+      if (sql.includes("FROM project_assets")) {
+        return [
+          {
+            file_id: "file_content",
+            project_id: "project-a",
+            storage_key: "projects/project-a/assets/file_content.pdf",
+            mime_type: "application/pdf",
+            original_name: "content.pdf",
+            size: 12,
+            purpose: "reference-material",
+            status: "uploaded"
+          },
+          {
+            file_id: "file_design",
+            project_id: "project-a",
+            storage_key: "projects/project-a/assets/file_design.pptx",
+            mime_type: pptxMimeType,
+            original_name: "design.pptx",
+            size: 24,
+            purpose: "pptx-import",
+            status: "uploaded"
+          }
+        ];
+      }
+      return [];
+    });
+    const fetchMock = vi.fn(async (input: string | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.startsWith("http://storage.local/")) {
+        return new Response(url.endsWith(".pptx") ? "pptx-bytes" : "content-bytes");
+      }
+      if (url.endsWith("/documents/parse")) {
+        return new Response(
+          JSON.stringify({
+            files: [
+              {
+                referenceDocumentId: "file_content",
+                fileName: "content.pdf",
+                kind: "pdf",
+                status: "succeeded",
+                rawText: "reference",
+                cleanedText: "cleaned reference",
+                keywords: []
+              }
+            ]
+          })
+        );
+      }
+      if (url.endsWith("/ai/pptx-ooxml-generation")) {
+        return new Response(
+          JSON.stringify(ooxmlGenerationResponse(captionTemplateBlueprint()))
+        );
+      }
+      if (url.endsWith("/ai/generate-deck")) {
+        return new Response(JSON.stringify(generateDeckResponse()));
+      }
+      if (url.endsWith("/ai/pptx-ooxml-apply-slot-texts")) {
+        const form = init?.body as FormData;
+        const blueprint = JSON.parse(String(form.get("template_blueprint")));
+        const slotTexts = JSON.parse(String(form.get("slot_texts")));
+        expect(blueprint.slides[0].slots[1].slotRole).toBe("caption");
+        expect(slotTexts[1]).toContain("1");
+        return new Response(JSON.stringify(ooxmlApplyResponse()));
+      }
+
+      return new Response("unexpected", { status: 500 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const job = await processAiTemplateDeckGenerationJob(
+      { query } as unknown as DataSource,
+      storage,
+      "http://localhost:8000",
+      payload
+    );
+
+    expect(job.status, JSON.stringify(job.error)).toBe("succeeded");
+  });
+
   it("uses a both-role PPTX as content context and design reference", async () => {
     const bothPayload = {
       ...payload,
@@ -409,7 +500,7 @@ describe("processAiTemplateDeckGenerationJob", () => {
   });
 });
 
-function ooxmlGenerationResponse() {
+function ooxmlGenerationResponse(template = templateBlueprint(10)) {
   return {
     canvas: {
       preset: "wide-16-9",
@@ -451,7 +542,7 @@ function ooxmlGenerationResponse() {
         }
       ]
     },
-    templateBlueprint: templateBlueprint(10),
+    templateBlueprint: template,
     qualityReport: qualityReport(),
     assets: [
       {
@@ -586,6 +677,25 @@ function templateBlueprint(slideCount = 1) {
     currentPackageFileId: "asset:current_package",
     slides: Array.from({ length: slideCount }, (_, index) =>
       templateBlueprintSlide(index + 1)
+    )
+  };
+}
+
+function captionTemplateBlueprint() {
+  const blueprint = templateBlueprint(10);
+  return {
+    ...blueprint,
+    slides: blueprint.slides.map((slide) =>
+      slide.sourceSlideIndex === 3
+        ? {
+            ...slide,
+            slots: slide.slots.map((slot) =>
+              slot.elementId === "el_body_3"
+                ? { ...slot, slotRole: "caption" as const }
+                : slot
+            )
+          }
+        : slide
     )
   };
 }

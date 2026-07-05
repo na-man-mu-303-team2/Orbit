@@ -1474,15 +1474,19 @@ class DeckGenerationOrchestrator:
         refined_deck = refine_design_issues(deck, reviewer_validation.design_issues)
         refined_deck, validation = validate_and_patch(refined_deck)
         text_overlap_candidates = detect_text_overlap_candidates(refined_deck)
-        validation.design_issues.extend(
-            review_text_overlap_candidates(
-                refined_deck,
-                text_overlap_candidates,
-                client=self.client,
-                model=self.model,
-                api_key=self.api_key,
-                image_review_mode=self.image_review_mode,
-            )
+        overlap_issues = review_text_overlap_candidates(
+            refined_deck,
+            text_overlap_candidates,
+            client=self.client,
+            model=self.model,
+            api_key=self.api_key,
+            image_review_mode=self.image_review_mode,
+        )
+        validation.layout_issues.extend(overlap_issues)
+        validation.passed = not (
+            validation.layout_issues
+            or validation.content_issues
+            or validation.presentation_issues
         )
         self.record(
             "RefinerAgent",

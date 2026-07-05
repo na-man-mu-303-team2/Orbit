@@ -14,6 +14,7 @@ from app.ai.generate_deck import (
     ReferenceContext,
     SlideCountRange,
     ValidationIssue,
+    ValidationResult,
     analyze_input,
     choose_slide_count,
     detect_text_overlap_candidates,
@@ -1232,6 +1233,30 @@ def test_text_overlap_review_skips_llm_when_no_candidate_exists() -> None:
 
     assert issues == []
     assert fake_client.requests == []
+
+
+def test_refiner_records_text_overlap_as_layout_issue() -> None:
+    deck = text_overlap_deck(
+        [
+            text_box("el_a", 100, 100, "본문 A"),
+            text_box("el_b", 150, 110, "본문 B"),
+        ]
+    )
+    orchestrator = DeckGenerationOrchestrator(
+        GenerateDeckRequest(projectId="project_demo_1", topic="ORBIT"),
+        image_review_mode="off",
+    )
+
+    _, validation = orchestrator.run_refiner_agent(
+        deck,
+        ValidationResult(passed=True),
+    )
+
+    assert validation.passed is False
+    assert any(
+        "텍스트 요소가 겹쳐" in issue.message
+        for issue in validation.layout_issues
+    )
 
 
 def test_generate_deck_endpoint_requires_llm_for_reference_generation() -> None:
