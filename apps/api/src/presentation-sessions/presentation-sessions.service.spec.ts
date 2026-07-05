@@ -98,6 +98,24 @@ const audienceDeck = {
         },
       ],
     },
+    {
+      slideId: "slide_3",
+      order: 2,
+      title: "두 번째 공개 슬라이드",
+      speakerNotes: "second private presenter script",
+      style: {},
+      elements: [
+        {
+          elementId: "el_2",
+          type: "text",
+          x: 100,
+          y: 160,
+          width: 720,
+          height: 120,
+          props: { text: "두 번째 청중 공개 문장" },
+        },
+      ],
+    },
   ],
 };
 
@@ -584,6 +602,175 @@ describe("PresentationSessionsService", () => {
         { sessionId: "session_existing" },
       ]),
     );
+  });
+
+  it("freezes all audience slide snapshot urls when a session starts", async () => {
+    const storage = {
+      putObject: vi.fn(async (input) => ({
+        key: input.key,
+        url: `https://cdn.example.test/${String(input.key).split("/").at(-1)}`,
+        contentType: input.contentType,
+        purpose: input.purpose,
+        size: typeof input.body === "string" ? input.body.length : 0,
+      })),
+    } as unknown as StoragePort;
+    const query = vi.fn(async (sql: string, params?: unknown[]) => {
+      if (sql.includes("UPDATE presentation_sessions") && sql.includes("status = 'live'")) {
+        return [
+          {
+            ...activeSessionRow,
+            status: "live",
+            started_at: "2026-07-05T00:01:00.000Z",
+          },
+        ];
+      }
+
+      if (sql.includes("UPDATE session_survey_forms")) {
+        return [];
+      }
+
+      if (sql.includes("FROM presentation_sessions ps")) {
+        return [{ deck_json: audienceDeck }];
+      }
+
+      if (sql.includes("UPDATE presentation_sessions") && sql.includes("audience_slide_snapshots_json")) {
+        return [];
+      }
+
+      if (sql.includes("SELECT audience_slide_snapshots_json")) {
+        return [
+          {
+            audience_slide_snapshots_json: {
+              deckVersion: 1,
+              deckContentHash: "already-frozen",
+              slides: {
+                slide_2: {
+                  contentHash: "frozen-slide-2",
+                  url: "https://cdn.example.test/slide_2.svg",
+                },
+              },
+            },
+          },
+        ];
+      }
+
+      if (sql.includes("UPDATE audience_realtime_state")) {
+        return [
+          {
+            session_id: "session_existing",
+            slide_id: "slide_2",
+            slide_index: 0,
+            effect_state_json: params?.[3],
+            active_interaction_id: null,
+            updated_at: "2026-07-05T00:01:00.000Z",
+          },
+        ];
+      }
+
+      if (sql.includes("INSERT INTO audience_events")) {
+        return [];
+      }
+
+      return [];
+    });
+    const service = new PresentationSessionsService(
+      { query } as unknown as DataSource,
+      storage,
+    );
+
+    await service.startSession({
+      projectId: "project_1",
+      sessionId: "session_existing",
+      actorId: "user_1",
+    });
+
+    expect(storage.putObject).toHaveBeenCalledTimes(2);
+    expect(storage.putObject).toHaveBeenCalledWith(
+      expect.objectContaining({
+        key: expect.stringMatching(
+          /^audience-slide-snapshots\/session_existing\/slide_3-[a-f0-9]{64}\.svg$/,
+        ),
+      }),
+    );
+    const snapshotMapUpdate = query.mock.calls.find(([sql]) =>
+      String(sql).includes("audience_slide_snapshots_json = $2::jsonb"),
+    );
+    expect(snapshotMapUpdate?.[1]?.[1]).toMatchObject({
+      deckVersion: 1,
+      slides: {
+        slide_2: expect.objectContaining({
+          url: expect.stringContaining("slide_2-"),
+        }),
+        slide_3: expect.objectContaining({
+          url: expect.stringContaining("slide_3-"),
+        }),
+      },
+    });
+  });
+
+  it("reuses frozen audience slide snapshot urls for presenter slide updates", async () => {
+    const storage = {
+      putObject: vi.fn(),
+    } as unknown as StoragePort;
+    const query = vi.fn(async (sql: string, params?: unknown[]) => {
+      if (sql.includes("SELECT audience_slide_snapshots_json")) {
+        return [
+          {
+            audience_slide_snapshots_json: {
+              deckVersion: 1,
+              deckContentHash: "frozen-deck",
+              slides: {
+                slide_3: {
+                  contentHash: "frozen-slide-3",
+                  url: "https://cdn.example.test/frozen-slide-3.svg",
+                },
+              },
+            },
+          },
+        ];
+      }
+
+      if (sql.includes("UPDATE audience_realtime_state")) {
+        return [
+          {
+            session_id: "session_existing",
+            slide_id: "slide_3",
+            slide_index: 1,
+            effect_state_json: params?.[3],
+            active_interaction_id: null,
+            updated_at: "2026-07-05T00:03:00.000Z",
+          },
+        ];
+      }
+
+      if (sql.includes("INSERT INTO audience_events")) {
+        return [];
+      }
+
+      return [];
+    });
+    const service = new PresentationSessionsService(
+      { query } as unknown as DataSource,
+      storage,
+    );
+
+    await expect(
+      service.updateAudienceRealtimeState({
+        sessionId: "session_existing",
+        actorId: "user_1",
+        slideId: "slide_3",
+        slideIndex: 1,
+        effectState: { stepIndex: 2 },
+      }),
+    ).resolves.toMatchObject({
+      effectState: {
+        stepIndex: 2,
+        slideSnapshotContentHash: "frozen-slide-3",
+        slideSnapshotUrl: "https://cdn.example.test/frozen-slide-3.svg",
+      },
+    });
+
+    expect(storage.putObject).not.toHaveBeenCalled();
   });
 
   it("updates feature settings, normalizes AI Q&A dependencies, and appends an event", async () => {

@@ -26,6 +26,7 @@ import { CreateAudienceQuestionAnswers2026070503000 } from "./migrations/2026070
 import { CreateSessionSurveys2026070504000 } from "./migrations/2026070504000-CreateSessionSurveys";
 import { CreateAudienceAggregateReports2026070505000 } from "./migrations/2026070505000-CreateAudienceAggregateReports";
 import { AddAudienceManualResultExposure2026070506000 } from "./migrations/2026070506000-AddAudienceManualResultExposure";
+import { AddAudienceSlideSnapshots2026070507000 } from "./migrations/2026070507000-AddAudienceSlideSnapshots";
 
 loadDotenv({ path: "../../.env.local" });
 loadDotenv({ path: ".env.local" });
@@ -63,7 +64,8 @@ export const databaseOptions: DataSourceOptions = {
     CreateAudienceQuestionAnswers2026070503000,
     CreateSessionSurveys2026070504000,
     CreateAudienceAggregateReports2026070505000,
-    AddAudienceManualResultExposure2026070506000
+    AddAudienceManualResultExposure2026070506000,
+    AddAudienceSlideSnapshots2026070507000
   ],
   migrationsTableName: "typeorm_migrations",
   synchronize: false,

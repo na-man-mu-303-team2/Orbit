@@ -1,4 +1,4 @@
-import { randomInt, randomUUID } from "node:crypto";
+import { createHash, randomInt, randomUUID } from "node:crypto";
 import {
   assertAudienceSafePayload,
   audienceStateResponseSchema,
@@ -118,6 +118,19 @@ type AudienceRealtimeStateRow = {
   effect_state_json: Record<string, unknown> | string | null;
   active_interaction_id: string | null;
   updated_at: Date | string;
+};
+
+type AudienceSlideSnapshotMap = {
+  deckContentHash: string;
+  deckVersion: number;
+  generatedAt: string;
+  slides: Record<
+    string,
+    {
+      contentHash: string;
+      url: string;
+    }
+  >;
 };
 
 type AudienceFeatureSettingsRow = {
@@ -735,6 +748,7 @@ export class PresentationSessionsService {
     );
 
     const session = this.toSessionDto(row);
+    await this.prepareAudienceSlideSnapshotsForSession(input.sessionId);
     await this.initializeAudienceStateForStartedSession({
       actorId: input.actorId,
       sessionId: input.sessionId,
@@ -2907,8 +2921,24 @@ export class PresentationSessionsService {
     slideId: string | null;
     effectState: Record<string, unknown>;
   }): Promise<Record<string, unknown>> {
-    if (!this.slideSnapshotStorage || !input.slideId) {
+    if (!input.slideId) {
       return input.effectState;
+    }
+
+    if (!this.slideSnapshotStorage) {
+      return input.effectState;
+    }
+
+    const frozenSnapshot = await this.getFrozenSlideSnapshot({
+      sessionId: input.sessionId,
+      slideId: input.slideId,
+    });
+    if (frozenSnapshot) {
+      return assertAudienceSafePayload({
+        ...input.effectState,
+        slideSnapshotContentHash: frozenSnapshot.contentHash,
+        slideSnapshotUrl: frozenSnapshot.url,
+      });
     }
 
     try {
@@ -2963,6 +2993,105 @@ export class PresentationSessionsService {
     } catch {
       // Snapshot and first-slide initialization must not block session start.
     }
+  }
+
+  private async prepareAudienceSlideSnapshotsForSession(sessionId: string) {
+    if (!this.slideSnapshotStorage) {
+      return;
+    }
+
+    try {
+      const deck = await this.getSessionDeck(sessionId);
+      if (!deck) {
+        return;
+      }
+
+      const deckContentHash = deckPublicContentHash(deck);
+      const currentMap = await this.getAudienceSlideSnapshotMap(sessionId);
+      const orderedSlides = [...deck.slides].sort(
+        (left, right) => left.order - right.order,
+      );
+      const isCurrent =
+        currentMap?.deckVersion === deck.version &&
+        currentMap.deckContentHash === deckContentHash &&
+        orderedSlides.every(
+          (slide) => Boolean(currentMap.slides[slide.slideId]?.url),
+        );
+
+      if (isCurrent) {
+        return;
+      }
+
+      const slides: AudienceSlideSnapshotMap["slides"] = {};
+      for (const slide of orderedSlides) {
+        const snapshot = renderSlideSnapshot({
+          deck,
+          slideId: slide.slideId,
+          effectState: {},
+        });
+        const object = await this.slideSnapshotStorage.putObject({
+          key: `audience-slide-snapshots/${sessionId}/${slide.slideId}-${snapshot.contentHash}.svg`,
+          body: snapshot.body,
+          contentType: snapshot.contentType,
+          purpose: "audience-slide-snapshot",
+        });
+        slides[slide.slideId] = {
+          contentHash: snapshot.contentHash,
+          url: object.url,
+        };
+      }
+
+      await this.saveAudienceSlideSnapshotMap(sessionId, {
+        deckContentHash,
+        deckVersion: deck.version,
+        generatedAt: new Date().toISOString(),
+        slides,
+      });
+    } catch {
+      // Snapshot generation failure must not block session start.
+    }
+  }
+
+  private async getFrozenSlideSnapshot(input: {
+    sessionId: string;
+    slideId: string;
+  }) {
+    const map = await this.getAudienceSlideSnapshotMap(input.sessionId);
+    return map?.slides[input.slideId] ?? null;
+  }
+
+  private async getAudienceSlideSnapshotMap(
+    sessionId: string,
+  ): Promise<AudienceSlideSnapshotMap | null> {
+    const rows = await this.dataSource.query<
+      Array<{ audience_slide_snapshots_json: unknown }>
+    >(
+      `
+        SELECT audience_slide_snapshots_json
+        FROM presentation_sessions
+        WHERE session_id = $1
+        LIMIT 1
+      `,
+      [sessionId],
+    );
+
+    return normalizeAudienceSlideSnapshotMap(
+      rows[0]?.audience_slide_snapshots_json,
+    );
+  }
+
+  private async saveAudienceSlideSnapshotMap(
+    sessionId: string,
+    map: AudienceSlideSnapshotMap,
+  ) {
+    await this.dataSource.query(
+      `
+        UPDATE presentation_sessions
+        SET audience_slide_snapshots_json = $2::jsonb
+        WHERE session_id = $1
+      `,
+      [sessionId, map],
+    );
   }
 
   private async getSessionDeck(sessionId: string): Promise<Deck | null> {
@@ -3628,6 +3757,79 @@ function csvEscape(value: string) {
 
 function generateJoinCode(): string {
   return String(randomInt(0, 1_000_000)).padStart(6, "0");
+}
+
+function normalizeAudienceSlideSnapshotMap(
+  value: unknown,
+): AudienceSlideSnapshotMap | null {
+  const parsed = typeof value === "string" ? JSON.parse(value) : value;
+  if (typeof parsed !== "object" || parsed === null) {
+    return null;
+  }
+
+  const record = parsed as Record<string, unknown>;
+  const slidesRecord =
+    typeof record.slides === "object" && record.slides !== null
+      ? record.slides as Record<string, unknown>
+      : {};
+  const slides: AudienceSlideSnapshotMap["slides"] = {};
+
+  for (const [slideId, snapshot] of Object.entries(slidesRecord)) {
+    if (typeof snapshot !== "object" || snapshot === null) {
+      continue;
+    }
+
+    const snapshotRecord = snapshot as Record<string, unknown>;
+    if (
+      typeof snapshotRecord.url === "string" &&
+      typeof snapshotRecord.contentHash === "string"
+    ) {
+      slides[slideId] = {
+        contentHash: snapshotRecord.contentHash,
+        url: snapshotRecord.url,
+      };
+    }
+  }
+
+  const deckVersion =
+    typeof record.deckVersion === "number" ? record.deckVersion : 0;
+  const deckContentHash =
+    typeof record.deckContentHash === "string" ? record.deckContentHash : "";
+  const generatedAt =
+    typeof record.generatedAt === "string" ? record.generatedAt : "";
+
+  if (!deckContentHash && Object.keys(slides).length === 0) {
+    return null;
+  }
+
+  return {
+    deckContentHash,
+    deckVersion,
+    generatedAt,
+    slides,
+  };
+}
+
+function deckPublicContentHash(deck: Deck) {
+  const publicDeck = {
+    canvas: deck.canvas,
+    slides: deck.slides
+      .map((slide) => ({
+        elements: slide.elements,
+        order: slide.order,
+        slideId: slide.slideId,
+        style: slide.style,
+        title: slide.title,
+      }))
+      .sort((left, right) => left.order - right.order),
+    theme: deck.theme,
+    title: deck.title,
+    version: deck.version,
+  };
+
+  return createHash("sha256")
+    .update(JSON.stringify(publicDeck))
+    .digest("hex");
 }
 
 async function callQnaWorker(input: {
