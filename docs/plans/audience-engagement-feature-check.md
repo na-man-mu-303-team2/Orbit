@@ -31,12 +31,12 @@ Remaining partial areas are concentrated in the highest-fidelity items from the 
 | Korean audience join/session copy | Pass | API/Web tests; source inspection. | Missing live session errors are normalized to `입장 코드를 확인해 주세요.` for audience-facing flows. |
 | Manual result visibility | Pass | API service tests; new exposure endpoint. | `manual` results stay hidden until the presenter exposes a specific question. |
 | Presenter live controls | Pass | Web tests pass for presenter panel and audience setup controls. | Prepared interaction library selection/manual ordering, AI reference selection controls, ad hoc poll/quiz create, activate, close, result expose/hide, and queue summary exist. |
-| Polls and quizzes | Pass | Shared/API/Web tests pass. | Multi-question response UI, speed-bonus scoring, and after-close quiz answer reveal are covered. |
+| Polls and quizzes | Pass | Shared/API/Web tests and audience Playwright smoke pass. | Multi-question response UI, speed-bonus scoring, and after-close quiz answer reveal are covered. |
 | Q&A duplicate merge | Pass | API service tests. | Similar questions reuse a group id through conservative cosine similarity at `>= 0.88`. |
 | Private AI answer delivery | Pass | API gateway tests and Web realtime tests. | API broadcasts `audience:private-answer`; Web client parses it and updates the Q&A card while REST recovery remains. |
 | AI Q&A grounding/generation | Partial | Python syntax compile; API/shared tests pass; Python tests updated but not runnable locally. | API now sends current public slide title/text without speaker notes, worker searches only `selectedReferenceIds`, enforces `0.78` top-source grounding, calls the configured OpenAI chat model only when `OPENAI_API_KEY` exists, and returns source type/title citations. E2E timeout/escalation UI coverage remains pending. |
 | Slide snapshots | Partial | API service tests, worker processor tests, shared/job-queue tests, migration specs/run-revert, `@orbit/slide-renderer` tests, `@orbit/slide-render-worker` tests/build, and audience Playwright smoke pass. | Draft session creation schedules `audience-slide-render` jobs for stale/missing slide snapshots, the worker stores rendered snapshots and merges the result into `audience_slide_snapshots_json`, session start refreshes/freezes URLs for all slides, and presenter slide updates reuse the frozen URL. Full prepared snapshot lifecycle browser coverage remains pending. |
-| Audience slide rendering fallback | Partial | API service tests, Web audience tests, and `tests/e2e/audience-engagement.spec.ts` pass. | Image-first rendering works when `slideSnapshotUrl` exists; snapshot storage failure now persists an audience-safe current-slide `slideFallback` Deck payload without `speakerNotes`/presenter script, and Web renders it through `SlideshowRenderer`. The audience smoke now verifies the missing-snapshot Deck JSON fallback path; pre-start fallback generation and full visual parity remain pending. |
+| Audience slide rendering fallback | Partial | API service tests, Web audience tests, and `tests/e2e/audience-engagement.spec.ts` pass. | Image-first rendering works when `slideSnapshotUrl` exists; snapshot storage failure now persists an audience-safe current-slide `slideFallback` Deck payload without `speakerNotes`/presenter script, and Web renders it through `SlideshowRenderer`. The audience smoke verifies the missing-snapshot Deck JSON fallback path; pre-start fallback generation and full visual parity remain pending. |
 | Reactions | Pass | Existing API/gateway/Web tests pass. | No new gap found in this pass. |
 | Survey and contact collection | Pass | Existing API/Web tests pass. | No survey-specific regression found. |
 | Results and reporting | Partial | Existing presenter/API tests pass. | Presenter can view aggregate summaries; richer charting remains outside current completion. |
@@ -67,7 +67,7 @@ Remaining partial areas are concentrated in the highest-fidelity items from the 
 - API presenter slide-state updates reuse the frozen per-slide `slideSnapshotUrl` and `slideSnapshotContentHash` from the session map, keeping effect state separate for reconnect recovery.
 - If snapshot storage fails during a presenter slide update, API persists a current-slide `slideFallback` Deck payload with presenter-only fields removed, and the audience Web shell renders it through `SlideshowRenderer` instead of the placeholder.
 - Python Q&A worker returns structured no-grounding failures when grounding/API key is absent and keeps citations to source type/title style.
-- Audience Playwright smoke covers join/session copy, Q&A fallback/escalation action, poll response, reaction send, quiz submit, post-session survey, presenter results summary/CSV link, and Deck JSON slide fallback rendering when snapshots are unavailable.
+- Audience Playwright smoke covers join/session copy, Q&A fallback/escalation action, poll response, reaction send, quiz submit, after-close quiz answer reveal, post-session survey, presenter results summary/CSV link, per-question manual result exposure, and Deck JSON slide fallback rendering when snapshots are unavailable.
 
 ## Remaining Gaps
 
@@ -75,7 +75,7 @@ Remaining partial areas are concentrated in the highest-fidelity items from the 
 - **Deck JSON fallback still needs broader parity verification.** Snapshot storage failure now falls back to a sanitized current-slide Deck payload rendered through the shared slideshow renderer, and the audience smoke covers the missing-snapshot fallback path. Pre-start fallback generation and manual visual parity checks are still pending.
 - **AI Q&A still needs broader flow proof.** Selected-reference retrieval, public slide context, `0.78` thresholding, and OpenAI-key-gated chat generation are implemented, but timeout/manual presenter escalation UI and E2E privacy/recovery coverage are still pending.
 - **Prepared presenter setup remains partial.** Core controls are wired, including prepared interaction selection/order and AI reference selection; remaining setup polish is E2E coverage and any richer asset metadata UX.
-- **E2E coverage remains incomplete.** The hardened audience smoke now covers the core audience join, Q&A, poll, quiz, reaction, survey, presenter result summary, and slide fallback paths, but the completion-plan Playwright matrix for presenter preparation, slide sync, AI answer privacy/recovery, manual result reveal, and richer poll/quiz/survey edge cases remains partial.
+- **E2E coverage remains incomplete.** The hardened audience smoke now covers the core audience join, Q&A, poll, quiz, quiz reveal, reaction, survey, presenter result summary, manual result exposure, and slide fallback paths, but the completion-plan Playwright matrix for presenter preparation, slide sync, AI answer privacy/recovery, and richer poll/quiz/survey edge cases remains partial.
 - **Python pytest could not run locally.** `uv` is not installed, and available Python environments do not have `pytest`; syntax compilation passed instead.
 
 ## Commands Run
@@ -100,7 +100,7 @@ Remaining partial areas are concentrated in the highest-fidelity items from the 
 - `pnpm --filter @orbit/worker test -- src/audience-slide-render.processor.spec.ts`
 - `pnpm --filter @orbit/worker lint`
 - `pnpm --filter @orbit/slide-render-worker lint`
-- `PLAYWRIGHT_BASE_URL=http://127.0.0.1:5174 pnpm exec playwright test tests/e2e/audience-engagement.spec.ts --reporter=list`
+- `PLAYWRIGHT_BASE_URL=http://127.0.0.1:5174 pnpm exec playwright test tests/e2e/audience-engagement.spec.ts --reporter=list` (8 passed)
 - `PYTHONPYCACHEPREFIX=/private/tmp/orbit-pycache python3 -m py_compile services/python-worker/app/main.py services/python-worker/app/references.py services/python-worker/tests/test_qna.py services/python-worker/tests/test_references.py`
 - `pnpm lint`
 - `pnpm build`

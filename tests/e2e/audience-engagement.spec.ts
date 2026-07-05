@@ -80,6 +80,30 @@ const quizInteraction = {
   resultVisibility: "after-close",
   quizScoring: "correct-count",
 };
+const closedQuizInteraction = {
+  ...quizInteraction,
+  closedAt: now,
+};
+const manualPollInteraction = {
+  ...pollInteraction,
+  interactionId: "interaction_00000000-0000-4000-8000-000000000003",
+  title: "수동 공개 투표",
+  questions: [
+    {
+      type: "choice",
+      questionId: "question_00000000-0000-4000-8000-000000000003",
+      prompt: "결과를 공개할까요?",
+      required: true,
+      allowMultiple: false,
+      options: [
+        { optionId: "yes", label: "예" },
+        { optionId: "no", label: "아니요" },
+      ],
+    },
+  ],
+  resultVisibility: "manual",
+  exposedResultQuestionIds: [],
+};
 
 test.describe("audience engagement hardened smoke", () => {
   test("rejects duplicate nicknames and then restores a mobile live audience surface", async ({
@@ -144,6 +168,27 @@ test.describe("audience engagement hardened smoke", () => {
     await page.getByLabel("참").check();
     await page.getByRole("button", { name: "퀴즈 제출" }).click();
     await expect(page.getByText("퀴즈 응답이 제출되었습니다.")).toBeVisible();
+  });
+
+  test("shows the audience quiz answer reveal after close", async ({ page }) => {
+    await mockAudienceSession(page, {
+      interaction: closedQuizInteraction,
+      quizReveal: [
+        {
+          questionId: "question_00000000-0000-4000-8000-000000000002",
+          correctAnswer: { type: "quiz-true-false", answer: true },
+          submittedAnswer: { type: "quiz-true-false", answer: true },
+          isCorrect: true,
+          score: 1000,
+        },
+      ],
+    });
+    await page.goto("/join/123456");
+    await joinAs(page, "orbit");
+
+    await expect(page.getByText("퀴즈 결과가 공개되었습니다.")).toBeVisible();
+    await expect(page.getByText("정답입니다.")).toBeVisible();
+    await expect(page.getByText("1000")).toBeVisible();
   });
 
   test("renders the Deck JSON slide fallback when snapshots are unavailable", async ({
@@ -240,6 +285,27 @@ test.describe("audience engagement hardened smoke", () => {
       "/api/v1/projects/project_1/presentation-sessions/session_1/survey.csv",
     );
   });
+
+  test("lets the presenter expose manual poll results per question", async ({
+    page,
+  }) => {
+    const exposureRequests: unknown[] = [];
+    await mockPresenterResults(page, {
+      interactions: [manualPollInteraction],
+      onExposureRequest: (payload) => exposureRequests.push(payload),
+    });
+
+    await page.goto("/audience/project_1/control");
+    await page.getByRole("button", { name: "결과 공개" }).click();
+
+    await expect(page.getByRole("button", { name: "결과 숨기기" })).toBeVisible();
+    expect(exposureRequests).toEqual([
+      {
+        questionId: "question_00000000-0000-4000-8000-000000000003",
+        exposed: true,
+      },
+    ]);
+  });
 });
 
 async function joinAs(page: Page, nickname: string) {
@@ -257,6 +323,7 @@ async function mockAudienceSession(
     duplicateFirstNickname?: boolean;
     effectState?: Record<string, unknown>;
     interaction?: typeof pollInteraction | typeof quizInteraction | null;
+    quizReveal?: Array<Record<string, unknown>>;
     restoreAudience?: boolean;
     surveyEnabled?: boolean;
   } = {},
@@ -346,7 +413,14 @@ async function mockAudienceSession(
   );
   await page.route(
     "**/api/v1/presentation-sessions/session_1/audience/interactions/active",
-    (route) => route.fulfill({ json: { interaction, results: null } }),
+    (route) =>
+      route.fulfill({
+        json: {
+          interaction,
+          results: null,
+          quizReveal: options.quizReveal ?? [],
+        },
+      }),
   );
   await page.route(
     "**/api/v1/presentation-sessions/session_1/audience/interactions/*/respond",
@@ -455,7 +529,14 @@ async function mockAudienceSession(
   );
 }
 
-async function mockPresenterResults(page: Page) {
+async function mockPresenterResults(
+  page: Page,
+  options: {
+    interactions?: Array<typeof manualPollInteraction>;
+    onExposureRequest?: (payload: unknown) => void;
+  } = {},
+) {
+  let interactions = options.interactions ?? [];
   await page.route("**/api/v1/auth/me", (route) =>
     route.fulfill({
       json: {
@@ -519,7 +600,32 @@ async function mockPresenterResults(page: Page) {
   );
   await page.route(
     "**/api/v1/projects/project_1/presentation-sessions/session_1/interactions",
-    (route) => route.fulfill({ json: { interactions: [] } }),
+    (route) => route.fulfill({ json: { interactions } }),
+  );
+  await page.route(
+    "**/api/v1/projects/project_1/presentation-sessions/session_1/interactions/*/results/exposure",
+    async (route) => {
+      const payload = (await route.request().postDataJSON()) as {
+        exposed?: boolean;
+        questionId?: string;
+      };
+      options.onExposureRequest?.(payload);
+      interactions = interactions.map((interaction) =>
+        payload.questionId && payload.exposed
+          ? {
+              ...interaction,
+              exposedResultQuestionIds: [
+                ...new Set([
+                  ...interaction.exposedResultQuestionIds,
+                  payload.questionId,
+                ]),
+              ],
+            }
+          : interaction,
+      );
+
+      return route.fulfill({ json: { interaction: interactions[0] } });
+    },
   );
   await page.route(
     "**/api/v1/projects/project_1/presentation-sessions/interactions/library",
