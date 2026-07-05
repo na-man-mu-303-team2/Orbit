@@ -220,6 +220,7 @@ def import_pptx_design(
         )
         slot_sources_by_slide.append(slot_sources)
 
+    apply_repeated_text_roles(slides, slot_sources_by_slide)
     blueprint = ImportedDesignBlueprint.model_validate(
         {
             "sourceFileId": file_id,
@@ -868,6 +869,27 @@ def build_template_blueprint(
             for index, slide in enumerate(slides)
         ],
     }
+
+
+def apply_repeated_text_roles(
+    slides: list[dict[str, Any]],
+    slot_sources_by_slide: list[dict[str, dict[str, Any]]],
+) -> None:
+    repeated_texts = repeated_text_values(slides)
+    if not repeated_texts:
+        return
+    slide_count = len(slides)
+    for index, slide in enumerate(slides):
+        elements = slide.get("elements")
+        if not isinstance(elements, list):
+            continue
+        assign_text_roles(
+            elements,
+            slot_sources_by_slide[index] if index < len(slot_sources_by_slide) else {},
+            slide_index=index + 1,
+            slide_count=slide_count,
+            repeated_texts=repeated_texts,
+        )
 
 
 def template_element_source_for_element(

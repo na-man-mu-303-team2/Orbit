@@ -865,6 +865,9 @@ Rules:
   generated text is applied through `/ai/pptx-ooxml-apply-slot-texts`.
 - The worker saves the final Deck and creates an initial `deck-replaced`
   snapshot from that same Deck, including generated `thumbnailUrl` values.
+- Final AI template deck thumbnails come from the generated PPTX render assets;
+  every generated slide must have a matching render asset, and the saved deck
+  sets `metadata.thumbnailSource = "import-render"`.
 - `slideCountRange` is the authoritative user-requested generation range.
   The reference PPTX page count never overrides it.
 - `referenceSlideCount` means the number of slides imported from the design

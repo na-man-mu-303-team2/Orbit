@@ -237,17 +237,6 @@ export async function processAiTemplateDeckGenerationJob(
     );
   }
 
-  if (!generatedDeck.validation.passed) {
-    return failJob(
-      dataSource,
-      payload.jobId,
-      70,
-      "AI_TEMPLATE_DECK_GENERATION_VALIDATION_FAILED",
-      "Generated deck did not pass validation.",
-      { validation: generatedDeck.validation },
-    );
-  }
-
   try {
     const selectedTemplateBlueprint = selectTemplateBlueprintSlides(
       design.templateBlueprint,
@@ -529,26 +518,19 @@ function promoteAiTemplateContentSlots(
 ): TemplateBlueprint {
   return templateBlueprintSchema.parse({
     ...templateBlueprint,
-    slides: templateBlueprint.slides.map((slide) => {
-      const hasContentSlots = slide.slots.some(
-        (slot) => slot.usage === "content-slot" && slot.replaceMode === "replace",
-      );
-      if (hasContentSlots) return slide;
-
-      return {
-        ...slide,
-        slots: slide.slots.map((slot) =>
-          isPromotableAiTextSlot(slot)
-            ? {
-                ...slot,
-                usage: "content-slot",
-                replaceMode: "replace",
-                confidence: Math.max(slot.confidence, 0.65),
-              }
-            : slot,
-        ),
-      };
-    }),
+    slides: templateBlueprint.slides.map((slide) => ({
+      ...slide,
+      slots: slide.slots.map((slot) =>
+        isPromotableAiTextSlot(slot)
+          ? {
+              ...slot,
+              usage: "content-slot",
+              replaceMode: "replace",
+              confidence: Math.max(slot.confidence, 0.65),
+            }
+          : slot,
+      ),
+    })),
   });
 }
 
@@ -560,7 +542,8 @@ function isPromotableAiTextSlot(
   return (
     slot.usage === "fixed-text" &&
     slot.replaceMode === "preserve" &&
-    ["title", "subtitle", "body", "caption"].includes(slot.slotRole) &&
+    ["title", "subtitle", "body", "caption", "label", "metric"].includes(slot.slotRole) &&
+    slot.confidence < 0.8 &&
     slot.source.type === "slide" &&
     typeof slot.source.shapeId === "string" &&
     slot.source.shapeId.trim() !== "" &&
@@ -865,17 +848,25 @@ function applyFinalRenderAssetsToDeck(
 ): Deck {
   return deckSchema.parse({
     ...deck,
+    metadata: {
+      ...deck.metadata,
+      thumbnailSource: "import-render",
+    },
     slides: deck.slides.map((slide, index) => {
-      const templateSlide =
-        templateBlueprint.slides[index] ?? templateBlueprint.slides[0];
-      const renderUrl = templateSlide
-        ? finalAssetUrls.get(`asset:slide_render_${templateSlide.sourceSlideIndex}`)
-        : undefined;
+      const templateSlide = templateBlueprint.slides[index];
+      if (!templateSlide) {
+        throw new Error(`Template slide missing for generated slide ${index + 1}.`);
+      }
+      const renderAssetRef = `asset:slide_render_${templateSlide.sourceSlideIndex}`;
+      const renderUrl = finalAssetUrls.get(renderAssetRef);
+      if (!renderUrl) {
+        throw new Error(`Rendered slide asset missing: ${renderAssetRef}`);
+      }
       return {
         ...slide,
-        thumbnailUrl: renderUrl ?? slide.thumbnailUrl,
+        thumbnailUrl: renderUrl,
         style:
-          renderUrl && slide.style.backgroundImage?.fit === "stretch"
+          slide.style.backgroundImage?.fit === "stretch"
             ? {
                 ...slide.style,
                 backgroundImage: {

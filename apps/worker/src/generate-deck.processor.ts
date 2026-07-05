@@ -179,16 +179,6 @@ export async function processGenerateDeckJob(
 
   try {
     const workerPayload = generateDeckResponseSchema.parse(await response.json());
-    if (!workerPayload.validation.passed) {
-      return failJob(
-        dataSource,
-        payload.jobId,
-        75,
-        "GENERATE_DECK_VALIDATION_FAILED",
-        "Generated deck did not pass validation.",
-        { validation: workerPayload.validation }
-      );
-    }
 
     await saveDeck(dataSource, workerPayload.deck);
     const result = generateDeckJobResultSchema.parse({

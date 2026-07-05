@@ -15,6 +15,7 @@ from app.ai.pptx_design_importer import (
     ImportedDesignAsset,
     ImportedDesignBlueprint,
     PptxDesignImportResult,
+    apply_repeated_text_roles,
     assign_text_roles,
     average_image_color,
     build_quality_report,
@@ -318,6 +319,7 @@ def import_pptx_ooxml_visual_tree(
             )
             slot_sources_by_slide.append(slot_sources)
 
+        apply_repeated_text_roles(slides, slot_sources_by_slide)
         blueprint = ImportedDesignBlueprint.model_validate(
             {
                 "sourceFileId": file_id,

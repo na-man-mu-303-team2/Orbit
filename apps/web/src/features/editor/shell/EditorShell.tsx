@@ -81,7 +81,6 @@ import {
 } from "./components/KeywordInspector";
 import { EditorSaveControl } from "./components/EditorSaveControl";
 import { EditorExitConfirmModal } from "./components/EditorExitConfirmModal";
-import { PresentationMenu } from "./components/PresentationMenu";
 import {
   ShareAccessModal
 } from "./components/ShareAccessModal";
@@ -139,6 +138,7 @@ import {
   ImagePlus,
   LayoutTemplate,
   Minus,
+  MonitorPlay,
   MoveRight,
   MousePointer2,
   PanelLeftClose,
@@ -146,6 +146,7 @@ import {
   PanelRightClose,
   PanelRightOpen,
   PenLine,
+  Presentation,
   RefreshCw,
   Shapes,
   Share2,
@@ -1479,6 +1480,12 @@ export function EditorShell(props: { projectId?: string }) {
     { icon: FileText, label: "발표 메모 편집" },
     { icon: Wand2, label: "선택 요소 속성" }
   ];
+  const presentationItems = [
+    { action: "present", icon: Presentation, label: "발표 시작", meta: "현재 슬라이드부터" },
+    { action: "presenter-view", icon: MonitorPlay, label: "발표자 보기", meta: "메모와 타이머 포함" },
+    { action: "rehearsal", icon: Sparkles, label: "리허설 시작", meta: "키워드 체크" },
+    { action: "audience-link", icon: Share2, label: "청중 링크/QR", meta: "공유 준비" }
+  ] as const;
   useEffect(() => {
     const persistedDeck = deckQuery.data;
 
@@ -4122,21 +4129,64 @@ export function EditorShell(props: { projectId?: string }) {
               {ooxmlSyncStatus.label}
             </span>
           ) : null}
-          <PresentationMenu
-            canStartRehearsal={canStartRehearsal}
-            isOpen={activeTopMenu === "presentation"}
-            isRehearsalPreparing={isRehearsalPreparing}
-            onOpenAudienceLink={() => {
-              setIsAudienceLinkModalOpen(true);
-              setActiveTopMenu(null);
-            }}
-            onStartRehearsal={() => void handleStartRehearsal()}
-            onToggle={() =>
-              setActiveTopMenu((current) =>
-                current === "presentation" ? null : "presentation"
-              )
-            }
-          />
+          <div className="top-action-menu">
+            <button
+              aria-expanded={activeTopMenu === "presentation"}
+              aria-haspopup="menu"
+              className={`header-chip-button ${
+                activeTopMenu === "presentation" ? "active" : ""
+              }`}
+              type="button"
+              onClick={() =>
+                setActiveTopMenu((current) =>
+                  current === "presentation" ? null : "presentation"
+                )
+              }
+            >
+              프레젠테이션 <ChevronDown size={14} />
+            </button>
+            {activeTopMenu === "presentation" ? (
+              <div className="file-menu-popover action-popover" role="menu">
+                <div className="file-menu-list">
+                  {presentationItems.map(({ action, icon: Icon, label, meta }) => {
+                    const isRehearsalItem = action === "rehearsal";
+                    const isAudienceLinkItem = action === "audience-link";
+
+                    return (
+                      <button
+                        className="file-menu-item"
+                        disabled={isRehearsalItem && !canStartRehearsal}
+                        key={label}
+                        role="menuitem"
+                        type="button"
+                        onClick={() => {
+                          if (isRehearsalItem) {
+                            void handleStartRehearsal();
+                            return;
+                          }
+
+                          if (isAudienceLinkItem) {
+                            setIsAudienceLinkModalOpen(true);
+                            setActiveTopMenu(null);
+                          }
+                        }}
+                      >
+                        <span className="file-menu-label">
+                          <Icon size={16} />
+                          {label}
+                        </span>
+                        <span className="file-menu-meta">
+                          <small>
+                            {isRehearsalItem && isRehearsalPreparing ? "리허설 준비 중..." : meta}
+                          </small>
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            ) : null}
+          </div>
           <button
             className="share-top-button"
             type="button"

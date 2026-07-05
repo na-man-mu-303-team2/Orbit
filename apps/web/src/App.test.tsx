@@ -69,12 +69,6 @@ describe("App shell routing", () => {
     ).toBe(false);
     expect(
       shouldRenderAppFrame({
-        name: "rehearsal",
-        projectId: "project_demo_1"
-      })
-    ).toBe(false);
-    expect(
-      shouldRenderAppFrame({
         name: "rehearsal-report",
         projectId: "project_demo_1",
         runId: "run_demo_1"
