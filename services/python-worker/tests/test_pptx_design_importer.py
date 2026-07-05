@@ -14,6 +14,7 @@ from pptx.util import Inches, Pt
 
 from app.ai.pptx_design_importer import (
     assign_text_roles,
+    apply_repeated_text_roles,
     blip_fill_asset,
     build_template_blueprint,
     build_quality_report,
@@ -180,6 +181,49 @@ def test_assign_text_roles_does_not_force_numeric_prefix_to_page_number() -> Non
 
     assert elements[0]["role"] == "caption"
     assert elements[0]["templateSlotRole"] == "label"
+
+
+def test_repeated_slide_text_stays_preserved_after_role_pass() -> None:
+    slides = [
+        {
+            "sourceSlideIndex": index,
+            "style": {"backgroundColor": "#ffffff"},
+            "elements": [
+                text_element(f"header_{index}", "ORBIT", 100, 60, 16),
+                text_element(f"title_{index}", f"Slide {index}", 100, 180, 40),
+            ],
+        }
+        for index in (1, 2)
+    ]
+    slot_sources = [
+        {
+            f"header_{index}": {
+                "type": "slide",
+                "slidePart": f"ppt/slides/slide{index}.xml",
+                "shapeId": "1",
+                "writable": True,
+            },
+            f"title_{index}": {
+                "type": "slide",
+                "slidePart": f"ppt/slides/slide{index}.xml",
+                "shapeId": "2",
+                "writable": True,
+            },
+        }
+        for index in (1, 2)
+    ]
+
+    apply_repeated_text_roles(slides, slot_sources)
+    blueprint = build_template_blueprint("file_design", slides, slot_sources)
+    header_slot = next(
+        slot
+        for slot in blueprint["slides"][0]["slots"]
+        if slot["elementId"] == "header_1"
+    )
+
+    assert header_slot["slotRole"] == "caption"
+    assert header_slot["usage"] == "fixed-text"
+    assert header_slot["replaceMode"] == "preserve"
 
 
 def test_build_template_blueprint_preserves_semantic_slot_roles() -> None:

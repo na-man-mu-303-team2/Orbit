@@ -1393,7 +1393,16 @@ def int_value(value: Any, fallback: int) -> int:
 
 
 def xml_bytes(element: ET.Element[Any]) -> bytes:
+    namespace = namespace_for_tag(element.tag)
+    if namespace in {CONTENT_TYPES_NS, PKG_REL_NS}:
+        ET.register_namespace("", namespace)
     return cast(bytes, ET.tostring(element, encoding="utf-8", xml_declaration=True))
+
+
+def namespace_for_tag(tag: str) -> str | None:
+    if not tag.startswith("{"):
+        return None
+    return tag[1:].partition("}")[0]
 
 
 def safe_file_stem(path: Path) -> str:
