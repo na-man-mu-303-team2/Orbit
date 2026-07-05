@@ -1903,6 +1903,7 @@ def test_template_caption_slot_can_receive_slide_body_message() -> None:
         for element in slide["elements"]
         if element["type"] == "text"
     )
+    assert not has_element(slide, "el_1_body_fallback")
     assert "Original confidential caption" not in json.dumps(slide, ensure_ascii=False)
 
 
@@ -2425,6 +2426,39 @@ def test_generate_deck_adds_imported_body_fallback_only_when_missing() -> None:
 
     assert "el_1_title_fallback" not in element_ids
     assert "el_1_body_fallback" in element_ids
+
+
+def test_generate_deck_skips_body_fallback_when_template_has_content_slot() -> None:
+    response = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="ORBIT",
+            slideCountRange={"min": 1, "max": 1},
+            designReferences=[{"fileId": "file_design"}],
+            designBlueprint=minimal_imported_design_blueprint(),
+            templateBlueprint={
+                "templateId": "template_file_design",
+                "sourceFileId": "file_design",
+                "slides": [
+                    {
+                        "slideIndex": 1,
+                        "sourceSlideIndex": 1,
+                        "slots": [
+                            {
+                                "elementId": "el_imported_1_title",
+                                "usage": "content-slot",
+                                "slotRole": "title",
+                                "replaceMode": "replace",
+                                "confidence": 0.95,
+                            }
+                        ],
+                    }
+                ],
+            },
+        )
+    )
+
+    assert not has_element(response.deck["slides"][0], "el_1_body_fallback")
 
 
 def test_generate_deck_keeps_requested_slide_range_with_large_template() -> None:

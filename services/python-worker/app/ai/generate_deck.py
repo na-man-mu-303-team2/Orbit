@@ -3569,14 +3569,19 @@ def inject_template_slot_text(
     template_slide: dict[str, Any],
     slide_plan: SlidePlan,
 ) -> None:
-    slots = template_slide.get("slots")
+    raw_slots = template_slide.get("slots")
+    slots = [
+        slot
+        for slot in raw_slots
+        if is_replaceable_content_slot(slot)
+    ] if isinstance(raw_slots, list) else []
+    title_slot_id = first_template_slot_id(slots, {"title"})
+    body_slot_id = template_body_slot_id(slots, title_slot_id)
     title_used = False
     body_used = False
     keyword_index = 0
 
-    for slot in slots if isinstance(slots, list) else []:
-        if not is_replaceable_content_slot(slot):
-            continue
+    for slot in slots:
         element = elements_by_source_id.get(str(slot.get("elementId", "")))
         if not isinstance(element, dict) or element.get("type") != "text":
             continue
@@ -3585,14 +3590,19 @@ def inject_template_slot_text(
             continue
 
         slot_role = str(slot.get("slotRole", "body"))
-        if slot_role == "title" and not title_used:
+        slot_id = str(slot.get("elementId", ""))
+        if slot_id == title_slot_id and not title_used:
             element["role"] = "title"
             replace_text_props(props, slide_plan.title)
             title_used = True
-        elif slot_role in {"body", "subtitle", "caption"} and not body_used:
+        elif slot_id == body_slot_id and not body_used:
             element["role"] = "subtitle" if slot_role == "subtitle" else "body"
             replace_text_props(props, slide_plan.message)
             body_used = True
+        elif slot_role == "title" and not title_used:
+            element["role"] = "title"
+            replace_text_props(props, slide_plan.title)
+            title_used = True
         elif not body_used:
             element["role"] = deck_role_for_template_slot(slot_role)
             replace_text_props(
@@ -3610,7 +3620,51 @@ def inject_template_slot_text(
 
 
 def should_add_imported_body_fallback(template_slide: dict[str, Any] | None) -> bool:
-    return not is_toc_template_slide(template_slide)
+    if not isinstance(template_slide, dict):
+        return True
+    if is_toc_template_slide(template_slide):
+        return False
+    slots = template_slide.get("slots")
+    if not isinstance(slots, list):
+        return True
+    return not any(
+        is_replaceable_content_slot(slot)
+        for slot in slots
+    )
+
+
+def first_template_slot_id(slots: list[dict[str, Any]], roles: set[str]) -> str:
+    for slot in slots:
+        if str(slot.get("slotRole", "")) in roles:
+            return str(slot.get("elementId", ""))
+    return ""
+
+
+def template_body_slot_id(slots: list[dict[str, Any]], title_slot_id: str) -> str:
+    body_slot_id = first_template_slot_id(slots, {"body", "subtitle", "caption"})
+    if body_slot_id:
+        return body_slot_id
+
+    title_candidates = [
+        slot
+        for slot in slots
+        if str(slot.get("slotRole", "")) == "title"
+        and str(slot.get("elementId", "")) != title_slot_id
+    ]
+    if not title_candidates:
+        return ""
+
+    return str(max(title_candidates, key=template_slot_area).get("elementId", ""))
+
+
+def template_slot_area(slot: dict[str, Any]) -> float:
+    bounds = slot.get("bounds")
+    if not isinstance(bounds, dict):
+        return 0
+    return max(0.0, float(bounds.get("width", 0))) * max(
+        0.0,
+        float(bounds.get("height", 0)),
+    )
 
 
 def is_toc_template_slide(template_slide: dict[str, Any] | None) -> bool:
