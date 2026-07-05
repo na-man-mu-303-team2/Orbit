@@ -1854,7 +1854,7 @@ async function extractHomeReferenceInput(
   }
 
   callbacks.setStatus("참고자료 추출 중...");
-  const response = await fetch("/extract", {
+  const response = await fetch(homeReferenceExtractEndpoint, {
     method: "POST",
     body: buildHomeExtractFormData(projectId, contentUploads, uploadedAssetFileIds)
   });
@@ -1892,6 +1892,8 @@ function isHomeDesignPptxUpload(upload: UploadFile) {
 export function getHomeContentReferenceUploads(uploads: UploadFile[]) {
   return uploads.filter((upload) => upload.role === "content");
 }
+
+export const homeReferenceExtractEndpoint = "/api/extract";
 
 export function buildHomeExtractFormData(
   projectId: string,

@@ -25,6 +25,7 @@ import {
   getHomeGenerationValidationMessage,
   getHomeContentReferenceUploads,
   getHomePptxConversionValidationMessage,
+  homeReferenceExtractEndpoint,
   getPptxOoxmlGeneratedProjectPath,
   getPptxOoxmlGenerationJobResult,
   getPptxConversionProjectTitle,
@@ -590,6 +591,10 @@ describe("AI deck generation flow", () => {
     expect(formData.get("projectId")).toBe("project_ai");
     expect(formData.getAll("files")).toEqual([pdf]);
     expect(formData.getAll("fileIds")).toEqual(["file_content"]);
+  });
+
+  it("routes home reference extraction through the API proxy", () => {
+    expect(homeReferenceExtractEndpoint).toBe("/api/extract");
   });
 
   it("omits a design profile when the profile picker is automatic", () => {
