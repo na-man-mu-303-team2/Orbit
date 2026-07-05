@@ -20,6 +20,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowRight,
+  FileUp,
   FolderOpen,
   Home,
   LayoutTemplate,
@@ -1081,6 +1082,86 @@ function HomePage(props: { user?: AuthUser }) {
     }
   }
 
+  async function handleConvertPptx() {
+    if (isImporting) return;
+
+    const conversionValidationMessage =
+      getHomePptxConversionValidationMessage(uploads);
+    if (conversionValidationMessage) {
+      setError(conversionValidationMessage);
+      return;
+    }
+
+    const pptxUpload = uploads.find((upload) => isPptxFile(upload.file));
+    if (!pptxUpload) {
+      setError("변환할 PPTX 파일을 첨부하세요.");
+      return;
+    }
+
+    setIsImporting(true);
+    setError("");
+    setJob(null);
+    setStatus("프로젝트 생성 중...");
+
+    try {
+      const project = await createProject(
+        getPptxConversionProjectTitle(pptxUpload.file.name)
+      );
+      setStatus(`${pptxUpload.file.name} 업로드 중...`);
+      const uploaded = await uploadProjectAsset(
+        project.projectId,
+        pptxUpload.file,
+        "pptx-import"
+      );
+      const payload = buildPptxOoxmlGenerationPayload({
+        fileId: uploaded.fileId
+      });
+      setStatus("PPTX 변환 중...");
+      const response = await fetch(
+        `/api/v1/projects/${encodeURIComponent(project.projectId)}/pptx-ooxml-generations`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(payload)
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error(await readApiError(response, "PPTX 변환을 시작하지 못했습니다."));
+      }
+
+      const data = (await response.json()) as PptxOoxmlGenerationResponse;
+      setJob(data.job);
+      const completed = await pollJob(data.job.jobId, fetch, {
+        timeoutMs: 300_000,
+        delayMs: 1200
+      });
+      setJob(completed);
+
+      if (completed.status === "failed") {
+        throw new Error(
+          completed.error?.message || completed.message || "PPTX 변환에 실패했습니다."
+        );
+      }
+
+      const result = getPptxOoxmlGenerationJobResult(completed);
+      if (!result) {
+        throw new Error("PPTX 변환 결과를 읽지 못했습니다.");
+      }
+
+      await queryClient.invalidateQueries({ queryKey: ["projects"] });
+      await queryClient.invalidateQueries({ queryKey: ["deck", project.projectId] });
+      navigateTo(getPptxOoxmlGeneratedProjectPath(project.projectId));
+    } catch (submitError) {
+      setError(
+        submitError instanceof Error ? submitError.message : "PPTX 변환에 실패했습니다."
+      );
+      setStatus("");
+    } finally {
+      setIsImporting(false);
+    }
+  }
+
   function handleFileChange(event: ChangeEvent<HTMLInputElement>) {
     if (event.target.files) {
       addFiles(event.target.files);
@@ -1254,6 +1335,18 @@ function HomePage(props: { user?: AuthUser }) {
               </ul>
             </div>
           ) : null}
+
+          <div className="home-convert-row">
+            <button
+              className="home-convert-button"
+              type="button"
+              onClick={() => void handleConvertPptx()}
+              disabled={isImporting || uploads.length === 0}
+            >
+              <FileUp size={16} />
+              {isImporting ? "변환 중" : "pptx 변환하기"}
+            </button>
+          </div>
         </form>
         {rejected.length > 0 ? (
           <div className="rejection-list" role="alert">
@@ -2072,6 +2165,23 @@ export async function pollJob(
 
 export function getGeneratedDeckProjectTitle(topic: string) {
   return topic.trim() || "AI 덱";
+}
+
+export function getPptxConversionProjectTitle(fileName: string) {
+  return fileName.trim().replace(/\.pptx$/i, "").trim() || "PPTX 변환";
+}
+
+export function getHomePptxConversionValidationMessage(uploads: UploadFile[]) {
+  if (uploads.length === 0) {
+    return "변환할 PPTX 파일을 첨부하세요.";
+  }
+
+  const pptxUploads = uploads.filter((upload) => isPptxFile(upload.file));
+  if (uploads.length !== 1 || pptxUploads.length !== 1) {
+    return "PPTX 변환은 PPTX 파일 1개만 첨부할 수 있습니다.";
+  }
+
+  return "";
 }
 
 export function createGeneratedDeckProject(topic: string, fetcher: Fetcher = fetch) {
