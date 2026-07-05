@@ -69,7 +69,8 @@ describe("buildAnimationKeywordTriggerPolicy", () => {
           order: 1,
           type: "fade-in",
           durationMs: 400,
-          delayMs: 0
+          delayMs: 0,
+          easing: "ease-out"
         }
       ],
       usageByKeywordId: {
