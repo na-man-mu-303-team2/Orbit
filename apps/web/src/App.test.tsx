@@ -19,8 +19,10 @@ import {
   getAiTemplateDeckGenerationJobResult,
   getGenerateDeckJobResult,
   getHomeGenerationValidationMessage,
+  getHomePptxConversionValidationMessage,
   getPptxOoxmlGeneratedProjectPath,
   getPptxOoxmlGenerationJobResult,
+  getPptxConversionProjectTitle,
   getJobResultFiles,
   getRoute,
   mergeGeneratedProjectList,
@@ -221,6 +223,31 @@ describe("AI deck generation flow", () => {
     ).toEqual({ fileId: "file_template" });
   });
 
+  it("validates the home PPTX conversion shortcut", () => {
+    const pptx = new File(["pptx"], "source deck.pptx", {
+      type: "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+    });
+    const pdf = new File(["pdf"], "content.pdf", { type: "application/pdf" });
+
+    expect(getHomePptxConversionValidationMessage([])).toBe(
+      "변환할 PPTX 파일을 첨부하세요."
+    );
+    expect(
+      getHomePptxConversionValidationMessage([
+        { id: "pptx", file: pptx, role: "design" }
+      ])
+    ).toBe("");
+    expect(
+      getHomePptxConversionValidationMessage([
+        { id: "pptx", file: pptx, role: "design" },
+        { id: "pdf", file: pdf, role: "content" }
+      ])
+    ).toBe("PPTX 변환은 PPTX 파일 1개만 첨부할 수 있습니다.");
+    expect(getPptxConversionProjectTitle(" source deck.pptx ")).toBe(
+      "source deck"
+    );
+  });
+
   it("reads a PPTX OOXML generation job result", () => {
     const job: Job = {
       jobId: "job-ooxml",
@@ -312,6 +339,26 @@ describe("AI deck generation flow", () => {
         { fileId: "file_design", role: "design" }
       ]
     });
+  });
+
+  it("keeps a home PPTX both role in the AI template deck payload", () => {
+    const pptx = new File(["pptx"], "template.pptx", {
+      type: "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+    });
+
+    expect(
+      buildAiTemplateDeckGenerationPayload({
+        topic: "ORBIT",
+        prompt: "",
+        designPrompt: "",
+        duration: 10,
+        minSlides: 5,
+        maxSlides: 8,
+        tone: "professional",
+        uploads: [{ id: "template", file: pptx, role: "both" }],
+        uploadedAssetFileIds: new Map([["template", "file_template"]])
+      }).assets
+    ).toEqual([{ fileId: "file_template", role: "both" }]);
   });
 
   it("keeps home number inputs empty until submit validation", () => {

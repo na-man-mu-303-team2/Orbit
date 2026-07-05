@@ -29,6 +29,7 @@ describe("generateDeckRequestSchema", () => {
     expect(request.template).toBe("default");
     expect(request.designReferences).toEqual([]);
     expect(request.referenceKeywords).toEqual([]);
+    expect(request.referenceContext).toEqual([]);
   });
 
   it("accepts design references separately from content references", () => {
@@ -111,6 +112,28 @@ describe("generateDeckRequestSchema", () => {
     });
 
     expect(request.referenceKeywords).toEqual([{ text: "실시간 발표 피드백" }]);
+  });
+
+  it("accepts direct reference context for worker-side grounding", () => {
+    const request = generateDeckRequestSchema.parse({
+      topic: "AI deck generation",
+      references: [{ fileId: "file_design" }],
+      referenceContext: [
+        {
+          fileId: "file_design",
+          title: " template.pptx ",
+          content: " PPTX source text "
+        }
+      ]
+    });
+
+    expect(request.referenceContext).toEqual([
+      {
+        fileId: "file_design",
+        title: "template.pptx",
+        content: "PPTX source text"
+      }
+    ]);
   });
 
   it("rejects an inverted slide count range", () => {

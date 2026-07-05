@@ -41,6 +41,7 @@ describe("processAiTemplateDeckGenerationJob", () => {
 
   it("extracts content and converts the design PPTX before saving the final AI deck", async () => {
     const insertedDecks: unknown[] = [];
+    const insertedSnapshots: unknown[][] = [];
     const insertedBlueprints: unknown[] = [];
     const query = vi.fn(async (sql: string, params: unknown[]) => {
       if (sql.includes("UPDATE jobs")) {
@@ -80,6 +81,9 @@ describe("processAiTemplateDeckGenerationJob", () => {
       if (sql.includes("INSERT INTO decks")) {
         insertedDecks.push(params[2]);
       }
+      if (sql.includes("INSERT INTO deck_snapshots")) {
+        insertedSnapshots.push(params);
+      }
       if (sql.includes("INSERT INTO template_blueprints")) {
         insertedBlueprints.push(params[4]);
       }
@@ -100,6 +104,7 @@ describe("processAiTemplateDeckGenerationJob", () => {
                 kind: "pdf",
                 status: "succeeded",
                 rawText: "reference",
+                cleanedText: "cleaned reference",
                 keywords: [{ keyword: "ORBIT" }]
               }
             ]
@@ -116,6 +121,13 @@ describe("processAiTemplateDeckGenerationJob", () => {
           references: [{ fileId: "file_content" }],
           designReferences: [{ fileId: "file_design" }],
           referenceKeywords: [{ text: "ORBIT" }],
+          referenceContext: [
+            {
+              fileId: "file_content",
+              title: "content.pdf",
+              content: "cleaned reference"
+            }
+          ],
           slideCountRange: { min: 4, max: 6 },
           templateBlueprint: expect.objectContaining({
             templateId: "template_file_design"
@@ -172,6 +184,10 @@ describe("processAiTemplateDeckGenerationJob", () => {
     expect(deck.slides[0].thumbnailUrl).toMatch(
       /\/api\/v1\/projects\/project-a\/assets\/file_.*\/content/
     );
+    expect(insertedSnapshots).toHaveLength(1);
+    expect(insertedSnapshots[0][1]).toBe("project-a");
+    expect(insertedSnapshots[0][2]).toBe("deck_ai_project_a");
+    expect(insertedSnapshots[0][3]).toEqual(deck);
     const blueprint = insertedBlueprints.at(-1) as {
       currentPackageFileId: string;
       slides: Array<{ renderAssetFileId: string; sourceSlideIndex: number }>;
@@ -186,6 +202,105 @@ describe("processAiTemplateDeckGenerationJob", () => {
       sourceFileId: "file_design",
       currentPackageFileId: blueprint.currentPackageFileId,
       contentReferenceFileIds: ["file_content"]
+    });
+  });
+
+  it("uses a both-role PPTX as content context and design reference", async () => {
+    const bothPayload = {
+      ...payload,
+      request: {
+        ...payload.request,
+        assets: [{ fileId: "file_design", role: "both" }]
+      }
+    };
+    const query = vi.fn(async (sql: string, params: unknown[]) => {
+      if (sql.includes("UPDATE jobs")) {
+        return [
+          jobRow(
+            params[1] as "running" | "succeeded" | "failed",
+            params[2] as number,
+            params[4] as Record<string, unknown> | null,
+            params[5] as { code: string; message: string } | null
+          )
+        ];
+      }
+      if (sql.includes("FROM project_assets")) {
+        return [
+          {
+            file_id: "file_design",
+            project_id: "project-a",
+            storage_key: "projects/project-a/assets/file_design.pptx",
+            mime_type: pptxMimeType,
+            original_name: "design.pptx",
+            size: 24,
+            purpose: "pptx-import",
+            status: "uploaded"
+          }
+        ];
+      }
+      return [];
+    });
+    const fetchMock = vi.fn(async (input: string | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.startsWith("http://storage.local/")) {
+        return new Response("pptx-bytes");
+      }
+      if (url.endsWith("/documents/parse")) {
+        const form = init?.body as FormData;
+        expect(form.getAll("file_ids")).toEqual(["file_design"]);
+        return new Response(
+          JSON.stringify({
+            files: [
+              {
+                referenceDocumentId: "file_design",
+                fileName: "design.pptx",
+                kind: "pptx",
+                status: "succeeded",
+                rawText: "PPTX source text",
+                cleanedText: "PPTX cleaned source text",
+                keywords: [{ keyword: "PPTX keyword" }]
+              }
+            ]
+          })
+        );
+      }
+      if (url.endsWith("/ai/pptx-ooxml-generation")) {
+        return new Response(JSON.stringify(ooxmlGenerationResponse()));
+      }
+      if (url.endsWith("/ai/generate-deck")) {
+        expect(JSON.parse(String(init?.body))).toMatchObject({
+          references: [{ fileId: "file_design" }],
+          designReferences: [{ fileId: "file_design" }],
+          referenceKeywords: [{ text: "PPTX keyword" }],
+          referenceContext: [
+            {
+              fileId: "file_design",
+              title: "design.pptx",
+              content: "PPTX cleaned source text"
+            }
+          ]
+        });
+        return new Response(JSON.stringify(generateDeckResponse("file_design")));
+      }
+      if (url.endsWith("/ai/pptx-ooxml-apply-slot-texts")) {
+        return new Response(JSON.stringify(ooxmlApplyResponse()));
+      }
+
+      return new Response("unexpected", { status: 500 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const job = await processAiTemplateDeckGenerationJob(
+      { query } as unknown as DataSource,
+      storage,
+      "http://localhost:8000",
+      bothPayload
+    );
+
+    expect(job.status, JSON.stringify(job.error)).toBe("succeeded");
+    expect(job.result).toMatchObject({
+      sourceFileId: "file_design",
+      contentReferenceFileIds: ["file_design"]
     });
   });
 });
@@ -262,7 +377,7 @@ function ooxmlApplyResponse() {
   };
 }
 
-function generateDeckResponse() {
+function generateDeckResponse(referenceFileId = "file_content") {
   const selection = [3, 3, 3, 3, 3];
   return {
     deck: {
@@ -281,7 +396,7 @@ function generateDeckResponse() {
         tone: "professional",
         createdFrom: {
           topic: "ORBIT",
-          references: [{ fileId: "file_content" }],
+          references: [{ fileId: referenceFileId }],
           designReferences: [{ fileId: "file_design" }]
         }
       },
@@ -292,7 +407,7 @@ function generateDeckResponse() {
         aspectRatio: "16:9"
       },
       theme: theme(),
-      slides: selection.map((_, index) => deckSlide(index + 1))
+      slides: selection.map((_, index) => deckSlide(index + 1, referenceFileId))
     },
     templateSelection: selection.map((sourceSlideIndex, index) => ({
       generatedOrder: index + 1,
@@ -310,7 +425,7 @@ function generateDeckResponse() {
   };
 }
 
-function deckSlide(order: number) {
+function deckSlide(order: number, referenceFileId: string) {
   return {
     slideId: `slide_${order}`,
     order,
@@ -354,7 +469,7 @@ function deckSlide(order: number) {
     actions: [],
     aiNotes: {
       emphasisPoints: [`핵심 메시지 ${order}`],
-      sourceEvidence: [{ fileId: "file_content" }]
+      sourceEvidence: [{ fileId: referenceFileId }]
     }
   };
 }

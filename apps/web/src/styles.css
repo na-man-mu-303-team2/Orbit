@@ -596,6 +596,36 @@ button:disabled {
   width: 100%;
 }
 
+.home-convert-row {
+  display: flex;
+  justify-content: flex-end;
+  width: 100%;
+}
+
+.home-convert-button {
+  align-items: center;
+  background: #ffffff;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  color: #111827;
+  cursor: pointer;
+  display: inline-flex;
+  font-weight: 800;
+  gap: 8px;
+  min-height: 42px;
+  padding: 0 14px;
+}
+
+.home-convert-button:hover:not(:disabled) {
+  border-color: #0891b2;
+  color: #0e7490;
+}
+
+.home-convert-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
 .chat-file-status,
 .chat-file-error {
   font-size: 0.88rem;

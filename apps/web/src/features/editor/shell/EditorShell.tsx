@@ -101,6 +101,9 @@ export {
 export {
   mergeDeckIntoQueryCache,
   buildSlideThumbnailPatch,
+  getImportedSlideThumbnailRefreshSlideIds,
+  getPatchThumbnailRefreshSlideIds,
+  shouldRefreshImportedSlideThumbnails,
   shouldApplyManualSaveResult,
   shouldHydrateDeckFromQuery
 } from "./utils/deckState";
@@ -163,8 +166,12 @@ import { ValidationPanel } from "../ai/quality/ValidationPanel";
 import { getEditorValidationItems } from "../ai/quality/editorValidation";
 import { SuggestionPanel } from "../suggestions/components/SuggestionPanel";
 import {
+  buildSlideThumbnailPatch,
+  getImportedSlideThumbnailRefreshSlideIds,
+  getPatchThumbnailRefreshSlideIds,
   mergeDeckIntoQueryCache,
   shouldApplyManualSaveResult,
+  shouldRefreshImportedSlideThumbnails,
   shouldHydrateDeckFromQuery
 } from "./utils/deckState";
 import "../editor-shell.css";
@@ -1255,6 +1262,7 @@ export function EditorShell(props: { projectId?: string }) {
   });
   const imageUploadTargetRef = useRef<ImageUploadTarget | null>(null);
   const resolvedUploadProjectIdRef = useRef<string | null>(null);
+  const importedThumbnailRefreshKeyRef = useRef<string | null>(null);
   const isUsingFallbackDeck = !deckQuery.data;
   const isDeckLoading = deckQuery.isPending;
   const isDeckError = deckQuery.isError;
@@ -1516,6 +1524,121 @@ export function EditorShell(props: { projectId?: string }) {
   }, [deckQuery.data]);
 
   useEffect(() => {
+    const persistedDeck = deckQuery.data;
+
+    if (
+      !persistedDeck ||
+      !shouldRefreshImportedSlideThumbnails(persistedDeck) ||
+      hasUnackedLocalChangesRef.current ||
+      pendingPatchInputsRef.current.length > 0 ||
+      isSaveFlushInFlightRef.current
+    ) {
+      return;
+    }
+
+    const refreshKey = `${persistedDeck.deckId}:${persistedDeck.version}`;
+    if (importedThumbnailRefreshKeyRef.current === refreshKey) {
+      return;
+    }
+
+    const slideIds = getImportedSlideThumbnailRefreshSlideIds(persistedDeck);
+
+    if (slideIds.length === 0) {
+      return;
+    }
+
+    importedThumbnailRefreshKeyRef.current = refreshKey;
+    let isCancelled = false;
+
+    setSaveState("auto-saving");
+    setSaveError(null, null);
+
+    void (async () => {
+      try {
+        await saveQueueRef.current.catch(() => undefined);
+
+        if (
+          isCancelled ||
+          hasUnackedLocalChangesRef.current ||
+          pendingPatchInputsRef.current.length > 0
+        ) {
+          setSaveState("auto-pending");
+          return;
+        }
+
+        const renderResult = await syncSlideRenderAssets(
+          persistedDeck.projectId,
+          persistedDeck,
+          slideIds
+        );
+        const thumbnailPatch = buildSlideThumbnailPatch(
+          persistedDeck,
+          renderResult.deck
+        );
+
+        if (!thumbnailPatch || isCancelled) {
+          setSaveState("auto-saved");
+          return;
+        }
+
+        if (
+          !shouldApplyManualSaveResult({
+            snapshotDeck: persistedDeck,
+            currentDeck: workingDeckRef.current
+          })
+        ) {
+          setSaveState("auto-pending");
+          return;
+        }
+
+        const finalDeck = await appendProjectDeckPatch(
+          persistedDeck.projectId,
+          thumbnailPatch
+        );
+
+        if (isCancelled) {
+          return;
+        }
+
+        queryClient.setQueryData(["deck", projectId], (current?: Deck) =>
+          mergeDeckIntoQueryCache(current, finalDeck)
+        );
+
+        if (
+          shouldApplyManualSaveResult({
+            snapshotDeck: persistedDeck,
+            currentDeck: workingDeckRef.current
+          })
+        ) {
+          applyPersistedDeck(finalDeck);
+          setLastSavedAt(new Date().toISOString());
+          setLastPatchLabel(`썸네일 갱신 · v${finalDeck.version}`);
+          setSaveState("auto-saved");
+          setSaveError(null, null);
+          return;
+        }
+
+        persistedBaseDeckRef.current = finalDeck;
+        lastAckedDeckRef.current = finalDeck;
+        hasHydratedPersistedBaseRef.current = true;
+        setSaveState("auto-pending");
+      } catch (error) {
+        if (isCancelled) {
+          return;
+        }
+
+        setLastPatchLabel(`썸네일 갱신 실패 · ${toEditorErrorMessage(error)}`);
+        setSaveState("error");
+        setSaveError("manual-render-failed", toEditorErrorMessage(error));
+      }
+    })();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [deckQuery.data, projectId, queryClient]);
+
+  useEffect(() => {
     if (!deckQuery.data?.projectId) {
       return;
     }
@@ -1548,34 +1671,10 @@ export function EditorShell(props: { projectId?: string }) {
     });
   }
 
-  function acknowledgePersistedDeckSnapshot(
-    snapshotDeck: Deck,
-    persistedDeck: Deck
-  ) {
-    queryClient.setQueryData(["deck", projectId], (current?: Deck) =>
-      mergeDeckIntoQueryCache(current, persistedDeck)
-    );
-
-    if (
-      shouldApplyManualSaveResult({
-        snapshotDeck,
-        currentDeck: workingDeckRef.current
-      })
-    ) {
-      applyPersistedDeck(persistedDeck);
-      return true;
-    }
-
-    persistedBaseDeckRef.current = persistedDeck;
-    lastAckedDeckRef.current = persistedDeck;
-    hasHydratedPersistedBaseRef.current = true;
-    pendingPatchInputsRef.current = [];
-    return false;
-  }
-
   async function syncSlideRenderAssets(
     activeProjectId: string,
-    sourceDeck: Deck
+    sourceDeck: Deck,
+    slideIds?: readonly string[]
   ) {
     if (sourceDeck.slides.length === 0) {
       return {
@@ -1585,6 +1684,14 @@ export function EditorShell(props: { projectId?: string }) {
     }
 
     const nextDeck = structuredClone(normalizeDeckAssetUrls(sourceDeck));
+    const targetSlideIds = slideIds ? new Set(slideIds) : null;
+    if (targetSlideIds?.size === 0) {
+      return {
+        deck: nextDeck,
+        missingAssetCount: 0,
+      };
+    }
+
     let missingAssetCount = 0;
     slideRenderStageRefs.current.clear();
     flushSync(() => {
@@ -1596,6 +1703,10 @@ export function EditorShell(props: { projectId?: string }) {
     try {
       for (let index = 0; index < nextDeck.slides.length; index += 1) {
         const slide = nextDeck.slides[index];
+        if (targetSlideIds && !targetSlideIds.has(slide.slideId)) {
+          continue;
+        }
+
         missingAssetCount += await waitForSlideAssets(slide);
 
         await waitForAnimationFrame();
@@ -1655,31 +1766,72 @@ export function EditorShell(props: { projectId?: string }) {
     setSaveError(null, null);
     setActiveTopMenu(null);
 
-    const deckSnapshot = structuredClone(normalizeDeckAssetUrls(workingDeckRef.current));
-
     try {
       await saveQueueRef.current.catch(() => undefined);
+      while (pendingPatchInputsRef.current.length > 0) {
+        await flushPendingSaveBatch();
+      }
 
-      const persistedDeck = await putProjectDeck(activeProjectId, deckSnapshot);
-      let finalDeck = persistedDeck;
-      acknowledgePersistedDeckSnapshot(deckSnapshot, persistedDeck);
+      const persistedDeck = persistedBaseDeckRef.current ?? deckQuery.data;
+      if (!persistedDeck) {
+        throw withSaveErrorCode(
+          new Error("최신 저장 상태를 찾지 못했습니다. 다시 불러온 뒤 저장해 주세요."),
+          "missing-persisted-base"
+        );
+      }
+
       setLastSavedAt(new Date().toISOString());
 
       try {
         const renderResult = await syncSlideRenderAssets(
           activeProjectId,
-          finalDeck
+          persistedDeck
         );
 
-        finalDeck = await putProjectDeck(activeProjectId, renderResult.deck);
+        if (
+          !shouldApplyManualSaveResult({
+            snapshotDeck: persistedDeck,
+            currentDeck: workingDeckRef.current
+          })
+        ) {
+          setLastPatchLabel("수동 저장 · 편집 변경 감지");
+          setSaveState("auto-pending");
+          return false;
+        }
+
+        const thumbnailPatch = buildSlideThumbnailPatch(
+          persistedDeck,
+          renderResult.deck
+        );
+        const finalDeck = thumbnailPatch
+          ? await appendProjectDeckPatch(activeProjectId, thumbnailPatch)
+          : persistedDeck;
         setLastSavedAt(new Date().toISOString());
-        acknowledgePersistedDeckSnapshot(deckSnapshot, finalDeck);
+
+        queryClient.setQueryData(["deck", projectId], (current?: Deck) =>
+          mergeDeckIntoQueryCache(current, finalDeck)
+        );
+
+        if (
+          shouldApplyManualSaveResult({
+            snapshotDeck: persistedDeck,
+            currentDeck: workingDeckRef.current
+          })
+        ) {
+          applyPersistedDeck(finalDeck);
+        } else {
+          persistedBaseDeckRef.current = finalDeck;
+          lastAckedDeckRef.current = finalDeck;
+          hasHydratedPersistedBaseRef.current = true;
+          setSaveState("auto-pending");
+          return false;
+        }
+
         setLastPatchLabel(`수동 저장 · v${finalDeck.version}`);
         setSaveState("manual-saved");
         setSaveError(null, null);
         return true;
       } catch (renderError) {
-        acknowledgePersistedDeckSnapshot(deckSnapshot, persistedDeck);
         setLastPatchLabel(`수동 저장 · 렌더 실패 · v${persistedDeck.version}`);
         setSaveState("error");
         setSaveError("manual-render-failed", toEditorErrorMessage(renderError));
@@ -1724,35 +1876,34 @@ export function EditorShell(props: { projectId?: string }) {
 
     try {
       await saveQueueRef.current.catch(() => undefined);
+      while (pendingPatchInputsRef.current.length > 0) {
+        await flushPendingSaveBatch();
+      }
 
-      const deckSnapshot = structuredClone(normalizeDeckAssetUrls(workingDeckRef.current));
-      const persistedDeck = await putProjectDeck(activeProjectId, deckSnapshot);
-      acknowledgePersistedDeckSnapshot(deckSnapshot, persistedDeck);
+      const persistedDeck = persistedBaseDeckRef.current ?? deckQuery.data;
+      if (!persistedDeck) {
+        throw withSaveErrorCode(
+          new Error("최신 저장 상태를 찾지 못했습니다. 다시 불러온 뒤 저장해 주세요."),
+          "missing-persisted-base"
+        );
+      }
+
       const renderResult = await syncSlideRenderAssets(activeProjectId, persistedDeck);
       setLastSavedAt(new Date().toISOString());
 
       if (
         !shouldApplyManualSaveResult({
-          snapshotDeck: deckSnapshot,
+          snapshotDeck: persistedDeck,
           currentDeck: workingDeckRef.current
         })
       ) {
         throw new Error("리허설 준비 중 편집 내용이 변경되었습니다. 다시 시작해 주세요.");
       }
 
-      const finalDeck =
-        renderResult.deck.slides.length > 0
-          ? await appendProjectDeckPatch(activeProjectId, {
-              baseVersion: persistedDeck.version,
-              deckId: persistedDeck.deckId,
-              operations: renderResult.deck.slides.map((slide) => ({
-                slideId: slide.slideId,
-                thumbnailUrl: slide.thumbnailUrl,
-                type: "update_slide" as const
-              })),
-              source: "system"
-            })
-          : persistedDeck;
+      const thumbnailPatch = buildSlideThumbnailPatch(persistedDeck, renderResult.deck);
+      const finalDeck = thumbnailPatch
+        ? await appendProjectDeckPatch(activeProjectId, thumbnailPatch)
+        : persistedDeck;
 
       applyPersistedDeck(finalDeck);
       setLastSavedAt(new Date().toISOString());
@@ -1822,16 +1973,69 @@ export function EditorShell(props: { projectId?: string }) {
         persistedDeck = await appendProjectDeckPatch(activeProjectId, buildResult.patch);
       }
 
-      persistedBaseDeckRef.current = persistedDeck;
+      let finalPersistedDeck = persistedDeck;
+      const thumbnailSlideIds = getPatchThumbnailRefreshSlideIds(
+        persistedDeck,
+        buildResult.patch
+      );
+      let thumbnailRefreshFailed = false;
+
+      if (
+        thumbnailSlideIds.length > 0 &&
+        shouldApplyManualSaveResult({
+          snapshotDeck: persistedDeck,
+          currentDeck: workingDeckRef.current
+        })
+      ) {
+        try {
+          const renderResult = await syncSlideRenderAssets(
+            activeProjectId,
+            persistedDeck,
+            thumbnailSlideIds
+          );
+          const thumbnailPatch = buildSlideThumbnailPatch(
+            persistedDeck,
+            renderResult.deck
+          );
+
+          if (
+            thumbnailPatch &&
+            shouldApplyManualSaveResult({
+              snapshotDeck: persistedDeck,
+              currentDeck: workingDeckRef.current
+            })
+          ) {
+            finalPersistedDeck = await appendProjectDeckPatch(
+              activeProjectId,
+              thumbnailPatch
+            );
+          }
+        } catch (thumbnailError) {
+          thumbnailRefreshFailed = true;
+          setLastPatchLabel(`썸네일 저장 실패 · ${toEditorErrorMessage(thumbnailError)}`);
+          setSaveState("error");
+          setSaveError("manual-render-failed", toEditorErrorMessage(thumbnailError));
+        }
+      }
+
+      persistedBaseDeckRef.current = finalPersistedDeck;
       setLastSavedAt(new Date().toISOString());
 
       queryClient.setQueryData(["deck", projectId], (current?: Deck) =>
-        mergeDeckIntoQueryCache(current, persistedDeck)
+        mergeDeckIntoQueryCache(current, finalPersistedDeck)
       );
 
-      if (persistedDeck.version >= workingDeckRef.current.version) {
-        applyAckedPersistedDeck(persistedDeck);
-        setSaveState(recoveredConflict ? "conflict-recovered" : "auto-saved");
+      if (
+        shouldApplyManualSaveResult({
+          snapshotDeck: persistedDeck,
+          currentDeck: workingDeckRef.current
+        })
+      ) {
+        applyAckedPersistedDeck(finalPersistedDeck);
+        if (!thumbnailRefreshFailed) {
+          setSaveState(recoveredConflict ? "conflict-recovered" : "auto-saved");
+          setSaveError(null, null);
+        }
       }
     } catch (error) {
       if (recoveredConflict && error instanceof Error) {
@@ -5115,11 +5319,6 @@ function formatLastSavedAtLabel(lastSavedAt: string | null): string | null {
     hour12: false
   }).format(date);
 }
-
-export function shouldRefreshImportedSlideThumbnails(deck: Deck) {
-  return deck.slides.some((slide) => slide.thumbnailUrl?.startsWith("asset:"));
-}
-
 
 function getNextElementZIndex(elements: DeckElement[]) {
   return (

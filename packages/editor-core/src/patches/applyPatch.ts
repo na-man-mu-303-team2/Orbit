@@ -132,7 +132,16 @@ function applyOperation(
 ): OperationResult {
   switch (operation.type) {
     case "update_deck":
-      deck.title = operation.title;
+      if (operation.title !== undefined) {
+        deck.title = operation.title;
+      }
+
+      if (operation.metadata !== undefined) {
+        mergeRecordPatch(
+          deck.metadata as unknown as Record<string, unknown>,
+          operation.metadata as Record<string, unknown>,
+        );
+      }
       return { ok: true };
 
     case "add_slide":
