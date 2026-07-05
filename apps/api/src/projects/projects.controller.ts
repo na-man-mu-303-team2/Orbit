@@ -57,6 +57,16 @@ export class ProjectsController {
     );
   }
 
+  @Delete(":projectId")
+  async deleteProject(
+    @Param("workspaceId") workspaceId: string,
+    @Param("projectId") projectId: string,
+    @Req() request: SignedCookieRequest,
+  ) {
+    const user = await this.getCurrentUser(request);
+    return this.projectsService.delete(workspaceId, projectId, user.userId);
+  }
+
   @Get(":projectId/members")
   async listProjectMembers(
     @Param("workspaceId") workspaceId: string,

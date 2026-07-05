@@ -1,11 +1,13 @@
 import {
   demoIds,
+  deleteProjectResponseSchema,
   projectMembersResponseSchema,
   projectListResponseSchema,
   projectSchema,
 } from "@orbit/shared";
 import type {
   CreateProjectRequest,
+  DeleteProjectResponse,
   Project,
   ProjectMemberRole,
   ProjectMemberStatus,
@@ -113,6 +115,16 @@ export class ProjectsService {
     return projectListResponseSchema.parse(
       projects.map((project) => this.toProjectDto(project)),
     );
+  }
+
+  async delete(
+    workspaceId: string,
+    projectId: string,
+    requesterUserId: string,
+  ): Promise<DeleteProjectResponse> {
+    await this.assertProjectOwner(workspaceId, projectId, requesterUserId);
+    await this.projectsRepository.delete({ projectId, workspaceId });
+    return deleteProjectResponseSchema.parse({ projectId });
   }
 
   async getAccessibleProject(projectId: string): Promise<Project> {

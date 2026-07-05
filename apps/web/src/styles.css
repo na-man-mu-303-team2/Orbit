@@ -790,14 +790,14 @@ button:disabled {
 }
 
 .template-card strong,
-.project-card strong,
+.project-card-open strong,
 .new-template-card span {
   display: block;
   font-weight: 800;
 }
 
 .template-card span,
-.project-card span,
+.project-card-open > span,
 .empty-state {
   color: #667085;
   font-size: 0.9rem;
@@ -819,7 +819,49 @@ button:disabled {
   gap: 10px;
 }
 
+.project-card-open {
+  background: transparent;
+  border: 0;
+  color: inherit;
+  cursor: pointer;
+  display: grid;
+  gap: 10px;
+  padding: 0;
+  text-align: left;
+}
+
+.project-card-delete {
+  align-items: center;
+  background: #fff7f7;
+  border: 1px solid #fecaca;
+  border-radius: 6px;
+  color: #b42318;
+  cursor: pointer;
+  display: inline-flex;
+  font-weight: 800;
+  gap: 6px;
+  justify-content: center;
+  margin-top: 2px;
+  min-height: 34px;
+  padding: 7px 10px;
+}
+
+.project-card-delete:hover:not(:disabled) {
+  background: #fee4e2;
+  border-color: #fda29b;
+}
+
+.project-card-delete:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
+.project-delete-error {
+  color: #b42318;
+}
+
 .project-card:hover,
+.project-card:focus-within,
 .template-card:hover,
 .new-template-card:hover {
   border-color: #93c5fd;
