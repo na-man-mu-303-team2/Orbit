@@ -1208,15 +1208,15 @@ function withOpacity(color: string, opacity: number) {
   return `rgba(${red}, ${green}, ${blue}, ${opacity})`;
 }
 
-function applyPresentationStateToElement<T extends DeckElement>(
-  element: T,
+function applyPresentationStateToElement(
+  element: DeckElement,
   state: ElementPresentationState | undefined
-): T {
+): DeckElement {
   if (!state) {
     return element;
   }
 
-  const presentedElement: T = {
+  const presentedElement: DeckElement = {
     ...element,
     height: state.height ?? element.height,
     opacity: state.opacity ?? element.opacity,
