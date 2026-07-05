@@ -2326,6 +2326,9 @@ def select_slide_preset_id(
     if override is not None:
         return str(override["id"])
 
+    if uses_simple_basic_style(raw_input):
+        return None
+
     composition = normalize_composition(slide_plan.visual_intent.composition)
     step_count = len([keyword for keyword in slide_plan.keywords if keyword.strip()])
     text = " ".join(
@@ -2394,6 +2397,11 @@ def select_style_pack(
 def wants_simple_basic_style(raw_input: RawInput) -> bool:
     text = " ".join([raw_input.design_prompt, raw_input.prompt]).casefold()
     return has_any(text, list(SIMPLE_BASIC_STYLE_KEYWORDS))
+
+
+def uses_simple_basic_style(raw_input: RawInput) -> bool:
+    style_pack_id = (raw_input.design.style_pack_id or "").strip().casefold()
+    return style_pack_id == SIMPLE_BASIC_STYLE_PACK_ID or wants_simple_basic_style(raw_input)
 
 
 def document_mode_for(raw_input: RawInput) -> str:

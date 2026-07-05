@@ -1799,6 +1799,63 @@ def test_generate_deck_applies_v2_process_cards_registry() -> None:
     assert response.validation.passed is True
 
 
+def test_generate_deck_keeps_simple_basic_process_slides_in_style_pack() -> None:
+    fake_client = FakeOpenAIClient(
+        {
+            "title": "Workflow",
+            "slides": [
+                slide_payload(
+                    "Issue to Done",
+                    "Keep the workflow readable without switching style systems.",
+                    "Explain each step in speaker notes.",
+                    slide_type="process",
+                    slot_preset="insight_with_evidence",
+                    keywords=[
+                        "Issue",
+                        "Project",
+                        "Branch",
+                        "Implementation",
+                        "PR",
+                        "Review",
+                    ],
+                    visual_intent={
+                        "emphasis": "Workflow steps",
+                        "mood": "clear",
+                        "structure": "process cards",
+                        "paletteHint": "",
+                        "emphasisStyle": "",
+                        "composition": "process",
+                        "decorationDensity": "high",
+                        "mediaStyle": "",
+                    },
+                )
+            ],
+        }
+    )
+
+    response = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="Workflow",
+            design={"stylePackId": "simple-basic"},
+            slideCountRange={"min": 1, "max": 1},
+        ),
+        client=fake_client,
+    )
+
+    slide = response.deck["slides"][0]
+    element_ids = [element["elementId"] for element in slide["elements"]]
+    element_types = [element["type"] for element in slide["elements"]]
+
+    assert response.deck["theme"]["name"] == "simple-basic"
+    assert has_element(slide, "el_1_simple_basic_top_stripe")
+    assert all("_process_card_" not in element_id for element_id in element_ids)
+    assert all("_process_arrow_" not in element_id for element_id in element_ids)
+    assert "customShape" not in element_types
+    assert "arrow" not in element_types
+    assert response.validation.passed is True
+
+
 def test_generate_deck_does_not_invent_chart_data_without_source_numbers() -> None:
     fake_client = FakeOpenAIClient(
         {
