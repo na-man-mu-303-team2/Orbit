@@ -1644,6 +1644,47 @@ button:disabled {
   background: #be123c;
 }
 
+.rehearsal-live-debug-transcript {
+  background: #f8fafb;
+  border: 1px solid #d9e1e7;
+  border-radius: 8px;
+  display: grid;
+  gap: 8px;
+  padding: 12px 14px;
+}
+
+.rehearsal-live-debug-transcript-header {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+  justify-content: space-between;
+}
+
+.rehearsal-live-debug-transcript-header span {
+  color: #527089;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.rehearsal-live-debug-transcript-header strong {
+  color: #15202b;
+  font-size: 0.76rem;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.rehearsal-live-debug-transcript p {
+  color: #15202b;
+  font-size: 0.84rem;
+  line-height: 1.5;
+  margin: 0;
+  max-height: 128px;
+  min-height: 40px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 .rehearsal-live-status {
   align-items: center;
   background: #f8fafb;

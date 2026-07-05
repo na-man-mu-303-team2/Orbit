@@ -1262,7 +1262,7 @@ export function RehearsalWorkspace(props: {
   const [, setJob] = useState<Job | null>(null);
   const [liveStatus, setLiveStatus] = useState<LiveSttStatus>("idle");
   const [liveError, setLiveError] = useState("");
-  const [, setLiveTranscriptBuffer] = useState(
+  const [liveTranscriptBuffer, setLiveTranscriptBuffer] = useState(
     createLiveTranscriptBuffer
   );
   const [liveKeywordState, setLiveKeywordState] =
@@ -1521,6 +1521,12 @@ export function RehearsalWorkspace(props: {
         ? "quiet"
         : "active"
     : "idle";
+  const debugTranscriptText = renderLiveTranscriptBuffer(liveTranscriptBuffer);
+  const debugTranscriptStatus = liveTranscriptBuffer.draftTranscript
+    ? "partial"
+    : liveTranscriptBuffer.committedTranscript
+      ? "final"
+      : "idle";
   const canDownloadLiveSttDebugPcm = shouldShowLiveSttDebugPcmDownload(
     liveDebugPcmRecording
   );
@@ -2788,6 +2794,19 @@ export function RehearsalWorkspace(props: {
                   : "-100 dB RMS"}
               </small>
             </div>
+
+            <div
+              className="rehearsal-live-debug-transcript"
+              aria-live="polite"
+              aria-label="Live STT debug transcript"
+            >
+              <div className="rehearsal-live-debug-transcript-header">
+                <span>Debug transcript</span>
+                <strong>{debugTranscriptStatus}</strong>
+              </div>
+              <p>{debugTranscriptText || "전사 대기 중"}</p>
+            </div>
+
             {canDownloadLiveSttDebugPcm ? (
               <button
                 className="secondary-action"

@@ -107,6 +107,8 @@ describe("RehearsalWorkspace", () => {
     expect(html).toContain("Live STT 종료");
     expect(html).not.toContain("Live STT 시작을 눌러 테스트하세요");
     expect(html).not.toContain("Partial transcript");
+    expect(html).toContain("Debug transcript");
+    expect(html).toContain("전사 대기 중");
     expect(html).toContain("Mic input");
     expect(html).toContain("입력 대기");
     expect(html).toContain("-100 dB RMS");
