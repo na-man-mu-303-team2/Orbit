@@ -198,7 +198,9 @@ describe("RehearsalWorkspace", () => {
     expect(createDefaultLiveSttPortBody).toContain(
       "shouldUseSherpaCompatibility && legacyAdapter"
     );
-    expect(createDefaultLiveSttPortBody).toContain("return createLiveSttPort(engineId)");
+    expect(createDefaultLiveSttPortBody).toContain("return createLiveSttPort(engineId, {");
+    expect(createDefaultLiveSttPortBody).toContain("onAudioLevel,");
+    expect(createDefaultLiveSttPortBody).toContain("projectId");
     expect(getOrCreateLiveSttPortBody).toContain(
       "props.liveSttPort"
     );

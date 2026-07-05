@@ -1204,13 +1204,15 @@ function createDefaultLiveSttPort(options: {
   onAudioLevel?: (event: LiveSttAudioLevelEvent) => void;
   onDebugPcmAvailable?: (recording: LiveSttDebugPcmRecording) => void;
   getDecodingMethod?: () => LiveSttDecodingMethod | null;
+  projectId?: string;
 } = {}) {
   const {
     engineId,
     legacyAdapter,
     onAudioLevel,
     onDebugPcmAvailable,
-    getDecodingMethod
+    getDecodingMethod,
+    projectId
   } =
     options;
   const sherpaOptions = {
@@ -1232,7 +1234,16 @@ function createDefaultLiveSttPort(options: {
     return new SherpaLiveSttPort(sherpaOptions);
   }
 
-  return createLiveSttPort(engineId);
+  return createLiveSttPort(engineId, {
+    onAudioLevel,
+    projectId
+  });
+}
+
+function readLiveSttPortProjectId(port: LiveSttPort) {
+  return "projectId" in port && typeof port.projectId === "string"
+    ? port.projectId
+    : null;
 }
 
 export function RehearsalWorkspace(props: {
@@ -1825,7 +1836,13 @@ export function RehearsalWorkspace(props: {
     }
 
     const cachedPort = liveSttPortRef.current;
-    if (cachedPort?.engineId === presenterSettings.sttEngine) {
+    const activeProjectId =
+      deckRef.current?.projectId ?? props.projectId ?? demoIds.projectId;
+    if (
+      cachedPort?.engineId === presenterSettings.sttEngine &&
+      (cachedPort.engineId !== "openai-realtime" ||
+        readLiveSttPortProjectId(cachedPort) === activeProjectId)
+    ) {
       return cachedPort;
     }
 
@@ -1835,7 +1852,8 @@ export function RehearsalWorkspace(props: {
       legacyAdapter: props.liveSttAdapter,
       onAudioLevel: setLiveAudioLevel,
       onDebugPcmAvailable: setLiveDebugPcmRecording,
-      getDecodingMethod: getLiveSttDebugDecodingMethod
+      getDecodingMethod: getLiveSttDebugDecodingMethod,
+      projectId: activeProjectId
     });
     liveSttPortRef.current = port;
     return port;
