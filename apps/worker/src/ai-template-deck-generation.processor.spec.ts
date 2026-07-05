@@ -136,6 +136,11 @@ describe("processAiTemplateDeckGenerationJob", () => {
         expect(body.templateBlueprint.slides).toHaveLength(10);
         expect(body.templateBlueprint.slides[0].slots[0].slotRole).toBe("title");
         expect(body.templateBlueprint.slides[0].slots[1].slotRole).toBe("body");
+        expect(
+          body.templateBlueprint.slides[0].slots.map(
+            (slot: { usage: string }) => slot.usage
+          )
+        ).toEqual(["content-slot", "content-slot", "content-slot"]);
         return new Response(JSON.stringify(generateDeckResponse()));
       }
       if (url.endsWith("/ai/pptx-ooxml-apply-slot-texts")) {
@@ -149,7 +154,11 @@ describe("processAiTemplateDeckGenerationJob", () => {
         expect(blueprint.slides[0].slots[0].slotRole).toBe("title");
         expect(blueprint.slides[0].slots[1].slotRole).toBe("body");
         const slotTexts = JSON.parse(String(form.get("slot_texts")));
-        expect(slotTexts).toEqual(["ORBIT", "ORBIT", "ORBIT", "ORBIT", "ORBIT"]);
+        expect(slotTexts).toHaveLength(15);
+        expect(slotTexts[0]).toBe("ORBIT");
+        expect(slotTexts[1]).toContain("1");
+        expect(slotTexts[2]).toBe("ORBIT");
+        expect(slotTexts[3]).toBe("ORBIT 2");
         return new Response(JSON.stringify(ooxmlApplyResponse()));
       }
 

@@ -529,26 +529,19 @@ function promoteAiTemplateContentSlots(
 ): TemplateBlueprint {
   return templateBlueprintSchema.parse({
     ...templateBlueprint,
-    slides: templateBlueprint.slides.map((slide) => {
-      const hasContentSlots = slide.slots.some(
-        (slot) => slot.usage === "content-slot" && slot.replaceMode === "replace",
-      );
-      if (hasContentSlots) return slide;
-
-      return {
-        ...slide,
-        slots: slide.slots.map((slot) =>
-          isPromotableAiTextSlot(slot)
-            ? {
-                ...slot,
-                usage: "content-slot",
-                replaceMode: "replace",
-                confidence: Math.max(slot.confidence, 0.65),
-              }
-            : slot,
-        ),
-      };
-    }),
+    slides: templateBlueprint.slides.map((slide) => ({
+      ...slide,
+      slots: slide.slots.map((slot) =>
+        isPromotableAiTextSlot(slot)
+          ? {
+              ...slot,
+              usage: "content-slot",
+              replaceMode: "replace",
+              confidence: Math.max(slot.confidence, 0.65),
+            }
+          : slot,
+      ),
+    })),
   });
 }
 
@@ -560,7 +553,8 @@ function isPromotableAiTextSlot(
   return (
     slot.usage === "fixed-text" &&
     slot.replaceMode === "preserve" &&
-    ["title", "subtitle", "body", "caption"].includes(slot.slotRole) &&
+    ["title", "subtitle", "body", "caption", "label", "metric"].includes(slot.slotRole) &&
+    slot.confidence < 0.8 &&
     slot.source.type === "slide" &&
     typeof slot.source.shapeId === "string" &&
     slot.source.shapeId.trim() !== "" &&

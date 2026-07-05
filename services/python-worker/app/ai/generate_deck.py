@@ -3497,7 +3497,7 @@ def inject_template_slot_text(
             element["role"] = "title"
             replace_text_props(props, slide_plan.title)
             title_used = True
-        elif slot_role in {"body", "subtitle"} and not body_used:
+        elif slot_role in {"body", "subtitle", "caption"} and not body_used:
             element["role"] = "subtitle" if slot_role == "subtitle" else "body"
             replace_text_props(props, slide_plan.message)
             body_used = True

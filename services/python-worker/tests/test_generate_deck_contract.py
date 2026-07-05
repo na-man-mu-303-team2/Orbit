@@ -1847,6 +1847,65 @@ def test_template_blueprint_replaces_only_replaceable_content_slots() -> None:
     assert preserved_fixed["props"]["paragraphs"][0]["text"] == "Do not touch fixed text"
 
 
+def test_template_caption_slot_can_receive_slide_body_message() -> None:
+    blueprint = minimal_imported_design_blueprint()
+    caption = deepcopy(blueprint["slides"][0]["elements"][1])
+    caption["elementId"] = "el_imported_1_caption"
+    caption["role"] = "caption"
+    caption["y"] = 300
+    caption["props"] = {
+        **caption["props"],
+        "text": "Original confidential caption",
+    }
+    blueprint["slides"][0]["elements"].append(caption)
+
+    response = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="ORBIT",
+            slideCountRange={"min": 1, "max": 1},
+            designReferences=[{"fileId": "file_design"}],
+            designBlueprint=blueprint,
+            templateBlueprint={
+                "templateId": "template_file_design",
+                "sourceFileId": "file_design",
+                "slides": [
+                    {
+                        "slideIndex": 1,
+                        "sourceSlideIndex": 1,
+                        "slots": [
+                            {
+                                "elementId": "el_imported_1_title",
+                                "usage": "content-slot",
+                                "slotRole": "title",
+                                "replaceMode": "replace",
+                                "confidence": 0.95,
+                            },
+                            {
+                                "elementId": "el_imported_1_caption",
+                                "usage": "content-slot",
+                                "slotRole": "caption",
+                                "replaceMode": "replace",
+                                "confidence": 0.95,
+                            },
+                        ],
+                    }
+                ],
+            },
+        )
+    )
+
+    slide = response.deck["slides"][0]
+    body_message = slide["aiNotes"]["emphasisPoints"][0]
+
+    assert any(
+        element["role"] == "body" and element["props"]["text"] == body_message
+        for element in slide["elements"]
+        if element["type"] == "text"
+    )
+    assert "Original confidential caption" not in json.dumps(slide, ensure_ascii=False)
+
+
 def test_template_blueprint_does_not_inject_body_into_toc_slots() -> None:
     blueprint = minimal_imported_design_blueprint()
     title_text = blueprint["slides"][0]["elements"][1]
