@@ -79,9 +79,18 @@ type AiTemplateDeckGenerationResponse = {
   job: Job;
 };
 
+type GenerateDeckJobResponse = {
+  job: Job;
+};
+
+type ExtractJobResponse = {
+  job: Job;
+};
+
 type ReferenceGenerationInput = {
   references: Array<{ fileId: string }>;
   referenceKeywords: Array<{ text: string }>;
+  referenceContext: Array<{ fileId: string; title: string; content: string }>;
   succeededFiles: ExtractedFile[];
   failedFiles: ExtractedFile[];
 };
@@ -115,6 +124,8 @@ type GenerateDeckDesignDirection = {
   densityTarget: "low" | "medium" | "high";
   mediaPolicy: "avoid" | "balanced" | "placeholder-ok";
   layoutDiversity: "stable" | "varied";
+  stylePackId?: string;
+  slidePresetId?: string;
 };
 type GenerateDeckDesignProfile = NonNullable<GenerateDeckDesignDirection["profile"]>;
 type GenerateDeckDesignProfileChoice = "auto" | GenerateDeckDesignProfile;
@@ -265,6 +276,8 @@ const homeAssetAccept = [
 ].join(",");
 const pptxMimeType =
   "application/vnd.openxmlformats-officedocument.presentationml.presentation";
+const simpleBasicStylePackId = "simple-basic";
+const referenceContextMaxChars = 12_000;
 
 async function fetchCurrentUser(): Promise<AuthUser> {
   const response = await fetch("/api/v1/auth/me", {
@@ -955,20 +968,41 @@ function HomePage(props: { user?: AuthUser }) {
         uploadedAssets.set(upload.id, uploaded.fileId);
       }
 
-      const payload = buildAiTemplateDeckGenerationPayload({
-        topic,
-        prompt,
-        designPrompt,
-        duration: parseHomeIntegerInput(durationInput) ?? 10,
-        minSlides: parseHomeIntegerInput(minSlidesInput) ?? 5,
-        maxSlides: parseHomeIntegerInput(maxSlidesInput) ?? 8,
-        tone,
-        uploads,
-        uploadedAssetFileIds: uploadedAssets
-      });
+      const duration = parseHomeIntegerInput(durationInput) ?? 10;
+      const minSlides = parseHomeIntegerInput(minSlidesInput) ?? 5;
+      const maxSlides = parseHomeIntegerInput(maxSlidesInput) ?? 8;
+      const hasDesignPptx = hasHomeDesignPptxUpload(uploads);
+      const referenceInput = hasDesignPptx
+        ? buildReferenceGenerationInput([])
+        : await extractHomeReferenceInput(project.projectId, uploads, uploadedAssets, {
+            setJob,
+            setStatus
+          });
+      const payload = hasDesignPptx
+        ? buildAiTemplateDeckGenerationPayload({
+            topic,
+            prompt,
+            designPrompt,
+            duration,
+            minSlides,
+            maxSlides,
+            tone,
+            uploads,
+            uploadedAssetFileIds: uploadedAssets
+          })
+        : buildHomeJsonFirstGenerateDeckPayload({
+            topic,
+            prompt,
+            designPrompt,
+            duration,
+            minSlides,
+            maxSlides,
+            tone,
+            referenceInput
+          });
       setStatus("AI 덱 생성 중...");
       const response = await fetch(
-        `/api/v1/projects/${encodeURIComponent(project.projectId)}/jobs/ai-template-deck-generation`,
+        getHomeDeckGenerationJobEndpoint(project.projectId, uploads),
         {
           method: "POST",
           headers: { "content-type": "application/json" },
@@ -980,7 +1014,9 @@ function HomePage(props: { user?: AuthUser }) {
         throw new Error(await readApiError(response, "AI 덱 생성을 시작하지 못했습니다."));
       }
 
-      const data = (await response.json()) as AiTemplateDeckGenerationResponse;
+      const data = (await response.json()) as
+        | AiTemplateDeckGenerationResponse
+        | GenerateDeckJobResponse;
       setJob(data.job);
       const completed = await pollJob(data.job.jobId, fetch, {
         timeoutMs: 300_000,
@@ -994,14 +1030,20 @@ function HomePage(props: { user?: AuthUser }) {
         );
       }
 
-      const result = getAiTemplateDeckGenerationJobResult(completed);
+      const result = hasDesignPptx
+        ? getAiTemplateDeckGenerationJobResult(completed)
+        : getGenerateDeckJobResult(completed);
       if (!result) {
         throw new Error("AI 덱 생성 결과를 읽지 못했습니다.");
       }
 
       await queryClient.invalidateQueries({ queryKey: ["projects"] });
       await queryClient.invalidateQueries({ queryKey: ["deck", project.projectId] });
-      navigateTo(`/project/${encodeURIComponent(project.projectId)}`);
+      navigateTo(
+        hasDesignPptx
+          ? `/project/${encodeURIComponent(project.projectId)}`
+          : getGeneratedDeckProjectPath(result as GenerateDeckJobResult)
+      );
     } catch (submitError) {
       setError(
         submitError instanceof Error ? submitError.message : "AI 덱 생성에 실패했습니다."
@@ -1797,6 +1839,88 @@ function getAiTemplateUploadPurpose(upload: UploadFile): FilePurpose {
   return "reference-material";
 }
 
+async function extractHomeReferenceInput(
+  projectId: string,
+  uploads: UploadFile[],
+  uploadedAssetFileIds: Map<string, string>,
+  callbacks: {
+    setJob: (job: Job | null) => void;
+    setStatus: (status: string) => void;
+  }
+) {
+  const contentUploads = getHomeContentReferenceUploads(uploads);
+  if (contentUploads.length === 0) {
+    return buildReferenceGenerationInput([]);
+  }
+
+  callbacks.setStatus("참고자료 추출 중...");
+  const response = await fetch("/extract", {
+    method: "POST",
+    body: buildHomeExtractFormData(projectId, contentUploads, uploadedAssetFileIds)
+  });
+
+  if (!response.ok) {
+    throw new Error(await readApiError(response, "참고자료 추출을 시작하지 못했습니다."));
+  }
+
+  const data = (await response.json()) as ExtractJobResponse;
+  callbacks.setJob(data.job);
+  const completed = await pollExtractJob(data.job.jobId, {
+    fetcher: fetch,
+    onUpdate: callbacks.setJob,
+    timeoutMs: 300_000
+  });
+  callbacks.setJob(completed);
+
+  if (completed.status === "failed") {
+    throw new Error(
+      completed.error?.message || completed.message || "참고자료 추출에 실패했습니다."
+    );
+  }
+
+  return buildReferenceGenerationInput(getJobResultFiles(completed));
+}
+
+export function hasHomeDesignPptxUpload(uploads: UploadFile[]) {
+  return uploads.some((upload) => isHomeDesignPptxUpload(upload));
+}
+
+function isHomeDesignPptxUpload(upload: UploadFile) {
+  return (upload.role === "design" || upload.role === "both") && isPptxFile(upload.file);
+}
+
+export function getHomeContentReferenceUploads(uploads: UploadFile[]) {
+  return uploads.filter((upload) => upload.role === "content");
+}
+
+export function buildHomeExtractFormData(
+  projectId: string,
+  contentUploads: UploadFile[],
+  uploadedAssetFileIds: Map<string, string>
+) {
+  const formData = new FormData();
+  formData.append("projectId", projectId);
+  for (const upload of contentUploads) {
+    const fileId = uploadedAssetFileIds.get(upload.id);
+    if (!fileId) {
+      throw new Error(`${upload.file.name} 업로드 결과를 찾지 못했습니다.`);
+    }
+    formData.append("files", upload.file);
+    formData.append("fileIds", fileId);
+  }
+  return formData;
+}
+
+export function getHomeDeckGenerationJobEndpoint(
+  projectId: string,
+  uploads: UploadFile[]
+) {
+  const jobType = hasHomeDesignPptxUpload(uploads)
+    ? "ai-template-deck-generation"
+    : "generate-deck";
+  return `/api/v1/projects/${encodeURIComponent(projectId)}/jobs/${jobType}`;
+}
+
 export function getHomeGenerationValidationMessage(
   topic: string,
   uploads: UploadFile[],
@@ -1808,18 +1932,14 @@ export function getHomeGenerationValidationMessage(
     return "발표 주제를 입력하세요.";
   }
 
-  if (uploads.length === 0) {
-    return "파일을 하나 이상 첨부하세요.";
-  }
-
   const designUploads = uploads.filter(
     (upload) => upload.role === "design" || upload.role === "both"
   );
-  if (designUploads.length !== 1) {
-    return "디자인 참고 PPTX를 정확히 1개 선택하세요.";
+  if (designUploads.length > 1) {
+    return "디자인 참고 PPTX는 1개만 선택하세요.";
   }
 
-  if (!isPptxFile(designUploads[0].file)) {
+  if (designUploads.length === 1 && !isPptxFile(designUploads[0].file)) {
     return "디자인 참고 파일은 PPTX여야 합니다.";
   }
 
@@ -2151,8 +2271,38 @@ export function buildGenerateDeckPayload(input: GenerateDeckPayloadInput) {
     design: input.design,
     references: input.referenceInput.references,
     designReferences: input.designReferences,
-    referenceKeywords: input.referenceInput.referenceKeywords
+    referenceKeywords: input.referenceInput.referenceKeywords,
+    referenceContext: input.referenceInput.referenceContext
   };
+}
+
+export function buildHomeJsonFirstGenerateDeckPayload(input: {
+  designPrompt: string;
+  duration: number;
+  maxSlides: number;
+  minSlides: number;
+  prompt: string;
+  referenceInput?: ReferenceGenerationInput;
+  tone: "professional" | "friendly" | "confident" | "concise";
+  topic: string;
+}) {
+  return buildGenerateDeckPayload({
+    topic: input.topic.trim(),
+    prompt: input.prompt.trim(),
+    designPrompt: input.designPrompt.trim(),
+    duration: clampInteger(input.duration, 1, 120),
+    minSlides: clampInteger(input.minSlides, 1, 20),
+    maxSlides: clampInteger(input.maxSlides, 1, 20),
+    template: "default",
+    metadata: {
+      audience: "general",
+      purpose: "inform",
+      tone: input.tone
+    },
+    design: buildSimpleBasicGenerateDeckDesignDirection(),
+    designReferences: [],
+    referenceInput: input.referenceInput ?? buildReferenceGenerationInput([])
+  });
 }
 
 export function buildDesignReferences(
@@ -2171,6 +2321,8 @@ export function buildGenerateDeckDesignDirection(input: {
   layoutDiversity: GenerateDeckDesignDirection["layoutDiversity"];
   mediaPolicy: GenerateDeckDesignDirection["mediaPolicy"];
   profile: GenerateDeckDesignProfileChoice;
+  slidePresetId?: string;
+  stylePackId?: string;
   visualRhythm: GenerateDeckDesignDirection["visualRhythm"];
 }): GenerateDeckDesignDirection {
   const design: GenerateDeckDesignDirection = {
@@ -2184,7 +2336,26 @@ export function buildGenerateDeckDesignDirection(input: {
     design.profile = input.profile;
   }
 
+  if (input.stylePackId?.trim()) {
+    design.stylePackId = input.stylePackId.trim();
+  }
+
+  if (input.slidePresetId?.trim()) {
+    design.slidePresetId = input.slidePresetId.trim();
+  }
+
   return design;
+}
+
+export function buildSimpleBasicGenerateDeckDesignDirection() {
+  return buildGenerateDeckDesignDirection({
+    profile: "auto",
+    visualRhythm: "clean",
+    densityTarget: "medium",
+    mediaPolicy: "balanced",
+    layoutDiversity: "stable",
+    stylePackId: simpleBasicStylePackId
+  });
 }
 
 export function mergeGeneratedProjectList(
@@ -2201,10 +2372,12 @@ export function buildReferenceGenerationInput(
 ): ReferenceGenerationInput {
   const references: Array<{ fileId: string }> = [];
   const referenceKeywords: Array<{ text: string }> = [];
+  const referenceContext: Array<{ fileId: string; title: string; content: string }> = [];
   const succeededFiles: ExtractedFile[] = [];
   const failedFiles: ExtractedFile[] = [];
   const seenFileIds = new Set<string>();
   const seenKeywords = new Set<string>();
+  const seenContextIds = new Set<string>();
 
   for (const file of files) {
     const fileId = file.referenceDocumentId?.trim() ?? "";
@@ -2219,6 +2392,15 @@ export function buildReferenceGenerationInput(
       references.push({ fileId });
     }
 
+    const content = (file.cleanedText?.trim() || file.rawText.trim()).slice(
+      0,
+      referenceContextMaxChars
+    );
+    if (content && !seenContextIds.has(fileId)) {
+      seenContextIds.add(fileId);
+      referenceContext.push({ fileId, title: file.fileName, content });
+    }
+
     for (const keyword of file.keywords ?? []) {
       const text = keyword.keyword.trim();
       const key = text.toLowerCase();
@@ -2229,7 +2411,13 @@ export function buildReferenceGenerationInput(
     }
   }
 
-  return { references, referenceKeywords, succeededFiles, failedFiles };
+  return {
+    references,
+    referenceKeywords,
+    referenceContext,
+    succeededFiles,
+    failedFiles
+  };
 }
 
 function PptxOoxmlGenerationResult(props: {

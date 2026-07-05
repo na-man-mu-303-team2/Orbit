@@ -8,8 +8,10 @@ import {
   buildDesignReferences,
   buildGenerateDeckPayload,
   buildGenerateDeckDesignDirection,
+  buildHomeJsonFirstGenerateDeckPayload,
   buildPptxOoxmlGenerationPayload,
   buildReferenceGenerationInput,
+  buildSimpleBasicGenerateDeckDesignDirection,
   createGeneratedDeckProject,
   ExtractResultItem,
   GeneratedDeckResult,
@@ -18,7 +20,10 @@ import {
   getGeneratedDeckProjectTitle,
   getAiTemplateDeckGenerationJobResult,
   getGenerateDeckJobResult,
+  buildHomeExtractFormData,
+  getHomeDeckGenerationJobEndpoint,
   getHomeGenerationValidationMessage,
+  getHomeContentReferenceUploads,
   getHomePptxConversionValidationMessage,
   getPptxOoxmlGeneratedProjectPath,
   getPptxOoxmlGenerationJobResult,
@@ -125,6 +130,7 @@ describe("reference extraction upload flow", () => {
         kind: "pdf",
         status: "succeeded",
         rawText: "raw",
+        cleanedText: "cleaned",
         keywords: [
           { keyword: "Deck", reason: "topic", priority: "high" },
           { keyword: " deck ", reason: "duplicate", priority: "medium" }
@@ -150,6 +156,9 @@ describe("reference extraction upload flow", () => {
 
     expect(input.references).toEqual([{ fileId: "file_1" }]);
     expect(input.referenceKeywords).toEqual([{ text: "Deck" }, { text: "AI" }]);
+    expect(input.referenceContext).toEqual([
+      { fileId: "file_1", title: "success.pdf", content: "cleaned" }
+    ]);
     expect(input.succeededFiles).toHaveLength(2);
     expect(input.failedFiles.map((file) => file.fileName)).toEqual(["failed.pdf"]);
   });
@@ -376,8 +385,31 @@ describe("AI deck generation flow", () => {
     const pptx = new File(["pptx"], "design.pptx", {
       type: "application/vnd.openxmlformats-officedocument.presentationml.presentation"
     });
+    const pdf = new File(["pdf"], "content.pdf", { type: "application/pdf" });
     const uploads = [{ id: "design", file: pptx, role: "design" as const }];
 
+    expect(getHomeGenerationValidationMessage("ORBIT", [], "10", "5", "8")).toBe("");
+    expect(
+      getHomeGenerationValidationMessage(
+        "ORBIT",
+        [{ id: "pdf", file: pdf, role: "design" }],
+        "10",
+        "5",
+        "8"
+      )
+    ).toBe("디자인 참고 파일은 PPTX여야 합니다.");
+    expect(
+      getHomeGenerationValidationMessage(
+        "ORBIT",
+        [
+          { id: "design-1", file: pptx, role: "design" },
+          { id: "design-2", file: pptx, role: "both" }
+        ],
+        "10",
+        "5",
+        "8"
+      )
+    ).toBe("디자인 참고 PPTX는 1개만 선택하세요.");
     expect(getHomeGenerationValidationMessage("ORBIT", uploads, "0", "5", "8")).toBe(
       "발표 시간은 1~120분으로 입력하세요."
     );
@@ -461,6 +493,9 @@ describe("AI deck generation flow", () => {
       referenceInput: {
         references: [{ fileId: "file_1" }],
         referenceKeywords: [{ text: "Deck" }],
+        referenceContext: [
+          { fileId: "file_1", title: "source.pdf", content: "source text" }
+        ],
         succeededFiles: [],
         failedFiles: []
       }
@@ -481,8 +516,80 @@ describe("AI deck generation flow", () => {
       },
       references: [{ fileId: "file_1" }],
       designReferences: [{ fileId: "file_design_1" }],
-      referenceKeywords: [{ text: "Deck" }]
+      referenceKeywords: [{ text: "Deck" }],
+      referenceContext: [
+        { fileId: "file_1", title: "source.pdf", content: "source text" }
+      ]
     });
+  });
+
+  it("builds a JSON-first home payload without a design PPTX", () => {
+    const payload = buildHomeJsonFirstGenerateDeckPayload({
+      topic: " ORBIT ",
+      prompt: " 핵심 메시지 ",
+      designPrompt: " 심플 베이직 발표용 ",
+      duration: 10,
+      minSlides: 5,
+      maxSlides: 8,
+      tone: "professional"
+    });
+
+    expect(payload).toMatchObject({
+      topic: "ORBIT",
+      prompt: "핵심 메시지",
+      designPrompt: "심플 베이직 발표용",
+      design: {
+        stylePackId: "simple-basic",
+        visualRhythm: "clean",
+        densityTarget: "medium",
+        mediaPolicy: "balanced",
+        layoutDiversity: "stable"
+      },
+      references: [],
+      designReferences: [],
+      referenceKeywords: [],
+      referenceContext: []
+    });
+  });
+
+  it("routes home deck generation to JSON-first unless a design PPTX exists", () => {
+    const pptx = new File(["pptx"], "design.pptx", {
+      type: "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+    });
+    const pdf = new File(["pdf"], "content.pdf", { type: "application/pdf" });
+
+    expect(getHomeDeckGenerationJobEndpoint("project a", [])).toBe(
+      "/api/v1/projects/project%20a/jobs/generate-deck"
+    );
+    expect(
+      getHomeDeckGenerationJobEndpoint("project a", [
+        { id: "pdf", file: pdf, role: "content" }
+      ])
+    ).toBe("/api/v1/projects/project%20a/jobs/generate-deck");
+    expect(
+      getHomeDeckGenerationJobEndpoint("project a", [
+        { id: "pptx", file: pptx, role: "design" }
+      ])
+    ).toBe("/api/v1/projects/project%20a/jobs/ai-template-deck-generation");
+    expect(getHomeDeckGenerationJobEndpoint("project a", [])).not.toContain(
+      "pptx-ooxml"
+    );
+    expect(
+      getHomeContentReferenceUploads([{ id: "pdf", file: pdf, role: "content" }])
+    ).toHaveLength(1);
+  });
+
+  it("builds extract form data for content-only home references", () => {
+    const pdf = new File(["pdf"], "content.pdf", { type: "application/pdf" });
+    const formData = buildHomeExtractFormData(
+      "project_ai",
+      [{ id: "pdf", file: pdf, role: "content" }],
+      new Map([["pdf", "file_content"]])
+    );
+
+    expect(formData.get("projectId")).toBe("project_ai");
+    expect(formData.getAll("files")).toEqual([pdf]);
+    expect(formData.getAll("fileIds")).toEqual(["file_content"]);
   });
 
   it("omits a design profile when the profile picker is automatic", () => {
@@ -510,6 +617,9 @@ describe("AI deck generation flow", () => {
         layoutDiversity: "varied"
       }).profile
     ).toBe("editorial");
+    expect(buildSimpleBasicGenerateDeckDesignDirection().stylePackId).toBe(
+      "simple-basic"
+    );
   });
 
   it("defaults an omitted design prompt to an empty string", () => {
@@ -536,6 +646,7 @@ describe("AI deck generation flow", () => {
       referenceInput: {
         references: [],
         referenceKeywords: [],
+        referenceContext: [],
         succeededFiles: [],
         failedFiles: []
       }
