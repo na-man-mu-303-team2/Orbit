@@ -137,6 +137,10 @@ type GenerateDeckDesignDirection = {
 };
 type GenerateDeckDesignProfile = NonNullable<GenerateDeckDesignDirection["profile"]>;
 type GenerateDeckDesignProfileChoice = "auto" | GenerateDeckDesignProfile;
+export type HomeTemplateStyleId =
+  | "simple-basic"
+  | "presentation-document"
+  | "submission-document";
 
 type GenerateDeckTargetProject = {
   created: boolean;
@@ -165,7 +169,7 @@ type RejectedFile = {
 
 export type Route =
   | { name: "login" }
-  | { name: "home" }
+  | { name: "home"; templateStyleId?: HomeTemplateStyleId }
   | { name: "create-deck" }
   | { name: "project-list" }
   | { name: "project-editor"; projectId: string }
@@ -199,12 +203,27 @@ const EditorShell = lazy(() =>
   }))
 );
 
-const templates = [
-  { id: "blank", title: "새 프레젠테이션", description: "빈 슬라이드에서 시작" },
-  { id: "pitch", title: "피치덱", description: "문제, 해결책, 시장 흐름" },
-  { id: "lesson", title: "수업 자료", description: "학습 목표와 활동 중심" },
-  { id: "report", title: "보고서", description: "요약과 근거 중심" },
-  { id: "workshop", title: "워크숍", description: "진행 순서와 실습 구성" }
+export const defaultHomeTemplateStyleId: HomeTemplateStyleId = "simple-basic";
+export const homeTemplateStyles: Array<{
+  id: HomeTemplateStyleId;
+  title: string;
+  description: string;
+}> = [
+  {
+    id: "simple-basic",
+    title: "심플 베이직 스타일",
+    description: "깔끔한 기본형 문서 디자인"
+  },
+  {
+    id: "presentation-document",
+    title: "발표용 문서 스타일",
+    description: "키워드와 발표 메모 중심"
+  },
+  {
+    id: "submission-document",
+    title: "제출용 문서 스타일",
+    description: "본문과 근거가 자족적인 보고형"
+  }
 ];
 const demoDeck = createDemoDeck();
 const reportMockupRunId = "run_report_mockup";
@@ -284,7 +303,7 @@ const homeAssetAccept = [
 ].join(",");
 const pptxMimeType =
   "application/vnd.openxmlformats-officedocument.presentationml.presentation";
-const simpleBasicStylePackId = "simple-basic";
+const simpleBasicStylePackId = defaultHomeTemplateStyleId;
 const referenceContextMaxChars = 12_000;
 
 async function fetchCurrentUser(): Promise<AuthUser> {
@@ -325,6 +344,19 @@ async function requestProjectAccess(
     throw new Error(await readApiError(response, "프로젝트 권한 요청에 실패했습니다."));
   }
   return response.json() as Promise<ProjectAccessResponse>;
+}
+
+export function getHomeTemplateStyleId(
+  value: string | null | undefined
+): HomeTemplateStyleId | undefined {
+  const normalized = value?.trim();
+  return homeTemplateStyles.some((style) => style.id === normalized)
+    ? (normalized as HomeTemplateStyleId)
+    : undefined;
+}
+
+export function getHomeTemplateStylePath(styleId: HomeTemplateStyleId) {
+  return `/?templateStyle=${encodeURIComponent(styleId)}`;
 }
 
 export function getRoute(
@@ -388,7 +420,9 @@ export function getRoute(
     };
   }
 
-  return { name: "home" };
+  const searchParams = new URLSearchParams(currentSearch);
+  const templateStyleId = getHomeTemplateStyleId(searchParams.get("templateStyle"));
+  return templateStyleId ? { name: "home", templateStyleId } : { name: "home" };
 }
 
 function navigateTo(path: string) {
@@ -490,7 +524,7 @@ function renderRoute(route: Route, user?: AuthUser) {
   if (route.name === "deck-render") {
     return <DeckRenderPage />;
   }
-  return <HomePage user={user} />;
+  return <HomePage user={user} templateStyleId={route.templateStyleId} />;
 }
 
 export function isDeckRenderRouteEnabled() {
@@ -1003,11 +1037,15 @@ function ProjectAccessRequestPage(props: { projectId: string }) {
   );
 }
 
-function HomePage(props: { user?: AuthUser }) {
+function HomePage(props: { user?: AuthUser; templateStyleId?: HomeTemplateStyleId }) {
   const queryClient = useQueryClient();
   const [topic, setTopic] = useState("");
   const [prompt, setPrompt] = useState("");
   const [designPrompt, setDesignPrompt] = useState("");
+  const [selectedTemplateStyleId, setSelectedTemplateStyleId] =
+    useState<HomeTemplateStyleId>(
+      props.templateStyleId ?? defaultHomeTemplateStyleId
+    );
   const [tone, setTone] = useState<"professional" | "friendly" | "confident" | "concise">(
     "professional"
   );
@@ -1031,6 +1069,10 @@ function HomePage(props: { user?: AuthUser }) {
     minSlidesInput,
     maxSlidesInput
   );
+
+  useEffect(() => {
+    setSelectedTemplateStyleId(props.templateStyleId ?? defaultHomeTemplateStyleId);
+  }, [props.templateStyleId]);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -1086,6 +1128,7 @@ function HomePage(props: { user?: AuthUser }) {
             topic,
             prompt,
             designPrompt,
+            templateStyleId: selectedTemplateStyleId,
             duration,
             minSlides,
             maxSlides,
@@ -1256,6 +1299,11 @@ function HomePage(props: { user?: AuthUser }) {
     setError("");
     setStatus("");
     setJob(null);
+  }
+
+  function selectTemplateStyle(styleId: HomeTemplateStyleId) {
+    setSelectedTemplateStyleId(styleId);
+    navigateTo(getHomeTemplateStylePath(styleId));
   }
 
   return (
@@ -1437,7 +1485,11 @@ function HomePage(props: { user?: AuthUser }) {
         {error ? <p className="chat-file-error">{error}</p> : null}
       </section>
 
-      <TemplateRail title="최근 열어본 템플릿" />
+      <TemplateRail
+        title="템플릿 스타일"
+        selectedStyleId={selectedTemplateStyleId}
+        onSelectStyle={selectTemplateStyle}
+      />
     </section>
   );
 }
@@ -1496,7 +1548,12 @@ function ProjectListPage() {
         </button>
       </header>
 
-      <TemplateRail title="템플릿" onCreateProject={handleCreateProject} isCreating={isCreating} />
+      <TemplateRail
+        title="템플릿"
+        onCreateProject={handleCreateProject}
+        onSelectStyle={(styleId) => navigateTo(getHomeTemplateStylePath(styleId))}
+        isCreating={isCreating}
+      />
 
       <section className="project-history">
         <div className="section-heading">
@@ -1521,10 +1578,12 @@ function ProjectListPage() {
   );
 }
 
-function TemplateRail(props: {
+export function TemplateRail(props: {
   title: string;
   isCreating?: boolean;
   onCreateProject?: () => void;
+  onSelectStyle?: (styleId: HomeTemplateStyleId) => void;
+  selectedStyleId?: HomeTemplateStyleId;
 }) {
   return (
     <section className="template-section">
@@ -1541,8 +1600,18 @@ function TemplateRail(props: {
           <Plus size={28} />
           <span>새 프레젠테이션</span>
         </button>
-        {templates.slice(1).map((template) => (
-          <button className="template-card" type="button" key={template.id}>
+        {homeTemplateStyles.map((template) => (
+          <button
+            aria-pressed={props.selectedStyleId === template.id}
+            className={
+              props.selectedStyleId === template.id
+                ? "template-card template-card-active"
+                : "template-card"
+            }
+            type="button"
+            key={template.id}
+            onClick={() => props.onSelectStyle?.(template.id)}
+          >
             <LayoutTemplate size={18} />
             <strong>{template.title}</strong>
             <span>{template.description}</span>
@@ -2418,6 +2487,7 @@ export function buildHomeJsonFirstGenerateDeckPayload(input: {
   minSlides: number;
   prompt: string;
   referenceInput?: ReferenceGenerationInput;
+  templateStyleId?: HomeTemplateStyleId;
   tone: "professional" | "friendly" | "confident" | "concise";
   topic: string;
 }) {
@@ -2434,7 +2504,9 @@ export function buildHomeJsonFirstGenerateDeckPayload(input: {
       purpose: "inform",
       tone: input.tone
     },
-    design: buildSimpleBasicGenerateDeckDesignDirection(),
+    design: buildHomeTemplateStyleGenerateDeckDesignDirection(
+      input.templateStyleId ?? defaultHomeTemplateStyleId
+    ),
     designReferences: [],
     referenceInput: input.referenceInput ?? buildReferenceGenerationInput([])
   });
@@ -2483,6 +2555,34 @@ export function buildGenerateDeckDesignDirection(input: {
 }
 
 export function buildSimpleBasicGenerateDeckDesignDirection() {
+  return buildHomeTemplateStyleGenerateDeckDesignDirection("simple-basic");
+}
+
+export function buildHomeTemplateStyleGenerateDeckDesignDirection(
+  styleId: HomeTemplateStyleId
+) {
+  if (styleId === "presentation-document") {
+    return buildGenerateDeckDesignDirection({
+      profile: "auto",
+      visualRhythm: "clean",
+      densityTarget: "low",
+      mediaPolicy: "balanced",
+      layoutDiversity: "stable",
+      stylePackId: styleId
+    });
+  }
+
+  if (styleId === "submission-document") {
+    return buildGenerateDeckDesignDirection({
+      profile: "auto",
+      visualRhythm: "technical",
+      densityTarget: "high",
+      mediaPolicy: "balanced",
+      layoutDiversity: "stable",
+      stylePackId: styleId
+    });
+  }
+
   return buildGenerateDeckDesignDirection({
     profile: "auto",
     visualRhythm: "clean",

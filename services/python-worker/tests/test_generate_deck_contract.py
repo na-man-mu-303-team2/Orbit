@@ -572,6 +572,54 @@ def test_generate_deck_auto_selects_simple_basic_report_mode() -> None:
     assert response.validation.passed is True
 
 
+@pytest.mark.parametrize(
+    ("style_pack_id", "document_mode"),
+    [
+        ("presentation-document", "presentation"),
+        ("submission-document", "report/submission"),
+    ],
+)
+def test_generate_deck_applies_document_style_pack_modes(
+    style_pack_id: str,
+    document_mode: str,
+) -> None:
+    fake_client = FakeOpenAIClient(
+        {
+            "title": "Document style",
+            "slides": [
+                slide_payload(
+                    "Document slide",
+                    "The selected template controls the document style.",
+                    "Explain the selected document style in direct speaker lines.",
+                    slide_type="solution",
+                    slot_preset="insight_with_evidence",
+                    keywords=["Style", "Purpose"],
+                )
+            ],
+        }
+    )
+
+    response = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="Document style",
+            design={"stylePackId": style_pack_id},
+            slideCountRange={"min": 1, "max": 1},
+        ),
+        client=fake_client,
+    )
+
+    llm_input = str(fake_client.requests[0]["input"])
+    deck_text = json.dumps(response.deck, ensure_ascii=False)
+    slide = response.deck["slides"][0]
+
+    assert f"Document mode: {document_mode}" in llm_input
+    assert response.deck["theme"]["name"] == style_pack_id
+    assert has_element(slide, "el_1_simple_basic_top_stripe")
+    assert "stylePackId" not in deck_text
+    assert response.validation.passed is True
+
+
 def test_generate_deck_applies_keyed_theme_tokens_from_palette_hint() -> None:
     fake_client = FakeOpenAIClient(
         {
@@ -1799,7 +1847,13 @@ def test_generate_deck_applies_v2_process_cards_registry() -> None:
     assert response.validation.passed is True
 
 
-def test_generate_deck_keeps_simple_basic_process_slides_in_style_pack() -> None:
+@pytest.mark.parametrize(
+    "style_pack_id",
+    ["simple-basic", "presentation-document", "submission-document"],
+)
+def test_generate_deck_keeps_document_process_slides_in_style_pack(
+    style_pack_id: str,
+) -> None:
     fake_client = FakeOpenAIClient(
         {
             "title": "Workflow",
@@ -1837,7 +1891,7 @@ def test_generate_deck_keeps_simple_basic_process_slides_in_style_pack() -> None
         GenerateDeckRequest(
             projectId="project_demo_1",
             topic="Workflow",
-            design={"stylePackId": "simple-basic"},
+            design={"stylePackId": style_pack_id},
             slideCountRange={"min": 1, "max": 1},
         ),
         client=fake_client,
@@ -1847,7 +1901,7 @@ def test_generate_deck_keeps_simple_basic_process_slides_in_style_pack() -> None
     element_ids = [element["elementId"] for element in slide["elements"]]
     element_types = [element["type"] for element in slide["elements"]]
 
-    assert response.deck["theme"]["name"] == "simple-basic"
+    assert response.deck["theme"]["name"] == style_pack_id
     assert has_element(slide, "el_1_simple_basic_top_stripe")
     assert all("_process_card_" not in element_id for element_id in element_ids)
     assert all("_process_arrow_" not in element_id for element_id in element_ids)

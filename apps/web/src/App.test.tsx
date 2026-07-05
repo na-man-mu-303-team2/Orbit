@@ -9,6 +9,7 @@ import {
   buildGenerateDeckPayload,
   buildGenerateDeckDesignDirection,
   buildHomeJsonFirstGenerateDeckPayload,
+  buildHomeTemplateStyleGenerateDeckDesignDirection,
   buildPptxOoxmlGenerationPayload,
   buildReferenceGenerationInput,
   buildSimpleBasicGenerateDeckDesignDirection,
@@ -25,7 +26,9 @@ import {
   getHomeGenerationValidationMessage,
   getHomeContentReferenceUploads,
   getHomePptxConversionValidationMessage,
+  getHomeTemplateStylePath,
   homeReferenceExtractEndpoint,
+  homeTemplateStyles,
   getPptxOoxmlGeneratedProjectPath,
   getPptxOoxmlGenerationJobResult,
   getPptxConversionProjectTitle,
@@ -36,7 +39,8 @@ import {
   pollJob,
   pollExtractJob,
   resolveGenerateDeckTargetProject,
-  shouldRenderAppFrame
+  shouldRenderAppFrame,
+  TemplateRail
 } from "./App";
 
 vi.mock("react-konva", () => {
@@ -113,6 +117,33 @@ describe("App shell routing", () => {
 
   it("does not expose the old upload workspace route", () => {
     expect(getRoute("/upload")).toEqual({ name: "home" });
+  });
+
+  it("parses a selected home template style from the query string", () => {
+    expect(getRoute("/", "?templateStyle=presentation-document")).toEqual({
+      name: "home",
+      templateStyleId: "presentation-document"
+    });
+    expect(getHomeTemplateStylePath("submission-document")).toBe(
+      "/?templateStyle=submission-document"
+    );
+  });
+});
+
+describe("home template styles", () => {
+  it("renders only the three supported template style cards", () => {
+    const html = renderToStaticMarkup(
+      <TemplateRail title="템플릿" selectedStyleId="presentation-document" />
+    );
+
+    expect(homeTemplateStyles).toHaveLength(3);
+    expect(html).toContain("심플 베이직 스타일");
+    expect(html).toContain("발표용 문서 스타일");
+    expect(html).toContain("제출용 문서 스타일");
+    expect(html).toContain('aria-pressed="true"');
+    expect(html).not.toContain("피치덱");
+    expect(html).not.toContain("수업 자료");
+    expect(html).not.toContain("워크숍");
   });
 });
 
@@ -547,6 +578,39 @@ describe("AI deck generation flow", () => {
     });
   });
 
+  it("builds JSON-first home payloads with selected template styles", () => {
+    const presentationPayload = buildHomeJsonFirstGenerateDeckPayload({
+      topic: "ORBIT",
+      prompt: "",
+      designPrompt: "",
+      templateStyleId: "presentation-document",
+      duration: 10,
+      minSlides: 5,
+      maxSlides: 8,
+      tone: "professional"
+    });
+    const submissionPayload = buildHomeJsonFirstGenerateDeckPayload({
+      topic: "ORBIT",
+      prompt: "",
+      designPrompt: "",
+      templateStyleId: "submission-document",
+      duration: 10,
+      minSlides: 5,
+      maxSlides: 8,
+      tone: "professional"
+    });
+
+    expect(presentationPayload.design).toMatchObject({
+      stylePackId: "presentation-document",
+      densityTarget: "low"
+    });
+    expect(submissionPayload.design).toMatchObject({
+      stylePackId: "submission-document",
+      densityTarget: "high",
+      visualRhythm: "technical"
+    });
+  });
+
   it("routes home deck generation to JSON-first unless a design PPTX exists", () => {
     const pptx = new File(["pptx"], "design.pptx", {
       type: "application/vnd.openxmlformats-officedocument.presentationml.presentation"
@@ -619,6 +683,10 @@ describe("AI deck generation flow", () => {
     expect(buildSimpleBasicGenerateDeckDesignDirection().stylePackId).toBe(
       "simple-basic"
     );
+    expect(
+      buildHomeTemplateStyleGenerateDeckDesignDirection("presentation-document")
+        .stylePackId
+    ).toBe("presentation-document");
   });
 
   it("defaults an omitted design prompt to an empty string", () => {

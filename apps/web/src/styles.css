@@ -789,6 +789,15 @@ button:disabled {
   color: #0891b2;
 }
 
+.template-card-active {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.14);
+}
+
+.template-card-active svg {
+  color: #2563eb;
+}
+
 .template-card strong,
 .project-card-open strong,
 .new-template-card span {

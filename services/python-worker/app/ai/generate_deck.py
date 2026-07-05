@@ -431,6 +431,13 @@ STYLE_PACK_REGISTRY = load_json_registry(DESIGN_LIBRARY_DIR / "style-packs")
 SLIDE_PRESET_REGISTRY = load_json_registry(DESIGN_LIBRARY_DIR / "slide-presets")
 ICON_MAP = load_icon_map(DESIGN_LIBRARY_DIR / "icon-map.json")
 SIMPLE_BASIC_STYLE_PACK_ID = "simple-basic"
+PRESENTATION_DOCUMENT_STYLE_PACK_ID = "presentation-document"
+SUBMISSION_DOCUMENT_STYLE_PACK_ID = "submission-document"
+DOCUMENT_STYLE_PACK_IDS = (
+    SIMPLE_BASIC_STYLE_PACK_ID,
+    PRESENTATION_DOCUMENT_STYLE_PACK_ID,
+    SUBMISSION_DOCUMENT_STYLE_PACK_ID,
+)
 SIMPLE_BASIC_STYLE_KEYWORDS = (
     "simple basic",
     "simple-basic",
@@ -444,6 +451,21 @@ SIMPLE_BASIC_STYLE_KEYWORDS = (
 )
 PRESENTATION_MODE_KEYWORDS = ("발표용", "presentation", "presenter")
 REPORT_MODE_KEYWORDS = ("제출용", "보고용", "report", "submission")
+PRESENTATION_DOCUMENT_STYLE_KEYWORDS = (
+    "presentation document",
+    "presentation-document",
+    "발표용 문서",
+    "발표용 문서 스타일",
+)
+SUBMISSION_DOCUMENT_STYLE_KEYWORDS = (
+    "submission document",
+    "submission-document",
+    "report document",
+    "제출용 문서",
+    "제출용 문서 스타일",
+    "보고용 문서",
+    "보고용 문서 스타일",
+)
 SLIDE_TYPES: tuple[SlideType, ...] = (
     "title",
     "cover",
@@ -2326,7 +2348,7 @@ def select_slide_preset_id(
     if override is not None:
         return str(override["id"])
 
-    if uses_simple_basic_style(raw_input):
+    if uses_document_style_pack(raw_input):
         return None
 
     composition = normalize_composition(slide_plan.visual_intent.composition)
@@ -2372,6 +2394,12 @@ def select_style_pack(
     if override is not None:
         return override
 
+    if wants_presentation_document_style(raw_input):
+        return registry_item(STYLE_PACK_REGISTRY, PRESENTATION_DOCUMENT_STYLE_PACK_ID)
+
+    if wants_submission_document_style(raw_input):
+        return registry_item(STYLE_PACK_REGISTRY, SUBMISSION_DOCUMENT_STYLE_PACK_ID)
+
     if wants_simple_basic_style(raw_input):
         return registry_item(STYLE_PACK_REGISTRY, SIMPLE_BASIC_STYLE_PACK_ID)
 
@@ -2399,12 +2427,43 @@ def wants_simple_basic_style(raw_input: RawInput) -> bool:
     return has_any(text, list(SIMPLE_BASIC_STYLE_KEYWORDS))
 
 
-def uses_simple_basic_style(raw_input: RawInput) -> bool:
-    style_pack_id = (raw_input.design.style_pack_id or "").strip().casefold()
-    return style_pack_id == SIMPLE_BASIC_STYLE_PACK_ID or wants_simple_basic_style(raw_input)
+def wants_presentation_document_style(raw_input: RawInput) -> bool:
+    text = " ".join([raw_input.design_prompt, raw_input.prompt]).casefold()
+    return has_any(text, list(PRESENTATION_DOCUMENT_STYLE_KEYWORDS))
+
+
+def wants_submission_document_style(raw_input: RawInput) -> bool:
+    text = " ".join([raw_input.design_prompt, raw_input.prompt]).casefold()
+    return has_any(text, list(SUBMISSION_DOCUMENT_STYLE_KEYWORDS))
+
+
+def selected_style_pack_id(raw_input: RawInput) -> str:
+    return (raw_input.design.style_pack_id or "").strip().casefold()
+
+
+def uses_document_style_pack(raw_input: RawInput) -> bool:
+    style_pack_id = selected_style_pack_id(raw_input)
+    return (
+        style_pack_id in DOCUMENT_STYLE_PACK_IDS
+        or wants_simple_basic_style(raw_input)
+        or wants_presentation_document_style(raw_input)
+        or wants_submission_document_style(raw_input)
+    )
 
 
 def document_mode_for(raw_input: RawInput) -> str:
+    style_pack_id = selected_style_pack_id(raw_input)
+    if (
+        style_pack_id == PRESENTATION_DOCUMENT_STYLE_PACK_ID
+        or wants_presentation_document_style(raw_input)
+    ):
+        return "presentation"
+    if (
+        style_pack_id == SUBMISSION_DOCUMENT_STYLE_PACK_ID
+        or wants_submission_document_style(raw_input)
+    ):
+        return "report/submission"
+
     text = " ".join([raw_input.design_prompt, raw_input.prompt]).casefold()
     if has_any(text, list(REPORT_MODE_KEYWORDS)) or raw_input.metadata.purpose == "report":
         return "report/submission"
@@ -4249,7 +4308,7 @@ def design_elements(
         and not is_diagram_composition(composition)
     ):
         emphasis_style = "keyword-chips"
-    if theme.get("name") == SIMPLE_BASIC_STYLE_PACK_ID:
+    if theme.get("name") in DOCUMENT_STYLE_PACK_IDS:
         return simple_basic_design_elements(
             slide_plan,
             visual_plan,
