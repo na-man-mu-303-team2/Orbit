@@ -435,6 +435,24 @@ test.describe("audience engagement hardened smoke", () => {
     await otherPage.close();
   });
 
+  test("keeps AI timeout failures escalated to the presenter queue", async ({
+    page,
+  }) => {
+    await mockAudienceSession(page, {
+      aiAnswerFailureReason: "timeout",
+      interaction: null,
+    });
+    await page.goto("/join/123456");
+    await joinAs(page, "asker");
+    await page.getByLabel("질문").fill("시간 안에 답할 수 있나요?");
+    await page.getByRole("button", { name: "질문 보내기" }).click();
+
+    await expect(
+      page.getByText("발표자 대기열에 질문을 전달했습니다."),
+    ).toBeVisible();
+    await expect(page.locator(".audience-ai-answer")).toHaveCount(0);
+  });
+
   test("opens the post-session survey and submits contact-consented answers", async ({
     page,
   }) => {
@@ -548,6 +566,11 @@ async function joinAs(page: Page, nickname: string) {
 async function mockAudienceSession(
   page: Page,
   options: {
+    aiAnswerFailureReason?:
+      | "low-confidence"
+      | "no-grounding"
+      | "timeout"
+      | "worker-error";
     aiAnswerText?: string;
     activeSession?: typeof session;
     duplicateFirstNickname?: boolean;
@@ -709,13 +732,19 @@ async function mockAudienceSession(
             sessionId: "session_1",
             audienceId: participant.audienceId,
             answerText:
-              options.aiAnswerText ?? "근거가 부족해 발표자에게 전달했습니다.",
+              options.aiAnswerText ??
+              (options.aiAnswerFailureReason
+                ? null
+                : "근거가 부족해 발표자에게 전달했습니다."),
             status: options.aiAnswerText ? "answered" : "failed",
             confidence: options.aiAnswerText ? 0.92 : 0,
             sourceReferences: options.aiAnswerText
               ? ["deck-slide:공개 슬라이드", "reference-material:reference.pdf"]
               : [],
-            failureReason: options.aiAnswerText ? null : "no-grounding",
+            failureReason:
+              options.aiAnswerText
+                ? null
+                : (options.aiAnswerFailureReason ?? "no-grounding"),
             feedback: null,
             escalatedToPresenter: !options.aiAnswerText,
             createdAt: now,
