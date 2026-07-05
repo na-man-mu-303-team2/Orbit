@@ -3,7 +3,6 @@ import {
   Home,
   LogIn,
   LogOut,
-  Monitor,
   Sparkles
 } from "lucide-react";
 import type { ReactNode } from "react";
@@ -29,19 +28,16 @@ type AppSidebarProps = {
 
 export function AppSidebar(props: AppSidebarProps) {
   const {
-    activeProjectId,
     isAuthenticated,
     isCreateDeckActive,
     isHomeActive,
     isLoggingOut,
     isProjectActive,
-    isRehearsalActive,
     onCreateDeckClick,
     onHomeClick,
     onLoginClick,
     onLogoutClick,
     onProjectListClick,
-    onRehearsalClick,
     userInitial,
     userLabel
   } = props;
@@ -73,12 +69,6 @@ export function AppSidebar(props: AppSidebarProps) {
         icon={<Sparkles size={15} />}
         label="AI 덱 생성"
         onClick={onCreateDeckClick}
-      />
-      <SidebarButton
-        active={isRehearsalActive}
-        icon={<Monitor size={15} />}
-        label="리허설 시작"
-        onClick={() => onRehearsalClick(activeProjectId)}
       />
       <div className="orbit-product-nav-account">
         {isAuthenticated ? (
