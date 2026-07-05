@@ -380,7 +380,7 @@ export const qnaWorkerAnswerRequestSchema = z
     publicSlideContext: z.string().max(8000).default(""),
     selectedReferenceIds: z.array(z.string().min(1)).default([]),
     retrievalLimit: z.number().int().min(1).max(20).default(5),
-    confidenceThreshold: z.number().min(0).max(1).default(0.65),
+    confidenceThreshold: z.number().min(0).max(1).default(0.78),
   })
   .strict();
 

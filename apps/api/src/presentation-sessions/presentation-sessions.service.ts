@@ -2593,17 +2593,30 @@ export class PresentationSessionsService {
   }
 
   private async getPublicSlideContext(sessionId: string): Promise<string> {
-    const rows = await this.dataSource.query<{ slide_id: string | null }[]>(
+    const rows = await this.dataSource.query<
+      { slide_id: string | null; deck_json?: unknown }[]
+    >(
       `
-        SELECT slide_id
-        FROM audience_realtime_state
-        WHERE session_id = $1
+        SELECT ars.slide_id, d.deck_json
+        FROM audience_realtime_state ars
+        JOIN presentation_sessions ps ON ps.session_id = ars.session_id
+        LEFT JOIN decks d ON d.deck_id = ps.deck_id
+        WHERE ars.session_id = $1
         LIMIT 1
       `,
       [sessionId],
     );
     const slideId = rows[0]?.slide_id;
-    return slideId ? `Current public slide: ${slideId}` : "";
+    if (!slideId) {
+      return "";
+    }
+
+    const parsedDeck = deckSchema.safeParse(rows[0]?.deck_json);
+    if (!parsedDeck.success) {
+      return `Current public slide: ${slideId}`;
+    }
+
+    return buildPublicSlideContext(parsedDeck.data, slideId);
   }
 
   private async getSessionInteractions(
@@ -4027,6 +4040,24 @@ function buildAudienceSlideFallbackDeck(
     ...deck,
     slides: [publicSlide],
   };
+}
+
+function buildPublicSlideContext(deck: Deck, slideId: string) {
+  const slide = deck.slides.find((candidate) => candidate.slideId === slideId);
+  if (!slide) {
+    return `Current public slide: ${slideId}`;
+  }
+
+  const lines = [`Slide: ${slide.title || slide.slideId}`];
+  for (const element of slide.elements) {
+    const props = element.props as Record<string, unknown>;
+    const text = typeof props.text === "string" ? props.text.trim() : "";
+    if (text) {
+      lines.push(text);
+    }
+  }
+
+  return lines.join("\n").slice(0, 8000);
 }
 
 async function callQnaWorker(input: {

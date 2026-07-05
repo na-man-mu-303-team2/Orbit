@@ -1815,7 +1815,7 @@ describe("PresentationSessionsService", () => {
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([activeSessionRow])
       .mockResolvedValueOnce([{ selected_reference_ids_json: ["file_1"] }])
-      .mockResolvedValueOnce([{ slide_id: "slide_1" }])
+      .mockResolvedValueOnce([{ slide_id: "slide_2", deck_json: audienceDeck }])
       .mockResolvedValueOnce([
         {
           question_id: "question_00000000-0000-4000-8000-000000000001",
@@ -1848,6 +1848,14 @@ describe("PresentationSessionsService", () => {
     expect(fetch).toHaveBeenCalledWith(
       "http://localhost:8000/qna/answer",
       expect.objectContaining({ method: "POST" }),
+    );
+    const workerRequest = JSON.parse(
+      (fetch as ReturnType<typeof vi.fn>).mock.calls[0][1].body as string,
+    ) as Record<string, unknown>;
+    expect(workerRequest.publicSlideContext).toContain("공개 슬라이드");
+    expect(workerRequest.publicSlideContext).toContain("청중 공개 문장");
+    expect(workerRequest.publicSlideContext).not.toContain(
+      "private presenter script",
     );
     expect(query.mock.calls[9][0]).toContain(
       "INSERT INTO audience_question_answers",

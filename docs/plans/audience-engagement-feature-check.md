@@ -19,9 +19,9 @@
 
 The audience engagement implementation is materially more complete than the previous check, but it is still not a full match for the completion plan.
 
-Completed or substantially covered areas now include Korean audience join failure copy, explicit per-question manual result exposure, `speed-bonus` quiz scoring contracts and API behavior, multi-question audience poll/quiz response UI, presenter ad hoc interaction controls, duplicate Q&A grouping, private AI answer WebSocket broadcast and Web client receive handling, deterministic slide snapshot generation with durable per-slide session freeze/reuse, pre-start slide-render job scheduling, current-slide sanitized Deck JSON fallback rendering, a dedicated slide-renderer package/worker skeleton, and regression coverage around those paths.
+Completed or substantially covered areas now include Korean audience join failure copy, explicit per-question manual result exposure, `speed-bonus` quiz scoring contracts and API behavior, multi-question audience poll/quiz response UI, presenter ad hoc interaction controls, duplicate Q&A grouping, private AI answer WebSocket broadcast and Web client receive handling, deterministic slide snapshot generation with durable per-slide session freeze/reuse, pre-start slide-render job scheduling, current-slide sanitized Deck JSON fallback rendering, selected-reference AI Q&A grounding, a dedicated slide-renderer package/worker skeleton, and regression coverage around those paths.
 
-Remaining partial areas are concentrated in the highest-fidelity items from the completion plan: worker result integration for prepared slide snapshots, broader fallback parity/E2E verification beyond the current slide, true selected-reference retrieval plus OpenAI-backed grounded answer generation, and new E2E scenarios for the completed flows.
+Remaining partial areas are concentrated in the highest-fidelity items from the completion plan: worker result integration for prepared slide snapshots, broader fallback parity/E2E verification beyond the current slide, deeper AI Q&A timeout/manual escalation UI coverage, and new E2E scenarios for the completed flows.
 
 ## Verification Matrix
 
@@ -34,7 +34,7 @@ Remaining partial areas are concentrated in the highest-fidelity items from the 
 | Polls and quizzes | Pass | Shared/API/Web tests pass. | Multi-question response UI, speed-bonus scoring, and after-close quiz answer reveal are covered. |
 | Q&A duplicate merge | Pass | API service tests. | Similar questions reuse a group id through conservative cosine similarity at `>= 0.88`. |
 | Private AI answer delivery | Pass | API gateway tests and Web realtime tests. | API broadcasts `audience:private-answer`; Web client parses it and updates the Q&A card while REST recovery remains. |
-| AI Q&A grounding/generation | Partial | Python syntax compile; Python tests updated but not runnable locally. | Worker now fails closed without grounding/API key and formats source refs, but true selected-reference retrieval and OpenAI chat generation are not complete. |
+| AI Q&A grounding/generation | Partial | Python syntax compile; API/shared tests pass; Python tests updated but not runnable locally. | API now sends current public slide title/text without speaker notes, worker searches only `selectedReferenceIds`, enforces `0.78` top-source grounding, calls the configured OpenAI chat model only when `OPENAI_API_KEY` exists, and returns source type/title citations. E2E timeout/escalation UI coverage remains pending. |
 | Slide snapshots | Partial | API service tests, shared/job-queue tests, migration specs/run-revert, `@orbit/slide-renderer` tests, and `@orbit/slide-render-worker` tests/build pass. | Draft session creation now schedules `audience-slide-render` jobs for stale/missing slide snapshots, session start still refreshes/freezes generated URLs for all slides in a durable per-slide map, and presenter slide updates reuse the frozen URL. Worker result persistence into the frozen map and full E2E coverage remain pending. |
 | Audience slide rendering fallback | Partial | API service tests and Web audience tests pass. | Image-first rendering works when `slideSnapshotUrl` exists; snapshot storage failure now persists an audience-safe current-slide `slideFallback` Deck payload without `speakerNotes`/presenter script, and Web renders it through `SlideshowRenderer`. Pre-start fallback coverage and full E2E parity remain pending. |
 | Reactions | Pass | Existing API/gateway/Web tests pass. | No new gap found in this pass. |
@@ -57,6 +57,8 @@ Remaining partial areas are concentrated in the highest-fidelity items from the 
 - Q&A submission now conservatively merges duplicate/similar questions into the existing question group.
 - API broadcasts private AI answers to the audience private room when an answer exists.
 - Web realtime client parses `audience:private-answer`, and the Q&A card updates from that private push.
+- API sends public slide title/text context to the Q&A worker without speaker notes or presenter script, and Python Q&A grounding searches only selected reference file ids.
+- Python Q&A enforces the `0.78` grounding threshold, returns structured no-grounding/low-confidence failures, and uses the configured OpenAI chat model only when `OPENAI_API_KEY` exists.
 - `packages/slide-renderer` renders deterministic SVG slide snapshots without speaker notes/raw transcript/raw audio/presenter script/file base64.
 - `apps/slide-render-worker` handles a slide-render job shape and writes the generated snapshot using purpose `audience-slide-snapshot`.
 - `packages/shared` and `@orbit/job-queue` include the `audience-slide-render` job type and BullMQ enqueue contract, and API draft session creation schedules per-slide render jobs when snapshots are missing or stale.
@@ -69,7 +71,7 @@ Remaining partial areas are concentrated in the highest-fidelity items from the 
 
 - **Slide snapshot lifecycle is not complete.** Snapshot jobs are now queued during draft session preparation, and snapshot URLs are frozen in a durable per-slide session map at session start, but worker completion is not yet persisted back into the frozen map before start.
 - **Deck JSON fallback still needs broader parity verification.** Snapshot storage failure now falls back to a sanitized current-slide Deck payload rendered through the shared slideshow renderer, but pre-start fallback generation, manual browser parity checks, and E2E coverage for missing snapshots are still pending.
-- **AI Q&A is not true retrieval plus model generation.** Selected-reference chunk retrieval, public deck chunk search, thresholded grounding at `0.78`, and OpenAI chat completion are still partial/stubbed.
+- **AI Q&A still needs broader flow proof.** Selected-reference retrieval, public slide context, `0.78` thresholding, and OpenAI-key-gated chat generation are implemented, but timeout/manual presenter escalation UI and E2E privacy/recovery coverage are still pending.
 - **Prepared presenter setup remains partial.** Core controls are wired, including prepared interaction selection/order and AI reference selection; remaining setup polish is E2E coverage and any richer asset metadata UX.
 - **E2E coverage was not added in this pass.** Unit/integration coverage is broad, but the completion-plan Playwright scenarios for presenter preparing/running interactions and audience reveal/recovery are still pending.
 - **Python pytest could not run locally.** `uv` is not installed, and available Python environments do not have `pytest`; syntax compilation passed instead.
@@ -92,6 +94,8 @@ Remaining partial areas are concentrated in the highest-fidelity items from the 
 - `pnpm --filter @orbit/job-queue test -- src/index.spec.ts`
 - `pnpm --filter @orbit/shared lint`
 - `pnpm --filter @orbit/job-queue lint`
+- `pnpm --filter @orbit/shared test -- src/interactions/interaction.schema.test.ts`
+- `PYTHONPYCACHEPREFIX=/private/tmp/orbit-pycache python3 -m py_compile services/python-worker/app/main.py services/python-worker/app/references.py services/python-worker/tests/test_qna.py services/python-worker/tests/test_references.py`
 - `pnpm lint`
 - `pnpm build`
 - `pnpm test`

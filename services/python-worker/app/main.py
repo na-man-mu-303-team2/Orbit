@@ -1,5 +1,6 @@
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from dataclasses import dataclass
 from datetime import UTC, datetime
 import json
 from typing import Any, Literal, cast
@@ -52,6 +53,7 @@ from app.extraction import (
 )
 from app.references import (
     PostgresReferenceRepository,
+    ReferenceSearchResult,
     index_reference_text,
     search_reference_chunks,
 )
@@ -163,6 +165,13 @@ class QnaAnswerResponse(BaseModel):
     ) = Field(default=None, alias="failureReason")
 
 
+@dataclass(frozen=True)
+class QnaGroundingSource:
+    source_reference: str
+    content: str
+    score: float
+
+
 class DeckKeywordRequest(BaseModel):
     keyword_id: str = Field(default="", alias="keywordId")
     slide_id: str = Field(default="", alias="slideId")
@@ -264,12 +273,15 @@ def health() -> HealthResponse:
 def answer_qna(payload: QnaAnswerRequest, request: Request) -> QnaAnswerResponse:
     config = _config(request)
     public_context = payload.public_slide_context.strip()
-    source_references = build_qna_source_references(
+    grounding_sources = build_qna_grounding_sources(
+        config=config,
         public_context=public_context,
+        project_id=payload.project_id,
+        question_text=payload.question_text,
         selected_reference_ids=payload.selected_reference_ids,
         retrieval_limit=payload.retrieval_limit,
-        session_id=payload.session_id,
     )
+    source_references = unique_source_references(grounding_sources)
     if not source_references:
         return QnaAnswerResponse(
             status="failed",
@@ -285,7 +297,7 @@ def answer_qna(payload: QnaAnswerRequest, request: Request) -> QnaAnswerResponse
             confidence=0,
         )
 
-    confidence = 0.82
+    confidence = max(source.score for source in grounding_sources)
     if confidence < payload.confidence_threshold:
         return QnaAnswerResponse(
             status="failed",
@@ -294,10 +306,21 @@ def answer_qna(payload: QnaAnswerRequest, request: Request) -> QnaAnswerResponse
             confidence=confidence,
         )
 
-    answer_text = (
-        "제공된 공개 발표 자료와 선택된 참고자료 범위에서 확인한 답변입니다. "
-        f"질문: {payload.question_text}"
+    answer_text = generate_grounded_qna_answer(
+        question_text=payload.question_text,
+        grounding_sources=grounding_sources,
+        model=config.openai_model,
+        api_key=config.openai_api_key,
+        client=getattr(request.app.state, "qna_chat_client", None),
     )
+    if not answer_text:
+        return QnaAnswerResponse(
+            status="failed",
+            failureReason="worker-error",
+            sourceReferences=source_references,
+            confidence=confidence,
+        )
+
     return QnaAnswerResponse(
         status="answered",
         answerText=answer_text,
@@ -306,21 +329,130 @@ def answer_qna(payload: QnaAnswerRequest, request: Request) -> QnaAnswerResponse
     )
 
 
-def build_qna_source_references(
+def build_qna_grounding_sources(
     *,
+    config: PythonWorkerConfig,
     public_context: str,
+    project_id: str,
+    question_text: str,
     selected_reference_ids: list[str],
     retrieval_limit: int,
-    session_id: str,
-) -> list[str]:
-    references = [
-        f"reference-material:{reference_id}"
-        for reference_id in selected_reference_ids[:retrieval_limit]
-    ]
+) -> list[QnaGroundingSource]:
+    sources: list[QnaGroundingSource] = []
     if public_context:
-        first_line = public_context.splitlines()[0].strip() or session_id
-        references.insert(0, f"deck-slide:{first_line[:80]}")
-    return references[:retrieval_limit]
+        sources.append(
+            QnaGroundingSource(
+                source_reference=f"deck-slide:{public_context_title(public_context)}",
+                content=public_context,
+                score=0.82,
+            )
+        )
+
+    selected_ids = selected_reference_ids[:retrieval_limit]
+    if selected_ids and config.openai_api_key:
+        results, _embedding_result = search_reference_chunks(
+            repository=PostgresReferenceRepository(config.database_url),
+            project_id=project_id,
+            query=question_text,
+            limit=retrieval_limit,
+            file_ids=selected_ids,
+            model=config.openai_embedding_model,
+            api_key=config.openai_api_key,
+        )
+        sources.extend(qna_sources_from_reference_results(results))
+    elif selected_ids:
+        sources.extend(
+            QnaGroundingSource(
+                source_reference=f"reference-material:{reference_id}",
+                content="",
+                score=0,
+            )
+            for reference_id in selected_ids
+        )
+
+    return sources[:retrieval_limit]
+
+
+def qna_sources_from_reference_results(
+    results: list[ReferenceSearchResult],
+) -> list[QnaGroundingSource]:
+    sources: list[QnaGroundingSource] = []
+    for result in results:
+        title = (
+            str(result.metadata.get("title") or result.metadata.get("fileName") or "")
+            .strip()
+            or result.file_id
+        )
+        sources.append(
+            QnaGroundingSource(
+                source_reference=f"reference-material:{title[:120]}",
+                content=result.content,
+                score=result.score,
+            )
+        )
+    return sources
+
+
+def public_context_title(public_context: str) -> str:
+    first_line = public_context.splitlines()[0].strip()
+    if first_line.lower().startswith("slide:"):
+        first_line = first_line.split(":", 1)[1].strip()
+    return (first_line or "현재 슬라이드")[:120]
+
+
+def unique_source_references(sources: list[QnaGroundingSource]) -> list[str]:
+    references: list[str] = []
+    for source in sources:
+        if source.source_reference not in references:
+            references.append(source.source_reference)
+    return references
+
+
+def generate_grounded_qna_answer(
+    *,
+    question_text: str,
+    grounding_sources: list[QnaGroundingSource],
+    model: str,
+    api_key: str | None,
+    client: Any | None = None,
+) -> str | None:
+    client_object = client
+    if client_object is None:
+        if not api_key:
+            return None
+        from openai import OpenAI
+
+        client_object = OpenAI(api_key=api_key)
+
+    context = "\n\n".join(
+        f"[{source.source_reference}]\n{source.content}".strip()
+        for source in grounding_sources
+        if source.content.strip()
+    )
+    try:
+        response = client_object.chat.completions.create(
+            model=model,
+            temperature=0.2,
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "Answer only from the provided ORBIT audience Q&A "
+                        "grounding context. If the context is insufficient, "
+                        "say that the presenter should answer."
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": f"Question: {question_text}\n\nGrounding:\n{context}",
+                },
+            ],
+        )
+    except Exception:
+        return None
+
+    content = response.choices[0].message.content
+    return str(content).strip() if content else None
 
 
 @app.post("/extract/reference", response_model=ReferenceExtractResponse)
