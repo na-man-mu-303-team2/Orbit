@@ -63,11 +63,16 @@ OpenAI 모델은 코드 상수가 아니라 env로 결정한다.
 OPENAI_MODEL=gpt-4.1-mini
 OPENAI_TRANSCRIPTION_MODEL=gpt-4o-transcribe
 OPENAI_EMBEDDING_MODEL=text-embedding-3-small
+OPENAI_REALTIME_TRANSCRIPTION_MODEL=gpt-realtime-whisper
+OPENAI_REALTIME_TRANSCRIPTION_DELAY=minimal
+OPENAI_REALTIME_CLIENT_SECRET_TTL_SECONDS=600
 AI_SLIDE_IMAGE_REVIEW_MODE=auto
 ORBIT_PPTX_OOXML_VECTOR_IMPORT=true
 ```
 
 `AI_SLIDE_IMAGE_REVIEW_MODE=auto | off`는 텍스트 겹침 후보가 있는 슬라이드 PNG preview 검증을 제어한다. `auto`는 기존 `OPENAI_API_KEY`와 `OPENAI_MODEL`을 쓰고, `off`는 이미지 호출 없이 rule-based warning만 남긴다.
+
+`OPENAI_REALTIME_TRANSCRIPTION_MODEL`은 브라우저 live STT의 OpenAI Realtime transcription session에 쓰는 모델이다. 기본값은 `gpt-realtime-whisper`다. `OPENAI_REALTIME_TRANSCRIPTION_DELAY=minimal | low | medium | high | xhigh`는 latency/accuracy tradeoff를 조정한다. 초기 기본값은 `minimal`이며 한국어 정확도 검증 시 `low` 등으로 바꿔 비교한다. `OPENAI_REALTIME_CLIENT_SECRET_TTL_SECONDS`는 브라우저에 내려주는 OpenAI Realtime client secret TTL이며 `10`에서 `7200` 사이만 허용한다.
 
 `ORBIT_PPTX_OOXML_VECTOR_IMPORT=true | false`는 PPTX import에서 OOXML XML 직접 파서 기반 visual tree 추출 경로를 제어한다. 기본값 `true`는 OOXML visual tree importer를 먼저 사용하고, `false`는 기존 `python-pptx` 기반 importer를 사용한다.
 
@@ -75,7 +80,8 @@ ORBIT_PPTX_OOXML_VECTOR_IMPORT=true
 
 STT/AI provider는 목적별로 분리한다.
 
-- `LIVE_STT_PROVIDER=sherpa`: 발표/리허설 중 실시간 발화 인식, 애니메이션 cue, 강조, 키워드 누락 체크, 슬라이드 전환 제어에 쓰는 온디바이스 STT다.
+- `LIVE_STT_PROVIDER=sherpa`: 서버/runtime env 계약이다. 브라우저 presenter의 실제 live STT 선택은 `presenterSettings.sttEngine`으로 관리하며 기본값은 `openai-realtime`이다.
+- `OPENAI_REALTIME_TRANSCRIPTION_MODEL=gpt-realtime-whisper`: 브라우저가 OpenAI Realtime WebRTC에 연결할 때 쓰는 live transcription 모델이다. 영구 `OPENAI_API_KEY`는 API 서버에서만 사용하고, 브라우저에는 project-scoped endpoint가 발급한 client secret만 전달한다.
 - `REPORT_STT_PROVIDER=openai | whisperx`: 리허설 종료 후 녹음 파일을 전사하고 코칭 리포트를 만들기 위한 서버 리포트 STT다. `whisperx`는 hosted API provider이며 live-control STT로 선택할 수 없다.
 - `LLM_PROVIDER=openai`: 전사 결과, 발표자료, 키워드, 청중 반응 등을 종합해 리포트와 코칭 문장을 생성하는 AI provider다.
 

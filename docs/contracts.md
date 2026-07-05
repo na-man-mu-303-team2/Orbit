@@ -993,12 +993,16 @@ Implementation locations:
 
 발표/리허설 중 사용자의 발화를 실시간으로 인식해 화면 제어에 사용한다.
 
-- provider env: `LIVE_STT_PROVIDER=sherpa`
-- 실행 위치: web 또는 device-local runtime
+- provider env: `LIVE_STT_PROVIDER=sherpa`는 서버/runtime 계약으로 유지한다.
+- browser engine setting: `presenterSettings.sttEngine=openai-realtime | sherpa | web-speech | moonshine`
+- 기본 browser engine: `openai-realtime`
+- 실행 위치: web/device-local runtime 또는 browser-to-OpenAI Realtime WebRTC
 - 목적: 애니메이션 cue, 강조 표시, 키워드 누락 체크, 다음 슬라이드 전환 제안/실행
 - 입력: 마이크 스트림
 - 출력: partial transcript, keyword detection, cue event, slide advance signal
-- 원칙: raw audio를 서버 리포트용 storage에 업로드하지 않는다.
+- 원칙: raw audio를 Orbit 서버 리포트용 storage에 업로드하지 않는다. `openai-realtime` 선택 시 브라우저 마이크 스트림은 OpenAI Realtime WebRTC로 전송되며, Orbit API는 영구 API key 대신 짧은 client secret만 발급한다.
+- OpenAI Realtime endpoint: `POST /api/v1/projects/:projectId/realtime-transcription/client-secret`
+- OpenAI Realtime transcription 기본값: `OPENAI_REALTIME_TRANSCRIPTION_MODEL=gpt-realtime-whisper`, `OPENAI_REALTIME_TRANSCRIPTION_DELAY=minimal`
 - 구현 위치: `packages/shared/src/rehearsals/live-stt.schema.ts`, `apps/web/src/features/rehearsal`
 
 ### Report STT/AI
