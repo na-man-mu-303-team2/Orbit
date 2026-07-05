@@ -1494,15 +1494,19 @@ class DeckGenerationOrchestrator:
         refined_deck = refine_design_issues(deck, reviewer_validation.design_issues)
         refined_deck, validation = validate_and_patch(refined_deck)
         text_overlap_candidates = detect_text_overlap_candidates(refined_deck)
-        validation.design_issues.extend(
-            review_text_overlap_candidates(
-                refined_deck,
-                text_overlap_candidates,
-                client=self.client,
-                model=self.model,
-                api_key=self.api_key,
-                image_review_mode=self.image_review_mode,
-            )
+        overlap_issues = review_text_overlap_candidates(
+            refined_deck,
+            text_overlap_candidates,
+            client=self.client,
+            model=self.model,
+            api_key=self.api_key,
+            image_review_mode=self.image_review_mode,
+        )
+        validation.layout_issues.extend(overlap_issues)
+        validation.passed = not (
+            validation.layout_issues
+            or validation.content_issues
+            or validation.presentation_issues
         )
         self.record(
             "RefinerAgent",
@@ -3142,16 +3146,20 @@ def template_selection_for_slide_plans(
         if isinstance(slide, dict)
     }
     usage: dict[int, int] = {}
+    profile_usage: dict[str, int] = {}
     selection: list[TemplateSelectionItem] = []
 
     for slide_plan in slide_plans:
-        source_slide_index, reason = select_imported_source_slide(
+        source_slide_index, profile_key, reason = select_imported_source_slide(
+            raw_input,
             slide_plan,
             design_slides,
             template_slides,
             usage,
+            profile_usage,
         )
         usage[source_slide_index] = usage.get(source_slide_index, 0) + 1
+        profile_usage[profile_key] = profile_usage.get(profile_key, 0) + 1
         selection.append(
             TemplateSelectionItem(
                 generatedOrder=slide_plan.order,
@@ -3183,52 +3191,67 @@ def imported_template_slides(raw_input: RawInput) -> list[dict[str, Any]]:
 
 
 def select_imported_source_slide(
+    raw_input: RawInput,
     slide_plan: SlidePlan,
     design_slides: list[dict[str, Any]],
     template_slides: dict[int, dict[str, Any]],
     usage: dict[int, int],
-) -> tuple[int, str]:
-    candidates: list[tuple[int, int, int, str]] = []
+    profile_usage: dict[str, int],
+) -> tuple[int, str, str]:
+    candidates: list[tuple[int, int, int, str, str]] = []
     for index, slide in enumerate(design_slides):
         source_index = positive_int(slide.get("sourceSlideIndex"), index + 1)
         template_slide = template_slides.get(source_index, {})
-        score, reason = imported_slide_match_score(slide_plan, slide, template_slide)
-        score -= usage.get(source_index, 0) * 2
-        candidates.append((score, -abs(source_index - slide_plan.order), -source_index, reason))
+        profile = imported_slide_profile(slide, template_slide)
+        profile_key = imported_slide_profile_key(profile)
+        score, reason = imported_slide_match_score(raw_input, slide_plan, profile)
+        source_penalty = usage.get(source_index, 0) * 20
+        profile_penalty = profile_usage.get(profile_key, 0) * 6
+        score -= source_penalty + profile_penalty
+        if source_penalty:
+            reason = f"{reason}, source reuse penalty {source_penalty}"
+        if profile_penalty:
+            reason = f"{reason}, profile reuse penalty {profile_penalty}"
+        candidates.append(
+            (score, -abs(source_index - slide_plan.order), -source_index, profile_key, reason)
+        )
 
-    score, _, negative_source_index, reason = max(candidates)
-    return -negative_source_index, f"{reason}; score={score}"
+    score, _, negative_source_index, profile_key, reason = max(candidates)
+    return -negative_source_index, profile_key, f"{reason}; score={score}"
 
 
 def imported_slide_match_score(
+    raw_input: RawInput,
     slide_plan: SlidePlan,
-    slide: dict[str, Any],
-    template_slide: dict[str, Any],
+    profile: dict[str, Any],
 ) -> tuple[int, str]:
-    profile = imported_slide_profile(slide, template_slide)
     score = 0
     reasons: list[str] = []
+    body_slide = slide_plan.slide_type not in {"title", "cover", "summary"}
 
     if profile["slide_role"] == "toc":
         score -= 10
         reasons.append("toc layout reserved")
 
     if (
-        slide_plan.slide_type not in {"title", "cover", "summary"}
-        and (
-            profile["slide_role"] in {"cover", "title", "section", "decorative"}
-            or profile["layout"] in {"title", "decorative"}
-        )
+        body_slide
+        and is_title_like_imported_profile(profile)
     ):
         score -= 8
         reasons.append("title layout reserved")
-    if (
-        slide_plan.slide_type not in {"title", "cover", "summary"}
-        and profile["capacity"] == "low"
-        and "body" not in profile["roles"]
-    ):
-        score -= 4
-        reasons.append("low body capacity")
+    if body_slide:
+        if "body" in profile["roles"]:
+            score += 8
+            reasons.append("body slot")
+        elif is_title_like_imported_profile(profile) or profile["layout"] == "metric":
+            score -= 12
+            reasons.append("no body slot")
+        elif "caption" in profile["roles"]:
+            score -= 6
+            reasons.append("caption-only body capacity")
+        elif profile["capacity"] == "low":
+            score -= 4
+            reasons.append("low body capacity")
 
     if slide_plan.slide_type in {"title", "cover"}:
         if profile["slide_role"] in {"cover", "title", "section"}:
@@ -3259,9 +3282,82 @@ def imported_slide_match_score(
         reasons.append("body capacity")
 
     score += slot_preset_profile_score(slide_plan.slot_preset, profile)
+    design_score, design_reason = design_hint_profile_score(raw_input, slide_plan, profile)
+    if design_score:
+        score += design_score
+        reasons.append(design_reason)
     if not reasons:
         reasons.append("fallback semantic match")
     return score, ", ".join(reasons)
+
+
+def is_title_like_imported_profile(profile: dict[str, Any]) -> bool:
+    return (
+        profile["slide_role"] in {"cover", "title", "section", "decorative"}
+        or profile["layout"] in {"title", "decorative"}
+    )
+
+
+def design_hint_profile_score(
+    raw_input: RawInput,
+    slide_plan: SlidePlan,
+    profile: dict[str, Any],
+) -> tuple[int, str]:
+    hints = design_layout_hints(raw_input, slide_plan)
+    if not hints:
+        return 0, ""
+
+    profile_values = imported_profile_values(profile)
+    if hints & profile_values:
+        return 5, f"design hint match {','.join(sorted(hints & profile_values))}"
+    return -5, f"design hint mismatch {','.join(sorted(hints))}"
+
+
+def design_layout_hints(raw_input: RawInput, slide_plan: SlidePlan) -> set[str]:
+    text = " ".join(
+        [
+            raw_input.design_prompt,
+            raw_input.prompt,
+            slide_plan.visual_intent.structure,
+            slide_plan.visual_intent.composition,
+            slide_plan.visual_intent.media_style,
+            slide_plan.visual_intent.emphasis,
+            slide_plan.visual_intent.mood,
+        ]
+    ).casefold()
+    hints: set[str] = set()
+    if has_any(text, ["체크리스트", "체크 리스트", "할 일", "주의사항", "항목"]):
+        hints.update({"body", "toc", "checklist"})
+    if has_any(text, ["단계", "프로세스", "타임라인", "로드맵", "흐름"]):
+        hints.update({"process", "timeline", "body"})
+    if has_any(text, ["비교", "전후", "장단점", "대조"]):
+        hints.update({"comparison", "two-column"})
+    if has_any(text, ["위험도", "매트릭스", "지표", "수치", "차트", "표"]):
+        hints.update({"metric", "chart", "table"})
+    if has_any(text, ["이미지", "무드보드", "브랜드", "감각적", "사진"]):
+        hints.update({"image", "media"})
+    return hints
+
+
+def imported_profile_values(profile: dict[str, Any]) -> set[str]:
+    roles = {str(role) for role in profile["roles"]}
+    return roles | {
+        str(profile["slide_role"]),
+        str(profile["layout"]),
+        str(profile["capacity"]),
+    }
+
+
+def imported_slide_profile_key(profile: dict[str, Any]) -> str:
+    roles = ",".join(sorted(str(role) for role in profile["roles"]))
+    return "|".join(
+        [
+            str(profile["slide_role"]),
+            str(profile["layout"]),
+            str(profile["capacity"]),
+            roles,
+        ]
+    )
 
 
 def imported_slide_profile(
@@ -3515,14 +3611,19 @@ def inject_template_slot_text(
     template_slide: dict[str, Any],
     slide_plan: SlidePlan,
 ) -> None:
-    slots = template_slide.get("slots")
+    raw_slots = template_slide.get("slots")
+    slots = [
+        slot
+        for slot in raw_slots
+        if is_replaceable_content_slot(slot)
+    ] if isinstance(raw_slots, list) else []
+    title_slot_id = first_template_slot_id(slots, {"title"})
+    body_slot_id = template_body_slot_id(slots, title_slot_id)
     title_used = False
     body_used = False
     keyword_index = 0
 
-    for slot in slots if isinstance(slots, list) else []:
-        if not is_replaceable_content_slot(slot):
-            continue
+    for slot in slots:
         element = elements_by_source_id.get(str(slot.get("elementId", "")))
         if not isinstance(element, dict) or element.get("type") != "text":
             continue
@@ -3531,14 +3632,19 @@ def inject_template_slot_text(
             continue
 
         slot_role = str(slot.get("slotRole", "body"))
-        if slot_role == "title" and not title_used:
+        slot_id = str(slot.get("elementId", ""))
+        if slot_id == title_slot_id and not title_used:
             element["role"] = "title"
             replace_text_props(props, slide_plan.title)
             title_used = True
-        elif slot_role in {"body", "subtitle"} and not body_used:
+        elif slot_id == body_slot_id and not body_used:
             element["role"] = "subtitle" if slot_role == "subtitle" else "body"
             replace_text_props(props, slide_plan.message)
             body_used = True
+        elif slot_role == "title" and not title_used:
+            element["role"] = "title"
+            replace_text_props(props, slide_plan.title)
+            title_used = True
         elif not body_used:
             element["role"] = deck_role_for_template_slot(slot_role)
             replace_text_props(
@@ -3556,7 +3662,51 @@ def inject_template_slot_text(
 
 
 def should_add_imported_body_fallback(template_slide: dict[str, Any] | None) -> bool:
-    return not is_toc_template_slide(template_slide)
+    if not isinstance(template_slide, dict):
+        return True
+    if is_toc_template_slide(template_slide):
+        return False
+    slots = template_slide.get("slots")
+    if not isinstance(slots, list):
+        return True
+    return not any(
+        is_replaceable_content_slot(slot)
+        for slot in slots
+    )
+
+
+def first_template_slot_id(slots: list[dict[str, Any]], roles: set[str]) -> str:
+    for slot in slots:
+        if str(slot.get("slotRole", "")) in roles:
+            return str(slot.get("elementId", ""))
+    return ""
+
+
+def template_body_slot_id(slots: list[dict[str, Any]], title_slot_id: str) -> str:
+    body_slot_id = first_template_slot_id(slots, {"body", "subtitle", "caption"})
+    if body_slot_id:
+        return body_slot_id
+
+    title_candidates = [
+        slot
+        for slot in slots
+        if str(slot.get("slotRole", "")) == "title"
+        and str(slot.get("elementId", "")) != title_slot_id
+    ]
+    if not title_candidates:
+        return ""
+
+    return str(max(title_candidates, key=template_slot_area).get("elementId", ""))
+
+
+def template_slot_area(slot: dict[str, Any]) -> float:
+    bounds = slot.get("bounds")
+    if not isinstance(bounds, dict):
+        return 0
+    return max(0.0, float(bounds.get("width", 0))) * max(
+        0.0,
+        float(bounds.get("height", 0)),
+    )
 
 
 def is_toc_template_slide(template_slide: dict[str, Any] | None) -> bool:
@@ -5704,7 +5854,8 @@ def refine_design_issues(
             refined.get("theme", {}).get("backgroundColor", "#ffffff"),
         )
         shrink_text_to_fit(element)
-        clamp_text_to_safe_area(element)
+        if should_clamp_text_to_safe_area(element):
+            clamp_text_to_safe_area(element)
         correct_text_contrast(element, background_color)
     return refined
 
@@ -5733,8 +5884,6 @@ def shrink_text_to_fit(element: dict[str, Any]) -> None:
 
 
 def clamp_text_to_safe_area(element: dict[str, Any]) -> None:
-    if element.get("role") == "footer":
-        return
     element["width"] = min(element["width"], CANVAS.safe_width)
     element["height"] = min(element["height"], CANVAS.safe_height)
     element["x"] = min(
@@ -5745,6 +5894,10 @@ def clamp_text_to_safe_area(element: dict[str, Any]) -> None:
         max(element["y"], CANVAS.safe_y),
         CANVAS.safe_y + CANVAS.safe_height - element["height"],
     )
+
+
+def should_clamp_text_to_safe_area(element: dict[str, Any]) -> bool:
+    return element.get("role") not in {"caption", "footer"}
 
 
 def correct_text_contrast(element: dict[str, Any], background_color: str) -> None:

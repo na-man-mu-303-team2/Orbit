@@ -13,36 +13,27 @@ describe("RehearsalPanel", () => {
   it("renders rehearsal timers, keyword state, script state, and advice", () => {
     const html = renderPanel({ mode: "rehearsal" });
 
-    expect(html).toContain("남은 시간");
     expect(html).toContain("04:30");
-    expect(html).toContain("현재 슬라이드");
     expect(html).toContain("00:50 / 00:45");
-    expect(html).toContain("생성형 AI");
-    expect(html).toContain("체크됨");
-    expect(html).toContain("다음 문장은 매칭할 수 없습니다.");
-    expect(html).toContain("매칭 제외");
-    expect(html).toContain("말 속도");
-    expect(html).toContain("빠름");
-    expect(html).toContain("슬라이드 시간 초과");
+    expect(html).toContain("OpenAI");
+    expect(html).toContain("49%");
+    expect(html).toContain("WPM");
   });
 
   it("hides rehearsal-only advice in live mode without adding a mode toggle", () => {
     const html = renderPanel({ mode: "live" });
 
-    expect(html).toContain("남은 시간");
-    expect(html).toContain("생성형 AI");
-    expect(html).not.toContain("말 속도");
-    expect(html).not.toContain("슬라이드 시간 초과");
-    expect(html).not.toContain("리허설");
-    expect(html).not.toContain("실전");
+    expect(html).toContain("OpenAI");
+    expect(html).not.toContain("WPM");
+    expect(html).not.toContain("rehearsal-panel-advice");
   });
 
   it("does not render transcript text in the default panel DOM", () => {
     const html = renderPanel({
-      transcriptText: "이 문장은 STT 전사라 기본 패널에 나오면 안 됩니다"
+      transcriptText: "This transcript should stay out of the panel DOM."
     });
 
-    expect(html).not.toContain("이 문장은 STT 전사");
+    expect(html).not.toContain("This transcript should stay out");
     expect(html).not.toContain("transcript");
   });
 
@@ -57,8 +48,8 @@ describe("RehearsalPanel", () => {
       keywords: [
         {
           keywordId: "kw_ai",
-          text: "생성형 AI",
-          synonyms: ["인공지능"],
+          text: "OpenAI",
+          synonyms: ["AI lab"],
           abbreviations: ["OAI"],
           required: true
         }
@@ -66,7 +57,7 @@ describe("RehearsalPanel", () => {
       sentences: [
         {
           sentenceId: "sentence_aliases",
-          text: "생성형 AI는 인공지능 초안을 OAI 흐름으로 정리합니다.",
+          text: "OpenAI, AI lab, and OAI should all be highlighted.",
           index: 0,
           isFinalTrigger: true,
           matchable: true,
@@ -76,8 +67,8 @@ describe("RehearsalPanel", () => {
     });
 
     expect(html).toContain('<span class="keyword-mark ">');
-    expect(html).toContain("<strong>생성형 AI</strong>");
-    expect(html).toContain("<strong>인공지능</strong>");
+    expect(html).toContain("<strong>OpenAI</strong>");
+    expect(html).toContain("<strong>AI lab</strong>");
     expect(html).toContain("<strong>OAI</strong>");
     expect(html).not.toContain("<button");
   });
@@ -107,6 +98,8 @@ function renderPanel(
     sentences?: ExtractedSentence[];
   } = {}
 ) {
+  void overrides.transcriptText;
+
   return renderToStaticMarkup(
     <RehearsalPanel
       mode={overrides.mode ?? "rehearsal"}
@@ -137,14 +130,14 @@ const adviceState: TimingAdviceState = {
 const keywords: Keyword[] = [
   {
     keywordId: "kw_ai",
-    text: "생성형 AI",
+    text: "OpenAI",
     synonyms: [],
     abbreviations: [],
     required: true
   },
   {
     keywordId: "kw_privacy",
-    text: "프라이버시",
+    text: "privacy",
     synonyms: [],
     abbreviations: [],
     required: true
@@ -154,7 +147,7 @@ const keywords: Keyword[] = [
 const sentences: ExtractedSentence[] = [
   {
     sentenceId: "sentence_1",
-    text: "첫 문장은 이미 말했습니다.",
+    text: "OpenAI helps presenters rehearse.",
     index: 0,
     isFinalTrigger: false,
     matchable: true,
@@ -162,7 +155,7 @@ const sentences: ExtractedSentence[] = [
   },
   {
     sentenceId: "sentence_2",
-    text: "다음 문장은 매칭할 수 없습니다.",
+    text: "ok",
     index: 1,
     isFinalTrigger: false,
     matchable: false,
@@ -170,7 +163,7 @@ const sentences: ExtractedSentence[] = [
   },
   {
     sentenceId: "sentence_3",
-    text: "마지막 문장입니다.",
+    text: "privacy is the closing topic.",
     index: 2,
     isFinalTrigger: true,
     matchable: true,

@@ -14,6 +14,10 @@ export const createProjectRequestSchema = z.object({
   title: z.string().trim().min(1).max(120).optional(),
 });
 
+export const deleteProjectResponseSchema = z.object({
+  projectId: z.string().min(1),
+});
+
 export const projectMemberRoleSchema = z.enum(["owner", "editor", "viewer"]);
 export const projectMemberStatusSchema = z.enum([
   "pending",
@@ -49,6 +53,7 @@ export const projectListResponseSchema = z.array(projectSchema);
 
 export type Project = z.infer<typeof projectSchema>;
 export type CreateProjectRequest = z.infer<typeof createProjectRequestSchema>;
+export type DeleteProjectResponse = z.infer<typeof deleteProjectResponseSchema>;
 export type ProjectMemberRole = z.infer<typeof projectMemberRoleSchema>;
 export type ProjectMemberStatus = z.infer<typeof projectMemberStatusSchema>;
 export type ProjectMember = z.infer<typeof projectMemberSchema>;

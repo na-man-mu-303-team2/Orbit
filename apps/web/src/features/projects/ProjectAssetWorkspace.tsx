@@ -1,6 +1,7 @@
 import {
   allowedAssetMimeTypes,
   deckSchema,
+  deleteProjectResponseSchema,
   demoIds,
   maxAssetUploadSizeBytes,
   type AssetUploadUrlRequest,
@@ -123,6 +124,24 @@ export async function createProject(title: string, fetcher: Fetcher = fetch) {
   await createInitialProjectDeck(project, fetcher);
 
   return project;
+}
+
+export async function deleteProject(projectId: string, fetcher: Fetcher = fetch) {
+  const response = await fetcher(
+    `/api/v1/workspaces/${demoIds.workspaceId}/projects/${encodeURIComponent(projectId)}`,
+    {
+      credentials: "include",
+      method: "DELETE",
+    },
+  );
+
+  if (!response.ok) {
+    throw new ProjectAssetError(
+      await readErrorMessage(response, "프로젝트를 삭제하지 못했습니다."),
+    );
+  }
+
+  return deleteProjectResponseSchema.parse(await response.json());
 }
 
 export function buildInitialProjectDeck(project: Project): Deck {

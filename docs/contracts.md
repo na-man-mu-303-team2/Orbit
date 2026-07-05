@@ -430,11 +430,13 @@ API:
 
 - `POST /api/v1/workspaces/:workspaceId/projects`
 - `GET /api/v1/workspaces/:workspaceId/projects`
+- `DELETE /api/v1/workspaces/:workspaceId/projects/:projectId`
 
 결정 사항:
 
 - 인증 시스템이 완성되기 전까지는 `DEMO_WORKSPACE_ID`와 `DEMO_USER_ID`를 기준으로 project boundary를 검증한다.
 - `workspaceId`가 데모 워크스페이스와 다르면 권한 실패로 처리한다.
+- 프로젝트 삭제는 accepted owner만 수행할 수 있으며 응답은 `{ "projectId": "project_1" }` 구조다.
 - 프로젝트 응답은 `packages/shared/src/projects/project.schema.ts`의 schema로 검증한다.
 
 구현 위치:
@@ -865,6 +867,9 @@ Rules:
   generated text is applied through `/ai/pptx-ooxml-apply-slot-texts`.
 - The worker saves the final Deck and creates an initial `deck-replaced`
   snapshot from that same Deck, including generated `thumbnailUrl` values.
+- Final AI template deck thumbnails come from the generated PPTX render assets;
+  every generated slide must have a matching render asset, and the saved deck
+  sets `metadata.thumbnailSource = "import-render"`.
 - `slideCountRange` is the authoritative user-requested generation range.
   The reference PPTX page count never overrides it.
 - `referenceSlideCount` means the number of slides imported from the design

@@ -58,51 +58,25 @@ const singleScreenPresenterSourcePath = fileURLToPath(
 );
 
 describe("SingleScreenPresenter", () => {
-  it("renders the slide with only approved timer overlay content", () => {
-    const html = renderToStaticMarkup(
-      <SingleScreenPresenter
-        deck={p0AnimationDeck}
-        onExit={() => {}}
-        slideElapsedLabel="00:12"
-        slideId="slide_p0_1"
-        slideTargetLabel="01:00"
-        stepIndex={1}
-        totalTimeLabel="03:20"
-        triggerAnimationIds={["anim_image_zoom_in"]}
-      />
-    );
+  it("renders the slide without timer labels", () => {
+    const html = renderSingleScreen();
 
     expect(html).toContain("단일 화면 슬라이드");
-    expect(html).toContain("전체");
-    expect(html).toContain("03:20");
-    expect(html).toContain("현재 슬라이드");
-    expect(html).toContain("00:12");
-    expect(html).toContain("01:00");
     expect(html).toContain("전체화면 시작");
-    expect(html).not.toContain("첫 문장입니다");
-    expect(html).not.toContain("Partial transcript");
-    expect(html).not.toContain("키워드 체크리스트");
+    expect(html).not.toContain("03:20");
+    expect(html).not.toContain("00:12");
+    expect(html).not.toContain("01:00");
+    expect(html).not.toContain("single-screen-timer-overlay");
     expectNoAutoAdvancePresenterStatus(html);
   });
 
   it("hides fullscreen controls after fullscreen is active", () => {
-    const html = renderToStaticMarkup(
-      <SingleScreenPresenter
-        deck={p0AnimationDeck}
-        isFullscreen={true}
-        onExit={() => {}}
-        slideElapsedLabel="00:12"
-        slideId="slide_p0_1"
-        slideTargetLabel="01:00"
-        stepIndex={1}
-        totalTimeLabel="03:20"
-        triggerAnimationIds={["anim_image_zoom_in"]}
-      />
-    );
+    const html = renderSingleScreen({ isFullscreen: true });
 
-    expect(html).toContain("발표 타이머");
+    expect(html).toContain("단일 화면 슬라이드");
     expect(html).not.toContain("전체화면 시작");
     expect(html).not.toContain("단일 화면 종료");
+    expect(html).not.toContain("03:20");
     expectNoAutoAdvancePresenterStatus(html);
   });
 
@@ -118,10 +92,24 @@ describe("SingleScreenPresenter", () => {
   });
 });
 
+function renderSingleScreen(overrides: { isFullscreen?: boolean } = {}) {
+  return renderToStaticMarkup(
+    <SingleScreenPresenter
+      deck={p0AnimationDeck}
+      isFullscreen={overrides.isFullscreen}
+      onExit={() => {}}
+      slideElapsedLabel="00:12"
+      slideId="slide_p0_1"
+      slideTargetLabel="01:00"
+      stepIndex={1}
+      totalTimeLabel="03:20"
+      triggerAnimationIds={["anim_image_zoom_in"]}
+    />
+  );
+}
+
 function expectNoAutoAdvancePresenterStatus(html: string) {
-  expect(html).not.toContain("자동 전환까지");
-  expect(html).not.toContain("빌드 2개 남음");
-  expect(html).not.toContain("발표 종료 준비됨");
-  expect(html).not.toContain("수동으로 넘겨주세요");
   expect(html).not.toContain("auto-advance-status");
+  expect(html).not.toContain("자동 전환");
+  expect(html).not.toContain("발표 종료");
 }

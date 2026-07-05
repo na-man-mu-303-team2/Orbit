@@ -1,4 +1,4 @@
-import { AlertCircle, Monitor, RefreshCcw } from "lucide-react";
+import { AlertCircle, Monitor, RefreshCcw, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   createDisplayManager,
@@ -28,6 +28,7 @@ export function DisplayControls(props: {
     "idle" | "opening" | "screen-picker" | "manual-guide" | "failed"
   >("idle");
   const [message, setMessage] = useState("");
+  const [dismissedMessage, setDismissedMessage] = useState("");
   const [screens, setScreens] = useState<DisplayScreenDescriptor[]>([]);
   const windowRef = useRef<SlideWindowRef | null>(null);
   const identity = useMemo(() => ({ deckId, sessionId }), [deckId, sessionId]);
@@ -47,6 +48,7 @@ export function DisplayControls(props: {
   async function openSlideWindow() {
     setDisplayState("opening");
     setMessage("");
+    setDismissedMessage("");
 
     const opened = displayManager.openSlideWindow(identity);
     if (!opened.ok) {
@@ -118,10 +120,18 @@ export function DisplayControls(props: {
       <span className="presenter-display-status">
         {getDisplayStatusLabel(channelStatus, displayState)}
       </span>
-      {message ? (
+      {message && message !== dismissedMessage ? (
         <p className="presenter-display-message">
           <AlertCircle size={15} />
-          {message}
+          <span>{message}</span>
+          <button
+            type="button"
+            aria-label="안내 닫기"
+            title="안내 닫기"
+            onClick={() => setDismissedMessage(message)}
+          >
+            <X size={14} />
+          </button>
         </p>
       ) : null}
       {displayState === "screen-picker" ? (
