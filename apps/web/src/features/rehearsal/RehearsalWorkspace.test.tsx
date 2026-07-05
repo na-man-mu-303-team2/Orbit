@@ -592,6 +592,43 @@ describe("RehearsalWorkspace", () => {
     expect(html).not.toContain("핵심 키워드 커버리지가 낮을 때만 누락 후보를 표시합니다.");
   });
 
+  it("groups official missing keywords by slide in a single row", () => {
+    const deck = createDemoDeck();
+    const html = renderToStaticMarkup(
+      <RehearsalReportPage
+        initialDeck={deck}
+        initialRun={runFixture("succeeded")}
+        initialReport={reportFixture({
+          missedKeywords: [
+            {
+              slideId: deck.slides[0]!.slideId,
+              keywordId: "kw_component",
+              text: "컴포넌트"
+            },
+            {
+              slideId: deck.slides[0]!.slideId,
+              keywordId: "kw_design",
+              text: "설계"
+            },
+            {
+              slideId: deck.slides[0]!.slideId,
+              keywordId: "kw_state",
+              text: "상태관리"
+            }
+          ]
+        })}
+        projectId="project-a"
+        runId="run-1"
+      />
+    );
+
+    expect(html).toContain("총 3개");
+    expect(html).toContain("<strong>슬라이드1</strong>");
+    expect(html).toMatch(
+      /<strong>슬라이드1<\/strong>\s*<span>컴포넌트<\/span>\s*<span>설계<\/span>\s*<span>상태관리<\/span>/
+    );
+  });
+
   it("renders a dense official missing keyword list without dropping entries", () => {
     const missedKeywords = Array.from({ length: 24 }, (_, index) => ({
       slideId: `slide_${(index % 3) + 1}`,

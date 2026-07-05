@@ -2880,6 +2880,7 @@ export function RehearsalReportPage(props: {
   const coachingHeadline = buildCoachingHeadline(report);
   const coachingDetail = buildCoachingDetail(report, deck);
   const missedKeywords = report?.missedKeywords ?? [];
+  const missedKeywordRows = buildMissedKeywordRows(deck, missedKeywords);
   const slideTimings = report?.slideTimings ?? [];
   const qnaSummary = report?.qnaSummary;
   const speedAssessment = report ? getSpeakingSpeedAssessment(report.metrics.wordsPerMinute) : null;
@@ -3059,9 +3060,16 @@ export function RehearsalReportPage(props: {
                     <span className="report-keyword-count">
                       총 {missedKeywords.length}개
                     </span>
-                    <div className="report-keyword-chips">
-                      {missedKeywords.map((keyword) => (
-                        <span key={`${keyword.slideId}-${keyword.keywordId}`}>{keyword.text}</span>
+                    <div className="report-keyword-slide-list">
+                      {missedKeywordRows.map((row) => (
+                        <p key={row.slideId}>
+                          <strong>{row.label}</strong>
+                          {row.keywords.map((keyword) => (
+                            <span key={`${keyword.slideId}-${keyword.keywordId}`}>
+                              {keyword.text}
+                            </span>
+                          ))}
+                        </p>
                       ))}
                     </div>
                     <strong className="report-keyword-warning">
@@ -3367,6 +3375,41 @@ function formatSpeakingSpeedValue(wordsPerMinute: number) {
   }
 
   return `${Math.round(wordsPerMinute)} wpm`;
+}
+
+function buildMissedKeywordRows(
+  deck: Deck | null,
+  missedKeywords: RehearsalReport["missedKeywords"]
+) {
+  const rowsBySlideId = new Map<
+    string,
+    {
+      label: string;
+      keywords: RehearsalReport["missedKeywords"];
+      slideId: string;
+    }
+  >();
+  const slideOrder = new Map(
+    deck?.slides.map((slide, index) => [slide.slideId, index + 1]) ?? []
+  );
+
+  for (const keyword of missedKeywords) {
+    const slideNumber = slideOrder.get(keyword.slideId);
+    const row = rowsBySlideId.get(keyword.slideId) ?? {
+      label: typeof slideNumber === "number" ? `슬라이드${slideNumber}` : keyword.slideId,
+      keywords: [],
+      slideId: keyword.slideId
+    };
+    row.keywords.push(keyword);
+    rowsBySlideId.set(keyword.slideId, row);
+  }
+
+  return Array.from(rowsBySlideId.values()).sort((left, right) => {
+    const leftOrder = slideOrder.get(left.slideId) ?? Number.MAX_SAFE_INTEGER;
+    const rightOrder = slideOrder.get(right.slideId) ?? Number.MAX_SAFE_INTEGER;
+    if (leftOrder !== rightOrder) return leftOrder - rightOrder;
+    return 0;
+  });
 }
 
 function formatRehearsalCompletionPercent(
