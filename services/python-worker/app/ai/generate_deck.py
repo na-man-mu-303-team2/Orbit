@@ -5641,7 +5641,8 @@ def refine_design_issues(
             refined.get("theme", {}).get("backgroundColor", "#ffffff"),
         )
         shrink_text_to_fit(element)
-        clamp_text_to_safe_area(element)
+        if should_clamp_text_to_safe_area(element):
+            clamp_text_to_safe_area(element)
         correct_text_contrast(element, background_color)
     return refined
 
@@ -5670,8 +5671,6 @@ def shrink_text_to_fit(element: dict[str, Any]) -> None:
 
 
 def clamp_text_to_safe_area(element: dict[str, Any]) -> None:
-    if element.get("role") == "footer":
-        return
     element["width"] = min(element["width"], CANVAS.safe_width)
     element["height"] = min(element["height"], CANVAS.safe_height)
     element["x"] = min(
@@ -5682,6 +5681,10 @@ def clamp_text_to_safe_area(element: dict[str, Any]) -> None:
         max(element["y"], CANVAS.safe_y),
         CANVAS.safe_y + CANVAS.safe_height - element["height"],
     )
+
+
+def should_clamp_text_to_safe_area(element: dict[str, Any]) -> bool:
+    return element.get("role") not in {"caption", "footer"}
 
 
 def correct_text_contrast(element: dict[str, Any], background_color: str) -> None:

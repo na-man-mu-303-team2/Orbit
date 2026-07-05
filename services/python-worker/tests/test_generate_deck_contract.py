@@ -2075,6 +2075,39 @@ def test_refiner_shrinks_clamps_and_corrects_text_contrast() -> None:
     assert element["props"]["color"] == "#111827"
 
 
+def test_refiner_does_not_clamp_caption_labels_into_title_area() -> None:
+    deck = text_overlap_deck(
+        [
+            text_box(
+                "el_1_section_label",
+                120,
+                50,
+                "SECTION",
+                width=220,
+                height=24,
+                role="caption",
+            ),
+            text_box(
+                "el_1_title",
+                120,
+                88,
+                "Main title",
+                width=1680,
+                height=128,
+                role="title",
+            ),
+        ]
+    )
+
+    refined = refine_design_issues(
+        deck,
+        [ValidationIssue(scope="element", path="slides.0.elements.0", message="issue")],
+    )
+
+    assert refined["slides"][0]["elements"][0]["y"] == 50
+    assert detect_text_overlap_candidates(refined) == []
+
+
 def test_generate_deck_reports_advisory_design_quality_issues() -> None:
     deck = {
         "deckId": "deck_ai_quality",
@@ -3162,6 +3195,8 @@ def text_box(
     y: int,
     text: str,
     *,
+    width: int = 300,
+    height: int = 120,
     role: str = "body",
 ) -> dict[str, Any]:
     return {
@@ -3170,8 +3205,8 @@ def text_box(
         "role": role,
         "x": x,
         "y": y,
-        "width": 300,
-        "height": 120,
+        "width": width,
+        "height": height,
         "rotation": 0,
         "opacity": 1,
         "zIndex": 1,
