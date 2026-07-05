@@ -14,10 +14,12 @@ import {
 
 type OpenAiRealtimeDataChannel = {
   addEventListener: (
-    type: "error" | "message",
+    type: "error" | "message" | "open",
     listener: (event: Event) => void
   ) => void;
   close: () => void;
+  readyState?: RTCDataChannelState;
+  send: (data: string) => void;
 };
 
 type OpenAiRealtimePeerConnection = {
@@ -40,9 +42,11 @@ type OpenAiRealtimeLiveSttPortOptions = {
     onAudioLevel?: (event: LiveSttAudioLevelEvent) => void
   ) => AudioLevelMeter;
   createPeerConnection?: () => OpenAiRealtimePeerConnection;
+  commitIntervalMs?: number;
   fetcher?: typeof fetch;
   now?: () => number;
   onAudioLevel?: (event: LiveSttAudioLevelEvent) => void;
+  pendingAudioRmsDbThreshold?: number;
 };
 
 type RealtimeTranscriptEventKey = string;
@@ -61,6 +65,8 @@ export class OpenAiRealtimeLiveSttPort implements LiveSttPort {
   private readonly fetcher: typeof fetch;
   private readonly now: () => number;
   private readonly onAudioLevel?: (event: LiveSttAudioLevelEvent) => void;
+  private readonly commitIntervalMs: number;
+  private readonly pendingAudioRmsDbThreshold: number;
   private readonly createPeerConnection: () => OpenAiRealtimePeerConnection;
   private readonly createAudioLevelMeter: (
     stream: MediaStream,
@@ -75,6 +81,8 @@ export class OpenAiRealtimeLiveSttPort implements LiveSttPort {
   private peerConnection: OpenAiRealtimePeerConnection | null = null;
   private dataChannel: OpenAiRealtimeDataChannel | null = null;
   private audioLevelMeter: AudioLevelMeter | null = null;
+  private commitIntervalId: ReturnType<typeof setInterval> | null = null;
+  private hasPendingAudioForCommit = false;
   private startedAtMs: number | null = null;
   private biasPhrases: LiveSttBiasPhrase[] = [];
 
@@ -83,6 +91,10 @@ export class OpenAiRealtimeLiveSttPort implements LiveSttPort {
     this.fetcher = options.fetcher ?? defaultFetch;
     this.now = options.now ?? (() => Date.now());
     this.onAudioLevel = options.onAudioLevel;
+    this.commitIntervalMs =
+      options.commitIntervalMs ?? OPENAI_REALTIME_AUDIO_COMMIT_INTERVAL_MS;
+    this.pendingAudioRmsDbThreshold =
+      options.pendingAudioRmsDbThreshold ?? OPENAI_REALTIME_PENDING_AUDIO_RMS_DB;
     this.createPeerConnection =
       options.createPeerConnection ?? createDefaultPeerConnection;
     this.createAudioLevelMeter =
@@ -108,12 +120,13 @@ export class OpenAiRealtimeLiveSttPort implements LiveSttPort {
       this.peerConnection = peerConnection;
       this.audioLevelMeter = this.createAudioLevelMeter(
         config.audioSource,
-        this.onAudioLevel
+        this.handleAudioLevel
       );
 
       peerConnection.addTrack(audioTrack, config.audioSource);
       const dataChannel = peerConnection.createDataChannel("oai-events");
       this.dataChannel = dataChannel;
+      dataChannel.addEventListener("open", this.handleDataChannelOpen);
       dataChannel.addEventListener("message", this.handleDataChannelMessage);
       dataChannel.addEventListener("error", this.handleDataChannelError);
 
@@ -157,6 +170,8 @@ export class OpenAiRealtimeLiveSttPort implements LiveSttPort {
 
   async stop() {
     this.startedAtMs = null;
+    this.stopCommitLoop();
+    this.hasPendingAudioForCommit = false;
     this.partialTextByEventKey.clear();
     this.audioLevelMeter?.stop();
     this.audioLevelMeter = null;
@@ -233,11 +248,69 @@ export class OpenAiRealtimeLiveSttPort implements LiveSttPort {
     }
   };
 
+  private readonly handleDataChannelOpen = () => {
+    this.startCommitLoop();
+  };
+
   private readonly handleDataChannelError = () => {
     this.emitError(
       new LiveSttError("runtime_error", "OpenAI Realtime data channel 오류입니다.")
     );
   };
+
+  private readonly handleAudioLevel = (event: LiveSttAudioLevelEvent) => {
+    if (event.rmsDb >= this.pendingAudioRmsDbThreshold) {
+      this.hasPendingAudioForCommit = true;
+    }
+
+    this.onAudioLevel?.(event);
+  };
+
+  private startCommitLoop() {
+    if (this.commitIntervalId !== null || this.commitIntervalMs <= 0) {
+      return;
+    }
+
+    this.commitIntervalId = setInterval(() => {
+      this.commitPendingAudioBuffer();
+    }, this.commitIntervalMs);
+  }
+
+  private stopCommitLoop() {
+    if (this.commitIntervalId === null) {
+      return;
+    }
+
+    clearInterval(this.commitIntervalId);
+    this.commitIntervalId = null;
+  }
+
+  private commitPendingAudioBuffer() {
+    const dataChannel = this.dataChannel;
+    if (
+      !dataChannel ||
+      !this.hasPendingAudioForCommit ||
+      !isDataChannelOpen(dataChannel)
+    ) {
+      return;
+    }
+
+    try {
+      dataChannel.send(
+        JSON.stringify({
+          type: "input_audio_buffer.commit"
+        })
+      );
+      this.hasPendingAudioForCommit = false;
+    } catch {
+      this.emitError(
+        new LiveSttError(
+          "runtime_error",
+          "OpenAI Realtime audio buffer commit에 실패했습니다."
+        )
+      );
+    }
+  }
 
   private handleRealtimeEvent(event: unknown) {
     if (!isRecord(event) || this.startedAtMs === null) {
@@ -321,6 +394,9 @@ function createDefaultPeerConnection(): OpenAiRealtimePeerConnection {
 
 const defaultFetch: typeof fetch = (input, init) => globalThis.fetch(input, init);
 
+const OPENAI_REALTIME_AUDIO_COMMIT_INTERVAL_MS = 1500;
+const OPENAI_REALTIME_PENDING_AUDIO_RMS_DB = -75;
+
 function createAnalyserAudioLevelMeter(
   stream: MediaStream,
   onAudioLevel?: (event: LiveSttAudioLevelEvent) => void
@@ -367,6 +443,10 @@ function getRealtimeTranscriptEventKey(event: Record<string, unknown>) {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isDataChannelOpen(dataChannel: OpenAiRealtimeDataChannel) {
+  return dataChannel.readyState === undefined || dataChannel.readyState === "open";
 }
 
 async function readResponseError(response: Response, fallbackMessage: string) {

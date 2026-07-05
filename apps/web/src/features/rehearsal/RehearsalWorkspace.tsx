@@ -2361,6 +2361,11 @@ export function RehearsalWorkspace(props: {
           matchableSentenceCount: p3Sentences.filter((sentence) => sentence.matchable)
             .length
         });
+  const rehearsalPanelSnapshot = mergeLiveKeywordHitsForDisplay({
+    liveKeywordState,
+    slideId: currentSlide?.slideId ?? null,
+    snapshot: p3PanelSnapshot
+  });
   const hasDeletedRawAudio = Boolean(run?.rawAudioDeletedAt);
 
   useEffect(() => {
@@ -2708,7 +2713,7 @@ export function RehearsalWorkspace(props: {
             adviceState={p3AdviceState}
             keywords={checklistKeywords}
             sentences={p3Sentences}
-            snapshot={p3PanelSnapshot}
+            snapshot={rehearsalPanelSnapshot}
           />
 
           <section className="rehearsal-assist-card checklist-card">
@@ -3286,6 +3291,38 @@ function createEmptySpeechTrackerSnapshot(options: {
     finalSentenceSpoken: false,
     hitKeywordIds: [],
     provisionalMissingKeywordIds: []
+  };
+}
+
+function mergeLiveKeywordHitsForDisplay(options: {
+  snapshot: SpeechTrackerSnapshot;
+  liveKeywordState: LiveTranscriptAnalysis | null;
+  slideId: string | null;
+}): SpeechTrackerSnapshot {
+  if (
+    !options.slideId ||
+    options.liveKeywordState?.slideId !== options.slideId ||
+    options.liveKeywordState.detectedKeywords.length === 0
+  ) {
+    return options.snapshot;
+  }
+
+  const hitKeywordIds = Array.from(
+    new Set([
+      ...options.snapshot.hitKeywordIds,
+      ...options.liveKeywordState.detectedKeywords.map(
+        (keyword) => keyword.keywordId
+      )
+    ])
+  );
+
+  if (hitKeywordIds.length === options.snapshot.hitKeywordIds.length) {
+    return options.snapshot;
+  }
+
+  return {
+    ...options.snapshot,
+    hitKeywordIds
   };
 }
 

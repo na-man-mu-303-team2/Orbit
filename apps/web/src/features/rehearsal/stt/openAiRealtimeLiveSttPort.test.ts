@@ -214,6 +214,68 @@ describe("OpenAiRealtimeLiveSttPort", () => {
     expect(stopMeter).toHaveBeenCalledTimes(1);
   });
 
+  it("commits pending audio buffers after the data channel opens", async () => {
+    vi.useFakeTimers();
+    try {
+      const peerConnection = new FakePeerConnection();
+      let meterCallback:
+        | ((event: LiveSttAudioLevelEvent) => void)
+        | undefined;
+      const port = new OpenAiRealtimeLiveSttPort({
+        projectId: "project_real_1",
+        commitIntervalMs: 1000,
+        createAudioLevelMeter: (_stream, callback) => {
+          meterCallback = callback;
+          return noopMeter();
+        },
+        createPeerConnection: () => peerConnection,
+        fetcher: createOpenAiRealtimeFetcher(),
+        now: () => 1000,
+        pendingAudioRmsDbThreshold: -75
+      });
+
+      await port.start({
+        language: "ko",
+        audioSource: fakeMediaStream()
+      });
+
+      meterCallback?.({
+        type: "audio-level",
+        rms: 0.001,
+        peak: 0.002,
+        rmsDb: -70,
+        peakDb: -60,
+        isLikelySilence: true
+      });
+      vi.advanceTimersByTime(1000);
+      expect(peerConnection.dataChannel.sentPayloads).toEqual([]);
+
+      peerConnection.dataChannel.emitOpen();
+      vi.advanceTimersByTime(1000);
+
+      expect(peerConnection.dataChannel.sentPayloads).toEqual([
+        { type: "input_audio_buffer.commit" }
+      ]);
+
+      vi.advanceTimersByTime(1000);
+      expect(peerConnection.dataChannel.sentPayloads).toHaveLength(1);
+
+      await port.stop();
+      meterCallback?.({
+        type: "audio-level",
+        rms: 0.001,
+        peak: 0.002,
+        rmsDb: -70,
+        peakDb: -60,
+        isLikelySilence: true
+      });
+      vi.advanceTimersByTime(1000);
+      expect(peerConnection.dataChannel.sentPayloads).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("fails without falling back when the stream has no audio track", async () => {
     const fetcher = createOpenAiRealtimeFetcher();
     const port = new OpenAiRealtimeLiveSttPort({
@@ -236,7 +298,9 @@ describe("OpenAiRealtimeLiveSttPort", () => {
 
 class FakeDataChannel {
   private readonly listeners = new Map<string, EventListener[]>();
+  readonly sentPayloads: unknown[] = [];
   closeCount = 0;
+  readyState: RTCDataChannelState = "connecting";
 
   addEventListener(type: string, listener: EventListener) {
     this.listeners.set(type, [...(this.listeners.get(type) ?? []), listener]);
@@ -244,6 +308,18 @@ class FakeDataChannel {
 
   close() {
     this.closeCount += 1;
+    this.readyState = "closed";
+  }
+
+  send(data: string) {
+    this.sentPayloads.push(JSON.parse(data));
+  }
+
+  emitOpen() {
+    this.readyState = "open";
+    for (const listener of this.listeners.get("open") ?? []) {
+      listener({ type: "open" } as Event);
+    }
   }
 
   emitMessage(payload: unknown) {
