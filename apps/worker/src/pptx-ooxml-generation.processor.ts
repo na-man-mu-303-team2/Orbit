@@ -391,6 +391,7 @@ function buildOoxmlDeck(
       language: "ko",
       locale: "ko-KR",
       sourceType: "import",
+      thumbnailSource: "import-render",
     },
     canvas,
     theme: blueprint.theme,

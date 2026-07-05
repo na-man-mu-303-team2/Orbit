@@ -7,6 +7,7 @@ import {
   animationTypeSchema
 } from "./animation.schema";
 import {
+  deckThumbnailSourceSchema,
   slideBackgroundImageFitSchema,
   slideKeywordsSchema,
   slideLayoutSchema,
@@ -100,6 +101,12 @@ export const deckThemePatchSchema = z.object({
   effects: themeEffectsPatchSchema.optional()
 });
 
+export const deckMetadataPatchSchema = z.object({
+  thumbnailSource: z
+    .union([deckThumbnailSourceSchema, z.null()])
+    .optional()
+});
+
 export const slideBackgroundImagePatchSchema = z.object({
   src: z.string().min(1).optional(),
   alt: z.string().optional(),
@@ -142,7 +149,8 @@ export const animationPatchSchema = z.object({
 
 export const updateDeckOperationSchema = z.object({
   type: z.literal("update_deck"),
-  title: z.string().min(1)
+  title: z.string().min(1).optional(),
+  metadata: deckMetadataPatchSchema.optional()
 });
 
 export const addSlideOperationSchema = z.object({
@@ -316,6 +324,7 @@ export type ThemeTypographyPatch = z.infer<typeof themeTypographyPatchSchema>;
 export type ThemeShadowPatch = z.infer<typeof themeShadowPatchSchema>;
 export type ThemeEffectsPatch = z.infer<typeof themeEffectsPatchSchema>;
 export type DeckThemePatch = z.infer<typeof deckThemePatchSchema>;
+export type DeckMetadataPatch = z.infer<typeof deckMetadataPatchSchema>;
 export type SlideBackgroundImagePatch = z.infer<
   typeof slideBackgroundImagePatchSchema
 >;

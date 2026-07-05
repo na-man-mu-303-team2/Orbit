@@ -202,6 +202,7 @@ API:
 - `metadata.locale`은 `"ko-KR"`만 허용한다. STT, 날짜/시간, 지역별 포맷이 필요한 기능은 `locale`을 기준으로 처리한다.
 - `metadata.language`와 `metadata.locale`은 생략 시 각각 `"ko"`, `"ko-KR"`로 기본값을 채운다.
 - AI 생성 deck은 `metadata.sourceType = "ai"`, `metadata.generatedBy = "ai"`, `metadata.audience`, `metadata.purpose`, `metadata.tone`, `metadata.createdFrom`을 선택적으로 포함할 수 있다.
+- Imported PPTX OOXML decks may set `metadata.thumbnailSource = "import-render"` until the editor captures canvas thumbnails, then update it to `"canvas"`.
 - `metadata.createdFrom.references`는 생성에 사용한 참고자료의 `{ fileId }[]`만 저장한다. URL ingestion과 원문 저장은 이번 계약에 포함하지 않는다.
 - `theme`는 생략 시 기본 theme token 값으로 채운다.
 - `theme`는 deck 전체의 기본 디자인 토큰이다.

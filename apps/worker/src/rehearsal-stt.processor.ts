@@ -478,9 +478,21 @@ function applyReportDeckPatch(
 
   for (const operation of patch.operations) {
     switch (operation.type) {
-      case "update_deck":
-        nextDeck = { ...nextDeck, title: operation.title };
+      case "update_deck": {
+        nextDeck = {
+          ...nextDeck,
+          ...(operation.title !== undefined ? { title: operation.title } : {}),
+          ...(operation.metadata
+            ? {
+                metadata: applyReportDeckMetadataPatch(
+                  nextDeck.metadata,
+                  operation.metadata
+                )
+              }
+            : {})
+        };
         break;
+      }
       case "add_slide":
         nextDeck = {
           ...nextDeck,
@@ -524,6 +536,21 @@ function applyReportDeckPatch(
   }
 
   return deckSchema.parse(nextDeck);
+}
+
+function applyReportDeckMetadataPatch(
+  metadata: Deck["metadata"],
+  patch: { thumbnailSource?: Deck["metadata"]["thumbnailSource"] | null }
+) {
+  const nextMetadata = { ...metadata };
+
+  if (patch.thumbnailSource === null) {
+    delete nextMetadata.thumbnailSource;
+  } else if (patch.thumbnailSource !== undefined) {
+    nextMetadata.thumbnailSource = patch.thumbnailSource;
+  }
+
+  return nextMetadata;
 }
 
 async function loadRehearsalRunMeta(dataSource: DataSource, payload: RehearsalSttPayload) {
