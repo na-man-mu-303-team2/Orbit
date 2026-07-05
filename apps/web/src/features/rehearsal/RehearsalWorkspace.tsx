@@ -1285,7 +1285,7 @@ export function RehearsalWorkspace(props: {
     ReadonlySet<string>
   >(() => new Set());
   const [isSingleScreenOpen, setIsSingleScreenOpen] = useState(false);
-  const [timeMode, setTimeMode] = useState<RehearsalTimeMode>("stopwatch");
+  const [timeMode, setTimeMode] = useState<RehearsalTimeMode>("timer");
   const [timerDurationSeconds, setTimerDurationSeconds] = useState(5 * 60);
   const [elapsedTimeInput, setElapsedTimeInput] = useState("00:00");
   const [timerDurationInput, setTimerDurationInput] = useState("05:00");
@@ -1532,6 +1532,16 @@ export function RehearsalWorkspace(props: {
         currentSlideTargetSeconds: 0,
         currentSlideOvertime: false
       };
+  const rehearsalProgressPercent =
+    timerDurationSeconds > 0
+      ? Math.min(
+          100,
+          Math.max(
+            0,
+            (p3TimingSnapshot.elapsedSeconds / timerDurationSeconds) * 100
+          )
+        )
+      : 0;
   const p3WordsPerMinute =
     p3SessionState?.startedAtMs !== null && p3SessionState?.startedAtMs !== undefined
       ? calculateFinalTranscriptWpm({
@@ -1610,7 +1620,7 @@ export function RehearsalWorkspace(props: {
     resetAutoAdvanceRuntimeState(currentSlide?.slideId ?? null);
 
     if (!navigator.mediaDevices?.getUserMedia) {
-      setError("??釉뚮씪?곗???留덉씠???뱀쓬??吏?먰븯吏 ?딆뒿?덈떎.");
+      setError("이 브라우저는 마이크 녹음을 지원하지 않습니다.");
       setPhase("failed");
       return;
     }
@@ -1660,6 +1670,8 @@ export function RehearsalWorkspace(props: {
     setLiveError("");
     setLiveAudioLevel(null);
     setLiveDebugPcmRecording(null);
+    setElapsedSeconds(0);
+    setIsTimerRunning(true);
     resetLivePlaybackForSlide(currentSlide);
     resetAutoAdvanceRuntimeState(currentSlide?.slideId ?? null);
 
@@ -1681,9 +1693,7 @@ export function RehearsalWorkspace(props: {
           liveDemoStreamRef.current = null;
         }
         setIsLiveDemoActive(false);
-        setIsTimerRunning(false);
       } else {
-        setElapsedSeconds(0);
         setIsTimerRunning(true);
       }
     } catch (cause) {
@@ -1692,7 +1702,6 @@ export function RehearsalWorkspace(props: {
         liveDemoStreamRef.current = null;
       }
       setIsLiveDemoActive(false);
-      setIsTimerRunning(false);
       setLiveError(toMicrophoneErrorMessage(cause));
       setLiveStatus("failed");
     }
@@ -1787,6 +1796,31 @@ export function RehearsalWorkspace(props: {
     }
 
     await startRecording();
+  }
+
+  function handleSideTimerPrimaryAction() {
+    if (canStopLiveDemo) {
+      stopLiveDemo({ showCompletionModal: true });
+      return;
+    }
+
+    if (isTimerRunning) {
+      setIsTimerRunning(false);
+      return;
+    }
+
+    if (timeMode === "timer" && elapsedSeconds >= timerDurationSeconds) {
+      setElapsedSeconds(0);
+    }
+
+    if (canStartLiveDemo) {
+      void startLiveDemo();
+      return;
+    }
+
+    if (deck) {
+      setIsTimerRunning(true);
+    }
   }
 
   function commitElapsedTimeInput(value: string) {
@@ -2393,6 +2427,8 @@ export function RehearsalWorkspace(props: {
     remainingTriggerSteps
   ]);
 
+  const { presenterScale, presenterStageRef } = usePresenterStageScale(deck);
+
   if (isSingleScreenOpen && deck && currentSlide) {
     return (
       <SingleScreenPresenter
@@ -2561,11 +2597,11 @@ export function RehearsalWorkspace(props: {
 
       <section className="rehearsal-presenter-layout">
         <section className="rehearsal-presenter-main">
-          <div className="rehearsal-stage-wrap">
+          <div className="rehearsal-stage-wrap" ref={presenterStageRef}>
             {deck && currentSlide ? (
               <SlideshowRenderer
                 deck={deck}
-                scale={0.44}
+                scale={presenterScale}
                 slideId={currentSlide.slideId}
                 stepIndex={presenterStepIndex}
                 triggerAnimationIds={triggerAnimationIds}
@@ -2589,17 +2625,7 @@ export function RehearsalWorkspace(props: {
             </button>
             <span>
               {currentSlideIndex + 1} / {deck?.slides.length ?? 0}
-              {slideshowAnimationPlan ? ` · 스텝 ${presenterStepIndex}/${slideshowAnimationPlan.maxStepIndex}` : ""}
             </span>
-            <button
-              type="button"
-              onClick={handleNextPresenterStep}
-              disabled={!deck}
-              aria-label="다음 애니메이션 스텝"
-              title="다음 애니메이션 스텝"
-            >
-              다음 스텝
-            </button>
             <button
               type="button"
               onClick={goNext}
@@ -2677,6 +2703,117 @@ export function RehearsalWorkspace(props: {
         </section>
 
         <aside className="rehearsal-presenter-side">
+          <section className="rehearsal-side-timer-card" aria-label="리허설 타이머">
+            <div className="rehearsal-side-timer-hero">
+              <div className="rehearsal-side-timer-header">
+                <div>
+                  <span className="rehearsal-side-timer-title">{"\ubc1c\ud45c \uc2dc\uac04"}</span>
+                  <input
+                    className="rehearsal-side-timer-time"
+                    aria-label="발표 시간 설정"
+                    inputMode="numeric"
+                    value={
+                      editingTimeField === "duration"
+                        ? timerDurationInput
+                        : formatClock(displayedTimeSeconds)
+                    }
+                    onBlur={(event) => {
+                      setTimeMode("timer");
+                      commitTimerDurationInput(event.target.value);
+                    }}
+                    onChange={(event) => {
+                      setEditingTimeField("duration");
+                      setTimerDurationInput(event.target.value);
+                    }}
+                    onFocus={() => {
+                      setEditingTimeField("duration");
+                      setTimerDurationInput(formatClock(timerDurationSeconds));
+                    }}
+                  />
+                </div>
+                <div className="rehearsal-side-timer-actions">
+                  <button
+                    type="button"
+                    aria-label={
+                      canStopLiveDemo
+                        ? "Live STT 종료"
+                        : isTimerRunning
+                          ? "타이머 일시정지"
+                          : "Live STT 시작"
+                    }
+                    onClick={handleSideTimerPrimaryAction}
+                    disabled={!deck && !isTimerRunning}
+                  >
+                    {canStopLiveDemo || isTimerRunning ? (
+                      <Square size={15} />
+                    ) : (
+                      <PlayCircle size={15} />
+                    )}
+                  </button>
+                  <button
+                    type="button"
+                    aria-label="타이머 초기화"
+                    onClick={() => {
+                      resetRehearsalTimerState({
+                        setElapsedSeconds,
+                        setSlideElapsedSeconds,
+                        setIsTimerRunning
+                      });
+                    }}
+                  >
+                    <RotateCcw size={15} />
+                  </button>
+                </div>
+              </div>
+
+              <div className="rehearsal-side-audio-gauge" aria-hidden="true">
+                <span className="rehearsal-side-timer-wave" aria-hidden="true">
+                  <i />
+                  <i />
+                  <i />
+                  <i />
+                </span>
+                <span className="rehearsal-side-audio-track">
+                  <span style={{ width: `${liveAudioLevelPercent}%` }} />
+                </span>
+              </div>
+
+              <div className="rehearsal-side-timer-progress" aria-hidden="true">
+                <span style={{ width: `${rehearsalProgressPercent}%` }} />
+              </div>
+
+              <div className="rehearsal-side-timer-meta">
+                <span>
+                  {"\ud604\uc7ac "}
+                  {formatClock(p3TimingSnapshot.currentSlideElapsedSeconds)}
+                </span>
+                <span>
+                  {"\uc608\uc0c1 "}
+                  {formatClock(p3TimingSnapshot.currentSlideTargetSeconds)}
+                </span>
+              </div>
+            </div>
+
+            <div className="rehearsal-side-detail-grid">
+              <article className="rehearsal-side-detail-card">
+                <span>{"\ud604\uc7ac \uc2ac\ub77c\uc774\ub4dc"}</span>
+                <strong>
+                  {"\uc2ac\ub77c\uc774\ub4dc "}
+                  {currentSlideIndex + 1} / {deck?.slides.length ?? 0}
+                </strong>
+                <small>{currentSlide ? getSlideTitle(currentSlide) : "-"}</small>
+              </article>
+              <article className="rehearsal-side-detail-card rehearsal-side-advice-card">
+                <span>{"\uc870\uc5b8"}</span>
+                <strong>{p3WordsPerMinute} WPM</strong>
+                <small>
+                  {getRehearsalPaceSummaryLabel(p3AdviceState.pace)}
+                  {p3AdviceState.slideOvertime ? " / 슬라이드 시간 초과" : " / 슬라이드 정상"}
+                </small>
+              </article>
+            </div>
+          </section>
+
           <RehearsalPanel
             mode="rehearsal"
             timing={p3TimingSnapshot}
@@ -2684,131 +2821,133 @@ export function RehearsalWorkspace(props: {
             adviceState={p3AdviceState}
             keywords={checklistKeywords}
             sentences={p3Sentences}
+            showAdvicePanel={false}
             snapshot={p3PanelSnapshot}
-          />
+            liveSlot={
+              <section className="rehearsal-assist-card checklist-card">
+                <header>
+                  <span>
+                    <Mic size={16} />
+                    Live STT
+                  </span>
+                  <button type="button" aria-label="More checklist options">
+                    <MoreHorizontal size={18} />
+                  </button>
+                </header>
 
-          <section className="rehearsal-assist-card checklist-card">
-            <header>
-              <span>
-                <Mic size={16} />
-                Live STT
-              </span>
-              <button type="button" aria-label="More checklist options">
-                <MoreHorizontal size={18} />
-              </button>
-            </header>
-
-            <div className={`rehearsal-live-status rehearsal-live-status-${liveStatus}`}>
-              <strong>{liveStatus}</strong>
-              <span>
-                {p3RunMeta
-                  ? `로컬 메타 ${p3RunMeta.slideTimeline.length}개 슬라이드`
-                  : advanceControllerState.status === "countdown"
-                    ? "자동 전환 카운트다운"
-                    : advanceControllerState.status === "blocked-by-builds"
-                      ? "빌드 대기"
-                      : advanceControllerState.status === "finish-suggested"
-                        ? "종료 제안"
-                    : "자동 전환 활성"}
-              </span>
-            </div>
-
-            <AutoAdvanceStatus
-              countdownMs={presenterSettings.advancePolicy.countdownMs}
-              nowMs={autoAdvanceNowMs}
-              onFinish={finishRehearsal}
-              state={advanceControllerState}
-            />
-
-            <AutoAdvanceSettings
-              policy={presenterSettings.advancePolicy}
-              saveSettings={savePresenterSettings}
-            />
-
-            <div className="rehearsal-live-actions">
-              <button
-                className="primary-action"
-                type="button"
-                onClick={() => void startLiveDemo()}
-                disabled={!canStartLiveDemo}
-              >
-                <Mic size={18} />
-                Live STT 시작
-              </button>
-              <button
-                className="secondary-action"
-                type="button"
-                onClick={() => stopLiveDemo({ showCompletionModal: true })}
-                disabled={!canStopLiveDemo}
-              >
-                <Square size={18} />
-                Live STT 종료
-              </button>
-            </div>
-
-            <div
-              className={`rehearsal-live-audio-meter rehearsal-live-audio-meter-${liveAudioMeterState}`}
-            >
-              <div className="rehearsal-live-audio-meter-header">
-                <span>Mic input</span>
-                <strong>{liveAudioLevelLabel}</strong>
-              </div>
-              <div
-                className="rehearsal-live-audio-meter-track"
-                role="meter"
-                aria-label="Mic input level"
-                aria-valuemin={0}
-                aria-valuemax={100}
-                aria-valuenow={Math.round(liveAudioLevelPercent)}
-                aria-valuetext={liveAudioLevelLabel}
-              >
-                <span style={{ width: `${liveAudioLevelPercent}%` }} />
-              </div>
-              <small>
-                {liveAudioLevel
-                  ? `${Math.round(liveAudioLevel.rmsDb)} dB RMS`
-                  : "-100 dB RMS"}
-              </small>
-            </div>
-            {canDownloadLiveSttDebugPcm ? (
-              <button
-                className="secondary-action"
-                type="button"
-                onClick={() => {
-                  if (liveDebugPcmRecording) {
-                    downloadLiveSttDebugPcm(liveDebugPcmRecording);
-                  }
-                }}
-              >
-                <Download size={16} />
-                모델 입력 WAV 다운로드
-              </button>
-            ) : null}
-
-            {liveCue && (
-              <div className="job-status" aria-live="polite">
-                <div>
-                  <strong>emphasis</strong>
-                  <span>{liveCue.text}</span>
+                <div className={`rehearsal-live-status rehearsal-live-status-${liveStatus}`}>
+                  <strong>{liveStatus}</strong>
+                  <span>
+                    {p3RunMeta
+                      ? `로컬 메타 ${p3RunMeta.slideTimeline.length}개 슬라이드`
+                      : advanceControllerState.status === "countdown"
+                        ? "자동 전환 카운트다운"
+                        : advanceControllerState.status === "blocked-by-builds"
+                          ? "빌드 대기"
+                          : advanceControllerState.status === "finish-suggested"
+                            ? "종료 제안"
+                        : "자동 전환 활성"}
+                  </span>
                 </div>
-                <p>현재 슬라이드에서 키워드를 감지했습니다.</p>
-              </div>
-            )}
 
-            {liveSlideAdvance && (
-              <div className="project-status-message project-status-success">
-                <CheckCircle2 size={18} />
-                <span>키워드 {Math.round(liveSlideAdvance.coverage * 100)}% 감지로 자동 전환</span>
-              </div>
-            )}
+                <AutoAdvanceStatus
+                  countdownMs={presenterSettings.advancePolicy.countdownMs}
+                  nowMs={autoAdvanceNowMs}
+                  onFinish={finishRehearsal}
+                  state={advanceControllerState}
+                />
 
-            {liveError && (
-              <div className="project-status-message project-status-danger" role="status">
-                <AlertCircle size={18} />
-                <span>{liveError}</span>
-              </div>
-            )}
-          </section>
+                <AutoAdvanceSettings
+                  policy={presenterSettings.advancePolicy}
+                  saveSettings={savePresenterSettings}
+                />
+
+                <div className="rehearsal-live-actions rehearsal-live-actions-legacy">
+                  <button
+                    className="primary-action"
+                    type="button"
+                    onClick={() => void startLiveDemo()}
+                    disabled={!canStartLiveDemo}
+                  >
+                    <Mic size={18} />
+                    Live STT 시작
+                  </button>
+                  <button
+                    className="secondary-action"
+                    type="button"
+                    onClick={() => stopLiveDemo({ showCompletionModal: true })}
+                    disabled={!canStopLiveDemo}
+                  >
+                    <Square size={18} />
+                    Live STT 종료
+                  </button>
+                </div>
+
+                <div
+                  className={`rehearsal-live-audio-meter rehearsal-live-audio-meter-${liveAudioMeterState}`}
+                >
+                  <div className="rehearsal-live-audio-meter-header">
+                    <span>Mic input</span>
+                    <strong>{liveAudioLevelLabel}</strong>
+                  </div>
+                  <div
+                    className="rehearsal-live-audio-meter-track"
+                    role="meter"
+                    aria-label="Mic input level"
+                    aria-valuemin={0}
+                    aria-valuemax={100}
+                    aria-valuenow={Math.round(liveAudioLevelPercent)}
+                    aria-valuetext={liveAudioLevelLabel}
+                  >
+                    <span style={{ width: `${liveAudioLevelPercent}%` }} />
+                  </div>
+                  <small>
+                    {liveAudioLevel
+                      ? `${Math.round(liveAudioLevel.rmsDb)} dB RMS`
+                      : "-100 dB RMS"}
+                  </small>
+                </div>
+                {canDownloadLiveSttDebugPcm ? (
+                  <button
+                    className="secondary-action"
+                    type="button"
+                    onClick={() => {
+                      if (liveDebugPcmRecording) {
+                        downloadLiveSttDebugPcm(liveDebugPcmRecording);
+                      }
+                    }}
+                  >
+                    <Download size={16} />
+                    모델 입력 WAV 다운로드
+                  </button>
+                ) : null}
+
+                {liveCue && (
+                  <div className="job-status" aria-live="polite">
+                    <div>
+                      <strong>emphasis</strong>
+                      <span>{liveCue.text}</span>
+                    </div>
+                    <p>현재 슬라이드에서 키워드를 감지했습니다.</p>
+                  </div>
+                )}
+
+                {liveSlideAdvance && (
+                  <div className="project-status-message project-status-success">
+                    <CheckCircle2 size={18} />
+                    <span>키워드 {Math.round(liveSlideAdvance.coverage * 100)}% 감지로 자동 전환</span>
+                  </div>
+                )}
+
+                {liveError && (
+                  <div className="project-status-message project-status-danger" role="status">
+                    <AlertCircle size={18} />
+                    <span>{liveError}</span>
+                  </div>
+                )}
+              </section>
+            }
+          />
         </aside>
       </section>
     </main>
@@ -3482,6 +3621,55 @@ function formatClock(totalSeconds: number) {
   return `${minutes}:${seconds}`;
 }
 
+function usePresenterStageScale(deck: Deck | null) {
+  const presenterStageRef = useRef<HTMLDivElement | null>(null);
+  const [presenterScale, setPresenterScale] = useState(0.44);
+
+  useEffect(() => {
+    const stage = presenterStageRef.current;
+    if (!stage || !deck) {
+      return;
+    }
+
+    const updateScale = () => {
+      const bounds = stage.getBoundingClientRect();
+      const nextScale = Math.min(
+        bounds.width / deck.canvas.width,
+        bounds.height / deck.canvas.height
+      );
+      if (Number.isFinite(nextScale) && nextScale > 0) {
+        setPresenterScale((current) =>
+          Math.abs(current - nextScale) > 0.001 ? nextScale : current
+        );
+      }
+    };
+
+    updateScale();
+
+    if (typeof ResizeObserver === "undefined") {
+      window.addEventListener("resize", updateScale);
+      return () => window.removeEventListener("resize", updateScale);
+    }
+
+    const observer = new ResizeObserver(updateScale);
+    observer.observe(stage);
+    return () => observer.disconnect();
+  }, [deck]);
+
+  return { presenterScale, presenterStageRef };
+}
+
+function getRehearsalPaceSummaryLabel(pace: "too-fast" | "too-slow" | "normal") {
+  switch (pace) {
+    case "too-fast":
+      return "말 속도 빠름";
+    case "too-slow":
+      return "말 속도 느림";
+    case "normal":
+      return "말 속도 정상";
+  }
+}
+
 function parseClockInput(value: string): number | null {
   const normalizedValue = value.trim();
   const match = normalizedValue.match(/^(\d{1,3})(?::([0-5]?\d))?$/);
@@ -3535,14 +3723,14 @@ async function readErrorMessage(response: Response, fallback: string) {
 
 function toMicrophoneErrorMessage(cause: unknown) {
   if (cause instanceof DOMException && cause.name === "NotAllowedError") {
-    return "留덉씠??沅뚰븳??嫄곕??섏뿀?듬땲??";
+    return "마이크 접근 권한이 거부되었습니다.";
   }
 
   if (cause instanceof DOMException && cause.name === "NotFoundError") {
-    return "?ъ슜?????덈뒗 留덉씠?щ? 李얠? 紐삵뻽?듬땲??";
+    return "사용 가능한 마이크를 찾지 못했습니다.";
   }
 
-  return toErrorMessage(cause) || "?뱀쓬???쒖옉?섏? 紐삵뻽?듬땲??";
+  return toErrorMessage(cause) || "마이크를 시작하지 못했습니다.";
 }
 
 function toRehearsalFlowMessage(cause: unknown) {

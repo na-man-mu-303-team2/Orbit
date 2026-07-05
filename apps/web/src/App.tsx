@@ -529,6 +529,7 @@ function AppFrame(props: {
 }) {
   const { children, isAuthenticated, route, user } = props;
   const queryClient = useQueryClient();
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const activeProjectId =
     route.name === "project-editor" ||
@@ -563,9 +564,14 @@ function AppFrame(props: {
         isHomeDashboard ? " orbit-home-shell" : ""
       }`}
     >
-      <div className="orbit-product-body">
+      <div
+        className={`orbit-product-body${
+          isSidebarCollapsed ? " orbit-product-body-collapsed" : ""
+        }`}
+      >
         <AppSidebar
           activeProjectId={activeProjectId}
+          isCollapsed={isSidebarCollapsed}
           isAuthenticated={isAuthenticated}
           isCreateDeckActive={route.name === "create-deck"}
           isHomeActive={route.name === "home"}
@@ -582,6 +588,7 @@ function AppFrame(props: {
           onLogoutClick={() => void handleLogout()}
           onProjectListClick={() => navigateTo("/project")}
           onRehearsalClick={(projectId) => navigateTo(`/rehearsal/${projectId}`)}
+          onToggleCollapse={() => setIsSidebarCollapsed((current) => !current)}
           userInitial={userInitial}
           userLabel={userLabel}
         />
