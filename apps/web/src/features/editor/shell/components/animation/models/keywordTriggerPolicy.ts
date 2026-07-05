@@ -24,21 +24,17 @@ export function buildAnimationKeywordTriggerPolicy(args: {
     };
   }
 
-  const restrictionMessage =
-    args.element.type === "group"
-      ? null
-      : "키워드 트리거 애니메이션은 그룹 요소에만 연결할 수 있습니다. 여러 요소를 함께 반응시키려면 먼저 그룹으로 묶어 주세요.";
   const stepCount = countKeywordAnimationSteps(
     args.slideAnimations,
     args.usageByKeywordId[args.keywordId]
   );
 
   return {
-    restrictionMessage,
+    restrictionMessage: null,
     stepCount,
     warningMessage: buildKeywordTriggerWarningMessage(
       stepCount,
-      restrictionMessage
+      null
     )
   };
 }
