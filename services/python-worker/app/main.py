@@ -146,7 +146,7 @@ class QnaAnswerRequest(BaseModel):
     )
     retrieval_limit: int = Field(default=5, alias="retrievalLimit", ge=1, le=20)
     confidence_threshold: float = Field(
-        default=0.65,
+        default=0.78,
         alias="confidenceThreshold",
         ge=0,
         le=1,
@@ -348,7 +348,7 @@ def build_qna_grounding_sources(
             )
         )
 
-    selected_ids = selected_reference_ids[:retrieval_limit]
+    selected_ids = selected_reference_ids
     if selected_ids and config.openai_api_key:
         results, _embedding_result = search_reference_chunks(
             repository=PostgresReferenceRepository(config.database_url),
@@ -370,7 +370,7 @@ def build_qna_grounding_sources(
             for reference_id in selected_ids
         )
 
-    return sources[:retrieval_limit]
+    return sources
 
 
 def qna_sources_from_reference_results(

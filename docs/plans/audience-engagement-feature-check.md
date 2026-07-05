@@ -21,7 +21,7 @@ The audience engagement implementation now covers the Phase 1-7 functional scope
 
 Completed areas include Korean audience join failure copy, explicit per-question manual result exposure, `speed-bonus` quiz scoring contracts and API behavior, multi-question audience poll/quiz response UI, presenter setup/live controls, duplicate Q&A grouping, private AI answer WebSocket broadcast and REST recovery, deterministic slide snapshot generation with durable per-slide session freeze/reuse, pre-start slide-render job scheduling, current-slide sanitized Deck JSON fallback rendering, selected-reference AI Q&A grounding, dedicated slide-renderer/slide-render-worker packages, and regression coverage around those paths.
 
-Residual risk is concentrated in environment-level verification rather than known implementation gaps: the local environment cannot run Python `uv`/`pytest`, and the full real worker-to-browser snapshot lifecycle has package/API/worker tests plus browser reconnect/fallback smoke but not a single integrated E2E run with live queue infrastructure.
+Residual risk is concentrated in integration-level verification rather than known implementation gaps: the full real worker-to-browser snapshot lifecycle has package/API/worker tests plus browser reconnect/fallback smoke but not a single integrated E2E run with live queue infrastructure.
 
 ## Verification Matrix
 
@@ -34,7 +34,7 @@ Residual risk is concentrated in environment-level verification rather than know
 | Polls and quizzes | Pass | Shared/API/Web tests and audience Playwright smoke pass. | Multi-question response UI, choice/ranking/open text/scale inputs, speed-bonus scoring, and after-close quiz answer reveal are covered. |
 | Q&A duplicate merge | Pass | API service tests. | Similar questions reuse a group id through conservative cosine similarity at `>= 0.88`. |
 | Private AI answer delivery | Pass | API gateway tests, Web realtime tests, and audience Playwright smoke pass. | API broadcasts `audience:private-answer`; Web client parses it and updates the Q&A card while REST recovery remains. The audience smoke verifies a recovered answer is visible to the asker and not to a second audience page. |
-| AI Q&A grounding/generation | Pass with environment caveat | Python syntax compile; API/shared tests pass; Python tests updated but not runnable locally; audience Playwright smoke covers recovery/privacy and timeout escalation UI. | API now sends current public slide title/text without speaker notes, worker searches only `selectedReferenceIds`, enforces `0.78` top-source grounding, calls the configured OpenAI chat model only when `OPENAI_API_KEY` exists, and returns source type/title citations. |
+| AI Q&A grounding/generation | Pass | Python Q&A/reference pytest pass with bundled Python 3.12; API/shared tests pass; audience Playwright smoke covers recovery/privacy and timeout escalation UI. | API now sends current public slide title/text without speaker notes, worker searches only `selectedReferenceIds`, enforces `0.78` top-source grounding, calls the configured OpenAI chat model only when `OPENAI_API_KEY` exists, and returns source type/title citations. |
 | Slide snapshots | Pass with integration caveat | API service tests, worker processor tests, shared/job-queue tests, migration specs/run-revert, `@orbit/slide-renderer` tests, `@orbit/slide-render-worker` tests/build, and audience Playwright smoke pass. | Draft session creation schedules `audience-slide-render` jobs for stale/missing slide snapshots, the worker stores rendered snapshots and merges the result into `audience_slide_snapshots_json`, session start refreshes/freezes URLs for all slides, and presenter slide updates reuse the frozen URL. Browser smoke covers reconnect snapshot restoration; a single live queue worker-to-browser E2E remains a residual verification gap. |
 | Audience slide rendering fallback | Pass with visual caveat | API service tests, Web audience tests, and `tests/e2e/audience-engagement.spec.ts` pass. | Image-first rendering works when `slideSnapshotUrl` exists; snapshot storage failure persists an audience-safe current-slide `slideFallback` Deck payload without `speakerNotes`/presenter script, and Web renders it through `SlideshowRenderer`. The audience smoke verifies the missing-snapshot Deck JSON fallback path; pixel-level visual parity remains a manual QA risk. |
 | Reactions | Pass | Existing API/gateway/Web tests pass. | No new gap found in this pass. |
@@ -73,7 +73,7 @@ Residual risk is concentrated in environment-level verification rather than know
 
 - **Live queue worker-to-browser E2E was not run.** Snapshot jobs are queued during draft session preparation, worker completion is persisted into the durable session map, URLs are frozen at session start, and reconnect browser smoke restores a frozen snapshot URL. The remaining gap is a single integrated E2E with live queue infrastructure.
 - **Pixel-level Deck JSON fallback parity remains a manual QA risk.** Snapshot storage failure falls back to a sanitized current-slide Deck payload rendered through the shared slideshow renderer, and the audience smoke covers the missing-snapshot path. Automated visual diffing is not present.
-- **Python pytest remains environment-limited.** Selected-reference retrieval, public slide context, `0.78` thresholding, OpenAI-key-gated chat generation, asker-only recovery, and timeout escalation UI are implemented and covered outside the unavailable `uv run pytest` command.
+- **`uv` remains unavailable on PATH.** Python Q&A/reference tests pass through the bundled Python 3.12 runtime, but the exact `uv run pytest` command still cannot run until `uv` is installed locally.
 - **Survey edge coverage is narrower than poll/quiz coverage.** Contact-consented survey submission and CSV export are covered; richer survey variants should be covered before broadening the survey feature surface.
 
 ## Commands Run
@@ -99,6 +99,7 @@ Residual risk is concentrated in environment-level verification rather than know
 - `pnpm --filter @orbit/worker lint`
 - `pnpm --filter @orbit/slide-render-worker lint`
 - `PLAYWRIGHT_BASE_URL=http://127.0.0.1:5174 pnpm exec playwright test tests/e2e/audience-engagement.spec.ts --reporter=list` (13 passed)
+- `/Users/donghyunkim/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 -m pytest services/python-worker/tests/test_qna.py services/python-worker/tests/test_references.py` (10 passed)
 - `PYTHONPYCACHEPREFIX=/private/tmp/orbit-pycache python3 -m py_compile services/python-worker/app/main.py services/python-worker/app/references.py services/python-worker/tests/test_qna.py services/python-worker/tests/test_references.py`
 - `pnpm lint`
 - `pnpm build`
@@ -119,4 +120,4 @@ Residual risk is concentrated in environment-level verification rather than know
 ### Blocked By Local Tooling
 
 - `cd services/python-worker && uv run pytest tests/test_qna.py tests/test_references.py`: `uv` is not installed in this environment.
-- `python3 -m pytest services/python-worker/tests/test_qna.py services/python-worker/tests/test_references.py`: `pytest` is not installed in the available Python environments.
+- `python3 -m pytest services/python-worker/tests/test_qna.py services/python-worker/tests/test_references.py`: system Python 3.9 has no `pytest`; bundled Python 3.12 command above passed.
