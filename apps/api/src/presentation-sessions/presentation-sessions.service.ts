@@ -126,6 +126,8 @@ type AudienceParticipantRow = {
   joined_before_end: boolean;
 };
 
+type QueryRowsResult<Row> = Row[] | [Row[], number];
+
 type AudienceRealtimeStateRow = {
   session_id: string;
   slide_id: string | null;
@@ -325,7 +327,9 @@ export class PresentationSessionsService {
     );
 
     try {
-      const rows = await this.dataSource.query<PresentationSessionRow[]>(
+      const result = await this.dataSource.query<
+        QueryRowsResult<PresentationSessionRow>
+      >(
         `
           INSERT INTO presentation_sessions (
             session_id,
@@ -367,7 +371,7 @@ export class PresentationSessionsService {
       );
 
       await this.insertDefaultAudienceState(sessionId);
-      const createdSession = rows[0];
+      const createdSession = unwrapQueryRows(result)[0];
       await this.queueAudienceSlideSnapshotPreparation({
         projectId,
         sessionId: createdSession.session_id,
@@ -459,7 +463,9 @@ export class PresentationSessionsService {
     }
 
     try {
-      const rows = await this.dataSource.query<AudienceParticipantRow[]>(
+      const result = await this.dataSource.query<
+        QueryRowsResult<AudienceParticipantRow>
+      >(
         `
           INSERT INTO audience_participants (
             audience_id,
@@ -475,14 +481,14 @@ export class PresentationSessionsService {
             audience_id,
             session_id,
             nickname,
-            joined_at,
-            last_seen_at,
+            joined_at::text AS joined_at,
+            last_seen_at::text AS last_seen_at,
             joined_before_end
         `,
         [input.audienceId, session.sessionId, input.nickname, input.tokenHash],
       );
 
-      const participant = this.toParticipantDto(rows[0]);
+      const participant = this.toParticipantDto(unwrapQueryRows(result)[0]);
       await this.appendAudienceJoinedEvent(
         session.sessionId,
         participant.audienceId,
@@ -506,7 +512,9 @@ export class PresentationSessionsService {
     audienceId: string,
     tokenHash: string,
   ): Promise<AudienceJoinResponse> {
-    const rows = await this.dataSource.query<AudienceParticipantRow[]>(
+    const result = await this.dataSource.query<
+      QueryRowsResult<AudienceParticipantRow>
+    >(
       `
         UPDATE audience_participants
         SET last_seen_at = now()
@@ -517,13 +525,14 @@ export class PresentationSessionsService {
           audience_id,
           session_id,
           nickname,
-          joined_at,
-          last_seen_at,
+          joined_at::text AS joined_at,
+          last_seen_at::text AS last_seen_at,
           joined_before_end
       `,
       [sessionId, audienceId, tokenHash],
     );
 
+    const rows = unwrapQueryRows(result);
     const row = rows[0];
     if (!row) {
       throw new UnauthorizedException("Audience access required");
@@ -562,7 +571,9 @@ export class PresentationSessionsService {
       slideIndex: input.slideIndex,
       effectState: assertAudienceSafePayload(input.effectState),
     });
-    const rows = await this.dataSource.query<AudienceRealtimeStateRow[]>(
+    const result = await this.dataSource.query<
+      QueryRowsResult<AudienceRealtimeStateRow>
+    >(
       `
         UPDATE audience_realtime_state
         SET
@@ -578,7 +589,7 @@ export class PresentationSessionsService {
           slide_index,
           effect_state_json,
           active_interaction_id,
-          updated_at
+          updated_at::text AS updated_at
       `,
       [
         input.sessionId,
@@ -589,6 +600,7 @@ export class PresentationSessionsService {
       ],
     );
 
+    const rows = unwrapQueryRows(result);
     const row = rows[0];
     if (!row) {
       throw new NotFoundException("Audience realtime state not found");
@@ -633,7 +645,9 @@ export class PresentationSessionsService {
     );
     const next = normalizeAudienceFeatureSettingsUpdate(current, patch);
 
-    const rows = await this.dataSource.query<AudienceFeatureSettingsRow[]>(
+    const result = await this.dataSource.query<
+      AudienceFeatureSettingsRow[] | [AudienceFeatureSettingsRow[], number]
+    >(
       `
         UPDATE audience_feature_settings AS features
         SET
@@ -656,7 +670,7 @@ export class PresentationSessionsService {
           features.quizzes_enabled,
           features.reactions_enabled,
           features.survey_enabled,
-          features.updated_at
+          features.updated_at::text AS updated_at
       `,
       [
         input.sessionId,
@@ -670,6 +684,7 @@ export class PresentationSessionsService {
       ],
     );
 
+    const rows = unwrapQueryRows(result);
     const row = rows[0];
     if (!row) {
       throw new NotFoundException("Audience feature settings not found");
@@ -718,9 +733,7 @@ export class PresentationSessionsService {
       [entryStatus, projectId, sessionId],
     );
 
-    const rows = (
-      Array.isArray(result[0]) ? result[0] : result
-    ) as PresentationSessionRow[];
+    const rows = unwrapQueryRows(result);
     const row = rows[0];
     if (!row) {
       throw new NotFoundException("Presentation session not found");
@@ -736,7 +749,9 @@ export class PresentationSessionsService {
     sessionId: string;
     actorId: string;
   }) {
-    const rows = await this.dataSource.query<PresentationSessionRow[]>(
+    const result = await this.dataSource.query<
+      QueryRowsResult<PresentationSessionRow>
+    >(
       `
         UPDATE presentation_sessions
         SET status = 'live',
@@ -762,6 +777,7 @@ export class PresentationSessionsService {
       [input.projectId, input.sessionId],
     );
 
+    const rows = unwrapQueryRows(result);
     const row = rows[0];
     if (!row) {
       throw new BadRequestException("세션을 시작할 수 없습니다.");
@@ -799,7 +815,9 @@ export class PresentationSessionsService {
     sessionId: string;
     actorId: string;
   }) {
-    const rows = await this.dataSource.query<PresentationSessionRow[]>(
+    const result = await this.dataSource.query<
+      QueryRowsResult<PresentationSessionRow>
+    >(
       `
         UPDATE presentation_sessions
         SET status = 'ended',
@@ -827,6 +845,7 @@ export class PresentationSessionsService {
       [input.projectId, input.sessionId],
     );
 
+    const rows = unwrapQueryRows(result);
     const row = rows[0];
     if (!row) {
       throw new BadRequestException("세션을 종료할 수 없습니다.");
@@ -1356,7 +1375,9 @@ export class PresentationSessionsService {
     const isPoll = interaction.kind === "poll";
 
     try {
-      const rows = await this.dataSource.query<InteractionResponseRow[]>(
+      const result = await this.dataSource.query<
+        QueryRowsResult<InteractionResponseRow>
+      >(
         isPoll
           ? `
               INSERT INTO interaction_responses (
@@ -1440,7 +1461,7 @@ export class PresentationSessionsService {
       });
 
       return submitInteractionResponseResponseSchema.parse({
-        response: this.toInteractionResponseDto(rows[0]),
+        response: this.toInteractionResponseDto(unwrapQueryRows(result)[0]),
       });
     } catch (error) {
       if (isPostgresUniqueViolation(error) && !isPoll) {
@@ -1552,7 +1573,9 @@ export class PresentationSessionsService {
     const questionGroupId =
       (await this.findDuplicateQuestionGroup(input.sessionId, request.text)) ??
       questionId;
-    const rows = await this.dataSource.query<AudienceQuestionRow[]>(
+    const result = await this.dataSource.query<
+      QueryRowsResult<AudienceQuestionRow>
+    >(
       `
         INSERT INTO audience_questions (
           question_id,
@@ -1571,8 +1594,8 @@ export class PresentationSessionsService {
           audience_id,
           text,
           status,
-          submitted_at,
-          answered_at
+          submitted_at::text AS submitted_at,
+          answered_at::text AS answered_at
       `,
       [
         questionId,
@@ -1591,7 +1614,7 @@ export class PresentationSessionsService {
       payload: { questionId },
     });
 
-    const question = this.toAudienceQuestionDto(rows[0]);
+    const question = this.toAudienceQuestionDto(unwrapQueryRows(result)[0]);
     if (features.aiQnaEnabled) {
       await this.createAiAnswerForQuestion(question);
     }
@@ -1668,7 +1691,9 @@ export class PresentationSessionsService {
     actorId: string;
   }) {
     await this.assertSessionBelongsToProject(input.projectId, input.sessionId);
-    const rows = await this.dataSource.query<AudienceQuestionRow[]>(
+    const result = await this.dataSource.query<
+      QueryRowsResult<AudienceQuestionRow>
+    >(
       `
         UPDATE audience_questions
         SET status = 'answered',
@@ -1682,12 +1707,13 @@ export class PresentationSessionsService {
           audience_id,
           text,
           status,
-          submitted_at,
-          answered_at
+          submitted_at::text AS submitted_at,
+          answered_at::text AS answered_at
       `,
       [input.sessionId, input.questionId],
     );
 
+    const rows = unwrapQueryRows(result);
     const row = rows[0];
     if (!row) {
       throw new NotFoundException("Audience question not found");
@@ -1709,8 +1735,8 @@ export class PresentationSessionsService {
   async updateAiReferenceSelection(input: ProjectSessionInput, body: unknown) {
     const parsed = updateAiReferenceSelectionRequestSchema.parse(body);
     await this.assertSessionBelongsToProject(input.projectId, input.sessionId);
-    const rows = await this.dataSource.query<
-      { selected_reference_ids_json: string[] | string }[]
+    const result = await this.dataSource.query<
+      QueryRowsResult<{ selected_reference_ids_json: string[] | string }>
     >(
       `
         UPDATE presentation_sessions
@@ -1721,7 +1747,7 @@ export class PresentationSessionsService {
       `,
       [input.projectId, input.sessionId, parsed.referenceIds],
     );
-    const value = rows[0]?.selected_reference_ids_json ?? [];
+    const value = unwrapQueryRows(result)[0]?.selected_reference_ids_json ?? [];
     return updateAiReferenceSelectionResponseSchema.parse({
       referenceIds:
         typeof value === "string" ? (JSON.parse(value) as string[]) : value,
@@ -1742,7 +1768,9 @@ export class PresentationSessionsService {
     questionId: string;
   }) {
     const questionResponse = await this.getAudienceQuestionStatus(input);
-    const rows = await this.dataSource.query<AudienceQuestionAnswerRow[]>(
+    const result = await this.dataSource.query<
+      QueryRowsResult<AudienceQuestionAnswerRow>
+    >(
       `
         SELECT
           question_id,
@@ -1764,6 +1792,7 @@ export class PresentationSessionsService {
       [input.sessionId, input.audienceId, input.questionId],
     );
 
+    const rows = unwrapQueryRows(result);
     return audienceQuestionAnswerResponseSchema.parse({
       question: questionResponse.question,
       answer: rows[0] ? this.toQuestionAnswerDto(rows[0]) : null,
@@ -1780,7 +1809,9 @@ export class PresentationSessionsService {
     const feedback = updateAiAnswerFeedbackRequestSchema.parse(input.body);
     await this.getAudienceQuestionStatus(input);
     const escalated = feedback.feedback === "unresolved";
-    const rows = await this.dataSource.query<AudienceQuestionAnswerRow[]>(
+    const result = await this.dataSource.query<
+      QueryRowsResult<AudienceQuestionAnswerRow>
+    >(
       `
         UPDATE audience_question_answers
         SET feedback = $4,
@@ -1798,7 +1829,7 @@ export class PresentationSessionsService {
           failure_reason,
           feedback,
           escalated_to_presenter,
-          created_at
+          created_at::text AS created_at
       `,
       [
         input.sessionId,
@@ -1822,6 +1853,7 @@ export class PresentationSessionsService {
       );
     }
 
+    const rows = unwrapQueryRows(result);
     return audienceQuestionAnswerResponseSchema.parse({
       question: (
         await this.getAudienceQuestionStatus(input)
@@ -1934,7 +1966,9 @@ export class PresentationSessionsService {
     }
 
     try {
-      const rows = await this.dataSource.query<SessionSurveyResponseRow[]>(
+      const result = await this.dataSource.query<
+        QueryRowsResult<SessionSurveyResponseRow>
+      >(
         `
           INSERT INTO session_survey_responses (
             response_id,
@@ -1952,7 +1986,7 @@ export class PresentationSessionsService {
             survey_id,
             session_id,
             audience_id,
-            submitted_at,
+            submitted_at::text AS submitted_at,
             answers_json,
             contact_consent,
             contact_answers_json
@@ -1968,7 +2002,7 @@ export class PresentationSessionsService {
         ],
       );
 
-      const response = this.toSurveyResponseDto(rows[0]);
+      const response = this.toSurveyResponseDto(unwrapQueryRows(result)[0]);
       await this.appendAudienceEvent({
         sessionId: input.sessionId,
         actorType: "audience",
@@ -2187,7 +2221,7 @@ export class PresentationSessionsService {
           quizzes_enabled,
           reactions_enabled,
           survey_enabled,
-          updated_at
+          updated_at::text AS updated_at
         FROM audience_feature_settings
         WHERE session_id = $1
         LIMIT 1
@@ -2217,7 +2251,7 @@ export class PresentationSessionsService {
           features.quizzes_enabled,
           features.reactions_enabled,
           features.survey_enabled,
-          features.updated_at
+          features.updated_at::text AS updated_at
         FROM audience_feature_settings AS features
         INNER JOIN presentation_sessions AS sessions
           ON sessions.session_id = features.session_id
@@ -2261,7 +2295,9 @@ export class PresentationSessionsService {
   }): Promise<AudienceAggregateReport> {
     await this.assertSessionBelongsToProject(input.projectId, input.sessionId);
     const aggregate = await this.buildAudienceAggregate(input.sessionId);
-    const rows = await this.dataSource.query<AudienceAggregateReportRow[]>(
+    const result = await this.dataSource.query<
+      QueryRowsResult<AudienceAggregateReportRow>
+    >(
       `
         INSERT INTO audience_aggregate_reports (
           report_id,
@@ -2281,8 +2317,8 @@ export class PresentationSessionsService {
           session_id,
           status,
           aggregate_json,
-          generated_at,
-          raw_data_deleted_at
+          generated_at::text AS generated_at,
+          raw_data_deleted_at::text AS raw_data_deleted_at
       `,
       [
         `audience_report_${randomUUID()}`,
@@ -2292,7 +2328,7 @@ export class PresentationSessionsService {
       ],
     );
 
-    return this.toAggregateReportDto(rows[0]);
+    return this.toAggregateReportDto(unwrapQueryRows(result)[0]);
   }
 
   private async buildAudienceAggregate(sessionId: string) {
@@ -2494,7 +2530,9 @@ export class PresentationSessionsService {
             escalatedToPresenter: true,
           };
 
-    const rows = await this.dataSource.query<AudienceQuestionAnswerRow[]>(
+    const result = await this.dataSource.query<
+      QueryRowsResult<AudienceQuestionAnswerRow>
+    >(
       `
         INSERT INTO audience_question_answers (
           question_id,
@@ -2506,7 +2544,7 @@ export class PresentationSessionsService {
           failure_reason,
           feedback,
           escalated_to_presenter,
-          created_at
+          created_at::text AS created_at
         )
         VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, NULL, $8, now())
         ON CONFLICT (question_id)
@@ -2526,7 +2564,7 @@ export class PresentationSessionsService {
           failure_reason,
           feedback,
           escalated_to_presenter,
-          created_at
+          created_at::text AS created_at
       `,
       [
         question.questionId,
@@ -2540,7 +2578,7 @@ export class PresentationSessionsService {
       ],
     );
 
-    return this.toQuestionAnswerDto(rows[0]);
+    return this.toQuestionAnswerDto(unwrapQueryRows(result)[0]);
   }
 
   private async getSelectedReferenceIds(sessionId: string): Promise<string[]> {
@@ -3491,9 +3529,30 @@ function isPostgresUniqueViolation(error: unknown): boolean {
 }
 
 function toIso(value: Date | string) {
-  return value instanceof Date
-    ? value.toISOString()
-    : new Date(value).toISOString();
+  const date = value instanceof Date ? value : new Date(normalizeDateText(value));
+  if (Number.isNaN(date.getTime())) {
+    throw new RangeError("Invalid time value");
+  }
+  return date.toISOString();
+}
+
+function unwrapQueryRows<Row>(result: QueryRowsResult<Row>): Row[] {
+  const first = result[0];
+  return (Array.isArray(first) ? first : result) as Row[];
+}
+
+function normalizeDateText(value: string) {
+  const match = value.match(
+    /^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2}:\d{2})(?:\.(\d{1,6}))?([+-]\d{2})(?::?(\d{2}))?$/,
+  );
+  if (!match) {
+    return value;
+  }
+
+  const [, date, time, fraction = "", offsetHours, offsetMinutes = "00"] =
+    match;
+  const milliseconds = fraction.padEnd(3, "0").slice(0, 3);
+  return `${date}T${time}.${milliseconds}${offsetHours}:${offsetMinutes}`;
 }
 
 function toNullableIso(value: Date | string | null) {

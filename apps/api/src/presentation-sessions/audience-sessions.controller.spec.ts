@@ -121,6 +121,25 @@ describe("AudienceSessionsController", () => {
     process.env.DEMO_SESSION_ID = "session_demo_1";
   });
 
+  it("looks up a public audience session without presenter fields", async () => {
+    const { controller, service } = createController();
+
+    const result = await controller.getJoinSession("123456");
+
+    expect(service.getActiveSessionByJoinCode).toHaveBeenCalledWith("123456");
+    expect(result).toEqual({
+      session: {
+        sessionId: "session_existing",
+        projectId: "project_1",
+        joinCode: "123456",
+        status: "draft",
+        entryStatus: "open",
+      },
+    });
+    expect(result.session).not.toHaveProperty("deckId");
+    expect(result.session).not.toHaveProperty("presenterUserId");
+  });
+
   it("sets an HttpOnly audience cookie when joining by nickname", async () => {
     const { controller, service } = createController();
     const response = { cookie: vi.fn() } as any;

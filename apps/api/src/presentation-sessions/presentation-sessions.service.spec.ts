@@ -411,14 +411,17 @@ describe("PresentationSessionsService", () => {
     const query = vi
       .fn()
       .mockResolvedValueOnce([
-        {
-          audience_id: "audience_00000000-0000-4000-8000-000000000001",
-          session_id: "session_existing",
-          nickname: "orbit",
-          joined_at: "2026-07-05T00:00:01.000Z",
-          last_seen_at: "2026-07-05T00:01:00.000Z",
-          joined_before_end: true,
-        },
+        [
+          {
+            audience_id: "audience_00000000-0000-4000-8000-000000000001",
+            session_id: "session_existing",
+            nickname: "orbit",
+            joined_at: "2026-07-05 00:00:01.123456+00",
+            last_seen_at: "2026-07-05 00:01:00.654321+00",
+            joined_before_end: true,
+          },
+        ],
+        1,
       ])
       .mockResolvedValueOnce([activeSessionRow]);
     const service = new PresentationSessionsService({
@@ -437,6 +440,10 @@ describe("PresentationSessionsService", () => {
         nickname: "orbit",
       },
     });
+    expect(query.mock.calls[0][0]).toContain("joined_at::text AS joined_at");
+    expect(query.mock.calls[0][0]).toContain(
+      "last_seen_at::text AS last_seen_at",
+    );
   });
 
   it("rejects rejoin when the token hash does not match", async () => {
@@ -458,14 +465,17 @@ describe("PresentationSessionsService", () => {
     const query = vi
       .fn()
       .mockResolvedValueOnce([
-        {
-          audience_id: "audience_00000000-0000-4000-8000-000000000001",
-          session_id: "session_existing",
-          nickname: "orbit",
-          joined_at: "2026-07-05T00:00:01.000Z",
-          last_seen_at: "2026-07-05T00:01:00.000Z",
-          joined_before_end: true,
-        },
+        [
+          {
+            audience_id: "audience_00000000-0000-4000-8000-000000000001",
+            session_id: "session_existing",
+            nickname: "orbit",
+            joined_at: "2026-07-05 00:00:01.123456+00",
+            last_seen_at: "2026-07-05 00:01:00.654321+00",
+            joined_before_end: true,
+          },
+        ],
+        1,
       ])
       .mockResolvedValueOnce([activeSessionRow])
       .mockResolvedValueOnce([
@@ -518,6 +528,11 @@ describe("PresentationSessionsService", () => {
         reactionsEnabled: false,
       },
     });
+
+    const featureQuery = query.mock.calls.find(([sql]) =>
+      String(sql).includes("FROM audience_feature_settings"),
+    );
+    expect(featureQuery?.[0]).toContain("updated_at::text AS updated_at");
   });
 
   it("persists presenter slide state and appends an audience-safe event", async () => {
@@ -997,16 +1012,19 @@ describe("PresentationSessionsService", () => {
         },
       ])
       .mockResolvedValueOnce([
-        {
-          session_id: "session_existing",
-          qna_enabled: true,
-          ai_qna_enabled: true,
-          polls_enabled: false,
-          quizzes_enabled: false,
-          reactions_enabled: false,
-          survey_enabled: false,
-          updated_at: "2026-07-05T00:04:00.000Z",
-        },
+        [
+          {
+            session_id: "session_existing",
+            qna_enabled: true,
+            ai_qna_enabled: true,
+            polls_enabled: false,
+            quizzes_enabled: false,
+            reactions_enabled: false,
+            survey_enabled: false,
+            updated_at: "2026-07-05 17:34:57.692729+00",
+          },
+        ],
+        1,
       ])
       .mockResolvedValueOnce([]);
     const service = new PresentationSessionsService({
@@ -1025,14 +1043,21 @@ describe("PresentationSessionsService", () => {
         sessionId: "session_existing",
         qnaEnabled: true,
         aiQnaEnabled: true,
+        updatedAt: "2026-07-05T17:34:57.692Z",
       },
     });
 
     expect(query.mock.calls[0][0]).toContain(
       "INNER JOIN presentation_sessions",
     );
+    expect(query.mock.calls[0][0]).toContain(
+      "features.updated_at::text AS updated_at",
+    );
     expect(query.mock.calls[1][0]).toContain(
       "UPDATE audience_feature_settings",
+    );
+    expect(query.mock.calls[1][0]).toContain(
+      "features.updated_at::text AS updated_at",
     );
     expect(query.mock.calls[1][1]).toEqual([
       "session_existing",

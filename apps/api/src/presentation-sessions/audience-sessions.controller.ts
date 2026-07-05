@@ -19,6 +19,7 @@ import {
   audienceJoinResponseSchema,
   audienceSessionLookupResponseSchema,
   audienceStateResponseSchema,
+  type PresentationSession,
 } from "@orbit/shared";
 import { parseRequest } from "../common/zod-request";
 import {
@@ -53,7 +54,9 @@ export class AudienceSessionsController {
         params.joinCode,
       );
 
-    return audienceSessionLookupResponseSchema.parse({ session });
+    return audienceSessionLookupResponseSchema.parse({
+      session: toAudiencePublicSession(session),
+    });
   }
 
   @Post("join/:joinCode")
@@ -371,6 +374,16 @@ function getSignedAudienceAccessToken(
 function getUserAgent(request: Request): string {
   const value = request.headers["user-agent"];
   return Array.isArray(value) ? (value[0] ?? "") : (value ?? "");
+}
+
+function toAudiencePublicSession(session: PresentationSession) {
+  return {
+    sessionId: session.sessionId,
+    projectId: session.projectId,
+    joinCode: session.joinCode,
+    status: session.status,
+    entryStatus: session.entryStatus,
+  };
 }
 
 function getClientIp(request: Request): string {
