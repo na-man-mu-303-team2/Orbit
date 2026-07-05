@@ -2557,6 +2557,65 @@ def test_generate_deck_spreads_repeated_template_profiles() -> None:
     assert len(set(selected)) == len(selected)
 
 
+def test_template_selection_uses_design_prompt_layout_hints() -> None:
+    design_blueprint = minimal_imported_design_blueprint()
+    design_blueprint["slides"] = [
+        imported_profile_slide_for_test(1, "metric", ["title", "metric"]),
+        imported_profile_slide_for_test(2, "body", ["title", "body", "caption"]),
+    ]
+    template_blueprint = {
+        "templateId": "template_file_design",
+        "sourceFileId": "file_design",
+        "slides": [
+            imported_profile_template_slide_for_test(
+                1,
+                "metric",
+                ["title", "metric"],
+                slide_role="metric",
+                capacity="medium",
+            ),
+            imported_profile_template_slide_for_test(
+                2,
+                "body",
+                ["title", "body", "caption"],
+                slide_role="body",
+                capacity="high",
+            ),
+        ],
+    }
+    fake_client = FakeOpenAIClient(
+        {
+            "title": "Checklist deck",
+            "slides": [
+                slide_payload(
+                    "Checklist",
+                    "Explain the checklist.",
+                    "Present the checklist.",
+                    slide_type="problem",
+                    slot_preset="metric_cards",
+                )
+            ],
+        }
+    )
+
+    response = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="ORBIT",
+            designPrompt="체크리스트와 단계형 흐름을 중심으로 구성",
+            targetDurationMinutes=1,
+            slideCountRange={"min": 1, "max": 1},
+            designReferences=[{"fileId": "file_design"}],
+            designBlueprint=design_blueprint,
+            templateBlueprint=template_blueprint,
+        ),
+        client=fake_client,
+    )
+
+    assert response.template_selection[0].source_slide_index == 2
+    assert "design hint match" in response.template_selection[0].selection_reason
+
+
 def minimal_imported_design_blueprint() -> dict[str, Any]:
     return {
         "theme": {
@@ -2636,6 +2695,80 @@ def minimal_imported_design_blueprint() -> dict[str, Any]:
                     },
                 ],
             }
+        ],
+    }
+
+
+def imported_profile_slide_for_test(
+    source_index: int,
+    layout: str,
+    roles: list[str],
+) -> dict[str, Any]:
+    return {
+        "sourceSlideIndex": source_index,
+        "style": {
+            "layout": layout,
+            "backgroundColor": "#ffffff",
+        },
+        "elements": [
+            {
+                "elementId": f"el_imported_{source_index}_{role}",
+                "type": "text",
+                "role": role,
+                "x": 120,
+                "y": 96 + offset * 120,
+                "width": 1200,
+                "height": 100,
+                "rotation": 0,
+                "opacity": 1,
+                "zIndex": offset + 1,
+                "locked": False,
+                "visible": True,
+                "props": {
+                    "text": f"{role} {source_index}",
+                    "fontFamily": "Inter",
+                    "fontSize": 44 if role == "title" else 26,
+                    "fontWeight": "bold" if role == "title" else "normal",
+                    "color": "#111827",
+                    "align": "left",
+                    "verticalAlign": "top",
+                    "lineHeight": 1.2,
+                },
+            }
+            for offset, role in enumerate(roles)
+        ],
+    }
+
+
+def imported_profile_template_slide_for_test(
+    source_index: int,
+    layout: str,
+    roles: list[str],
+    *,
+    slide_role: str,
+    capacity: str,
+) -> dict[str, Any]:
+    return {
+        "slideIndex": source_index,
+        "sourceSlideIndex": source_index,
+        "slideRole": slide_role,
+        "layoutType": layout,
+        "contentCapacity": capacity,
+        "slots": [
+            {
+                "elementId": f"el_imported_{source_index}_{role}",
+                "usage": "content-slot",
+                "slotRole": role,
+                "replaceMode": "replace",
+                "confidence": 0.95,
+                "bounds": {"x": 120, "y": 96, "width": 1200, "height": 100},
+                "source": {
+                    "type": "slide",
+                    "slidePart": f"ppt/slides/slide{source_index}.xml",
+                    "shapeId": str(offset + 1),
+                },
+            }
+            for offset, role in enumerate(roles)
         ],
     }
 

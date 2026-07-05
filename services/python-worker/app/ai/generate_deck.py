@@ -3109,6 +3109,7 @@ def template_selection_for_slide_plans(
 
     for slide_plan in slide_plans:
         source_slide_index, profile_key, reason = select_imported_source_slide(
+            raw_input,
             slide_plan,
             design_slides,
             template_slides,
@@ -3148,6 +3149,7 @@ def imported_template_slides(raw_input: RawInput) -> list[dict[str, Any]]:
 
 
 def select_imported_source_slide(
+    raw_input: RawInput,
     slide_plan: SlidePlan,
     design_slides: list[dict[str, Any]],
     template_slides: dict[int, dict[str, Any]],
@@ -3160,7 +3162,7 @@ def select_imported_source_slide(
         template_slide = template_slides.get(source_index, {})
         profile = imported_slide_profile(slide, template_slide)
         profile_key = imported_slide_profile_key(profile)
-        score, reason = imported_slide_match_score(slide_plan, profile)
+        score, reason = imported_slide_match_score(raw_input, slide_plan, profile)
         source_penalty = usage.get(source_index, 0) * 20
         profile_penalty = profile_usage.get(profile_key, 0) * 6
         score -= source_penalty + profile_penalty
@@ -3177,32 +3179,37 @@ def select_imported_source_slide(
 
 
 def imported_slide_match_score(
+    raw_input: RawInput,
     slide_plan: SlidePlan,
     profile: dict[str, Any],
 ) -> tuple[int, str]:
     score = 0
     reasons: list[str] = []
+    body_slide = slide_plan.slide_type not in {"title", "cover", "summary"}
 
     if profile["slide_role"] == "toc":
         score -= 10
         reasons.append("toc layout reserved")
 
     if (
-        slide_plan.slide_type not in {"title", "cover", "summary"}
-        and (
-            profile["slide_role"] in {"cover", "title", "section", "decorative"}
-            or profile["layout"] in {"title", "decorative"}
-        )
+        body_slide
+        and is_title_like_imported_profile(profile)
     ):
         score -= 8
         reasons.append("title layout reserved")
-    if (
-        slide_plan.slide_type not in {"title", "cover", "summary"}
-        and profile["capacity"] == "low"
-        and "body" not in profile["roles"]
-    ):
-        score -= 4
-        reasons.append("low body capacity")
+    if body_slide:
+        if "body" in profile["roles"]:
+            score += 8
+            reasons.append("body slot")
+        elif is_title_like_imported_profile(profile) or profile["layout"] == "metric":
+            score -= 12
+            reasons.append("no body slot")
+        elif "caption" in profile["roles"]:
+            score -= 6
+            reasons.append("caption-only body capacity")
+        elif profile["capacity"] == "low":
+            score -= 4
+            reasons.append("low body capacity")
 
     if slide_plan.slide_type in {"title", "cover"}:
         if profile["slide_role"] in {"cover", "title", "section"}:
@@ -3233,9 +3240,70 @@ def imported_slide_match_score(
         reasons.append("body capacity")
 
     score += slot_preset_profile_score(slide_plan.slot_preset, profile)
+    design_score, design_reason = design_hint_profile_score(raw_input, slide_plan, profile)
+    if design_score:
+        score += design_score
+        reasons.append(design_reason)
     if not reasons:
         reasons.append("fallback semantic match")
     return score, ", ".join(reasons)
+
+
+def is_title_like_imported_profile(profile: dict[str, Any]) -> bool:
+    return (
+        profile["slide_role"] in {"cover", "title", "section", "decorative"}
+        or profile["layout"] in {"title", "decorative"}
+    )
+
+
+def design_hint_profile_score(
+    raw_input: RawInput,
+    slide_plan: SlidePlan,
+    profile: dict[str, Any],
+) -> tuple[int, str]:
+    hints = design_layout_hints(raw_input, slide_plan)
+    if not hints:
+        return 0, ""
+
+    profile_values = imported_profile_values(profile)
+    if hints & profile_values:
+        return 5, f"design hint match {','.join(sorted(hints & profile_values))}"
+    return -5, f"design hint mismatch {','.join(sorted(hints))}"
+
+
+def design_layout_hints(raw_input: RawInput, slide_plan: SlidePlan) -> set[str]:
+    text = " ".join(
+        [
+            raw_input.design_prompt,
+            raw_input.prompt,
+            slide_plan.visual_intent.structure,
+            slide_plan.visual_intent.composition,
+            slide_plan.visual_intent.media_style,
+            slide_plan.visual_intent.emphasis,
+            slide_plan.visual_intent.mood,
+        ]
+    ).casefold()
+    hints: set[str] = set()
+    if has_any(text, ["체크리스트", "체크 리스트", "할 일", "주의사항", "항목"]):
+        hints.update({"body", "toc", "checklist"})
+    if has_any(text, ["단계", "프로세스", "타임라인", "로드맵", "흐름"]):
+        hints.update({"process", "timeline", "body"})
+    if has_any(text, ["비교", "전후", "장단점", "대조"]):
+        hints.update({"comparison", "two-column"})
+    if has_any(text, ["위험도", "매트릭스", "지표", "수치", "차트", "표"]):
+        hints.update({"metric", "chart", "table"})
+    if has_any(text, ["이미지", "무드보드", "브랜드", "감각적", "사진"]):
+        hints.update({"image", "media"})
+    return hints
+
+
+def imported_profile_values(profile: dict[str, Any]) -> set[str]:
+    roles = {str(role) for role in profile["roles"]}
+    return roles | {
+        str(profile["slide_role"]),
+        str(profile["layout"]),
+        str(profile["capacity"]),
+    }
 
 
 def imported_slide_profile_key(profile: dict[str, Any]) -> str:
