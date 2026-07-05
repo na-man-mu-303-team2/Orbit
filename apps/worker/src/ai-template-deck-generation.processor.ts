@@ -43,11 +43,21 @@ const ooxmlApplySlotTextsResponseSchema = z.object({
   warnings: z.array(z.string()).default([]),
 });
 
+const extractedSectionSchema = z
+  .object({
+    title: z.string().default(""),
+    text: z.string().default(""),
+  })
+  .passthrough();
+
 const extractedFileSchema = z
   .object({
     referenceDocumentId: z.string().optional(),
     fileName: z.string().default(""),
     status: z.string().default("failed"),
+    rawText: z.string().optional(),
+    cleanedText: z.string().optional(),
+    sections: z.array(extractedSectionSchema).optional(),
     keywords: z
       .array(
         z
@@ -95,6 +105,7 @@ type SavedAssetRefs = {
 type ContentPreparation = {
   references: Array<{ fileId: string }>;
   referenceKeywords: Array<{ text: string }>;
+  referenceContext: Array<{ fileId: string; title: string; content: string }>;
   files: ExtractedFile[];
 };
 
@@ -266,6 +277,7 @@ export async function processAiTemplateDeckGenerationJob(
     );
 
     await saveDeck(dataSource, finalDeck);
+    await saveDeckSnapshot(dataSource, finalDeck);
     await saveTemplateBlueprint(
       dataSource,
       payload.projectId,
@@ -390,7 +402,7 @@ async function prepareContentReferences(
   assets: ProjectAssetRow[],
 ): Promise<ContentPreparation> {
   if (assets.length === 0) {
-    return { references: [], referenceKeywords: [], files: [] };
+    return { references: [], referenceKeywords: [], referenceContext: [], files: [] };
   }
 
   const form = new FormData();
@@ -422,6 +434,11 @@ async function prepareContentReferences(
 function buildReferenceInput(files: ExtractedFile[]): ContentPreparation {
   const references: Array<{ fileId: string }> = [];
   const referenceKeywords: Array<{ text: string }> = [];
+  const referenceContext: Array<{
+    fileId: string;
+    title: string;
+    content: string;
+  }> = [];
   const seenFileIds = new Set<string>();
   const seenKeywords = new Set<string>();
 
@@ -435,6 +452,15 @@ function buildReferenceInput(files: ExtractedFile[]): ContentPreparation {
       references.push({ fileId });
     }
 
+    const content = extractedReferenceText(file);
+    if (content) {
+      referenceContext.push({
+        fileId,
+        title: file.fileName,
+        content,
+      });
+    }
+
     for (const keyword of file.keywords ?? []) {
       const text = keyword.keyword?.trim() ?? "";
       const key = text.toLocaleLowerCase("ko-KR");
@@ -444,7 +470,20 @@ function buildReferenceInput(files: ExtractedFile[]): ContentPreparation {
     }
   }
 
-  return { references, referenceKeywords, files };
+  return { references, referenceKeywords, referenceContext, files };
+}
+
+function extractedReferenceText(file: ExtractedFile): string {
+  const directText = file.cleanedText?.trim() || file.rawText?.trim();
+  if (directText) return directText.slice(0, 12_000);
+
+  return (
+    file.sections
+      ?.map((section) => section.text.trim())
+      .filter(Boolean)
+      .join("\n\n")
+      .slice(0, 12_000) ?? ""
+  );
 }
 
 async function prepareDesignTemplate(
@@ -583,6 +622,7 @@ async function generateDeckWithPython(
       references: content.references,
       designReferences: [{ fileId: design.asset.file_id }],
       referenceKeywords: content.referenceKeywords,
+      referenceContext: content.referenceContext,
       designBlueprint: design.designBlueprint,
       templateBlueprint: design.templateBlueprint,
       slideCountRange: request.slideCountRange,
@@ -875,6 +915,18 @@ async function saveDeck(dataSource: DataSource, deck: Deck): Promise<void> {
         updated_at = EXCLUDED.updated_at
     `,
     [deck.projectId, deck.deckId, deck, deck.version],
+  );
+}
+
+async function saveDeckSnapshot(dataSource: DataSource, deck: Deck): Promise<void> {
+  await dataSource.query(
+    `
+      INSERT INTO deck_snapshots (
+        snapshot_id, project_id, deck_id, deck_json, version, reason, created_at
+      )
+      VALUES ($1, $2, $3, $4, $5, 'deck-replaced', now())
+    `,
+    [`snapshot_${randomUUID()}`, deck.projectId, deck.deckId, deck, deck.version],
   );
 }
 

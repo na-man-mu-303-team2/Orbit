@@ -155,6 +155,10 @@ class GenerateDeckRequest(BaseModel):
         default_factory=list,
         alias="referenceKeywords",
     )
+    reference_context: list[ReferenceContext] = Field(
+        default_factory=list,
+        alias="referenceContext",
+    )
     template_blueprint: dict[str, Any] | None = Field(
         default=None,
         alias="templateBlueprint",
@@ -1638,6 +1642,9 @@ def analyze_input(
         request.prompt,
         request.design_prompt,
     )
+    resolved_reference_context = (
+        reference_context if reference_context is not None else request.reference_context
+    )
     return RawInput(
         project_id=request.project_id,
         topic=request.topic.strip(),
@@ -1653,7 +1660,7 @@ def analyze_input(
         references=request.references,
         design_references=request.design_references,
         reference_keywords=request.reference_keywords,
-        reference_context=reference_context or [],
+        reference_context=resolved_reference_context,
         template_blueprint=normalize_template_blueprint(request.template_blueprint),
         design_blueprint=normalize_imported_design_blueprint(request.design_blueprint),
     )
@@ -1972,6 +1979,14 @@ def slide_plans_from_generated_content(
         slide_keywords = merge_keywords(keyword_pool, slide.keywords)
         fallback_type = slide_type_for(index, raw_input.slide_count)
         slide_type = normalize_slide_type(slide.slide_type, fallback_type)
+        if slide_type == "cover" and fallback_type != "cover":
+            slide_type = fallback_type
+        if (
+            slide_type == "summary"
+            and fallback_type != "summary"
+            and raw_input.slide_count > 1
+        ):
+            slide_type = fallback_type
         fallback_preset = preset_for_slide_type(slide_type)
         slot_preset = normalize_slot_preset(
             slide.slot_preset,
@@ -3159,6 +3174,23 @@ def imported_slide_match_score(
     if profile["slide_role"] == "toc":
         score -= 10
         reasons.append("toc layout reserved")
+
+    if (
+        slide_plan.slide_type not in {"title", "cover", "summary"}
+        and (
+            profile["slide_role"] in {"cover", "title", "section", "decorative"}
+            or profile["layout"] in {"title", "decorative"}
+        )
+    ):
+        score -= 8
+        reasons.append("title layout reserved")
+    if (
+        slide_plan.slide_type not in {"title", "cover", "summary"}
+        and profile["capacity"] == "low"
+        and "body" not in profile["roles"]
+    ):
+        score -= 4
+        reasons.append("low body capacity")
 
     if slide_plan.slide_type in {"title", "cover"}:
         if profile["slide_role"] in {"cover", "title", "section"}:

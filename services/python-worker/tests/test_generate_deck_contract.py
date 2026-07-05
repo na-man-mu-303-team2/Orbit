@@ -14,6 +14,7 @@ from app.ai.generate_deck import (
     ReferenceContext,
     SlideCountRange,
     ValidationIssue,
+    analyze_input,
     choose_slide_count,
     detect_text_overlap_candidates,
     generate_deck,
@@ -37,6 +38,31 @@ def test_choose_slide_count_clamps_duration_to_requested_range() -> None:
     assert choose_slide_count(7, slide_range) == 7
     assert choose_slide_count(10, slide_range) == 10
     assert choose_slide_count(30, slide_range) == 10
+
+
+def test_generate_deck_request_accepts_direct_reference_context() -> None:
+    raw_input = analyze_input(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="ORBIT",
+            references=[{"fileId": "file_template"}],
+            referenceContext=[
+                {
+                    "fileId": "file_template",
+                    "title": "template.pptx",
+                    "content": "PPTX source text",
+                }
+            ],
+        )
+    )
+
+    assert raw_input.reference_context == [
+        ReferenceContext(
+            fileId="file_template",
+            title="template.pptx",
+            content="PPTX source text",
+        )
+    ]
 
 
 def test_generate_deck_accepts_llm_slide_count_above_minimum() -> None:
@@ -2382,6 +2408,56 @@ def test_generate_deck_selects_semantic_reference_subset_instead_of_first_slides
     assert selected != [1, 2, 3, 4, 5]
     assert selected[0] == 7
     assert 15 in selected
+
+
+def test_generate_deck_does_not_reuse_cover_template_for_middle_slides() -> None:
+    design_blueprint, template_blueprint = semantic_imported_blueprints(15)
+    fake_client = FakeOpenAIClient(
+        {
+            "title": "Template selection",
+            "slides": [
+                slide_payload(
+                    "Opening",
+                    "Open the deck.",
+                    "Introduce the topic.",
+                    slide_type="cover",
+                    slot_preset="title_center",
+                ),
+                slide_payload(
+                    "Middle content",
+                    "Explain the middle content.",
+                    "Present the actual body content.",
+                    slide_type="cover",
+                    slot_preset="title_center",
+                ),
+                slide_payload(
+                    "Wrap up",
+                    "Summarize the deck.",
+                    "Close the presentation.",
+                    slide_type="summary",
+                    slot_preset="insight_with_evidence",
+                ),
+            ],
+        }
+    )
+
+    response = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="ORBIT",
+            targetDurationMinutes=3,
+            slideCountRange={"min": 3, "max": 3},
+            designReferences=[{"fileId": "file_design"}],
+            designBlueprint=design_blueprint,
+            templateBlueprint=template_blueprint,
+        ),
+        client=fake_client,
+    )
+
+    selected = [item.source_slide_index for item in response.template_selection]
+    assert selected[0] == 7
+    assert selected[1] != 7
+    assert selected[1] >= 8
 
 
 def minimal_imported_design_blueprint() -> dict[str, Any]:

@@ -741,6 +741,12 @@ def _generate_deck_reference_context(
     if not file_ids:
         return []
 
+    direct_context = [
+        item
+        for item in payload.reference_context
+        if item.file_id in file_ids and item.content.strip()
+    ]
+
     query = " ".join(
         [
             payload.topic,
@@ -759,9 +765,9 @@ def _generate_deck_reference_context(
             api_key=config.openai_api_key,
         )
     except Exception:
-        return []
+        return direct_context[:6]
 
-    return [
+    searched_context = [
         ReferenceContext(
             fileId=result.file_id,
             title=str(result.metadata.get("fileName", "")),
@@ -769,7 +775,21 @@ def _generate_deck_reference_context(
         )
         for result in results
         if result.file_id in file_ids and result.content.strip()
-    ][:6]
+    ]
+    return unique_reference_context([*direct_context, *searched_context])[:6]
+
+
+def unique_reference_context(items: list[ReferenceContext]) -> list[ReferenceContext]:
+    seen: set[tuple[str, str]] = set()
+    unique: list[ReferenceContext] = []
+    for item in items:
+        content = item.content.strip()
+        key = (item.file_id, content)
+        if not content or key in seen:
+            continue
+        seen.add(key)
+        unique.append(item)
+    return unique
 
 
 def _result_text(result: ExtractionResult) -> str:
