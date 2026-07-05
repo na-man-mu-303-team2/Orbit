@@ -20,6 +20,7 @@ import { CreatePresentationSessions2026070201000 } from "./migrations/2026070201
 import { AddUniqueOpenPresentationSession2026070202000 } from "./migrations/2026070202000-AddUniqueOpenPresentationSession";
 import { AddRehearsalRunMetaJson2026070301000 } from "./migrations/2026070301000-AddRehearsalRunMetaJson";
 import { CreateTemplateBlueprints2026070301000 } from "./migrations/2026070301000-CreateTemplateBlueprints";
+import { EnsureAudienceSessionTables2026070401000 } from "./migrations/2026070401000-EnsureAudienceSessionTables";
 import { CreateAudienceInteractions2026070501000 } from "./migrations/2026070501000-CreateAudienceInteractions";
 import { CreateAudienceQuestions2026070502000 } from "./migrations/2026070502000-CreateAudienceQuestions";
 import { CreateAudienceQuestionAnswers2026070503000 } from "./migrations/2026070503000-CreateAudienceQuestionAnswers";
@@ -27,6 +28,7 @@ import { CreateSessionSurveys2026070504000 } from "./migrations/2026070504000-Cr
 import { CreateAudienceAggregateReports2026070505000 } from "./migrations/2026070505000-CreateAudienceAggregateReports";
 import { AddAudienceManualResultExposure2026070506000 } from "./migrations/2026070506000-AddAudienceManualResultExposure";
 import { AddAudienceSlideSnapshots2026070507000 } from "./migrations/2026070507000-AddAudienceSlideSnapshots";
+import { RepairPresentationSessionsContract2026070601000 } from "./migrations/2026070601000-RepairPresentationSessionsContract";
 
 loadDotenv({ path: "../../.env.local" });
 loadDotenv({ path: ".env.local" });
@@ -59,13 +61,15 @@ export const databaseOptions: DataSourceOptions = {
     AddUniqueOpenPresentationSession2026070202000,
     AddRehearsalRunMetaJson2026070301000,
     CreateTemplateBlueprints2026070301000,
+    EnsureAudienceSessionTables2026070401000,
     CreateAudienceInteractions2026070501000,
     CreateAudienceQuestions2026070502000,
     CreateAudienceQuestionAnswers2026070503000,
     CreateSessionSurveys2026070504000,
     CreateAudienceAggregateReports2026070505000,
     AddAudienceManualResultExposure2026070506000,
-    AddAudienceSlideSnapshots2026070507000
+    AddAudienceSlideSnapshots2026070507000,
+    RepairPresentationSessionsContract2026070601000
   ],
   migrationsTableName: "typeorm_migrations",
   synchronize: false,
