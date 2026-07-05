@@ -24,6 +24,11 @@ const presenterSession = {
   surveyClosesAt: null,
   rawDataDeleteAfter: "2026-08-04T00:00:00.000Z",
 };
+const draftPresenterSession = {
+  ...presenterSession,
+  status: "draft",
+  startedAt: null,
+};
 const participant = {
   audienceId: "audience_00000000-0000-4000-8000-000000000001",
   sessionId: "session_1",
@@ -103,6 +108,65 @@ const manualPollInteraction = {
   ],
   resultVisibility: "manual",
   exposedResultQuestionIds: [],
+};
+const preparedPollItem = {
+  libraryInteractionId: "library_interaction_00000000-0000-4000-8000-000000000001",
+  projectId: "project_1",
+  kind: "poll",
+  title: "준비된 투표",
+  questions: [
+    {
+      type: "scale",
+      questionId: "question_00000000-0000-4000-8000-000000000004",
+      prompt: "만족도",
+      required: true,
+      min: 1,
+      max: 5,
+    },
+  ],
+  resultVisibility: "manual",
+  quizScoring: "none",
+  createdAt: now,
+  updatedAt: now,
+};
+const preparedQuizItem = {
+  libraryInteractionId: "library_interaction_00000000-0000-4000-8000-000000000002",
+  projectId: "project_1",
+  kind: "quiz",
+  title: "준비된 퀴즈",
+  questions: [
+    {
+      type: "quiz-true-false",
+      questionId: "question_00000000-0000-4000-8000-000000000005",
+      prompt: "확인 문제",
+      correctAnswer: true,
+      timeLimitSeconds: 30,
+    },
+  ],
+  resultVisibility: "after-close",
+  quizScoring: "speed-bonus",
+  createdAt: now,
+  updatedAt: now,
+};
+const referenceAsset = {
+  fileId: "file_00000000-0000-4000-8000-000000000001",
+  projectId: "project_1",
+  originalName: "reference.pdf",
+  mimeType: "application/pdf",
+  size: 1200,
+  url: "/api/v1/projects/project_1/assets/file_00000000-0000-4000-8000-000000000001/content",
+  purpose: "reference-material",
+  createdAt: now,
+};
+const snapshotAsset = {
+  fileId: "file_00000000-0000-4000-8000-000000000002",
+  projectId: "project_1",
+  originalName: "snapshot.svg",
+  mimeType: "image/svg+xml",
+  size: 900,
+  url: "/snapshot.svg",
+  purpose: "audience-slide-snapshot",
+  createdAt: now,
 };
 
 test.describe("audience engagement hardened smoke", () => {
@@ -304,6 +368,46 @@ test.describe("audience engagement hardened smoke", () => {
         questionId: "question_00000000-0000-4000-8000-000000000003",
         exposed: true,
       },
+    ]);
+  });
+
+  test("lets the presenter prepare interactions and AI references", async ({
+    page,
+  }) => {
+    const selectionRequests: string[][] = [];
+    const referenceRequests: string[][] = [];
+    await mockPresenterResults(page, {
+      assets: [referenceAsset, snapshotAsset],
+      library: [preparedPollItem, preparedQuizItem],
+      onAiReferenceUpdate: (referenceIds) =>
+        referenceRequests.push(referenceIds),
+      onPreparedSelection: (libraryInteractionIds) =>
+        selectionRequests.push(libraryInteractionIds),
+      session: draftPresenterSession,
+    });
+
+    await page.goto("/audience/project_1/control");
+    await page.getByLabel("준비된 투표 선택").check();
+    await page.getByLabel("준비된 퀴즈 선택").check();
+    await page.getByRole("button", { name: "준비된 투표 순서 내리기" }).click();
+    await page.getByLabel("reference.pdf 선택").check();
+
+    await expect(page.getByText("준비된 퀴즈 · Quiz · 1번")).toBeVisible();
+    await expect(page.getByText("준비된 투표 · Poll · 2번")).toBeVisible();
+    await expect(page.getByText("snapshot.svg")).toHaveCount(0);
+    expect(selectionRequests).toEqual([
+      ["library_interaction_00000000-0000-4000-8000-000000000001"],
+      [
+        "library_interaction_00000000-0000-4000-8000-000000000001",
+        "library_interaction_00000000-0000-4000-8000-000000000002",
+      ],
+      [
+        "library_interaction_00000000-0000-4000-8000-000000000002",
+        "library_interaction_00000000-0000-4000-8000-000000000001",
+      ],
+    ]);
+    expect(referenceRequests).toEqual([
+      ["file_00000000-0000-4000-8000-000000000001"],
     ]);
   });
 });
@@ -532,11 +636,19 @@ async function mockAudienceSession(
 async function mockPresenterResults(
   page: Page,
   options: {
+    assets?: Array<Record<string, unknown>>;
+    aiReferenceIds?: string[];
     interactions?: Array<typeof manualPollInteraction>;
+    library?: Array<typeof preparedPollItem | typeof preparedQuizItem>;
+    onAiReferenceUpdate?: (referenceIds: string[]) => void;
     onExposureRequest?: (payload: unknown) => void;
+    onPreparedSelection?: (libraryInteractionIds: string[]) => void;
+    session?: typeof presenterSession;
   } = {},
 ) {
+  const presenterActiveSession = options.session ?? presenterSession;
   let interactions = options.interactions ?? [];
+  let selectedReferenceIds = options.aiReferenceIds ?? [];
   await page.route("**/api/v1/auth/me", (route) =>
     route.fulfill({
       json: {
@@ -573,7 +685,7 @@ async function mockPresenterResults(
     (route) =>
       route.fulfill({
         json: {
-          session: presenterSession,
+          session: presenterActiveSession,
           audienceUrl: "/join/123456",
         },
       }),
@@ -629,14 +741,65 @@ async function mockPresenterResults(
   );
   await page.route(
     "**/api/v1/projects/project_1/presentation-sessions/interactions/library",
-    (route) => route.fulfill({ json: { interactions: [] } }),
+    (route) =>
+      route.fulfill({ json: { interactions: options.library ?? [] } }),
   );
   await page.route("**/api/v1/projects/project_1/assets", (route) =>
-    route.fulfill({ json: [] }),
+    route.fulfill({ json: options.assets ?? [] }),
   );
   await page.route(
     "**/api/v1/projects/project_1/presentation-sessions/session_1/ai-references",
-    (route) => route.fulfill({ json: { referenceIds: [] } }),
+    async (route) => {
+      if (route.request().method() === "PATCH") {
+        const payload = (await route.request().postDataJSON()) as {
+          referenceIds?: string[];
+        };
+        selectedReferenceIds = payload.referenceIds ?? [];
+        options.onAiReferenceUpdate?.(selectedReferenceIds);
+      }
+
+      return route.fulfill({ json: { referenceIds: selectedReferenceIds } });
+    },
+  );
+  await page.route(
+    "**/api/v1/projects/project_1/presentation-sessions/session_1/interactions/select",
+    async (route) => {
+      const payload = (await route.request().postDataJSON()) as {
+        libraryInteractionIds?: string[];
+      };
+      const libraryInteractionIds = payload.libraryInteractionIds ?? [];
+      options.onPreparedSelection?.(libraryInteractionIds);
+      interactions = libraryInteractionIds.flatMap((libraryInteractionId, index) => {
+        const libraryItem = (options.library ?? []).find(
+          (item) => item.libraryInteractionId === libraryInteractionId,
+        );
+        if (!libraryItem) {
+          return [];
+        }
+
+        return [
+          {
+            interactionId: `interaction_00000000-0000-4000-8000-10000000000${
+              index + 1
+            }`,
+            sessionId: "session_1",
+            libraryInteractionId: libraryItem.libraryInteractionId,
+            kind: libraryItem.kind,
+            title: libraryItem.title,
+            questions: libraryItem.questions,
+            resultVisibility: libraryItem.resultVisibility,
+            quizScoring: libraryItem.quizScoring,
+            exposedResultQuestionIds: [],
+            source: "library",
+            order: index,
+            activatedAt: null,
+            closedAt: null,
+          },
+        ];
+      });
+
+      return route.fulfill({ json: { interactions } });
+    },
   );
   await page.route(
     "**/api/v1/projects/project_1/presentation-sessions/session_1/questions",
