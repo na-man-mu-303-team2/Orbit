@@ -13,6 +13,7 @@ COPY packages/storage/package.json packages/storage/package.json
 COPY packages/job-queue/package.json packages/job-queue/package.json
 COPY packages/ai/package.json packages/ai/package.json
 COPY packages/realtime/package.json packages/realtime/package.json
+COPY packages/slide-renderer/package.json packages/slide-renderer/package.json
 
 RUN pnpm install --frozen-lockfile
 
