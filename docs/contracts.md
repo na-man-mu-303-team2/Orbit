@@ -430,11 +430,13 @@ API:
 
 - `POST /api/v1/workspaces/:workspaceId/projects`
 - `GET /api/v1/workspaces/:workspaceId/projects`
+- `DELETE /api/v1/workspaces/:workspaceId/projects/:projectId`
 
 결정 사항:
 
 - 인증 시스템이 완성되기 전까지는 `DEMO_WORKSPACE_ID`와 `DEMO_USER_ID`를 기준으로 project boundary를 검증한다.
 - `workspaceId`가 데모 워크스페이스와 다르면 권한 실패로 처리한다.
+- 프로젝트 삭제는 accepted owner만 수행할 수 있으며 응답은 `{ "projectId": "project_1" }` 구조다.
 - 프로젝트 응답은 `packages/shared/src/projects/project.schema.ts`의 schema로 검증한다.
 
 구현 위치:

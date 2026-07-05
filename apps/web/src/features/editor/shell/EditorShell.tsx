@@ -154,7 +154,7 @@ import {
   Type,
   Upload,
   Wand2,
-  FolderOpen,
+  Home,
 } from "lucide-react";
 import type { ChangeEvent, CSSProperties, PointerEvent as ReactPointerEvent } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -727,8 +727,8 @@ function navigateToRehearsal(projectId: string) {
   window.dispatchEvent(new PopStateEvent("popstate"));
 }
 
-function navigateToProjectList() {
-  window.history.pushState({}, "", "/project");
+function navigateToHome() {
+  window.history.pushState({}, "", "/");
   window.dispatchEvent(new PopStateEvent("popstate"));
 }
 
@@ -1392,7 +1392,7 @@ export function EditorShell(props: { projectId?: string }) {
     return () => window.removeEventListener("beforeunload", handleBeforeUnload);
   }, [hasUnackedLocalChangesRef, pendingPatchInputsRef, saveState]);
 
-  function handleExitToProjectList() {
+  function handleExitToHome() {
     if (hasUnsavedEditorChanges()) {
       setActiveTopMenu(null);
       setIsExitConfirmOpen(true);
@@ -1400,12 +1400,12 @@ export function EditorShell(props: { projectId?: string }) {
     }
 
     setActiveTopMenu(null);
-    navigateToProjectList();
+    navigateToHome();
   }
 
   function handleDiscardAndExit() {
     setIsExitConfirmOpen(false);
-    navigateToProjectList();
+    navigateToHome();
   }
 
   async function handleSaveAndExit() {
@@ -1423,7 +1423,7 @@ export function EditorShell(props: { projectId?: string }) {
       }
 
       setIsExitConfirmOpen(false);
-      navigateToProjectList();
+      navigateToHome();
     } finally {
       setIsExitSaving(false);
     }
@@ -3914,13 +3914,13 @@ export function EditorShell(props: { projectId?: string }) {
           <div className="menu-stack">
             <div className="menu-row">
               <button
-                aria-label="프로젝트 목록으로 이동"
+                aria-label="홈으로 이동"
                 className="top-icon-button"
-                title="프로젝트 목록으로 이동"
+                title="홈으로 이동"
                 type="button"
-                onClick={handleExitToProjectList}
+                onClick={handleExitToHome}
               >
-                <FolderOpen size={15} />
+                <Home size={15} />
               </button>
               <button
                 aria-expanded={activeTopMenu === "file"}

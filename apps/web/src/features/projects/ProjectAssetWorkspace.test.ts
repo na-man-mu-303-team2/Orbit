@@ -3,6 +3,7 @@ import {
   buildInitialProjectDeck,
   buildAssetUploadRequest,
   createProject,
+  deleteProject,
   getAssetValidationMessage,
   uploadProjectAsset,
 } from "./ProjectAssetWorkspace";
@@ -93,6 +94,20 @@ describe("ORBIT-93 project asset upload helpers", () => {
           order: 1,
         }),
       ],
+    });
+  });
+
+  it("deletes a project through the workspace project API", async () => {
+    const fetcher = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      expect(String(input)).toBe("/api/v1/workspaces/workspace_demo_1/projects/project_smoke");
+      expect(init?.method).toBe("DELETE");
+      expect(init?.credentials).toBe("include");
+
+      return new Response(JSON.stringify({ projectId: "project_smoke" }));
+    });
+
+    await expect(deleteProject("project_smoke", fetcher)).resolves.toEqual({
+      projectId: "project_smoke",
     });
   });
 

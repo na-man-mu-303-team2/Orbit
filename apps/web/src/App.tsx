@@ -29,9 +29,12 @@ import {
   MessageSquareText,
   Monitor,
   Paperclip,
+  PanelLeftClose,
+  PanelLeftOpen,
   Plus,
   Search,
-  Sparkles
+  Sparkles,
+  Trash2
 } from "lucide-react";
 import type { CSSProperties, ChangeEvent, DragEvent, FormEvent, ReactNode } from "react";
 import { lazy, Suspense, useEffect, useMemo, useState } from "react";
@@ -39,6 +42,7 @@ import { createDemoDeck } from "../../../packages/editor-core/src/index";
 import orbitLogo from "./assets/orbit-logo.png";
 import {
   createProject,
+  deleteProject,
   fetchProjects,
   resolveAssetMimeType,
   uploadProjectAsset
@@ -532,6 +536,7 @@ function AppFrame(props: {
 }) {
   const { children, isAuthenticated, route, user } = props;
   const queryClient = useQueryClient();
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const activeProjectId =
     route.name === "project-editor" ||
@@ -566,7 +571,11 @@ function AppFrame(props: {
         isHomeDashboard ? " orbit-home-shell" : ""
       }`}
     >
-      <div className="orbit-product-body">
+      <div
+        className={`orbit-product-body${
+          isSidebarCollapsed ? " orbit-product-body-collapsed" : ""
+        }`}
+      >
         <aside className="orbit-product-nav" aria-label="Orbit navigation">
           <button
             className="orbit-product-nav-brand"
@@ -575,6 +584,16 @@ function AppFrame(props: {
             aria-label="Orbit AI 홈"
           >
             <img alt="Orbit" className="brand-mark" src={orbitLogo} />
+          </button>
+          <button
+            aria-label={isSidebarCollapsed ? "사이드바 펼치기" : "사이드바 접기"}
+            aria-pressed={isSidebarCollapsed}
+            className="orbit-product-nav-toggle"
+            title={isSidebarCollapsed ? "사이드바 펼치기" : "사이드바 접기"}
+            type="button"
+            onClick={() => setIsSidebarCollapsed((current) => !current)}
+          >
+            {isSidebarCollapsed ? <PanelLeftOpen size={17} /> : <PanelLeftClose size={17} />}
           </button>
           <SidebarButton
             active={route.name === "home"}
@@ -615,20 +634,22 @@ function AppFrame(props: {
                   className="orbit-product-nav-logout"
                   type="button"
                   disabled={isLoggingOut}
+                  title={isLoggingOut ? "로그아웃 중" : "로그아웃"}
                   onClick={() => void handleLogout()}
                 >
                   <LogOut size={16} />
-                  {isLoggingOut ? "로그아웃 중" : "로그아웃"}
+                  <span>{isLoggingOut ? "로그아웃 중" : "로그아웃"}</span>
                 </button>
               </>
             ) : (
               <button
                 className="orbit-product-nav-logout"
                 type="button"
+                title="로그인"
                 onClick={() => navigateTo("/login")}
               >
                 <LogIn size={16} />
-                로그인
+                <span>로그인</span>
               </button>
             )}
           </div>
@@ -649,12 +670,13 @@ function SidebarButton(props: {
   return (
     <button
       className={props.active ? "rehearsal-report-nav-item active" : "rehearsal-report-nav-item"}
+      title={props.label}
       type="button"
       onClick={props.onClick}
     >
       <strong>
         {props.icon}
-        {props.label}
+        <span>{props.label}</span>
       </strong>
       {props.detail ? <span>{props.detail}</span> : null}
     </button>
@@ -1380,6 +1402,8 @@ function HomePage(props: { user?: AuthUser }) {
 
 function ProjectListPage() {
   const [isCreating, setIsCreating] = useState(false);
+  const [deletingProjectId, setDeletingProjectId] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState("");
   const projects = useQuery({
     queryKey: ["projects"],
     queryFn: () => fetchProjects(),
@@ -1395,6 +1419,25 @@ function ProjectListPage() {
       navigateTo(`/project/${project.projectId}`);
     } finally {
       setIsCreating(false);
+    }
+  }
+
+  async function handleDeleteProject(project: Project) {
+    if (deletingProjectId) return;
+    const shouldDelete = window.confirm(
+      `"${project.title}" 프레젠테이션을 삭제할까요? 이 작업은 되돌릴 수 없습니다.`
+    );
+    if (!shouldDelete) return;
+
+    setDeleteError("");
+    setDeletingProjectId(project.projectId);
+    try {
+      await deleteProject(project.projectId);
+      await projects.refetch();
+    } catch (error) {
+      setDeleteError(error instanceof Error ? error.message : "프로젝트를 삭제하지 못했습니다.");
+    } finally {
+      setDeletingProjectId(null);
     }
   }
 
@@ -1420,9 +1463,15 @@ function ProjectListPage() {
         </div>
         {projects.isLoading ? <p className="empty-state">프로젝트를 불러오는 중입니다.</p> : null}
         {projects.isError ? <p className="empty-state">프로젝트 목록을 불러오지 못했습니다.</p> : null}
+        {deleteError ? <p className="empty-state project-delete-error">{deleteError}</p> : null}
         <div className="project-grid">
           {(projects.data ?? []).map((project) => (
-            <ProjectCard key={project.projectId} project={project} />
+            <ProjectCard
+              key={project.projectId}
+              project={project}
+              isDeleting={deletingProjectId === project.projectId}
+              onDelete={() => void handleDeleteProject(project)}
+            />
           ))}
         </div>
       </section>
@@ -1462,24 +1511,38 @@ function TemplateRail(props: {
   );
 }
 
-function ProjectCard(props: { project: Project }) {
+function ProjectCard(props: { project: Project; isDeleting: boolean; onDelete: () => void }) {
   const createdAt = new Date(props.project.createdAt);
   return (
-    <button
-      className="project-card"
-      type="button"
-      onClick={() => navigateTo(`/project/${props.project.projectId}`)}
-    >
-      <div className="project-thumb">
-        <span />
-      </div>
-      <strong>{props.project.title}</strong>
-      <span>
-        {Number.isNaN(createdAt.getTime())
-          ? props.project.projectId
-          : createdAt.toLocaleDateString("ko-KR")}
-      </span>
-    </button>
+    <article className="project-card">
+      <button
+        aria-label={`${props.project.title} 열기`}
+        className="project-card-open"
+        type="button"
+        onClick={() => navigateTo(`/project/${props.project.projectId}`)}
+      >
+        <div className="project-thumb">
+          <span />
+        </div>
+        <strong>{props.project.title}</strong>
+        <span>
+          {Number.isNaN(createdAt.getTime())
+            ? props.project.projectId
+            : createdAt.toLocaleDateString("ko-KR")}
+        </span>
+      </button>
+      <button
+        aria-label={`${props.project.title} 삭제`}
+        className="project-card-delete"
+        disabled={props.isDeleting}
+        title="프레젠테이션 삭제"
+        type="button"
+        onClick={props.onDelete}
+      >
+        <Trash2 size={15} />
+        <span>{props.isDeleting ? "삭제 중" : "삭제"}</span>
+      </button>
+    </article>
   );
 }
 
