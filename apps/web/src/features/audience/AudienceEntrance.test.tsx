@@ -108,6 +108,7 @@ describe("AudienceEntrance", () => {
         activeInteraction={{
           interactionId: "interaction_00000000-0000-4000-8000-000000000001",
           sessionId: "session_1",
+          libraryInteractionId: null,
           kind: "poll",
           title: "만족도",
           questions: [
@@ -213,6 +214,7 @@ describe("AudienceEntrance", () => {
         activeInteraction={{
           interactionId: "interaction_00000000-0000-4000-8000-000000000101",
           sessionId: "session_1",
+          libraryInteractionId: null,
           kind: "quiz",
           title: "이해도 확인",
           questions: [
@@ -276,6 +278,7 @@ describe("AudienceEntrance", () => {
         activeInteraction={{
           interactionId: "interaction_00000000-0000-4000-8000-000000000301",
           sessionId: "session_1",
+          libraryInteractionId: null,
           kind: "quiz",
           title: "이해도 확인",
           questions: [
@@ -329,6 +332,7 @@ describe("AudienceEntrance", () => {
         activeInteraction={{
           interactionId: "interaction_00000000-0000-4000-8000-000000000201",
           sessionId: "session_1",
+          libraryInteractionId: null,
           kind: "poll",
           title: "복합 투표",
           questions: [

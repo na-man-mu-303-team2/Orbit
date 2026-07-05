@@ -1,6 +1,7 @@
 import type {
   AudienceFeatureSettings,
   PresentationSession,
+  ProjectInteractionLibraryItem,
   ReactionType,
   SessionInteraction,
 } from "@orbit/shared";
@@ -14,10 +15,12 @@ import {
   exposeInteractionQuestionResults,
   fetchAudienceFeatureSettings,
   fetchCurrentAudienceAccessSession,
+  fetchInteractionLibrary,
   fetchPresenterQuestionQueue,
   fetchSessionInteractions,
   fetchSessionResults,
   fetchSessionSurveyForm,
+  selectSessionInteractions,
   sessionSurveyCsvUrl,
   updateAudienceAccessEntryStatus,
   updateAudienceFeatureSettings,
@@ -35,6 +38,7 @@ import {
   AudienceFeatureSettingsControls,
   type AudienceFeatureKey,
   normalizeAudienceFeaturePatch,
+  PreparedInteractionLibrarySelector,
 } from "./AudienceFeatureSettingsControls";
 
 import "./audienceFeatureControls.css";
@@ -64,12 +68,18 @@ export function AudiencePresenterPanel({
   const [results, setResults] =
     useState<Awaited<ReturnType<typeof fetchSessionResults>> | null>(null);
   const [interactions, setInteractions] = useState<SessionInteraction[]>([]);
+  const [interactionLibrary, setInteractionLibrary] = useState<
+    ProjectInteractionLibraryItem[] | null
+  >(null);
+  const [selectedLibraryInteractionIds, setSelectedLibraryInteractionIds] =
+    useState<string[]>([]);
   const [pendingQuestionCount, setPendingQuestionCount] = useState(0);
   const [fallbackPublisher, setFallbackPublisher] =
     useState<AudiencePresenterRealtimePublisher | null>(null);
   const [recentReactions, setRecentReactions] = useState<ReactionType[]>([]);
   const [busyKey, setBusyKey] = useState<AudienceFeatureKey | null>(null);
   const [isEntryBusy, setIsEntryBusy] = useState(false);
+  const [isSelectionBusy, setIsSelectionBusy] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
 
@@ -117,6 +127,7 @@ export function AudiencePresenterPanel({
           projectId,
           sessionId: nextSession.sessionId,
         });
+        const library = await fetchInteractionLibrary(projectId);
         const questionQueue = await fetchPresenterQuestionQueue({
           projectId,
           sessionId: nextSession.sessionId,
@@ -129,6 +140,10 @@ export function AudiencePresenterPanel({
           setFeatures(settings.features);
           setSurveyTitle(survey.survey?.title ?? "");
           setInteractions(nextInteractions.interactions);
+          setInteractionLibrary(library.interactions);
+          setSelectedLibraryInteractionIds(
+            libraryIdsFromSessionInteractions(nextInteractions.interactions),
+          );
           setPendingQuestionCount(
             questionQueue.questions.filter(
               (question) => question.status === "pending",
@@ -145,6 +160,8 @@ export function AudiencePresenterPanel({
           setAudienceQrDataUrl("");
           setFeatures(null);
           setInteractions([]);
+          setInteractionLibrary(null);
+          setSelectedLibraryInteractionIds([]);
           setPendingQuestionCount(0);
         }
       })
@@ -265,6 +282,36 @@ export function AudiencePresenterPanel({
       sessionId: session.sessionId,
     });
     setInteractions(response.interactions);
+    setSelectedLibraryInteractionIds(
+      libraryIdsFromSessionInteractions(response.interactions),
+    );
+  }
+
+  async function handlePreparedSelection(libraryInteractionIds: string[]) {
+    if (!session || session.status !== "draft" || isSelectionBusy) {
+      return;
+    }
+
+    const previousIds = selectedLibraryInteractionIds;
+    setSelectedLibraryInteractionIds(libraryInteractionIds);
+    setIsSelectionBusy(true);
+    setErrorMessage("");
+    try {
+      const response = await selectSessionInteractions({
+        projectId,
+        sessionId: session.sessionId,
+        libraryInteractionIds,
+      });
+      setInteractions(response.interactions);
+      setSelectedLibraryInteractionIds(
+        libraryIdsFromSessionInteractions(response.interactions),
+      );
+    } catch (error) {
+      setSelectedLibraryInteractionIds(previousIds);
+      setErrorMessage(toAudienceLinkErrorMessage(error));
+    } finally {
+      setIsSelectionBusy(false);
+    }
   }
 
   async function handleCreateAdHoc(kind: "poll" | "quiz") {
@@ -443,6 +490,15 @@ export function AudiencePresenterPanel({
               ) : null}
             </div>
           ) : null}
+
+          <PreparedInteractionLibrarySelector
+            disabled={session.status !== "draft" || isSelectionBusy}
+            library={interactionLibrary}
+            selectedLibraryInteractionIds={selectedLibraryInteractionIds}
+            onChange={(libraryInteractionIds) =>
+              void handlePreparedSelection(libraryInteractionIds)
+            }
+          />
 
           <AudiencePresenterInteractionControls
             interactions={interactions}
@@ -691,6 +747,16 @@ function createDefaultQuizInteraction() {
       },
     ],
   };
+}
+
+function libraryIdsFromSessionInteractions(interactions: SessionInteraction[]) {
+  return [...interactions]
+    .sort((left, right) => left.order - right.order)
+    .flatMap((interaction) =>
+      interaction.source === "library" && interaction.libraryInteractionId
+        ? [interaction.libraryInteractionId]
+        : [],
+    );
 }
 
 const presenterReactionSymbols: Record<ReactionType, string> = {

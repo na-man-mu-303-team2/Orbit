@@ -146,6 +146,7 @@ type ProjectInteractionLibraryRow = {
 type SessionInteractionRow = {
   interaction_id: string;
   session_id: string;
+  library_interaction_id?: string | null;
   kind: "poll" | "quiz";
   title: string;
   questions_json: InteractionQuestion[] | string;
@@ -1033,6 +1034,7 @@ export class PresentationSessionsService {
         INSERT INTO session_interactions (
           interaction_id,
           session_id,
+          library_interaction_id,
           kind,
           title,
           questions_json,
@@ -1045,6 +1047,7 @@ export class PresentationSessionsService {
         VALUES (
           $1,
           $2,
+          null,
           $3,
           $4,
           $5::jsonb,
@@ -1061,6 +1064,7 @@ export class PresentationSessionsService {
         RETURNING
           interaction_id,
           session_id,
+          library_interaction_id,
           kind,
           title,
           questions_json,
@@ -1105,6 +1109,7 @@ export class PresentationSessionsService {
           RETURNING
             interaction_id,
             session_id,
+            library_interaction_id,
             kind,
             title,
             questions_json,
@@ -1158,6 +1163,7 @@ export class PresentationSessionsService {
         RETURNING
           interaction_id,
           session_id,
+          library_interaction_id,
           kind,
           title,
           questions_json,
@@ -1235,6 +1241,7 @@ export class PresentationSessionsService {
         RETURNING
           interaction_id,
           session_id,
+          library_interaction_id,
           kind,
           title,
           questions_json,
@@ -1414,6 +1421,7 @@ export class PresentationSessionsService {
         SELECT
           interaction_id,
           session_id,
+          library_interaction_id,
           kind,
           title,
           questions_json,
@@ -2556,6 +2564,7 @@ export class PresentationSessionsService {
         SELECT
           interaction_id,
           session_id,
+          library_interaction_id,
           kind,
           title,
           questions_json,
@@ -2585,6 +2594,7 @@ export class PresentationSessionsService {
         SELECT
           interaction_id,
           session_id,
+          library_interaction_id,
           kind,
           title,
           questions_json,
@@ -2680,6 +2690,7 @@ export class PresentationSessionsService {
         SELECT
           interaction_id,
           session_id,
+          library_interaction_id,
           kind,
           title,
           questions_json,
@@ -2999,6 +3010,7 @@ export class PresentationSessionsService {
     return {
       interactionId: row.interaction_id,
       sessionId: row.session_id,
+      libraryInteractionId: row.library_interaction_id ?? null,
       kind: row.kind,
       title: row.title,
       questions: normalizeQuestions(row.questions_json),

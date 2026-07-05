@@ -103,6 +103,7 @@ export const sessionInteractionSchema = z
   .object({
     interactionId: interactionIdSchema,
     sessionId: z.string().min(1),
+    libraryInteractionId: libraryInteractionIdSchema.nullable().default(null),
     kind: interactionKindSchema,
     title: z.string().trim().min(1).max(160),
     questions: z.array(interactionQuestionSchema).min(1),
@@ -577,6 +578,12 @@ export type InteractionQuestion = z.infer<typeof interactionQuestionSchema>;
 export type InteractionDraft = z.infer<typeof interactionDraftSchema>;
 export type ProjectInteractionLibraryItem = z.infer<
   typeof projectInteractionLibraryItemSchema
+>;
+export type ListInteractionLibraryItemsResponse = z.infer<
+  typeof listInteractionLibraryItemsResponseSchema
+>;
+export type SelectSessionInteractionsRequest = z.infer<
+  typeof selectSessionInteractionsRequestSchema
 >;
 export type SessionInteraction = z.infer<typeof sessionInteractionSchema>;
 export type ListSessionInteractionsResponse = z.infer<

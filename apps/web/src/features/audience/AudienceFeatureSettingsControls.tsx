@@ -1,5 +1,6 @@
 import type {
   AudienceFeatureSettings,
+  ProjectInteractionLibraryItem,
   SessionInteraction,
   UpdateAudienceFeatureSettingsRequest,
 } from "@orbit/shared";
@@ -156,6 +157,141 @@ export function AudienceSessionSetupSummary(props: {
         </p>
       </section>
     </div>
+  );
+}
+
+export function PreparedInteractionLibrarySelector(props: {
+  disabled?: boolean;
+  library: ProjectInteractionLibraryItem[] | null;
+  onChange: (libraryInteractionIds: string[]) => void;
+  selectedLibraryInteractionIds: string[];
+}) {
+  const {
+    disabled = false,
+    library,
+    onChange,
+    selectedLibraryInteractionIds,
+  } = props;
+  const byId = new Map(
+    (library ?? []).map((interaction) => [
+      interaction.libraryInteractionId,
+      interaction,
+    ]),
+  );
+  const selectedInteractions = selectedLibraryInteractionIds
+    .map((libraryInteractionId) => byId.get(libraryInteractionId))
+    .filter((interaction): interaction is ProjectInteractionLibraryItem =>
+      Boolean(interaction),
+    );
+
+  function toggleSelection(libraryInteractionId: string, checked: boolean) {
+    if (checked) {
+      onChange([...selectedLibraryInteractionIds, libraryInteractionId]);
+      return;
+    }
+
+    onChange(
+      selectedLibraryInteractionIds.filter(
+        (selectedId) => selectedId !== libraryInteractionId,
+      ),
+    );
+  }
+
+  function moveSelection(libraryInteractionId: string, direction: -1 | 1) {
+    const currentIndex = selectedLibraryInteractionIds.indexOf(
+      libraryInteractionId,
+    );
+    const nextIndex = currentIndex + direction;
+    if (currentIndex < 0 || nextIndex < 0) {
+      return;
+    }
+    if (nextIndex >= selectedLibraryInteractionIds.length) {
+      return;
+    }
+
+    const nextIds = [...selectedLibraryInteractionIds];
+    const [selectedId] = nextIds.splice(currentIndex, 1);
+    nextIds.splice(nextIndex, 0, selectedId);
+    onChange(nextIds);
+  }
+
+  return (
+    <section
+      className="audience-prepared-selector"
+      aria-label="Prepared Poll/Quiz"
+    >
+      <strong>Prepared Poll/Quiz</strong>
+      {library === null ? <p>상호작용 library 확인 중</p> : null}
+      {library?.length === 0 ? <p>저장된 상호작용 없음</p> : null}
+      {library && library.length > 0 ? (
+        <ul className="audience-prepared-library-list">
+          {library.map((interaction) => {
+            const selectedIndex = selectedLibraryInteractionIds.indexOf(
+              interaction.libraryInteractionId,
+            );
+            const selected = selectedIndex >= 0;
+
+            return (
+              <li key={interaction.libraryInteractionId}>
+                <label>
+                  <input
+                    aria-label={`${interaction.title} 선택`}
+                    checked={selected}
+                    disabled={disabled}
+                    type="checkbox"
+                    onChange={(event) =>
+                      toggleSelection(
+                        interaction.libraryInteractionId,
+                        event.target.checked,
+                      )
+                    }
+                  />
+                  <span>
+                    {interaction.title} ·{" "}
+                    {interaction.kind === "poll" ? "Poll" : "Quiz"}
+                    {selected ? ` · ${selectedIndex + 1}번` : ""}
+                  </span>
+                </label>
+                {selected ? (
+                  <span className="audience-prepared-order-actions">
+                    <button
+                      aria-label={`${interaction.title} 순서 올리기`}
+                      disabled={disabled || selectedIndex === 0}
+                      type="button"
+                      onClick={() =>
+                        moveSelection(interaction.libraryInteractionId, -1)
+                      }
+                    >
+                      위
+                    </button>
+                    <button
+                      aria-label={`${interaction.title} 순서 내리기`}
+                      disabled={
+                        disabled ||
+                        selectedIndex === selectedLibraryInteractionIds.length - 1
+                      }
+                      type="button"
+                      onClick={() =>
+                        moveSelection(interaction.libraryInteractionId, 1)
+                      }
+                    >
+                      아래
+                    </button>
+                  </span>
+                ) : null}
+              </li>
+            );
+          })}
+        </ul>
+      ) : null}
+      {selectedInteractions.length > 0 ? (
+        <ol className="audience-prepared-selected-order">
+          {selectedInteractions.map((interaction) => (
+            <li key={interaction.libraryInteractionId}>{interaction.title}</li>
+          ))}
+        </ol>
+      ) : null}
+    </section>
   );
 }
 

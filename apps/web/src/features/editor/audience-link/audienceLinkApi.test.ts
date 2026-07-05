@@ -2,8 +2,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   fetchAudienceFeatureSettings,
+  fetchInteractionLibrary,
   fetchSessionResults,
   fetchSessionSurveyForm,
+  selectSessionInteractions,
   sessionSurveyCsvUrl,
   updateAudienceAccessEntryStatus,
   updateAudienceFeatureSettings,
@@ -190,6 +192,82 @@ describe("audience link API", () => {
     expect(fetcher).toHaveBeenCalledWith(
       "/api/v1/projects/project_1/presentation-sessions/session_1/results",
       expect.objectContaining({ credentials: "include", method: "GET" }),
+    );
+  });
+
+  it("fetches library interactions and saves the prepared session order", async () => {
+    const libraryInteraction = {
+      libraryInteractionId:
+        "library_interaction_00000000-0000-4000-8000-000000000001",
+      projectId: "project_1",
+      kind: "poll",
+      title: "준비된 투표",
+      questions: [
+        {
+          type: "scale",
+          questionId: "question_00000000-0000-4000-8000-000000000001",
+          prompt: "만족도",
+          required: true,
+          min: 1,
+          max: 5,
+        },
+      ],
+      resultVisibility: "manual",
+      quizScoring: "none",
+      createdAt: "2026-07-05T00:00:00.000Z",
+      updatedAt: "2026-07-05T00:00:00.000Z",
+    };
+    const sessionInteraction = {
+      interactionId: "interaction_00000000-0000-4000-8000-000000000001",
+      sessionId: "session_1",
+      libraryInteractionId: libraryInteraction.libraryInteractionId,
+      kind: "poll",
+      title: "준비된 투표",
+      questions: libraryInteraction.questions,
+      resultVisibility: "manual",
+      quizScoring: "none",
+      exposedResultQuestionIds: [],
+      source: "library",
+      order: 0,
+      activatedAt: null,
+      closedAt: null,
+    };
+    const fetcher = vi.fn(
+      async (_input: RequestInfo | URL, init?: RequestInit) => {
+        if (init?.method === "POST") {
+          expect(JSON.parse(String(init.body))).toEqual({
+            libraryInteractionIds: [libraryInteraction.libraryInteractionId],
+          });
+          return new Response(
+            JSON.stringify({ interactions: [sessionInteraction] }),
+          );
+        }
+
+        return new Response(
+          JSON.stringify({ interactions: [libraryInteraction] }),
+        );
+      },
+    );
+    vi.stubGlobal("fetch", fetcher);
+
+    await expect(fetchInteractionLibrary("project_1")).resolves.toEqual({
+      interactions: [libraryInteraction],
+    });
+    await expect(
+      selectSessionInteractions({
+        projectId: "project_1",
+        sessionId: "session_1",
+        libraryInteractionIds: [libraryInteraction.libraryInteractionId],
+      }),
+    ).resolves.toEqual({ interactions: [sessionInteraction] });
+
+    expect(fetcher).toHaveBeenCalledWith(
+      "/api/v1/projects/project_1/presentation-sessions/interactions/library",
+      expect.objectContaining({ credentials: "include", method: "GET" }),
+    );
+    expect(fetcher).toHaveBeenCalledWith(
+      "/api/v1/projects/project_1/presentation-sessions/session_1/interactions/select",
+      expect.objectContaining({ credentials: "include", method: "POST" }),
     );
   });
 });

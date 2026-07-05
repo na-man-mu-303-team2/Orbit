@@ -2,10 +2,12 @@ import type {
   CreatePresentationSessionResponse,
   CreateAdHocSessionInteractionRequest,
   GetCurrentPresentationSessionResponse,
+  ListInteractionLibraryItemsResponse,
   ListSessionInteractionsResponse,
   PresentationEntryStatus,
   PresentationSession,
   PresenterQuestionQueueResponse,
+  SelectSessionInteractionsRequest,
   SessionInteractionResponse,
   SessionResultsResponse,
   SessionSurveyFormResponse,
@@ -233,6 +235,44 @@ export async function fetchSessionInteractions(args: {
   return response.json() as Promise<ListSessionInteractionsResponse>;
 }
 
+export async function fetchInteractionLibrary(
+  projectId: string,
+): Promise<ListInteractionLibraryItemsResponse> {
+  const response = await fetch(interactionLibraryUrl(projectId), {
+    credentials: "include",
+    method: "GET",
+  });
+
+  if (!response.ok) {
+    throw await readResponseError(response, "Interaction library fetch failed");
+  }
+
+  return response.json() as Promise<ListInteractionLibraryItemsResponse>;
+}
+
+export async function selectSessionInteractions(args: {
+  libraryInteractionIds: SelectSessionInteractionsRequest["libraryInteractionIds"];
+  projectId: string;
+  sessionId: string;
+}): Promise<ListSessionInteractionsResponse> {
+  const response = await fetch(`${sessionInteractionsUrl(args)}/select`, {
+    body: JSON.stringify({
+      libraryInteractionIds: args.libraryInteractionIds,
+    }),
+    credentials: "include",
+    headers: {
+      "content-type": "application/json",
+    },
+    method: "POST",
+  });
+
+  if (!response.ok) {
+    throw await readResponseError(response, "Session interaction selection failed");
+  }
+
+  return response.json() as Promise<ListSessionInteractionsResponse>;
+}
+
 export async function createAdHocSessionInteraction(args: {
   interaction: CreateAdHocSessionInteractionRequest;
   projectId: string;
@@ -357,6 +397,12 @@ function sessionInteractionsUrl(args: { projectId: string; sessionId: string }) 
   return `/api/v1/projects/${encodeURIComponent(
     args.projectId,
   )}/presentation-sessions/${encodeURIComponent(args.sessionId)}/interactions`;
+}
+
+function interactionLibraryUrl(projectId: string) {
+  return `/api/v1/projects/${encodeURIComponent(
+    projectId,
+  )}/presentation-sessions/interactions/library`;
 }
 
 async function readResponseError(response: Response, fallbackMessage: string) {
