@@ -65,6 +65,7 @@ services:
       JOB_QUEUE_DRIVER: bullmq
       LIVE_STT_PROVIDER: sherpa
       REPORT_STT_PROVIDER: openai
+      OPENAI_TRANSCRIPTION_MODEL: whisper-1
       OCR_PROVIDER: python
       TEXTRACT_ENABLED: "false"
       PYTHON_WORKER_URL: http://python-worker:8000
@@ -87,6 +88,7 @@ services:
       JOB_QUEUE_DRIVER: bullmq
       LIVE_STT_PROVIDER: sherpa
       REPORT_STT_PROVIDER: openai
+      OPENAI_TRANSCRIPTION_MODEL: whisper-1
       OCR_PROVIDER: python
       TEXTRACT_ENABLED: "false"
       PYTHON_WORKER_URL: http://python-worker:8000
@@ -108,6 +110,7 @@ services:
       JOB_QUEUE_DRIVER: bullmq
       LIVE_STT_PROVIDER: sherpa
       REPORT_STT_PROVIDER: openai
+      OPENAI_TRANSCRIPTION_MODEL: whisper-1
       OCR_PROVIDER: python
       TEXTRACT_ENABLED: "false"
       PYTHON_WORKER_URL: http://python-worker:8000

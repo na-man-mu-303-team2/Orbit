@@ -23,7 +23,7 @@ API, worker, web, Python worker는 시작 시 환경변수를 검증한다.
 STORAGE_DRIVER=minio | s3
 JOB_QUEUE_DRIVER=bullmq | sqs
 LIVE_STT_PROVIDER=sherpa
-REPORT_STT_PROVIDER=openai
+REPORT_STT_PROVIDER=openai | whisperx
 OCR_PROVIDER=python | textract
 LLM_PROVIDER=openai
 ```
@@ -61,11 +61,13 @@ OpenAI 모델은 코드 상수가 아니라 env로 결정한다.
 
 ```txt
 OPENAI_MODEL=gpt-4.1-mini
-OPENAI_TRANSCRIPTION_MODEL=gpt-4o-transcribe
+OPENAI_TRANSCRIPTION_MODEL=whisper-1
 OPENAI_EMBEDDING_MODEL=text-embedding-3-small
 AI_SLIDE_IMAGE_REVIEW_MODE=auto
 ORBIT_PPTX_OOXML_VECTOR_IMPORT=true
 ```
+
+리허설 리포트의 시간 기반 지표를 계산해야 하는 local/staging report STT는 `OPENAI_TRANSCRIPTION_MODEL=whisper-1`을 사용한다. `whisper-1`의 `verbose_json` 응답은 duration과 segment timestamp를 제공하므로 WPM, 구간별 속도, 긴 침묵 계산에 사용할 수 있다. production 모델은 전사 정확도와 시간 지표 요구를 함께 검토한 뒤 별도로 고정한다.
 
 `AI_SLIDE_IMAGE_REVIEW_MODE=auto | off`는 텍스트 겹침 후보가 있는 슬라이드 PNG preview 검증을 제어한다. `auto`는 기존 `OPENAI_API_KEY`와 `OPENAI_MODEL`을 쓰고, `off`는 이미지 호출 없이 rule-based warning만 남긴다.
 

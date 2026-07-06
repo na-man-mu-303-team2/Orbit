@@ -15,9 +15,19 @@ FILLER_WORDS = {
     "저기",
     "약간",
     "뭐",
+    "뭐랄까",
     "um",
     "uh",
+    "erm",
     "like",
+}
+
+FILLER_PHRASES = {
+    ("뭐", "랄까"): "뭐랄까",
+    ("you", "know"): "you know",
+    ("i", "mean"): "i mean",
+    ("kind", "of"): "kind of",
+    ("sort", "of"): "sort of",
 }
 
 LONG_PAUSE_THRESHOLD_SECONDS = 1.0
@@ -262,19 +272,66 @@ def calculate_words_per_minute(word_count: int, duration_seconds: float) -> floa
 
 
 def count_filler_words(words: list[str]) -> int:
-    return sum(1 for word in words if word in FILLER_WORDS)
+    return len(find_filler_words(words))
 
 
 def count_filler_word_details(words: list[str]) -> list[FillerWordDetail]:
     counts: dict[str, int] = {}
-    for word in words:
-        if word in FILLER_WORDS:
-            counts[word] = counts.get(word, 0) + 1
+    for word in find_filler_words(words):
+        counts[word] = counts.get(word, 0) + 1
 
     return [
         FillerWordDetail(word=word, count=count)
         for word, count in sorted(counts.items(), key=lambda item: (-item[1], item[0]))
     ]
+
+
+def find_filler_words(words: list[str]) -> list[str]:
+    fillers: list[str] = []
+    index = 0
+    while index < len(words):
+        phrase = canonical_filler_phrase(words, index)
+        if phrase is not None:
+            canonical, length = phrase
+            fillers.append(canonical)
+            index += length
+            continue
+
+        canonical_word = canonical_filler_word(words[index])
+        if canonical_word is not None:
+            fillers.append(canonical_word)
+
+        index += 1
+
+    return fillers
+
+
+def canonical_filler_phrase(words: list[str], index: int) -> tuple[str, int] | None:
+    for phrase_words, canonical in FILLER_PHRASES.items():
+        end_index = index + len(phrase_words)
+        if tuple(words[index:end_index]) == phrase_words:
+            return canonical, len(phrase_words)
+
+    return None
+
+
+def canonical_filler_word(word: str) -> str | None:
+    if word in FILLER_WORDS:
+        return word
+
+    if re.fullmatch(r"(?:으+)?음+", word):
+        return "음"
+
+    if re.fullmatch(r"어+", word):
+        return "어"
+
+    if re.fullmatch(r"umm+", word):
+        return "um"
+
+    if re.fullmatch(r"uhh+", word):
+        return "uh"
+
+    return None
 
 
 def count_pauses(segments: list[TranscriptSegment]) -> int:

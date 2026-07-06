@@ -180,6 +180,39 @@ describe("RehearsalWorkspace", () => {
     expect(handleTimePrimaryActionBody).toContain("stopLiveDemo()");
   });
 
+  it("stops report recording before falling back to standalone Live STT stop", () => {
+    const source = fs.readFileSync(
+      rehearsalWorkspaceSourcePath,
+      "utf8"
+    );
+    const start = source.indexOf("function handleSideTimerPrimaryAction");
+    const end = source.indexOf("function commitElapsedTimeInput");
+    const handleSideTimerPrimaryActionBody = source.slice(start, end);
+
+    expect(handleSideTimerPrimaryActionBody).toContain('if (phase === "recording")');
+    expect(handleSideTimerPrimaryActionBody).toContain("stopRecording()");
+    expect(handleSideTimerPrimaryActionBody).toContain("if (canStopLiveDemo)");
+    expect(handleSideTimerPrimaryActionBody).toContain(
+      "stopLiveDemo({ showCompletionModal: true })"
+    );
+    expect(handleSideTimerPrimaryActionBody.indexOf('if (phase === "recording")'))
+      .toBeLessThan(handleSideTimerPrimaryActionBody.indexOf("if (canStopLiveDemo)"));
+  });
+
+  it("starts report recording from the side timer play button", () => {
+    const source = fs.readFileSync(
+      rehearsalWorkspaceSourcePath,
+      "utf8"
+    );
+    const start = source.indexOf("function handleSideTimerPrimaryAction");
+    const end = source.indexOf("function commitElapsedTimeInput");
+    const handleSideTimerPrimaryActionBody = source.slice(start, end);
+
+    expect(handleSideTimerPrimaryActionBody).toContain("if (canRecord)");
+    expect(handleSideTimerPrimaryActionBody).toContain("void startRecording()");
+    expect(handleSideTimerPrimaryActionBody).not.toContain("void startLiveDemo()");
+  });
+
   it("creates fallback Live STT ports from the selected presenter engine", () => {
     const source = fs.readFileSync(
       rehearsalWorkspaceSourcePath,

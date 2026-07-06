@@ -1799,6 +1799,11 @@ export function RehearsalWorkspace(props: {
   }
 
   function handleSideTimerPrimaryAction() {
+    if (phase === "recording") {
+      stopRecording();
+      return;
+    }
+
     if (canStopLiveDemo) {
       stopLiveDemo({ showCompletionModal: true });
       return;
@@ -1813,8 +1818,8 @@ export function RehearsalWorkspace(props: {
       setElapsedSeconds(0);
     }
 
-    if (canStartLiveDemo) {
-      void startLiveDemo();
+    if (canRecord) {
+      void startRecording();
       return;
     }
 
@@ -2735,11 +2740,13 @@ export function RehearsalWorkspace(props: {
                   <button
                     type="button"
                     aria-label={
-                      canStopLiveDemo
+                      phase === "recording"
+                        ? "리포트 녹음 종료"
+                        : canStopLiveDemo
                         ? "Live STT 종료"
                         : isTimerRunning
                           ? "타이머 일시정지"
-                          : "Live STT 시작"
+                          : "리포트 녹음 시작"
                     }
                     onClick={handleSideTimerPrimaryAction}
                     disabled={!deck && !isTimerRunning}

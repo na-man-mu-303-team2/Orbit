@@ -550,6 +550,10 @@ def _build_whisperx_multipart_body(
 
 
 def _sanitize_multipart_filename(file_name: str) -> str:
-    base_name = Path(file_name).name.replace("\x00", "")
-    safe_name = _MULTIPART_SAFE_FILENAME_RE.sub("_", base_name).strip("._-")
+    base_name = Path(file_name.replace("\\", "_")).name.replace("\x00", "")
+    safe_name = re.sub(
+        r"_+",
+        "_",
+        _MULTIPART_SAFE_FILENAME_RE.sub("_", base_name),
+    ).strip("._-")
     return safe_name or "audio.audio"
