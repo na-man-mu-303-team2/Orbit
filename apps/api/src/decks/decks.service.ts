@@ -146,6 +146,12 @@ export class DecksService {
     return this.dataSource.transaction(async (manager) => {
       const updatedAt = nowIso();
       const deck = await this.upsertDeck(manager, request.deck, updatedAt);
+      await this.deletePatchRowsAfterVersion(
+        manager,
+        projectId,
+        deck.deckId,
+        deck.version,
+      );
       await this.deletePatchRowsUpToVersion(
         manager,
         projectId,

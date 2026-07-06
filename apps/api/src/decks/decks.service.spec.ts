@@ -741,6 +741,34 @@ describe("DecksService", () => {
     expect(dataSource.decks.get(deck.projectId)?.version).toBe(2);
   });
 
+  it("removes newer patch rows after replacing the deck with an older snapshot", async () => {
+    const { dataSource, service } = createService();
+    const deck = createDeck();
+    await service.putDeck(deck.projectId, { deck });
+
+    await service.appendPatch(deck.projectId, {
+      patch: createUpdateTitlePatch(deck, "Updated deck"),
+    });
+
+    await service.putDeck(deck.projectId, { deck });
+    const getResponse = await service.getDeck(deck.projectId);
+
+    expect(dataSource.patchRows).toHaveLength(0);
+    expect(getResponse.deck).toMatchObject({
+      title: deck.title,
+      version: 1,
+    });
+
+    const nextPatchResponse = await service.appendPatch(deck.projectId, {
+      patch: createUpdateTitlePatch(deck, "Saved after undo"),
+    });
+
+    expect(nextPatchResponse.deck).toMatchObject({
+      title: "Saved after undo",
+      version: 2,
+    });
+  });
+
   it("normalizes legacy keyword terms when restoring snapshots", async () => {
     const { dataSource, service } = createService();
     const deck = createDeck();

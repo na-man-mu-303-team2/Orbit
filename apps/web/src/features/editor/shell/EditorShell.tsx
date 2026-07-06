@@ -752,13 +752,10 @@ export function consumeScheduledUndoRedoPersistLabel(args: {
 }) {
   const timer = args.timerRef.current;
 
-  if (!timer) {
-    args.labelRef.current = null;
-    return null;
+  if (timer) {
+    args.clearTimer(timer);
+    args.timerRef.current = null;
   }
-
-  args.clearTimer(timer);
-  args.timerRef.current = null;
 
   const label = args.labelRef.current;
   args.labelRef.current = null;
@@ -2096,7 +2093,7 @@ export function EditorShell(props: { projectId?: string }) {
     setLastSavedAt(new Date().toISOString());
     setSaveState("auto-saved");
     setSaveError(null, null);
-    setLastPatchLabel(`${label} 쨌 v${persistedDeck.version}`);
+    setLastPatchLabel(`${label} · v${persistedDeck.version}`);
   }
 
   function queueUndoRedoPersist(label: string) {
@@ -2124,7 +2121,12 @@ export function EditorShell(props: { projectId?: string }) {
       return;
     }
 
-    await queueUndoRedoPersist(label);
+    try {
+      await queueUndoRedoPersist(label);
+    } catch (error) {
+      undoRedoPersistLabelRef.current = label;
+      throw error;
+    }
   }
 
   function scheduleUndoRedoPersist(label: string) {

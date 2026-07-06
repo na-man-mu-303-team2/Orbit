@@ -172,6 +172,24 @@ describe("editor shell", () => {
     expect(clearTimer).toHaveBeenCalledTimes(1);
   });
 
+  it("consumes a restored undo redo persist label without a timer", () => {
+    const timerRef: { current: ReturnType<typeof setTimeout> | null } = {
+      current: null
+    };
+    const labelRef: { current: string | null } = { current: "redo" };
+    const clearTimer = vi.fn();
+
+    expect(
+      consumeScheduledUndoRedoPersistLabel({
+        clearTimer,
+        labelRef,
+        timerRef
+      })
+    ).toBe("redo");
+    expect(clearTimer).not.toHaveBeenCalled();
+    expect(labelRef.current).toBeNull();
+  });
+
   it("prompts before discarding a dirty speaker notes draft", () => {
     expect(
       shouldPromptSpeakerNotesDraftDiscard({
