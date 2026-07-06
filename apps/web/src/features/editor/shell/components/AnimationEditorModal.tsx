@@ -71,10 +71,7 @@ type AnimationEditorModalProps = {
   onClose: () => void;
   onDeleteAnimation: (animationId: string) => void;
   onSelectKeyword: (keywordId: string) => void;
-  onSelectKeywordText: (selection: {
-    occurrenceIndex: number;
-    value: string;
-  }) => void;
+  onSelectKeywordText: (value: string) => void;
   onUpdateAnimation: (
     animationId: string,
     patch: Partial<DeckAnimation>

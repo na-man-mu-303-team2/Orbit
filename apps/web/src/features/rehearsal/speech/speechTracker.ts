@@ -19,7 +19,6 @@ import {
 
 export type SpeechTrackerKeyword = {
   keywordId: string;
-  noteOccurrence?: number;
   text: string;
   synonyms: readonly string[];
   abbreviations: readonly string[];
@@ -54,8 +53,6 @@ export function createSpeechTracker(input: CreateSpeechTrackerInput): SpeechTrac
     .map((sentence) => sentence.sentenceId);
   const keywordAliases = input.keywords.map((keyword) => ({
     keywordId: keyword.keywordId,
-    noteOccurrence: keyword.noteOccurrence,
-    text: keyword.text,
     aliases: [keyword.text, ...keyword.synonyms, ...keyword.abbreviations]
   }));
 
@@ -103,11 +100,13 @@ export function createSpeechTracker(input: CreateSpeechTrackerInput): SpeechTrac
     }
 
     for (const match of matchKeywordAliases({
-      transcript: visit.finalTranscript,
-      keywords: keywordAliases.filter(
-        (keyword) => !sessionKeywordHits.has(keyword.keywordId)
-      )
+      transcript: result.text,
+      keywords: keywordAliases
     })) {
+      if (sessionKeywordHits.has(match.keywordId)) {
+        continue;
+      }
+
       sessionKeywordHits.add(match.keywordId);
       events.push({
         type: "keyword-hit",

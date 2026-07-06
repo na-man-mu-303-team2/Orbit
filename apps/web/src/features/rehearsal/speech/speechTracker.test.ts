@@ -141,55 +141,6 @@ describe("SpeechTracker", () => {
     });
   });
 
-  it("같은 키워드 텍스트가 반복되면 미발화 occurrence만 순서대로 hit 처리한다", () => {
-    const tracker = createSpeechTracker({
-      slideId: "slide_1",
-      speakerNotes: "처리합니다. 다시 처리합니다.",
-      keywords: [
-        {
-          keywordId: "kw_first",
-          text: "처리합니다",
-          synonyms: [],
-          abbreviations: [],
-          noteOccurrence: 0
-        },
-        {
-          keywordId: "kw_second",
-          text: "처리합니다",
-          synonyms: [],
-          abbreviations: [],
-          noteOccurrence: 1
-        }
-      ]
-    });
-
-    expect(
-      tracker.acceptResult({
-        text: "처리합니다",
-        isFinal: true,
-        timestampMs: [0, 500]
-      })
-    ).toContainEqual({
-      type: "keyword-hit",
-      slideId: "slide_1",
-      keywordId: "kw_first",
-      atMs: 500
-    });
-
-    expect(
-      tracker.acceptResult({
-        text: "다시 처리합니다",
-        isFinal: true,
-        timestampMs: [500, 1200]
-      })
-    ).toContainEqual({
-      type: "keyword-hit",
-      slideId: "slide_1",
-      keywordId: "kw_second",
-      atMs: 1200
-    });
-  });
-
   it("제어 문구와 겹치는 대본 문장은 coverage 후보에서 제외한다", () => {
     const tracker = createSpeechTracker({
       slideId: "slide_1",

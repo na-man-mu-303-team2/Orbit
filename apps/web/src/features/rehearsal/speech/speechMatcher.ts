@@ -12,8 +12,6 @@ export type PhraseMatchResult = {
 export type KeywordAliasInput = {
   keywordId: string;
   aliases: readonly string[];
-  noteOccurrence?: number;
-  text?: string;
 };
 
 export type KeywordAliasMatch = {
@@ -66,39 +64,21 @@ export function matchKeywordAliases(options: {
   keywords: readonly KeywordAliasInput[];
 }): KeywordAliasMatch[] {
   const normalizedTranscript = normalizeSpeechText(options.transcript);
-  if (!normalizedTranscript) {
-    return [];
-  }
-
-  const orderedKeywords = options.keywords
-    .map((keyword, index) => ({ ...keyword, originalIndex: index }))
-    .sort(compareKeywordAliasInputOrder);
-  const aliasMatchCountCache = new Map<string, number>();
-
   const matches: KeywordAliasMatch[] = [];
 
-  for (const keyword of orderedKeywords) {
-    const aliases = keyword.aliases.map((alias) => alias.trim()).filter(Boolean);
-    if (aliases.length === 0) {
-      continue;
-    }
-
-    const matchedAlias = aliases.find((alias) => {
-      const occurrenceCount = countAliasMatches(
-        options.transcript,
-        normalizedTranscript,
-        alias,
-        aliasMatchCountCache
-      );
-
-      if (keyword.noteOccurrence !== undefined) {
-        return occurrenceCount > keyword.noteOccurrence;
-      }
-
-      if (occurrenceCount <= 0) {
+  for (const keyword of options.keywords) {
+    const matchedAlias = keyword.aliases.find((alias) => {
+      const trimmedAlias = alias.trim();
+      const normalizedAlias = normalizeSpeechText(trimmedAlias);
+      if (!normalizedAlias) {
         return false;
       }
-      return true;
+
+      if (requiresEnglishWordBoundary(trimmedAlias)) {
+        return hasEnglishWordBoundaryMatch(options.transcript, trimmedAlias);
+      }
+
+      return normalizedTranscript.includes(normalizedAlias);
     });
 
     if (matchedAlias) {
@@ -107,47 +87,6 @@ export function matchKeywordAliases(options: {
   }
 
   return matches;
-}
-
-function compareKeywordAliasInputOrder(
-  left: KeywordAliasInput & { originalIndex: number },
-  right: KeywordAliasInput & { originalIndex: number }
-) {
-  const leftOccurrence = left.noteOccurrence ?? Number.MAX_SAFE_INTEGER;
-  const rightOccurrence = right.noteOccurrence ?? Number.MAX_SAFE_INTEGER;
-
-  if (leftOccurrence !== rightOccurrence) {
-    return leftOccurrence - rightOccurrence;
-  }
-
-  return left.originalIndex - right.originalIndex;
-}
-
-function countAliasMatches(
-  transcript: string,
-  normalizedTranscript: string,
-  alias: string,
-  cache: Map<string, number>
-) {
-  const trimmedAlias = alias.trim();
-  const normalizedAlias = normalizeSpeechText(trimmedAlias);
-  if (!normalizedAlias) {
-    return 0;
-  }
-
-  const cacheKey = requiresEnglishWordBoundary(trimmedAlias)
-    ? `boundary:${trimmedAlias.toLocaleLowerCase("ko-KR")}`
-    : `normalized:${normalizedAlias}`;
-  const cached = cache.get(cacheKey);
-  if (cached !== undefined) {
-    return cached;
-  }
-
-  const count = requiresEnglishWordBoundary(trimmedAlias)
-    ? countEnglishWordBoundaryMatches(transcript, trimmedAlias)
-    : countSubstringOccurrences(normalizedTranscript, normalizedAlias);
-  cache.set(cacheKey, count);
-  return count;
 }
 
 export function calculateWordMultisetRecall(options: {
@@ -234,33 +173,11 @@ function requiresEnglishWordBoundary(alias: string) {
   return /^[A-Za-z]{1,2}$/.test(alias.trim());
 }
 
-function countEnglishWordBoundaryMatches(transcript: string, alias: string) {
+function hasEnglishWordBoundaryMatch(transcript: string, alias: string) {
   const escapedAlias = alias.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const matches = transcript.match(
-    new RegExp(`(^|[^A-Za-z0-9])${escapedAlias}($|[^A-Za-z0-9])`, "gi")
+  return new RegExp(`(^|[^A-Za-z0-9])${escapedAlias}($|[^A-Za-z0-9])`, "i").test(
+    transcript
   );
-  return matches?.length ?? 0;
-}
-
-function countSubstringOccurrences(text: string, needle: string) {
-  if (!needle) {
-    return 0;
-  }
-
-  let count = 0;
-  let cursor = 0;
-
-  while (cursor <= text.length - needle.length) {
-    const matchIndex = text.indexOf(needle, cursor);
-    if (matchIndex === -1) {
-      break;
-    }
-
-    count += 1;
-    cursor = matchIndex + needle.length;
-  }
-
-  return count;
 }
 
 function tokenizeRecallWords(value: string) {

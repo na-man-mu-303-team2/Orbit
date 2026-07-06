@@ -213,44 +213,13 @@ describe("action operations", () => {
     expect(findKeywordByTerm(slide, "obt")?.keywordId).toBe("kw_1");
   });
 
-  it("finds duplicate keyword texts by note occurrence first", () => {
-    const deck = createDemoDeck();
-    const slide = {
-      ...deck.slides[0]!,
-      keywords: [
-        {
-          keywordId: "kw_1",
-          text: "처리합니다",
-          synonyms: [],
-          abbreviations: [],
-          noteOccurrence: 0,
-          required: false
-        },
-        {
-          keywordId: "kw_2",
-          text: "처리합니다",
-          synonyms: [],
-          abbreviations: [],
-          noteOccurrence: 1,
-          required: false
-        }
-      ]
-    } as Deck["slides"][number];
-
-    expect(findKeywordByTerm(slide, "처리합니다", 0)?.keywordId).toBe("kw_1");
-    expect(findKeywordByTerm(slide, "처리합니다", 1)?.keywordId).toBe("kw_2");
-  });
-
   it("creates new keyword and action ids without colliding", () => {
     const deck = createDemoDeck();
 
     expect(createSlideActionId(deck)).toBe("act_1");
-    expect(
-      createKeyword(deck, "새 키워드", { required: false, noteOccurrence: 2 })
-    ).toMatchObject({
+    expect(createKeyword(deck, "새 키워드", { required: false })).toMatchObject({
       keywordId: "kw_4",
       text: "새 키워드",
-      noteOccurrence: 2,
       required: false
     });
   });

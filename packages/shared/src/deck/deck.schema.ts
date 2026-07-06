@@ -80,56 +80,40 @@ export const deckCanvasSchema = z.discriminatedUnion("preset", [
 ]);
 
 export const keywordTermSchema = z.string().trim().min(1);
-export const keywordNoteOccurrenceSchema = z.number().int().nonnegative();
 
 export const keywordSchema = z.object({
   keywordId: deckKeywordIdSchema,
   text: keywordTermSchema,
   synonyms: z.array(keywordTermSchema).default([]),
   abbreviations: z.array(keywordTermSchema).default([]),
-  noteOccurrence: keywordNoteOccurrenceSchema.optional(),
   required: z.boolean().default(true)
 });
 
 export const slideKeywordsSchema = z
   .array(keywordSchema)
   .superRefine((keywords, ctx) => {
-    const terms = new Map<string, KeywordTermUsage[]>();
+    const terms = new Set<string>();
 
     keywords.forEach((keyword, keywordIndex) => {
-      requireUniqueKeywordTerm(
-        ctx,
-        terms,
-        keyword.text,
-        [keywordIndex, "text"],
-        {
-          kind: "text",
-          noteOccurrence: keyword.noteOccurrence
-        }
-      );
+      requireUniqueKeywordTerm(ctx, terms, keyword.text, [
+        keywordIndex,
+        "text"
+      ]);
 
       keyword.synonyms.forEach((synonym, synonymIndex) => {
-        requireUniqueKeywordTerm(
-          ctx,
-          terms,
-          synonym,
-          [keywordIndex, "synonyms", synonymIndex],
-          {
-            kind: "synonym"
-          }
-        );
+        requireUniqueKeywordTerm(ctx, terms, synonym, [
+          keywordIndex,
+          "synonyms",
+          synonymIndex
+        ]);
       });
 
       keyword.abbreviations.forEach((abbreviation, abbreviationIndex) => {
-        requireUniqueKeywordTerm(
-          ctx,
-          terms,
-          abbreviation,
-          [keywordIndex, "abbreviations", abbreviationIndex],
-          {
-            kind: "abbreviation"
-          }
-        );
+        requireUniqueKeywordTerm(ctx, terms, abbreviation, [
+          keywordIndex,
+          "abbreviations",
+          abbreviationIndex
+        ]);
       });
     });
   });
@@ -276,33 +260,15 @@ export type SlideAiNotes = z.infer<typeof slideAiNotesSchema>;
 export type KeywordTerm = z.infer<typeof keywordTermSchema>;
 export type Keyword = z.infer<typeof keywordSchema>;
 
-type KeywordTermUsage = {
-  kind: "abbreviation" | "synonym" | "text";
-  noteOccurrence?: number;
-};
-
 function requireUniqueKeywordTerm(
   ctx: z.RefinementCtx,
-  seen: Map<string, KeywordTermUsage[]>,
+  seen: Set<string>,
   rawValue: string,
-  path: Array<string | number>,
-  nextUsage: KeywordTermUsage
+  path: Array<string | number>
 ): void {
   const value = rawValue.toLocaleLowerCase("ko-KR");
-  const usages = seen.get(value) ?? [];
 
-  if (
-    usages.some(
-      (usage) =>
-        !(
-          usage.kind === "text" &&
-          nextUsage.kind === "text" &&
-          usage.noteOccurrence !== undefined &&
-          nextUsage.noteOccurrence !== undefined &&
-          usage.noteOccurrence !== nextUsage.noteOccurrence
-        )
-    )
-  ) {
+  if (seen.has(value)) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       path,
@@ -311,6 +277,5 @@ function requireUniqueKeywordTerm(
     return;
   }
 
-  usages.push(nextUsage);
-  seen.set(value, usages);
+  seen.add(value);
 }

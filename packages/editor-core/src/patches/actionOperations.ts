@@ -15,10 +15,6 @@ export type DerivedKeywordUsage = {
   keywordId: string;
 };
 
-type AnchoredKeyword = Keyword & {
-  noteOccurrence?: number;
-};
-
 export function createKeywordId(deck: Deck) {
   const existingIds = new Set(
     deck.slides.flatMap((slide) => slide.keywords.map((keyword) => keyword.keywordId))
@@ -52,14 +48,13 @@ export function createSlideActionId(deck: Deck) {
 export function createKeyword(
   deck: Deck,
   text: string,
-  options?: { noteOccurrence?: number; required?: boolean }
+  options?: { required?: boolean }
 ): Keyword {
   return keywordSchema.parse({
     keywordId: createKeywordId(deck),
     text: text.trim(),
     synonyms: [],
     abbreviations: [],
-    noteOccurrence: options?.noteOccurrence,
     required: options?.required ?? true
   });
 }
@@ -277,35 +272,11 @@ export function deriveKeywordUsage(slide: Slide): Record<string, DerivedKeywordU
   return usage;
 }
 
-export function findKeywordByTerm(
-  slide: Slide,
-  term: string,
-  noteOccurrence?: number
-): Keyword | null {
+export function findKeywordByTerm(slide: Slide, term: string): Keyword | null {
   const normalizedTerm = normalizeTerm(term);
 
   if (!normalizedTerm) {
     return null;
-  }
-
-  const anchoredPrimaryMatches = (slide.keywords as AnchoredKeyword[]).filter(
-    (keyword) =>
-      keyword.noteOccurrence !== undefined &&
-      normalizeTerm(keyword.text) === normalizedTerm
-  );
-
-  if (noteOccurrence !== undefined) {
-    const exactOccurrenceMatch = anchoredPrimaryMatches.find(
-      (keyword) => keyword.noteOccurrence === noteOccurrence
-    );
-
-    if (exactOccurrenceMatch) {
-      return exactOccurrenceMatch;
-    }
-
-    if (anchoredPrimaryMatches.length > 0) {
-      return null;
-    }
   }
 
   return (

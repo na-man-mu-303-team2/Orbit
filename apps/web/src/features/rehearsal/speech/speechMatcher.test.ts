@@ -86,48 +86,6 @@ describe("matchKeywordAliases", () => {
       })
     ).toEqual([{ keywordId: "kw_ai", matchedAlias: "AI" }]);
   });
-
-  it("같은 primary text가 반복되면 transcript 출현 횟수만큼만 순서대로 매칭한다", () => {
-    expect(
-      matchKeywordAliases({
-        transcript: "처리합니다",
-        keywords: [
-          {
-            keywordId: "kw_first",
-            text: "처리합니다",
-            noteOccurrence: 0,
-            aliases: ["처리합니다"]
-          },
-          {
-            keywordId: "kw_second",
-            text: "처리합니다",
-            noteOccurrence: 1,
-            aliases: ["처리합니다"]
-          }
-        ]
-      }).map((match) => match.keywordId)
-    ).toEqual(["kw_first"]);
-
-    expect(
-      matchKeywordAliases({
-        transcript: "처리합니다 다시 처리합니다",
-        keywords: [
-          {
-            keywordId: "kw_first",
-            text: "처리합니다",
-            noteOccurrence: 0,
-            aliases: ["처리합니다"]
-          },
-          {
-            keywordId: "kw_second",
-            text: "처리합니다",
-            noteOccurrence: 1,
-            aliases: ["처리합니다"]
-          }
-        ]
-      }).map((match) => match.keywordId)
-    ).toEqual(["kw_first", "kw_second"]);
-  });
 });
 
 describe("calculateWordMultisetRecall", () => {
