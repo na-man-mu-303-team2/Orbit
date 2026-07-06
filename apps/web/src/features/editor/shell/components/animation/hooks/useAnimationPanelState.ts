@@ -24,6 +24,23 @@ export function useAnimationPanelState(
   }, [animations, preferredAnimationId]);
 
   useEffect(() => {
+    if (!creationType) {
+      return;
+    }
+
+    const createdAnimation = animations.find(
+      (animation) => animation.type === creationType
+    );
+
+    if (!createdAnimation) {
+      return;
+    }
+
+    setSelectedAnimationId(createdAnimation.animationId);
+    setCreationType(null);
+  }, [animations, creationType]);
+
+  useEffect(() => {
     if (creationType !== null) {
       return;
     }

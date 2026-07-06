@@ -32,10 +32,7 @@ export function buildAnimationKeywordTriggerPolicy(args: {
   return {
     restrictionMessage: null,
     stepCount,
-    warningMessage: buildKeywordTriggerWarningMessage(
-      stepCount,
-      null
-    )
+    warningMessage: null
   };
 }
 
@@ -56,17 +53,4 @@ function countKeywordAnimationSteps(
       .map((animationId) => orderByAnimationId.get(animationId))
       .filter((order): order is number => order !== undefined)
   ).size;
-}
-
-function buildKeywordTriggerWarningMessage(
-  stepCount: number,
-  restrictionMessage: string | null
-) {
-  if (restrictionMessage || stepCount <= 0) {
-    return null;
-  }
-
-  return stepCount === 1
-    ? "선택된 키워드는 이미 다른 애니메이션 스텝에 연결되어 있습니다. 지금 추가하면 한 키워드가 여러 스텝을 순서대로 실행할 수 있습니다."
-    : `선택된 키워드는 이미 ${stepCount}개 스텝에 연결되어 있습니다. 지금 추가하면 한 키워드가 여러 스텝을 한 번에 건너뛸 수 있습니다.`;
 }

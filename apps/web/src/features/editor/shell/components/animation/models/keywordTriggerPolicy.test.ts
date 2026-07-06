@@ -37,7 +37,7 @@ describe("buildAnimationKeywordTriggerPolicy", () => {
     expect(policy.stepCount).toBe(0);
   });
 
-  it("keeps the existing warning when a keyword already drives another animation step", () => {
+  it("allows reusing the same keyword across multiple animation steps without warning", () => {
     const policy = buildAnimationKeywordTriggerPolicy({
       element: {
         elementId: "el_text",
@@ -81,7 +81,7 @@ describe("buildAnimationKeywordTriggerPolicy", () => {
     });
 
     expect(policy.restrictionMessage).toBeNull();
-    expect(policy.warningMessage).toContain("이미 다른 애니메이션 스텝");
+    expect(policy.warningMessage).toBeNull();
     expect(policy.stepCount).toBe(1);
   });
 });
