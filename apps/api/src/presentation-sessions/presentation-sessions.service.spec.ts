@@ -1345,6 +1345,67 @@ describe("PresentationSessionsService", () => {
     expect(query.mock.calls[3][0]).toContain("ON CONFLICT");
   });
 
+  it("serializes ad-hoc interaction questions before inserting jsonb", async () => {
+    const interactionRow = {
+      interaction_id: "interaction_00000000-0000-4000-8000-000000000001",
+      session_id: "session_existing",
+      library_interaction_id: null,
+      kind: "poll" as const,
+      title: "현장 투표",
+      questions_json: [
+        {
+          type: "choice" as const,
+          questionId: "question_00000000-0000-4000-8000-000000000001",
+          prompt: "어떤 주제가 가장 궁금한가요?",
+          required: true,
+          allowMultiple: false,
+          options: [
+            { optionId: "roadmap", label: "로드맵" },
+            { optionId: "pricing", label: "가격" },
+          ],
+        },
+      ],
+      result_visibility: "live" as const,
+      quiz_scoring: "none" as const,
+      exposed_result_question_ids: [],
+      source: "ad-hoc" as const,
+      display_order: 0,
+      activated_at: null,
+      closed_at: null,
+    };
+    const query = vi
+      .fn()
+      .mockResolvedValueOnce([{ session_id: "session_existing" }])
+      .mockResolvedValueOnce([interactionRow]);
+    const service = new PresentationSessionsService({
+      query,
+    } as unknown as DataSource);
+
+    await expect(
+      service.createAdHocSessionInteraction(
+        { projectId: "project_1", sessionId: "session_existing" },
+        {
+          kind: "poll",
+          title: "현장 투표",
+          questions: interactionRow.questions_json,
+          resultVisibility: "live",
+          quizScoring: "none",
+        },
+      ),
+    ).resolves.toMatchObject({
+      interaction: {
+        kind: "poll",
+        title: "현장 투표",
+        questions: interactionRow.questions_json,
+      },
+    });
+
+    expect(query.mock.calls[1][0]).toContain("$5::jsonb");
+    expect(JSON.parse(query.mock.calls[1][1]?.[4] as string)).toEqual(
+      interactionRow.questions_json,
+    );
+  });
+
   it("scores speed-bonus quiz answers from remaining time", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-07-05T00:00:15.000Z"));
@@ -1423,6 +1484,66 @@ describe("PresentationSessionsService", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("activates ad-hoc interactions when update returning rows are wrapped", async () => {
+    const interactionRow = {
+      interaction_id: "interaction_00000000-0000-4000-8000-000000000201",
+      session_id: "session_existing",
+      kind: "poll" as const,
+      title: "즉석 투표",
+      questions_json: [
+        {
+          type: "choice" as const,
+          questionId: "question_00000000-0000-4000-8000-000000000201",
+          prompt: "가장 기대되는 흐름은?",
+          required: true,
+          options: [
+            { optionId: "option_00000000-0000-4000-8000-000000000201", label: "Q&A" },
+            { optionId: "option_00000000-0000-4000-8000-000000000202", label: "Poll" },
+          ],
+        },
+      ],
+      result_visibility: "manual" as const,
+      quiz_scoring: "none" as const,
+      exposed_result_question_ids: [],
+      source: "ad-hoc" as const,
+      display_order: 0,
+      activated_at: "2026-07-05T00:03:00.000Z",
+      closed_at: null,
+    };
+    const query = vi
+      .fn()
+      .mockResolvedValueOnce([{ session_id: "session_existing" }])
+      .mockResolvedValueOnce([[interactionRow], 1])
+      .mockResolvedValueOnce([
+        {
+          session_id: "session_existing",
+          slide_id: null,
+          slide_index: null,
+          effect_state_json: {},
+          active_interaction_id: interactionRow.interaction_id,
+          updated_at: "2026-07-05T00:03:00.000Z",
+        },
+      ])
+      .mockResolvedValueOnce([]);
+    const service = new PresentationSessionsService({
+      query,
+    } as unknown as DataSource);
+
+    await expect(
+      service.activateSessionInteraction({
+        projectId: "project_1",
+        sessionId: "session_existing",
+        interactionId: interactionRow.interaction_id,
+        actorId: "user_1",
+      }),
+    ).resolves.toMatchObject({
+      interaction: {
+        interactionId: interactionRow.interaction_id,
+        activatedAt: "2026-07-05T00:03:00.000Z",
+      },
+    });
   });
 
   it("keeps after-close quizzes visible and returns the audience answer reveal", async () => {
@@ -1884,6 +2005,9 @@ describe("PresentationSessionsService", () => {
     );
     expect(query.mock.calls[9][0]).toContain(
       "INSERT INTO audience_question_answers",
+    );
+    expect(query.mock.calls[9][0]).not.toContain(
+      "created_at::text AS created_at\n        )",
     );
   });
 

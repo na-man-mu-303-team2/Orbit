@@ -1070,7 +1070,7 @@ export class PresentationSessionsService {
           row.library_interaction_id,
           row.kind,
           row.title,
-          normalizeQuestions(row.questions_json),
+          JSON.stringify(normalizeQuestions(row.questions_json)),
           row.result_visibility,
           row.quiz_scoring,
           index,
@@ -1144,7 +1144,7 @@ export class PresentationSessionsService {
         input.sessionId,
         parsed.kind,
         parsed.title,
-        parsed.questions,
+        JSON.stringify(parsed.questions),
         parsed.resultVisibility,
         parsed.quizScoring,
       ],
@@ -1162,7 +1162,9 @@ export class PresentationSessionsService {
     await this.assertSessionBelongsToProject(input.projectId, input.sessionId);
 
     try {
-      const rows = await this.dataSource.query<SessionInteractionRow[]>(
+      const result = await this.dataSource.query<
+        QueryRowsResult<SessionInteractionRow>
+      >(
         `
           UPDATE session_interactions
           SET activated_at = COALESCE(activated_at, now())
@@ -1186,6 +1188,7 @@ export class PresentationSessionsService {
         [input.sessionId, input.interactionId],
       );
 
+      const rows = unwrapQueryRows(result);
       const row = rows[0];
       if (!row) {
         throw new NotFoundException("Session interaction not found");
@@ -1217,7 +1220,9 @@ export class PresentationSessionsService {
     actorId: string;
   }) {
     await this.assertSessionBelongsToProject(input.projectId, input.sessionId);
-    const rows = await this.dataSource.query<SessionInteractionRow[]>(
+    const result = await this.dataSource.query<
+      QueryRowsResult<SessionInteractionRow>
+    >(
       `
         UPDATE session_interactions
         SET closed_at = COALESCE(closed_at, now())
@@ -1241,6 +1246,7 @@ export class PresentationSessionsService {
       [input.sessionId, input.interactionId],
     );
 
+    const rows = unwrapQueryRows(result);
     const row = rows[0];
     if (!row) {
       throw new NotFoundException("Session interaction not found");
@@ -1295,7 +1301,9 @@ export class PresentationSessionsService {
       exposedQuestionIds.delete(request.questionId);
     }
 
-    const rows = await this.dataSource.query<SessionInteractionRow[]>(
+    const result = await this.dataSource.query<
+      QueryRowsResult<SessionInteractionRow>
+    >(
       `
         UPDATE session_interactions
         SET exposed_result_question_ids = $3::jsonb
@@ -1323,6 +1331,7 @@ export class PresentationSessionsService {
       ],
     );
 
+    const rows = unwrapQueryRows(result);
     const row = rows[0];
     if (!row) {
       throw new NotFoundException("Session interaction not found");
@@ -2544,7 +2553,7 @@ export class PresentationSessionsService {
           failure_reason,
           feedback,
           escalated_to_presenter,
-          created_at::text AS created_at
+          created_at
         )
         VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, NULL, $8, now())
         ON CONFLICT (question_id)
