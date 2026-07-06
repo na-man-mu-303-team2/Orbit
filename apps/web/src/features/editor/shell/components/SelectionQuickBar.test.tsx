@@ -2,7 +2,11 @@ import { createDemoDeck, getElementAnimations, validateSlideAnimations } from ".
 import { renderToString } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 
-import { SelectionQuickBar } from "./SelectionQuickBar";
+import {
+  buildTextStylePropsPatch,
+  getEffectiveTextQuickBarStyle,
+  SelectionQuickBar
+} from "./SelectionQuickBar";
 
 describe("SelectionQuickBar", () => {
   it("renders animation summary and editor entry point", () => {
@@ -125,5 +129,136 @@ describe("SelectionQuickBar", () => {
 
     expect(html).toContain("정리 필요한 애니메이션");
     expect(html).toContain("anim_dangling_1");
+  });
+
+  it("builds text style patches for paragraph and run based text", () => {
+    const deck = createDemoDeck();
+    const baseElement = deck.slides[0]!.elements.find(
+      (candidate) => candidate.type === "text"
+    );
+
+    expect(baseElement?.type).toBe("text");
+    if (!baseElement || baseElement.type !== "text") {
+      return;
+    }
+
+    const patch = buildTextStylePropsPatch(
+      {
+        ...baseElement,
+        props: {
+          ...baseElement.props,
+          fontSize: 24,
+          color: "#111827",
+          fontWeight: "normal",
+          align: "left",
+          paragraphs: [
+            {
+              text: "",
+              align: "center",
+              indent: 0,
+              lineHeight: 1.4,
+              spaceBefore: 0,
+              spaceAfter: 0,
+              runs: [
+                {
+                  text: "Hello",
+                  color: "#ef4444",
+                  fontSize: 32,
+                  fontWeight: "bold",
+                  baseline: "normal"
+                }
+              ]
+            }
+          ],
+          runs: [
+            {
+              text: "World",
+              color: "#22c55e",
+              fontSize: 28,
+              fontWeight: "medium",
+              baseline: "normal"
+            }
+          ]
+        }
+      },
+      {
+        align: "right",
+        color: "#2563eb",
+        fontSize: 40,
+        fontWeight: "semibold",
+        lineHeight: 1.1
+      }
+    );
+
+    expect(patch).toMatchObject({
+      align: "right",
+      color: "#2563eb",
+      fontSize: 40,
+      fontWeight: "semibold",
+      lineHeight: 1.1,
+      runs: [
+        {
+          text: "World",
+          color: "#2563eb",
+          fontSize: 40,
+          fontWeight: "semibold"
+        }
+      ],
+      paragraphs: [
+        {
+          align: "right",
+          color: "#2563eb",
+          fontSize: 40,
+          fontWeight: "semibold",
+          lineHeight: 1.1,
+          runs: [
+            {
+              text: "Hello",
+              color: "#2563eb",
+              fontSize: 40,
+              fontWeight: "semibold"
+            }
+          ]
+        }
+      ]
+    });
+  });
+
+  it("prefers paragraph and run styles when deriving quickbar values", () => {
+    const style = getEffectiveTextQuickBarStyle({
+      text: "Fallback",
+      fontSize: 24,
+      fontWeight: "normal",
+      align: "left",
+      verticalAlign: "top",
+      lineHeight: 1.2,
+      color: "#111827",
+      paragraphs: [
+        {
+          text: "",
+          align: "center",
+          indent: 0,
+          runs: [
+            {
+              text: "Imported",
+              color: "#7c3aed",
+              fontSize: 36,
+              fontWeight: "bold",
+              baseline: "normal"
+            }
+          ],
+          lineHeight: 1.2,
+          spaceBefore: 0,
+          spaceAfter: 0
+        }
+      ]
+    });
+
+    expect(style).toEqual({
+      align: "center",
+      color: "#7c3aed",
+      fontSize: 36,
+      fontWeight: "bold"
+    });
   });
 });

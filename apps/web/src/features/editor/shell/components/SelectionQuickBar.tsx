@@ -11,6 +11,7 @@ import type {
   Slide,
   TableCellProps,
   TableElementProps,
+  TextElementParagraph,
   TextElementProps
 } from "@orbit/shared";
 import { AlignCenter, ArrowDown, ArrowUp, Eye, EyeOff, Lock, LockOpen, PenLine } from "lucide-react";
@@ -313,6 +314,7 @@ function ElementQuickBarFields(props: {
 
   if (element.type === "text") {
     const textProps = element.props as TextElementProps;
+    const textStyleValues = getEffectiveTextQuickBarStyle(textProps);
 
     return (
       <>
@@ -320,14 +322,18 @@ function ElementQuickBarFields(props: {
           className="compact-property-field compact-property-field-sm"
           label="크기"
           min={1}
-          onCommit={(value) => onChangeProps({ fontSize: value })}
-          value={textProps.fontSize}
+          onCommit={(value) =>
+            onChangeProps(buildTextStylePropsPatch(element, { fontSize: value }))
+          }
+          value={textStyleValues.fontSize}
         />
         <PropertyColorField
           className="compact-property-field compact-property-field-color"
           label="글자색"
-          value={textProps.color ?? "#111827"}
-          onCommit={(value) => onChangeProps({ color: value })}
+          value={textStyleValues.color}
+          onCommit={(value) =>
+            onChangeProps(buildTextStylePropsPatch(element, { color: value }))
+          }
         />
         <QuickBarSelectField
           className="compact-property-field compact-property-field-sm"
@@ -338,8 +344,14 @@ function ElementQuickBarFields(props: {
             { label: "세미", value: "semibold" },
             { label: "굵게", value: "bold" }
           ]}
-          value={String(textProps.fontWeight)}
-          onChange={(value) => onChangeProps({ fontWeight: value })}
+          value={String(textStyleValues.fontWeight)}
+          onChange={(value) =>
+            onChangeProps(
+              buildTextStylePropsPatch(element, {
+                fontWeight: value as TextElementProps["fontWeight"]
+              })
+            )
+          }
         />
         <QuickBarSelectField
           className="compact-property-field compact-property-field-sm"
@@ -350,8 +362,14 @@ function ElementQuickBarFields(props: {
             { label: "오른쪽", value: "right" },
             { label: "양쪽", value: "justify" }
           ]}
-          value={textProps.align}
-          onChange={(value) => onChangeProps({ align: value })}
+          value={textStyleValues.align}
+          onChange={(value) =>
+            onChangeProps(
+              buildTextStylePropsPatch(element, {
+                align: value as TextElementProps["align"]
+              })
+            )
+          }
         />
         <QuickBarSelectField
           className="compact-property-field compact-property-field-sm"
@@ -367,7 +385,11 @@ function ElementQuickBarFields(props: {
         <button
           className="quickbar-action-chip"
           type="button"
-          onClick={() => onChangeProps(createShrinkToFitTextProps(element))}
+          onClick={() =>
+            onChangeProps(
+              buildTextStylePropsPatch(element, createShrinkToFitTextProps(element))
+            )
+          }
         >
           맞춤 축소
         </button>
@@ -633,6 +655,93 @@ export function createShrinkToFitTextProps(
   }
 
   return { fontSize: minFontSize, lineHeight: 1.05 };
+}
+
+type TextStylePatch = Pick<
+  TextElementProps,
+  "align" | "color" | "fontSize" | "fontWeight" | "lineHeight"
+>;
+
+type TextQuickBarStyle = {
+  align: TextElementProps["align"];
+  color: string;
+  fontSize: number;
+  fontWeight: TextElementProps["fontWeight"];
+};
+
+export function getEffectiveTextQuickBarStyle(props: TextElementProps): TextQuickBarStyle {
+  const paragraph = props.paragraphs?.find((item) => getParagraphText(item).trim().length > 0);
+  const paragraphRun =
+    paragraph?.runs?.find((run) => run.text.trim().length > 0) ?? paragraph?.runs?.[0];
+  const run = props.runs?.find((item) => item.text.trim().length > 0) ?? props.runs?.[0];
+
+  return {
+    align: paragraph?.align ?? props.align,
+    color: paragraphRun?.color ?? paragraph?.color ?? run?.color ?? props.color ?? "#111827",
+    fontSize:
+      paragraphRun?.fontSize ?? paragraph?.fontSize ?? run?.fontSize ?? props.fontSize,
+    fontWeight:
+      paragraphRun?.fontWeight ??
+      paragraph?.fontWeight ??
+      run?.fontWeight ??
+      props.fontWeight
+  };
+}
+
+export function buildTextStylePropsPatch(
+  element: Extract<DeckElement, { type: "text" }>,
+  patch: Partial<TextStylePatch>
+) {
+  const nextPatch: Record<string, unknown> = { ...patch };
+
+  if (element.props.runs?.length) {
+    nextPatch.runs = element.props.runs.map((run) => ({
+      ...run,
+      ...(patch.color !== undefined ? { color: patch.color } : {}),
+      ...(patch.fontSize !== undefined ? { fontSize: patch.fontSize } : {}),
+      ...(patch.fontWeight !== undefined ? { fontWeight: patch.fontWeight } : {})
+    }));
+  }
+
+  if (element.props.paragraphs?.length) {
+    nextPatch.paragraphs = element.props.paragraphs.map((paragraph) =>
+      patchParagraphTextStyle(paragraph, patch)
+    );
+  }
+
+  return nextPatch;
+}
+
+function patchParagraphTextStyle(
+  paragraph: TextElementParagraph,
+  patch: Partial<TextStylePatch>
+) {
+  return {
+    ...paragraph,
+    ...(patch.align !== undefined ? { align: patch.align } : {}),
+    ...(patch.color !== undefined ? { color: patch.color } : {}),
+    ...(patch.fontSize !== undefined ? { fontSize: patch.fontSize } : {}),
+    ...(patch.fontWeight !== undefined ? { fontWeight: patch.fontWeight } : {}),
+    ...(patch.lineHeight !== undefined ? { lineHeight: patch.lineHeight } : {}),
+    ...(paragraph.runs?.length
+      ? {
+          runs: paragraph.runs.map((run) => ({
+            ...run,
+            ...(patch.color !== undefined ? { color: patch.color } : {}),
+            ...(patch.fontSize !== undefined ? { fontSize: patch.fontSize } : {}),
+            ...(patch.fontWeight !== undefined ? { fontWeight: patch.fontWeight } : {})
+          }))
+        }
+      : {})
+  };
+}
+
+function getParagraphText(paragraph: TextElementParagraph) {
+  if (paragraph.runs?.length) {
+    return paragraph.runs.map((run) => run.text).join("");
+  }
+
+  return paragraph.text;
 }
 
 function estimateTextHeight(
