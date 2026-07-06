@@ -1,4 +1,5 @@
 import type { StoragePort } from "@orbit/storage";
+import type { Deck } from "@orbit/shared";
 import type { DataSource } from "typeorm";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { processGenerateDeckJob } from "./generate-deck.processor";
@@ -97,6 +98,17 @@ describe("processGenerateDeckJob", () => {
     );
     expect(query).toHaveBeenCalledTimes(3);
     expect(query.mock.calls[1][0]).toContain("INSERT INTO decks");
+    const savedDeck = (query.mock.calls[1][1] as unknown[])[2] as Deck;
+    const jobResult = (query.mock.calls[2][1] as unknown[])[4] as {
+      deck: Deck;
+    };
+    expect(savedDeck.metadata.thumbnailSource).toBe("import-render");
+    expect(savedDeck.slides[0].thumbnailUrl).toBe(
+      "asset:generated_slide_render_slide_1"
+    );
+    expect(jobResult.deck.slides[0].thumbnailUrl).toBe(
+      "asset:generated_slide_render_slide_1"
+    );
     expect(job.result?.warnings).toEqual(warnings);
     expect(job.result).toMatchObject({ validation: { passed: false } });
   });
