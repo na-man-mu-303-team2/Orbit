@@ -65,6 +65,7 @@ export function PresentWindowReceiver(props: {
   initialSnapshot?: PresentWindowSnapshot | null;
   isFullscreen?: boolean;
   onExit?: () => void;
+  onReconnectPresenter?: (snapshot: PresentWindowSnapshot) => void;
 }) {
   const {
     channelFactory = createBroadcastChannel,
@@ -72,13 +73,20 @@ export function PresentWindowReceiver(props: {
     identity,
     initialSnapshot = null,
     isFullscreen,
-    onExit
+    onExit,
+    onReconnectPresenter
   } = props;
   const [snapshot, setSnapshot] = useState<PresentWindowSnapshot | null>(initialSnapshot);
   const [channelError, setChannelError] = useState("");
+  const [isPresenterStale, setIsPresenterStale] = useState(false);
+  const hasSnapshotRef = useRef(Boolean(initialSnapshot));
+  const lastPresenterSeenAtRef = useRef<number | null>(initialSnapshot ? Date.now() : null);
 
   useEffect(() => {
     setSnapshot(initialSnapshot);
+    hasSnapshotRef.current = Boolean(initialSnapshot);
+    lastPresenterSeenAtRef.current = initialSnapshot ? Date.now() : null;
+    setIsPresenterStale(false);
   }, [identity.deckId, identity.sessionId, initialSnapshot]);
 
   useEffect(() => {
@@ -99,15 +107,36 @@ export function PresentWindowReceiver(props: {
         return;
       }
 
-      setSnapshot((current) => applyPresentWindowMessage(current, message));
+      setSnapshot((current) => {
+        const next = applyPresentWindowMessage(current, message);
+        hasSnapshotRef.current = Boolean(next);
+        return next;
+      });
+      if (
+        message.type === "presenter-heartbeat" ||
+        message.type === "presenter-snapshot" ||
+        message.type === "presenter-state"
+      ) {
+        lastPresenterSeenAtRef.current = Date.now();
+        setIsPresenterStale(false);
+      }
     };
     channel.postMessage(createSlideWindowReadyMessage(identity));
     const heartbeatTimer = window.setInterval(() => {
       channel.postMessage(createSlideWindowHeartbeatMessage(identity));
     }, 1000);
+    const staleTimer = window.setInterval(() => {
+      if (
+        hasSnapshotRef.current &&
+        isPresentWindowPresenterStale(lastPresenterSeenAtRef.current, Date.now())
+      ) {
+        setIsPresenterStale(true);
+      }
+    }, 1000);
 
     return () => {
       window.clearInterval(heartbeatTimer);
+      window.clearInterval(staleTimer);
       channel.close();
     };
   }, [channelFactory, identity]);
@@ -136,7 +165,9 @@ export function PresentWindowReceiver(props: {
       fullscreenMessage={fullscreenMessage}
       identity={identity}
       isFullscreen={isFullscreen}
+      isPresenterStale={isPresenterStale}
       onExit={onExit}
+      onReconnectPresenter={onReconnectPresenter}
       snapshot={snapshot}
     />
   );
@@ -146,16 +177,34 @@ export function PresentWindowContent(props: {
   fullscreenMessage?: string;
   identity: PresentationChannelIdentity;
   isFullscreen?: boolean;
+  isPresenterStale?: boolean;
   onExit?: () => void;
+  onReconnectPresenter?: (snapshot: PresentWindowSnapshot) => void;
   snapshot: PresentWindowSnapshot;
   viewport?: ViewportSize;
 }) {
-  const { fullscreenMessage, identity, onExit, snapshot } = props;
+  const {
+    fullscreenMessage,
+    identity,
+    isPresenterStale = false,
+    onExit,
+    onReconnectPresenter,
+    snapshot
+  } = props;
   const rootRef = useRef<HTMLDivElement>(null);
   const liveViewport = usePresentWindowViewport();
   const liveIsFullscreen = usePresentWindowFullscreenState();
   const isFullscreen = props.isFullscreen ?? liveIsFullscreen;
   const scale = getSlideWindowScale(snapshot.deck, props.viewport ?? liveViewport);
+  const actionMessages = [
+    fullscreenMessage,
+    isPresenterStale
+      ? "발표자 창 응답이 끊겼습니다. 발표자 창을 다시 열거나 이 화면을 종료해주세요."
+      : ""
+  ].filter(Boolean);
+  const shouldShowReconnect = Boolean(
+    onReconnectPresenter && (fullscreenMessage || isPresenterStale)
+  );
 
   return (
     <PresentWindowShell ref={rootRef}>
@@ -176,11 +225,13 @@ export function PresentWindowContent(props: {
           triggerAnimationIds={snapshot.triggerAnimationIds}
         />
       </div>
-      {!isFullscreen || fullscreenMessage || onExit ? (
+      {!isFullscreen || actionMessages.length > 0 || shouldShowReconnect || onExit ? (
         <div className="present-window-actions">
-          {fullscreenMessage ? (
-            <span className="present-window-action-message">{fullscreenMessage}</span>
-          ) : null}
+          {actionMessages.map((message) => (
+            <span className="present-window-action-message" key={message}>
+              {message}
+            </span>
+          ))}
           {!isFullscreen ? (
             <button
               className="present-window-fullscreen"
@@ -191,6 +242,16 @@ export function PresentWindowContent(props: {
             >
               <Maximize2 size={17} />
               전체화면
+            </button>
+          ) : null}
+          {shouldShowReconnect && onReconnectPresenter ? (
+            <button
+              className="present-window-reconnect"
+              type="button"
+              onClick={() => onReconnectPresenter(snapshot)}
+            >
+              <Maximize2 size={17} />
+              발표자 창 다시 열기
             </button>
           ) : null}
           {onExit ? (
@@ -207,6 +268,14 @@ export function PresentWindowContent(props: {
       ) : null}
     </PresentWindowShell>
   );
+}
+
+export function isPresentWindowPresenterStale(
+  lastPresenterSeenAt: number | null,
+  now: number,
+  staleAfterMs = 5000
+) {
+  return lastPresenterSeenAt !== null && now - lastPresenterSeenAt > staleAfterMs;
 }
 
 export function applyPresentWindowMessage(

@@ -8,6 +8,7 @@ import { p0AnimationDeck } from "./__fixtures__/animationDeck";
 import {
   applyPresentWindowMessage,
   getSlideWindowScale,
+  isPresentWindowPresenterStale,
   PresentWindow,
   PresentWindowContent,
   PresentWindowReceiver,
@@ -281,6 +282,31 @@ describe("PresentWindow", () => {
     expect(html).not.toContain("present-window-fullscreen");
   });
 
+  it("hides presenter reconnect controls while the presenter is healthy", () => {
+    const snapshotMessage = createPresenterSnapshotMessage({
+      deck: p0AnimationDeck,
+      identity,
+      sentAt: 10,
+      state: createPresenterSlideshowState(p0AnimationDeck),
+      triggerAnimationIds: []
+    });
+    const html = renderToStaticMarkup(
+      <PresentWindowContent
+        identity={identity}
+        isFullscreen={true}
+        onReconnectPresenter={() => {}}
+        snapshot={{
+          deck: snapshotMessage.deck,
+          state: snapshotMessage.state,
+          triggerAnimationIds: []
+        }}
+      />
+    );
+
+    expect(html).not.toContain("발표자 창 다시 열기");
+    expect(html).not.toContain("present-window-reconnect");
+  });
+
   it("keeps the fullscreen CTA visible before fullscreen is active", () => {
     const snapshotMessage = createPresenterSnapshotMessage({
       deck: p0AnimationDeck,
@@ -302,6 +328,39 @@ describe("PresentWindow", () => {
     );
 
     expect(html).toContain("전체화면");
+  });
+
+  it("shows presenter reconnect guidance when presenter heartbeat is stale", () => {
+    const snapshotMessage = createPresenterSnapshotMessage({
+      deck: p0AnimationDeck,
+      identity,
+      sentAt: 10,
+      state: createPresenterSlideshowState(p0AnimationDeck),
+      triggerAnimationIds: []
+    });
+    const html = renderToStaticMarkup(
+      <PresentWindowContent
+        identity={identity}
+        isFullscreen={true}
+        isPresenterStale={true}
+        onReconnectPresenter={() => {}}
+        snapshot={{
+          deck: snapshotMessage.deck,
+          state: snapshotMessage.state,
+          triggerAnimationIds: []
+        }}
+      />
+    );
+
+    expect(html).toContain("발표자 창 응답이 끊겼습니다");
+    expect(html).toContain("발표자 창 다시 열기");
+    expect(html).not.toContain("present-window-fullscreen");
+  });
+
+  it("marks presenter heartbeat stale only after the timeout boundary", () => {
+    expect(isPresentWindowPresenterStale(null, 6001)).toBe(false);
+    expect(isPresentWindowPresenterStale(1000, 6000)).toBe(false);
+    expect(isPresentWindowPresenterStale(1000, 6001)).toBe(true);
   });
 
   it("handles blocked fullscreen requests without leaking a rejected promise", async () => {

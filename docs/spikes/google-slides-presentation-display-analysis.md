@@ -254,19 +254,24 @@ ORBIT 구현 원칙:
 
 ### 현재 구현 방향
 
-현재 `RehearsalWorkspace.openSlideDisplay`는 새 presenter popup을 열고 현재 창을 `slide-receiver`로 바꾼다.
+현재 `RehearsalWorkspace.openSlideDisplay`는 Google Slides 관찰 결과를 다음 두 실행 모드로 나눠 반영한다.
 
 ```text
-current window -> slide-receiver
-new popup      -> presenter
+발표자 보기 on:
+  current window -> presenter
+  new popup      -> slide-receiver
+
+발표자 보기 off / 현재 창:
+  current window -> slide-receiver
+  popup 없음
 ```
 
-이 방향은 Google Slides의 `발표자 보기`와 비슷하다. 발표자가 현재 노트북 창에서 버튼을 누르면, 그 창을 청중용으로 바꾸고 presenter popup을 노트북에 남기는 모델이다.
+`발표자 보기 on` 모드는 현재 ORBIT 리허설 화면에 있는 노트, STT, 타이머, 녹음 제어를 그대로 유지해야 하므로 현재 창을 presenter로 남기고 sanitized `/present/:deckId?sessionId=...` popup을 slide receiver로 연다. `발표자 보기 off / 현재 창` 모드는 Google Slides 기본 `슬라이드쇼`처럼 현재 문서 자체를 slide receiver로 전환하고 같은 user activation 안에서 `document.documentElement.requestFullscreen()`을 요청한다.
 
 주의할 점:
 
-- "현재 창을 청중용으로 바꾼다"는 사용자가 이미 외부 모니터에 현재 창을 두었을 때 가장 자연스럽다.
-- 사용자가 노트북 화면에서 시작했다면, 현재 창이 노트북에서 청중용으로 바뀌고 presenter popup도 노트북에 생겨 겹칠 수 있다.
+- "현재 창" 모드는 브라우저 정책상 fullscreen 성공률이 가장 높지만, 발표자 도구가 사라진다.
+- "별도 슬라이드 창" 모드는 발표자 도구를 유지하지만, 새 popup을 자동 fullscreen으로 전환하는 것은 reliable path가 아니다.
 - Google Slides는 display option에서 발표 대상 디스플레이를 명시적으로 고르게 한다. ORBIT도 자동 배치가 가능할 때는 대상 화면 선택 UI가 필요하다.
 
 ### `windowRef.document.requestFullscreen()`의 한계
@@ -416,11 +421,54 @@ Slide Receiver Window
 - BroadcastChannel은 같은 origin/storage partition의 browsing context 간 통신 모델이다. ORBIT의 session-scoped channel 설계와 맞다.
 - Fullscreen은 user activation과 권한/정책에 좌우된다. opener에서 다른 창 document를 자동 fullscreen 처리하는 경로는 reliable path로 두면 안 된다.
 
+### 2026-07-06 6차 재검증 및 ORBIT 반영
+
+Google Slides edit 탭에서 `슬라이드쇼` 기본 버튼을 다시 계측했다.
+
+- `window.open` 호출은 관찰되지 않았다.
+- `Element.requestFullscreen()`이 현재 문서 내부 `DIV`에서 호출되고 Promise가 resolve됐다.
+- automation context에서는 이후 `document.fullscreenElement`가 `false`로 읽히는 경우가 있었지만, 실제 UI는 발표 surface로 전환됐다.
+
+ORBIT에 반영한 결론:
+
+- 한 번의 클릭에서 `window.open()`과 새 popup의 `requestFullscreen()`을 모두 안정적으로 성공시키는 설계를 기본값으로 두지 않는다.
+- `DisplayControls`는 Google Slides처럼 split button + `프레젠테이션 디스플레이 옵션` 팝오버를 제공한다.
+- 옵션 항목은 `발표자 보기`, `첫 슬라이드부터 표시`, `전체화면`, `슬라이드쇼 표시`(`별도 슬라이드 창`/`현재 창`)로 구성한다.
+- `발표자 보기`가 켜지면 현재 창은 presenter로 유지하고 `/present/:deckId?sessionId=...` slide receiver popup을 연다. popup은 screen bounds로 `moveTo`/`resizeTo`를 best effort로 시도하고, fullscreen은 popup 안의 `전체화면` CTA로 처리한다.
+- `현재 창`이 선택되면 Google Slides 기본 실행처럼 현재 rehearsal document에서 `requestFullscreen(document.documentElement)`를 먼저 요청한 뒤 `displayRole="slide-receiver"`로 바꾼다.
+- `첫 슬라이드부터 표시`는 `slideIndex=0`, `stepIndex=0` 상태 초기화로 처리하고, popup snapshot은 다음 render 이후 발행될 수 있게 지연한다.
+
+Chrome localhost 검증 결과:
+
+- `http://localhost:5173/rehearsal/project_f7f54b9e-73f8-4e27-b210-82df7d08277e`에서 옵션 팝오버가 표시됨.
+- 기본 옵션(`발표자 보기=true`, `전체화면=true`, `별도 슬라이드 창`)으로 시작 시 `/present/...` popup이 열리고 기존 rehearsal 탭에는 presenter controls가 유지됨.
+- `/present/...` popup에는 slide stage와 `전체화면` CTA가 표시됨.
+- popup의 `전체화면` CTA 클릭 후 viewport가 화면 크기로 확장되고 CTA가 사라짐. automation read context에서는 `document.fullscreenElement=false`로 읽혔지만 앱 내부 fullscreen state는 전환됨.
+- `현재 창` radio 선택 후 시작 시 기존 rehearsal URL은 유지되고, presenter controls 없이 slide receiver stage만 표시됨. `발표자 화면으로 돌아가기`로 정상 복귀함.
+
+### 2026-07-06 7차 Window Management 자동 배치 반영
+
+Google Slides의 `프레젠테이션 디스플레이 옵션`에는 추가 디스플레이 연결 권한을 허용하는 흐름이 있다. ORBIT도 같은 방향으로 `발표 모니터 자동 배치` 옵션을 추가했다.
+
+구현 원리:
+
+- `DisplayControls` 옵션 팝오버에서 `화면 권한 요청` 버튼을 누르면 presenter tab에서 `window.getScreenDetails()`를 호출한다.
+- 브라우저가 Window Management API를 지원하면 권한 prompt가 뜨고, 허용 후 `currentScreen`이 아닌 screen 목록을 받는다.
+- 선택한 screen descriptor는 `{left, top, width, height, label}` 형태로 launch option에 저장한다.
+- 슬라이드 창 시작 시 `window.open` feature에 `left`, `top`, `width`, `height`를 넣고, 열린 뒤에도 `moveTo(left, top)`와 `resizeTo(width, height)`를 best effort로 재시도한다.
+- 권한이 거부되거나 API가 없거나 이동이 막히면 slide window는 그대로 열고, presenter UI에는 수동 이동 안내를 표시한다.
+
+중요 제약:
+
+- `getScreenDetails()`는 secure context와 사용자 gesture가 필요하다. `localhost`는 secure context로 취급되지만, Safari/Firefox 또는 정책이 막힌 환경에서는 미지원일 수 있다.
+- `window.open`, `moveTo`, `resizeTo`는 브라우저/OS 정책에 따라 제한될 수 있다.
+- 따라서 자동 배치는 "성공하면 좋은 progressive enhancement"이고, 기본 보장 경로는 여전히 열린 창을 사용자가 직접 이동한 뒤 fullscreen CTA를 누르는 fallback이다.
+
 ## Open Questions
 
 - Google Slides의 `디스플레이 전환 (D)`는 정확히 어떤 OS/window primitive를 호출하는가? Chrome automation으로는 실제 물리 모니터 전환을 완전히 검증하지 못했다.
 - Google Slides가 `document.fullscreenElement=false` 상태에서도 어떤 경로로 전체화면 표시를 구현하는지 추가 확인이 필요하다. 브라우저 Fullscreen API 외 OS-level presentation path일 가능성이 있다.
-- ORBIT에서 "현재 창을 slide-receiver로 바꾸고 popup을 presenter로 여는 방식"과 "현재 창을 presenter로 유지하고 popup을 slide-receiver로 여는 방식" 중 어떤 UX가 데모 환경에서 더 안정적인지 실제 HDMI 연결 환경에서 검증해야 한다.
+- ORBIT에서 실제 HDMI/무선 디스플레이 데모 환경의 기본값을 `발표자 보기 on + 별도 슬라이드 창`으로 둘지, `현재 창 fullscreen`으로 둘지는 물리 장비 테스트로 확정해야 한다.
 
 ## Decision Candidates
 

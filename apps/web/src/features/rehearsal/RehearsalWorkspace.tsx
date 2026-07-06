@@ -88,11 +88,20 @@ import {
   getTriggerAnimationIdsForSlide,
   resolveTriggeredActionPlaybackUpdate
 } from "./playback/triggeredActionPlayback";
-import { DisplayControls } from "./presenter/DisplayControls";
+import {
+  DisplayControls,
+  type RequestDisplayScreensResult,
+  type SlideDisplayOptions
+} from "./presenter/DisplayControls";
 import {
   PresentWindowReceiver,
   requestPresentWindowFullscreen
 } from "./presenter/PresentWindow";
+import {
+  createDisplayManager,
+  type DisplayManagerErrorCode,
+  type DisplayScreenDescriptor
+} from "./presenter/displayManager";
 import { SingleScreenPresenter } from "./presenter/SingleScreenPresenter";
 import { SlideshowRenderer } from "./presenter/SlideshowRenderer";
 import { createSlideshowAnimationPlan } from "./presenter/slideshowStepModel";
@@ -1534,6 +1543,7 @@ export function RehearsalWorkspace(props: {
     state: presentationChannelState,
     triggerAnimationIds
   });
+  const displayManager = useMemo(() => createDisplayManager(), []);
   const slideshowAnimationPlan = currentSlide
     ? createSlideshowAnimationPlan({
         slide: currentSlide,
@@ -2413,49 +2423,133 @@ export function RehearsalWorkspace(props: {
 
     navigateToPath(getRehearsalFinishPath(projectId, run));
   };
-  const openSlideDisplay = async () => {
-    if (!deck || !currentSlide) {
-      return { fullscreenStarted: false, presenterWindowOpened: false };
+  const resetSlideDisplayToBeginning = () => {
+    setPresenterStepIndex(0);
+    setCurrentSlideIndex(0);
+  };
+  const publishSlideWindowSnapshot = (deferUntilNextRender: boolean) => {
+    if (deferUntilNextRender && typeof window !== "undefined") {
+      window.setTimeout(() => presentationChannel.publishSnapshot(), 0);
+      return;
     }
 
-    const presenterWindowPath = props.projectId
-      ? getRehearsalPresenterWindowPath(props.projectId, presentationChannel.sessionId, {
-          slideIndex: currentSlideIndex,
-          stepIndex: presenterStepIndex
-        })
-      : getCurrentRehearsalPresenterWindowPath(presentationChannel.sessionId, {
-          slideIndex: currentSlideIndex,
-          stepIndex: presenterStepIndex
-        });
-    const presenterWindow =
-      typeof window === "undefined"
-        ? null
-        : window.open(
-            presenterWindowPath,
-            `orbit-presenter-${presentationChannel.sessionId}`,
-            "popup=yes,width=1512,height=900"
-          );
-    presenterWindow?.focus();
-    setDisplayRole("slide-receiver");
+    presentationChannel.publishSnapshot();
+  };
+  const requestDisplayScreens = async (): Promise<RequestDisplayScreensResult> => {
+    const result = await displayManager.listExternalScreens();
+
+    if (result.ok) {
+      return { ok: true, screens: result.value };
+    }
+
+    return { code: result.code, ok: false };
+  };
+  const resolveAutoPlacementScreen = async (
+    options: SlideDisplayOptions
+  ): Promise<{
+    placementCode?: DisplayManagerErrorCode;
+    targetScreen: DisplayScreenDescriptor | null;
+  }> => {
+    if (!options.autoPlace) {
+      return { targetScreen: null };
+    }
+
+    return { targetScreen: options.targetScreen ?? null };
+  };
+  const openSlideWindowForDisplay = async (options: SlideDisplayOptions) => {
+    if (!slideReceiverIdentity) {
+      return {
+        autoPlaced: false,
+        displayOpened: false,
+        fullscreenStarted: false,
+        placementCode: undefined,
+        placementTargetLabel: undefined
+      };
+    }
+
+    if (options.startFromBeginning) {
+      resetSlideDisplayToBeginning();
+    }
+
+    const { placementCode, targetScreen } = await resolveAutoPlacementScreen(options);
+    const openResult = displayManager.openSlideWindow(slideReceiverIdentity, {
+      screen: targetScreen,
+      target: `orbit-slide-${presentationChannel.sessionId}`
+    });
+    if (!openResult.ok) {
+      return {
+        autoPlaced: false,
+        displayOpened: false,
+        fullscreenStarted: false,
+        placementCode: openResult.code,
+        placementTargetLabel: targetScreen?.label
+      };
+    }
+
+    let autoPlaced = false;
+    let effectivePlacementCode = placementCode;
+    if (targetScreen) {
+      const placementResult = displayManager.placeOnScreen(openResult.value, targetScreen);
+      autoPlaced = placementResult.ok;
+      effectivePlacementCode = placementResult.ok
+        ? effectivePlacementCode
+        : placementResult.code;
+    }
+
+    publishSlideWindowSnapshot(options.startFromBeginning);
+    return {
+      autoPlaced,
+      displayOpened: true,
+      fullscreenStarted: false,
+      placementCode: effectivePlacementCode,
+      placementTargetLabel: targetScreen?.label
+    };
+  };
+  const openCurrentWindowSlideDisplay = async (options: SlideDisplayOptions) => {
+    if (options.startFromBeginning) {
+      resetSlideDisplayToBeginning();
+    }
+
+    const fullscreenStarted = options.fullscreen
+      ? await requestPresentWindowFullscreen(
+          typeof document === "undefined" ? null : document.documentElement
+        )
+      : false;
+
     setSlideReceiverMessage(
-      presenterWindow
-        ? ""
-        : "팝업이 차단되었습니다. 브라우저 팝업을 허용한 뒤 발표자 화면에서 다시 열어주세요."
+      options.fullscreen && !fullscreenStarted
+        ? "전체화면 전환이 차단되었습니다. 아래 전체화면 버튼을 눌러주세요."
+        : ""
     );
-
-    const fullscreenStarted =
-      typeof document === "undefined"
-        ? false
-        : await requestPresentWindowFullscreen(document.documentElement);
-    if (!fullscreenStarted && presenterWindow) {
-      setSlideReceiverMessage(
-        "현재 창 전체화면을 자동으로 시작하지 못했습니다. 아래 전체화면 버튼을 눌러주세요."
-      );
+    setDisplayRole("slide-receiver");
+    return fullscreenStarted;
+  };
+  const openSlideDisplay = async (options: SlideDisplayOptions) => {
+    if (!deck || !currentSlide) {
+      return {
+        displayMode: options.displayMode,
+        displayOpened: false,
+        fullscreenStarted: false
+      };
     }
+
+    if (options.displayMode === "current-window") {
+      return {
+        displayMode: "current-window" as const,
+        displayOpened: true,
+        fullscreenStarted: await openCurrentWindowSlideDisplay(options)
+      };
+    }
+
+    const slideWindowResult = await openSlideWindowForDisplay(options);
 
     return {
-      fullscreenStarted,
-      presenterWindowOpened: Boolean(presenterWindow)
+      autoPlaced: slideWindowResult.autoPlaced,
+      displayMode: "slide-window" as const,
+      displayOpened: slideWindowResult.displayOpened,
+      fullscreenStarted: false,
+      placementCode: slideWindowResult.placementCode,
+      placementTargetLabel: slideWindowResult.placementTargetLabel
     };
   };
 
@@ -2553,6 +2647,31 @@ export function RehearsalWorkspace(props: {
         fullscreenMessage={slideReceiverMessage}
         identity={slideReceiverIdentity}
         initialSnapshot={slideReceiverSnapshot}
+        onReconnectPresenter={(snapshot) => {
+          const presenterWindowPath = props.projectId
+            ? getRehearsalPresenterWindowPath(props.projectId, presentationChannel.sessionId, {
+                slideIndex: snapshot.state.slideIndex,
+                stepIndex: snapshot.state.stepIndex
+              })
+            : getCurrentRehearsalPresenterWindowPath(presentationChannel.sessionId, {
+                slideIndex: snapshot.state.slideIndex,
+                stepIndex: snapshot.state.stepIndex
+              });
+          const presenterWindow =
+            typeof window === "undefined"
+              ? null
+              : window.open(
+                  presenterWindowPath,
+                  `orbit-presenter-${presentationChannel.sessionId}`,
+                  "popup=yes,width=1512,height=900"
+                );
+          presenterWindow?.focus();
+          if (presenterWindow) return setSlideReceiverMessage("");
+
+          setSlideReceiverMessage(
+            "팝업이 차단되었습니다. 브라우저 팝업을 허용한 뒤 발표자 창 다시 열기를 눌러주세요."
+          );
+        }}
         onExit={() => {
           if (typeof document !== "undefined" && document.fullscreenElement) {
             void document.exitFullscreen();
@@ -2631,6 +2750,7 @@ export function RehearsalWorkspace(props: {
             <DisplayControls
               channelStatus={presentationChannel.status}
               onOpenSlideDisplay={openSlideDisplay}
+              onRequestDisplayScreens={requestDisplayScreens}
             />
             <button
               className="presenter-single-screen-button"

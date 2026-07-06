@@ -2132,6 +2132,7 @@ button:disabled {
 }
 
 .present-window-fullscreen,
+.present-window-reconnect,
 .present-window-exit {
   align-items: center;
   background: rgba(15, 23, 42, 0.82);
@@ -2147,6 +2148,7 @@ button:disabled {
 }
 
 .present-window-fullscreen:hover,
+.present-window-reconnect:hover,
 .present-window-exit:hover {
   background: rgba(30, 41, 59, 0.94);
 }
@@ -2403,6 +2405,11 @@ button:disabled {
   min-width: 0;
 }
 
+.presenter-display-split {
+  display: inline-flex;
+  flex: 0 0 auto;
+}
+
 .presenter-display-primary {
   align-items: center;
   background: #0f172a;
@@ -2418,7 +2425,30 @@ button:disabled {
   white-space: nowrap;
 }
 
+.presenter-display-split .presenter-display-primary {
+  border-radius: 8px 0 0 8px;
+}
+
 .presenter-display-primary:hover {
+  background: #1e293b;
+}
+
+.presenter-display-options-toggle {
+  align-items: center;
+  background: #0f172a;
+  border: 1px solid #0f172a;
+  border-left-color: rgba(255, 255, 255, 0.18);
+  border-radius: 0 8px 8px 0;
+  color: #ffffff;
+  display: inline-flex;
+  justify-content: center;
+  min-height: 32px;
+  padding: 0;
+  width: 32px;
+}
+
+.presenter-display-options-toggle:hover,
+.presenter-display-options-toggle[aria-expanded="true"] {
   background: #1e293b;
 }
 
@@ -2431,6 +2461,210 @@ button:disabled {
   font-weight: 900;
   padding: 6px 9px;
   white-space: nowrap;
+}
+
+.presenter-display-options-popover {
+  background: #ffffff;
+  border: 1px solid #dbe3ef;
+  border-radius: 8px;
+  box-shadow: 0 18px 42px rgba(15, 23, 42, 0.18);
+  color: #111827;
+  display: grid;
+  gap: 10px;
+  left: 50%;
+  min-width: min(360px, 92vw);
+  padding: 12px;
+  position: absolute;
+  top: calc(100% + 8px);
+  transform: translateX(-50%);
+  z-index: 8;
+}
+
+.presenter-display-options-header {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+}
+
+.presenter-display-options-header strong {
+  font-size: 0.86rem;
+  font-weight: 900;
+}
+
+.presenter-display-options-header button {
+  align-items: center;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 999px;
+  color: #475569;
+  display: inline-flex;
+  height: 26px;
+  justify-content: center;
+  padding: 0;
+  width: 26px;
+}
+
+.presenter-display-option-row {
+  align-items: flex-start;
+  border: 1px solid #e2e8f0;
+  border-radius: 7px;
+  cursor: pointer;
+  display: flex;
+  gap: 9px;
+  padding: 9px;
+}
+
+.presenter-display-option-row:hover {
+  background: #f8fafc;
+}
+
+.presenter-display-option-row input,
+.presenter-display-option-group input {
+  accent-color: #0f172a;
+  flex: 0 0 auto;
+  margin-top: 2px;
+}
+
+.presenter-display-option-row span {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.presenter-display-option-row strong,
+.presenter-display-option-group > span {
+  color: #111827;
+  font-size: 0.78rem;
+  font-weight: 900;
+}
+
+.presenter-display-option-row small {
+  color: #64748b;
+  font-size: 0.7rem;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.presenter-display-option-group {
+  border: 1px solid #e2e8f0;
+  border-radius: 7px;
+  display: grid;
+  gap: 8px;
+  padding: 9px;
+}
+
+.presenter-display-option-group label {
+  align-items: center;
+  color: #334155;
+  cursor: pointer;
+  display: flex;
+  font-size: 0.74rem;
+  font-weight: 850;
+  gap: 8px;
+}
+
+.presenter-display-screen-picker {
+  border: 1px solid #e2e8f0;
+  border-radius: 7px;
+  display: grid;
+  gap: 8px;
+  padding: 9px;
+}
+
+.presenter-display-screen-picker-header {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+  justify-content: space-between;
+}
+
+.presenter-display-screen-picker-header > span {
+  color: #111827;
+  font-size: 0.78rem;
+  font-weight: 900;
+}
+
+.presenter-display-screen-picker-header button {
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  border-radius: 7px;
+  color: #334155;
+  font-size: 0.72rem;
+  font-weight: 900;
+  min-height: 28px;
+  padding: 0 9px;
+}
+
+.presenter-display-screen-picker-header button:hover:not(:disabled) {
+  background: #f8fafc;
+}
+
+.presenter-display-screen-picker-header button:disabled {
+  color: #94a3b8;
+}
+
+.presenter-display-screen-options {
+  display: grid;
+  gap: 6px;
+}
+
+.presenter-display-screen-options label {
+  align-items: center;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  cursor: pointer;
+  display: flex;
+  gap: 8px;
+  padding: 7px;
+}
+
+.presenter-display-screen-options label:hover {
+  background: #f8fafc;
+}
+
+.presenter-display-screen-options span {
+  display: grid;
+  gap: 2px;
+}
+
+.presenter-display-screen-options strong {
+  color: #111827;
+  font-size: 0.74rem;
+  font-weight: 900;
+}
+
+.presenter-display-screen-options small,
+.presenter-display-screen-picker p {
+  color: #64748b;
+  font-size: 0.7rem;
+  font-weight: 750;
+  margin: 0;
+}
+
+.presenter-display-options-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.presenter-display-options-actions button {
+  border-radius: 7px;
+  font-size: 0.74rem;
+  font-weight: 900;
+  min-height: 30px;
+  padding: 0 10px;
+}
+
+.presenter-display-options-actions button:first-child {
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  color: #334155;
+}
+
+.presenter-display-options-actions button:last-child {
+  background: #0f172a;
+  border: 1px solid #0f172a;
+  color: #ffffff;
 }
 
 .presenter-display-message {

@@ -13,6 +13,7 @@ export type DisplayManagerResult<T> =
 
 export type DisplayScreenDescriptor = {
   height: number;
+  isCurrent: boolean;
   isPrimary: boolean;
   label: string;
   left: number;
@@ -23,6 +24,8 @@ export type DisplayScreenDescriptor = {
 
 type ScreenLike = {
   availHeight?: number;
+  availLeft?: number;
+  availTop?: number;
   availWidth?: number;
   height: number;
   isPrimary?: boolean;
@@ -36,6 +39,8 @@ type ScreenDetailsLike = {
   currentScreen?: ScreenLike;
   screens: ScreenLike[];
 };
+
+const SCREEN_DETAILS_TIMEOUT_MS = 8000;
 
 export type SlideWindowRef = {
   closed?: boolean;
@@ -54,6 +59,11 @@ export type DisplayBrowserPort = {
   open: (url: string, target: string, features?: string) => SlideWindowRef | null;
 };
 
+export type OpenSlideWindowOptions = {
+  screen?: DisplayScreenDescriptor | null;
+  target?: string;
+};
+
 export function createDisplayManager(port: DisplayBrowserPort = createBrowserDisplayPort()) {
   return {
     getCapabilities: () => ({
@@ -70,17 +80,11 @@ export function createDisplayManager(port: DisplayBrowserPort = createBrowserDis
       }
 
       try {
-        const details = await port.getScreenDetails();
+        const details = await withScreenDetailsTimeout(port.getScreenDetails());
         const currentScreen = details.currentScreen;
-        const screens = details.screens
-          .map((screen, screenIndex) => ({
-            descriptor: toScreenDescriptor(screen, screenIndex, currentScreen),
-            screen
-          }))
-          .filter(({ descriptor, screen }) =>
-            currentScreen ? !isSameScreen(screen, currentScreen) : !descriptor.isPrimary
-          )
-          .map(({ descriptor }) => descriptor);
+        const screens = details.screens.map((screen, screenIndex) =>
+          toScreenDescriptor(screen, screenIndex, currentScreen)
+        );
 
         return {
           ok: true,
@@ -94,12 +98,13 @@ export function createDisplayManager(port: DisplayBrowserPort = createBrowserDis
       }
     },
     openSlideWindow: (
-      identity: PresentationChannelIdentity
+      identity: PresentationChannelIdentity,
+      options: OpenSlideWindowOptions = {}
     ): DisplayManagerResult<SlideWindowRef> => {
       const windowRef = port.open(
         buildPresentWindowUrl(identity),
-        "orbit-present-window",
-        "popup=yes,width=1280,height=720"
+        options.target ?? "orbit-present-window",
+        buildSlideWindowFeatures(options.screen ?? null)
       );
 
       if (!windowRef) {
@@ -158,20 +163,45 @@ export function buildPresentWindowUrl(identity: PresentationChannelIdentity) {
   )}`;
 }
 
+export function buildSlideWindowFeatures(screen?: DisplayScreenDescriptor | null) {
+  const bounds = screen
+    ? {
+        height: screen.height,
+        left: screen.left,
+        top: screen.top,
+        width: screen.width
+      }
+    : {
+        height: 720,
+        left: undefined,
+        top: undefined,
+        width: 1280
+      };
+  const features = ["popup=yes", `width=${bounds.width}`, `height=${bounds.height}`];
+
+  if (typeof bounds.left === "number" && typeof bounds.top === "number") {
+    features.push(`left=${bounds.left}`, `top=${bounds.top}`);
+  }
+
+  return features.join(",");
+}
+
 function toScreenDescriptor(
   screen: ScreenLike,
   screenIndex: number,
   currentScreen?: ScreenLike
 ): DisplayScreenDescriptor {
   const isPrimary = Boolean(screen.isPrimary) || (!currentScreen && screenIndex === 0);
+  const isCurrent = isSameScreen(screen, currentScreen);
 
   return {
     height: screen.availHeight ?? screen.height,
+    isCurrent,
     isPrimary,
-    label: screen.label || `화면 ${screenIndex + 1}`,
-    left: screen.left,
+    label: `${screen.label || `화면 ${screenIndex + 1}`}${isCurrent ? "(현재)" : ""}`,
+    left: screen.availLeft ?? screen.left,
     screenIndex,
-    top: screen.top,
+    top: screen.availTop ?? screen.top,
     width: screen.availWidth ?? screen.width
   };
 }
@@ -204,17 +234,37 @@ function isPermissionDenied(cause: unknown) {
   );
 }
 
+function withScreenDetailsTimeout(promise: Promise<ScreenDetailsLike>) {
+  return new Promise<ScreenDetailsLike>((resolve, reject) => {
+    const timeoutId = setTimeout(() => {
+      reject(new Error("screen-details-timeout"));
+    }, SCREEN_DETAILS_TIMEOUT_MS);
+
+    promise.then(
+      (value) => {
+        clearTimeout(timeoutId);
+        resolve(value);
+      },
+      (error) => {
+        clearTimeout(timeoutId);
+        reject(error);
+      }
+    );
+  });
+}
+
 function createBrowserDisplayPort(): DisplayBrowserPort {
+  const getScreenDetails =
+    typeof window !== "undefined" && "getScreenDetails" in window
+      ? (
+          window as unknown as Window & {
+            getScreenDetails: () => Promise<ScreenDetailsLike>;
+          }
+        ).getScreenDetails.bind(window)
+      : undefined;
+
   return {
-    getScreenDetails:
-      typeof window !== "undefined" && "getScreenDetails" in window
-        ? () =>
-            (
-              window as unknown as Window & {
-                getScreenDetails: () => Promise<ScreenDetailsLike>;
-              }
-            ).getScreenDetails()
-        : undefined,
+    getScreenDetails,
     open: (url, target, features) =>
       typeof window === "undefined" ? null : window.open(url, target, features)
   };

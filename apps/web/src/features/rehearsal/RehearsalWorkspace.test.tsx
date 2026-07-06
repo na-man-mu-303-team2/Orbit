@@ -126,16 +126,54 @@ describe("RehearsalWorkspace", () => {
     );
   });
 
-  it("switches the current window to a receiver and opens a presenter window", () => {
+  it("opens a slide window while keeping presenter tools in the current window", () => {
     const source = fs.readFileSync(rehearsalWorkspaceSourcePath, "utf8");
+    const slideWindowStart = source.indexOf("const openSlideWindowForDisplay =");
     const start = source.indexOf("const openSlideDisplay = async");
     const end = source.indexOf("const checklistKeywords");
+    const openSlideWindowBody = source.slice(slideWindowStart, start);
     const openSlideDisplayBody = source.slice(start, end);
 
-    expect(openSlideDisplayBody).toContain("window.open");
-    expect(openSlideDisplayBody).toContain("setDisplayRole(\"slide-receiver\")");
-    expect(openSlideDisplayBody).toContain("requestPresentWindowFullscreen");
-    expect(openSlideDisplayBody).toContain("presenterWindowOpened: Boolean(presenterWindow)");
+    expect(openSlideWindowBody).toContain("displayManager.openSlideWindow");
+    expect(openSlideWindowBody).toContain("target: `orbit-slide-${presentationChannel.sessionId}`");
+    expect(openSlideWindowBody).toContain("displayManager.placeOnScreen");
+    expect(openSlideWindowBody).toContain("publishSlideWindowSnapshot(options.startFromBeginning)");
+    expect(openSlideDisplayBody).toContain("await openSlideWindowForDisplay(options)");
+    expect(openSlideDisplayBody).toContain("displayOpened");
+    expect(openSlideDisplayBody).toContain("displayMode: \"slide-window\"");
+  });
+
+  it("requests Window Management screens for automatic slide-window placement", () => {
+    const source = fs.readFileSync(rehearsalWorkspaceSourcePath, "utf8");
+    const requestStart = source.indexOf("const requestDisplayScreens = async");
+    const resolveStart = source.indexOf("const resolveAutoPlacementScreen =");
+    const openStart = source.indexOf("const openSlideWindowForDisplay =");
+    const renderStart = source.indexOf("const checklistKeywords");
+    const requestBody = source.slice(requestStart, resolveStart);
+    const resolveBody = source.slice(resolveStart, openStart);
+    const openBody = source.slice(openStart, renderStart);
+
+    expect(requestBody).toContain("displayManager.listExternalScreens()");
+    expect(resolveBody).toContain("options.targetScreen");
+    expect(resolveBody).not.toContain("displayManager.listExternalScreens()");
+    expect(openBody).toContain("screen: targetScreen");
+    expect(openBody).toContain("placementTargetLabel: targetScreen?.label");
+  });
+
+  it("supports Google Slides style fullscreen in the current document", () => {
+    const source = fs.readFileSync(rehearsalWorkspaceSourcePath, "utf8");
+    const currentWindowStart = source.indexOf("const openCurrentWindowSlideDisplay =");
+    const start = source.indexOf("const openSlideDisplay = async");
+    const end = source.indexOf("const checklistKeywords");
+    const openCurrentWindowBody = source.slice(currentWindowStart, start);
+    const openSlideDisplayBody = source.slice(start, end);
+
+    expect(openCurrentWindowBody).toContain("requestPresentWindowFullscreen");
+    expect(openCurrentWindowBody).toContain("document.documentElement");
+    expect(openCurrentWindowBody).toContain("setDisplayRole(\"slide-receiver\")");
+    expect(openCurrentWindowBody).toContain("setSlideReceiverMessage");
+    expect(openSlideDisplayBody).toContain("options.displayMode === \"current-window\"");
+    expect(openSlideDisplayBody).toContain("openCurrentWindowSlideDisplay(options)");
   });
 
   it("renders slide receiver mode without the presenter toolbar or notes", () => {
@@ -146,6 +184,9 @@ describe("RehearsalWorkspace", () => {
 
     expect(slideReceiverRenderBody).toContain("PresentWindowReceiver");
     expect(slideReceiverRenderBody).toContain("initialSnapshot={slideReceiverSnapshot}");
+    expect(slideReceiverRenderBody).toContain("onReconnectPresenter={(snapshot)");
+    expect(slideReceiverRenderBody).toContain("slideIndex: snapshot.state.slideIndex");
+    expect(slideReceiverRenderBody).toContain("stepIndex: snapshot.state.stepIndex");
     expect(slideReceiverRenderBody).toContain("setDisplayRole(\"presenter\")");
     expect(slideReceiverRenderBody).not.toContain("DisplayControls");
     expect(slideReceiverRenderBody).not.toContain("RehearsalPanel");
