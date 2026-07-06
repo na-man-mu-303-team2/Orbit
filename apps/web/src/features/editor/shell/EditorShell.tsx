@@ -2499,6 +2499,8 @@ export function EditorShell(props: { projectId?: string }) {
     keywordId?: string | null,
     draft?: Partial<Pick<DeckAnimation, "delayMs" | "durationMs" | "type">>
   ) {
+    let createdAnimationId: string | null = null;
+
     commitPatch((currentDeck) => {
       const slide = currentDeck.slides.find((candidate) => candidate.slideId === slideId);
 
@@ -2510,6 +2512,7 @@ export function EditorShell(props: { projectId?: string }) {
         ...createDefaultAnimation(currentDeck, slide, elementId),
         ...draft
       };
+      createdAnimationId = animation.animationId;
 
       if (!keywordId) {
         return createAddAnimationPatch(currentDeck, slideId, animation);
@@ -2522,6 +2525,10 @@ export function EditorShell(props: { projectId?: string }) {
         keywordId
       );
     });
+
+    if (createdAnimationId) {
+      setAnimationPanelFocusedAnimationId(createdAnimationId);
+    }
   }
 
   function handleUpdateAnimation(
