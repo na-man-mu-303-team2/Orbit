@@ -4,11 +4,13 @@ export {
   type SlideRuntimeHighlight
 } from "./ReadOnlySlideCanvas";
 export {
-  SlideBackground,
+  SlideBackground
+} from "./SlideBackground";
+export {
   buildSlideBackgroundStyle,
   clampBackgroundOverlayOpacity,
   getSlideBackgroundSize
-} from "./SlideBackground";
+} from "./slideBackgroundStyle";
 export { ElementNodeContent, type SlideElementFrame } from "./elementRendering";
 export { getActiveHighlightElementIds, HighlightOverlay } from "./highlightOverlay";
 export {

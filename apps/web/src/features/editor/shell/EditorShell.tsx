@@ -52,6 +52,11 @@ import {
   getRenderableSlideElements
 } from "../canvas/EditorCanvas";
 import {
+  buildSlideBackgroundStyle,
+  clampBackgroundOverlayOpacity,
+  getSlideBackgroundSize
+} from "../../slides/rendering/slideBackgroundStyle";
+import {
   getCustomShapeAbsoluteNodes,
   normalizeCustomShapeAbsoluteGeometry
 } from "../canvas/custom-shape/geometry";
@@ -5051,42 +5056,6 @@ function buildSlideThumbBackground(slide: Slide, deck: Deck) {
     `url("${resolveEditorAssetUrl(backgroundImage.src)}") center / ${size} no-repeat`,
     background
   ].join(",");
-}
-
-function buildSlideBackgroundStyle(slide: Slide, deck: Deck): CSSProperties {
-  const backgroundColor = slide.style.backgroundColor ?? deck.theme.backgroundColor;
-  const backgroundImage = slide.style.backgroundImage;
-
-  if (!backgroundImage?.src) {
-    return {
-      backgroundColor,
-      borderRadius: 0
-    };
-  }
-
-  const size = getSlideBackgroundSize(backgroundImage.fit);
-  const overlayOpacity = clampBackgroundOverlayOpacity(backgroundImage.opacity);
-
-  return {
-    backgroundColor,
-    backgroundImage: `linear-gradient(rgba(255,255,255,${overlayOpacity}), rgba(255,255,255,${overlayOpacity})), url("${resolveEditorAssetUrl(backgroundImage.src)}")`,
-    backgroundPosition: "center, center",
-    backgroundRepeat: "no-repeat, no-repeat",
-    backgroundSize: `100% 100%, ${size}`,
-    borderRadius: 0
-  };
-}
-
-function getSlideBackgroundSize(fit: NonNullable<Slide["style"]["backgroundImage"]>["fit"]) {
-  if (fit === "stretch") {
-    return "100% 100%";
-  }
-
-  return fit;
-}
-
-function clampBackgroundOverlayOpacity(opacity: number) {
-  return Math.max(0, Math.min(1, 1 - opacity));
 }
 
 function getEditorStatusLabel(props: {
