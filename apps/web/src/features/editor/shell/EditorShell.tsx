@@ -433,7 +433,7 @@ function resolvePatchInput(
   return typeof patchInput === "function" ? patchInput(deck) : patchInput;
 }
 
-function buildPatchBatch(
+export function buildPatchBatch(
   baseDeck: Deck,
   patchInputs: (DeckPatch | PatchProducer)[]
 ): { patch: DeckPatch; deck: Deck } {
@@ -2322,7 +2322,7 @@ export function EditorShell(props: { projectId?: string }) {
       mergeDeckIntoQueryCache(current, result.deck)
     );
 
-    pendingPatchInputsRef.current.push(patch);
+    pendingPatchInputsRef.current.push(patchInput);
     saveQueueRef.current = saveQueueRef.current
       .catch(() => undefined)
       .then(async () => {

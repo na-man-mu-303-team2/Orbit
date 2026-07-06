@@ -9,6 +9,7 @@ import { demoIds } from "@orbit/shared";
 import type {
   AiSuggestion,
   Deck,
+  DeckPatch,
   DeckElement,
   ListAiSuggestionsResponse,
   TableElementProps
@@ -22,6 +23,7 @@ import {
   EditorShell,
   EditorStateNotice,
   buildSlideThumbnailPatch,
+  buildPatchBatch,
   consumeScheduledUndoRedoPersistLabel,
   createDistributeSelectionPatch,
   flushEditorPersistenceBeforeManualAction,
@@ -807,6 +809,50 @@ describe("editor shell", () => {
         }
       }),
     ).toBe(false);
+  });
+
+  it("rebuilds queued patch producers against the latest deck", () => {
+    const deck = createDemoDeck();
+    const remoteSlide = {
+      ...structuredClone(deck.slides[0]),
+      order: deck.slides.length + 1,
+      slideId: "slide_remote",
+      title: "Remote slide"
+    };
+    const latestDeck = {
+      ...deck,
+      slides: [...deck.slides, remoteSlide],
+      version: deck.version + 1
+    };
+    const createCascadePatch = (currentDeck: Deck): DeckPatch => ({
+      baseVersion: currentDeck.version,
+      deckId: currentDeck.deckId,
+      operations: currentDeck.slides.map((slide) => ({
+        slideId: slide.slideId,
+        style: {
+          backgroundColor: "#111111"
+        },
+        type: "update_slide_style" as const
+      })),
+      source: "user"
+    });
+
+    const stalePatch = createCascadePatch(deck);
+
+    expect(
+      buildPatchBatch(latestDeck, [createCascadePatch]).patch.operations
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ slideId: remoteSlide.slideId })
+      ])
+    );
+    expect(
+      buildPatchBatch(latestDeck, [stalePatch]).patch.operations
+    ).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ slideId: remoteSlide.slideId })
+      ])
+    );
   });
 
   it("renders supported canvas object types without exposing grouped child labels", () => {
