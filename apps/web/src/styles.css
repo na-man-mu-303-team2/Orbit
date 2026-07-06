@@ -638,7 +638,7 @@ button:disabled {
 }
 
 .home-prompt-grid {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .home-options-grid {
@@ -810,6 +810,78 @@ button:disabled {
 .empty-state {
   color: #667085;
   font-size: 0.9rem;
+}
+
+.template-style-panel {
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  display: grid;
+  gap: 14px;
+  margin-top: 14px;
+  padding: 16px;
+}
+
+.template-style-panel header {
+  align-items: center;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+}
+
+.template-style-panel header span,
+.template-style-options-grid label span {
+  color: #667085;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.template-style-panel h3 {
+  font-size: 1rem;
+  margin: 2px 0 0;
+}
+
+.template-style-panel header button {
+  background: #ffffff;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  color: #374151;
+  cursor: pointer;
+  font-weight: 800;
+  min-height: 38px;
+  padding: 0 12px;
+}
+
+.template-style-panel header button:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.template-style-options-grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: minmax(240px, 2fr) repeat(3, minmax(132px, 1fr));
+}
+
+.template-style-options-grid label {
+  display: grid;
+  gap: 6px;
+}
+
+.template-style-options-grid textarea,
+.template-style-options-grid select {
+  background: #f9fafb;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  color: #111827;
+  min-height: 42px;
+  padding: 10px 12px;
+  width: 100%;
+}
+
+.template-style-options-grid textarea {
+  min-height: 88px;
+  resize: vertical;
 }
 
 .project-history {
@@ -2010,8 +2082,13 @@ button:disabled {
   }
 
   .template-row,
-  .project-grid {
+  .project-grid,
+  .template-style-options-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .template-style-prompt-field {
+    grid-column: 1 / -1;
   }
 
   .rehearsal-layout {
@@ -2036,7 +2113,8 @@ button:disabled {
   .project-grid,
   .chat-input-shell,
   .home-prompt-grid,
-  .home-options-grid {
+  .home-options-grid,
+  .template-style-options-grid {
     grid-template-columns: 1fr;
   }
 

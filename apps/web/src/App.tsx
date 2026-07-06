@@ -141,6 +141,24 @@ export type HomeTemplateStyleId =
   | "simple-basic"
   | "presentation-document"
   | "submission-document";
+export type HomeTemplateStyle = {
+  id: HomeTemplateStyleId;
+  title: string;
+  description: string;
+};
+type TemplateStyleDesignOverrides = Partial<
+  Pick<GenerateDeckDesignDirection, "densityTarget" | "layoutDiversity" | "mediaPolicy">
+>;
+const templateStyleDefaultOption = "style-default" as const;
+type TemplateDensityTargetOption =
+  | typeof templateStyleDefaultOption
+  | GenerateDeckDesignDirection["densityTarget"];
+type TemplateLayoutDiversityOption =
+  | typeof templateStyleDefaultOption
+  | GenerateDeckDesignDirection["layoutDiversity"];
+type TemplateMediaPolicyOption =
+  | typeof templateStyleDefaultOption
+  | GenerateDeckDesignDirection["mediaPolicy"];
 
 type GenerateDeckTargetProject = {
   created: boolean;
@@ -204,11 +222,7 @@ const EditorShell = lazy(() =>
 );
 
 export const defaultHomeTemplateStyleId: HomeTemplateStyleId = "simple-basic";
-export const homeTemplateStyles: Array<{
-  id: HomeTemplateStyleId;
-  title: string;
-  description: string;
-}> = [
+export const homeTemplateStyles: HomeTemplateStyle[] = [
   {
     id: "simple-basic",
     title: "심플 베이직 스타일",
@@ -1043,9 +1057,13 @@ function HomePage(props: { user?: AuthUser; templateStyleId?: HomeTemplateStyleI
   const [prompt, setPrompt] = useState("");
   const [designPrompt, setDesignPrompt] = useState("");
   const [selectedTemplateStyleId, setSelectedTemplateStyleId] =
-    useState<HomeTemplateStyleId>(
-      props.templateStyleId ?? defaultHomeTemplateStyleId
-    );
+    useState<HomeTemplateStyleId | undefined>(props.templateStyleId);
+  const [templateDensityTarget, setTemplateDensityTarget] =
+    useState<TemplateDensityTargetOption>(templateStyleDefaultOption);
+  const [templateLayoutDiversity, setTemplateLayoutDiversity] =
+    useState<TemplateLayoutDiversityOption>(templateStyleDefaultOption);
+  const [templateMediaPolicy, setTemplateMediaPolicy] =
+    useState<TemplateMediaPolicyOption>(templateStyleDefaultOption);
   const [tone, setTone] = useState<"professional" | "friendly" | "confident" | "concise">(
     "professional"
   );
@@ -1071,7 +1089,7 @@ function HomePage(props: { user?: AuthUser; templateStyleId?: HomeTemplateStyleI
   );
 
   useEffect(() => {
-    setSelectedTemplateStyleId(props.templateStyleId ?? defaultHomeTemplateStyleId);
+    setSelectedTemplateStyleId(props.templateStyleId);
   }, [props.templateStyleId]);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -1129,6 +1147,11 @@ function HomePage(props: { user?: AuthUser; templateStyleId?: HomeTemplateStyleI
             prompt,
             designPrompt,
             templateStyleId: selectedTemplateStyleId,
+            templateStyleDesignOverrides: buildTemplateStyleDesignOverrides({
+              densityTarget: templateDensityTarget,
+              layoutDiversity: templateLayoutDiversity,
+              mediaPolicy: templateMediaPolicy
+            }),
             duration,
             minSlides,
             maxSlides,
@@ -1302,9 +1325,22 @@ function HomePage(props: { user?: AuthUser; templateStyleId?: HomeTemplateStyleI
   }
 
   function selectTemplateStyle(styleId: HomeTemplateStyleId) {
+    if (selectedTemplateStyleId === styleId) {
+      clearTemplateStyle();
+      return;
+    }
     setSelectedTemplateStyleId(styleId);
     navigateTo(getHomeTemplateStylePath(styleId));
   }
+
+  function clearTemplateStyle() {
+    setSelectedTemplateStyleId(undefined);
+    navigateTo("/");
+  }
+
+  const selectedTemplateStyle = selectedTemplateStyleId
+    ? homeTemplateStyles.find((style) => style.id === selectedTemplateStyleId)
+    : undefined;
 
   return (
     <section className="home-page">
@@ -1346,15 +1382,6 @@ function HomePage(props: { user?: AuthUser; templateStyleId?: HomeTemplateStyleI
                 value={prompt}
                 onChange={(event) => setPrompt(event.target.value)}
                 placeholder="핵심 메시지, 포함할 내용, 제외할 내용"
-                disabled={isImporting}
-              />
-            </label>
-            <label>
-              <span>디자인 프롬프트</span>
-              <textarea
-                value={designPrompt}
-                onChange={(event) => setDesignPrompt(event.target.value)}
-                placeholder="톤앤매너, 색감, 레이아웃 방향"
                 disabled={isImporting}
               />
             </label>
@@ -1490,6 +1517,21 @@ function HomePage(props: { user?: AuthUser; templateStyleId?: HomeTemplateStyleI
         selectedStyleId={selectedTemplateStyleId}
         onSelectStyle={selectTemplateStyle}
       />
+      {selectedTemplateStyle ? (
+        <TemplateStyleOptionsPanel
+          templateStyle={selectedTemplateStyle}
+          designPrompt={designPrompt}
+          densityTarget={templateDensityTarget}
+          layoutDiversity={templateLayoutDiversity}
+          mediaPolicy={templateMediaPolicy}
+          isDisabled={isImporting}
+          onClearStyle={clearTemplateStyle}
+          onDesignPromptChange={setDesignPrompt}
+          onDensityTargetChange={setTemplateDensityTarget}
+          onLayoutDiversityChange={setTemplateLayoutDiversity}
+          onMediaPolicyChange={setTemplateMediaPolicy}
+        />
+      ) : null}
     </section>
   );
 }
@@ -1617,6 +1659,95 @@ export function TemplateRail(props: {
             <span>{template.description}</span>
           </button>
         ))}
+      </div>
+    </section>
+  );
+}
+
+export function TemplateStyleOptionsPanel(props: {
+  templateStyle: HomeTemplateStyle;
+  designPrompt: string;
+  densityTarget: TemplateDensityTargetOption;
+  layoutDiversity: TemplateLayoutDiversityOption;
+  mediaPolicy: TemplateMediaPolicyOption;
+  isDisabled?: boolean;
+  onClearStyle?: () => void;
+  onDesignPromptChange: (value: string) => void;
+  onDensityTargetChange: (value: TemplateDensityTargetOption) => void;
+  onLayoutDiversityChange: (value: TemplateLayoutDiversityOption) => void;
+  onMediaPolicyChange: (value: TemplateMediaPolicyOption) => void;
+}) {
+  return (
+    <section className="template-style-panel" aria-label="템플릿 스타일 설정">
+      <header>
+        <div>
+          <span>선택한 템플릿</span>
+          <h3>{props.templateStyle.title}</h3>
+        </div>
+        <button type="button" onClick={props.onClearStyle} disabled={props.isDisabled}>
+          선택 해제
+        </button>
+      </header>
+      <div className="template-style-options-grid">
+        <label className="template-style-prompt-field">
+          <span>템플릿 프롬프트</span>
+          <textarea
+            value={props.designPrompt}
+            name="templateDesignPrompt"
+            onChange={(event) => props.onDesignPromptChange(event.target.value)}
+            placeholder="템플릿에 추가로 반영할 색감, 레이아웃, 분위기"
+            disabled={props.isDisabled}
+          />
+        </label>
+        <label>
+          <span>텍스트 밀도</span>
+          <select
+            value={props.densityTarget}
+            name="templateDensityTarget"
+            onChange={(event) =>
+              props.onDensityTargetChange(event.target.value as TemplateDensityTargetOption)
+            }
+            disabled={props.isDisabled}
+          >
+            <option value={templateStyleDefaultOption}>템플릿 기본값</option>
+            <option value="low">낮게</option>
+            <option value="medium">보통</option>
+            <option value="high">높게</option>
+          </select>
+        </label>
+        <label>
+          <span>레이아웃</span>
+          <select
+            value={props.layoutDiversity}
+            name="templateLayoutDiversity"
+            onChange={(event) =>
+              props.onLayoutDiversityChange(
+                event.target.value as TemplateLayoutDiversityOption
+              )
+            }
+            disabled={props.isDisabled}
+          >
+            <option value={templateStyleDefaultOption}>템플릿 기본값</option>
+            <option value="stable">안정적</option>
+            <option value="varied">다양하게</option>
+          </select>
+        </label>
+        <label>
+          <span>미디어 사용</span>
+          <select
+            value={props.mediaPolicy}
+            name="templateMediaPolicy"
+            onChange={(event) =>
+              props.onMediaPolicyChange(event.target.value as TemplateMediaPolicyOption)
+            }
+            disabled={props.isDisabled}
+          >
+            <option value={templateStyleDefaultOption}>템플릿 기본값</option>
+            <option value="avoid">사용 안 함</option>
+            <option value="balanced">균형 있게</option>
+            <option value="placeholder-ok">플레이스홀더 허용</option>
+          </select>
+        </label>
       </div>
     </section>
   );
@@ -2488,9 +2619,17 @@ export function buildHomeJsonFirstGenerateDeckPayload(input: {
   prompt: string;
   referenceInput?: ReferenceGenerationInput;
   templateStyleId?: HomeTemplateStyleId;
+  templateStyleDesignOverrides?: TemplateStyleDesignOverrides;
   tone: "professional" | "friendly" | "confident" | "concise";
   topic: string;
 }) {
+  const design = input.templateStyleId
+    ? {
+        ...buildHomeTemplateStyleGenerateDeckDesignDirection(input.templateStyleId),
+        ...(input.templateStyleDesignOverrides ?? {})
+      }
+    : buildDefaultHomeGenerateDeckDesignDirection();
+
   return buildGenerateDeckPayload({
     topic: input.topic.trim(),
     prompt: input.prompt.trim(),
@@ -2504,9 +2643,7 @@ export function buildHomeJsonFirstGenerateDeckPayload(input: {
       purpose: "inform",
       tone: input.tone
     },
-    design: buildHomeTemplateStyleGenerateDeckDesignDirection(
-      input.templateStyleId ?? defaultHomeTemplateStyleId
-    ),
+    design,
     designReferences: [],
     referenceInput: input.referenceInput ?? buildReferenceGenerationInput([])
   });
@@ -2558,6 +2695,16 @@ export function buildSimpleBasicGenerateDeckDesignDirection() {
   return buildHomeTemplateStyleGenerateDeckDesignDirection("simple-basic");
 }
 
+export function buildDefaultHomeGenerateDeckDesignDirection() {
+  return buildGenerateDeckDesignDirection({
+    profile: "auto",
+    visualRhythm: "auto",
+    densityTarget: "medium",
+    mediaPolicy: "balanced",
+    layoutDiversity: "varied"
+  });
+}
+
 export function buildHomeTemplateStyleGenerateDeckDesignDirection(
   styleId: HomeTemplateStyleId
 ) {
@@ -2591,6 +2738,28 @@ export function buildHomeTemplateStyleGenerateDeckDesignDirection(
     layoutDiversity: "stable",
     stylePackId: simpleBasicStylePackId
   });
+}
+
+export function buildTemplateStyleDesignOverrides(input: {
+  densityTarget: TemplateDensityTargetOption;
+  layoutDiversity: TemplateLayoutDiversityOption;
+  mediaPolicy: TemplateMediaPolicyOption;
+}): TemplateStyleDesignOverrides {
+  const overrides: TemplateStyleDesignOverrides = {};
+
+  if (input.densityTarget !== templateStyleDefaultOption) {
+    overrides.densityTarget = input.densityTarget;
+  }
+
+  if (input.layoutDiversity !== templateStyleDefaultOption) {
+    overrides.layoutDiversity = input.layoutDiversity;
+  }
+
+  if (input.mediaPolicy !== templateStyleDefaultOption) {
+    overrides.mediaPolicy = input.mediaPolicy;
+  }
+
+  return overrides;
 }
 
 export function mergeGeneratedProjectList(

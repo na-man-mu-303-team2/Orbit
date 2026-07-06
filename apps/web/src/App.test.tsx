@@ -8,11 +8,13 @@ import {
   buildDesignReferences,
   buildGenerateDeckPayload,
   buildGenerateDeckDesignDirection,
+  buildDefaultHomeGenerateDeckDesignDirection,
   buildHomeJsonFirstGenerateDeckPayload,
   buildHomeTemplateStyleGenerateDeckDesignDirection,
   buildPptxOoxmlGenerationPayload,
   buildReferenceGenerationInput,
   buildSimpleBasicGenerateDeckDesignDirection,
+  buildTemplateStyleDesignOverrides,
   createGeneratedDeckProject,
   ExtractResultItem,
   GeneratedDeckResult,
@@ -40,7 +42,8 @@ import {
   pollExtractJob,
   resolveGenerateDeckTargetProject,
   shouldRenderAppFrame,
-  TemplateRail
+  TemplateRail,
+  TemplateStyleOptionsPanel
 } from "./App";
 
 vi.mock("react-konva", () => {
@@ -144,6 +147,35 @@ describe("home template styles", () => {
     expect(html).not.toContain("피치덱");
     expect(html).not.toContain("수업 자료");
     expect(html).not.toContain("워크숍");
+  });
+
+  it("does not select a template style by default", () => {
+    const html = renderToStaticMarkup(<TemplateRail title="템플릿" />);
+
+    expect(html).not.toContain('aria-pressed="true"');
+    expect(html).not.toContain("template-card-active");
+  });
+
+  it("renders selected template style settings", () => {
+    const html = renderToStaticMarkup(
+      <TemplateStyleOptionsPanel
+        templateStyle={homeTemplateStyles[0]}
+        designPrompt=""
+        densityTarget="style-default"
+        layoutDiversity="style-default"
+        mediaPolicy="style-default"
+        onClearStyle={() => undefined}
+        onDesignPromptChange={() => undefined}
+        onDensityTargetChange={() => undefined}
+        onLayoutDiversityChange={() => undefined}
+        onMediaPolicyChange={() => undefined}
+      />
+    );
+
+    expect(html).toContain('name="templateDesignPrompt"');
+    expect(html).toContain('name="templateDensityTarget"');
+    expect(html).toContain('name="templateLayoutDiversity"');
+    expect(html).toContain('name="templateMediaPolicy"');
   });
 });
 
@@ -565,17 +597,17 @@ describe("AI deck generation flow", () => {
       prompt: "핵심 메시지",
       designPrompt: "심플 베이직 발표용",
       design: {
-        stylePackId: "simple-basic",
-        visualRhythm: "clean",
+        visualRhythm: "auto",
         densityTarget: "medium",
         mediaPolicy: "balanced",
-        layoutDiversity: "stable"
+        layoutDiversity: "varied"
       },
       references: [],
       designReferences: [],
       referenceKeywords: [],
       referenceContext: []
     });
+    expect(payload.design).not.toHaveProperty("stylePackId");
   });
 
   it("builds JSON-first home payloads with selected template styles", () => {
@@ -608,6 +640,31 @@ describe("AI deck generation flow", () => {
       stylePackId: "submission-document",
       densityTarget: "high",
       visualRhythm: "technical"
+    });
+  });
+
+  it("applies selected template style design overrides", () => {
+    const payload = buildHomeJsonFirstGenerateDeckPayload({
+      topic: "ORBIT",
+      prompt: "",
+      designPrompt: "",
+      templateStyleId: "presentation-document",
+      templateStyleDesignOverrides: buildTemplateStyleDesignOverrides({
+        densityTarget: "high",
+        layoutDiversity: "varied",
+        mediaPolicy: "avoid"
+      }),
+      duration: 10,
+      minSlides: 5,
+      maxSlides: 8,
+      tone: "professional"
+    });
+
+    expect(payload.design).toMatchObject({
+      stylePackId: "presentation-document",
+      densityTarget: "high",
+      layoutDiversity: "varied",
+      mediaPolicy: "avoid"
     });
   });
 
@@ -683,6 +740,12 @@ describe("AI deck generation flow", () => {
     expect(buildSimpleBasicGenerateDeckDesignDirection().stylePackId).toBe(
       "simple-basic"
     );
+    expect(buildDefaultHomeGenerateDeckDesignDirection()).toEqual({
+      visualRhythm: "auto",
+      densityTarget: "medium",
+      mediaPolicy: "balanced",
+      layoutDiversity: "varied"
+    });
     expect(
       buildHomeTemplateStyleGenerateDeckDesignDirection("presentation-document")
         .stylePackId
