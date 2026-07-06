@@ -75,6 +75,7 @@ import {
   KeywordSummary
 } from "./components/EditorDebugCards";
 import {
+  createKeywordOccurrenceKey,
   KeywordDetail,
   KeywordHighlightedNotes,
   KeywordList
@@ -1024,6 +1025,8 @@ export function EditorShell(props: { projectId?: string }) {
     useState<SlidePanelView>("thumbnail");
   const [showIds, setShowIds] = useState(false);
   const [selectedKeywordId, setSelectedKeywordId] = useState<string | null>(null);
+  const [selectedKeywordOccurrenceKey, setSelectedKeywordOccurrenceKey] =
+    useState<string | null>(null);
   const [isSpeakerNotesEditing, setIsSpeakerNotesEditing] = useState(false);
   const [speakerNotesDraft, setSpeakerNotesDraft] = useState("");
   const [speakerNotesDraftBase, setSpeakerNotesDraftBase] = useState("");
@@ -2190,7 +2193,7 @@ export function EditorShell(props: { projectId?: string }) {
       setDeck(previous.deck);
       setCurrentSlideIndex(previousSlideIndex);
       setSelectedElementIds([]);
-      setSelectedKeywordId(null);
+      clearSelectedKeyword();
       setEditingElementId(null);
       setCustomShapeEditElementId(null);
       setElementContextMenu(null);
@@ -2231,7 +2234,7 @@ export function EditorShell(props: { projectId?: string }) {
       setDeck(next.deck);
       setCurrentSlideIndex(nextSlideIndex);
       setSelectedElementIds([]);
-      setSelectedKeywordId(null);
+      clearSelectedKeyword();
       setEditingElementId(null);
       setCustomShapeEditElementId(null);
       setElementContextMenu(null);
@@ -2292,8 +2295,17 @@ export function EditorShell(props: { projectId?: string }) {
     });
   }
 
-  function handleSelectKeyword(keywordId: string) {
-    setSelectedKeywordId((current) => (current === keywordId ? null : keywordId));
+  function clearSelectedKeyword() {
+    setSelectedKeywordId(null);
+    setSelectedKeywordOccurrenceKey(null);
+  }
+
+  function handleSelectKeyword(keywordId: string, occurrenceKey: string | null = null) {
+    const shouldClear =
+      selectedKeywordId === keywordId && selectedKeywordOccurrenceKey === occurrenceKey;
+
+    setSelectedKeywordId(shouldClear ? null : keywordId);
+    setSelectedKeywordOccurrenceKey(shouldClear ? null : occurrenceKey);
   }
 
   function resetSpeakerNotesEditState(notes: string) {
@@ -2337,7 +2349,7 @@ export function EditorShell(props: { projectId?: string }) {
 
   function handleStartSpeakerNotesEdit() {
     const currentNotes = currentSlide?.speakerNotes ?? "";
-    setSelectedKeywordId(null);
+    clearSelectedKeyword();
     setSpeakerNotesDraft(currentNotes);
     setSpeakerNotesDraftBase(currentNotes);
     setSpeakerNotesEditSlideId(currentSlide?.slideId ?? null);
@@ -2443,17 +2455,20 @@ export function EditorShell(props: { projectId?: string }) {
     handleReplaceKeywords(slideId, (keywords) =>
       keywords.filter((keyword) => keyword.keywordId !== keywordId)
     );
-    setSelectedKeywordId(null);
+    clearSelectedKeyword();
   }
 
-  function handleSpeakerNotesKeywordSelection(rawValue: string) {
+  function handleSpeakerNotesKeywordSelection(rawValue: string, start: number) {
     if (!currentSlide) {
       return;
     }
 
     const matchedKeyword = findKeywordByTerm(currentSlide, rawValue);
     if (matchedKeyword) {
-      handleSelectKeyword(matchedKeyword.keywordId);
+      handleSelectKeyword(
+        matchedKeyword.keywordId,
+        createKeywordOccurrenceKey(matchedKeyword.keywordId, start, rawValue)
+      );
       return;
     }
 
@@ -2461,6 +2476,9 @@ export function EditorShell(props: { projectId?: string }) {
       required: false
     });
     setSelectedKeywordId(nextKeyword.keywordId);
+    setSelectedKeywordOccurrenceKey(
+      createKeywordOccurrenceKey(nextKeyword.keywordId, start, rawValue)
+    );
     handleReplaceKeywords(currentSlide.slideId, (keywords) => [...keywords, nextKeyword]);
   }
 
@@ -2745,7 +2763,7 @@ export function EditorShell(props: { projectId?: string }) {
         setUndoStack([]);
         setRedoStack([]);
         setSelectedElementIds([]);
-        setSelectedKeywordId(null);
+        clearSelectedKeyword();
         setEditingElementId(null);
         setCustomShapeEditElementId(null);
         setElementContextMenu(null);
@@ -3547,7 +3565,7 @@ export function EditorShell(props: { projectId?: string }) {
         (keyword) => keyword.keywordId === selectedKeywordId
       )
     ) {
-      setSelectedKeywordId(null);
+      clearSelectedKeyword();
     }
   }, [currentSlide, selectedKeywordId]);
 
@@ -4753,6 +4771,7 @@ export function EditorShell(props: { projectId?: string }) {
                     keywords={currentSlide?.keywords ?? []}
                     notes={currentSlide?.speakerNotes ?? ""}
                     selectedKeywordId={selectedKeywordId}
+                    selectedKeywordOccurrenceKey={selectedKeywordOccurrenceKey}
                     showIds={showIds}
                     onSelectKeyword={handleSelectKeyword}
                     onSelectKeywordText={handleSpeakerNotesKeywordSelection}
@@ -4769,7 +4788,7 @@ export function EditorShell(props: { projectId?: string }) {
                       keyword={selectedKeyword}
                       showIds={showIds}
                       usage={currentSlideKeywordUsage[selectedKeyword.keywordId] ?? null}
-                      onClearSelection={() => setSelectedKeywordId(null)}
+                      onClearSelection={clearSelectedKeyword}
                       onDeleteKeyword={() => {
                         if (!currentSlide) {
                           return;

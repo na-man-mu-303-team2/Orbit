@@ -10,6 +10,7 @@ export interface KeywordUsageSummary {
 interface SpeakerNotesWordPart {
   keyword: Keyword | null;
   kind: "word";
+  start: number;
   value: string;
 }
 
@@ -28,15 +29,16 @@ interface KeywordMatch {
 export function KeywordHighlightedNotes(props: {
   keywords: Keyword[];
   notes: string;
+  selectedKeywordOccurrenceKey?: string | null;
   selectedKeywordId: string | null;
   showIds: boolean;
-  onSelectKeyword: (keywordId: string) => void;
-  onSelectKeywordText: (value: string) => void;
+  onSelectKeyword: (keywordId: string, occurrenceKey?: string | null) => void;
+  onSelectKeywordText: (value: string, start: number) => void;
 }) {
   const {
     keywords,
     notes,
-    selectedKeywordId,
+    selectedKeywordOccurrenceKey = null,
     showIds,
     onSelectKeyword,
     onSelectKeywordText
@@ -56,7 +58,12 @@ export function KeywordHighlightedNotes(props: {
         }
 
         const keyword = part.keyword;
-        const isSelected = keyword?.keywordId === selectedKeywordId;
+        const occurrenceKey = keyword
+          ? createKeywordOccurrenceKey(keyword.keywordId, part.start, part.value)
+          : null;
+        const isSelected = Boolean(
+          occurrenceKey && occurrenceKey === selectedKeywordOccurrenceKey
+        );
 
         return (
           <button
@@ -67,8 +74,8 @@ export function KeywordHighlightedNotes(props: {
             type="button"
             onClick={() =>
               keyword
-                ? onSelectKeyword(keyword.keywordId)
-                : onSelectKeywordText(part.value)
+                ? onSelectKeyword(keyword.keywordId, occurrenceKey)
+                : onSelectKeywordText(part.value, part.start)
             }
           >
             <strong>{part.value}</strong>
@@ -78,6 +85,14 @@ export function KeywordHighlightedNotes(props: {
       })}
     </p>
   );
+}
+
+export function createKeywordOccurrenceKey(
+  keywordId: string,
+  start: number,
+  value: string
+) {
+  return `${keywordId}:${start}:${value}`;
 }
 
 export function KeywordList(props: {
@@ -251,6 +266,7 @@ function tokenizeSpeakerNotes(notes: string, keywords: Keyword[]): SpeakerNotesP
 
     parts.push({
       kind: "word",
+      start: index,
       value,
       keyword: findKeywordMatch(keywords, value)?.keyword ?? null
     });
