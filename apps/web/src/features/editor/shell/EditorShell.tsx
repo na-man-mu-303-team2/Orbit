@@ -370,6 +370,10 @@ type PptxImportState =
       message: string;
     };
 
+type AnchoredKeyword = Keyword & {
+  noteOccurrence?: number;
+};
+
 async function fetchHealth(): Promise<HealthResponse> {
   const response = await fetch("/api/health");
   if (!response.ok) {
@@ -2446,18 +2450,63 @@ export function EditorShell(props: { projectId?: string }) {
     setSelectedKeywordId(null);
   }
 
-  function handleSpeakerNotesKeywordSelection(rawValue: string) {
+  function handleSpeakerNotesKeywordSelection(selection: {
+    occurrenceCount: number;
+    occurrenceIndex: number;
+    value: string;
+  }) {
     if (!currentSlide) {
       return;
     }
 
-    const matchedKeyword = findKeywordByTerm(currentSlide, rawValue);
-    if (matchedKeyword) {
-      handleSelectKeyword(matchedKeyword.keywordId);
+    const slideKeywords = currentSlide.keywords as AnchoredKeyword[];
+    const normalizedValue = selection.value.trim().toLocaleLowerCase("ko-KR");
+
+    if (selection.occurrenceCount > 1) {
+      const exactOccurrenceKeyword = slideKeywords.find(
+        (keyword) =>
+          keyword.noteOccurrence === selection.occurrenceIndex &&
+          keyword.text.trim().toLocaleLowerCase("ko-KR") === normalizedValue
+      );
+
+      if (exactOccurrenceKeyword) {
+        handleSelectKeyword(exactOccurrenceKeyword.keywordId);
+        return;
+      }
+    }
+
+    if (selection.occurrenceCount <= 1) {
+      const matchedKeyword = findKeywordByTerm(
+        currentSlide,
+        selection.value,
+        selection.occurrenceIndex
+      );
+      if (matchedKeyword) {
+        handleSelectKeyword(matchedKeyword.keywordId);
+        return;
+      }
+    }
+
+    const legacyKeyword = slideKeywords.find(
+      (keyword) =>
+        keyword.noteOccurrence === undefined &&
+        keyword.text.trim().toLocaleLowerCase("ko-KR") === normalizedValue
+    );
+
+    if (legacyKeyword && selection.occurrenceCount > 1) {
+      handleReplaceKeywords(currentSlide.slideId, (keywords) =>
+        keywords.map((keyword) =>
+          keyword.keywordId === legacyKeyword.keywordId
+            ? { ...keyword, noteOccurrence: selection.occurrenceIndex }
+            : keyword
+        )
+      );
+      setSelectedKeywordId(legacyKeyword.keywordId);
       return;
     }
 
-    const nextKeyword = createKeyword(workingDeckRef.current, rawValue, {
+    const nextKeyword = createKeyword(workingDeckRef.current, selection.value, {
+      noteOccurrence: selection.occurrenceIndex,
       required: false
     });
     setSelectedKeywordId(nextKeyword.keywordId);

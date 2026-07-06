@@ -52,6 +52,7 @@ type DeckValidationInput = {
       text: string;
       synonyms: string[];
       abbreviations: string[];
+      noteOccurrence?: number;
       required?: boolean;
     }>;
     elements: Array<Record<string, unknown>>;
@@ -854,6 +855,29 @@ describe("deckSchema validation", () => {
     ];
 
     expectInvalidDeck(deck);
+  });
+
+  it("allows duplicate slide keyword texts when each occurrence is anchored separately", () => {
+    const deck = createValidDeck();
+
+    deck.slides[0].keywords = [
+      {
+        keywordId: "kw_1",
+        text: "처리합니다",
+        synonyms: [],
+        abbreviations: [],
+        noteOccurrence: 0
+      },
+      {
+        keywordId: "kw_2",
+        text: "처리합니다",
+        synonyms: [],
+        abbreviations: [],
+        noteOccurrence: 1
+      }
+    ];
+
+    expectValidDeck(deck);
   });
 
   it("rejects slide keyword terms duplicated across keyword types", () => {

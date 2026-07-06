@@ -10,6 +10,8 @@ export interface KeywordUsageSummary {
 interface SpeakerNotesWordPart {
   keyword: Keyword | null;
   kind: "word";
+  occurrenceCount: number;
+  occurrenceIndex: number;
   value: string;
 }
 
@@ -25,13 +27,21 @@ interface KeywordMatch {
   value: string;
 }
 
+type AnchoredKeyword = Keyword & {
+  noteOccurrence?: number;
+};
+
 export function KeywordHighlightedNotes(props: {
   keywords: Keyword[];
   notes: string;
   selectedKeywordId: string | null;
   showIds: boolean;
   onSelectKeyword: (keywordId: string) => void;
-  onSelectKeywordText: (value: string) => void;
+  onSelectKeywordText: (selection: {
+    occurrenceCount: number;
+    occurrenceIndex: number;
+    value: string;
+  }) => void;
 }) {
   const {
     keywords,
@@ -68,7 +78,11 @@ export function KeywordHighlightedNotes(props: {
             onClick={() =>
               keyword
                 ? onSelectKeyword(keyword.keywordId)
-                : onSelectKeywordText(part.value)
+                : onSelectKeywordText({
+                    occurrenceCount: part.occurrenceCount,
+                    occurrenceIndex: part.occurrenceIndex,
+                    value: part.value
+                  })
             }
           >
             <strong>{part.value}</strong>
@@ -236,11 +250,24 @@ function KeywordAliases(props: { label: string; values: string[] }) {
 function tokenizeSpeakerNotes(notes: string, keywords: Keyword[]): SpeakerNotesPart[] {
   const parts: SpeakerNotesPart[] = [];
   const tokenPattern = /([0-9A-Za-z가-힣]+)/g;
+  const occurrenceTotals = new Map<string, number>();
+  const occurrenceByTerm = new Map<string, number>();
   let cursor = 0;
+
+  for (const match of notes.matchAll(tokenPattern)) {
+    const normalizedValue = normalizeTerm(match[0]);
+    occurrenceTotals.set(
+      normalizedValue,
+      (occurrenceTotals.get(normalizedValue) ?? 0) + 1
+    );
+  }
 
   for (const match of notes.matchAll(tokenPattern)) {
     const index = match.index ?? 0;
     const value = match[0];
+    const normalizedValue = normalizeTerm(value);
+    const occurrenceCount = occurrenceTotals.get(normalizedValue) ?? 1;
+    const occurrenceIndex = occurrenceByTerm.get(normalizedValue) ?? 0;
 
     if (cursor < index) {
       parts.push({
@@ -251,9 +278,14 @@ function tokenizeSpeakerNotes(notes: string, keywords: Keyword[]): SpeakerNotesP
 
     parts.push({
       kind: "word",
+      occurrenceCount,
       value,
-      keyword: findKeywordMatch(keywords, value)?.keyword ?? null
+      occurrenceIndex,
+      keyword:
+        findKeywordMatch(keywords, value, occurrenceIndex, occurrenceCount)?.keyword ??
+        null
     });
+    occurrenceByTerm.set(normalizedValue, occurrenceIndex + 1);
     cursor = index + value.length;
   }
 
@@ -267,14 +299,49 @@ function tokenizeSpeakerNotes(notes: string, keywords: Keyword[]): SpeakerNotesP
   return parts;
 }
 
-function findKeywordMatch(keywords: Keyword[], rawValue: string): KeywordMatch | null {
+function findKeywordMatch(
+  keywords: Keyword[],
+  rawValue: string,
+  occurrenceIndex: number,
+  occurrenceCount: number
+): KeywordMatch | null {
+  const anchoredKeywords = keywords as AnchoredKeyword[];
   const normalizedValue = normalizeTerm(rawValue);
 
   if (!normalizedValue) {
     return null;
   }
 
-  for (const keyword of keywords) {
+  const anchoredPrimaryMatches = anchoredKeywords.filter(
+    (keyword) =>
+      keyword.noteOccurrence !== undefined &&
+      normalizeTerm(keyword.text) === normalizedValue
+  );
+
+  const anchoredMatch = anchoredPrimaryMatches.find(
+    (keyword) => keyword.noteOccurrence === occurrenceIndex
+  );
+
+  if (anchoredMatch) {
+    return {
+      keyword: anchoredMatch,
+      value: anchoredMatch.text
+    };
+  }
+
+  const hasPrimaryTextMatch = anchoredKeywords.some(
+    (keyword) => normalizeTerm(keyword.text) === normalizedValue
+  );
+
+  if (anchoredPrimaryMatches.length > 0 || (occurrenceCount > 1 && hasPrimaryTextMatch)) {
+    return null;
+  }
+
+  for (const keyword of anchoredKeywords) {
+    if (keyword.noteOccurrence !== undefined) {
+      continue;
+    }
+
     const matched = [keyword.text, ...keyword.synonyms, ...keyword.abbreviations].find(
       (value) => normalizeTerm(value) === normalizedValue
     );

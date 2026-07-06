@@ -766,6 +766,43 @@ describe("RehearsalWorkspace", () => {
     expect(analysis.missingKeywordIds).toEqual([]);
   });
 
+  it("detects repeated keyword texts in note occurrence order", () => {
+    const slide = {
+      ...createDemoDeck().slides[0]!,
+      slideId: "slide_1",
+      speakerNotes: "처리합니다. 다시 처리합니다.",
+      keywords: [
+        {
+          keywordId: "kw_first",
+          text: "처리합니다",
+          synonyms: [],
+          abbreviations: [],
+          noteOccurrence: 0,
+          required: true
+        },
+        {
+          keywordId: "kw_second",
+          text: "처리합니다",
+          synonyms: [],
+          abbreviations: [],
+          noteOccurrence: 1,
+          required: true
+        }
+      ]
+    };
+
+    const singleAnalysis = evaluateLiveTranscript(slide, "처리합니다");
+    const repeatedAnalysis = evaluateLiveTranscript(slide, "처리합니다 다시 처리합니다");
+
+    expect(singleAnalysis.detectedKeywords.map((keyword) => keyword.keywordId)).toEqual([
+      "kw_first"
+    ]);
+    expect(repeatedAnalysis.detectedKeywords.map((keyword) => keyword.keywordId)).toEqual([
+      "kw_first",
+      "kw_second"
+    ]);
+  });
+
   it("builds current-slide live STT bias terms from keywords and slide context", () => {
     const deck = createDemoDeck();
     const slide = {

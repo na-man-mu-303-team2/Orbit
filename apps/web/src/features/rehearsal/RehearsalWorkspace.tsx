@@ -125,6 +125,7 @@ import {
   type PauseDetectorEvent,
   type PauseDetectorSnapshot
 } from "./speech/pauseDetector";
+import { matchKeywordAliases } from "./speech/speechMatcher";
 import { defaultSpeechTrackingConfig } from "./speech/speechTrackingConfig";
 import type {
   SpeechTrackerSnapshot,
@@ -175,6 +176,10 @@ type RecordingSession = {
 type LiveKeywordCandidate = {
   keyword: Keyword;
   aliases: string[];
+};
+
+type AnchoredKeyword = Keyword & {
+  noteOccurrence?: number;
 };
 
 type LiveTranscriptAnalysis = {
@@ -866,14 +871,20 @@ export function evaluateLiveTranscript(
   transcript: string
 ): LiveTranscriptAnalysis {
   const candidates = getLiveKeywordCandidates(slide);
-  const normalizedTranscript = normalizeLiveTranscriptText(transcript);
-  const detectedKeywords = candidates.flatMap((candidate) => {
-    const matchedText = candidate.aliases.find((alias) => {
-      const normalizedAlias = normalizeLiveTranscriptText(alias);
-      return normalizedAlias && normalizedTranscript.includes(normalizedAlias);
-    });
-
-    if (!matchedText) {
+  const candidateByKeywordId = new Map(
+    candidates.map((candidate) => [candidate.keyword.keywordId, candidate])
+  );
+  const detectedKeywords = matchKeywordAliases({
+    transcript,
+    keywords: candidates.map((candidate) => ({
+      keywordId: candidate.keyword.keywordId,
+      noteOccurrence: candidate.keyword.noteOccurrence,
+      text: candidate.keyword.text,
+      aliases: candidate.aliases
+    }))
+  }).flatMap((match) => {
+    const candidate = candidateByKeywordId.get(match.keywordId);
+    if (!candidate) {
       return [];
     }
 
@@ -883,7 +894,7 @@ export function evaluateLiveTranscript(
         slideId: slide.slideId,
         keywordId: candidate.keyword.keywordId,
         text: candidate.keyword.text,
-        matchedText,
+        matchedText: match.matchedAlias,
         coverage: 0
       }
     ];
@@ -988,12 +999,23 @@ function clamp(value: number, min: number, max: number) {
 }
 
 function getLiveKeywordCandidates(slide: Slide): LiveKeywordCandidate[] {
-  return slide.keywords.map((keyword) => ({
-    keyword,
-    aliases: [keyword.text, ...keyword.synonyms, ...keyword.abbreviations].filter(
-      (value) => value.trim().length > 0
-    )
-  }));
+  return [...(slide.keywords as AnchoredKeyword[])]
+    .sort((left, right) => {
+      const leftOccurrence = left.noteOccurrence ?? Number.MAX_SAFE_INTEGER;
+      const rightOccurrence = right.noteOccurrence ?? Number.MAX_SAFE_INTEGER;
+
+      if (leftOccurrence !== rightOccurrence) {
+        return leftOccurrence - rightOccurrence;
+      }
+
+      return left.keywordId.localeCompare(right.keywordId);
+    })
+    .map((keyword) => ({
+      keyword,
+      aliases: [keyword.text, ...keyword.synonyms, ...keyword.abbreviations].filter(
+        (value) => value.trim().length > 0
+      )
+    }));
 }
 
 function isLiveSttBiasMode(value: unknown): value is LiveSttBiasMode {
