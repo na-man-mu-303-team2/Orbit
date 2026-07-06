@@ -112,12 +112,19 @@ export class PresentationSessionsController {
     );
     const user = await this.getCurrentUser(request);
     await this.projectsService.assertCanWriteProject(projectId, user.userId);
-    return this.presentationSessionsService.updateAudienceFeatureSettings({
-      projectId,
+    const response =
+      await this.presentationSessionsService.updateAudienceFeatureSettings({
+        projectId,
+        sessionId,
+        actorId: user.userId,
+        settings: input,
+      });
+    this.audienceRealtimeGateway.broadcastFeatureSettings({
       sessionId,
-      actorId: user.userId,
-      settings: input,
+      userId: user.userId,
+      features: response.features,
     });
+    return response;
   }
 
   @Post(":sessionId/start")

@@ -1,7 +1,6 @@
 import {
   audienceReactionPayloadSchema,
   type AudienceReactionPayload,
-  type UpdateAudienceFeatureSettingsRequest,
   type WebsocketEvent,
 } from "@orbit/shared";
 import { io } from "socket.io-client";
@@ -24,9 +23,6 @@ export type AudiencePresenterRealtimeSocket = {
 
 export type AudiencePresenterRealtimePublisher = {
   disconnect: () => void;
-  publishFeatureSettings: (
-    settings: UpdateAudienceFeatureSettingsRequest,
-  ) => void;
   publishState: (args: {
     state: PresenterSlideshowState;
     triggerAnimationIds: string[];
@@ -82,12 +78,6 @@ export function createAudiencePresenterRealtimePublisher(args: {
       socket.off("audience:error", handleError);
       socket.off("audience:reaction", handleReaction);
       socket.disconnect();
-    },
-    publishFeatureSettings: (settings) => {
-      socket.emit("audience:feature-settings:update", {
-        sessionId: args.sessionId,
-        settings,
-      });
     },
     publishState: ({ state, triggerAnimationIds }) => {
       socket.emit("audience:slide-state:update", {

@@ -84,22 +84,14 @@ describe("audience presenter realtime publisher", () => {
     );
   });
 
-  it("publishes feature settings updates for live audience clients", () => {
+  it("does not expose a fire-and-forget feature settings publisher", () => {
     const socket = createFakeSocket();
     const publisher = createAudiencePresenterRealtimePublisher({
       sessionId: "session_1",
       socketFactory: () => socket,
     });
 
-    publisher.publishFeatureSettings({ pollsEnabled: true });
-
-    expect(socket.emit).toHaveBeenCalledWith(
-      "audience:feature-settings:update",
-      {
-        sessionId: "session_1",
-        settings: { pollsEnabled: true },
-      },
-    );
+    expect("publishFeatureSettings" in publisher).toBe(false);
   });
 
   it("receives reaction events from the presenter room", () => {

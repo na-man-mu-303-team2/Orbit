@@ -12,6 +12,7 @@ import {
   audienceSessionEndedPayloadSchema,
   audienceSlideStatePayloadSchema,
   updateAudienceFeatureSettingsRequestSchema,
+  type AudienceFeatureSettings,
   type AudienceRealtimeState,
   type AudienceQuestion,
   type AudienceQuestionAnswer,
@@ -209,12 +210,26 @@ export class AudienceRealtimeGateway {
         settings: input.settings,
       });
 
-    const payload = audienceFeatureSettingsPayloadSchema.parse(response);
+    return this.broadcastFeatureSettings({
+      features: response.features,
+      sessionId: input.sessionId,
+      userId: presenter.userId,
+    });
+  }
+
+  broadcastFeatureSettings(input: {
+    features: AudienceFeatureSettings;
+    sessionId: string;
+    userId: string;
+  }) {
+    const payload = audienceFeatureSettingsPayloadSchema.parse({
+      features: input.features,
+    });
     const event = createRealtimeEvent({
       type: "audience:feature-settings",
       roomId: audienceSessionRoomId(input.sessionId),
       sessionId: input.sessionId,
-      userId: presenter.userId,
+      userId: input.userId,
       payload,
     });
 

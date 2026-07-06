@@ -38,7 +38,6 @@ import {
 import type { AudiencePresenterRealtimePublisher } from "./audiencePresenterRealtime";
 import { createAudiencePresenterRealtimePublisher } from "./audiencePresenterRealtime";
 import {
-  applyAudienceFeaturePatch,
   AiReferenceSelectionControls,
   AudienceFeatureSettingsControls,
   type AudienceFeatureKey,
@@ -55,6 +54,24 @@ type AudiencePresenterPanelProps = {
   sessionId?: string;
   variant?: "overlay" | "page";
 };
+
+export async function saveAudienceFeatureToggle(input: {
+  enabled: boolean;
+  key: AudienceFeatureKey;
+  projectId: string;
+  saveFeatureSettings?: typeof updateAudienceFeatureSettings;
+  sessionId: string;
+}): Promise<AudienceFeatureSettings> {
+  const patch = normalizeAudienceFeaturePatch(input.key, input.enabled);
+  const saveFeatureSettings =
+    input.saveFeatureSettings ?? updateAudienceFeatureSettings;
+  const response = await saveFeatureSettings({
+    projectId: input.projectId,
+    sessionId: input.sessionId,
+    settings: patch,
+  });
+  return response.features;
+}
 
 export function AudiencePresenterPanel({
   projectId,
@@ -83,8 +100,6 @@ export function AudiencePresenterPanel({
     useState<string[]>([]);
   const [selectedReferenceIds, setSelectedReferenceIds] = useState<string[]>([]);
   const [pendingQuestionCount, setPendingQuestionCount] = useState(0);
-  const [fallbackPublisher, setFallbackPublisher] =
-    useState<AudiencePresenterRealtimePublisher | null>(null);
   const [recentReactions, setRecentReactions] = useState<ReactionType[]>([]);
   const [busyKey, setBusyKey] = useState<AudienceFeatureKey | null>(null);
   const [isEntryBusy, setIsEntryBusy] = useState(false);
@@ -198,7 +213,6 @@ export function AudiencePresenterPanel({
 
   useEffect(() => {
     if (publisher || !session) {
-      setFallbackPublisher(null);
       return;
     }
 
@@ -210,7 +224,6 @@ export function AudiencePresenterPanel({
       },
       sessionId: session.sessionId,
     });
-    setFallbackPublisher(nextPublisher);
 
     return () => {
       nextPublisher.disconnect();
@@ -246,27 +259,17 @@ export function AudiencePresenterPanel({
       return;
     }
 
-    const patch = normalizeAudienceFeaturePatch(key, enabled);
     setBusyKey(key);
     setErrorMessage("");
 
-    const effectivePublisher = publisher ?? fallbackPublisher;
-    if (effectivePublisher) {
-      setFeatures((current) =>
-        current ? applyAudienceFeaturePatch(current, patch) : current,
-      );
-      effectivePublisher.publishFeatureSettings(patch);
-      setBusyKey(null);
-      return;
-    }
-
     try {
-      const response = await updateAudienceFeatureSettings({
+      const nextFeatures = await saveAudienceFeatureToggle({
+        enabled,
+        key,
         projectId,
         sessionId: session.sessionId,
-        settings: patch,
       });
-      setFeatures(response.features);
+      setFeatures(nextFeatures);
     } catch (error) {
       setErrorMessage(toAudienceLinkErrorMessage(error));
     } finally {

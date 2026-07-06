@@ -71,6 +71,7 @@ function createController() {
     assertCanWriteProject: vi.fn(async () => ({ projectId: "project_1" })),
   };
   const audienceRealtimeGateway = {
+    broadcastFeatureSettings: vi.fn(),
     broadcastSessionEnded: vi.fn(),
     broadcastSlideState: vi.fn(),
   };
@@ -115,7 +116,8 @@ describe("PresentationSessionsController", () => {
   });
 
   it("updates feature settings after project write permission", async () => {
-    const { controller, projects, service } = createController();
+    const { audienceRealtimeGateway, controller, projects, service } =
+      createController();
 
     await expect(
       controller.updateFeatureSettings(
@@ -135,6 +137,13 @@ describe("PresentationSessionsController", () => {
       sessionId: "session_existing",
       actorId: "user_1",
       settings: { pollsEnabled: true },
+    });
+    expect(
+      audienceRealtimeGateway.broadcastFeatureSettings,
+    ).toHaveBeenCalledWith({
+      sessionId: "session_existing",
+      userId: "user_1",
+      features,
     });
   });
 
