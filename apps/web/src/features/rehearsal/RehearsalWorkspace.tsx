@@ -83,7 +83,9 @@ import { createLiveSttPort } from "./stt/liveSttEngineRegistry";
 import { normalizeLiveTranscriptText } from "./stt/liveTranscriptText";
 import { SherpaLiveSttPort } from "./stt/sherpaLiveSttPort";
 import {
+  getKeywordOccurrenceTriggerIdsForSlide,
   resolveCueTriggeredActions,
+  resolveKeywordOccurrenceTriggeredActions,
   resolveKeywordTriggeredActions,
   getTriggerAnimationIdsForSlide,
   resolveTriggeredActionPlaybackUpdate,
@@ -146,6 +148,7 @@ import {
   type PauseDetectorSnapshot,
 } from "./speech/pauseDetector";
 import { defaultSpeechTrackingConfig } from "./speech/speechTrackingConfig";
+import { matchKeywordOccurrenceTriggers } from "./speech/keywordOccurrenceRuntime";
 import type {
   SpeechTrackerSnapshot,
   SpeechTrackingEvent,
@@ -1461,6 +1464,10 @@ export function RehearsalWorkspace(props: {
     createLiveTranscriptBuffer(),
   );
   const liveKeywordStateRef = useRef<LiveTranscriptAnalysis | null>(null);
+  const liveKeywordOccurrenceStateRef = useRef<{
+    slideId: string;
+    confirmedOccurrenceIds: string[];
+  } | null>(null);
   const liveBiasContextRef = useRef<LiveSttBiasContext | null>(null);
   const liveCommandConfirmationRef = useRef(
     createRehearsalCommandConfirmationState(),
@@ -2453,6 +2460,46 @@ export function RehearsalWorkspace(props: {
       slide,
       triggerAnimationIds: slideTriggerAnimationIds,
     });
+    const occurrenceState =
+      liveKeywordOccurrenceStateRef.current?.slideId === slide.slideId
+        ? liveKeywordOccurrenceStateRef.current
+        : {
+            slideId: slide.slideId,
+            confirmedOccurrenceIds: [],
+          };
+    const occurrenceMatches = matchKeywordOccurrenceTriggers({
+      slide,
+      targetOccurrenceIds: getKeywordOccurrenceTriggerIdsForSlide(slide),
+      transcript: matchingTranscript,
+      latestTranscript: event.transcript,
+      confidence: event.confidence,
+      confirmedOccurrenceIds: occurrenceState.confirmedOccurrenceIds,
+    });
+
+    for (const occurrenceMatch of occurrenceMatches) {
+      setLiveCue({
+        type: "animation-cue",
+        slideId: slide.slideId,
+        keywordId: occurrenceMatch.keywordId,
+        cue: "emphasis",
+        text: occurrenceMatch.occurrenceId,
+      });
+
+      applyTriggeredSlideActions(
+        slide,
+        slideAnimationPlan,
+        resolveKeywordOccurrenceTriggeredActions(
+          slide,
+          occurrenceMatch.keywordId,
+          occurrenceMatch.occurrenceId,
+        ),
+        deckSnapshot.slides.length,
+      );
+      occurrenceState.confirmedOccurrenceIds.push(
+        occurrenceMatch.occurrenceId,
+      );
+    }
+    liveKeywordOccurrenceStateRef.current = occurrenceState;
 
     const previousDetectedIds = new Set(
       liveKeywordStateRef.current?.slideId === slide.slideId
@@ -2552,6 +2599,12 @@ export function RehearsalWorkspace(props: {
 
     liveTranscriptBufferRef.current = nextBuffer;
     liveKeywordStateRef.current = nextKeywordState;
+    liveKeywordOccurrenceStateRef.current = slide
+      ? {
+          slideId: slide.slideId,
+          confirmedOccurrenceIds: [],
+        }
+      : null;
     liveCommandConfirmationRef.current =
       createRehearsalCommandConfirmationState();
     setLiveTranscriptBuffer(nextBuffer);
