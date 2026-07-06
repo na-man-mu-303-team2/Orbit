@@ -620,6 +620,56 @@ def test_generate_deck_applies_document_style_pack_modes(
     assert response.validation.passed is True
 
 
+def test_generate_deck_document_style_packs_choose_distinct_layout_frames() -> None:
+    frames: dict[str, tuple[str, int, int, int]] = {}
+
+    for style_pack_id in (
+        "simple-basic",
+        "presentation-document",
+        "submission-document",
+    ):
+        fake_client = FakeOpenAIClient(
+            {
+                "title": "Document style",
+                "slides": [
+                    slide_payload(
+                        "Document slide",
+                        "The same content should use the selected template layout.",
+                        "Explain the selected document style in direct speaker lines.",
+                        slide_type="solution",
+                        slot_preset="insight_with_evidence",
+                        keywords=["Style", "Purpose"],
+                    )
+                ],
+            }
+        )
+
+        response = generate_deck(
+            GenerateDeckRequest(
+                projectId="project_demo_1",
+                topic="Document style",
+                design={"stylePackId": style_pack_id},
+                slideCountRange={"min": 1, "max": 1},
+            ),
+            client=fake_client,
+        )
+
+        slide = response.deck["slides"][0]
+        title = element_by_role(slide, "title")
+        body = element_by_role(slide, "body")
+        frames[style_pack_id] = (
+            slide["style"]["layout"],
+            title["y"],
+            body["y"],
+            body["height"],
+        )
+
+    assert len(set(frames.values())) == 3
+    assert frames["simple-basic"][0] == "title-content"
+    assert frames["presentation-document"][0] == "title"
+    assert frames["submission-document"][3] > frames["simple-basic"][3]
+
+
 def test_generate_deck_applies_keyed_theme_tokens_from_palette_hint() -> None:
     fake_client = FakeOpenAIClient(
         {

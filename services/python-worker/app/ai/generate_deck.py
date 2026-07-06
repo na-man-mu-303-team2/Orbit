@@ -861,6 +861,50 @@ DESIGN_PROFILE_SLOT_BONUS: dict[DesignProfile, set[SlotPreset]] = {
     "technical": {"criteria_table", "insight_with_evidence", "title_left_visual_right"},
     "training": {"insight_with_evidence", "before_after", "criteria_table"},
 }
+STYLE_PACK_SLOT_PRESET_PREFERENCES: dict[str, dict[str, tuple[SlotPreset, ...]]] = {
+    SIMPLE_BASIC_STYLE_PACK_ID: {
+        "title": ("title_center", "insight_with_evidence"),
+        "cover": ("title_center", "insight_with_evidence"),
+        "problem": ("insight_with_evidence", "before_after"),
+        "solution": ("insight_with_evidence", "before_after"),
+        "feature-grid": ("metric_cards", "insight_with_evidence"),
+        "process": ("insight_with_evidence", "before_after"),
+        "data": ("big_number_focus", "insight_with_evidence"),
+        "comparison": ("before_after", "criteria_table"),
+        "architecture": ("insight_with_evidence", "criteria_table"),
+        "quote": ("quote_with_source", "quote_center"),
+        "summary": ("insight_with_evidence", "title_center"),
+        "*": ("insight_with_evidence",),
+    },
+    PRESENTATION_DOCUMENT_STYLE_PACK_ID: {
+        "title": ("title_center", "quote_center"),
+        "cover": ("title_center", "quote_center"),
+        "problem": ("title_center", "insight_with_evidence"),
+        "solution": ("title_center", "insight_with_evidence"),
+        "feature-grid": ("big_number_focus", "title_center", "insight_with_evidence"),
+        "process": ("before_after", "title_center", "insight_with_evidence"),
+        "data": ("big_number_focus", "title_center"),
+        "comparison": ("before_after", "title_center"),
+        "architecture": ("title_center", "insight_with_evidence"),
+        "quote": ("quote_center", "quote_with_source"),
+        "summary": ("quote_center", "title_center"),
+        "*": ("title_center", "insight_with_evidence"),
+    },
+    SUBMISSION_DOCUMENT_STYLE_PACK_ID: {
+        "title": ("criteria_table", "insight_with_evidence"),
+        "cover": ("criteria_table", "insight_with_evidence"),
+        "problem": ("criteria_table", "metric_cards"),
+        "solution": ("criteria_table", "metric_cards"),
+        "feature-grid": ("metric_cards", "criteria_table"),
+        "process": ("criteria_table", "metric_cards"),
+        "data": ("metric_cards", "criteria_table"),
+        "comparison": ("criteria_table", "us_vs_them"),
+        "architecture": ("criteria_table", "metric_cards"),
+        "quote": ("quote_with_source", "criteria_table"),
+        "summary": ("criteria_table", "metric_cards"),
+        "*": ("criteria_table", "metric_cards", "insight_with_evidence"),
+    },
+}
 
 STYLE_PROFILE_REGISTRY: dict[str, dict[str, Any]] = {
     "game-ink-neon": {
@@ -2111,7 +2155,7 @@ def apply_design_options(
         )
         selected_preset = choose_layout_preset(
             slide_plan,
-            raw_input.design,
+            raw_input,
             previous_preset,
             preset_usage,
         )
@@ -2125,17 +2169,17 @@ def apply_design_options(
 
 def choose_layout_preset(
     slide_plan: SlidePlan,
-    design: DesignOptions,
+    raw_input: RawInput,
     previous_preset: SlotPreset | None,
     preset_usage: dict[SlotPreset, int],
 ) -> SlotPreset:
     fallback = preset_for_slide_type(slide_plan.slide_type)
-    if slide_plan.slide_type in ("chart", "feature-grid"):
+    if slide_plan.slide_type == "chart":
         return fallback
 
     candidates = layout_candidates_for(
         slide_plan,
-        design,
+        raw_input,
         previous_preset,
         preset_usage,
         fallback,
@@ -2151,11 +2195,12 @@ def choose_layout_preset(
 
 def layout_candidates_for(
     slide_plan: SlidePlan,
-    design: DesignOptions,
+    raw_input: RawInput,
     previous_preset: SlotPreset | None,
     preset_usage: dict[SlotPreset, int],
     fallback: SlotPreset,
 ) -> list[LayoutCandidate]:
+    design = raw_input.design
     variant = normalize_layout_variant(slide_plan.layout_variant, fallback)
     wants_media = media_intent_needs_slot(slide_plan.media_intent)
     composition = normalize_composition(slide_plan.visual_intent.composition)
@@ -2176,6 +2221,7 @@ def layout_candidates_for(
             for slot_preset, preset in PRESET_REGISTRY.items()
             if preset_has_media_slot(preset)
         )
+    candidate_presets.update(style_pack_slot_presets(raw_input, slide_plan))
 
     candidates: list[LayoutCandidate] = []
     for slot_preset in PRESET_REGISTRY:
@@ -2195,9 +2241,10 @@ def layout_candidates_for(
         if PRESET_DENSITY[slot_preset] == design.density_target:
             score += 2
         score += design_profile_slot_score(design.profile, slot_preset)
+        score += style_pack_slot_score(raw_input, slide_plan, slot_preset)
         score += composition_score(slot_preset, composition)
         if slot_preset == requested_slot_preset:
-            score += 10
+            score += 4 if uses_document_style_pack(raw_input) else 10
         score -= preset_usage.get(slot_preset, 0)
         if slide_plan.slide_type == "summary":
             score += 2 if preset.variant == "data" else 0
@@ -2210,6 +2257,48 @@ def layout_candidates_for(
         candidates.append(LayoutCandidate(slot_preset=slot_preset, score=score))
 
     return candidates
+
+
+def style_pack_slot_presets(
+    raw_input: RawInput,
+    slide_plan: SlidePlan,
+) -> set[SlotPreset]:
+    preferences = style_pack_slot_preferences(raw_input, slide_plan)
+    return set(preferences)
+
+
+def style_pack_slot_score(
+    raw_input: RawInput,
+    slide_plan: SlidePlan,
+    slot_preset: SlotPreset,
+) -> int:
+    preferences = style_pack_slot_preferences(raw_input, slide_plan)
+    if slot_preset not in preferences:
+        return 0
+    return max(2, 14 - preferences.index(slot_preset) * 6)
+
+
+def style_pack_slot_preferences(
+    raw_input: RawInput,
+    slide_plan: SlidePlan,
+) -> tuple[SlotPreset, ...]:
+    style_pack_id = effective_document_style_pack_id(raw_input)
+    if not style_pack_id:
+        return ()
+
+    preference_map = STYLE_PACK_SLOT_PRESET_PREFERENCES.get(style_pack_id)
+    if preference_map is None:
+        return ()
+
+    merged: list[SlotPreset] = []
+    for preset in (
+        *preference_map.get(slide_plan.slide_type, ()),
+        *preference_map.get("*", ()),
+    ):
+        if preset not in merged:
+            merged.append(preset)
+
+    return tuple(merged)
 
 
 def design_profile_slot_score(
@@ -2441,14 +2530,21 @@ def selected_style_pack_id(raw_input: RawInput) -> str:
     return (raw_input.design.style_pack_id or "").strip().casefold()
 
 
-def uses_document_style_pack(raw_input: RawInput) -> bool:
+def effective_document_style_pack_id(raw_input: RawInput) -> str:
     style_pack_id = selected_style_pack_id(raw_input)
-    return (
-        style_pack_id in DOCUMENT_STYLE_PACK_IDS
-        or wants_simple_basic_style(raw_input)
-        or wants_presentation_document_style(raw_input)
-        or wants_submission_document_style(raw_input)
-    )
+    if style_pack_id in DOCUMENT_STYLE_PACK_IDS:
+        return style_pack_id
+    if wants_presentation_document_style(raw_input):
+        return PRESENTATION_DOCUMENT_STYLE_PACK_ID
+    if wants_submission_document_style(raw_input):
+        return SUBMISSION_DOCUMENT_STYLE_PACK_ID
+    if wants_simple_basic_style(raw_input):
+        return SIMPLE_BASIC_STYLE_PACK_ID
+    return ""
+
+
+def uses_document_style_pack(raw_input: RawInput) -> bool:
+    return bool(effective_document_style_pack_id(raw_input))
 
 
 def document_mode_for(raw_input: RawInput) -> str:
