@@ -12,9 +12,9 @@ describe("triggeredActionPlayback", () => {
   it("keeps legacy keyword and keyword occurrence trigger resolution separate", () => {
     const slide = createSlide();
 
-    expect(resolveKeywordTriggeredActions(slide, "kw_ai").map((action) => action.actionId)).toEqual([
-      "act_legacy"
-    ]);
+    expect(
+      resolveKeywordTriggeredActions(slide, "kw_other").map((action) => action.actionId)
+    ).toEqual(["act_legacy_other"]);
     expect(
       resolveKeywordOccurrenceTriggeredActions(
         slide,
@@ -25,6 +25,12 @@ describe("triggeredActionPlayback", () => {
     expect(getKeywordOccurrenceTriggerIdsForSlide(slide)).toEqual([
       "kwo_slide_1_kw_ai_47_49"
     ]);
+  });
+
+  it("does not resolve broad legacy keyword actions for a keyword controlled by occurrences", () => {
+    const slide = createSlide();
+
+    expect(resolveKeywordTriggeredActions(slide, "kw_ai")).toEqual([]);
   });
 });
 
@@ -44,6 +50,13 @@ function createSlide(): Slide {
         synonyms: [],
         abbreviations: [],
         required: true
+      },
+      {
+        keywordId: "kw_other",
+        text: "ORBIT",
+        synonyms: [],
+        abbreviations: [],
+        required: false
       }
     ],
     elements: [],
@@ -69,10 +82,21 @@ function createSlide(): Slide {
     ],
     actions: [
       {
-        actionId: "act_legacy",
+        actionId: "act_legacy_ai",
         trigger: {
           kind: "keyword",
           keywordId: "kw_ai"
+        },
+        effect: {
+          kind: "play-animation",
+          animationId: "anim_legacy"
+        }
+      },
+      {
+        actionId: "act_legacy_other",
+        trigger: {
+          kind: "keyword",
+          keywordId: "kw_other"
         },
         effect: {
           kind: "play-animation",
