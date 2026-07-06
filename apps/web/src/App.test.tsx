@@ -161,13 +161,29 @@ describe("home template styles", () => {
     const html = renderToStaticMarkup(
       <TemplateStyleOptionsPanel
         templateStyle={homeTemplateStyles[0]}
+        topic=""
+        prompt=""
+        tone="professional"
+        durationInput="10"
+        minSlidesInput="5"
+        maxSlidesInput="8"
         designPrompt=""
         densityTarget="style-default"
         layoutDiversity="style-default"
         mediaPolicy="style-default"
         uploads={[]}
         totalUploadSize={0}
+        rejected={[]}
+        job={null}
+        status=""
+        error=""
         onClearStyle={() => undefined}
+        onTopicChange={() => undefined}
+        onPromptChange={() => undefined}
+        onToneChange={() => undefined}
+        onDurationInputChange={() => undefined}
+        onMinSlidesInputChange={() => undefined}
+        onMaxSlidesInputChange={() => undefined}
         onDesignPromptChange={() => undefined}
         onDensityTargetChange={() => undefined}
         onFileChange={() => undefined}
@@ -175,9 +191,12 @@ describe("home template styles", () => {
         onMediaPolicyChange={() => undefined}
         onRemoveUpload={() => undefined}
         onUpdateUploadRole={() => undefined}
+        onGenerate={() => undefined}
       />
     );
 
+    expect(html).toContain("발표 주제");
+    expect(html).toContain("PPT 생성하기");
     expect(html).toContain('name="templateDesignPrompt"');
     expect(html).toContain('name="templateDensityTarget"');
     expect(html).toContain('name="templateLayoutDiversity"');
@@ -193,13 +212,29 @@ describe("home template styles", () => {
     const html = renderToStaticMarkup(
       <TemplateStyleOptionsPanel
         templateStyle={homeTemplateStyles[0]}
+        topic=""
+        prompt=""
+        tone="professional"
+        durationInput="10"
+        minSlidesInput="5"
+        maxSlidesInput="8"
         designPrompt=""
         densityTarget="style-default"
         layoutDiversity="style-default"
         mediaPolicy="style-default"
         uploads={[{ id: "pptx", file: pptx, role: "content" }]}
         totalUploadSize={pptx.size}
+        rejected={[]}
+        job={null}
+        status=""
+        error=""
         onClearStyle={() => undefined}
+        onTopicChange={() => undefined}
+        onPromptChange={() => undefined}
+        onToneChange={() => undefined}
+        onDurationInputChange={() => undefined}
+        onMinSlidesInputChange={() => undefined}
+        onMaxSlidesInputChange={() => undefined}
         onDesignPromptChange={() => undefined}
         onDensityTargetChange={() => undefined}
         onFileChange={() => undefined}
@@ -207,6 +242,7 @@ describe("home template styles", () => {
         onMediaPolicyChange={() => undefined}
         onRemoveUpload={() => undefined}
         onUpdateUploadRole={() => undefined}
+        onGenerate={() => undefined}
       />
     );
 

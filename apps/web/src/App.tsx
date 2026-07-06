@@ -1093,11 +1093,16 @@ function HomePage(props: { user?: AuthUser; templateStyleId?: HomeTemplateStyleI
     setSelectedTemplateStyleId(props.templateStyleId);
     if (props.templateStyleId) {
       setUploads((current) => normalizeTemplateReferenceUploads(current));
+      clearHomeGenerationFeedback();
     }
   }, [props.templateStyleId]);
 
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+  function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    void runHomeDeckGeneration();
+  }
+
+  async function runHomeDeckGeneration() {
     if (isImporting) return;
 
     if (validationMessage) {
@@ -1354,12 +1359,21 @@ function HomePage(props: { user?: AuthUser; templateStyleId?: HomeTemplateStyleI
     }
     setSelectedTemplateStyleId(styleId);
     setUploads((current) => normalizeTemplateReferenceUploads(current));
+    clearHomeGenerationFeedback();
     navigateTo(getHomeTemplateStylePath(styleId));
   }
 
   function clearTemplateStyle() {
     setSelectedTemplateStyleId(undefined);
+    clearHomeGenerationFeedback();
     navigateTo("/");
+  }
+
+  function clearHomeGenerationFeedback() {
+    setRejected([]);
+    setError("");
+    setStatus("");
+    setJob(null);
   }
 
   const selectedTemplateStyle = selectedTemplateStyleId
@@ -1372,12 +1386,13 @@ function HomePage(props: { user?: AuthUser; templateStyleId?: HomeTemplateStyleI
         <h1>{props.user?.displayName ?? "Orbit"} 작업 공간</h1>
       </header>
 
-      <section className="home-chat-panel" aria-label="AI 대화">
-        <div className="chat-orb">
-          <MessageSquareText size={30} />
-        </div>
-        <h2>무엇을 발표 자료로 만들까요?</h2>
-        <form className="home-ai-form" onSubmit={(event) => void handleSubmit(event)}>
+      {!selectedTemplateStyle ? (
+        <section className="home-chat-panel" aria-label="AI 대화">
+          <div className="chat-orb">
+            <MessageSquareText size={30} />
+          </div>
+          <h2>무엇을 발표 자료로 만들까요?</h2>
+          <form className="home-ai-form" onSubmit={handleSubmit}>
           <div className="chat-input-shell home-topic-row">
             <label className="chat-attach-button" aria-label="첨부파일 추가">
               <Paperclip size={18} />
@@ -1394,7 +1409,7 @@ function HomePage(props: { user?: AuthUser; templateStyleId?: HomeTemplateStyleI
               onChange={(event) => setTopic(event.target.value)}
               placeholder="발표 주제"
             />
-            <button type="submit" disabled={!!validationMessage || isImporting}>
+            <button type="submit" disabled={isImporting}>
               {isImporting ? "처리 중" : "전송"}
             </button>
           </div>
@@ -1483,30 +1498,14 @@ function HomePage(props: { user?: AuthUser; templateStyleId?: HomeTemplateStyleI
             </button>
           </div>
         </form>
-        {rejected.length > 0 ? (
-          <div className="rejection-list" role="alert">
-            {rejected.map((file) => (
-              <p key={file.name}>
-                <strong>{file.name}</strong> {file.reason}
-              </p>
-            ))}
-          </div>
-        ) : null}
-        {validationMessage && uploads.length > 0 ? (
-          <p className="chat-file-error">{validationMessage}</p>
-        ) : null}
-        {job ? (
-          <div className="job-status home-job-status" aria-live="polite">
-            <div>
-              <strong>{job.status}</strong>
-              <span>{job.progress}%</span>
-            </div>
-            {job.message ? <p>{job.message}</p> : null}
-          </div>
-        ) : null}
-        {status ? <p className="chat-file-status">{status}</p> : null}
-        {error ? <p className="chat-file-error">{error}</p> : null}
-      </section>
+          <HomeGenerationFeedback
+            rejected={rejected}
+            job={job}
+            status={status}
+            error={error}
+          />
+        </section>
+      ) : null}
 
       <TemplateRail
         title="템플릿 스타일"
@@ -1516,14 +1515,30 @@ function HomePage(props: { user?: AuthUser; templateStyleId?: HomeTemplateStyleI
       {selectedTemplateStyle ? (
         <TemplateStyleOptionsPanel
           templateStyle={selectedTemplateStyle}
+          topic={topic}
+          prompt={prompt}
+          tone={tone}
+          durationInput={durationInput}
+          minSlidesInput={minSlidesInput}
+          maxSlidesInput={maxSlidesInput}
           designPrompt={designPrompt}
           densityTarget={templateDensityTarget}
           layoutDiversity={templateLayoutDiversity}
           mediaPolicy={templateMediaPolicy}
           uploads={uploads}
           totalUploadSize={totalSize}
+          rejected={rejected}
+          job={job}
+          status={status}
+          error={error}
           isDisabled={isImporting}
           onClearStyle={clearTemplateStyle}
+          onTopicChange={setTopic}
+          onPromptChange={setPrompt}
+          onToneChange={setTone}
+          onDurationInputChange={setDurationInput}
+          onMinSlidesInputChange={setMinSlidesInput}
+          onMaxSlidesInputChange={setMaxSlidesInput}
           onDesignPromptChange={setDesignPrompt}
           onDensityTargetChange={setTemplateDensityTarget}
           onFileChange={handleFileChange}
@@ -1531,6 +1546,7 @@ function HomePage(props: { user?: AuthUser; templateStyleId?: HomeTemplateStyleI
           onMediaPolicyChange={setTemplateMediaPolicy}
           onRemoveUpload={removeUpload}
           onUpdateUploadRole={updateUploadRole}
+          onGenerate={() => void runHomeDeckGeneration()}
         />
       ) : null}
     </section>
@@ -1667,14 +1683,30 @@ export function TemplateRail(props: {
 
 export function TemplateStyleOptionsPanel(props: {
   templateStyle: HomeTemplateStyle;
+  topic: string;
+  prompt: string;
+  tone: "professional" | "friendly" | "confident" | "concise";
+  durationInput: string;
+  minSlidesInput: string;
+  maxSlidesInput: string;
   designPrompt: string;
   densityTarget: TemplateDensityTargetOption;
   layoutDiversity: TemplateLayoutDiversityOption;
   mediaPolicy: TemplateMediaPolicyOption;
   uploads: UploadFile[];
   totalUploadSize: number;
+  rejected: RejectedFile[];
+  job: Job | null;
+  status: string;
+  error: string;
   isDisabled?: boolean;
   onClearStyle?: () => void;
+  onTopicChange: (value: string) => void;
+  onPromptChange: (value: string) => void;
+  onToneChange: (value: "professional" | "friendly" | "confident" | "concise") => void;
+  onDurationInputChange: (value: string) => void;
+  onMinSlidesInputChange: (value: string) => void;
+  onMaxSlidesInputChange: (value: string) => void;
   onDesignPromptChange: (value: string) => void;
   onDensityTargetChange: (value: TemplateDensityTargetOption) => void;
   onFileChange: (event: ChangeEvent<HTMLInputElement>) => void;
@@ -1682,6 +1714,7 @@ export function TemplateStyleOptionsPanel(props: {
   onMediaPolicyChange: (value: TemplateMediaPolicyOption) => void;
   onRemoveUpload: (id: string) => void;
   onUpdateUploadRole: (id: string, role: UploadRole) => void;
+  onGenerate: () => void;
 }) {
   return (
     <section className="template-style-panel" aria-label="템플릿 스타일 설정">
@@ -1694,6 +1727,74 @@ export function TemplateStyleOptionsPanel(props: {
           선택 해제
         </button>
       </header>
+      <div className="template-style-generation-grid">
+        <label className="template-style-topic-field">
+          <span>발표 주제</span>
+          <input
+            value={props.topic}
+            onChange={(event) => props.onTopicChange(event.target.value)}
+            placeholder="발표 주제"
+            disabled={props.isDisabled}
+          />
+        </label>
+        <label className="template-style-prompt-field">
+          <span>내용 프롬프트</span>
+          <textarea
+            value={props.prompt}
+            onChange={(event) => props.onPromptChange(event.target.value)}
+            placeholder="핵심 메시지, 포함할 내용, 제외할 내용"
+            disabled={props.isDisabled}
+          />
+        </label>
+        <label>
+          <span>발표 톤</span>
+          <select
+            value={props.tone}
+            onChange={(event) =>
+              props.onToneChange(event.target.value as typeof props.tone)
+            }
+            disabled={props.isDisabled}
+          >
+            <option value="professional">Professional</option>
+            <option value="friendly">Friendly</option>
+            <option value="confident">Confident</option>
+            <option value="concise">Concise</option>
+          </select>
+        </label>
+        <label>
+          <span>발표 시간</span>
+          <input
+            type="number"
+            min={1}
+            max={120}
+            value={props.durationInput}
+            onChange={(event) => props.onDurationInputChange(event.target.value)}
+            disabled={props.isDisabled}
+          />
+        </label>
+        <label>
+          <span>최소 슬라이드</span>
+          <input
+            type="number"
+            min={1}
+            max={20}
+            value={props.minSlidesInput}
+            onChange={(event) => props.onMinSlidesInputChange(event.target.value)}
+            disabled={props.isDisabled}
+          />
+        </label>
+        <label>
+          <span>최대 슬라이드</span>
+          <input
+            type="number"
+            min={1}
+            max={20}
+            value={props.maxSlidesInput}
+            onChange={(event) => props.onMaxSlidesInputChange(event.target.value)}
+            disabled={props.isDisabled}
+          />
+        </label>
+      </div>
       <div className="template-style-options-grid">
         <label className="template-style-prompt-field">
           <span>템플릿 프롬프트</span>
@@ -1778,7 +1879,56 @@ export function TemplateStyleOptionsPanel(props: {
           />
         ) : null}
       </div>
+      <div className="template-style-actions">
+        <button
+          className="template-style-generate-button"
+          type="button"
+          onClick={props.onGenerate}
+          disabled={props.isDisabled}
+        >
+          <Sparkles size={16} />
+          {props.isDisabled ? "생성 중" : "PPT 생성하기"}
+        </button>
+      </div>
+      <HomeGenerationFeedback
+        rejected={props.rejected}
+        job={props.job}
+        status={props.status}
+        error={props.error}
+      />
     </section>
+  );
+}
+
+function HomeGenerationFeedback(props: {
+  rejected: RejectedFile[];
+  job: Job | null;
+  status: string;
+  error: string;
+}) {
+  return (
+    <>
+      {props.rejected.length > 0 ? (
+        <div className="rejection-list" role="alert">
+          {props.rejected.map((file) => (
+            <p key={file.name}>
+              <strong>{file.name}</strong> {file.reason}
+            </p>
+          ))}
+        </div>
+      ) : null}
+      {props.job ? (
+        <div className="job-status home-job-status" aria-live="polite">
+          <div>
+            <strong>{props.job.status}</strong>
+            <span>{props.job.progress}%</span>
+          </div>
+          {props.job.message ? <p>{props.job.message}</p> : null}
+        </div>
+      ) : null}
+      {props.status ? <p className="chat-file-status">{props.status}</p> : null}
+      {props.error ? <p className="chat-file-error">{props.error}</p> : null}
+    </>
   );
 }
 
