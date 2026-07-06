@@ -5,7 +5,9 @@ function isSameDeckIdentity(left: Deck, right: Deck) {
 }
 
 function isSameDeckContent(left: Deck, right: Deck) {
-  return JSON.stringify(left) === JSON.stringify(right);
+  const { version: _leftVersion, ...leftContent } = left;
+  const { version: _rightVersion, ...rightContent } = right;
+  return JSON.stringify(leftContent) === JSON.stringify(rightContent);
 }
 
 export function shouldApplyManualSaveResult(args: {
@@ -15,7 +17,6 @@ export function shouldApplyManualSaveResult(args: {
   const { snapshotDeck, currentDeck } = args;
 
   return (
-    currentDeck.version === snapshotDeck.version &&
     isSameDeckIdentity(currentDeck, snapshotDeck) &&
     isSameDeckContent(currentDeck, snapshotDeck)
   );
@@ -160,7 +161,7 @@ export function shouldHydrateDeckFromQuery(args: {
   }
 
   if (hasLocalOptimisticChanges) {
-    return nextDeck.version > currentDeck.version;
+    return false;
   }
 
   return nextDeck.version >= currentDeck.version;

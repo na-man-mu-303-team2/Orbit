@@ -714,7 +714,7 @@ describe("editor shell", () => {
           version: deck.version + 1
         }
       }),
-    ).toBe(false);
+    ).toBe(true);
 
     expect(
       shouldApplyManualSaveResult({
@@ -1173,6 +1173,27 @@ describe("editor shell", () => {
     const persistedDeck = {
       ...currentDeck,
       version: 2
+    } as Deck;
+
+    expect(
+      shouldHydrateDeckFromQuery({
+        currentDeck,
+        nextDeck: persistedDeck,
+        hasHydratedPersistedDeck: true,
+        hasLocalOptimisticChanges: true
+      })
+    ).toBe(false);
+  });
+
+  it("does not hydrate newer query data over local optimistic edits", () => {
+    const currentDeck = {
+      ...createDemoDeck(),
+      version: 2
+    } as Deck;
+    const persistedDeck = {
+      ...currentDeck,
+      title: "stale save response",
+      version: 3
     } as Deck;
 
     expect(
