@@ -1002,6 +1002,8 @@ function HomePage(props: { user?: AuthUser; templateStyleId?: HomeTemplateStyleI
     if (props.templateStyleId) {
       setUploads((current) => normalizeTemplateReferenceUploads(current));
       clearHomeGenerationFeedback();
+    } else {
+      setDesignPrompt("");
     }
   }, [props.templateStyleId]);
 
@@ -1294,6 +1296,7 @@ function HomePage(props: { user?: AuthUser; templateStyleId?: HomeTemplateStyleI
 
   function clearTemplateStyle() {
     setSelectedTemplateStyleId(undefined);
+    setDesignPrompt("");
     clearHomeGenerationFeedback();
     navigateTo("/");
   }
@@ -2830,7 +2833,7 @@ export function buildHomeJsonFirstGenerateDeckPayload(input: {
   return buildGenerateDeckPayload({
     topic: input.topic.trim(),
     prompt: input.prompt.trim(),
-    designPrompt: input.designPrompt.trim(),
+    designPrompt: input.templateStyleId ? input.designPrompt.trim() : "",
     duration: clampInteger(input.duration, 1, 120),
     minSlides: clampInteger(input.minSlides, 1, 20),
     maxSlides: clampInteger(input.maxSlides, 1, 20),

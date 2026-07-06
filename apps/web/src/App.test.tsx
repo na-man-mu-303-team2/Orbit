@@ -687,11 +687,11 @@ describe("AI deck generation flow", () => {
     });
   });
 
-  it("builds a JSON-first home payload without a design PPTX", () => {
+  it("drops template-only design prompts from JSON-first home payloads without selected styles", () => {
     const payload = buildHomeJsonFirstGenerateDeckPayload({
       topic: " ORBIT ",
       prompt: " 핵심 메시지 ",
-      designPrompt: " 심플 베이직 발표용 ",
+      designPrompt: " hidden template color ",
       duration: 10,
       minSlides: 5,
       maxSlides: 8,
@@ -701,7 +701,7 @@ describe("AI deck generation flow", () => {
     expect(payload).toMatchObject({
       topic: "ORBIT",
       prompt: "핵심 메시지",
-      designPrompt: "심플 베이직 발표용",
+      designPrompt: "",
       design: {
         visualRhythm: "auto",
         densityTarget: "medium",
@@ -720,7 +720,7 @@ describe("AI deck generation flow", () => {
     const presentationPayload = buildHomeJsonFirstGenerateDeckPayload({
       topic: "ORBIT",
       prompt: "",
-      designPrompt: "",
+      designPrompt: " presentation template tone ",
       templateStyleId: "presentation-document",
       duration: 10,
       minSlides: 5,
@@ -742,6 +742,7 @@ describe("AI deck generation flow", () => {
       stylePackId: "presentation-document",
       densityTarget: "low"
     });
+    expect(presentationPayload.designPrompt).toBe("presentation template tone");
     expect(submissionPayload.design).toMatchObject({
       stylePackId: "submission-document",
       densityTarget: "high",
