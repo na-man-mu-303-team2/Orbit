@@ -29,6 +29,13 @@ export type {
   DerivedKeywordOccurrenceUsage,
   DerivedKeywordUsage
 } from "./patches/actionOperations";
+export {
+  suggestLegacyKeywordTriggerRepairs
+} from "./patches/legacyKeywordTriggerRepair";
+export type {
+  LegacyKeywordTriggerRepairConfidence,
+  LegacyKeywordTriggerRepairSuggestion
+} from "./patches/legacyKeywordTriggerRepair";
 export { deriveKeywordOccurrences } from "./keywords/keywordOccurrences";
 export type { KeywordOccurrence } from "./keywords/keywordOccurrences";
 export {

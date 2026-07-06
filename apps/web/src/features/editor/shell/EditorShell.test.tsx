@@ -2,6 +2,7 @@ import { applyDeckPatch, createDemoDeck } from "@orbit/editor-core";
 import {
   createAddAnimationWithKeywordTriggerPatch,
   createDefaultAnimation,
+  createUpdateAnimationKeywordTriggerPatch,
   createUpsertAdvanceSlideKeywordActionPatch
 } from "../../../../../../packages/editor-core/src/index";
 import { demoIds } from "@orbit/shared";
@@ -1157,6 +1158,60 @@ describe("editor shell", () => {
       });
       expect(result.deck.slides[0].actions.at(-1)?.effect).toEqual({
         kind: "go-to-next-slide"
+      });
+    }
+  });
+
+  it("reconnects legacy animation triggers to a selected speaker note occurrence", () => {
+    const deck = createDemoDeck();
+    const slide = {
+      ...deck.slides[0],
+      speakerNotes: "ORBIT 흐름은 ORBIT 대본으로 설명합니다.",
+      animations: [
+        {
+          animationId: "anim_1",
+          elementId: "el_1",
+          order: 1,
+          type: "fade-in" as const,
+          durationMs: 300,
+          delayMs: 0,
+          easing: "ease-out" as const
+        }
+      ],
+      actions: [
+        {
+          actionId: "act_1",
+          trigger: {
+            kind: "keyword" as const,
+            keywordId: "kw_1"
+          },
+          effect: {
+            kind: "play-animation" as const,
+            animationId: "anim_1"
+          }
+        }
+      ]
+    };
+    const deckWithLegacyAction = {
+      ...deck,
+      slides: [slide, ...deck.slides.slice(1)]
+    };
+    const patch = createUpdateAnimationKeywordTriggerPatch(
+      deckWithLegacyAction,
+      slide.slideId,
+      "anim_1",
+      "kw_1",
+      "kwo_slide_1_kw_1_10_15"
+    );
+
+    const result = applyDeckPatch(deckWithLegacyAction, patch);
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.deck.slides[0].actions[0]?.trigger).toEqual({
+        kind: "keyword-occurrence",
+        keywordId: "kw_1",
+        occurrenceId: "kwo_slide_1_kw_1_10_15"
       });
     }
   });
