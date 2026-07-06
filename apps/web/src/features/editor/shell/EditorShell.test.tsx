@@ -23,6 +23,7 @@ import {
   getPatchThumbnailRefreshSlideIds,
   getEditorValidationItems,
   mergeDeckIntoQueryCache,
+  resolveHistoryNavigation,
   shouldApplyManualSaveResult,
   shouldRefreshImportedSlideThumbnails,
   shouldPromptSpeakerNotesDraftDiscard,
@@ -188,6 +189,35 @@ describe("editor shell", () => {
     ).toBe("redo");
     expect(clearTimer).not.toHaveBeenCalled();
     expect(labelRef.current).toBeNull();
+  });
+
+  it("resolves undo redo history navigation without state updater side effects", () => {
+    const previousDeck = { ...createDemoDeck(), title: "Previous deck" };
+    const currentDeck = {
+      ...createDemoDeck(),
+      title: "Current deck",
+      version: previousDeck.version + 1
+    };
+
+    const transition = resolveHistoryNavigation({
+      currentDeck,
+      currentSlideIndex: 1,
+      stack: [{ deck: previousDeck, slideIndex: 999 }]
+    });
+
+    expect(transition).toMatchObject({
+      currentEntry: { deck: currentDeck, slideIndex: 1 },
+      nextStack: [],
+      targetEntry: { deck: previousDeck },
+      targetSlideIndex: previousDeck.slides.length - 1
+    });
+    expect(
+      resolveHistoryNavigation({
+        currentDeck,
+        currentSlideIndex: 0,
+        stack: []
+      })
+    ).toBeNull();
   });
 
   it("prompts before discarding a dirty speaker notes draft", () => {

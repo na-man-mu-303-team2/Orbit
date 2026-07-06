@@ -323,10 +323,34 @@ type ElementClipboardState = {
   element: DeckElement;
   pasteCount: number;
 };
-type HistoryEntry = {
+export type HistoryEntry = {
   deck: Deck;
   slideIndex: number;
 };
+export function resolveHistoryNavigation(args: {
+  currentDeck: Deck;
+  currentSlideIndex: number;
+  stack: HistoryEntry[];
+}) {
+  const targetEntry = args.stack.at(-1);
+
+  if (!targetEntry) {
+    return null;
+  }
+
+  return {
+    currentEntry: {
+      deck: args.currentDeck,
+      slideIndex: args.currentSlideIndex
+    },
+    nextStack: args.stack.slice(0, -1),
+    targetEntry,
+    targetSlideIndex: Math.max(
+      0,
+      Math.min(targetEntry.slideIndex, targetEntry.deck.slides.length - 1)
+    )
+  };
+}
 type ImageUploadTarget =
   | {
       type: "insert";
@@ -2264,38 +2288,35 @@ export function EditorShell(props: { projectId?: string }) {
       return;
     }
 
-    setUndoStack((current) => {
-      const previous = current.at(-1);
-      if (!previous) {
-        return current;
-      }
-      const currentEntry = {
-        deck: workingDeckRef.current,
-        slideIndex: currentSlideIndex
-      };
-      const previousSlideIndex = Math.max(
-        0,
-        Math.min(previous.slideIndex, previous.deck.slides.length - 1)
-      );
-      resetSpeakerNotesEditState(
-        previous.deck.slides[previousSlideIndex]?.speakerNotes ?? ""
-      );
-      replaceWorkingDeck(previous.deck);
-      setRedoStack((redoCurrent) => [...redoCurrent, currentEntry]);
-      setDeck(previous.deck);
-      setCurrentSlideIndex(previousSlideIndex);
-      setSelectedElementIds([]);
-      setSelectedKeywordId(null);
-      setEditingElementId(null);
-      setCustomShapeEditElementId(null);
-      setElementContextMenu(null);
-      queryClient.setQueryData(["deck", projectId], (currentDeck?: Deck) =>
-        mergeDeckIntoQueryCache(currentDeck, previous.deck)
-      );
-      setLastPatchLabel(`undo · v${previous.deck.version}`);
-      scheduleUndoRedoPersist("undo");
-      return current.slice(0, -1);
+    const transition = resolveHistoryNavigation({
+      currentDeck: workingDeckRef.current,
+      currentSlideIndex,
+      stack: undoStack
     });
+
+    if (!transition) {
+      return;
+    }
+
+    const previous = transition.targetEntry;
+    resetSpeakerNotesEditState(
+      previous.deck.slides[transition.targetSlideIndex]?.speakerNotes ?? ""
+    );
+    replaceWorkingDeck(previous.deck);
+    setUndoStack(transition.nextStack);
+    setRedoStack((redoCurrent) => [...redoCurrent, transition.currentEntry]);
+    setDeck(previous.deck);
+    setCurrentSlideIndex(transition.targetSlideIndex);
+    setSelectedElementIds([]);
+    setSelectedKeywordId(null);
+    setEditingElementId(null);
+    setCustomShapeEditElementId(null);
+    setElementContextMenu(null);
+    queryClient.setQueryData(["deck", projectId], (currentDeck?: Deck) =>
+      mergeDeckIntoQueryCache(currentDeck, previous.deck)
+    );
+    setLastPatchLabel(`undo · v${previous.deck.version}`);
+    scheduleUndoRedoPersist("undo");
   }
 
   function handleRedo() {
@@ -2303,40 +2324,38 @@ export function EditorShell(props: { projectId?: string }) {
       return;
     }
 
-    setRedoStack((current) => {
-      const next = current.at(-1);
-      if (!next) {
-        return current;
-      }
-      const nextSlideIndex = Math.max(
-        0,
-        Math.min(next.slideIndex, next.deck.slides.length - 1)
-      );
-      resetSpeakerNotesEditState(
-        next.deck.slides[nextSlideIndex]?.speakerNotes ?? ""
-      );
-      setUndoStack((undoCurrent) => [
-        ...undoCurrent.slice(-49),
-        {
-          deck: workingDeckRef.current,
-          slideIndex: currentSlideIndex
-        }
-      ]);
-      replaceWorkingDeck(next.deck);
-      setDeck(next.deck);
-      setCurrentSlideIndex(nextSlideIndex);
-      setSelectedElementIds([]);
-      setSelectedKeywordId(null);
-      setEditingElementId(null);
-      setCustomShapeEditElementId(null);
-      setElementContextMenu(null);
-      queryClient.setQueryData(["deck", projectId], (currentDeck?: Deck) =>
-        mergeDeckIntoQueryCache(currentDeck, next.deck)
-      );
-      setLastPatchLabel(`redo · v${next.deck.version}`);
-      scheduleUndoRedoPersist("redo");
-      return current.slice(0, -1);
+    const transition = resolveHistoryNavigation({
+      currentDeck: workingDeckRef.current,
+      currentSlideIndex,
+      stack: redoStack
     });
+
+    if (!transition) {
+      return;
+    }
+
+    const next = transition.targetEntry;
+    resetSpeakerNotesEditState(
+      next.deck.slides[transition.targetSlideIndex]?.speakerNotes ?? ""
+    );
+    setRedoStack(transition.nextStack);
+    setUndoStack((undoCurrent) => [
+      ...undoCurrent.slice(-49),
+      transition.currentEntry
+    ]);
+    replaceWorkingDeck(next.deck);
+    setDeck(next.deck);
+    setCurrentSlideIndex(transition.targetSlideIndex);
+    setSelectedElementIds([]);
+    setSelectedKeywordId(null);
+    setEditingElementId(null);
+    setCustomShapeEditElementId(null);
+    setElementContextMenu(null);
+    queryClient.setQueryData(["deck", projectId], (currentDeck?: Deck) =>
+      mergeDeckIntoQueryCache(currentDeck, next.deck)
+    );
+    setLastPatchLabel(`redo · v${next.deck.version}`);
+    scheduleUndoRedoPersist("redo");
   }
 
   function handleElementPropsChange(
