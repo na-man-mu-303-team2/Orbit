@@ -165,11 +165,16 @@ describe("home template styles", () => {
         densityTarget="style-default"
         layoutDiversity="style-default"
         mediaPolicy="style-default"
+        uploads={[]}
+        totalUploadSize={0}
         onClearStyle={() => undefined}
         onDesignPromptChange={() => undefined}
         onDensityTargetChange={() => undefined}
+        onFileChange={() => undefined}
         onLayoutDiversityChange={() => undefined}
         onMediaPolicyChange={() => undefined}
+        onRemoveUpload={() => undefined}
+        onUpdateUploadRole={() => undefined}
       />
     );
 
@@ -177,6 +182,8 @@ describe("home template styles", () => {
     expect(html).toContain('name="templateDensityTarget"');
     expect(html).toContain('name="templateLayoutDiversity"');
     expect(html).toContain('name="templateMediaPolicy"');
+    expect(html).toContain("참고자료 첨부");
+    expect(html).toContain('type="file"');
   });
 });
 

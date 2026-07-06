@@ -1439,43 +1439,14 @@ function HomePage(props: { user?: AuthUser; templateStyleId?: HomeTemplateStyleI
             </label>
           </div>
 
-          {uploads.length > 0 ? (
-            <div className="home-upload-list">
-              <div className="upload-summary" aria-live="polite">
-                <span>{uploads.length}개 파일</span>
-                <span>{formatBytes(totalSize)}</span>
-              </div>
-              <ul className="file-list" aria-label="홈 AI 덱 첨부파일">
-                {uploads.map(({ id, file, role }) => (
-                  <li key={id}>
-                    <div>
-                      <span className="file-name">{file.name}</span>
-                      <span className="file-detail">
-                        {getExtension(file.name).toUpperCase()} · {formatBytes(file.size)}
-                      </span>
-                    </div>
-                    <select
-                      value={role}
-                      onChange={(event) => updateUploadRole(id, event.target.value as UploadRole)}
-                      disabled={isImporting}
-                      aria-label={`${file.name} 역할`}
-                    >
-                      <option value="content">내용 참고</option>
-                      {isPptxFile(file) ? <option value="design">디자인 참고</option> : null}
-                      {isPptxFile(file) ? <option value="both">둘 다</option> : null}
-                    </select>
-                    <button
-                      type="button"
-                      onClick={() => removeUpload(id)}
-                      aria-label={`${file.name} 제거`}
-                      disabled={isImporting}
-                    >
-                      ×
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            </div>
+          {uploads.length > 0 && !selectedTemplateStyle ? (
+            <HomeUploadList
+              uploads={uploads}
+              totalUploadSize={totalSize}
+              isDisabled={isImporting}
+              onRemoveUpload={removeUpload}
+              onUpdateUploadRole={updateUploadRole}
+            />
           ) : null}
 
           <div className="home-convert-row">
@@ -1527,12 +1498,17 @@ function HomePage(props: { user?: AuthUser; templateStyleId?: HomeTemplateStyleI
           densityTarget={templateDensityTarget}
           layoutDiversity={templateLayoutDiversity}
           mediaPolicy={templateMediaPolicy}
+          uploads={uploads}
+          totalUploadSize={totalSize}
           isDisabled={isImporting}
           onClearStyle={clearTemplateStyle}
           onDesignPromptChange={setDesignPrompt}
           onDensityTargetChange={setTemplateDensityTarget}
+          onFileChange={handleFileChange}
           onLayoutDiversityChange={setTemplateLayoutDiversity}
           onMediaPolicyChange={setTemplateMediaPolicy}
+          onRemoveUpload={removeUpload}
+          onUpdateUploadRole={updateUploadRole}
         />
       ) : null}
     </section>
@@ -1673,12 +1649,17 @@ export function TemplateStyleOptionsPanel(props: {
   densityTarget: TemplateDensityTargetOption;
   layoutDiversity: TemplateLayoutDiversityOption;
   mediaPolicy: TemplateMediaPolicyOption;
+  uploads: UploadFile[];
+  totalUploadSize: number;
   isDisabled?: boolean;
   onClearStyle?: () => void;
   onDesignPromptChange: (value: string) => void;
   onDensityTargetChange: (value: TemplateDensityTargetOption) => void;
+  onFileChange: (event: ChangeEvent<HTMLInputElement>) => void;
   onLayoutDiversityChange: (value: TemplateLayoutDiversityOption) => void;
   onMediaPolicyChange: (value: TemplateMediaPolicyOption) => void;
+  onRemoveUpload: (id: string) => void;
+  onUpdateUploadRole: (id: string, role: UploadRole) => void;
 }) {
   return (
     <section className="template-style-panel" aria-label="템플릿 스타일 설정">
@@ -1752,7 +1733,76 @@ export function TemplateStyleOptionsPanel(props: {
           </select>
         </label>
       </div>
+      <div className="template-style-reference-area">
+        <label className="template-style-attach-button">
+          <Paperclip size={16} />
+          <span>참고자료 첨부</span>
+          <input
+            type="file"
+            accept={homeAssetAccept}
+            multiple
+            disabled={props.isDisabled}
+            onChange={props.onFileChange}
+          />
+        </label>
+        {props.uploads.length > 0 ? (
+          <HomeUploadList
+            uploads={props.uploads}
+            totalUploadSize={props.totalUploadSize}
+            isDisabled={props.isDisabled}
+            onRemoveUpload={props.onRemoveUpload}
+            onUpdateUploadRole={props.onUpdateUploadRole}
+          />
+        ) : null}
+      </div>
     </section>
+  );
+}
+
+function HomeUploadList(props: {
+  uploads: UploadFile[];
+  totalUploadSize: number;
+  isDisabled?: boolean;
+  onRemoveUpload: (id: string) => void;
+  onUpdateUploadRole: (id: string, role: UploadRole) => void;
+}) {
+  return (
+    <div className="home-upload-list">
+      <div className="upload-summary" aria-live="polite">
+        <span>{props.uploads.length}개 파일</span>
+        <span>{formatBytes(props.totalUploadSize)}</span>
+      </div>
+      <ul className="file-list" aria-label="홈 AI 덱 첨부파일">
+        {props.uploads.map(({ id, file, role }) => (
+          <li key={id}>
+            <div>
+              <span className="file-name">{file.name}</span>
+              <span className="file-detail">
+                {getExtension(file.name).toUpperCase()} · {formatBytes(file.size)}
+              </span>
+            </div>
+            <select
+              value={role}
+              onChange={(event) => props.onUpdateUploadRole(id, event.target.value as UploadRole)}
+              disabled={props.isDisabled}
+              aria-label={`${file.name} 역할`}
+            >
+              <option value="content">내용 참고</option>
+              {isPptxFile(file) ? <option value="design">디자인 참고</option> : null}
+              {isPptxFile(file) ? <option value="both">둘 다</option> : null}
+            </select>
+            <button
+              type="button"
+              onClick={() => props.onRemoveUpload(id)}
+              aria-label={`${file.name} 제거`}
+              disabled={props.isDisabled}
+            >
+              ×
+            </button>
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
 
