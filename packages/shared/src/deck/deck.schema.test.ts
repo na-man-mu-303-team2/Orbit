@@ -13,6 +13,7 @@ type DeckValidationInput = {
     language: string;
     locale: string;
     sourceType?: string;
+    thumbnailSource?: string;
     generatedBy?: string;
     audience?: string;
     purpose?: string;
@@ -822,6 +823,18 @@ describe("deckSchema validation", () => {
     expect(result.metadata.createdFrom?.designReferences).toEqual([]);
   });
 
+  it("accepts imported deck thumbnail source metadata", () => {
+    const deck = createValidDeck();
+
+    deck.metadata = {
+      ...deck.metadata,
+      sourceType: "import",
+      thumbnailSource: "import-render"
+    };
+
+    expectValidDeck(deck);
+  });
+
   it("rejects empty and duplicate slide keyword terms", () => {
     const deck = createValidDeck();
 
@@ -940,6 +953,22 @@ describe("deckSchema validation", () => {
 describe("deckPatchSchema validation", () => {
   it("accepts a valid deck patch", () => {
     expect(deckPatchSchema.safeParse(createValidPatch()).success).toBe(true);
+  });
+
+  it("accepts deck metadata update patches", () => {
+    const patch: unknown = {
+      ...createValidPatch(),
+      operations: [
+        {
+          metadata: {
+            thumbnailSource: "canvas"
+          },
+          type: "update_deck"
+        }
+      ]
+    };
+
+    expect(deckPatchSchema.safeParse(patch).success).toBe(true);
   });
 
   it("rejects empty patch operations", () => {

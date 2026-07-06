@@ -32,6 +32,7 @@ describe("processPptxOoxmlSyncJob", () => {
   });
 
   it("syncs unsynced deck patches into the current PPTX package", async () => {
+    const insertedAssets: Array<{ fileId: string; originalName: string }> = [];
     const updatedBlueprints: unknown[] = [];
     const query = vi.fn(async (sql: string, params: unknown[]) => {
       if (sql.includes("UPDATE jobs")) {
@@ -87,9 +88,35 @@ describe("processPptxOoxmlSyncJob", () => {
             operations: [
               {
                 type: "update_element_props",
-                slideId: "slide_import_file_1_1",
+                slideId: "slide_1",
                 elementId: "el_title",
                 props: { text: "Updated title" },
+              },
+              {
+                type: "add_element",
+                slideId: "slide_1",
+                element: {
+                  elementId: "el_added",
+                  type: "text",
+                  role: "body",
+                  x: 120,
+                  y: 180,
+                  width: 400,
+                  height: 80,
+                  rotation: 0,
+                  opacity: 1,
+                  zIndex: 2,
+                  locked: false,
+                  visible: true,
+                  props: {
+                    text: "Added",
+                    fontSize: 24,
+                    color: "#111827",
+                    align: "left",
+                    verticalAlign: "top",
+                    lineHeight: 1.2,
+                  },
+                },
               },
               { type: "update_deck", title: "Ignored by OOXML sync" },
             ],
@@ -97,6 +124,10 @@ describe("processPptxOoxmlSyncJob", () => {
         ];
       }
       if (sql.includes("INSERT INTO project_assets")) {
+        insertedAssets.push({
+          fileId: params[0] as string,
+          originalName: params[3] as string,
+        });
         return [];
       }
       if (sql.includes("UPDATE template_blueprints")) {
@@ -115,10 +146,15 @@ describe("processPptxOoxmlSyncJob", () => {
         expect(JSON.parse(String(form.get("operations")))).toEqual([
           {
             type: "update_element_props",
-            slideId: "slide_import_file_1_1",
+            slideId: "slide_3",
             elementId: "el_title",
             props: { text: "Updated title" },
           },
+          expect.objectContaining({
+            type: "add_element",
+            slideId: "slide_3",
+            element: expect.objectContaining({ elementId: "el_added" }),
+          }),
         ]);
         return new Response(JSON.stringify(workerResponse()));
       }
@@ -134,18 +170,21 @@ describe("processPptxOoxmlSyncJob", () => {
     );
 
     expect(job.status, JSON.stringify(job.error)).toBe("succeeded");
-    expect(storage.putObject).toHaveBeenCalledTimes(2);
+    expect(storage.putObject).toHaveBeenCalledTimes(3);
     expect(job.result).toMatchObject({
       deckId: "deck_a",
       templateId: "template_a",
       syncedDeckVersion: 2,
     });
+    const slide3RenderFileId = insertedAssets.find(
+      (asset) => asset.originalName === "slide-03.png",
+    )?.fileId;
     expect(updatedBlueprints[0]).toMatchObject({
       currentPackageFileId: expect.stringMatching(/^file_/),
       ooxmlSyncedDeckVersion: 2,
       slides: [
         {
-          renderAssetFileId: expect.stringMatching(/^file_/),
+          renderAssetFileId: slide3RenderFileId,
         },
       ],
     });
@@ -162,11 +201,11 @@ function templateBlueprint() {
     slides: [
       {
         slideIndex: 1,
-        sourceSlideIndex: 1,
+        sourceSlideIndex: 3,
         elementSources: [
           {
             elementId: "el_title",
-            slidePart: "ppt/slides/slide1.xml",
+            slidePart: "ppt/slides/slide3.xml",
             shapeId: "2",
             sourceType: "slide",
             writable: true,
@@ -192,6 +231,12 @@ function workerResponse() {
         fileName: "slide-01.png",
         mimeType: "image/png",
         contentBase64: Buffer.from("png").toString("base64"),
+      },
+      {
+        assetId: "slide_render_3",
+        fileName: "slide-03.png",
+        mimeType: "image/png",
+        contentBase64: Buffer.from("png-3").toString("base64"),
       },
     ],
     elementSources: [],

@@ -83,7 +83,7 @@ export function computeSettledElementStates(args: {
     triggerAnimationIds: args.triggerAnimationIds
   });
   const baseStates = createBaseElementStates(args.deck, args.slide);
-  const states = cloneElementStates(baseStates);
+  const states = createInitialElementStates(baseStates, args.slide);
 
   // 복원 경로에서는 진입 자동 재생을 이미 끝난 상태로 취급해 창 재열기 때 반복 재생을 막는다.
   for (const animation of plan.entryAnimations) {
@@ -117,6 +117,54 @@ export function createBaseElementStates(deck: Deck, slide: Slide) {
   for (const element of slide.elements) {
     const normalizedElement = normalizeRenderableElement(deck.canvas, element);
     states[normalizedElement.elementId] = createBaseElementState(normalizedElement);
+  }
+
+  return states;
+}
+
+function createInitialElementStates(
+  baseStates: Record<string, ElementPresentationState>,
+  slide: Slide
+) {
+  const states = cloneElementStates(baseStates);
+  const firstAnimationsByElementId = new Map<string, DeckAnimation>();
+
+  for (const [animationIndex, animation] of slide.animations.entries()) {
+    const existing = firstAnimationsByElementId.get(animation.elementId);
+    if (
+      !existing ||
+      compareAnimationExecutionOrder(
+        animation,
+        animationIndex,
+        existing,
+        slide.animations.indexOf(existing)
+      ) < 0
+    ) {
+      firstAnimationsByElementId.set(animation.elementId, animation);
+    }
+  }
+
+  for (const [elementId, animation] of firstAnimationsByElementId.entries()) {
+    const state = states[elementId];
+    if (!state) {
+      continue;
+    }
+
+    switch (animation.type) {
+      case "appear":
+      case "fade-in":
+        state.visible = false;
+        state.opacity = 0;
+        break;
+      case "zoom-in":
+        state.visible = false;
+        state.opacity = 0;
+        state.scaleX = 0;
+        state.scaleY = 0;
+        break;
+      default:
+        break;
+    }
   }
 
   return states;
@@ -177,6 +225,23 @@ function cloneElementStates(states: Record<string, ElementPresentationState>) {
   return Object.fromEntries(
     Object.entries(states).map(([elementId, state]) => [elementId, { ...state }])
   );
+}
+
+function compareAnimationExecutionOrder(
+  left: DeckAnimation,
+  leftIndex: number,
+  right: DeckAnimation,
+  rightIndex: number
+) {
+  if (left.order !== right.order) {
+    return left.order - right.order;
+  }
+
+  if (left.delayMs !== right.delayMs) {
+    return left.delayMs - right.delayMs;
+  }
+
+  return leftIndex - rightIndex;
 }
 
 function compareEntryAnimations(

@@ -1,7 +1,5 @@
 import {
   AlertTriangle,
-  CheckCircle2,
-  Circle,
   Clock3,
   Gauge,
   Timer
@@ -39,6 +37,8 @@ export type RehearsalPanelProps = {
   wordsPerMinute: number;
   adviceState: TimingAdviceState;
   keywords: readonly RehearsalPanelKeyword[];
+  liveSlot?: ReactNode;
+  showAdvicePanel?: boolean;
   sentences: readonly ExtractedSentence[];
   snapshot: SpeechTrackerSnapshot;
 };
@@ -62,7 +62,7 @@ export function RehearsalPanel(props: RehearsalPanelProps) {
       ),
     [props.sentences, props.snapshot.coveredSentenceIds]
   );
-  const showAdvice = props.mode === "rehearsal";
+  const showAdvice = props.mode === "rehearsal" && props.showAdvicePanel !== false;
 
   const scrollScriptToFocus = useCallback(
     (behavior: ScrollBehavior) => {
@@ -114,47 +114,70 @@ export function RehearsalPanel(props: RehearsalPanelProps) {
         />
       </div>
 
-      <section className="rehearsal-panel-section" aria-label="키워드 체크리스트">
-        <div className="rehearsal-panel-section-heading">
-          <span>키워드</span>
-          <strong>
-            {hitKeywordIds.size}/{props.keywords.length}
-          </strong>
-        </div>
-        {props.keywords.length > 0 ? (
-          <ul className="rehearsal-panel-keywords">
-            {props.keywords.map((keyword) => {
-              const hit = hitKeywordIds.has(keyword.keywordId);
-              const provisionalMissing = provisionalMissingKeywordIds.has(
-                keyword.keywordId
-              );
+      <div className="rehearsal-panel-top-grid">
+        <section className="rehearsal-panel-section" aria-label="키워드 체크리스트">
+          <div className="rehearsal-panel-section-heading">
+            <span>키워드</span>
+            <strong>
+              {hitKeywordIds.size}/{props.keywords.length}
+            </strong>
+          </div>
+          {props.keywords.length > 0 ? (
+            <ul className="rehearsal-panel-keywords">
+              {props.keywords.map((keyword) => {
+                const hit = hitKeywordIds.has(keyword.keywordId);
+                const provisionalMissing = provisionalMissingKeywordIds.has(
+                  keyword.keywordId
+                );
 
-              return (
-                <li
-                  className={[
-                    "rehearsal-panel-keyword",
-                    hit ? "rehearsal-panel-keyword-hit" : "",
-                    provisionalMissing ? "rehearsal-panel-keyword-missing" : ""
-                  ]
-                    .filter(Boolean)
-                    .join(" ")}
-                  key={keyword.keywordId}
-                >
-                  {hit ? (
-                    <CheckCircle2 aria-hidden="true" size={16} />
-                  ) : (
-                    <Circle aria-hidden="true" size={16} />
-                  )}
-                  <span>{keyword.text}</span>
-                  <em>{hit ? "체크됨" : provisionalMissing ? "미확인" : "대기"}</em>
-                </li>
-              );
-            })}
-          </ul>
-        ) : (
-          <p className="rehearsal-panel-empty">키워드 없음</p>
-        )}
-      </section>
+                return (
+                  <li
+                    className={[
+                      "rehearsal-panel-keyword",
+                      hit ? "rehearsal-panel-keyword-hit" : "",
+                      provisionalMissing ? "rehearsal-panel-keyword-missing" : ""
+                    ]
+                      .filter(Boolean)
+                      .join(" ")}
+                    key={keyword.keywordId}
+                  >
+                    <em>{hit ? "체크" : provisionalMissing ? "미확인" : "대기"}</em>
+                    <span>{keyword.text}</span>
+                  </li>
+                );
+              })}
+            </ul>
+          ) : (
+            <p className="rehearsal-panel-empty">키워드 없음</p>
+          )}
+        </section>
+        {props.liveSlot ? (
+          <div className="rehearsal-panel-live-slot">{props.liveSlot}</div>
+        ) : null}
+      </div>
+
+      {showAdvice ? (
+        <section className="rehearsal-panel-section" aria-label="실시간 조언">
+          <div className="rehearsal-panel-section-heading">
+            <span>조언</span>
+            <strong>{props.wordsPerMinute} WPM</strong>
+          </div>
+          <div className="rehearsal-panel-advice">
+            <AdviceBadge
+              icon={<Gauge aria-hidden="true" size={16} />}
+              label="말 속도"
+              value={getPaceLabel(props.adviceState.pace)}
+              active={props.adviceState.pace !== "normal"}
+            />
+            <AdviceBadge
+              icon={<AlertTriangle aria-hidden="true" size={16} />}
+              label="슬라이드 시간 초과"
+              value={props.adviceState.slideOvertime ? "초과" : "정상"}
+              active={props.adviceState.slideOvertime}
+            />
+          </div>
+        </section>
+      ) : null}
 
       <section className="rehearsal-panel-section rehearsal-panel-script" aria-label="발표 대본">
         <div className="rehearsal-panel-section-heading">
@@ -211,7 +234,6 @@ export function RehearsalPanel(props: RehearsalPanelProps) {
                     />
                   </span>
                   {covered ? <em>체크됨</em> : null}
-                  {!sentence.matchable ? <em>매칭 제외</em> : null}
                 </p>
               );
             })
@@ -220,29 +242,6 @@ export function RehearsalPanel(props: RehearsalPanelProps) {
           )}
         </div>
       </section>
-
-      {showAdvice ? (
-        <section className="rehearsal-panel-section" aria-label="실시간 조언">
-          <div className="rehearsal-panel-section-heading">
-            <span>조언</span>
-            <strong>{props.wordsPerMinute} WPM</strong>
-          </div>
-          <div className="rehearsal-panel-advice">
-            <AdviceBadge
-              icon={<Gauge aria-hidden="true" size={16} />}
-              label="말 속도"
-              value={getPaceLabel(props.adviceState.pace)}
-              active={props.adviceState.pace !== "normal"}
-            />
-            <AdviceBadge
-              icon={<AlertTriangle aria-hidden="true" size={16} />}
-              label="슬라이드 시간 초과"
-              value={props.adviceState.slideOvertime ? "초과" : "정상"}
-              active={props.adviceState.slideOvertime}
-            />
-          </div>
-        </section>
-      ) : null}
     </section>
   );
 }

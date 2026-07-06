@@ -1,4 +1,5 @@
 import type { StoragePort } from "@orbit/storage";
+import type { Deck } from "@orbit/shared";
 import type { DataSource } from "typeorm";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { processGenerateDeckJob } from "./generate-deck.processor";
@@ -35,6 +36,14 @@ describe("processGenerateDeckJob", () => {
     const deck = createDeck();
     const warnings = ["근거 데이터가 없어 빈 차트 자리 표시자를 생성했습니다."];
     const deckValidation = validation({
+      passed: false,
+      layoutIssues: [
+        {
+          scope: "slide",
+          path: "slides.0.elements",
+          message: "Text elements overlap."
+        }
+      ],
       designIssues: [
         {
           scope: "element",
@@ -89,7 +98,19 @@ describe("processGenerateDeckJob", () => {
     );
     expect(query).toHaveBeenCalledTimes(3);
     expect(query.mock.calls[1][0]).toContain("INSERT INTO decks");
+    const savedDeck = (query.mock.calls[1][1] as unknown[])[2] as Deck;
+    const jobResult = (query.mock.calls[2][1] as unknown[])[4] as {
+      deck: Deck;
+    };
+    expect(savedDeck.metadata.thumbnailSource).toBe("import-render");
+    expect(savedDeck.slides[0].thumbnailUrl).toBe(
+      "asset:generated_slide_render_slide_1"
+    );
+    expect(jobResult.deck.slides[0].thumbnailUrl).toBe(
+      "asset:generated_slide_render_slide_1"
+    );
     expect(job.result?.warnings).toEqual(warnings);
+    expect(job.result).toMatchObject({ validation: { passed: false } });
   });
 
   it("marks the DB job failed when Python generation fails", async () => {
@@ -476,6 +497,7 @@ function createDeck(overrides: Record<string, unknown> = {}) {
 
 function validation(
   overrides: Partial<{
+    passed: boolean;
     layoutIssues: Array<Record<string, unknown>>;
     contentIssues: Array<Record<string, unknown>>;
     designIssues: Array<Record<string, unknown>>;

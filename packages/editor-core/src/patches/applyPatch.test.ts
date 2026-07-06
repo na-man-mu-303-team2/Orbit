@@ -162,6 +162,28 @@ describe("applyDeckPatch", () => {
     expect(deck.title).toBe("ORBIT Demo Deck");
   });
 
+  it("applies update_deck metadata patch", () => {
+    const deck = createPatchTestDeck();
+    deck.metadata.sourceType = "import";
+    deck.metadata.thumbnailSource = "import-render";
+
+    const result = applyPatchOrFail(
+      deck,
+      createPatch([
+        {
+          metadata: {
+            thumbnailSource: "canvas",
+          },
+          type: "update_deck",
+        },
+      ]),
+    );
+
+    expect(result.deck.metadata.thumbnailSource).toBe("canvas");
+    expect(result.deck.metadata.sourceType).toBe("import");
+    expect(result.deck.title).toBe(deck.title);
+  });
+
   it("adds a slide and keeps slides sorted by order", () => {
     const result = applyPatchOrFail(
       createPatchTestDeck(),

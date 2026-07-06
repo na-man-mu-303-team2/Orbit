@@ -2,7 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import {
   generateDeckJobResultSchema,
-  generateDeckRequestSchema
+  generateDeckRequestSchema,
+  generateDeckResponseSchema
 } from "./generate-deck.schema";
 
 describe("generateDeckRequestSchema", () => {
@@ -28,6 +29,7 @@ describe("generateDeckRequestSchema", () => {
     expect(request.template).toBe("default");
     expect(request.designReferences).toEqual([]);
     expect(request.referenceKeywords).toEqual([]);
+    expect(request.referenceContext).toEqual([]);
   });
 
   it("accepts design references separately from content references", () => {
@@ -112,6 +114,28 @@ describe("generateDeckRequestSchema", () => {
     expect(request.referenceKeywords).toEqual([{ text: "실시간 발표 피드백" }]);
   });
 
+  it("accepts direct reference context for worker-side grounding", () => {
+    const request = generateDeckRequestSchema.parse({
+      topic: "AI deck generation",
+      references: [{ fileId: "file_design" }],
+      referenceContext: [
+        {
+          fileId: "file_design",
+          title: " template.pptx ",
+          content: " PPTX source text "
+        }
+      ]
+    });
+
+    expect(request.referenceContext).toEqual([
+      {
+        fileId: "file_design",
+        title: "template.pptx",
+        content: "PPTX source text"
+      }
+    ]);
+  });
+
   it("rejects an inverted slide count range", () => {
     expect(
       generateDeckRequestSchema.safeParse({
@@ -173,5 +197,60 @@ describe("generateDeckJobResultSchema", () => {
     });
 
     expect(result.success).toBe(true);
+  });
+});
+
+describe("generateDeckResponseSchema", () => {
+  it("accepts optional template selection mapping", () => {
+    const response = generateDeckResponseSchema.parse({
+      deck: {
+        deckId: "deck_ai_1",
+        projectId: "project_demo_1",
+        title: "AI generation",
+        version: 1,
+        metadata: {
+          language: "ko",
+          locale: "ko-KR",
+          sourceType: "ai",
+          generatedBy: "ai"
+        },
+        canvas: {
+          preset: "wide-16-9",
+          width: 1920,
+          height: 1080,
+          aspectRatio: "16:9"
+        },
+        slides: [
+          {
+            slideId: "slide_1",
+            order: 1,
+            title: "Opening",
+            thumbnailUrl: "",
+            style: {},
+            speakerNotes: "notes",
+            elements: [],
+            keywords: [],
+            animations: [],
+            actions: []
+          }
+        ]
+      },
+      templateSelection: [
+        {
+          generatedOrder: 1,
+          sourceSlideIndex: 3,
+          selectionReason: "cover layout matched"
+        }
+      ],
+      validation: {
+        passed: true,
+        layoutIssues: [],
+        contentIssues: [],
+        designIssues: [],
+        presentationIssues: []
+      }
+    });
+
+    expect(response.templateSelection?.[0]?.sourceSlideIndex).toBe(3);
   });
 });

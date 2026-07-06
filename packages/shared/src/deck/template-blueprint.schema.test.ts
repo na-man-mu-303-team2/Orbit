@@ -41,6 +41,10 @@ describe("templateBlueprintSchema", () => {
         {
           slideIndex: 1,
           sourceSlideIndex: 1,
+          slideRole: "cover",
+          layoutType: "title",
+          contentCapacity: "medium",
+          selectionReason: "cover title matched",
           slots: [
             {
               elementId: "el_title",
@@ -71,6 +75,7 @@ describe("templateBlueprintSchema", () => {
     });
 
     expect(blueprint.slides[0].slots[0].usage).toBe("content-slot");
+    expect(blueprint.slides[0].slideRole).toBe("cover");
   });
 
   it("accepts OOXML package tracking fields", () => {

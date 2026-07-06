@@ -179,21 +179,13 @@ export async function processGenerateDeckJob(
 
   try {
     const workerPayload = generateDeckResponseSchema.parse(await response.json());
-    if (!workerPayload.validation.passed) {
-      return failJob(
-        dataSource,
-        payload.jobId,
-        75,
-        "GENERATE_DECK_VALIDATION_FAILED",
-        "Generated deck did not pass validation.",
-        { validation: workerPayload.validation }
-      );
-    }
+    const deck = markDeckForInitialThumbnailRefresh(workerPayload.deck);
 
-    await saveDeck(dataSource, workerPayload.deck);
+    await saveDeck(dataSource, deck);
     const result = generateDeckJobResultSchema.parse({
-      deckId: workerPayload.deck.deckId,
-      ...workerPayload
+      deckId: deck.deckId,
+      ...workerPayload,
+      deck
     });
 
     return updateJob(dataSource, payload.jobId, {
@@ -214,6 +206,22 @@ export async function processGenerateDeckJob(
         : "Python worker returned invalid deck generation response."
     );
   }
+}
+
+function markDeckForInitialThumbnailRefresh(deck: Deck): Deck {
+  return {
+    ...deck,
+    metadata: {
+      ...deck.metadata,
+      thumbnailSource: "import-render"
+    },
+    slides: deck.slides.map((slide, index) => ({
+      ...slide,
+      thumbnailUrl: slide.thumbnailUrl.trim()
+        ? slide.thumbnailUrl
+        : `asset:generated_slide_render_${safeId(slide.slideId || String(index + 1))}`
+    }))
+  };
 }
 
 async function resolveDesignTemplate(

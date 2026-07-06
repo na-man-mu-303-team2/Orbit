@@ -65,6 +65,7 @@ services:
       JOB_QUEUE_DRIVER: bullmq
       LIVE_STT_PROVIDER: web-speech
       REPORT_STT_PROVIDER: openai
+      OPENAI_TRANSCRIPTION_MODEL: whisper-1
       OCR_PROVIDER: python
       TEXTRACT_ENABLED: "false"
       PYTHON_WORKER_URL: http://python-worker:8000
@@ -87,6 +88,7 @@ services:
       JOB_QUEUE_DRIVER: bullmq
       LIVE_STT_PROVIDER: web-speech
       REPORT_STT_PROVIDER: openai
+      OPENAI_TRANSCRIPTION_MODEL: whisper-1
       OCR_PROVIDER: python
       TEXTRACT_ENABLED: "false"
       PYTHON_WORKER_URL: http://python-worker:8000
@@ -108,6 +110,7 @@ services:
       JOB_QUEUE_DRIVER: bullmq
       LIVE_STT_PROVIDER: web-speech
       REPORT_STT_PROVIDER: openai
+      OPENAI_TRANSCRIPTION_MODEL: whisper-1
       OCR_PROVIDER: python
       TEXTRACT_ENABLED: "false"
       PYTHON_WORKER_URL: http://python-worker:8000
@@ -132,7 +135,8 @@ services:
     restart: unless-stopped
 
   postgres:
-    ports: !reset []
+    ports: !override
+      - "127.0.0.1:5432:5432"
     restart: unless-stopped
 
   redis:
