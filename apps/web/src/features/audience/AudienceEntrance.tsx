@@ -480,10 +480,17 @@ export function AudienceLiveShell(props: {
   const effectState = state?.effectState ?? {};
   const slideSnapshotUrl = readSlideSnapshotUrl(effectState);
   const slideFallback = readSlideFallback(effectState);
+  const [failedSlideSnapshotUrl, setFailedSlideSnapshotUrl] = useState("");
   const slideLabel =
     state?.slideIndex !== null && state?.slideIndex !== undefined
       ? `현재 슬라이드 ${state.slideIndex + 1}`
       : "현재 슬라이드 대기 중";
+  const shouldShowSnapshot =
+    slideSnapshotUrl.length > 0 && slideSnapshotUrl !== failedSlideSnapshotUrl;
+
+  useEffect(() => {
+    setFailedSlideSnapshotUrl("");
+  }, [slideSnapshotUrl]);
 
   return (
     <section
@@ -492,10 +499,11 @@ export function AudienceLiveShell(props: {
     >
       <div className="audience-slide-frame">
         <h2 id="audience-current-slide-title">{slideLabel}</h2>
-        {slideSnapshotUrl ? (
+        {shouldShowSnapshot ? (
           <img
             alt={slideLabel}
             className="audience-slide-snapshot"
+            onError={() => setFailedSlideSnapshotUrl(slideSnapshotUrl)}
             src={slideSnapshotUrl}
           />
         ) : slideFallback ? (

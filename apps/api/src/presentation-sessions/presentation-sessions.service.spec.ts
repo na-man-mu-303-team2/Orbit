@@ -628,7 +628,14 @@ describe("PresentationSessionsService", () => {
     ).resolves.toMatchObject({
       effectState: {
         highlightId: "shape_2",
-        slideSnapshotUrl: "https://cdn.example.test/audience-slide.svg",
+        slideFallback: expect.objectContaining({
+          deck: expect.objectContaining({
+            slides: [expect.objectContaining({ slideId: "slide_2" })],
+          }),
+        }),
+        slideSnapshotUrl: expect.stringMatching(
+          /^\/api\/v1\/presentation-sessions\/session_existing\/audience\/slide-snapshots\/slide_2\/[a-f0-9]{64}$/,
+        ),
       },
     });
 
@@ -651,7 +658,9 @@ describe("PresentationSessionsService", () => {
     );
     expect(eventCall?.[1]?.[5]).toMatchObject({
       effectState: {
-        slideSnapshotUrl: "https://cdn.example.test/audience-slide.svg",
+        slideSnapshotUrl: expect.stringMatching(
+          /^\/api\/v1\/presentation-sessions\/session_existing\/audience\/slide-snapshots\/slide_2\/[a-f0-9]{64}$/,
+        ),
       },
     });
   });
@@ -734,7 +743,9 @@ describe("PresentationSessionsService", () => {
       expect.arrayContaining([
         expect.objectContaining({
           effectState: expect.objectContaining({
-            slideSnapshotUrl: "https://cdn.example.test/start-slide.svg",
+            slideSnapshotUrl: expect.stringMatching(
+              /^\/api\/v1\/presentation-sessions\/session_existing\/audience\/slide-snapshots\/slide_2\/[a-f0-9]{64}$/,
+            ),
           }),
           slideId: "slide_2",
           slideIndex: 0,
@@ -906,7 +917,8 @@ describe("PresentationSessionsService", () => {
       effectState: {
         stepIndex: 2,
         slideSnapshotContentHash: "frozen-slide-3",
-        slideSnapshotUrl: "https://cdn.example.test/frozen-slide-3.svg",
+        slideSnapshotUrl:
+          "/api/v1/presentation-sessions/session_existing/audience/slide-snapshots/slide_3/frozen-slide-3",
       },
     });
 
