@@ -1076,6 +1076,7 @@ function HomePage(props: { user?: AuthUser; templateStyleId?: HomeTemplateStyleI
   const [error, setError] = useState("");
   const [job, setJob] = useState<Job | null>(null);
   const [isImporting, setIsImporting] = useState(false);
+  const [isCreatingBlankProject, setIsCreatingBlankProject] = useState(false);
   const totalSize = useMemo(
     () => uploads.reduce((sum, upload) => sum + upload.file.size, 0),
     [uploads]
@@ -1100,6 +1101,27 @@ function HomePage(props: { user?: AuthUser; templateStyleId?: HomeTemplateStyleI
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     void runHomeDeckGeneration();
+  }
+
+  async function handleCreateBlankProject() {
+    if (isImporting || isCreatingBlankProject) return;
+
+    setIsCreatingBlankProject(true);
+    clearHomeGenerationFeedback();
+
+    try {
+      const project = await createProject("새 프레젠테이션");
+      await queryClient.invalidateQueries({ queryKey: ["projects"] });
+      navigateTo(`/project/${project.projectId}`);
+    } catch (createError) {
+      setError(
+        createError instanceof Error
+          ? createError.message
+          : "빈 프레젠테이션을 만들지 못했습니다."
+      );
+    } finally {
+      setIsCreatingBlankProject(false);
+    }
   }
 
   async function runHomeDeckGeneration() {
@@ -1510,7 +1532,9 @@ function HomePage(props: { user?: AuthUser; templateStyleId?: HomeTemplateStyleI
       <TemplateRail
         title="템플릿 스타일"
         selectedStyleId={selectedTemplateStyleId}
+        onCreateProject={() => void handleCreateBlankProject()}
         onSelectStyle={selectTemplateStyle}
+        isCreating={isImporting || isCreatingBlankProject}
       />
       {selectedTemplateStyle ? (
         <TemplateStyleOptionsPanel
@@ -1657,7 +1681,7 @@ export function TemplateRail(props: {
           disabled={props.isCreating}
         >
           <Plus size={28} />
-          <span>새 프레젠테이션</span>
+          <span>빈 프로젝테이션 만들기</span>
         </button>
         {homeTemplateStyles.map((template) => (
           <button

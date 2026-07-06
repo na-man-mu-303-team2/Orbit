@@ -141,6 +141,7 @@ describe("home template styles", () => {
     );
 
     expect(homeTemplateStyles).toHaveLength(3);
+    expect(html).toContain("빈 프로젝테이션 만들기");
     expect(html).toContain("심플 베이직 스타일");
     expect(html).toContain("발표용 문서 스타일");
     expect(html).toContain("제출용 문서 스타일");
