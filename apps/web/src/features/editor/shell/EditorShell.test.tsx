@@ -725,6 +725,16 @@ describe("editor shell", () => {
         }
       }),
     ).toBe(false);
+
+    expect(
+      shouldApplyManualSaveResult({
+        snapshotDeck: deck,
+        currentDeck: {
+          ...deck,
+          title: "same version but different edit"
+        }
+      }),
+    ).toBe(false);
   });
 
   it("renders supported canvas object types without exposing grouped child labels", () => {

@@ -4,6 +4,10 @@ function isSameDeckIdentity(left: Deck, right: Deck) {
   return left.deckId === right.deckId && left.projectId === right.projectId;
 }
 
+function isSameDeckContent(left: Deck, right: Deck) {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
 export function shouldApplyManualSaveResult(args: {
   snapshotDeck: Deck;
   currentDeck: Deck;
@@ -12,7 +16,8 @@ export function shouldApplyManualSaveResult(args: {
 
   return (
     currentDeck.version === snapshotDeck.version &&
-    isSameDeckIdentity(currentDeck, snapshotDeck)
+    isSameDeckIdentity(currentDeck, snapshotDeck) &&
+    isSameDeckContent(currentDeck, snapshotDeck)
   );
 }
 

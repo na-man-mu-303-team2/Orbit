@@ -2239,7 +2239,7 @@ export function EditorShell(props: { projectId?: string }) {
       mergeDeckIntoQueryCache(current, result.deck)
     );
 
-    pendingPatchInputsRef.current.push(patchInput);
+    pendingPatchInputsRef.current.push(patch);
     saveQueueRef.current = saveQueueRef.current
       .catch(() => undefined)
       .then(async () => {
