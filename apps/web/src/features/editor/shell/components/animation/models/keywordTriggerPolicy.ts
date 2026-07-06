@@ -13,12 +13,22 @@ export type AnimationKeywordTriggerPolicy = {
 export function buildAnimationKeywordTriggerPolicy(args: {
   element: DeckElement | null;
   keywordId: string | null;
+  keywordOccurrenceId?: string | null;
   slideAnimations: DeckAnimation[];
   usageByKeywordId: Record<string, KeywordAnimationUsage | undefined>;
 }): AnimationKeywordTriggerPolicy {
   if (!args.keywordId || !args.element) {
     return {
       restrictionMessage: null,
+      stepCount: 0,
+      warningMessage: null
+    };
+  }
+
+  if (!args.keywordOccurrenceId) {
+    return {
+      restrictionMessage:
+        "반복되는 단어일 수 있습니다. 발표 메모에서 실제로 트리거할 단어 위치를 선택하세요.",
       stepCount: 0,
       warningMessage: null
     };

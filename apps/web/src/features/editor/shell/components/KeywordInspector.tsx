@@ -32,6 +32,7 @@ export function KeywordHighlightedNotes(props: {
   selectedKeywordOccurrenceKey?: string | null;
   selectedKeywordId: string | null;
   showIds: boolean;
+  slideId: string;
   onSelectKeyword: (keywordId: string, occurrenceKey?: string | null) => void;
   onSelectKeywordText: (value: string, start: number) => void;
 }) {
@@ -40,6 +41,7 @@ export function KeywordHighlightedNotes(props: {
     notes,
     selectedKeywordOccurrenceKey = null,
     showIds,
+    slideId,
     onSelectKeyword,
     onSelectKeywordText
   } = props;
@@ -59,7 +61,12 @@ export function KeywordHighlightedNotes(props: {
 
         const keyword = part.keyword;
         const occurrenceKey = keyword
-          ? createKeywordOccurrenceKey(keyword.keywordId, part.start, part.value)
+          ? createKeywordOccurrenceKey(
+              slideId,
+              keyword.keywordId,
+              part.start,
+              part.value
+            )
           : null;
         const isSelected = Boolean(
           occurrenceKey && occurrenceKey === selectedKeywordOccurrenceKey
@@ -88,11 +95,12 @@ export function KeywordHighlightedNotes(props: {
 }
 
 export function createKeywordOccurrenceKey(
+  slideId: string,
   keywordId: string,
   start: number,
   value: string
 ) {
-  return `${keywordId}:${start}:${value}`;
+  return `kwo_${slideId}_${keywordId}_${start}_${start + value.length}`;
 }
 
 export function KeywordList(props: {

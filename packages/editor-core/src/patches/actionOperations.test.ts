@@ -53,6 +53,52 @@ describe("action operations", () => {
     });
   });
 
+  it("creates a batched patch for animation authoring with a keyword occurrence trigger", () => {
+    const deck = createDemoDeck();
+    const slide = {
+      ...deck.slides[0]!,
+      speakerNotes: "ORBIT 흐름은 ORBIT 대본으로 설명합니다."
+    };
+    const deckWithRepeatedKeyword = {
+      ...deck,
+      slides: [slide, ...deck.slides.slice(1)]
+    };
+    const animation = createDefaultAnimation(deckWithRepeatedKeyword, slide, "el_1");
+
+    expect(
+      createAddAnimationWithKeywordTriggerPatch(
+        deckWithRepeatedKeyword,
+        slide.slideId,
+        animation,
+        "kw_1",
+        "kwo_slide_1_kw_1_10_15"
+      )
+    ).toMatchObject({
+      operations: [
+        {
+          type: "add_animation",
+          slideId: slide.slideId,
+          animation
+        },
+        {
+          type: "add_slide_action",
+          slideId: slide.slideId,
+          action: {
+            trigger: {
+              kind: "keyword-occurrence",
+              keywordId: "kw_1",
+              occurrenceId: "kwo_slide_1_kw_1_10_15"
+            },
+            effect: {
+              kind: "play-animation",
+              animationId: animation.animationId
+            }
+          }
+        }
+      ]
+    });
+  });
+
   it("updates an existing animation trigger action to a keyword trigger", () => {
     const deck = createDemoDeck();
     const slide = {

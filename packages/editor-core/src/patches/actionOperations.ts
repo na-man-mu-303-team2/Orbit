@@ -82,7 +82,8 @@ export function createAddAnimationWithKeywordTriggerPatch(
   deck: Deck,
   slideId: string,
   animation: DeckAnimation,
-  keywordId: string
+  keywordId: string,
+  occurrenceId?: string | null
 ): DeckPatch {
   return {
     deckId: deck.deckId,
@@ -99,10 +100,7 @@ export function createAddAnimationWithKeywordTriggerPatch(
         slideId,
         action: {
           actionId: createSlideActionId(deck),
-          trigger: {
-            kind: "keyword",
-            keywordId
-          },
+          trigger: createKeywordActionTrigger(keywordId, occurrenceId),
           effect: {
             kind: "play-animation",
             animationId: animation.animationId
@@ -117,7 +115,8 @@ export function createUpdateAnimationKeywordTriggerPatch(
   deck: Deck,
   slideId: string,
   animationId: string,
-  keywordId: string
+  keywordId: string,
+  occurrenceId?: string | null
 ): DeckPatch {
   const slide = findSlide(deck, slideId);
   const existingAction = slide ? getAnimationTriggerAction(slide, animationId) : null;
@@ -133,10 +132,7 @@ export function createUpdateAnimationKeywordTriggerPatch(
             slideId,
             actionId: existingAction.actionId,
             action: {
-              trigger: {
-                kind: "keyword",
-                keywordId
-              }
+              trigger: createKeywordActionTrigger(keywordId, occurrenceId)
             }
           }
         ]
@@ -146,10 +142,7 @@ export function createUpdateAnimationKeywordTriggerPatch(
             slideId,
             action: {
               actionId: createSlideActionId(deck),
-              trigger: {
-                kind: "keyword",
-                keywordId
-              },
+              trigger: createKeywordActionTrigger(keywordId, occurrenceId),
               effect: {
                 kind: "play-animation",
                 animationId
@@ -231,6 +224,7 @@ export function getAnimationTriggerAction(
   );
 
   return matchingActions.find((action) => action.trigger.kind === "keyword") ??
+    matchingActions.find((action) => action.trigger.kind === "keyword-occurrence") ??
     matchingActions[0] ??
     null;
 }
@@ -248,7 +242,10 @@ export function deriveKeywordUsage(slide: Slide): Record<string, DerivedKeywordU
   ) as Record<string, DerivedKeywordUsage>;
 
   for (const action of slide.actions) {
-    if (action.trigger.kind !== "keyword") {
+    if (
+      action.trigger.kind !== "keyword" &&
+      action.trigger.kind !== "keyword-occurrence"
+    ) {
       continue;
     }
 
@@ -304,6 +301,24 @@ export function getKeywordTriggerLabel(
 
 function findSlide(deck: Deck, slideId: string) {
   return deck.slides.find((slide) => slide.slideId === slideId);
+}
+
+function createKeywordActionTrigger(
+  keywordId: string,
+  occurrenceId?: string | null
+): DeckSlideActionTrigger {
+  if (occurrenceId) {
+    return {
+      kind: "keyword-occurrence",
+      keywordId,
+      occurrenceId
+    };
+  }
+
+  return {
+    kind: "keyword",
+    keywordId
+  };
 }
 
 function normalizeTerm(value: string) {

@@ -55,8 +55,14 @@ describe("KeywordHighlightedNotes", () => {
         keywords={[keyword]}
         notes="AI 덱은 AI 흐름을 설명합니다."
         selectedKeywordId="kw_ai"
-        selectedKeywordOccurrenceKey={createKeywordOccurrenceKey("kw_ai", 0, "AI")}
+        selectedKeywordOccurrenceKey={createKeywordOccurrenceKey(
+          "slide_1",
+          "kw_ai",
+          0,
+          "AI"
+        )}
         showIds={false}
+        slideId="slide_1"
         onSelectKeyword={vi.fn()}
         onSelectKeywordText={vi.fn()}
       />

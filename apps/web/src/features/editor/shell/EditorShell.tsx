@@ -1345,6 +1345,7 @@ export function EditorShell(props: { projectId?: string }) {
       buildAnimationKeywordTriggerPolicy({
         element: selectedAnimationPanelElement,
         keywordId: selectedKeywordId,
+        keywordOccurrenceId: selectedKeywordOccurrenceKey,
         slideAnimations: currentSlide?.animations ?? [],
         usageByKeywordId: currentSlideKeywordUsage
       }),
@@ -1352,7 +1353,8 @@ export function EditorShell(props: { projectId?: string }) {
       currentSlide?.animations,
       currentSlideKeywordUsage,
       selectedAnimationPanelElement,
-      selectedKeywordId
+      selectedKeywordId,
+      selectedKeywordOccurrenceKey
     ]
   );
   const currentSlideAnimationDiagnostics = useMemo(
@@ -2467,7 +2469,12 @@ export function EditorShell(props: { projectId?: string }) {
     if (matchedKeyword) {
       handleSelectKeyword(
         matchedKeyword.keywordId,
-        createKeywordOccurrenceKey(matchedKeyword.keywordId, start, rawValue)
+        createKeywordOccurrenceKey(
+          currentSlide.slideId,
+          matchedKeyword.keywordId,
+          start,
+          rawValue
+        )
       );
       return;
     }
@@ -2477,7 +2484,12 @@ export function EditorShell(props: { projectId?: string }) {
     });
     setSelectedKeywordId(nextKeyword.keywordId);
     setSelectedKeywordOccurrenceKey(
-      createKeywordOccurrenceKey(nextKeyword.keywordId, start, rawValue)
+      createKeywordOccurrenceKey(
+        currentSlide.slideId,
+        nextKeyword.keywordId,
+        start,
+        rawValue
+      )
     );
     handleReplaceKeywords(currentSlide.slideId, (keywords) => [...keywords, nextKeyword]);
   }
@@ -2515,6 +2527,7 @@ export function EditorShell(props: { projectId?: string }) {
     slideId: string,
     elementId: string,
     keywordId?: string | null,
+    keywordOccurrenceId?: string | null,
     draft?: Partial<Pick<DeckAnimation, "delayMs" | "durationMs" | "type">>
   ) {
     let createdAnimationId: string | null = null;
@@ -2540,7 +2553,8 @@ export function EditorShell(props: { projectId?: string }) {
         currentDeck,
         slideId,
         animation,
-        keywordId
+        keywordId,
+        keywordOccurrenceId
       );
     });
 
@@ -4435,9 +4449,10 @@ export function EditorShell(props: { projectId?: string }) {
             preferredAnimationId={animationPanelFocusedAnimationId}
             selectedKeywordId={selectedKeywordId}
             selectedKeywordLabel={selectedKeyword?.text ?? null}
+            selectedKeywordOccurrenceId={selectedKeywordOccurrenceKey}
             slideAnimations={currentSlideAnimations}
             slideElements={currentSlide?.elements ?? []}
-            onAddAnimation={(draft, keywordId) => {
+            onAddAnimation={(draft, keywordId, keywordOccurrenceId) => {
               if (!currentSlide || !selectedAnimationPanelElement) {
                 return;
               }
@@ -4446,6 +4461,7 @@ export function EditorShell(props: { projectId?: string }) {
                 currentSlide.slideId,
                 selectedAnimationPanelElement.elementId,
                 keywordId,
+                keywordOccurrenceId,
                 draft
               );
             }}
@@ -4773,6 +4789,7 @@ export function EditorShell(props: { projectId?: string }) {
                     selectedKeywordId={selectedKeywordId}
                     selectedKeywordOccurrenceKey={selectedKeywordOccurrenceKey}
                     showIds={showIds}
+                    slideId={currentSlide?.slideId ?? ""}
                     onSelectKeyword={handleSelectKeyword}
                     onSelectKeywordText={handleSpeakerNotesKeywordSelection}
                   />

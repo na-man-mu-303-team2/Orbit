@@ -70,14 +70,15 @@ type AnimationEditorModalProps = {
   onAssignSelectedKeywordToAnimation: (animationId: string) => void;
   onClose: () => void;
   onDeleteAnimation: (animationId: string) => void;
-  onSelectKeyword: (keywordId: string) => void;
-  onSelectKeywordText: (value: string) => void;
+  onSelectKeyword: (keywordId: string, occurrenceKey?: string | null) => void;
+  onSelectKeywordText: (value: string, start: number) => void;
   onUpdateAnimation: (
     animationId: string,
     patch: Partial<DeckAnimation>
   ) => void;
   selectedKeywordId: string | null;
   selectedKeywordLabel: string | null;
+  selectedKeywordOccurrenceKey?: string | null;
   showIds: boolean;
   slide: Slide | null;
 };
@@ -101,6 +102,7 @@ export function AnimationEditorModal(props: AnimationEditorModalProps) {
     onUpdateAnimation,
     selectedKeywordId,
     selectedKeywordLabel,
+    selectedKeywordOccurrenceKey = null,
     showIds,
     slide
   } = props;
@@ -108,6 +110,9 @@ export function AnimationEditorModal(props: AnimationEditorModalProps) {
   const [draftDurationMs, setDraftDurationMs] = useState(400);
   const [draftDelayMs, setDraftDelayMs] = useState(0);
   const isKeywordSelected = Boolean(selectedKeywordId && selectedKeywordLabel);
+  const isKeywordOccurrenceSelected = Boolean(
+    selectedKeywordId && selectedKeywordLabel && selectedKeywordOccurrenceKey
+  );
 
   useEffect(() => {
     if (!isOpen || typeof window === "undefined") {
@@ -219,7 +224,9 @@ export function AnimationEditorModal(props: AnimationEditorModalProps) {
                 keywords={keywords}
                 notes={notes}
                 selectedKeywordId={selectedKeywordId}
+                selectedKeywordOccurrenceKey={selectedKeywordOccurrenceKey}
                 showIds={showIds}
+                slideId={slide.slideId}
                 onSelectKeyword={onSelectKeyword}
                 onSelectKeywordText={onSelectKeywordText}
               />
@@ -249,7 +256,7 @@ export function AnimationEditorModal(props: AnimationEditorModalProps) {
             <div className="animation-editor-fields">
               <QuickBarSelectField
                 className="compact-property-field compact-property-field-sm"
-                disabled={!isKeywordSelected}
+                disabled={!isKeywordOccurrenceSelected}
                 label="타입"
                 options={[...animationTypeOptions]}
                 value={draftType}
@@ -257,7 +264,7 @@ export function AnimationEditorModal(props: AnimationEditorModalProps) {
               />
               <PropertyNumberField
                 className="compact-property-field compact-property-field-sm"
-                disabled={!isKeywordSelected}
+                disabled={!isKeywordOccurrenceSelected}
                 label="재생"
                 min={1}
                 onCommit={(value) => {
@@ -267,7 +274,7 @@ export function AnimationEditorModal(props: AnimationEditorModalProps) {
               />
               <PropertyNumberField
                 className="compact-property-field compact-property-field-sm"
-                disabled={!isKeywordSelected}
+                disabled={!isKeywordOccurrenceSelected}
                 label="지연"
                 min={0}
                 onCommit={(value) => {
@@ -278,13 +285,15 @@ export function AnimationEditorModal(props: AnimationEditorModalProps) {
             </div>
             <div className="animation-editor-create-actions">
               <span className="animation-editor-footer-hint">
-                {selectedKeywordLabel
+                {selectedKeywordLabel && !selectedKeywordOccurrenceKey
+                  ? "반복되는 단어일 수 있습니다. 발표 메모에서 실제로 트리거할 단어 위치를 선택하세요."
+                  : selectedKeywordLabel
                   ? "선택한 키워드와 현재 설정으로 새 애니메이션이 추가됩니다."
                   : "1번에서 키워드를 먼저 선택하면 2번 설정과 추가하기가 활성화됩니다."}
               </span>
               <button
                 className="animation-editor-primary-button animation-editor-create-button"
-                disabled={!canCreateAnimation || !isKeywordSelected}
+                disabled={!canCreateAnimation || !isKeywordOccurrenceSelected}
                 type="button"
                 onClick={() =>
                   onAddAnimation({
