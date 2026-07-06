@@ -49,6 +49,9 @@ describe("handleSlideRenderJob", () => {
           size: String(input.body).length,
         };
       },
+      async getObject() {
+        throw new Error("not used");
+      },
       async createUploadUrl() {
         throw new Error("not used");
       },

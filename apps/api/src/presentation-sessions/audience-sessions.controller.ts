@@ -157,6 +157,26 @@ export class AudienceSessionsController {
     return audienceStateResponseSchema.parse(result);
   }
 
+  @Get(":sessionId/audience/slide-snapshots/:slideId")
+  async getSlideSnapshot(
+    @Param("sessionId") sessionId: string,
+    @Param("slideId") slideId: string,
+    @Req() request: SignedCookieRequest,
+    @Res() response: Response,
+  ) {
+    const { payload, token } = this.requireAudienceAccess(sessionId, request);
+    const snapshot =
+      await this.presentationSessionsService.readAudienceSlideSnapshot({
+        sessionId,
+        audienceId: payload.audienceId,
+        tokenHash: hashAudienceAccessToken(this.config, token),
+        slideId,
+      });
+
+    response.setHeader("content-type", snapshot.contentType);
+    response.send(snapshot.body);
+  }
+
   @Post(":sessionId/audience/interactions/:interactionId/respond")
   async submitInteractionResponse(
     @Param("sessionId") sessionId: string,

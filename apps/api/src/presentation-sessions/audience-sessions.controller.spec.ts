@@ -50,6 +50,7 @@ function createController(
     getAudienceMe: vi.fn(),
     getAudienceState: vi.fn(),
     getAudienceSurveyForm: vi.fn(),
+    readAudienceSlideSnapshot: vi.fn(),
     submitSurveyResponse: vi.fn(),
     ...overrides,
   } as unknown as PresentationSessionsService;
@@ -283,6 +284,64 @@ describe("AudienceSessionsController", () => {
     await expect(
       controller.getMe("session_existing", createRequest()),
     ).rejects.toBeInstanceOf(UnauthorizedException);
+  });
+
+  it("rejects slide snapshot reads without an audience cookie", async () => {
+    const { controller } = createController();
+
+    await expect(
+      controller.getSlideSnapshot(
+        "session_existing",
+        "slide_1",
+        createRequest(),
+        {} as any,
+      ),
+    ).rejects.toBeInstanceOf(UnauthorizedException);
+  });
+
+  it("returns audience slide snapshots through the same-origin API", async () => {
+    const { controller, service } = createController({
+      readAudienceSlideSnapshot: vi.fn(async () => ({
+        body: Buffer.from("<svg>청중 공개 문장</svg>"),
+        contentType: "image/svg+xml",
+      })),
+    });
+    const response = {
+      send: vi.fn(),
+      setHeader: vi.fn(),
+    } as any;
+    const joinResponse = { cookie: vi.fn() } as any;
+    await controller.joinSession(
+      "123456",
+      { nickname: "orbit" },
+      createRequest({ userAgent: "vitest-snapshot" }),
+      joinResponse,
+    );
+    const signedAudienceToken = joinResponse.cookie.mock.calls[0][1] as string;
+
+    await controller.getSlideSnapshot(
+      "session_existing",
+      "slide_1",
+      createRequest({
+        signedAudienceToken,
+        userAgent: "vitest-snapshot",
+      }),
+      response,
+    );
+
+    expect(service.readAudienceSlideSnapshot).toHaveBeenCalledWith({
+      sessionId: "session_existing",
+      audienceId: expect.stringMatching(/^audience_[0-9a-f-]{36}$/),
+      tokenHash: expect.any(String),
+      slideId: "slide_1",
+    });
+    expect(response.setHeader).toHaveBeenCalledWith(
+      "content-type",
+      "image/svg+xml",
+    );
+    expect(response.send).toHaveBeenCalledWith(
+      Buffer.from("<svg>청중 공개 문장</svg>"),
+    );
   });
 
   it("returns audience state with the signed audience cookie", async () => {

@@ -628,7 +628,8 @@ describe("PresentationSessionsService", () => {
     ).resolves.toMatchObject({
       effectState: {
         highlightId: "shape_2",
-        slideSnapshotUrl: "https://cdn.example.test/audience-slide.svg",
+        slideSnapshotUrl:
+          "/api/v1/presentation-sessions/session_existing/audience/slide-snapshots/slide_2",
       },
     });
 
@@ -651,7 +652,8 @@ describe("PresentationSessionsService", () => {
     );
     expect(eventCall?.[1]?.[5]).toMatchObject({
       effectState: {
-        slideSnapshotUrl: "https://cdn.example.test/audience-slide.svg",
+        slideSnapshotUrl:
+          "/api/v1/presentation-sessions/session_existing/audience/slide-snapshots/slide_2",
       },
     });
   });
@@ -734,7 +736,8 @@ describe("PresentationSessionsService", () => {
       expect.arrayContaining([
         expect.objectContaining({
           effectState: expect.objectContaining({
-            slideSnapshotUrl: "https://cdn.example.test/start-slide.svg",
+            slideSnapshotUrl:
+              "/api/v1/presentation-sessions/session_existing/audience/slide-snapshots/slide_2",
           }),
           slideId: "slide_2",
           slideIndex: 0,
@@ -906,11 +909,81 @@ describe("PresentationSessionsService", () => {
       effectState: {
         stepIndex: 2,
         slideSnapshotContentHash: "frozen-slide-3",
-        slideSnapshotUrl: "https://cdn.example.test/frozen-slide-3.svg",
+        slideSnapshotUrl:
+          "/api/v1/presentation-sessions/session_existing/audience/slide-snapshots/slide_3",
       },
     });
 
     expect(storage.putObject).not.toHaveBeenCalled();
+  });
+
+  it("reads audience slide snapshots only after validating participant access", async () => {
+    const storage = {
+      getObject: vi.fn(async () => ({
+        key: "audience-slide-snapshots/session_existing/slide_2-frozen.svg",
+        body: Buffer.from("<svg>청중 공개 문장</svg>"),
+        contentType: "image/svg+xml",
+        size: Buffer.byteLength("<svg>청중 공개 문장</svg>"),
+      })),
+    } as unknown as StoragePort;
+    const query = vi.fn(async (sql: string) => {
+      if (sql.includes("UPDATE audience_participants")) {
+        return [
+          {
+            audience_id: "audience_00000000-0000-4000-8000-000000000001",
+            session_id: "session_existing",
+            nickname: "orbit",
+            joined_at: "2026-07-05T00:00:00.000Z",
+            last_seen_at: "2026-07-05T00:00:00.000Z",
+            joined_before_end: true,
+          },
+        ];
+      }
+
+      if (sql.includes("SELECT audience_slide_snapshots_json")) {
+        return [
+          {
+            audience_slide_snapshots_json: {
+              deckVersion: 1,
+              deckContentHash: "frozen-deck",
+              generatedAt: "2026-07-05T00:00:00.000Z",
+              slides: {
+                slide_2: {
+                  contentHash: "frozen-slide-2",
+                  key: "audience-slide-snapshots/session_existing/slide_2-frozen.svg",
+                  url: "https://cdn.example.test/slide_2-frozen.svg",
+                },
+              },
+            },
+          },
+        ];
+      }
+
+      if (sql.includes("WHERE session_id = $1") && sql.includes("LIMIT 1")) {
+        return [activeSessionRow];
+      }
+
+      return [];
+    });
+    const service = new PresentationSessionsService(
+      { query } as unknown as DataSource,
+      storage,
+    );
+
+    await expect(
+      service.readAudienceSlideSnapshot({
+        sessionId: "session_existing",
+        audienceId: "audience_00000000-0000-4000-8000-000000000001",
+        tokenHash: "token_hash",
+        slideId: "slide_2",
+      }),
+    ).resolves.toEqual({
+      body: Buffer.from("<svg>청중 공개 문장</svg>"),
+      contentType: "image/svg+xml",
+    });
+    expect(storage.getObject).toHaveBeenCalledWith(
+      "audience-slide-snapshots/session_existing/slide_2-frozen.svg",
+    );
   });
 
   it("attaches an audience-safe slide fallback when snapshot storage fails", async () => {

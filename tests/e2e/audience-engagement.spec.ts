@@ -406,7 +406,7 @@ test.describe("audience engagement hardened smoke", () => {
 
     await expect(page.locator(".audience-slide-snapshot")).toHaveAttribute(
       "src",
-      "https://cdn.example.test/frozen-slide.png",
+      "/api/v1/presentation-sessions/session_1/audience/slide-snapshots/slide_1",
     );
     await expect(page.locator(".audience-slide-fallback")).toHaveCount(0);
   });

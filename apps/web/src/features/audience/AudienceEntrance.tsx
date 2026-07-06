@@ -480,7 +480,11 @@ export function AudienceLiveShell(props: {
     survey = null,
   } = props;
   const effectState = state?.effectState ?? {};
-  const slideSnapshotUrl = readSlideSnapshotUrl(effectState);
+  const slideSnapshotUrl = readSlideSnapshotUrl(
+    effectState,
+    participant.sessionId,
+    state?.slideId ?? null,
+  );
   const slideFallback = readSlideFallback(effectState);
   const slideLabel =
     state?.slideIndex !== null && state?.slideIndex !== undefined
@@ -1365,9 +1369,19 @@ function formatInteractionAnswer(
   return "응답";
 }
 
-function readSlideSnapshotUrl(payload: Record<string, unknown>) {
+function readSlideSnapshotUrl(
+  payload: Record<string, unknown>,
+  sessionId: string,
+  slideId: string | null,
+) {
   const value = payload.slideSnapshotUrl;
-  return typeof value === "string" && value.length > 0 ? value : "";
+  if (typeof value !== "string" || value.length === 0 || !slideId) {
+    return "";
+  }
+
+  return `/api/v1/presentation-sessions/${encodeURIComponent(
+    sessionId,
+  )}/audience/slide-snapshots/${encodeURIComponent(slideId)}`;
 }
 
 type AudienceSlideFallback = {

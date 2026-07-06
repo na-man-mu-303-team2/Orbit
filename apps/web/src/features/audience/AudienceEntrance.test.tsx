@@ -86,7 +86,10 @@ describe("AudienceEntrance", () => {
 
     expect(html).toContain("현재 슬라이드 1");
     expect(html).toContain("실시간 연결됨");
-    expect(html).toContain("https://cdn.example.test/slide_1.png");
+    expect(html).toContain(
+      "/api/v1/presentation-sessions/session_1/audience/slide-snapshots/slide_1",
+    );
+    expect(html).not.toContain("https://cdn.example.test/slide_1.png");
     expect(html).toContain("orbit");
   });
 

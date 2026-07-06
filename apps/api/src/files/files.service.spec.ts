@@ -82,6 +82,12 @@ function createStorage(): StoragePort {
     getSignedReadUrl: vi.fn(
       async (key) => `http://localhost:9000/orbit-local/${key}`,
     ),
+    getObject: vi.fn(async (key) => ({
+      key,
+      body: new Uint8Array(),
+      contentType: "application/octet-stream",
+      size: 0,
+    })),
     removeObject: vi.fn(async () => undefined),
   };
 }
