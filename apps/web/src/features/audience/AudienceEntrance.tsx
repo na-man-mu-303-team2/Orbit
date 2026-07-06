@@ -324,6 +324,7 @@ export function AudienceEntrance({ initialJoinCode }: AudienceEntranceProps) {
       .catch(() => {
         if (!isCancelled) {
           setActiveInteraction(null);
+          setErrorMessage("활성 Poll/Quiz를 불러오지 못했습니다.");
         }
       });
 
@@ -334,6 +335,7 @@ export function AudienceEntrance({ initialJoinCode }: AudienceEntranceProps) {
     audienceState?.features.pollsEnabled,
     audienceState?.features.quizzesEnabled,
     audienceState?.state.activeInteractionId,
+    audienceState?.state.updatedAt,
     participant,
     session?.sessionId,
   ]);
@@ -556,7 +558,7 @@ function AudienceActiveCards({
   recentReactions: ReactionType[];
   sessionId: string;
 }) {
-  const cards = getAudienceActiveCards(features);
+  const cards = getAudienceActiveCards(features, Boolean(activeInteraction));
   if (
     cards.length === 0 &&
     !activeInteraction &&
@@ -595,15 +597,22 @@ function AudienceActiveCards({
   );
 }
 
-function getAudienceActiveCards(features: AudienceFeatureSettings | null) {
+function getAudienceActiveCards(
+  features: AudienceFeatureSettings | null,
+  hasActiveInteraction: boolean,
+) {
   if (!features) {
     return [];
   }
 
   return [
     features.aiQnaEnabled ? { action: "AI 답변 대기", label: "AI Q&A" } : null,
-    features.pollsEnabled ? { action: "대기 중", label: "Poll" } : null,
-    features.quizzesEnabled ? { action: "대기 중", label: "Quiz" } : null,
+    features.pollsEnabled && !hasActiveInteraction
+      ? { action: "대기 중", label: "Poll" }
+      : null,
+    features.quizzesEnabled && !hasActiveInteraction
+      ? { action: "대기 중", label: "Quiz" }
+      : null,
     features.surveyEnabled ? { action: "설문 작성", label: "Survey" } : null,
   ].filter((card): card is { action: string; label: string } => Boolean(card));
 }

@@ -238,6 +238,8 @@ describe("AudienceEntrance", () => {
     expect(html).toContain("만족도를 골라 주세요.");
     expect(html).toContain("응답 제출");
     expect(html).toContain('type="number"');
+    expect(html.match(/<span>Poll<\/span>/g)).toHaveLength(1);
+    expect(html).not.toContain('<button type="button" disabled="">대기 중</button>');
   });
 
   it("renders enabled reaction controls with accessible names", () => {

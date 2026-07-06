@@ -2190,7 +2190,7 @@ export class PresentationSessionsService {
     );
   }
 
-  private async getAudienceRealtimeState(
+  async getAudienceRealtimeState(
     sessionId: string,
   ): Promise<AudienceRealtimeState> {
     const rows = await this.dataSource.query<AudienceRealtimeStateRow[]>(

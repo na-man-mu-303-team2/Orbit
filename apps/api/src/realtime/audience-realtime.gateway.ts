@@ -247,6 +247,29 @@ export class AudienceRealtimeGateway {
     return event;
   }
 
+  broadcastSlideState(input: {
+    sessionId: string;
+    state: AudienceRealtimeState;
+    userId: string;
+  }) {
+    this.stateSnapshots.set(input.sessionId, input.state);
+    const payload = audienceSlideStatePayloadSchema.parse({
+      state: input.state,
+    });
+    const event = createRealtimeEvent({
+      type: "audience:slide-state",
+      roomId: audienceSessionRoomId(input.sessionId),
+      sessionId: input.sessionId,
+      userId: input.userId,
+      payload,
+    });
+
+    this.server
+      .to(audienceSessionRoomId(input.sessionId))
+      .emit("audience:slide-state", event);
+    return event;
+  }
+
   broadcastSessionEnded(session: PresentationSession) {
     const payload = audienceSessionEndedPayloadSchema.parse({
       session: {
