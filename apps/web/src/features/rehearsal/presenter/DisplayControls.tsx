@@ -1,4 +1,4 @@
-import { AlertCircle, ChevronDown, Monitor, RefreshCcw, X } from "lucide-react";
+import { AlertCircle, ChevronDown, Maximize2, Monitor, RefreshCcw, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { DisplayManagerErrorCode, DisplayScreenDescriptor } from "./displayManager";
 import type { PresentationChannelStatus } from "./usePresentationChannelPublisher";
@@ -27,7 +27,13 @@ export type RequestDisplayScreensResult =
   | { ok: true; screens: DisplayScreenDescriptor[] }
   | { code: DisplayManagerErrorCode; ok: false };
 
+export type RequestSlideWindowFullscreenResult =
+  | { ok: true }
+  | { code: DisplayManagerErrorCode; ok: false };
+
 type DisplayState = "idle" | "opening" | "manual-guide" | "failed";
+
+type RemoteFullscreenState = "idle" | "available" | "requested" | "failed";
 
 type ScreenRequestState = "idle" | "loading" | "ready" | "failed";
 
@@ -45,19 +51,33 @@ export function DisplayControls(props: {
   channelStatus: PresentationChannelStatus;
   onOpenSlideDisplay: (options: SlideDisplayOptions) => Promise<OpenSlideDisplayResult>;
   onRequestDisplayScreens?: () => Promise<RequestDisplayScreensResult>;
+  onRequestSlideWindowFullscreen?: () => Promise<RequestSlideWindowFullscreenResult>;
 }) {
-  const { channelStatus, onOpenSlideDisplay, onRequestDisplayScreens } = props;
+  const {
+    channelStatus,
+    onOpenSlideDisplay,
+    onRequestDisplayScreens,
+    onRequestSlideWindowFullscreen
+  } = props;
   const [displayState, setDisplayState] = useState<DisplayState>("idle");
   const [message, setMessage] = useState("");
   const [dismissedMessage, setDismissedMessage] = useState("");
   const [isOptionsOpen, setIsOptionsOpen] = useState(false);
   const [options, setOptions] = useState<SlideDisplayOptions>(defaultSlideDisplayOptions);
+  const [remoteFullscreenState, setRemoteFullscreenState] =
+    useState<RemoteFullscreenState>("idle");
   const [screenRequestState, setScreenRequestState] = useState<ScreenRequestState>("idle");
   const [screenMessage, setScreenMessage] = useState("");
   const [screenOptions, setScreenOptions] = useState<DisplayScreenDescriptor[]>([]);
   const [selectedScreenIndex, setSelectedScreenIndex] = useState<number | null>(null);
   const mountedRef = useRef(true);
   const isRecoverable = shouldShowRecoverAction(channelStatus) || displayState === "failed";
+  const canUseFullscreenDelegation = canDelegateSlideWindowFullscreen();
+  const canStartRemoteFullscreen =
+    channelStatus === "connected" &&
+    remoteFullscreenState !== "idle" &&
+    canUseFullscreenDelegation &&
+    Boolean(onRequestSlideWindowFullscreen);
 
   useEffect(
     () => {
@@ -71,13 +91,14 @@ export function DisplayControls(props: {
 
   async function openSlideWindow(launchOptions = options) {
     const resolvedLaunchOptions = resolveLaunchOptions(launchOptions);
-    // Popup opening must start before React state updates consume the click activation.
+    // Activation-consuming APIs must start inside the original click before timeout.
     const openSlideDisplayResult = onOpenSlideDisplay(resolvedLaunchOptions);
 
     setDisplayState("opening");
     setMessage("");
     setDismissedMessage("");
     setIsOptionsOpen(false);
+    setRemoteFullscreenState("idle");
 
     const result = await openSlideDisplayResult;
     if (!mountedRef.current) {
@@ -91,10 +112,18 @@ export function DisplayControls(props: {
     }
 
     if (resolvedLaunchOptions.fullscreen && !result.fullscreenStarted) {
+      const canRequestRemoteFullscreen =
+        result.displayMode === "slide-window" &&
+        canUseFullscreenDelegation &&
+        Boolean(onRequestSlideWindowFullscreen);
+
+      setRemoteFullscreenState(canRequestRemoteFullscreen ? "available" : "idle");
       setDisplayState("manual-guide");
       setMessage(
         result.displayMode === "slide-window"
-          ? getSlideWindowLaunchMessage(result)
+          ? canRequestRemoteFullscreen
+            ? getSlideWindowRemoteFullscreenMessage(result)
+            : getSlideWindowLaunchMessage(result)
           : "전체화면 전환이 차단되었습니다. 슬라이드 화면의 전체화면 버튼을 눌러주세요."
       );
       return;
@@ -106,6 +135,29 @@ export function DisplayControls(props: {
         ? getSlideWindowLaunchMessage(result)
         : "현재 창에서 슬라이드쇼를 시작했습니다."
     );
+  }
+
+  async function requestSlideWindowFullscreen() {
+    if (!onRequestSlideWindowFullscreen) {
+      setRemoteFullscreenState("failed");
+      setMessage(getDisplayControlMessage("fullscreen-blocked"));
+      return;
+    }
+
+    const requestResult = onRequestSlideWindowFullscreen();
+    setRemoteFullscreenState("requested");
+    setMessage("슬라이드 창에 전체화면 요청을 보냈습니다.");
+    setDismissedMessage("");
+
+    const result = await requestResult;
+    if (!mountedRef.current) {
+      return;
+    }
+
+    if (!result.ok) {
+      setRemoteFullscreenState("failed");
+      setMessage(getDisplayControlMessage(result.code));
+    }
   }
 
   function resolveLaunchOptions(launchOptions: SlideDisplayOptions): SlideDisplayOptions {
@@ -198,6 +250,16 @@ export function DisplayControls(props: {
       <span className="presenter-display-status">
         {getDisplayStatusLabel(channelStatus, displayState)}
       </span>
+      {canStartRemoteFullscreen ? (
+        <button
+          className="presenter-display-fullscreen-start"
+          type="button"
+          onClick={() => void requestSlideWindowFullscreen()}
+        >
+          <Maximize2 size={15} />
+          {remoteFullscreenState === "available" ? "전체화면 시작" : "전체화면 다시 시작"}
+        </button>
+      ) : null}
       {isOptionsOpen ? (
         <div
           aria-label="프레젠테이션 디스플레이 옵션"
@@ -364,6 +426,16 @@ export function shouldShowRecoverAction(status: PresentationChannelStatus) {
   return status === "closed" || status === "stale" || status === "failed";
 }
 
+export function canDelegateSlideWindowFullscreen(userAgent = readUserAgent()) {
+  const edgeMajor = readBrowserMajor(userAgent, /\bEdg\/(\d+)/);
+  if (edgeMajor !== null) {
+    return edgeMajor >= 104;
+  }
+
+  const chromeMajor = readBrowserMajor(userAgent, /\b(?:Chrome|Chromium)\/(\d+)/);
+  return chromeMajor !== null && chromeMajor >= 104 && !/\bOPR\//.test(userAgent);
+}
+
 export function getDisplayControlMessage(code: DisplayManagerErrorCode) {
   const messages: Record<DisplayManagerErrorCode, string> = {
     "fullscreen-blocked":
@@ -413,6 +485,18 @@ function getSlideWindowLaunchMessage(result: OpenSlideDisplayResult) {
   return getDisplayControlMessage("fullscreen-blocked");
 }
 
+function getSlideWindowRemoteFullscreenMessage(result: OpenSlideDisplayResult) {
+  if (result.placementCode && result.placementCode !== "fullscreen-blocked") {
+    return getDisplayControlMessage(result.placementCode);
+  }
+
+  if (result.autoPlaced && result.placementTargetLabel) {
+    return `${result.placementTargetLabel}로 슬라이드 창을 옮겼습니다. 연결되면 이 화면에서 전체화면 시작을 누르세요.`;
+  }
+
+  return "슬라이드 창을 열었습니다. 연결되면 이 화면에서 전체화면 시작을 누르세요.";
+}
+
 export function getDisplayStatusLabel(
   channelStatus: PresentationChannelStatus,
   displayState: DisplayState
@@ -425,4 +509,18 @@ export function getDisplayStatusLabel(
   if (displayState === "manual-guide") return "전환 안내";
   if (displayState === "failed") return "확인 필요";
   return "대기";
+}
+
+function readBrowserMajor(userAgent: string, pattern: RegExp) {
+  const match = userAgent.match(pattern);
+  if (!match?.[1]) {
+    return null;
+  }
+
+  const major = Number(match[1]);
+  return Number.isFinite(major) ? major : null;
+}
+
+function readUserAgent() {
+  return typeof navigator === "undefined" ? "" : navigator.userAgent;
 }

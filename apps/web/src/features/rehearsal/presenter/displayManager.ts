@@ -35,28 +35,58 @@ type ScreenLike = {
   width: number;
 };
 
+export type DisplayWindowBounds = {
+  availHeight?: number;
+  availLeft?: number;
+  availTop?: number;
+  availWidth?: number;
+  height: number;
+  left: number;
+  top: number;
+  width: number;
+};
+
 type ScreenDetailsLike = {
   currentScreen?: ScreenLike;
   screens: ScreenLike[];
 };
 
+type FullscreenOptionsWithScreen = FullscreenOptions & {
+  screen?: ScreenLike;
+};
+
 const SCREEN_DETAILS_TIMEOUT_MS = 8000;
 
 export type SlideWindowRef = {
+  close?: () => void;
   closed?: boolean;
-  document?: {
-    documentElement?: {
-      requestFullscreen?: () => Promise<void>;
-    };
-  };
   focus?: () => void;
   moveTo?: (x: number, y: number) => void;
+  postMessage?: (
+    message: SlideWindowFullscreenRequestMessage,
+    options: SlideWindowPostMessageOptions
+  ) => void;
   resizeTo?: (width: number, height: number) => void;
 };
+
+export type SlideWindowFullscreenRequestMessage = {
+  type: "orbit:enter-fullscreen";
+};
+
+type SlideWindowPostMessageOptions = {
+  delegate?: "fullscreen";
+  targetOrigin: string;
+};
+
+export const slideWindowFullscreenRequestType = "orbit:enter-fullscreen";
 
 export type DisplayBrowserPort = {
   getScreenDetails?: () => Promise<ScreenDetailsLike>;
   open: (url: string, target: string, features?: string) => SlideWindowRef | null;
+  requestFullscreen?: (
+    target: Element,
+    options?: FullscreenOptionsWithScreen
+  ) => Promise<void>;
 };
 
 export type OpenSlideWindowOptions = {
@@ -65,10 +95,12 @@ export type OpenSlideWindowOptions = {
 };
 
 export function createDisplayManager(port: DisplayBrowserPort = createBrowserDisplayPort()) {
+  let cachedScreenDetails: ScreenDetailsLike | null = null;
+
   return {
     getCapabilities: () => ({
       canOpenWindow: typeof port.open === "function",
-      canRequestFullscreen: true,
+      canRequestFullscreen: typeof port.requestFullscreen === "function",
       canUseWindowManagement: typeof port.getScreenDetails === "function"
     }),
     listExternalScreens: async (): Promise<DisplayManagerResult<DisplayScreenDescriptor[]>> => {
@@ -81,6 +113,7 @@ export function createDisplayManager(port: DisplayBrowserPort = createBrowserDis
 
       try {
         const details = await withScreenDetailsTimeout(port.getScreenDetails());
+        cachedScreenDetails = details;
         const currentScreen = details.currentScreen;
         const screens = details.screens.map((screen, screenIndex) =>
           toScreenDescriptor(screen, screenIndex, currentScreen)
@@ -97,6 +130,10 @@ export function createDisplayManager(port: DisplayBrowserPort = createBrowserDis
         );
       }
     },
+    getCurrentScreen: (): DisplayWindowBounds | null =>
+      cachedScreenDetails?.currentScreen ?? null,
+    getLiveScreen: (screenIndex: number): DisplayWindowBounds | null =>
+      cachedScreenDetails?.screens[screenIndex] ?? null,
     openSlideWindow: (
       identity: PresentationChannelIdentity,
       options: OpenSlideWindowOptions = {}
@@ -111,6 +148,26 @@ export function createDisplayManager(port: DisplayBrowserPort = createBrowserDis
         return createDisplayError(
           "popup-blocked",
           "브라우저가 슬라이드 창 팝업을 차단했습니다."
+        );
+      }
+
+      windowRef.focus?.();
+      return { ok: true, value: windowRef };
+    },
+    openPresenterRemoteWindow: (
+      url: string,
+      options: { screen?: DisplayWindowBounds | null; target?: string } = {}
+    ): DisplayManagerResult<SlideWindowRef> => {
+      const windowRef = port.open(
+        url,
+        options.target ?? `orbit-presenter-remote-${Date.now()}`,
+        buildPresenterRemoteWindowFeatures(options.screen ?? null)
+      );
+
+      if (!windowRef) {
+        return createDisplayError(
+          "popup-blocked",
+          "브라우저가 발표자 창 팝업을 차단했습니다."
         );
       }
 
@@ -133,19 +190,24 @@ export function createDisplayManager(port: DisplayBrowserPort = createBrowserDis
         );
       }
     },
-    requestSlideWindowFullscreen: async (
+    delegateSlideWindowFullscreen: (
       windowRef: SlideWindowRef
-    ): Promise<DisplayManagerResult<void>> => {
+    ): DisplayManagerResult<void> => {
       try {
-        const requestFullscreen = windowRef.document?.documentElement?.requestFullscreen;
-        if (typeof requestFullscreen !== "function") {
+        if (typeof windowRef.postMessage !== "function") {
           return createDisplayError(
             "fullscreen-blocked",
             "슬라이드 창 전체화면을 자동으로 시작하지 못했습니다."
           );
         }
 
-        await requestFullscreen.call(windowRef.document?.documentElement);
+        windowRef.postMessage(
+          { type: slideWindowFullscreenRequestType },
+          {
+            delegate: "fullscreen",
+            targetOrigin: readWindowOrigin()
+          }
+        );
         return { ok: true, value: undefined };
       } catch {
         return createDisplayError(
@@ -153,8 +215,41 @@ export function createDisplayManager(port: DisplayBrowserPort = createBrowserDis
           "슬라이드 창 전체화면을 자동으로 시작하지 못했습니다."
         );
       }
+    },
+    requestFullscreenOnScreen: async (
+      target: Element | null,
+      screenIndex: number
+    ): Promise<DisplayManagerResult<void>> => {
+      if (!target || typeof port.requestFullscreen !== "function") {
+        return createDisplayError(
+          "fullscreen-blocked",
+          "발표 모니터 전체화면을 자동으로 시작하지 못했습니다."
+        );
+      }
+
+      const screen = cachedScreenDetails?.screens[screenIndex];
+      if (!screen) {
+        return createDisplayError(
+          "placement-failed",
+          "선택한 발표 모니터 정보를 찾지 못했습니다."
+        );
+      }
+
+      try {
+        await port.requestFullscreen(target, { screen });
+        return { ok: true, value: undefined };
+      } catch {
+        return createDisplayError(
+          "fullscreen-blocked",
+          "발표 모니터 전체화면을 자동으로 시작하지 못했습니다."
+        );
+      }
     }
   };
+}
+
+function readWindowOrigin() {
+  return typeof window === "undefined" ? "http://localhost" : window.location.origin;
 }
 
 export function buildPresentWindowUrl(identity: PresentationChannelIdentity) {
@@ -176,6 +271,29 @@ export function buildSlideWindowFeatures(screen?: DisplayScreenDescriptor | null
         left: undefined,
         top: undefined,
         width: 1280
+      };
+  const features = ["popup=yes", `width=${bounds.width}`, `height=${bounds.height}`];
+
+  if (typeof bounds.left === "number" && typeof bounds.top === "number") {
+    features.push(`left=${bounds.left}`, `top=${bounds.top}`);
+  }
+
+  return features.join(",");
+}
+
+export function buildPresenterRemoteWindowFeatures(screen?: DisplayWindowBounds | null) {
+  const bounds = screen
+    ? {
+        height: Math.min(screen.availHeight ?? screen.height, 900),
+        left: screen.availLeft ?? screen.left,
+        top: screen.availTop ?? screen.top,
+        width: Math.min(screen.availWidth ?? screen.width, 1512)
+      }
+    : {
+        height: 900,
+        left: undefined,
+        top: undefined,
+        width: 1512
       };
   const features = ["popup=yes", `width=${bounds.width}`, `height=${bounds.height}`];
 
@@ -266,6 +384,7 @@ function createBrowserDisplayPort(): DisplayBrowserPort {
   return {
     getScreenDetails,
     open: (url, target, features) =>
-      typeof window === "undefined" ? null : window.open(url, target, features)
+      typeof window === "undefined" ? null : window.open(url, target, features),
+    requestFullscreen: (target, options) => target.requestFullscreen(options)
   };
 }

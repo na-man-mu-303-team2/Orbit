@@ -2,7 +2,10 @@ import { describe, expect, it } from "vitest";
 import { p0AnimationDeck } from "./__fixtures__/animationDeck";
 import { createPresenterSlideshowState } from "./presenterStateStore";
 import {
+  createPresenterCommandMessage,
   createPresenterHeartbeatMessage,
+  createPresenterRemoteHeartbeatMessage,
+  createPresenterRemoteReadyMessage,
   createPresenterSnapshotMessage,
   createPresenterStateMessage,
   createSlideWindowDeckSnapshot,
@@ -174,5 +177,40 @@ describe("presentationChannel", () => {
       sessionId: "session-presenter-1",
       type: "slide-window-heartbeat"
     });
+    expect(createPresenterRemoteReadyMessage(identity, 60)).toEqual({
+      deckId: "deck_p0_animation",
+      sentAt: 60,
+      sessionId: "session-presenter-1",
+      type: "presenter-remote-ready"
+    });
+    expect(createPresenterRemoteHeartbeatMessage(identity, 70)).toEqual({
+      deckId: "deck_p0_animation",
+      sentAt: 70,
+      sessionId: "session-presenter-1",
+      type: "presenter-remote-heartbeat"
+    });
+  });
+
+  it("creates and validates presenter remote command messages", () => {
+    const message = createPresenterCommandMessage({
+      command: { action: "goto", slideIndex: 2, stepIndex: 1 },
+      identity,
+      sentAt: 80
+    });
+
+    expect(message).toEqual({
+      command: { action: "goto", slideIndex: 2, stepIndex: 1 },
+      deckId: "deck_p0_animation",
+      sentAt: 80,
+      sessionId: "session-presenter-1",
+      type: "presenter-command"
+    });
+    expect(isPresentationChannelMessage(message)).toBe(true);
+    expect(
+      isPresentationChannelMessage({
+        ...message,
+        command: { action: "goto", slideIndex: "2" }
+      })
+    ).toBe(false);
   });
 });

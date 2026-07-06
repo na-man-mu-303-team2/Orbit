@@ -135,12 +135,31 @@ describe("RehearsalWorkspace", () => {
     const openSlideDisplayBody = source.slice(start, end);
 
     expect(openSlideWindowBody).toContain("displayManager.openSlideWindow");
-    expect(openSlideWindowBody).toContain("target: `orbit-slide-${presentationChannel.sessionId}`");
-    expect(openSlideWindowBody).toContain("displayManager.placeOnScreen");
+    expect(openSlideWindowBody).toContain(
+      "target: `orbit-slide-${presentationChannel.sessionId}-${Date.now()}`"
+    );
+    expect(openSlideWindowBody).toContain("closeExistingSlideWindow()");
+    expect(openSlideWindowBody).not.toContain("displayManager.placeOnScreen");
     expect(openSlideWindowBody).toContain("publishSlideWindowSnapshot(options.startFromBeginning)");
     expect(openSlideDisplayBody).toContain("await openSlideWindowForDisplay(options)");
     expect(openSlideDisplayBody).toContain("displayOpened");
     expect(openSlideDisplayBody).toContain("displayMode: \"slide-window\"");
+  });
+
+  it("renders a presenter remote window without the full rehearsal workspace", () => {
+    const html = renderToStaticMarkup(
+      <RehearsalWorkspace
+        initialDeck={p0AnimationDeck}
+        presenterSessionId="session-presenter-1"
+        presenterWindow={true}
+      />
+    );
+
+    expect(html).toContain("발표자 제어");
+    expect(html).toContain("Speaker notes");
+    expect(html).toContain("첫 문장입니다");
+    expect(html).not.toContain("Live STT 시작");
+    expect(html).not.toContain("Report AI");
   });
 
   it("requests Window Management screens for automatic slide-window placement", () => {
@@ -158,6 +177,37 @@ describe("RehearsalWorkspace", () => {
     expect(resolveBody).not.toContain("displayManager.listExternalScreens()");
     expect(openBody).toContain("screen: targetScreen");
     expect(openBody).toContain("placementTargetLabel: targetScreen?.label");
+  });
+
+  it("delegates slide-window fullscreen from the presenter window", () => {
+    const source = fs.readFileSync(rehearsalWorkspaceSourcePath, "utf8");
+    const requestStart = source.indexOf("const requestSlideWindowFullscreen =");
+    const openStart = source.indexOf("const openSlideWindowForDisplay =");
+    const renderStart = source.indexOf("<DisplayControls");
+    const requestBody = source.slice(requestStart, openStart);
+    const renderBody = source.slice(renderStart, source.indexOf("/>", renderStart));
+
+    expect(requestBody).toContain("slideWindowRef.current");
+    expect(requestBody).toContain("displayManager.delegateSlideWindowFullscreen");
+    expect(renderBody).toContain("onRequestSlideWindowFullscreen={requestSlideWindowFullscreen}");
+  });
+
+  it("supports Surface Swap fullscreen before opening the presenter remote popup", () => {
+    const source = fs.readFileSync(rehearsalWorkspaceSourcePath, "utf8");
+    const surfaceStart = source.indexOf("const openSurfaceSwapDisplay =");
+    const openStart = source.indexOf("const openSlideWindowForDisplay =", surfaceStart);
+    const publisherStart = source.indexOf("const presentationChannel = usePresentationChannelPublisher");
+    const publisherBody = source.slice(publisherStart, source.indexOf("});", publisherStart));
+    const surfaceBody = source.slice(surfaceStart, openStart);
+
+    expect(surfaceBody).toContain("displayManager.requestFullscreenOnScreen");
+    expect(surfaceBody).toContain("displayManager.openPresenterRemoteWindow");
+    expect(surfaceBody.indexOf("requestFullscreenOnScreen")).toBeLessThan(
+      surfaceBody.indexOf("openPresenterRemoteWindow")
+    );
+    expect(surfaceBody).toContain("setDisplayRole(\"slide-surface\")");
+    expect(publisherBody).toContain("displayRole === \"slide-surface\"");
+    expect(publisherBody).toContain("onCommand: handlePresenterRemoteCommand");
   });
 
   it("supports Google Slides style fullscreen in the current document", () => {
@@ -178,7 +228,7 @@ describe("RehearsalWorkspace", () => {
 
   it("renders slide receiver mode without the presenter toolbar or notes", () => {
     const source = fs.readFileSync(rehearsalWorkspaceSourcePath, "utf8");
-    const start = source.indexOf("if (displayRole === \"slide-receiver\"");
+    const start = source.indexOf("displayRole === \"slide-receiver\"");
     const end = source.indexOf("if (isSingleScreenOpen");
     const slideReceiverRenderBody = source.slice(start, end);
 

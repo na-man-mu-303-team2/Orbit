@@ -3,6 +3,7 @@ import { fileURLToPath } from "node:url";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import {
+  canDelegateSlideWindowFullscreen,
   DisplayControls,
   getDisplayControlMessage,
   getDisplayStatusLabel,
@@ -58,6 +59,25 @@ describe("DisplayControls", () => {
     expect(getDisplayStatusLabel("idle", "failed")).toBe("확인 필요");
   });
 
+  it("detects browsers that support fullscreen capability delegation", () => {
+    expect(
+      canDelegateSlideWindowFullscreen(
+        "Mozilla/5.0 AppleWebKit/537.36 Chrome/104.0.0.0 Safari/537.36"
+      )
+    ).toBe(true);
+    expect(
+      canDelegateSlideWindowFullscreen(
+        "Mozilla/5.0 AppleWebKit/537.36 Chrome/103.0.0.0 Safari/537.36"
+      )
+    ).toBe(false);
+    expect(
+      canDelegateSlideWindowFullscreen(
+        "Mozilla/5.0 AppleWebKit/537.36 Edg/121.0.0.0 Safari/537.36"
+      )
+    ).toBe(true);
+    expect(canDelegateSlideWindowFullscreen("Mozilla/5.0 Firefox/128.0")).toBe(false);
+  });
+
   it("starts the slide display request before updating control state", () => {
     const source = fs.readFileSync(displayControlsSourcePath, "utf8");
     const start = source.indexOf("async function openSlideWindow(");
@@ -78,6 +98,17 @@ describe("DisplayControls", () => {
     expect(requestDisplayScreensBody.indexOf("onRequestDisplayScreens()")).toBeLessThan(
       requestDisplayScreensBody.indexOf("setScreenRequestState(\"loading\")")
     );
+  });
+
+  it("starts the remote fullscreen delegation before updating request state", () => {
+    const source = fs.readFileSync(displayControlsSourcePath, "utf8");
+    const start = source.indexOf("async function requestSlideWindowFullscreen(");
+    const end = source.indexOf("function resolveLaunchOptions(", start);
+    const requestFullscreenBody = source.slice(start, end);
+
+    expect(
+      requestFullscreenBody.indexOf("onRequestSlideWindowFullscreen()")
+    ).toBeLessThan(requestFullscreenBody.indexOf("setRemoteFullscreenState(\"requested\")"));
   });
 
   it("resets the mounted guard when StrictMode remounts effects", () => {

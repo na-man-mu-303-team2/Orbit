@@ -50,12 +50,42 @@ export type SlideWindowHeartbeatMessage = {
   type: "slide-window-heartbeat";
 };
 
+export type PresenterRemoteReadyMessage = {
+  deckId: string;
+  sentAt: number;
+  sessionId: string;
+  type: "presenter-remote-ready";
+};
+
+export type PresenterRemoteHeartbeatMessage = {
+  deckId: string;
+  sentAt: number;
+  sessionId: string;
+  type: "presenter-remote-heartbeat";
+};
+
+export type PresenterRemoteCommand =
+  | { action: "goto"; slideIndex: number; stepIndex?: number }
+  | { action: "next-step" }
+  | { action: "prev" };
+
+export type PresenterCommandMessage = {
+  command: PresenterRemoteCommand;
+  deckId: string;
+  sentAt: number;
+  sessionId: string;
+  type: "presenter-command";
+};
+
 export type PresentationChannelMessage =
   | PresenterSnapshotMessage
   | PresenterStateMessage
   | PresenterHeartbeatMessage
   | SlideWindowReadyMessage
-  | SlideWindowHeartbeatMessage;
+  | SlideWindowHeartbeatMessage
+  | PresenterRemoteReadyMessage
+  | PresenterRemoteHeartbeatMessage
+  | PresenterCommandMessage;
 
 export function createPresentationSessionId() {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
@@ -137,7 +167,11 @@ export function isPresentationChannelMessage(
     case "presenter-heartbeat":
     case "slide-window-ready":
     case "slide-window-heartbeat":
+    case "presenter-remote-ready":
+    case "presenter-remote-heartbeat":
       return true;
+    case "presenter-command":
+      return isPresenterRemoteCommand(value.command);
     default:
       return false;
   }
@@ -220,6 +254,44 @@ export function createSlideWindowHeartbeatMessage(
   };
 }
 
+export function createPresenterRemoteReadyMessage(
+  identity: PresentationChannelIdentity,
+  sentAt = Date.now()
+): PresenterRemoteReadyMessage {
+  return {
+    deckId: identity.deckId,
+    sentAt,
+    sessionId: identity.sessionId,
+    type: "presenter-remote-ready"
+  };
+}
+
+export function createPresenterRemoteHeartbeatMessage(
+  identity: PresentationChannelIdentity,
+  sentAt = Date.now()
+): PresenterRemoteHeartbeatMessage {
+  return {
+    deckId: identity.deckId,
+    sentAt,
+    sessionId: identity.sessionId,
+    type: "presenter-remote-heartbeat"
+  };
+}
+
+export function createPresenterCommandMessage(args: {
+  command: PresenterRemoteCommand;
+  identity: PresentationChannelIdentity;
+  sentAt?: number;
+}): PresenterCommandMessage {
+  return {
+    command: args.command,
+    deckId: args.identity.deckId,
+    sentAt: args.sentAt ?? Date.now(),
+    sessionId: args.identity.sessionId,
+    type: "presenter-command"
+  };
+}
+
 function isPresenterSlideshowState(value: unknown): value is PresenterSlideshowState {
   if (!isRecord(value)) {
     return false;
@@ -241,6 +313,22 @@ function isPresenterSlideshowState(value: unknown): value is PresenterSlideshowS
 
 function isStringArray(value: unknown): value is string[] {
   return Array.isArray(value) && value.every((item) => typeof item === "string");
+}
+
+function isPresenterRemoteCommand(value: unknown): value is PresenterRemoteCommand {
+  if (!isRecord(value)) {
+    return false;
+  }
+
+  if (value.action === "next-step" || value.action === "prev") {
+    return true;
+  }
+
+  return (
+    value.action === "goto" &&
+    typeof value.slideIndex === "number" &&
+    (value.stepIndex === undefined || typeof value.stepIndex === "number")
+  );
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

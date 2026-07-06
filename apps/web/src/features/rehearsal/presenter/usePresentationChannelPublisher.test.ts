@@ -4,6 +4,9 @@ import { describe, expect, it, vi } from "vitest";
 import { p0AnimationDeck } from "./__fixtures__/animationDeck";
 import { createPresenterSlideshowState } from "./presenterStateStore";
 import {
+  createPresenterCommandMessage,
+  createPresenterRemoteHeartbeatMessage,
+  createPresenterRemoteReadyMessage,
   createSlideWindowHeartbeatMessage,
   createSlideWindowReadyMessage
 } from "./presentationChannel";
@@ -143,6 +146,84 @@ describe("createPresentationPublisherController", () => {
 
     controller.handleIncoming(createSlideWindowHeartbeatMessage(identity, 50));
 
+    expect(statuses).toEqual(["connected"]);
+  });
+
+  it("publishes a snapshot when a presenter remote becomes ready", () => {
+    const posted: unknown[] = [];
+    const statuses: PresentationChannelStatus[] = [];
+    const controller = createPresentationPublisherController({
+      channel: {
+        close: vi.fn(),
+        postMessage: (message: unknown) => posted.push(message)
+      },
+      getSnapshot: () => ({
+        deck: p0AnimationDeck,
+        deckId: identity.deckId,
+        sentAt: 10,
+        sessionId: identity.sessionId,
+        state: createPresenterSlideshowState(p0AnimationDeck),
+        triggerAnimationIds: [],
+        type: "presenter-snapshot"
+      }),
+      getState: () => null,
+      identity,
+      onStatusChange: (status) => statuses.push(status)
+    });
+
+    controller.handleIncoming(createPresenterRemoteReadyMessage(identity, 60));
+
+    expect(posted).toHaveLength(1);
+    expect(posted[0]).toMatchObject({ type: "presenter-snapshot" });
+    expect(statuses).toEqual(["connected"]);
+  });
+
+  it("marks the publisher connected on presenter remote heartbeat", () => {
+    const statuses: PresentationChannelStatus[] = [];
+    const controller = createPresentationPublisherController({
+      channel: {
+        close: vi.fn(),
+        postMessage: vi.fn()
+      },
+      getSnapshot: () => null,
+      getState: () => null,
+      identity,
+      onStatusChange: (status) => statuses.push(status)
+    });
+
+    controller.handleIncoming(createPresenterRemoteHeartbeatMessage(identity, 70));
+
+    expect(statuses).toEqual(["connected"]);
+  });
+
+  it("passes presenter remote commands to the owner without publishing state", () => {
+    const commands: unknown[] = [];
+    const postMessage = vi.fn();
+    const statuses: PresentationChannelStatus[] = [];
+    const controller = createPresentationPublisherController({
+      channel: {
+        close: vi.fn(),
+        postMessage
+      },
+      getSnapshot: () => {
+        throw new Error("command should not request a snapshot");
+      },
+      getState: () => null,
+      identity,
+      onCommand: (command) => commands.push(command),
+      onStatusChange: (status) => statuses.push(status)
+    });
+
+    controller.handleIncoming(
+      createPresenterCommandMessage({
+        command: { action: "next-step" },
+        identity,
+        sentAt: 80
+      })
+    );
+
+    expect(commands).toEqual([{ action: "next-step" }]);
+    expect(postMessage).not.toHaveBeenCalled();
     expect(statuses).toEqual(["connected"]);
   });
 

@@ -91,22 +91,28 @@ import {
 import {
   DisplayControls,
   type RequestDisplayScreensResult,
+  type RequestSlideWindowFullscreenResult,
   type SlideDisplayOptions
 } from "./presenter/DisplayControls";
 import {
   PresentWindowReceiver,
   requestPresentWindowFullscreen
 } from "./presenter/PresentWindow";
+import { PresenterRemoteWindow } from "./presenter/PresenterRemoteWindow";
 import {
   createDisplayManager,
   type DisplayManagerErrorCode,
-  type DisplayScreenDescriptor
+  type DisplayScreenDescriptor,
+  type SlideWindowRef
 } from "./presenter/displayManager";
 import { SingleScreenPresenter } from "./presenter/SingleScreenPresenter";
 import { SlideshowRenderer } from "./presenter/SlideshowRenderer";
 import { createSlideshowAnimationPlan } from "./presenter/slideshowStepModel";
 import { getNextPresenterStepState } from "./presenter/presenterStepNavigation";
-import { createSlideWindowDeckSnapshot } from "./presenter/presentationChannel";
+import {
+  createSlideWindowDeckSnapshot,
+  type PresenterRemoteCommand
+} from "./presenter/presentationChannel";
 import { usePresentationChannelPublisher } from "./presenter/usePresentationChannelPublisher";
 import { usePresenterKeyboard } from "./presenter/usePresenterKeyboard";
 import { AutoAdvanceSettings } from "./advance/AutoAdvanceSettings";
@@ -1335,7 +1341,8 @@ export function RehearsalWorkspace(props: {
     useState<PauseDetectorSnapshot | null>(null);
   const [isLiveDemoActive, setIsLiveDemoActive] = useState(false);
   const [isLiveStopModalOpen, setIsLiveStopModalOpen] = useState(false);
-  const [displayRole, setDisplayRole] = useState<"presenter" | "slide-receiver">("presenter");
+  const [displayRole, setDisplayRole] =
+    useState<"presenter" | "slide-receiver" | "slide-surface">("presenter");
   const [slideReceiverMessage, setSlideReceiverMessage] = useState("");
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [slideElapsedSeconds, setSlideElapsedSeconds] = useState(0);
@@ -1361,6 +1368,7 @@ export function RehearsalWorkspace(props: {
   const pendingP3RunMetaRef = useRef<Promise<RehearsalRunMeta | null> | null>(null);
   const pendingP3SlideIndexRef = useRef<number | null>(null);
   const finishAfterReportRef = useRef(false);
+  const slideWindowRef = useRef<SlideWindowRef | null>(null);
   const deckRef = useRef<Deck | null>(props.initialDeck ?? null);
   const currentSlideIndexRef = useRef(0);
   const liveTranscriptBufferRef = useRef<LiveTranscriptBuffer>(
@@ -1452,6 +1460,55 @@ export function RehearsalWorkspace(props: {
       ? Math.max(timerDurationSeconds - elapsedSeconds, 0)
       : elapsedSeconds;
 
+  function handlePresenterRemoteCommand(command: PresenterRemoteCommand) {
+    const deckSnapshot = deckRef.current;
+    if (!deckSnapshot) {
+      return;
+    }
+    if (deckSnapshot.slides.length === 0) {
+      return;
+    }
+
+    cancelAutoAdvanceForManualCommand();
+
+    if (command.action === "prev") {
+      presenterStepIndexRef.current = 0;
+      setPresenterStepIndex(0);
+      setCurrentSlideIndex((current) => Math.max(0, current - 1));
+      return;
+    }
+
+    if (command.action === "goto") {
+      const nextSlideIndex = Math.min(
+        deckSnapshot.slides.length - 1,
+        Math.max(0, Math.trunc(command.slideIndex))
+      );
+      presenterStepIndexRef.current = Math.max(0, Math.trunc(command.stepIndex ?? 0));
+      setPresenterStepIndex(presenterStepIndexRef.current);
+      setCurrentSlideIndex(nextSlideIndex);
+      return;
+    }
+
+    const slide = deckSnapshot.slides[currentSlideIndexRef.current];
+    if (!slide) {
+      return;
+    }
+
+    const plan = createSlideshowAnimationPlan({
+      slide,
+      triggerAnimationIds: getTriggerAnimationIdsForSlide(slide)
+    });
+    const nextState = getNextPresenterStepState({
+      currentSlideIndex: currentSlideIndexRef.current,
+      currentStepIndex: presenterStepIndexRef.current,
+      maxStepIndex: plan.maxStepIndex,
+      slideCount: deckSnapshot.slides.length
+    });
+    presenterStepIndexRef.current = nextState.stepIndex;
+    setPresenterStepIndex(nextState.stepIndex);
+    setCurrentSlideIndex(nextState.slideIndex);
+  }
+
   useEffect(() => {
     if (timeMode === "timer" && elapsedSeconds >= timerDurationSeconds) {
       setIsTimerRunning(false);
@@ -1538,7 +1595,10 @@ export function RehearsalWorkspace(props: {
   );
   const presentationChannel = usePresentationChannelPublisher({
     deck,
-    enabled: displayRole === "presenter",
+    enabled:
+      !props.presenterWindow &&
+      (displayRole === "presenter" || displayRole === "slide-surface"),
+    onCommand: handlePresenterRemoteCommand,
     sessionId: props.presenterSessionId,
     state: presentationChannelState,
     triggerAnimationIds
@@ -1633,7 +1693,10 @@ export function RehearsalWorkspace(props: {
   }, [currentSlide?.slideId]);
 
   usePresenterKeyboard({
-    enabled: Boolean(deck) && displayRole === "presenter",
+    enabled:
+      Boolean(deck) &&
+      !props.presenterWindow &&
+      (displayRole === "presenter" || displayRole === "slide-surface"),
     onNextStep: () => {
       handleNextPresenterStep();
     },
@@ -1641,6 +1704,24 @@ export function RehearsalWorkspace(props: {
       goPrevious();
     }
   });
+
+  useEffect(() => {
+    if (displayRole !== "slide-surface" || typeof document === "undefined") {
+      return;
+    }
+
+    const handleFullscreenChange = () => {
+      if (!document.fullscreenElement) {
+        setDisplayRole("presenter");
+        setSlideReceiverMessage("");
+      }
+    };
+
+    document.addEventListener("fullscreenchange", handleFullscreenChange);
+    return () => {
+      document.removeEventListener("fullscreenchange", handleFullscreenChange);
+    };
+  }, [displayRole]);
 
   useEffect(() => {
     resetAutoAdvanceRuntimeState(currentSlide?.slideId ?? null);
@@ -2424,6 +2505,8 @@ export function RehearsalWorkspace(props: {
     navigateToPath(getRehearsalFinishPath(projectId, run));
   };
   const resetSlideDisplayToBeginning = () => {
+    presenterStepIndexRef.current = 0;
+    currentSlideIndexRef.current = 0;
     setPresenterStepIndex(0);
     setCurrentSlideIndex(0);
   };
@@ -2444,20 +2527,108 @@ export function RehearsalWorkspace(props: {
 
     return { code: result.code, ok: false };
   };
-  const resolveAutoPlacementScreen = async (
+  const resolveAutoPlacementScreen = (
     options: SlideDisplayOptions
-  ): Promise<{
+  ): {
     placementCode?: DisplayManagerErrorCode;
     targetScreen: DisplayScreenDescriptor | null;
-  }> => {
+  } => {
     if (!options.autoPlace) {
       return { targetScreen: null };
     }
 
     return { targetScreen: options.targetScreen ?? null };
   };
+  const buildPresenterRemoteWindowPath = (state: { slideIndex: number; stepIndex: number }) =>
+    props.projectId
+      ? getRehearsalPresenterWindowPath(props.projectId, presentationChannel.sessionId, state)
+      : getCurrentRehearsalPresenterWindowPath(presentationChannel.sessionId, state);
+  const closeSlideWindow = (windowRef: SlideWindowRef | null) => {
+    if (windowRef && !windowRef.closed) {
+      windowRef.close?.();
+    }
+  };
+  const closeExistingSlideWindow = () => {
+    closeSlideWindow(slideWindowRef.current);
+    slideWindowRef.current = null;
+  };
+  const requestSlideWindowFullscreen =
+    async (): Promise<RequestSlideWindowFullscreenResult> => {
+      if (!slideWindowRef.current || slideWindowRef.current.closed) {
+        return { code: "fullscreen-blocked", ok: false };
+      }
+
+      const result = displayManager.delegateSlideWindowFullscreen(slideWindowRef.current);
+      if (!result.ok) {
+        return { code: result.code, ok: false };
+      }
+
+      return { ok: true };
+    };
+  const openSurfaceSwapDisplay = async (
+    options: SlideDisplayOptions,
+    targetScreen: DisplayScreenDescriptor,
+    placementCode?: DisplayManagerErrorCode
+  ) => {
+    if (!slideReceiverIdentity) {
+      return {
+        autoPlaced: false,
+        displayOpened: false,
+        fullscreenStarted: false,
+        placementCode,
+        placementTargetLabel: targetScreen.label
+      };
+    }
+
+    if (options.startFromBeginning) {
+      resetSlideDisplayToBeginning();
+    }
+
+    const fullscreenResult = await displayManager.requestFullscreenOnScreen(
+      typeof document === "undefined" ? null : document.documentElement,
+      targetScreen.screenIndex
+    );
+    if (!fullscreenResult.ok) {
+      return {
+        autoPlaced: false,
+        displayOpened: false,
+        fullscreenStarted: false,
+        placementCode: fullscreenResult.code,
+        placementTargetLabel: targetScreen.label
+      };
+    }
+
+    closeExistingSlideWindow();
+    const remoteWindowResult = displayManager.openPresenterRemoteWindow(
+      buildPresenterRemoteWindowPath({
+        slideIndex: currentSlideIndexRef.current,
+        stepIndex: presenterStepIndexRef.current
+      }),
+      {
+        screen: displayManager.getCurrentScreen(),
+        target: `orbit-presenter-${presentationChannel.sessionId}-${Date.now()}`
+      }
+    );
+
+    setSlideReceiverMessage(
+      remoteWindowResult.ok
+        ? ""
+        : "팝업이 차단되었습니다. 발표는 계속 진행됩니다. 이 화면의 제어 버튼으로 진행해주세요."
+    );
+    setDisplayRole("slide-surface");
+    publishSlideWindowSnapshot(options.startFromBeginning);
+
+    return {
+      autoPlaced: true,
+      displayOpened: true,
+      fullscreenStarted: true,
+      placementCode: remoteWindowResult.ok ? placementCode : remoteWindowResult.code,
+      placementTargetLabel: targetScreen.label
+    };
+  };
   const openSlideWindowForDisplay = async (options: SlideDisplayOptions) => {
     if (!slideReceiverIdentity) {
+      closeExistingSlideWindow();
       return {
         autoPlaced: false,
         displayOpened: false,
@@ -2471,10 +2642,22 @@ export function RehearsalWorkspace(props: {
       resetSlideDisplayToBeginning();
     }
 
-    const { placementCode, targetScreen } = await resolveAutoPlacementScreen(options);
+    const { placementCode, targetScreen } = resolveAutoPlacementScreen(options);
+    if (options.presenterView && options.fullscreen && options.autoPlace && targetScreen) {
+      const surfaceSwapResult = await openSurfaceSwapDisplay(
+        options,
+        targetScreen,
+        placementCode
+      );
+      if (surfaceSwapResult.fullscreenStarted) {
+        return surfaceSwapResult;
+      }
+    }
+
+    const previousSlideWindow = slideWindowRef.current;
     const openResult = displayManager.openSlideWindow(slideReceiverIdentity, {
       screen: targetScreen,
-      target: `orbit-slide-${presentationChannel.sessionId}`
+      target: `orbit-slide-${presentationChannel.sessionId}-${Date.now()}`
     });
     if (!openResult.ok) {
       return {
@@ -2486,22 +2669,16 @@ export function RehearsalWorkspace(props: {
       };
     }
 
-    let autoPlaced = false;
-    let effectivePlacementCode = placementCode;
-    if (targetScreen) {
-      const placementResult = displayManager.placeOnScreen(openResult.value, targetScreen);
-      autoPlaced = placementResult.ok;
-      effectivePlacementCode = placementResult.ok
-        ? effectivePlacementCode
-        : placementResult.code;
+    if (previousSlideWindow !== openResult.value) {
+      closeSlideWindow(previousSlideWindow);
     }
-
+    slideWindowRef.current = openResult.value;
     publishSlideWindowSnapshot(options.startFromBeginning);
     return {
-      autoPlaced,
+      autoPlaced: Boolean(targetScreen),
       displayOpened: true,
       fullscreenStarted: false,
-      placementCode: effectivePlacementCode,
+      placementCode,
       placementTargetLabel: targetScreen?.label
     };
   };
@@ -2547,7 +2724,7 @@ export function RehearsalWorkspace(props: {
       autoPlaced: slideWindowResult.autoPlaced,
       displayMode: "slide-window" as const,
       displayOpened: slideWindowResult.displayOpened,
-      fullscreenStarted: false,
+      fullscreenStarted: slideWindowResult.fullscreenStarted,
       placementCode: slideWindowResult.placementCode,
       placementTargetLabel: slideWindowResult.placementTargetLabel
     };
@@ -2641,12 +2818,38 @@ export function RehearsalWorkspace(props: {
     [deck, presentationChannelState, triggerAnimationIds]
   );
 
-  if (displayRole === "slide-receiver" && slideReceiverIdentity && slideReceiverSnapshot) {
+  if (props.presenterWindow && (!deck || !slideReceiverIdentity || !presentationChannelState)) {
+    return (
+      <main className="presenter-remote-shell" aria-label="발표자 제어 창">
+        <section className="presenter-remote-status" role="status">
+          발표자 제어를 준비하는 중입니다.
+        </section>
+      </main>
+    );
+  }
+
+  if (props.presenterWindow && deck && slideReceiverIdentity && presentationChannelState) {
+    return (
+      <PresenterRemoteWindow
+        deck={deck}
+        identity={slideReceiverIdentity}
+        initialState={presentationChannelState}
+      />
+    );
+  }
+
+  if (
+    (displayRole === "slide-receiver" || displayRole === "slide-surface") &&
+    slideReceiverIdentity &&
+    slideReceiverSnapshot
+  ) {
     return (
       <PresentWindowReceiver
         fullscreenMessage={slideReceiverMessage}
         identity={slideReceiverIdentity}
         initialSnapshot={slideReceiverSnapshot}
+        onNextStep={displayRole === "slide-surface" ? handleNextPresenterStep : undefined}
+        onPreviousSlide={displayRole === "slide-surface" ? goPrevious : undefined}
         onReconnectPresenter={(snapshot) => {
           const presenterWindowPath = props.projectId
             ? getRehearsalPresenterWindowPath(props.projectId, presentationChannel.sessionId, {
@@ -2751,6 +2954,7 @@ export function RehearsalWorkspace(props: {
               channelStatus={presentationChannel.status}
               onOpenSlideDisplay={openSlideDisplay}
               onRequestDisplayScreens={requestDisplayScreens}
+              onRequestSlideWindowFullscreen={requestSlideWindowFullscreen}
             />
             <button
               className="presenter-single-screen-button"

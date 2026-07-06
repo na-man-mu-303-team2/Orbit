@@ -330,6 +330,45 @@ describe("PresentWindow", () => {
     expect(html).toContain("전체화면");
   });
 
+  it("renders optional slide-surface navigation controls", () => {
+    const snapshotMessage = createPresenterSnapshotMessage({
+      deck: p0AnimationDeck,
+      identity,
+      sentAt: 10,
+      state: createPresenterSlideshowState(p0AnimationDeck),
+      triggerAnimationIds: []
+    });
+    const html = renderToStaticMarkup(
+      <PresentWindowContent
+        identity={identity}
+        isFullscreen={true}
+        onNextStep={() => {}}
+        onPreviousSlide={() => {}}
+        snapshot={{
+          deck: snapshotMessage.deck,
+          state: snapshotMessage.state,
+          triggerAnimationIds: []
+        }}
+      />
+    );
+
+    expect(html).toContain("present-window-previous");
+    expect(html).toContain("present-window-next");
+    expect(html).toContain("이전");
+    expect(html).toContain("다음");
+  });
+
+  it("accepts same-origin delegated fullscreen requests from the presenter window", () => {
+    const source = fs.readFileSync(presentWindowSourcePath, "utf8");
+    const start = source.indexOf("const onMessage = (event: MessageEvent)");
+    const end = source.indexOf("return (", start);
+    const messageHandlerBody = source.slice(start, end);
+
+    expect(messageHandlerBody).toContain("event.origin !== window.location.origin");
+    expect(messageHandlerBody).toContain("isSlideWindowFullscreenRequestMessage(event.data)");
+    expect(messageHandlerBody).toContain("requestPresentWindowFullscreen(rootRef.current)");
+  });
+
   it("shows presenter reconnect guidance when presenter heartbeat is stale", () => {
     const snapshotMessage = createPresenterSnapshotMessage({
       deck: p0AnimationDeck,

@@ -11,6 +11,7 @@ import {
   matchesPresentationChannelIdentity,
   type PresentationChannelIdentity,
   type PresentationChannelMessage,
+  type PresenterRemoteCommand,
   type PresenterSnapshotMessage,
   type PresenterStateMessage
 } from "./presentationChannel";
@@ -44,11 +45,13 @@ export function usePresentationChannelPublisher(args: {
   sessionId?: string;
   state: PresenterSlideshowState | null;
   triggerAnimationIds: string[];
+  onCommand?: (command: PresenterRemoteCommand) => void;
 }) {
   const {
     channelFactory = createBroadcastChannel,
     deck,
     enabled = true,
+    onCommand,
     sessionId: sessionIdOverride,
     state,
     triggerAnimationIds
@@ -109,6 +112,7 @@ export function usePresentationChannelPublisher(args: {
         });
       },
       identity,
+      onCommand,
       onPeerSeen: () => {
         lastPeerSeenAtRef.current = Date.now();
         peerWaitStartedAtRef.current = null;
@@ -186,10 +190,19 @@ export function createPresentationPublisherController(args: {
   getSnapshot: () => PresenterSnapshotMessage | null;
   getState: () => PresenterStateMessage | null;
   identity: PresentationChannelIdentity;
+  onCommand?: (command: PresenterRemoteCommand) => void;
   onPeerSeen?: () => void;
   onStatusChange?: (status: PresentationChannelStatus) => void;
 }): PresentationPublisherController {
-  const { channel, getSnapshot, getState, identity, onPeerSeen, onStatusChange } = args;
+  const {
+    channel,
+    getSnapshot,
+    getState,
+    identity,
+    onCommand,
+    onPeerSeen,
+    onStatusChange
+  } = args;
 
   return {
     close: () => {
@@ -206,6 +219,7 @@ export function createPresentationPublisherController(args: {
 
       onPeerSeen?.();
       handlePublisherMessage(data, {
+        handleCommand: onCommand,
         publishSnapshot: () => {
           const snapshot = getSnapshot();
           if (snapshot) {
@@ -243,17 +257,24 @@ export function isPresentationPeerStale(
 function handlePublisherMessage(
   message: PresentationChannelMessage,
   handlers: {
+    handleCommand?: (command: PresenterRemoteCommand) => void;
     publishSnapshot: () => void;
     setConnected: () => void;
   }
 ) {
-  if (message.type === "slide-window-ready") {
+  if (message.type === "slide-window-ready" || message.type === "presenter-remote-ready") {
     handlers.publishSnapshot();
     handlers.setConnected();
     return;
   }
 
-  if (message.type === "slide-window-heartbeat") {
+  if (message.type === "slide-window-heartbeat" || message.type === "presenter-remote-heartbeat") {
+    handlers.setConnected();
+    return;
+  }
+
+  if (message.type === "presenter-command") {
+    handlers.handleCommand?.(message.command);
     handlers.setConnected();
   }
 }

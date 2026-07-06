@@ -1,8 +1,12 @@
 import type { Deck } from "@orbit/shared";
-import { Maximize2, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, Maximize2, X } from "lucide-react";
 import type { ReactNode, Ref } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { SlideshowRenderer } from "./SlideshowRenderer";
+import {
+  slideWindowFullscreenRequestType,
+  type SlideWindowFullscreenRequestMessage
+} from "./displayManager";
 import type { PresenterSlideshowState } from "./presenterStateStore";
 import {
   createSlideWindowHeartbeatMessage,
@@ -65,6 +69,8 @@ export function PresentWindowReceiver(props: {
   initialSnapshot?: PresentWindowSnapshot | null;
   isFullscreen?: boolean;
   onExit?: () => void;
+  onNextStep?: () => void;
+  onPreviousSlide?: () => void;
   onReconnectPresenter?: (snapshot: PresentWindowSnapshot) => void;
 }) {
   const {
@@ -74,6 +80,8 @@ export function PresentWindowReceiver(props: {
     initialSnapshot = null,
     isFullscreen,
     onExit,
+    onNextStep,
+    onPreviousSlide,
     onReconnectPresenter
   } = props;
   const [snapshot, setSnapshot] = useState<PresentWindowSnapshot | null>(initialSnapshot);
@@ -167,6 +175,8 @@ export function PresentWindowReceiver(props: {
       isFullscreen={isFullscreen}
       isPresenterStale={isPresenterStale}
       onExit={onExit}
+      onNextStep={onNextStep}
+      onPreviousSlide={onPreviousSlide}
       onReconnectPresenter={onReconnectPresenter}
       snapshot={snapshot}
     />
@@ -179,6 +189,8 @@ export function PresentWindowContent(props: {
   isFullscreen?: boolean;
   isPresenterStale?: boolean;
   onExit?: () => void;
+  onNextStep?: () => void;
+  onPreviousSlide?: () => void;
   onReconnectPresenter?: (snapshot: PresentWindowSnapshot) => void;
   snapshot: PresentWindowSnapshot;
   viewport?: ViewportSize;
@@ -188,6 +200,8 @@ export function PresentWindowContent(props: {
     identity,
     isPresenterStale = false,
     onExit,
+    onNextStep,
+    onPreviousSlide,
     onReconnectPresenter,
     snapshot
   } = props;
@@ -205,6 +219,22 @@ export function PresentWindowContent(props: {
   const shouldShowReconnect = Boolean(
     onReconnectPresenter && (fullscreenMessage || isPresenterStale)
   );
+
+  useEffect(() => {
+    const onMessage = (event: MessageEvent) => {
+      if (event.origin !== window.location.origin) {
+        return;
+      }
+      if (!isSlideWindowFullscreenRequestMessage(event.data)) {
+        return;
+      }
+
+      void requestPresentWindowFullscreen(rootRef.current);
+    };
+
+    window.addEventListener("message", onMessage);
+    return () => window.removeEventListener("message", onMessage);
+  }, []);
 
   return (
     <PresentWindowShell ref={rootRef}>
@@ -225,7 +255,12 @@ export function PresentWindowContent(props: {
           triggerAnimationIds={snapshot.triggerAnimationIds}
         />
       </div>
-      {!isFullscreen || actionMessages.length > 0 || shouldShowReconnect || onExit ? (
+      {!isFullscreen ||
+      actionMessages.length > 0 ||
+      shouldShowReconnect ||
+      onPreviousSlide ||
+      onNextStep ||
+      onExit ? (
         <div className="present-window-actions">
           {actionMessages.map((message) => (
             <span className="present-window-action-message" key={message}>
@@ -242,6 +277,26 @@ export function PresentWindowContent(props: {
             >
               <Maximize2 size={17} />
               전체화면
+            </button>
+          ) : null}
+          {onPreviousSlide ? (
+            <button
+              className="present-window-previous"
+              type="button"
+              onClick={onPreviousSlide}
+            >
+              <ChevronLeft size={17} />
+              이전
+            </button>
+          ) : null}
+          {onNextStep ? (
+            <button
+              className="present-window-next"
+              type="button"
+              onClick={onNextStep}
+            >
+              다음
+              <ChevronRight size={17} />
             </button>
           ) : null}
           {shouldShowReconnect && onReconnectPresenter ? (
@@ -393,6 +448,16 @@ export async function requestPresentWindowFullscreen(target: HTMLElement | null)
   } catch {
     return false;
   }
+}
+
+function isSlideWindowFullscreenRequestMessage(
+  value: unknown
+): value is SlideWindowFullscreenRequestMessage {
+  return (
+    Boolean(value) &&
+    typeof value === "object" &&
+    (value as { type?: unknown }).type === slideWindowFullscreenRequestType
+  );
 }
 
 function createBroadcastChannel(channelName: string): ChannelLike {
