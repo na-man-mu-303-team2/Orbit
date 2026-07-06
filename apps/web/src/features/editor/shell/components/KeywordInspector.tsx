@@ -71,10 +71,13 @@ export function KeywordHighlightedNotes(props: {
         const isSelected = Boolean(
           occurrenceKey && occurrenceKey === selectedKeywordOccurrenceKey
         );
+        const shouldShowKeywordMark = Boolean(
+          keyword && (!selectedKeywordOccurrenceKey || isSelected)
+        );
 
         return (
           <button
-            className={`${keyword ? "keyword-mark" : "keyword-note-token"} ${
+            className={`${shouldShowKeywordMark ? "keyword-mark" : "keyword-note-token"} ${
               isSelected ? "selected" : ""
             }`}
             data-keyword-id={keyword?.keywordId}

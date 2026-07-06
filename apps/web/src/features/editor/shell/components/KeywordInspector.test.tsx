@@ -113,7 +113,10 @@ describe("KeywordHighlightedNotes", () => {
     );
 
     expect(html.match(/class="keyword-mark selected"/g)).toHaveLength(1);
-    expect(html.match(/class="keyword-mark "/g)).toHaveLength(1);
+    expect(html.match(/class="keyword-mark "/g)).toBeNull();
+    expect(html).toContain(
+      'class="keyword-note-token " data-keyword-id="kw_ai" data-occurrence-id="kwo_slide_1_kw_ai_6_8"'
+    );
     expect(html).toContain(
       'data-occurrence-id="kwo_slide_1_kw_ai_0_2"'
     );
