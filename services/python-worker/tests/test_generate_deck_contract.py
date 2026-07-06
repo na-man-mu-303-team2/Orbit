@@ -617,7 +617,11 @@ def test_generate_deck_applies_document_style_pack_modes(
     assert f"Document mode: {document_mode}" in llm_input
     assert_only_template_style_prompt(llm_input, style_pack_id)
     assert response.deck["theme"]["name"] == style_pack_id
-    assert has_element(slide, "el_1_simple_basic_top_stripe")
+    assert has_element(slide, "el_1_accent_rail")
+    assert not any(
+        element["elementId"].startswith("el_1_simple_basic_")
+        for element in slide["elements"]
+    )
     assert "stylePackId" not in deck_text
     assert response.validation.passed is True
 
@@ -1954,7 +1958,11 @@ def test_generate_deck_keeps_document_process_slides_in_style_pack(
     element_types = [element["type"] for element in slide["elements"]]
 
     assert response.deck["theme"]["name"] == style_pack_id
-    assert has_element(slide, "el_1_simple_basic_top_stripe")
+    if style_pack_id == "simple-basic":
+        assert has_element(slide, "el_1_simple_basic_top_stripe")
+    else:
+        assert has_element(slide, "el_1_accent_rail")
+        assert all("_simple_basic_" not in element_id for element_id in element_ids)
     assert all("_process_card_" not in element_id for element_id in element_ids)
     assert all("_process_arrow_" not in element_id for element_id in element_ids)
     assert "customShape" not in element_types

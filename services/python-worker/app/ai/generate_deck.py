@@ -4560,7 +4560,7 @@ def design_elements(
         and not is_diagram_composition(composition)
     ):
         emphasis_style = "keyword-chips"
-    if theme.get("name") in DOCUMENT_STYLE_PACK_IDS:
+    if theme.get("name") == SIMPLE_BASIC_STYLE_PACK_ID:
         return simple_basic_design_elements(
             slide_plan,
             visual_plan,
@@ -4722,7 +4722,11 @@ def design_elements(
             )
         )
 
-    elements.extend(diagram_elements(slide_plan, composition, theme))
+    if theme.get("name") not in {
+        PRESENTATION_DOCUMENT_STYLE_PACK_ID,
+        SUBMISSION_DOCUMENT_STYLE_PACK_ID,
+    }:
+        elements.extend(diagram_elements(slide_plan, composition, theme))
 
     if emphasis_style == "keyword-chips" and slide_plan.order == 1:
         elements.extend(keyword_chip_elements(slide_plan, theme))
