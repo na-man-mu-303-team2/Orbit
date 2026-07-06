@@ -2196,6 +2196,26 @@ export function EditorShell(props: { projectId?: string }) {
       normalizeDeckAssetUrls(workingDeckRef.current)
     );
     const persistedDeck = await putProjectDeck(activeProjectId, snapshotDeck);
+
+    if (
+      pendingPatchInputsRef.current.length > 0 ||
+      !shouldApplyManualSaveResult({
+        snapshotDeck,
+        currentDeck: workingDeckRef.current
+      })
+    ) {
+      queryClient.setQueryData(["deck", projectId], (current?: Deck) =>
+        mergeDeckIntoQueryCache(current, persistedDeck)
+      );
+      persistedBaseDeckRef.current = persistedDeck;
+      lastAckedDeckRef.current = persistedDeck;
+      hasHydratedPersistedBaseRef.current = true;
+      setLastSavedAt(new Date().toISOString());
+      setSaveState("auto-pending");
+      setSaveError(null, null);
+      return;
+    }
+
     applyPersistedDeck(persistedDeck);
     setLastSavedAt(new Date().toISOString());
     setSaveState("auto-saved");
@@ -2252,27 +2272,7 @@ export function EditorShell(props: { projectId?: string }) {
       undoRedoPersistLabelRef.current = null;
       saveQueueRef.current = saveQueueRef.current
         .catch(() => undefined)
-        .then(async () => {
-          const activeProjectId = deckQuery.data?.projectId ?? workingDeckRef.current.projectId;
-
-          if (!activeProjectId) {
-            throw withSaveErrorCode(
-              new Error("저장할 프로젝트를 찾지 못했습니다."),
-              "missing-project"
-            );
-          }
-
-          setSaveState("auto-saving");
-          const snapshotDeck = structuredClone(
-            normalizeDeckAssetUrls(workingDeckRef.current)
-          );
-          const persistedDeck = await putProjectDeck(activeProjectId, snapshotDeck);
-          applyPersistedDeck(persistedDeck);
-          setLastSavedAt(new Date().toISOString());
-          setSaveState("auto-saved");
-          setSaveError(null, null);
-          setLastPatchLabel(`${label} · v${persistedDeck.version}`);
-        })
+        .then(() => persistUndoRedoDeckSnapshot(label))
         .catch((error: unknown) => {
           setLastPatchLabel(`저장 실패 · ${toEditorErrorMessage(error)}`);
           setSaveState("error");
