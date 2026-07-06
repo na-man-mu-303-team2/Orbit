@@ -1,4 +1,8 @@
-import { HttpException, UnauthorizedException } from "@nestjs/common";
+import {
+  HttpException,
+  NotFoundException,
+  UnauthorizedException,
+} from "@nestjs/common";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AudienceSessionsController } from "./audience-sessions.controller";
 import { PresentationSessionsService } from "./presentation-sessions.service";
@@ -124,7 +128,7 @@ describe("AudienceSessionsController", () => {
   it("looks up a public audience session without presenter fields", async () => {
     const { controller, service } = createController();
 
-    const result = await controller.getJoinSession("123456");
+    const result = await controller.getJoinSession("123456", createRequest());
 
     expect(service.getActiveSessionByJoinCode).toHaveBeenCalledWith("123456");
     expect(result).toEqual({
@@ -138,6 +142,63 @@ describe("AudienceSessionsController", () => {
     });
     expect(result.session).not.toHaveProperty("deckId");
     expect(result.session).not.toHaveProperty("presenterUserId");
+  });
+
+  it("restores an ended session for an existing audience cookie when join lookup is no longer active", async () => {
+    const response = { cookie: vi.fn() } as any;
+    const initial = createController();
+    await initial.controller.joinSession(
+      "123456",
+      { nickname: "orbit" },
+      createRequest({ userAgent: "vitest-ended-restore" }),
+      response,
+    );
+    const signedAudienceToken = response.cookie.mock.calls[0][1] as string;
+    const endedSession = {
+      ...session,
+      status: "ended" as const,
+      entryStatus: "closed" as const,
+      endedAt: "2026-07-05T00:30:00.000Z",
+      surveyClosesAt: "2999-07-05T01:30:00.000Z",
+    };
+    const { controller, service } = createController({
+      getActiveSessionByJoinCode: vi.fn(async () => {
+        throw new NotFoundException("입장 코드를 확인해 주세요.");
+      }),
+      getAudienceMe: vi.fn(async () => ({
+        session: {
+          sessionId: endedSession.sessionId,
+          projectId: endedSession.projectId,
+          joinCode: endedSession.joinCode,
+          status: endedSession.status,
+          entryStatus: endedSession.entryStatus,
+        },
+        participant,
+      })),
+    });
+
+    await expect(
+      controller.getJoinSession(
+        "123456",
+        createRequest({
+          signedAudienceToken,
+          userAgent: "vitest-ended-restore",
+        }),
+      ),
+    ).resolves.toEqual({
+      session: {
+        sessionId: "session_existing",
+        projectId: "project_1",
+        joinCode: "123456",
+        status: "ended",
+        entryStatus: "closed",
+      },
+    });
+    expect(service.getAudienceMe).toHaveBeenCalledWith(
+      "session_existing",
+      expect.stringMatching(/^audience_[0-9a-f-]{36}$/),
+      expect.any(String),
+    );
   });
 
   it("sets an HttpOnly audience cookie when joining by nickname", async () => {

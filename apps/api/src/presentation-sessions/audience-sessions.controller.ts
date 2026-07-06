@@ -47,16 +47,30 @@ export class AudienceSessionsController {
   ) {}
 
   @Get("join/:joinCode")
-  async getJoinSession(@Param("joinCode") joinCode: string) {
+  async getJoinSession(
+    @Param("joinCode") joinCode: string,
+    @Req() request: SignedCookieRequest,
+  ) {
     const params = audienceJoinCodeParamsSchema.parse({ joinCode });
-    const session =
-      await this.presentationSessionsService.getActiveSessionByJoinCode(
-        params.joinCode,
-      );
+    try {
+      const session =
+        await this.presentationSessionsService.getActiveSessionByJoinCode(
+          params.joinCode,
+        );
 
-    return audienceSessionLookupResponseSchema.parse({
-      session: toAudiencePublicSession(session),
-    });
+      return audienceSessionLookupResponseSchema.parse({
+        session: toAudiencePublicSession(session),
+      });
+    } catch (error) {
+      const restored = await this.tryGetExistingAccessFromCookie(request);
+      if (restored?.session.joinCode === params.joinCode) {
+        return audienceSessionLookupResponseSchema.parse({
+          session: restored.session,
+        });
+      }
+
+      throw error;
+    }
   }
 
   @Post("join/:joinCode")
@@ -333,6 +347,33 @@ export class AudienceSessionsController {
     try {
       const result = await this.presentationSessionsService.getAudienceMe(
         sessionId,
+        payload.audienceId,
+        hashAudienceAccessToken(this.config, token),
+      );
+      return audienceJoinResponseSchema.parse(result);
+    } catch {
+      return null;
+    }
+  }
+
+  private async tryGetExistingAccessFromCookie(request: SignedCookieRequest) {
+    const token = getSignedAudienceAccessToken(request);
+    if (!token) {
+      return null;
+    }
+
+    const payload = verifyAudienceAccessToken(
+      this.config,
+      token,
+      getUserAgent(request),
+    );
+    if (!payload) {
+      return null;
+    }
+
+    try {
+      const result = await this.presentationSessionsService.getAudienceMe(
+        payload.sessionId,
         payload.audienceId,
         hashAudienceAccessToken(this.config, token),
       );
