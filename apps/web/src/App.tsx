@@ -1085,11 +1085,15 @@ function HomePage(props: { user?: AuthUser; templateStyleId?: HomeTemplateStyleI
     uploads,
     durationInput,
     minSlidesInput,
-    maxSlidesInput
+    maxSlidesInput,
+    !selectedTemplateStyleId
   );
 
   useEffect(() => {
     setSelectedTemplateStyleId(props.templateStyleId);
+    if (props.templateStyleId) {
+      setUploads((current) => normalizeTemplateReferenceUploads(current));
+    }
   }, [props.templateStyleId]);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -1109,13 +1113,14 @@ function HomePage(props: { user?: AuthUser; templateStyleId?: HomeTemplateStyleI
     try {
       const project = await createProject(getGeneratedDeckProjectTitle(topic));
       const uploadedAssets = new Map<string, string>();
+      const allowDesignReferences = !selectedTemplateStyleId;
 
       for (const upload of uploads) {
         setStatus(`${upload.file.name} 업로드 중...`);
         const uploaded = await uploadProjectAsset(
           project.projectId,
           upload.file,
-          getAiTemplateUploadPurpose(upload)
+          getHomeUploadPurpose(upload, allowDesignReferences)
         );
         uploadedAssets.set(upload.id, uploaded.fileId);
       }
@@ -1123,13 +1128,20 @@ function HomePage(props: { user?: AuthUser; templateStyleId?: HomeTemplateStyleI
       const duration = parseHomeIntegerInput(durationInput) ?? 10;
       const minSlides = parseHomeIntegerInput(minSlidesInput) ?? 5;
       const maxSlides = parseHomeIntegerInput(maxSlidesInput) ?? 8;
-      const hasDesignPptx = hasHomeDesignPptxUpload(uploads);
+      const hasDesignPptx =
+        allowDesignReferences && hasHomeDesignPptxUpload(uploads);
       const referenceInput = hasDesignPptx
         ? buildReferenceGenerationInput([])
-        : await extractHomeReferenceInput(project.projectId, uploads, uploadedAssets, {
-            setJob,
-            setStatus
-          });
+        : await extractHomeReferenceInput(
+            project.projectId,
+            uploads,
+            uploadedAssets,
+            {
+              setJob,
+              setStatus
+            },
+            !allowDesignReferences
+          );
       const payload = hasDesignPptx
         ? buildAiTemplateDeckGenerationPayload({
             topic,
@@ -1160,7 +1172,11 @@ function HomePage(props: { user?: AuthUser; templateStyleId?: HomeTemplateStyleI
           });
       setStatus("AI 덱 생성 중...");
       const response = await fetch(
-        getHomeDeckGenerationJobEndpoint(project.projectId, uploads),
+        getHomeDeckGenerationJobEndpoint(
+          project.projectId,
+          uploads,
+          allowDesignReferences
+        ),
         {
           method: "POST",
           headers: { "content-type": "application/json" },
@@ -1320,7 +1336,11 @@ function HomePage(props: { user?: AuthUser; templateStyleId?: HomeTemplateStyleI
 
   function updateUploadRole(id: string, role: UploadRole) {
     setUploads((current) =>
-      current.map((upload) => (upload.id === id ? { ...upload, role } : upload))
+      current.map((upload) =>
+        upload.id === id
+          ? { ...upload, role: selectedTemplateStyleId ? "content" : role }
+          : upload
+      )
     );
     setError("");
     setStatus("");
@@ -1333,6 +1353,7 @@ function HomePage(props: { user?: AuthUser; templateStyleId?: HomeTemplateStyleI
       return;
     }
     setSelectedTemplateStyleId(styleId);
+    setUploads((current) => normalizeTemplateReferenceUploads(current));
     navigateTo(getHomeTemplateStylePath(styleId));
   }
 
@@ -1444,6 +1465,7 @@ function HomePage(props: { user?: AuthUser; templateStyleId?: HomeTemplateStyleI
               uploads={uploads}
               totalUploadSize={totalSize}
               isDisabled={isImporting}
+              allowDesignReference
               onRemoveUpload={removeUpload}
               onUpdateUploadRole={updateUploadRole}
             />
@@ -1750,6 +1772,7 @@ export function TemplateStyleOptionsPanel(props: {
             uploads={props.uploads}
             totalUploadSize={props.totalUploadSize}
             isDisabled={props.isDisabled}
+            allowDesignReference={false}
             onRemoveUpload={props.onRemoveUpload}
             onUpdateUploadRole={props.onUpdateUploadRole}
           />
@@ -1763,6 +1786,7 @@ function HomeUploadList(props: {
   uploads: UploadFile[];
   totalUploadSize: number;
   isDisabled?: boolean;
+  allowDesignReference?: boolean;
   onRemoveUpload: (id: string) => void;
   onUpdateUploadRole: (id: string, role: UploadRole) => void;
 }) {
@@ -1782,14 +1806,18 @@ function HomeUploadList(props: {
               </span>
             </div>
             <select
-              value={role}
+              value={props.allowDesignReference ? role : "content"}
               onChange={(event) => props.onUpdateUploadRole(id, event.target.value as UploadRole)}
               disabled={props.isDisabled}
               aria-label={`${file.name} 역할`}
             >
               <option value="content">내용 참고</option>
-              {isPptxFile(file) ? <option value="design">디자인 참고</option> : null}
-              {isPptxFile(file) ? <option value="both">둘 다</option> : null}
+              {props.allowDesignReference && isPptxFile(file) ? (
+                <option value="design">디자인 참고</option>
+              ) : null}
+              {props.allowDesignReference && isPptxFile(file) ? (
+                <option value="both">둘 다</option>
+              ) : null}
             </select>
             <button
               type="button"
@@ -2217,8 +2245,15 @@ function createUploadId(file: File) {
   return `${file.name}-${file.size}-${file.lastModified}`;
 }
 
-function getAiTemplateUploadPurpose(upload: UploadFile): FilePurpose {
-  if ((upload.role === "design" || upload.role === "both") && isPptxFile(upload.file)) {
+function getHomeUploadPurpose(
+  upload: UploadFile,
+  allowDesignReferences = true
+): FilePurpose {
+  if (
+    allowDesignReferences &&
+    (upload.role === "design" || upload.role === "both") &&
+    isPptxFile(upload.file)
+  ) {
     return "pptx-import";
   }
 
@@ -2232,9 +2267,13 @@ async function extractHomeReferenceInput(
   callbacks: {
     setJob: (job: Job | null) => void;
     setStatus: (status: string) => void;
-  }
+  },
+  includeDesignReferencesAsContent = false
 ) {
-  const contentUploads = getHomeContentReferenceUploads(uploads);
+  const contentUploads = getHomeContentReferenceUploads(
+    uploads,
+    includeDesignReferencesAsContent
+  );
   if (contentUploads.length === 0) {
     return buildReferenceGenerationInput([]);
   }
@@ -2275,8 +2314,13 @@ function isHomeDesignPptxUpload(upload: UploadFile) {
   return (upload.role === "design" || upload.role === "both") && isPptxFile(upload.file);
 }
 
-export function getHomeContentReferenceUploads(uploads: UploadFile[]) {
-  return uploads.filter((upload) => upload.role === "content");
+export function getHomeContentReferenceUploads(
+  uploads: UploadFile[],
+  includeDesignReferencesAsContent = false
+) {
+  return uploads.filter(
+    (upload) => includeDesignReferencesAsContent || upload.role === "content"
+  );
 }
 
 export const homeReferenceExtractEndpoint = "/api/extract";
@@ -2301,9 +2345,10 @@ export function buildHomeExtractFormData(
 
 export function getHomeDeckGenerationJobEndpoint(
   projectId: string,
-  uploads: UploadFile[]
+  uploads: UploadFile[],
+  allowDesignReferences = true
 ) {
-  const jobType = hasHomeDesignPptxUpload(uploads)
+  const jobType = allowDesignReferences && hasHomeDesignPptxUpload(uploads)
     ? "ai-template-deck-generation"
     : "generate-deck";
   return `/api/v1/projects/${encodeURIComponent(projectId)}/jobs/${jobType}`;
@@ -2314,21 +2359,24 @@ export function getHomeGenerationValidationMessage(
   uploads: UploadFile[],
   durationInput = "10",
   minSlidesInput = "5",
-  maxSlidesInput = "8"
+  maxSlidesInput = "8",
+  allowDesignReferences = true
 ) {
   if (!topic.trim()) {
     return "발표 주제를 입력하세요.";
   }
 
-  const designUploads = uploads.filter(
-    (upload) => upload.role === "design" || upload.role === "both"
-  );
-  if (designUploads.length > 1) {
-    return "디자인 참고 PPTX는 1개만 선택하세요.";
-  }
+  if (allowDesignReferences) {
+    const designUploads = uploads.filter(
+      (upload) => upload.role === "design" || upload.role === "both"
+    );
+    if (designUploads.length > 1) {
+      return "디자인 참고 PPTX는 1개만 선택하세요.";
+    }
 
-  if (designUploads.length === 1 && !isPptxFile(designUploads[0].file)) {
-    return "디자인 참고 파일은 PPTX여야 합니다.";
+    if (designUploads.length === 1 && !isPptxFile(designUploads[0].file)) {
+      return "디자인 참고 파일은 PPTX여야 합니다.";
+    }
   }
 
   const duration = parseHomeIntegerInput(durationInput);
@@ -2405,6 +2453,10 @@ export function getHomeDefaultUploadRole(file: File, hasSelectedTemplateStyle = 
   }
 
   return hasSelectedTemplateStyle ? "content" : "design";
+}
+
+function normalizeTemplateReferenceUploads(uploads: UploadFile[]) {
+  return uploads.map((upload) => ({ ...upload, role: "content" as const }));
 }
 
 function mergeUploadFiles(current: UploadFile[], next: UploadFile[]) {

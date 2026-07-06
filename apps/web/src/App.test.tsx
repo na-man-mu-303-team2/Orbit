@@ -185,6 +185,35 @@ describe("home template styles", () => {
     expect(html).toContain("참고자료 첨부");
     expect(html).toContain('type="file"');
   });
+
+  it("hides design reference roles in the selected template style settings", () => {
+    const pptx = new File(["pptx"], "reference.pptx", {
+      type: "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+    });
+    const html = renderToStaticMarkup(
+      <TemplateStyleOptionsPanel
+        templateStyle={homeTemplateStyles[0]}
+        designPrompt=""
+        densityTarget="style-default"
+        layoutDiversity="style-default"
+        mediaPolicy="style-default"
+        uploads={[{ id: "pptx", file: pptx, role: "content" }]}
+        totalUploadSize={pptx.size}
+        onClearStyle={() => undefined}
+        onDesignPromptChange={() => undefined}
+        onDensityTargetChange={() => undefined}
+        onFileChange={() => undefined}
+        onLayoutDiversityChange={() => undefined}
+        onMediaPolicyChange={() => undefined}
+        onRemoveUpload={() => undefined}
+        onUpdateUploadRole={() => undefined}
+      />
+    );
+
+    expect(html).toContain("내용 참고");
+    expect(html).not.toContain("디자인 참고");
+    expect(html).not.toContain("둘 다");
+  });
 });
 
 describe("reference extraction upload flow", () => {
@@ -476,6 +505,19 @@ describe("AI deck generation flow", () => {
         "8"
       )
     ).toBe("디자인 참고 PPTX는 1개만 선택하세요.");
+    expect(
+      getHomeGenerationValidationMessage(
+        "ORBIT",
+        [
+          { id: "design-1", file: pptx, role: "design" },
+          { id: "design-2", file: pptx, role: "both" }
+        ],
+        "10",
+        "5",
+        "8",
+        false
+      )
+    ).toBe("");
     expect(getHomeGenerationValidationMessage("ORBIT", uploads, "0", "5", "8")).toBe(
       "발표 시간은 1~120분으로 입력하세요."
     );
@@ -737,12 +779,25 @@ describe("AI deck generation flow", () => {
         { id: "pptx", file: pptx, role: "design" }
       ])
     ).toBe("/api/v1/projects/project%20a/jobs/ai-template-deck-generation");
+    expect(
+      getHomeDeckGenerationJobEndpoint(
+        "project a",
+        [{ id: "pptx", file: pptx, role: "design" }],
+        false
+      )
+    ).toBe("/api/v1/projects/project%20a/jobs/generate-deck");
     expect(getHomeDeckGenerationJobEndpoint("project a", [])).not.toContain(
       "pptx-ooxml"
     );
     expect(
       getHomeContentReferenceUploads([{ id: "pdf", file: pdf, role: "content" }])
     ).toHaveLength(1);
+    expect(
+      getHomeContentReferenceUploads(
+        [{ id: "pptx", file: pptx, role: "design" }],
+        true
+      )
+    ).toEqual([{ id: "pptx", file: pptx, role: "design" }]);
   });
 
   it("builds extract form data for content-only home references", () => {
