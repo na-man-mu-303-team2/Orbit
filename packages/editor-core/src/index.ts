@@ -32,6 +32,12 @@ export type {
 export { deriveKeywordOccurrences } from "./keywords/keywordOccurrences";
 export type { KeywordOccurrence } from "./keywords/keywordOccurrences";
 export {
+  findDanglingKeywordOccurrenceActions
+} from "./keywords/keywordOccurrenceDiagnostics";
+export type {
+  DanglingKeywordOccurrenceAction
+} from "./keywords/keywordOccurrenceDiagnostics";
+export {
   createAddAnimationPatch,
   createAnimationId,
   createDefaultAnimation,

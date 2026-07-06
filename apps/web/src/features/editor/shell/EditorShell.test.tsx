@@ -22,6 +22,7 @@ import {
   EditorStateNotice,
   buildSlideThumbnailPatch,
   createDistributeSelectionPatch,
+  getSpeakerNotesDanglingOccurrenceSaveBlock,
   getImportedSlideThumbnailRefreshSlideIds,
   getPatchThumbnailRefreshSlideIds,
   getEditorValidationItems,
@@ -169,6 +170,71 @@ describe("editor shell", () => {
         savedDraftBase: "기존 메모"
       })
     ).toBe(false);
+  });
+
+  it("blocks speaker notes saves that would orphan keyword occurrence actions", () => {
+    const deck = createDemoDeck();
+    const slide = {
+      ...deck.slides[0],
+      speakerNotes: "ORBIT 흐름은 ORBIT 대본으로 설명합니다.",
+      actions: [
+        {
+          actionId: "act_1",
+          trigger: {
+            kind: "keyword-occurrence" as const,
+            keywordId: "kw_1",
+            occurrenceId: "kwo_slide_1_kw_1_10_15"
+          },
+          effect: {
+            kind: "go-to-next-slide" as const
+          }
+        }
+      ]
+    };
+
+    const block = getSpeakerNotesDanglingOccurrenceSaveBlock(
+      slide,
+      "앞에 추가 ORBIT 흐름은 ORBIT 대본으로 설명합니다."
+    );
+
+    expect(block).toMatchObject({
+      danglingActions: [
+        {
+          slideId: "slide_1",
+          actionId: "act_1",
+          keywordId: "kw_1",
+          occurrenceId: "kwo_slide_1_kw_1_10_15",
+          effectKind: "go-to-next-slide"
+        }
+      ]
+    });
+  });
+
+  it("allows speaker notes saves when only legacy keyword actions exist", () => {
+    const deck = createDemoDeck();
+    const slide = {
+      ...deck.slides[0],
+      speakerNotes: "ORBIT 흐름은 ORBIT 대본으로 설명합니다.",
+      actions: [
+        {
+          actionId: "act_1",
+          trigger: {
+            kind: "keyword" as const,
+            keywordId: "kw_1"
+          },
+          effect: {
+            kind: "go-to-next-slide" as const
+          }
+        }
+      ]
+    };
+
+    expect(
+      getSpeakerNotesDanglingOccurrenceSaveBlock(
+        slide,
+        "앞에 추가 ORBIT 흐름은 ORBIT 대본으로 설명합니다."
+      )
+    ).toBeNull();
   });
 
   it("rewrites local minio asset URLs to the same-origin asset proxy", () => {
