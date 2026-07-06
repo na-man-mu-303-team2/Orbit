@@ -1,9 +1,8 @@
-import type { Keyword } from "@orbit/shared";
+import { createKeywordOccurrenceId, type Keyword } from "@orbit/shared";
 import { renderToString } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 
 import {
-  createKeywordOccurrenceKey,
   KeywordDetail,
   KeywordHighlightedNotes
 } from "./KeywordInspector";
@@ -55,11 +54,11 @@ describe("KeywordHighlightedNotes", () => {
         keywords={[keyword]}
         notes="AI 덱은 AI 흐름을 설명합니다."
         selectedKeywordId="kw_ai"
-        selectedKeywordOccurrenceKey={createKeywordOccurrenceKey(
+        selectedKeywordOccurrenceKey={createKeywordOccurrenceId(
           "slide_1",
           "kw_ai",
           0,
-          "AI"
+          2
         )}
         showIds={false}
         slideId="slide_1"
@@ -70,5 +69,11 @@ describe("KeywordHighlightedNotes", () => {
 
     expect(html.match(/class="keyword-mark selected"/g)).toHaveLength(1);
     expect(html.match(/class="keyword-mark "/g)).toHaveLength(1);
+    expect(html).toContain(
+      'data-occurrence-id="kwo_slide_1_kw_ai_0_2"'
+    );
+    expect(html).toContain(
+      'data-occurrence-id="kwo_slide_1_kw_ai_6_8"'
+    );
   });
 });

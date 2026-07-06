@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { deckSchema } from "./deck.schema";
+import { createKeywordOccurrenceId } from "./keyword-occurrences";
 import { deckChangeRecordSchema, deckPatchSchema } from "./patch.schema";
 
 type DeckValidationInput = {
@@ -291,6 +292,77 @@ describe("deckSchema validation", () => {
         effect: {
           kind: "play-animation",
           animationId: "anim_1"
+        }
+      }
+    ];
+
+    expectValidDeck(deck);
+  });
+
+  it("accepts keyword occurrence actions from case-insensitive speaker note matches", () => {
+    const deck = createValidDeck();
+
+    deck.slides[0].speakerNotes = "ai 흐름을 설명합니다.";
+    deck.slides[0].keywords = [
+      {
+        keywordId: "kw_1",
+        text: "AI",
+        synonyms: [],
+        abbreviations: []
+      }
+    ];
+    deck.slides[0].actions = [
+      {
+        actionId: "act_1",
+        trigger: {
+          kind: "keyword-occurrence",
+          keywordId: "kw_1",
+          occurrenceId: createKeywordOccurrenceId("slide_1", "kw_1", 0, 2)
+        },
+        effect: {
+          kind: "play-animation",
+          animationId: "anim_1"
+        }
+      }
+    ];
+
+    expectValidDeck(deck);
+  });
+
+  it("accepts keyword occurrence actions from synonym and abbreviation matches", () => {
+    const deck = createValidDeck();
+
+    deck.slides[0].speakerNotes = "발표 도우미와 OBT를 소개합니다.";
+    deck.slides[0].keywords = [
+      {
+        keywordId: "kw_1",
+        text: "ORBIT",
+        synonyms: ["발표 도우미"],
+        abbreviations: ["OBT"]
+      }
+    ];
+    deck.slides[0].actions = [
+      {
+        actionId: "act_1",
+        trigger: {
+          kind: "keyword-occurrence",
+          keywordId: "kw_1",
+          occurrenceId: createKeywordOccurrenceId("slide_1", "kw_1", 0, 6)
+        },
+        effect: {
+          kind: "play-animation",
+          animationId: "anim_1"
+        }
+      },
+      {
+        actionId: "act_2",
+        trigger: {
+          kind: "keyword-occurrence",
+          keywordId: "kw_1",
+          occurrenceId: createKeywordOccurrenceId("slide_1", "kw_1", 8, 11)
+        },
+        effect: {
+          kind: "go-to-next-slide"
         }
       }
     ];

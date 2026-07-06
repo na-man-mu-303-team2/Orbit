@@ -1,9 +1,9 @@
 import { createDemoDeck, getElementAnimations, validateSlideAnimations } from "../../../../../../../packages/editor-core/src/index";
+import { createKeywordOccurrenceId } from "@orbit/shared";
 import { renderToString } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 
 import { AnimationEditorModal } from "./AnimationEditorModal";
-import { createKeywordOccurrenceKey } from "./KeywordInspector";
 
 describe("AnimationEditorModal", () => {
   it("renders fade animation editing controls in modal", () => {
@@ -35,11 +35,11 @@ describe("AnimationEditorModal", () => {
         notes={slide.speakerNotes}
         selectedKeywordId={slide.keywords[0]?.keywordId ?? null}
         selectedKeywordLabel="ORBIT"
-        selectedKeywordOccurrenceKey={createKeywordOccurrenceKey(
+        selectedKeywordOccurrenceKey={createKeywordOccurrenceId(
           slide.slideId,
           "kw_1",
           0,
-          "ORBIT"
+          5
         )}
         showIds
         slide={slide}
@@ -117,11 +117,11 @@ describe("AnimationEditorModal", () => {
         notes={slide.speakerNotes}
         selectedKeywordId="kw_1"
         selectedKeywordLabel="ORBIT"
-        selectedKeywordOccurrenceKey={createKeywordOccurrenceKey(
+        selectedKeywordOccurrenceKey={createKeywordOccurrenceId(
           "slide_1",
           "kw_1",
           0,
-          "ORBIT"
+          5
         )}
         showIds={false}
         slide={slide}

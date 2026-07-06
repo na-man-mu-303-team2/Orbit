@@ -1,4 +1,4 @@
-import type { Keyword } from "@orbit/shared";
+import { createKeywordOccurrenceId, type Keyword } from "@orbit/shared";
 
 import { IdBadge } from "./EditorIdBadge";
 
@@ -61,11 +61,11 @@ export function KeywordHighlightedNotes(props: {
 
         const keyword = part.keyword;
         const occurrenceKey = keyword
-          ? createKeywordOccurrenceKey(
+          ? createKeywordOccurrenceId(
               slideId,
               keyword.keywordId,
               part.start,
-              part.value
+              part.start + part.value.length
             )
           : null;
         const isSelected = Boolean(
@@ -77,6 +77,8 @@ export function KeywordHighlightedNotes(props: {
             className={`${keyword ? "keyword-mark" : "keyword-note-token"} ${
               isSelected ? "selected" : ""
             }`}
+            data-keyword-id={keyword?.keywordId}
+            data-occurrence-id={occurrenceKey ?? undefined}
             key={`${part.value}-${index}`}
             type="button"
             onClick={() =>
@@ -92,15 +94,6 @@ export function KeywordHighlightedNotes(props: {
       })}
     </p>
   );
-}
-
-export function createKeywordOccurrenceKey(
-  slideId: string,
-  keywordId: string,
-  start: number,
-  value: string
-) {
-  return `kwo_${slideId}_${keywordId}_${start}_${start + value.length}`;
 }
 
 export function KeywordList(props: {

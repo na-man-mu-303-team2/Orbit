@@ -6,6 +6,7 @@ import {
   deckKeywordIdSchema,
   deckSlideIdSchema
 } from "./id.schema";
+import { deriveKeywordOccurrences } from "./keyword-occurrences";
 import { slideActionSchema } from "./slide-action.schema";
 import { deckElementSchema } from "./slide-object.schema";
 import { themeColorSchema, themeSchema } from "./theme.schema";
@@ -193,7 +194,12 @@ export const slideSchema = z
   .superRefine((slide, ctx) => {
     const actionIds = new Set<string>();
     const keywordIds = new Set(slide.keywords.map((keyword) => keyword.keywordId));
-    const keywordOccurrences = deriveSlideKeywordOccurrences(slide);
+    const keywordOccurrences = new Map(
+      deriveKeywordOccurrences(slide).map((occurrence) => [
+        occurrence.occurrenceId,
+        occurrence
+      ])
+    );
     const animationIds = new Set(
       slide.animations.map((animation) => animation.animationId)
     );
@@ -291,52 +297,6 @@ export type SlideSourceEvidence = z.infer<typeof slideSourceEvidenceSchema>;
 export type SlideAiNotes = z.infer<typeof slideAiNotesSchema>;
 export type KeywordTerm = z.infer<typeof keywordTermSchema>;
 export type Keyword = z.infer<typeof keywordSchema>;
-
-type SlideKeywordOccurrenceReference = {
-  keywordId: string;
-};
-
-function deriveSlideKeywordOccurrences(
-  slide: Pick<Slide, "slideId" | "speakerNotes" | "keywords">
-): Map<string, SlideKeywordOccurrenceReference> {
-  const occurrences = new Map<string, SlideKeywordOccurrenceReference>();
-
-  slide.keywords.forEach((keyword) => {
-    getKeywordTerms(keyword).forEach((term) => {
-      let searchFrom = 0;
-
-      while (searchFrom < slide.speakerNotes.length) {
-        const start = slide.speakerNotes.indexOf(term, searchFrom);
-
-        if (start === -1) {
-          break;
-        }
-
-        const end = start + term.length;
-        occurrences.set(
-          createKeywordOccurrenceId(slide.slideId, keyword.keywordId, start, end),
-          { keywordId: keyword.keywordId }
-        );
-        searchFrom = end;
-      }
-    });
-  });
-
-  return occurrences;
-}
-
-function getKeywordTerms(keyword: Keyword): string[] {
-  return [keyword.text, ...keyword.synonyms, ...keyword.abbreviations];
-}
-
-function createKeywordOccurrenceId(
-  slideId: string,
-  keywordId: string,
-  start: number,
-  end: number
-): string {
-  return `kwo_${slideId}_${keywordId}_${start}_${end}`;
-}
 
 function requireUniqueKeywordId(
   ctx: z.RefinementCtx,

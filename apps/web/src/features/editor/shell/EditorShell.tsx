@@ -28,6 +28,7 @@ import {
 } from "../../../../../../packages/editor-core/src/patches/elementFrame";
 import {
   appendDeckPatchResponseSchema,
+  createKeywordOccurrenceId,
   deckApiErrorSchema,
   demoIds,
   getDeckResponseSchema,
@@ -75,7 +76,6 @@ import {
   KeywordSummary
 } from "./components/EditorDebugCards";
 import {
-  createKeywordOccurrenceKey,
   KeywordDetail,
   KeywordHighlightedNotes,
   KeywordList
@@ -2469,11 +2469,11 @@ export function EditorShell(props: { projectId?: string }) {
     if (matchedKeyword) {
       handleSelectKeyword(
         matchedKeyword.keywordId,
-        createKeywordOccurrenceKey(
+        createKeywordOccurrenceId(
           currentSlide.slideId,
           matchedKeyword.keywordId,
           start,
-          rawValue
+          start + rawValue.length
         )
       );
       return;
@@ -2484,11 +2484,11 @@ export function EditorShell(props: { projectId?: string }) {
     });
     setSelectedKeywordId(nextKeyword.keywordId);
     setSelectedKeywordOccurrenceKey(
-      createKeywordOccurrenceKey(
+      createKeywordOccurrenceId(
         currentSlide.slideId,
         nextKeyword.keywordId,
         start,
-        rawValue
+        start + rawValue.length
       )
     );
     handleReplaceKeywords(currentSlide.slideId, (keywords) => [...keywords, nextKeyword]);
