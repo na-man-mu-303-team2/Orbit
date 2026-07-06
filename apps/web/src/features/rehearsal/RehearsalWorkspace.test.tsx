@@ -213,6 +213,23 @@ describe("RehearsalWorkspace", () => {
     expect(publisherBody).toContain("onCommand: handlePresenterRemoteCommand");
   });
 
+  it("keeps presenter controls active in the current-window slide receiver", () => {
+    const source = fs.readFileSync(rehearsalWorkspaceSourcePath, "utf8");
+    const keyboardStart = source.indexOf("usePresenterKeyboard({");
+    const keyboardEnd = source.indexOf("});", keyboardStart);
+    const keyboardBody = source.slice(keyboardStart, keyboardEnd);
+    const receiverStart = source.indexOf("displayRole === \"slide-receiver\"");
+    const receiverEnd = source.indexOf("if (isSingleScreenOpen");
+    const receiverBody = source.slice(receiverStart, receiverEnd);
+
+    expect(keyboardBody).toContain("displayRole === \"slide-receiver\"");
+    expect(receiverBody).toContain("displayRole === \"slide-receiver\"");
+    expect(receiverBody).toContain("onNextStep={");
+    expect(receiverBody).toContain("handleNextPresenterStep");
+    expect(receiverBody).toContain("onPreviousSlide={");
+    expect(receiverBody).toContain("goPrevious");
+  });
+
   it("supports Google Slides style fullscreen in the current document", () => {
     const source = fs.readFileSync(rehearsalWorkspaceSourcePath, "utf8");
     const currentWindowStart = source.indexOf("const openCurrentWindowSlideDisplay =");

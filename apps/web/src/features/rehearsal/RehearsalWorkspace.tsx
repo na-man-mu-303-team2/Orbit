@@ -1597,7 +1597,9 @@ export function RehearsalWorkspace(props: {
     deck,
     enabled:
       !props.presenterWindow &&
-      (displayRole === "presenter" || displayRole === "slide-surface"),
+      (displayRole === "presenter" ||
+        displayRole === "slide-receiver" ||
+        displayRole === "slide-surface"),
     onCommand: handlePresenterRemoteCommand,
     sessionId: props.presenterSessionId,
     state: presentationChannelState,
@@ -1696,7 +1698,9 @@ export function RehearsalWorkspace(props: {
     enabled:
       Boolean(deck) &&
       !props.presenterWindow &&
-      (displayRole === "presenter" || displayRole === "slide-surface"),
+      (displayRole === "presenter" ||
+        displayRole === "slide-receiver" ||
+        displayRole === "slide-surface"),
     onNextStep: () => {
       handleNextPresenterStep();
     },
@@ -2848,8 +2852,14 @@ export function RehearsalWorkspace(props: {
         fullscreenMessage={slideReceiverMessage}
         identity={slideReceiverIdentity}
         initialSnapshot={slideReceiverSnapshot}
-        onNextStep={displayRole === "slide-surface" ? handleNextPresenterStep : undefined}
-        onPreviousSlide={displayRole === "slide-surface" ? goPrevious : undefined}
+        onNextStep={
+          displayRole === "slide-receiver" || displayRole === "slide-surface"
+            ? handleNextPresenterStep
+            : undefined
+        }
+        onPreviousSlide={
+          displayRole === "slide-receiver" || displayRole === "slide-surface" ? goPrevious : undefined
+        }
         onReconnectPresenter={(snapshot) => {
           const presenterWindowPath = props.projectId
             ? getRehearsalPresenterWindowPath(props.projectId, presentationChannel.sessionId, {
