@@ -81,9 +81,18 @@ type AiTemplateDeckGenerationResponse = {
   job: Job;
 };
 
+type GenerateDeckJobResponse = {
+  job: Job;
+};
+
+type ExtractJobResponse = {
+  job: Job;
+};
+
 type ReferenceGenerationInput = {
   references: Array<{ fileId: string }>;
   referenceKeywords: Array<{ text: string }>;
+  referenceContext: Array<{ fileId: string; title: string; content: string }>;
   succeededFiles: ExtractedFile[];
   failedFiles: ExtractedFile[];
 };
@@ -117,9 +126,33 @@ type GenerateDeckDesignDirection = {
   densityTarget: "low" | "medium" | "high";
   mediaPolicy: "avoid" | "balanced" | "placeholder-ok";
   layoutDiversity: "stable" | "varied";
+  stylePackId?: string;
+  slidePresetId?: string;
 };
 type GenerateDeckDesignProfile = NonNullable<GenerateDeckDesignDirection["profile"]>;
 type GenerateDeckDesignProfileChoice = "auto" | GenerateDeckDesignProfile;
+export type HomeTemplateStyleId =
+  | "simple-basic"
+  | "presentation-document"
+  | "submission-document";
+export type HomeTemplateStyle = {
+  id: HomeTemplateStyleId;
+  title: string;
+  description: string;
+};
+type TemplateStyleDesignOverrides = Partial<
+  Pick<GenerateDeckDesignDirection, "densityTarget" | "layoutDiversity" | "mediaPolicy">
+>;
+const templateStyleDefaultOption = "style-default" as const;
+type TemplateDensityTargetOption =
+  | typeof templateStyleDefaultOption
+  | GenerateDeckDesignDirection["densityTarget"];
+type TemplateLayoutDiversityOption =
+  | typeof templateStyleDefaultOption
+  | GenerateDeckDesignDirection["layoutDiversity"];
+type TemplateMediaPolicyOption =
+  | typeof templateStyleDefaultOption
+  | GenerateDeckDesignDirection["mediaPolicy"];
 
 type GenerateDeckTargetProject = {
   created: boolean;
@@ -148,7 +181,7 @@ type RejectedFile = {
 
 export type Route =
   | { name: "login" }
-  | { name: "home" }
+  | { name: "home"; templateStyleId?: HomeTemplateStyleId }
   | { name: "create-deck" }
   | { name: "project-list" }
   | { name: "project-editor"; projectId: string }
@@ -182,12 +215,23 @@ const EditorShell = lazy(() =>
   }))
 );
 
-const templates = [
-  { id: "blank", title: "새 프레젠테이션", description: "빈 슬라이드에서 시작" },
-  { id: "pitch", title: "피치덱", description: "문제, 해결책, 시장 흐름" },
-  { id: "lesson", title: "수업 자료", description: "학습 목표와 활동 중심" },
-  { id: "report", title: "보고서", description: "요약과 근거 중심" },
-  { id: "workshop", title: "워크숍", description: "진행 순서와 실습 구성" }
+export const defaultHomeTemplateStyleId: HomeTemplateStyleId = "simple-basic";
+export const homeTemplateStyles: HomeTemplateStyle[] = [
+  {
+    id: "simple-basic",
+    title: "심플 베이직 스타일",
+    description: "깔끔한 기본형 문서 디자인"
+  },
+  {
+    id: "presentation-document",
+    title: "발표용 문서 스타일",
+    description: "키워드와 발표 메모 중심"
+  },
+  {
+    id: "submission-document",
+    title: "제출용 문서 스타일",
+    description: "본문과 근거가 자족적인 보고형"
+  }
 ];
 const demoDeck = createDemoDeck();
 const reportMockupRunId = "run_report_mockup";
@@ -267,6 +311,8 @@ const homeAssetAccept = [
 ].join(",");
 const pptxMimeType =
   "application/vnd.openxmlformats-officedocument.presentationml.presentation";
+const simpleBasicStylePackId = defaultHomeTemplateStyleId;
+const referenceContextMaxChars = 12_000;
 
 async function fetchCurrentUser(): Promise<AuthUser> {
   const response = await fetch("/api/v1/auth/me", {
@@ -306,6 +352,19 @@ async function requestProjectAccess(
     throw new Error(await readApiError(response, "프로젝트 권한 요청에 실패했습니다."));
   }
   return response.json() as Promise<ProjectAccessResponse>;
+}
+
+export function getHomeTemplateStyleId(
+  value: string | null | undefined
+): HomeTemplateStyleId | undefined {
+  const normalized = value?.trim();
+  return homeTemplateStyles.some((style) => style.id === normalized)
+    ? (normalized as HomeTemplateStyleId)
+    : undefined;
+}
+
+export function getHomeTemplateStylePath(styleId: HomeTemplateStyleId) {
+  return `/?templateStyle=${encodeURIComponent(styleId)}`;
 }
 
 export function getRoute(
@@ -369,7 +428,9 @@ export function getRoute(
     };
   }
 
-  return { name: "home" };
+  const searchParams = new URLSearchParams(currentSearch);
+  const templateStyleId = getHomeTemplateStyleId(searchParams.get("templateStyle"));
+  return templateStyleId ? { name: "home", templateStyleId } : { name: "home" };
 }
 
 function navigateTo(path: string) {
@@ -472,7 +533,7 @@ function renderRoute(route: Route, user?: AuthUser) {
   if (route.name === "deck-render") {
     return <DeckRenderPage />;
   }
-  return <HomePage user={user} />;
+  return <HomePage user={user} templateStyleId={route.templateStyleId} />;
 }
 
 export function isDeckRenderRouteEnabled() {
@@ -897,11 +958,19 @@ function ProjectAccessRequestPage(props: { projectId: string }) {
   );
 }
 
-function HomePage(props: { user?: AuthUser }) {
+function HomePage(props: { user?: AuthUser; templateStyleId?: HomeTemplateStyleId }) {
   const queryClient = useQueryClient();
   const [topic, setTopic] = useState("");
   const [prompt, setPrompt] = useState("");
   const [designPrompt, setDesignPrompt] = useState("");
+  const [selectedTemplateStyleId, setSelectedTemplateStyleId] =
+    useState<HomeTemplateStyleId | undefined>(props.templateStyleId);
+  const [templateDensityTarget, setTemplateDensityTarget] =
+    useState<TemplateDensityTargetOption>(templateStyleDefaultOption);
+  const [templateLayoutDiversity, setTemplateLayoutDiversity] =
+    useState<TemplateLayoutDiversityOption>(templateStyleDefaultOption);
+  const [templateMediaPolicy, setTemplateMediaPolicy] =
+    useState<TemplateMediaPolicyOption>(templateStyleDefaultOption);
   const [tone, setTone] = useState<"professional" | "friendly" | "confident" | "concise">(
     "professional"
   );
@@ -914,6 +983,7 @@ function HomePage(props: { user?: AuthUser }) {
   const [error, setError] = useState("");
   const [job, setJob] = useState<Job | null>(null);
   const [isImporting, setIsImporting] = useState(false);
+  const [isCreatingBlankProject, setIsCreatingBlankProject] = useState(false);
   const totalSize = useMemo(
     () => uploads.reduce((sum, upload) => sum + upload.file.size, 0),
     [uploads]
@@ -923,11 +993,45 @@ function HomePage(props: { user?: AuthUser }) {
     uploads,
     durationInput,
     minSlidesInput,
-    maxSlidesInput
+    maxSlidesInput,
+    !selectedTemplateStyleId
   );
 
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+  useEffect(() => {
+    setSelectedTemplateStyleId(props.templateStyleId);
+    if (props.templateStyleId) {
+      setUploads((current) => normalizeTemplateReferenceUploads(current));
+      clearHomeGenerationFeedback();
+    }
+  }, [props.templateStyleId]);
+
+  function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    void runHomeDeckGeneration();
+  }
+
+  async function handleCreateBlankProject() {
+    if (isImporting || isCreatingBlankProject) return;
+
+    setIsCreatingBlankProject(true);
+    clearHomeGenerationFeedback();
+
+    try {
+      const project = await createProject("새 프레젠테이션");
+      await queryClient.invalidateQueries({ queryKey: ["projects"] });
+      navigateTo(`/project/${project.projectId}`);
+    } catch (createError) {
+      setError(
+        createError instanceof Error
+          ? createError.message
+          : "빈 프레젠테이션을 만들지 못했습니다."
+      );
+    } finally {
+      setIsCreatingBlankProject(false);
+    }
+  }
+
+  async function runHomeDeckGeneration() {
     if (isImporting) return;
 
     if (validationMessage) {
@@ -943,31 +1047,70 @@ function HomePage(props: { user?: AuthUser }) {
     try {
       const project = await createProject(getGeneratedDeckProjectTitle(topic));
       const uploadedAssets = new Map<string, string>();
+      const allowDesignReferences = !selectedTemplateStyleId;
 
       for (const upload of uploads) {
         setStatus(`${upload.file.name} 업로드 중...`);
         const uploaded = await uploadProjectAsset(
           project.projectId,
           upload.file,
-          getAiTemplateUploadPurpose(upload)
+          getHomeUploadPurpose(upload, allowDesignReferences)
         );
         uploadedAssets.set(upload.id, uploaded.fileId);
       }
 
-      const payload = buildAiTemplateDeckGenerationPayload({
-        topic,
-        prompt,
-        designPrompt,
-        duration: parseHomeIntegerInput(durationInput) ?? 10,
-        minSlides: parseHomeIntegerInput(minSlidesInput) ?? 5,
-        maxSlides: parseHomeIntegerInput(maxSlidesInput) ?? 8,
-        tone,
-        uploads,
-        uploadedAssetFileIds: uploadedAssets
-      });
+      const duration = parseHomeIntegerInput(durationInput) ?? 10;
+      const minSlides = parseHomeIntegerInput(minSlidesInput) ?? 5;
+      const maxSlides = parseHomeIntegerInput(maxSlidesInput) ?? 8;
+      const hasDesignPptx =
+        allowDesignReferences && hasHomeDesignPptxUpload(uploads);
+      const referenceInput = hasDesignPptx
+        ? buildReferenceGenerationInput([])
+        : await extractHomeReferenceInput(
+            project.projectId,
+            uploads,
+            uploadedAssets,
+            {
+              setJob,
+              setStatus
+            },
+            !allowDesignReferences
+          );
+      const payload = hasDesignPptx
+        ? buildAiTemplateDeckGenerationPayload({
+            topic,
+            prompt,
+            designPrompt,
+            duration,
+            minSlides,
+            maxSlides,
+            tone,
+            uploads,
+            uploadedAssetFileIds: uploadedAssets
+          })
+        : buildHomeJsonFirstGenerateDeckPayload({
+            topic,
+            prompt,
+            designPrompt,
+            templateStyleId: selectedTemplateStyleId,
+            templateStyleDesignOverrides: buildTemplateStyleDesignOverrides({
+              densityTarget: templateDensityTarget,
+              layoutDiversity: templateLayoutDiversity,
+              mediaPolicy: templateMediaPolicy
+            }),
+            duration,
+            minSlides,
+            maxSlides,
+            tone,
+            referenceInput
+          });
       setStatus("AI 덱 생성 중...");
       const response = await fetch(
-        `/api/v1/projects/${encodeURIComponent(project.projectId)}/jobs/ai-template-deck-generation`,
+        getHomeDeckGenerationJobEndpoint(
+          project.projectId,
+          uploads,
+          allowDesignReferences
+        ),
         {
           method: "POST",
           headers: { "content-type": "application/json" },
@@ -979,7 +1122,9 @@ function HomePage(props: { user?: AuthUser }) {
         throw new Error(await readApiError(response, "AI 덱 생성을 시작하지 못했습니다."));
       }
 
-      const data = (await response.json()) as AiTemplateDeckGenerationResponse;
+      const data = (await response.json()) as
+        | AiTemplateDeckGenerationResponse
+        | GenerateDeckJobResponse;
       setJob(data.job);
       const completed = await pollJob(data.job.jobId, fetch, {
         timeoutMs: 300_000,
@@ -993,14 +1138,20 @@ function HomePage(props: { user?: AuthUser }) {
         );
       }
 
-      const result = getAiTemplateDeckGenerationJobResult(completed);
+      const result = hasDesignPptx
+        ? getAiTemplateDeckGenerationJobResult(completed)
+        : getGenerateDeckJobResult(completed);
       if (!result) {
         throw new Error("AI 덱 생성 결과를 읽지 못했습니다.");
       }
 
       await queryClient.invalidateQueries({ queryKey: ["projects"] });
       await queryClient.invalidateQueries({ queryKey: ["deck", project.projectId] });
-      navigateTo(`/project/${encodeURIComponent(project.projectId)}`);
+      navigateTo(
+        hasDesignPptx
+          ? `/project/${encodeURIComponent(project.projectId)}`
+          : getGeneratedDeckProjectPath(result as GenerateDeckJobResult)
+      );
     } catch (submitError) {
       setError(
         submitError instanceof Error ? submitError.message : "AI 덱 생성에 실패했습니다."
@@ -1099,7 +1250,10 @@ function HomePage(props: { user?: AuthUser }) {
   }
 
   function addFiles(fileList: FileList | File[]) {
-    const { acceptedFiles, rejectedFiles } = collectHomeUploadFiles(fileList);
+    const { acceptedFiles, rejectedFiles } = collectHomeUploadFiles(
+      fileList,
+      Boolean(selectedTemplateStyleId)
+    );
     setUploads((current) => mergeUploadFiles(current, acceptedFiles));
     setRejected(rejectedFiles);
     setError("");
@@ -1116,12 +1270,44 @@ function HomePage(props: { user?: AuthUser }) {
 
   function updateUploadRole(id: string, role: UploadRole) {
     setUploads((current) =>
-      current.map((upload) => (upload.id === id ? { ...upload, role } : upload))
+      current.map((upload) =>
+        upload.id === id
+          ? { ...upload, role: selectedTemplateStyleId ? "content" : role }
+          : upload
+      )
     );
     setError("");
     setStatus("");
     setJob(null);
   }
+
+  function selectTemplateStyle(styleId: HomeTemplateStyleId) {
+    if (selectedTemplateStyleId === styleId) {
+      clearTemplateStyle();
+      return;
+    }
+    setSelectedTemplateStyleId(styleId);
+    setUploads((current) => normalizeTemplateReferenceUploads(current));
+    clearHomeGenerationFeedback();
+    navigateTo(getHomeTemplateStylePath(styleId));
+  }
+
+  function clearTemplateStyle() {
+    setSelectedTemplateStyleId(undefined);
+    clearHomeGenerationFeedback();
+    navigateTo("/");
+  }
+
+  function clearHomeGenerationFeedback() {
+    setRejected([]);
+    setError("");
+    setStatus("");
+    setJob(null);
+  }
+
+  const selectedTemplateStyle = selectedTemplateStyleId
+    ? homeTemplateStyles.find((style) => style.id === selectedTemplateStyleId)
+    : undefined;
 
   return (
     <section className="home-page">
@@ -1129,12 +1315,13 @@ function HomePage(props: { user?: AuthUser }) {
         <h1>{props.user?.displayName ?? "Orbit"} 작업 공간</h1>
       </header>
 
-      <section className="home-chat-panel" aria-label="AI 대화">
-        <div className="chat-orb">
-          <MessageSquareText size={30} />
-        </div>
-        <h2>무엇을 발표 자료로 만들까요?</h2>
-        <form className="home-ai-form" onSubmit={(event) => void handleSubmit(event)}>
+      {!selectedTemplateStyle ? (
+        <section className="home-chat-panel" aria-label="AI 대화">
+          <div className="chat-orb">
+            <MessageSquareText size={30} />
+          </div>
+          <h2>무엇을 발표 자료로 만들까요?</h2>
+          <form className="home-ai-form" onSubmit={handleSubmit}>
           <div className="chat-input-shell home-topic-row">
             <label className="chat-attach-button" aria-label="첨부파일 추가">
               <Paperclip size={18} />
@@ -1151,7 +1338,7 @@ function HomePage(props: { user?: AuthUser }) {
               onChange={(event) => setTopic(event.target.value)}
               placeholder="발표 주제"
             />
-            <button type="submit" disabled={!!validationMessage || isImporting}>
+            <button type="submit" disabled={isImporting}>
               {isImporting ? "처리 중" : "전송"}
             </button>
           </div>
@@ -1163,15 +1350,6 @@ function HomePage(props: { user?: AuthUser }) {
                 value={prompt}
                 onChange={(event) => setPrompt(event.target.value)}
                 placeholder="핵심 메시지, 포함할 내용, 제외할 내용"
-                disabled={isImporting}
-              />
-            </label>
-            <label>
-              <span>디자인 프롬프트</span>
-              <textarea
-                value={designPrompt}
-                onChange={(event) => setDesignPrompt(event.target.value)}
-                placeholder="톤앤매너, 색감, 레이아웃 방향"
                 disabled={isImporting}
               />
             </label>
@@ -1226,43 +1404,15 @@ function HomePage(props: { user?: AuthUser }) {
             </label>
           </div>
 
-          {uploads.length > 0 ? (
-            <div className="home-upload-list">
-              <div className="upload-summary" aria-live="polite">
-                <span>{uploads.length}개 파일</span>
-                <span>{formatBytes(totalSize)}</span>
-              </div>
-              <ul className="file-list" aria-label="홈 AI 덱 첨부파일">
-                {uploads.map(({ id, file, role }) => (
-                  <li key={id}>
-                    <div>
-                      <span className="file-name">{file.name}</span>
-                      <span className="file-detail">
-                        {getExtension(file.name).toUpperCase()} · {formatBytes(file.size)}
-                      </span>
-                    </div>
-                    <select
-                      value={role}
-                      onChange={(event) => updateUploadRole(id, event.target.value as UploadRole)}
-                      disabled={isImporting}
-                      aria-label={`${file.name} 역할`}
-                    >
-                      <option value="content">내용 참고</option>
-                      {isPptxFile(file) ? <option value="design">디자인 참고</option> : null}
-                      {isPptxFile(file) ? <option value="both">둘 다</option> : null}
-                    </select>
-                    <button
-                      type="button"
-                      onClick={() => removeUpload(id)}
-                      aria-label={`${file.name} 제거`}
-                      disabled={isImporting}
-                    >
-                      ×
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            </div>
+          {uploads.length > 0 && !selectedTemplateStyle ? (
+            <HomeUploadList
+              uploads={uploads}
+              totalUploadSize={totalSize}
+              isDisabled={isImporting}
+              allowDesignReference
+              onRemoveUpload={removeUpload}
+              onUpdateUploadRole={updateUploadRole}
+            />
           ) : null}
 
           <div className="home-convert-row">
@@ -1277,32 +1427,59 @@ function HomePage(props: { user?: AuthUser }) {
             </button>
           </div>
         </form>
-        {rejected.length > 0 ? (
-          <div className="rejection-list" role="alert">
-            {rejected.map((file) => (
-              <p key={file.name}>
-                <strong>{file.name}</strong> {file.reason}
-              </p>
-            ))}
-          </div>
-        ) : null}
-        {validationMessage && uploads.length > 0 ? (
-          <p className="chat-file-error">{validationMessage}</p>
-        ) : null}
-        {job ? (
-          <div className="job-status home-job-status" aria-live="polite">
-            <div>
-              <strong>{job.status}</strong>
-              <span>{job.progress}%</span>
-            </div>
-            {job.message ? <p>{job.message}</p> : null}
-          </div>
-        ) : null}
-        {status ? <p className="chat-file-status">{status}</p> : null}
-        {error ? <p className="chat-file-error">{error}</p> : null}
-      </section>
+          <HomeGenerationFeedback
+            rejected={rejected}
+            job={job}
+            status={status}
+            error={error}
+          />
+        </section>
+      ) : null}
 
-      <TemplateRail title="최근 열어본 템플릿" />
+      <TemplateRail
+        title="템플릿 스타일"
+        selectedStyleId={selectedTemplateStyleId}
+        onCreateProject={() => void handleCreateBlankProject()}
+        onSelectStyle={selectTemplateStyle}
+        isCreating={isImporting || isCreatingBlankProject}
+      />
+      {selectedTemplateStyle ? (
+        <TemplateStyleOptionsPanel
+          templateStyle={selectedTemplateStyle}
+          topic={topic}
+          prompt={prompt}
+          tone={tone}
+          durationInput={durationInput}
+          minSlidesInput={minSlidesInput}
+          maxSlidesInput={maxSlidesInput}
+          designPrompt={designPrompt}
+          densityTarget={templateDensityTarget}
+          layoutDiversity={templateLayoutDiversity}
+          mediaPolicy={templateMediaPolicy}
+          uploads={uploads}
+          totalUploadSize={totalSize}
+          rejected={rejected}
+          job={job}
+          status={status}
+          error={error}
+          isDisabled={isImporting}
+          onClearStyle={clearTemplateStyle}
+          onTopicChange={setTopic}
+          onPromptChange={setPrompt}
+          onToneChange={setTone}
+          onDurationInputChange={setDurationInput}
+          onMinSlidesInputChange={setMinSlidesInput}
+          onMaxSlidesInputChange={setMaxSlidesInput}
+          onDesignPromptChange={setDesignPrompt}
+          onDensityTargetChange={setTemplateDensityTarget}
+          onFileChange={handleFileChange}
+          onLayoutDiversityChange={setTemplateLayoutDiversity}
+          onMediaPolicyChange={setTemplateMediaPolicy}
+          onRemoveUpload={removeUpload}
+          onUpdateUploadRole={updateUploadRole}
+          onGenerate={() => void runHomeDeckGeneration()}
+        />
+      ) : null}
     </section>
   );
 }
@@ -1361,7 +1538,12 @@ function ProjectListPage() {
         </button>
       </header>
 
-      <TemplateRail title="템플릿" onCreateProject={handleCreateProject} isCreating={isCreating} />
+      <TemplateRail
+        title="템플릿"
+        onCreateProject={handleCreateProject}
+        onSelectStyle={(styleId) => navigateTo(getHomeTemplateStylePath(styleId))}
+        isCreating={isCreating}
+      />
 
       <section className="project-history">
         <div className="section-heading">
@@ -1386,10 +1568,12 @@ function ProjectListPage() {
   );
 }
 
-function TemplateRail(props: {
+export function TemplateRail(props: {
   title: string;
   isCreating?: boolean;
   onCreateProject?: () => void;
+  onSelectStyle?: (styleId: HomeTemplateStyleId) => void;
+  selectedStyleId?: HomeTemplateStyleId;
 }) {
   return (
     <section className="template-section">
@@ -1404,10 +1588,20 @@ function TemplateRail(props: {
           disabled={props.isCreating}
         >
           <Plus size={28} />
-          <span>새 프레젠테이션</span>
+          <span>빈 프레젠테이션 만들기</span>
         </button>
-        {templates.slice(1).map((template) => (
-          <button className="template-card" type="button" key={template.id}>
+        {homeTemplateStyles.map((template) => (
+          <button
+            aria-pressed={props.selectedStyleId === template.id}
+            className={
+              props.selectedStyleId === template.id
+                ? "template-card template-card-active"
+                : "template-card"
+            }
+            type="button"
+            key={template.id}
+            onClick={() => props.onSelectStyle?.(template.id)}
+          >
             <LayoutTemplate size={18} />
             <strong>{template.title}</strong>
             <span>{template.description}</span>
@@ -1415,6 +1609,309 @@ function TemplateRail(props: {
         ))}
       </div>
     </section>
+  );
+}
+
+export function TemplateStyleOptionsPanel(props: {
+  templateStyle: HomeTemplateStyle;
+  topic: string;
+  prompt: string;
+  tone: "professional" | "friendly" | "confident" | "concise";
+  durationInput: string;
+  minSlidesInput: string;
+  maxSlidesInput: string;
+  designPrompt: string;
+  densityTarget: TemplateDensityTargetOption;
+  layoutDiversity: TemplateLayoutDiversityOption;
+  mediaPolicy: TemplateMediaPolicyOption;
+  uploads: UploadFile[];
+  totalUploadSize: number;
+  rejected: RejectedFile[];
+  job: Job | null;
+  status: string;
+  error: string;
+  isDisabled?: boolean;
+  onClearStyle?: () => void;
+  onTopicChange: (value: string) => void;
+  onPromptChange: (value: string) => void;
+  onToneChange: (value: "professional" | "friendly" | "confident" | "concise") => void;
+  onDurationInputChange: (value: string) => void;
+  onMinSlidesInputChange: (value: string) => void;
+  onMaxSlidesInputChange: (value: string) => void;
+  onDesignPromptChange: (value: string) => void;
+  onDensityTargetChange: (value: TemplateDensityTargetOption) => void;
+  onFileChange: (event: ChangeEvent<HTMLInputElement>) => void;
+  onLayoutDiversityChange: (value: TemplateLayoutDiversityOption) => void;
+  onMediaPolicyChange: (value: TemplateMediaPolicyOption) => void;
+  onRemoveUpload: (id: string) => void;
+  onUpdateUploadRole: (id: string, role: UploadRole) => void;
+  onGenerate: () => void;
+}) {
+  return (
+    <section className="template-style-panel" aria-label="템플릿 스타일 설정">
+      <header>
+        <div>
+          <span>선택한 템플릿</span>
+          <h3>{props.templateStyle.title}</h3>
+        </div>
+        <button type="button" onClick={props.onClearStyle} disabled={props.isDisabled}>
+          선택 해제
+        </button>
+      </header>
+      <div className="template-style-generation-grid">
+        <label className="template-style-topic-field">
+          <span>발표 주제</span>
+          <input
+            value={props.topic}
+            onChange={(event) => props.onTopicChange(event.target.value)}
+            placeholder="발표 주제"
+            disabled={props.isDisabled}
+          />
+        </label>
+        <label className="template-style-prompt-field">
+          <span>내용 프롬프트</span>
+          <textarea
+            value={props.prompt}
+            onChange={(event) => props.onPromptChange(event.target.value)}
+            placeholder="핵심 메시지, 포함할 내용, 제외할 내용"
+            disabled={props.isDisabled}
+          />
+        </label>
+        <label>
+          <span>발표 톤</span>
+          <select
+            value={props.tone}
+            onChange={(event) =>
+              props.onToneChange(event.target.value as typeof props.tone)
+            }
+            disabled={props.isDisabled}
+          >
+            <option value="professional">Professional</option>
+            <option value="friendly">Friendly</option>
+            <option value="confident">Confident</option>
+            <option value="concise">Concise</option>
+          </select>
+        </label>
+        <label>
+          <span>발표 시간</span>
+          <input
+            type="number"
+            min={1}
+            max={120}
+            value={props.durationInput}
+            onChange={(event) => props.onDurationInputChange(event.target.value)}
+            disabled={props.isDisabled}
+          />
+        </label>
+        <label>
+          <span>최소 슬라이드</span>
+          <input
+            type="number"
+            min={1}
+            max={20}
+            value={props.minSlidesInput}
+            onChange={(event) => props.onMinSlidesInputChange(event.target.value)}
+            disabled={props.isDisabled}
+          />
+        </label>
+        <label>
+          <span>최대 슬라이드</span>
+          <input
+            type="number"
+            min={1}
+            max={20}
+            value={props.maxSlidesInput}
+            onChange={(event) => props.onMaxSlidesInputChange(event.target.value)}
+            disabled={props.isDisabled}
+          />
+        </label>
+      </div>
+      <div className="template-style-options-grid">
+        <label className="template-style-prompt-field">
+          <span>템플릿 프롬프트</span>
+          <textarea
+            value={props.designPrompt}
+            name="templateDesignPrompt"
+            onChange={(event) => props.onDesignPromptChange(event.target.value)}
+            placeholder="템플릿에 추가로 반영할 색감, 레이아웃, 분위기"
+            disabled={props.isDisabled}
+          />
+        </label>
+        <label>
+          <span>텍스트 밀도</span>
+          <select
+            value={props.densityTarget}
+            name="templateDensityTarget"
+            onChange={(event) =>
+              props.onDensityTargetChange(event.target.value as TemplateDensityTargetOption)
+            }
+            disabled={props.isDisabled}
+          >
+            <option value={templateStyleDefaultOption}>템플릿 기본값</option>
+            <option value="low">낮게</option>
+            <option value="medium">보통</option>
+            <option value="high">높게</option>
+          </select>
+        </label>
+        <label>
+          <span>레이아웃</span>
+          <select
+            value={props.layoutDiversity}
+            name="templateLayoutDiversity"
+            onChange={(event) =>
+              props.onLayoutDiversityChange(
+                event.target.value as TemplateLayoutDiversityOption
+              )
+            }
+            disabled={props.isDisabled}
+          >
+            <option value={templateStyleDefaultOption}>템플릿 기본값</option>
+            <option value="stable">안정적</option>
+            <option value="varied">다양하게</option>
+          </select>
+        </label>
+        <label>
+          <span>미디어 사용</span>
+          <select
+            value={props.mediaPolicy}
+            name="templateMediaPolicy"
+            onChange={(event) =>
+              props.onMediaPolicyChange(event.target.value as TemplateMediaPolicyOption)
+            }
+            disabled={props.isDisabled}
+          >
+            <option value={templateStyleDefaultOption}>템플릿 기본값</option>
+            <option value="avoid">사용 안 함</option>
+            <option value="balanced">균형 있게</option>
+            <option value="placeholder-ok">플레이스홀더 허용</option>
+          </select>
+        </label>
+      </div>
+      <div className="template-style-reference-area">
+        <label className="template-style-attach-button">
+          <Paperclip size={16} />
+          <span>참고자료 첨부</span>
+          <input
+            type="file"
+            accept={homeAssetAccept}
+            multiple
+            disabled={props.isDisabled}
+            onChange={props.onFileChange}
+          />
+        </label>
+        {props.uploads.length > 0 ? (
+          <HomeUploadList
+            uploads={props.uploads}
+            totalUploadSize={props.totalUploadSize}
+            isDisabled={props.isDisabled}
+            allowDesignReference={false}
+            onRemoveUpload={props.onRemoveUpload}
+            onUpdateUploadRole={props.onUpdateUploadRole}
+          />
+        ) : null}
+      </div>
+      <div className="template-style-actions">
+        <button
+          className="template-style-generate-button"
+          type="button"
+          onClick={props.onGenerate}
+          disabled={props.isDisabled}
+        >
+          <Sparkles size={16} />
+          {props.isDisabled ? "생성 중" : "PPT 생성하기"}
+        </button>
+      </div>
+      <HomeGenerationFeedback
+        rejected={props.rejected}
+        job={props.job}
+        status={props.status}
+        error={props.error}
+      />
+    </section>
+  );
+}
+
+function HomeGenerationFeedback(props: {
+  rejected: RejectedFile[];
+  job: Job | null;
+  status: string;
+  error: string;
+}) {
+  return (
+    <>
+      {props.rejected.length > 0 ? (
+        <div className="rejection-list" role="alert">
+          {props.rejected.map((file) => (
+            <p key={file.name}>
+              <strong>{file.name}</strong> {file.reason}
+            </p>
+          ))}
+        </div>
+      ) : null}
+      {props.job ? (
+        <div className="job-status home-job-status" aria-live="polite">
+          <div>
+            <strong>{props.job.status}</strong>
+            <span>{props.job.progress}%</span>
+          </div>
+          {props.job.message ? <p>{props.job.message}</p> : null}
+        </div>
+      ) : null}
+      {props.status ? <p className="chat-file-status">{props.status}</p> : null}
+      {props.error ? <p className="chat-file-error">{props.error}</p> : null}
+    </>
+  );
+}
+
+function HomeUploadList(props: {
+  uploads: UploadFile[];
+  totalUploadSize: number;
+  isDisabled?: boolean;
+  allowDesignReference?: boolean;
+  onRemoveUpload: (id: string) => void;
+  onUpdateUploadRole: (id: string, role: UploadRole) => void;
+}) {
+  return (
+    <div className="home-upload-list">
+      <div className="upload-summary" aria-live="polite">
+        <span>{props.uploads.length}개 파일</span>
+        <span>{formatBytes(props.totalUploadSize)}</span>
+      </div>
+      <ul className="file-list" aria-label="홈 AI 덱 첨부파일">
+        {props.uploads.map(({ id, file, role }) => (
+          <li key={id}>
+            <div>
+              <span className="file-name">{file.name}</span>
+              <span className="file-detail">
+                {getExtension(file.name).toUpperCase()} · {formatBytes(file.size)}
+              </span>
+            </div>
+            <select
+              value={props.allowDesignReference ? role : "content"}
+              onChange={(event) => props.onUpdateUploadRole(id, event.target.value as UploadRole)}
+              disabled={props.isDisabled}
+              aria-label={`${file.name} 역할`}
+            >
+              <option value="content">내용 참고</option>
+              {props.allowDesignReference && isPptxFile(file) ? (
+                <option value="design">디자인 참고</option>
+              ) : null}
+              {props.allowDesignReference && isPptxFile(file) ? (
+                <option value="both">둘 다</option>
+              ) : null}
+            </select>
+            <button
+              type="button"
+              onClick={() => props.onRemoveUpload(id)}
+              aria-label={`${file.name} 제거`}
+              disabled={props.isDisabled}
+            >
+              ×
+            </button>
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
 
@@ -1829,12 +2326,113 @@ function createUploadId(file: File) {
   return `${file.name}-${file.size}-${file.lastModified}`;
 }
 
-function getAiTemplateUploadPurpose(upload: UploadFile): FilePurpose {
-  if ((upload.role === "design" || upload.role === "both") && isPptxFile(upload.file)) {
+function getHomeUploadPurpose(
+  upload: UploadFile,
+  allowDesignReferences = true
+): FilePurpose {
+  if (
+    allowDesignReferences &&
+    (upload.role === "design" || upload.role === "both") &&
+    isPptxFile(upload.file)
+  ) {
     return "pptx-import";
   }
 
   return "reference-material";
+}
+
+async function extractHomeReferenceInput(
+  projectId: string,
+  uploads: UploadFile[],
+  uploadedAssetFileIds: Map<string, string>,
+  callbacks: {
+    setJob: (job: Job | null) => void;
+    setStatus: (status: string) => void;
+  },
+  includeDesignReferencesAsContent = false
+) {
+  const contentUploads = getHomeContentReferenceUploads(
+    uploads,
+    includeDesignReferencesAsContent
+  );
+  if (contentUploads.length === 0) {
+    return buildReferenceGenerationInput([]);
+  }
+
+  callbacks.setStatus("참고자료 추출 중...");
+  const response = await fetch(homeReferenceExtractEndpoint, {
+    method: "POST",
+    body: buildHomeExtractFormData(projectId, contentUploads, uploadedAssetFileIds)
+  });
+
+  if (!response.ok) {
+    throw new Error(await readApiError(response, "참고자료 추출을 시작하지 못했습니다."));
+  }
+
+  const data = (await response.json()) as ExtractJobResponse;
+  callbacks.setJob(data.job);
+  const completed = await pollExtractJob(data.job.jobId, {
+    fetcher: fetch,
+    onUpdate: callbacks.setJob,
+    timeoutMs: 300_000
+  });
+  callbacks.setJob(completed);
+
+  if (completed.status === "failed") {
+    throw new Error(
+      completed.error?.message || completed.message || "참고자료 추출에 실패했습니다."
+    );
+  }
+
+  return buildReferenceGenerationInput(getJobResultFiles(completed));
+}
+
+export function hasHomeDesignPptxUpload(uploads: UploadFile[]) {
+  return uploads.some((upload) => isHomeDesignPptxUpload(upload));
+}
+
+function isHomeDesignPptxUpload(upload: UploadFile) {
+  return (upload.role === "design" || upload.role === "both") && isPptxFile(upload.file);
+}
+
+export function getHomeContentReferenceUploads(
+  uploads: UploadFile[],
+  includeDesignReferencesAsContent = false
+) {
+  return uploads.filter(
+    (upload) => includeDesignReferencesAsContent || upload.role === "content"
+  );
+}
+
+export const homeReferenceExtractEndpoint = "/api/extract";
+
+export function buildHomeExtractFormData(
+  projectId: string,
+  contentUploads: UploadFile[],
+  uploadedAssetFileIds: Map<string, string>
+) {
+  const formData = new FormData();
+  formData.append("projectId", projectId);
+  for (const upload of contentUploads) {
+    const fileId = uploadedAssetFileIds.get(upload.id);
+    if (!fileId) {
+      throw new Error(`${upload.file.name} 업로드 결과를 찾지 못했습니다.`);
+    }
+    formData.append("files", upload.file);
+    formData.append("fileIds", fileId);
+  }
+  return formData;
+}
+
+export function getHomeDeckGenerationJobEndpoint(
+  projectId: string,
+  uploads: UploadFile[],
+  allowDesignReferences = true
+) {
+  const jobType = allowDesignReferences && hasHomeDesignPptxUpload(uploads)
+    ? "ai-template-deck-generation"
+    : "generate-deck";
+  return `/api/v1/projects/${encodeURIComponent(projectId)}/jobs/${jobType}`;
 }
 
 export function getHomeGenerationValidationMessage(
@@ -1842,25 +2440,24 @@ export function getHomeGenerationValidationMessage(
   uploads: UploadFile[],
   durationInput = "10",
   minSlidesInput = "5",
-  maxSlidesInput = "8"
+  maxSlidesInput = "8",
+  allowDesignReferences = true
 ) {
   if (!topic.trim()) {
     return "발표 주제를 입력하세요.";
   }
 
-  if (uploads.length === 0) {
-    return "파일을 하나 이상 첨부하세요.";
-  }
+  if (allowDesignReferences) {
+    const designUploads = uploads.filter(
+      (upload) => upload.role === "design" || upload.role === "both"
+    );
+    if (designUploads.length > 1) {
+      return "디자인 참고 PPTX는 1개만 선택하세요.";
+    }
 
-  const designUploads = uploads.filter(
-    (upload) => upload.role === "design" || upload.role === "both"
-  );
-  if (designUploads.length !== 1) {
-    return "디자인 참고 PPTX를 정확히 1개 선택하세요.";
-  }
-
-  if (!isPptxFile(designUploads[0].file)) {
-    return "디자인 참고 파일은 PPTX여야 합니다.";
+    if (designUploads.length === 1 && !isPptxFile(designUploads[0].file)) {
+      return "디자인 참고 파일은 PPTX여야 합니다.";
+    }
   }
 
   const duration = parseHomeIntegerInput(durationInput);
@@ -1888,7 +2485,10 @@ export function getHomeGenerationValidationMessage(
   return "";
 }
 
-function collectHomeUploadFiles(fileList: FileList | File[]) {
+function collectHomeUploadFiles(
+  fileList: FileList | File[],
+  hasSelectedTemplateStyle = false
+) {
   const acceptedFiles: UploadFile[] = [];
   const rejectedFiles: RejectedFile[] = [];
 
@@ -1921,11 +2521,23 @@ function collectHomeUploadFiles(fileList: FileList | File[]) {
     acceptedFiles.push({
       id: createUploadId(file),
       file,
-      role: isPptxFile(file) ? "design" : "content"
+      role: getHomeDefaultUploadRole(file, hasSelectedTemplateStyle)
     });
   });
 
   return { acceptedFiles, rejectedFiles };
+}
+
+export function getHomeDefaultUploadRole(file: File, hasSelectedTemplateStyle = false) {
+  if (!isPptxFile(file)) {
+    return "content";
+  }
+
+  return hasSelectedTemplateStyle ? "content" : "design";
+}
+
+function normalizeTemplateReferenceUploads(uploads: UploadFile[]) {
+  return uploads.map((upload) => ({ ...upload, role: "content" as const }));
 }
 
 function mergeUploadFiles(current: UploadFile[], next: UploadFile[]) {
@@ -2191,8 +2803,47 @@ export function buildGenerateDeckPayload(input: GenerateDeckPayloadInput) {
     design: input.design,
     references: input.referenceInput.references,
     designReferences: input.designReferences,
-    referenceKeywords: input.referenceInput.referenceKeywords
+    referenceKeywords: input.referenceInput.referenceKeywords,
+    referenceContext: input.referenceInput.referenceContext
   };
+}
+
+export function buildHomeJsonFirstGenerateDeckPayload(input: {
+  designPrompt: string;
+  duration: number;
+  maxSlides: number;
+  minSlides: number;
+  prompt: string;
+  referenceInput?: ReferenceGenerationInput;
+  templateStyleId?: HomeTemplateStyleId;
+  templateStyleDesignOverrides?: TemplateStyleDesignOverrides;
+  tone: "professional" | "friendly" | "confident" | "concise";
+  topic: string;
+}) {
+  const design = input.templateStyleId
+    ? {
+        ...buildHomeTemplateStyleGenerateDeckDesignDirection(input.templateStyleId),
+        ...(input.templateStyleDesignOverrides ?? {})
+      }
+    : buildDefaultHomeGenerateDeckDesignDirection();
+
+  return buildGenerateDeckPayload({
+    topic: input.topic.trim(),
+    prompt: input.prompt.trim(),
+    designPrompt: input.designPrompt.trim(),
+    duration: clampInteger(input.duration, 1, 120),
+    minSlides: clampInteger(input.minSlides, 1, 20),
+    maxSlides: clampInteger(input.maxSlides, 1, 20),
+    template: "default",
+    metadata: {
+      audience: "general",
+      purpose: "inform",
+      tone: input.tone
+    },
+    design,
+    designReferences: [],
+    referenceInput: input.referenceInput ?? buildReferenceGenerationInput([])
+  });
 }
 
 export function buildDesignReferences(
@@ -2211,6 +2862,8 @@ export function buildGenerateDeckDesignDirection(input: {
   layoutDiversity: GenerateDeckDesignDirection["layoutDiversity"];
   mediaPolicy: GenerateDeckDesignDirection["mediaPolicy"];
   profile: GenerateDeckDesignProfileChoice;
+  slidePresetId?: string;
+  stylePackId?: string;
   visualRhythm: GenerateDeckDesignDirection["visualRhythm"];
 }): GenerateDeckDesignDirection {
   const design: GenerateDeckDesignDirection = {
@@ -2224,7 +2877,86 @@ export function buildGenerateDeckDesignDirection(input: {
     design.profile = input.profile;
   }
 
+  if (input.stylePackId?.trim()) {
+    design.stylePackId = input.stylePackId.trim();
+  }
+
+  if (input.slidePresetId?.trim()) {
+    design.slidePresetId = input.slidePresetId.trim();
+  }
+
   return design;
+}
+
+export function buildSimpleBasicGenerateDeckDesignDirection() {
+  return buildHomeTemplateStyleGenerateDeckDesignDirection("simple-basic");
+}
+
+export function buildDefaultHomeGenerateDeckDesignDirection() {
+  return buildGenerateDeckDesignDirection({
+    profile: "auto",
+    visualRhythm: "auto",
+    densityTarget: "medium",
+    mediaPolicy: "balanced",
+    layoutDiversity: "varied"
+  });
+}
+
+export function buildHomeTemplateStyleGenerateDeckDesignDirection(
+  styleId: HomeTemplateStyleId
+) {
+  if (styleId === "presentation-document") {
+    return buildGenerateDeckDesignDirection({
+      profile: "auto",
+      visualRhythm: "clean",
+      densityTarget: "low",
+      mediaPolicy: "balanced",
+      layoutDiversity: "stable",
+      stylePackId: styleId
+    });
+  }
+
+  if (styleId === "submission-document") {
+    return buildGenerateDeckDesignDirection({
+      profile: "auto",
+      visualRhythm: "technical",
+      densityTarget: "high",
+      mediaPolicy: "balanced",
+      layoutDiversity: "stable",
+      stylePackId: styleId
+    });
+  }
+
+  return buildGenerateDeckDesignDirection({
+    profile: "auto",
+    visualRhythm: "clean",
+    densityTarget: "medium",
+    mediaPolicy: "balanced",
+    layoutDiversity: "stable",
+    stylePackId: simpleBasicStylePackId
+  });
+}
+
+export function buildTemplateStyleDesignOverrides(input: {
+  densityTarget: TemplateDensityTargetOption;
+  layoutDiversity: TemplateLayoutDiversityOption;
+  mediaPolicy: TemplateMediaPolicyOption;
+}): TemplateStyleDesignOverrides {
+  const overrides: TemplateStyleDesignOverrides = {};
+
+  if (input.densityTarget !== templateStyleDefaultOption) {
+    overrides.densityTarget = input.densityTarget;
+  }
+
+  if (input.layoutDiversity !== templateStyleDefaultOption) {
+    overrides.layoutDiversity = input.layoutDiversity;
+  }
+
+  if (input.mediaPolicy !== templateStyleDefaultOption) {
+    overrides.mediaPolicy = input.mediaPolicy;
+  }
+
+  return overrides;
 }
 
 export function mergeGeneratedProjectList(
@@ -2241,10 +2973,12 @@ export function buildReferenceGenerationInput(
 ): ReferenceGenerationInput {
   const references: Array<{ fileId: string }> = [];
   const referenceKeywords: Array<{ text: string }> = [];
+  const referenceContext: Array<{ fileId: string; title: string; content: string }> = [];
   const succeededFiles: ExtractedFile[] = [];
   const failedFiles: ExtractedFile[] = [];
   const seenFileIds = new Set<string>();
   const seenKeywords = new Set<string>();
+  const seenContextIds = new Set<string>();
 
   for (const file of files) {
     const fileId = file.referenceDocumentId?.trim() ?? "";
@@ -2259,6 +2993,15 @@ export function buildReferenceGenerationInput(
       references.push({ fileId });
     }
 
+    const content = (file.cleanedText?.trim() || file.rawText.trim()).slice(
+      0,
+      referenceContextMaxChars
+    );
+    if (content && !seenContextIds.has(fileId)) {
+      seenContextIds.add(fileId);
+      referenceContext.push({ fileId, title: file.fileName, content });
+    }
+
     for (const keyword of file.keywords ?? []) {
       const text = keyword.keyword.trim();
       const key = text.toLowerCase();
@@ -2269,7 +3012,13 @@ export function buildReferenceGenerationInput(
     }
   }
 
-  return { references, referenceKeywords, succeededFiles, failedFiles };
+  return {
+    references,
+    referenceKeywords,
+    referenceContext,
+    succeededFiles,
+    failedFiles
+  };
 }
 
 function PptxOoxmlGenerationResult(props: {

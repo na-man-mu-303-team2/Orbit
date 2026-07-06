@@ -363,7 +363,7 @@ def test_generate_deck_applies_monochrome_semantic_palette_from_design_prompt() 
         GenerateDeckRequest(
             projectId="project_demo_1",
             topic="Quarterly roadmap",
-            designPrompt="전문가, 모노톤, 블랙앤화이트, 깔끔한 디자인",
+            designPrompt="전문가, 모노톤, 블랙앤화이트 디자인",
             template="report",
             slideCountRange={"min": 1, "max": 1},
         ),
@@ -402,7 +402,7 @@ def test_generate_deck_applies_ocean_blue_semantic_palette_from_design_prompt() 
         GenerateDeckRequest(
             projectId="project_demo_1",
             topic="Quarterly roadmap",
-            designPrompt="바다 느낌으로 시원하고 깔끔한 디자인",
+            designPrompt="바다 느낌으로 시원한 디자인",
             template="report",
             slideCountRange={"min": 1, "max": 1},
         ),
@@ -485,6 +485,195 @@ def test_generate_deck_separates_design_prompt_from_content_prompt() -> None:
     assert "User prompt: History and core rules" in llm_input
     assert f"Design prompt: {design_prompt}" in llm_input
     assert design_prompt not in deck_text
+
+
+def test_generate_deck_applies_simple_basic_style_pack() -> None:
+    design_prompt = "심플 베이직 발표용 문서 스타일"
+    fake_client = FakeOpenAIClient(
+        {
+            "title": "AI 전환 전략",
+            "slides": [
+                slide_payload(
+                    "실행 관점",
+                    "핵심 실행 항목을 짧게 정리합니다.",
+                    "첫째, 실행 범위를 좁힙니다. 둘째, 검증 가능한 지표를 둡니다.",
+                    slide_type="solution",
+                    slot_preset="title_left_visual_right",
+                    keywords=["범위", "지표", "검증"],
+                )
+            ],
+        }
+    )
+
+    response = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="AI 전환 전략",
+            designPrompt=design_prompt,
+            design={"stylePackId": "simple-basic"},
+            slideCountRange={"min": 1, "max": 1},
+        ),
+        client=fake_client,
+    )
+
+    slide = response.deck["slides"][0]
+    deck_text = json.dumps(response.deck, ensure_ascii=False)
+    llm_input = str(fake_client.requests[0]["input"])
+    top_stripe = element_by_id(slide, "el_1_simple_basic_top_stripe")
+    divider = element_by_id(slide, "el_1_simple_basic_title_divider")
+
+    assert fake_client.requests[0]["model"] == "gpt-4.1-mini"
+    assert "Document mode: presentation" in llm_input
+    assert_only_template_style_prompt(llm_input, "simple-basic")
+    assert response.deck["theme"]["name"] == "simple-basic"
+    assert response.deck["theme"]["textColor"] == "#1A1A1A"
+    assert top_stripe["height"] == 6
+    assert divider["width"] == 56
+    assert has_element(slide, "el_1_simple_basic_content_box")
+    assert has_element(slide, "el_1_simple_basic_badge_1")
+    assert design_prompt not in deck_text
+    assert "stylePackId" not in deck_text
+    assert "visualIntent" not in deck_text
+    assert response.validation.passed is True
+
+
+def test_generate_deck_auto_selects_simple_basic_report_mode() -> None:
+    fake_client = FakeOpenAIClient(
+        {
+            "title": "보고서형 덱",
+            "slides": [
+                slide_payload(
+                    "판단 근거",
+                    "근거와 실행 조건을 본문에서 함께 확인할 수 있습니다.",
+                    "보고서형 문서에서는 독자가 이 본문만 읽어도 판단 기준을 이해할 수 있어야 합니다.",
+                    slide_type="data",
+                    slot_preset="insight_with_evidence",
+                    keywords=["근거", "조건"],
+                )
+            ],
+        }
+    )
+
+    response = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="AI 투자 검토",
+            designPrompt="깔끔한 제출용 보고서 스타일",
+            slideCountRange={"min": 1, "max": 1},
+        ),
+        client=fake_client,
+    )
+
+    llm_input = str(fake_client.requests[0]["input"])
+    deck_text = json.dumps(response.deck, ensure_ascii=False)
+
+    assert "Document mode: report/submission" in llm_input
+    assert response.deck["theme"]["name"] == "simple-basic"
+    assert "깔끔한 제출용 보고서 스타일" not in deck_text
+    assert response.validation.passed is True
+
+
+@pytest.mark.parametrize(
+    ("style_pack_id", "document_mode"),
+    [
+        ("presentation-document", "presentation"),
+        ("submission-document", "report/submission"),
+    ],
+)
+def test_generate_deck_applies_document_style_pack_modes(
+    style_pack_id: str,
+    document_mode: str,
+) -> None:
+    fake_client = FakeOpenAIClient(
+        {
+            "title": "Document style",
+            "slides": [
+                slide_payload(
+                    "Document slide",
+                    "The selected template controls the document style.",
+                    "Explain the selected document style in direct speaker lines.",
+                    slide_type="solution",
+                    slot_preset="insight_with_evidence",
+                    keywords=["Style", "Purpose"],
+                )
+            ],
+        }
+    )
+
+    response = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="Document style",
+            design={"stylePackId": style_pack_id},
+            slideCountRange={"min": 1, "max": 1},
+        ),
+        client=fake_client,
+    )
+
+    llm_input = str(fake_client.requests[0]["input"])
+    deck_text = json.dumps(response.deck, ensure_ascii=False)
+    slide = response.deck["slides"][0]
+
+    assert f"Document mode: {document_mode}" in llm_input
+    assert_only_template_style_prompt(llm_input, style_pack_id)
+    assert response.deck["theme"]["name"] == style_pack_id
+    assert has_dedicated_document_style_elements(slide, style_pack_id)
+    assert not any(
+        element["elementId"].startswith("el_1_simple_basic_")
+        for element in slide["elements"]
+    )
+    assert "stylePackId" not in deck_text
+    assert response.validation.passed is True
+
+
+def test_generate_deck_document_style_packs_choose_distinct_layout_frames() -> None:
+    frames: dict[str, tuple[str, int, int, int]] = {}
+
+    for style_pack_id in (
+        "simple-basic",
+        "presentation-document",
+        "submission-document",
+    ):
+        fake_client = FakeOpenAIClient(
+            {
+                "title": "Document style",
+                "slides": [
+                    slide_payload(
+                        "Document slide",
+                        "The same content should use the selected template layout.",
+                        "Explain the selected document style in direct speaker lines.",
+                        slide_type="solution",
+                        slot_preset="insight_with_evidence",
+                        keywords=["Style", "Purpose"],
+                    )
+                ],
+            }
+        )
+
+        response = generate_deck(
+            GenerateDeckRequest(
+                projectId="project_demo_1",
+                topic="Document style",
+                design={"stylePackId": style_pack_id},
+                slideCountRange={"min": 1, "max": 1},
+            ),
+            client=fake_client,
+        )
+
+        slide = response.deck["slides"][0]
+        title = element_by_role(slide, "title")
+        body = element_by_role(slide, "body")
+        frames[style_pack_id] = (
+            slide["style"]["layout"],
+            title["y"],
+            body["y"],
+            body["height"],
+        )
+
+    assert len(set(frames.values())) == 3
+    assert frames["simple-basic"][0] == "title-content"
+    assert frames["presentation-document"][0] == "title"
+    assert frames["submission-document"][3] > frames["simple-basic"][3]
 
 
 def test_generate_deck_applies_keyed_theme_tokens_from_palette_hint() -> None:
@@ -1711,6 +1900,73 @@ def test_generate_deck_applies_v2_process_cards_registry() -> None:
     assert "stylePackId" not in deck_text
     assert "slidePresetId" not in deck_text
     assert "visualIntent" not in deck_text
+    assert response.validation.passed is True
+
+
+@pytest.mark.parametrize(
+    "style_pack_id",
+    ["simple-basic", "presentation-document", "submission-document"],
+)
+def test_generate_deck_keeps_document_process_slides_in_style_pack(
+    style_pack_id: str,
+) -> None:
+    fake_client = FakeOpenAIClient(
+        {
+            "title": "Workflow",
+            "slides": [
+                slide_payload(
+                    "Issue to Done",
+                    "Keep the workflow readable without switching style systems.",
+                    "Explain each step in speaker notes.",
+                    slide_type="process",
+                    slot_preset="insight_with_evidence",
+                    keywords=[
+                        "Issue",
+                        "Project",
+                        "Branch",
+                        "Implementation",
+                        "PR",
+                        "Review",
+                    ],
+                    visual_intent={
+                        "emphasis": "Workflow steps",
+                        "mood": "clear",
+                        "structure": "process cards",
+                        "paletteHint": "",
+                        "emphasisStyle": "",
+                        "composition": "process",
+                        "decorationDensity": "high",
+                        "mediaStyle": "",
+                    },
+                )
+            ],
+        }
+    )
+
+    response = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="Workflow",
+            design={"stylePackId": style_pack_id},
+            slideCountRange={"min": 1, "max": 1},
+        ),
+        client=fake_client,
+    )
+
+    slide = response.deck["slides"][0]
+    element_ids = [element["elementId"] for element in slide["elements"]]
+    element_types = [element["type"] for element in slide["elements"]]
+
+    assert response.deck["theme"]["name"] == style_pack_id
+    if style_pack_id == "simple-basic":
+        assert has_element(slide, "el_1_simple_basic_top_stripe")
+    else:
+        assert has_dedicated_document_style_elements(slide, style_pack_id)
+        assert all("_simple_basic_" not in element_id for element_id in element_ids)
+    assert all("_process_card_" not in element_id for element_id in element_ids)
+    assert all("_process_arrow_" not in element_id for element_id in element_ids)
+    assert "customShape" not in element_types
+    assert "arrow" not in element_types
     assert response.validation.passed is True
 
 
@@ -3108,6 +3364,38 @@ def slide_payload(
             "src": "",
         },
     }
+
+
+def assert_only_template_style_prompt(llm_input: str, style_pack_id: str) -> None:
+    markers = {
+        "simple-basic": "깔끔하고 베이직하지만 비어 보이지 않는 슬라이드",
+        "presentation-document": "이 PPT는 발표자가 직접 말로 설명하는 자료입니다.",
+        "submission-document": "이 PPT는 상대방이 혼자 읽는 자료입니다.",
+    }
+
+    assert markers[style_pack_id] in llm_input
+    for marker_id, marker in markers.items():
+        if marker_id != style_pack_id:
+            assert marker not in llm_input
+
+
+def has_dedicated_document_style_elements(
+    slide: dict[str, Any],
+    style_pack_id: str,
+) -> bool:
+    if style_pack_id == "presentation-document":
+        return (
+            has_element(slide, "el_1_presentation_top_band")
+            and has_element(slide, "el_1_presentation_focus_panel")
+            and not has_element(slide, "el_1_submission_header_band")
+        )
+    if style_pack_id == "submission-document":
+        return (
+            has_element(slide, "el_1_submission_header_band")
+            and has_element(slide, "el_1_submission_content_panel")
+            and not has_element(slide, "el_1_presentation_top_band")
+        )
+    return False
 
 
 def has_element(slide: dict[str, Any], element_id: str) -> bool:

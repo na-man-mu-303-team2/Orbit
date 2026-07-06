@@ -1,0 +1,40 @@
+{
+  "id": "simple-basic",
+  "theme": {
+    "name": "simple-basic",
+    "headingFontFamily": "Noto Sans KR",
+    "bodyFontFamily": "Noto Sans KR",
+    "background": "#ffffff",
+    "surface": "#ffffff",
+    "text": "#1A1A1A",
+    "accent": "#2563eb",
+    "secondary": "#64748b",
+    "muted": "#f6f7f9",
+    "border": "#d9dee7",
+    "titleSize": 58,
+    "headingSize": 40,
+    "bodySize": 26,
+    "captionSize": 17
+  },
+  "effects": {
+    "borderRadius": 8,
+    "shadow": {
+      "color": "#000000",
+      "blur": 10,
+      "offsetX": 0,
+      "offsetY": 3,
+      "opacity": 0.08
+    }
+  },
+  "stripeHeight": 6,
+  "titleDividerWidth": 56,
+  "contentBox": {
+    "fill": "#f6f7f9",
+    "stroke": "#d9dee7",
+    "borderRadius": 8
+  },
+  "badge": {
+    "fill": "#2563eb",
+    "text": "#ffffff"
+  }
+}

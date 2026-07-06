@@ -8,8 +8,13 @@ import {
   buildDesignReferences,
   buildGenerateDeckPayload,
   buildGenerateDeckDesignDirection,
+  buildDefaultHomeGenerateDeckDesignDirection,
+  buildHomeJsonFirstGenerateDeckPayload,
+  buildHomeTemplateStyleGenerateDeckDesignDirection,
   buildPptxOoxmlGenerationPayload,
   buildReferenceGenerationInput,
+  buildSimpleBasicGenerateDeckDesignDirection,
+  buildTemplateStyleDesignOverrides,
   createGeneratedDeckProject,
   ExtractResultItem,
   GeneratedDeckResult,
@@ -18,8 +23,15 @@ import {
   getGeneratedDeckProjectTitle,
   getAiTemplateDeckGenerationJobResult,
   getGenerateDeckJobResult,
+  buildHomeExtractFormData,
+  getHomeDeckGenerationJobEndpoint,
+  getHomeDefaultUploadRole,
   getHomeGenerationValidationMessage,
+  getHomeContentReferenceUploads,
   getHomePptxConversionValidationMessage,
+  getHomeTemplateStylePath,
+  homeReferenceExtractEndpoint,
+  homeTemplateStyles,
   getPptxOoxmlGeneratedProjectPath,
   getPptxOoxmlGenerationJobResult,
   getPptxConversionProjectTitle,
@@ -30,7 +42,9 @@ import {
   pollJob,
   pollExtractJob,
   resolveGenerateDeckTargetProject,
-  shouldRenderAppFrame
+  shouldRenderAppFrame,
+  TemplateRail,
+  TemplateStyleOptionsPanel
 } from "./App";
 
 vi.mock("react-konva", () => {
@@ -114,6 +128,135 @@ describe("App shell routing", () => {
   it("does not expose the old upload workspace route", () => {
     expect(getRoute("/upload")).toEqual({ name: "home" });
   });
+
+  it("parses a selected home template style from the query string", () => {
+    expect(getRoute("/", "?templateStyle=presentation-document")).toEqual({
+      name: "home",
+      templateStyleId: "presentation-document"
+    });
+    expect(getHomeTemplateStylePath("submission-document")).toBe(
+      "/?templateStyle=submission-document"
+    );
+  });
+});
+
+describe("home template styles", () => {
+  it("renders only the three supported template style cards", () => {
+    const html = renderToStaticMarkup(
+      <TemplateRail title="템플릿" selectedStyleId="presentation-document" />
+    );
+
+    expect(homeTemplateStyles).toHaveLength(3);
+    expect(html).toContain("빈 프레젠테이션 만들기");
+    expect(html).toContain("심플 베이직 스타일");
+    expect(html).toContain("발표용 문서 스타일");
+    expect(html).toContain("제출용 문서 스타일");
+    expect(html).toContain('aria-pressed="true"');
+    expect(html).not.toContain("피치덱");
+    expect(html).not.toContain("수업 자료");
+    expect(html).not.toContain("워크숍");
+  });
+
+  it("does not select a template style by default", () => {
+    const html = renderToStaticMarkup(<TemplateRail title="템플릿" />);
+
+    expect(html).not.toContain('aria-pressed="true"');
+    expect(html).not.toContain("template-card-active");
+  });
+
+  it("renders selected template style settings", () => {
+    const html = renderToStaticMarkup(
+      <TemplateStyleOptionsPanel
+        templateStyle={homeTemplateStyles[0]}
+        topic=""
+        prompt=""
+        tone="professional"
+        durationInput="10"
+        minSlidesInput="5"
+        maxSlidesInput="8"
+        designPrompt=""
+        densityTarget="style-default"
+        layoutDiversity="style-default"
+        mediaPolicy="style-default"
+        uploads={[]}
+        totalUploadSize={0}
+        rejected={[]}
+        job={null}
+        status=""
+        error=""
+        onClearStyle={() => undefined}
+        onTopicChange={() => undefined}
+        onPromptChange={() => undefined}
+        onToneChange={() => undefined}
+        onDurationInputChange={() => undefined}
+        onMinSlidesInputChange={() => undefined}
+        onMaxSlidesInputChange={() => undefined}
+        onDesignPromptChange={() => undefined}
+        onDensityTargetChange={() => undefined}
+        onFileChange={() => undefined}
+        onLayoutDiversityChange={() => undefined}
+        onMediaPolicyChange={() => undefined}
+        onRemoveUpload={() => undefined}
+        onUpdateUploadRole={() => undefined}
+        onGenerate={() => undefined}
+      />
+    );
+
+    expect(html).toContain("발표 주제");
+    expect(html).toContain("PPT 생성하기");
+    expect(html).toContain('name="templateDesignPrompt"');
+    expect(html).toContain('name="templateDensityTarget"');
+    expect(html).toContain('name="templateLayoutDiversity"');
+    expect(html).toContain('name="templateMediaPolicy"');
+    expect(html).toContain("참고자료 첨부");
+    expect(html).toContain('type="file"');
+  });
+
+  it("hides design reference roles in the selected template style settings", () => {
+    const pptx = new File(["pptx"], "reference.pptx", {
+      type: "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+    });
+    const html = renderToStaticMarkup(
+      <TemplateStyleOptionsPanel
+        templateStyle={homeTemplateStyles[0]}
+        topic=""
+        prompt=""
+        tone="professional"
+        durationInput="10"
+        minSlidesInput="5"
+        maxSlidesInput="8"
+        designPrompt=""
+        densityTarget="style-default"
+        layoutDiversity="style-default"
+        mediaPolicy="style-default"
+        uploads={[{ id: "pptx", file: pptx, role: "content" }]}
+        totalUploadSize={pptx.size}
+        rejected={[]}
+        job={null}
+        status=""
+        error=""
+        onClearStyle={() => undefined}
+        onTopicChange={() => undefined}
+        onPromptChange={() => undefined}
+        onToneChange={() => undefined}
+        onDurationInputChange={() => undefined}
+        onMinSlidesInputChange={() => undefined}
+        onMaxSlidesInputChange={() => undefined}
+        onDesignPromptChange={() => undefined}
+        onDensityTargetChange={() => undefined}
+        onFileChange={() => undefined}
+        onLayoutDiversityChange={() => undefined}
+        onMediaPolicyChange={() => undefined}
+        onRemoveUpload={() => undefined}
+        onUpdateUploadRole={() => undefined}
+        onGenerate={() => undefined}
+      />
+    );
+
+    expect(html).toContain("내용 참고");
+    expect(html).not.toContain("디자인 참고");
+    expect(html).not.toContain("둘 다");
+  });
 });
 
 describe("reference extraction upload flow", () => {
@@ -125,6 +268,7 @@ describe("reference extraction upload flow", () => {
         kind: "pdf",
         status: "succeeded",
         rawText: "raw",
+        cleanedText: "cleaned",
         keywords: [
           { keyword: "Deck", reason: "topic", priority: "high" },
           { keyword: " deck ", reason: "duplicate", priority: "medium" }
@@ -150,6 +294,9 @@ describe("reference extraction upload flow", () => {
 
     expect(input.references).toEqual([{ fileId: "file_1" }]);
     expect(input.referenceKeywords).toEqual([{ text: "Deck" }, { text: "AI" }]);
+    expect(input.referenceContext).toEqual([
+      { fileId: "file_1", title: "success.pdf", content: "cleaned" }
+    ]);
     expect(input.succeededFiles).toHaveLength(2);
     expect(input.failedFiles.map((file) => file.fileName)).toEqual(["failed.pdf"]);
   });
@@ -376,14 +523,63 @@ describe("AI deck generation flow", () => {
     const pptx = new File(["pptx"], "design.pptx", {
       type: "application/vnd.openxmlformats-officedocument.presentationml.presentation"
     });
+    const pdf = new File(["pdf"], "content.pdf", { type: "application/pdf" });
     const uploads = [{ id: "design", file: pptx, role: "design" as const }];
 
+    expect(getHomeGenerationValidationMessage("ORBIT", [], "10", "5", "8")).toBe("");
+    expect(
+      getHomeGenerationValidationMessage(
+        "ORBIT",
+        [{ id: "pdf", file: pdf, role: "design" }],
+        "10",
+        "5",
+        "8"
+      )
+    ).toBe("디자인 참고 파일은 PPTX여야 합니다.");
+    expect(
+      getHomeGenerationValidationMessage(
+        "ORBIT",
+        [
+          { id: "design-1", file: pptx, role: "design" },
+          { id: "design-2", file: pptx, role: "both" }
+        ],
+        "10",
+        "5",
+        "8"
+      )
+    ).toBe("디자인 참고 PPTX는 1개만 선택하세요.");
+    expect(
+      getHomeGenerationValidationMessage(
+        "ORBIT",
+        [
+          { id: "design-1", file: pptx, role: "design" },
+          { id: "design-2", file: pptx, role: "both" }
+        ],
+        "10",
+        "5",
+        "8",
+        false
+      )
+    ).toBe("");
     expect(getHomeGenerationValidationMessage("ORBIT", uploads, "0", "5", "8")).toBe(
       "발표 시간은 1~120분으로 입력하세요."
     );
     expect(getHomeGenerationValidationMessage("ORBIT", uploads, "10", "9", "8")).toBe(
       "최소 슬라이드 수는 최대 슬라이드 수보다 클 수 없습니다."
     );
+  });
+
+  it("defaults PPTX uploads to content references while a template style is selected", () => {
+    const pptx = new File(["pptx"], "reference.pptx", {
+      type: "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+    });
+    const docx = new File(["docx"], "reference.docx", {
+      type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    });
+
+    expect(getHomeDefaultUploadRole(pptx, false)).toBe("design");
+    expect(getHomeDefaultUploadRole(pptx, true)).toBe("content");
+    expect(getHomeDefaultUploadRole(docx, true)).toBe("content");
   });
 
   it("reads an AI template deck generation job result", () => {
@@ -461,6 +657,9 @@ describe("AI deck generation flow", () => {
       referenceInput: {
         references: [{ fileId: "file_1" }],
         referenceKeywords: [{ text: "Deck" }],
+        referenceContext: [
+          { fileId: "file_1", title: "source.pdf", content: "source text" }
+        ],
         succeededFiles: [],
         failedFiles: []
       }
@@ -481,8 +680,184 @@ describe("AI deck generation flow", () => {
       },
       references: [{ fileId: "file_1" }],
       designReferences: [{ fileId: "file_design_1" }],
-      referenceKeywords: [{ text: "Deck" }]
+      referenceKeywords: [{ text: "Deck" }],
+      referenceContext: [
+        { fileId: "file_1", title: "source.pdf", content: "source text" }
+      ]
     });
+  });
+
+  it("builds a JSON-first home payload without a design PPTX", () => {
+    const payload = buildHomeJsonFirstGenerateDeckPayload({
+      topic: " ORBIT ",
+      prompt: " 핵심 메시지 ",
+      designPrompt: " 심플 베이직 발표용 ",
+      duration: 10,
+      minSlides: 5,
+      maxSlides: 8,
+      tone: "professional"
+    });
+
+    expect(payload).toMatchObject({
+      topic: "ORBIT",
+      prompt: "핵심 메시지",
+      designPrompt: "심플 베이직 발표용",
+      design: {
+        visualRhythm: "auto",
+        densityTarget: "medium",
+        mediaPolicy: "balanced",
+        layoutDiversity: "varied"
+      },
+      references: [],
+      designReferences: [],
+      referenceKeywords: [],
+      referenceContext: []
+    });
+    expect(payload.design).not.toHaveProperty("stylePackId");
+  });
+
+  it("builds JSON-first home payloads with selected template styles", () => {
+    const presentationPayload = buildHomeJsonFirstGenerateDeckPayload({
+      topic: "ORBIT",
+      prompt: "",
+      designPrompt: "",
+      templateStyleId: "presentation-document",
+      duration: 10,
+      minSlides: 5,
+      maxSlides: 8,
+      tone: "professional"
+    });
+    const submissionPayload = buildHomeJsonFirstGenerateDeckPayload({
+      topic: "ORBIT",
+      prompt: "",
+      designPrompt: "",
+      templateStyleId: "submission-document",
+      duration: 10,
+      minSlides: 5,
+      maxSlides: 8,
+      tone: "professional"
+    });
+
+    expect(presentationPayload.design).toMatchObject({
+      stylePackId: "presentation-document",
+      densityTarget: "low"
+    });
+    expect(submissionPayload.design).toMatchObject({
+      stylePackId: "submission-document",
+      densityTarget: "high",
+      visualRhythm: "technical"
+    });
+  });
+
+  it("applies selected template style design overrides", () => {
+    const payload = buildHomeJsonFirstGenerateDeckPayload({
+      topic: "ORBIT",
+      prompt: "",
+      designPrompt: "",
+      templateStyleId: "presentation-document",
+      templateStyleDesignOverrides: buildTemplateStyleDesignOverrides({
+        densityTarget: "high",
+        layoutDiversity: "varied",
+        mediaPolicy: "avoid"
+      }),
+      duration: 10,
+      minSlides: 5,
+      maxSlides: 8,
+      tone: "professional"
+    });
+
+    expect(payload.design).toMatchObject({
+      stylePackId: "presentation-document",
+      densityTarget: "high",
+      layoutDiversity: "varied",
+      mediaPolicy: "avoid"
+    });
+  });
+
+  it("keeps content references when a template style is selected", () => {
+    const payload = buildHomeJsonFirstGenerateDeckPayload({
+      topic: "ORBIT",
+      prompt: "",
+      designPrompt: "",
+      templateStyleId: "simple-basic",
+      duration: 10,
+      minSlides: 5,
+      maxSlides: 8,
+      tone: "professional",
+      referenceInput: {
+        references: [{ fileId: "file_reference" }],
+        referenceKeywords: [{ text: "핵심" }],
+        referenceContext: [
+          { fileId: "file_reference", title: "reference.docx", content: "본문" }
+        ],
+        succeededFiles: [],
+        failedFiles: []
+      }
+    });
+
+    expect(payload.design.stylePackId).toBe("simple-basic");
+    expect(payload.references).toEqual([{ fileId: "file_reference" }]);
+    expect(payload.referenceKeywords).toEqual([{ text: "핵심" }]);
+    expect(payload.referenceContext).toEqual([
+      { fileId: "file_reference", title: "reference.docx", content: "본문" }
+    ]);
+  });
+
+  it("routes home deck generation to JSON-first unless a design PPTX exists", () => {
+    const pptx = new File(["pptx"], "design.pptx", {
+      type: "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+    });
+    const pdf = new File(["pdf"], "content.pdf", { type: "application/pdf" });
+
+    expect(getHomeDeckGenerationJobEndpoint("project a", [])).toBe(
+      "/api/v1/projects/project%20a/jobs/generate-deck"
+    );
+    expect(
+      getHomeDeckGenerationJobEndpoint("project a", [
+        { id: "pdf", file: pdf, role: "content" }
+      ])
+    ).toBe("/api/v1/projects/project%20a/jobs/generate-deck");
+    expect(
+      getHomeDeckGenerationJobEndpoint("project a", [
+        { id: "pptx", file: pptx, role: "design" }
+      ])
+    ).toBe("/api/v1/projects/project%20a/jobs/ai-template-deck-generation");
+    expect(
+      getHomeDeckGenerationJobEndpoint(
+        "project a",
+        [{ id: "pptx", file: pptx, role: "design" }],
+        false
+      )
+    ).toBe("/api/v1/projects/project%20a/jobs/generate-deck");
+    expect(getHomeDeckGenerationJobEndpoint("project a", [])).not.toContain(
+      "pptx-ooxml"
+    );
+    expect(
+      getHomeContentReferenceUploads([{ id: "pdf", file: pdf, role: "content" }])
+    ).toHaveLength(1);
+    expect(
+      getHomeContentReferenceUploads(
+        [{ id: "pptx", file: pptx, role: "design" }],
+        true
+      )
+    ).toEqual([{ id: "pptx", file: pptx, role: "design" }]);
+  });
+
+  it("builds extract form data for content-only home references", () => {
+    const pdf = new File(["pdf"], "content.pdf", { type: "application/pdf" });
+    const formData = buildHomeExtractFormData(
+      "project_ai",
+      [{ id: "pdf", file: pdf, role: "content" }],
+      new Map([["pdf", "file_content"]])
+    );
+
+    expect(formData.get("projectId")).toBe("project_ai");
+    expect(formData.getAll("files")).toEqual([pdf]);
+    expect(formData.getAll("fileIds")).toEqual(["file_content"]);
+  });
+
+  it("routes home reference extraction through the API proxy", () => {
+    expect(homeReferenceExtractEndpoint).toBe("/api/extract");
   });
 
   it("omits a design profile when the profile picker is automatic", () => {
@@ -510,6 +885,19 @@ describe("AI deck generation flow", () => {
         layoutDiversity: "varied"
       }).profile
     ).toBe("editorial");
+    expect(buildSimpleBasicGenerateDeckDesignDirection().stylePackId).toBe(
+      "simple-basic"
+    );
+    expect(buildDefaultHomeGenerateDeckDesignDirection()).toEqual({
+      visualRhythm: "auto",
+      densityTarget: "medium",
+      mediaPolicy: "balanced",
+      layoutDiversity: "varied"
+    });
+    expect(
+      buildHomeTemplateStyleGenerateDeckDesignDirection("presentation-document")
+        .stylePackId
+    ).toBe("presentation-document");
   });
 
   it("defaults an omitted design prompt to an empty string", () => {
@@ -536,6 +924,7 @@ describe("AI deck generation flow", () => {
       referenceInput: {
         references: [],
         referenceKeywords: [],
+        referenceContext: [],
         succeededFiles: [],
         failedFiles: []
       }
