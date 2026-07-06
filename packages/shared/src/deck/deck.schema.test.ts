@@ -74,6 +74,11 @@ type DeckValidationInput = {
         | {
             kind: "keyword";
             keywordId: string;
+          }
+        | {
+            kind: "keyword-occurrence";
+            keywordId: string;
+            occurrenceId: string;
           };
       effect:
         | {
@@ -269,6 +274,108 @@ describe("deckSchema validation", () => {
     ];
 
     expectValidDeck(deck);
+  });
+
+  it("accepts keyword occurrence-triggered slide actions", () => {
+    const deck = createValidDeck();
+
+    deck.slides[0].speakerNotes = "ORBIT 다시 ORBIT";
+    deck.slides[0].actions = [
+      {
+        actionId: "act_1",
+        trigger: {
+          kind: "keyword-occurrence",
+          keywordId: "kw_1",
+          occurrenceId: "kwo_slide_1_kw_1_9_14"
+        },
+        effect: {
+          kind: "play-animation",
+          animationId: "anim_1"
+        }
+      }
+    ];
+
+    expectValidDeck(deck);
+  });
+
+  it("rejects keyword occurrence-triggered slide actions that target missing keywords", () => {
+    const deck = createValidDeck();
+
+    deck.slides[0].speakerNotes = "ORBIT 다시 ORBIT";
+    deck.slides[0].actions = [
+      {
+        actionId: "act_1",
+        trigger: {
+          kind: "keyword-occurrence",
+          keywordId: "kw_missing",
+          occurrenceId: "kwo_slide_1_kw_missing_9_14"
+        },
+        effect: {
+          kind: "play-animation",
+          animationId: "anim_1"
+        }
+      }
+    ];
+
+    expectInvalidDeck(deck);
+  });
+
+  it("rejects keyword occurrence-triggered slide actions that target missing occurrences", () => {
+    const deck = createValidDeck();
+
+    deck.slides[0].speakerNotes = "ORBIT 다시 ORBIT";
+    deck.slides[0].actions = [
+      {
+        actionId: "act_1",
+        trigger: {
+          kind: "keyword-occurrence",
+          keywordId: "kw_1",
+          occurrenceId: "kwo_slide_1_kw_1_20_25"
+        },
+        effect: {
+          kind: "play-animation",
+          animationId: "anim_1"
+        }
+      }
+    ];
+
+    expectInvalidDeck(deck);
+  });
+
+  it("rejects keyword occurrence-triggered slide actions with mismatched keyword IDs", () => {
+    const deck = createValidDeck();
+
+    deck.slides[0].speakerNotes = "ORBIT AI";
+    deck.slides[0].keywords = [
+      {
+        keywordId: "kw_1",
+        text: "ORBIT",
+        synonyms: [],
+        abbreviations: []
+      },
+      {
+        keywordId: "kw_2",
+        text: "AI",
+        synonyms: [],
+        abbreviations: []
+      }
+    ];
+    deck.slides[0].actions = [
+      {
+        actionId: "act_1",
+        trigger: {
+          kind: "keyword-occurrence",
+          keywordId: "kw_1",
+          occurrenceId: "kwo_slide_1_kw_2_6_8"
+        },
+        effect: {
+          kind: "play-animation",
+          animationId: "anim_1"
+        }
+      }
+    ];
+
+    expectInvalidDeck(deck);
   });
 
   it("rejects slide actions that target missing animations", () => {
@@ -877,6 +984,27 @@ describe("deckSchema validation", () => {
     expectInvalidDeck(deck);
   });
 
+  it("rejects duplicate slide keyword IDs", () => {
+    const deck = createValidDeck();
+
+    deck.slides[0].keywords = [
+      {
+        keywordId: "kw_1",
+        text: "ORBIT",
+        synonyms: [],
+        abbreviations: []
+      },
+      {
+        keywordId: "kw_1",
+        text: "리허설",
+        synonyms: [],
+        abbreviations: []
+      }
+    ];
+
+    expectInvalidDeck(deck);
+  });
+
   it.each([
     ["deckId", "deckId"],
     ["slideId", "slides.0.slideId"],
@@ -969,6 +1097,34 @@ describe("deckPatchSchema validation", () => {
     };
 
     expect(deckPatchSchema.safeParse(patch).success).toBe(true);
+  });
+
+  it("rejects replace keyword patches with duplicate keyword IDs", () => {
+    const patch: unknown = {
+      ...createValidPatch(),
+      operations: [
+        {
+          type: "replace_keywords",
+          slideId: "slide_1",
+          keywords: [
+            {
+              keywordId: "kw_1",
+              text: "ORBIT",
+              synonyms: [],
+              abbreviations: []
+            },
+            {
+              keywordId: "kw_1",
+              text: "리허설",
+              synonyms: [],
+              abbreviations: []
+            }
+          ]
+        }
+      ]
+    };
+
+    expect(deckPatchSchema.safeParse(patch).success).toBe(false);
   });
 
   it("rejects empty patch operations", () => {

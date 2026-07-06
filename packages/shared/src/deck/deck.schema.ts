@@ -92,9 +92,14 @@ export const keywordSchema = z.object({
 export const slideKeywordsSchema = z
   .array(keywordSchema)
   .superRefine((keywords, ctx) => {
+    const keywordIds = new Set<string>();
     const terms = new Set<string>();
 
     keywords.forEach((keyword, keywordIndex) => {
+      requireUniqueKeywordId(ctx, keywordIds, keyword.keywordId, [
+        keywordIndex,
+        "keywordId"
+      ]);
       requireUniqueKeywordTerm(ctx, terms, keyword.text, [
         keywordIndex,
         "text"
@@ -188,6 +193,7 @@ export const slideSchema = z
   .superRefine((slide, ctx) => {
     const actionIds = new Set<string>();
     const keywordIds = new Set(slide.keywords.map((keyword) => keyword.keywordId));
+    const keywordOccurrences = deriveSlideKeywordOccurrences(slide);
     const animationIds = new Set(
       slide.animations.map((animation) => animation.animationId)
     );
@@ -212,6 +218,32 @@ export const slideSchema = z
           path: ["actions", actionIndex, "trigger", "keywordId"],
           message: "slide action must target a keyword in the same slide"
         });
+      }
+
+      if (action.trigger.kind === "keyword-occurrence") {
+        if (!keywordIds.has(action.trigger.keywordId)) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["actions", actionIndex, "trigger", "keywordId"],
+            message: "slide action must target a keyword in the same slide"
+          });
+        }
+
+        const occurrence = keywordOccurrences.get(action.trigger.occurrenceId);
+
+        if (occurrence === undefined) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["actions", actionIndex, "trigger", "occurrenceId"],
+            message: "slide action must target a keyword occurrence in speaker notes"
+          });
+        } else if (occurrence.keywordId !== action.trigger.keywordId) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["actions", actionIndex, "trigger", "occurrenceId"],
+            message: "slide action keyword occurrence must match trigger keyword"
+          });
+        }
       }
 
       if (
@@ -259,6 +291,70 @@ export type SlideSourceEvidence = z.infer<typeof slideSourceEvidenceSchema>;
 export type SlideAiNotes = z.infer<typeof slideAiNotesSchema>;
 export type KeywordTerm = z.infer<typeof keywordTermSchema>;
 export type Keyword = z.infer<typeof keywordSchema>;
+
+type SlideKeywordOccurrenceReference = {
+  keywordId: string;
+};
+
+function deriveSlideKeywordOccurrences(
+  slide: Pick<Slide, "slideId" | "speakerNotes" | "keywords">
+): Map<string, SlideKeywordOccurrenceReference> {
+  const occurrences = new Map<string, SlideKeywordOccurrenceReference>();
+
+  slide.keywords.forEach((keyword) => {
+    getKeywordTerms(keyword).forEach((term) => {
+      let searchFrom = 0;
+
+      while (searchFrom < slide.speakerNotes.length) {
+        const start = slide.speakerNotes.indexOf(term, searchFrom);
+
+        if (start === -1) {
+          break;
+        }
+
+        const end = start + term.length;
+        occurrences.set(
+          createKeywordOccurrenceId(slide.slideId, keyword.keywordId, start, end),
+          { keywordId: keyword.keywordId }
+        );
+        searchFrom = end;
+      }
+    });
+  });
+
+  return occurrences;
+}
+
+function getKeywordTerms(keyword: Keyword): string[] {
+  return [keyword.text, ...keyword.synonyms, ...keyword.abbreviations];
+}
+
+function createKeywordOccurrenceId(
+  slideId: string,
+  keywordId: string,
+  start: number,
+  end: number
+): string {
+  return `kwo_${slideId}_${keywordId}_${start}_${end}`;
+}
+
+function requireUniqueKeywordId(
+  ctx: z.RefinementCtx,
+  seen: Set<string>,
+  value: string,
+  path: Array<string | number>
+): void {
+  if (seen.has(value)) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path,
+      message: "keyword IDs must be unique within the same slide"
+    });
+    return;
+  }
+
+  seen.add(value);
+}
 
 function requireUniqueKeywordTerm(
   ctx: z.RefinementCtx,
