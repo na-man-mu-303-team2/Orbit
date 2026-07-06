@@ -24,6 +24,7 @@ import type {
 } from "./rehearsalTiming";
 import {
   KeywordHighlightedText,
+  type KeywordHighlightOccurrence,
   type KeywordHighlightKeyword
 } from "../../shared/KeywordHighlightedText";
 
@@ -37,8 +38,10 @@ export type RehearsalPanelProps = {
   wordsPerMinute: number;
   adviceState: TimingAdviceState;
   keywords: readonly RehearsalPanelKeyword[];
+  highlightedKeywordOccurrences?: readonly KeywordHighlightOccurrence[];
   liveSlot?: ReactNode;
   showAdvicePanel?: boolean;
+  speakerNotes?: string;
   sentences: readonly ExtractedSentence[];
   snapshot: SpeechTrackerSnapshot;
 };
@@ -51,6 +54,10 @@ export function RehearsalPanel(props: RehearsalPanelProps) {
   const coveredSentenceIds = useMemo(
     () => new Set(props.snapshot.coveredSentenceIds),
     [props.snapshot.coveredSentenceIds]
+  );
+  const sentenceTextOffsets = useMemo(
+    () => getSentenceTextOffsets(props.speakerNotes ?? "", props.sentences),
+    [props.speakerNotes, props.sentences]
   );
   const sentenceRefs = useRef(new Map<string, HTMLParagraphElement>());
   const [isScriptAutoFollowEnabled, setIsScriptAutoFollowEnabled] = useState(true);
@@ -229,7 +236,9 @@ export function RehearsalPanel(props: RehearsalPanelProps) {
                 >
                   <span>
                     <KeywordHighlightedText
+                      highlightedOccurrences={props.highlightedKeywordOccurrences}
                       keywords={props.keywords}
+                      textOffset={sentenceTextOffsets.get(sentence.sentenceId) ?? 0}
                       text={sentence.text}
                     />
                   </span>
@@ -282,6 +291,27 @@ export function getRehearsalScriptFocusSentenceId(
     sentences[0]?.sentenceId ??
     null
   );
+}
+
+export function getSentenceTextOffsets(
+  speakerNotes: string,
+  sentences: readonly ExtractedSentence[]
+) {
+  const offsets = new Map<string, number>();
+  let cursor = 0;
+
+  for (const sentence of sentences) {
+    const start = speakerNotes.indexOf(sentence.text, cursor);
+
+    if (start === -1) {
+      continue;
+    }
+
+    offsets.set(sentence.sentenceId, start);
+    cursor = start + sentence.text.length;
+  }
+
+  return offsets;
 }
 
 function TimerMetric(props: {

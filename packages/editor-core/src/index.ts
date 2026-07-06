@@ -18,12 +18,32 @@ export {
   createSlideActionId,
   createUpdateAnimationKeywordTriggerPatch,
   createUpsertAdvanceSlideKeywordActionPatch,
+  deriveKeywordActionUsage,
   deriveKeywordUsage,
   findKeywordByTerm,
   getAnimationTriggerAction,
   getKeywordTriggerLabel
 } from "./patches/actionOperations";
-export type { DerivedKeywordUsage } from "./patches/actionOperations";
+export type {
+  DerivedKeywordActionUsage,
+  DerivedKeywordOccurrenceUsage,
+  DerivedKeywordUsage
+} from "./patches/actionOperations";
+export {
+  suggestLegacyKeywordTriggerRepairs
+} from "./patches/legacyKeywordTriggerRepair";
+export type {
+  LegacyKeywordTriggerRepairConfidence,
+  LegacyKeywordTriggerRepairSuggestion
+} from "./patches/legacyKeywordTriggerRepair";
+export { deriveKeywordOccurrences } from "./keywords/keywordOccurrences";
+export type { KeywordOccurrence } from "./keywords/keywordOccurrences";
+export {
+  findDanglingKeywordOccurrenceActions
+} from "./keywords/keywordOccurrenceDiagnostics";
+export type {
+  DanglingKeywordOccurrenceAction
+} from "./keywords/keywordOccurrenceDiagnostics";
 export {
   createAddAnimationPatch,
   createAnimationId,

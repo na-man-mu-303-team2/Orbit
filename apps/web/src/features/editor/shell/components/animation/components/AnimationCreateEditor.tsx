@@ -14,8 +14,13 @@ export function AnimationCreateEditor(props: {
   keywordTriggerWarningMessage?: string | null;
   selectedKeywordId: string | null;
   selectedKeywordLabel: string | null;
+  selectedKeywordOccurrenceId?: string | null;
   type: SupportedAnimationType;
-  onAddAnimation: (draft: AnimationDraftInput, keywordId?: string | null) => void;
+  onAddAnimation: (
+    draft: AnimationDraftInput,
+    keywordId?: string | null,
+    keywordOccurrenceId?: string | null
+  ) => void;
   onDraftChange: (patch: Partial<AnimationTimingDraft>) => void;
 }) {
   const {
@@ -25,6 +30,7 @@ export function AnimationCreateEditor(props: {
     keywordTriggerWarningMessage = null,
     selectedKeywordId,
     selectedKeywordLabel,
+    selectedKeywordOccurrenceId = null,
     type,
     onAddAnimation,
     onDraftChange
@@ -73,7 +79,7 @@ export function AnimationCreateEditor(props: {
               delayMs: draft.delayMs,
               durationMs: draft.durationMs,
               type
-            }, selectedKeywordId)
+            }, selectedKeywordId, selectedKeywordOccurrenceId)
           }
         >
           애니메이션 추가

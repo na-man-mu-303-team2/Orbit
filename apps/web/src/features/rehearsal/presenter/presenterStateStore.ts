@@ -6,11 +6,25 @@ export type PresenterHighlightState = {
   elementId: string;
 };
 
+export type PresenterTimingState = {
+  canStartLiveStt: boolean;
+  currentSlideElapsedSeconds: number;
+  currentSlideTargetSeconds: number;
+  displayedSeconds: number;
+  elapsedSeconds: number;
+  isLiveSttActive: boolean;
+  isRunning: boolean;
+  liveStatus: string;
+  mode: "stopwatch" | "timer";
+  timerDurationSeconds: number;
+};
+
 export type PresenterSlideshowState = {
   highlights: PresenterHighlightState[];
   slideId: string;
   slideIndex: number;
   stepIndex: number;
+  timing?: PresenterTimingState;
 };
 
 export type PresenterSlideshowCommand =
@@ -20,20 +34,22 @@ export type PresenterSlideshowCommand =
   | { type: "set-slide"; slideIndex: number; slides: Deck["slides"] }
   | { type: "set-highlight"; active: boolean; elementId: string };
 
-export function createPresenterSlideshowState(deck: Deck): PresenterSlideshowState {
+export function createPresenterSlideshowState(
+  deck: Deck,
+): PresenterSlideshowState {
   const firstSlide = deck.slides[0];
 
   return {
     highlights: [],
     slideId: firstSlide?.slideId ?? "",
     slideIndex: 0,
-    stepIndex: 0
+    stepIndex: 0,
   };
 }
 
 export function applyPresenterSlideshowCommand(
   state: PresenterSlideshowState,
-  command: PresenterSlideshowCommand
+  command: PresenterSlideshowCommand,
 ): PresenterSlideshowState {
   switch (command.type) {
     case "next-step": {
@@ -42,7 +58,7 @@ export function applyPresenterSlideshowCommand(
       if (state.stepIndex < maxStepIndex) {
         return {
           ...state,
-          stepIndex: clampSlideshowStepIndex(state.stepIndex + 1, maxStepIndex)
+          stepIndex: clampSlideshowStepIndex(state.stepIndex + 1, maxStepIndex),
         };
       }
 
@@ -59,8 +75,8 @@ export function applyPresenterSlideshowCommand(
         ...state,
         highlights: upsertHighlight(state.highlights, {
           active: command.active,
-          elementId: command.elementId
-        })
+          elementId: command.elementId,
+        }),
       };
   }
 }
@@ -72,7 +88,7 @@ export function nextStepOrSlide(args: {
 }) {
   const stepped = applyPresenterSlideshowCommand(args.state, {
     type: "next-step",
-    maxStepIndex: args.maxStepIndex
+    maxStepIndex: args.maxStepIndex,
   });
 
   if (stepped !== args.state || args.state.stepIndex < args.maxStepIndex) {
@@ -86,21 +102,21 @@ export function nextStepOrSlide(args: {
   return applyPresenterSlideshowCommand(args.state, {
     type: "next-slide",
     slideCount: args.slides.length,
-    slides: args.slides
+    slides: args.slides,
   });
 }
 
 function moveToSlide(
   state: PresenterSlideshowState,
   slides: Deck["slides"],
-  nextSlideIndex: number
+  nextSlideIndex: number,
 ) {
   if (slides.length === 0) {
     return {
       ...state,
       slideId: "",
       slideIndex: 0,
-      stepIndex: 0
+      stepIndex: 0,
     };
   }
 
@@ -111,18 +127,18 @@ function moveToSlide(
     slideId: slides[slideIndex]?.slideId ?? state.slideId,
     slideIndex,
     // 슬라이드 이동은 항상 복원 가능한 진입 상태에서 시작한다.
-    stepIndex: 0
+    stepIndex: 0,
   };
 }
 
 function upsertHighlight(
   highlights: PresenterHighlightState[],
-  nextHighlight: PresenterHighlightState
+  nextHighlight: PresenterHighlightState,
 ) {
   return [
     ...highlights.filter(
-      (highlight) => highlight.elementId !== nextHighlight.elementId
+      (highlight) => highlight.elementId !== nextHighlight.elementId,
     ),
-    nextHighlight
+    nextHighlight,
   ];
 }

@@ -21,6 +21,7 @@ export const liveSttKeywordDetectedEventSchema = z.object({
   type: z.literal("keyword-detected"),
   slideId: z.string().min(1),
   keywordId: z.string().min(1),
+  occurrenceId: z.string().min(1).optional(),
   text: z.string().min(1),
   matchedText: z.string().min(1),
   coverage: keywordCoverageSchema
@@ -37,6 +38,7 @@ export const liveSttAnimationCueEventSchema = z.object({
   type: z.literal("animation-cue"),
   slideId: z.string().min(1),
   keywordId: z.string().min(1),
+  occurrenceId: z.string().min(1).optional(),
   cue: z.literal("emphasis"),
   text: z.string().min(1)
 });
