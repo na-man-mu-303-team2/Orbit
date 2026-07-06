@@ -7,6 +7,13 @@ export type KeywordHighlightKeyword = {
   text: string;
 };
 
+export type KeywordHighlightOccurrence = {
+  occurrenceId: string;
+  keywordId: string;
+  start: number;
+  end: number;
+};
+
 interface KeywordMatch {
   end: number;
   keyword: KeywordHighlightKeyword;
@@ -17,16 +24,20 @@ interface KeywordMatch {
 export function KeywordHighlightedText(props: {
   keywords: readonly KeywordHighlightKeyword[];
   text: string;
+  highlightedOccurrences?: readonly KeywordHighlightOccurrence[];
   selectedKeywordId?: string | null;
   showIds?: boolean;
+  textOffset?: number;
   renderIdBadge?: (keywordId: string) => ReactNode;
   onSelectKeyword?: (keywordId: string) => void;
 }) {
   const {
+    highlightedOccurrences,
     keywords,
     text,
     selectedKeywordId = null,
     showIds = false,
+    textOffset = 0,
     renderIdBadge,
     onSelectKeyword
   } = props;
@@ -58,8 +69,18 @@ export function KeywordHighlightedText(props: {
           return part;
         }
 
-        const isSelected = part.keyword.keywordId === selectedKeywordId;
-        const className = `keyword-mark ${isSelected ? "selected" : ""}`;
+        const occurrence = highlightedOccurrences?.find(
+          (candidate) =>
+            candidate.keywordId === part.keyword.keywordId &&
+            candidate.start === textOffset + part.start &&
+            candidate.end === textOffset + part.end
+        );
+        const shouldHighlight = highlightedOccurrences ? Boolean(occurrence) : true;
+        const isSelected =
+          shouldHighlight && part.keyword.keywordId === selectedKeywordId;
+        const className = `${shouldHighlight ? "keyword-mark" : "keyword-note-token"} ${
+          isSelected ? "selected" : ""
+        }`;
         const idBadge =
           showIds && renderIdBadge ? renderIdBadge(part.keyword.keywordId) : null;
 
@@ -67,6 +88,8 @@ export function KeywordHighlightedText(props: {
           return (
             <button
               className={className}
+              data-keyword-id={part.keyword.keywordId}
+              data-occurrence-id={occurrence?.occurrenceId}
               key={`${part.keyword.keywordId}-${part.start}-${index}`}
               type="button"
               onClick={() => onSelectKeyword(part.keyword.keywordId)}
@@ -80,6 +103,8 @@ export function KeywordHighlightedText(props: {
         return (
           <span
             className={className}
+            data-keyword-id={part.keyword.keywordId}
+            data-occurrence-id={occurrence?.occurrenceId}
             key={`${part.keyword.keywordId}-${part.start}-${index}`}
           >
             <strong>{part.value}</strong>

@@ -3,6 +3,7 @@ import {
   type SlidePlaybackState,
 } from "@orbit/editor-core";
 import {
+  deriveKeywordOccurrences,
   demoIds,
   type AssetUploadUrlResponse,
   type CompleteRehearsalAudioUploadResponse,
@@ -3066,6 +3067,23 @@ export function RehearsalWorkspace(props: {
   };
 
   const checklistKeywords = getChecklistKeywords(currentSlide);
+  const highlightedKeywordOccurrences = useMemo(() => {
+    if (!currentSlide) {
+      return undefined;
+    }
+
+    const targetOccurrenceIds = new Set(
+      getKeywordOccurrenceTriggerIdsForSlide(currentSlide)
+    );
+
+    if (targetOccurrenceIds.size === 0) {
+      return undefined;
+    }
+
+    return deriveKeywordOccurrences(currentSlide).filter((occurrence) =>
+      targetOccurrenceIds.has(occurrence.occurrenceId)
+    );
+  }, [currentSlide]);
   const p3PanelSnapshot =
     currentSlide && p3SessionState?.snapshot?.slideId === currentSlide.slideId
       ? p3SessionState.snapshot
@@ -3654,9 +3672,11 @@ export function RehearsalWorkspace(props: {
             timing={p3TimingSnapshot}
             wordsPerMinute={p3WordsPerMinute}
             adviceState={p3AdviceState}
+            highlightedKeywordOccurrences={highlightedKeywordOccurrences}
             keywords={checklistKeywords}
             sentences={p3Sentences}
             showAdvicePanel={false}
+            speakerNotes={currentSlide?.speakerNotes ?? ""}
             snapshot={p3PanelSnapshot}
             liveSlot={
               <section className="rehearsal-assist-card checklist-card">

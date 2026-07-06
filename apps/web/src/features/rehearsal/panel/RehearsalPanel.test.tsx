@@ -66,11 +66,56 @@ describe("RehearsalPanel", () => {
       ]
     });
 
-    expect(html).toContain('<span class="keyword-mark ">');
+    expect(html).toContain('<span class="keyword-mark " data-keyword-id="kw_ai">');
     expect(html).toContain("<strong>OpenAI</strong>");
     expect(html).toContain("<strong>AI lab</strong>");
     expect(html).toContain("<strong>OAI</strong>");
     expect(html).not.toContain("<button");
+  });
+
+  it("only highlights targeted keyword occurrences inside script sentences", () => {
+    const html = renderPanel({
+      highlightedKeywordOccurrences: [
+        {
+          occurrenceId: "kwo_slide_1_kw_keyword_21_28",
+          keywordId: "kw_keyword",
+          start: 21,
+          end: 28
+        }
+      ],
+      keywords: [
+        {
+          keywordId: "kw_keyword",
+          text: "keyword",
+          synonyms: [],
+          abbreviations: [],
+          required: true
+        }
+      ],
+      sentences: [
+        {
+          sentenceId: "sentence_1",
+          text: "keyword first",
+          index: 0,
+          isFinalTrigger: false,
+          matchable: true,
+          candidates: []
+        },
+        {
+          sentenceId: "sentence_2",
+          text: "final keyword",
+          index: 1,
+          isFinalTrigger: true,
+          matchable: true,
+          candidates: []
+        }
+      ],
+      speakerNotes: "keyword first. final keyword."
+    });
+
+    expect(html.match(/class="keyword-mark "/g)).toHaveLength(1);
+    expect(html.match(/class="keyword-note-token "/g)).toHaveLength(1);
+    expect(html).toContain('data-occurrence-id="kwo_slide_1_kw_keyword_21_28"');
   });
 
   it("selects the next matchable script sentence as the auto-scroll focus", () => {
@@ -95,6 +140,13 @@ function renderPanel(
     mode?: "rehearsal" | "live";
     transcriptText?: string;
     keywords?: Keyword[];
+    highlightedKeywordOccurrences?: Array<{
+      occurrenceId: string;
+      keywordId: string;
+      start: number;
+      end: number;
+    }>;
+    speakerNotes?: string;
     sentences?: ExtractedSentence[];
   } = {}
 ) {
@@ -106,8 +158,10 @@ function renderPanel(
       timing={timing}
       wordsPerMinute={140}
       adviceState={adviceState}
+      highlightedKeywordOccurrences={overrides.highlightedKeywordOccurrences}
       keywords={overrides.keywords ?? keywords}
       sentences={overrides.sentences ?? sentences}
+      speakerNotes={overrides.speakerNotes}
       snapshot={snapshot}
     />
   );
