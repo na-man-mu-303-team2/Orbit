@@ -24,6 +24,8 @@ export {
   getKeywordTriggerLabel
 } from "./patches/actionOperations";
 export type { DerivedKeywordUsage } from "./patches/actionOperations";
+export { deriveKeywordOccurrences } from "./keywords/keywordOccurrences";
+export type { KeywordOccurrence } from "./keywords/keywordOccurrences";
 export {
   createAddAnimationPatch,
   createAnimationId,
