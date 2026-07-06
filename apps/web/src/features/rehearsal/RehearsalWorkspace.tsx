@@ -225,6 +225,17 @@ type LiveTranscriptAnalysis = {
   missingKeywordIds: string[];
 };
 
+export type LiveKeywordOccurrenceState = {
+  slideId: string;
+  confirmedOccurrenceIds: string[];
+};
+
+export type OccurrenceTriggerProgress = {
+  targetOccurrenceIds: string[];
+  confirmedOccurrenceIds: string[];
+  coverage: number;
+};
+
 type LiveTranscriptBuffer = {
   committedTranscript: string;
   draftTranscript: string;
@@ -1053,6 +1064,64 @@ export function createKeywordOccurrenceAnimationCueEvent(args: {
   };
 }
 
+export function createLiveKeywordOccurrenceState(
+  slideId: string,
+): LiveKeywordOccurrenceState {
+  return {
+    slideId,
+    confirmedOccurrenceIds: [],
+  };
+}
+
+export function getLiveKeywordOccurrenceStateForSlide(
+  current: LiveKeywordOccurrenceState | null,
+  slideId: string,
+): LiveKeywordOccurrenceState {
+  return current?.slideId === slideId
+    ? current
+    : createLiveKeywordOccurrenceState(slideId);
+}
+
+export function confirmKeywordOccurrenceMatches(
+  state: LiveKeywordOccurrenceState,
+  matches: readonly Pick<KeywordOccurrenceRuntimeMatch, "occurrenceId">[],
+): LiveKeywordOccurrenceState {
+  const confirmedOccurrenceIds = new Set(state.confirmedOccurrenceIds);
+
+  for (const match of matches) {
+    confirmedOccurrenceIds.add(match.occurrenceId);
+  }
+
+  return {
+    slideId: state.slideId,
+    confirmedOccurrenceIds: [...confirmedOccurrenceIds],
+  };
+}
+
+export function getOccurrenceTriggerProgress(options: {
+  targetOccurrenceIds: readonly string[];
+  confirmedOccurrenceIds: readonly string[];
+}): OccurrenceTriggerProgress {
+  const targetOccurrenceIds = [...new Set(options.targetOccurrenceIds)];
+  const targetOccurrenceIdSet = new Set(targetOccurrenceIds);
+  const confirmedOccurrenceIds = [
+    ...new Set(
+      options.confirmedOccurrenceIds.filter((occurrenceId) =>
+        targetOccurrenceIdSet.has(occurrenceId),
+      ),
+    ),
+  ];
+
+  return {
+    targetOccurrenceIds,
+    confirmedOccurrenceIds,
+    coverage:
+      targetOccurrenceIds.length === 0
+        ? 0
+        : confirmedOccurrenceIds.length / targetOccurrenceIds.length,
+  };
+}
+
 export function getLiveAudioLevelLabel(level: LiveSttAudioLevelEvent | null) {
   if (!level) {
     return "입력 대기";
@@ -1481,10 +1550,8 @@ export function RehearsalWorkspace(props: {
     createLiveTranscriptBuffer(),
   );
   const liveKeywordStateRef = useRef<LiveTranscriptAnalysis | null>(null);
-  const liveKeywordOccurrenceStateRef = useRef<{
-    slideId: string;
-    confirmedOccurrenceIds: string[];
-  } | null>(null);
+  const liveKeywordOccurrenceStateRef =
+    useRef<LiveKeywordOccurrenceState | null>(null);
   const liveBiasContextRef = useRef<LiveSttBiasContext | null>(null);
   const liveCommandConfirmationRef = useRef(
     createRehearsalCommandConfirmationState(),
@@ -2477,16 +2544,14 @@ export function RehearsalWorkspace(props: {
       slide,
       triggerAnimationIds: slideTriggerAnimationIds,
     });
-    const occurrenceState =
-      liveKeywordOccurrenceStateRef.current?.slideId === slide.slideId
-        ? liveKeywordOccurrenceStateRef.current
-        : {
-            slideId: slide.slideId,
-            confirmedOccurrenceIds: [],
-          };
+    const targetOccurrenceIds = getKeywordOccurrenceTriggerIdsForSlide(slide);
+    const occurrenceState = getLiveKeywordOccurrenceStateForSlide(
+      liveKeywordOccurrenceStateRef.current,
+      slide.slideId,
+    );
     const occurrenceMatches = matchKeywordOccurrenceTriggers({
       slide,
-      targetOccurrenceIds: getKeywordOccurrenceTriggerIdsForSlide(slide),
+      targetOccurrenceIds,
       transcript: matchingTranscript,
       latestTranscript: event.transcript,
       confidence: event.confidence,
@@ -2511,11 +2576,11 @@ export function RehearsalWorkspace(props: {
         ),
         deckSnapshot.slides.length,
       );
-      occurrenceState.confirmedOccurrenceIds.push(
-        occurrenceMatch.occurrenceId,
-      );
     }
-    liveKeywordOccurrenceStateRef.current = occurrenceState;
+    liveKeywordOccurrenceStateRef.current = confirmKeywordOccurrenceMatches(
+      occurrenceState,
+      occurrenceMatches,
+    );
 
     const previousDetectedIds = new Set(
       liveKeywordStateRef.current?.slideId === slide.slideId
@@ -2616,10 +2681,7 @@ export function RehearsalWorkspace(props: {
     liveTranscriptBufferRef.current = nextBuffer;
     liveKeywordStateRef.current = nextKeywordState;
     liveKeywordOccurrenceStateRef.current = slide
-      ? {
-          slideId: slide.slideId,
-          confirmedOccurrenceIds: [],
-        }
+      ? createLiveKeywordOccurrenceState(slide.slideId)
       : null;
     liveCommandConfirmationRef.current =
       createRehearsalCommandConfirmationState();

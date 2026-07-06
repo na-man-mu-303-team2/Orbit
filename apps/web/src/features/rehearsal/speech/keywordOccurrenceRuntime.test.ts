@@ -65,4 +65,17 @@ describe("matchKeywordOccurrenceTriggers", () => {
 
     expect(matches).toEqual([]);
   });
+
+  it("does not match when transcript confidence is below the occurrence threshold", () => {
+    const matches = matchKeywordOccurrenceTriggers({
+      slide,
+      targetOccurrenceIds: ["kwo_slide_1_kw_ai_47_49"],
+      transcript:
+        "오늘은 AI 덱 생성 파이프라인을 소개합니다. 중간에도 AI를 언급합니다. 마지막에 AI를 말하면",
+      latestTranscript: "AI",
+      confidence: 0.4
+    });
+
+    expect(matches).toEqual([]);
+  });
 });

@@ -15,7 +15,9 @@ import {
   applyLiveTranscriptBias,
   applyLiveTranscriptEvent,
   buildLiveSttBiasContext,
+  confirmKeywordOccurrenceMatches,
   createKeywordOccurrenceAnimationCueEvent,
+  createLiveKeywordOccurrenceState,
   createLiveTranscriptBuffer,
   createRecordingFile,
   createRecordingSession,
@@ -28,6 +30,7 @@ import {
   getLiveAudioLevelLabel,
   getLiveAudioLevelPercent,
   getLiveSttDebugDecodingMethod,
+  getOccurrenceTriggerProgress,
   getRehearsalMicrophoneAudioConstraints,
   getRemainingTriggerStepsForSlide,
   normalizeRecordingMimeType,
@@ -55,6 +58,7 @@ import { p0AnimationDeck } from "./presenter/__fixtures__/animationDeck";
 import { getNextPresenterStepState } from "./presenter/presenterStepNavigation";
 import { normalizeLiveTranscriptText } from "./stt/liveTranscriptText";
 import { createPauseDetector } from "./speech/pauseDetector";
+import { matchKeywordOccurrenceTriggers } from "./speech/keywordOccurrenceRuntime";
 import {
   confirmRehearsalCommandCandidate,
   createRehearsalCommandConfirmationState,
@@ -136,6 +140,84 @@ describe("RehearsalWorkspace", () => {
       occurrenceId: "kwo_slide_1_kw_ai_47_49",
       cue: "emphasis",
       text: "AI",
+    });
+  });
+
+  it("keeps keyword checklist coverage separate from occurrence trigger progress", () => {
+    const targetOccurrenceId = "kwo_slide_1_kw_ai_47_49";
+    const slide = {
+      ...createDemoDeck().slides[0]!,
+      slideId: "slide_1",
+      speakerNotes:
+        "오늘은 AI 덱 생성 파이프라인을 소개합니다. 중간에도 AI를 언급합니다. 마지막에 AI를 말하면 이미지가 나타납니다.",
+      keywords: [
+        {
+          keywordId: "kw_ai",
+          text: "AI",
+          synonyms: [],
+          abbreviations: [],
+          required: true,
+        },
+      ],
+    };
+    const initialOccurrenceState = createLiveKeywordOccurrenceState(
+      slide.slideId,
+    );
+    const earlyTranscript = "오늘은 AI 덱 생성 파이프라인을 소개합니다.";
+    const earlyAnalysis = evaluateLiveTranscript(slide, earlyTranscript);
+    const earlyMatches = matchKeywordOccurrenceTriggers({
+      slide,
+      targetOccurrenceIds: [targetOccurrenceId],
+      transcript: earlyTranscript,
+      latestTranscript: "AI",
+      confidence: 0.95,
+      confirmedOccurrenceIds: initialOccurrenceState.confirmedOccurrenceIds,
+    });
+    const earlyOccurrenceState = confirmKeywordOccurrenceMatches(
+      initialOccurrenceState,
+      earlyMatches,
+    );
+
+    expect(earlyAnalysis.coverage).toBe(1);
+    expect(earlyMatches).toEqual([]);
+    expect(
+      getOccurrenceTriggerProgress({
+        targetOccurrenceIds: [targetOccurrenceId],
+        confirmedOccurrenceIds: earlyOccurrenceState.confirmedOccurrenceIds,
+      }),
+    ).toEqual({
+      targetOccurrenceIds: [targetOccurrenceId],
+      confirmedOccurrenceIds: [],
+      coverage: 0,
+    });
+
+    const lateTranscript =
+      "오늘은 AI 덱 생성 파이프라인을 소개합니다. 중간에도 AI를 언급합니다. 마지막에 AI를 말하면";
+    const lateMatches = matchKeywordOccurrenceTriggers({
+      slide,
+      targetOccurrenceIds: [targetOccurrenceId],
+      transcript: lateTranscript,
+      latestTranscript: "AI",
+      confidence: 0.95,
+      confirmedOccurrenceIds: earlyOccurrenceState.confirmedOccurrenceIds,
+    });
+    const lateOccurrenceState = confirmKeywordOccurrenceMatches(
+      earlyOccurrenceState,
+      lateMatches,
+    );
+
+    expect(lateMatches.map((match) => match.occurrenceId)).toEqual([
+      targetOccurrenceId,
+    ]);
+    expect(
+      getOccurrenceTriggerProgress({
+        targetOccurrenceIds: [targetOccurrenceId],
+        confirmedOccurrenceIds: lateOccurrenceState.confirmedOccurrenceIds,
+      }),
+    ).toEqual({
+      targetOccurrenceIds: [targetOccurrenceId],
+      confirmedOccurrenceIds: [targetOccurrenceId],
+      coverage: 1,
     });
   });
 
