@@ -1006,9 +1006,11 @@ function PropertyColorField(props: {
       <input
         type="color"
         value={draftValue}
-        onBlur={(event) => commitValue(event.target.value)}
-        onChange={(event) => setDraftValue(event.target.value)}
-        onInput={(event) => setDraftValue((event.target as HTMLInputElement).value)}
+        onChange={(event) => {
+          const nextValue = event.target.value;
+          setDraftValue(nextValue);
+          commitValue(nextValue);
+        }}
       />
     </label>
   );
