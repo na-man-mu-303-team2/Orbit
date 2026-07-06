@@ -3068,21 +3068,7 @@ export function RehearsalWorkspace(props: {
 
   const checklistKeywords = getChecklistKeywords(currentSlide);
   const highlightedKeywordOccurrences = useMemo(() => {
-    if (!currentSlide) {
-      return undefined;
-    }
-
-    const targetOccurrenceIds = new Set(
-      getKeywordOccurrenceTriggerIdsForSlide(currentSlide)
-    );
-
-    if (targetOccurrenceIds.size === 0) {
-      return undefined;
-    }
-
-    return deriveKeywordOccurrences(currentSlide).filter((occurrence) =>
-      targetOccurrenceIds.has(occurrence.occurrenceId)
-    );
+    return getHighlightedKeywordOccurrencesForSlide(currentSlide);
   }, [currentSlide]);
   const p3PanelSnapshot =
     currentSlide && p3SessionState?.snapshot?.slideId === currentSlide.slideId
@@ -4254,6 +4240,43 @@ function getSlideBodyTexts(slide: Slide) {
 
 function getChecklistKeywords(slide: Slide | null): Keyword[] {
   return slide?.keywords ?? [];
+}
+
+export function getHighlightedKeywordOccurrencesForSlide(slide: Slide | null) {
+  if (!slide) {
+    return undefined;
+  }
+
+  const targetOccurrenceIds = new Set(
+    getKeywordOccurrenceTriggerIdsForSlide(slide)
+  );
+
+  if (targetOccurrenceIds.size === 0) {
+    return undefined;
+  }
+
+  const occurrenceControlledKeywordIds = new Set(
+    slide.actions.flatMap((action) =>
+      action.trigger.kind === "keyword-occurrence"
+        ? [action.trigger.keywordId]
+        : []
+    )
+  );
+  const requiredKeywordIds = new Set(
+    slide.keywords
+      .filter(
+        (keyword) =>
+          keyword.required &&
+          !occurrenceControlledKeywordIds.has(keyword.keywordId)
+      )
+      .map((keyword) => keyword.keywordId)
+  );
+
+  return deriveKeywordOccurrences(slide).filter(
+    (occurrence) =>
+      targetOccurrenceIds.has(occurrence.occurrenceId) ||
+      requiredKeywordIds.has(occurrence.keywordId)
+  );
 }
 
 function buildP3SessionSlides(deck: Deck) {

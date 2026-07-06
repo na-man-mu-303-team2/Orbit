@@ -1,7 +1,12 @@
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import { createDemoDeck } from "@orbit/editor-core";
-import type { Job, RehearsalReport, RehearsalRun } from "@orbit/shared";
+import {
+  createKeywordOccurrenceId,
+  type Job,
+  type RehearsalReport,
+  type RehearsalRun,
+} from "@orbit/shared";
 import type { ReactNode } from "react";
 import { forwardRef } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -25,6 +30,7 @@ import {
   fetchRehearsalReport,
   fetchOrCreateRehearsalDeck,
   getRehearsalFinishPath,
+  getHighlightedKeywordOccurrencesForSlide,
   getRehearsalPresenterWindowPath,
   getRehearsalReportPath,
   getLiveAudioLevelLabel,
@@ -219,6 +225,80 @@ describe("RehearsalWorkspace", () => {
       confirmedOccurrenceIds: [targetOccurrenceId],
       coverage: 1,
     });
+  });
+
+  it("highlights required keyword occurrences alongside targeted trigger occurrences", () => {
+    const speakerNotes = "keyword occurrence class는 keyword";
+    const targetStart = speakerNotes.lastIndexOf("keyword");
+    const targetOccurrenceId = createKeywordOccurrenceId(
+      "slide_1",
+      "kw_keyword",
+      targetStart,
+      targetStart + "keyword".length,
+    );
+    const occurrenceStart = speakerNotes.indexOf("occurrence");
+    const classStart = speakerNotes.indexOf("class는");
+    const slide = {
+      ...createDemoDeck().slides[0]!,
+      slideId: "slide_1",
+      speakerNotes,
+      keywords: [
+        {
+          keywordId: "kw_keyword",
+          text: "keyword",
+          synonyms: [],
+          abbreviations: [],
+          required: false,
+        },
+        {
+          keywordId: "kw_occurrence",
+          text: "occurrence",
+          synonyms: [],
+          abbreviations: [],
+          required: true,
+        },
+        {
+          keywordId: "kw_class",
+          text: "class는",
+          synonyms: [],
+          abbreviations: [],
+          required: true,
+        },
+      ],
+      actions: [
+        {
+          actionId: "act_keyword",
+          trigger: {
+            kind: "keyword-occurrence" as const,
+            keywordId: "kw_keyword",
+            occurrenceId: targetOccurrenceId,
+          },
+          effect: {
+            kind: "go-to-next-slide" as const,
+          },
+        },
+      ],
+    };
+
+    expect(
+      (getHighlightedKeywordOccurrencesForSlide(slide) ?? []).map(
+        (occurrence) => occurrence.occurrenceId,
+      ),
+    ).toEqual([
+      createKeywordOccurrenceId(
+        "slide_1",
+        "kw_occurrence",
+        occurrenceStart,
+        occurrenceStart + "occurrence".length,
+      ),
+      createKeywordOccurrenceId(
+        "slide_1",
+        "kw_class",
+        classStart,
+        classStart + "class는".length,
+      ),
+      targetOccurrenceId,
+    ]);
   });
 
   it("builds the presenter window rehearsal URL with the shared session id", () => {
