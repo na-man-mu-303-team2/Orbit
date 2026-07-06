@@ -2849,17 +2849,12 @@ export function RehearsalWorkspace(props: {
   ) {
     return (
       <PresentWindowReceiver
+        controlOverlayMode={displayRole === "slide-receiver" ? "always" : "fallback"}
         fullscreenMessage={slideReceiverMessage}
         identity={slideReceiverIdentity}
         initialSnapshot={slideReceiverSnapshot}
-        onNextStep={
-          displayRole === "slide-receiver" || displayRole === "slide-surface"
-            ? handleNextPresenterStep
-            : undefined
-        }
-        onPreviousSlide={
-          displayRole === "slide-receiver" || displayRole === "slide-surface" ? goPrevious : undefined
-        }
+        onNextStep={handleNextPresenterStep}
+        onPreviousSlide={goPrevious}
         onReconnectPresenter={(snapshot) => {
           const presenterWindowPath = props.projectId
             ? getRehearsalPresenterWindowPath(props.projectId, presentationChannel.sessionId, {

@@ -5,7 +5,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { SlideshowRenderer } from "./SlideshowRenderer";
 import {
   slideWindowFullscreenRequestType,
-  type SlideWindowFullscreenRequestMessage
+  type SlideWindowFullscreenRequestMessage,
 } from "./displayManager";
 import type { PresenterSlideshowState } from "./presenterStateStore";
 import {
@@ -15,7 +15,7 @@ import {
   isPresentationChannelMessage,
   matchesPresentationChannelIdentity,
   type PresentationChannelIdentity,
-  type PresentationChannelMessage
+  type PresentationChannelMessage,
 } from "./presentationChannel";
 
 export type PresentWindowSnapshot = {
@@ -43,7 +43,7 @@ export function PresentWindow(props: {
   const { channelFactory = createBroadcastChannel, deckId, sessionId } = props;
   const identity = useMemo(
     () => (sessionId ? { deckId, sessionId } : null),
-    [deckId, sessionId]
+    [deckId, sessionId],
   );
 
   if (!identity) {
@@ -58,12 +58,16 @@ export function PresentWindow(props: {
   }
 
   return (
-    <PresentWindowReceiver channelFactory={channelFactory} identity={identity} />
+    <PresentWindowReceiver
+      channelFactory={channelFactory}
+      identity={identity}
+    />
   );
 }
 
 export function PresentWindowReceiver(props: {
   channelFactory?: PresentWindowChannelFactory;
+  controlOverlayMode?: "always" | "fallback" | "hidden";
   fullscreenMessage?: string;
   identity: PresentationChannelIdentity;
   initialSnapshot?: PresentWindowSnapshot | null;
@@ -75,6 +79,7 @@ export function PresentWindowReceiver(props: {
 }) {
   const {
     channelFactory = createBroadcastChannel,
+    controlOverlayMode = "hidden",
     fullscreenMessage,
     identity,
     initialSnapshot = null,
@@ -82,13 +87,17 @@ export function PresentWindowReceiver(props: {
     onExit,
     onNextStep,
     onPreviousSlide,
-    onReconnectPresenter
+    onReconnectPresenter,
   } = props;
-  const [snapshot, setSnapshot] = useState<PresentWindowSnapshot | null>(initialSnapshot);
+  const [snapshot, setSnapshot] = useState<PresentWindowSnapshot | null>(
+    initialSnapshot,
+  );
   const [channelError, setChannelError] = useState("");
   const [isPresenterStale, setIsPresenterStale] = useState(false);
   const hasSnapshotRef = useRef(Boolean(initialSnapshot));
-  const lastPresenterSeenAtRef = useRef<number | null>(initialSnapshot ? Date.now() : null);
+  const lastPresenterSeenAtRef = useRef<number | null>(
+    initialSnapshot ? Date.now() : null,
+  );
 
   useEffect(() => {
     setSnapshot(initialSnapshot);
@@ -136,7 +145,10 @@ export function PresentWindowReceiver(props: {
     const staleTimer = window.setInterval(() => {
       if (
         hasSnapshotRef.current &&
-        isPresentWindowPresenterStale(lastPresenterSeenAtRef.current, Date.now())
+        isPresentWindowPresenterStale(
+          lastPresenterSeenAtRef.current,
+          Date.now(),
+        )
       ) {
         setIsPresenterStale(true);
       }
@@ -152,7 +164,10 @@ export function PresentWindowReceiver(props: {
   if (channelError) {
     return (
       <PresentWindowShell>
-        <PresentWindowStatus title="슬라이드 창을 연결하지 못했습니다" message={channelError} />
+        <PresentWindowStatus
+          title="슬라이드 창을 연결하지 못했습니다"
+          message={channelError}
+        />
       </PresentWindowShell>
     );
   }
@@ -170,6 +185,7 @@ export function PresentWindowReceiver(props: {
 
   return (
     <PresentWindowContent
+      controlOverlayMode={controlOverlayMode}
       fullscreenMessage={fullscreenMessage}
       identity={identity}
       isFullscreen={isFullscreen}
@@ -184,6 +200,7 @@ export function PresentWindowReceiver(props: {
 }
 
 export function PresentWindowContent(props: {
+  controlOverlayMode?: "always" | "fallback" | "hidden";
   fullscreenMessage?: string;
   identity: PresentationChannelIdentity;
   isFullscreen?: boolean;
@@ -196,6 +213,7 @@ export function PresentWindowContent(props: {
   viewport?: ViewportSize;
 }) {
   const {
+    controlOverlayMode = "hidden",
     fullscreenMessage,
     identity,
     isPresenterStale = false,
@@ -203,22 +221,30 @@ export function PresentWindowContent(props: {
     onNextStep,
     onPreviousSlide,
     onReconnectPresenter,
-    snapshot
+    snapshot,
   } = props;
   const rootRef = useRef<HTMLDivElement>(null);
   const liveViewport = usePresentWindowViewport();
   const liveIsFullscreen = usePresentWindowFullscreenState();
   const isFullscreen = props.isFullscreen ?? liveIsFullscreen;
-  const scale = getSlideWindowScale(snapshot.deck, props.viewport ?? liveViewport);
+  const scale = getSlideWindowScale(
+    snapshot.deck,
+    props.viewport ?? liveViewport,
+  );
   const actionMessages = [
     fullscreenMessage,
     isPresenterStale
       ? "발표자 창 응답이 끊겼습니다. 발표자 창을 다시 열거나 이 화면을 종료해주세요."
-      : ""
+      : "",
   ].filter(Boolean);
   const shouldShowReconnect = Boolean(
-    onReconnectPresenter && (fullscreenMessage || isPresenterStale)
+    onReconnectPresenter && (fullscreenMessage || isPresenterStale),
   );
+  const shouldShowFallbackControls =
+    controlOverlayMode === "fallback" &&
+    (actionMessages.length > 0 || isPresenterStale);
+  const shouldShowPresenterControls =
+    controlOverlayMode === "always" || shouldShowFallbackControls;
 
   useEffect(() => {
     const onMessage = (event: MessageEvent) => {
@@ -258,9 +284,8 @@ export function PresentWindowContent(props: {
       {!isFullscreen ||
       actionMessages.length > 0 ||
       shouldShowReconnect ||
-      onPreviousSlide ||
-      onNextStep ||
-      onExit ? (
+      (shouldShowPresenterControls &&
+        (onPreviousSlide || onNextStep || onExit)) ? (
         <div className="present-window-actions">
           {actionMessages.map((message) => (
             <span className="present-window-action-message" key={message}>
@@ -279,7 +304,7 @@ export function PresentWindowContent(props: {
               전체화면
             </button>
           ) : null}
-          {onPreviousSlide ? (
+          {shouldShowPresenterControls && onPreviousSlide ? (
             <button
               className="present-window-previous"
               type="button"
@@ -289,7 +314,7 @@ export function PresentWindowContent(props: {
               이전
             </button>
           ) : null}
-          {onNextStep ? (
+          {shouldShowPresenterControls && onNextStep ? (
             <button
               className="present-window-next"
               type="button"
@@ -309,7 +334,7 @@ export function PresentWindowContent(props: {
               발표자 창 다시 열기
             </button>
           ) : null}
-          {onExit ? (
+          {shouldShowPresenterControls && onExit ? (
             <button
               className="present-window-exit"
               type="button"
@@ -328,20 +353,22 @@ export function PresentWindowContent(props: {
 export function isPresentWindowPresenterStale(
   lastPresenterSeenAt: number | null,
   now: number,
-  staleAfterMs = 5000
+  staleAfterMs = 5000,
 ) {
-  return lastPresenterSeenAt !== null && now - lastPresenterSeenAt > staleAfterMs;
+  return (
+    lastPresenterSeenAt !== null && now - lastPresenterSeenAt > staleAfterMs
+  );
 }
 
 export function applyPresentWindowMessage(
   current: PresentWindowSnapshot | null,
-  message: PresentationChannelMessage
+  message: PresentationChannelMessage,
 ): PresentWindowSnapshot | null {
   if (message.type === "presenter-snapshot") {
     return {
       deck: message.deck,
       state: message.state,
-      triggerAnimationIds: message.triggerAnimationIds
+      triggerAnimationIds: message.triggerAnimationIds,
     };
   }
 
@@ -349,7 +376,7 @@ export function applyPresentWindowMessage(
     return {
       ...current,
       state: message.state,
-      triggerAnimationIds: message.triggerAnimationIds
+      triggerAnimationIds: message.triggerAnimationIds,
     };
   }
 
@@ -361,7 +388,10 @@ export function getSlideWindowScale(deck: Deck, viewport = readViewportSize()) {
     return 1;
   }
 
-  return Math.min(viewport.width / deck.canvas.width, viewport.height / deck.canvas.height);
+  return Math.min(
+    viewport.width / deck.canvas.width,
+    viewport.height / deck.canvas.height,
+  );
 }
 
 function PresentWindowStatus(props: { message: string; title: string }) {
@@ -401,7 +431,9 @@ function usePresentWindowViewport() {
 }
 
 function usePresentWindowFullscreenState() {
-  const [isFullscreen, setIsFullscreen] = useState(readPresentWindowFullscreenState);
+  const [isFullscreen, setIsFullscreen] = useState(
+    readPresentWindowFullscreenState,
+  );
 
   useEffect(() => {
     if (typeof document === "undefined") {
@@ -429,7 +461,7 @@ function readViewportSize(): ViewportSize {
 
   return {
     height: window.innerHeight,
-    width: window.innerWidth
+    width: window.innerWidth,
   };
 }
 
@@ -437,7 +469,9 @@ function readPresentWindowFullscreenState() {
   return typeof document !== "undefined" && Boolean(document.fullscreenElement);
 }
 
-export async function requestPresentWindowFullscreen(target: HTMLElement | null) {
+export async function requestPresentWindowFullscreen(
+  target: HTMLElement | null,
+) {
   if (!target || typeof target.requestFullscreen !== "function") {
     return false;
   }
@@ -451,7 +485,7 @@ export async function requestPresentWindowFullscreen(target: HTMLElement | null)
 }
 
 function isSlideWindowFullscreenRequestMessage(
-  value: unknown
+  value: unknown,
 ): value is SlideWindowFullscreenRequestMessage {
   return (
     Boolean(value) &&

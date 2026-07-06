@@ -12,12 +12,12 @@ import {
   PresentWindow,
   PresentWindowContent,
   PresentWindowReceiver,
-  requestPresentWindowFullscreen
+  requestPresentWindowFullscreen,
 } from "./PresentWindow";
 import { createPresenterSlideshowState } from "./presenterStateStore";
 import {
   createPresenterSnapshotMessage,
-  createPresenterStateMessage
+  createPresenterStateMessage,
 } from "./presentationChannel";
 
 vi.mock("react-konva", () => {
@@ -28,7 +28,9 @@ vi.mock("react-konva", () => {
           ? props["data-element-id"]
           : undefined,
       "data-testid":
-        typeof props["data-testid"] === "string" ? props["data-testid"] : undefined
+        typeof props["data-testid"] === "string"
+          ? props["data-testid"]
+          : undefined,
     };
   }
 
@@ -39,14 +41,14 @@ vi.mock("react-konva", () => {
       <div ref={ref} {...attrs(props)}>
         {children}
       </div>
-    )
+    ),
   );
   const Stage = forwardRef<HTMLDivElement, MockKonvaProps>(
     ({ children, ...props }, ref) => (
       <div ref={ref} {...attrs(props)}>
         {children}
       </div>
-    )
+    ),
   );
   const Text = ({ text }: { text?: string }) => <span>{text}</span>;
 
@@ -62,21 +64,23 @@ vi.mock("react-konva", () => {
     Shape: () => <span data-konva-shape="true" />,
     Star: () => <span data-konva-star="true" />,
     Stage,
-    Text
+    Text,
   };
 });
 
 const identity = {
   deckId: p0AnimationDeck.deckId,
-  sessionId: "session-presenter-1"
+  sessionId: "session-presenter-1",
 };
 const presentWindowSourcePath = fileURLToPath(
-  new URL("./PresentWindow.tsx", import.meta.url)
+  new URL("./PresentWindow.tsx", import.meta.url),
 );
 
 describe("PresentWindow", () => {
   it("shows a Korean error state when opened without a presenter session", () => {
-    const html = renderToStaticMarkup(<PresentWindow deckId={p0AnimationDeck.deckId} />);
+    const html = renderToStaticMarkup(
+      <PresentWindow deckId={p0AnimationDeck.deckId} />,
+    );
 
     expect(html).toContain("발표자 화면에서 슬라이드 창을 열어주세요");
     expect(html).not.toContain("첫 문장입니다");
@@ -91,9 +95,9 @@ describe("PresentWindow", () => {
       sentAt: 10,
       state: {
         ...createPresenterSlideshowState(p0AnimationDeck),
-        stepIndex: 1
+        stepIndex: 1,
       },
-      triggerAnimationIds: ["anim_image_zoom_in"]
+      triggerAnimationIds: ["anim_image_zoom_in"],
     });
     const html = renderToStaticMarkup(
       <PresentWindowContent
@@ -101,14 +105,14 @@ describe("PresentWindow", () => {
         snapshot={{
           deck: snapshotMessage.deck,
           state: snapshotMessage.state,
-          triggerAnimationIds: snapshotMessage.triggerAnimationIds
+          triggerAnimationIds: snapshotMessage.triggerAnimationIds,
         }}
-      />
+      />,
     );
 
-    expect(html).toContain("data-deck-id=\"deck_p0_animation\"");
-    expect(html).toContain("data-session-id=\"session-presenter-1\"");
-    expect(html).toContain("data-step-index=\"1\"");
+    expect(html).toContain('data-deck-id="deck_p0_animation"');
+    expect(html).toContain('data-session-id="session-presenter-1"');
+    expect(html).toContain('data-step-index="1"');
     expect(html).toContain("Slideshow Renderer");
     expect(html).toContain("전체화면");
     expect(html).not.toContain("첫 문장입니다");
@@ -123,22 +127,23 @@ describe("PresentWindow", () => {
       identity,
       sentAt: 10,
       state: createPresenterSlideshowState(p0AnimationDeck),
-      triggerAnimationIds: []
+      triggerAnimationIds: [],
     });
     const html = renderToStaticMarkup(
       <PresentWindowReceiver
+        controlOverlayMode="always"
         fullscreenMessage="현재 창 전체화면을 자동으로 시작하지 못했습니다."
         identity={identity}
         initialSnapshot={{
           deck: snapshotMessage.deck,
           state: snapshotMessage.state,
-          triggerAnimationIds: snapshotMessage.triggerAnimationIds
+          triggerAnimationIds: snapshotMessage.triggerAnimationIds,
         }}
         onExit={() => {}}
-      />
+      />,
     );
 
-    expect(html).toContain("data-deck-id=\"deck_p0_animation\"");
+    expect(html).toContain('data-deck-id="deck_p0_animation"');
     expect(html).toContain("현재 창 전체화면");
     expect(html).toContain("발표자 화면으로 돌아가기");
     expect(html).not.toContain("첫 문장입니다");
@@ -153,12 +158,12 @@ describe("PresentWindow", () => {
       identity,
       sentAt: 10,
       state: initialState,
-      triggerAnimationIds: []
+      triggerAnimationIds: [],
     });
     const current = {
       deck: snapshotMessage.deck,
       state: snapshotMessage.state,
-      triggerAnimationIds: snapshotMessage.triggerAnimationIds
+      triggerAnimationIds: snapshotMessage.triggerAnimationIds,
     };
     const next = applyPresentWindowMessage(
       current,
@@ -169,10 +174,10 @@ describe("PresentWindow", () => {
           ...initialState,
           slideId: "slide_p0_2",
           slideIndex: 1,
-          stepIndex: 0
+          stepIndex: 0,
         },
-        triggerAnimationIds: ["anim_image_zoom_in"]
-      })
+        triggerAnimationIds: ["anim_image_zoom_in"],
+      }),
     );
 
     expect(next?.state.slideId).toBe("slide_p0_2");
@@ -193,7 +198,7 @@ describe("PresentWindow", () => {
       identity,
       sentAt: 10,
       state: initialState,
-      triggerAnimationIds: []
+      triggerAnimationIds: [],
     });
     const stateMessage = createPresenterStateMessage({
       identity,
@@ -202,9 +207,9 @@ describe("PresentWindow", () => {
         ...initialState,
         slideId: "slide_p0_2",
         slideIndex: 1,
-        stepIndex: 0
+        stepIndex: 0,
       },
-      triggerAnimationIds: ["anim_image_zoom_in"]
+      triggerAnimationIds: ["anim_image_zoom_in"],
     });
 
     const snapshot = applyPresentWindowMessage(null, snapshotMessage);
@@ -214,7 +219,7 @@ describe("PresentWindow", () => {
     expect(updated?.state).toMatchObject({
       slideId: "slide_p0_2",
       slideIndex: 1,
-      stepIndex: 0
+      stepIndex: 0,
     });
     expect(updated?.triggerAnimationIds).toEqual(["anim_image_zoom_in"]);
   });
@@ -224,15 +229,19 @@ describe("PresentWindow", () => {
       identity,
       sentAt: 20,
       state: createPresenterSlideshowState(p0AnimationDeck),
-      triggerAnimationIds: []
+      triggerAnimationIds: [],
     });
 
     expect(applyPresentWindowMessage(null, message)).toBeNull();
   });
 
   it("calculates the largest viewport scale that preserves the deck aspect", () => {
-    expect(getSlideWindowScale(p0AnimationDeck, { height: 540, width: 960 })).toBe(0.5);
-    expect(getSlideWindowScale(p0AnimationDeck, { height: 1080, width: 960 })).toBe(0.5);
+    expect(
+      getSlideWindowScale(p0AnimationDeck, { height: 540, width: 960 }),
+    ).toBe(0.5);
+    expect(
+      getSlideWindowScale(p0AnimationDeck, { height: 1080, width: 960 }),
+    ).toBe(0.5);
   });
 
   it("renders slide-window scale from the current viewport", () => {
@@ -241,7 +250,7 @@ describe("PresentWindow", () => {
       identity,
       sentAt: 10,
       state: createPresenterSlideshowState(p0AnimationDeck),
-      triggerAnimationIds: []
+      triggerAnimationIds: [],
     });
     const html = renderToStaticMarkup(
       <PresentWindowContent
@@ -249,13 +258,13 @@ describe("PresentWindow", () => {
         snapshot={{
           deck: snapshotMessage.deck,
           state: snapshotMessage.state,
-          triggerAnimationIds: []
+          triggerAnimationIds: [],
         }}
         viewport={{ height: 540, width: 960 }}
-      />
+      />,
     );
 
-    expect(html).toContain("data-scale=\"0.5\"");
+    expect(html).toContain('data-scale="0.5"');
   });
 
   it("hides the fullscreen CTA once the slide window is fullscreen", () => {
@@ -264,7 +273,7 @@ describe("PresentWindow", () => {
       identity,
       sentAt: 10,
       state: createPresenterSlideshowState(p0AnimationDeck),
-      triggerAnimationIds: []
+      triggerAnimationIds: [],
     });
     const html = renderToStaticMarkup(
       <PresentWindowContent
@@ -273,9 +282,9 @@ describe("PresentWindow", () => {
         snapshot={{
           deck: snapshotMessage.deck,
           state: snapshotMessage.state,
-          triggerAnimationIds: []
+          triggerAnimationIds: [],
         }}
-      />
+      />,
     );
 
     expect(html).not.toContain("전체화면");
@@ -288,7 +297,7 @@ describe("PresentWindow", () => {
       identity,
       sentAt: 10,
       state: createPresenterSlideshowState(p0AnimationDeck),
-      triggerAnimationIds: []
+      triggerAnimationIds: [],
     });
     const html = renderToStaticMarkup(
       <PresentWindowContent
@@ -298,9 +307,9 @@ describe("PresentWindow", () => {
         snapshot={{
           deck: snapshotMessage.deck,
           state: snapshotMessage.state,
-          triggerAnimationIds: []
+          triggerAnimationIds: [],
         }}
-      />
+      />,
     );
 
     expect(html).not.toContain("발표자 창 다시 열기");
@@ -313,7 +322,7 @@ describe("PresentWindow", () => {
       identity,
       sentAt: 10,
       state: createPresenterSlideshowState(p0AnimationDeck),
-      triggerAnimationIds: []
+      triggerAnimationIds: [],
     });
     const html = renderToStaticMarkup(
       <PresentWindowContent
@@ -322,24 +331,25 @@ describe("PresentWindow", () => {
         snapshot={{
           deck: snapshotMessage.deck,
           state: snapshotMessage.state,
-          triggerAnimationIds: []
+          triggerAnimationIds: [],
         }}
-      />
+      />,
     );
 
     expect(html).toContain("전체화면");
   });
 
-  it("renders optional slide-surface navigation controls", () => {
+  it("renders current-window navigation controls when enabled", () => {
     const snapshotMessage = createPresenterSnapshotMessage({
       deck: p0AnimationDeck,
       identity,
       sentAt: 10,
       state: createPresenterSlideshowState(p0AnimationDeck),
-      triggerAnimationIds: []
+      triggerAnimationIds: [],
     });
     const html = renderToStaticMarkup(
       <PresentWindowContent
+        controlOverlayMode="always"
         identity={identity}
         isFullscreen={true}
         onNextStep={() => {}}
@@ -347,9 +357,9 @@ describe("PresentWindow", () => {
         snapshot={{
           deck: snapshotMessage.deck,
           state: snapshotMessage.state,
-          triggerAnimationIds: []
+          triggerAnimationIds: [],
         }}
-      />
+      />,
     );
 
     expect(html).toContain("present-window-previous");
@@ -358,15 +368,81 @@ describe("PresentWindow", () => {
     expect(html).toContain("다음");
   });
 
+  it("hides slide-surface navigation controls while the presenter remote is healthy", () => {
+    const snapshotMessage = createPresenterSnapshotMessage({
+      deck: p0AnimationDeck,
+      identity,
+      sentAt: 10,
+      state: createPresenterSlideshowState(p0AnimationDeck),
+      triggerAnimationIds: [],
+    });
+    const html = renderToStaticMarkup(
+      <PresentWindowContent
+        controlOverlayMode="fallback"
+        identity={identity}
+        isFullscreen={true}
+        onExit={() => {}}
+        onNextStep={() => {}}
+        onPreviousSlide={() => {}}
+        snapshot={{
+          deck: snapshotMessage.deck,
+          state: snapshotMessage.state,
+          triggerAnimationIds: [],
+        }}
+      />,
+    );
+
+    expect(html).not.toContain("present-window-actions");
+    expect(html).not.toContain("present-window-previous");
+    expect(html).not.toContain("present-window-next");
+    expect(html).not.toContain("present-window-exit");
+  });
+
+  it("shows slide-surface navigation controls when the presenter remote fallback is active", () => {
+    const snapshotMessage = createPresenterSnapshotMessage({
+      deck: p0AnimationDeck,
+      identity,
+      sentAt: 10,
+      state: createPresenterSlideshowState(p0AnimationDeck),
+      triggerAnimationIds: [],
+    });
+    const html = renderToStaticMarkup(
+      <PresentWindowContent
+        controlOverlayMode="fallback"
+        fullscreenMessage="팝업이 차단되었습니다."
+        identity={identity}
+        isFullscreen={true}
+        onExit={() => {}}
+        onNextStep={() => {}}
+        onPreviousSlide={() => {}}
+        snapshot={{
+          deck: snapshotMessage.deck,
+          state: snapshotMessage.state,
+          triggerAnimationIds: [],
+        }}
+      />,
+    );
+
+    expect(html).toContain("present-window-previous");
+    expect(html).toContain("present-window-next");
+    expect(html).toContain("present-window-exit");
+  });
+
   it("accepts same-origin delegated fullscreen requests from the presenter window", () => {
     const source = fs.readFileSync(presentWindowSourcePath, "utf8");
     const start = source.indexOf("const onMessage = (event: MessageEvent)");
     const end = source.indexOf("return (", start);
     const messageHandlerBody = source.slice(start, end);
 
-    expect(messageHandlerBody).toContain("event.origin !== window.location.origin");
-    expect(messageHandlerBody).toContain("isSlideWindowFullscreenRequestMessage(event.data)");
-    expect(messageHandlerBody).toContain("requestPresentWindowFullscreen(rootRef.current)");
+    expect(messageHandlerBody).toContain(
+      "event.origin !== window.location.origin",
+    );
+    expect(messageHandlerBody).toContain(
+      "isSlideWindowFullscreenRequestMessage(event.data)",
+    );
+    expect(messageHandlerBody).toContain(
+      "requestPresentWindowFullscreen(rootRef.current)",
+    );
   });
 
   it("shows presenter reconnect guidance when presenter heartbeat is stale", () => {
@@ -375,7 +451,7 @@ describe("PresentWindow", () => {
       identity,
       sentAt: 10,
       state: createPresenterSlideshowState(p0AnimationDeck),
-      triggerAnimationIds: []
+      triggerAnimationIds: [],
     });
     const html = renderToStaticMarkup(
       <PresentWindowContent
@@ -386,9 +462,9 @@ describe("PresentWindow", () => {
         snapshot={{
           deck: snapshotMessage.deck,
           state: snapshotMessage.state,
-          triggerAnimationIds: []
+          triggerAnimationIds: [],
         }}
-      />
+      />,
     );
 
     expect(html).toContain("발표자 창 응답이 끊겼습니다");
@@ -407,8 +483,8 @@ describe("PresentWindow", () => {
 
     await expect(
       requestPresentWindowFullscreen({
-        requestFullscreen
-      } as unknown as HTMLElement)
+        requestFullscreen,
+      } as unknown as HTMLElement),
     ).resolves.toBe(false);
     expect(requestFullscreen).toHaveBeenCalled();
   });

@@ -224,6 +224,9 @@ describe("RehearsalWorkspace", () => {
 
     expect(keyboardBody).toContain("displayRole === \"slide-receiver\"");
     expect(receiverBody).toContain("displayRole === \"slide-receiver\"");
+    expect(receiverBody).toContain("controlOverlayMode=");
+    expect(receiverBody).toContain("\"always\" : \"fallback\"");
+    expect(receiverBody).toContain("onNextStep={handleNextPresenterStep}");
     expect(receiverBody).toContain("onNextStep={");
     expect(receiverBody).toContain("handleNextPresenterStep");
     expect(receiverBody).toContain("onPreviousSlide={");
@@ -253,6 +256,7 @@ describe("RehearsalWorkspace", () => {
     const slideReceiverRenderBody = source.slice(start, end);
 
     expect(slideReceiverRenderBody).toContain("PresentWindowReceiver");
+    expect(slideReceiverRenderBody).toContain("controlOverlayMode=");
     expect(slideReceiverRenderBody).toContain("initialSnapshot={slideReceiverSnapshot}");
     expect(slideReceiverRenderBody).toContain("onReconnectPresenter={(snapshot)");
     expect(slideReceiverRenderBody).toContain("slideIndex: snapshot.state.slideIndex");
