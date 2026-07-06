@@ -54,6 +54,7 @@ type DeckValidationInput = {
       synonyms: string[];
       abbreviations: string[];
       required?: boolean;
+      requiredOccurrenceIds?: string[];
     }>;
     elements: Array<Record<string, unknown>>;
     animations: Array<{
@@ -368,6 +369,56 @@ describe("deckSchema validation", () => {
     ];
 
     expectValidDeck(deck);
+  });
+
+  it("accepts required keyword occurrence IDs from speaker notes", () => {
+    const deck = createValidDeck();
+
+    deck.slides[0].speakerNotes = "ORBIT 다시 ORBIT";
+    deck.slides[0].keywords[0].required = true;
+    deck.slides[0].keywords[0].requiredOccurrenceIds = [
+      createKeywordOccurrenceId("slide_1", "kw_1", 9, 14)
+    ];
+
+    expectValidDeck(deck);
+  });
+
+  it("rejects required keyword occurrence IDs that target missing occurrences", () => {
+    const deck = createValidDeck();
+
+    deck.slides[0].speakerNotes = "ORBIT 다시 ORBIT";
+    deck.slides[0].keywords[0].required = true;
+    deck.slides[0].keywords[0].requiredOccurrenceIds = [
+      createKeywordOccurrenceId("slide_1", "kw_1", 20, 25)
+    ];
+
+    expectInvalidDeck(deck);
+  });
+
+  it("rejects required keyword occurrence IDs with mismatched keyword IDs", () => {
+    const deck = createValidDeck();
+
+    deck.slides[0].speakerNotes = "ORBIT AI";
+    deck.slides[0].keywords = [
+      {
+        keywordId: "kw_1",
+        text: "ORBIT",
+        synonyms: [],
+        abbreviations: [],
+        required: true,
+        requiredOccurrenceIds: [
+          createKeywordOccurrenceId("slide_1", "kw_2", 6, 8)
+        ]
+      },
+      {
+        keywordId: "kw_2",
+        text: "AI",
+        synonyms: [],
+        abbreviations: []
+      }
+    ];
+
+    expectInvalidDeck(deck);
   });
 
   it("rejects keyword occurrence-triggered slide actions that target missing keywords", () => {

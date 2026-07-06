@@ -64,7 +64,8 @@ export function createKeyword(
     text: text.trim(),
     synonyms: [],
     abbreviations: [],
-    required: options?.required ?? true
+    required: options?.required ?? true,
+    requiredOccurrenceIds: []
   });
 }
 

@@ -4,6 +4,7 @@ import { animationSchema } from "./animation.schema";
 import {
   deckIdSchema,
   deckKeywordIdSchema,
+  deckKeywordOccurrenceIdSchema,
   deckSlideIdSchema
 } from "./id.schema";
 import { deriveKeywordOccurrences } from "./keyword-occurrences";
@@ -87,7 +88,8 @@ export const keywordSchema = z.object({
   text: keywordTermSchema,
   synonyms: z.array(keywordTermSchema).default([]),
   abbreviations: z.array(keywordTermSchema).default([]),
-  required: z.boolean().default(true)
+  required: z.boolean().default(true),
+  requiredOccurrenceIds: z.array(deckKeywordOccurrenceIdSchema).optional()
 });
 
 export const slideKeywordsSchema = z
@@ -203,6 +205,30 @@ export const slideSchema = z
     const animationIds = new Set(
       slide.animations.map((animation) => animation.animationId)
     );
+
+    slide.keywords.forEach((keyword, keywordIndex) => {
+      keyword.requiredOccurrenceIds?.forEach((occurrenceId, occurrenceIndex) => {
+        const occurrence = keywordOccurrences.get(occurrenceId);
+        const path = ["keywords", keywordIndex, "requiredOccurrenceIds", occurrenceIndex];
+
+        if (occurrence === undefined) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path,
+            message: "required keyword occurrence must exist in speaker notes"
+          });
+          return;
+        }
+
+        if (occurrence.keywordId !== keyword.keywordId) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path,
+            message: "required keyword occurrence must belong to the keyword"
+          });
+        }
+      });
+    });
 
     slide.actions.forEach((action, actionIndex) => {
       if (actionIds.has(action.actionId)) {

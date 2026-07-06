@@ -227,7 +227,7 @@ describe("RehearsalWorkspace", () => {
     });
   });
 
-  it("highlights required keyword occurrences alongside targeted trigger occurrences", () => {
+  it("highlights required occurrence IDs alongside targeted trigger occurrences", () => {
     const speakerNotes = "keyword occurrence class는 keyword";
     const targetStart = speakerNotes.lastIndexOf("keyword");
     const targetOccurrenceId = createKeywordOccurrenceId(
@@ -238,6 +238,18 @@ describe("RehearsalWorkspace", () => {
     );
     const occurrenceStart = speakerNotes.indexOf("occurrence");
     const classStart = speakerNotes.indexOf("class는");
+    const requiredOccurrenceId = createKeywordOccurrenceId(
+      "slide_1",
+      "kw_occurrence",
+      occurrenceStart,
+      occurrenceStart + "occurrence".length,
+    );
+    const requiredClassOccurrenceId = createKeywordOccurrenceId(
+      "slide_1",
+      "kw_class",
+      classStart,
+      classStart + "class는".length,
+    );
     const slide = {
       ...createDemoDeck().slides[0]!,
       slideId: "slide_1",
@@ -256,6 +268,7 @@ describe("RehearsalWorkspace", () => {
           synonyms: [],
           abbreviations: [],
           required: true,
+          requiredOccurrenceIds: [requiredOccurrenceId],
         },
         {
           keywordId: "kw_class",
@@ -263,6 +276,7 @@ describe("RehearsalWorkspace", () => {
           synonyms: [],
           abbreviations: [],
           required: true,
+          requiredOccurrenceIds: [requiredClassOccurrenceId],
         },
       ],
       actions: [
@@ -285,20 +299,63 @@ describe("RehearsalWorkspace", () => {
         (occurrence) => occurrence.occurrenceId,
       ),
     ).toEqual([
-      createKeywordOccurrenceId(
-        "slide_1",
-        "kw_occurrence",
-        occurrenceStart,
-        occurrenceStart + "occurrence".length,
-      ),
-      createKeywordOccurrenceId(
-        "slide_1",
-        "kw_class",
-        classStart,
-        classStart + "class는".length,
-      ),
+      requiredOccurrenceId,
+      requiredClassOccurrenceId,
       targetOccurrenceId,
     ]);
+  });
+
+  it("does not highlight every occurrence for a required keyword text", () => {
+    const speakerNotes = "원인은 selected 판정은 occurrence 기준입니다 은";
+    const selectedStart = speakerNotes.lastIndexOf("은");
+    const selectedOccurrenceId = createKeywordOccurrenceId(
+      "slide_1",
+      "kw_eun",
+      selectedStart,
+      selectedStart + "은".length,
+    );
+    const slide = {
+      ...createDemoDeck().slides[0]!,
+      slideId: "slide_1",
+      speakerNotes,
+      keywords: [
+        {
+          keywordId: "kw_eun",
+          text: "은",
+          synonyms: [],
+          abbreviations: [],
+          required: true,
+          requiredOccurrenceIds: [selectedOccurrenceId],
+        },
+      ],
+      actions: [],
+    };
+
+    expect(
+      (getHighlightedKeywordOccurrencesForSlide(slide) ?? []).map(
+        (occurrence) => occurrence.occurrenceId,
+      ),
+    ).toEqual([selectedOccurrenceId]);
+  });
+
+  it("does not derive broad highlights from legacy required keywords", () => {
+    const slide = {
+      ...createDemoDeck().slides[0]!,
+      slideId: "slide_1",
+      speakerNotes: "원인은 selected 판정은 occurrence 기준입니다 은",
+      keywords: [
+        {
+          keywordId: "kw_eun",
+          text: "은",
+          synonyms: [],
+          abbreviations: [],
+          required: true,
+        },
+      ],
+      actions: [],
+    };
+
+    expect(getHighlightedKeywordOccurrencesForSlide(slide)).toEqual([]);
   });
 
   it("builds the presenter window rehearsal URL with the shared session id", () => {

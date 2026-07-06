@@ -114,7 +114,8 @@ describe("RehearsalPanel", () => {
     });
 
     expect(html.match(/class="keyword-mark "/g)).toHaveLength(1);
-    expect(html.match(/class="keyword-note-token "/g)).toHaveLength(1);
+    expect(html).not.toContain("keyword-note-token");
+    expect(html.match(/<strong>keyword<\/strong>/g)).toHaveLength(1);
     expect(html).toContain('data-occurrence-id="kwo_slide_1_kw_keyword_21_28"');
   });
 

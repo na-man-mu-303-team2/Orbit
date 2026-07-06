@@ -74,7 +74,8 @@ describe("KeywordHighlightedText", () => {
     );
 
     expect(html.match(/class="keyword-mark "/g)).toHaveLength(1);
-    expect(html.match(/class="keyword-note-token "/g)).toHaveLength(1);
+    expect(html).not.toContain("keyword-note-token");
+    expect(html.match(/<strong>AI<\/strong>/g)).toHaveLength(1);
     expect(html).toContain('data-occurrence-id="kwo_slide_1_kw_ai_9_11"');
   });
 });

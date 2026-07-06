@@ -1355,6 +1355,13 @@ export function EditorShell(props: { projectId?: string }) {
         }
       : currentSlideKeywordUsage[selectedKeyword.keywordId] ?? null
     : null;
+  const selectedKeywordRequiredActive = selectedKeyword
+    ? selectedKeywordOccurrenceKey
+      ? (selectedKeyword.requiredOccurrenceIds ?? []).includes(
+          selectedKeywordOccurrenceKey
+        )
+      : selectedKeyword.required
+    : false;
   const selectedElementId = selectedElementIds.at(-1) ?? null;
   const selectedElements = visibleElements.filter((element) =>
     selectedElementIds.includes(element.elementId)
@@ -2544,13 +2551,51 @@ export function EditorShell(props: { projectId?: string }) {
     handleReplaceKeywords(currentSlide.slideId, (keywords) => [...keywords, nextKeyword]);
   }
 
-  function handleToggleKeywordRequired(slideId: string, keywordId: string) {
+  function handleToggleKeywordRequired(
+    slideId: string,
+    keywordId: string,
+    occurrenceKey: string | null = null
+  ) {
+    const keyword = currentSlide?.keywords.find(
+      (candidate) => candidate.keywordId === keywordId
+    );
+
+    if (!occurrenceKey && !keyword?.required) {
+      if (typeof window !== "undefined") {
+        window.alert(
+          "반복되는 단어일 수 있습니다. 발표 메모에서 필수 발화로 표시할 단어 위치를 선택하세요."
+        );
+      }
+      return;
+    }
+
     handleReplaceKeywords(slideId, (keywords) =>
-      keywords.map((keyword) =>
-        keyword.keywordId === keywordId
-          ? { ...keyword, required: !keyword.required }
-          : keyword
-      )
+      keywords.map((keyword) => {
+        if (keyword.keywordId !== keywordId) {
+          return keyword;
+        }
+
+        if (!occurrenceKey) {
+          return {
+            ...keyword,
+            required: false,
+            requiredOccurrenceIds: []
+          };
+        }
+
+        const requiredOccurrenceIds = keyword.requiredOccurrenceIds ?? [];
+        const nextRequiredOccurrenceIds = requiredOccurrenceIds.includes(
+          occurrenceKey
+        )
+          ? requiredOccurrenceIds.filter((candidate) => candidate !== occurrenceKey)
+          : [...requiredOccurrenceIds, occurrenceKey];
+
+        return {
+          ...keyword,
+          required: nextRequiredOccurrenceIds.length > 0,
+          requiredOccurrenceIds: nextRequiredOccurrenceIds
+        };
+      })
     );
   }
 
@@ -4863,6 +4908,7 @@ export function EditorShell(props: { projectId?: string }) {
                   {selectedKeyword ? (
                     <KeywordDetail
                       keyword={selectedKeyword}
+                      requiredActive={selectedKeywordRequiredActive}
                       showIds={showIds}
                       usage={selectedKeywordUsage}
                       onClearSelection={clearSelectedKeyword}
@@ -4896,7 +4942,8 @@ export function EditorShell(props: { projectId?: string }) {
 
                         handleToggleKeywordRequired(
                           currentSlide.slideId,
-                          selectedKeyword.keywordId
+                          selectedKeyword.keywordId,
+                          selectedKeywordOccurrenceKey
                         );
                       }}
                     />

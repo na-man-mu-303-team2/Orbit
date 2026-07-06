@@ -4247,35 +4247,19 @@ export function getHighlightedKeywordOccurrencesForSlide(slide: Slide | null) {
     return undefined;
   }
 
-  const targetOccurrenceIds = new Set(
-    getKeywordOccurrenceTriggerIdsForSlide(slide)
-  );
+  const targetOccurrenceIds = new Set([
+    ...getKeywordOccurrenceTriggerIdsForSlide(slide),
+    ...slide.keywords.flatMap(
+      (keyword) => keyword.requiredOccurrenceIds ?? []
+    )
+  ]);
 
   if (targetOccurrenceIds.size === 0) {
-    return undefined;
+    return [];
   }
 
-  const occurrenceControlledKeywordIds = new Set(
-    slide.actions.flatMap((action) =>
-      action.trigger.kind === "keyword-occurrence"
-        ? [action.trigger.keywordId]
-        : []
-    )
-  );
-  const requiredKeywordIds = new Set(
-    slide.keywords
-      .filter(
-        (keyword) =>
-          keyword.required &&
-          !occurrenceControlledKeywordIds.has(keyword.keywordId)
-      )
-      .map((keyword) => keyword.keywordId)
-  );
-
   return deriveKeywordOccurrences(slide).filter(
-    (occurrence) =>
-      targetOccurrenceIds.has(occurrence.occurrenceId) ||
-      requiredKeywordIds.has(occurrence.keywordId)
+    (occurrence) => targetOccurrenceIds.has(occurrence.occurrenceId)
   );
 }
 

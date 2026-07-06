@@ -144,6 +144,7 @@ export function KeywordList(props: {
 
 export function KeywordDetail(props: {
   keyword: Keyword;
+  requiredActive?: boolean;
   showIds: boolean;
   usage?: KeywordUsageSummary | null;
   onClearSelection?: () => void;
@@ -157,6 +158,7 @@ export function KeywordDetail(props: {
     onDeleteKeyword,
     onToggleAdvanceSlide,
     onToggleRequired,
+    requiredActive = keyword.required,
     showIds,
     usage
   } = props;
@@ -198,7 +200,7 @@ export function KeywordDetail(props: {
       </div>
       <div className="keyword-control-row">
         <button
-          className={`keyword-control-button ${keyword.required ? "active" : ""}`}
+          className={`keyword-control-button ${requiredActive ? "active" : ""}`}
           type="button"
           onClick={onToggleRequired}
         >

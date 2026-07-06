@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { Fragment, type ReactNode } from "react";
 
 export type KeywordHighlightKeyword = {
   abbreviations: readonly string[];
@@ -76,11 +76,16 @@ export function KeywordHighlightedText(props: {
             candidate.end === textOffset + part.end
         );
         const shouldHighlight = highlightedOccurrences ? Boolean(occurrence) : true;
-        const isSelected =
-          shouldHighlight && part.keyword.keywordId === selectedKeywordId;
-        const className = `${shouldHighlight ? "keyword-mark" : "keyword-note-token"} ${
-          isSelected ? "selected" : ""
-        }`;
+        if (!shouldHighlight) {
+          return (
+            <Fragment key={`plain-${part.keyword.keywordId}-${part.start}-${index}`}>
+              {part.value}
+            </Fragment>
+          );
+        }
+
+        const isSelected = part.keyword.keywordId === selectedKeywordId;
+        const className = `keyword-mark ${isSelected ? "selected" : ""}`;
         const idBadge =
           showIds && renderIdBadge ? renderIdBadge(part.keyword.keywordId) : null;
 
