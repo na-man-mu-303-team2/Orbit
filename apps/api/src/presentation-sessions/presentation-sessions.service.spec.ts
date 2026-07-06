@@ -942,11 +942,10 @@ describe("PresentationSessionsService", () => {
         actorId: "user_1",
         slideId: "slide_3",
         slideIndex: 1,
-        effectState: { stepIndex: 2 },
+        effectState: {},
       }),
     ).resolves.toMatchObject({
       effectState: {
-        stepIndex: 2,
         slideSnapshotContentHash: "frozen-slide-3",
         slideSnapshotUrl:
           "/api/v1/presentation-sessions/session_existing/audience/slide-snapshots/slide_3",
@@ -954,6 +953,104 @@ describe("PresentationSessionsService", () => {
     });
 
     expect(storage.putObject).not.toHaveBeenCalled();
+  });
+
+  it("uses slide fallback instead of a frozen static snapshot for dynamic effects", async () => {
+    const storage = {
+      putObject: vi.fn(),
+    } as unknown as StoragePort;
+    const query = vi.fn(async (sql: string, params?: unknown[]) => {
+      if (sql.includes("SELECT audience_slide_snapshots_json")) {
+        return [
+          {
+            audience_slide_snapshots_json: {
+              deckVersion: 1,
+              deckContentHash: "frozen-deck",
+              slides: {
+                slide_3: {
+                  contentHash: "frozen-slide-3",
+                  url: "https://cdn.example.test/frozen-slide-3.svg",
+                },
+              },
+            },
+          },
+        ];
+      }
+
+      if (sql.includes("FROM presentation_sessions ps")) {
+        return [{ deck_json: audienceDeck }];
+      }
+
+      if (sql.includes("UPDATE audience_realtime_state")) {
+        return [
+          {
+            session_id: "session_existing",
+            slide_id: "slide_3",
+            slide_index: 1,
+            effect_state_json: params?.[3],
+            active_interaction_id: null,
+            updated_at: "2026-07-05T00:03:00.000Z",
+          },
+        ];
+      }
+
+      if (sql.includes("INSERT INTO audience_events")) {
+        return [];
+      }
+
+      return [];
+    });
+    const service = new PresentationSessionsService(
+      { query } as unknown as DataSource,
+      storage,
+    );
+
+    await expect(
+      service.updateAudienceRealtimeState({
+        sessionId: "session_existing",
+        actorId: "user_1",
+        slideId: "slide_3",
+        slideIndex: 1,
+        effectState: {
+          highlights: [{ elementId: "el_2", active: true }],
+          stepIndex: 2,
+          triggerAnimationIds: ["animation_1"],
+        },
+      }),
+    ).resolves.toMatchObject({
+      effectState: {
+        highlights: [{ elementId: "el_2", active: true }],
+        stepIndex: 2,
+        triggerAnimationIds: ["animation_1"],
+        slideFallback: {
+          deck: {
+            slides: [
+              expect.objectContaining({
+                slideId: "slide_3",
+              }),
+            ],
+          },
+          slideIndex: 0,
+          sourceSlideIndex: 1,
+        },
+      },
+    });
+
+    expect(storage.putObject).not.toHaveBeenCalled();
+    const updateCall = query.mock.calls.find(([sql]) =>
+      String(sql).includes("UPDATE audience_realtime_state"),
+    );
+    const persistedEffectState = updateCall?.[1]?.[3] as Record<
+      string,
+      unknown
+    >;
+    expect(persistedEffectState).not.toHaveProperty("slideSnapshotUrl");
+    expect(persistedEffectState).not.toHaveProperty(
+      "slideSnapshotContentHash",
+    );
+    expect(JSON.stringify(persistedEffectState)).not.toContain(
+      "second private presenter script",
+    );
   });
 
   it("reads audience slide snapshots only after validating participant access", async () => {

@@ -129,7 +129,9 @@ describe("AudienceEntrance", () => {
           slideId: "slide_1",
           slideIndex: 0,
           effectState: {
+            highlights: [{ elementId: "el_text", active: true }],
             stepIndex: 1,
+            triggerAnimationIds: ["animation_1"],
             slideFallback: {
               slideIndex: 0,
               deck: {
@@ -177,6 +179,7 @@ describe("AudienceEntrance", () => {
     );
 
     expect(html).toContain("청중 공개 문장");
+    expect(html).not.toContain("audience-slide-snapshot");
     expect(html).not.toContain("슬라이드 준비 중");
     expect(html).not.toContain("presenter script");
   });

@@ -3124,6 +3124,22 @@ export class PresentationSessionsService {
       slideId: input.slideId,
     });
     if (frozenSnapshot) {
+      if (hasDynamicAudienceEffectState(input.effectState)) {
+        const deck = await this.getSessionDeck(input.sessionId).catch(
+          () => null,
+        );
+        if (deck) {
+          return this.attachSlideFallbackToEffectState({
+            deck,
+            effectState: input.effectState,
+            slideId: input.slideId,
+            slideIndex: input.slideIndex,
+          });
+        }
+
+        return input.effectState;
+      }
+
       return assertAudienceSafePayload({
         ...input.effectState,
         slideSnapshotContentHash: frozenSnapshot.contentHash,
@@ -4331,6 +4347,21 @@ function toAudiencePublicSession(session: PresentationSession) {
     status: session.status,
     entryStatus: session.entryStatus,
   };
+}
+
+function hasDynamicAudienceEffectState(effectState: Record<string, unknown>) {
+  const stepIndex = effectState.stepIndex;
+  if (typeof stepIndex === "number" && stepIndex > 0) {
+    return true;
+  }
+
+  const highlights = effectState.highlights;
+  if (Array.isArray(highlights) && highlights.length > 0) {
+    return true;
+  }
+
+  const triggerAnimationIds = effectState.triggerAnimationIds;
+  return Array.isArray(triggerAnimationIds) && triggerAnimationIds.length > 0;
 }
 
 class ParticipantRateLimiter {
