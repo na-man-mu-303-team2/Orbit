@@ -3967,7 +3967,23 @@
   }
 
   .ai-pane.collapsed {
-    display: none;
+    position: fixed;
+    right: 16px;
+    bottom: 72px;
+    z-index: 40;
+    display: grid;
+    width: var(--right-pane-collapsed-width, 52px);
+    min-height: 0;
+    padding: 0;
+    border: 0;
+    background: transparent;
+  }
+
+  .ai-pane.collapsed .collapsed-right-rail {
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: #fff;
+    box-shadow: 0 12px 32px rgba(16, 24, 40, 0.16);
   }
 
   .right-pane-resizer {
