@@ -16,7 +16,9 @@ import {
   EditorShell,
   EditorStateNotice,
   buildSlideThumbnailPatch,
+  consumeScheduledUndoRedoPersistLabel,
   createDistributeSelectionPatch,
+  flushEditorPersistenceBeforeManualAction,
   getImportedSlideThumbnailRefreshSlideIds,
   getPatchThumbnailRefreshSlideIds,
   getEditorValidationItems,
@@ -116,6 +118,58 @@ function setDeckData(queryClient: QueryClient, deck: Deck) {
 describe("editor shell", () => {
   beforeEach(() => {
     vi.stubGlobal("fetch", vi.fn());
+  });
+
+  it("flushes scheduled undo redo persistence before manual save queues", async () => {
+    const calls: string[] = [];
+    let pendingPatchCount = 2;
+
+    await flushEditorPersistenceBeforeManualAction({
+      flushScheduledUndoRedoPersist: async () => {
+        calls.push("undo-redo");
+      },
+      waitForSaveQueue: async () => {
+        calls.push("save-queue");
+      },
+      hasPendingPatchInputs: () => pendingPatchCount > 0,
+      flushPendingSaveBatch: async () => {
+        calls.push(`patch-${pendingPatchCount}`);
+        pendingPatchCount -= 1;
+      }
+    });
+
+    expect(calls).toEqual(["undo-redo", "save-queue", "patch-2", "patch-1"]);
+  });
+
+  it("consumes a scheduled undo redo persist timer once", () => {
+    const timer = setTimeout(() => undefined, 10_000);
+    const timerRef: { current: ReturnType<typeof setTimeout> | null } = {
+      current: timer
+    };
+    const labelRef: { current: string | null } = { current: "undo" };
+    const clearTimer = vi.fn((scheduledTimer: ReturnType<typeof setTimeout>) =>
+      clearTimeout(scheduledTimer)
+    );
+
+    expect(
+      consumeScheduledUndoRedoPersistLabel({
+        clearTimer,
+        labelRef,
+        timerRef
+      })
+    ).toBe("undo");
+    expect(clearTimer).toHaveBeenCalledWith(timer);
+    expect(timerRef.current).toBeNull();
+    expect(labelRef.current).toBeNull();
+
+    expect(
+      consumeScheduledUndoRedoPersistLabel({
+        clearTimer,
+        labelRef,
+        timerRef
+      })
+    ).toBeNull();
+    expect(clearTimer).toHaveBeenCalledTimes(1);
   });
 
   it("prompts before discarding a dirty speaker notes draft", () => {

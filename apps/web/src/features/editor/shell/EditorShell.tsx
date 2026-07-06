@@ -745,6 +745,40 @@ function hasPendingEditorChanges(args: {
   );
 }
 
+export function consumeScheduledUndoRedoPersistLabel(args: {
+  clearTimer: (timer: ReturnType<typeof setTimeout>) => void;
+  labelRef: { current: string | null };
+  timerRef: { current: ReturnType<typeof setTimeout> | null };
+}) {
+  const timer = args.timerRef.current;
+
+  if (!timer) {
+    args.labelRef.current = null;
+    return null;
+  }
+
+  args.clearTimer(timer);
+  args.timerRef.current = null;
+
+  const label = args.labelRef.current;
+  args.labelRef.current = null;
+  return label;
+}
+
+export async function flushEditorPersistenceBeforeManualAction(args: {
+  flushPendingSaveBatch: () => Promise<void>;
+  flushScheduledUndoRedoPersist: () => Promise<void>;
+  hasPendingPatchInputs: () => boolean;
+  waitForSaveQueue: () => Promise<void>;
+}) {
+  await args.flushScheduledUndoRedoPersist();
+  await args.waitForSaveQueue();
+
+  while (args.hasPendingPatchInputs()) {
+    await args.flushPendingSaveBatch();
+  }
+}
+
 function normalizeProjectPresenceUsers(
   event: ProjectPresenceEvent,
   projectId: string
@@ -1063,6 +1097,7 @@ export function EditorShell(props: { projectId?: string }) {
   const editorStageRef = useRef<Konva.Stage | null>(null);
   const slideRenderStageRefs = useRef(new Map<string, Konva.Stage>());
   const undoRedoPersistTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const undoRedoPersistLabelRef = useRef<string | null>(null);
   const [renderingDeck, setRenderingDeck] = useState<Deck | null>(null);
   const [ooxmlSyncJob, setOoxmlSyncJob] = useState<Job | null>(null);
 
@@ -1760,10 +1795,7 @@ export function EditorShell(props: { projectId?: string }) {
     setActiveTopMenu(null);
 
     try {
-      await saveQueueRef.current.catch(() => undefined);
-      while (pendingPatchInputsRef.current.length > 0) {
-        await flushPendingSaveBatch();
-      }
+      await flushPendingSavesBeforeManualAction();
 
       const persistedDeck = persistedBaseDeckRef.current ?? deckQuery.data;
       if (!persistedDeck) {
@@ -1868,10 +1900,7 @@ export function EditorShell(props: { projectId?: string }) {
     setActiveTopMenu(null);
 
     try {
-      await saveQueueRef.current.catch(() => undefined);
-      while (pendingPatchInputsRef.current.length > 0) {
-        await flushPendingSaveBatch();
-      }
+      await flushPendingSavesBeforeManualAction();
 
       const persistedDeck = persistedBaseDeckRef.current ?? deckQuery.data;
       if (!persistedDeck) {
@@ -1913,6 +1942,15 @@ export function EditorShell(props: { projectId?: string }) {
     } finally {
       setIsRehearsalPreparing(false);
     }
+  }
+
+  async function flushPendingSavesBeforeManualAction() {
+    await flushEditorPersistenceBeforeManualAction({
+      flushPendingSaveBatch,
+      flushScheduledUndoRedoPersist,
+      hasPendingPatchInputs: () => pendingPatchInputsRef.current.length > 0,
+      waitForSaveQueue: () => saveQueueRef.current.catch(() => undefined)
+    });
   }
 
   async function flushPendingSaveBatch() {
@@ -2039,15 +2077,70 @@ export function EditorShell(props: { projectId?: string }) {
     }
   }
 
-  function scheduleUndoRedoPersist(label: string) {
-    if (undoRedoPersistTimerRef.current) {
-      clearTimeout(undoRedoPersistTimerRef.current);
+  async function persistUndoRedoDeckSnapshot(label: string) {
+    const activeProjectId = deckQuery.data?.projectId ?? workingDeckRef.current.projectId;
+
+    if (!activeProjectId) {
+      throw withSaveErrorCode(
+        new Error("??ν븷 ?꾨줈?앺듃瑜?李얠? 紐삵뻽?듬땲??"),
+        "missing-project"
+      );
     }
+
+    setSaveState("auto-saving");
+    const snapshotDeck = structuredClone(
+      normalizeDeckAssetUrls(workingDeckRef.current)
+    );
+    const persistedDeck = await putProjectDeck(activeProjectId, snapshotDeck);
+    applyPersistedDeck(persistedDeck);
+    setLastSavedAt(new Date().toISOString());
+    setSaveState("auto-saved");
+    setSaveError(null, null);
+    setLastPatchLabel(`${label} 쨌 v${persistedDeck.version}`);
+  }
+
+  function queueUndoRedoPersist(label: string) {
+    isSaveFlushInFlightRef.current = true;
+
+    saveQueueRef.current = saveQueueRef.current
+      .catch(() => undefined)
+      .then(() => persistUndoRedoDeckSnapshot(label))
+      .finally(() => {
+        isSaveFlushInFlightRef.current = false;
+        undoRedoPersistTimerRef.current = null;
+      });
+
+    return saveQueueRef.current;
+  }
+
+  async function flushScheduledUndoRedoPersist() {
+    const label = consumeScheduledUndoRedoPersistLabel({
+      clearTimer: clearTimeout,
+      labelRef: undoRedoPersistLabelRef,
+      timerRef: undoRedoPersistTimerRef
+    });
+
+    if (!label) {
+      return;
+    }
+
+    await queueUndoRedoPersist(label);
+  }
+
+  function scheduleUndoRedoPersist(label: string) {
+    consumeScheduledUndoRedoPersistLabel({
+      clearTimer: clearTimeout,
+      labelRef: undoRedoPersistLabelRef,
+      timerRef: undoRedoPersistTimerRef
+    });
 
     pendingPatchInputsRef.current = [];
     setSaveState("auto-pending");
     setSaveError(null, null);
+    undoRedoPersistLabelRef.current = label;
     undoRedoPersistTimerRef.current = setTimeout(() => {
+      undoRedoPersistTimerRef.current = null;
+      undoRedoPersistLabelRef.current = null;
       saveQueueRef.current = saveQueueRef.current
         .catch(() => undefined)
         .then(async () => {
