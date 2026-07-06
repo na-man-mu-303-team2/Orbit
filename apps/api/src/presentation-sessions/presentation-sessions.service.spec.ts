@@ -579,6 +579,44 @@ describe("PresentationSessionsService", () => {
     });
   });
 
+  it("touches audience realtime state without clearing slide or interaction fields", async () => {
+    const query = vi.fn().mockResolvedValueOnce([
+      {
+        session_id: "session_existing",
+        slide_id: "slide_2",
+        slide_index: 1,
+        effect_state_json: { stepIndex: 2 },
+        active_interaction_id: "interaction_1",
+        updated_at: "2026-07-05T00:05:00.000Z",
+      },
+    ]);
+    const service = new PresentationSessionsService({
+      query,
+    } as unknown as DataSource);
+
+    await expect(
+      service.touchAudienceRealtimeState("session_existing"),
+    ).resolves.toEqual({
+      sessionId: "session_existing",
+      slideId: "slide_2",
+      slideIndex: 1,
+      effectState: { stepIndex: 2 },
+      activeInteractionId: "interaction_1",
+      updatedAt: "2026-07-05T00:05:00.000Z",
+    });
+
+    expect(query).toHaveBeenCalledWith(expect.any(String), [
+      "session_existing",
+    ]);
+    const sql = query.mock.calls[0][0] as string;
+    expect(sql).toContain("UPDATE audience_realtime_state");
+    expect(sql).toContain("SET updated_at = now()");
+    expect(sql).not.toContain("slide_id = $");
+    expect(sql).not.toContain("slide_index = $");
+    expect(sql).not.toContain("effect_state_json = $");
+    expect(sql).not.toContain("active_interaction_id = $");
+  });
+
   it("renders and attaches an audience slide snapshot when storage is available", async () => {
     const storage = {
       putObject: vi.fn(async (input) => ({

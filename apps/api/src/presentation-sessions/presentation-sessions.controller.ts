@@ -343,13 +343,23 @@ export class PresentationSessionsController {
   ) {
     const user = await this.getCurrentUser(request);
     await this.projectsService.assertCanWriteProject(projectId, user.userId);
-    return this.presentationSessionsService.exposeInteractionQuestionResults({
-      projectId,
+    const result =
+      await this.presentationSessionsService.exposeInteractionQuestionResults({
+        projectId,
+        sessionId,
+        interactionId,
+        actorId: user.userId,
+        body: body ?? {},
+      });
+    this.audienceRealtimeGateway.broadcastSlideState({
       sessionId,
-      interactionId,
-      actorId: user.userId,
-      body: body ?? {},
+      userId: user.userId,
+      state:
+        await this.presentationSessionsService.touchAudienceRealtimeState(
+          sessionId,
+        ),
     });
+    return result;
   }
 
   @Get(":sessionId/interactions/:interactionId/results")

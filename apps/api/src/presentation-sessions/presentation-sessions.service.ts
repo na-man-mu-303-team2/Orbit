@@ -2270,6 +2270,36 @@ export class PresentationSessionsService {
     return this.toRealtimeStateDto(row);
   }
 
+  async touchAudienceRealtimeState(
+    sessionId: string,
+  ): Promise<AudienceRealtimeState> {
+    const result = await this.dataSource.query<
+      QueryRowsResult<AudienceRealtimeStateRow>
+    >(
+      `
+        UPDATE audience_realtime_state
+        SET updated_at = now()
+        WHERE session_id = $1
+        RETURNING
+          session_id,
+          slide_id,
+          slide_index,
+          effect_state_json,
+          active_interaction_id,
+          updated_at::text AS updated_at
+      `,
+      [sessionId],
+    );
+
+    const rows = unwrapQueryRows(result);
+    const row = rows[0];
+    if (!row) {
+      throw new NotFoundException("Audience realtime state not found");
+    }
+
+    return this.toRealtimeStateDto(row);
+  }
+
   private async getAudienceFeatureSettingsForSession(
     sessionId: string,
   ): Promise<AudienceFeatureSettings> {
