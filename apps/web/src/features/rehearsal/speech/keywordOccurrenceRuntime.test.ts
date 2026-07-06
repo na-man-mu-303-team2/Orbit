@@ -46,6 +46,7 @@ describe("matchKeywordOccurrenceTriggers", () => {
       {
         keywordId: "kw_ai",
         occurrenceId: "kwo_slide_1_kw_ai_47_49",
+        text: "AI",
         currentCharOffset: 55
       }
     ]);

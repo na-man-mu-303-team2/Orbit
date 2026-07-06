@@ -148,7 +148,10 @@ import {
   type PauseDetectorSnapshot,
 } from "./speech/pauseDetector";
 import { defaultSpeechTrackingConfig } from "./speech/speechTrackingConfig";
-import { matchKeywordOccurrenceTriggers } from "./speech/keywordOccurrenceRuntime";
+import {
+  matchKeywordOccurrenceTriggers,
+  type KeywordOccurrenceRuntimeMatch,
+} from "./speech/keywordOccurrenceRuntime";
 import type {
   SpeechTrackerSnapshot,
   SpeechTrackingEvent,
@@ -1033,6 +1036,20 @@ export function evaluateLiveTranscript(
       coverage,
     })),
     missingKeywordIds,
+  };
+}
+
+export function createKeywordOccurrenceAnimationCueEvent(args: {
+  match: KeywordOccurrenceRuntimeMatch;
+  slideId: string;
+}): LiveSttAnimationCueEvent {
+  return {
+    type: "animation-cue",
+    slideId: args.slideId,
+    keywordId: args.match.keywordId,
+    occurrenceId: args.match.occurrenceId,
+    cue: "emphasis",
+    text: args.match.text,
   };
 }
 
@@ -2477,13 +2494,12 @@ export function RehearsalWorkspace(props: {
     });
 
     for (const occurrenceMatch of occurrenceMatches) {
-      setLiveCue({
-        type: "animation-cue",
-        slideId: slide.slideId,
-        keywordId: occurrenceMatch.keywordId,
-        cue: "emphasis",
-        text: occurrenceMatch.occurrenceId,
-      });
+      setLiveCue(
+        createKeywordOccurrenceAnimationCueEvent({
+          match: occurrenceMatch,
+          slideId: slide.slideId,
+        }),
+      );
 
       applyTriggeredSlideActions(
         slide,

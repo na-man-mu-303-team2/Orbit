@@ -9,6 +9,7 @@ import {
 export type KeywordOccurrenceRuntimeMatch = {
   keywordId: string;
   occurrenceId: string;
+  text: string;
   currentCharOffset: number;
 };
 
@@ -77,6 +78,7 @@ export function matchKeywordOccurrenceTriggers(options: {
       {
         keywordId: occurrence.keywordId,
         occurrenceId: occurrence.occurrenceId,
+        text: occurrence.text,
         currentCharOffset
       }
     ];

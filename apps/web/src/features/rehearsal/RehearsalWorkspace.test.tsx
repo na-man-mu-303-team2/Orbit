@@ -15,6 +15,7 @@ import {
   applyLiveTranscriptBias,
   applyLiveTranscriptEvent,
   buildLiveSttBiasContext,
+  createKeywordOccurrenceAnimationCueEvent,
   createLiveTranscriptBuffer,
   createRecordingFile,
   createRecordingSession,
@@ -115,6 +116,27 @@ describe("RehearsalWorkspace", () => {
     expect(html).toContain("-100 dB RMS");
     expect(html).toContain("Report AI");
     expect(html).toContain("Speaker notes");
+  });
+
+  it("creates occurrence animation cue events with occurrence id and display text separated", () => {
+    expect(
+      createKeywordOccurrenceAnimationCueEvent({
+        slideId: "slide_1",
+        match: {
+          keywordId: "kw_ai",
+          occurrenceId: "kwo_slide_1_kw_ai_47_49",
+          text: "AI",
+          currentCharOffset: 55,
+        },
+      }),
+    ).toEqual({
+      type: "animation-cue",
+      slideId: "slide_1",
+      keywordId: "kw_ai",
+      occurrenceId: "kwo_slide_1_kw_ai_47_49",
+      cue: "emphasis",
+      text: "AI",
+    });
   });
 
   it("builds the presenter window rehearsal URL with the shared session id", () => {
