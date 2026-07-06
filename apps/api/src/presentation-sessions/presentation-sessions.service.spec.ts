@@ -1310,6 +1310,9 @@ describe("PresentationSessionsService", () => {
       ],
     });
 
+    expect(query.mock.calls[0][1]?.[4]).toBe(
+      JSON.stringify(libraryRow.questions_json),
+    );
     expect(query.mock.calls[4][0]).toContain(
       "INSERT INTO session_interactions",
     );
@@ -2076,9 +2079,14 @@ describe("PresentationSessionsService", () => {
     expect(workerRequest.publicSlideContext).not.toContain(
       "private presenter script",
     );
+    expect(query.mock.calls[8][0]).toContain(
+      "ON d.project_id = ps.project_id",
+    );
+    expect(query.mock.calls[8][0]).toContain("AND d.deck_id = ps.deck_id");
     expect(query.mock.calls[9][0]).toContain(
       "INSERT INTO audience_question_answers",
     );
+    expect(query.mock.calls[9][1]?.[4]).toBe(JSON.stringify(["file_1"]));
     expect(query.mock.calls[9][0]).not.toContain(
       "created_at::text AS created_at\n        )",
     );
@@ -2108,6 +2116,11 @@ describe("PresentationSessionsService", () => {
         { referenceIds: ["file_2"] },
       ),
     ).resolves.toEqual({ referenceIds: ["file_2"] });
+    expect(query.mock.calls[3][1]).toEqual([
+      "project_1",
+      "session_existing",
+      JSON.stringify(["file_2"]),
+    ]);
   });
 
   it("submits enabled audience reactions as events", async () => {

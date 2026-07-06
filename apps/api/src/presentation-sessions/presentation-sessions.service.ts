@@ -994,7 +994,7 @@ export class PresentationSessionsService {
         projectId,
         input.title,
         input.kind,
-        input.questions,
+        JSON.stringify(input.questions),
         input.resultVisibility,
         input.quizScoring,
       ],
@@ -1787,7 +1787,7 @@ export class PresentationSessionsService {
           AND session_id = $2
         RETURNING selected_reference_ids_json
       `,
-      [input.projectId, input.sessionId, parsed.referenceIds],
+      [input.projectId, input.sessionId, JSON.stringify(parsed.referenceIds)],
     );
     const value = unwrapQueryRows(result)[0]?.selected_reference_ids_json ?? [];
     return updateAiReferenceSelectionResponseSchema.parse({
@@ -2613,7 +2613,7 @@ export class PresentationSessionsService {
         question.sessionId,
         question.audienceId,
         rowInput.answerText,
-        rowInput.sourceReferences,
+        JSON.stringify(rowInput.sourceReferences),
         rowInput.confidence,
         rowInput.failureReason,
         rowInput.escalatedToPresenter,
@@ -2680,7 +2680,9 @@ export class PresentationSessionsService {
         SELECT ars.slide_id, d.deck_json
         FROM audience_realtime_state ars
         JOIN presentation_sessions ps ON ps.session_id = ars.session_id
-        LEFT JOIN decks d ON d.deck_id = ps.deck_id
+        LEFT JOIN decks d
+          ON d.project_id = ps.project_id
+         AND d.deck_id = ps.deck_id
         WHERE ars.session_id = $1
         LIMIT 1
       `,
