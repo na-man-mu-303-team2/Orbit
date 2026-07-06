@@ -9,6 +9,7 @@ import {
   createSlideActionId,
   createUpdateAnimationKeywordTriggerPatch,
   createUpsertAdvanceSlideKeywordActionPatch,
+  deriveKeywordActionUsage,
   deriveKeywordUsage,
   findKeywordByTerm,
   getAnimationTriggerAction
@@ -340,6 +341,77 @@ describe("action operations", () => {
         advancesSlide: true
       }
     });
+  });
+
+  it("derives keyword action usage by keyword and occurrence", () => {
+    const deck = createDemoDeck();
+    const slide = {
+      ...deck.slides[0]!,
+      actions: [
+        {
+          actionId: "act_1",
+          trigger: {
+            kind: "keyword" as const,
+            keywordId: "kw_1"
+          },
+          effect: {
+            kind: "play-animation" as const,
+            animationId: "anim_legacy"
+          }
+        },
+        {
+          actionId: "act_2",
+          trigger: {
+            kind: "keyword-occurrence" as const,
+            keywordId: "kw_1",
+            occurrenceId: "kwo_slide_1_kw_1_0_5"
+          },
+          effect: {
+            kind: "play-animation" as const,
+            animationId: "anim_1"
+          }
+        },
+        {
+          actionId: "act_3",
+          trigger: {
+            kind: "keyword-occurrence" as const,
+            keywordId: "kw_1",
+            occurrenceId: "kwo_slide_1_kw_1_10_15"
+          },
+          effect: {
+            kind: "go-to-next-slide" as const
+          }
+        }
+      ]
+    } satisfies Deck["slides"][number];
+
+    expect(deriveKeywordActionUsage(slide)).toMatchObject({
+      byKeywordId: {
+        kw_1: {
+          keywordId: "kw_1",
+          animationIds: ["anim_legacy", "anim_1"],
+          advancesSlide: true
+        }
+      },
+      byOccurrenceId: {
+        kwo_slide_1_kw_1_0_5: {
+          keywordId: "kw_1",
+          occurrenceId: "kwo_slide_1_kw_1_0_5",
+          animationIds: ["anim_1"],
+          advancesSlide: false
+        },
+        kwo_slide_1_kw_1_10_15: {
+          keywordId: "kw_1",
+          occurrenceId: "kwo_slide_1_kw_1_10_15",
+          animationIds: [],
+          advancesSlide: true
+        }
+      }
+    });
+    expect(
+      deriveKeywordActionUsage(slide).byOccurrenceId.kwo_slide_1_kw_1_0_5
+        .animationIds
+    ).not.toContain("anim_legacy");
   });
 
   it("finds keywords by text, synonym, and abbreviation", () => {

@@ -18,12 +18,17 @@ export {
   createSlideActionId,
   createUpdateAnimationKeywordTriggerPatch,
   createUpsertAdvanceSlideKeywordActionPatch,
+  deriveKeywordActionUsage,
   deriveKeywordUsage,
   findKeywordByTerm,
   getAnimationTriggerAction,
   getKeywordTriggerLabel
 } from "./patches/actionOperations";
-export type { DerivedKeywordUsage } from "./patches/actionOperations";
+export type {
+  DerivedKeywordActionUsage,
+  DerivedKeywordOccurrenceUsage,
+  DerivedKeywordUsage
+} from "./patches/actionOperations";
 export { deriveKeywordOccurrences } from "./keywords/keywordOccurrences";
 export type { KeywordOccurrence } from "./keywords/keywordOccurrences";
 export {

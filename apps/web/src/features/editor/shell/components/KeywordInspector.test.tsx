@@ -4,7 +4,8 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   KeywordDetail,
-  KeywordHighlightedNotes
+  KeywordHighlightedNotes,
+  KeywordList
 } from "./KeywordInspector";
 
 describe("KeywordDetail", () => {
@@ -36,6 +37,50 @@ describe("KeywordDetail", () => {
     expect(html).toContain("키워드 삭제");
     expect(html).toContain("필수 발화");
     expect(html).toContain("다음 슬라이드");
+  });
+
+  it("keeps aggregate keyword badges separate from selected occurrence usage", () => {
+    const keyword: Keyword = {
+      keywordId: "kw_ai",
+      text: "AI",
+      synonyms: [],
+      abbreviations: [],
+      required: false
+    };
+
+    const html = renderToString(
+      <>
+        <KeywordList
+          keywords={[keyword]}
+          selectedKeywordId="kw_ai"
+          showIds={false}
+          usageByKeywordId={{
+            kw_ai: {
+              advancesSlide: true,
+              animationIds: ["anim_1"]
+            }
+          }}
+          onSelectKeyword={vi.fn()}
+        />
+        <KeywordDetail
+          keyword={keyword}
+          showIds={false}
+          usage={{
+            advancesSlide: false,
+            animationIds: []
+          }}
+          onClearSelection={vi.fn()}
+          onDeleteKeyword={vi.fn()}
+          onToggleAdvanceSlide={vi.fn()}
+          onToggleRequired={vi.fn()}
+        />
+      </>
+    );
+
+    expect(html).toMatch(/애니메이션.*1/);
+    expect(html.match(/다음 슬라이드/g)).toHaveLength(2);
+    expect(html).toContain('keyword-control-button "');
+    expect(html).not.toContain("keyword-control-button active");
   });
 });
 

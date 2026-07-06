@@ -15,6 +15,15 @@ export type DerivedKeywordUsage = {
   keywordId: string;
 };
 
+export type DerivedKeywordOccurrenceUsage = DerivedKeywordUsage & {
+  occurrenceId: string;
+};
+
+export type DerivedKeywordActionUsage = {
+  byKeywordId: Record<string, DerivedKeywordUsage>;
+  byOccurrenceId: Record<string, DerivedKeywordOccurrenceUsage>;
+};
+
 export function createKeywordId(deck: Deck) {
   const existingIds = new Set(
     deck.slides.flatMap((slide) => slide.keywords.map((keyword) => keyword.keywordId))
@@ -227,7 +236,11 @@ export function getAnimationTriggerAction(
 }
 
 export function deriveKeywordUsage(slide: Slide): Record<string, DerivedKeywordUsage> {
-  const usage = Object.fromEntries(
+  return deriveKeywordActionUsage(slide).byKeywordId;
+}
+
+export function deriveKeywordActionUsage(slide: Slide): DerivedKeywordActionUsage {
+  const byKeywordId = Object.fromEntries(
     slide.keywords.map((keyword) => [
       keyword.keywordId,
       {
@@ -237,6 +250,7 @@ export function deriveKeywordUsage(slide: Slide): Record<string, DerivedKeywordU
       }
     ])
   ) as Record<string, DerivedKeywordUsage>;
+  const byOccurrenceId: Record<string, DerivedKeywordOccurrenceUsage> = {};
 
   for (const action of slide.actions) {
     if (
@@ -246,24 +260,47 @@ export function deriveKeywordUsage(slide: Slide): Record<string, DerivedKeywordU
       continue;
     }
 
-    const keywordUsage = usage[action.trigger.keywordId];
+    const keywordUsage = byKeywordId[action.trigger.keywordId];
     if (!keywordUsage) {
       continue;
     }
 
-    if (action.effect.kind === "play-animation") {
-      if (!keywordUsage.animationIds.includes(action.effect.animationId)) {
-        keywordUsage.animationIds.push(action.effect.animationId);
-      }
-      continue;
-    }
+    applyActionEffectToKeywordUsage(keywordUsage, action);
 
-    if (action.effect.kind === "go-to-next-slide") {
-      keywordUsage.advancesSlide = true;
+    if (action.trigger.kind === "keyword-occurrence") {
+      const occurrenceUsage =
+        byOccurrenceId[action.trigger.occurrenceId] ??
+        {
+          keywordId: action.trigger.keywordId,
+          occurrenceId: action.trigger.occurrenceId,
+          animationIds: [],
+          advancesSlide: false
+        };
+      applyActionEffectToKeywordUsage(occurrenceUsage, action);
+      byOccurrenceId[action.trigger.occurrenceId] = occurrenceUsage;
     }
   }
 
-  return usage;
+  return {
+    byKeywordId,
+    byOccurrenceId
+  };
+}
+
+function applyActionEffectToKeywordUsage(
+  usage: Pick<DerivedKeywordUsage, "animationIds" | "advancesSlide">,
+  action: DeckSlideAction
+) {
+  if (action.effect.kind === "play-animation") {
+    if (!usage.animationIds.includes(action.effect.animationId)) {
+      usage.animationIds.push(action.effect.animationId);
+    }
+    return;
+  }
+
+  if (action.effect.kind === "go-to-next-slide") {
+    usage.advancesSlide = true;
+  }
 }
 
 export function findKeywordByTerm(slide: Slide, term: string): Keyword | null {

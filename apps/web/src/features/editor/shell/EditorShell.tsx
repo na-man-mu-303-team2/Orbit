@@ -10,7 +10,6 @@ import {
   createElementId,
   createReplaceKeywordsPatch,
   createUpsertAdvanceSlideKeywordActionPatch,
-  deriveKeywordUsage,
   findKeywordByTerm,
   createGroupedElementFramePatch,
   createUpdateAnimationPatch,
@@ -19,6 +18,7 @@ import {
   getGroupedSelectionBounds,
   createSlideId,
   createUpdateElementPropsPatch,
+  deriveKeywordActionUsage,
   validateSlideAnimations
 } from "../../../../../../packages/editor-core/src/index";
 import { applyDeckPatch } from "../../../../../../packages/editor-core/src/patches/applyPatch";
@@ -1306,10 +1306,14 @@ export function EditorShell(props: { projectId?: string }) {
         : [],
     [currentSlide]
   );
-  const currentSlideKeywordUsage = useMemo(
-    () => (currentSlide ? deriveKeywordUsage(currentSlide) : {}),
+  const currentSlideKeywordActionUsage = useMemo(
+    () =>
+      currentSlide
+        ? deriveKeywordActionUsage(currentSlide)
+        : { byKeywordId: {}, byOccurrenceId: {} },
     [currentSlide]
   );
+  const currentSlideKeywordUsage = currentSlideKeywordActionUsage.byKeywordId;
   const animationPanelKeywordOptions = useMemo(
     () => toAnimationKeywordTriggerOptions(currentSlide?.keywords ?? []),
     [currentSlide?.keywords]
@@ -1318,6 +1322,18 @@ export function EditorShell(props: { projectId?: string }) {
     currentSlide?.keywords.find(
       (keyword) => keyword.keywordId === selectedKeywordId
     ) ?? null;
+  const selectedKeywordUsage = selectedKeyword
+    ? selectedKeywordOccurrenceKey
+      ? currentSlideKeywordActionUsage.byOccurrenceId[
+          selectedKeywordOccurrenceKey
+        ] ?? {
+          keywordId: selectedKeyword.keywordId,
+          occurrenceId: selectedKeywordOccurrenceKey,
+          animationIds: [],
+          advancesSlide: false
+        }
+      : currentSlideKeywordUsage[selectedKeyword.keywordId] ?? null
+    : null;
   const selectedElementId = selectedElementIds.at(-1) ?? null;
   const selectedElements = visibleElements.filter((element) =>
     selectedElementIds.includes(element.elementId)
@@ -4814,7 +4830,7 @@ export function EditorShell(props: { projectId?: string }) {
                     <KeywordDetail
                       keyword={selectedKeyword}
                       showIds={showIds}
-                      usage={currentSlideKeywordUsage[selectedKeyword.keywordId] ?? null}
+                      usage={selectedKeywordUsage}
                       onClearSelection={clearSelectedKeyword}
                       onDeleteKeyword={() => {
                         if (!currentSlide) {
@@ -4835,8 +4851,7 @@ export function EditorShell(props: { projectId?: string }) {
                           currentSlide.slideId,
                           selectedKeyword.keywordId,
                           !(
-                            currentSlideKeywordUsage[selectedKeyword.keywordId]
-                              ?.advancesSlide ?? false
+                            selectedKeywordUsage?.advancesSlide ?? false
                           )
                         );
                       }}
