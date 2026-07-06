@@ -617,7 +617,7 @@ def test_generate_deck_applies_document_style_pack_modes(
     assert f"Document mode: {document_mode}" in llm_input
     assert_only_template_style_prompt(llm_input, style_pack_id)
     assert response.deck["theme"]["name"] == style_pack_id
-    assert has_element(slide, "el_1_accent_rail")
+    assert has_dedicated_document_style_elements(slide, style_pack_id)
     assert not any(
         element["elementId"].startswith("el_1_simple_basic_")
         for element in slide["elements"]
@@ -1961,7 +1961,7 @@ def test_generate_deck_keeps_document_process_slides_in_style_pack(
     if style_pack_id == "simple-basic":
         assert has_element(slide, "el_1_simple_basic_top_stripe")
     else:
-        assert has_element(slide, "el_1_accent_rail")
+        assert has_dedicated_document_style_elements(slide, style_pack_id)
         assert all("_simple_basic_" not in element_id for element_id in element_ids)
     assert all("_process_card_" not in element_id for element_id in element_ids)
     assert all("_process_arrow_" not in element_id for element_id in element_ids)
@@ -3377,6 +3377,25 @@ def assert_only_template_style_prompt(llm_input: str, style_pack_id: str) -> Non
     for marker_id, marker in markers.items():
         if marker_id != style_pack_id:
             assert marker not in llm_input
+
+
+def has_dedicated_document_style_elements(
+    slide: dict[str, Any],
+    style_pack_id: str,
+) -> bool:
+    if style_pack_id == "presentation-document":
+        return (
+            has_element(slide, "el_1_presentation_top_band")
+            and has_element(slide, "el_1_presentation_focus_panel")
+            and not has_element(slide, "el_1_submission_header_band")
+        )
+    if style_pack_id == "submission-document":
+        return (
+            has_element(slide, "el_1_submission_header_band")
+            and has_element(slide, "el_1_submission_content_panel")
+            and not has_element(slide, "el_1_presentation_top_band")
+        )
+    return False
 
 
 def has_element(slide: dict[str, Any], element_id: str) -> bool:

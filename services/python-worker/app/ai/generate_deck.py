@@ -4567,6 +4567,16 @@ def design_elements(
             theme,
             emphasis_style,
         )
+    if theme.get("name") == PRESENTATION_DOCUMENT_STYLE_PACK_ID:
+        return presentation_document_design_elements(
+            slide_plan,
+            visual_plan,
+            theme,
+            emphasis_style,
+        )
+    if theme.get("name") == SUBMISSION_DOCUMENT_STYLE_PACK_ID:
+        return submission_document_design_elements(slide_plan, visual_plan, theme)
+
     elements = [
         shape_element(
             slide_plan.order,
@@ -4722,11 +4732,7 @@ def design_elements(
             )
         )
 
-    if theme.get("name") not in {
-        PRESENTATION_DOCUMENT_STYLE_PACK_ID,
-        SUBMISSION_DOCUMENT_STYLE_PACK_ID,
-    }:
-        elements.extend(diagram_elements(slide_plan, composition, theme))
+    elements.extend(diagram_elements(slide_plan, composition, theme))
 
     if emphasis_style == "keyword-chips" and slide_plan.order == 1:
         elements.extend(keyword_chip_elements(slide_plan, theme))
@@ -4894,6 +4900,317 @@ def simple_basic_badge_elements(
                     theme["textColor"],
                     theme["typography"]["captionSize"],
                     "medium",
+                    theme["typography"]["bodyFontFamily"],
+                ),
+            ]
+        )
+    return elements
+
+
+def presentation_document_design_elements(
+    slide_plan: SlidePlan,
+    visual_plan: VisualPlan,
+    theme: dict[str, Any],
+    emphasis_style: str,
+) -> list[dict[str, Any]]:
+    layout = compose_layout(visual_plan)
+    slot_by_role = {slot.role: slot for slot in layout.slots}
+    title_slot = slot_by_role.get("title")
+    body_slot = slot_by_role.get("body")
+    title_x = title_slot.x if title_slot else CANVAS.safe_x
+    title_y = title_slot.y if title_slot else CANVAS.safe_y
+    body_y = body_slot.y if body_slot else 330
+    elements: list[dict[str, Any]] = [
+        shape_element(
+            slide_plan.order,
+            "presentation_top_band",
+            "decoration",
+            0,
+            0,
+            CANVAS.width,
+            22,
+            1,
+            theme["accentColor"],
+            "transparent",
+        ),
+        shape_element(
+            slide_plan.order,
+            "presentation_focus_panel",
+            "decoration",
+            1280,
+            148,
+            420,
+            620,
+            1,
+            theme["palette"]["muted"],
+            "transparent",
+            8,
+        ),
+        shape_element(
+            slide_plan.order,
+            "presentation_title_mark",
+            "decoration",
+            max(0, title_x - 34),
+            title_y + 16,
+            14,
+            92,
+            2,
+            theme["accentColor"],
+            "transparent",
+            7,
+        ),
+        text_element(
+            slide_plan.order,
+            "presentation_slide_number",
+            "caption",
+            f"{slide_plan.order:02d}",
+            1430,
+            800,
+            240,
+            110,
+            2,
+            theme["accentColor"],
+            82,
+            "bold",
+            theme["typography"]["headingFontFamily"],
+        ),
+        shape_element(
+            slide_plan.order,
+            "presentation_message_rule",
+            "decoration",
+            title_x,
+            max(0, min(body_y - 38, title_y + 156)),
+            120,
+            8,
+            2,
+            theme["palette"]["secondary"],
+            "transparent",
+            4,
+        ),
+    ]
+    if slide_plan.keywords:
+        elements.extend(
+            presentation_keyword_dot_elements(slide_plan, theme, body_slot)
+        )
+    if emphasis_style == "keyword-chips" and slide_plan.order == 1:
+        elements.extend(keyword_chip_elements(slide_plan, theme))
+    return elements
+
+
+def presentation_keyword_dot_elements(
+    slide_plan: SlidePlan,
+    theme: dict[str, Any],
+    body_slot: LayoutSlot | None,
+) -> list[dict[str, Any]]:
+    x = body_slot.x if body_slot else CANVAS.safe_x
+    y = min(
+        CANVAS.height - 138,
+        (body_slot.y + body_slot.height + 36) if body_slot else 790,
+    )
+    elements: list[dict[str, Any]] = []
+    for index, keyword in enumerate(slide_plan.keywords[:3]):
+        dot_x = x + index * 286
+        elements.extend(
+            [
+                shape_element(
+                    slide_plan.order,
+                    f"presentation_keyword_dot_{index + 1}",
+                    "decoration",
+                    dot_x,
+                    y,
+                    18,
+                    18,
+                    4,
+                    theme["accentColor"],
+                    "transparent",
+                    element_type="ellipse",
+                ),
+                text_element(
+                    slide_plan.order,
+                    f"presentation_keyword_label_{index + 1}",
+                    "caption",
+                    keyword,
+                    dot_x + 32,
+                    y - 5,
+                    220,
+                    28,
+                    5,
+                    theme["textColor"],
+                    theme["typography"]["captionSize"] + 3,
+                    "bold",
+                    theme["typography"]["bodyFontFamily"],
+                ),
+            ]
+        )
+    return elements
+
+
+def submission_document_design_elements(
+    slide_plan: SlidePlan,
+    visual_plan: VisualPlan,
+    theme: dict[str, Any],
+) -> list[dict[str, Any]]:
+    layout = compose_layout(visual_plan)
+    slot_by_role = {slot.role: slot for slot in layout.slots}
+    title_slot = slot_by_role.get("title")
+    body_slot = slot_by_role.get("body")
+    panel_slot = body_slot or slot_by_role.get("highlight")
+    title_x = title_slot.x if title_slot else CANVAS.safe_x
+    title_y = title_slot.y if title_slot else CANVAS.safe_y
+    panel_x = max(0, (panel_slot.x if panel_slot else CANVAS.safe_x) - 30)
+    panel_y = max(128, (panel_slot.y if panel_slot else 248) - 24)
+    panel_width = min(
+        CANVAS.width - panel_x - 120,
+        (panel_slot.width if panel_slot else CANVAS.safe_width) + 60,
+    )
+    panel_height = min(
+        CANVAS.height - panel_y - 130,
+        (panel_slot.height if panel_slot else 420) + 72,
+    )
+    elements: list[dict[str, Any]] = [
+        shape_element(
+            slide_plan.order,
+            "submission_header_band",
+            "decoration",
+            0,
+            0,
+            CANVAS.width,
+            72,
+            1,
+            theme["palette"]["surface"],
+            theme["palette"]["border"],
+        ),
+        shape_element(
+            slide_plan.order,
+            "submission_header_rule",
+            "decoration",
+            0,
+            72,
+            CANVAS.width,
+            5,
+            2,
+            theme["accentColor"],
+            "transparent",
+        ),
+        text_element(
+            slide_plan.order,
+            "submission_section_label",
+            "caption",
+            f"{slide_plan.order:02d} / {visual_plan.slide_type.upper()}",
+            CANVAS.safe_x,
+            26,
+            360,
+            26,
+            3,
+            theme["palette"]["secondary"],
+            theme["typography"]["captionSize"],
+            "bold",
+            theme["typography"]["headingFontFamily"],
+        ),
+        shape_element(
+            slide_plan.order,
+            "submission_title_rule",
+            "decoration",
+            title_x,
+            max(88, title_y + 136),
+            320,
+            3,
+            2,
+            theme["palette"]["border"],
+            "transparent",
+        ),
+        shape_element(
+            slide_plan.order,
+            "submission_content_panel",
+            "decoration",
+            panel_x,
+            panel_y,
+            panel_width,
+            panel_height,
+            1,
+            theme["palette"]["surface"],
+            theme["palette"]["border"],
+            6,
+        ),
+    ]
+    elements.extend(
+        submission_grid_line_elements(
+            slide_plan,
+            theme,
+            panel_x,
+            panel_y,
+            panel_width,
+            panel_height,
+        )
+    )
+    if slide_plan.keywords:
+        elements.extend(submission_evidence_chip_elements(slide_plan, theme))
+    return elements
+
+
+def submission_grid_line_elements(
+    slide_plan: SlidePlan,
+    theme: dict[str, Any],
+    panel_x: int,
+    panel_y: int,
+    panel_width: int,
+    panel_height: int,
+) -> list[dict[str, Any]]:
+    lines: list[dict[str, Any]] = []
+    for index in range(1, 4):
+        y = panel_y + index * panel_height // 4
+        lines.append(
+            shape_element(
+                slide_plan.order,
+                f"submission_grid_line_{index}",
+                "decoration",
+                panel_x + 28,
+                y,
+                max(0, panel_width - 56),
+                2,
+                2,
+                theme["palette"]["border"],
+                "transparent",
+            )
+        )
+    return lines
+
+
+def submission_evidence_chip_elements(
+    slide_plan: SlidePlan,
+    theme: dict[str, Any],
+) -> list[dict[str, Any]]:
+    elements: list[dict[str, Any]] = []
+    for index, keyword in enumerate(slide_plan.keywords[:3]):
+        chip_x = CANVAS.safe_x + index * 336
+        elements.extend(
+            [
+                shape_element(
+                    slide_plan.order,
+                    f"submission_evidence_chip_{index + 1}",
+                    "decoration",
+                    chip_x,
+                    910,
+                    294,
+                    52,
+                    3,
+                    theme["palette"]["muted"],
+                    theme["palette"]["border"],
+                    6,
+                ),
+                text_element(
+                    slide_plan.order,
+                    f"submission_evidence_label_{index + 1}",
+                    "caption",
+                    keyword,
+                    chip_x + 22,
+                    924,
+                    250,
+                    24,
+                    4,
+                    theme["textColor"],
+                    theme["typography"]["captionSize"],
+                    "bold",
                     theme["typography"]["bodyFontFamily"],
                 ),
             ]
