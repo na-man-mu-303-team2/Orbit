@@ -212,5 +212,22 @@ describe("presentationChannel", () => {
         command: { action: "goto", slideIndex: "2" }
       })
     ).toBe(false);
+    for (const command of [
+      { action: "goto", slideIndex: Number.NaN },
+      { action: "goto", slideIndex: Number.POSITIVE_INFINITY },
+      { action: "goto", slideIndex: -1 },
+      { action: "goto", slideIndex: 1.2 },
+      { action: "goto", slideIndex: 1, stepIndex: Number.NaN },
+      { action: "goto", slideIndex: 1, stepIndex: Number.POSITIVE_INFINITY },
+      { action: "goto", slideIndex: 1, stepIndex: -1 },
+      { action: "goto", slideIndex: 1, stepIndex: 0.5 },
+    ]) {
+      expect(
+        isPresentationChannelMessage({
+          ...message,
+          command,
+        })
+      ).toBe(false);
+    }
   });
 });

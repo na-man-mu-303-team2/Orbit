@@ -326,9 +326,13 @@ function isPresenterRemoteCommand(value: unknown): value is PresenterRemoteComma
 
   return (
     value.action === "goto" &&
-    typeof value.slideIndex === "number" &&
-    (value.stepIndex === undefined || typeof value.stepIndex === "number")
+    isNonNegativeInteger(value.slideIndex) &&
+    (value.stepIndex === undefined || isNonNegativeInteger(value.stepIndex))
   );
+}
+
+function isNonNegativeInteger(value: unknown): value is number {
+  return typeof value === "number" && Number.isInteger(value) && value >= 0;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
