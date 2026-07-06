@@ -11,6 +11,7 @@ import {
   Post,
   Req,
   Res,
+  StreamableFile,
   UnauthorizedException,
 } from "@nestjs/common";
 import {
@@ -161,24 +162,27 @@ export class AudienceSessionsController {
     return audienceStateResponseSchema.parse(result);
   }
 
-  @Get(":sessionId/audience/slide-snapshots/:slideId")
-  async getSlideSnapshot(
+  @Get(":sessionId/audience/slide-snapshots/:slideId/:contentHash")
+  async readSlideSnapshot(
     @Param("sessionId") sessionId: string,
     @Param("slideId") slideId: string,
+    @Param("contentHash") contentHash: string,
     @Req() request: SignedCookieRequest,
-    @Res() response: Response,
+    @Res({ passthrough: true }) response: Response,
   ) {
     const { payload, token } = this.requireAudienceAccess(sessionId, request);
     const snapshot =
-      await this.presentationSessionsService.readAudienceSlideSnapshot({
+      await this.presentationSessionsService.readAudienceSlideSnapshotContent({
         sessionId,
         audienceId: payload.audienceId,
         tokenHash: hashAudienceAccessToken(this.config, token),
         slideId,
+        contentHash,
       });
 
+    response.setHeader("cache-control", "private, max-age=60");
     response.setHeader("content-type", snapshot.contentType);
-    response.send(snapshot.body);
+    return new StreamableFile(snapshot.body);
   }
 
   @Post(":sessionId/audience/interactions/:interactionId/respond")

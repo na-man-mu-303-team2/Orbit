@@ -291,6 +291,10 @@ type ProjectSessionInput = {
 
 @Injectable()
 export class PresentationSessionsService {
+  private readonly localStorageBucket = process.env.S3_BUCKET ?? "orbit-local";
+  private readonly localStorageEndpoint = (
+    process.env.S3_ENDPOINT ?? "http://localhost:9000"
+  ).replace(/\/+$/, "");
   private readonly questionRateLimiter = new ParticipantRateLimiter(3, 60_000);
   private readonly reactionRateLimiter = new ParticipantRateLimiter(5, 1_000);
 
@@ -551,10 +555,11 @@ export class PresentationSessionsService {
     tokenHash: string,
   ): Promise<AudienceStateResponse> {
     const me = await this.getAudienceMe(sessionId, audienceId, tokenHash);
-    const [state, features] = await Promise.all([
+    const [rawState, features] = await Promise.all([
       this.getAudienceRealtimeState(sessionId),
       this.getAudienceFeatureSettingsForSession(sessionId),
     ]);
+    const state = await this.decorateAudienceRealtimeStateForRead(rawState);
 
     return audienceStateResponseSchema.parse({
       ...me,
@@ -563,17 +568,19 @@ export class PresentationSessionsService {
     });
   }
 
-  async readAudienceSlideSnapshot(input: {
+  async readAudienceSlideSnapshotContent(input: {
     sessionId: string;
     audienceId: string;
     tokenHash: string;
     slideId: string;
+    contentHash: string;
   }): Promise<{ body: Buffer; contentType: string }> {
     await this.getAudienceMe(
       input.sessionId,
       input.audienceId,
       input.tokenHash,
     );
+
     if (!this.slideSnapshotStorage) {
       throw new NotFoundException("Audience slide snapshot unavailable");
     }
@@ -582,16 +589,39 @@ export class PresentationSessionsService {
       sessionId: input.sessionId,
       slideId: input.slideId,
     });
-    const key = snapshot?.key ?? snapshotKeyFromUrl(snapshot?.url);
-    if (!key) {
+    const currentStateSnapshotHash = snapshot
+      ? null
+      : await this.getCurrentStateSlideSnapshotHash({
+          sessionId: input.sessionId,
+          slideId: input.slideId,
+        });
+    if (
+      snapshot?.contentHash !== input.contentHash &&
+      currentStateSnapshotHash !== input.contentHash
+    ) {
       throw new NotFoundException("Audience slide snapshot unavailable");
     }
 
-    const object = await this.slideSnapshotStorage.getObject(key);
+    const storageKey = createAudienceSlideSnapshotStorageKey({
+      sessionId: input.sessionId,
+      slideId: input.slideId,
+      contentHash: input.contentHash,
+    });
+    const readUrl =
+      process.env.STORAGE_DRIVER === "minio"
+        ? this.createInternalObjectUrl(storageKey)
+        : await this.slideSnapshotStorage.getSignedReadUrl(storageKey);
+    const response = await fetch(readUrl);
+
+    if (!response.ok) {
+      throw new NotFoundException("Audience slide snapshot unavailable");
+    }
 
     return {
-      body: Buffer.from(object.body),
-      contentType: object.contentType || "image/svg+xml",
+      body: Buffer.from(await response.arrayBuffer()),
+      contentType:
+        response.headers.get("content-type")?.split(";")[0] ??
+        "image/svg+xml",
     };
   }
 
@@ -3125,28 +3155,28 @@ export class PresentationSessionsService {
     });
     if (frozenSnapshot) {
       if (hasDynamicAudienceEffectState(input.effectState)) {
-        const deck = await this.getSessionDeck(input.sessionId).catch(
-          () => null,
-        );
-        if (deck) {
-          return this.attachSlideFallbackToEffectState({
-            deck,
-            effectState: input.effectState,
-            slideId: input.slideId,
-            slideIndex: input.slideIndex,
-          });
-        }
-
-        return input.effectState;
+        return this.attachSlideFallbackToEffectStateWhenAvailable({
+          sessionId: input.sessionId,
+          slideId: input.slideId,
+          slideIndex: input.slideIndex,
+          effectState: input.effectState,
+        });
       }
 
-      return assertAudienceSafePayload({
+      const effectState = assertAudienceSafePayload({
         ...input.effectState,
         slideSnapshotContentHash: frozenSnapshot.contentHash,
-        slideSnapshotUrl: audienceSlideSnapshotApiUrl(
-          input.sessionId,
-          input.slideId,
-        ),
+        slideSnapshotUrl: createAudienceSlideSnapshotContentUrl({
+          sessionId: input.sessionId,
+          slideId: input.slideId,
+          contentHash: frozenSnapshot.contentHash,
+        }),
+      });
+      return this.attachSlideFallbackToEffectStateWhenAvailable({
+        sessionId: input.sessionId,
+        slideId: input.slideId,
+        slideIndex: input.slideIndex,
+        effectState,
       });
     }
 
@@ -3163,7 +3193,11 @@ export class PresentationSessionsService {
         effectState: input.effectState,
       });
       const object = await this.slideSnapshotStorage.putObject({
-        key: `audience-slide-snapshots/${input.sessionId}/${input.slideId}-${snapshot.contentHash}.svg`,
+        key: createAudienceSlideSnapshotStorageKey({
+          sessionId: input.sessionId,
+          slideId: input.slideId,
+          contentHash: snapshot.contentHash,
+        }),
         body: snapshot.body,
         contentType: snapshot.contentType,
         purpose: "audience-slide-snapshot",
@@ -3178,13 +3212,20 @@ export class PresentationSessionsService {
         },
       });
 
-      return assertAudienceSafePayload({
+      const effectState = assertAudienceSafePayload({
         ...input.effectState,
         slideSnapshotContentHash: snapshot.contentHash,
-        slideSnapshotUrl: audienceSlideSnapshotApiUrl(
-          input.sessionId,
-          input.slideId,
-        ),
+        slideSnapshotUrl: createAudienceSlideSnapshotContentUrl({
+          sessionId: input.sessionId,
+          slideId: input.slideId,
+          contentHash: snapshot.contentHash,
+        }),
+      });
+      return this.attachSlideFallbackToEffectState({
+        deck,
+        effectState,
+        slideId: input.slideId,
+        slideIndex: input.slideIndex,
       });
     } catch {
       return deck
@@ -3220,6 +3261,73 @@ export class PresentationSessionsService {
         sourceSlideIndex: input.slideIndex,
       },
     });
+  }
+
+  private async decorateAudienceRealtimeStateForRead(
+    state: AudienceRealtimeState,
+  ): Promise<AudienceRealtimeState> {
+    if (!state.slideId) {
+      return state;
+    }
+
+    const snapshot = await this.getFrozenSlideSnapshot({
+      sessionId: state.sessionId,
+      slideId: state.slideId,
+    });
+    const contentHash =
+      snapshot?.contentHash ?? readSlideSnapshotContentHash(state.effectState);
+    if (!contentHash) {
+      return state;
+    }
+
+    const effectState = assertAudienceSafePayload({
+      ...state.effectState,
+      slideSnapshotContentHash: contentHash,
+      slideSnapshotUrl: createAudienceSlideSnapshotContentUrl({
+        sessionId: state.sessionId,
+        slideId: state.slideId,
+        contentHash,
+      }),
+    });
+
+    return {
+      ...state,
+      effectState: await this.attachSlideFallbackToEffectStateWhenAvailable({
+        sessionId: state.sessionId,
+        slideId: state.slideId,
+        slideIndex: state.slideIndex,
+        effectState,
+      }),
+    };
+  }
+
+  private async attachSlideFallbackToEffectStateWhenAvailable(input: {
+    sessionId: string;
+    slideId: string;
+    slideIndex: number | null;
+    effectState: Record<string, unknown>;
+  }): Promise<Record<string, unknown>> {
+    const deck = await this.getSessionDeck(input.sessionId);
+    if (!deck) {
+      return input.effectState;
+    }
+
+    return this.attachSlideFallbackToEffectState({
+      deck,
+      effectState: input.effectState,
+      slideId: input.slideId,
+      slideIndex: input.slideIndex,
+    });
+  }
+
+  private async getCurrentStateSlideSnapshotHash(input: {
+    sessionId: string;
+    slideId: string;
+  }) {
+    const state = await this.getAudienceRealtimeState(input.sessionId);
+    return state.slideId === input.slideId
+      ? readSlideSnapshotContentHash(state.effectState)
+      : null;
   }
 
   private async initializeAudienceStateForStartedSession(input: {
@@ -3446,17 +3554,18 @@ export class PresentationSessionsService {
   private async getAudienceSlideSnapshotMap(
     sessionId: string,
   ): Promise<AudienceSlideSnapshotMap | null> {
-    const rows = await this.dataSource.query<
-      Array<{ audience_slide_snapshots_json: unknown }>
-    >(
-      `
-        SELECT audience_slide_snapshots_json
-        FROM presentation_sessions
-        WHERE session_id = $1
-        LIMIT 1
-      `,
-      [sessionId],
-    );
+    const rows =
+      (await this.dataSource.query<
+        Array<{ audience_slide_snapshots_json: unknown }>
+      >(
+        `
+          SELECT audience_slide_snapshots_json
+          FROM presentation_sessions
+          WHERE session_id = $1
+          LIMIT 1
+        `,
+        [sessionId],
+      )) ?? [];
 
     return normalizeAudienceSlideSnapshotMap(
       rows[0]?.audience_slide_snapshots_json,
@@ -3475,6 +3584,15 @@ export class PresentationSessionsService {
       `,
       [sessionId, map],
     );
+  }
+
+  private createInternalObjectUrl(storageKey: string) {
+    const encodedKey = storageKey
+      .split("/")
+      .map((segment) => encodeURIComponent(segment))
+      .join("/");
+
+    return `${this.localStorageEndpoint}/${this.localStorageBucket}/${encodedKey}`;
   }
 
   private async getSessionDeck(sessionId: string): Promise<Deck | null> {
@@ -4218,32 +4336,29 @@ function normalizeAudienceSlideSnapshotMap(
   };
 }
 
-function audienceSlideSnapshotApiUrl(sessionId: string, slideId: string) {
-  return `/api/v1/presentation-sessions/${encodeURIComponent(
-    sessionId,
-  )}/audience/slide-snapshots/${encodeURIComponent(slideId)}`;
+function createAudienceSlideSnapshotStorageKey(input: {
+  sessionId: string;
+  slideId: string;
+  contentHash: string;
+}) {
+  return `audience-slide-snapshots/${input.sessionId}/${input.slideId}-${input.contentHash}.svg`;
 }
 
-function snapshotKeyFromUrl(url: string | undefined): string | null {
-  if (!url) {
-    return null;
-  }
+function createAudienceSlideSnapshotContentUrl(input: {
+  sessionId: string;
+  slideId: string;
+  contentHash: string;
+}) {
+  return `/api/v1/presentation-sessions/${encodeURIComponent(
+    input.sessionId,
+  )}/audience/slide-snapshots/${encodeURIComponent(
+    input.slideId,
+  )}/${encodeURIComponent(input.contentHash)}`;
+}
 
-  try {
-    const parsed = new URL(url, "http://localhost");
-    const segments = parsed.pathname
-      .split("/")
-      .filter(Boolean)
-      .map((segment) => decodeURIComponent(segment));
-    const snapshotRootIndex = segments.indexOf("audience-slide-snapshots");
-    if (snapshotRootIndex < 0) {
-      return null;
-    }
-
-    return segments.slice(snapshotRootIndex).join("/");
-  } catch {
-    return null;
-  }
+function readSlideSnapshotContentHash(payload: Record<string, unknown>) {
+  const value = payload.slideSnapshotContentHash;
+  return typeof value === "string" && value.length > 0 ? value : null;
 }
 
 function deckPublicContentHash(deck: Deck) {

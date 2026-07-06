@@ -1836,15 +1836,15 @@ export function RehearsalWorkspace(props: {
   }, [audienceSessionId]);
 
   useEffect(() => {
-    if (!presentationChannelState) {
+    if (!audiencePublisher || !presentationChannelState) {
       return;
     }
 
-    audiencePublisherRef.current?.publishState({
+    audiencePublisher.publishState({
       state: presentationChannelState,
       triggerAnimationIds,
     });
-  }, [presentationChannelState, triggerAnimationIds]);
+  }, [audiencePublisher, presentationChannelState, triggerAnimationIds]);
 
   const displayManager = useMemo(() => createDisplayManager(), []);
   const slideshowAnimationPlan = currentSlide
