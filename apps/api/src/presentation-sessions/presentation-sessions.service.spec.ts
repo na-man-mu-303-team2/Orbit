@@ -3,6 +3,7 @@ import {
   ConflictException,
   ForbiddenException,
   GoneException,
+  NotFoundException,
   UnauthorizedException,
 } from "@nestjs/common";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -1266,13 +1267,21 @@ describe("PresentationSessionsService", () => {
       .fn()
       .mockResolvedValueOnce([libraryRow])
       .mockResolvedValueOnce([{ session_id: "session_existing" }])
-      .mockResolvedValueOnce([])
       .mockResolvedValueOnce([libraryRow])
-      .mockResolvedValueOnce([])
       .mockResolvedValueOnce([{ session_id: "session_existing" }])
       .mockResolvedValueOnce([sessionInteractionRow]);
+    const transactionQuery = vi
+      .fn()
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([]);
+    const transaction = vi.fn(
+      async (
+        callback: (manager: { query: typeof transactionQuery }) => Promise<unknown>,
+      ) => callback({ query: transactionQuery }),
+    );
     const service = new PresentationSessionsService({
       query,
+      transaction,
     } as unknown as DataSource);
 
     await expect(
@@ -1313,9 +1322,82 @@ describe("PresentationSessionsService", () => {
     expect(query.mock.calls[0][1]?.[4]).toBe(
       JSON.stringify(libraryRow.questions_json),
     );
-    expect(query.mock.calls[4][0]).toContain(
+    expect(query.mock.calls[2][0]).toContain(
+      "FROM project_interaction_library",
+    );
+    expect(transaction).toHaveBeenCalledOnce();
+    expect(transactionQuery.mock.calls[0][0]).toContain(
+      "DELETE FROM session_interactions",
+    );
+    expect(transactionQuery.mock.calls[1][0]).toContain(
       "INSERT INTO session_interactions",
     );
+  });
+
+  it("validates library selections before deleting existing prepared interactions", async () => {
+    const query = vi
+      .fn()
+      .mockResolvedValueOnce([{ session_id: "session_existing" }])
+      .mockResolvedValueOnce([{ session_id: "session_existing" }])
+      .mockResolvedValueOnce([]);
+    const transaction = vi.fn();
+    const service = new PresentationSessionsService({
+      query,
+      transaction,
+    } as unknown as DataSource);
+
+    await expect(
+      service.selectSessionInteractions(
+        { projectId: "project_1", sessionId: "session_existing" },
+        {
+          libraryInteractionIds: [
+            "library_interaction_00000000-0000-4000-8000-000000000999",
+          ],
+        },
+      ),
+    ).rejects.toBeInstanceOf(NotFoundException);
+
+    expect(transaction).not.toHaveBeenCalled();
+    expect(
+      query.mock.calls.some((call) =>
+        String(call[0]).includes("DELETE FROM session_interactions"),
+      ),
+    ).toBe(false);
+  });
+
+  it("clears prepared library interactions when the selected library list is empty", async () => {
+    const query = vi
+      .fn()
+      .mockResolvedValueOnce([{ session_id: "session_existing" }])
+      .mockResolvedValueOnce([{ session_id: "session_existing" }])
+      .mockResolvedValueOnce([]);
+    const transactionQuery = vi.fn().mockResolvedValueOnce([]);
+    const transaction = vi.fn(
+      async (
+        callback: (manager: { query: typeof transactionQuery }) => Promise<unknown>,
+      ) => callback({ query: transactionQuery }),
+    );
+    const service = new PresentationSessionsService({
+      query,
+      transaction,
+    } as unknown as DataSource);
+
+    await expect(
+      service.selectSessionInteractions(
+        { projectId: "project_1", sessionId: "session_existing" },
+        { libraryInteractionIds: [] },
+      ),
+    ).resolves.toEqual({ interactions: [] });
+
+    expect(transaction).toHaveBeenCalledOnce();
+    expect(transactionQuery.mock.calls[0][0]).toContain(
+      "DELETE FROM session_interactions",
+    );
+    expect(
+      query.mock.calls.some((call) =>
+        String(call[0]).includes("FROM project_interaction_library"),
+      ),
+    ).toBe(false);
   });
 
   it("allows poll response edits but rejects quiz response edits", async () => {
@@ -1367,6 +1449,18 @@ describe("PresentationSessionsService", () => {
       ])
       .mockResolvedValueOnce([activeSessionRow])
       .mockResolvedValueOnce([pollInteractionRow])
+      .mockResolvedValueOnce([
+        {
+          session_id: "session_existing",
+          qna_enabled: false,
+          ai_qna_enabled: false,
+          polls_enabled: true,
+          quizzes_enabled: false,
+          reactions_enabled: false,
+          survey_enabled: false,
+          updated_at: "2026-07-05T00:00:00.000Z",
+        },
+      ])
       .mockResolvedValueOnce([responseRow])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([
@@ -1381,6 +1475,18 @@ describe("PresentationSessionsService", () => {
       ])
       .mockResolvedValueOnce([activeSessionRow])
       .mockResolvedValueOnce([{ ...pollInteractionRow, kind: "quiz" }])
+      .mockResolvedValueOnce([
+        {
+          session_id: "session_existing",
+          qna_enabled: false,
+          ai_qna_enabled: false,
+          polls_enabled: false,
+          quizzes_enabled: true,
+          reactions_enabled: false,
+          survey_enabled: false,
+          updated_at: "2026-07-05T00:00:00.000Z",
+        },
+      ])
       .mockRejectedValueOnce(
         Object.assign(new Error("duplicate quiz response"), { code: "23505" }),
       );
@@ -1418,7 +1524,119 @@ describe("PresentationSessionsService", () => {
       }),
     ).rejects.toBeInstanceOf(ConflictException);
 
-    expect(query.mock.calls[3][0]).toContain("ON CONFLICT");
+    expect(query.mock.calls[4][0]).toContain("ON CONFLICT");
+  });
+
+  it("rejects poll and quiz responses when the matching feature is disabled", async () => {
+    const participantRow = {
+      audience_id: "audience_00000000-0000-4000-8000-000000000001",
+      session_id: "session_existing",
+      nickname: "orbit",
+      joined_at: "2026-07-05T00:00:00.000Z",
+      last_seen_at: "2026-07-05T00:00:00.000Z",
+      joined_before_end: true,
+    };
+    const pollInteractionRow = {
+      interaction_id: "interaction_00000000-0000-4000-8000-000000000001",
+      session_id: "session_existing",
+      kind: "poll" as const,
+      title: "만족도",
+      questions_json: [
+        {
+          type: "scale" as const,
+          questionId: "question_00000000-0000-4000-8000-000000000001",
+          prompt: "만족도",
+          required: true,
+          min: 1 as const,
+          max: 5 as const,
+        },
+      ],
+      result_visibility: "live" as const,
+      quiz_scoring: "none" as const,
+      source: "ad-hoc" as const,
+      display_order: 0,
+      activated_at: "2026-07-05T00:00:00.000Z",
+      closed_at: null,
+    };
+    const quizInteractionRow = {
+      ...pollInteractionRow,
+      kind: "quiz" as const,
+      questions_json: [
+        {
+          type: "quiz-true-false" as const,
+          questionId: "question_00000000-0000-4000-8000-000000000001",
+          prompt: "맞나요?",
+          correctAnswer: true,
+        },
+      ],
+    };
+    const query = vi
+      .fn()
+      .mockResolvedValueOnce([participantRow])
+      .mockResolvedValueOnce([activeSessionRow])
+      .mockResolvedValueOnce([pollInteractionRow])
+      .mockResolvedValueOnce([
+        {
+          session_id: "session_existing",
+          qna_enabled: false,
+          ai_qna_enabled: false,
+          polls_enabled: false,
+          quizzes_enabled: true,
+          reactions_enabled: false,
+          survey_enabled: false,
+          updated_at: "2026-07-05T00:00:00.000Z",
+        },
+      ])
+      .mockResolvedValueOnce([participantRow])
+      .mockResolvedValueOnce([activeSessionRow])
+      .mockResolvedValueOnce([quizInteractionRow])
+      .mockResolvedValueOnce([
+        {
+          session_id: "session_existing",
+          qna_enabled: false,
+          ai_qna_enabled: false,
+          polls_enabled: true,
+          quizzes_enabled: false,
+          reactions_enabled: false,
+          survey_enabled: false,
+          updated_at: "2026-07-05T00:00:00.000Z",
+        },
+      ]);
+    const service = new PresentationSessionsService({
+      query,
+    } as unknown as DataSource);
+
+    await expect(
+      service.submitInteractionResponse({
+        sessionId: "session_existing",
+        audienceId: participantRow.audience_id,
+        tokenHash: "token_hash",
+        interactionId: pollInteractionRow.interaction_id,
+        body: {
+          questionId: "question_00000000-0000-4000-8000-000000000001",
+          answer: { type: "scale", value: 5 },
+        },
+      }),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+
+    await expect(
+      service.submitInteractionResponse({
+        sessionId: "session_existing",
+        audienceId: participantRow.audience_id,
+        tokenHash: "token_hash",
+        interactionId: quizInteractionRow.interaction_id,
+        body: {
+          questionId: "question_00000000-0000-4000-8000-000000000001",
+          answer: { type: "quiz-true-false", answer: true },
+        },
+      }),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+
+    expect(
+      query.mock.calls.some((call) =>
+        String(call[0]).includes("INSERT INTO interaction_responses"),
+      ),
+    ).toBe(false);
   });
 
   it("serializes ad-hoc interaction questions before inserting jsonb", async () => {
@@ -1533,6 +1751,18 @@ describe("PresentationSessionsService", () => {
         ])
         .mockResolvedValueOnce([activeSessionRow])
         .mockResolvedValueOnce([quizInteractionRow])
+        .mockResolvedValueOnce([
+          {
+            session_id: "session_existing",
+            qna_enabled: false,
+            ai_qna_enabled: false,
+            polls_enabled: false,
+            quizzes_enabled: true,
+            reactions_enabled: false,
+            survey_enabled: false,
+            updated_at: "2026-07-05T00:00:00.000Z",
+          },
+        ])
         .mockResolvedValueOnce([responseRow])
         .mockResolvedValueOnce([]);
       const service = new PresentationSessionsService({
@@ -1556,7 +1786,7 @@ describe("PresentationSessionsService", () => {
           score: 750,
         },
       });
-      expect(query.mock.calls[3][1][7]).toBe(750);
+      expect(query.mock.calls[4][1][7]).toBe(750);
     } finally {
       vi.useRealTimers();
     }

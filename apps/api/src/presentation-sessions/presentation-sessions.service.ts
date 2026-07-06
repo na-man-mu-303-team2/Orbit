@@ -1034,82 +1034,88 @@ export class PresentationSessionsService {
     const parsed = selectSessionInteractionsRequestSchema.parse(body);
     await this.assertSessionBelongsToProject(input.projectId, input.sessionId);
 
-    await this.dataSource.query(
-      `
-        DELETE FROM session_interactions
-        WHERE session_id = $1
-          AND source = 'library'
-          AND activated_at IS NULL
-      `,
-      [input.sessionId],
-    );
-
-    if (parsed.libraryInteractionIds.length === 0) {
-      return listSessionInteractionsResponseSchema.parse({
-        interactions: await this.getSessionInteractions(input),
-      });
-    }
-
-    const libraryRows =
-      await this.dataSource.query<ProjectInteractionLibraryRow[]>(
-        `
-          SELECT
-            library_interaction_id,
-            project_id,
-            title,
-            kind,
-            questions_json,
-            result_visibility,
-            quiz_scoring,
-            created_at,
-            updated_at
-          FROM project_interaction_library
-          WHERE project_id = $1
-            AND library_interaction_id = ANY($2)
-        `,
-        [input.projectId, parsed.libraryInteractionIds],
+    const selectedLibraryRows: ProjectInteractionLibraryRow[] = [];
+    if (parsed.libraryInteractionIds.length > 0) {
+      const libraryRows =
+        await this.dataSource.query<ProjectInteractionLibraryRow[]>(
+          `
+            SELECT
+              library_interaction_id,
+              project_id,
+              title,
+              kind,
+              questions_json,
+              result_visibility,
+              quiz_scoring,
+              created_at,
+              updated_at
+            FROM project_interaction_library
+            WHERE project_id = $1
+              AND library_interaction_id = ANY($2)
+          `,
+          [input.projectId, parsed.libraryInteractionIds],
+        );
+      const byId = new Map(
+        libraryRows.map((row) => [row.library_interaction_id, row]),
       );
-    const byId = new Map(
-      libraryRows.map((row) => [row.library_interaction_id, row]),
-    );
 
-    for (let index = 0; index < parsed.libraryInteractionIds.length; index += 1) {
-      const libraryInteractionId = parsed.libraryInteractionIds[index];
-      const row = byId.get(libraryInteractionId);
-      if (!row) {
-        throw new NotFoundException("Interaction library item not found");
+      for (const libraryInteractionId of parsed.libraryInteractionIds) {
+        const row = byId.get(libraryInteractionId);
+        if (!row) {
+          throw new NotFoundException("Interaction library item not found");
+        }
+        selectedLibraryRows.push(row);
       }
-
-      await this.dataSource.query(
-        `
-          INSERT INTO session_interactions (
-            interaction_id,
-            session_id,
-            library_interaction_id,
-            kind,
-            title,
-            questions_json,
-            result_visibility,
-            quiz_scoring,
-            source,
-            display_order,
-            created_at
-          )
-          VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8, 'library', $9, now())
-        `,
-        [
-          `interaction_${randomUUID()}`,
-          input.sessionId,
-          row.library_interaction_id,
-          row.kind,
-          row.title,
-          JSON.stringify(normalizeQuestions(row.questions_json)),
-          row.result_visibility,
-          row.quiz_scoring,
-          index,
-        ],
-      );
     }
+
+    await this.dataSource.transaction(async (manager) => {
+      await manager.query(
+        `
+          DELETE FROM session_interactions
+          WHERE session_id = $1
+            AND source = 'library'
+            AND activated_at IS NULL
+        `,
+        [input.sessionId],
+      );
+
+      for (let index = 0; index < selectedLibraryRows.length; index += 1) {
+        const row = selectedLibraryRows[index];
+        if (!row) {
+          continue;
+        }
+
+        await manager.query(
+          `
+            INSERT INTO session_interactions (
+              interaction_id,
+              session_id,
+              library_interaction_id,
+              kind,
+              title,
+              questions_json,
+              result_visibility,
+              quiz_scoring,
+              source,
+              display_order,
+              created_at
+            )
+            VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8, 'library', $9, now())
+          `,
+          [
+            `interaction_${randomUUID()}`,
+            input.sessionId,
+            row.library_interaction_id,
+            row.kind,
+            row.title,
+            JSON.stringify(normalizeQuestions(row.questions_json)),
+            row.result_visibility,
+            row.quiz_scoring,
+            index,
+          ],
+        );
+      }
+    });
 
     return listSessionInteractionsResponseSchema.parse({
       interactions: await this.getSessionInteractions(input),
@@ -1400,6 +1406,20 @@ export class PresentationSessionsService {
       input.sessionId,
       input.interactionId,
     );
+    const features = await this.getAudienceFeatureSettingsForSession(
+      input.sessionId,
+    );
+    const isInteractionEnabled =
+      (interaction.kind === "poll" && features.pollsEnabled) ||
+      (interaction.kind === "quiz" && features.quizzesEnabled);
+    if (!isInteractionEnabled) {
+      throw new ForbiddenException(
+        interaction.kind === "poll"
+          ? "현재 Poll이 열려 있지 않습니다."
+          : "현재 Quiz가 열려 있지 않습니다.",
+      );
+    }
+
     const question = interaction.questions.find(
       (candidate) => candidate.questionId === request.questionId,
     );
