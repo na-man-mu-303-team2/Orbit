@@ -157,14 +157,14 @@ export function createUpsertAdvanceSlideKeywordActionPatch(
   deck: Deck,
   slideId: string,
   keywordId: string,
-  enabled: boolean
+  enabled: boolean,
+  occurrenceId?: string | null
 ): DeckPatch | null {
   const slide = findSlide(deck, slideId);
   const matchingActions = slide
     ? slide.actions.filter(
         (action) =>
-          action.trigger.kind === "keyword" &&
-          action.trigger.keywordId === keywordId &&
+          isSameKeywordTrigger(action, keywordId, occurrenceId) &&
           action.effect.kind === "go-to-next-slide"
       )
     : [];
@@ -184,10 +184,7 @@ export function createUpsertAdvanceSlideKeywordActionPatch(
           slideId,
           action: {
             actionId: createSlideActionId(deck),
-            trigger: {
-              kind: "keyword",
-              keywordId
-            },
+            trigger: createKeywordActionTrigger(keywordId, occurrenceId),
             effect: {
               kind: "go-to-next-slide"
             }
@@ -319,6 +316,24 @@ function createKeywordActionTrigger(
     kind: "keyword",
     keywordId
   };
+}
+
+function isSameKeywordTrigger(
+  action: DeckSlideAction,
+  keywordId: string,
+  occurrenceId?: string | null
+) {
+  if (occurrenceId) {
+    return (
+      action.trigger.kind === "keyword-occurrence" &&
+      action.trigger.keywordId === keywordId &&
+      action.trigger.occurrenceId === occurrenceId
+    );
+  }
+
+  return (
+    action.trigger.kind === "keyword" && action.trigger.keywordId === keywordId
+  );
 }
 
 function normalizeTerm(value: string) {

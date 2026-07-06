@@ -2509,11 +2509,21 @@ export function EditorShell(props: { projectId?: string }) {
     keywordId: string,
     enabled: boolean
   ) {
+    if (enabled && !selectedKeywordOccurrenceKey) {
+      if (typeof window !== "undefined") {
+        window.alert(
+          "반복되는 단어일 수 있습니다. 발표 메모에서 실제로 트리거할 단어 위치를 선택하세요."
+        );
+      }
+      return;
+    }
+
     const patch = createUpsertAdvanceSlideKeywordActionPatch(
       workingDeckRef.current,
       slideId,
       keywordId,
-      enabled
+      enabled,
+      selectedKeywordOccurrenceKey
     );
 
     if (!patch) {

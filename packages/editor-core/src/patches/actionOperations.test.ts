@@ -212,6 +212,98 @@ describe("action operations", () => {
     });
   });
 
+  it("upserts next-slide actions for a specific keyword occurrence", () => {
+    const deck = createDemoDeck();
+    const slide = {
+      ...deck.slides[0]!,
+      speakerNotes: "ORBIT 흐름은 ORBIT 대본으로 설명합니다."
+    };
+    const deckWithRepeatedKeyword = {
+      ...deck,
+      slides: [slide, ...deck.slides.slice(1)]
+    };
+    const addPatch = createUpsertAdvanceSlideKeywordActionPatch(
+      deckWithRepeatedKeyword,
+      slide.slideId,
+      "kw_1",
+      true,
+      "kwo_slide_1_kw_1_10_15"
+    );
+
+    expect(addPatch).toMatchObject({
+      operations: [
+        {
+          type: "add_slide_action",
+          slideId: slide.slideId,
+          action: {
+            trigger: {
+              kind: "keyword-occurrence",
+              keywordId: "kw_1",
+              occurrenceId: "kwo_slide_1_kw_1_10_15"
+            },
+            effect: {
+              kind: "go-to-next-slide"
+            }
+          }
+        }
+      ]
+    });
+  });
+
+  it("deletes only the matching next-slide keyword occurrence action", () => {
+    const deck = createDemoDeck();
+    const slide = {
+      ...deck.slides[0]!,
+      speakerNotes: "ORBIT 흐름은 ORBIT 대본으로 설명합니다.",
+      actions: [
+        {
+          actionId: "act_1",
+          trigger: {
+            kind: "keyword-occurrence" as const,
+            keywordId: "kw_1",
+            occurrenceId: "kwo_slide_1_kw_1_0_5"
+          },
+          effect: {
+            kind: "go-to-next-slide" as const
+          }
+        },
+        {
+          actionId: "act_2",
+          trigger: {
+            kind: "keyword-occurrence" as const,
+            keywordId: "kw_1",
+            occurrenceId: "kwo_slide_1_kw_1_10_15"
+          },
+          effect: {
+            kind: "go-to-next-slide" as const
+          }
+        }
+      ]
+    } satisfies Deck["slides"][number];
+    const deckWithActions = {
+      ...deck,
+      slides: [slide, ...deck.slides.slice(1)]
+    };
+
+    expect(
+      createUpsertAdvanceSlideKeywordActionPatch(
+        deckWithActions,
+        slide.slideId,
+        "kw_1",
+        false,
+        "kwo_slide_1_kw_1_10_15"
+      )
+    ).toMatchObject({
+      operations: [
+        {
+          type: "delete_slide_action",
+          slideId: slide.slideId,
+          actionId: "act_2"
+        }
+      ]
+    });
+  });
+
   it("derives keyword usage from keyword-triggered slide actions", () => {
     const deck = createDemoDeck();
     const slide = {

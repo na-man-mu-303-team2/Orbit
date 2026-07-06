@@ -1,7 +1,8 @@
 import { applyDeckPatch, createDemoDeck } from "@orbit/editor-core";
 import {
   createAddAnimationWithKeywordTriggerPatch,
-  createDefaultAnimation
+  createDefaultAnimation,
+  createUpsertAdvanceSlideKeywordActionPatch
 } from "../../../../../../packages/editor-core/src/index";
 import { demoIds } from "@orbit/shared";
 import type {
@@ -1056,6 +1057,40 @@ describe("editor shell", () => {
         kind: "keyword-occurrence",
         keywordId: "kw_1",
         occurrenceId: "kwo_slide_1_kw_1_10_15"
+      });
+    }
+  });
+
+  it("stores next-slide triggers on the selected speaker note occurrence", () => {
+    const deck = createDemoDeck();
+    const slide = {
+      ...deck.slides[0],
+      speakerNotes: "ORBIT 흐름은 ORBIT 대본으로 설명합니다."
+    };
+    const deckWithRepeatedKeyword = {
+      ...deck,
+      slides: [slide, ...deck.slides.slice(1)]
+    };
+    const patch = createUpsertAdvanceSlideKeywordActionPatch(
+      deckWithRepeatedKeyword,
+      slide.slideId,
+      "kw_1",
+      true,
+      "kwo_slide_1_kw_1_10_15"
+    );
+
+    expect(patch).not.toBeNull();
+    const result = applyDeckPatch(deckWithRepeatedKeyword, patch!);
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.deck.slides[0].actions.at(-1)?.trigger).toEqual({
+        kind: "keyword-occurrence",
+        keywordId: "kw_1",
+        occurrenceId: "kwo_slide_1_kw_1_10_15"
+      });
+      expect(result.deck.slides[0].actions.at(-1)?.effect).toEqual({
+        kind: "go-to-next-slide"
       });
     }
   });
