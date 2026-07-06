@@ -145,6 +145,33 @@ describe("AudienceSessionsController", () => {
     expect(result.session).not.toHaveProperty("presenterUserId");
   });
 
+  it("rate limits public join-code lookups before querying sessions", async () => {
+    const { controller, service } = createController();
+
+    for (let index = 0; index < 10; index += 1) {
+      await expect(
+        controller.getJoinSession(
+          "123456",
+          createRequest({ ip: "203.0.113.20" }),
+        ),
+      ).resolves.toBeDefined();
+    }
+
+    let error: unknown;
+    try {
+      await controller.getJoinSession(
+        "123456",
+        createRequest({ ip: "203.0.113.20" }),
+      );
+    } catch (caught) {
+      error = caught;
+    }
+
+    expect(error).toBeInstanceOf(HttpException);
+    expect((error as HttpException).getStatus()).toBe(429);
+    expect(service.getActiveSessionByJoinCode).toHaveBeenCalledTimes(10);
+  });
+
   it("restores an ended session for an existing audience cookie when join lookup is no longer active", async () => {
     const response = { cookie: vi.fn() } as any;
     const initial = createController();
@@ -276,6 +303,42 @@ describe("AudienceSessionsController", () => {
         response,
       ),
     ).resolves.toBeDefined();
+  });
+
+  it("rate limits join attempts before session lookup succeeds", async () => {
+    const { controller, service } = createController({
+      getActiveSessionByJoinCode: vi.fn(async () => {
+        throw new NotFoundException("입장 코드를 확인해 주세요.");
+      }),
+    });
+    const response = { cookie: vi.fn() } as any;
+
+    for (let index = 0; index < 10; index += 1) {
+      await expect(
+        controller.joinSession(
+          "000000",
+          { nickname: `orbit-${index}` },
+          createRequest({ ip: "203.0.113.30" }),
+          response,
+        ),
+      ).rejects.toBeInstanceOf(NotFoundException);
+    }
+
+    let error: unknown;
+    try {
+      await controller.joinSession(
+        "000000",
+        { nickname: "orbit-10" },
+        createRequest({ ip: "203.0.113.30" }),
+        response,
+      );
+    } catch (caught) {
+      error = caught;
+    }
+
+    expect(error).toBeInstanceOf(HttpException);
+    expect((error as HttpException).getStatus()).toBe(429);
+    expect(service.getActiveSessionByJoinCode).toHaveBeenCalledTimes(10);
   });
 
   it("rejects /me without an audience cookie", async () => {

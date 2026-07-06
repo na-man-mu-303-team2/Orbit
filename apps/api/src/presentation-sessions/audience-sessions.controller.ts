@@ -52,6 +52,7 @@ export class AudienceSessionsController {
     @Req() request: SignedCookieRequest,
   ) {
     const params = audienceJoinCodeParamsSchema.parse({ joinCode });
+    this.consumeJoinRateLimit(request, params.joinCode);
     try {
       const session =
         await this.presentationSessionsService.getActiveSessionByJoinCode(
@@ -82,6 +83,7 @@ export class AudienceSessionsController {
   ) {
     const params = audienceJoinCodeParamsSchema.parse({ joinCode });
     const input = parseRequest(audienceJoinRequestSchema, body ?? {});
+    this.consumeJoinRateLimit(request, params.joinCode);
     const session =
       await this.presentationSessionsService.getActiveSessionByJoinCode(
         params.joinCode,
@@ -92,13 +94,6 @@ export class AudienceSessionsController {
     );
     if (existingAccess) {
       return existingAccess;
-    }
-
-    if (!this.joinRateLimiter.consume(getClientIp(request), params.joinCode)) {
-      throw new HttpException(
-        "입장 시도가 많습니다. 잠시 후 다시 시도해 주세요.",
-        HttpStatus.TOO_MANY_REQUESTS,
-      );
     }
 
     const audienceId = `audience_${randomUUID()}`;
@@ -124,6 +119,15 @@ export class AudienceSessionsController {
     );
 
     return audienceJoinResponseSchema.parse(result);
+  }
+
+  private consumeJoinRateLimit(request: Request, joinCode: string) {
+    if (!this.joinRateLimiter.consume(getClientIp(request), joinCode)) {
+      throw new HttpException(
+        "입장 시도가 많습니다. 잠시 후 다시 시도해 주세요.",
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
+    }
   }
 
   @Get(":sessionId/audience/me")

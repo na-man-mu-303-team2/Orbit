@@ -30,6 +30,10 @@ describe("EnsureAudienceSessionTables migration", () => {
     );
     expect(sql).toContain("CREATE TABLE IF NOT EXISTS audience_realtime_state");
     expect(sql).toContain("CREATE TABLE IF NOT EXISTS audience_events");
+    expect(sql).toContain("INSERT INTO audience_feature_settings");
+    expect(sql).toContain("INSERT INTO audience_realtime_state");
+    expect(sql).toContain("FROM presentation_sessions");
+    expect(sql).toContain("ON CONFLICT (session_id) DO NOTHING");
     expect(sql).toContain(
       "idx_audience_participants_session_last_seen_at",
     );
