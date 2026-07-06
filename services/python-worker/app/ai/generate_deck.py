@@ -466,6 +466,156 @@ SUBMISSION_DOCUMENT_STYLE_KEYWORDS = (
     "보고용 문서",
     "보고용 문서 스타일",
 )
+STYLE_PACK_LLM_PROMPTS: dict[str, str] = {
+    SIMPLE_BASIC_STYLE_PACK_ID: """
+# 심플 베이직 스타일
+
+## 공통 원칙
+
+[시각적 위계]
+- 슬라이드당 하나의 핵심 메시지만 담을 것
+- 제목 > 소제목 > 본문 순으로 크기/굵기 차이를 명확히 할 것
+- 폰트는 최대 2종류만 사용할 것
+- 여백을 충분히 확보하여 요소들이 숨쉴 공간을 줄 것
+
+[그리드와 정렬]
+- 모든 텍스트와 이미지는 일관된 그리드에 정렬할 것
+- 슬라이드 가장자리 여백을 일정하게 유지할 것
+- 요소 간 간격은 8의 배수 단위로 규칙적으로 적용할 것
+- 같은 역할의 요소는 슬라이드마다 동일한 위치에 배치할 것
+
+[콘텐츠 밀도]
+- 텍스트는 최대한 간결하게 줄일 것
+- 슬라이드 1장의 메시지는 한 문장으로 요약될 수 있어야 함
+
+[일관성]
+- 제목, 부제목은 매 페이지마다 동일한 위치와 크기의 서체 사용
+- 1페이지는 서브 텍스트 1줄 이상 금지, 헤드라인과 키비주얼만으로 구성
+
+## 스타일 프롬프트
+
+[Context]
+깔끔하고 베이직하지만 비어 보이지 않는 슬라이드입니다.
+장식 없이도 완성도 있어 보이는 것이 목표입니다.
+
+[Action]
+
+— 배경 —
+- 배경은 흰색(#FFFFFF) 또는 연한 회색(#F5F5F5) 단색
+- 상단 또는 하단에 포인트 컬러 얇은 띠를 넣을 것
+- 좌측 또는 우측 여백에 연한 수직선 하나로 콘텐츠 영역을 구분
+
+— 레이아웃 —
+- 슬라이드 가장자리 여백은 전체 너비의 8~10%
+- 좌측 상단에 섹션 번호 또는 카테고리명을 포인트 컬러 소형 텍스트로 배치
+- 제목은 그 아래 Bold, 크게 좌측 정렬
+- 제목과 본문 사이에 포인트 컬러 짧은 가로선 배치
+- 콘텐츠는 슬라이드 전체 면적의 75% 이상 채울 것
+- 콘텐츠 블록 간 간격은 일정하게 유지
+
+— 타이포그래피 —
+- 제목은 Bold 또는 ExtraBold
+- 본문은 Regular
+- 핵심 키워드나 수치는 포인트 컬러로 강조
+- 텍스트는 전체 좌측 정렬
+
+— 컬러 —
+- 포인트 컬러는 1~2개만 사용
+- 포인트 컬러는 섹션 번호, 구분선, 핵심 강조에만 적용
+- 그 외 텍스트는 검정(#1A1A1A) 또는 짙은 회색(#333333)
+
+— 밀도 —
+- 텍스트만 있는 슬라이드는 배경 컬러 블록 또는 연한 회색 박스로 콘텐츠를 감쌀 것
+- 항목이 여러 개일 경우 번호 뱃지를 붙여 시각적 리듬을 만들 것
+- 데이터나 수치가 있을 경우 표 또는 강조 박스로 구조화
+
+[Result]
+슬라이드가 단순하지만 비어 보이지 않아야 합니다.
+포인트 컬러 띠, 구분선, 번호 뱃지처럼 작은 요소들이 공간을 채우면서 완성도를 높여야 합니다.
+처음 보는 사람도 "잘 만든 자료"라는 인상을 받아야 하며, 허전해 보이는 곳이 없어야 합니다.
+""".strip(),
+    SUBMISSION_DOCUMENT_STYLE_PACK_ID: """
+# 제출용 문서 스타일
+
+## 공통 원칙
+
+[시각적 위계]
+- 슬라이드당 하나의 핵심 메시지만 담을 것
+- 제목 > 소제목 > 본문 순으로 크기/굵기 차이를 명확히 할 것
+- 폰트는 최대 2종류만 사용할 것
+- 여백을 충분히 확보하여 요소들이 숨쉴 공간을 줄 것
+
+[그리드와 정렬]
+- 모든 텍스트와 이미지는 일관된 그리드에 정렬할 것
+- 슬라이드 가장자리 여백을 일정하게 유지할 것
+- 요소 간 간격은 8의 배수 단위로 규칙적으로 적용할 것
+- 같은 역할의 요소는 슬라이드마다 동일한 위치에 배치할 것
+
+[콘텐츠 밀도]
+- 발표용보다 정보 밀도를 높일 것
+- 텍스트는 충분한 맥락과 근거를 포함하되, 문단이 너무 길어지지 않게 정리할 것
+- 표, 차트, 요약 박스를 활용해 읽기 쉽게 구조화할 것
+
+[일관성]
+- 제목, 부제목은 매 페이지마다 동일한 위치와 크기의 서체 사용
+- 섹션 간 구분을 명확히 할 것
+
+## 용도
+
+[보고용]
+이 PPT는 상대방이 혼자 읽는 자료입니다.
+
+## 디자인 원칙
+
+- 발표자 없이도 내용이 완전히 이해되어야 함
+- 텍스트로 맥락과 근거를 충분히 설명
+- 데이터/수치는 표나 차트로 구조화
+- 논리 흐름이 한눈에 보이는 레이아웃 사용
+- 정보 밀도를 높이되 가독성 유지
+- 차트/표 적극 활용
+- 섹션 간 구분 명확하게
+""".strip(),
+    PRESENTATION_DOCUMENT_STYLE_PACK_ID: """
+# 발표용 문서 스타일
+
+## 공통 원칙
+
+[시각적 위계]
+- 슬라이드당 하나의 핵심 메시지만 담을 것
+- 제목 > 소제목 > 본문 순으로 크기/굵기 차이를 명확히 할 것
+- 폰트는 최대 2종류만 사용할 것
+- 여백을 충분히 확보하여 요소들이 숨쉴 공간을 줄 것
+
+[그리드와 정렬]
+- 모든 텍스트와 이미지는 일관된 그리드에 정렬할 것
+- 슬라이드 가장자리 여백을 일정하게 유지할 것
+- 요소 간 간격은 8의 배수 단위로 규칙적으로 적용할 것
+- 같은 역할의 요소는 슬라이드마다 동일한 위치에 배치할 것
+
+[콘텐츠 밀도]
+- 텍스트는 최대한 간결하게 줄일 것
+- 슬라이드 1장의 메시지는 한 문장으로 요약될 수 있어야 함
+- 발표자가 말로 설명할 내용을 슬라이드에 과도하게 넣지 말 것
+
+[일관성]
+- 제목, 부제목은 매 페이지마다 동일한 위치와 크기의 서체 사용
+- 1페이지는 서브 텍스트 1줄 이상 금지, 헤드라인과 키비주얼만으로 구성
+
+## 용도
+
+[발표용]
+이 PPT는 발표자가 직접 말로 설명하는 자료입니다.
+
+## 디자인 원칙
+
+- 텍스트는 키워드/짧은 문장 위주로 최소화
+- 비주얼(이미지, 아이콘, 도형)로 내용을 대신 표현
+- 청중 시선을 끄는 강한 타이포그래피 사용
+- 핵심 수치나 단어는 크게 강조
+- 불릿 리스트 지양
+- 비주얼 중심 구성
+""".strip(),
+}
 SLIDE_TYPES: tuple[SlideType, ...] = (
     "title",
     "cover",
@@ -1174,8 +1324,8 @@ Rules:
 - Do not write design instructions into slide title, message, or speakerNotes.
 - Reflect design instructions through visualIntent.paletteHint, emphasisStyle,
   composition, decorationDensity, and mediaStyle.
-- The attached simple/basic style guide is a design and document-purpose guide,
-  not visible slide content. Do not quote or summarize it in slide text.
+- The selected preset style prompt is a design and document-purpose guide, not
+  visible slide content. Do not quote or summarize it in slide text.
 - For presentation mode, keep slide messages as keywords or short sentences and
   place concrete detail in speakerNotes.
 - For report/submission mode, make body messages self-contained enough to read
@@ -2052,6 +2202,8 @@ def deck_content_prompt(raw_input: RawInput) -> str:
             f"Layout diversity: {raw_input.design.layout_diversity}",
             f"Style pack override: {raw_input.design.style_pack_id or '(auto)'}",
             f"Slide preset override: {raw_input.design.slide_preset_id or '(auto)'}",
+            "Preset style prompt:",
+            preset_style_prompt_for(raw_input) or "(none)",
             f"Reference keywords: {', '.join(keywords) if keywords else '(none)'}",
             "Reference excerpts:",
             context or "(none)",
@@ -2541,6 +2693,10 @@ def effective_document_style_pack_id(raw_input: RawInput) -> str:
     if wants_simple_basic_style(raw_input):
         return SIMPLE_BASIC_STYLE_PACK_ID
     return ""
+
+
+def preset_style_prompt_for(raw_input: RawInput) -> str:
+    return STYLE_PACK_LLM_PROMPTS.get(effective_document_style_pack_id(raw_input), "")
 
 
 def uses_document_style_pack(raw_input: RawInput) -> bool:

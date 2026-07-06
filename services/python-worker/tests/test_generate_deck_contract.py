@@ -524,6 +524,7 @@ def test_generate_deck_applies_simple_basic_style_pack() -> None:
 
     assert fake_client.requests[0]["model"] == "gpt-4.1-mini"
     assert "Document mode: presentation" in llm_input
+    assert_only_template_style_prompt(llm_input, "simple-basic")
     assert response.deck["theme"]["name"] == "simple-basic"
     assert response.deck["theme"]["textColor"] == "#1A1A1A"
     assert top_stripe["height"] == 6
@@ -614,6 +615,7 @@ def test_generate_deck_applies_document_style_pack_modes(
     slide = response.deck["slides"][0]
 
     assert f"Document mode: {document_mode}" in llm_input
+    assert_only_template_style_prompt(llm_input, style_pack_id)
     assert response.deck["theme"]["name"] == style_pack_id
     assert has_element(slide, "el_1_simple_basic_top_stripe")
     assert "stylePackId" not in deck_text
@@ -3354,6 +3356,19 @@ def slide_payload(
             "src": "",
         },
     }
+
+
+def assert_only_template_style_prompt(llm_input: str, style_pack_id: str) -> None:
+    markers = {
+        "simple-basic": "깔끔하고 베이직하지만 비어 보이지 않는 슬라이드",
+        "presentation-document": "이 PPT는 발표자가 직접 말로 설명하는 자료입니다.",
+        "submission-document": "이 PPT는 상대방이 혼자 읽는 자료입니다.",
+    }
+
+    assert markers[style_pack_id] in llm_input
+    for marker_id, marker in markers.items():
+        if marker_id != style_pack_id:
+            assert marker not in llm_input
 
 
 def has_element(slide: dict[str, Any], element_id: str) -> bool:
