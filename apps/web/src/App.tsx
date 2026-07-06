@@ -1681,7 +1681,7 @@ export function TemplateRail(props: {
           disabled={props.isCreating}
         >
           <Plus size={28} />
-          <span>빈 프로젝테이션 만들기</span>
+          <span>빈 프레젠테이션 만들기</span>
         </button>
         {homeTemplateStyles.map((template) => (
           <button
