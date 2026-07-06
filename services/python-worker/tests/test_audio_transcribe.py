@@ -206,6 +206,54 @@ def test_gpt4o_transcribe_uses_json_response_format(
     assert calls[0]["response_format"] == "json"
 
 
+def test_whisper1_uses_verbose_json_and_parses_segments(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[dict[str, object]] = []
+
+    class FakeTranscriptions:
+        def create(self, **kwargs: object) -> dict[str, object]:
+            calls.append(kwargs)
+            return {
+                "text": "첫 문장 다음 문장",
+                "duration": 12.5,
+                "segments": [
+                    {"text": "첫 문장", "start": 0.0, "end": 2.0},
+                    {"text": "다음 문장", "start": 5.0, "end": 7.5},
+                ],
+            }
+
+    class FakeOpenAI:
+        def __init__(self, *, api_key: str) -> None:
+            self.api_key = api_key
+            self.audio = SimpleNamespace(transcriptions=FakeTranscriptions())
+
+    monkeypatch.setitem(sys.modules, "openai", SimpleNamespace(OpenAI=FakeOpenAI))
+
+    provider = OpenAISpeechToTextProvider(
+        api_key="test-key",
+        model="whisper-1",
+        language="ko-KR",
+    )
+    result = provider.transcribe(
+        AudioContent(
+            data=b"fake webm bytes",
+            file_name="rehearsal.webm",
+            mime_type="audio/webm",
+        )
+    )
+
+    # whisper-1은 verbose_json 응답을 써야 세그먼트/duration이 채워진다.
+    assert calls[0]["response_format"] == "verbose_json"
+    assert result.transcript == "첫 문장 다음 문장"
+    assert result.duration_seconds == 12.5
+    assert len(result.segments) == 2
+    assert result.segments[0].start_seconds == 0.0
+    assert result.segments[0].end_seconds == 2.0
+    assert result.segments[1].start_seconds == 5.0
+    assert result.segments[1].end_seconds == 7.5
+
+
 def test_whisperx_provider_posts_multipart_and_normalizes_response() -> None:
     calls: list[tuple[object, float]] = []
 
