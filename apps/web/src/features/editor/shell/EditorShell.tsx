@@ -58,7 +58,6 @@ import {
 import {
   AnimationSidePanel,
   buildAnimationKeywordTriggerPolicy,
-  defaultAnimationPaneWidth,
   maxAnimationPaneWidth,
   minAnimationPaneWidth,
   toAnimationKeywordTriggerOptions,
@@ -94,6 +93,7 @@ import {
   type SaveState
 } from "./hooks/useEditorPersistenceState";
 import { useProjectShareAccess } from "./hooks/useProjectShareAccess";
+import { useEditorShellUiStore } from "./editorShellUiStore";
 import { beginHorizontalPaneResize } from "./utils/beginHorizontalPaneResize";
 import { createThemeCascadePatch } from "./utils/themeCascadePatch";
 export {
@@ -252,12 +252,10 @@ declare global {
 
 const fallbackDeck = createDemoDeck();
 const collapsedSlidesPaneWidth = 0;
-const defaultSlidesPaneWidth = 176;
 const minSlidesPaneWidth = 132;
 
 const maxSlidesPaneWidth = 280;
 const collapsedRightPaneWidth = 52;
-const defaultRightPaneWidth = 320;
 const minRightPaneWidth = 260;
 const maxRightPaneWidth = 560;
 const editorUploadProjectTitle = "ORBIT Editor Uploads";
@@ -275,8 +273,6 @@ const pptxImportAccept =
   ".pptx,application/vnd.openxmlformats-officedocument.presentationml.presentation";
 const ooxmlSyncJobEventName = "orbit:ooxml-sync-job";
 
-type TopMenu = "file" | "resize" | "editMode" | "quickEdit" | "presentation";
-type SlidePanelView = "thumbnail" | "list";
 type InsertTool =
   | "select"
   | "text"
@@ -293,10 +289,6 @@ type ShapeInsertType =
   | "polygon"
   | "star"
   | "customShape";
-type ShapeMenuPosition = {
-  left: number;
-  top: number;
-};
 type ElementContextMenuState =
   | {
       elementId: string;
@@ -1051,19 +1043,53 @@ export function EditorShell(props: { projectId?: string }) {
   const projectId = props.projectId ?? demoIds.projectId;
   const queryClient = useQueryClient();
   const [currentSlideIndex, setCurrentSlideIndex] = useState(0);
-  const [isDataViewOpen, setIsDataViewOpen] = useState(false);
-  const [isAnimationPanelOpen, setIsAnimationPanelOpen] = useState(false);
-  const [isRightPanelOpen, setIsRightPanelOpen] = useState(true);
-  const [isSlidesPaneCollapsed, setIsSlidesPaneCollapsed] = useState(false);
-  const [slidesPaneWidth, setSlidesPaneWidth] = useState(defaultSlidesPaneWidth);
-  const [animationPaneWidth, setAnimationPaneWidth] = useState(
-    defaultAnimationPaneWidth
+  const isDataViewOpen = useEditorShellUiStore((state) => state.isDataViewOpen);
+  const setIsDataViewOpen = useEditorShellUiStore((state) => state.setIsDataViewOpen);
+  const isAnimationPanelOpen = useEditorShellUiStore(
+    (state) => state.isAnimationPanelOpen
   );
-  const [rightPaneWidth, setRightPaneWidth] = useState(defaultRightPaneWidth);
+  const setIsAnimationPanelOpen = useEditorShellUiStore(
+    (state) => state.setIsAnimationPanelOpen
+  );
+  const isRightPanelOpen = useEditorShellUiStore((state) => state.isRightPanelOpen);
+  const setIsRightPanelOpen = useEditorShellUiStore(
+    (state) => state.setIsRightPanelOpen
+  );
+  const isSlidesPaneCollapsed = useEditorShellUiStore(
+    (state) => state.isSlidesPaneCollapsed
+  );
+  const setIsSlidesPaneCollapsed = useEditorShellUiStore(
+    (state) => state.setIsSlidesPaneCollapsed
+  );
+  const slidesPaneWidth = useEditorShellUiStore((state) => state.slidesPaneWidth);
+  const setSlidesPaneWidth = useEditorShellUiStore(
+    (state) => state.setSlidesPaneWidth
+  );
+  const animationPaneWidth = useEditorShellUiStore(
+    (state) => state.animationPaneWidth
+  );
+  const setAnimationPaneWidth = useEditorShellUiStore(
+    (state) => state.setAnimationPaneWidth
+  );
+  const rightPaneWidth = useEditorShellUiStore((state) => state.rightPaneWidth);
+  const setRightPaneWidth = useEditorShellUiStore((state) => state.setRightPaneWidth);
   const [projectPresenceUsers, setProjectPresenceUsers] = useState<ProjectPresenceUser[]>([]);
-  const [isPresenceDebugOpen, setIsPresenceDebugOpen] = useState(false);
-  const [isAudienceLinkModalOpen, setIsAudienceLinkModalOpen] = useState(false);
-  const [isExitConfirmOpen, setIsExitConfirmOpen] = useState(false);
+  const isPresenceDebugOpen = useEditorShellUiStore(
+    (state) => state.isPresenceDebugOpen
+  );
+  const setIsPresenceDebugOpen = useEditorShellUiStore(
+    (state) => state.setIsPresenceDebugOpen
+  );
+  const isAudienceLinkModalOpen = useEditorShellUiStore(
+    (state) => state.isAudienceLinkModalOpen
+  );
+  const setIsAudienceLinkModalOpen = useEditorShellUiStore(
+    (state) => state.setIsAudienceLinkModalOpen
+  );
+  const isExitConfirmOpen = useEditorShellUiStore((state) => state.isExitConfirmOpen);
+  const setIsExitConfirmOpen = useEditorShellUiStore(
+    (state) => state.setIsExitConfirmOpen
+  );
   const [isExitSaving, setIsExitSaving] = useState(false);
   const [animationPanelFocusedAnimationId, setAnimationPanelFocusedAnimationId] =
     useState<string | null>(null);
@@ -1075,9 +1101,10 @@ export function EditorShell(props: { projectId?: string }) {
     message: "세션 정보를 아직 조회하지 않았습니다.",
     status: "idle"
   });
-  const [slidePanelView, setSlidePanelView] =
-    useState<SlidePanelView>("thumbnail");
-  const [showIds, setShowIds] = useState(false);
+  const slidePanelView = useEditorShellUiStore((state) => state.slidePanelView);
+  const setSlidePanelView = useEditorShellUiStore((state) => state.setSlidePanelView);
+  const showIds = useEditorShellUiStore((state) => state.showIds);
+  const setShowIds = useEditorShellUiStore((state) => state.setShowIds);
   const [selectedKeywordId, setSelectedKeywordId] = useState<string | null>(null);
   const [isSpeakerNotesEditing, setIsSpeakerNotesEditing] = useState(false);
   const [speakerNotesDraft, setSpeakerNotesDraft] = useState("");
@@ -1088,16 +1115,22 @@ export function EditorShell(props: { projectId?: string }) {
   const [selectedElementIds, setSelectedElementIds] = useState<string[]>([]);
   const [validationHighlightElementIds, setValidationHighlightElementIds] =
     useState<string[]>([]);
-  const [activeTopMenu, setActiveTopMenu] = useState<TopMenu | null>(null);
+  const activeTopMenu = useEditorShellUiStore((state) => state.activeTopMenu);
+  const setActiveTopMenu = useEditorShellUiStore((state) => state.setActiveTopMenu);
   const [lastPatchLabel, setLastPatchLabel] = useState("편집 없음");
   const [insertTool, setInsertTool] = useState<InsertTool>("select");
   const [editingElementId, setEditingElementId] = useState<string | null>(null);
   const [customShapeEditElementId, setCustomShapeEditElementId] = useState<
     string | null
   >(null);
-  const [isShapeMenuOpen, setIsShapeMenuOpen] = useState(false);
-  const [shapeMenuPosition, setShapeMenuPosition] =
-    useState<ShapeMenuPosition | null>(null);
+  const isShapeMenuOpen = useEditorShellUiStore((state) => state.isShapeMenuOpen);
+  const setIsShapeMenuOpen = useEditorShellUiStore(
+    (state) => state.setIsShapeMenuOpen
+  );
+  const shapeMenuPosition = useEditorShellUiStore((state) => state.shapeMenuPosition);
+  const setShapeMenuPosition = useEditorShellUiStore(
+    (state) => state.setShapeMenuPosition
+  );
   const [elementContextMenu, setElementContextMenu] =
     useState<ElementContextMenuState | null>(null);
   const [isImageUploadPending, setIsImageUploadPending] = useState(false);
