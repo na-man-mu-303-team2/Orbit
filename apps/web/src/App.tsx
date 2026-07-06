@@ -1300,7 +1300,10 @@ function HomePage(props: { user?: AuthUser; templateStyleId?: HomeTemplateStyleI
   }
 
   function addFiles(fileList: FileList | File[]) {
-    const { acceptedFiles, rejectedFiles } = collectHomeUploadFiles(fileList);
+    const { acceptedFiles, rejectedFiles } = collectHomeUploadFiles(
+      fileList,
+      Boolean(selectedTemplateStyleId)
+    );
     setUploads((current) => mergeUploadFiles(current, acceptedFiles));
     setRejected(rejectedFiles);
     setError("");
@@ -2303,7 +2306,10 @@ export function getHomeGenerationValidationMessage(
   return "";
 }
 
-function collectHomeUploadFiles(fileList: FileList | File[]) {
+function collectHomeUploadFiles(
+  fileList: FileList | File[],
+  hasSelectedTemplateStyle = false
+) {
   const acceptedFiles: UploadFile[] = [];
   const rejectedFiles: RejectedFile[] = [];
 
@@ -2336,11 +2342,19 @@ function collectHomeUploadFiles(fileList: FileList | File[]) {
     acceptedFiles.push({
       id: createUploadId(file),
       file,
-      role: isPptxFile(file) ? "design" : "content"
+      role: getHomeDefaultUploadRole(file, hasSelectedTemplateStyle)
     });
   });
 
   return { acceptedFiles, rejectedFiles };
+}
+
+export function getHomeDefaultUploadRole(file: File, hasSelectedTemplateStyle = false) {
+  if (!isPptxFile(file)) {
+    return "content";
+  }
+
+  return hasSelectedTemplateStyle ? "content" : "design";
 }
 
 function mergeUploadFiles(current: UploadFile[], next: UploadFile[]) {

@@ -25,6 +25,7 @@ import {
   getGenerateDeckJobResult,
   buildHomeExtractFormData,
   getHomeDeckGenerationJobEndpoint,
+  getHomeDefaultUploadRole,
   getHomeGenerationValidationMessage,
   getHomeContentReferenceUploads,
   getHomePptxConversionValidationMessage,
@@ -476,6 +477,19 @@ describe("AI deck generation flow", () => {
     );
   });
 
+  it("defaults PPTX uploads to content references while a template style is selected", () => {
+    const pptx = new File(["pptx"], "reference.pptx", {
+      type: "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+    });
+    const docx = new File(["docx"], "reference.docx", {
+      type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    });
+
+    expect(getHomeDefaultUploadRole(pptx, false)).toBe("design");
+    expect(getHomeDefaultUploadRole(pptx, true)).toBe("content");
+    expect(getHomeDefaultUploadRole(docx, true)).toBe("content");
+  });
+
   it("reads an AI template deck generation job result", () => {
     const job: Job = {
       jobId: "job-template",
@@ -666,6 +680,35 @@ describe("AI deck generation flow", () => {
       layoutDiversity: "varied",
       mediaPolicy: "avoid"
     });
+  });
+
+  it("keeps content references when a template style is selected", () => {
+    const payload = buildHomeJsonFirstGenerateDeckPayload({
+      topic: "ORBIT",
+      prompt: "",
+      designPrompt: "",
+      templateStyleId: "simple-basic",
+      duration: 10,
+      minSlides: 5,
+      maxSlides: 8,
+      tone: "professional",
+      referenceInput: {
+        references: [{ fileId: "file_reference" }],
+        referenceKeywords: [{ text: "핵심" }],
+        referenceContext: [
+          { fileId: "file_reference", title: "reference.docx", content: "본문" }
+        ],
+        succeededFiles: [],
+        failedFiles: []
+      }
+    });
+
+    expect(payload.design.stylePackId).toBe("simple-basic");
+    expect(payload.references).toEqual([{ fileId: "file_reference" }]);
+    expect(payload.referenceKeywords).toEqual([{ text: "핵심" }]);
+    expect(payload.referenceContext).toEqual([
+      { fileId: "file_reference", title: "reference.docx", content: "본문" }
+    ]);
   });
 
   it("routes home deck generation to JSON-first unless a design PPTX exists", () => {
