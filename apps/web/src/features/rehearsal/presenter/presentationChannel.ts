@@ -67,7 +67,10 @@ export type PresenterRemoteHeartbeatMessage = {
 export type PresenterRemoteCommand =
   | { action: "goto"; slideIndex: number; stepIndex?: number }
   | { action: "next-step" }
-  | { action: "prev" };
+  | { action: "prev" }
+  | { action: "timer-pause" }
+  | { action: "timer-reset" }
+  | { action: "timer-start" };
 
 export type PresenterCommandMessage = {
   command: PresenterRemoteCommand;
@@ -88,28 +91,40 @@ export type PresentationChannelMessage =
   | PresenterCommandMessage;
 
 export function createPresentationSessionId() {
-  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+  if (
+    typeof crypto !== "undefined" &&
+    typeof crypto.randomUUID === "function"
+  ) {
     return crypto.randomUUID();
   }
 
-  if (typeof crypto !== "undefined" && typeof crypto.getRandomValues === "function") {
+  if (
+    typeof crypto !== "undefined" &&
+    typeof crypto.getRandomValues === "function"
+  ) {
     const values = new Uint32Array(4);
     crypto.getRandomValues(values);
-    return Array.from(values, (value) => value.toString(16).padStart(8, "0")).join("-");
+    return Array.from(values, (value) =>
+      value.toString(16).padStart(8, "0"),
+    ).join("-");
   }
 
   return `session-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
 }
 
-export function getPresentationChannelName(identity: PresentationChannelIdentity) {
+export function getPresentationChannelName(
+  identity: PresentationChannelIdentity,
+) {
   return [
     presentationChannelPrefix,
     encodeURIComponent(identity.deckId),
-    encodeURIComponent(identity.sessionId)
+    encodeURIComponent(identity.sessionId),
   ].join(":");
 }
 
-export function createSlideWindowDeckSnapshot(deck: Deck): SlideWindowDeckSnapshot {
+export function createSlideWindowDeckSnapshot(
+  deck: Deck,
+): SlideWindowDeckSnapshot {
   return {
     canvas: deck.canvas,
     deckId: deck.deckId,
@@ -119,11 +134,13 @@ export function createSlideWindowDeckSnapshot(deck: Deck): SlideWindowDeckSnapsh
     targetDurationMinutes: deck.targetDurationMinutes,
     theme: deck.theme,
     title: deck.title,
-    version: deck.version
+    version: deck.version,
   };
 }
 
-function createSlideWindowSlideSnapshot(slide: Deck["slides"][number]): Deck["slides"][number] {
+function createSlideWindowSlideSnapshot(
+  slide: Deck["slides"][number],
+): Deck["slides"][number] {
   return {
     actions: [],
     animations: slide.animations,
@@ -136,12 +153,12 @@ function createSlideWindowSlideSnapshot(slide: Deck["slides"][number]): Deck["sl
     slideId: slide.slideId,
     style: slide.style,
     thumbnailUrl: slide.thumbnailUrl,
-    title: slide.title
+    title: slide.title,
   };
 }
 
 export function isPresentationChannelMessage(
-  value: unknown
+  value: unknown,
 ): value is PresentationChannelMessage {
   if (!isRecord(value)) {
     return false;
@@ -163,7 +180,10 @@ export function isPresentationChannelMessage(
         isStringArray(value.triggerAnimationIds)
       );
     case "presenter-state":
-      return isPresenterSlideshowState(value.state) && isStringArray(value.triggerAnimationIds);
+      return (
+        isPresenterSlideshowState(value.state) &&
+        isStringArray(value.triggerAnimationIds)
+      );
     case "presenter-heartbeat":
     case "slide-window-ready":
     case "slide-window-heartbeat":
@@ -179,9 +199,12 @@ export function isPresentationChannelMessage(
 
 export function matchesPresentationChannelIdentity(
   message: PresentationChannelMessage,
-  identity: PresentationChannelIdentity
+  identity: PresentationChannelIdentity,
 ) {
-  return message.deckId === identity.deckId && message.sessionId === identity.sessionId;
+  return (
+    message.deckId === identity.deckId &&
+    message.sessionId === identity.sessionId
+  );
 }
 
 export function createPresenterSnapshotMessage(args: {
@@ -198,7 +221,7 @@ export function createPresenterSnapshotMessage(args: {
     sessionId: args.identity.sessionId,
     state: args.state,
     triggerAnimationIds: Array.from(args.triggerAnimationIds ?? []),
-    type: "presenter-snapshot"
+    type: "presenter-snapshot",
   };
 }
 
@@ -214,67 +237,67 @@ export function createPresenterStateMessage(args: {
     sessionId: args.identity.sessionId,
     state: args.state,
     triggerAnimationIds: Array.from(args.triggerAnimationIds ?? []),
-    type: "presenter-state"
+    type: "presenter-state",
   };
 }
 
 export function createPresenterHeartbeatMessage(
   identity: PresentationChannelIdentity,
-  sentAt = Date.now()
+  sentAt = Date.now(),
 ): PresenterHeartbeatMessage {
   return {
     deckId: identity.deckId,
     sentAt,
     sessionId: identity.sessionId,
-    type: "presenter-heartbeat"
+    type: "presenter-heartbeat",
   };
 }
 
 export function createSlideWindowReadyMessage(
   identity: PresentationChannelIdentity,
-  sentAt = Date.now()
+  sentAt = Date.now(),
 ): SlideWindowReadyMessage {
   return {
     deckId: identity.deckId,
     sentAt,
     sessionId: identity.sessionId,
-    type: "slide-window-ready"
+    type: "slide-window-ready",
   };
 }
 
 export function createSlideWindowHeartbeatMessage(
   identity: PresentationChannelIdentity,
-  sentAt = Date.now()
+  sentAt = Date.now(),
 ): SlideWindowHeartbeatMessage {
   return {
     deckId: identity.deckId,
     sentAt,
     sessionId: identity.sessionId,
-    type: "slide-window-heartbeat"
+    type: "slide-window-heartbeat",
   };
 }
 
 export function createPresenterRemoteReadyMessage(
   identity: PresentationChannelIdentity,
-  sentAt = Date.now()
+  sentAt = Date.now(),
 ): PresenterRemoteReadyMessage {
   return {
     deckId: identity.deckId,
     sentAt,
     sessionId: identity.sessionId,
-    type: "presenter-remote-ready"
+    type: "presenter-remote-ready",
   };
 }
 
 export function createPresenterRemoteHeartbeatMessage(
   identity: PresentationChannelIdentity,
-  sentAt = Date.now()
+  sentAt = Date.now(),
 ): PresenterRemoteHeartbeatMessage {
   return {
     deckId: identity.deckId,
     sentAt,
     sessionId: identity.sessionId,
-    type: "presenter-remote-heartbeat"
+    type: "presenter-remote-heartbeat",
   };
 }
 
@@ -288,11 +311,13 @@ export function createPresenterCommandMessage(args: {
     deckId: args.identity.deckId,
     sentAt: args.sentAt ?? Date.now(),
     sessionId: args.identity.sessionId,
-    type: "presenter-command"
+    type: "presenter-command",
   };
 }
 
-function isPresenterSlideshowState(value: unknown): value is PresenterSlideshowState {
+function isPresenterSlideshowState(
+  value: unknown,
+): value is PresenterSlideshowState {
   if (!isRecord(value)) {
     return false;
   }
@@ -306,21 +331,48 @@ function isPresenterSlideshowState(value: unknown): value is PresenterSlideshowS
       (highlight) =>
         isRecord(highlight) &&
         typeof highlight.elementId === "string" &&
-        typeof highlight.active === "boolean"
-    )
+        typeof highlight.active === "boolean",
+    ) &&
+    (value.timing === undefined || isPresenterTimingState(value.timing))
+  );
+}
+
+function isPresenterTimingState(value: unknown) {
+  return (
+    isRecord(value) &&
+    typeof value.canStartLiveStt === "boolean" &&
+    typeof value.currentSlideElapsedSeconds === "number" &&
+    typeof value.currentSlideTargetSeconds === "number" &&
+    typeof value.displayedSeconds === "number" &&
+    typeof value.elapsedSeconds === "number" &&
+    typeof value.isLiveSttActive === "boolean" &&
+    typeof value.isRunning === "boolean" &&
+    typeof value.liveStatus === "string" &&
+    (value.mode === "stopwatch" || value.mode === "timer") &&
+    typeof value.timerDurationSeconds === "number"
   );
 }
 
 function isStringArray(value: unknown): value is string[] {
-  return Array.isArray(value) && value.every((item) => typeof item === "string");
+  return (
+    Array.isArray(value) && value.every((item) => typeof item === "string")
+  );
 }
 
-function isPresenterRemoteCommand(value: unknown): value is PresenterRemoteCommand {
+function isPresenterRemoteCommand(
+  value: unknown,
+): value is PresenterRemoteCommand {
   if (!isRecord(value)) {
     return false;
   }
 
-  if (value.action === "next-step" || value.action === "prev") {
+  if (
+    value.action === "next-step" ||
+    value.action === "prev" ||
+    value.action === "timer-pause" ||
+    value.action === "timer-reset" ||
+    value.action === "timer-start"
+  ) {
     return true;
   }
 

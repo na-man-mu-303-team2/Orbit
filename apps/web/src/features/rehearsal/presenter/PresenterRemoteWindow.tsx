@@ -8,7 +8,10 @@ import {
   ListChecks,
   Maximize2,
   Monitor,
+  PlayCircle,
   Power,
+  RotateCcw,
+  Square,
   Timer,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -52,6 +55,7 @@ export function PresenterRemoteWindow(props: {
   const [channelError, setChannelError] = useState("");
   const [isBlanked, setBlanked] = useState(false);
   const channelRef = useRef<ChannelLike | null>(null);
+  const commandRetryTimersRef = useRef<number[]>([]);
 
   useEffect(() => {
     let channel: ChannelLike;
@@ -81,6 +85,7 @@ export function PresenterRemoteWindow(props: {
 
     return () => {
       window.clearInterval(heartbeatTimer);
+      clearPresenterRemoteCommandRetryTimers(commandRetryTimersRef.current);
       channel.close();
       if (channelRef.current === channel) {
         channelRef.current = null;
@@ -89,9 +94,20 @@ export function PresenterRemoteWindow(props: {
   }, [channelFactory, identity]);
 
   const sendCommand = (command: PresenterRemoteCommand) => {
-    channelRef.current?.postMessage(
-      createPresenterCommandMessage({ command, identity }),
-    );
+    clearPresenterRemoteCommandRetryTimers(commandRetryTimersRef.current);
+    commandRetryTimersRef.current = [];
+
+    for (const delayMs of getPresenterRemoteCommandDispatchDelays(command)) {
+      if (delayMs === 0) {
+        postPresenterRemoteCommand(channelRef.current, command, identity);
+        continue;
+      }
+
+      const timerId = window.setTimeout(() => {
+        postPresenterRemoteCommand(channelRef.current, command, identity);
+      }, delayMs);
+      commandRetryTimersRef.current.push(timerId);
+    }
   };
 
   const requestRemoteFullscreen = () => {
@@ -131,6 +147,8 @@ export function PresenterRemoteWindow(props: {
   const remainingTime = formatPresenterRemoteDuration(
     getEstimatedRemainingSeconds(slide, noteSentences.length, state.stepIndex),
   );
+  const timing = getPresenterRemoteTimingState(deck, slide, state);
+  const timerProgressPercent = getPresenterRemoteTimerProgressPercent(timing);
   const previewScale = getPresenterRemotePreviewScale(deck);
   const visibleSlides = getPresenterRemoteVisibleSlides(deck, state.slideIndex);
   const cueProgressCurrent =
@@ -232,6 +250,72 @@ export function PresenterRemoteWindow(props: {
           className="presenter-remote-cue-sidebar"
           aria-label="키워드 및 큐 상태"
         >
+          <section
+            className="presenter-remote-timer-panel"
+            aria-label="타이머 및 음성인식 제어"
+          >
+            <div className="presenter-remote-section-heading">
+              <span>타이머</span>
+              <strong>
+                {timing.isLiveSttActive ? "음성인식 중" : "음성인식 대기"}
+              </strong>
+            </div>
+            <strong
+              className="presenter-remote-timer-display"
+              aria-live="polite"
+            >
+              {formatPresenterRemoteDuration(timing.displayedSeconds)}
+            </strong>
+            <div className="presenter-remote-timer-progress" aria-hidden="true">
+              <span style={{ width: `${timerProgressPercent}%` }} />
+            </div>
+            <div className="presenter-remote-timer-meta">
+              <span>
+                슬라이드 경과
+                <strong>
+                  {formatPresenterRemoteDuration(
+                    timing.currentSlideElapsedSeconds,
+                  )}
+                </strong>
+              </span>
+              <span>
+                슬라이드 목표
+                <strong>
+                  {formatPresenterRemoteDuration(
+                    timing.currentSlideTargetSeconds,
+                  )}
+                </strong>
+              </span>
+            </div>
+            <div className="presenter-remote-timer-actions">
+              <button
+                type="button"
+                onClick={() =>
+                  sendCommand({
+                    action:
+                      timing.isRunning || timing.isLiveSttActive
+                        ? "timer-pause"
+                        : "timer-start",
+                  })
+                }
+              >
+                {timing.isRunning || timing.isLiveSttActive ? (
+                  <Square size={16} />
+                ) : (
+                  <PlayCircle size={16} />
+                )}
+                {timing.isRunning || timing.isLiveSttActive ? "멈춤" : "시작"}
+              </button>
+              <button
+                type="button"
+                onClick={() => sendCommand({ action: "timer-reset" })}
+              >
+                <RotateCcw size={15} />
+                리셋
+              </button>
+            </div>
+          </section>
+
           <section
             className="presenter-remote-cue-panel"
             aria-label="핵심 키워드"
@@ -368,6 +452,29 @@ function createBroadcastChannel(channelName: string): ChannelLike {
   return new BroadcastChannel(channelName);
 }
 
+function clearPresenterRemoteCommandRetryTimers(timerIds: number[]) {
+  for (const timerId of timerIds) {
+    window.clearTimeout(timerId);
+  }
+  timerIds.length = 0;
+}
+
+export function getPresenterRemoteCommandDispatchDelays(
+  command: PresenterRemoteCommand,
+) {
+  return command.action === "timer-pause" || command.action === "timer-reset"
+    ? [0, 150, 500]
+    : [0];
+}
+
+function postPresenterRemoteCommand(
+  channel: ChannelLike | null,
+  command: PresenterRemoteCommand,
+  identity: PresentationChannelIdentity,
+) {
+  channel?.postMessage(createPresenterCommandMessage({ command, identity }));
+}
+
 type PresenterRemoteSlide = Deck["slides"][number];
 
 type PresenterRemoteKeywordRow = {
@@ -375,6 +482,10 @@ type PresenterRemoteKeywordRow = {
   status: "active" | "done" | "pending";
   text: string;
 };
+
+type PresenterRemoteTimingState = NonNullable<
+  PresenterSlideshowState["timing"]
+>;
 
 function PresenterSlidePreview(props: {
   deck: Deck;
@@ -466,6 +577,70 @@ export function getPresenterRemoteKeywordRows(
           : "pending",
     text: keyword.text,
   }));
+}
+
+export function getPresenterRemoteTimingState(
+  deck: Deck,
+  slide: PresenterRemoteSlide | undefined,
+  state: PresenterSlideshowState,
+): PresenterRemoteTimingState {
+  if (state.timing) {
+    return state.timing;
+  }
+
+  const currentSlideTargetSeconds =
+    slide?.estimatedSeconds ??
+    Math.max(
+      0,
+      Math.round(
+        ((deck.targetDurationMinutes ?? 0) * 60) /
+          Math.max(1, deck.slides.length),
+      ),
+    );
+
+  return {
+    canStartLiveStt: true,
+    currentSlideElapsedSeconds: 0,
+    currentSlideTargetSeconds,
+    displayedSeconds: currentSlideTargetSeconds,
+    elapsedSeconds: 0,
+    isLiveSttActive: false,
+    isRunning: false,
+    liveStatus: "idle",
+    mode: "timer",
+    timerDurationSeconds: Math.max(
+      currentSlideTargetSeconds,
+      Math.round((deck.targetDurationMinutes ?? 0) * 60),
+    ),
+  };
+}
+
+function getPresenterRemoteTimerProgressPercent(
+  timing: PresenterRemoteTimingState,
+) {
+  if (timing.mode === "timer") {
+    if (timing.timerDurationSeconds <= 0) {
+      return 0;
+    }
+
+    return Math.min(
+      100,
+      Math.max(0, (timing.elapsedSeconds / timing.timerDurationSeconds) * 100),
+    );
+  }
+
+  if (timing.currentSlideTargetSeconds <= 0) {
+    return 0;
+  }
+
+  return Math.min(
+    100,
+    Math.max(
+      0,
+      (timing.currentSlideElapsedSeconds / timing.currentSlideTargetSeconds) *
+        100,
+    ),
+  );
 }
 
 function getPresenterRemoteVisibleSlides(

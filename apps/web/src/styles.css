@@ -2444,14 +2444,100 @@ button:disabled {
 .presenter-remote-cue-sidebar {
   display: grid;
   gap: 12px;
-  grid-template-rows: auto auto 1fr;
+  grid-template-rows: auto auto auto 1fr;
 }
 
+.presenter-remote-timer-panel,
 .presenter-remote-cue-panel,
 .presenter-remote-timing {
   display: grid;
   gap: 12px;
   padding: 14px;
+}
+
+.presenter-remote-timer-panel {
+  background: #0f172a;
+  border: 1px solid #1e293b;
+  border-radius: 8px;
+  color: #ffffff;
+}
+
+.presenter-remote-timer-panel .presenter-remote-section-heading span,
+.presenter-remote-timer-panel .presenter-remote-section-heading strong {
+  color: #dbeafe;
+}
+
+.presenter-remote-timer-display {
+  color: #ffffff;
+  font-size: 2.6rem;
+  font-weight: 950;
+  letter-spacing: 0;
+  line-height: 1;
+}
+
+.presenter-remote-timer-progress {
+  background: rgba(148, 163, 184, 0.28);
+  border-radius: 999px;
+  height: 7px;
+  overflow: hidden;
+}
+
+.presenter-remote-timer-progress span {
+  background: #60a5fa;
+  border-radius: inherit;
+  display: block;
+  height: 100%;
+}
+
+.presenter-remote-timer-meta {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: 1fr 1fr;
+}
+
+.presenter-remote-timer-meta span {
+  background: rgba(248, 250, 252, 0.08);
+  border: 1px solid rgba(226, 232, 240, 0.16);
+  border-radius: 7px;
+  color: #cbd5e1;
+  display: grid;
+  font-size: 0.7rem;
+  font-weight: 850;
+  gap: 3px;
+  padding: 8px;
+}
+
+.presenter-remote-timer-meta strong {
+  color: #ffffff;
+  font-size: 0.9rem;
+  font-weight: 950;
+}
+
+.presenter-remote-timer-actions {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: 1.2fr 0.8fr;
+}
+
+.presenter-remote-timer-actions button {
+  align-items: center;
+  background: #ffffff;
+  border: 1px solid #ffffff;
+  border-radius: 7px;
+  color: #0f172a;
+  display: inline-flex;
+  font-size: 0.82rem;
+  font-weight: 950;
+  gap: 7px;
+  justify-content: center;
+  min-height: 36px;
+  padding: 0 10px;
+}
+
+.presenter-remote-timer-actions button:nth-child(2) {
+  background: transparent;
+  border-color: rgba(226, 232, 240, 0.28);
+  color: #e2e8f0;
 }
 
 .presenter-remote-keyword-list {

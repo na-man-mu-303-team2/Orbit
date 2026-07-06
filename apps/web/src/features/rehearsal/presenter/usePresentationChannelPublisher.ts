@@ -13,7 +13,7 @@ import {
   type PresentationChannelMessage,
   type PresenterRemoteCommand,
   type PresenterSnapshotMessage,
-  type PresenterStateMessage
+  type PresenterStateMessage,
 } from "./presentationChannel";
 
 export type PresentationChannelStatus =
@@ -25,11 +25,16 @@ export type PresentationChannelStatus =
   | "unsupported"
   | "failed";
 
-export type PresentationChannelLike = Pick<BroadcastChannel, "close" | "postMessage"> & {
+export type PresentationChannelLike = Pick<
+  BroadcastChannel,
+  "close" | "postMessage"
+> & {
   onmessage: ((event: MessageEvent) => void) | null;
 };
 
-export type PresentationChannelFactory = (channelName: string) => PresentationChannelLike;
+export type PresentationChannelFactory = (
+  channelName: string,
+) => PresentationChannelLike;
 
 export type PresentationPublisherController = {
   close: () => void;
@@ -54,7 +59,7 @@ export function usePresentationChannelPublisher(args: {
     onCommand,
     sessionId: sessionIdOverride,
     state,
-    triggerAnimationIds
+    triggerAnimationIds,
   } = args;
   const [generatedSessionId] = useState(() => createPresentationSessionId());
   const sessionId = sessionIdOverride ?? generatedSessionId;
@@ -63,12 +68,14 @@ export function usePresentationChannelPublisher(args: {
   const controllerRef = useRef<PresentationPublisherController | null>(null);
   const lastPeerSeenAtRef = useRef<number | null>(null);
   const peerWaitStartedAtRef = useRef<number | null>(null);
+  const latestCommandHandlerRef = useRef<typeof onCommand>(onCommand);
   const latestRef = useRef({ deck, state, triggerAnimationIds });
+  latestCommandHandlerRef.current = onCommand;
   latestRef.current = { deck, state, triggerAnimationIds };
 
   const identity = useMemo<PresentationChannelIdentity | null>(
     () => (deck ? { deckId: deck.deckId, sessionId } : null),
-    [deck?.deckId, sessionId]
+    [deck?.deckId, sessionId],
   );
 
   useEffect(() => {
@@ -96,7 +103,7 @@ export function usePresentationChannelPublisher(args: {
           deck: latest.deck,
           identity,
           state: latest.state,
-          triggerAnimationIds: latest.triggerAnimationIds
+          triggerAnimationIds: latest.triggerAnimationIds,
         });
       },
       getState: () => {
@@ -108,16 +115,16 @@ export function usePresentationChannelPublisher(args: {
         return createPresenterStateMessage({
           identity,
           state: latest.state,
-          triggerAnimationIds: latest.triggerAnimationIds
+          triggerAnimationIds: latest.triggerAnimationIds,
         });
       },
       identity,
-      onCommand,
+      onCommand: (command) => latestCommandHandlerRef.current?.(command),
       onPeerSeen: () => {
         lastPeerSeenAtRef.current = Date.now();
         peerWaitStartedAtRef.current = null;
       },
-      onStatusChange: setStatus
+      onStatusChange: setStatus,
     });
     channel.onmessage = (event) => controller.handleIncoming(event.data);
     channelRef.current = channel;
@@ -140,7 +147,9 @@ export function usePresentationChannelPublisher(args: {
     }
 
     const heartbeatTimer = window.setInterval(() => {
-      channelRef.current?.postMessage(createPresenterHeartbeatMessage(identity));
+      channelRef.current?.postMessage(
+        createPresenterHeartbeatMessage(identity),
+      );
     }, 1000);
     const staleTimer = window.setInterval(() => {
       const lastPeerSeenAt = lastPeerSeenAtRef.current;
@@ -149,7 +158,7 @@ export function usePresentationChannelPublisher(args: {
           lastPeerSeenAt,
           Date.now(),
           5000,
-          peerWaitStartedAtRef.current
+          peerWaitStartedAtRef.current,
         )
       ) {
         setStatus("stale");
@@ -181,7 +190,7 @@ export function usePresentationChannelPublisher(args: {
       controllerRef.current.publishSnapshot();
     },
     sessionId,
-    status
+    status,
   };
 }
 
@@ -201,7 +210,7 @@ export function createPresentationPublisherController(args: {
     identity,
     onCommand,
     onPeerSeen,
-    onStatusChange
+    onStatusChange,
   } = args;
 
   return {
@@ -226,7 +235,7 @@ export function createPresentationPublisherController(args: {
             channel.postMessage(snapshot);
           }
         },
-        setConnected: () => onStatusChange?.("connected")
+        setConnected: () => onStatusChange?.("connected"),
       });
     },
     publishSnapshot: () => {
@@ -240,7 +249,7 @@ export function createPresentationPublisherController(args: {
       if (state) {
         channel.postMessage(state);
       }
-    }
+    },
   };
 }
 
@@ -248,7 +257,7 @@ export function isPresentationPeerStale(
   lastPeerSeenAt: number | null,
   now: number,
   staleAfterMs = 5000,
-  peerWaitStartedAt: number | null = lastPeerSeenAt
+  peerWaitStartedAt: number | null = lastPeerSeenAt,
 ) {
   const staleAnchor = lastPeerSeenAt ?? peerWaitStartedAt;
   return staleAnchor !== null && now - staleAnchor > staleAfterMs;
@@ -260,15 +269,21 @@ function handlePublisherMessage(
     handleCommand?: (command: PresenterRemoteCommand) => void;
     publishSnapshot: () => void;
     setConnected: () => void;
-  }
+  },
 ) {
-  if (message.type === "slide-window-ready" || message.type === "presenter-remote-ready") {
+  if (
+    message.type === "slide-window-ready" ||
+    message.type === "presenter-remote-ready"
+  ) {
     handlers.publishSnapshot();
     handlers.setConnected();
     return;
   }
 
-  if (message.type === "slide-window-heartbeat" || message.type === "presenter-remote-heartbeat") {
+  if (
+    message.type === "slide-window-heartbeat" ||
+    message.type === "presenter-remote-heartbeat"
+  ) {
     handlers.setConnected();
     return;
   }

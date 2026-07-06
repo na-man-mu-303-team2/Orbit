@@ -8,20 +8,20 @@ import {
   createPresenterRemoteHeartbeatMessage,
   createPresenterRemoteReadyMessage,
   createSlideWindowHeartbeatMessage,
-  createSlideWindowReadyMessage
+  createSlideWindowReadyMessage,
 } from "./presentationChannel";
 import {
   createPresentationPublisherController,
   isPresentationPeerStale,
-  type PresentationChannelStatus
+  type PresentationChannelStatus,
 } from "./usePresentationChannelPublisher";
 
 const identity = {
   deckId: p0AnimationDeck.deckId,
-  sessionId: "session-presenter-1"
+  sessionId: "session-presenter-1",
 };
 const publisherHookSourcePath = fileURLToPath(
-  new URL("./usePresentationChannelPublisher.ts", import.meta.url)
+  new URL("./usePresentationChannelPublisher.ts", import.meta.url),
 );
 
 describe("createPresentationPublisherController", () => {
@@ -30,7 +30,7 @@ describe("createPresentationPublisherController", () => {
     const statuses: PresentationChannelStatus[] = [];
     const channel = {
       close: vi.fn(),
-      postMessage: (message: unknown) => posted.push(message)
+      postMessage: (message: unknown) => posted.push(message),
     };
     const controller = createPresentationPublisherController({
       channel,
@@ -40,19 +40,19 @@ describe("createPresentationPublisherController", () => {
           slides: p0AnimationDeck.slides.map((slide) => ({
             ...slide,
             keywords: [],
-            speakerNotes: ""
-          }))
+            speakerNotes: "",
+          })),
         },
         deckId: identity.deckId,
         sentAt: 10,
         sessionId: identity.sessionId,
         state: createPresenterSlideshowState(p0AnimationDeck),
         triggerAnimationIds: ["anim_image_zoom_in"],
-        type: "presenter-snapshot"
+        type: "presenter-snapshot",
       }),
       getState: () => null,
       identity,
-      onStatusChange: (status) => statuses.push(status)
+      onStatusChange: (status) => statuses.push(status),
     });
 
     controller.handleIncoming(createSlideWindowReadyMessage(identity, 20));
@@ -62,7 +62,7 @@ describe("createPresentationPublisherController", () => {
       deckId: "deck_p0_animation",
       sessionId: "session-presenter-1",
       type: "presenter-snapshot",
-      triggerAnimationIds: ["anim_image_zoom_in"]
+      triggerAnimationIds: ["anim_image_zoom_in"],
     });
     expect(JSON.stringify(posted[0])).not.toContain("첫 문장입니다");
     expect(statuses).toEqual(["connected"]);
@@ -74,12 +74,12 @@ describe("createPresentationPublisherController", () => {
       ...createPresenterSlideshowState(p0AnimationDeck),
       slideId: "slide_p0_2",
       slideIndex: 1,
-      stepIndex: 0
+      stepIndex: 0,
     };
     const controller = createPresentationPublisherController({
       channel: {
         close: vi.fn(),
-        postMessage: (message: unknown) => posted.push(message)
+        postMessage: (message: unknown) => posted.push(message),
       },
       getSnapshot: () => null,
       getState: () => ({
@@ -88,9 +88,9 @@ describe("createPresentationPublisherController", () => {
         sessionId: identity.sessionId,
         state,
         triggerAnimationIds: [],
-        type: "presenter-state"
+        type: "presenter-state",
       }),
-      identity
+      identity,
     });
 
     controller.publishState();
@@ -102,8 +102,8 @@ describe("createPresentationPublisherController", () => {
         sessionId: "session-presenter-1",
         state,
         triggerAnimationIds: [],
-        type: "presenter-state"
-      }
+        type: "presenter-state",
+      },
     ]);
   });
 
@@ -113,18 +113,21 @@ describe("createPresentationPublisherController", () => {
     const controller = createPresentationPublisherController({
       channel: {
         close: vi.fn(),
-        postMessage: (message: unknown) => posted.push(message)
+        postMessage: (message: unknown) => posted.push(message),
       },
       getSnapshot: () => {
         throw new Error("wrong session should not request a snapshot");
       },
       getState: () => null,
       identity,
-      onStatusChange: (status) => statuses.push(status)
+      onStatusChange: (status) => statuses.push(status),
     });
 
     controller.handleIncoming(
-      createSlideWindowReadyMessage({ ...identity, sessionId: "session-other" }, 40)
+      createSlideWindowReadyMessage(
+        { ...identity, sessionId: "session-other" },
+        40,
+      ),
     );
 
     expect(posted).toEqual([]);
@@ -136,12 +139,12 @@ describe("createPresentationPublisherController", () => {
     const controller = createPresentationPublisherController({
       channel: {
         close: vi.fn(),
-        postMessage: vi.fn()
+        postMessage: vi.fn(),
       },
       getSnapshot: () => null,
       getState: () => null,
       identity,
-      onStatusChange: (status) => statuses.push(status)
+      onStatusChange: (status) => statuses.push(status),
     });
 
     controller.handleIncoming(createSlideWindowHeartbeatMessage(identity, 50));
@@ -155,7 +158,7 @@ describe("createPresentationPublisherController", () => {
     const controller = createPresentationPublisherController({
       channel: {
         close: vi.fn(),
-        postMessage: (message: unknown) => posted.push(message)
+        postMessage: (message: unknown) => posted.push(message),
       },
       getSnapshot: () => ({
         deck: p0AnimationDeck,
@@ -164,11 +167,11 @@ describe("createPresentationPublisherController", () => {
         sessionId: identity.sessionId,
         state: createPresenterSlideshowState(p0AnimationDeck),
         triggerAnimationIds: [],
-        type: "presenter-snapshot"
+        type: "presenter-snapshot",
       }),
       getState: () => null,
       identity,
-      onStatusChange: (status) => statuses.push(status)
+      onStatusChange: (status) => statuses.push(status),
     });
 
     controller.handleIncoming(createPresenterRemoteReadyMessage(identity, 60));
@@ -183,15 +186,17 @@ describe("createPresentationPublisherController", () => {
     const controller = createPresentationPublisherController({
       channel: {
         close: vi.fn(),
-        postMessage: vi.fn()
+        postMessage: vi.fn(),
       },
       getSnapshot: () => null,
       getState: () => null,
       identity,
-      onStatusChange: (status) => statuses.push(status)
+      onStatusChange: (status) => statuses.push(status),
     });
 
-    controller.handleIncoming(createPresenterRemoteHeartbeatMessage(identity, 70));
+    controller.handleIncoming(
+      createPresenterRemoteHeartbeatMessage(identity, 70),
+    );
 
     expect(statuses).toEqual(["connected"]);
   });
@@ -203,7 +208,7 @@ describe("createPresentationPublisherController", () => {
     const controller = createPresentationPublisherController({
       channel: {
         close: vi.fn(),
-        postMessage
+        postMessage,
       },
       getSnapshot: () => {
         throw new Error("command should not request a snapshot");
@@ -211,15 +216,15 @@ describe("createPresentationPublisherController", () => {
       getState: () => null,
       identity,
       onCommand: (command) => commands.push(command),
-      onStatusChange: (status) => statuses.push(status)
+      onStatusChange: (status) => statuses.push(status),
     });
 
     controller.handleIncoming(
       createPresenterCommandMessage({
         command: { action: "next-step" },
         identity,
-        sentAt: 80
-      })
+        sentAt: 80,
+      }),
     );
 
     expect(commands).toEqual([{ action: "next-step" }]);
@@ -239,9 +244,23 @@ describe("createPresentationPublisherController", () => {
     const source = fs.readFileSync(publisherHookSourcePath, "utf8");
 
     expect(source).toContain("sessionId: sessionIdOverride");
-    expect(source).toContain("const sessionId = sessionIdOverride ?? generatedSessionId");
+    expect(source).toContain(
+      "const sessionId = sessionIdOverride ?? generatedSessionId",
+    );
     expect(source).toContain("if (!enabled || !identity || !deck || !state)");
-    expect(source).toContain("if (!enabled || !identity || !channelRef.current)");
+    expect(source).toContain(
+      "if (!enabled || !identity || !channelRef.current)",
+    );
     expect(source).toContain("if (!enabled || !deck || !state)");
+  });
+
+  it("keeps presenter remote commands bound to the latest owner state", () => {
+    const source = fs.readFileSync(publisherHookSourcePath, "utf8");
+
+    expect(source).toContain("const latestCommandHandlerRef = useRef");
+    expect(source).toContain("latestCommandHandlerRef.current = onCommand");
+    expect(source).toContain(
+      "onCommand: (command) => latestCommandHandlerRef.current?.(command)",
+    );
   });
 });
