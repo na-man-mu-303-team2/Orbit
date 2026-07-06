@@ -1147,6 +1147,23 @@ describe("editor shell", () => {
     );
 
     expect(patch).not.toBeNull();
+    expect(deckWithRepeatedKeyword.slides[0].actions).toEqual([]);
+    expect(patch?.operations).toEqual([
+      {
+        type: "add_slide_action",
+        slideId: slide.slideId,
+        action: expect.objectContaining({
+          trigger: {
+            kind: "keyword-occurrence",
+            keywordId: "kw_1",
+            occurrenceId: "kwo_slide_1_kw_1_10_15"
+          },
+          effect: {
+            kind: "go-to-next-slide"
+          }
+        })
+      }
+    ]);
     const result = applyDeckPatch(deckWithRepeatedKeyword, patch!);
 
     expect(result.ok).toBe(true);
