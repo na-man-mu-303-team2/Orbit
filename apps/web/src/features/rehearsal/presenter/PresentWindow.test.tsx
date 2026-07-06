@@ -10,6 +10,7 @@ import {
   getSlideWindowScale,
   PresentWindow,
   PresentWindowContent,
+  PresentWindowReceiver,
   requestPresentWindowFullscreen
 } from "./PresentWindow";
 import { createPresenterSlideshowState } from "./presenterStateStore";
@@ -113,6 +114,68 @@ describe("PresentWindow", () => {
     expect(html).not.toContain("두 번째 슬라이드입니다");
     expect(html).not.toContain("Partial transcript");
     expectNoAutoAdvancePresenterStatus(html);
+  });
+
+  it("renders a slide receiver from an initial snapshot without presenter-only content", () => {
+    const snapshotMessage = createPresenterSnapshotMessage({
+      deck: p0AnimationDeck,
+      identity,
+      sentAt: 10,
+      state: createPresenterSlideshowState(p0AnimationDeck),
+      triggerAnimationIds: []
+    });
+    const html = renderToStaticMarkup(
+      <PresentWindowReceiver
+        fullscreenMessage="현재 창 전체화면을 자동으로 시작하지 못했습니다."
+        identity={identity}
+        initialSnapshot={{
+          deck: snapshotMessage.deck,
+          state: snapshotMessage.state,
+          triggerAnimationIds: snapshotMessage.triggerAnimationIds
+        }}
+        onExit={() => {}}
+      />
+    );
+
+    expect(html).toContain("data-deck-id=\"deck_p0_animation\"");
+    expect(html).toContain("현재 창 전체화면");
+    expect(html).toContain("발표자 화면으로 돌아가기");
+    expect(html).not.toContain("첫 문장입니다");
+    expect(html).not.toContain("Partial transcript");
+    expectNoAutoAdvancePresenterStatus(html);
+  });
+
+  it("applies state updates to an initial slide receiver snapshot", () => {
+    const initialState = createPresenterSlideshowState(p0AnimationDeck);
+    const snapshotMessage = createPresenterSnapshotMessage({
+      deck: p0AnimationDeck,
+      identity,
+      sentAt: 10,
+      state: initialState,
+      triggerAnimationIds: []
+    });
+    const current = {
+      deck: snapshotMessage.deck,
+      state: snapshotMessage.state,
+      triggerAnimationIds: snapshotMessage.triggerAnimationIds
+    };
+    const next = applyPresentWindowMessage(
+      current,
+      createPresenterStateMessage({
+        identity,
+        sentAt: 20,
+        state: {
+          ...initialState,
+          slideId: "slide_p0_2",
+          slideIndex: 1,
+          stepIndex: 0
+        },
+        triggerAnimationIds: ["anim_image_zoom_in"]
+      })
+    );
+
+    expect(next?.state.slideId).toBe("slide_p0_2");
+    expect(next?.triggerAnimationIds).toEqual(["anim_image_zoom_in"]);
   });
 
   it("does not import presenter-only auto advance status UI", () => {

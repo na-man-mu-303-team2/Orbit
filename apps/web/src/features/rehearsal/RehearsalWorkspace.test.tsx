@@ -22,6 +22,7 @@ import {
   fetchRehearsalReport,
   fetchOrCreateRehearsalDeck,
   getRehearsalFinishPath,
+  getRehearsalPresenterWindowPath,
   getRehearsalReportPath,
   getLiveAudioLevelLabel,
   getLiveAudioLevelPercent,
@@ -112,6 +113,43 @@ describe("RehearsalWorkspace", () => {
     expect(html).toContain("-100 dB RMS");
     expect(html).toContain("Report AI");
     expect(html).toContain("Speaker notes");
+  });
+
+  it("builds the presenter window rehearsal URL with the shared session id", () => {
+    expect(
+      getRehearsalPresenterWindowPath("project demo/1", "session-presenter/1", {
+        slideIndex: 2,
+        stepIndex: 1
+      })
+    ).toBe(
+      "/rehearsal/project%20demo%2F1?presenterSessionId=session-presenter%2F1&presenterWindow=1&slideIndex=2&stepIndex=1"
+    );
+  });
+
+  it("switches the current window to a receiver and opens a presenter window", () => {
+    const source = fs.readFileSync(rehearsalWorkspaceSourcePath, "utf8");
+    const start = source.indexOf("const openSlideDisplay = async");
+    const end = source.indexOf("const checklistKeywords");
+    const openSlideDisplayBody = source.slice(start, end);
+
+    expect(openSlideDisplayBody).toContain("window.open");
+    expect(openSlideDisplayBody).toContain("setDisplayRole(\"slide-receiver\")");
+    expect(openSlideDisplayBody).toContain("requestPresentWindowFullscreen");
+    expect(openSlideDisplayBody).toContain("presenterWindowOpened: Boolean(presenterWindow)");
+  });
+
+  it("renders slide receiver mode without the presenter toolbar or notes", () => {
+    const source = fs.readFileSync(rehearsalWorkspaceSourcePath, "utf8");
+    const start = source.indexOf("if (displayRole === \"slide-receiver\"");
+    const end = source.indexOf("if (isSingleScreenOpen");
+    const slideReceiverRenderBody = source.slice(start, end);
+
+    expect(slideReceiverRenderBody).toContain("PresentWindowReceiver");
+    expect(slideReceiverRenderBody).toContain("initialSnapshot={slideReceiverSnapshot}");
+    expect(slideReceiverRenderBody).toContain("setDisplayRole(\"presenter\")");
+    expect(slideReceiverRenderBody).not.toContain("DisplayControls");
+    expect(slideReceiverRenderBody).not.toContain("RehearsalPanel");
+    expect(slideReceiverRenderBody).not.toContain("speakerNotes");
   });
 
   it("resets presenter step when P4 auto advance command completes", () => {

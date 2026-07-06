@@ -40,11 +40,21 @@ export type PresentationPublisherController = {
 export function usePresentationChannelPublisher(args: {
   channelFactory?: PresentationChannelFactory;
   deck: Deck | null;
+  enabled?: boolean;
+  sessionId?: string;
   state: PresenterSlideshowState | null;
   triggerAnimationIds: string[];
 }) {
-  const { channelFactory = createBroadcastChannel, deck, state, triggerAnimationIds } = args;
-  const [sessionId] = useState(() => createPresentationSessionId());
+  const {
+    channelFactory = createBroadcastChannel,
+    deck,
+    enabled = true,
+    sessionId: sessionIdOverride,
+    state,
+    triggerAnimationIds
+  } = args;
+  const [generatedSessionId] = useState(() => createPresentationSessionId());
+  const sessionId = sessionIdOverride ?? generatedSessionId;
   const [status, setStatus] = useState<PresentationChannelStatus>("idle");
   const channelRef = useRef<PresentationChannelLike | null>(null);
   const controllerRef = useRef<PresentationPublisherController | null>(null);
@@ -59,7 +69,7 @@ export function usePresentationChannelPublisher(args: {
   );
 
   useEffect(() => {
-    if (!identity || !deck || !state) {
+    if (!enabled || !identity || !deck || !state) {
       return;
     }
 
@@ -118,10 +128,10 @@ export function usePresentationChannelPublisher(args: {
         channelRef.current = null;
       }
     };
-  }, [channelFactory, identity]);
+  }, [channelFactory, enabled, identity]);
 
   useEffect(() => {
-    if (!identity || !channelRef.current) {
+    if (!enabled || !identity || !channelRef.current) {
       return;
     }
 
@@ -146,15 +156,15 @@ export function usePresentationChannelPublisher(args: {
       window.clearInterval(heartbeatTimer);
       window.clearInterval(staleTimer);
     };
-  }, [identity]);
+  }, [enabled, identity]);
 
   useEffect(() => {
-    if (!deck || !state) {
+    if (!enabled || !deck || !state) {
       return;
     }
 
     controllerRef.current?.publishState();
-  }, [deck, state, triggerAnimationIds]);
+  }, [deck, enabled, state, triggerAnimationIds]);
 
   return {
     publishSnapshot: () => {

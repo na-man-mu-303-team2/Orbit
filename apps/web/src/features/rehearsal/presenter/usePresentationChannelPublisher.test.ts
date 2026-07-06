@@ -1,3 +1,5 @@
+import fs from "node:fs";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it, vi } from "vitest";
 import { p0AnimationDeck } from "./__fixtures__/animationDeck";
 import { createPresenterSlideshowState } from "./presenterStateStore";
@@ -15,6 +17,9 @@ const identity = {
   deckId: p0AnimationDeck.deckId,
   sessionId: "session-presenter-1"
 };
+const publisherHookSourcePath = fileURLToPath(
+  new URL("./usePresentationChannelPublisher.ts", import.meta.url)
+);
 
 describe("createPresentationPublisherController", () => {
   it("publishes a full sanitized snapshot when the slide window becomes ready", () => {
@@ -147,5 +152,15 @@ describe("createPresentationPublisherController", () => {
     expect(isPresentationPeerStale(1000, 6001)).toBe(true);
     expect(isPresentationPeerStale(null, 6001, 5000, null)).toBe(false);
     expect(isPresentationPeerStale(null, 6001, 5000, 1000)).toBe(true);
+  });
+
+  it("supports explicit sessions and disabled publisher effects", () => {
+    const source = fs.readFileSync(publisherHookSourcePath, "utf8");
+
+    expect(source).toContain("sessionId: sessionIdOverride");
+    expect(source).toContain("const sessionId = sessionIdOverride ?? generatedSessionId");
+    expect(source).toContain("if (!enabled || !identity || !deck || !state)");
+    expect(source).toContain("if (!enabled || !identity || !channelRef.current)");
+    expect(source).toContain("if (!enabled || !deck || !state)");
   });
 });

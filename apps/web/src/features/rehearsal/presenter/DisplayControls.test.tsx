@@ -12,9 +12,10 @@ describe("DisplayControls", () => {
     const html = renderToStaticMarkup(
       <DisplayControls
         channelStatus="idle"
-        deckId="deck_p0_animation"
-        onPublishSnapshot={() => {}}
-        sessionId="session-presenter-1"
+        onOpenSlideDisplay={async () => ({
+          fullscreenStarted: true,
+          presenterWindowOpened: true
+        })}
       />
     );
 
@@ -42,10 +43,10 @@ describe("DisplayControls", () => {
   });
 
   it("prioritizes actionable status labels", () => {
-    expect(getDisplayStatusLabel("connected", "idle")).toBe("슬라이드 창 연결됨");
-    expect(getDisplayStatusLabel("stale", "idle")).toBe("슬라이드 창 응답 없음");
-    expect(getDisplayStatusLabel("idle", "screen-picker")).toBe("화면 선택 필요");
-    expect(getDisplayStatusLabel("idle", "manual-guide")).toBe("수동 배치 안내");
+    expect(getDisplayStatusLabel("connected", "idle")).toBe("슬라이드 화면 연결됨");
+    expect(getDisplayStatusLabel("stale", "idle")).toBe("슬라이드 화면 응답 없음");
+    expect(getDisplayStatusLabel("idle", "opening")).toBe("발표자 창 여는 중");
+    expect(getDisplayStatusLabel("idle", "manual-guide")).toBe("전환 안내");
     expect(getDisplayStatusLabel("idle", "failed")).toBe("확인 필요");
   });
 });

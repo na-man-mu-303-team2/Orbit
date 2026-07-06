@@ -89,10 +89,15 @@ import {
   resolveTriggeredActionPlaybackUpdate
 } from "./playback/triggeredActionPlayback";
 import { DisplayControls } from "./presenter/DisplayControls";
+import {
+  PresentWindowReceiver,
+  requestPresentWindowFullscreen
+} from "./presenter/PresentWindow";
 import { SingleScreenPresenter } from "./presenter/SingleScreenPresenter";
 import { SlideshowRenderer } from "./presenter/SlideshowRenderer";
 import { createSlideshowAnimationPlan } from "./presenter/slideshowStepModel";
 import { getNextPresenterStepState } from "./presenter/presenterStepNavigation";
+import { createSlideWindowDeckSnapshot } from "./presenter/presentationChannel";
 import { usePresentationChannelPublisher } from "./presenter/usePresentationChannelPublisher";
 import { usePresenterKeyboard } from "./presenter/usePresenterKeyboard";
 import { AutoAdvanceSettings } from "./advance/AutoAdvanceSettings";
@@ -441,6 +446,41 @@ export function resolveRehearsalReportLoadState(
 
 export function getRehearsalReportPath(projectId: string, runId: string) {
   return `/rehearsal/${encodeURIComponent(projectId)}/report/${encodeURIComponent(runId)}`;
+}
+
+export function getRehearsalPresenterWindowPath(
+  projectId: string,
+  sessionId: string,
+  state?: { slideIndex?: number; stepIndex?: number }
+) {
+  const params = new URLSearchParams({
+    presenterSessionId: sessionId,
+    presenterWindow: "1"
+  });
+  if (typeof state?.slideIndex === "number") {
+    params.set("slideIndex", String(Math.max(0, Math.floor(state.slideIndex))));
+  }
+  if (typeof state?.stepIndex === "number") {
+    params.set("stepIndex", String(Math.max(0, Math.floor(state.stepIndex))));
+  }
+
+  return `/rehearsal/${encodeURIComponent(projectId)}?${params.toString()}`;
+}
+
+function getCurrentRehearsalPresenterWindowPath(
+  sessionId: string,
+  state: { slideIndex: number; stepIndex: number }
+) {
+  if (typeof window === "undefined") {
+    return `?presenterSessionId=${encodeURIComponent(sessionId)}&presenterWindow=1&slideIndex=${state.slideIndex}&stepIndex=${state.stepIndex}`;
+  }
+
+  const params = new URLSearchParams(window.location.search);
+  params.set("presenterSessionId", sessionId);
+  params.set("presenterWindow", "1");
+  params.set("slideIndex", String(Math.max(0, Math.floor(state.slideIndex))));
+  params.set("stepIndex", String(Math.max(0, Math.floor(state.stepIndex))));
+  return `${window.location.pathname}?${params.toString()}`;
 }
 
 export function getRehearsalFinishPath(
@@ -1240,11 +1280,19 @@ export function RehearsalWorkspace(props: {
   fallbackDeck?: Deck;
   liveSttAdapter?: LiveSttAdapter;
   liveSttPort?: LiveSttPort;
+  presenterInitialSlideIndex?: number;
+  presenterInitialStepIndex?: number;
+  presenterSessionId?: string;
+  presenterWindow?: boolean;
   projectId?: string;
 }) {
   const [deck, setDeck] = useState<Deck | null>(props.initialDeck ?? null);
-  const [currentSlideIndex, setCurrentSlideIndex] = useState(0);
-  const [presenterStepIndex, setPresenterStepIndex] = useState(0);
+  const [currentSlideIndex, setCurrentSlideIndex] = useState(
+    props.presenterInitialSlideIndex ?? 0
+  );
+  const [presenterStepIndex, setPresenterStepIndex] = useState(
+    props.presenterInitialStepIndex ?? 0
+  );
   const [phase, setPhase] = useState<RehearsalPhase>(props.initialDeck ? "idle" : "loading");
   const [, setError] = useState("");
   const [run, setRun] = useState<RehearsalRun | null>(null);
@@ -1278,6 +1326,8 @@ export function RehearsalWorkspace(props: {
     useState<PauseDetectorSnapshot | null>(null);
   const [isLiveDemoActive, setIsLiveDemoActive] = useState(false);
   const [isLiveStopModalOpen, setIsLiveStopModalOpen] = useState(false);
+  const [displayRole, setDisplayRole] = useState<"presenter" | "slide-receiver">("presenter");
+  const [slideReceiverMessage, setSlideReceiverMessage] = useState("");
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [slideElapsedSeconds, setSlideElapsedSeconds] = useState(0);
   const [isTimerRunning, setIsTimerRunning] = useState(false);
@@ -1479,6 +1529,8 @@ export function RehearsalWorkspace(props: {
   );
   const presentationChannel = usePresentationChannelPublisher({
     deck,
+    enabled: displayRole === "presenter",
+    sessionId: props.presenterSessionId,
     state: presentationChannelState,
     triggerAnimationIds
   });
@@ -1571,7 +1623,7 @@ export function RehearsalWorkspace(props: {
   }, [currentSlide?.slideId]);
 
   usePresenterKeyboard({
-    enabled: Boolean(deck),
+    enabled: Boolean(deck) && displayRole === "presenter",
     onNextStep: () => {
       handleNextPresenterStep();
     },
@@ -2361,6 +2413,51 @@ export function RehearsalWorkspace(props: {
 
     navigateToPath(getRehearsalFinishPath(projectId, run));
   };
+  const openSlideDisplay = async () => {
+    if (!deck || !currentSlide) {
+      return { fullscreenStarted: false, presenterWindowOpened: false };
+    }
+
+    const presenterWindowPath = props.projectId
+      ? getRehearsalPresenterWindowPath(props.projectId, presentationChannel.sessionId, {
+          slideIndex: currentSlideIndex,
+          stepIndex: presenterStepIndex
+        })
+      : getCurrentRehearsalPresenterWindowPath(presentationChannel.sessionId, {
+          slideIndex: currentSlideIndex,
+          stepIndex: presenterStepIndex
+        });
+    const presenterWindow =
+      typeof window === "undefined"
+        ? null
+        : window.open(
+            presenterWindowPath,
+            `orbit-presenter-${presentationChannel.sessionId}`,
+            "popup=yes,width=1512,height=900"
+          );
+    presenterWindow?.focus();
+    setDisplayRole("slide-receiver");
+    setSlideReceiverMessage(
+      presenterWindow
+        ? ""
+        : "팝업이 차단되었습니다. 브라우저 팝업을 허용한 뒤 발표자 화면에서 다시 열어주세요."
+    );
+
+    const fullscreenStarted =
+      typeof document === "undefined"
+        ? false
+        : await requestPresentWindowFullscreen(document.documentElement);
+    if (!fullscreenStarted && presenterWindow) {
+      setSlideReceiverMessage(
+        "현재 창 전체화면을 자동으로 시작하지 못했습니다. 아래 전체화면 버튼을 눌러주세요."
+      );
+    }
+
+    return {
+      fullscreenStarted,
+      presenterWindowOpened: Boolean(presenterWindow)
+    };
+  };
 
   const checklistKeywords = getChecklistKeywords(currentSlide);
   const p3PanelSnapshot =
@@ -2428,6 +2525,44 @@ export function RehearsalWorkspace(props: {
   ]);
 
   const { presenterScale, presenterStageRef } = usePresenterStageScale(deck);
+  const slideReceiverIdentity = useMemo(
+    () =>
+      deck
+        ? {
+            deckId: deck.deckId,
+            sessionId: presentationChannel.sessionId
+          }
+        : null,
+    [deck?.deckId, presentationChannel.sessionId]
+  );
+  const slideReceiverSnapshot = useMemo(
+    () =>
+      deck && presentationChannelState
+        ? {
+            deck: createSlideWindowDeckSnapshot(deck),
+            state: presentationChannelState,
+            triggerAnimationIds
+          }
+        : null,
+    [deck, presentationChannelState, triggerAnimationIds]
+  );
+
+  if (displayRole === "slide-receiver" && slideReceiverIdentity && slideReceiverSnapshot) {
+    return (
+      <PresentWindowReceiver
+        fullscreenMessage={slideReceiverMessage}
+        identity={slideReceiverIdentity}
+        initialSnapshot={slideReceiverSnapshot}
+        onExit={() => {
+          if (typeof document !== "undefined" && document.fullscreenElement) {
+            void document.exitFullscreen();
+          }
+          setDisplayRole("presenter");
+          setSlideReceiverMessage("");
+        }}
+      />
+    );
+  }
 
   if (isSingleScreenOpen && deck && currentSlide) {
     return (
@@ -2495,9 +2630,7 @@ export function RehearsalWorkspace(props: {
           <div className="rehearsal-display-toolbar">
             <DisplayControls
               channelStatus={presentationChannel.status}
-              deckId={deck.deckId}
-              onPublishSnapshot={presentationChannel.publishSnapshot}
-              sessionId={presentationChannel.sessionId}
+              onOpenSlideDisplay={openSlideDisplay}
             />
             <button
               className="presenter-single-screen-button"

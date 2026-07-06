@@ -1,5 +1,5 @@
 import type { Deck } from "@orbit/shared";
-import { Maximize2 } from "lucide-react";
+import { Maximize2, X } from "lucide-react";
 import type { ReactNode, Ref } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { SlideshowRenderer } from "./SlideshowRenderer";
@@ -37,18 +37,51 @@ export function PresentWindow(props: {
   sessionId?: string;
 }) {
   const { channelFactory = createBroadcastChannel, deckId, sessionId } = props;
-  const [snapshot, setSnapshot] = useState<PresentWindowSnapshot | null>(null);
-  const [channelError, setChannelError] = useState("");
   const identity = useMemo(
     () => (sessionId ? { deckId, sessionId } : null),
     [deckId, sessionId]
   );
 
-  useEffect(() => {
-    if (!identity) {
-      return;
-    }
+  if (!identity) {
+    return (
+      <PresentWindowShell>
+        <PresentWindowStatus
+          title="발표자 화면에서 슬라이드 창을 열어주세요"
+          message="이 주소는 발표자 화면이 만든 세션 정보가 있어야 슬라이드를 표시합니다."
+        />
+      </PresentWindowShell>
+    );
+  }
 
+  return (
+    <PresentWindowReceiver channelFactory={channelFactory} identity={identity} />
+  );
+}
+
+export function PresentWindowReceiver(props: {
+  channelFactory?: PresentWindowChannelFactory;
+  fullscreenMessage?: string;
+  identity: PresentationChannelIdentity;
+  initialSnapshot?: PresentWindowSnapshot | null;
+  isFullscreen?: boolean;
+  onExit?: () => void;
+}) {
+  const {
+    channelFactory = createBroadcastChannel,
+    fullscreenMessage,
+    identity,
+    initialSnapshot = null,
+    isFullscreen,
+    onExit
+  } = props;
+  const [snapshot, setSnapshot] = useState<PresentWindowSnapshot | null>(initialSnapshot);
+  const [channelError, setChannelError] = useState("");
+
+  useEffect(() => {
+    setSnapshot(initialSnapshot);
+  }, [identity.deckId, identity.sessionId, initialSnapshot]);
+
+  useEffect(() => {
     let channel: ChannelLike;
     try {
       channel = channelFactory(getPresentationChannelName(identity));
@@ -79,17 +112,6 @@ export function PresentWindow(props: {
     };
   }, [channelFactory, identity]);
 
-  if (!identity) {
-    return (
-      <PresentWindowShell>
-        <PresentWindowStatus
-          title="발표자 화면에서 슬라이드 창을 열어주세요"
-          message="이 주소는 발표자 화면이 만든 세션 정보가 있어야 슬라이드를 표시합니다."
-        />
-      </PresentWindowShell>
-    );
-  }
-
   if (channelError) {
     return (
       <PresentWindowShell>
@@ -109,16 +131,26 @@ export function PresentWindow(props: {
     );
   }
 
-  return <PresentWindowContent identity={identity} snapshot={snapshot} />;
+  return (
+    <PresentWindowContent
+      fullscreenMessage={fullscreenMessage}
+      identity={identity}
+      isFullscreen={isFullscreen}
+      onExit={onExit}
+      snapshot={snapshot}
+    />
+  );
 }
 
 export function PresentWindowContent(props: {
+  fullscreenMessage?: string;
   identity: PresentationChannelIdentity;
   isFullscreen?: boolean;
+  onExit?: () => void;
   snapshot: PresentWindowSnapshot;
   viewport?: ViewportSize;
 }) {
-  const { identity, snapshot } = props;
+  const { fullscreenMessage, identity, onExit, snapshot } = props;
   const rootRef = useRef<HTMLDivElement>(null);
   const liveViewport = usePresentWindowViewport();
   const liveIsFullscreen = usePresentWindowFullscreenState();
@@ -144,17 +176,34 @@ export function PresentWindowContent(props: {
           triggerAnimationIds={snapshot.triggerAnimationIds}
         />
       </div>
-      {!isFullscreen ? (
-        <button
-          className="present-window-fullscreen"
-          type="button"
-          onClick={() => {
-            void requestPresentWindowFullscreen(rootRef.current);
-          }}
-        >
-          <Maximize2 size={17} />
-          전체화면
-        </button>
+      {!isFullscreen || fullscreenMessage || onExit ? (
+        <div className="present-window-actions">
+          {fullscreenMessage ? (
+            <span className="present-window-action-message">{fullscreenMessage}</span>
+          ) : null}
+          {!isFullscreen ? (
+            <button
+              className="present-window-fullscreen"
+              type="button"
+              onClick={() => {
+                void requestPresentWindowFullscreen(rootRef.current);
+              }}
+            >
+              <Maximize2 size={17} />
+              전체화면
+            </button>
+          ) : null}
+          {onExit ? (
+            <button
+              className="present-window-exit"
+              type="button"
+              onClick={onExit}
+            >
+              <X size={17} />
+              발표자 화면으로 돌아가기
+            </button>
+          ) : null}
+        </div>
       ) : null}
     </PresentWindowShell>
   );
