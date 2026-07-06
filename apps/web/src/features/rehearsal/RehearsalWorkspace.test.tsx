@@ -156,7 +156,10 @@ describe("RehearsalWorkspace", () => {
     );
 
     expect(html).toContain("발표자 제어");
-    expect(html).toContain("Speaker notes");
+    expect(html).toContain("대본");
+    expect(html).toContain("현재 슬라이드");
+    expect(html).toContain("다음 슬라이드");
+    expect(html).toContain("핵심 키워드");
     expect(html).toContain("첫 문장입니다");
     expect(html).not.toContain("Live STT 시작");
     expect(html).not.toContain("Report AI");
