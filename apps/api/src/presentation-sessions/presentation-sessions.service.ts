@@ -2640,7 +2640,21 @@ export class PresentationSessionsService {
       ],
     );
 
-    return this.toQuestionAnswerDto(unwrapQueryRows(result)[0]);
+    const answer = this.toQuestionAnswerDto(unwrapQueryRows(result)[0]);
+    if (!answer.escalatedToPresenter) {
+      await this.dataSource.query(
+        `
+          UPDATE audience_questions
+          SET status = 'answered',
+              answered_at = COALESCE(answered_at, now())
+          WHERE session_id = $1
+            AND question_id = $2
+        `,
+        [question.sessionId, question.questionId],
+      );
+    }
+
+    return answer;
   }
 
   private async getSelectedReferenceIds(sessionId: string): Promise<string[]> {

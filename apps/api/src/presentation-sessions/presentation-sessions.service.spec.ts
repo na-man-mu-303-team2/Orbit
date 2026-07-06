@@ -2281,7 +2281,8 @@ describe("PresentationSessionsService", () => {
           escalated_to_presenter: false,
           created_at: "2026-07-05T00:00:02.000Z",
         },
-      ]);
+      ])
+      .mockResolvedValueOnce([]);
     const service = new PresentationSessionsService({
       query,
     } as unknown as DataSource);
@@ -2320,6 +2321,102 @@ describe("PresentationSessionsService", () => {
     expect(query.mock.calls[9][0]).not.toContain(
       "created_at::text AS created_at\n        )",
     );
+    expect(query.mock.calls[10][0]).toContain("UPDATE audience_questions");
+    expect(query.mock.calls[10][0]).toContain("SET status = 'answered'");
+    expect(query.mock.calls[10][1]).toEqual([
+      "session_existing",
+      "question_00000000-0000-4000-8000-000000000001",
+    ]);
+  });
+
+  it("keeps AI Q&A failures pending for presenter follow-up", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        new Response(
+          JSON.stringify({
+            status: "failed",
+            failureReason: "low-confidence",
+            sourceReferences: [],
+            confidence: 0.21,
+          }),
+        ),
+      ),
+    );
+    const participantRow = {
+      audience_id: "audience_00000000-0000-4000-8000-000000000001",
+      session_id: "session_existing",
+      nickname: "orbit",
+      joined_at: "2026-07-05T00:00:00.000Z",
+      last_seen_at: "2026-07-05T00:00:00.000Z",
+      joined_before_end: true,
+    };
+    const questionRow = {
+      question_id: "question_00000000-0000-4000-8000-000000000001",
+      question_group_id: "question_00000000-0000-4000-8000-000000000001",
+      session_id: "session_existing",
+      audience_id: "audience_00000000-0000-4000-8000-000000000001",
+      text: "AI 질문입니다",
+      status: "pending" as const,
+      submitted_at: "2026-07-05T00:00:01.000Z",
+      answered_at: null,
+    };
+    const query = vi
+      .fn()
+      .mockResolvedValueOnce([participantRow])
+      .mockResolvedValueOnce([activeSessionRow])
+      .mockResolvedValueOnce([
+        {
+          session_id: "session_existing",
+          qna_enabled: true,
+          ai_qna_enabled: true,
+          polls_enabled: false,
+          quizzes_enabled: false,
+          reactions_enabled: false,
+          survey_enabled: false,
+          updated_at: "2026-07-05T00:00:00.000Z",
+        },
+      ])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([questionRow])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([activeSessionRow])
+      .mockResolvedValueOnce([{ selected_reference_ids_json: [] }])
+      .mockResolvedValueOnce([{ slide_id: "slide_2", deck_json: audienceDeck }])
+      .mockResolvedValueOnce([
+        {
+          question_id: "question_00000000-0000-4000-8000-000000000001",
+          session_id: "session_existing",
+          audience_id: "audience_00000000-0000-4000-8000-000000000001",
+          answer_text: null,
+          source_references_json: [],
+          confidence: 0.21,
+          failure_reason: "low-confidence",
+          feedback: null,
+          escalated_to_presenter: true,
+          created_at: "2026-07-05T00:00:02.000Z",
+        },
+      ]);
+    const service = new PresentationSessionsService({
+      query,
+    } as unknown as DataSource);
+
+    await expect(
+      service.submitAudienceQuestion({
+        sessionId: "session_existing",
+        audienceId: "audience_00000000-0000-4000-8000-000000000001",
+        tokenHash: "token_hash",
+        body: { text: "AI 질문입니다" },
+      }),
+    ).resolves.toMatchObject({
+      question: { status: "pending" },
+    });
+
+    expect(
+      query.mock.calls.some((call) =>
+        String(call[0]).includes("UPDATE audience_questions"),
+      ),
+    ).toBe(false);
   });
 
   it("returns and updates selected AI reference ids for presenter setup", async () => {
