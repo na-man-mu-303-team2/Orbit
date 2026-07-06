@@ -7,16 +7,50 @@ export const defaultRightPaneWidth = 320;
 
 export type TopMenu = "file" | "resize" | "editMode" | "quickEdit" | "presentation";
 export type SlidePanelView = "thumbnail" | "list";
+export type InsertTool =
+  | "select"
+  | "text"
+  | "rect"
+  | "ellipse"
+  | "line"
+  | "customShape";
 export type ShapeMenuPosition = {
   left: number;
   top: number;
 };
+export type ElementContextMenuState =
+  | {
+      elementId: string;
+      left: number;
+      slideId: string;
+      top: number;
+      type: "image";
+    }
+  | {
+      elementId: string;
+      left: number;
+      slideId: string;
+      top: number;
+      type: "group";
+    }
+  | {
+      elementIds: string[];
+      left: number;
+      slideId: string;
+      top: number;
+      type: "selection";
+    };
 
 export type EditorShellUiUpdater<T> = T | ((current: T) => T);
 
 type EditorShellUiStateValues = {
   activeTopMenu: TopMenu | null;
+  animationPanelFocusedAnimationId: string | null;
   animationPaneWidth: number;
+  customShapeEditElementId: string | null;
+  editingElementId: string | null;
+  elementContextMenu: ElementContextMenuState | null;
+  insertTool: InsertTool;
   isAnimationPanelOpen: boolean;
   isAudienceLinkModalOpen: boolean;
   isDataViewOpen: boolean;
@@ -26,6 +60,8 @@ type EditorShellUiStateValues = {
   isShapeMenuOpen: boolean;
   isSlidesPaneCollapsed: boolean;
   rightPaneWidth: number;
+  selectedElementIds: string[];
+  selectedKeywordId: string | null;
   shapeMenuPosition: ShapeMenuPosition | null;
   showIds: boolean;
   slidePanelView: SlidePanelView;
@@ -35,7 +71,18 @@ type EditorShellUiStateValues = {
 type EditorShellUiStateActions = {
   resetProjectUiState: () => void;
   setActiveTopMenu: (updater: EditorShellUiUpdater<TopMenu | null>) => void;
+  setAnimationPanelFocusedAnimationId: (
+    updater: EditorShellUiUpdater<string | null>
+  ) => void;
   setAnimationPaneWidth: (updater: EditorShellUiUpdater<number>) => void;
+  setCustomShapeEditElementId: (
+    updater: EditorShellUiUpdater<string | null>
+  ) => void;
+  setEditingElementId: (updater: EditorShellUiUpdater<string | null>) => void;
+  setElementContextMenu: (
+    updater: EditorShellUiUpdater<ElementContextMenuState | null>
+  ) => void;
+  setInsertTool: (updater: EditorShellUiUpdater<InsertTool>) => void;
   setIsAnimationPanelOpen: (updater: EditorShellUiUpdater<boolean>) => void;
   setIsAudienceLinkModalOpen: (updater: EditorShellUiUpdater<boolean>) => void;
   setIsDataViewOpen: (updater: EditorShellUiUpdater<boolean>) => void;
@@ -45,6 +92,8 @@ type EditorShellUiStateActions = {
   setIsShapeMenuOpen: (updater: EditorShellUiUpdater<boolean>) => void;
   setIsSlidesPaneCollapsed: (updater: EditorShellUiUpdater<boolean>) => void;
   setRightPaneWidth: (updater: EditorShellUiUpdater<number>) => void;
+  setSelectedElementIds: (updater: EditorShellUiUpdater<string[]>) => void;
+  setSelectedKeywordId: (updater: EditorShellUiUpdater<string | null>) => void;
   setShapeMenuPosition: (
     updater: EditorShellUiUpdater<ShapeMenuPosition | null>
   ) => void;
@@ -57,7 +106,12 @@ export type EditorShellUiState = EditorShellUiStateValues & EditorShellUiStateAc
 
 export const editorShellUiInitialState: EditorShellUiStateValues = {
   activeTopMenu: null,
+  animationPanelFocusedAnimationId: null,
   animationPaneWidth: defaultAnimationPaneWidth,
+  customShapeEditElementId: null,
+  editingElementId: null,
+  elementContextMenu: null,
+  insertTool: "select",
   isAnimationPanelOpen: false,
   isAudienceLinkModalOpen: false,
   isDataViewOpen: false,
@@ -67,6 +121,8 @@ export const editorShellUiInitialState: EditorShellUiStateValues = {
   isShapeMenuOpen: false,
   isSlidesPaneCollapsed: false,
   rightPaneWidth: defaultRightPaneWidth,
+  selectedElementIds: [],
+  selectedKeywordId: null,
   shapeMenuPosition: null,
   showIds: false,
   slidePanelView: "thumbnail",
@@ -78,18 +134,51 @@ export const useEditorShellUiStore = create<EditorShellUiState>((set) => ({
   resetProjectUiState: () =>
     set({
       activeTopMenu: null,
+      animationPanelFocusedAnimationId: null,
+      customShapeEditElementId: null,
+      editingElementId: null,
+      elementContextMenu: null,
+      insertTool: "select",
       isAudienceLinkModalOpen: false,
       isExitConfirmOpen: false,
       isShapeMenuOpen: false,
+      selectedElementIds: [],
+      selectedKeywordId: null,
       shapeMenuPosition: null
     }),
   setActiveTopMenu: (updater) =>
     set((state) => ({
       activeTopMenu: resolveUpdater(state.activeTopMenu, updater)
     })),
+  setAnimationPanelFocusedAnimationId: (updater) =>
+    set((state) => ({
+      animationPanelFocusedAnimationId: resolveUpdater(
+        state.animationPanelFocusedAnimationId,
+        updater
+      )
+    })),
   setAnimationPaneWidth: (updater) =>
     set((state) => ({
       animationPaneWidth: resolveUpdater(state.animationPaneWidth, updater)
+    })),
+  setCustomShapeEditElementId: (updater) =>
+    set((state) => ({
+      customShapeEditElementId: resolveUpdater(
+        state.customShapeEditElementId,
+        updater
+      )
+    })),
+  setEditingElementId: (updater) =>
+    set((state) => ({
+      editingElementId: resolveUpdater(state.editingElementId, updater)
+    })),
+  setElementContextMenu: (updater) =>
+    set((state) => ({
+      elementContextMenu: resolveUpdater(state.elementContextMenu, updater)
+    })),
+  setInsertTool: (updater) =>
+    set((state) => ({
+      insertTool: resolveUpdater(state.insertTool, updater)
     })),
   setIsAnimationPanelOpen: (updater) =>
     set((state) => ({
@@ -126,6 +215,14 @@ export const useEditorShellUiStore = create<EditorShellUiState>((set) => ({
   setRightPaneWidth: (updater) =>
     set((state) => ({
       rightPaneWidth: resolveUpdater(state.rightPaneWidth, updater)
+    })),
+  setSelectedElementIds: (updater) =>
+    set((state) => ({
+      selectedElementIds: resolveUpdater(state.selectedElementIds, updater)
+    })),
+  setSelectedKeywordId: (updater) =>
+    set((state) => ({
+      selectedKeywordId: resolveUpdater(state.selectedKeywordId, updater)
     })),
   setShapeMenuPosition: (updater) =>
     set((state) => ({

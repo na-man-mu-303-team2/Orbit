@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
   defaultRightPaneWidth,
@@ -10,6 +10,10 @@ import { defaultAnimationPaneWidth } from "./components/animation/utils/layout";
 
 describe("editorShellUiStore", () => {
   beforeEach(() => {
+    useEditorShellUiStore.setState(editorShellUiInitialState);
+  });
+
+  afterEach(() => {
     useEditorShellUiStore.setState(editorShellUiInitialState);
   });
 
@@ -27,6 +31,13 @@ describe("editorShellUiStore", () => {
     expect(state.showIds).toBe(false);
     expect(state.activeTopMenu).toBeNull();
     expect(state.shapeMenuPosition).toBeNull();
+    expect(state.animationPanelFocusedAnimationId).toBeNull();
+    expect(state.customShapeEditElementId).toBeNull();
+    expect(state.editingElementId).toBeNull();
+    expect(state.elementContextMenu).toBeNull();
+    expect(state.insertTool).toBe("select");
+    expect(state.selectedElementIds).toEqual([]);
+    expect(state.selectedKeywordId).toBeNull();
   });
 
   it("accepts direct values and functional updaters", () => {
@@ -45,6 +56,44 @@ describe("editorShellUiStore", () => {
     expect(useEditorShellUiStore.getState().activeTopMenu).toBe("file");
   });
 
+  it("updates selection, edit target, tool, and context menu state", () => {
+    const state = useEditorShellUiStore.getState();
+
+    state.setSelectedElementIds(["el_1"]);
+    state.setSelectedElementIds((current) => [...current, "el_2"]);
+    state.setSelectedKeywordId("kw_1");
+    state.setInsertTool("customShape");
+    state.setEditingElementId("el_1");
+    state.setCustomShapeEditElementId((current) => current ?? "el_2");
+    state.setAnimationPanelFocusedAnimationId("anim_1");
+    state.setElementContextMenu({
+      elementIds: ["el_1", "el_2"],
+      left: 30,
+      slideId: "slide_1",
+      top: 40,
+      type: "selection"
+    });
+
+    expect(useEditorShellUiStore.getState().selectedElementIds).toEqual([
+      "el_1",
+      "el_2"
+    ]);
+    expect(useEditorShellUiStore.getState().selectedKeywordId).toBe("kw_1");
+    expect(useEditorShellUiStore.getState().insertTool).toBe("customShape");
+    expect(useEditorShellUiStore.getState().editingElementId).toBe("el_1");
+    expect(useEditorShellUiStore.getState().customShapeEditElementId).toBe("el_2");
+    expect(useEditorShellUiStore.getState().animationPanelFocusedAnimationId).toBe(
+      "anim_1"
+    );
+    expect(useEditorShellUiStore.getState().elementContextMenu).toEqual({
+      elementIds: ["el_1", "el_2"],
+      left: 30,
+      slideId: "slide_1",
+      top: 40,
+      type: "selection"
+    });
+  });
+
   it("resets project-scoped chrome without resetting layout preferences", () => {
     const state = useEditorShellUiStore.getState();
 
@@ -53,6 +102,19 @@ describe("editorShellUiStore", () => {
     state.setIsExitConfirmOpen(true);
     state.setIsRightPanelOpen(false);
     state.setIsShapeMenuOpen(true);
+    state.setAnimationPanelFocusedAnimationId("anim_1");
+    state.setCustomShapeEditElementId("el_2");
+    state.setEditingElementId("el_1");
+    state.setElementContextMenu({
+      elementId: "el_1",
+      left: 30,
+      slideId: "slide_1",
+      top: 40,
+      type: "image"
+    });
+    state.setInsertTool("customShape");
+    state.setSelectedElementIds(["el_1"]);
+    state.setSelectedKeywordId("kw_1");
     state.setShapeMenuPosition({ left: 10, top: 20 });
     state.setShowIds(true);
     state.setSlidesPaneWidth(240);
@@ -63,6 +125,13 @@ describe("editorShellUiStore", () => {
     expect(useEditorShellUiStore.getState().isAudienceLinkModalOpen).toBe(false);
     expect(useEditorShellUiStore.getState().isExitConfirmOpen).toBe(false);
     expect(useEditorShellUiStore.getState().isShapeMenuOpen).toBe(false);
+    expect(useEditorShellUiStore.getState().animationPanelFocusedAnimationId).toBeNull();
+    expect(useEditorShellUiStore.getState().customShapeEditElementId).toBeNull();
+    expect(useEditorShellUiStore.getState().editingElementId).toBeNull();
+    expect(useEditorShellUiStore.getState().elementContextMenu).toBeNull();
+    expect(useEditorShellUiStore.getState().insertTool).toBe("select");
+    expect(useEditorShellUiStore.getState().selectedElementIds).toEqual([]);
+    expect(useEditorShellUiStore.getState().selectedKeywordId).toBeNull();
     expect(useEditorShellUiStore.getState().shapeMenuPosition).toBeNull();
     expect(useEditorShellUiStore.getState().isRightPanelOpen).toBe(false);
     expect(useEditorShellUiStore.getState().showIds).toBe(true);

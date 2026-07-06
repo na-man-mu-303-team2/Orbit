@@ -273,13 +273,6 @@ const pptxImportAccept =
   ".pptx,application/vnd.openxmlformats-officedocument.presentationml.presentation";
 const ooxmlSyncJobEventName = "orbit:ooxml-sync-job";
 
-type InsertTool =
-  | "select"
-  | "text"
-  | "rect"
-  | "ellipse"
-  | "line"
-  | "customShape";
 type ShapeInsertType =
   | "rect"
   | "ellipse"
@@ -289,28 +282,6 @@ type ShapeInsertType =
   | "polygon"
   | "star"
   | "customShape";
-type ElementContextMenuState =
-  | {
-      elementId: string;
-      left: number;
-      slideId: string;
-      top: number;
-      type: "image";
-    }
-  | {
-      elementId: string;
-      left: number;
-      slideId: string;
-      top: number;
-      type: "group";
-    }
-  | {
-      elementIds: string[];
-      left: number;
-      slideId: string;
-      top: number;
-      type: "selection";
-    };
 type ElementClipboardState = {
   element: DeckElement;
   pasteCount: number;
@@ -1043,6 +1014,9 @@ export function EditorShell(props: { projectId?: string }) {
   const projectId = props.projectId ?? demoIds.projectId;
   const queryClient = useQueryClient();
   const [currentSlideIndex, setCurrentSlideIndex] = useState(0);
+  const resetProjectUiState = useEditorShellUiStore(
+    (state) => state.resetProjectUiState
+  );
   const isDataViewOpen = useEditorShellUiStore((state) => state.isDataViewOpen);
   const setIsDataViewOpen = useEditorShellUiStore((state) => state.setIsDataViewOpen);
   const isAnimationPanelOpen = useEditorShellUiStore(
@@ -1091,8 +1065,12 @@ export function EditorShell(props: { projectId?: string }) {
     (state) => state.setIsExitConfirmOpen
   );
   const [isExitSaving, setIsExitSaving] = useState(false);
-  const [animationPanelFocusedAnimationId, setAnimationPanelFocusedAnimationId] =
-    useState<string | null>(null);
+  const animationPanelFocusedAnimationId = useEditorShellUiStore(
+    (state) => state.animationPanelFocusedAnimationId
+  );
+  const setAnimationPanelFocusedAnimationId = useEditorShellUiStore(
+    (state) => state.setAnimationPanelFocusedAnimationId
+  );
   const [lastPresenceAt, setLastPresenceAt] = useState<string | null>(null);
   const [socketErrorMessage, setSocketErrorMessage] = useState("");
   const [socketId, setSocketId] = useState("");
@@ -1105,24 +1083,37 @@ export function EditorShell(props: { projectId?: string }) {
   const setSlidePanelView = useEditorShellUiStore((state) => state.setSlidePanelView);
   const showIds = useEditorShellUiStore((state) => state.showIds);
   const setShowIds = useEditorShellUiStore((state) => state.setShowIds);
-  const [selectedKeywordId, setSelectedKeywordId] = useState<string | null>(null);
+  const selectedKeywordId = useEditorShellUiStore((state) => state.selectedKeywordId);
+  const setSelectedKeywordId = useEditorShellUiStore(
+    (state) => state.setSelectedKeywordId
+  );
   const [isSpeakerNotesEditing, setIsSpeakerNotesEditing] = useState(false);
   const [speakerNotesDraft, setSpeakerNotesDraft] = useState("");
   const [speakerNotesDraftBase, setSpeakerNotesDraftBase] = useState("");
   const [speakerNotesEditSlideId, setSpeakerNotesEditSlideId] = useState<
     string | null
   >(null);
-  const [selectedElementIds, setSelectedElementIds] = useState<string[]>([]);
+  const selectedElementIds = useEditorShellUiStore((state) => state.selectedElementIds);
+  const setSelectedElementIds = useEditorShellUiStore(
+    (state) => state.setSelectedElementIds
+  );
   const [validationHighlightElementIds, setValidationHighlightElementIds] =
     useState<string[]>([]);
   const activeTopMenu = useEditorShellUiStore((state) => state.activeTopMenu);
   const setActiveTopMenu = useEditorShellUiStore((state) => state.setActiveTopMenu);
   const [lastPatchLabel, setLastPatchLabel] = useState("편집 없음");
-  const [insertTool, setInsertTool] = useState<InsertTool>("select");
-  const [editingElementId, setEditingElementId] = useState<string | null>(null);
-  const [customShapeEditElementId, setCustomShapeEditElementId] = useState<
-    string | null
-  >(null);
+  const insertTool = useEditorShellUiStore((state) => state.insertTool);
+  const setInsertTool = useEditorShellUiStore((state) => state.setInsertTool);
+  const editingElementId = useEditorShellUiStore((state) => state.editingElementId);
+  const setEditingElementId = useEditorShellUiStore(
+    (state) => state.setEditingElementId
+  );
+  const customShapeEditElementId = useEditorShellUiStore(
+    (state) => state.customShapeEditElementId
+  );
+  const setCustomShapeEditElementId = useEditorShellUiStore(
+    (state) => state.setCustomShapeEditElementId
+  );
   const isShapeMenuOpen = useEditorShellUiStore((state) => state.isShapeMenuOpen);
   const setIsShapeMenuOpen = useEditorShellUiStore(
     (state) => state.setIsShapeMenuOpen
@@ -1131,8 +1122,10 @@ export function EditorShell(props: { projectId?: string }) {
   const setShapeMenuPosition = useEditorShellUiStore(
     (state) => state.setShapeMenuPosition
   );
-  const [elementContextMenu, setElementContextMenu] =
-    useState<ElementContextMenuState | null>(null);
+  const elementContextMenu = useEditorShellUiStore((state) => state.elementContextMenu);
+  const setElementContextMenu = useEditorShellUiStore(
+    (state) => state.setElementContextMenu
+  );
   const [isImageUploadPending, setIsImageUploadPending] = useState(false);
   const [pptxImportState, setPptxImportState] = useState<PptxImportState>({
     status: "idle",
@@ -1166,6 +1159,10 @@ export function EditorShell(props: { projectId?: string }) {
     queryFn: () => fetchDeck(projectId),
     retry: false
   });
+
+  useEffect(() => {
+    resetProjectUiState();
+  }, [projectId, resetProjectUiState]);
 
   useEffect(() => {
     const socket: ClientSocket = io({
