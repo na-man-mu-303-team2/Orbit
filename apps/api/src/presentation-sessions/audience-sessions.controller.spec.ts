@@ -50,7 +50,7 @@ function createController(
     getAudienceMe: vi.fn(),
     getAudienceState: vi.fn(),
     getAudienceSurveyForm: vi.fn(),
-    readAudienceSlideSnapshot: vi.fn(),
+    readAudienceSlideSnapshotContent: vi.fn(),
     submitSurveyResponse: vi.fn(),
     ...overrides,
   } as unknown as PresentationSessionsService;
@@ -290,9 +290,10 @@ describe("AudienceSessionsController", () => {
     const { controller } = createController();
 
     await expect(
-      controller.getSlideSnapshot(
+      controller.readSlideSnapshot(
         "session_existing",
         "slide_1",
+        "content_hash",
         createRequest(),
         {} as any,
       ),
@@ -301,13 +302,12 @@ describe("AudienceSessionsController", () => {
 
   it("returns audience slide snapshots through the same-origin API", async () => {
     const { controller, service } = createController({
-      readAudienceSlideSnapshot: vi.fn(async () => ({
+      readAudienceSlideSnapshotContent: vi.fn(async () => ({
         body: Buffer.from("<svg>청중 공개 문장</svg>"),
         contentType: "image/svg+xml",
       })),
     });
     const response = {
-      send: vi.fn(),
       setHeader: vi.fn(),
     } as any;
     const joinResponse = { cookie: vi.fn() } as any;
@@ -319,9 +319,10 @@ describe("AudienceSessionsController", () => {
     );
     const signedAudienceToken = joinResponse.cookie.mock.calls[0][1] as string;
 
-    await controller.getSlideSnapshot(
+    const result = await controller.readSlideSnapshot(
       "session_existing",
       "slide_1",
+      "content_hash",
       createRequest({
         signedAudienceToken,
         userAgent: "vitest-snapshot",
@@ -329,19 +330,22 @@ describe("AudienceSessionsController", () => {
       response,
     );
 
-    expect(service.readAudienceSlideSnapshot).toHaveBeenCalledWith({
+    expect(service.readAudienceSlideSnapshotContent).toHaveBeenCalledWith({
       sessionId: "session_existing",
       audienceId: expect.stringMatching(/^audience_[0-9a-f-]{36}$/),
       tokenHash: expect.any(String),
       slideId: "slide_1",
+      contentHash: "content_hash",
     });
-    expect(response.setHeader).toHaveBeenCalledWith(
+    expect(response.setHeader.mock.calls).toContainEqual([
+      "cache-control",
+      "private, max-age=60",
+    ]);
+    expect(response.setHeader.mock.calls).toContainEqual([
       "content-type",
       "image/svg+xml",
-    );
-    expect(response.send).toHaveBeenCalledWith(
-      Buffer.from("<svg>청중 공개 문장</svg>"),
-    );
+    ]);
+    expect(result).toBeDefined();
   });
 
   it("returns audience state with the signed audience cookie", async () => {

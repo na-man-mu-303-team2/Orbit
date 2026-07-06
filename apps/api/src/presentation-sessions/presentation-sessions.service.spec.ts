@@ -993,11 +993,9 @@ describe("PresentationSessionsService", () => {
       body: Buffer.from("<svg>청중 공개 문장</svg>"),
       contentType: "image/svg+xml",
     });
-    expect(storage.getSignedReadUrl).toHaveBeenCalledWith(
-      "audience-slide-snapshots/session_existing/slide_2-frozen-slide-2.svg",
-    );
+    expect(storage.getSignedReadUrl).not.toHaveBeenCalled();
     expect(fetch).toHaveBeenCalledWith(
-      "https://cdn.example.test/audience-slide-snapshots/session_existing/slide_2-frozen-slide-2.svg",
+      "http://localhost:9000/orbit-local/audience-slide-snapshots/session_existing/slide_2-frozen-slide-2.svg",
     );
   });
 
