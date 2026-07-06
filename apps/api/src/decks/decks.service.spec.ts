@@ -2,6 +2,7 @@ import { HttpException, HttpStatus } from "@nestjs/common";
 import {
   deckApiErrorSchema,
   deckSchema,
+  createKeywordOccurrenceId,
   jobSchema,
   type Deck,
   type DeckApiError,
@@ -371,6 +372,29 @@ function createDeck(): Deck {
   });
 }
 
+function createRepeatedKeywordDeck(): Deck {
+  const deck = createDeck();
+
+  return deckSchema.parse({
+    ...deck,
+    slides: [
+      {
+        ...deck.slides[0],
+        speakerNotes: "ORBIT 흐름은 ORBIT 대본으로 설명합니다.",
+        keywords: [
+          {
+            keywordId: "kw_orbit",
+            text: "ORBIT",
+            synonyms: [],
+            abbreviations: [],
+            required: true,
+          },
+        ],
+      },
+    ],
+  });
+}
+
 function createLegacyKeywordDeck(deck: Deck): Deck {
   const legacyDeck = cloneJson(deck);
 
@@ -433,6 +457,36 @@ function createUpdateTitlePatch(
       {
         type: "update_deck",
         title,
+      },
+    ],
+  };
+}
+
+function createAddOccurrenceNextSlideActionPatch(
+  deck: Deck,
+  occurrenceId: string,
+): DeckPatch {
+  const slide = deck.slides[0]!;
+
+  return {
+    deckId: deck.deckId,
+    baseVersion: deck.version,
+    source: "user",
+    operations: [
+      {
+        type: "add_slide_action",
+        slideId: slide.slideId,
+        action: {
+          actionId: "act_second_orbit_next",
+          trigger: {
+            kind: "keyword-occurrence",
+            keywordId: "kw_orbit",
+            occurrenceId,
+          },
+          effect: {
+            kind: "go-to-next-slide",
+          },
+        },
       },
     ],
   };
@@ -636,6 +690,40 @@ describe("DecksService", () => {
     expect(
       snapshotResponse.snapshots.map((snapshot) => snapshot.version).sort(),
     ).toEqual([1]);
+  });
+
+  it("persists keyword occurrence action triggers in checkpointed deck JSON", async () => {
+    const { dataSource, service } = createService();
+    const deck = createRepeatedKeywordDeck();
+    const occurrenceId = createKeywordOccurrenceId(
+      deck.slides[0]!.slideId,
+      "kw_orbit",
+      10,
+      15,
+    );
+    await service.putDeck(deck.projectId, { deck });
+
+    expect(deck.slides[0]!.actions).toEqual([]);
+
+    const response = await service.appendPatch(deck.projectId, {
+      patch: createAddOccurrenceNextSlideActionPatch(deck, occurrenceId),
+      snapshotReason: "patch-applied",
+    });
+    const persistedDeck = deckSchema.parse(
+      dataSource.decks.get(deck.projectId)?.deck_json,
+    );
+
+    expect(response.deck.slides[0]!.actions).toHaveLength(1);
+    expect(response.deck.slides[0]!.actions[0]?.trigger).toEqual({
+      kind: "keyword-occurrence",
+      keywordId: "kw_orbit",
+      occurrenceId,
+    });
+    expect(persistedDeck.slides[0]!.actions[0]?.trigger).toEqual({
+      kind: "keyword-occurrence",
+      keywordId: "kw_orbit",
+      occurrenceId,
+    });
   });
 
   it("enqueues OOXML sync after patching an OOXML-backed deck", async () => {

@@ -1,4 +1,5 @@
 import { createDemoDeck, getElementAnimations, validateSlideAnimations } from "../../../../../../../packages/editor-core/src/index";
+import { createKeywordOccurrenceId } from "@orbit/shared";
 import { renderToString } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 
@@ -34,6 +35,12 @@ describe("AnimationEditorModal", () => {
         notes={slide.speakerNotes}
         selectedKeywordId={slide.keywords[0]?.keywordId ?? null}
         selectedKeywordLabel="ORBIT"
+        selectedKeywordOccurrenceKey={createKeywordOccurrenceId(
+          slide.slideId,
+          "kw_1",
+          0,
+          5
+        )}
         showIds
         slide={slide}
         onAddAnimation={vi.fn()}
@@ -89,5 +96,47 @@ describe("AnimationEditorModal", () => {
     expect(html).toContain("이 요소에 연결된 애니메이션이 없습니다.");
     expect(html).toContain("대본에서 키워드를 선택한 뒤 새 애니메이션을 추가하세요.");
     expect(html).toContain("1번에서 키워드를 먼저 선택하면 2번 설정과 추가하기가 활성화됩니다.");
+  });
+
+  it("highlights only the selected keyword occurrence in the script picker", () => {
+    const deck = createDemoDeck();
+    const slide = {
+      ...deck.slides[0]!,
+      speakerNotes: "ORBIT 흐름은 ORBIT 대본으로 설명합니다."
+    };
+    const element = slide.elements.find((candidate) => candidate.elementId === "el_1") ?? null;
+    const html = renderToString(
+      <AnimationEditorModal
+        animationDiagnostics={validateSlideAnimations(slide, "el_1")}
+        animationTriggerLabels={{}}
+        animations={[]}
+        canCreateAnimation
+        element={element}
+        isOpen
+        keywords={slide.keywords}
+        notes={slide.speakerNotes}
+        selectedKeywordId="kw_1"
+        selectedKeywordLabel="ORBIT"
+        selectedKeywordOccurrenceKey={createKeywordOccurrenceId(
+          "slide_1",
+          "kw_1",
+          0,
+          5
+        )}
+        showIds={false}
+        slide={slide}
+        onAddAnimation={vi.fn()}
+        onAssignSelectedKeywordToAnimation={vi.fn()}
+        onClose={vi.fn()}
+        onDeleteAnimation={vi.fn()}
+        onSelectKeyword={vi.fn()}
+        onSelectKeywordText={vi.fn()}
+        onUpdateAnimation={vi.fn()}
+      />
+    );
+
+    expect(html.match(/class="keyword-mark selected"/g)).toHaveLength(1);
+    expect(html.match(/class="keyword-mark "/g)).toBeNull();
+    expect(html).toContain('data-occurrence-id="kwo_slide_1_kw_1_0_5"');
   });
 });

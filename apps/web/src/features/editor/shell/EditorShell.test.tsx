@@ -1,4 +1,10 @@
 import { applyDeckPatch, createDemoDeck } from "@orbit/editor-core";
+import {
+  createAddAnimationWithKeywordTriggerPatch,
+  createDefaultAnimation,
+  createUpdateAnimationKeywordTriggerPatch,
+  createUpsertAdvanceSlideKeywordActionPatch
+} from "../../../../../../packages/editor-core/src/index";
 import { demoIds } from "@orbit/shared";
 import type {
   AiSuggestion,
@@ -17,6 +23,7 @@ import {
   EditorStateNotice,
   buildSlideThumbnailPatch,
   createDistributeSelectionPatch,
+  getSpeakerNotesDanglingOccurrenceSaveBlock,
   getImportedSlideThumbnailRefreshSlideIds,
   getPatchThumbnailRefreshSlideIds,
   getEditorValidationItems,
@@ -164,6 +171,71 @@ describe("editor shell", () => {
         savedDraftBase: "기존 메모"
       })
     ).toBe(false);
+  });
+
+  it("blocks speaker notes saves that would orphan keyword occurrence actions", () => {
+    const deck = createDemoDeck();
+    const slide = {
+      ...deck.slides[0],
+      speakerNotes: "ORBIT 흐름은 ORBIT 대본으로 설명합니다.",
+      actions: [
+        {
+          actionId: "act_1",
+          trigger: {
+            kind: "keyword-occurrence" as const,
+            keywordId: "kw_1",
+            occurrenceId: "kwo_slide_1_kw_1_10_15"
+          },
+          effect: {
+            kind: "go-to-next-slide" as const
+          }
+        }
+      ]
+    };
+
+    const block = getSpeakerNotesDanglingOccurrenceSaveBlock(
+      slide,
+      "앞에 추가 ORBIT 흐름은 ORBIT 대본으로 설명합니다."
+    );
+
+    expect(block).toMatchObject({
+      danglingActions: [
+        {
+          slideId: "slide_1",
+          actionId: "act_1",
+          keywordId: "kw_1",
+          occurrenceId: "kwo_slide_1_kw_1_10_15",
+          effectKind: "go-to-next-slide"
+        }
+      ]
+    });
+  });
+
+  it("allows speaker notes saves when only legacy keyword actions exist", () => {
+    const deck = createDemoDeck();
+    const slide = {
+      ...deck.slides[0],
+      speakerNotes: "ORBIT 흐름은 ORBIT 대본으로 설명합니다.",
+      actions: [
+        {
+          actionId: "act_1",
+          trigger: {
+            kind: "keyword" as const,
+            keywordId: "kw_1"
+          },
+          effect: {
+            kind: "go-to-next-slide" as const
+          }
+        }
+      ]
+    };
+
+    expect(
+      getSpeakerNotesDanglingOccurrenceSaveBlock(
+        slide,
+        "앞에 추가 ORBIT 흐름은 ORBIT 대본으로 설명합니다."
+      )
+    ).toBeNull();
   });
 
   it("rewrites local minio asset URLs to the same-origin asset proxy", () => {
@@ -1018,6 +1090,146 @@ describe("editor shell", () => {
 
     if (result.ok) {
       expect(result.deck.slides[0].elements[1].x).toBe(500);
+    }
+  });
+
+  it("stores new animation triggers on the selected speaker note occurrence", () => {
+    const deck = createDemoDeck();
+    const slide = {
+      ...deck.slides[0],
+      speakerNotes: "ORBIT 흐름은 ORBIT 대본으로 설명합니다."
+    };
+    const deckWithRepeatedKeyword = {
+      ...deck,
+      slides: [slide, ...deck.slides.slice(1)]
+    };
+    const animation = createDefaultAnimation(
+      deckWithRepeatedKeyword,
+      slide,
+      "el_1"
+    );
+    const patch = createAddAnimationWithKeywordTriggerPatch(
+      deckWithRepeatedKeyword,
+      slide.slideId,
+      animation,
+      "kw_1",
+      "kwo_slide_1_kw_1_10_15"
+    );
+
+    const result = applyDeckPatch(deckWithRepeatedKeyword, patch);
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.deck.slides[0].actions.at(-1)?.trigger).toEqual({
+        kind: "keyword-occurrence",
+        keywordId: "kw_1",
+        occurrenceId: "kwo_slide_1_kw_1_10_15"
+      });
+    }
+  });
+
+  it("stores next-slide triggers on the selected speaker note occurrence", () => {
+    const deck = createDemoDeck();
+    const slide = {
+      ...deck.slides[0],
+      speakerNotes: "ORBIT 흐름은 ORBIT 대본으로 설명합니다."
+    };
+    const deckWithRepeatedKeyword = {
+      ...deck,
+      slides: [slide, ...deck.slides.slice(1)]
+    };
+    const patch = createUpsertAdvanceSlideKeywordActionPatch(
+      deckWithRepeatedKeyword,
+      slide.slideId,
+      "kw_1",
+      true,
+      "kwo_slide_1_kw_1_10_15"
+    );
+
+    expect(patch).not.toBeNull();
+    expect(deckWithRepeatedKeyword.slides[0].actions).toEqual([]);
+    expect(patch?.operations).toEqual([
+      {
+        type: "add_slide_action",
+        slideId: slide.slideId,
+        action: expect.objectContaining({
+          trigger: {
+            kind: "keyword-occurrence",
+            keywordId: "kw_1",
+            occurrenceId: "kwo_slide_1_kw_1_10_15"
+          },
+          effect: {
+            kind: "go-to-next-slide"
+          }
+        })
+      }
+    ]);
+    const result = applyDeckPatch(deckWithRepeatedKeyword, patch!);
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.deck.slides[0].actions.at(-1)?.trigger).toEqual({
+        kind: "keyword-occurrence",
+        keywordId: "kw_1",
+        occurrenceId: "kwo_slide_1_kw_1_10_15"
+      });
+      expect(result.deck.slides[0].actions.at(-1)?.effect).toEqual({
+        kind: "go-to-next-slide"
+      });
+    }
+  });
+
+  it("reconnects legacy animation triggers to a selected speaker note occurrence", () => {
+    const deck = createDemoDeck();
+    const slide = {
+      ...deck.slides[0],
+      speakerNotes: "ORBIT 흐름은 ORBIT 대본으로 설명합니다.",
+      animations: [
+        {
+          animationId: "anim_1",
+          elementId: "el_1",
+          order: 1,
+          type: "fade-in" as const,
+          durationMs: 300,
+          delayMs: 0,
+          easing: "ease-out" as const
+        }
+      ],
+      actions: [
+        {
+          actionId: "act_1",
+          trigger: {
+            kind: "keyword" as const,
+            keywordId: "kw_1"
+          },
+          effect: {
+            kind: "play-animation" as const,
+            animationId: "anim_1"
+          }
+        }
+      ]
+    };
+    const deckWithLegacyAction = {
+      ...deck,
+      slides: [slide, ...deck.slides.slice(1)]
+    };
+    const patch = createUpdateAnimationKeywordTriggerPatch(
+      deckWithLegacyAction,
+      slide.slideId,
+      "anim_1",
+      "kw_1",
+      "kwo_slide_1_kw_1_10_15"
+    );
+
+    const result = applyDeckPatch(deckWithLegacyAction, patch);
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.deck.slides[0].actions[0]?.trigger).toEqual({
+        kind: "keyword-occurrence",
+        keywordId: "kw_1",
+        occurrenceId: "kwo_slide_1_kw_1_10_15"
+      });
     }
   });
 

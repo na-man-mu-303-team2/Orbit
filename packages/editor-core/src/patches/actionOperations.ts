@@ -15,6 +15,15 @@ export type DerivedKeywordUsage = {
   keywordId: string;
 };
 
+export type DerivedKeywordOccurrenceUsage = DerivedKeywordUsage & {
+  occurrenceId: string;
+};
+
+export type DerivedKeywordActionUsage = {
+  byKeywordId: Record<string, DerivedKeywordUsage>;
+  byOccurrenceId: Record<string, DerivedKeywordOccurrenceUsage>;
+};
+
 export function createKeywordId(deck: Deck) {
   const existingIds = new Set(
     deck.slides.flatMap((slide) => slide.keywords.map((keyword) => keyword.keywordId))
@@ -55,7 +64,8 @@ export function createKeyword(
     text: text.trim(),
     synonyms: [],
     abbreviations: [],
-    required: options?.required ?? true
+    required: options?.required ?? true,
+    requiredOccurrenceIds: []
   });
 }
 
@@ -82,7 +92,8 @@ export function createAddAnimationWithKeywordTriggerPatch(
   deck: Deck,
   slideId: string,
   animation: DeckAnimation,
-  keywordId: string
+  keywordId: string,
+  occurrenceId?: string | null
 ): DeckPatch {
   return {
     deckId: deck.deckId,
@@ -99,10 +110,7 @@ export function createAddAnimationWithKeywordTriggerPatch(
         slideId,
         action: {
           actionId: createSlideActionId(deck),
-          trigger: {
-            kind: "keyword",
-            keywordId
-          },
+          trigger: createKeywordActionTrigger(keywordId, occurrenceId),
           effect: {
             kind: "play-animation",
             animationId: animation.animationId
@@ -117,7 +125,8 @@ export function createUpdateAnimationKeywordTriggerPatch(
   deck: Deck,
   slideId: string,
   animationId: string,
-  keywordId: string
+  keywordId: string,
+  occurrenceId?: string | null
 ): DeckPatch {
   const slide = findSlide(deck, slideId);
   const existingAction = slide ? getAnimationTriggerAction(slide, animationId) : null;
@@ -133,10 +142,7 @@ export function createUpdateAnimationKeywordTriggerPatch(
             slideId,
             actionId: existingAction.actionId,
             action: {
-              trigger: {
-                kind: "keyword",
-                keywordId
-              }
+              trigger: createKeywordActionTrigger(keywordId, occurrenceId)
             }
           }
         ]
@@ -146,10 +152,7 @@ export function createUpdateAnimationKeywordTriggerPatch(
             slideId,
             action: {
               actionId: createSlideActionId(deck),
-              trigger: {
-                kind: "keyword",
-                keywordId
-              },
+              trigger: createKeywordActionTrigger(keywordId, occurrenceId),
               effect: {
                 kind: "play-animation",
                 animationId
@@ -164,14 +167,14 @@ export function createUpsertAdvanceSlideKeywordActionPatch(
   deck: Deck,
   slideId: string,
   keywordId: string,
-  enabled: boolean
+  enabled: boolean,
+  occurrenceId?: string | null
 ): DeckPatch | null {
   const slide = findSlide(deck, slideId);
   const matchingActions = slide
     ? slide.actions.filter(
         (action) =>
-          action.trigger.kind === "keyword" &&
-          action.trigger.keywordId === keywordId &&
+          isSameKeywordTrigger(action, keywordId, occurrenceId) &&
           action.effect.kind === "go-to-next-slide"
       )
     : [];
@@ -191,10 +194,7 @@ export function createUpsertAdvanceSlideKeywordActionPatch(
           slideId,
           action: {
             actionId: createSlideActionId(deck),
-            trigger: {
-              kind: "keyword",
-              keywordId
-            },
+            trigger: createKeywordActionTrigger(keywordId, occurrenceId),
             effect: {
               kind: "go-to-next-slide"
             }
@@ -231,12 +231,17 @@ export function getAnimationTriggerAction(
   );
 
   return matchingActions.find((action) => action.trigger.kind === "keyword") ??
+    matchingActions.find((action) => action.trigger.kind === "keyword-occurrence") ??
     matchingActions[0] ??
     null;
 }
 
 export function deriveKeywordUsage(slide: Slide): Record<string, DerivedKeywordUsage> {
-  const usage = Object.fromEntries(
+  return deriveKeywordActionUsage(slide).byKeywordId;
+}
+
+export function deriveKeywordActionUsage(slide: Slide): DerivedKeywordActionUsage {
+  const byKeywordId = Object.fromEntries(
     slide.keywords.map((keyword) => [
       keyword.keywordId,
       {
@@ -246,30 +251,57 @@ export function deriveKeywordUsage(slide: Slide): Record<string, DerivedKeywordU
       }
     ])
   ) as Record<string, DerivedKeywordUsage>;
+  const byOccurrenceId: Record<string, DerivedKeywordOccurrenceUsage> = {};
 
   for (const action of slide.actions) {
-    if (action.trigger.kind !== "keyword") {
+    if (
+      action.trigger.kind !== "keyword" &&
+      action.trigger.kind !== "keyword-occurrence"
+    ) {
       continue;
     }
 
-    const keywordUsage = usage[action.trigger.keywordId];
+    const keywordUsage = byKeywordId[action.trigger.keywordId];
     if (!keywordUsage) {
       continue;
     }
 
-    if (action.effect.kind === "play-animation") {
-      if (!keywordUsage.animationIds.includes(action.effect.animationId)) {
-        keywordUsage.animationIds.push(action.effect.animationId);
-      }
-      continue;
-    }
+    applyActionEffectToKeywordUsage(keywordUsage, action);
 
-    if (action.effect.kind === "go-to-next-slide") {
-      keywordUsage.advancesSlide = true;
+    if (action.trigger.kind === "keyword-occurrence") {
+      const occurrenceUsage =
+        byOccurrenceId[action.trigger.occurrenceId] ??
+        {
+          keywordId: action.trigger.keywordId,
+          occurrenceId: action.trigger.occurrenceId,
+          animationIds: [],
+          advancesSlide: false
+        };
+      applyActionEffectToKeywordUsage(occurrenceUsage, action);
+      byOccurrenceId[action.trigger.occurrenceId] = occurrenceUsage;
     }
   }
 
-  return usage;
+  return {
+    byKeywordId,
+    byOccurrenceId
+  };
+}
+
+function applyActionEffectToKeywordUsage(
+  usage: Pick<DerivedKeywordUsage, "animationIds" | "advancesSlide">,
+  action: DeckSlideAction
+) {
+  if (action.effect.kind === "play-animation") {
+    if (!usage.animationIds.includes(action.effect.animationId)) {
+      usage.animationIds.push(action.effect.animationId);
+    }
+    return;
+  }
+
+  if (action.effect.kind === "go-to-next-slide") {
+    usage.advancesSlide = true;
+  }
 }
 
 export function findKeywordByTerm(slide: Slide, term: string): Keyword | null {
@@ -304,6 +336,42 @@ export function getKeywordTriggerLabel(
 
 function findSlide(deck: Deck, slideId: string) {
   return deck.slides.find((slide) => slide.slideId === slideId);
+}
+
+function createKeywordActionTrigger(
+  keywordId: string,
+  occurrenceId?: string | null
+): DeckSlideActionTrigger {
+  if (occurrenceId) {
+    return {
+      kind: "keyword-occurrence",
+      keywordId,
+      occurrenceId
+    };
+  }
+
+  return {
+    kind: "keyword",
+    keywordId
+  };
+}
+
+function isSameKeywordTrigger(
+  action: DeckSlideAction,
+  keywordId: string,
+  occurrenceId?: string | null
+) {
+  if (occurrenceId) {
+    return (
+      action.trigger.kind === "keyword-occurrence" &&
+      action.trigger.keywordId === keywordId &&
+      action.trigger.occurrenceId === occurrenceId
+    );
+  }
+
+  return (
+    action.trigger.kind === "keyword" && action.trigger.keywordId === keywordId
+  );
 }
 
 function normalizeTerm(value: string) {

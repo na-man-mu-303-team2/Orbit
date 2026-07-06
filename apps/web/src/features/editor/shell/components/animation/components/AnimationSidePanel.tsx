@@ -25,6 +25,7 @@ export function AnimationSidePanel(props: AnimationSidePanelProps) {
     preferredAnimationId,
     selectedKeywordId,
     selectedKeywordLabel,
+    selectedKeywordOccurrenceId,
     slideAnimations,
     slideElements,
     onAddAnimation,
@@ -60,6 +61,7 @@ export function AnimationSidePanel(props: AnimationSidePanelProps) {
         preferredAnimationId={preferredAnimationId}
         selectedKeywordId={selectedKeywordId}
         selectedKeywordLabel={selectedKeywordLabel}
+        selectedKeywordOccurrenceId={selectedKeywordOccurrenceId}
         slideAnimations={slideAnimations}
         slideElements={slideElements}
         onAddAnimation={onAddAnimation}
