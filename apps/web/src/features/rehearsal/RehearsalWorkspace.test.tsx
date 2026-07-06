@@ -1,7 +1,12 @@
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import { createDemoDeck } from "@orbit/editor-core";
-import type { Job, RehearsalReport, RehearsalRun } from "@orbit/shared";
+import {
+  createKeywordOccurrenceId,
+  type Job,
+  type RehearsalReport,
+  type RehearsalRun,
+} from "@orbit/shared";
 import type { ReactNode } from "react";
 import { forwardRef } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -15,6 +20,9 @@ import {
   applyLiveTranscriptBias,
   applyLiveTranscriptEvent,
   buildLiveSttBiasContext,
+  confirmKeywordOccurrenceMatches,
+  createKeywordOccurrenceAnimationCueEvent,
+  createLiveKeywordOccurrenceState,
   createLiveTranscriptBuffer,
   createRecordingFile,
   createRecordingSession,
@@ -22,10 +30,13 @@ import {
   fetchRehearsalReport,
   fetchOrCreateRehearsalDeck,
   getRehearsalFinishPath,
+  getHighlightedKeywordOccurrencesForSlide,
+  getRehearsalPresenterWindowPath,
   getRehearsalReportPath,
   getLiveAudioLevelLabel,
   getLiveAudioLevelPercent,
   getLiveSttDebugDecodingMethod,
+  getOccurrenceTriggerProgress,
   getRehearsalMicrophoneAudioConstraints,
   getRemainingTriggerStepsForSlide,
   normalizeRecordingMimeType,
@@ -38,39 +49,40 @@ import {
   runRehearsalUploadFlow,
   selectRecordingMimeType,
   shouldRenderRehearsalThumbnailImage,
-  shouldShowLiveSttDebugPcmDownload
+  shouldShowLiveSttDebugPcmDownload,
 } from "./RehearsalWorkspace";
 import {
   defaultAutoAdvanceConfig,
-  defaultAutoAdvancePolicy
+  defaultAutoAdvancePolicy,
 } from "./advance/autoAdvanceConfig";
 import {
   cancelAdvanceCountdown,
   createInitialAdvanceControllerState,
-  evaluateAdvanceController
+  evaluateAdvanceController,
 } from "./advance/advanceController";
 import { p0AnimationDeck } from "./presenter/__fixtures__/animationDeck";
 import { getNextPresenterStepState } from "./presenter/presenterStepNavigation";
 import { normalizeLiveTranscriptText } from "./stt/liveTranscriptText";
 import { createPauseDetector } from "./speech/pauseDetector";
+import { matchKeywordOccurrenceTriggers } from "./speech/keywordOccurrenceRuntime";
 import {
   confirmRehearsalCommandCandidate,
   createRehearsalCommandConfirmationState,
-  detectRehearsalCommandCandidate
+  detectRehearsalCommandCandidate,
 } from "./rehearsalCommands";
 import { resolveEditorAssetUrl } from "../editor/shared/editorAssetUrl";
 
 const createdAt = "2026-06-29T00:00:00.000Z";
 const rehearsalWorkspaceSourcePath = fileURLToPath(
-  new URL("./RehearsalWorkspace.tsx", import.meta.url)
+  new URL("./RehearsalWorkspace.tsx", import.meta.url),
 );
 
 vi.mock("react-konva", () => {
   const Group = forwardRef<HTMLDivElement, { children?: ReactNode }>(
-    ({ children }, ref) => <div ref={ref}>{children}</div>
+    ({ children }, ref) => <div ref={ref}>{children}</div>,
   );
   const Stage = forwardRef<HTMLDivElement, { children?: ReactNode }>(
-    ({ children }, ref) => <div ref={ref}>{children}</div>
+    ({ children }, ref) => <div ref={ref}>{children}</div>,
   );
   const Text = ({ text }: { text?: string }) => <span>{text}</span>;
 
@@ -86,7 +98,7 @@ vi.mock("react-konva", () => {
     Shape: () => <span data-konva-shape="true" />,
     Star: () => <span data-konva-star="true" />,
     Stage,
-    Text
+    Text,
   };
 });
 
@@ -98,7 +110,9 @@ describe("RehearsalWorkspace", () => {
 
   it("renders the current deck preview and notes", () => {
     const deck = createDemoDeck();
-    const html = renderToStaticMarkup(<RehearsalWorkspace initialDeck={deck} />);
+    const html = renderToStaticMarkup(
+      <RehearsalWorkspace initialDeck={deck} />,
+    );
 
     expect(html).toContain("리허설");
     expect(html).toContain(deck.slides[0]?.title);
@@ -114,62 +128,511 @@ describe("RehearsalWorkspace", () => {
     expect(html).toContain("Speaker notes");
   });
 
-  it("resets presenter step when P4 auto advance command completes", () => {
-    const source = fs.readFileSync(
-      rehearsalWorkspaceSourcePath,
-      "utf8"
+  it("creates occurrence animation cue events with occurrence id and display text separated", () => {
+    expect(
+      createKeywordOccurrenceAnimationCueEvent({
+        slideId: "slide_1",
+        match: {
+          keywordId: "kw_ai",
+          occurrenceId: "kwo_slide_1_kw_ai_47_49",
+          text: "AI",
+          currentCharOffset: 55,
+        },
+      }),
+    ).toEqual({
+      type: "animation-cue",
+      slideId: "slide_1",
+      keywordId: "kw_ai",
+      occurrenceId: "kwo_slide_1_kw_ai_47_49",
+      cue: "emphasis",
+      text: "AI",
+    });
+  });
+
+  it("keeps keyword checklist coverage separate from occurrence trigger progress", () => {
+    const targetOccurrenceId = "kwo_slide_1_kw_ai_47_49";
+    const slide = {
+      ...createDemoDeck().slides[0]!,
+      slideId: "slide_1",
+      speakerNotes:
+        "오늘은 AI 덱 생성 파이프라인을 소개합니다. 중간에도 AI를 언급합니다. 마지막에 AI를 말하면 이미지가 나타납니다.",
+      keywords: [
+        {
+          keywordId: "kw_ai",
+          text: "AI",
+          synonyms: [],
+          abbreviations: [],
+          required: true,
+        },
+      ],
+    };
+    const initialOccurrenceState = createLiveKeywordOccurrenceState(
+      slide.slideId,
     );
+    const earlyTranscript = "오늘은 AI 덱 생성 파이프라인을 소개합니다.";
+    const earlyAnalysis = evaluateLiveTranscript(slide, earlyTranscript);
+    const earlyMatches = matchKeywordOccurrenceTriggers({
+      slide,
+      targetOccurrenceIds: [targetOccurrenceId],
+      transcript: earlyTranscript,
+      latestTranscript: "AI",
+      confidence: 0.95,
+      confirmedOccurrenceIds: initialOccurrenceState.confirmedOccurrenceIds,
+    });
+    const earlyOccurrenceState = confirmKeywordOccurrenceMatches(
+      initialOccurrenceState,
+      earlyMatches,
+    );
+
+    expect(earlyAnalysis.coverage).toBe(1);
+    expect(earlyMatches).toEqual([]);
+    expect(
+      getOccurrenceTriggerProgress({
+        targetOccurrenceIds: [targetOccurrenceId],
+        confirmedOccurrenceIds: earlyOccurrenceState.confirmedOccurrenceIds,
+      }),
+    ).toEqual({
+      targetOccurrenceIds: [targetOccurrenceId],
+      confirmedOccurrenceIds: [],
+      coverage: 0,
+    });
+
+    const lateTranscript =
+      "오늘은 AI 덱 생성 파이프라인을 소개합니다. 중간에도 AI를 언급합니다. 마지막에 AI를 말하면";
+    const lateMatches = matchKeywordOccurrenceTriggers({
+      slide,
+      targetOccurrenceIds: [targetOccurrenceId],
+      transcript: lateTranscript,
+      latestTranscript: "AI",
+      confidence: 0.95,
+      confirmedOccurrenceIds: earlyOccurrenceState.confirmedOccurrenceIds,
+    });
+    const lateOccurrenceState = confirmKeywordOccurrenceMatches(
+      earlyOccurrenceState,
+      lateMatches,
+    );
+
+    expect(lateMatches.map((match) => match.occurrenceId)).toEqual([
+      targetOccurrenceId,
+    ]);
+    expect(
+      getOccurrenceTriggerProgress({
+        targetOccurrenceIds: [targetOccurrenceId],
+        confirmedOccurrenceIds: lateOccurrenceState.confirmedOccurrenceIds,
+      }),
+    ).toEqual({
+      targetOccurrenceIds: [targetOccurrenceId],
+      confirmedOccurrenceIds: [targetOccurrenceId],
+      coverage: 1,
+    });
+  });
+
+  it("highlights required occurrence IDs alongside targeted trigger occurrences", () => {
+    const speakerNotes = "keyword occurrence class는 keyword";
+    const targetStart = speakerNotes.lastIndexOf("keyword");
+    const targetOccurrenceId = createKeywordOccurrenceId(
+      "slide_1",
+      "kw_keyword",
+      targetStart,
+      targetStart + "keyword".length,
+    );
+    const occurrenceStart = speakerNotes.indexOf("occurrence");
+    const classStart = speakerNotes.indexOf("class는");
+    const requiredOccurrenceId = createKeywordOccurrenceId(
+      "slide_1",
+      "kw_occurrence",
+      occurrenceStart,
+      occurrenceStart + "occurrence".length,
+    );
+    const requiredClassOccurrenceId = createKeywordOccurrenceId(
+      "slide_1",
+      "kw_class",
+      classStart,
+      classStart + "class는".length,
+    );
+    const slide = {
+      ...createDemoDeck().slides[0]!,
+      slideId: "slide_1",
+      speakerNotes,
+      keywords: [
+        {
+          keywordId: "kw_keyword",
+          text: "keyword",
+          synonyms: [],
+          abbreviations: [],
+          required: false,
+        },
+        {
+          keywordId: "kw_occurrence",
+          text: "occurrence",
+          synonyms: [],
+          abbreviations: [],
+          required: true,
+          requiredOccurrenceIds: [requiredOccurrenceId],
+        },
+        {
+          keywordId: "kw_class",
+          text: "class는",
+          synonyms: [],
+          abbreviations: [],
+          required: true,
+          requiredOccurrenceIds: [requiredClassOccurrenceId],
+        },
+      ],
+      actions: [
+        {
+          actionId: "act_keyword",
+          trigger: {
+            kind: "keyword-occurrence" as const,
+            keywordId: "kw_keyword",
+            occurrenceId: targetOccurrenceId,
+          },
+          effect: {
+            kind: "go-to-next-slide" as const,
+          },
+        },
+      ],
+    };
+
+    expect(
+      (getHighlightedKeywordOccurrencesForSlide(slide) ?? []).map(
+        (occurrence) => occurrence.occurrenceId,
+      ),
+    ).toEqual([
+      requiredOccurrenceId,
+      requiredClassOccurrenceId,
+      targetOccurrenceId,
+    ]);
+  });
+
+  it("does not highlight every occurrence for a required keyword text", () => {
+    const speakerNotes = "원인은 selected 판정은 occurrence 기준입니다 은";
+    const selectedStart = speakerNotes.lastIndexOf("은");
+    const selectedOccurrenceId = createKeywordOccurrenceId(
+      "slide_1",
+      "kw_eun",
+      selectedStart,
+      selectedStart + "은".length,
+    );
+    const slide = {
+      ...createDemoDeck().slides[0]!,
+      slideId: "slide_1",
+      speakerNotes,
+      keywords: [
+        {
+          keywordId: "kw_eun",
+          text: "은",
+          synonyms: [],
+          abbreviations: [],
+          required: true,
+          requiredOccurrenceIds: [selectedOccurrenceId],
+        },
+      ],
+      actions: [],
+    };
+
+    expect(
+      (getHighlightedKeywordOccurrencesForSlide(slide) ?? []).map(
+        (occurrence) => occurrence.occurrenceId,
+      ),
+    ).toEqual([selectedOccurrenceId]);
+  });
+
+  it("does not derive broad highlights from legacy required keywords", () => {
+    const slide = {
+      ...createDemoDeck().slides[0]!,
+      slideId: "slide_1",
+      speakerNotes: "원인은 selected 판정은 occurrence 기준입니다 은",
+      keywords: [
+        {
+          keywordId: "kw_eun",
+          text: "은",
+          synonyms: [],
+          abbreviations: [],
+          required: true,
+        },
+      ],
+      actions: [],
+    };
+
+    expect(getHighlightedKeywordOccurrencesForSlide(slide)).toEqual([]);
+  });
+
+  it("builds the presenter window rehearsal URL with the shared session id", () => {
+    expect(
+      getRehearsalPresenterWindowPath("project demo/1", "session-presenter/1", {
+        slideIndex: 2,
+        stepIndex: 1,
+      }),
+    ).toBe(
+      "/rehearsal/project%20demo%2F1?presenterSessionId=session-presenter%2F1&presenterWindow=1&slideIndex=2&stepIndex=1",
+    );
+  });
+
+  it("opens a slide window while keeping presenter tools in the current window", () => {
+    const source = fs.readFileSync(rehearsalWorkspaceSourcePath, "utf8");
+    const slideWindowStart = source.indexOf(
+      "const openSlideWindowForDisplay =",
+    );
+    const start = source.indexOf("const openSlideDisplay = async");
+    const end = source.indexOf("const checklistKeywords");
+    const openSlideWindowBody = source.slice(slideWindowStart, start);
+    const openSlideDisplayBody = source.slice(start, end);
+
+    expect(openSlideWindowBody).toContain("displayManager.openSlideWindow");
+    expect(openSlideWindowBody).toContain(
+      "target: `orbit-slide-${presentationChannel.sessionId}-${Date.now()}`",
+    );
+    expect(openSlideWindowBody).toContain("closeExistingSlideWindow()");
+    expect(openSlideWindowBody).not.toContain("displayManager.placeOnScreen");
+    expect(openSlideWindowBody).toContain(
+      "publishSlideWindowSnapshot(options.startFromBeginning)",
+    );
+    expect(openSlideDisplayBody).toContain(
+      "await openSlideWindowForDisplay(options)",
+    );
+    expect(openSlideDisplayBody).toContain("displayOpened");
+    expect(openSlideDisplayBody).toContain('displayMode: "slide-window"');
+  });
+
+  it("renders a presenter remote window without the full rehearsal workspace", () => {
+    const html = renderToStaticMarkup(
+      <RehearsalWorkspace
+        initialDeck={p0AnimationDeck}
+        presenterSessionId="session-presenter-1"
+        presenterWindow={true}
+      />,
+    );
+
+    expect(html).toContain("발표자 제어");
+    expect(html).toContain("대본");
+    expect(html).toContain("현재 슬라이드");
+    expect(html).toContain("다음 슬라이드");
+    expect(html).toContain("핵심 키워드");
+    expect(html).toContain("타이머");
+    expect(html).toContain("슬라이드 목표");
+    expect(html).toContain("첫 문장입니다");
+    expect(html).not.toContain("Live STT 시작");
+    expect(html).not.toContain("Report AI");
+  });
+
+  it("routes presenter remote timer controls through timer and Live STT state", () => {
+    const source = fs.readFileSync(rehearsalWorkspaceSourcePath, "utf8");
+    const commandStart = source.indexOf(
+      "function handlePresenterRemoteCommand",
+    );
+    const commandEnd = source.indexOf("useEffect(() => {", commandStart);
+    const stateStart = source.indexOf(
+      "const presentationChannelState = useMemo",
+    );
+    const stateEnd = source.indexOf("const presentationChannel =", stateStart);
+    const commandBody = source.slice(commandStart, commandEnd);
+    const stateBody = source.slice(stateStart, stateEnd);
+
+    expect(commandBody).toContain('command.action === "timer-start"');
+    expect(commandBody).toContain("void startLiveDemo()");
+    expect(commandBody).toContain('command.action === "timer-pause"');
+    expect(commandBody).toContain("stopLiveDemo()");
+    expect(commandBody).toContain('command.action === "timer-reset"');
+    expect(commandBody).toContain("resetRehearsalTimerState");
+    expect(stateBody).toContain("timing:");
+    expect(stateBody).toContain("currentSlideTargetSeconds");
+    expect(stateBody).toContain("isLiveSttActive");
+  });
+
+  it("ignores late Live STT callbacks after the presenter timer stops tracking", () => {
+    const source = fs.readFileSync(rehearsalWorkspaceSourcePath, "utf8");
+    const errorStart = source.indexOf("function handleLiveSttError");
+    const resultStart = source.indexOf("function handleLiveSttResult");
+    const partialStart = source.indexOf("function handleLivePartialTranscript");
+    const errorBody = source.slice(errorStart, resultStart);
+    const resultBody = source.slice(resultStart, partialStart);
+
+    expect(errorBody).toContain("if (!p3SessionRef.current)");
+    expect(resultBody).toContain("if (!p3SessionRef.current)");
+    expect(resultBody.indexOf("if (!p3SessionRef.current)")).toBeLessThan(
+      resultBody.indexOf("handleLivePartialTranscript"),
+    );
+  });
+
+  it("requests Window Management screens for automatic slide-window placement", () => {
+    const source = fs.readFileSync(rehearsalWorkspaceSourcePath, "utf8");
+    const requestStart = source.indexOf("const requestDisplayScreens =");
+    const resolveStart = source.indexOf("const resolveAutoPlacementScreen =");
+    const openStart = source.indexOf("const openSlideWindowForDisplay =");
+    const renderStart = source.indexOf("const checklistKeywords");
+    const requestBody = source.slice(requestStart, resolveStart);
+    const resolveBody = source.slice(resolveStart, openStart);
+    const openBody = source.slice(openStart, renderStart);
+
+    expect(requestBody).toContain("displayManager.listExternalScreens()");
+    expect(resolveBody).toContain("options.targetScreen");
+    expect(resolveBody).not.toContain("displayManager.listExternalScreens()");
+    expect(openBody).toContain("screen: targetScreen");
+    expect(openBody).toContain("placementTargetLabel: targetScreen?.label");
+  });
+
+  it("delegates slide-window fullscreen from the presenter window", () => {
+    const source = fs.readFileSync(rehearsalWorkspaceSourcePath, "utf8");
+    const requestStart = source.indexOf("const requestSlideWindowFullscreen =");
+    const openStart = source.indexOf("const openSlideWindowForDisplay =");
+    const renderStart = source.indexOf("<DisplayControls");
+    const requestBody = source.slice(requestStart, openStart);
+    const renderBody = source.slice(
+      renderStart,
+      source.indexOf("/>", renderStart),
+    );
+
+    expect(requestBody).toContain("slideWindowRef.current");
+    expect(requestBody).toContain(
+      "displayManager.delegateSlideWindowFullscreen",
+    );
+    expect(renderBody).toContain(
+      "onRequestSlideWindowFullscreen={requestSlideWindowFullscreen}",
+    );
+  });
+
+  it("supports Surface Swap fullscreen before opening the presenter remote popup", () => {
+    const source = fs.readFileSync(rehearsalWorkspaceSourcePath, "utf8");
+    const surfaceStart = source.indexOf("const openSurfaceSwapDisplay =");
+    const openStart = source.indexOf(
+      "const openSlideWindowForDisplay =",
+      surfaceStart,
+    );
+    const publisherStart = source.indexOf(
+      "const presentationChannel = usePresentationChannelPublisher",
+    );
+    const publisherBody = source.slice(
+      publisherStart,
+      source.indexOf("});", publisherStart),
+    );
+    const surfaceBody = source.slice(surfaceStart, openStart);
+
+    expect(surfaceBody).toContain("displayManager.requestFullscreenOnScreen");
+    expect(surfaceBody).toContain("displayManager.openPresenterRemoteWindow");
+    expect(surfaceBody.indexOf("requestFullscreenOnScreen")).toBeLessThan(
+      surfaceBody.indexOf("openPresenterRemoteWindow"),
+    );
+    expect(surfaceBody).toContain('setDisplayRole("slide-surface")');
+    expect(publisherBody).toContain('displayRole === "slide-surface"');
+    expect(publisherBody).toContain("onCommand: handlePresenterRemoteCommand");
+  });
+
+  it("keeps presenter controls active in the current-window slide receiver", () => {
+    const source = fs.readFileSync(rehearsalWorkspaceSourcePath, "utf8");
+    const keyboardStart = source.indexOf("usePresenterKeyboard({");
+    const keyboardEnd = source.indexOf("});", keyboardStart);
+    const keyboardBody = source.slice(keyboardStart, keyboardEnd);
+    const receiverStart = source.indexOf('(displayRole === "slide-receiver"');
+    const receiverEnd = source.indexOf("if (isSingleScreenOpen");
+    const receiverBody = source.slice(receiverStart, receiverEnd);
+
+    expect(keyboardBody).toContain('displayRole === "slide-receiver"');
+    expect(receiverBody).toContain("controlOverlayMode={");
+    expect(receiverBody).toContain('displayRole === "slide-receiver"');
+    expect(receiverBody).toContain('"always" : "fallback"');
+    expect(receiverBody).toContain("onNextStep={handleNextPresenterStep}");
+    expect(receiverBody).toContain("onPreviousSlide={goPrevious}");
+  });
+
+  it("supports Google Slides style fullscreen in the current document", () => {
+    const source = fs.readFileSync(rehearsalWorkspaceSourcePath, "utf8");
+    const currentWindowStart = source.indexOf(
+      "const openCurrentWindowSlideDisplay =",
+    );
+    const start = source.indexOf("const openSlideDisplay = async");
+    const end = source.indexOf("const checklistKeywords");
+    const openCurrentWindowBody = source.slice(currentWindowStart, start);
+    const openSlideDisplayBody = source.slice(start, end);
+
+    expect(openCurrentWindowBody).toContain("requestPresentWindowFullscreen");
+    expect(openCurrentWindowBody).toContain("document.documentElement");
+    expect(openCurrentWindowBody).toContain('setDisplayRole("slide-receiver")');
+    expect(openCurrentWindowBody).toContain("setSlideReceiverMessage");
+    expect(openSlideDisplayBody).toContain(
+      'options.displayMode === "current-window"',
+    );
+    expect(openSlideDisplayBody).toContain(
+      "openCurrentWindowSlideDisplay(options)",
+    );
+  });
+
+  it("renders slide receiver mode without the presenter toolbar or notes", () => {
+    const source = fs.readFileSync(rehearsalWorkspaceSourcePath, "utf8");
+    const start = source.indexOf('displayRole === "slide-receiver"');
+    const end = source.indexOf("if (isSingleScreenOpen");
+    const slideReceiverRenderBody = source.slice(start, end);
+
+    expect(slideReceiverRenderBody).toContain("PresentWindowReceiver");
+    expect(slideReceiverRenderBody).toContain("controlOverlayMode=");
+    expect(slideReceiverRenderBody).toContain(
+      "initialSnapshot={slideReceiverSnapshot}",
+    );
+    expect(slideReceiverRenderBody).toContain(
+      "onReconnectPresenter={(snapshot)",
+    );
+    expect(slideReceiverRenderBody).toContain(
+      "slideIndex: snapshot.state.slideIndex",
+    );
+    expect(slideReceiverRenderBody).toContain(
+      "stepIndex: snapshot.state.stepIndex",
+    );
+    expect(slideReceiverRenderBody).toContain('setDisplayRole("presenter")');
+    expect(slideReceiverRenderBody).not.toContain("DisplayControls");
+    expect(slideReceiverRenderBody).not.toContain("RehearsalPanel");
+    expect(slideReceiverRenderBody).not.toContain("speakerNotes");
+  });
+
+  it("resets presenter step when P4 auto advance command completes", () => {
+    const source = fs.readFileSync(rehearsalWorkspaceSourcePath, "utf8");
     const start = source.indexOf("function runAdvanceControllerEvaluation");
     const end = source.indexOf("function handleLiveSttError");
     const autoAdvanceBody = source.slice(start, end);
 
     expect(autoAdvanceBody).toContain("evaluateAdvanceController");
-    expect(autoAdvanceBody).toContain("command.type !== \"advance-slide\"");
+    expect(autoAdvanceBody).toContain('command.type !== "advance-slide"');
     expect(autoAdvanceBody).toContain("setPresenterStepIndex(0)");
     expect(autoAdvanceBody.indexOf("setPresenterStepIndex(0)")).toBeLessThan(
-      autoAdvanceBody.indexOf("setCurrentSlideIndex")
+      autoAdvanceBody.indexOf("setCurrentSlideIndex"),
     );
   });
 
   it("keeps the presenter step on the last slide when no next slide exists", () => {
-    const source = fs.readFileSync(
-      rehearsalWorkspaceSourcePath,
-      "utf8"
-    );
+    const source = fs.readFileSync(rehearsalWorkspaceSourcePath, "utf8");
     const start = source.indexOf("const handleNextPresenterStep");
     const end = source.indexOf("const finishRehearsal");
     const handleNextPresenterStepBody = source.slice(start, end);
 
     expect(handleNextPresenterStepBody).toContain("getNextPresenterStepState");
-    expect(handleNextPresenterStepBody).toContain("slideCount: deck.slides.length");
     expect(handleNextPresenterStepBody).toContain(
-      "setPresenterStepIndex(nextState.stepIndex)"
+      "slideCount: deck.slides.length",
     );
     expect(handleNextPresenterStepBody).toContain(
-      "setCurrentSlideIndex(nextState.slideIndex)"
+      "setPresenterStepIndex(nextState.stepIndex)",
+    );
+    expect(handleNextPresenterStepBody).toContain(
+      "setCurrentSlideIndex(nextState.slideIndex)",
     );
   });
 
   it("moves slides outside of the presenter step state updater", () => {
-    const source = fs.readFileSync(
-      rehearsalWorkspaceSourcePath,
-      "utf8"
-    );
+    const source = fs.readFileSync(rehearsalWorkspaceSourcePath, "utf8");
     const start = source.indexOf("const handleNextPresenterStep");
     const end = source.indexOf("const finishRehearsal");
     const handleNextPresenterStepBody = source.slice(start, end);
 
-    expect(handleNextPresenterStepBody).not.toContain("setPresenterStepIndex((currentStep)");
+    expect(handleNextPresenterStepBody).not.toContain(
+      "setPresenterStepIndex((currentStep)",
+    );
     expect(
-      handleNextPresenterStepBody.indexOf("setPresenterStepIndex(nextState.stepIndex)")
+      handleNextPresenterStepBody.indexOf(
+        "setPresenterStepIndex(nextState.stepIndex)",
+      ),
     ).toBeLessThan(handleNextPresenterStepBody.indexOf("setCurrentSlideIndex"));
   });
 
   it("routes the top timer play button through report recording", () => {
-    const source = fs.readFileSync(
-      rehearsalWorkspaceSourcePath,
-      "utf8"
-    );
+    const source = fs.readFileSync(rehearsalWorkspaceSourcePath, "utf8");
     const start = source.indexOf("async function handleTimePrimaryAction");
     const end = source.indexOf("function commitElapsedTimeInput");
     const handleTimePrimaryActionBody = source.slice(start, end);
@@ -180,11 +643,41 @@ describe("RehearsalWorkspace", () => {
     expect(handleTimePrimaryActionBody).toContain("stopLiveDemo()");
   });
 
-  it("creates fallback Live STT ports from the selected presenter engine", () => {
+  it("stops report recording before falling back to standalone Live STT stop", () => {
     const source = fs.readFileSync(
       rehearsalWorkspaceSourcePath,
       "utf8"
     );
+    const start = source.indexOf("function handleSideTimerPrimaryAction");
+    const end = source.indexOf("function commitElapsedTimeInput");
+    const handleSideTimerPrimaryActionBody = source.slice(start, end);
+
+    expect(handleSideTimerPrimaryActionBody).toContain('if (phase === "recording")');
+    expect(handleSideTimerPrimaryActionBody).toContain("stopRecording()");
+    expect(handleSideTimerPrimaryActionBody).toContain("if (canStopLiveDemo)");
+    expect(handleSideTimerPrimaryActionBody).toContain(
+      "stopLiveDemo({ showCompletionModal: true })"
+    );
+    expect(handleSideTimerPrimaryActionBody.indexOf('if (phase === "recording")'))
+      .toBeLessThan(handleSideTimerPrimaryActionBody.indexOf("if (canStopLiveDemo)"));
+  });
+
+  it("starts report recording from the side timer play button", () => {
+    const source = fs.readFileSync(
+      rehearsalWorkspaceSourcePath,
+      "utf8"
+    );
+    const start = source.indexOf("function handleSideTimerPrimaryAction");
+    const end = source.indexOf("function commitElapsedTimeInput");
+    const handleSideTimerPrimaryActionBody = source.slice(start, end);
+
+    expect(handleSideTimerPrimaryActionBody).toContain("if (canRecord)");
+    expect(handleSideTimerPrimaryActionBody).toContain("void startRecording()");
+    expect(handleSideTimerPrimaryActionBody).not.toContain("void startLiveDemo()");
+  });
+
+  it("creates fallback Live STT ports from the selected presenter engine", () => {
+    const source = fs.readFileSync(rehearsalWorkspaceSourcePath, "utf8");
     const defaultStart = source.indexOf("function createDefaultLiveSttPort");
     const defaultEnd = source.indexOf("export function RehearsalWorkspace");
     const createDefaultLiveSttPortBody = source.slice(defaultStart, defaultEnd);
@@ -193,29 +686,26 @@ describe("RehearsalWorkspace", () => {
     const getOrCreateLiveSttPortBody = source.slice(start, end);
 
     expect(createDefaultLiveSttPortBody).toContain(
-      'const shouldUseSherpaCompatibility = !engineId || engineId === "sherpa"'
+      'const shouldUseSherpaCompatibility = !engineId || engineId === "sherpa"',
     );
     expect(createDefaultLiveSttPortBody).toContain(
-      "shouldUseSherpaCompatibility && legacyAdapter"
+      "shouldUseSherpaCompatibility && legacyAdapter",
     );
-    expect(createDefaultLiveSttPortBody).toContain("return createLiveSttPort(engineId)");
-    expect(getOrCreateLiveSttPortBody).toContain(
-      "props.liveSttPort"
+    expect(createDefaultLiveSttPortBody).toContain(
+      "return createLiveSttPort(engineId)",
     );
+    expect(getOrCreateLiveSttPortBody).toContain("props.liveSttPort");
     expect(getOrCreateLiveSttPortBody).toContain(
-      "cachedPort?.engineId === presenterSettings.sttEngine"
+      "cachedPort?.engineId === presenterSettings.sttEngine",
     );
     expect(getOrCreateLiveSttPortBody).toContain("cachedPort?.dispose()");
     expect(getOrCreateLiveSttPortBody).toContain(
-      "engineId: presenterSettings.sttEngine"
+      "engineId: presenterSettings.sttEngine",
     );
   });
 
   it("routes report recording through the P3 tracking session", () => {
-    const source = fs.readFileSync(
-      rehearsalWorkspaceSourcePath,
-      "utf8"
-    );
+    const source = fs.readFileSync(rehearsalWorkspaceSourcePath, "utf8");
     const recordingStart = source.indexOf("async function startRecording");
     const recordingEnd = source.indexOf("async function startLiveDemo");
     const startRecordingBody = source.slice(recordingStart, recordingEnd);
@@ -225,7 +715,9 @@ describe("RehearsalWorkspace", () => {
 
     expect(startRecordingBody).toContain("void startP3Tracking(stream)");
     expect(startRecordingBody).not.toContain("startLiveStt(stream)");
-    expect(stopRecordingBody).toContain("const p3Session = p3SessionRef.current");
+    expect(stopRecordingBody).toContain(
+      "const p3Session = p3SessionRef.current",
+    );
     expect(stopRecordingBody).toContain("p3Session");
     expect(stopRecordingBody).toContain(".stop()");
     expect(stopRecordingBody).toContain(".then((meta)");
@@ -234,15 +726,15 @@ describe("RehearsalWorkspace", () => {
   });
 
   it("continues report upload when optional P3 run meta fails", () => {
-    const source = fs.readFileSync(
-      rehearsalWorkspaceSourcePath,
-      "utf8"
-    );
+    const source = fs.readFileSync(rehearsalWorkspaceSourcePath, "utf8");
     const stopStart = source.indexOf("function stopRecording");
     const stopEnd = source.indexOf("function handleTimePrimaryAction");
     const stopRecordingBody = source.slice(stopStart, stopEnd);
     const submitStart = source.indexOf("async function submitRecording");
-    const submitEnd = source.indexOf("function handleTimePrimaryAction", submitStart);
+    const submitEnd = source.indexOf(
+      "function handleTimePrimaryAction",
+      submitStart,
+    );
     const submitRecordingBody = source.slice(submitStart, submitEnd);
 
     expect(stopRecordingBody).toContain(".catch(() => null)");
@@ -251,59 +743,62 @@ describe("RehearsalWorkspace", () => {
   });
 
   it("resynchronizes P3 tracking when the slide changes while STT is starting", () => {
-    const source = fs.readFileSync(
-      rehearsalWorkspaceSourcePath,
-      "utf8"
+    const source = fs.readFileSync(rehearsalWorkspaceSourcePath, "utf8");
+    const effectStart = source.indexOf(
+      "pendingP3SlideIndexRef.current = currentSlideIndex",
     );
-    const effectStart = source.indexOf("pendingP3SlideIndexRef.current = currentSlideIndex");
     const trackingStart = source.indexOf("async function startP3Tracking");
     const trackingEnd = source.indexOf("function syncP3AdviceState");
     const startP3TrackingBody = source.slice(trackingStart, trackingEnd);
 
     expect(source.slice(effectStart - 120, effectStart + 120)).toContain(
-      'p3State.status === "starting"'
+      'p3State.status === "starting"',
     );
     expect(startP3TrackingBody).toContain(
-      "pendingP3SlideIndexRef.current ?? currentSlideIndexRef.current"
+      "pendingP3SlideIndexRef.current ?? currentSlideIndexRef.current",
     );
-    expect(startP3TrackingBody).toContain("session.enterSlide(latestSlideIndex)");
+    expect(startP3TrackingBody).toContain(
+      "session.enterSlide(latestSlideIndex)",
+    );
   });
 
   it("passes live STT bias phrases on slide changes from the shared bias context", () => {
-    const source = fs.readFileSync(
-      rehearsalWorkspaceSourcePath,
-      "utf8"
-    );
+    const source = fs.readFileSync(rehearsalWorkspaceSourcePath, "utf8");
     const effectStart = source.indexOf("const nextBiasContext =");
-    const effectEnd = source.indexOf("const p3Session = p3SessionRef.current", effectStart);
+    const effectEnd = source.indexOf(
+      "const p3Session = p3SessionRef.current",
+      effectStart,
+    );
     const slideChangeEffectBody = source.slice(effectStart, effectEnd);
     const compactEffectBody = slideChangeEffectBody.replace(/\s+/g, "");
 
     expect(compactEffectBody).toContain(
-      "voidliveSttPortRef.current?.updateBiasPhrases(getBiasPhrasesFromContext(nextBiasContext))"
+      "voidliveSttPortRef.current?.updateBiasPhrases(",
+    );
+    expect(compactEffectBody).toContain(
+      "getBiasPhrasesFromContext(nextBiasContext)",
     );
     expect(slideChangeEffectBody).toContain("const nextBiasContext =");
-    expect(slideChangeEffectBody).toContain("buildLiveSttBiasContext(currentSlide");
+    expect(slideChangeEffectBody).toContain(
+      "buildLiveSttBiasContext(currentSlide",
+    );
     expect(slideChangeEffectBody).toContain("nearbySlides: getNearbySlides");
   });
 
   it("syncs current P3 advice state into the session log", () => {
-    const source = fs.readFileSync(
-      rehearsalWorkspaceSourcePath,
-      "utf8"
-    );
+    const source = fs.readFileSync(rehearsalWorkspaceSourcePath, "utf8");
     const start = source.indexOf("function syncP3AdviceState");
     const end = source.indexOf("function handleLiveSttError");
     const syncP3AdviceStateBody = source.slice(start, end);
 
     expect(syncP3AdviceStateBody).toContain(
-      'p3Session.setAdviceState("slide-overtime", p3AdviceState.slideOvertime)'
+      'p3Session.setAdviceState("slide-overtime", p3AdviceState.slideOvertime)',
     );
     expect(syncP3AdviceStateBody).toContain(
-      'p3Session.setAdviceState(\n      "pace-too-fast"'
+      'p3Session.setAdviceState(\n      "pace-too-fast"',
     );
     expect(syncP3AdviceStateBody).toContain(
-      'p3Session.setAdviceState(\n      "pace-too-slow"'
+      'p3Session.setAdviceState(\n      "pace-too-slow"',
     );
   });
 
@@ -312,12 +807,12 @@ describe("RehearsalWorkspace", () => {
     const getUserMedia = vi.fn(async () => stream);
 
     const result = await requestRehearsalMicrophoneStream({
-      getUserMedia
+      getUserMedia,
     } as unknown as Pick<MediaDevices, "getUserMedia">);
 
     expect(result).toBe(stream);
     expect(getUserMedia).toHaveBeenCalledWith({
-      audio: rehearsalMicrophoneAudioConstraints
+      audio: rehearsalMicrophoneAudioConstraints,
     });
   });
 
@@ -325,23 +820,23 @@ describe("RehearsalWorkspace", () => {
     vi.stubGlobal("window", {
       localStorage: {
         getItem: vi.fn((key: string) =>
-          key === "orbit.liveStt.debugRawMic" ? "1" : null
-        )
-      }
+          key === "orbit.liveStt.debugRawMic" ? "1" : null,
+        ),
+      },
     });
     const stream = { getTracks: () => [] } as unknown as MediaStream;
     const getUserMedia = vi.fn(async () => stream);
 
     const result = await requestRehearsalMicrophoneStream({
-      getUserMedia
+      getUserMedia,
     } as unknown as Pick<MediaDevices, "getUserMedia">);
 
     expect(result).toBe(stream);
     expect(getRehearsalMicrophoneAudioConstraints()).toBe(
-      rehearsalRawMicrophoneAudioConstraints
+      rehearsalRawMicrophoneAudioConstraints,
     );
     expect(getUserMedia).toHaveBeenCalledWith({
-      audio: rehearsalRawMicrophoneAudioConstraints
+      audio: rehearsalRawMicrophoneAudioConstraints,
     });
   });
 
@@ -350,7 +845,7 @@ describe("RehearsalWorkspace", () => {
     Object.defineProperty(blockedWindow, "localStorage", {
       get() {
         throw new DOMException("blocked", "SecurityError");
-      }
+      },
     });
     vi.stubGlobal("window", blockedWindow);
     const stream = { getTracks: () => [] } as unknown as MediaStream;
@@ -358,12 +853,12 @@ describe("RehearsalWorkspace", () => {
 
     await expect(
       requestRehearsalMicrophoneStream({
-        getUserMedia
-      } as unknown as Pick<MediaDevices, "getUserMedia">)
+        getUserMedia,
+      } as unknown as Pick<MediaDevices, "getUserMedia">),
     ).resolves.toBe(stream);
 
     expect(getRehearsalMicrophoneAudioConstraints()).toBe(
-      rehearsalMicrophoneAudioConstraints
+      rehearsalMicrophoneAudioConstraints,
     );
     expect(getLiveSttDebugDecodingMethod()).toBeNull();
     expect(
@@ -374,30 +869,30 @@ describe("RehearsalWorkspace", () => {
           sampleRate: 16000,
           durationMs: 1000,
           peak: 0.5,
-          rms: 0.2
+          rms: 0.2,
         },
-        undefined
-      )
+        undefined,
+      ),
     ).toBe(false);
   });
 
   it("parses Live STT debug decoding method overrides defensively", () => {
     expect(
       getLiveSttDebugDecodingMethod({
-        getItem: vi.fn(() => "modified_beam_search")
-      })
+        getItem: vi.fn(() => "modified_beam_search"),
+      }),
     ).toBe("modified_beam_search");
     expect(
       getLiveSttDebugDecodingMethod({
-        getItem: vi.fn(() => "beam_search")
-      })
+        getItem: vi.fn(() => "beam_search"),
+      }),
     ).toBeNull();
     expect(
       getLiveSttDebugDecodingMethod({
         getItem: vi.fn(() => {
           throw new Error("storage unavailable");
-        })
-      })
+        }),
+      }),
     ).toBeNull();
   });
 
@@ -408,25 +903,25 @@ describe("RehearsalWorkspace", () => {
       sampleRate: 16000,
       durationMs: 1000,
       peak: 0.5,
-      rms: 0.2
+      rms: 0.2,
     };
 
     expect(
       shouldShowLiveSttDebugPcmDownload(recording, {
         getItem: vi.fn((key: string) =>
-          key === "orbit.liveStt.debugPcmDump" ? "1" : null
-        )
-      })
+          key === "orbit.liveStt.debugPcmDump" ? "1" : null,
+        ),
+      }),
     ).toBe(true);
     expect(
       shouldShowLiveSttDebugPcmDownload(null, {
-        getItem: vi.fn(() => "1")
-      })
+        getItem: vi.fn(() => "1"),
+      }),
     ).toBe(false);
     expect(
       shouldShowLiveSttDebugPcmDownload(recording, {
-        getItem: vi.fn(() => null)
-      })
+        getItem: vi.fn(() => null),
+      }),
     ).toBe(false);
   });
 
@@ -440,8 +935,8 @@ describe("RehearsalWorkspace", () => {
         peak: 0.01,
         rmsDb: -60,
         peakDb: -40,
-        isLikelySilence: true
-      })
+        isLikelySilence: true,
+      }),
     ).toBe("입력 낮음");
     expect(
       getLiveAudioLevelLabel({
@@ -450,8 +945,8 @@ describe("RehearsalWorkspace", () => {
         peak: 0.3,
         rmsDb: -22,
         peakDb: -10,
-        isLikelySilence: false
-      })
+        isLikelySilence: false,
+      }),
     ).toBe("입력 적정");
     expect(
       getLiveAudioLevelLabel({
@@ -460,22 +955,26 @@ describe("RehearsalWorkspace", () => {
         peak: 0.9,
         rmsDb: -6,
         peakDb: -2,
-        isLikelySilence: false
-      })
+        isLikelySilence: false,
+      }),
     ).toBe("입력 과대");
-    expect(getLiveAudioLevelPercent({
-      type: "audio-level",
-      rms: 0.08,
-      peak: 0.3,
-      rmsDb: -22,
-      peakDb: -10,
-      isLikelySilence: false
-    })).toBe(60);
+    expect(
+      getLiveAudioLevelPercent({
+        type: "audio-level",
+        rms: 0.08,
+        peak: 0.3,
+        rmsDb: -22,
+        peakDb: -10,
+        isLikelySilence: false,
+      }),
+    ).toBe(60);
   });
 
   it("keeps final report content out of the presenter workspace", () => {
     const deck = createDemoDeck();
-    const html = renderToStaticMarkup(<RehearsalWorkspace initialDeck={deck} />);
+    const html = renderToStaticMarkup(
+      <RehearsalWorkspace initialDeck={deck} />,
+    );
 
     expect(html).not.toContain("리허설 보고서");
     expect(html).not.toContain("120 wpm");
@@ -490,11 +989,11 @@ describe("RehearsalWorkspace", () => {
         initialRun={runFixture("succeeded")}
         initialReport={reportFixture({
           transcriptRetained: false,
-          transcript: null
+          transcript: null,
         })}
         projectId="project-a"
         runId="run-1"
-      />
+      />,
     );
 
     expect(html).toContain("1회차 리허설 리포트");
@@ -530,16 +1029,18 @@ describe("RehearsalWorkspace", () => {
             {
               slideId: completedSlide.slideId,
               targetSeconds: 60,
-              actualSeconds: 52
-            }
-          ]
+              actualSeconds: 52,
+            },
+          ],
         })}
         projectId="project-a"
         runId="run-1"
-      />
+      />,
     );
 
-    expect(html).toContain(`<span>완료율</span><strong>${expectedPercent}</strong>`);
+    expect(html).toContain(
+      `<span>완료율</span><strong>${expectedPercent}</strong>`,
+    );
   });
 
   it("does not describe an extreme speaking speed as stable", () => {
@@ -553,16 +1054,18 @@ describe("RehearsalWorkspace", () => {
             wordsPerMinute: 3600,
             fillerWordCount: 0,
             pauseCount: 0,
-            keywordCoverage: 1
-          }
+            keywordCoverage: 1,
+          },
         })}
         projectId="project-a"
         runId="run-1"
-      />
+      />,
     );
 
     expect(html).toContain("확인 필요");
-    expect(html).toContain("발표 시간 데이터가 불안정해 속도 판단을 확인해야 합니다.");
+    expect(html).toContain(
+      "발표 시간 데이터가 불안정해 속도 판단을 확인해야 합니다.",
+    );
     expect(html).not.toContain("3600");
     expect(html).not.toContain("권장 범위 안에서 안정적인 속도로 발표했어요.");
   });
@@ -580,16 +1083,18 @@ describe("RehearsalWorkspace", () => {
             wordsPerMinute: 120,
             fillerWordCount: 0,
             pauseCount: 0,
-            keywordCoverage: 1
-          }
+            keywordCoverage: 1,
+          },
         })}
         projectId="project-a"
         runId="run-1"
-      />
+      />,
     );
 
     expect(html).toContain("공식 누락 키워드 상세 데이터가 없습니다.");
-    expect(html).not.toContain("핵심 키워드 커버리지가 낮을 때만 누락 후보를 표시합니다.");
+    expect(html).not.toContain(
+      "핵심 키워드 커버리지가 낮을 때만 누락 후보를 표시합니다.",
+    );
   });
 
   it("groups official missing keywords by slide in a single row", () => {
@@ -603,29 +1108,29 @@ describe("RehearsalWorkspace", () => {
             {
               slideId: deck.slides[0]!.slideId,
               keywordId: "kw_component",
-              text: "컴포넌트"
+              text: "컴포넌트",
             },
             {
               slideId: deck.slides[0]!.slideId,
               keywordId: "kw_design",
-              text: "설계"
+              text: "설계",
             },
             {
               slideId: deck.slides[0]!.slideId,
               keywordId: "kw_state",
-              text: "상태관리"
-            }
-          ]
+              text: "상태관리",
+            },
+          ],
         })}
         projectId="project-a"
         runId="run-1"
-      />
+      />,
     );
 
     expect(html).toContain("총 3개");
     expect(html).toContain("<strong>슬라이드1</strong>");
     expect(html).toMatch(
-      /<strong>슬라이드1<\/strong>\s*<span>컴포넌트<\/span>\s*<span>설계<\/span>\s*<span>상태관리<\/span>/
+      /<strong>슬라이드1<\/strong>\s*<span>컴포넌트<\/span>\s*<span>설계<\/span>\s*<span>상태관리<\/span>/,
     );
   });
 
@@ -633,7 +1138,7 @@ describe("RehearsalWorkspace", () => {
     const missedKeywords = Array.from({ length: 24 }, (_, index) => ({
       slideId: `slide_${(index % 3) + 1}`,
       keywordId: `kw_dense_${index}`,
-      text: `매우긴누락키워드${index}발표흐름핵심데이터`
+      text: `매우긴누락키워드${index}발표흐름핵심데이터`,
     }));
     const html = renderToStaticMarkup(
       <RehearsalReportPage
@@ -642,7 +1147,7 @@ describe("RehearsalWorkspace", () => {
         initialReport={reportFixture({ missedKeywords })}
         projectId="project-a"
         runId="run-1"
-      />
+      />,
     );
 
     expect(html).toContain("총 24개");
@@ -656,44 +1161,46 @@ describe("RehearsalWorkspace", () => {
       resolveRehearsalReportLoadState(
         {
           run: runFixture("failed", {
-            error: { code: "REPORT_FAILED", message: "분석 실패" }
+            error: { code: "REPORT_FAILED", message: "분석 실패" },
           }),
-          report: null
+          report: null,
         },
-        "project-a"
-      )
+        "project-a",
+      ),
     ).toEqual({
       error: "분석 실패",
-      status: "failed"
+      status: "failed",
     });
 
     expect(
       resolveRehearsalReportLoadState(
         {
           run: runFixture("succeeded", { projectId: "project-b" }),
-          report: reportFixture()
+          report: reportFixture(),
         },
-        "project-a"
-      )
+        "project-a",
+      ),
     ).toEqual({
       error: "요청한 프로젝트와 리허설 실행 정보가 일치하지 않습니다.",
-      status: "failed"
+      status: "failed",
     });
   });
 
   it("builds the dedicated report route for a completed rehearsal run", () => {
     expect(getRehearsalReportPath("project a", "run/1")).toBe(
-      "/rehearsal/project%20a/report/run%2F1"
+      "/rehearsal/project%20a/report/run%2F1",
     );
   });
 
   it("opens the report only from finish when the run has succeeded", () => {
-    expect(getRehearsalFinishPath("project-a", null)).toBe("/project/project-a");
+    expect(getRehearsalFinishPath("project-a", null)).toBe(
+      "/project/project-a",
+    );
     expect(getRehearsalFinishPath("project-a", runFixture("processing"))).toBe(
-      "/rehearsal/project-a/report/run-1"
+      "/rehearsal/project-a/report/run-1",
     );
     expect(getRehearsalFinishPath("project-a", runFixture("succeeded"))).toBe(
-      "/rehearsal/project-a/report/run-1"
+      "/rehearsal/project-a/report/run-1",
     );
   });
 
@@ -703,17 +1210,17 @@ describe("RehearsalWorkspace", () => {
     expect(
       shouldRenderRehearsalThumbnailImage(
         "/files/thumbnails/slide_1.png",
-        failedThumbnailUrls
-      )
+        failedThumbnailUrls,
+      ),
     ).toBe(false);
     expect(
       shouldRenderRehearsalThumbnailImage(
         "/files/thumbnails/slide_2.png",
-        failedThumbnailUrls
-      )
+        failedThumbnailUrls,
+      ),
     ).toBe(true);
     expect(shouldRenderRehearsalThumbnailImage("", failedThumbnailUrls)).toBe(
-      false
+      false,
     );
   });
 
@@ -725,7 +1232,7 @@ describe("RehearsalWorkspace", () => {
     resetRehearsalTimerState({
       setElapsedSeconds,
       setSlideElapsedSeconds,
-      setIsTimerRunning
+      setIsTimerRunning,
     });
 
     expect(setElapsedSeconds).toHaveBeenCalledWith(0);
@@ -743,26 +1250,30 @@ describe("RehearsalWorkspace", () => {
           text: "ORBIT",
           synonyms: ["오르빗"],
           abbreviations: [],
-          required: true
+          required: true,
         },
         {
           keywordId: "kw_2",
           text: "Live STT",
           synonyms: ["실시간 음성 인식"],
           abbreviations: ["stt"],
-          required: true
-        }
-      ]
+          required: true,
+        },
+      ],
     };
 
     const analysis = evaluateLiveTranscript(
       slide,
-      "오늘은 오르빗 실시간음성인식 흐름을 확인합니다"
+      "오늘은 오르빗 실시간음성인식 흐름을 확인합니다",
     );
 
-    expect(normalizeLiveTranscriptText("실시간 음성 인식")).toBe("실시간음성인식");
+    expect(normalizeLiveTranscriptText("실시간 음성 인식")).toBe(
+      "실시간음성인식",
+    );
     expect(analysis.coverage).toBe(1);
-    expect(analysis.detectedKeywords.map((keyword) => keyword.keywordId)).toEqual(["kw_1", "kw_2"]);
+    expect(
+      analysis.detectedKeywords.map((keyword) => keyword.keywordId),
+    ).toEqual(["kw_1", "kw_2"]);
     expect(analysis.missingKeywordIds).toEqual([]);
   });
 
@@ -779,8 +1290,8 @@ describe("RehearsalWorkspace", () => {
           text: "ORBIT",
           synonyms: ["오르빗"],
           abbreviations: ["OBT"],
-          required: true
-        }
+          required: true,
+        },
       ],
       elements: [
         ...deck.slides[0]!.elements,
@@ -803,10 +1314,10 @@ describe("RehearsalWorkspace", () => {
             fontWeight: 400,
             align: "left" as const,
             verticalAlign: "top" as const,
-            lineHeight: 1.2
-          }
-        }
-      ]
+            lineHeight: 1.2,
+          },
+        },
+      ],
     };
 
     const nearbySlide = {
@@ -833,45 +1344,45 @@ describe("RehearsalWorkspace", () => {
             fontWeight: 400,
             align: "left" as const,
             verticalAlign: "top" as const,
-            lineHeight: 1.2
-          }
-        }
-      ]
+            lineHeight: 1.2,
+          },
+        },
+      ],
     };
 
     const biasContext = buildLiveSttBiasContext(slide, {
-      nearbySlides: [nearbySlide]
+      nearbySlides: [nearbySlide],
     });
 
     expect(biasContext.slideId).toBe("slide_1");
     expect(biasContext.terms.slice(0, 3).map((term) => term.text)).toEqual([
       "ORBIT",
       "오르빗",
-      "OBT"
+      "OBT",
     ]);
     expect(biasContext.terms).toContainEqual(
       expect.objectContaining({
         text: "ORBIT Live STT",
-        source: "title"
-      })
+        source: "title",
+      }),
     );
     expect(biasContext.terms).toContainEqual(
       expect.objectContaining({
         text: "브라우저 온디바이스 인식",
-        source: "speaker-notes"
-      })
+        source: "speaker-notes",
+      }),
     );
     expect(biasContext.terms).toContainEqual(
       expect.objectContaining({
         text: "다음 슬라이드",
-        source: "control-phrase"
-      })
+        source: "control-phrase",
+      }),
     );
     expect(biasContext.terms).toContainEqual(
       expect.objectContaining({
         text: "후속 액션 플랜",
-        source: "nearby-slide-text"
-      })
+        source: "nearby-slide-text",
+      }),
     );
   });
 
@@ -885,14 +1396,17 @@ describe("RehearsalWorkspace", () => {
           text: "오르빗",
           synonyms: [],
           abbreviations: [],
-          required: true
-        }
-      ]
+          required: true,
+        },
+      ],
     };
     const biasContext = buildLiveSttBiasContext(slide);
     const rawTranscript = "오늘은 오르비트 리허설을 시작합니다";
     const rawAnalysis = evaluateLiveTranscript(slide, rawTranscript);
-    const biasedTranscript = applyLiveTranscriptBias(rawTranscript, biasContext);
+    const biasedTranscript = applyLiveTranscriptBias(
+      rawTranscript,
+      biasContext,
+    );
     const biasedAnalysis = evaluateLiveTranscript(slide, biasedTranscript);
 
     expect(rawAnalysis.coverage).toBe(0);
@@ -910,17 +1424,20 @@ describe("RehearsalWorkspace", () => {
           text: "오르빗",
           synonyms: [],
           abbreviations: [],
-          required: true
-        }
-      ]
+          required: true,
+        },
+      ],
     };
     const biasContext = buildLiveSttBiasContext(slide);
 
     for (const rawTranscript of [
       "오늘은 오르 리허설을 시작합니다",
-      "오늘은 오르비 리허설을 시작합니다"
+      "오늘은 오르비 리허설을 시작합니다",
     ]) {
-      const biasedTranscript = applyLiveTranscriptBias(rawTranscript, biasContext);
+      const biasedTranscript = applyLiveTranscriptBias(
+        rawTranscript,
+        biasContext,
+      );
       const biasedAnalysis = evaluateLiveTranscript(slide, biasedTranscript);
 
       expect(biasedTranscript).toBe(rawTranscript);
@@ -938,13 +1455,16 @@ describe("RehearsalWorkspace", () => {
           text: "음성 인식",
           synonyms: [],
           abbreviations: ["STT"],
-          required: true
-        }
-      ]
+          required: true,
+        },
+      ],
     };
     const biasContext = buildLiveSttBiasContext(slide);
     const rawTranscript = "오늘은 start 단계를 진행합니다";
-    const biasedTranscript = applyLiveTranscriptBias(rawTranscript, biasContext);
+    const biasedTranscript = applyLiveTranscriptBias(
+      rawTranscript,
+      biasContext,
+    );
     const biasedAnalysis = evaluateLiveTranscript(slide, biasedTranscript);
 
     expect(biasedTranscript).toBe(rawTranscript);
@@ -957,40 +1477,40 @@ describe("RehearsalWorkspace", () => {
       text: `키워드${index}`,
       synonyms: [`동의어${index}`],
       abbreviations: [`약어${index}`],
-      required: true
+      required: true,
     }));
     const slide = {
       ...createDemoDeck().slides[0]!,
       slideId: "slide_dense",
-      keywords
+      keywords,
     };
     const biasContext = buildLiveSttBiasContext(slide);
 
     expect(biasContext.terms.length).toBeLessThanOrEqual(32);
     expect(
-      biasContext.terms.some((term) => term.source === "control-phrase")
+      biasContext.terms.some((term) => term.source === "control-phrase"),
     ).toBe(true);
   });
 
   it("resolves slide thumbnails to same-origin asset URLs", () => {
     vi.stubGlobal("window", {
       location: {
-        origin: "http://localhost:5173"
-      }
+        origin: "http://localhost:5173",
+      },
     });
 
-    expect(resolveEditorAssetUrl("/api/v1/projects/p1/assets/file_1/content")).toBe(
-      "http://localhost:5173/api/v1/projects/p1/assets/file_1/content"
-    );
+    expect(
+      resolveEditorAssetUrl("/api/v1/projects/p1/assets/file_1/content"),
+    ).toBe("http://localhost:5173/api/v1/projects/p1/assets/file_1/content");
     expect(
       resolveEditorAssetUrl(
-        "http://localhost:9000/orbit-local/projects/project_real_1/assets/file_real_1/slide_1.png"
-      )
+        "http://localhost:9000/orbit-local/projects/project_real_1/assets/file_real_1/slide_1.png",
+      ),
     ).toBe(
-      "http://localhost:5173/api/v1/projects/project_real_1/assets/file_real_1/content"
+      "http://localhost:5173/api/v1/projects/project_real_1/assets/file_real_1/content",
     );
     expect(resolveEditorAssetUrl("https://cdn.example.com/thumb.png")).toBe(
-      "https://cdn.example.com/thumb.png"
+      "https://cdn.example.com/thumb.png",
     );
   });
 
@@ -999,19 +1519,19 @@ describe("RehearsalWorkspace", () => {
 
     buffer = applyLiveTranscriptEvent(buffer, {
       transcript: "오늘은",
-      isFinal: false
+      isFinal: false,
     });
     expect(renderLiveTranscriptBuffer(buffer)).toBe("오늘은");
 
     buffer = applyLiveTranscriptEvent(buffer, {
       transcript: "오늘은",
-      isFinal: true
+      isFinal: true,
     });
     expect(renderLiveTranscriptBuffer(buffer)).toBe("오늘은");
 
     buffer = applyLiveTranscriptEvent(buffer, {
       transcript: "오르빗",
-      isFinal: false
+      isFinal: false,
     });
 
     expect(renderLiveTranscriptBuffer(buffer)).toBe("오늘은 오르빗");
@@ -1028,44 +1548,45 @@ describe("RehearsalWorkspace", () => {
           text: "ORBIT",
           synonyms: ["오르빗"],
           abbreviations: [],
-          required: true
+          required: true,
         },
         {
           keywordId: "kw_2",
           text: "Live STT",
           synonyms: ["실시간 음성 인식"],
           abbreviations: ["stt"],
-          required: true
-        }
-      ]
+          required: true,
+        },
+      ],
     };
     let buffer = createLiveTranscriptBuffer();
 
     buffer = applyLiveTranscriptEvent(buffer, {
       transcript: "오늘은 오르빗을 소개합니다",
-      isFinal: true
+      isFinal: true,
     });
     buffer = applyLiveTranscriptEvent(buffer, {
       transcript: "실시간 음성 인식 흐름입니다",
-      isFinal: true
+      isFinal: true,
     });
 
     const transcript = renderLiveTranscriptBuffer(buffer);
     const analysis = evaluateLiveTranscript(slide, transcript);
 
-    expect(transcript).toBe("오늘은 오르빗을 소개합니다 실시간 음성 인식 흐름입니다");
+    expect(transcript).toBe(
+      "오늘은 오르빗을 소개합니다 실시간 음성 인식 흐름입니다",
+    );
     expect(analysis.coverage).toBe(1);
-    expect(analysis.detectedKeywords.map((keyword) => keyword.keywordId)).toEqual([
-      "kw_1",
-      "kw_2"
-    ]);
+    expect(
+      analysis.detectedKeywords.map((keyword) => keyword.keywordId),
+    ).toEqual(["kw_1", "kw_2"]);
   });
 
   it("starts a fresh live STT transcript buffer after reset", () => {
     let buffer = createLiveTranscriptBuffer();
     buffer = applyLiveTranscriptEvent(buffer, {
       transcript: "이전 슬라이드 오르빗",
-      isFinal: true
+      isFinal: true,
     });
 
     buffer = createLiveTranscriptBuffer();
@@ -1073,7 +1594,7 @@ describe("RehearsalWorkspace", () => {
 
     buffer = applyLiveTranscriptEvent(buffer, {
       transcript: "새 슬라이드",
-      isFinal: false
+      isFinal: false,
     });
     expect(renderLiveTranscriptBuffer(buffer)).toBe("새 슬라이드");
   });
@@ -1093,14 +1614,12 @@ describe("RehearsalWorkspace", () => {
   it("derives production trigger animations from slide actions", () => {
     const source = fs.readFileSync(rehearsalWorkspaceSourcePath, "utf8");
 
+    expect(source).toContain("const triggerAnimationIds = useMemo(");
     expect(source).toContain(
-      "const triggerAnimationIds = useMemo("
+      "() => (currentSlide ? getTriggerAnimationIdsForSlide(currentSlide) : [])",
     );
-    expect(source).toContain(
-      "() => (currentSlide ? getTriggerAnimationIdsForSlide(currentSlide) : [])"
-    );
-    expect(source).toContain('import {');
-    expect(source).toContain('getTriggerAnimationIdsForSlide,');
+    expect(source).toContain("import {");
+    expect(source).toContain("getTriggerAnimationIdsForSlide,");
   });
 
   it("computes remaining trigger steps when P4 fixtures inject cue-referenced animations", () => {
@@ -1108,36 +1627,36 @@ describe("RehearsalWorkspace", () => {
     const triggerAnimationIds = [
       "anim_image_zoom_in",
       "anim_group_fade_out",
-      "anim_chart_zoom_out"
+      "anim_chart_zoom_out",
     ];
 
     expect(
       getRemainingTriggerStepsForSlide({
         slide,
         stepIndex: 0,
-        triggerAnimationIds: []
-      })
+        triggerAnimationIds: [],
+      }),
     ).toBe(0);
     expect(
       getRemainingTriggerStepsForSlide({
         slide,
         stepIndex: 0,
-        triggerAnimationIds
-      })
+        triggerAnimationIds,
+      }),
     ).toBe(2);
     expect(
       getRemainingTriggerStepsForSlide({
         slide,
         stepIndex: 1,
-        triggerAnimationIds
-      })
+        triggerAnimationIds,
+      }),
     ).toBe(1);
     expect(
       getRemainingTriggerStepsForSlide({
         slide,
         stepIndex: 2,
-        triggerAnimationIds
-      })
+        triggerAnimationIds,
+      }),
     ).toBe(0);
   });
 
@@ -1146,11 +1665,11 @@ describe("RehearsalWorkspace", () => {
     const triggerAnimationIds = [
       "anim_image_zoom_in",
       "anim_group_fade_out",
-      "anim_chart_zoom_out"
+      "anim_chart_zoom_out",
     ];
     const pauseDetector = createPauseDetector({
       config: { silenceThresholdDb: -55 },
-      pauseMs: defaultAutoAdvancePolicy.pauseMs
+      pauseMs: defaultAutoAdvancePolicy.pauseMs,
     });
     pauseDetector.accept({ type: "audio-level", atMs: 0, rmsDb: -60 });
     pauseDetector.accept({ type: "tick", atMs: 700 });
@@ -1170,28 +1689,28 @@ describe("RehearsalWorkspace", () => {
         remainingTriggerSteps: getRemainingTriggerStepsForSlide({
           slide,
           stepIndex: 0,
-          triggerAnimationIds
+          triggerAnimationIds,
         }),
-        slideId: slide.slideId
+        slideId: slide.slideId,
       },
-      defaultAutoAdvanceConfig
+      defaultAutoAdvanceConfig,
     );
 
     expect(blocked.commands).toContainEqual({
       type: "show-builds-remaining",
-      remainingTriggerSteps: 2
+      remainingTriggerSteps: 2,
     });
     expect(blocked.commands).not.toContainEqual({
       type: "advance-slide",
-      slideId: slide.slideId
+      slideId: slide.slideId,
     });
     expect(
       getNextPresenterStepState({
         currentSlideIndex: 0,
         currentStepIndex: 0,
         maxStepIndex: 2,
-        slideCount: p0AnimationDeck.slides.length
-      })
+        slideCount: p0AnimationDeck.slides.length,
+      }),
     ).toMatchObject({ slideIndex: 0, stepIndex: 1 });
 
     const countdown = evaluateAdvanceController(
@@ -1208,11 +1727,11 @@ describe("RehearsalWorkspace", () => {
         remainingTriggerSteps: getRemainingTriggerStepsForSlide({
           slide,
           stepIndex: 2,
-          triggerAnimationIds
+          triggerAnimationIds,
         }),
-        slideId: slide.slideId
+        slideId: slide.slideId,
       },
-      defaultAutoAdvanceConfig
+      defaultAutoAdvanceConfig,
     );
     const advanced = evaluateAdvanceController(
       countdown.state,
@@ -1226,14 +1745,14 @@ describe("RehearsalWorkspace", () => {
         pause: { isPaused: true, silenceDurationMs: 2700 },
         policy: defaultAutoAdvancePolicy,
         remainingTriggerSteps: 0,
-        slideId: slide.slideId
+        slideId: slide.slideId,
       },
-      defaultAutoAdvanceConfig
+      defaultAutoAdvanceConfig,
     );
 
     expect(countdown.state.status).toBe("countdown");
     expect(advanced.commands).toEqual([
-      { type: "advance-slide", slideId: slide.slideId }
+      { type: "advance-slide", slideId: slide.slideId },
     ]);
     expect(
       evaluateAdvanceController(
@@ -1248,13 +1767,13 @@ describe("RehearsalWorkspace", () => {
           pause: { isPaused: false, silenceDurationMs: 0 },
           policy: defaultAutoAdvancePolicy,
           remainingTriggerSteps: 0,
-          slideId: slide.slideId
+          slideId: slide.slideId,
         },
-        defaultAutoAdvanceConfig
-      ).commands
+        defaultAutoAdvanceConfig,
+      ).commands,
     ).toEqual([{ type: "cancel-countdown", reason: "speech-resumed" }]);
     expect(cancelAdvanceCountdown(countdown.state, "manual").state.status).toBe(
-      "tracking"
+      "tracking",
     );
 
     const finalSlide = p0AnimationDeck.slides[1]!;
@@ -1270,13 +1789,13 @@ describe("RehearsalWorkspace", () => {
         pause,
         policy: defaultAutoAdvancePolicy,
         remainingTriggerSteps: 0,
-        slideId: finalSlide.slideId
+        slideId: finalSlide.slideId,
       },
-      defaultAutoAdvanceConfig
+      defaultAutoAdvanceConfig,
     );
 
     expect(finish.commands).toEqual([
-      { type: "suggest-finish", slideId: finalSlide.slideId }
+      { type: "suggest-finish", slideId: finalSlide.slideId },
     ]);
     expect(finish.state.status).toBe("finish-suggested");
   });
@@ -1288,13 +1807,15 @@ describe("RehearsalWorkspace", () => {
       detectRehearsalCommandCandidate({
         transcript: "다음 슬라이드",
         isFinal: true,
-        confidence: null
-      })
+        confidence: null,
+      }),
     );
 
     expect(confirmedCommand).toMatchObject({ action: "advance-slide" });
     const source = fs.readFileSync(rehearsalWorkspaceSourcePath, "utf8");
-    const start = source.indexOf("if (isAdvanceSlideCommand(confirmedCommand))");
+    const start = source.indexOf(
+      "if (isAdvanceSlideCommand(confirmedCommand))",
+    );
     const commandBody = source.slice(start, start + 180);
 
     expect(commandBody).toContain("cancelAutoAdvanceForManualCommand()");
@@ -1303,31 +1824,37 @@ describe("RehearsalWorkspace", () => {
       detectRehearsalCommandCandidate({
         transcript: "안녕하세요. 다음 슬라이드는.",
         isFinal: true,
-        confidence: null
-      })
+        confidence: null,
+      }),
     ).toBeNull();
   });
 
   it("keeps the sherpa adapter as an explicit unavailable shell", async () => {
     await expect(
-      new SherpaLiveSttAdapter().start({ getTracks: () => [] } as unknown as MediaStream, {
-        onPartialTranscript: () => undefined,
-        onError: () => undefined
-      })
+      new SherpaLiveSttAdapter().start(
+        { getTracks: () => [] } as unknown as MediaStream,
+        {
+          onPartialTranscript: () => undefined,
+          onError: () => undefined,
+        },
+      ),
     ).rejects.toMatchObject({
-      code: "LIVE_STT_MODEL_UNAVAILABLE"
+      code: "LIVE_STT_MODEL_UNAVAILABLE",
     } satisfies Partial<LiveSttAdapterError>);
   });
 
   it("records audio through a MediaRecorder-compatible session", () => {
     const stoppedFiles: File[] = [];
     const errors: Error[] = [];
-    const session = createRecordingSession({ getTracks: () => [] } as unknown as MediaStream, {
-      recorderCtor: FakeMediaRecorder as unknown as typeof MediaRecorder,
-      now: () => new Date("2026-06-29T00:00:00.000Z"),
-      onStop: (file) => stoppedFiles.push(file),
-      onError: (error) => errors.push(error)
-    });
+    const session = createRecordingSession(
+      { getTracks: () => [] } as unknown as MediaStream,
+      {
+        recorderCtor: FakeMediaRecorder as unknown as typeof MediaRecorder,
+        now: () => new Date("2026-06-29T00:00:00.000Z"),
+        onStop: (file) => stoppedFiles.push(file),
+        onError: (error) => errors.push(error),
+      },
+    );
 
     session.start();
     expect(session.recorder.state).toBe("recording");
@@ -1335,13 +1862,15 @@ describe("RehearsalWorkspace", () => {
     session.stop();
     expect(errors).toEqual([]);
     expect(stoppedFiles).toHaveLength(1);
-    expect(stoppedFiles[0]?.name).toBe("rehearsal-2026-06-29T00-00-00-000Z.webm");
+    expect(stoppedFiles[0]?.name).toBe(
+      "rehearsal-2026-06-29T00-00-00-000Z.webm",
+    );
     expect(stoppedFiles[0]?.type).toBe("audio/webm");
   });
 
   it("selects the first supported recording MIME type", () => {
     const recorderCtor = {
-      isTypeSupported: vi.fn((mimeType: string) => mimeType === "audio/mp4")
+      isTypeSupported: vi.fn((mimeType: string) => mimeType === "audio/mp4"),
     } as unknown as typeof MediaRecorder;
 
     expect(selectRecordingMimeType(recorderCtor)).toBe("audio/mp4");
@@ -1349,7 +1878,7 @@ describe("RehearsalWorkspace", () => {
 
   it("does not select unsupported OpenAI report STT MIME fallbacks", () => {
     const recorderCtor = {
-      isTypeSupported: vi.fn((mimeType: string) => mimeType === "audio/ogg")
+      isTypeSupported: vi.fn((mimeType: string) => mimeType === "audio/ogg"),
     } as unknown as typeof MediaRecorder;
 
     expect(selectRecordingMimeType(recorderCtor)).toBe("audio/webm");
@@ -1359,10 +1888,12 @@ describe("RehearsalWorkspace", () => {
     const file = createRecordingFile(
       new Blob(["audio"], { type: "audio/webm;codecs=opus" }),
       "audio/webm;codecs=opus",
-      new Date("2026-06-29T00:00:00.000Z")
+      new Date("2026-06-29T00:00:00.000Z"),
     );
 
-    expect(normalizeRecordingMimeType("audio/webm;codecs=opus")).toBe("audio/webm");
+    expect(normalizeRecordingMimeType("audio/webm;codecs=opus")).toBe(
+      "audio/webm",
+    );
     expect(file.type).toBe("audio/webm");
     expect(file.name).toBe("rehearsal-2026-06-29T00-00-00-000Z.webm");
   });
@@ -1370,39 +1901,41 @@ describe("RehearsalWorkspace", () => {
   it("persists a fallback demo deck when rehearsal entry has no stored deck", async () => {
     const fallbackDeck = createDemoDeck();
     const calls: Array<{ url: string; init?: RequestInit }> = [];
-    const fetcher = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
-      calls.push({ url, init });
+    const fetcher = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        calls.push({ url, init });
 
-      if (!init) {
-        return new Response("missing", { status: 404 });
-      }
+        if (!init) {
+          return new Response("missing", { status: 404 });
+        }
 
-      return jsonResponse({
-        projectId: fallbackDeck.projectId,
-        deck: fallbackDeck,
-        updatedAt: createdAt,
-        snapshot: null
-      });
-    });
+        return jsonResponse({
+          projectId: fallbackDeck.projectId,
+          deck: fallbackDeck,
+          updatedAt: createdAt,
+          snapshot: null,
+        });
+      },
+    );
 
     const deck = await fetchOrCreateRehearsalDeck({
       fallbackDeck,
-      fetcher
+      fetcher,
     });
 
     expect(deck.deckId).toBe(fallbackDeck.deckId);
     expect(calls.map((call) => call.url)).toEqual([
       `/api/v1/projects/${fallbackDeck.projectId}/deck`,
-      `/api/v1/projects/${fallbackDeck.projectId}/deck`
+      `/api/v1/projects/${fallbackDeck.projectId}/deck`,
     ]);
     expect(calls[1]?.init).toMatchObject({
       method: "PUT",
-      headers: { "content-type": "application/json" }
+      headers: { "content-type": "application/json" },
     });
     expect(JSON.parse(String(calls[1]?.init?.body))).toEqual({
       deck: fallbackDeck,
-      snapshotReason: "deck-replaced"
+      snapshotReason: "deck-replaced",
     });
   });
 });
@@ -1410,75 +1943,85 @@ describe("RehearsalWorkspace", () => {
 describe("runRehearsalUploadFlow", () => {
   it("creates a run, uploads audio, completes it, polls the job, and fetches final run", async () => {
     const calls: Array<{ url: string; init?: RequestInit }> = [];
-    const fetcher = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
-      calls.push({ url, init });
+    const fetcher = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        calls.push({ url, init });
 
-      if (url === "/api/v1/projects/project-a/rehearsals") {
-        return jsonResponse({ run: runFixture("created") });
-      }
+        if (url === "/api/v1/projects/project-a/rehearsals") {
+          return jsonResponse({ run: runFixture("created") });
+        }
 
-      if (url === "/api/v1/rehearsals/run-1/audio/upload-url") {
-        return jsonResponse({
-          run: runFixture("uploading", { audioFileId: "file-audio" }),
-          upload: {
-            fileId: "file-audio",
-            projectId: "project-a",
-            uploadUrl: "http://storage.local/rehearsal.webm",
-            method: "PUT",
-            headers: { "content-type": "audio/webm" },
-            expiresAt: "2026-06-29T00:15:00.000Z",
-            purpose: "rehearsal-audio"
-          }
-        });
-      }
+        if (url === "/api/v1/rehearsals/run-1/audio/upload-url") {
+          return jsonResponse({
+            run: runFixture("uploading", { audioFileId: "file-audio" }),
+            upload: {
+              fileId: "file-audio",
+              projectId: "project-a",
+              uploadUrl: "http://storage.local/rehearsal.webm",
+              method: "PUT",
+              headers: { "content-type": "audio/webm" },
+              expiresAt: "2026-06-29T00:15:00.000Z",
+              purpose: "rehearsal-audio",
+            },
+          });
+        }
 
-      if (url === "http://storage.local/rehearsal.webm") {
-        return new Response(null, { status: 200 });
-      }
+        if (url === "http://storage.local/rehearsal.webm") {
+          return new Response(null, { status: 200 });
+        }
 
-      if (url === "/api/v1/rehearsals/run-1/meta") {
-        return jsonResponse({ run: runFixture("uploading") });
-      }
+        if (url === "/api/v1/rehearsals/run-1/meta") {
+          return jsonResponse({ run: runFixture("uploading") });
+        }
 
-      if (url === "/api/v1/rehearsals/run-1/audio/complete") {
-        return jsonResponse({
-          run: runFixture("processing", {
-            audioFileId: "file-audio",
-            jobId: "job-1"
-          }),
-          job: jobFixture("queued", 0)
-        });
-      }
+        if (url === "/api/v1/rehearsals/run-1/audio/complete") {
+          return jsonResponse({
+            run: runFixture("processing", {
+              audioFileId: "file-audio",
+              jobId: "job-1",
+            }),
+            job: jobFixture("queued", 0),
+          });
+        }
 
-      if (url === "/api/jobs/job-1") {
-        const count = calls.filter((call) => call.url === "/api/jobs/job-1").length;
-        return jsonResponse(count === 1 ? jobFixture("running", 40) : jobFixture("succeeded", 100));
-      }
+        if (url === "/api/jobs/job-1") {
+          const count = calls.filter(
+            (call) => call.url === "/api/jobs/job-1",
+          ).length;
+          return jsonResponse(
+            count === 1
+              ? jobFixture("running", 40)
+              : jobFixture("succeeded", 100),
+          );
+        }
 
-      if (url === "/api/v1/rehearsals/run-1") {
-        return jsonResponse({
-          run: runFixture("succeeded", {
-            audioFileId: "file-audio",
-            jobId: "job-1",
-            rawAudioDeletedAt: "2026-06-29T00:00:10.000Z"
-          })
-        });
-      }
+        if (url === "/api/v1/rehearsals/run-1") {
+          return jsonResponse({
+            run: runFixture("succeeded", {
+              audioFileId: "file-audio",
+              jobId: "job-1",
+              rawAudioDeletedAt: "2026-06-29T00:00:10.000Z",
+            }),
+          });
+        }
 
-      return new Response("unexpected", { status: 500 });
-    });
+        return new Response("unexpected", { status: 500 });
+      },
+    );
     const audioFile = new File(["audio"], "rehearsal.webm", {
-      type: "audio/webm"
+      type: "audio/webm",
     });
 
     const result = await runRehearsalUploadFlow({
       projectId: "project-a",
       deckId: "deck-a",
       audioFile,
-      slideTimeline: [{ slideId: "slide_1", enteredAt: "2026-06-29T00:00:00.000Z" }],
+      slideTimeline: [
+        { slideId: "slide_1", enteredAt: "2026-06-29T00:00:00.000Z" },
+      ],
       fetcher,
-      pollDelayMs: 0
+      pollDelayMs: 0,
     });
 
     expect(result.run.status).toBe("succeeded");
@@ -1491,19 +2034,19 @@ describe("runRehearsalUploadFlow", () => {
       "/api/v1/rehearsals/run-1/audio/complete",
       "/api/jobs/job-1",
       "/api/jobs/job-1",
-      "/api/v1/rehearsals/run-1"
+      "/api/v1/rehearsals/run-1",
     ]);
     expect(JSON.parse(String(calls[0]?.init?.body))).toEqual({
-      deckId: "deck-a"
+      deckId: "deck-a",
     });
     expect(calls[2]?.init).toMatchObject({
       method: "PUT",
       headers: { "content-type": "audio/webm" },
-      body: audioFile
+      body: audioFile,
     });
     expect(calls[3]?.init).toMatchObject({
       method: "PATCH",
-      headers: { "content-type": "application/json" }
+      headers: { "content-type": "application/json" },
     });
   });
 
@@ -1527,8 +2070,8 @@ describe("runRehearsalUploadFlow", () => {
             method: "PUT",
             headers: { "content-type": "audio/webm" },
             expiresAt: "2026-06-29T00:15:00.000Z",
-            purpose: "rehearsal-audio"
-          }
+            purpose: "rehearsal-audio",
+          },
         });
       }
 
@@ -1544,19 +2087,19 @@ describe("runRehearsalUploadFlow", () => {
         projectId: "project-a",
         deckId: "deck-a",
         audioFile: new File(["audio"], "rehearsal.webm", {
-          type: "audio/webm"
+          type: "audio/webm",
         }),
         fetcher,
-        pollDelayMs: 0
-      })
+        pollDelayMs: 0,
+      }),
     ).rejects.toMatchObject({
-      stage: "storage-put"
+      stage: "storage-put",
     } satisfies Partial<RehearsalFlowError>);
 
     expect(calls).toEqual([
       "/api/v1/projects/project-a/rehearsals",
       "/api/v1/rehearsals/run-1/audio/upload-url",
-      "http://storage.local/rehearsal.webm"
+      "http://storage.local/rehearsal.webm",
     ]);
   });
 });
@@ -1566,8 +2109,8 @@ describe("fetchRehearsalReport", () => {
     const fetcher = vi.fn(async () =>
       jsonResponse({
         run: runFixture("succeeded"),
-        report: reportFixture()
-      })
+        report: reportFixture(),
+      }),
     );
 
     const result = await fetchRehearsalReport("run-1", fetcher);
@@ -1590,7 +2133,7 @@ class FakeMediaRecorder {
 
   constructor(
     readonly stream: MediaStream,
-    readonly options?: MediaRecorderOptions
+    readonly options?: MediaRecorderOptions,
   ) {}
 
   start() {
@@ -1601,8 +2144,8 @@ class FakeMediaRecorder {
     this.state = "inactive";
     this.ondataavailable?.({
       data: new Blob(["audio"], {
-        type: this.options?.mimeType ?? "audio/webm"
-      })
+        type: this.options?.mimeType ?? "audio/webm",
+      }),
     } as BlobEvent);
     this.onstop?.(new Event("stop"));
   }
@@ -1610,7 +2153,7 @@ class FakeMediaRecorder {
 
 function runFixture(
   status: RehearsalRun["status"],
-  patch: Partial<RehearsalRun> = {}
+  patch: Partial<RehearsalRun> = {},
 ): RehearsalRun {
   return {
     runId: "run-1",
@@ -1623,7 +2166,7 @@ function runFixture(
     rawAudioDeletedAt: null,
     createdAt,
     updatedAt: createdAt,
-    ...patch
+    ...patch,
   };
 }
 
@@ -1638,7 +2181,7 @@ function jobFixture(status: Job["status"], progress: number): Job {
     result: null,
     error: null,
     createdAt,
-    updatedAt: createdAt
+    updatedAt: createdAt,
   };
 }
 
@@ -1655,17 +2198,19 @@ function reportFixture(patch: Partial<RehearsalReport> = {}): RehearsalReport {
       wordsPerMinute: 120,
       fillerWordCount: 2,
       pauseCount: 1,
-      keywordCoverage: 0.75
+      keywordCoverage: 0.75,
     },
     speedSamples: [{ startSecond: 0, endSecond: 10, wordsPerMinute: 120 }],
     fillerWordDetails: [{ word: "음", count: 2 }],
     pauseDetails: [{ startSecond: 12, endSecond: 14, durationSeconds: 2 }],
     missedKeywords: [{ slideId: "slide_1", keywordId: "kw_1", text: "ORBIT" }],
-    slideTimings: [{ slideId: "slide_1", targetSeconds: 60, actualSeconds: 52 }],
+    slideTimings: [
+      { slideId: "slide_1", targetSeconds: 60, actualSeconds: 52 },
+    ],
     qnaSummary: {
       questionCount: 0,
       questionSummary: "",
-      unclearTopics: []
+      unclearTopics: [],
     },
     coaching: {
       status: "succeeded",
@@ -1673,15 +2218,15 @@ function reportFixture(patch: Partial<RehearsalReport> = {}): RehearsalReport {
       strengths: ["키워드를 언급했습니다."],
       improvements: ["불필요한 filler를 줄이세요."],
       nextPracticeFocus: "도입부를 더 짧게 연습하세요.",
-      message: ""
+      message: "",
     },
     generatedAt: "2026-06-29T00:00:10.000Z",
-    ...patch
+    ...patch,
   };
 }
 
 function jsonResponse(payload: unknown) {
   return new Response(JSON.stringify(payload), {
-    headers: { "content-type": "application/json" }
+    headers: { "content-type": "application/json" },
   });
 }

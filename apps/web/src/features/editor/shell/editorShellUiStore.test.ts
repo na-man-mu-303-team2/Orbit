@@ -38,6 +38,7 @@ describe("editorShellUiStore", () => {
     expect(state.insertTool).toBe("select");
     expect(state.selectedElementIds).toEqual([]);
     expect(state.selectedKeywordId).toBeNull();
+    expect(state.selectedKeywordOccurrenceKey).toBeNull();
   });
 
   it("accepts direct values and functional updaters", () => {
@@ -62,6 +63,7 @@ describe("editorShellUiStore", () => {
     state.setSelectedElementIds(["el_1"]);
     state.setSelectedElementIds((current) => [...current, "el_2"]);
     state.setSelectedKeywordId("kw_1");
+    state.setSelectedKeywordOccurrenceKey("kwo_1");
     state.setInsertTool("customShape");
     state.setEditingElementId("el_1");
     state.setCustomShapeEditElementId((current) => current ?? "el_2");
@@ -79,6 +81,9 @@ describe("editorShellUiStore", () => {
       "el_2"
     ]);
     expect(useEditorShellUiStore.getState().selectedKeywordId).toBe("kw_1");
+    expect(useEditorShellUiStore.getState().selectedKeywordOccurrenceKey).toBe(
+      "kwo_1"
+    );
     expect(useEditorShellUiStore.getState().insertTool).toBe("customShape");
     expect(useEditorShellUiStore.getState().editingElementId).toBe("el_1");
     expect(useEditorShellUiStore.getState().customShapeEditElementId).toBe("el_2");
@@ -115,6 +120,7 @@ describe("editorShellUiStore", () => {
     state.setInsertTool("customShape");
     state.setSelectedElementIds(["el_1"]);
     state.setSelectedKeywordId("kw_1");
+    state.setSelectedKeywordOccurrenceKey("kwo_1");
     state.setShapeMenuPosition({ left: 10, top: 20 });
     state.setShowIds(true);
     state.setSlidesPaneWidth(240);
@@ -132,6 +138,7 @@ describe("editorShellUiStore", () => {
     expect(useEditorShellUiStore.getState().insertTool).toBe("select");
     expect(useEditorShellUiStore.getState().selectedElementIds).toEqual([]);
     expect(useEditorShellUiStore.getState().selectedKeywordId).toBeNull();
+    expect(useEditorShellUiStore.getState().selectedKeywordOccurrenceKey).toBeNull();
     expect(useEditorShellUiStore.getState().shapeMenuPosition).toBeNull();
     expect(useEditorShellUiStore.getState().isRightPanelOpen).toBe(false);
     expect(useEditorShellUiStore.getState().showIds).toBe(true);

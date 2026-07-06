@@ -314,3 +314,39 @@
 - Rationale: 사용자가 요청한 복구 범위를 TypeScript 자동 검증으로 제한하면서, 기존 `typescript` job의 핵심 회귀 검증은 유지한다. 별도 workflow로 분리해 전체 CI 삭제 결정과 충돌하지 않도록 한다.
 - Affected files: `.github/workflows/typescript-ci.yml`, `.env.staging.example`, `.env.production.example`, `apps/web/src/features/editor/shell/EditorShell.test.tsx`, `docs/testing/test-matrix.md`, `README.md`, `docs/decision-log.md`.
 - Follow-up review notes: GitHub branch protection required check로 `typescript`를 다시 지정할지는 첫 PR 실행 결과를 확인한 뒤 별도 결정한다. Python worker/Compose/Playwright smoke 자동화 재도입은 별도 안정화 PR에서 검토한다.
+
+## ORBIT rehearsal filler and long-pause detection heuristic
+
+- Context: 리허설 리포트의 `fillerWordCount`, `fillerWordDetails`, `pauseCount`, `pauseDetails`는 이미 공식 계약에 있지만, Python worker의 filler 감지는 정확한 단어 매칭에 치우쳐 있고 긴 침묵 감지는 segment timestamp가 있을 때만 확인된다.
+- Options considered:
+  - `RehearsalReport`에 새 분석 필드를 추가한다.
+  - LLM으로 transcript에서 filler를 재추출한다.
+  - 기존 report 계약은 유지하고 Python worker의 보수적 휴리스틱과 회귀 테스트만 강화한다.
+- Final decision: 기존 `RehearsalReport` 계약을 유지한다. Python worker는 `으음`, `음음`, `umm`, `uhh`처럼 늘어난 filler 토큰과 `뭐 랄까`, `you know`, `i mean`, `kind of`, `sort of` 같은 phrase filler를 canonical 표현으로 묶어 계산한다. 긴 침묵은 기존 `pauseDetails`의 segment gap 계산을 공식 경로로 유지하고 회귀 테스트로 고정한다.
+- Rationale: 계약과 UI를 흔들지 않고 현재 report STT 분석 품질을 개선할 수 있다. transcript에 남지 않은 filler나 timestamp가 없는 침묵은 서버 분석만으로 복원할 수 없으므로, 이번 변경은 STT provider가 제공한 transcript와 segment metadata 안에서 안전하게 개선한다.
+- Affected files: `services/python-worker/app/rehearsal.py`, `services/python-worker/tests/test_rehearsal_analyze.py`, `docs/decision-log.md`.
+- Follow-up review notes: report STT provider가 word-level timestamp 또는 더 원본에 가까운 disfluency transcript를 제공하면 audio/segment 기반 pause와 filler 분석을 별도 결정으로 재검토한다.
+
+## ORBIT local report STT model uses whisper-1
+
+- Context: 리허설 리포트의 긴 침묵/발표 속도(WPM)/구간 속도는 STT가 준 segment timestamp와 duration으로 계산한다. 그런데 기존 로컬 기본 모델 `gpt-4o-transcribe`는 `response_format="json"`만 지원해 transcript 텍스트만 반환하고 duration·segment를 주지 않는다. 그 결과 로컬에서 리허설을 녹음해도 WPM은 `-`, 긴 침묵은 0으로만 나와 해당 지표를 테스트할 수 없었다.
+- Options considered:
+  - `gpt-4o-transcribe`를 유지하고 Python worker에서 오디오 길이를 별도 측정(ffprobe 등)해 duration만 확보한다. (WPM은 복구되나 segment timestamp가 없어 긴 침묵/구간 속도는 여전히 불가.)
+  - report STT provider를 hosted WhisperX로 교체한다. (정밀한 word-level alignment를 얻지만 별도 추론 서버 운영이 필요.)
+  - 로컬 기본 report STT 모델을 `whisper-1`로 바꿔 `verbose_json` 경로로 duration과 segment timestamp를 확보한다.
+- Final decision: 로컬 설정(`.env.example`, `docker-compose.yml`)의 `OPENAI_TRANSCRIPTION_MODEL` 기본값만 `whisper-1`로 바꾼다. `_openai_response_format`은 이미 whisper-1에 대해 `verbose_json`을 반환하므로 파싱 로직 변경은 없다. staging/production 예시 설정은 이번 결정 범위에서 제외한다.
+- Rationale: 코드 변경 없이 로컬에서 긴 침묵·filler·WPM 지표를 실제 데이터로 검증할 수 있다. whisper-1의 `verbose_json`만이 duration과 segment timestamp를 동시에 제공한다. 전사 텍스트 정확도는 gpt-4o 계열보다 소폭 낮을 수 있으나, 시간 기반 지표 복구가 우선이다.
+- Affected files: `.env.example`, `docker-compose.yml`, `services/python-worker/tests/test_audio_transcribe.py`, `docs/decision-log.md`.
+- Follow-up review notes: staging/production report STT 모델을 어떤 값으로 고정할지는 전사 정확도와 시간 지표 요구를 함께 저울질해 별도 결정으로 확정한다. 정밀한 침묵 분석이 필요하면 WhisperX provider 전환을 재검토한다.
+
+## ORBIT staging report STT model uses whisper-1
+
+- Context: 로컬 리허설 report STT 기본 모델을 `whisper-1`로 바꾼 뒤, 개인 서버 staging에서도 같은 긴 침묵·WPM·segment timestamp 기반 지표를 확인해야 한다. 기존 staging 예시는 `gpt-4o-transcribe`를 사용하고, `docker-compose.staging.yml`은 Doppler/staging secret의 `OPENAI_TRANSCRIPTION_MODEL` 값을 그대로 받아서 Python worker가 시간 정보 없는 transcript만 받을 수 있었다.
+- Options considered:
+  - staging secret 값만 수동으로 바꾼다.
+  - `.env.staging.example`만 `whisper-1`로 바꾸고 compose override는 그대로 둔다.
+  - `.env.staging.example`과 개인 서버 staging compose override에서 report STT 모델을 `whisper-1`로 명시한다.
+- Final decision: staging 예시와 개인 서버 staging compose override의 API, worker, python-worker env에서 `OPENAI_TRANSCRIPTION_MODEL=whisper-1`을 사용한다. `REPORT_STT_PROVIDER=openai`는 유지하고 WhisperX provider로 전환하지 않는다.
+- Rationale: staging에서도 local과 같은 report STT 시간 지표를 재현할 수 있고, Doppler/staging secret에 이전 모델 값이 남아 있어도 개인 서버 staging report STT 실행 경로가 흔들리지 않는다. 표준 OpenAI API key는 계속 서버 환경에만 두며 브라우저에 노출하지 않는다.
+- Affected files: `.env.staging.example`, `docker-compose.staging.yml`, `docs/conventions/environment.md`, `docs/decision-log.md`.
+- Follow-up review notes: production의 report STT 모델은 전사 정확도, 비용, 시간 기반 지표 요구를 따로 검토한 뒤 확정한다. staging 배포 뒤 실제 리허설 녹음에서 `durationSeconds`, `speedSamples`, `pauseDetails`가 채워지는지 확인한다.

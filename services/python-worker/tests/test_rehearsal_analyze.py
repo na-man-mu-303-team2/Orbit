@@ -118,6 +118,52 @@ def test_analyze_rehearsal_metrics_does_not_count_contextual_geu_as_filler() -> 
     ]
 
 
+def test_analyze_rehearsal_metrics_counts_normalized_and_phrase_fillers() -> None:
+    metrics = analyze_rehearsal_metrics(
+        transcript="으음 오늘은 뭐 랄까 ORBIT 소개입니다 you know 핵심은 umm 자동 리포트입니다",
+        duration_seconds=30,
+        segments=[],
+        deck_keywords=[],
+    )
+
+    assert metrics.filler_word_count == 4
+    assert metrics.filler_word_details == [
+        FillerWordDetail(word="um", count=1),
+        FillerWordDetail(word="you know", count=1),
+        FillerWordDetail(word="뭐랄까", count=1),
+        FillerWordDetail(word="음", count=1),
+    ]
+
+
+def test_analyze_rehearsal_metrics_does_not_count_non_filler_substrings() -> None:
+    metrics = analyze_rehearsal_metrics(
+        transcript="음악 자료와 그 프로젝트를 설명합니다",
+        duration_seconds=30,
+        segments=[],
+        deck_keywords=[],
+    )
+
+    assert metrics.filler_word_count == 0
+    assert metrics.filler_word_details == []
+
+
+def test_analyze_rehearsal_metrics_records_long_silence_details() -> None:
+    metrics = analyze_rehearsal_metrics(
+        transcript="첫 문장 다음 문장",
+        duration_seconds=10,
+        segments=[
+            TranscriptSegment(text="첫 문장", startSeconds=0.5, endSeconds=1.5),
+            TranscriptSegment(text="다음 문장", startSeconds=4.25, endSeconds=5.25),
+        ],
+        deck_keywords=[],
+    )
+
+    assert metrics.pause_count == 1
+    assert metrics.pause_details[0].start_second == 1.5
+    assert metrics.pause_details[0].end_second == 4.25
+    assert metrics.pause_details[0].duration_seconds == 2.75
+
+
 def test_analyze_rehearsal_metrics_sorts_segments_before_counting_pauses() -> None:
     metrics = analyze_rehearsal_metrics(
         transcript="하나 둘 셋",

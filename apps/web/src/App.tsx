@@ -188,7 +188,14 @@ export type Route =
   | { name: "project-request"; projectId: string }
   | { name: "audience-session"; sessionId: string }
   | { name: "present"; deckId: string; sessionId?: string }
-  | { name: "rehearsal"; projectId: string }
+  | {
+      name: "rehearsal";
+      presenterInitialSlideIndex?: number;
+      presenterInitialStepIndex?: number;
+      presenterSessionId?: string;
+      presenterWindow?: boolean;
+      projectId: string;
+    }
   | { name: "rehearsal-report"; projectId: string; runId: string }
   | { name: "report-mockup" }
   | { name: "deck-render" };
@@ -414,7 +421,15 @@ export function getRoute(
 
   const rehearsalMatch = normalized.match(/^\/rehearsal\/([^/]+)$/);
   if (rehearsalMatch) {
-    return { name: "rehearsal", projectId: decodeURIComponent(rehearsalMatch[1]) };
+    const searchParams = new URLSearchParams(currentSearch);
+    return {
+      name: "rehearsal",
+      presenterInitialSlideIndex: parseRouteNonNegativeInteger(searchParams.get("slideIndex")),
+      presenterInitialStepIndex: parseRouteNonNegativeInteger(searchParams.get("stepIndex")),
+      presenterSessionId: searchParams.get("presenterSessionId") ?? undefined,
+      presenterWindow: searchParams.get("presenterWindow") === "1",
+      projectId: decodeURIComponent(rehearsalMatch[1])
+    };
   }
 
   const presentMatch = normalized.match(/^\/present\/([^/]+)$/);
@@ -512,6 +527,10 @@ function renderRoute(route: Route, user?: AuthUser) {
     return (
       <RehearsalWorkspace
         projectId={route.projectId}
+        presenterInitialSlideIndex={route.presenterInitialSlideIndex}
+        presenterInitialStepIndex={route.presenterInitialStepIndex}
+        presenterSessionId={route.presenterSessionId}
+        presenterWindow={route.presenterWindow}
         fallbackDeck={route.projectId === demoIds.projectId ? demoDeck : undefined}
       />
     );
@@ -534,6 +553,19 @@ function renderRoute(route: Route, user?: AuthUser) {
     return <DeckRenderPage />;
   }
   return <HomePage user={user} templateStyleId={route.templateStyleId} />;
+}
+
+function parseRouteNonNegativeInteger(value: string | null) {
+  if (value === null || value.trim() === "") {
+    return undefined;
+  }
+
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < 0) {
+    return undefined;
+  }
+
+  return parsed;
 }
 
 export function isDeckRenderRouteEnabled() {

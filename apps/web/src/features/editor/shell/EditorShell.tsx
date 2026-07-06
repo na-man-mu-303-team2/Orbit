@@ -10,7 +10,6 @@ import {
   createElementId,
   createReplaceKeywordsPatch,
   createUpsertAdvanceSlideKeywordActionPatch,
-  deriveKeywordUsage,
   findKeywordByTerm,
   createGroupedElementFramePatch,
   createUpdateAnimationPatch,
@@ -19,6 +18,8 @@ import {
   getGroupedSelectionBounds,
   createSlideId,
   createUpdateElementPropsPatch,
+  deriveKeywordActionUsage,
+  findDanglingKeywordOccurrenceActions,
   validateSlideAnimations
 } from "../../../../../../packages/editor-core/src/index";
 import { applyDeckPatch } from "../../../../../../packages/editor-core/src/patches/applyPatch";
@@ -28,6 +29,7 @@ import {
 } from "../../../../../../packages/editor-core/src/patches/elementFrame";
 import {
   appendDeckPatchResponseSchema,
+  createKeywordOccurrenceId,
   deckApiErrorSchema,
   demoIds,
   getDeckResponseSchema,
@@ -225,6 +227,26 @@ export function shouldPromptSpeakerNotesOverwrite(input: {
     input.currentNotes !== input.savedDraftBase &&
     input.draft !== input.currentNotes
   );
+}
+
+export const danglingKeywordOccurrenceSaveMessage =
+  "발표 메모 수정으로 기존 키워드 트리거 위치를 찾을 수 없습니다. 연결된 애니메이션 또는 다음 슬라이드 트리거를 새 위치에 다시 연결한 뒤 저장하세요.";
+
+export function getSpeakerNotesDanglingOccurrenceSaveBlock(
+  slide: Pick<Slide, "slideId" | "speakerNotes" | "keywords" | "actions">,
+  nextSpeakerNotes: string
+) {
+  const danglingActions = findDanglingKeywordOccurrenceActions(
+    slide,
+    nextSpeakerNotes
+  );
+
+  return danglingActions.length > 0
+    ? {
+        danglingActions,
+        message: danglingKeywordOccurrenceSaveMessage
+      }
+    : null;
 }
 
 declare global {
@@ -1087,6 +1109,12 @@ export function EditorShell(props: { projectId?: string }) {
   const setSelectedKeywordId = useEditorShellUiStore(
     (state) => state.setSelectedKeywordId
   );
+  const selectedKeywordOccurrenceKey = useEditorShellUiStore(
+    (state) => state.selectedKeywordOccurrenceKey
+  );
+  const setSelectedKeywordOccurrenceKey = useEditorShellUiStore(
+    (state) => state.setSelectedKeywordOccurrenceKey
+  );
   const [isSpeakerNotesEditing, setIsSpeakerNotesEditing] = useState(false);
   const [speakerNotesDraft, setSpeakerNotesDraft] = useState("");
   const [speakerNotesDraftBase, setSpeakerNotesDraftBase] = useState("");
@@ -1389,10 +1417,14 @@ export function EditorShell(props: { projectId?: string }) {
         : [],
     [currentSlide]
   );
-  const currentSlideKeywordUsage = useMemo(
-    () => (currentSlide ? deriveKeywordUsage(currentSlide) : {}),
+  const currentSlideKeywordActionUsage = useMemo(
+    () =>
+      currentSlide
+        ? deriveKeywordActionUsage(currentSlide)
+        : { byKeywordId: {}, byOccurrenceId: {} },
     [currentSlide]
   );
+  const currentSlideKeywordUsage = currentSlideKeywordActionUsage.byKeywordId;
   const animationPanelKeywordOptions = useMemo(
     () => toAnimationKeywordTriggerOptions(currentSlide?.keywords ?? []),
     [currentSlide?.keywords]
@@ -1401,6 +1433,25 @@ export function EditorShell(props: { projectId?: string }) {
     currentSlide?.keywords.find(
       (keyword) => keyword.keywordId === selectedKeywordId
     ) ?? null;
+  const selectedKeywordUsage = selectedKeyword
+    ? selectedKeywordOccurrenceKey
+      ? currentSlideKeywordActionUsage.byOccurrenceId[
+          selectedKeywordOccurrenceKey
+        ] ?? {
+          keywordId: selectedKeyword.keywordId,
+          occurrenceId: selectedKeywordOccurrenceKey,
+          animationIds: [],
+          advancesSlide: false
+        }
+      : currentSlideKeywordUsage[selectedKeyword.keywordId] ?? null
+    : null;
+  const selectedKeywordRequiredActive = selectedKeyword
+    ? selectedKeywordOccurrenceKey
+      ? (selectedKeyword.requiredOccurrenceIds ?? []).includes(
+          selectedKeywordOccurrenceKey
+        )
+      : selectedKeyword.required
+    : false;
   const selectedElementId = selectedElementIds.at(-1) ?? null;
   const selectedElements = visibleElements.filter((element) =>
     selectedElementIds.includes(element.elementId)
@@ -1428,6 +1479,7 @@ export function EditorShell(props: { projectId?: string }) {
       buildAnimationKeywordTriggerPolicy({
         element: selectedAnimationPanelElement,
         keywordId: selectedKeywordId,
+        keywordOccurrenceId: selectedKeywordOccurrenceKey,
         slideAnimations: currentSlide?.animations ?? [],
         usageByKeywordId: currentSlideKeywordUsage
       }),
@@ -1435,7 +1487,8 @@ export function EditorShell(props: { projectId?: string }) {
       currentSlide?.animations,
       currentSlideKeywordUsage,
       selectedAnimationPanelElement,
-      selectedKeywordId
+      selectedKeywordId,
+      selectedKeywordOccurrenceKey
     ]
   );
   const currentSlideAnimationDiagnostics = useMemo(
@@ -2338,7 +2391,7 @@ export function EditorShell(props: { projectId?: string }) {
     setDeck(previous.deck);
     setCurrentSlideIndex(transition.targetSlideIndex);
     setSelectedElementIds([]);
-    setSelectedKeywordId(null);
+    clearSelectedKeyword();
     setEditingElementId(null);
     setCustomShapeEditElementId(null);
     setElementContextMenu(null);
@@ -2377,7 +2430,7 @@ export function EditorShell(props: { projectId?: string }) {
     setDeck(next.deck);
     setCurrentSlideIndex(transition.targetSlideIndex);
     setSelectedElementIds([]);
-    setSelectedKeywordId(null);
+    clearSelectedKeyword();
     setEditingElementId(null);
     setCustomShapeEditElementId(null);
     setElementContextMenu(null);
@@ -2436,8 +2489,17 @@ export function EditorShell(props: { projectId?: string }) {
     });
   }
 
-  function handleSelectKeyword(keywordId: string) {
-    setSelectedKeywordId((current) => (current === keywordId ? null : keywordId));
+  function clearSelectedKeyword() {
+    setSelectedKeywordId(null);
+    setSelectedKeywordOccurrenceKey(null);
+  }
+
+  function handleSelectKeyword(keywordId: string, occurrenceKey: string | null = null) {
+    const shouldClear =
+      selectedKeywordId === keywordId && selectedKeywordOccurrenceKey === occurrenceKey;
+
+    setSelectedKeywordId(shouldClear ? null : keywordId);
+    setSelectedKeywordOccurrenceKey(shouldClear ? null : occurrenceKey);
   }
 
   function resetSpeakerNotesEditState(notes: string) {
@@ -2481,7 +2543,7 @@ export function EditorShell(props: { projectId?: string }) {
 
   function handleStartSpeakerNotesEdit() {
     const currentNotes = currentSlide?.speakerNotes ?? "";
-    setSelectedKeywordId(null);
+    clearSelectedKeyword();
     setSpeakerNotesDraft(currentNotes);
     setSpeakerNotesDraftBase(currentNotes);
     setSpeakerNotesEditSlideId(currentSlide?.slideId ?? null);
@@ -2530,6 +2592,19 @@ export function EditorShell(props: { projectId?: string }) {
     const nextSpeakerNotes = speakerNotesDraft;
 
     if (nextSpeakerNotes !== targetSlide.speakerNotes) {
+      const danglingOccurrenceBlock =
+        getSpeakerNotesDanglingOccurrenceSaveBlock(
+          targetSlide,
+          nextSpeakerNotes
+        );
+
+      if (danglingOccurrenceBlock) {
+        if (typeof window !== "undefined") {
+          window.alert(danglingOccurrenceBlock.message);
+        }
+        return false;
+      }
+
       commitPatch((currentDeck) => ({
         deckId: currentDeck.deckId,
         baseVersion: currentDeck.version,
@@ -2587,17 +2662,25 @@ export function EditorShell(props: { projectId?: string }) {
     handleReplaceKeywords(slideId, (keywords) =>
       keywords.filter((keyword) => keyword.keywordId !== keywordId)
     );
-    setSelectedKeywordId(null);
+    clearSelectedKeyword();
   }
 
-  function handleSpeakerNotesKeywordSelection(rawValue: string) {
+  function handleSpeakerNotesKeywordSelection(rawValue: string, start: number) {
     if (!currentSlide) {
       return;
     }
 
     const matchedKeyword = findKeywordByTerm(currentSlide, rawValue);
     if (matchedKeyword) {
-      handleSelectKeyword(matchedKeyword.keywordId);
+      handleSelectKeyword(
+        matchedKeyword.keywordId,
+        createKeywordOccurrenceId(
+          currentSlide.slideId,
+          matchedKeyword.keywordId,
+          start,
+          start + rawValue.length
+        )
+      );
       return;
     }
 
@@ -2605,16 +2688,62 @@ export function EditorShell(props: { projectId?: string }) {
       required: false
     });
     setSelectedKeywordId(nextKeyword.keywordId);
+    setSelectedKeywordOccurrenceKey(
+      createKeywordOccurrenceId(
+        currentSlide.slideId,
+        nextKeyword.keywordId,
+        start,
+        start + rawValue.length
+      )
+    );
     handleReplaceKeywords(currentSlide.slideId, (keywords) => [...keywords, nextKeyword]);
   }
 
-  function handleToggleKeywordRequired(slideId: string, keywordId: string) {
+  function handleToggleKeywordRequired(
+    slideId: string,
+    keywordId: string,
+    occurrenceKey: string | null = null
+  ) {
+    const keyword = currentSlide?.keywords.find(
+      (candidate) => candidate.keywordId === keywordId
+    );
+
+    if (!occurrenceKey && !keyword?.required) {
+      if (typeof window !== "undefined") {
+        window.alert(
+          "반복되는 단어일 수 있습니다. 발표 메모에서 필수 발화로 표시할 단어 위치를 선택하세요."
+        );
+      }
+      return;
+    }
+
     handleReplaceKeywords(slideId, (keywords) =>
-      keywords.map((keyword) =>
-        keyword.keywordId === keywordId
-          ? { ...keyword, required: !keyword.required }
-          : keyword
-      )
+      keywords.map((keyword) => {
+        if (keyword.keywordId !== keywordId) {
+          return keyword;
+        }
+
+        if (!occurrenceKey) {
+          return {
+            ...keyword,
+            required: false,
+            requiredOccurrenceIds: []
+          };
+        }
+
+        const requiredOccurrenceIds = keyword.requiredOccurrenceIds ?? [];
+        const nextRequiredOccurrenceIds = requiredOccurrenceIds.includes(
+          occurrenceKey
+        )
+          ? requiredOccurrenceIds.filter((candidate) => candidate !== occurrenceKey)
+          : [...requiredOccurrenceIds, occurrenceKey];
+
+        return {
+          ...keyword,
+          required: nextRequiredOccurrenceIds.length > 0,
+          requiredOccurrenceIds: nextRequiredOccurrenceIds
+        };
+      })
     );
   }
 
@@ -2623,11 +2752,21 @@ export function EditorShell(props: { projectId?: string }) {
     keywordId: string,
     enabled: boolean
   ) {
+    if (enabled && !selectedKeywordOccurrenceKey) {
+      if (typeof window !== "undefined") {
+        window.alert(
+          "반복되는 단어일 수 있습니다. 발표 메모에서 실제로 트리거할 단어 위치를 선택하세요."
+        );
+      }
+      return;
+    }
+
     const patch = createUpsertAdvanceSlideKeywordActionPatch(
       workingDeckRef.current,
       slideId,
       keywordId,
-      enabled
+      enabled,
+      selectedKeywordOccurrenceKey
     );
 
     if (!patch) {
@@ -2641,6 +2780,7 @@ export function EditorShell(props: { projectId?: string }) {
     slideId: string,
     elementId: string,
     keywordId?: string | null,
+    keywordOccurrenceId?: string | null,
     draft?: Partial<Pick<DeckAnimation, "delayMs" | "durationMs" | "type">>
   ) {
     let createdAnimationId: string | null = null;
@@ -2666,7 +2806,8 @@ export function EditorShell(props: { projectId?: string }) {
         currentDeck,
         slideId,
         animation,
-        keywordId
+        keywordId,
+        keywordOccurrenceId
       );
     });
 
@@ -2889,7 +3030,7 @@ export function EditorShell(props: { projectId?: string }) {
         setUndoStack([]);
         setRedoStack([]);
         setSelectedElementIds([]);
-        setSelectedKeywordId(null);
+        clearSelectedKeyword();
         setEditingElementId(null);
         setCustomShapeEditElementId(null);
         setElementContextMenu(null);
@@ -3691,7 +3832,7 @@ export function EditorShell(props: { projectId?: string }) {
         (keyword) => keyword.keywordId === selectedKeywordId
       )
     ) {
-      setSelectedKeywordId(null);
+      clearSelectedKeyword();
     }
   }, [currentSlide, selectedKeywordId]);
 
@@ -4561,9 +4702,10 @@ export function EditorShell(props: { projectId?: string }) {
             preferredAnimationId={animationPanelFocusedAnimationId}
             selectedKeywordId={selectedKeywordId}
             selectedKeywordLabel={selectedKeyword?.text ?? null}
+            selectedKeywordOccurrenceId={selectedKeywordOccurrenceKey}
             slideAnimations={currentSlideAnimations}
             slideElements={currentSlide?.elements ?? []}
-            onAddAnimation={(draft, keywordId) => {
+            onAddAnimation={(draft, keywordId, keywordOccurrenceId) => {
               if (!currentSlide || !selectedAnimationPanelElement) {
                 return;
               }
@@ -4572,6 +4714,7 @@ export function EditorShell(props: { projectId?: string }) {
                 currentSlide.slideId,
                 selectedAnimationPanelElement.elementId,
                 keywordId,
+                keywordOccurrenceId,
                 draft
               );
             }}
@@ -4897,7 +5040,9 @@ export function EditorShell(props: { projectId?: string }) {
                     keywords={currentSlide?.keywords ?? []}
                     notes={currentSlide?.speakerNotes ?? ""}
                     selectedKeywordId={selectedKeywordId}
+                    selectedKeywordOccurrenceKey={selectedKeywordOccurrenceKey}
                     showIds={showIds}
+                    slideId={currentSlide?.slideId ?? ""}
                     onSelectKeyword={handleSelectKeyword}
                     onSelectKeywordText={handleSpeakerNotesKeywordSelection}
                   />
@@ -4911,9 +5056,10 @@ export function EditorShell(props: { projectId?: string }) {
                   {selectedKeyword ? (
                     <KeywordDetail
                       keyword={selectedKeyword}
+                      requiredActive={selectedKeywordRequiredActive}
                       showIds={showIds}
-                      usage={currentSlideKeywordUsage[selectedKeyword.keywordId] ?? null}
-                      onClearSelection={() => setSelectedKeywordId(null)}
+                      usage={selectedKeywordUsage}
+                      onClearSelection={clearSelectedKeyword}
                       onDeleteKeyword={() => {
                         if (!currentSlide) {
                           return;
@@ -4933,8 +5079,7 @@ export function EditorShell(props: { projectId?: string }) {
                           currentSlide.slideId,
                           selectedKeyword.keywordId,
                           !(
-                            currentSlideKeywordUsage[selectedKeyword.keywordId]
-                              ?.advancesSlide ?? false
+                            selectedKeywordUsage?.advancesSlide ?? false
                           )
                         );
                       }}
@@ -4945,7 +5090,8 @@ export function EditorShell(props: { projectId?: string }) {
 
                         handleToggleKeywordRequired(
                           currentSlide.slideId,
-                          selectedKeyword.keywordId
+                          selectedKeyword.keywordId,
+                          selectedKeywordOccurrenceKey
                         );
                       }}
                     />

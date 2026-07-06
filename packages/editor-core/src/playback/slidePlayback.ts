@@ -69,12 +69,24 @@ export function resolveTriggeredActions(
   trigger: {
     cue?: string;
     keywordId?: string;
+    occurrenceId?: string;
   }
 ): DeckSlideAction[] {
   const normalizedCue = trigger.cue ? normalizeCue(trigger.cue) : "";
 
-  if (!normalizedCue && !trigger.keywordId) {
+  if (!normalizedCue && !trigger.keywordId && !trigger.occurrenceId) {
     return [];
+  }
+
+  if (trigger.occurrenceId !== undefined) {
+    return slide.actions.filter((action) => {
+      return (
+        action.trigger.kind === "keyword-occurrence" &&
+        action.trigger.occurrenceId === trigger.occurrenceId &&
+        (trigger.keywordId === undefined ||
+          action.trigger.keywordId === trigger.keywordId)
+      );
+    });
   }
 
   return slide.actions.filter((action) => {

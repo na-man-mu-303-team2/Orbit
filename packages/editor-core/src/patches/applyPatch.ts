@@ -414,7 +414,7 @@ function applyOperation(
       }
 
       if (
-        operation.action.trigger.kind === "keyword" &&
+        isKeywordBasedTrigger(operation.action.trigger) &&
         !findKeyword(slide, operation.action.trigger.keywordId)
       ) {
         return slideActionKeywordNotFound(
@@ -452,7 +452,7 @@ function applyOperation(
 
       if (operation.action.trigger) {
         if (
-          operation.action.trigger.kind === "keyword" &&
+          isKeywordBasedTrigger(operation.action.trigger) &&
           !findKeyword(slide, operation.action.trigger.keywordId)
         ) {
           return slideActionKeywordNotFound(
@@ -588,8 +588,18 @@ function removeActionsForMissingKeywords(slide: Slide): void {
 
   slide.actions = slide.actions.filter(
     (action) =>
-      action.trigger.kind !== "keyword" || keywordIds.has(action.trigger.keywordId),
+      !isKeywordBasedTrigger(action.trigger) ||
+      keywordIds.has(action.trigger.keywordId),
   );
+}
+
+function isKeywordBasedTrigger(
+  trigger: DeckSlideAction["trigger"],
+): trigger is Extract<
+  DeckSlideAction["trigger"],
+  { kind: "keyword" | "keyword-occurrence" }
+> {
+  return trigger.kind === "keyword" || trigger.kind === "keyword-occurrence";
 }
 
 function sortSlides(deck: Deck): void {

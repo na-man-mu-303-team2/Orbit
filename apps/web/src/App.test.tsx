@@ -117,6 +117,22 @@ describe("App shell routing", () => {
     });
   });
 
+  it("parses rehearsal presenter-window session query parameters", () => {
+    expect(
+      getRoute(
+        "/rehearsal/project_demo_1",
+        "?presenterSessionId=session-presenter-1&presenterWindow=1&slideIndex=2&stepIndex=1"
+      )
+    ).toEqual({
+      name: "rehearsal",
+      presenterInitialSlideIndex: 2,
+      presenterInitialStepIndex: 1,
+      presenterSessionId: "session-presenter-1",
+      presenterWindow: true,
+      projectId: "project_demo_1"
+    });
+  });
+
   it("keeps the deck render fixture outside the shared navigation shell", () => {
     const route = getRoute("/__deck-render");
 

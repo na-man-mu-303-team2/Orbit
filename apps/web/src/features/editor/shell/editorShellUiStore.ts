@@ -62,6 +62,7 @@ type EditorShellUiStateValues = {
   rightPaneWidth: number;
   selectedElementIds: string[];
   selectedKeywordId: string | null;
+  selectedKeywordOccurrenceKey: string | null;
   shapeMenuPosition: ShapeMenuPosition | null;
   showIds: boolean;
   slidePanelView: SlidePanelView;
@@ -94,6 +95,9 @@ type EditorShellUiStateActions = {
   setRightPaneWidth: (updater: EditorShellUiUpdater<number>) => void;
   setSelectedElementIds: (updater: EditorShellUiUpdater<string[]>) => void;
   setSelectedKeywordId: (updater: EditorShellUiUpdater<string | null>) => void;
+  setSelectedKeywordOccurrenceKey: (
+    updater: EditorShellUiUpdater<string | null>
+  ) => void;
   setShapeMenuPosition: (
     updater: EditorShellUiUpdater<ShapeMenuPosition | null>
   ) => void;
@@ -123,6 +127,7 @@ export const editorShellUiInitialState: EditorShellUiStateValues = {
   rightPaneWidth: defaultRightPaneWidth,
   selectedElementIds: [],
   selectedKeywordId: null,
+  selectedKeywordOccurrenceKey: null,
   shapeMenuPosition: null,
   showIds: false,
   slidePanelView: "thumbnail",
@@ -144,6 +149,7 @@ export const useEditorShellUiStore = create<EditorShellUiState>((set) => ({
       isShapeMenuOpen: false,
       selectedElementIds: [],
       selectedKeywordId: null,
+      selectedKeywordOccurrenceKey: null,
       shapeMenuPosition: null
     }),
   setActiveTopMenu: (updater) =>
@@ -223,6 +229,13 @@ export const useEditorShellUiStore = create<EditorShellUiState>((set) => ({
   setSelectedKeywordId: (updater) =>
     set((state) => ({
       selectedKeywordId: resolveUpdater(state.selectedKeywordId, updater)
+    })),
+  setSelectedKeywordOccurrenceKey: (updater) =>
+    set((state) => ({
+      selectedKeywordOccurrenceKey: resolveUpdater(
+        state.selectedKeywordOccurrenceKey,
+        updater
+      )
     })),
   setShapeMenuPosition: (updater) =>
     set((state) => ({

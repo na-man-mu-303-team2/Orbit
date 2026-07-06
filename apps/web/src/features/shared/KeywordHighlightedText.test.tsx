@@ -51,8 +51,32 @@ describe("KeywordHighlightedText", () => {
       </p>
     );
 
-    expect(html).toContain('<span class="keyword-mark ">');
+    expect(html).toContain('<span class="keyword-mark " data-keyword-id="kw_privacy">');
     expect(html).not.toContain("<button");
+  });
+
+  it("only marks the matching occurrence when occurrence highlights are provided", () => {
+    const html = renderToStaticMarkup(
+      <p>
+        <KeywordHighlightedText
+          highlightedOccurrences={[
+            {
+              occurrenceId: "kwo_slide_1_kw_ai_9_11",
+              keywordId: "kw_ai",
+              start: 9,
+              end: 11
+            }
+          ]}
+          keywords={[keyword("kw_ai", "AI")]}
+          text="AI first AI second"
+        />
+      </p>
+    );
+
+    expect(html.match(/class="keyword-mark "/g)).toHaveLength(1);
+    expect(html).not.toContain("keyword-note-token");
+    expect(html.match(/<strong>AI<\/strong>/g)).toHaveLength(1);
+    expect(html).toContain('data-occurrence-id="kwo_slide_1_kw_ai_9_11"');
   });
 });
 
