@@ -6,12 +6,13 @@ import {
   canDelegateSlideWindowFullscreen,
   DisplayControls,
   getDisplayControlMessage,
+  getDefaultAutoPlacementScreen,
   getDisplayStatusLabel,
-  shouldShowRecoverAction
+  shouldShowRecoverAction,
 } from "./DisplayControls";
 
 const displayControlsSourcePath = fileURLToPath(
-  new URL("./DisplayControls.tsx", import.meta.url)
+  new URL("./DisplayControls.tsx", import.meta.url),
 );
 
 describe("DisplayControls", () => {
@@ -24,7 +25,7 @@ describe("DisplayControls", () => {
           displayOpened: true,
           fullscreenStarted: true,
         })}
-      />
+      />,
     );
 
     expect(html).toContain("슬라이드 창 열기");
@@ -45,15 +46,21 @@ describe("DisplayControls", () => {
     expect(getDisplayControlMessage("popup-blocked")).toContain("팝업");
     expect(getDisplayControlMessage("permission-denied")).toContain("권한");
     expect(getDisplayControlMessage("window-management-unsupported")).toContain(
-      "자동 화면 배치"
+      "자동 화면 배치",
     );
-    expect(getDisplayControlMessage("fullscreen-blocked")).toContain("전체화면");
+    expect(getDisplayControlMessage("fullscreen-blocked")).toContain(
+      "전체화면",
+    );
     expect(getDisplayControlMessage("placement-failed")).toContain("자동 배치");
   });
 
   it("prioritizes actionable status labels", () => {
-    expect(getDisplayStatusLabel("connected", "idle")).toBe("슬라이드 화면 연결됨");
-    expect(getDisplayStatusLabel("stale", "idle")).toBe("슬라이드 화면 응답 없음");
+    expect(getDisplayStatusLabel("connected", "idle")).toBe(
+      "슬라이드 화면 연결됨",
+    );
+    expect(getDisplayStatusLabel("stale", "idle")).toBe(
+      "슬라이드 화면 응답 없음",
+    );
     expect(getDisplayStatusLabel("idle", "opening")).toBe("발표자 창 여는 중");
     expect(getDisplayStatusLabel("idle", "manual-guide")).toBe("전환 안내");
     expect(getDisplayStatusLabel("idle", "failed")).toBe("확인 필요");
@@ -62,20 +69,36 @@ describe("DisplayControls", () => {
   it("detects browsers that support fullscreen capability delegation", () => {
     expect(
       canDelegateSlideWindowFullscreen(
-        "Mozilla/5.0 AppleWebKit/537.36 Chrome/104.0.0.0 Safari/537.36"
-      )
+        "Mozilla/5.0 AppleWebKit/537.36 Chrome/104.0.0.0 Safari/537.36",
+      ),
     ).toBe(true);
     expect(
       canDelegateSlideWindowFullscreen(
-        "Mozilla/5.0 AppleWebKit/537.36 Chrome/103.0.0.0 Safari/537.36"
-      )
+        "Mozilla/5.0 AppleWebKit/537.36 Chrome/103.0.0.0 Safari/537.36",
+      ),
     ).toBe(false);
     expect(
       canDelegateSlideWindowFullscreen(
-        "Mozilla/5.0 AppleWebKit/537.36 Edg/121.0.0.0 Safari/537.36"
-      )
+        "Mozilla/5.0 AppleWebKit/537.36 Edg/121.0.0.0 Safari/537.36",
+      ),
     ).toBe(true);
-    expect(canDelegateSlideWindowFullscreen("Mozilla/5.0 Firefox/128.0")).toBe(false);
+    expect(canDelegateSlideWindowFullscreen("Mozilla/5.0 Firefox/128.0")).toBe(
+      false,
+    );
+  });
+
+  it("uses only non-current screens as the auto-placement default", () => {
+    expect(
+      getDefaultAutoPlacementScreen([
+        createScreen({ isCurrent: true, label: "현재 화면", screenIndex: 0 }),
+      ]),
+    ).toBeNull();
+    expect(
+      getDefaultAutoPlacementScreen([
+        createScreen({ isCurrent: true, label: "현재 화면", screenIndex: 0 }),
+        createScreen({ isCurrent: false, label: "발표 화면", screenIndex: 1 }),
+      ]),
+    ).toMatchObject({ label: "발표 화면", screenIndex: 1 });
   });
 
   it("starts the slide display request before updating control state", () => {
@@ -84,9 +107,9 @@ describe("DisplayControls", () => {
     const end = source.indexOf("return (", start);
     const openSlideWindowBody = source.slice(start, end);
 
-    expect(openSlideWindowBody.indexOf("onOpenSlideDisplay(resolvedLaunchOptions)")).toBeLessThan(
-      openSlideWindowBody.indexOf("setDisplayState(\"opening\")")
-    );
+    expect(
+      openSlideWindowBody.indexOf("onOpenSlideDisplay(resolvedLaunchOptions)"),
+    ).toBeLessThan(openSlideWindowBody.indexOf('setDisplayState("opening")'));
   });
 
   it("starts the display permission request before updating request state", () => {
@@ -95,20 +118,26 @@ describe("DisplayControls", () => {
     const end = source.indexOf("function setPresenterView(", start);
     const requestDisplayScreensBody = source.slice(start, end);
 
-    expect(requestDisplayScreensBody.indexOf("onRequestDisplayScreens()")).toBeLessThan(
-      requestDisplayScreensBody.indexOf("setScreenRequestState(\"loading\")")
+    expect(
+      requestDisplayScreensBody.indexOf("onRequestDisplayScreens()"),
+    ).toBeLessThan(
+      requestDisplayScreensBody.indexOf('setScreenRequestState("loading")'),
     );
   });
 
   it("starts the remote fullscreen delegation before updating request state", () => {
     const source = fs.readFileSync(displayControlsSourcePath, "utf8");
-    const start = source.indexOf("async function requestSlideWindowFullscreen(");
+    const start = source.indexOf(
+      "async function requestSlideWindowFullscreen(",
+    );
     const end = source.indexOf("function resolveLaunchOptions(", start);
     const requestFullscreenBody = source.slice(start, end);
 
     expect(
-      requestFullscreenBody.indexOf("onRequestSlideWindowFullscreen()")
-    ).toBeLessThan(requestFullscreenBody.indexOf("setRemoteFullscreenState(\"requested\")"));
+      requestFullscreenBody.indexOf("onRequestSlideWindowFullscreen()"),
+    ).toBeLessThan(
+      requestFullscreenBody.indexOf('setRemoteFullscreenState("requested")'),
+    );
   });
 
   it("resets the mounted guard when StrictMode remounts effects", () => {
@@ -119,7 +148,24 @@ describe("DisplayControls", () => {
 
     expect(effectBody.indexOf("mountedRef.current = true")).toBeGreaterThan(-1);
     expect(effectBody.indexOf("mountedRef.current = true")).toBeLessThan(
-      effectBody.indexOf("mountedRef.current = false")
+      effectBody.indexOf("mountedRef.current = false"),
     );
   });
 });
+
+function createScreen(options: {
+  isCurrent: boolean;
+  label: string;
+  screenIndex: number;
+}) {
+  return {
+    height: 1080,
+    isCurrent: options.isCurrent,
+    isPrimary: options.screenIndex === 0,
+    label: options.label,
+    left: options.screenIndex * 1920,
+    screenIndex: options.screenIndex,
+    top: 0,
+    width: 1920,
+  };
+}
