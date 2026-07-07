@@ -378,7 +378,6 @@ Resources:
           usermod -aG docker orbit
 
           install -d -o orbit -g orbit -m 0755 /opt/orbit
-          install -d -o orbit -g orbit -m 0755 /opt/orbit/source
           install -d -o orbit -g orbit -m 0755 /opt/orbit/deploy
           install -d -o root -g root -m 0750 /etc/orbit
           install -d -o orbit -g orbit -m 0700 /home/orbit/.ssh
