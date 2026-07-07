@@ -1005,6 +1005,9 @@ describe("RehearsalWorkspace", () => {
     expect(html).toContain("키워드 커버리지");
     expect(html).toContain("말버릇 총량");
     expect(html).toContain("긴 멈춤");
+    expect(html).toContain("음");
+    expect(html).toContain("표현별 비중");
+    expect(html).toContain("100% (2회)");
     expect(html).toContain("놓친 핵심 메시지");
     expect(html).toContain("문제 신호");
     expect(html).toContain("습관어 2회");
@@ -1019,6 +1022,7 @@ describe("RehearsalWorkspace", () => {
     expect(html).not.toContain("종합 발표 점수");
     expect(html).not.toContain("/ 100");
     expect(html).not.toContain("속도 안정성");
+    expect(html).not.toContain("전체 말버릇 중");
     expect(html).not.toContain("민감한 전사 원문");
     expect(html).not.toContain("dB");
   });

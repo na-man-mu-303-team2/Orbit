@@ -15,6 +15,13 @@ import { RehearsalSlideAnalysisOverview } from "./RehearsalSlideAnalysisOverview
 import { RehearsalSlideTimingOverview } from "./RehearsalSlideTimingOverview";
 
 const TRANSCRIPT_WINDOW_MS = 30 * 60 * 1000;
+const FILLER_CHART_COLORS = [
+  "#0072B2",
+  "#E69F00",
+  "#009E73",
+  "#D55E00",
+  "#CC79A7",
+] as const;
 
 type ReportAiSummary = {
   headline: string;
@@ -37,6 +44,10 @@ function fmtDelta(diff: number) {
   const m = Math.floor(abs / 60);
   const s = abs % 60;
   return m > 0 ? `${sign}${m}분 ${s.toString().padStart(2, "0")}초` : `${sign}${s}초`;
+}
+
+function fmtPercent(value: number) {
+  return `${Math.round(value)}%`;
 }
 
 function formatDate(iso: string) {
@@ -236,6 +247,32 @@ export function RehearsalReportDocument({
   const fillerWordDetails = [...report.fillerWordDetails].sort(
     (a, b) => b.count - a.count,
   );
+  const fillerDistribution = fillerWordDetails.slice(0, 5).map((fw, index) => {
+    const sharePercent = Math.min(
+      100,
+      metrics.fillerWordCount > 0 ? (fw.count / metrics.fillerWordCount) * 100 : 0,
+    );
+
+    return {
+      ...fw,
+      color: FILLER_CHART_COLORS[index % FILLER_CHART_COLORS.length]!,
+      sharePercent,
+    };
+  });
+  const fillerDistributionGradient =
+    fillerDistribution.length > 0
+      ? (() => {
+          let start = 0;
+          return fillerDistribution
+            .map((item) => {
+              const end = start + item.sharePercent * 3.6;
+              const segment = `${item.color} ${start}deg ${end}deg`;
+              start = end;
+              return segment;
+            })
+            .join(", ");
+        })()
+      : "";
 
   const runDate = run?.createdAt ? formatDate(run.createdAt) : "";
   const title =
@@ -401,26 +438,40 @@ export function RehearsalReportDocument({
         {fillerWordDetails.length > 0 && (
           <>
             <h3 className="rrd-section-label">상위 표현</h3>
-            <div className="rrd-filler-list">
-              {fillerWordDetails.slice(0, 5).map((fw) => (
-                <div key={fw.word} className="rrd-filler-row">
-                  <span className="rrd-filler-word">"{fw.word}"</span>
-                  <div className="rrd-filler-bar-wrap">
-                    <div
-                      className="rrd-filler-bar"
-                      style={{
-                        width: `${Math.min(
-                          100,
-                          metrics.fillerWordCount > 0
-                            ? (fw.count / metrics.fillerWordCount) * 100
-                            : 0,
-                        )}%`,
-                      }}
-                    />
-                  </div>
-                  <strong className="rrd-filler-count">{fw.count}회</strong>
+            <div className="rrd-filler-distribution">
+              <div
+                className="rrd-filler-distribution-chart"
+                style={{
+                  background: `conic-gradient(${fillerDistributionGradient})`,
+                }}
+                aria-label="상위 표현 비율 원 그래프"
+              >
+                <div className="rrd-filler-distribution-inner">
+                  <strong>{metrics.fillerWordCount}회</strong>
+                  <span>상위 표현</span>
                 </div>
-              ))}
+              </div>
+
+              <div className="rrd-filler-list-wrap">
+                <p className="rrd-filler-list-caption">표현별 비중</p>
+                <div className="rrd-filler-list">
+                  {fillerDistribution.map((fw) => (
+                    <div key={fw.word} className="rrd-filler-row">
+                      <div className="rrd-filler-word-group">
+                        <span
+                          className="rrd-filler-legend-dot"
+                          style={{ backgroundColor: fw.color }}
+                          aria-hidden="true"
+                        />
+                        <span className="rrd-filler-word">"{fw.word}"</span>
+                      </div>
+                      <strong className="rrd-filler-summary">
+                        {fmtPercent(fw.sharePercent)} ({fw.count}회)
+                      </strong>
+                    </div>
+                  ))}
+                </div>
+              </div>
             </div>
           </>
         )}
