@@ -1,9 +1,13 @@
 import { ArrowLeft, FileText, Loader2, Mic, TrendingUp } from "lucide-react";
 import { useEffect, useState } from "react";
-import type { Project, RehearsalRun } from "@orbit/shared";
-import { fetchProjects } from "../projects/ProjectAssetWorkspace";
-import { fetchProjectRehearsalReportRuns } from "./reportApi";
+import type { Project, RehearsalProjectSummary, RehearsalRun } from "@orbit/shared";
+import {
+  fetchReportProjects,
+  fetchProjectRehearsalReportRuns,
+  fetchProjectRehearsalSummary,
+} from "./reportApi";
 import { RehearsalRunNav } from "./RehearsalRunNav";
+import { DurationLineChart, SlideAvgBarChart } from "./ReportProgressCharts";
 import {
   navigateTo,
   formatRunDate,
@@ -17,31 +21,33 @@ export function RehearsalProjectOverviewPage({
 }) {
   const [project, setProject] = useState<Project | null>(null);
   const [runs, setRuns] = useState<RehearsalRun[]>([]);
+  const [summary, setSummary] = useState<RehearsalProjectSummary | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     let isMounted = true;
     setProject(null);
     setRuns([]);
+    setSummary(null);
     setLoading(true);
 
     void Promise.all([
-      fetchProjects(),
+      fetchReportProjects(),
       fetchProjectRehearsalReportRuns(projectId),
+      fetchProjectRehearsalSummary(projectId),
     ])
-      .then(([projects, { runs: succeededRuns }]) => {
+      .then(([projects, { runs: succeededRuns }, projectSummary]) => {
         if (!isMounted) return;
-        const proj =
-          projects.find((p) => p.projectId === projectId) ?? null;
-        const succeeded = sortRehearsalRunsByCreatedAt(succeededRuns);
-        setProject(proj);
-        setRuns(succeeded);
+        setProject(projects.find((p) => p.projectId === projectId) ?? null);
+        setRuns(sortRehearsalRunsByCreatedAt(succeededRuns));
+        setSummary(projectSummary);
         setLoading(false);
       })
       .catch(() => {
         if (!isMounted) return;
         setProject(null);
         setRuns([]);
+        setSummary(null);
         setLoading(false);
       });
     return () => {
@@ -51,6 +57,11 @@ export function RehearsalProjectOverviewPage({
 
   const latestRun = runs[runs.length - 1] ?? null;
   const showSummary = runs.length >= 2;
+
+  const durationSeries = (summary?.runDurationSeries ?? []).map((p, i) => ({
+    label: `${i + 1}회차`,
+    seconds: p.durationSeconds,
+  }));
 
   return (
     <main className="rehearsal-report-page">
@@ -83,11 +94,7 @@ export function RehearsalProjectOverviewPage({
       </header>
 
       <div className="rehearsal-report-body">
-        <RehearsalRunNav
-          runs={runs}
-          projectId={projectId}
-          loading={loading}
-        />
+        <RehearsalRunNav runs={runs} projectId={projectId} loading={loading} />
 
         <section className="report-overview-panel">
           {loading ? (
@@ -101,9 +108,7 @@ export function RehearsalProjectOverviewPage({
                 <div className="report-stat-card">
                   <FileText size={22} className="report-stat-icon" />
                   <span className="report-stat-label">리허설 리포트</span>
-                  <strong className="report-stat-value">
-                    {runs.length}건
-                  </strong>
+                  <strong className="report-stat-value">{runs.length}건</strong>
                 </div>
                 <div className="report-stat-card report-stat-card-disabled">
                   <FileText size={22} className="report-stat-icon" />
@@ -121,44 +126,43 @@ export function RehearsalProjectOverviewPage({
                 </div>
                 <div className="report-date-row">
                   <span className="report-date-label">최신 발표</span>
-                  <strong className="report-date-value report-date-empty">
-                    —
-                  </strong>
+                  <strong className="report-date-value report-date-empty">—</strong>
                 </div>
               </div>
 
               {showSummary && (
-                <div className="report-summary-section">
-                  <header className="report-summary-header">
+                <div className="report-project-summary-section">
+                  <header className="report-project-summary-header">
                     <TrendingUp size={18} />
                     <h2>종합 요약 리포트</h2>
-                    <span className="report-summary-count">
+                    <span className="report-project-summary-count">
                       {runs.length}회차 기반
                     </span>
                   </header>
-                  <div className="report-summary-cards">
-                    <div className="report-summary-card">
-                      <span className="report-summary-card-label">
-                        평균 발표 시간
+
+                  {summary?.progressComment && (
+                    <p className="report-project-progress-comment">
+                      {summary.progressComment}
+                    </p>
+                  )}
+
+                  {durationSeries.length >= 2 && (
+                    <div className="report-project-chart-block">
+                      <span className="report-project-chart-label">
+                        회차별 총 소요시간 (초)
                       </span>
-                      <strong className="report-summary-card-value">—</strong>
-                      <span className="report-summary-card-sub">준비 중</span>
+                      <DurationLineChart series={durationSeries} />
                     </div>
-                    <div className="report-summary-card">
-                      <span className="report-summary-card-label">
-                        평균 말하기 속도
+                  )}
+
+                  {(summary?.slideAvgTimings?.length ?? 0) > 0 && (
+                    <div className="report-project-chart-block">
+                      <span className="report-project-chart-label">
+                        슬라이드별 평균 소요시간 (초)
                       </span>
-                      <strong className="report-summary-card-value">—</strong>
-                      <span className="report-summary-card-sub">준비 중</span>
+                      <SlideAvgBarChart timings={summary!.slideAvgTimings} />
                     </div>
-                    <div className="report-summary-card">
-                      <span className="report-summary-card-label">
-                        회차별 개선도
-                      </span>
-                      <strong className="report-summary-card-value">—</strong>
-                      <span className="report-summary-card-sub">준비 중</span>
-                    </div>
-                  </div>
+                  )}
                 </div>
               )}
             </>

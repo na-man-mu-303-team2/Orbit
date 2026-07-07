@@ -1,9 +1,34 @@
-import type { RehearsalRun } from "@orbit/shared";
+import { demoIds } from "@orbit/shared";
+import type { Project, RehearsalProjectSummary, RehearsalRun } from "@orbit/shared";
 
 type Fetcher = (
   input: RequestInfo | URL,
   init?: RequestInit,
 ) => Promise<Response>;
+
+export async function fetchReportProjects(
+  fetcher: Fetcher = fetch,
+): Promise<Project[]> {
+  const response = await fetcher(
+    `/api/v1/workspaces/${demoIds.workspaceId}/projects`,
+    { credentials: "include" },
+  );
+  if (!response.ok) return [];
+  return (await response.json()) as Project[];
+}
+
+export async function fetchProjectRehearsalSummary(
+  projectId: string,
+  fetcher: Fetcher = fetch,
+): Promise<RehearsalProjectSummary | null> {
+  const response = await fetcher(
+    `/api/v1/projects/${encodeURIComponent(projectId)}/rehearsal-summary`,
+    { credentials: "include" },
+  );
+  if (!response.ok) return null;
+  const data = (await response.json()) as { summary: RehearsalProjectSummary | null };
+  return data.summary ?? null;
+}
 
 export async function fetchProjectRehearsalReportRuns(
   projectId: string,

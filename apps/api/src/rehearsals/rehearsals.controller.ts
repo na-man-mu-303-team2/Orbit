@@ -90,6 +90,16 @@ export class RehearsalsController {
     return this.rehearsalsService.getReport(runId);
   }
 
+  @Get("api/v1/projects/:projectId/rehearsal-summary")
+  async getSummary(
+    @Param("projectId") projectId: string,
+    @Req() request: SignedCookieRequest,
+  ) {
+    const user = await getCurrentUser(this.authService, request);
+    await this.projectsService.assertCanReadProject(projectId, user.userId);
+    return this.rehearsalsService.getSummary(projectId);
+  }
+
   private async assertCanReadRun(runId: string, userId: string) {
     const projectId = await this.rehearsalsService.getRunProjectId(runId);
     await this.projectsService.assertCanReadProject(projectId, userId);
