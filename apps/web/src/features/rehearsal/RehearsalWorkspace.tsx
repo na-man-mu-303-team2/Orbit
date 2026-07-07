@@ -29,6 +29,7 @@ import {
 import {
   BarChart3,
   AlertCircle,
+  AlertTriangle,
   CalendarDays,
   CheckCircle2,
   ChevronLeft,
@@ -49,7 +50,7 @@ import {
   Volume2,
   Zap,
 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   LiveSttAdapterError,
   type LiveSttAdapter,
@@ -82,6 +83,15 @@ import {
 } from "./stt/liveSttPort";
 import { createLiveSttPort } from "./stt/liveSttEngineRegistry";
 import { normalizeLiveTranscriptText } from "./stt/liveTranscriptText";
+import {
+  getBrowserSpeechRecognitionConstructor,
+  type BrowserSpeechRecognition,
+  type BrowserSpeechRecognitionEvent
+} from "./stt/browserSpeechRecognition";
+import {
+  resolveWebSpeechAudioTrack,
+  startRecognitionWithAudioTrack
+} from "./stt/webSpeechAudioTrack";
 import { SherpaLiveSttPort } from "./stt/sherpaLiveSttPort";
 import {
   getKeywordOccurrenceTriggerIdsForSlide,
@@ -1519,7 +1529,9 @@ export function RehearsalWorkspace(props: {
   const [, setJob] = useState<Job | null>(null);
   const [liveStatus, setLiveStatus] = useState<LiveSttStatus>("idle");
   const [liveError, setLiveError] = useState("");
-  const [, setLiveTranscriptBuffer] = useState(createLiveTranscriptBuffer);
+  const [liveTranscriptBuffer, setLiveTranscriptBuffer] = useState(
+    createLiveTranscriptBuffer,
+  );
   const [liveKeywordState, setLiveKeywordState] =
     useState<LiveTranscriptAnalysis | null>(null);
   const [liveAudioLevel, setLiveAudioLevel] =
@@ -3159,6 +3171,7 @@ export function RehearsalWorkspace(props: {
     p3Sentences,
     p3PanelSnapshot.coveredSentenceIds,
     currentSlide?.speakerNotes ?? "",
+    renderLiveTranscriptBuffer(liveTranscriptBuffer),
   );
   const rehearsalSummary = buildRehearsalCompletionSummary({
     deck,
@@ -4000,6 +4013,13 @@ function RehearsalPreflightScreen(props: {
     .map((command) => command.phrases[0])
     .filter(Boolean)
     .slice(0, 3);
+  const slideKeywordPhrases = props.deck.slides
+    .flatMap((slide) => slide.keywords ?? [])
+    .map((keyword) => keyword.text)
+    .filter(Boolean);
+  const samplePhrases = Array.from(
+    new Set([...commandPhrases, ...slideKeywordPhrases]),
+  ).slice(0, 4);
   const triggerCount = defaultRehearsalCommandConfig.reduce(
     (count, command) => count + command.phrases.length,
     0,
@@ -4008,7 +4028,267 @@ function RehearsalPreflightScreen(props: {
     props.deck,
     props.previousSummary,
   );
-  const microphoneReadiness = getMicrophoneReadinessLabel();
+  const [microphonePermission, setMicrophonePermission] =
+    useState<PreflightMicrophonePermission>("checking");
+  const [voiceCheckStatus, setVoiceCheckStatus] =
+    useState<PreflightVoiceCheckStatus>("idle");
+  const [voiceCheckError, setVoiceCheckError] = useState("");
+  const [voiceCheckTranscript, setVoiceCheckTranscript] = useState("");
+  const [voiceCheckLatencyMs, setVoiceCheckLatencyMs] = useState<number | null>(
+    null,
+  );
+  const [matchedPhrases, setMatchedPhrases] = useState<readonly string[]>([]);
+  const preflightStreamRef = useRef<MediaStream | null>(null);
+  const preflightRecognitionRef = useRef<BrowserSpeechRecognition | null>(null);
+  const preflightTimeoutRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    let isCancelled = false;
+    let permissionStatus: PermissionStatus | null = null;
+
+    async function syncMicrophonePermission() {
+      if (typeof navigator === "undefined") {
+        setMicrophonePermission("unsupported");
+        return;
+      }
+
+      if (typeof navigator.mediaDevices?.getUserMedia !== "function") {
+        setMicrophonePermission("unsupported");
+        return;
+      }
+
+      if (typeof navigator.permissions?.query !== "function") {
+        setMicrophonePermission("prompt");
+        return;
+      }
+
+      try {
+        permissionStatus = await navigator.permissions.query({
+          name: "microphone" as PermissionName,
+        });
+        if (isCancelled) {
+          return;
+        }
+        setMicrophonePermission(toPreflightMicrophonePermission(permissionStatus.state));
+        permissionStatus.onchange = () => {
+          setMicrophonePermission(
+            toPreflightMicrophonePermission(permissionStatus?.state ?? "prompt"),
+          );
+        };
+      } catch {
+        if (!isCancelled) {
+          setMicrophonePermission("prompt");
+        }
+      }
+    }
+
+    void syncMicrophonePermission();
+
+    return () => {
+      isCancelled = true;
+      if (permissionStatus) {
+        permissionStatus.onchange = null;
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      stopPreflightVoiceResources();
+    };
+  }, []);
+
+  const permissionStatus = getPreflightMicrophoneStatus(microphonePermission);
+  const voiceStatus = getPreflightVoiceStatus(
+    voiceCheckStatus,
+    voiceCheckLatencyMs,
+  );
+  const triggerStatus = getPreflightTriggerStatus(
+    matchedPhrases.length,
+    samplePhrases.length,
+    triggerCount,
+  );
+  const isMicrophoneGranted = microphonePermission === "granted";
+  const canStartWithMicrophone = props.canStart && isMicrophoneGranted;
+  const startDisabledReason = !props.canStart
+    ? "발표자료 로딩이 끝난 뒤 시작할 수 있습니다."
+    : !isMicrophoneGranted
+      ? "마이크 권한을 허용해야 리허설을 시작할 수 있습니다."
+      : "";
+
+  async function requestPreflightMicrophonePermission() {
+    stopPreflightVoiceResources();
+    setVoiceCheckStatus("idle");
+    setVoiceCheckError("");
+    setVoiceCheckTranscript("");
+    setVoiceCheckLatencyMs(null);
+    setMatchedPhrases([]);
+
+    if (typeof navigator === "undefined") {
+      setMicrophonePermission("unsupported");
+      return;
+    }
+
+    if (typeof navigator.mediaDevices?.getUserMedia !== "function") {
+      setMicrophonePermission("unsupported");
+      return;
+    }
+
+    try {
+      const stream = await requestRehearsalMicrophoneStream(navigator.mediaDevices);
+      stopMediaStream(stream);
+      setMicrophonePermission("granted");
+    } catch (cause) {
+      setMicrophonePermission(
+        cause instanceof DOMException && cause.name === "NotAllowedError"
+          ? "denied"
+          : "prompt",
+      );
+      setVoiceCheckError(toMicrophoneErrorMessage(cause));
+    }
+  }
+
+  async function startPreflightVoiceCheck() {
+    if (!isMicrophoneGranted) {
+      await requestPreflightMicrophonePermission();
+      return;
+    }
+
+    stopPreflightVoiceResources();
+    setVoiceCheckStatus("listening");
+    setVoiceCheckError("");
+    setVoiceCheckTranscript("");
+    setVoiceCheckLatencyMs(null);
+    setMatchedPhrases([]);
+
+    if (typeof navigator === "undefined") {
+      setVoiceCheckStatus("unsupported");
+      setVoiceCheckError("브라우저 환경에서만 음성 체크를 실행할 수 있습니다.");
+      return;
+    }
+
+    if (typeof navigator.mediaDevices?.getUserMedia !== "function") {
+      setMicrophonePermission("unsupported");
+      setVoiceCheckStatus("unsupported");
+      setVoiceCheckError("이 브라우저는 마이크 체크를 지원하지 않습니다.");
+      return;
+    }
+
+    const Recognition = getBrowserSpeechRecognitionConstructor();
+    if (!Recognition) {
+      setVoiceCheckStatus("unsupported");
+      setVoiceCheckError("이 브라우저는 짧은 음성 인식 체크를 지원하지 않습니다.");
+      return;
+    }
+
+    const normalizedSamples = samplePhrases.map((phrase) => ({
+      phrase,
+      normalized: normalizeLiveTranscriptText(phrase),
+    }));
+    const startTime = Date.now();
+    const matched = new Set<string>();
+    let finished = false;
+
+    const finish = (status: PreflightVoiceCheckStatus, message = "") => {
+      if (finished) {
+        return;
+      }
+      finished = true;
+      stopPreflightVoiceResources();
+      setVoiceCheckStatus(status);
+      setVoiceCheckError(message);
+    };
+
+    try {
+      const stream = await requestRehearsalMicrophoneStream(navigator.mediaDevices);
+      if (finished) {
+        stopMediaStream(stream);
+        return;
+      }
+
+      preflightStreamRef.current = stream;
+      setMicrophonePermission("granted");
+
+      const recognition = new Recognition();
+      preflightRecognitionRef.current = recognition;
+      recognition.continuous = true;
+      recognition.interimResults = true;
+      recognition.lang = "ko-KR";
+      recognition.maxAlternatives = 3;
+      recognition.onresult = (event: BrowserSpeechRecognitionEvent) => {
+        const transcript = readPreflightTranscript(event);
+        if (!transcript) {
+          return;
+        }
+
+        setVoiceCheckTranscript(transcript);
+        setVoiceCheckLatencyMs((current) => current ?? Date.now() - startTime);
+        const normalizedTranscript = normalizeLiveTranscriptText(transcript);
+        for (const sample of normalizedSamples) {
+          if (
+            sample.normalized &&
+            normalizedTranscript.includes(sample.normalized)
+          ) {
+            matched.add(sample.phrase);
+          }
+        }
+        setMatchedPhrases(Array.from(matched));
+        if (matched.size > 0) {
+          finish("passed");
+        }
+      };
+      recognition.onerror = (event) => {
+        finish(
+          "error",
+          event.message || "음성 인식 체크를 완료하지 못했습니다.",
+        );
+      };
+      recognition.onend = () => {
+        if (finished) {
+          return;
+        }
+        finish(
+          matched.size > 0 ? "passed" : "failed",
+          matched.size > 0 ? "" : "예시 문구를 아직 인식하지 못했습니다.",
+        );
+      };
+
+      preflightTimeoutRef.current = window.setTimeout(() => {
+        finish(
+          matched.size > 0 ? "passed" : "failed",
+          matched.size > 0 ? "" : "8초 안에 예시 문구가 감지되지 않았습니다.",
+        );
+      }, 8000);
+
+      startRecognitionWithAudioTrack(
+        recognition,
+        resolveWebSpeechAudioTrack(stream),
+      );
+    } catch (cause) {
+      setMicrophonePermission(
+        cause instanceof DOMException && cause.name === "NotAllowedError"
+          ? "denied"
+          : "prompt",
+      );
+      finish("error", toMicrophoneErrorMessage(cause));
+    }
+  }
+
+  function stopPreflightVoiceResources() {
+    if (preflightTimeoutRef.current !== null) {
+      window.clearTimeout(preflightTimeoutRef.current);
+      preflightTimeoutRef.current = null;
+    }
+    if (preflightRecognitionRef.current) {
+      preflightRecognitionRef.current.onresult = null;
+      preflightRecognitionRef.current.onerror = null;
+      preflightRecognitionRef.current.onend = null;
+      preflightRecognitionRef.current.abort();
+    }
+    preflightRecognitionRef.current = null;
+    stopMediaStream(preflightStreamRef.current);
+    preflightStreamRef.current = null;
+  }
 
   return (
     <main className="rehearsal-preflight-screen" aria-label="리허설 시작 전">
@@ -4028,34 +4308,113 @@ function RehearsalPreflightScreen(props: {
         </div>
         <div className="rehearsal-preflight-copy">
           <h1>리허설을 시작할까요?</h1>
-          <p>시작하면 마이크를 확인하고 바로 준비 완료 상태로 이어집니다.</p>
+          <p>마이크 권한, 음성 인식, 지연시간을 먼저 짧게 확인할 수 있습니다.</p>
         </div>
 
         <div className="rehearsal-preflight-chain" aria-label="리허설 준비 상태">
-          <PreflightStatusRow label="마이크 권한 확인" value={microphoneReadiness} />
-          <PreflightStatusRow label="음성 인식 준비" value="한국어 · Live STT" />
+          <PreflightStatusRow
+            action={
+              !isMicrophoneGranted ? (
+                <button
+                  className="rehearsal-preflight-inline-action"
+                  type="button"
+                  onClick={() => void requestPreflightMicrophonePermission()}
+                >
+                  <Mic size={14} />
+                  권한 허용 요청
+                </button>
+              ) : null
+            }
+            label="마이크 권한 확인"
+            status={permissionStatus}
+            value={permissionStatus.value}
+          />
+          {isMicrophoneGranted ? (
+            <PreflightStatusRow
+              details={
+                <section
+                  className="rehearsal-preflight-voice-check"
+                  aria-label="음성 체크"
+                >
+                  <div>
+                    <strong>아래 문구 중 하나를 말해보세요</strong>
+                    <button
+                      className="rehearsal-preflight-check"
+                      disabled={voiceCheckStatus === "listening"}
+                      type="button"
+                      onClick={() => void startPreflightVoiceCheck()}
+                    >
+                      <Mic size={16} />
+                      {voiceCheckStatus === "listening" ? "듣는 중" : "음성 체크"}
+                    </button>
+                  </div>
+                  <div
+                    className="rehearsal-preflight-commands"
+                    aria-label="음성 명령 예시"
+                  >
+                    {samplePhrases.map((phrase) => {
+                      const matched = matchedPhrases.includes(phrase);
+                      return (
+                        <span
+                          className={
+                            matched ? "rehearsal-preflight-command-hit" : ""
+                          }
+                          key={phrase}
+                        >
+                          {matched ? <CheckCircle2 size={13} /> : null}
+                          "{phrase}"
+                        </span>
+                      );
+                    })}
+                  </div>
+                  <p aria-live="polite">
+                    {voiceCheckTranscript
+                      ? `인식됨: ${voiceCheckTranscript}`
+                      : voiceCheckError ||
+                        "조용한 곳에서 보통 말하는 속도로 테스트하세요."}
+                  </p>
+                </section>
+              }
+              label="음성 인식 준비"
+              status={voiceStatus}
+              value={voiceStatus.value}
+            />
+          ) : null}
           <PreflightStatusRow
             label={`슬라이드 ${props.deck.slides.length}장 로드됨`}
-            value={`음성 트리거 ${triggerCount}개`}
+            status={triggerStatus}
+            value={triggerStatus.value}
           />
         </div>
 
-        <div className="rehearsal-preflight-commands" aria-label="음성 명령 예시">
-          {commandPhrases.map((phrase) => (
-            <span key={phrase}>"{phrase}"</span>
-          ))}
-        </div>
-
         <div className="rehearsal-preflight-actions">
-          <button
-            className="rehearsal-preflight-start"
-            disabled={!props.canStart}
-            type="button"
-            onClick={props.onStart}
+          <span
+            className="rehearsal-preflight-start-tooltip-wrap"
+            aria-describedby={
+              startDisabledReason ? "rehearsal-preflight-start-tooltip" : undefined
+            }
+            data-disabled={startDisabledReason ? "true" : "false"}
+            tabIndex={startDisabledReason ? 0 : undefined}
           >
-            <PlayCircle size={18} />
-            리허설 시작
-          </button>
+            <button
+              className="rehearsal-preflight-start"
+              disabled={!canStartWithMicrophone}
+              type="button"
+              onClick={props.onStart}
+            >
+              <PlayCircle size={18} />
+              리허설 시작
+            </button>
+            {startDisabledReason ? (
+              <span
+                className="rehearsal-preflight-start-tooltip"
+                id="rehearsal-preflight-start-tooltip"
+                role="tooltip"
+              >
+                {startDisabledReason}
+              </span>
+            ) : null}
+          </span>
           <button
             className="rehearsal-preflight-quiet"
             type="button"
@@ -4069,16 +4428,149 @@ function RehearsalPreflightScreen(props: {
   );
 }
 
-function PreflightStatusRow(props: { label: string; value: string }) {
+type PreflightMicrophonePermission =
+  | "checking"
+  | "granted"
+  | "prompt"
+  | "denied"
+  | "unsupported";
+
+type PreflightVoiceCheckStatus =
+  | "idle"
+  | "listening"
+  | "passed"
+  | "failed"
+  | "unsupported"
+  | "error";
+
+type PreflightStatusTone = "success" | "warning" | "danger" | "info";
+
+type PreflightStatus = {
+  icon: "check" | "warning" | "danger" | "info";
+  tone: PreflightStatusTone;
+  value: string;
+};
+
+function PreflightStatusRow(props: {
+  action?: ReactNode;
+  details?: ReactNode;
+  label: string;
+  status: PreflightStatus;
+  value: string;
+}) {
+  const Icon =
+    props.status.icon === "warning"
+      ? AlertTriangle
+      : props.status.icon === "danger"
+        ? AlertCircle
+        : props.status.icon === "info"
+          ? Gauge
+          : CheckCircle2;
+
   return (
-    <div>
+    <div className={`rehearsal-preflight-status-${props.status.tone}`}>
       <span>
-        <CheckCircle2 size={14} />
+        <Icon size={14} />
       </span>
       <strong>{props.label}</strong>
-      <small>{props.value}</small>
+      <div className="rehearsal-preflight-status-meta">
+        <small>{props.value}</small>
+        {props.action}
+      </div>
+      {props.details ? (
+        <div className="rehearsal-preflight-status-details">
+          {props.details}
+        </div>
+      ) : null}
     </div>
   );
+}
+
+function toPreflightMicrophonePermission(
+  state: PermissionState,
+): PreflightMicrophonePermission {
+  if (state === "granted") {
+    return "granted";
+  }
+  if (state === "denied") {
+    return "denied";
+  }
+  return "prompt";
+}
+
+function getPreflightMicrophoneStatus(
+  permission: PreflightMicrophonePermission,
+): PreflightStatus {
+  switch (permission) {
+    case "granted":
+      return { icon: "check", tone: "success", value: "권한 허용됨" };
+    case "denied":
+      return { icon: "danger", tone: "danger", value: "브라우저에서 권한 차단됨" };
+    case "unsupported":
+      return { icon: "danger", tone: "danger", value: "마이크 API 미지원" };
+    case "checking":
+      return { icon: "info", tone: "info", value: "권한 상태 확인 중" };
+    case "prompt":
+      return { icon: "warning", tone: "warning", value: "시작 전 권한 허용 필요" };
+  }
+}
+
+function getPreflightVoiceStatus(
+  status: PreflightVoiceCheckStatus,
+  latencyMs: number | null,
+): PreflightStatus {
+  switch (status) {
+    case "passed":
+      return {
+        icon: "check",
+        tone: "success",
+        value:
+          latencyMs === null ? "예시 문구 인식됨" : `첫 인식 ${latencyMs}ms`,
+      };
+    case "listening":
+      return { icon: "info", tone: "info", value: "예시 문구 듣는 중" };
+    case "failed":
+      return { icon: "warning", tone: "warning", value: "문구 재시도 필요" };
+    case "unsupported":
+      return { icon: "danger", tone: "danger", value: "브라우저 인식 미지원" };
+    case "error":
+      return { icon: "danger", tone: "danger", value: "체크 실패" };
+    case "idle":
+      return { icon: "warning", tone: "warning", value: "한국어 · 테스트 대기" };
+  }
+}
+
+function getPreflightTriggerStatus(
+  matchedCount: number,
+  sampleCount: number,
+  triggerCount: number,
+): PreflightStatus {
+  if (matchedCount > 0) {
+    return {
+      icon: "check",
+      tone: "success",
+      value: `${matchedCount}/${sampleCount}개 예시 인식 · 트리거 ${triggerCount}개`,
+    };
+  }
+
+  return {
+    icon: "info",
+    tone: "info",
+    value: `음성 트리거 ${triggerCount}개`,
+  };
+}
+
+function readPreflightTranscript(event: BrowserSpeechRecognitionEvent) {
+  const transcripts: string[] = [];
+  for (let index = event.resultIndex; index < event.results.length; index += 1) {
+    const result = event.results[index];
+    const alternative = result?.[0];
+    if (alternative?.transcript) {
+      transcripts.push(alternative.transcript);
+    }
+  }
+
+  return transcripts.join(" ").trim();
 }
 
 type RehearsalCompletionSummary = {
@@ -4207,10 +4699,28 @@ function RehearsalTeleprompter(props: {
   return (
     <section className="rehearsal-teleprompter-band" aria-label="발표 대본 프롬프터">
       <p>{props.rows.previous}</p>
-      <p>
-        <span>{props.rows.currentLead}</span>
-        <strong>{props.rows.currentEmphasis}</strong>
-        <span>{props.rows.currentTail}</span>
+      <p aria-live="polite">
+        {props.rows.currentSegments.map((segment, index) => {
+          const className = [
+            "rehearsal-teleprompter-token",
+            segment.spoken
+              ? "rehearsal-teleprompter-token-spoken"
+              : "rehearsal-teleprompter-token-pending",
+            segment.emphasis ? "rehearsal-teleprompter-token-emphasis" : "",
+          ]
+            .filter(Boolean)
+            .join(" ");
+
+          return segment.emphasis ? (
+            <strong className={className} key={`${segment.text}-${index}`}>
+              {segment.text}
+            </strong>
+          ) : (
+            <span className={className} key={`${segment.text}-${index}`}>
+              {segment.text}
+            </span>
+          );
+        })}
       </p>
       <p>{props.rows.next}</p>
 
@@ -4654,21 +5164,29 @@ export function RehearsalReportPage(props: {
 type RehearsalPrompterRows = {
   currentEmphasis: string;
   currentLead: string;
+  currentSegments: KaraokePrompterSegment[];
   currentTail: string;
   next: string;
   previous: string;
+};
+
+export type KaraokePrompterSegment = {
+  emphasis: boolean;
+  spoken: boolean;
+  text: string;
 };
 
 function getRehearsalPrompterRows(
   sentences: readonly ExtractedSentence[],
   coveredSentenceIds: readonly string[],
   fallbackNotes: string,
+  transcript = "",
 ): RehearsalPrompterRows {
   if (sentences.length === 0) {
     const fallback = fallbackNotes.trim() || "발표자 노트가 없습니다.";
     return {
       previous: "",
-      ...splitPrompterSentence(fallback),
+      ...splitPrompterSentence(fallback, transcript, false),
       next: "",
     };
   }
@@ -4682,21 +5200,35 @@ function getRehearsalPrompterRows(
     sentences.findIndex((sentence) => sentence.sentenceId === focusSentenceId),
   );
   const current = sentences[focusIndex]?.text ?? sentences[0]?.text ?? "";
+  const currentSentence = sentences[focusIndex];
+  const isCurrentCovered = currentSentence
+    ? coveredSentenceIds.includes(currentSentence.sentenceId)
+    : false;
 
   return {
     previous: sentences[focusIndex - 1]?.text ?? "",
-    ...splitPrompterSentence(current),
+    ...splitPrompterSentence(current, transcript, isCurrentCovered),
     next: sentences[focusIndex + 1]?.text ?? "",
   };
 }
 
-function splitPrompterSentence(text: string) {
+function splitPrompterSentence(
+  text: string,
+  transcript = "",
+  isCovered = false,
+) {
+  const currentSegments = buildKaraokePrompterSegments({
+    isCovered,
+    text,
+    transcript,
+  });
   const quoteMatch = text.match(/("[^"]+"|'[^']+'|“[^”]+”)/);
   if (quoteMatch?.index !== undefined) {
     const emphasis = quoteMatch[0];
     return {
       currentLead: text.slice(0, quoteMatch.index),
       currentEmphasis: emphasis,
+      currentSegments,
       currentTail: text.slice(quoteMatch.index + emphasis.length),
     };
   }
@@ -4707,8 +5239,112 @@ function splitPrompterSentence(text: string) {
   return {
     currentLead: "",
     currentEmphasis,
+    currentSegments,
     currentTail: text.trim().slice(currentEmphasis.length),
   };
+}
+
+export function buildKaraokePrompterSegments(options: {
+  isCovered?: boolean;
+  text: string;
+  transcript?: string;
+}): KaraokePrompterSegment[] {
+  const rawSegments = options.text.match(/\s+|[^\s]+/g) ?? [options.text];
+  const emphasisRanges = getPrompterEmphasisRanges(options.text);
+  const spokenTokenCount = options.isCovered
+    ? rawSegments.filter((segment) => !isWhitespaceSegment(segment)).length
+    : getSpokenPrompterTokenCount(options.text, options.transcript ?? "");
+  let tokenIndex = 0;
+
+  return rawSegments.map((segment, segmentIndex) => {
+    const isWhitespace = isWhitespaceSegment(segment);
+    const spoken = isWhitespace
+      ? tokenIndex > 0 && tokenIndex <= spokenTokenCount
+      : tokenIndex < spokenTokenCount;
+    const textOffset = getSegmentTextOffset(rawSegments, segmentIndex);
+    if (!isWhitespace) {
+      tokenIndex += 1;
+    }
+
+    return {
+      emphasis: emphasisRanges.some(
+        (range) => textOffset >= range.start && textOffset < range.end,
+      ),
+      spoken,
+      text: segment,
+    };
+  });
+}
+
+function getSpokenPrompterTokenCount(text: string, transcript: string) {
+  const normalizedTranscript = normalizePrompterMatchText(transcript);
+  if (!normalizedTranscript) {
+    return 0;
+  }
+
+  const tokens =
+    text
+      .match(/[^\s]+/g)
+      ?.map((token) => normalizePrompterMatchText(token))
+      .filter(Boolean) ?? [];
+  let prefix = "";
+  let spokenTokenCount = 0;
+
+  for (const token of tokens) {
+    const nextPrefix = `${prefix}${token}`;
+    if (
+      normalizedTranscript.includes(nextPrefix) ||
+      (normalizedTranscript.length > prefix.length &&
+        normalizedTranscript.length < nextPrefix.length &&
+        nextPrefix.startsWith(normalizedTranscript))
+    ) {
+      prefix = nextPrefix;
+      spokenTokenCount += 1;
+      continue;
+    }
+    break;
+  }
+
+  return spokenTokenCount;
+}
+
+function normalizePrompterMatchText(value: string) {
+  return normalizeLiveTranscriptText(value).replace(/[^\p{L}\p{N}+#.-]+/gu, "");
+}
+
+function getPrompterEmphasisRanges(text: string) {
+  const quoteMatch = text.match(/("[^"]+"|'[^']+'|“[^”]+”)/);
+  if (quoteMatch?.index !== undefined) {
+    return [
+      {
+        start: quoteMatch.index,
+        end: quoteMatch.index + quoteMatch[0].length,
+      },
+    ];
+  }
+
+  const tokens = Array.from(text.matchAll(/[^\s]+/g));
+  const emphasisWordCount = Math.min(tokens.length, tokens.length > 4 ? 2 : 1);
+  const ranges: Array<{ end: number; start: number }> = [];
+  for (let index = 0; index < emphasisWordCount; index += 1) {
+    const match = tokens[index];
+    if (match?.index !== undefined) {
+      ranges.push({ start: match.index, end: match.index + match[0].length });
+    }
+  }
+  return ranges;
+}
+
+function getSegmentTextOffset(segments: readonly string[], segmentIndex: number) {
+  let offset = 0;
+  for (let index = 0; index < segmentIndex; index += 1) {
+    offset += segments[index]?.length ?? 0;
+  }
+  return offset;
+}
+
+function isWhitespaceSegment(value: string) {
+  return /^\s+$/.test(value);
 }
 
 function buildRehearsalCompletionSummary(options: {
@@ -4914,16 +5550,6 @@ function parseRehearsalPracticeSummary(
     projectId,
     targetSeconds: Math.max(0, Math.round(candidate.targetSeconds)),
   };
-}
-
-function getMicrophoneReadinessLabel() {
-  if (typeof navigator === "undefined") {
-    return "권한 확인 예정";
-  }
-
-  return typeof navigator.mediaDevices?.getUserMedia === "function"
-    ? "시작 시 권한 확인"
-    : "브라우저 미지원";
 }
 
 function formatTargetDeltaLabel(deltaSeconds: number) {

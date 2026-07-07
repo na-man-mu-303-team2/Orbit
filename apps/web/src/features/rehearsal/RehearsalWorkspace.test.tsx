@@ -19,6 +19,7 @@ import {
   SherpaLiveSttAdapter,
   applyLiveTranscriptBias,
   applyLiveTranscriptEvent,
+  buildKaraokePrompterSegments,
   buildLiveSttBiasContext,
   confirmKeywordOccurrenceMatches,
   createKeywordOccurrenceAnimationCueEvent,
@@ -117,9 +118,13 @@ describe("RehearsalWorkspace", () => {
     expect(html).toContain("리허설");
     expect(html).toContain("리허설을 시작할까요?");
     expect(html).toContain("마이크 권한 확인");
+    expect(html).toContain("권한 허용 요청");
+    expect(html).not.toContain("음성 인식 준비");
     expect(html).toContain(`슬라이드 ${deck.slides.length}장 로드됨`);
     expect(html).toContain("음성 트리거");
     expect(html).toContain("리허설 시작");
+    expect(html).toContain("disabled=\"\"");
+    expect(html).toContain("마이크 권한을 허용해야 리허설을 시작할 수 있습니다.");
     expect(html).toContain("음성 없이 연습하기");
     expect(html).toContain("이번 목표는");
     expect(html).not.toContain("지난번보다");
@@ -1632,6 +1637,39 @@ describe("RehearsalWorkspace", () => {
       isFinal: false,
     });
     expect(renderLiveTranscriptBuffer(buffer)).toBe("새 슬라이드");
+  });
+
+  it("marks teleprompter tokens as spoken from the live transcript prefix", () => {
+    const segments = buildKaraokePrompterSegments({
+      text: "오늘은 ORBIT 자동 발표를 연습합니다.",
+      transcript: "오늘은 ORBIT",
+    });
+
+    expect(segments.map((segment) => [segment.text, segment.spoken])).toEqual([
+      ["오늘은", true],
+      [" ", true],
+      ["ORBIT", true],
+      [" ", true],
+      ["자동", false],
+      [" ", false],
+      ["발표를", false],
+      [" ", false],
+      ["연습합니다.", false],
+    ]);
+  });
+
+  it("marks all teleprompter tokens as spoken when the sentence is covered", () => {
+    const segments = buildKaraokePrompterSegments({
+      isCovered: true,
+      text: "다음 슬라이드로 넘어갑니다.",
+      transcript: "",
+    });
+
+    expect(
+      segments.filter((segment) => segment.text.trim()).every(
+        (segment) => segment.spoken,
+      ),
+    ).toBe(true);
   });
 
   it("delegates auto-advance policy to the P4 controller instead of keyword coverage timers", () => {
