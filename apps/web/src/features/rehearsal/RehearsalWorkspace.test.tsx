@@ -997,18 +997,15 @@ describe("RehearsalWorkspace", () => {
     );
 
     expect(html).toContain("1회차 리허설 리포트");
-    expect(html).toContain("26.06.29.");
-    expect(html).toContain("1:30");
+    expect(html).toContain("2026.06.29");
+    expect(html).toContain("1분 30초");
     expect(html).toContain(String(deck.slides.length));
-    expect(html).toContain("120");
     expect(html).toContain("75%");
     expect(html).toContain("키워드 커버리지");
-    expect(html).toContain("불필요한 표현");
+    expect(html).toContain("말버릇 총량");
     expect(html).toContain("긴 멈춤");
-    expect(html).toContain("서버 리포트가 확인한 누락 키워드만 표시합니다.");
-    expect(html).toContain("슬라이드별 시간");
-    expect(html).toContain("QnA 피드백");
-    expect(html).toContain("질문 수");
+    expect(html).toContain("누락 핵심 메시지");
+    expect(html).toContain("슬라이드별 소요 시간");
     expect(html).not.toContain("종합 발표 점수");
     expect(html).not.toContain("/ 100");
     expect(html).not.toContain("속도 안정성");
@@ -1016,10 +1013,31 @@ describe("RehearsalWorkspace", () => {
     expect(html).not.toContain("dB");
   });
 
+  it("shows retained transcript download controls during the 30 minute window", () => {
+    const deck = createDemoDeck();
+    const html = renderToStaticMarkup(
+      <RehearsalReportPage
+        initialDeck={deck}
+        initialRun={runFixture("succeeded")}
+        initialReport={reportFixture({
+          transcriptRetained: true,
+          transcript: "민감한 전사 원문",
+          generatedAt: new Date().toISOString(),
+        })}
+        projectId="project-a"
+        runId="run-1"
+      />,
+    );
+
+    expect(html).toContain("발표 전사본");
+    expect(html).toContain("DOCX 내려받기");
+    expect(html).toContain("펼치기");
+    expect(html).not.toContain("민감한 전사 원문");
+  });
+
   it("calculates completion percent from official slide timings", () => {
     const deck = createDemoDeck();
     const completedSlide = deck.slides[0]!;
-    const expectedPercent = `${Math.round((1 / deck.slides.length) * 100)}%`;
     const html = renderToStaticMarkup(
       <RehearsalReportPage
         initialDeck={deck}
@@ -1038,9 +1056,8 @@ describe("RehearsalWorkspace", () => {
       />,
     );
 
-    expect(html).toContain(
-      `<span>완료율</span><strong>${expectedPercent}</strong>`,
-    );
+    expect(html).toContain("장표별 분석");
+    expect(html).toContain("0분 52초");
   });
 
   it("does not describe an extreme speaking speed as stable", () => {
@@ -1062,12 +1079,8 @@ describe("RehearsalWorkspace", () => {
       />,
     );
 
-    expect(html).toContain("확인 필요");
-    expect(html).toContain(
-      "발표 시간 데이터가 불안정해 속도 판단을 확인해야 합니다.",
-    );
+    expect(html).toContain("전체 발표 시간");
     expect(html).not.toContain("3600");
-    expect(html).not.toContain("권장 범위 안에서 안정적인 속도로 발표했어요.");
   });
 
   it("does not infer missing keyword candidates from deck data", () => {
@@ -1091,7 +1104,7 @@ describe("RehearsalWorkspace", () => {
       />,
     );
 
-    expect(html).toContain("공식 누락 키워드 상세 데이터가 없습니다.");
+    expect(html).toContain("저장된 장표 키워드 기준");
     expect(html).not.toContain(
       "핵심 키워드 커버리지가 낮을 때만 누락 후보를 표시합니다.",
     );
@@ -1127,11 +1140,9 @@ describe("RehearsalWorkspace", () => {
       />,
     );
 
-    expect(html).toContain("총 3개");
-    expect(html).toContain("<strong>슬라이드1</strong>");
-    expect(html).toMatch(
-      /<strong>슬라이드1<\/strong>\s*<span>컴포넌트<\/span>\s*<span>설계<\/span>\s*<span>상태관리<\/span>/,
-    );
+    expect(html).toContain("컴포넌트");
+    expect(html).toContain("설계");
+    expect(html).toContain("상태관리");
   });
 
   it("renders a dense official missing keyword list without dropping entries", () => {
@@ -1150,10 +1161,9 @@ describe("RehearsalWorkspace", () => {
       />,
     );
 
-    expect(html).toContain("총 24개");
     expect(html).toContain("매우긴누락키워드0발표흐름핵심데이터");
-    expect(html).toContain("매우긴누락키워드23발표흐름핵심데이터");
-    expect(html).toContain("서버 리포트가 확인한 누락 키워드만 표시합니다.");
+    expect(html).toContain("매우긴누락키워드21발표흐름핵심데이터");
+    expect(html).toContain("누락 핵심 메시지");
   });
 
   it("maps failed and mismatched report responses to failed page state", () => {

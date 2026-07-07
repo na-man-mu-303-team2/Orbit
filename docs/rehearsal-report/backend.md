@@ -184,8 +184,9 @@ flowchart LR
 
 현재 구현에서:
 
-- `transcriptRetained`는 `false`
-- `transcript`는 `null`
+- DB `report_json`의 `transcriptRetained`는 `false`
+- DB `report_json`의 `transcript`는 `null`
+- API 응답의 `transcriptRetained`와 `transcript`는 Redis TTL 캐시가 살아 있을 때만 채워진다.
 - `qnaSummary`는 기본값 성격이 강함
 
 ## 7. Python worker 역할

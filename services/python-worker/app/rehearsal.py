@@ -8,13 +8,21 @@ from typing import Any
 from app.audio.transcribe import TranscriptSegment
 
 FILLER_WORDS = {
+    "아",
     "음",
     "어",
+    "이제",
+    "일단",
+    "사실",
+    "막",
     "그니까",
+    "그니까요",
     "그러니까",
+    "그러니까요",
     "저기",
     "약간",
     "뭐",
+    "뭐냐면",
     "뭐랄까",
     "um",
     "uh",

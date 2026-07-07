@@ -142,6 +142,24 @@ def test_analyze_rehearsal_metrics_counts_normalized_and_phrase_fillers() -> Non
     ]
 
 
+def test_analyze_rehearsal_metrics_counts_common_korean_fillers() -> None:
+    metrics = analyze_rehearsal_metrics(
+        transcript="아 이제 일단 ORBIT을 소개하고 사실 뭐냐면 발표 연습을 자동화합니다",
+        duration_seconds=30,
+        segments=[],
+        deck_keywords=[],
+    )
+
+    assert metrics.filler_word_count == 5
+    assert metrics.filler_word_details == [
+        FillerWordDetail(word="뭐냐면", count=1),
+        FillerWordDetail(word="사실", count=1),
+        FillerWordDetail(word="아", count=1),
+        FillerWordDetail(word="이제", count=1),
+        FillerWordDetail(word="일단", count=1),
+    ]
+
+
 def test_analyze_rehearsal_metrics_does_not_count_non_filler_substrings() -> None:
     metrics = analyze_rehearsal_metrics(
         transcript="음악 자료와 그 프로젝트를 설명합니다",

@@ -1896,6 +1896,70 @@ button:disabled {
   min-width: 112px;
 }
 
+.rehearsal-completion-modal-backdrop {
+  align-items: center;
+  background: rgba(15, 23, 42, 0.46);
+  display: flex;
+  inset: 0;
+  justify-content: center;
+  padding: 24px;
+  position: fixed;
+  z-index: 90;
+}
+
+.rehearsal-completion-modal {
+  align-items: center;
+  background: #ffffff;
+  border: 1px solid #d9e1e7;
+  border-radius: 12px;
+  box-shadow: 0 28px 90px rgba(15, 23, 42, 0.26);
+  color: #15202b;
+  display: grid;
+  gap: 16px;
+  justify-items: center;
+  max-width: 460px;
+  padding: 30px;
+  text-align: center;
+  width: min(100%, 460px);
+}
+
+.rehearsal-completion-modal-icon {
+  align-items: center;
+  background: #eff6ff;
+  border-radius: 999px;
+  color: #2563eb;
+  display: inline-flex;
+  height: 56px;
+  justify-content: center;
+  width: 56px;
+}
+
+.rehearsal-completion-modal h2 {
+  color: #0f172a;
+  font-size: 1.22rem;
+  line-height: 1.25;
+  margin: 0;
+}
+
+.rehearsal-completion-modal p {
+  color: #527089;
+  font-size: 0.92rem;
+  line-height: 1.55;
+  margin: 0;
+}
+
+.rehearsal-completion-modal .rehearsal-job-progress {
+  padding: 8px 0 2px;
+}
+
+.rehearsal-completion-modal .rehearsal-job-progress-fill {
+  background: #2563eb;
+}
+
+.rehearsal-completion-modal .primary-action {
+  min-width: 150px;
+}
+
 .rehearsal-record-panel .primary-action,
 .rehearsal-record-panel .secondary-action,
 .rehearsal-live-panel .primary-action,

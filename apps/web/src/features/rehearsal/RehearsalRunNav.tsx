@@ -39,7 +39,7 @@ export function RehearsalRunNav({
                 >
                   <strong>
                     <CalendarDays size={15} />
-                    리허설 {runs.length - i}회차
+                    리허설 {i + 1}회차
                   </strong>
                   <span>{formatRunDate(run.createdAt)}</span>
                 </button>

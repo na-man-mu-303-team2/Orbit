@@ -12,6 +12,7 @@ import {
 } from "@orbit/shared";
 import type { DataSource } from "typeorm";
 import { z } from "zod";
+import type { RehearsalTranscriptCache } from "./rehearsal-transcript-cache";
 
 const rehearsalSttPayloadSchema = z.object({
   jobId: z.string().min(1),
@@ -118,7 +119,8 @@ export async function processRehearsalSttJob(
   dataSource: DataSource,
   storage: Pick<StoragePort, "getSignedReadUrl" | "removeObject">,
   pythonWorkerUrl: string,
-  rawPayload: unknown
+  rawPayload: unknown,
+  transcriptCache?: RehearsalTranscriptCache
 ): Promise<Job> {
   const payloadResult = rehearsalSttPayloadSchema.safeParse(rawPayload);
   if (!payloadResult.success) {
@@ -287,6 +289,12 @@ export async function processRehearsalSttJob(
       error instanceof Error ? error.message : "Rehearsal report validation failed.",
       { rawAudioDeletedAt }
     );
+  }
+
+  try {
+    await transcriptCache?.set(payload.runId, transcribePayload.transcript);
+  } catch {
+    // 전사본 캐시 실패는 리포트 본문 생성을 막지 않는다.
   }
 
   await updateRun(dataSource, payload, {

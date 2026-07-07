@@ -8,6 +8,10 @@ import type { FilesService } from "../files/files.service";
 import type { JobsService } from "../jobs/jobs.service";
 import type { ProjectsService } from "../projects/projects.service";
 import { RehearsalRunEntity } from "./rehearsal-run.entity";
+import type {
+  RehearsalTranscriptCache,
+  RedisRehearsalTranscriptCache
+} from "./rehearsal-transcript-cache";
 import { RehearsalsService, type RehearsalSttEnqueueJob } from "./rehearsals.service";
 
 const validEnv = {
@@ -457,6 +461,29 @@ describe("RehearsalsService", () => {
       }
     });
   });
+
+  it("attaches a retained transcript from Redis cache when the TTL is still alive", async () => {
+    const service = createService({
+      transcriptCache: {
+        get: vi.fn(async () => "발표 전사본")
+      }
+    });
+    const run = await createRun(service);
+    await saveRunPatch(service, run.runId, {
+      status: "succeeded",
+      rehearsalReport,
+      transcriptRetained: false,
+      rawAudioDeletedAt: new Date(rawAudioDeletedAt)
+    });
+
+    const result = await service.getReport(run.runId);
+
+    expect(result.report).toMatchObject({
+      transcriptRetained: true,
+      transcript: "발표 전사본"
+    });
+    expect(service.testTranscriptCache.get).toHaveBeenCalledWith(run.runId);
+  });
 });
 
 async function createRun(service: ReturnType<typeof createService>) {
@@ -481,10 +508,14 @@ function createService(
     enqueueJob?: RehearsalSttEnqueueJob;
     jobsService?: JobsService;
     filesServicePatch?: Partial<FilesService>;
+    transcriptCache?: RehearsalTranscriptCache;
   } = {}
 ) {
   const logger = createLogger();
   const repository = createRunRepository();
+  const transcriptCache = options.transcriptCache ?? {
+    get: vi.fn(async () => null)
+  };
   const filesService = {
     createUploadUrl: vi.fn(async () => upload),
     completeUpload: vi.fn(async () => ({
@@ -532,6 +563,7 @@ function createService(
         update: vi.fn()
       } as unknown as JobsService),
     options.enqueueJob ?? vi.fn(async () => undefined),
+    transcriptCache as unknown as RedisRehearsalTranscriptCache,
     logger
   );
   return Object.assign(service, {
@@ -542,7 +574,8 @@ function createService(
     testFilesService: filesService as FilesService & {
       createUploadUrl: ReturnType<typeof vi.fn>;
     },
-    testLogger: logger
+    testLogger: logger,
+    testTranscriptCache: transcriptCache
   });
 }
 
@@ -581,6 +614,7 @@ function createRunRepository() {
 function createLogger() {
   return {
     info: vi.fn(),
-    error: vi.fn()
+    error: vi.fn(),
+    warn: vi.fn()
   } as unknown as PinoLogger;
 }

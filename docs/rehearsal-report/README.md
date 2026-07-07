@@ -344,8 +344,8 @@ stopRecording() → submitRecording(activeDeck, audioFile)
   runId: string,
   projectId: string,
   deckId: string,
-  transcriptRetained: false,  // 현재 항상 false (transcript 미보존 정책)
-  transcript: null,           // 현재 항상 null
+  transcriptRetained: false,  // DB report_json 기준, API 응답에서는 Redis TTL 캐시가 있으면 true
+  transcript: null,           // DB에는 저장하지 않고 API 응답에서만 Redis cache 값을 주입
 
   metrics: {
     durationSeconds: number,

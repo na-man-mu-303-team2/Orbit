@@ -1535,6 +1535,7 @@ export function RehearsalWorkspace(props: {
     ReadonlySet<string>
   >(() => new Set());
   const [isSingleScreenOpen, setIsSingleScreenOpen] = useState(false);
+  const [isCompletionModalOpen, setIsCompletionModalOpen] = useState(false);
   const [timeMode, setTimeMode] = useState<RehearsalTimeMode>("timer");
   const [timerDurationSeconds, setTimerDurationSeconds] = useState(5 * 60);
   const [elapsedTimeInput, setElapsedTimeInput] = useState("00:00");
@@ -2008,6 +2009,14 @@ export function RehearsalWorkspace(props: {
 
   const isJobActive = phase === "uploading" || phase === "processing";
   const smoothProgress = useJobSmoothProgress(job, isJobActive);
+  const completionProgress = phase === "succeeded" ? 100 : smoothProgress;
+  const completionMessage =
+    phase === "uploading"
+      ? "음성 업로드 중"
+      : phase === "succeeded"
+        ? "리포트 생성 완료"
+        : "AI가 발표를 분석하는 중";
+  const shouldShowCompletionModal = isCompletionModalOpen || isJobActive;
 
   async function startRecording() {
     if (!deck || !canRecord) return;
@@ -2018,6 +2027,7 @@ export function RehearsalWorkspace(props: {
     setRun(null);
     setJob(null);
     finishAfterReportRef.current = false;
+    setIsCompletionModalOpen(false);
     setLiveError("");
     setLiveAudioLevel(null);
     setLiveDebugPcmRecording(null);
@@ -2758,6 +2768,7 @@ export function RehearsalWorkspace(props: {
 
       if (result.job.status === "failed") {
         setPhase("failed");
+        setIsCompletionModalOpen(false);
         setError(
           result.job.error?.message ||
             result.job.message ||
@@ -2768,14 +2779,13 @@ export function RehearsalWorkspace(props: {
 
       await loadReportForRun(result.run.runId, result.run);
       setPhase("succeeded");
+      setIsCompletionModalOpen(true);
       if (finishAfterReportRef.current) {
         finishAfterReportRef.current = false;
-        navigateToPath(
-          getRehearsalReportPath(activeDeck.projectId, result.run.runId),
-        );
       }
     } catch (cause) {
       setError(toRehearsalFlowMessage(cause));
+      setIsCompletionModalOpen(false);
       setPhase("failed");
     }
   }
@@ -2820,16 +2830,27 @@ export function RehearsalWorkspace(props: {
 
     if (phase === "recording") {
       finishAfterReportRef.current = true;
+      setIsCompletionModalOpen(true);
       stopRecording();
       return;
     }
 
     if (phase === "uploading" || phase === "processing") {
       finishAfterReportRef.current = true;
+      setIsCompletionModalOpen(true);
       return;
     }
 
     navigateToPath(getRehearsalFinishPath(projectId, run));
+  };
+  const finishCompletedRehearsal = () => {
+    const projectId = deck?.projectId ?? props.projectId ?? demoIds.projectId;
+    setIsCompletionModalOpen(false);
+    navigateToPath(
+      run?.runId
+        ? getRehearsalReportPath(projectId, run.runId)
+        : getRehearsalFinishPath(projectId, run),
+    );
   };
   const resetSlideDisplayToBeginning = () => {
     presenterStepIndexRef.current = 0;
@@ -3306,6 +3327,51 @@ export function RehearsalWorkspace(props: {
           </section>
         </div>
       ) : null}
+      {shouldShowCompletionModal ? (
+        <div className="rehearsal-completion-modal-backdrop" role="presentation">
+          <section
+            aria-labelledby="rehearsal-completion-modal-title"
+            aria-modal="true"
+            className="rehearsal-completion-modal"
+            role="dialog"
+          >
+            {phase === "succeeded" ? (
+              <>
+                <span className="rehearsal-completion-modal-icon" aria-hidden="true">
+                  <CheckCircle2 size={28} />
+                </span>
+                <h2 id="rehearsal-completion-modal-title">
+                  리포트 생성이 완료되었습니다
+                </h2>
+                <JobProgressDisplay
+                  progress={completionProgress}
+                  message={completionMessage}
+                />
+                <button
+                  className="primary-action"
+                  type="button"
+                  onClick={finishCompletedRehearsal}
+                >
+                  리허설 마치기
+                </button>
+              </>
+            ) : (
+              <>
+                <h2 id="rehearsal-completion-modal-title">
+                  리포트를 생성하고 있습니다
+                </h2>
+                <p>
+                  음성 업로드와 AI 분석이 끝나면 리허설을 마칠 수 있습니다.
+                </p>
+                <JobProgressDisplay
+                  progress={completionProgress}
+                  message={completionMessage}
+                />
+              </>
+            )}
+          </section>
+        </div>
+      ) : null}
       <header className="rehearsal-presenter-topbar">
         <button
           className={`rehearsal-exit-button ${
@@ -3431,24 +3497,13 @@ export function RehearsalWorkspace(props: {
         >
           리포트 녹음 종료
         </button>
-        <span>{phase}</span>
-        <span>{liveStatus}</span>
         {hasDeletedRawAudio ? <span>raw audio 삭제 완료</span> : null}
       </div>
 
       <section className="rehearsal-presenter-layout">
         <section className="rehearsal-presenter-main">
           <div className="rehearsal-stage-wrap" ref={presenterStageRef}>
-            {isJobActive ? (
-              <JobProgressDisplay
-                progress={smoothProgress}
-                message={
-                  phase === "uploading"
-                    ? "\uc74c\uc131 \uc5c5\ub85c\ub4dc \uc911"
-                    : (job?.message || "\ubd84\uc11d \uc911")
-                }
-              />
-            ) : deck && currentSlide ? (
+            {deck && currentSlide ? (
               <SlideshowRenderer
                 deck={deck}
                 scale={presenterScale}
@@ -3842,7 +3897,9 @@ export function RehearsalReportPage(props: {
   );
   const [error, setError] = useState("");
   const [reportJob, setReportJob] = useState<Job | null>(null);
-  const [allSucceededRuns, setAllSucceededRuns] = useState<RehearsalRun[]>([]);
+  const [allSucceededRuns, setAllSucceededRuns] = useState<RehearsalRun[]>(() =>
+    props.initialRun?.status === "succeeded" ? [props.initialRun] : [],
+  );
   const [prevReports, setPrevReports] = useState<RehearsalReport[]>([]);
 
   useEffect(() => {
@@ -3979,7 +4036,7 @@ export function RehearsalReportPage(props: {
           <span className="report-project-title">{deck?.title ?? "리포트"}</span>
           {currentRunIndex >= 0 && (
             <span className="report-run-label">
-              리허설 {allSucceededRuns.length - currentRunIndex}회차
+              리허설 {currentRunIndex + 1}회차
             </span>
           )}
         </div>
@@ -3998,7 +4055,7 @@ export function RehearsalReportPage(props: {
               report={report}
               deck={deck}
               run={run}
-              runNumber={currentRunIndex >= 0 ? allSucceededRuns.length - currentRunIndex : null}
+              runNumber={currentRunIndex >= 0 ? currentRunIndex + 1 : null}
               projectId={props.projectId}
               totalRunCount={allSucceededRuns.length}
               prevReports={prevReports}
