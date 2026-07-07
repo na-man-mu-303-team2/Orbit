@@ -1,4 +1,4 @@
-import type { Keyword } from "@orbit/shared";
+import { createKeywordOccurrenceId, type Keyword } from "@orbit/shared";
 
 import { IdBadge } from "./EditorIdBadge";
 
@@ -10,6 +10,7 @@ export interface KeywordUsageSummary {
 interface SpeakerNotesWordPart {
   keyword: Keyword | null;
   kind: "word";
+  start: number;
   value: string;
 }
 
@@ -28,16 +29,19 @@ interface KeywordMatch {
 export function KeywordHighlightedNotes(props: {
   keywords: Keyword[];
   notes: string;
+  selectedKeywordOccurrenceKey?: string | null;
   selectedKeywordId: string | null;
   showIds: boolean;
-  onSelectKeyword: (keywordId: string) => void;
-  onSelectKeywordText: (value: string) => void;
+  slideId: string;
+  onSelectKeyword: (keywordId: string, occurrenceKey?: string | null) => void;
+  onSelectKeywordText: (value: string, start: number) => void;
 }) {
   const {
     keywords,
     notes,
-    selectedKeywordId,
+    selectedKeywordOccurrenceKey = null,
     showIds,
+    slideId,
     onSelectKeyword,
     onSelectKeywordText
   } = props;
@@ -56,19 +60,34 @@ export function KeywordHighlightedNotes(props: {
         }
 
         const keyword = part.keyword;
-        const isSelected = keyword?.keywordId === selectedKeywordId;
+        const occurrenceKey = keyword
+          ? createKeywordOccurrenceId(
+              slideId,
+              keyword.keywordId,
+              part.start,
+              part.start + part.value.length
+            )
+          : null;
+        const isSelected = Boolean(
+          occurrenceKey && occurrenceKey === selectedKeywordOccurrenceKey
+        );
+        const shouldShowKeywordMark = Boolean(
+          keyword && (!selectedKeywordOccurrenceKey || isSelected)
+        );
 
         return (
           <button
-            className={`${keyword ? "keyword-mark" : "keyword-note-token"} ${
+            className={`${shouldShowKeywordMark ? "keyword-mark" : "keyword-note-token"} ${
               isSelected ? "selected" : ""
             }`}
+            data-keyword-id={keyword?.keywordId}
+            data-occurrence-id={occurrenceKey ?? undefined}
             key={`${part.value}-${index}`}
             type="button"
             onClick={() =>
               keyword
-                ? onSelectKeyword(keyword.keywordId)
-                : onSelectKeywordText(part.value)
+                ? onSelectKeyword(keyword.keywordId, occurrenceKey)
+                : onSelectKeywordText(part.value, part.start)
             }
           >
             <strong>{part.value}</strong>
@@ -125,6 +144,7 @@ export function KeywordList(props: {
 
 export function KeywordDetail(props: {
   keyword: Keyword;
+  requiredActive?: boolean;
   showIds: boolean;
   usage?: KeywordUsageSummary | null;
   onClearSelection?: () => void;
@@ -138,6 +158,7 @@ export function KeywordDetail(props: {
     onDeleteKeyword,
     onToggleAdvanceSlide,
     onToggleRequired,
+    requiredActive = keyword.required,
     showIds,
     usage
   } = props;
@@ -179,7 +200,7 @@ export function KeywordDetail(props: {
       </div>
       <div className="keyword-control-row">
         <button
-          className={`keyword-control-button ${keyword.required ? "active" : ""}`}
+          className={`keyword-control-button ${requiredActive ? "active" : ""}`}
           type="button"
           onClick={onToggleRequired}
         >
@@ -251,6 +272,7 @@ function tokenizeSpeakerNotes(notes: string, keywords: Keyword[]): SpeakerNotesP
 
     parts.push({
       kind: "word",
+      start: index,
       value,
       keyword: findKeywordMatch(keywords, value)?.keyword ?? null
     });

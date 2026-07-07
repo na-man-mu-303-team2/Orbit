@@ -1,8 +1,15 @@
 import { applyDeckPatch, createDemoDeck } from "@orbit/editor-core";
+import {
+  createAddAnimationWithKeywordTriggerPatch,
+  createDefaultAnimation,
+  createUpdateAnimationKeywordTriggerPatch,
+  createUpsertAdvanceSlideKeywordActionPatch
+} from "../../../../../../packages/editor-core/src/index";
 import { demoIds } from "@orbit/shared";
 import type {
   AiSuggestion,
   Deck,
+  DeckPatch,
   DeckElement,
   ListAiSuggestionsResponse,
   TableElementProps
@@ -16,11 +23,16 @@ import {
   EditorShell,
   EditorStateNotice,
   buildSlideThumbnailPatch,
+  buildPatchBatch,
+  consumeScheduledUndoRedoPersistLabel,
   createDistributeSelectionPatch,
+  flushEditorPersistenceBeforeManualAction,
+  getSpeakerNotesDanglingOccurrenceSaveBlock,
   getImportedSlideThumbnailRefreshSlideIds,
   getPatchThumbnailRefreshSlideIds,
   getEditorValidationItems,
   mergeDeckIntoQueryCache,
+  resolveHistoryNavigation,
   shouldApplyManualSaveResult,
   shouldRefreshImportedSlideThumbnails,
   shouldPromptSpeakerNotesDraftDiscard,
@@ -118,6 +130,105 @@ describe("editor shell", () => {
     vi.stubGlobal("fetch", vi.fn());
   });
 
+  it("flushes scheduled undo redo persistence before manual save queues", async () => {
+    const calls: string[] = [];
+    let pendingPatchCount = 2;
+
+    await flushEditorPersistenceBeforeManualAction({
+      flushScheduledUndoRedoPersist: async () => {
+        calls.push("undo-redo");
+      },
+      waitForSaveQueue: async () => {
+        calls.push("save-queue");
+      },
+      hasPendingPatchInputs: () => pendingPatchCount > 0,
+      flushPendingSaveBatch: async () => {
+        calls.push(`patch-${pendingPatchCount}`);
+        pendingPatchCount -= 1;
+      }
+    });
+
+    expect(calls).toEqual(["undo-redo", "save-queue", "patch-2", "patch-1"]);
+  });
+
+  it("consumes a scheduled undo redo persist timer once", () => {
+    const timer = setTimeout(() => undefined, 10_000);
+    const timerRef: { current: ReturnType<typeof setTimeout> | null } = {
+      current: timer
+    };
+    const labelRef: { current: string | null } = { current: "undo" };
+    const clearTimer = vi.fn((scheduledTimer: ReturnType<typeof setTimeout>) =>
+      clearTimeout(scheduledTimer)
+    );
+
+    expect(
+      consumeScheduledUndoRedoPersistLabel({
+        clearTimer,
+        labelRef,
+        timerRef
+      })
+    ).toBe("undo");
+    expect(clearTimer).toHaveBeenCalledWith(timer);
+    expect(timerRef.current).toBeNull();
+    expect(labelRef.current).toBeNull();
+
+    expect(
+      consumeScheduledUndoRedoPersistLabel({
+        clearTimer,
+        labelRef,
+        timerRef
+      })
+    ).toBeNull();
+    expect(clearTimer).toHaveBeenCalledTimes(1);
+  });
+
+  it("consumes a restored undo redo persist label without a timer", () => {
+    const timerRef: { current: ReturnType<typeof setTimeout> | null } = {
+      current: null
+    };
+    const labelRef: { current: string | null } = { current: "redo" };
+    const clearTimer = vi.fn();
+
+    expect(
+      consumeScheduledUndoRedoPersistLabel({
+        clearTimer,
+        labelRef,
+        timerRef
+      })
+    ).toBe("redo");
+    expect(clearTimer).not.toHaveBeenCalled();
+    expect(labelRef.current).toBeNull();
+  });
+
+  it("resolves undo redo history navigation without state updater side effects", () => {
+    const previousDeck = { ...createDemoDeck(), title: "Previous deck" };
+    const currentDeck = {
+      ...createDemoDeck(),
+      title: "Current deck",
+      version: previousDeck.version + 1
+    };
+
+    const transition = resolveHistoryNavigation({
+      currentDeck,
+      currentSlideIndex: 1,
+      stack: [{ deck: previousDeck, slideIndex: 999 }]
+    });
+
+    expect(transition).toMatchObject({
+      currentEntry: { deck: currentDeck, slideIndex: 1 },
+      nextStack: [],
+      targetEntry: { deck: previousDeck },
+      targetSlideIndex: previousDeck.slides.length - 1
+    });
+    expect(
+      resolveHistoryNavigation({
+        currentDeck,
+        currentSlideIndex: 0,
+        stack: []
+      })
+    ).toBeNull();
+  });
+
   it("prompts before discarding a dirty speaker notes draft", () => {
     expect(
       shouldPromptSpeakerNotesDraftDiscard({
@@ -164,6 +275,71 @@ describe("editor shell", () => {
         savedDraftBase: "기존 메모"
       })
     ).toBe(false);
+  });
+
+  it("blocks speaker notes saves that would orphan keyword occurrence actions", () => {
+    const deck = createDemoDeck();
+    const slide = {
+      ...deck.slides[0],
+      speakerNotes: "ORBIT 흐름은 ORBIT 대본으로 설명합니다.",
+      actions: [
+        {
+          actionId: "act_1",
+          trigger: {
+            kind: "keyword-occurrence" as const,
+            keywordId: "kw_1",
+            occurrenceId: "kwo_slide_1_kw_1_10_15"
+          },
+          effect: {
+            kind: "go-to-next-slide" as const
+          }
+        }
+      ]
+    };
+
+    const block = getSpeakerNotesDanglingOccurrenceSaveBlock(
+      slide,
+      "앞에 추가 ORBIT 흐름은 ORBIT 대본으로 설명합니다."
+    );
+
+    expect(block).toMatchObject({
+      danglingActions: [
+        {
+          slideId: "slide_1",
+          actionId: "act_1",
+          keywordId: "kw_1",
+          occurrenceId: "kwo_slide_1_kw_1_10_15",
+          effectKind: "go-to-next-slide"
+        }
+      ]
+    });
+  });
+
+  it("allows speaker notes saves when only legacy keyword actions exist", () => {
+    const deck = createDemoDeck();
+    const slide = {
+      ...deck.slides[0],
+      speakerNotes: "ORBIT 흐름은 ORBIT 대본으로 설명합니다.",
+      actions: [
+        {
+          actionId: "act_1",
+          trigger: {
+            kind: "keyword" as const,
+            keywordId: "kw_1"
+          },
+          effect: {
+            kind: "go-to-next-slide" as const
+          }
+        }
+      ]
+    };
+
+    expect(
+      getSpeakerNotesDanglingOccurrenceSaveBlock(
+        slide,
+        "앞에 추가 ORBIT 흐름은 ORBIT 대본으로 설명합니다."
+      )
+    ).toBeNull();
   });
 
   it("rewrites local minio asset URLs to the same-origin asset proxy", () => {
@@ -612,7 +788,7 @@ describe("editor shell", () => {
           version: deck.version + 1
         }
       }),
-    ).toBe(false);
+    ).toBe(true);
 
     expect(
       shouldApplyManualSaveResult({
@@ -623,6 +799,60 @@ describe("editor shell", () => {
         }
       }),
     ).toBe(false);
+
+    expect(
+      shouldApplyManualSaveResult({
+        snapshotDeck: deck,
+        currentDeck: {
+          ...deck,
+          title: "same version but different edit"
+        }
+      }),
+    ).toBe(false);
+  });
+
+  it("rebuilds queued patch producers against the latest deck", () => {
+    const deck = createDemoDeck();
+    const remoteSlide = {
+      ...structuredClone(deck.slides[0]),
+      order: deck.slides.length + 1,
+      slideId: "slide_remote",
+      title: "Remote slide"
+    };
+    const latestDeck = {
+      ...deck,
+      slides: [...deck.slides, remoteSlide],
+      version: deck.version + 1
+    };
+    const createCascadePatch = (currentDeck: Deck): DeckPatch => ({
+      baseVersion: currentDeck.version,
+      deckId: currentDeck.deckId,
+      operations: currentDeck.slides.map((slide) => ({
+        slideId: slide.slideId,
+        style: {
+          backgroundColor: "#111111"
+        },
+        type: "update_slide_style" as const
+      })),
+      source: "user"
+    });
+
+    const stalePatch = createCascadePatch(deck);
+
+    expect(
+      buildPatchBatch(latestDeck, [createCascadePatch]).patch.operations
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ slideId: remoteSlide.slideId })
+      ])
+    );
+    expect(
+      buildPatchBatch(latestDeck, [stalePatch]).patch.operations
+    ).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ slideId: remoteSlide.slideId })
+      ])
+    );
   });
 
   it("renders supported canvas object types without exposing grouped child labels", () => {
@@ -1021,6 +1251,146 @@ describe("editor shell", () => {
     }
   });
 
+  it("stores new animation triggers on the selected speaker note occurrence", () => {
+    const deck = createDemoDeck();
+    const slide = {
+      ...deck.slides[0],
+      speakerNotes: "ORBIT 흐름은 ORBIT 대본으로 설명합니다."
+    };
+    const deckWithRepeatedKeyword = {
+      ...deck,
+      slides: [slide, ...deck.slides.slice(1)]
+    };
+    const animation = createDefaultAnimation(
+      deckWithRepeatedKeyword,
+      slide,
+      "el_1"
+    );
+    const patch = createAddAnimationWithKeywordTriggerPatch(
+      deckWithRepeatedKeyword,
+      slide.slideId,
+      animation,
+      "kw_1",
+      "kwo_slide_1_kw_1_10_15"
+    );
+
+    const result = applyDeckPatch(deckWithRepeatedKeyword, patch);
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.deck.slides[0].actions.at(-1)?.trigger).toEqual({
+        kind: "keyword-occurrence",
+        keywordId: "kw_1",
+        occurrenceId: "kwo_slide_1_kw_1_10_15"
+      });
+    }
+  });
+
+  it("stores next-slide triggers on the selected speaker note occurrence", () => {
+    const deck = createDemoDeck();
+    const slide = {
+      ...deck.slides[0],
+      speakerNotes: "ORBIT 흐름은 ORBIT 대본으로 설명합니다."
+    };
+    const deckWithRepeatedKeyword = {
+      ...deck,
+      slides: [slide, ...deck.slides.slice(1)]
+    };
+    const patch = createUpsertAdvanceSlideKeywordActionPatch(
+      deckWithRepeatedKeyword,
+      slide.slideId,
+      "kw_1",
+      true,
+      "kwo_slide_1_kw_1_10_15"
+    );
+
+    expect(patch).not.toBeNull();
+    expect(deckWithRepeatedKeyword.slides[0].actions).toEqual([]);
+    expect(patch?.operations).toEqual([
+      {
+        type: "add_slide_action",
+        slideId: slide.slideId,
+        action: expect.objectContaining({
+          trigger: {
+            kind: "keyword-occurrence",
+            keywordId: "kw_1",
+            occurrenceId: "kwo_slide_1_kw_1_10_15"
+          },
+          effect: {
+            kind: "go-to-next-slide"
+          }
+        })
+      }
+    ]);
+    const result = applyDeckPatch(deckWithRepeatedKeyword, patch!);
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.deck.slides[0].actions.at(-1)?.trigger).toEqual({
+        kind: "keyword-occurrence",
+        keywordId: "kw_1",
+        occurrenceId: "kwo_slide_1_kw_1_10_15"
+      });
+      expect(result.deck.slides[0].actions.at(-1)?.effect).toEqual({
+        kind: "go-to-next-slide"
+      });
+    }
+  });
+
+  it("reconnects legacy animation triggers to a selected speaker note occurrence", () => {
+    const deck = createDemoDeck();
+    const slide = {
+      ...deck.slides[0],
+      speakerNotes: "ORBIT 흐름은 ORBIT 대본으로 설명합니다.",
+      animations: [
+        {
+          animationId: "anim_1",
+          elementId: "el_1",
+          order: 1,
+          type: "fade-in" as const,
+          durationMs: 300,
+          delayMs: 0,
+          easing: "ease-out" as const
+        }
+      ],
+      actions: [
+        {
+          actionId: "act_1",
+          trigger: {
+            kind: "keyword" as const,
+            keywordId: "kw_1"
+          },
+          effect: {
+            kind: "play-animation" as const,
+            animationId: "anim_1"
+          }
+        }
+      ]
+    };
+    const deckWithLegacyAction = {
+      ...deck,
+      slides: [slide, ...deck.slides.slice(1)]
+    };
+    const patch = createUpdateAnimationKeywordTriggerPatch(
+      deckWithLegacyAction,
+      slide.slideId,
+      "anim_1",
+      "kw_1",
+      "kwo_slide_1_kw_1_10_15"
+    );
+
+    const result = applyDeckPatch(deckWithLegacyAction, patch);
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.deck.slides[0].actions[0]?.trigger).toEqual({
+        kind: "keyword-occurrence",
+        keywordId: "kw_1",
+        occurrenceId: "kwo_slide_1_kw_1_10_15"
+      });
+    }
+  });
+
   it("keeps the newer local deck when a stale save response tries to update the query cache", () => {
     const currentDeck = {
       ...createDemoDeck(),
@@ -1061,6 +1431,27 @@ describe("editor shell", () => {
     const persistedDeck = {
       ...currentDeck,
       version: 2
+    } as Deck;
+
+    expect(
+      shouldHydrateDeckFromQuery({
+        currentDeck,
+        nextDeck: persistedDeck,
+        hasHydratedPersistedDeck: true,
+        hasLocalOptimisticChanges: true
+      })
+    ).toBe(false);
+  });
+
+  it("does not hydrate newer query data over local optimistic edits", () => {
+    const currentDeck = {
+      ...createDemoDeck(),
+      version: 2
+    } as Deck;
+    const persistedDeck = {
+      ...currentDeck,
+      title: "stale save response",
+      version: 3
     } as Deck;
 
     expect(

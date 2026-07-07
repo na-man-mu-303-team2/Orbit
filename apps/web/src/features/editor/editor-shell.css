@@ -2528,21 +2528,32 @@
   min-height: 0;
   margin: 0 1px;
   padding: 1px 4px;
-  border: 0;
+  border: 1px solid transparent;
   border-radius: 5px;
-  background: var(--blue-soft);
-  color: var(--blue);
+  background: transparent;
+  color: var(--slate);
   vertical-align: baseline;
 }
 
 .keyword-mark strong {
-  font-weight: 900;
+  color: inherit;
+  font-weight: inherit;
 }
 
-.keyword-mark:hover,
+.keyword-mark:hover {
+  background: var(--blue-soft);
+  color: var(--blue);
+}
+
 .keyword-mark.selected {
   background: #dbeafe;
+  border-color: #93c5fd;
   color: var(--blue-strong);
+}
+
+.keyword-mark.selected strong {
+  color: var(--blue-strong);
+  font-weight: 900;
 }
 
 .keyword-mark .id-badge {
@@ -3967,7 +3978,23 @@
   }
 
   .ai-pane.collapsed {
-    display: none;
+    position: fixed;
+    right: 16px;
+    bottom: 72px;
+    z-index: 40;
+    display: grid;
+    width: var(--right-pane-collapsed-width, 52px);
+    min-height: 0;
+    padding: 0;
+    border: 0;
+    background: transparent;
+  }
+
+  .ai-pane.collapsed .collapsed-right-rail {
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: #fff;
+    box-shadow: 0 12px 32px rgba(16, 24, 40, 0.16);
   }
 
   .right-pane-resizer {

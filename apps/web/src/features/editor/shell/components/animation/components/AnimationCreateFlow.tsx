@@ -18,7 +18,12 @@ export function AnimationCreateFlow(props: {
   linkedTypes: SupportedAnimationType[];
   selectedKeywordId: string | null;
   selectedKeywordLabel: string | null;
-  onAddAnimation: (draft: AnimationDraftInput, keywordId?: string | null) => void;
+  selectedKeywordOccurrenceId?: string | null;
+  onAddAnimation: (
+    draft: AnimationDraftInput,
+    keywordId?: string | null,
+    keywordOccurrenceId?: string | null
+  ) => void;
   onDraftChange: (patch: Partial<AnimationTimingDraft>) => void;
   onSelectKeyword: (keywordId: string) => void;
   onStartCreating: (type: SupportedAnimationType) => void;
@@ -33,6 +38,7 @@ export function AnimationCreateFlow(props: {
     linkedTypes,
     selectedKeywordId,
     selectedKeywordLabel,
+    selectedKeywordOccurrenceId = null,
     onAddAnimation,
     onDraftChange,
     onSelectKeyword,
@@ -63,6 +69,7 @@ export function AnimationCreateFlow(props: {
           keywordTriggerWarningMessage={keywordTriggerWarningMessage}
           selectedKeywordId={selectedKeywordId}
           selectedKeywordLabel={selectedKeywordLabel}
+          selectedKeywordOccurrenceId={selectedKeywordOccurrenceId}
           type={creationType}
           onAddAnimation={onAddAnimation}
           onDraftChange={onDraftChange}

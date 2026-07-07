@@ -32,7 +32,40 @@ export function getTriggerAnimationIdsForSlide(slide: Slide) {
 }
 
 export function resolveKeywordTriggeredActions(slide: Slide, keywordId: string) {
-  return resolveTriggeredActions(slide, { keywordId });
+  const hasOccurrenceTriggerForKeyword = slide.actions.some(
+    (action) =>
+      action.trigger.kind === "keyword-occurrence" &&
+      action.trigger.keywordId === keywordId
+  );
+
+  if (hasOccurrenceTriggerForKeyword) {
+    return [];
+  }
+
+  return resolveTriggeredActions(slide, { keywordId }).filter(
+    (action) => action.trigger.kind === "keyword"
+  );
+}
+
+export function resolveKeywordOccurrenceTriggeredActions(
+  slide: Slide,
+  keywordId: string,
+  occurrenceId: string
+) {
+  return slide.actions.filter(
+    (action) =>
+      action.trigger.kind === "keyword-occurrence" &&
+      action.trigger.keywordId === keywordId &&
+      action.trigger.occurrenceId === occurrenceId
+  );
+}
+
+export function getKeywordOccurrenceTriggerIdsForSlide(slide: Slide) {
+  return slide.actions.flatMap((action) =>
+    action.trigger.kind === "keyword-occurrence"
+      ? [action.trigger.occurrenceId]
+      : []
+  );
 }
 
 export function resolveCueTriggeredActions(slide: Slide, cue: string) {

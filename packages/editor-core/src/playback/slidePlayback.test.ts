@@ -139,6 +139,64 @@ describe("slidePlayback", () => {
     expect(actions.map((action) => action.actionId)).toEqual(["act_3"]);
   });
 
+  it("resolves keyword occurrence actions without matching every action for the same keyword", () => {
+    const slide = createSlide();
+    slide.actions.push(
+      {
+        actionId: "act_3",
+        trigger: {
+          kind: "keyword",
+          keywordId: "kw_1"
+        },
+        effect: {
+          kind: "go-to-next-slide"
+        }
+      },
+      {
+        actionId: "act_4",
+        trigger: {
+          kind: "keyword-occurrence",
+          keywordId: "kw_1",
+          occurrenceId: "kwo_slide_1_kw_1_0_2"
+        },
+        effect: {
+          kind: "play-animation",
+          animationId: "anim_1"
+        }
+      },
+      {
+        actionId: "act_5",
+        trigger: {
+          kind: "keyword-occurrence",
+          keywordId: "kw_1",
+          occurrenceId: "kwo_slide_1_kw_1_10_12"
+        },
+        effect: {
+          kind: "play-animation",
+          animationId: "anim_2"
+        }
+      }
+    );
+
+    expect(
+      resolveTriggeredActions(slide, {
+        keywordId: "kw_1",
+        occurrenceId: "kwo_slide_1_kw_1_0_2"
+      }).map((action) => action.actionId)
+    ).toEqual(["act_4"]);
+    expect(
+      resolveTriggeredActions(slide, {
+        keywordId: "kw_1",
+        occurrenceId: "kwo_slide_1_kw_1_missing"
+      })
+    ).toEqual([]);
+    expect(
+      resolveTriggeredActions(slide, {
+        keywordId: "kw_1"
+      }).map((action) => action.actionId)
+    ).toEqual(["act_3"]);
+  });
+
   it("executes cue-driven animation actions once", () => {
     const slide = createSlide();
     const action = slide.actions[0];

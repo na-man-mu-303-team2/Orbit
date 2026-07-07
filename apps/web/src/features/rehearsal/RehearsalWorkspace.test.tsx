@@ -1,7 +1,12 @@
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import { createDemoDeck } from "@orbit/editor-core";
-import type { Job, RehearsalReport, RehearsalRun } from "@orbit/shared";
+import {
+  createKeywordOccurrenceId,
+  type Job,
+  type RehearsalReport,
+  type RehearsalRun,
+} from "@orbit/shared";
 import type { ReactNode } from "react";
 import { forwardRef } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -15,6 +20,9 @@ import {
   applyLiveTranscriptBias,
   applyLiveTranscriptEvent,
   buildLiveSttBiasContext,
+  confirmKeywordOccurrenceMatches,
+  createKeywordOccurrenceAnimationCueEvent,
+  createLiveKeywordOccurrenceState,
   createLiveTranscriptBuffer,
   createRecordingFile,
   createRecordingSession,
@@ -22,11 +30,13 @@ import {
   fetchRehearsalReport,
   fetchOrCreateRehearsalDeck,
   getRehearsalFinishPath,
+  getHighlightedKeywordOccurrencesForSlide,
   getRehearsalPresenterWindowPath,
   getRehearsalReportPath,
   getLiveAudioLevelLabel,
   getLiveAudioLevelPercent,
   getLiveSttDebugDecodingMethod,
+  getOccurrenceTriggerProgress,
   getRehearsalMicrophoneAudioConstraints,
   getRemainingTriggerStepsForSlide,
   normalizeRecordingMimeType,
@@ -54,6 +64,7 @@ import { p0AnimationDeck } from "./presenter/__fixtures__/animationDeck";
 import { getNextPresenterStepState } from "./presenter/presenterStepNavigation";
 import { normalizeLiveTranscriptText } from "./stt/liveTranscriptText";
 import { createPauseDetector } from "./speech/pauseDetector";
+import { matchKeywordOccurrenceTriggers } from "./speech/keywordOccurrenceRuntime";
 import {
   confirmRehearsalCommandCandidate,
   createRehearsalCommandConfirmationState,
@@ -145,6 +156,236 @@ describe("RehearsalWorkspace", () => {
 
     expect(html).toContain("지난 리허설은 4:30였습니다.");
     expect(html).not.toContain("지난번보다 30초");
+  });
+
+  it("creates occurrence animation cue events with occurrence id and display text separated", () => {
+    expect(
+      createKeywordOccurrenceAnimationCueEvent({
+        slideId: "slide_1",
+        match: {
+          keywordId: "kw_ai",
+          occurrenceId: "kwo_slide_1_kw_ai_47_49",
+          text: "AI",
+          currentCharOffset: 55,
+        },
+      }),
+    ).toEqual({
+      type: "animation-cue",
+      slideId: "slide_1",
+      keywordId: "kw_ai",
+      occurrenceId: "kwo_slide_1_kw_ai_47_49",
+      cue: "emphasis",
+      text: "AI",
+    });
+  });
+
+  it("keeps keyword checklist coverage separate from occurrence trigger progress", () => {
+    const targetOccurrenceId = "kwo_slide_1_kw_ai_47_49";
+    const slide = {
+      ...createDemoDeck().slides[0]!,
+      slideId: "slide_1",
+      speakerNotes:
+        "오늘은 AI 덱 생성 파이프라인을 소개합니다. 중간에도 AI를 언급합니다. 마지막에 AI를 말하면 이미지가 나타납니다.",
+      keywords: [
+        {
+          keywordId: "kw_ai",
+          text: "AI",
+          synonyms: [],
+          abbreviations: [],
+          required: true,
+        },
+      ],
+    };
+    const initialOccurrenceState = createLiveKeywordOccurrenceState(
+      slide.slideId,
+    );
+    const earlyTranscript = "오늘은 AI 덱 생성 파이프라인을 소개합니다.";
+    const earlyAnalysis = evaluateLiveTranscript(slide, earlyTranscript);
+    const earlyMatches = matchKeywordOccurrenceTriggers({
+      slide,
+      targetOccurrenceIds: [targetOccurrenceId],
+      transcript: earlyTranscript,
+      latestTranscript: "AI",
+      confidence: 0.95,
+      confirmedOccurrenceIds: initialOccurrenceState.confirmedOccurrenceIds,
+    });
+    const earlyOccurrenceState = confirmKeywordOccurrenceMatches(
+      initialOccurrenceState,
+      earlyMatches,
+    );
+
+    expect(earlyAnalysis.coverage).toBe(1);
+    expect(earlyMatches).toEqual([]);
+    expect(
+      getOccurrenceTriggerProgress({
+        targetOccurrenceIds: [targetOccurrenceId],
+        confirmedOccurrenceIds: earlyOccurrenceState.confirmedOccurrenceIds,
+      }),
+    ).toEqual({
+      targetOccurrenceIds: [targetOccurrenceId],
+      confirmedOccurrenceIds: [],
+      coverage: 0,
+    });
+
+    const lateTranscript =
+      "오늘은 AI 덱 생성 파이프라인을 소개합니다. 중간에도 AI를 언급합니다. 마지막에 AI를 말하면";
+    const lateMatches = matchKeywordOccurrenceTriggers({
+      slide,
+      targetOccurrenceIds: [targetOccurrenceId],
+      transcript: lateTranscript,
+      latestTranscript: "AI",
+      confidence: 0.95,
+      confirmedOccurrenceIds: earlyOccurrenceState.confirmedOccurrenceIds,
+    });
+    const lateOccurrenceState = confirmKeywordOccurrenceMatches(
+      earlyOccurrenceState,
+      lateMatches,
+    );
+
+    expect(lateMatches.map((match) => match.occurrenceId)).toEqual([
+      targetOccurrenceId,
+    ]);
+    expect(
+      getOccurrenceTriggerProgress({
+        targetOccurrenceIds: [targetOccurrenceId],
+        confirmedOccurrenceIds: lateOccurrenceState.confirmedOccurrenceIds,
+      }),
+    ).toEqual({
+      targetOccurrenceIds: [targetOccurrenceId],
+      confirmedOccurrenceIds: [targetOccurrenceId],
+      coverage: 1,
+    });
+  });
+
+  it("highlights required occurrence IDs alongside targeted trigger occurrences", () => {
+    const speakerNotes = "keyword occurrence class는 keyword";
+    const targetStart = speakerNotes.lastIndexOf("keyword");
+    const targetOccurrenceId = createKeywordOccurrenceId(
+      "slide_1",
+      "kw_keyword",
+      targetStart,
+      targetStart + "keyword".length,
+    );
+    const occurrenceStart = speakerNotes.indexOf("occurrence");
+    const classStart = speakerNotes.indexOf("class는");
+    const requiredOccurrenceId = createKeywordOccurrenceId(
+      "slide_1",
+      "kw_occurrence",
+      occurrenceStart,
+      occurrenceStart + "occurrence".length,
+    );
+    const requiredClassOccurrenceId = createKeywordOccurrenceId(
+      "slide_1",
+      "kw_class",
+      classStart,
+      classStart + "class는".length,
+    );
+    const slide = {
+      ...createDemoDeck().slides[0]!,
+      slideId: "slide_1",
+      speakerNotes,
+      keywords: [
+        {
+          keywordId: "kw_keyword",
+          text: "keyword",
+          synonyms: [],
+          abbreviations: [],
+          required: false,
+        },
+        {
+          keywordId: "kw_occurrence",
+          text: "occurrence",
+          synonyms: [],
+          abbreviations: [],
+          required: true,
+          requiredOccurrenceIds: [requiredOccurrenceId],
+        },
+        {
+          keywordId: "kw_class",
+          text: "class는",
+          synonyms: [],
+          abbreviations: [],
+          required: true,
+          requiredOccurrenceIds: [requiredClassOccurrenceId],
+        },
+      ],
+      actions: [
+        {
+          actionId: "act_keyword",
+          trigger: {
+            kind: "keyword-occurrence" as const,
+            keywordId: "kw_keyword",
+            occurrenceId: targetOccurrenceId,
+          },
+          effect: {
+            kind: "go-to-next-slide" as const,
+          },
+        },
+      ],
+    };
+
+    expect(
+      (getHighlightedKeywordOccurrencesForSlide(slide) ?? []).map(
+        (occurrence) => occurrence.occurrenceId,
+      ),
+    ).toEqual([
+      requiredOccurrenceId,
+      requiredClassOccurrenceId,
+      targetOccurrenceId,
+    ]);
+  });
+
+  it("does not highlight every occurrence for a required keyword text", () => {
+    const speakerNotes = "원인은 selected 판정은 occurrence 기준입니다 은";
+    const selectedStart = speakerNotes.lastIndexOf("은");
+    const selectedOccurrenceId = createKeywordOccurrenceId(
+      "slide_1",
+      "kw_eun",
+      selectedStart,
+      selectedStart + "은".length,
+    );
+    const slide = {
+      ...createDemoDeck().slides[0]!,
+      slideId: "slide_1",
+      speakerNotes,
+      keywords: [
+        {
+          keywordId: "kw_eun",
+          text: "은",
+          synonyms: [],
+          abbreviations: [],
+          required: true,
+          requiredOccurrenceIds: [selectedOccurrenceId],
+        },
+      ],
+      actions: [],
+    };
+
+    expect(
+      (getHighlightedKeywordOccurrencesForSlide(slide) ?? []).map(
+        (occurrence) => occurrence.occurrenceId,
+      ),
+    ).toEqual([selectedOccurrenceId]);
+  });
+
+  it("does not derive broad highlights from legacy required keywords", () => {
+    const slide = {
+      ...createDemoDeck().slides[0]!,
+      slideId: "slide_1",
+      speakerNotes: "원인은 selected 판정은 occurrence 기준입니다 은",
+      keywords: [
+        {
+          keywordId: "kw_eun",
+          text: "은",
+          synonyms: [],
+          abbreviations: [],
+          required: true,
+        },
+      ],
+      actions: [],
+    };
+
+    expect(getHighlightedKeywordOccurrencesForSlide(slide)).toEqual([]);
   });
 
   it("builds the presenter window rehearsal URL with the shared session id", () => {

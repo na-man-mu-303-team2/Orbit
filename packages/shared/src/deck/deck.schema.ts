@@ -4,8 +4,10 @@ import { animationSchema } from "./animation.schema";
 import {
   deckIdSchema,
   deckKeywordIdSchema,
+  deckKeywordOccurrenceIdSchema,
   deckSlideIdSchema
 } from "./id.schema";
+import { deriveKeywordOccurrences } from "./keyword-occurrences";
 import { slideActionSchema } from "./slide-action.schema";
 import { deckElementSchema } from "./slide-object.schema";
 import { themeColorSchema, themeSchema } from "./theme.schema";
@@ -86,15 +88,21 @@ export const keywordSchema = z.object({
   text: keywordTermSchema,
   synonyms: z.array(keywordTermSchema).default([]),
   abbreviations: z.array(keywordTermSchema).default([]),
-  required: z.boolean().default(true)
+  required: z.boolean().default(true),
+  requiredOccurrenceIds: z.array(deckKeywordOccurrenceIdSchema).optional()
 });
 
 export const slideKeywordsSchema = z
   .array(keywordSchema)
   .superRefine((keywords, ctx) => {
+    const keywordIds = new Set<string>();
     const terms = new Set<string>();
 
     keywords.forEach((keyword, keywordIndex) => {
+      requireUniqueKeywordId(ctx, keywordIds, keyword.keywordId, [
+        keywordIndex,
+        "keywordId"
+      ]);
       requireUniqueKeywordTerm(ctx, terms, keyword.text, [
         keywordIndex,
         "text"
@@ -188,9 +196,39 @@ export const slideSchema = z
   .superRefine((slide, ctx) => {
     const actionIds = new Set<string>();
     const keywordIds = new Set(slide.keywords.map((keyword) => keyword.keywordId));
+    const keywordOccurrences = new Map(
+      deriveKeywordOccurrences(slide).map((occurrence) => [
+        occurrence.occurrenceId,
+        occurrence
+      ])
+    );
     const animationIds = new Set(
       slide.animations.map((animation) => animation.animationId)
     );
+
+    slide.keywords.forEach((keyword, keywordIndex) => {
+      keyword.requiredOccurrenceIds?.forEach((occurrenceId, occurrenceIndex) => {
+        const occurrence = keywordOccurrences.get(occurrenceId);
+        const path = ["keywords", keywordIndex, "requiredOccurrenceIds", occurrenceIndex];
+
+        if (occurrence === undefined) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path,
+            message: "required keyword occurrence must exist in speaker notes"
+          });
+          return;
+        }
+
+        if (occurrence.keywordId !== keyword.keywordId) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path,
+            message: "required keyword occurrence must belong to the keyword"
+          });
+        }
+      });
+    });
 
     slide.actions.forEach((action, actionIndex) => {
       if (actionIds.has(action.actionId)) {
@@ -212,6 +250,32 @@ export const slideSchema = z
           path: ["actions", actionIndex, "trigger", "keywordId"],
           message: "slide action must target a keyword in the same slide"
         });
+      }
+
+      if (action.trigger.kind === "keyword-occurrence") {
+        if (!keywordIds.has(action.trigger.keywordId)) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["actions", actionIndex, "trigger", "keywordId"],
+            message: "slide action must target a keyword in the same slide"
+          });
+        }
+
+        const occurrence = keywordOccurrences.get(action.trigger.occurrenceId);
+
+        if (occurrence === undefined) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["actions", actionIndex, "trigger", "occurrenceId"],
+            message: "slide action must target a keyword occurrence in speaker notes"
+          });
+        } else if (occurrence.keywordId !== action.trigger.keywordId) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["actions", actionIndex, "trigger", "occurrenceId"],
+            message: "slide action keyword occurrence must match trigger keyword"
+          });
+        }
       }
 
       if (
@@ -259,6 +323,24 @@ export type SlideSourceEvidence = z.infer<typeof slideSourceEvidenceSchema>;
 export type SlideAiNotes = z.infer<typeof slideAiNotesSchema>;
 export type KeywordTerm = z.infer<typeof keywordTermSchema>;
 export type Keyword = z.infer<typeof keywordSchema>;
+
+function requireUniqueKeywordId(
+  ctx: z.RefinementCtx,
+  seen: Set<string>,
+  value: string,
+  path: Array<string | number>
+): void {
+  if (seen.has(value)) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path,
+      message: "keyword IDs must be unique within the same slide"
+    });
+    return;
+  }
+
+  seen.add(value);
+}
 
 function requireUniqueKeywordTerm(
   ctx: z.RefinementCtx,

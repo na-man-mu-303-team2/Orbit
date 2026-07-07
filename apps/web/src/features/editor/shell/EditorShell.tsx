@@ -10,7 +10,6 @@ import {
   createElementId,
   createReplaceKeywordsPatch,
   createUpsertAdvanceSlideKeywordActionPatch,
-  deriveKeywordUsage,
   findKeywordByTerm,
   createGroupedElementFramePatch,
   createUpdateAnimationPatch,
@@ -19,6 +18,8 @@ import {
   getGroupedSelectionBounds,
   createSlideId,
   createUpdateElementPropsPatch,
+  deriveKeywordActionUsage,
+  findDanglingKeywordOccurrenceActions,
   validateSlideAnimations
 } from "../../../../../../packages/editor-core/src/index";
 import { applyDeckPatch } from "../../../../../../packages/editor-core/src/patches/applyPatch";
@@ -28,6 +29,7 @@ import {
 } from "../../../../../../packages/editor-core/src/patches/elementFrame";
 import {
   appendDeckPatchResponseSchema,
+  createKeywordOccurrenceId,
   deckApiErrorSchema,
   demoIds,
   getDeckResponseSchema,
@@ -58,7 +60,6 @@ import {
 import {
   AnimationSidePanel,
   buildAnimationKeywordTriggerPolicy,
-  defaultAnimationPaneWidth,
   maxAnimationPaneWidth,
   minAnimationPaneWidth,
   toAnimationKeywordTriggerOptions,
@@ -94,6 +95,7 @@ import {
   type SaveState
 } from "./hooks/useEditorPersistenceState";
 import { useProjectShareAccess } from "./hooks/useProjectShareAccess";
+import { useEditorShellUiStore } from "./editorShellUiStore";
 import { beginHorizontalPaneResize } from "./utils/beginHorizontalPaneResize";
 import { createThemeCascadePatch } from "./utils/themeCascadePatch";
 export {
@@ -227,6 +229,26 @@ export function shouldPromptSpeakerNotesOverwrite(input: {
   );
 }
 
+export const danglingKeywordOccurrenceSaveMessage =
+  "발표 메모 수정으로 기존 키워드 트리거 위치를 찾을 수 없습니다. 연결된 애니메이션 또는 다음 슬라이드 트리거를 새 위치에 다시 연결한 뒤 저장하세요.";
+
+export function getSpeakerNotesDanglingOccurrenceSaveBlock(
+  slide: Pick<Slide, "slideId" | "speakerNotes" | "keywords" | "actions">,
+  nextSpeakerNotes: string
+) {
+  const danglingActions = findDanglingKeywordOccurrenceActions(
+    slide,
+    nextSpeakerNotes
+  );
+
+  return danglingActions.length > 0
+    ? {
+        danglingActions,
+        message: danglingKeywordOccurrenceSaveMessage
+      }
+    : null;
+}
+
 declare global {
   interface Window {
     __ORBIT_EDITOR_TEST_API__?: {
@@ -252,12 +274,10 @@ declare global {
 
 const fallbackDeck = createDemoDeck();
 const collapsedSlidesPaneWidth = 0;
-const defaultSlidesPaneWidth = 176;
 const minSlidesPaneWidth = 132;
 
 const maxSlidesPaneWidth = 280;
 const collapsedRightPaneWidth = 52;
-const defaultRightPaneWidth = 320;
 const minRightPaneWidth = 260;
 const maxRightPaneWidth = 560;
 const editorUploadProjectTitle = "ORBIT Editor Uploads";
@@ -275,15 +295,6 @@ const pptxImportAccept =
   ".pptx,application/vnd.openxmlformats-officedocument.presentationml.presentation";
 const ooxmlSyncJobEventName = "orbit:ooxml-sync-job";
 
-type TopMenu = "file" | "resize" | "editMode" | "quickEdit" | "presentation";
-type SlidePanelView = "thumbnail" | "list";
-type InsertTool =
-  | "select"
-  | "text"
-  | "rect"
-  | "ellipse"
-  | "line"
-  | "customShape";
 type ShapeInsertType =
   | "rect"
   | "ellipse"
@@ -293,40 +304,38 @@ type ShapeInsertType =
   | "polygon"
   | "star"
   | "customShape";
-type ShapeMenuPosition = {
-  left: number;
-  top: number;
-};
-type ElementContextMenuState =
-  | {
-      elementId: string;
-      left: number;
-      slideId: string;
-      top: number;
-      type: "image";
-    }
-  | {
-      elementId: string;
-      left: number;
-      slideId: string;
-      top: number;
-      type: "group";
-    }
-  | {
-      elementIds: string[];
-      left: number;
-      slideId: string;
-      top: number;
-      type: "selection";
-    };
 type ElementClipboardState = {
   element: DeckElement;
   pasteCount: number;
 };
-type HistoryEntry = {
+export type HistoryEntry = {
   deck: Deck;
   slideIndex: number;
 };
+export function resolveHistoryNavigation(args: {
+  currentDeck: Deck;
+  currentSlideIndex: number;
+  stack: HistoryEntry[];
+}) {
+  const targetEntry = args.stack.at(-1);
+
+  if (!targetEntry) {
+    return null;
+  }
+
+  return {
+    currentEntry: {
+      deck: args.currentDeck,
+      slideIndex: args.currentSlideIndex
+    },
+    nextStack: args.stack.slice(0, -1),
+    targetEntry,
+    targetSlideIndex: Math.max(
+      0,
+      Math.min(targetEntry.slideIndex, targetEntry.deck.slides.length - 1)
+    )
+  };
+}
 type ImageUploadTarget =
   | {
       type: "insert";
@@ -424,7 +433,7 @@ function resolvePatchInput(
   return typeof patchInput === "function" ? patchInput(deck) : patchInput;
 }
 
-function buildPatchBatch(
+export function buildPatchBatch(
   baseDeck: Deck,
   patchInputs: (DeckPatch | PatchProducer)[]
 ): { patch: DeckPatch; deck: Deck } {
@@ -745,6 +754,37 @@ function hasPendingEditorChanges(args: {
   );
 }
 
+export function consumeScheduledUndoRedoPersistLabel(args: {
+  clearTimer: (timer: ReturnType<typeof setTimeout>) => void;
+  labelRef: { current: string | null };
+  timerRef: { current: ReturnType<typeof setTimeout> | null };
+}) {
+  const timer = args.timerRef.current;
+
+  if (timer) {
+    args.clearTimer(timer);
+    args.timerRef.current = null;
+  }
+
+  const label = args.labelRef.current;
+  args.labelRef.current = null;
+  return label;
+}
+
+export async function flushEditorPersistenceBeforeManualAction(args: {
+  flushPendingSaveBatch: () => Promise<void>;
+  flushScheduledUndoRedoPersist: () => Promise<void>;
+  hasPendingPatchInputs: () => boolean;
+  waitForSaveQueue: () => Promise<void>;
+}) {
+  await args.flushScheduledUndoRedoPersist();
+  await args.waitForSaveQueue();
+
+  while (args.hasPendingPatchInputs()) {
+    await args.flushPendingSaveBatch();
+  }
+}
+
 function normalizeProjectPresenceUsers(
   event: ProjectPresenceEvent,
   projectId: string
@@ -817,13 +857,18 @@ function formatSessionRemaining(session: EditorSessionDebugState) {
   return `${remainingHours.toFixed(1)}h`;
 }
 
-async function putProjectDeck(projectId: string, deck: Deck): Promise<Deck> {
+async function putProjectDeck(
+  projectId: string,
+  deck: Deck,
+  options: { baseVersion?: number } = {}
+): Promise<Deck> {
   const response = await fetch(`/api/v1/projects/${projectId}/deck`, {
     method: "PUT",
     headers: {
       "content-type": "application/json"
     },
     body: JSON.stringify({
+      baseVersion: options.baseVersion,
       deck,
       snapshotReason: "deck-replaced"
     })
@@ -996,22 +1041,63 @@ export function EditorShell(props: { projectId?: string }) {
   const projectId = props.projectId ?? demoIds.projectId;
   const queryClient = useQueryClient();
   const [currentSlideIndex, setCurrentSlideIndex] = useState(0);
-  const [isDataViewOpen, setIsDataViewOpen] = useState(false);
-  const [isAnimationPanelOpen, setIsAnimationPanelOpen] = useState(false);
-  const [isRightPanelOpen, setIsRightPanelOpen] = useState(true);
-  const [isSlidesPaneCollapsed, setIsSlidesPaneCollapsed] = useState(false);
-  const [slidesPaneWidth, setSlidesPaneWidth] = useState(defaultSlidesPaneWidth);
-  const [animationPaneWidth, setAnimationPaneWidth] = useState(
-    defaultAnimationPaneWidth
+  const resetProjectUiState = useEditorShellUiStore(
+    (state) => state.resetProjectUiState
   );
-  const [rightPaneWidth, setRightPaneWidth] = useState(defaultRightPaneWidth);
+  const isDataViewOpen = useEditorShellUiStore((state) => state.isDataViewOpen);
+  const setIsDataViewOpen = useEditorShellUiStore((state) => state.setIsDataViewOpen);
+  const isAnimationPanelOpen = useEditorShellUiStore(
+    (state) => state.isAnimationPanelOpen
+  );
+  const setIsAnimationPanelOpen = useEditorShellUiStore(
+    (state) => state.setIsAnimationPanelOpen
+  );
+  const isRightPanelOpen = useEditorShellUiStore((state) => state.isRightPanelOpen);
+  const setIsRightPanelOpen = useEditorShellUiStore(
+    (state) => state.setIsRightPanelOpen
+  );
+  const isSlidesPaneCollapsed = useEditorShellUiStore(
+    (state) => state.isSlidesPaneCollapsed
+  );
+  const setIsSlidesPaneCollapsed = useEditorShellUiStore(
+    (state) => state.setIsSlidesPaneCollapsed
+  );
+  const slidesPaneWidth = useEditorShellUiStore((state) => state.slidesPaneWidth);
+  const setSlidesPaneWidth = useEditorShellUiStore(
+    (state) => state.setSlidesPaneWidth
+  );
+  const animationPaneWidth = useEditorShellUiStore(
+    (state) => state.animationPaneWidth
+  );
+  const setAnimationPaneWidth = useEditorShellUiStore(
+    (state) => state.setAnimationPaneWidth
+  );
+  const rightPaneWidth = useEditorShellUiStore((state) => state.rightPaneWidth);
+  const setRightPaneWidth = useEditorShellUiStore((state) => state.setRightPaneWidth);
   const [projectPresenceUsers, setProjectPresenceUsers] = useState<ProjectPresenceUser[]>([]);
-  const [isPresenceDebugOpen, setIsPresenceDebugOpen] = useState(false);
-  const [isAudienceLinkModalOpen, setIsAudienceLinkModalOpen] = useState(false);
-  const [isExitConfirmOpen, setIsExitConfirmOpen] = useState(false);
+  const isPresenceDebugOpen = useEditorShellUiStore(
+    (state) => state.isPresenceDebugOpen
+  );
+  const setIsPresenceDebugOpen = useEditorShellUiStore(
+    (state) => state.setIsPresenceDebugOpen
+  );
+  const isAudienceLinkModalOpen = useEditorShellUiStore(
+    (state) => state.isAudienceLinkModalOpen
+  );
+  const setIsAudienceLinkModalOpen = useEditorShellUiStore(
+    (state) => state.setIsAudienceLinkModalOpen
+  );
+  const isExitConfirmOpen = useEditorShellUiStore((state) => state.isExitConfirmOpen);
+  const setIsExitConfirmOpen = useEditorShellUiStore(
+    (state) => state.setIsExitConfirmOpen
+  );
   const [isExitSaving, setIsExitSaving] = useState(false);
-  const [animationPanelFocusedAnimationId, setAnimationPanelFocusedAnimationId] =
-    useState<string | null>(null);
+  const animationPanelFocusedAnimationId = useEditorShellUiStore(
+    (state) => state.animationPanelFocusedAnimationId
+  );
+  const setAnimationPanelFocusedAnimationId = useEditorShellUiStore(
+    (state) => state.setAnimationPanelFocusedAnimationId
+  );
   const [lastPresenceAt, setLastPresenceAt] = useState<string | null>(null);
   const [socketErrorMessage, setSocketErrorMessage] = useState("");
   const [socketId, setSocketId] = useState("");
@@ -1020,31 +1106,59 @@ export function EditorShell(props: { projectId?: string }) {
     message: "세션 정보를 아직 조회하지 않았습니다.",
     status: "idle"
   });
-  const [slidePanelView, setSlidePanelView] =
-    useState<SlidePanelView>("thumbnail");
-  const [showIds, setShowIds] = useState(false);
-  const [selectedKeywordId, setSelectedKeywordId] = useState<string | null>(null);
+  const slidePanelView = useEditorShellUiStore((state) => state.slidePanelView);
+  const setSlidePanelView = useEditorShellUiStore((state) => state.setSlidePanelView);
+  const showIds = useEditorShellUiStore((state) => state.showIds);
+  const setShowIds = useEditorShellUiStore((state) => state.setShowIds);
+  const selectedKeywordId = useEditorShellUiStore((state) => state.selectedKeywordId);
+  const setSelectedKeywordId = useEditorShellUiStore(
+    (state) => state.setSelectedKeywordId
+  );
+  const selectedKeywordOccurrenceKey = useEditorShellUiStore(
+    (state) => state.selectedKeywordOccurrenceKey
+  );
+  const setSelectedKeywordOccurrenceKey = useEditorShellUiStore(
+    (state) => state.setSelectedKeywordOccurrenceKey
+  );
   const [isSpeakerNotesEditing, setIsSpeakerNotesEditing] = useState(false);
   const [speakerNotesDraft, setSpeakerNotesDraft] = useState("");
   const [speakerNotesDraftBase, setSpeakerNotesDraftBase] = useState("");
   const [speakerNotesEditSlideId, setSpeakerNotesEditSlideId] = useState<
     string | null
   >(null);
-  const [selectedElementIds, setSelectedElementIds] = useState<string[]>([]);
+  const selectedElementIds = useEditorShellUiStore((state) => state.selectedElementIds);
+  const setSelectedElementIds = useEditorShellUiStore(
+    (state) => state.setSelectedElementIds
+  );
   const [validationHighlightElementIds, setValidationHighlightElementIds] =
     useState<string[]>([]);
-  const [activeTopMenu, setActiveTopMenu] = useState<TopMenu | null>(null);
+  const activeTopMenu = useEditorShellUiStore((state) => state.activeTopMenu);
+  const setActiveTopMenu = useEditorShellUiStore((state) => state.setActiveTopMenu);
   const [lastPatchLabel, setLastPatchLabel] = useState("편집 없음");
-  const [insertTool, setInsertTool] = useState<InsertTool>("select");
-  const [editingElementId, setEditingElementId] = useState<string | null>(null);
-  const [customShapeEditElementId, setCustomShapeEditElementId] = useState<
-    string | null
-  >(null);
-  const [isShapeMenuOpen, setIsShapeMenuOpen] = useState(false);
-  const [shapeMenuPosition, setShapeMenuPosition] =
-    useState<ShapeMenuPosition | null>(null);
-  const [elementContextMenu, setElementContextMenu] =
-    useState<ElementContextMenuState | null>(null);
+  const insertTool = useEditorShellUiStore((state) => state.insertTool);
+  const setInsertTool = useEditorShellUiStore((state) => state.setInsertTool);
+  const editingElementId = useEditorShellUiStore((state) => state.editingElementId);
+  const setEditingElementId = useEditorShellUiStore(
+    (state) => state.setEditingElementId
+  );
+  const customShapeEditElementId = useEditorShellUiStore(
+    (state) => state.customShapeEditElementId
+  );
+  const setCustomShapeEditElementId = useEditorShellUiStore(
+    (state) => state.setCustomShapeEditElementId
+  );
+  const isShapeMenuOpen = useEditorShellUiStore((state) => state.isShapeMenuOpen);
+  const setIsShapeMenuOpen = useEditorShellUiStore(
+    (state) => state.setIsShapeMenuOpen
+  );
+  const shapeMenuPosition = useEditorShellUiStore((state) => state.shapeMenuPosition);
+  const setShapeMenuPosition = useEditorShellUiStore(
+    (state) => state.setShapeMenuPosition
+  );
+  const elementContextMenu = useEditorShellUiStore((state) => state.elementContextMenu);
+  const setElementContextMenu = useEditorShellUiStore(
+    (state) => state.setElementContextMenu
+  );
   const [isImageUploadPending, setIsImageUploadPending] = useState(false);
   const [pptxImportState, setPptxImportState] = useState<PptxImportState>({
     status: "idle",
@@ -1063,6 +1177,7 @@ export function EditorShell(props: { projectId?: string }) {
   const editorStageRef = useRef<Konva.Stage | null>(null);
   const slideRenderStageRefs = useRef(new Map<string, Konva.Stage>());
   const undoRedoPersistTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const undoRedoPersistLabelRef = useRef<string | null>(null);
   const [renderingDeck, setRenderingDeck] = useState<Deck | null>(null);
   const [ooxmlSyncJob, setOoxmlSyncJob] = useState<Job | null>(null);
 
@@ -1077,6 +1192,10 @@ export function EditorShell(props: { projectId?: string }) {
     queryFn: () => fetchDeck(projectId),
     retry: false
   });
+
+  useEffect(() => {
+    resetProjectUiState();
+  }, [projectId, resetProjectUiState]);
 
   useEffect(() => {
     const socket: ClientSocket = io({
@@ -1303,10 +1422,14 @@ export function EditorShell(props: { projectId?: string }) {
         : [],
     [currentSlide]
   );
-  const currentSlideKeywordUsage = useMemo(
-    () => (currentSlide ? deriveKeywordUsage(currentSlide) : {}),
+  const currentSlideKeywordActionUsage = useMemo(
+    () =>
+      currentSlide
+        ? deriveKeywordActionUsage(currentSlide)
+        : { byKeywordId: {}, byOccurrenceId: {} },
     [currentSlide]
   );
+  const currentSlideKeywordUsage = currentSlideKeywordActionUsage.byKeywordId;
   const animationPanelKeywordOptions = useMemo(
     () => toAnimationKeywordTriggerOptions(currentSlide?.keywords ?? []),
     [currentSlide?.keywords]
@@ -1315,6 +1438,25 @@ export function EditorShell(props: { projectId?: string }) {
     currentSlide?.keywords.find(
       (keyword) => keyword.keywordId === selectedKeywordId
     ) ?? null;
+  const selectedKeywordUsage = selectedKeyword
+    ? selectedKeywordOccurrenceKey
+      ? currentSlideKeywordActionUsage.byOccurrenceId[
+          selectedKeywordOccurrenceKey
+        ] ?? {
+          keywordId: selectedKeyword.keywordId,
+          occurrenceId: selectedKeywordOccurrenceKey,
+          animationIds: [],
+          advancesSlide: false
+        }
+      : currentSlideKeywordUsage[selectedKeyword.keywordId] ?? null
+    : null;
+  const selectedKeywordRequiredActive = selectedKeyword
+    ? selectedKeywordOccurrenceKey
+      ? (selectedKeyword.requiredOccurrenceIds ?? []).includes(
+          selectedKeywordOccurrenceKey
+        )
+      : selectedKeyword.required
+    : false;
   const selectedElementId = selectedElementIds.at(-1) ?? null;
   const selectedElements = visibleElements.filter((element) =>
     selectedElementIds.includes(element.elementId)
@@ -1342,6 +1484,7 @@ export function EditorShell(props: { projectId?: string }) {
       buildAnimationKeywordTriggerPolicy({
         element: selectedAnimationPanelElement,
         keywordId: selectedKeywordId,
+        keywordOccurrenceId: selectedKeywordOccurrenceKey,
         slideAnimations: currentSlide?.animations ?? [],
         usageByKeywordId: currentSlideKeywordUsage
       }),
@@ -1349,7 +1492,8 @@ export function EditorShell(props: { projectId?: string }) {
       currentSlide?.animations,
       currentSlideKeywordUsage,
       selectedAnimationPanelElement,
-      selectedKeywordId
+      selectedKeywordId,
+      selectedKeywordOccurrenceKey
     ]
   );
   const currentSlideAnimationDiagnostics = useMemo(
@@ -1760,10 +1904,7 @@ export function EditorShell(props: { projectId?: string }) {
     setActiveTopMenu(null);
 
     try {
-      await saveQueueRef.current.catch(() => undefined);
-      while (pendingPatchInputsRef.current.length > 0) {
-        await flushPendingSaveBatch();
-      }
+      await flushPendingSavesBeforeManualAction();
 
       const persistedDeck = persistedBaseDeckRef.current ?? deckQuery.data;
       if (!persistedDeck) {
@@ -1868,10 +2009,7 @@ export function EditorShell(props: { projectId?: string }) {
     setActiveTopMenu(null);
 
     try {
-      await saveQueueRef.current.catch(() => undefined);
-      while (pendingPatchInputsRef.current.length > 0) {
-        await flushPendingSaveBatch();
-      }
+      await flushPendingSavesBeforeManualAction();
 
       const persistedDeck = persistedBaseDeckRef.current ?? deckQuery.data;
       if (!persistedDeck) {
@@ -1913,6 +2051,15 @@ export function EditorShell(props: { projectId?: string }) {
     } finally {
       setIsRehearsalPreparing(false);
     }
+  }
+
+  async function flushPendingSavesBeforeManualAction() {
+    await flushEditorPersistenceBeforeManualAction({
+      flushPendingSaveBatch,
+      flushScheduledUndoRedoPersist,
+      hasPendingPatchInputs: () => pendingPatchInputsRef.current.length > 0,
+      waitForSaveQueue: () => saveQueueRef.current.catch(() => undefined)
+    });
   }
 
   async function flushPendingSaveBatch() {
@@ -2039,38 +2186,100 @@ export function EditorShell(props: { projectId?: string }) {
     }
   }
 
-  function scheduleUndoRedoPersist(label: string) {
-    if (undoRedoPersistTimerRef.current) {
-      clearTimeout(undoRedoPersistTimerRef.current);
+  async function persistUndoRedoDeckSnapshot(label: string) {
+    const activeProjectId = deckQuery.data?.projectId ?? workingDeckRef.current.projectId;
+
+    if (!activeProjectId) {
+      throw withSaveErrorCode(
+        new Error("??ν븷 ?꾨줈?앺듃瑜?李얠? 紐삵뻽?듬땲??"),
+        "missing-project"
+      );
     }
+
+    setSaveState("auto-saving");
+    const snapshotDeck = structuredClone(
+      normalizeDeckAssetUrls(workingDeckRef.current)
+    );
+    const persistedDeck = await putProjectDeck(activeProjectId, snapshotDeck, {
+      baseVersion: persistedBaseDeckRef.current?.version ?? snapshotDeck.version
+    });
+
+    if (
+      pendingPatchInputsRef.current.length > 0 ||
+      !shouldApplyManualSaveResult({
+        snapshotDeck,
+        currentDeck: workingDeckRef.current
+      })
+    ) {
+      queryClient.setQueryData(["deck", projectId], (current?: Deck) =>
+        mergeDeckIntoQueryCache(current, persistedDeck)
+      );
+      persistedBaseDeckRef.current = persistedDeck;
+      lastAckedDeckRef.current = persistedDeck;
+      hasHydratedPersistedBaseRef.current = true;
+      setLastSavedAt(new Date().toISOString());
+      setSaveState("auto-pending");
+      setSaveError(null, null);
+      return;
+    }
+
+    applyPersistedDeck(persistedDeck);
+    setLastSavedAt(new Date().toISOString());
+    setSaveState("auto-saved");
+    setSaveError(null, null);
+    setLastPatchLabel(`${label} · v${persistedDeck.version}`);
+  }
+
+  function queueUndoRedoPersist(label: string) {
+    isSaveFlushInFlightRef.current = true;
+
+    saveQueueRef.current = saveQueueRef.current
+      .catch(() => undefined)
+      .then(() => persistUndoRedoDeckSnapshot(label))
+      .finally(() => {
+        isSaveFlushInFlightRef.current = false;
+        undoRedoPersistTimerRef.current = null;
+      });
+
+    return saveQueueRef.current;
+  }
+
+  async function flushScheduledUndoRedoPersist() {
+    const label = consumeScheduledUndoRedoPersistLabel({
+      clearTimer: clearTimeout,
+      labelRef: undoRedoPersistLabelRef,
+      timerRef: undoRedoPersistTimerRef
+    });
+
+    if (!label) {
+      return;
+    }
+
+    try {
+      await queueUndoRedoPersist(label);
+    } catch (error) {
+      undoRedoPersistLabelRef.current = label;
+      throw error;
+    }
+  }
+
+  function scheduleUndoRedoPersist(label: string) {
+    consumeScheduledUndoRedoPersistLabel({
+      clearTimer: clearTimeout,
+      labelRef: undoRedoPersistLabelRef,
+      timerRef: undoRedoPersistTimerRef
+    });
 
     pendingPatchInputsRef.current = [];
     setSaveState("auto-pending");
     setSaveError(null, null);
+    undoRedoPersistLabelRef.current = label;
     undoRedoPersistTimerRef.current = setTimeout(() => {
+      undoRedoPersistTimerRef.current = null;
+      undoRedoPersistLabelRef.current = null;
       saveQueueRef.current = saveQueueRef.current
         .catch(() => undefined)
-        .then(async () => {
-          const activeProjectId = deckQuery.data?.projectId ?? workingDeckRef.current.projectId;
-
-          if (!activeProjectId) {
-            throw withSaveErrorCode(
-              new Error("저장할 프로젝트를 찾지 못했습니다."),
-              "missing-project"
-            );
-          }
-
-          setSaveState("auto-saving");
-          const snapshotDeck = structuredClone(
-            normalizeDeckAssetUrls(workingDeckRef.current)
-          );
-          const persistedDeck = await putProjectDeck(activeProjectId, snapshotDeck);
-          applyPersistedDeck(persistedDeck);
-          setLastSavedAt(new Date().toISOString());
-          setSaveState("auto-saved");
-          setSaveError(null, null);
-          setLastPatchLabel(`${label} · v${persistedDeck.version}`);
-        })
+        .then(() => persistUndoRedoDeckSnapshot(label))
         .catch((error: unknown) => {
           setLastPatchLabel(`저장 실패 · ${toEditorErrorMessage(error)}`);
           setSaveState("error");
@@ -2169,38 +2378,35 @@ export function EditorShell(props: { projectId?: string }) {
       return;
     }
 
-    setUndoStack((current) => {
-      const previous = current.at(-1);
-      if (!previous) {
-        return current;
-      }
-      const currentEntry = {
-        deck: workingDeckRef.current,
-        slideIndex: currentSlideIndex
-      };
-      const previousSlideIndex = Math.max(
-        0,
-        Math.min(previous.slideIndex, previous.deck.slides.length - 1)
-      );
-      resetSpeakerNotesEditState(
-        previous.deck.slides[previousSlideIndex]?.speakerNotes ?? ""
-      );
-      replaceWorkingDeck(previous.deck);
-      setRedoStack((redoCurrent) => [...redoCurrent, currentEntry]);
-      setDeck(previous.deck);
-      setCurrentSlideIndex(previousSlideIndex);
-      setSelectedElementIds([]);
-      setSelectedKeywordId(null);
-      setEditingElementId(null);
-      setCustomShapeEditElementId(null);
-      setElementContextMenu(null);
-      queryClient.setQueryData(["deck", projectId], (currentDeck?: Deck) =>
-        mergeDeckIntoQueryCache(currentDeck, previous.deck)
-      );
-      setLastPatchLabel(`undo · v${previous.deck.version}`);
-      scheduleUndoRedoPersist("undo");
-      return current.slice(0, -1);
+    const transition = resolveHistoryNavigation({
+      currentDeck: workingDeckRef.current,
+      currentSlideIndex,
+      stack: undoStack
     });
+
+    if (!transition) {
+      return;
+    }
+
+    const previous = transition.targetEntry;
+    resetSpeakerNotesEditState(
+      previous.deck.slides[transition.targetSlideIndex]?.speakerNotes ?? ""
+    );
+    replaceWorkingDeck(previous.deck);
+    setUndoStack(transition.nextStack);
+    setRedoStack((redoCurrent) => [...redoCurrent, transition.currentEntry]);
+    setDeck(previous.deck);
+    setCurrentSlideIndex(transition.targetSlideIndex);
+    setSelectedElementIds([]);
+    clearSelectedKeyword();
+    setEditingElementId(null);
+    setCustomShapeEditElementId(null);
+    setElementContextMenu(null);
+    queryClient.setQueryData(["deck", projectId], (currentDeck?: Deck) =>
+      mergeDeckIntoQueryCache(currentDeck, previous.deck)
+    );
+    setLastPatchLabel(`undo · v${previous.deck.version}`);
+    scheduleUndoRedoPersist("undo");
   }
 
   function handleRedo() {
@@ -2208,40 +2414,38 @@ export function EditorShell(props: { projectId?: string }) {
       return;
     }
 
-    setRedoStack((current) => {
-      const next = current.at(-1);
-      if (!next) {
-        return current;
-      }
-      const nextSlideIndex = Math.max(
-        0,
-        Math.min(next.slideIndex, next.deck.slides.length - 1)
-      );
-      resetSpeakerNotesEditState(
-        next.deck.slides[nextSlideIndex]?.speakerNotes ?? ""
-      );
-      setUndoStack((undoCurrent) => [
-        ...undoCurrent.slice(-49),
-        {
-          deck: workingDeckRef.current,
-          slideIndex: currentSlideIndex
-        }
-      ]);
-      replaceWorkingDeck(next.deck);
-      setDeck(next.deck);
-      setCurrentSlideIndex(nextSlideIndex);
-      setSelectedElementIds([]);
-      setSelectedKeywordId(null);
-      setEditingElementId(null);
-      setCustomShapeEditElementId(null);
-      setElementContextMenu(null);
-      queryClient.setQueryData(["deck", projectId], (currentDeck?: Deck) =>
-        mergeDeckIntoQueryCache(currentDeck, next.deck)
-      );
-      setLastPatchLabel(`redo · v${next.deck.version}`);
-      scheduleUndoRedoPersist("redo");
-      return current.slice(0, -1);
+    const transition = resolveHistoryNavigation({
+      currentDeck: workingDeckRef.current,
+      currentSlideIndex,
+      stack: redoStack
     });
+
+    if (!transition) {
+      return;
+    }
+
+    const next = transition.targetEntry;
+    resetSpeakerNotesEditState(
+      next.deck.slides[transition.targetSlideIndex]?.speakerNotes ?? ""
+    );
+    setRedoStack(transition.nextStack);
+    setUndoStack((undoCurrent) => [
+      ...undoCurrent.slice(-49),
+      transition.currentEntry
+    ]);
+    replaceWorkingDeck(next.deck);
+    setDeck(next.deck);
+    setCurrentSlideIndex(transition.targetSlideIndex);
+    setSelectedElementIds([]);
+    clearSelectedKeyword();
+    setEditingElementId(null);
+    setCustomShapeEditElementId(null);
+    setElementContextMenu(null);
+    queryClient.setQueryData(["deck", projectId], (currentDeck?: Deck) =>
+      mergeDeckIntoQueryCache(currentDeck, next.deck)
+    );
+    setLastPatchLabel(`redo · v${next.deck.version}`);
+    scheduleUndoRedoPersist("redo");
   }
 
   function handleElementPropsChange(
@@ -2292,8 +2496,17 @@ export function EditorShell(props: { projectId?: string }) {
     });
   }
 
-  function handleSelectKeyword(keywordId: string) {
-    setSelectedKeywordId((current) => (current === keywordId ? null : keywordId));
+  function clearSelectedKeyword() {
+    setSelectedKeywordId(null);
+    setSelectedKeywordOccurrenceKey(null);
+  }
+
+  function handleSelectKeyword(keywordId: string, occurrenceKey: string | null = null) {
+    const shouldClear =
+      selectedKeywordId === keywordId && selectedKeywordOccurrenceKey === occurrenceKey;
+
+    setSelectedKeywordId(shouldClear ? null : keywordId);
+    setSelectedKeywordOccurrenceKey(shouldClear ? null : occurrenceKey);
   }
 
   function resetSpeakerNotesEditState(notes: string) {
@@ -2337,7 +2550,7 @@ export function EditorShell(props: { projectId?: string }) {
 
   function handleStartSpeakerNotesEdit() {
     const currentNotes = currentSlide?.speakerNotes ?? "";
-    setSelectedKeywordId(null);
+    clearSelectedKeyword();
     setSpeakerNotesDraft(currentNotes);
     setSpeakerNotesDraftBase(currentNotes);
     setSpeakerNotesEditSlideId(currentSlide?.slideId ?? null);
@@ -2386,6 +2599,19 @@ export function EditorShell(props: { projectId?: string }) {
     const nextSpeakerNotes = speakerNotesDraft;
 
     if (nextSpeakerNotes !== targetSlide.speakerNotes) {
+      const danglingOccurrenceBlock =
+        getSpeakerNotesDanglingOccurrenceSaveBlock(
+          targetSlide,
+          nextSpeakerNotes
+        );
+
+      if (danglingOccurrenceBlock) {
+        if (typeof window !== "undefined") {
+          window.alert(danglingOccurrenceBlock.message);
+        }
+        return false;
+      }
+
       commitPatch((currentDeck) => ({
         deckId: currentDeck.deckId,
         baseVersion: currentDeck.version,
@@ -2443,17 +2669,25 @@ export function EditorShell(props: { projectId?: string }) {
     handleReplaceKeywords(slideId, (keywords) =>
       keywords.filter((keyword) => keyword.keywordId !== keywordId)
     );
-    setSelectedKeywordId(null);
+    clearSelectedKeyword();
   }
 
-  function handleSpeakerNotesKeywordSelection(rawValue: string) {
+  function handleSpeakerNotesKeywordSelection(rawValue: string, start: number) {
     if (!currentSlide) {
       return;
     }
 
     const matchedKeyword = findKeywordByTerm(currentSlide, rawValue);
     if (matchedKeyword) {
-      handleSelectKeyword(matchedKeyword.keywordId);
+      handleSelectKeyword(
+        matchedKeyword.keywordId,
+        createKeywordOccurrenceId(
+          currentSlide.slideId,
+          matchedKeyword.keywordId,
+          start,
+          start + rawValue.length
+        )
+      );
       return;
     }
 
@@ -2461,16 +2695,62 @@ export function EditorShell(props: { projectId?: string }) {
       required: false
     });
     setSelectedKeywordId(nextKeyword.keywordId);
+    setSelectedKeywordOccurrenceKey(
+      createKeywordOccurrenceId(
+        currentSlide.slideId,
+        nextKeyword.keywordId,
+        start,
+        start + rawValue.length
+      )
+    );
     handleReplaceKeywords(currentSlide.slideId, (keywords) => [...keywords, nextKeyword]);
   }
 
-  function handleToggleKeywordRequired(slideId: string, keywordId: string) {
+  function handleToggleKeywordRequired(
+    slideId: string,
+    keywordId: string,
+    occurrenceKey: string | null = null
+  ) {
+    const keyword = currentSlide?.keywords.find(
+      (candidate) => candidate.keywordId === keywordId
+    );
+
+    if (!occurrenceKey && !keyword?.required) {
+      if (typeof window !== "undefined") {
+        window.alert(
+          "반복되는 단어일 수 있습니다. 발표 메모에서 필수 발화로 표시할 단어 위치를 선택하세요."
+        );
+      }
+      return;
+    }
+
     handleReplaceKeywords(slideId, (keywords) =>
-      keywords.map((keyword) =>
-        keyword.keywordId === keywordId
-          ? { ...keyword, required: !keyword.required }
-          : keyword
-      )
+      keywords.map((keyword) => {
+        if (keyword.keywordId !== keywordId) {
+          return keyword;
+        }
+
+        if (!occurrenceKey) {
+          return {
+            ...keyword,
+            required: false,
+            requiredOccurrenceIds: []
+          };
+        }
+
+        const requiredOccurrenceIds = keyword.requiredOccurrenceIds ?? [];
+        const nextRequiredOccurrenceIds = requiredOccurrenceIds.includes(
+          occurrenceKey
+        )
+          ? requiredOccurrenceIds.filter((candidate) => candidate !== occurrenceKey)
+          : [...requiredOccurrenceIds, occurrenceKey];
+
+        return {
+          ...keyword,
+          required: nextRequiredOccurrenceIds.length > 0,
+          requiredOccurrenceIds: nextRequiredOccurrenceIds
+        };
+      })
     );
   }
 
@@ -2479,11 +2759,21 @@ export function EditorShell(props: { projectId?: string }) {
     keywordId: string,
     enabled: boolean
   ) {
+    if (enabled && !selectedKeywordOccurrenceKey) {
+      if (typeof window !== "undefined") {
+        window.alert(
+          "반복되는 단어일 수 있습니다. 발표 메모에서 실제로 트리거할 단어 위치를 선택하세요."
+        );
+      }
+      return;
+    }
+
     const patch = createUpsertAdvanceSlideKeywordActionPatch(
       workingDeckRef.current,
       slideId,
       keywordId,
-      enabled
+      enabled,
+      selectedKeywordOccurrenceKey
     );
 
     if (!patch) {
@@ -2497,6 +2787,7 @@ export function EditorShell(props: { projectId?: string }) {
     slideId: string,
     elementId: string,
     keywordId?: string | null,
+    keywordOccurrenceId?: string | null,
     draft?: Partial<Pick<DeckAnimation, "delayMs" | "durationMs" | "type">>
   ) {
     let createdAnimationId: string | null = null;
@@ -2522,7 +2813,8 @@ export function EditorShell(props: { projectId?: string }) {
         currentDeck,
         slideId,
         animation,
-        keywordId
+        keywordId,
+        keywordOccurrenceId
       );
     });
 
@@ -2745,7 +3037,7 @@ export function EditorShell(props: { projectId?: string }) {
         setUndoStack([]);
         setRedoStack([]);
         setSelectedElementIds([]);
-        setSelectedKeywordId(null);
+        clearSelectedKeyword();
         setEditingElementId(null);
         setCustomShapeEditElementId(null);
         setElementContextMenu(null);
@@ -3547,7 +3839,7 @@ export function EditorShell(props: { projectId?: string }) {
         (keyword) => keyword.keywordId === selectedKeywordId
       )
     ) {
-      setSelectedKeywordId(null);
+      clearSelectedKeyword();
     }
   }, [currentSlide, selectedKeywordId]);
 
@@ -4417,9 +4709,10 @@ export function EditorShell(props: { projectId?: string }) {
             preferredAnimationId={animationPanelFocusedAnimationId}
             selectedKeywordId={selectedKeywordId}
             selectedKeywordLabel={selectedKeyword?.text ?? null}
+            selectedKeywordOccurrenceId={selectedKeywordOccurrenceKey}
             slideAnimations={currentSlideAnimations}
             slideElements={currentSlide?.elements ?? []}
-            onAddAnimation={(draft, keywordId) => {
+            onAddAnimation={(draft, keywordId, keywordOccurrenceId) => {
               if (!currentSlide || !selectedAnimationPanelElement) {
                 return;
               }
@@ -4428,6 +4721,7 @@ export function EditorShell(props: { projectId?: string }) {
                 currentSlide.slideId,
                 selectedAnimationPanelElement.elementId,
                 keywordId,
+                keywordOccurrenceId,
                 draft
               );
             }}
@@ -4753,7 +5047,9 @@ export function EditorShell(props: { projectId?: string }) {
                     keywords={currentSlide?.keywords ?? []}
                     notes={currentSlide?.speakerNotes ?? ""}
                     selectedKeywordId={selectedKeywordId}
+                    selectedKeywordOccurrenceKey={selectedKeywordOccurrenceKey}
                     showIds={showIds}
+                    slideId={currentSlide?.slideId ?? ""}
                     onSelectKeyword={handleSelectKeyword}
                     onSelectKeywordText={handleSpeakerNotesKeywordSelection}
                   />
@@ -4767,9 +5063,10 @@ export function EditorShell(props: { projectId?: string }) {
                   {selectedKeyword ? (
                     <KeywordDetail
                       keyword={selectedKeyword}
+                      requiredActive={selectedKeywordRequiredActive}
                       showIds={showIds}
-                      usage={currentSlideKeywordUsage[selectedKeyword.keywordId] ?? null}
-                      onClearSelection={() => setSelectedKeywordId(null)}
+                      usage={selectedKeywordUsage}
+                      onClearSelection={clearSelectedKeyword}
                       onDeleteKeyword={() => {
                         if (!currentSlide) {
                           return;
@@ -4789,8 +5086,7 @@ export function EditorShell(props: { projectId?: string }) {
                           currentSlide.slideId,
                           selectedKeyword.keywordId,
                           !(
-                            currentSlideKeywordUsage[selectedKeyword.keywordId]
-                              ?.advancesSlide ?? false
+                            selectedKeywordUsage?.advancesSlide ?? false
                           )
                         );
                       }}
@@ -4801,7 +5097,8 @@ export function EditorShell(props: { projectId?: string }) {
 
                         handleToggleKeywordRequired(
                           currentSlide.slideId,
-                          selectedKeyword.keywordId
+                          selectedKeyword.keywordId,
+                          selectedKeywordOccurrenceKey
                         );
                       }}
                     />

@@ -52,6 +52,21 @@ describe("presentationChannel", () => {
                   },
                 ],
               },
+              actions: [
+                ...slide.actions,
+                {
+                  actionId: "act_private_occurrence",
+                  trigger: {
+                    kind: "keyword-occurrence" as const,
+                    keywordId: "kw_private_ai",
+                    occurrenceId: "kwo_slide_p0_1_kw_private_ai_32_34",
+                  },
+                  effect: {
+                    kind: "play-animation" as const,
+                    animationId: "anim_image_zoom_in",
+                  },
+                },
+              ],
               presenterOnlyMarker: "슬라이드 창으로 보내면 안 되는 필드",
             }
           : slide,
@@ -69,8 +84,11 @@ describe("presentationChannel", () => {
     );
     expect(snapshot.slides[0]?.speakerNotes).toBe("");
     expect(snapshot.slides[0]?.keywords).toEqual([]);
+    expect(snapshot.slides[0]?.actions).toEqual([]);
     expect(serialized).not.toContain("첫 문장입니다");
     expect(serialized).not.toContain("두 번째 슬라이드입니다");
+    expect(serialized).not.toContain("kwo_slide_p0_1_kw_private_ai_32_34");
+    expect(serialized).not.toContain("act_private_occurrence");
     expect(serialized).not.toContain("발표자 전용 강조점");
     expect(serialized).not.toContain("내부 근거 원문");
     expect(serialized).not.toContain("내부 메모");
