@@ -92,14 +92,16 @@ describe("processRehearsalSttJob", () => {
   });
 
   it("transcribes, analyzes, deletes raw audio, and stores results", async () => {
-    const query = vi
-      .fn()
+    const query = createQueryMock()
       .mockResolvedValueOnce([jobRow("running", 10, null, null)])
       .mockResolvedValueOnce([runRow()])
       .mockResolvedValueOnce([assetRow])
       .mockResolvedValueOnce([deckRow])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([runMetaRow()])
+      .mockResolvedValueOnce([jobRow("running", 30, null, null)])
+      .mockResolvedValueOnce([jobRow("running", 65, null, null)])
+      .mockResolvedValueOnce([jobRow("running", 85, null, null)])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([runRow()])
       .mockResolvedValueOnce([
@@ -203,7 +205,7 @@ describe("processRehearsalSttJob", () => {
         "job-1",
         "succeeded",
         100,
-        "Rehearsal STT completed.",
+        "리포트 생성 완료",
         expect.objectContaining({
           transcriptRetained: false,
           transcript: null,
@@ -243,8 +245,7 @@ describe("processRehearsalSttJob", () => {
         ]
       }
     ];
-    const query = vi
-      .fn()
+    const query = createQueryMock()
       .mockResolvedValueOnce([jobRow("running", 10, null, null)])
       .mockResolvedValueOnce([runRow()])
       .mockResolvedValueOnce([assetRow])
@@ -260,6 +261,9 @@ describe("processRehearsalSttJob", () => {
         }
       ])
       .mockResolvedValueOnce([runMetaRow()])
+      .mockResolvedValueOnce([jobRow("running", 30, null, null)])
+      .mockResolvedValueOnce([jobRow("running", 65, null, null)])
+      .mockResolvedValueOnce([jobRow("running", 85, null, null)])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([runRow()])
       .mockResolvedValueOnce([
@@ -344,8 +348,7 @@ describe("processRehearsalSttJob", () => {
       actions: [],
       keywords: []
     };
-    const query = vi
-      .fn()
+    const query = createQueryMock()
       .mockResolvedValueOnce([jobRow("running", 10, null, null)])
       .mockResolvedValueOnce([runRow()])
       .mockResolvedValueOnce([assetRow])
@@ -373,6 +376,9 @@ describe("processRehearsalSttJob", () => {
           }
         }
       ])
+      .mockResolvedValueOnce([jobRow("running", 30, null, null)])
+      .mockResolvedValueOnce([jobRow("running", 65, null, null)])
+      .mockResolvedValueOnce([jobRow("running", 85, null, null)])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([runRow()])
       .mockResolvedValueOnce([
@@ -443,8 +449,7 @@ describe("processRehearsalSttJob", () => {
   });
 
   it("does not re-add client-side missed keywords that transcript analysis matched", async () => {
-    const query = vi
-      .fn()
+    const query = createQueryMock()
       .mockResolvedValueOnce([jobRow("running", 10, null, null)])
       .mockResolvedValueOnce([runRow()])
       .mockResolvedValueOnce([assetRow])
@@ -459,6 +464,9 @@ describe("processRehearsalSttJob", () => {
           }
         }
       ])
+      .mockResolvedValueOnce([jobRow("running", 30, null, null)])
+      .mockResolvedValueOnce([jobRow("running", 65, null, null)])
+      .mockResolvedValueOnce([jobRow("running", 85, null, null)])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([runRow()])
       .mockResolvedValueOnce([jobRow("succeeded", 100, {}, null)]);
@@ -510,14 +518,14 @@ describe("processRehearsalSttJob", () => {
   });
 
   it("deletes raw audio and marks the job failed when STT fails", async () => {
-    const query = vi
-      .fn()
+    const query = createQueryMock()
       .mockResolvedValueOnce([jobRow("running", 10, null, null)])
       .mockResolvedValueOnce([runRow()])
       .mockResolvedValueOnce([assetRow])
       .mockResolvedValueOnce([deckRow])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([runMetaRow()])
+      .mockResolvedValueOnce([jobRow("running", 30, null, null)])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([runRow()])
       .mockResolvedValueOnce([
@@ -545,14 +553,15 @@ describe("processRehearsalSttJob", () => {
   });
 
   it("deletes raw audio and marks the job failed when analysis fails", async () => {
-    const query = vi
-      .fn()
+    const query = createQueryMock()
       .mockResolvedValueOnce([jobRow("running", 10, null, null)])
       .mockResolvedValueOnce([runRow()])
       .mockResolvedValueOnce([assetRow])
       .mockResolvedValueOnce([deckRow])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([runMetaRow()])
+      .mockResolvedValueOnce([jobRow("running", 30, null, null)])
+      .mockResolvedValueOnce([jobRow("running", 65, null, null)])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([runRow()])
       .mockResolvedValueOnce([
@@ -597,17 +606,19 @@ describe("processRehearsalSttJob", () => {
   });
 
   it("marks deletion failure explicitly", async () => {
-    const query = vi
-      .fn()
+    const query = createQueryMock()
       .mockResolvedValueOnce([jobRow("running", 10, null, null)])
       .mockResolvedValueOnce([runRow()])
       .mockResolvedValueOnce([assetRow])
       .mockResolvedValueOnce([deckRow])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([runMetaRow()])
+      .mockResolvedValueOnce([jobRow("running", 30, null, null)])
+      .mockResolvedValueOnce([jobRow("running", 65, null, null)])
+      .mockResolvedValueOnce([jobRow("running", 85, null, null)])
       .mockResolvedValueOnce([runRow()])
       .mockResolvedValueOnce([
-        jobRow("failed", 90, null, {
+        jobRow("failed", 85, null, {
           code: "RAW_AUDIO_DELETE_FAILED",
           message: "delete denied"
         })
@@ -658,18 +669,20 @@ describe("processRehearsalSttJob", () => {
   });
 
   it("marks the job failed when report validation fails after deleting raw audio", async () => {
-    const query = vi
-      .fn()
+    const query = createQueryMock()
       .mockResolvedValueOnce([jobRow("running", 10, null, null)])
       .mockResolvedValueOnce([runRow()])
       .mockResolvedValueOnce([assetRow])
       .mockResolvedValueOnce([deckRow])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([runMetaRow()])
+      .mockResolvedValueOnce([jobRow("running", 30, null, null)])
+      .mockResolvedValueOnce([jobRow("running", 65, null, null)])
+      .mockResolvedValueOnce([jobRow("running", 85, null, null)])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([runRow()])
       .mockResolvedValueOnce([
-        jobRow("failed", 90, null, {
+        jobRow("failed", 85, null, {
           code: "REHEARSAL_REPORT_INVALID",
           message: "Invalid report"
         })
@@ -731,6 +744,42 @@ describe("processRehearsalSttJob", () => {
   });
 });
 
+function createQueryMock() {
+  return vi.fn(async (sql: string, params?: unknown[]) => {
+    if (sql.includes("UPDATE jobs")) {
+      const [
+        jobId = "job-1",
+        status = "running",
+        progress = 0,
+        message = String(status),
+        result = null,
+        error = null
+      ] = Array.isArray(params) ? params : [];
+
+      return [
+        jobRow(
+          status as "running" | "succeeded" | "failed",
+          typeof progress === "number" ? progress : 0,
+          isRecord(result) ? result : null,
+          isJobError(error) ? error : null,
+          typeof message === "string" ? message : String(status),
+          typeof jobId === "string" && jobId ? jobId : "job-1"
+        )
+      ];
+    }
+
+    if (sql.includes("UPDATE rehearsal_runs")) {
+      return [runRow()];
+    }
+
+    if (sql.includes("UPDATE project_assets")) {
+      return [];
+    }
+
+    return undefined;
+  });
+}
+
 function createStorage() {
   return {
     getSignedReadUrl: vi.fn(async () => "http://localhost:9000/rehearsal.webm"),
@@ -742,15 +791,17 @@ function jobRow(
   status: "running" | "succeeded" | "failed",
   progress: number,
   result: Record<string, unknown> | null,
-  error: { code: string; message: string } | null
+  error: { code: string; message: string } | null,
+  message = status,
+  jobId = "job-1"
 ) {
   return {
-    jobId: "job-1",
+    jobId,
     projectId: "project-a",
     type: "rehearsal-stt",
     status,
     progress,
-    message: status,
+    message,
     result,
     error,
     createdAt: "2026-06-27T00:00:00.000Z",
@@ -773,4 +824,17 @@ function runMetaRow() {
       adviceEvents: []
     }
   };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isJobError(value: unknown): value is { code: string; message: string } {
+  return (
+    isRecord(value) &&
+    typeof value.code === "string" &&
+    value.code.length > 0 &&
+    typeof value.message === "string"
+  );
 }
