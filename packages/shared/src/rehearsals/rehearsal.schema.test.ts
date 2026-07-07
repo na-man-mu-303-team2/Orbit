@@ -80,6 +80,13 @@ describe("rehearsalReportSchema", () => {
         questionCount: 1,
         questionSummary: "가격 정책 질문이 있었습니다.",
         unclearTopics: [{ topic: "가격 정책", slideId: "slide_1" }]
+      },
+      aiSummary: {
+        headline: "도입부 핵심 메시지가 약했습니다.",
+        paragraphs: [
+          "발표 흐름은 안정적이었지만 Opening에서 ORBIT 키워드가 빠졌습니다.",
+          "다음 연습에서는 도입부 핵심 문장을 먼저 고정해야 합니다."
+        ]
       }
     });
 
@@ -89,6 +96,7 @@ describe("rehearsalReportSchema", () => {
     expect(report.missedKeywords[0]?.keywordId).toBe("kw_1");
     expect(report.slideTimings[0]?.actualSeconds).toBe(52);
     expect(report.qnaSummary.questionCount).toBe(1);
+    expect(report.aiSummary?.headline).toBe("도입부 핵심 메시지가 약했습니다.");
   });
 
   it("defaults optional official detail sections to empty values", () => {
@@ -102,6 +110,7 @@ describe("rehearsalReportSchema", () => {
       questionSummary: "",
       unclearTopics: []
     });
+    expect(report.aiSummary).toBeUndefined();
   });
 });
 

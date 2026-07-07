@@ -6,6 +6,7 @@ import { FilesModule } from "../files/files.module";
 import { JobsModule } from "../jobs/jobs.module";
 import { ProjectsModule } from "../projects/projects.module";
 import { RehearsalRunEntity } from "./rehearsal-run.entity";
+import { RedisRehearsalTranscriptCache } from "./rehearsal-transcript-cache";
 import { RehearsalsController } from "./rehearsals.controller";
 import { REHEARSAL_STT_ENQUEUE_JOB, RehearsalsService } from "./rehearsals.service";
 
@@ -20,6 +21,7 @@ import { REHEARSAL_STT_ENQUEUE_JOB, RehearsalsService } from "./rehearsals.servi
   controllers: [RehearsalsController],
   providers: [
     RehearsalsService,
+    RedisRehearsalTranscriptCache,
     {
       provide: REHEARSAL_STT_ENQUEUE_JOB,
       useValue: enqueueRehearsalSttJob

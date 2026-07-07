@@ -27,28 +27,25 @@ import {
   type UpdateRehearsalRunMetaRequest,
 } from "@orbit/shared";
 import {
+  ArrowLeft,
   BarChart3,
   AlertCircle,
-  CalendarDays,
   CheckCircle2,
   ChevronLeft,
   ChevronRight,
-  ChevronDown,
   Download,
-  Gauge,
-  Home,
   Mic,
   Monitor,
   MoreHorizontal,
   PlayCircle,
-  Presentation,
   RotateCcw,
-  Save,
   Square,
-  Target,
-  Volume2,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { JobProgressDisplay } from "./JobProgressDisplay";
+import { RehearsalReportDocument } from "./RehearsalReportDocument";
+import { RehearsalRunNav } from "./RehearsalRunNav";
+import { useJobSmoothProgress } from "./useJobSmoothProgress";
 import { resolveEditorAssetUrl } from "../editor/shared/editorAssetUrl";
 import {
   LiveSttAdapterError,
@@ -524,6 +521,19 @@ export function resolveRehearsalReportLoadState(
 
 export function getRehearsalReportPath(projectId: string, runId: string) {
   return `/rehearsal/${encodeURIComponent(projectId)}/report/${encodeURIComponent(runId)}`;
+}
+
+export async function fetchProjectRehearsalRuns(
+  projectId: string,
+  fetcher: Fetcher = fetch,
+): Promise<RehearsalRun[]> {
+  const response = await fetcher(
+    `/api/v1/projects/${encodeURIComponent(projectId)}/rehearsals`,
+    { credentials: "include" },
+  );
+  if (!response.ok) return [];
+  const data = (await response.json()) as { runs: RehearsalRun[] };
+  return data.runs ?? [];
 }
 
 export function getRehearsalPresenterWindowPath(
@@ -1483,7 +1493,7 @@ export function RehearsalWorkspace(props: {
   );
   const [, setError] = useState("");
   const [run, setRun] = useState<RehearsalRun | null>(null);
-  const [, setJob] = useState<Job | null>(null);
+  const [job, setJob] = useState<Job | null>(null);
   const [liveStatus, setLiveStatus] = useState<LiveSttStatus>("idle");
   const [liveError, setLiveError] = useState("");
   const [, setLiveTranscriptBuffer] = useState(createLiveTranscriptBuffer);
@@ -1525,6 +1535,7 @@ export function RehearsalWorkspace(props: {
     ReadonlySet<string>
   >(() => new Set());
   const [isSingleScreenOpen, setIsSingleScreenOpen] = useState(false);
+  const [isCompletionModalOpen, setIsCompletionModalOpen] = useState(false);
   const [timeMode, setTimeMode] = useState<RehearsalTimeMode>("timer");
   const [timerDurationSeconds, setTimerDurationSeconds] = useState(5 * 60);
   const [elapsedTimeInput, setElapsedTimeInput] = useState("00:00");
@@ -1996,6 +2007,17 @@ export function RehearsalWorkspace(props: {
     }
   }, [currentSlide?.slideId, currentSlideIndex, deck]);
 
+  const isJobActive = phase === "uploading" || phase === "processing";
+  const smoothProgress = useJobSmoothProgress(job, isJobActive);
+  const completionProgress = phase === "succeeded" ? 100 : smoothProgress;
+  const completionMessage =
+    phase === "uploading"
+      ? "음성 업로드 중"
+      : phase === "succeeded"
+        ? "리포트 생성 완료"
+        : "AI가 발표를 분석하는 중";
+  const shouldShowCompletionModal = isCompletionModalOpen || isJobActive;
+
   async function startRecording() {
     if (!deck || !canRecord) return;
     const activeDeck = deck;
@@ -2005,6 +2027,7 @@ export function RehearsalWorkspace(props: {
     setRun(null);
     setJob(null);
     finishAfterReportRef.current = false;
+    setIsCompletionModalOpen(false);
     setLiveError("");
     setLiveAudioLevel(null);
     setLiveDebugPcmRecording(null);
@@ -2745,6 +2768,7 @@ export function RehearsalWorkspace(props: {
 
       if (result.job.status === "failed") {
         setPhase("failed");
+        setIsCompletionModalOpen(false);
         setError(
           result.job.error?.message ||
             result.job.message ||
@@ -2755,14 +2779,13 @@ export function RehearsalWorkspace(props: {
 
       await loadReportForRun(result.run.runId, result.run);
       setPhase("succeeded");
+      setIsCompletionModalOpen(true);
       if (finishAfterReportRef.current) {
         finishAfterReportRef.current = false;
-        navigateToPath(
-          getRehearsalReportPath(activeDeck.projectId, result.run.runId),
-        );
       }
     } catch (cause) {
       setError(toRehearsalFlowMessage(cause));
+      setIsCompletionModalOpen(false);
       setPhase("failed");
     }
   }
@@ -2807,16 +2830,27 @@ export function RehearsalWorkspace(props: {
 
     if (phase === "recording") {
       finishAfterReportRef.current = true;
+      setIsCompletionModalOpen(true);
       stopRecording();
       return;
     }
 
     if (phase === "uploading" || phase === "processing") {
       finishAfterReportRef.current = true;
+      setIsCompletionModalOpen(true);
       return;
     }
 
     navigateToPath(getRehearsalFinishPath(projectId, run));
+  };
+  const finishCompletedRehearsal = () => {
+    const projectId = deck?.projectId ?? props.projectId ?? demoIds.projectId;
+    setIsCompletionModalOpen(false);
+    navigateToPath(
+      run?.runId
+        ? getRehearsalReportPath(projectId, run.runId)
+        : getRehearsalFinishPath(projectId, run),
+    );
   };
   const resetSlideDisplayToBeginning = () => {
     presenterStepIndexRef.current = 0;
@@ -3293,6 +3327,51 @@ export function RehearsalWorkspace(props: {
           </section>
         </div>
       ) : null}
+      {shouldShowCompletionModal ? (
+        <div className="rehearsal-completion-modal-backdrop" role="presentation">
+          <section
+            aria-labelledby="rehearsal-completion-modal-title"
+            aria-modal="true"
+            className="rehearsal-completion-modal"
+            role="dialog"
+          >
+            {phase === "succeeded" ? (
+              <>
+                <span className="rehearsal-completion-modal-icon" aria-hidden="true">
+                  <CheckCircle2 size={28} />
+                </span>
+                <h2 id="rehearsal-completion-modal-title">
+                  리포트 생성이 완료되었습니다
+                </h2>
+                <JobProgressDisplay
+                  progress={completionProgress}
+                  message={completionMessage}
+                />
+                <button
+                  className="primary-action"
+                  type="button"
+                  onClick={finishCompletedRehearsal}
+                >
+                  리허설 마치기
+                </button>
+              </>
+            ) : (
+              <>
+                <h2 id="rehearsal-completion-modal-title">
+                  리포트를 생성하고 있습니다
+                </h2>
+                <p>
+                  음성 업로드와 AI 분석이 끝나면 리허설을 마칠 수 있습니다.
+                </p>
+                <JobProgressDisplay
+                  progress={completionProgress}
+                  message={completionMessage}
+                />
+              </>
+            )}
+          </section>
+        </div>
+      ) : null}
       <header className="rehearsal-presenter-topbar">
         <button
           className={`rehearsal-exit-button ${
@@ -3418,8 +3497,6 @@ export function RehearsalWorkspace(props: {
         >
           리포트 녹음 종료
         </button>
-        <span>{phase}</span>
-        <span>{liveStatus}</span>
         {hasDeletedRawAudio ? <span>raw audio 삭제 완료</span> : null}
       </div>
 
@@ -3819,6 +3896,11 @@ export function RehearsalReportPage(props: {
     props.initialReport ? "ready" : "loading",
   );
   const [error, setError] = useState("");
+  const [reportJob, setReportJob] = useState<Job | null>(null);
+  const [allSucceededRuns, setAllSucceededRuns] = useState<RehearsalRun[]>(() =>
+    props.initialRun?.status === "succeeded" ? [props.initialRun] : [],
+  );
+  const [prevReports, setPrevReports] = useState<RehearsalReport[]>([]);
 
   useEffect(() => {
     let isMounted = true;
@@ -3854,6 +3936,30 @@ export function RehearsalReportPage(props: {
         setReport(nextState.status === "ready" ? response.report : null);
         setStatus(nextState.status);
         setError(nextState.error);
+
+        if (nextState.status === "not-ready" && response.run.jobId) {
+          void pollRehearsalJob(response.run.jobId, {
+            onUpdate: (j) => { if (isMounted) setReportJob(j); },
+          })
+            .then((j) => {
+              if (!isMounted) return;
+              setReportJob(j);
+              if (j.status === "succeeded") {
+                void fetchRehearsalReport(props.runId).then((r) => {
+                  if (!isMounted) return;
+                  setRun(r.run);
+                  setReport(r.report);
+                  setStatus(r.report ? "ready" : "failed");
+                });
+              } else {
+                setStatus("failed");
+                setError(j.error?.message || j.message || "리포트 생성 실패");
+              }
+            })
+            .catch(() => {
+              if (isMounted) setStatus("failed");
+            });
+        }
       })
       .catch((cause) => {
         if (!isMounted) return;
@@ -3868,337 +3974,92 @@ export function RehearsalReportPage(props: {
     };
   }, [props.initialDeck, props.initialReport, props.projectId, props.runId]);
 
-  const reportDate = formatReportDate(
-    report?.generatedAt ?? run?.updatedAt ?? run?.createdAt,
+  useEffect(() => {
+    let isMounted = true;
+    void fetchProjectRehearsalRuns(props.projectId).then((runs) => {
+      if (!isMounted) return;
+      const succeeded = runs
+        .filter((r) => r.status === "succeeded")
+        .sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt));
+      setAllSucceededRuns(succeeded);
+    });
+    return () => { isMounted = false; };
+  }, [props.projectId]);
+
+  useEffect(() => {
+    if (allSucceededRuns.length === 0) return;
+    const idx = allSucceededRuns.findIndex((r) => r.runId === props.runId);
+    if (idx <= 0) {
+      setPrevReports([]);
+      return;
+    }
+    let isMounted = true;
+    const toFetch = allSucceededRuns
+      .slice(Math.max(0, idx - 3), idx)
+      .reverse();
+    void Promise.all(
+      toFetch.map((r) =>
+        fetchRehearsalReport(r.runId)
+          .then((res) => res.report)
+          .catch(() => null),
+      ),
+    ).then((results) => {
+      if (!isMounted) return;
+      setPrevReports(results.filter((r): r is RehearsalReport => r !== null));
+    });
+    return () => {
+      isMounted = false;
+    };
+  }, [allSucceededRuns, props.runId]);
+
+  const reportSmoothProgress = useJobSmoothProgress(
+    reportJob,
+    status === "not-ready",
   );
-  const slideCount = deck?.slides.length;
-  const coachingHeadline = buildCoachingHeadline(report);
-  const coachingDetail = buildCoachingDetail(report, deck);
-  const missedKeywords = report?.missedKeywords ?? [];
-  const missedKeywordRows = buildMissedKeywordRows(deck, missedKeywords);
-  const slideTimings = report?.slideTimings ?? [];
-  const qnaSummary = report?.qnaSummary;
-  const speedAssessment = report
-    ? getSpeakingSpeedAssessment(report.metrics.wordsPerMinute)
-    : null;
-  const speakingSpeedValue = report
-    ? formatSpeakingSpeedValue(report.metrics.wordsPerMinute)
-    : "-";
-  const completionPercent = formatRehearsalCompletionPercent(
-    deck,
-    slideTimings,
+
+  const currentRunIndex = allSucceededRuns.findIndex(
+    (r) => r.runId === props.runId,
   );
 
   return (
     <main className="rehearsal-report-page">
       <header className="rehearsal-report-topbar">
         <div className="rehearsal-report-topbar-left">
-          <span className="report-brand-mark" aria-hidden="true">
-            <i />
-            <i />
-          </span>
-          <strong>Orbit AI</strong>
           <button
             type="button"
-            onClick={() => navigateToRehearsal(props.projectId)}
-            aria-label="홈으로 이동"
+            className="rehearsal-report-back-button"
+            onClick={() => navigateToPath(`/reports/${encodeURIComponent(props.projectId)}`)}
+            aria-label="프로젝트 리포트 개요로"
           >
-            <Home size={18} />
+            <ArrowLeft size={18} />
           </button>
-          <span className="report-project-title">{deck?.title ?? "제목"}</span>
-          <ChevronDown size={16} />
-          <span className="report-save-state">
-            <Save size={15} />
-            저장됨
-          </span>
-        </div>
-        <div className="rehearsal-report-topbar-actions">
-          <span>알렉스</span>
-          <span className="report-avatar" aria-hidden="true">
-            김
-          </span>
-          <span className="report-mode-switch" aria-label="보기 모드">
-            <button type="button">편집</button>
-            <button className="active" type="button">
-              보기
-            </button>
-          </span>
-          <button type="button">
-            <Monitor size={18} />
-            리허설
-          </button>
-          <button type="button">
-            <BarChart3 size={18} />
-            AI 리포트
-          </button>
-          <button className="report-present-button" type="button">
-            <PlayCircle size={18} />
-            프레젠테이션
-            <ChevronDown size={16} />
-          </button>
+          <span className="report-project-title">{deck?.title ?? "리포트"}</span>
+          {currentRunIndex >= 0 && (
+            <span className="report-run-label">
+              리허설 {currentRunIndex + 1}회차
+            </span>
+          )}
         </div>
       </header>
 
       <div className="rehearsal-report-body">
-        <aside className="rehearsal-report-nav" aria-label="리허설 리포트 목록">
-          <section className="report-nav-section-active">
-            <h2>
-              <ChevronDown size={24} />
-              리허설 리포트
-            </h2>
-            <button className="rehearsal-report-nav-item active" type="button">
-              <strong>
-                <CalendarDays size={15} />
-                1회차
-              </strong>
-              <span>{reportDate}</span>
-            </button>
-          </section>
-
-          <section>
-            <h2>
-              <ChevronRight size={24} />
-              실전 리포트
-            </h2>
-          </section>
-        </aside>
+        <RehearsalRunNav
+          runs={allSucceededRuns}
+          activeRunId={props.runId}
+          projectId={props.projectId}
+        />
 
         <section className="rehearsal-report-document" aria-live="polite">
-          <header className="rehearsal-report-document-header">
-            <h1>1회차 리허설 리포트</h1>
-            <time>{reportDate}</time>
-          </header>
-
           {report ? (
-            <div className="rehearsal-report-document-grid">
-              <section className="report-overview-card">
-                <div className="report-overview-copy">
-                  <h2>{coachingHeadline}</h2>
-                  <p>{coachingDetail}</p>
-                </div>
-                <div className="report-score-list">
-                  <div>
-                    <span>평균 속도</span>
-                    <strong>{speakingSpeedValue}</strong>
-                  </div>
-                  <div>
-                    <span>키워드 커버리지</span>
-                    <strong>
-                      {Math.round(report.metrics.keywordCoverage * 100)}%
-                    </strong>
-                  </div>
-                  <div>
-                    <span>코칭 상태</span>
-                    <strong>{report.coaching?.status ?? "대기"}</strong>
-                  </div>
-                </div>
-              </section>
-
-              <section className="report-summary-card report-dashboard-card">
-                <div className="report-summary-row">
-                  <span>총 소요 시간</span>
-                  <strong>
-                    {formatDuration(report.metrics.durationSeconds)}
-                  </strong>
-                </div>
-                <div className="report-summary-row">
-                  <span>사용한 슬라이드 수</span>
-                  <strong>
-                    {typeof slideCount === "number" ? slideCount : "-"}
-                  </strong>
-                </div>
-                <div className="report-mini-metrics">
-                  <div>
-                    <span>목표 시간</span>
-                    <strong>
-                      {formatDuration(getTargetDurationSeconds(deck))}
-                    </strong>
-                  </div>
-                  <div>
-                    <span>완료율</span>
-                    <strong>{completionPercent}</strong>
-                  </div>
-                </div>
-              </section>
-
-              <section className="report-speed-card report-dashboard-card">
-                <h2>
-                  <Gauge size={18} />
-                  평균 발표 속도
-                </h2>
-                <div
-                  className="report-speed-gauge"
-                  role="meter"
-                  aria-label="평균 발표 속도"
-                  aria-valuemin={80}
-                  aria-valuemax={180}
-                  aria-valuenow={speedAssessment?.meterValue ?? 80}
-                >
-                  <span className="speed-mark speed-mark-left">100</span>
-                  <span className="speed-mark speed-mark-right">150</span>
-                  <strong
-                    className={
-                      speedAssessment?.isUnreliable
-                        ? "report-speed-warning"
-                        : undefined
-                    }
-                  >
-                    {speedAssessment?.displayValue ?? "-"}
-                  </strong>
-                </div>
-                <p>{speedAssessment?.message}</p>
-              </section>
-
-              <section className="report-voice-card report-dashboard-card">
-                <h2>
-                  <Volume2 size={20} />
-                  음성 분석
-                </h2>
-                <div className="report-official-metrics">
-                  <div>
-                    <span>불필요한 표현</span>
-                    <strong>{report.metrics.fillerWordCount}회</strong>
-                  </div>
-                  <div>
-                    <span>긴 멈춤</span>
-                    <strong>{report.metrics.pauseCount}회</strong>
-                  </div>
-                </div>
-                <p>서버 리포트가 제공한 말버릇과 멈춤 지표만 표시합니다.</p>
-              </section>
-
-              <section className="report-keyword-card report-dashboard-card">
-                <h2>
-                  <Target size={20} />
-                  누락 키워드
-                </h2>
-                <p>실전 발표 중 다시 알려줄 핵심 데이터입니다.</p>
-                {missedKeywords.length > 0 ? (
-                  <>
-                    <span className="report-keyword-count">
-                      총 {missedKeywords.length}개
-                    </span>
-                    <div className="report-keyword-slide-list">
-                      {missedKeywordRows.map((row) => (
-                        <p key={row.slideId}>
-                          <strong>{row.label}</strong>
-                          {row.keywords.map((keyword) => (
-                            <span
-                              key={`${keyword.slideId}-${keyword.keywordId}`}
-                            >
-                              {keyword.text}
-                            </span>
-                          ))}
-                        </p>
-                      ))}
-                    </div>
-                    <strong className="report-keyword-warning">
-                      서버 리포트가 확인한 누락 키워드만 표시합니다.
-                    </strong>
-                  </>
-                ) : (
-                  <strong className="report-keyword-empty">
-                    공식 누락 키워드 상세 데이터가 없습니다.
-                  </strong>
-                )}
-              </section>
-
-              <section className="report-dashboard-card">
-                <h2>
-                  <CalendarDays size={20} />
-                  슬라이드별 시간
-                </h2>
-                {slideTimings.length > 0 ? (
-                  <div className="report-official-metrics">
-                    {slideTimings.slice(0, 4).map((timing) => (
-                      <div key={timing.slideId}>
-                        <span>
-                          {formatSlideTimingLabel(deck, timing.slideId)}
-                        </span>
-                        <strong>
-                          {formatDuration(timing.actualSeconds)} /{" "}
-                          {formatDuration(timing.targetSeconds)}
-                        </strong>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <strong className="report-keyword-empty">
-                    공식 슬라이드 시간 데이터가 아직 없습니다.
-                  </strong>
-                )}
-              </section>
-
-              <section className="report-dashboard-card">
-                <h2>
-                  <BarChart3 size={20} />
-                  QnA 피드백
-                </h2>
-                <div className="report-official-metrics">
-                  <div>
-                    <span>질문 수</span>
-                    <strong>{qnaSummary?.questionCount ?? 0}개</strong>
-                  </div>
-                </div>
-                <p>
-                  {qnaSummary?.questionSummary ||
-                    "질문 원문은 저장하지 않으며, 요약 데이터가 생기면 이 영역에 표시합니다."}
-                </p>
-                {qnaSummary?.unclearTopics.length ? (
-                  <div className="report-keyword-chips">
-                    {qnaSummary.unclearTopics.map((topic) => (
-                      <span
-                        key={`${topic.slideId ?? "general"}-${topic.topic}`}
-                      >
-                        {topic.topic}
-                      </span>
-                    ))}
-                  </div>
-                ) : null}
-              </section>
-
-              <section className="report-coaching-card report-dashboard-card">
-                <h2>
-                  <Presentation size={20} />
-                  다음 연습
-                </h2>
-                <div className="report-coaching-columns">
-                  <div>
-                    <strong>강점</strong>
-                    <ul>
-                      {(report.coaching?.strengths.length
-                        ? report.coaching.strengths
-                        : ["말이 분명하고 빠르지 않음", "불필요한 말버릇 없음"]
-                      )
-                        .slice(0, 3)
-                        .map((strength) => (
-                          <li key={strength}>{strength}</li>
-                        ))}
-                    </ul>
-                  </div>
-                  <div>
-                    <strong>개선 포인트</strong>
-                    <ul>
-                      {(report.coaching?.improvements.length
-                        ? report.coaching.improvements
-                        : [
-                            "자료 설명을 짧게 줄이기",
-                            "누락 키워드를 노트에 고정하기",
-                          ]
-                      )
-                        .slice(0, 3)
-                        .map((improvement) => (
-                          <li key={improvement}>{improvement}</li>
-                        ))}
-                    </ul>
-                  </div>
-                </div>
-                <p>
-                  {report.coaching?.nextPracticeFocus ||
-                    "핵심 메시지를 먼저 말하는 흐름을 연습하세요."}
-                </p>
-              </section>
-            </div>
+            <RehearsalReportDocument
+              report={report}
+              deck={deck}
+              run={run}
+              runNumber={currentRunIndex >= 0 ? currentRunIndex + 1 : null}
+              projectId={props.projectId}
+              totalRunCount={allSucceededRuns.length}
+              prevReports={prevReports}
+            />
           ) : (
             <div
               className={
@@ -4209,6 +4070,12 @@ export function RehearsalReportPage(props: {
             >
               <BarChart3 size={28} />
               <strong>{formatEmptyReportMessage(status, error)}</strong>
+              {status === "not-ready" && (
+                <JobProgressDisplay
+                  progress={reportSmoothProgress}
+                  message={reportJob?.message || ""}
+                />
+              )}
             </div>
           )}
         </section>
@@ -4341,176 +4208,6 @@ function formatEmptyReportMessage(
   return "보고서 대기 중";
 }
 
-function buildCoachingHeadline(report: RehearsalReport | null) {
-  if (report?.coaching?.summary) {
-    return report.coaching.summary;
-  }
-
-  if (!report) {
-    return "리허설 데이터를 불러오고 있어요.";
-  }
-
-  if (report.metrics.keywordCoverage < 0.8) {
-    return "핵심 흐름은 안정적이지만, 일부 키워드 회수가 부족했어요.";
-  }
-
-  if (isUnreliableSpeakingSpeed(report.metrics.wordsPerMinute)) {
-    return "발표 속도 분석 시간이 불안정해 결과 확인이 필요해요.";
-  }
-
-  if (report.metrics.wordsPerMinute > 150) {
-    return "핵심 메시지는 좋지만, 빠르게 지나간 구간이 있어요.";
-  }
-
-  return "핵심 흐름은 안정적이고, 발표 속도도 적절했어요.";
-}
-
-function buildCoachingDetail(
-  report: RehearsalReport | null,
-  deck: Deck | null,
-) {
-  if (!report) {
-    return "보고서가 준비되면 다음 연습에 집중할 내용을 보여드립니다.";
-  }
-
-  if (report.coaching?.nextPracticeFocus) {
-    return report.coaching.nextPracticeFocus;
-  }
-
-  const nextSlide =
-    deck?.slides[Math.min(2, Math.max(0, deck.slides.length - 1))];
-  const focus = nextSlide?.title ? `"${nextSlide.title}"` : "다음";
-  return `다음 리허설은 ${focus} 슬라이드의 자료 설명을 짧게 줄이고, 누락 키워드를 노트에 고정하는 데 집중하면 됩니다.`;
-}
-
-function getSpeakingSpeedAssessment(wordsPerMinute: number) {
-  if (isUnreliableSpeakingSpeed(wordsPerMinute)) {
-    return {
-      displayValue: "확인 필요",
-      isUnreliable: true,
-      meterValue: 180,
-      message: "발표 시간 데이터가 불안정해 속도 판단을 확인해야 합니다.",
-    };
-  }
-
-  if (wordsPerMinute <= 0) {
-    return {
-      displayValue: "-",
-      isUnreliable: true,
-      meterValue: 80,
-      message: "발표 시간 데이터를 확인할 수 없어 속도 판단이 어렵습니다.",
-    };
-  }
-
-  if (wordsPerMinute < 100) {
-    return {
-      displayValue: String(Math.round(wordsPerMinute)),
-      isUnreliable: false,
-      meterValue: clamp(Math.round(wordsPerMinute), 80, 180),
-      message: "권장 범위보다 다소 느린 속도로 발표했어요.",
-    };
-  }
-
-  if (wordsPerMinute <= 150) {
-    return {
-      displayValue: String(Math.round(wordsPerMinute)),
-      isUnreliable: false,
-      meterValue: clamp(Math.round(wordsPerMinute), 80, 180),
-      message: "권장 범위 안에서 안정적인 속도로 발표했어요.",
-    };
-  }
-
-  return {
-    displayValue: String(Math.round(wordsPerMinute)),
-    isUnreliable: false,
-    meterValue: clamp(Math.round(wordsPerMinute), 80, 180),
-    message: "권장 범위보다 빠른 속도로 발표했어요.",
-  };
-}
-
-function isUnreliableSpeakingSpeed(wordsPerMinute: number) {
-  return !Number.isFinite(wordsPerMinute) || wordsPerMinute > 250;
-}
-
-function formatSpeakingSpeedValue(wordsPerMinute: number) {
-  if (isUnreliableSpeakingSpeed(wordsPerMinute)) {
-    return "확인 필요";
-  }
-
-  if (wordsPerMinute <= 0) {
-    return "-";
-  }
-
-  return `${Math.round(wordsPerMinute)} wpm`;
-}
-
-function buildMissedKeywordRows(
-  deck: Deck | null,
-  missedKeywords: RehearsalReport["missedKeywords"],
-) {
-  const rowsBySlideId = new Map<
-    string,
-    {
-      label: string;
-      keywords: RehearsalReport["missedKeywords"];
-      slideId: string;
-    }
-  >();
-  const slideOrder = new Map(
-    deck?.slides.map((slide, index) => [slide.slideId, index + 1]) ?? [],
-  );
-
-  for (const keyword of missedKeywords) {
-    const slideNumber = slideOrder.get(keyword.slideId);
-    const row = rowsBySlideId.get(keyword.slideId) ?? {
-      label:
-        typeof slideNumber === "number"
-          ? `슬라이드${slideNumber}`
-          : keyword.slideId,
-      keywords: [],
-      slideId: keyword.slideId,
-    };
-    row.keywords.push(keyword);
-    rowsBySlideId.set(keyword.slideId, row);
-  }
-
-  return Array.from(rowsBySlideId.values()).sort((left, right) => {
-    const leftOrder = slideOrder.get(left.slideId) ?? Number.MAX_SAFE_INTEGER;
-    const rightOrder = slideOrder.get(right.slideId) ?? Number.MAX_SAFE_INTEGER;
-    if (leftOrder !== rightOrder) return leftOrder - rightOrder;
-    return 0;
-  });
-}
-
-function formatRehearsalCompletionPercent(
-  deck: Deck | null,
-  slideTimings: RehearsalReport["slideTimings"],
-) {
-  const totalSlides = deck?.slides.length ?? 0;
-  if (totalSlides <= 0 || slideTimings.length === 0) {
-    return "-";
-  }
-
-  const deckSlideIds = new Set(deck?.slides.map((slide) => slide.slideId));
-  const completedSlideIds = new Set(
-    slideTimings
-      .filter(
-        (timing) =>
-          timing.actualSeconds > 0 && deckSlideIds.has(timing.slideId),
-      )
-      .map((timing) => timing.slideId),
-  );
-  if (completedSlideIds.size === 0) {
-    return "-";
-  }
-
-  return `${Math.min(100, Math.round((completedSlideIds.size / totalSlides) * 100))}%`;
-}
-
-function getTargetDurationSeconds(deck: Deck | null) {
-  return Math.max(60, (deck?.targetDurationMinutes ?? 10) * 60);
-}
-
 function getSlideTargetSeconds(deck: Deck, slide: Slide) {
   if (slide.estimatedSeconds) {
     return slide.estimatedSeconds;
@@ -4522,31 +4219,6 @@ function getSlideTargetSeconds(deck: Deck, slide: Slide) {
   );
 }
 
-function formatDuration(totalSeconds: number) {
-  const safeSeconds = Math.max(0, Math.floor(totalSeconds));
-  const minutes = Math.floor(safeSeconds / 60);
-  const seconds = (safeSeconds % 60).toString().padStart(2, "0");
-  return `${minutes}:${seconds}`;
-}
-
-function formatSlideTimingLabel(deck: Deck | null, slideId: string) {
-  const slide = deck?.slides.find((candidate) => candidate.slideId === slideId);
-  return slide ? `Slide ${slide.order}` : slideId;
-}
-
-function formatReportDate(value?: string) {
-  if (!value) return "-";
-
-  const parsed = Date.parse(value);
-  if (Number.isNaN(parsed)) {
-    return value;
-  }
-
-  const date = new Date(parsed);
-  return `${date.getFullYear().toString().slice(2)}.${(date.getMonth() + 1)
-    .toString()
-    .padStart(2, "0")}.${date.getDate().toString().padStart(2, "0")}.`;
-}
 
 function formatClock(totalSeconds: number) {
   const minutes = Math.floor(totalSeconds / 60)
@@ -4625,10 +4297,6 @@ function parseClockInput(value: string): number | null {
   }
 
   return minutes * 60 + seconds;
-}
-
-function navigateToRehearsal(projectId: string) {
-  navigateToPath(`/rehearsal/${encodeURIComponent(projectId)}`);
 }
 
 function navigateToPath(path: string) {

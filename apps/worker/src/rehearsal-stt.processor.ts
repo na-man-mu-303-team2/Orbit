@@ -12,6 +12,7 @@ import {
 } from "@orbit/shared";
 import type { DataSource } from "typeorm";
 import { z } from "zod";
+import type { RehearsalTranscriptCache } from "./rehearsal-transcript-cache";
 
 const rehearsalSttPayloadSchema = z.object({
   jobId: z.string().min(1),
@@ -90,6 +91,13 @@ const analyzeMissedKeywordSchema = z
   })
   .strict();
 
+const analyzeAiSummarySchema = z
+  .object({
+    headline: z.string().trim().min(1),
+    paragraphs: z.array(z.string().trim().min(1)).min(1).max(3)
+  })
+  .strict();
+
 const analyzeResponseSchema = z.object({
   runId: z.string().min(1),
   wordsPerMinute: z.number().nonnegative(),
@@ -100,6 +108,7 @@ const analyzeResponseSchema = z.object({
   fillerWordDetails: z.array(analyzeFillerWordDetailSchema).default([]),
   pauseDetails: z.array(analyzePauseDetailSchema).default([]),
   missedKeywords: z.array(analyzeMissedKeywordSchema).default([]),
+  aiSummary: analyzeAiSummarySchema.optional(),
   coaching: z.record(z.unknown()).optional()
 });
 
@@ -110,7 +119,8 @@ export async function processRehearsalSttJob(
   dataSource: DataSource,
   storage: Pick<StoragePort, "getSignedReadUrl" | "removeObject">,
   pythonWorkerUrl: string,
-  rawPayload: unknown
+  rawPayload: unknown,
+  transcriptCache?: RehearsalTranscriptCache
 ): Promise<Job> {
   const payloadResult = rehearsalSttPayloadSchema.safeParse(rawPayload);
   if (!payloadResult.success) {
@@ -139,7 +149,7 @@ export async function processRehearsalSttJob(
   await updateJob(dataSource, payload.jobId, {
     status: "running",
     progress: 10,
-    message: "Rehearsal STT running.",
+    message: "입력 데이터 확인 중",
     result: null,
     error: null
   });
@@ -179,6 +189,8 @@ export async function processRehearsalSttJob(
     );
   }
 
+  await progressJob(dataSource, payload.jobId, 30, "음성 변환 중");
+
   let transcribePayload: z.infer<typeof transcribeResponseSchema>;
   try {
     const response = await fetch(workerUrl(pythonWorkerUrl, "/audio/transcribe"), {
@@ -202,7 +214,7 @@ export async function processRehearsalSttJob(
         storage,
         asset,
         payload,
-        10,
+        30,
         "PYTHON_WORKER_STT_FAILED",
         (await response.text()) || "Python worker STT failed."
       );
@@ -215,11 +227,13 @@ export async function processRehearsalSttJob(
       storage,
       asset,
       payload,
-      10,
+      30,
       "PYTHON_WORKER_STT_UNAVAILABLE",
       error instanceof Error ? error.message : "Python worker STT unavailable."
     );
   }
+
+  await progressJob(dataSource, payload.jobId, 65, "발화 지표 분석 중");
 
   let analysis: z.infer<typeof analyzeResponseSchema>;
   try {
@@ -235,11 +249,13 @@ export async function processRehearsalSttJob(
       storage,
       asset,
       payload,
-      60,
+      65,
       "PYTHON_WORKER_ANALYZE_FAILED",
       error instanceof Error ? error.message : "Python worker analysis failed."
     );
   }
+
+  await progressJob(dataSource, payload.jobId, 85, "리포트 생성 중");
 
   let rawAudioDeletedAt: string;
   try {
@@ -248,7 +264,7 @@ export async function processRehearsalSttJob(
     return failJobAndRun(
       dataSource,
       payload,
-      90,
+      85,
       "RAW_AUDIO_DELETE_FAILED",
       error instanceof Error ? error.message : "Raw audio deletion failed."
     );
@@ -268,26 +284,32 @@ export async function processRehearsalSttJob(
     return failJobAndRun(
       dataSource,
       payload,
-      90,
+      85,
       "REHEARSAL_REPORT_INVALID",
       error instanceof Error ? error.message : "Rehearsal report validation failed.",
       { rawAudioDeletedAt }
     );
   }
 
+  try {
+    await transcriptCache?.set(payload.runId, transcribePayload.transcript);
+  } catch {
+    // 전사본 캐시 실패는 리포트 본문 생성을 막지 않는다.
+  }
+
   await updateRun(dataSource, payload, {
     status: "succeeded",
     error: null,
     rawAudioDeletedAt,
-    reportJson: report,
+    rehearsalReport: report,
     transcriptRetained: report.transcriptRetained
   });
 
   return updateJob(dataSource, payload.jobId, {
     status: "succeeded",
     progress: 100,
-    message: "Rehearsal STT completed.",
-    result: buildRehearsalJobResult(payload, transcribePayload, report, rawAudioDeletedAt),
+    message: "리포트 생성 완료",
+    result: buildReportGenerationRecord(payload, transcribePayload, report, rawAudioDeletedAt),
     error: null
   });
 }
@@ -324,12 +346,13 @@ function buildRehearsalReport(
       questionSummary: "",
       unclearTopics: []
     },
+    aiSummary: analysis.aiSummary ?? null,
     coaching: analysis.coaching ?? null,
     generatedAt
   });
 }
 
-function buildRehearsalJobResult(
+function buildReportGenerationRecord(
   payload: RehearsalSttPayload,
   transcription: z.infer<typeof transcribeResponseSchema>,
   report: RehearsalReport,
@@ -720,7 +743,7 @@ async function updateRun(
     error: { code: string; message: string } | null;
     jobId?: string;
     rawAudioDeletedAt?: string;
-    reportJson?: RehearsalReport;
+    rehearsalReport?: RehearsalReport;
     transcriptRetained?: boolean;
   }
 ): Promise<void> {
@@ -743,7 +766,7 @@ async function updateRun(
       patch.jobId ?? null,
       patch.error,
       patch.rawAudioDeletedAt ?? null,
-      patch.reportJson ? JSON.stringify(patch.reportJson) : null,
+      patch.rehearsalReport ? JSON.stringify(patch.rehearsalReport) : null,
       patch.transcriptRetained ?? null,
       payload.projectId
     ]
@@ -752,6 +775,21 @@ async function updateRun(
   if (!readFirstQueryRow(rows)) {
     throw new Error(`Rehearsal run not found: ${payload.runId}`);
   }
+}
+
+async function progressJob(
+  dataSource: DataSource,
+  jobId: string,
+  progress: number,
+  message: string
+): Promise<void> {
+  await updateJob(dataSource, jobId, {
+    status: "running",
+    progress,
+    message,
+    result: null,
+    error: null
+  });
 }
 
 async function updateJob(

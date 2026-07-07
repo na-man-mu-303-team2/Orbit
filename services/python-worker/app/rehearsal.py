@@ -8,13 +8,21 @@ from typing import Any
 from app.audio.transcribe import TranscriptSegment
 
 FILLER_WORDS = {
+    "아",
     "음",
     "어",
+    "이제",
+    "일단",
+    "사실",
+    "막",
     "그니까",
+    "그니까요",
     "그러니까",
+    "그러니까요",
     "저기",
     "약간",
     "뭐",
+    "뭐냐면",
     "뭐랄까",
     "um",
     "uh",
@@ -36,6 +44,9 @@ COACHING_INSTRUCTIONS = """
 You are a Korean presentation rehearsal coach for ORBIT.
 Return only JSON with:
 - summary: one concise Korean sentence
+- aiSummary: object with headline and paragraphs
+- aiSummary.headline: one Korean sentence that summarizes the main report finding
+- aiSummary.paragraphs: array of 2-3 Korean sentences with evidence-backed overall feedback
 - strengths: array of 1-3 Korean strings
 - improvements: array of 1-3 Korean strings
 - nextPracticeFocus: one concise Korean string
@@ -53,6 +64,20 @@ COACHING_RESPONSE_FORMAT: dict[str, Any] = {
             "additionalProperties": False,
             "properties": {
                 "summary": {"type": "string"},
+                "aiSummary": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "properties": {
+                        "headline": {"type": "string"},
+                        "paragraphs": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "minItems": 2,
+                            "maxItems": 3,
+                        },
+                    },
+                    "required": ["headline", "paragraphs"],
+                },
                 "strengths": {
                     "type": "array",
                     "items": {"type": "string"},
@@ -65,6 +90,7 @@ COACHING_RESPONSE_FORMAT: dict[str, Any] = {
             },
             "required": [
                 "summary",
+                "aiSummary",
                 "strengths",
                 "improvements",
                 "nextPracticeFocus",
@@ -132,6 +158,8 @@ class RehearsalMetricsResult:
 class RehearsalCoachingResult:
     status: str
     summary: str = ""
+    ai_summary_headline: str = ""
+    ai_summary_paragraphs: list[str] = field(default_factory=list)
     strengths: list[str] = field(default_factory=list)
     improvements: list[str] = field(default_factory=list)
     next_practice_focus: str = ""
@@ -234,9 +262,15 @@ def generate_rehearsal_coaching(
             message="OpenAI coaching response was not an object.",
         )
 
+    ai_summary = payload.get("aiSummary")
+    if not isinstance(ai_summary, dict):
+        ai_summary = {}
+
     return RehearsalCoachingResult(
         status="succeeded",
         summary=str(payload.get("summary", "")).strip(),
+        ai_summary_headline=str(ai_summary.get("headline", "")).strip(),
+        ai_summary_paragraphs=string_list(ai_summary.get("paragraphs"))[:3],
         strengths=string_list(payload.get("strengths")),
         improvements=string_list(payload.get("improvements")),
         next_practice_focus=str(payload.get("nextPracticeFocus", "")).strip(),

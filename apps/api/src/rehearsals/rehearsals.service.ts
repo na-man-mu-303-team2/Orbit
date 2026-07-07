@@ -26,6 +26,7 @@ import { JobsService } from "../jobs/jobs.service";
 import { serializeLogError } from "../logging";
 import { ProjectsService } from "../projects/projects.service";
 import { RehearsalRunEntity } from "./rehearsal-run.entity";
+import { RedisRehearsalTranscriptCache } from "./rehearsal-transcript-cache";
 
 export type RehearsalSttEnqueueJob = (input: EnqueueRehearsalSttJobInput) => Promise<void>;
 
@@ -47,6 +48,7 @@ export class RehearsalsService {
     private readonly jobsService: JobsService,
     @Inject(REHEARSAL_STT_ENQUEUE_JOB)
     private readonly enqueueJob: RehearsalSttEnqueueJob,
+    private readonly transcriptCache: RedisRehearsalTranscriptCache,
     @InjectPinoLogger(RehearsalsService.name)
     private readonly logger: PinoLogger
   ) {}
@@ -68,7 +70,7 @@ export class RehearsalsService {
         jobId: null,
         status: "created",
         error: null,
-        reportJson: null,
+        rehearsalReport: null,
         metaJson: {},
         transcriptRetained: false,
         rawAudioDeletedAt: null,
@@ -220,6 +222,16 @@ export class RehearsalsService {
     return updateRehearsalRunMetaResponseSchema.parse({ run: toRehearsalRun(savedRun) });
   }
 
+  async listRuns(projectId: string) {
+    await this.projectsService.getAccessibleProject(projectId);
+    const runs = await this.rehearsalRuns.find({
+      where: { projectId },
+      order: { createdAt: "DESC" },
+      take: 50
+    });
+    return { runs: runs.map(toRehearsalRun) };
+  }
+
   async getRun(runId: string) {
     const run = await this.getRunEntity(runId);
     return getRehearsalRunResponseSchema.parse({ run: toRehearsalRun(run) });
@@ -227,12 +239,37 @@ export class RehearsalsService {
 
   async getReport(runId: string) {
     const run = await this.getRunEntity(runId);
-    const report = run.status === "succeeded" && run.reportJson ? run.reportJson : null;
+    const report =
+      run.status === "succeeded" && run.rehearsalReport ? run.rehearsalReport : null;
+    const transcript = report ? await this.getCachedTranscript(run.runId) : null;
+    const responseReport = report
+      ? {
+          ...report,
+          transcriptRetained: transcript !== null,
+          transcript
+        }
+      : null;
 
     return getRehearsalReportResponseSchema.parse({
       run: toRehearsalRun(run),
-      report
+      report: responseReport
     });
+  }
+
+  private async getCachedTranscript(runId: string) {
+    try {
+      return await this.transcriptCache.get(runId);
+    } catch (error) {
+      this.logger.warn(
+        {
+          event: "rehearsal.transcript_cache_read_failed",
+          runId,
+          error: serializeLogError(error)
+        },
+        "Failed to read rehearsal transcript cache."
+      );
+      return null;
+    }
   }
 
   private async getRunEntity(runId: string) {
