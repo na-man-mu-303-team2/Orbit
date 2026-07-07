@@ -1,0 +1,729 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: ORBIT main branch production bootstrap with CloudFront, S3, EC2, RDS, SSM, and GitHub OIDC.
+
+Parameters:
+  GitHubOwner:
+    Type: String
+    Default: na-man-mu-303-team2
+  GitHubRepo:
+    Type: String
+    Default: Orbit
+  GitHubDeployBranch:
+    Type: String
+    Default: main
+  GitHubDeployEnvironment:
+    Type: String
+    Default: production
+  CreateGitHubOidcProvider:
+    Type: String
+    Default: "true"
+    AllowedValues:
+      - "true"
+      - "false"
+  AmiId:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-arm64
+  InstanceType:
+    Type: String
+    Default: t4g.large
+  DbInstanceClass:
+    Type: String
+    Default: db.t4g.micro
+  DbEngineVersion:
+    Type: String
+    Default: "16.9"
+  DbName:
+    Type: String
+    Default: orbit
+    AllowedPattern: "^[a-zA-Z][a-zA-Z0-9_]{0,62}$"
+  DbUsername:
+    Type: String
+    Default: orbit
+    AllowedPattern: "^[a-zA-Z][a-zA-Z0-9_]{0,62}$"
+  DbPassword:
+    Type: String
+    NoEcho: true
+    MinLength: 16
+  CloudFrontOriginPrefixListId:
+    Type: String
+    Default: ""
+    Description: Optional managed prefix list id for com.amazonaws.global.cloudfront.origin-facing in this region.
+  OriginIngressCidr:
+    Type: String
+    Default: 0.0.0.0/0
+    Description: Fallback EC2 HTTP ingress CIDR when CloudFrontOriginPrefixListId is empty.
+  AssetsCorsAllowedOrigin:
+    Type: String
+    Default: "*"
+    Description: CORS origin for presigned S3 asset PUT/GET. Keep * for initial bootstrap, then narrow after CloudFront domain is known.
+
+Conditions:
+  ShouldCreateGitHubOidcProvider: !Equals [!Ref CreateGitHubOidcProvider, "true"]
+  HasCloudFrontOriginPrefixListId: !Not [!Equals [!Ref CloudFrontOriginPrefixListId, ""]]
+  UseOriginIngressCidr: !Equals [!Ref CloudFrontOriginPrefixListId, ""]
+
+Resources:
+  Vpc:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.42.0.0/16
+      EnableDnsHostnames: true
+      EnableDnsSupport: true
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-vpc
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-igw
+
+  VpcGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      InternetGatewayId: !Ref InternetGateway
+      VpcId: !Ref Vpc
+
+  PublicSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      AvailabilityZone: !Select [0, !GetAZs ""]
+      CidrBlock: 10.42.0.0/24
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-public-a
+
+  PrivateSubnetA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      AvailabilityZone: !Select [0, !GetAZs ""]
+      CidrBlock: 10.42.10.0/24
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-private-a
+
+  PrivateSubnetB:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      AvailabilityZone: !Select [1, !GetAZs ""]
+      CidrBlock: 10.42.11.0/24
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-private-b
+
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref Vpc
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-public-rt
+
+  PublicDefaultRoute:
+    Type: AWS::EC2::Route
+    DependsOn: VpcGatewayAttachment
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  PublicSubnetRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      SubnetId: !Ref PublicSubnet
+
+  PrivateRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref Vpc
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-private-rt
+
+  PrivateSubnetARouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable
+      SubnetId: !Ref PrivateSubnetA
+
+  PrivateSubnetBRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable
+      SubnetId: !Ref PrivateSubnetB
+
+  Ec2SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: ORBIT production EC2 nginx origin
+      VpcId: !Ref Vpc
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-ec2-sg
+
+  Ec2HttpIngressFromCloudFrontPrefixList:
+    Type: AWS::EC2::SecurityGroupIngress
+    Condition: HasCloudFrontOriginPrefixListId
+    Properties:
+      GroupId: !Ref Ec2SecurityGroup
+      IpProtocol: tcp
+      FromPort: 80
+      ToPort: 80
+      SourcePrefixListId: !Ref CloudFrontOriginPrefixListId
+
+  Ec2HttpIngressFromCidr:
+    Type: AWS::EC2::SecurityGroupIngress
+    Condition: UseOriginIngressCidr
+    Properties:
+      GroupId: !Ref Ec2SecurityGroup
+      IpProtocol: tcp
+      FromPort: 80
+      ToPort: 80
+      CidrIp: !Ref OriginIngressCidr
+
+  RdsSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: ORBIT production RDS PostgreSQL
+      VpcId: !Ref Vpc
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 5432
+          ToPort: 5432
+          SourceSecurityGroupId: !Ref Ec2SecurityGroup
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-rds-sg
+
+  RdsSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: ORBIT production private DB subnets
+      SubnetIds:
+        - !Ref PrivateSubnetA
+        - !Ref PrivateSubnetB
+
+  RdsInstance:
+    Type: AWS::RDS::DBInstance
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      AllocatedStorage: 20
+      BackupRetentionPeriod: 7
+      DBInstanceClass: !Ref DbInstanceClass
+      DBName: !Ref DbName
+      DBSubnetGroupName: !Ref RdsSubnetGroup
+      Engine: postgres
+      EngineVersion: !Ref DbEngineVersion
+      MasterUsername: !Ref DbUsername
+      MasterUserPassword: !Ref DbPassword
+      MultiAZ: false
+      PubliclyAccessible: false
+      StorageEncrypted: true
+      StorageType: gp3
+      VPCSecurityGroups:
+        - !Ref RdsSecurityGroup
+
+  StaticWebBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      VersioningConfiguration:
+        Status: Enabled
+
+  AssetsBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      CorsConfiguration:
+        CorsRules:
+          - AllowedHeaders:
+              - "*"
+            AllowedMethods:
+              - GET
+              - HEAD
+              - PUT
+            AllowedOrigins:
+              - !Ref AssetsCorsAllowedOrigin
+            ExposedHeaders:
+              - ETag
+            MaxAge: 3000
+      VersioningConfiguration:
+        Status: Enabled
+
+  ProductionLogGroup:
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      LogGroupName: /orbit/production
+      RetentionInDays: 30
+
+  Ec2InstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+      Policies:
+        - PolicyName: orbit-production-runtime
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                  - s3:DeleteObject
+                Resource: !Sub ${AssetsBucket.Arn}/*
+              - Effect: Allow
+                Action:
+                  - s3:ListBucket
+                Resource: !GetAtt AssetsBucket.Arn
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:${ProductionLogGroup}:log-stream:*
+              - Effect: Allow
+                Action:
+                  - logs:DescribeLogStreams
+                Resource: !Sub arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:${ProductionLogGroup}:*
+              - Effect: Allow
+                Action:
+                  - ssm:GetParameter
+                  - ssm:GetParameters
+                Resource: !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/orbit/production/*
+
+  Ec2InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles:
+        - !Ref Ec2InstanceRole
+
+  AppInstance:
+    Type: AWS::EC2::Instance
+    DependsOn:
+      - PublicDefaultRoute
+      - PublicSubnetRouteTableAssociation
+    Properties:
+      ImageId: !Ref AmiId
+      InstanceType: !Ref InstanceType
+      IamInstanceProfile: !Ref Ec2InstanceProfile
+      SecurityGroupIds:
+        - !Ref Ec2SecurityGroup
+      SubnetId: !Ref PublicSubnet
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs:
+            DeleteOnTermination: true
+            Encrypted: true
+            VolumeSize: 30
+            VolumeType: gp3
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-app
+      UserData:
+        Fn::Base64: !Sub |
+          #!/usr/bin/env bash
+          set -euxo pipefail
+
+          dnf install -y docker git openssh-clients amazon-cloudwatch-agent docker-compose-plugin || dnf install -y docker git openssh-clients amazon-cloudwatch-agent
+          systemctl enable --now docker
+
+          if ! id orbit >/dev/null 2>&1; then
+            useradd --create-home --shell /bin/bash orbit
+          fi
+          usermod -aG docker orbit
+
+          install -d -o orbit -g orbit -m 0755 /opt/orbit
+          install -d -o orbit -g orbit -m 0755 /opt/orbit/source
+          install -d -o orbit -g orbit -m 0755 /opt/orbit/deploy
+          install -d -o root -g root -m 0750 /etc/orbit
+          install -d -o orbit -g orbit -m 0700 /home/orbit/.ssh
+
+          if ! docker compose version >/dev/null 2>&1; then
+            compose_arch=unknown
+            case "$(uname -m)" in
+              aarch64|arm64) compose_arch=aarch64 ;;
+              x86_64|amd64) compose_arch=x86_64 ;;
+            esac
+            if [ "$compose_arch" = "unknown" ]; then
+              echo "Unsupported architecture for Docker Compose plugin."
+              exit 1
+            fi
+            mkdir -p /usr/local/lib/docker/cli-plugins
+            curl -fsSL "https://github.com/docker/compose/releases/download/v2.29.7/docker-compose-linux-$compose_arch" -o /usr/local/lib/docker/cli-plugins/docker-compose
+            chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
+          fi
+
+          cat >/usr/local/sbin/orbit-deploy-aws-production <<'SCRIPT'
+          #!/usr/bin/env bash
+          set -euo pipefail
+
+          app_dir=/opt/orbit/source
+          repo_url=git@github.com:${GitHubOwner}/${GitHubRepo}.git
+          branch=${GitHubDeployBranch}
+
+          if [ ! -s /home/orbit/.ssh/id_ed25519 ]; then
+            echo "Missing /home/orbit/.ssh/id_ed25519 deploy key for read-only GitHub access."
+            exit 1
+          fi
+
+          install -d -o orbit -g orbit -m 0700 /home/orbit/.ssh
+          touch /home/orbit/.ssh/known_hosts
+          chown orbit:orbit /home/orbit/.ssh/known_hosts
+          chmod 0600 /home/orbit/.ssh/known_hosts
+          if ! grep -q github.com /home/orbit/.ssh/known_hosts; then
+            sudo -iu orbit ssh-keyscan github.com >> /home/orbit/.ssh/known_hosts
+          fi
+
+          if [ -e "$app_dir" ] && [ ! -d "$app_dir/.git" ]; then
+            if [ -d "$app_dir" ] && [ -z "$(find "$app_dir" -mindepth 1 -maxdepth 1 -print -quit)" ]; then
+              rmdir "$app_dir"
+            else
+              echo "$app_dir exists but is not an empty directory or Git checkout. Refusing to overwrite it."
+              exit 1
+            fi
+          fi
+
+          if [ ! -d "$app_dir/.git" ]; then
+            sudo -iu orbit git clone --branch "$branch" "$repo_url" "$app_dir"
+          fi
+
+          sudo -iu orbit git -C "$app_dir" fetch origin "$branch"
+          sudo -iu orbit git -C "$app_dir" switch "$branch"
+          sudo -iu orbit git -C "$app_dir" pull --ff-only origin "$branch"
+
+          exec /usr/bin/env bash "$app_dir/infra/scripts/deploy-aws-ec2.sh"
+          SCRIPT
+          chmod 0755 /usr/local/sbin/orbit-deploy-aws-production
+
+          cat >/etc/orbit/production.env.example <<'ENVEXAMPLE'
+          # Copy to /etc/orbit/production.env on the EC2 instance and replace placeholders.
+          # Keep /etc/orbit/production.env owned by root and mode 0600.
+          NODE_ENV=production
+          APP_ENV=production
+          WEB_PORT=5173
+          API_PORT=3000
+          WORKER_PORT=3001
+          PYTHON_WORKER_PORT=8000
+          WEB_ORIGIN=https://REPLACE_WITH_CLOUDFRONT_DOMAIN
+          API_BASE_URL=https://REPLACE_WITH_CLOUDFRONT_DOMAIN
+          PYTHON_WORKER_URL=http://python-worker:8000
+          DATABASE_URL=postgres://orbit:REPLACE_WITH_DB_PASSWORD@REPLACE_WITH_RDS_ENDPOINT:5432/orbit
+          REDIS_URL=redis://redis:6379
+          SESSION_SECRET=REPLACE_WITH_SESSION_SECRET
+          COOKIE_SECRET=REPLACE_WITH_COOKIE_SECRET
+          STORAGE_DRIVER=s3
+          S3_ENDPOINT=
+          S3_PUBLIC_ENDPOINT=
+          S3_BUCKET=REPLACE_WITH_ASSETS_BUCKET
+          S3_REGION=ap-northeast-2
+          S3_ACCESS_KEY_ID=
+          S3_SECRET_ACCESS_KEY=
+          S3_FORCE_PATH_STYLE=false
+          JOB_QUEUE_DRIVER=bullmq
+          LIVE_STT_PROVIDER=sherpa
+          REPORT_STT_PROVIDER=openai
+          REHEARSAL_AUDIO_MAX_BYTES=25000000
+          OCR_PROVIDER=python
+          LLM_PROVIDER=openai
+          AI_SLIDE_IMAGE_REVIEW_MODE=auto
+          ORBIT_PPTX_OOXML_VECTOR_IMPORT=true
+          OPENAI_API_KEY=REPLACE_WITH_OPENAI_API_KEY
+          OPENAI_MODEL=gpt-4.1-mini
+          OPENAI_TRANSCRIPTION_MODEL=whisper-1
+          OPENAI_EMBEDDING_MODEL=text-embedding-3-small
+          OPENAI_REALTIME_TRANSCRIPTION_MODEL=gpt-realtime-whisper
+          OPENAI_REALTIME_TRANSCRIPTION_DELAY=minimal
+          OPENAI_REALTIME_CLIENT_SECRET_TTL_SECONDS=600
+          WHISPERX_API_URL=
+          WHISPERX_API_KEY=
+          WHISPERX_MODEL=large-v3
+          WHISPERX_TIMEOUT_MS=30000
+          AWS_REGION=ap-northeast-2
+          AWS_ACCESS_KEY_ID=
+          AWS_SECRET_ACCESS_KEY=
+          TRANSCRIBE_LANGUAGE_CODE=ko-KR
+          TEXTRACT_ENABLED=false
+          AUTH_COOKIE_SECURE=true
+          LOG_LEVEL=info
+          LOG_PRETTY=false
+          DEMO_USER_ID=user_demo_1
+          DEMO_WORKSPACE_ID=workspace_demo_1
+          DEMO_PROJECT_ID=project_demo_1
+          DEMO_DECK_ID=deck_demo_1
+          DEMO_SESSION_ID=session_demo_1
+          CLOUDWATCH_LOG_GROUP=/orbit/production
+          ENVEXAMPLE
+          chmod 0640 /etc/orbit/production.env.example
+
+  StaticWebSpaFallbackFunction:
+    Type: AWS::CloudFront::Function
+    Properties:
+      Name: !Sub ${AWS::StackName}-spa-fallback
+      AutoPublish: true
+      FunctionConfig:
+        Comment: Rewrite static SPA routes to index.html without changing API or Socket.IO behavior
+        Runtime: cloudfront-js-2.0
+      FunctionCode: |
+        function handler(event) {
+          var request = event.request;
+          var uri = request.uri || "/";
+
+          if (uri === "/") {
+            request.uri = "/index.html";
+            return request;
+          }
+
+          var lastSlash = uri.lastIndexOf("/");
+          var lastSegment = uri.substring(lastSlash + 1);
+          if (lastSegment.indexOf(".") === -1) {
+            request.uri = "/index.html";
+          }
+
+          return request;
+        }
+
+  StaticWebOriginAccessControl:
+    Type: AWS::CloudFront::OriginAccessControl
+    Properties:
+      OriginAccessControlConfig:
+        Name: !Sub ${AWS::StackName}-static-oac
+        OriginAccessControlOriginType: s3
+        SigningBehavior: always
+        SigningProtocol: sigv4
+
+  WebDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Comment: !Sub ${AWS::StackName} ORBIT production entry point
+        DefaultRootObject: index.html
+        Enabled: true
+        HttpVersion: http2and3
+        IPV6Enabled: true
+        PriceClass: PriceClass_200
+        Origins:
+          - Id: static-web-s3
+            DomainName: !GetAtt StaticWebBucket.RegionalDomainName
+            OriginAccessControlId: !GetAtt StaticWebOriginAccessControl.Id
+            S3OriginConfig:
+              OriginAccessIdentity: ""
+          - Id: ec2-nginx-origin
+            DomainName: !GetAtt AppInstance.PublicDnsName
+            CustomOriginConfig:
+              HTTPPort: 80
+              OriginProtocolPolicy: http-only
+        DefaultCacheBehavior:
+          TargetOriginId: static-web-s3
+          ViewerProtocolPolicy: redirect-to-https
+          AllowedMethods:
+            - GET
+            - HEAD
+            - OPTIONS
+          CachedMethods:
+            - GET
+            - HEAD
+          CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6
+          Compress: true
+          FunctionAssociations:
+            - EventType: viewer-request
+              FunctionARN: !GetAtt StaticWebSpaFallbackFunction.FunctionARN
+        CacheBehaviors:
+          - PathPattern: /api/v1/*
+            TargetOriginId: ec2-nginx-origin
+            ViewerProtocolPolicy: redirect-to-https
+            AllowedMethods:
+              - GET
+              - HEAD
+              - OPTIONS
+              - PUT
+              - PATCH
+              - POST
+              - DELETE
+            CachedMethods:
+              - GET
+              - HEAD
+              - OPTIONS
+            CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad
+            OriginRequestPolicyId: 216adef6-5c7f-47e4-b989-5492eafa07d3
+          - PathPattern: /api/*
+            TargetOriginId: ec2-nginx-origin
+            ViewerProtocolPolicy: redirect-to-https
+            AllowedMethods:
+              - GET
+              - HEAD
+              - OPTIONS
+              - PUT
+              - PATCH
+              - POST
+              - DELETE
+            CachedMethods:
+              - GET
+              - HEAD
+              - OPTIONS
+            CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad
+            OriginRequestPolicyId: 216adef6-5c7f-47e4-b989-5492eafa07d3
+          - PathPattern: /socket.io/*
+            TargetOriginId: ec2-nginx-origin
+            ViewerProtocolPolicy: redirect-to-https
+            AllowedMethods:
+              - GET
+              - HEAD
+              - OPTIONS
+              - PUT
+              - PATCH
+              - POST
+              - DELETE
+            CachedMethods:
+              - GET
+              - HEAD
+              - OPTIONS
+            CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad
+            OriginRequestPolicyId: 216adef6-5c7f-47e4-b989-5492eafa07d3
+
+  StaticWebBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref StaticWebBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: AllowCloudFrontOacRead
+            Effect: Allow
+            Principal:
+              Service: cloudfront.amazonaws.com
+            Action: s3:GetObject
+            Resource: !Sub ${StaticWebBucket.Arn}/*
+            Condition:
+              StringEquals:
+                AWS:SourceArn: !Sub arn:${AWS::Partition}:cloudfront::${AWS::AccountId}:distribution/${WebDistribution}
+
+  GitHubOidcProvider:
+    Type: AWS::IAM::OIDCProvider
+    Condition: ShouldCreateGitHubOidcProvider
+    Properties:
+      Url: https://token.actions.githubusercontent.com
+      ClientIdList:
+        - sts.amazonaws.com
+
+  GitHubActionsDeployRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Federated: !If
+                - ShouldCreateGitHubOidcProvider
+                - !Ref GitHubOidcProvider
+                - !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:oidc-provider/token.actions.githubusercontent.com
+            Action: sts:AssumeRoleWithWebIdentity
+            Condition:
+              StringEquals:
+                token.actions.githubusercontent.com:aud: sts.amazonaws.com
+              StringLike:
+                token.actions.githubusercontent.com:sub:
+                  - !Sub repo:${GitHubOwner}/${GitHubRepo}:ref:refs/heads/${GitHubDeployBranch}
+                  - !Sub repo:${GitHubOwner}/${GitHubRepo}:environment:${GitHubDeployEnvironment}
+      Policies:
+        - PolicyName: orbit-main-production-deploy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - cloudformation:DescribeStacks
+                Resource: !Sub arn:${AWS::Partition}:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/${AWS::StackName}/*
+              - Effect: Allow
+                Action:
+                  - s3:ListBucket
+                Resource: !GetAtt StaticWebBucket.Arn
+              - Effect: Allow
+                Action:
+                  - s3:DeleteObject
+                  - s3:GetObject
+                  - s3:PutObject
+                Resource: !Sub ${StaticWebBucket.Arn}/*
+              - Effect: Allow
+                Action:
+                  - cloudfront:CreateInvalidation
+                  - cloudfront:GetDistribution
+                Resource: !Sub arn:${AWS::Partition}:cloudfront::${AWS::AccountId}:distribution/${WebDistribution}
+              - Effect: Allow
+                Action:
+                  - ssm:SendCommand
+                Resource:
+                  - !Sub arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:instance/${AppInstance}
+                  - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}::document/AWS-RunShellScript
+              - Effect: Allow
+                Action:
+                  - ssm:GetCommandInvocation
+                  - ssm:ListCommandInvocations
+                Resource: "*"
+
+Outputs:
+  CloudFrontDomainName:
+    Value: !GetAtt WebDistribution.DomainName
+  CloudFrontDistributionId:
+    Value: !Ref WebDistribution
+  StaticWebBucketName:
+    Value: !Ref StaticWebBucket
+  AssetsBucketName:
+    Value: !Ref AssetsBucket
+  Ec2InstanceId:
+    Value: !Ref AppInstance
+  Ec2PublicDnsName:
+    Value: !GetAtt AppInstance.PublicDnsName
+  RdsEndpointAddress:
+    Value: !GetAtt RdsInstance.Endpoint.Address
+  ProductionLogGroupName:
+    Value: !Ref ProductionLogGroup
+  GitHubActionsRoleArn:
+    Value: !GetAtt GitHubActionsDeployRole.Arn
+  Ec2EnvFilePath:
+    Value: /etc/orbit/production.env
