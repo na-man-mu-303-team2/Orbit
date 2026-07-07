@@ -13,6 +13,7 @@ import type {
 import { StoragePort } from "@orbit/storage";
 import { randomUUID } from "crypto";
 import {
+  BadRequestException,
   ForbiddenException,
   Inject,
   Injectable,
@@ -160,6 +161,8 @@ export class FilesService {
       throw new NotFoundException(`Asset is deleted: ${input.fileId}`);
     }
 
+    await this.verifyUploadedObject(asset);
+
     if (asset.status !== "uploaded") {
       asset.status = "uploaded";
       asset.uploadedAt = new Date();
@@ -197,6 +200,26 @@ export class FilesService {
     }
 
     return asset;
+  }
+
+  private async verifyUploadedObject(asset: ProjectAssetEntity): Promise<void> {
+    const head = await this.storage.headObject(asset.storageKey);
+
+    if (!head) {
+      throw new NotFoundException(`Asset not found in storage: ${asset.fileId}`);
+    }
+
+    if (head.contentLength !== asset.size) {
+      throw new BadRequestException(
+        `Asset size mismatch: declared ${asset.size}, stored ${head.contentLength}`,
+      );
+    }
+
+    if (head.contentType !== asset.mimeType) {
+      throw new BadRequestException(
+        `Asset content-type mismatch: declared ${asset.mimeType}, stored ${head.contentType}`,
+      );
+    }
   }
 
   async deleteUploadedAsset(

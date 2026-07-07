@@ -222,6 +222,38 @@ describe("RehearsalsService", () => {
     });
   });
 
+  it("does not create a job when audio upload verification fails", async () => {
+    const jobsService = {
+      create: vi.fn(async () => job),
+      update: vi.fn(),
+    } as unknown as JobsService;
+    const service = createService({
+      jobsService,
+      filesServicePatch: {
+        completeUpload: vi.fn(async () => {
+          throw new BadRequestException("Asset size mismatch");
+        }),
+      },
+    });
+    const run = await createRun(service);
+    await service.createAudioUploadUrl(run.runId, {
+      originalName: "rehearsal.webm",
+      mimeType: "audio/webm",
+      size: 1024,
+    });
+
+    await expect(service.completeAudioUpload(run.runId, { fileId: "file-audio" })).rejects.toThrow(
+      "Asset size mismatch"
+    );
+
+    expect(jobsService.create).not.toHaveBeenCalled();
+    expect((await service.getRun(run.runId)).run).toMatchObject({
+      status: "uploading",
+      audioFileId: "file-audio",
+      jobId: null,
+    });
+  });
+
   it("stores strict rehearsal run meta before audio completion", async () => {
     const service = createService();
     const run = await createRun(service);
