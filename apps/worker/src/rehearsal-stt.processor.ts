@@ -279,7 +279,7 @@ export async function processRehearsalSttJob(
     status: "succeeded",
     error: null,
     rawAudioDeletedAt,
-    reportJson: report,
+    rehearsalReport: report,
     transcriptRetained: report.transcriptRetained
   });
 
@@ -287,7 +287,7 @@ export async function processRehearsalSttJob(
     status: "succeeded",
     progress: 100,
     message: "Rehearsal STT completed.",
-    result: buildRehearsalJobResult(payload, transcribePayload, report, rawAudioDeletedAt),
+    result: buildReportGenerationRecord(payload, transcribePayload, report, rawAudioDeletedAt),
     error: null
   });
 }
@@ -329,7 +329,7 @@ function buildRehearsalReport(
   });
 }
 
-function buildRehearsalJobResult(
+function buildReportGenerationRecord(
   payload: RehearsalSttPayload,
   transcription: z.infer<typeof transcribeResponseSchema>,
   report: RehearsalReport,
@@ -720,7 +720,7 @@ async function updateRun(
     error: { code: string; message: string } | null;
     jobId?: string;
     rawAudioDeletedAt?: string;
-    reportJson?: RehearsalReport;
+    rehearsalReport?: RehearsalReport;
     transcriptRetained?: boolean;
   }
 ): Promise<void> {
@@ -743,7 +743,7 @@ async function updateRun(
       patch.jobId ?? null,
       patch.error,
       patch.rawAudioDeletedAt ?? null,
-      patch.reportJson ? JSON.stringify(patch.reportJson) : null,
+      patch.rehearsalReport ? JSON.stringify(patch.rehearsalReport) : null,
       patch.transcriptRetained ?? null,
       payload.projectId
     ]

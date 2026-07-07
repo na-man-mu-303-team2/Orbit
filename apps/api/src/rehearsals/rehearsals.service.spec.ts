@@ -81,7 +81,7 @@ const upload: AssetUploadUrlResponse = {
   purpose: "rehearsal-audio"
 };
 
-const reportJson = {
+const rehearsalReport = {
   reportId: "report_run-1",
   runId: "run-1",
   projectId: "project-a",
@@ -407,7 +407,7 @@ describe("RehearsalsService", () => {
     const run = await createRun(service);
     await saveRunPatch(service, run.runId, {
       status: "succeeded",
-      reportJson,
+      rehearsalReport,
       transcriptRetained: false,
       rawAudioDeletedAt: new Date(rawAudioDeletedAt)
     });

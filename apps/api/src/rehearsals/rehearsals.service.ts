@@ -68,7 +68,7 @@ export class RehearsalsService {
         jobId: null,
         status: "created",
         error: null,
-        reportJson: null,
+        rehearsalReport: null,
         metaJson: {},
         transcriptRetained: false,
         rawAudioDeletedAt: null,
@@ -227,7 +227,8 @@ export class RehearsalsService {
 
   async getReport(runId: string) {
     const run = await this.getRunEntity(runId);
-    const report = run.status === "succeeded" && run.reportJson ? run.reportJson : null;
+    const report =
+      run.status === "succeeded" && run.rehearsalReport ? run.rehearsalReport : null;
 
     return getRehearsalReportResponseSchema.parse({
       run: toRehearsalRun(run),
