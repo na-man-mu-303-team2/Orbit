@@ -1,4 +1,4 @@
-import { ForbiddenException, NotFoundException } from "@nestjs/common";
+import { BadRequestException, ForbiddenException, NotFoundException } from "@nestjs/common";
 import { Project, demoIds } from "@orbit/shared";
 import { StoragePort } from "@orbit/storage";
 import { Repository } from "typeorm";
@@ -58,7 +58,7 @@ function createAssetRepository(initialAssets: ProjectAssetEntity[] = []) {
   };
 }
 
-function createStorage(): StoragePort {
+function createStorage(overrides: Partial<StoragePort> = {}): StoragePort {
   return {
     putObject: vi.fn(async (input) => ({
       key: input.key,
@@ -83,22 +83,33 @@ function createStorage(): StoragePort {
       async (key) => `http://localhost:9000/orbit-local/${key}`,
     ),
     removeObject: vi.fn(async () => undefined),
+    headObject: vi.fn(async () => ({
+      contentLength: 1024,
+      contentType:
+        "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    })),
+    ...overrides,
   };
 }
 
 function createService(
   projectsService: Partial<ProjectsService>,
-  options: { uploadProxyOrigin?: string | null } = {},
+  options: {
+    uploadProxyOrigin?: string | null;
+    storagePatch?: Partial<StoragePort>;
+  } = {},
 ) {
   const { assets, repository } = createAssetRepository();
+  const storage = createStorage(options.storagePatch);
 
   return {
     assets,
     repository,
+    storage,
     service: new FilesService(
       repository,
       projectsService as ProjectsService,
-      createStorage(),
+      storage,
       options.uploadProxyOrigin,
     ),
   };
@@ -221,6 +232,111 @@ describe("FilesService", () => {
     ).rejects.toBeInstanceOf(ForbiddenException);
   });
 
+  it("keeps an asset pending when the uploaded object is missing in storage", async () => {
+    const { assets, repository } = createAssetRepository([
+      {
+        fileId: "file_1",
+        projectId: demoProject.projectId,
+        storageKey: "projects/project_demo_created/assets/file_1-report.pdf",
+        originalName: "report.pdf",
+        mimeType: "application/pdf",
+        size: 1024,
+        url: "http://localhost:9000/orbit-local/report.pdf",
+        purpose: "reference-material",
+        status: "pending",
+        createdAt: new Date(),
+        uploadedAt: null,
+      } as ProjectAssetEntity,
+    ]);
+    const service = new FilesService(
+      repository,
+      {
+        getAccessibleProject: vi.fn(async () => demoProject),
+      } as unknown as ProjectsService,
+      createStorage({
+        headObject: vi.fn(async () => null),
+      }),
+    );
+
+    await expect(
+      service.completeUpload(demoProject.projectId, { fileId: "file_1" }),
+    ).rejects.toBeInstanceOf(NotFoundException);
+    expect(assets[0].status).toBe("pending");
+    expect(assets[0].uploadedAt).toBeNull();
+  });
+
+  it("keeps an asset pending when the uploaded object size mismatches metadata", async () => {
+    const { assets, repository } = createAssetRepository([
+      {
+        fileId: "file_1",
+        projectId: demoProject.projectId,
+        storageKey: "projects/project_demo_created/assets/file_1-report.pdf",
+        originalName: "report.pdf",
+        mimeType: "application/pdf",
+        size: 1024,
+        url: "http://localhost:9000/orbit-local/report.pdf",
+        purpose: "reference-material",
+        status: "pending",
+        createdAt: new Date(),
+        uploadedAt: null,
+      } as ProjectAssetEntity,
+    ]);
+    const service = new FilesService(
+      repository,
+      {
+        getAccessibleProject: vi.fn(async () => demoProject),
+      } as unknown as ProjectsService,
+      createStorage({
+        headObject: vi.fn(async () => ({
+          contentLength: 2048,
+          contentType: "application/pdf",
+        })),
+      }),
+    );
+
+    await expect(
+      service.completeUpload(demoProject.projectId, { fileId: "file_1" }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(assets[0].status).toBe("pending");
+    expect(assets[0].uploadedAt).toBeNull();
+  });
+
+  it("keeps an asset pending when the uploaded object content-type mismatches metadata", async () => {
+    const { assets, repository } = createAssetRepository([
+      {
+        fileId: "file_1",
+        projectId: demoProject.projectId,
+        storageKey: "projects/project_demo_created/assets/file_1-report.pdf",
+        originalName: "report.pdf",
+        mimeType: "application/pdf",
+        size: 1024,
+        url: "http://localhost:9000/orbit-local/report.pdf",
+        purpose: "reference-material",
+        status: "pending",
+        createdAt: new Date(),
+        uploadedAt: null,
+      } as ProjectAssetEntity,
+    ]);
+    const service = new FilesService(
+      repository,
+      {
+        getAccessibleProject: vi.fn(async () => demoProject),
+      } as unknown as ProjectsService,
+      createStorage({
+        headObject: vi.fn(async () => ({
+          contentLength: 1024,
+          contentType: "audio/webm",
+        })),
+      }),
+    );
+
+    await expect(
+      service.completeUpload(demoProject.projectId, { fileId: "file_1" }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(assets[0].status).toBe("pending");
+    expect(assets[0].uploadedAt).toBeNull();
+  });
+
   it("stores uploaded proxy content in the project asset object", async () => {
     const { assets, repository } = createAssetRepository([
       {
@@ -263,6 +379,76 @@ describe("FilesService", () => {
     );
   });
 
+  it("rejects local upload proxy writes for completed assets", async () => {
+    const { repository } = createAssetRepository([
+      {
+        fileId: "file_1",
+        projectId: demoProject.projectId,
+        storageKey: "projects/project_demo_created/assets/file_1-report.pdf",
+        originalName: "report.pdf",
+        mimeType: "application/pdf",
+        size: 4,
+        url: "http://localhost:9000/orbit-local/report.pdf",
+        purpose: "reference-material",
+        status: "uploaded",
+        createdAt: new Date(),
+        uploadedAt: new Date(),
+      } as ProjectAssetEntity,
+    ]);
+    const storage = createStorage();
+    const service = new FilesService(
+      repository,
+      {
+        getAccessibleProject: vi.fn(async () => demoProject),
+      } as unknown as ProjectsService,
+      storage,
+    );
+
+    await expect(
+      service.storeUploadContent(
+        demoProject.projectId,
+        "file_1",
+        Buffer.from("%PDF"),
+      ),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(storage.putObject).not.toHaveBeenCalled();
+  });
+
+  it("rejects local upload proxy writes when body size does not match metadata", async () => {
+    const { repository } = createAssetRepository([
+      {
+        fileId: "file_1",
+        projectId: demoProject.projectId,
+        storageKey: "projects/project_demo_created/assets/file_1-report.pdf",
+        originalName: "report.pdf",
+        mimeType: "application/pdf",
+        size: 4,
+        url: "http://localhost:9000/orbit-local/report.pdf",
+        purpose: "reference-material",
+        status: "pending",
+        createdAt: new Date(),
+        uploadedAt: null,
+      } as ProjectAssetEntity,
+    ]);
+    const storage = createStorage();
+    const service = new FilesService(
+      repository,
+      {
+        getAccessibleProject: vi.fn(async () => demoProject),
+      } as unknown as ProjectsService,
+      storage,
+    );
+
+    await expect(
+      service.storeUploadContent(
+        demoProject.projectId,
+        "file_1",
+        Buffer.from("too-large"),
+      ),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(storage.putObject).not.toHaveBeenCalled();
+  });
+
   it("stores local uploaded proxy content with a same-origin read URL", async () => {
     const { assets, repository } = createAssetRepository([
       {
@@ -271,7 +457,7 @@ describe("FilesService", () => {
         storageKey: "projects/project_demo_created/assets/file_1-report.png",
         originalName: "report.png",
         mimeType: "image/png",
-        size: 4,
+        size: 3,
         url: "http://localhost:5173/api/v1/projects/project_demo_created/assets/file_1/content",
         purpose: "reference-material",
         status: "pending",

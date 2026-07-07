@@ -10,7 +10,7 @@ from copy import deepcopy
 from dataclasses import dataclass
 from io import BytesIO
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -3767,7 +3767,7 @@ def imported_slide_profile(
     }
     slide_role = str(template_slide.get("slideRole") or "")
     raw_style = slide.get("style")
-    style = raw_style if isinstance(raw_style, dict) else {}
+    style = cast(dict[str, Any], raw_style) if isinstance(raw_style, dict) else {}
     layout = str(template_slide.get("layoutType") or style.get("layout") or "")
     capacity = str(template_slide.get("contentCapacity") or "")
     role_count = sum(

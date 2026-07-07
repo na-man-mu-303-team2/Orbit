@@ -27,7 +27,7 @@ export class RehearsalRunEntity {
   error!: { code: string; message: string } | null;
 
   @Column({ name: "report_json", nullable: true, type: "jsonb" })
-  reportJson!: Record<string, unknown> | null;
+  rehearsalReport!: Record<string, unknown> | null;
 
   @Column({ default: {}, name: "meta_json", type: "jsonb" })
   metaJson!: Record<string, unknown>;

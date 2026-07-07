@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { createSpeechTracker } from "./speechTracker";
 
 describe("SpeechTracker", () => {
-  it("final 전사만 문장 커버리지와 키워드 상태를 갱신한다", () => {
+  it("partial 전사는 정확 문장 진행만 갱신하고 키워드는 final에서 확정한다", () => {
     const tracker = createSpeechTracker({
       slideId: "slide_1",
       speakerNotes:
@@ -24,8 +24,18 @@ describe("SpeechTracker", () => {
         isFinal: false,
         timestampMs: [0, 500]
       })
-    ).toEqual([]);
-    expect(tracker.snapshot().effectiveCoverage).toBe(0);
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "sentence-covered",
+          sentenceId: "sentence_1"
+        })
+      ])
+    );
+    expect(tracker.snapshot()).toMatchObject({
+      effectiveCoverage: 0.5,
+      hitKeywordIds: []
+    });
 
     const events = tracker.acceptResult({
       text: "오르빗 리허설 화면은 발표 흐름을 점검합니다",
@@ -33,7 +43,6 @@ describe("SpeechTracker", () => {
       timestampMs: [500, 1500]
     });
 
-    expect(events.map((event) => event.type)).toContain("sentence-covered");
     expect(events).toContainEqual({
       type: "keyword-hit",
       slideId: "slide_1",
