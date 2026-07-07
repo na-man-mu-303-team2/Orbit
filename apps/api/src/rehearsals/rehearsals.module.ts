@@ -1,6 +1,7 @@
 import { enqueueRehearsalSttJob } from "@orbit/job-queue";
 import { Module } from "@nestjs/common";
 import { TypeOrmModule } from "@nestjs/typeorm";
+import { AuthModule } from "../auth/auth.module";
 import { DecksModule } from "../decks/decks.module";
 import { FilesModule } from "../files/files.module";
 import { JobsModule } from "../jobs/jobs.module";
@@ -13,6 +14,7 @@ import { REHEARSAL_STT_ENQUEUE_JOB, RehearsalsService } from "./rehearsals.servi
 @Module({
   imports: [
     TypeOrmModule.forFeature([RehearsalRunEntity]),
+    AuthModule,
     DecksModule,
     FilesModule,
     JobsModule,

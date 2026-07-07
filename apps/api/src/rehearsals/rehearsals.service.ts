@@ -244,6 +244,11 @@ export class RehearsalsService {
     return getRehearsalRunResponseSchema.parse({ run: toRehearsalRun(run) });
   }
 
+  async getRunProjectId(runId: string) {
+    const run = await this.getRunEntity(runId);
+    return run.projectId;
+  }
+
   async getReport(runId: string) {
     const run = await this.getRunEntity(runId);
     const report =

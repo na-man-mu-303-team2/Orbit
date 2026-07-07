@@ -1,4 +1,5 @@
 import { Module } from "@nestjs/common";
+import { AuthModule } from "../auth/auth.module";
 import { FilesModule } from "../files/files.module";
 import { JobsModule } from "../jobs/jobs.module";
 import { ProjectsModule } from "../projects/projects.module";
@@ -6,7 +7,7 @@ import { AiTemplateDeckGenerationController } from "./ai-template-deck-generatio
 import { AiTemplateDeckGenerationService } from "./ai-template-deck-generation.service";
 
 @Module({
-  imports: [FilesModule, JobsModule, ProjectsModule],
+  imports: [AuthModule, FilesModule, JobsModule, ProjectsModule],
   controllers: [AiTemplateDeckGenerationController],
   providers: [AiTemplateDeckGenerationService],
 })

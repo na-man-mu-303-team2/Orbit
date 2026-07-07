@@ -1,6 +1,12 @@
-import { jobTypeSchema } from "@orbit/shared";
-import { Body, Controller, Get, NotFoundException, Param, Post } from "@nestjs/common";
+import { demoIds, jobTypeSchema } from "@orbit/shared";
+import { Body, Controller, Get, NotFoundException, Param, Post, Req } from "@nestjs/common";
 import { z } from "zod";
+import { AuthService } from "../auth/auth.service";
+import {
+  getCurrentUser,
+  type SignedCookieRequest,
+} from "../auth/current-user";
+import { ProjectsService } from "../projects/projects.service";
 import { JobsService } from "./jobs.service";
 
 const createJobSchema = z.object({
@@ -11,20 +17,37 @@ const createJobSchema = z.object({
 
 @Controller("jobs")
 export class JobsController {
-  constructor(private readonly jobsService: JobsService) {}
+  constructor(
+    private readonly authService: AuthService,
+    private readonly jobsService: JobsService,
+    private readonly projectsService: ProjectsService,
+  ) {}
 
   @Post()
-  createJob(@Body() body: unknown) {
-    return this.jobsService.create(createJobSchema.parse(body));
+  async createJob(
+    @Body() body: unknown,
+    @Req() request: SignedCookieRequest,
+  ) {
+    const input = createJobSchema.parse(body);
+    const user = await getCurrentUser(this.authService, request);
+    await this.projectsService.assertCanWriteProject(
+      input.projectId ?? demoIds.projectId,
+      user.userId,
+    );
+    return this.jobsService.create(input);
   }
 
   @Get(":jobId")
-  async getJob(@Param("jobId") jobId: string) {
+  async getJob(
+    @Param("jobId") jobId: string,
+    @Req() request: SignedCookieRequest,
+  ) {
+    const user = await getCurrentUser(this.authService, request);
     const job = await this.jobsService.get(jobId);
     if (!job) {
       throw new NotFoundException(`Job not found: ${jobId}`);
     }
+    await this.projectsService.assertCanReadProject(job.projectId, user.userId);
     return job;
   }
 }
-
