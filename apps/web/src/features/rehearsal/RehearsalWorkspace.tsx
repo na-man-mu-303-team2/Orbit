@@ -84,15 +84,6 @@ import {
 import { createLiveSttPort } from "./stt/liveSttEngineRegistry";
 import { fetchLiveSttRuntimeConfig } from "./stt/liveSttRuntimeConfig";
 import { normalizeLiveTranscriptText } from "./stt/liveTranscriptText";
-import {
-  getBrowserSpeechRecognitionConstructor,
-  type BrowserSpeechRecognition,
-  type BrowserSpeechRecognitionEvent
-} from "./stt/browserSpeechRecognition";
-import {
-  resolveWebSpeechAudioTrack,
-  startRecognitionWithAudioTrack
-} from "./stt/webSpeechAudioTrack";
 import { SherpaLiveSttPort } from "./stt/sherpaLiveSttPort";
 import {
   getKeywordOccurrenceTriggerIdsForSlide,
@@ -2347,6 +2338,18 @@ export function RehearsalWorkspace(props: {
     return port;
   }
 
+  async function resolveEffectiveLiveSttEngine(): Promise<LiveSttEngineId> {
+    if (props.liveSttPort) {
+      return props.liveSttPort.engineId;
+    }
+
+    try {
+      return (await fetchLiveSttRuntimeConfig()).liveSttEngine;
+    } catch {
+      return presenterSettings.sttEngine;
+    }
+  }
+
   async function startP3Tracking(stream: MediaStream) {
     const deckSnapshot = deckRef.current ?? deck;
     const startSlideIndex = currentSlideIndexRef.current;
@@ -2356,9 +2359,7 @@ export function RehearsalWorkspace(props: {
 
     let port: LiveSttPort;
     try {
-      const effectiveEngineId = props.liveSttPort
-        ? props.liveSttPort.engineId
-        : (await fetchLiveSttRuntimeConfig()).liveSttEngine;
+      const effectiveEngineId = await resolveEffectiveLiveSttEngine();
       port = getOrCreateLiveSttPort(effectiveEngineId);
     } catch (cause) {
       const error = toLiveSttError(cause);
@@ -3469,8 +3470,16 @@ export function RehearsalWorkspace(props: {
     return (
       <RehearsalPreflightScreen
         canStart={canRecord}
+        createLiveSttPort={(engineId) =>
+          createDefaultLiveSttPort({
+            engineId,
+            legacyAdapter: props.liveSttAdapter,
+            projectId: deck.projectId,
+          })
+        }
         deck={deck}
         previousSummary={previousPracticeSummary}
+        resolveLiveSttEngine={resolveEffectiveLiveSttEngine}
         onPracticeWithoutVoice={() => {
           setElapsedSeconds(0);
           setSlideElapsedSeconds(0);
@@ -4019,10 +4028,12 @@ export function RehearsalWorkspace(props: {
 
 function RehearsalPreflightScreen(props: {
   canStart: boolean;
+  createLiveSttPort: (engineId: LiveSttEngineId) => LiveSttPort;
   deck: Deck;
   onPracticeWithoutVoice: () => void;
   onStart: () => void;
   previousSummary: RehearsalPracticeSummary | null;
+  resolveLiveSttEngine: () => Promise<LiveSttEngineId>;
 }) {
   const commandPhrases = defaultRehearsalCommandConfig
     .map((command) => command.phrases[0])
@@ -4054,7 +4065,8 @@ function RehearsalPreflightScreen(props: {
   );
   const [matchedPhrases, setMatchedPhrases] = useState<readonly string[]>([]);
   const preflightStreamRef = useRef<MediaStream | null>(null);
-  const preflightRecognitionRef = useRef<BrowserSpeechRecognition | null>(null);
+  const preflightLiveSttPortRef = useRef<LiveSttPort | null>(null);
+  const preflightLiveSttCleanupRef = useRef<(() => void) | null>(null);
   const preflightTimeoutRef = useRef<number | null>(null);
 
   useEffect(() => {
@@ -4189,13 +4201,6 @@ function RehearsalPreflightScreen(props: {
       return;
     }
 
-    const Recognition = getBrowserSpeechRecognitionConstructor();
-    if (!Recognition) {
-      setVoiceCheckStatus("unsupported");
-      setVoiceCheckError("이 브라우저는 짧은 음성 인식 체크를 지원하지 않습니다.");
-      return;
-    }
-
     const normalizedSamples = samplePhrases.map((phrase) => ({
       phrase,
       normalized: normalizeLiveTranscriptText(phrase),
@@ -4224,14 +4229,11 @@ function RehearsalPreflightScreen(props: {
       preflightStreamRef.current = stream;
       setMicrophonePermission("granted");
 
-      const recognition = new Recognition();
-      preflightRecognitionRef.current = recognition;
-      recognition.continuous = true;
-      recognition.interimResults = true;
-      recognition.lang = "ko-KR";
-      recognition.maxAlternatives = 3;
-      recognition.onresult = (event: BrowserSpeechRecognitionEvent) => {
-        const transcript = readPreflightTranscript(event);
+      const engineId = await props.resolveLiveSttEngine();
+      const port = props.createLiveSttPort(engineId);
+      preflightLiveSttPortRef.current = port;
+      const unsubscribeResult = port.onResult((result) => {
+        const transcript = result.text.trim();
         if (!transcript) {
           return;
         }
@@ -4251,21 +4253,13 @@ function RehearsalPreflightScreen(props: {
         if (matched.size > 0) {
           finish("passed");
         }
-      };
-      recognition.onerror = (event) => {
-        finish(
-          "error",
-          event.message || "음성 인식 체크를 완료하지 못했습니다.",
-        );
-      };
-      recognition.onend = () => {
-        if (finished) {
-          return;
-        }
-        finish(
-          matched.size > 0 ? "passed" : "failed",
-          matched.size > 0 ? "" : "예시 문구를 아직 인식하지 못했습니다.",
-        );
+      });
+      const unsubscribeError = port.onError((error) => {
+        finish("error", error.message || "음성 인식 체크를 완료하지 못했습니다.");
+      });
+      preflightLiveSttCleanupRef.current = () => {
+        unsubscribeResult();
+        unsubscribeError();
       };
 
       preflightTimeoutRef.current = window.setTimeout(() => {
@@ -4275,16 +4269,25 @@ function RehearsalPreflightScreen(props: {
         );
       }, 8000);
 
-      startRecognitionWithAudioTrack(
-        recognition,
-        resolveWebSpeechAudioTrack(stream),
-      );
+      await port.start({
+        audioSource: stream,
+        biasPhrases: samplePhrases.map((phrase) => ({
+          source: "control-phrase",
+          text: phrase,
+          weight: 1,
+        })),
+        language: "ko",
+      });
     } catch (cause) {
-      setMicrophonePermission(
-        cause instanceof DOMException && cause.name === "NotAllowedError"
-          ? "denied"
-          : "prompt",
-      );
+      if (preflightStreamRef.current) {
+        setMicrophonePermission("granted");
+      } else {
+        setMicrophonePermission(
+          cause instanceof DOMException && cause.name === "NotAllowedError"
+            ? "denied"
+            : "prompt",
+        );
+      }
       finish("error", toMicrophoneErrorMessage(cause));
     }
   }
@@ -4294,13 +4297,11 @@ function RehearsalPreflightScreen(props: {
       window.clearTimeout(preflightTimeoutRef.current);
       preflightTimeoutRef.current = null;
     }
-    if (preflightRecognitionRef.current) {
-      preflightRecognitionRef.current.onresult = null;
-      preflightRecognitionRef.current.onerror = null;
-      preflightRecognitionRef.current.onend = null;
-      preflightRecognitionRef.current.abort();
-    }
-    preflightRecognitionRef.current = null;
+    preflightLiveSttCleanupRef.current?.();
+    preflightLiveSttCleanupRef.current = null;
+    void preflightLiveSttPortRef.current?.stop();
+    void preflightLiveSttPortRef.current?.dispose();
+    preflightLiveSttPortRef.current = null;
     stopMediaStream(preflightStreamRef.current);
     preflightStreamRef.current = null;
   }
@@ -4573,19 +4574,6 @@ function getPreflightTriggerStatus(
     tone: "info",
     value: `음성 트리거 ${triggerCount}개`,
   };
-}
-
-function readPreflightTranscript(event: BrowserSpeechRecognitionEvent) {
-  const transcripts: string[] = [];
-  for (let index = event.resultIndex; index < event.results.length; index += 1) {
-    const result = event.results[index];
-    const alternative = result?.[0];
-    if (alternative?.transcript) {
-      transcripts.push(alternative.transcript);
-    }
-  }
-
-  return transcripts.join(" ").trim();
 }
 
 type RehearsalCompletionSummary = {

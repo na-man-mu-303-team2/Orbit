@@ -163,6 +163,15 @@ describe("ORBIT env validation", () => {
     ).toThrow(/REPORT_STT_PROVIDER/);
   });
 
+  it("defaults browser Live STT engine to Chrome on-device Web Speech", () => {
+    const env = { ...validEnv } as Partial<typeof validEnv>;
+    delete env.LIVE_STT_ENGINE;
+
+    const config = loadOrbitConfig(env as NodeJS.ProcessEnv, { service: "api" });
+
+    expect(config.LIVE_STT_ENGINE).toBe("web-speech");
+  });
+
   it("accepts WhisperX report STT when hosted provider config exists", () => {
     const config = loadOrbitConfig(
       {

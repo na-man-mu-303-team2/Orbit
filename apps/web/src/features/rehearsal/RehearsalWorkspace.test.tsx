@@ -743,6 +743,9 @@ describe("RehearsalWorkspace", () => {
       "engineId",
     );
     expect(source).toContain("await fetchLiveSttRuntimeConfig()");
+    expect(source).toContain("return presenterSettings.sttEngine");
+    expect(source).toContain("props.resolveLiveSttEngine()");
+    expect(source).toContain("props.createLiveSttPort(engineId)");
   });
 
   it("routes report recording through the P3 tracking session", () => {

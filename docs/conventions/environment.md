@@ -67,14 +67,14 @@ OPENAI_EMBEDDING_MODEL=text-embedding-3-small
 OPENAI_REALTIME_TRANSCRIPTION_MODEL=gpt-realtime-whisper
 OPENAI_REALTIME_TRANSCRIPTION_DELAY=minimal
 OPENAI_REALTIME_CLIENT_SECRET_TTL_SECONDS=600
-LIVE_STT_ENGINE=openai-realtime
+LIVE_STT_ENGINE=web-speech
 AI_SLIDE_IMAGE_REVIEW_MODE=auto
 ORBIT_PPTX_OOXML_VECTOR_IMPORT=true
 ```
 
 리허설 리포트의 시간 기반 지표를 계산해야 하는 local/staging report STT는 `OPENAI_TRANSCRIPTION_MODEL=whisper-1`을 사용한다. `whisper-1`의 `verbose_json` 응답은 duration과 segment timestamp를 제공하므로 WPM, 구간별 속도, 긴 침묵 계산에 사용할 수 있다. production 모델은 전사 정확도와 시간 지표 요구를 함께 검토한 뒤 별도로 고정한다.
 
-브라우저 리허설 Live STT의 실행 엔진은 API runtime config가 내려주는 `LIVE_STT_ENGINE=openai-realtime | web-speech` 값이 우선한다. presenter localStorage의 `sttEngine` 값은 실행 엔진을 덮어쓰지 않는다. 기본값은 `openai-realtime`이며 API가 프로젝트 권한 확인 후 OpenAI Realtime transcription client secret을 발급한다. `OPENAI_REALTIME_TRANSCRIPTION_MODEL` 기본값은 `gpt-realtime-whisper`이고, `OPENAI_REALTIME_TRANSCRIPTION_DELAY`는 `minimal | low | medium | high | xhigh`, `OPENAI_REALTIME_CLIENT_SECRET_TTL_SECONDS`는 10초부터 7200초까지 허용한다.
+브라우저 리허설 Live STT의 실행 엔진은 API runtime config가 내려주는 `LIVE_STT_ENGINE=openai-realtime | web-speech` 값이 우선한다. presenter localStorage의 `sttEngine` 값은 실행 엔진을 덮어쓰지 않는다. 기본값은 `web-speech`이며 Chrome Web Speech on-device 경로를 사용한다. `LIVE_STT_ENGINE=openai-realtime`로 설정하면 API가 프로젝트 권한 확인 후 OpenAI Realtime transcription client secret을 발급한다. `OPENAI_REALTIME_TRANSCRIPTION_MODEL` 기본값은 `gpt-realtime-whisper`이고, `OPENAI_REALTIME_TRANSCRIPTION_DELAY`는 `minimal | low | medium | high | xhigh`, `OPENAI_REALTIME_CLIENT_SECRET_TTL_SECONDS`는 10초부터 7200초까지 허용한다.
 
 `LIVE_STT_ENGINE=web-speech`는 Chrome Web Speech on-device 경로를 사용한다. 이 값에서는 OpenAI Realtime client secret을 요청하지 않으며, 브라우저가 온디바이스 Web Speech 또는 한국어 언어팩을 지원하지 않으면 OpenAI로 자동 fallback하지 않고 명확한 Live STT 시작 오류를 표시한다.
 

@@ -1005,7 +1005,7 @@ Implementation locations:
 
 - device-local provider env: `LIVE_STT_PROVIDER=sherpa`
 - browser engine env: `LIVE_STT_ENGINE=openai-realtime | web-speech`
-- 기본 browser engine: `openai-realtime`
+- 기본 browser engine: `web-speech`
 - OpenAI model env: `OPENAI_REALTIME_TRANSCRIPTION_MODEL=gpt-realtime-whisper`
 - 실행 위치: web 또는 device-local runtime
 - 목적: 애니메이션 cue, 강조 표시, 키워드 누락 체크, 다음 슬라이드 전환 제안/실행

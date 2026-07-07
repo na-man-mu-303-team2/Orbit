@@ -208,7 +208,7 @@ export const orbitEnvSchema = z.object({
   S3_FORCE_PATH_STYLE: booleanStringSchema.default(true),
   JOB_QUEUE_DRIVER: jobQueueDriverSchema,
   LIVE_STT_PROVIDER: liveSttProviderSchema,
-  LIVE_STT_ENGINE: liveSttEngineSchema.default("openai-realtime"),
+  LIVE_STT_ENGINE: liveSttEngineSchema.default("web-speech"),
   REPORT_STT_PROVIDER: reportSttProviderSchema,
   REHEARSAL_AUDIO_MAX_BYTES: optionalPositiveInteger(
     "REHEARSAL_AUDIO_MAX_BYTES",
