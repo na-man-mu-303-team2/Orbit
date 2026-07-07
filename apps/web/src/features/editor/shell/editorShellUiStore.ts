@@ -1,0 +1,262 @@
+import { create } from "zustand";
+
+import { defaultAnimationPaneWidth } from "./components/animation/utils/layout";
+
+export const defaultSlidesPaneWidth = 176;
+export const defaultRightPaneWidth = 320;
+
+export type TopMenu = "file" | "resize" | "editMode" | "quickEdit" | "presentation";
+export type SlidePanelView = "thumbnail" | "list";
+export type InsertTool =
+  | "select"
+  | "text"
+  | "rect"
+  | "ellipse"
+  | "line"
+  | "customShape";
+export type ShapeMenuPosition = {
+  left: number;
+  top: number;
+};
+export type ElementContextMenuState =
+  | {
+      elementId: string;
+      left: number;
+      slideId: string;
+      top: number;
+      type: "image";
+    }
+  | {
+      elementId: string;
+      left: number;
+      slideId: string;
+      top: number;
+      type: "group";
+    }
+  | {
+      elementIds: string[];
+      left: number;
+      slideId: string;
+      top: number;
+      type: "selection";
+    };
+
+export type EditorShellUiUpdater<T> = T | ((current: T) => T);
+
+type EditorShellUiStateValues = {
+  activeTopMenu: TopMenu | null;
+  animationPanelFocusedAnimationId: string | null;
+  animationPaneWidth: number;
+  customShapeEditElementId: string | null;
+  editingElementId: string | null;
+  elementContextMenu: ElementContextMenuState | null;
+  insertTool: InsertTool;
+  isAnimationPanelOpen: boolean;
+  isAudienceLinkModalOpen: boolean;
+  isDataViewOpen: boolean;
+  isExitConfirmOpen: boolean;
+  isPresenceDebugOpen: boolean;
+  isRightPanelOpen: boolean;
+  isShapeMenuOpen: boolean;
+  isSlidesPaneCollapsed: boolean;
+  rightPaneWidth: number;
+  selectedElementIds: string[];
+  selectedKeywordId: string | null;
+  selectedKeywordOccurrenceKey: string | null;
+  shapeMenuPosition: ShapeMenuPosition | null;
+  showIds: boolean;
+  slidePanelView: SlidePanelView;
+  slidesPaneWidth: number;
+};
+
+type EditorShellUiStateActions = {
+  resetProjectUiState: () => void;
+  setActiveTopMenu: (updater: EditorShellUiUpdater<TopMenu | null>) => void;
+  setAnimationPanelFocusedAnimationId: (
+    updater: EditorShellUiUpdater<string | null>
+  ) => void;
+  setAnimationPaneWidth: (updater: EditorShellUiUpdater<number>) => void;
+  setCustomShapeEditElementId: (
+    updater: EditorShellUiUpdater<string | null>
+  ) => void;
+  setEditingElementId: (updater: EditorShellUiUpdater<string | null>) => void;
+  setElementContextMenu: (
+    updater: EditorShellUiUpdater<ElementContextMenuState | null>
+  ) => void;
+  setInsertTool: (updater: EditorShellUiUpdater<InsertTool>) => void;
+  setIsAnimationPanelOpen: (updater: EditorShellUiUpdater<boolean>) => void;
+  setIsAudienceLinkModalOpen: (updater: EditorShellUiUpdater<boolean>) => void;
+  setIsDataViewOpen: (updater: EditorShellUiUpdater<boolean>) => void;
+  setIsExitConfirmOpen: (updater: EditorShellUiUpdater<boolean>) => void;
+  setIsPresenceDebugOpen: (updater: EditorShellUiUpdater<boolean>) => void;
+  setIsRightPanelOpen: (updater: EditorShellUiUpdater<boolean>) => void;
+  setIsShapeMenuOpen: (updater: EditorShellUiUpdater<boolean>) => void;
+  setIsSlidesPaneCollapsed: (updater: EditorShellUiUpdater<boolean>) => void;
+  setRightPaneWidth: (updater: EditorShellUiUpdater<number>) => void;
+  setSelectedElementIds: (updater: EditorShellUiUpdater<string[]>) => void;
+  setSelectedKeywordId: (updater: EditorShellUiUpdater<string | null>) => void;
+  setSelectedKeywordOccurrenceKey: (
+    updater: EditorShellUiUpdater<string | null>
+  ) => void;
+  setShapeMenuPosition: (
+    updater: EditorShellUiUpdater<ShapeMenuPosition | null>
+  ) => void;
+  setShowIds: (updater: EditorShellUiUpdater<boolean>) => void;
+  setSlidePanelView: (updater: EditorShellUiUpdater<SlidePanelView>) => void;
+  setSlidesPaneWidth: (updater: EditorShellUiUpdater<number>) => void;
+};
+
+export type EditorShellUiState = EditorShellUiStateValues & EditorShellUiStateActions;
+
+export const editorShellUiInitialState: EditorShellUiStateValues = {
+  activeTopMenu: null,
+  animationPanelFocusedAnimationId: null,
+  animationPaneWidth: defaultAnimationPaneWidth,
+  customShapeEditElementId: null,
+  editingElementId: null,
+  elementContextMenu: null,
+  insertTool: "select",
+  isAnimationPanelOpen: false,
+  isAudienceLinkModalOpen: false,
+  isDataViewOpen: false,
+  isExitConfirmOpen: false,
+  isPresenceDebugOpen: false,
+  isRightPanelOpen: true,
+  isShapeMenuOpen: false,
+  isSlidesPaneCollapsed: false,
+  rightPaneWidth: defaultRightPaneWidth,
+  selectedElementIds: [],
+  selectedKeywordId: null,
+  selectedKeywordOccurrenceKey: null,
+  shapeMenuPosition: null,
+  showIds: false,
+  slidePanelView: "thumbnail",
+  slidesPaneWidth: defaultSlidesPaneWidth
+};
+
+export const useEditorShellUiStore = create<EditorShellUiState>((set) => ({
+  ...editorShellUiInitialState,
+  resetProjectUiState: () =>
+    set({
+      activeTopMenu: null,
+      animationPanelFocusedAnimationId: null,
+      customShapeEditElementId: null,
+      editingElementId: null,
+      elementContextMenu: null,
+      insertTool: "select",
+      isAudienceLinkModalOpen: false,
+      isExitConfirmOpen: false,
+      isShapeMenuOpen: false,
+      selectedElementIds: [],
+      selectedKeywordId: null,
+      selectedKeywordOccurrenceKey: null,
+      shapeMenuPosition: null
+    }),
+  setActiveTopMenu: (updater) =>
+    set((state) => ({
+      activeTopMenu: resolveUpdater(state.activeTopMenu, updater)
+    })),
+  setAnimationPanelFocusedAnimationId: (updater) =>
+    set((state) => ({
+      animationPanelFocusedAnimationId: resolveUpdater(
+        state.animationPanelFocusedAnimationId,
+        updater
+      )
+    })),
+  setAnimationPaneWidth: (updater) =>
+    set((state) => ({
+      animationPaneWidth: resolveUpdater(state.animationPaneWidth, updater)
+    })),
+  setCustomShapeEditElementId: (updater) =>
+    set((state) => ({
+      customShapeEditElementId: resolveUpdater(
+        state.customShapeEditElementId,
+        updater
+      )
+    })),
+  setEditingElementId: (updater) =>
+    set((state) => ({
+      editingElementId: resolveUpdater(state.editingElementId, updater)
+    })),
+  setElementContextMenu: (updater) =>
+    set((state) => ({
+      elementContextMenu: resolveUpdater(state.elementContextMenu, updater)
+    })),
+  setInsertTool: (updater) =>
+    set((state) => ({
+      insertTool: resolveUpdater(state.insertTool, updater)
+    })),
+  setIsAnimationPanelOpen: (updater) =>
+    set((state) => ({
+      isAnimationPanelOpen: resolveUpdater(state.isAnimationPanelOpen, updater)
+    })),
+  setIsAudienceLinkModalOpen: (updater) =>
+    set((state) => ({
+      isAudienceLinkModalOpen: resolveUpdater(state.isAudienceLinkModalOpen, updater)
+    })),
+  setIsDataViewOpen: (updater) =>
+    set((state) => ({
+      isDataViewOpen: resolveUpdater(state.isDataViewOpen, updater)
+    })),
+  setIsExitConfirmOpen: (updater) =>
+    set((state) => ({
+      isExitConfirmOpen: resolveUpdater(state.isExitConfirmOpen, updater)
+    })),
+  setIsPresenceDebugOpen: (updater) =>
+    set((state) => ({
+      isPresenceDebugOpen: resolveUpdater(state.isPresenceDebugOpen, updater)
+    })),
+  setIsRightPanelOpen: (updater) =>
+    set((state) => ({
+      isRightPanelOpen: resolveUpdater(state.isRightPanelOpen, updater)
+    })),
+  setIsShapeMenuOpen: (updater) =>
+    set((state) => ({
+      isShapeMenuOpen: resolveUpdater(state.isShapeMenuOpen, updater)
+    })),
+  setIsSlidesPaneCollapsed: (updater) =>
+    set((state) => ({
+      isSlidesPaneCollapsed: resolveUpdater(state.isSlidesPaneCollapsed, updater)
+    })),
+  setRightPaneWidth: (updater) =>
+    set((state) => ({
+      rightPaneWidth: resolveUpdater(state.rightPaneWidth, updater)
+    })),
+  setSelectedElementIds: (updater) =>
+    set((state) => ({
+      selectedElementIds: resolveUpdater(state.selectedElementIds, updater)
+    })),
+  setSelectedKeywordId: (updater) =>
+    set((state) => ({
+      selectedKeywordId: resolveUpdater(state.selectedKeywordId, updater)
+    })),
+  setSelectedKeywordOccurrenceKey: (updater) =>
+    set((state) => ({
+      selectedKeywordOccurrenceKey: resolveUpdater(
+        state.selectedKeywordOccurrenceKey,
+        updater
+      )
+    })),
+  setShapeMenuPosition: (updater) =>
+    set((state) => ({
+      shapeMenuPosition: resolveUpdater(state.shapeMenuPosition, updater)
+    })),
+  setShowIds: (updater) =>
+    set((state) => ({
+      showIds: resolveUpdater(state.showIds, updater)
+    })),
+  setSlidePanelView: (updater) =>
+    set((state) => ({
+      slidePanelView: resolveUpdater(state.slidePanelView, updater)
+    })),
+  setSlidesPaneWidth: (updater) =>
+    set((state) => ({
+      slidesPaneWidth: resolveUpdater(state.slidesPaneWidth, updater)
+    }))
+}));
+
+function resolveUpdater<T>(current: T, updater: EditorShellUiUpdater<T>) {
+  return typeof updater === "function"
+    ? (updater as (current: T) => T)(current)
+    : updater;
+}

@@ -9,6 +9,7 @@ import { demoIds } from "@orbit/shared";
 import type {
   AiSuggestion,
   Deck,
+  DeckPatch,
   DeckElement,
   ListAiSuggestionsResponse,
   TableElementProps
@@ -22,12 +23,16 @@ import {
   EditorShell,
   EditorStateNotice,
   buildSlideThumbnailPatch,
+  buildPatchBatch,
+  consumeScheduledUndoRedoPersistLabel,
   createDistributeSelectionPatch,
+  flushEditorPersistenceBeforeManualAction,
   getSpeakerNotesDanglingOccurrenceSaveBlock,
   getImportedSlideThumbnailRefreshSlideIds,
   getPatchThumbnailRefreshSlideIds,
   getEditorValidationItems,
   mergeDeckIntoQueryCache,
+  resolveHistoryNavigation,
   shouldApplyManualSaveResult,
   shouldRefreshImportedSlideThumbnails,
   shouldPromptSpeakerNotesDraftDiscard,
@@ -123,6 +128,105 @@ function setDeckData(queryClient: QueryClient, deck: Deck) {
 describe("editor shell", () => {
   beforeEach(() => {
     vi.stubGlobal("fetch", vi.fn());
+  });
+
+  it("flushes scheduled undo redo persistence before manual save queues", async () => {
+    const calls: string[] = [];
+    let pendingPatchCount = 2;
+
+    await flushEditorPersistenceBeforeManualAction({
+      flushScheduledUndoRedoPersist: async () => {
+        calls.push("undo-redo");
+      },
+      waitForSaveQueue: async () => {
+        calls.push("save-queue");
+      },
+      hasPendingPatchInputs: () => pendingPatchCount > 0,
+      flushPendingSaveBatch: async () => {
+        calls.push(`patch-${pendingPatchCount}`);
+        pendingPatchCount -= 1;
+      }
+    });
+
+    expect(calls).toEqual(["undo-redo", "save-queue", "patch-2", "patch-1"]);
+  });
+
+  it("consumes a scheduled undo redo persist timer once", () => {
+    const timer = setTimeout(() => undefined, 10_000);
+    const timerRef: { current: ReturnType<typeof setTimeout> | null } = {
+      current: timer
+    };
+    const labelRef: { current: string | null } = { current: "undo" };
+    const clearTimer = vi.fn((scheduledTimer: ReturnType<typeof setTimeout>) =>
+      clearTimeout(scheduledTimer)
+    );
+
+    expect(
+      consumeScheduledUndoRedoPersistLabel({
+        clearTimer,
+        labelRef,
+        timerRef
+      })
+    ).toBe("undo");
+    expect(clearTimer).toHaveBeenCalledWith(timer);
+    expect(timerRef.current).toBeNull();
+    expect(labelRef.current).toBeNull();
+
+    expect(
+      consumeScheduledUndoRedoPersistLabel({
+        clearTimer,
+        labelRef,
+        timerRef
+      })
+    ).toBeNull();
+    expect(clearTimer).toHaveBeenCalledTimes(1);
+  });
+
+  it("consumes a restored undo redo persist label without a timer", () => {
+    const timerRef: { current: ReturnType<typeof setTimeout> | null } = {
+      current: null
+    };
+    const labelRef: { current: string | null } = { current: "redo" };
+    const clearTimer = vi.fn();
+
+    expect(
+      consumeScheduledUndoRedoPersistLabel({
+        clearTimer,
+        labelRef,
+        timerRef
+      })
+    ).toBe("redo");
+    expect(clearTimer).not.toHaveBeenCalled();
+    expect(labelRef.current).toBeNull();
+  });
+
+  it("resolves undo redo history navigation without state updater side effects", () => {
+    const previousDeck = { ...createDemoDeck(), title: "Previous deck" };
+    const currentDeck = {
+      ...createDemoDeck(),
+      title: "Current deck",
+      version: previousDeck.version + 1
+    };
+
+    const transition = resolveHistoryNavigation({
+      currentDeck,
+      currentSlideIndex: 1,
+      stack: [{ deck: previousDeck, slideIndex: 999 }]
+    });
+
+    expect(transition).toMatchObject({
+      currentEntry: { deck: currentDeck, slideIndex: 1 },
+      nextStack: [],
+      targetEntry: { deck: previousDeck },
+      targetSlideIndex: previousDeck.slides.length - 1
+    });
+    expect(
+      resolveHistoryNavigation({
+        currentDeck,
+        currentSlideIndex: 0,
+        stack: []
+      })
+    ).toBeNull();
   });
 
   it("prompts before discarding a dirty speaker notes draft", () => {
@@ -684,7 +788,7 @@ describe("editor shell", () => {
           version: deck.version + 1
         }
       }),
-    ).toBe(false);
+    ).toBe(true);
 
     expect(
       shouldApplyManualSaveResult({
@@ -695,6 +799,60 @@ describe("editor shell", () => {
         }
       }),
     ).toBe(false);
+
+    expect(
+      shouldApplyManualSaveResult({
+        snapshotDeck: deck,
+        currentDeck: {
+          ...deck,
+          title: "same version but different edit"
+        }
+      }),
+    ).toBe(false);
+  });
+
+  it("rebuilds queued patch producers against the latest deck", () => {
+    const deck = createDemoDeck();
+    const remoteSlide = {
+      ...structuredClone(deck.slides[0]),
+      order: deck.slides.length + 1,
+      slideId: "slide_remote",
+      title: "Remote slide"
+    };
+    const latestDeck = {
+      ...deck,
+      slides: [...deck.slides, remoteSlide],
+      version: deck.version + 1
+    };
+    const createCascadePatch = (currentDeck: Deck): DeckPatch => ({
+      baseVersion: currentDeck.version,
+      deckId: currentDeck.deckId,
+      operations: currentDeck.slides.map((slide) => ({
+        slideId: slide.slideId,
+        style: {
+          backgroundColor: "#111111"
+        },
+        type: "update_slide_style" as const
+      })),
+      source: "user"
+    });
+
+    const stalePatch = createCascadePatch(deck);
+
+    expect(
+      buildPatchBatch(latestDeck, [createCascadePatch]).patch.operations
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ slideId: remoteSlide.slideId })
+      ])
+    );
+    expect(
+      buildPatchBatch(latestDeck, [stalePatch]).patch.operations
+    ).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ slideId: remoteSlide.slideId })
+      ])
+    );
   });
 
   it("renders supported canvas object types without exposing grouped child labels", () => {
@@ -1273,6 +1431,27 @@ describe("editor shell", () => {
     const persistedDeck = {
       ...currentDeck,
       version: 2
+    } as Deck;
+
+    expect(
+      shouldHydrateDeckFromQuery({
+        currentDeck,
+        nextDeck: persistedDeck,
+        hasHydratedPersistedDeck: true,
+        hasLocalOptimisticChanges: true
+      })
+    ).toBe(false);
+  });
+
+  it("does not hydrate newer query data over local optimistic edits", () => {
+    const currentDeck = {
+      ...createDemoDeck(),
+      version: 2
+    } as Deck;
+    const persistedDeck = {
+      ...currentDeck,
+      title: "stale save response",
+      version: 3
     } as Deck;
 
     expect(
