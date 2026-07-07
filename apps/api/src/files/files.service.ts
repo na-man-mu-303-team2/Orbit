@@ -126,6 +126,16 @@ export class FilesService {
       throw new ForbiddenException("Project asset access denied");
     }
 
+    if (asset.status !== "pending") {
+      throw new BadRequestException("Asset upload is not pending.");
+    }
+
+    if (body.byteLength !== asset.size) {
+      throw new BadRequestException(
+        `Asset size mismatch: declared ${asset.size}, received ${body.byteLength}`,
+      );
+    }
+
     const object = await this.storage.putObject({
       key: asset.storageKey,
       body,
