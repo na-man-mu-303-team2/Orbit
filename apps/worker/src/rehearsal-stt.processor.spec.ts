@@ -745,7 +745,7 @@ describe("processRehearsalSttJob", () => {
 });
 
 function createQueryMock() {
-  return vi.fn(async (sql: string, params?: unknown[]) => {
+  return vi.fn(async (sql: string, params?: unknown[]): Promise<unknown[] | undefined> => {
     if (sql.includes("UPDATE jobs")) {
       const [
         jobId = "job-1",
@@ -762,7 +762,7 @@ function createQueryMock() {
           typeof progress === "number" ? progress : 0,
           isRecord(result) ? result : null,
           isJobError(error) ? error : null,
-          typeof message === "string" ? message : String(status),
+          typeof message === "string" ? message : String(status) as "running" | "succeeded" | "failed",
           typeof jobId === "string" && jobId ? jobId : "job-1"
         )
       ];
@@ -792,7 +792,7 @@ function jobRow(
   progress: number,
   result: Record<string, unknown> | null,
   error: { code: string; message: string } | null,
-  message = status,
+  message: string = status,
   jobId = "job-1"
 ) {
   return {
