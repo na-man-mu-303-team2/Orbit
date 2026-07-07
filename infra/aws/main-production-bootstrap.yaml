@@ -342,7 +342,7 @@ Resources:
       Roles:
         - !Ref Ec2InstanceRole
 
-  AppInstance:
+  AppServerInstance:
     Type: AWS::EC2::Instance
     DependsOn:
       - PublicDefaultRoute
@@ -552,7 +552,7 @@ Resources:
             S3OriginConfig:
               OriginAccessIdentity: ""
           - Id: ec2-nginx-origin
-            DomainName: !GetAtt AppInstance.PublicDnsName
+            DomainName: !GetAtt AppServerInstance.PublicDnsName
             CustomOriginConfig:
               HTTPPort: 80
               OriginProtocolPolicy: http-only
@@ -697,7 +697,7 @@ Resources:
                 Action:
                   - ssm:SendCommand
                 Resource:
-                  - !Sub arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:instance/${AppInstance}
+                  - !Sub arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:instance/${AppServerInstance}
                   - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}::document/AWS-RunShellScript
               - Effect: Allow
                 Action:
@@ -715,9 +715,9 @@ Outputs:
   AssetsBucketName:
     Value: !Ref AssetsBucket
   Ec2InstanceId:
-    Value: !Ref AppInstance
+    Value: !Ref AppServerInstance
   Ec2PublicDnsName:
-    Value: !GetAtt AppInstance.PublicDnsName
+    Value: !GetAtt AppServerInstance.PublicDnsName
   RdsEndpointAddress:
     Value: !GetAtt RdsInstance.Endpoint.Address
   ProductionLogGroupName:
