@@ -2177,6 +2177,45 @@ button:disabled {
   place-items: center;
 }
 
+.rehearsal-job-progress {
+  align-items: center;
+  display: grid;
+  gap: 16px;
+  justify-items: center;
+  max-width: 340px;
+  padding: 40px 24px;
+  text-align: center;
+  width: 100%;
+}
+
+.rehearsal-job-progress-bar {
+  background: #e2e8f0;
+  border-radius: 6px;
+  height: 8px;
+  overflow: hidden;
+  width: 100%;
+}
+
+.rehearsal-job-progress-fill {
+  background: #4f46e5;
+  border-radius: 6px;
+  height: 100%;
+  transition: width 0.8s ease;
+}
+
+.rehearsal-job-progress-pct {
+  color: #1e293b;
+  font-size: 28px;
+  font-weight: 700;
+  margin: 0;
+}
+
+.rehearsal-job-progress-label {
+  color: #64748b;
+  font-size: 14px;
+  margin: 0;
+}
+
 @media (max-width: 900px) {
   .orbit-layout,
   .sidebar-collapsed {

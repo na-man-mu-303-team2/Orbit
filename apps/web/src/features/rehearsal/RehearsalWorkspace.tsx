@@ -49,6 +49,8 @@ import {
   Volume2,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { JobProgressDisplay } from "./JobProgressDisplay";
+import { useJobSmoothProgress } from "./useJobSmoothProgress";
 import { resolveEditorAssetUrl } from "../editor/shared/editorAssetUrl";
 import {
   LiveSttAdapterError,
@@ -1483,7 +1485,7 @@ export function RehearsalWorkspace(props: {
   );
   const [, setError] = useState("");
   const [run, setRun] = useState<RehearsalRun | null>(null);
-  const [, setJob] = useState<Job | null>(null);
+  const [job, setJob] = useState<Job | null>(null);
   const [liveStatus, setLiveStatus] = useState<LiveSttStatus>("idle");
   const [liveError, setLiveError] = useState("");
   const [, setLiveTranscriptBuffer] = useState(createLiveTranscriptBuffer);
@@ -1995,6 +1997,9 @@ export function RehearsalWorkspace(props: {
       }
     }
   }, [currentSlide?.slideId, currentSlideIndex, deck]);
+
+  const isJobActive = phase === "uploading" || phase === "processing";
+  const smoothProgress = useJobSmoothProgress(job, isJobActive);
 
   async function startRecording() {
     if (!deck || !canRecord) return;
@@ -3426,7 +3431,16 @@ export function RehearsalWorkspace(props: {
       <section className="rehearsal-presenter-layout">
         <section className="rehearsal-presenter-main">
           <div className="rehearsal-stage-wrap" ref={presenterStageRef}>
-            {deck && currentSlide ? (
+            {isJobActive ? (
+              <JobProgressDisplay
+                progress={smoothProgress}
+                message={
+                  phase === "uploading"
+                    ? "\uc74c\uc131 \uc5c5\ub85c\ub4dc \uc911"
+                    : (job?.message || "\ubd84\uc11d \uc911")
+                }
+              />
+            ) : deck && currentSlide ? (
               <SlideshowRenderer
                 deck={deck}
                 scale={presenterScale}
@@ -3819,6 +3833,7 @@ export function RehearsalReportPage(props: {
     props.initialReport ? "ready" : "loading",
   );
   const [error, setError] = useState("");
+  const [reportJob, setReportJob] = useState<Job | null>(null);
 
   useEffect(() => {
     let isMounted = true;
@@ -3854,6 +3869,30 @@ export function RehearsalReportPage(props: {
         setReport(nextState.status === "ready" ? response.report : null);
         setStatus(nextState.status);
         setError(nextState.error);
+
+        if (nextState.status === "not-ready" && response.run.jobId) {
+          void pollRehearsalJob(response.run.jobId, {
+            onUpdate: (j) => { if (isMounted) setReportJob(j); },
+          })
+            .then((j) => {
+              if (!isMounted) return;
+              setReportJob(j);
+              if (j.status === "succeeded") {
+                void fetchRehearsalReport(props.runId).then((r) => {
+                  if (!isMounted) return;
+                  setRun(r.run);
+                  setReport(r.report);
+                  setStatus(r.report ? "ready" : "failed");
+                });
+              } else {
+                setStatus("failed");
+                setError(j.error?.message || j.message || "리포트 생성 실패");
+              }
+            })
+            .catch(() => {
+              if (isMounted) setStatus("failed");
+            });
+        }
       })
       .catch((cause) => {
         if (!isMounted) return;
@@ -3867,6 +3906,11 @@ export function RehearsalReportPage(props: {
       isMounted = false;
     };
   }, [props.initialDeck, props.initialReport, props.projectId, props.runId]);
+
+  const reportSmoothProgress = useJobSmoothProgress(
+    reportJob,
+    status === "not-ready",
+  );
 
   const reportDate = formatReportDate(
     report?.generatedAt ?? run?.updatedAt ?? run?.createdAt,
@@ -4209,6 +4253,12 @@ export function RehearsalReportPage(props: {
             >
               <BarChart3 size={28} />
               <strong>{formatEmptyReportMessage(status, error)}</strong>
+              {status === "not-ready" && (
+                <JobProgressDisplay
+                  progress={reportSmoothProgress}
+                  message={reportJob?.message || ""}
+                />
+              )}
             </div>
           )}
         </section>
