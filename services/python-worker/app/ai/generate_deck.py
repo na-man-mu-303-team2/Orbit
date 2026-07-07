@@ -4,11 +4,13 @@ import base64
 import json
 import re
 import textwrap
+from collections.abc import Callable
 from copy import deepcopy
 from dataclasses import dataclass
 from io import BytesIO
 from pathlib import Path
-from typing import Any, Literal
+from time import perf_counter
+from typing import Any, Literal, TypeVar
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -72,6 +74,7 @@ DeckLayout = Literal[
     "closing",
 ]
 AgentStatus = Literal["succeeded", "failed"]
+T = TypeVar("T")
 
 
 class GenerateDeckReference(BaseModel):
@@ -349,6 +352,7 @@ class GenerateDeckResponse(BaseModel):
     )
     warnings: list[str] = Field(default_factory=list)
     validation: ValidationResult
+    timings: dict[str, int] = Field(default_factory=dict)
 
 
 class SlideTextOverlapReview(BaseModel):
@@ -1517,31 +1521,73 @@ class DeckGenerationOrchestrator:
         self.reference_context = reference_context
         self.image_review_mode = image_review_mode
         self.agent_outputs: dict[str, AgentOutput] = {}
+        self.timings_ms: dict[str, int] = {}
 
     def run(self) -> GenerateDeckResponse:
-        raw_input = self.run_brief_agent()
-        self.run_source_grounding_agent(raw_input)
-        outline, slide_plans = self.run_narrative_agent(raw_input)
-        slide_plans, theme = self.run_design_director_agent(raw_input, slide_plans)
-        template_selection = template_selection_for_slide_plans(raw_input, slide_plans)
-        slides = self.run_layout_agent(raw_input, slide_plans, theme, template_selection)
-        deck = self.build_deck(raw_input, outline, theme, slides)
-        self.run_chart_data_agent(deck)
-        self.run_media_agent(deck)
-        reviewer_validation = self.run_quality_reviewer_agent(deck)
-        deck, validation = self.run_refiner_agent(deck, reviewer_validation)
-        warnings = unique_warnings(
-            [
-                *generation_warnings(raw_input, len(slides), validation),
-                *self.agent_warnings(),
-            ]
+        raw_input = self.measure("brief", self.run_brief_agent)
+        self.measure(
+            "source_grounding",
+            lambda: self.run_source_grounding_agent(raw_input),
+        )
+        outline, slide_plans = self.measure(
+            "narrative",
+            lambda: self.run_narrative_agent(raw_input),
+        )
+        slide_plans, theme = self.measure(
+            "design_director",
+            lambda: self.run_design_director_agent(raw_input, slide_plans),
+        )
+        template_selection = self.measure(
+            "template_selection",
+            lambda: template_selection_for_slide_plans(raw_input, slide_plans),
+        )
+        slides = self.measure(
+            "layout",
+            lambda: self.run_layout_agent(
+                raw_input,
+                slide_plans,
+                theme,
+                template_selection,
+            ),
+        )
+        deck = self.measure(
+            "build_deck",
+            lambda: self.build_deck(raw_input, outline, theme, slides),
+        )
+        self.measure("chart_data", lambda: self.run_chart_data_agent(deck))
+        self.measure("media", lambda: self.run_media_agent(deck))
+        reviewer_validation = self.measure(
+            "quality_review",
+            lambda: self.run_quality_reviewer_agent(deck),
+        )
+        deck, validation = self.measure(
+            "refiner",
+            lambda: self.run_refiner_agent(deck, reviewer_validation),
+        )
+        warnings = self.measure(
+            "warnings",
+            lambda: unique_warnings(
+                [
+                    *generation_warnings(raw_input, len(slides), validation),
+                    *self.agent_warnings(),
+                ]
+            ),
         )
         return GenerateDeckResponse(
             deck=deck,
             templateSelection=template_selection,
             warnings=warnings,
             validation=validation,
+            timings=self.timings_ms,
         )
+
+    def measure(self, stage: str, action: Callable[[], T]) -> T:
+        started_at = perf_counter()
+        try:
+            return action()
+        finally:
+            duration_ms = int(round((perf_counter() - started_at) * 1000))
+            self.timings_ms[stage] = duration_ms
 
     def record(
         self,
@@ -1707,16 +1753,28 @@ class DeckGenerationOrchestrator:
         deck: dict[str, Any],
         reviewer_validation: ValidationResult,
     ) -> tuple[dict[str, Any], ValidationResult]:
-        refined_deck = refine_design_issues(deck, reviewer_validation.design_issues)
-        refined_deck, validation = validate_and_patch(refined_deck)
-        text_overlap_candidates = detect_text_overlap_candidates(refined_deck)
-        overlap_issues = review_text_overlap_candidates(
-            refined_deck,
-            text_overlap_candidates,
-            client=self.client,
-            model=self.model,
-            api_key=self.api_key,
-            image_review_mode=self.image_review_mode,
+        refined_deck = self.measure(
+            "refiner.design_fix",
+            lambda: refine_design_issues(deck, reviewer_validation.design_issues),
+        )
+        refined_deck, validation = self.measure(
+            "refiner.validate_patch",
+            lambda: validate_and_patch(refined_deck),
+        )
+        text_overlap_candidates = self.measure(
+            "refiner.detect_text_overlap",
+            lambda: detect_text_overlap_candidates(refined_deck),
+        )
+        overlap_issues = self.measure(
+            "refiner.image_review",
+            lambda: review_text_overlap_candidates(
+                refined_deck,
+                text_overlap_candidates,
+                client=self.client,
+                model=self.model,
+                api_key=self.api_key,
+                image_review_mode=self.image_review_mode,
+            ),
         )
         validation.layout_issues.extend(overlap_issues)
         validation.passed = not (

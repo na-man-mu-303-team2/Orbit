@@ -86,6 +86,58 @@ type OoxmlApplySlotTextsResponse = z.infer<
 >;
 type ExtractedFile = z.infer<typeof extractedFileSchema>;
 
+export type AiTemplateDeckGenerationStage =
+  | "prepare.assets"
+  | "prepare.content"
+  | "prepare.design"
+  | "prepare.total"
+  | "generate.python"
+  | "select.template"
+  | "apply.pptx"
+  | "save.assets"
+  | "save.db";
+
+export type AiTemplateDeckGenerationStageLog = {
+  event:
+    | "ai_template_deck_generation.stage.completed"
+    | "ai_template_deck_generation.stage.failed";
+  jobId: string;
+  jobType: "ai-template-deck-generation";
+  projectId: string;
+  stage: AiTemplateDeckGenerationStage;
+  durationMs: number;
+  slideCountMin: number;
+  slideCountMax: number;
+  contentAssetCount?: number;
+  designFileId?: string;
+  generatedSlideCount?: number;
+  generatedAssetCount?: number;
+  cacheHit?: boolean;
+  pythonTimings?: Record<string, number>;
+  error?: { name: string; message: string };
+};
+
+type AiTemplateDeckGenerationStageFields = Partial<
+  Pick<
+    AiTemplateDeckGenerationStageLog,
+    | "contentAssetCount"
+    | "designFileId"
+    | "generatedSlideCount"
+    | "generatedAssetCount"
+    | "cacheHit"
+    | "pythonTimings"
+  >
+>;
+
+type AiTemplateDeckGenerationStageBase = Omit<
+  AiTemplateDeckGenerationStageLog,
+  "event" | "stage" | "durationMs" | "error"
+>;
+
+export type AiTemplateDeckGenerationStageLogger = (
+  log: AiTemplateDeckGenerationStageLog,
+) => void;
+
 type ProjectAssetRow = {
   file_id: string;
   project_id: string;
@@ -115,6 +167,7 @@ type DesignPreparation = {
   templateBlueprint: TemplateBlueprint;
   qualityReport: QualityReport;
   warnings: string[];
+  generatedAssetCount: number;
 };
 
 type JobRow = {
@@ -138,6 +191,7 @@ export async function processAiTemplateDeckGenerationJob(
   storage: Pick<StoragePort, "getSignedReadUrl" | "putObject">,
   pythonWorkerUrl: string,
   rawPayload: unknown,
+  stageLogger?: AiTemplateDeckGenerationStageLogger,
 ): Promise<Job> {
   const payloadResult =
     aiTemplateDeckGenerationPayloadSchema.safeParse(rawPayload);
@@ -164,6 +218,7 @@ export async function processAiTemplateDeckGenerationJob(
   }
 
   const payload = payloadResult.data;
+  const stageBase = stageLogBase(payload);
   await updateJob(dataSource, payload.jobId, {
     status: "running",
     progress: 8,
@@ -175,29 +230,71 @@ export async function processAiTemplateDeckGenerationJob(
   let content: ContentPreparation;
   let design: DesignPreparation;
   try {
-    const assets = await loadProjectAssets(
-      dataSource,
-      payload.projectId,
-      payload.request.assets.map((asset) => asset.fileId),
+    const { designAsset, contentAssets } = await timedStage(
+      stageLogger,
+      stageBase,
+      "prepare.assets",
+      {},
+      async () => {
+        const assets = await loadProjectAssets(
+          dataSource,
+          payload.projectId,
+          payload.request.assets.map((asset) => asset.fileId),
+        );
+        return {
+          designAsset: selectDesignAsset(payload.request, assets),
+          contentAssets: selectContentAssets(payload.request, assets),
+        };
+      },
+      (result) => ({
+        contentAssetCount: result.contentAssets.length,
+        designFileId: result.designAsset.file_id,
+      }),
     );
-    const designAsset = selectDesignAsset(payload.request, assets);
-    const contentAssets = selectContentAssets(payload.request, assets);
 
-    [content, design] = await Promise.all([
-      prepareContentReferences(
-        storage,
-        pythonWorkerUrl,
-        payload.projectId,
-        contentAssets,
-      ),
-      prepareDesignTemplate(
-        dataSource,
-        storage,
-        pythonWorkerUrl,
-        payload.projectId,
-        designAsset,
-      ),
-    ]);
+    [content, design] = await timedStage(
+      stageLogger,
+      stageBase,
+      "prepare.total",
+      {
+        contentAssetCount: contentAssets.length,
+        designFileId: designAsset.file_id,
+        cacheHit: false,
+      },
+      () =>
+        Promise.all([
+          timedStage(
+            stageLogger,
+            stageBase,
+            "prepare.content",
+            { contentAssetCount: contentAssets.length },
+            () =>
+              prepareContentReferences(
+                storage,
+                pythonWorkerUrl,
+                payload.projectId,
+                contentAssets,
+              ),
+          ),
+          timedStage(
+            stageLogger,
+            stageBase,
+            "prepare.design",
+            { designFileId: designAsset.file_id, cacheHit: false },
+            () =>
+              prepareDesignTemplate(
+                dataSource,
+                storage,
+                pythonWorkerUrl,
+                payload.projectId,
+                designAsset,
+              ),
+            (result) => ({
+              generatedAssetCount: result.generatedAssetCount,
+            }),
+          ),
+        ]),
+    );
   } catch (error) {
     return failJob(
       dataSource,
@@ -220,12 +317,26 @@ export async function processAiTemplateDeckGenerationJob(
 
   let generatedDeck: z.infer<typeof generateDeckResponseSchema>;
   try {
-    generatedDeck = await generateDeckWithPython(
-      pythonWorkerUrl,
-      payload.projectId,
-      payload.request,
-      content,
-      design,
+    generatedDeck = await timedStage(
+      stageLogger,
+      stageBase,
+      "generate.python",
+      { designFileId: design.asset.file_id },
+      () =>
+        generateDeckWithPython(
+          pythonWorkerUrl,
+          payload.projectId,
+          payload.request,
+          content,
+          design,
+        ),
+      (result) => ({
+        generatedSlideCount: result.deck.slides.length,
+        pythonTimings:
+          Object.keys(result.timings ?? {}).length > 0
+            ? result.timings
+            : undefined,
+      }),
     );
   } catch (error) {
     return failJob(
@@ -238,23 +349,59 @@ export async function processAiTemplateDeckGenerationJob(
   }
 
   try {
-    const selectedTemplateBlueprint = selectTemplateBlueprintSlides(
-      design.templateBlueprint,
-      generatedDeck.templateSelection,
-      generatedDeck.deck.slides.length,
+    const selectedTemplateBlueprint = await timedStage(
+      stageLogger,
+      stageBase,
+      "select.template",
+      {
+        designFileId: design.asset.file_id,
+        generatedSlideCount: generatedDeck.deck.slides.length,
+      },
+      () =>
+        selectTemplateBlueprintSlides(
+          design.templateBlueprint,
+          generatedDeck.templateSelection,
+          generatedDeck.deck.slides.length,
+        ),
+      (result) => ({
+        generatedSlideCount: result.slides.length,
+      }),
     );
-    const applyResult = await applyGeneratedContentToPptx(
-      storage,
-      pythonWorkerUrl,
-      design.asset,
-      selectedTemplateBlueprint,
-      generatedDeck.deck,
+    const applyResult = await timedStage(
+      stageLogger,
+      stageBase,
+      "apply.pptx",
+      {
+        designFileId: design.asset.file_id,
+        generatedSlideCount: generatedDeck.deck.slides.length,
+      },
+      () =>
+        applyGeneratedContentToPptx(
+          storage,
+          pythonWorkerUrl,
+          design.asset,
+          selectedTemplateBlueprint,
+          generatedDeck.deck,
+        ),
+      (result) => ({
+        generatedAssetCount: result.assets.length,
+      }),
     );
-    const finalAssetRefs = await saveGeneratedAssets(
-      dataSource,
-      storage,
-      payload.projectId,
-      applyResult,
+    const finalAssetRefs = await timedStage(
+      stageLogger,
+      stageBase,
+      "save.assets",
+      {
+        generatedSlideCount: generatedDeck.deck.slides.length,
+        generatedAssetCount: applyResult.assets.length,
+      },
+      () =>
+        saveGeneratedAssets(
+          dataSource,
+          storage,
+          payload.projectId,
+          applyResult,
+        ),
     );
     const finalTemplateBlueprint = templateBlueprintSchema.parse(
       applyFinalTemplateAssetRefs(selectedTemplateBlueprint, finalAssetRefs.fileIds),
@@ -265,14 +412,25 @@ export async function processAiTemplateDeckGenerationJob(
       finalAssetRefs.urls,
     );
 
-    await saveDeck(dataSource, finalDeck);
-    await saveDeckSnapshot(dataSource, finalDeck);
-    await saveTemplateBlueprint(
-      dataSource,
-      payload.projectId,
-      finalDeck.deckId,
-      finalTemplateBlueprint,
-      design.qualityReport,
+    await timedStage(
+      stageLogger,
+      stageBase,
+      "save.db",
+      {
+        designFileId: design.asset.file_id,
+        generatedSlideCount: finalDeck.slides.length,
+      },
+      async () => {
+        await saveDeck(dataSource, finalDeck);
+        await saveDeckSnapshot(dataSource, finalDeck);
+        await saveTemplateBlueprint(
+          dataSource,
+          payload.projectId,
+          finalDeck.deckId,
+          finalTemplateBlueprint,
+          design.qualityReport,
+        );
+      },
     );
 
     const result = aiTemplateDeckGenerationJobResultSchema.parse({
@@ -309,6 +467,77 @@ export async function processAiTemplateDeckGenerationJob(
         : "AI template deck generation save failed.",
     );
   }
+}
+
+async function timedStage<T>(
+  stageLogger: AiTemplateDeckGenerationStageLogger | undefined,
+  base: AiTemplateDeckGenerationStageBase,
+  stage: AiTemplateDeckGenerationStage,
+  fields: AiTemplateDeckGenerationStageFields,
+  run: () => T | Promise<T>,
+  completeFields: (result: T) => AiTemplateDeckGenerationStageFields = () =>
+    ({}),
+): Promise<T> {
+  const startedAt = Date.now();
+  try {
+    const result = await run();
+    emitStageLog(stageLogger, {
+      event: "ai_template_deck_generation.stage.completed",
+      ...base,
+      ...fields,
+      ...completeFields(result),
+      stage,
+      durationMs: Date.now() - startedAt,
+    });
+    return result;
+  } catch (error) {
+    emitStageLog(stageLogger, {
+      event: "ai_template_deck_generation.stage.failed",
+      ...base,
+      ...fields,
+      stage,
+      durationMs: Date.now() - startedAt,
+      error: stageLogError(error),
+    });
+    throw error;
+  }
+}
+
+function stageLogBase(
+  payload: AiTemplateDeckGenerationPayload,
+): AiTemplateDeckGenerationStageBase {
+  return {
+    jobId: payload.jobId,
+    jobType: "ai-template-deck-generation",
+    projectId: payload.projectId,
+    slideCountMin: payload.request.slideCountRange.min,
+    slideCountMax: payload.request.slideCountRange.max,
+    contentAssetCount: payload.request.assets.filter(
+      (asset) => asset.role === "content" || asset.role === "both",
+    ).length,
+    designFileId: payload.request.assets.find(
+      (asset) => asset.role === "design" || asset.role === "both",
+    )?.fileId,
+  };
+}
+
+function emitStageLog(
+  stageLogger: AiTemplateDeckGenerationStageLogger | undefined,
+  log: AiTemplateDeckGenerationStageLog,
+): void {
+  try {
+    stageLogger?.(log);
+  } catch {
+    return;
+  }
+}
+
+function stageLogError(error: unknown): { name: string; message: string } {
+  if (error instanceof Error) {
+    return { name: error.name, message: error.message };
+  }
+
+  return { name: "Error", message: String(error) };
 }
 
 async function loadProjectAssets(
@@ -510,6 +739,7 @@ async function prepareDesignTemplate(
     templateBlueprint,
     qualityReport: generated.qualityReport,
     warnings: generated.warnings,
+    generatedAssetCount: generated.assets.length,
   };
 }
 

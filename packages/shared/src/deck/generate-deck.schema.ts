@@ -118,7 +118,8 @@ export const generateDeckResponseSchema = z.object({
   deck: deckSchema,
   templateSelection: z.array(templateSelectionItemSchema).optional(),
   warnings: z.array(z.string()).default([]),
-  validation: generateDeckValidationSchema
+  validation: generateDeckValidationSchema,
+  timings: z.record(z.number().int().nonnegative()).default({})
 });
 
 export const generateDeckJobResultSchema = generateDeckResponseSchema

@@ -1,7 +1,10 @@
 import type { StoragePort } from "@orbit/storage";
 import type { DataSource } from "typeorm";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { processAiTemplateDeckGenerationJob } from "./ai-template-deck-generation.processor";
+import {
+  processAiTemplateDeckGenerationJob,
+  type AiTemplateDeckGenerationStageLog,
+} from "./ai-template-deck-generation.processor";
 
 const pptxMimeType =
   "application/vnd.openxmlformats-officedocument.presentationml.presentation";
@@ -43,6 +46,7 @@ describe("processAiTemplateDeckGenerationJob", () => {
     const insertedDecks: unknown[] = [];
     const insertedSnapshots: unknown[][] = [];
     const insertedBlueprints: unknown[] = [];
+    const stageLogs: AiTemplateDeckGenerationStageLog[] = [];
     const query = vi.fn(async (sql: string, params: unknown[]) => {
       if (sql.includes("UPDATE jobs")) {
         return [
@@ -183,10 +187,64 @@ describe("processAiTemplateDeckGenerationJob", () => {
       { query } as unknown as DataSource,
       storage,
       "http://localhost:8000",
-      payload
+      payload,
+      (log) => stageLogs.push(log)
     );
 
     expect(job.status, JSON.stringify(job.error)).toBe("succeeded");
+    expect(stageLogs.map((log) => log.stage)).toEqual(
+      expect.arrayContaining([
+        "prepare.assets",
+        "prepare.content",
+        "prepare.design",
+        "prepare.total",
+        "generate.python",
+        "select.template",
+        "apply.pptx",
+        "save.assets",
+        "save.db"
+      ])
+    );
+    expect(stageLogs).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          event: "ai_template_deck_generation.stage.completed",
+          jobId: "job-template",
+          jobType: "ai-template-deck-generation",
+          projectId: "project-a",
+          stage: "prepare.assets",
+          slideCountMin: 4,
+          slideCountMax: 6,
+          contentAssetCount: 1,
+          designFileId: "file_design"
+        }),
+        expect.objectContaining({
+          event: "ai_template_deck_generation.stage.completed",
+          stage: "generate.python",
+          generatedSlideCount: 5,
+          pythonTimings: {
+            narrative: 1234,
+            quality_review: 56,
+            refiner: 789,
+            "refiner.image_review": 700
+          }
+        }),
+        expect.objectContaining({
+          event: "ai_template_deck_generation.stage.completed",
+          stage: "apply.pptx",
+          generatedAssetCount: 11
+        })
+      ])
+    );
+    for (const log of stageLogs) {
+      expect(log.durationMs).toEqual(expect.any(Number));
+      expect(log.durationMs).toBeGreaterThanOrEqual(0);
+    }
+    const serializedLogs = JSON.stringify(stageLogs);
+    expect(serializedLogs).not.toContain(payload.request.prompt);
+    expect(serializedLogs).not.toContain("contentBase64");
+    expect(serializedLogs).not.toContain(Buffer.from("pptx").toString("base64"));
+    expect(serializedLogs).not.toContain("http://storage.local");
     expect(fetchMock).toHaveBeenCalledWith(
       "http://localhost:8000/documents/parse",
       expect.objectContaining({ method: "POST" })
@@ -229,6 +287,104 @@ describe("processAiTemplateDeckGenerationJob", () => {
       currentPackageFileId: blueprint.currentPackageFileId,
       contentReferenceFileIds: ["file_content"]
     });
+  });
+
+  it("logs the failed stage without request or file bodies", async () => {
+    const stageLogs: AiTemplateDeckGenerationStageLog[] = [];
+    const query = vi.fn(async (sql: string, params: unknown[]) => {
+      if (sql.includes("UPDATE jobs")) {
+        return [
+          jobRow(
+            params[1] as "running" | "succeeded" | "failed",
+            params[2] as number,
+            params[4] as Record<string, unknown> | null,
+            params[5] as { code: string; message: string } | null
+          )
+        ];
+      }
+      if (sql.includes("FROM project_assets")) {
+        return [
+          {
+            file_id: "file_content",
+            project_id: "project-a",
+            storage_key: "projects/project-a/assets/file_content.pdf",
+            mime_type: "application/pdf",
+            original_name: "content.pdf",
+            size: 12,
+            purpose: "reference-material",
+            status: "uploaded"
+          },
+          {
+            file_id: "file_design",
+            project_id: "project-a",
+            storage_key: "projects/project-a/assets/file_design.pptx",
+            mime_type: pptxMimeType,
+            original_name: "design.pptx",
+            size: 24,
+            purpose: "pptx-import",
+            status: "uploaded"
+          }
+        ];
+      }
+      return [];
+    });
+    const fetchMock = vi.fn(async (input: string | URL) => {
+      const url = String(input);
+      if (url.startsWith("http://storage.local/")) {
+        return new Response(url.endsWith(".pptx") ? "pptx-bytes" : "content-bytes");
+      }
+      if (url.endsWith("/documents/parse")) {
+        return new Response(
+          JSON.stringify({
+            files: [
+              {
+                referenceDocumentId: "file_content",
+                fileName: "content.pdf",
+                kind: "pdf",
+                status: "succeeded",
+                rawText: "reference",
+                cleanedText: "cleaned reference",
+                keywords: [{ keyword: "ORBIT" }]
+              }
+            ]
+          })
+        );
+      }
+      if (url.endsWith("/ai/pptx-ooxml-generation")) {
+        return new Response(JSON.stringify(ooxmlGenerationResponse()));
+      }
+      if (url.endsWith("/ai/generate-deck")) {
+        return new Response("LLM unavailable", { status: 503 });
+      }
+
+      return new Response("unexpected", { status: 500 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const job = await processAiTemplateDeckGenerationJob(
+      { query } as unknown as DataSource,
+      storage,
+      "http://localhost:8000",
+      payload,
+      (log) => stageLogs.push(log)
+    );
+
+    expect(job.status).toBe("failed");
+    expect(job.error?.code).toBe("AI_TEMPLATE_DECK_GENERATION_CONTENT_FAILED");
+    expect(stageLogs).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          event: "ai_template_deck_generation.stage.failed",
+          stage: "generate.python",
+          error: { name: "Error", message: "LLM unavailable" }
+        })
+      ])
+    );
+    const serializedLogs = JSON.stringify(stageLogs);
+    expect(serializedLogs).not.toContain(payload.request.prompt);
+    expect(serializedLogs).not.toContain("contentBase64");
+    expect(serializedLogs).not.toContain(Buffer.from("pptx").toString("base64"));
+    expect(serializedLogs).not.toContain("http://storage.local");
   });
 
   it("sends slide body text to caption template slots", async () => {
@@ -639,6 +795,12 @@ function generateDeckResponse(
       designIssues: [],
       presentationIssues: [],
       ...validationOverrides
+    },
+    timings: {
+      narrative: 1234,
+      quality_review: 56,
+      refiner: 789,
+      "refiner.image_review": 700
     }
   };
 }

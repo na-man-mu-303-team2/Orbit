@@ -16,7 +16,10 @@ import { InjectDataSource } from "@nestjs/typeorm";
 import { type Job as BullMqJob, Worker as BullMqWorker } from "bullmq";
 import { InjectPinoLogger, PinoLogger } from "nestjs-pino";
 import type { DataSource } from "typeorm";
-import { processAiTemplateDeckGenerationJob } from "./ai-template-deck-generation.processor";
+import {
+  processAiTemplateDeckGenerationJob,
+  type AiTemplateDeckGenerationStageLog,
+} from "./ai-template-deck-generation.processor";
 import { processGenerateDeckJob } from "./generate-deck.processor";
 import { serializeLogError } from "./logging";
 import { processPptxOoxmlGenerationJob } from "./pptx-ooxml-generation.processor";
@@ -92,6 +95,7 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
           storage,
           this.config.PYTHON_WORKER_URL,
           job.data,
+          (log) => this.logAiTemplateDeckGenerationStage(log),
         ),
       ),
       this.createWorker(pptxOoxmlGenerationQueueName, (job) =>
@@ -221,6 +225,18 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
       );
       throw error;
     }
+  }
+
+  private logAiTemplateDeckGenerationStage(
+    log: AiTemplateDeckGenerationStageLog,
+  ): void {
+    const level = log.event.endsWith(".failed") ? "error" : "info";
+    this.logger[level](
+      log,
+      level === "error"
+        ? "AI template deck generation stage failed."
+        : "AI template deck generation stage completed.",
+    );
   }
 }
 
