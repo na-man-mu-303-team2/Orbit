@@ -38,3 +38,4 @@ redis-data/
 # Local extracted archives and STT model artifacts
 __MACOSX/
 sherpa-onnx-streaming-zipformer-korean-*/
+docker-compose.override.yml
