@@ -93,7 +93,7 @@ AUTH_COOKIE_SECURE=false
 - storage driver는 MinIO를 사용한다.
 - MinIO bucket은 staging local-default validation을 피하기 위해 `orbit-personal-staging`을 사용한다.
 - queue driver는 BullMQ를 사용한다.
-- Live STT provider는 `sherpa`, report STT provider는 Python worker의 현재 지원 범위에 맞춰 `openai`를 사용한다.
+- Live STT provider는 `sherpa`, browser Live STT engine은 `LIVE_STT_ENGINE`으로 `openai-realtime` 또는 `web-speech`를 선택한다. report STT provider는 Python worker의 현재 지원 범위에 맞춰 `openai`를 사용한다.
 - OCR provider는 Python worker 경로를 사용한다.
 - AWS Textract는 사용하지 않는다.
 

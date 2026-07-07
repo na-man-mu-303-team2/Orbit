@@ -20,6 +20,7 @@ import { ReferencesModule } from "./references/references.module";
 import { RealtimeGateway } from "./realtime/realtime.gateway";
 import { RealtimeTranscriptionModule } from "./realtime-transcription/realtime-transcription.module";
 import { RehearsalsModule } from "./rehearsals/rehearsals.module";
+import { RuntimeConfigModule } from "./runtime-config/runtime-config.module";
 
 @Module({
   imports: [
@@ -39,6 +40,7 @@ import { RehearsalsModule } from "./rehearsals/rehearsals.module";
     JobsModule,
     PresentationSessionsModule,
     ReferencesModule,
+    RuntimeConfigModule,
     RealtimeTranscriptionModule,
     RehearsalsModule
   ],

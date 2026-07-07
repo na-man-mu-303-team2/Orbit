@@ -711,7 +711,7 @@ describe("RehearsalWorkspace", () => {
     expect(handleSideTimerPrimaryActionBody).not.toContain("void startLiveDemo()");
   });
 
-  it("creates fallback Live STT ports from the selected presenter engine", () => {
+  it("creates fallback Live STT ports from the runtime-configured engine", () => {
     const source = fs.readFileSync(rehearsalWorkspaceSourcePath, "utf8");
     const defaultStart = source.indexOf("function createDefaultLiveSttPort");
     const defaultEnd = source.indexOf("export function RehearsalWorkspace");
@@ -732,7 +732,7 @@ describe("RehearsalWorkspace", () => {
     expect(createDefaultLiveSttPortBody).toContain("projectId");
     expect(getOrCreateLiveSttPortBody).toContain("props.liveSttPort");
     expect(getOrCreateLiveSttPortBody).toContain(
-      "cachedPort?.engineId === presenterSettings.sttEngine",
+      "cachedPort?.engineId === engineId",
     );
     expect(getOrCreateLiveSttPortBody).toContain(
       'cachedPort.engineId !== "openai-realtime"',
@@ -740,8 +740,9 @@ describe("RehearsalWorkspace", () => {
     expect(getOrCreateLiveSttPortBody).toContain("activeProjectId");
     expect(getOrCreateLiveSttPortBody).toContain("cachedPort?.dispose()");
     expect(getOrCreateLiveSttPortBody).toContain(
-      "engineId: presenterSettings.sttEngine",
+      "engineId",
     );
+    expect(source).toContain("await fetchLiveSttRuntimeConfig()");
   });
 
   it("routes report recording through the P3 tracking session", () => {

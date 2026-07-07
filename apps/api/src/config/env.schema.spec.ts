@@ -25,6 +25,7 @@ const validEnv = {
   S3_FORCE_PATH_STYLE: "true",
   JOB_QUEUE_DRIVER: "bullmq",
   LIVE_STT_PROVIDER: "sherpa",
+  LIVE_STT_ENGINE: "openai-realtime",
   REPORT_STT_PROVIDER: "openai",
   OCR_PROVIDER: "python",
   LLM_PROVIDER: "openai",
@@ -139,6 +140,7 @@ describe("ORBIT env validation", () => {
     const config = loadOrbitConfig(validEnv, { service: "api" });
 
     expect(config.LIVE_STT_PROVIDER).toBe("sherpa");
+    expect(config.LIVE_STT_ENGINE).toBe("openai-realtime");
     expect(config.REPORT_STT_PROVIDER).toBe("openai");
     expect(config.REHEARSAL_AUDIO_MAX_BYTES).toBe(25000000);
     expect(() =>
@@ -147,6 +149,12 @@ describe("ORBIT env validation", () => {
         { service: "api" }
       )
     ).toThrow(/LIVE_STT_PROVIDER/);
+    expect(() =>
+      loadOrbitConfig(
+        { ...validEnv, LIVE_STT_ENGINE: "sherpa" },
+        { service: "api" }
+      )
+    ).toThrow(/LIVE_STT_ENGINE/);
     expect(() =>
       loadOrbitConfig(
         { ...validEnv, REPORT_STT_PROVIDER: "sherpa" },

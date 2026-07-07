@@ -82,6 +82,7 @@ import {
   type LiveSttResult,
 } from "./stt/liveSttPort";
 import { createLiveSttPort } from "./stt/liveSttEngineRegistry";
+import { fetchLiveSttRuntimeConfig } from "./stt/liveSttRuntimeConfig";
 import { normalizeLiveTranscriptText } from "./stt/liveTranscriptText";
 import {
   getBrowserSpeechRecognitionConstructor,
@@ -2316,7 +2317,7 @@ export function RehearsalWorkspace(props: {
     setTimerDurationSeconds(Math.min(nextSeconds, 60 * 60 * 24 - 1));
   }
 
-  function getOrCreateLiveSttPort() {
+  function getOrCreateLiveSttPort(engineId: LiveSttEngineId) {
     if (props.liveSttPort) {
       liveSttPortRef.current = props.liveSttPort;
       return props.liveSttPort;
@@ -2326,7 +2327,7 @@ export function RehearsalWorkspace(props: {
     const activeProjectId =
       deckRef.current?.projectId ?? props.projectId ?? demoIds.projectId;
     if (
-      cachedPort?.engineId === presenterSettings.sttEngine &&
+      cachedPort?.engineId === engineId &&
       (cachedPort.engineId !== "openai-realtime" ||
         readLiveSttPortProjectId(cachedPort) === activeProjectId)
     ) {
@@ -2335,7 +2336,7 @@ export function RehearsalWorkspace(props: {
 
     cachedPort?.dispose();
     const port = createDefaultLiveSttPort({
-      engineId: presenterSettings.sttEngine,
+      engineId,
       legacyAdapter: props.liveSttAdapter,
       onAudioLevel: setLiveAudioLevel,
       onDebugPcmAvailable: setLiveDebugPcmRecording,
@@ -2353,7 +2354,20 @@ export function RehearsalWorkspace(props: {
       return false;
     }
 
-    const port = getOrCreateLiveSttPort();
+    let port: LiveSttPort;
+    try {
+      const effectiveEngineId = props.liveSttPort
+        ? props.liveSttPort.engineId
+        : (await fetchLiveSttRuntimeConfig()).liveSttEngine;
+      port = getOrCreateLiveSttPort(effectiveEngineId);
+    } catch (cause) {
+      const error = toLiveSttError(cause);
+      setLiveStatus(isLiveSttUnavailable(error) ? "unavailable" : "failed");
+      setLiveError(error.message);
+      setLiveAudioLevel(null);
+      resetAutoAdvanceRuntimeState(currentSlide?.slideId ?? null);
+      return false;
+    }
     liveSttPortRef.current = port;
     setLiveStatus("starting");
     setLiveAudioLevel(null);

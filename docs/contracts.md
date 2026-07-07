@@ -1004,6 +1004,7 @@ Implementation locations:
 발표/리허설 중 사용자의 발화를 실시간으로 인식해 화면 제어에 사용한다.
 
 - device-local provider env: `LIVE_STT_PROVIDER=sherpa`
+- browser engine env: `LIVE_STT_ENGINE=openai-realtime | web-speech`
 - 기본 browser engine: `openai-realtime`
 - OpenAI model env: `OPENAI_REALTIME_TRANSCRIPTION_MODEL=gpt-realtime-whisper`
 - 실행 위치: web 또는 device-local runtime
@@ -1012,7 +1013,14 @@ Implementation locations:
 - 출력: partial transcript, keyword detection, cue event, slide advance signal
 - 원칙: raw audio를 서버 리포트용 storage에 업로드하지 않는다.
 - OpenAI Realtime 경로는 raw OpenAI API key를 브라우저에 노출하지 않고, API가 project read 권한을 확인한 뒤 ephemeral client secret만 반환한다.
+- API runtime config 경로는 `LIVE_STT_ENGINE`만 노출한다. web은 이 값을 presenter localStorage의 `sttEngine`보다 우선하며, `web-speech`가 미지원이면 OpenAI로 자동 fallback하지 않는다.
 - 구현 위치: `packages/shared/src/rehearsals/live-stt.schema.ts`, `packages/shared/src/rehearsals/realtime-transcription.schema.ts`, `apps/api/src/realtime-transcription`, `apps/web/src/features/rehearsal`
+
+Runtime config API:
+
+- `GET /api/v1/runtime-config`
+  - 인증: 없음. secret 값을 포함하지 않는 공개 런타임 설정만 반환한다.
+  - response: `{ "liveSttEngine": "openai-realtime" }`
 
 OpenAI Realtime client secret API:
 
