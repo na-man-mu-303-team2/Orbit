@@ -4,6 +4,7 @@ import {
   Download,
   FileText,
   Layers,
+  Mic,
   Repeat2,
   Sparkles,
   Target,
@@ -12,8 +13,18 @@ import {
 import { useMemo, useState } from "react";
 import type { Deck, RehearsalReport, RehearsalRun } from "@orbit/shared";
 import { resolveEditorAssetUrl } from "../editor/shared/editorAssetUrl";
+import { navigateTo } from "./rehearsalUtils";
 
 const TRANSCRIPT_WINDOW_MS = 30 * 60 * 1000;
+
+type ReportAiSummary = {
+  headline: string;
+  paragraphs: string[];
+};
+
+type ReportWithOptionalAiSummary = RehearsalReport & {
+  aiSummary?: ReportAiSummary | null;
+};
 
 function fmt(totalSeconds: number) {
   const s = Math.max(0, Math.floor(totalSeconds));
@@ -52,12 +63,23 @@ function getSlideName(deck: Deck, slideId: string) {
   return t || `슬라이드 ${slide.order}`;
 }
 
-function downloadTranscript(title: string, transcript: string) {
-  const blob = new Blob([transcript], { type: "text/plain;charset=utf-8" });
+function escapeHtml(value: string) {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;");
+}
+
+function downloadTranscriptDoc(title: string, transcript: string) {
+  const html = `<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(
+    title,
+  )}</title></head><body><pre>${escapeHtml(transcript)}</pre></body></html>`;
+  const blob = new Blob([html], { type: "application/msword;charset=utf-8" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = `${title}_전사본.txt`;
+  a.download = `${title}_전사본.doc`;
   a.click();
   URL.revokeObjectURL(url);
 }
@@ -65,6 +87,7 @@ function downloadTranscript(title: string, transcript: string) {
 type Props = {
   deck: Deck | null;
   prevReports: RehearsalReport[];
+  projectId: string;
   report: RehearsalReport;
   run: RehearsalRun | null;
   runNumber: number | null;
@@ -74,6 +97,7 @@ type Props = {
 export function RehearsalReportDocument({
   deck,
   prevReports,
+  projectId,
   report,
   run,
   runNumber,
@@ -91,7 +115,19 @@ export function RehearsalReportDocument({
 
   const runDate = run?.createdAt ? formatDate(run.createdAt) : "";
   const title =
-    runNumber != null ? `리허설 ${runNumber}회차 리포트` : "리허설 리포트";
+    runNumber != null ? `${runNumber}회차 리허설 리포트` : "리허설 리포트";
+  const reportWithAiSummary = report as ReportWithOptionalAiSummary;
+  const aiSummary = reportWithAiSummary.aiSummary ?? (
+    coaching?.summary
+      ? {
+          headline: coaching.summary,
+          paragraphs: [
+            ...coaching.improvements.slice(0, 2),
+            coaching.nextPracticeFocus,
+          ].filter(Boolean).slice(0, 3),
+        }
+      : null
+  );
 
   const transcriptAvailable =
     report.transcriptRetained &&
@@ -162,6 +198,20 @@ export function RehearsalReportDocument({
   const fillerDelta = prevReport
     ? report.metrics.fillerWordCount - prevReport.metrics.fillerWordCount
     : null;
+  const durationTrend = [
+    ...prevReports
+      .slice()
+      .reverse()
+      .map((pr, index) => ({
+        label: `이전 ${prevReports.length - index}`,
+        seconds: pr.metrics.durationSeconds,
+      })),
+    { label: "이번", seconds: report.metrics.durationSeconds },
+  ];
+  const maxTrendSeconds = Math.max(
+    1,
+    ...durationTrend.map((item) => item.seconds),
+  );
 
   return (
     <div className="rrd-root">
@@ -171,29 +221,137 @@ export function RehearsalReportDocument({
           <h1 className="rrd-hero-title">{title}</h1>
           <time className="rrd-hero-date">{runDate}</time>
         </div>
+        <button
+          type="button"
+          className="rrd-hero-action"
+          onClick={() => navigateTo(`/rehearsal/${encodeURIComponent(projectId)}`)}
+        >
+          <Mic size={15} />
+          바로 다시 리허설
+        </button>
       </section>
 
-      {/* ── 1. Summary ── */}
+      {/* ── 1. AI summary ── */}
       <section className="rrd-card rrd-ai-card">
         <header className="rrd-card-head">
           <Sparkles size={16} className="rrd-card-icon rrd-card-icon-ai" />
-          <h2>Summary</h2>
+          <h2>AI 총평</h2>
         </header>
 
         <div className="rrd-summary-block">
-          <span className="rrd-summary-block-label">전체 공통 피드백</span>
-          {coaching?.summary ? (
-            <p className="rrd-ai-summary">{coaching.summary}</p>
+          <span className="rrd-summary-block-label">한 줄 요약</span>
+          {aiSummary?.headline ? (
+            <p className="rrd-ai-summary">{aiSummary.headline}</p>
           ) : (
             <p className="rrd-empty-hint">피드백 데이터가 없습니다.</p>
           )}
-          {coaching?.improvements && coaching.improvements.length > 0 && (
-            <ul className="rrd-ai-points">
-              {coaching.improvements.slice(0, 3).map((item) => (
-                <li key={item}>{item}</li>
+        </div>
+
+        <div className="rrd-summary-block">
+          <span className="rrd-summary-block-label">총평</span>
+          {aiSummary?.paragraphs && aiSummary.paragraphs.length > 0 ? (
+            <div className="rrd-ai-paragraphs">
+              {aiSummary.paragraphs.slice(0, 3).map((paragraph) => (
+                <p key={paragraph}>{paragraph}</p>
               ))}
-            </ul>
+            </div>
+          ) : (
+            <p className="rrd-empty-hint">구조화된 AI 총평 데이터가 없습니다.</p>
           )}
+        </div>
+      </section>
+
+      {/* ── 2. Overview ── */}
+      <section className="rrd-card rrd-overview-card">
+        <header className="rrd-card-head">
+          <FileText size={16} className="rrd-card-icon" />
+          <h2>이번 발표 상태</h2>
+        </header>
+
+        <div className="rrd-overview-grid">
+          <div className="rrd-overview-metric rrd-overview-metric-primary">
+            <span>전체 발표 시간</span>
+            <strong>{fmt(metrics.durationSeconds)}</strong>
+            <em>
+              {durationDelta === null
+                ? "비교할 이전 리허설 없음"
+                : `직전 대비 ${fmtDelta(durationDelta)}`}
+            </em>
+          </div>
+          <div className="rrd-overview-metric">
+            <span>말버릇 총 횟수</span>
+            <strong>{metrics.fillerWordCount}회</strong>
+            <em>
+              {fillerDelta === null
+                ? "이전 비교 없음"
+                : `직전 대비 ${fillerDelta === 0 ? "변화 없음" : `${fillerDelta > 0 ? "+" : ""}${fillerDelta}회`}`}
+            </em>
+          </div>
+          <div className="rrd-overview-metric">
+            <span>긴 멈춤</span>
+            <strong>{metrics.pauseCount}회</strong>
+            <em>1초 이상 침묵 기준</em>
+          </div>
+          <div className="rrd-overview-metric">
+            <span>키워드 커버리지</span>
+            <strong>{Math.round(metrics.keywordCoverage * 100)}%</strong>
+            <em>저장된 장표 키워드 기준</em>
+          </div>
+        </div>
+
+        <div className="rrd-overview-columns">
+          <div className="rrd-overview-panel">
+            <h3 className="rrd-section-label">이전 리허설 대비 시간 그래프</h3>
+            <div className="rrd-time-trend">
+              {durationTrend.map((item) => (
+                <div key={item.label} className="rrd-time-trend-row">
+                  <span>{item.label}</span>
+                  <div className="rrd-time-trend-bar-wrap">
+                    <div
+                      className="rrd-time-trend-bar"
+                      style={{ width: `${Math.max(6, (item.seconds / maxTrendSeconds) * 100)}%` }}
+                    />
+                  </div>
+                  <strong>{fmt(item.seconds)}</strong>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="rrd-overview-panel">
+            <h3 className="rrd-section-label">슬라이드별 소요 시간</h3>
+            {deck && slideTimings.length > 0 ? (
+              <div className="rrd-overview-slide-list">
+                {slideTimings.slice(0, 5).map((timing) => {
+                  const slide = getSlide(deck, timing.slideId);
+                  const thumbnailUrl = slide?.thumbnailUrl
+                    ? resolveEditorAssetUrl(slide.thumbnailUrl)
+                    : "";
+                  return (
+                    <div key={timing.slideId} className="rrd-overview-slide-row">
+                      <div className="rrd-slide-thumb">
+                        {thumbnailUrl ? (
+                          <img
+                            src={thumbnailUrl}
+                            alt=""
+                            className="rrd-slide-thumb-img"
+                          />
+                        ) : (
+                          <div className="rrd-slide-thumb-placeholder">
+                            <FileText size={14} />
+                          </div>
+                        )}
+                      </div>
+                      <span>{getSlideName(deck, timing.slideId)}</span>
+                      <strong>{fmt(timing.actualSeconds)}</strong>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <p className="rrd-empty-hint">슬라이드 타이밍 데이터가 없습니다.</p>
+            )}
+          </div>
         </div>
 
         <div
@@ -281,7 +439,7 @@ export function RehearsalReportDocument({
         </div>
       </section>
 
-      {/* ── 2. 장표별 분석 ── */}
+      {/* ── 3. 장표별 분석 ── */}
       <section className="rrd-card">
         <header className="rrd-card-head">
           <Layers size={16} className="rrd-card-icon" />
@@ -403,7 +561,7 @@ export function RehearsalReportDocument({
         )}
       </section>
 
-      {/* ── 3. 계속 문제였던 장표 ── */}
+      {/* ── 4. 계속 문제였던 장표 ── */}
       <section
         className={`rrd-card${totalRunCount < 2 ? " rrd-card-disabled" : ""}`}
       >
@@ -450,7 +608,7 @@ export function RehearsalReportDocument({
         )}
       </section>
 
-      {/* ── 4. 말버릇 / 멈춤 ── */}
+      {/* ── 5. 말버릇 / 멈춤 ── */}
       <section className="rrd-card">
         <header className="rrd-card-head">
           <Volume2 size={16} className="rrd-card-icon" />
@@ -496,7 +654,7 @@ export function RehearsalReportDocument({
         )}
       </section>
 
-      {/* ── 5. 전체 코칭 ── */}
+      {/* ── 6. 전체 코칭 ── */}
       {coaching && (
         <section className="rrd-card">
           <header className="rrd-card-head">
@@ -536,7 +694,7 @@ export function RehearsalReportDocument({
         </section>
       )}
 
-      {/* ── 6. 전사본 ── */}
+      {/* ── 7. 전사본 ── */}
       {transcriptAvailable && (
         <section className="rrd-card rrd-transcript-card">
           <header className="rrd-card-head">
@@ -548,14 +706,14 @@ export function RehearsalReportDocument({
                 type="button"
                 className="rrd-transcript-download"
                 onClick={() =>
-                  downloadTranscript(
+                  downloadTranscriptDoc(
                     deck?.title ?? "리허설",
                     report.transcript ?? "",
                   )
                 }
               >
                 <Download size={14} />
-                내려받기
+                DOC 내려받기
               </button>
               <button
                 type="button"

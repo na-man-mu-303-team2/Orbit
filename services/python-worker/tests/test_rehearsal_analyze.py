@@ -24,6 +24,13 @@ class FakeResponses:
                 "output_text": json.dumps(
                     {
                         "summary": "핵심 메시지가 분명합니다.",
+                        "aiSummary": {
+                            "headline": "핵심 메시지가 분명합니다.",
+                            "paragraphs": [
+                                "발표 흐름은 안정적입니다.",
+                                "다음 연습에서는 도입부를 더 짧게 연습하세요.",
+                            ],
+                        },
                         "strengths": ["키워드를 언급했습니다."],
                         "improvements": ["불필요한 filler를 줄이세요."],
                         "nextPracticeFocus": "도입부를 더 짧게 연습하세요.",
@@ -214,6 +221,11 @@ def test_generate_rehearsal_coaching_parses_structured_llm_response() -> None:
 
     assert coaching.status == "succeeded"
     assert coaching.summary == "핵심 메시지가 분명합니다."
+    assert coaching.ai_summary_headline == "핵심 메시지가 분명합니다."
+    assert coaching.ai_summary_paragraphs == [
+        "발표 흐름은 안정적입니다.",
+        "다음 연습에서는 도입부를 더 짧게 연습하세요.",
+    ]
     assert coaching.next_practice_focus == "도입부를 더 짧게 연습하세요."
 
 

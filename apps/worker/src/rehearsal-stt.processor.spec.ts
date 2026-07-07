@@ -151,6 +151,13 @@ describe("processRehearsalSttJob", () => {
               fillerWordDetails: [{ word: "음", count: 1 }],
               pauseDetails: [{ startSecond: 1, endSecond: 2.2, durationSeconds: 1.2 }],
               missedKeywords: [{ slideId: "slide_1", keywordId: "kw_1", text: "ORBIT" }],
+              aiSummary: {
+                headline: "도입부 핵심 메시지가 약했습니다.",
+                paragraphs: [
+                  "발표 흐름은 안정적이었지만 ORBIT 키워드가 빠졌습니다.",
+                  "다음 연습에서는 도입부 핵심 문장을 고정하세요."
+                ]
+              },
               coaching: { status: "succeeded", summary: "clear" }
             })
           )
@@ -201,13 +208,20 @@ describe("processRehearsalSttJob", () => {
           transcriptRetained: false,
           transcript: null,
           segmentCount: 1,
-          report: expect.objectContaining({
-            reportId: "report_run-a",
-            transcriptRetained: false,
-            transcript: null,
-            fillerWordDetails: [{ word: "음", count: 1 }],
-            pauseDetails: [{ startSecond: 1, endSecond: 2.2, durationSeconds: 1.2 }]
-          })
+            report: expect.objectContaining({
+              reportId: "report_run-a",
+              transcriptRetained: false,
+              transcript: null,
+              aiSummary: {
+                headline: "도입부 핵심 메시지가 약했습니다.",
+                paragraphs: [
+                  "발표 흐름은 안정적이었지만 ORBIT 키워드가 빠졌습니다.",
+                  "다음 연습에서는 도입부 핵심 문장을 고정하세요."
+                ]
+              },
+              fillerWordDetails: [{ word: "음", count: 1 }],
+              pauseDetails: [{ startSecond: 1, endSecond: 2.2, durationSeconds: 1.2 }]
+            })
         }),
         null
       ])

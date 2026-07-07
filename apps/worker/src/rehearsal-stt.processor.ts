@@ -90,6 +90,13 @@ const analyzeMissedKeywordSchema = z
   })
   .strict();
 
+const analyzeAiSummarySchema = z
+  .object({
+    headline: z.string().trim().min(1),
+    paragraphs: z.array(z.string().trim().min(1)).min(1).max(3)
+  })
+  .strict();
+
 const analyzeResponseSchema = z.object({
   runId: z.string().min(1),
   wordsPerMinute: z.number().nonnegative(),
@@ -100,6 +107,7 @@ const analyzeResponseSchema = z.object({
   fillerWordDetails: z.array(analyzeFillerWordDetailSchema).default([]),
   pauseDetails: z.array(analyzePauseDetailSchema).default([]),
   missedKeywords: z.array(analyzeMissedKeywordSchema).default([]),
+  aiSummary: analyzeAiSummarySchema.optional(),
   coaching: z.record(z.unknown()).optional()
 });
 
@@ -330,6 +338,7 @@ function buildRehearsalReport(
       questionSummary: "",
       unclearTopics: []
     },
+    aiSummary: analysis.aiSummary ?? null,
     coaching: analysis.coaching ?? null,
     generatedAt
   });

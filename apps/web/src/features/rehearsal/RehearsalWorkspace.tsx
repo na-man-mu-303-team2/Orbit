@@ -3999,6 +3999,7 @@ export function RehearsalReportPage(props: {
               deck={deck}
               run={run}
               runNumber={currentRunIndex >= 0 ? allSucceededRuns.length - currentRunIndex : null}
+              projectId={props.projectId}
               totalRunCount={allSucceededRuns.length}
               prevReports={prevReports}
             />
