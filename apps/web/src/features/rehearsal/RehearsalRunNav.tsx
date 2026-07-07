@@ -1,7 +1,11 @@
 import { CalendarDays, Loader2 } from "lucide-react";
 import type { RehearsalRun } from "@orbit/shared";
 import { getRehearsalReportPath } from "./RehearsalWorkspace";
-import { navigateTo, formatRunDate } from "./rehearsalUtils";
+import {
+  navigateTo,
+  formatRunDate,
+  sortRehearsalRunsByCreatedAt,
+} from "./rehearsalUtils";
 
 type RehearsalRunNavProps = {
   runs: RehearsalRun[];
@@ -16,6 +20,8 @@ export function RehearsalRunNav({
   projectId,
   loading,
 }: RehearsalRunNavProps) {
+  const orderedRuns = sortRehearsalRunsByCreatedAt(runs);
+
   return (
     <aside className="rehearsal-report-nav" aria-label="회차별 리포트">
       {loading ? (
@@ -28,7 +34,7 @@ export function RehearsalRunNav({
             <h2>리허설</h2>
           </header>
           <ul className="rehearsal-report-nav-list">
-            {runs.map((run, i) => (
+            {orderedRuns.map((run, i) => (
               <li key={run.runId}>
                 <button
                   type="button"

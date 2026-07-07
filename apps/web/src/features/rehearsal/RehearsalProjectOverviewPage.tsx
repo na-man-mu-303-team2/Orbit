@@ -2,9 +2,13 @@ import { ArrowLeft, FileText, Loader2, Mic, TrendingUp } from "lucide-react";
 import { useEffect, useState } from "react";
 import type { Project, RehearsalRun } from "@orbit/shared";
 import { fetchProjects } from "../projects/ProjectAssetWorkspace";
-import { fetchProjectRehearsalRuns } from "./RehearsalWorkspace";
+import { fetchProjectRehearsalReportRuns } from "./reportApi";
 import { RehearsalRunNav } from "./RehearsalRunNav";
-import { navigateTo, formatRunDate } from "./rehearsalUtils";
+import {
+  navigateTo,
+  formatRunDate,
+  sortRehearsalRunsByCreatedAt,
+} from "./rehearsalUtils";
 
 export function RehearsalProjectOverviewPage({
   projectId,
@@ -17,30 +21,35 @@ export function RehearsalProjectOverviewPage({
 
   useEffect(() => {
     let isMounted = true;
+    setProject(null);
+    setRuns([]);
+    setLoading(true);
+
     void Promise.all([
       fetchProjects(),
-      fetchProjectRehearsalRuns(projectId),
+      fetchProjectRehearsalReportRuns(projectId),
     ])
-      .then(([projects, allRuns]) => {
+      .then(([projects, { runs: succeededRuns }]) => {
         if (!isMounted) return;
         const proj =
           projects.find((p) => p.projectId === projectId) ?? null;
-        const succeeded = allRuns
-          .filter((r) => r.status === "succeeded")
-          .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
+        const succeeded = sortRehearsalRunsByCreatedAt(succeededRuns);
         setProject(proj);
         setRuns(succeeded);
         setLoading(false);
       })
       .catch(() => {
-        if (isMounted) setLoading(false);
+        if (!isMounted) return;
+        setProject(null);
+        setRuns([]);
+        setLoading(false);
       });
     return () => {
       isMounted = false;
     };
   }, [projectId]);
 
-  const latestRun = runs[0] ?? null;
+  const latestRun = runs[runs.length - 1] ?? null;
   const showSummary = runs.length >= 2;
 
   return (
