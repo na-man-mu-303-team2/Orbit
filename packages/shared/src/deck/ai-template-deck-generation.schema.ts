@@ -43,6 +43,7 @@ export const aiTemplateDeckGenerationJobResultSchema = z.object({
   contentReferenceFileIds: z.array(z.string().min(1)).default([]),
   qualityReport: qualityReportSchema,
   warnings: z.array(z.string()).default([]),
+  timings: z.record(z.number().nonnegative()).default({}),
 });
 
 export type AiTemplateDeckAssetRole = z.infer<

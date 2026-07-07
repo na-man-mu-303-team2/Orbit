@@ -230,6 +230,16 @@ describe("processAiTemplateDeckGenerationJob", () => {
       currentPackageFileId: blueprint.currentPackageFileId,
       contentReferenceFileIds: ["file_content"]
     });
+    expect(job.result?.timings).toMatchObject({
+      "prepare.loadAssets": expect.any(Number),
+      "prepare.content": expect.any(Number),
+      "prepare.design": expect.any(Number),
+      "generate.python": expect.any(Number),
+      "apply.pptx": expect.any(Number),
+      "save.assets": expect.any(Number),
+      "save.deck": expect.any(Number),
+      total: expect.any(Number)
+    });
   });
 
   it("sends slide body text to caption template slots", async () => {

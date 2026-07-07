@@ -133,6 +133,23 @@ type JobRow = {
 const pptxMimeType =
   "application/vnd.openxmlformats-officedocument.presentationml.presentation";
 
+async function timeStage<T>(
+  timings: Record<string, number>,
+  key: string,
+  run: () => Promise<T>,
+): Promise<T> {
+  const startedAt = Date.now();
+  try {
+    return await run();
+  } finally {
+    timings[key] = elapsedSeconds(startedAt);
+  }
+}
+
+function elapsedSeconds(startedAt: number): number {
+  return Number(((Date.now() - startedAt) / 1000).toFixed(3));
+}
+
 export async function processAiTemplateDeckGenerationJob(
   dataSource: DataSource,
   storage: Pick<StoragePort, "getSignedReadUrl" | "putObject">,
@@ -164,6 +181,8 @@ export async function processAiTemplateDeckGenerationJob(
   }
 
   const payload = payloadResult.data;
+  const timings: Record<string, number> = {};
+  const totalStartedAt = Date.now();
   await updateJob(dataSource, payload.jobId, {
     status: "running",
     progress: 8,
@@ -175,27 +194,42 @@ export async function processAiTemplateDeckGenerationJob(
   let content: ContentPreparation;
   let design: DesignPreparation;
   try {
-    const assets = await loadProjectAssets(
-      dataSource,
-      payload.projectId,
-      payload.request.assets.map((asset) => asset.fileId),
+    const assets = await timeStage(
+      timings,
+      "prepare.loadAssets",
+      () =>
+        loadProjectAssets(
+          dataSource,
+          payload.projectId,
+          payload.request.assets.map((asset) => asset.fileId),
+        ),
     );
     const designAsset = selectDesignAsset(payload.request, assets);
     const contentAssets = selectContentAssets(payload.request, assets);
 
     [content, design] = await Promise.all([
-      prepareContentReferences(
-        storage,
-        pythonWorkerUrl,
-        payload.projectId,
-        contentAssets,
+      timeStage(
+        timings,
+        "prepare.content",
+        () =>
+          prepareContentReferences(
+            storage,
+            pythonWorkerUrl,
+            payload.projectId,
+            contentAssets,
+          ),
       ),
-      prepareDesignTemplate(
-        dataSource,
-        storage,
-        pythonWorkerUrl,
-        payload.projectId,
-        designAsset,
+      timeStage(
+        timings,
+        "prepare.design",
+        () =>
+          prepareDesignTemplate(
+            dataSource,
+            storage,
+            pythonWorkerUrl,
+            payload.projectId,
+            designAsset,
+          ),
       ),
     ]);
   } catch (error) {
@@ -220,12 +254,17 @@ export async function processAiTemplateDeckGenerationJob(
 
   let generatedDeck: z.infer<typeof generateDeckResponseSchema>;
   try {
-    generatedDeck = await generateDeckWithPython(
-      pythonWorkerUrl,
-      payload.projectId,
-      payload.request,
-      content,
-      design,
+    generatedDeck = await timeStage(
+      timings,
+      "generate.python",
+      () =>
+        generateDeckWithPython(
+          pythonWorkerUrl,
+          payload.projectId,
+          payload.request,
+          content,
+          design,
+        ),
     );
   } catch (error) {
     return failJob(
@@ -243,18 +282,22 @@ export async function processAiTemplateDeckGenerationJob(
       generatedDeck.templateSelection,
       generatedDeck.deck.slides.length,
     );
-    const applyResult = await applyGeneratedContentToPptx(
-      storage,
-      pythonWorkerUrl,
-      design.asset,
-      selectedTemplateBlueprint,
-      generatedDeck.deck,
+    const applyResult = await timeStage(
+      timings,
+      "apply.pptx",
+      () =>
+        applyGeneratedContentToPptx(
+          storage,
+          pythonWorkerUrl,
+          design.asset,
+          selectedTemplateBlueprint,
+          generatedDeck.deck,
+        ),
     );
-    const finalAssetRefs = await saveGeneratedAssets(
-      dataSource,
-      storage,
-      payload.projectId,
-      applyResult,
+    const finalAssetRefs = await timeStage(
+      timings,
+      "save.assets",
+      () => saveGeneratedAssets(dataSource, storage, payload.projectId, applyResult),
     );
     const finalTemplateBlueprint = templateBlueprintSchema.parse(
       applyFinalTemplateAssetRefs(selectedTemplateBlueprint, finalAssetRefs.fileIds),
@@ -265,15 +308,22 @@ export async function processAiTemplateDeckGenerationJob(
       finalAssetRefs.urls,
     );
 
-    await saveDeck(dataSource, finalDeck);
-    await saveDeckSnapshot(dataSource, finalDeck);
-    await saveTemplateBlueprint(
-      dataSource,
-      payload.projectId,
-      finalDeck.deckId,
-      finalTemplateBlueprint,
-      design.qualityReport,
+    await timeStage(
+      timings,
+      "save.deck",
+      async () => {
+        await saveDeck(dataSource, finalDeck);
+        await saveDeckSnapshot(dataSource, finalDeck);
+        await saveTemplateBlueprint(
+          dataSource,
+          payload.projectId,
+          finalDeck.deckId,
+          finalTemplateBlueprint,
+          design.qualityReport,
+        );
+      },
     );
+    timings.total = elapsedSeconds(totalStartedAt);
 
     const result = aiTemplateDeckGenerationJobResultSchema.parse({
       deckId: finalDeck.deckId,
@@ -289,6 +339,7 @@ export async function processAiTemplateDeckGenerationJob(
         ...generatedDeck.warnings,
         ...applyResult.warnings,
       ]),
+      timings,
     });
 
     return updateJob(dataSource, payload.jobId, {
