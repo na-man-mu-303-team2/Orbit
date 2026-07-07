@@ -11,6 +11,7 @@ import type { ReactNode } from "react";
 import { forwardRef } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { RehearsalReportDocument } from "./RehearsalReportDocument";
 import {
   LiveSttAdapterError,
   RehearsalReportPage,
@@ -1006,11 +1007,49 @@ describe("RehearsalWorkspace", () => {
     expect(html).toContain("긴 멈춤");
     expect(html).toContain("누락 핵심 메시지");
     expect(html).toContain("슬라이드별 소요 시간");
+    expect(html).toContain("rrd-cumulative-chart");
+    expect(html).toContain("1번 슬라이드");
+    expect(html).toContain("누적 0분 52초");
     expect(html).not.toContain("종합 발표 점수");
     expect(html).not.toContain("/ 100");
     expect(html).not.toContain("속도 안정성");
     expect(html).not.toContain("민감한 전사 원문");
     expect(html).not.toContain("dB");
+  });
+
+  it("formats filler-word deltas as counts in the summary change list", () => {
+    const html = renderToStaticMarkup(
+      <RehearsalReportDocument
+        deck={createDemoDeck()}
+        prevReports={[
+          reportFixture({
+            metrics: {
+              durationSeconds: 90,
+              wordsPerMinute: 120,
+              fillerWordCount: 0,
+              pauseCount: 1,
+              keywordCoverage: 0.75,
+            },
+          }),
+        ]}
+        projectId="project-a"
+        report={reportFixture({
+          metrics: {
+            durationSeconds: 90,
+            wordsPerMinute: 120,
+            fillerWordCount: 18,
+            pauseCount: 1,
+            keywordCoverage: 0.75,
+          },
+        })}
+        run={runFixture("succeeded")}
+        runNumber={2}
+        totalRunCount={2}
+      />,
+    );
+
+    expect(html).toContain("+18회");
+    expect(html).not.toContain("18초회");
   });
 
   it("renders a report loading shell before report data is ready", () => {

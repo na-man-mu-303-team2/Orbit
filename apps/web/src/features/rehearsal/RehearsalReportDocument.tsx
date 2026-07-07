@@ -14,6 +14,7 @@ import { useMemo, useState } from "react";
 import type { Deck, RehearsalReport, RehearsalRun } from "@orbit/shared";
 import { resolveEditorAssetUrl } from "../editor/shared/editorAssetUrl";
 import { navigateTo } from "./rehearsalUtils";
+import { RehearsalSlideTimingOverview } from "./RehearsalSlideTimingOverview";
 
 const TRANSCRIPT_WINDOW_MS = 30 * 60 * 1000;
 
@@ -342,20 +343,6 @@ export function RehearsalReportDocument({
   const fillerDelta = prevReport
     ? report.metrics.fillerWordCount - prevReport.metrics.fillerWordCount
     : null;
-  const durationTrend = [
-    ...prevReports
-      .slice()
-      .reverse()
-      .map((pr, index) => ({
-        label: `이전 ${prevReports.length - index}`,
-        seconds: pr.metrics.durationSeconds,
-      })),
-    { label: "이번", seconds: report.metrics.durationSeconds },
-  ];
-  const maxTrendSeconds = Math.max(
-    1,
-    ...durationTrend.map((item) => item.seconds),
-  );
 
   return (
     <div className="rrd-root">
@@ -409,7 +396,7 @@ export function RehearsalReportDocument({
       <section className="rrd-card rrd-overview-card">
         <header className="rrd-card-head">
           <FileText size={16} className="rrd-card-icon" />
-          <h2>이번 발표 상태</h2>
+          <h2>이번 발표 요약</h2>
         </header>
 
         <div className="rrd-overview-grid">
@@ -444,143 +431,13 @@ export function RehearsalReportDocument({
         </div>
 
         <div className="rrd-overview-columns">
-          <div className="rrd-overview-panel">
-            <h3 className="rrd-section-label">이전 리허설 대비 시간 그래프</h3>
-            <div className="rrd-time-trend">
-              {durationTrend.map((item) => (
-                <div key={item.label} className="rrd-time-trend-row">
-                  <span>{item.label}</span>
-                  <div className="rrd-time-trend-bar-wrap">
-                    <div
-                      className="rrd-time-trend-bar"
-                      style={{ width: `${Math.max(6, (item.seconds / maxTrendSeconds) * 100)}%` }}
-                    />
-                  </div>
-                  <strong>{fmt(item.seconds)}</strong>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <div className="rrd-overview-panel">
-            <h3 className="rrd-section-label">슬라이드별 소요 시간</h3>
-            {deck && slideTimings.length > 0 ? (
-              <div className="rrd-overview-slide-list">
-                {slideTimings.slice(0, 5).map((timing) => {
-                  const slide = getSlide(deck, timing.slideId);
-                  const thumbnailUrl = slide?.thumbnailUrl
-                    ? resolveEditorAssetUrl(slide.thumbnailUrl)
-                    : "";
-                  return (
-                    <div key={timing.slideId} className="rrd-overview-slide-row">
-                      <div className="rrd-slide-thumb">
-                        {thumbnailUrl ? (
-                          <img
-                            src={thumbnailUrl}
-                            alt=""
-                            className="rrd-slide-thumb-img"
-                          />
-                        ) : (
-                          <div className="rrd-slide-thumb-placeholder">
-                            <FileText size={14} />
-                          </div>
-                        )}
-                      </div>
-                      <span>{getSlideName(deck, timing.slideId)}</span>
-                      <strong>{fmt(timing.actualSeconds)}</strong>
-                    </div>
-                  );
-                })}
-              </div>
-            ) : (
-              <p className="rrd-empty-hint">슬라이드 타이밍 데이터가 없습니다.</p>
-            )}
-          </div>
+          <RehearsalSlideTimingOverview
+            deck={deck}
+            formatDuration={fmt}
+            slideTimings={slideTimings}
+          />
         </div>
 
-        <div
-          className={`rrd-summary-block${prevReports.length === 0 ? " rrd-summary-block-muted" : ""}`}
-        >
-          <span className="rrd-summary-block-label">이번 회차 핵심 변화</span>
-          {prevReports.length === 0 ? (
-            <p className="rrd-empty-hint">
-              {totalRunCount < 2
-                ? "2회차부터 이전 회차와의 변화를 분석합니다."
-                : "이전 회차 데이터를 불러오는 중입니다."}
-            </p>
-          ) : (
-            <ul className="rrd-change-list">
-              {durationDelta !== null && (
-                <li>
-                  <span>전체 시간</span>
-                  <strong
-                    className={
-                      durationDelta > 10
-                        ? "rrd-change-over"
-                        : durationDelta < -10
-                          ? "rrd-change-under"
-                          : ""
-                    }
-                  >
-                    {fmtDelta(durationDelta)}
-                  </strong>
-                  <span className="rrd-change-ref">
-                    직전 {fmt(prevReport!.metrics.durationSeconds)}
-                  </span>
-                </li>
-              )}
-              {fillerDelta !== null && (
-                <li>
-                  <span>말버릇</span>
-                  <strong
-                    className={
-                      fillerDelta > 0
-                        ? "rrd-change-over"
-                        : fillerDelta < 0
-                          ? "rrd-change-under"
-                          : ""
-                    }
-                  >
-                    {fillerDelta === 0
-                      ? "변화 없음"
-                      : `${fmtDelta(fillerDelta)}회`}
-                  </strong>
-                  <span className="rrd-change-ref">
-                    직전 {prevReport!.metrics.fillerWordCount}회
-                  </span>
-                </li>
-              )}
-              {slideTimings
-                .filter((t) => {
-                  const prevTiming = prevReport?.slideTimings.find(
-                    (pt) => pt.slideId === t.slideId,
-                  );
-                  if (!prevTiming) return false;
-                  return Math.abs(t.actualSeconds - prevTiming.actualSeconds) > 15;
-                })
-                .slice(0, 2)
-                .map((t) => {
-                  const prevT = prevReport!.slideTimings.find(
-                    (pt) => pt.slideId === t.slideId,
-                  )!;
-                  const d = t.actualSeconds - prevT.actualSeconds;
-                  return (
-                    <li key={t.slideId}>
-                      <span>
-                        {deck ? getSlideName(deck, t.slideId) : t.slideId}
-                      </span>
-                      <strong className={d > 0 ? "rrd-change-over" : "rrd-change-under"}>
-                        {fmtDelta(d)}
-                      </strong>
-                      <span className="rrd-change-ref">
-                        직전 {fmt(prevT.actualSeconds)}
-                      </span>
-                    </li>
-                  );
-                })}
-            </ul>
-          )}
-        </div>
       </section>
 
       {/* ── 3. 장표별 분석 ── */}
