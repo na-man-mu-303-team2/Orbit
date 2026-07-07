@@ -39,6 +39,7 @@ import {
   getLiveSttDebugDecodingMethod,
   getOccurrenceTriggerProgress,
   getRehearsalMicrophoneAudioConstraints,
+  getRehearsalPrompterRows,
   getRemainingTriggerStepsForSlide,
   normalizeRecordingMimeType,
   rehearsalMicrophoneAudioConstraints,
@@ -1672,18 +1673,52 @@ describe("RehearsalWorkspace", () => {
     ]);
   });
 
-  it("marks all teleprompter tokens as spoken when the sentence is covered", () => {
+  it("marks only the spoken Korean teleprompter prefix from the transcript", () => {
     const segments = buildKaraokePrompterSegments({
-      isCovered: true,
       text: "다음 슬라이드로 넘어갑니다.",
-      transcript: "",
+      transcript: "다음",
     });
 
     expect(
-      segments.filter((segment) => segment.text.trim()).every(
-        (segment) => segment.spoken,
-      ),
-    ).toBe(true);
+      segments
+        .filter((segment) => segment.text.trim())
+        .map((segment) => [segment.text, segment.spoken]),
+    ).toEqual([
+      ["다음", true],
+      ["슬라이드로", false],
+      ["넘어갑니다.", false],
+    ]);
+  });
+
+  it("keeps the prompter on an incomplete covered sentence until its prefix is spoken", () => {
+    const rows = getRehearsalPrompterRows(
+      [
+        {
+          sentenceId: "sentence_1",
+          text: "첫 문장은 아직 끝까지 읽지 않았습니다.",
+          index: 0,
+          isFinalTrigger: false,
+          matchable: true,
+          candidates: [],
+        },
+        {
+          sentenceId: "sentence_2",
+          text: "다음 문장입니다.",
+          index: 1,
+          isFinalTrigger: true,
+          matchable: true,
+          candidates: [],
+        },
+      ],
+      ["sentence_1"],
+      "",
+      "첫 문장은",
+    );
+
+    expect(rows.currentSegments.map((segment) => segment.text).join("")).toBe(
+      "첫 문장은 아직 끝까지 읽지 않았습니다.",
+    );
+    expect(rows.next).toBe("다음 문장입니다.");
   });
 
   it("assigns distinct teleprompter tones to important script terms", () => {

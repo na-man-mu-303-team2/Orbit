@@ -5073,7 +5073,7 @@ type KaraokePrompterHighlightTerm = {
   tone: Exclude<KaraokePrompterTone, "default">;
 };
 
-function getRehearsalPrompterRows(
+export function getRehearsalPrompterRows(
   sentences: readonly ExtractedSentence[],
   coveredSentenceIds: readonly string[],
   fallbackNotes: string,
@@ -5084,46 +5084,65 @@ function getRehearsalPrompterRows(
     const fallback = fallbackNotes.trim() || "발표자 노트가 없습니다.";
     return {
       previous: "",
-      ...splitPrompterSentence(fallback, transcript, false, highlightTerms),
+      ...splitPrompterSentence(fallback, transcript, highlightTerms),
       next: "",
     };
   }
 
-  const focusSentenceId = getRehearsalScriptFocusSentenceId(
+  const coveredSentenceIdSet = new Set(coveredSentenceIds);
+  const incompleteCoveredSentence = getLastIncompleteCoveredSentence(
     sentences,
-    coveredSentenceIds,
+    coveredSentenceIdSet,
+    transcript,
   );
+  const focusSentenceId =
+    incompleteCoveredSentence?.sentenceId ??
+    getRehearsalScriptFocusSentenceId(sentences, coveredSentenceIds);
   const focusIndex = Math.max(
     0,
     sentences.findIndex((sentence) => sentence.sentenceId === focusSentenceId),
   );
   const current = sentences[focusIndex]?.text ?? sentences[0]?.text ?? "";
-  const currentSentence = sentences[focusIndex];
-  const isCurrentCovered = currentSentence
-    ? coveredSentenceIds.includes(currentSentence.sentenceId)
-    : false;
 
   return {
     previous: sentences[focusIndex - 1]?.text ?? "",
     ...splitPrompterSentence(
       current,
       transcript,
-      isCurrentCovered,
       highlightTerms,
     ),
     next: sentences[focusIndex + 1]?.text ?? "",
   };
 }
 
+function getLastIncompleteCoveredSentence(
+  sentences: readonly ExtractedSentence[],
+  coveredSentenceIds: ReadonlySet<string>,
+  transcript: string,
+) {
+  for (let index = sentences.length - 1; index >= 0; index -= 1) {
+    const sentence = sentences[index];
+    if (!sentence?.matchable || !coveredSentenceIds.has(sentence.sentenceId)) {
+      continue;
+    }
+
+    if (!isPrompterSentenceFullySpoken(sentence.text, transcript)) {
+      return sentence;
+    }
+
+    break;
+  }
+
+  return null;
+}
+
 function splitPrompterSentence(
   text: string,
   transcript = "",
-  isCovered = false,
   highlightTerms: readonly KaraokePrompterHighlightTerm[] = [],
 ) {
   const currentSegments = buildKaraokePrompterSegments({
     highlightTerms,
-    isCovered,
     text,
     transcript,
   });
@@ -5148,7 +5167,6 @@ function splitPrompterSentence(
 
 export function buildKaraokePrompterSegments(options: {
   highlightTerms?: readonly KaraokePrompterHighlightTerm[];
-  isCovered?: boolean;
   text: string;
   transcript?: string;
 }): KaraokePrompterSegment[] {
@@ -5158,9 +5176,10 @@ export function buildKaraokePrompterSegments(options: {
     options.text,
     options.highlightTerms ?? [],
   );
-  const spokenTokenCount = options.isCovered
-    ? rawSegments.filter((segment) => !isWhitespaceSegment(segment)).length
-    : getSpokenPrompterTokenCount(options.text, options.transcript ?? "");
+  const spokenTokenCount = getSpokenPrompterTokenCount(
+    options.text,
+    options.transcript ?? "",
+  );
   let tokenIndex = 0;
 
   return rawSegments.map((segment, segmentIndex) => {
@@ -5349,6 +5368,15 @@ function getSpokenPrompterTokenCount(text: string, transcript: string) {
   }
 
   return spokenTokenCount;
+}
+
+function isPrompterSentenceFullySpoken(text: string, transcript: string) {
+  const totalTokenCount = text.match(/[^\s]+/g)?.length ?? 0;
+  if (totalTokenCount === 0) {
+    return true;
+  }
+
+  return getSpokenPrompterTokenCount(text, transcript) >= totalTokenCount;
 }
 
 function normalizePrompterMatchText(value: string) {
