@@ -362,3 +362,15 @@
 - Rationale: 같은 branch에서 web build와 EC2 deploy가 일어나야 frontend/backend contract가 맞고, backend 실패 시 새 frontend가 먼저 노출되는 상황을 피할 수 있다. API/socket behavior를 distribution-level error rewrite에서 분리해야 인증 실패나 누락 route 같은 backend 오류 의미를 유지할 수 있다.
 - Affected files: `.github/workflows/deploy-aws-production.yml`, `infra/aws/main-production-bootstrap.yaml`, `docs/runbooks/aws-main-auto-deployment.md`, `docs/decision-log.md`.
 - Follow-up review notes: 첫 production stack update 뒤 CloudFront Function association, `/api/health`, `/socket.io/?EIO=4&transport=polling`, `/missing-api-route`의 HTTP status, S3 static publish, EC2 `/opt/orbit/source` clone branch를 실제 AWS에서 확인한다. 장기 production 목표인 ECS Fargate 전환은 `docs/deployment.md` 기준으로 별도 PR에서 다시 검토한다.
+
+## ORBIT AWS production EC2 bootstrap refresh
+
+- Context: PR #237로 CloudFormation UserData에서 `/opt/orbit/source` 선생성은 제거됐지만, 기존 EC2 인스턴스의 root disk와 `/usr/local/sbin/orbit-deploy-aws-production` wrapper는 그대로 남아 있어 첫 배포가 같은 non-git checkout 방어 로직에서 다시 실패했다. CloudFormation change set은 UserData 변경을 기존 `AWS::EC2::Instance`의 in-place update로 처리했고 새 bootstrap을 실행하지 않았다.
+- Options considered:
+  - 기존 EC2에서 `/opt/orbit/source`만 수동 삭제한다.
+  - 기존 EC2의 `/usr/local/sbin/orbit-deploy-aws-production`만 수동 교체한다.
+  - EC2 logical resource id를 바꿔 새 인스턴스를 만들고 최신 bootstrap을 처음부터 실행한다.
+- Final decision: production template의 EC2 logical resource를 `AppInstance`에서 `AppServerInstance`로 바꿔 CloudFormation이 새 EC2 인스턴스를 생성하도록 한다. CloudFront origin, GitHub Actions deploy role SSM target, EC2 output 참조는 새 logical id로 함께 갱신한다. RDS와 S3 bucket logical id 및 retention policy는 변경하지 않는다.
+- Rationale: 운영 서버 내부 파일을 수동으로 고쳐 drift를 만들기보다, 저장소의 최신 bootstrap template을 source of truth로 삼아 재현 가능한 상태를 만든다. RDS/S3는 유지하면서 앱 서버만 새 bootstrap 상태로 교체하는 것이 이번 장애의 실제 경계에 가장 좁게 맞다.
+- Affected files: `infra/aws/main-production-bootstrap.yaml`, `docs/decision-log.md`.
+- Follow-up review notes: merge 후 CloudFormation change set에서 `AppServerInstance` 생성, `AppInstance` 삭제, `WebDistribution` origin 갱신, `GitHubActionsDeployRole` SSM target 갱신만 발생하고 RDS/S3 변경이 없는지 확인한다. stack update 뒤 새 `Ec2InstanceId`, SSM managed status, deploy key, `/opt/orbit/source` clone, CloudFront `/api/health`와 `/socket.io/?EIO=4&transport=polling`을 검증한다.
