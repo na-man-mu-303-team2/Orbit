@@ -105,6 +105,61 @@ describe("WebSpeechLiveSttPort", () => {
     expect(recognition.startCalls).toEqual([audioTrack]);
   });
 
+  it("브라우저가 Web Speech 세션을 끝내면 같은 ko-KR track으로 재시작한다", async () => {
+    const recognition = new FakeSpeechRecognition();
+    const audioTrack = fakeMediaStreamTrack("audio", "live");
+    const port = new WebSpeechLiveSttPort({
+      createRecognition: () => recognition,
+      recognitionConstructor: FakeSpeechRecognition,
+      now: () => 1000
+    });
+
+    await port.start({
+      language: "ko",
+      audioSource: fakeMediaStream([audioTrack])
+    });
+    recognition.lang = "en-US";
+    recognition.processLocally = false;
+    recognition.emitEnd();
+
+    expect(recognition.lang).toBe("ko-KR");
+    expect(recognition.processLocally).toBe(true);
+    expect(recognition.startCalls).toEqual([audioTrack, audioTrack]);
+  });
+
+  it("명시적으로 stop하면 Web Speech 세션을 재시작하지 않는다", async () => {
+    const recognition = new FakeSpeechRecognition();
+    const port = new WebSpeechLiveSttPort({
+      createRecognition: () => recognition,
+      recognitionConstructor: FakeSpeechRecognition,
+      now: () => 1000
+    });
+
+    await port.start({ language: "ko", audioSource: fakeMediaStream() });
+    await port.stop();
+
+    expect(recognition.stopCount).toBe(1);
+    expect(recognition.startCount).toBe(1);
+  });
+
+  it("fatal Web Speech 오류 후에는 onend가 와도 재시작하지 않는다", async () => {
+    const recognition = new FakeSpeechRecognition();
+    const port = new WebSpeechLiveSttPort({
+      createRecognition: () => recognition,
+      recognitionConstructor: FakeSpeechRecognition,
+      now: () => 1000
+    });
+    const errors: string[] = [];
+    port.onError((error) => errors.push(error.message));
+
+    await port.start({ language: "ko", audioSource: fakeMediaStream() });
+    recognition.emitError("network", "");
+    recognition.emitEnd();
+
+    expect(errors).toEqual(["Web Speech 인식 오류: network"]);
+    expect(recognition.startCount).toBe(1);
+  });
+
   it("final result에는 alternatives를 방출하고 interim result에는 생략한다", async () => {
     const recognition = new FakeSpeechRecognition();
     const port = new WebSpeechLiveSttPort({
@@ -345,8 +400,15 @@ class FakeSpeechRecognition {
     });
   }
 
-  emitError(message: string) {
-    this.onerror?.({ error: "test-error", message });
+  emitError(errorOrMessage: string, message?: string) {
+    this.onerror?.({
+      error: message === undefined ? "test-error" : errorOrMessage,
+      message: message ?? errorOrMessage
+    });
+  }
+
+  emitEnd() {
+    this.onend?.();
   }
 }
 
