@@ -91,6 +91,14 @@ const analyzeMissedKeywordSchema = z
   })
   .strict();
 
+const analyzeSlideInsightSchema = z
+  .object({
+    slideId: z.string().min(1),
+    fillerWordCount: z.number().int().nonnegative(),
+    pauseCount: z.number().int().nonnegative()
+  })
+  .strict();
+
 const analyzeAiSummarySchema = z
   .object({
     headline: z.string().trim().min(1),
@@ -108,6 +116,7 @@ const analyzeResponseSchema = z.object({
   fillerWordDetails: z.array(analyzeFillerWordDetailSchema).default([]),
   pauseDetails: z.array(analyzePauseDetailSchema).default([]),
   missedKeywords: z.array(analyzeMissedKeywordSchema).default([]),
+  slideInsights: z.array(analyzeSlideInsightSchema).default([]),
   aiSummary: analyzeAiSummarySchema.optional(),
   coaching: z.record(z.unknown()).optional()
 });
@@ -240,8 +249,9 @@ export async function processRehearsalSttJob(
     analysis = await analyzeTranscript(
       pythonWorkerUrl,
       payload,
-      deckContext.deckKeywords,
-      transcribePayload
+      deckContext,
+      transcribePayload,
+      runMeta
     );
   } catch (error) {
     return failAfterDelete(
@@ -305,6 +315,12 @@ export async function processRehearsalSttJob(
     transcriptRetained: report.transcriptRetained
   });
 
+  try {
+    await upsertRehearsalSummary(dataSource, pythonWorkerUrl, payload.projectId);
+  } catch {
+    // summary 업데이트 실패는 리포트 저장을 막지 않는다.
+  }
+
   return updateJob(dataSource, payload.jobId, {
     status: "succeeded",
     progress: 100,
@@ -341,6 +357,7 @@ function buildRehearsalReport(
     pauseDetails: analysis.pauseDetails,
     missedKeywords: buildReportMissedKeywords(analysis.missedKeywords),
     slideTimings: buildSlideTimings(deckContext.deck, runMeta),
+    slideInsights: analysis.slideInsights,
     qnaSummary: {
       questionCount: 0,
       questionSummary: "",
@@ -380,8 +397,9 @@ function buildReportGenerationRecord(
 async function analyzeTranscript(
   pythonWorkerUrl: string,
   payload: RehearsalSttPayload,
-  deckKeywords: DeckKeywordPayload[],
-  transcription: z.infer<typeof transcribeResponseSchema>
+  deckContext: DeckAnalysisContext,
+  transcription: z.infer<typeof transcribeResponseSchema>,
+  runMeta: RehearsalRunMeta
 ) {
   const response = await fetch(workerUrl(pythonWorkerUrl, "/rehearsal/analyze"), {
     method: "POST",
@@ -393,7 +411,8 @@ async function analyzeTranscript(
       transcript: transcription.transcript,
       durationSeconds: transcription.durationSeconds ?? 0,
       segments: transcription.segments,
-      deckKeywords
+      deckKeywords: deckContext.deckKeywords,
+      slideTimeline: buildAnalyzeSlideTimeline(deckContext.deck, runMeta)
     }),
     signal: AbortSignal.timeout(120_000)
   });
@@ -649,6 +668,46 @@ function buildSlideTimings(
   }
 
   return timings;
+}
+
+function buildAnalyzeSlideTimeline(
+  deck: Deck,
+  runMeta: RehearsalRunMeta
+) {
+  const slideIds = new Set(deck.slides.map((slide) => slide.slideId));
+  const timeline = runMeta.slideTimeline.filter((entry) => slideIds.has(entry.slideId));
+  const firstValidEnteredAt = timeline
+    .map((entry) => Date.parse(entry.enteredAt))
+    .find((enteredAt) => !Number.isNaN(enteredAt));
+
+  if (firstValidEnteredAt == null) {
+    return [];
+  }
+
+  const entries: { slideId: string; enteredSecond: number }[] = [];
+  let previousSlideId: string | null = null;
+  let previousSecond = -1;
+
+  for (const entry of timeline) {
+    const enteredAt = Date.parse(entry.enteredAt);
+    if (Number.isNaN(enteredAt)) {
+      continue;
+    }
+
+    const enteredSecond = Math.max(
+      0,
+      Math.round(((enteredAt - firstValidEnteredAt) / 1000) * 100) / 100
+    );
+    if (enteredSecond < previousSecond || entry.slideId === previousSlideId) {
+      continue;
+    }
+
+    entries.push({ slideId: entry.slideId, enteredSecond });
+    previousSlideId = entry.slideId;
+    previousSecond = enteredSecond;
+  }
+
+  return entries;
 }
 
 function getSlideTargetSeconds(deck: Deck, slide: Deck["slides"][number]) {
@@ -908,4 +967,62 @@ type DeckAnalysisContext = {
 
 function workerUrl(baseUrl: string, path: string): string {
   return new URL(path, baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`).toString();
+}
+
+type ReportJsonShape = {
+  metrics?: { durationSeconds?: number };
+  slideTimings?: { slideId: string; actualSeconds: number }[];
+};
+
+type SucceededRunRow = {
+  run_id: string;
+  created_at: Date | string;
+  report_json: ReportJsonShape | null;
+};
+
+async function upsertRehearsalSummary(
+  dataSource: DataSource,
+  pythonWorkerUrl: string,
+  projectId: string
+): Promise<void> {
+  const rows: SucceededRunRow[] = await dataSource.query(
+    `SELECT run_id, created_at, report_json
+     FROM rehearsal_runs
+     WHERE project_id = $1 AND status = 'succeeded'
+     ORDER BY created_at ASC`,
+    [projectId]
+  );
+
+  if (rows.length === 0) return;
+
+  const runDurationSeries = rows.map((row) => ({
+    runId: row.run_id,
+    createdAt: row.created_at instanceof Date ? row.created_at.toISOString() : String(row.created_at),
+    durationSeconds: row.report_json?.metrics?.durationSeconds ?? 0
+  }));
+
+  if (rows.length < 2) return;
+
+  let progressComment: string | null = null;
+  try {
+    const response = await fetch(workerUrl(pythonWorkerUrl, "/rehearsal/progress-comment"), {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ projectId, runSeries: runDurationSeries }),
+      signal: AbortSignal.timeout(30_000)
+    });
+    if (response.ok) {
+      const data = (await response.json()) as { comment?: string | null };
+      progressComment = data.comment ?? null;
+    }
+  } catch {
+    // 코멘트 생성 실패 시 무시
+  }
+
+  if (progressComment !== null) {
+    await dataSource.query(
+      `UPDATE projects SET progress_comment = $2 WHERE project_id = $1`,
+      [projectId, progressComment]
+    );
+  }
 }

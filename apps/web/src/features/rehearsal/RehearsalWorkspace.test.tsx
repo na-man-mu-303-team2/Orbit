@@ -11,6 +11,7 @@ import type { ReactNode } from "react";
 import { forwardRef } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { RehearsalReportDocument } from "./RehearsalReportDocument";
 import {
   LiveSttAdapterError,
   RehearsalReportPage,
@@ -1049,13 +1050,140 @@ describe("RehearsalWorkspace", () => {
     expect(html).toContain("키워드 커버리지");
     expect(html).toContain("말버릇 총량");
     expect(html).toContain("긴 멈춤");
-    expect(html).toContain("누락 핵심 메시지");
+    expect(html).toContain("음");
+    expect(html).toContain("표현별 비중");
+    expect(html).toContain("100% (2회)");
+    expect(html).toContain("놓친 핵심 메시지");
+    expect(html).toContain("문제 신호");
+    expect(html).toContain("습관어 2회");
+    expect(html).toContain("개선 피드백");
+    expect(html).toContain("참고 시간");
     expect(html).toContain("슬라이드별 소요 시간");
+    expect(html).toContain("rrd-cumulative-chart");
+    expect(html).toContain("1번 슬라이드");
+    expect(html).toContain("누적 0분 52초");
+    expect(html).not.toContain("이번 시간");
+    expect(html).not.toContain("계속 문제였던 장표");
     expect(html).not.toContain("종합 발표 점수");
     expect(html).not.toContain("/ 100");
     expect(html).not.toContain("속도 안정성");
+    expect(html).not.toContain("전체 말버릇 중");
     expect(html).not.toContain("민감한 전사 원문");
     expect(html).not.toContain("dB");
+  });
+
+  it("formats filler-word deltas as counts in the summary change list", () => {
+    const html = renderToStaticMarkup(
+      <RehearsalReportDocument
+        deck={createDemoDeck()}
+        prevReports={[
+          reportFixture({
+            metrics: {
+              durationSeconds: 90,
+              wordsPerMinute: 120,
+              fillerWordCount: 0,
+              pauseCount: 1,
+              keywordCoverage: 0.75,
+            },
+          }),
+        ]}
+        projectId="project-a"
+        report={reportFixture({
+          metrics: {
+            durationSeconds: 90,
+            wordsPerMinute: 120,
+            fillerWordCount: 18,
+            pauseCount: 1,
+            keywordCoverage: 0.75,
+          },
+        })}
+        run={runFixture("succeeded")}
+        runNumber={2}
+        totalRunCount={2}
+      />,
+    );
+
+    expect(html).toContain("+18회");
+    expect(html).not.toContain("18초회");
+  });
+
+  it("shows only problematic slides and paginates the first three cards", () => {
+    const baseDeck = createDemoDeck();
+    const deck = {
+      ...baseDeck,
+      slides: Array.from({ length: 4 }, (_, index) => {
+        const originalSlide = baseDeck.slides[index] ?? baseDeck.slides[0]!;
+        return {
+          ...originalSlide,
+          slideId: `slide_${index + 1}`,
+          order: index + 1,
+          title: `${originalSlide.title} ${index + 1}`,
+        };
+      }),
+    };
+    const [slide1, slide2, slide3, slide4] = deck.slides;
+    const html = renderToStaticMarkup(
+      <RehearsalReportDocument
+        deck={deck}
+        prevReports={[
+          reportFixture({
+            slideTimings: [
+              { slideId: slide1!.slideId, targetSeconds: 60, actualSeconds: 35 },
+              { slideId: slide2!.slideId, targetSeconds: 60, actualSeconds: 66 },
+              { slideId: slide3!.slideId, targetSeconds: 60, actualSeconds: 68 },
+              { slideId: slide4!.slideId, targetSeconds: 60, actualSeconds: 72 },
+            ],
+            missedKeywords: [
+              { slideId: slide2!.slideId, keywordId: "prev_kw_2", text: "동시 접근" },
+              { slideId: slide3!.slideId, keywordId: "prev_kw_3", text: "세마포어" },
+            ],
+          }),
+        ]}
+        projectId="project-a"
+        report={reportFixture({
+          missedKeywords: [
+            { slideId: slide1!.slideId, keywordId: "kw_1", text: "ORBIT" },
+            { slideId: slide2!.slideId, keywordId: "kw_2", text: "Race Condition" },
+          ],
+          slideTimings: [
+            { slideId: slide1!.slideId, targetSeconds: 60, actualSeconds: 52 },
+            { slideId: slide2!.slideId, targetSeconds: 60, actualSeconds: 88 },
+            { slideId: slide3!.slideId, targetSeconds: 60, actualSeconds: 43 },
+            { slideId: slide4!.slideId, targetSeconds: 60, actualSeconds: 84 },
+          ],
+          slideInsights: [
+            { slideId: slide1!.slideId, fillerWordCount: 2, pauseCount: 1 },
+            { slideId: slide2!.slideId, fillerWordCount: 1, pauseCount: 0 },
+            { slideId: slide3!.slideId, fillerWordCount: 0, pauseCount: 1 },
+            { slideId: slide4!.slideId, fillerWordCount: 3, pauseCount: 0 },
+          ],
+        })}
+        run={runFixture("succeeded")}
+        runNumber={2}
+        totalRunCount={2}
+      />,
+    );
+
+    expect(html).toContain(`슬라이드 ${slide1!.order} · ${slide1!.title}`);
+    expect(html).toContain(`슬라이드 ${slide2!.order} · ${slide2!.title}`);
+    expect(html).toContain(`슬라이드 ${slide3!.order} · ${slide3!.title}`);
+    expect(html).not.toContain(`슬라이드 ${slide4!.order} · ${slide4!.title}`);
+    expect(html).toContain("1 / 2");
+    expect(html).toContain("다음");
+  });
+
+  it("renders a report loading shell before report data is ready", () => {
+    const html = renderToStaticMarkup(
+      <RehearsalReportPage
+        initialDeck={createDemoDeck()}
+        projectId="project-a"
+        runId="run-1"
+      />,
+    );
+
+    expect(html).toContain("보고서를 불러오는 중입니다.");
+    expect(html).toContain("report-loading-shell");
+    expect(html).not.toContain("report-page-state");
   });
 
   it("shows retained transcript download controls during the 30 minute window", () => {
@@ -1208,7 +1336,7 @@ describe("RehearsalWorkspace", () => {
 
     expect(html).toContain("매우긴누락키워드0발표흐름핵심데이터");
     expect(html).toContain("매우긴누락키워드21발표흐름핵심데이터");
-    expect(html).toContain("누락 핵심 메시지");
+    expect(html).toContain("놓친 핵심 메시지");
   });
 
   it("maps failed and mismatched report responses to failed page state", () => {
@@ -2396,6 +2524,9 @@ function reportFixture(patch: Partial<RehearsalReport> = {}): RehearsalReport {
     missedKeywords: [{ slideId: "slide_1", keywordId: "kw_1", text: "ORBIT" }],
     slideTimings: [
       { slideId: "slide_1", targetSeconds: 60, actualSeconds: 52 },
+    ],
+    slideInsights: [
+      { slideId: "slide_1", fillerWordCount: 2, pauseCount: 1 },
     ],
     qnaSummary: {
       questionCount: 0,

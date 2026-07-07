@@ -57,7 +57,10 @@ from app.references import (
 )
 from app.rehearsal import (
     DeckKeyword,
+    RunSeriesEntry,
+    SlideTimelineEntry,
     analyze_rehearsal_metrics,
+    generate_progress_comment,
     generate_rehearsal_coaching,
 )
 
@@ -138,6 +141,11 @@ class DeckKeywordRequest(BaseModel):
     abbreviations: list[str] = Field(default_factory=list)
 
 
+class RehearsalSlideTimelineEntryRequest(BaseModel):
+    slide_id: str = Field(alias="slideId")
+    entered_second: float = Field(alias="enteredSecond", ge=0)
+
+
 class RehearsalAnalyzeRequest(BaseModel):
     run_id: str = Field(alias="runId")
     project_id: str = Field(alias="projectId")
@@ -148,6 +156,10 @@ class RehearsalAnalyzeRequest(BaseModel):
     deck_keywords: list[DeckKeywordRequest] = Field(
         default_factory=list,
         alias="deckKeywords",
+    )
+    slide_timeline: list[RehearsalSlideTimelineEntryRequest] = Field(
+        default_factory=list,
+        alias="slideTimeline",
     )
 
 
@@ -189,6 +201,12 @@ class RehearsalMissedKeywordResponse(BaseModel):
     text: str
 
 
+class RehearsalSlideInsightResponse(BaseModel):
+    slide_id: str = Field(alias="slideId")
+    filler_word_count: int = Field(alias="fillerWordCount", ge=0)
+    pause_count: int = Field(alias="pauseCount", ge=0)
+
+
 class RehearsalAnalyzeResponse(BaseModel):
     run_id: str = Field(alias="runId")
     words_per_minute: float = Field(alias="wordsPerMinute")
@@ -210,6 +228,10 @@ class RehearsalAnalyzeResponse(BaseModel):
     missed_keywords: list[RehearsalMissedKeywordResponse] = Field(
         default_factory=list,
         alias="missedKeywords",
+    )
+    slide_insights: list[RehearsalSlideInsightResponse] = Field(
+        default_factory=list,
+        alias="slideInsights",
     )
     ai_summary: RehearsalAiSummaryResponse = Field(alias="aiSummary")
     coaching: RehearsalCoachingResponse
@@ -557,6 +579,13 @@ def analyze_rehearsal(
         duration_seconds=payload.duration_seconds,
         segments=payload.segments,
         deck_keywords=deck_keywords,
+        slide_timeline=[
+            SlideTimelineEntry(
+                slide_id=entry.slide_id,
+                entered_second=entry.entered_second,
+            )
+            for entry in payload.slide_timeline
+        ],
     )
     coaching = generate_rehearsal_coaching(
         transcript=payload.transcript,
@@ -614,6 +643,14 @@ def analyze_rehearsal(
             )
             for keyword in metrics.missed_keywords
         ],
+        slideInsights=[
+            RehearsalSlideInsightResponse(
+                slideId=insight.slide_id,
+                fillerWordCount=insight.filler_word_count,
+                pauseCount=insight.pause_count,
+            )
+            for insight in metrics.slide_insights
+        ],
         aiSummary=RehearsalAiSummaryResponse(
             headline=ai_summary_headline,
             paragraphs=ai_summary_paragraphs[:3],
@@ -627,6 +664,46 @@ def analyze_rehearsal(
             message=coaching.message,
         ),
     )
+
+
+class RehearsalProgressRunEntry(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    run_id: str = Field(alias="runId")
+    created_at: str = Field(alias="createdAt")
+    duration_seconds: float = Field(alias="durationSeconds", ge=0)
+
+
+class RehearsalProgressCommentRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    project_id: str = Field(alias="projectId")
+    run_series: list[RehearsalProgressRunEntry] = Field(alias="runSeries")
+
+
+class RehearsalProgressCommentResponse(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    project_id: str = Field(alias="projectId")
+    comment: str | None = None
+
+
+@app.post("/rehearsal/progress-comment", response_model=RehearsalProgressCommentResponse)
+def rehearsal_progress_comment(
+    payload: RehearsalProgressCommentRequest,
+    request: Request,
+) -> RehearsalProgressCommentResponse:
+    config = _config(request)
+    run_series = [
+        RunSeriesEntry(run_id=e.run_id, created_at=e.created_at, duration_seconds=e.duration_seconds)
+        for e in payload.run_series
+    ]
+    comment = generate_progress_comment(
+        run_series=run_series,
+        model=config.openai_model,
+        api_key=config.openai_api_key,
+    )
+    return RehearsalProgressCommentResponse(projectId=payload.project_id, comment=comment)
 
 
 def _remap_import_asset_ids(

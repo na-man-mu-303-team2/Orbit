@@ -379,6 +379,76 @@ describe("FilesService", () => {
     );
   });
 
+  it("rejects local upload proxy writes for completed assets", async () => {
+    const { repository } = createAssetRepository([
+      {
+        fileId: "file_1",
+        projectId: demoProject.projectId,
+        storageKey: "projects/project_demo_created/assets/file_1-report.pdf",
+        originalName: "report.pdf",
+        mimeType: "application/pdf",
+        size: 4,
+        url: "http://localhost:9000/orbit-local/report.pdf",
+        purpose: "reference-material",
+        status: "uploaded",
+        createdAt: new Date(),
+        uploadedAt: new Date(),
+      } as ProjectAssetEntity,
+    ]);
+    const storage = createStorage();
+    const service = new FilesService(
+      repository,
+      {
+        getAccessibleProject: vi.fn(async () => demoProject),
+      } as unknown as ProjectsService,
+      storage,
+    );
+
+    await expect(
+      service.storeUploadContent(
+        demoProject.projectId,
+        "file_1",
+        Buffer.from("%PDF"),
+      ),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(storage.putObject).not.toHaveBeenCalled();
+  });
+
+  it("rejects local upload proxy writes when body size does not match metadata", async () => {
+    const { repository } = createAssetRepository([
+      {
+        fileId: "file_1",
+        projectId: demoProject.projectId,
+        storageKey: "projects/project_demo_created/assets/file_1-report.pdf",
+        originalName: "report.pdf",
+        mimeType: "application/pdf",
+        size: 4,
+        url: "http://localhost:9000/orbit-local/report.pdf",
+        purpose: "reference-material",
+        status: "pending",
+        createdAt: new Date(),
+        uploadedAt: null,
+      } as ProjectAssetEntity,
+    ]);
+    const storage = createStorage();
+    const service = new FilesService(
+      repository,
+      {
+        getAccessibleProject: vi.fn(async () => demoProject),
+      } as unknown as ProjectsService,
+      storage,
+    );
+
+    await expect(
+      service.storeUploadContent(
+        demoProject.projectId,
+        "file_1",
+        Buffer.from("too-large"),
+      ),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(storage.putObject).not.toHaveBeenCalled();
+  });
+
   it("stores local uploaded proxy content with a same-origin read URL", async () => {
     const { assets, repository } = createAssetRepository([
       {
@@ -387,7 +457,7 @@ describe("FilesService", () => {
         storageKey: "projects/project_demo_created/assets/file_1-report.png",
         originalName: "report.png",
         mimeType: "image/png",
-        size: 4,
+        size: 3,
         url: "http://localhost:5173/api/v1/projects/project_demo_created/assets/file_1/content",
         purpose: "reference-material",
         status: "pending",

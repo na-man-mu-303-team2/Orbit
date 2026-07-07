@@ -8,6 +8,7 @@ import type { FilesService } from "../files/files.service";
 import type { JobsService } from "../jobs/jobs.service";
 import type { ProjectsService } from "../projects/projects.service";
 import { RehearsalRunEntity } from "./rehearsal-run.entity";
+import type { ProjectEntity } from "../projects/project.entity";
 import type {
   RehearsalTranscriptCache,
   RedisRehearsalTranscriptCache
@@ -548,6 +549,7 @@ function createService(
   } as unknown as ProjectsService;
   const service = new RehearsalsService(
     repository,
+    { findOne: vi.fn(async () => null) } as unknown as Repository<ProjectEntity>,
     {
       getDeck: vi.fn(async () => ({
         projectId: "project-a",

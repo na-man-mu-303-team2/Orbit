@@ -16,4 +16,7 @@ export class ProjectEntity {
 
   @Column({ name: "created_at", type: "timestamptz" })
   createdAt!: Date;
+
+  @Column({ name: "progress_comment", type: "text", nullable: true })
+  progressComment!: string | null;
 }
