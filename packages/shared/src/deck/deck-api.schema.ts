@@ -68,6 +68,7 @@ export const deckSnapshotReasonSchema = z.enum([
 
 export const deckApiErrorCodeSchema = z.enum([
   "DECK_NOT_FOUND",
+  "DECK_MISMATCH",
   "SNAPSHOT_NOT_FOUND",
   "PROJECT_MISMATCH",
   "DECK_VALIDATION_FAILED",
@@ -132,6 +133,7 @@ export const getDeckResponseSchema = z
   });
 
 export const putDeckRequestSchema = z.object({
+  baseVersion: z.number().int().positive().optional(),
   deck: deckSchema,
   snapshotReason: deckSnapshotReasonSchema.optional(),
 });

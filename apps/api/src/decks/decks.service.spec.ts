@@ -829,7 +829,7 @@ describe("DecksService", () => {
     expect(dataSource.decks.get(deck.projectId)?.version).toBe(2);
   });
 
-  it("removes newer patch rows after replacing the deck with an older snapshot", async () => {
+  it("rejects stale full deck saves before deleting newer patch rows", async () => {
     const { dataSource, service } = createService();
     const deck = createDeck();
     await service.putDeck(deck.projectId, { deck });
@@ -838,7 +838,58 @@ describe("DecksService", () => {
       patch: createUpdateTitlePatch(deck, "Updated deck"),
     });
 
+    const error = await expectDeckApiError(
+      () => service.putDeck(deck.projectId, { deck }),
+      HttpStatus.CONFLICT,
+      "STALE_BASE_VERSION",
+    );
+    const getResponse = await service.getDeck(deck.projectId);
+
+    expect(error.details).toEqual([
+      "deck.version=2",
+      "request.baseVersion=1",
+    ]);
+    expect(dataSource.patchRows).toHaveLength(1);
+    expect(getResponse.deck).toMatchObject({
+      title: "Updated deck",
+      version: 2,
+    });
+  });
+
+  it("rejects full deck saves that try to replace the project deck id", async () => {
+    const { service } = createService();
+    const deck = createDeck();
     await service.putDeck(deck.projectId, { deck });
+
+    const error = await expectDeckApiError(
+      () =>
+        service.putDeck(deck.projectId, {
+          baseVersion: deck.version,
+          deck: {
+            ...deck,
+            deckId: "deck_other_1",
+          },
+        }),
+      HttpStatus.CONFLICT,
+      "DECK_MISMATCH",
+    );
+
+    expect(error.details).toEqual([
+      "deck.deckId=deck_demo_1",
+      "request.deckId=deck_other_1",
+    ]);
+  });
+
+  it("allows explicit full deck version rewind when baseVersion matches", async () => {
+    const { dataSource, service } = createService();
+    const deck = createDeck();
+    await service.putDeck(deck.projectId, { deck });
+
+    await service.appendPatch(deck.projectId, {
+      patch: createUpdateTitlePatch(deck, "Updated deck"),
+    });
+
+    await service.putDeck(deck.projectId, { deck, baseVersion: 2 });
     const getResponse = await service.getDeck(deck.projectId);
 
     expect(dataSource.patchRows).toHaveLength(0);
