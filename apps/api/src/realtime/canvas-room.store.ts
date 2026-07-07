@@ -1,12 +1,9 @@
 export type ConnectedRealtimeUser = {
   id: string;
-  ip: string;
   connectedAt: string;
   transport: string;
   environment: {
     browserLabel: string;
-    userAgent: string;
-    language: string;
   };
 };
 
