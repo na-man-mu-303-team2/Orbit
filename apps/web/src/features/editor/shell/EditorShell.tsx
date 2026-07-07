@@ -433,7 +433,7 @@ function resolvePatchInput(
   return typeof patchInput === "function" ? patchInput(deck) : patchInput;
 }
 
-function buildPatchBatch(
+export function buildPatchBatch(
   baseDeck: Deck,
   patchInputs: (DeckPatch | PatchProducer)[]
 ): { patch: DeckPatch; deck: Deck } {
@@ -857,13 +857,18 @@ function formatSessionRemaining(session: EditorSessionDebugState) {
   return `${remainingHours.toFixed(1)}h`;
 }
 
-async function putProjectDeck(projectId: string, deck: Deck): Promise<Deck> {
+async function putProjectDeck(
+  projectId: string,
+  deck: Deck,
+  options: { baseVersion?: number } = {}
+): Promise<Deck> {
   const response = await fetch(`/api/v1/projects/${projectId}/deck`, {
     method: "PUT",
     headers: {
       "content-type": "application/json"
     },
     body: JSON.stringify({
+      baseVersion: options.baseVersion,
       deck,
       snapshotReason: "deck-replaced"
     })
@@ -2195,7 +2200,9 @@ export function EditorShell(props: { projectId?: string }) {
     const snapshotDeck = structuredClone(
       normalizeDeckAssetUrls(workingDeckRef.current)
     );
-    const persistedDeck = await putProjectDeck(activeProjectId, snapshotDeck);
+    const persistedDeck = await putProjectDeck(activeProjectId, snapshotDeck, {
+      baseVersion: persistedBaseDeckRef.current?.version ?? snapshotDeck.version
+    });
 
     if (
       pendingPatchInputsRef.current.length > 0 ||
@@ -2322,7 +2329,7 @@ export function EditorShell(props: { projectId?: string }) {
       mergeDeckIntoQueryCache(current, result.deck)
     );
 
-    pendingPatchInputsRef.current.push(patch);
+    pendingPatchInputsRef.current.push(patchInput);
     saveQueueRef.current = saveQueueRef.current
       .catch(() => undefined)
       .then(async () => {

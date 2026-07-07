@@ -477,7 +477,7 @@ MVP API:
 지원하는 API schema:
 
 - `getDeckResponseSchema`: `projectId`, `deck`, `updatedAt`
-- `putDeckRequestSchema`: `deck`, `snapshotReason?`
+- `putDeckRequestSchema`: `deck`, `baseVersion?`, `snapshotReason?`
 - `putDeckResponseSchema`: `deck`, `snapshot`, `updatedAt`
 - `appendDeckPatchRequestSchema`: `patch`, `snapshotReason?`
 - `appendDeckPatchResponseSchema`: `deck`, `changeRecord`, `snapshot`, `updatedAt`
@@ -491,6 +491,7 @@ MVP API:
 MVP 실패 코드:
 
 - `DECK_NOT_FOUND`
+- `DECK_MISMATCH`
 - `SNAPSHOT_NOT_FOUND`
 - `PROJECT_MISMATCH`
 - `DECK_VALIDATION_FAILED`

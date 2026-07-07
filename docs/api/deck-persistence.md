@@ -138,6 +138,7 @@ Request 예시:
       }
     ]
   },
+  "baseVersion": 1,
   "snapshotReason": "deck-replaced"
 }
 ```
@@ -181,6 +182,8 @@ Response 예시:
 ```
 
 기본 `snapshotReason`은 `deck-replaced`다.
+
+`baseVersion`이 있으면 current deck version과 일치해야 하며, 없으면 `deck.version`을 current deck version으로 검증한다. undo/restore처럼 이전 version deck을 저장하는 경로는 저장 직전 current deck version을 `baseVersion`으로 보내 stale full save를 막는다.
 
 ## Patch 적용
 
@@ -344,11 +347,12 @@ Error body는 `deckApiErrorSchema`를 따른다.
 | Code | HTTP | 발생 조건 |
 | --- | --- | --- |
 | `DECK_NOT_FOUND` | `404` | project의 current deck이 없음 |
+| `DECK_MISMATCH` | `409` | full deck save가 기존 project deck과 다른 `deckId`를 요청함 |
 | `SNAPSHOT_NOT_FOUND` | `404` | `snapshotId`에 해당하는 snapshot이 없음 |
 | `PROJECT_MISMATCH` | `400` | URL `projectId`와 deck의 `projectId`가 다름 |
 | `DECK_VALIDATION_FAILED` | `400` | request deck 또는 patch 적용 후 deck이 `DeckSchema`를 통과하지 못함 |
 | `PATCH_VALIDATION_FAILED` | `400` | patch request가 `DeckPatchSchema`를 통과하지 못함 |
-| `STALE_BASE_VERSION` | `409` | patch `baseVersion`이 current deck version과 다름 |
+| `STALE_BASE_VERSION` | `409` | patch 또는 full deck save `baseVersion`이 current deck version과 다름 |
 | `SNAPSHOT_PROJECT_MISMATCH` | `400` | snapshot이 요청한 project에 속하지 않음 |
 | `PATCH_APPLY_FAILED` | `400` | schema validation은 통과했지만 patch 적용 중 도메인 오류 발생 |
 
