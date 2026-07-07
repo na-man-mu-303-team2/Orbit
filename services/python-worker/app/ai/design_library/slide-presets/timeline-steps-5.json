@@ -1,0 +1,7 @@
+{
+  "id": "timeline-steps-5",
+  "intent": "timeline",
+  "stepCount": 5,
+  "layout": "title-content",
+  "maxElements": 32
+}

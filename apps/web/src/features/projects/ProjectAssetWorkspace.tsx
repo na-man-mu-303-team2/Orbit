@@ -1,0 +1,326 @@
+import {
+  allowedAssetMimeTypes,
+  deckSchema,
+  deleteProjectResponseSchema,
+  demoIds,
+  maxAssetUploadSizeBytes,
+  type AssetUploadUrlRequest,
+  type AssetUploadUrlResponse,
+  type Deck,
+  type FilePurpose,
+  type Project,
+  type UploadedFile,
+} from "@orbit/shared";
+
+type Fetcher = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
+type AssetMimeType = (typeof allowedAssetMimeTypes)[number];
+
+const defaultPurpose: FilePurpose = "pptx-import";
+const assetMimeTypeSet = new Set<string>(allowedAssetMimeTypes);
+const documentMimeByExtension: Record<string, AssetMimeType> = {
+  docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  jpeg: "image/jpeg",
+  jpg: "image/jpeg",
+  pdf: "application/pdf",
+  png: "image/png",
+  pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  webp: "image/webp",
+};
+
+export class ProjectAssetError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ProjectAssetError";
+  }
+}
+
+function getExtension(fileName: string) {
+  return fileName.split(".").pop()?.toLowerCase() ?? "";
+}
+
+export function resolveAssetMimeType(file: Pick<File, "name" | "type">) {
+  if (assetMimeTypeSet.has(file.type)) {
+    return file.type as AssetMimeType;
+  }
+
+  return documentMimeByExtension[getExtension(file.name)] ?? null;
+}
+
+export function getAssetValidationMessage(
+  file: Pick<File, "name" | "size" | "type">,
+) {
+  if (!resolveAssetMimeType(file)) {
+    return "PDF, PPTX, DOCX, JPG, PNG, WebP 파일만 업로드할 수 있습니다.";
+  }
+
+  if (file.size > maxAssetUploadSizeBytes) {
+    return `파일 크기는 최대 ${formatAssetBytes(maxAssetUploadSizeBytes)}까지 가능합니다.`;
+  }
+
+  if (file.size <= 0) {
+    return "빈 파일은 업로드할 수 없습니다.";
+  }
+
+  return null;
+}
+
+export function buildAssetUploadRequest(
+  file: File,
+  purpose: FilePurpose,
+): AssetUploadUrlRequest {
+  const validationMessage = getAssetValidationMessage(file);
+  const mimeType = resolveAssetMimeType(file);
+
+  if (validationMessage || !mimeType) {
+    throw new ProjectAssetError(validationMessage ?? "업로드할 수 없는 파일입니다.");
+  }
+
+  return {
+    mimeType,
+    originalName: file.name,
+    purpose,
+    size: file.size,
+  };
+}
+
+async function readErrorMessage(response: Response, fallback: string) {
+  const message = await response.text();
+  return message || fallback;
+}
+
+export async function fetchProjects(fetcher: Fetcher = fetch) {
+  const response = await fetcher(
+    `/api/v1/workspaces/${demoIds.workspaceId}/projects`,
+    { credentials: "include" },
+  );
+
+  if (!response.ok) {
+    throw new ProjectAssetError(
+      await readErrorMessage(response, "프로젝트 목록을 불러오지 못했습니다."),
+    );
+  }
+
+  return (await response.json()) as Project[];
+}
+
+export async function createProject(title: string, fetcher: Fetcher = fetch) {
+  const response = await fetcher(
+    `/api/v1/workspaces/${demoIds.workspaceId}/projects`,
+    {
+      body: JSON.stringify({ title }),
+      credentials: "include",
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    },
+  );
+
+  if (!response.ok) {
+    throw new ProjectAssetError(
+      await readErrorMessage(response, "프로젝트를 만들지 못했습니다."),
+    );
+  }
+
+  const project = (await response.json()) as Project;
+  await createInitialProjectDeck(project, fetcher);
+
+  return project;
+}
+
+export async function deleteProject(projectId: string, fetcher: Fetcher = fetch) {
+  const response = await fetcher(
+    `/api/v1/workspaces/${demoIds.workspaceId}/projects/${encodeURIComponent(projectId)}`,
+    {
+      credentials: "include",
+      method: "DELETE",
+    },
+  );
+
+  if (!response.ok) {
+    throw new ProjectAssetError(
+      await readErrorMessage(response, "프로젝트를 삭제하지 못했습니다."),
+    );
+  }
+
+  return deleteProjectResponseSchema.parse(await response.json());
+}
+
+export function buildInitialProjectDeck(project: Project): Deck {
+  const normalizedProjectId = project.projectId.replace(/^project_/, "");
+
+  return deckSchema.parse({
+    canvas: {
+      aspectRatio: "16:9",
+      height: 1080,
+      preset: "wide-16-9",
+      width: 1920,
+    },
+    deckId: `deck_${normalizedProjectId}`,
+    metadata: {
+      language: "ko",
+      locale: "ko-KR",
+      sourceType: "manual",
+    },
+    projectId: project.projectId,
+    slides: [
+      {
+        actions: [],
+        aiNotes: {
+          emphasisPoints: [],
+          sourceEvidence: [],
+        },
+        animations: [],
+        elements: [],
+        keywords: [],
+        order: 1,
+        slideId: "slide_1",
+        speakerNotes: "",
+        style: {
+          accentColor: "#2563eb",
+          backgroundColor: "#ffffff",
+          layout: "title",
+          textColor: "#111827",
+        },
+        thumbnailUrl: "",
+        title: "",
+      },
+    ],
+    theme: {
+      accentColor: "#2563eb",
+      backgroundColor: "#ffffff",
+      effects: {
+        borderRadius: 10,
+        shadow: {
+          blur: 18,
+          color: "#111827",
+          offsetX: 0,
+          offsetY: 8,
+          opacity: 0.16,
+        },
+      },
+      fontFamily: "Inter",
+      name: "Orbit Blank",
+      palette: {
+        border: "#dbe3f0",
+        muted: "#f3f4f6",
+        primary: "#2563eb",
+        secondary: "#7c3aed",
+        surface: "#ffffff",
+      },
+      textColor: "#111827",
+      typography: {
+        bodyFontFamily: "Inter",
+        bodySize: 22,
+        captionSize: 16,
+        headingFontFamily: "Inter",
+        headingSize: 36,
+        titleSize: 56,
+      },
+    },
+    title: project.title || "새 프레젠테이션",
+    version: 1,
+  });
+}
+
+export async function createInitialProjectDeck(
+  project: Project,
+  fetcher: Fetcher = fetch,
+) {
+  const deck = buildInitialProjectDeck(project);
+  const response = await fetcher(`/api/v1/projects/${project.projectId}/deck`, {
+    body: JSON.stringify({
+      deck,
+      snapshotReason: "deck-replaced",
+    }),
+    headers: { "content-type": "application/json" },
+    method: "PUT",
+  });
+
+  if (!response.ok) {
+    throw new ProjectAssetError(
+      await readErrorMessage(response, "초기 발표자료를 만들지 못했습니다."),
+    );
+  }
+
+  return deck;
+}
+
+export async function uploadProjectAsset(
+  projectId: string,
+  file: File,
+  purpose: FilePurpose = defaultPurpose,
+  fetcher: Fetcher = fetch,
+) {
+  const uploadRequest = buildAssetUploadRequest(file, purpose);
+  const uploadUrl = await requestProjectUploadUrl(projectId, uploadRequest, fetcher);
+
+  await uploadFileToStorage(file, uploadUrl, fetcher);
+  return completeProjectAssetUpload(projectId, uploadUrl.fileId, fetcher);
+}
+
+async function requestProjectUploadUrl(
+  projectId: string,
+  uploadRequest: AssetUploadUrlRequest,
+  fetcher: Fetcher,
+) {
+  const response = await fetcher(`/api/v1/projects/${projectId}/assets/upload-url`, {
+    body: JSON.stringify(uploadRequest),
+    headers: { "content-type": "application/json" },
+    method: "POST",
+  });
+
+  if (!response.ok) {
+    throw new ProjectAssetError(
+      await readErrorMessage(response, "업로드 URL을 발급하지 못했습니다."),
+    );
+  }
+
+  return (await response.json()) as AssetUploadUrlResponse;
+}
+
+async function uploadFileToStorage(
+  file: File,
+  uploadUrl: AssetUploadUrlResponse,
+  fetcher: Fetcher,
+) {
+  const response = await fetcher(uploadUrl.uploadUrl, {
+    body: file,
+    headers: uploadUrl.headers,
+    method: uploadUrl.method,
+  });
+
+  if (!response.ok) {
+    throw new ProjectAssetError(
+      await readErrorMessage(response, "스토리지 업로드에 실패했습니다."),
+    );
+  }
+}
+
+async function completeProjectAssetUpload(
+  projectId: string,
+  fileId: string,
+  fetcher: Fetcher,
+) {
+  const response = await fetcher(`/api/v1/projects/${projectId}/assets/complete`, {
+    body: JSON.stringify({ fileId }),
+    headers: { "content-type": "application/json" },
+    method: "POST",
+  });
+
+  if (!response.ok) {
+    throw new ProjectAssetError(
+      await readErrorMessage(response, "업로드 완료 처리를 하지 못했습니다."),
+    );
+  }
+
+  return (await response.json()) as UploadedFile;
+}
+
+export function formatAssetBytes(bytes: number) {
+  if (bytes === 0) return "0 B";
+
+  const units = ["B", "KB", "MB", "GB"];
+  const index = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
+  const value = bytes / 1024 ** index;
+
+  return `${value.toFixed(value >= 10 || index === 0 ? 0 : 1)} ${units[index]}`;
+}

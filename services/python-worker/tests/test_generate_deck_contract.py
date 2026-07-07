@@ -1,0 +1,3711 @@
+import json
+from copy import deepcopy
+from typing import Any
+
+import pytest
+from fastapi.testclient import TestClient
+
+import app.main as api_module
+from app.ai.generate_deck import (
+    AgentOutput,
+    DeckContentGenerationError,
+    DeckGenerationOrchestrator,
+    GenerateDeckRequest,
+    GenerateDeckResponse,
+    ReferenceContext,
+    SlideCountRange,
+    ValidationIssue,
+    ValidationResult,
+    analyze_input,
+    choose_slide_count,
+    clear_deck_content_plan_cache,
+    deck_content_prompt,
+    detect_text_overlap_candidates,
+    generate_content_plan_with_llm,
+    generate_deck,
+    icon_name_for_keyword,
+    refine_design_issues,
+    review_text_overlap_candidates,
+    validate_and_patch,
+)
+from tests.test_config import VALID_ENV
+
+
+def client() -> TestClient:
+    api_module.app.state.config = api_module.load_config(VALID_ENV)
+    return TestClient(api_module.app)
+
+
+@pytest.fixture(autouse=True)
+def clear_content_plan_cache() -> None:
+    clear_deck_content_plan_cache()
+
+
+def test_choose_slide_count_clamps_duration_to_requested_range() -> None:
+    slide_range = SlideCountRange(min=5, max=10)
+
+    assert choose_slide_count(3, slide_range) == 5
+    assert choose_slide_count(7, slide_range) == 7
+    assert choose_slide_count(10, slide_range) == 10
+    assert choose_slide_count(30, slide_range) == 10
+
+
+def test_generate_deck_request_accepts_direct_reference_context() -> None:
+    raw_input = analyze_input(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="ORBIT",
+            references=[{"fileId": "file_template"}],
+            referenceContext=[
+                {
+                    "fileId": "file_template",
+                    "title": "template.pptx",
+                    "content": "PPTX source text",
+                }
+            ],
+        )
+    )
+
+    assert raw_input.reference_context == [
+        ReferenceContext(
+            fileId="file_template",
+            title="template.pptx",
+            content="PPTX source text",
+        )
+    ]
+
+
+def test_generate_content_plan_uses_cache_and_returns_copy() -> None:
+    raw_input = analyze_input(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="ORBIT",
+            prompt="Use generated plan.",
+            slideCountRange={"min": 1, "max": 1},
+        )
+    )
+    fake_client = FakeOpenAIClient(
+        {
+            "title": "Cached plan",
+            "slides": [
+                slide_payload(
+                    "Original title",
+                    "Original message.",
+                    "Original presenter notes.",
+                    slide_type="solution",
+                    slot_preset="title_left_visual_right",
+                )
+            ],
+        }
+    )
+
+    first = generate_content_plan_with_llm(
+        raw_input,
+        client=fake_client,
+        model="gpt-test",
+    )
+    assert first is not None
+    first.slides[0].title = "Mutated title"
+    second = generate_content_plan_with_llm(
+        raw_input,
+        client=fake_client,
+        model="gpt-test",
+    )
+
+    assert len(fake_client.requests) == 1
+    assert second is not None
+    assert second.slides[0].title == "Original title"
+
+
+def test_generate_deck_accepts_llm_slide_count_above_minimum() -> None:
+    fake_client = FakeOpenAIClient(
+        {
+            "title": "Dense enough",
+            "slides": [
+                slide_payload(
+                    f"Slide {index}",
+                    "LLM selected a concise deck.",
+                    "Present the concise deck.",
+                    slide_type="solution",
+                    slot_preset="title_left_visual_right",
+                )
+                for index in range(1, 6)
+            ],
+        }
+    )
+
+    response = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="ORBIT",
+            prompt="Use generated plan.",
+            targetDurationMinutes=10,
+            slideCountRange={"min": 5, "max": 8},
+        ),
+        client=fake_client,
+    )
+
+    assert len(response.deck["slides"]) == 5
+    assert response.warnings == [
+        "참고자료 없이 topic-only generation으로 생성했습니다.",
+        "AI가 참고자료/주제 밀도를 기준으로 5장이 적정하다고 판단했습니다.",
+    ]
+
+
+def test_generate_deck_rejects_llm_slide_count_below_minimum() -> None:
+    fake_client = FakeOpenAIClient(
+        {
+            "title": "Too short",
+            "slides": [
+                slide_payload(
+                    f"Slide {index}",
+                    "Too few slides.",
+                    "Explain the short slide.",
+                    slide_type="solution",
+                    slot_preset="title_left_visual_right",
+                )
+                for index in range(1, 5)
+            ],
+        }
+    )
+
+    with pytest.raises(DeckContentGenerationError, match="requested minimum"):
+        generate_deck(
+            GenerateDeckRequest(
+                projectId="project_demo_1",
+                topic="ORBIT",
+                prompt="Use generated plan.",
+                targetDurationMinutes=10,
+                slideCountRange={"min": 5, "max": 8},
+            ),
+            client=fake_client,
+        )
+
+
+def test_generate_deck_clamps_llm_slide_count_to_upper_bound() -> None:
+    fake_client = FakeOpenAIClient(
+        {
+            "title": "Too many",
+            "slides": [
+                slide_payload(
+                    f"Slide {index}",
+                    "Extra slides should be trimmed.",
+                    "Present the trimmed deck.",
+                    slide_type="solution",
+                    slot_preset="title_left_visual_right",
+                )
+                for index in range(1, 10)
+            ],
+        }
+    )
+
+    response = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="ORBIT",
+            prompt="Use generated plan.",
+            targetDurationMinutes=10,
+            slideCountRange={"min": 5, "max": 8},
+        ),
+        client=fake_client,
+    )
+
+    assert len(response.deck["slides"]) == 8
+    assert response.warnings == ["참고자료 없이 topic-only generation으로 생성했습니다."]
+
+
+def test_generate_deck_endpoint_returns_deck_contract() -> None:
+    response = client().post(
+        "/ai/generate-deck",
+        json={
+            "projectId": "project_demo_1",
+            "topic": "AI 덱 생성",
+            "targetDurationMinutes": 8,
+            "slideCountRange": {"min": 4, "max": 5},
+            "template": "report",
+            "metadata": {
+                "audience": "technical",
+                "purpose": "inform",
+                "tone": "professional",
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    deck = payload["deck"]
+
+    assert payload["validation"]["passed"] is True
+    assert payload["warnings"] == [
+        "참고자료 없이 topic-only generation으로 생성했습니다."
+    ]
+    assert deck["deckId"].startswith("deck_")
+    assert deck["projectId"] == "project_demo_1"
+    assert deck["targetDurationMinutes"] == 8
+    assert deck["metadata"]["generatedBy"] == "ai"
+    assert deck["metadata"]["createdFrom"]["references"] == []
+    assert 4 <= len(deck["slides"]) <= 5
+    assert deck["slides"][0]["aiNotes"]["sourceEvidence"] == []
+    assert all(
+        element["x"] + element["width"] <= deck["canvas"]["width"]
+        for slide in deck["slides"]
+        for element in slide["elements"]
+    )
+    assert all(
+        any(element["role"] == "decoration" for element in slide["elements"])
+        for slide in deck["slides"]
+    )
+    assert any(
+        sum(1 for element in slide["elements"] if element["type"] != "text") >= 3
+        for slide in deck["slides"]
+    )
+
+
+def test_generate_deck_endpoint_supports_topic_only_generation() -> None:
+    response = client().post(
+        "/ai/generate-deck",
+        json={"projectId": "project_demo_1", "topic": "ORBIT"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    speaker_notes = payload["deck"]["slides"][0]["speakerNotes"]
+    assert payload["warnings"] == [
+        "참고자료 없이 topic-only generation으로 생성했습니다."
+    ]
+    assert "안녕하세요. 오늘은 ORBIT" in speaker_notes
+    assert "슬라이드에서는" not in speaker_notes
+    assert "설명합니다" not in speaker_notes
+    assert "제공합니다" not in speaker_notes
+
+
+def test_generate_deck_endpoint_uses_payload_image_review_mode(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, str] = {}
+    response_payload = generate_deck(
+        GenerateDeckRequest(projectId="project_demo_1", topic="ORBIT"),
+        image_review_mode="off",
+    )
+
+    def fake_generate_deck(
+        payload: GenerateDeckRequest,
+        **kwargs: Any,
+    ) -> GenerateDeckResponse:
+        captured["mode"] = kwargs["image_review_mode"]
+        return response_payload
+
+    monkeypatch.setattr(api_module, "generate_deck", fake_generate_deck)
+
+    response = client().post(
+        "/ai/generate-deck",
+        json={
+            "projectId": "project_demo_1",
+            "topic": "ORBIT",
+            "imageReviewMode": "off",
+        },
+    )
+
+    assert response.status_code == 200
+    assert captured["mode"] == "off"
+
+
+def test_generate_deck_applies_content_aware_theme_and_fonts() -> None:
+    response = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="Google Speech-to-Text 언어 및 방언 지원",
+            slideCountRange={"min": 2, "max": 2},
+        )
+    )
+
+    deck = response.deck
+    title_element = next(
+        element
+        for element in deck["slides"][0]["elements"]
+        if element["type"] == "text" and element["role"] == "title"
+    )
+    assert deck["theme"]["name"] == "default-voice-tech-ai"
+    assert deck["theme"]["backgroundColor"] == "#f7fbff"
+    assert deck["theme"]["accentColor"] == "#1a73e8"
+    assert deck["theme"]["typography"]["headingFontFamily"] == "Noto Sans KR"
+    assert title_element["props"]["fontFamily"] == "Noto Sans KR"
+    assert title_element["props"]["fontSize"] == 64
+
+
+def test_generate_deck_design_rhythm_overrides_theme_profile() -> None:
+    response = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="Quarterly roadmap",
+            slideCountRange={"min": 2, "max": 2},
+            design={"visualRhythm": "technical"},
+        )
+    )
+
+    assert response.deck["theme"]["name"] == "default-voice-tech-ai"
+    assert response.deck["theme"]["accentColor"] == "#1a73e8"
+
+
+def test_generate_deck_applies_prompt_color_theme() -> None:
+    fake_client = FakeOpenAIClient(
+        {
+            "title": "Prompt colors",
+            "slides": [
+                slide_payload(
+                    "Visual plan",
+                    "Prompt colors should drive the theme.",
+                    "Use the generated visual intent.",
+                    slide_type="title",
+                    slot_preset="title_center",
+                )
+            ],
+        }
+    )
+
+    response = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="Quarterly roadmap",
+            prompt="흰색과 노란색으로 디자인",
+            slideCountRange={"min": 1, "max": 1},
+        ),
+        client=fake_client,
+    )
+
+    theme = response.deck["theme"]
+    assert theme["backgroundColor"] == "#ffffff"
+    assert theme["textColor"] == "#111827"
+    assert theme["accentColor"] == "#facc15"
+    assert theme["palette"]["surface"] == "#ffffff"
+    assert theme["palette"]["primary"] == "#facc15"
+    assert theme["palette"]["secondary"] == "#facc15"
+    assert theme["palette"]["muted"] == "#fef9c3"
+    assert theme["palette"]["border"] == "#fde68a"
+
+
+def test_generate_deck_applies_palette_hint_color_theme() -> None:
+    fake_client = FakeOpenAIClient(
+        {
+            "title": "Palette hint",
+            "slides": [
+                slide_payload(
+                    "Visual plan",
+                    "Palette hint should drive explicit colors.",
+                    "Use the generated visual intent.",
+                    slide_type="title",
+                    slot_preset="title_center",
+                    visual_intent={
+                        "emphasis": "color",
+                        "mood": "bright",
+                        "structure": "cover",
+                        "paletteHint": "white yellow",
+                        "emphasisStyle": "",
+                        "composition": "",
+                        "decorationDensity": "medium",
+                        "mediaStyle": "",
+                    },
+                )
+            ],
+        }
+    )
+
+    response = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="Quarterly roadmap",
+            prompt="Use generated plan.",
+            slideCountRange={"min": 1, "max": 1},
+        ),
+        client=fake_client,
+    )
+
+    theme = response.deck["theme"]
+    assert theme["backgroundColor"] == "#ffffff"
+    assert theme["accentColor"] == "#facc15"
+
+
+def test_generate_deck_applies_monochrome_semantic_palette_from_design_prompt() -> None:
+    fake_client = FakeOpenAIClient(
+        {
+            "title": "Monochrome palette",
+            "slides": [
+                slide_payload(
+                    "Visual plan",
+                    "Semantic palette should drive neutral colors.",
+                    "Use the generated visual intent.",
+                    slide_type="title",
+                    slot_preset="title_center",
+                )
+            ],
+        }
+    )
+
+    response = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="Quarterly roadmap",
+            designPrompt="전문가, 모노톤, 블랙앤화이트 디자인",
+            template="report",
+            slideCountRange={"min": 1, "max": 1},
+        ),
+        client=fake_client,
+    )
+
+    theme = response.deck["theme"]
+    deck_text = json.dumps(response.deck, ensure_ascii=False)
+    assert theme["backgroundColor"] == "#ffffff"
+    assert theme["textColor"] == "#111827"
+    assert theme["accentColor"] == "#111827"
+    assert theme["palette"]["secondary"] == "#6b7280"
+    assert theme["palette"]["border"] == "#d1d5db"
+    assert "#0f766e" not in deck_text
+    assert "#7c3aed" not in deck_text
+    assert "#10b981" not in deck_text
+
+
+def test_generate_deck_applies_ocean_blue_semantic_palette_from_design_prompt() -> None:
+    fake_client = FakeOpenAIClient(
+        {
+            "title": "Ocean palette",
+            "slides": [
+                slide_payload(
+                    "Visual plan",
+                    "Semantic palette should drive blue colors.",
+                    "Use the generated visual intent.",
+                    slide_type="title",
+                    slot_preset="title_center",
+                )
+            ],
+        }
+    )
+
+    response = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="Quarterly roadmap",
+            designPrompt="바다 느낌으로 시원한 디자인",
+            template="report",
+            slideCountRange={"min": 1, "max": 1},
+        ),
+        client=fake_client,
+    )
+
+    theme = response.deck["theme"]
+    assert theme["backgroundColor"] == "#f7fbff"
+    assert theme["textColor"] == "#0f172a"
+    assert theme["accentColor"] == "#2563eb"
+    assert theme["palette"]["secondary"] == "#0891b2"
+    assert theme["palette"]["muted"] == "#e0f2fe"
+    assert theme["palette"]["border"] == "#bae6fd"
+
+
+def test_generate_deck_keeps_theme_tokens_before_semantic_palette() -> None:
+    fake_client = FakeOpenAIClient(
+        {
+            "title": "Token priority",
+            "slides": [
+                slide_payload(
+                    "Visual plan",
+                    "Theme tokens should win over semantic palette.",
+                    "Use the generated visual intent.",
+                    slide_type="title",
+                    slot_preset="title_center",
+                )
+            ],
+        }
+    )
+
+    response = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="Quarterly roadmap",
+            designPrompt="바다 느낌, background:#fff7ed accent:#ff0066",
+            template="report",
+            slideCountRange={"min": 1, "max": 1},
+        ),
+        client=fake_client,
+    )
+
+    theme = response.deck["theme"]
+    assert theme["backgroundColor"] == "#fff7ed"
+    assert theme["accentColor"] == "#ff0066"
+    assert theme["palette"]["primary"] == "#ff0066"
+    assert theme["palette"]["secondary"] == "#ff0066"
+
+
+def test_generate_deck_separates_design_prompt_from_content_prompt() -> None:
+    design_prompt = "retro tetris colors, classic game, pixel art"
+    fake_client = FakeOpenAIClient(
+        {
+            "title": "Tetris history",
+            "slides": [
+                slide_payload(
+                    "Origins",
+                    "Tetris became a global puzzle game.",
+                    "Explain the origin story without visual style words.",
+                    slide_type="title",
+                    slot_preset="title_center",
+                )
+            ],
+        }
+    )
+
+    response = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="Tetris",
+            prompt="History and core rules",
+            designPrompt=design_prompt,
+            slideCountRange={"min": 1, "max": 1},
+        ),
+        client=fake_client,
+    )
+
+    llm_input = str(fake_client.requests[0]["input"])
+    deck_text = json.dumps(response.deck, ensure_ascii=False)
+    assert "User prompt: History and core rules" in llm_input
+    assert f"Design prompt: {design_prompt}" in llm_input
+    assert design_prompt not in deck_text
+
+
+def test_no_template_narrative_prompt_compacts_design_details() -> None:
+    raw_input = analyze_input(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="ORBIT",
+            prompt="Use generated plan.",
+            designPrompt=(
+                "차분한 리포트 스타일과 여백 중심 레이아웃을 유지하되 "
+                + "가" * 180
+                + "\n두 번째 줄은 narrative prompt에서 제외"
+            ),
+            design={
+                "stylePackId": "simple-basic",
+                "slidePresetId": "process-cards-horizontal-6",
+            },
+            slideCountRange={"min": 1, "max": 1},
+        )
+    )
+
+    prompt = deck_content_prompt(raw_input)
+    design_line = next(line for line in prompt.splitlines() if line.startswith("Design prompt: "))
+    compacted = design_line.removeprefix("Design prompt: ")
+
+    assert len(compacted) <= 160
+    assert "두 번째 줄" not in compacted
+    assert "Style pack override:" not in prompt
+    assert "Slide preset override:" not in prompt
+    assert "Preset style prompt:" not in prompt
+    assert "Reference excerpts:" in prompt
+
+
+def test_template_narrative_prompt_keeps_design_details() -> None:
+    design_prompt = (
+        "차분한 리포트 스타일과 여백 중심 레이아웃을 유지하되 "
+        + "가" * 180
+        + "\n두 번째 줄도 유지"
+    )
+    raw_input = analyze_input(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="ORBIT",
+            prompt="Use generated plan.",
+            designPrompt=design_prompt,
+            design={
+                "stylePackId": "simple-basic",
+                "slidePresetId": "process-cards-horizontal-6",
+            },
+            designBlueprint=minimal_imported_design_blueprint(),
+            slideCountRange={"min": 1, "max": 1},
+        )
+    )
+
+    prompt = deck_content_prompt(raw_input)
+
+    assert f"Design prompt: {design_prompt}" in prompt
+    assert "Style pack override: simple-basic" in prompt
+    assert "Slide preset override: process-cards-horizontal-6" in prompt
+    assert "Preset style prompt:" in prompt
+    assert "깔끔하고 베이직하지만 비어 보이지 않는 슬라이드" in prompt
+
+
+def test_generate_deck_applies_simple_basic_style_pack() -> None:
+    design_prompt = "심플 베이직 발표용 문서 스타일"
+    fake_client = FakeOpenAIClient(
+        {
+            "title": "AI 전환 전략",
+            "slides": [
+                slide_payload(
+                    "실행 관점",
+                    "핵심 실행 항목을 짧게 정리합니다.",
+                    "첫째, 실행 범위를 좁힙니다. 둘째, 검증 가능한 지표를 둡니다.",
+                    slide_type="solution",
+                    slot_preset="title_left_visual_right",
+                    keywords=["범위", "지표", "검증"],
+                )
+            ],
+        }
+    )
+
+    response = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="AI 전환 전략",
+            designPrompt=design_prompt,
+            design={"stylePackId": "simple-basic"},
+            slideCountRange={"min": 1, "max": 1},
+        ),
+        client=fake_client,
+    )
+
+    slide = response.deck["slides"][0]
+    deck_text = json.dumps(response.deck, ensure_ascii=False)
+    llm_input = str(fake_client.requests[0]["input"])
+    top_stripe = element_by_id(slide, "el_1_simple_basic_top_stripe")
+    divider = element_by_id(slide, "el_1_simple_basic_title_divider")
+
+    assert fake_client.requests[0]["model"] == "gpt-4.1-mini"
+    assert "Document mode: presentation" in llm_input
+    assert "Style pack override:" not in llm_input
+    assert "Preset style prompt:" not in llm_input
+    assert response.deck["theme"]["name"] == "simple-basic"
+    assert response.deck["theme"]["textColor"] == "#1A1A1A"
+    assert top_stripe["height"] == 6
+    assert divider["width"] == 56
+    assert has_element(slide, "el_1_simple_basic_content_box")
+    assert has_element(slide, "el_1_simple_basic_badge_1")
+    assert design_prompt not in deck_text
+    assert "stylePackId" not in deck_text
+    assert "visualIntent" not in deck_text
+    assert response.validation.passed is True
+
+
+def test_generate_deck_auto_selects_simple_basic_report_mode() -> None:
+    fake_client = FakeOpenAIClient(
+        {
+            "title": "보고서형 덱",
+            "slides": [
+                slide_payload(
+                    "판단 근거",
+                    "근거와 실행 조건을 본문에서 함께 확인할 수 있습니다.",
+                    "보고서형 문서에서는 독자가 이 본문만 읽어도 판단 기준을 이해할 수 있어야 합니다.",
+                    slide_type="data",
+                    slot_preset="insight_with_evidence",
+                    keywords=["근거", "조건"],
+                )
+            ],
+        }
+    )
+
+    response = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="AI 투자 검토",
+            designPrompt="깔끔한 제출용 보고서 스타일",
+            slideCountRange={"min": 1, "max": 1},
+        ),
+        client=fake_client,
+    )
+
+    llm_input = str(fake_client.requests[0]["input"])
+    deck_text = json.dumps(response.deck, ensure_ascii=False)
+
+    assert "Document mode: report/submission" in llm_input
+    assert response.deck["theme"]["name"] == "simple-basic"
+    assert "깔끔한 제출용 보고서 스타일" not in deck_text
+    assert response.validation.passed is True
+
+
+@pytest.mark.parametrize(
+    ("style_pack_id", "document_mode"),
+    [
+        ("presentation-document", "presentation"),
+        ("submission-document", "report/submission"),
+    ],
+)
+def test_generate_deck_applies_document_style_pack_modes(
+    style_pack_id: str,
+    document_mode: str,
+) -> None:
+    fake_client = FakeOpenAIClient(
+        {
+            "title": "Document style",
+            "slides": [
+                slide_payload(
+                    "Document slide",
+                    "The selected template controls the document style.",
+                    "Explain the selected document style in direct speaker lines.",
+                    slide_type="solution",
+                    slot_preset="insight_with_evidence",
+                    keywords=["Style", "Purpose"],
+                )
+            ],
+        }
+    )
+
+    response = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="Document style",
+            design={"stylePackId": style_pack_id},
+            slideCountRange={"min": 1, "max": 1},
+        ),
+        client=fake_client,
+    )
+
+    llm_input = str(fake_client.requests[0]["input"])
+    deck_text = json.dumps(response.deck, ensure_ascii=False)
+    slide = response.deck["slides"][0]
+
+    assert f"Document mode: {document_mode}" in llm_input
+    assert "Style pack override:" not in llm_input
+    assert "Preset style prompt:" not in llm_input
+    assert response.deck["theme"]["name"] == style_pack_id
+    assert has_dedicated_document_style_elements(slide, style_pack_id)
+    assert not any(
+        element["elementId"].startswith("el_1_simple_basic_")
+        for element in slide["elements"]
+    )
+    assert "stylePackId" not in deck_text
+    assert response.validation.passed is True
+
+
+def test_generate_deck_document_style_packs_choose_distinct_layout_frames() -> None:
+    frames: dict[str, tuple[str, int, int, int]] = {}
+
+    for style_pack_id in (
+        "simple-basic",
+        "presentation-document",
+        "submission-document",
+    ):
+        fake_client = FakeOpenAIClient(
+            {
+                "title": "Document style",
+                "slides": [
+                    slide_payload(
+                        "Document slide",
+                        "The same content should use the selected template layout.",
+                        "Explain the selected document style in direct speaker lines.",
+                        slide_type="solution",
+                        slot_preset="insight_with_evidence",
+                        keywords=["Style", "Purpose"],
+                    )
+                ],
+            }
+        )
+
+        response = generate_deck(
+            GenerateDeckRequest(
+                projectId="project_demo_1",
+                topic="Document style",
+                design={"stylePackId": style_pack_id},
+                slideCountRange={"min": 1, "max": 1},
+            ),
+            client=fake_client,
+        )
+
+        slide = response.deck["slides"][0]
+        title = element_by_role(slide, "title")
+        body = element_by_role(slide, "body")
+        frames[style_pack_id] = (
+            slide["style"]["layout"],
+            title["y"],
+            body["y"],
+            body["height"],
+        )
+
+    assert len(set(frames.values())) == 3
+    assert frames["simple-basic"][0] == "title-content"
+    assert frames["presentation-document"][0] == "title"
+    assert frames["submission-document"][3] > frames["simple-basic"][3]
+
+
+def test_generate_deck_applies_keyed_theme_tokens_from_palette_hint() -> None:
+    fake_client = FakeOpenAIClient(
+        {
+            "title": "Token palette",
+            "slides": [
+                slide_payload(
+                    "Visual plan",
+                    "Tokens should drive the theme.",
+                    "Use the generated visual intent.",
+                    slide_type="title",
+                    slot_preset="title_center",
+                    visual_intent={
+                        "emphasis": "color",
+                        "mood": "arcade",
+                        "structure": "cover",
+                        "paletteHint": (
+                            "background:#111827 text:#f8fafc accent:#00f0f0 "
+                            "secondary:#facc15 surface:#1f2937 muted:#0f172a "
+                            "border:#a855f7 style:retro-pixel-arcade"
+                        ),
+                        "emphasisStyle": "",
+                        "composition": "",
+                        "decorationDensity": "medium",
+                        "mediaStyle": "",
+                    },
+                )
+            ],
+        }
+    )
+
+    response = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="Quarterly roadmap",
+            prompt="Use generated plan.",
+            slideCountRange={"min": 1, "max": 1},
+        ),
+        client=fake_client,
+    )
+
+    theme = response.deck["theme"]
+    assert theme["backgroundColor"] == "#111827"
+    assert theme["textColor"] == "#f8fafc"
+    assert theme["accentColor"] == "#00f0f0"
+    assert theme["palette"]["primary"] == "#00f0f0"
+    assert theme["palette"]["secondary"] == "#facc15"
+    assert theme["palette"]["surface"] == "#1f2937"
+    assert theme["palette"]["muted"] == "#0f172a"
+    assert theme["palette"]["border"] == "#a855f7"
+
+
+def test_generate_deck_ignores_invalid_theme_tokens() -> None:
+    fake_client = FakeOpenAIClient(
+        {
+            "title": "Invalid tokens",
+            "slides": [
+                slide_payload(
+                    "Visual plan",
+                    "Invalid tokens should not drive the theme.",
+                    "Use the generated visual intent.",
+                    slide_type="title",
+                    slot_preset="title_center",
+                    visual_intent={
+                        "emphasis": "color",
+                        "mood": "plain",
+                        "structure": "cover",
+                        "paletteHint": "accent:yellow unknown:#111111 background:rgb(0, 0, 0)",
+                        "emphasisStyle": "",
+                        "composition": "",
+                        "decorationDensity": "medium",
+                        "mediaStyle": "",
+                    },
+                )
+            ],
+        }
+    )
+
+    response = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="Quarterly roadmap",
+            prompt="Use generated plan.",
+            slideCountRange={"min": 1, "max": 1},
+        ),
+        client=fake_client,
+    )
+
+    theme = response.deck["theme"]
+    assert theme["backgroundColor"] == "#ffffff"
+    assert theme["accentColor"] == "#2563eb"
+
+
+def test_generate_deck_falls_back_when_token_contrast_is_low() -> None:
+    fake_client = FakeOpenAIClient(
+        {
+            "title": "Low contrast",
+            "slides": [
+                slide_payload(
+                    "Visual plan",
+                    "Low contrast text should be corrected.",
+                    "Use the generated visual intent.",
+                    slide_type="title",
+                    slot_preset="title_center",
+                    visual_intent={
+                        "emphasis": "color",
+                        "mood": "dark",
+                        "structure": "cover",
+                        "paletteHint": "background:#111827 text:#111827",
+                        "emphasisStyle": "",
+                        "composition": "",
+                        "decorationDensity": "medium",
+                        "mediaStyle": "",
+                    },
+                )
+            ],
+        }
+    )
+
+    response = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="Quarterly roadmap",
+            prompt="Use generated plan.",
+            slideCountRange={"min": 1, "max": 1},
+        ),
+        client=fake_client,
+    )
+
+    theme = response.deck["theme"]
+    assert theme["backgroundColor"] == "#111827"
+    assert theme["textColor"] == "#f8fafc"
+
+
+def test_generate_deck_keeps_visual_rhythm_typography_with_color_theme() -> None:
+    fake_client = FakeOpenAIClient(
+        {
+            "title": "Technical colors",
+            "slides": [
+                slide_payload(
+                    "Visual plan",
+                    "Prompt colors should not replace typography.",
+                    "Use the generated visual intent.",
+                    slide_type="title",
+                    slot_preset="title_center",
+                )
+            ],
+        }
+    )
+
+    response = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="Quarterly roadmap",
+            prompt="white and yellow theme",
+            slideCountRange={"min": 1, "max": 1},
+            design={"visualRhythm": "technical"},
+        ),
+        client=fake_client,
+    )
+
+    theme = response.deck["theme"]
+    assert theme["name"] == "default-voice-tech-ai"
+    assert theme["backgroundColor"] == "#ffffff"
+    assert theme["accentColor"] == "#facc15"
+    assert theme["typography"]["headingFontFamily"] == "Noto Sans KR"
+
+
+def test_generate_deck_matches_game_ink_neon_profile_without_color_hints() -> None:
+    response = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="Platoon ink neon game raiders",
+            slideCountRange={"min": 2, "max": 2},
+        )
+    )
+
+    theme = response.deck["theme"]
+    assert theme["name"] == "default-game-ink-neon-ai"
+    assert theme["backgroundColor"] == "#07111f"
+    assert theme["accentColor"] == "#00e5ff"
+    assert theme["palette"]["secondary"] == "#b6ff00"
+    assert theme["accentColor"] != "#2563eb"
+
+
+def test_generate_deck_matches_game_ink_neon_profile_for_korean_hints() -> None:
+    response = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="스플래툰 잉크 네온 게임 캠페인",
+            slideCountRange={"min": 2, "max": 2},
+        )
+    )
+
+    assert response.deck["theme"]["name"] == "default-game-ink-neon-ai"
+
+
+def test_generate_deck_uses_design_prompt_profile_when_profile_is_auto() -> None:
+    response = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="Quarterly roadmap",
+            designPrompt="예쁜 모던 스타일로 세련되게",
+            slideCountRange={"min": 2, "max": 2},
+        )
+    )
+
+    theme = response.deck["theme"]
+    assert theme["name"] == "default-modern-lilac-ai"
+    assert theme["accentColor"] == "#7c3aed"
+    assert theme["palette"]["muted"] == "#f5f3ff"
+
+
+def test_generate_deck_report_template_keeps_explicit_game_prompt_theme() -> None:
+    fake_client = FakeOpenAIClient(
+        {
+            "title": "네온 게임 리포트",
+            "slides": [
+                slide_payload(
+                    "캠페인 방향",
+                    "잉크와 네온이 중심인 캐주얼 게임 캠페인입니다.",
+                    "밝은 네온 톤을 중심으로 소개합니다.",
+                    slide_type="title",
+                    slot_preset="title_center",
+                ),
+                slide_payload(
+                    "핵심 정리",
+                    "비비드한 잉크 대비를 유지합니다.",
+                    "게임 프롬프트가 리포트 템플릿보다 우선합니다.",
+                    slide_type="summary",
+                    slot_preset="insight_with_evidence",
+                ),
+            ],
+        }
+    )
+
+    response = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="분기 디자인 리포트",
+            prompt="스플래툰처럼 잉크와 네온이 강한 게임 발표 자료",
+            template="report",
+            slideCountRange={"min": 2, "max": 2},
+        ),
+        client=fake_client,
+    )
+
+    assert response.deck["theme"]["name"] == "report-game-ink-neon-ai"
+
+
+def test_generate_deck_uses_visual_intent_palette_hint_for_theme() -> None:
+    fake_client = FakeOpenAIClient(
+        {
+            "title": "Palette hint",
+            "slides": [
+                slide_payload(
+                    "Visual plan",
+                    "Palette hint should drive the theme.",
+                    "Use the generated visual intent.",
+                    slide_type="title",
+                    slot_preset="title_center",
+                    visual_intent={
+                        "emphasis": "color",
+                        "mood": "energetic",
+                        "structure": "cover",
+                        "paletteHint": "neon ink",
+                        "emphasisStyle": "",
+                        "composition": "",
+                        "decorationDensity": "medium",
+                        "mediaStyle": "",
+                    },
+                )
+            ],
+        }
+    )
+
+    response = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="Quarterly roadmap",
+            prompt="Use generated plan.",
+            slideCountRange={"min": 1, "max": 1},
+        ),
+        client=fake_client,
+    )
+
+    assert response.deck["theme"]["name"] == "default-game-ink-neon-ai"
+
+
+def test_generate_deck_uses_safe_fallback_for_unknown_style_prompt() -> None:
+    response = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="ORBIT asymptotic nebula",
+            slideCountRange={"min": 2, "max": 2},
+        )
+    )
+
+    assert response.deck["theme"]["name"] == "default-startup-clean-ai"
+    assert response.validation.passed is True
+
+
+def test_generate_deck_uses_llm_slot_preset_before_code_fallback() -> None:
+    fake_client = FakeOpenAIClient(
+        {
+            "title": "Stable fallback",
+            "slides": [
+                slide_payload(
+                    "Metric slide",
+                    "Metric message",
+                    "Metric speaker note.",
+                    slide_type="data",
+                    slot_preset="metric_cards",
+                    metric_card_caption="반복 작업 시간을 줄이는 핵심 지표입니다.",
+                )
+            ],
+        }
+    )
+
+    response = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="ORBIT",
+            prompt="Use generated plan.",
+            slideCountRange={"min": 1, "max": 1},
+        ),
+        client=fake_client,
+    )
+
+    slide = response.deck["slides"][0]
+    body = element_by_role(slide, "body")
+    metric_card = element_by_id(slide, "el_1_metric_card")
+    metric_caption = element_by_id(slide, "el_1_metric_card_caption")
+    assert slide["style"]["layout"] == "two-column"
+    assert body["width"] == 760
+    assert has_element(slide, "el_1_metric_card")
+    assert metric_caption["props"]["text"] == "반복 작업 시간을 줄이는 핵심 지표입니다."
+    assert metric_caption["x"] == metric_card["x"] + 44
+    assert metric_caption["y"] == metric_card["y"] + 44
+    assert metric_caption["width"] == metric_card["width"] - 88
+    assert metric_caption["height"] == metric_card["height"] - 88
+    assert metric_caption["zIndex"] == metric_card["zIndex"] + 1
+
+
+def test_generate_deck_skips_metric_card_without_caption() -> None:
+    fake_client = FakeOpenAIClient(
+        {
+            "title": "No empty card",
+            "slides": [
+                slide_payload(
+                    "Metric slide",
+                    "Metric message",
+                    "Metric speaker note.",
+                    slide_type="data",
+                    slot_preset="metric_cards",
+                )
+            ],
+        }
+    )
+
+    response = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="ORBIT",
+            prompt="Use generated plan.",
+            slideCountRange={"min": 1, "max": 1},
+        ),
+        client=fake_client,
+    )
+
+    slide = response.deck["slides"][0]
+    assert not has_element(slide, "el_1_metric_card")
+    assert not has_element(slide, "el_1_metric_card_caption")
+
+
+def test_generate_deck_varied_layout_keeps_stable_title_anchors() -> None:
+    fake_client = FakeOpenAIClient(
+        {
+            "title": "Layout diversity",
+            "slides": [
+                slide_payload(
+                    "First title slide",
+                    "First title message",
+                    "First speaker note.",
+                    slide_type="title",
+                    slot_preset="title_center",
+                ),
+                slide_payload(
+                    "Second title slide",
+                    "Second title message",
+                    "Second speaker note.",
+                    slide_type="title",
+                    slot_preset="title_center",
+                ),
+            ],
+        }
+    )
+
+    response = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="ORBIT",
+            prompt="Use generated plan.",
+            slideCountRange={"min": 2, "max": 2},
+            design={"layoutDiversity": "varied"},
+        ),
+        client=fake_client,
+    )
+
+    first_title = element_by_role(response.deck["slides"][0], "title")
+    second_title = element_by_role(response.deck["slides"][1], "title")
+    assert response.deck["slides"][0]["style"]["layout"] == "title"
+    assert response.deck["slides"][1]["style"]["layout"] == "title"
+    for key in ("x", "y", "width", "height"):
+        assert second_title[key] == first_title[key]
+
+
+def test_generate_deck_limits_footer_and_keyword_chips_to_first_slide() -> None:
+    fake_client = FakeOpenAIClient(
+        {
+            "title": "Deck chrome",
+            "slides": [
+                slide_payload(
+                    "Title slide",
+                    "Title message",
+                    "Title speaker note.",
+                    slide_type="title",
+                    slot_preset="title_center",
+                    keywords=["alpha"],
+                ),
+                slide_payload(
+                    "Content slide",
+                    "Content message",
+                    "Content speaker note.",
+                    slide_type="summary",
+                    slot_preset="insight_with_evidence",
+                    keywords=["beta"],
+                    visual_intent={
+                        "emphasis": "keywords",
+                        "mood": "focused",
+                        "structure": "chips",
+                        "paletteHint": "",
+                        "emphasisStyle": "keyword-chips",
+                        "composition": "data",
+                        "decorationDensity": "medium",
+                        "mediaStyle": "",
+                    },
+                ),
+            ],
+        }
+    )
+
+    response = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="ORBIT",
+            prompt="Use generated plan.",
+            slideCountRange={"min": 2, "max": 2},
+        ),
+        client=fake_client,
+    )
+
+    first_slide, second_slide = response.deck["slides"]
+    assert has_element(first_slide, "el_1_footer")
+    assert has_element(first_slide, "el_1_keyword_chip_1")
+    assert not has_element(second_slide, "el_2_footer")
+    assert not has_element(second_slide, "el_2_keyword_chip_1")
+    assert not has_element(second_slide, "el_2_keyword_chip_1_text")
+
+
+def test_generate_deck_keeps_feature_grid_metric_cards_with_varied_layout() -> None:
+    fake_client = FakeOpenAIClient(
+        {
+            "title": "Feature grid layout",
+            "slides": [
+                slide_payload(
+                    "First feature grid",
+                    "First feature message",
+                    "First speaker note.",
+                    slide_type="feature-grid",
+                    slot_preset="metric_cards",
+                ),
+                slide_payload(
+                    "Second feature grid",
+                    "Second feature message",
+                    "Second speaker note.",
+                    slide_type="feature-grid",
+                    slot_preset="title_left_visual_right",
+                ),
+            ],
+        }
+    )
+
+    response = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="ORBIT",
+            prompt="Use generated plan.",
+            slideCountRange={"min": 2, "max": 2},
+            design={"layoutDiversity": "varied"},
+        ),
+        client=fake_client,
+    )
+
+    for slide in response.deck["slides"]:
+        title = element_by_role(slide, "title")
+        assert slide["style"]["layout"] == "two-column"
+        assert title["x"] == 120
+        assert title["y"] == 88
+        assert title["width"] == 1680
+        assert title["height"] == 128
+
+
+def test_generate_deck_summary_prefers_content_preset_over_quote() -> None:
+    fake_client = FakeOpenAIClient(
+        {
+            "title": "Summary preset",
+            "slides": [
+                slide_payload(
+                    "Summary bullets",
+                    "- First point\n- Second point",
+                    "Wrap up with two concrete points.",
+                    slide_type="summary",
+                    slot_preset="quote_with_source",
+                    visual_intent={
+                        "emphasis": "bullet list",
+                        "mood": "concise",
+                        "structure": "summary",
+                        "paletteHint": "",
+                        "emphasisStyle": "",
+                        "composition": "data",
+                        "decorationDensity": "medium",
+                        "mediaStyle": "",
+                    },
+                    metric_card_caption="본문과 겹치면 안 되는 카드 설명입니다.",
+                )
+            ],
+        }
+    )
+
+    response = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="ORBIT",
+            prompt="Use generated plan.",
+            slideCountRange={"min": 1, "max": 1},
+        ),
+        client=fake_client,
+    )
+
+    slide = response.deck["slides"][0]
+    assert slide["style"]["layout"] == "title-content"
+    assert not has_element(slide, "el_1_metric_card")
+    assert not has_element(slide, "el_1_metric_card_caption")
+    assert not has_element(slide, "el_1_quote_block")
+
+
+def test_generate_deck_avoid_media_policy_suppresses_placeholders() -> None:
+    fake_client = FakeOpenAIClient(
+        {
+            "title": "Media policy",
+            "slides": [
+                slide_payload(
+                    "Media slide",
+                    "Media message",
+                    "Media speaker note.",
+                    slide_type="title",
+                    slot_preset="title_left_visual_right",
+                    media_intent={
+                        "kind": "generate",
+                        "prompt": "A generated image",
+                        "alt": "Generated image",
+                        "caption": "Generated image",
+                        "rationale": "Visual support",
+                        "required": True,
+                        "placement": "right",
+                        "src": "",
+                    },
+                )
+            ],
+        }
+    )
+
+    response = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="ORBIT",
+            prompt="Use generated plan.",
+            slideCountRange={"min": 1, "max": 1},
+            design={"mediaPolicy": "avoid"},
+        ),
+        client=fake_client,
+    )
+
+    assert not has_element(response.deck["slides"][0], "el_1_media_placeholder")
+
+
+def test_generate_deck_does_not_choose_media_preset_without_media() -> None:
+    fake_client = FakeOpenAIClient(
+        {
+            "title": "Missing media",
+            "slides": [
+                slide_payload(
+                    "No media slide",
+                    "The model requested a media composition without usable media.",
+                    "Keep the title layout stable.",
+                    slide_type="title",
+                    slot_preset="title_center",
+                    media_intent={
+                        "kind": "provided",
+                        "prompt": "",
+                        "alt": "",
+                        "caption": "",
+                        "rationale": "",
+                        "required": False,
+                        "placement": "right",
+                        "src": "",
+                    },
+                    visual_intent={
+                        "emphasis": "visual",
+                        "mood": "clean",
+                        "structure": "cover",
+                        "paletteHint": "",
+                        "emphasisStyle": "",
+                        "composition": "media",
+                        "decorationDensity": "medium",
+                        "mediaStyle": "",
+                    },
+                )
+            ],
+        }
+    )
+
+    response = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="ORBIT",
+            prompt="Use generated plan.",
+            slideCountRange={"min": 1, "max": 1},
+        ),
+        client=fake_client,
+    )
+
+    slide = response.deck["slides"][0]
+    assert slide["style"]["layout"] == "title"
+    assert not has_element(slide, "el_1_media_placeholder")
+
+
+def test_text_overlap_candidates_ignore_empty_and_footer_text() -> None:
+    deck = text_overlap_deck(
+        [
+            text_box("el_a", 100, 100, "본문 A"),
+            text_box("el_b", 160, 130, "본문 B"),
+            text_box("el_empty", 100, 100, "  "),
+            text_box("el_footer", 100, 100, "Footer", role="footer"),
+        ]
+    )
+
+    candidates = detect_text_overlap_candidates(deck)
+
+    assert len(candidates) == 1
+    assert candidates[0].first_element_id == "el_a"
+    assert candidates[0].second_element_id == "el_b"
+    assert candidates[0].overlap_ratio >= 0.15
+
+
+def test_text_overlap_image_review_adds_unreadable_warning() -> None:
+    deck = text_overlap_deck(
+        [
+            text_box("el_a", 100, 100, "겹친 본문 A"),
+            text_box("el_b", 140, 120, "겹친 본문 B"),
+        ]
+    )
+    fake_client = FakeImageReviewClient(
+        {"unreadable": True, "reason": "두 텍스트가 같은 영역에 겹칩니다."}
+    )
+
+    issues = review_text_overlap_candidates(
+        deck,
+        detect_text_overlap_candidates(deck),
+        client=fake_client,
+        model="gpt-test",
+    )
+
+    assert len(issues) == 1
+    assert "이미지 검증" in issues[0].message
+    request = fake_client.requests[0]
+    assert request["model"] == "gpt-test"
+    content = request["input"][0]["content"]
+    assert content[1]["type"] == "input_image"
+    assert content[1]["image_url"].startswith("data:image/png;base64,")
+
+
+@pytest.mark.parametrize(
+    ("mode", "error"),
+    [
+        ("off", None),
+        ("auto", RuntimeError("image input unsupported")),
+    ],
+)
+def test_text_overlap_image_review_falls_back_without_failing(
+    mode: str,
+    error: Exception | None,
+) -> None:
+    deck = text_overlap_deck(
+        [
+            text_box("el_a", 100, 100, "본문 A"),
+            text_box("el_b", 150, 110, "본문 B"),
+        ]
+    )
+    client = FakeImageReviewClient(
+        {"unreadable": False, "reason": ""},
+        error=error,
+    )
+
+    issues = review_text_overlap_candidates(
+        deck,
+        detect_text_overlap_candidates(deck),
+        client=client,
+        image_review_mode=mode,  # type: ignore[arg-type]
+    )
+
+    assert len(issues) == 1
+    assert "el_a" in issues[0].message
+    if mode == "off":
+        assert client.requests == []
+
+
+def test_text_overlap_review_skips_llm_when_no_candidate_exists() -> None:
+    deck = text_overlap_deck(
+        [
+            text_box("el_a", 100, 100, "본문 A"),
+            text_box("el_b", 500, 100, "본문 B"),
+        ]
+    )
+    fake_client = FakeImageReviewClient(
+        {"unreadable": True, "reason": "should not run"}
+    )
+
+    issues = review_text_overlap_candidates(
+        deck,
+        detect_text_overlap_candidates(deck),
+        client=fake_client,
+    )
+
+    assert issues == []
+    assert fake_client.requests == []
+
+
+def test_refiner_records_text_overlap_as_layout_issue() -> None:
+    deck = text_overlap_deck(
+        [
+            text_box("el_a", 100, 100, "본문 A"),
+            text_box("el_b", 150, 110, "본문 B"),
+        ]
+    )
+    orchestrator = DeckGenerationOrchestrator(
+        GenerateDeckRequest(projectId="project_demo_1", topic="ORBIT"),
+        image_review_mode="off",
+    )
+
+    _, validation = orchestrator.run_refiner_agent(
+        deck,
+        ValidationResult(passed=True),
+    )
+
+    assert validation.passed is False
+    assert any(
+        "텍스트 요소가 겹쳐" in issue.message
+        for issue in validation.layout_issues
+    )
+
+
+def test_generate_deck_endpoint_requires_llm_for_reference_generation() -> None:
+    response = client().post(
+        "/ai/generate-deck",
+        json={
+            "projectId": "project_demo_1",
+            "topic": "피카츄 소개",
+            "slideCountRange": {"min": 2, "max": 2},
+            "references": [{"fileId": "file_1"}],
+            "referenceKeywords": [
+                {"text": "전기 타입"},
+                {"text": " 전기 타입 "},
+                {"text": "볼주머니"},
+            ],
+        },
+    )
+
+    assert response.status_code == 503
+    assert "OPENAI_API_KEY" in response.json()["detail"]
+
+
+def test_generate_deck_uses_llm_content_plan_with_reference_context() -> None:
+    fake_client = FakeOpenAIClient(
+        {
+            "title": "전기 타입 포켓몬",
+            "slides": [
+                {
+                    "title": "피카츄란?",
+                    "message": "피카츄는 볼주머니에 전기를 저장하는 전기 타입 포켓몬입니다.",
+                    "speakerNotes": "볼주머니와 전기 타입 특징을 연결해 소개합니다.",
+                    "keywords": ["피카츄", "전기 타입"],
+                },
+                {
+                    "title": "핵심 특징",
+                    "message": "볼주머니, 번개 모양 꼬리, 친근한 이미지가 대표 특징입니다.",
+                    "speakerNotes": "참고자료의 특징을 청중이 기억하기 쉽게 설명합니다.",
+                    "keywords": ["볼주머니", "꼬리"],
+                },
+            ],
+        }
+    )
+
+    response = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="피카츄 소개",
+            slideCountRange={"min": 2, "max": 2},
+            references=[{"fileId": "file_1"}],
+            referenceKeywords=[{"text": "전기 타입"}, {"text": "볼주머니"}],
+        ),
+        client=fake_client,
+        model="gpt-test",
+        reference_context=[
+            ReferenceContext(
+                fileId="file_1",
+                title="pikachu.pdf",
+                content="피카츄는 볼주머니에 전기를 저장하는 전기 타입 포켓몬이다.",
+            )
+        ],
+    )
+
+    body_texts = [
+        element["props"]["text"]
+        for slide in response.deck["slides"]
+        for element in slide["elements"]
+        if element["type"] == "text" and element["role"] == "body"
+    ]
+    slide_keywords = [
+        keyword["text"]
+        for keyword in response.deck["slides"][0]["keywords"]
+    ]
+    assert response.deck["title"] == "피카츄 소개: 전기 타입 포켓몬"
+    assert response.validation.passed is True
+    assert body_texts[0] == "피카츄는 볼주머니에 전기를 저장하는 전기 타입 포켓몬입니다."
+    assert slide_keywords == ["전기 타입", "볼주머니", "피카츄"]
+    assert has_element(response.deck["slides"][0], "el_1_keyword_chip_1")
+    assert "피카츄는 볼주머니" in fake_client.requests[0]["input"]
+    assert "actual Korean presenter script" in fake_client.requests[0]["instructions"]
+    assert "목적과 기대 결과" not in "\n".join(body_texts)
+    assert "결정 사항, 실행 순서" not in "\n".join(body_texts)
+
+
+def test_generate_deck_uses_design_intents_without_schema_leak() -> None:
+    fake_client = FakeOpenAIClient(
+        {
+            "title": "디자인 고도화",
+            "slides": [
+                slide_payload(
+                    "한눈에 보는 ORBIT",
+                    "발표 흐름을 먼저 보여주고 핵심 메시지를 고정합니다.",
+                    "첫 장에서는 ORBIT의 목적과 흐름을 짧게 소개합니다.",
+                    slide_type="title",
+                    slot_preset="title_left_visual_right",
+                    media_intent={
+                        "kind": "generate",
+                        "prompt": "생성형 발표 도구의 작업 흐름",
+                        "alt": "AI 발표 자료 생성 흐름",
+                        "caption": "AI 생성 흐름 이미지",
+                        "rationale": "시각 자료가 이해를 돕기 때문입니다.",
+                        "required": True,
+                        "placement": "right",
+                        "src": "",
+                    },
+                ),
+                slide_payload(
+                    "핵심 지표",
+                    "반복 작업 시간을 줄이고 발표 준비 속도를 높이는 점을 강조합니다.",
+                    "숫자와 근거를 함께 설명합니다.",
+                    slide_type="data",
+                    slot_preset="metric_cards",
+                    metric_card_caption="반복 작업 시간을 줄인다는 지표 카드입니다.",
+                ),
+                slide_payload(
+                    "이전 방식과 ORBIT",
+                    "수동 정리와 자동 초안 생성의 차이를 비교합니다.",
+                    "두 방식의 차이를 기준별로 설명합니다.",
+                    slide_type="comparison",
+                    slot_preset="before_after",
+                ),
+                slide_payload(
+                    "사용자가 기억할 한 문장",
+                    "발표자는 내용에 집중하고 ORBIT는 반복 작업을 줄입니다.",
+                    "마무리에서는 기억할 문장을 중심으로 정리합니다.",
+                    slide_type="quote",
+                    slot_preset="quote_with_source",
+                ),
+                slide_payload(
+                    "기존 chart 동작",
+                    "차트 슬라이드는 기존 chart-focus 레이아웃을 유지합니다.",
+                    "기존 차트 생성 경로가 유지되는지 확인합니다.",
+                    slide_type="chart",
+                    slot_preset="insight_with_evidence",
+                ),
+            ],
+        }
+    )
+
+    response = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="ORBIT",
+            prompt="AI 덱 생성 디자인 고도화",
+            slideCountRange={"min": 5, "max": 5},
+            design={"mediaPolicy": "placeholder-ok"},
+        ),
+        client=fake_client,
+    )
+
+    deck_text = json.dumps(response.deck, ensure_ascii=False)
+    assert "visualIntent" not in deck_text
+    assert "metricCardCaption" not in deck_text
+    assert "mediaIntent" not in deck_text
+    assert "slotPreset" not in deck_text
+    assert "layoutCandidates" not in deck_text
+    assert has_element(response.deck["slides"][0], "el_1_media_placeholder")
+    assert response.deck["slides"][1]["style"]["layout"] == "two-column"
+    assert has_element(response.deck["slides"][1], "el_2_metric_card")
+    assert has_element(response.deck["slides"][1], "el_2_metric_card_caption")
+    generated_texts = [
+        element["props"]["text"]
+        for slide in response.deck["slides"]
+        for element in slide["elements"]
+        if element["type"] == "text"
+    ]
+    assert all(not text.startswith("핵심\n") for text in generated_texts)
+    assert has_element(response.deck["slides"][2], "el_3_comparison_divider")
+    assert has_element(response.deck["slides"][3], "el_4_quote_block")
+    assert any(
+        element["type"] == "chart"
+        for element in response.deck["slides"][4]["elements"]
+    )
+    assert response.deck["slides"][4]["style"]["layout"] == "chart-focus"
+    assert response.validation.passed is True
+    assert response.validation.design_issues[0].message == (
+        "이미지 소스가 없어 자리 표시자를 생성했습니다."
+    )
+    assert "\ufffd" not in json.dumps(
+        response.model_dump(by_alias=True),
+        ensure_ascii=False,
+    )
+
+
+def test_generate_deck_applies_visual_intent_decorations_and_caps_elements() -> None:
+    fake_client = FakeOpenAIClient(
+        {
+            "title": "Visual intent",
+            "slides": [
+                slide_payload(
+                    "Keyword chips",
+                    "Use chips to emphasize the generated keywords.",
+                    "Call out the keywords without changing the deck schema.",
+                    slide_type="data",
+                    slot_preset="metric_cards",
+                    keywords=["속도", "품질", "협업"],
+                    visual_intent={
+                        "emphasis": "keywords",
+                        "mood": "energetic",
+                        "structure": "chips",
+                        "paletteHint": "neon",
+                        "emphasisStyle": "키워드 강조",
+                        "composition": "data",
+                        "decorationDensity": "high",
+                        "mediaStyle": "",
+                    },
+                    metric_card_caption="속도, 품질, 협업 지표를 한 카드로 요약합니다.",
+                ),
+                slide_payload(
+                    "Callout",
+                    "This sentence should become a callout. Extra details stay in body.",
+                    "Use the callout as an editable text element.",
+                    slide_type="solution",
+                    slot_preset="title_left_visual_right",
+                    visual_intent={
+                        "emphasis": "main sentence",
+                        "mood": "focused",
+                        "structure": "callout",
+                        "paletteHint": "",
+                        "emphasisStyle": "콜아웃",
+                        "composition": "split",
+                        "decorationDensity": "high",
+                        "mediaStyle": "",
+                    },
+                ),
+            ],
+        }
+    )
+
+    response = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="ORBIT",
+            prompt="Use generated plan.",
+            slideCountRange={"min": 2, "max": 2},
+        ),
+        client=fake_client,
+    )
+
+    first_slide = response.deck["slides"][0]
+    second_slide = response.deck["slides"][1]
+    assert has_element(first_slide, "el_1_top_stripe")
+    assert has_element(first_slide, "el_1_metric_card")
+    assert has_element(first_slide, "el_1_metric_card_caption")
+    for index in range(1, 4):
+        assert has_element(first_slide, f"el_1_keyword_chip_{index}")
+        assert has_element(first_slide, f"el_1_keyword_chip_{index}_text")
+    assert has_element(second_slide, "el_2_diagonal_block")
+    assert not has_element(second_slide, "el_2_callout_box")
+    assert not has_element(second_slide, "el_2_callout_text")
+    assert all(len(slide["elements"]) <= 14 for slide in response.deck["slides"])
+    assert response.validation.passed is True
+
+
+def test_generate_deck_creates_diagram_elements_from_composition() -> None:
+    fake_client = FakeOpenAIClient(
+        {
+            "title": "ORBIT diagrams",
+            "slides": [
+                slide_payload(
+                    "프로세스",
+                    "수집, 분석, 생성, 검증 순서로 진행합니다.",
+                    "네 단계를 차례로 소개합니다.",
+                    slide_type="process",
+                    slot_preset="before_after",
+                    keywords=["수집", "분석", "생성", "검증"],
+                    visual_intent={
+                        "emphasis": "steps",
+                        "mood": "structured",
+                        "structure": "process",
+                        "paletteHint": "",
+                        "emphasisStyle": "",
+                        "composition": "process",
+                        "decorationDensity": "low",
+                        "mediaStyle": "",
+                    },
+                ),
+                slide_payload(
+                    "허브 구조",
+                    "중앙 허브에서 네 개의 노드로 확장됩니다.",
+                    "핵심 허브와 주변 노드를 설명합니다.",
+                    slide_type="architecture",
+                    slot_preset="insight_with_evidence",
+                    keywords=["입력", "분류", "생성", "검증"],
+                    visual_intent={
+                        "emphasis": "hub",
+                        "mood": "systematic",
+                        "structure": "radial",
+                        "paletteHint": "",
+                        "emphasisStyle": "",
+                        "composition": "radial",
+                        "decorationDensity": "low",
+                        "mediaStyle": "",
+                    },
+                ),
+                slide_payload(
+                    "버블 클러스터",
+                    "다섯 개의 키워드가 한 화면에 모입니다.",
+                    "키워드를 버블로 묶어 보여줍니다.",
+                    slide_type="solution",
+                    slot_preset="insight_with_evidence",
+                    keywords=["초안", "편집", "공유", "연습", "실행"],
+                    visual_intent={
+                        "emphasis": "cluster",
+                        "mood": "clear",
+                        "structure": "bubble",
+                        "paletteHint": "",
+                        "emphasisStyle": "",
+                        "composition": "bubble",
+                        "decorationDensity": "low",
+                        "mediaStyle": "",
+                    },
+                ),
+            ],
+        }
+    )
+
+    response = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="ORBIT",
+            prompt="Use generated plan.",
+            slideCountRange={"min": 3, "max": 3},
+        ),
+        client=fake_client,
+    )
+
+    process_slide, radial_slide, bubble_slide = response.deck["slides"]
+    process_steps = [
+        element
+        for element in process_slide["elements"]
+        if element["elementId"].startswith("el_1_process_step_")
+        and element["type"] == "customShape"
+    ]
+    radial_nodes = [
+        element
+        for element in radial_slide["elements"]
+        if element["elementId"].startswith("el_2_radial_node_")
+        and element["type"] == "ellipse"
+    ]
+    bubbles = [
+        element
+        for element in bubble_slide["elements"]
+        if element["elementId"].startswith("el_3_bubble_")
+        and element["type"] == "ellipse"
+    ]
+
+    assert process_slide["style"]["layout"] == "two-column"
+    assert len(process_steps) == 4
+    assert element_by_id(process_slide, "el_1_process_step_1_label")["props"]["text"] == "수집"
+    assert element_by_id(radial_slide, "el_2_radial_hub")["type"] == "ellipse"
+    assert len(radial_nodes) == 4
+    assert element_by_id(radial_slide, "el_2_radial_node_1_label")["props"]["text"] == "입력"
+    assert len(bubbles) == 5
+    assert element_by_id(bubble_slide, "el_3_bubble_1_label")["props"]["text"] == "초안"
+    assert response.validation.passed is True
+
+
+def test_generate_deck_applies_v1_design_profile_to_theme_and_slots() -> None:
+    response = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="IR 피치",
+            slideCountRange={"min": 4, "max": 4},
+            template="pitch",
+            design={"profile": "startup-pitch", "layoutDiversity": "varied"},
+        )
+    )
+
+    assert response.deck["theme"]["name"] == "pitch-startup-pitch-ai"
+    assert response.deck["theme"]["backgroundColor"] == "#0f172a"
+    assert response.deck["slides"][0]["style"]["backgroundColor"] == "#0f172a"
+    assert response.validation.passed is True
+
+
+def test_generate_deck_applies_v2_process_cards_registry() -> None:
+    fake_client = FakeOpenAIClient(
+        {
+            "title": "AI slide pipeline",
+            "slides": [
+                slide_payload(
+                    "AI slide generation pipeline",
+                    "LLM output becomes editable Deck JSON.",
+                    "Walk through the deterministic deck assembly flow.",
+                    slide_type="process",
+                    slot_preset="insight_with_evidence",
+                    keywords=[
+                        "Input collection",
+                        "LLM flow",
+                        "Design request",
+                        "Layout selection",
+                        "Element assembly",
+                        "Validation handoff",
+                    ],
+                    visual_intent={
+                        "emphasis": "Editable slide JSON keeps generation stable.",
+                        "mood": "professional",
+                        "structure": "process cards",
+                        "paletteHint": "",
+                        "emphasisStyle": "",
+                        "composition": "process",
+                        "decorationDensity": "high",
+                        "mediaStyle": "",
+                    },
+                )
+            ],
+        }
+    )
+
+    response = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="AI slide generation pipeline",
+            prompt="Use a teal process cards design.",
+            slideCountRange={"min": 1, "max": 1},
+        ),
+        client=fake_client,
+    )
+
+    slide = response.deck["slides"][0]
+    elements = slide["elements"]
+    deck_text = json.dumps(response.deck, ensure_ascii=False)
+    cards = [
+        element
+        for element in elements
+        if element["elementId"].startswith("el_1_process_card_")
+        and element["type"] == "rect"
+    ]
+    arrows = [
+        element
+        for element in elements
+        if element["elementId"].startswith("el_1_process_arrow_")
+    ]
+    badges = [
+        element
+        for element in elements
+        if element["elementId"].startswith("el_1_process_badge_")
+        and element["type"] == "ellipse"
+    ]
+
+    assert response.deck["theme"]["name"] == "teal-professional-process"
+    assert response.deck["theme"]["accentColor"] == "#006878"
+    assert cards[0]["props"]["fill"] == "#ffffff"
+    assert cards[0]["props"]["stroke"] == "#c7d2d0"
+    assert cards[0]["props"]["shadow"]["blur"] == 16
+    assert element_by_id(slide, "el_1_process_callout")["props"]["stroke"] == "#c7d2d0"
+    assert len(cards) == 6
+    assert len(arrows) == 5
+    assert len(badges) == 6
+    assert has_element(slide, "el_1_process_callout")
+    assert icon_name_for_keyword("LLM flow") == "network-nodes"
+    assert icon_name_for_keyword("Design request") == "pen-monitor"
+    assert "stylePackId" not in deck_text
+    assert "slidePresetId" not in deck_text
+    assert "visualIntent" not in deck_text
+    assert response.validation.passed is True
+
+
+@pytest.mark.parametrize(
+    "style_pack_id",
+    ["simple-basic", "presentation-document", "submission-document"],
+)
+def test_generate_deck_keeps_document_process_slides_in_style_pack(
+    style_pack_id: str,
+) -> None:
+    fake_client = FakeOpenAIClient(
+        {
+            "title": "Workflow",
+            "slides": [
+                slide_payload(
+                    "Issue to Done",
+                    "Keep the workflow readable without switching style systems.",
+                    "Explain each step in speaker notes.",
+                    slide_type="process",
+                    slot_preset="insight_with_evidence",
+                    keywords=[
+                        "Issue",
+                        "Project",
+                        "Branch",
+                        "Implementation",
+                        "PR",
+                        "Review",
+                    ],
+                    visual_intent={
+                        "emphasis": "Workflow steps",
+                        "mood": "clear",
+                        "structure": "process cards",
+                        "paletteHint": "",
+                        "emphasisStyle": "",
+                        "composition": "process",
+                        "decorationDensity": "high",
+                        "mediaStyle": "",
+                    },
+                )
+            ],
+        }
+    )
+
+    response = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="Workflow",
+            design={"stylePackId": style_pack_id},
+            slideCountRange={"min": 1, "max": 1},
+        ),
+        client=fake_client,
+    )
+
+    slide = response.deck["slides"][0]
+    element_ids = [element["elementId"] for element in slide["elements"]]
+    element_types = [element["type"] for element in slide["elements"]]
+
+    assert response.deck["theme"]["name"] == style_pack_id
+    if style_pack_id == "simple-basic":
+        assert has_element(slide, "el_1_simple_basic_top_stripe")
+    else:
+        assert has_dedicated_document_style_elements(slide, style_pack_id)
+        assert all("_simple_basic_" not in element_id for element_id in element_ids)
+    assert all("_process_card_" not in element_id for element_id in element_ids)
+    assert all("_process_arrow_" not in element_id for element_id in element_ids)
+    assert "customShape" not in element_types
+    assert "arrow" not in element_types
+    assert response.validation.passed is True
+
+
+def test_generate_deck_does_not_invent_chart_data_without_source_numbers() -> None:
+    fake_client = FakeOpenAIClient(
+        {
+            "title": "차트 근거",
+            "slides": [
+                slide_payload(
+                    "성과 차트",
+                    "근거 데이터가 없으면 빈 차트로 남깁니다.",
+                    "데이터가 없을 때는 사용자가 직접 입력할 수 있도록 안내합니다.",
+                    slide_type="chart",
+                    slot_preset="insight_with_evidence",
+                )
+            ],
+        }
+    )
+
+    response = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="차트 근거",
+            prompt="차트 슬라이드 생성",
+            slideCountRange={"min": 1, "max": 1},
+        ),
+        client=fake_client,
+    )
+
+    chart = next(
+        element
+        for element in response.deck["slides"][0]["elements"]
+        if element["type"] == "chart"
+    )
+    assert chart["props"]["data"] == []
+    assert any("근거 데이터가 없어 빈 차트" in warning for warning in response.warnings)
+    assert response.validation.passed is True
+
+
+def test_agent_output_rejects_invalid_status() -> None:
+    with pytest.raises(ValueError):
+        AgentOutput.model_validate({"status": "done", "summary": "invalid"})
+
+
+def test_orchestrator_passes_design_blueprint_to_design_and_layout_agents() -> None:
+    blueprint = minimal_imported_design_blueprint()
+    orchestrator = DeckGenerationOrchestrator(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="ORBIT",
+            designReferences=[{"fileId": "file_design"}],
+            designBlueprint=blueprint,
+        )
+    )
+
+    response = orchestrator.run()
+    design_output = orchestrator.agent_outputs["DesignDirectorAgent"]
+    layout_output = orchestrator.agent_outputs["LayoutAgent"]
+
+    assert design_output.artifacts["designBlueprint"]["slides"][0]["elements"][0]["type"] == "rect"
+    assert layout_output.artifacts["designBlueprint"]["slides"][0]["elements"][1]["type"] == "text"
+    assert "agentOutputs" not in response.deck
+    assert "Original confidential" not in json.dumps(response.deck, ensure_ascii=False)
+    assert response.validation.passed is True
+
+
+def test_template_blueprint_replaces_only_replaceable_content_slots() -> None:
+    blueprint = minimal_imported_design_blueprint()
+    title_text = blueprint["slides"][0]["elements"][1]
+    title_text["props"] = {
+        **title_text["props"],
+        "paragraphs": [{"text": "Original confidential title"}],
+        "runs": [{"text": "Original confidential title"}],
+    }
+    fixed_text = deepcopy(blueprint["slides"][0]["elements"][1])
+    fixed_text["elementId"] = "el_imported_1_fixed"
+    fixed_text["role"] = "caption"
+    fixed_text["y"] = 280
+    fixed_text["props"] = {
+        **fixed_text["props"],
+        "text": "Do not touch fixed text",
+        "paragraphs": [{"text": "Do not touch fixed text"}],
+        "runs": [{"text": "Do not touch fixed text"}],
+    }
+    blueprint["slides"][0]["elements"].append(fixed_text)
+
+    response = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="ORBIT",
+            slideCountRange={"min": 1, "max": 1},
+            designReferences=[{"fileId": "file_design"}],
+            designBlueprint=blueprint,
+            templateBlueprint={
+                "templateId": "template_file_design",
+                "sourceFileId": "file_design",
+                "slides": [
+                    {
+                        "slideIndex": 1,
+                        "sourceSlideIndex": 1,
+                        "slots": [
+                            {
+                                "elementId": "el_imported_1_title",
+                                "usage": "content-slot",
+                                "slotRole": "title",
+                                "replaceMode": "replace",
+                                "confidence": 0.95,
+                                "bounds": {
+                                    "x": 120,
+                                    "y": 96,
+                                    "width": 1200,
+                                    "height": 120,
+                                },
+                                "source": {"type": "placeholder", "name": "Title 1"},
+                            },
+                            {
+                                "elementId": "el_imported_1_fixed",
+                                "usage": "fixed-text",
+                                "slotRole": "caption",
+                                "replaceMode": "preserve",
+                                "confidence": 0.9,
+                                "bounds": {
+                                    "x": 120,
+                                    "y": 280,
+                                    "width": 1200,
+                                    "height": 120,
+                                },
+                                "source": {"type": "layout", "name": "Footer"},
+                            },
+                        ],
+                    }
+                ],
+            },
+        )
+    )
+
+    text_values = [
+        element["props"]["text"]
+        for element in response.deck["slides"][0]["elements"]
+        if element["type"] == "text"
+    ]
+
+    assert "ORBIT" in text_values
+    assert "Do not touch fixed text" in text_values
+    assert "Original confidential title" not in text_values
+    replaced_title = next(
+        element
+        for element in response.deck["slides"][0]["elements"]
+        if element["type"] == "text" and element["props"]["text"] == "ORBIT"
+    )
+    preserved_fixed = next(
+        element
+        for element in response.deck["slides"][0]["elements"]
+        if element["type"] == "text"
+        and element["props"]["text"] == "Do not touch fixed text"
+    )
+    assert "paragraphs" not in replaced_title["props"]
+    assert "runs" not in replaced_title["props"]
+    assert preserved_fixed["props"]["paragraphs"][0]["text"] == "Do not touch fixed text"
+
+
+def test_template_caption_slot_can_receive_slide_body_message() -> None:
+    blueprint = minimal_imported_design_blueprint()
+    caption = deepcopy(blueprint["slides"][0]["elements"][1])
+    caption["elementId"] = "el_imported_1_caption"
+    caption["role"] = "caption"
+    caption["y"] = 300
+    caption["props"] = {
+        **caption["props"],
+        "text": "Original confidential caption",
+    }
+    blueprint["slides"][0]["elements"].append(caption)
+
+    response = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="ORBIT",
+            slideCountRange={"min": 1, "max": 1},
+            designReferences=[{"fileId": "file_design"}],
+            designBlueprint=blueprint,
+            templateBlueprint={
+                "templateId": "template_file_design",
+                "sourceFileId": "file_design",
+                "slides": [
+                    {
+                        "slideIndex": 1,
+                        "sourceSlideIndex": 1,
+                        "slots": [
+                            {
+                                "elementId": "el_imported_1_title",
+                                "usage": "content-slot",
+                                "slotRole": "title",
+                                "replaceMode": "replace",
+                                "confidence": 0.95,
+                            },
+                            {
+                                "elementId": "el_imported_1_caption",
+                                "usage": "content-slot",
+                                "slotRole": "caption",
+                                "replaceMode": "replace",
+                                "confidence": 0.95,
+                            },
+                        ],
+                    }
+                ],
+            },
+        )
+    )
+
+    slide = response.deck["slides"][0]
+    body_message = slide["aiNotes"]["emphasisPoints"][0]
+
+    assert any(
+        element["role"] == "body" and element["props"]["text"] == body_message
+        for element in slide["elements"]
+        if element["type"] == "text"
+    )
+    assert not has_element(slide, "el_1_body_fallback")
+    assert "Original confidential caption" not in json.dumps(slide, ensure_ascii=False)
+
+
+def test_template_blueprint_does_not_inject_body_into_toc_slots() -> None:
+    blueprint = minimal_imported_design_blueprint()
+    title_text = blueprint["slides"][0]["elements"][1]
+    first_toc_item = deepcopy(title_text)
+    first_toc_item["elementId"] = "el_imported_1_toc_item_1"
+    first_toc_item["role"] = "caption"
+    first_toc_item["y"] = 280
+    first_toc_item["props"] = {
+        **first_toc_item["props"],
+        "text": "Original agenda item",
+    }
+    second_toc_item = deepcopy(first_toc_item)
+    second_toc_item["elementId"] = "el_imported_1_toc_item_2"
+    second_toc_item["y"] = 380
+    blueprint["slides"][0]["elements"].extend([first_toc_item, second_toc_item])
+
+    response = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="ORBIT",
+            slideCountRange={"min": 1, "max": 1},
+            designReferences=[{"fileId": "file_design"}],
+            designBlueprint=blueprint,
+            templateBlueprint={
+                "templateId": "template_file_design",
+                "sourceFileId": "file_design",
+                "slides": [
+                    {
+                        "slideIndex": 1,
+                        "sourceSlideIndex": 1,
+                        "slideRole": "toc",
+                        "layoutType": "toc",
+                        "contentCapacity": "medium",
+                        "slots": [
+                            {
+                                "elementId": "el_imported_1_title",
+                                "usage": "content-slot",
+                                "slotRole": "title",
+                                "replaceMode": "replace",
+                                "confidence": 0.95,
+                            },
+                            {
+                                "elementId": "el_imported_1_toc_item_1",
+                                "usage": "content-slot",
+                                "slotRole": "label",
+                                "replaceMode": "replace",
+                                "confidence": 0.95,
+                            },
+                            {
+                                "elementId": "el_imported_1_toc_item_2",
+                                "usage": "content-slot",
+                                "slotRole": "label",
+                                "replaceMode": "replace",
+                                "confidence": 0.95,
+                            },
+                        ],
+                    }
+                ],
+            },
+        )
+    )
+
+    slide = response.deck["slides"][0]
+    text_values = [
+        element["props"]["text"]
+        for element in slide["elements"]
+        if element["type"] == "text"
+    ]
+
+    assert "ORBIT를 ORBIT 중심으로 소개합니다." not in text_values
+    assert not any(element["role"] == "body" for element in slide["elements"])
+
+
+def test_refiner_shrinks_clamps_and_corrects_text_contrast() -> None:
+    deck = {
+        "deckId": "deck_ai_refine",
+        "projectId": "project_demo_1",
+        "title": "ORBIT",
+        "version": 1,
+        "metadata": {
+            "language": "ko",
+            "locale": "ko-KR",
+            "sourceType": "ai",
+            "generatedBy": "ai",
+            "createdFrom": {"topic": "ORBIT", "references": []},
+        },
+        "canvas": {
+            "preset": "wide-16-9",
+            "width": 1920,
+            "height": 1080,
+            "aspectRatio": "16:9",
+        },
+        "theme": minimal_imported_design_blueprint()["theme"],
+        "slides": [
+            {
+                "slideId": "slide_1",
+                "order": 1,
+                "title": "ORBIT",
+                "thumbnailUrl": "",
+                "style": {"backgroundColor": "#ffffff"},
+                "speakerNotes": "notes",
+                "elements": [
+                    {
+                        "elementId": "el_1_text",
+                        "type": "text",
+                        "role": "body",
+                        "x": 80,
+                        "y": 80,
+                        "width": 260,
+                        "height": 44,
+                        "rotation": 0,
+                        "opacity": 1,
+                        "zIndex": 1,
+                        "locked": False,
+                        "visible": True,
+                        "props": {
+                            "text": "This copy is long enough to overflow the small frame.",
+                            "fontSize": 28,
+                            "fontWeight": "normal",
+                            "color": "#fefefe",
+                            "align": "left",
+                            "verticalAlign": "top",
+                            "lineHeight": 1.2,
+                        },
+                    }
+                ],
+                "keywords": [],
+            }
+        ],
+    }
+
+    refined = refine_design_issues(
+        deck,
+        [ValidationIssue(scope="element", path="slides.0.elements.0", message="issue")],
+    )
+    element = refined["slides"][0]["elements"][0]
+
+    assert element["x"] == 120
+    assert element["y"] == 88
+    assert element["props"]["fontSize"] < 28
+    assert element["props"]["color"] == "#111827"
+
+
+def test_refiner_does_not_clamp_caption_labels_into_title_area() -> None:
+    deck = text_overlap_deck(
+        [
+            text_box(
+                "el_1_section_label",
+                120,
+                50,
+                "SECTION",
+                width=220,
+                height=24,
+                role="caption",
+            ),
+            text_box(
+                "el_1_title",
+                120,
+                88,
+                "Main title",
+                width=1680,
+                height=128,
+                role="title",
+            ),
+        ]
+    )
+
+    refined = refine_design_issues(
+        deck,
+        [ValidationIssue(scope="element", path="slides.0.elements.0", message="issue")],
+    )
+
+    assert refined["slides"][0]["elements"][0]["y"] == 50
+    assert detect_text_overlap_candidates(refined) == []
+
+
+def test_generate_deck_reports_advisory_design_quality_issues() -> None:
+    deck = {
+        "deckId": "deck_ai_quality",
+        "projectId": "project_demo_1",
+        "title": "ORBIT",
+        "version": 1,
+        "metadata": {
+            "language": "ko",
+            "locale": "ko-KR",
+            "sourceType": "ai",
+            "generatedBy": "ai",
+            "createdFrom": {"topic": "ORBIT", "references": []},
+        },
+        "canvas": {
+            "preset": "wide-16-9",
+            "width": 1920,
+            "height": 1080,
+            "aspectRatio": "16:9",
+        },
+        "theme": {
+            "name": "quality-test",
+            "fontFamily": "Inter",
+            "backgroundColor": "#ffffff",
+            "textColor": "#111827",
+            "accentColor": "#2563eb",
+            "palette": {
+                "primary": "#2563eb",
+                "secondary": "#f59e0b",
+                "surface": "#ffffff",
+                "muted": "#f8fafc",
+                "border": "#d8dee9",
+            },
+            "typography": {
+                "headingFontFamily": "Inter",
+                "bodyFontFamily": "Inter",
+                "titleSize": 60,
+                "headingSize": 42,
+                "bodySize": 26,
+                "captionSize": 18,
+            },
+            "effects": {"borderRadius": 8},
+        },
+        "slides": [
+            {
+                "slideId": "slide_1",
+                "order": 1,
+                "title": "ORBIT",
+                "thumbnailUrl": "",
+                "style": {"backgroundColor": "#ffffff"},
+                "speakerNotes": "발표자 노트",
+                "elements": [
+                    {
+                        "elementId": "el_1_text",
+                        "type": "text",
+                        "role": "body",
+                        "x": 80,
+                        "y": 80,
+                        "width": 220,
+                        "height": 32,
+                        "rotation": 0,
+                        "opacity": 1,
+                        "zIndex": 1,
+                        "locked": False,
+                        "visible": True,
+                        "props": {
+                            "text": "긴 텍스트가 좁은 상자 안에서 여러 줄로 넘칠 수 있습니다.",
+                            "fontSize": 28,
+                            "fontWeight": "normal",
+                            "color": "#fefefe",
+                            "align": "left",
+                            "verticalAlign": "top",
+                            "lineHeight": 1.2,
+                        },
+                    },
+                    {
+                        "elementId": "el_1_overlap",
+                        "type": "text",
+                        "role": "body",
+                        "x": 100,
+                        "y": 92,
+                        "width": 220,
+                        "height": 80,
+                        "rotation": 0,
+                        "opacity": 1,
+                        "zIndex": 2,
+                        "locked": False,
+                        "visible": True,
+                        "props": {
+                            "text": "겹침",
+                            "fontSize": 24,
+                            "fontWeight": "normal",
+                            "color": "#111827",
+                            "align": "left",
+                            "verticalAlign": "top",
+                            "lineHeight": 1.2,
+                        },
+                    },
+                ],
+                "keywords": [],
+            }
+        ],
+    }
+
+    _, validation = validate_and_patch(deck)
+    messages = [issue.message for issue in validation.design_issues]
+
+    assert validation.passed is True
+    assert "텍스트가 상자 높이를 넘을 수 있습니다." in messages
+    assert "텍스트와 배경의 대비가 낮습니다." in messages
+    assert "텍스트가 안전 영역 밖에 배치되었습니다." in messages
+    assert any("겹칠 수 있습니다" in message for message in messages)
+
+
+def test_generate_deck_applies_imported_design_blueprint_without_schema_leak() -> None:
+    response = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="ORBIT",
+            designReferences=[{"fileId": "file_design"}],
+            designBlueprint={
+                "theme": {
+                    "name": "Imported PPTX",
+                    "fontFamily": "Inter",
+                    "backgroundColor": "#ffffff",
+                    "textColor": "#111827",
+                    "accentColor": "#2563eb",
+                    "palette": {
+                        "primary": "#2563eb",
+                        "secondary": "#7c3aed",
+                        "surface": "#ffffff",
+                        "muted": "#f3f4f6",
+                        "border": "#d1d5db",
+                    },
+                    "typography": {
+                        "headingFontFamily": "Inter",
+                        "bodyFontFamily": "Inter",
+                        "titleSize": 56,
+                        "headingSize": 40,
+                        "bodySize": 24,
+                        "captionSize": 16,
+                    },
+                    "effects": {"borderRadius": 8},
+                },
+                "warnings": ["Unsupported PPTX shape on slide 1: CHART"],
+                "slides": [
+                    {
+                        "style": {
+                            "layout": "title-content",
+                            "backgroundColor": "#ffffff",
+                        },
+                        "elements": [
+                            {
+                                "elementId": "el_imported_1_background",
+                                "type": "rect",
+                                "role": "background",
+                                "x": 0,
+                                "y": 0,
+                                "width": 1920,
+                                "height": 1080,
+                                "rotation": 0,
+                                "opacity": 1,
+                                "zIndex": 0,
+                                "locked": True,
+                                "visible": True,
+                                "props": {
+                                    "fill": "#ffffff",
+                                    "stroke": "transparent",
+                                    "strokeWidth": 0,
+                                    "borderRadius": 0,
+                                },
+                            },
+                            {
+                                "elementId": "el_imported_1_title",
+                                "type": "text",
+                                "role": "title",
+                                "x": 120,
+                                "y": 96,
+                                "width": 1200,
+                                "height": 120,
+                                "rotation": 0,
+                                "opacity": 1,
+                                "zIndex": 2,
+                                "locked": False,
+                                "visible": True,
+                                "props": {
+                                    "text": "Original confidential title",
+                                    "fontFamily": "Inter",
+                                    "fontSize": 52,
+                                    "fontWeight": "bold",
+                                    "color": "#111827",
+                                    "align": "left",
+                                    "verticalAlign": "top",
+                                    "lineHeight": 1.15,
+                                },
+                            },
+                            {
+                                "elementId": "el_imported_1_body",
+                                "type": "text",
+                                "role": "body",
+                                "x": 120,
+                                "y": 280,
+                                "width": 1200,
+                                "height": 220,
+                                "rotation": 0,
+                                "opacity": 1,
+                                "zIndex": 3,
+                                "locked": False,
+                                "visible": True,
+                                "props": {
+                                    "text": "Original confidential body",
+                                    "fontFamily": "Inter",
+                                    "fontSize": 28,
+                                    "fontWeight": "normal",
+                                    "color": "#111827",
+                                    "align": "left",
+                                    "verticalAlign": "top",
+                                    "lineHeight": 1.15,
+                                },
+                            },
+                        ],
+                    }
+                ],
+            },
+        )
+    )
+
+    slide = response.deck["slides"][0]
+    text = "\n".join(
+        str(element["props"].get("text", ""))
+        for element in slide["elements"]
+        if element["type"] == "text"
+    )
+
+    assert response.deck["metadata"]["createdFrom"]["designReferences"] == [
+        {"fileId": "file_design"}
+    ]
+    assert all(
+        element["elementId"].startswith("el_1_imported_")
+        for element in slide["elements"]
+    )
+    assert "Original confidential" not in text
+    assert "designBlueprint" not in response.deck
+    assert "Unsupported PPTX shape on slide 1: CHART" in response.warnings
+    assert response.validation.passed is True
+
+
+def test_generate_deck_preserves_dense_imported_text_styles() -> None:
+    blueprint = minimal_imported_design_blueprint()
+    imported_slide = blueprint["slides"][0]
+    imported_slide["style"].update(
+        {
+            "textColor": "#fefefe",
+            "accentColor": "#d1d5db",
+            "fontFamily": "Aptos Display",
+        }
+    )
+    title = imported_slide["elements"][1]
+    title.update({"x": 20, "y": 20, "width": 260, "height": 24, "zIndex": 2})
+    title["props"].update(
+        {
+            "fontFamily": "Aptos Display",
+            "fontSize": 30,
+            "fontWeight": "bold",
+            "color": "#fefefe",
+            "align": "center",
+            "lineHeight": 1.3,
+        }
+    )
+    body = deepcopy(title)
+    body.update(
+        {
+            "elementId": "el_imported_1_body",
+            "role": "body",
+            "y": 64,
+            "height": 36,
+            "zIndex": 3,
+        }
+    )
+    body["props"] = {
+        **body["props"],
+        "text": "Original confidential body",
+        "fontSize": 26,
+        "fontWeight": "normal",
+        "align": "right",
+    }
+    imported_slide["elements"].append(body)
+    for index in range(13):
+        imported_slide["elements"].append(
+            {
+                "elementId": f"el_imported_1_decoration_{index}",
+                "type": "rect",
+                "role": "decoration",
+                "x": 400 + index,
+                "y": 900,
+                "width": 8,
+                "height": 8,
+                "rotation": 0,
+                "opacity": 1,
+                "zIndex": 4 + index,
+                "locked": True,
+                "visible": True,
+                "props": {
+                    "fill": "#d1d5db",
+                    "stroke": "transparent",
+                    "strokeWidth": 0,
+                    "borderRadius": 0,
+                },
+            }
+        )
+
+    response = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="ORBIT",
+            slideCountRange={"min": 1, "max": 1},
+            designReferences=[{"fileId": "file_design"}],
+            designBlueprint=blueprint,
+        )
+    )
+
+    slide = response.deck["slides"][0]
+    imported_title = element_by_role(slide, "title")
+    imported_body = element_by_role(slide, "body")
+
+    assert response.validation.passed is True
+    assert slide["style"]["fontFamily"] == "Aptos Display"
+    assert slide["style"]["textColor"] == "#fefefe"
+    assert slide["style"]["accentColor"] == "#d1d5db"
+    assert not any(
+        issue.path == "slides.0.elements"
+        for issue in response.validation.design_issues
+    )
+    assert not any("fallback" in element["elementId"] for element in slide["elements"])
+    assert imported_title["x"] == 20
+    assert imported_title["y"] == 20
+    assert imported_title["width"] == 260
+    assert imported_title["height"] == 24
+    assert imported_title["zIndex"] == 2
+    assert imported_title["props"]["fontFamily"] == "Aptos Display"
+    assert imported_title["props"]["fontSize"] == 30
+    assert imported_title["props"]["fontWeight"] == "bold"
+    assert imported_title["props"]["color"] == "#fefefe"
+    assert imported_title["props"]["align"] == "center"
+    assert imported_title["props"]["lineHeight"] == 1.3
+    assert imported_body["x"] == 20
+    assert imported_body["y"] == 64
+    assert imported_body["width"] == 260
+    assert imported_body["height"] == 36
+    assert imported_body["zIndex"] == 3
+    assert imported_body["props"]["fontFamily"] == "Aptos Display"
+    assert imported_body["props"]["fontSize"] == 26
+    assert imported_body["props"]["fontWeight"] == "normal"
+    assert imported_body["props"]["color"] == "#fefefe"
+    assert imported_body["props"]["align"] == "right"
+    assert "Original confidential" not in imported_title["props"]["text"]
+    assert "Original confidential" not in imported_body["props"]["text"]
+
+
+def test_generate_deck_adds_imported_body_fallback_only_when_missing() -> None:
+    response = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="ORBIT",
+            slideCountRange={"min": 1, "max": 1},
+            designReferences=[{"fileId": "file_design"}],
+            designBlueprint=minimal_imported_design_blueprint(),
+        )
+    )
+
+    element_ids = [
+        element["elementId"]
+        for element in response.deck["slides"][0]["elements"]
+    ]
+
+    assert "el_1_title_fallback" not in element_ids
+    assert "el_1_body_fallback" in element_ids
+
+
+def test_generate_deck_skips_body_fallback_when_template_has_content_slot() -> None:
+    response = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="ORBIT",
+            slideCountRange={"min": 1, "max": 1},
+            designReferences=[{"fileId": "file_design"}],
+            designBlueprint=minimal_imported_design_blueprint(),
+            templateBlueprint={
+                "templateId": "template_file_design",
+                "sourceFileId": "file_design",
+                "slides": [
+                    {
+                        "slideIndex": 1,
+                        "sourceSlideIndex": 1,
+                        "slots": [
+                            {
+                                "elementId": "el_imported_1_title",
+                                "usage": "content-slot",
+                                "slotRole": "title",
+                                "replaceMode": "replace",
+                                "confidence": 0.95,
+                            }
+                        ],
+                    }
+                ],
+            },
+        )
+    )
+
+    assert not has_element(response.deck["slides"][0], "el_1_body_fallback")
+
+
+def test_generate_deck_keeps_requested_slide_range_with_large_template() -> None:
+    design_blueprint, template_blueprint = semantic_imported_blueprints(10)
+
+    response = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="ORBIT",
+            targetDurationMinutes=5,
+            slideCountRange={"min": 4, "max": 6},
+            designReferences=[{"fileId": "file_design"}],
+            designBlueprint=design_blueprint,
+            templateBlueprint=template_blueprint,
+        )
+    )
+
+    assert 4 <= len(response.deck["slides"]) <= 6
+    assert len(response.template_selection) == len(response.deck["slides"])
+    assert all(1 <= item.source_slide_index <= 10 for item in response.template_selection)
+
+
+def test_generate_deck_selects_semantic_reference_subset_instead_of_first_slides() -> None:
+    design_blueprint, template_blueprint = semantic_imported_blueprints(15)
+
+    response = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="ORBIT",
+            targetDurationMinutes=5,
+            slideCountRange={"min": 5, "max": 5},
+            designReferences=[{"fileId": "file_design"}],
+            designBlueprint=design_blueprint,
+            templateBlueprint=template_blueprint,
+        )
+    )
+
+    selected = [item.source_slide_index for item in response.template_selection]
+
+    assert selected != [1, 2, 3, 4, 5]
+    assert selected[0] == 7
+    assert 15 in selected
+
+
+def test_generate_deck_does_not_reuse_cover_template_for_middle_slides() -> None:
+    design_blueprint, template_blueprint = semantic_imported_blueprints(15)
+    fake_client = FakeOpenAIClient(
+        {
+            "title": "Template selection",
+            "slides": [
+                slide_payload(
+                    "Opening",
+                    "Open the deck.",
+                    "Introduce the topic.",
+                    slide_type="cover",
+                    slot_preset="title_center",
+                ),
+                slide_payload(
+                    "Middle content",
+                    "Explain the middle content.",
+                    "Present the actual body content.",
+                    slide_type="cover",
+                    slot_preset="title_center",
+                ),
+                slide_payload(
+                    "Wrap up",
+                    "Summarize the deck.",
+                    "Close the presentation.",
+                    slide_type="summary",
+                    slot_preset="insight_with_evidence",
+                ),
+            ],
+        }
+    )
+
+    response = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="ORBIT",
+            targetDurationMinutes=3,
+            slideCountRange={"min": 3, "max": 3},
+            designReferences=[{"fileId": "file_design"}],
+            designBlueprint=design_blueprint,
+            templateBlueprint=template_blueprint,
+        ),
+        client=fake_client,
+    )
+
+    selected = [item.source_slide_index for item in response.template_selection]
+    assert selected[0] == 7
+    assert selected[1] != 7
+    assert selected[1] >= 8
+
+
+def test_generate_deck_spreads_repeated_template_profiles() -> None:
+    design_blueprint, template_blueprint = repeated_profile_imported_blueprints()
+    fake_client = FakeOpenAIClient(
+        {
+            "title": "Template profile selection",
+            "slides": [
+                slide_payload(
+                    f"Body slide {index}",
+                    "Explain the body message.",
+                    "Present the body content.",
+                    slide_type="problem",
+                    slot_preset="insight_with_evidence",
+                )
+                for index in range(1, 5)
+            ],
+        }
+    )
+
+    response = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="ORBIT",
+            targetDurationMinutes=4,
+            slideCountRange={"min": 4, "max": 4},
+            designReferences=[{"fileId": "file_design"}],
+            designBlueprint=design_blueprint,
+            templateBlueprint=template_blueprint,
+        ),
+        client=fake_client,
+    )
+
+    selected = [item.source_slide_index for item in response.template_selection]
+
+    assert selected[0] <= 3
+    assert selected[1] >= 4
+    assert len(set(selected)) == len(selected)
+
+
+def test_template_selection_uses_design_prompt_layout_hints() -> None:
+    design_blueprint = minimal_imported_design_blueprint()
+    design_blueprint["slides"] = [
+        imported_profile_slide_for_test(1, "metric", ["title", "metric"]),
+        imported_profile_slide_for_test(2, "body", ["title", "body", "caption"]),
+    ]
+    template_blueprint = {
+        "templateId": "template_file_design",
+        "sourceFileId": "file_design",
+        "slides": [
+            imported_profile_template_slide_for_test(
+                1,
+                "metric",
+                ["title", "metric"],
+                slide_role="metric",
+                capacity="medium",
+            ),
+            imported_profile_template_slide_for_test(
+                2,
+                "body",
+                ["title", "body", "caption"],
+                slide_role="body",
+                capacity="high",
+            ),
+        ],
+    }
+    fake_client = FakeOpenAIClient(
+        {
+            "title": "Checklist deck",
+            "slides": [
+                slide_payload(
+                    "Checklist",
+                    "Explain the checklist.",
+                    "Present the checklist.",
+                    slide_type="problem",
+                    slot_preset="metric_cards",
+                )
+            ],
+        }
+    )
+
+    response = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="ORBIT",
+            designPrompt="체크리스트와 단계형 흐름을 중심으로 구성",
+            targetDurationMinutes=1,
+            slideCountRange={"min": 1, "max": 1},
+            designReferences=[{"fileId": "file_design"}],
+            designBlueprint=design_blueprint,
+            templateBlueprint=template_blueprint,
+        ),
+        client=fake_client,
+    )
+
+    assert response.template_selection[0].source_slide_index == 2
+    assert "design hint match" in response.template_selection[0].selection_reason
+
+
+def minimal_imported_design_blueprint() -> dict[str, Any]:
+    return {
+        "theme": {
+            "name": "Imported PPTX",
+            "fontFamily": "Inter",
+            "backgroundColor": "#ffffff",
+            "textColor": "#111827",
+            "accentColor": "#2563eb",
+            "palette": {
+                "primary": "#2563eb",
+                "secondary": "#7c3aed",
+                "surface": "#ffffff",
+                "muted": "#f3f4f6",
+                "border": "#d1d5db",
+            },
+            "typography": {
+                "headingFontFamily": "Inter",
+                "bodyFontFamily": "Inter",
+                "titleSize": 56,
+                "headingSize": 40,
+                "bodySize": 24,
+                "captionSize": 16,
+            },
+            "effects": {"borderRadius": 8},
+        },
+        "warnings": [],
+        "slides": [
+            {
+                "style": {
+                    "layout": "title-content",
+                    "backgroundColor": "#ffffff",
+                },
+                "elements": [
+                    {
+                        "elementId": "el_imported_1_background",
+                        "type": "rect",
+                        "role": "background",
+                        "x": 0,
+                        "y": 0,
+                        "width": 1920,
+                        "height": 1080,
+                        "rotation": 0,
+                        "opacity": 1,
+                        "zIndex": 0,
+                        "locked": True,
+                        "visible": True,
+                        "props": {
+                            "fill": "#ffffff",
+                            "stroke": "transparent",
+                            "strokeWidth": 0,
+                            "borderRadius": 0,
+                        },
+                    },
+                    {
+                        "elementId": "el_imported_1_title",
+                        "type": "text",
+                        "role": "title",
+                        "x": 120,
+                        "y": 96,
+                        "width": 1200,
+                        "height": 120,
+                        "rotation": 0,
+                        "opacity": 1,
+                        "zIndex": 2,
+                        "locked": False,
+                        "visible": True,
+                        "props": {
+                            "text": "Original confidential title",
+                            "fontFamily": "Inter",
+                            "fontSize": 52,
+                            "fontWeight": "bold",
+                            "color": "#111827",
+                            "align": "left",
+                            "verticalAlign": "top",
+                            "lineHeight": 1.15,
+                        },
+                    },
+                ],
+            }
+        ],
+    }
+
+
+def imported_profile_slide_for_test(
+    source_index: int,
+    layout: str,
+    roles: list[str],
+) -> dict[str, Any]:
+    return {
+        "sourceSlideIndex": source_index,
+        "style": {
+            "layout": layout,
+            "backgroundColor": "#ffffff",
+        },
+        "elements": [
+            {
+                "elementId": f"el_imported_{source_index}_{role}",
+                "type": "text",
+                "role": role,
+                "x": 120,
+                "y": 96 + offset * 120,
+                "width": 1200,
+                "height": 100,
+                "rotation": 0,
+                "opacity": 1,
+                "zIndex": offset + 1,
+                "locked": False,
+                "visible": True,
+                "props": {
+                    "text": f"{role} {source_index}",
+                    "fontFamily": "Inter",
+                    "fontSize": 44 if role == "title" else 26,
+                    "fontWeight": "bold" if role == "title" else "normal",
+                    "color": "#111827",
+                    "align": "left",
+                    "verticalAlign": "top",
+                    "lineHeight": 1.2,
+                },
+            }
+            for offset, role in enumerate(roles)
+        ],
+    }
+
+
+def imported_profile_template_slide_for_test(
+    source_index: int,
+    layout: str,
+    roles: list[str],
+    *,
+    slide_role: str,
+    capacity: str,
+) -> dict[str, Any]:
+    return {
+        "slideIndex": source_index,
+        "sourceSlideIndex": source_index,
+        "slideRole": slide_role,
+        "layoutType": layout,
+        "contentCapacity": capacity,
+        "slots": [
+            {
+                "elementId": f"el_imported_{source_index}_{role}",
+                "usage": "content-slot",
+                "slotRole": role,
+                "replaceMode": "replace",
+                "confidence": 0.95,
+                "bounds": {"x": 120, "y": 96, "width": 1200, "height": 100},
+                "source": {
+                    "type": "slide",
+                    "slidePart": f"ppt/slides/slide{source_index}.xml",
+                    "shapeId": str(offset + 1),
+                },
+            }
+            for offset, role in enumerate(roles)
+        ],
+    }
+
+
+def semantic_imported_blueprints(
+    slide_count: int,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    base = minimal_imported_design_blueprint()
+    slides = [semantic_imported_slide(index) for index in range(1, slide_count + 1)]
+    base["slides"] = slides
+    template = {
+        "templateId": "template_file_design",
+        "sourceFileId": "file_design",
+        "slides": [
+            semantic_template_slide(index) for index in range(1, slide_count + 1)
+        ],
+    }
+    return base, template
+
+
+def repeated_profile_imported_blueprints() -> tuple[dict[str, Any], dict[str, Any]]:
+    base = minimal_imported_design_blueprint()
+    slides = [
+        repeated_profile_imported_slide(index, index <= 3)
+        for index in range(1, 7)
+    ]
+    base["slides"] = slides
+    template = {
+        "templateId": "template_file_design",
+        "sourceFileId": "file_design",
+        "slides": [
+            repeated_profile_template_slide(index, index <= 3)
+            for index in range(1, 7)
+        ],
+    }
+    return base, template
+
+
+def repeated_profile_imported_slide(
+    source_index: int,
+    first_profile: bool,
+) -> dict[str, Any]:
+    roles = ["title", "body", "caption"] if first_profile else ["title", "body", "label"]
+    return {
+        "sourceSlideIndex": source_index,
+        "style": {
+            "layout": "body" if first_profile else "two-column",
+            "backgroundColor": "#ffffff",
+        },
+        "elements": [
+            {
+                "elementId": f"el_imported_{source_index}_{role}",
+                "type": "text",
+                "role": role,
+                "x": 120,
+                "y": 96 + offset * 120,
+                "width": 1200,
+                "height": 100,
+                "rotation": 0,
+                "opacity": 1,
+                "zIndex": offset + 1,
+                "locked": False,
+                "visible": True,
+                "props": {
+                    "text": f"{role} {source_index}",
+                    "fontFamily": "Inter",
+                    "fontSize": 44 if role == "title" else 26,
+                    "fontWeight": "bold" if role == "title" else "normal",
+                    "color": "#111827",
+                    "align": "left",
+                    "verticalAlign": "top",
+                    "lineHeight": 1.2,
+                },
+            }
+            for offset, role in enumerate(roles)
+        ],
+    }
+
+
+def repeated_profile_template_slide(
+    source_index: int,
+    first_profile: bool,
+) -> dict[str, Any]:
+    roles = ["title", "body", "caption"] if first_profile else ["title", "body", "label"]
+    return {
+        "slideIndex": source_index,
+        "sourceSlideIndex": source_index,
+        "slideRole": "body",
+        "layoutType": "body" if first_profile else "two-column",
+        "contentCapacity": "high",
+        "slots": [
+            {
+                "elementId": f"el_imported_{source_index}_{role}",
+                "usage": "content-slot",
+                "slotRole": role,
+                "replaceMode": "replace",
+                "confidence": 0.95,
+                "bounds": {"x": 120, "y": 96, "width": 1200, "height": 100},
+                "source": {
+                    "type": "slide",
+                    "slidePart": f"ppt/slides/slide{source_index}.xml",
+                    "shapeId": str(offset + 1),
+                },
+            }
+            for offset, role in enumerate(roles)
+        ],
+    }
+
+
+def semantic_imported_slide(source_index: int) -> dict[str, Any]:
+    roles = semantic_roles_for_source(source_index)
+    return {
+        "sourceSlideIndex": source_index,
+        "style": {
+            "layout": semantic_layout_for_source(source_index),
+            "backgroundColor": "#ffffff",
+        },
+        "elements": [
+            {
+                "elementId": f"el_imported_{source_index}_{role}",
+                "type": "text",
+                "role": role,
+                "x": 120,
+                "y": 96 + offset * 120,
+                "width": 1200,
+                "height": 100,
+                "rotation": 0,
+                "opacity": 1,
+                "zIndex": offset + 1,
+                "locked": False,
+                "visible": True,
+                "props": {
+                    "text": f"{role} {source_index}",
+                    "fontFamily": "Inter",
+                    "fontSize": 44 if role == "title" else 26,
+                    "fontWeight": "bold" if role == "title" else "normal",
+                    "color": "#111827",
+                    "align": "left",
+                    "verticalAlign": "top",
+                    "lineHeight": 1.2,
+                },
+            }
+            for offset, role in enumerate(roles)
+        ],
+    }
+
+
+def semantic_template_slide(source_index: int) -> dict[str, Any]:
+    roles = semantic_roles_for_source(source_index)
+    return {
+        "slideIndex": source_index,
+        "sourceSlideIndex": source_index,
+        "slideRole": semantic_slide_role_for_source(source_index),
+        "layoutType": semantic_layout_for_source(source_index),
+        "contentCapacity": "low" if source_index in {1, 2, 3, 4, 5, 7, 15} else "high",
+        "slots": [
+            {
+                "elementId": f"el_imported_{source_index}_{role}",
+                "usage": "content-slot",
+                "slotRole": role,
+                "replaceMode": "replace",
+                "confidence": 0.95,
+                "bounds": {"x": 120, "y": 96, "width": 1200, "height": 100},
+                "source": {
+                    "type": "slide",
+                    "slidePart": f"ppt/slides/slide{source_index}.xml",
+                    "shapeId": str(offset + 1),
+                },
+            }
+            for offset, role in enumerate(roles)
+        ],
+    }
+
+
+def semantic_roles_for_source(source_index: int) -> list[str]:
+    if source_index == 7:
+        return ["title", "subtitle"]
+    if source_index == 15:
+        return ["title", "body"]
+    if source_index >= 8:
+        return ["title", "body", "caption", "label"]
+    return ["caption"]
+
+
+def semantic_slide_role_for_source(source_index: int) -> str:
+    if source_index == 7:
+        return "cover"
+    if source_index == 15:
+        return "summary"
+    return "body" if source_index >= 8 else "decorative"
+
+
+def semantic_layout_for_source(source_index: int) -> str:
+    if source_index == 7:
+        return "title"
+    if source_index >= 8:
+        return "body"
+    return "decorative"
+
+
+def slide_payload(
+    title: str,
+    message: str,
+    speaker_notes: str,
+    *,
+    slide_type: str,
+    slot_preset: str,
+    keywords: list[str] | None = None,
+    media_intent: dict[str, object] | None = None,
+    visual_intent: dict[str, object] | None = None,
+    metric_card_caption: str = "",
+) -> dict[str, object]:
+    visual_intent_payload = dict(
+        visual_intent
+        or {
+            "emphasis": "핵심 메시지",
+            "mood": "professional",
+            "structure": "safe slots",
+            "paletteHint": "",
+            "emphasisStyle": "",
+            "composition": "",
+            "decorationDensity": "medium",
+            "mediaStyle": "",
+        }
+    )
+    visual_intent_payload.setdefault("metricCardCaption", metric_card_caption)
+    return {
+        "title": title,
+        "message": message,
+        "speakerNotes": speaker_notes,
+        "keywords": keywords or ["ORBIT"],
+        "slideType": slide_type,
+        "layoutVariant": slot_preset.split("_", maxsplit=1)[0],
+        "slotPreset": slot_preset,
+        "visualIntent": visual_intent_payload,
+        "mediaIntent": media_intent
+        or {
+            "kind": "none",
+            "prompt": "",
+            "alt": "",
+            "caption": "",
+            "rationale": "",
+            "required": False,
+            "placement": "auto",
+            "src": "",
+        },
+    }
+
+
+def assert_only_template_style_prompt(llm_input: str, style_pack_id: str) -> None:
+    markers = {
+        "simple-basic": "깔끔하고 베이직하지만 비어 보이지 않는 슬라이드",
+        "presentation-document": "이 PPT는 발표자가 직접 말로 설명하는 자료입니다.",
+        "submission-document": "이 PPT는 상대방이 혼자 읽는 자료입니다.",
+    }
+
+    assert markers[style_pack_id] in llm_input
+    for marker_id, marker in markers.items():
+        if marker_id != style_pack_id:
+            assert marker not in llm_input
+
+
+def has_dedicated_document_style_elements(
+    slide: dict[str, Any],
+    style_pack_id: str,
+) -> bool:
+    if style_pack_id == "presentation-document":
+        return (
+            has_element(slide, "el_1_presentation_top_band")
+            and has_element(slide, "el_1_presentation_focus_panel")
+            and not has_element(slide, "el_1_submission_header_band")
+        )
+    if style_pack_id == "submission-document":
+        return (
+            has_element(slide, "el_1_submission_header_band")
+            and has_element(slide, "el_1_submission_content_panel")
+            and not has_element(slide, "el_1_presentation_top_band")
+        )
+    return False
+
+
+def has_element(slide: dict[str, Any], element_id: str) -> bool:
+    return any(
+        element["elementId"] == element_id
+        for element in slide["elements"]
+    )
+
+
+def element_by_id(slide: dict[str, Any], element_id: str) -> dict[str, Any]:
+    return next(
+        element
+        for element in slide["elements"]
+        if element["elementId"] == element_id
+    )
+
+
+def element_by_role(slide: dict[str, Any], role: str) -> dict[str, Any]:
+    return next(
+        element
+        for element in slide["elements"]
+        if element["role"] == role
+    )
+
+
+def text_overlap_deck(elements: list[dict[str, Any]]) -> dict[str, Any]:
+    return {
+        "deckId": "deck_overlap",
+        "projectId": "project_demo_1",
+        "title": "Overlap",
+        "version": 1,
+        "metadata": {
+            "language": "ko",
+            "locale": "ko-KR",
+            "createdFrom": {"topic": "Overlap", "references": []},
+        },
+        "canvas": {
+            "preset": "wide-16-9",
+            "width": 1920,
+            "height": 1080,
+            "aspectRatio": "16:9",
+        },
+        "theme": {
+            "name": "test",
+            "fontFamily": "Inter",
+            "backgroundColor": "#ffffff",
+            "textColor": "#111827",
+            "accentColor": "#2563eb",
+            "palette": {
+                "primary": "#2563eb",
+                "secondary": "#0f172a",
+                "accent": "#2563eb",
+                "background": "#ffffff",
+                "surface": "#f8fafc",
+                "text": "#111827",
+                "muted": "#64748b",
+                "border": "#cbd5e1",
+            },
+            "typography": {
+                "headingFontFamily": "Inter",
+                "bodyFontFamily": "Inter",
+                "monoFontFamily": "JetBrains Mono",
+                "scale": 1,
+            },
+            "effects": {"shadow": "none", "borderRadius": 8},
+        },
+        "slides": [
+            {
+                "slideId": "slide_overlap",
+                "order": 1,
+                "title": "Overlap",
+                "thumbnailUrl": "",
+                "style": {},
+                "speakerNotes": "notes",
+                "elements": elements,
+                "keywords": [],
+            }
+        ],
+    }
+
+
+def text_box(
+    element_id: str,
+    x: int,
+    y: int,
+    text: str,
+    *,
+    width: int = 300,
+    height: int = 120,
+    role: str = "body",
+) -> dict[str, Any]:
+    return {
+        "elementId": element_id,
+        "type": "text",
+        "role": role,
+        "x": x,
+        "y": y,
+        "width": width,
+        "height": height,
+        "rotation": 0,
+        "opacity": 1,
+        "zIndex": 1,
+        "locked": False,
+        "visible": True,
+        "props": {
+            "text": text,
+            "fontFamily": "Inter",
+            "fontSize": 32,
+            "fontWeight": "normal",
+            "color": "#111827",
+            "align": "left",
+            "verticalAlign": "top",
+            "lineHeight": 1.2,
+        },
+    }
+
+
+class FakeImageReviewClient:
+    def __init__(
+        self,
+        payload: dict[str, object] | None = None,
+        *,
+        error: Exception | None = None,
+    ) -> None:
+        self.requests: list[dict[str, Any]] = []
+        self.responses = FakeImageReviewResponses(self, payload or {}, error)
+
+
+class FakeImageReviewResponses:
+    def __init__(
+        self,
+        parent: FakeImageReviewClient,
+        payload: dict[str, object],
+        error: Exception | None,
+    ) -> None:
+        self.parent = parent
+        self.payload = payload
+        self.error = error
+
+    def create(self, **kwargs: Any) -> object:
+        self.parent.requests.append(kwargs)
+        if self.error:
+            raise self.error
+        return type(
+            "Response",
+            (),
+            {"output_text": json.dumps(self.payload, ensure_ascii=False)},
+        )()
+
+
+class FakeOpenAIClient:
+    def __init__(self, payload: dict[str, object]) -> None:
+        self.requests: list[dict[str, object]] = []
+        self.responses = FakeResponses(self, payload)
+
+
+class FakeResponses:
+    def __init__(self, parent: FakeOpenAIClient, payload: dict[str, object]) -> None:
+        self.parent = parent
+        self.payload = payload
+
+    def create(self, **kwargs: object) -> object:
+        self.parent.requests.append(kwargs)
+        return type(
+            "Response",
+            (),
+            {"output_text": json.dumps(self.payload, ensure_ascii=False)},
+        )()
