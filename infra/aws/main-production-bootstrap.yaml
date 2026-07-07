@@ -344,6 +344,9 @@ Resources:
 
   AppInstance:
     Type: AWS::EC2::Instance
+    DependsOn:
+      - PublicDefaultRoute
+      - PublicSubnetRouteTableAssociation
     Properties:
       ImageId: !Ref AmiId
       InstanceType: !Ref InstanceType
@@ -400,8 +403,8 @@ Resources:
           set -euo pipefail
 
           app_dir=/opt/orbit/source
-          repo_url=git@github.com:na-man-mu-303-team2/Orbit.git
-          branch=main
+          repo_url=git@github.com:${GitHubOwner}/${GitHubRepo}.git
+          branch=${GitHubDeployBranch}
 
           if [ ! -s /home/orbit/.ssh/id_ed25519 ]; then
             echo "Missing /home/orbit/.ssh/id_ed25519 deploy key for read-only GitHub access."
@@ -417,12 +420,15 @@ Resources:
           fi
 
           if [ -e "$app_dir" ] && [ ! -d "$app_dir/.git" ]; then
-            echo "$app_dir exists but is not a Git checkout. Refusing to overwrite it."
-            exit 1
+            if [ -d "$app_dir" ] && [ -z "$(find "$app_dir" -mindepth 1 -maxdepth 1 -print -quit)" ]; then
+              rmdir "$app_dir"
+            else
+              echo "$app_dir exists but is not an empty directory or Git checkout. Refusing to overwrite it."
+              exit 1
+            fi
           fi
 
           if [ ! -d "$app_dir/.git" ]; then
-            rmdir "$app_dir" 2>/dev/null || true
             sudo -iu orbit git clone --branch "$branch" "$repo_url" "$app_dir"
           fi
 
@@ -494,6 +500,33 @@ Resources:
           ENVEXAMPLE
           chmod 0640 /etc/orbit/production.env.example
 
+  StaticWebSpaFallbackFunction:
+    Type: AWS::CloudFront::Function
+    Properties:
+      Name: !Sub ${AWS::StackName}-spa-fallback
+      AutoPublish: true
+      FunctionConfig:
+        Comment: Rewrite static SPA routes to index.html without changing API or Socket.IO behavior
+        Runtime: cloudfront-js-2.0
+      FunctionCode: |
+        function handler(event) {
+          var request = event.request;
+          var uri = request.uri || "/";
+
+          if (uri === "/") {
+            request.uri = "/index.html";
+            return request;
+          }
+
+          var lastSlash = uri.lastIndexOf("/");
+          var lastSegment = uri.substring(lastSlash + 1);
+          if (lastSegment.indexOf(".") === -1) {
+            request.uri = "/index.html";
+          }
+
+          return request;
+        }
+
   StaticWebOriginAccessControl:
     Type: AWS::CloudFront::OriginAccessControl
     Properties:
@@ -536,6 +569,9 @@ Resources:
             - HEAD
           CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6
           Compress: true
+          FunctionAssociations:
+            - EventType: viewer-request
+              FunctionARN: !GetAtt StaticWebSpaFallbackFunction.FunctionARN
         CacheBehaviors:
           - PathPattern: /api/v1/*
             TargetOriginId: ec2-nginx-origin
@@ -588,15 +624,6 @@ Resources:
               - OPTIONS
             CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad
             OriginRequestPolicyId: 216adef6-5c7f-47e4-b989-5492eafa07d3
-        CustomErrorResponses:
-          - ErrorCode: 403
-            ResponseCode: 200
-            ResponsePagePath: /index.html
-            ErrorCachingMinTTL: 0
-          - ErrorCode: 404
-            ResponseCode: 200
-            ResponsePagePath: /index.html
-            ErrorCachingMinTTL: 0
 
   StaticWebBucketPolicy:
     Type: AWS::S3::BucketPolicy

@@ -92,13 +92,6 @@ jobs:
           API_BASE_URL: https://${{ steps.stack.outputs.distribution-domain }}
         run: pnpm --filter @orbit/web... --workspace-concurrency=1 build
 
-      - name: Deploy static web to S3
-        run: |
-          set -euo pipefail
-          aws s3 sync apps/web/dist "s3://${{ steps.stack.outputs.static-bucket }}" \
-            --region "$AWS_REGION" \
-            --delete
-
       - name: Deploy API and workers on EC2
         id: ec2-deploy
         shell: bash
@@ -116,34 +109,41 @@ jobs:
 
           echo "command-id=$command_id" >> "$GITHUB_OUTPUT"
 
-          if ! aws ssm wait command-executed \
-            --region "$AWS_REGION" \
-            --command-id "$command_id" \
-            --instance-id "${{ steps.stack.outputs.instance-id }}"; then
-            aws ssm get-command-invocation \
+          deadline=$((SECONDS + 2400))
+          while true; do
+            if invocation="$(aws ssm get-command-invocation \
               --region "$AWS_REGION" \
               --command-id "$command_id" \
               --instance-id "${{ steps.stack.outputs.instance-id }}" \
-              --query '{Status:Status,StandardOutputContent:StandardOutputContent,StandardErrorContent:StandardErrorContent}' \
-              --output json
-            exit 1
-          fi
+              --output json 2>/dev/null)"; then
+              status="$(jq -r '.Status' <<<"$invocation")"
+            else
+              status="Unavailable"
+              invocation=""
+            fi
 
-          aws ssm get-command-invocation \
-            --region "$AWS_REGION" \
-            --command-id "$command_id" \
-            --instance-id "${{ steps.stack.outputs.instance-id }}" \
-            --query '{Status:Status,StandardOutputContent:StandardOutputContent,StandardErrorContent:StandardErrorContent}' \
-            --output json
+            case "$status" in
+              Success)
+                jq '{Status: .Status, StandardOutputContent: .StandardOutputContent, StandardErrorContent: .StandardErrorContent}' <<<"$invocation"
+                break
+                ;;
+              Cancelled|Failed|TimedOut|Cancelling)
+                jq '{Status: .Status, StandardOutputContent: .StandardOutputContent, StandardErrorContent: .StandardErrorContent}' <<<"$invocation"
+                exit 1
+                ;;
+            esac
 
-      - name: Invalidate CloudFront
-        run: |
-          set -euo pipefail
-          aws cloudfront create-invalidation \
-            --distribution-id "${{ steps.stack.outputs.distribution-id }}" \
-            --paths "/*" \
-            --query 'Invalidation.Id' \
-            --output text
+            if [ "$SECONDS" -ge "$deadline" ]; then
+              echo "Timed out waiting for SSM command $command_id to finish." >&2
+              if [ -n "$invocation" ]; then
+                jq '{Status: .Status, StandardOutputContent: .StandardOutputContent, StandardErrorContent: .StandardErrorContent}' <<<"$invocation"
+              fi
+              exit 1
+            fi
+
+            echo "Waiting for EC2 deploy command... status=$status"
+            sleep 15
+          done
 
       - name: Verify CloudFront API health
         run: |
@@ -154,6 +154,22 @@ jobs:
         run: |
           set -euo pipefail
           curl -fsS "https://${{ steps.stack.outputs.distribution-domain }}/socket.io/?EIO=4&transport=polling" >/dev/null
+
+      - name: Deploy static web to S3
+        run: |
+          set -euo pipefail
+          aws s3 sync apps/web/dist "s3://${{ steps.stack.outputs.static-bucket }}" \
+            --region "$AWS_REGION" \
+            --delete
+
+      - name: Invalidate CloudFront
+        run: |
+          set -euo pipefail
+          aws cloudfront create-invalidation \
+            --distribution-id "${{ steps.stack.outputs.distribution-id }}" \
+            --paths "/*" \
+            --query 'Invalidation.Id' \
+            --output text
 
       - name: Verify CloudFront static web
         run: |

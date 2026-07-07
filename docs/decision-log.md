@@ -350,3 +350,15 @@
 - Rationale: staging에서도 local과 같은 report STT 시간 지표를 재현할 수 있고, Doppler/staging secret에 이전 모델 값이 남아 있어도 개인 서버 staging report STT 실행 경로가 흔들리지 않는다. 표준 OpenAI API key는 계속 서버 환경에만 두며 브라우저에 노출하지 않는다.
 - Affected files: `.env.staging.example`, `docker-compose.staging.yml`, `docs/conventions/environment.md`, `docs/decision-log.md`.
 - Follow-up review notes: production의 report STT 모델은 전사 정확도, 비용, 시간 기반 지표 요구를 따로 검토한 뒤 확정한다. staging 배포 뒤 실제 리허설 녹음에서 `durationSeconds`, `speedSamples`, `pauseDetails`가 채워지는지 확인한다.
+
+## ORBIT AWS production deploy safety ordering
+
+- Context: PR #232는 `main` push를 AWS production 배포로 연결하지만, `main`이 앱 workspace를 포함하지 않으면 `pnpm install`과 Docker Compose build가 실패한다. 또한 frontend S3 publish가 backend 배포보다 먼저 일어나면 실패한 backend와 새 frontend가 섞일 수 있고, CloudFront distribution-level `CustomErrorResponses`는 API 403/404를 `/index.html` 200으로 바꿀 수 있다.
+- Options considered:
+  - 기존 순서처럼 static web을 먼저 publish하고 distribution-level error response로 SPA fallback을 처리한다.
+  - web publish를 backend 성공 후로 미루되, distribution-level error response는 유지한다.
+  - production deploy branch에 앱 workspace를 포함하고, backend 배포/검증 후 web을 publish하며, SPA fallback은 default static behavior의 CloudFront Function으로 제한한다.
+- Final decision: PR branch에 `origin/develop`을 merge해 production deploy branch가 앱 workspace를 포함하게 한다. EC2 wrapper는 `GitHubOwner`, `GitHubRepo`, `GitHubDeployBranch` parameter를 clone target으로 사용하고, 빈 `/opt/orbit/source`만 최초 clone 대상으로 허용한다. GitHub Actions는 SSM command를 직접 polling해 긴 Docker build/migration을 기다리고, CloudFront API/socket 검증 후 static web S3 sync와 invalidation을 수행한다. SPA fallback은 default static behavior의 CloudFront Function으로만 처리한다.
+- Rationale: 같은 branch에서 web build와 EC2 deploy가 일어나야 frontend/backend contract가 맞고, backend 실패 시 새 frontend가 먼저 노출되는 상황을 피할 수 있다. API/socket behavior를 distribution-level error rewrite에서 분리해야 인증 실패나 누락 route 같은 backend 오류 의미를 유지할 수 있다.
+- Affected files: `.github/workflows/deploy-aws-production.yml`, `infra/aws/main-production-bootstrap.yaml`, `docs/runbooks/aws-main-auto-deployment.md`, `docs/decision-log.md`.
+- Follow-up review notes: 첫 production stack update 뒤 CloudFront Function association, `/api/health`, `/socket.io/?EIO=4&transport=polling`, `/missing-api-route`의 HTTP status, S3 static publish, EC2 `/opt/orbit/source` clone branch를 실제 AWS에서 확인한다. 장기 production 목표인 ECS Fargate 전환은 `docs/deployment.md` 기준으로 별도 PR에서 다시 검토한다.
