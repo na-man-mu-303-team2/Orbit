@@ -141,7 +141,8 @@ services:
     restart: unless-stopped
 
   redis:
-    ports: !reset []
+    ports: !override
+      - "127.0.0.1:6379:6379"
     restart: unless-stopped
 
   minio:

@@ -161,6 +161,11 @@ class RehearsalCoachingResponse(BaseModel):
     message: str = ""
 
 
+class RehearsalAiSummaryResponse(BaseModel):
+    headline: str
+    paragraphs: list[str]
+
+
 class RehearsalSpeedSampleResponse(BaseModel):
     start_second: float = Field(alias="startSecond", ge=0)
     end_second: float = Field(alias="endSecond", ge=0)
@@ -206,6 +211,7 @@ class RehearsalAnalyzeResponse(BaseModel):
         default_factory=list,
         alias="missedKeywords",
     )
+    ai_summary: RehearsalAiSummaryResponse = Field(alias="aiSummary")
     coaching: RehearsalCoachingResponse
 
 
@@ -522,7 +528,9 @@ def generate_ai_deck(
             model=config.openai_model,
             api_key=config.openai_api_key,
             reference_context=_generate_deck_reference_context(payload, config),
-            image_review_mode=config.ai_slide_image_review_mode,
+            image_review_mode=(
+                payload.image_review_mode or config.ai_slide_image_review_mode
+            ),
         )
     except DeckContentGenerationError as error:
         raise HTTPException(status_code=503, detail=str(error)) from error
@@ -559,6 +567,15 @@ def analyze_rehearsal(
     # 코칭 생성 실패는 부분 성공으로 숨기지 않고 API 오류로 반환한다.
     if coaching.status != "succeeded":
         raise _coaching_http_exception(coaching.status, coaching.message)
+
+    ai_summary_headline = (
+        coaching.ai_summary_headline
+        or coaching.summary
+        or "리허설 총평을 생성하지 못했습니다."
+    )
+    ai_summary_paragraphs = [
+        paragraph for paragraph in coaching.ai_summary_paragraphs if paragraph.strip()
+    ] or [coaching.summary or ai_summary_headline]
 
     return RehearsalAnalyzeResponse(
         runId=payload.run_id,
@@ -597,6 +614,10 @@ def analyze_rehearsal(
             )
             for keyword in metrics.missed_keywords
         ],
+        aiSummary=RehearsalAiSummaryResponse(
+            headline=ai_summary_headline,
+            paragraphs=ai_summary_paragraphs[:3],
+        ),
         coaching=RehearsalCoachingResponse(
             status="succeeded",
             summary=coaching.summary,

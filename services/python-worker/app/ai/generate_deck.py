@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import base64
+from collections import OrderedDict
+import hashlib
 import json
 import re
 import textwrap
@@ -166,6 +168,10 @@ class GenerateDeckRequest(BaseModel):
     design_blueprint: dict[str, Any] | None = Field(
         default=None,
         alias="designBlueprint",
+    )
+    image_review_mode: ImageReviewMode | None = Field(
+        default=None,
+        alias="imageReviewMode",
     )
 
 
@@ -427,6 +433,12 @@ def load_icon_map(path: Path) -> dict[str, str]:
 CANVAS = Canvas()
 TEXT_OVERLAP_WARNING_RATIO = 0.15
 MAX_IMAGE_REVIEW_SLIDES = 3
+DECK_CONTENT_PLAN_CACHE_VERSION = "v1"
+DECK_CONTENT_PLAN_CACHE_MAX = 128
+DECK_CONTENT_PLAN_CACHE: OrderedDict[
+    tuple[str, str, str],
+    GeneratedDeckContentPlan,
+] = OrderedDict()
 STYLE_PACK_REGISTRY = load_json_registry(DESIGN_LIBRARY_DIR / "style-packs")
 SLIDE_PRESET_REGISTRY = load_json_registry(DESIGN_LIBRARY_DIR / "slide-presets")
 ICON_MAP = load_icon_map(DESIGN_LIBRARY_DIR / "icon-map.json")
@@ -2131,6 +2143,7 @@ def generate_content_plan_with_llm(
     model: str | None = None,
     api_key: str | None = None,
 ) -> GeneratedDeckContentPlan | None:
+    resolved_model = model or "gpt-4.1-mini"
     api_client: Any = client
     if api_client is None:
         if not api_key:
@@ -2144,11 +2157,18 @@ def generate_content_plan_with_llm(
 
         api_client = OpenAI(api_key=api_key)
 
+    prompt = deck_content_prompt(raw_input)
+    cache_key = deck_content_plan_cache_key(resolved_model, prompt)
+    cached_plan = DECK_CONTENT_PLAN_CACHE.get(cache_key)
+    if cached_plan is not None:
+        DECK_CONTENT_PLAN_CACHE.move_to_end(cache_key)
+        return deepcopy(cached_plan)
+
     try:
         response = api_client.responses.create(
-            model=model or "gpt-4.1-mini",
+            model=resolved_model,
             instructions=DECK_CONTENT_INSTRUCTIONS,
-            input=deck_content_prompt(raw_input),
+            input=prompt,
             text=DECK_CONTENT_RESPONSE_FORMAT,
         )
     except Exception as error:
@@ -2173,10 +2193,24 @@ def generate_content_plan_with_llm(
             f"LLM returned fewer slides than the requested minimum ({raw_input.min_slide_count})."
         )
 
-    return GeneratedDeckContentPlan(
+    generated_plan = GeneratedDeckContentPlan(
         title=plan.title,
         slides=plan.slides[: raw_input.slide_count],
     )
+    DECK_CONTENT_PLAN_CACHE[cache_key] = deepcopy(generated_plan)
+    DECK_CONTENT_PLAN_CACHE.move_to_end(cache_key)
+    while len(DECK_CONTENT_PLAN_CACHE) > DECK_CONTENT_PLAN_CACHE_MAX:
+        DECK_CONTENT_PLAN_CACHE.popitem(last=False)
+    return generated_plan
+
+
+def deck_content_plan_cache_key(model: str, prompt: str) -> tuple[str, str, str]:
+    digest = hashlib.sha256(prompt.encode("utf-8")).hexdigest()
+    return (model, DECK_CONTENT_PLAN_CACHE_VERSION, digest)
+
+
+def clear_deck_content_plan_cache() -> None:
+    DECK_CONTENT_PLAN_CACHE.clear()
 
 
 def deck_content_prompt(raw_input: RawInput) -> str:
@@ -2185,30 +2219,63 @@ def deck_content_prompt(raw_input: RawInput) -> str:
         f"[{item.file_id}] {item.title}\n{item.content[:1200]}"
         for item in raw_input.reference_context[:6]
     )
-    return "\n".join(
+    lines = [
+        f"Topic: {raw_input.topic}",
+        f"User prompt: {raw_input.prompt or '(none)'}",
+        f"Design prompt: {narrative_design_prompt(raw_input) or '(none)'}",
+        f"Slide count: {raw_input.slide_count}",
+        f"Audience: {raw_input.metadata.audience}",
+        f"Purpose: {raw_input.metadata.purpose}",
+        f"Tone: {raw_input.metadata.tone}",
+        f"Document mode: {document_mode_for(raw_input)}",
+    ]
+    if uses_full_narrative_design_context(raw_input):
+        lines.extend(
+            [
+                f"Design profile: {raw_input.design.profile or '(auto)'}",
+                f"Visual rhythm: {raw_input.design.visual_rhythm}",
+                f"Density target: {raw_input.design.density_target}",
+                f"Media policy: {raw_input.design.media_policy}",
+                f"Layout diversity: {raw_input.design.layout_diversity}",
+                f"Style pack override: {raw_input.design.style_pack_id or '(auto)'}",
+                f"Slide preset override: {raw_input.design.slide_preset_id or '(auto)'}",
+                "Preset style prompt:",
+                preset_style_prompt_for(raw_input) or "(none)",
+            ]
+        )
+    lines.extend(
         [
-            f"Topic: {raw_input.topic}",
-            f"User prompt: {raw_input.prompt or '(none)'}",
-            f"Design prompt: {raw_input.design_prompt or '(none)'}",
-            f"Slide count: {raw_input.slide_count}",
-            f"Audience: {raw_input.metadata.audience}",
-            f"Purpose: {raw_input.metadata.purpose}",
-            f"Tone: {raw_input.metadata.tone}",
-            f"Document mode: {document_mode_for(raw_input)}",
-            f"Design profile: {raw_input.design.profile or '(auto)'}",
-            f"Visual rhythm: {raw_input.design.visual_rhythm}",
-            f"Density target: {raw_input.design.density_target}",
-            f"Media policy: {raw_input.design.media_policy}",
-            f"Layout diversity: {raw_input.design.layout_diversity}",
-            f"Style pack override: {raw_input.design.style_pack_id or '(auto)'}",
-            f"Slide preset override: {raw_input.design.slide_preset_id or '(auto)'}",
-            "Preset style prompt:",
-            preset_style_prompt_for(raw_input) or "(none)",
             f"Reference keywords: {', '.join(keywords) if keywords else '(none)'}",
             "Reference excerpts:",
             context or "(none)",
         ]
     )
+    return "\n".join(lines)
+
+
+def narrative_design_prompt(raw_input: RawInput) -> str:
+    if uses_full_narrative_design_context(raw_input):
+        return raw_input.design_prompt
+    return compact_design_prompt(raw_input.design_prompt)
+
+
+def uses_full_narrative_design_context(raw_input: RawInput) -> bool:
+    return isinstance(raw_input.template_blueprint, dict) or isinstance(
+        raw_input.design_blueprint,
+        dict,
+    )
+
+
+def compact_design_prompt(design_prompt: str) -> str:
+    line = design_prompt.strip().splitlines()[0].strip() if design_prompt.strip() else ""
+    sentence_ends = [
+        index + 1
+        for marker in ".!?。！？"
+        if (index := line.find(marker)) >= 0
+    ]
+    if sentence_ends:
+        line = line[: min(sentence_ends)].strip()
+    return line[:160].rstrip()
 
 
 def slide_plans_from_generated_content(

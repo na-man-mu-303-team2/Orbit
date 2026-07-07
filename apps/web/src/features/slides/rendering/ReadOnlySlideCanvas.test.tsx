@@ -159,6 +159,36 @@ describe("ReadOnlySlideCanvas", () => {
     expect(html).toContain("data-opacity=\"0\"");
   });
 
+  it("does not render placeholder text for empty groups", () => {
+    const emptyGroupSlide = {
+      ...slide,
+      elements: [
+        {
+          elementId: "el_empty_group",
+          type: "group" as const,
+          role: "decoration" as const,
+          x: 100,
+          y: 120,
+          width: 320,
+          height: 180,
+          rotation: 0,
+          opacity: 1,
+          zIndex: 1,
+          locked: false,
+          visible: true,
+          props: {
+            childElementIds: []
+          }
+        }
+      ]
+    };
+    const html = renderToStaticMarkup(
+      <ReadOnlySlideCanvas deck={p0AnimationDeck} slide={emptyGroupSlide} />
+    );
+
+    expect(html).not.toContain("빈 그룹");
+  });
+
   it("renders styled text runs separately", () => {
     const richSlide = {
       ...slide,

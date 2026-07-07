@@ -129,6 +129,7 @@ describe("processAiTemplateDeckGenerationJob", () => {
             }
           ],
           slideCountRange: { min: 4, max: 6 },
+          imageReviewMode: "off",
           templateBlueprint: expect.objectContaining({
             templateId: "template_file_design"
           })
@@ -228,6 +229,16 @@ describe("processAiTemplateDeckGenerationJob", () => {
       sourceFileId: "file_design",
       currentPackageFileId: blueprint.currentPackageFileId,
       contentReferenceFileIds: ["file_content"]
+    });
+    expect(job.result?.timings).toMatchObject({
+      "prepare.loadAssets": expect.any(Number),
+      "prepare.content": expect.any(Number),
+      "prepare.design": expect.any(Number),
+      "generate.python": expect.any(Number),
+      "apply.pptx": expect.any(Number),
+      "save.assets": expect.any(Number),
+      "save.deck": expect.any(Number),
+      total: expect.any(Number)
     });
   });
 

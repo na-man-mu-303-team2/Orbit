@@ -756,7 +756,35 @@ describe("DecksService", () => {
     });
 
     const response = await service.appendPatch(deck.projectId, {
-      patch: createUpdateTitlePatch(deck, "Updated deck"),
+      patch: {
+        deckId: deck.deckId,
+        baseVersion: deck.version,
+        source: "user",
+        operations: [
+          {
+            type: "add_element",
+            slideId: deck.slides[0]!.slideId,
+            element: {
+              elementId: "el_sync_text",
+              type: "text",
+              role: "body",
+              x: 120,
+              y: 140,
+              width: 520,
+              height: 120,
+              rotation: 0,
+              opacity: 1,
+              zIndex: 1,
+              locked: false,
+              visible: true,
+              props: {
+                text: "OOXML sync target",
+                fontSize: 32,
+              },
+            },
+          },
+        ],
+      },
     });
 
     expect(response.ooxmlSyncJob?.jobId).toBe(syncJob.jobId);
@@ -777,6 +805,61 @@ describe("DecksService", () => {
         targetDeckVersion: 2,
       }),
     );
+  });
+
+  it("does not enqueue OOXML sync for thumbnail-only system patches", async () => {
+    stubOrbitEnv();
+    const dataSource = new InMemoryDeckDataSource();
+    const deck = createDeck();
+    const jobsService = {
+      create: vi.fn(async () => createJob()),
+      update: vi.fn(),
+    };
+    const enqueueSyncJob = vi.fn(async () => undefined);
+    const service = new DecksService(
+      dataSource as unknown as DataSource,
+      jobsService as never,
+      enqueueSyncJob,
+    );
+
+    await service.putDeck(deck.projectId, { deck });
+    dataSource.templateBlueprintRows.push({
+      template_id: "template_file_1",
+      project_id: deck.projectId,
+      deck_id: deck.deckId,
+      blueprint_json: {
+        templateId: "template_file_1",
+        sourceFileId: "file_1",
+        currentPackageFileId: "file_current",
+        slides: [{ slideIndex: 1, sourceSlideIndex: 1, slots: [] }],
+      },
+    });
+
+    const response = await service.appendPatch(deck.projectId, {
+      patch: {
+        deckId: deck.deckId,
+        baseVersion: deck.version,
+        source: "system",
+        operations: [
+          {
+            type: "update_slide",
+            slideId: deck.slides[0]!.slideId,
+            thumbnailUrl: "/api/v1/projects/project_demo_1/assets/file_thumb/content",
+          },
+          {
+            type: "update_deck",
+            metadata: {
+              thumbnailSource: "canvas",
+            },
+          },
+        ],
+      },
+    });
+
+    expect(response.ooxmlSyncJob).toBeUndefined();
+    expect(response.deck.version).toBe(2);
+    expect(jobsService.create).not.toHaveBeenCalled();
+    expect(enqueueSyncJob).not.toHaveBeenCalled();
   });
 
   it("restores a snapshot into the current deck", async () => {

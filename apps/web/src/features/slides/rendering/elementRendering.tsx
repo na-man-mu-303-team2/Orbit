@@ -227,29 +227,7 @@ export function ElementNodeContent(props: {
     const childElements = getGroupChildElements(slide, groupProps.childElementIds);
 
     if (childElements.length === 0) {
-      return (
-        <Group listening={false}>
-          <Rect
-            dash={[10, 6]}
-            cornerRadius={18}
-            fill="rgba(241, 245, 249, 0.7)"
-            stroke="#64748b"
-            strokeWidth={2}
-            width={frame.width}
-            height={frame.height}
-          />
-          <Text
-            align="center"
-            fill="#334155"
-            fontSize={15}
-            height={frame.height}
-            padding={12}
-            text="빈 그룹"
-            verticalAlign="middle"
-            width={frame.width}
-          />
-        </Group>
-      );
+      return null;
     }
 
     return (

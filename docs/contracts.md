@@ -888,6 +888,9 @@ Rules:
   `{ generatedOrder, sourceSlideIndex, selectionReason }`. The API worker uses
   this mapping to filter/reorder `TemplateBlueprint.slides` before slot text
   extraction, PPTX apply, render asset linking, and sidecar save.
+- Successful job results include `timings` as stage durations in seconds, with
+  `prepare.content` and `prepare.design` split so content parsing and PPTX
+  template analysis bottlenecks can be compared.
 - If a reference layout is reused or selected out of source order, the API
   worker saves generated slides as sequential `sourceSlideIndex` values and
   stores the original PPTX page in `cloneSourceSlideIndex` and the actual

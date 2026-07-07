@@ -96,6 +96,13 @@ export const rehearsalReportQnaSummarySchema = z
   })
   .strict();
 
+export const rehearsalReportAiSummarySchema = z
+  .object({
+    headline: z.string().trim().min(1),
+    paragraphs: z.array(z.string().trim().min(1)).min(1).max(3)
+  })
+  .strict();
+
 export const rehearsalReportCoachingSchema = z.object({
   status: z.literal("succeeded"),
   summary: z.string().default(""),
@@ -124,6 +131,7 @@ export const rehearsalReportSchema = z
       questionSummary: "",
       unclearTopics: []
     }),
+    aiSummary: rehearsalReportAiSummarySchema.nullable().optional(),
     coaching: rehearsalReportCoachingSchema.nullable(),
     generatedAt: isoDateTimeSchema
   })
@@ -253,6 +261,7 @@ export type RehearsalRunStatus = z.infer<typeof rehearsalRunStatusSchema>;
 export type RehearsalRunError = z.infer<typeof rehearsalRunErrorSchema>;
 export type RehearsalRun = z.infer<typeof rehearsalRunSchema>;
 export type RehearsalReportMetrics = z.infer<typeof rehearsalReportMetricsSchema>;
+export type RehearsalReportAiSummary = z.infer<typeof rehearsalReportAiSummarySchema>;
 export type RehearsalReportCoaching = z.infer<typeof rehearsalReportCoachingSchema>;
 export type RehearsalReportSlideTiming = z.infer<
   typeof rehearsalReportSlideTimingSchema
