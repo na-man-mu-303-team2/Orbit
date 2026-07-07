@@ -45,6 +45,10 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { JobProgressDisplay } from "./JobProgressDisplay";
 import { RehearsalReportDocument } from "./RehearsalReportDocument";
 import { RehearsalRunNav } from "./RehearsalRunNav";
+import {
+  getRehearsalRunNumber,
+  sortRehearsalRunsByCreatedAt,
+} from "./rehearsalUtils";
 import { useJobSmoothProgress } from "./useJobSmoothProgress";
 import { resolveEditorAssetUrl } from "../editor/shared/editorAssetUrl";
 import {
@@ -3903,6 +3907,19 @@ export function RehearsalReportPage(props: {
   const [prevReports, setPrevReports] = useState<RehearsalReport[]>([]);
 
   useEffect(() => {
+    setDeck(props.initialDeck ?? null);
+  }, [props.initialDeck, props.projectId]);
+
+  useEffect(() => {
+    setRun(props.initialRun ?? null);
+    setReport(props.initialReport ?? null);
+    setStatus(props.initialReport ? "ready" : "loading");
+    setError("");
+    setReportJob(null);
+    setPrevReports([]);
+  }, [props.initialRun, props.initialReport, props.runId]);
+
+  useEffect(() => {
     let isMounted = true;
 
     if (!props.initialDeck) {
@@ -3923,6 +3940,9 @@ export function RehearsalReportPage(props: {
 
     setStatus("loading");
     setError("");
+    setRun(null);
+    setReport(null);
+    setReportJob(null);
 
     void fetchRehearsalReport(props.runId)
       .then((response) => {
@@ -3976,11 +3996,15 @@ export function RehearsalReportPage(props: {
 
   useEffect(() => {
     let isMounted = true;
+    setAllSucceededRuns(
+      props.initialRun?.status === "succeeded" ? [props.initialRun] : [],
+    );
+
     void fetchProjectRehearsalRuns(props.projectId).then((runs) => {
       if (!isMounted) return;
-      const succeeded = runs
-        .filter((r) => r.status === "succeeded")
-        .sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt));
+      const succeeded = sortRehearsalRunsByCreatedAt(
+        runs.filter((r) => r.status === "succeeded"),
+      );
       setAllSucceededRuns(succeeded);
     });
     return () => { isMounted = false; };
@@ -4017,9 +4041,7 @@ export function RehearsalReportPage(props: {
     status === "not-ready",
   );
 
-  const currentRunIndex = allSucceededRuns.findIndex(
-    (r) => r.runId === props.runId,
-  );
+  const currentRunNumber = getRehearsalRunNumber(allSucceededRuns, props.runId);
 
   return (
     <main className="rehearsal-report-page">
@@ -4034,9 +4056,9 @@ export function RehearsalReportPage(props: {
             <ArrowLeft size={18} />
           </button>
           <span className="report-project-title">{deck?.title ?? "리포트"}</span>
-          {currentRunIndex >= 0 && (
+          {currentRunNumber != null && (
             <span className="report-run-label">
-              리허설 {currentRunIndex + 1}회차
+              리허설 {currentRunNumber}회차
             </span>
           )}
         </div>
@@ -4050,12 +4072,14 @@ export function RehearsalReportPage(props: {
         />
 
         <section className="rehearsal-report-document" aria-live="polite">
-          {report ? (
+          {status === "loading" ? (
+            <RehearsalReportLoadingShell />
+          ) : report ? (
             <RehearsalReportDocument
               report={report}
               deck={deck}
               run={run}
-              runNumber={currentRunIndex >= 0 ? currentRunIndex + 1 : null}
+              runNumber={currentRunNumber}
               projectId={props.projectId}
               totalRunCount={allSucceededRuns.length}
               prevReports={prevReports}
@@ -4081,6 +4105,119 @@ export function RehearsalReportPage(props: {
         </section>
       </div>
     </main>
+  );
+}
+
+function RehearsalReportLoadingShell() {
+  return (
+    <div
+      className="rrd-root report-loading-shell"
+      role="status"
+      aria-label="보고서를 불러오는 중입니다."
+    >
+      <section className="rrd-hero report-loading-hero" aria-hidden="true">
+        <div className="rrd-hero-text report-loading-stack">
+          <div className="report-loading-block report-loading-title" />
+          <div className="report-loading-block report-loading-date" />
+        </div>
+        <div className="report-loading-block report-loading-button" />
+      </section>
+
+      <section className="rrd-card report-loading-card report-loading-card-wide" aria-hidden="true">
+        <div className="rrd-card-head">
+          <div className="report-loading-block report-loading-line-sm" />
+        </div>
+        <div className="report-loading-stack">
+          <div className="report-loading-block report-loading-line-xl" />
+          <div className="report-loading-block report-loading-line-lg" />
+          <div className="report-loading-block report-loading-line-md" />
+        </div>
+      </section>
+
+      <div className="rrd-overview-columns report-loading-columns" aria-hidden="true">
+        <section className="rrd-card report-loading-card">
+          <div className="rrd-card-head">
+            <div className="report-loading-block report-loading-line-sm" />
+          </div>
+          <div className="rrd-overview-grid report-loading-metric-grid">
+            <div className="report-loading-metric">
+              <div className="report-loading-block report-loading-line-sm" />
+              <div className="report-loading-block report-loading-metric-value" />
+            </div>
+            <div className="report-loading-metric">
+              <div className="report-loading-block report-loading-line-sm" />
+              <div className="report-loading-block report-loading-metric-value" />
+            </div>
+            <div className="report-loading-metric">
+              <div className="report-loading-block report-loading-line-sm" />
+              <div className="report-loading-block report-loading-metric-value" />
+            </div>
+            <div className="report-loading-metric">
+              <div className="report-loading-block report-loading-line-sm" />
+              <div className="report-loading-block report-loading-metric-value" />
+            </div>
+          </div>
+        </section>
+
+        <section className="rrd-card report-loading-card">
+          <div className="rrd-card-head">
+            <div className="report-loading-block report-loading-line-sm" />
+          </div>
+          <div className="report-loading-chart">
+            <div className="report-loading-block report-loading-chart-bar" />
+            <div className="report-loading-block report-loading-chart-bar report-loading-chart-bar-tall" />
+            <div className="report-loading-block report-loading-chart-bar" />
+            <div className="report-loading-block report-loading-chart-bar report-loading-chart-bar-short" />
+            <div className="report-loading-block report-loading-chart-bar report-loading-chart-bar-mid" />
+          </div>
+          <div className="report-loading-stack">
+            <div className="report-loading-block report-loading-line-md" />
+            <div className="report-loading-block report-loading-line-sm" />
+          </div>
+        </section>
+      </div>
+
+      <section className="rrd-card report-loading-card" aria-hidden="true">
+        <div className="rrd-card-head">
+          <div className="report-loading-block report-loading-line-sm" />
+        </div>
+        <div className="report-loading-chip-list">
+          <div className="report-loading-block report-loading-chip" />
+          <div className="report-loading-block report-loading-chip" />
+          <div className="report-loading-block report-loading-chip report-loading-chip-wide" />
+          <div className="report-loading-block report-loading-chip" />
+        </div>
+        <div className="report-loading-list">
+          <div className="report-loading-block report-loading-line-lg" />
+          <div className="report-loading-block report-loading-line-md" />
+          <div className="report-loading-block report-loading-line-lg" />
+        </div>
+      </section>
+
+      <section className="rrd-card report-loading-card report-loading-card-wide" aria-hidden="true">
+        <div className="rrd-card-head">
+          <div className="report-loading-block report-loading-line-sm" />
+        </div>
+        <div className="report-loading-slide-list">
+          <div className="report-loading-slide-item">
+            <div className="report-loading-block report-loading-thumb" />
+            <div className="report-loading-slide-copy">
+              <div className="report-loading-block report-loading-line-lg" />
+              <div className="report-loading-block report-loading-line-md" />
+              <div className="report-loading-block report-loading-line-sm" />
+            </div>
+          </div>
+          <div className="report-loading-slide-item">
+            <div className="report-loading-block report-loading-thumb" />
+            <div className="report-loading-slide-copy">
+              <div className="report-loading-block report-loading-line-lg" />
+              <div className="report-loading-block report-loading-line-md" />
+              <div className="report-loading-block report-loading-line-sm" />
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
   );
 }
 

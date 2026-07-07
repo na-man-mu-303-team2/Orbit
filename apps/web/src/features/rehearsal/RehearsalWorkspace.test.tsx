@@ -1013,6 +1013,20 @@ describe("RehearsalWorkspace", () => {
     expect(html).not.toContain("dB");
   });
 
+  it("renders a report loading shell before report data is ready", () => {
+    const html = renderToStaticMarkup(
+      <RehearsalReportPage
+        initialDeck={createDemoDeck()}
+        projectId="project-a"
+        runId="run-1"
+      />,
+    );
+
+    expect(html).toContain("보고서를 불러오는 중입니다.");
+    expect(html).toContain("report-loading-shell");
+    expect(html).not.toContain("report-page-state");
+  });
+
   it("shows retained transcript download controls during the 30 minute window", () => {
     const deck = createDemoDeck();
     const html = renderToStaticMarkup(

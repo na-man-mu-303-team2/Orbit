@@ -546,10 +546,21 @@ function renderRoute(route: Route, user?: AuthUser) {
     );
   }
   if (route.name === "rehearsal-report") {
-    return <RehearsalReportPage projectId={route.projectId} runId={route.runId} />;
+    return (
+      <RehearsalReportPage
+        key={`${route.projectId}:${route.runId}`}
+        projectId={route.projectId}
+        runId={route.runId}
+      />
+    );
   }
   if (route.name === "report-project-overview") {
-    return <RehearsalProjectOverviewPage projectId={route.projectId} />;
+    return (
+      <RehearsalProjectOverviewPage
+        key={route.projectId}
+        projectId={route.projectId}
+      />
+    );
   }
   if (route.name === "report-list") {
     const projectId = new URLSearchParams(window.location.search).get("project") ?? undefined;
