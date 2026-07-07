@@ -3172,6 +3172,7 @@ export function RehearsalWorkspace(props: {
     p3PanelSnapshot.coveredSentenceIds,
     currentSlide?.speakerNotes ?? "",
     renderLiveTranscriptBuffer(liveTranscriptBuffer),
+    getPrompterHighlightTerms(currentSlide),
   );
   const rehearsalSummary = buildRehearsalCompletionSummary({
     deck,
@@ -4707,6 +4708,9 @@ function RehearsalTeleprompter(props: {
               ? "rehearsal-teleprompter-token-spoken"
               : "rehearsal-teleprompter-token-pending",
             segment.emphasis ? "rehearsal-teleprompter-token-emphasis" : "",
+            segment.tone !== "default"
+              ? `rehearsal-teleprompter-token-${segment.tone}`
+              : "",
           ]
             .filter(Boolean)
             .join(" ");
@@ -5174,6 +5178,19 @@ export type KaraokePrompterSegment = {
   emphasis: boolean;
   spoken: boolean;
   text: string;
+  tone: KaraokePrompterTone;
+};
+
+export type KaraokePrompterTone =
+  | "default"
+  | "required"
+  | "trigger"
+  | "next"
+  | "cue";
+
+type KaraokePrompterHighlightTerm = {
+  text: string;
+  tone: Exclude<KaraokePrompterTone, "default">;
 };
 
 function getRehearsalPrompterRows(
@@ -5181,12 +5198,13 @@ function getRehearsalPrompterRows(
   coveredSentenceIds: readonly string[],
   fallbackNotes: string,
   transcript = "",
+  highlightTerms: readonly KaraokePrompterHighlightTerm[] = [],
 ): RehearsalPrompterRows {
   if (sentences.length === 0) {
     const fallback = fallbackNotes.trim() || "발표자 노트가 없습니다.";
     return {
       previous: "",
-      ...splitPrompterSentence(fallback, transcript, false),
+      ...splitPrompterSentence(fallback, transcript, false, highlightTerms),
       next: "",
     };
   }
@@ -5207,7 +5225,12 @@ function getRehearsalPrompterRows(
 
   return {
     previous: sentences[focusIndex - 1]?.text ?? "",
-    ...splitPrompterSentence(current, transcript, isCurrentCovered),
+    ...splitPrompterSentence(
+      current,
+      transcript,
+      isCurrentCovered,
+      highlightTerms,
+    ),
     next: sentences[focusIndex + 1]?.text ?? "",
   };
 }
@@ -5216,8 +5239,10 @@ function splitPrompterSentence(
   text: string,
   transcript = "",
   isCovered = false,
+  highlightTerms: readonly KaraokePrompterHighlightTerm[] = [],
 ) {
   const currentSegments = buildKaraokePrompterSegments({
+    highlightTerms,
     isCovered,
     text,
     transcript,
@@ -5245,12 +5270,17 @@ function splitPrompterSentence(
 }
 
 export function buildKaraokePrompterSegments(options: {
+  highlightTerms?: readonly KaraokePrompterHighlightTerm[];
   isCovered?: boolean;
   text: string;
   transcript?: string;
 }): KaraokePrompterSegment[] {
   const rawSegments = options.text.match(/\s+|[^\s]+/g) ?? [options.text];
   const emphasisRanges = getPrompterEmphasisRanges(options.text);
+  const highlightRanges = getPrompterHighlightRanges(
+    options.text,
+    options.highlightTerms ?? [],
+  );
   const spokenTokenCount = options.isCovered
     ? rawSegments.filter((segment) => !isWhitespaceSegment(segment)).length
     : getSpokenPrompterTokenCount(options.text, options.transcript ?? "");
@@ -5272,8 +5302,144 @@ export function buildKaraokePrompterSegments(options: {
       ),
       spoken,
       text: segment,
+      tone: getPrompterSegmentTone(textOffset, segment, highlightRanges),
     };
   });
+}
+
+function getPrompterHighlightTerms(
+  slide: Slide | null,
+): KaraokePrompterHighlightTerm[] {
+  if (!slide) {
+    return [];
+  }
+
+  const terms: KaraokePrompterHighlightTerm[] = [];
+  const addKeywordTerms = (
+    keyword: Keyword | undefined,
+    tone: Exclude<KaraokePrompterTone, "default">,
+  ) => {
+    if (!keyword) {
+      return;
+    }
+    for (const text of [
+      keyword.text,
+      ...keyword.synonyms,
+      ...keyword.abbreviations,
+    ]) {
+      terms.push({ text, tone });
+    }
+  };
+
+  for (const keyword of slide.keywords ?? []) {
+    if (keyword.required) {
+      addKeywordTerms(keyword, "required");
+    }
+  }
+
+  for (const action of slide.actions ?? []) {
+    if (
+      action.trigger.kind === "keyword" ||
+      action.trigger.kind === "keyword-occurrence"
+    ) {
+      const triggerKeywordId = action.trigger.keywordId;
+      addKeywordTerms(
+        slide.keywords.find(
+          (keyword) => keyword.keywordId === triggerKeywordId,
+        ),
+        "trigger",
+      );
+    }
+    if (action.trigger.kind === "cue") {
+      terms.push({ text: action.trigger.cue, tone: "cue" });
+    }
+  }
+
+  for (const command of defaultRehearsalCommandConfig) {
+    const tone = command.action === "advance-slide" ? "next" : "cue";
+    for (const phrase of command.phrases) {
+      terms.push({ text: phrase, tone });
+    }
+  }
+
+  return terms;
+}
+
+function getPrompterHighlightRanges(
+  text: string,
+  terms: readonly KaraokePrompterHighlightTerm[],
+) {
+  const ranges: Array<{
+    end: number;
+    start: number;
+    tone: Exclude<KaraokePrompterTone, "default">;
+  }> = [];
+  const lowerText = text.toLocaleLowerCase("ko-KR");
+  const seen = new Set<string>();
+
+  for (const term of terms) {
+    const normalizedTerm = term.text.trim().toLocaleLowerCase("ko-KR");
+    if (!normalizedTerm) {
+      continue;
+    }
+
+    let fromIndex = 0;
+    while (fromIndex < lowerText.length) {
+      const start = lowerText.indexOf(normalizedTerm, fromIndex);
+      if (start < 0) {
+        break;
+      }
+
+      const end = start + normalizedTerm.length;
+      const key = `${start}:${end}:${term.tone}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        ranges.push({ start, end, tone: term.tone });
+      }
+      fromIndex = end;
+    }
+  }
+
+  return ranges.sort((left, right) => {
+    const priorityDelta =
+      getPrompterTonePriority(right.tone) - getPrompterTonePriority(left.tone);
+    if (priorityDelta !== 0) {
+      return priorityDelta;
+    }
+    return right.end - right.start - (left.end - left.start);
+  });
+}
+
+function getPrompterSegmentTone(
+  textOffset: number,
+  segment: string,
+  ranges: ReturnType<typeof getPrompterHighlightRanges>,
+): KaraokePrompterTone {
+  if (isWhitespaceSegment(segment)) {
+    return "default";
+  }
+
+  const segmentEnd = textOffset + segment.length;
+  return (
+    ranges.find(
+      (range) => textOffset < range.end && segmentEnd > range.start,
+    )?.tone ?? "default"
+  );
+}
+
+function getPrompterTonePriority(tone: KaraokePrompterTone) {
+  switch (tone) {
+    case "trigger":
+      return 5;
+    case "next":
+      return 4;
+    case "cue":
+      return 3;
+    case "required":
+      return 2;
+    case "default":
+      return 1;
+  }
 }
 
 function getSpokenPrompterTokenCount(text: string, transcript: string) {

@@ -1672,6 +1672,29 @@ describe("RehearsalWorkspace", () => {
     ).toBe(true);
   });
 
+  it("assigns distinct teleprompter tones to important script terms", () => {
+    const segments = buildKaraokePrompterSegments({
+      text: "ORBIT 다음 슬라이드 강조",
+      transcript: "",
+      highlightTerms: [
+        { text: "ORBIT", tone: "required" },
+        { text: "다음 슬라이드", tone: "next" },
+        { text: "강조", tone: "cue" },
+      ],
+    });
+
+    expect(
+      segments
+        .filter((segment) => segment.text.trim())
+        .map((segment) => [segment.text, segment.tone]),
+    ).toEqual([
+      ["ORBIT", "required"],
+      ["다음", "next"],
+      ["슬라이드", "next"],
+      ["강조", "cue"],
+    ]);
+  });
+
   it("delegates auto-advance policy to the P4 controller instead of keyword coverage timers", () => {
     const source = fs.readFileSync(rehearsalWorkspaceSourcePath, "utf8");
     const start = source.indexOf("function handleLivePartialTranscript");
