@@ -81,6 +81,14 @@ export const rehearsalReportSlideTimingSchema = z
   })
   .strict();
 
+export const rehearsalReportSlideInsightSchema = z
+  .object({
+    slideId: deckSlideIdSchema,
+    fillerWordCount: z.number().int().nonnegative(),
+    pauseCount: z.number().int().nonnegative()
+  })
+  .strict();
+
 export const rehearsalReportQnaTopicSchema = z
   .object({
     topic: z.string().trim().min(1),
@@ -126,6 +134,7 @@ export const rehearsalReportSchema = z
     pauseDetails: z.array(rehearsalReportPauseDetailSchema).default([]),
     missedKeywords: z.array(rehearsalReportMissedKeywordSchema).default([]),
     slideTimings: z.array(rehearsalReportSlideTimingSchema).default([]),
+    slideInsights: z.array(rehearsalReportSlideInsightSchema).default([]),
     qnaSummary: rehearsalReportQnaSummarySchema.default({
       questionCount: 0,
       questionSummary: "",

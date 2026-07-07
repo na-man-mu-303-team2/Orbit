@@ -3,17 +3,15 @@ import {
   ChevronUp,
   Download,
   FileText,
-  Layers,
   Mic,
-  Repeat2,
   Sparkles,
   Target,
   Volume2,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import type { Deck, RehearsalReport, RehearsalRun } from "@orbit/shared";
-import { resolveEditorAssetUrl } from "../editor/shared/editorAssetUrl";
 import { navigateTo } from "./rehearsalUtils";
+import { RehearsalSlideAnalysisOverview } from "./RehearsalSlideAnalysisOverview";
 import { RehearsalSlideTimingOverview } from "./RehearsalSlideTimingOverview";
 
 const TRANSCRIPT_WINDOW_MS = 30 * 60 * 1000;
@@ -44,24 +42,6 @@ function fmtDelta(diff: number) {
 function formatDate(iso: string) {
   const d = new Date(iso);
   return `${d.getFullYear()}.${String(d.getMonth() + 1).padStart(2, "0")}.${String(d.getDate()).padStart(2, "0")}`;
-}
-
-function getSlide(deck: Deck, slideId: string) {
-  return deck.slides.find((s) => s.slideId === slideId);
-}
-
-function getSlideLabel(deck: Deck, slideId: string) {
-  const slide = getSlide(deck, slideId);
-  if (!slide) return slideId;
-  const t = slide.title.trim();
-  return t ? `슬라이드 ${slide.order} · ${t}` : `슬라이드 ${slide.order}`;
-}
-
-function getSlideName(deck: Deck, slideId: string) {
-  const slide = getSlide(deck, slideId);
-  if (!slide) return slideId;
-  const t = slide.title.trim();
-  return t || `슬라이드 ${slide.order}`;
 }
 
 function escapeHtml(value: string) {
@@ -246,14 +226,13 @@ export function RehearsalReportDocument({
   report,
   run,
   runNumber,
-  totalRunCount,
+  totalRunCount: _totalRunCount,
 }: Props) {
   const [transcriptOpen, setTranscriptOpen] = useState(false);
 
   const coaching = report.coaching;
   const metrics = report.metrics;
   const slideTimings = report.slideTimings;
-  const missedKeywords = report.missedKeywords;
   const fillerWordDetails = [...report.fillerWordDetails].sort(
     (a, b) => b.count - a.count,
   );
@@ -289,53 +268,6 @@ export function RehearsalReportDocument({
 
   // ── 이전 회차 데이터 계산 ──────────────────────────────────────────
   const prevReport = prevReports[0] ?? null; // 직전 회차
-
-  const slideAvgMap = useMemo(() => {
-    const raw = new Map<string, number[]>();
-    for (const pr of prevReports) {
-      for (const t of pr.slideTimings) {
-        const arr = raw.get(t.slideId) ?? [];
-        arr.push(t.actualSeconds);
-        raw.set(t.slideId, arr);
-      }
-    }
-    const avg = new Map<string, number>();
-    for (const [id, times] of raw) {
-      avg.set(id, times.reduce((a, b) => a + b, 0) / times.length);
-    }
-    return avg;
-  }, [prevReports]);
-
-  const recurringIssues = useMemo(() => {
-    const map = new Map<string, { timeOverCount: number; missedCount: number }>();
-    for (const pr of prevReports) {
-      const seen = new Set<string>();
-      for (const t of pr.slideTimings) {
-        if (t.actualSeconds > t.targetSeconds * 1.2) {
-          const e = map.get(t.slideId) ?? { timeOverCount: 0, missedCount: 0 };
-          e.timeOverCount++;
-          map.set(t.slideId, e);
-        }
-      }
-      for (const mk of pr.missedKeywords) {
-        if (!seen.has(mk.slideId)) {
-          seen.add(mk.slideId);
-          const e = map.get(mk.slideId) ?? { timeOverCount: 0, missedCount: 0 };
-          e.missedCount++;
-          map.set(mk.slideId, e);
-        }
-      }
-    }
-    return map;
-  }, [prevReports]);
-
-  const recurringProblemSlides = useMemo(
-    () =>
-      [...recurringIssues.entries()]
-        .filter(([, v]) => v.timeOverCount >= 2 || v.missedCount >= 2)
-        .map(([slideId, v]) => ({ slideId, ...v })),
-    [recurringIssues],
-  );
 
   const durationDelta = prevReport
     ? report.metrics.durationSeconds - prevReport.metrics.durationSeconds
@@ -440,176 +372,15 @@ export function RehearsalReportDocument({
 
       </section>
 
-      {/* ── 3. 장표별 분석 ── */}
-      <section className="rrd-card">
-        <header className="rrd-card-head">
-          <Layers size={16} className="rrd-card-icon" />
-          <h2>장표별 분석</h2>
-          {slideTimings.length > 0 && (
-            <span className="rrd-card-count">{slideTimings.length}장</span>
-          )}
-        </header>
+      <RehearsalSlideAnalysisOverview
+        deck={deck}
+        formatDelta={fmtDelta}
+        formatDuration={fmt}
+        prevReports={prevReports}
+        report={report}
+      />
 
-        {deck && slideTimings.length > 0 ? (
-          <div className="rrd-slide-analysis-list">
-            {slideTimings.map((timing) => {
-              const slide = getSlide(deck, timing.slideId);
-              const thumbnailUrl = slide?.thumbnailUrl
-                ? resolveEditorAssetUrl(slide.thumbnailUrl)
-                : "";
-              const slideMissed = missedKeywords.filter(
-                (k) => k.slideId === timing.slideId,
-              );
-              const avgSeconds = slideAvgMap.get(timing.slideId);
-              const diff =
-                avgSeconds != null
-                  ? timing.actualSeconds - avgSeconds
-                  : null;
-              const isOver = diff != null && diff > 12;
-              const isUnder = diff != null && diff < -12;
-              const recurring = recurringIssues.get(timing.slideId);
-
-              return (
-                <div key={timing.slideId} className="rrd-slide-analysis-item">
-                  <div className="rrd-slide-analysis-thumb">
-                    {thumbnailUrl ? (
-                      <img
-                        src={thumbnailUrl}
-                        alt=""
-                        className="rrd-slide-thumb-img"
-                      />
-                    ) : (
-                      <div className="rrd-slide-thumb-placeholder">
-                        <FileText size={18} />
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="rrd-slide-analysis-body">
-                    <strong className="rrd-slide-analysis-title">
-                      {getSlideLabel(deck, timing.slideId)}
-                    </strong>
-
-                    <div className="rrd-slide-time-grid">
-                      <div className="rrd-slide-time-cell">
-                        <span>이번 시간</span>
-                        <strong>{fmt(timing.actualSeconds)}</strong>
-                      </div>
-                      <div className="rrd-slide-time-cell">
-                        <span>평균 시간</span>
-                        <strong className={avgSeconds == null ? "rrd-muted" : ""}>
-                          {avgSeconds != null ? fmt(avgSeconds) : "집계 중"}
-                        </strong>
-                      </div>
-                      <div
-                        className={`rrd-slide-time-cell${isOver ? " rrd-diff-over" : isUnder ? " rrd-diff-under" : ""}`}
-                      >
-                        <span>평균 대비</span>
-                        <strong>
-                          {diff != null ? fmtDelta(diff) : "집계 중"}
-                        </strong>
-                      </div>
-                    </div>
-
-                    <div className="rrd-slide-row">
-                      <span className="rrd-slide-row-label">누락 핵심 메시지</span>
-                      {slideMissed.length > 0 ? (
-                        <div className="rrd-keyword-chips">
-                          {slideMissed.map((k) => (
-                            <span key={k.keywordId} className="rrd-keyword-chip">
-                              {k.text}
-                            </span>
-                          ))}
-                        </div>
-                      ) : (
-                        <span className="rrd-ok-text">없음</span>
-                      )}
-                    </div>
-
-                    <div className="rrd-slide-row">
-                      <span className="rrd-slide-row-label">반복 문제</span>
-                      {recurring ? (
-                        <div className="rrd-recurring-tags">
-                          {recurring.timeOverCount >= 2 && (
-                            <span className="rrd-recurring-tag">
-                              시간 초과 {recurring.timeOverCount}회
-                            </span>
-                          )}
-                          {recurring.missedCount >= 2 && (
-                            <span className="rrd-recurring-tag">
-                              메시지 누락 {recurring.missedCount}회
-                            </span>
-                          )}
-                        </div>
-                      ) : (
-                        <span className={prevReports.length === 0 ? "rrd-muted" : "rrd-ok-text"}>
-                          {prevReports.length === 0 ? "집계 중" : "없음"}
-                        </span>
-                      )}
-                    </div>
-
-                    <div className="rrd-slide-row rrd-slide-row-muted">
-                      <span className="rrd-slide-row-label">개선 포인트</span>
-                      <span className="rrd-muted">AI 분석 준비 중</span>
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        ) : (
-          <p className="rrd-empty-hint">슬라이드 타이밍 데이터가 없습니다.</p>
-        )}
-      </section>
-
-      {/* ── 4. 계속 문제였던 장표 ── */}
-      <section
-        className={`rrd-card${totalRunCount < 2 ? " rrd-card-disabled" : ""}`}
-      >
-        <header className="rrd-card-head">
-          <Repeat2 size={16} className="rrd-card-icon" />
-          <h2>계속 문제였던 장표</h2>
-          {totalRunCount < 2 && (
-            <span className="rrd-badge-muted">2회차부터 분석</span>
-          )}
-        </header>
-
-        {totalRunCount < 2 ? (
-          <p className="rrd-empty-hint">
-            리허설을 2회 이상 완료하면 반복되는 문제 장표를 분석합니다.
-          </p>
-        ) : recurringProblemSlides.length === 0 ? (
-          <p className="rrd-empty-hint">
-            {prevReports.length === 0
-              ? "데이터를 불러오는 중입니다."
-              : "최근 회차에서 반복된 문제 장표가 없습니다."}
-          </p>
-        ) : (
-          <div className="rrd-recurring-list">
-            {recurringProblemSlides.map(({ slideId, timeOverCount, missedCount }) => (
-              <div key={slideId} className="rrd-recurring-item">
-                <strong className="rrd-recurring-slide-name">
-                  {deck ? getSlideName(deck, slideId) : slideId}
-                </strong>
-                <div className="rrd-recurring-tags">
-                  {timeOverCount >= 2 && (
-                    <span className="rrd-recurring-tag">
-                      시간 초과 {timeOverCount}회
-                    </span>
-                  )}
-                  {missedCount >= 2 && (
-                    <span className="rrd-recurring-tag">
-                      메시지 누락 {missedCount}회
-                    </span>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </section>
-
-      {/* ── 5. 말버릇 / 멈춤 ── */}
+      {/* ── 4. 말버릇 / 멈춤 ── */}
       <section className="rrd-card">
         <header className="rrd-card-head">
           <Volume2 size={16} className="rrd-card-icon" />

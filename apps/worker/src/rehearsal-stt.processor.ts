@@ -91,6 +91,14 @@ const analyzeMissedKeywordSchema = z
   })
   .strict();
 
+const analyzeSlideInsightSchema = z
+  .object({
+    slideId: z.string().min(1),
+    fillerWordCount: z.number().int().nonnegative(),
+    pauseCount: z.number().int().nonnegative()
+  })
+  .strict();
+
 const analyzeAiSummarySchema = z
   .object({
     headline: z.string().trim().min(1),
@@ -108,6 +116,7 @@ const analyzeResponseSchema = z.object({
   fillerWordDetails: z.array(analyzeFillerWordDetailSchema).default([]),
   pauseDetails: z.array(analyzePauseDetailSchema).default([]),
   missedKeywords: z.array(analyzeMissedKeywordSchema).default([]),
+  slideInsights: z.array(analyzeSlideInsightSchema).default([]),
   aiSummary: analyzeAiSummarySchema.optional(),
   coaching: z.record(z.unknown()).optional()
 });
@@ -240,8 +249,9 @@ export async function processRehearsalSttJob(
     analysis = await analyzeTranscript(
       pythonWorkerUrl,
       payload,
-      deckContext.deckKeywords,
-      transcribePayload
+      deckContext,
+      transcribePayload,
+      runMeta
     );
   } catch (error) {
     return failAfterDelete(
@@ -341,6 +351,7 @@ function buildRehearsalReport(
     pauseDetails: analysis.pauseDetails,
     missedKeywords: buildReportMissedKeywords(analysis.missedKeywords),
     slideTimings: buildSlideTimings(deckContext.deck, runMeta),
+    slideInsights: analysis.slideInsights,
     qnaSummary: {
       questionCount: 0,
       questionSummary: "",
@@ -380,8 +391,9 @@ function buildReportGenerationRecord(
 async function analyzeTranscript(
   pythonWorkerUrl: string,
   payload: RehearsalSttPayload,
-  deckKeywords: DeckKeywordPayload[],
-  transcription: z.infer<typeof transcribeResponseSchema>
+  deckContext: DeckAnalysisContext,
+  transcription: z.infer<typeof transcribeResponseSchema>,
+  runMeta: RehearsalRunMeta
 ) {
   const response = await fetch(workerUrl(pythonWorkerUrl, "/rehearsal/analyze"), {
     method: "POST",
@@ -393,7 +405,8 @@ async function analyzeTranscript(
       transcript: transcription.transcript,
       durationSeconds: transcription.durationSeconds ?? 0,
       segments: transcription.segments,
-      deckKeywords
+      deckKeywords: deckContext.deckKeywords,
+      slideTimeline: buildAnalyzeSlideTimeline(deckContext.deck, runMeta)
     }),
     signal: AbortSignal.timeout(120_000)
   });
@@ -649,6 +662,46 @@ function buildSlideTimings(
   }
 
   return timings;
+}
+
+function buildAnalyzeSlideTimeline(
+  deck: Deck,
+  runMeta: RehearsalRunMeta
+) {
+  const slideIds = new Set(deck.slides.map((slide) => slide.slideId));
+  const timeline = runMeta.slideTimeline.filter((entry) => slideIds.has(entry.slideId));
+  const firstValidEnteredAt = timeline
+    .map((entry) => Date.parse(entry.enteredAt))
+    .find((enteredAt) => !Number.isNaN(enteredAt));
+
+  if (firstValidEnteredAt == null) {
+    return [];
+  }
+
+  const entries: { slideId: string; enteredSecond: number }[] = [];
+  let previousSlideId: string | null = null;
+  let previousSecond = -1;
+
+  for (const entry of timeline) {
+    const enteredAt = Date.parse(entry.enteredAt);
+    if (Number.isNaN(enteredAt)) {
+      continue;
+    }
+
+    const enteredSecond = Math.max(
+      0,
+      Math.round(((enteredAt - firstValidEnteredAt) / 1000) * 100) / 100
+    );
+    if (enteredSecond < previousSecond || entry.slideId === previousSlideId) {
+      continue;
+    }
+
+    entries.push({ slideId: entry.slideId, enteredSecond });
+    previousSlideId = entry.slideId;
+    previousSecond = enteredSecond;
+  }
+
+  return entries;
 }
 
 function getSlideTargetSeconds(deck: Deck, slide: Deck["slides"][number]) {

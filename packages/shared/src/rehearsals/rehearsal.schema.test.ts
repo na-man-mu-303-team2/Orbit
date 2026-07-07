@@ -76,6 +76,7 @@ describe("rehearsalReportSchema", () => {
       pauseDetails: [{ startSecond: 2, endSecond: 3.5, durationSeconds: 1.5 }],
       missedKeywords: [{ slideId: "slide_1", keywordId: "kw_1", text: "ORBIT" }],
       slideTimings: [{ slideId: "slide_1", targetSeconds: 60, actualSeconds: 52 }],
+      slideInsights: [{ slideId: "slide_1", fillerWordCount: 2, pauseCount: 1 }],
       qnaSummary: {
         questionCount: 1,
         questionSummary: "가격 정책 질문이 있었습니다.",
@@ -95,6 +96,7 @@ describe("rehearsalReportSchema", () => {
     expect(report.pauseDetails[0]?.durationSeconds).toBe(1.5);
     expect(report.missedKeywords[0]?.keywordId).toBe("kw_1");
     expect(report.slideTimings[0]?.actualSeconds).toBe(52);
+    expect(report.slideInsights[0]?.fillerWordCount).toBe(2);
     expect(report.qnaSummary.questionCount).toBe(1);
     expect(report.aiSummary?.headline).toBe("도입부 핵심 메시지가 약했습니다.");
   });
@@ -105,6 +107,7 @@ describe("rehearsalReportSchema", () => {
     expect(report.speedSamples).toEqual([]);
     expect(report.missedKeywords).toEqual([]);
     expect(report.slideTimings).toEqual([]);
+    expect(report.slideInsights).toEqual([]);
     expect(report.qnaSummary).toEqual({
       questionCount: 0,
       questionSummary: "",
@@ -323,6 +326,7 @@ function rehearsalReportFixture() {
       pauseCount: 1,
       keywordCoverage: 0.75
     },
+    slideInsights: [],
     coaching: {
       status: "succeeded",
       summary: "핵심 메시지가 분명합니다.",
