@@ -48,7 +48,7 @@ import {
   Volume2,
   Zap,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   LiveSttAdapterError,
   type LiveSttAdapter,
@@ -1358,6 +1358,7 @@ function createDefaultLiveSttPort(
     onAudioLevel?: (event: LiveSttAudioLevelEvent) => void;
     onDebugPcmAvailable?: (recording: LiveSttDebugPcmRecording) => void;
     getDecodingMethod?: () => LiveSttDecodingMethod | null;
+    projectId?: string;
   } = {},
 ) {
   const {
@@ -1366,6 +1367,7 @@ function createDefaultLiveSttPort(
     onAudioLevel,
     onDebugPcmAvailable,
     getDecodingMethod,
+    projectId,
   } = options;
   const sherpaOptions = {
     onAudioLevel,
@@ -1389,7 +1391,16 @@ function createDefaultLiveSttPort(
     return new SherpaLiveSttPort(sherpaOptions);
   }
 
-  return createLiveSttPort(engineId);
+  return createLiveSttPort(engineId, {
+    onAudioLevel,
+    projectId,
+  });
+}
+
+function readLiveSttPortProjectId(port: LiveSttPort) {
+  return "projectId" in port && typeof port.projectId === "string"
+    ? port.projectId
+    : null;
 }
 
 export function RehearsalWorkspace(props: {
@@ -1867,11 +1878,6 @@ export function RehearsalWorkspace(props: {
           windowMs: 30000,
         })
       : 0;
-  const hasSpeechTrackingRuntime =
-    Boolean(p3RunMeta) ||
-    p3SessionState?.status === "running" ||
-    p3SessionState?.status === "stopped" ||
-    p3SessionState?.startedAtMs != null;
   const p3AdviceState = getTimingAdviceState({
     wordsPerMinute: p3WordsPerMinute,
     currentSlideOvertime: p3TimingSnapshot.currentSlideOvertime,
@@ -2213,7 +2219,13 @@ export function RehearsalWorkspace(props: {
     }
 
     const cachedPort = liveSttPortRef.current;
-    if (cachedPort?.engineId === presenterSettings.sttEngine) {
+    const activeProjectId =
+      deckRef.current?.projectId ?? props.projectId ?? demoIds.projectId;
+    if (
+      cachedPort?.engineId === presenterSettings.sttEngine &&
+      (cachedPort.engineId !== "openai-realtime" ||
+        readLiveSttPortProjectId(cachedPort) === activeProjectId)
+    ) {
       return cachedPort;
     }
 
@@ -2224,6 +2236,7 @@ export function RehearsalWorkspace(props: {
       onAudioLevel: setLiveAudioLevel,
       onDebugPcmAvailable: setLiveDebugPcmRecording,
       getDecodingMethod: getLiveSttDebugDecodingMethod,
+      projectId: activeProjectId,
     });
     liveSttPortRef.current = port;
     return port;
@@ -3295,7 +3308,6 @@ export function RehearsalWorkspace(props: {
         canStart={canRecord}
         deck={deck}
         previousSummary={previousPracticeSummary}
-        targetSeconds={timerDurationSeconds}
         onPracticeWithoutVoice={() => {
           setElapsedSeconds(0);
           setSlideElapsedSeconds(0);
@@ -3672,15 +3684,9 @@ export function RehearsalWorkspace(props: {
               </article>
               <article className="rehearsal-side-detail-card rehearsal-side-advice-card">
                 <span>{"\uc870\uc5b8"}</span>
-                <strong>
-                  {hasSpeechTrackingRuntime
-                    ? `${p3WordsPerMinute} WPM`
-                    : "측정 안 됨"}
-                </strong>
+                <strong>{p3WordsPerMinute} WPM</strong>
                 <small>
-                  {hasSpeechTrackingRuntime
-                    ? getRehearsalPaceSummaryLabel(p3AdviceState.pace)
-                    : "음성 추적 없음"}
+                  {getRehearsalPaceSummaryLabel(p3AdviceState.pace)}
                   {p3AdviceState.slideOvertime
                     ? " / 슬라이드 시간 초과"
                     : " / 슬라이드 정상"}
@@ -3714,7 +3720,7 @@ export function RehearsalWorkspace(props: {
                 <div
                   className={`rehearsal-live-status rehearsal-live-status-${liveStatus}`}
                 >
-                  <strong>{formatLiveSttStatusLabel(liveStatus)}</strong>
+                  <strong>{liveStatus}</strong>
                   <span>
                     {p3RunMeta
                       ? `로컬 메타 ${p3RunMeta.slideTimeline.length}개 슬라이드`
@@ -3852,7 +3858,6 @@ function RehearsalPreflightScreen(props: {
   onPracticeWithoutVoice: () => void;
   onStart: () => void;
   previousSummary: RehearsalPracticeSummary | null;
-  targetSeconds: number;
 }) {
   const commandPhrases = defaultRehearsalCommandConfig
     .map((command) => command.phrases[0])
@@ -3865,7 +3870,6 @@ function RehearsalPreflightScreen(props: {
   const preflightBanner = buildRehearsalPreflightBanner(
     props.deck,
     props.previousSummary,
-    props.targetSeconds,
   );
   const microphoneReadiness = getMicrophoneReadinessLabel();
 
@@ -4667,11 +4671,8 @@ function createRehearsalPracticeSummary(
 function buildRehearsalPreflightBanner(
   deck: Deck,
   previousSummary: RehearsalPracticeSummary | null,
-  targetSeconds: number,
 ) {
-  const safeTargetSeconds =
-    targetSeconds > 0 ? targetSeconds : getTargetDurationSeconds(deck);
-  const targetLabel = formatDuration(safeTargetSeconds);
+  const targetLabel = formatDuration(getTargetDurationSeconds(deck));
   if (!previousSummary) {
     return `이번 목표는 ${targetLabel}입니다. 슬라이드와 음성 트리거를 확인하고 시작하세요.`;
   }
@@ -4786,21 +4787,6 @@ function getMicrophoneReadinessLabel() {
   return typeof navigator.mediaDevices?.getUserMedia === "function"
     ? "시작 시 권한 확인"
     : "브라우저 미지원";
-}
-
-function formatLiveSttStatusLabel(status: LiveSttStatus) {
-  switch (status) {
-    case "idle":
-      return "대기";
-    case "starting":
-      return "시작 중";
-    case "listening":
-      return "인식 중";
-    case "stopped":
-      return "종료됨";
-    case "failed":
-      return "오류";
-  }
 }
 
 function formatTargetDeltaLabel(deltaSeconds: number) {
@@ -5153,15 +5139,11 @@ function formatClock(totalSeconds: number) {
 }
 
 function usePresenterStageScale(deck: Deck | null) {
-  const [presenterStageElement, setPresenterStageElement] =
-    useState<HTMLDivElement | null>(null);
+  const presenterStageRef = useRef<HTMLDivElement | null>(null);
   const [presenterScale, setPresenterScale] = useState(0.44);
-  const presenterStageRef = useCallback((node: HTMLDivElement | null) => {
-    setPresenterStageElement(node);
-  }, []);
 
   useEffect(() => {
-    const stage = presenterStageElement;
+    const stage = presenterStageRef.current;
     if (!stage || !deck) {
       return;
     }
@@ -5189,7 +5171,7 @@ function usePresenterStageScale(deck: Deck | null) {
     const observer = new ResizeObserver(updateScale);
     observer.observe(stage);
     return () => observer.disconnect();
-  }, [deck, presenterStageElement]);
+  }, [deck]);
 
   return { presenterScale, presenterStageRef };
 }

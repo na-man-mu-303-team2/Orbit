@@ -481,12 +481,17 @@ describe("RehearsalWorkspace", () => {
       "shouldUseSherpaCompatibility && legacyAdapter",
     );
     expect(createDefaultLiveSttPortBody).toContain(
-      "return createLiveSttPort(engineId)",
+      "return createLiveSttPort(engineId,",
     );
+    expect(createDefaultLiveSttPortBody).toContain("projectId");
     expect(getOrCreateLiveSttPortBody).toContain("props.liveSttPort");
     expect(getOrCreateLiveSttPortBody).toContain(
       "cachedPort?.engineId === presenterSettings.sttEngine",
     );
+    expect(getOrCreateLiveSttPortBody).toContain(
+      'cachedPort.engineId !== "openai-realtime"',
+    );
+    expect(getOrCreateLiveSttPortBody).toContain("activeProjectId");
     expect(getOrCreateLiveSttPortBody).toContain("cachedPort?.dispose()");
     expect(getOrCreateLiveSttPortBody).toContain(
       "engineId: presenterSettings.sttEngine",
