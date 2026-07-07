@@ -140,7 +140,7 @@ services:
     restart: unless-stopped
 
   redis:
-    ports: !override []
+    ports: !override
       - "127.0.0.1:6379:6379"
     restart: unless-stopped
 
