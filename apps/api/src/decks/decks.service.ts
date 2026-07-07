@@ -27,6 +27,7 @@ import type {
   DeckApiError,
   DeckApiErrorCode,
   DeckChangeRecord,
+  DeckPatchOperation,
   DeckSnapshot,
   DeckSnapshotReason,
   GetDeckResponse,
@@ -288,7 +289,10 @@ export class DecksService {
         deck.deckId,
       );
 
-      if (templateBlueprint) {
+      if (
+        templateBlueprint &&
+        hasOoxmlSyncableOperation(applyResult.changeRecord.operations)
+      ) {
         syncInput = {
           deckId: deck.deckId,
           changeId: applyResult.changeRecord.changeId,
@@ -728,6 +732,19 @@ function parsePutDeckRequest(body: unknown): PutDeckRequest {
   }
 
   return result.data;
+}
+
+function hasOoxmlSyncableOperation(
+  operations: DeckPatchOperation[],
+): boolean {
+  return operations.some((operation) =>
+    [
+      "add_element",
+      "update_element_frame",
+      "update_element_props",
+      "delete_element",
+    ].includes(operation.type),
+  );
 }
 
 function parseAppendDeckPatchRequest(body: unknown): AppendDeckPatchRequest {
