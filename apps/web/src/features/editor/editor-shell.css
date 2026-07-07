@@ -3665,6 +3665,51 @@
   background: #eff6ff;
 }
 
+.validation-item-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.validation-action-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 28px;
+  padding: 0 8px;
+  border: 1px solid #bfdbfe;
+  border-radius: 999px;
+  background: #fff;
+  color: #1d4ed8;
+  font-size: 11px;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.validation-action-button:hover {
+  background: #dbeafe;
+}
+
+.validation-apply-all-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 36px;
+  margin-top: 10px;
+  border: 1px solid #93c5fd;
+  border-radius: 8px;
+  background: #eff6ff;
+  color: #1d4ed8;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.validation-apply-all-button:hover {
+  background: #dbeafe;
+}
+
 .validation-item-risk {
   border-color: #fed7aa;
   background: #fff7ed;

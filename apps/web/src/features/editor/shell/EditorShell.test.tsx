@@ -41,10 +41,13 @@ import {
   uploadAndImportPptxTemplate
 } from "./EditorShell";
 import {
+  createExpandTextWidthToFitFrame,
   createShrinkToFitTextProps,
+  createSingleLineTextFit,
   parseTableDataDraft,
   tableDataDraft
 } from "./components/SelectionQuickBar";
+import { ValidationPanel } from "../ai/quality/ValidationPanel";
 import { resolveEditorAssetUrl } from "../shared/editorAssetUrl";
 import { aiSuggestionsQueryKey } from "../suggestions/api/suggestionApi";
 
@@ -1179,9 +1182,32 @@ describe("editor shell", () => {
     expect(messages).toContain("이미지 대체 텍스트가 비어 있습니다.");
     expect(messages).toContain("차트 데이터가 비어 있습니다.");
     expect(messages).toContain("텍스트가 상자 높이를 넘을 수 있습니다.");
+    expect(validationItems).toContainEqual(
+      expect.objectContaining({
+        elementId: "el_overflow",
+        issue: "textOverflow"
+      })
+    );
     expect(messages).toContain("텍스트와 배경 대비가 낮습니다.");
     expect(riskElementIds).not.toContain("el_1_imported_icon_customShape");
     expect(riskElementIds).toContain("el_manual_customShape");
+  });
+
+  it("renders a bulk apply button for text overflow warnings", () => {
+    const html = renderToString(
+      <ValidationPanel
+        items={[
+          {
+            elementId: "el_overflow",
+            issue: "textOverflow",
+            message: "텍스트가 상자 높이를 넘을 수 있습니다.",
+            severity: "warning"
+          }
+        ]}
+      />
+    );
+
+    expect(html).toContain("모두 반영하기");
   });
 
   it("shrinks overflowing text to fit the element frame", () => {
@@ -1213,6 +1239,78 @@ describe("editor shell", () => {
 
     expect(props.fontSize).toBeLessThan(32);
     expect(props.lineHeight).toBeLessThanOrEqual(1.15);
+  });
+
+  it("expands text width only when width can resolve overflow", () => {
+    const element = {
+      elementId: "el_overflow",
+      type: "text",
+      role: "body",
+      x: 0,
+      y: 0,
+      width: 80,
+      height: 52,
+      rotation: 0,
+      opacity: 1,
+      zIndex: 0,
+      locked: false,
+      visible: true,
+      props: {
+        text: "자동 줄바꿈으로 넘치는 텍스트입니다.",
+        fontSize: 20,
+        fontWeight: "normal",
+        color: "#111827",
+        align: "left",
+        verticalAlign: "top",
+        lineHeight: 1.2
+      }
+    } as Extract<Deck["slides"][number]["elements"][number], { type: "text" }>;
+
+    expect(createExpandTextWidthToFitFrame(element, 500)).toBeGreaterThan(80);
+
+    expect(
+      createExpandTextWidthToFitFrame(
+        {
+          ...element,
+          props: {
+            ...element.props,
+            text: "한 줄\n두 줄\n세 줄"
+          }
+        },
+        500
+      )
+    ).toBeNull();
+  });
+
+  it("builds a one-line text fit from explicit line breaks", () => {
+    const element = {
+      elementId: "el_overflow",
+      type: "text",
+      role: "body",
+      x: 0,
+      y: 0,
+      width: 80,
+      height: 52,
+      rotation: 0,
+      opacity: 1,
+      zIndex: 0,
+      locked: false,
+      visible: true,
+      props: {
+        text: "좋은 PR 작성법\n- 작업 내용 요약\n- 확인 방법 제시",
+        fontSize: 20,
+        fontWeight: "normal",
+        color: "#111827",
+        align: "left",
+        verticalAlign: "top",
+        lineHeight: 1.2
+      }
+    } as Extract<Deck["slides"][number]["elements"][number], { type: "text" }>;
+
+    const fit = createSingleLineTextFit(element);
+
+    expect(fit.text).toBe("좋은 PR 작성법 - 작업 내용 요약 - 확인 방법 제시");
+    expect(fit.width).toBeGreaterThan(element.width);
   });
 
   it("builds a patch that distributes selected elements evenly", () => {
