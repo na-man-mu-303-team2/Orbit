@@ -220,6 +220,16 @@ export class RehearsalsService {
     return updateRehearsalRunMetaResponseSchema.parse({ run: toRehearsalRun(savedRun) });
   }
 
+  async listRuns(projectId: string) {
+    await this.projectsService.getAccessibleProject(projectId);
+    const runs = await this.rehearsalRuns.find({
+      where: { projectId },
+      order: { createdAt: "DESC" },
+      take: 50
+    });
+    return { runs: runs.map(toRehearsalRun) };
+  }
+
   async getRun(runId: string) {
     const run = await this.getRunEntity(runId);
     return getRehearsalRunResponseSchema.parse({ run: toRehearsalRun(run) });

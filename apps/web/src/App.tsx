@@ -45,6 +45,8 @@ import {
   RehearsalReportPage,
   RehearsalWorkspace
 } from "./features/rehearsal/RehearsalWorkspace";
+import { RehearsalReportListPage } from "./features/rehearsal/RehearsalReportListPage";
+import { RehearsalProjectOverviewPage } from "./features/rehearsal/RehearsalProjectOverviewPage";
 import { AudienceSessionPage } from "./pages/audience/AudienceSessionPage";
 import { PresentWindow } from "./features/rehearsal/presenter/PresentWindow";
 import { ReadOnlySlideCanvas } from "./features/slides/rendering";
@@ -198,6 +200,8 @@ export type Route =
     }
   | { name: "rehearsal-report"; projectId: string; runId: string }
   | { name: "report-mockup" }
+  | { name: "report-list" }
+  | { name: "report-project-overview"; projectId: string }
   | { name: "deck-render" };
 
 export const deckRenderPayloadStorageKey = "orbit.deckRenderPayload.v1";
@@ -387,6 +391,11 @@ export function getRoute(
   if (normalized === "/login") return { name: "login" };
   if (normalized === "/createdeck") return { name: "create-deck" };
   if (normalized === "/project") return { name: "project-list" };
+  if (normalized === "/reports") return { name: "report-list" };
+  const reportProjectMatch = normalized.match(/^\/reports\/([^/]+)$/);
+  if (reportProjectMatch) {
+    return { name: "report-project-overview", projectId: decodeURIComponent(reportProjectMatch[1]) };
+  }
   if (normalized === "/report_mockup") return { name: "report-mockup" };
   if (normalized === "/__deck-render" && isDeckRenderRouteEnabled()) {
     return { name: "deck-render" };
@@ -497,6 +506,7 @@ export function shouldRenderAppFrame(route: Route) {
     route.name !== "present" &&
     route.name !== "rehearsal" &&
     route.name !== "rehearsal-report" &&
+    route.name !== "report-project-overview" &&
     route.name !== "report-mockup" &&
     route.name !== "audience-session" &&
     route.name !== "deck-render"
@@ -537,6 +547,13 @@ function renderRoute(route: Route, user?: AuthUser) {
   }
   if (route.name === "rehearsal-report") {
     return <RehearsalReportPage projectId={route.projectId} runId={route.runId} />;
+  }
+  if (route.name === "report-project-overview") {
+    return <RehearsalProjectOverviewPage projectId={route.projectId} />;
+  }
+  if (route.name === "report-list") {
+    const projectId = new URLSearchParams(window.location.search).get("project") ?? undefined;
+    return <RehearsalReportListPage projectId={projectId} />;
   }
   if (route.name === "report-mockup") {
     return (
@@ -668,11 +685,13 @@ function AppFrame(props: {
             route.name === "project-editor" ||
             route.name === "project-request"
           }
+          isReportActive={route.name === "report-list" || route.name === "report-project-overview"}
           onCreateDeckClick={() => navigateTo("/createdeck")}
           onHomeClick={() => navigateTo("/")}
           onLoginClick={() => navigateTo("/login")}
           onLogoutClick={() => void handleLogout()}
           onProjectListClick={() => navigateTo("/project")}
+          onReportClick={() => navigateTo("/reports")}
           onToggleCollapse={() => setIsSidebarCollapsed((current) => !current)}
           userInitial={userInitial}
           userLabel={userLabel}

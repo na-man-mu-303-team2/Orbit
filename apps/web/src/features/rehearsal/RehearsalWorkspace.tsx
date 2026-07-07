@@ -27,29 +27,28 @@ import {
   type UpdateRehearsalRunMetaRequest,
 } from "@orbit/shared";
 import {
+  ArrowLeft,
   BarChart3,
   AlertCircle,
   CalendarDays,
   CheckCircle2,
   ChevronLeft,
   ChevronRight,
-  ChevronDown,
   Download,
   Gauge,
-  Home,
   Mic,
   Monitor,
   MoreHorizontal,
   PlayCircle,
   Presentation,
   RotateCcw,
-  Save,
   Square,
   Target,
   Volume2,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { JobProgressDisplay } from "./JobProgressDisplay";
+import { RehearsalRunNav } from "./RehearsalRunNav";
 import { useJobSmoothProgress } from "./useJobSmoothProgress";
 import { resolveEditorAssetUrl } from "../editor/shared/editorAssetUrl";
 import {
@@ -526,6 +525,19 @@ export function resolveRehearsalReportLoadState(
 
 export function getRehearsalReportPath(projectId: string, runId: string) {
   return `/rehearsal/${encodeURIComponent(projectId)}/report/${encodeURIComponent(runId)}`;
+}
+
+export async function fetchProjectRehearsalRuns(
+  projectId: string,
+  fetcher: Fetcher = fetch,
+): Promise<RehearsalRun[]> {
+  const response = await fetcher(
+    `/api/v1/projects/${encodeURIComponent(projectId)}/rehearsals`,
+    { credentials: "include" },
+  );
+  if (!response.ok) return [];
+  const data = (await response.json()) as { runs: RehearsalRun[] };
+  return data.runs ?? [];
 }
 
 export function getRehearsalPresenterWindowPath(
@@ -3834,6 +3846,7 @@ export function RehearsalReportPage(props: {
   );
   const [error, setError] = useState("");
   const [reportJob, setReportJob] = useState<Job | null>(null);
+  const [allSucceededRuns, setAllSucceededRuns] = useState<RehearsalRun[]>([]);
 
   useEffect(() => {
     let isMounted = true;
@@ -3907,6 +3920,18 @@ export function RehearsalReportPage(props: {
     };
   }, [props.initialDeck, props.initialReport, props.projectId, props.runId]);
 
+  useEffect(() => {
+    let isMounted = true;
+    void fetchProjectRehearsalRuns(props.projectId).then((runs) => {
+      if (!isMounted) return;
+      const succeeded = runs
+        .filter((r) => r.status === "succeeded")
+        .sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt));
+      setAllSucceededRuns(succeeded);
+    });
+    return () => { isMounted = false; };
+  }, [props.projectId]);
+
   const reportSmoothProgress = useJobSmoothProgress(
     reportJob,
     status === "not-ready",
@@ -3933,79 +3958,48 @@ export function RehearsalReportPage(props: {
     slideTimings,
   );
 
+  const currentRunIndex = allSucceededRuns.findIndex(
+    (r) => r.runId === props.runId,
+  );
+
   return (
     <main className="rehearsal-report-page">
       <header className="rehearsal-report-topbar">
         <div className="rehearsal-report-topbar-left">
-          <span className="report-brand-mark" aria-hidden="true">
-            <i />
-            <i />
-          </span>
-          <strong>Orbit AI</strong>
           <button
             type="button"
-            onClick={() => navigateToRehearsal(props.projectId)}
-            aria-label="홈으로 이동"
+            className="rehearsal-report-back-button"
+            onClick={() => navigateToPath(`/reports/${encodeURIComponent(props.projectId)}`)}
+            aria-label="프로젝트 리포트 개요로"
           >
-            <Home size={18} />
+            <ArrowLeft size={18} />
           </button>
-          <span className="report-project-title">{deck?.title ?? "제목"}</span>
-          <ChevronDown size={16} />
-          <span className="report-save-state">
-            <Save size={15} />
-            저장됨
-          </span>
+          <span className="report-project-title">{deck?.title ?? "리포트"}</span>
+          {currentRunIndex >= 0 && (
+            <span className="report-run-label">
+              리허설 {allSucceededRuns.length - currentRunIndex}회차
+            </span>
+          )}
         </div>
         <div className="rehearsal-report-topbar-actions">
-          <span>알렉스</span>
-          <span className="report-avatar" aria-hidden="true">
-            김
-          </span>
-          <span className="report-mode-switch" aria-label="보기 모드">
-            <button type="button">편집</button>
-            <button className="active" type="button">
-              보기
-            </button>
-          </span>
-          <button type="button">
-            <Monitor size={18} />
-            리허설
-          </button>
-          <button type="button">
-            <BarChart3 size={18} />
-            AI 리포트
-          </button>
-          <button className="report-present-button" type="button">
-            <PlayCircle size={18} />
-            프레젠테이션
-            <ChevronDown size={16} />
+          <time className="report-topbar-date">{reportDate}</time>
+          <button
+            type="button"
+            className="report-rehearsal-button"
+            onClick={() => navigateToRehearsal(props.projectId)}
+          >
+            <Mic size={16} />
+            리허설 시작
           </button>
         </div>
       </header>
 
       <div className="rehearsal-report-body">
-        <aside className="rehearsal-report-nav" aria-label="리허설 리포트 목록">
-          <section className="report-nav-section-active">
-            <h2>
-              <ChevronDown size={24} />
-              리허설 리포트
-            </h2>
-            <button className="rehearsal-report-nav-item active" type="button">
-              <strong>
-                <CalendarDays size={15} />
-                1회차
-              </strong>
-              <span>{reportDate}</span>
-            </button>
-          </section>
-
-          <section>
-            <h2>
-              <ChevronRight size={24} />
-              실전 리포트
-            </h2>
-          </section>
-        </aside>
+        <RehearsalRunNav
+          runs={allSucceededRuns}
+          activeRunId={props.runId}
+          projectId={props.projectId}
+        />
 
         <section className="rehearsal-report-document" aria-live="polite">
           <header className="rehearsal-report-document-header">

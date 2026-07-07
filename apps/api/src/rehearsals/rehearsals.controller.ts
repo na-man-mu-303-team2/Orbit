@@ -25,6 +25,11 @@ export class RehearsalsController {
     return this.rehearsalsService.updateRunMeta(runId, body);
   }
 
+  @Get("api/v1/projects/:projectId/rehearsals")
+  listRuns(@Param("projectId") projectId: string) {
+    return this.rehearsalsService.listRuns(projectId);
+  }
+
   @Get("api/v1/rehearsals/:runId")
   getRun(@Param("runId") runId: string) {
     return this.rehearsalsService.getRun(runId);
