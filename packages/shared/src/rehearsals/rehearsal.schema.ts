@@ -7,6 +7,7 @@ import {
 } from "../files/file.schema";
 import { jobSchema } from "../jobs/job.schema";
 import { deckKeywordIdSchema, deckSlideIdSchema } from "../deck/id.schema";
+import { keywordRoleSchema } from "../deck/deck.schema";
 
 export const rehearsalRunStatusSchema = z.enum([
   "created",
@@ -69,7 +70,8 @@ export const rehearsalReportMissedKeywordSchema = z
   .object({
     slideId: deckSlideIdSchema,
     keywordId: deckKeywordIdSchema,
-    text: z.string().trim().min(1)
+    text: z.string().trim().min(1),
+    keywordRole: keywordRoleSchema.default("required-message")
   })
   .strict();
 
@@ -200,6 +202,7 @@ export const completeRehearsalAudioUploadResponseSchema = z.object({
 
 export const rehearsalRunMetaSchema = z
   .object({
+    endedAt: isoDateTimeSchema.optional(),
     slideTimeline: z
       .array(
         z
@@ -249,6 +252,58 @@ export const getRehearsalReportResponseSchema = z.object({
   report: rehearsalReportSchema.nullable()
 });
 
+export const getRehearsalSummaryQuerySchema = z.object({
+  deckId: z.string().min(1),
+  currentRunId: z.string().min(1).optional(),
+  limit: z.coerce.number().int().positive().max(20).default(10)
+});
+
+export const rehearsalSummaryRunSchema = z
+  .object({
+    runId: z.string().min(1),
+    generatedAt: isoDateTimeSchema,
+    durationSeconds: z.number().nonnegative(),
+    missedKeywordCount: z.number().int().nonnegative(),
+    slideTimingCount: z.number().int().nonnegative()
+  })
+  .strict();
+
+export const rehearsalSummaryRepeatedKeywordSchema = z
+  .object({
+    slideId: deckSlideIdSchema,
+    keywordId: deckKeywordIdSchema,
+    text: z.string().trim().min(1),
+    keywordRole: keywordRoleSchema.default("required-message"),
+    missCount: z.number().int().nonnegative()
+  })
+  .strict();
+
+export const rehearsalSummarySlideSchema = z
+  .object({
+    slideId: deckSlideIdSchema,
+    sampleCount: z.number().int().nonnegative(),
+    averageActualSeconds: z.number().nonnegative().nullable(),
+    currentActualSeconds: z.number().nonnegative().nullable(),
+    deltaFromAverageSeconds: z.number().nullable(),
+    repeatedMissedKeywords: z.array(rehearsalSummaryRepeatedKeywordSchema).default([])
+  })
+  .strict();
+
+export const rehearsalSummarySchema = z
+  .object({
+    projectId: z.string().min(1),
+    deckId: z.string().min(1),
+    currentRunId: z.string().min(1).nullable(),
+    runCount: z.number().int().nonnegative(),
+    runs: z.array(rehearsalSummaryRunSchema).default([]),
+    slides: z.array(rehearsalSummarySlideSchema).default([])
+  })
+  .strict();
+
+export const getRehearsalSummaryResponseSchema = z.object({
+  summary: rehearsalSummarySchema
+});
+
 export type RehearsalRunStatus = z.infer<typeof rehearsalRunStatusSchema>;
 export type RehearsalRunError = z.infer<typeof rehearsalRunErrorSchema>;
 export type RehearsalRun = z.infer<typeof rehearsalRunSchema>;
@@ -293,3 +348,6 @@ export type UpdateRehearsalRunMetaResponse = z.infer<
   typeof updateRehearsalRunMetaResponseSchema
 >;
 export type GetRehearsalReportResponse = z.infer<typeof getRehearsalReportResponseSchema>;
+export type GetRehearsalSummaryQuery = z.infer<typeof getRehearsalSummaryQuerySchema>;
+export type RehearsalSummary = z.infer<typeof rehearsalSummarySchema>;
+export type GetRehearsalSummaryResponse = z.infer<typeof getRehearsalSummaryResponseSchema>;

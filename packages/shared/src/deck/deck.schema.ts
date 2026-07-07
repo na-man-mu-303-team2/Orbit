@@ -81,13 +81,27 @@ export const deckCanvasSchema = z.discriminatedUnion("preset", [
 
 export const keywordTermSchema = z.string().trim().min(1);
 
-export const keywordSchema = z.object({
-  keywordId: deckKeywordIdSchema,
-  text: keywordTermSchema,
-  synonyms: z.array(keywordTermSchema).default([]),
-  abbreviations: z.array(keywordTermSchema).default([]),
-  required: z.boolean().default(true)
-});
+export const keywordRoleSchema = z.enum([
+  "required-message",
+  "supporting-keyword",
+  "action-trigger"
+]);
+
+export const keywordSchema = z
+  .object({
+    keywordId: deckKeywordIdSchema,
+    text: keywordTermSchema,
+    synonyms: z.array(keywordTermSchema).default([]),
+    abbreviations: z.array(keywordTermSchema).default([]),
+    required: z.boolean().default(true),
+    keywordRole: keywordRoleSchema.optional()
+  })
+  .transform((keyword) => ({
+    ...keyword,
+    keywordRole:
+      keyword.keywordRole ??
+      (keyword.required ? "required-message" : "supporting-keyword")
+  }));
 
 export const slideKeywordsSchema = z
   .array(keywordSchema)
@@ -258,6 +272,7 @@ export type SlideBackgroundImageFit = z.infer<
 export type SlideSourceEvidence = z.infer<typeof slideSourceEvidenceSchema>;
 export type SlideAiNotes = z.infer<typeof slideAiNotesSchema>;
 export type KeywordTerm = z.infer<typeof keywordTermSchema>;
+export type KeywordRole = z.infer<typeof keywordRoleSchema>;
 export type Keyword = z.infer<typeof keywordSchema>;
 
 function requireUniqueKeywordTerm(

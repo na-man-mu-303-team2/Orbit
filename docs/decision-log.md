@@ -218,6 +218,18 @@
 - Affected files: `.github/workflows/deploy-personal-staging.yml`, `docker-compose.staging.yml`, `docs/runbooks/personal-server-deployment.md`, `docs/decision-log.md`.
 - Follow-up review notes: 첫 merge 후 GitHub Actions에서 runner label 매칭, sudoers wrapper 실행, `db:migration:run`, `/api/health`, `/assets/orbit-personal-staging/` 접근을 확인한다. 완전 자동 배포가 목표면 GitHub Environment `personal-staging`에 required reviewer를 설정하지 않는다.
 
+## Rehearsal report slide-first feedback policy
+
+- Context: 리허설 리포트는 전체 숫자 dashboard보다 다음 연습에서 장표별로 무엇을 고쳐야 하는지 보여줘야 한다. 기존 report에는 필수 메시지 keyword, 보조 keyword, 발표 제어 trigger keyword가 같은 누락 기준으로 섞일 수 있고, 마지막 slide 종료 시각이 없어 slide timing이 비는 문제가 있었다.
+- Options considered:
+  - 기존 `required` boolean만 유지하고 UI에서 임의로 누락 기준을 해석한다.
+  - 모든 keyword를 계속 누락 기준으로 사용한다.
+  - `keywordRole`을 공통 계약에 추가하고 report 누락/coverage 기준을 `required-message`로 제한한다.
+- Final decision: Deck keyword에 `keywordRole`을 추가하고 legacy deck은 `required` 값으로 역할을 정규화한다. `required-message`이면서 `required: true`인 keyword만 report 누락/coverage 기준으로 사용하고, keyword trigger action에 연결된 keyword는 worker 분석 context에서 `action-trigger`로 취급한다. 리허설 meta에는 `endedAt`을 저장해 마지막 slide timing을 계산한다. 여러 성공 run을 읽는 project-scoped summary API를 추가해 반복 누락과 평균 대비 시간을 UI에 제공한다.
+- Rationale: 발표자가 실제로 고쳐야 할 필수 메시지 누락과 발표 제어용 trigger를 분리하고, 장표별 시간/반복 약점을 실제 저장 데이터로 표시하기 위함이다. transcript, speaker notes, raw audio 원문은 새 summary API에 노출하지 않는다.
+- Affected files: `packages/shared/src/deck/deck.schema.ts`, `packages/shared/src/rehearsals/rehearsal.schema.ts`, `apps/web/src/features/rehearsal/RehearsalWorkspace.tsx`, `apps/web/src/features/rehearsal/speech/rehearsalLogCollector.ts`, `apps/api/src/rehearsals/**`, `apps/api/src/database/migrations/2026070701000-AddRehearsalRunsSummaryIndex.ts`, `apps/worker/src/rehearsal-stt.processor.ts`, `services/python-worker/app/**`, `docs/contracts.md`.
+- Follow-up review notes: 실제 리허설 데이터가 충분히 쌓인 뒤 `limit`, 반복 누락 기준인 `missCount >= 2`, 평균 대비 시간 강조 기준을 제품 정책으로 재검토한다.
+
 ## ORBIT personal HTTP demo auth cookie exception
 
 - Context: 개인 서버 develop demo가 HTTP origin으로 운영되는 동안 `APP_ENV=staging`의 secure auth cookie가 브라우저에 저장되지 않아 로그인 후 `/api/v1/auth/me`가 401을 반환한다.

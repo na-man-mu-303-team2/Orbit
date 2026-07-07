@@ -67,6 +67,7 @@ function keyword(
     text,
     synonyms,
     abbreviations,
-    required: true
+    required: true,
+    keywordRole: "required-message" as const
   };
 }

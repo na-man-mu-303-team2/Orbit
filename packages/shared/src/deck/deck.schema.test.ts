@@ -53,6 +53,7 @@ type DeckValidationInput = {
       synonyms: string[];
       abbreviations: string[];
       required?: boolean;
+      keywordRole?: "required-message" | "supporting-keyword" | "action-trigger";
     }>;
     elements: Array<Record<string, unknown>>;
     animations: Array<{
@@ -207,6 +208,32 @@ describe("deckSchema validation", () => {
     const result = deckSchema.parse(deck);
 
     expect(result.slides[0].actions).toEqual([]);
+  });
+
+  it("normalizes legacy keyword roles from required flags", () => {
+    const deck = createValidDeck();
+
+    deck.slides[0].keywords = [
+      {
+        keywordId: "kw_1",
+        text: "핵심 메시지",
+        synonyms: [],
+        abbreviations: [],
+        required: true
+      },
+      {
+        keywordId: "kw_2",
+        text: "보조 표현",
+        synonyms: [],
+        abbreviations: [],
+        required: false
+      }
+    ];
+
+    const result = deckSchema.parse(deck);
+
+    expect(result.slides[0].keywords[0]?.keywordRole).toBe("required-message");
+    expect(result.slides[0].keywords[1]?.keywordRole).toBe("supporting-keyword");
   });
 
   it("accepts explicit deck and slide presenter timing fields", () => {

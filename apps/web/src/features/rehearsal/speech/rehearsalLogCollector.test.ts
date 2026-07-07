@@ -12,6 +12,7 @@ describe("rehearsalLogCollector", () => {
     collector.enterSlide("slide_1");
 
     expect(collector.finalize()).toEqual({
+      endedAt: "2026-07-03T00:00:00.000Z",
       slideTimeline: [
         {
           slideId: "slide_1",

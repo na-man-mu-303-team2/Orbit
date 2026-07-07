@@ -6,6 +6,7 @@ import {
   completeRehearsalAudioUploadRequestSchema,
   createRehearsalAudioUploadUrlRequestSchema,
   getRehearsalReportResponseSchema,
+  getRehearsalSummaryResponseSchema,
   rehearsalRunMetaSchema,
   rehearsalReportSchema,
   rehearsalRunSchema,
@@ -87,6 +88,7 @@ describe("rehearsalReportSchema", () => {
     expect(report.fillerWordDetails[0]?.word).toBe("음");
     expect(report.pauseDetails[0]?.durationSeconds).toBe(1.5);
     expect(report.missedKeywords[0]?.keywordId).toBe("kw_1");
+    expect(report.missedKeywords[0]?.keywordRole).toBe("required-message");
     expect(report.slideTimings[0]?.actualSeconds).toBe(52);
     expect(report.qnaSummary.questionCount).toBe(1);
   });
@@ -276,12 +278,14 @@ describe("completeRehearsalAudioChunkUploadRequestSchema", () => {
 describe("rehearsalRunMetaSchema", () => {
   it("accepts slide timeline, missed keywords, and advice events", () => {
     const meta = rehearsalRunMetaSchema.parse({
+      endedAt: "2026-07-02T00:02:00.000Z",
       slideTimeline: [{ slideId: "slide_1", enteredAt: "2026-07-02T00:00:00.000Z" }],
       missedKeywords: [{ slideId: "slide_1", keywordId: "kw_1" }],
       adviceEvents: [{ type: "pace-too-fast", at: "2026-07-02T00:00:30.000Z" }]
     });
 
     expect(meta.slideTimeline).toHaveLength(1);
+    expect(meta.endedAt).toBe("2026-07-02T00:02:00.000Z");
   });
 
   it.each(["transcript", "speakerNotes", "rawAudio", "script"])(
@@ -297,6 +301,49 @@ describe("rehearsalRunMetaSchema", () => {
       expect(result.success).toBe(false);
     }
   );
+});
+
+describe("getRehearsalSummaryResponseSchema", () => {
+  it("accepts run-level rehearsal trend summaries", () => {
+    const response = getRehearsalSummaryResponseSchema.parse({
+      summary: {
+        projectId: "project_demo_1",
+        deckId: "deck_demo_1",
+        currentRunId: "run_2",
+        runCount: 2,
+        runs: [
+          {
+            runId: "run_1",
+            generatedAt: "2026-07-02T00:00:00.000Z",
+            durationSeconds: 90,
+            missedKeywordCount: 1,
+            slideTimingCount: 1
+          }
+        ],
+        slides: [
+          {
+            slideId: "slide_1",
+            sampleCount: 2,
+            averageActualSeconds: 55,
+            currentActualSeconds: 60,
+            deltaFromAverageSeconds: 5,
+            repeatedMissedKeywords: [
+              {
+                slideId: "slide_1",
+                keywordId: "kw_1",
+                text: "ORBIT",
+                missCount: 2
+              }
+            ]
+          }
+        ]
+      }
+    });
+
+    expect(response.summary.slides[0]?.repeatedMissedKeywords[0]?.keywordRole).toBe(
+      "required-message"
+    );
+  });
 });
 
 function rehearsalReportFixture() {

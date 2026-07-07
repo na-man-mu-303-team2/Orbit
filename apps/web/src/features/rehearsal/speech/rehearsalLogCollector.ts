@@ -86,6 +86,7 @@ export function createRehearsalLogCollector(
     }
 
     return {
+      endedAt: now().toISOString(),
       slideTimeline: [...slideTimeline],
       missedKeywords,
       adviceEvents: [...adviceEvents]

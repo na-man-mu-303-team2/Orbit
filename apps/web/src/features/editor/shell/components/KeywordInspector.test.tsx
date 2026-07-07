@@ -11,7 +11,8 @@ describe("KeywordDetail", () => {
       text: "AI",
       synonyms: [],
       abbreviations: [],
-      required: false
+      required: false,
+      keywordRole: "supporting-keyword" as const
     };
 
     const html = renderToString(

@@ -51,7 +51,8 @@ describe("RehearsalPanel", () => {
           text: "OpenAI",
           synonyms: ["AI lab"],
           abbreviations: ["OAI"],
-          required: true
+          required: true,
+          keywordRole: "required-message" as const
         }
       ],
       sentences: [
@@ -133,14 +134,16 @@ const keywords: Keyword[] = [
     text: "OpenAI",
     synonyms: [],
     abbreviations: [],
-    required: true
+    required: true,
+    keywordRole: "required-message" as const
   },
   {
     keywordId: "kw_privacy",
     text: "privacy",
     synonyms: [],
     abbreviations: [],
-    required: true
+    required: true,
+    keywordRole: "required-message" as const
   }
 ];
 

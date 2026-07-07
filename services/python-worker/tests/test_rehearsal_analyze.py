@@ -78,6 +78,38 @@ def test_analyze_rehearsal_metrics_builds_safe_report_details() -> None:
     assert metrics.keyword_coverage == 0.5
 
 
+def test_analyze_rehearsal_metrics_only_reports_required_message_keywords() -> None:
+    metrics = analyze_rehearsal_metrics(
+        transcript="ORBIT 발표입니다",
+        duration_seconds=30,
+        segments=[],
+        deck_keywords=[
+            DeckKeyword(
+                keyword_id="kw_1",
+                slide_id="slide_1",
+                text="ORBIT",
+                keyword_role="required-message",
+            ),
+            DeckKeyword(
+                keyword_id="kw_2",
+                slide_id="slide_1",
+                text="다음",
+                keyword_role="action-trigger",
+            ),
+            DeckKeyword(
+                keyword_id="kw_3",
+                slide_id="slide_1",
+                text="보조 설명",
+                required=False,
+                keyword_role="supporting-keyword",
+            ),
+        ],
+    )
+
+    assert metrics.keyword_coverage == 1
+    assert metrics.missed_keywords == []
+
+
 def test_analyze_rehearsal_metrics_uses_segment_duration_when_total_duration_is_missing() -> None:
     metrics = analyze_rehearsal_metrics(
         transcript="하나 둘 셋 넷 다섯 여섯",

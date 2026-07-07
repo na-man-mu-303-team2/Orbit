@@ -114,7 +114,8 @@ describe("keyword editor API helpers", () => {
         text: "리허설",
         synonyms: ["발표 연습"],
         abbreviations: ["STT"],
-        required: true
+        required: true,
+        keywordRole: "required-message" as const
       }
     ];
     const updatedDeck = applyKeywordsForResponse(deck, slideId, keywords);

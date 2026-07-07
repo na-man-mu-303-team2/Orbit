@@ -81,6 +81,8 @@ class DeckKeyword:
     slide_id: str = ""
     synonyms: list[str] = field(default_factory=list)
     abbreviations: list[str] = field(default_factory=list)
+    required: bool = True
+    keyword_role: str = "required-message"
 
 
 @dataclass(frozen=True)
@@ -381,13 +383,18 @@ def analyze_keywords(
     deck_keywords: list[DeckKeyword],
 ) -> KeywordAnalysis:
     # 현재 키워드 커버리지는 유의어/약어 후보의 단순 부분 문자열 매칭으로 계산한다.
-    if not deck_keywords:
+    report_keywords = [
+        keyword
+        for keyword in deck_keywords
+        if keyword.keyword_role == "required-message" and keyword.required
+    ]
+    if not report_keywords:
         return KeywordAnalysis(coverage=0.0)
 
     normalized_transcript = transcript.lower()
     matched = 0
     missed: list[MissedKeywordDetail] = []
-    for keyword in deck_keywords:
+    for keyword in report_keywords:
         candidates = [
             candidate.strip().lower()
             for candidate in [keyword.text, *keyword.synonyms, *keyword.abbreviations]
@@ -404,7 +411,7 @@ def analyze_keywords(
                 )
             )
 
-    return KeywordAnalysis(coverage=round(matched / len(deck_keywords), 4), missed=missed)
+    return KeywordAnalysis(coverage=round(matched / len(report_keywords), 4), missed=missed)
 
 
 def build_speed_samples(segments: list[TranscriptSegment]) -> list[SpeedSample]:

@@ -757,28 +757,26 @@ describe("RehearsalWorkspace", () => {
 
     expect(html).toContain("1회차 리허설 리포트");
     expect(html).toContain("26.06.29.");
-    expect(html).toContain("1:30");
-    expect(html).toContain(String(deck.slides.length));
-    expect(html).toContain("120");
-    expect(html).toContain("75%");
-    expect(html).toContain("키워드 커버리지");
+    expect(html).toContain("오늘 바로 고칠 것");
+    expect(html).toContain("장표별 분석");
+    expect(html).toContain("0:52 / 1:00");
+    expect(html).toContain("ORBIT");
+    expect(html).toContain("전체 코칭");
     expect(html).toContain("불필요한 표현");
     expect(html).toContain("긴 멈춤");
-    expect(html).toContain("서버 리포트가 확인한 누락 키워드만 표시합니다.");
-    expect(html).toContain("슬라이드별 시간");
-    expect(html).toContain("QnA 피드백");
+    expect(html).toContain("말버릇과 청중 질문");
     expect(html).toContain("질문 수");
     expect(html).not.toContain("종합 발표 점수");
     expect(html).not.toContain("/ 100");
     expect(html).not.toContain("속도 안정성");
+    expect(html).not.toContain("키워드 커버리지");
     expect(html).not.toContain("민감한 전사 원문");
     expect(html).not.toContain("dB");
   });
 
-  it("calculates completion percent from official slide timings", () => {
+  it("shows official slide timing coverage without a completion percent card", () => {
     const deck = createDemoDeck();
     const completedSlide = deck.slides[0]!;
-    const expectedPercent = `${Math.round((1 / deck.slides.length) * 100)}%`;
     const html = renderToStaticMarkup(
       <RehearsalReportPage
         initialDeck={deck}
@@ -797,12 +795,12 @@ describe("RehearsalWorkspace", () => {
       />,
     );
 
-    expect(html).toContain(
-      `<span>완료율</span><strong>${expectedPercent}</strong>`,
-    );
+    expect(html).toContain(`1/${deck.slides.length}장 시간 기록`);
+    expect(html).toContain("0:52 / 1:00");
+    expect(html).not.toContain("<span>완료율</span>");
   });
 
-  it("does not describe an extreme speaking speed as stable", () => {
+  it("does not surface extreme speaking speed as a dashboard claim", () => {
     const html = renderToStaticMarkup(
       <RehearsalReportPage
         initialDeck={createDemoDeck()}
@@ -821,10 +819,7 @@ describe("RehearsalWorkspace", () => {
       />,
     );
 
-    expect(html).toContain("확인 필요");
-    expect(html).toContain(
-      "발표 시간 데이터가 불안정해 속도 판단을 확인해야 합니다.",
-    );
+    expect(html).toContain("장표별 분석");
     expect(html).not.toContain("3600");
     expect(html).not.toContain("권장 범위 안에서 안정적인 속도로 발표했어요.");
   });
@@ -850,7 +845,9 @@ describe("RehearsalWorkspace", () => {
       />,
     );
 
-    expect(html).toContain("공식 누락 키워드 상세 데이터가 없습니다.");
+    expect(html).toContain("<em>없음</em>");
+    expect(html).toContain("현재 흐름 유지");
+    expect(html).toContain("도입부를 더 짧게 연습하세요.");
     expect(html).not.toContain(
       "핵심 키워드 커버리지가 낮을 때만 누락 후보를 표시합니다.",
     );
@@ -868,16 +865,19 @@ describe("RehearsalWorkspace", () => {
               slideId: deck.slides[0]!.slideId,
               keywordId: "kw_component",
               text: "컴포넌트",
+              keywordRole: "required-message" as const,
             },
             {
               slideId: deck.slides[0]!.slideId,
               keywordId: "kw_design",
               text: "설계",
+              keywordRole: "required-message" as const,
             },
             {
               slideId: deck.slides[0]!.slideId,
               keywordId: "kw_state",
               text: "상태관리",
+              keywordRole: "required-message" as const,
             },
           ],
         })}
@@ -886,22 +886,23 @@ describe("RehearsalWorkspace", () => {
       />,
     );
 
-    expect(html).toContain("총 3개");
-    expect(html).toContain("<strong>슬라이드1</strong>");
+    expect(html).toContain("1. Opening 장표에서 누락 키워드 3개가 확인됐어요.");
     expect(html).toMatch(
-      /<strong>슬라이드1<\/strong>\s*<span>컴포넌트<\/span>\s*<span>설계<\/span>\s*<span>상태관리<\/span>/,
+      /<span>컴포넌트<\/span>\s*<span>설계<\/span>\s*<span>상태관리<\/span>/,
     );
   });
 
   it("renders a dense official missing keyword list without dropping entries", () => {
+    const deck = createDemoDeck();
     const missedKeywords = Array.from({ length: 24 }, (_, index) => ({
-      slideId: `slide_${(index % 3) + 1}`,
+      slideId: deck.slides[index % deck.slides.length]!.slideId,
       keywordId: `kw_dense_${index}`,
       text: `매우긴누락키워드${index}발표흐름핵심데이터`,
+      keywordRole: "required-message" as const,
     }));
     const html = renderToStaticMarkup(
       <RehearsalReportPage
-        initialDeck={createDemoDeck()}
+        initialDeck={deck}
         initialRun={runFixture("succeeded")}
         initialReport={reportFixture({ missedKeywords })}
         projectId="project-a"
@@ -909,10 +910,10 @@ describe("RehearsalWorkspace", () => {
       />,
     );
 
-    expect(html).toContain("총 24개");
+    expect(html).toContain("장표별 분석");
     expect(html).toContain("매우긴누락키워드0발표흐름핵심데이터");
     expect(html).toContain("매우긴누락키워드23발표흐름핵심데이터");
-    expect(html).toContain("서버 리포트가 확인한 누락 키워드만 표시합니다.");
+    expect(html).toContain("누락 키워드를 체크하고 다음 장표로 넘어가기");
   });
 
   it("maps failed and mismatched report responses to failed page state", () => {
@@ -1010,6 +1011,7 @@ describe("RehearsalWorkspace", () => {
           synonyms: ["오르빗"],
           abbreviations: [],
           required: true,
+          keywordRole: "required-message" as const
         },
         {
           keywordId: "kw_2",
@@ -1017,6 +1019,7 @@ describe("RehearsalWorkspace", () => {
           synonyms: ["실시간 음성 인식"],
           abbreviations: ["stt"],
           required: true,
+          keywordRole: "required-message" as const
         },
       ],
     };
@@ -1050,6 +1053,7 @@ describe("RehearsalWorkspace", () => {
           synonyms: ["오르빗"],
           abbreviations: ["OBT"],
           required: true,
+          keywordRole: "required-message" as const
         },
       ],
       elements: [
@@ -1156,6 +1160,7 @@ describe("RehearsalWorkspace", () => {
           synonyms: [],
           abbreviations: [],
           required: true,
+          keywordRole: "required-message" as const
         },
       ],
     };
@@ -1184,6 +1189,7 @@ describe("RehearsalWorkspace", () => {
           synonyms: [],
           abbreviations: [],
           required: true,
+          keywordRole: "required-message" as const
         },
       ],
     };
@@ -1215,6 +1221,7 @@ describe("RehearsalWorkspace", () => {
           synonyms: [],
           abbreviations: ["STT"],
           required: true,
+          keywordRole: "required-message" as const
         },
       ],
     };
@@ -1237,6 +1244,7 @@ describe("RehearsalWorkspace", () => {
       synonyms: [`동의어${index}`],
       abbreviations: [`약어${index}`],
       required: true,
+      keywordRole: "required-message" as const
     }));
     const slide = {
       ...createDemoDeck().slides[0]!,
@@ -1308,6 +1316,7 @@ describe("RehearsalWorkspace", () => {
           synonyms: ["오르빗"],
           abbreviations: [],
           required: true,
+          keywordRole: "required-message" as const
         },
         {
           keywordId: "kw_2",
@@ -1315,6 +1324,7 @@ describe("RehearsalWorkspace", () => {
           synonyms: ["실시간 음성 인식"],
           abbreviations: ["stt"],
           required: true,
+          keywordRole: "required-message" as const
         },
       ],
     };
@@ -1962,7 +1972,14 @@ function reportFixture(patch: Partial<RehearsalReport> = {}): RehearsalReport {
     speedSamples: [{ startSecond: 0, endSecond: 10, wordsPerMinute: 120 }],
     fillerWordDetails: [{ word: "음", count: 2 }],
     pauseDetails: [{ startSecond: 12, endSecond: 14, durationSeconds: 2 }],
-    missedKeywords: [{ slideId: "slide_1", keywordId: "kw_1", text: "ORBIT" }],
+    missedKeywords: [
+      {
+        slideId: "slide_1",
+        keywordId: "kw_1",
+        text: "ORBIT",
+        keywordRole: "required-message" as const,
+      },
+    ],
     slideTimings: [
       { slideId: "slide_1", targetSeconds: 60, actualSeconds: 52 },
     ],

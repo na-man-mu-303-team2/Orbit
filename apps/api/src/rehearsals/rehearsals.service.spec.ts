@@ -95,6 +95,15 @@ const reportJson = {
     pauseCount: 0,
     keywordCoverage: 1
   },
+  missedKeywords: [
+    {
+      slideId: "slide_1",
+      keywordId: "kw_1",
+      text: "ORBIT",
+      keywordRole: "required-message"
+    }
+  ],
+  slideTimings: [{ slideId: "slide_1", targetSeconds: 60, actualSeconds: 72 }],
   coaching: {
     status: "succeeded",
     summary: "clear",
@@ -425,6 +434,48 @@ describe("RehearsalsService", () => {
       }
     });
   });
+
+  it("summarizes succeeded rehearsal reports for a deck", async () => {
+    const service = createService();
+    const firstRun = await createRun(service);
+    await saveRunPatch(service, firstRun.runId, {
+      status: "succeeded",
+      reportJson,
+      transcriptRetained: false,
+      rawAudioDeletedAt: new Date(rawAudioDeletedAt)
+    });
+    const secondRun = await createRun(service);
+    await saveRunPatch(service, secondRun.runId, {
+      status: "succeeded",
+      reportJson: {
+        ...reportJson,
+        runId: secondRun.runId,
+        reportId: `report_${secondRun.runId}`,
+        slideTimings: [{ slideId: "slide_1", targetSeconds: 60, actualSeconds: 48 }]
+      },
+      transcriptRetained: false,
+      rawAudioDeletedAt: new Date(rawAudioDeletedAt)
+    });
+
+    const result = await service.getSummary("project-a", {
+      deckId: "deck-a",
+      currentRunId: secondRun.runId
+    });
+
+    expect(result.summary.runCount).toBe(2);
+    expect(result.summary.currentRunId).toBe(secondRun.runId);
+    expect(result.summary.slides[0]).toMatchObject({
+      slideId: "slide_1",
+      sampleCount: 2,
+      averageActualSeconds: 60,
+      currentActualSeconds: 48,
+      deltaFromAverageSeconds: -12
+    });
+    expect(result.summary.slides[0]?.repeatedMissedKeywords[0]).toMatchObject({
+      keywordId: "kw_1",
+      missCount: 2
+    });
+  });
 });
 
 async function createRun(service: ReturnType<typeof createService>) {
@@ -527,6 +578,25 @@ function createRunRepository() {
     },
     async findOne(options: { where: { runId: string } }) {
       return runs.get(options.where.runId) ?? null;
+    },
+    async find(options: {
+      where: Partial<RehearsalRunEntity>;
+      order?: { createdAt?: "ASC" | "DESC" };
+      take?: number;
+    }) {
+      const result = [...runs.values()]
+        .filter((candidate) =>
+          Object.entries(options.where).every(
+            ([key, value]) => candidate[key as keyof RehearsalRunEntity] === value
+          )
+        )
+        .sort((left, right) => {
+          const direction = options.order?.createdAt ?? "ASC";
+          const diff = left.createdAt.getTime() - right.createdAt.getTime();
+          return direction === "DESC" ? -diff : diff;
+        });
+
+      return typeof options.take === "number" ? result.slice(0, options.take) : result;
     },
     async update(criteria: Partial<RehearsalRunEntity>, patch: Partial<RehearsalRunEntity>) {
       const run = [...runs.values()].find((candidate) =>

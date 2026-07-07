@@ -22,7 +22,8 @@ describe("keyword-editor model", () => {
       text: "리허설",
       synonyms: [],
       abbreviations: [],
-      required: true
+      required: true,
+      keywordRole: "required-message" as const
     });
 
     expect(deleteKeyword(withKeyword, "kw_new_1")).toEqual(initialKeywords);
@@ -58,7 +59,8 @@ describe("keyword-editor model", () => {
         text: " 리허설 ",
         synonyms: ["발표 연습"],
         abbreviations: ["STT"],
-        required: true
+        required: true,
+        keywordRole: "required-message" as const
       }
     ];
 
@@ -79,7 +81,8 @@ describe("keyword-editor model", () => {
               text: "리허설",
               synonyms: ["발표 연습"],
               abbreviations: ["STT"],
-              required: true
+              required: true,
+              keywordRole: "required-message" as const
             }
           ]
         }
@@ -101,14 +104,16 @@ describe("keyword-editor model", () => {
         text: "ORBIT",
         synonyms: ["발표 도우미", ""],
         abbreviations: ["OD"],
-        required: true
+        required: true,
+        keywordRole: "required-message" as const
       },
       {
         keywordId: "kw_two",
         text: "orbit",
         synonyms: ["발표 도우미"],
         abbreviations: ["od"],
-        required: true
+        required: true,
+        keywordRole: "required-message" as const
       }
     ];
 
@@ -131,14 +136,16 @@ describe("keyword-editor model", () => {
         text: "ORBIT",
         synonyms: ["발표 도우미"],
         abbreviations: ["OD"],
-        required: true
+        required: true,
+        keywordRole: "required-message" as const
       },
       {
         keywordId: "kw_two",
         text: "리허설",
         synonyms: ["orbit"],
         abbreviations: ["발표 도우미"],
-        required: true
+        required: true,
+        keywordRole: "required-message" as const
       }
     ];
 

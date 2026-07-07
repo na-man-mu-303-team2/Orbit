@@ -273,8 +273,9 @@ API:
 - animation `order`는 `1`부터 시작하는 양의 정수로 관리한다.
 - `durationMs`, `delayMs`, `easing`은 입력에서 생략할 수 있지만, schema parse 후 normalized Deck JSON에는 각각 `400`, `0`, `"ease-out"` 기본값으로 포함한다.
 - `easing`은 `linear`, `ease-in`, `ease-out`, `ease-in-out`만 허용한다.
-- `slide.keywords[]`는 `required` boolean을 포함한다. 이 값은 발표 중 반드시 언급해야 하는 keyword 여부를 나타내며 기본값은 `true`다.
-- 애니메이션 trigger, 다음 슬라이드 trigger 같은 발표 제어 분류는 keyword 필드에 중복 저장하지 않고 연결된 `slide.actions`로부터 파생한다.
+- `slide.keywords[]`는 `required` boolean과 `keywordRole`을 포함할 수 있다. `required` 기본값은 `true`이고, legacy deck에서 `keywordRole`이 없으면 `required: true`는 `required-message`, `required: false`는 `supporting-keyword`로 정규화한다.
+- `keywordRole` 허용값은 `required-message`, `supporting-keyword`, `action-trigger`이다. 리허설 report의 누락 키워드와 keyword coverage는 `required-message`이면서 `required: true`인 항목만 기준으로 삼는다.
+- 애니메이션 trigger, 다음 슬라이드 trigger 같은 발표 제어 분류는 저장 시 keyword 필드에 중복 저장하지 않고 연결된 `slide.actions`로부터 파생할 수 있다. worker 분석 context에서는 keyword trigger action에 연결된 keyword를 `action-trigger`로 취급한다.
 - 키워드 기반 authored action은 `slide.actions` flat list에 저장한다.
 - 각 action은 `act_` prefix를 따르는 `actionId`와 legacy `cue` 또는 `keywordId` 기반 trigger를 가진다.
 - action effect는 `play-animation`, `go-to-next-slide`만 허용한다.
@@ -282,7 +283,7 @@ API:
 - `keyword` trigger는 같은 slide 안에 있는 `keywordId`만 참조할 수 있다.
 - 밑줄 애니메이션은 1차 스프린트 MVP가 아니라 폴리싱 범위로 둔다.
 - AI 생성 결과도 최종적으로 deck JSON으로 변환한다.
-- 리허설은 `speakerNotes`, `keywords.text`, `keywords.synonyms`, `keywords.abbreviations`를 기준으로 연결한다.
+- 리허설은 `speakerNotes`, `keywords.text`, `keywords.synonyms`, `keywords.abbreviations`를 기준으로 연결하되, 리포트의 필수 메시지 누락 판정은 `required-message` keyword로 제한한다.
 - 협업/발표 동기화는 `deck_`, `slide_`, `el_`, `anim_` prefix를 따르는 `deckId`, `slideId`, `elementId`, `animationId` 기준으로 처리한다.
 
 구현 위치:
@@ -1068,9 +1069,13 @@ API:
   - response: `{ "run": RehearsalRun, "report": RehearsalReport | null }`
   - run이 아직 `processing`이거나 과거 run에 `report_json`이 없으면 `report`는 `null`이다.
 - `PATCH /api/v1/rehearsals/:runId/meta`
-  - request: `{ "slideTimeline": [{ "slideId": "slide_1", "enteredAt": "2026-07-02T00:00:00.000Z" }], "missedKeywords": [{ "slideId": "slide_1", "keywordId": "kw_1" }], "adviceEvents": [{ "type": "pace-too-fast", "at": "2026-07-02T00:00:30.000Z" }] }`
+  - request: `{ "slideTimeline": [{ "slideId": "slide_1", "enteredAt": "2026-07-02T00:00:00.000Z" }], "endedAt": "2026-07-02T00:01:30.000Z", "missedKeywords": [{ "slideId": "slide_1", "keywordId": "kw_1" }], "adviceEvents": [{ "type": "pace-too-fast", "at": "2026-07-02T00:00:30.000Z" }] }`
   - transcript, speaker notes, raw audio, script 원문은 받지 않는다.
   - response: `{ "run": RehearsalRun }`
+- `GET /api/v1/projects/:projectId/rehearsals/summary?deckId=deck_demo_1&currentRunId=run_1&limit=10`
+  - response: `{ "summary": RehearsalSummary }`
+  - 현재 프로젝트 접근 경계를 확인한 뒤 같은 deck의 `succeeded` run과 저장된 `report_json`만 집계한다.
+  - `currentRunId`가 있으면 해당 run을 이번 리허설 기준으로 삼고, 없으면 최신 성공 run을 기준으로 삼는다.
 
 후속 구현 예정 API:
 
@@ -1129,7 +1134,8 @@ Report 응답 구조:
     {
       "slideId": "slide_1",
       "keywordId": "kw_1",
-      "text": "핵심 메시지"
+      "text": "핵심 메시지",
+      "keywordRole": "required-message"
     }
   ],
   "slideTimings": [
@@ -1156,6 +1162,50 @@ Report 응답 구조:
 }
 ```
 
+Report summary 응답 구조:
+
+```json
+{
+  "summary": {
+    "deckId": "deck_demo_1",
+    "currentRunId": "run_1",
+    "runCount": 3,
+    "slides": [
+      {
+        "slideId": "slide_1",
+        "currentActualSeconds": 72,
+        "averageActualSeconds": 61,
+        "deltaFromAverageSeconds": 11,
+        "repeatedMissedKeywords": [
+          {
+            "keywordId": "kw_1",
+            "text": "핵심 메시지",
+            "keywordRole": "required-message",
+            "missCount": 2
+          }
+        ]
+      }
+    ],
+    "repeatedMissedKeywords": [
+      {
+        "slideId": "slide_1",
+        "keywordId": "kw_1",
+        "text": "핵심 메시지",
+        "keywordRole": "required-message",
+        "missCount": 2
+      }
+    ],
+    "runs": [
+      {
+        "runId": "run_1",
+        "createdAt": "2026-06-27T01:00:00+09:00",
+        "durationSeconds": 90
+      }
+    ]
+  }
+}
+```
+
 결정 사항:
 
 - `audio/complete`는 run에 연결된 `fileId`만 허용한다.
@@ -1166,10 +1216,12 @@ Report 응답 구조:
 - 공식 보고서 원본은 `jobs.result`가 아니라 `rehearsal_runs.report_json`이다.
 - `transcript_retained` 기본값은 `false`이며, `false`일 때 `report.transcript`는 반드시 `null`이다.
 - `GET /api/v1/rehearsals/:runId/report` 접근은 현재 프로젝트 접근 경계(`ProjectsService.getAccessibleProject`)를 재사용한다.
+- `GET /api/v1/projects/:projectId/rehearsals/summary` 접근은 현재 프로젝트 접근 경계(`ProjectsService.getAccessibleProject`)와 project deck 일치 검증을 재사용한다.
 - ORBIT-37의 고급 0-100 점수 산식은 이 계약에 포함하지 않으며, 실제 산식이 확정되기 전까지 UI에서도 점수를 표시하지 않는다.
 - `score`, `deliveryScore`, `speedScore`처럼 산식이 확정되지 않은 점수 필드는 `RehearsalReport`에 저장하지 않는다.
 - 말 속도 변화는 `speedSamples`, 습관어 상세는 `fillerWordDetails`, pause 상세는 `pauseDetails`, 누락 키워드 상세는 `missedKeywords`를 공식 필드로 사용한다. 값이 부족하면 빈 배열을 저장하며, UI는 deck 또는 평균값만으로 상세 지표를 추정하지 않는다.
-- 슬라이드별 목표/실제 시간은 `slideTimings`를 공식 필드로 사용한다. `targetSeconds`는 deck의 `estimatedSeconds` 또는 `targetDurationMinutes` 기반 목표값이고, `actualSeconds`는 `PATCH /api/v1/rehearsals/:runId/meta`의 `slideTimeline`에서 연속된 slide 진입 시각 차이로 계산한다. 종료 시각이 없는 마지막 slide는 실제 시간을 추정하지 않는다.
+- 슬라이드별 목표/실제 시간은 `slideTimings`를 공식 필드로 사용한다. `targetSeconds`는 deck의 `estimatedSeconds` 또는 `targetDurationMinutes` 기반 목표값이고, `actualSeconds`는 `PATCH /api/v1/rehearsals/:runId/meta`의 `slideTimeline`에서 연속된 slide 진입 시각 차이로 계산한다. 마지막 slide는 `endedAt`이 있으면 마지막 slide 진입 시각과 `endedAt` 차이로 계산하고, 종료 시각이 없으면 실제 시간을 추정하지 않는다.
+- 리허설 report UI는 전체 평균 dashboard보다 `slideTimings`, `missedKeywords`, `RehearsalSummary.slides`를 우선해 장표별 다음 수정 행동을 보여준다. 전체 코칭 문구는 `coaching` 공식 필드로 보조 표시한다.
 - 청중 QnA 기반 피드백은 질문 원문을 저장하지 않고 `qnaSummary.questionCount`, `qnaSummary.questionSummary`, `qnaSummary.unclearTopics[].topic`, optional `slideId`만 report에 저장한다. 현재 audience 질문 저장 API가 없으면 기본값은 질문 수 0과 빈 요약이다.
 
 구현 위치:

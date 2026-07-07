@@ -86,7 +86,10 @@ const analyzeMissedKeywordSchema = z
   .object({
     slideId: z.string().min(1),
     keywordId: z.string().min(1),
-    text: z.string().trim().min(1)
+    text: z.string().trim().min(1),
+    keywordRole: z
+      .enum(["required-message", "supporting-keyword", "action-trigger"])
+      .default("required-message")
   })
   .strict();
 
@@ -463,9 +466,23 @@ async function loadDeckAnalysisContext(
 
   return {
     deck: workingDeck,
-    deckKeywords: workingDeck.slides.flatMap((slide) =>
-      slide.keywords.map((keyword) => ({ ...keyword, slideId: slide.slideId }))
-    )
+    deckKeywords: workingDeck.slides.flatMap((slide) => {
+      const actionTriggerKeywordIds = new Set(
+        slide.actions
+          .filter((action) => action.trigger.kind === "keyword")
+          .map((action) =>
+            action.trigger.kind === "keyword" ? action.trigger.keywordId : ""
+          )
+      );
+
+      return slide.keywords.map((keyword) => ({
+        ...keyword,
+        keywordRole: actionTriggerKeywordIds.has(keyword.keywordId)
+          ? "action-trigger"
+          : keyword.keywordRole,
+        slideId: slide.slideId
+      }));
+    })
   };
 }
 
@@ -595,12 +612,15 @@ function buildSlideTimings(
   for (let index = 0; index < timeline.length; index += 1) {
     const entry = timeline[index];
     const nextEntry = timeline[index + 1];
-    if (!entry || !nextEntry) {
+    if (!entry) {
       continue;
     }
 
     const enteredAt = Date.parse(entry.enteredAt);
-    const exitedAt = Date.parse(nextEntry.enteredAt);
+    const exitedAt =
+      nextEntry === undefined && runMeta.endedAt
+        ? Date.parse(runMeta.endedAt)
+        : Date.parse(nextEntry?.enteredAt ?? "");
     if (
       Number.isNaN(enteredAt) ||
       Number.isNaN(exitedAt) ||
@@ -861,6 +881,7 @@ type DeckKeywordPayload = {
   synonyms: string[];
   abbreviations: string[];
   required: boolean;
+  keywordRole: "required-message" | "supporting-keyword" | "action-trigger";
 };
 
 type DeckAnalysisContext = {

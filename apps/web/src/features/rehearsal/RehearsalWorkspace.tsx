@@ -11,6 +11,7 @@ import {
   type Deck,
   type DeckElement,
   type GetRehearsalReportResponse,
+  type GetRehearsalSummaryResponse,
   type GetDeckResponse,
   type Job,
   type Keyword,
@@ -22,6 +23,7 @@ import {
   type RehearsalReport,
   type RehearsalRun,
   type RehearsalRunMeta,
+  type RehearsalSummary,
   type Slide,
   type UpdateRehearsalRunMetaRequest,
 } from "@orbit/shared";
@@ -34,18 +36,14 @@ import {
   ChevronRight,
   ChevronDown,
   Download,
-  Gauge,
   Home,
   Mic,
   Monitor,
   MoreHorizontal,
   PlayCircle,
-  Presentation,
   RotateCcw,
   Save,
   Square,
-  Target,
-  Volume2,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { resolveEditorAssetUrl } from "../editor/shared/editorAssetUrl";
@@ -478,6 +476,29 @@ export async function fetchRehearsalReport(
   }
 
   return (await response.json()) as GetRehearsalReportResponse;
+}
+
+export async function fetchRehearsalSummary(
+  projectId: string,
+  deckId: string,
+  currentRunId: string,
+  fetcher: Fetcher = fetch,
+) {
+  const params = new URLSearchParams({
+    deckId,
+    currentRunId,
+  });
+  const response = await fetcher(
+    `/api/v1/projects/${projectId}/rehearsals/summary?${params.toString()}`,
+  );
+  if (!response.ok) {
+    throw new RehearsalFlowError(
+      "report-fetch",
+      await readErrorMessage(response, "리허설 변화 요약을 불러오지 못했습니다."),
+    );
+  }
+
+  return (await response.json()) as GetRehearsalSummaryResponse;
 }
 
 export function resolveRehearsalReportLoadState(
@@ -3678,6 +3699,7 @@ export function RehearsalReportPage(props: {
   const [report, setReport] = useState<RehearsalReport | null>(
     props.initialReport ?? null,
   );
+  const [summary, setSummary] = useState<RehearsalSummary | null>(null);
   const [status, setStatus] = useState<RehearsalReportStatus>(
     props.initialReport ? "ready" : "loading",
   );
@@ -3731,25 +3753,40 @@ export function RehearsalReportPage(props: {
     };
   }, [props.initialDeck, props.initialReport, props.projectId, props.runId]);
 
+  useEffect(() => {
+    let isMounted = true;
+    if (!deck?.deckId || !report) {
+      setSummary(null);
+      return () => {
+        isMounted = false;
+      };
+    }
+
+    void fetchRehearsalSummary(props.projectId, deck.deckId, props.runId)
+      .then((response) => {
+        if (isMounted) setSummary(response.summary);
+      })
+      .catch(() => {
+        if (isMounted) setSummary(null);
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [deck?.deckId, props.projectId, props.runId, report]);
+
   const reportDate = formatReportDate(
     report?.generatedAt ?? run?.updatedAt ?? run?.createdAt,
   );
   const slideCount = deck?.slides.length;
-  const coachingHeadline = buildCoachingHeadline(report);
-  const coachingDetail = buildCoachingDetail(report, deck);
-  const missedKeywords = report?.missedKeywords ?? [];
-  const missedKeywordRows = buildMissedKeywordRows(deck, missedKeywords);
   const slideTimings = report?.slideTimings ?? [];
   const qnaSummary = report?.qnaSummary;
-  const speedAssessment = report
-    ? getSpeakingSpeedAssessment(report.metrics.wordsPerMinute)
-    : null;
-  const speakingSpeedValue = report
-    ? formatSpeakingSpeedValue(report.metrics.wordsPerMinute)
-    : "-";
-  const completionPercent = formatRehearsalCompletionPercent(
-    deck,
-    slideTimings,
+  const slideRows = buildSlideReportRows(deck, report, summary);
+  const immediateFixes = buildImmediateFixes(slideRows, report);
+  const repeatedSlides = summary?.slides.filter(
+    (slide) =>
+      (slide.deltaFromAverageSeconds ?? 0) > 0 ||
+      slide.repeatedMissedKeywords.length > 0,
   );
 
   return (
@@ -3833,232 +3870,168 @@ export function RehearsalReportPage(props: {
           </header>
 
           {report ? (
-            <div className="rehearsal-report-document-grid">
-              <section className="report-overview-card">
-                <div className="report-overview-copy">
-                  <h2>{coachingHeadline}</h2>
-                  <p>{coachingDetail}</p>
+            <div className="rehearsal-report-slide-layout">
+              <section className="report-action-summary">
+                <div>
+                  <span className="report-section-eyebrow">
+                    {summary ? `${summary.runCount}회차 누적` : "이번 리허설"}
+                  </span>
+                  <h2>오늘 바로 고칠 것</h2>
                 </div>
-                <div className="report-score-list">
-                  <div>
-                    <span>평균 속도</span>
-                    <strong>{speakingSpeedValue}</strong>
-                  </div>
-                  <div>
-                    <span>키워드 커버리지</span>
-                    <strong>
-                      {Math.round(report.metrics.keywordCoverage * 100)}%
-                    </strong>
-                  </div>
-                  <div>
-                    <span>코칭 상태</span>
-                    <strong>{report.coaching?.status ?? "대기"}</strong>
-                  </div>
-                </div>
+                <ul>
+                  {immediateFixes.map((fix) => (
+                    <li key={fix}>{fix}</li>
+                  ))}
+                </ul>
               </section>
 
-              <section className="report-summary-card report-dashboard-card">
-                <div className="report-summary-row">
-                  <span>총 소요 시간</span>
-                  <strong>
-                    {formatDuration(report.metrics.durationSeconds)}
-                  </strong>
-                </div>
-                <div className="report-summary-row">
-                  <span>사용한 슬라이드 수</span>
-                  <strong>
-                    {typeof slideCount === "number" ? slideCount : "-"}
-                  </strong>
-                </div>
-                <div className="report-mini-metrics">
+              <section className="report-slide-analysis">
+                <div className="report-section-header">
                   <div>
-                    <span>목표 시간</span>
-                    <strong>
-                      {formatDuration(getTargetDurationSeconds(deck))}
-                    </strong>
-                  </div>
-                  <div>
-                    <span>완료율</span>
-                    <strong>{completionPercent}</strong>
-                  </div>
-                </div>
-              </section>
-
-              <section className="report-speed-card report-dashboard-card">
-                <h2>
-                  <Gauge size={18} />
-                  평균 발표 속도
-                </h2>
-                <div
-                  className="report-speed-gauge"
-                  role="meter"
-                  aria-label="평균 발표 속도"
-                  aria-valuemin={80}
-                  aria-valuemax={180}
-                  aria-valuenow={speedAssessment?.meterValue ?? 80}
-                >
-                  <span className="speed-mark speed-mark-left">100</span>
-                  <span className="speed-mark speed-mark-right">150</span>
-                  <strong
-                    className={
-                      speedAssessment?.isUnreliable
-                        ? "report-speed-warning"
-                        : undefined
-                    }
-                  >
-                    {speedAssessment?.displayValue ?? "-"}
-                  </strong>
-                </div>
-                <p>{speedAssessment?.message}</p>
-              </section>
-
-              <section className="report-voice-card report-dashboard-card">
-                <h2>
-                  <Volume2 size={20} />
-                  음성 분석
-                </h2>
-                <div className="report-official-metrics">
-                  <div>
-                    <span>불필요한 표현</span>
-                    <strong>{report.metrics.fillerWordCount}회</strong>
-                  </div>
-                  <div>
-                    <span>긴 멈춤</span>
-                    <strong>{report.metrics.pauseCount}회</strong>
-                  </div>
-                </div>
-                <p>서버 리포트가 제공한 말버릇과 멈춤 지표만 표시합니다.</p>
-              </section>
-
-              <section className="report-keyword-card report-dashboard-card">
-                <h2>
-                  <Target size={20} />
-                  누락 키워드
-                </h2>
-                <p>실전 발표 중 다시 알려줄 핵심 데이터입니다.</p>
-                {missedKeywords.length > 0 ? (
-                  <>
-                    <span className="report-keyword-count">
-                      총 {missedKeywords.length}개
+                    <span className="report-section-eyebrow">
+                      목표 대비와 누락 키워드 기준
                     </span>
-                    <div className="report-keyword-slide-list">
-                      {missedKeywordRows.map((row) => (
-                        <p key={row.slideId}>
-                          <strong>{row.label}</strong>
-                          {row.keywords.map((keyword) => (
-                            <span
-                              key={`${keyword.slideId}-${keyword.keywordId}`}
-                            >
-                              {keyword.text}
-                            </span>
-                          ))}
-                        </p>
-                      ))}
+                    <h2>장표별 분석</h2>
+                  </div>
+                  <span>
+                    {slideTimings.length}/{slideCount ?? "-"}장 시간 기록
+                  </span>
+                </div>
+                <div className="report-slide-table" role="table">
+                  <div className="report-slide-table-head" role="row">
+                    <span>장표</span>
+                    <span>이번 시간</span>
+                    <span>목표 대비</span>
+                    <span>누락 키워드</span>
+                    <span>다음 수정</span>
+                  </div>
+                  {slideRows.map((row) => (
+                    <div
+                      className={
+                        row.isProblem
+                          ? "report-slide-row needs-attention"
+                          : "report-slide-row"
+                      }
+                      key={row.slideId}
+                      role="row"
+                    >
+                      <div>
+                        <strong>{row.label}</strong>
+                        <span>{row.title}</span>
+                      </div>
+                      <span>{row.actualSecondsText}</span>
+                      <span className={row.deltaSeconds > 0 ? "late" : "ok"}>
+                        {row.deltaText}
+                      </span>
+                      <div className="report-row-keywords">
+                        {row.missedKeywords.length > 0 ? (
+                          row.missedKeywords.map((keyword) => (
+                            <span key={keyword.keywordId}>{keyword.text}</span>
+                          ))
+                        ) : (
+                          <em>없음</em>
+                        )}
+                      </div>
+                      <p>{row.actionText}</p>
                     </div>
-                    <strong className="report-keyword-warning">
-                      서버 리포트가 확인한 누락 키워드만 표시합니다.
-                    </strong>
-                  </>
-                ) : (
-                  <strong className="report-keyword-empty">
-                    공식 누락 키워드 상세 데이터가 없습니다.
-                  </strong>
-                )}
+                  ))}
+                </div>
               </section>
 
-              <section className="report-dashboard-card">
-                <h2>
-                  <CalendarDays size={20} />
-                  슬라이드별 시간
-                </h2>
-                {slideTimings.length > 0 ? (
-                  <div className="report-official-metrics">
-                    {slideTimings.slice(0, 4).map((timing) => (
-                      <div key={timing.slideId}>
+              <section className="report-trend-panel">
+                <div className="report-section-header">
+                  <div>
+                    <span className="report-section-eyebrow">
+                      성공한 리허설 run 기준
+                    </span>
+                    <h2>회차별 변화</h2>
+                  </div>
+                  <span>{summary ? `${summary.runCount}회` : "집계 대기"}</span>
+                </div>
+                {summary && repeatedSlides?.length ? (
+                  <div className="report-trend-list">
+                    {repeatedSlides.slice(0, 4).map((slide) => (
+                      <p key={slide.slideId}>
+                        <strong>{formatSlideTimingLabel(deck, slide.slideId)}</strong>
                         <span>
-                          {formatSlideTimingLabel(deck, timing.slideId)}
+                          {formatTrendText(slide)}
                         </span>
-                        <strong>
-                          {formatDuration(timing.actualSeconds)} /{" "}
-                          {formatDuration(timing.targetSeconds)}
-                        </strong>
-                      </div>
+                      </p>
                     ))}
                   </div>
                 ) : (
-                  <strong className="report-keyword-empty">
-                    공식 슬라이드 시간 데이터가 아직 없습니다.
-                  </strong>
+                  <p className="report-muted-copy">
+                    반복된 시간 초과나 반복 누락 키워드가 아직 충분히 쌓이지 않았습니다.
+                  </p>
                 )}
               </section>
 
-              <section className="report-dashboard-card">
-                <h2>
-                  <BarChart3 size={20} />
-                  QnA 피드백
-                </h2>
-                <div className="report-official-metrics">
+              <section className="report-coaching-panel">
+                <div className="report-section-header">
                   <div>
-                    <span>질문 수</span>
-                    <strong>{qnaSummary?.questionCount ?? 0}개</strong>
+                    <span className="report-section-eyebrow">서버 AI 코칭</span>
+                    <h2>전체 코칭</h2>
                   </div>
                 </div>
-                <p>
-                  {qnaSummary?.questionSummary ||
-                    "질문 원문은 저장하지 않으며, 요약 데이터가 생기면 이 영역에 표시합니다."}
-                </p>
-                {qnaSummary?.unclearTopics.length ? (
-                  <div className="report-keyword-chips">
-                    {qnaSummary.unclearTopics.map((topic) => (
-                      <span
-                        key={`${topic.slideId ?? "general"}-${topic.topic}`}
-                      >
-                        {topic.topic}
-                      </span>
-                    ))}
-                  </div>
-                ) : null}
-              </section>
-
-              <section className="report-coaching-card report-dashboard-card">
-                <h2>
-                  <Presentation size={20} />
-                  다음 연습
-                </h2>
+                <p>{report.coaching?.summary || "코칭 요약 데이터가 없습니다."}</p>
                 <div className="report-coaching-columns">
                   <div>
                     <strong>강점</strong>
-                    <ul>
-                      {(report.coaching?.strengths.length
-                        ? report.coaching.strengths
-                        : ["말이 분명하고 빠르지 않음", "불필요한 말버릇 없음"]
-                      )
-                        .slice(0, 3)
-                        .map((strength) => (
+                    {report.coaching?.strengths.length ? (
+                      <ul>
+                        {report.coaching.strengths.slice(0, 3).map((strength) => (
                           <li key={strength}>{strength}</li>
                         ))}
-                    </ul>
+                      </ul>
+                    ) : (
+                      <span>공식 강점 데이터가 없습니다.</span>
+                    )}
                   </div>
                   <div>
                     <strong>개선 포인트</strong>
-                    <ul>
-                      {(report.coaching?.improvements.length
-                        ? report.coaching.improvements
-                        : [
-                            "자료 설명을 짧게 줄이기",
-                            "누락 키워드를 노트에 고정하기",
-                          ]
-                      )
-                        .slice(0, 3)
-                        .map((improvement) => (
-                          <li key={improvement}>{improvement}</li>
-                        ))}
-                    </ul>
+                    {report.coaching?.improvements.length ? (
+                      <ul>
+                        {report.coaching.improvements
+                          .slice(0, 3)
+                          .map((improvement) => (
+                            <li key={improvement}>{improvement}</li>
+                          ))}
+                      </ul>
+                    ) : (
+                      <span>공식 개선 포인트 데이터가 없습니다.</span>
+                    )}
                   </div>
                 </div>
-                <p>
+                <strong className="report-next-focus">
                   {report.coaching?.nextPracticeFocus ||
-                    "핵심 메시지를 먼저 말하는 흐름을 연습하세요."}
+                    "다음 연습 집중 데이터가 없습니다."}
+                </strong>
+              </section>
+
+              <section className="report-evidence-panel">
+                <div className="report-section-header">
+                  <div>
+                    <span className="report-section-eyebrow">보조 지표</span>
+                    <h2>말버릇과 청중 질문</h2>
+                  </div>
+                </div>
+                <div className="report-evidence-grid">
+                  <p>
+                    <span>불필요한 표현</span>
+                    <strong>{report.metrics.fillerWordCount}회</strong>
+                  </p>
+                  <p>
+                    <span>긴 멈춤</span>
+                    <strong>{report.metrics.pauseCount}회</strong>
+                  </p>
+                  <p>
+                    <span>질문 수</span>
+                    <strong>{qnaSummary?.questionCount ?? 0}개</strong>
+                  </p>
+                </div>
+                <p className="report-muted-copy">
+                  {qnaSummary?.questionSummary ||
+                    "질문 원문은 저장하지 않으며, 요약 데이터가 생기면 이 영역에 표시합니다."}
                 </p>
               </section>
             </div>
@@ -4183,174 +4156,151 @@ function formatEmptyReportMessage(
   return "보고서 대기 중";
 }
 
-function buildCoachingHeadline(report: RehearsalReport | null) {
-  if (report?.coaching?.summary) {
-    return report.coaching.summary;
-  }
+type SlideReportRow = {
+  actionText: string;
+  actualSecondsText: string;
+  deltaSeconds: number;
+  deltaText: string;
+  isProblem: boolean;
+  label: string;
+  missedKeywords: RehearsalReport["missedKeywords"];
+  slideId: string;
+  title: string;
+};
 
-  if (!report) {
-    return "리허설 데이터를 불러오고 있어요.";
-  }
-
-  if (report.metrics.keywordCoverage < 0.8) {
-    return "핵심 흐름은 안정적이지만, 일부 키워드 회수가 부족했어요.";
-  }
-
-  if (isUnreliableSpeakingSpeed(report.metrics.wordsPerMinute)) {
-    return "발표 속도 분석 시간이 불안정해 결과 확인이 필요해요.";
-  }
-
-  if (report.metrics.wordsPerMinute > 150) {
-    return "핵심 메시지는 좋지만, 빠르게 지나간 구간이 있어요.";
-  }
-
-  return "핵심 흐름은 안정적이고, 발표 속도도 적절했어요.";
-}
-
-function buildCoachingDetail(
+function buildSlideReportRows(
+  deck: Deck | null,
   report: RehearsalReport | null,
-  deck: Deck | null,
-) {
-  if (!report) {
-    return "보고서가 준비되면 다음 연습에 집중할 내용을 보여드립니다.";
+  summary: RehearsalSummary | null,
+): SlideReportRow[] {
+  if (!deck || !report) {
+    return [];
   }
 
-  if (report.coaching?.nextPracticeFocus) {
-    return report.coaching.nextPracticeFocus;
-  }
+  return deck.slides.map((slide) => {
+    const timing = report.slideTimings.find(
+      (candidate) => candidate.slideId === slide.slideId,
+    );
+    const missedKeywords = report.missedKeywords.filter(
+      (keyword) => keyword.slideId === slide.slideId,
+    );
+    const summarySlide = summary?.slides.find(
+      (candidate) => candidate.slideId === slide.slideId,
+    );
+    const targetSeconds = timing?.targetSeconds ?? getSlideTargetSeconds(deck, slide);
+    const actualSeconds = timing?.actualSeconds ?? null;
+    const deltaSeconds =
+      actualSeconds === null ? 0 : Math.round(actualSeconds - targetSeconds);
+    const repeatedKeywordCount =
+      summarySlide?.repeatedMissedKeywords.reduce(
+        (count, keyword) => count + keyword.missCount,
+        0,
+      ) ?? 0;
 
-  const nextSlide =
-    deck?.slides[Math.min(2, Math.max(0, deck.slides.length - 1))];
-  const focus = nextSlide?.title ? `"${nextSlide.title}"` : "다음";
-  return `다음 리허설은 ${focus} 슬라이드의 자료 설명을 짧게 줄이고, 누락 키워드를 노트에 고정하는 데 집중하면 됩니다.`;
-}
-
-function getSpeakingSpeedAssessment(wordsPerMinute: number) {
-  if (isUnreliableSpeakingSpeed(wordsPerMinute)) {
     return {
-      displayValue: "확인 필요",
-      isUnreliable: true,
-      meterValue: 180,
-      message: "발표 시간 데이터가 불안정해 속도 판단을 확인해야 합니다.",
+      actionText: buildSlideActionText({
+        deltaSeconds,
+        hasRepeatedKeyword: repeatedKeywordCount > 0,
+        missedKeywordCount: missedKeywords.length,
+        timingAvailable: actualSeconds !== null,
+      }),
+      actualSecondsText:
+        actualSeconds === null
+          ? "기록 없음"
+          : `${formatDuration(actualSeconds)} / ${formatDuration(targetSeconds)}`,
+      deltaSeconds,
+      deltaText:
+        actualSeconds === null
+          ? "계산 불가"
+          : deltaSeconds > 0
+            ? `+${formatDuration(deltaSeconds)}`
+            : deltaSeconds < 0
+              ? `-${formatDuration(Math.abs(deltaSeconds))}`
+              : "목표와 같음",
+      isProblem: deltaSeconds > 0 || missedKeywords.length > 0,
+      label: `${slide.order}.`,
+      missedKeywords,
+      slideId: slide.slideId,
+      title: getSlideTitle(slide),
     };
-  }
-
-  if (wordsPerMinute <= 0) {
-    return {
-      displayValue: "-",
-      isUnreliable: true,
-      meterValue: 80,
-      message: "발표 시간 데이터를 확인할 수 없어 속도 판단이 어렵습니다.",
-    };
-  }
-
-  if (wordsPerMinute < 100) {
-    return {
-      displayValue: String(Math.round(wordsPerMinute)),
-      isUnreliable: false,
-      meterValue: clamp(Math.round(wordsPerMinute), 80, 180),
-      message: "권장 범위보다 다소 느린 속도로 발표했어요.",
-    };
-  }
-
-  if (wordsPerMinute <= 150) {
-    return {
-      displayValue: String(Math.round(wordsPerMinute)),
-      isUnreliable: false,
-      meterValue: clamp(Math.round(wordsPerMinute), 80, 180),
-      message: "권장 범위 안에서 안정적인 속도로 발표했어요.",
-    };
-  }
-
-  return {
-    displayValue: String(Math.round(wordsPerMinute)),
-    isUnreliable: false,
-    meterValue: clamp(Math.round(wordsPerMinute), 80, 180),
-    message: "권장 범위보다 빠른 속도로 발표했어요.",
-  };
-}
-
-function isUnreliableSpeakingSpeed(wordsPerMinute: number) {
-  return !Number.isFinite(wordsPerMinute) || wordsPerMinute > 250;
-}
-
-function formatSpeakingSpeedValue(wordsPerMinute: number) {
-  if (isUnreliableSpeakingSpeed(wordsPerMinute)) {
-    return "확인 필요";
-  }
-
-  if (wordsPerMinute <= 0) {
-    return "-";
-  }
-
-  return `${Math.round(wordsPerMinute)} wpm`;
-}
-
-function buildMissedKeywordRows(
-  deck: Deck | null,
-  missedKeywords: RehearsalReport["missedKeywords"],
-) {
-  const rowsBySlideId = new Map<
-    string,
-    {
-      label: string;
-      keywords: RehearsalReport["missedKeywords"];
-      slideId: string;
-    }
-  >();
-  const slideOrder = new Map(
-    deck?.slides.map((slide, index) => [slide.slideId, index + 1]) ?? [],
-  );
-
-  for (const keyword of missedKeywords) {
-    const slideNumber = slideOrder.get(keyword.slideId);
-    const row = rowsBySlideId.get(keyword.slideId) ?? {
-      label:
-        typeof slideNumber === "number"
-          ? `슬라이드${slideNumber}`
-          : keyword.slideId,
-      keywords: [],
-      slideId: keyword.slideId,
-    };
-    row.keywords.push(keyword);
-    rowsBySlideId.set(keyword.slideId, row);
-  }
-
-  return Array.from(rowsBySlideId.values()).sort((left, right) => {
-    const leftOrder = slideOrder.get(left.slideId) ?? Number.MAX_SAFE_INTEGER;
-    const rightOrder = slideOrder.get(right.slideId) ?? Number.MAX_SAFE_INTEGER;
-    if (leftOrder !== rightOrder) return leftOrder - rightOrder;
-    return 0;
   });
 }
 
-function formatRehearsalCompletionPercent(
-  deck: Deck | null,
-  slideTimings: RehearsalReport["slideTimings"],
-) {
-  const totalSlides = deck?.slides.length ?? 0;
-  if (totalSlides <= 0 || slideTimings.length === 0) {
-    return "-";
+function buildSlideActionText(input: {
+  deltaSeconds: number;
+  hasRepeatedKeyword: boolean;
+  missedKeywordCount: number;
+  timingAvailable: boolean;
+}) {
+  if (input.hasRepeatedKeyword) {
+    return "반복 누락된 키워드를 발표 노트 첫 줄에서 확인하기";
   }
 
-  const deckSlideIds = new Set(deck?.slides.map((slide) => slide.slideId));
-  const completedSlideIds = new Set(
-    slideTimings
-      .filter(
-        (timing) =>
-          timing.actualSeconds > 0 && deckSlideIds.has(timing.slideId),
-      )
-      .map((timing) => timing.slideId),
-  );
-  if (completedSlideIds.size === 0) {
-    return "-";
+  if (input.deltaSeconds > 0 && input.missedKeywordCount > 0) {
+    return "설명은 줄이고 누락 키워드를 먼저 말하기";
   }
 
-  return `${Math.min(100, Math.round((completedSlideIds.size / totalSlides) * 100))}%`;
+  if (input.deltaSeconds > 0) {
+    return "예시 설명을 줄이고 결론을 먼저 말하기";
+  }
+
+  if (input.missedKeywordCount > 0) {
+    return "누락 키워드를 체크하고 다음 장표로 넘어가기";
+  }
+
+  if (!input.timingAvailable) {
+    return "다음 리허설에서 장표 시간을 다시 기록하기";
+  }
+
+  return "현재 흐름 유지";
 }
 
-function getTargetDurationSeconds(deck: Deck | null) {
-  return Math.max(60, (deck?.targetDurationMinutes ?? 10) * 60);
+function buildImmediateFixes(
+  slideRows: SlideReportRow[],
+  report: RehearsalReport | null,
+) {
+  const fixes: string[] = [];
+  const longestOverTarget = slideRows
+    .filter((row) => row.deltaSeconds > 0)
+    .sort((left, right) => right.deltaSeconds - left.deltaSeconds)[0];
+  if (longestOverTarget) {
+    fixes.push(
+      `${longestOverTarget.label} ${longestOverTarget.title} 장표가 목표보다 ${formatDuration(longestOverTarget.deltaSeconds)} 길었어요.`,
+    );
+  }
+
+  const keywordRow = slideRows.find((row) => row.missedKeywords.length > 0);
+  if (keywordRow) {
+    fixes.push(
+      `${keywordRow.label} ${keywordRow.title} 장표에서 누락 키워드 ${keywordRow.missedKeywords.length}개가 확인됐어요.`,
+    );
+  }
+
+  if (report?.coaching?.nextPracticeFocus) {
+    fixes.push(report.coaching.nextPracticeFocus);
+  }
+
+  if (fixes.length === 0) {
+    fixes.push("목표 시간과 누락 키워드 기준으로 큰 문제 없이 마무리했어요.");
+  }
+
+  return fixes.slice(0, 3);
+}
+
+function formatTrendText(slide: RehearsalSummary["slides"][number]) {
+  const parts: string[] = [];
+  if ((slide.deltaFromAverageSeconds ?? 0) > 0) {
+    parts.push(`평균보다 ${formatDuration(slide.deltaFromAverageSeconds ?? 0)} 길었어요`);
+  }
+  if (slide.repeatedMissedKeywords.length > 0) {
+    parts.push(
+      `반복 누락 ${slide.repeatedMissedKeywords
+        .map((keyword) => keyword.text)
+        .join(", ")}`,
+    );
+  }
+
+  return parts.join(" · ") || "누적 변화 없음";
 }
 
 function getSlideTargetSeconds(deck: Deck, slide: Slide) {

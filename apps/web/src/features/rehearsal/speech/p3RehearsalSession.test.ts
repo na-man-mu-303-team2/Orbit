@@ -132,7 +132,8 @@ describe("p3RehearsalSession", () => {
           keywordId: "kw_privacy"
         }
       ],
-      adviceEvents: []
+      adviceEvents: [],
+      endedAt: new Date(10_000).toISOString()
     });
     expect(JSON.stringify(meta)).not.toContain("생성형 AI 초안");
     expect(JSON.stringify(meta)).not.toContain("speakerNotes");

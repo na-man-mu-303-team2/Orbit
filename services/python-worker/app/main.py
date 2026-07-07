@@ -136,6 +136,8 @@ class DeckKeywordRequest(BaseModel):
     text: str
     synonyms: list[str] = Field(default_factory=list)
     abbreviations: list[str] = Field(default_factory=list)
+    required: bool = True
+    keyword_role: str = Field(default="required-message", alias="keywordRole")
 
 
 class RehearsalAnalyzeRequest(BaseModel):
@@ -182,6 +184,7 @@ class RehearsalMissedKeywordResponse(BaseModel):
     slide_id: str = Field(alias="slideId")
     keyword_id: str = Field(alias="keywordId")
     text: str
+    keyword_role: str = Field(default="required-message", alias="keywordRole")
 
 
 class RehearsalAnalyzeResponse(BaseModel):
@@ -541,6 +544,8 @@ def analyze_rehearsal(
             text=keyword.text,
             synonyms=keyword.synonyms,
             abbreviations=keyword.abbreviations,
+            required=keyword.required,
+            keyword_role=keyword.keyword_role,
         )
         for keyword in payload.deck_keywords
     ]
@@ -594,6 +599,7 @@ def analyze_rehearsal(
                 slideId=keyword.slide_id,
                 keywordId=keyword.keyword_id,
                 text=keyword.text,
+                keywordRole=keyword.keyword_role,
             )
             for keyword in metrics.missed_keywords
         ],

@@ -374,7 +374,7 @@ function createDeck(): Deck {
 function createLegacyKeywordDeck(deck: Deck): Deck {
   const legacyDeck = cloneJson(deck);
 
-  legacyDeck.slides[0].keywords = [
+  (legacyDeck.slides[0] as { keywords: unknown[] }).keywords = [
     {
       keywordId: "kw_one",
       text: " ORBIT ",
@@ -401,7 +401,8 @@ function createNormalizedLegacyKeywords(): Deck["slides"][number]["keywords"] {
       text: "ORBIT",
       synonyms: ["발표 도우미", "리허설"],
       abbreviations: ["OD", "STT"],
-      required: true
+      required: true,
+      keywordRole: "required-message"
     }
   ];
 }

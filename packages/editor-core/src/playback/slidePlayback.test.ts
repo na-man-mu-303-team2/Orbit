@@ -49,7 +49,8 @@ function createSlide(): Slide {
         text: "강조",
         synonyms: [],
         abbreviations: [],
-        required: false
+        required: false,
+        keywordRole: "supporting-keyword"
       }
     ],
     animations: [

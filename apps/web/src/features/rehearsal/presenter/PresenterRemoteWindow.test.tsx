@@ -68,6 +68,7 @@ describe("PresenterRemoteWindow", () => {
           synonyms: [],
           abbreviations: [],
           required: true,
+          keywordRole: "required-message" as const
         },
         {
           keywordId: "keyword_two",
@@ -75,6 +76,7 @@ describe("PresenterRemoteWindow", () => {
           synonyms: [],
           abbreviations: [],
           required: true,
+          keywordRole: "required-message" as const
         },
       ],
     };

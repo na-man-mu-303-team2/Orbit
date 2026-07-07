@@ -10,8 +10,12 @@ import {
   createRehearsalRunResponseSchema,
   getRehearsalReportResponseSchema,
   getRehearsalRunResponseSchema,
+  getRehearsalSummaryQuerySchema,
+  getRehearsalSummaryResponseSchema,
+  rehearsalReportSchema,
   updateRehearsalRunMetaRequestSchema,
   updateRehearsalRunMetaResponseSchema,
+  type RehearsalReport,
   type RehearsalRun
 } from "@orbit/shared";
 import { BadRequestException, Inject, Injectable, NotFoundException } from "@nestjs/common";
@@ -235,6 +239,52 @@ export class RehearsalsService {
     });
   }
 
+  async getSummary(projectId: string, query: unknown) {
+    const request = parseRequest(getRehearsalSummaryQuerySchema, query);
+    await this.projectsService.getAccessibleProject(projectId);
+    const deckResponse = await this.decksService.getDeck(projectId);
+    if (deckResponse.deck.deckId !== request.deckId) {
+      throw new BadRequestException("deckId does not match the project deck.");
+    }
+
+    const runs = await this.rehearsalRuns.find({
+      where: {
+        projectId,
+        deckId: request.deckId,
+        status: "succeeded"
+      },
+      order: { createdAt: "DESC" },
+      take: request.limit
+    });
+
+    const reports = runs
+      .map((run) => parseSavedReport(run))
+      .filter((report): report is { report: RehearsalReport; run: RehearsalRunEntity } =>
+        Boolean(report)
+      );
+    const current =
+      request.currentRunId === undefined
+        ? reports[0]
+        : reports.find((entry) => entry.run.runId === request.currentRunId);
+
+    return getRehearsalSummaryResponseSchema.parse({
+      summary: {
+        projectId,
+        deckId: request.deckId,
+        currentRunId: current?.run.runId ?? request.currentRunId ?? null,
+        runCount: reports.length,
+        runs: reports.map(({ report, run }) => ({
+          runId: run.runId,
+          generatedAt: report.generatedAt,
+          durationSeconds: report.metrics.durationSeconds,
+          missedKeywordCount: report.missedKeywords.length,
+          slideTimingCount: report.slideTimings.length
+        })),
+        slides: buildSummarySlides(reports, current?.report ?? null)
+      }
+    });
+  }
+
   private async getRunEntity(runId: string) {
     const run = await this.rehearsalRuns.findOne({ where: { runId } });
     if (!run) {
@@ -307,6 +357,101 @@ export class RehearsalsService {
       };
     }
   }
+}
+
+function parseSavedReport(run: RehearsalRunEntity) {
+  if (!run.reportJson) {
+    return null;
+  }
+
+  return {
+    run,
+    report: rehearsalReportSchema.parse(run.reportJson)
+  };
+}
+
+function buildSummarySlides(
+  reports: Array<{ report: RehearsalReport; run: RehearsalRunEntity }>,
+  currentReport: RehearsalReport | null
+) {
+  const slideIds = new Set<string>();
+  for (const { report } of reports) {
+    for (const timing of report.slideTimings) {
+      slideIds.add(timing.slideId);
+    }
+    for (const keyword of report.missedKeywords) {
+      slideIds.add(keyword.slideId);
+    }
+  }
+
+  return Array.from(slideIds)
+    .sort()
+    .map((slideId) => {
+      const timings = reports.flatMap(({ report }) =>
+        report.slideTimings.filter((timing) => timing.slideId === slideId)
+      );
+      const averageActualSeconds =
+        timings.length > 0
+          ? Math.round(
+              timings.reduce((sum, timing) => sum + timing.actualSeconds, 0) /
+                timings.length
+            )
+          : null;
+      const currentActualSeconds =
+        currentReport?.slideTimings.find((timing) => timing.slideId === slideId)
+          ?.actualSeconds ?? null;
+      const repeatedMissedKeywords = buildRepeatedMissedKeywords(reports, slideId);
+
+      return {
+        slideId,
+        sampleCount: timings.length,
+        averageActualSeconds,
+        currentActualSeconds,
+        deltaFromAverageSeconds:
+          currentActualSeconds !== null && averageActualSeconds !== null
+            ? currentActualSeconds - averageActualSeconds
+            : null,
+        repeatedMissedKeywords
+      };
+    });
+}
+
+function buildRepeatedMissedKeywords(
+  reports: Array<{ report: RehearsalReport; run: RehearsalRunEntity }>,
+  slideId: string
+) {
+  const byKeyword = new Map<
+    string,
+    {
+      slideId: string;
+      keywordId: string;
+      text: string;
+      keywordRole: "required-message" | "supporting-keyword" | "action-trigger";
+      missCount: number;
+    }
+  >();
+
+  for (const { report } of reports) {
+    for (const keyword of report.missedKeywords) {
+      if (keyword.slideId !== slideId) {
+        continue;
+      }
+
+      const current = byKeyword.get(keyword.keywordId) ?? {
+        slideId: keyword.slideId,
+        keywordId: keyword.keywordId,
+        text: keyword.text,
+        keywordRole: keyword.keywordRole,
+        missCount: 0
+      };
+      current.missCount += 1;
+      byKeyword.set(keyword.keywordId, current);
+    }
+  }
+
+  return Array.from(byKeyword.values())
+    .filter((keyword) => keyword.missCount >= 2)
+    .sort((left, right) => right.missCount - left.missCount);
 }
 
 function toRehearsalRun(run: RehearsalRunEntity): RehearsalRun {
