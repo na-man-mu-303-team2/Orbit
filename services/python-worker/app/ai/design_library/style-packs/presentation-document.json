@@ -1,0 +1,29 @@
+{
+  "id": "presentation-document",
+  "theme": {
+    "name": "presentation-document",
+    "headingFontFamily": "Noto Sans KR",
+    "bodyFontFamily": "Noto Sans KR",
+    "background": "#ffffff",
+    "surface": "#ffffff",
+    "text": "#1A1A1A",
+    "accent": "#1F6FEB",
+    "secondary": "#475569",
+    "muted": "#F1F5FA",
+    "border": "#D7DDE5",
+    "titleSize": 64,
+    "headingSize": 42,
+    "bodySize": 24,
+    "captionSize": 16
+  },
+  "effects": {
+    "borderRadius": 8,
+    "shadow": {
+      "color": "#000000",
+      "blur": 8,
+      "offsetX": 0,
+      "offsetY": 2,
+      "opacity": 0.06
+    }
+  }
+}

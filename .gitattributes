@@ -1,0 +1,25 @@
+# Normalize text files while preserving explicit LF endings for scripts and configs.
+* text=auto
+.gitattributes text eol=lf
+
+# Script and source files should be stored with LF in Git.
+*.sh text eol=lf
+*.bash text eol=lf
+*.zsh text eol=lf
+*.fish text eol=lf
+*.ps1 text eol=lf
+*.py text eol=lf
+*.js text eol=lf
+*.jsx text eol=lf
+*.mjs text eol=lf
+*.cjs text eol=lf
+*.ts text eol=lf
+*.tsx text eol=lf
+
+# Project config files used by scripts and container builds.
+*.json text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.toml text eol=lf
+Dockerfile text eol=lf
+*.Dockerfile text eol=lf

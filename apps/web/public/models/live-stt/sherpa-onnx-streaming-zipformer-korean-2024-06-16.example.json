@@ -1,0 +1,31 @@
+{
+  "provider": "sherpa-onnx",
+  "modelId": "sherpa-onnx-streaming-zipformer-korean-2024-06-16",
+  "version": "2024-06-16",
+  "baseUrl": ".",
+  "sampleRate": 16000,
+  "numThreads": 1,
+  "decodingMethod": "greedy_search",
+  "runtime": {
+    "script": "sherpa-onnx-wasm-main-asr.js",
+    "wasm": "sherpa-onnx-wasm-main-asr.wasm",
+    "data": "sherpa-onnx-wasm-main-asr.data"
+  },
+  "model": {
+    "encoder": "encoder.onnx",
+    "decoder": "decoder.onnx",
+    "joiner": "joiner.onnx",
+    "tokens": "tokens.txt",
+    "bpeVocab": "bpe.vocab"
+  },
+  "files": {
+    "sherpa-onnx-wasm-main-asr.js": {},
+    "sherpa-onnx-wasm-main-asr.wasm": {},
+    "sherpa-onnx-wasm-main-asr.data": {},
+    "encoder.onnx": {},
+    "decoder.onnx": {},
+    "joiner.onnx": {},
+    "tokens.txt": {},
+    "bpe.vocab": {}
+  }
+}

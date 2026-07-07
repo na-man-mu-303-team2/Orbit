@@ -1,0 +1,46 @@
+{
+  "id": "teal-professional-process",
+  "theme": {
+    "name": "teal-professional-process",
+    "headingFontFamily": "Noto Sans KR",
+    "bodyFontFamily": "Noto Sans KR",
+    "background": "#ffffff",
+    "surface": "#ffffff",
+    "text": "#0f172a",
+    "accent": "#006878",
+    "secondary": "#b7d9d8",
+    "muted": "#eef6f5",
+    "border": "#c7d2d0",
+    "titleSize": 60,
+    "headingSize": 42,
+    "bodySize": 26,
+    "captionSize": 18
+  },
+  "effects": {
+    "borderRadius": 8,
+    "shadow": {
+      "color": "#000000",
+      "blur": 16,
+      "offsetX": 0,
+      "offsetY": 4,
+      "opacity": 0.18
+    }
+  },
+  "topBand": {
+    "dark": "#003f43",
+    "light": "#eef6f5"
+  },
+  "card": {
+    "fill": "#ffffff",
+    "stroke": "#c7d2d0",
+    "borderRadius": 28
+  },
+  "callout": {
+    "fill": "#ffffff",
+    "stroke": "#c7d2d0",
+    "borderRadius": 8,
+    "text": "#006878"
+  },
+  "subtitleColor": "#6b7280",
+  "bodyColor": "#5f6368"
+}

@@ -1,0 +1,97 @@
+import {
+  enqueueGenerateDeckJob,
+  type EnqueueGenerateDeckJobInput
+} from "@orbit/job-queue";
+import { generateDeckRequestSchema, jobSchema } from "@orbit/shared";
+import { loadOrbitConfig } from "@orbit/config";
+import { BadRequestException, Injectable, Optional } from "@nestjs/common";
+import { z } from "zod";
+import { FilesService } from "../files/files.service";
+import { JobsService } from "../jobs/jobs.service";
+import { ProjectsService } from "../projects/projects.service";
+
+const generateDeckJobResponseSchema = z.object({
+  job: jobSchema
+});
+
+type GenerateDeckJobResponse = z.infer<typeof generateDeckJobResponseSchema>;
+const pptxMimeType =
+  "application/vnd.openxmlformats-officedocument.presentationml.presentation";
+
+@Injectable()
+export class GenerateDeckService {
+  private readonly config = loadOrbitConfig(process.env, { service: "api" });
+
+  constructor(
+    private readonly jobsService: JobsService,
+    private readonly projectsService: ProjectsService,
+    @Optional()
+    private readonly enqueueJob: (
+      input: EnqueueGenerateDeckJobInput
+    ) => Promise<void> = enqueueGenerateDeckJob,
+    @Optional()
+    private readonly filesService?: FilesService
+  ) {}
+
+  async createJob(
+    projectId: string,
+    body: unknown
+  ): Promise<GenerateDeckJobResponse> {
+    await this.projectsService.getAccessibleProject(projectId);
+
+    const request = generateDeckRequestSchema.parse(body);
+    await this.assertDesignReferences(projectId, request.designReferences);
+    const queuedJob = await this.jobsService.create({
+      projectId,
+      type: "ai-deck-generation",
+      payload: { request }
+    });
+
+    try {
+      await this.enqueueJob({
+        driver: this.config.JOB_QUEUE_DRIVER,
+        redisUrl: this.config.REDIS_URL,
+        jobId: queuedJob.jobId,
+        projectId,
+        request
+      });
+    } catch (error) {
+      await this.jobsService.update(queuedJob.jobId, {
+        status: "failed",
+        progress: 0,
+        message: "AI deck generation enqueue failed.",
+        error: {
+          code: "GENERATE_DECK_ENQUEUE_FAILED",
+          message:
+            error instanceof Error
+              ? error.message
+              : "AI deck generation enqueue failed."
+        }
+      });
+      throw error;
+    }
+
+    return generateDeckJobResponseSchema.parse({ job: queuedJob });
+  }
+
+  private async assertDesignReferences(
+    projectId: string,
+    designReferences: Array<{ fileId: string }>
+  ): Promise<void> {
+    if (designReferences.length === 0) return;
+    if (!this.filesService) {
+      throw new BadRequestException("Design reference validation is unavailable.");
+    }
+
+    for (const reference of designReferences) {
+      const asset = await this.filesService.getUploadedAsset(
+        projectId,
+        reference.fileId
+      );
+
+      if (asset.mimeType !== pptxMimeType) {
+        throw new BadRequestException("Design references must be uploaded PPTX files.");
+      }
+    }
+  }
+}

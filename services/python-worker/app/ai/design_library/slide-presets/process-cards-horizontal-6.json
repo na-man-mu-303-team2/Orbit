@@ -1,0 +1,19 @@
+{
+  "id": "process-cards-horizontal-6",
+  "intent": "process",
+  "stepCount": 6,
+  "layout": "title-content",
+  "maxElements": 64,
+  "preferredStylePackId": "teal-professional-process",
+  "recipe": {
+    "topBand": true,
+    "sectionLabelCard": true,
+    "titleBlock": "center",
+    "cards": 6,
+    "badge": true,
+    "lineIcon": true,
+    "arrows": 5,
+    "callout": true,
+    "pageNumber": true
+  }
+}
