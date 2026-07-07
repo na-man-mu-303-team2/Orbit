@@ -50,7 +50,14 @@ import {
   Volume2,
   Zap,
 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import {
   LiveSttAdapterError,
   type LiveSttAdapter,
@@ -5260,14 +5267,11 @@ function splitPrompterSentence(
     };
   }
 
-  const words = text.trim().split(/\s+/).filter(Boolean);
-  const emphasisWordCount = Math.min(words.length, words.length > 4 ? 2 : 1);
-  const currentEmphasis = words.slice(0, emphasisWordCount).join(" ");
   return {
     currentLead: "",
-    currentEmphasis,
+    currentEmphasis: "",
     currentSegments,
-    currentTail: text.trim().slice(currentEmphasis.length),
+    currentTail: text.trim(),
   };
 }
 
@@ -5491,16 +5495,7 @@ function getPrompterEmphasisRanges(text: string) {
     ];
   }
 
-  const tokens = Array.from(text.matchAll(/[^\s]+/g));
-  const emphasisWordCount = Math.min(tokens.length, tokens.length > 4 ? 2 : 1);
-  const ranges: Array<{ end: number; start: number }> = [];
-  for (let index = 0; index < emphasisWordCount; index += 1) {
-    const match = tokens[index];
-    if (match?.index !== undefined) {
-      ranges.push({ start: match.index, end: match.index + match[0].length });
-    }
-  }
-  return ranges;
+  return [];
 }
 
 function getSegmentTextOffset(segments: readonly string[], segmentIndex: number) {
@@ -6091,20 +6086,33 @@ function formatClock(totalSeconds: number) {
 }
 
 function usePresenterStageScale(deck: Deck | null) {
-  const presenterStageRef = useRef<HTMLDivElement | null>(null);
+  const [presenterStageElement, setPresenterStageElement] =
+    useState<HTMLDivElement | null>(null);
   const [presenterScale, setPresenterScale] = useState(0.44);
+  const presenterStageRef = useCallback((node: HTMLDivElement | null) => {
+    setPresenterStageElement(node);
+  }, []);
 
   useEffect(() => {
-    const stage = presenterStageRef.current;
+    const stage = presenterStageElement;
     if (!stage || !deck) {
       return;
     }
 
+    let animationFrame: number | null = null;
+
     const updateScale = () => {
       const bounds = stage.getBoundingClientRect();
+      const style = window.getComputedStyle(stage);
+      const horizontalPadding =
+        Number.parseFloat(style.paddingLeft) + Number.parseFloat(style.paddingRight);
+      const verticalPadding =
+        Number.parseFloat(style.paddingTop) + Number.parseFloat(style.paddingBottom);
+      const availableWidth = Math.max(0, bounds.width - horizontalPadding);
+      const availableHeight = Math.max(0, bounds.height - verticalPadding);
       const nextScale = Math.min(
-        bounds.width / deck.canvas.width,
-        bounds.height / deck.canvas.height,
+        availableWidth / deck.canvas.width,
+        availableHeight / deck.canvas.height,
       );
       if (Number.isFinite(nextScale) && nextScale > 0) {
         setPresenterScale((current) =>
@@ -6112,18 +6120,37 @@ function usePresenterStageScale(deck: Deck | null) {
         );
       }
     };
+    const scheduleScaleUpdate = () => {
+      if (animationFrame !== null) {
+        window.cancelAnimationFrame(animationFrame);
+      }
+      animationFrame = window.requestAnimationFrame(updateScale);
+    };
 
     updateScale();
+    scheduleScaleUpdate();
 
     if (typeof ResizeObserver === "undefined") {
-      window.addEventListener("resize", updateScale);
-      return () => window.removeEventListener("resize", updateScale);
+      window.addEventListener("resize", scheduleScaleUpdate);
+      return () => {
+        window.removeEventListener("resize", scheduleScaleUpdate);
+        if (animationFrame !== null) {
+          window.cancelAnimationFrame(animationFrame);
+        }
+      };
     }
 
-    const observer = new ResizeObserver(updateScale);
+    const observer = new ResizeObserver(scheduleScaleUpdate);
     observer.observe(stage);
-    return () => observer.disconnect();
-  }, [deck]);
+    window.addEventListener("resize", scheduleScaleUpdate);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", scheduleScaleUpdate);
+      if (animationFrame !== null) {
+        window.cancelAnimationFrame(animationFrame);
+      }
+    };
+  }, [deck, presenterStageElement]);
 
   return { presenterScale, presenterStageRef };
 }

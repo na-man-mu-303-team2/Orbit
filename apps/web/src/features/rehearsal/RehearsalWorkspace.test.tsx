@@ -1699,6 +1699,33 @@ describe("RehearsalWorkspace", () => {
     ]);
   });
 
+  it("does not add arbitrary leading emphasis to teleprompter tokens", () => {
+    const segments = buildKaraokePrompterSegments({
+      text: "이번 프로젝트는 NumPy 기반으로 MNIST를 설명합니다.",
+      transcript: "",
+      highlightTerms: [{ text: "MNIST", tone: "required" }],
+    });
+
+    const visibleSegments = segments.filter((segment) => segment.text.trim());
+
+    expect(visibleSegments[0]).toMatchObject({
+      emphasis: false,
+      text: "이번",
+      tone: "default",
+    });
+    expect(visibleSegments[1]).toMatchObject({
+      emphasis: false,
+      text: "프로젝트는",
+      tone: "default",
+    });
+    expect(
+      visibleSegments.find((segment) => segment.text.includes("MNIST")),
+    ).toMatchObject({
+      emphasis: false,
+      tone: "required",
+    });
+  });
+
   it("delegates auto-advance policy to the P4 controller instead of keyword coverage timers", () => {
     const source = fs.readFileSync(rehearsalWorkspaceSourcePath, "utf8");
     const start = source.indexOf("function handleLivePartialTranscript");
