@@ -139,7 +139,7 @@ export async function processRehearsalSttJob(
   await updateJob(dataSource, payload.jobId, {
     status: "running",
     progress: 10,
-    message: "Rehearsal STT running.",
+    message: "입력 데이터 확인 중",
     result: null,
     error: null
   });
@@ -179,6 +179,8 @@ export async function processRehearsalSttJob(
     );
   }
 
+  await progressJob(dataSource, payload.jobId, 30, "음성 변환 중");
+
   let transcribePayload: z.infer<typeof transcribeResponseSchema>;
   try {
     const response = await fetch(workerUrl(pythonWorkerUrl, "/audio/transcribe"), {
@@ -202,7 +204,7 @@ export async function processRehearsalSttJob(
         storage,
         asset,
         payload,
-        10,
+        30,
         "PYTHON_WORKER_STT_FAILED",
         (await response.text()) || "Python worker STT failed."
       );
@@ -215,11 +217,13 @@ export async function processRehearsalSttJob(
       storage,
       asset,
       payload,
-      10,
+      30,
       "PYTHON_WORKER_STT_UNAVAILABLE",
       error instanceof Error ? error.message : "Python worker STT unavailable."
     );
   }
+
+  await progressJob(dataSource, payload.jobId, 65, "발화 지표 분석 중");
 
   let analysis: z.infer<typeof analyzeResponseSchema>;
   try {
@@ -235,11 +239,13 @@ export async function processRehearsalSttJob(
       storage,
       asset,
       payload,
-      60,
+      65,
       "PYTHON_WORKER_ANALYZE_FAILED",
       error instanceof Error ? error.message : "Python worker analysis failed."
     );
   }
+
+  await progressJob(dataSource, payload.jobId, 85, "리포트 생성 중");
 
   let rawAudioDeletedAt: string;
   try {
@@ -248,7 +254,7 @@ export async function processRehearsalSttJob(
     return failJobAndRun(
       dataSource,
       payload,
-      90,
+      85,
       "RAW_AUDIO_DELETE_FAILED",
       error instanceof Error ? error.message : "Raw audio deletion failed."
     );
@@ -268,7 +274,7 @@ export async function processRehearsalSttJob(
     return failJobAndRun(
       dataSource,
       payload,
-      90,
+      85,
       "REHEARSAL_REPORT_INVALID",
       error instanceof Error ? error.message : "Rehearsal report validation failed.",
       { rawAudioDeletedAt }
@@ -286,7 +292,7 @@ export async function processRehearsalSttJob(
   return updateJob(dataSource, payload.jobId, {
     status: "succeeded",
     progress: 100,
-    message: "Rehearsal STT completed.",
+    message: "리포트 생성 완료",
     result: buildReportGenerationRecord(payload, transcribePayload, report, rawAudioDeletedAt),
     error: null
   });
@@ -752,6 +758,21 @@ async function updateRun(
   if (!readFirstQueryRow(rows)) {
     throw new Error(`Rehearsal run not found: ${payload.runId}`);
   }
+}
+
+async function progressJob(
+  dataSource: DataSource,
+  jobId: string,
+  progress: number,
+  message: string
+): Promise<void> {
+  await updateJob(dataSource, jobId, {
+    status: "running",
+    progress,
+    message,
+    result: null,
+    error: null
+  });
 }
 
 async function updateJob(
