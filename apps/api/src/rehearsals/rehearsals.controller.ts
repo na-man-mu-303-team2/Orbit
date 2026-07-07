@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post } from "@nestjs/common";
+import { Body, Controller, Get, Param, Patch, Post, Query } from "@nestjs/common";
 import { RehearsalsService } from "./rehearsals.service";
 
 @Controller()
@@ -26,8 +26,11 @@ export class RehearsalsController {
   }
 
   @Get("api/v1/projects/:projectId/rehearsals")
-  listRuns(@Param("projectId") projectId: string) {
-    return this.rehearsalsService.listRuns(projectId);
+  listRuns(
+    @Param("projectId") projectId: string,
+    @Query() query: Record<string, string>,
+  ) {
+    return this.rehearsalsService.listRuns(projectId, query);
   }
 
   @Get("api/v1/rehearsals/:runId")

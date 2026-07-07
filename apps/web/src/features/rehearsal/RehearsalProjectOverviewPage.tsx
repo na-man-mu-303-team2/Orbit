@@ -2,7 +2,7 @@ import { ArrowLeft, FileText, Loader2, Mic, TrendingUp } from "lucide-react";
 import { useEffect, useState } from "react";
 import type { Project, RehearsalRun } from "@orbit/shared";
 import { fetchProjects } from "../projects/ProjectAssetWorkspace";
-import { fetchProjectRehearsalRuns } from "./RehearsalWorkspace";
+import { fetchProjectRehearsalReportRuns } from "./reportApi";
 import { RehearsalRunNav } from "./RehearsalRunNav";
 import {
   navigateTo,
@@ -27,15 +27,13 @@ export function RehearsalProjectOverviewPage({
 
     void Promise.all([
       fetchProjects(),
-      fetchProjectRehearsalRuns(projectId),
+      fetchProjectRehearsalReportRuns(projectId),
     ])
-      .then(([projects, allRuns]) => {
+      .then(([projects, { runs: succeededRuns }]) => {
         if (!isMounted) return;
         const proj =
           projects.find((p) => p.projectId === projectId) ?? null;
-        const succeeded = sortRehearsalRunsByCreatedAt(
-          allRuns.filter((r) => r.status === "succeeded"),
-        );
+        const succeeded = sortRehearsalRunsByCreatedAt(succeededRuns);
         setProject(proj);
         setRuns(succeeded);
         setLoading(false);

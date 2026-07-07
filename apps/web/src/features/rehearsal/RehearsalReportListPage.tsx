@@ -2,7 +2,7 @@ import { ChevronRight, FileText, Loader2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import type { Project, RehearsalRun } from "@orbit/shared";
 import { fetchProjects } from "../projects/ProjectAssetWorkspace";
-import { fetchProjectRehearsalRuns } from "./RehearsalWorkspace";
+import { fetchProjectRehearsalReportRuns } from "./reportApi";
 import { navigateTo, formatRunDate } from "./rehearsalUtils";
 
 type ProjectWithReport = {
@@ -11,30 +11,36 @@ type ProjectWithReport = {
   totalCount: number;
 };
 
-export function RehearsalReportListPage(_props: { projectId?: string }) {
+export function RehearsalReportListPage({ projectId }: { projectId?: string }) {
   const [items, setItems] = useState<ProjectWithReport[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    if (projectId) {
+      navigateTo(`/reports/${encodeURIComponent(projectId)}`);
+      return;
+    }
+
     let isMounted = true;
     setLoading(true);
 
     void fetchProjects()
       .then(async (allProjects) => {
         const runLists = await Promise.all(
-          allProjects.map((p) => fetchProjectRehearsalRuns(p.projectId)),
+          allProjects.map((p) => fetchProjectRehearsalReportRuns(p.projectId)),
         );
 
         const result: ProjectWithReport[] = [];
         for (let i = 0; i < allProjects.length; i++) {
-          const succeeded = runLists[i]
-            .filter((r) => r.status === "succeeded")
-            .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
-          if (succeeded.length > 0) {
+          const { runs, total } = runLists[i];
+          if (runs.length > 0) {
+            const sorted = [...runs].sort(
+              (a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt),
+            );
             result.push({
               project: allProjects[i],
-              latestRun: succeeded[0],
-              totalCount: succeeded.length,
+              latestRun: sorted[0],
+              totalCount: total,
             });
           }
         }
@@ -60,7 +66,7 @@ export function RehearsalReportListPage(_props: { projectId?: string }) {
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [projectId]);
 
   return (
     <div className="report-list-page">

@@ -222,14 +222,21 @@ export class RehearsalsService {
     return updateRehearsalRunMetaResponseSchema.parse({ run: toRehearsalRun(savedRun) });
   }
 
-  async listRuns(projectId: string) {
+  async listRuns(projectId: string, query: Record<string, string> = {}) {
     await this.projectsService.getAccessibleProject(projectId);
-    const runs = await this.rehearsalRuns.find({
-      where: { projectId },
+    const pageSize = Math.min(Math.max(Number(query.pageSize) || 50, 1), 100);
+    const page = Math.max(Number(query.page) || 1, 1);
+    const where: Record<string, unknown> = { projectId };
+    if (query.status) {
+      where["status"] = query.status;
+    }
+    const [runs, total] = await this.rehearsalRuns.findAndCount({
+      where,
       order: { createdAt: "DESC" },
-      take: 50
+      take: pageSize,
+      skip: (page - 1) * pageSize
     });
-    return { runs: runs.map(toRehearsalRun) };
+    return { runs: runs.map(toRehearsalRun), total, page, pageSize };
   }
 
   async getRun(runId: string) {
