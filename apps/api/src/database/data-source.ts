@@ -20,6 +20,8 @@ import { CreatePresentationSessions2026070201000 } from "./migrations/2026070201
 import { AddUniqueOpenPresentationSession2026070202000 } from "./migrations/2026070202000-AddUniqueOpenPresentationSession";
 import { AddRehearsalRunMetaJson2026070301000 } from "./migrations/2026070301000-AddRehearsalRunMetaJson";
 import { CreateTemplateBlueprints2026070301000 } from "./migrations/2026070301000-CreateTemplateBlueprints";
+import { CreateProjectRehearsalSummaries2026070801000 } from "./migrations/2026070801000-CreateProjectRehearsalSummaries";
+import { ReplaceRehearsalSummaryWithProjectComment2026070802000 } from "./migrations/2026070802000-ReplaceRehearsalSummaryWithProjectComment";
 
 loadDotenv({ path: "../../.env.local" });
 loadDotenv({ path: ".env.local" });
@@ -51,7 +53,9 @@ export const databaseOptions: DataSourceOptions = {
     CreatePresentationSessions2026070201000,
     AddUniqueOpenPresentationSession2026070202000,
     AddRehearsalRunMetaJson2026070301000,
-    CreateTemplateBlueprints2026070301000
+    CreateTemplateBlueprints2026070301000,
+    CreateProjectRehearsalSummaries2026070801000,
+    ReplaceRehearsalSummaryWithProjectComment2026070802000
   ],
   migrationsTableName: "typeorm_migrations",
   synchronize: false,

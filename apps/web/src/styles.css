@@ -5221,7 +5221,7 @@ button:disabled {
   padding: 6px 12px 10px;
 }
 
-.report-summary-section {
+.report-project-summary-section {
   border: 1px solid #e2e8f0;
   border-radius: 14px;
   display: grid;
@@ -5231,14 +5231,14 @@ button:disabled {
   max-width: 520px;
 }
 
-.report-summary-header {
+.report-project-summary-header {
   align-items: center;
   display: flex;
   gap: 10px;
   color: #1d4ed8;
 }
 
-.report-summary-header h2 {
+.report-project-summary-header h2 {
   font-size: 1rem;
   font-weight: 800;
   margin: 0;
@@ -5246,7 +5246,7 @@ button:disabled {
   color: #1f2937;
 }
 
-.report-summary-count {
+.report-project-summary-count {
   background: #eaf1ff;
   border-radius: 6px;
   color: #2563eb;
@@ -5255,33 +5255,94 @@ button:disabled {
   padding: 3px 10px;
 }
 
-.report-summary-cards {
+.report-project-progress-comment {
+  color: #475569;
+  font-size: 0.92rem;
+  font-weight: 600;
+  line-height: 1.55;
+  margin: 0;
+}
+
+.report-project-chart-block {
+  display: grid;
+  gap: 12px;
+}
+
+.report-project-chart-label {
+  color: #0f172a;
+  font-size: 0.95rem;
+  font-weight: 800;
+}
+
+.report-project-chart-svg {
+  color: #64748b;
+  display: block;
+  height: auto;
+  overflow: visible;
+  width: 100%;
+}
+
+.report-project-slide-chart {
+  align-items: end;
+  border-bottom: 1px solid #e2e8f0;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(28px, 1fr));
+  min-height: 120px;
+  padding: 8px 0 4px;
+}
+
+.report-project-slide-bar-wrap {
+  align-items: center;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  justify-content: end;
+  min-width: 0;
+}
+
+.report-project-slide-bar {
+  background: linear-gradient(180deg, #818cf8 0%, #4f46e5 100%);
+  border-radius: 999px 999px 6px 6px;
+  box-shadow: 0 10px 18px rgba(79, 70, 229, 0.16);
+  min-height: 6px;
+}
+
+.report-project-slide-bar-label {
+  color: #475569;
+  font-size: 0.82rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.report-project-summary-cards {
   display: grid;
   gap: 10px;
   grid-template-columns: repeat(3, 1fr);
 }
 
-.report-summary-card {
+.report-project-summary-card {
   background: #f8fafc;
+  border: 1px solid #e2e8f0;
   border-radius: 10px;
   display: grid;
   gap: 5px;
   padding: 16px;
 }
 
-.report-summary-card-label {
+.report-project-summary-card-label {
   color: #64748b;
   font-size: 0.78rem;
   font-weight: 600;
 }
 
-.report-summary-card-value {
+.report-project-summary-card-value {
   color: #0f172a;
   font-size: 1.3rem;
   font-weight: 900;
 }
 
-.report-summary-card-sub {
+.report-project-summary-card-sub {
   color: #94a3b8;
   font-size: 0.75rem;
 }
@@ -7421,6 +7482,7 @@ button:disabled {
   .rehearsal-report-nav,
   .report-overview-card,
   .report-summary-card,
+  .report-project-summary-section,
   .report-speed-card,
   .report-voice-card,
   .report-keyword-card,
@@ -7436,6 +7498,20 @@ button:disabled {
   .rrd-root {
     gap: 18px;
     padding: 20px 0 36px;
+  }
+
+  .report-project-summary-header {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .report-project-summary-cards {
+    grid-template-columns: 1fr;
+  }
+
+  .report-project-slide-chart {
+    gap: 8px;
+    grid-template-columns: repeat(auto-fit, minmax(24px, 1fr));
   }
 
   .rrd-overview-panel-head {

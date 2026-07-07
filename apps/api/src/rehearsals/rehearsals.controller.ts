@@ -42,4 +42,9 @@ export class RehearsalsController {
   getReport(@Param("runId") runId: string) {
     return this.rehearsalsService.getReport(runId);
   }
+
+  @Get("api/v1/projects/:projectId/rehearsal-summary")
+  getSummary(@Param("projectId") projectId: string) {
+    return this.rehearsalsService.getSummary(projectId);
+  }
 }

@@ -8,6 +8,7 @@ import {
   createRehearsalAudioUploadUrlResponseSchema,
   createRehearsalRunRequestSchema,
   createRehearsalRunResponseSchema,
+  getRehearsalProjectSummaryResponseSchema,
   getRehearsalReportResponseSchema,
   getRehearsalRunResponseSchema,
   updateRehearsalRunMetaRequestSchema,
@@ -24,6 +25,7 @@ import { DecksService } from "../decks/decks.service";
 import { FilesService } from "../files/files.service";
 import { JobsService } from "../jobs/jobs.service";
 import { serializeLogError } from "../logging";
+import { ProjectEntity } from "../projects/project.entity";
 import { ProjectsService } from "../projects/projects.service";
 import { RehearsalRunEntity } from "./rehearsal-run.entity";
 import { RedisRehearsalTranscriptCache } from "./rehearsal-transcript-cache";
@@ -42,6 +44,8 @@ export class RehearsalsService {
   constructor(
     @InjectRepository(RehearsalRunEntity)
     private readonly rehearsalRuns: Repository<RehearsalRunEntity>,
+    @InjectRepository(ProjectEntity)
+    private readonly projects: Repository<ProjectEntity>,
     private readonly decksService: DecksService,
     private readonly projectsService: ProjectsService,
     private readonly filesService: FilesService,
@@ -290,6 +294,53 @@ export class RehearsalsService {
     return run;
   }
 
+  async getSummary(projectId: string) {
+    await this.projectsService.getAccessibleProject(projectId);
+
+    const [runs, project] = await Promise.all([
+      this.rehearsalRuns.find({
+        where: { projectId, status: "succeeded" },
+        order: { createdAt: "ASC" }
+      }),
+      this.projects.findOne({ where: { projectId } })
+    ]);
+
+    if (runs.length === 0) {
+      return getRehearsalProjectSummaryResponseSchema.parse({ summary: null });
+    }
+
+    const runDurationSeries = runs.map((run) => ({
+      runId: run.runId,
+      createdAt: run.createdAt.toISOString(),
+      durationSeconds: extractReportDurationSeconds(run.rehearsalReport)
+    }));
+
+    const slideAccum = new Map<string, { total: number; count: number }>();
+    for (const run of runs) {
+      for (const t of extractReportSlideTimings(run.rehearsalReport)) {
+        const entry = slideAccum.get(t.slideId) ?? { total: 0, count: 0 };
+        entry.total += t.actualSeconds;
+        entry.count += 1;
+        slideAccum.set(t.slideId, entry);
+      }
+    }
+    const slideAvgTimings = Array.from(slideAccum.entries()).map(([slideId, { total, count }]) => ({
+      slideId,
+      avgSeconds: Math.round(total / count),
+      sampleCount: count
+    }));
+
+    return getRehearsalProjectSummaryResponseSchema.parse({
+      summary: {
+        projectId,
+        runCount: runs.length,
+        runDurationSeries,
+        slideAvgTimings,
+        progressComment: project?.progressComment ?? null
+      }
+    });
+  }
+
   private async claimAudioUpload(run: RehearsalRunEntity, fileId: string) {
     const result = await this.rehearsalRuns.update(
       {
@@ -366,4 +417,18 @@ function toRehearsalRun(run: RehearsalRunEntity): RehearsalRun {
     createdAt: run.createdAt.toISOString(),
     updatedAt: run.updatedAt.toISOString()
   };
+}
+
+type ReportJsonShape = {
+  metrics?: { durationSeconds?: number };
+  slideTimings?: { slideId: string; actualSeconds: number }[];
+};
+
+function extractReportDurationSeconds(report: Record<string, unknown> | null): number {
+  const metrics = (report as ReportJsonShape | null)?.metrics;
+  return typeof metrics?.durationSeconds === "number" ? metrics.durationSeconds : 0;
+}
+
+function extractReportSlideTimings(report: Record<string, unknown> | null): { slideId: string; actualSeconds: number }[] {
+  return (report as ReportJsonShape | null)?.slideTimings ?? [];
 }

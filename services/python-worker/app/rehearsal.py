@@ -40,6 +40,14 @@ FILLER_PHRASES = {
 
 LONG_PAUSE_THRESHOLD_SECONDS = 1.0
 
+PROGRESS_COMMENT_INSTRUCTIONS = """
+You are a Korean presentation rehearsal coach for ORBIT.
+You are given a list of rehearsal sessions for the same presentation, ordered by date.
+Analyze the trend in total presentation duration and identify whether the presenter is improving, declining, or staying consistent.
+Return only a single concise Korean sentence (2-3 lines max) that summarizes the overall progress trend and gives one actionable suggestion.
+Do not use bullet points. Write in a warm, encouraging tone.
+""".strip()
+
 COACHING_INSTRUCTIONS = """
 You are a Korean presentation rehearsal coach for ORBIT.
 Return only JSON with:
@@ -295,6 +303,49 @@ def generate_rehearsal_coaching(
         improvements=string_list(payload.get("improvements")),
         next_practice_focus=str(payload.get("nextPracticeFocus", "")).strip(),
     )
+
+
+@dataclass(frozen=True)
+class RunSeriesEntry:
+    run_id: str
+    created_at: str
+    duration_seconds: float
+
+
+def generate_progress_comment(
+    *,
+    run_series: list[RunSeriesEntry],
+    client: Any | None = None,
+    model: str,
+    api_key: str | None,
+) -> str | None:
+    if len(run_series) < 2:
+        return None
+
+    api_client: Any = client
+    if api_client is None:
+        if not api_key:
+            return None
+        from openai import OpenAI
+        api_client = OpenAI(api_key=api_key)
+
+    lines = "\n".join(
+        f"- 회차 {i + 1} ({entry.created_at[:10]}): {entry.duration_seconds:.0f}초"
+        for i, entry in enumerate(run_series)
+    )
+    input_text = f"리허설 회차별 총 발표 시간:\n{lines}"
+
+    try:
+        response = api_client.responses.create(
+            model=model,
+            instructions=PROGRESS_COMMENT_INSTRUCTIONS,
+            input=input_text,
+        )
+    except Exception:
+        return None
+
+    output_text = str(getattr(response, "output_text", "")).strip()
+    return output_text or None
 
 
 def transcript_words(transcript: str) -> list[str]:
