@@ -609,6 +609,7 @@ async function generateDeckWithPython(
       designBlueprint: design.designBlueprint,
       templateBlueprint: design.templateBlueprint,
       slideCountRange: request.slideCountRange,
+      imageReviewMode: "off",
     }),
     signal: AbortSignal.timeout(180_000),
   });

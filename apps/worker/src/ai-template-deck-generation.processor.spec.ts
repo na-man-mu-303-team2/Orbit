@@ -129,6 +129,7 @@ describe("processAiTemplateDeckGenerationJob", () => {
             }
           ],
           slideCountRange: { min: 4, max: 6 },
+          imageReviewMode: "off",
           templateBlueprint: expect.objectContaining({
             templateId: "template_file_design"
           })
