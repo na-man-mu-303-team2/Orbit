@@ -20,6 +20,7 @@ import {
   SherpaLiveSttAdapter,
   applyLiveTranscriptBias,
   applyLiveTranscriptEvent,
+  buildKaraokePrompterSegments,
   buildLiveSttBiasContext,
   confirmKeywordOccurrenceMatches,
   createKeywordOccurrenceAnimationCueEvent,
@@ -39,6 +40,7 @@ import {
   getLiveSttDebugDecodingMethod,
   getOccurrenceTriggerProgress,
   getRehearsalMicrophoneAudioConstraints,
+  getRehearsalPrompterRows,
   getRemainingTriggerStepsForSlide,
   normalizeRecordingMimeType,
   rehearsalMicrophoneAudioConstraints,
@@ -109,24 +111,58 @@ describe("RehearsalWorkspace", () => {
     vi.unstubAllGlobals();
   });
 
-  it("renders the current deck preview and notes", () => {
+  it("renders the pre-rehearsal preflight screen before recording starts", () => {
     const deck = createDemoDeck();
     const html = renderToStaticMarkup(
       <RehearsalWorkspace initialDeck={deck} />,
     );
 
     expect(html).toContain("리허설");
-    expect(html).toContain(deck.slides[0]?.title);
+    expect(html).toContain("리허설을 시작할까요?");
+    expect(html).toContain("마이크 권한 확인");
+    expect(html).toContain("권한 허용 요청");
+    expect(html).not.toContain("음성 인식 준비");
+    expect(html).toContain(`슬라이드 ${deck.slides.length}장 로드됨`);
+    expect(html).toContain("음성 트리거");
+    expect(html).toContain("리허설 시작");
+    expect(html).toContain("disabled=\"\"");
+    expect(html).toContain("마이크 권한을 허용해야 리허설을 시작할 수 있습니다.");
+    expect(html).toContain("음성 없이 연습하기");
+    expect(html).toContain("이번 목표는");
+    expect(html).not.toContain("지난번보다");
     expect(html).toContain("Live STT");
-    expect(html).toContain("Live STT 시작");
-    expect(html).toContain("Live STT 종료");
-    expect(html).not.toContain("Live STT 시작을 눌러 테스트하세요");
+    expect(html).not.toContain(deck.slides[0]?.title);
     expect(html).not.toContain("Partial transcript");
-    expect(html).toContain("Mic input");
-    expect(html).toContain("입력 대기");
-    expect(html).toContain("-100 dB RMS");
     expect(html).toContain("Report AI");
     expect(html).toContain("Speaker notes");
+  });
+
+  it("uses the stored previous rehearsal summary on the preflight screen", () => {
+    const deck = createDemoDeck();
+    const key = `orbit.rehearsal.lastSummary:${deck.projectId}:${deck.deckId}`;
+    vi.stubGlobal("window", {
+      localStorage: {
+        getItem: (requestedKey: string) =>
+          requestedKey === key
+            ? JSON.stringify({
+                completedAt: createdAt,
+                coveragePercent: 75,
+                deckId: deck.deckId,
+                durationSeconds: 270,
+                missedKeywordCount: 1,
+                projectId: deck.projectId,
+                targetSeconds: 300,
+              })
+            : null,
+      },
+    });
+
+    const html = renderToStaticMarkup(
+      <RehearsalWorkspace initialDeck={deck} />,
+    );
+
+    expect(html).toContain("지난 리허설은 4:30였습니다.");
+    expect(html).not.toContain("지난번보다 30초");
   });
 
   it("creates occurrence animation cue events with occurrence id and display text separated", () => {
@@ -560,7 +596,7 @@ describe("RehearsalWorkspace", () => {
 
   it("renders slide receiver mode without the presenter toolbar or notes", () => {
     const source = fs.readFileSync(rehearsalWorkspaceSourcePath, "utf8");
-    const start = source.indexOf('displayRole === "slide-receiver"');
+    const start = source.indexOf('if (\n    (displayRole === "slide-receiver"');
     const end = source.indexOf("if (isSingleScreenOpen");
     const slideReceiverRenderBody = source.slice(start, end);
 
@@ -677,7 +713,7 @@ describe("RehearsalWorkspace", () => {
     expect(handleSideTimerPrimaryActionBody).not.toContain("void startLiveDemo()");
   });
 
-  it("creates fallback Live STT ports from the selected presenter engine", () => {
+  it("creates fallback Live STT ports from the runtime-configured engine", () => {
     const source = fs.readFileSync(rehearsalWorkspaceSourcePath, "utf8");
     const defaultStart = source.indexOf("function createDefaultLiveSttPort");
     const defaultEnd = source.indexOf("export function RehearsalWorkspace");
@@ -693,16 +729,25 @@ describe("RehearsalWorkspace", () => {
       "shouldUseSherpaCompatibility && legacyAdapter",
     );
     expect(createDefaultLiveSttPortBody).toContain(
-      "return createLiveSttPort(engineId)",
+      "return createLiveSttPort(engineId,",
     );
+    expect(createDefaultLiveSttPortBody).toContain("projectId");
     expect(getOrCreateLiveSttPortBody).toContain("props.liveSttPort");
     expect(getOrCreateLiveSttPortBody).toContain(
-      "cachedPort?.engineId === presenterSettings.sttEngine",
+      "cachedPort?.engineId === engineId",
     );
+    expect(getOrCreateLiveSttPortBody).toContain(
+      'cachedPort.engineId !== "openai-realtime"',
+    );
+    expect(getOrCreateLiveSttPortBody).toContain("activeProjectId");
     expect(getOrCreateLiveSttPortBody).toContain("cachedPort?.dispose()");
     expect(getOrCreateLiveSttPortBody).toContain(
-      "engineId: presenterSettings.sttEngine",
+      "engineId",
     );
+    expect(source).toContain("await fetchLiveSttRuntimeConfig()");
+    expect(source).toContain("return presenterSettings.sttEngine");
+    expect(source).toContain("props.resolveLiveSttEngine()");
+    expect(source).toContain("props.createLiveSttPort(engineId)");
   });
 
   it("routes report recording through the P3 tracking session", () => {
@@ -1737,6 +1782,123 @@ describe("RehearsalWorkspace", () => {
     expect(renderLiveTranscriptBuffer(buffer)).toBe("새 슬라이드");
   });
 
+  it("marks teleprompter tokens as spoken from the live transcript prefix", () => {
+    const segments = buildKaraokePrompterSegments({
+      text: "오늘은 ORBIT 자동 발표를 연습합니다.",
+      transcript: "오늘은 ORBIT",
+    });
+
+    expect(segments.map((segment) => [segment.text, segment.spoken])).toEqual([
+      ["오늘은", true],
+      [" ", true],
+      ["ORBIT", true],
+      [" ", true],
+      ["자동", false],
+      [" ", false],
+      ["발표를", false],
+      [" ", false],
+      ["연습합니다.", false],
+    ]);
+  });
+
+  it("marks only the spoken Korean teleprompter prefix from the transcript", () => {
+    const segments = buildKaraokePrompterSegments({
+      text: "다음 슬라이드로 넘어갑니다.",
+      transcript: "다음",
+    });
+
+    expect(
+      segments
+        .filter((segment) => segment.text.trim())
+        .map((segment) => [segment.text, segment.spoken]),
+    ).toEqual([
+      ["다음", true],
+      ["슬라이드로", false],
+      ["넘어갑니다.", false],
+    ]);
+  });
+
+  it("keeps the prompter on an incomplete covered sentence until its prefix is spoken", () => {
+    const rows = getRehearsalPrompterRows(
+      [
+        {
+          sentenceId: "sentence_1",
+          text: "첫 문장은 아직 끝까지 읽지 않았습니다.",
+          index: 0,
+          isFinalTrigger: false,
+          matchable: true,
+          candidates: [],
+        },
+        {
+          sentenceId: "sentence_2",
+          text: "다음 문장입니다.",
+          index: 1,
+          isFinalTrigger: true,
+          matchable: true,
+          candidates: [],
+        },
+      ],
+      ["sentence_1"],
+      "",
+      "첫 문장은",
+    );
+
+    expect(rows.currentSegments.map((segment) => segment.text).join("")).toBe(
+      "첫 문장은 아직 끝까지 읽지 않았습니다.",
+    );
+    expect(rows.next).toBe("다음 문장입니다.");
+  });
+
+  it("assigns distinct teleprompter tones to important script terms", () => {
+    const segments = buildKaraokePrompterSegments({
+      text: "ORBIT 다음 슬라이드 강조",
+      transcript: "",
+      highlightTerms: [
+        { text: "ORBIT", tone: "required" },
+        { text: "다음 슬라이드", tone: "next" },
+        { text: "강조", tone: "cue" },
+      ],
+    });
+
+    expect(
+      segments
+        .filter((segment) => segment.text.trim())
+        .map((segment) => [segment.text, segment.tone]),
+    ).toEqual([
+      ["ORBIT", "required"],
+      ["다음", "next"],
+      ["슬라이드", "next"],
+      ["강조", "cue"],
+    ]);
+  });
+
+  it("does not add arbitrary leading emphasis to teleprompter tokens", () => {
+    const segments = buildKaraokePrompterSegments({
+      text: "이번 프로젝트는 NumPy 기반으로 MNIST를 설명합니다.",
+      transcript: "",
+      highlightTerms: [{ text: "MNIST", tone: "required" }],
+    });
+
+    const visibleSegments = segments.filter((segment) => segment.text.trim());
+
+    expect(visibleSegments[0]).toMatchObject({
+      emphasis: false,
+      text: "이번",
+      tone: "default",
+    });
+    expect(visibleSegments[1]).toMatchObject({
+      emphasis: false,
+      text: "프로젝트는",
+      tone: "default",
+    });
+    expect(
+      visibleSegments.find((segment) => segment.text.includes("MNIST")),
+    ).toMatchObject({
+      emphasis: false,
+      tone: "required",
+    });
+  });
+
   it("delegates auto-advance policy to the P4 controller instead of keyword coverage timers", () => {
     const source = fs.readFileSync(rehearsalWorkspaceSourcePath, "utf8");
     const start = source.indexOf("function handleLivePartialTranscript");
@@ -2075,6 +2237,24 @@ describe("RehearsalWorkspace", () => {
       deck: fallbackDeck,
       snapshotReason: "deck-replaced",
     });
+  });
+
+  it("uses the fallback demo deck when rehearsal deck fetch is unauthorized", async () => {
+    const fallbackDeck = createDemoDeck();
+    const fetcher = vi.fn(
+      async () => new Response("unauthorized", { status: 401 }),
+    );
+
+    const deck = await fetchOrCreateRehearsalDeck({
+      fallbackDeck,
+      fetcher,
+    });
+
+    expect(deck.deckId).toBe(fallbackDeck.deckId);
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(fetcher).toHaveBeenCalledWith(
+      `/api/v1/projects/${fallbackDeck.projectId}/deck`,
+    );
   });
 });
 

@@ -25,6 +25,7 @@ const validEnv = {
   S3_FORCE_PATH_STYLE: "true",
   JOB_QUEUE_DRIVER: "bullmq",
   LIVE_STT_PROVIDER: "sherpa",
+  LIVE_STT_ENGINE: "openai-realtime",
   REPORT_STT_PROVIDER: "openai",
   OCR_PROVIDER: "python",
   LLM_PROVIDER: "openai",
@@ -32,6 +33,9 @@ const validEnv = {
   OPENAI_MODEL: "gpt-4.1-mini",
   OPENAI_TRANSCRIPTION_MODEL: "gpt-4o-transcribe",
   OPENAI_EMBEDDING_MODEL: "text-embedding-3-small",
+  OPENAI_REALTIME_TRANSCRIPTION_MODEL: "gpt-realtime-whisper",
+  OPENAI_REALTIME_TRANSCRIPTION_DELAY: "minimal",
+  OPENAI_REALTIME_CLIENT_SECRET_TTL_SECONDS: "600",
   AWS_REGION: "ap-northeast-2",
   AWS_ACCESS_KEY_ID: "",
   AWS_SECRET_ACCESS_KEY: "",
@@ -52,13 +56,52 @@ describe("ORBIT env validation", () => {
       {
         ...validEnv,
         OPENAI_MODEL: "gpt-4.1",
-        OPENAI_EMBEDDING_MODEL: "text-embedding-3-large"
+        OPENAI_EMBEDDING_MODEL: "text-embedding-3-large",
+        OPENAI_REALTIME_TRANSCRIPTION_MODEL: "gpt-realtime-whisper-2",
+        OPENAI_REALTIME_TRANSCRIPTION_DELAY: "low",
+        OPENAI_REALTIME_CLIENT_SECRET_TTL_SECONDS: "900"
       },
       { service: "api" }
     );
 
     expect(config.OPENAI_MODEL).toBe("gpt-4.1");
     expect(config.OPENAI_EMBEDDING_MODEL).toBe("text-embedding-3-large");
+    expect(config.OPENAI_REALTIME_TRANSCRIPTION_MODEL).toBe(
+      "gpt-realtime-whisper-2"
+    );
+    expect(config.OPENAI_REALTIME_TRANSCRIPTION_DELAY).toBe("low");
+    expect(config.OPENAI_REALTIME_CLIENT_SECRET_TTL_SECONDS).toBe(900);
+  });
+
+  it("loads realtime transcription defaults when optional env values are omitted", () => {
+    const env = { ...validEnv } as Partial<typeof validEnv>;
+    delete env.OPENAI_REALTIME_TRANSCRIPTION_MODEL;
+    delete env.OPENAI_REALTIME_TRANSCRIPTION_DELAY;
+    delete env.OPENAI_REALTIME_CLIENT_SECRET_TTL_SECONDS;
+
+    const config = loadOrbitConfig(env as NodeJS.ProcessEnv, { service: "api" });
+
+    expect(config.OPENAI_REALTIME_TRANSCRIPTION_MODEL).toBe(
+      "gpt-realtime-whisper"
+    );
+    expect(config.OPENAI_REALTIME_TRANSCRIPTION_DELAY).toBe("minimal");
+    expect(config.OPENAI_REALTIME_CLIENT_SECRET_TTL_SECONDS).toBe(600);
+  });
+
+  it("validates realtime transcription delay and client secret ttl", () => {
+    expect(() =>
+      loadOrbitConfig(
+        { ...validEnv, OPENAI_REALTIME_TRANSCRIPTION_DELAY: "instant" },
+        { service: "api" }
+      )
+    ).toThrow(/OPENAI_REALTIME_TRANSCRIPTION_DELAY/);
+
+    expect(() =>
+      loadOrbitConfig(
+        { ...validEnv, OPENAI_REALTIME_CLIENT_SECRET_TTL_SECONDS: "9" },
+        { service: "api" }
+      )
+    ).toThrow(/OPENAI_REALTIME_CLIENT_SECRET_TTL_SECONDS/);
   });
 
   it("fails with a readable error when a required value is missing", () => {
@@ -97,6 +140,7 @@ describe("ORBIT env validation", () => {
     const config = loadOrbitConfig(validEnv, { service: "api" });
 
     expect(config.LIVE_STT_PROVIDER).toBe("sherpa");
+    expect(config.LIVE_STT_ENGINE).toBe("openai-realtime");
     expect(config.REPORT_STT_PROVIDER).toBe("openai");
     expect(config.REHEARSAL_AUDIO_MAX_BYTES).toBe(25000000);
     expect(() =>
@@ -107,10 +151,25 @@ describe("ORBIT env validation", () => {
     ).toThrow(/LIVE_STT_PROVIDER/);
     expect(() =>
       loadOrbitConfig(
+        { ...validEnv, LIVE_STT_ENGINE: "sherpa" },
+        { service: "api" }
+      )
+    ).toThrow(/LIVE_STT_ENGINE/);
+    expect(() =>
+      loadOrbitConfig(
         { ...validEnv, REPORT_STT_PROVIDER: "sherpa" },
         { service: "api" }
       )
     ).toThrow(/REPORT_STT_PROVIDER/);
+  });
+
+  it("defaults browser Live STT engine to Chrome on-device Web Speech", () => {
+    const env = { ...validEnv } as Partial<typeof validEnv>;
+    delete env.LIVE_STT_ENGINE;
+
+    const config = loadOrbitConfig(env as NodeJS.ProcessEnv, { service: "api" });
+
+    expect(config.LIVE_STT_ENGINE).toBe("web-speech");
   });
 
   it("accepts WhisperX report STT when hosted provider config exists", () => {

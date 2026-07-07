@@ -20,17 +20,28 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowRight,
+  ChevronDown,
+  Clock,
   FileUp,
+  FileText,
   LayoutTemplate,
-  MessageSquareText,
+  ListChecks,
   Paperclip,
   Plus,
   Search,
   Sparkles,
+  UploadCloud,
   Trash2
 } from "lucide-react";
-import type { CSSProperties, ChangeEvent, DragEvent, FormEvent, ReactNode } from "react";
-import { lazy, Suspense, useEffect, useMemo, useState } from "react";
+import type {
+  CSSProperties,
+  ChangeEvent,
+  DragEvent,
+  FormEvent,
+  MouseEvent,
+  ReactNode
+} from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { createDemoDeck } from "../../../packages/editor-core/src/index";
 import orbitLogo from "./assets/orbit-logo.png";
 import { AppSidebar } from "./components/AppSidebar";
@@ -244,6 +255,37 @@ export const homeTemplateStyles: HomeTemplateStyle[] = [
     description: "본문과 근거가 자족적인 보고형"
   }
 ];
+const homeToneOptions: Array<{
+  value: "professional" | "friendly" | "confident" | "concise";
+  label: string;
+  description: string;
+}> = [
+  {
+    value: "professional",
+    label: "Professional",
+    description: "정돈된 비즈니스 톤"
+  },
+  {
+    value: "friendly",
+    label: "Friendly",
+    description: "부드럽고 설명적인 톤"
+  },
+  {
+    value: "confident",
+    label: "Confident",
+    description: "확신 있는 제안 톤"
+  },
+  {
+    value: "concise",
+    label: "Concise",
+    description: "짧고 핵심적인 톤"
+  }
+];
+const uploadRoleLabels: Record<UploadRole, string> = {
+  content: "내용 참고",
+  design: "디자인 참고",
+  both: "둘 다"
+};
 const demoDeck = createDemoDeck();
 const reportMockupRunId = "run_report_mockup";
 const reportMockupGeneratedAt = "2026-07-01T09:00:00.000Z";
@@ -1023,6 +1065,8 @@ function ProjectAccessRequestPage(props: { projectId: string }) {
 
 function HomePage(props: { user?: AuthUser; templateStyleId?: HomeTemplateStyleId }) {
   const queryClient = useQueryClient();
+  const topicInputRef = useRef<HTMLInputElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [topic, setTopic] = useState("");
   const [prompt, setPrompt] = useState("");
   const [designPrompt, setDesignPrompt] = useState("");
@@ -1047,6 +1091,7 @@ function HomePage(props: { user?: AuthUser; templateStyleId?: HomeTemplateStyleI
   const [job, setJob] = useState<Job | null>(null);
   const [isImporting, setIsImporting] = useState(false);
   const [isCreatingBlankProject, setIsCreatingBlankProject] = useState(false);
+  const [isReferenceDragging, setIsReferenceDragging] = useState(false);
   const totalSize = useMemo(
     () => uploads.reduce((sum, upload) => sum + upload.file.size, 0),
     [uploads]
@@ -1312,6 +1357,34 @@ function HomePage(props: { user?: AuthUser; templateStyleId?: HomeTemplateStyleI
     event.target.value = "";
   }
 
+  function handleReferenceDragEnter(event: DragEvent<HTMLElement>) {
+    event.preventDefault();
+    if (!isImporting && event.dataTransfer.types.includes("Files")) {
+      setIsReferenceDragging(true);
+    }
+  }
+
+  function handleReferenceDragOver(event: DragEvent<HTMLElement>) {
+    event.preventDefault();
+    if (!isImporting) {
+      event.dataTransfer.dropEffect = "copy";
+    }
+  }
+
+  function handleReferenceDragLeave(event: DragEvent<HTMLElement>) {
+    if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+      setIsReferenceDragging(false);
+    }
+  }
+
+  function handleReferenceDrop(event: DragEvent<HTMLElement>) {
+    event.preventDefault();
+    setIsReferenceDragging(false);
+    if (!isImporting && event.dataTransfer.files.length > 0) {
+      addFiles(event.dataTransfer.files);
+    }
+  }
+
   function addFiles(fileList: FileList | File[]) {
     const { acceptedFiles, rejectedFiles } = collectHomeUploadFiles(
       fileList,
@@ -1368,6 +1441,21 @@ function HomePage(props: { user?: AuthUser; templateStyleId?: HomeTemplateStyleI
     setJob(null);
   }
 
+  function focusTopicField() {
+    topicInputRef.current?.focus();
+  }
+
+  function openReferencePicker() {
+    fileInputRef.current?.click();
+  }
+
+  function scrollToTemplateStyles() {
+    document.querySelector(".template-section")?.scrollIntoView({
+      behavior: "smooth",
+      block: "start"
+    });
+  }
+
   const selectedTemplateStyle = selectedTemplateStyleId
     ? homeTemplateStyles.find((style) => style.id === selectedTemplateStyleId)
     : undefined;
@@ -1379,117 +1467,189 @@ function HomePage(props: { user?: AuthUser; templateStyleId?: HomeTemplateStyleI
       </header>
 
       {!selectedTemplateStyle ? (
-        <section className="home-chat-panel" aria-label="AI 대화">
-          <div className="chat-orb">
-            <MessageSquareText size={30} />
+        <section className="home-chat-panel home-generate-panel" aria-label="AI 발표 자료 생성">
+          <div className="home-start-panel">
+            <div className="home-start-copy">
+              <span>프레젠테이션 제작</span>
+              <h2>어디서부터 시작할까요?</h2>
+            </div>
+            <div className="home-start-options" aria-label="제작 시작 방식">
+              <button type="button" onClick={focusTopicField}>
+                <FileText size={17} />
+                <span>주제로 시작</span>
+              </button>
+              <button type="button" onClick={openReferencePicker}>
+                <UploadCloud size={17} />
+                <span>자료로 시작</span>
+              </button>
+              <button type="button" onClick={scrollToTemplateStyles}>
+                <LayoutTemplate size={17} />
+                <span>템플릿 선택</span>
+              </button>
+            </div>
           </div>
-          <h2>무엇을 발표 자료로 만들까요?</h2>
           <form className="home-ai-form" onSubmit={handleSubmit}>
-          <div className="chat-input-shell home-topic-row">
-            <label className="chat-attach-button" aria-label="첨부파일 추가">
-              <Paperclip size={18} />
-              <input
-                type="file"
-                accept={homeAssetAccept}
-                multiple
-                disabled={isImporting}
-                onChange={handleFileChange}
-              />
-            </label>
-            <input
-              value={topic}
-              onChange={(event) => setTopic(event.target.value)}
-              placeholder="발표 주제"
-            />
-            <button type="submit" disabled={isImporting}>
-              {isImporting ? "처리 중" : "전송"}
-            </button>
-          </div>
+            <div className="home-generate-layout">
+              <div className="home-brief-stack">
+                <label className="home-field-block home-topic-field">
+                  <span>
+                    <FileText size={16} />
+                    발표 주제
+                  </span>
+                  <input
+                    ref={topicInputRef}
+                    value={topic}
+                    onChange={(event) => setTopic(event.target.value)}
+                    placeholder="예: 2026 상반기 제품 전략 리뷰"
+                    disabled={isImporting}
+                  />
+                </label>
 
-          <div className="home-prompt-grid">
-            <label>
-              <span>관련 프롬프트</span>
-              <textarea
-                value={prompt}
-                onChange={(event) => setPrompt(event.target.value)}
-                placeholder="핵심 메시지, 포함할 내용, 제외할 내용"
-                disabled={isImporting}
-              />
-            </label>
-          </div>
+                <label className="home-field-block">
+                  <span>
+                    <ListChecks size={16} />
+                    핵심 내용
+                  </span>
+                  <textarea
+                    value={prompt}
+                    onChange={(event) => setPrompt(event.target.value)}
+                    placeholder="청중, 핵심 메시지, 반드시 포함할 수치, 제외할 내용을 적어주세요."
+                    disabled={isImporting}
+                  />
+                </label>
 
-          <div className="home-options-grid">
-            <label>
-              <span>발표 톤</span>
-              <select
-                value={tone}
-                onChange={(event) => setTone(event.target.value as typeof tone)}
-                disabled={isImporting}
-              >
-                <option value="professional">Professional</option>
-                <option value="friendly">Friendly</option>
-                <option value="confident">Confident</option>
-                <option value="concise">Concise</option>
-              </select>
-            </label>
-            <label>
-              <span>발표 시간</span>
-              <input
-                type="number"
-                min={1}
-                max={120}
-                value={durationInput}
-                disabled={isImporting}
-                onChange={(event) => setDurationInput(event.target.value)}
-              />
-            </label>
-            <label>
-              <span>최소 슬라이드</span>
-              <input
-                type="number"
-                min={1}
-                max={20}
-                value={minSlidesInput}
-                disabled={isImporting}
-                onChange={(event) => setMinSlidesInput(event.target.value)}
-              />
-            </label>
-            <label>
-              <span>최대 슬라이드</span>
-              <input
-                type="number"
-                min={1}
-                max={20}
-                value={maxSlidesInput}
-                disabled={isImporting}
-                onChange={(event) => setMaxSlidesInput(event.target.value)}
-              />
-            </label>
-          </div>
+                <section
+                  className={
+                    isReferenceDragging
+                      ? "home-reference-drop home-reference-drop-active"
+                      : "home-reference-drop"
+                  }
+                  aria-label="참고자료"
+                  onDragEnter={handleReferenceDragEnter}
+                  onDragLeave={handleReferenceDragLeave}
+                  onDragOver={handleReferenceDragOver}
+                  onDrop={handleReferenceDrop}
+                >
+                  <div>
+                    <UploadCloud size={34} />
+                    <div>
+                      <strong>참고자료를 추가하면 더 정확해요</strong>
+                      <span>파일을 이 영역에 끌어다 놓거나 PDF, PPTX, 문서, 이미지를 첨부하세요.</span>
+                    </div>
+                  </div>
+                  <label className="home-attach-button">
+                    <Paperclip size={16} />
+                    <span>파일 첨부</span>
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept={homeAssetAccept}
+                      multiple
+                      disabled={isImporting}
+                      onChange={handleFileChange}
+                    />
+                  </label>
+                </section>
 
-          {uploads.length > 0 && !selectedTemplateStyle ? (
-            <HomeUploadList
-              uploads={uploads}
-              totalUploadSize={totalSize}
-              isDisabled={isImporting}
-              allowDesignReference
-              onRemoveUpload={removeUpload}
-              onUpdateUploadRole={updateUploadRole}
-            />
-          ) : null}
+                {uploads.length > 0 && !selectedTemplateStyle ? (
+                  <HomeUploadList
+                    uploads={uploads}
+                    totalUploadSize={totalSize}
+                    isDisabled={isImporting}
+                    allowDesignReference
+                    onRemoveUpload={removeUpload}
+                    onUpdateUploadRole={updateUploadRole}
+                  />
+                ) : null}
+              </div>
 
-          <div className="home-convert-row">
-            <button
-              className="home-convert-button"
-              type="button"
-              onClick={() => void handleConvertPptx()}
-              disabled={isImporting || uploads.length === 0}
-            >
-              <FileUp size={16} />
-              {isImporting ? "변환 중" : "pptx 변환하기"}
-            </button>
-          </div>
-        </form>
+              <aside className="home-generate-controls" aria-label="생성 옵션">
+                <div className="home-control-heading">
+                  <span>생성 옵션</span>
+                  <strong>발표 상황에 맞추기</strong>
+                </div>
+
+                <fieldset className="home-tone-fieldset">
+                  <legend>발표 톤</legend>
+                  <div className="home-tone-grid">
+                    {homeToneOptions.map((option) => (
+                      <label
+                        className={tone === option.value ? "home-tone-card active" : "home-tone-card"}
+                        key={option.value}
+                      >
+                        <input
+                          type="radio"
+                          name="homeTone"
+                          value={option.value}
+                          checked={tone === option.value}
+                          onChange={() => setTone(option.value)}
+                          disabled={isImporting}
+                        />
+                        <strong>{option.label}</strong>
+                        <span>{option.description}</span>
+                      </label>
+                    ))}
+                  </div>
+                </fieldset>
+
+                <div className="home-options-grid">
+                  <label>
+                    <span>
+                      <Clock size={15} />
+                      발표 시간
+                    </span>
+                    <input
+                      type="number"
+                      min={1}
+                      max={120}
+                      value={durationInput}
+                      disabled={isImporting}
+                      onChange={(event) => setDurationInput(event.target.value)}
+                    />
+                  </label>
+                  <label>
+                    <span>최소 슬라이드</span>
+                    <input
+                      type="number"
+                      min={1}
+                      max={20}
+                      value={minSlidesInput}
+                      disabled={isImporting}
+                      onChange={(event) => setMinSlidesInput(event.target.value)}
+                    />
+                  </label>
+                  <label>
+                    <span>최대 슬라이드</span>
+                    <input
+                      type="number"
+                      min={1}
+                      max={20}
+                      value={maxSlidesInput}
+                      disabled={isImporting}
+                      onChange={(event) => setMaxSlidesInput(event.target.value)}
+                    />
+                  </label>
+                </div>
+
+                <div className="home-convert-row">
+                  <button
+                    className="home-convert-button"
+                    type="button"
+                    onClick={() => void handleConvertPptx()}
+                    disabled={isImporting || uploads.length === 0}
+                  >
+                    <FileUp size={16} />
+                    {isImporting ? "변환 중" : "PPTX 변환하기"}
+                  </button>
+                </div>
+
+                <button className="home-generate-submit" type="submit" disabled={isImporting}>
+                  <ArrowRight size={17} />
+                  {isImporting ? "생성 중" : "발표자료 생성하기"}
+                </button>
+              </aside>
+            </div>
+          </form>
           <HomeGenerationFeedback
             rejected={rejected}
             job={job}
@@ -1934,6 +2094,68 @@ function HomeUploadList(props: {
   onRemoveUpload: (id: string) => void;
   onUpdateUploadRole: (id: string, role: UploadRole) => void;
 }) {
+  const [openRoleMenuId, setOpenRoleMenuId] = useState<string | null>(null);
+  const [roleMenuStyle, setRoleMenuStyle] = useState<CSSProperties>({});
+
+  function getRoleOptions(file: File): UploadRole[] {
+    if (!props.allowDesignReference || !isPptxFile(file)) {
+      return ["content"];
+    }
+    return ["content", "design", "both"];
+  }
+
+  function handleRoleTriggerClick(
+    id: string,
+    file: File,
+    event: MouseEvent<HTMLButtonElement>
+  ) {
+    if (openRoleMenuId === id) {
+      setOpenRoleMenuId(null);
+      return;
+    }
+
+    const rect = event.currentTarget.getBoundingClientRect();
+    const menuWidth = Math.max(rect.width, 128);
+    const optionCount = getRoleOptions(file).length;
+    const estimatedMenuHeight = 10 + optionCount * 30 + Math.max(0, optionCount - 1) * 3;
+    const menuTop =
+      rect.bottom + 6 + estimatedMenuHeight > window.innerHeight - 8
+        ? Math.max(8, rect.top - estimatedMenuHeight - 6)
+        : rect.bottom + 6;
+    setRoleMenuStyle({
+      left: rect.right - menuWidth,
+      top: menuTop,
+      width: menuWidth
+    });
+    setOpenRoleMenuId(id);
+  }
+
+  useEffect(() => {
+    if (!openRoleMenuId) {
+      return undefined;
+    }
+
+    function closeRoleMenu() {
+      setOpenRoleMenuId(null);
+    }
+
+    function closeRoleMenuOnPointerDown(event: PointerEvent) {
+      const target = event.target;
+      if (!(target instanceof Element) || !target.closest(".home-upload-role")) {
+        closeRoleMenu();
+      }
+    }
+
+    document.addEventListener("pointerdown", closeRoleMenuOnPointerDown);
+    window.addEventListener("resize", closeRoleMenu);
+    window.addEventListener("scroll", closeRoleMenu, true);
+    return () => {
+      document.removeEventListener("pointerdown", closeRoleMenuOnPointerDown);
+      window.removeEventListener("resize", closeRoleMenu);
+      window.removeEventListener("scroll", closeRoleMenu, true);
+    };
+  }, [openRoleMenuId]);
+
   return (
     <div className="home-upload-list">
       <div className="upload-summary" aria-live="polite">
@@ -1949,23 +2171,50 @@ function HomeUploadList(props: {
                 {getExtension(file.name).toUpperCase()} · {formatBytes(file.size)}
               </span>
             </div>
-            <select
-              value={props.allowDesignReference ? role : "content"}
-              onChange={(event) => props.onUpdateUploadRole(id, event.target.value as UploadRole)}
-              disabled={props.isDisabled}
-              aria-label={`${file.name} 역할`}
-            >
-              <option value="content">내용 참고</option>
-              {props.allowDesignReference && isPptxFile(file) ? (
-                <option value="design">디자인 참고</option>
+            <div className="home-upload-role">
+              <button
+                className="home-upload-role-trigger"
+                type="button"
+                aria-expanded={openRoleMenuId === id}
+                aria-haspopup="listbox"
+                aria-label={`${file.name} 역할`}
+                disabled={props.isDisabled}
+                onClick={(event) => handleRoleTriggerClick(id, file, event)}
+              >
+                <span>{uploadRoleLabels[props.allowDesignReference ? role : "content"]}</span>
+                <ChevronDown size={14} />
+              </button>
+              {openRoleMenuId === id ? (
+                <div className="home-upload-role-menu" role="listbox" style={roleMenuStyle}>
+                  {getRoleOptions(file).map((option) => (
+                    <button
+                      className={
+                        (props.allowDesignReference ? role : "content") === option
+                          ? "home-upload-role-option active"
+                          : "home-upload-role-option"
+                      }
+                      type="button"
+                      role="option"
+                      aria-selected={(props.allowDesignReference ? role : "content") === option}
+                      key={option}
+                      onClick={() => {
+                        props.onUpdateUploadRole(id, option);
+                        setOpenRoleMenuId(null);
+                      }}
+                    >
+                      {uploadRoleLabels[option]}
+                    </button>
+                  ))}
+                </div>
               ) : null}
-              {props.allowDesignReference && isPptxFile(file) ? (
-                <option value="both">둘 다</option>
-              ) : null}
-            </select>
+            </div>
             <button
+              className="home-upload-remove-button"
               type="button"
-              onClick={() => props.onRemoveUpload(id)}
+              onClick={() => {
+                props.onRemoveUpload(id);
+                setOpenRoleMenuId(null);
+              }}
               aria-label={`${file.name} 제거`}
               disabled={props.isDisabled}
             >

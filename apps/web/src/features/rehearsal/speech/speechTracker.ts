@@ -60,10 +60,6 @@ export function createSpeechTracker(input: CreateSpeechTrackerInput): SpeechTrac
   const visit = createVisitState();
 
   function acceptResult(result: LiveSttResult): SpeechTrackingEvent[] {
-    if (!result.isFinal) {
-      return [];
-    }
-
     const atMs = result.timestampMs[1];
     const events: SpeechTrackingEvent[] = [];
     const finalWindow = createFinalSegmentWindow({
@@ -71,14 +67,18 @@ export function createSpeechTracker(input: CreateSpeechTrackerInput): SpeechTrac
       latestFinalSegment: result.text,
       tailCharacters: config.matchingTailCharacters
     });
-    visit.finalTranscript = appendTranscript(visit.finalTranscript, result.text);
+    const trackingTranscript = appendTranscript(visit.finalTranscript, result.text);
+
+    if (result.isFinal) {
+      visit.finalTranscript = trackingTranscript;
+    }
 
     for (const sentence of sentences) {
       if (!sentence.matchable || visit.coveredSentenceIds.has(sentence.sentenceId)) {
         continue;
       }
 
-      if (isSentenceMatched(sentence, finalWindow, config)) {
+      if (isSentenceMatched(sentence, finalWindow, config, result.isFinal)) {
         visit.coveredSentenceIds.add(sentence.sentenceId);
         events.push({
           type: "sentence-covered",
@@ -99,27 +99,29 @@ export function createSpeechTracker(input: CreateSpeechTrackerInput): SpeechTrac
       }
     }
 
-    for (const match of matchKeywordAliases({
-      transcript: result.text,
-      keywords: keywordAliases
-    })) {
-      if (sessionKeywordHits.has(match.keywordId)) {
-        continue;
-      }
+    if (result.isFinal) {
+      for (const match of matchKeywordAliases({
+        transcript: result.text,
+        keywords: keywordAliases
+      })) {
+        if (sessionKeywordHits.has(match.keywordId)) {
+          continue;
+        }
 
-      sessionKeywordHits.add(match.keywordId);
-      events.push({
-        type: "keyword-hit",
-        slideId: input.slideId,
-        keywordId: match.keywordId,
-        atMs
-      });
+        sessionKeywordHits.add(match.keywordId);
+        events.push({
+          type: "keyword-hit",
+          slideId: input.slideId,
+          keywordId: match.keywordId,
+          atMs
+        });
+      }
     }
 
     const coverage = computeCoverage({
       coveredSentenceCount: visit.coveredSentenceIds.size,
       matchableSentenceCount: matchableSentenceIds.length,
-      finalTranscript: visit.finalTranscript,
+      transcript: trackingTranscript,
       speakerNotes: input.speakerNotes,
       threshold,
       config
@@ -197,14 +199,15 @@ function createVisitState() {
 function isSentenceMatched(
   sentence: ExtractedSentence,
   finalWindow: string,
-  config: SpeechTrackingConfig
+  config: SpeechTrackingConfig,
+  allowFuzzyMatch: boolean
 ) {
   return sentence.candidates.some(
     (candidate) =>
       matchPhraseCandidate({
         candidateText: candidate.text,
         finalSegmentWindow: finalWindow,
-        diceThreshold: config.diceThreshold
+        diceThreshold: allowFuzzyMatch ? config.diceThreshold : 1
       }).matched
   );
 }
@@ -212,7 +215,7 @@ function isSentenceMatched(
 function computeCoverage(options: {
   coveredSentenceCount: number;
   matchableSentenceCount: number;
-  finalTranscript: string;
+  transcript: string;
   speakerNotes: string;
   threshold: number;
   config: SpeechTrackingConfig;
@@ -223,7 +226,7 @@ function computeCoverage(options: {
       : options.coveredSentenceCount / options.matchableSentenceCount;
   const wordCoverage = calculateWordMultisetRecall({
     scriptText: options.speakerNotes,
-    transcriptText: options.finalTranscript
+    transcriptText: options.transcript
   });
   const effectiveCoverage = computeEffectiveCoverage({
     sentenceCoverage,
