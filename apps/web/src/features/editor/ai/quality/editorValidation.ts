@@ -1,6 +1,7 @@
 import type { Deck, DeckElement, Slide, TextElementProps } from "@orbit/shared";
 import {
   getKonvaFontStyle,
+  getPrimaryTextRun,
   getTextElementText,
   measureTextContentBounds
 } from "../../canvas/text/textLayout";
@@ -11,7 +12,7 @@ const editorDuplicateTextMinimumLength = 6;
 export type EditorValidationItem = {
   elementId?: string;
   elementIds?: string[];
-  issue?: "textOverflow";
+  issue?: "textOverflow" | "titleWrap" | "labelWrap";
   level?: "warning";
   message: string;
   slideId?: string;
@@ -75,6 +76,24 @@ function getEditorSlideValidationItems(
         });
       }
 
+      if (isEditorTitleTextWrapped(deck, slide, element)) {
+        items.push({
+          elementId: element.elementId,
+          issue: "titleWrap",
+          message: "제목이 여러 줄로 줄바꿈되었습니다.",
+          severity: "warning"
+        });
+      }
+
+      if (isEditorLabelTextWrapped(deck, slide, element)) {
+        items.push({
+          elementId: element.elementId,
+          issue: "labelWrap",
+          message: "짧은 라벨이 여러 줄로 줄바꿈되었습니다.",
+          severity: "warning"
+        });
+      }
+
       const color = element.props.color ?? slide.style.textColor ?? deck.theme.textColor;
 
       if (
@@ -122,6 +141,78 @@ function isEditorTextOverflowing(
   const metrics = getEditorTextContentMetrics(deck, slide, element, text);
 
   return metrics.height > Math.max(1, element.height - 8);
+}
+
+function isEditorTitleTextWrapped(
+  deck: Deck,
+  slide: Slide,
+  element: Extract<DeckElement, { type: "text" }>
+) {
+  const text = getTextElementText(element.props as TextElementProps);
+  if (!text || !isTitleLikeTextElement(deck, slide, element)) return false;
+
+  return getEditorTextContentMetrics(deck, slide, element, text).lineCount > 1;
+}
+
+function isTitleLikeTextElement(
+  deck: Deck,
+  slide: Slide,
+  element: Extract<DeckElement, { type: "text" }>
+) {
+  if (element.role === "title") return true;
+  if (element.role) return false;
+  const largestFontSize = Math.max(
+    0,
+    ...slide.elements
+      .filter((candidate): candidate is Extract<DeckElement, { type: "text" }> =>
+        candidate.type === "text"
+      )
+      .map((candidate) => candidate.props.fontSize)
+  );
+
+  return (
+    element.props.fontSize >= Math.max(36, largestFontSize * 0.85) &&
+    element.y <= deck.canvas.height * 0.45
+  );
+}
+
+function isEditorLabelTextWrapped(
+  deck: Deck,
+  slide: Slide,
+  element: Extract<DeckElement, { type: "text" }>
+) {
+  const text = getTextElementText(element.props as TextElementProps);
+  const normalizedText = text.replace(/\s+/g, " ").trim();
+  if (
+    !normalizedText ||
+    isTitleLikeTextElement(deck, slide, element) ||
+    (element.role && element.role !== "caption" && element.role !== "highlight") ||
+    !isShortLabelText(normalizedText)
+  ) {
+    return false;
+  }
+
+  const metrics = getEditorTextContentMetrics(deck, slide, element, text);
+
+  return metrics.lineCount > 1 || isShortLabelTextBoxTooNarrow(deck, slide, element, text);
+}
+
+function isShortLabelText(text: string) {
+  return text.length <= 36 && text.split(" ").filter(Boolean).length <= 5;
+}
+
+function isShortLabelTextBoxTooNarrow(
+  deck: Deck,
+  slide: Slide,
+  element: Extract<DeckElement, { type: "text" }>,
+  text: string
+) {
+  const singleLineText = text.replace(/\s+/g, " ").trim();
+  const metrics = getEditorTextContentMetrics(deck, slide, element, singleLineText, {
+    width: 10000
+  });
+
+  return metrics.width + 8 > element.width;
 }
 
 function isHexColor(value: string) {
@@ -275,21 +366,24 @@ function getEditorTextContentMetrics(
   deck: Deck,
   slide: Slide,
   element: Extract<DeckElement, { type: "text" }>,
-  text: string
+  text: string,
+  options: { width?: number } = {}
 ) {
   const props = element.props as TextElementProps;
+  const primaryRun = getPrimaryTextRun(props);
 
   return measureTextContentBounds({
     align: props.align,
     fontFamily:
+      primaryRun?.fontFamily ??
       props.fontFamily ??
       slide.style.fontFamily ??
       deck.theme.typography.bodyFontFamily,
-    fontSize: props.fontSize,
-    fontStyle: getKonvaFontStyle(props.fontWeight),
+    fontSize: primaryRun?.fontSize ?? props.fontSize,
+    fontStyle: getKonvaFontStyle(primaryRun?.fontWeight ?? props.fontWeight),
     lineHeight: props.lineHeight,
     text,
-    width: Math.max(1, element.width - 8)
+    width: Math.max(1, options.width ?? element.width - 8)
   });
 }
 

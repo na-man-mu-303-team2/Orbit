@@ -2501,7 +2501,11 @@ export function EditorShell(props: { projectId?: string }) {
     }
 
     if (action === "singleLineTextBox") {
-      const fit = createSingleLineTextFit(element, textFitContext);
+      const fit = createSingleLineTextFit(element, textFitContext, {
+        maxWidth: getTextAutoFitMaxWidth(deck.canvas, element),
+        minFontSize: getSingleLineTextMinimumFontSize(element)
+      });
+      const frame = getCenteredTextAutoFitFrame(deck.canvas, element, fit.width);
 
       commitPatch((currentDeck) => ({
         deckId: currentDeck.deckId,
@@ -2518,9 +2522,7 @@ export function EditorShell(props: { projectId?: string }) {
             type: "update_element_frame",
             slideId: currentSlide.slideId,
             elementId: element.elementId,
-            frame: normalizeElementFrameDraft(currentDeck.canvas, element, {
-              width: fit.width
-            })
+            frame: normalizeElementFrameDraft(currentDeck.canvas, element, frame)
           }
         ]
       }));
@@ -2548,37 +2550,88 @@ export function EditorShell(props: { projectId?: string }) {
       return;
     }
 
-    const overflowElementIds = new Set(
-      editorValidationItems
-        .filter((item) => item.issue === "textOverflow" && item.elementId)
-        .map((item) => item.elementId)
-    );
-    const operations = currentSlide.elements
+    const autoFitIssuesByElementId = new Map<string, Set<EditorValidationItem["issue"]>>();
+    for (const item of editorValidationItems) {
+      if (!item.elementId || !isAutoFitTextValidationIssue(item)) continue;
+
+      const issues = autoFitIssuesByElementId.get(item.elementId) ?? new Set();
+      issues.add(item.issue);
+      autoFitIssuesByElementId.set(item.elementId, issues);
+    }
+    const fittedElements = currentSlide.elements
       .filter(
         (element): element is Extract<DeckElement, { type: "text" }> =>
-          element.type === "text" && overflowElementIds.has(element.elementId)
-      )
-      .map((element) => {
-        const textFitContext = {
-          fontFamily:
-            element.props.fontFamily ??
-            currentSlide.style.fontFamily ??
-            deck.theme.typography.bodyFontFamily
-        };
+          element.type === "text" && autoFitIssuesByElementId.has(element.elementId)
+      );
+    const operations: DeckPatch["operations"] = [];
 
-        return {
-          type: "update_element_props" as const,
-          slideId: currentSlide.slideId,
-          elementId: element.elementId,
-          props: createShrinkToFitTextProps(element, textFitContext)
-        };
-      });
+    for (const element of fittedElements) {
+      const issues = autoFitIssuesByElementId.get(element.elementId);
+      const textFitContext = {
+        fontFamily:
+          element.props.fontFamily ??
+          currentSlide.style.fontFamily ??
+          deck.theme.typography.bodyFontFamily
+      };
+
+      if (
+        issues?.has("titleWrap") ||
+        issues?.has("labelWrap")
+      ) {
+        const fit = createSingleLineTextFit(element, textFitContext, {
+          maxWidth: getTextAutoFitMaxWidth(deck.canvas, element),
+          minFontSize: getSingleLineTextMinimumFontSize(element)
+        });
+        const frame = getCenteredTextAutoFitFrame(deck.canvas, element, fit.width);
+
+        if (!fit.fits && (issues?.has("labelWrap") || issues?.has("textOverflow"))) {
+          const props = createShrinkToFitTextProps(element, textFitContext);
+          if (hasTextPropsChange(element, props)) {
+            operations.push({
+              type: "update_element_props",
+              slideId: currentSlide.slideId,
+              elementId: element.elementId,
+              props
+            });
+          }
+          continue;
+        }
+
+        if (hasTextPropsChange(element, fit.props)) {
+          operations.push({
+            type: "update_element_props",
+            slideId: currentSlide.slideId,
+            elementId: element.elementId,
+            props: fit.props
+          });
+        }
+
+        if (frame.x !== element.x || frame.width !== element.width) {
+          operations.push({
+            type: "update_element_frame",
+            slideId: currentSlide.slideId,
+            elementId: element.elementId,
+            frame: normalizeElementFrameDraft(deck.canvas, element, frame)
+          });
+        }
+      } else {
+        const props = createShrinkToFitTextProps(element, textFitContext);
+        if (hasTextPropsChange(element, props)) {
+          operations.push({
+            type: "update_element_props" as const,
+            slideId: currentSlide.slideId,
+            elementId: element.elementId,
+            props
+          });
+        }
+      }
+    }
 
     if (operations.length === 0) {
       return;
     }
 
-    setSelectedElementIds(operations.map((operation) => operation.elementId));
+    setSelectedElementIds(fittedElements.map((element) => element.elementId));
     commitPatch((currentDeck) => ({
       deckId: currentDeck.deckId,
       baseVersion: currentDeck.version,
@@ -5703,6 +5756,56 @@ function formatLastSavedAtLabel(lastSavedAt: string | null): string | null {
     second: "2-digit",
     hour12: false
   }).format(date);
+}
+
+function isAutoFitTextValidationIssue(item: EditorValidationItem) {
+  return (
+    item.issue === "textOverflow" ||
+    item.issue === "titleWrap" ||
+    item.issue === "labelWrap"
+  );
+}
+
+function hasTextPropsChange(
+  element: Extract<DeckElement, { type: "text" }>,
+  props: Record<string, unknown>
+) {
+  return Object.entries(props).some(
+    ([key, value]) =>
+      element.props[key as keyof typeof element.props] !== value
+  );
+}
+
+function getTextAutoFitMaxWidth(
+  canvas: DeckCanvas,
+  element: Extract<DeckElement, { type: "text" }>
+) {
+  return Math.max(element.width, canvas.width - 96);
+}
+
+function getCenteredTextAutoFitFrame(
+  canvas: DeckCanvas,
+  element: Extract<DeckElement, { type: "text" }>,
+  width: number
+) {
+  const maxWidth = getTextAutoFitMaxWidth(canvas, element);
+  const nextWidth = Math.min(Math.max(element.width, width), maxWidth);
+  const centerX = element.x + element.width / 2;
+  const minX = 48;
+  const maxX = Math.max(minX, canvas.width - minX - nextWidth);
+
+  return {
+    x: Math.min(maxX, Math.max(minX, centerX - nextWidth / 2)),
+    width: nextWidth
+  };
+}
+
+function getSingleLineTextMinimumFontSize(
+  element: Extract<DeckElement, { type: "text" }>
+) {
+  if (element.role === "title") return 32;
+  if (element.role === "subtitle") return 24;
+  return 20;
 }
 
 function getNextElementZIndex(elements: DeckElement[]) {
