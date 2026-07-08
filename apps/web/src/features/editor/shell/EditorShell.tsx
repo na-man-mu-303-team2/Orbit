@@ -87,7 +87,12 @@ import {
   ShareAccessModal
 } from "./components/ShareAccessModal";
 import { HistoryChevronIcon } from "./components/HistoryChevronIcon";
-import { SelectionQuickBar } from "./components/SelectionQuickBar";
+import {
+  SelectionQuickBar,
+  createExpandTextWidthToFitFrame,
+  createShrinkToFitTextProps,
+  createSingleLineTextFit
+} from "./components/SelectionQuickBar";
 import {
   useEditorPersistenceState,
   type PatchProducer,
@@ -163,7 +168,11 @@ import { createPortal, flushSync } from "react-dom";
 import { io } from "socket.io-client";
 import type { Socket as ClientSocket } from "socket.io-client";
 import { AudienceLinkModal } from "../audience-link/AudienceLinkModal";
-import { ValidationPanel } from "../ai/quality/ValidationPanel";
+import {
+  ValidationPanel,
+  type ValidationTextOverflowAction
+} from "../ai/quality/ValidationPanel";
+import type { EditorValidationItem } from "../ai/quality/editorValidation";
 import { getEditorValidationItems } from "../ai/quality/editorValidation";
 import { SuggestionPanel } from "../suggestions/components/SuggestionPanel";
 import {
@@ -2456,6 +2465,126 @@ export function EditorShell(props: { projectId?: string }) {
     commitPatch((currentDeck) =>
       createUpdateElementPropsPatch(currentDeck, slideId, elementId, props)
     );
+  }
+
+  function handleValidationTextOverflowAction(
+    item: EditorValidationItem,
+    action: ValidationTextOverflowAction
+  ) {
+    if (!currentSlide || !item.elementId) {
+      return;
+    }
+
+    const element = currentSlide.elements.find(
+      (candidate) => candidate.elementId === item.elementId
+    );
+
+    if (!element || element.type !== "text") {
+      return;
+    }
+
+    setSelectedElementIds([element.elementId]);
+    const textFitContext = {
+      fontFamily:
+        element.props.fontFamily ??
+        currentSlide.style.fontFamily ??
+        deck.theme.typography.bodyFontFamily
+    };
+
+    if (action === "shrinkText") {
+      handleElementPropsChange(
+        currentSlide.slideId,
+        element.elementId,
+        createShrinkToFitTextProps(element, textFitContext)
+      );
+      return;
+    }
+
+    if (action === "singleLineTextBox") {
+      const fit = createSingleLineTextFit(element, textFitContext);
+
+      commitPatch((currentDeck) => ({
+        deckId: currentDeck.deckId,
+        baseVersion: currentDeck.version,
+        source: "user",
+        operations: [
+          {
+            type: "update_element_props",
+            slideId: currentSlide.slideId,
+            elementId: element.elementId,
+            props: fit.props
+          },
+          {
+            type: "update_element_frame",
+            slideId: currentSlide.slideId,
+            elementId: element.elementId,
+            frame: normalizeElementFrameDraft(currentDeck.canvas, element, {
+              width: fit.width
+            })
+          }
+        ]
+      }));
+      return;
+    }
+
+    const nextWidth = createExpandTextWidthToFitFrame(
+      element,
+      deck.canvas.width - element.x,
+      textFitContext
+    );
+
+    if (!nextWidth || nextWidth <= element.width) {
+      setLastPatchLabel("상자 넓히기 불가 · 줄바꿈 또는 높이 확인");
+      return;
+    }
+
+    handleElementFrameChange(currentSlide.slideId, element.elementId, {
+      width: nextWidth
+    });
+  }
+
+  function handleApplyAllValidationTextOverflow() {
+    if (!currentSlide) {
+      return;
+    }
+
+    const overflowElementIds = new Set(
+      editorValidationItems
+        .filter((item) => item.issue === "textOverflow" && item.elementId)
+        .map((item) => item.elementId)
+    );
+    const operations = currentSlide.elements
+      .filter(
+        (element): element is Extract<DeckElement, { type: "text" }> =>
+          element.type === "text" && overflowElementIds.has(element.elementId)
+      )
+      .map((element) => {
+        const textFitContext = {
+          fontFamily:
+            element.props.fontFamily ??
+            currentSlide.style.fontFamily ??
+            deck.theme.typography.bodyFontFamily
+        };
+
+        return {
+          type: "update_element_props" as const,
+          slideId: currentSlide.slideId,
+          elementId: element.elementId,
+          props: createShrinkToFitTextProps(element, textFitContext)
+        };
+      });
+
+    if (operations.length === 0) {
+      return;
+    }
+
+    setSelectedElementIds(operations.map((operation) => operation.elementId));
+    commitPatch((currentDeck) => ({
+      deckId: currentDeck.deckId,
+      baseVersion: currentDeck.version,
+      source: "user",
+      operations
+    }));
   }
 
   function handleSlideStyleChange(
@@ -5135,7 +5264,9 @@ export function EditorShell(props: { projectId?: string }) {
                 <PptxImportQualityPanel state={pptxImportState} />
                 <ValidationPanel
                   items={editorValidationItems}
+                  onApplyAllTextOverflow={handleApplyAllValidationTextOverflow}
                   onHighlightElementIds={setValidationHighlightElementIds}
+                  onTextOverflowAction={handleValidationTextOverflowAction}
                 />
                 <SuggestionPanel
                   deck={deck}

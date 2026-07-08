@@ -57,8 +57,10 @@ from app.references import (
 )
 from app.rehearsal import (
     DeckKeyword,
+    RunSeriesEntry,
     SlideTimelineEntry,
     analyze_rehearsal_metrics,
+    generate_progress_comment,
     generate_rehearsal_coaching,
 )
 
@@ -662,6 +664,46 @@ def analyze_rehearsal(
             message=coaching.message,
         ),
     )
+
+
+class RehearsalProgressRunEntry(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    run_id: str = Field(alias="runId")
+    created_at: str = Field(alias="createdAt")
+    duration_seconds: float = Field(alias="durationSeconds", ge=0)
+
+
+class RehearsalProgressCommentRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    project_id: str = Field(alias="projectId")
+    run_series: list[RehearsalProgressRunEntry] = Field(alias="runSeries")
+
+
+class RehearsalProgressCommentResponse(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    project_id: str = Field(alias="projectId")
+    comment: str | None = None
+
+
+@app.post("/rehearsal/progress-comment", response_model=RehearsalProgressCommentResponse)
+def rehearsal_progress_comment(
+    payload: RehearsalProgressCommentRequest,
+    request: Request,
+) -> RehearsalProgressCommentResponse:
+    config = _config(request)
+    run_series = [
+        RunSeriesEntry(run_id=e.run_id, created_at=e.created_at, duration_seconds=e.duration_seconds)
+        for e in payload.run_series
+    ]
+    comment = generate_progress_comment(
+        run_series=run_series,
+        model=config.openai_model,
+        api_key=config.openai_api_key,
+    )
+    return RehearsalProgressCommentResponse(projectId=payload.project_id, comment=comment)
 
 
 def _remap_import_asset_ids(

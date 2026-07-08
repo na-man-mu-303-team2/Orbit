@@ -21,9 +21,18 @@ import {
   getCustomShapePaint,
   getCustomShapeStrokeWidth
 } from "../../canvas/custom-shape/geometry";
+import {
+  getKonvaFontStyle,
+  getTextElementText,
+  measureTextContentBounds
+} from "../../canvas/text/textLayout";
 import type { SlideAnimationDiagnostics } from "../../../../../../../packages/editor-core/src/index";
 import { buildAnimationSummary } from "./animation";
 import { IdBadge } from "./EditorIdBadge";
+
+type TextFitContext = {
+  fontFamily?: string;
+};
 
 export function SelectionQuickBar(props: {
   animations: DeckAnimation[];
@@ -617,17 +626,27 @@ function ElementQuickBarFields(props: {
 }
 
 export function createShrinkToFitTextProps(
-  element: Extract<DeckElement, { type: "text" }>
+  element: Extract<DeckElement, { type: "text" }>,
+  context: TextFitContext = {}
 ) {
   const lineHeight = Math.min(element.props.lineHeight, 1.15);
   const minFontSize = 8;
+  const text = getTextElementText(element.props as TextElementProps);
 
   for (
     let fontSize = Math.floor(element.props.fontSize);
     fontSize >= minFontSize;
     fontSize -= 1
   ) {
-    if (estimateTextHeight(element.props.text, element.width, fontSize, lineHeight) <= element.height) {
+    if (
+      measureTextHeight(element, {
+        ...context,
+        fontSize,
+        lineHeight,
+        text,
+        width: element.width
+      }) <= Math.max(1, element.height - 8)
+    ) {
       return { fontSize, lineHeight };
     }
   }
@@ -635,22 +654,84 @@ export function createShrinkToFitTextProps(
   return { fontSize: minFontSize, lineHeight: 1.05 };
 }
 
-function estimateTextHeight(
-  text: string,
-  width: number,
-  fontSize: number,
-  lineHeight: number
+export function createExpandTextWidthToFitFrame(
+  element: Extract<DeckElement, { type: "text" }>,
+  maxWidth: number,
+  context: TextFitContext = {}
 ) {
-  const characterWidth = Math.max(1, fontSize * 0.56);
-  const charactersPerLine = Math.max(1, Math.floor(width / characterWidth));
-  const lineCount = text
-    .split("\n")
-    .reduce(
-      (sum, line) => sum + Math.max(1, Math.ceil(line.length / charactersPerLine)),
-      0
-    );
+  const targetHeight = Math.max(1, element.height - 8);
+  const startWidth = Math.ceil(element.width);
+  const safeMaxWidth = Math.max(startWidth, Math.floor(maxWidth));
+  const text = getTextElementText(element.props as TextElementProps);
 
-  return lineCount * fontSize * lineHeight;
+  for (let width = startWidth; width <= safeMaxWidth; width += 1) {
+    if (
+      measureTextHeight(element, {
+        ...context,
+        fontSize: element.props.fontSize,
+        lineHeight: element.props.lineHeight,
+        text,
+        width,
+      }) <= targetHeight
+    ) {
+      return width;
+    }
+  }
+
+  return null;
+}
+
+export function createSingleLineTextFit(
+  element: Extract<DeckElement, { type: "text" }>,
+  context: TextFitContext = {}
+) {
+  const text = getTextElementText(element.props as TextElementProps).replace(/\s*\n\s*/g, " ");
+  const measured = measureTextContentBounds({
+    align: element.props.align,
+    fontFamily: getTextFitFontFamily(element, context),
+    fontSize: element.props.fontSize,
+    fontStyle: getKonvaFontStyle(element.props.fontWeight),
+    lineHeight: element.props.lineHeight,
+    text,
+    width: 10000
+  });
+  const width = Math.max(
+    Math.ceil(element.width),
+    Math.ceil(measured.width) + 8
+  );
+
+  return {
+    props: { paragraphs: null, runs: null, text },
+    text,
+    width
+  };
+}
+
+function measureTextHeight(
+  element: Extract<DeckElement, { type: "text" }>,
+  args: TextFitContext & {
+    fontSize: number;
+    lineHeight: number;
+    text: string;
+    width: number;
+  }
+) {
+  return measureTextContentBounds({
+    align: element.props.align,
+    fontFamily: getTextFitFontFamily(element, args),
+    fontSize: args.fontSize,
+    fontStyle: getKonvaFontStyle(element.props.fontWeight),
+    lineHeight: args.lineHeight,
+    text: args.text,
+    width: Math.max(1, args.width - 8)
+  }).height;
+}
+
+function getTextFitFontFamily(
+  element: Extract<DeckElement, { type: "text" }>,
+  context: TextFitContext
+) {
+  return context.fontFamily ?? element.props.fontFamily ?? "Arial";
 }
 
 function clampUnit(value: number) {

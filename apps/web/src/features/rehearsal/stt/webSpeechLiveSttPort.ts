@@ -61,6 +61,8 @@ export class WebSpeechLiveSttPort implements LiveSttPort {
   private readonly errorSubscribers = new Set<(error: LiveSttError) => void>();
   private recognition: BrowserSpeechRecognition | null = null;
   private startedAtMs: number | null = null;
+  private activeAudioTrack: MediaStreamTrack | null = null;
+  private activeLang = WEB_SPEECH_LANGUAGE;
   private biasPhrases: LiveSttBiasPhrase[] = [];
 
   constructor(private readonly options: WebSpeechLiveSttPortOptions) {
@@ -117,6 +119,8 @@ export class WebSpeechLiveSttPort implements LiveSttPort {
 
     this.recognition = recognition;
     this.startedAtMs = this.now();
+    this.activeLang = lang;
+    this.activeAudioTrack = resolveWebSpeechAudioTrack(config.audioSource);
     this.biasPhrases = normalizeLiveSttBiasPhrases(
       config.biasPhrases ?? this.biasPhrases
     );
@@ -127,9 +131,7 @@ export class WebSpeechLiveSttPort implements LiveSttPort {
     recognition.maxAlternatives = WEB_SPEECH_MAX_ALTERNATIVES;
     recognition.onresult = (event) => this.handleResult(event);
     recognition.onerror = (event) => this.handleError(event);
-    recognition.onend = () => {
-      this.startedAtMs = null;
-    };
+    recognition.onend = () => this.handleEnd(recognition);
     this.capabilities.keywordBiasing = isWebSpeechPhrasesSupported(
       recognition,
       this.speechRecognitionGlobal
@@ -143,11 +145,12 @@ export class WebSpeechLiveSttPort implements LiveSttPort {
     try {
       startRecognitionWithAudioTrack(
         recognition,
-        resolveWebSpeechAudioTrack(config.audioSource)
+        this.activeAudioTrack
       );
     } catch (error) {
       this.startedAtMs = null;
       this.recognition = null;
+      this.activeAudioTrack = null;
       throw new LiveSttError(
         "start_failed",
         error instanceof Error ? error.message : "Web Speech 인식을 시작하지 못했습니다."
@@ -159,6 +162,7 @@ export class WebSpeechLiveSttPort implements LiveSttPort {
     const recognition = this.recognition;
     this.startedAtMs = null;
     this.recognition = null;
+    this.activeAudioTrack = null;
     recognition?.stop();
   }
 
@@ -191,6 +195,7 @@ export class WebSpeechLiveSttPort implements LiveSttPort {
 
   dispose() {
     this.startedAtMs = null;
+    this.activeAudioTrack = null;
     this.resultSubscribers.clear();
     this.errorSubscribers.clear();
     this.recognition?.abort();
@@ -274,12 +279,44 @@ export class WebSpeechLiveSttPort implements LiveSttPort {
   }
 
   private handleError(event: BrowserSpeechRecognitionErrorEvent) {
+    if (shouldStopAfterWebSpeechError(event.error)) {
+      this.startedAtMs = null;
+      this.recognition = null;
+      this.activeAudioTrack = null;
+    }
+
     this.emitError(
       new LiveSttError(
         "runtime_error",
         event.message || `Web Speech 인식 오류: ${event.error ?? "unknown"}`
       )
     );
+  }
+
+  private handleEnd(recognition: BrowserSpeechRecognition) {
+    if (this.recognition !== recognition || this.startedAtMs === null) {
+      return;
+    }
+
+    try {
+      recognition.lang = this.activeLang;
+      if (this.processLocally) {
+        recognition.processLocally = true;
+      }
+      startRecognitionWithAudioTrack(recognition, this.activeAudioTrack);
+    } catch (error) {
+      this.startedAtMs = null;
+      this.recognition = null;
+      this.activeAudioTrack = null;
+      this.emitError(
+        new LiveSttError(
+          "start_failed",
+          error instanceof Error
+            ? error.message
+            : "Web Speech 인식을 재시작하지 못했습니다."
+        )
+      );
+    }
   }
 
   private emitResult(result: LiveSttResult) {
@@ -331,4 +368,14 @@ function getDefaultBrowserSpeechRecognitionGlobal(): BrowserSpeechRecognitionGlo
   }
 
   return window;
+}
+
+function shouldStopAfterWebSpeechError(error: string | undefined) {
+  return (
+    error === "audio-capture" ||
+    error === "language-not-supported" ||
+    error === "network" ||
+    error === "not-allowed" ||
+    error === "service-not-allowed"
+  );
 }

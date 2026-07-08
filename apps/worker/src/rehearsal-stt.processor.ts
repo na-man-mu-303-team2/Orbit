@@ -315,6 +315,12 @@ export async function processRehearsalSttJob(
     transcriptRetained: report.transcriptRetained
   });
 
+  try {
+    await upsertRehearsalSummary(dataSource, pythonWorkerUrl, payload.projectId);
+  } catch {
+    // summary 업데이트 실패는 리포트 저장을 막지 않는다.
+  }
+
   return updateJob(dataSource, payload.jobId, {
     status: "succeeded",
     progress: 100,
@@ -961,4 +967,62 @@ type DeckAnalysisContext = {
 
 function workerUrl(baseUrl: string, path: string): string {
   return new URL(path, baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`).toString();
+}
+
+type ReportJsonShape = {
+  metrics?: { durationSeconds?: number };
+  slideTimings?: { slideId: string; actualSeconds: number }[];
+};
+
+type SucceededRunRow = {
+  run_id: string;
+  created_at: Date | string;
+  report_json: ReportJsonShape | null;
+};
+
+async function upsertRehearsalSummary(
+  dataSource: DataSource,
+  pythonWorkerUrl: string,
+  projectId: string
+): Promise<void> {
+  const rows: SucceededRunRow[] = await dataSource.query(
+    `SELECT run_id, created_at, report_json
+     FROM rehearsal_runs
+     WHERE project_id = $1 AND status = 'succeeded'
+     ORDER BY created_at ASC`,
+    [projectId]
+  );
+
+  if (rows.length === 0) return;
+
+  const runDurationSeries = rows.map((row) => ({
+    runId: row.run_id,
+    createdAt: row.created_at instanceof Date ? row.created_at.toISOString() : String(row.created_at),
+    durationSeconds: row.report_json?.metrics?.durationSeconds ?? 0
+  }));
+
+  if (rows.length < 2) return;
+
+  let progressComment: string | null = null;
+  try {
+    const response = await fetch(workerUrl(pythonWorkerUrl, "/rehearsal/progress-comment"), {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ projectId, runSeries: runDurationSeries }),
+      signal: AbortSignal.timeout(30_000)
+    });
+    if (response.ok) {
+      const data = (await response.json()) as { comment?: string | null };
+      progressComment = data.comment ?? null;
+    }
+  } catch {
+    // 코멘트 생성 실패 시 무시
+  }
+
+  if (progressComment !== null) {
+    await dataSource.query(
+      `UPDATE projects SET progress_comment = $2 WHERE project_id = $1`,
+      [projectId, progressComment]
+    );
+  }
 }
