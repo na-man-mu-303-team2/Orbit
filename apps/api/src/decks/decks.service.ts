@@ -27,6 +27,7 @@ import type {
   DeckApiError,
   DeckApiErrorCode,
   DeckChangeRecord,
+  DeckPatchOperation,
   DeckSnapshot,
   DeckSnapshotReason,
   GetDeckResponse,
@@ -145,7 +146,53 @@ export class DecksService {
 
     return this.dataSource.transaction(async (manager) => {
       const updatedAt = nowIso();
+      const deckRow = await this.findProjectDeckRowForUpdate(manager, projectId);
+
+      if (deckRow) {
+        if (deckRow.deck_id !== request.deck.deckId) {
+          throwDeckApiException(
+            "DECK_MISMATCH",
+            HttpStatus.CONFLICT,
+            "Stored deckId must match deck.deckId",
+            [
+              `deck.deckId=${deckRow.deck_id}`,
+              `request.deckId=${request.deck.deckId}`,
+            ],
+          );
+        }
+
+        const currentDeck = (
+          await this.readCurrentDeckState(
+            manager,
+            parseDeckRow(deckRow),
+            projectId,
+            deckRow.deck_id,
+            toIso(deckRow.updated_at),
+            true,
+          )
+        ).deck;
+        const baseVersion = request.baseVersion ?? request.deck.version;
+
+        if (currentDeck.version !== baseVersion) {
+          throwDeckApiException(
+            "STALE_BASE_VERSION",
+            HttpStatus.CONFLICT,
+            "Deck baseVersion does not match current deck version",
+            [
+              `deck.version=${currentDeck.version}`,
+              `request.baseVersion=${baseVersion}`,
+            ],
+          );
+        }
+      }
+
       const deck = await this.upsertDeck(manager, request.deck, updatedAt);
+      await this.deletePatchRowsAfterVersion(
+        manager,
+        projectId,
+        deck.deckId,
+        deck.version,
+      );
       await this.deletePatchRowsUpToVersion(
         manager,
         projectId,
@@ -242,7 +289,10 @@ export class DecksService {
         deck.deckId,
       );
 
-      if (templateBlueprint) {
+      if (
+        templateBlueprint &&
+        hasOoxmlSyncableOperation(applyResult.changeRecord.operations)
+      ) {
         syncInput = {
           deckId: deck.deckId,
           changeId: applyResult.changeRecord.changeId,
@@ -371,6 +421,23 @@ export class DecksService {
         SELECT project_id, deck_id, deck_json, version, updated_at
         FROM decks
         WHERE project_id = $1
+      `,
+      [projectId],
+    );
+
+    return rows[0];
+  }
+
+  private async findProjectDeckRowForUpdate(
+    manager: EntityManager,
+    projectId: string,
+  ): Promise<DeckRow | undefined> {
+    const rows = await manager.query<DeckRow[]>(
+      `
+        SELECT project_id, deck_id, deck_json, version, updated_at
+        FROM decks
+        WHERE project_id = $1
+        FOR UPDATE
       `,
       [projectId],
     );
@@ -665,6 +732,19 @@ function parsePutDeckRequest(body: unknown): PutDeckRequest {
   }
 
   return result.data;
+}
+
+function hasOoxmlSyncableOperation(
+  operations: DeckPatchOperation[],
+): boolean {
+  return operations.some((operation) =>
+    [
+      "add_element",
+      "update_element_frame",
+      "update_element_props",
+      "delete_element",
+    ].includes(operation.type),
+  );
 }
 
 function parseAppendDeckPatchRequest(body: unknown): AppendDeckPatchRequest {

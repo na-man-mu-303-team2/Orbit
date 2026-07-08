@@ -2,8 +2,10 @@ import { FilePurpose } from "@orbit/shared";
 import {
   DeleteObjectCommand,
   GetObjectCommand,
+  HeadObjectCommand,
   PutObjectCommand,
   S3Client,
+  S3ServiceException,
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
@@ -43,12 +45,18 @@ export interface StorageReadObject {
   size: number;
 }
 
+export interface StorageHeadResult {
+  contentLength: number;
+  contentType: string;
+}
+
 export interface StoragePort {
   putObject(input: StoragePutInput): Promise<StorageObject>;
   getObject(key: string): Promise<StorageReadObject>;
   createUploadUrl(input: StorageUploadUrlInput): Promise<StorageUploadUrl>;
   getSignedReadUrl(key: string): Promise<string>;
   removeObject(key: string): Promise<void>;
+  headObject(key: string): Promise<StorageHeadResult | null>;
 }
 
 export interface S3CompatibleStorageOptions {
@@ -165,6 +173,24 @@ export class S3CompatibleStorage implements StoragePort {
       }),
       { expiresIn: 15 * 60 },
     );
+  }
+
+  // object 존재 여부와 메타데이터를 확인한다. 없으면 null을 반환한다.
+  async headObject(key: string): Promise<StorageHeadResult | null> {
+    try {
+      const result = await this.internalClient.send(
+        new HeadObjectCommand({ Bucket: this.bucket, Key: key }),
+      );
+      return {
+        contentLength: result.ContentLength ?? 0,
+        contentType: result.ContentType ?? "",
+      };
+    } catch (error) {
+      if (error instanceof S3ServiceException && error.$metadata.httpStatusCode === 404) {
+        return null;
+      }
+      throw error;
+    }
   }
 
   // cleanup이 필요할 때 S3-compatible bucket에서 object를 삭제한다.

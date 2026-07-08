@@ -8,6 +8,7 @@ import {
   createRehearsalAudioUploadUrlResponseSchema,
   createRehearsalRunRequestSchema,
   createRehearsalRunResponseSchema,
+  getRehearsalProjectSummaryResponseSchema,
   getRehearsalReportResponseSchema,
   getRehearsalRunResponseSchema,
   updateRehearsalRunMetaRequestSchema,
@@ -24,8 +25,10 @@ import { DecksService } from "../decks/decks.service";
 import { FilesService } from "../files/files.service";
 import { JobsService } from "../jobs/jobs.service";
 import { serializeLogError } from "../logging";
+import { ProjectEntity } from "../projects/project.entity";
 import { ProjectsService } from "../projects/projects.service";
 import { RehearsalRunEntity } from "./rehearsal-run.entity";
+import { RedisRehearsalTranscriptCache } from "./rehearsal-transcript-cache";
 
 export type RehearsalSttEnqueueJob = (input: EnqueueRehearsalSttJobInput) => Promise<void>;
 
@@ -41,12 +44,15 @@ export class RehearsalsService {
   constructor(
     @InjectRepository(RehearsalRunEntity)
     private readonly rehearsalRuns: Repository<RehearsalRunEntity>,
+    @InjectRepository(ProjectEntity)
+    private readonly projects: Repository<ProjectEntity>,
     private readonly decksService: DecksService,
     private readonly projectsService: ProjectsService,
     private readonly filesService: FilesService,
     private readonly jobsService: JobsService,
     @Inject(REHEARSAL_STT_ENQUEUE_JOB)
     private readonly enqueueJob: RehearsalSttEnqueueJob,
+    private readonly transcriptCache: RedisRehearsalTranscriptCache,
     @InjectPinoLogger(RehearsalsService.name)
     private readonly logger: PinoLogger
   ) {}
@@ -68,7 +74,7 @@ export class RehearsalsService {
         jobId: null,
         status: "created",
         error: null,
-        reportJson: null,
+        rehearsalReport: null,
         metaJson: {},
         transcriptRetained: false,
         rawAudioDeletedAt: null,
@@ -220,19 +226,66 @@ export class RehearsalsService {
     return updateRehearsalRunMetaResponseSchema.parse({ run: toRehearsalRun(savedRun) });
   }
 
+  async listRuns(projectId: string, query: Record<string, string> = {}) {
+    await this.projectsService.getAccessibleProject(projectId);
+    const pageSize = Math.min(Math.max(Number(query.pageSize) || 50, 1), 100);
+    const page = Math.max(Number(query.page) || 1, 1);
+    const where: Record<string, unknown> = { projectId };
+    if (query.status) {
+      where["status"] = query.status;
+    }
+    const [runs, total] = await this.rehearsalRuns.findAndCount({
+      where,
+      order: { createdAt: "DESC" },
+      take: pageSize,
+      skip: (page - 1) * pageSize
+    });
+    return { runs: runs.map(toRehearsalRun), total, page, pageSize };
+  }
+
   async getRun(runId: string) {
     const run = await this.getRunEntity(runId);
     return getRehearsalRunResponseSchema.parse({ run: toRehearsalRun(run) });
   }
 
+  async getRunProjectId(runId: string) {
+    const run = await this.getRunEntity(runId);
+    return run.projectId;
+  }
+
   async getReport(runId: string) {
     const run = await this.getRunEntity(runId);
-    const report = run.status === "succeeded" && run.reportJson ? run.reportJson : null;
+    const report =
+      run.status === "succeeded" && run.rehearsalReport ? run.rehearsalReport : null;
+    const transcript = report ? await this.getCachedTranscript(run.runId) : null;
+    const responseReport = report
+      ? {
+          ...report,
+          transcriptRetained: transcript !== null,
+          transcript
+        }
+      : null;
 
     return getRehearsalReportResponseSchema.parse({
       run: toRehearsalRun(run),
-      report
+      report: responseReport
     });
+  }
+
+  private async getCachedTranscript(runId: string) {
+    try {
+      return await this.transcriptCache.get(runId);
+    } catch (error) {
+      this.logger.warn(
+        {
+          event: "rehearsal.transcript_cache_read_failed",
+          runId,
+          error: serializeLogError(error)
+        },
+        "Failed to read rehearsal transcript cache."
+      );
+      return null;
+    }
   }
 
   private async getRunEntity(runId: string) {
@@ -244,6 +297,53 @@ export class RehearsalsService {
     await this.projectsService.getAccessibleProject(run.projectId);
 
     return run;
+  }
+
+  async getSummary(projectId: string) {
+    await this.projectsService.getAccessibleProject(projectId);
+
+    const [runs, project] = await Promise.all([
+      this.rehearsalRuns.find({
+        where: { projectId, status: "succeeded" },
+        order: { createdAt: "ASC" }
+      }),
+      this.projects.findOne({ where: { projectId } })
+    ]);
+
+    if (runs.length === 0) {
+      return getRehearsalProjectSummaryResponseSchema.parse({ summary: null });
+    }
+
+    const runDurationSeries = runs.map((run) => ({
+      runId: run.runId,
+      createdAt: run.createdAt.toISOString(),
+      durationSeconds: extractReportDurationSeconds(run.rehearsalReport)
+    }));
+
+    const slideAccum = new Map<string, { total: number; count: number }>();
+    for (const run of runs) {
+      for (const t of extractReportSlideTimings(run.rehearsalReport)) {
+        const entry = slideAccum.get(t.slideId) ?? { total: 0, count: 0 };
+        entry.total += t.actualSeconds;
+        entry.count += 1;
+        slideAccum.set(t.slideId, entry);
+      }
+    }
+    const slideAvgTimings = Array.from(slideAccum.entries()).map(([slideId, { total, count }]) => ({
+      slideId,
+      avgSeconds: Math.round(total / count),
+      sampleCount: count
+    }));
+
+    return getRehearsalProjectSummaryResponseSchema.parse({
+      summary: {
+        projectId,
+        runCount: runs.length,
+        runDurationSeries,
+        slideAvgTimings,
+        progressComment: project?.progressComment ?? null
+      }
+    });
   }
 
   private async claimAudioUpload(run: RehearsalRunEntity, fileId: string) {
@@ -322,4 +422,18 @@ function toRehearsalRun(run: RehearsalRunEntity): RehearsalRun {
     createdAt: run.createdAt.toISOString(),
     updatedAt: run.updatedAt.toISOString()
   };
+}
+
+type ReportJsonShape = {
+  metrics?: { durationSeconds?: number };
+  slideTimings?: { slideId: string; actualSeconds: number }[];
+};
+
+function extractReportDurationSeconds(report: Record<string, unknown> | null): number {
+  const metrics = (report as ReportJsonShape | null)?.metrics;
+  return typeof metrics?.durationSeconds === "number" ? metrics.durationSeconds : 0;
+}
+
+function extractReportSlideTimings(report: Record<string, unknown> | null): { slideId: string; actualSeconds: number }[] {
+  return (report as ReportJsonShape | null)?.slideTimings ?? [];
 }

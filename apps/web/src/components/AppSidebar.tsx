@@ -1,4 +1,5 @@
 import {
+  BarChart3,
   FolderOpen,
   Home,
   LogIn,
@@ -19,12 +20,14 @@ type AppSidebarProps = {
   isLoggingOut: boolean;
   isProjectActive: boolean;
   isRehearsalActive: boolean;
+  isReportActive: boolean;
   onCreateDeckClick: () => void;
   onHomeClick: () => void;
   onLoginClick: () => void;
   onLogoutClick: () => void;
   onProjectListClick: () => void;
   onRehearsalClick: () => void;
+  onReportClick: () => void;
   onToggleCollapse: () => void;
   userInitial: string;
   userLabel: string;
@@ -39,12 +42,14 @@ export function AppSidebar(props: AppSidebarProps) {
     isLoggingOut,
     isProjectActive,
     isRehearsalActive,
+    isReportActive,
     onCreateDeckClick,
     onHomeClick,
     onLoginClick,
     onLogoutClick,
     onProjectListClick,
     onRehearsalClick,
+    onReportClick,
     onToggleCollapse,
     userInitial,
     userLabel,
@@ -85,6 +90,12 @@ export function AppSidebar(props: AppSidebarProps) {
         icon={<FolderOpen size={15} />}
         label="프로젝트 목록"
         onClick={onProjectListClick}
+      />
+      <SidebarButton
+        active={isReportActive}
+        icon={<BarChart3 size={15} />}
+        label="리포트"
+        onClick={onReportClick}
       />
       <SidebarButton
         active={isCreateDeckActive}

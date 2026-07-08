@@ -1,9 +1,24 @@
 import type { EditorValidationItem } from "./editorValidation";
+import { Maximize2, Minimize2, MoveHorizontal } from "lucide-react";
+
+export type ValidationTextOverflowAction =
+  | "shrinkText"
+  | "expandTextBox"
+  | "singleLineTextBox";
 
 export function ValidationPanel(props: {
   items: EditorValidationItem[];
+  onApplyAllTextOverflow?: () => void;
   onHighlightElementIds?: (elementIds: string[]) => void;
+  onTextOverflowAction?: (
+    item: EditorValidationItem,
+    action: ValidationTextOverflowAction
+  ) => void;
 }) {
+  const canApplyAllTextOverflow = props.items.some(
+    (item) => item.issue === "textOverflow" && item.elementId
+  );
+
   return (
     <section className="suggestion-card validation-card" data-testid="editor-validation-panel">
       <strong>AI 검증</strong>
@@ -24,6 +39,43 @@ export function ValidationPanel(props: {
               {elementLabelForValidationItem(item) ? (
                 <small>{elementLabelForValidationItem(item)}</small>
               ) : null}
+              {item.issue === "textOverflow" && item.elementId ? (
+                <div className="validation-item-actions">
+                  <button
+                    className="validation-action-button"
+                    type="button"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      props.onTextOverflowAction?.(item, "shrinkText");
+                    }}
+                  >
+                    <Minimize2 aria-hidden="true" size={13} />
+                    <span>글자 줄이기</span>
+                  </button>
+                  <button
+                    className="validation-action-button"
+                    type="button"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      props.onTextOverflowAction?.(item, "expandTextBox");
+                    }}
+                  >
+                    <MoveHorizontal aria-hidden="true" size={13} />
+                    <span>상자 넓히기</span>
+                  </button>
+                  <button
+                    className="validation-action-button"
+                    type="button"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      props.onTextOverflowAction?.(item, "singleLineTextBox");
+                    }}
+                  >
+                    <Maximize2 aria-hidden="true" size={13} />
+                    <span>한 줄로 넓히기</span>
+                  </button>
+                </div>
+              ) : null}
             </div>
           ))
         ) : (
@@ -32,6 +84,15 @@ export function ValidationPanel(props: {
           </div>
         )}
       </div>
+      {canApplyAllTextOverflow ? (
+        <button
+          className="validation-apply-all-button"
+          type="button"
+          onClick={props.onApplyAllTextOverflow}
+        >
+          모두 반영하기
+        </button>
+      ) : null}
     </section>
   );
 }

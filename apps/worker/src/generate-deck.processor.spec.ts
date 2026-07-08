@@ -96,6 +96,7 @@ describe("processGenerateDeckJob", () => {
         referenceKeywords: [{ text: "실시간 발표 피드백" }]
       })
     );
+    expect(JSON.parse(pythonRequestBody)).not.toHaveProperty("imageReviewMode");
     expect(query).toHaveBeenCalledTimes(3);
     expect(query.mock.calls[1][0]).toContain("INSERT INTO decks");
     const savedDeck = (query.mock.calls[1][1] as unknown[])[2] as Deck;

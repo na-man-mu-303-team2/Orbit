@@ -81,6 +81,14 @@ export const rehearsalReportSlideTimingSchema = z
   })
   .strict();
 
+export const rehearsalReportSlideInsightSchema = z
+  .object({
+    slideId: deckSlideIdSchema,
+    fillerWordCount: z.number().int().nonnegative(),
+    pauseCount: z.number().int().nonnegative()
+  })
+  .strict();
+
 export const rehearsalReportQnaTopicSchema = z
   .object({
     topic: z.string().trim().min(1),
@@ -93,6 +101,13 @@ export const rehearsalReportQnaSummarySchema = z
     questionCount: z.number().int().nonnegative(),
     questionSummary: z.string().default(""),
     unclearTopics: z.array(rehearsalReportQnaTopicSchema).default([])
+  })
+  .strict();
+
+export const rehearsalReportAiSummarySchema = z
+  .object({
+    headline: z.string().trim().min(1),
+    paragraphs: z.array(z.string().trim().min(1)).min(1).max(3)
   })
   .strict();
 
@@ -119,11 +134,13 @@ export const rehearsalReportSchema = z
     pauseDetails: z.array(rehearsalReportPauseDetailSchema).default([]),
     missedKeywords: z.array(rehearsalReportMissedKeywordSchema).default([]),
     slideTimings: z.array(rehearsalReportSlideTimingSchema).default([]),
+    slideInsights: z.array(rehearsalReportSlideInsightSchema).default([]),
     qnaSummary: rehearsalReportQnaSummarySchema.default({
       questionCount: 0,
       questionSummary: "",
       unclearTopics: []
     }),
+    aiSummary: rehearsalReportAiSummarySchema.nullable().optional(),
     coaching: rehearsalReportCoachingSchema.nullable(),
     generatedAt: isoDateTimeSchema
   })
@@ -253,6 +270,7 @@ export type RehearsalRunStatus = z.infer<typeof rehearsalRunStatusSchema>;
 export type RehearsalRunError = z.infer<typeof rehearsalRunErrorSchema>;
 export type RehearsalRun = z.infer<typeof rehearsalRunSchema>;
 export type RehearsalReportMetrics = z.infer<typeof rehearsalReportMetricsSchema>;
+export type RehearsalReportAiSummary = z.infer<typeof rehearsalReportAiSummarySchema>;
 export type RehearsalReportCoaching = z.infer<typeof rehearsalReportCoachingSchema>;
 export type RehearsalReportSlideTiming = z.infer<
   typeof rehearsalReportSlideTimingSchema
@@ -293,3 +311,32 @@ export type UpdateRehearsalRunMetaResponse = z.infer<
   typeof updateRehearsalRunMetaResponseSchema
 >;
 export type GetRehearsalReportResponse = z.infer<typeof getRehearsalReportResponseSchema>;
+
+export const runDurationPointSchema = z.object({
+  runId: z.string().min(1),
+  createdAt: isoDateTimeSchema,
+  durationSeconds: z.number().nonnegative()
+});
+
+export const slideAvgTimingSchema = z.object({
+  slideId: deckSlideIdSchema,
+  avgSeconds: z.number().nonnegative(),
+  sampleCount: z.number().int().nonnegative()
+});
+
+export const rehearsalProjectSummarySchema = z.object({
+  projectId: z.string().min(1),
+  runCount: z.number().int().nonnegative(),
+  runDurationSeries: z.array(runDurationPointSchema).default([]),
+  slideAvgTimings: z.array(slideAvgTimingSchema).default([]),
+  progressComment: z.string().nullable()
+});
+
+export const getRehearsalProjectSummaryResponseSchema = z.object({
+  summary: rehearsalProjectSummarySchema.nullable()
+});
+
+export type RunDurationPoint = z.infer<typeof runDurationPointSchema>;
+export type SlideAvgTiming = z.infer<typeof slideAvgTimingSchema>;
+export type RehearsalProjectSummary = z.infer<typeof rehearsalProjectSummarySchema>;
+export type GetRehearsalProjectSummaryResponse = z.infer<typeof getRehearsalProjectSummaryResponseSchema>;

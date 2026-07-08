@@ -29,6 +29,8 @@ import { CreateAudienceAggregateReports2026070505000 } from "./migrations/202607
 import { AddAudienceManualResultExposure2026070506000 } from "./migrations/2026070506000-AddAudienceManualResultExposure";
 import { AddAudienceSlideSnapshots2026070507000 } from "./migrations/2026070507000-AddAudienceSlideSnapshots";
 import { RepairPresentationSessionsContract2026070601000 } from "./migrations/2026070601000-RepairPresentationSessionsContract";
+import { CreateProjectRehearsalSummaries2026070801000 } from "./migrations/2026070801000-CreateProjectRehearsalSummaries";
+import { ReplaceRehearsalSummaryWithProjectComment2026070802000 } from "./migrations/2026070802000-ReplaceRehearsalSummaryWithProjectComment";
 
 loadDotenv({ path: "../../.env.local" });
 loadDotenv({ path: ".env.local" });
@@ -69,7 +71,9 @@ export const databaseOptions: DataSourceOptions = {
     CreateAudienceAggregateReports2026070505000,
     AddAudienceManualResultExposure2026070506000,
     AddAudienceSlideSnapshots2026070507000,
-    RepairPresentationSessionsContract2026070601000
+    RepairPresentationSessionsContract2026070601000,
+    CreateProjectRehearsalSummaries2026070801000,
+    ReplaceRehearsalSummaryWithProjectComment2026070802000,
   ],
   migrationsTableName: "typeorm_migrations",
   synchronize: false,

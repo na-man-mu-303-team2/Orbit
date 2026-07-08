@@ -20,6 +20,7 @@ export function AnimationInspectorPanel(props: AnimationEditorPanelProps) {
     preferredAnimationId,
     selectedKeywordId,
     selectedKeywordLabel,
+    selectedKeywordOccurrenceId,
     slideAnimations,
     slideElements,
     onAddAnimation,
@@ -87,6 +88,7 @@ export function AnimationInspectorPanel(props: AnimationEditorPanelProps) {
         linkedTypes={linkedTypes}
         selectedKeywordId={selectedKeywordId}
         selectedKeywordLabel={selectedKeywordLabel}
+        selectedKeywordOccurrenceId={selectedKeywordOccurrenceId}
         onAddAnimation={onAddAnimation}
         onDraftChange={(patch) => {
           if (!creationType) {

@@ -25,9 +25,14 @@ export type AnimationEditorPanelProps = {
   preferredAnimationId?: string | null;
   selectedKeywordId: string | null;
   selectedKeywordLabel: string | null;
+  selectedKeywordOccurrenceId?: string | null;
   slideAnimations: DeckAnimation[];
   slideElements: DeckElement[];
-  onAddAnimation: (draft: AnimationDraftInput, keywordId?: string | null) => void;
+  onAddAnimation: (
+    draft: AnimationDraftInput,
+    keywordId?: string | null,
+    keywordOccurrenceId?: string | null
+  ) => void;
   onDeleteAnimation: (animationId: string) => void;
   onSelectKeyword: (keywordId: string) => void;
   onSelectSlideAnimation: (animation: DeckAnimation) => void;

@@ -11,13 +11,17 @@ from app.ai.generate_deck import (
     DeckContentGenerationError,
     DeckGenerationOrchestrator,
     GenerateDeckRequest,
+    GenerateDeckResponse,
     ReferenceContext,
     SlideCountRange,
     ValidationIssue,
     ValidationResult,
     analyze_input,
     choose_slide_count,
+    clear_deck_content_plan_cache,
+    deck_content_prompt,
     detect_text_overlap_candidates,
+    generate_content_plan_with_llm,
     generate_deck,
     icon_name_for_keyword,
     refine_design_issues,
@@ -30,6 +34,11 @@ from tests.test_config import VALID_ENV
 def client() -> TestClient:
     api_module.app.state.config = api_module.load_config(VALID_ENV)
     return TestClient(api_module.app)
+
+
+@pytest.fixture(autouse=True)
+def clear_content_plan_cache() -> None:
+    clear_deck_content_plan_cache()
 
 
 def test_choose_slide_count_clamps_duration_to_requested_range() -> None:
@@ -64,6 +73,48 @@ def test_generate_deck_request_accepts_direct_reference_context() -> None:
             content="PPTX source text",
         )
     ]
+
+
+def test_generate_content_plan_uses_cache_and_returns_copy() -> None:
+    raw_input = analyze_input(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="ORBIT",
+            prompt="Use generated plan.",
+            slideCountRange={"min": 1, "max": 1},
+        )
+    )
+    fake_client = FakeOpenAIClient(
+        {
+            "title": "Cached plan",
+            "slides": [
+                slide_payload(
+                    "Original title",
+                    "Original message.",
+                    "Original presenter notes.",
+                    slide_type="solution",
+                    slot_preset="title_left_visual_right",
+                )
+            ],
+        }
+    )
+
+    first = generate_content_plan_with_llm(
+        raw_input,
+        client=fake_client,
+        model="gpt-test",
+    )
+    assert first is not None
+    first.slides[0].title = "Mutated title"
+    second = generate_content_plan_with_llm(
+        raw_input,
+        client=fake_client,
+        model="gpt-test",
+    )
+
+    assert len(fake_client.requests) == 1
+    assert second is not None
+    assert second.slides[0].title == "Original title"
 
 
 def test_generate_deck_accepts_llm_slide_count_above_minimum() -> None:
@@ -226,6 +277,37 @@ def test_generate_deck_endpoint_supports_topic_only_generation() -> None:
     assert "슬라이드에서는" not in speaker_notes
     assert "설명합니다" not in speaker_notes
     assert "제공합니다" not in speaker_notes
+
+
+def test_generate_deck_endpoint_uses_payload_image_review_mode(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, str] = {}
+    response_payload = generate_deck(
+        GenerateDeckRequest(projectId="project_demo_1", topic="ORBIT"),
+        image_review_mode="off",
+    )
+
+    def fake_generate_deck(
+        payload: GenerateDeckRequest,
+        **kwargs: Any,
+    ) -> GenerateDeckResponse:
+        captured["mode"] = kwargs["image_review_mode"]
+        return response_payload
+
+    monkeypatch.setattr(api_module, "generate_deck", fake_generate_deck)
+
+    response = client().post(
+        "/ai/generate-deck",
+        json={
+            "projectId": "project_demo_1",
+            "topic": "ORBIT",
+            "imageReviewMode": "off",
+        },
+    )
+
+    assert response.status_code == 200
+    assert captured["mode"] == "off"
 
 
 def test_generate_deck_applies_content_aware_theme_and_fonts() -> None:
@@ -487,6 +569,67 @@ def test_generate_deck_separates_design_prompt_from_content_prompt() -> None:
     assert design_prompt not in deck_text
 
 
+def test_no_template_narrative_prompt_compacts_design_details() -> None:
+    raw_input = analyze_input(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="ORBIT",
+            prompt="Use generated plan.",
+            designPrompt=(
+                "차분한 리포트 스타일과 여백 중심 레이아웃을 유지하되 "
+                + "가" * 180
+                + "\n두 번째 줄은 narrative prompt에서 제외"
+            ),
+            design={
+                "stylePackId": "simple-basic",
+                "slidePresetId": "process-cards-horizontal-6",
+            },
+            slideCountRange={"min": 1, "max": 1},
+        )
+    )
+
+    prompt = deck_content_prompt(raw_input)
+    design_line = next(line for line in prompt.splitlines() if line.startswith("Design prompt: "))
+    compacted = design_line.removeprefix("Design prompt: ")
+
+    assert len(compacted) <= 160
+    assert "두 번째 줄" not in compacted
+    assert "Style pack override:" not in prompt
+    assert "Slide preset override:" not in prompt
+    assert "Preset style prompt:" not in prompt
+    assert "Reference excerpts:" in prompt
+
+
+def test_template_narrative_prompt_keeps_design_details() -> None:
+    design_prompt = (
+        "차분한 리포트 스타일과 여백 중심 레이아웃을 유지하되 "
+        + "가" * 180
+        + "\n두 번째 줄도 유지"
+    )
+    raw_input = analyze_input(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="ORBIT",
+            prompt="Use generated plan.",
+            designPrompt=design_prompt,
+            design={
+                "stylePackId": "simple-basic",
+                "slidePresetId": "process-cards-horizontal-6",
+            },
+            designBlueprint=minimal_imported_design_blueprint(),
+            slideCountRange={"min": 1, "max": 1},
+        )
+    )
+
+    prompt = deck_content_prompt(raw_input)
+
+    assert f"Design prompt: {design_prompt}" in prompt
+    assert "Style pack override: simple-basic" in prompt
+    assert "Slide preset override: process-cards-horizontal-6" in prompt
+    assert "Preset style prompt:" in prompt
+    assert "깔끔하고 베이직하지만 비어 보이지 않는 슬라이드" in prompt
+
+
 def test_generate_deck_applies_simple_basic_style_pack() -> None:
     design_prompt = "심플 베이직 발표용 문서 스타일"
     fake_client = FakeOpenAIClient(
@@ -524,7 +667,8 @@ def test_generate_deck_applies_simple_basic_style_pack() -> None:
 
     assert fake_client.requests[0]["model"] == "gpt-4.1-mini"
     assert "Document mode: presentation" in llm_input
-    assert_only_template_style_prompt(llm_input, "simple-basic")
+    assert "Style pack override:" not in llm_input
+    assert "Preset style prompt:" not in llm_input
     assert response.deck["theme"]["name"] == "simple-basic"
     assert response.deck["theme"]["textColor"] == "#1A1A1A"
     assert top_stripe["height"] == 6
@@ -615,7 +759,8 @@ def test_generate_deck_applies_document_style_pack_modes(
     slide = response.deck["slides"][0]
 
     assert f"Document mode: {document_mode}" in llm_input
-    assert_only_template_style_prompt(llm_input, style_pack_id)
+    assert "Style pack override:" not in llm_input
+    assert "Preset style prompt:" not in llm_input
     assert response.deck["theme"]["name"] == style_pack_id
     assert has_dedicated_document_style_elements(slide, style_pack_id)
     assert not any(

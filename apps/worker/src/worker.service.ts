@@ -25,6 +25,7 @@ import { processPptxOoxmlGenerationJob } from "./pptx-ooxml-generation.processor
 import { processPptxOoxmlSyncJob } from "./pptx-ooxml-sync.processor";
 import { processPptxImportJob } from "./pptx-import.processor";
 import { processReferenceExtractJob } from "./reference-extract.processor";
+import { RedisRehearsalTranscriptCache } from "./rehearsal-transcript-cache";
 import { processRehearsalSttJob } from "./rehearsal-stt.processor";
 import { workerStorage } from "./storage";
 import { processWorkerHealthCheckJob } from "./worker-health-check.processor";
@@ -44,6 +45,7 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
     workerHealthCheckQueueName,
   ];
   private workers: BullMqWorker[] = [];
+  private transcriptCache: RedisRehearsalTranscriptCache | null = null;
 
   constructor(
     @InjectDataSource() private readonly dataSource: DataSource,
@@ -65,6 +67,7 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
     }
 
     const storage = workerStorage();
+    this.transcriptCache = new RedisRehearsalTranscriptCache(this.config.REDIS_URL);
     this.workers = [
       this.createWorker(referenceExtractQueueName, (job) =>
         processReferenceExtractJob(
@@ -79,6 +82,7 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
           storage,
           this.config.PYTHON_WORKER_URL,
           job.data,
+          this.transcriptCache ?? undefined,
         ),
       ),
       this.createWorker(generateDeckQueueName, (job) =>
@@ -136,6 +140,7 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
 
   async onModuleDestroy() {
     await Promise.all(this.workers.map((worker) => worker.close()));
+    await this.transcriptCache?.close();
     this.logger.info(
       {
         event: "worker.stopped",

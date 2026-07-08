@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import { forwardRef } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
+import type { Deck } from "@orbit/shared";
 import { p0AnimationDeck } from "./__fixtures__/animationDeck";
 import { getSingleScreenScale, SingleScreenPresenter } from "./SingleScreenPresenter";
 
@@ -70,6 +71,15 @@ describe("SingleScreenPresenter", () => {
     expectNoAutoAdvancePresenterStatus(html);
   });
 
+  it("does not render speaker notes or keyword occurrence context", () => {
+    const html = renderSingleScreen({
+      deck: createDeckWithPrivateOccurrence(),
+    });
+
+    expect(html).not.toContain("AI 첫 번째 위치");
+    expect(html).not.toContain("kwo_slide_p0_1_kw_private_ai_32_34");
+  });
+
   it("hides fullscreen controls after fullscreen is active", () => {
     const html = renderSingleScreen({ isFullscreen: true });
 
@@ -92,10 +102,14 @@ describe("SingleScreenPresenter", () => {
   });
 });
 
-function renderSingleScreen(overrides: { isFullscreen?: boolean } = {}) {
+function renderSingleScreen(
+  overrides: { deck?: Deck; isFullscreen?: boolean } = {}
+) {
+  const deck = overrides.deck ?? p0AnimationDeck;
+
   return renderToStaticMarkup(
     <SingleScreenPresenter
-      deck={p0AnimationDeck}
+      deck={deck}
       isFullscreen={overrides.isFullscreen}
       onExit={() => {}}
       slideElapsedLabel="00:12"
@@ -112,4 +126,34 @@ function expectNoAutoAdvancePresenterStatus(html: string) {
   expect(html).not.toContain("auto-advance-status");
   expect(html).not.toContain("자동 전환");
   expect(html).not.toContain("발표 종료");
+}
+
+function createDeckWithPrivateOccurrence(): Deck {
+  return {
+    ...p0AnimationDeck,
+    slides: p0AnimationDeck.slides.map((slide, index) =>
+      index === 0
+        ? {
+            ...slide,
+            speakerNotes:
+              "AI 첫 번째 위치는 트리거가 아닙니다. 마지막 AI 위치만 트리거입니다.",
+            actions: [
+              ...slide.actions,
+              {
+                actionId: "act_private_occurrence",
+                trigger: {
+                  kind: "keyword-occurrence",
+                  keywordId: "kw_private_ai",
+                  occurrenceId: "kwo_slide_p0_1_kw_private_ai_32_34",
+                },
+                effect: {
+                  kind: "play-animation",
+                  animationId: "anim_image_zoom_in",
+                },
+              },
+            ],
+          }
+        : slide,
+    ),
+  };
 }

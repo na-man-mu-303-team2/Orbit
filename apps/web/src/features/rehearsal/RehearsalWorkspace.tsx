@@ -3,6 +3,7 @@ import {
   type SlidePlaybackState,
 } from "@orbit/editor-core";
 import {
+  deriveKeywordOccurrences,
   demoIds,
   type AssetUploadUrlResponse,
   type CompleteRehearsalAudioUploadResponse,
@@ -27,35 +28,46 @@ import {
   type UpdateRehearsalRunMetaRequest,
 } from "@orbit/shared";
 import {
+  ArrowLeft,
   BarChart3,
   AlertCircle,
-  CalendarDays,
+  AlertTriangle,
   CheckCircle2,
   ChevronLeft,
   ChevronRight,
-  ChevronDown,
   Download,
   Gauge,
-  Home,
   Mic,
   Monitor,
   MoreHorizontal,
   PlayCircle,
   Presentation,
   RotateCcw,
-  Save,
   Square,
-  Target,
-  Volume2,
+  Zap,
 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import {
   createAudiencePresenterRealtimePublisher,
   type AudiencePresenterRealtimePublisher,
 } from "../audience/audiencePresenterRealtime";
 import { AudiencePresenterPanel } from "../audience/AudiencePresenterPanel";
 import { fetchCurrentAudienceAccessSession } from "../editor/audience-link/audienceLinkApi";
-import { resolveEditorAssetUrl } from "../editor/shared/editorAssetUrl";
+import { JobProgressDisplay } from "./JobProgressDisplay";
+import { RehearsalReportDocument } from "./RehearsalReportDocument";
+import { RehearsalRunNav } from "./RehearsalRunNav";
+import {
+  getRehearsalRunNumber,
+  sortRehearsalRunsByCreatedAt,
+} from "./rehearsalUtils";
+import { useJobSmoothProgress } from "./useJobSmoothProgress";
 import {
   LiveSttAdapterError,
   type LiveSttAdapter,
@@ -87,10 +99,13 @@ import {
   type LiveSttResult,
 } from "./stt/liveSttPort";
 import { createLiveSttPort } from "./stt/liveSttEngineRegistry";
+import { fetchLiveSttRuntimeConfig } from "./stt/liveSttRuntimeConfig";
 import { normalizeLiveTranscriptText } from "./stt/liveTranscriptText";
 import { SherpaLiveSttPort } from "./stt/sherpaLiveSttPort";
 import {
+  getKeywordOccurrenceTriggerIdsForSlide,
   resolveCueTriggeredActions,
+  resolveKeywordOccurrenceTriggeredActions,
   resolveKeywordTriggeredActions,
   getTriggerAnimationIdsForSlide,
   resolveTriggeredActionPlaybackUpdate,
@@ -132,7 +147,10 @@ import {
   resetAdvanceControllerForSlide,
   type AdvanceControllerState,
 } from "./advance/advanceController";
-import { RehearsalPanel } from "./panel/RehearsalPanel";
+import {
+  RehearsalPanel,
+  getRehearsalScriptFocusSentenceId,
+} from "./panel/RehearsalPanel";
 import {
   calculateFinalTranscriptWpm,
   getDeckTargetSeconds as getRehearsalDeckTargetSeconds,
@@ -153,7 +171,12 @@ import {
   type PauseDetectorSnapshot,
 } from "./speech/pauseDetector";
 import { defaultSpeechTrackingConfig } from "./speech/speechTrackingConfig";
+import {
+  matchKeywordOccurrenceTriggers,
+  type KeywordOccurrenceRuntimeMatch,
+} from "./speech/keywordOccurrenceRuntime";
 import type {
+  ExtractedSentence,
   SpeechTrackerSnapshot,
   SpeechTrackingEvent,
 } from "./speech/speechTrackingEvents";
@@ -226,6 +249,17 @@ type LiveTranscriptAnalysis = {
   missingKeywordIds: string[];
 };
 
+export type LiveKeywordOccurrenceState = {
+  slideId: string;
+  confirmedOccurrenceIds: string[];
+};
+
+export type OccurrenceTriggerProgress = {
+  targetOccurrenceIds: string[];
+  confirmedOccurrenceIds: string[];
+  coverage: number;
+};
+
 type LiveTranscriptBuffer = {
   committedTranscript: string;
   draftTranscript: string;
@@ -254,8 +288,19 @@ const liveSttBiasModeStorageKey = "orbit.liveStt.biasMode";
 const liveSttRawMicDebugStorageKey = "orbit.liveStt.debugRawMic";
 const liveSttDebugDecodingMethodStorageKey =
   "orbit.liveStt.debugDecodingMethod";
+const rehearsalPracticeSummaryStoragePrefix = "orbit.rehearsal.lastSummary";
 const maxLiveSttBiasTerms = 32;
 const maxLiveSttContextBiasTermLength = 36;
+
+type RehearsalPracticeSummary = {
+  completedAt: string;
+  coveragePercent: number;
+  deckId: string;
+  durationSeconds: number;
+  missedKeywordCount: number;
+  projectId: string;
+  targetSeconds: number;
+};
 
 export class RehearsalFlowError extends Error {
   constructor(
@@ -325,6 +370,13 @@ export async function fetchOrCreateRehearsalDeck(
 
     const payload = (await putResponse.json()) as PutDeckResponse;
     return payload.deck;
+  }
+
+  if (
+    options.fallbackDeck &&
+    (response.status === 401 || response.status === 403)
+  ) {
+    return options.fallbackDeck;
   }
 
   throw new RehearsalFlowError(
@@ -513,6 +565,19 @@ export function resolveRehearsalReportLoadState(
 
 export function getRehearsalReportPath(projectId: string, runId: string) {
   return `/rehearsal/${encodeURIComponent(projectId)}/report/${encodeURIComponent(runId)}`;
+}
+
+export async function fetchProjectRehearsalRuns(
+  projectId: string,
+  fetcher: Fetcher = fetch,
+): Promise<RehearsalRun[]> {
+  const response = await fetcher(
+    `/api/v1/projects/${encodeURIComponent(projectId)}/rehearsals`,
+    { credentials: "include" },
+  );
+  if (!response.ok) return [];
+  const data = (await response.json()) as { runs: RehearsalRun[] };
+  return data.runs ?? [];
 }
 
 export function getRehearsalPresenterWindowPath(
@@ -1040,6 +1105,78 @@ export function evaluateLiveTranscript(
   };
 }
 
+export function createKeywordOccurrenceAnimationCueEvent(args: {
+  match: KeywordOccurrenceRuntimeMatch;
+  slideId: string;
+}): LiveSttAnimationCueEvent {
+  return {
+    type: "animation-cue",
+    slideId: args.slideId,
+    keywordId: args.match.keywordId,
+    occurrenceId: args.match.occurrenceId,
+    cue: "emphasis",
+    text: args.match.text,
+  };
+}
+
+export function createLiveKeywordOccurrenceState(
+  slideId: string,
+): LiveKeywordOccurrenceState {
+  return {
+    slideId,
+    confirmedOccurrenceIds: [],
+  };
+}
+
+export function getLiveKeywordOccurrenceStateForSlide(
+  current: LiveKeywordOccurrenceState | null,
+  slideId: string,
+): LiveKeywordOccurrenceState {
+  return current?.slideId === slideId
+    ? current
+    : createLiveKeywordOccurrenceState(slideId);
+}
+
+export function confirmKeywordOccurrenceMatches(
+  state: LiveKeywordOccurrenceState,
+  matches: readonly Pick<KeywordOccurrenceRuntimeMatch, "occurrenceId">[],
+): LiveKeywordOccurrenceState {
+  const confirmedOccurrenceIds = new Set(state.confirmedOccurrenceIds);
+
+  for (const match of matches) {
+    confirmedOccurrenceIds.add(match.occurrenceId);
+  }
+
+  return {
+    slideId: state.slideId,
+    confirmedOccurrenceIds: [...confirmedOccurrenceIds],
+  };
+}
+
+export function getOccurrenceTriggerProgress(options: {
+  targetOccurrenceIds: readonly string[];
+  confirmedOccurrenceIds: readonly string[];
+}): OccurrenceTriggerProgress {
+  const targetOccurrenceIds = [...new Set(options.targetOccurrenceIds)];
+  const targetOccurrenceIdSet = new Set(targetOccurrenceIds);
+  const confirmedOccurrenceIds = [
+    ...new Set(
+      options.confirmedOccurrenceIds.filter((occurrenceId) =>
+        targetOccurrenceIdSet.has(occurrenceId),
+      ),
+    ),
+  ];
+
+  return {
+    targetOccurrenceIds,
+    confirmedOccurrenceIds,
+    coverage:
+      targetOccurrenceIds.length === 0
+        ? 0
+        : confirmedOccurrenceIds.length / targetOccurrenceIds.length,
+  };
+}
+
 export function getLiveAudioLevelLabel(level: LiveSttAudioLevelEvent | null) {
   if (!level) {
     return "입력 대기";
@@ -1343,6 +1480,7 @@ function createDefaultLiveSttPort(
     onAudioLevel?: (event: LiveSttAudioLevelEvent) => void;
     onDebugPcmAvailable?: (recording: LiveSttDebugPcmRecording) => void;
     getDecodingMethod?: () => LiveSttDecodingMethod | null;
+    projectId?: string;
   } = {},
 ) {
   const {
@@ -1351,6 +1489,7 @@ function createDefaultLiveSttPort(
     onAudioLevel,
     onDebugPcmAvailable,
     getDecodingMethod,
+    projectId,
   } = options;
   const sherpaOptions = {
     onAudioLevel,
@@ -1374,7 +1513,16 @@ function createDefaultLiveSttPort(
     return new SherpaLiveSttPort(sherpaOptions);
   }
 
-  return createLiveSttPort(engineId);
+  return createLiveSttPort(engineId, {
+    onAudioLevel,
+    projectId,
+  });
+}
+
+function readLiveSttPortProjectId(port: LiveSttPort) {
+  return "projectId" in port && typeof port.projectId === "string"
+    ? port.projectId
+    : null;
 }
 
 export function RehearsalWorkspace(props: {
@@ -1400,10 +1548,12 @@ export function RehearsalWorkspace(props: {
   );
   const [, setError] = useState("");
   const [run, setRun] = useState<RehearsalRun | null>(null);
-  const [, setJob] = useState<Job | null>(null);
+  const [job, setJob] = useState<Job | null>(null);
   const [liveStatus, setLiveStatus] = useState<LiveSttStatus>("idle");
   const [liveError, setLiveError] = useState("");
-  const [, setLiveTranscriptBuffer] = useState(createLiveTranscriptBuffer);
+  const [liveTranscriptBuffer, setLiveTranscriptBuffer] = useState(
+    createLiveTranscriptBuffer,
+  );
   const [liveKeywordState, setLiveKeywordState] =
     useState<LiveTranscriptAnalysis | null>(null);
   const [liveAudioLevel, setLiveAudioLevel] =
@@ -1416,6 +1566,16 @@ export function RehearsalWorkspace(props: {
   const [p3SessionState, setP3SessionState] =
     useState<P3RehearsalSessionState | null>(null);
   const [p3RunMeta, setP3RunMeta] = useState<RehearsalRunMeta | null>(null);
+  const [previousPracticeSummary, setPreviousPracticeSummary] =
+    useState<RehearsalPracticeSummary | null>(() =>
+      props.initialDeck
+        ? readRehearsalPracticeSummary(
+            props.initialDeck.projectId,
+            props.initialDeck.deckId,
+          )
+        : null,
+    );
+  const [hasLocalCompletion, setHasLocalCompletion] = useState(false);
   const [slidePlaybackState, setSlidePlaybackState] = useState(
     createSlidePlaybackState,
   );
@@ -1438,9 +1598,6 @@ export function RehearsalWorkspace(props: {
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [slideElapsedSeconds, setSlideElapsedSeconds] = useState(0);
   const [isTimerRunning, setIsTimerRunning] = useState(false);
-  const [failedThumbnailUrls, setFailedThumbnailUrls] = useState<
-    ReadonlySet<string>
-  >(() => new Set());
   const [isSingleScreenOpen, setIsSingleScreenOpen] = useState(false);
   const [audienceSessionId, setAudienceSessionId] = useState<string | null>(
     null,
@@ -1450,6 +1607,7 @@ export function RehearsalWorkspace(props: {
   const [recentAudienceReactions, setRecentAudienceReactions] = useState<
     ReactionType[]
   >([]);
+  const [isCompletionModalOpen, setIsCompletionModalOpen] = useState(false);
   const [timeMode, setTimeMode] = useState<RehearsalTimeMode>("timer");
   const [timerDurationSeconds, setTimerDurationSeconds] = useState(5 * 60);
   const [elapsedTimeInput, setElapsedTimeInput] = useState("00:00");
@@ -1476,6 +1634,8 @@ export function RehearsalWorkspace(props: {
     createLiveTranscriptBuffer(),
   );
   const liveKeywordStateRef = useRef<LiveTranscriptAnalysis | null>(null);
+  const liveKeywordOccurrenceStateRef =
+    useRef<LiveKeywordOccurrenceState | null>(null);
   const liveBiasContextRef = useRef<LiveSttBiasContext | null>(null);
   const liveCommandConfirmationRef = useRef(
     createRehearsalCommandConfirmationState(),
@@ -1528,6 +1688,17 @@ export function RehearsalWorkspace(props: {
   useEffect(() => {
     deckRef.current = deck;
   }, [deck]);
+
+  useEffect(() => {
+    if (!deck) {
+      setPreviousPracticeSummary(null);
+      return;
+    }
+
+    setPreviousPracticeSummary(
+      readRehearsalPracticeSummary(deck.projectId, deck.deckId),
+    );
+  }, [deck?.deckId, deck?.projectId]);
 
   useEffect(() => {
     currentSlideIndexRef.current = currentSlideIndex;
@@ -1987,6 +2158,17 @@ export function RehearsalWorkspace(props: {
     }
   }, [currentSlide?.slideId, currentSlideIndex, deck]);
 
+  const isJobActive = phase === "uploading" || phase === "processing";
+  const smoothProgress = useJobSmoothProgress(job, isJobActive);
+  const completionProgress = phase === "succeeded" ? 100 : smoothProgress;
+  const completionMessage =
+    phase === "uploading"
+      ? "음성 업로드 중"
+      : phase === "succeeded"
+        ? "리포트 생성 완료"
+        : "AI가 발표를 분석하는 중";
+  const shouldShowCompletionModal = isCompletionModalOpen || isJobActive;
+
   async function startRecording() {
     if (!deck || !canRecord) return;
     const activeDeck = deck;
@@ -1995,7 +2177,9 @@ export function RehearsalWorkspace(props: {
     setError("");
     setRun(null);
     setJob(null);
+    setHasLocalCompletion(false);
     finishAfterReportRef.current = false;
+    setIsCompletionModalOpen(false);
     setLiveError("");
     setLiveAudioLevel(null);
     setLiveDebugPcmRecording(null);
@@ -2053,6 +2237,7 @@ export function RehearsalWorkspace(props: {
     setLiveError("");
     setLiveAudioLevel(null);
     setLiveDebugPcmRecording(null);
+    setHasLocalCompletion(false);
     setElapsedSeconds(0);
     setIsTimerRunning(true);
     resetLivePlaybackForSlide(currentSlide);
@@ -2183,6 +2368,7 @@ export function RehearsalWorkspace(props: {
 
   function handleSideTimerPrimaryAction() {
     if (phase === "recording") {
+      setHasLocalCompletion(true);
       stopRecording();
       return;
     }
@@ -2194,6 +2380,7 @@ export function RehearsalWorkspace(props: {
 
     if (isTimerRunning) {
       setIsTimerRunning(false);
+      setHasLocalCompletion(true);
       return;
     }
 
@@ -2240,27 +2427,46 @@ export function RehearsalWorkspace(props: {
     setTimerDurationSeconds(Math.min(nextSeconds, 60 * 60 * 24 - 1));
   }
 
-  function getOrCreateLiveSttPort() {
+  function getOrCreateLiveSttPort(engineId: LiveSttEngineId) {
     if (props.liveSttPort) {
       liveSttPortRef.current = props.liveSttPort;
       return props.liveSttPort;
     }
 
     const cachedPort = liveSttPortRef.current;
-    if (cachedPort?.engineId === presenterSettings.sttEngine) {
+    const activeProjectId =
+      deckRef.current?.projectId ?? props.projectId ?? demoIds.projectId;
+    if (
+      cachedPort?.engineId === engineId &&
+      (cachedPort.engineId !== "openai-realtime" ||
+        readLiveSttPortProjectId(cachedPort) === activeProjectId)
+    ) {
       return cachedPort;
     }
 
     cachedPort?.dispose();
     const port = createDefaultLiveSttPort({
-      engineId: presenterSettings.sttEngine,
+      engineId,
       legacyAdapter: props.liveSttAdapter,
       onAudioLevel: setLiveAudioLevel,
       onDebugPcmAvailable: setLiveDebugPcmRecording,
       getDecodingMethod: getLiveSttDebugDecodingMethod,
+      projectId: activeProjectId,
     });
     liveSttPortRef.current = port;
     return port;
+  }
+
+  async function resolveEffectiveLiveSttEngine(): Promise<LiveSttEngineId> {
+    if (props.liveSttPort) {
+      return props.liveSttPort.engineId;
+    }
+
+    try {
+      return (await fetchLiveSttRuntimeConfig()).liveSttEngine;
+    } catch {
+      return presenterSettings.sttEngine;
+    }
   }
 
   async function startP3Tracking(stream: MediaStream) {
@@ -2270,7 +2476,18 @@ export function RehearsalWorkspace(props: {
       return false;
     }
 
-    const port = getOrCreateLiveSttPort();
+    let port: LiveSttPort;
+    try {
+      const effectiveEngineId = await resolveEffectiveLiveSttEngine();
+      port = getOrCreateLiveSttPort(effectiveEngineId);
+    } catch (cause) {
+      const error = toLiveSttError(cause);
+      setLiveStatus(isLiveSttUnavailable(error) ? "unavailable" : "failed");
+      setLiveError(error.message);
+      setLiveAudioLevel(null);
+      resetAutoAdvanceRuntimeState(currentSlide?.slideId ?? null);
+      return false;
+    }
     liveSttPortRef.current = port;
     setLiveStatus("starting");
     setLiveAudioLevel(null);
@@ -2536,6 +2753,43 @@ export function RehearsalWorkspace(props: {
       slide,
       triggerAnimationIds: slideTriggerAnimationIds,
     });
+    const targetOccurrenceIds = getKeywordOccurrenceTriggerIdsForSlide(slide);
+    const occurrenceState = getLiveKeywordOccurrenceStateForSlide(
+      liveKeywordOccurrenceStateRef.current,
+      slide.slideId,
+    );
+    const occurrenceMatches = matchKeywordOccurrenceTriggers({
+      slide,
+      targetOccurrenceIds,
+      transcript: matchingTranscript,
+      latestTranscript: event.transcript,
+      confidence: event.confidence,
+      confirmedOccurrenceIds: occurrenceState.confirmedOccurrenceIds,
+    });
+
+    for (const occurrenceMatch of occurrenceMatches) {
+      setLiveCue(
+        createKeywordOccurrenceAnimationCueEvent({
+          match: occurrenceMatch,
+          slideId: slide.slideId,
+        }),
+      );
+
+      applyTriggeredSlideActions(
+        slide,
+        slideAnimationPlan,
+        resolveKeywordOccurrenceTriggeredActions(
+          slide,
+          occurrenceMatch.keywordId,
+          occurrenceMatch.occurrenceId,
+        ),
+        deckSnapshot.slides.length,
+      );
+    }
+    liveKeywordOccurrenceStateRef.current = confirmKeywordOccurrenceMatches(
+      occurrenceState,
+      occurrenceMatches,
+    );
 
     const previousDetectedIds = new Set(
       liveKeywordStateRef.current?.slideId === slide.slideId
@@ -2635,6 +2889,9 @@ export function RehearsalWorkspace(props: {
 
     liveTranscriptBufferRef.current = nextBuffer;
     liveKeywordStateRef.current = nextKeywordState;
+    liveKeywordOccurrenceStateRef.current = slide
+      ? createLiveKeywordOccurrenceState(slide.slideId)
+      : null;
     liveCommandConfirmationRef.current =
       createRehearsalCommandConfirmationState();
     setLiveTranscriptBuffer(nextBuffer);
@@ -2696,6 +2953,7 @@ export function RehearsalWorkspace(props: {
 
       if (result.job.status === "failed") {
         setPhase("failed");
+        setIsCompletionModalOpen(false);
         setError(
           result.job.error?.message ||
             result.job.message ||
@@ -2706,14 +2964,13 @@ export function RehearsalWorkspace(props: {
 
       await loadReportForRun(result.run.runId, result.run);
       setPhase("succeeded");
+      setIsCompletionModalOpen(true);
       if (finishAfterReportRef.current) {
         finishAfterReportRef.current = false;
-        navigateToPath(
-          getRehearsalReportPath(activeDeck.projectId, result.run.runId),
-        );
       }
     } catch (cause) {
       setError(toRehearsalFlowMessage(cause));
+      setIsCompletionModalOpen(false);
       setPhase("failed");
     }
   }
@@ -2757,17 +3014,41 @@ export function RehearsalWorkspace(props: {
     const projectId = deck?.projectId ?? props.projectId ?? demoIds.projectId;
 
     if (phase === "recording") {
+      setHasLocalCompletion(true);
       finishAfterReportRef.current = true;
+      setIsCompletionModalOpen(true);
       stopRecording();
       return;
     }
 
     if (phase === "uploading" || phase === "processing") {
+      setHasLocalCompletion(true);
       finishAfterReportRef.current = true;
+      setIsCompletionModalOpen(true);
+      return;
+    }
+
+    if (isLiveDemoActive || isLiveSttActive) {
+      stopLiveDemo({ showCompletionModal: true });
+      return;
+    }
+
+    if (isTimerRunning) {
+      setIsTimerRunning(false);
+      setHasLocalCompletion(true);
       return;
     }
 
     navigateToPath(getRehearsalFinishPath(projectId, run));
+  };
+  const finishCompletedRehearsal = () => {
+    const projectId = deck?.projectId ?? props.projectId ?? demoIds.projectId;
+    setIsCompletionModalOpen(false);
+    navigateToPath(
+      run?.runId
+        ? getRehearsalReportPath(projectId, run.runId)
+        : getRehearsalFinishPath(projectId, run),
+    );
   };
   const resetSlideDisplayToBeginning = () => {
     presenterStepIndexRef.current = 0;
@@ -3018,6 +3299,9 @@ export function RehearsalWorkspace(props: {
   };
 
   const checklistKeywords = getChecklistKeywords(currentSlide);
+  const highlightedKeywordOccurrences = useMemo(() => {
+    return getHighlightedKeywordOccurrencesForSlide(currentSlide);
+  }, [currentSlide]);
   const p3PanelSnapshot =
     currentSlide && p3SessionState?.snapshot?.slideId === currentSlide.slideId
       ? p3SessionState.snapshot
@@ -3028,6 +3312,101 @@ export function RehearsalWorkspace(props: {
           ).length,
         });
   const hasDeletedRawAudio = Boolean(run?.rawAudioDeletedAt);
+  const nextSlide = deck?.slides[currentSlideIndex + 1] ?? null;
+  const miniSlideScale = deck ? getMiniSlideScale(deck) : 0.14;
+  const prompterRows = getRehearsalPrompterRows(
+    p3Sentences,
+    p3PanelSnapshot.coveredSentenceIds,
+    currentSlide?.speakerNotes ?? "",
+    renderLiveTranscriptBuffer(liveTranscriptBuffer),
+    getPrompterHighlightTerms(currentSlide),
+  );
+  const rehearsalSummary = buildRehearsalCompletionSummary({
+    deck,
+    elapsedSeconds,
+    meta: p3RunMeta,
+    previousSummary: previousPracticeSummary,
+    snapshot: p3PanelSnapshot,
+    targetSeconds: timerDurationSeconds,
+  });
+  const isRehearsalRuntimeActive =
+    phase === "recording" || isLiveSttActive || isTimerRunning;
+  const rehearsalRuntimeStatusLabel =
+    phase === "recording"
+      ? "녹음 · 음성 인식 중"
+      : isLiveSttActive
+        ? "음성 인식 중"
+        : isTimerRunning
+          ? "리허설 진행 중"
+          : "준비됨";
+  const shouldShowRehearsalPreflight =
+    Boolean(deck) &&
+    phase === "idle" &&
+    liveStatus === "idle" &&
+    !isLiveDemoActive &&
+    !isTimerRunning &&
+    !p3RunMeta &&
+    !hasLocalCompletion;
+  const shouldShowRehearsalCompletion =
+    Boolean(deck) &&
+    (hasLocalCompletion ||
+      isLiveStopModalOpen ||
+      phase === "succeeded" ||
+      (Boolean(p3RunMeta) &&
+        !isLiveDemoActive &&
+        !isLiveSttActive &&
+        !isTimerRunning &&
+        phase !== "recording"));
+  const returnToPreflight = () => {
+    setIsLiveStopModalOpen(false);
+    setP3RunMeta(null);
+    setP3SessionState(null);
+    p3RunMetaRef.current = null;
+    pendingP3RunMetaRef.current = null;
+    setRun(null);
+    setHasLocalCompletion(false);
+    setLiveStatus("idle");
+    setLiveError("");
+    resetRehearsalTimerState({
+      setElapsedSeconds,
+      setSlideElapsedSeconds,
+      setIsTimerRunning,
+    });
+    if (phase !== "uploading" && phase !== "processing") {
+      setPhase("idle");
+    }
+  };
+  const persistCurrentPracticeSummary = () => {
+    if (!deck) {
+      return;
+    }
+
+    const nextSummary = createRehearsalPracticeSummary(
+      deck,
+      rehearsalSummary,
+    );
+    writeRehearsalPracticeSummary(nextSummary);
+    setPreviousPracticeSummary(nextSummary);
+  };
+  const handleCompletionPracticeAgain = () => {
+    persistCurrentPracticeSummary();
+    returnToPreflight();
+  };
+  const handleCompletionPrimaryAction = () => {
+    persistCurrentPracticeSummary();
+
+    if (phase === "uploading" || phase === "processing") {
+      finishAfterReportRef.current = true;
+      return;
+    }
+
+    if (run?.runId) {
+      finishRehearsal();
+      return;
+    }
+
+    returnToPreflight();
+  };
 
   useEffect(() => {
     if (!isP3TrackingActive || !liveAudioLevel) {
@@ -3207,6 +3586,43 @@ export function RehearsalWorkspace(props: {
     );
   }
 
+  if (shouldShowRehearsalCompletion && deck) {
+    return (
+      <RehearsalCompletionScreen
+        hasReportTarget={Boolean(run?.runId)}
+        isReportPending={phase === "uploading" || phase === "processing"}
+        onPrimaryAction={handleCompletionPrimaryAction}
+        onPracticeAgain={handleCompletionPracticeAgain}
+        summary={rehearsalSummary}
+      />
+    );
+  }
+
+  if (shouldShowRehearsalPreflight && deck) {
+    return (
+      <RehearsalPreflightScreen
+        canStart={canRecord}
+        createLiveSttPort={(engineId) =>
+          createDefaultLiveSttPort({
+            engineId,
+            legacyAdapter: props.liveSttAdapter,
+            projectId: deck.projectId,
+          })
+        }
+        deck={deck}
+        previousSummary={previousPracticeSummary}
+        resolveLiveSttEngine={resolveEffectiveLiveSttEngine}
+        onPracticeWithoutVoice={() => {
+          setElapsedSeconds(0);
+          setSlideElapsedSeconds(0);
+          setHasLocalCompletion(false);
+          setIsTimerRunning(true);
+        }}
+        onStart={() => void startRecording()}
+      />
+    );
+  }
+
   return (
     <main className="rehearsal-presenter-shell">
       <div className="rehearsal-legacy-test-marker" aria-hidden="true">
@@ -3241,6 +3657,51 @@ export function RehearsalWorkspace(props: {
           </section>
         </div>
       ) : null}
+      {shouldShowCompletionModal ? (
+        <div className="rehearsal-completion-modal-backdrop" role="presentation">
+          <section
+            aria-labelledby="rehearsal-completion-modal-title"
+            aria-modal="true"
+            className="rehearsal-completion-modal"
+            role="dialog"
+          >
+            {phase === "succeeded" ? (
+              <>
+                <span className="rehearsal-completion-modal-icon" aria-hidden="true">
+                  <CheckCircle2 size={28} />
+                </span>
+                <h2 id="rehearsal-completion-modal-title">
+                  리포트 생성이 완료되었습니다
+                </h2>
+                <JobProgressDisplay
+                  progress={completionProgress}
+                  message={completionMessage}
+                />
+                <button
+                  className="primary-action"
+                  type="button"
+                  onClick={finishCompletedRehearsal}
+                >
+                  리허설 마치기
+                </button>
+              </>
+            ) : (
+              <>
+                <h2 id="rehearsal-completion-modal-title">
+                  리포트를 생성하고 있습니다
+                </h2>
+                <p>
+                  음성 업로드와 AI 분석이 끝나면 리허설을 마칠 수 있습니다.
+                </p>
+                <JobProgressDisplay
+                  progress={completionProgress}
+                  message={completionMessage}
+                />
+              </>
+            )}
+          </section>
+        </div>
+      ) : null}
       <header className="rehearsal-presenter-topbar">
         <button
           className={`rehearsal-exit-button ${
@@ -3251,10 +3712,14 @@ export function RehearsalWorkspace(props: {
           type="button"
           onClick={finishRehearsal}
         >
-          <PresentationScreenIcon />
+          <Presentation size={16} />
           {"\ub9ac\ud5c8\uc124 \ub9c8\uce58\uae30"}
         </button>
         <h1 className="rehearsal-smoke-heading">리허설</h1>
+        <span className="rehearsal-session-status">
+          <span aria-hidden="true" />
+          리허설 · 자동 따라가기
+        </span>
 
         {deck ? (
           <div className="rehearsal-display-toolbar">
@@ -3274,6 +3739,15 @@ export function RehearsalWorkspace(props: {
             </button>
           </div>
         ) : null}
+
+        <span
+          className={`rehearsal-recording-status ${
+            isRehearsalRuntimeActive ? "rehearsal-recording-status-active" : ""
+          }`}
+        >
+          <span aria-hidden="true" />
+          {rehearsalRuntimeStatusLabel}
+        </span>
 
         <div className="rehearsal-timer-pill" aria-live="polite">
           <span className="timer-wave" aria-hidden="true">
@@ -3366,8 +3840,6 @@ export function RehearsalWorkspace(props: {
         >
           리포트 녹음 종료
         </button>
-        <span>{phase}</span>
-        <span>{liveStatus}</span>
         {hasDeletedRawAudio ? <span>raw audio 삭제 완료</span> : null}
       </div>
 
@@ -3375,13 +3847,20 @@ export function RehearsalWorkspace(props: {
         <section className="rehearsal-presenter-main">
           <div className="rehearsal-stage-wrap" ref={presenterStageRef}>
             {deck && currentSlide ? (
-              <SlideshowRenderer
-                deck={deck}
-                scale={presenterScale}
-                slideId={currentSlide.slideId}
-                stepIndex={presenterStepIndex}
-                triggerAnimationIds={triggerAnimationIds}
-              />
+              <>
+                <span className="rehearsal-stage-label">현재</span>
+                <SlideshowRenderer
+                  deck={deck}
+                  scale={presenterScale}
+                  slideId={currentSlide.slideId}
+                  stepIndex={presenterStepIndex}
+                  triggerAnimationIds={triggerAnimationIds}
+                />
+                <span className="rehearsal-stage-index">
+                  {String(currentSlideIndex + 1).padStart(2, "0")} /{" "}
+                  {String(deck.slides.length).padStart(2, "0")}
+                </span>
+              </>
             ) : (
               <div className="rehearsal-empty-stage">
                 {"\ubc1c\ud45c\uc790\ub8cc \ub85c\ub529 \uc911"}
@@ -3413,69 +3892,31 @@ export function RehearsalWorkspace(props: {
             </button>
           </div>
 
-          <div className="rehearsal-context-strip" aria-label="Nearby slides">
-            {[-2, -1, 0, 1, 2].map((offset) => {
-              const slideIndex = currentSlideIndex + offset;
-              const slide = deck?.slides[slideIndex];
-              const gridColumn = offset + 3;
-              if (!slide) {
-                return (
-                  <span
-                    aria-hidden="true"
-                    className="rehearsal-context-thumb-placeholder"
-                    key={`empty-${offset}`}
-                    style={{ gridColumn }}
-                  />
-                );
-              }
-
-              const thumbnailUrl = resolveEditorAssetUrl(slide.thumbnailUrl);
-              const shouldRenderThumbnailImage =
-                shouldRenderRehearsalThumbnailImage(
-                  thumbnailUrl,
-                  failedThumbnailUrls,
-                );
-              return (
-                <button
-                  className={`rehearsal-context-thumb ${offset === 0 ? "active" : ""}`}
-                  key={`${slide.slideId}-${offset}`}
-                  style={{ gridColumn }}
-                  type="button"
-                  onClick={() => {
-                    cancelAutoAdvanceForManualCommand();
-                    setPresenterStepIndex(0);
-                    setCurrentSlideIndex(slideIndex);
-                  }}
-                >
-                  <span className="rehearsal-context-thumb-preview">
-                    {shouldRenderThumbnailImage ? (
-                      <img
-                        alt={`${getSlideTitle(slide)} thumbnail`}
-                        onError={() => {
-                          setFailedThumbnailUrls((current) => {
-                            if (current.has(thumbnailUrl)) {
-                              return current;
-                            }
-                            const next = new Set(current);
-                            next.add(thumbnailUrl);
-                            return next;
-                          });
-                        }}
-                        src={thumbnailUrl}
-                      />
-                    ) : (
-                      <span className="rehearsal-context-thumb-empty">
-                        {getSlideTitle(slide)}
-                      </span>
-                    )}
-                  </span>
-                  <span className="rehearsal-context-thumb-meta">
-                    <strong>Slide {slideIndex + 1}</strong>
-                  </span>
-                </button>
-              );
-            })}
-          </div>
+          <section className="rehearsal-next-slide-preview" aria-label="다음 슬라이드">
+            <div className="rehearsal-next-slide-frame">
+              {deck && nextSlide ? (
+                <SlideshowRenderer
+                  deck={deck}
+                  playInitialEntryAnimations={false}
+                  renderMode="presenter"
+                  scale={miniSlideScale}
+                  slideId={nextSlide.slideId}
+                  stepIndex={0}
+                />
+              ) : (
+                <span>마지막 슬라이드</span>
+              )}
+            </div>
+            <div>
+              <span>다음 슬라이드</span>
+              <strong>{nextSlide ? getSlideTitle(nextSlide) : "다음 슬라이드 없음"}</strong>
+              {nextSlide?.keywords?.[0] ? (
+                <p>"{nextSlide.keywords[0].text}"를 말하면 바로 이어집니다</p>
+              ) : (
+                <p>마지막 문장을 정리하고 마무리하세요</p>
+              )}
+            </div>
+          </section>
         </section>
 
         <aside className="rehearsal-presenter-side">
@@ -3606,9 +4047,12 @@ export function RehearsalWorkspace(props: {
             timing={p3TimingSnapshot}
             wordsPerMinute={p3WordsPerMinute}
             adviceState={p3AdviceState}
+            highlightedKeywordOccurrences={highlightedKeywordOccurrences}
             keywords={checklistKeywords}
             sentences={p3Sentences}
             showAdvicePanel={false}
+            showScriptPanel={false}
+            speakerNotes={currentSlide?.speakerNotes ?? ""}
             snapshot={p3PanelSnapshot}
             liveSlot={
               <>
@@ -3757,8 +4201,743 @@ export function RehearsalWorkspace(props: {
             }
           />
         </aside>
+
+        <RehearsalTeleprompter
+          countdownMs={presenterSettings.advancePolicy.countdownMs}
+          nowMs={autoAdvanceNowMs}
+          onCancel={cancelAutoAdvanceForManualCommand}
+          rows={prompterRows}
+          state={advanceControllerState}
+        />
       </section>
     </main>
+  );
+}
+
+function RehearsalPreflightScreen(props: {
+  canStart: boolean;
+  createLiveSttPort: (engineId: LiveSttEngineId) => LiveSttPort;
+  deck: Deck;
+  onPracticeWithoutVoice: () => void;
+  onStart: () => void;
+  previousSummary: RehearsalPracticeSummary | null;
+  resolveLiveSttEngine: () => Promise<LiveSttEngineId>;
+}) {
+  const commandPhrases = defaultRehearsalCommandConfig
+    .map((command) => command.phrases[0])
+    .filter(Boolean)
+    .slice(0, 3);
+  const slideKeywordPhrases = props.deck.slides
+    .flatMap((slide) => slide.keywords ?? [])
+    .map((keyword) => keyword.text)
+    .filter(Boolean);
+  const samplePhrases = Array.from(
+    new Set([...commandPhrases, ...slideKeywordPhrases]),
+  ).slice(0, 4);
+  const triggerCount = defaultRehearsalCommandConfig.reduce(
+    (count, command) => count + command.phrases.length,
+    0,
+  );
+  const preflightBanner = buildRehearsalPreflightBanner(
+    props.deck,
+    props.previousSummary,
+  );
+  const [microphonePermission, setMicrophonePermission] =
+    useState<PreflightMicrophonePermission>("checking");
+  const [voiceCheckStatus, setVoiceCheckStatus] =
+    useState<PreflightVoiceCheckStatus>("idle");
+  const [voiceCheckError, setVoiceCheckError] = useState("");
+  const [voiceCheckTranscript, setVoiceCheckTranscript] = useState("");
+  const [voiceCheckLatencyMs, setVoiceCheckLatencyMs] = useState<number | null>(
+    null,
+  );
+  const [matchedPhrases, setMatchedPhrases] = useState<readonly string[]>([]);
+  const preflightStreamRef = useRef<MediaStream | null>(null);
+  const preflightLiveSttPortRef = useRef<LiveSttPort | null>(null);
+  const preflightLiveSttCleanupRef = useRef<(() => void) | null>(null);
+  const preflightTimeoutRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    let isCancelled = false;
+    let permissionStatus: PermissionStatus | null = null;
+
+    async function syncMicrophonePermission() {
+      if (typeof navigator === "undefined") {
+        setMicrophonePermission("unsupported");
+        return;
+      }
+
+      if (typeof navigator.mediaDevices?.getUserMedia !== "function") {
+        setMicrophonePermission("unsupported");
+        return;
+      }
+
+      if (typeof navigator.permissions?.query !== "function") {
+        setMicrophonePermission("prompt");
+        return;
+      }
+
+      try {
+        permissionStatus = await navigator.permissions.query({
+          name: "microphone" as PermissionName,
+        });
+        if (isCancelled) {
+          return;
+        }
+        setMicrophonePermission(toPreflightMicrophonePermission(permissionStatus.state));
+        permissionStatus.onchange = () => {
+          setMicrophonePermission(
+            toPreflightMicrophonePermission(permissionStatus?.state ?? "prompt"),
+          );
+        };
+      } catch {
+        if (!isCancelled) {
+          setMicrophonePermission("prompt");
+        }
+      }
+    }
+
+    void syncMicrophonePermission();
+
+    return () => {
+      isCancelled = true;
+      if (permissionStatus) {
+        permissionStatus.onchange = null;
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      stopPreflightVoiceResources();
+    };
+  }, []);
+
+  const permissionStatus = getPreflightMicrophoneStatus(microphonePermission);
+  const voiceStatus = getPreflightVoiceStatus(
+    voiceCheckStatus,
+    voiceCheckLatencyMs,
+  );
+  const triggerStatus = getPreflightTriggerStatus(
+    matchedPhrases.length,
+    samplePhrases.length,
+    triggerCount,
+  );
+  const isMicrophoneGranted = microphonePermission === "granted";
+  const canStartWithMicrophone = props.canStart && isMicrophoneGranted;
+  const startDisabledReason = !props.canStart
+    ? "발표자료 로딩이 끝난 뒤 시작할 수 있습니다."
+    : !isMicrophoneGranted
+      ? "마이크 권한을 허용해야 리허설을 시작할 수 있습니다."
+      : "";
+
+  async function requestPreflightMicrophonePermission() {
+    stopPreflightVoiceResources();
+    setVoiceCheckStatus("idle");
+    setVoiceCheckError("");
+    setVoiceCheckTranscript("");
+    setVoiceCheckLatencyMs(null);
+    setMatchedPhrases([]);
+
+    if (typeof navigator === "undefined") {
+      setMicrophonePermission("unsupported");
+      return;
+    }
+
+    if (typeof navigator.mediaDevices?.getUserMedia !== "function") {
+      setMicrophonePermission("unsupported");
+      return;
+    }
+
+    try {
+      const stream = await requestRehearsalMicrophoneStream(navigator.mediaDevices);
+      stopMediaStream(stream);
+      setMicrophonePermission("granted");
+    } catch (cause) {
+      setMicrophonePermission(
+        cause instanceof DOMException && cause.name === "NotAllowedError"
+          ? "denied"
+          : "prompt",
+      );
+      setVoiceCheckError(toMicrophoneErrorMessage(cause));
+    }
+  }
+
+  async function startPreflightVoiceCheck() {
+    if (!isMicrophoneGranted) {
+      await requestPreflightMicrophonePermission();
+      return;
+    }
+
+    stopPreflightVoiceResources();
+    setVoiceCheckStatus("listening");
+    setVoiceCheckError("");
+    setVoiceCheckTranscript("");
+    setVoiceCheckLatencyMs(null);
+    setMatchedPhrases([]);
+
+    if (typeof navigator === "undefined") {
+      setVoiceCheckStatus("unsupported");
+      setVoiceCheckError("브라우저 환경에서만 음성 체크를 실행할 수 있습니다.");
+      return;
+    }
+
+    if (typeof navigator.mediaDevices?.getUserMedia !== "function") {
+      setMicrophonePermission("unsupported");
+      setVoiceCheckStatus("unsupported");
+      setVoiceCheckError("이 브라우저는 마이크 체크를 지원하지 않습니다.");
+      return;
+    }
+
+    const normalizedSamples = samplePhrases.map((phrase) => ({
+      phrase,
+      normalized: normalizeLiveTranscriptText(phrase),
+    }));
+    const startTime = Date.now();
+    const matched = new Set<string>();
+    let finished = false;
+
+    const finish = (status: PreflightVoiceCheckStatus, message = "") => {
+      if (finished) {
+        return;
+      }
+      finished = true;
+      stopPreflightVoiceResources();
+      setVoiceCheckStatus(status);
+      setVoiceCheckError(message);
+    };
+
+    try {
+      const stream = await requestRehearsalMicrophoneStream(navigator.mediaDevices);
+      if (finished) {
+        stopMediaStream(stream);
+        return;
+      }
+
+      preflightStreamRef.current = stream;
+      setMicrophonePermission("granted");
+
+      const engineId = await props.resolveLiveSttEngine();
+      const port = props.createLiveSttPort(engineId);
+      preflightLiveSttPortRef.current = port;
+      const unsubscribeResult = port.onResult((result) => {
+        const transcript = result.text.trim();
+        if (!transcript) {
+          return;
+        }
+
+        setVoiceCheckTranscript(transcript);
+        setVoiceCheckLatencyMs((current) => current ?? Date.now() - startTime);
+        const normalizedTranscript = normalizeLiveTranscriptText(transcript);
+        for (const sample of normalizedSamples) {
+          if (
+            sample.normalized &&
+            normalizedTranscript.includes(sample.normalized)
+          ) {
+            matched.add(sample.phrase);
+          }
+        }
+        setMatchedPhrases(Array.from(matched));
+        if (matched.size > 0) {
+          finish("passed");
+        }
+      });
+      const unsubscribeError = port.onError((error) => {
+        finish("error", error.message || "음성 인식 체크를 완료하지 못했습니다.");
+      });
+      preflightLiveSttCleanupRef.current = () => {
+        unsubscribeResult();
+        unsubscribeError();
+      };
+
+      preflightTimeoutRef.current = window.setTimeout(() => {
+        finish(
+          matched.size > 0 ? "passed" : "failed",
+          matched.size > 0 ? "" : "8초 안에 예시 문구가 감지되지 않았습니다.",
+        );
+      }, 8000);
+
+      await port.start({
+        audioSource: stream,
+        biasPhrases: samplePhrases.map((phrase) => ({
+          source: "control-phrase",
+          text: phrase,
+          weight: 1,
+        })),
+        language: "ko",
+      });
+    } catch (cause) {
+      if (preflightStreamRef.current) {
+        setMicrophonePermission("granted");
+      } else {
+        setMicrophonePermission(
+          cause instanceof DOMException && cause.name === "NotAllowedError"
+            ? "denied"
+            : "prompt",
+        );
+      }
+      finish("error", toMicrophoneErrorMessage(cause));
+    }
+  }
+
+  function stopPreflightVoiceResources() {
+    if (preflightTimeoutRef.current !== null) {
+      window.clearTimeout(preflightTimeoutRef.current);
+      preflightTimeoutRef.current = null;
+    }
+    preflightLiveSttCleanupRef.current?.();
+    preflightLiveSttCleanupRef.current = null;
+    void preflightLiveSttPortRef.current?.stop();
+    void preflightLiveSttPortRef.current?.dispose();
+    preflightLiveSttPortRef.current = null;
+    stopMediaStream(preflightStreamRef.current);
+    preflightStreamRef.current = null;
+  }
+
+  return (
+    <main className="rehearsal-preflight-screen" aria-label="리허설 시작 전">
+      <div className="rehearsal-legacy-test-marker" aria-hidden="true">
+        Live STT / Report AI / Speaker notes
+      </div>
+      <div className="rehearsal-preflight-banner">
+        <Zap size={17} />
+        <span>{preflightBanner}</span>
+      </div>
+
+      <section className="rehearsal-preflight-card">
+        <div className="rehearsal-preflight-mic" aria-hidden="true">
+          <span>
+            <Mic size={42} />
+          </span>
+        </div>
+        <div className="rehearsal-preflight-copy">
+          <h1>리허설을 시작할까요?</h1>
+          <p>마이크 권한, 음성 인식, 지연시간을 먼저 짧게 확인할 수 있습니다.</p>
+        </div>
+
+        <div className="rehearsal-preflight-chain" aria-label="리허설 준비 상태">
+          <PreflightStatusRow
+            action={
+              !isMicrophoneGranted ? (
+                <button
+                  className="rehearsal-preflight-inline-action"
+                  type="button"
+                  onClick={() => void requestPreflightMicrophonePermission()}
+                >
+                  <Mic size={14} />
+                  권한 허용 요청
+                </button>
+              ) : null
+            }
+            label="마이크 권한 확인"
+            status={permissionStatus}
+            value={permissionStatus.value}
+          />
+          {isMicrophoneGranted ? (
+            <PreflightStatusRow
+              details={
+                <section
+                  className="rehearsal-preflight-voice-check"
+                  aria-label="음성 체크"
+                >
+                  <div>
+                    <strong>아래 문구 중 하나를 말해보세요</strong>
+                    <button
+                      className="rehearsal-preflight-check"
+                      disabled={voiceCheckStatus === "listening"}
+                      type="button"
+                      onClick={() => void startPreflightVoiceCheck()}
+                    >
+                      <Mic size={16} />
+                      {voiceCheckStatus === "listening" ? "듣는 중" : "음성 체크"}
+                    </button>
+                  </div>
+                  <div
+                    className="rehearsal-preflight-commands"
+                    aria-label="음성 명령 예시"
+                  >
+                    {samplePhrases.map((phrase) => {
+                      const matched = matchedPhrases.includes(phrase);
+                      return (
+                        <span
+                          className={
+                            matched ? "rehearsal-preflight-command-hit" : ""
+                          }
+                          key={phrase}
+                        >
+                          {matched ? <CheckCircle2 size={13} /> : null}
+                          "{phrase}"
+                        </span>
+                      );
+                    })}
+                  </div>
+                  <p aria-live="polite">
+                    {voiceCheckTranscript
+                      ? `인식됨: ${voiceCheckTranscript}`
+                      : voiceCheckError ||
+                        "조용한 곳에서 보통 말하는 속도로 테스트하세요."}
+                  </p>
+                </section>
+              }
+              label="음성 인식 준비"
+              status={voiceStatus}
+              value={voiceStatus.value}
+            />
+          ) : null}
+          <PreflightStatusRow
+            label={`슬라이드 ${props.deck.slides.length}장 로드됨`}
+            status={triggerStatus}
+            value={triggerStatus.value}
+          />
+        </div>
+
+        <div className="rehearsal-preflight-actions">
+          <span
+            className="rehearsal-preflight-start-tooltip-wrap"
+            aria-describedby={
+              startDisabledReason ? "rehearsal-preflight-start-tooltip" : undefined
+            }
+            data-disabled={startDisabledReason ? "true" : "false"}
+            tabIndex={startDisabledReason ? 0 : undefined}
+          >
+            <button
+              className="rehearsal-preflight-start"
+              disabled={!canStartWithMicrophone}
+              type="button"
+              onClick={props.onStart}
+            >
+              <PlayCircle size={18} />
+              리허설 시작
+            </button>
+            {startDisabledReason ? (
+              <span
+                className="rehearsal-preflight-start-tooltip"
+                id="rehearsal-preflight-start-tooltip"
+                role="tooltip"
+              >
+                {startDisabledReason}
+              </span>
+            ) : null}
+          </span>
+          <button
+            className="rehearsal-preflight-quiet"
+            type="button"
+            onClick={props.onPracticeWithoutVoice}
+          >
+            음성 없이 연습하기
+          </button>
+        </div>
+      </section>
+    </main>
+  );
+}
+
+type PreflightMicrophonePermission =
+  | "checking"
+  | "granted"
+  | "prompt"
+  | "denied"
+  | "unsupported";
+
+type PreflightVoiceCheckStatus =
+  | "idle"
+  | "listening"
+  | "passed"
+  | "failed"
+  | "unsupported"
+  | "error";
+
+type PreflightStatusTone = "success" | "warning" | "danger" | "info";
+
+type PreflightStatus = {
+  icon: "check" | "warning" | "danger" | "info";
+  tone: PreflightStatusTone;
+  value: string;
+};
+
+function PreflightStatusRow(props: {
+  action?: ReactNode;
+  details?: ReactNode;
+  label: string;
+  status: PreflightStatus;
+  value: string;
+}) {
+  const Icon =
+    props.status.icon === "warning"
+      ? AlertTriangle
+      : props.status.icon === "danger"
+        ? AlertCircle
+        : props.status.icon === "info"
+          ? Gauge
+          : CheckCircle2;
+
+  return (
+    <div className={`rehearsal-preflight-status-${props.status.tone}`}>
+      <span>
+        <Icon size={14} />
+      </span>
+      <strong>{props.label}</strong>
+      <div className="rehearsal-preflight-status-meta">
+        <small>{props.value}</small>
+        {props.action}
+      </div>
+      {props.details ? (
+        <div className="rehearsal-preflight-status-details">
+          {props.details}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function toPreflightMicrophonePermission(
+  state: PermissionState,
+): PreflightMicrophonePermission {
+  if (state === "granted") {
+    return "granted";
+  }
+  if (state === "denied") {
+    return "denied";
+  }
+  return "prompt";
+}
+
+function getPreflightMicrophoneStatus(
+  permission: PreflightMicrophonePermission,
+): PreflightStatus {
+  switch (permission) {
+    case "granted":
+      return { icon: "check", tone: "success", value: "권한 허용됨" };
+    case "denied":
+      return { icon: "danger", tone: "danger", value: "브라우저에서 권한 차단됨" };
+    case "unsupported":
+      return { icon: "danger", tone: "danger", value: "마이크 API 미지원" };
+    case "checking":
+      return { icon: "info", tone: "info", value: "권한 상태 확인 중" };
+    case "prompt":
+      return { icon: "warning", tone: "warning", value: "시작 전 권한 허용 필요" };
+  }
+}
+
+function getPreflightVoiceStatus(
+  status: PreflightVoiceCheckStatus,
+  latencyMs: number | null,
+): PreflightStatus {
+  switch (status) {
+    case "passed":
+      return {
+        icon: "check",
+        tone: "success",
+        value:
+          latencyMs === null ? "예시 문구 인식됨" : `첫 인식 ${latencyMs}ms`,
+      };
+    case "listening":
+      return { icon: "info", tone: "info", value: "예시 문구 듣는 중" };
+    case "failed":
+      return { icon: "warning", tone: "warning", value: "문구 재시도 필요" };
+    case "unsupported":
+      return { icon: "danger", tone: "danger", value: "브라우저 인식 미지원" };
+    case "error":
+      return { icon: "danger", tone: "danger", value: "체크 실패" };
+    case "idle":
+      return { icon: "warning", tone: "warning", value: "한국어 · 테스트 대기" };
+  }
+}
+
+function getPreflightTriggerStatus(
+  matchedCount: number,
+  sampleCount: number,
+  triggerCount: number,
+): PreflightStatus {
+  if (matchedCount > 0) {
+    return {
+      icon: "check",
+      tone: "success",
+      value: `${matchedCount}/${sampleCount}개 예시 인식 · 트리거 ${triggerCount}개`,
+    };
+  }
+
+  return {
+    icon: "info",
+    tone: "info",
+    value: `음성 트리거 ${triggerCount}개`,
+  };
+}
+
+type RehearsalCompletionSummary = {
+  comparisonLabel: string;
+  coverageLabel: string;
+  coveragePercent: number;
+  durationLabel: string;
+  durationSeconds: number;
+  hasSpeechTrackingData: boolean;
+  missedKeywordRows: Array<{
+    key: string;
+    label: string;
+    slideLabel: string;
+  }>;
+  missedKeywordCount: number;
+  missedKeywordCountLabel: string;
+  missedKeywordEmptyLabel: string;
+  targetDeltaLabel: string;
+  targetLabel: string;
+  targetSeconds: number;
+};
+
+function RehearsalCompletionScreen(props: {
+  hasReportTarget: boolean;
+  isReportPending: boolean;
+  onPracticeAgain: () => void;
+  onPrimaryAction: () => void;
+  summary: RehearsalCompletionSummary;
+}) {
+  return (
+    <main className="rehearsal-completion-screen" aria-label="리허설 종료 후 요약">
+      <section className="rehearsal-completion-card">
+        <header>
+          <div>
+            <span>리허설 완료</span>
+            <h1>수고했어요, 잘 마쳤어요</h1>
+          </div>
+          {props.summary.comparisonLabel ? (
+            <strong>
+              <Zap size={15} />
+              {props.summary.comparisonLabel}
+            </strong>
+          ) : null}
+        </header>
+
+        <div className="rehearsal-completion-body">
+          <section className="rehearsal-completion-time">
+            <span>발표 시간</span>
+            <strong>{props.summary.durationLabel}</strong>
+            <small>
+              목표 {props.summary.targetLabel} · {props.summary.targetDeltaLabel}
+            </small>
+          </section>
+
+          <section className="rehearsal-completion-details">
+            <div className="rehearsal-completion-coverage">
+              <div>
+                <span>대본 커버리지</span>
+                <strong>{props.summary.coverageLabel}</strong>
+              </div>
+              <span aria-hidden="true">
+                <i style={{ width: `${props.summary.coveragePercent}%` }} />
+              </span>
+            </div>
+
+            <div className="rehearsal-completion-missed">
+              <h2>
+                놓친 항목 <strong>{props.summary.missedKeywordCountLabel}</strong>
+              </h2>
+              {props.summary.missedKeywordRows.length > 0 ? (
+                props.summary.missedKeywordRows.map((row) => (
+                  <div key={row.key}>
+                    <span aria-hidden="true" />
+                    <strong>{row.label}</strong>
+                    <small>{row.slideLabel}</small>
+                  </div>
+                ))
+              ) : (
+                <p>{props.summary.missedKeywordEmptyLabel}</p>
+              )}
+            </div>
+          </section>
+        </div>
+
+        <div className="rehearsal-completion-report-state" role="status">
+          {props.isReportPending ? <span aria-hidden="true" /> : <CheckCircle2 size={16} />}
+          <p>
+            {props.isReportPending
+              ? "자세한 리포트 준비 중 — 잠시 후 청중 반응·페이스 분석이 도착해요"
+              : props.hasReportTarget
+                ? "자세한 리포트를 열어 더 깊은 분석을 확인할 수 있어요"
+                : "로컬 요약이 준비됐어요. 서버 리포트 없이 바로 다시 연습할 수 있어요"}
+          </p>
+        </div>
+
+        <footer>
+          <button type="button" onClick={props.onPracticeAgain}>
+            다시 연습
+          </button>
+          <button type="button" onClick={props.onPrimaryAction}>
+            {props.isReportPending
+              ? "리포트 기다리기"
+              : props.hasReportTarget
+                ? "리포트 보기"
+                : "확인"}
+          </button>
+        </footer>
+      </section>
+    </main>
+  );
+}
+
+function RehearsalTeleprompter(props: {
+  countdownMs: number;
+  nowMs: number;
+  onCancel: () => void;
+  rows: RehearsalPrompterRows;
+  state: AdvanceControllerState;
+}) {
+  const countdownSeconds = getAutoAdvanceCountdownSeconds(
+    props.state,
+    props.countdownMs,
+    props.nowMs,
+  );
+
+  return (
+    <section className="rehearsal-teleprompter-band" aria-label="발표 대본 프롬프터">
+      <p>{props.rows.previous}</p>
+      <p aria-live="polite">
+        {props.rows.currentSegments.map((segment, index) => {
+          const className = [
+            "rehearsal-teleprompter-token",
+            segment.spoken
+              ? "rehearsal-teleprompter-token-spoken"
+              : "rehearsal-teleprompter-token-pending",
+            segment.emphasis ? "rehearsal-teleprompter-token-emphasis" : "",
+            segment.tone !== "default"
+              ? `rehearsal-teleprompter-token-${segment.tone}`
+              : "",
+          ]
+            .filter(Boolean)
+            .join(" ");
+
+          return segment.emphasis ? (
+            <strong className={className} key={`${segment.text}-${index}`}>
+              {segment.text}
+            </strong>
+          ) : (
+            <span className={className} key={`${segment.text}-${index}`}>
+              {segment.text}
+            </span>
+          );
+        })}
+      </p>
+      <p>{props.rows.next}</p>
+
+      {countdownSeconds !== null ? (
+        <div className="rehearsal-auto-advance-card" role="status">
+          <strong>{countdownSeconds}</strong>
+          <span>다음으로 자동 전환</span>
+          <button type="button" onClick={props.onCancel}>
+            취소
+          </button>
+        </div>
+      ) : props.state.status === "blocked-by-builds" ? (
+        <div className="rehearsal-auto-advance-card rehearsal-auto-advance-card-muted" role="status">
+          <strong>{props.state.remainingTriggerSteps}</strong>
+          <span>빌드가 남아 있어요</span>
+        </div>
+      ) : props.state.status === "finish-suggested" ? (
+        <div className="rehearsal-auto-advance-card rehearsal-auto-advance-card-muted" role="status">
+          <CheckCircle2 size={22} />
+          <span>발표 종료 준비됨</span>
+        </div>
+      ) : null}
+    </section>
   );
 }
 
@@ -3778,6 +4957,24 @@ export function RehearsalReportPage(props: {
     props.initialReport ? "ready" : "loading",
   );
   const [error, setError] = useState("");
+  const [reportJob, setReportJob] = useState<Job | null>(null);
+  const [allSucceededRuns, setAllSucceededRuns] = useState<RehearsalRun[]>(() =>
+    props.initialRun?.status === "succeeded" ? [props.initialRun] : [],
+  );
+  const [prevReports, setPrevReports] = useState<RehearsalReport[]>([]);
+
+  useEffect(() => {
+    setDeck(props.initialDeck ?? null);
+  }, [props.initialDeck, props.projectId]);
+
+  useEffect(() => {
+    setRun(props.initialRun ?? null);
+    setReport(props.initialReport ?? null);
+    setStatus(props.initialReport ? "ready" : "loading");
+    setError("");
+    setReportJob(null);
+    setPrevReports([]);
+  }, [props.initialRun, props.initialReport, props.runId]);
 
   useEffect(() => {
     let isMounted = true;
@@ -3800,6 +4997,9 @@ export function RehearsalReportPage(props: {
 
     setStatus("loading");
     setError("");
+    setRun(null);
+    setReport(null);
+    setReportJob(null);
 
     void fetchRehearsalReport(props.runId)
       .then((response) => {
@@ -3813,6 +5013,30 @@ export function RehearsalReportPage(props: {
         setReport(nextState.status === "ready" ? response.report : null);
         setStatus(nextState.status);
         setError(nextState.error);
+
+        if (nextState.status === "not-ready" && response.run.jobId) {
+          void pollRehearsalJob(response.run.jobId, {
+            onUpdate: (j) => { if (isMounted) setReportJob(j); },
+          })
+            .then((j) => {
+              if (!isMounted) return;
+              setReportJob(j);
+              if (j.status === "succeeded") {
+                void fetchRehearsalReport(props.runId).then((r) => {
+                  if (!isMounted) return;
+                  setRun(r.run);
+                  setReport(r.report);
+                  setStatus(r.report ? "ready" : "failed");
+                });
+              } else {
+                setStatus("failed");
+                setError(j.error?.message || j.message || "리포트 생성 실패");
+              }
+            })
+            .catch(() => {
+              if (isMounted) setStatus("failed");
+            });
+        }
       })
       .catch((cause) => {
         if (!isMounted) return;
@@ -3827,337 +5051,96 @@ export function RehearsalReportPage(props: {
     };
   }, [props.initialDeck, props.initialReport, props.projectId, props.runId]);
 
-  const reportDate = formatReportDate(
-    report?.generatedAt ?? run?.updatedAt ?? run?.createdAt,
+  useEffect(() => {
+    let isMounted = true;
+    setAllSucceededRuns(
+      props.initialRun?.status === "succeeded" ? [props.initialRun] : [],
+    );
+
+    void fetchProjectRehearsalRuns(props.projectId).then((runs) => {
+      if (!isMounted) return;
+      const succeeded = sortRehearsalRunsByCreatedAt(
+        runs.filter((r) => r.status === "succeeded"),
+      );
+      setAllSucceededRuns(succeeded);
+    });
+    return () => { isMounted = false; };
+  }, [props.projectId]);
+
+  useEffect(() => {
+    if (allSucceededRuns.length === 0) return;
+    const idx = allSucceededRuns.findIndex((r) => r.runId === props.runId);
+    if (idx <= 0) {
+      setPrevReports([]);
+      return;
+    }
+    let isMounted = true;
+    const toFetch = allSucceededRuns
+      .slice(Math.max(0, idx - 3), idx)
+      .reverse();
+    void Promise.all(
+      toFetch.map((r) =>
+        fetchRehearsalReport(r.runId)
+          .then((res) => res.report)
+          .catch(() => null),
+      ),
+    ).then((results) => {
+      if (!isMounted) return;
+      setPrevReports(results.filter((r): r is RehearsalReport => r !== null));
+    });
+    return () => {
+      isMounted = false;
+    };
+  }, [allSucceededRuns, props.runId]);
+
+  const reportSmoothProgress = useJobSmoothProgress(
+    reportJob,
+    status === "not-ready",
   );
-  const slideCount = deck?.slides.length;
-  const coachingHeadline = buildCoachingHeadline(report);
-  const coachingDetail = buildCoachingDetail(report, deck);
-  const missedKeywords = report?.missedKeywords ?? [];
-  const missedKeywordRows = buildMissedKeywordRows(deck, missedKeywords);
-  const slideTimings = report?.slideTimings ?? [];
-  const qnaSummary = report?.qnaSummary;
-  const speedAssessment = report
-    ? getSpeakingSpeedAssessment(report.metrics.wordsPerMinute)
-    : null;
-  const speakingSpeedValue = report
-    ? formatSpeakingSpeedValue(report.metrics.wordsPerMinute)
-    : "-";
-  const completionPercent = formatRehearsalCompletionPercent(
-    deck,
-    slideTimings,
-  );
+
+  const currentRunNumber = getRehearsalRunNumber(allSucceededRuns, props.runId);
 
   return (
     <main className="rehearsal-report-page">
       <header className="rehearsal-report-topbar">
         <div className="rehearsal-report-topbar-left">
-          <span className="report-brand-mark" aria-hidden="true">
-            <i />
-            <i />
-          </span>
-          <strong>Orbit AI</strong>
           <button
             type="button"
-            onClick={() => navigateToRehearsal(props.projectId)}
-            aria-label="홈으로 이동"
+            className="rehearsal-report-back-button"
+            onClick={() => navigateToPath(`/reports/${encodeURIComponent(props.projectId)}`)}
+            aria-label="프로젝트 리포트 개요로"
           >
-            <Home size={18} />
+            <ArrowLeft size={18} />
           </button>
-          <span className="report-project-title">{deck?.title ?? "제목"}</span>
-          <ChevronDown size={16} />
-          <span className="report-save-state">
-            <Save size={15} />
-            저장됨
-          </span>
-        </div>
-        <div className="rehearsal-report-topbar-actions">
-          <span>알렉스</span>
-          <span className="report-avatar" aria-hidden="true">
-            김
-          </span>
-          <span className="report-mode-switch" aria-label="보기 모드">
-            <button type="button">편집</button>
-            <button className="active" type="button">
-              보기
-            </button>
-          </span>
-          <button type="button">
-            <Monitor size={18} />
-            리허설
-          </button>
-          <button type="button">
-            <BarChart3 size={18} />
-            AI 리포트
-          </button>
-          <button className="report-present-button" type="button">
-            <PlayCircle size={18} />
-            프레젠테이션
-            <ChevronDown size={16} />
-          </button>
+          <span className="report-project-title">{deck?.title ?? "리포트"}</span>
+          {currentRunNumber != null && (
+            <span className="report-run-label">
+              리허설 {currentRunNumber}회차
+            </span>
+          )}
         </div>
       </header>
 
       <div className="rehearsal-report-body">
-        <aside className="rehearsal-report-nav" aria-label="리허설 리포트 목록">
-          <section className="report-nav-section-active">
-            <h2>
-              <ChevronDown size={24} />
-              리허설 리포트
-            </h2>
-            <button className="rehearsal-report-nav-item active" type="button">
-              <strong>
-                <CalendarDays size={15} />
-                1회차
-              </strong>
-              <span>{reportDate}</span>
-            </button>
-          </section>
-
-          <section>
-            <h2>
-              <ChevronRight size={24} />
-              실전 리포트
-            </h2>
-          </section>
-        </aside>
+        <RehearsalRunNav
+          runs={allSucceededRuns}
+          activeRunId={props.runId}
+          projectId={props.projectId}
+        />
 
         <section className="rehearsal-report-document" aria-live="polite">
-          <header className="rehearsal-report-document-header">
-            <h1>1회차 리허설 리포트</h1>
-            <time>{reportDate}</time>
-          </header>
-
-          {report ? (
-            <div className="rehearsal-report-document-grid">
-              <section className="report-overview-card">
-                <div className="report-overview-copy">
-                  <h2>{coachingHeadline}</h2>
-                  <p>{coachingDetail}</p>
-                </div>
-                <div className="report-score-list">
-                  <div>
-                    <span>평균 속도</span>
-                    <strong>{speakingSpeedValue}</strong>
-                  </div>
-                  <div>
-                    <span>키워드 커버리지</span>
-                    <strong>
-                      {Math.round(report.metrics.keywordCoverage * 100)}%
-                    </strong>
-                  </div>
-                  <div>
-                    <span>코칭 상태</span>
-                    <strong>{report.coaching?.status ?? "대기"}</strong>
-                  </div>
-                </div>
-              </section>
-
-              <section className="report-summary-card report-dashboard-card">
-                <div className="report-summary-row">
-                  <span>총 소요 시간</span>
-                  <strong>
-                    {formatDuration(report.metrics.durationSeconds)}
-                  </strong>
-                </div>
-                <div className="report-summary-row">
-                  <span>사용한 슬라이드 수</span>
-                  <strong>
-                    {typeof slideCount === "number" ? slideCount : "-"}
-                  </strong>
-                </div>
-                <div className="report-mini-metrics">
-                  <div>
-                    <span>목표 시간</span>
-                    <strong>
-                      {formatDuration(getTargetDurationSeconds(deck))}
-                    </strong>
-                  </div>
-                  <div>
-                    <span>완료율</span>
-                    <strong>{completionPercent}</strong>
-                  </div>
-                </div>
-              </section>
-
-              <section className="report-speed-card report-dashboard-card">
-                <h2>
-                  <Gauge size={18} />
-                  평균 발표 속도
-                </h2>
-                <div
-                  className="report-speed-gauge"
-                  role="meter"
-                  aria-label="평균 발표 속도"
-                  aria-valuemin={80}
-                  aria-valuemax={180}
-                  aria-valuenow={speedAssessment?.meterValue ?? 80}
-                >
-                  <span className="speed-mark speed-mark-left">100</span>
-                  <span className="speed-mark speed-mark-right">150</span>
-                  <strong
-                    className={
-                      speedAssessment?.isUnreliable
-                        ? "report-speed-warning"
-                        : undefined
-                    }
-                  >
-                    {speedAssessment?.displayValue ?? "-"}
-                  </strong>
-                </div>
-                <p>{speedAssessment?.message}</p>
-              </section>
-
-              <section className="report-voice-card report-dashboard-card">
-                <h2>
-                  <Volume2 size={20} />
-                  음성 분석
-                </h2>
-                <div className="report-official-metrics">
-                  <div>
-                    <span>불필요한 표현</span>
-                    <strong>{report.metrics.fillerWordCount}회</strong>
-                  </div>
-                  <div>
-                    <span>긴 멈춤</span>
-                    <strong>{report.metrics.pauseCount}회</strong>
-                  </div>
-                </div>
-                <p>서버 리포트가 제공한 말버릇과 멈춤 지표만 표시합니다.</p>
-              </section>
-
-              <section className="report-keyword-card report-dashboard-card">
-                <h2>
-                  <Target size={20} />
-                  누락 키워드
-                </h2>
-                <p>실전 발표 중 다시 알려줄 핵심 데이터입니다.</p>
-                {missedKeywords.length > 0 ? (
-                  <>
-                    <span className="report-keyword-count">
-                      총 {missedKeywords.length}개
-                    </span>
-                    <div className="report-keyword-slide-list">
-                      {missedKeywordRows.map((row) => (
-                        <p key={row.slideId}>
-                          <strong>{row.label}</strong>
-                          {row.keywords.map((keyword) => (
-                            <span
-                              key={`${keyword.slideId}-${keyword.keywordId}`}
-                            >
-                              {keyword.text}
-                            </span>
-                          ))}
-                        </p>
-                      ))}
-                    </div>
-                    <strong className="report-keyword-warning">
-                      서버 리포트가 확인한 누락 키워드만 표시합니다.
-                    </strong>
-                  </>
-                ) : (
-                  <strong className="report-keyword-empty">
-                    공식 누락 키워드 상세 데이터가 없습니다.
-                  </strong>
-                )}
-              </section>
-
-              <section className="report-dashboard-card">
-                <h2>
-                  <CalendarDays size={20} />
-                  슬라이드별 시간
-                </h2>
-                {slideTimings.length > 0 ? (
-                  <div className="report-official-metrics">
-                    {slideTimings.slice(0, 4).map((timing) => (
-                      <div key={timing.slideId}>
-                        <span>
-                          {formatSlideTimingLabel(deck, timing.slideId)}
-                        </span>
-                        <strong>
-                          {formatDuration(timing.actualSeconds)} /{" "}
-                          {formatDuration(timing.targetSeconds)}
-                        </strong>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <strong className="report-keyword-empty">
-                    공식 슬라이드 시간 데이터가 아직 없습니다.
-                  </strong>
-                )}
-              </section>
-
-              <section className="report-dashboard-card">
-                <h2>
-                  <BarChart3 size={20} />
-                  QnA 피드백
-                </h2>
-                <div className="report-official-metrics">
-                  <div>
-                    <span>질문 수</span>
-                    <strong>{qnaSummary?.questionCount ?? 0}개</strong>
-                  </div>
-                </div>
-                <p>
-                  {qnaSummary?.questionSummary ||
-                    "질문 원문은 저장하지 않으며, 요약 데이터가 생기면 이 영역에 표시합니다."}
-                </p>
-                {qnaSummary?.unclearTopics.length ? (
-                  <div className="report-keyword-chips">
-                    {qnaSummary.unclearTopics.map((topic) => (
-                      <span
-                        key={`${topic.slideId ?? "general"}-${topic.topic}`}
-                      >
-                        {topic.topic}
-                      </span>
-                    ))}
-                  </div>
-                ) : null}
-              </section>
-
-              <section className="report-coaching-card report-dashboard-card">
-                <h2>
-                  <Presentation size={20} />
-                  다음 연습
-                </h2>
-                <div className="report-coaching-columns">
-                  <div>
-                    <strong>강점</strong>
-                    <ul>
-                      {(report.coaching?.strengths.length
-                        ? report.coaching.strengths
-                        : ["말이 분명하고 빠르지 않음", "불필요한 말버릇 없음"]
-                      )
-                        .slice(0, 3)
-                        .map((strength) => (
-                          <li key={strength}>{strength}</li>
-                        ))}
-                    </ul>
-                  </div>
-                  <div>
-                    <strong>개선 포인트</strong>
-                    <ul>
-                      {(report.coaching?.improvements.length
-                        ? report.coaching.improvements
-                        : [
-                            "자료 설명을 짧게 줄이기",
-                            "누락 키워드를 노트에 고정하기",
-                          ]
-                      )
-                        .slice(0, 3)
-                        .map((improvement) => (
-                          <li key={improvement}>{improvement}</li>
-                        ))}
-                    </ul>
-                  </div>
-                </div>
-                <p>
-                  {report.coaching?.nextPracticeFocus ||
-                    "핵심 메시지를 먼저 말하는 흐름을 연습하세요."}
-                </p>
-              </section>
-            </div>
+          {status === "loading" ? (
+            <RehearsalReportLoadingShell />
+          ) : report ? (
+            <RehearsalReportDocument
+              report={report}
+              deck={deck}
+              run={run}
+              runNumber={currentRunNumber}
+              projectId={props.projectId}
+              totalRunCount={allSucceededRuns.length}
+              prevReports={prevReports}
+            />
           ) : (
             <div
               className={
@@ -4168,11 +5151,741 @@ export function RehearsalReportPage(props: {
             >
               <BarChart3 size={28} />
               <strong>{formatEmptyReportMessage(status, error)}</strong>
+              {status === "not-ready" && (
+                <JobProgressDisplay
+                  progress={reportSmoothProgress}
+                  message={reportJob?.message || ""}
+                />
+              )}
             </div>
           )}
         </section>
       </div>
     </main>
+  );
+}
+
+type RehearsalPrompterRows = {
+  currentEmphasis: string;
+  currentLead: string;
+  currentSegments: KaraokePrompterSegment[];
+  currentTail: string;
+  next: string;
+  previous: string;
+};
+
+export type KaraokePrompterSegment = {
+  emphasis: boolean;
+  spoken: boolean;
+  text: string;
+  tone: KaraokePrompterTone;
+};
+
+export type KaraokePrompterTone =
+  | "default"
+  | "required"
+  | "trigger"
+  | "next"
+  | "cue";
+
+type KaraokePrompterHighlightTerm = {
+  text: string;
+  tone: Exclude<KaraokePrompterTone, "default">;
+};
+
+export function getRehearsalPrompterRows(
+  sentences: readonly ExtractedSentence[],
+  coveredSentenceIds: readonly string[],
+  fallbackNotes: string,
+  transcript = "",
+  highlightTerms: readonly KaraokePrompterHighlightTerm[] = [],
+): RehearsalPrompterRows {
+  if (sentences.length === 0) {
+    const fallback = fallbackNotes.trim() || "발표자 노트가 없습니다.";
+    return {
+      previous: "",
+      ...splitPrompterSentence(fallback, transcript, highlightTerms),
+      next: "",
+    };
+  }
+
+  const coveredSentenceIdSet = new Set(coveredSentenceIds);
+  const incompleteCoveredSentence = getLastIncompleteCoveredSentence(
+    sentences,
+    coveredSentenceIdSet,
+    transcript,
+  );
+  const focusSentenceId =
+    incompleteCoveredSentence?.sentenceId ??
+    getRehearsalScriptFocusSentenceId(sentences, coveredSentenceIds);
+  const focusIndex = Math.max(
+    0,
+    sentences.findIndex((sentence) => sentence.sentenceId === focusSentenceId),
+  );
+  const current = sentences[focusIndex]?.text ?? sentences[0]?.text ?? "";
+
+  return {
+    previous: sentences[focusIndex - 1]?.text ?? "",
+    ...splitPrompterSentence(
+      current,
+      transcript,
+      highlightTerms,
+    ),
+    next: sentences[focusIndex + 1]?.text ?? "",
+  };
+}
+
+function getLastIncompleteCoveredSentence(
+  sentences: readonly ExtractedSentence[],
+  coveredSentenceIds: ReadonlySet<string>,
+  transcript: string,
+) {
+  for (let index = sentences.length - 1; index >= 0; index -= 1) {
+    const sentence = sentences[index];
+    if (!sentence?.matchable || !coveredSentenceIds.has(sentence.sentenceId)) {
+      continue;
+    }
+
+    if (!isPrompterSentenceFullySpoken(sentence.text, transcript)) {
+      return sentence;
+    }
+
+    break;
+  }
+
+  return null;
+}
+
+function splitPrompterSentence(
+  text: string,
+  transcript = "",
+  highlightTerms: readonly KaraokePrompterHighlightTerm[] = [],
+) {
+  const currentSegments = buildKaraokePrompterSegments({
+    highlightTerms,
+    text,
+    transcript,
+  });
+  const quoteMatch = text.match(/("[^"]+"|'[^']+'|“[^”]+”)/);
+  if (quoteMatch?.index !== undefined) {
+    const emphasis = quoteMatch[0];
+    return {
+      currentLead: text.slice(0, quoteMatch.index),
+      currentEmphasis: emphasis,
+      currentSegments,
+      currentTail: text.slice(quoteMatch.index + emphasis.length),
+    };
+  }
+
+  return {
+    currentLead: "",
+    currentEmphasis: "",
+    currentSegments,
+    currentTail: text.trim(),
+  };
+}
+
+export function buildKaraokePrompterSegments(options: {
+  highlightTerms?: readonly KaraokePrompterHighlightTerm[];
+  text: string;
+  transcript?: string;
+}): KaraokePrompterSegment[] {
+  const rawSegments = options.text.match(/\s+|[^\s]+/g) ?? [options.text];
+  const emphasisRanges = getPrompterEmphasisRanges(options.text);
+  const highlightRanges = getPrompterHighlightRanges(
+    options.text,
+    options.highlightTerms ?? [],
+  );
+  const spokenTokenCount = getSpokenPrompterTokenCount(
+    options.text,
+    options.transcript ?? "",
+  );
+  let tokenIndex = 0;
+
+  return rawSegments.map((segment, segmentIndex) => {
+    const isWhitespace = isWhitespaceSegment(segment);
+    const spoken = isWhitespace
+      ? tokenIndex > 0 && tokenIndex <= spokenTokenCount
+      : tokenIndex < spokenTokenCount;
+    const textOffset = getSegmentTextOffset(rawSegments, segmentIndex);
+    if (!isWhitespace) {
+      tokenIndex += 1;
+    }
+
+    return {
+      emphasis: emphasisRanges.some(
+        (range) => textOffset >= range.start && textOffset < range.end,
+      ),
+      spoken,
+      text: segment,
+      tone: getPrompterSegmentTone(textOffset, segment, highlightRanges),
+    };
+  });
+}
+
+function getPrompterHighlightTerms(
+  slide: Slide | null,
+): KaraokePrompterHighlightTerm[] {
+  if (!slide) {
+    return [];
+  }
+
+  const terms: KaraokePrompterHighlightTerm[] = [];
+  const addKeywordTerms = (
+    keyword: Keyword | undefined,
+    tone: Exclude<KaraokePrompterTone, "default">,
+  ) => {
+    if (!keyword) {
+      return;
+    }
+    for (const text of [
+      keyword.text,
+      ...keyword.synonyms,
+      ...keyword.abbreviations,
+    ]) {
+      terms.push({ text, tone });
+    }
+  };
+
+  for (const keyword of slide.keywords ?? []) {
+    if (keyword.required) {
+      addKeywordTerms(keyword, "required");
+    }
+  }
+
+  for (const action of slide.actions ?? []) {
+    if (
+      action.trigger.kind === "keyword" ||
+      action.trigger.kind === "keyword-occurrence"
+    ) {
+      const triggerKeywordId = action.trigger.keywordId;
+      addKeywordTerms(
+        slide.keywords.find(
+          (keyword) => keyword.keywordId === triggerKeywordId,
+        ),
+        "trigger",
+      );
+    }
+    if (action.trigger.kind === "cue") {
+      terms.push({ text: action.trigger.cue, tone: "cue" });
+    }
+  }
+
+  for (const command of defaultRehearsalCommandConfig) {
+    const tone = command.action === "advance-slide" ? "next" : "cue";
+    for (const phrase of command.phrases) {
+      terms.push({ text: phrase, tone });
+    }
+  }
+
+  return terms;
+}
+
+function getPrompterHighlightRanges(
+  text: string,
+  terms: readonly KaraokePrompterHighlightTerm[],
+) {
+  const ranges: Array<{
+    end: number;
+    start: number;
+    tone: Exclude<KaraokePrompterTone, "default">;
+  }> = [];
+  const lowerText = text.toLocaleLowerCase("ko-KR");
+  const seen = new Set<string>();
+
+  for (const term of terms) {
+    const normalizedTerm = term.text.trim().toLocaleLowerCase("ko-KR");
+    if (!normalizedTerm) {
+      continue;
+    }
+
+    let fromIndex = 0;
+    while (fromIndex < lowerText.length) {
+      const start = lowerText.indexOf(normalizedTerm, fromIndex);
+      if (start < 0) {
+        break;
+      }
+
+      const end = start + normalizedTerm.length;
+      const key = `${start}:${end}:${term.tone}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        ranges.push({ start, end, tone: term.tone });
+      }
+      fromIndex = end;
+    }
+  }
+
+  return ranges.sort((left, right) => {
+    const priorityDelta =
+      getPrompterTonePriority(right.tone) - getPrompterTonePriority(left.tone);
+    if (priorityDelta !== 0) {
+      return priorityDelta;
+    }
+    return right.end - right.start - (left.end - left.start);
+  });
+}
+
+function getPrompterSegmentTone(
+  textOffset: number,
+  segment: string,
+  ranges: ReturnType<typeof getPrompterHighlightRanges>,
+): KaraokePrompterTone {
+  if (isWhitespaceSegment(segment)) {
+    return "default";
+  }
+
+  const segmentEnd = textOffset + segment.length;
+  return (
+    ranges.find(
+      (range) => textOffset < range.end && segmentEnd > range.start,
+    )?.tone ?? "default"
+  );
+}
+
+function getPrompterTonePriority(tone: KaraokePrompterTone) {
+  switch (tone) {
+    case "trigger":
+      return 5;
+    case "next":
+      return 4;
+    case "cue":
+      return 3;
+    case "required":
+      return 2;
+    case "default":
+      return 1;
+  }
+}
+
+function getSpokenPrompterTokenCount(text: string, transcript: string) {
+  const normalizedTranscript = normalizePrompterMatchText(transcript);
+  if (!normalizedTranscript) {
+    return 0;
+  }
+
+  const tokens =
+    text
+      .match(/[^\s]+/g)
+      ?.map((token) => normalizePrompterMatchText(token))
+      .filter(Boolean) ?? [];
+  let prefix = "";
+  let spokenTokenCount = 0;
+
+  for (const token of tokens) {
+    const nextPrefix = `${prefix}${token}`;
+    if (
+      normalizedTranscript.includes(nextPrefix) ||
+      (normalizedTranscript.length > prefix.length &&
+        normalizedTranscript.length < nextPrefix.length &&
+        nextPrefix.startsWith(normalizedTranscript))
+    ) {
+      prefix = nextPrefix;
+      spokenTokenCount += 1;
+      continue;
+    }
+    break;
+  }
+
+  return spokenTokenCount;
+}
+
+function isPrompterSentenceFullySpoken(text: string, transcript: string) {
+  const totalTokenCount = text.match(/[^\s]+/g)?.length ?? 0;
+  if (totalTokenCount === 0) {
+    return true;
+  }
+
+  return getSpokenPrompterTokenCount(text, transcript) >= totalTokenCount;
+}
+
+function normalizePrompterMatchText(value: string) {
+  return normalizeLiveTranscriptText(value).replace(/[^\p{L}\p{N}+#.-]+/gu, "");
+}
+
+function getPrompterEmphasisRanges(text: string) {
+  const quoteMatch = text.match(/("[^"]+"|'[^']+'|“[^”]+”)/);
+  if (quoteMatch?.index !== undefined) {
+    return [
+      {
+        start: quoteMatch.index,
+        end: quoteMatch.index + quoteMatch[0].length,
+      },
+    ];
+  }
+
+  return [];
+}
+
+function getSegmentTextOffset(segments: readonly string[], segmentIndex: number) {
+  let offset = 0;
+  for (let index = 0; index < segmentIndex; index += 1) {
+    offset += segments[index]?.length ?? 0;
+  }
+  return offset;
+}
+
+function isWhitespaceSegment(value: string) {
+  return /^\s+$/.test(value);
+}
+
+function buildRehearsalCompletionSummary(options: {
+  deck: Deck | null;
+  elapsedSeconds: number;
+  meta: RehearsalRunMeta | null;
+  previousSummary: RehearsalPracticeSummary | null;
+  snapshot: SpeechTrackerSnapshot;
+  targetSeconds: number;
+}): RehearsalCompletionSummary {
+  const targetSeconds =
+    options.targetSeconds > 0
+      ? options.targetSeconds
+      : getTargetDurationSeconds(options.deck);
+  const elapsedSeconds =
+    options.elapsedSeconds > 0 ? options.elapsedSeconds : targetSeconds;
+  const missedKeywordRows = buildLocalMissedKeywordRows(
+    options.deck,
+    options.meta,
+  );
+  const hasSpeechTrackingData = Boolean(options.meta);
+  const coveragePercent =
+    hasSpeechTrackingData && options.snapshot.matchableSentenceCount > 0
+      ? Math.round(options.snapshot.effectiveCoverage * 100)
+      : hasSpeechTrackingData && missedKeywordRows.length > 0
+        ? 0
+        : hasSpeechTrackingData
+          ? 100
+          : 0;
+  const missedKeywordCount = options.meta?.missedKeywords.length ?? 0;
+
+  return {
+    comparisonLabel: buildRehearsalComparisonLabel(
+      elapsedSeconds,
+      targetSeconds,
+      options.previousSummary,
+    ),
+    coverageLabel: hasSpeechTrackingData
+      ? `${clamp(coveragePercent, 0, 100)}%`
+      : "측정 안 됨",
+    coveragePercent: clamp(coveragePercent, 0, 100),
+    durationLabel: formatClock(elapsedSeconds),
+    durationSeconds: elapsedSeconds,
+    hasSpeechTrackingData,
+    missedKeywordRows,
+    missedKeywordCount,
+    missedKeywordCountLabel: hasSpeechTrackingData
+      ? String(missedKeywordCount)
+      : "-",
+    missedKeywordEmptyLabel: hasSpeechTrackingData
+      ? "놓친 핵심 항목이 없습니다."
+      : "음성 추적 데이터가 없습니다.",
+    targetDeltaLabel: formatTargetDeltaLabel(targetSeconds - elapsedSeconds),
+    targetLabel: formatClock(targetSeconds),
+    targetSeconds,
+  };
+}
+
+function buildLocalMissedKeywordRows(
+  deck: Deck | null,
+  meta: RehearsalRunMeta | null,
+): RehearsalCompletionSummary["missedKeywordRows"] {
+  if (!deck || !meta) {
+    return [];
+  }
+
+  const slidesById = new Map(deck.slides.map((slide) => [slide.slideId, slide]));
+  return meta.missedKeywords.slice(0, 2).map((missedKeyword) => {
+    const slide = slidesById.get(missedKeyword.slideId);
+    const keyword = slide?.keywords?.find(
+      (candidate) => candidate.keywordId === missedKeyword.keywordId,
+    );
+
+    return {
+      key: `${missedKeyword.slideId}-${missedKeyword.keywordId}`,
+      label: keyword?.text ?? missedKeyword.keywordId,
+      slideLabel: slide ? `슬라이드 ${slide.order}` : missedKeyword.slideId,
+    };
+  });
+}
+
+function createRehearsalPracticeSummary(
+  deck: Deck,
+  summary: RehearsalCompletionSummary,
+): RehearsalPracticeSummary {
+  return {
+    completedAt: new Date().toISOString(),
+    coveragePercent: summary.coveragePercent,
+    deckId: deck.deckId,
+    durationSeconds: summary.durationSeconds,
+    missedKeywordCount: summary.missedKeywordCount,
+    projectId: deck.projectId,
+    targetSeconds: summary.targetSeconds,
+  };
+}
+
+function buildRehearsalPreflightBanner(
+  deck: Deck,
+  previousSummary: RehearsalPracticeSummary | null,
+) {
+  const targetLabel = formatDuration(getTargetDurationSeconds(deck));
+  if (!previousSummary) {
+    return `이번 목표는 ${targetLabel}입니다. 슬라이드와 음성 트리거를 확인하고 시작하세요.`;
+  }
+
+  return `지난 리허설은 ${formatDuration(
+    previousSummary.durationSeconds,
+  )}였습니다. 이번엔 ${targetLabel} 목표로 가볼까요?`;
+}
+
+function buildRehearsalComparisonLabel(
+  elapsedSeconds: number,
+  targetSeconds: number,
+  previousSummary: RehearsalPracticeSummary | null,
+) {
+  if (previousSummary) {
+    const previousDelta = previousSummary.durationSeconds - elapsedSeconds;
+    if (previousDelta > 0) {
+      return `지난번보다 ${formatDuration(previousDelta)} 빨랐어요`;
+    }
+    if (previousDelta < 0) {
+      return `지난번보다 ${formatDuration(Math.abs(previousDelta))} 늦었어요`;
+    }
+    return "지난번과 같은 시간이에요";
+  }
+
+  const targetDelta = targetSeconds - elapsedSeconds;
+  if (targetDelta > 0) {
+    return `목표보다 ${formatDuration(targetDelta)} 빨랐어요`;
+  }
+  if (targetDelta < 0) {
+    return `목표보다 ${formatDuration(Math.abs(targetDelta))} 초과했어요`;
+  }
+  return "목표 시간에 맞췄어요";
+}
+
+function readRehearsalPracticeSummary(
+  projectId: string,
+  deckId: string,
+  storage: Pick<Storage, "getItem"> | null = readBrowserLocalStorage(),
+): RehearsalPracticeSummary | null {
+  try {
+    const raw = storage?.getItem(getRehearsalPracticeSummaryStorageKey(projectId, deckId));
+    if (!raw) {
+      return null;
+    }
+
+    return parseRehearsalPracticeSummary(JSON.parse(raw), projectId, deckId);
+  } catch {
+    return null;
+  }
+}
+
+function writeRehearsalPracticeSummary(
+  summary: RehearsalPracticeSummary,
+  storage: Pick<Storage, "setItem"> | null = readBrowserLocalStorage(),
+) {
+  try {
+    storage?.setItem(
+      getRehearsalPracticeSummaryStorageKey(summary.projectId, summary.deckId),
+      JSON.stringify(summary),
+    );
+  } catch {
+    // Summary persistence is best-effort; the rehearsal flow must keep working.
+  }
+}
+
+function getRehearsalPracticeSummaryStorageKey(
+  projectId: string,
+  deckId: string,
+) {
+  return `${rehearsalPracticeSummaryStoragePrefix}:${projectId}:${deckId}`;
+}
+
+function parseRehearsalPracticeSummary(
+  value: unknown,
+  projectId: string,
+  deckId: string,
+): RehearsalPracticeSummary | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const candidate = value as Partial<RehearsalPracticeSummary>;
+  if (
+    candidate.projectId !== projectId ||
+    candidate.deckId !== deckId ||
+    typeof candidate.completedAt !== "string" ||
+    typeof candidate.durationSeconds !== "number" ||
+    typeof candidate.targetSeconds !== "number" ||
+    typeof candidate.coveragePercent !== "number" ||
+    typeof candidate.missedKeywordCount !== "number"
+  ) {
+    return null;
+  }
+
+  return {
+    completedAt: candidate.completedAt,
+    coveragePercent: clamp(Math.round(candidate.coveragePercent), 0, 100),
+    deckId,
+    durationSeconds: Math.max(0, Math.round(candidate.durationSeconds)),
+    missedKeywordCount: Math.max(0, Math.round(candidate.missedKeywordCount)),
+    projectId,
+    targetSeconds: Math.max(0, Math.round(candidate.targetSeconds)),
+  };
+}
+
+function formatTargetDeltaLabel(deltaSeconds: number) {
+  const absDelta = Math.abs(deltaSeconds);
+  if (deltaSeconds >= 0) {
+    return `${formatDuration(absDelta)} 여유`;
+  }
+
+  return `${formatDuration(absDelta)} 초과`;
+}
+
+function getTargetDurationSeconds(deck: Deck | null) {
+  return deck ? getRehearsalDeckTargetSeconds(deck) : 0;
+}
+
+function formatDuration(totalSeconds: number) {
+  const boundedSeconds = Math.max(0, Math.round(totalSeconds));
+  const minutes = Math.floor(boundedSeconds / 60);
+  const seconds = Math.floor(boundedSeconds % 60)
+    .toString()
+    .padStart(2, "0");
+  return `${minutes}:${seconds}`;
+}
+
+function getAutoAdvanceCountdownSeconds(
+  state: AdvanceControllerState,
+  countdownMs: number,
+  nowMs: number,
+) {
+  if (state.status !== "countdown" || state.countdownStartedAtMs === null) {
+    return null;
+  }
+
+  const remainingMs = Math.max(
+    countdownMs - (nowMs - state.countdownStartedAtMs),
+    0,
+  );
+  return Math.max(1, Math.ceil(remainingMs / 1000));
+}
+
+function getMiniSlideScale(deck: Deck) {
+  return Math.min(0.16, 154 / deck.canvas.width, 87 / deck.canvas.height);
+}
+
+function RehearsalReportLoadingShell() {
+  return (
+    <div
+      className="rrd-root report-loading-shell"
+      role="status"
+      aria-label="보고서를 불러오는 중입니다."
+    >
+      <section className="rrd-hero report-loading-hero" aria-hidden="true">
+        <div className="rrd-hero-text report-loading-stack">
+          <div className="report-loading-block report-loading-title" />
+          <div className="report-loading-block report-loading-date" />
+        </div>
+        <div className="report-loading-block report-loading-button" />
+      </section>
+
+      <section className="rrd-card report-loading-card report-loading-card-wide" aria-hidden="true">
+        <div className="rrd-card-head">
+          <div className="report-loading-block report-loading-line-sm" />
+        </div>
+        <div className="report-loading-stack">
+          <div className="report-loading-block report-loading-line-xl" />
+          <div className="report-loading-block report-loading-line-lg" />
+          <div className="report-loading-block report-loading-line-md" />
+        </div>
+      </section>
+
+      <div className="rrd-overview-columns report-loading-columns" aria-hidden="true">
+        <section className="rrd-card report-loading-card">
+          <div className="rrd-card-head">
+            <div className="report-loading-block report-loading-line-sm" />
+          </div>
+          <div className="rrd-overview-grid report-loading-metric-grid">
+            <div className="report-loading-metric">
+              <div className="report-loading-block report-loading-line-sm" />
+              <div className="report-loading-block report-loading-metric-value" />
+            </div>
+            <div className="report-loading-metric">
+              <div className="report-loading-block report-loading-line-sm" />
+              <div className="report-loading-block report-loading-metric-value" />
+            </div>
+            <div className="report-loading-metric">
+              <div className="report-loading-block report-loading-line-sm" />
+              <div className="report-loading-block report-loading-metric-value" />
+            </div>
+            <div className="report-loading-metric">
+              <div className="report-loading-block report-loading-line-sm" />
+              <div className="report-loading-block report-loading-metric-value" />
+            </div>
+          </div>
+        </section>
+
+        <section className="rrd-card report-loading-card">
+          <div className="rrd-card-head">
+            <div className="report-loading-block report-loading-line-sm" />
+          </div>
+          <div className="report-loading-chart">
+            <div className="report-loading-block report-loading-chart-bar" />
+            <div className="report-loading-block report-loading-chart-bar report-loading-chart-bar-tall" />
+            <div className="report-loading-block report-loading-chart-bar" />
+            <div className="report-loading-block report-loading-chart-bar report-loading-chart-bar-short" />
+            <div className="report-loading-block report-loading-chart-bar report-loading-chart-bar-mid" />
+          </div>
+          <div className="report-loading-stack">
+            <div className="report-loading-block report-loading-line-md" />
+            <div className="report-loading-block report-loading-line-sm" />
+          </div>
+        </section>
+      </div>
+
+      <section className="rrd-card report-loading-card" aria-hidden="true">
+        <div className="rrd-card-head">
+          <div className="report-loading-block report-loading-line-sm" />
+        </div>
+        <div className="report-loading-chip-list">
+          <div className="report-loading-block report-loading-chip" />
+          <div className="report-loading-block report-loading-chip" />
+          <div className="report-loading-block report-loading-chip report-loading-chip-wide" />
+          <div className="report-loading-block report-loading-chip" />
+        </div>
+        <div className="report-loading-list">
+          <div className="report-loading-block report-loading-line-lg" />
+          <div className="report-loading-block report-loading-line-md" />
+          <div className="report-loading-block report-loading-line-lg" />
+        </div>
+      </section>
+
+      <section className="rrd-card report-loading-card report-loading-card-wide" aria-hidden="true">
+        <div className="rrd-card-head">
+          <div className="report-loading-block report-loading-line-sm" />
+        </div>
+        <div className="report-loading-slide-list">
+          <div className="report-loading-slide-item">
+            <div className="report-loading-block report-loading-thumb" />
+            <div className="report-loading-slide-copy">
+              <div className="report-loading-block report-loading-line-lg" />
+              <div className="report-loading-block report-loading-line-md" />
+              <div className="report-loading-block report-loading-line-sm" />
+            </div>
+          </div>
+          <div className="report-loading-slide-item">
+            <div className="report-loading-block report-loading-thumb" />
+            <div className="report-loading-slide-copy">
+              <div className="report-loading-block report-loading-line-lg" />
+              <div className="report-loading-block report-loading-line-md" />
+              <div className="report-loading-block report-loading-line-sm" />
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
   );
 }
 
@@ -4199,6 +5912,27 @@ function getSlideBodyTexts(slide: Slide) {
 
 function getChecklistKeywords(slide: Slide | null): Keyword[] {
   return slide?.keywords ?? [];
+}
+
+export function getHighlightedKeywordOccurrencesForSlide(slide: Slide | null) {
+  if (!slide) {
+    return undefined;
+  }
+
+  const targetOccurrenceIds = new Set([
+    ...getKeywordOccurrenceTriggerIdsForSlide(slide),
+    ...slide.keywords.flatMap(
+      (keyword) => keyword.requiredOccurrenceIds ?? []
+    )
+  ]);
+
+  if (targetOccurrenceIds.size === 0) {
+    return [];
+  }
+
+  return deriveKeywordOccurrences(slide).filter(
+    (occurrence) => targetOccurrenceIds.has(occurrence.occurrenceId)
+  );
 }
 
 function buildP3SessionSlides(deck: Deck) {
@@ -4279,176 +6013,6 @@ function formatEmptyReportMessage(
   return "보고서 대기 중";
 }
 
-function buildCoachingHeadline(report: RehearsalReport | null) {
-  if (report?.coaching?.summary) {
-    return report.coaching.summary;
-  }
-
-  if (!report) {
-    return "리허설 데이터를 불러오고 있어요.";
-  }
-
-  if (report.metrics.keywordCoverage < 0.8) {
-    return "핵심 흐름은 안정적이지만, 일부 키워드 회수가 부족했어요.";
-  }
-
-  if (isUnreliableSpeakingSpeed(report.metrics.wordsPerMinute)) {
-    return "발표 속도 분석 시간이 불안정해 결과 확인이 필요해요.";
-  }
-
-  if (report.metrics.wordsPerMinute > 150) {
-    return "핵심 메시지는 좋지만, 빠르게 지나간 구간이 있어요.";
-  }
-
-  return "핵심 흐름은 안정적이고, 발표 속도도 적절했어요.";
-}
-
-function buildCoachingDetail(
-  report: RehearsalReport | null,
-  deck: Deck | null,
-) {
-  if (!report) {
-    return "보고서가 준비되면 다음 연습에 집중할 내용을 보여드립니다.";
-  }
-
-  if (report.coaching?.nextPracticeFocus) {
-    return report.coaching.nextPracticeFocus;
-  }
-
-  const nextSlide =
-    deck?.slides[Math.min(2, Math.max(0, deck.slides.length - 1))];
-  const focus = nextSlide?.title ? `"${nextSlide.title}"` : "다음";
-  return `다음 리허설은 ${focus} 슬라이드의 자료 설명을 짧게 줄이고, 누락 키워드를 노트에 고정하는 데 집중하면 됩니다.`;
-}
-
-function getSpeakingSpeedAssessment(wordsPerMinute: number) {
-  if (isUnreliableSpeakingSpeed(wordsPerMinute)) {
-    return {
-      displayValue: "확인 필요",
-      isUnreliable: true,
-      meterValue: 180,
-      message: "발표 시간 데이터가 불안정해 속도 판단을 확인해야 합니다.",
-    };
-  }
-
-  if (wordsPerMinute <= 0) {
-    return {
-      displayValue: "-",
-      isUnreliable: true,
-      meterValue: 80,
-      message: "발표 시간 데이터를 확인할 수 없어 속도 판단이 어렵습니다.",
-    };
-  }
-
-  if (wordsPerMinute < 100) {
-    return {
-      displayValue: String(Math.round(wordsPerMinute)),
-      isUnreliable: false,
-      meterValue: clamp(Math.round(wordsPerMinute), 80, 180),
-      message: "권장 범위보다 다소 느린 속도로 발표했어요.",
-    };
-  }
-
-  if (wordsPerMinute <= 150) {
-    return {
-      displayValue: String(Math.round(wordsPerMinute)),
-      isUnreliable: false,
-      meterValue: clamp(Math.round(wordsPerMinute), 80, 180),
-      message: "권장 범위 안에서 안정적인 속도로 발표했어요.",
-    };
-  }
-
-  return {
-    displayValue: String(Math.round(wordsPerMinute)),
-    isUnreliable: false,
-    meterValue: clamp(Math.round(wordsPerMinute), 80, 180),
-    message: "권장 범위보다 빠른 속도로 발표했어요.",
-  };
-}
-
-function isUnreliableSpeakingSpeed(wordsPerMinute: number) {
-  return !Number.isFinite(wordsPerMinute) || wordsPerMinute > 250;
-}
-
-function formatSpeakingSpeedValue(wordsPerMinute: number) {
-  if (isUnreliableSpeakingSpeed(wordsPerMinute)) {
-    return "확인 필요";
-  }
-
-  if (wordsPerMinute <= 0) {
-    return "-";
-  }
-
-  return `${Math.round(wordsPerMinute)} wpm`;
-}
-
-function buildMissedKeywordRows(
-  deck: Deck | null,
-  missedKeywords: RehearsalReport["missedKeywords"],
-) {
-  const rowsBySlideId = new Map<
-    string,
-    {
-      label: string;
-      keywords: RehearsalReport["missedKeywords"];
-      slideId: string;
-    }
-  >();
-  const slideOrder = new Map(
-    deck?.slides.map((slide, index) => [slide.slideId, index + 1]) ?? [],
-  );
-
-  for (const keyword of missedKeywords) {
-    const slideNumber = slideOrder.get(keyword.slideId);
-    const row = rowsBySlideId.get(keyword.slideId) ?? {
-      label:
-        typeof slideNumber === "number"
-          ? `슬라이드${slideNumber}`
-          : keyword.slideId,
-      keywords: [],
-      slideId: keyword.slideId,
-    };
-    row.keywords.push(keyword);
-    rowsBySlideId.set(keyword.slideId, row);
-  }
-
-  return Array.from(rowsBySlideId.values()).sort((left, right) => {
-    const leftOrder = slideOrder.get(left.slideId) ?? Number.MAX_SAFE_INTEGER;
-    const rightOrder = slideOrder.get(right.slideId) ?? Number.MAX_SAFE_INTEGER;
-    if (leftOrder !== rightOrder) return leftOrder - rightOrder;
-    return 0;
-  });
-}
-
-function formatRehearsalCompletionPercent(
-  deck: Deck | null,
-  slideTimings: RehearsalReport["slideTimings"],
-) {
-  const totalSlides = deck?.slides.length ?? 0;
-  if (totalSlides <= 0 || slideTimings.length === 0) {
-    return "-";
-  }
-
-  const deckSlideIds = new Set(deck?.slides.map((slide) => slide.slideId));
-  const completedSlideIds = new Set(
-    slideTimings
-      .filter(
-        (timing) =>
-          timing.actualSeconds > 0 && deckSlideIds.has(timing.slideId),
-      )
-      .map((timing) => timing.slideId),
-  );
-  if (completedSlideIds.size === 0) {
-    return "-";
-  }
-
-  return `${Math.min(100, Math.round((completedSlideIds.size / totalSlides) * 100))}%`;
-}
-
-function getTargetDurationSeconds(deck: Deck | null) {
-  return Math.max(60, (deck?.targetDurationMinutes ?? 10) * 60);
-}
-
 function getSlideTargetSeconds(deck: Deck, slide: Slide) {
   if (slide.estimatedSeconds) {
     return slide.estimatedSeconds;
@@ -4460,31 +6024,6 @@ function getSlideTargetSeconds(deck: Deck, slide: Slide) {
   );
 }
 
-function formatDuration(totalSeconds: number) {
-  const safeSeconds = Math.max(0, Math.floor(totalSeconds));
-  const minutes = Math.floor(safeSeconds / 60);
-  const seconds = (safeSeconds % 60).toString().padStart(2, "0");
-  return `${minutes}:${seconds}`;
-}
-
-function formatSlideTimingLabel(deck: Deck | null, slideId: string) {
-  const slide = deck?.slides.find((candidate) => candidate.slideId === slideId);
-  return slide ? `Slide ${slide.order}` : slideId;
-}
-
-function formatReportDate(value?: string) {
-  if (!value) return "-";
-
-  const parsed = Date.parse(value);
-  if (Number.isNaN(parsed)) {
-    return value;
-  }
-
-  const date = new Date(parsed);
-  return `${date.getFullYear().toString().slice(2)}.${(date.getMonth() + 1)
-    .toString()
-    .padStart(2, "0")}.${date.getDate().toString().padStart(2, "0")}.`;
-}
 
 function formatClock(totalSeconds: number) {
   const minutes = Math.floor(totalSeconds / 60)
@@ -4497,20 +6036,33 @@ function formatClock(totalSeconds: number) {
 }
 
 function usePresenterStageScale(deck: Deck | null) {
-  const presenterStageRef = useRef<HTMLDivElement | null>(null);
+  const [presenterStageElement, setPresenterStageElement] =
+    useState<HTMLDivElement | null>(null);
   const [presenterScale, setPresenterScale] = useState(0.44);
+  const presenterStageRef = useCallback((node: HTMLDivElement | null) => {
+    setPresenterStageElement(node);
+  }, []);
 
   useEffect(() => {
-    const stage = presenterStageRef.current;
+    const stage = presenterStageElement;
     if (!stage || !deck) {
       return;
     }
 
+    let animationFrame: number | null = null;
+
     const updateScale = () => {
       const bounds = stage.getBoundingClientRect();
+      const style = window.getComputedStyle(stage);
+      const horizontalPadding =
+        Number.parseFloat(style.paddingLeft) + Number.parseFloat(style.paddingRight);
+      const verticalPadding =
+        Number.parseFloat(style.paddingTop) + Number.parseFloat(style.paddingBottom);
+      const availableWidth = Math.max(0, bounds.width - horizontalPadding);
+      const availableHeight = Math.max(0, bounds.height - verticalPadding);
       const nextScale = Math.min(
-        bounds.width / deck.canvas.width,
-        bounds.height / deck.canvas.height,
+        availableWidth / deck.canvas.width,
+        availableHeight / deck.canvas.height,
       );
       if (Number.isFinite(nextScale) && nextScale > 0) {
         setPresenterScale((current) =>
@@ -4518,18 +6070,37 @@ function usePresenterStageScale(deck: Deck | null) {
         );
       }
     };
+    const scheduleScaleUpdate = () => {
+      if (animationFrame !== null) {
+        window.cancelAnimationFrame(animationFrame);
+      }
+      animationFrame = window.requestAnimationFrame(updateScale);
+    };
 
     updateScale();
+    scheduleScaleUpdate();
 
     if (typeof ResizeObserver === "undefined") {
-      window.addEventListener("resize", updateScale);
-      return () => window.removeEventListener("resize", updateScale);
+      window.addEventListener("resize", scheduleScaleUpdate);
+      return () => {
+        window.removeEventListener("resize", scheduleScaleUpdate);
+        if (animationFrame !== null) {
+          window.cancelAnimationFrame(animationFrame);
+        }
+      };
     }
 
-    const observer = new ResizeObserver(updateScale);
+    const observer = new ResizeObserver(scheduleScaleUpdate);
     observer.observe(stage);
-    return () => observer.disconnect();
-  }, [deck]);
+    window.addEventListener("resize", scheduleScaleUpdate);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", scheduleScaleUpdate);
+      if (animationFrame !== null) {
+        window.cancelAnimationFrame(animationFrame);
+      }
+    };
+  }, [deck, presenterStageElement]);
 
   return { presenterScale, presenterStageRef };
 }
@@ -4565,28 +6136,9 @@ function parseClockInput(value: string): number | null {
   return minutes * 60 + seconds;
 }
 
-function navigateToRehearsal(projectId: string) {
-  navigateToPath(`/rehearsal/${encodeURIComponent(projectId)}`);
-}
-
 function navigateToPath(path: string) {
   window.history.pushState({}, "", path);
   window.dispatchEvent(new PopStateEvent("popstate"));
-}
-
-function PresentationScreenIcon() {
-  return (
-    <svg aria-hidden="true" viewBox="0 0 24 24" width="16" height="16">
-      <path
-        d="M4 5.5h16v10H4zM9 19h6M12 15.5V19"
-        fill="none"
-        stroke="currentColor"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeWidth="1.8"
-      />
-    </svg>
-  );
 }
 
 function stopMediaStream(stream: MediaStream | null) {

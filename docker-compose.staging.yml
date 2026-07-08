@@ -26,7 +26,8 @@ x-orbit-env: &orbit-env
   S3_FORCE_PATH_STYLE: ${S3_FORCE_PATH_STYLE:-true}
 
   JOB_QUEUE_DRIVER: ${JOB_QUEUE_DRIVER:-bullmq}
-  LIVE_STT_PROVIDER: ${LIVE_STT_PROVIDER:-web-speech}
+  LIVE_STT_PROVIDER: ${LIVE_STT_PROVIDER:-sherpa}
+  LIVE_STT_ENGINE: ${LIVE_STT_ENGINE:-openai-realtime}
   REPORT_STT_PROVIDER: ${REPORT_STT_PROVIDER:-openai}
   OCR_PROVIDER: ${OCR_PROVIDER:-python}
   LLM_PROVIDER: ${LLM_PROVIDER:?}
@@ -63,7 +64,8 @@ services:
       S3_SECRET_ACCESS_KEY: orbit-password
       S3_FORCE_PATH_STYLE: "true"
       JOB_QUEUE_DRIVER: bullmq
-      LIVE_STT_PROVIDER: web-speech
+      LIVE_STT_PROVIDER: sherpa
+      LIVE_STT_ENGINE: web-speech
       REPORT_STT_PROVIDER: openai
       OPENAI_TRANSCRIPTION_MODEL: whisper-1
       OCR_PROVIDER: python
@@ -140,7 +142,8 @@ services:
     restart: unless-stopped
 
   redis:
-    ports: !reset []
+    ports: !override
+      - "127.0.0.1:6379:6379"
     restart: unless-stopped
 
   minio:

@@ -2,6 +2,7 @@ import { HttpException, HttpStatus } from "@nestjs/common";
 import {
   deckApiErrorSchema,
   deckSchema,
+  createKeywordOccurrenceId,
   jobSchema,
   type Deck,
   type DeckApiError,
@@ -371,6 +372,29 @@ function createDeck(): Deck {
   });
 }
 
+function createRepeatedKeywordDeck(): Deck {
+  const deck = createDeck();
+
+  return deckSchema.parse({
+    ...deck,
+    slides: [
+      {
+        ...deck.slides[0],
+        speakerNotes: "ORBIT 흐름은 ORBIT 대본으로 설명합니다.",
+        keywords: [
+          {
+            keywordId: "kw_orbit",
+            text: "ORBIT",
+            synonyms: [],
+            abbreviations: [],
+            required: true,
+          },
+        ],
+      },
+    ],
+  });
+}
+
 function createLegacyKeywordDeck(deck: Deck): Deck {
   const legacyDeck = cloneJson(deck);
 
@@ -433,6 +457,36 @@ function createUpdateTitlePatch(
       {
         type: "update_deck",
         title,
+      },
+    ],
+  };
+}
+
+function createAddOccurrenceNextSlideActionPatch(
+  deck: Deck,
+  occurrenceId: string,
+): DeckPatch {
+  const slide = deck.slides[0]!;
+
+  return {
+    deckId: deck.deckId,
+    baseVersion: deck.version,
+    source: "user",
+    operations: [
+      {
+        type: "add_slide_action",
+        slideId: slide.slideId,
+        action: {
+          actionId: "act_second_orbit_next",
+          trigger: {
+            kind: "keyword-occurrence",
+            keywordId: "kw_orbit",
+            occurrenceId,
+          },
+          effect: {
+            kind: "go-to-next-slide",
+          },
+        },
       },
     ],
   };
@@ -638,6 +692,40 @@ describe("DecksService", () => {
     ).toEqual([1]);
   });
 
+  it("persists keyword occurrence action triggers in checkpointed deck JSON", async () => {
+    const { dataSource, service } = createService();
+    const deck = createRepeatedKeywordDeck();
+    const occurrenceId = createKeywordOccurrenceId(
+      deck.slides[0]!.slideId,
+      "kw_orbit",
+      10,
+      15,
+    );
+    await service.putDeck(deck.projectId, { deck });
+
+    expect(deck.slides[0]!.actions).toEqual([]);
+
+    const response = await service.appendPatch(deck.projectId, {
+      patch: createAddOccurrenceNextSlideActionPatch(deck, occurrenceId),
+      snapshotReason: "patch-applied",
+    });
+    const persistedDeck = deckSchema.parse(
+      dataSource.decks.get(deck.projectId)?.deck_json,
+    );
+
+    expect(response.deck.slides[0]!.actions).toHaveLength(1);
+    expect(response.deck.slides[0]!.actions[0]?.trigger).toEqual({
+      kind: "keyword-occurrence",
+      keywordId: "kw_orbit",
+      occurrenceId,
+    });
+    expect(persistedDeck.slides[0]!.actions[0]?.trigger).toEqual({
+      kind: "keyword-occurrence",
+      keywordId: "kw_orbit",
+      occurrenceId,
+    });
+  });
+
   it("enqueues OOXML sync after patching an OOXML-backed deck", async () => {
     stubOrbitEnv();
     const dataSource = new InMemoryDeckDataSource();
@@ -668,7 +756,35 @@ describe("DecksService", () => {
     });
 
     const response = await service.appendPatch(deck.projectId, {
-      patch: createUpdateTitlePatch(deck, "Updated deck"),
+      patch: {
+        deckId: deck.deckId,
+        baseVersion: deck.version,
+        source: "user",
+        operations: [
+          {
+            type: "add_element",
+            slideId: deck.slides[0]!.slideId,
+            element: {
+              elementId: "el_sync_text",
+              type: "text",
+              role: "body",
+              x: 120,
+              y: 140,
+              width: 520,
+              height: 120,
+              rotation: 0,
+              opacity: 1,
+              zIndex: 1,
+              locked: false,
+              visible: true,
+              props: {
+                text: "OOXML sync target",
+                fontSize: 32,
+              },
+            },
+          },
+        ],
+      },
     });
 
     expect(response.ooxmlSyncJob?.jobId).toBe(syncJob.jobId);
@@ -689,6 +805,61 @@ describe("DecksService", () => {
         targetDeckVersion: 2,
       }),
     );
+  });
+
+  it("does not enqueue OOXML sync for thumbnail-only system patches", async () => {
+    stubOrbitEnv();
+    const dataSource = new InMemoryDeckDataSource();
+    const deck = createDeck();
+    const jobsService = {
+      create: vi.fn(async () => createJob()),
+      update: vi.fn(),
+    };
+    const enqueueSyncJob = vi.fn(async () => undefined);
+    const service = new DecksService(
+      dataSource as unknown as DataSource,
+      jobsService as never,
+      enqueueSyncJob,
+    );
+
+    await service.putDeck(deck.projectId, { deck });
+    dataSource.templateBlueprintRows.push({
+      template_id: "template_file_1",
+      project_id: deck.projectId,
+      deck_id: deck.deckId,
+      blueprint_json: {
+        templateId: "template_file_1",
+        sourceFileId: "file_1",
+        currentPackageFileId: "file_current",
+        slides: [{ slideIndex: 1, sourceSlideIndex: 1, slots: [] }],
+      },
+    });
+
+    const response = await service.appendPatch(deck.projectId, {
+      patch: {
+        deckId: deck.deckId,
+        baseVersion: deck.version,
+        source: "system",
+        operations: [
+          {
+            type: "update_slide",
+            slideId: deck.slides[0]!.slideId,
+            thumbnailUrl: "/api/v1/projects/project_demo_1/assets/file_thumb/content",
+          },
+          {
+            type: "update_deck",
+            metadata: {
+              thumbnailSource: "canvas",
+            },
+          },
+        ],
+      },
+    });
+
+    expect(response.ooxmlSyncJob).toBeUndefined();
+    expect(response.deck.version).toBe(2);
+    expect(jobsService.create).not.toHaveBeenCalled();
+    expect(enqueueSyncJob).not.toHaveBeenCalled();
   });
 
   it("restores a snapshot into the current deck", async () => {
@@ -739,6 +910,85 @@ describe("DecksService", () => {
 
     expect(dataSource.patchRows).toHaveLength(0);
     expect(dataSource.decks.get(deck.projectId)?.version).toBe(2);
+  });
+
+  it("rejects stale full deck saves before deleting newer patch rows", async () => {
+    const { dataSource, service } = createService();
+    const deck = createDeck();
+    await service.putDeck(deck.projectId, { deck });
+
+    await service.appendPatch(deck.projectId, {
+      patch: createUpdateTitlePatch(deck, "Updated deck"),
+    });
+
+    const error = await expectDeckApiError(
+      () => service.putDeck(deck.projectId, { deck }),
+      HttpStatus.CONFLICT,
+      "STALE_BASE_VERSION",
+    );
+    const getResponse = await service.getDeck(deck.projectId);
+
+    expect(error.details).toEqual([
+      "deck.version=2",
+      "request.baseVersion=1",
+    ]);
+    expect(dataSource.patchRows).toHaveLength(1);
+    expect(getResponse.deck).toMatchObject({
+      title: "Updated deck",
+      version: 2,
+    });
+  });
+
+  it("rejects full deck saves that try to replace the project deck id", async () => {
+    const { service } = createService();
+    const deck = createDeck();
+    await service.putDeck(deck.projectId, { deck });
+
+    const error = await expectDeckApiError(
+      () =>
+        service.putDeck(deck.projectId, {
+          baseVersion: deck.version,
+          deck: {
+            ...deck,
+            deckId: "deck_other_1",
+          },
+        }),
+      HttpStatus.CONFLICT,
+      "DECK_MISMATCH",
+    );
+
+    expect(error.details).toEqual([
+      "deck.deckId=deck_demo_1",
+      "request.deckId=deck_other_1",
+    ]);
+  });
+
+  it("allows explicit full deck version rewind when baseVersion matches", async () => {
+    const { dataSource, service } = createService();
+    const deck = createDeck();
+    await service.putDeck(deck.projectId, { deck });
+
+    await service.appendPatch(deck.projectId, {
+      patch: createUpdateTitlePatch(deck, "Updated deck"),
+    });
+
+    await service.putDeck(deck.projectId, { deck, baseVersion: 2 });
+    const getResponse = await service.getDeck(deck.projectId);
+
+    expect(dataSource.patchRows).toHaveLength(0);
+    expect(getResponse.deck).toMatchObject({
+      title: deck.title,
+      version: 1,
+    });
+
+    const nextPatchResponse = await service.appendPatch(deck.projectId, {
+      patch: createUpdateTitlePatch(deck, "Saved after undo"),
+    });
+
+    expect(nextPatchResponse.deck).toMatchObject({
+      title: "Saved after undo",
+      version: 2,
+    });
   });
 
   it("normalizes legacy keyword terms when restoring snapshots", async () => {

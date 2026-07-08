@@ -58,6 +58,9 @@ describe("handleSlideRenderJob", () => {
       async getSignedReadUrl() {
         throw new Error("not used");
       },
+      async headObject() {
+        return null;
+      },
       async removeObject() {
         throw new Error("not used");
       },

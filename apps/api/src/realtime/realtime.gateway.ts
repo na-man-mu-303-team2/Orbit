@@ -372,25 +372,14 @@ export class RealtimeGateway
 
 function buildConnectedUser(client: Socket): ConnectedRealtimeUser {
   const headers = client.handshake.headers;
-  const forwardedFor = firstHeader(headers["x-forwarded-for"]);
-  const realIp = firstHeader(headers["x-real-ip"]);
   const userAgent = firstHeader(headers["user-agent"]) || "unknown";
-  const language = firstHeader(headers["accept-language"]) || "unknown";
-  const ip =
-    firstForwardedIp(forwardedFor) ||
-    realIp ||
-    client.handshake.address ||
-    "unknown";
 
   return {
     id: client.id,
-    ip,
     connectedAt: new Date().toISOString(),
     transport: client.conn.transport.name,
     environment: {
-      browserLabel: parseBrowserLabel(userAgent),
-      userAgent,
-      language
+      browserLabel: parseBrowserLabel(userAgent)
     }
   };
 }
@@ -559,10 +548,6 @@ function firstHeader(value: string | string[] | undefined) {
     return value[0] || "";
   }
   return value || "";
-}
-
-function firstForwardedIp(value: string) {
-  return value.split(",")[0]?.trim();
 }
 
 function parseBrowserLabel(userAgent: string) {

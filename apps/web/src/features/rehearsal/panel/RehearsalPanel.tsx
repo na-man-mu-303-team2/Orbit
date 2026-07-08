@@ -24,6 +24,7 @@ import type {
 } from "./rehearsalTiming";
 import {
   KeywordHighlightedText,
+  type KeywordHighlightOccurrence,
   type KeywordHighlightKeyword
 } from "../../shared/KeywordHighlightedText";
 
@@ -37,8 +38,11 @@ export type RehearsalPanelProps = {
   wordsPerMinute: number;
   adviceState: TimingAdviceState;
   keywords: readonly RehearsalPanelKeyword[];
+  highlightedKeywordOccurrences?: readonly KeywordHighlightOccurrence[];
   liveSlot?: ReactNode;
   showAdvicePanel?: boolean;
+  showScriptPanel?: boolean;
+  speakerNotes?: string;
   sentences: readonly ExtractedSentence[];
   snapshot: SpeechTrackerSnapshot;
 };
@@ -51,6 +55,10 @@ export function RehearsalPanel(props: RehearsalPanelProps) {
   const coveredSentenceIds = useMemo(
     () => new Set(props.snapshot.coveredSentenceIds),
     [props.snapshot.coveredSentenceIds]
+  );
+  const sentenceTextOffsets = useMemo(
+    () => getSentenceTextOffsets(props.speakerNotes ?? "", props.sentences),
+    [props.speakerNotes, props.sentences]
   );
   const sentenceRefs = useRef(new Map<string, HTMLParagraphElement>());
   const [isScriptAutoFollowEnabled, setIsScriptAutoFollowEnabled] = useState(true);
@@ -179,69 +187,73 @@ export function RehearsalPanel(props: RehearsalPanelProps) {
         </section>
       ) : null}
 
-      <section className="rehearsal-panel-section rehearsal-panel-script" aria-label="발표 대본">
-        <div className="rehearsal-panel-section-heading">
-          <span>대본</span>
-          <div className="rehearsal-panel-heading-actions">
-            {!isScriptAutoFollowEnabled ? (
-              <button
-                className="rehearsal-panel-follow-button"
-                type="button"
-                onClick={() => {
-                  setIsScriptAutoFollowEnabled(true);
-                  scrollScriptToFocus("smooth");
-                }}
-              >
-                따라가기
-              </button>
-            ) : null}
-            <strong>{Math.round(props.snapshot.effectiveCoverage * 100)}%</strong>
-          </div>
-        </div>
-        <div
-          className="rehearsal-panel-script-body"
-          data-auto-scroll={isScriptAutoFollowEnabled ? "true" : "paused"}
-          onPointerDown={() => setIsScriptAutoFollowEnabled(false)}
-          onWheel={() => setIsScriptAutoFollowEnabled(false)}
-        >
-          {props.sentences.length > 0 ? (
-            props.sentences.map((sentence) => {
-              const covered = coveredSentenceIds.has(sentence.sentenceId);
-              return (
-                <p
-                  className={[
-                    "rehearsal-panel-sentence",
-                    covered ? "rehearsal-panel-sentence-covered" : "",
-                    !sentence.matchable ? "rehearsal-panel-sentence-unmatchable" : ""
-                  ]
-                    .filter(Boolean)
-                    .join(" ")}
-                  data-sentence-id={sentence.sentenceId}
-                  key={sentence.sentenceId}
-                  ref={(node) => {
-                    if (node) {
-                      sentenceRefs.current.set(sentence.sentenceId, node);
-                      return;
-                    }
-
-                    sentenceRefs.current.delete(sentence.sentenceId);
+      {props.showScriptPanel !== false ? (
+        <section className="rehearsal-panel-section rehearsal-panel-script" aria-label="발표 대본">
+          <div className="rehearsal-panel-section-heading">
+            <span>대본</span>
+            <div className="rehearsal-panel-heading-actions">
+              {!isScriptAutoFollowEnabled ? (
+                <button
+                  className="rehearsal-panel-follow-button"
+                  type="button"
+                  onClick={() => {
+                    setIsScriptAutoFollowEnabled(true);
+                    scrollScriptToFocus("smooth");
                   }}
                 >
-                  <span>
-                    <KeywordHighlightedText
-                      keywords={props.keywords}
-                      text={sentence.text}
-                    />
-                  </span>
-                  {covered ? <em>체크됨</em> : null}
-                </p>
-              );
-            })
-          ) : (
-            <p className="rehearsal-panel-empty">대본 없음</p>
-          )}
-        </div>
-      </section>
+                  따라가기
+                </button>
+              ) : null}
+              <strong>{Math.round(props.snapshot.effectiveCoverage * 100)}%</strong>
+            </div>
+          </div>
+          <div
+            className="rehearsal-panel-script-body"
+            data-auto-scroll={isScriptAutoFollowEnabled ? "true" : "paused"}
+            onPointerDown={() => setIsScriptAutoFollowEnabled(false)}
+            onWheel={() => setIsScriptAutoFollowEnabled(false)}
+          >
+            {props.sentences.length > 0 ? (
+              props.sentences.map((sentence) => {
+                const covered = coveredSentenceIds.has(sentence.sentenceId);
+                return (
+                  <p
+                    className={[
+                      "rehearsal-panel-sentence",
+                      covered ? "rehearsal-panel-sentence-covered" : "",
+                      !sentence.matchable ? "rehearsal-panel-sentence-unmatchable" : ""
+                    ]
+                      .filter(Boolean)
+                      .join(" ")}
+                    data-sentence-id={sentence.sentenceId}
+                    key={sentence.sentenceId}
+                    ref={(node) => {
+                      if (node) {
+                        sentenceRefs.current.set(sentence.sentenceId, node);
+                        return;
+                      }
+
+                      sentenceRefs.current.delete(sentence.sentenceId);
+                    }}
+                  >
+                    <span>
+                      <KeywordHighlightedText
+                        highlightedOccurrences={props.highlightedKeywordOccurrences}
+                        keywords={props.keywords}
+                        textOffset={sentenceTextOffsets.get(sentence.sentenceId) ?? 0}
+                        text={sentence.text}
+                      />
+                    </span>
+                    {covered ? <em>체크됨</em> : null}
+                  </p>
+                );
+              })
+            ) : (
+              <p className="rehearsal-panel-empty">대본 없음</p>
+            )}
+          </div>
+        </section>
+      ) : null}
     </section>
   );
 }
@@ -282,6 +294,27 @@ export function getRehearsalScriptFocusSentenceId(
     sentences[0]?.sentenceId ??
     null
   );
+}
+
+export function getSentenceTextOffsets(
+  speakerNotes: string,
+  sentences: readonly ExtractedSentence[]
+) {
+  const offsets = new Map<string, number>();
+  let cursor = 0;
+
+  for (const sentence of sentences) {
+    const start = speakerNotes.indexOf(sentence.text, cursor);
+
+    if (start === -1) {
+      continue;
+    }
+
+    offsets.set(sentence.sentenceId, start);
+    cursor = start + sentence.text.length;
+  }
+
+  return offsets;
 }
 
 function TimerMetric(props: {

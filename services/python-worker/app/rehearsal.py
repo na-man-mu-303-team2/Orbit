@@ -8,13 +8,21 @@ from typing import Any
 from app.audio.transcribe import TranscriptSegment
 
 FILLER_WORDS = {
+    "아",
     "음",
     "어",
+    "이제",
+    "일단",
+    "사실",
+    "막",
     "그니까",
+    "그니까요",
     "그러니까",
+    "그러니까요",
     "저기",
     "약간",
     "뭐",
+    "뭐냐면",
     "뭐랄까",
     "um",
     "uh",
@@ -32,10 +40,21 @@ FILLER_PHRASES = {
 
 LONG_PAUSE_THRESHOLD_SECONDS = 1.0
 
+PROGRESS_COMMENT_INSTRUCTIONS = """
+You are a Korean presentation rehearsal coach for ORBIT.
+You are given a list of rehearsal sessions for the same presentation, ordered by date.
+Analyze the trend in total presentation duration and identify whether the presenter is improving, declining, or staying consistent.
+Return only a single concise Korean sentence (2-3 lines max) that summarizes the overall progress trend and gives one actionable suggestion.
+Do not use bullet points. Write in a warm, encouraging tone.
+""".strip()
+
 COACHING_INSTRUCTIONS = """
 You are a Korean presentation rehearsal coach for ORBIT.
 Return only JSON with:
 - summary: one concise Korean sentence
+- aiSummary: object with headline and paragraphs
+- aiSummary.headline: one Korean sentence that summarizes the main report finding
+- aiSummary.paragraphs: array of 2-3 Korean sentences with evidence-backed overall feedback
 - strengths: array of 1-3 Korean strings
 - improvements: array of 1-3 Korean strings
 - nextPracticeFocus: one concise Korean string
@@ -53,6 +72,20 @@ COACHING_RESPONSE_FORMAT: dict[str, Any] = {
             "additionalProperties": False,
             "properties": {
                 "summary": {"type": "string"},
+                "aiSummary": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "properties": {
+                        "headline": {"type": "string"},
+                        "paragraphs": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "minItems": 2,
+                            "maxItems": 3,
+                        },
+                    },
+                    "required": ["headline", "paragraphs"],
+                },
                 "strengths": {
                     "type": "array",
                     "items": {"type": "string"},
@@ -65,6 +98,7 @@ COACHING_RESPONSE_FORMAT: dict[str, Any] = {
             },
             "required": [
                 "summary",
+                "aiSummary",
                 "strengths",
                 "improvements",
                 "nextPracticeFocus",
@@ -104,10 +138,23 @@ class PauseDetail:
 
 
 @dataclass(frozen=True)
+class SlideTimelineEntry:
+    slide_id: str
+    entered_second: float
+
+
+@dataclass(frozen=True)
 class MissedKeywordDetail:
     slide_id: str
     keyword_id: str
     text: str
+
+
+@dataclass(frozen=True)
+class SlideInsight:
+    slide_id: str
+    filler_word_count: int
+    pause_count: int
 
 
 @dataclass(frozen=True)
@@ -126,12 +173,15 @@ class RehearsalMetricsResult:
     filler_word_details: list[FillerWordDetail] = field(default_factory=list)
     pause_details: list[PauseDetail] = field(default_factory=list)
     missed_keywords: list[MissedKeywordDetail] = field(default_factory=list)
+    slide_insights: list[SlideInsight] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
 class RehearsalCoachingResult:
     status: str
     summary: str = ""
+    ai_summary_headline: str = ""
+    ai_summary_paragraphs: list[str] = field(default_factory=list)
     strengths: list[str] = field(default_factory=list)
     improvements: list[str] = field(default_factory=list)
     next_practice_focus: str = ""
@@ -144,6 +194,7 @@ def analyze_rehearsal_metrics(
     duration_seconds: float,
     segments: list[TranscriptSegment],
     deck_keywords: list[DeckKeyword],
+    slide_timeline: list[SlideTimelineEntry] | None = None,
 ) -> RehearsalMetricsResult:
     # TODO: 현재 산식은 MVP 휴리스틱이므로, 문서화된 리허설 평가 기준에 맞춰 재검토한다.
     words = transcript_words(transcript)
@@ -165,6 +216,11 @@ def analyze_rehearsal_metrics(
         filler_word_details=count_filler_word_details(words),
         pause_details=pause_details,
         missed_keywords=keyword_result.missed,
+        slide_insights=build_slide_insights(
+            duration_seconds,
+            segments,
+            slide_timeline or [],
+        ),
     )
 
 
@@ -234,13 +290,62 @@ def generate_rehearsal_coaching(
             message="OpenAI coaching response was not an object.",
         )
 
+    ai_summary = payload.get("aiSummary")
+    if not isinstance(ai_summary, dict):
+        ai_summary = {}
+
     return RehearsalCoachingResult(
         status="succeeded",
         summary=str(payload.get("summary", "")).strip(),
+        ai_summary_headline=str(ai_summary.get("headline", "")).strip(),
+        ai_summary_paragraphs=string_list(ai_summary.get("paragraphs"))[:3],
         strengths=string_list(payload.get("strengths")),
         improvements=string_list(payload.get("improvements")),
         next_practice_focus=str(payload.get("nextPracticeFocus", "")).strip(),
     )
+
+
+@dataclass(frozen=True)
+class RunSeriesEntry:
+    run_id: str
+    created_at: str
+    duration_seconds: float
+
+
+def generate_progress_comment(
+    *,
+    run_series: list[RunSeriesEntry],
+    client: Any | None = None,
+    model: str,
+    api_key: str | None,
+) -> str | None:
+    if len(run_series) < 2:
+        return None
+
+    api_client: Any = client
+    if api_client is None:
+        if not api_key:
+            return None
+        from openai import OpenAI
+        api_client = OpenAI(api_key=api_key)
+
+    lines = "\n".join(
+        f"- 회차 {i + 1} ({entry.created_at[:10]}): {entry.duration_seconds:.0f}초"
+        for i, entry in enumerate(run_series)
+    )
+    input_text = f"리허설 회차별 총 발표 시간:\n{lines}"
+
+    try:
+        response = api_client.responses.create(
+            model=model,
+            instructions=PROGRESS_COMMENT_INSTRUCTIONS,
+            input=input_text,
+        )
+    except Exception:
+        return None
+
+    output_text = str(getattr(response, "output_text", "")).strip()
+    return output_text or None
 
 
 def transcript_words(transcript: str) -> list[str]:
@@ -370,6 +475,119 @@ def valid_timed_segments(segments: list[TranscriptSegment]) -> list[tuple[float,
         timed_segments.append((segment.start_seconds, segment.end_seconds))
 
     return sorted(timed_segments, key=lambda segment: (segment[0], segment[1]))
+
+
+def resolve_analysis_end_second(
+    duration_seconds: float,
+    segments: list[TranscriptSegment],
+) -> float:
+    if duration_seconds > 0:
+        return duration_seconds
+
+    timed_segments = valid_timed_segments(segments)
+    if not timed_segments:
+        return 0.0
+
+    return max(end for _start, end in timed_segments)
+
+
+def build_slide_insights(
+    duration_seconds: float,
+    segments: list[TranscriptSegment],
+    slide_timeline: list[SlideTimelineEntry],
+) -> list[SlideInsight]:
+    timeline = normalize_slide_timeline(slide_timeline)
+    if not timeline:
+        return []
+
+    analysis_end_second = resolve_analysis_end_second(duration_seconds, segments)
+    if analysis_end_second <= 0:
+        return []
+
+    pause_details = find_pause_details(segments)
+    insights: list[SlideInsight] = []
+
+    for index, entry in enumerate(timeline):
+        next_entry = timeline[index + 1] if index + 1 < len(timeline) else None
+        window_end = (
+            next_entry.entered_second if next_entry is not None else analysis_end_second
+        )
+        if window_end <= entry.entered_second:
+            continue
+
+        slide_words: list[str] = []
+        for segment in segments:
+            if segment_belongs_to_window(segment, entry.entered_second, window_end):
+                slide_words.extend(transcript_words(segment.text))
+
+        pause_count = sum(
+            1
+            for pause in pause_details
+            if interval_midpoint_in_window(
+                pause.start_second,
+                pause.end_second,
+                entry.entered_second,
+                window_end,
+            )
+        )
+
+        insights.append(
+            SlideInsight(
+                slide_id=entry.slide_id,
+                filler_word_count=count_filler_words(slide_words),
+                pause_count=pause_count,
+            )
+        )
+
+    return insights
+
+
+def normalize_slide_timeline(
+    slide_timeline: list[SlideTimelineEntry],
+) -> list[SlideTimelineEntry]:
+    normalized: list[SlideTimelineEntry] = []
+
+    for entry in slide_timeline:
+        if not entry.slide_id.strip() or entry.entered_second < 0:
+            continue
+
+        if normalized and entry.entered_second <= normalized[-1].entered_second:
+            continue
+
+        if normalized and normalized[-1].slide_id == entry.slide_id:
+            continue
+
+        normalized.append(entry)
+
+    return normalized
+
+
+def segment_belongs_to_window(
+    segment: TranscriptSegment,
+    window_start: float,
+    window_end: float,
+) -> bool:
+    if segment.start_seconds is None or segment.end_seconds is None:
+        return False
+
+    if segment.end_seconds <= segment.start_seconds:
+        return False
+
+    midpoint = (segment.start_seconds + segment.end_seconds) / 2
+    return window_start <= midpoint < window_end
+
+
+def interval_midpoint_in_window(
+    start_second: float,
+    end_second: float,
+    window_start: float,
+    window_end: float,
+) -> bool:
+    if end_second <= start_second:
+        return False
+
+    midpoint = (start_second + end_second) / 2
+    return window_start <= midpoint < window_end
 
 
 def keyword_coverage(transcript: str, deck_keywords: list[DeckKeyword]) -> float:
