@@ -1,9 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { deckSchema } from "@orbit/shared";
 import {
   InMemoryJobQueue,
   aiTemplateDeckGenerationJobName,
   aiTemplateDeckGenerationQueueName,
+  audienceSlideRenderJobName,
+  audienceSlideRenderQueueName,
   enqueueAiTemplateDeckGenerationJob,
+  enqueueAudienceSlideRenderJob,
   enqueuePptxOoxmlGenerationJob,
   enqueueRehearsalSttJob,
   enqueueWorkerHealthCheckJob,
@@ -162,6 +166,72 @@ describe("enqueueAiTemplateDeckGenerationJob", () => {
       request: expect.objectContaining({
         topic: "ORBIT",
         assets: [{ fileId: "file_design", role: "design" }]
+      })
+    });
+    expect(queueMock.close).toHaveBeenCalled();
+  });
+});
+
+describe("enqueueAudienceSlideRenderJob", () => {
+  it("adds an audience slide render job to BullMQ", async () => {
+    await enqueueAudienceSlideRenderJob({
+      driver: "bullmq",
+      redisUrl: "redis://localhost:6379",
+      jobId: "job-slide-render",
+      projectId: "project-a",
+      sessionId: "session-a",
+      slideId: "slide_1",
+      deckContentHash: "deck-hash",
+      deckVersion: 1,
+      deck: deckSchema.parse({
+        deckId: "deck_1",
+        projectId: "project-a",
+        title: "Audience Deck",
+        version: 1,
+        metadata: {
+          language: "ko",
+          locale: "ko-KR"
+        },
+        targetDurationMinutes: 10,
+        canvas: {
+          preset: "wide-16-9",
+          width: 1920,
+          height: 1080,
+          aspectRatio: "16:9"
+        },
+        theme: {},
+        slides: [
+          {
+            slideId: "slide_1",
+            order: 1,
+            title: "Public slide",
+            thumbnailUrl: "",
+            speakerNotes: "",
+            style: {},
+            elements: [],
+            keywords: [],
+            animations: [],
+            actions: []
+          }
+        ]
+      })
+    });
+
+    expect(queueMock.Queue).toHaveBeenCalledWith(audienceSlideRenderQueueName, {
+      connection: expect.objectContaining({
+        host: "localhost",
+        port: 6379
+      })
+    });
+    expect(queueMock.add).toHaveBeenCalledWith(audienceSlideRenderJobName, {
+      jobId: "job-slide-render",
+      projectId: "project-a",
+      sessionId: "session-a",
+      slideId: "slide_1",
+      deckContentHash: "deck-hash",
+      deckVersion: 1,
+      deck: expect.objectContaining({
+        deckId: "deck_1"
       })
     });
     expect(queueMock.close).toHaveBeenCalled();

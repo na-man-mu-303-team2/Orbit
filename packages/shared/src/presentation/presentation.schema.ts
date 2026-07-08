@@ -3,14 +3,32 @@ import { z } from "zod";
 import { isoDateTimeSchema } from "../common/time.schema";
 import { deckIdSchema } from "../deck/id.schema";
 
+export const joinCodeSchema = z
+  .string()
+  .regex(/^\d{6}$/, "joinCode must be exactly 6 digits");
+
+export const presentationSessionStatusSchema = z.enum([
+  "draft",
+  "live",
+  "ended",
+]);
+export const presentationEntryStatusSchema = z.enum(["open", "closed"]);
+export const audienceSlideRenderModeSchema = z.enum(["image-first"]);
+
 export const presentationSessionSchema = z.object({
   sessionId: z.string().min(1),
   projectId: z.string().min(1),
   deckId: deckIdSchema,
   presenterUserId: z.string().min(1),
-  status: z.enum(["draft", "live", "ended"]),
+  joinCode: joinCodeSchema,
+  status: presentationSessionStatusSchema,
+  entryStatus: presentationEntryStatusSchema,
+  audienceSlideRenderMode: audienceSlideRenderModeSchema,
+  createdAt: isoDateTimeSchema,
   startedAt: isoDateTimeSchema.nullable(),
-  endedAt: isoDateTimeSchema.nullable()
+  endedAt: isoDateTimeSchema.nullable(),
+  surveyClosesAt: isoDateTimeSchema.nullable(),
+  rawDataDeleteAfter: isoDateTimeSchema,
 });
 
 export const rehearsalMetricsSchema = z.object({
@@ -21,7 +39,7 @@ export const rehearsalMetricsSchema = z.object({
   wordsPerMinute: z.number().nonnegative(),
   fillerWordCount: z.number().int().nonnegative(),
   pauseCount: z.number().int().nonnegative(),
-  keywordCoverage: z.number().min(0).max(1)
+  keywordCoverage: z.number().min(0).max(1),
 });
 
 export const reportSchema = z.object({
@@ -31,76 +49,59 @@ export const reportSchema = z.object({
   summary: z.string().default(""),
   questionCount: z.number().int().nonnegative(),
   pollCount: z.number().int().nonnegative(),
-  createdAt: isoDateTimeSchema
-});
-
-export const audienceAccessSessionStatusSchema = z.enum(["open", "closed"]);
-
-export const audienceAccessSessionSchema = z.object({
-  sessionId: z.string().min(1),
-  projectId: z.string().min(1),
-  status: audienceAccessSessionStatusSchema,
   createdAt: isoDateTimeSchema,
-  expiresAt: isoDateTimeSchema
 });
 
-export const createAudienceAccessSessionRequestSchema = z.object({
-  passcode: z.string().regex(/^\d{4}$/, "passcode must be exactly 4 digits"),
-  expiresInHours: z.number().int().min(1).max(24)
+export const createPresentationSessionRequestSchema = z
+  .object({
+    deckId: deckIdSchema,
+  })
+  .strict();
+
+export const createPresentationSessionResponseSchema = z.object({
+  session: presentationSessionSchema,
+  audienceUrl: z.string().min(1),
 });
 
-export const createAudienceAccessSessionResponseSchema = z.object({
-  session: audienceAccessSessionSchema,
-  audienceUrl: z.string().min(1)
+export const getCurrentPresentationSessionResponseSchema = z.object({
+  session: presentationSessionSchema.nullable(),
+  audienceUrl: z.string().min(1).nullable(),
 });
 
-export const getCurrentAudienceAccessSessionResponseSchema = z.object({
-  session: audienceAccessSessionSchema.nullable(),
-  audienceUrl: z.string().min(1).nullable()
-});
+export const updatePresentationSessionEntryRequestSchema = z
+  .object({
+    entryStatus: presentationEntryStatusSchema,
+  })
+  .strict();
 
-export const updateAudienceAccessSessionStatusRequestSchema = z.object({
-  status: audienceAccessSessionStatusSchema
-});
-
-export const updateAudienceAccessSessionStatusResponseSchema = z.object({
-  session: audienceAccessSessionSchema
-});
-
-export const verifyAudienceAccessSessionRequestSchema = z.object({
-  passcode: z.string().regex(/^\d{4}$/, "passcode must be exactly 4 digits")
-});
-
-export const verifyAudienceAccessSessionResponseSchema = z.object({
-  verified: z.literal(true),
-  session: audienceAccessSessionSchema
+export const updatePresentationSessionEntryResponseSchema = z.object({
+  session: presentationSessionSchema,
 });
 
 export type PresentationSession = z.infer<typeof presentationSessionSchema>;
+export type PresentationSessionStatus = z.infer<
+  typeof presentationSessionStatusSchema
+>;
+export type PresentationEntryStatus = z.infer<
+  typeof presentationEntryStatusSchema
+>;
+export type AudienceSlideRenderMode = z.infer<
+  typeof audienceSlideRenderModeSchema
+>;
 export type RehearsalMetrics = z.infer<typeof rehearsalMetricsSchema>;
 export type PresentationReport = z.infer<typeof reportSchema>;
-export type AudienceAccessSession = z.infer<typeof audienceAccessSessionSchema>;
-export type AudienceAccessSessionStatus = z.infer<
-  typeof audienceAccessSessionStatusSchema
+export type CreatePresentationSessionRequest = z.infer<
+  typeof createPresentationSessionRequestSchema
 >;
-export type CreateAudienceAccessSessionRequest = z.infer<
-  typeof createAudienceAccessSessionRequestSchema
+export type CreatePresentationSessionResponse = z.infer<
+  typeof createPresentationSessionResponseSchema
 >;
-export type CreateAudienceAccessSessionResponse = z.infer<
-  typeof createAudienceAccessSessionResponseSchema
+export type GetCurrentPresentationSessionResponse = z.infer<
+  typeof getCurrentPresentationSessionResponseSchema
 >;
-export type GetCurrentAudienceAccessSessionResponse = z.infer<
-  typeof getCurrentAudienceAccessSessionResponseSchema
+export type UpdatePresentationSessionEntryRequest = z.infer<
+  typeof updatePresentationSessionEntryRequestSchema
 >;
-export type UpdateAudienceAccessSessionStatusRequest = z.infer<
-  typeof updateAudienceAccessSessionStatusRequestSchema
->;
-export type UpdateAudienceAccessSessionStatusResponse = z.infer<
-  typeof updateAudienceAccessSessionStatusResponseSchema
->;
-export type VerifyAudienceAccessSessionRequest = z.infer<
-  typeof verifyAudienceAccessSessionRequestSchema
->;
-export type VerifyAudienceAccessSessionResponse = z.infer<
-  typeof verifyAudienceAccessSessionResponseSchema
+export type UpdatePresentationSessionEntryResponse = z.infer<
+  typeof updatePresentationSessionEntryResponseSchema
 >;

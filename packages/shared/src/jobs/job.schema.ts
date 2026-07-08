@@ -15,6 +15,7 @@ export const jobTypeSchema = z.enum([
   "reference-extract",
   "ai-deck-generation",
   "ai-template-deck-generation",
+  "audience-slide-render",
   "pptx-ooxml-generation",
   "pptx-ooxml-sync",
   "worker-health-check",

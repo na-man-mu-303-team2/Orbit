@@ -40,6 +40,7 @@ class FakeRepository:
         query_embedding: list[float],
         *,
         limit: int = 6,
+        file_ids: list[str] | None = None,
     ) -> list[ReferenceSearchResult]:
         self.search_project_id = project_id
         self.search_embedding = query_embedding

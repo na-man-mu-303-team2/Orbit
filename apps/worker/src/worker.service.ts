@@ -1,5 +1,6 @@
 import {
   aiTemplateDeckGenerationQueueName,
+  audienceSlideRenderQueueName,
   generateDeckQueueName,
   pptxImportQueueName,
   pptxOoxmlGenerationQueueName,
@@ -17,6 +18,7 @@ import { type Job as BullMqJob, Worker as BullMqWorker } from "bullmq";
 import { InjectPinoLogger, PinoLogger } from "nestjs-pino";
 import type { DataSource } from "typeorm";
 import { processAiTemplateDeckGenerationJob } from "./ai-template-deck-generation.processor";
+import { processAudienceSlideRenderJob } from "./audience-slide-render.processor";
 import { processGenerateDeckJob } from "./generate-deck.processor";
 import { serializeLogError } from "./logging";
 import { processPptxOoxmlGenerationJob } from "./pptx-ooxml-generation.processor";
@@ -36,6 +38,7 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
     rehearsalSttQueueName,
     generateDeckQueueName,
     aiTemplateDeckGenerationQueueName,
+    audienceSlideRenderQueueName,
     pptxOoxmlGenerationQueueName,
     pptxOoxmlSyncQueueName,
     pptxImportQueueName,
@@ -97,6 +100,9 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
           this.config.PYTHON_WORKER_URL,
           job.data,
         ),
+      ),
+      this.createWorker(audienceSlideRenderQueueName, (job) =>
+        processAudienceSlideRenderJob(this.dataSource, storage, job.data),
       ),
       this.createWorker(pptxOoxmlGenerationQueueName, (job) =>
         processPptxOoxmlGenerationJob(
@@ -236,6 +242,8 @@ function jobPayloadFields(data: unknown) {
     jobType: readString(payload, "type"),
     projectId: readString(payload, "projectId"),
     runId: readString(payload, "runId"),
+    sessionId: readString(payload, "sessionId"),
+    slideId: readString(payload, "slideId"),
     deckId: readString(payload, "deckId"),
     audioFileId: readString(payload, "audioFileId"),
     fileId: readString(payload, "fileId"),

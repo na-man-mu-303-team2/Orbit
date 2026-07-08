@@ -20,6 +20,12 @@ describe("jobTypeSchema", () => {
     );
   });
 
+  it("accepts audience slide render jobs", () => {
+    expect(jobTypeSchema.parse("audience-slide-render")).toBe(
+      "audience-slide-render",
+    );
+  });
+
   it("accepts PPTX OOXML sync jobs", () => {
     expect(jobTypeSchema.parse("pptx-ooxml-sync")).toBe("pptx-ooxml-sync");
   });

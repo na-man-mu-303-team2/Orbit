@@ -1,5 +1,6 @@
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from dataclasses import dataclass
 from datetime import UTC, datetime
 import json
 from typing import Any, Literal, cast
@@ -52,6 +53,7 @@ from app.extraction import (
 )
 from app.references import (
     PostgresReferenceRepository,
+    ReferenceSearchResult,
     index_reference_text,
     search_reference_chunks,
 )
@@ -131,6 +133,46 @@ class ReferenceSearchResponse(BaseModel):
     status: Literal["succeeded", "unavailable", "failed"]
     message: str = ""
     chunks: list[ReferenceSearchChunk]
+
+
+class QnaAnswerRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    project_id: str = Field(alias="projectId")
+    session_id: str = Field(alias="sessionId")
+    question_id: str = Field(alias="questionId")
+    question_text: str = Field(alias="questionText", min_length=1)
+    public_slide_context: str = Field(default="", alias="publicSlideContext")
+    selected_reference_ids: list[str] = Field(
+        default_factory=list,
+        alias="selectedReferenceIds",
+    )
+    retrieval_limit: int = Field(default=5, alias="retrievalLimit", ge=1, le=20)
+    confidence_threshold: float = Field(
+        default=0.78,
+        alias="confidenceThreshold",
+        ge=0,
+        le=1,
+    )
+
+
+class QnaAnswerResponse(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    status: Literal["answered", "failed"]
+    answer_text: str | None = Field(default=None, alias="answerText")
+    source_references: list[str] = Field(default_factory=list, alias="sourceReferences")
+    confidence: float | None = None
+    failure_reason: (
+        Literal["low-confidence", "no-grounding", "timeout", "worker-error"] | None
+    ) = Field(default=None, alias="failureReason")
+
+
+@dataclass(frozen=True)
+class QnaGroundingSource:
+    source_reference: str
+    content: str
+    score: float
 
 
 class DeckKeywordRequest(BaseModel):
@@ -253,6 +295,192 @@ def health() -> HealthResponse:
         app="orbit-python-worker",
         checked_at=datetime.now(UTC),
     )
+
+
+@app.post("/qna/answer", response_model=QnaAnswerResponse)
+def answer_qna(payload: QnaAnswerRequest, request: Request) -> QnaAnswerResponse:
+    config = _config(request)
+    public_context = payload.public_slide_context.strip()
+    grounding_sources = build_qna_grounding_sources(
+        config=config,
+        public_context=public_context,
+        project_id=payload.project_id,
+        question_text=payload.question_text,
+        selected_reference_ids=payload.selected_reference_ids,
+        retrieval_limit=payload.retrieval_limit,
+    )
+    source_references = unique_source_references(grounding_sources)
+    if not source_references:
+        return QnaAnswerResponse(
+            status="failed",
+            failureReason="no-grounding",
+            confidence=0,
+        )
+
+    if not config.openai_api_key:
+        return QnaAnswerResponse(
+            status="failed",
+            failureReason="no-grounding",
+            sourceReferences=source_references,
+            confidence=0,
+        )
+
+    confidence = max(source.score for source in grounding_sources)
+    if confidence < payload.confidence_threshold:
+        return QnaAnswerResponse(
+            status="failed",
+            failureReason="low-confidence",
+            sourceReferences=source_references,
+            confidence=confidence,
+        )
+
+    answer_text = generate_grounded_qna_answer(
+        question_text=payload.question_text,
+        grounding_sources=grounding_sources,
+        model=config.openai_model,
+        api_key=config.openai_api_key,
+        client=getattr(request.app.state, "qna_chat_client", None),
+    )
+    if not answer_text:
+        return QnaAnswerResponse(
+            status="failed",
+            failureReason="worker-error",
+            sourceReferences=source_references,
+            confidence=confidence,
+        )
+
+    return QnaAnswerResponse(
+        status="answered",
+        answerText=answer_text,
+        sourceReferences=source_references,
+        confidence=confidence,
+    )
+
+
+def build_qna_grounding_sources(
+    *,
+    config: PythonWorkerConfig,
+    public_context: str,
+    project_id: str,
+    question_text: str,
+    selected_reference_ids: list[str],
+    retrieval_limit: int,
+) -> list[QnaGroundingSource]:
+    sources: list[QnaGroundingSource] = []
+    if public_context:
+        sources.append(
+            QnaGroundingSource(
+                source_reference=f"deck-slide:{public_context_title(public_context)}",
+                content=public_context,
+                score=0.82,
+            )
+        )
+
+    selected_ids = selected_reference_ids
+    if selected_ids and config.openai_api_key:
+        results, _embedding_result = search_reference_chunks(
+            repository=PostgresReferenceRepository(config.database_url),
+            project_id=project_id,
+            query=question_text,
+            limit=retrieval_limit,
+            file_ids=selected_ids,
+            model=config.openai_embedding_model,
+            api_key=config.openai_api_key,
+        )
+        sources.extend(qna_sources_from_reference_results(results))
+    elif selected_ids:
+        sources.extend(
+            QnaGroundingSource(
+                source_reference=f"reference-material:{reference_id}",
+                content="",
+                score=0,
+            )
+            for reference_id in selected_ids
+        )
+
+    return sources
+
+
+def qna_sources_from_reference_results(
+    results: list[ReferenceSearchResult],
+) -> list[QnaGroundingSource]:
+    sources: list[QnaGroundingSource] = []
+    for result in results:
+        title = (
+            str(result.metadata.get("title") or result.metadata.get("fileName") or "")
+            .strip()
+            or result.file_id
+        )
+        sources.append(
+            QnaGroundingSource(
+                source_reference=f"reference-material:{title[:120]}",
+                content=result.content,
+                score=result.score,
+            )
+        )
+    return sources
+
+
+def public_context_title(public_context: str) -> str:
+    first_line = public_context.splitlines()[0].strip()
+    if first_line.lower().startswith("slide:"):
+        first_line = first_line.split(":", 1)[1].strip()
+    return (first_line or "현재 슬라이드")[:120]
+
+
+def unique_source_references(sources: list[QnaGroundingSource]) -> list[str]:
+    references: list[str] = []
+    for source in sources:
+        if source.source_reference not in references:
+            references.append(source.source_reference)
+    return references
+
+
+def generate_grounded_qna_answer(
+    *,
+    question_text: str,
+    grounding_sources: list[QnaGroundingSource],
+    model: str,
+    api_key: str | None,
+    client: Any | None = None,
+) -> str | None:
+    client_object = client
+    if client_object is None:
+        if not api_key:
+            return None
+        from openai import OpenAI
+
+        client_object = OpenAI(api_key=api_key)
+
+    context = "\n\n".join(
+        f"[{source.source_reference}]\n{source.content}".strip()
+        for source in grounding_sources
+        if source.content.strip()
+    )
+    try:
+        response = client_object.chat.completions.create(
+            model=model,
+            temperature=0.2,
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "Answer only from the provided ORBIT audience Q&A "
+                        "grounding context. If the context is insufficient, "
+                        "say that the presenter should answer."
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": f"Question: {question_text}\n\nGrounding:\n{context}",
+                },
+            ],
+        )
+    except Exception:
+        return None
+
+    content = response.choices[0].message.content
+    return str(content).strip() if content else None
 
 
 @app.post("/extract/reference", response_model=ReferenceExtractResponse)

@@ -143,6 +143,12 @@ describe("ORBIT env validation", () => {
     expect(config.LIVE_STT_ENGINE).toBe("openai-realtime");
     expect(config.REPORT_STT_PROVIDER).toBe("openai");
     expect(config.REHEARSAL_AUDIO_MAX_BYTES).toBe(25000000);
+    expect(
+      loadOrbitConfig(
+        { ...validEnv, LIVE_STT_PROVIDER: "sherpa" },
+        { service: "api" }
+      ).LIVE_STT_PROVIDER
+    ).toBe("sherpa");
     expect(() =>
       loadOrbitConfig(
         { ...validEnv, LIVE_STT_PROVIDER: "openai" },

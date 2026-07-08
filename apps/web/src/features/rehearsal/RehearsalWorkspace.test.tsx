@@ -1922,6 +1922,36 @@ describe("RehearsalWorkspace", () => {
     expect(source).toContain("getTriggerAnimationIdsForSlide,");
   });
 
+  it("publishes the current slide again after the audience publisher connects", () => {
+    const source = fs.readFileSync(rehearsalWorkspaceSourcePath, "utf8");
+    const publishCallIndex = source.indexOf("audiencePublisher.publishState({");
+    const publishEffectStart = source.lastIndexOf("useEffect(() => {", publishCallIndex);
+    const publishEffectBody = source.slice(
+      publishEffectStart,
+      source.indexOf("const slideshowAnimationPlan", publishEffectStart)
+    );
+
+    expect(publishEffectBody).toContain("if (!audiencePublisher || !presentationChannelState)");
+    expect(publishEffectBody).toContain(
+      "}, [audiencePublisher, presentationChannelState, triggerAnimationIds]);"
+    );
+  });
+
+  it("publishes the current slide again after the audience publisher connects", () => {
+    const source = fs.readFileSync(rehearsalWorkspaceSourcePath, "utf8");
+    const publishCallIndex = source.indexOf("audiencePublisher.publishState({");
+    const publishEffectStart = source.lastIndexOf("useEffect(() => {", publishCallIndex);
+    const publishEffectBody = source.slice(
+      publishEffectStart,
+      source.indexOf("const slideshowAnimationPlan", publishEffectStart)
+    );
+
+    expect(publishEffectBody).toContain("if (!audiencePublisher || !presentationChannelState)");
+    expect(publishEffectBody).toContain(
+      "}, [audiencePublisher, presentationChannelState, triggerAnimationIds]);"
+    );
+  });
+
   it("computes remaining trigger steps when P4 fixtures inject cue-referenced animations", () => {
     const slide = p0AnimationDeck.slides[0]!;
     const triggerAnimationIds = [

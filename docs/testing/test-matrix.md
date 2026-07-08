@@ -73,15 +73,15 @@
 | ORBIT-45 | 1000명 load | p95 <= 1s target and report | manual/scheduled load harness |
 | ORBIT-46 | 자동 슬라이드 전환 | keyword >=80%, script >=80%, manual override | planned auto-advance unit tests |
 | ORBIT-47 | M6 checkpoint | live path without server STT | Playwright presentation smoke, load smoke |
-| ORBIT-48 | 청중 참여 epic | Q&A, polls, surveys, final report | 하위 ORBIT-49..56 테스트 |
-| ORBIT-49 | Q&A 제한 | 3 questions/min, filtered count | planned API rate-limit tests |
-| ORBIT-50 | Live poll | start/stop/respond/visibility | planned API/web poll tests |
-| ORBIT-51 | Survey | create/respond/report aggregation | planned API/web survey tests |
-| ORBIT-52 | AI answer publish | grounded answer, presenter approval, script privacy | planned API/Python privacy tests |
+| ORBIT-48 | 청중 참여 epic | Q&A, polls, quizzes, reactions, surveys, final report | audience milestone unit tests plus `tests/e2e/audience-engagement.spec.ts` |
+| ORBIT-49 | Q&A 제한 | 3 questions/min, filtered count | API Q&A service/controller tests plus audience smoke |
+| ORBIT-50 | Live poll | start/stop/respond/visibility | API/web poll tests plus audience smoke |
+| ORBIT-51 | Survey | create/respond/report aggregation | API/web survey tests, report tests, and audience smoke |
+| ORBIT-52 | AI answer publish | grounded answer, presenter approval, script privacy | API/Python privacy tests plus shared audience-safe payload tests |
 | ORBIT-53 | Question grouping | semantic grouping and review | planned grouping fixture tests |
-| ORBIT-54 | Final report | events/Q&A/polls/speech metrics | planned Python/API report tests |
+| ORBIT-54 | Final report | events/Q&A/polls/speech metrics | API aggregate report tests plus presenter results web tests |
 | ORBIT-55 | Report export | PDF export and improvement suggestions | planned export/report tests |
-| ORBIT-56 | M7 checkpoint | MVP full flow | release Playwright flow |
+| ORBIT-56 | M7 checkpoint | MVP full flow | `tests/e2e/audience-engagement.spec.ts` and `docs/testing/audience-engagement-m11.md` |
 | ORBIT-57 | Release hardening epic | 수동 검증과 deployment docs ready | 하위 ORBIT-58..61 테스트 |
 | ORBIT-58 | PR verification | PR 수동 검증, Docker build, Playwright smoke | PR template 검증표, `pnpm test:smoke` |
 | ORBIT-59 | Privacy/retention tests | raw audio delete, no live upload, script privacy, no auto apply | planned API/Python privacy regression tests |
@@ -127,12 +127,12 @@
 | ORBIT-179 | ORBIT-44 live STT progress | web unit/manual browser tests |
 | ORBIT-182 | ORBIT-46 auto advance | web unit tests |
 | ORBIT-184 | ORBIT-45 load | load harness |
-| ORBIT-188 | ORBIT-49 Q&A | API rate-limit tests |
-| ORBIT-192 | ORBIT-52 AI answer | privacy/grounding tests |
+| ORBIT-188 | ORBIT-49 Q&A | API Q&A service/controller tests plus audience smoke |
+| ORBIT-192 | ORBIT-52 AI answer | privacy/grounding tests plus `services/python-worker/tests/test_qna.py` |
 | ORBIT-196 | ORBIT-53 grouping | grouping fixture tests |
-| ORBIT-200 | ORBIT-50 polls | API/web poll tests |
-| ORBIT-204 | ORBIT-51 surveys | API/web survey tests |
-| ORBIT-209 | ORBIT-54 final report | API/Python report tests |
+| ORBIT-200 | ORBIT-50 polls | API/web poll tests plus `tests/e2e/audience-engagement.spec.ts` |
+| ORBIT-204 | ORBIT-51 surveys | API/web survey tests plus `tests/e2e/audience-engagement.spec.ts` |
+| ORBIT-209 | ORBIT-54 final report | API aggregate report tests and presenter results web tests |
 | ORBIT-213 | ORBIT-55 export/suggestions | export/report tests |
 | ORBIT-215 | ORBIT-58 PR checks | workflow and smoke test |
 | ORBIT-219 | ORBIT-59 privacy retention | API/Python privacy regression tests |

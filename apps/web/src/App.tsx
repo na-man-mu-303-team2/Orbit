@@ -15,7 +15,7 @@
   type ProjectMemberRole,
   type ProjectMemberStatus,
   type RehearsalReport,
-  type RehearsalRun
+  type RehearsalRun,
 } from "@orbit/shared";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -31,7 +31,7 @@ import {
   Search,
   Sparkles,
   UploadCloud,
-  Trash2
+  Trash2,
 } from "lucide-react";
 import type {
   CSSProperties,
@@ -39,7 +39,7 @@ import type {
   DragEvent,
   FormEvent,
   MouseEvent,
-  ReactNode
+  ReactNode,
 } from "react";
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { createDemoDeck } from "../../../packages/editor-core/src/index";
@@ -50,19 +50,23 @@ import {
   deleteProject,
   fetchProjects,
   resolveAssetMimeType,
-  uploadProjectAsset
+  uploadProjectAsset,
 } from "./features/projects/ProjectAssetWorkspace";
 import {
   RehearsalReportPage,
-  RehearsalWorkspace
+  RehearsalWorkspace,
 } from "./features/rehearsal/RehearsalWorkspace";
+import { AudiencePresenterControlPage } from "./features/audience/AudiencePresenterPanel";
 import { RehearsalReportListPage } from "./features/rehearsal/RehearsalReportListPage";
 import { RehearsalProjectOverviewPage } from "./features/rehearsal/RehearsalProjectOverviewPage";
 import { AudienceSessionPage } from "./pages/audience/AudienceSessionPage";
 import { PresentWindow } from "./features/rehearsal/presenter/PresentWindow";
 import { ReadOnlySlideCanvas } from "./features/slides/rendering";
 
-type Fetcher = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
+type Fetcher = (
+  input: RequestInfo | URL,
+  init?: RequestInit,
+) => Promise<Response>;
 
 type ExtractedFile = {
   referenceDocumentId?: string;
@@ -142,7 +146,9 @@ type GenerateDeckDesignDirection = {
   stylePackId?: string;
   slidePresetId?: string;
 };
-type GenerateDeckDesignProfile = NonNullable<GenerateDeckDesignDirection["profile"]>;
+type GenerateDeckDesignProfile = NonNullable<
+  GenerateDeckDesignDirection["profile"]
+>;
 type GenerateDeckDesignProfileChoice = "auto" | GenerateDeckDesignProfile;
 export type HomeTemplateStyleId =
   | "simple-basic"
@@ -154,7 +160,10 @@ export type HomeTemplateStyle = {
   description: string;
 };
 type TemplateStyleDesignOverrides = Partial<
-  Pick<GenerateDeckDesignDirection, "densityTarget" | "layoutDiversity" | "mediaPolicy">
+  Pick<
+    GenerateDeckDesignDirection,
+    "densityTarget" | "layoutDiversity" | "mediaPolicy"
+  >
 >;
 const templateStyleDefaultOption = "style-default" as const;
 type TemplateDensityTargetOption =
@@ -199,7 +208,8 @@ export type Route =
   | { name: "project-list" }
   | { name: "project-editor"; projectId: string }
   | { name: "project-request"; projectId: string }
-  | { name: "audience-session"; sessionId: string }
+  | { name: "audience-control"; projectId?: string; sessionId?: string }
+  | { name: "audience-join"; joinCode?: string }
   | { name: "present"; deckId: string; sessionId?: string }
   | {
       name: "rehearsal";
@@ -233,8 +243,8 @@ type ProjectAccessResponse = {
 
 const EditorShell = lazy(() =>
   import("./features/editor/shell/EditorShell").then((module) => ({
-    default: module.EditorShell
-  }))
+    default: module.EditorShell,
+  })),
 );
 
 export const defaultHomeTemplateStyleId: HomeTemplateStyleId = "simple-basic";
@@ -242,18 +252,18 @@ export const homeTemplateStyles: HomeTemplateStyle[] = [
   {
     id: "simple-basic",
     title: "심플 베이직 스타일",
-    description: "깔끔한 기본형 문서 디자인"
+    description: "깔끔한 기본형 문서 디자인",
   },
   {
     id: "presentation-document",
     title: "발표용 문서 스타일",
-    description: "키워드와 발표 메모 중심"
+    description: "키워드와 발표 메모 중심",
   },
   {
     id: "submission-document",
     title: "제출용 문서 스타일",
-    description: "본문과 근거가 자족적인 보고형"
-  }
+    description: "본문과 근거가 자족적인 보고형",
+  },
 ];
 const homeToneOptions: Array<{
   value: "professional" | "friendly" | "confident" | "concise";
@@ -299,7 +309,7 @@ const reportMockupRun: RehearsalRun = {
   error: null,
   rawAudioDeletedAt: null,
   createdAt: "2026-07-01T08:54:12.000Z",
-  updatedAt: reportMockupGeneratedAt
+  updatedAt: reportMockupGeneratedAt,
 };
 const reportMockupReport: RehearsalReport = {
   reportId: "report_mockup",
@@ -313,45 +323,48 @@ const reportMockupReport: RehearsalReport = {
     wordsPerMinute: 128,
     fillerWordCount: 3,
     pauseCount: 2,
-    keywordCoverage: 0.86
+    keywordCoverage: 0.86,
   },
   speedSamples: [
     { startSecond: 0, endSecond: 30, wordsPerMinute: 118 },
     { startSecond: 30, endSecond: 60, wordsPerMinute: 132 },
-    { startSecond: 60, endSecond: 90, wordsPerMinute: 126 }
+    { startSecond: 60, endSecond: 90, wordsPerMinute: 126 },
   ],
   fillerWordDetails: [{ word: "음", count: 3 }],
   pauseDetails: [{ startSecond: 144, endSecond: 146, durationSeconds: 2 }],
-  missedKeywords: [{ slideId: "slide_1", keywordId: "kw_1", text: "핵심 메시지" }],
+  missedKeywords: [
+    { slideId: "slide_1", keywordId: "kw_1", text: "핵심 메시지" },
+  ],
   slideTimings: [{ slideId: "slide_1", targetSeconds: 60, actualSeconds: 58 }],
   slideInsights: [{ slideId: "slide_1", fillerWordCount: 2, pauseCount: 1 }],
   qnaSummary: {
     questionCount: 0,
     questionSummary: "",
-    unclearTopics: []
+    unclearTopics: [],
   },
   coaching: {
     status: "succeeded",
-    summary: "핵심 메시지는 안정적으로 전달됐고, 속도도 발표 시간에 잘 맞습니다.",
+    summary:
+      "핵심 메시지는 안정적으로 전달됐고, 속도도 발표 시간에 잘 맞습니다.",
     strengths: [
       "도입부에서 발표 목적을 빠르게 제시했습니다.",
       "중요 키워드를 반복해 청중이 흐름을 따라가기 좋았습니다.",
-      "슬라이드 전환 사이의 멈춤이 과하지 않았습니다."
+      "슬라이드 전환 사이의 멈춤이 과하지 않았습니다.",
     ],
     improvements: [
       "중간 설명에서 일부 filler 표현이 반복됩니다.",
       "마무리 전에 다음 행동을 더 명확하게 요청하면 좋습니다.",
-      "수치가 있는 문장은 한 번 더 천천히 읽는 편이 좋습니다."
+      "수치가 있는 문장은 한 번 더 천천히 읽는 편이 좋습니다.",
     ],
     nextPracticeFocus:
       "다음 연습에서는 결론 슬라이드의 CTA 문장을 먼저 고정하고, 수치 설명 구간의 호흡을 조금 더 길게 가져가세요.",
-    message: ""
+    message: "",
   },
-  generatedAt: reportMockupGeneratedAt
+  generatedAt: reportMockupGeneratedAt,
 };
 const pptxAccept = [
   "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-  ".pptx"
+  ".pptx",
 ].join(",");
 const homeAssetAccept = [
   ...allowedAssetMimeTypes,
@@ -361,7 +374,7 @@ const homeAssetAccept = [
   ".jpg",
   ".jpeg",
   ".png",
-  ".webp"
+  ".webp",
 ].join(",");
 const pptxMimeType =
   "application/vnd.openxmlformats-officedocument.presentationml.presentation";
@@ -370,7 +383,7 @@ const referenceContextMaxChars = 12_000;
 
 async function fetchCurrentUser(): Promise<AuthUser> {
   const response = await fetch("/api/v1/auth/me", {
-    credentials: "include"
+    credentials: "include",
   });
   if (!response.ok) {
     throw new Error("Unauthenticated");
@@ -379,19 +392,26 @@ async function fetchCurrentUser(): Promise<AuthUser> {
   return "user" in payload ? payload.user : payload;
 }
 
-async function fetchProjectAccess(projectId: string): Promise<ProjectAccessResponse> {
-  const response = await fetch(`/api/v1/projects/${encodeURIComponent(projectId)}/access`, {
-    credentials: "include"
-  });
+async function fetchProjectAccess(
+  projectId: string,
+): Promise<ProjectAccessResponse> {
+  const response = await fetch(
+    `/api/v1/projects/${encodeURIComponent(projectId)}/access`,
+    {
+      credentials: "include",
+    },
+  );
   if (!response.ok) {
-    throw new Error(await readApiError(response, "프로젝트 권한을 확인하지 못했습니다."));
+    throw new Error(
+      await readApiError(response, "프로젝트 권한을 확인하지 못했습니다."),
+    );
   }
   return response.json() as Promise<ProjectAccessResponse>;
 }
 
 async function requestProjectAccess(
   projectId: string,
-  role: Exclude<ProjectMemberRole, "owner">
+  role: Exclude<ProjectMemberRole, "owner">,
 ): Promise<ProjectAccessResponse> {
   const response = await fetch(
     `/api/v1/projects/${encodeURIComponent(projectId)}/access-requests`,
@@ -399,17 +419,19 @@ async function requestProjectAccess(
       body: JSON.stringify({ role }),
       credentials: "include",
       headers: { "Content-Type": "application/json" },
-      method: "POST"
-    }
+      method: "POST",
+    },
   );
   if (!response.ok) {
-    throw new Error(await readApiError(response, "프로젝트 권한 요청에 실패했습니다."));
+    throw new Error(
+      await readApiError(response, "프로젝트 권한 요청에 실패했습니다."),
+    );
   }
   return response.json() as Promise<ProjectAccessResponse>;
 }
 
 export function getHomeTemplateStyleId(
-  value: string | null | undefined
+  value: string | null | undefined,
 ): HomeTemplateStyleId | undefined {
   const normalized = value?.trim();
   return homeTemplateStyles.some((style) => style.id === normalized)
@@ -421,12 +443,10 @@ export function getHomeTemplateStylePath(styleId: HomeTemplateStyleId) {
   return `/?templateStyle=${encodeURIComponent(styleId)}`;
 }
 
-export function getRoute(
-  pathname?: string,
-  search?: string
-): Route {
+export function getRoute(pathname?: string, search?: string): Route {
   const currentPathname =
-    pathname ?? (typeof window === "undefined" ? "/" : window.location.pathname);
+    pathname ??
+    (typeof window === "undefined" ? "/" : window.location.pathname);
   const currentSearch =
     search ?? (typeof window === "undefined" ? "" : window.location.search);
   const normalized = currentPathname.replace(/\/+$/, "") || "/";
@@ -444,30 +464,64 @@ export function getRoute(
     return { name: "deck-render" };
   }
 
-  const audienceSessionMatch = normalized.match(/^\/audience\/([^/]+)$/);
-  if (audienceSessionMatch) {
+  if (normalized === "/join") {
+    return { name: "audience-join" };
+  }
+
+  const audienceJoinMatch = normalized.match(/^\/join\/([^/]+)$/);
+  if (audienceJoinMatch) {
     return {
-      name: "audience-session",
-      sessionId: decodeURIComponent(audienceSessionMatch[1])
+      name: "audience-join",
+      joinCode: decodeURIComponent(audienceJoinMatch[1]),
+    };
+  }
+
+  const audienceControlMatch = normalized.match(
+    /^\/audience\/([^/]+)\/control$/,
+  );
+  if (audienceControlMatch) {
+    return {
+      name: "audience-control",
+      projectId: decodeURIComponent(audienceControlMatch[1]),
+    };
+  }
+
+  const presenterAudienceMatch = normalized.match(
+    /^\/presentations\/([^/]+)\/audience$/,
+  );
+  if (presenterAudienceMatch) {
+    const projectId = new URLSearchParams(currentSearch).get("projectId");
+    return {
+      name: "audience-control",
+      sessionId: decodeURIComponent(presenterAudienceMatch[1]),
+      projectId: projectId ? decodeURIComponent(projectId) : undefined,
     };
   }
 
   const projectRequestMatch = normalized.match(/^\/project\/([^/]+)\/request$/);
   if (projectRequestMatch) {
-    return { name: "project-request", projectId: decodeURIComponent(projectRequestMatch[1]) };
+    return {
+      name: "project-request",
+      projectId: decodeURIComponent(projectRequestMatch[1]),
+    };
   }
 
   const projectMatch = normalized.match(/^\/project\/([^/]+)$/);
   if (projectMatch) {
-    return { name: "project-editor", projectId: decodeURIComponent(projectMatch[1]) };
+    return {
+      name: "project-editor",
+      projectId: decodeURIComponent(projectMatch[1]),
+    };
   }
 
-  const rehearsalReportMatch = normalized.match(/^\/rehearsal\/([^/]+)\/report\/([^/]+)$/);
+  const rehearsalReportMatch = normalized.match(
+    /^\/rehearsal\/([^/]+)\/report\/([^/]+)$/,
+  );
   if (rehearsalReportMatch) {
     return {
       name: "rehearsal-report",
       projectId: decodeURIComponent(rehearsalReportMatch[1]),
-      runId: decodeURIComponent(rehearsalReportMatch[2])
+      runId: decodeURIComponent(rehearsalReportMatch[2]),
     };
   }
 
@@ -476,11 +530,15 @@ export function getRoute(
     const searchParams = new URLSearchParams(currentSearch);
     return {
       name: "rehearsal",
-      presenterInitialSlideIndex: parseRouteNonNegativeInteger(searchParams.get("slideIndex")),
-      presenterInitialStepIndex: parseRouteNonNegativeInteger(searchParams.get("stepIndex")),
+      presenterInitialSlideIndex: parseRouteNonNegativeInteger(
+        searchParams.get("slideIndex"),
+      ),
+      presenterInitialStepIndex: parseRouteNonNegativeInteger(
+        searchParams.get("stepIndex"),
+      ),
       presenterSessionId: searchParams.get("presenterSessionId") ?? undefined,
       presenterWindow: searchParams.get("presenterWindow") === "1",
-      projectId: decodeURIComponent(rehearsalMatch[1])
+      projectId: decodeURIComponent(rehearsalMatch[1]),
     };
   }
 
@@ -491,12 +549,14 @@ export function getRoute(
     return {
       name: "present",
       deckId: decodeURIComponent(presentMatch[1]),
-      sessionId
+      sessionId,
     };
   }
 
   const searchParams = new URLSearchParams(currentSearch);
-  const templateStyleId = getHomeTemplateStyleId(searchParams.get("templateStyle"));
+  const templateStyleId = getHomeTemplateStyleId(
+    searchParams.get("templateStyle"),
+  );
   return templateStyleId ? { name: "home", templateStyleId } : { name: "home" };
 }
 
@@ -517,7 +577,7 @@ export function App() {
   const auth = useQuery({
     queryKey: ["auth", "me"],
     queryFn: fetchCurrentUser,
-    retry: false
+    retry: false,
   });
 
   useEffect(() => {
@@ -532,11 +592,7 @@ export function App() {
   }
 
   return (
-    <AppFrame
-      isAuthenticated={auth.isSuccess}
-      route={route}
-      user={auth.data}
-    >
+    <AppFrame isAuthenticated={auth.isSuccess} route={route} user={auth.data}>
       {renderRoute(route, auth.data)}
     </AppFrame>
   );
@@ -551,13 +607,14 @@ export function shouldRenderAppFrame(route: Route) {
     route.name !== "rehearsal-report" &&
     route.name !== "report-project-overview" &&
     route.name !== "report-mockup" &&
-    route.name !== "audience-session" &&
+    route.name !== "audience-join" &&
     route.name !== "deck-render"
   );
 }
 
 function renderRoute(route: Route, user?: AuthUser) {
-  if (route.name === "login") return <LoginPage isAuthenticated={Boolean(user)} />;
+  if (route.name === "login")
+    return <LoginPage isAuthenticated={Boolean(user)} />;
   if (route.name === "create-deck") return <GenerateDeckView />;
   if (route.name === "project-list") return <ProjectListPage />;
   if (route.name === "project-editor") {
@@ -569,9 +626,28 @@ function renderRoute(route: Route, user?: AuthUser) {
       </ProjectAccessGate>
     );
   }
-  if (route.name === "project-request") return <ProjectAccessRequestPage projectId={route.projectId} />;
-  if (route.name === "audience-session") {
-    return <AudienceSessionPage sessionId={route.sessionId} />;
+  if (route.name === "project-request")
+    return <ProjectAccessRequestPage projectId={route.projectId} />;
+  if (route.name === "audience-join") {
+    return <AudienceSessionPage joinCode={route.joinCode} />;
+  }
+  if (route.name === "audience-control") {
+    if (!route.projectId) {
+      return (
+        <AudiencePresenterControlPage
+          sessionId={route.sessionId}
+          variant="missing-project"
+        />
+      );
+    }
+    return (
+      <ProjectAccessGate projectId={route.projectId}>
+        <AudiencePresenterControlPage
+          projectId={route.projectId}
+          sessionId={route.sessionId}
+        />
+      </ProjectAccessGate>
+    );
   }
   if (route.name === "present") {
     return <PresentWindow deckId={route.deckId} sessionId={route.sessionId} />;
@@ -584,7 +660,9 @@ function renderRoute(route: Route, user?: AuthUser) {
         presenterInitialStepIndex={route.presenterInitialStepIndex}
         presenterSessionId={route.presenterSessionId}
         presenterWindow={route.presenterWindow}
-        fallbackDeck={route.projectId === demoIds.projectId ? demoDeck : undefined}
+        fallbackDeck={
+          route.projectId === demoIds.projectId ? demoDeck : undefined
+        }
       />
     );
   }
@@ -646,12 +724,16 @@ export function isDeckRenderRouteEnabled() {
 export function DeckRenderPage() {
   const payload = readDeckRenderPayload();
   if (!payload) {
-    return <div data-testid="deck-render-error">Deck render payload missing.</div>;
+    return (
+      <div data-testid="deck-render-error">Deck render payload missing.</div>
+    );
   }
 
   const slide = payload.deck.slides[payload.slideIndex];
   if (!slide) {
-    return <div data-testid="deck-render-error">Deck render slide missing.</div>;
+    return (
+      <div data-testid="deck-render-error">Deck render slide missing.</div>
+    );
   }
 
   return (
@@ -678,7 +760,8 @@ function readDeckRenderPayload(): { deck: Deck; slideIndex: number } | null {
     const parsed = JSON.parse(raw) as { deck?: unknown; slideIndex?: unknown };
     const deck = deckSchema.parse(parsed.deck);
     const slideIndex =
-      typeof parsed.slideIndex === "number" && Number.isInteger(parsed.slideIndex)
+      typeof parsed.slideIndex === "number" &&
+      Number.isInteger(parsed.slideIndex)
         ? parsed.slideIndex
         : 0;
     return { deck, slideIndex };
@@ -697,6 +780,14 @@ function AppFrame(props: {
   const queryClient = useQueryClient();
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
+  const activeProjectId =
+    route.name === "project-editor" ||
+    route.name === "project-request" ||
+    route.name === "audience-control" ||
+    route.name === "rehearsal" ||
+    route.name === "rehearsal-report"
+      ? (route.projectId ?? demoIds.projectId)
+      : demoIds.projectId;
   const isHomeDashboard = route.name === "home";
   const userLabel = user ? getUserLabel(user) : "로그인";
   const userInitial = user ? getUserInitial(user) : "U";
@@ -708,7 +799,7 @@ function AppFrame(props: {
     try {
       await fetch("/api/v1/auth/logout", {
         credentials: "include",
-        method: "POST"
+        method: "POST",
       });
       queryClient.setQueryData(["auth", "me"], undefined);
       await queryClient.invalidateQueries({ queryKey: ["auth", "me"] });
@@ -739,12 +830,14 @@ function AppFrame(props: {
             route.name === "project-editor" ||
             route.name === "project-request"
           }
+          isRehearsalActive={route.name === "audience-control"}
           isReportActive={route.name === "report-list" || route.name === "report-project-overview"}
           onCreateDeckClick={() => navigateTo("/createdeck")}
           onHomeClick={() => navigateTo("/")}
           onLoginClick={() => navigateTo("/login")}
           onLogoutClick={() => void handleLogout()}
           onProjectListClick={() => navigateTo("/project")}
+          onRehearsalClick={() => navigateTo(`/rehearsal/${activeProjectId}`)}
           onReportClick={() => navigateTo("/reports")}
           onToggleCollapse={() => setIsSidebarCollapsed((current) => !current)}
           userInitial={userInitial}
@@ -784,9 +877,9 @@ function LoginPage(props: { isAuthenticated: boolean }) {
         body: JSON.stringify({ email, password }),
         credentials: "include",
         headers: {
-          "Content-Type": "application/json"
+          "Content-Type": "application/json",
         },
-        method: "POST"
+        method: "POST",
       });
 
       if (!response.ok) {
@@ -801,7 +894,7 @@ function LoginPage(props: { isAuthenticated: boolean }) {
           ? cause.message
           : mode === "register"
             ? "회원가입에 실패했습니다."
-            : "로그인에 실패했습니다."
+            : "로그인에 실패했습니다.",
       );
     } finally {
       setIsSubmitting(false);
@@ -818,7 +911,11 @@ function LoginPage(props: { isAuthenticated: boolean }) {
             ? "처음 사용하는 환경이라면 계정을 먼저 생성하세요."
             : "계정으로 로그인하면 Orbit 작업 공간으로 이동합니다."}
         </p>
-        <div className="login-mode-switch" role="tablist" aria-label="인증 방식">
+        <div
+          className="login-mode-switch"
+          role="tablist"
+          aria-label="인증 방식"
+        >
           <button
             type="button"
             className={mode === "login" ? "active" : ""}
@@ -854,7 +951,9 @@ function LoginPage(props: { isAuthenticated: boolean }) {
         <label>
           <span>비밀번호</span>
           <input
-            autoComplete={mode === "register" ? "new-password" : "current-password"}
+            autoComplete={
+              mode === "register" ? "new-password" : "current-password"
+            }
             minLength={8}
             onChange={(event) => setPassword(event.target.value)}
             placeholder="비밀번호"
@@ -925,7 +1024,7 @@ function ProjectAccessGate(props: { children: ReactNode; projectId: string }) {
   const access = useQuery({
     queryKey: ["project-access", props.projectId],
     queryFn: () => fetchProjectAccess(props.projectId),
-    retry: false
+    retry: false,
   });
 
   useEffect(() => {
@@ -936,8 +1035,10 @@ function ProjectAccessGate(props: { children: ReactNode; projectId: string }) {
   }, [access.data?.membership, access.isSuccess, props.projectId]);
 
   if (access.isLoading) return <EditorLoadingFallback />;
-  if (access.isError) return <ProjectAccessError onRetry={() => void access.refetch()} />;
-  if (access.data?.membership?.status !== "accepted") return <EditorLoadingFallback />;
+  if (access.isError)
+    return <ProjectAccessError onRetry={() => void access.refetch()} />;
+  if (access.data?.membership?.status !== "accepted")
+    return <EditorLoadingFallback />;
 
   return <>{props.children}</>;
 }
@@ -948,7 +1049,9 @@ function ProjectAccessError(props: { onRetry: () => void }) {
       <article className="project-request-card">
         <span className="eyebrow">Project access</span>
         <h1>프로젝트 권한을 확인하지 못했습니다.</h1>
-        <p>잠시 후 다시 시도하거나 프로젝트 소유자에게 권한 상태를 확인해 주세요.</p>
+        <p>
+          잠시 후 다시 시도하거나 프로젝트 소유자에게 권한 상태를 확인해 주세요.
+        </p>
         <button type="button" onClick={props.onRetry}>
           다시 확인
         </button>
@@ -959,13 +1062,14 @@ function ProjectAccessError(props: { onRetry: () => void }) {
 
 function ProjectAccessRequestPage(props: { projectId: string }) {
   const queryClient = useQueryClient();
-  const [role, setRole] = useState<Exclude<ProjectMemberRole, "owner">>("editor");
+  const [role, setRole] =
+    useState<Exclude<ProjectMemberRole, "owner">>("editor");
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const access = useQuery({
     queryKey: ["project-access", props.projectId],
     queryFn: () => fetchProjectAccess(props.projectId),
-    retry: false
+    retry: false,
   });
 
   const membership = access.data?.membership;
@@ -987,7 +1091,9 @@ function ProjectAccessRequestPage(props: { projectId: string }) {
       queryClient.setQueryData(["project-access", props.projectId], response);
     } catch (cause) {
       setError(
-        cause instanceof Error ? cause.message : "프로젝트 권한 요청에 실패했습니다."
+        cause instanceof Error
+          ? cause.message
+          : "프로젝트 권한 요청에 실패했습니다.",
       );
     } finally {
       setIsSubmitting(false);
@@ -1030,7 +1136,11 @@ function ProjectAccessRequestPage(props: { projectId: string }) {
           이 프로젝트는 승인된 사용자만 열 수 있습니다. 필요한 권한을 선택해서
           프로젝트 소유자에게 요청하세요.
         </p>
-        <div className="project-request-options" role="radiogroup" aria-label="요청 권한">
+        <div
+          className="project-request-options"
+          role="radiogroup"
+          aria-label="요청 권한"
+        >
           <label className={role === "editor" ? "active" : ""}>
             <input
               checked={role === "editor"}
@@ -1063,24 +1173,28 @@ function ProjectAccessRequestPage(props: { projectId: string }) {
   );
 }
 
-function HomePage(props: { user?: AuthUser; templateStyleId?: HomeTemplateStyleId }) {
+function HomePage(props: {
+  user?: AuthUser;
+  templateStyleId?: HomeTemplateStyleId;
+}) {
   const queryClient = useQueryClient();
   const topicInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [topic, setTopic] = useState("");
   const [prompt, setPrompt] = useState("");
   const [designPrompt, setDesignPrompt] = useState("");
-  const [selectedTemplateStyleId, setSelectedTemplateStyleId] =
-    useState<HomeTemplateStyleId | undefined>(props.templateStyleId);
+  const [selectedTemplateStyleId, setSelectedTemplateStyleId] = useState<
+    HomeTemplateStyleId | undefined
+  >(props.templateStyleId);
   const [templateDensityTarget, setTemplateDensityTarget] =
     useState<TemplateDensityTargetOption>(templateStyleDefaultOption);
   const [templateLayoutDiversity, setTemplateLayoutDiversity] =
     useState<TemplateLayoutDiversityOption>(templateStyleDefaultOption);
   const [templateMediaPolicy, setTemplateMediaPolicy] =
     useState<TemplateMediaPolicyOption>(templateStyleDefaultOption);
-  const [tone, setTone] = useState<"professional" | "friendly" | "confident" | "concise">(
-    "professional"
-  );
+  const [tone, setTone] = useState<
+    "professional" | "friendly" | "confident" | "concise"
+  >("professional");
   const [durationInput, setDurationInput] = useState("10");
   const [minSlidesInput, setMinSlidesInput] = useState("5");
   const [maxSlidesInput, setMaxSlidesInput] = useState("8");
@@ -1094,7 +1208,7 @@ function HomePage(props: { user?: AuthUser; templateStyleId?: HomeTemplateStyleI
   const [isReferenceDragging, setIsReferenceDragging] = useState(false);
   const totalSize = useMemo(
     () => uploads.reduce((sum, upload) => sum + upload.file.size, 0),
-    [uploads]
+    [uploads],
   );
   const validationMessage = getHomeGenerationValidationMessage(
     topic,
@@ -1102,7 +1216,7 @@ function HomePage(props: { user?: AuthUser; templateStyleId?: HomeTemplateStyleI
     durationInput,
     minSlidesInput,
     maxSlidesInput,
-    !selectedTemplateStyleId
+    !selectedTemplateStyleId,
   );
 
   useEffect(() => {
@@ -1132,7 +1246,7 @@ function HomePage(props: { user?: AuthUser; templateStyleId?: HomeTemplateStyleI
       setError(
         createError instanceof Error
           ? createError.message
-          : "빈 프레젠테이션을 만들지 못했습니다."
+          : "빈 프레젠테이션을 만들지 못했습니다.",
       );
     } finally {
       setIsCreatingBlankProject(false);
@@ -1162,7 +1276,7 @@ function HomePage(props: { user?: AuthUser; templateStyleId?: HomeTemplateStyleI
         const uploaded = await uploadProjectAsset(
           project.projectId,
           upload.file,
-          getHomeUploadPurpose(upload, allowDesignReferences)
+          getHomeUploadPurpose(upload, allowDesignReferences),
         );
         uploadedAssets.set(upload.id, uploaded.fileId);
       }
@@ -1180,9 +1294,9 @@ function HomePage(props: { user?: AuthUser; templateStyleId?: HomeTemplateStyleI
             uploadedAssets,
             {
               setJob,
-              setStatus
+              setStatus,
             },
-            !allowDesignReferences
+            !allowDesignReferences,
           );
       const payload = hasDesignPptx
         ? buildAiTemplateDeckGenerationPayload({
@@ -1194,7 +1308,7 @@ function HomePage(props: { user?: AuthUser; templateStyleId?: HomeTemplateStyleI
             maxSlides,
             tone,
             uploads,
-            uploadedAssetFileIds: uploadedAssets
+            uploadedAssetFileIds: uploadedAssets,
           })
         : buildHomeJsonFirstGenerateDeckPayload({
             topic,
@@ -1204,30 +1318,32 @@ function HomePage(props: { user?: AuthUser; templateStyleId?: HomeTemplateStyleI
             templateStyleDesignOverrides: buildTemplateStyleDesignOverrides({
               densityTarget: templateDensityTarget,
               layoutDiversity: templateLayoutDiversity,
-              mediaPolicy: templateMediaPolicy
+              mediaPolicy: templateMediaPolicy,
             }),
             duration,
             minSlides,
             maxSlides,
             tone,
-            referenceInput
+            referenceInput,
           });
       setStatus("AI 덱 생성 중...");
       const response = await fetch(
         getHomeDeckGenerationJobEndpoint(
           project.projectId,
           uploads,
-          allowDesignReferences
+          allowDesignReferences,
         ),
         {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify(payload)
-        }
+          body: JSON.stringify(payload),
+        },
       );
 
       if (!response.ok) {
-        throw new Error(await readApiError(response, "AI 덱 생성을 시작하지 못했습니다."));
+        throw new Error(
+          await readApiError(response, "AI 덱 생성을 시작하지 못했습니다."),
+        );
       }
 
       const data = (await response.json()) as
@@ -1236,13 +1352,15 @@ function HomePage(props: { user?: AuthUser; templateStyleId?: HomeTemplateStyleI
       setJob(data.job);
       const completed = await pollJob(data.job.jobId, fetch, {
         timeoutMs: 300_000,
-        delayMs: 1200
+        delayMs: 1200,
       });
       setJob(completed);
 
       if (completed.status === "failed") {
         throw new Error(
-          completed.error?.message || completed.message || "AI 덱 생성에 실패했습니다."
+          completed.error?.message ||
+            completed.message ||
+            "AI 덱 생성에 실패했습니다.",
         );
       }
 
@@ -1254,15 +1372,19 @@ function HomePage(props: { user?: AuthUser; templateStyleId?: HomeTemplateStyleI
       }
 
       await queryClient.invalidateQueries({ queryKey: ["projects"] });
-      await queryClient.invalidateQueries({ queryKey: ["deck", project.projectId] });
+      await queryClient.invalidateQueries({
+        queryKey: ["deck", project.projectId],
+      });
       navigateTo(
         hasDesignPptx
           ? `/project/${encodeURIComponent(project.projectId)}`
-          : getGeneratedDeckProjectPath(result as GenerateDeckJobResult)
+          : getGeneratedDeckProjectPath(result as GenerateDeckJobResult),
       );
     } catch (submitError) {
       setError(
-        submitError instanceof Error ? submitError.message : "AI 덱 생성에 실패했습니다."
+        submitError instanceof Error
+          ? submitError.message
+          : "AI 덱 생성에 실패했습니다.",
       );
       setStatus("");
     } finally {
@@ -1293,16 +1415,16 @@ function HomePage(props: { user?: AuthUser; templateStyleId?: HomeTemplateStyleI
 
     try {
       const project = await createProject(
-        getPptxConversionProjectTitle(pptxUpload.file.name)
+        getPptxConversionProjectTitle(pptxUpload.file.name),
       );
       setStatus(`${pptxUpload.file.name} 업로드 중...`);
       const uploaded = await uploadProjectAsset(
         project.projectId,
         pptxUpload.file,
-        "pptx-import"
+        "pptx-import",
       );
       const payload = buildPptxOoxmlGenerationPayload({
-        fileId: uploaded.fileId
+        fileId: uploaded.fileId,
       });
       setStatus("PPTX 변환 중...");
       const response = await fetch(
@@ -1310,25 +1432,29 @@ function HomePage(props: { user?: AuthUser; templateStyleId?: HomeTemplateStyleI
         {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify(payload)
-        }
+          body: JSON.stringify(payload),
+        },
       );
 
       if (!response.ok) {
-        throw new Error(await readApiError(response, "PPTX 변환을 시작하지 못했습니다."));
+        throw new Error(
+          await readApiError(response, "PPTX 변환을 시작하지 못했습니다."),
+        );
       }
 
       const data = (await response.json()) as PptxOoxmlGenerationResponse;
       setJob(data.job);
       const completed = await pollJob(data.job.jobId, fetch, {
         timeoutMs: 300_000,
-        delayMs: 1200
+        delayMs: 1200,
       });
       setJob(completed);
 
       if (completed.status === "failed") {
         throw new Error(
-          completed.error?.message || completed.message || "PPTX 변환에 실패했습니다."
+          completed.error?.message ||
+            completed.message ||
+            "PPTX 변환에 실패했습니다.",
         );
       }
 
@@ -1338,11 +1464,15 @@ function HomePage(props: { user?: AuthUser; templateStyleId?: HomeTemplateStyleI
       }
 
       await queryClient.invalidateQueries({ queryKey: ["projects"] });
-      await queryClient.invalidateQueries({ queryKey: ["deck", project.projectId] });
+      await queryClient.invalidateQueries({
+        queryKey: ["deck", project.projectId],
+      });
       navigateTo(getPptxOoxmlGeneratedProjectPath(project.projectId));
     } catch (submitError) {
       setError(
-        submitError instanceof Error ? submitError.message : "PPTX 변환에 실패했습니다."
+        submitError instanceof Error
+          ? submitError.message
+          : "PPTX 변환에 실패했습니다.",
       );
       setStatus("");
     } finally {
@@ -1388,7 +1518,7 @@ function HomePage(props: { user?: AuthUser; templateStyleId?: HomeTemplateStyleI
   function addFiles(fileList: FileList | File[]) {
     const { acceptedFiles, rejectedFiles } = collectHomeUploadFiles(
       fileList,
-      Boolean(selectedTemplateStyleId)
+      Boolean(selectedTemplateStyleId),
     );
     setUploads((current) => mergeUploadFiles(current, acceptedFiles));
     setRejected(rejectedFiles);
@@ -1409,8 +1539,8 @@ function HomePage(props: { user?: AuthUser; templateStyleId?: HomeTemplateStyleI
       current.map((upload) =>
         upload.id === id
           ? { ...upload, role: selectedTemplateStyleId ? "content" : role }
-          : upload
-      )
+          : upload,
+      ),
     );
     setError("");
     setStatus("");
@@ -1709,12 +1839,14 @@ function HomePage(props: { user?: AuthUser; templateStyleId?: HomeTemplateStyleI
 
 function ProjectListPage() {
   const [isCreating, setIsCreating] = useState(false);
-  const [deletingProjectId, setDeletingProjectId] = useState<string | null>(null);
+  const [deletingProjectId, setDeletingProjectId] = useState<string | null>(
+    null,
+  );
   const [deleteError, setDeleteError] = useState("");
   const projects = useQuery({
     queryKey: ["projects"],
     queryFn: () => fetchProjects(),
-    retry: false
+    retry: false,
   });
 
   async function handleCreateProject() {
@@ -1732,7 +1864,7 @@ function ProjectListPage() {
   async function handleDeleteProject(project: Project) {
     if (deletingProjectId) return;
     const shouldDelete = window.confirm(
-      `"${project.title}" 프레젠테이션을 삭제할까요? 이 작업은 되돌릴 수 없습니다.`
+      `"${project.title}" 프레젠테이션을 삭제할까요? 이 작업은 되돌릴 수 없습니다.`,
     );
     if (!shouldDelete) return;
 
@@ -1742,7 +1874,11 @@ function ProjectListPage() {
       await deleteProject(project.projectId);
       await projects.refetch();
     } catch (error) {
-      setDeleteError(error instanceof Error ? error.message : "프로젝트를 삭제하지 못했습니다.");
+      setDeleteError(
+        error instanceof Error
+          ? error.message
+          : "프로젝트를 삭제하지 못했습니다.",
+      );
     } finally {
       setDeletingProjectId(null);
     }
@@ -1755,7 +1891,11 @@ function ProjectListPage() {
           <span>프로젝트</span>
           <h1>프로젝트 불러오기</h1>
         </div>
-        <button type="button" className="ghost-button" onClick={() => void projects.refetch()}>
+        <button
+          type="button"
+          className="ghost-button"
+          onClick={() => void projects.refetch()}
+        >
           <Search size={16} />
           새로고침
         </button>
@@ -1764,7 +1904,9 @@ function ProjectListPage() {
       <TemplateRail
         title="템플릿"
         onCreateProject={handleCreateProject}
-        onSelectStyle={(styleId) => navigateTo(getHomeTemplateStylePath(styleId))}
+        onSelectStyle={(styleId) =>
+          navigateTo(getHomeTemplateStylePath(styleId))
+        }
         isCreating={isCreating}
       />
 
@@ -1773,9 +1915,15 @@ function ProjectListPage() {
           <h2>최근 에디팅한 프로젝트</h2>
           <span>{projects.data?.length ?? 0}개</span>
         </div>
-        {projects.isLoading ? <p className="empty-state">프로젝트를 불러오는 중입니다.</p> : null}
-        {projects.isError ? <p className="empty-state">프로젝트 목록을 불러오지 못했습니다.</p> : null}
-        {deleteError ? <p className="empty-state project-delete-error">{deleteError}</p> : null}
+        {projects.isLoading ? (
+          <p className="empty-state">프로젝트를 불러오는 중입니다.</p>
+        ) : null}
+        {projects.isError ? (
+          <p className="empty-state">프로젝트 목록을 불러오지 못했습니다.</p>
+        ) : null}
+        {deleteError ? (
+          <p className="empty-state project-delete-error">{deleteError}</p>
+        ) : null}
         <div className="project-grid">
           {(projects.data ?? []).map((project) => (
             <ProjectCard
@@ -1857,7 +2005,9 @@ export function TemplateStyleOptionsPanel(props: {
   onClearStyle?: () => void;
   onTopicChange: (value: string) => void;
   onPromptChange: (value: string) => void;
-  onToneChange: (value: "professional" | "friendly" | "confident" | "concise") => void;
+  onToneChange: (
+    value: "professional" | "friendly" | "confident" | "concise",
+  ) => void;
   onDurationInputChange: (value: string) => void;
   onMinSlidesInputChange: (value: string) => void;
   onMaxSlidesInputChange: (value: string) => void;
@@ -1877,7 +2027,11 @@ export function TemplateStyleOptionsPanel(props: {
           <span>선택한 템플릿</span>
           <h3>{props.templateStyle.title}</h3>
         </div>
-        <button type="button" onClick={props.onClearStyle} disabled={props.isDisabled}>
+        <button
+          type="button"
+          onClick={props.onClearStyle}
+          disabled={props.isDisabled}
+        >
           선택 해제
         </button>
       </header>
@@ -1922,7 +2076,9 @@ export function TemplateStyleOptionsPanel(props: {
             min={1}
             max={120}
             value={props.durationInput}
-            onChange={(event) => props.onDurationInputChange(event.target.value)}
+            onChange={(event) =>
+              props.onDurationInputChange(event.target.value)
+            }
             disabled={props.isDisabled}
           />
         </label>
@@ -1933,7 +2089,9 @@ export function TemplateStyleOptionsPanel(props: {
             min={1}
             max={20}
             value={props.minSlidesInput}
-            onChange={(event) => props.onMinSlidesInputChange(event.target.value)}
+            onChange={(event) =>
+              props.onMinSlidesInputChange(event.target.value)
+            }
             disabled={props.isDisabled}
           />
         </label>
@@ -1944,7 +2102,9 @@ export function TemplateStyleOptionsPanel(props: {
             min={1}
             max={20}
             value={props.maxSlidesInput}
-            onChange={(event) => props.onMaxSlidesInputChange(event.target.value)}
+            onChange={(event) =>
+              props.onMaxSlidesInputChange(event.target.value)
+            }
             disabled={props.isDisabled}
           />
         </label>
@@ -1966,7 +2126,9 @@ export function TemplateStyleOptionsPanel(props: {
             value={props.densityTarget}
             name="templateDensityTarget"
             onChange={(event) =>
-              props.onDensityTargetChange(event.target.value as TemplateDensityTargetOption)
+              props.onDensityTargetChange(
+                event.target.value as TemplateDensityTargetOption,
+              )
             }
             disabled={props.isDisabled}
           >
@@ -1983,7 +2145,7 @@ export function TemplateStyleOptionsPanel(props: {
             name="templateLayoutDiversity"
             onChange={(event) =>
               props.onLayoutDiversityChange(
-                event.target.value as TemplateLayoutDiversityOption
+                event.target.value as TemplateLayoutDiversityOption,
               )
             }
             disabled={props.isDisabled}
@@ -1999,7 +2161,9 @@ export function TemplateStyleOptionsPanel(props: {
             value={props.mediaPolicy}
             name="templateMediaPolicy"
             onChange={(event) =>
-              props.onMediaPolicyChange(event.target.value as TemplateMediaPolicyOption)
+              props.onMediaPolicyChange(
+                event.target.value as TemplateMediaPolicyOption,
+              )
             }
             disabled={props.isDisabled}
           >
@@ -2168,7 +2332,8 @@ function HomeUploadList(props: {
             <div>
               <span className="file-name">{file.name}</span>
               <span className="file-detail">
-                {getExtension(file.name).toUpperCase()} · {formatBytes(file.size)}
+                {getExtension(file.name).toUpperCase()} ·{" "}
+                {formatBytes(file.size)}
               </span>
             </div>
             <div className="home-upload-role">
@@ -2227,7 +2392,11 @@ function HomeUploadList(props: {
   );
 }
 
-function ProjectCard(props: { project: Project; isDeleting: boolean; onDelete: () => void }) {
+function ProjectCard(props: {
+  project: Project;
+  isDeleting: boolean;
+  onDelete: () => void;
+}) {
   const createdAt = new Date(props.project.createdAt);
   return (
     <article className="project-card">
@@ -2272,7 +2441,9 @@ function GenerateDeckView() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [generateError, setGenerateError] = useState("");
   const [generateJob, setGenerateJob] = useState<Job | null>(null);
-  const [result, setResult] = useState<PptxOoxmlGenerationJobResult | null>(null);
+  const [result, setResult] = useState<PptxOoxmlGenerationJobResult | null>(
+    null,
+  );
   const [selectedProjectId, setSelectedProjectId] = useState("");
   const [newProjectTitle, setNewProjectTitle] = useState("PPTX 기반 발표자료");
   const [isCreatingProject, setIsCreatingProject] = useState(false);
@@ -2280,11 +2451,11 @@ function GenerateDeckView() {
   const projectsQuery = useQuery({
     queryKey: ["projects", "generate-deck"],
     queryFn: () => fetchProjects(),
-    retry: false
+    retry: false,
   });
   const totalSize = useMemo(
     () => uploads.reduce((sum, upload) => sum + upload.file.size, 0),
-    [uploads]
+    [uploads],
   );
   const selectedPptx = uploads[0]?.file ?? null;
 
@@ -2304,7 +2475,9 @@ function GenerateDeckView() {
       await projectsQuery.refetch();
     } catch (error) {
       setProjectError(
-        error instanceof Error ? error.message : "프로젝트를 만들지 못했습니다."
+        error instanceof Error
+          ? error.message
+          : "프로젝트를 만들지 못했습니다.",
       );
     } finally {
       setIsCreatingProject(false);
@@ -2355,25 +2528,25 @@ function GenerateDeckView() {
       const targetProject = await resolveGenerateDeckTargetProject({
         projects: projectsQuery.data ?? [],
         selectedProjectId,
-        topic: topic || selectedPptx.name
+        topic: topic || selectedPptx.name,
       });
       const uploaded = await uploadProjectAsset(
         targetProject.projectId,
         selectedPptx,
-        "pptx-import"
+        "pptx-import",
       );
       const payload = buildPptxOoxmlGenerationPayload({
         fileId: uploaded.fileId,
         topic,
-        prompt
+        prompt,
       });
       const response = await fetch(
         `/api/v1/projects/${targetProject.projectId}/pptx-ooxml-generations`,
         {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify(payload)
-        }
+          body: JSON.stringify(payload),
+        },
       );
 
       if (!response.ok) {
@@ -2385,11 +2558,13 @@ function GenerateDeckView() {
       setGenerateJob(data.job);
 
       const job = await pollExtractJob(data.job.jobId, {
-        onUpdate: setGenerateJob
+        onUpdate: setGenerateJob,
       });
 
       if (job.status === "failed") {
-        throw new Error(job.error?.message || job.message || "PPTX 덱 생성에 실패했습니다.");
+        throw new Error(
+          job.error?.message || job.message || "PPTX 덱 생성에 실패했습니다.",
+        );
       }
 
       const generatedResult = getPptxOoxmlGenerationJobResult(job);
@@ -2400,16 +2575,16 @@ function GenerateDeckView() {
       setResult(generatedResult);
       if (targetProject.created && targetProject.project) {
         queryClient.setQueryData<Project[]>(["projects"], (current) =>
-          mergeGeneratedProjectList(current, targetProject.project as Project)
+          mergeGeneratedProjectList(current, targetProject.project as Project),
         );
       }
       await queryClient.invalidateQueries({
-        queryKey: ["deck", targetProject.projectId]
+        queryKey: ["deck", targetProject.projectId],
       });
       navigateTo(getPptxOoxmlGeneratedProjectPath(targetProject.projectId));
     } catch (error) {
       setGenerateError(
-        error instanceof Error ? error.message : "PPTX 덱 생성에 실패했습니다."
+        error instanceof Error ? error.message : "PPTX 덱 생성에 실패했습니다.",
       );
     } finally {
       setIsGenerating(false);
@@ -2431,7 +2606,10 @@ function GenerateDeckView() {
             <h1 id="generate-title">PPTX로 덱 생성</h1>
           </div>
 
-          <section className="generate-reference-panel" aria-labelledby="generate-project-title">
+          <section
+            className="generate-reference-panel"
+            aria-labelledby="generate-project-title"
+          >
             <div className="reference-panel-heading">
               <span className="eyebrow" id="generate-project-title">
                 Target project
@@ -2471,9 +2649,13 @@ function GenerateDeckView() {
               className="extract-button"
               type="button"
               onClick={() => void handleCreateProject()}
-              disabled={isGenerating || isCreatingProject || !newProjectTitle.trim()}
+              disabled={
+                isGenerating || isCreatingProject || !newProjectTitle.trim()
+              }
             >
-              {isCreatingProject ? "프로젝트 생성 중..." : "새 프로젝트 만들고 선택"}
+              {isCreatingProject
+                ? "프로젝트 생성 중..."
+                : "새 프로젝트 만들고 선택"}
             </button>
 
             {projectsQuery.isError ? (
@@ -2491,7 +2673,10 @@ function GenerateDeckView() {
 
           <label>
             <span>Topic</span>
-            <input value={topic} onChange={(event) => setTopic(event.target.value)} />
+            <input
+              value={topic}
+              onChange={(event) => setTopic(event.target.value)}
+            />
           </label>
 
           <label>
@@ -2523,11 +2708,17 @@ function GenerateDeckView() {
               onDragLeave={() => setIsDragging(false)}
               onDrop={handleDrop}
             >
-              <input type="file" accept={pptxAccept} onChange={handleFileChange} />
+              <input
+                type="file"
+                accept={pptxAccept}
+                onChange={handleFileChange}
+              />
               <span className="upload-mark" aria-hidden="true">
                 +
               </span>
-              <span className="drop-title">PPTX 파일을 끌어오거나 선택하세요</span>
+              <span className="drop-title">
+                PPTX 파일을 끌어오거나 선택하세요
+              </span>
               <span className="drop-meta">PPTX 1개</span>
             </label>
 
@@ -2553,7 +2744,8 @@ function GenerateDeckView() {
                     <div>
                       <span className="file-name">{file.name}</span>
                       <span className="file-detail">
-                        {getExtension(file.name).toUpperCase()} · {formatBytes(file.size)}
+                        {getExtension(file.name).toUpperCase()} ·{" "}
+                        {formatBytes(file.size)}
                       </span>
                     </div>
                     <button
@@ -2596,13 +2788,16 @@ function GenerateDeckView() {
         </form>
 
         <section className="generate-result" aria-live="polite">
-          {result ? <PptxOoxmlGenerationResult result={result} /> : <DeckPreviewPlaceholder />}
+          {result ? (
+            <PptxOoxmlGenerationResult result={result} />
+          ) : (
+            <DeckPreviewPlaceholder />
+          )}
         </section>
       </section>
     </main>
   );
 }
-
 
 function DeckPreviewPlaceholder() {
   return (
@@ -2628,7 +2823,10 @@ function formatBytes(bytes: number) {
   if (bytes === 0) return "0 B";
 
   const units = ["B", "KB", "MB", "GB"];
-  const index = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
+  const index = Math.min(
+    Math.floor(Math.log(bytes) / Math.log(1024)),
+    units.length - 1,
+  );
   const value = bytes / 1024 ** index;
 
   return `${value.toFixed(value >= 10 || index === 0 ? 0 : 1)} ${units[index]}`;
@@ -2640,7 +2838,7 @@ function createUploadId(file: File) {
 
 function getHomeUploadPurpose(
   upload: UploadFile,
-  allowDesignReferences = true
+  allowDesignReferences = true,
 ): FilePurpose {
   if (
     allowDesignReferences &&
@@ -2661,11 +2859,11 @@ async function extractHomeReferenceInput(
     setJob: (job: Job | null) => void;
     setStatus: (status: string) => void;
   },
-  includeDesignReferencesAsContent = false
+  includeDesignReferencesAsContent = false,
 ) {
   const contentUploads = getHomeContentReferenceUploads(
     uploads,
-    includeDesignReferencesAsContent
+    includeDesignReferencesAsContent,
   );
   if (contentUploads.length === 0) {
     return buildReferenceGenerationInput([]);
@@ -2674,11 +2872,17 @@ async function extractHomeReferenceInput(
   callbacks.setStatus("참고자료 추출 중...");
   const response = await fetch(homeReferenceExtractEndpoint, {
     method: "POST",
-    body: buildHomeExtractFormData(projectId, contentUploads, uploadedAssetFileIds)
+    body: buildHomeExtractFormData(
+      projectId,
+      contentUploads,
+      uploadedAssetFileIds,
+    ),
   });
 
   if (!response.ok) {
-    throw new Error(await readApiError(response, "참고자료 추출을 시작하지 못했습니다."));
+    throw new Error(
+      await readApiError(response, "참고자료 추출을 시작하지 못했습니다."),
+    );
   }
 
   const data = (await response.json()) as ExtractJobResponse;
@@ -2686,13 +2890,15 @@ async function extractHomeReferenceInput(
   const completed = await pollExtractJob(data.job.jobId, {
     fetcher: fetch,
     onUpdate: callbacks.setJob,
-    timeoutMs: 300_000
+    timeoutMs: 300_000,
   });
   callbacks.setJob(completed);
 
   if (completed.status === "failed") {
     throw new Error(
-      completed.error?.message || completed.message || "참고자료 추출에 실패했습니다."
+      completed.error?.message ||
+        completed.message ||
+        "참고자료 추출에 실패했습니다.",
     );
   }
 
@@ -2704,15 +2910,18 @@ export function hasHomeDesignPptxUpload(uploads: UploadFile[]) {
 }
 
 function isHomeDesignPptxUpload(upload: UploadFile) {
-  return (upload.role === "design" || upload.role === "both") && isPptxFile(upload.file);
+  return (
+    (upload.role === "design" || upload.role === "both") &&
+    isPptxFile(upload.file)
+  );
 }
 
 export function getHomeContentReferenceUploads(
   uploads: UploadFile[],
-  includeDesignReferencesAsContent = false
+  includeDesignReferencesAsContent = false,
 ) {
   return uploads.filter(
-    (upload) => includeDesignReferencesAsContent || upload.role === "content"
+    (upload) => includeDesignReferencesAsContent || upload.role === "content",
   );
 }
 
@@ -2721,7 +2930,7 @@ export const homeReferenceExtractEndpoint = "/api/extract";
 export function buildHomeExtractFormData(
   projectId: string,
   contentUploads: UploadFile[],
-  uploadedAssetFileIds: Map<string, string>
+  uploadedAssetFileIds: Map<string, string>,
 ) {
   const formData = new FormData();
   formData.append("projectId", projectId);
@@ -2739,11 +2948,12 @@ export function buildHomeExtractFormData(
 export function getHomeDeckGenerationJobEndpoint(
   projectId: string,
   uploads: UploadFile[],
-  allowDesignReferences = true
+  allowDesignReferences = true,
 ) {
-  const jobType = allowDesignReferences && hasHomeDesignPptxUpload(uploads)
-    ? "ai-template-deck-generation"
-    : "generate-deck";
+  const jobType =
+    allowDesignReferences && hasHomeDesignPptxUpload(uploads)
+      ? "ai-template-deck-generation"
+      : "generate-deck";
   return `/api/v1/projects/${encodeURIComponent(projectId)}/jobs/${jobType}`;
 }
 
@@ -2753,7 +2963,7 @@ export function getHomeGenerationValidationMessage(
   durationInput = "10",
   minSlidesInput = "5",
   maxSlidesInput = "8",
-  allowDesignReferences = true
+  allowDesignReferences = true,
 ) {
   if (!topic.trim()) {
     return "발표 주제를 입력하세요.";
@@ -2761,7 +2971,7 @@ export function getHomeGenerationValidationMessage(
 
   if (allowDesignReferences) {
     const designUploads = uploads.filter(
-      (upload) => upload.role === "design" || upload.role === "both"
+      (upload) => upload.role === "design" || upload.role === "both",
     );
     if (designUploads.length > 1) {
       return "디자인 참고 PPTX는 1개만 선택하세요.";
@@ -2799,7 +3009,7 @@ export function getHomeGenerationValidationMessage(
 
 function collectHomeUploadFiles(
   fileList: FileList | File[],
-  hasSelectedTemplateStyle = false
+  hasSelectedTemplateStyle = false,
 ) {
   const acceptedFiles: UploadFile[] = [];
   const rejectedFiles: RejectedFile[] = [];
@@ -2809,7 +3019,7 @@ function collectHomeUploadFiles(
     if (!mimeType) {
       rejectedFiles.push({
         name: file.name,
-        reason: "PDF, PPTX, DOCX, JPG, PNG, WebP 파일만 첨부할 수 있습니다."
+        reason: "PDF, PPTX, DOCX, JPG, PNG, WebP 파일만 첨부할 수 있습니다.",
       });
       return;
     }
@@ -2817,7 +3027,7 @@ function collectHomeUploadFiles(
     if (file.size > maxAssetUploadSizeBytes) {
       rejectedFiles.push({
         name: file.name,
-        reason: `${formatBytes(maxAssetUploadSizeBytes)} 이하 파일만 첨부할 수 있습니다.`
+        reason: `${formatBytes(maxAssetUploadSizeBytes)} 이하 파일만 첨부할 수 있습니다.`,
       });
       return;
     }
@@ -2825,7 +3035,7 @@ function collectHomeUploadFiles(
     if (file.size <= 0) {
       rejectedFiles.push({
         name: file.name,
-        reason: "빈 파일은 첨부할 수 없습니다."
+        reason: "빈 파일은 첨부할 수 없습니다.",
       });
       return;
     }
@@ -2833,14 +3043,17 @@ function collectHomeUploadFiles(
     acceptedFiles.push({
       id: createUploadId(file),
       file,
-      role: getHomeDefaultUploadRole(file, hasSelectedTemplateStyle)
+      role: getHomeDefaultUploadRole(file, hasSelectedTemplateStyle),
     });
   });
 
   return { acceptedFiles, rejectedFiles };
 }
 
-export function getHomeDefaultUploadRole(file: File, hasSelectedTemplateStyle = false) {
+export function getHomeDefaultUploadRole(
+  file: File,
+  hasSelectedTemplateStyle = false,
+) {
   if (!isPptxFile(file)) {
     return "content";
   }
@@ -2885,7 +3098,7 @@ function collectPptxUploadFiles(fileList: FileList | File[]) {
 
     rejectedFiles.push({
       name: file.name,
-      reason: "PPTX 파일 1개만 업로드할 수 있습니다."
+      reason: "PPTX 파일 1개만 업로드할 수 있습니다.",
     });
   });
 
@@ -2917,7 +3130,7 @@ export async function pollExtractJob(
     fetcher?: Fetcher;
     onUpdate?: (job: Job) => void;
     timeoutMs?: number;
-  } = {}
+  } = {},
 ): Promise<Job> {
   const delayMs = options.delayMs ?? 1000;
   const fetcher = options.fetcher ?? fetch;
@@ -2948,7 +3161,9 @@ export function getJobResultFiles(job: Job): ExtractedFile[] {
   return Array.isArray(result?.files) ? result.files : [];
 }
 
-export function getGenerateDeckJobResult(job: Job): GenerateDeckJobResult | null {
+export function getGenerateDeckJobResult(
+  job: Job,
+): GenerateDeckJobResult | null {
   const result = job.result as GenerateDeckJobResult | null;
   return result?.deck ? result : null;
 }
@@ -2962,14 +3177,14 @@ export function getPptxOoxmlGeneratedProjectPath(projectId: string) {
 }
 
 export function getPptxOoxmlGenerationJobResult(
-  job: Job
+  job: Job,
 ): PptxOoxmlGenerationJobResult | null {
   const result = job.result as PptxOoxmlGenerationJobResult | null;
   return result?.deckId && result?.currentPackageFileId ? result : null;
 }
 
 export function getAiTemplateDeckGenerationJobResult(
-  job: Job
+  job: Job,
 ): AiTemplateDeckGenerationJobResult | null {
   const parsed = aiTemplateDeckGenerationJobResultSchema.safeParse(job.result);
   return parsed.success ? parsed.data : null;
@@ -2993,20 +3208,20 @@ export function buildAiTemplateDeckGenerationPayload(input: {
     targetDurationMinutes: clampInteger(input.duration, 1, 120),
     slideCountRange: {
       min: clampInteger(input.minSlides, 1, 20),
-      max: clampInteger(input.maxSlides, 1, 20)
+      max: clampInteger(input.maxSlides, 1, 20),
     },
     template: "default",
     metadata: {
       audience: "general",
       purpose: "inform",
-      tone: input.tone
+      tone: input.tone,
     },
     design: buildGenerateDeckDesignDirection({
       profile: "auto",
       visualRhythm: "auto",
       densityTarget: "medium",
       mediaPolicy: "balanced",
-      layoutDiversity: "stable"
+      layoutDiversity: "stable",
     }),
     assets: input.uploads.map((upload) => {
       const fileId = input.uploadedAssetFileIds.get(upload.id);
@@ -3014,7 +3229,7 @@ export function buildAiTemplateDeckGenerationPayload(input: {
         throw new Error(`${upload.file.name} 업로드 결과를 찾지 못했습니다.`);
       }
       return { fileId, role: upload.role };
-    })
+    }),
   };
 }
 
@@ -3026,14 +3241,14 @@ export function buildPptxOoxmlGenerationPayload(input: {
   return {
     fileId: input.fileId,
     ...(input.topic?.trim() ? { topic: input.topic.trim() } : {}),
-    ...(input.prompt?.trim() ? { prompt: input.prompt.trim() } : {})
+    ...(input.prompt?.trim() ? { prompt: input.prompt.trim() } : {}),
   };
 }
 
 export async function pollJob(
   jobId: string,
   fetcher: Fetcher = fetch,
-  options: { delayMs?: number; timeoutMs?: number } = {}
+  options: { delayMs?: number; timeoutMs?: number } = {},
 ): Promise<Job> {
   const delayMs = options.delayMs ?? 1200;
   const timeoutAt = Date.now() + (options.timeoutMs ?? 120_000);
@@ -3041,7 +3256,9 @@ export async function pollJob(
   for (;;) {
     const response = await fetcher(`/api/jobs/${encodeURIComponent(jobId)}`);
     if (!response.ok) {
-      throw new Error(await readApiError(response, "작업 상태를 확인하지 못했습니다."));
+      throw new Error(
+        await readApiError(response, "작업 상태를 확인하지 못했습니다."),
+      );
     }
 
     const job = (await response.json()) as Job;
@@ -3062,7 +3279,12 @@ export function getGeneratedDeckProjectTitle(topic: string) {
 }
 
 export function getPptxConversionProjectTitle(fileName: string) {
-  return fileName.trim().replace(/\.pptx$/i, "").trim() || "PPTX 변환";
+  return (
+    fileName
+      .trim()
+      .replace(/\.pptx$/i, "")
+      .trim() || "PPTX 변환"
+  );
 }
 
 export function getHomePptxConversionValidationMessage(uploads: UploadFile[]) {
@@ -3078,7 +3300,10 @@ export function getHomePptxConversionValidationMessage(uploads: UploadFile[]) {
   return "";
 }
 
-export function createGeneratedDeckProject(topic: string, fetcher: Fetcher = fetch) {
+export function createGeneratedDeckProject(
+  topic: string,
+  fetcher: Fetcher = fetch,
+) {
   return createProject(getGeneratedDeckProjectTitle(topic), fetcher);
 }
 
@@ -3093,9 +3318,10 @@ export async function resolveGenerateDeckTargetProject(args: {
     return {
       created: false,
       project:
-        args.projects.find((project) => project.projectId === selectedProjectId) ??
-        null,
-      projectId: selectedProjectId
+        args.projects.find(
+          (project) => project.projectId === selectedProjectId,
+        ) ?? null,
+      projectId: selectedProjectId,
     };
   }
 
@@ -3116,7 +3342,7 @@ export function buildGenerateDeckPayload(input: GenerateDeckPayloadInput) {
     references: input.referenceInput.references,
     designReferences: input.designReferences,
     referenceKeywords: input.referenceInput.referenceKeywords,
-    referenceContext: input.referenceInput.referenceContext
+    referenceContext: input.referenceInput.referenceContext,
   };
 }
 
@@ -3134,8 +3360,10 @@ export function buildHomeJsonFirstGenerateDeckPayload(input: {
 }) {
   const design = input.templateStyleId
     ? {
-        ...buildHomeTemplateStyleGenerateDeckDesignDirection(input.templateStyleId),
-        ...(input.templateStyleDesignOverrides ?? {})
+        ...buildHomeTemplateStyleGenerateDeckDesignDirection(
+          input.templateStyleId,
+        ),
+        ...(input.templateStyleDesignOverrides ?? {}),
       }
     : buildDefaultHomeGenerateDeckDesignDirection();
 
@@ -3150,17 +3378,17 @@ export function buildHomeJsonFirstGenerateDeckPayload(input: {
     metadata: {
       audience: "general",
       purpose: "inform",
-      tone: input.tone
+      tone: input.tone,
     },
     design,
     designReferences: [],
-    referenceInput: input.referenceInput ?? buildReferenceGenerationInput([])
+    referenceInput: input.referenceInput ?? buildReferenceGenerationInput([]),
   });
 }
 
 export function buildDesignReferences(
   uploads: UploadFile[],
-  uploadedAssetFileIds: Map<string, string>
+  uploadedAssetFileIds: Map<string, string>,
 ) {
   return uploads
     .filter((upload) => upload.role === "design" || upload.role === "both")
@@ -3182,7 +3410,7 @@ export function buildGenerateDeckDesignDirection(input: {
     visualRhythm: input.visualRhythm,
     densityTarget: input.densityTarget,
     mediaPolicy: input.mediaPolicy,
-    layoutDiversity: input.layoutDiversity
+    layoutDiversity: input.layoutDiversity,
   };
 
   if (input.profile !== "auto") {
@@ -3210,12 +3438,12 @@ export function buildDefaultHomeGenerateDeckDesignDirection() {
     visualRhythm: "auto",
     densityTarget: "medium",
     mediaPolicy: "balanced",
-    layoutDiversity: "varied"
+    layoutDiversity: "varied",
   });
 }
 
 export function buildHomeTemplateStyleGenerateDeckDesignDirection(
-  styleId: HomeTemplateStyleId
+  styleId: HomeTemplateStyleId,
 ) {
   if (styleId === "presentation-document") {
     return buildGenerateDeckDesignDirection({
@@ -3224,7 +3452,7 @@ export function buildHomeTemplateStyleGenerateDeckDesignDirection(
       densityTarget: "low",
       mediaPolicy: "balanced",
       layoutDiversity: "stable",
-      stylePackId: styleId
+      stylePackId: styleId,
     });
   }
 
@@ -3235,7 +3463,7 @@ export function buildHomeTemplateStyleGenerateDeckDesignDirection(
       densityTarget: "high",
       mediaPolicy: "balanced",
       layoutDiversity: "stable",
-      stylePackId: styleId
+      stylePackId: styleId,
     });
   }
 
@@ -3245,7 +3473,7 @@ export function buildHomeTemplateStyleGenerateDeckDesignDirection(
     densityTarget: "medium",
     mediaPolicy: "balanced",
     layoutDiversity: "stable",
-    stylePackId: simpleBasicStylePackId
+    stylePackId: simpleBasicStylePackId,
   });
 }
 
@@ -3273,7 +3501,7 @@ export function buildTemplateStyleDesignOverrides(input: {
 
 export function mergeGeneratedProjectList(
   current: Project[] | undefined,
-  project: Project
+  project: Project,
 ) {
   return current?.some((item) => item.projectId === project.projectId)
     ? current
@@ -3281,11 +3509,15 @@ export function mergeGeneratedProjectList(
 }
 
 export function buildReferenceGenerationInput(
-  files: ExtractedFile[]
+  files: ExtractedFile[],
 ): ReferenceGenerationInput {
   const references: Array<{ fileId: string }> = [];
   const referenceKeywords: Array<{ text: string }> = [];
-  const referenceContext: Array<{ fileId: string; title: string; content: string }> = [];
+  const referenceContext: Array<{
+    fileId: string;
+    title: string;
+    content: string;
+  }> = [];
   const succeededFiles: ExtractedFile[] = [];
   const failedFiles: ExtractedFile[] = [];
   const seenFileIds = new Set<string>();
@@ -3307,7 +3539,7 @@ export function buildReferenceGenerationInput(
 
     const content = (file.cleanedText?.trim() || file.rawText.trim()).slice(
       0,
-      referenceContextMaxChars
+      referenceContextMaxChars,
     );
     if (content && !seenContextIds.has(fileId)) {
       seenContextIds.add(fileId);
@@ -3329,7 +3561,7 @@ export function buildReferenceGenerationInput(
     referenceKeywords,
     referenceContext,
     succeededFiles,
-    failedFiles
+    failedFiles,
   };
 }
 
@@ -3438,7 +3670,7 @@ function GeneratedSlideElement(props: {
     height: `${(element.height / canvas.height) * 100}%`,
     opacity: element.opacity,
     transform: `rotate(${element.rotation}deg)`,
-    zIndex: element.zIndex
+    zIndex: element.zIndex,
   };
 
   if (element.type === "text") {
@@ -3451,7 +3683,7 @@ function GeneratedSlideElement(props: {
           fontSize: `max(8px, ${(element.props.fontSize / canvas.width) * 100}cqw)`,
           fontWeight: element.props.fontWeight,
           lineHeight: element.props.lineHeight,
-          textAlign: element.props.align
+          textAlign: element.props.align,
         }}
       >
         {element.props.text}
@@ -3459,7 +3691,12 @@ function GeneratedSlideElement(props: {
     );
   }
 
-  return <div className="generated-slide-element generated-slide-shape" style={baseStyle} />;
+  return (
+    <div
+      className="generated-slide-element generated-slide-shape"
+      style={baseStyle}
+    />
+  );
 }
 
 export function ExtractResultItem(props: { result: ExtractedFile }) {
@@ -3476,7 +3713,9 @@ export function ExtractResultItem(props: { result: ExtractedFile }) {
       {result.indexingStatus ? (
         <p>
           {result.indexingStatus}
-          {typeof result.chunkCount === "number" ? ` 쨌 ${result.chunkCount} chunks` : ""}
+          {typeof result.chunkCount === "number"
+            ? ` 쨌 ${result.chunkCount} chunks`
+            : ""}
           {result.indexingMessage ? ` 쨌 ${result.indexingMessage}` : ""}
         </p>
       ) : null}

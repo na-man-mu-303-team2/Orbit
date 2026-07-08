@@ -4623,6 +4623,7 @@ export function EditorShell(props: { projectId?: string }) {
           )
         : null}
       <AudienceLinkModal
+        deckId={deck.deckId}
         isOpen={isAudienceLinkModalOpen}
         projectId={projectId}
         onClose={() => setIsAudienceLinkModalOpen(false)}

@@ -1,9 +1,9 @@
 import { AudienceEntrance } from "../../features/audience/AudienceEntrance";
 
 type AudienceSessionPageProps = {
-  sessionId: string;
+  joinCode?: string;
 };
 
-export function AudienceSessionPage({ sessionId }: AudienceSessionPageProps) {
-  return <AudienceEntrance sessionId={sessionId} />;
+export function AudienceSessionPage({ joinCode }: AudienceSessionPageProps) {
+  return <AudienceEntrance initialJoinCode={joinCode} />;
 }

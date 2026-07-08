@@ -11,6 +11,7 @@ export const filePurposeSchema = z.enum([
   "report-result",
   "thumbnail",
   "design-asset",
+  "audience-slide-snapshot",
 ]);
 
 export const allowedAssetMimeTypes = [

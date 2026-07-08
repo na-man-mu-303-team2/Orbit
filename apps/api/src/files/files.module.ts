@@ -53,6 +53,6 @@ import {
       },
     },
   ],
-  exports: [FilesService],
+  exports: [FilesService, STORAGE_PORT],
 })
 export class FilesModule {}

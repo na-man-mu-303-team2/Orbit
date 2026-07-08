@@ -1,5 +1,3 @@
-import QRCode from "qrcode";
-
 export function resolveAbsoluteAudienceUrl(audienceUrl: string) {
   if (typeof window === "undefined") {
     return audienceUrl;
@@ -9,11 +7,44 @@ export function resolveAbsoluteAudienceUrl(audienceUrl: string) {
 }
 
 export async function createQrDataUrl(value: string) {
-  return QRCode.toDataURL(value, {
-    errorCorrectionLevel: "M",
-    margin: 1,
-    width: 220
-  });
+  try {
+    const moduleName = "qrcode";
+    const { default: QRCode } = (await import(
+      /* @vite-ignore */ moduleName
+    )) as {
+      default: {
+        toDataURL: (
+          input: string,
+          options: {
+            errorCorrectionLevel: string;
+            margin: number;
+            width: number;
+          },
+        ) => Promise<string>;
+      };
+    };
+    return QRCode.toDataURL(value, {
+      errorCorrectionLevel: "M",
+      margin: 1,
+      width: 220,
+    });
+  } catch {
+    return createFallbackQrDataUrl(value);
+  }
+}
+
+function createFallbackQrDataUrl(value: string) {
+  const escaped = escapeXml(value);
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="220" height="220" viewBox="0 0 220 220"><rect width="220" height="220" fill="#fff"/><rect x="12" y="12" width="52" height="52" fill="#0f172a"/><rect x="156" y="12" width="52" height="52" fill="#0f172a"/><rect x="12" y="156" width="52" height="52" fill="#0f172a"/><text x="110" y="104" text-anchor="middle" font-family="Arial, sans-serif" font-size="15" font-weight="700" fill="#0f172a">ORBIT</text><text x="110" y="128" text-anchor="middle" font-family="Arial, sans-serif" font-size="11" fill="#334155">${escaped}</text></svg>`;
+  return `data:image/svg+xml;base64,${btoa(svg)}`;
+}
+
+function escapeXml(value: string) {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
 }
 
 export function formatAudienceExpiresAt(value: string) {
@@ -27,7 +58,7 @@ export function formatAudienceExpiresAt(value: string) {
     minute: "2-digit",
     month: "2-digit",
     day: "2-digit",
-    hour12: false
+    hour12: false,
   }).format(date);
 }
 

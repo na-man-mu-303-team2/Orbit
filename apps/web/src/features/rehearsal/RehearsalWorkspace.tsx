@@ -20,6 +20,7 @@ import {
   type LiveSttPartialTranscriptEvent,
   type LiveSttSlideAdvanceEvent,
   type PutDeckResponse,
+  type ReactionType,
   type RehearsalReport,
   type RehearsalRun,
   type RehearsalRunMeta,
@@ -53,6 +54,12 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import {
+  createAudiencePresenterRealtimePublisher,
+  type AudiencePresenterRealtimePublisher,
+} from "../audience/audiencePresenterRealtime";
+import { AudiencePresenterPanel } from "../audience/AudiencePresenterPanel";
+import { fetchCurrentAudienceAccessSession } from "../editor/audience-link/audienceLinkApi";
 import { JobProgressDisplay } from "./JobProgressDisplay";
 import { RehearsalReportDocument } from "./RehearsalReportDocument";
 import { RehearsalRunNav } from "./RehearsalRunNav";
@@ -1592,6 +1599,14 @@ export function RehearsalWorkspace(props: {
   const [slideElapsedSeconds, setSlideElapsedSeconds] = useState(0);
   const [isTimerRunning, setIsTimerRunning] = useState(false);
   const [isSingleScreenOpen, setIsSingleScreenOpen] = useState(false);
+  const [audienceSessionId, setAudienceSessionId] = useState<string | null>(
+    null,
+  );
+  const [audiencePublisher, setAudiencePublisher] =
+    useState<AudiencePresenterRealtimePublisher | null>(null);
+  const [recentAudienceReactions, setRecentAudienceReactions] = useState<
+    ReactionType[]
+  >([]);
   const [isCompletionModalOpen, setIsCompletionModalOpen] = useState(false);
   const [timeMode, setTimeMode] = useState<RehearsalTimeMode>("timer");
   const [timerDurationSeconds, setTimerDurationSeconds] = useState(5 * 60);
@@ -1634,6 +1649,8 @@ export function RehearsalWorkspace(props: {
   );
   const lastSentenceSpokenAtMsRef = useRef<number | null>(null);
   const pauseDetectorRef = useRef<PauseDetector | null>(null);
+  const audiencePublisherRef =
+    useRef<AudiencePresenterRealtimePublisher | null>(null);
   const { settings: presenterSettings, save: savePresenterSettings } =
     usePresenterSettings();
 
@@ -1686,6 +1703,31 @@ export function RehearsalWorkspace(props: {
   useEffect(() => {
     currentSlideIndexRef.current = currentSlideIndex;
   }, [currentSlideIndex]);
+
+  useEffect(() => {
+    if (!props.projectId) {
+      setAudienceSessionId(null);
+      return;
+    }
+
+    let isCancelled = false;
+
+    void fetchCurrentAudienceAccessSession(props.projectId)
+      .then((payload) => {
+        if (!isCancelled) {
+          setAudienceSessionId(payload.session?.sessionId ?? null);
+        }
+      })
+      .catch(() => {
+        if (!isCancelled) {
+          setAudienceSessionId(null);
+        }
+      });
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [props.projectId]);
 
   useEffect(() => {
     presenterStepIndexRef.current = presenterStepIndex;
@@ -1934,6 +1976,47 @@ export function RehearsalWorkspace(props: {
     state: presentationChannelState,
     triggerAnimationIds,
   });
+  useEffect(() => {
+    if (!audienceSessionId) {
+      audiencePublisherRef.current?.disconnect();
+      audiencePublisherRef.current = null;
+      setAudiencePublisher(null);
+      setRecentAudienceReactions([]);
+      return;
+    }
+
+    setRecentAudienceReactions([]);
+    const publisher = createAudiencePresenterRealtimePublisher({
+      onReaction: (payload) => {
+        setRecentAudienceReactions((current) =>
+          [payload.reaction, ...current].slice(0, 5),
+        );
+      },
+      sessionId: audienceSessionId,
+    });
+    audiencePublisherRef.current = publisher;
+    setAudiencePublisher(publisher);
+
+    return () => {
+      publisher.disconnect();
+      if (audiencePublisherRef.current === publisher) {
+        audiencePublisherRef.current = null;
+      }
+      setAudiencePublisher(null);
+    };
+  }, [audienceSessionId]);
+
+  useEffect(() => {
+    if (!audiencePublisher || !presentationChannelState) {
+      return;
+    }
+
+    audiencePublisher.publishState({
+      state: presentationChannelState,
+      triggerAnimationIds,
+    });
+  }, [audiencePublisher, presentationChannelState, triggerAnimationIds]);
+
   const displayManager = useMemo(() => createDisplayManager(), []);
   const slideshowAnimationPlan = currentSlide
     ? createSlideshowAnimationPlan({
@@ -3877,10 +3960,10 @@ export function RehearsalWorkspace(props: {
                       phase === "recording"
                         ? "리포트 녹음 종료"
                         : canStopLiveDemo
-                        ? "Live STT 종료"
-                        : isTimerRunning
-                          ? "타이머 일시정지"
-                          : "리포트 녹음 시작"
+                          ? "Live STT 종료"
+                          : isTimerRunning
+                            ? "타이머 일시정지"
+                            : "리포트 녹음 시작"
                     }
                     onClick={handleSideTimerPrimaryAction}
                     disabled={!deck && !isTimerRunning}
@@ -3972,136 +4055,149 @@ export function RehearsalWorkspace(props: {
             speakerNotes={currentSlide?.speakerNotes ?? ""}
             snapshot={p3PanelSnapshot}
             liveSlot={
-              <section className="rehearsal-assist-card checklist-card">
-                <header>
-                  <span>
-                    <Mic size={16} />
-                    Live STT
-                  </span>
-                  <button type="button" aria-label="More checklist options">
-                    <MoreHorizontal size={18} />
-                  </button>
-                </header>
-
-                <div
-                  className={`rehearsal-live-status rehearsal-live-status-${liveStatus}`}
-                >
-                  <strong>{liveStatus}</strong>
-                  <span>
-                    {p3RunMeta
-                      ? `로컬 메타 ${p3RunMeta.slideTimeline.length}개 슬라이드`
-                      : advanceControllerState.status === "countdown"
-                        ? "자동 전환 카운트다운"
-                        : advanceControllerState.status === "blocked-by-builds"
-                          ? "빌드 대기"
-                          : advanceControllerState.status === "finish-suggested"
-                            ? "종료 제안"
-                            : "자동 전환 활성"}
-                  </span>
-                </div>
-
-                <AutoAdvanceStatus
-                  countdownMs={presenterSettings.advancePolicy.countdownMs}
-                  nowMs={autoAdvanceNowMs}
-                  onFinish={finishRehearsal}
-                  state={advanceControllerState}
-                />
-
-                <AutoAdvanceSettings
-                  policy={presenterSettings.advancePolicy}
-                  saveSettings={savePresenterSettings}
-                />
-
-                <div className="rehearsal-live-actions rehearsal-live-actions-legacy">
-                  <button
-                    className="primary-action"
-                    type="button"
-                    onClick={() => void startLiveDemo()}
-                    disabled={!canStartLiveDemo}
-                  >
-                    <Mic size={18} />
-                    Live STT 시작
-                  </button>
-                  <button
-                    className="secondary-action"
-                    type="button"
-                    onClick={() => stopLiveDemo({ showCompletionModal: true })}
-                    disabled={!canStopLiveDemo}
-                  >
-                    <Square size={18} />
-                    Live STT 종료
-                  </button>
-                </div>
-
-                <div
-                  className={`rehearsal-live-audio-meter rehearsal-live-audio-meter-${liveAudioMeterState}`}
-                >
-                  <div className="rehearsal-live-audio-meter-header">
-                    <span>Mic input</span>
-                    <strong>{liveAudioLevelLabel}</strong>
-                  </div>
-                  <div
-                    className="rehearsal-live-audio-meter-track"
-                    role="meter"
-                    aria-label="Mic input level"
-                    aria-valuemin={0}
-                    aria-valuemax={100}
-                    aria-valuenow={Math.round(liveAudioLevelPercent)}
-                    aria-valuetext={liveAudioLevelLabel}
-                  >
-                    <span style={{ width: `${liveAudioLevelPercent}%` }} />
-                  </div>
-                  <small>
-                    {liveAudioLevel
-                      ? `${Math.round(liveAudioLevel.rmsDb)} dB RMS`
-                      : "-100 dB RMS"}
-                  </small>
-                </div>
-                {canDownloadLiveSttDebugPcm ? (
-                  <button
-                    className="secondary-action"
-                    type="button"
-                    onClick={() => {
-                      if (liveDebugPcmRecording) {
-                        downloadLiveSttDebugPcm(liveDebugPcmRecording);
-                      }
-                    }}
-                  >
-                    <Download size={16} />
-                    모델 입력 WAV 다운로드
-                  </button>
+              <>
+                {props.projectId ? (
+                  <AudiencePresenterPanel
+                    projectId={props.projectId}
+                    publisher={audiencePublisher}
+                    recentReactions={recentAudienceReactions}
+                  />
                 ) : null}
-
-                {liveCue && (
-                  <div className="job-status" aria-live="polite">
-                    <div>
-                      <strong>emphasis</strong>
-                      <span>{liveCue.text}</span>
-                    </div>
-                    <p>현재 슬라이드에서 키워드를 감지했습니다.</p>
-                  </div>
-                )}
-
-                {liveSlideAdvance && (
-                  <div className="project-status-message project-status-success">
-                    <CheckCircle2 size={18} />
+                <section className="rehearsal-assist-card checklist-card">
+                  <header>
                     <span>
-                      키워드 {Math.round(liveSlideAdvance.coverage * 100)}%
-                      감지로 자동 전환
+                      <Mic size={16} />
+                      Live STT
+                    </span>
+                    <button type="button" aria-label="More checklist options">
+                      <MoreHorizontal size={18} />
+                    </button>
+                  </header>
+
+                  <div
+                    className={`rehearsal-live-status rehearsal-live-status-${liveStatus}`}
+                  >
+                    <strong>{liveStatus}</strong>
+                    <span>
+                      {p3RunMeta
+                        ? `로컬 메타 ${p3RunMeta.slideTimeline.length}개 슬라이드`
+                        : advanceControllerState.status === "countdown"
+                          ? "자동 전환 카운트다운"
+                          : advanceControllerState.status ===
+                              "blocked-by-builds"
+                            ? "빌드 대기"
+                            : advanceControllerState.status ===
+                                "finish-suggested"
+                              ? "종료 제안"
+                              : "자동 전환 활성"}
                     </span>
                   </div>
-                )}
 
-                {liveError && (
-                  <div
-                    className="project-status-message project-status-danger"
-                    role="status"
-                  >
-                    <AlertCircle size={18} />
-                    <span>{liveError}</span>
+                  <AutoAdvanceStatus
+                    countdownMs={presenterSettings.advancePolicy.countdownMs}
+                    nowMs={autoAdvanceNowMs}
+                    onFinish={finishRehearsal}
+                    state={advanceControllerState}
+                  />
+
+                  <AutoAdvanceSettings
+                    policy={presenterSettings.advancePolicy}
+                    saveSettings={savePresenterSettings}
+                  />
+
+                  <div className="rehearsal-live-actions rehearsal-live-actions-legacy">
+                    <button
+                      className="primary-action"
+                      type="button"
+                      onClick={() => void startLiveDemo()}
+                      disabled={!canStartLiveDemo}
+                    >
+                      <Mic size={18} />
+                      Live STT 시작
+                    </button>
+                    <button
+                      className="secondary-action"
+                      type="button"
+                      onClick={() =>
+                        stopLiveDemo({ showCompletionModal: true })
+                      }
+                      disabled={!canStopLiveDemo}
+                    >
+                      <Square size={18} />
+                      Live STT 종료
+                    </button>
                   </div>
-                )}
-              </section>
+
+                  <div
+                    className={`rehearsal-live-audio-meter rehearsal-live-audio-meter-${liveAudioMeterState}`}
+                  >
+                    <div className="rehearsal-live-audio-meter-header">
+                      <span>Mic input</span>
+                      <strong>{liveAudioLevelLabel}</strong>
+                    </div>
+                    <div
+                      className="rehearsal-live-audio-meter-track"
+                      role="meter"
+                      aria-label="Mic input level"
+                      aria-valuemin={0}
+                      aria-valuemax={100}
+                      aria-valuenow={Math.round(liveAudioLevelPercent)}
+                      aria-valuetext={liveAudioLevelLabel}
+                    >
+                      <span style={{ width: `${liveAudioLevelPercent}%` }} />
+                    </div>
+                    <small>
+                      {liveAudioLevel
+                        ? `${Math.round(liveAudioLevel.rmsDb)} dB RMS`
+                        : "-100 dB RMS"}
+                    </small>
+                  </div>
+                  {canDownloadLiveSttDebugPcm ? (
+                    <button
+                      className="secondary-action"
+                      type="button"
+                      onClick={() => {
+                        if (liveDebugPcmRecording) {
+                          downloadLiveSttDebugPcm(liveDebugPcmRecording);
+                        }
+                      }}
+                    >
+                      <Download size={16} />
+                      모델 입력 WAV 다운로드
+                    </button>
+                  ) : null}
+
+                  {liveCue && (
+                    <div className="job-status" aria-live="polite">
+                      <div>
+                        <strong>emphasis</strong>
+                        <span>{liveCue.text}</span>
+                      </div>
+                      <p>현재 슬라이드에서 키워드를 감지했습니다.</p>
+                    </div>
+                  )}
+
+                  {liveSlideAdvance && (
+                    <div className="project-status-message project-status-success">
+                      <CheckCircle2 size={18} />
+                      <span>
+                        키워드 {Math.round(liveSlideAdvance.coverage * 100)}%
+                        감지로 자동 전환
+                      </span>
+                    </div>
+                  )}
+
+                  {liveError && (
+                    <div
+                      className="project-status-message project-status-danger"
+                      role="status"
+                    >
+                      <AlertCircle size={18} />
+                      <span>{liveError}</span>
+                    </div>
+                  )}
+                </section>
+              </>
             }
           />
         </aside>

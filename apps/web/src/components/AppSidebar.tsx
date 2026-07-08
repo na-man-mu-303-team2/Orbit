@@ -4,9 +4,10 @@ import {
   Home,
   LogIn,
   LogOut,
+  Monitor,
   PanelLeftClose,
   PanelLeftOpen,
-  Sparkles
+  Sparkles,
 } from "lucide-react";
 import type { ReactNode } from "react";
 import orbitLogo from "../assets/orbit-logo.png";
@@ -18,12 +19,14 @@ type AppSidebarProps = {
   isHomeActive: boolean;
   isLoggingOut: boolean;
   isProjectActive: boolean;
+  isRehearsalActive: boolean;
   isReportActive: boolean;
   onCreateDeckClick: () => void;
   onHomeClick: () => void;
   onLoginClick: () => void;
   onLogoutClick: () => void;
   onProjectListClick: () => void;
+  onRehearsalClick: () => void;
   onReportClick: () => void;
   onToggleCollapse: () => void;
   userInitial: string;
@@ -38,16 +41,18 @@ export function AppSidebar(props: AppSidebarProps) {
     isHomeActive,
     isLoggingOut,
     isProjectActive,
+    isRehearsalActive,
     isReportActive,
     onCreateDeckClick,
     onHomeClick,
     onLoginClick,
     onLogoutClick,
     onProjectListClick,
+    onRehearsalClick,
     onReportClick,
     onToggleCollapse,
     userInitial,
-    userLabel
+    userLabel,
   } = props;
 
   return (
@@ -68,7 +73,11 @@ export function AppSidebar(props: AppSidebarProps) {
         type="button"
         onClick={onToggleCollapse}
       >
-        {isCollapsed ? <PanelLeftOpen size={17} /> : <PanelLeftClose size={17} />}
+        {isCollapsed ? (
+          <PanelLeftOpen size={17} />
+        ) : (
+          <PanelLeftClose size={17} />
+        )}
       </button>
       <SidebarButton
         active={isHomeActive}
@@ -93,6 +102,12 @@ export function AppSidebar(props: AppSidebarProps) {
         icon={<Sparkles size={15} />}
         label="AI 덱 생성"
         onClick={onCreateDeckClick}
+      />
+      <SidebarButton
+        active={isRehearsalActive}
+        icon={<Monitor size={15} />}
+        label="리허설 시작"
+        onClick={onRehearsalClick}
       />
       <div className="orbit-product-nav-account">
         {isAuthenticated ? (
@@ -139,7 +154,11 @@ function SidebarButton(props: {
 }) {
   return (
     <button
-      className={props.active ? "rehearsal-report-nav-item active" : "rehearsal-report-nav-item"}
+      className={
+        props.active
+          ? "rehearsal-report-nav-item active"
+          : "rehearsal-report-nav-item"
+      }
       title={props.label}
       type="button"
       onClick={props.onClick}

@@ -1006,7 +1006,7 @@ Implementation locations:
 
 발표/리허설 중 사용자의 발화를 실시간으로 인식해 화면 제어에 사용한다.
 
-- device-local provider env: `LIVE_STT_PROVIDER=sherpa`
+- provider env: `LIVE_STT_PROVIDER=web-speech | sherpa`
 - browser engine env: `LIVE_STT_ENGINE=openai-realtime | web-speech`
 - 기본 browser engine: `web-speech`
 - OpenAI model env: `OPENAI_REALTIME_TRANSCRIPTION_MODEL=gpt-realtime-whisper`

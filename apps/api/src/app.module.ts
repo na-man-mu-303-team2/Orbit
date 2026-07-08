@@ -42,8 +42,8 @@ import { RuntimeConfigModule } from "./runtime-config/runtime-config.module";
     ReferencesModule,
     RuntimeConfigModule,
     RealtimeTranscriptionModule,
-    RehearsalsModule
+    RehearsalsModule,
   ],
-  providers: [RealtimeGateway]
+  providers: [RealtimeGateway],
 })
 export class AppModule {}

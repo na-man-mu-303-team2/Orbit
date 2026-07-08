@@ -44,15 +44,15 @@ import {
   resolveGenerateDeckTargetProject,
   shouldRenderAppFrame,
   TemplateRail,
-  TemplateStyleOptionsPanel
+  TemplateStyleOptionsPanel,
 } from "./App";
 
 vi.mock("react-konva", () => {
   const Group = forwardRef<HTMLDivElement, { children?: ReactNode }>(
-    ({ children }, ref) => <div ref={ref}>{children}</div>
+    ({ children }, ref) => <div ref={ref}>{children}</div>,
   );
   const Stage = forwardRef<HTMLDivElement, { children?: ReactNode }>(
-    ({ children }, ref) => <div ref={ref}>{children}</div>
+    ({ children }, ref) => <div ref={ref}>{children}</div>,
   );
   const Text = ({ text }: { text?: string }) => <span>{text}</span>;
 
@@ -68,7 +68,7 @@ vi.mock("react-konva", () => {
     Shape: () => <span data-konva-shape="true" />,
     Star: () => <span data-konva-star="true" />,
     Stage,
-    Text
+    Text,
   };
 });
 
@@ -78,58 +78,83 @@ describe("App shell routing", () => {
     expect(
       shouldRenderAppFrame({
         name: "project-editor",
-        projectId: "project_demo_1"
-      })
+        projectId: "project_demo_1",
+      }),
     ).toBe(false);
     expect(
       shouldRenderAppFrame({
         name: "rehearsal",
-        projectId: "project_demo_1"
-      })
+        projectId: "project_demo_1",
+      }),
     ).toBe(false);
     expect(
       shouldRenderAppFrame({
         name: "rehearsal-report",
         projectId: "project_demo_1",
-        runId: "run_demo_1"
-      })
+        runId: "run_demo_1",
+      }),
     ).toBe(false);
     expect(
       shouldRenderAppFrame({
         name: "present",
         deckId: "deck_demo_1",
-        sessionId: "session_demo_1"
-      })
+        sessionId: "session_demo_1",
+      }),
     ).toBe(false);
     expect(shouldRenderAppFrame({ name: "home" })).toBe(true);
   });
 
   it("parses presenter slide-window routes with an optional session id", () => {
-    expect(getRoute("/present/deck_demo_1", "?sessionId=session_demo_1")).toEqual({
+    expect(
+      getRoute("/present/deck_demo_1", "?sessionId=session_demo_1"),
+    ).toEqual({
       name: "present",
       deckId: "deck_demo_1",
-      sessionId: "session_demo_1"
+      sessionId: "session_demo_1",
     });
     expect(getRoute("/present/deck_demo_1")).toEqual({
       name: "present",
       deckId: "deck_demo_1",
-      sessionId: undefined
+      sessionId: undefined,
     });
+  });
+
+  it("parses audience join routes outside the shared navigation shell", () => {
+    expect(getRoute("/join")).toEqual({ name: "audience-join" });
+    expect(getRoute("/join/123456")).toEqual({
+      name: "audience-join",
+      joinCode: "123456",
+    });
+    expect(shouldRenderAppFrame({ name: "audience-join" })).toBe(false);
+  });
+
+  it("parses presenter audience control routes inside the shared shell", () => {
+    const route = getRoute(
+      "/presentations/session_1/audience",
+      "?projectId=project%20a",
+    );
+
+    expect(route).toEqual({
+      name: "audience-control",
+      projectId: "project a",
+      sessionId: "session_1",
+    });
+    expect(shouldRenderAppFrame(route)).toBe(true);
   });
 
   it("parses rehearsal presenter-window session query parameters", () => {
     expect(
       getRoute(
         "/rehearsal/project_demo_1",
-        "?presenterSessionId=session-presenter-1&presenterWindow=1&slideIndex=2&stepIndex=1"
-      )
+        "?presenterSessionId=session-presenter-1&presenterWindow=1&slideIndex=2&stepIndex=1",
+      ),
     ).toEqual({
       name: "rehearsal",
       presenterInitialSlideIndex: 2,
       presenterInitialStepIndex: 1,
       presenterSessionId: "session-presenter-1",
       presenterWindow: true,
-      projectId: "project_demo_1"
+      projectId: "project_demo_1",
     });
   });
 
@@ -148,10 +173,10 @@ describe("App shell routing", () => {
   it("parses a selected home template style from the query string", () => {
     expect(getRoute("/", "?templateStyle=presentation-document")).toEqual({
       name: "home",
-      templateStyleId: "presentation-document"
+      templateStyleId: "presentation-document",
     });
     expect(getHomeTemplateStylePath("submission-document")).toBe(
-      "/?templateStyle=submission-document"
+      "/?templateStyle=submission-document",
     );
   });
 });
@@ -159,7 +184,7 @@ describe("App shell routing", () => {
 describe("home template styles", () => {
   it("renders only the three supported template style cards", () => {
     const html = renderToStaticMarkup(
-      <TemplateRail title="템플릿" selectedStyleId="presentation-document" />
+      <TemplateRail title="템플릿" selectedStyleId="presentation-document" />,
     );
 
     expect(homeTemplateStyles).toHaveLength(3);
@@ -215,7 +240,7 @@ describe("home template styles", () => {
         onRemoveUpload={() => undefined}
         onUpdateUploadRole={() => undefined}
         onGenerate={() => undefined}
-      />
+      />,
     );
 
     expect(html).toContain("발표 주제");
@@ -230,7 +255,7 @@ describe("home template styles", () => {
 
   it("hides design reference roles in the selected template style settings", () => {
     const pptx = new File(["pptx"], "reference.pptx", {
-      type: "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+      type: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
     });
     const html = renderToStaticMarkup(
       <TemplateStyleOptionsPanel
@@ -266,7 +291,7 @@ describe("home template styles", () => {
         onRemoveUpload={() => undefined}
         onUpdateUploadRole={() => undefined}
         onGenerate={() => undefined}
-      />
+      />,
     );
 
     expect(html).toContain("내용 참고");
@@ -287,8 +312,8 @@ describe("reference extraction upload flow", () => {
         cleanedText: "cleaned",
         keywords: [
           { keyword: "Deck", reason: "topic", priority: "high" },
-          { keyword: " deck ", reason: "duplicate", priority: "medium" }
-        ]
+          { keyword: " deck ", reason: "duplicate", priority: "medium" },
+        ],
       },
       {
         referenceDocumentId: "file_2",
@@ -296,7 +321,7 @@ describe("reference extraction upload flow", () => {
         kind: "pdf",
         status: "failed",
         rawText: "",
-        keywords: [{ keyword: "ignored", reason: "failed", priority: "low" }]
+        keywords: [{ keyword: "ignored", reason: "failed", priority: "low" }],
       },
       {
         referenceDocumentId: "file_1",
@@ -304,17 +329,19 @@ describe("reference extraction upload flow", () => {
         kind: "pdf",
         status: "succeeded",
         rawText: "raw",
-        keywords: [{ keyword: "AI", reason: "topic", priority: "high" }]
-      }
+        keywords: [{ keyword: "AI", reason: "topic", priority: "high" }],
+      },
     ]);
 
     expect(input.references).toEqual([{ fileId: "file_1" }]);
     expect(input.referenceKeywords).toEqual([{ text: "Deck" }, { text: "AI" }]);
     expect(input.referenceContext).toEqual([
-      { fileId: "file_1", title: "success.pdf", content: "cleaned" }
+      { fileId: "file_1", title: "success.pdf", content: "cleaned" },
     ]);
     expect(input.succeededFiles).toHaveLength(2);
-    expect(input.failedFiles.map((file) => file.fileName)).toEqual(["failed.pdf"]);
+    expect(input.failedFiles.map((file) => file.fileName)).toEqual([
+      "failed.pdf",
+    ]);
   });
 
   it("polls a succeeded job and renders its result", async () => {
@@ -330,7 +357,7 @@ describe("reference extraction upload flow", () => {
       keywordStatus: "succeeded",
       indexingStatus: "indexed",
       indexingMessage: "stored",
-      chunkCount: 2
+      chunkCount: 2,
     };
     const baseJob: Job = {
       jobId: "job-1",
@@ -342,7 +369,7 @@ describe("reference extraction upload flow", () => {
       result: null,
       error: null,
       createdAt: "2026-06-27T00:00:00.000Z",
-      updatedAt: "2026-06-27T00:00:00.000Z"
+      updatedAt: "2026-06-27T00:00:00.000Z",
     };
     const fetcher = vi
       .fn()
@@ -353,9 +380,9 @@ describe("reference extraction upload flow", () => {
             ...baseJob,
             status: "succeeded",
             progress: 100,
-            result: { files: [file] }
-          })
-        )
+            result: { files: [file] },
+          }),
+        ),
       );
 
     const job = await pollExtractJob("job-1", { delayMs: 0, fetcher });
@@ -376,44 +403,44 @@ describe("AI deck generation flow", () => {
       buildPptxOoxmlGenerationPayload({
         fileId: "file_template",
         topic: " ORBIT ",
-        prompt: " Keep source package "
-      })
+        prompt: " Keep source package ",
+      }),
     ).toEqual({
       fileId: "file_template",
       topic: "ORBIT",
-      prompt: "Keep source package"
+      prompt: "Keep source package",
     });
     expect(
       buildPptxOoxmlGenerationPayload({
         fileId: "file_template",
         topic: " ",
-        prompt: ""
-      })
+        prompt: "",
+      }),
     ).toEqual({ fileId: "file_template" });
   });
 
   it("validates the home PPTX conversion shortcut", () => {
     const pptx = new File(["pptx"], "source deck.pptx", {
-      type: "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+      type: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
     });
     const pdf = new File(["pdf"], "content.pdf", { type: "application/pdf" });
 
     expect(getHomePptxConversionValidationMessage([])).toBe(
-      "변환할 PPTX 파일을 첨부하세요."
+      "변환할 PPTX 파일을 첨부하세요.",
     );
     expect(
       getHomePptxConversionValidationMessage([
-        { id: "pptx", file: pptx, role: "design" }
-      ])
+        { id: "pptx", file: pptx, role: "design" },
+      ]),
     ).toBe("");
     expect(
       getHomePptxConversionValidationMessage([
         { id: "pptx", file: pptx, role: "design" },
-        { id: "pdf", file: pdf, role: "content" }
-      ])
+        { id: "pdf", file: pdf, role: "content" },
+      ]),
     ).toBe("PPTX 변환은 PPTX 파일 1개만 첨부할 수 있습니다.");
     expect(getPptxConversionProjectTitle(" source deck.pptx ")).toBe(
-      "source deck"
+      "source deck",
     );
   });
 
@@ -438,7 +465,7 @@ describe("AI deck generation flow", () => {
             color: 90,
             layer: 90,
             editability: 90,
-            pixelSimilarity: null
+            pixelSimilarity: null,
           },
           weights: {
             geometry: 25,
@@ -446,35 +473,35 @@ describe("AI deck generation flow", () => {
             color: 10,
             layer: 10,
             editability: 10,
-            pixelSimilarity: 30
+            pixelSimilarity: 30,
           },
           editabilityCoverage: 0.9,
           appliedCap: null,
-          notes: []
+          notes: [],
         },
-        warnings: []
+        warnings: [],
       },
       error: null,
       createdAt: "2026-06-27T00:00:00.000Z",
-      updatedAt: "2026-06-27T00:00:01.000Z"
+      updatedAt: "2026-06-27T00:00:01.000Z",
     };
 
     expect(getPptxOoxmlGenerationJobResult(job)?.deckId).toBe(
-      "deck_ooxml_file_template"
+      "deck_ooxml_file_template",
     );
     expect(getPptxOoxmlGeneratedProjectPath("project-a")).toBe(
-      "/project/project-a"
+      "/project/project-a",
     );
   });
 
   it("builds a home AI template deck payload with file roles", () => {
     const pptx = new File(["pptx"], "design.pptx", {
-      type: "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+      type: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
     });
     const pdf = new File(["pdf"], "content.pdf", { type: "application/pdf" });
     const uploadedFileIds = new Map([
       ["content", "file_content"],
-      ["design", "file_design"]
+      ["design", "file_design"],
     ]);
 
     expect(
@@ -488,10 +515,10 @@ describe("AI deck generation flow", () => {
         tone: "confident",
         uploads: [
           { id: "content", file: pdf, role: "content" },
-          { id: "design", file: pptx, role: "design" }
+          { id: "design", file: pptx, role: "design" },
         ],
-        uploadedAssetFileIds: uploadedFileIds
-      })
+        uploadedAssetFileIds: uploadedFileIds,
+      }),
     ).toMatchObject({
       topic: "ORBIT",
       prompt: "핵심 메시지",
@@ -501,18 +528,18 @@ describe("AI deck generation flow", () => {
       metadata: {
         audience: "general",
         purpose: "inform",
-        tone: "confident"
+        tone: "confident",
       },
       assets: [
         { fileId: "file_content", role: "content" },
-        { fileId: "file_design", role: "design" }
-      ]
+        { fileId: "file_design", role: "design" },
+      ],
     });
   });
 
   it("keeps a home PPTX both role in the AI template deck payload", () => {
     const pptx = new File(["pptx"], "template.pptx", {
-      type: "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+      type: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
     });
 
     expect(
@@ -525,8 +552,8 @@ describe("AI deck generation flow", () => {
         maxSlides: 8,
         tone: "professional",
         uploads: [{ id: "template", file: pptx, role: "both" }],
-        uploadedAssetFileIds: new Map([["template", "file_template"]])
-      }).assets
+        uploadedAssetFileIds: new Map([["template", "file_template"]]),
+      }).assets,
     ).toEqual([{ fileId: "file_template", role: "both" }]);
   });
 
@@ -537,60 +564,62 @@ describe("AI deck generation flow", () => {
 
   it("rejects invalid home generation duration and slide ranges", () => {
     const pptx = new File(["pptx"], "design.pptx", {
-      type: "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+      type: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
     });
     const pdf = new File(["pdf"], "content.pdf", { type: "application/pdf" });
     const uploads = [{ id: "design", file: pptx, role: "design" as const }];
 
-    expect(getHomeGenerationValidationMessage("ORBIT", [], "10", "5", "8")).toBe("");
+    expect(
+      getHomeGenerationValidationMessage("ORBIT", [], "10", "5", "8"),
+    ).toBe("");
     expect(
       getHomeGenerationValidationMessage(
         "ORBIT",
         [{ id: "pdf", file: pdf, role: "design" }],
         "10",
         "5",
-        "8"
-      )
+        "8",
+      ),
     ).toBe("디자인 참고 파일은 PPTX여야 합니다.");
     expect(
       getHomeGenerationValidationMessage(
         "ORBIT",
         [
           { id: "design-1", file: pptx, role: "design" },
-          { id: "design-2", file: pptx, role: "both" }
+          { id: "design-2", file: pptx, role: "both" },
         ],
         "10",
         "5",
-        "8"
-      )
+        "8",
+      ),
     ).toBe("디자인 참고 PPTX는 1개만 선택하세요.");
     expect(
       getHomeGenerationValidationMessage(
         "ORBIT",
         [
           { id: "design-1", file: pptx, role: "design" },
-          { id: "design-2", file: pptx, role: "both" }
+          { id: "design-2", file: pptx, role: "both" },
         ],
         "10",
         "5",
         "8",
-        false
-      )
+        false,
+      ),
     ).toBe("");
-    expect(getHomeGenerationValidationMessage("ORBIT", uploads, "0", "5", "8")).toBe(
-      "발표 시간은 1~120분으로 입력하세요."
-    );
-    expect(getHomeGenerationValidationMessage("ORBIT", uploads, "10", "9", "8")).toBe(
-      "최소 슬라이드 수는 최대 슬라이드 수보다 클 수 없습니다."
-    );
+    expect(
+      getHomeGenerationValidationMessage("ORBIT", uploads, "0", "5", "8"),
+    ).toBe("발표 시간은 1~120분으로 입력하세요.");
+    expect(
+      getHomeGenerationValidationMessage("ORBIT", uploads, "10", "9", "8"),
+    ).toBe("최소 슬라이드 수는 최대 슬라이드 수보다 클 수 없습니다.");
   });
 
   it("defaults PPTX uploads to content references while a template style is selected", () => {
     const pptx = new File(["pptx"], "reference.pptx", {
-      type: "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+      type: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
     });
     const docx = new File(["docx"], "reference.docx", {
-      type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+      type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     });
 
     expect(getHomeDefaultUploadRole(pptx, false)).toBe("design");
@@ -620,7 +649,7 @@ describe("AI deck generation flow", () => {
             color: 90,
             layer: 90,
             editability: 90,
-            pixelSimilarity: null
+            pixelSimilarity: null,
           },
           weights: {
             geometry: 25,
@@ -628,23 +657,23 @@ describe("AI deck generation flow", () => {
             color: 10,
             layer: 10,
             editability: 10,
-            pixelSimilarity: 30
+            pixelSimilarity: 30,
           },
           editabilityCoverage: 0.9,
           appliedCap: null,
-          notes: []
+          notes: [],
         },
-        warnings: []
+        warnings: [],
       },
       error: null,
       createdAt: "2026-07-04T00:00:00.000Z",
-      updatedAt: "2026-07-04T00:00:01.000Z"
+      updatedAt: "2026-07-04T00:00:01.000Z",
     };
 
     expect(getAiTemplateDeckGenerationJobResult(job)).toMatchObject({
       deckId: "deck_ai_project_a",
       currentPackageFileId: "file_current",
-      contentReferenceFileIds: ["file_content"]
+      contentReferenceFileIds: ["file_content"],
     });
   });
 
@@ -660,25 +689,25 @@ describe("AI deck generation flow", () => {
       metadata: {
         audience: "general",
         purpose: "inform",
-        tone: "professional"
+        tone: "professional",
       },
       design: {
         profile: "executive-report",
         visualRhythm: "auto",
         densityTarget: "medium",
         mediaPolicy: "balanced",
-        layoutDiversity: "varied"
+        layoutDiversity: "varied",
       },
       designReferences: [{ fileId: "file_design_1" }],
       referenceInput: {
         references: [{ fileId: "file_1" }],
         referenceKeywords: [{ text: "Deck" }],
         referenceContext: [
-          { fileId: "file_1", title: "source.pdf", content: "source text" }
+          { fileId: "file_1", title: "source.pdf", content: "source text" },
         ],
         succeededFiles: [],
-        failedFiles: []
-      }
+        failedFiles: [],
+      },
     });
 
     expect(payload).toMatchObject({
@@ -692,14 +721,14 @@ describe("AI deck generation flow", () => {
         visualRhythm: "auto",
         densityTarget: "medium",
         mediaPolicy: "balanced",
-        layoutDiversity: "varied"
+        layoutDiversity: "varied",
       },
       references: [{ fileId: "file_1" }],
       designReferences: [{ fileId: "file_design_1" }],
       referenceKeywords: [{ text: "Deck" }],
       referenceContext: [
-        { fileId: "file_1", title: "source.pdf", content: "source text" }
-      ]
+        { fileId: "file_1", title: "source.pdf", content: "source text" },
+      ],
     });
   });
 
@@ -711,7 +740,7 @@ describe("AI deck generation flow", () => {
       duration: 10,
       minSlides: 5,
       maxSlides: 8,
-      tone: "professional"
+      tone: "professional",
     });
 
     expect(payload).toMatchObject({
@@ -722,12 +751,12 @@ describe("AI deck generation flow", () => {
         visualRhythm: "auto",
         densityTarget: "medium",
         mediaPolicy: "balanced",
-        layoutDiversity: "varied"
+        layoutDiversity: "varied",
       },
       references: [],
       designReferences: [],
       referenceKeywords: [],
-      referenceContext: []
+      referenceContext: [],
     });
     expect(payload.design).not.toHaveProperty("stylePackId");
   });
@@ -741,7 +770,7 @@ describe("AI deck generation flow", () => {
       duration: 10,
       minSlides: 5,
       maxSlides: 8,
-      tone: "professional"
+      tone: "professional",
     });
     const submissionPayload = buildHomeJsonFirstGenerateDeckPayload({
       topic: "ORBIT",
@@ -751,17 +780,17 @@ describe("AI deck generation flow", () => {
       duration: 10,
       minSlides: 5,
       maxSlides: 8,
-      tone: "professional"
+      tone: "professional",
     });
 
     expect(presentationPayload.design).toMatchObject({
       stylePackId: "presentation-document",
-      densityTarget: "low"
+      densityTarget: "low",
     });
     expect(submissionPayload.design).toMatchObject({
       stylePackId: "submission-document",
       densityTarget: "high",
-      visualRhythm: "technical"
+      visualRhythm: "technical",
     });
   });
 
@@ -774,19 +803,19 @@ describe("AI deck generation flow", () => {
       templateStyleDesignOverrides: buildTemplateStyleDesignOverrides({
         densityTarget: "high",
         layoutDiversity: "varied",
-        mediaPolicy: "avoid"
+        mediaPolicy: "avoid",
       }),
       duration: 10,
       minSlides: 5,
       maxSlides: 8,
-      tone: "professional"
+      tone: "professional",
     });
 
     expect(payload.design).toMatchObject({
       stylePackId: "presentation-document",
       densityTarget: "high",
       layoutDiversity: "varied",
-      mediaPolicy: "avoid"
+      mediaPolicy: "avoid",
     });
   });
 
@@ -804,58 +833,64 @@ describe("AI deck generation flow", () => {
         references: [{ fileId: "file_reference" }],
         referenceKeywords: [{ text: "핵심" }],
         referenceContext: [
-          { fileId: "file_reference", title: "reference.docx", content: "본문" }
+          {
+            fileId: "file_reference",
+            title: "reference.docx",
+            content: "본문",
+          },
         ],
         succeededFiles: [],
-        failedFiles: []
-      }
+        failedFiles: [],
+      },
     });
 
     expect(payload.design.stylePackId).toBe("simple-basic");
     expect(payload.references).toEqual([{ fileId: "file_reference" }]);
     expect(payload.referenceKeywords).toEqual([{ text: "핵심" }]);
     expect(payload.referenceContext).toEqual([
-      { fileId: "file_reference", title: "reference.docx", content: "본문" }
+      { fileId: "file_reference", title: "reference.docx", content: "본문" },
     ]);
   });
 
   it("routes home deck generation to JSON-first unless a design PPTX exists", () => {
     const pptx = new File(["pptx"], "design.pptx", {
-      type: "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+      type: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
     });
     const pdf = new File(["pdf"], "content.pdf", { type: "application/pdf" });
 
     expect(getHomeDeckGenerationJobEndpoint("project a", [])).toBe(
-      "/api/v1/projects/project%20a/jobs/generate-deck"
+      "/api/v1/projects/project%20a/jobs/generate-deck",
     );
     expect(
       getHomeDeckGenerationJobEndpoint("project a", [
-        { id: "pdf", file: pdf, role: "content" }
-      ])
+        { id: "pdf", file: pdf, role: "content" },
+      ]),
     ).toBe("/api/v1/projects/project%20a/jobs/generate-deck");
     expect(
       getHomeDeckGenerationJobEndpoint("project a", [
-        { id: "pptx", file: pptx, role: "design" }
-      ])
+        { id: "pptx", file: pptx, role: "design" },
+      ]),
     ).toBe("/api/v1/projects/project%20a/jobs/ai-template-deck-generation");
     expect(
       getHomeDeckGenerationJobEndpoint(
         "project a",
         [{ id: "pptx", file: pptx, role: "design" }],
-        false
-      )
+        false,
+      ),
     ).toBe("/api/v1/projects/project%20a/jobs/generate-deck");
     expect(getHomeDeckGenerationJobEndpoint("project a", [])).not.toContain(
-      "pptx-ooxml"
+      "pptx-ooxml",
     );
     expect(
-      getHomeContentReferenceUploads([{ id: "pdf", file: pdf, role: "content" }])
+      getHomeContentReferenceUploads([
+        { id: "pdf", file: pdf, role: "content" },
+      ]),
     ).toHaveLength(1);
     expect(
       getHomeContentReferenceUploads(
         [{ id: "pptx", file: pptx, role: "design" }],
-        true
-      )
+        true,
+      ),
     ).toEqual([{ id: "pptx", file: pptx, role: "design" }]);
   });
 
@@ -864,7 +899,7 @@ describe("AI deck generation flow", () => {
     const formData = buildHomeExtractFormData(
       "project_ai",
       [{ id: "pdf", file: pdf, role: "content" }],
-      new Map([["pdf", "file_content"]])
+      new Map([["pdf", "file_content"]]),
     );
 
     expect(formData.get("projectId")).toBe("project_ai");
@@ -883,13 +918,13 @@ describe("AI deck generation flow", () => {
         visualRhythm: "auto",
         densityTarget: "medium",
         mediaPolicy: "balanced",
-        layoutDiversity: "varied"
-      })
+        layoutDiversity: "varied",
+      }),
     ).toEqual({
       visualRhythm: "auto",
       densityTarget: "medium",
       mediaPolicy: "balanced",
-      layoutDiversity: "varied"
+      layoutDiversity: "varied",
     });
 
     expect(
@@ -898,21 +933,21 @@ describe("AI deck generation flow", () => {
         visualRhythm: "auto",
         densityTarget: "medium",
         mediaPolicy: "balanced",
-        layoutDiversity: "varied"
-      }).profile
+        layoutDiversity: "varied",
+      }).profile,
     ).toBe("editorial");
     expect(buildSimpleBasicGenerateDeckDesignDirection().stylePackId).toBe(
-      "simple-basic"
+      "simple-basic",
     );
     expect(buildDefaultHomeGenerateDeckDesignDirection()).toEqual({
       visualRhythm: "auto",
       densityTarget: "medium",
       mediaPolicy: "balanced",
-      layoutDiversity: "varied"
+      layoutDiversity: "varied",
     });
     expect(
       buildHomeTemplateStyleGenerateDeckDesignDirection("presentation-document")
-        .stylePackId
+        .stylePackId,
     ).toBe("presentation-document");
   });
 
@@ -927,14 +962,14 @@ describe("AI deck generation flow", () => {
       metadata: {
         audience: "general",
         purpose: "inform",
-        tone: "professional"
+        tone: "professional",
       },
       design: {
         profile: "executive-report",
         visualRhythm: "auto",
         densityTarget: "medium",
         mediaPolicy: "balanced",
-        layoutDiversity: "varied"
+        layoutDiversity: "varied",
       },
       designReferences: [],
       referenceInput: {
@@ -942,8 +977,8 @@ describe("AI deck generation flow", () => {
         referenceKeywords: [],
         referenceContext: [],
         succeededFiles: [],
-        failedFiles: []
-      }
+        failedFiles: [],
+      },
     });
 
     expect(payload.designPrompt).toBe("");
@@ -951,12 +986,12 @@ describe("AI deck generation flow", () => {
 
   it("builds design references from PPTX role uploads", () => {
     const pptx = new File(["pptx"], "design.pptx", {
-      type: "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+      type: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
     });
     const pdf = new File(["pdf"], "content.pdf", { type: "application/pdf" });
     const uploadedFileIds = new Map([
       ["design-only", "file_design"],
-      ["both", "file_both"]
+      ["both", "file_both"],
     ]);
 
     expect(
@@ -964,10 +999,10 @@ describe("AI deck generation flow", () => {
         [
           { id: "content", file: pdf, role: "content" },
           { id: "design-only", file: pptx, role: "design" },
-          { id: "both", file: pptx, role: "both" }
+          { id: "both", file: pptx, role: "both" },
         ],
-        uploadedFileIds
-      )
+        uploadedFileIds,
+      ),
     ).toEqual([{ fileId: "file_design" }, { fileId: "file_both" }]);
   });
 
@@ -977,67 +1012,71 @@ describe("AI deck generation flow", () => {
       workspaceId: "workspace_demo_1",
       title: "Old",
       createdBy: "user_demo_1",
-      createdAt: "2026-06-28T00:00:00.000Z"
+      createdAt: "2026-06-28T00:00:00.000Z",
     };
     const generated: Project = {
       projectId: "project_new_ai",
       workspaceId: "workspace_demo_1",
       title: "New",
       createdBy: "user_demo_1",
-      createdAt: "2026-06-29T00:00:00.000Z"
+      createdAt: "2026-06-29T00:00:00.000Z",
     };
 
     expect(mergeGeneratedProjectList([older], generated)).toEqual([
       generated,
-      older
+      older,
     ]);
     expect(mergeGeneratedProjectList([generated, older], generated)).toEqual([
       generated,
-      older
+      older,
     ]);
   });
 
   it("creates a new project for an AI deck generation", async () => {
-    const fetcher = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
+    const fetcher = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
 
-      if (url.endsWith("/workspaces/workspace_demo_1/projects")) {
-        expect(init?.method).toBe("POST");
-        expect(JSON.parse(String(init?.body))).toEqual({ title: "새 주제" });
-        return new Response(
-          JSON.stringify({
-            projectId: "project_new_ai",
-            workspaceId: "workspace_demo_1",
-            title: "새 주제",
-            createdBy: "user_demo_1",
-            createdAt: "2026-06-29T00:00:00.000Z"
-          })
-        );
-      }
-
-      if (url.endsWith("/projects/project_new_ai/deck")) {
-        const body = JSON.parse(String(init?.body));
-        return new Response(
-          JSON.stringify({
-            deck: body.deck,
-            snapshot: {
-              snapshotId: "snapshot_new_ai",
+        if (url.endsWith("/workspaces/workspace_demo_1/projects")) {
+          expect(init?.method).toBe("POST");
+          expect(JSON.parse(String(init?.body))).toEqual({ title: "새 주제" });
+          return new Response(
+            JSON.stringify({
               projectId: "project_new_ai",
-              deckId: "deck_new_ai",
-              version: 1,
-              reason: "deck-replaced",
-              createdAt: "2026-06-29T00:00:00.000Z"
-            },
-            updatedAt: "2026-06-29T00:00:00.000Z"
-          })
-        );
-      }
+              workspaceId: "workspace_demo_1",
+              title: "새 주제",
+              createdBy: "user_demo_1",
+              createdAt: "2026-06-29T00:00:00.000Z",
+            }),
+          );
+        }
 
-      return new Response("unexpected request", { status: 500 });
-    });
+        if (url.endsWith("/projects/project_new_ai/deck")) {
+          const body = JSON.parse(String(init?.body));
+          return new Response(
+            JSON.stringify({
+              deck: body.deck,
+              snapshot: {
+                snapshotId: "snapshot_new_ai",
+                projectId: "project_new_ai",
+                deckId: "deck_new_ai",
+                version: 1,
+                reason: "deck-replaced",
+                createdAt: "2026-06-29T00:00:00.000Z",
+              },
+              updatedAt: "2026-06-29T00:00:00.000Z",
+            }),
+          );
+        }
 
-    await expect(createGeneratedDeckProject("  새 주제  ", fetcher)).resolves.toMatchObject({
-      projectId: "project_new_ai"
+        return new Response("unexpected request", { status: 500 });
+      },
+    );
+
+    await expect(
+      createGeneratedDeckProject("  새 주제  ", fetcher),
+    ).resolves.toMatchObject({
+      projectId: "project_new_ai",
     });
     expect(getGeneratedDeckProjectTitle("   ")).toBe("AI 덱");
   });
@@ -1048,45 +1087,48 @@ describe("AI deck generation flow", () => {
       workspaceId: "workspace_demo_1",
       title: "Selected",
       createdBy: "user_demo_1",
-      createdAt: "2026-06-29T00:00:00.000Z"
+      createdAt: "2026-06-29T00:00:00.000Z",
     };
-    const fetcher = vi.fn(async () => new Response("unexpected", { status: 500 }));
+    const fetcher = vi.fn(
+      async () => new Response("unexpected", { status: 500 }),
+    );
 
     await expect(
       resolveGenerateDeckTargetProject({
         fetcher,
         projects: [selected],
         selectedProjectId: selected.projectId,
-        topic: "새 주제"
-      })
+        topic: "새 주제",
+      }),
     ).resolves.toEqual({
       created: false,
       project: selected,
-      projectId: selected.projectId
+      projectId: selected.projectId,
     });
     expect(fetcher).not.toHaveBeenCalled();
   });
 
   it("polls generic jobs through the API job route", async () => {
-    const fetcher = vi.fn(async (_input: RequestInfo | URL) =>
-      new Response(
-        JSON.stringify({
-          jobId: "job_done",
-          projectId: "project_pptx",
-          type: "pptx-import",
-          status: "succeeded",
-          progress: 100,
-          message: "done",
-          result: null,
-          error: null,
-          createdAt: "2026-07-03T00:00:00.000Z",
-          updatedAt: "2026-07-03T00:00:00.000Z"
-        })
-      )
+    const fetcher = vi.fn(
+      async (_input: RequestInfo | URL) =>
+        new Response(
+          JSON.stringify({
+            jobId: "job_done",
+            projectId: "project_pptx",
+            type: "pptx-import",
+            status: "succeeded",
+            progress: 100,
+            message: "done",
+            result: null,
+            error: null,
+            createdAt: "2026-07-03T00:00:00.000Z",
+            updatedAt: "2026-07-03T00:00:00.000Z",
+          }),
+        ),
     );
 
     await expect(pollJob("job_done", fetcher)).resolves.toMatchObject({
-      jobId: "job_done"
+      jobId: "job_done",
     });
     expect(String(fetcher.mock.calls[0][0])).toBe("/api/jobs/job_done");
   });
@@ -1110,13 +1152,13 @@ describe("AI deck generation flow", () => {
             language: "ko",
             locale: "ko-KR",
             sourceType: "ai",
-            generatedBy: "ai"
+            generatedBy: "ai",
           },
           canvas: {
             preset: "wide-16-9",
             width: 1920,
             height: 1080,
-            aspectRatio: "16:9"
+            aspectRatio: "16:9",
           },
           slides: [
             {
@@ -1132,12 +1174,14 @@ describe("AI deck generation flow", () => {
               actions: [],
               aiNotes: {
                 emphasisPoints: ["핵심 메시지"],
-                sourceEvidence: [{ fileId: "file_1", note: "근거 후보" }]
-              }
-            }
-          ]
+                sourceEvidence: [{ fileId: "file_1", note: "근거 후보" }],
+              },
+            },
+          ],
         },
-        warnings: ["AI가 참고자료/주제 밀도를 기준으로 1장이 적정하다고 판단했습니다."],
+        warnings: [
+          "AI가 참고자료/주제 밀도를 기준으로 1장이 적정하다고 판단했습니다.",
+        ],
         validation: {
           passed: true,
           layoutIssues: [],
@@ -1146,15 +1190,15 @@ describe("AI deck generation flow", () => {
             {
               scope: "element",
               path: "slides.0.elements.0.props.data",
-              message: "근거 데이터가 없어 빈 차트 자리 표시자를 생성했습니다."
-            }
+              message: "근거 데이터가 없어 빈 차트 자리 표시자를 생성했습니다.",
+            },
           ],
-          presentationIssues: []
-        }
+          presentationIssues: [],
+        },
       },
       error: null,
       createdAt: "2026-06-27T00:00:00.000Z",
-      updatedAt: "2026-06-27T00:00:01.000Z"
+      updatedAt: "2026-06-27T00:00:01.000Z",
     };
     const result = getGenerateDeckJobResult(job);
 
@@ -1163,14 +1207,16 @@ describe("AI deck generation flow", () => {
       throw new Error("Generated deck result was not parsed.");
     }
     expect(getGeneratedDeckProjectPath(result)).toBe("/project/project-a");
-    expect(renderToStaticMarkup(<GeneratedDeckResult result={result} />)).toContain(
-      "file_1"
+    expect(
+      renderToStaticMarkup(<GeneratedDeckResult result={result} />),
+    ).toContain("file_1");
+    expect(
+      renderToStaticMarkup(<GeneratedDeckResult result={result} />),
+    ).toContain(
+      "AI가 참고자료/주제 밀도를 기준으로 1장이 적정하다고 판단했습니다.",
     );
-    expect(renderToStaticMarkup(<GeneratedDeckResult result={result} />)).toContain(
-      "AI가 참고자료/주제 밀도를 기준으로 1장이 적정하다고 판단했습니다."
-    );
-    expect(renderToStaticMarkup(<GeneratedDeckResult result={result} />)).toContain(
-      "근거 데이터가 없어 빈 차트 자리 표시자를 생성했습니다."
-    );
+    expect(
+      renderToStaticMarkup(<GeneratedDeckResult result={result} />),
+    ).toContain("근거 데이터가 없어 빈 차트 자리 표시자를 생성했습니다.");
   });
 });
