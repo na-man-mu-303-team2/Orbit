@@ -1,9 +1,10 @@
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   AudiencePresenterControlPage,
   AudiencePresenterResultsSummary,
+  saveAudienceFeatureToggle,
 } from "./AudiencePresenterPanel";
 
 describe("AudiencePresenterPanel", () => {
@@ -72,5 +73,62 @@ describe("AudiencePresenterPanel", () => {
     expect(html).toContain("반응 3개");
     expect(html).toContain("설문 응답 1개");
     expect(html).toContain("개별 응답 1개");
+  });
+
+  it("commits feature toggles from the durable REST response", async () => {
+    const saveFeatureSettings = vi.fn(async () => ({
+      features: {
+        sessionId: "session_1",
+        qnaEnabled: true,
+        aiQnaEnabled: true,
+        pollsEnabled: false,
+        quizzesEnabled: false,
+        reactionsEnabled: false,
+        surveyEnabled: false,
+        updatedAt: "2026-07-05T00:05:00.000Z",
+      },
+    }));
+
+    await expect(
+      saveAudienceFeatureToggle({
+        enabled: true,
+        key: "aiQnaEnabled",
+        projectId: "project_1",
+        sessionId: "session_1",
+        saveFeatureSettings,
+      }),
+    ).resolves.toMatchObject({
+      aiQnaEnabled: true,
+      qnaEnabled: true,
+      updatedAt: "2026-07-05T00:05:00.000Z",
+    });
+
+    expect(saveFeatureSettings).toHaveBeenCalledWith({
+      projectId: "project_1",
+      sessionId: "session_1",
+      settings: { aiQnaEnabled: true, qnaEnabled: true },
+    });
+  });
+
+  it("does not produce an optimistic feature state when durable save fails", async () => {
+    const saveFeatureSettings = vi.fn(async () => {
+      throw new Error("REST persistence failed");
+    });
+
+    await expect(
+      saveAudienceFeatureToggle({
+        enabled: true,
+        key: "pollsEnabled",
+        projectId: "project_1",
+        sessionId: "session_1",
+        saveFeatureSettings,
+      }),
+    ).rejects.toThrow("REST persistence failed");
+
+    expect(saveFeatureSettings).toHaveBeenCalledWith({
+      projectId: "project_1",
+      sessionId: "session_1",
+      settings: { pollsEnabled: true },
+    });
   });
 });

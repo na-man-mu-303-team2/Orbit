@@ -10,11 +10,27 @@ import type {
 export function AnimationCreateEditor(props: {
   canCreateAnimation: boolean;
   draft: AnimationTimingDraft;
+  keywordTriggerRestrictionMessage?: string | null;
+  keywordTriggerWarningMessage?: string | null;
+  selectedKeywordId: string | null;
+  selectedKeywordLabel: string | null;
   type: SupportedAnimationType;
-  onAddAnimation: (draft: AnimationDraftInput) => void;
+  onAddAnimation: (draft: AnimationDraftInput, keywordId?: string | null) => void;
   onDraftChange: (patch: Partial<AnimationTimingDraft>) => void;
 }) {
-  const { canCreateAnimation, draft, type, onAddAnimation, onDraftChange } = props;
+  const {
+    canCreateAnimation,
+    draft,
+    keywordTriggerRestrictionMessage = null,
+    keywordTriggerWarningMessage = null,
+    selectedKeywordId,
+    selectedKeywordLabel,
+    type,
+    onAddAnimation,
+    onDraftChange
+  } = props;
+  const canSubmit =
+    canCreateAnimation && !keywordTriggerRestrictionMessage;
 
   return (
     <AnimationPanelSection
@@ -26,6 +42,21 @@ export function AnimationCreateEditor(props: {
       className="animation-panel-form-card"
       title="새 애니메이션 추가"
     >
+      <p className="animation-panel-section-note">
+        {selectedKeywordLabel
+          ? `선택된 키워드 "${selectedKeywordLabel}"로 음성 트리거를 함께 생성합니다.`
+          : "키워드를 선택하지 않으면 일반 애니메이션만 추가됩니다."}
+      </p>
+      {keywordTriggerRestrictionMessage ? (
+        <div className="animation-editor-warning">
+          {keywordTriggerRestrictionMessage}
+        </div>
+      ) : null}
+      {!keywordTriggerRestrictionMessage && keywordTriggerWarningMessage ? (
+        <div className="animation-editor-warning">
+          {keywordTriggerWarningMessage}
+        </div>
+      ) : null}
       <AnimationTimingFields
         delayMs={draft.delayMs}
         durationMs={draft.durationMs}
@@ -35,14 +66,14 @@ export function AnimationCreateEditor(props: {
       <div className="animation-panel-timing-actions">
         <button
           className="animation-panel-primary-button"
-          disabled={!canCreateAnimation}
+          disabled={!canSubmit}
           type="button"
           onClick={() =>
             onAddAnimation({
               delayMs: draft.delayMs,
               durationMs: draft.durationMs,
               type
-            })
+            }, selectedKeywordId)
           }
         >
           애니메이션 추가

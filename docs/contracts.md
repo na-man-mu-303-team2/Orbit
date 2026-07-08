@@ -202,6 +202,7 @@ API:
 - `metadata.locale`은 `"ko-KR"`만 허용한다. STT, 날짜/시간, 지역별 포맷이 필요한 기능은 `locale`을 기준으로 처리한다.
 - `metadata.language`와 `metadata.locale`은 생략 시 각각 `"ko"`, `"ko-KR"`로 기본값을 채운다.
 - AI 생성 deck은 `metadata.sourceType = "ai"`, `metadata.generatedBy = "ai"`, `metadata.audience`, `metadata.purpose`, `metadata.tone`, `metadata.createdFrom`을 선택적으로 포함할 수 있다.
+- Imported PPTX OOXML decks may set `metadata.thumbnailSource = "import-render"` until the editor captures canvas thumbnails, then update it to `"canvas"`.
 - `metadata.createdFrom.references`는 생성에 사용한 참고자료의 `{ fileId }[]`만 저장한다. URL ingestion과 원문 저장은 이번 계약에 포함하지 않는다.
 - `theme`는 생략 시 기본 theme token 값으로 채운다.
 - `theme`는 deck 전체의 기본 디자인 토큰이다.
@@ -429,11 +430,13 @@ API:
 
 - `POST /api/v1/workspaces/:workspaceId/projects`
 - `GET /api/v1/workspaces/:workspaceId/projects`
+- `DELETE /api/v1/workspaces/:workspaceId/projects/:projectId`
 
 결정 사항:
 
 - 인증 시스템이 완성되기 전까지는 `DEMO_WORKSPACE_ID`와 `DEMO_USER_ID`를 기준으로 project boundary를 검증한다.
 - `workspaceId`가 데모 워크스페이스와 다르면 권한 실패로 처리한다.
+- 프로젝트 삭제는 accepted owner만 수행할 수 있으며 응답은 `{ "projectId": "project_1" }` 구조다.
 - 프로젝트 응답은 `packages/shared/src/projects/project.schema.ts`의 schema로 검증한다.
 
 구현 위치:
@@ -601,7 +604,14 @@ AI 덱 생성은 사용자 입력과 참고자료 fileId를 받아 비동기 Job
   "references": [{ "fileId": "file_1" }],
   "designReferences": [{ "fileId": "file_design_1" }],
   "templateBlueprintId": "template_file_design_1",
-  "referenceKeywords": [{ "text": "실시간 발표 피드백" }]
+  "referenceKeywords": [{ "text": "실시간 발표 피드백" }],
+  "referenceContext": [
+    {
+      "fileId": "file_1",
+      "title": "reference.pdf",
+      "content": "cleaned reference excerpt"
+    }
+  ]
 }
 ```
 
@@ -629,6 +639,7 @@ AI 덱 생성은 사용자 입력과 참고자료 fileId를 받아 비동기 Job
 - 요청의 `references`는 `{ fileId: string }[]`이며 비어 있으면 topic-only generation으로 처리한다.
 - 요청의 `templateBlueprintId`는 선택 필드이며, AI 생성에 템플릿 의미 정보를 직접 넣지 않고 저장된 `TemplateBlueprint` sidecar만 참조한다.
 - 요청의 `referenceKeywords`는 `{ text: string }[]` 선택 필드이며 기본값은 `[]`이다. 참고자료 처리 결과의 주요 키워드를 전달할 때 사용한다.
+- `referenceContext`는 `{ fileId, title, content }[]` 형태의 선택 필드이며 기본값은 `[]`이다. `/documents/parse`의 정제된 excerpt를 `/ai/generate-deck` grounding 입력으로 직접 넘길 때 사용하고, Deck metadata에는 원문을 저장하지 않는다.
 - 요청의 `designPrompt`는 선택 필드이며 기본값은 없다. 값이 있으면 콘텐츠 지시가 아니라 시각 스타일 지시로만 사용하고, LLM은 `visualIntent.paletteHint`에 `background:#RRGGBB` 같은 검증 가능한 theme token을 제안한다.
 - 기존 클라이언트처럼 `designPrompt` 없이 `prompt`만 보내는 요청은 계속 허용한다. worker는 하위 호환을 위해 명확한 디자인 문구만 fallback으로 분리하고, 분리되지 않은 값은 기존 콘텐츠 prompt로 처리한다.
 - MVP `metadata.audience`는 `general`, `executive`, `technical`, `sales`만 허용한다.
@@ -846,8 +857,40 @@ Rules:
 - The design asset must be an uploaded PPTX with `purpose: "pptx-import"`.
 - Content assets are sent through `/documents/parse` and become
   `references`/`referenceKeywords` for `/ai/generate-deck`.
+- A `both` PPTX is sent through both `/documents/parse` and
+  `/ai/pptx-ooxml-generation`; its extracted text is forwarded to
+  `/ai/generate-deck` as `referenceContext` so speaker notes and keywords can
+  be grounded without depending on reference search availability.
+- A `design`-only PPTX is never added to `references`, `referenceKeywords`, or
+  `referenceContext`.
 - The design PPTX is sent through `/ai/pptx-ooxml-generation`; the final
   generated text is applied through `/ai/pptx-ooxml-apply-slot-texts`.
+- The worker saves the final Deck and creates an initial `deck-replaced`
+  snapshot from that same Deck, including generated `thumbnailUrl` values.
+- Final AI template deck thumbnails come from the generated PPTX render assets;
+  every generated slide must have a matching render asset, and the saved deck
+  sets `metadata.thumbnailSource = "import-render"`.
+- `slideCountRange` is the authoritative user-requested generation range.
+  The reference PPTX page count never overrides it.
+- `referenceSlideCount` means the number of slides imported from the design
+  PPTX. It is only the size of the reusable layout pool.
+- `requestedSlideCountRange` is the exact `{ min, max }` forwarded from the
+  home request to `/ai/generate-deck`.
+- `targetSlideCount` is the Python worker's selected count inside
+  `requestedSlideCountRange`; `generatedSlideCount` is the final
+  `deck.slides.length` and must stay inside that requested range.
+- `templateSelection` maps each generated slide to a reference layout:
+  `{ generatedOrder, sourceSlideIndex, selectionReason }`. The API worker uses
+  this mapping to filter/reorder `TemplateBlueprint.slides` before slot text
+  extraction, PPTX apply, render asset linking, and sidecar save.
+- If a reference layout is reused or selected out of source order, the API
+  worker saves generated slides as sequential `sourceSlideIndex` values and
+  stores the original PPTX page in `cloneSourceSlideIndex` and the actual
+  OOXML part in `cloneSourceSlidePart`. The Python worker clones that source
+  part into the generated slide part before applying text, so the saved PPTX
+  package and sidecar have the same slide count and order.
+- `TemplateBlueprint.slides[]` may include semantic selection metadata:
+  `slideRole`, `layoutType`, `contentCapacity`, and `selectionReason`.
 
 Job result:
 

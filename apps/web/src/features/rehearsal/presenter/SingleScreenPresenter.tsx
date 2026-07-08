@@ -20,11 +20,8 @@ export function SingleScreenPresenter(props: {
     deck,
     highlights = [],
     onExit,
-    slideElapsedLabel,
     slideId,
-    slideTargetLabel,
     stepIndex,
-    totalTimeLabel,
     triggerAnimationIds
   } = props;
   const rootRef = useRef<HTMLDivElement>(null);
@@ -65,14 +62,6 @@ export function SingleScreenPresenter(props: {
           stepIndex={stepIndex}
           triggerAnimationIds={triggerAnimationIds}
         />
-      </div>
-      <div className="single-screen-timer-overlay" aria-label="발표 타이머">
-        <span>
-          전체 <strong>{totalTimeLabel}</strong>
-        </span>
-        <span>
-          현재 슬라이드 <strong>{slideElapsedLabel}</strong> / {slideTargetLabel}
-        </span>
       </div>
       {!isFullscreen ? (
         <div className="single-screen-actions">
@@ -119,7 +108,7 @@ async function requestSingleScreenFullscreen(target: HTMLElement | null) {
 
 function readViewportSize() {
   if (typeof window === "undefined") {
-    return { height: 0, width: 0 };
+    return { height: 1080, width: 1920 };
   }
 
   return {
@@ -129,22 +118,17 @@ function readViewportSize() {
 }
 
 function useSingleScreenFullscreenState() {
-  const [isFullscreen, setIsFullscreen] = useState(readSingleScreenFullscreenState);
+  const [isFullscreen, setIsFullscreen] = useState(false);
 
   useEffect(() => {
-    const updateFullscreenState = () => {
-      setIsFullscreen(readSingleScreenFullscreenState());
+    const syncFullscreen = () => {
+      setIsFullscreen(Boolean(document.fullscreenElement));
     };
 
-    document.addEventListener("fullscreenchange", updateFullscreenState);
-    return () => {
-      document.removeEventListener("fullscreenchange", updateFullscreenState);
-    };
+    syncFullscreen();
+    document.addEventListener("fullscreenchange", syncFullscreen);
+    return () => document.removeEventListener("fullscreenchange", syncFullscreen);
   }, []);
 
   return isFullscreen;
-}
-
-function readSingleScreenFullscreenState() {
-  return typeof document !== "undefined" && Boolean(document.fullscreenElement);
 }

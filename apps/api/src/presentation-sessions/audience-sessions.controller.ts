@@ -48,16 +48,31 @@ export class AudienceSessionsController {
   ) {}
 
   @Get("join/:joinCode")
-  async getJoinSession(@Param("joinCode") joinCode: string) {
+  async getJoinSession(
+    @Param("joinCode") joinCode: string,
+    @Req() request: SignedCookieRequest,
+  ) {
     const params = audienceJoinCodeParamsSchema.parse({ joinCode });
-    const session =
-      await this.presentationSessionsService.getActiveSessionByJoinCode(
-        params.joinCode,
-      );
+    this.consumeJoinRateLimit(request, params.joinCode);
+    try {
+      const session =
+        await this.presentationSessionsService.getActiveSessionByJoinCode(
+          params.joinCode,
+        );
 
-    return audienceSessionLookupResponseSchema.parse({
-      session: toAudiencePublicSession(session),
-    });
+      return audienceSessionLookupResponseSchema.parse({
+        session: toAudiencePublicSession(session),
+      });
+    } catch (error) {
+      const restored = await this.tryGetExistingAccessFromCookie(request);
+      if (restored?.session.joinCode === params.joinCode) {
+        return audienceSessionLookupResponseSchema.parse({
+          session: restored.session,
+        });
+      }
+
+      throw error;
+    }
   }
 
   @Post("join/:joinCode")
@@ -69,6 +84,7 @@ export class AudienceSessionsController {
   ) {
     const params = audienceJoinCodeParamsSchema.parse({ joinCode });
     const input = parseRequest(audienceJoinRequestSchema, body ?? {});
+    this.consumeJoinRateLimit(request, params.joinCode);
     const session =
       await this.presentationSessionsService.getActiveSessionByJoinCode(
         params.joinCode,
@@ -79,13 +95,6 @@ export class AudienceSessionsController {
     );
     if (existingAccess) {
       return existingAccess;
-    }
-
-    if (!this.joinRateLimiter.consume(getClientIp(request), params.joinCode)) {
-      throw new HttpException(
-        "입장 시도가 많습니다. 잠시 후 다시 시도해 주세요.",
-        HttpStatus.TOO_MANY_REQUESTS,
-      );
     }
 
     const audienceId = `audience_${randomUUID()}`;
@@ -111,6 +120,15 @@ export class AudienceSessionsController {
     );
 
     return audienceJoinResponseSchema.parse(result);
+  }
+
+  private consumeJoinRateLimit(request: Request, joinCode: string) {
+    if (!this.joinRateLimiter.consume(getClientIp(request), joinCode)) {
+      throw new HttpException(
+        "입장 시도가 많습니다. 잠시 후 다시 시도해 주세요.",
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
+    }
   }
 
   @Get(":sessionId/audience/me")
@@ -357,6 +375,33 @@ export class AudienceSessionsController {
     try {
       const result = await this.presentationSessionsService.getAudienceMe(
         sessionId,
+        payload.audienceId,
+        hashAudienceAccessToken(this.config, token),
+      );
+      return audienceJoinResponseSchema.parse(result);
+    } catch {
+      return null;
+    }
+  }
+
+  private async tryGetExistingAccessFromCookie(request: SignedCookieRequest) {
+    const token = getSignedAudienceAccessToken(request);
+    if (!token) {
+      return null;
+    }
+
+    const payload = verifyAudienceAccessToken(
+      this.config,
+      token,
+      getUserAgent(request),
+    );
+    if (!payload) {
+      return null;
+    }
+
+    try {
+      const result = await this.presentationSessionsService.getAudienceMe(
+        payload.sessionId,
         payload.audienceId,
         hashAudienceAccessToken(this.config, token),
       );

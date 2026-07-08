@@ -112,12 +112,19 @@ export class PresentationSessionsController {
     );
     const user = await this.getCurrentUser(request);
     await this.projectsService.assertCanWriteProject(projectId, user.userId);
-    return this.presentationSessionsService.updateAudienceFeatureSettings({
-      projectId,
+    const response =
+      await this.presentationSessionsService.updateAudienceFeatureSettings({
+        projectId,
+        sessionId,
+        actorId: user.userId,
+        settings: input,
+      });
+    this.audienceRealtimeGateway.broadcastFeatureSettings({
       sessionId,
-      actorId: user.userId,
-      settings: input,
+      userId: user.userId,
+      features: response.features,
     });
+    return response;
   }
 
   @Post(":sessionId/start")
@@ -288,12 +295,22 @@ export class PresentationSessionsController {
   ) {
     const user = await this.getCurrentUser(request);
     await this.projectsService.assertCanWriteProject(projectId, user.userId);
-    return this.presentationSessionsService.activateSessionInteraction({
-      projectId,
+    const result =
+      await this.presentationSessionsService.activateSessionInteraction({
+        projectId,
+        sessionId,
+        interactionId,
+        actorId: user.userId,
+      });
+    this.audienceRealtimeGateway.broadcastSlideState({
       sessionId,
-      interactionId,
-      actorId: user.userId,
+      userId: user.userId,
+      state:
+        await this.presentationSessionsService.getAudienceRealtimeState(
+          sessionId,
+        ),
     });
+    return result;
   }
 
   @Post(":sessionId/interactions/:interactionId/close")
@@ -305,12 +322,22 @@ export class PresentationSessionsController {
   ) {
     const user = await this.getCurrentUser(request);
     await this.projectsService.assertCanWriteProject(projectId, user.userId);
-    return this.presentationSessionsService.closeSessionInteraction({
-      projectId,
+    const result =
+      await this.presentationSessionsService.closeSessionInteraction({
+        projectId,
+        sessionId,
+        interactionId,
+        actorId: user.userId,
+      });
+    this.audienceRealtimeGateway.broadcastSlideState({
       sessionId,
-      interactionId,
-      actorId: user.userId,
+      userId: user.userId,
+      state:
+        await this.presentationSessionsService.getAudienceRealtimeState(
+          sessionId,
+        ),
     });
+    return result;
   }
 
   @Patch(":sessionId/interactions/:interactionId/results/exposure")
@@ -323,13 +350,23 @@ export class PresentationSessionsController {
   ) {
     const user = await this.getCurrentUser(request);
     await this.projectsService.assertCanWriteProject(projectId, user.userId);
-    return this.presentationSessionsService.exposeInteractionQuestionResults({
-      projectId,
+    const result =
+      await this.presentationSessionsService.exposeInteractionQuestionResults({
+        projectId,
+        sessionId,
+        interactionId,
+        actorId: user.userId,
+        body: body ?? {},
+      });
+    this.audienceRealtimeGateway.broadcastSlideState({
       sessionId,
-      interactionId,
-      actorId: user.userId,
-      body: body ?? {},
+      userId: user.userId,
+      state:
+        await this.presentationSessionsService.touchAudienceRealtimeState(
+          sessionId,
+        ),
     });
+    return result;
   }
 
   @Get(":sessionId/interactions/:interactionId/results")

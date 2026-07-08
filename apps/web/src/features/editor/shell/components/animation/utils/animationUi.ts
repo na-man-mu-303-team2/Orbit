@@ -101,6 +101,25 @@ export function formatAnimationTimingSummary(animation: DeckAnimation) {
   return `${formatAnimationSeconds(animation.durationMs)} · 지연 ${formatAnimationSeconds(animation.delayMs)}`;
 }
 
+export function buildSlideAnimationOrdinalLabelMap(
+  animations: DeckAnimation[]
+) {
+  return Object.fromEntries(
+    [...animations]
+      .sort((left, right) => {
+        if (left.order === right.order) {
+          return left.animationId.localeCompare(right.animationId);
+        }
+
+        return left.order - right.order;
+      })
+      .map((animation, index) => [
+        animation.animationId,
+        `${index + 1}번째`
+      ])
+  );
+}
+
 export function isSupportedAnimationType(
   type: DeckAnimation["type"]
 ): type is (typeof supportedAnimationCards)[number]["value"] {

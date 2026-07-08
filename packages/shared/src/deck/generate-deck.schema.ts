@@ -24,6 +24,12 @@ export const generateDeckReferenceKeywordSchema = z.object({
   text: z.string().trim().min(1)
 });
 
+export const generateDeckReferenceContextSchema = z.object({
+  fileId: z.string().min(1),
+  title: z.string().trim().default(""),
+  content: z.string().trim().min(1)
+});
+
 export const generateDeckMetadataSchema = z
   .object({
     audience: aiDeckAudienceSchema.default("general"),
@@ -84,7 +90,8 @@ export const generateDeckRequestSchema = z.object({
   references: z.array(generateDeckReferenceSchema).default([]),
   designReferences: z.array(generateDeckReferenceSchema).default([]),
   templateBlueprintId: templateBlueprintIdSchema.optional(),
-  referenceKeywords: z.array(generateDeckReferenceKeywordSchema).default([])
+  referenceKeywords: z.array(generateDeckReferenceKeywordSchema).default([]),
+  referenceContext: z.array(generateDeckReferenceContextSchema).default([])
 });
 
 export const generateDeckValidationIssueSchema = z.object({
@@ -101,8 +108,15 @@ export const generateDeckValidationSchema = z.object({
   presentationIssues: z.array(generateDeckValidationIssueSchema).default([])
 });
 
+export const templateSelectionItemSchema = z.object({
+  generatedOrder: z.number().int().positive(),
+  sourceSlideIndex: z.number().int().positive(),
+  selectionReason: z.string().trim().min(1).optional()
+});
+
 export const generateDeckResponseSchema = z.object({
   deck: deckSchema,
+  templateSelection: z.array(templateSelectionItemSchema).optional(),
   warnings: z.array(z.string()).default([]),
   validation: generateDeckValidationSchema
 });
@@ -126,6 +140,9 @@ export type GenerateDeckReference = z.infer<typeof generateDeckReferenceSchema>;
 export type GenerateDeckReferenceKeyword = z.infer<
   typeof generateDeckReferenceKeywordSchema
 >;
+export type GenerateDeckReferenceContext = z.infer<
+  typeof generateDeckReferenceContextSchema
+>;
 export type GenerateDeckMetadata = z.infer<typeof generateDeckMetadataSchema>;
 export type GenerateDeckDesign = z.infer<typeof generateDeckDesignSchema>;
 export type GenerateDeckSlideCountRange = z.infer<
@@ -136,5 +153,6 @@ export type GenerateDeckValidationIssue = z.infer<
   typeof generateDeckValidationIssueSchema
 >;
 export type GenerateDeckValidation = z.infer<typeof generateDeckValidationSchema>;
+export type TemplateSelectionItem = z.infer<typeof templateSelectionItemSchema>;
 export type GenerateDeckResponse = z.infer<typeof generateDeckResponseSchema>;
 export type GenerateDeckJobResult = z.infer<typeof generateDeckJobResultSchema>;

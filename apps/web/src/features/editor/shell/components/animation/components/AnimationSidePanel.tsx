@@ -19,7 +19,12 @@ export function AnimationSidePanel(props: AnimationSidePanelProps) {
     canCreateAnimation,
     element,
     isPlayingSlideAnimations,
+    keywordOptions,
+    keywordTriggerRestrictionMessage,
+    keywordTriggerWarningMessage,
     preferredAnimationId,
+    selectedKeywordId,
+    selectedKeywordLabel,
     slideAnimations,
     slideElements,
     onAddAnimation,
@@ -28,6 +33,7 @@ export function AnimationSidePanel(props: AnimationSidePanelProps) {
     onPlaySlideAnimations,
     onResizeStart,
     onDeleteAnimation,
+    onSelectKeyword,
     onSelectSlideAnimation,
     onUpdateAnimation
   } = props;
@@ -48,11 +54,17 @@ export function AnimationSidePanel(props: AnimationSidePanelProps) {
         animations={animations}
         canCreateAnimation={canCreateAnimation}
         element={element}
+        keywordOptions={keywordOptions}
+        keywordTriggerRestrictionMessage={keywordTriggerRestrictionMessage}
+        keywordTriggerWarningMessage={keywordTriggerWarningMessage}
         preferredAnimationId={preferredAnimationId}
+        selectedKeywordId={selectedKeywordId}
+        selectedKeywordLabel={selectedKeywordLabel}
         slideAnimations={slideAnimations}
         slideElements={slideElements}
         onAddAnimation={onAddAnimation}
         onDeleteAnimation={onDeleteAnimation}
+        onSelectKeyword={onSelectKeyword}
         onSelectSlideAnimation={onSelectSlideAnimation}
         showIds={showIds}
         onUpdateAnimation={onUpdateAnimation}

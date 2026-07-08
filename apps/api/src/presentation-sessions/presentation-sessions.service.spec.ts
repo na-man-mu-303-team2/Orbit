@@ -3,6 +3,7 @@ import {
   ConflictException,
   ForbiddenException,
   GoneException,
+  NotFoundException,
   UnauthorizedException,
 } from "@nestjs/common";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -578,6 +579,44 @@ describe("PresentationSessionsService", () => {
     });
   });
 
+  it("touches audience realtime state without clearing slide or interaction fields", async () => {
+    const query = vi.fn().mockResolvedValueOnce([
+      {
+        session_id: "session_existing",
+        slide_id: "slide_2",
+        slide_index: 1,
+        effect_state_json: { stepIndex: 2 },
+        active_interaction_id: "interaction_1",
+        updated_at: "2026-07-05T00:05:00.000Z",
+      },
+    ]);
+    const service = new PresentationSessionsService({
+      query,
+    } as unknown as DataSource);
+
+    await expect(
+      service.touchAudienceRealtimeState("session_existing"),
+    ).resolves.toEqual({
+      sessionId: "session_existing",
+      slideId: "slide_2",
+      slideIndex: 1,
+      effectState: { stepIndex: 2 },
+      activeInteractionId: "interaction_1",
+      updatedAt: "2026-07-05T00:05:00.000Z",
+    });
+
+    expect(query).toHaveBeenCalledWith(expect.any(String), [
+      "session_existing",
+    ]);
+    const sql = query.mock.calls[0][0] as string;
+    expect(sql).toContain("UPDATE audience_realtime_state");
+    expect(sql).toContain("SET updated_at = now()");
+    expect(sql).not.toContain("slide_id = $");
+    expect(sql).not.toContain("slide_index = $");
+    expect(sql).not.toContain("effect_state_json = $");
+    expect(sql).not.toContain("active_interaction_id = $");
+  });
+
   it("renders and attaches an audience slide snapshot when storage is available", async () => {
     const storage = {
       putObject: vi.fn(async (input) => ({
@@ -911,11 +950,10 @@ describe("PresentationSessionsService", () => {
         actorId: "user_1",
         slideId: "slide_3",
         slideIndex: 1,
-        effectState: { stepIndex: 2 },
+        effectState: {},
       }),
     ).resolves.toMatchObject({
       effectState: {
-        stepIndex: 2,
         slideSnapshotContentHash: "frozen-slide-3",
         slideSnapshotUrl:
           "/api/v1/presentation-sessions/session_existing/audience/slide-snapshots/slide_3/frozen-slide-3",
@@ -923,6 +961,178 @@ describe("PresentationSessionsService", () => {
     });
 
     expect(storage.putObject).not.toHaveBeenCalled();
+  });
+
+  it("uses slide fallback instead of a frozen static snapshot for dynamic effects", async () => {
+    const storage = {
+      putObject: vi.fn(),
+    } as unknown as StoragePort;
+    const query = vi.fn(async (sql: string, params?: unknown[]) => {
+      if (sql.includes("SELECT audience_slide_snapshots_json")) {
+        return [
+          {
+            audience_slide_snapshots_json: {
+              deckVersion: 1,
+              deckContentHash: "frozen-deck",
+              slides: {
+                slide_3: {
+                  contentHash: "frozen-slide-3",
+                  url: "https://cdn.example.test/frozen-slide-3.svg",
+                },
+              },
+            },
+          },
+        ];
+      }
+
+      if (sql.includes("FROM presentation_sessions ps")) {
+        return [{ deck_json: audienceDeck }];
+      }
+
+      if (sql.includes("UPDATE audience_realtime_state")) {
+        return [
+          {
+            session_id: "session_existing",
+            slide_id: "slide_3",
+            slide_index: 1,
+            effect_state_json: params?.[3],
+            active_interaction_id: null,
+            updated_at: "2026-07-05T00:03:00.000Z",
+          },
+        ];
+      }
+
+      if (sql.includes("INSERT INTO audience_events")) {
+        return [];
+      }
+
+      return [];
+    });
+    const service = new PresentationSessionsService(
+      { query } as unknown as DataSource,
+      storage,
+    );
+
+    await expect(
+      service.updateAudienceRealtimeState({
+        sessionId: "session_existing",
+        actorId: "user_1",
+        slideId: "slide_3",
+        slideIndex: 1,
+        effectState: {
+          highlights: [{ elementId: "el_2", active: true }],
+          stepIndex: 2,
+          triggerAnimationIds: ["animation_1"],
+        },
+      }),
+    ).resolves.toMatchObject({
+      effectState: {
+        highlights: [{ elementId: "el_2", active: true }],
+        stepIndex: 2,
+        triggerAnimationIds: ["animation_1"],
+        slideFallback: {
+          deck: {
+            slides: [
+              expect.objectContaining({
+                slideId: "slide_3",
+              }),
+            ],
+          },
+          slideIndex: 0,
+          sourceSlideIndex: 1,
+        },
+      },
+    });
+
+    expect(storage.putObject).not.toHaveBeenCalled();
+    const updateCall = query.mock.calls.find(([sql]) =>
+      String(sql).includes("UPDATE audience_realtime_state"),
+    );
+    const persistedEffectState = updateCall?.[1]?.[3] as Record<
+      string,
+      unknown
+    >;
+    expect(persistedEffectState).not.toHaveProperty("slideSnapshotUrl");
+    expect(persistedEffectState).not.toHaveProperty(
+      "slideSnapshotContentHash",
+    );
+    expect(JSON.stringify(persistedEffectState)).not.toContain(
+      "second private presenter script",
+    );
+  });
+
+  it("reads audience slide snapshots only after validating participant access", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("<svg>청중 공개 문장</svg>", {
+        headers: { "content-type": "image/svg+xml; charset=utf-8" },
+      })),
+    );
+    const storage = {
+      getSignedReadUrl: vi.fn(
+        async (key) => `https://cdn.example.test/${key}`,
+      ),
+    } as unknown as StoragePort;
+    const query = vi.fn(async (sql: string) => {
+      if (sql.includes("UPDATE audience_participants")) {
+        return [
+          {
+            audience_id: "audience_00000000-0000-4000-8000-000000000001",
+            session_id: "session_existing",
+            nickname: "orbit",
+            joined_at: "2026-07-05T00:00:00.000Z",
+            last_seen_at: "2026-07-05T00:00:00.000Z",
+            joined_before_end: true,
+          },
+        ];
+      }
+
+      if (sql.includes("SELECT audience_slide_snapshots_json")) {
+        return [
+          {
+            audience_slide_snapshots_json: {
+              deckVersion: 1,
+              deckContentHash: "frozen-deck",
+              generatedAt: "2026-07-05T00:00:00.000Z",
+              slides: {
+                slide_2: {
+                  contentHash: "frozen-slide-2",
+                  key: "audience-slide-snapshots/session_existing/slide_2-frozen.svg",
+                  url: "https://cdn.example.test/slide_2-frozen.svg",
+                },
+              },
+            },
+          },
+        ];
+      }
+
+      if (sql.includes("WHERE session_id = $1") && sql.includes("LIMIT 1")) {
+        return [activeSessionRow];
+      }
+
+      return [];
+    });
+    const service = new PresentationSessionsService(
+      { query } as unknown as DataSource,
+      storage,
+    );
+
+    await expect(
+      service.readAudienceSlideSnapshotContent({
+        sessionId: "session_existing",
+        audienceId: "audience_00000000-0000-4000-8000-000000000001",
+        tokenHash: "token_hash",
+        slideId: "slide_2",
+        contentHash: "frozen-slide-2",
+      }),
+    ).resolves.toEqual({
+      body: Buffer.from("<svg>청중 공개 문장</svg>"),
+      contentType: "image/svg+xml",
+    });
+    expect(storage.getSignedReadUrl).not.toHaveBeenCalled();
+    expect(fetch).toHaveBeenCalledWith(
+      "http://localhost:9000/orbit-local/audience-slide-snapshots/session_existing/slide_2-frozen-slide-2.svg",
+    );
   });
 
   it("attaches an audience-safe slide fallback when snapshot storage fails", async () => {
@@ -1205,13 +1415,21 @@ describe("PresentationSessionsService", () => {
       .fn()
       .mockResolvedValueOnce([libraryRow])
       .mockResolvedValueOnce([{ session_id: "session_existing" }])
-      .mockResolvedValueOnce([])
       .mockResolvedValueOnce([libraryRow])
-      .mockResolvedValueOnce([])
       .mockResolvedValueOnce([{ session_id: "session_existing" }])
       .mockResolvedValueOnce([sessionInteractionRow]);
+    const transactionQuery = vi
+      .fn()
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([]);
+    const transaction = vi.fn(
+      async (
+        callback: (manager: { query: typeof transactionQuery }) => Promise<unknown>,
+      ) => callback({ query: transactionQuery }),
+    );
     const service = new PresentationSessionsService({
       query,
+      transaction,
     } as unknown as DataSource);
 
     await expect(
@@ -1249,9 +1467,85 @@ describe("PresentationSessionsService", () => {
       ],
     });
 
-    expect(query.mock.calls[4][0]).toContain(
+    expect(query.mock.calls[0][1]?.[4]).toBe(
+      JSON.stringify(libraryRow.questions_json),
+    );
+    expect(query.mock.calls[2][0]).toContain(
+      "FROM project_interaction_library",
+    );
+    expect(transaction).toHaveBeenCalledOnce();
+    expect(transactionQuery.mock.calls[0][0]).toContain(
+      "DELETE FROM session_interactions",
+    );
+    expect(transactionQuery.mock.calls[1][0]).toContain(
       "INSERT INTO session_interactions",
     );
+  });
+
+  it("validates library selections before deleting existing prepared interactions", async () => {
+    const query = vi
+      .fn()
+      .mockResolvedValueOnce([{ session_id: "session_existing" }])
+      .mockResolvedValueOnce([{ session_id: "session_existing" }])
+      .mockResolvedValueOnce([]);
+    const transaction = vi.fn();
+    const service = new PresentationSessionsService({
+      query,
+      transaction,
+    } as unknown as DataSource);
+
+    await expect(
+      service.selectSessionInteractions(
+        { projectId: "project_1", sessionId: "session_existing" },
+        {
+          libraryInteractionIds: [
+            "library_interaction_00000000-0000-4000-8000-000000000999",
+          ],
+        },
+      ),
+    ).rejects.toBeInstanceOf(NotFoundException);
+
+    expect(transaction).not.toHaveBeenCalled();
+    expect(
+      query.mock.calls.some((call) =>
+        String(call[0]).includes("DELETE FROM session_interactions"),
+      ),
+    ).toBe(false);
+  });
+
+  it("clears prepared library interactions when the selected library list is empty", async () => {
+    const query = vi
+      .fn()
+      .mockResolvedValueOnce([{ session_id: "session_existing" }])
+      .mockResolvedValueOnce([{ session_id: "session_existing" }])
+      .mockResolvedValueOnce([]);
+    const transactionQuery = vi.fn().mockResolvedValueOnce([]);
+    const transaction = vi.fn(
+      async (
+        callback: (manager: { query: typeof transactionQuery }) => Promise<unknown>,
+      ) => callback({ query: transactionQuery }),
+    );
+    const service = new PresentationSessionsService({
+      query,
+      transaction,
+    } as unknown as DataSource);
+
+    await expect(
+      service.selectSessionInteractions(
+        { projectId: "project_1", sessionId: "session_existing" },
+        { libraryInteractionIds: [] },
+      ),
+    ).resolves.toEqual({ interactions: [] });
+
+    expect(transaction).toHaveBeenCalledOnce();
+    expect(transactionQuery.mock.calls[0][0]).toContain(
+      "DELETE FROM session_interactions",
+    );
+    expect(
+      query.mock.calls.some((call) =>
+        String(call[0]).includes("FROM project_interaction_library"),
+      ),
+    ).toBe(false);
   });
 
   it("allows poll response edits but rejects quiz response edits", async () => {
@@ -1303,6 +1597,18 @@ describe("PresentationSessionsService", () => {
       ])
       .mockResolvedValueOnce([activeSessionRow])
       .mockResolvedValueOnce([pollInteractionRow])
+      .mockResolvedValueOnce([
+        {
+          session_id: "session_existing",
+          qna_enabled: false,
+          ai_qna_enabled: false,
+          polls_enabled: true,
+          quizzes_enabled: false,
+          reactions_enabled: false,
+          survey_enabled: false,
+          updated_at: "2026-07-05T00:00:00.000Z",
+        },
+      ])
       .mockResolvedValueOnce([responseRow])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([
@@ -1317,6 +1623,18 @@ describe("PresentationSessionsService", () => {
       ])
       .mockResolvedValueOnce([activeSessionRow])
       .mockResolvedValueOnce([{ ...pollInteractionRow, kind: "quiz" }])
+      .mockResolvedValueOnce([
+        {
+          session_id: "session_existing",
+          qna_enabled: false,
+          ai_qna_enabled: false,
+          polls_enabled: false,
+          quizzes_enabled: true,
+          reactions_enabled: false,
+          survey_enabled: false,
+          updated_at: "2026-07-05T00:00:00.000Z",
+        },
+      ])
       .mockRejectedValueOnce(
         Object.assign(new Error("duplicate quiz response"), { code: "23505" }),
       );
@@ -1354,7 +1672,180 @@ describe("PresentationSessionsService", () => {
       }),
     ).rejects.toBeInstanceOf(ConflictException);
 
-    expect(query.mock.calls[3][0]).toContain("ON CONFLICT");
+    expect(query.mock.calls[4][0]).toContain("ON CONFLICT");
+  });
+
+  it("rejects poll and quiz responses when the matching feature is disabled", async () => {
+    const participantRow = {
+      audience_id: "audience_00000000-0000-4000-8000-000000000001",
+      session_id: "session_existing",
+      nickname: "orbit",
+      joined_at: "2026-07-05T00:00:00.000Z",
+      last_seen_at: "2026-07-05T00:00:00.000Z",
+      joined_before_end: true,
+    };
+    const pollInteractionRow = {
+      interaction_id: "interaction_00000000-0000-4000-8000-000000000001",
+      session_id: "session_existing",
+      kind: "poll" as const,
+      title: "만족도",
+      questions_json: [
+        {
+          type: "scale" as const,
+          questionId: "question_00000000-0000-4000-8000-000000000001",
+          prompt: "만족도",
+          required: true,
+          min: 1 as const,
+          max: 5 as const,
+        },
+      ],
+      result_visibility: "live" as const,
+      quiz_scoring: "none" as const,
+      source: "ad-hoc" as const,
+      display_order: 0,
+      activated_at: "2026-07-05T00:00:00.000Z",
+      closed_at: null,
+    };
+    const quizInteractionRow = {
+      ...pollInteractionRow,
+      kind: "quiz" as const,
+      questions_json: [
+        {
+          type: "quiz-true-false" as const,
+          questionId: "question_00000000-0000-4000-8000-000000000001",
+          prompt: "맞나요?",
+          correctAnswer: true,
+        },
+      ],
+    };
+    const query = vi
+      .fn()
+      .mockResolvedValueOnce([participantRow])
+      .mockResolvedValueOnce([activeSessionRow])
+      .mockResolvedValueOnce([pollInteractionRow])
+      .mockResolvedValueOnce([
+        {
+          session_id: "session_existing",
+          qna_enabled: false,
+          ai_qna_enabled: false,
+          polls_enabled: false,
+          quizzes_enabled: true,
+          reactions_enabled: false,
+          survey_enabled: false,
+          updated_at: "2026-07-05T00:00:00.000Z",
+        },
+      ])
+      .mockResolvedValueOnce([participantRow])
+      .mockResolvedValueOnce([activeSessionRow])
+      .mockResolvedValueOnce([quizInteractionRow])
+      .mockResolvedValueOnce([
+        {
+          session_id: "session_existing",
+          qna_enabled: false,
+          ai_qna_enabled: false,
+          polls_enabled: true,
+          quizzes_enabled: false,
+          reactions_enabled: false,
+          survey_enabled: false,
+          updated_at: "2026-07-05T00:00:00.000Z",
+        },
+      ]);
+    const service = new PresentationSessionsService({
+      query,
+    } as unknown as DataSource);
+
+    await expect(
+      service.submitInteractionResponse({
+        sessionId: "session_existing",
+        audienceId: participantRow.audience_id,
+        tokenHash: "token_hash",
+        interactionId: pollInteractionRow.interaction_id,
+        body: {
+          questionId: "question_00000000-0000-4000-8000-000000000001",
+          answer: { type: "scale", value: 5 },
+        },
+      }),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+
+    await expect(
+      service.submitInteractionResponse({
+        sessionId: "session_existing",
+        audienceId: participantRow.audience_id,
+        tokenHash: "token_hash",
+        interactionId: quizInteractionRow.interaction_id,
+        body: {
+          questionId: "question_00000000-0000-4000-8000-000000000001",
+          answer: { type: "quiz-true-false", answer: true },
+        },
+      }),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+
+    expect(
+      query.mock.calls.some((call) =>
+        String(call[0]).includes("INSERT INTO interaction_responses"),
+      ),
+    ).toBe(false);
+  });
+
+  it("serializes ad-hoc interaction questions before inserting jsonb", async () => {
+    const interactionRow = {
+      interaction_id: "interaction_00000000-0000-4000-8000-000000000001",
+      session_id: "session_existing",
+      library_interaction_id: null,
+      kind: "poll" as const,
+      title: "현장 투표",
+      questions_json: [
+        {
+          type: "choice" as const,
+          questionId: "question_00000000-0000-4000-8000-000000000001",
+          prompt: "어떤 주제가 가장 궁금한가요?",
+          required: true,
+          allowMultiple: false,
+          options: [
+            { optionId: "roadmap", label: "로드맵" },
+            { optionId: "pricing", label: "가격" },
+          ],
+        },
+      ],
+      result_visibility: "live" as const,
+      quiz_scoring: "none" as const,
+      exposed_result_question_ids: [],
+      source: "ad-hoc" as const,
+      display_order: 0,
+      activated_at: null,
+      closed_at: null,
+    };
+    const query = vi
+      .fn()
+      .mockResolvedValueOnce([{ session_id: "session_existing" }])
+      .mockResolvedValueOnce([interactionRow]);
+    const service = new PresentationSessionsService({
+      query,
+    } as unknown as DataSource);
+
+    await expect(
+      service.createAdHocSessionInteraction(
+        { projectId: "project_1", sessionId: "session_existing" },
+        {
+          kind: "poll",
+          title: "현장 투표",
+          questions: interactionRow.questions_json,
+          resultVisibility: "live",
+          quizScoring: "none",
+        },
+      ),
+    ).resolves.toMatchObject({
+      interaction: {
+        kind: "poll",
+        title: "현장 투표",
+        questions: interactionRow.questions_json,
+      },
+    });
+
+    expect(query.mock.calls[1][0]).toContain("$5::jsonb");
+    expect(JSON.parse(query.mock.calls[1][1]?.[4] as string)).toEqual(
+      interactionRow.questions_json,
+    );
   });
 
   it("scores speed-bonus quiz answers from remaining time", async () => {
@@ -1408,6 +1899,18 @@ describe("PresentationSessionsService", () => {
         ])
         .mockResolvedValueOnce([activeSessionRow])
         .mockResolvedValueOnce([quizInteractionRow])
+        .mockResolvedValueOnce([
+          {
+            session_id: "session_existing",
+            qna_enabled: false,
+            ai_qna_enabled: false,
+            polls_enabled: false,
+            quizzes_enabled: true,
+            reactions_enabled: false,
+            survey_enabled: false,
+            updated_at: "2026-07-05T00:00:00.000Z",
+          },
+        ])
         .mockResolvedValueOnce([responseRow])
         .mockResolvedValueOnce([]);
       const service = new PresentationSessionsService({
@@ -1431,10 +1934,70 @@ describe("PresentationSessionsService", () => {
           score: 750,
         },
       });
-      expect(query.mock.calls[3][1][7]).toBe(750);
+      expect(query.mock.calls[4][1][7]).toBe(750);
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("activates ad-hoc interactions when update returning rows are wrapped", async () => {
+    const interactionRow = {
+      interaction_id: "interaction_00000000-0000-4000-8000-000000000201",
+      session_id: "session_existing",
+      kind: "poll" as const,
+      title: "즉석 투표",
+      questions_json: [
+        {
+          type: "choice" as const,
+          questionId: "question_00000000-0000-4000-8000-000000000201",
+          prompt: "가장 기대되는 흐름은?",
+          required: true,
+          options: [
+            { optionId: "option_00000000-0000-4000-8000-000000000201", label: "Q&A" },
+            { optionId: "option_00000000-0000-4000-8000-000000000202", label: "Poll" },
+          ],
+        },
+      ],
+      result_visibility: "manual" as const,
+      quiz_scoring: "none" as const,
+      exposed_result_question_ids: [],
+      source: "ad-hoc" as const,
+      display_order: 0,
+      activated_at: "2026-07-05T00:03:00.000Z",
+      closed_at: null,
+    };
+    const query = vi
+      .fn()
+      .mockResolvedValueOnce([{ session_id: "session_existing" }])
+      .mockResolvedValueOnce([[interactionRow], 1])
+      .mockResolvedValueOnce([
+        {
+          session_id: "session_existing",
+          slide_id: null,
+          slide_index: null,
+          effect_state_json: {},
+          active_interaction_id: interactionRow.interaction_id,
+          updated_at: "2026-07-05T00:03:00.000Z",
+        },
+      ])
+      .mockResolvedValueOnce([]);
+    const service = new PresentationSessionsService({
+      query,
+    } as unknown as DataSource);
+
+    await expect(
+      service.activateSessionInteraction({
+        projectId: "project_1",
+        sessionId: "session_existing",
+        interactionId: interactionRow.interaction_id,
+        actorId: "user_1",
+      }),
+    ).resolves.toMatchObject({
+      interaction: {
+        interactionId: interactionRow.interaction_id,
+        activatedAt: "2026-07-05T00:03:00.000Z",
+      },
+    });
   });
 
   it("keeps after-close quizzes visible and returns the audience answer reveal", async () => {
@@ -1866,7 +2429,8 @@ describe("PresentationSessionsService", () => {
           escalated_to_presenter: false,
           created_at: "2026-07-05T00:00:02.000Z",
         },
-      ]);
+      ])
+      .mockResolvedValueOnce([]);
     const service = new PresentationSessionsService({
       query,
     } as unknown as DataSource);
@@ -1894,9 +2458,113 @@ describe("PresentationSessionsService", () => {
     expect(workerRequest.publicSlideContext).not.toContain(
       "private presenter script",
     );
+    expect(query.mock.calls[8][0]).toContain(
+      "ON d.project_id = ps.project_id",
+    );
+    expect(query.mock.calls[8][0]).toContain("AND d.deck_id = ps.deck_id");
     expect(query.mock.calls[9][0]).toContain(
       "INSERT INTO audience_question_answers",
     );
+    expect(query.mock.calls[9][1]?.[4]).toBe(JSON.stringify(["file_1"]));
+    expect(query.mock.calls[9][0]).not.toContain(
+      "created_at::text AS created_at\n        )",
+    );
+    expect(query.mock.calls[10][0]).toContain("UPDATE audience_questions");
+    expect(query.mock.calls[10][0]).toContain("SET status = 'answered'");
+    expect(query.mock.calls[10][1]).toEqual([
+      "session_existing",
+      "question_00000000-0000-4000-8000-000000000001",
+    ]);
+  });
+
+  it("keeps AI Q&A failures pending for presenter follow-up", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        new Response(
+          JSON.stringify({
+            status: "failed",
+            failureReason: "low-confidence",
+            sourceReferences: [],
+            confidence: 0.21,
+          }),
+        ),
+      ),
+    );
+    const participantRow = {
+      audience_id: "audience_00000000-0000-4000-8000-000000000001",
+      session_id: "session_existing",
+      nickname: "orbit",
+      joined_at: "2026-07-05T00:00:00.000Z",
+      last_seen_at: "2026-07-05T00:00:00.000Z",
+      joined_before_end: true,
+    };
+    const questionRow = {
+      question_id: "question_00000000-0000-4000-8000-000000000001",
+      question_group_id: "question_00000000-0000-4000-8000-000000000001",
+      session_id: "session_existing",
+      audience_id: "audience_00000000-0000-4000-8000-000000000001",
+      text: "AI 질문입니다",
+      status: "pending" as const,
+      submitted_at: "2026-07-05T00:00:01.000Z",
+      answered_at: null,
+    };
+    const query = vi
+      .fn()
+      .mockResolvedValueOnce([participantRow])
+      .mockResolvedValueOnce([activeSessionRow])
+      .mockResolvedValueOnce([
+        {
+          session_id: "session_existing",
+          qna_enabled: true,
+          ai_qna_enabled: true,
+          polls_enabled: false,
+          quizzes_enabled: false,
+          reactions_enabled: false,
+          survey_enabled: false,
+          updated_at: "2026-07-05T00:00:00.000Z",
+        },
+      ])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([questionRow])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([activeSessionRow])
+      .mockResolvedValueOnce([{ selected_reference_ids_json: [] }])
+      .mockResolvedValueOnce([{ slide_id: "slide_2", deck_json: audienceDeck }])
+      .mockResolvedValueOnce([
+        {
+          question_id: "question_00000000-0000-4000-8000-000000000001",
+          session_id: "session_existing",
+          audience_id: "audience_00000000-0000-4000-8000-000000000001",
+          answer_text: null,
+          source_references_json: [],
+          confidence: 0.21,
+          failure_reason: "low-confidence",
+          feedback: null,
+          escalated_to_presenter: true,
+          created_at: "2026-07-05T00:00:02.000Z",
+        },
+      ]);
+    const service = new PresentationSessionsService({
+      query,
+    } as unknown as DataSource);
+
+    await expect(
+      service.submitAudienceQuestion({
+        sessionId: "session_existing",
+        audienceId: "audience_00000000-0000-4000-8000-000000000001",
+        tokenHash: "token_hash",
+        body: { text: "AI 질문입니다" },
+      }),
+    ).resolves.toMatchObject({
+      question: { status: "pending" },
+    });
+
+    expect(
+      query.mock.calls.some((call) =>
+        String(call[0]).includes("UPDATE audience_questions"),
+      ),
+    ).toBe(false);
   });
 
   it("returns and updates selected AI reference ids for presenter setup", async () => {
@@ -1923,6 +2591,11 @@ describe("PresentationSessionsService", () => {
         { referenceIds: ["file_2"] },
       ),
     ).resolves.toEqual({ referenceIds: ["file_2"] });
+    expect(query.mock.calls[3][1]).toEqual([
+      "project_1",
+      "session_existing",
+      JSON.stringify(["file_2"]),
+    ]);
   });
 
   it("submits enabled audience reactions as events", async () => {

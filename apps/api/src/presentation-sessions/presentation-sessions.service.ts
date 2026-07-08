@@ -145,6 +145,7 @@ type AudienceSlideSnapshotMap = {
     string,
     {
       contentHash: string;
+      key?: string;
       url: string;
     }
   >;
@@ -1023,7 +1024,7 @@ export class PresentationSessionsService {
         projectId,
         input.title,
         input.kind,
-        input.questions,
+        JSON.stringify(input.questions),
         input.resultVisibility,
         input.quizScoring,
       ],
@@ -1063,82 +1064,88 @@ export class PresentationSessionsService {
     const parsed = selectSessionInteractionsRequestSchema.parse(body);
     await this.assertSessionBelongsToProject(input.projectId, input.sessionId);
 
-    await this.dataSource.query(
-      `
-        DELETE FROM session_interactions
-        WHERE session_id = $1
-          AND source = 'library'
-          AND activated_at IS NULL
-      `,
-      [input.sessionId],
-    );
-
-    if (parsed.libraryInteractionIds.length === 0) {
-      return listSessionInteractionsResponseSchema.parse({
-        interactions: await this.getSessionInteractions(input),
-      });
-    }
-
-    const libraryRows =
-      await this.dataSource.query<ProjectInteractionLibraryRow[]>(
-        `
-          SELECT
-            library_interaction_id,
-            project_id,
-            title,
-            kind,
-            questions_json,
-            result_visibility,
-            quiz_scoring,
-            created_at,
-            updated_at
-          FROM project_interaction_library
-          WHERE project_id = $1
-            AND library_interaction_id = ANY($2)
-        `,
-        [input.projectId, parsed.libraryInteractionIds],
+    const selectedLibraryRows: ProjectInteractionLibraryRow[] = [];
+    if (parsed.libraryInteractionIds.length > 0) {
+      const libraryRows =
+        await this.dataSource.query<ProjectInteractionLibraryRow[]>(
+          `
+            SELECT
+              library_interaction_id,
+              project_id,
+              title,
+              kind,
+              questions_json,
+              result_visibility,
+              quiz_scoring,
+              created_at,
+              updated_at
+            FROM project_interaction_library
+            WHERE project_id = $1
+              AND library_interaction_id = ANY($2)
+          `,
+          [input.projectId, parsed.libraryInteractionIds],
+        );
+      const byId = new Map(
+        libraryRows.map((row) => [row.library_interaction_id, row]),
       );
-    const byId = new Map(
-      libraryRows.map((row) => [row.library_interaction_id, row]),
-    );
 
-    for (let index = 0; index < parsed.libraryInteractionIds.length; index += 1) {
-      const libraryInteractionId = parsed.libraryInteractionIds[index];
-      const row = byId.get(libraryInteractionId);
-      if (!row) {
-        throw new NotFoundException("Interaction library item not found");
+      for (const libraryInteractionId of parsed.libraryInteractionIds) {
+        const row = byId.get(libraryInteractionId);
+        if (!row) {
+          throw new NotFoundException("Interaction library item not found");
+        }
+        selectedLibraryRows.push(row);
       }
-
-      await this.dataSource.query(
-        `
-          INSERT INTO session_interactions (
-            interaction_id,
-            session_id,
-            library_interaction_id,
-            kind,
-            title,
-            questions_json,
-            result_visibility,
-            quiz_scoring,
-            source,
-            display_order,
-            created_at
-          )
-          VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8, 'library', $9, now())
-        `,
-        [
-          `interaction_${randomUUID()}`,
-          input.sessionId,
-          row.library_interaction_id,
-          row.kind,
-          row.title,
-          normalizeQuestions(row.questions_json),
-          row.result_visibility,
-          row.quiz_scoring,
-          index,
-        ],
-      );
     }
+
+    await this.dataSource.transaction(async (manager) => {
+      await manager.query(
+        `
+          DELETE FROM session_interactions
+          WHERE session_id = $1
+            AND source = 'library'
+            AND activated_at IS NULL
+        `,
+        [input.sessionId],
+      );
+
+      for (let index = 0; index < selectedLibraryRows.length; index += 1) {
+        const row = selectedLibraryRows[index];
+        if (!row) {
+          continue;
+        }
+
+        await manager.query(
+          `
+            INSERT INTO session_interactions (
+              interaction_id,
+              session_id,
+              library_interaction_id,
+              kind,
+              title,
+              questions_json,
+              result_visibility,
+              quiz_scoring,
+              source,
+              display_order,
+              created_at
+            )
+            VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8, 'library', $9, now())
+          `,
+          [
+            `interaction_${randomUUID()}`,
+            input.sessionId,
+            row.library_interaction_id,
+            row.kind,
+            row.title,
+            JSON.stringify(normalizeQuestions(row.questions_json)),
+            row.result_visibility,
+            row.quiz_scoring,
+            index,
+          ],
+        );
+      }
+    });
 
     return listSessionInteractionsResponseSchema.parse({
       interactions: await this.getSessionInteractions(input),
@@ -1206,7 +1213,7 @@ export class PresentationSessionsService {
         input.sessionId,
         parsed.kind,
         parsed.title,
-        parsed.questions,
+        JSON.stringify(parsed.questions),
         parsed.resultVisibility,
         parsed.quizScoring,
       ],
@@ -1224,7 +1231,9 @@ export class PresentationSessionsService {
     await this.assertSessionBelongsToProject(input.projectId, input.sessionId);
 
     try {
-      const rows = await this.dataSource.query<SessionInteractionRow[]>(
+      const result = await this.dataSource.query<
+        QueryRowsResult<SessionInteractionRow>
+      >(
         `
           UPDATE session_interactions
           SET activated_at = COALESCE(activated_at, now())
@@ -1248,6 +1257,7 @@ export class PresentationSessionsService {
         [input.sessionId, input.interactionId],
       );
 
+      const rows = unwrapQueryRows(result);
       const row = rows[0];
       if (!row) {
         throw new NotFoundException("Session interaction not found");
@@ -1279,7 +1289,9 @@ export class PresentationSessionsService {
     actorId: string;
   }) {
     await this.assertSessionBelongsToProject(input.projectId, input.sessionId);
-    const rows = await this.dataSource.query<SessionInteractionRow[]>(
+    const result = await this.dataSource.query<
+      QueryRowsResult<SessionInteractionRow>
+    >(
       `
         UPDATE session_interactions
         SET closed_at = COALESCE(closed_at, now())
@@ -1303,6 +1315,7 @@ export class PresentationSessionsService {
       [input.sessionId, input.interactionId],
     );
 
+    const rows = unwrapQueryRows(result);
     const row = rows[0];
     if (!row) {
       throw new NotFoundException("Session interaction not found");
@@ -1357,7 +1370,9 @@ export class PresentationSessionsService {
       exposedQuestionIds.delete(request.questionId);
     }
 
-    const rows = await this.dataSource.query<SessionInteractionRow[]>(
+    const result = await this.dataSource.query<
+      QueryRowsResult<SessionInteractionRow>
+    >(
       `
         UPDATE session_interactions
         SET exposed_result_question_ids = $3::jsonb
@@ -1385,6 +1400,7 @@ export class PresentationSessionsService {
       ],
     );
 
+    const rows = unwrapQueryRows(result);
     const row = rows[0];
     if (!row) {
       throw new NotFoundException("Session interaction not found");
@@ -1420,6 +1436,20 @@ export class PresentationSessionsService {
       input.sessionId,
       input.interactionId,
     );
+    const features = await this.getAudienceFeatureSettingsForSession(
+      input.sessionId,
+    );
+    const isInteractionEnabled =
+      (interaction.kind === "poll" && features.pollsEnabled) ||
+      (interaction.kind === "quiz" && features.quizzesEnabled);
+    if (!isInteractionEnabled) {
+      throw new ForbiddenException(
+        interaction.kind === "poll"
+          ? "현재 Poll이 열려 있지 않습니다."
+          : "현재 Quiz가 열려 있지 않습니다.",
+      );
+    }
+
     const question = interaction.questions.find(
       (candidate) => candidate.questionId === request.questionId,
     );
@@ -1807,7 +1837,7 @@ export class PresentationSessionsService {
           AND session_id = $2
         RETURNING selected_reference_ids_json
       `,
-      [input.projectId, input.sessionId, parsed.referenceIds],
+      [input.projectId, input.sessionId, JSON.stringify(parsed.referenceIds)],
     );
     const value = unwrapQueryRows(result)[0]?.selected_reference_ids_json ?? [];
     return updateAiReferenceSelectionResponseSchema.parse({
@@ -2243,7 +2273,7 @@ export class PresentationSessionsService {
     );
   }
 
-  private async getAudienceRealtimeState(
+  async getAudienceRealtimeState(
     sessionId: string,
   ): Promise<AudienceRealtimeState> {
     const rows = await this.dataSource.query<AudienceRealtimeStateRow[]>(
@@ -2262,6 +2292,36 @@ export class PresentationSessionsService {
       [sessionId],
     );
 
+    const row = rows[0];
+    if (!row) {
+      throw new NotFoundException("Audience realtime state not found");
+    }
+
+    return this.toRealtimeStateDto(row);
+  }
+
+  async touchAudienceRealtimeState(
+    sessionId: string,
+  ): Promise<AudienceRealtimeState> {
+    const result = await this.dataSource.query<
+      QueryRowsResult<AudienceRealtimeStateRow>
+    >(
+      `
+        UPDATE audience_realtime_state
+        SET updated_at = now()
+        WHERE session_id = $1
+        RETURNING
+          session_id,
+          slide_id,
+          slide_index,
+          effect_state_json,
+          active_interaction_id,
+          updated_at::text AS updated_at
+      `,
+      [sessionId],
+    );
+
+    const rows = unwrapQueryRows(result);
     const row = rows[0];
     if (!row) {
       throw new NotFoundException("Audience realtime state not found");
@@ -2606,7 +2666,7 @@ export class PresentationSessionsService {
           failure_reason,
           feedback,
           escalated_to_presenter,
-          created_at::text AS created_at
+          created_at
         )
         VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, NULL, $8, now())
         ON CONFLICT (question_id)
@@ -2633,14 +2693,28 @@ export class PresentationSessionsService {
         question.sessionId,
         question.audienceId,
         rowInput.answerText,
-        rowInput.sourceReferences,
+        JSON.stringify(rowInput.sourceReferences),
         rowInput.confidence,
         rowInput.failureReason,
         rowInput.escalatedToPresenter,
       ],
     );
 
-    return this.toQuestionAnswerDto(unwrapQueryRows(result)[0]);
+    const answer = this.toQuestionAnswerDto(unwrapQueryRows(result)[0]);
+    if (!answer.escalatedToPresenter) {
+      await this.dataSource.query(
+        `
+          UPDATE audience_questions
+          SET status = 'answered',
+              answered_at = COALESCE(answered_at, now())
+          WHERE session_id = $1
+            AND question_id = $2
+        `,
+        [question.sessionId, question.questionId],
+      );
+    }
+
+    return answer;
   }
 
   private async getSelectedReferenceIds(sessionId: string): Promise<string[]> {
@@ -2700,7 +2774,9 @@ export class PresentationSessionsService {
         SELECT ars.slide_id, d.deck_json
         FROM audience_realtime_state ars
         JOIN presentation_sessions ps ON ps.session_id = ars.session_id
-        LEFT JOIN decks d ON d.deck_id = ps.deck_id
+        LEFT JOIN decks d
+          ON d.project_id = ps.project_id
+         AND d.deck_id = ps.deck_id
         WHERE ars.session_id = $1
         LIMIT 1
       `,
@@ -3078,6 +3154,15 @@ export class PresentationSessionsService {
       slideId: input.slideId,
     });
     if (frozenSnapshot) {
+      if (hasDynamicAudienceEffectState(input.effectState)) {
+        return this.attachSlideFallbackToEffectStateWhenAvailable({
+          sessionId: input.sessionId,
+          slideId: input.slideId,
+          slideIndex: input.slideIndex,
+          effectState: input.effectState,
+        });
+      }
+
       const effectState = assertAudienceSafePayload({
         ...input.effectState,
         slideSnapshotContentHash: frozenSnapshot.contentHash,
@@ -3107,7 +3192,7 @@ export class PresentationSessionsService {
         slideId: input.slideId,
         effectState: input.effectState,
       });
-      await this.slideSnapshotStorage.putObject({
+      const object = await this.slideSnapshotStorage.putObject({
         key: createAudienceSlideSnapshotStorageKey({
           sessionId: input.sessionId,
           slideId: input.slideId,
@@ -3116,6 +3201,15 @@ export class PresentationSessionsService {
         body: snapshot.body,
         contentType: snapshot.contentType,
         purpose: "audience-slide-snapshot",
+      });
+      await this.saveAudienceSlideSnapshot({
+        sessionId: input.sessionId,
+        slideId: input.slideId,
+        snapshot: {
+          contentHash: snapshot.contentHash,
+          key: object.key,
+          url: object.url,
+        },
       });
 
       const effectState = assertAudienceSafePayload({
@@ -3416,6 +3510,7 @@ export class PresentationSessionsService {
         });
         slides[slide.slideId] = {
           contentHash: snapshot.contentHash,
+          key: object.key,
           url: object.url,
         };
       }
@@ -3437,6 +3532,23 @@ export class PresentationSessionsService {
   }) {
     const map = await this.getAudienceSlideSnapshotMap(input.sessionId);
     return map?.slides[input.slideId] ?? null;
+  }
+
+  private async saveAudienceSlideSnapshot(input: {
+    sessionId: string;
+    slideId: string;
+    snapshot: AudienceSlideSnapshotMap["slides"][string];
+  }) {
+    const current = await this.getAudienceSlideSnapshotMap(input.sessionId);
+    await this.saveAudienceSlideSnapshotMap(input.sessionId, {
+      deckContentHash: current?.deckContentHash ?? "",
+      deckVersion: current?.deckVersion ?? 0,
+      generatedAt: current?.generatedAt ?? new Date().toISOString(),
+      slides: {
+        ...(current?.slides ?? {}),
+        [input.slideId]: input.snapshot,
+      },
+    });
   }
 
   private async getAudienceSlideSnapshotMap(
@@ -4196,6 +4308,10 @@ function normalizeAudienceSlideSnapshotMap(
     ) {
       slides[slideId] = {
         contentHash: snapshotRecord.contentHash,
+        key:
+          typeof snapshotRecord.key === "string"
+            ? snapshotRecord.key
+            : undefined,
         url: snapshotRecord.url,
       };
     }
@@ -4346,6 +4462,21 @@ function toAudiencePublicSession(session: PresentationSession) {
     status: session.status,
     entryStatus: session.entryStatus,
   };
+}
+
+function hasDynamicAudienceEffectState(effectState: Record<string, unknown>) {
+  const stepIndex = effectState.stepIndex;
+  if (typeof stepIndex === "number" && stepIndex > 0) {
+    return true;
+  }
+
+  const highlights = effectState.highlights;
+  if (Array.isArray(highlights) && highlights.length > 0) {
+    return true;
+  }
+
+  const triggerAnimationIds = effectState.triggerAnimationIds;
+  return Array.isArray(triggerAnimationIds) && triggerAnimationIds.length > 0;
 }
 
 class ParticipantRateLimiter {

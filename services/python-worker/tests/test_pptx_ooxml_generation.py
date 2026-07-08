@@ -1,4 +1,5 @@
 import base64
+import copy
 import hashlib
 import shutil
 import zipfile
@@ -238,6 +239,77 @@ def test_apply_slot_texts_to_pptx_ooxml_updates_package(
     assert b"Placeholder Title" not in slide_xml
 
 
+def test_apply_slot_texts_clones_reused_template_slide(
+    tmp_path: Path,
+) -> None:
+    pptx_path = sample_pptx(tmp_path)
+    generated = generate_pptx_ooxml(pptx_path, "file_template", render=False)
+    source_slide = generated.template_blueprint["slides"][0]
+    template_blueprint = {
+        **generated.template_blueprint,
+        "slides": [
+            cloned_template_slide(source_slide, 1),
+            cloned_template_slide(source_slide, 2),
+        ],
+    }
+
+    result = apply_slot_texts_to_pptx_ooxml(
+        pptx_path,
+        template_blueprint=template_blueprint,
+        slot_texts=["AI First", "AI Subtitle", "AI Second", "AI Subtitle 2"],
+        render=False,
+    )
+    package_asset = next(
+        asset for asset in result.assets if asset.asset_id == "current_package"
+    )
+    package_bytes = base64.b64decode(package_asset.content_base64)
+    cloned_path = tmp_path / "cloned.pptx"
+    cloned_path.write_bytes(package_bytes)
+
+    presentation = Presentation(str(cloned_path))
+    assert len(presentation.slides) == 2
+    with zipfile.ZipFile(BytesIO(package_bytes), "r") as package:
+        content_types_xml = package.read("[Content_Types].xml")
+        first_slide_xml = package.read("ppt/slides/slide1.xml")
+        second_slide_xml = package.read("ppt/slides/slide2.xml")
+    assert b"<Types xmlns=" in content_types_xml
+    assert b"ns0:" not in content_types_xml
+    assert b"AI First" in first_slide_xml
+    assert b"AI Second" in second_slide_xml
+
+
+def test_apply_slot_texts_clones_source_slide_part_not_ordinal(
+    tmp_path: Path,
+) -> None:
+    pptx_path = sample_pptx(tmp_path)
+    generated = generate_pptx_ooxml(pptx_path, "file_template", render=False)
+    source_slide = generated.template_blueprint["slides"][0]
+    template_blueprint = {
+        **generated.template_blueprint,
+        "slides": [
+            {
+                **cloned_template_slide(source_slide, 1),
+                "cloneSourceSlideIndex": 5,
+                "cloneSourceSlidePart": "ppt/slides/slide1.xml",
+            }
+        ],
+    }
+
+    result = apply_slot_texts_to_pptx_ooxml(
+        pptx_path,
+        template_blueprint=template_blueprint,
+        slot_texts=["AI Part", "AI Subtitle"],
+        render=False,
+    )
+    package_asset = next(
+        asset for asset in result.assets if asset.asset_id == "current_package"
+    )
+    package_bytes = base64.b64decode(package_asset.content_base64)
+
+    with zipfile.ZipFile(BytesIO(package_bytes), "r") as package:
+        assert b"AI Part" in package.read("ppt/slides/slide1.xml")
+
+
 def test_renders_slide_pngs_when_libreoffice_is_available(tmp_path: Path) -> None:
     if not (shutil.which("libreoffice") or shutil.which("soffice")):
         pytest.skip("LibreOffice is not installed.")
@@ -350,6 +422,21 @@ def sample_textbox_pptx(tmp_path: Path) -> tuple[Path, str, str]:
     second.text_frame.text = "Replace original text"
     presentation.save(pptx_path)
     return pptx_path, str(first.shape_id), str(second.shape_id)
+
+
+def cloned_template_slide(source_slide: dict, target_index: int) -> dict:
+    slide = copy.deepcopy(source_slide)
+    slide["slideIndex"] = target_index
+    slide["sourceSlideIndex"] = target_index
+    slide["cloneSourceSlideIndex"] = source_slide["sourceSlideIndex"]
+    slide["cloneSourceSlidePart"] = source_slide["slots"][0]["source"]["slidePart"]
+    slide["renderAssetFileId"] = f"asset:slide_render_{target_index}"
+    slide_part = f"ppt/slides/slide{target_index}.xml"
+    for slot in slide.get("slots", []):
+        slot.get("source", {})["slidePart"] = slide_part
+    for source in slide.get("elementSources", []):
+        source["slidePart"] = slide_part
+    return slide
 
 
 def zip_entry_hashes(package_bytes: bytes) -> dict[str, str]:

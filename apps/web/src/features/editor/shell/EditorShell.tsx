@@ -57,9 +57,11 @@ import {
 } from "../canvas/custom-shape/geometry";
 import {
   AnimationSidePanel,
+  buildAnimationKeywordTriggerPolicy,
   defaultAnimationPaneWidth,
   maxAnimationPaneWidth,
   minAnimationPaneWidth,
+  toAnimationKeywordTriggerOptions,
   useEditorAnimationPreview
 } from "./components/animation";
 import {
@@ -79,6 +81,7 @@ import {
 } from "./components/KeywordInspector";
 import { EditorSaveControl } from "./components/EditorSaveControl";
 import { EditorExitConfirmModal } from "./components/EditorExitConfirmModal";
+import { PresentationMenu } from "./components/PresentationMenu";
 import {
   ShareAccessModal
 } from "./components/ShareAccessModal";
@@ -99,6 +102,9 @@ export {
 export {
   mergeDeckIntoQueryCache,
   buildSlideThumbnailPatch,
+  getImportedSlideThumbnailRefreshSlideIds,
+  getPatchThumbnailRefreshSlideIds,
+  shouldRefreshImportedSlideThumbnails,
   shouldApplyManualSaveResult,
   shouldHydrateDeckFromQuery
 } from "./utils/deckState";
@@ -133,7 +139,6 @@ import {
   ImagePlus,
   LayoutTemplate,
   Minus,
-  MonitorPlay,
   MoveRight,
   MousePointer2,
   PanelLeftClose,
@@ -141,7 +146,6 @@ import {
   PanelRightClose,
   PanelRightOpen,
   PenLine,
-  Presentation,
   RefreshCw,
   Shapes,
   Share2,
@@ -149,7 +153,7 @@ import {
   Type,
   Upload,
   Wand2,
-  FolderOpen,
+  Home,
 } from "lucide-react";
 import type { ChangeEvent, CSSProperties, PointerEvent as ReactPointerEvent } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -157,10 +161,16 @@ import { createPortal, flushSync } from "react-dom";
 import { io } from "socket.io-client";
 import type { Socket as ClientSocket } from "socket.io-client";
 import { AudienceLinkModal } from "../audience-link/AudienceLinkModal";
+import { ValidationPanel } from "../ai/quality/ValidationPanel";
+import { getEditorValidationItems } from "../ai/quality/editorValidation";
 import { SuggestionPanel } from "../suggestions/components/SuggestionPanel";
 import {
+  buildSlideThumbnailPatch,
+  getImportedSlideThumbnailRefreshSlideIds,
+  getPatchThumbnailRefreshSlideIds,
   mergeDeckIntoQueryCache,
   shouldApplyManualSaveResult,
+  shouldRefreshImportedSlideThumbnails,
   shouldHydrateDeckFromQuery
 } from "./utils/deckState";
 import "../editor-shell.css";
@@ -716,8 +726,8 @@ function navigateToRehearsal(projectId: string) {
   window.dispatchEvent(new PopStateEvent("popstate"));
 }
 
-function navigateToProjectList() {
-  window.history.pushState({}, "", "/project");
+function navigateToHome() {
+  window.history.pushState({}, "", "/");
   window.dispatchEvent(new PopStateEvent("popstate"));
 }
 
@@ -1021,6 +1031,8 @@ export function EditorShell(props: { projectId?: string }) {
     string | null
   >(null);
   const [selectedElementIds, setSelectedElementIds] = useState<string[]>([]);
+  const [validationHighlightElementIds, setValidationHighlightElementIds] =
+    useState<string[]>([]);
   const [activeTopMenu, setActiveTopMenu] = useState<TopMenu | null>(null);
   const [lastPatchLabel, setLastPatchLabel] = useState("편집 없음");
   const [insertTool, setInsertTool] = useState<InsertTool>("select");
@@ -1249,6 +1261,7 @@ export function EditorShell(props: { projectId?: string }) {
   });
   const imageUploadTargetRef = useRef<ImageUploadTarget | null>(null);
   const resolvedUploadProjectIdRef = useRef<string | null>(null);
+  const importedThumbnailRefreshKeyRef = useRef<string | null>(null);
   const isUsingFallbackDeck = !deckQuery.data;
   const isDeckLoading = deckQuery.isPending;
   const isDeckError = deckQuery.isError;
@@ -1276,6 +1289,10 @@ export function EditorShell(props: { projectId?: string }) {
   const visibleElements = currentSlide
     ? getRenderableSlideElements(currentSlide, deck.canvas)
     : [];
+  const editorValidationItems = useMemo(
+    () => getEditorValidationItems(deck, currentSlide ?? undefined),
+    [deck, currentSlide]
+  );
   const stageScale = 0.44;
   const currentSlideAnimations = useMemo(
     () =>
@@ -1289,6 +1306,10 @@ export function EditorShell(props: { projectId?: string }) {
   const currentSlideKeywordUsage = useMemo(
     () => (currentSlide ? deriveKeywordUsage(currentSlide) : {}),
     [currentSlide]
+  );
+  const animationPanelKeywordOptions = useMemo(
+    () => toAnimationKeywordTriggerOptions(currentSlide?.keywords ?? []),
+    [currentSlide?.keywords]
   );
   const selectedKeyword =
     currentSlide?.keywords.find(
@@ -1316,6 +1337,21 @@ export function EditorShell(props: { projectId?: string }) {
         : [],
     [currentSlide, selectedAnimationPanelElement]
   );
+  const animationKeywordTriggerPolicy = useMemo(
+    () =>
+      buildAnimationKeywordTriggerPolicy({
+        element: selectedAnimationPanelElement,
+        keywordId: selectedKeywordId,
+        slideAnimations: currentSlide?.animations ?? [],
+        usageByKeywordId: currentSlideKeywordUsage
+      }),
+    [
+      currentSlide?.animations,
+      currentSlideKeywordUsage,
+      selectedAnimationPanelElement,
+      selectedKeywordId
+    ]
+  );
   const currentSlideAnimationDiagnostics = useMemo(
     () =>
       currentSlide
@@ -1332,6 +1368,10 @@ export function EditorShell(props: { projectId?: string }) {
     deck,
     slide: currentSlide
   });
+
+  useEffect(() => {
+    setValidationHighlightElementIds([]);
+  }, [currentSlide?.slideId]);
 
   useEffect(() => {
     function handleBeforeUnload(event: BeforeUnloadEvent) {
@@ -1351,7 +1391,7 @@ export function EditorShell(props: { projectId?: string }) {
     return () => window.removeEventListener("beforeunload", handleBeforeUnload);
   }, [hasUnackedLocalChangesRef, pendingPatchInputsRef, saveState]);
 
-  function handleExitToProjectList() {
+  function handleExitToHome() {
     if (hasUnsavedEditorChanges()) {
       setActiveTopMenu(null);
       setIsExitConfirmOpen(true);
@@ -1359,12 +1399,12 @@ export function EditorShell(props: { projectId?: string }) {
     }
 
     setActiveTopMenu(null);
-    navigateToProjectList();
+    navigateToHome();
   }
 
   function handleDiscardAndExit() {
     setIsExitConfirmOpen(false);
-    navigateToProjectList();
+    navigateToHome();
   }
 
   async function handleSaveAndExit() {
@@ -1382,7 +1422,7 @@ export function EditorShell(props: { projectId?: string }) {
       }
 
       setIsExitConfirmOpen(false);
-      navigateToProjectList();
+      navigateToHome();
     } finally {
       setIsExitSaving(false);
     }
@@ -1439,12 +1479,6 @@ export function EditorShell(props: { projectId?: string }) {
     { icon: FileText, label: "발표 메모 편집" },
     { icon: Wand2, label: "선택 요소 속성" }
   ];
-  const presentationItems = [
-    { action: "present", icon: Presentation, label: "발표 시작", meta: "현재 슬라이드부터" },
-    { action: "presenter-view", icon: MonitorPlay, label: "발표자 보기", meta: "메모와 타이머 포함" },
-    { action: "rehearsal", icon: Sparkles, label: "리허설 시작", meta: "키워드 체크" },
-    { action: "audience-link", icon: Share2, label: "청중 링크/QR", meta: "공유 준비" }
-  ] as const;
   useEffect(() => {
     const persistedDeck = deckQuery.data;
 
@@ -1483,6 +1517,121 @@ export function EditorShell(props: { projectId?: string }) {
   }, [deckQuery.data]);
 
   useEffect(() => {
+    const persistedDeck = deckQuery.data;
+
+    if (
+      !persistedDeck ||
+      !shouldRefreshImportedSlideThumbnails(persistedDeck) ||
+      hasUnackedLocalChangesRef.current ||
+      pendingPatchInputsRef.current.length > 0 ||
+      isSaveFlushInFlightRef.current
+    ) {
+      return;
+    }
+
+    const refreshKey = `${persistedDeck.deckId}:${persistedDeck.version}`;
+    if (importedThumbnailRefreshKeyRef.current === refreshKey) {
+      return;
+    }
+
+    const slideIds = getImportedSlideThumbnailRefreshSlideIds(persistedDeck);
+
+    if (slideIds.length === 0) {
+      return;
+    }
+
+    importedThumbnailRefreshKeyRef.current = refreshKey;
+    let isCancelled = false;
+
+    setSaveState("auto-saving");
+    setSaveError(null, null);
+
+    void (async () => {
+      try {
+        await saveQueueRef.current.catch(() => undefined);
+
+        if (
+          isCancelled ||
+          hasUnackedLocalChangesRef.current ||
+          pendingPatchInputsRef.current.length > 0
+        ) {
+          setSaveState("auto-pending");
+          return;
+        }
+
+        const renderResult = await syncSlideRenderAssets(
+          persistedDeck.projectId,
+          persistedDeck,
+          slideIds
+        );
+        const thumbnailPatch = buildSlideThumbnailPatch(
+          persistedDeck,
+          renderResult.deck
+        );
+
+        if (!thumbnailPatch || isCancelled) {
+          setSaveState("auto-saved");
+          return;
+        }
+
+        if (
+          !shouldApplyManualSaveResult({
+            snapshotDeck: persistedDeck,
+            currentDeck: workingDeckRef.current
+          })
+        ) {
+          setSaveState("auto-pending");
+          return;
+        }
+
+        const finalDeck = await appendProjectDeckPatch(
+          persistedDeck.projectId,
+          thumbnailPatch
+        );
+
+        if (isCancelled) {
+          return;
+        }
+
+        queryClient.setQueryData(["deck", projectId], (current?: Deck) =>
+          mergeDeckIntoQueryCache(current, finalDeck)
+        );
+
+        if (
+          shouldApplyManualSaveResult({
+            snapshotDeck: persistedDeck,
+            currentDeck: workingDeckRef.current
+          })
+        ) {
+          applyPersistedDeck(finalDeck);
+          setLastSavedAt(new Date().toISOString());
+          setLastPatchLabel(`썸네일 갱신 · v${finalDeck.version}`);
+          setSaveState("auto-saved");
+          setSaveError(null, null);
+          return;
+        }
+
+        persistedBaseDeckRef.current = finalDeck;
+        lastAckedDeckRef.current = finalDeck;
+        hasHydratedPersistedBaseRef.current = true;
+        setSaveState("auto-pending");
+      } catch (error) {
+        if (isCancelled) {
+          return;
+        }
+
+        setLastPatchLabel(`썸네일 갱신 실패 · ${toEditorErrorMessage(error)}`);
+        setSaveState("error");
+        setSaveError("manual-render-failed", toEditorErrorMessage(error));
+      }
+    })();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [deckQuery.data, projectId, queryClient]);
+
+  useEffect(() => {
     if (!deckQuery.data?.projectId) {
       return;
     }
@@ -1515,34 +1664,10 @@ export function EditorShell(props: { projectId?: string }) {
     });
   }
 
-  function acknowledgePersistedDeckSnapshot(
-    snapshotDeck: Deck,
-    persistedDeck: Deck
-  ) {
-    queryClient.setQueryData(["deck", projectId], (current?: Deck) =>
-      mergeDeckIntoQueryCache(current, persistedDeck)
-    );
-
-    if (
-      shouldApplyManualSaveResult({
-        snapshotDeck,
-        currentDeck: workingDeckRef.current
-      })
-    ) {
-      applyPersistedDeck(persistedDeck);
-      return true;
-    }
-
-    persistedBaseDeckRef.current = persistedDeck;
-    lastAckedDeckRef.current = persistedDeck;
-    hasHydratedPersistedBaseRef.current = true;
-    pendingPatchInputsRef.current = [];
-    return false;
-  }
-
   async function syncSlideRenderAssets(
     activeProjectId: string,
-    sourceDeck: Deck
+    sourceDeck: Deck,
+    slideIds?: readonly string[]
   ) {
     if (sourceDeck.slides.length === 0) {
       return {
@@ -1552,6 +1677,14 @@ export function EditorShell(props: { projectId?: string }) {
     }
 
     const nextDeck = structuredClone(normalizeDeckAssetUrls(sourceDeck));
+    const targetSlideIds = slideIds ? new Set(slideIds) : null;
+    if (targetSlideIds?.size === 0) {
+      return {
+        deck: nextDeck,
+        missingAssetCount: 0,
+      };
+    }
+
     let missingAssetCount = 0;
     slideRenderStageRefs.current.clear();
     flushSync(() => {
@@ -1563,6 +1696,10 @@ export function EditorShell(props: { projectId?: string }) {
     try {
       for (let index = 0; index < nextDeck.slides.length; index += 1) {
         const slide = nextDeck.slides[index];
+        if (targetSlideIds && !targetSlideIds.has(slide.slideId)) {
+          continue;
+        }
+
         missingAssetCount += await waitForSlideAssets(slide);
 
         await waitForAnimationFrame();
@@ -1622,31 +1759,72 @@ export function EditorShell(props: { projectId?: string }) {
     setSaveError(null, null);
     setActiveTopMenu(null);
 
-    const deckSnapshot = structuredClone(normalizeDeckAssetUrls(workingDeckRef.current));
-
     try {
       await saveQueueRef.current.catch(() => undefined);
+      while (pendingPatchInputsRef.current.length > 0) {
+        await flushPendingSaveBatch();
+      }
 
-      const persistedDeck = await putProjectDeck(activeProjectId, deckSnapshot);
-      let finalDeck = persistedDeck;
-      acknowledgePersistedDeckSnapshot(deckSnapshot, persistedDeck);
+      const persistedDeck = persistedBaseDeckRef.current ?? deckQuery.data;
+      if (!persistedDeck) {
+        throw withSaveErrorCode(
+          new Error("최신 저장 상태를 찾지 못했습니다. 다시 불러온 뒤 저장해 주세요."),
+          "missing-persisted-base"
+        );
+      }
+
       setLastSavedAt(new Date().toISOString());
 
       try {
         const renderResult = await syncSlideRenderAssets(
           activeProjectId,
-          finalDeck
+          persistedDeck
         );
 
-        finalDeck = await putProjectDeck(activeProjectId, renderResult.deck);
+        if (
+          !shouldApplyManualSaveResult({
+            snapshotDeck: persistedDeck,
+            currentDeck: workingDeckRef.current
+          })
+        ) {
+          setLastPatchLabel("수동 저장 · 편집 변경 감지");
+          setSaveState("auto-pending");
+          return false;
+        }
+
+        const thumbnailPatch = buildSlideThumbnailPatch(
+          persistedDeck,
+          renderResult.deck
+        );
+        const finalDeck = thumbnailPatch
+          ? await appendProjectDeckPatch(activeProjectId, thumbnailPatch)
+          : persistedDeck;
         setLastSavedAt(new Date().toISOString());
-        acknowledgePersistedDeckSnapshot(deckSnapshot, finalDeck);
+
+        queryClient.setQueryData(["deck", projectId], (current?: Deck) =>
+          mergeDeckIntoQueryCache(current, finalDeck)
+        );
+
+        if (
+          shouldApplyManualSaveResult({
+            snapshotDeck: persistedDeck,
+            currentDeck: workingDeckRef.current
+          })
+        ) {
+          applyPersistedDeck(finalDeck);
+        } else {
+          persistedBaseDeckRef.current = finalDeck;
+          lastAckedDeckRef.current = finalDeck;
+          hasHydratedPersistedBaseRef.current = true;
+          setSaveState("auto-pending");
+          return false;
+        }
+
         setLastPatchLabel(`수동 저장 · v${finalDeck.version}`);
         setSaveState("manual-saved");
         setSaveError(null, null);
         return true;
       } catch (renderError) {
-        acknowledgePersistedDeckSnapshot(deckSnapshot, persistedDeck);
         setLastPatchLabel(`수동 저장 · 렌더 실패 · v${persistedDeck.version}`);
         setSaveState("error");
         setSaveError("manual-render-failed", toEditorErrorMessage(renderError));
@@ -1691,35 +1869,34 @@ export function EditorShell(props: { projectId?: string }) {
 
     try {
       await saveQueueRef.current.catch(() => undefined);
+      while (pendingPatchInputsRef.current.length > 0) {
+        await flushPendingSaveBatch();
+      }
 
-      const deckSnapshot = structuredClone(normalizeDeckAssetUrls(workingDeckRef.current));
-      const persistedDeck = await putProjectDeck(activeProjectId, deckSnapshot);
-      acknowledgePersistedDeckSnapshot(deckSnapshot, persistedDeck);
+      const persistedDeck = persistedBaseDeckRef.current ?? deckQuery.data;
+      if (!persistedDeck) {
+        throw withSaveErrorCode(
+          new Error("최신 저장 상태를 찾지 못했습니다. 다시 불러온 뒤 저장해 주세요."),
+          "missing-persisted-base"
+        );
+      }
+
       const renderResult = await syncSlideRenderAssets(activeProjectId, persistedDeck);
       setLastSavedAt(new Date().toISOString());
 
       if (
         !shouldApplyManualSaveResult({
-          snapshotDeck: deckSnapshot,
+          snapshotDeck: persistedDeck,
           currentDeck: workingDeckRef.current
         })
       ) {
         throw new Error("리허설 준비 중 편집 내용이 변경되었습니다. 다시 시작해 주세요.");
       }
 
-      const finalDeck =
-        renderResult.deck.slides.length > 0
-          ? await appendProjectDeckPatch(activeProjectId, {
-              baseVersion: persistedDeck.version,
-              deckId: persistedDeck.deckId,
-              operations: renderResult.deck.slides.map((slide) => ({
-                slideId: slide.slideId,
-                thumbnailUrl: slide.thumbnailUrl,
-                type: "update_slide" as const
-              })),
-              source: "system"
-            })
-          : persistedDeck;
+      const thumbnailPatch = buildSlideThumbnailPatch(persistedDeck, renderResult.deck);
+      const finalDeck = thumbnailPatch
+        ? await appendProjectDeckPatch(activeProjectId, thumbnailPatch)
+        : persistedDeck;
 
       applyPersistedDeck(finalDeck);
       setLastSavedAt(new Date().toISOString());
@@ -1789,16 +1966,69 @@ export function EditorShell(props: { projectId?: string }) {
         persistedDeck = await appendProjectDeckPatch(activeProjectId, buildResult.patch);
       }
 
-      persistedBaseDeckRef.current = persistedDeck;
+      let finalPersistedDeck = persistedDeck;
+      const thumbnailSlideIds = getPatchThumbnailRefreshSlideIds(
+        persistedDeck,
+        buildResult.patch
+      );
+      let thumbnailRefreshFailed = false;
+
+      if (
+        thumbnailSlideIds.length > 0 &&
+        shouldApplyManualSaveResult({
+          snapshotDeck: persistedDeck,
+          currentDeck: workingDeckRef.current
+        })
+      ) {
+        try {
+          const renderResult = await syncSlideRenderAssets(
+            activeProjectId,
+            persistedDeck,
+            thumbnailSlideIds
+          );
+          const thumbnailPatch = buildSlideThumbnailPatch(
+            persistedDeck,
+            renderResult.deck
+          );
+
+          if (
+            thumbnailPatch &&
+            shouldApplyManualSaveResult({
+              snapshotDeck: persistedDeck,
+              currentDeck: workingDeckRef.current
+            })
+          ) {
+            finalPersistedDeck = await appendProjectDeckPatch(
+              activeProjectId,
+              thumbnailPatch
+            );
+          }
+        } catch (thumbnailError) {
+          thumbnailRefreshFailed = true;
+          setLastPatchLabel(`썸네일 저장 실패 · ${toEditorErrorMessage(thumbnailError)}`);
+          setSaveState("error");
+          setSaveError("manual-render-failed", toEditorErrorMessage(thumbnailError));
+        }
+      }
+
+      persistedBaseDeckRef.current = finalPersistedDeck;
       setLastSavedAt(new Date().toISOString());
 
       queryClient.setQueryData(["deck", projectId], (current?: Deck) =>
-        mergeDeckIntoQueryCache(current, persistedDeck)
+        mergeDeckIntoQueryCache(current, finalPersistedDeck)
       );
 
-      if (persistedDeck.version >= workingDeckRef.current.version) {
-        applyAckedPersistedDeck(persistedDeck);
-        setSaveState(recoveredConflict ? "conflict-recovered" : "auto-saved");
+      if (
+        shouldApplyManualSaveResult({
+          snapshotDeck: persistedDeck,
+          currentDeck: workingDeckRef.current
+        })
+      ) {
+        applyAckedPersistedDeck(finalPersistedDeck);
+        if (!thumbnailRefreshFailed) {
+          setSaveState(recoveredConflict ? "conflict-recovered" : "auto-saved");
+          setSaveError(null, null);
+        }
       }
     } catch (error) {
       if (recoveredConflict && error instanceof Error) {
@@ -2269,6 +2499,8 @@ export function EditorShell(props: { projectId?: string }) {
     keywordId?: string | null,
     draft?: Partial<Pick<DeckAnimation, "delayMs" | "durationMs" | "type">>
   ) {
+    let createdAnimationId: string | null = null;
+
     commitPatch((currentDeck) => {
       const slide = currentDeck.slides.find((candidate) => candidate.slideId === slideId);
 
@@ -2280,6 +2512,7 @@ export function EditorShell(props: { projectId?: string }) {
         ...createDefaultAnimation(currentDeck, slide, elementId),
         ...draft
       };
+      createdAnimationId = animation.animationId;
 
       if (!keywordId) {
         return createAddAnimationPatch(currentDeck, slideId, animation);
@@ -2292,6 +2525,10 @@ export function EditorShell(props: { projectId?: string }) {
         keywordId
       );
     });
+
+    if (createdAnimationId) {
+      setAnimationPanelFocusedAnimationId(createdAnimationId);
+    }
   }
 
   function handleUpdateAnimation(
@@ -3677,13 +3914,13 @@ export function EditorShell(props: { projectId?: string }) {
           <div className="menu-stack">
             <div className="menu-row">
               <button
-                aria-label="프로젝트 목록으로 이동"
+                aria-label="홈으로 이동"
                 className="top-icon-button"
-                title="프로젝트 목록으로 이동"
+                title="홈으로 이동"
                 type="button"
-                onClick={handleExitToProjectList}
+                onClick={handleExitToHome}
               >
-                <FolderOpen size={15} />
+                <Home size={15} />
               </button>
               <button
                 aria-expanded={activeTopMenu === "file"}
@@ -3892,64 +4129,21 @@ export function EditorShell(props: { projectId?: string }) {
               {ooxmlSyncStatus.label}
             </span>
           ) : null}
-          <div className="top-action-menu">
-            <button
-              aria-expanded={activeTopMenu === "presentation"}
-              aria-haspopup="menu"
-              className={`header-chip-button ${
-                activeTopMenu === "presentation" ? "active" : ""
-              }`}
-              type="button"
-              onClick={() =>
-                setActiveTopMenu((current) =>
-                  current === "presentation" ? null : "presentation"
-                )
-              }
-            >
-              프레젠테이션 <ChevronDown size={14} />
-            </button>
-            {activeTopMenu === "presentation" ? (
-              <div className="file-menu-popover action-popover" role="menu">
-                <div className="file-menu-list">
-                  {presentationItems.map(({ action, icon: Icon, label, meta }) => {
-                    const isRehearsalItem = action === "rehearsal";
-                    const isAudienceLinkItem = action === "audience-link";
-
-                    return (
-                      <button
-                        className="file-menu-item"
-                        disabled={isRehearsalItem && !canStartRehearsal}
-                        key={label}
-                        role="menuitem"
-                        type="button"
-                        onClick={() => {
-                          if (isRehearsalItem) {
-                            void handleStartRehearsal();
-                            return;
-                          }
-
-                          if (isAudienceLinkItem) {
-                            setIsAudienceLinkModalOpen(true);
-                            setActiveTopMenu(null);
-                          }
-                        }}
-                      >
-                        <span className="file-menu-label">
-                          <Icon size={16} />
-                          {label}
-                        </span>
-                        <span className="file-menu-meta">
-                          <small>
-                            {isRehearsalItem && isRehearsalPreparing ? "리허설 준비 중..." : meta}
-                          </small>
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            ) : null}
-          </div>
+          <PresentationMenu
+            canStartRehearsal={canStartRehearsal}
+            isOpen={activeTopMenu === "presentation"}
+            isRehearsalPreparing={isRehearsalPreparing}
+            onOpenAudienceLink={() => {
+              setIsAudienceLinkModalOpen(true);
+              setActiveTopMenu(null);
+            }}
+            onStartRehearsal={() => void handleStartRehearsal()}
+            onToggle={() =>
+              setActiveTopMenu((current) =>
+                current === "presentation" ? null : "presentation"
+              )
+            }
+          />
           <button
             className="share-top-button"
             type="button"
@@ -4214,10 +4408,19 @@ export function EditorShell(props: { projectId?: string }) {
             canCreateAnimation={Boolean(currentSlide && selectedAnimationPanelElement)}
             element={selectedAnimationPanelElement}
             isPlayingSlideAnimations={isPlayingCurrentSlideAnimations}
+            keywordOptions={animationPanelKeywordOptions}
+            keywordTriggerRestrictionMessage={
+              animationKeywordTriggerPolicy.restrictionMessage
+            }
+            keywordTriggerWarningMessage={
+              animationKeywordTriggerPolicy.warningMessage
+            }
             preferredAnimationId={animationPanelFocusedAnimationId}
+            selectedKeywordId={selectedKeywordId}
+            selectedKeywordLabel={selectedKeyword?.text ?? null}
             slideAnimations={currentSlideAnimations}
             slideElements={currentSlide?.elements ?? []}
-            onAddAnimation={(draft) => {
+            onAddAnimation={(draft, keywordId) => {
               if (!currentSlide || !selectedAnimationPanelElement) {
                 return;
               }
@@ -4225,7 +4428,7 @@ export function EditorShell(props: { projectId?: string }) {
               handleAddAnimation(
                 currentSlide.slideId,
                 selectedAnimationPanelElement.elementId,
-                null,
+                keywordId,
                 draft
               );
             }}
@@ -4240,6 +4443,7 @@ export function EditorShell(props: { projectId?: string }) {
 
               handleDeleteAnimation(currentSlide.slideId, animationId);
             }}
+            onSelectKeyword={handleSelectKeyword}
             onSelectSlideAnimation={handleSelectSlideAnimationFromPanel}
             onUpdateAnimation={(animationId, animation) => {
               if (!currentSlide) {
@@ -4462,6 +4666,7 @@ export function EditorShell(props: { projectId?: string }) {
                     slide={currentSlide}
                     stageScale={stageScale}
                     stageRef={editorStageRef}
+                    validationHighlightElementIds={validationHighlightElementIds}
                     visibleElements={visibleElements}
                     onClearSelection={handleCanvasBackgroundSelectionClear}
                     onCommitElementFrame={handleElementFrameChange}
@@ -4632,6 +4837,10 @@ export function EditorShell(props: { projectId?: string }) {
               </div>
               <div className="assistant-panel-slot">
                 <PptxImportQualityPanel state={pptxImportState} />
+                <ValidationPanel
+                  items={editorValidationItems}
+                  onHighlightElementIds={setValidationHighlightElementIds}
+                />
                 <SuggestionPanel
                   deck={deck}
                   projectId={projectId}
@@ -5068,11 +5277,6 @@ function formatLastSavedAtLabel(lastSavedAt: string | null): string | null {
     hour12: false
   }).format(date);
 }
-
-export function shouldRefreshImportedSlideThumbnails(deck: Deck) {
-  return deck.slides.some((slide) => slide.thumbnailUrl?.startsWith("asset:"));
-}
-
 
 function getNextElementZIndex(elements: DeckElement[]) {
   return (

@@ -36,8 +36,16 @@ export interface StorageObject {
   size: number;
 }
 
+export interface StorageReadObject {
+  key: string;
+  body: Uint8Array;
+  contentType: string;
+  size: number;
+}
+
 export interface StoragePort {
   putObject(input: StoragePutInput): Promise<StorageObject>;
+  getObject(key: string): Promise<StorageReadObject>;
   createUploadUrl(input: StorageUploadUrlInput): Promise<StorageUploadUrl>;
   getSignedReadUrl(key: string): Promise<string>;
   removeObject(key: string): Promise<void>;
@@ -90,6 +98,34 @@ export class S3CompatibleStorage implements StoragePort {
       contentType: input.contentType,
       purpose: input.purpose,
       size,
+    };
+  }
+
+  // API 서버가 같은 network 안에서 object 본문을 직접 읽어 proxy 응답으로 반환한다.
+  async getObject(key: string): Promise<StorageReadObject> {
+    const object = await this.internalClient.send(
+      new GetObjectCommand({
+        Bucket: this.bucket,
+        Key: key,
+      }),
+    );
+
+    if (!object.Body) {
+      return {
+        key,
+        body: new Uint8Array(),
+        contentType: object.ContentType ?? "application/octet-stream",
+        size: 0,
+      };
+    }
+
+    const body = await object.Body.transformToByteArray();
+
+    return {
+      key,
+      body,
+      contentType: object.ContentType ?? "application/octet-stream",
+      size: object.ContentLength ?? body.byteLength,
     };
   }
 

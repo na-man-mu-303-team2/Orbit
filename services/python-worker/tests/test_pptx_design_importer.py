@@ -13,7 +13,10 @@ from pptx.oxml import parse_xml
 from pptx.util import Inches, Pt
 
 from app.ai.pptx_design_importer import (
+    assign_text_roles,
+    apply_repeated_text_roles,
     blip_fill_asset,
+    build_template_blueprint,
     build_quality_report,
     import_pptx_design,
 )
@@ -149,7 +152,160 @@ def test_import_pptx_design_marks_placeholders_as_replaceable_slots(
     assert any(slot["slotRole"] == "title" for slot in replaceable)
 
 
-def test_import_pptx_design_flattens_group_shapes(tmp_path: Path) -> None:
+def test_assign_text_roles_uses_semantic_summary_for_plain_shapes() -> None:
+    elements = [
+        text_element("title", "Quarterly growth", 96, 80, 44),
+        text_element("body", "Revenue improved across all regions.", 120, 260, 24),
+        text_element("metric", "42%", 1200, 300, 52),
+        text_element("footer", "ORBIT confidential", 100, 940, 12),
+    ]
+
+    assign_text_roles(elements, {}, slide_index=2, slide_count=8)
+
+    assert [element["role"] for element in elements] == [
+        "title",
+        "body",
+        "highlight",
+        "caption",
+    ]
+    assert elements[2]["templateSlotRole"] == "metric"
+
+
+def test_assign_text_roles_does_not_force_numeric_prefix_to_page_number() -> None:
+    elements = [
+        text_element("section", "01", 96, 120, 32),
+        text_element("title", "Market overview", 220, 120, 40),
+    ]
+
+    assign_text_roles(elements, {}, slide_index=2, slide_count=8)
+
+    assert elements[0]["role"] == "caption"
+    assert elements[0]["templateSlotRole"] == "label"
+
+
+def test_repeated_slide_text_stays_preserved_after_role_pass() -> None:
+    slides = [
+        {
+            "sourceSlideIndex": index,
+            "style": {"backgroundColor": "#ffffff"},
+            "elements": [
+                text_element(f"header_{index}", "ORBIT", 100, 60, 16),
+                text_element(f"title_{index}", f"Slide {index}", 100, 180, 40),
+            ],
+        }
+        for index in (1, 2)
+    ]
+    slot_sources = [
+        {
+            f"header_{index}": {
+                "type": "slide",
+                "slidePart": f"ppt/slides/slide{index}.xml",
+                "shapeId": "1",
+                "writable": True,
+            },
+            f"title_{index}": {
+                "type": "slide",
+                "slidePart": f"ppt/slides/slide{index}.xml",
+                "shapeId": "2",
+                "writable": True,
+            },
+        }
+        for index in (1, 2)
+    ]
+
+    apply_repeated_text_roles(slides, slot_sources)
+    blueprint = build_template_blueprint("file_design", slides, slot_sources)
+    header_slot = next(
+        slot
+        for slot in blueprint["slides"][0]["slots"]
+        if slot["elementId"] == "header_1"
+    )
+
+    assert header_slot["slotRole"] == "caption"
+    assert header_slot["usage"] == "fixed-text"
+    assert header_slot["replaceMode"] == "preserve"
+
+
+def test_build_template_blueprint_preserves_semantic_slot_roles() -> None:
+    slide = {
+        "sourceSlideIndex": 1,
+        "style": {"layout": "title-content"},
+        "elements": [
+            text_element("title", "Title", 100, 80, 44, role="title"),
+            text_element("body", "Body", 100, 240, 24, role="body"),
+            text_element("caption", "Caption", 100, 900, 14, role="caption"),
+            {
+                **text_element("metric", "42%", 1200, 240, 48, role="highlight"),
+                "templateSlotRole": "metric",
+            },
+            {
+                "elementId": "el_cell_1",
+                "type": "rect",
+                "role": "unknown",
+                "x": 100,
+                "y": 500,
+                "width": 200,
+                "height": 60,
+                "props": {},
+            },
+            {"elementId": "chart_1", "type": "chart", "role": "chart", "x": 0, "y": 0, "width": 1, "height": 1, "props": {}},
+            {"elementId": "image_1", "type": "image", "role": "image", "x": 0, "y": 0, "width": 1, "height": 1, "props": {}},
+        ],
+    }
+    sources = {
+        "image_1": {"type": "placeholder", "slidePart": "ppt/slides/slide1.xml", "shapeId": "7"},
+    }
+
+    blueprint = build_template_blueprint("file_design", [slide], [sources])
+    slot_roles = {slot["elementId"]: slot["slotRole"] for slot in blueprint["slides"][0]["slots"]}
+
+    assert blueprint["slides"][0]["slideRole"] == "metric"
+    assert blueprint["slides"][0]["contentCapacity"] == "medium"
+    assert slot_roles["title"] == "title"
+    assert slot_roles["body"] == "body"
+    assert slot_roles["caption"] == "caption"
+    assert slot_roles["metric"] == "metric"
+    assert slot_roles["el_cell_1"] == "table"
+    assert slot_roles["chart_1"] == "chart"
+    assert slot_roles["image_1"] == "image_placeholder"
+
+
+def text_element(
+    element_id: str,
+    text: str,
+    x: int,
+    y: int,
+    font_size: int,
+    *,
+    role: str = "body",
+) -> dict[str, object]:
+    return {
+        "elementId": element_id,
+        "type": "text",
+        "role": role,
+        "x": x,
+        "y": y,
+        "width": 520,
+        "height": 90,
+        "rotation": 0,
+        "opacity": 1,
+        "zIndex": 1,
+        "locked": False,
+        "visible": True,
+        "props": {
+            "text": text,
+            "fontSize": font_size,
+            "fontFamily": "Inter",
+            "fontWeight": "normal",
+            "color": "#111827",
+            "align": "left",
+            "verticalAlign": "top",
+            "lineHeight": 1.2,
+        },
+    }
+
+
+def test_import_pptx_design_preserves_group_shapes(tmp_path: Path) -> None:
     pptx_path = tmp_path / "group.pptx"
     presentation = Presentation()
     presentation.slide_width = Inches(13.333333)
@@ -174,15 +330,20 @@ def test_import_pptx_design_flattens_group_shapes(tmp_path: Path) -> None:
 
     result = import_pptx_design(pptx_path, "file_design")
     elements = result.blueprint["slides"][0]["elements"]
+    group = next(element for element in elements if element["type"] == "group")
+    grouped_text = next(
+        element for element in elements if element["type"] == "text"
+    )
 
     assert not any("GROUP" in warning for warning in result.warnings)
+    assert len(group["props"]["childElementIds"]) == 2
     assert any(
         element["type"] == "rect" and element["props"]["fill"] == "#008080"
         for element in elements
     )
-    text = next(element for element in elements if element["type"] == "text")
-    assert text["props"]["text"] == "Grouped text"
-    assert 160 <= text["x"] <= 190
+    assert grouped_text["props"]["text"] == "Grouped text"
+    assert grouped_text["elementId"] in group["props"]["childElementIds"]
+    assert 160 <= grouped_text["x"] <= 190
 
 
 def test_import_pptx_design_converts_freeform_to_custom_shape(tmp_path: Path) -> None:
@@ -511,6 +672,7 @@ def test_ooxml_visual_tree_keeps_group_visual_children_editable(
 
     result = import_pptx_ooxml_visual_tree(pptx_path, "file_design")
     elements = result.blueprint["slides"][0]["elements"]
+    groups = [element for element in elements if element["type"] == "group"]
     fallback_images = [
         element
         for element in elements
@@ -519,6 +681,8 @@ def test_ooxml_visual_tree_keeps_group_visual_children_editable(
     ]
 
     assert len(fallback_images) == 0
+    assert len(groups) == 1
+    assert len(groups[0]["props"]["childElementIds"]) == 3
     assert any(element["type"] == "rect" for element in elements)
     assert any(element["type"] == "ellipse" for element in elements)
     assert any(
@@ -556,6 +720,7 @@ def test_ooxml_visual_tree_keeps_supported_icon_group_shapes_editable(
 
     result = import_pptx_ooxml_visual_tree(pptx_path, "file_design")
     elements = result.blueprint["slides"][0]["elements"]
+    group = next(element for element in elements if element["type"] == "group")
     fallback_images = [
         element
         for element in elements
@@ -569,6 +734,7 @@ def test_ooxml_visual_tree_keeps_supported_icon_group_shapes_editable(
     )
 
     assert len(fallback_images) == 0
+    assert len(group["props"]["childElementIds"]) == 3
     assert any(element["type"] == "ellipse" for element in elements)
     assert any(element["type"] == "customShape" for element in elements)
     assert text["zIndex"] > 0

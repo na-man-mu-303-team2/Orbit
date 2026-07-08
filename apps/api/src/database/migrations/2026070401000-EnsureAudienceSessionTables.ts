@@ -57,6 +57,48 @@ export class EnsureAudienceSessionTables2026070401000
       )
     `);
     await queryRunner.query(`
+      INSERT INTO audience_feature_settings (
+        session_id,
+        qna_enabled,
+        ai_qna_enabled,
+        polls_enabled,
+        quizzes_enabled,
+        reactions_enabled,
+        survey_enabled,
+        updated_at
+      )
+      SELECT
+        session_id,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        now()
+      FROM presentation_sessions
+      ON CONFLICT (session_id) DO NOTHING
+    `);
+    await queryRunner.query(`
+      INSERT INTO audience_realtime_state (
+        session_id,
+        slide_id,
+        slide_index,
+        effect_state_json,
+        active_interaction_id,
+        updated_at
+      )
+      SELECT
+        session_id,
+        null,
+        null,
+        '{}'::jsonb,
+        null,
+        now()
+      FROM presentation_sessions
+      ON CONFLICT (session_id) DO NOTHING
+    `);
+    await queryRunner.query(`
       CREATE INDEX IF NOT EXISTS idx_audience_participants_session_last_seen_at
       ON audience_participants (session_id, last_seen_at DESC)
     `);

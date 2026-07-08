@@ -190,6 +190,40 @@ describe("AudienceRealtimeGateway", () => {
     });
   });
 
+  it("broadcasts REST feature settings updates to audience rooms", async () => {
+    const { gateway, serverEmit, serverTo } = await createGateway();
+
+    const event = gateway.broadcastFeatureSettings({
+      sessionId: session.sessionId,
+      userId: "user_1",
+      features: {
+        ...features,
+        pollsEnabled: true,
+        updatedAt: "2026-07-05T00:03:00.000Z",
+      },
+    });
+
+    expect(serverTo).toHaveBeenCalledWith(
+      audienceSessionRoomId(session.sessionId),
+    );
+    expect(serverEmit).toHaveBeenCalledWith(
+      "audience:feature-settings",
+      expect.objectContaining({
+        type: "audience:feature-settings",
+        payload: {
+          features: expect.objectContaining({
+            pollsEnabled: true,
+          }),
+        },
+      }),
+    );
+    expect(event).toMatchObject({
+      type: "audience:feature-settings",
+      roomId: audienceSessionRoomId(session.sessionId),
+      userId: "user_1",
+    });
+  });
+
   it("broadcasts audience reactions to audience and presenter rooms", async () => {
     const { gateway, serverEmit, serverTo } = await createGateway();
 

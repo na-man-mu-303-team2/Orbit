@@ -198,7 +198,12 @@ def import_pptx_design(
             decoration_only=False,
         )
 
-        assign_text_roles(elements)
+        assign_text_roles(
+            elements,
+            slot_sources,
+            slide_index=slide_index,
+            slide_count=len(presentation.slides),
+        )
         background_color = background_color_from_elements(
             elements,
             asset_colors,
@@ -215,6 +220,7 @@ def import_pptx_design(
         )
         slot_sources_by_slide.append(slot_sources)
 
+    apply_repeated_text_roles(slides, slot_sources_by_slide)
     blueprint = ImportedDesignBlueprint.model_validate(
         {
             "sourceFileId": file_id,
@@ -257,25 +263,29 @@ def append_shape_collection(
     z_cursor: list[int],
     transform: ShapeTransform,
     decoration_only: bool,
-) -> None:
+) -> list[str]:
+    element_ids: list[str] = []
     for shape_index, shape in enumerate(shapes, start=1):
-        append_shape_elements(
-            shape,
-            slide_index=slide_index,
-            element_path=f"{path_prefix}_{shape_index}",
-            elements=elements,
-            assets=assets,
-            asset_colors=asset_colors,
-            warnings=warnings,
-            slot_sources=slot_sources,
-            scale_x=scale_x,
-            scale_y=scale_y,
-            canvas_width=canvas_width,
-            canvas_height=canvas_height,
-            z_cursor=z_cursor,
-            transform=transform,
-            decoration_only=decoration_only,
+        element_ids.extend(
+            append_shape_elements(
+                shape,
+                slide_index=slide_index,
+                element_path=f"{path_prefix}_{shape_index}",
+                elements=elements,
+                assets=assets,
+                asset_colors=asset_colors,
+                warnings=warnings,
+                slot_sources=slot_sources,
+                scale_x=scale_x,
+                scale_y=scale_y,
+                canvas_width=canvas_width,
+                canvas_height=canvas_height,
+                z_cursor=z_cursor,
+                transform=transform,
+                decoration_only=decoration_only,
+            )
         )
+    return element_ids
 
 
 def append_shape_elements(
@@ -295,13 +305,14 @@ def append_shape_elements(
     z_cursor: list[int],
     transform: ShapeTransform,
     decoration_only: bool,
-) -> None:
+) -> list[str]:
+    appended_start = len(elements)
     if decoration_only and bool(getattr(shape, "is_placeholder", False)):
-        return
+        return []
 
     shape_type = getattr(shape, "shape_type", None)
     if shape_type == MSO_SHAPE_TYPE.GROUP:
-        append_shape_collection(
+        child_element_ids = append_shape_collection(
             getattr(shape, "shapes", []),
             slide_index=slide_index,
             path_prefix=element_path,
@@ -318,7 +329,39 @@ def append_shape_elements(
             transform=transform.for_group(shape),
             decoration_only=decoration_only,
         )
-        return
+        if not child_element_ids:
+            return []
+
+        frame = normalized_frame(
+            shape,
+            scale_x,
+            scale_y,
+            canvas_width,
+            canvas_height,
+            transform,
+        )
+        child_z_indices = [
+            int(element.get("zIndex", 0))
+            for element in elements[appended_start:]
+            if str(element.get("elementId", "")) in child_element_ids
+        ]
+        group_element_id = f"el_imported_{slide_index}_{element_path}_group"
+        elements.append(
+            {
+                **element_base(
+                    element_id=group_element_id,
+                    role="decoration",
+                    frame=frame,
+                    z_index=max(child_z_indices, default=0),
+                    locked=decoration_only,
+                ),
+                "type": "group",
+                "props": {
+                    "childElementIds": child_element_ids,
+                },
+            }
+        )
+        return [group_element_id]
 
     frame = normalized_frame(
         shape,
@@ -364,7 +407,7 @@ def append_shape_elements(
             decoration_only,
             fallback_type="image",
         )
-        return
+        return [str(element["elementId"])]
 
     blip_asset = blip_fill_asset(shape, f"image_{len(assets) + 1}")
     if blip_asset is not None:
@@ -402,7 +445,7 @@ def append_shape_elements(
             decoration_only,
             fallback_type="image",
         )
-        return
+        return [str(element["elementId"])]
 
     if shape_type == MSO_SHAPE_TYPE.TABLE and not decoration_only:
         table_items = table_elements(
@@ -422,13 +465,13 @@ def append_shape_elements(
                 decoration_only,
                 fallback_type="table",
             )
-        return
+        return [str(element["elementId"]) for element in table_items]
 
     fill = shape_fill_color(shape)
     stroke = shape_line_color(shape)
     if shape_type == MSO_SHAPE_TYPE.FREEFORM:
         if not fill and not stroke:
-            return
+            return []
         custom_shape = freeform_element(
             shape,
             element_id=f"{element_id}_custom",
@@ -499,6 +542,12 @@ def append_shape_elements(
         )
     elif is_unsupported_complex_shape(shape):
         warnings.append(f"Unsupported PPTX shape on slide {slide_index}: {shape_type}")
+
+    return [
+        str(element.get("elementId", ""))
+        for element in elements[appended_start:]
+        if str(element.get("elementId", ""))
+    ]
 
 
 def append_fallback_shape(
@@ -827,6 +876,7 @@ def build_template_blueprint(
             {
                 "slideIndex": index + 1,
                 "sourceSlideIndex": int(slide.get("sourceSlideIndex", index + 1)),
+                **template_slide_metadata(slide),
                 "elementSources": [
                     source
                     for source in (
@@ -864,10 +914,34 @@ def build_template_blueprint(
     }
 
 
+def apply_repeated_text_roles(
+    slides: list[dict[str, Any]],
+    slot_sources_by_slide: list[dict[str, dict[str, Any]]],
+) -> None:
+    repeated_texts = repeated_text_values(slides)
+    if not repeated_texts:
+        return
+    slide_count = len(slides)
+    for index, slide in enumerate(slides):
+        elements = slide.get("elements")
+        if not isinstance(elements, list):
+            continue
+        assign_text_roles(
+            elements,
+            slot_sources_by_slide[index] if index < len(slot_sources_by_slide) else {},
+            slide_index=index + 1,
+            slide_count=slide_count,
+            repeated_texts=repeated_texts,
+        )
+
+
 def template_element_source_for_element(
     element: dict[str, Any],
     source: dict[str, Any],
 ) -> dict[str, Any] | None:
+    if str(element.get("type", "")) == "group":
+        return None
+
     element_id = str(element.get("elementId", ""))
     slide_part = str(source.get("slidePart", ""))
     shape_id = str(source.get("shapeId", ""))
@@ -908,6 +982,9 @@ def template_slot_for_element(
     source: dict[str, Any],
     repeated_texts: set[str],
 ) -> dict[str, Any] | None:
+    if str(element.get("type", "")) == "group":
+        return None
+
     element_id = str(element.get("elementId", ""))
     if not element_id:
         return None
@@ -916,6 +993,8 @@ def template_slot_for_element(
     role = slot_role_for_element(element)
     source_type = str(source.get("type", "unknown"))
     locked = bool(element.get("locked", False))
+    if element_type == "image" and source_type == "placeholder":
+        role = "image_placeholder"
 
     if element_type == "text":
         text_key = normalized_text_key(element_text(element))
@@ -956,8 +1035,30 @@ def template_slot_for_element(
 
 
 def slot_role_for_element(element: dict[str, Any]) -> str:
+    template_slot_role = str(element.get("templateSlotRole", ""))
+    if template_slot_role in {
+        "title",
+        "subtitle",
+        "body",
+        "caption",
+        "label",
+        "metric",
+        "image_placeholder",
+        "background",
+    }:
+        return template_slot_role
+
     role = str(element.get("role", "unknown"))
-    if role in {"title", "subtitle", "body", "caption", "background"}:
+    if role in {
+        "title",
+        "subtitle",
+        "body",
+        "caption",
+        "label",
+        "metric",
+        "image_placeholder",
+        "background",
+    }:
         return role
     if element.get("type") in {"image", "svg"}:
         return "image"
@@ -966,6 +1067,56 @@ def slot_role_for_element(element: dict[str, Any]) -> str:
     if "_cell_" in str(element.get("elementId", "")):
         return "table"
     return "unknown"
+
+
+def template_slide_metadata(slide: dict[str, Any]) -> dict[str, str]:
+    elements = [
+        element for element in slide.get("elements", []) if isinstance(element, dict)
+    ]
+    roles = {slot_role_for_element(element) for element in elements}
+    element_types = {str(element.get("type", "")) for element in elements}
+    content_count = sum(
+        1
+        for role in roles_for_content_capacity(elements)
+        if role in {"title", "subtitle", "body", "caption", "label", "metric"}
+    )
+    slide_role = "body"
+    if "metric" in roles:
+        slide_role = "metric"
+    elif "chart" in element_types:
+        slide_role = "chart"
+    elif "label" in roles and "body" not in roles and content_count >= 3:
+        slide_role = "toc"
+    elif "title" in roles and content_count <= 2:
+        slide_role = "cover"
+    elif "title" in roles and "body" not in roles:
+        slide_role = "section"
+
+    layout_type = "body"
+    if slide_role in {"cover", "section"}:
+        layout_type = "title"
+    elif slide_role in {"metric", "chart"}:
+        layout_type = slide_role
+    elif slide_role == "toc":
+        layout_type = "toc"
+    elif "image" in element_types:
+        layout_type = "image"
+
+    capacity = "low" if content_count <= 2 else "medium" if content_count <= 5 else "high"
+    return {
+        "slideRole": slide_role,
+        "layoutType": layout_type,
+        "contentCapacity": capacity,
+        "selectionReason": "semantic metadata inferred from imported slide",
+    }
+
+
+def roles_for_content_capacity(elements: list[dict[str, Any]]) -> list[str]:
+    return [
+        str(element.get("role", ""))
+        for element in elements
+        if element.get("type") in {"text", "image", "chart"}
+    ]
 
 
 def infer_element_source(element: dict[str, Any]) -> dict[str, Any]:
@@ -1687,22 +1838,167 @@ def font_color(font: Any) -> str | None:
         return None
 
 
-def assign_text_roles(elements: list[dict[str, Any]]) -> None:
+def assign_text_roles(
+    elements: list[dict[str, Any]],
+    slot_sources: dict[str, dict[str, Any]] | None = None,
+    *,
+    slide_index: int = 1,
+    slide_count: int = 1,
+    repeated_texts: set[str] | None = None,
+) -> None:
     text_elements = [element for element in elements if element.get("type") == "text"]
     if not text_elements:
         return
 
-    title = max(
+    summaries = text_shape_summaries(
         text_elements,
-        key=lambda element: (
-            int(element.get("props", {}).get("fontSize", 0)),
-            -int(element.get("y", 0)),
-        ),
+        slot_sources or {},
+        slide_index=slide_index,
+        repeated_texts=repeated_texts or set(),
     )
-    title["role"] = "title"
+    max_font = max((int(summary["font_size"]) for summary in summaries), default=24)
+    for summary in summaries:
+        element = summary["element"]
+        semantic_role = infer_text_semantic_role(
+            summary,
+            max_font=max_font,
+            slide_index=slide_index,
+            slide_count=slide_count,
+        )
+        element["role"] = deck_role_from_semantic_role(semantic_role)
+        template_slot_role = template_slot_role_from_semantic_role(semantic_role)
+        if template_slot_role != element["role"]:
+            element["templateSlotRole"] = template_slot_role
+
+
+def text_shape_summaries(
+    text_elements: list[dict[str, Any]],
+    slot_sources: dict[str, dict[str, Any]],
+    *,
+    slide_index: int,
+    repeated_texts: set[str],
+) -> list[dict[str, Any]]:
+    summaries: list[dict[str, Any]] = []
     for element in text_elements:
-        if element is not title:
-            element["role"] = "body"
+        props = element.get("props") if isinstance(element.get("props"), dict) else {}
+        source = slot_sources.get(str(element.get("elementId", "")), {})
+        summaries.append(
+            {
+                "element": element,
+                "slide": slide_index,
+                "shape_id": str(source.get("shapeId", "")),
+                "text": str(props.get("text", "")),
+                "x": number_or_zero(element.get("x")),
+                "y": number_or_zero(element.get("y")),
+                "width": number_or_zero(element.get("width")),
+                "height": number_or_zero(element.get("height")),
+                "font_size": int(props.get("fontSize") or 24),
+                "is_repeated_across_slides": normalized_text_key(
+                    str(props.get("text", ""))
+                )
+                in repeated_texts,
+                "placeholder_type": str(source.get("placeholderType", "")),
+                "source_type": str(source.get("type", "")),
+            }
+        )
+    return summaries
+
+
+def infer_text_semantic_role(
+    summary: dict[str, Any],
+    *,
+    max_font: int,
+    slide_index: int,
+    slide_count: int,
+) -> str:
+    placeholder = str(summary.get("placeholder_type", "")).lower()
+    text = str(summary.get("text", "")).strip()
+    y = float(summary.get("y", 0))
+    x = float(summary.get("x", 0))
+    font_size = int(summary.get("font_size", 24))
+    repeated = bool(summary.get("is_repeated_across_slides", False))
+
+    if placeholder:
+        if "title" in placeholder or placeholder in {"ctr-title", "center-title"}:
+            return "cover_title" if slide_index == 1 else "slide_title"
+        if "sub" in placeholder:
+            return "cover_subtitle" if slide_index == 1 else "slide_subtitle"
+        if "body" in placeholder or "object" in placeholder:
+            return "body_text"
+        if "sldnum" in placeholder or "slide-number" in placeholder:
+            return "page_number"
+        if "footer" in placeholder or "date" in placeholder:
+            return "footer_brand"
+
+    if not text:
+        return "unknown"
+    if looks_like_contact(text):
+        return "contact"
+    if repeated and y <= 120:
+        return "header_brand"
+    if repeated and y >= 900:
+        return "footer_brand"
+    if looks_like_numeric_token(text):
+        if y >= 900 and font_size <= 20:
+            return "page_number"
+        if font_size >= 34 or any(marker in text for marker in ("%", "$", "x", "X")):
+            return "metric_value"
+        if x <= 420 and y <= 360:
+            return "section_number"
+        return "toc_item_number"
+    if text.startswith(("•", "-", "–", "*")):
+        return "bullet_item"
+    if font_size >= max(30, round(max_font * 0.82)) and y <= 430:
+        return "cover_title" if slide_index == 1 else "slide_title"
+    if font_size >= 26 and len(text) <= 52:
+        return "card_title"
+    if 160 <= y < 900 and font_size >= 18:
+        return "body_text"
+    if y >= 900:
+        return "caption" if slide_index < slide_count else "footer_brand"
+    return "body_text" if len(text) > 48 else "caption"
+
+
+def deck_role_from_semantic_role(semantic_role: str) -> str:
+    if semantic_role in {
+        "cover_title",
+        "section_title",
+        "slide_title",
+        "toc_title",
+        "card_title",
+    }:
+        return "title"
+    if semantic_role in {"cover_subtitle", "slide_subtitle"}:
+        return "subtitle"
+    if semantic_role in {"body_text", "bullet_item", "card_body"}:
+        return "body"
+    if semantic_role == "metric_value":
+        return "highlight"
+    return "caption"
+
+
+def template_slot_role_from_semantic_role(semantic_role: str) -> str:
+    if semantic_role == "metric_value":
+        return "metric"
+    if semantic_role in {
+        "metric_label",
+        "toc_item_number",
+        "toc_item_label",
+        "section_number",
+    }:
+        return "label"
+    return deck_role_from_semantic_role(semantic_role)
+
+
+def looks_like_numeric_token(text: str) -> bool:
+    return any(character.isdigit() for character in text) and all(
+        character.isdigit() or character in ".,:%$xX+- " for character in text
+    )
+
+
+def looks_like_contact(text: str) -> bool:
+    lowered = text.lower()
+    return "@" in text or "http://" in lowered or "https://" in lowered or "www." in lowered
 
 
 def imported_theme(slides: list[dict[str, Any]]) -> dict[str, Any]:

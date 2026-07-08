@@ -91,7 +91,10 @@ export async function updateAudienceAccessEntryStatus(args: {
   );
 
   if (!response.ok) {
-    throw await readResponseError(response, "Audience session close failed");
+    throw await readResponseError(
+      response,
+      "Audience session entry update failed",
+    );
   }
 
   const payload = (await response.json()) as { session: PresentationSession };

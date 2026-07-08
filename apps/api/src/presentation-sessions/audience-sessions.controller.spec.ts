@@ -1,4 +1,8 @@
-import { HttpException, UnauthorizedException } from "@nestjs/common";
+import {
+  HttpException,
+  NotFoundException,
+  UnauthorizedException,
+} from "@nestjs/common";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AudienceSessionsController } from "./audience-sessions.controller";
 import { PresentationSessionsService } from "./presentation-sessions.service";
@@ -46,6 +50,7 @@ function createController(
     getAudienceMe: vi.fn(),
     getAudienceState: vi.fn(),
     getAudienceSurveyForm: vi.fn(),
+    readAudienceSlideSnapshotContent: vi.fn(),
     submitSurveyResponse: vi.fn(),
     ...overrides,
   } as unknown as PresentationSessionsService;
@@ -124,7 +129,7 @@ describe("AudienceSessionsController", () => {
   it("looks up a public audience session without presenter fields", async () => {
     const { controller, service } = createController();
 
-    const result = await controller.getJoinSession("123456");
+    const result = await controller.getJoinSession("123456", createRequest());
 
     expect(service.getActiveSessionByJoinCode).toHaveBeenCalledWith("123456");
     expect(result).toEqual({
@@ -138,6 +143,90 @@ describe("AudienceSessionsController", () => {
     });
     expect(result.session).not.toHaveProperty("deckId");
     expect(result.session).not.toHaveProperty("presenterUserId");
+  });
+
+  it("rate limits public join-code lookups before querying sessions", async () => {
+    const { controller, service } = createController();
+
+    for (let index = 0; index < 10; index += 1) {
+      await expect(
+        controller.getJoinSession(
+          "123456",
+          createRequest({ ip: "203.0.113.20" }),
+        ),
+      ).resolves.toBeDefined();
+    }
+
+    let error: unknown;
+    try {
+      await controller.getJoinSession(
+        "123456",
+        createRequest({ ip: "203.0.113.20" }),
+      );
+    } catch (caught) {
+      error = caught;
+    }
+
+    expect(error).toBeInstanceOf(HttpException);
+    expect((error as HttpException).getStatus()).toBe(429);
+    expect(service.getActiveSessionByJoinCode).toHaveBeenCalledTimes(10);
+  });
+
+  it("restores an ended session for an existing audience cookie when join lookup is no longer active", async () => {
+    const response = { cookie: vi.fn() } as any;
+    const initial = createController();
+    await initial.controller.joinSession(
+      "123456",
+      { nickname: "orbit" },
+      createRequest({ userAgent: "vitest-ended-restore" }),
+      response,
+    );
+    const signedAudienceToken = response.cookie.mock.calls[0][1] as string;
+    const endedSession = {
+      ...session,
+      status: "ended" as const,
+      entryStatus: "closed" as const,
+      endedAt: "2026-07-05T00:30:00.000Z",
+      surveyClosesAt: "2999-07-05T01:30:00.000Z",
+    };
+    const { controller, service } = createController({
+      getActiveSessionByJoinCode: vi.fn(async () => {
+        throw new NotFoundException("입장 코드를 확인해 주세요.");
+      }),
+      getAudienceMe: vi.fn(async () => ({
+        session: {
+          sessionId: endedSession.sessionId,
+          projectId: endedSession.projectId,
+          joinCode: endedSession.joinCode,
+          status: endedSession.status,
+          entryStatus: endedSession.entryStatus,
+        },
+        participant,
+      })),
+    });
+
+    await expect(
+      controller.getJoinSession(
+        "123456",
+        createRequest({
+          signedAudienceToken,
+          userAgent: "vitest-ended-restore",
+        }),
+      ),
+    ).resolves.toEqual({
+      session: {
+        sessionId: "session_existing",
+        projectId: "project_1",
+        joinCode: "123456",
+        status: "ended",
+        entryStatus: "closed",
+      },
+    });
+    expect(service.getAudienceMe).toHaveBeenCalledWith(
+      "session_existing",
+      expect.stringMatching(/^audience_[0-9a-f-]{36}$/),
+      expect.any(String),
+    );
   });
 
   it("sets an HttpOnly audience cookie when joining by nickname", async () => {
@@ -216,12 +305,110 @@ describe("AudienceSessionsController", () => {
     ).resolves.toBeDefined();
   });
 
+  it("rate limits join attempts before session lookup succeeds", async () => {
+    const { controller, service } = createController({
+      getActiveSessionByJoinCode: vi.fn(async () => {
+        throw new NotFoundException("입장 코드를 확인해 주세요.");
+      }),
+    });
+    const response = { cookie: vi.fn() } as any;
+
+    for (let index = 0; index < 10; index += 1) {
+      await expect(
+        controller.joinSession(
+          "000000",
+          { nickname: `orbit-${index}` },
+          createRequest({ ip: "203.0.113.30" }),
+          response,
+        ),
+      ).rejects.toBeInstanceOf(NotFoundException);
+    }
+
+    let error: unknown;
+    try {
+      await controller.joinSession(
+        "000000",
+        { nickname: "orbit-10" },
+        createRequest({ ip: "203.0.113.30" }),
+        response,
+      );
+    } catch (caught) {
+      error = caught;
+    }
+
+    expect(error).toBeInstanceOf(HttpException);
+    expect((error as HttpException).getStatus()).toBe(429);
+    expect(service.getActiveSessionByJoinCode).toHaveBeenCalledTimes(10);
+  });
+
   it("rejects /me without an audience cookie", async () => {
     const { controller } = createController();
 
     await expect(
       controller.getMe("session_existing", createRequest()),
     ).rejects.toBeInstanceOf(UnauthorizedException);
+  });
+
+  it("rejects slide snapshot reads without an audience cookie", async () => {
+    const { controller } = createController();
+
+    await expect(
+      controller.readSlideSnapshot(
+        "session_existing",
+        "slide_1",
+        "content_hash",
+        createRequest(),
+        {} as any,
+      ),
+    ).rejects.toBeInstanceOf(UnauthorizedException);
+  });
+
+  it("returns audience slide snapshots through the same-origin API", async () => {
+    const { controller, service } = createController({
+      readAudienceSlideSnapshotContent: vi.fn(async () => ({
+        body: Buffer.from("<svg>청중 공개 문장</svg>"),
+        contentType: "image/svg+xml",
+      })),
+    });
+    const response = {
+      setHeader: vi.fn(),
+    } as any;
+    const joinResponse = { cookie: vi.fn() } as any;
+    await controller.joinSession(
+      "123456",
+      { nickname: "orbit" },
+      createRequest({ userAgent: "vitest-snapshot" }),
+      joinResponse,
+    );
+    const signedAudienceToken = joinResponse.cookie.mock.calls[0][1] as string;
+
+    const result = await controller.readSlideSnapshot(
+      "session_existing",
+      "slide_1",
+      "content_hash",
+      createRequest({
+        signedAudienceToken,
+        userAgent: "vitest-snapshot",
+      }),
+      response,
+    );
+
+    expect(service.readAudienceSlideSnapshotContent).toHaveBeenCalledWith({
+      sessionId: "session_existing",
+      audienceId: expect.stringMatching(/^audience_[0-9a-f-]{36}$/),
+      tokenHash: expect.any(String),
+      slideId: "slide_1",
+      contentHash: "content_hash",
+    });
+    expect(response.setHeader.mock.calls).toContainEqual([
+      "cache-control",
+      "private, max-age=60",
+    ]);
+    expect(response.setHeader.mock.calls).toContainEqual([
+      "content-type",
+      "image/svg+xml",
+    ]);
+    expect(result).toBeDefined();
   });
 
   it("returns audience state with the signed audience cookie", async () => {

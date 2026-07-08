@@ -12,6 +12,7 @@ import {
   audienceSessionEndedPayloadSchema,
   audienceSlideStatePayloadSchema,
   updateAudienceFeatureSettingsRequestSchema,
+  type AudienceFeatureSettings,
   type AudienceRealtimeState,
   type AudienceQuestion,
   type AudienceQuestionAnswer,
@@ -209,12 +210,26 @@ export class AudienceRealtimeGateway {
         settings: input.settings,
       });
 
-    const payload = audienceFeatureSettingsPayloadSchema.parse(response);
+    return this.broadcastFeatureSettings({
+      features: response.features,
+      sessionId: input.sessionId,
+      userId: presenter.userId,
+    });
+  }
+
+  broadcastFeatureSettings(input: {
+    features: AudienceFeatureSettings;
+    sessionId: string;
+    userId: string;
+  }) {
+    const payload = audienceFeatureSettingsPayloadSchema.parse({
+      features: input.features,
+    });
     const event = createRealtimeEvent({
       type: "audience:feature-settings",
       roomId: audienceSessionRoomId(input.sessionId),
       sessionId: input.sessionId,
-      userId: presenter.userId,
+      userId: input.userId,
       payload,
     });
 
@@ -244,6 +259,29 @@ export class AudienceRealtimeGateway {
     this.server
       .to(audiencePresenterRoomId(input.sessionId))
       .emit("audience:reaction", event);
+    return event;
+  }
+
+  broadcastSlideState(input: {
+    sessionId: string;
+    state: AudienceRealtimeState;
+    userId: string;
+  }) {
+    this.stateSnapshots.set(input.sessionId, input.state);
+    const payload = audienceSlideStatePayloadSchema.parse({
+      state: input.state,
+    });
+    const event = createRealtimeEvent({
+      type: "audience:slide-state",
+      roomId: audienceSessionRoomId(input.sessionId),
+      sessionId: input.sessionId,
+      userId: input.userId,
+      payload,
+    });
+
+    this.server
+      .to(audienceSessionRoomId(input.sessionId))
+      .emit("audience:slide-state", event);
     return event;
   }
 

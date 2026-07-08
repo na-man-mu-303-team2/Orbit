@@ -1,8 +1,10 @@
+export { AnimationCreateFlow } from "./AnimationCreateFlow";
 export { AnimationCreateEditor } from "./AnimationCreateEditor";
 export { AnimationCreatePicker } from "./AnimationCreatePicker";
 export { AnimationExistingEditor } from "./AnimationExistingEditor";
 export { AnimationExistingList } from "./AnimationExistingList";
 export { AnimationInspectorEmptyState } from "./AnimationInspectorEmptyState";
+export { AnimationKeywordPicker } from "./AnimationKeywordPicker";
 export { AnimationInspectorPanel } from "./AnimationInspectorPanel";
 export { AnimationPanelComposerEmpty } from "./AnimationPanelComposerEmpty";
 export { AnimationPanelFooter } from "./AnimationPanelFooter";

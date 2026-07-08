@@ -12,6 +12,11 @@ import { themeColorSchema, themeSchema } from "./theme.schema";
 
 export const deckSourceTypeSchema = z.enum(["manual", "import", "ai"]);
 
+export const deckThumbnailSourceSchema = z.enum([
+  "canvas",
+  "import-render"
+]);
+
 export const aiDeckAudienceSchema = z.enum([
   "general",
   "executive",
@@ -47,6 +52,7 @@ export const deckMetadataSchema = z.object({
   language: z.literal("ko").default("ko"),
   locale: z.literal("ko-KR").default("ko-KR"),
   sourceType: deckSourceTypeSchema.optional(),
+  thumbnailSource: deckThumbnailSourceSchema.optional(),
   generatedBy: z.literal("ai").optional(),
   audience: aiDeckAudienceSchema.optional(),
   purpose: aiDeckPurposeSchema.optional(),
@@ -237,6 +243,7 @@ export type Deck = z.infer<typeof deckSchema>;
 export type DeckCanvas = z.infer<typeof deckCanvasSchema>;
 export type DeckMetadata = z.infer<typeof deckMetadataSchema>;
 export type DeckSourceType = z.infer<typeof deckSourceTypeSchema>;
+export type DeckThumbnailSource = z.infer<typeof deckThumbnailSourceSchema>;
 export type AiDeckAudience = z.infer<typeof aiDeckAudienceSchema>;
 export type AiDeckPurpose = z.infer<typeof aiDeckPurposeSchema>;
 export type AiDeckTone = z.infer<typeof aiDeckToneSchema>;

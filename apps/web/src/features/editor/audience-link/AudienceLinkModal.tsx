@@ -21,6 +21,7 @@ import {
   fetchSessionInteractions,
   fetchSessionSurveyForm,
   updateAudienceFeatureSettings,
+  updateAudienceAccessEntryStatus,
 } from "./audienceLinkApi";
 import {
   createQrDataUrl,
@@ -36,6 +37,37 @@ type AudienceLinkModalProps = {
   onClose: () => void;
   projectId: string;
 };
+
+export function getAudienceEntryPrimaryAction(
+  session: PresentationSession | null,
+) {
+  if (!session) {
+    return "create";
+  }
+
+  if (session.entryStatus === "closed") {
+    return "reopen";
+  }
+
+  return "none";
+}
+
+export function AudienceLinkReopenAction(props: {
+  disabled: boolean;
+  isLoading: boolean;
+  onReopen: () => void;
+}) {
+  return (
+    <button
+      className="audience-link-primary"
+      type="button"
+      onClick={props.onReopen}
+      disabled={props.disabled}
+    >
+      {props.isLoading ? "여는 중..." : "입장 다시 열기"}
+    </button>
+  );
+}
 
 export function AudienceLinkModal({
   deckId,
@@ -177,20 +209,60 @@ export function AudienceLinkModal({
     setAudienceLinkError("");
 
     try {
-      await closeAudienceAccessSession({
+      const nextSession = await closeAudienceAccessSession({
         projectId,
         sessionId: audienceSession.sessionId,
       });
-      setAudienceSession(null);
-      setAudienceUrl("");
-      setAudienceQrDataUrl("");
-      setAudienceFeatures(null);
-      setSessionInteractions(null);
-      setSetupSurveyTitle("");
+      setAudienceSession(nextSession);
       setIsAudienceCloseConfirming(false);
     } catch (error) {
       setAudienceLinkError(toAudienceLinkErrorMessage(error));
       setIsAudienceCloseConfirming(false);
+    } finally {
+      setIsAudienceLinkLoading(false);
+    }
+  }
+
+  async function handleReopenAudienceLink() {
+    if (!audienceSession || isAudienceLinkLoading) {
+      return;
+    }
+
+    setIsAudienceLinkLoading(true);
+    setAudienceLinkError("");
+
+    try {
+      const nextSession = await updateAudienceAccessEntryStatus({
+        entryStatus: "open",
+        projectId,
+        sessionId: audienceSession.sessionId,
+      });
+      const nextAudienceUrl =
+        audienceUrl ||
+        resolveAbsoluteAudienceUrl(`/join/${nextSession.joinCode}`);
+      setAudienceSession(nextSession);
+      setAudienceUrl(nextAudienceUrl);
+      setAudienceQrDataUrl(await createQrDataUrl(nextAudienceUrl));
+      const [settings, interactions, survey] = await Promise.all([
+        fetchAudienceFeatureSettings({
+          projectId,
+          sessionId: nextSession.sessionId,
+        }),
+        fetchSessionInteractions({
+          projectId,
+          sessionId: nextSession.sessionId,
+        }),
+        fetchSessionSurveyForm({
+          projectId,
+          sessionId: nextSession.sessionId,
+        }).catch(() => ({ survey: null })),
+      ]);
+      setAudienceFeatures(settings.features);
+      setSessionInteractions(interactions.interactions);
+      setSetupSurveyTitle(survey.survey?.title ?? "");
+      setIsAudienceCloseConfirming(false);
+    } catch (error) {
+      setAudienceLinkError(toAudienceLinkErrorMessage(error));
     } finally {
       setIsAudienceLinkLoading(false);
     }
@@ -316,6 +388,13 @@ export function AudienceLinkModal({
               />
             </section>
             <div className="audience-link-actions">
+              {getAudienceEntryPrimaryAction(audienceSession) === "reopen" ? (
+                <AudienceLinkReopenAction
+                  disabled={isAudienceLinkLoading}
+                  isLoading={isAudienceLinkLoading}
+                  onReopen={() => void handleReopenAudienceLink()}
+                />
+              ) : null}
               <button
                 type="button"
                 onClick={() => void handleCopyAudienceUrl()}
@@ -390,7 +469,7 @@ export function AudienceLinkModal({
             </section>
           </div>
         ) : null}
-        {!audienceSession ? (
+        {getAudienceEntryPrimaryAction(audienceSession) === "create" ? (
           <section className="audience-link-create">
             <label>
               <span>입장 코드</span>

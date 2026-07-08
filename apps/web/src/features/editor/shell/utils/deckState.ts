@@ -33,6 +33,15 @@ export function buildSlideThumbnailPatch(
       type: "update_slide" as const
     }));
 
+  if (shouldMarkCanvasThumbnailSource(baseDeck)) {
+    operations.push({
+      metadata: {
+        thumbnailSource: "canvas"
+      },
+      type: "update_deck"
+    });
+  }
+
   if (operations.length === 0) {
     return null;
   }
@@ -43,6 +52,66 @@ export function buildSlideThumbnailPatch(
     operations,
     source: "system"
   };
+}
+
+export function getImportedSlideThumbnailRefreshSlideIds(deck: Deck) {
+  if (deck.metadata.thumbnailSource === "canvas") {
+    return [];
+  }
+
+  if (
+    deck.metadata.thumbnailSource === "import-render" ||
+    isLegacyOoxmlImportedThumbnailDeck(deck)
+  ) {
+    return deck.slides
+      .filter((slide) => Boolean(slide.thumbnailUrl))
+      .map((slide) => slide.slideId);
+  }
+
+  return deck.slides
+    .filter((slide) => slide.thumbnailUrl?.startsWith("asset:"))
+    .map((slide) => slide.slideId);
+}
+
+export function shouldRefreshImportedSlideThumbnails(deck: Deck) {
+  return getImportedSlideThumbnailRefreshSlideIds(deck).length > 0;
+}
+
+function shouldMarkCanvasThumbnailSource(deck: Deck) {
+  return getImportedSlideThumbnailRefreshSlideIds(deck).length > 0;
+}
+
+function isLegacyOoxmlImportedThumbnailDeck(deck: Deck) {
+  return (
+    deck.metadata.sourceType === "import" &&
+    deck.deckId.startsWith("deck_ooxml_") &&
+    deck.slides.some((slide) => Boolean(slide.thumbnailUrl))
+  );
+}
+
+export function getPatchThumbnailRefreshSlideIds(deck: Deck, patch: DeckPatch) {
+  let refreshAll = false;
+  const slideIds = new Set<string>();
+
+  for (const operation of patch.operations) {
+    switch (operation.type) {
+      case "add_slide":
+        slideIds.add(operation.slide.slideId);
+        break;
+      case "update_slide_style":
+      case "add_element":
+      case "update_element_frame":
+      case "update_element_props":
+      case "delete_element":
+        slideIds.add(operation.slideId);
+        break;
+      case "update_theme":
+        refreshAll = true;
+        break;
+    }
+  }
+
+  return refreshAll ? deck.slides.map((slide) => slide.slideId) : [...slideIds];
 }
 
 export function mergeDeckIntoQueryCache(

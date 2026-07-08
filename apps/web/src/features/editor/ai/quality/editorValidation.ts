@@ -1,6 +1,7 @@
 import type { Deck, DeckElement, Slide } from "@orbit/shared";
 
 const editorTextOverlapWarningRatio = 0.15;
+const editorDuplicateTextMinimumLength = 6;
 
 export type EditorValidationItem = {
   elementId?: string;
@@ -92,6 +93,7 @@ function getEditorSlideValidationItems(
   }
 
   items.push(...getEditorTextOverlapValidationItems(slide));
+  items.push(...getEditorDuplicateTextValidationItems(slide));
 
   return items;
 }
@@ -167,13 +169,44 @@ function getEditorTextOverlapValidationItems(slide: Slide): EditorValidationItem
   return items;
 }
 
-function isReadableEditorTextElement(element: DeckElement) {
+function getEditorDuplicateTextValidationItems(slide: Slide): EditorValidationItem[] {
+  const groups = new Map<string, Extract<DeckElement, { type: "text" }>[]>();
+
+  for (const element of slide.elements) {
+    if (!isReadableEditorTextElement(element)) continue;
+
+    const textKey = normalizeComparableText(element.props.text);
+    if (textKey.length < editorDuplicateTextMinimumLength) continue;
+
+    const group = groups.get(textKey) ?? [];
+    group.push(element);
+    groups.set(textKey, group);
+  }
+
+  return Array.from(groups.values())
+    .filter((elements) => elements.length > 1)
+    .map((elements) => ({
+      elementIds: elements.map((element) => element.elementId),
+      level: "warning" as const,
+      message: "같은 텍스트가 여러 요소에 반복되어 있습니다.",
+      severity: "warning" as const,
+      slideId: slide.slideId
+    }));
+}
+
+function isReadableEditorTextElement(
+  element: DeckElement
+): element is Extract<DeckElement, { type: "text" }> {
   return (
     element.type === "text" &&
     element.visible !== false &&
     element.role !== "footer" &&
     element.props.text.trim().length > 0
   );
+}
+
+function normalizeComparableText(text: string) {
+  return text.replace(/\s+/g, " ").trim().toLocaleLowerCase();
 }
 
 function getElementOverlapRatio(first: DeckElement, second: DeckElement) {

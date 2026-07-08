@@ -15,6 +15,15 @@ const features = {
   updatedAt: "2026-07-05T00:04:00.000Z",
 };
 
+const realtimeState = {
+  sessionId: "session_existing",
+  slideId: "slide_2",
+  slideIndex: 1,
+  effectState: { stepIndex: 2 },
+  activeInteractionId: "interaction_1",
+  updatedAt: "2026-07-05T00:05:00.000Z",
+};
+
 function createController() {
   const auth = {
     me: vi.fn(async () => ({ user: { userId: "user_1" } })),
@@ -35,6 +44,13 @@ function createController() {
         entryStatus: "closed",
       },
     })),
+    exposeInteractionQuestionResults: vi.fn(async () => ({
+      interaction: {
+        interactionId: "interaction_1",
+        exposedResultQuestionIds: ["question_1"],
+      },
+    })),
+    touchAudienceRealtimeState: vi.fn(async () => realtimeState),
     getSessionSurveyForm: vi.fn(async () => ({ survey: null })),
     upsertSessionSurveyForm: vi.fn(async () => ({ survey: null })),
     exportSessionSurveyCsv: vi.fn(async () => "submittedAt,nickname\n"),
@@ -55,7 +71,9 @@ function createController() {
     assertCanWriteProject: vi.fn(async () => ({ projectId: "project_1" })),
   };
   const audienceRealtimeGateway = {
+    broadcastFeatureSettings: vi.fn(),
     broadcastSessionEnded: vi.fn(),
+    broadcastSlideState: vi.fn(),
   };
   const controller = new PresentationSessionsController(
     auth as any,
@@ -98,7 +116,8 @@ describe("PresentationSessionsController", () => {
   });
 
   it("updates feature settings after project write permission", async () => {
-    const { controller, projects, service } = createController();
+    const { audienceRealtimeGateway, controller, projects, service } =
+      createController();
 
     await expect(
       controller.updateFeatureSettings(
@@ -118,6 +137,13 @@ describe("PresentationSessionsController", () => {
       sessionId: "session_existing",
       actorId: "user_1",
       settings: { pollsEnabled: true },
+    });
+    expect(
+      audienceRealtimeGateway.broadcastFeatureSettings,
+    ).toHaveBeenCalledWith({
+      sessionId: "session_existing",
+      userId: "user_1",
+      features,
     });
   });
 
@@ -226,6 +252,43 @@ describe("PresentationSessionsController", () => {
     expect(service.getSessionResults).toHaveBeenCalledWith({
       projectId: "project_1",
       sessionId: "session_existing",
+    });
+  });
+
+  it("broadcasts realtime state after manual interaction result exposure", async () => {
+    const { audienceRealtimeGateway, controller, projects, service } =
+      createController();
+
+    await expect(
+      controller.exposeInteractionQuestionResults(
+        "project_1",
+        "session_existing",
+        "interaction_1",
+        { questionId: "question_1", exposed: true },
+        createRequest(),
+      ),
+    ).resolves.toMatchObject({
+      interaction: { exposedResultQuestionIds: ["question_1"] },
+    });
+
+    expect(projects.assertCanWriteProject).toHaveBeenCalledWith(
+      "project_1",
+      "user_1",
+    );
+    expect(service.exposeInteractionQuestionResults).toHaveBeenCalledWith({
+      projectId: "project_1",
+      sessionId: "session_existing",
+      interactionId: "interaction_1",
+      actorId: "user_1",
+      body: { questionId: "question_1", exposed: true },
+    });
+    expect(service.touchAudienceRealtimeState).toHaveBeenCalledWith(
+      "session_existing",
+    );
+    expect(audienceRealtimeGateway.broadcastSlideState).toHaveBeenCalledWith({
+      sessionId: "session_existing",
+      userId: "user_1",
+      state: realtimeState,
     });
   });
 });

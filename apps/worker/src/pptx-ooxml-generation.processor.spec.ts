@@ -99,12 +99,16 @@ describe("processPptxOoxmlGenerationJob", () => {
     );
 
     const deck = insertedDecks[0] as {
+      metadata: {
+        thumbnailSource?: string;
+      };
       slides: Array<{
         elements: Array<Record<string, unknown>>;
         thumbnailUrl: string;
         style: { backgroundImage?: { src?: string; fit?: string; opacity?: number } };
       }>;
     };
+    expect(deck.metadata.thumbnailSource).toBe("import-render");
     expect(deck.slides[0].thumbnailUrl).toMatch(
       /\/api\/v1\/projects\/project-a\/assets\/file_.*\/content/
     );

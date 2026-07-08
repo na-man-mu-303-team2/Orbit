@@ -71,6 +71,16 @@ function createProjectRepository(initialProjects: ProjectEntity[] = []) {
         ) ?? null
       );
     },
+    async delete(where: Partial<ProjectEntity>): Promise<void> {
+      const index = projects.findIndex(
+        (project) =>
+          project.projectId === where.projectId &&
+          (!where.workspaceId || project.workspaceId === where.workspaceId),
+      );
+      if (index >= 0) {
+        projects.splice(index, 1);
+      }
+    },
   };
 
   return repository as unknown as Repository<ProjectEntity>;
@@ -331,6 +341,53 @@ describe("ProjectsService", () => {
     await expect(service.list(demoIds.workspaceId, "user_1")).resolves.toEqual([
       expect.objectContaining({ projectId: "project_accepted" }),
     ]);
+  });
+
+  it("deletes a project only when the requester is owner", async () => {
+    const project = new ProjectEntity();
+    project.projectId = "project_owned";
+    project.workspaceId = demoIds.workspaceId;
+    project.title = "Owned";
+    project.createdBy = "user_owner";
+    project.createdAt = new Date("2026-06-30T00:00:00.000Z");
+    const owner = new ProjectMemberEntity();
+    owner.projectId = project.projectId;
+    owner.userId = "user_owner";
+    owner.role = "owner";
+    owner.status = "accepted";
+    owner.createdAt = project.createdAt;
+    const service = createService({
+      projects: [project],
+      members: [owner],
+    });
+
+    await expect(
+      service.delete(demoIds.workspaceId, project.projectId, "user_owner"),
+    ).resolves.toEqual({ projectId: project.projectId });
+    await expect(service.list(demoIds.workspaceId, "user_owner")).resolves.toEqual([]);
+  });
+
+  it("rejects project deletion from non-owners", async () => {
+    const project = new ProjectEntity();
+    project.projectId = "project_editor";
+    project.workspaceId = demoIds.workspaceId;
+    project.title = "Editor";
+    project.createdBy = "user_owner";
+    project.createdAt = new Date("2026-06-30T00:00:00.000Z");
+    const editor = new ProjectMemberEntity();
+    editor.projectId = project.projectId;
+    editor.userId = "user_editor";
+    editor.role = "editor";
+    editor.status = "accepted";
+    editor.createdAt = project.createdAt;
+    const service = createService({
+      projects: [project],
+      members: [editor],
+    });
+
+    await expect(
+      service.delete(demoIds.workspaceId, project.projectId, "user_editor"),
+    ).rejects.toBeInstanceOf(ForbiddenException);
   });
 
   it("returns not found for an unknown project", async () => {

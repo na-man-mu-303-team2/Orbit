@@ -109,6 +109,15 @@ describe("audience link API", () => {
         sessionId: "session_1",
       }),
     ).resolves.toMatchObject({ entryStatus: "open" });
+
+    expect(fetcher).toHaveBeenCalledWith(
+      "/api/v1/projects/project_1/presentation-sessions/session_1/entry",
+      expect.objectContaining({
+        body: JSON.stringify({ entryStatus: "open" }),
+        credentials: "include",
+        method: "PATCH",
+      }),
+    );
   });
 
   it("fetches and upserts presenter survey forms", async () => {

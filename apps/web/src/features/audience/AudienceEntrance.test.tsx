@@ -86,7 +86,10 @@ describe("AudienceEntrance", () => {
 
     expect(html).toContain("현재 슬라이드 1");
     expect(html).toContain("실시간 연결됨");
-    expect(html).toContain("https://cdn.example.test/slide_1.png");
+    expect(html).toContain(
+      "/api/v1/presentation-sessions/session_1/audience/slide-snapshots/slide_1",
+    );
+    expect(html).not.toContain("https://cdn.example.test/slide_1.png");
     expect(html).toContain("orbit");
   });
 
@@ -126,7 +129,9 @@ describe("AudienceEntrance", () => {
           slideId: "slide_1",
           slideIndex: 0,
           effectState: {
+            highlights: [{ elementId: "el_text", active: true }],
             stepIndex: 1,
+            triggerAnimationIds: ["animation_1"],
             slideFallback: {
               slideIndex: 0,
               deck: {
@@ -174,6 +179,7 @@ describe("AudienceEntrance", () => {
     );
 
     expect(html).toContain("청중 공개 문장");
+    expect(html).not.toContain("audience-slide-snapshot");
     expect(html).not.toContain("슬라이드 준비 중");
     expect(html).not.toContain("presenter script");
   });
@@ -238,6 +244,8 @@ describe("AudienceEntrance", () => {
     expect(html).toContain("만족도를 골라 주세요.");
     expect(html).toContain("응답 제출");
     expect(html).toContain('type="number"');
+    expect(html.match(/<span>Poll<\/span>/g)).toHaveLength(1);
+    expect(html).not.toContain('<button type="button" disabled="">대기 중</button>');
   });
 
   it("renders enabled reaction controls with accessible names", () => {

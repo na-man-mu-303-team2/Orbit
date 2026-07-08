@@ -17,6 +17,8 @@ import {
   EditorStateNotice,
   buildSlideThumbnailPatch,
   createDistributeSelectionPatch,
+  getImportedSlideThumbnailRefreshSlideIds,
+  getPatchThumbnailRefreshSlideIds,
   getEditorValidationItems,
   mergeDeckIntoQueryCache,
   shouldApplyManualSaveResult,
@@ -215,6 +217,7 @@ describe("editor shell", () => {
     expect(html).not.toContain("Data Contract");
     expect(html).toContain("발표 메모");
     expect(html).toContain("저장됨");
+    expect(html).toContain("AI 검증");
     expect(html).toContain("AI 제안 검토");
     expect(html).toContain("이미지");
     expect(html).toContain('data-testid="editor-slide-quickbar"');
@@ -246,6 +249,24 @@ describe("editor shell", () => {
     ];
 
     expect(getEditorValidationItems(deck, deck.slides[0])).toEqual([]);
+  });
+
+  it("returns a warning for duplicated readable text", () => {
+    const deck = createDemoDeck();
+    deck.slides[0].elements = [
+      editorTextElement("text_a", 100, 100, "반복되는 본문 문장입니다."),
+      editorTextElement("text_b", 500, 100, "반복되는 본문 문장입니다.")
+    ];
+
+    const items = getEditorValidationItems(deck, deck.slides[0]);
+
+    expect(items).toContainEqual(
+      expect.objectContaining({
+        elementIds: ["text_a", "text_b"],
+        message: "같은 텍스트가 여러 요소에 반복되어 있습니다.",
+        severity: "warning"
+      })
+    );
   });
 
   it("loads AI suggestions with the route project id", () => {
@@ -415,9 +436,21 @@ describe("editor shell", () => {
     deck.slides[0].thumbnailUrl = "asset:slide_render_1";
 
     expect(shouldRefreshImportedSlideThumbnails(deck)).toBe(true);
+    expect(getImportedSlideThumbnailRefreshSlideIds(deck)).toEqual([
+      deck.slides[0].slideId
+    ]);
 
     deck.slides[0].thumbnailUrl =
       "http://assets.example.test/slide-01-thumbnail-v2.png";
+
+    expect(shouldRefreshImportedSlideThumbnails(deck)).toBe(false);
+
+    deck.deckId = "deck_ooxml_file_template";
+    deck.metadata.sourceType = "import";
+
+    expect(shouldRefreshImportedSlideThumbnails(deck)).toBe(true);
+
+    deck.metadata.thumbnailSource = "canvas";
 
     expect(shouldRefreshImportedSlideThumbnails(deck)).toBe(false);
   });
@@ -441,6 +474,72 @@ describe("editor shell", () => {
       ],
       source: "system"
     });
+  });
+
+  it("marks import-render thumbnails as canvas thumbnails after rendering", () => {
+    const baseDeck = createDemoDeck();
+    const renderedDeck = structuredClone(baseDeck);
+
+    baseDeck.metadata.sourceType = "import";
+    baseDeck.metadata.thumbnailSource = "import-render";
+    baseDeck.slides[0].thumbnailUrl =
+      "/api/v1/projects/project-a/assets/file-render/content";
+    renderedDeck.metadata = baseDeck.metadata;
+    renderedDeck.slides[0].thumbnailUrl =
+      "/api/v1/projects/project-a/assets/file-thumb/content";
+
+    expect(buildSlideThumbnailPatch(baseDeck, renderedDeck)).toMatchObject({
+      operations: [
+        {
+          slideId: baseDeck.slides[0].slideId,
+          thumbnailUrl: renderedDeck.slides[0].thumbnailUrl,
+          type: "update_slide"
+        },
+        {
+          metadata: {
+            thumbnailSource: "canvas"
+          },
+          type: "update_deck"
+        }
+      ]
+    });
+  });
+
+  it("finds visual patch slides for autosave thumbnail refresh", () => {
+    const deck = createDemoDeck();
+    const firstSlide = deck.slides[0]!;
+    const secondSlide = deck.slides[1]!;
+    const firstElement = firstSlide.elements[0]!;
+
+    expect(
+      getPatchThumbnailRefreshSlideIds(deck, {
+        baseVersion: deck.version,
+        deckId: deck.deckId,
+        operations: [
+          {
+            frame: { x: 240 },
+            slideId: firstSlide.slideId,
+            elementId: firstElement.elementId,
+            type: "update_element_frame"
+          },
+          {
+            slideId: firstSlide.slideId,
+            speakerNotes: "notes",
+            type: "update_speaker_notes"
+          }
+        ],
+        source: "user"
+      })
+    ).toEqual([firstSlide.slideId]);
+
+    expect(
+      getPatchThumbnailRefreshSlideIds(deck, {
+        baseVersion: deck.version,
+        deckId: deck.deckId,
+        operations: [{ theme: { backgroundColor: "#ffffff" }, type: "update_theme" }],
+        source: "user"
+      })
+    ).toEqual([firstSlide.slideId, secondSlide.slideId]);
   });
 
   it("keeps table quickbar edits in editable table props", () => {

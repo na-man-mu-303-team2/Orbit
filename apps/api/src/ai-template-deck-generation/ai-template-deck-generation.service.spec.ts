@@ -135,6 +135,43 @@ describe("AiTemplateDeckGenerationService", () => {
     expect(services.jobsService.create).not.toHaveBeenCalled();
   });
 
+  it("accepts a both-role PPTX as the single design asset", async () => {
+    const job = createJob();
+    const services = createServices({
+      jobsService: {
+        create: vi.fn(async () => job),
+        update: vi.fn()
+      } as unknown as JobsService,
+      filesService: {
+        getUploadedAsset: vi.fn(async () => ({
+          fileId: "file_design",
+          projectId: "project-a",
+          mimeType: pptxMimeType,
+          purpose: "pptx-import"
+        }))
+      } as unknown as FilesService
+    });
+    const enqueueJob = vi.fn(async () => undefined);
+
+    await new AiTemplateDeckGenerationService(
+      services.jobsService,
+      services.projectsService,
+      services.filesService,
+      enqueueJob
+    ).createJob("project-a", {
+      topic: "ORBIT",
+      assets: [{ fileId: "file_design", role: "both" }]
+    });
+
+    expect(enqueueJob).toHaveBeenCalledWith(
+      expect.objectContaining({
+        request: expect.objectContaining({
+          assets: [{ fileId: "file_design", role: "both" }]
+        })
+      })
+    );
+  });
+
   it("rejects non-PPTX design assets", async () => {
     const services = createServices({
       filesService: {
