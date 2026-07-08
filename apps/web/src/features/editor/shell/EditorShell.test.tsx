@@ -48,6 +48,7 @@ import {
   tableDataDraft
 } from "./components/SelectionQuickBar";
 import { ValidationPanel } from "../ai/quality/ValidationPanel";
+import { measureTextContentBounds } from "../canvas/text/textLayout";
 import { resolveEditorAssetUrl } from "../shared/editorAssetUrl";
 import { aiSuggestionsQueryKey } from "../suggestions/api/suggestionApi";
 
@@ -1210,6 +1211,226 @@ describe("editor shell", () => {
     expect(html).toContain("모두 반영하기");
   });
 
+  it("keeps a warning when title text still wraps", () => {
+    const deck = createDemoDeck();
+    const slide = deck.slides[0];
+    const titleElement = editorTextElement(
+      "el_wrapped_title",
+      100,
+      100,
+      "발표 준비, AI로 1시간에서 3분으로 단축"
+    );
+    const bodyElement = editorTextElement(
+      "el_wrapped_body",
+      100,
+      500,
+      "본문은 여러 줄이어도 제목 경고가 아닙니다."
+    );
+
+    slide.elements = [
+      {
+        ...titleElement,
+        role: "title",
+        width: 180,
+        height: 300,
+        props: {
+          ...titleElement.props,
+          fontSize: 48
+        }
+      },
+      {
+        ...bodyElement,
+        width: 180,
+        height: 300,
+        props: {
+          ...bodyElement.props,
+          fontSize: 48
+        }
+      }
+    ];
+
+    const titleWrapItems = getEditorValidationItems(deck, slide).filter(
+      (item) => item.issue === "titleWrap"
+    );
+
+    expect(titleWrapItems).toContainEqual(
+      expect.objectContaining({ elementId: "el_wrapped_title" })
+    );
+    expect(titleWrapItems).not.toContainEqual(
+      expect.objectContaining({ elementId: "el_wrapped_body" })
+    );
+  });
+
+  it("reports wrapped short labels separately from title wraps", () => {
+    const deck = createDemoDeck();
+    const slide = deck.slides[0];
+    const labelElement = editorTextElement("el_wrapped_label", 100, 420, "PitchDeck");
+    const bodyElement = editorTextElement("el_body", 100, 520, "Short body");
+
+    slide.elements = [
+      {
+        ...labelElement,
+        role: undefined,
+        width: 40,
+        height: 80,
+        props: {
+          ...labelElement.props,
+          fontSize: 24
+        }
+      },
+      {
+        ...bodyElement,
+        width: 40,
+        height: 80,
+        props: {
+          ...bodyElement.props,
+          fontSize: 24
+        }
+      }
+    ];
+
+    const validationItems = getEditorValidationItems(deck, slide);
+
+    expect(validationItems).toContainEqual(
+      expect.objectContaining({
+        elementId: "el_wrapped_label",
+        issue: "labelWrap"
+      })
+    );
+    expect(validationItems).not.toContainEqual(
+      expect.objectContaining({
+        elementId: "el_wrapped_label",
+        issue: "titleWrap"
+      })
+    );
+    expect(validationItems).not.toContainEqual(
+      expect.objectContaining({
+        elementId: "el_body",
+        issue: "labelWrap"
+      })
+    );
+  });
+
+  it("reports short captions that are too narrow for a single line", () => {
+    const deck = createDemoDeck();
+    const slide = deck.slides[0];
+    const captionElement = editorTextElement("el_narrow_caption", 100, 420, "PitchDeck");
+
+    slide.elements = [
+      {
+        ...captionElement,
+        role: "caption",
+        width: 42,
+        height: 80,
+        props: {
+          ...captionElement.props,
+          fontSize: 24
+        }
+      }
+    ];
+
+    expect(getEditorValidationItems(deck, slide)).toContainEqual(
+      expect.objectContaining({
+        elementId: "el_narrow_caption",
+        issue: "labelWrap"
+      })
+    );
+  });
+
+  it("uses imported run font size when validating short captions", () => {
+    const deck = createDemoDeck();
+    const slide = deck.slides[0];
+    const captionElement = editorTextElement("el_imported_caption", 100, 420, "PitchDeck");
+
+    slide.elements = [
+      {
+        ...captionElement,
+        role: "caption",
+        width: 138,
+        height: 27,
+        props: {
+          ...captionElement.props,
+          fontSize: 16,
+          paragraphs: [
+            {
+              text: "PitchDeck",
+              runs: [
+                {
+                  text: "PitchDeck",
+                  baseline: "normal",
+                  fontFamily: "Arial",
+                  fontSize: 42,
+                  fontWeight: "bold",
+                  color: "#111827"
+                }
+              ],
+              align: "left",
+              lineHeight: 1.15,
+              spaceBefore: 0,
+              spaceAfter: 0,
+              indent: 0
+            }
+          ]
+        }
+      }
+    ];
+
+    expect(getEditorValidationItems(deck, slide)).toContainEqual(
+      expect.objectContaining({
+        elementId: "el_imported_caption",
+        issue: "labelWrap"
+      })
+    );
+  });
+
+  it("renders a bulk apply button for title wrap warnings", () => {
+    const html = renderToString(
+      <ValidationPanel
+        items={[
+          {
+            elementId: "el_wrapped_title",
+            issue: "titleWrap",
+            message: "제목이 여러 줄로 줄바꿈되었습니다.",
+            severity: "warning"
+          }
+        ]}
+      />
+    );
+
+    expect(html).toContain("모두 반영하기");
+  });
+
+  it("renders a bulk apply button for label wrap warnings", () => {
+    const html = renderToString(
+      <ValidationPanel
+        items={[
+          {
+            elementId: "el_wrapped_label",
+            issue: "labelWrap",
+            message: "짧은 라벨이 여러 줄로 줄바꿈되었습니다.",
+            severity: "warning"
+          }
+        ]}
+      />
+    );
+
+    expect(html).toContain("모두 반영하기");
+  });
+
+  it("measures wrapped text line count", () => {
+    const metrics = measureTextContentBounds({
+      align: "left",
+      fontFamily: "Arial",
+      fontSize: 24,
+      fontStyle: "normal",
+      lineHeight: 1.2,
+      text: "wrapped text should take more than one line",
+      width: 80
+    });
+
+    expect(metrics.lineCount).toBeGreaterThan(1);
+  });
+
   it("shrinks overflowing text to fit the element frame", () => {
     const element = {
       elementId: "el_overflow",
@@ -1239,6 +1460,61 @@ describe("editor shell", () => {
 
     expect(props.fontSize).toBeLessThan(32);
     expect(props.lineHeight).toBeLessThanOrEqual(1.15);
+  });
+
+  it("shrinks imported rich text using the primary run font size", () => {
+    const element = {
+      elementId: "el_imported_overflow",
+      type: "text",
+      role: "caption",
+      x: 0,
+      y: 0,
+      width: 138,
+      height: 27,
+      rotation: 0,
+      opacity: 1,
+      zIndex: 0,
+      locked: false,
+      visible: true,
+      props: {
+        text: "PitchDeck",
+        paragraphs: [
+          {
+            text: "PitchDeck",
+            runs: [
+              {
+                text: "PitchDeck",
+                baseline: "normal",
+                fontFamily: "Arial",
+                fontSize: 42,
+                fontWeight: "bold",
+                color: "#111827"
+              }
+            ],
+            align: "left",
+            lineHeight: 1.15,
+            spaceBefore: 0,
+            spaceAfter: 0,
+            indent: 0
+          }
+        ],
+        fontSize: 16,
+        fontWeight: "normal",
+        color: "#111827",
+        align: "left",
+        verticalAlign: "top",
+        lineHeight: 1.15
+      }
+    } as Extract<Deck["slides"][number]["elements"][number], { type: "text" }>;
+
+    const props = createShrinkToFitTextProps(element);
+    const plainProps = props as Record<string, unknown>;
+
+    expect(props.fontSize as number).toBeLessThan(42);
+    expect(plainProps.paragraphs).toBeNull();
+    expect(plainProps.runs).toBeNull();
+    expect(plainProps.fontFamily).toBe("Arial");
+    expect(plainProps.fontWeight).toBe("bold");
   });
 
   it("expands text width only when width can resolve overflow", () => {
@@ -1311,6 +1587,68 @@ describe("editor shell", () => {
 
     expect(fit.text).toBe("좋은 PR 작성법 - 작업 내용 요약 - 확인 방법 제시");
     expect(fit.width).toBeGreaterThan(element.width);
+  });
+
+  it("keeps one-line text fit within the provided max width", () => {
+    const element = {
+      elementId: "el_title",
+      type: "text",
+      role: "title",
+      x: 0,
+      y: 0,
+      width: 120,
+      height: 72,
+      rotation: 0,
+      opacity: 1,
+      zIndex: 0,
+      locked: false,
+      visible: true,
+      props: {
+        text: "AI가 바꾸는 발표 준비의 혁신",
+        fontSize: 42,
+        fontWeight: "bold",
+        color: "#111827",
+        align: "left",
+        verticalAlign: "top",
+        lineHeight: 1.2
+      }
+    } as Extract<Deck["slides"][number]["elements"][number], { type: "text" }>;
+
+    const fit = createSingleLineTextFit(element, {}, { maxWidth: 260, minFontSize: 20 });
+
+    expect(fit.fits).toBe(true);
+    expect(fit.width).toBeLessThanOrEqual(260);
+    expect(fit.props.fontSize as number).toBeLessThanOrEqual(42);
+  });
+
+  it("reports when one-line text fit cannot satisfy the frame", () => {
+    const element = {
+      elementId: "el_label",
+      type: "text",
+      role: "caption",
+      x: 0,
+      y: 0,
+      width: 40,
+      height: 24,
+      rotation: 0,
+      opacity: 1,
+      zIndex: 0,
+      locked: false,
+      visible: true,
+      props: {
+        text: "Presentation",
+        fontSize: 24,
+        fontWeight: "bold",
+        color: "#111827",
+        align: "left",
+        verticalAlign: "top",
+        lineHeight: 1.2
+      }
+    } as Extract<Deck["slides"][number]["elements"][number], { type: "text" }>;
+
+    const fit = createSingleLineTextFit(element, {}, { maxWidth: 60, minFontSize: 20 });
+
+    expect(fit.fits).toBe(false);
   });
 
   it("builds a patch that distributes selected elements evenly", () => {
@@ -1645,7 +1983,7 @@ function editorTextElement(
   x: number,
   y: number,
   text: string
-): DeckElement {
+): Extract<DeckElement, { type: "text" }> {
   return {
     elementId,
     type: "text",

@@ -44,7 +44,7 @@ export function getTextElementText(props: TextElementProps) {
   return props.text;
 }
 
-function getPrimaryTextRun(props: TextElementProps) {
+export function getPrimaryTextRun(props: TextElementProps) {
   const paragraph = props.paragraphs?.find((item) => getParagraphText(item).trim());
   const paragraphRun =
     paragraph?.runs?.find((run) => run.text.trim().length > 0) ??
@@ -168,6 +168,7 @@ export function estimateTextContentBounds(args: {
 
   return {
     height: lineCount * fontSize * lineHeight,
+    lineCount,
     width: Math.min(width, maxCharsInLine * fontSize * 0.55)
   };
 }
@@ -206,11 +207,13 @@ export function measureTextContentBounds(args: {
     args.width,
     measureNode.textArr.reduce((maxWidth, line) => Math.max(maxWidth, line.width), 0)
   );
+  const lineCount = Math.max(1, measureNode.textArr.length);
 
   measureNode.destroy();
 
   return {
     height: contentHeight,
+    lineCount,
     width: contentWidth
   };
 }
