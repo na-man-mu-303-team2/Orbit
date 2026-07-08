@@ -1099,6 +1099,7 @@ describe("RehearsalWorkspace", () => {
         })}
         run={runFixture("succeeded")}
         runNumber={2}
+        slideBaselines={[]}
         totalRunCount={2}
       />,
     );
@@ -1160,6 +1161,7 @@ describe("RehearsalWorkspace", () => {
         })}
         run={runFixture("succeeded")}
         runNumber={2}
+        slideBaselines={[]}
         totalRunCount={2}
       />,
     );
@@ -1347,6 +1349,7 @@ describe("RehearsalWorkspace", () => {
             error: { code: "REPORT_FAILED", message: "분석 실패" },
           }),
           report: null,
+          slideBaselines: [],
         },
         "project-a",
       ),
@@ -1360,6 +1363,7 @@ describe("RehearsalWorkspace", () => {
         {
           run: runFixture("succeeded", { projectId: "project-b" }),
           report: reportFixture(),
+          slideBaselines: [],
         },
         "project-a",
       ),

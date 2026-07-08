@@ -1,11 +1,12 @@
 import { FileText } from "lucide-react";
 import { useMemo, useState } from "react";
-import type { Deck, RehearsalReport } from "@orbit/shared";
+import type { Deck, RehearsalReport, SlideBaseline } from "@orbit/shared";
 import { resolveEditorAssetUrl } from "../editor/shared/editorAssetUrl";
 
 type Props = {
   deck: Deck | null;
   formatDuration: (totalSeconds: number) => string;
+  slideBaselines: SlideBaseline[];
   slideTimings: RehearsalReport["slideTimings"];
 };
 
@@ -61,7 +62,10 @@ function buildSlideDurationSeries(
   });
 }
 
-function buildSlideTimingChartModel(slideDurationSeries: SlideDurationPoint[]) {
+function buildSlideTimingChartModel(
+  slideDurationSeries: SlideDurationPoint[],
+  baselineBySlideId: Map<string, number>,
+) {
   if (slideDurationSeries.length === 0) {
     return null;
   }
@@ -75,26 +79,41 @@ function buildSlideTimingChartModel(slideDurationSeries: SlideDurationPoint[]) {
   const plotHeight = chartHeight - paddingTop - paddingBottom;
   const pointCount = slideDurationSeries.length;
   const columnWidth = plotWidth / pointCount;
+
+  const baselineValues = slideDurationSeries
+    .map((item) => baselineBySlideId.get(item.slideId))
+    .filter((v): v is number => v !== undefined);
+
   const maxSeconds = Math.max(
     1,
     ...slideDurationSeries.map((item) => item.actualSeconds),
+    ...baselineValues,
   );
+
   const points = slideDurationSeries.map((item, index) => {
     const x = paddingX + columnWidth * index + columnWidth / 2;
-    const y =
-      paddingTop + (1 - item.actualSeconds / maxSeconds) * plotHeight;
-    return {
-      ...item,
-      x,
-      y,
-    };
+    const y = paddingTop + (1 - item.actualSeconds / maxSeconds) * plotHeight;
+    const prevAvg = baselineBySlideId.get(item.slideId);
+    const baselineY =
+      prevAvg !== undefined
+        ? paddingTop + (1 - prevAvg / maxSeconds) * plotHeight
+        : null;
+    return { ...item, x, y, baselineY, prevAvg };
   });
+
   const linePath = points
-    .map((point, index) =>
-      `${index === 0 ? "M" : "L"} ${point.x.toFixed(2)} ${point.y.toFixed(2)}`,
-    )
+    .map((p, i) => `${i === 0 ? "M" : "L"} ${p.x.toFixed(2)} ${p.y.toFixed(2)}`)
     .join(" ");
   const areaPath = `${linePath} L ${points[points.length - 1]!.x.toFixed(2)} ${(chartHeight - paddingBottom).toFixed(2)} L ${points[0]!.x.toFixed(2)} ${(chartHeight - paddingBottom).toFixed(2)} Z`;
+
+  const baselinePoints = points.filter((p) => p.baselineY !== null);
+  const baselinePath =
+    baselinePoints.length >= 2
+      ? baselinePoints
+          .map((p, i) => `${i === 0 ? "M" : "L"} ${p.x.toFixed(2)} ${p.baselineY!.toFixed(2)}`)
+          .join(" ")
+      : null;
+
   const yTicks = [maxSeconds, maxSeconds / 2, 0].map((seconds) => ({
     label: formatAxis(seconds),
     y: paddingTop + (1 - seconds / maxSeconds) * plotHeight,
@@ -102,6 +121,7 @@ function buildSlideTimingChartModel(slideDurationSeries: SlideDurationPoint[]) {
 
   return {
     areaPath,
+    baselinePath,
     chartHeight,
     chartWidth,
     linePath,
@@ -113,18 +133,26 @@ function buildSlideTimingChartModel(slideDurationSeries: SlideDurationPoint[]) {
 export function RehearsalSlideTimingOverview({
   deck,
   formatDuration,
+  slideBaselines,
   slideTimings,
 }: Props) {
   const [expanded, setExpanded] = useState(false);
+
+  const baselineBySlideId = useMemo(
+    () => new Map(slideBaselines.map((b) => [b.slideId, b.prevAvgSeconds])),
+    [slideBaselines],
+  );
 
   const slideDurationSeries = useMemo(
     () => buildSlideDurationSeries(deck, slideTimings),
     [deck, slideTimings],
   );
   const chart = useMemo(
-    () => buildSlideTimingChartModel(slideDurationSeries),
-    [slideDurationSeries],
+    () => buildSlideTimingChartModel(slideDurationSeries, baselineBySlideId),
+    [slideDurationSeries, baselineBySlideId],
   );
+
+  const hasBaseline = slideBaselines.length > 0;
 
   return (
     <div className="rrd-overview-panel rrd-overview-panel-wide">
@@ -152,6 +180,22 @@ export function RehearsalSlideTimingOverview({
       </div>
       {chart ? (
         <div className="rrd-cumulative-chart-card">
+          {hasBaseline && (
+            <div className="rrd-chart-legend">
+              <span className="rrd-legend-item">
+                <svg width="20" height="4" aria-hidden="true">
+                  <line x1="0" y1="2" x2="20" y2="2" stroke="var(--color-primary,#6366f1)" strokeWidth="2.5" />
+                </svg>
+                이번 회차
+              </span>
+              <span className="rrd-legend-item">
+                <svg width="20" height="4" aria-hidden="true">
+                  <line x1="0" y1="2" x2="20" y2="2" stroke="var(--color-muted,#94a3b8)" strokeWidth="2" strokeDasharray="4 3" />
+                </svg>
+                이전 회차 평균
+              </span>
+            </div>
+          )}
           <div className="rrd-cumulative-chart-shell">
             <div className="rrd-cumulative-axis">
               {chart.yTicks.map((tick) => (
@@ -190,6 +234,30 @@ export function RehearsalSlideTimingOverview({
                   y2={chart.chartHeight - 18}
                 />
               ))}
+              {chart.baselinePath && (
+                <path
+                  d={chart.baselinePath}
+                  fill="none"
+                  stroke="var(--color-muted,#94a3b8)"
+                  strokeWidth="2"
+                  strokeDasharray="5 4"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              )}
+              {chart.points.map((point) =>
+                point.baselineY !== null ? (
+                  <circle
+                    key={`${point.slideId}-baseline`}
+                    cx={point.x}
+                    cy={point.baselineY}
+                    r="3"
+                    fill="var(--color-muted,#94a3b8)"
+                  >
+                    <title>{`슬라이드 ${point.index + 1} 이전 평균: ${formatDuration(point.prevAvg!)}`}</title>
+                  </circle>
+                ) : null,
+              )}
               <path d={chart.areaPath} className="rrd-cumulative-area" />
               <path d={chart.linePath} className="rrd-cumulative-line" />
               {chart.points.map((point) => (
@@ -250,6 +318,11 @@ export function RehearsalSlideTimingOverview({
                   <span className="rrd-cumulative-slide-time">
                     소요 {formatDuration(point.actualSeconds)}
                   </span>
+                  {point.prevAvg !== undefined && (
+                    <span className="rrd-slide-baseline-time">
+                      평균 {formatDuration(point.prevAvg)}
+                    </span>
+                  )}
                   <em className="rrd-cumulative-slide-total">
                     누적 {formatDuration(point.cumulativeActualSeconds)}
                   </em>

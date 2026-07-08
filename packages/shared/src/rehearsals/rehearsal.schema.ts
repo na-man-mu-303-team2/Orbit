@@ -261,9 +261,18 @@ export const getRehearsalRunResponseSchema = z.object({
   run: rehearsalRunSchema
 });
 
+export const slideBaselineSchema = z.object({
+  slideId: z.string().min(1),
+  prevAvgSeconds: z.number().nonnegative(),
+  prevSampleCount: z.number().int().nonnegative(),
+  cumulativeAvgSeconds: z.number().nonnegative(),
+  cumulativeSampleCount: z.number().int().nonnegative()
+});
+
 export const getRehearsalReportResponseSchema = z.object({
   run: rehearsalRunSchema,
-  report: rehearsalReportSchema.nullable()
+  report: rehearsalReportSchema.nullable(),
+  slideBaselines: z.array(slideBaselineSchema).default([])
 });
 
 export type RehearsalRunStatus = z.infer<typeof rehearsalRunStatusSchema>;
@@ -310,6 +319,7 @@ export type UpdateRehearsalRunMetaRequest = z.infer<
 export type UpdateRehearsalRunMetaResponse = z.infer<
   typeof updateRehearsalRunMetaResponseSchema
 >;
+export type SlideBaseline = z.infer<typeof slideBaselineSchema>;
 export type GetRehearsalReportResponse = z.infer<typeof getRehearsalReportResponseSchema>;
 
 export const runDurationPointSchema = z.object({

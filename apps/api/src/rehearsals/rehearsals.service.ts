@@ -268,7 +268,8 @@ export class RehearsalsService {
 
     return getRehearsalReportResponseSchema.parse({
       run: toRehearsalRun(run),
-      report: responseReport
+      report: responseReport,
+      slideBaselines: run.slideBaselines ?? []
     });
   }
 
@@ -320,19 +321,14 @@ export class RehearsalsService {
       durationSeconds: extractReportDurationSeconds(run.rehearsalReport)
     }));
 
-    const slideAccum = new Map<string, { total: number; count: number }>();
+    const slideAccum = new Map<string, SlideTimingStats>();
     for (const run of runs) {
-      for (const t of extractReportSlideTimings(run.rehearsalReport)) {
-        const entry = slideAccum.get(t.slideId) ?? { total: 0, count: 0 };
-        entry.total += t.actualSeconds;
-        entry.count += 1;
-        slideAccum.set(t.slideId, entry);
-      }
+      accumulateSlideTimingStats(slideAccum, extractReportSlideTimings(run.rehearsalReport));
     }
-    const slideAvgTimings = Array.from(slideAccum.entries()).map(([slideId, { total, count }]) => ({
+    const slideAvgTimings = Array.from(slideAccum.entries()).map(([slideId, stats]) => ({
       slideId,
-      avgSeconds: Math.round(total / count),
-      sampleCount: count
+      avgSeconds: Math.round(stats.total / stats.count),
+      sampleCount: stats.count
     }));
 
     return getRehearsalProjectSummaryResponseSchema.parse({
@@ -429,6 +425,11 @@ type ReportJsonShape = {
   slideTimings?: { slideId: string; actualSeconds: number }[];
 };
 
+type SlideTimingStats = {
+  total: number;
+  count: number;
+};
+
 function extractReportDurationSeconds(report: Record<string, unknown> | null): number {
   const metrics = (report as ReportJsonShape | null)?.metrics;
   return typeof metrics?.durationSeconds === "number" ? metrics.durationSeconds : 0;
@@ -437,3 +438,16 @@ function extractReportDurationSeconds(report: Record<string, unknown> | null): n
 function extractReportSlideTimings(report: Record<string, unknown> | null): { slideId: string; actualSeconds: number }[] {
   return (report as ReportJsonShape | null)?.slideTimings ?? [];
 }
+
+function accumulateSlideTimingStats(
+  accum: Map<string, SlideTimingStats>,
+  slideTimings: { slideId: string; actualSeconds: number }[]
+) {
+  for (const timing of slideTimings) {
+    const current = accum.get(timing.slideId) ?? { total: 0, count: 0 };
+    current.total += timing.actualSeconds;
+    current.count += 1;
+    accum.set(timing.slideId, current);
+  }
+}
+

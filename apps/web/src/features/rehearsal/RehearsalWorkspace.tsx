@@ -23,6 +23,7 @@ import {
   type RehearsalReport,
   type RehearsalRun,
   type RehearsalRunMeta,
+  type SlideBaseline,
   type Slide,
   type UpdateRehearsalRunMetaRequest,
 } from "@orbit/shared";
@@ -4866,6 +4867,7 @@ export function RehearsalReportPage(props: {
     props.initialRun?.status === "succeeded" ? [props.initialRun] : [],
   );
   const [prevReports, setPrevReports] = useState<RehearsalReport[]>([]);
+  const [slideBaselines, setSlideBaselines] = useState<SlideBaseline[]>([]);
 
   useEffect(() => {
     setDeck(props.initialDeck ?? null);
@@ -4878,6 +4880,7 @@ export function RehearsalReportPage(props: {
     setError("");
     setReportJob(null);
     setPrevReports([]);
+    setSlideBaselines([]);
   }, [props.initialRun, props.initialReport, props.runId]);
 
   useEffect(() => {
@@ -4915,6 +4918,7 @@ export function RehearsalReportPage(props: {
         );
         setRun(response.run);
         setReport(nextState.status === "ready" ? response.report : null);
+        setSlideBaselines(response.slideBaselines ?? []);
         setStatus(nextState.status);
         setError(nextState.error);
 
@@ -4930,6 +4934,7 @@ export function RehearsalReportPage(props: {
                   if (!isMounted) return;
                   setRun(r.run);
                   setReport(r.report);
+                  setSlideBaselines(r.slideBaselines ?? []);
                   setStatus(r.report ? "ready" : "failed");
                 });
               } else {
@@ -5044,6 +5049,7 @@ export function RehearsalReportPage(props: {
               projectId={props.projectId}
               totalRunCount={allSucceededRuns.length}
               prevReports={prevReports}
+              slideBaselines={slideBaselines}
             />
           ) : (
             <div

@@ -1,8 +1,7 @@
 import { ChevronRight, FileText, Loader2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import type { Project, RehearsalRun } from "@orbit/shared";
-import { fetchProjects } from "../projects/ProjectAssetWorkspace";
-import { fetchProjectRehearsalReportRuns } from "./reportApi";
+import { fetchReportProjects, fetchProjectRehearsalReportRuns } from "./reportApi";
 import { navigateTo, formatRunDate } from "./rehearsalUtils";
 
 type ProjectWithReport = {
@@ -24,7 +23,7 @@ export function RehearsalReportListPage({ projectId }: { projectId?: string }) {
     let isMounted = true;
     setLoading(true);
 
-    void fetchProjects()
+    void fetchReportProjects()
       .then(async (allProjects) => {
         const runLists = await Promise.all(
           allProjects.map((p) => fetchProjectRehearsalReportRuns(p.projectId)),

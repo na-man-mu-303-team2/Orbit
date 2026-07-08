@@ -137,6 +137,44 @@ describe("getRehearsalReportResponseSchema", () => {
 
     expect(response.run.status).toBe("processing");
     expect(response.report).toBeNull();
+    expect(response.slideBaselines).toEqual([]);
+  });
+
+  it("accepts computed previous and cumulative slide baselines", () => {
+    const response = getRehearsalReportResponseSchema.parse({
+      run: {
+        runId: "run_1",
+        projectId: "project_demo_1",
+        deckId: "deck_demo_1",
+        audioFileId: "file_audio_1",
+        jobId: "job_1",
+        status: "succeeded",
+        error: null,
+        rawAudioDeletedAt: null,
+        createdAt: "2026-06-29T00:00:00.000Z",
+        updatedAt: "2026-06-29T00:00:05.000Z"
+      },
+      report: null,
+      slideBaselines: [
+        {
+          slideId: "slide_1",
+          prevAvgSeconds: 12.5,
+          prevSampleCount: 2,
+          cumulativeAvgSeconds: 14,
+          cumulativeSampleCount: 3
+        }
+      ]
+    });
+
+    expect(response.slideBaselines).toEqual([
+      {
+        slideId: "slide_1",
+        prevAvgSeconds: 12.5,
+        prevSampleCount: 2,
+        cumulativeAvgSeconds: 14,
+        cumulativeSampleCount: 3
+      }
+    ]);
   });
 });
 

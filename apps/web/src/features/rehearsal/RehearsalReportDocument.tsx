@@ -9,7 +9,7 @@ import {
   Volume2,
 } from "lucide-react";
 import { useState } from "react";
-import type { Deck, RehearsalReport, RehearsalRun } from "@orbit/shared";
+import type { Deck, RehearsalReport, RehearsalRun, SlideBaseline } from "@orbit/shared";
 import { navigateTo } from "./rehearsalUtils";
 import { RehearsalSlideAnalysisOverview } from "./RehearsalSlideAnalysisOverview";
 import { RehearsalSlideTimingOverview } from "./RehearsalSlideTimingOverview";
@@ -227,6 +227,7 @@ type Props = {
   report: RehearsalReport;
   run: RehearsalRun | null;
   runNumber: number | null;
+  slideBaselines: SlideBaseline[];
   totalRunCount: number;
 };
 
@@ -237,6 +238,7 @@ export function RehearsalReportDocument({
   report,
   run,
   runNumber,
+  slideBaselines,
   totalRunCount: _totalRunCount,
 }: Props) {
   const [transcriptOpen, setTranscriptOpen] = useState(false);
@@ -403,6 +405,7 @@ export function RehearsalReportDocument({
           <RehearsalSlideTimingOverview
             deck={deck}
             formatDuration={fmt}
+            slideBaselines={slideBaselines}
             slideTimings={slideTimings}
           />
         </div>
