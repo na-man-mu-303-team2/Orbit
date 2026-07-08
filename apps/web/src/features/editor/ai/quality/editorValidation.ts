@@ -1,4 +1,9 @@
-import type { Deck, DeckElement, Slide } from "@orbit/shared";
+import type { Deck, DeckElement, Slide, TextElementProps } from "@orbit/shared";
+import {
+  getKonvaFontStyle,
+  getTextElementText,
+  measureTextContentBounds
+} from "../../canvas/text/textLayout";
 
 const editorTextOverlapWarningRatio = 0.15;
 const editorDuplicateTextMinimumLength = 6;
@@ -6,6 +11,7 @@ const editorDuplicateTextMinimumLength = 6;
 export type EditorValidationItem = {
   elementId?: string;
   elementIds?: string[];
+  issue?: "textOverflow";
   level?: "warning";
   message: string;
   slideId?: string;
@@ -60,9 +66,10 @@ function getEditorSlideValidationItems(
     }
 
     if (element.type === "text") {
-      if (isEditorTextOverflowing(element)) {
+      if (isEditorTextOverflowing(deck, slide, element)) {
         items.push({
           elementId: element.elementId,
+          issue: "textOverflow",
           message: "텍스트가 상자 높이를 넘을 수 있습니다.",
           severity: "warning"
         });
@@ -92,7 +99,7 @@ function getEditorSlideValidationItems(
     }
   }
 
-  items.push(...getEditorTextOverlapValidationItems(slide));
+  items.push(...getEditorTextOverlapValidationItems(deck, slide));
   items.push(...getEditorDuplicateTextValidationItems(slide));
 
   return items;
@@ -104,21 +111,17 @@ function shouldReportExportShapeRisk(element: DeckElement) {
   return !(element.role === "decoration" && element.elementId.includes("_imported_"));
 }
 
-function isEditorTextOverflowing(element: Extract<DeckElement, { type: "text" }>) {
-  const text = element.props.text;
+function isEditorTextOverflowing(
+  deck: Deck,
+  slide: Slide,
+  element: Extract<DeckElement, { type: "text" }>
+) {
+  const text = getTextElementText(element.props as TextElementProps);
   if (!text) return false;
 
-  const fontSize = element.props.fontSize;
-  const characterWidth = Math.max(1, fontSize * 0.56);
-  const charactersPerLine = Math.max(1, Math.floor(element.width / characterWidth));
-  const estimatedLines = text
-    .split("\n")
-    .reduce(
-      (sum, line) => sum + Math.max(1, Math.ceil(line.length / charactersPerLine)),
-      0
-    );
+  const metrics = getEditorTextContentMetrics(deck, slide, element, text);
 
-  return estimatedLines * fontSize * element.props.lineHeight > element.height * 1.08;
+  return metrics.height > Math.max(1, element.height - 8);
 }
 
 function isHexColor(value: string) {
@@ -139,7 +142,10 @@ function relativeLuminance(color: string) {
   return 0.2126 * red + 0.7152 * green + 0.0722 * blue;
 }
 
-function getEditorTextOverlapValidationItems(slide: Slide): EditorValidationItem[] {
+function getEditorTextOverlapValidationItems(
+  deck: Deck,
+  slide: Slide
+): EditorValidationItem[] {
   const textElements = slide.elements.filter(isReadableEditorTextElement);
   const items: EditorValidationItem[] = [];
 
@@ -152,7 +158,7 @@ function getEditorTextOverlapValidationItems(slide: Slide): EditorValidationItem
       const first = textElements[leftIndex];
       const second = textElements[rightIndex];
 
-      if (getElementOverlapRatio(first, second) < editorTextOverlapWarningRatio) {
+      if (getElementOverlapRatio(deck, slide, first, second) < editorTextOverlapWarningRatio) {
         continue;
       }
 
@@ -175,7 +181,9 @@ function getEditorDuplicateTextValidationItems(slide: Slide): EditorValidationIt
   for (const element of slide.elements) {
     if (!isReadableEditorTextElement(element)) continue;
 
-    const textKey = normalizeComparableText(element.props.text);
+    const textKey = normalizeComparableText(
+      getTextElementText(element.props as TextElementProps)
+    );
     if (textKey.length < editorDuplicateTextMinimumLength) continue;
 
     const group = groups.get(textKey) ?? [];
@@ -201,7 +209,7 @@ function isReadableEditorTextElement(
     element.type === "text" &&
     element.visible !== false &&
     element.role !== "footer" &&
-    element.props.text.trim().length > 0
+    getTextElementText(element.props as TextElementProps).trim().length > 0
   );
 }
 
@@ -209,18 +217,29 @@ function normalizeComparableText(text: string) {
   return text.replace(/\s+/g, " ").trim().toLocaleLowerCase();
 }
 
-function getElementOverlapRatio(first: DeckElement, second: DeckElement) {
-  const firstArea = getElementArea(first);
-  const secondArea = getElementArea(second);
+function getElementOverlapRatio(
+  deck: Deck,
+  slide: Slide,
+  first: DeckElement,
+  second: DeckElement
+) {
+  const firstBounds = first.type === "text"
+    ? getEditorTextBounds(deck, slide, first)
+    : getElementBounds(first);
+  const secondBounds = second.type === "text"
+    ? getEditorTextBounds(deck, slide, second)
+    : getElementBounds(second);
+  const firstArea = getElementArea(firstBounds);
+  const secondArea = getElementArea(secondBounds);
 
   if (firstArea <= 0 || secondArea <= 0) {
     return 0;
   }
 
-  const left = Math.max(first.x, second.x);
-  const top = Math.max(first.y, second.y);
-  const right = Math.min(first.x + first.width, second.x + second.width);
-  const bottom = Math.min(first.y + first.height, second.y + second.height);
+  const left = Math.max(firstBounds.x, secondBounds.x);
+  const top = Math.max(firstBounds.y, secondBounds.y);
+  const right = Math.min(firstBounds.x + firstBounds.width, secondBounds.x + secondBounds.width);
+  const bottom = Math.min(firstBounds.y + firstBounds.height, secondBounds.y + secondBounds.height);
 
   return (
     (Math.max(0, right - left) * Math.max(0, bottom - top)) /
@@ -228,6 +247,52 @@ function getElementOverlapRatio(first: DeckElement, second: DeckElement) {
   );
 }
 
-function getElementArea(element: DeckElement) {
+function getElementBounds(element: DeckElement) {
+  return {
+    x: element.x,
+    y: element.y,
+    width: element.width,
+    height: element.height
+  };
+}
+
+function getEditorTextBounds(
+  deck: Deck,
+  slide: Slide,
+  element: Extract<DeckElement, { type: "text" }>
+) {
+  const text = getTextElementText(element.props as TextElementProps);
+  const metrics = getEditorTextContentMetrics(deck, slide, element, text);
+  return {
+    x: element.x,
+    y: element.y,
+    width: Math.max(1, element.width),
+    height: Math.max(1, metrics.height + 8, element.height)
+  };
+}
+
+function getEditorTextContentMetrics(
+  deck: Deck,
+  slide: Slide,
+  element: Extract<DeckElement, { type: "text" }>,
+  text: string
+) {
+  const props = element.props as TextElementProps;
+
+  return measureTextContentBounds({
+    align: props.align,
+    fontFamily:
+      props.fontFamily ??
+      slide.style.fontFamily ??
+      deck.theme.typography.bodyFontFamily,
+    fontSize: props.fontSize,
+    fontStyle: getKonvaFontStyle(props.fontWeight),
+    lineHeight: props.lineHeight,
+    text,
+    width: Math.max(1, element.width - 8)
+  });
+}
+
+function getElementArea(element: { width: number; height: number }) {
   return Math.max(0, element.width) * Math.max(0, element.height);
 }
