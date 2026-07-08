@@ -264,9 +264,7 @@ export const getRehearsalRunResponseSchema = z.object({
 export const slideBaselineSchema = z.object({
   slideId: z.string().min(1),
   prevAvgSeconds: z.number().nonnegative(),
-  prevSampleCount: z.number().int().nonnegative(),
-  cumulativeAvgSeconds: z.number().nonnegative(),
-  cumulativeSampleCount: z.number().int().nonnegative()
+  prevSampleCount: z.number().int().nonnegative()
 });
 
 export const getRehearsalReportResponseSchema = z.object({

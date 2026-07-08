@@ -316,7 +316,7 @@ export async function processRehearsalSttJob(
   });
 
   try {
-    await upsertRehearsalSummary(dataSource, pythonWorkerUrl, payload.projectId, payload.runId);
+    await upsertRehearsalSummary(dataSource, pythonWorkerUrl, payload.projectId);
   } catch {
     // summary 업데이트 실패는 리포트 저장을 막지 않는다.
   }
@@ -983,8 +983,7 @@ type SucceededRunRow = {
 async function upsertRehearsalSummary(
   dataSource: DataSource,
   pythonWorkerUrl: string,
-  projectId: string,
-  currentRunId: string
+  projectId: string
 ): Promise<void> {
   const rows: SucceededRunRow[] = await dataSource.query(
     `SELECT run_id, created_at, report_json
@@ -1001,29 +1000,6 @@ async function upsertRehearsalSummary(
     createdAt: row.created_at instanceof Date ? row.created_at.toISOString() : String(row.created_at),
     durationSeconds: row.report_json?.metrics?.durationSeconds ?? 0
   }));
-
-  // 현재 run 기준으로 이전 회차 슬라이드별 평균을 계산해서 저장
-  const prevRows = rows.filter((r) => r.run_id !== currentRunId);
-  if (prevRows.length > 0) {
-    const slideAccum = new Map<string, { total: number; count: number }>();
-    for (const row of prevRows) {
-      for (const timing of row.report_json?.slideTimings ?? []) {
-        const entry = slideAccum.get(timing.slideId) ?? { total: 0, count: 0 };
-        entry.total += timing.actualSeconds;
-        entry.count += 1;
-        slideAccum.set(timing.slideId, entry);
-      }
-    }
-    const slideBaselines = Array.from(slideAccum.entries()).map(([slideId, { total, count }]) => ({
-      slideId,
-      prevAvgSeconds: Math.round((total / count) * 10) / 10,
-      prevSampleCount: count
-    }));
-    await dataSource.query(
-      `UPDATE rehearsal_runs SET slide_baselines = $2::jsonb WHERE run_id = $1`,
-      [currentRunId, JSON.stringify(slideBaselines)]
-    );
-  }
 
   if (rows.length < 2) return;
 

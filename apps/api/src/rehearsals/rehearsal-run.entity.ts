@@ -1,5 +1,4 @@
 import { Column, Entity, JoinColumn, ManyToOne, PrimaryColumn } from "typeorm";
-import type { SlideBaseline } from "@orbit/shared";
 import { ProjectEntity } from "../projects/project.entity";
 
 export type RehearsalRunStatus = "created" | "uploading" | "processing" | "succeeded" | "failed";
@@ -44,9 +43,6 @@ export class RehearsalRunEntity {
 
   @Column({ name: "updated_at", type: "timestamptz" })
   updatedAt!: Date;
-
-  @Column({ name: "slide_baselines", nullable: true, type: "jsonb" })
-  slideBaselines!: SlideBaseline[] | null;
 
   @ManyToOne(() => ProjectEntity, { onDelete: "CASCADE" })
   @JoinColumn({ name: "project_id", referencedColumnName: "projectId" })

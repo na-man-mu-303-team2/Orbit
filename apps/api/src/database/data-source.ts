@@ -22,6 +22,7 @@ import { AddRehearsalRunMetaJson2026070301000 } from "./migrations/2026070301000
 import { CreateTemplateBlueprints2026070301000 } from "./migrations/2026070301000-CreateTemplateBlueprints";
 import { CreateProjectRehearsalSummaries2026070801000 } from "./migrations/2026070801000-CreateProjectRehearsalSummaries";
 import { ReplaceRehearsalSummaryWithProjectComment2026070802000 } from "./migrations/2026070802000-ReplaceRehearsalSummaryWithProjectComment";
+import { RemoveSlideBaselines2026070804000 } from "./migrations/2026070804000-RemoveSlideBaselines";
 
 loadDotenv({ path: "../../.env.local" });
 loadDotenv({ path: ".env.local" });
@@ -55,7 +56,8 @@ export const databaseOptions: DataSourceOptions = {
     AddRehearsalRunMetaJson2026070301000,
     CreateTemplateBlueprints2026070301000,
     CreateProjectRehearsalSummaries2026070801000,
-    ReplaceRehearsalSummaryWithProjectComment2026070802000
+    ReplaceRehearsalSummaryWithProjectComment2026070802000,
+    RemoveSlideBaselines2026070804000
   ],
   migrationsTableName: "typeorm_migrations",
   synchronize: false,

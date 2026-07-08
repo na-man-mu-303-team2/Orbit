@@ -13,7 +13,8 @@ import {
   getRehearsalRunResponseSchema,
   updateRehearsalRunMetaRequestSchema,
   updateRehearsalRunMetaResponseSchema,
-  type RehearsalRun
+  type RehearsalRun,
+  type SlideBaseline
 } from "@orbit/shared";
 import { BadRequestException, Inject, Injectable, NotFoundException } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
@@ -258,6 +259,9 @@ export class RehearsalsService {
     const report =
       run.status === "succeeded" && run.rehearsalReport ? run.rehearsalReport : null;
     const transcript = report ? await this.getCachedTranscript(run.runId) : null;
+    const slideBaselines = report
+      ? await this.buildSlideBaselines(run.projectId, run.runId, report)
+      : [];
     const responseReport = report
       ? {
           ...report,
@@ -269,8 +273,40 @@ export class RehearsalsService {
     return getRehearsalReportResponseSchema.parse({
       run: toRehearsalRun(run),
       report: responseReport,
-      slideBaselines: run.slideBaselines ?? []
+      slideBaselines
     });
+  }
+
+  private async buildSlideBaselines(
+    projectId: string,
+    currentRunId: string,
+    report: Record<string, unknown>
+  ): Promise<SlideBaseline[]> {
+    const currentSlideIds = extractOrderedSlideIds(report);
+    if (currentSlideIds.length === 0) return [];
+
+    const prevRuns = await this.rehearsalRuns.find({
+      where: { projectId, status: "succeeded" },
+      order: { createdAt: "ASC" }
+    });
+
+    const prevAccum = new Map<string, SlideTimingStats>();
+    for (const run of prevRuns) {
+      if (run.runId === currentRunId) continue;
+      accumulateSlideTimingStats(prevAccum, extractReportSlideTimings(run.rehearsalReport));
+    }
+
+    return currentSlideIds
+      .map((slideId) => {
+        const stats = prevAccum.get(slideId);
+        if (!stats) return null;
+        return {
+          slideId,
+          prevAvgSeconds: computeAverageSeconds(stats),
+          prevSampleCount: stats.count
+        };
+      })
+      .filter((b): b is SlideBaseline => b !== null);
   }
 
   private async getCachedTranscript(runId: string) {
@@ -439,6 +475,21 @@ function extractReportSlideTimings(report: Record<string, unknown> | null): { sl
   return (report as ReportJsonShape | null)?.slideTimings ?? [];
 }
 
+function extractOrderedSlideIds(report: Record<string, unknown> | null): string[] {
+  const slideIds: string[] = [];
+  const seen = new Set<string>();
+
+  for (const timing of extractReportSlideTimings(report)) {
+    if (seen.has(timing.slideId)) {
+      continue;
+    }
+    seen.add(timing.slideId);
+    slideIds.push(timing.slideId);
+  }
+
+  return slideIds;
+}
+
 function accumulateSlideTimingStats(
   accum: Map<string, SlideTimingStats>,
   slideTimings: { slideId: string; actualSeconds: number }[]
@@ -451,3 +502,9 @@ function accumulateSlideTimingStats(
   }
 }
 
+function computeAverageSeconds(stats?: SlideTimingStats): number {
+  if (!stats || stats.count === 0) {
+    return 0;
+  }
+  return Math.round((stats.total / stats.count) * 10) / 10;
+}
