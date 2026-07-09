@@ -92,7 +92,7 @@ describe("AI PPT wizard payload", () => {
   });
 
   it("polls generated deck jobs through the existing job route", async () => {
-    const fetcher = vi.fn(async () =>
+    const fetcher = vi.fn(async (_input: string) =>
       new Response(
         JSON.stringify({
           jobId: "job_1",
