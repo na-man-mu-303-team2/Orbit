@@ -137,10 +137,8 @@ import {
   resetAdvanceControllerForSlide,
   type AdvanceControllerState,
 } from "./advance/advanceController";
-import {
-  RehearsalPanel,
-  getRehearsalScriptFocusSentenceId,
-} from "./panel/RehearsalPanel";
+import { RehearsalPanel } from "./panel/RehearsalPanel";
+import { createRehearsalScriptPrompterRows } from "./panel/rehearsalScriptPrompter";
 import {
   SemanticSpeechDebugPanel,
   shouldShowSemanticSpeechDebugPanel,
@@ -5146,21 +5144,29 @@ export function getRehearsalPrompterRows(
     };
   }
 
-  const coveredSentenceIdSet = new Set(coveredSentenceIds);
-  const focusSentenceId = getRehearsalScriptFocusSentenceId(
+  const rows = createRehearsalScriptPrompterRows({
     sentences,
-    Array.from(coveredSentenceIdSet),
-  );
-  const focusIndex = Math.max(
-    0,
-    sentences.findIndex((sentence) => sentence.sentenceId === focusSentenceId),
-  );
-  const current = sentences[focusIndex]?.text ?? sentences[0]?.text ?? "";
+    coveredSentenceIds,
+  });
+  let previous = "";
+  for (let index = rows.length - 1; index >= 0; index -= 1) {
+    const row = rows[index];
+    if (row?.status === "covered" || row?.status === "paraphrased") {
+      previous = row.sentence.text;
+      break;
+    }
+  }
+  const current =
+    rows.find((row) => row.status === "current")?.sentence.text ??
+    rows.find((row) => row.isFocusTarget)?.sentence.text ??
+    sentences[0]?.text ??
+    "";
+  const next = rows.find((row) => row.status === "next")?.sentence.text ?? "";
 
   return {
-    previous: sentences[focusIndex - 1]?.text ?? "",
+    previous,
     current,
-    next: sentences[focusIndex + 1]?.text ?? "",
+    next,
   };
 }
 

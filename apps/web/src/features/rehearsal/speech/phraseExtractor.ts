@@ -82,6 +82,14 @@ export function splitSpeakerNotesIntoSentences(speakerNotes: string): string[] {
     return [];
   }
 
+  const explicitLines = normalized
+    .split("\n")
+    .map((line) => formatSentenceText(line))
+    .filter(Boolean);
+  if (explicitLines.length > 1) {
+    return explicitLines;
+  }
+
   const sentences: string[] = [];
   let current = "";
 
@@ -451,13 +459,17 @@ function isSentenceBoundary(text: string, index: number) {
 }
 
 function addSentence(sentences: string[], rawSentence: string) {
-  const sentence = rawSentence
-    .replace(/[.!?。！？…]+$/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
+  const sentence = formatSentenceText(rawSentence);
   if (sentence) {
     sentences.push(sentence);
   }
+}
+
+function formatSentenceText(rawSentence: string) {
+  return rawSentence
+    .replace(/[.!?。！？…]+$/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function tokenizeWords(value: string) {

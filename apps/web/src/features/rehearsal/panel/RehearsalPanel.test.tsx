@@ -5,9 +5,9 @@ import { describe, expect, it } from "vitest";
 import type { ExtractedSentence, SpeechTrackerSnapshot } from "../speech/speechTrackingEvents";
 import type { RehearsalTimingSnapshot, TimingAdviceState } from "./rehearsalTiming";
 import {
-  RehearsalPanel,
-  getRehearsalScriptFocusSentenceId
+  RehearsalPanel
 } from "./RehearsalPanel";
+import { getRehearsalScriptFocusSentenceId } from "./rehearsalScriptPrompter";
 
 describe("RehearsalPanel", () => {
   it("renders rehearsal timers, keyword state, script state, and advice", () => {
@@ -43,6 +43,7 @@ describe("RehearsalPanel", () => {
     expect(html).toContain('data-auto-scroll="true"');
     expect(html).toContain("presenter-script-row--covered");
     expect(html).toContain("presenter-script-row--current");
+    expect(html).toContain("presenter-script-row--next");
     expect(html).toContain("체크됨");
   });
 
@@ -145,7 +146,7 @@ describe("RehearsalPanel", () => {
         "sentence_1",
         "sentence_3"
       ])
-    ).toBe("sentence_3");
+    ).toBe("sentence_4");
     expect(getRehearsalScriptFocusSentenceId(sentences, [])).toBe(
       "sentence_1"
     );
@@ -238,6 +239,14 @@ const sentences: ExtractedSentence[] = [
     sentenceId: "sentence_3",
     text: "privacy is the closing topic.",
     index: 2,
+    isFinalTrigger: false,
+    matchable: true,
+    candidates: []
+  },
+  {
+    sentenceId: "sentence_4",
+    text: "Final line summarizes the next action.",
+    index: 3,
     isFinalTrigger: true,
     matchable: true,
     candidates: []
@@ -250,8 +259,8 @@ const snapshot: SpeechTrackerSnapshot = {
   coveredSentenceMatchKinds: {
     sentence_1: "covered"
   },
-  matchableSentenceCount: 2,
-  sentenceCoverage: 0.5,
+  matchableSentenceCount: 3,
+  sentenceCoverage: 1 / 3,
   wordCoverage: 0.45,
   effectiveCoverage: 0.49,
   finalSentenceSpoken: false,
