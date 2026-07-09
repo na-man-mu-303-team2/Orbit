@@ -82,7 +82,8 @@ export function createP3RehearsalSession(
   const collector = createRehearsalLogCollector({
     slides: input.slides.map((slide) => ({
       slideId: slide.slideId,
-      keywordIds: slide.keywords.map((keyword) => keyword.keywordId)
+      keywordIds: slide.keywords.map((keyword) => keyword.keywordId),
+      matchableSentenceIds: getMatchableSentenceIdsForSlide(slide, input.config)
     })),
     now: () => new Date(currentNowMs || now()),
     adviceReentryCooldownMs:
@@ -372,17 +373,34 @@ export function createP3RehearsalSession(
         error: null
       });
 
-      const topMatch = match.topMatches[0];
-      if (!match.accepted || !topMatch || !input.isSemanticMatchingEnabled?.()) {
+      const decision = match.decision;
+      if (!input.isSemanticMatchingEnabled?.()) {
         return;
       }
 
-      const events = options.tracker.acceptSemanticSentenceMatch({
-        sentenceId: topMatch.sentenceId,
-        transcript: options.result.text,
-        similarity: topMatch.similarity,
-        atMs: options.result.timestampMs[1]
-      });
+      const events: SpeechTrackingEvent[] = [];
+      if (decision?.outcome === "ad-lib") {
+        const nearestMatch = decision.topMatches[0] ?? null;
+        events.push({
+          type: "ad-lib-detected",
+          slideId: slide.slideId,
+          text: options.result.text,
+          nearestSentenceId: nearestMatch?.sentenceId ?? null,
+          similarity: nearestMatch?.similarity ?? null,
+          atMs: options.result.timestampMs[1]
+        });
+      } else if (decision?.accepted && decision.acceptedMatch && decision.outcome) {
+        events.push(
+          ...options.tracker.acceptSemanticSentenceMatch({
+            sentenceId: decision.acceptedMatch.sentenceId,
+            transcript: options.result.text,
+            similarity: decision.acceptedMatch.similarity,
+            matchKind: decision.outcome,
+            lexicalOverlap: decision.lexicalOverlap,
+            atMs: options.result.timestampMs[1]
+          })
+        );
+      }
       applyEventsToLog(events, collector);
       if (events.length > 0) {
         input.onEvents?.(events);
@@ -464,6 +482,19 @@ export function buildBiasPhrasesForSlide(
   }));
 }
 
+function getMatchableSentenceIdsForSlide(
+  slide: P3RehearsalSessionSlide,
+  config: SpeechTrackingConfigOverride = {}
+) {
+  return createDefaultPhraseExtractor({
+    ...config,
+    controlPhrases: slide.controlPhrases
+  })
+    .extract(slide.speakerNotes)
+    .filter((sentence) => sentence.matchable)
+    .map((sentence) => sentence.sentenceId);
+}
+
 function applyEventsToLog(
   events: readonly SpeechTrackingEvent[],
   collector: RehearsalLogCollector
@@ -480,8 +511,27 @@ function applyEventsToLog(
         collector.setAdviceState(event.adviceType, true);
         break;
       case "sentence-covered":
+        collector.recordSentenceCovered({
+          slideId: event.slideId,
+          sentenceId: event.sentenceId,
+          matchKind: event.matchKind,
+          ...(event.similarity === undefined ? {} : { similarity: event.similarity }),
+          ...(event.lexicalOverlap === undefined
+            ? {}
+            : { lexicalOverlap: event.lexicalOverlap })
+        });
+        break;
+      case "ad-lib-detected":
+        collector.recordAdLib({
+          slideId: event.slideId,
+          text: event.text,
+          nearestSentenceId: event.nearestSentenceId,
+          similarity: event.similarity
+        });
+        break;
       case "coverage-updated":
       case "last-sentence-spoken":
+      case "sentence-missed":
         break;
     }
   }

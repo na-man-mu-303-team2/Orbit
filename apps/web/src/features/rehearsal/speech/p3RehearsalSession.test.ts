@@ -6,6 +6,7 @@ import {
   type P3RehearsalSessionSlide
 } from "./p3RehearsalSession";
 import type { SemanticUtteranceDebugState } from "./semanticSpeechDebug";
+import type { SemanticUtteranceDecision } from "./semanticUtteranceDecision";
 import type {
   SemanticUtteranceMatcher,
   SemanticUtteranceMatch
@@ -139,7 +140,25 @@ describe("p3RehearsalSession", () => {
         }
       ],
       adviceEvents: [],
-      utteranceOutcomes: []
+      utteranceOutcomes: [
+        {
+          kind: "covered",
+          slideId: "slide_1",
+          sentenceId: "sentence_1",
+          at: new Date(10_000).toISOString()
+        },
+        {
+          kind: "covered",
+          slideId: "slide_1",
+          sentenceId: "sentence_2",
+          at: new Date(10_000).toISOString()
+        },
+        {
+          kind: "missed",
+          slideId: "slide_2",
+          sentenceId: "sentence_1"
+        }
+      ]
     });
     expect(JSON.stringify(meta)).not.toContain("생성형 AI 초안");
     expect(JSON.stringify(meta)).not.toContain("speakerNotes");
@@ -336,12 +355,80 @@ describe("p3RehearsalSession", () => {
       type: "sentence-covered",
       slideId: "slide_1",
       sentenceId: "sentence_1",
+      matchKind: "paraphrased",
+      similarity: 0.82,
+      lexicalOverlap: 0.2,
       atMs: 1000
     });
     expect(session.getState().snapshot).toMatchObject({
       sentenceCoverage: 0.5,
       finalSentenceSpoken: false
     });
+  });
+
+  it("semantic rejected ad-lib final transcript is recorded without changing coverage", async () => {
+    const port = createMockLiveSttPort();
+    const events: SpeechTrackingEvent[] = [];
+    const semanticMatcher = createMockSemanticMatcher({
+      accepted: false,
+      topMatches: [semanticMatch({ rank: 1, sentenceId: "sentence_1", similarity: 0.87 })],
+      decision: semanticDecision({
+        transcript: "고객 사례를 하나 더 말씀드리겠습니다.",
+        reason: "ad-lib",
+        outcome: "ad-lib",
+        accepted: false,
+        acceptedMatch: null
+      })
+    });
+    const session = createP3RehearsalSession({
+      slides,
+      port,
+      semanticMatcher,
+      isSemanticMatchingEnabled: () => true,
+      now: createNow([85_000, 86_000]),
+      onEvents: (nextEvents) => events.push(...nextEvents)
+    });
+
+    await session.start({
+      audioSource: {} as MediaStream,
+      slideIndex: 0
+    });
+    port.emit({
+      text: "고객 사례를 하나 더 말씀드리겠습니다.",
+      isFinal: true,
+      timestampMs: [500, 1000]
+    });
+    await flushSemanticQueue();
+
+    expect(events).toContainEqual({
+      type: "ad-lib-detected",
+      slideId: "slide_1",
+      text: "고객 사례를 하나 더 말씀드리겠습니다.",
+      nearestSentenceId: "sentence_1",
+      similarity: 0.87,
+      atMs: 1000
+    });
+    expect(session.getState().snapshot).toMatchObject({
+      sentenceCoverage: 0
+    });
+
+    const meta = await session.stop();
+    expect(meta.utteranceOutcomes).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          slideId: "slide_1",
+          kind: "ad-lib",
+          text: "고객 사례를 하나 더 말씀드리겠습니다.",
+          sentenceId: "sentence_1",
+          similarity: 0.87
+        }),
+        expect.objectContaining({
+          slideId: "slide_1",
+          kind: "missed",
+          sentenceId: "sentence_1"
+        })
+      ])
+    );
   });
 
   it("semantic matcher 실패 시 기존 substring 기반 tracking은 계속 동작한다", async () => {
@@ -377,6 +464,7 @@ describe("p3RehearsalSession", () => {
       type: "sentence-covered",
       slideId: "slide_1",
       sentenceId: "sentence_1",
+      matchKind: "covered",
       atMs: 1000
     });
     expect(debugStates.at(-1)).toMatchObject({
@@ -472,6 +560,7 @@ function createNow(values: number[]) {
 function createMockSemanticMatcher(options: {
   accepted: boolean;
   topMatches?: SemanticUtteranceMatch[];
+  decision?: SemanticUtteranceDecision | null;
 }): SemanticUtteranceMatcher {
   return {
     prepareSlide: vi.fn(async (input) => ({
@@ -485,7 +574,16 @@ function createMockSemanticMatcher(options: {
     matchFinalTranscript: vi.fn(async () => ({
       accepted: options.accepted,
       topMatches: options.topMatches ?? [],
-      decision: null
+      decision:
+        options.decision ??
+        (options.accepted
+          ? semanticDecision({
+              accepted: true,
+              acceptedMatch: options.topMatches?.[0] ?? semanticMatch({}),
+              reason: "accepted-paraphrase",
+              outcome: "paraphrased"
+            })
+          : null)
     }))
   };
 }
@@ -500,6 +598,26 @@ function semanticMatch(
     text: "Semantic sentence.",
     similarity: 0.82,
     covered: false,
+    ...override
+  };
+}
+
+function semanticDecision(
+  override: Partial<SemanticUtteranceDecision>
+): SemanticUtteranceDecision {
+  const topMatches = [semanticMatch({ similarity: 0.87 })];
+  return {
+    accepted: false,
+    slideId: "slide_1",
+    transcript: "semantic final text",
+    isFinal: true,
+    topMatches,
+    acceptedMatch: null,
+    reason: "ad-lib",
+    outcome: "ad-lib",
+    scoreThreshold: 0.89,
+    ambiguousMargin: 0.04,
+    lexicalOverlap: 0.2,
     ...override
   };
 }

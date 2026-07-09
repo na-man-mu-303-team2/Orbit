@@ -42,6 +42,72 @@ describe("rehearsalLogCollector", () => {
     ]);
   });
 
+  it("records utterance outcomes and computes missed sentences at finalization", () => {
+    const collector = createRehearsalLogCollector({
+      slides: [
+        {
+          slideId: "slide_1",
+          keywordIds: [],
+          matchableSentenceIds: ["sentence_1", "sentence_2", "sentence_3"]
+        }
+      ],
+      now: () => new Date("2026-07-03T00:00:10.000Z")
+    });
+
+    collector.recordSentenceCovered({
+      slideId: "slide_1",
+      sentenceId: "sentence_1",
+      matchKind: "covered",
+      similarity: 0.99,
+      lexicalOverlap: 0.8
+    });
+    collector.recordSentenceCovered({
+      slideId: "slide_1",
+      sentenceId: "sentence_2",
+      matchKind: "paraphrased",
+      similarity: 0.93,
+      lexicalOverlap: 0.2
+    });
+    collector.recordAdLib({
+      slideId: "slide_1",
+      text: "고객 사례를 하나 더 말씀드리겠습니다.",
+      nearestSentenceId: "sentence_2",
+      similarity: 0.87
+    });
+
+    expect(collector.finalize().utteranceOutcomes).toEqual([
+      {
+        slideId: "slide_1",
+        kind: "covered",
+        sentenceId: "sentence_1",
+        similarity: 0.99,
+        lexicalOverlap: 0.8,
+        at: "2026-07-03T00:00:10.000Z"
+      },
+      {
+        slideId: "slide_1",
+        kind: "paraphrased",
+        sentenceId: "sentence_2",
+        similarity: 0.93,
+        lexicalOverlap: 0.2,
+        at: "2026-07-03T00:00:10.000Z"
+      },
+      {
+        slideId: "slide_1",
+        kind: "ad-lib",
+        text: "고객 사례를 하나 더 말씀드리겠습니다.",
+        sentenceId: "sentence_2",
+        similarity: 0.87,
+        at: "2026-07-03T00:00:10.000Z"
+      },
+      {
+        slideId: "slide_1",
+        kind: "missed",
+        sentenceId: "sentence_3"
+      }
+    ]);
+  });
+
   it("조언 이벤트는 상태 진입 시 1회 기록하고 재진입 쿨다운을 적용한다", () => {
     let nowMs = Date.parse("2026-07-03T00:00:00.000Z");
     const collector = createRehearsalLogCollector({
