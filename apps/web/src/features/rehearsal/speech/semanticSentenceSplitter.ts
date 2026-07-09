@@ -20,24 +20,17 @@ export function splitSpeakerNotesIntoSemanticSentences(
   let startOffset = 0;
 
   for (let index = 0; index < normalized.length; index += 1) {
-    if (normalized[index] !== ".") {
+    const char = normalized[index] ?? "";
+    if (!isSemanticSentenceBoundary(normalized, index)) {
       continue;
     }
 
-    const previous = normalized[index - 1] ?? "";
-    const next = normalized[index + 1] ?? "";
-    const isDecimalPoint = /\d/.test(previous) && /\d/.test(next);
-    const isBoundary = next === "" || /\s/.test(next);
-    if (isDecimalPoint || !isBoundary) {
-      continue;
-    }
-
-    const text = normalizeSentenceText(normalized.slice(startOffset, index + 1));
+    const text = normalizeSentenceText(normalized.slice(startOffset, index + char.length));
     if (text) {
-      sentences.push({ text, startOffset, endOffset: index + 1 });
+      sentences.push({ text, startOffset, endOffset: index + char.length });
     }
 
-    startOffset = index + 1;
+    startOffset = index + char.length;
     while (/\s/.test(normalized[startOffset] ?? "")) {
       startOffset += 1;
     }
@@ -62,4 +55,21 @@ export function splitSpeakerNotesIntoSemanticSentences(
 
 function normalizeSentenceText(text: string) {
   return text.replace(/\s+/g, " ").trim();
+}
+
+function isSemanticSentenceBoundary(text: string, index: number) {
+  const char = text[index] ?? "";
+  if (!".?!。？！…".includes(char)) {
+    return false;
+  }
+
+  if (char !== ".") {
+    return true;
+  }
+
+  const previous = text[index - 1] ?? "";
+  const next = text[index + 1] ?? "";
+  const isDecimalPoint = /\d/.test(previous) && /\d/.test(next);
+  const isBoundary = next === "" || /\s/.test(next);
+  return !isDecimalPoint && isBoundary;
 }

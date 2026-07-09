@@ -9,6 +9,27 @@ describe("splitSpeakerNotesIntoSemanticSentences", () => {
     expect(texts("문장 하나.문장 둘.")).toEqual(["문장 하나.문장 둘."]);
   });
 
+  it("질문과 느낌표를 terminal punctuation 문장 경계로 인정한다", () => {
+    expect(texts("질문인가요? 다음입니다! 끝.")).toEqual([
+      "질문인가요?",
+      "다음입니다!",
+      "끝."
+    ]);
+    expect(texts("Version 1.2 is ready? Next!")).toEqual([
+      "Version 1.2 is ready?",
+      "Next!"
+    ]);
+  });
+
+  it("CJK terminal punctuation과 ellipsis를 문장 경계로 인정한다", () => {
+    expect(texts("첫 문장。둘째 문장？셋째 문장！마지막…")).toEqual([
+      "첫 문장。",
+      "둘째 문장？",
+      "셋째 문장！",
+      "마지막…"
+    ]);
+  });
+
   it("숫자 사이 마침표는 소수점으로 보고 경계에서 제외한다", () => {
     expect(texts("Version 1.2 is ready. Next.")).toEqual([
       "Version 1.2 is ready.",
