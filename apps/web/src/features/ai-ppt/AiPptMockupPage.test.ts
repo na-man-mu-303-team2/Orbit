@@ -84,6 +84,7 @@ describe("AI PPT wizard payload", () => {
     });
     expect(payload.designPrompt).toContain("base=brandlogy-modern");
     expect(payload.designPrompt).toContain("font=Pretendard");
+    expect(payload.designPrompt).toContain("mediaPolicy=minimal");
     expect(payload.designPrompt).toContain("output=Deck JSON first");
     expect(payload.design.fontOverride).toMatchObject({
       fontId: "pretendard",
@@ -153,6 +154,9 @@ describe("AI PPT wizard payload", () => {
     );
 
     expect(payload.slideCountRange).toEqual({ min: 7, max: 7 });
+    expect(payload.design.mediaPolicy).toBe("ai-generated");
+    expect(payload.visualPlanPolicy).toEqual({ mediaPolicy: "ai-generated" });
+    expect(payload.designPrompt).toContain("mediaPolicy=ai-generated");
   });
 
   it("blocks references-only generation without a reference file", () => {
@@ -199,6 +203,31 @@ describe("AI PPT wizard payload", () => {
       value: "4"
     });
     expect(form.slides).toBe("");
+  });
+
+  it("keeps ai-generated media policy out of advisor override suggestions", () => {
+    const suggestions = buildAiPptAdvisorSuggestions({
+      topic: "Visual planning",
+      purpose: "planning",
+      context: "review",
+      audience: "team",
+      presentationType: "proposal",
+      successCriteria: "alignment",
+      duration: "7",
+      slides: "",
+      tone: "friendly",
+      colorMood: "black background with readable accents",
+      fontMood: "funny easy read Korean sans font",
+      mediaPolicy: "ai-generated",
+      referencePolicy: "references-first"
+    });
+
+    expect(suggestions).not.toContainEqual(
+      expect.objectContaining({
+        field: "mediaPolicy",
+        value: "minimal"
+      })
+    );
   });
 
   it("polls generated deck jobs through the existing job route", async () => {

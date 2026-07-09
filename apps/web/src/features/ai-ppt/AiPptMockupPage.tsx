@@ -177,6 +177,7 @@ export function buildAiPptGenerateDeckPayload(
       `colorMood=${state.colorMood.trim()}`,
       `font=${selectedFont.name}`,
       `colorIntent=${colorIntent.mood}/${colorIntent.preferredHue}`,
+      `mediaPolicy=${state.mediaPolicy}`,
       `base=${stylePackId}`,
       "layout=chart-first cards tables process",
       "output=Deck JSON first"
@@ -265,14 +266,6 @@ export function buildAiPptAdvisorSuggestions(
       label: "3분 발표용 4장 구성",
       reason: "짧은 발표는 표지, 문제, 해결, 요약으로 압축하면 안정적입니다.",
       value: "4"
-    });
-  }
-  if (state.mediaPolicy !== "minimal") {
-    suggestions.push({
-      field: "mediaPolicy",
-      label: "이미지 최소화 우선",
-      reason: "2차 MVP에서는 실제 이미지 검색/생성보다 도형 기반 visual plan이 안정적입니다.",
-      value: "minimal"
     });
   }
   if (!state.fontMood.trim()) {
@@ -1289,7 +1282,7 @@ function advisorResponse(question: string, state: AiPptWizardState) {
     return `${state.fontMood || "전문적인 한글 고딕"} 기준으로 후보 3개를 다시 추천합니다. 마음에 드는 카드를 선택하면 payload에 반영됩니다.`;
   }
   if (hasAny(question.toLocaleLowerCase("ko-KR"), ["image", "이미지", "사진"])) {
-    return `현재 이미지 정책은 ${state.mediaPolicy}입니다. 2차 MVP에서는 minimal 또는 provided-only가 가장 예측 가능합니다.`;
+    return `현재 이미지 정책은 ${state.mediaPolicy}입니다. ai-generated를 선택하면 2차에서는 실제 이미지 파일을 만들지 않고 Deck JSON에 이미지 계획, placeholder, 교체 근거를 남깁니다.`;
   }
   return "발표 시간, 청중, 참고자료 정책을 기준으로 적용 가능한 제안을 아래에 표시했습니다.";
 }
