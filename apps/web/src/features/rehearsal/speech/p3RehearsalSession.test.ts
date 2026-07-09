@@ -343,6 +343,52 @@ describe("p3RehearsalSession", () => {
       finalSentenceSpoken: false
     });
   });
+
+  it("semantic matcher 실패 시 기존 substring 기반 tracking은 계속 동작한다", async () => {
+    const port = createMockLiveSttPort();
+    const events: SpeechTrackingEvent[] = [];
+    const debugStates: SemanticUtteranceDebugState[] = [];
+    const semanticMatcher = createMockSemanticMatcher({ accepted: false });
+    semanticMatcher.matchFinalTranscript = vi.fn(async () => {
+      throw new Error("semantic unavailable");
+    });
+    const session = createP3RehearsalSession({
+      slides,
+      port,
+      semanticMatcher,
+      isSemanticMatchingEnabled: () => true,
+      now: () => 90_000,
+      onEvents: (nextEvents) => events.push(...nextEvents),
+      onSemanticDebugState: (state) => debugStates.push(state)
+    });
+
+    await session.start({
+      audioSource: {} as MediaStream,
+      slideIndex: 0
+    });
+    port.emit({
+      text: "생성형 AI 초안을 안정적으로 추적합니다.",
+      isFinal: true,
+      timestampMs: [500, 1000]
+    });
+    await flushSemanticQueue();
+
+    expect(events).toContainEqual({
+      type: "sentence-covered",
+      slideId: "slide_1",
+      sentenceId: "sentence_1",
+      atMs: 1000
+    });
+    expect(debugStates.at(-1)).toMatchObject({
+      status: "error",
+      slideId: "slide_1",
+      transcript: "생성형 AI 초안을 안정적으로 추적합니다.",
+      error: "semantic unavailable"
+    });
+    expect(session.getState().snapshot).toMatchObject({
+      sentenceCoverage: 0.5
+    });
+  });
 });
 
 const slides: P3RehearsalSessionSlide[] = [
