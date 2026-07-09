@@ -20,7 +20,6 @@ import {
   SherpaLiveSttAdapter,
   applyLiveTranscriptBias,
   applyLiveTranscriptEvent,
-  buildKaraokePrompterSegments,
   buildLiveSttBiasContext,
   confirmKeywordOccurrenceMatches,
   createKeywordOccurrenceAnimationCueEvent,
@@ -1797,42 +1796,6 @@ describe("RehearsalWorkspace", () => {
     expect(renderLiveTranscriptBuffer(buffer)).toBe("새 슬라이드");
   });
 
-  it("marks teleprompter tokens as spoken from the live transcript prefix", () => {
-    const segments = buildKaraokePrompterSegments({
-      text: "오늘은 ORBIT 자동 발표를 연습합니다.",
-      transcript: "오늘은 ORBIT",
-    });
-
-    expect(segments.map((segment) => [segment.text, segment.spoken])).toEqual([
-      ["오늘은", true],
-      [" ", true],
-      ["ORBIT", true],
-      [" ", true],
-      ["자동", false],
-      [" ", false],
-      ["발표를", false],
-      [" ", false],
-      ["연습합니다.", false],
-    ]);
-  });
-
-  it("marks only the spoken Korean teleprompter prefix from the transcript", () => {
-    const segments = buildKaraokePrompterSegments({
-      text: "다음 슬라이드로 넘어갑니다.",
-      transcript: "다음",
-    });
-
-    expect(
-      segments
-        .filter((segment) => segment.text.trim())
-        .map((segment) => [segment.text, segment.spoken]),
-    ).toEqual([
-      ["다음", true],
-      ["슬라이드로", false],
-      ["넘어갑니다.", false],
-    ]);
-  });
-
   it("moves the prompter to the next uncovered sentence even when the covered sentence transcript is partial", () => {
     const rows = getRehearsalPrompterRows(
       [
@@ -1855,63 +1818,41 @@ describe("RehearsalWorkspace", () => {
       ],
       ["sentence_1"],
       "",
-      "첫 문장은",
     );
 
-    expect(rows.currentSegments.map((segment) => segment.text).join("")).toBe(
-      "다음 문장입니다.",
-    );
+    expect(rows.current).toBe("다음 문장입니다.");
     expect(rows.previous).toBe("첫 문장은 아직 끝까지 읽지 않았습니다.");
     expect(rows.next).toBe("");
   });
 
-  it("assigns distinct teleprompter tones to important script terms", () => {
-    const segments = buildKaraokePrompterSegments({
-      text: "ORBIT 다음 슬라이드 강조",
-      transcript: "",
-      highlightTerms: [
-        { text: "ORBIT", tone: "required" },
-        { text: "다음 슬라이드", tone: "next" },
-        { text: "강조", tone: "cue" },
+  it("returns current prompter sentence as a single sentence block", () => {
+    const rows = getRehearsalPrompterRows(
+      [
+        {
+          sentenceId: "sentence_1",
+          text: "첫 문장입니다.",
+          index: 0,
+          isFinalTrigger: false,
+          matchable: true,
+          candidates: [],
+        },
+        {
+          sentenceId: "sentence_2",
+          text: "두 번째 문장입니다.",
+          index: 1,
+          isFinalTrigger: true,
+          matchable: true,
+          candidates: [],
+        },
       ],
-    });
+      [],
+      "",
+    );
 
-    expect(
-      segments
-        .filter((segment) => segment.text.trim())
-        .map((segment) => [segment.text, segment.tone]),
-    ).toEqual([
-      ["ORBIT", "required"],
-      ["다음", "next"],
-      ["슬라이드", "next"],
-      ["강조", "cue"],
-    ]);
-  });
-
-  it("does not add arbitrary leading emphasis to teleprompter tokens", () => {
-    const segments = buildKaraokePrompterSegments({
-      text: "이번 프로젝트는 NumPy 기반으로 MNIST를 설명합니다.",
-      transcript: "",
-      highlightTerms: [{ text: "MNIST", tone: "required" }],
-    });
-
-    const visibleSegments = segments.filter((segment) => segment.text.trim());
-
-    expect(visibleSegments[0]).toMatchObject({
-      emphasis: false,
-      text: "이번",
-      tone: "default",
-    });
-    expect(visibleSegments[1]).toMatchObject({
-      emphasis: false,
-      text: "프로젝트는",
-      tone: "default",
-    });
-    expect(
-      visibleSegments.find((segment) => segment.text.includes("MNIST")),
-    ).toMatchObject({
-      emphasis: false,
-      tone: "required",
+    expect(rows).toMatchObject({
+      previous: "",
+      current: "첫 문장입니다.",
+      next: "두 번째 문장입니다.",
     });
   });
 

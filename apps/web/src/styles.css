@@ -10082,70 +10082,11 @@ button:disabled {
   line-height: 1.35;
 }
 
-.rehearsal-teleprompter-token {
-  border-radius: 7px;
-  box-decoration-break: clone;
-  padding: 1px 3px;
-  transition:
-    background-color 180ms ease,
-    box-shadow 180ms ease,
-    color 180ms ease,
-    opacity 180ms ease,
-    text-shadow 180ms ease;
-  white-space: pre-wrap;
-}
-
-.rehearsal-teleprompter-token-pending {
+.rehearsal-teleprompter-current {
   color: var(--presenter-text);
   opacity: 1;
   text-shadow: 0 0 14px rgba(234, 246, 244, 0.12);
-}
-
-.rehearsal-teleprompter-token-spoken {
-  color: rgba(219, 242, 238, 0.24);
-  opacity: 0.78;
-  text-shadow: none;
-}
-
-.rehearsal-teleprompter-token-emphasis {
-  font-weight: 780;
-}
-
-.rehearsal-teleprompter-token-emphasis.rehearsal-teleprompter-token-pending {
-  color: var(--presenter-accent);
-  text-shadow: 0 0 18px rgba(162, 225, 219, 0.22);
-}
-
-.rehearsal-teleprompter-token-emphasis.rehearsal-teleprompter-token-spoken {
-  color: rgba(162, 225, 219, 0.32);
-  text-shadow: none;
-}
-
-.rehearsal-teleprompter-token-required {
-  background: rgba(162, 225, 219, 0.13);
-}
-
-.rehearsal-teleprompter-token-trigger {
-  background: rgba(63, 191, 106, 0.17);
-  box-shadow: inset 0 0 0 1px rgba(63, 191, 106, 0.22);
-}
-
-.rehearsal-teleprompter-token-next {
-  background: rgba(46, 124, 224, 0.18);
-  box-shadow: inset 0 0 0 1px rgba(46, 124, 224, 0.22);
-}
-
-.rehearsal-teleprompter-token-cue {
-  background: rgba(242, 193, 78, 0.16);
-  box-shadow: inset 0 0 0 1px rgba(242, 193, 78, 0.22);
-}
-
-.rehearsal-teleprompter-token-spoken.rehearsal-teleprompter-token-required,
-.rehearsal-teleprompter-token-spoken.rehearsal-teleprompter-token-trigger,
-.rehearsal-teleprompter-token-spoken.rehearsal-teleprompter-token-next,
-.rehearsal-teleprompter-token-spoken.rehearsal-teleprompter-token-cue {
-  filter: saturate(0.8);
-  opacity: 0.64;
+  white-space: pre-wrap;
 }
 
 .rehearsal-auto-advance-card {
@@ -10798,42 +10739,9 @@ button:disabled {
   color: var(--text-muted);
 }
 
-.rehearsal-teleprompter-token-pending {
+.rehearsal-teleprompter-current {
   color: var(--text-primary);
   text-shadow: none;
-}
-
-.rehearsal-teleprompter-token-spoken {
-  color: var(--gray-400);
-}
-
-.rehearsal-teleprompter-token-emphasis.rehearsal-teleprompter-token-pending {
-  background: var(--blue-50);
-  box-shadow: inset 0 0 0 1px var(--blue-100);
-  color: var(--blue-700);
-  text-shadow: none;
-}
-
-.rehearsal-teleprompter-token-required {
-  background: var(--blue-100);
-  box-shadow: inset 0 0 0 1px var(--blue-200);
-  color: var(--blue-700);
-  font-weight: 780;
-}
-
-.rehearsal-teleprompter-token-trigger {
-  background: color-mix(in srgb, var(--blue-50) 82%, white);
-  box-shadow: inset 0 0 0 1px var(--blue-100);
-}
-
-.rehearsal-teleprompter-token-next {
-  background: var(--blue-50);
-  box-shadow: inset 0 0 0 1px var(--blue-100);
-}
-
-.rehearsal-teleprompter-token-cue {
-  background: color-mix(in srgb, var(--blue-50) 72%, white);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--blue-100) 72%, white);
 }
 
 .rehearsal-auto-advance-card {

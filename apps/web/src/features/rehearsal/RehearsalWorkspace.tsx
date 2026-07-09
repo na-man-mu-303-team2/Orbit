@@ -1583,9 +1583,6 @@ export function RehearsalWorkspace(props: {
   const [job, setJob] = useState<Job | null>(null);
   const [liveStatus, setLiveStatus] = useState<LiveSttStatus>("idle");
   const [liveError, setLiveError] = useState("");
-  const [liveTranscriptBuffer, setLiveTranscriptBuffer] = useState(
-    createLiveTranscriptBuffer,
-  );
   const [liveKeywordState, setLiveKeywordState] =
     useState<LiveTranscriptAnalysis | null>(null);
   const [liveAudioLevel, setLiveAudioLevel] =
@@ -2863,7 +2860,6 @@ export function RehearsalWorkspace(props: {
       event,
     );
     liveTranscriptBufferRef.current = nextBuffer;
-    setLiveTranscriptBuffer(nextBuffer);
 
     const transcript = renderLiveTranscriptBuffer(nextBuffer);
     const biasMode = getLiveSttBiasMode();
@@ -3022,7 +3018,6 @@ export function RehearsalWorkspace(props: {
       : null;
     liveCommandConfirmationRef.current =
       createRehearsalCommandConfirmationState();
-    setLiveTranscriptBuffer(nextBuffer);
     setLiveKeywordState(nextKeywordState);
     setLiveCue(null);
   }
@@ -3446,8 +3441,6 @@ export function RehearsalWorkspace(props: {
     p3Sentences,
     p3PanelSnapshot.coveredSentenceIds,
     currentSlide?.speakerNotes ?? "",
-    renderLiveTranscriptBuffer(liveTranscriptBuffer),
-    getPrompterHighlightTerms(currentSlide),
   );
   const rehearsalSummary = buildRehearsalCompletionSummary({
     deck,
@@ -4892,31 +4885,8 @@ function RehearsalTeleprompter(props: {
   return (
     <section className="rehearsal-teleprompter-band" aria-label="발표 대본 프롬프터">
       <p>{props.rows.previous}</p>
-      <p aria-live="polite">
-        {props.rows.currentSegments.map((segment, index) => {
-          const className = [
-            "rehearsal-teleprompter-token",
-            segment.spoken
-              ? "rehearsal-teleprompter-token-spoken"
-              : "rehearsal-teleprompter-token-pending",
-            segment.emphasis ? "rehearsal-teleprompter-token-emphasis" : "",
-            segment.tone !== "default"
-              ? `rehearsal-teleprompter-token-${segment.tone}`
-              : "",
-          ]
-            .filter(Boolean)
-            .join(" ");
-
-          return segment.emphasis ? (
-            <strong className={className} key={`${segment.text}-${index}`}>
-              {segment.text}
-            </strong>
-          ) : (
-            <span className={className} key={`${segment.text}-${index}`}>
-              {segment.text}
-            </span>
-          );
-        })}
+      <p aria-live="polite" className="rehearsal-teleprompter-current">
+        {props.rows.current}
       </p>
       <p>{props.rows.next}</p>
 
@@ -5168,45 +5138,21 @@ export function RehearsalReportPage(props: {
 }
 
 type RehearsalPrompterRows = {
-  currentEmphasis: string;
-  currentLead: string;
-  currentSegments: KaraokePrompterSegment[];
-  currentTail: string;
+  current: string;
   next: string;
   previous: string;
-};
-
-export type KaraokePrompterSegment = {
-  emphasis: boolean;
-  spoken: boolean;
-  text: string;
-  tone: KaraokePrompterTone;
-};
-
-export type KaraokePrompterTone =
-  | "default"
-  | "required"
-  | "trigger"
-  | "next"
-  | "cue";
-
-type KaraokePrompterHighlightTerm = {
-  text: string;
-  tone: Exclude<KaraokePrompterTone, "default">;
 };
 
 export function getRehearsalPrompterRows(
   sentences: readonly ExtractedSentence[],
   coveredSentenceIds: readonly string[],
   fallbackNotes: string,
-  transcript = "",
-  highlightTerms: readonly KaraokePrompterHighlightTerm[] = [],
 ): RehearsalPrompterRows {
   if (sentences.length === 0) {
     const fallback = fallbackNotes.trim() || "발표자 노트가 없습니다.";
     return {
       previous: "",
-      ...splitPrompterSentence(fallback, transcript, highlightTerms),
+      current: fallback,
       next: "",
     };
   }
@@ -5224,286 +5170,9 @@ export function getRehearsalPrompterRows(
 
   return {
     previous: sentences[focusIndex - 1]?.text ?? "",
-    ...splitPrompterSentence(
-      current,
-      transcript,
-      highlightTerms,
-    ),
+    current,
     next: sentences[focusIndex + 1]?.text ?? "",
   };
-}
-
-function splitPrompterSentence(
-  text: string,
-  transcript = "",
-  highlightTerms: readonly KaraokePrompterHighlightTerm[] = [],
-) {
-  const currentSegments = buildKaraokePrompterSegments({
-    highlightTerms,
-    text,
-    transcript,
-  });
-  const quoteMatch = text.match(/("[^"]+"|'[^']+'|“[^”]+”)/);
-  if (quoteMatch?.index !== undefined) {
-    const emphasis = quoteMatch[0];
-    return {
-      currentLead: text.slice(0, quoteMatch.index),
-      currentEmphasis: emphasis,
-      currentSegments,
-      currentTail: text.slice(quoteMatch.index + emphasis.length),
-    };
-  }
-
-  return {
-    currentLead: "",
-    currentEmphasis: "",
-    currentSegments,
-    currentTail: text.trim(),
-  };
-}
-
-export function buildKaraokePrompterSegments(options: {
-  highlightTerms?: readonly KaraokePrompterHighlightTerm[];
-  text: string;
-  transcript?: string;
-}): KaraokePrompterSegment[] {
-  const rawSegments = options.text.match(/\s+|[^\s]+/g) ?? [options.text];
-  const emphasisRanges = getPrompterEmphasisRanges(options.text);
-  const highlightRanges = getPrompterHighlightRanges(
-    options.text,
-    options.highlightTerms ?? [],
-  );
-  const spokenTokenCount = getSpokenPrompterTokenCount(
-    options.text,
-    options.transcript ?? "",
-  );
-  let tokenIndex = 0;
-
-  return rawSegments.map((segment, segmentIndex) => {
-    const isWhitespace = isWhitespaceSegment(segment);
-    const spoken = isWhitespace
-      ? tokenIndex > 0 && tokenIndex <= spokenTokenCount
-      : tokenIndex < spokenTokenCount;
-    const textOffset = getSegmentTextOffset(rawSegments, segmentIndex);
-    if (!isWhitespace) {
-      tokenIndex += 1;
-    }
-
-    return {
-      emphasis: emphasisRanges.some(
-        (range) => textOffset >= range.start && textOffset < range.end,
-      ),
-      spoken,
-      text: segment,
-      tone: getPrompterSegmentTone(textOffset, segment, highlightRanges),
-    };
-  });
-}
-
-function getPrompterHighlightTerms(
-  slide: Slide | null,
-): KaraokePrompterHighlightTerm[] {
-  if (!slide) {
-    return [];
-  }
-
-  const terms: KaraokePrompterHighlightTerm[] = [];
-  const addKeywordTerms = (
-    keyword: Keyword | undefined,
-    tone: Exclude<KaraokePrompterTone, "default">,
-  ) => {
-    if (!keyword) {
-      return;
-    }
-    for (const text of [
-      keyword.text,
-      ...keyword.synonyms,
-      ...keyword.abbreviations,
-    ]) {
-      terms.push({ text, tone });
-    }
-  };
-
-  for (const keyword of slide.keywords ?? []) {
-    if (keyword.required) {
-      addKeywordTerms(keyword, "required");
-    }
-  }
-
-  for (const action of slide.actions ?? []) {
-    if (
-      action.trigger.kind === "keyword" ||
-      action.trigger.kind === "keyword-occurrence"
-    ) {
-      const triggerKeywordId = action.trigger.keywordId;
-      addKeywordTerms(
-        slide.keywords.find(
-          (keyword) => keyword.keywordId === triggerKeywordId,
-        ),
-        "trigger",
-      );
-    }
-    if (action.trigger.kind === "cue") {
-      terms.push({ text: action.trigger.cue, tone: "cue" });
-    }
-  }
-
-  for (const command of defaultRehearsalCommandConfig) {
-    const tone = command.action === "advance-slide" ? "next" : "cue";
-    for (const phrase of command.phrases) {
-      terms.push({ text: phrase, tone });
-    }
-  }
-
-  return terms;
-}
-
-function getPrompterHighlightRanges(
-  text: string,
-  terms: readonly KaraokePrompterHighlightTerm[],
-) {
-  const ranges: Array<{
-    end: number;
-    start: number;
-    tone: Exclude<KaraokePrompterTone, "default">;
-  }> = [];
-  const lowerText = text.toLocaleLowerCase("ko-KR");
-  const seen = new Set<string>();
-
-  for (const term of terms) {
-    const normalizedTerm = term.text.trim().toLocaleLowerCase("ko-KR");
-    if (!normalizedTerm) {
-      continue;
-    }
-
-    let fromIndex = 0;
-    while (fromIndex < lowerText.length) {
-      const start = lowerText.indexOf(normalizedTerm, fromIndex);
-      if (start < 0) {
-        break;
-      }
-
-      const end = start + normalizedTerm.length;
-      const key = `${start}:${end}:${term.tone}`;
-      if (!seen.has(key)) {
-        seen.add(key);
-        ranges.push({ start, end, tone: term.tone });
-      }
-      fromIndex = end;
-    }
-  }
-
-  return ranges.sort((left, right) => {
-    const priorityDelta =
-      getPrompterTonePriority(right.tone) - getPrompterTonePriority(left.tone);
-    if (priorityDelta !== 0) {
-      return priorityDelta;
-    }
-    return right.end - right.start - (left.end - left.start);
-  });
-}
-
-function getPrompterSegmentTone(
-  textOffset: number,
-  segment: string,
-  ranges: ReturnType<typeof getPrompterHighlightRanges>,
-): KaraokePrompterTone {
-  if (isWhitespaceSegment(segment)) {
-    return "default";
-  }
-
-  const segmentEnd = textOffset + segment.length;
-  return (
-    ranges.find(
-      (range) => textOffset < range.end && segmentEnd > range.start,
-    )?.tone ?? "default"
-  );
-}
-
-function getPrompterTonePriority(tone: KaraokePrompterTone) {
-  switch (tone) {
-    case "trigger":
-      return 5;
-    case "next":
-      return 4;
-    case "cue":
-      return 3;
-    case "required":
-      return 2;
-    case "default":
-      return 1;
-  }
-}
-
-function getSpokenPrompterTokenCount(text: string, transcript: string) {
-  const normalizedTranscript = normalizePrompterMatchText(transcript);
-  if (!normalizedTranscript) {
-    return 0;
-  }
-
-  const tokens =
-    text
-      .match(/[^\s]+/g)
-      ?.map((token) => normalizePrompterMatchText(token))
-      .filter(Boolean) ?? [];
-  let prefix = "";
-  let spokenTokenCount = 0;
-
-  for (const token of tokens) {
-    const nextPrefix = `${prefix}${token}`;
-    if (
-      normalizedTranscript.includes(nextPrefix) ||
-      (normalizedTranscript.length > prefix.length &&
-        normalizedTranscript.length < nextPrefix.length &&
-        nextPrefix.startsWith(normalizedTranscript))
-    ) {
-      prefix = nextPrefix;
-      spokenTokenCount += 1;
-      continue;
-    }
-    break;
-  }
-
-  return spokenTokenCount;
-}
-
-function isPrompterSentenceFullySpoken(text: string, transcript: string) {
-  const totalTokenCount = text.match(/[^\s]+/g)?.length ?? 0;
-  if (totalTokenCount === 0) {
-    return true;
-  }
-
-  return getSpokenPrompterTokenCount(text, transcript) >= totalTokenCount;
-}
-
-function normalizePrompterMatchText(value: string) {
-  return normalizeLiveTranscriptText(value).replace(/[^\p{L}\p{N}+#.-]+/gu, "");
-}
-
-function getPrompterEmphasisRanges(text: string) {
-  const quoteMatch = text.match(/("[^"]+"|'[^']+'|“[^”]+”)/);
-  if (quoteMatch?.index !== undefined) {
-    return [
-      {
-        start: quoteMatch.index,
-        end: quoteMatch.index + quoteMatch[0].length,
-      },
-    ];
-  }
-
-  return [];
-}
-
-function getSegmentTextOffset(segments: readonly string[], segmentIndex: number) {
-  let offset = 0;
-  for (let index = 0; index < segmentIndex; index += 1) {
-    offset += segments[index]?.length ?? 0;
-  }
-  return offset;
-}
-
-function isWhitespaceSegment(value: string) {
-  return /^\s+$/.test(value);
 }
 
 function buildRehearsalCompletionSummary(options: {
