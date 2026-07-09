@@ -13,6 +13,7 @@
     "typecheck": "corepack pnpm --filter @orbit/shared build && tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@huggingface/transformers": "^4.2.0",
     "@orbit/editor-core": "workspace:*",
     "@orbit/shared": "workspace:*",
     "@tanstack/react-query": "^5.81.5",
