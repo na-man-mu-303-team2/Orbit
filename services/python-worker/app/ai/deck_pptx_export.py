@@ -214,9 +214,9 @@ def add_chart(slide: Any, element: dict[str, Any], warnings: list[str]) -> None:
         warnings.append("Skipped chart without data.")
         return
 
-    chart_data = CategoryChartData()
+    chart_data = CategoryChartData()  # type: ignore[no-untyped-call]
     chart_data.categories = [str(item.get("label", "")) for item in data]
-    chart_data.add_series(
+    chart_data.add_series(  # type: ignore[no-untyped-call]
         str(props.get("title") or "Series"),
         [float(item.get("value", 0)) for item in data],
     )
@@ -321,7 +321,11 @@ def is_hex_color(value: Any) -> bool:
 
 
 def rgb(value: str) -> RGBColor:
-    return RGBColor.from_string(value[1:])
+    return RGBColor(  # type: ignore[no-untyped-call]
+        int(value[1:3], 16),
+        int(value[3:5], 16),
+        int(value[5:7], 16),
+    )
 
 
 def dedupe(values: list[str]) -> list[str]:
