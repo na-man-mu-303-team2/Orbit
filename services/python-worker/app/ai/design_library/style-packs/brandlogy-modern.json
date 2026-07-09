@@ -43,6 +43,14 @@
     "section": "large-title-with-accent-bar",
     "closing": "summary-cards"
   },
+  "recipes": {
+    "cover": "cover_trust_signal",
+    "overview": "overview_cards",
+    "insight": "insight_evidence",
+    "process": "process_steps",
+    "comparison": "comparison_split",
+    "closing": "closing_summary"
+  },
   "card": {
     "fill": "#ffffff",
     "stroke": "#dbeafe",

@@ -26,6 +26,7 @@ from app.ai.generate_deck import (
     generate_content_plan_with_llm,
     generate_deck,
     icon_name_for_keyword,
+    is_text_overflowing,
     refine_design_issues,
     review_text_overlap_candidates,
     validate_and_patch,
@@ -999,6 +1000,112 @@ def test_generate_deck_design_pack_enforces_background_constraints() -> None:
     assert deck["theme"]["palette"]["muted"] == "#F3F4F6"
     assert deck["slides"][0]["style"]["backgroundColor"] == "#FFFFFF"
     assert element_by_role(deck["slides"][0], "background")["props"]["fill"] == "#FFFFFF"
+
+
+def test_generate_deck_design_pack_uses_brandlogy_layout_recipes() -> None:
+    fake_client = FakeOpenAIClient(
+        {
+            "title": "Design Pack deck",
+            "slides": [
+                slide_payload(
+                    "Design Pack 기반 AI PPT 생성 구조 개요",
+                    "Deck JSON 기반 생성으로 템플릿 덮어쓰기 탈피",
+                    "Design Pack 기반 생성 구조를 소개합니다.",
+                    slide_type="cover",
+                    slot_preset="title_center",
+                    keywords=["Deck JSON", "템플릿 덮어쓰기", "MVP 목표"],
+                ),
+                slide_payload(
+                    "핵심 기능과 이점",
+                    "명확한 구조화; 재사용 가능한 컴포넌트; 빠른 요구 대응; 안정적 export",
+                    "핵심 기능과 이점을 설명합니다.",
+                    slide_type="feature-grid",
+                    slot_preset="metric_cards",
+                    keywords=["구조화", "재사용", "export"],
+                ),
+                slide_payload(
+                    "MVP 구현 절차",
+                    "Brief 입력; Design Pack 선택; Deck JSON 생성; PPTX export",
+                    "MVP 구현 절차를 설명합니다.",
+                    slide_type="process",
+                    slot_preset="insight_with_evidence",
+                    keywords=["Brief", "Design Pack", "Deck JSON", "export"],
+                ),
+                slide_payload(
+                    "기존 방식과 목표 방식 비교",
+                    "템플릿 의존; 레이아웃 경직; JSON-first; recipe 기반",
+                    "기존 방식과 목표 방식을 비교합니다.",
+                    slide_type="comparison",
+                    slot_preset="before_after",
+                    keywords=["legacy", "design-pack", "recipe"],
+                ),
+                slide_payload(
+                    "다음 작업 합의",
+                    "recipe 구현; overflow 제거; preview 정렬",
+                    "다음 작업 합의안을 설명합니다.",
+                    slide_type="summary",
+                    slot_preset="insight_with_evidence",
+                    keywords=["recipe", "overflow", "preview"],
+                ),
+            ],
+        }
+    )
+
+    response = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            generationMode="design-pack",
+            topic="Design Pack 기반 AI PPT 생성 구조",
+            designPrompt="흰 색 배경, 사용자들에게 신뢰를 줄 수 있는 포인트 색상. 그라데이션 금지, 파스텔톤 금지",
+            design={
+                "stylePackId": "brandlogy-modern",
+                "constraints": {
+                    "canvasBackground": "white",
+                    "forbiddenStyles": ["gradient", "pastel"],
+                },
+                "paletteOverride": {
+                    "primary": "#001F3F",
+                    "secondary": "#004080",
+                    "background": "#FFFFFF",
+                    "surface": "#FFFFFF",
+                    "muted": "#F3F4F6",
+                    "border": "#D1D5DB",
+                    "text": "#0B253D",
+                    "accentColor": "#0066CC",
+                },
+            },
+            slideCountRange={"min": 5, "max": 5},
+        ),
+        client=fake_client,
+    )
+
+    cover, overview, process, comparison, closing = response.deck["slides"]
+    assert has_element(cover, "el_1_cover_trust_signal_panel")
+    assert has_element(cover, "el_1_cover_summary_card_1")
+    assert not has_element(cover, "el_1_accent_rail")
+    assert has_element(overview, "el_2_overview_card_1")
+    assert has_element(process, "el_3_process_step_card_1")
+    assert has_element(process, "el_3_process_step_connector_1")
+    assert has_element(comparison, "el_4_comparison_split_left_panel")
+    assert has_element(comparison, "el_4_comparison_split_right_panel")
+    assert has_element(comparison, "el_4_comparison_split_divider")
+    assert has_element(closing, "el_5_closing_summary_accent_block")
+
+    assert element_by_id(cover, "el_1_cover_trust_signal_accent")["props"]["fill"] == "#001F3F"
+    assert element_by_id(process, "el_3_process_step_connector_1")["props"]["fill"] == "#001F3F"
+    assert element_by_id(overview, "el_2_overview_card_1")["props"]["stroke"] == "#D1D5DB"
+    for slide in response.deck["slides"]:
+        assert slide["style"]["backgroundColor"] == "#FFFFFF"
+        assert element_by_id(
+            slide,
+            f"el_{slide['order']}_design_pack_background",
+        )["props"]["fill"] == "#FFFFFF"
+        overflowing = [
+            element["elementId"]
+            for element in slide["elements"]
+            if element["type"] == "text" and is_text_overflowing(element)
+        ]
+        assert overflowing == []
 
 
 def test_generate_deck_auto_selects_simple_basic_report_mode() -> None:
