@@ -4022,7 +4022,7 @@ button:disabled {
 .presenter-script-list {
   counter-reset: script;
   display: grid;
-  gap: 8px;
+  gap: 6px;
   list-style: none;
   margin: 0;
   padding: 0;
@@ -4032,11 +4032,12 @@ button:disabled {
   align-items: start;
   border: 1px solid transparent;
   border-radius: 8px;
-  color: #334155;
+  color: #475569;
   display: grid;
   gap: 12px;
   grid-template-columns: 34px minmax(0, 1fr) auto;
-  padding: 12px 14px;
+  min-height: 58px;
+  padding: 9px 12px;
 }
 
 .presenter-script-row > span {
@@ -4053,10 +4054,11 @@ button:disabled {
 }
 
 .presenter-script-row p {
-  font-size: 1rem;
+  font-size: 0.92rem;
   font-weight: 800;
-  line-height: 1.68;
+  line-height: 1.46;
   margin: 0;
+  overflow-wrap: anywhere;
   white-space: pre-wrap;
 }
 
@@ -4072,28 +4074,42 @@ button:disabled {
 }
 
 .presenter-script-row--current {
-  background: #eff6ff;
-  border-color: #bfdbfe;
-  color: #0f172a;
+  background: #ffffff;
+  border-color: #cbd5e1;
+  color: #020617;
 }
 
 .presenter-script-row--current > span {
-  background: #2563eb;
+  background: #111827;
   color: #ffffff;
 }
 
+.presenter-script-row--current p {
+  font-size: 1.18rem;
+  font-weight: 950;
+  line-height: 1.42;
+}
+
+.presenter-script-row--next {
+  color: #111827;
+}
+
 .presenter-script-row--covered {
-  color: #64748b;
+  color: #94a3b8;
 }
 
 .presenter-script-row--covered p {
-  opacity: 0.82;
+  font-size: 0.88rem;
 }
 
 .presenter-script-row--paraphrased {
-  background: #f0fdfa;
-  border-color: #99f6e4;
-  color: #0f766e;
+  background: transparent;
+  border-color: transparent;
+  color: #94a3b8;
+}
+
+.presenter-script-row--paraphrased p {
+  font-size: 0.88rem;
 }
 
 .presenter-script-row--paraphrased > span {
@@ -4102,8 +4118,12 @@ button:disabled {
 }
 
 .presenter-script-row--paraphrased em {
-  background: #ccfbf1;
-  color: #0f766e;
+  background: #e2e8f0;
+  color: #475569;
+}
+
+.presenter-script-row[data-script-row-status="pending"] {
+  color: #94a3b8;
 }
 
 .presenter-script-row--unmatchable {
@@ -8572,9 +8592,10 @@ button:disabled {
 }
 
 .rehearsal-panel-script-body {
-  max-height: 220px;
+  max-height: 204px;
   min-height: 0;
   overflow: auto;
+  scroll-padding: 6px;
 }
 
 .rehearsal-panel-sentence {
