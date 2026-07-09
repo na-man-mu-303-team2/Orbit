@@ -58,6 +58,7 @@ import {
 } from "./features/rehearsal/RehearsalWorkspace";
 import { RehearsalReportListPage } from "./features/rehearsal/RehearsalReportListPage";
 import { RehearsalProjectOverviewPage } from "./features/rehearsal/RehearsalProjectOverviewPage";
+import { PresentationWorkspace } from "./features/presentation/PresentationWorkspace";
 import { AudienceSessionPage } from "./pages/audience/AudienceSessionPage";
 import { PresentWindow } from "./features/rehearsal/presenter/PresentWindow";
 import { ReadOnlySlideCanvas } from "./features/slides/rendering";
@@ -200,6 +201,7 @@ export type Route =
   | { name: "project-editor"; projectId: string }
   | { name: "project-request"; projectId: string }
   | { name: "audience-session"; sessionId: string }
+  | { name: "presentation"; projectId: string }
   | { name: "present"; deckId: string; sessionId?: string }
   | {
       name: "rehearsal";
@@ -452,6 +454,14 @@ export function getRoute(
     };
   }
 
+  const presentationMatch = normalized.match(/^\/presentation\/([^/]+)$/);
+  if (presentationMatch) {
+    return {
+      name: "presentation",
+      projectId: decodeURIComponent(presentationMatch[1])
+    };
+  }
+
   const projectRequestMatch = normalized.match(/^\/project\/([^/]+)\/request$/);
   if (projectRequestMatch) {
     return { name: "project-request", projectId: decodeURIComponent(projectRequestMatch[1]) };
@@ -546,6 +556,7 @@ export function shouldRenderAppFrame(route: Route) {
   return (
     route.name !== "login" &&
     route.name !== "project-editor" &&
+    route.name !== "presentation" &&
     route.name !== "present" &&
     route.name !== "rehearsal" &&
     route.name !== "rehearsal-report" &&
@@ -572,6 +583,14 @@ function renderRoute(route: Route, user?: AuthUser) {
   if (route.name === "project-request") return <ProjectAccessRequestPage projectId={route.projectId} />;
   if (route.name === "audience-session") {
     return <AudienceSessionPage sessionId={route.sessionId} />;
+  }
+  if (route.name === "presentation") {
+    return (
+      <PresentationWorkspace
+        fallbackDeck={route.projectId === demoIds.projectId ? demoDeck : undefined}
+        projectId={route.projectId}
+      />
+    );
   }
   if (route.name === "present") {
     return <PresentWindow deckId={route.deckId} sessionId={route.sessionId} />;
