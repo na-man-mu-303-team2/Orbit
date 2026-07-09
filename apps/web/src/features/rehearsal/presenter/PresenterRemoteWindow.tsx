@@ -15,6 +15,10 @@ import {
   Timer,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  SemanticSpeechDebugPanel,
+  shouldShowSemanticSpeechDebugPanel,
+} from "../panel/SemanticSpeechDebugPanel";
 import { splitSpeakerNotesIntoSentences } from "../speech/phraseExtractor";
 import {
   createPresenterCommandMessage,
@@ -156,6 +160,10 @@ export function PresenterRemoteWindow(props: {
       ? Math.min(currentSentenceIndex + 1, noteSentences.length)
       : 0;
   const cueProgressTotal = Math.max(noteSentences.length, 1);
+  const shouldShowSemanticDebugPanel = shouldShowSemanticSpeechDebugPanel({
+    isDevelopment: import.meta.env.DEV,
+    storage: typeof window === "undefined" ? null : window.localStorage,
+  });
 
   return (
     <main className="presenter-remote-shell" aria-label="발표자 제어 창">
@@ -430,6 +438,12 @@ export function PresenterRemoteWindow(props: {
           발표 종료
         </button>
       </div>
+      {state.speech && shouldShowSemanticDebugPanel ? (
+        <SemanticSpeechDebugPanel
+          semanticMatchingEnabled={state.speech.semanticMatchingEnabled}
+          state={state.speech.semanticDebug}
+        />
+      ) : null}
     </main>
   );
 }
