@@ -28,6 +28,10 @@ import {
   type KeywordHighlightKeyword
 } from "../../shared/KeywordHighlightedText";
 import { PresenterScriptList, type PresenterScriptListRow } from "../presenter/PresenterScriptList";
+import {
+  createRehearsalScriptPrompterRows,
+  getRehearsalScriptFocusSentenceId
+} from "./rehearsalScriptPrompter";
 
 export type RehearsalPanelMode = "rehearsal" | "live";
 
@@ -70,6 +74,15 @@ export function RehearsalPanel(props: RehearsalPanelProps) {
         props.snapshot.coveredSentenceIds
       ),
     [props.sentences, props.snapshot.coveredSentenceIds]
+  );
+  const prompterRows = useMemo(
+    () =>
+      createRehearsalScriptPrompterRows({
+        sentences: props.sentences,
+        coveredSentenceIds,
+        coveredSentenceMatchKinds: props.snapshot.coveredSentenceMatchKinds
+      }),
+    [coveredSentenceIds, props.sentences, props.snapshot.coveredSentenceMatchKinds]
   );
   const showAdvice = props.mode === "rehearsal" && props.showAdvicePanel !== false;
 
@@ -224,11 +237,10 @@ export function RehearsalPanel(props: RehearsalPanelProps) {
 
                 sentenceRefs.current.delete(row.id);
               }}
-              rows={props.sentences.map((sentence): PresenterScriptListRow => {
-                const covered = coveredSentenceIds.has(sentence.sentenceId);
+              rows={prompterRows.map((row): PresenterScriptListRow => {
+                const { sentence } = row;
                 const matchKind =
                   props.snapshot.coveredSentenceMatchKinds?.[sentence.sentenceId];
-                const isCurrent = sentence.sentenceId === focusSentenceId;
                 return {
                   content: (
                     <KeywordHighlightedText
@@ -242,18 +254,10 @@ export function RehearsalPanel(props: RehearsalPanelProps) {
                   label:
                     matchKind === "paraphrased"
                       ? "의미 전달"
-                      : covered
+                      : row.status === "covered"
                         ? "체크됨"
                         : undefined,
-                  status: !sentence.matchable
-                    ? "unmatchable"
-                    : isCurrent
-                      ? "current"
-                      : covered
-                        ? matchKind === "paraphrased"
-                          ? "paraphrased"
-                          : "covered"
-                        : "pending"
+                  status: row.status
                 };
               })}
             />
@@ -261,44 +265,6 @@ export function RehearsalPanel(props: RehearsalPanelProps) {
         </section>
       ) : null}
     </section>
-  );
-}
-
-export function getRehearsalScriptFocusSentenceId(
-  sentences: readonly ExtractedSentence[],
-  coveredSentenceIdsInput: ReadonlySet<string> | readonly string[]
-) {
-  const coveredSentenceIds =
-    coveredSentenceIdsInput instanceof Set
-      ? coveredSentenceIdsInput
-      : new Set(coveredSentenceIdsInput);
-  let lastCoveredMatchableIndex = -1;
-
-  sentences.forEach((sentence, index) => {
-    if (sentence.matchable && coveredSentenceIds.has(sentence.sentenceId)) {
-      lastCoveredMatchableIndex = index;
-    }
-  });
-
-  const nextMatchableSentence = sentences
-    .slice(lastCoveredMatchableIndex + 1)
-    .find(
-      (sentence) =>
-        sentence.matchable && !coveredSentenceIds.has(sentence.sentenceId)
-    );
-
-  if (nextMatchableSentence) {
-    return nextMatchableSentence.sentenceId;
-  }
-
-  if (lastCoveredMatchableIndex >= 0) {
-    return sentences[lastCoveredMatchableIndex]?.sentenceId ?? null;
-  }
-
-  return (
-    sentences.find((sentence) => sentence.matchable)?.sentenceId ??
-    sentences[0]?.sentenceId ??
-    null
   );
 }
 
