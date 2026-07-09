@@ -3,6 +3,7 @@ import type { SemanticUtteranceMatch } from "./semanticUtteranceMatcher";
 export type SemanticUtteranceDebugStatus =
   | "idle"
   | "loading-model"
+  | "model-ready"
   | "indexing-script"
   | "matching"
   | "ready"
@@ -34,6 +35,24 @@ export function createSemanticDebugState(
   return {
     ...createIdleSemanticDebugState(),
     ...override
+  };
+}
+
+export function markSemanticModelReady(
+  state: SemanticUtteranceDebugState
+): SemanticUtteranceDebugState {
+  if (
+    state.status !== "idle" &&
+    state.status !== "loading-model" &&
+    state.status !== "error"
+  ) {
+    return state;
+  }
+
+  return {
+    ...state,
+    status: "model-ready",
+    error: null
   };
 }
 
