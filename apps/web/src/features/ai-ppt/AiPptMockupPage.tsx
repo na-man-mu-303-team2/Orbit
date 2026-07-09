@@ -1,8 +1,12 @@
 import type {
   DeckColorOptionsResponse,
+  GenerateDeckFontOption,
+  GenerateDeckMediaPolicy,
   GenerateDeckRequest,
+  GenerateDeckReferencePolicy,
   Job
 } from "@orbit/shared";
+import { recommendGenerateDeckFonts } from "@orbit/shared";
 import {
   ArrowDownToLine,
   Check,
@@ -23,7 +27,8 @@ import {
 } from "../projects/ProjectAssetWorkspace";
 
 type StepId = "brief" | "style" | "color" | "references" | "review" | "preview";
-type ReferencePolicy = "topic-only" | "references-first" | "references-only";
+type ReferencePolicy = GenerateDeckReferencePolicy;
+type MediaPolicy = GenerateDeckMediaPolicy;
 type Tone = "professional" | "friendly" | "confident" | "concise";
 
 type PaletteOverride = NonNullable<GenerateDeckRequest["design"]["paletteOverride"]>;
@@ -49,7 +54,16 @@ type AiPptWizardState = {
   slides: string;
   tone: Tone;
   colorMood: string;
+  fontMood: string;
+  mediaPolicy: MediaPolicy;
   referencePolicy: ReferencePolicy;
+};
+
+export type AiPptAdvisorSuggestion = {
+  field: keyof AiPptWizardState;
+  label: string;
+  reason: string;
+  value: AiPptWizardState[keyof AiPptWizardState];
 };
 
 const stylePackId = "brandlogy-modern";
@@ -122,6 +136,8 @@ const initialState: AiPptWizardState = {
   slides: "",
   tone: "professional",
   colorMood: "전문가스럽고 차분한 파란색, Brandlogy다운 포인트 컬러",
+  fontMood: "professional trustworthy Korean sans font",
+  mediaPolicy: "minimal",
   referencePolicy: "references-first"
 };
 
@@ -137,12 +153,14 @@ const generationStages = [
 export function buildAiPptGenerateDeckPayload(
   state: AiPptWizardState,
   paletteOption: PaletteOption,
-  referenceFileIds: string[] = []
+  referenceFileIds: string[] = [],
+  selectedFont = recommendGenerateDeckFonts(fontSource(state))[0]
 ): GenerateDeckRequest {
   const durationMinutes = parsePositiveInteger(state.duration, 10);
   const slideCount = resolveSlideCount(state);
   const colorIntent = resolveColorIntent(state);
   const constraints = resolveDesignConstraints(state);
+  const fontOverride = fontOverrideFromOption(selectedFont);
 
   return {
     generationMode: "design-pack",
@@ -157,6 +175,7 @@ export function buildAiPptGenerateDeckPayload(
     designPrompt: [
       `tone=${state.tone}`,
       `colorMood=${state.colorMood.trim()}`,
+      `font=${selectedFont.name}`,
       `colorIntent=${colorIntent.mood}/${colorIntent.preferredHue}`,
       `base=${stylePackId}`,
       "layout=chart-first cards tables process",
@@ -185,12 +204,19 @@ export function buildAiPptGenerateDeckPayload(
       stylePackId,
       visualRhythm: "clean",
       densityTarget: "medium",
-      mediaPolicy: "balanced",
+      mediaPolicy: state.mediaPolicy,
       layoutDiversity: "varied",
       colorIntent,
       constraints,
-      paletteOverride: paletteOption.palette
+      paletteOverride: paletteOption.palette,
+      fontOverride,
+      referencePolicy: state.referencePolicy
     },
+    visualPlanPolicy: {
+      mediaPolicy: state.mediaPolicy
+    },
+    referencePolicy: state.referencePolicy,
+    referenceFileIds,
     references: referenceFileIds.map((fileId) => ({ fileId })),
     designReferences: [],
     referenceKeywords: [],
@@ -215,12 +241,54 @@ export function getAiPptWizardValidationMessage(
   return "";
 }
 
+export function buildAiPptAdvisorSuggestions(
+  state: AiPptWizardState
+): AiPptAdvisorSuggestion[] {
+  const suggestions: AiPptAdvisorSuggestion[] = [];
+  if (parsePositiveInteger(state.duration, 10) <= 3 && !state.slides.trim()) {
+    suggestions.push({
+      field: "slides",
+      label: "3분 발표용 4장 구성",
+      reason: "짧은 발표는 표지, 문제, 해결, 요약으로 압축하면 안정적입니다.",
+      value: "4"
+    });
+  }
+  if (state.mediaPolicy !== "minimal") {
+    suggestions.push({
+      field: "mediaPolicy",
+      label: "이미지 최소화 우선",
+      reason: "2차 MVP에서는 실제 이미지 검색/생성보다 도형 기반 visual plan이 안정적입니다.",
+      value: "minimal"
+    });
+  }
+  if (!state.fontMood.trim()) {
+    suggestions.push({
+      field: "fontMood",
+      label: "신뢰감 있는 한글 고딕",
+      reason: "폰트 요청이 비어 있으면 전문적인 고딕 계열을 기본 추천합니다.",
+      value: "professional trustworthy Korean sans font"
+    });
+  }
+  if (state.referencePolicy === "research-first") {
+    suggestions.push({
+      field: "referencePolicy",
+      label: "참고자료 우선으로 조정",
+      reason: "웹 리서치 자동화 전에는 참고자료 우선 정책이 더 예측 가능합니다.",
+      value: "references-first"
+    });
+  }
+  return suggestions.slice(0, 3);
+}
+
 export function AiPptMockupPage() {
   const [currentStep, setCurrentStep] = useState<StepId>("brief");
   const [form, setForm] = useState(initialState);
   const [paletteOptions, setPaletteOptions] = useState(fallbackPaletteOptions);
   const [selectedPaletteId, setSelectedPaletteId] = useState(
     fallbackPaletteOptions[0].optionId
+  );
+  const [selectedFontId, setSelectedFontId] = useState(
+    recommendGenerateDeckFonts(initialState.fontMood)[0].fontId
   );
   const [referenceFiles, setReferenceFiles] = useState<File[]>([]);
   const [status, setStatus] = useState("");
@@ -240,10 +308,21 @@ export function AiPptMockupPage() {
   const selectedPalette =
     paletteOptions.find((palette) => palette.optionId === selectedPaletteId) ??
     paletteOptions[0];
-  const payloadPreview = useMemo(
-    () => buildAiPptGenerateDeckPayload(form, selectedPalette),
-    [form, selectedPalette]
+  const fontOptions = useMemo(
+    () => recommendGenerateDeckFonts(fontSource(form)),
+    [form.fontMood, form.colorMood, form.tone]
   );
+  const selectedFont =
+    fontOptions.find((font) => font.fontId === selectedFontId) ?? fontOptions[0];
+  const payloadPreview = useMemo(
+    () => buildAiPptGenerateDeckPayload(form, selectedPalette, [], selectedFont),
+    [form, selectedPalette, selectedFont]
+  );
+
+  useEffect(() => {
+    if (fontOptions.some((font) => font.fontId === selectedFontId)) return;
+    setSelectedFontId(fontOptions[0].fontId);
+  }, [fontOptions, selectedFontId]);
 
   useEffect(() => {
     if (currentStep !== "color") return;
@@ -330,7 +409,12 @@ export function AiPptMockupPage() {
           headers: { "content-type": "application/json" },
           credentials: "include",
           body: JSON.stringify(
-            buildAiPptGenerateDeckPayload(form, selectedPalette, referenceFileIds)
+            buildAiPptGenerateDeckPayload(
+              form,
+              selectedPalette,
+              referenceFileIds,
+              selectedFont
+            )
           )
         }
       );
@@ -401,10 +485,17 @@ export function AiPptMockupPage() {
               <BriefStep form={form} onChange={updateForm} />
             ) : null}
             {currentStep === "style" ? (
-              <StyleStep form={form} onChange={updateForm} />
+              <StyleStep
+                fontOptions={fontOptions}
+                form={form}
+                onChange={updateForm}
+                onFontSelect={setSelectedFontId}
+                selectedFontId={selectedFont.fontId}
+              />
             ) : null}
             {currentStep === "color" ? (
               <ColorStep
+                selectedFont={selectedFont}
                 isLoading={isLoadingColors}
                 options={paletteOptions}
                 selectedPaletteId={selectedPalette.optionId}
@@ -424,6 +515,7 @@ export function AiPptMockupPage() {
               <ReviewStep
                 payload={payloadPreview}
                 referenceFiles={referenceFiles}
+                selectedFont={selectedFont}
                 selectedPalette={selectedPalette}
               />
             ) : null}
@@ -431,6 +523,7 @@ export function AiPptMockupPage() {
               <PreviewStep
                 job={job}
                 payload={payloadPreview}
+                selectedFont={selectedFont}
                 selectedPalette={selectedPalette}
               />
             ) : null}
@@ -439,7 +532,12 @@ export function AiPptMockupPage() {
           </section>
 
           <aside className="ai-ppt-live-preview">
-            <LivePreview payload={payloadPreview} selectedPalette={selectedPalette} />
+            <LivePreview
+              payload={payloadPreview}
+              selectedFont={selectedFont}
+              selectedPalette={selectedPalette}
+            />
+            <AdvisorPanel form={form} onApply={updateForm} />
           </aside>
         </main>
       </div>
@@ -510,11 +608,14 @@ function BriefStep(props: {
 }
 
 function StyleStep(props: {
+  fontOptions: GenerateDeckFontOption[];
   form: AiPptWizardState;
   onChange: <K extends keyof AiPptWizardState>(
     key: K,
     value: AiPptWizardState[K]
   ) => void;
+  onFontSelect: (fontId: string) => void;
+  selectedFontId: string;
 }) {
   const tones: Tone[] = ["professional", "friendly", "confident", "concise"];
   return (
@@ -542,6 +643,32 @@ function StyleStep(props: {
           onChange={(event) => props.onChange("colorMood", event.target.value)}
         />
       </label>
+      <label className="ai-ppt-textarea">
+        <span>Font mood</span>
+        <textarea
+          value={props.form.fontMood}
+          onChange={(event) => props.onChange("fontMood", event.target.value)}
+        />
+      </label>
+      <div className="ai-ppt-font-grid">
+        {props.fontOptions.map((font) => (
+          <button
+            key={font.fontId}
+            className={props.selectedFontId === font.fontId ? "selected" : ""}
+            type="button"
+            onClick={() => props.onFontSelect(font.fontId)}
+          >
+            <strong style={{ fontFamily: font.headingFontFamily }}>
+              {font.name}
+            </strong>
+            <span style={{ fontFamily: font.bodyFontFamily }}>
+              Brandlogy 발표 자료
+            </span>
+            <small>{font.rationale}</small>
+            <em>{font.license}</em>
+          </button>
+        ))}
+      </div>
     </>
   );
 }
@@ -549,6 +676,7 @@ function StyleStep(props: {
 function ColorStep(props: {
   isLoading: boolean;
   options: PaletteOption[];
+  selectedFont: GenerateDeckFontOption;
   selectedPaletteId: string;
   onRefresh: () => void;
   onSelect: (paletteId: string) => void;
@@ -574,7 +702,7 @@ function ColorStep(props: {
             type="button"
             onClick={() => props.onSelect(option.optionId)}
           >
-            <MiniSlide palette={option.palette} />
+            <MiniSlide font={props.selectedFont} palette={option.palette} />
             <strong>{option.name}</strong>
             <span>{option.rationale}</span>
             <ColorSwatches palette={option.palette} />
@@ -616,6 +744,23 @@ function ReferencesStep(props: {
       </label>
       <div className="ai-ppt-choice-list">
         {[
+          ["minimal", "이미지 최소화"],
+          ["provided-only", "첨부 이미지만"],
+          ["public-assets", "공개 이미지 구조"],
+          ["ai-generated", "AI 이미지 구조"]
+        ].map(([value, label]) => (
+          <button
+            key={value}
+            className={props.form.mediaPolicy === value ? "selected" : ""}
+            type="button"
+            onClick={() => props.onChange("mediaPolicy", value as MediaPolicy)}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      <div className="ai-ppt-choice-list">
+        {[
           ["topic-only", "입력한 주제 중심"],
           ["references-first", "참고자료 우선"],
           ["references-only", "참고자료만 사용"]
@@ -639,6 +784,7 @@ function ReferencesStep(props: {
 function ReviewStep(props: {
   payload: GenerateDeckRequest;
   referenceFiles: File[];
+  selectedFont: GenerateDeckFontOption;
   selectedPalette: PaletteOption;
 }) {
   return (
@@ -654,10 +800,12 @@ function ReviewStep(props: {
         </SummaryCard>
         <SummaryCard icon={<Palette size={18} />} title="Session Design Pack">
           <p>{stylePackId} + {props.selectedPalette.name}</p>
+          <span>{props.selectedFont.name}</span>
           <span>{props.payload.designPrompt}</span>
         </SummaryCard>
         <SummaryCard icon={<Layers3 size={18} />} title="References">
           <p>{props.payload.brief?.referencePolicy}</p>
+          <span>{props.payload.design.mediaPolicy}</span>
           <span>{props.referenceFiles.length} files selected</span>
         </SummaryCard>
       </div>
@@ -669,6 +817,7 @@ function ReviewStep(props: {
 function PreviewStep(props: {
   job: Job | null;
   payload: GenerateDeckRequest;
+  selectedFont: GenerateDeckFontOption;
   selectedPalette: PaletteOption;
 }) {
   return (
@@ -688,7 +837,11 @@ function PreviewStep(props: {
       <div className="ai-ppt-slide-grid">
         {["Cover", "Why change", "Design Pack", "Pipeline"].map((title, index) => (
           <article key={title}>
-            <MiniSlide palette={props.selectedPalette.palette} dense={index > 0} />
+            <MiniSlide
+              dense={index > 0}
+              font={props.selectedFont}
+              palette={props.selectedPalette.palette}
+            />
             <strong>{index + 1}. {title}</strong>
             <span>{index === 0 ? props.payload.topic : generationStages[index]}</span>
           </article>
@@ -700,15 +853,16 @@ function PreviewStep(props: {
 
 function LivePreview(props: {
   payload: GenerateDeckRequest;
+  selectedFont: GenerateDeckFontOption;
   selectedPalette: PaletteOption;
 }) {
   return (
     <div className="ai-ppt-preview-card">
       <div className="ai-ppt-preview-top">
         <span>Live Preview</span>
-        <strong>{props.selectedPalette.name}</strong>
+        <strong>{props.selectedPalette.name} · {props.selectedFont.name}</strong>
       </div>
-      <MiniSlide palette={props.selectedPalette.palette} />
+      <MiniSlide font={props.selectedFont} palette={props.selectedPalette.palette} />
       <div className="ai-ppt-pipeline">
         {generationStages.map((stage, index) => (
           <div key={stage}>
@@ -721,7 +875,56 @@ function LivePreview(props: {
   );
 }
 
-function MiniSlide(props: { dense?: boolean; palette: Required<PaletteOverride> }) {
+function AdvisorPanel(props: {
+  form: AiPptWizardState;
+  onApply: <K extends keyof AiPptWizardState>(
+    key: K,
+    value: AiPptWizardState[K]
+  ) => void;
+}) {
+  const [question, setQuestion] = useState("");
+  const suggestions = useMemo(
+    () => buildAiPptAdvisorSuggestions(props.form),
+    [props.form]
+  );
+  const response = advisorResponse(question, props.form);
+
+  return (
+    <section className="ai-ppt-advisor">
+      <div className="ai-ppt-preview-top">
+        <span>Side AI</span>
+        <strong>Decision helper</strong>
+      </div>
+      <label className="ai-ppt-advisor-input">
+        <span>Ask</span>
+        <textarea
+          value={question}
+          onChange={(event) => setQuestion(event.target.value)}
+          placeholder="폰트, 이미지 정책, 발표 시간에 대해 물어보기"
+        />
+      </label>
+      <p>{response}</p>
+      {suggestions.map((suggestion) => (
+        <button
+          key={`${suggestion.field}-${String(suggestion.value)}`}
+          type="button"
+          onClick={() =>
+            props.onApply(suggestion.field, suggestion.value as never)
+          }
+        >
+          <strong>{suggestion.label}</strong>
+          <span>{suggestion.reason}</span>
+        </button>
+      ))}
+    </section>
+  );
+}
+
+function MiniSlide(props: {
+  dense?: boolean;
+  font?: GenerateDeckFontOption;
+  palette: Required<PaletteOverride>;
+}) {
   const { palette } = props;
   return (
     <div
@@ -732,7 +935,8 @@ function MiniSlide(props: { dense?: boolean; palette: Required<PaletteOverride> 
       style={{
         background: palette.background,
         color: palette.text,
-        borderColor: palette.border
+        borderColor: palette.border,
+        fontFamily: props.font?.bodyFontFamily
       }}
     >
       <i className="ai-ppt-mini-top-rule" style={{ background: palette.primary }} />
@@ -986,6 +1190,45 @@ function colorSource(state: AiPptWizardState) {
   ]
     .join(" ")
     .toLowerCase();
+}
+
+function fontSource(state: AiPptWizardState) {
+  return [
+    state.topic,
+    state.presentationType,
+    state.audience,
+    state.tone,
+    state.fontMood
+  ].join(" ");
+}
+
+function fontOverrideFromOption(option: GenerateDeckFontOption) {
+  return {
+    fontId: option.fontId,
+    name: option.name,
+    headingFontFamily: option.headingFontFamily,
+    bodyFontFamily: option.bodyFontFamily,
+    fallbackFamily: option.fallbackFamily,
+    weights: option.weights,
+    supportsKorean: option.supportsKorean,
+    pptxEmbeddable: option.pptxEmbeddable,
+    moodTags: option.moodTags,
+    license: option.license,
+    sourceUrl: option.sourceUrl
+  };
+}
+
+function advisorResponse(question: string, state: AiPptWizardState) {
+  if (!question.trim()) {
+    return "현재 brief 기준으로 적용 가능한 제안을 아래에 정리했습니다.";
+  }
+  if (hasAny(question.toLocaleLowerCase("ko-KR"), ["font", "폰트", "글꼴"])) {
+    return `${state.fontMood || "전문적인 한글 고딕"} 기준으로 후보 3개를 다시 추천합니다. 마음에 드는 카드를 선택하면 payload에 반영됩니다.`;
+  }
+  if (hasAny(question.toLocaleLowerCase("ko-KR"), ["image", "이미지", "사진"])) {
+    return `현재 이미지 정책은 ${state.mediaPolicy}입니다. 2차 MVP에서는 minimal 또는 provided-only가 가장 예측 가능합니다.`;
+  }
+  return "발표 시간, 청중, 참고자료 정책을 기준으로 적용 가능한 제안을 아래에 표시했습니다.";
 }
 
 function hasAny(source: string, keywords: string[]) {

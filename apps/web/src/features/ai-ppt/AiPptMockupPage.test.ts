@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  buildAiPptAdvisorSuggestions,
   buildAiPptGenerateDeckPayload,
   getAiPptWizardValidationMessage,
   pollJob,
@@ -40,6 +41,8 @@ describe("AI PPT wizard payload", () => {
         slides: "8",
         tone: "professional",
         colorMood: "calm blue",
+        fontMood: "professional Korean sans",
+        mediaPolicy: "minimal",
         referencePolicy: "references-first"
       },
       palette,
@@ -80,7 +83,16 @@ describe("AI PPT wizard payload", () => {
       references: [{ fileId: "file_reference_1" }]
     });
     expect(payload.designPrompt).toContain("base=brandlogy-modern");
+    expect(payload.designPrompt).toContain("font=Pretendard");
     expect(payload.designPrompt).toContain("output=Deck JSON first");
+    expect(payload.design.fontOverride).toMatchObject({
+      fontId: "pretendard",
+      bodyFontFamily: "Pretendard"
+    });
+    expect(payload.design.mediaPolicy).toBe("minimal");
+    expect(payload.visualPlanPolicy).toEqual({ mediaPolicy: "minimal" });
+    expect(payload.referencePolicy).toBe("references-first");
+    expect(payload.referenceFileIds).toEqual(["file_reference_1"]);
   });
 
   it("derives design-pack constraints and slide count from natural language intent", () => {
@@ -96,6 +108,8 @@ describe("AI PPT wizard payload", () => {
         slides: "",
         tone: "professional",
         colorMood: "흰 색 배경, 사용자들에게 신뢰를 줄 수 있는 포인트 색상. 그라데이션 금지, 파스텔톤 금지",
+        fontMood: "formal trustworthy Korean sans",
+        mediaPolicy: "minimal",
         referencePolicy: "topic-only"
       },
       palette
@@ -128,10 +142,38 @@ describe("AI PPT wizard payload", () => {
       slides: "6",
       tone: "professional",
       colorMood: "blue",
+      fontMood: "professional Korean sans",
+      mediaPolicy: "minimal",
       referencePolicy: "references-only"
     });
 
     expect(message).toBe("참고자료만으로 구성하려면 파일을 1개 이상 첨부하세요.");
+  });
+
+  it("builds side advisor suggestions without mutating the form", () => {
+    const form = {
+      topic: "Short deck",
+      purpose: "planning",
+      context: "review",
+      audience: "team",
+      presentationType: "proposal",
+      successCriteria: "alignment",
+      duration: "3",
+      slides: "",
+      tone: "professional" as const,
+      colorMood: "blue",
+      fontMood: "professional Korean sans",
+      mediaPolicy: "minimal" as const,
+      referencePolicy: "references-first" as const
+    };
+
+    const suggestions = buildAiPptAdvisorSuggestions(form);
+
+    expect(suggestions[0]).toMatchObject({
+      field: "slides",
+      value: "4"
+    });
+    expect(form.slides).toBe("");
   });
 
   it("polls generated deck jobs through the existing job route", async () => {

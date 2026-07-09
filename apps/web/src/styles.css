@@ -1408,6 +1408,7 @@ button:disabled {
 }
 
 .ai-ppt-palette-grid,
+.ai-ppt-font-grid,
 .ai-ppt-slide-grid,
 .ai-ppt-review-grid {
   display: grid;
@@ -1416,6 +1417,7 @@ button:disabled {
 }
 
 .ai-ppt-palette-grid button,
+.ai-ppt-font-grid button,
 .ai-ppt-slide-grid article,
 .ai-ppt-summary-card {
   background: #f8fafc;
@@ -1432,7 +1434,13 @@ button:disabled {
   box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
 }
 
+.ai-ppt-font-grid button.selected {
+  background: #eff6ff;
+  border-color: #2563eb;
+}
+
 .ai-ppt-palette-grid strong,
+.ai-ppt-font-grid strong,
 .ai-ppt-slide-grid strong,
 .ai-ppt-summary-card strong {
   color: #0f172a;
@@ -1441,6 +1449,9 @@ button:disabled {
 }
 
 .ai-ppt-palette-grid span,
+.ai-ppt-font-grid span,
+.ai-ppt-font-grid small,
+.ai-ppt-font-grid em,
 .ai-ppt-slide-grid span,
 .ai-ppt-summary-card span,
 .ai-ppt-summary-card p {
@@ -1449,6 +1460,10 @@ button:disabled {
   font-weight: 700;
   line-height: 1.45;
   margin: 0;
+}
+
+.ai-ppt-font-grid em {
+  font-style: normal;
 }
 
 .ai-ppt-mini-slide {
@@ -1786,6 +1801,65 @@ button:disabled {
   margin: 0;
 }
 
+.ai-ppt-advisor {
+  background: #ffffff;
+  border: 1px solid #dbe3ef;
+  border-radius: 8px;
+  display: grid;
+  gap: 12px;
+  margin-top: 14px;
+  padding: 14px;
+}
+
+.ai-ppt-advisor-input {
+  display: grid;
+  gap: 6px;
+}
+
+.ai-ppt-advisor-input span {
+  color: #64748b;
+  font-size: 0.72rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.ai-ppt-advisor-input textarea {
+  border: 1px solid #dbe3ef;
+  border-radius: 8px;
+  min-height: 72px;
+  padding: 10px;
+  resize: vertical;
+}
+
+.ai-ppt-advisor p {
+  color: #334155;
+  font-size: 0.82rem;
+  font-weight: 700;
+  line-height: 1.45;
+  margin: 0;
+}
+
+.ai-ppt-advisor button {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  display: grid;
+  gap: 4px;
+  padding: 10px;
+  text-align: left;
+}
+
+.ai-ppt-advisor button strong {
+  color: #0f172a;
+  font-size: 0.84rem;
+}
+
+.ai-ppt-advisor button span {
+  color: #64748b;
+  font-size: 0.76rem;
+  line-height: 1.4;
+}
+
 @media (max-width: 1180px) {
   .ai-ppt-layout,
   .ai-ppt-workspace {
@@ -1823,6 +1897,7 @@ button:disabled {
   .ai-ppt-field-grid,
   .ai-ppt-tone-grid,
   .ai-ppt-choice-list,
+  .ai-ppt-font-grid,
   .ai-ppt-palette-grid,
   .ai-ppt-slide-grid,
   .ai-ppt-review-grid {
