@@ -123,6 +123,20 @@ type DeckValidationInput = {
             kind: "go-to-next-slide";
           };
     }>;
+    semanticCues?: Array<{
+      cueId: string;
+      slideId: string;
+      meaning: string;
+      required: boolean;
+      priority: 1 | 2 | 3;
+      candidateKeywords: string[];
+      aliases: Record<string, string[]>;
+      requiredConcepts: string[];
+      nliHypotheses: string[];
+      negativeHints?: string[];
+      targetElementIds?: string[];
+      triggerActionIds?: string[];
+    }>;
   }>;
 };
 
@@ -246,6 +260,74 @@ describe("deckSchema validation", () => {
     const result = deckSchema.parse(deck);
 
     expect(result.slides[0].actions).toEqual([]);
+  });
+
+  it("defaults slide semantic cues to an empty list", () => {
+    const result = deckSchema.parse(createValidDeck());
+
+    expect(result.slides[0].semanticCues).toEqual([]);
+  });
+
+  it("accepts semantic cues that reference slide elements and actions", () => {
+    const deck = createValidDeck();
+
+    deck.slides[0].actions = [
+      {
+        actionId: "act_1",
+        trigger: {
+          kind: "cue",
+          cue: "CAC"
+        },
+        effect: {
+          kind: "play-animation",
+          animationId: "anim_1"
+        }
+      }
+    ];
+    deck.slides[0].semanticCues = [
+      {
+        cueId: "scue_1",
+        slideId: "slide_1",
+        meaning: "CAC가 높은 원인은 초기 영업 비용입니다",
+        required: true,
+        priority: 1,
+        candidateKeywords: ["CAC", "영업 비용"],
+        aliases: {
+          CAC: ["고객 획득 비용"]
+        },
+        requiredConcepts: ["초기 영업 비용", "고객 획득 비용"],
+        nliHypotheses: ["고객 획득 비용이 초기 영업 비용 때문에 높다"],
+        negativeHints: ["CAC가 단순히 중요하다는 설명"],
+        targetElementIds: ["el_1"],
+        triggerActionIds: ["act_1"]
+      }
+    ];
+
+    const result = deckSchema.parse(deck);
+
+    expect(result.slides[0].semanticCues[0]?.nliHypotheses).toHaveLength(1);
+  });
+
+  it("rejects semantic cue references outside the same slide", () => {
+    const deck = createValidDeck();
+
+    deck.slides[0].semanticCues = [
+      {
+        cueId: "scue_1",
+        slideId: "slide_other",
+        meaning: "의미 단위",
+        required: true,
+        priority: 1,
+        candidateKeywords: ["CAC"],
+        aliases: {},
+        requiredConcepts: ["초기 영업 비용"],
+        nliHypotheses: ["CAC가 초기 영업 비용 때문에 높다"],
+        targetElementIds: ["el_missing"],
+        triggerActionIds: ["act_missing"]
+      }
+    ];
+
+    expectInvalidDeck(deck);
   });
 
   it("accepts explicit deck and slide presenter timing fields", () => {

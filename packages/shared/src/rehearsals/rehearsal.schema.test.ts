@@ -75,6 +75,29 @@ describe("rehearsalReportSchema", () => {
       fillerWordDetails: [{ word: "음", count: 2 }],
       pauseDetails: [{ startSecond: 2, endSecond: 3.5, durationSeconds: 1.5 }],
       missedKeywords: [{ slideId: "slide_1", keywordId: "kw_1", text: "ORBIT" }],
+      utteranceOutcomes: [
+        { slideId: "slide_1", kind: "covered", sentenceId: "sentence_1" },
+        { slideId: "slide_1", kind: "ad-lib", text: "짧은 추가 설명" }
+      ],
+      semanticCueDecisions: [
+        {
+          slideId: "slide_1",
+          cueId: "scue_1",
+          label: "covered",
+          finalScore: 0.91,
+          lexicalScore: 0.2,
+          conceptCoverage: 0.75,
+          entailmentScore: 0.94,
+          neutralScore: 0.05,
+          contradictionScore: 0.01,
+          premise: "처음엔 세일즈에 돈이 많이 들어 고객 한 명 데려오는 비용이 컸습니다",
+          hypothesis: "고객 획득 비용이 초기 영업 비용 때문에 높다",
+          provider: "mock",
+          modelId: "test-nli",
+          reasonCodes: ["nli-entailment"],
+          at: "2026-07-02T00:00:20.000Z"
+        }
+      ],
       slideTimings: [{ slideId: "slide_1", targetSeconds: 60, actualSeconds: 52 }],
       slideInsights: [{ slideId: "slide_1", fillerWordCount: 2, pauseCount: 1 }],
       qnaSummary: {
@@ -95,6 +118,11 @@ describe("rehearsalReportSchema", () => {
     expect(report.fillerWordDetails[0]?.word).toBe("음");
     expect(report.pauseDetails[0]?.durationSeconds).toBe(1.5);
     expect(report.missedKeywords[0]?.keywordId).toBe("kw_1");
+    expect(report.utteranceOutcomes.map((outcome) => outcome.kind)).toEqual([
+      "covered",
+      "ad-lib"
+    ]);
+    expect(report.semanticCueDecisions[0]?.cueId).toBe("scue_1");
     expect(report.slideTimings[0]?.actualSeconds).toBe(52);
     expect(report.slideInsights[0]?.fillerWordCount).toBe(2);
     expect(report.qnaSummary.questionCount).toBe(1);
@@ -106,6 +134,8 @@ describe("rehearsalReportSchema", () => {
 
     expect(report.speedSamples).toEqual([]);
     expect(report.missedKeywords).toEqual([]);
+    expect(report.utteranceOutcomes).toEqual([]);
+    expect(report.semanticCueDecisions).toEqual([]);
     expect(report.slideTimings).toEqual([]);
     expect(report.slideInsights).toEqual([]);
     expect(report.qnaSummary).toEqual({
@@ -338,6 +368,33 @@ describe("rehearsalRunMetaSchema", () => {
     ]);
   });
 
+  it("accepts bounded semantic cue NLI evidence", () => {
+    const meta = rehearsalRunMetaSchema.parse({
+      semanticCueDecisions: [
+        {
+          slideId: "slide_1",
+          cueId: "scue_1",
+          label: "covered",
+          finalScore: 0.9,
+          embeddingScore: 0.72,
+          lexicalScore: 0.1,
+          conceptCoverage: 0.66,
+          entailmentScore: 0.93,
+          neutralScore: 0.06,
+          contradictionScore: 0.01,
+          premise: "처음엔 세일즈에 돈이 많이 들어 고객 한 명 데려오는 비용이 컸습니다",
+          hypothesis: "고객 획득 비용이 초기 영업 비용 때문에 높다",
+          provider: "mock",
+          modelId: "test-nli",
+          reasonCodes: ["ad-lib-candidate", "nli-entailment"],
+          at: "2026-07-02T00:00:30.000Z"
+        }
+      ]
+    });
+
+    expect(meta.semanticCueDecisions[0]?.label).toBe("covered");
+  });
+
   it("defaults utterance outcomes to an empty list for existing run meta payloads", () => {
     const meta = rehearsalRunMetaSchema.parse({
       slideTimeline: [],
@@ -346,6 +403,26 @@ describe("rehearsalRunMetaSchema", () => {
     });
 
     expect(meta.utteranceOutcomes).toEqual([]);
+    expect(meta.semanticCueDecisions).toEqual([]);
+  });
+
+  it("rejects oversized semantic cue premise and hypothesis evidence", () => {
+    const result = rehearsalRunMetaSchema.safeParse({
+      semanticCueDecisions: [
+        {
+          slideId: "slide_1",
+          cueId: "scue_1",
+          label: "covered",
+          finalScore: 0.9,
+          premise: "가".repeat(601),
+          hypothesis: "나".repeat(301),
+          provider: "mock",
+          reasonCodes: ["nli-entailment"]
+        }
+      ]
+    });
+
+    expect(result.success).toBe(false);
   });
 
   it("rejects oversized ad-lib utterance text", () => {

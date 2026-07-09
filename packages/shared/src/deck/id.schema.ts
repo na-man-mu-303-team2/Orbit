@@ -10,6 +10,7 @@ export const deckAnimationIdSchema = createPrefixedIdSchema("anim_");
 export const deckActionIdSchema = createPrefixedIdSchema("act_");
 export const deckKeywordIdSchema = createPrefixedIdSchema("kw_");
 export const deckKeywordOccurrenceIdSchema = createPrefixedIdSchema("kwo_");
+export const deckSemanticCueIdSchema = createPrefixedIdSchema("scue_");
 export const deckChangeIdSchema = createPrefixedIdSchema("change_");
 
 export type DeckId = z.infer<typeof deckIdSchema>;
@@ -21,4 +22,5 @@ export type DeckKeywordId = z.infer<typeof deckKeywordIdSchema>;
 export type DeckKeywordOccurrenceId = z.infer<
   typeof deckKeywordOccurrenceIdSchema
 >;
+export type DeckSemanticCueId = z.infer<typeof deckSemanticCueIdSchema>;
 export type DeckChangeId = z.infer<typeof deckChangeIdSchema>;
