@@ -761,9 +761,10 @@ function ReferencesStep(props: {
       </div>
       <div className="ai-ppt-choice-list">
         {[
-          ["topic-only", "입력한 주제 중심"],
+          ["user-input-only", "사용자 입력만"],
           ["references-first", "참고자료 우선"],
-          ["references-only", "참고자료만 사용"]
+          ["references-only", "참고자료만 사용"],
+          ["research-first", "웹 리서치 구조"]
         ].map(([value, label]) => (
           <button
             key={value}
