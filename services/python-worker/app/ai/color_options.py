@@ -10,12 +10,33 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 HEX_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
 
 
+class DeckColorIntent(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    mood: str = "auto"
+    trust_level: str = Field(default="medium", alias="trustLevel")
+    energy_level: str = Field(default="medium", alias="energyLevel")
+    formality: str = "professional"
+    preferred_hue: str = Field(default="auto", alias="preferredHue")
+    background_preference: str = Field(default="auto", alias="backgroundPreference")
+    forbidden_styles: list[str] = Field(default_factory=list, alias="forbiddenStyles")
+
+
+class DeckDesignConstraints(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    canvas_background: str = Field(default="auto", alias="canvasBackground")
+    forbidden_styles: list[str] = Field(default_factory=list, alias="forbiddenStyles")
+
+
 class DeckColorOptionsRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True, str_strip_whitespace=True)
 
     topic: str = Field(min_length=1)
     color_mood: str = Field(default="", alias="colorMood")
     style_pack_id: str = Field(default="brandlogy-modern", alias="stylePackId")
+    color_intent: DeckColorIntent | None = Field(default=None, alias="colorIntent")
+    constraints: DeckDesignConstraints | None = None
 
 
 class DeckColorPalette(BaseModel):
@@ -231,18 +252,20 @@ def generate_color_options_with_llm(
         instructions=(
             "Return exactly three accessible color palette options for a 16:9 PPT. "
             "Use #RRGGBB colors only. Ensure text has at least 4.5 contrast against "
-            "background and surface."
+            "background and surface. Treat colorIntent and constraints as hard rules."
         ),
         input=(
             f"Topic: {request.topic}\n"
             f"Color mood: {request.color_mood or '(auto)'}\n"
-            f"Style pack: {request.style_pack_id}"
+            f"Style pack: {request.style_pack_id}\n"
+            f"Color intent: {request.color_intent.model_dump(by_alias=True) if request.color_intent else {}}\n"
+            f"Constraints: {request.constraints.model_dump(by_alias=True) if request.constraints else {}}"
         ),
         text=COLOR_OPTION_RESPONSE_FORMAT,
     )
     payload = json.loads(str(getattr(response, "output_text", "")).strip())
     parsed = DeckColorOptionsResponse.model_validate(payload)
-    return ensure_accessible_options(parsed)
+    return ensure_accessible_options(parsed, request)
 
 
 def fallback_color_options(
@@ -251,7 +274,7 @@ def fallback_color_options(
     source = f"{request.topic} {request.color_mood}".casefold()
     ranked = sorted(
         FALLBACK_PALETTES,
-        key=lambda item: keyword_score(source, item["keywords"]),
+        key=lambda item: palette_score(request, source, item),
         reverse=True,
     )
     selected: list[dict[str, Any]] = []
@@ -260,19 +283,41 @@ def fallback_color_options(
             break
         selected.append({key: value for key, value in item.items() if key != "keywords"})
     response = DeckColorOptionsResponse.model_validate({"options": selected})
-    return ensure_accessible_options(response)
+    return ensure_accessible_options(response, request)
 
 
 def keyword_score(source: str, keywords: tuple[str, ...]) -> int:
     return sum(1 for keyword in keywords if keyword.casefold() in source)
 
 
+def palette_score(
+    request: DeckColorOptionsRequest,
+    source: str,
+    item: dict[str, Any],
+) -> int:
+    score = keyword_score(source, item["keywords"])
+    intent = request.color_intent
+    if intent is None:
+        return score
+    intent_source = " ".join(
+        [
+            intent.mood,
+            intent.formality,
+            intent.preferred_hue,
+            intent.background_preference,
+        ]
+    ).casefold()
+    return score + keyword_score(intent_source, item["keywords"]) * 2
+
+
 def ensure_accessible_options(
     response: DeckColorOptionsResponse,
+    request: DeckColorOptionsRequest,
 ) -> DeckColorOptionsResponse:
     options: list[DeckColorOption] = []
     for option in response.options:
         palette = option.palette.model_dump(by_alias=True)
+        apply_color_constraints(palette, request)
         palette["text"] = accessible_text_color(
             palette["background"],
             palette["text"],
@@ -281,6 +326,33 @@ def ensure_accessible_options(
         option_payload["palette"] = palette
         options.append(DeckColorOption.model_validate(option_payload))
     return DeckColorOptionsResponse(options=options)
+
+
+def apply_color_constraints(
+    palette: dict[str, str],
+    request: DeckColorOptionsRequest,
+) -> None:
+    constraints = request.constraints or DeckDesignConstraints()
+    intent = request.color_intent
+    forbidden_styles = set(constraints.forbidden_styles)
+    if intent:
+        forbidden_styles.update(intent.forbidden_styles)
+
+    wants_white = constraints.canvas_background == "white" or (
+        intent is not None and intent.background_preference == "white"
+    )
+    if wants_white:
+        palette["background"] = "#FFFFFF"
+        palette["surface"] = "#FFFFFF"
+    if "pastel" in forbidden_styles:
+        for key, replacement in (
+            ("background", "#FFFFFF" if wants_white else "#F8FAFC"),
+            ("surface", "#FFFFFF"),
+            ("muted", "#F3F4F6"),
+            ("border", "#D1D5DB"),
+        ):
+            if key in palette and (is_pastel_hex(palette[key]) or key in {"muted", "border"}):
+                palette[key] = replacement
 
 
 def accessible_text_color(background: str, proposed: str) -> str:
@@ -306,3 +378,16 @@ def relative_luminance(color: str) -> float:
         for value in values
     ]
     return 0.2126 * channels[0] + 0.7152 * channels[1] + 0.0722 * channels[2]
+
+
+def is_pastel_hex(color: str) -> bool:
+    if not HEX_RE.match(color):
+        return False
+    red = int(color[1:3], 16) / 255
+    green = int(color[3:5], 16) / 255
+    blue = int(color[5:7], 16) / 255
+    high = max(red, green, blue)
+    low = min(red, green, blue)
+    lightness = (high + low) / 2
+    saturation = 0 if high == low else (high - low) / (1 - abs(2 * lightness - 1))
+    return lightness >= 0.82 and saturation >= 0.12 and color.upper() != "#FFFFFF"

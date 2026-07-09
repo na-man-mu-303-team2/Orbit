@@ -27,6 +27,34 @@ MediaPolicy = Literal["avoid", "balanced", "placeholder-ok"]
 LayoutDiversity = Literal["stable", "varied"]
 ImageReviewMode = Literal["auto", "off"]
 ReferencePolicy = Literal["topic-only", "references-first", "references-only"]
+GenerationMode = Literal["legacy", "design-pack"]
+ForbiddenStyle = Literal["gradient", "pastel"]
+CanvasBackground = Literal["auto", "white"]
+ColorMood = Literal[
+    "auto",
+    "calm",
+    "trustworthy",
+    "relaxed",
+    "energetic",
+    "premium",
+    "creative",
+]
+ColorLevel = Literal["low", "medium", "high"]
+ColorFormality = Literal["casual", "professional", "formal"]
+PreferredHue = Literal[
+    "auto",
+    "blue",
+    "teal",
+    "green",
+    "violet",
+    "pink",
+    "orange",
+    "red",
+    "yellow",
+    "slate",
+    "monochrome",
+]
+BackgroundPreference = Literal["auto", "white", "light", "dark"]
 DesignProfile = Literal[
     "executive-report",
     "startup-pitch",
@@ -127,6 +155,34 @@ class PaletteOverride(BaseModel):
     accent_color: str | None = Field(default=None, alias="accentColor")
 
 
+class ColorIntent(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    mood: ColorMood = "auto"
+    trust_level: ColorLevel = Field(default="medium", alias="trustLevel")
+    energy_level: ColorLevel = Field(default="medium", alias="energyLevel")
+    formality: ColorFormality = "professional"
+    preferred_hue: PreferredHue = Field(default="auto", alias="preferredHue")
+    background_preference: BackgroundPreference = Field(
+        default="auto",
+        alias="backgroundPreference",
+    )
+    forbidden_styles: list[ForbiddenStyle] = Field(
+        default_factory=list,
+        alias="forbiddenStyles",
+    )
+
+
+class DesignConstraints(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    canvas_background: CanvasBackground = Field(default="auto", alias="canvasBackground")
+    forbidden_styles: list[ForbiddenStyle] = Field(
+        default_factory=list,
+        alias="forbiddenStyles",
+    )
+
+
 class DesignOptions(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
@@ -140,6 +196,8 @@ class DesignOptions(BaseModel):
         default="stable",
         alias="layoutDiversity",
     )
+    color_intent: ColorIntent | None = Field(default=None, alias="colorIntent")
+    constraints: DesignConstraints | None = None
     palette_override: PaletteOverride | None = Field(
         default=None,
         alias="paletteOverride",
@@ -160,6 +218,7 @@ class SlideCountRange(BaseModel):
 class GenerateDeckRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
+    generation_mode: GenerationMode = Field(default="legacy", alias="generationMode")
     project_id: str = Field(alias="projectId", min_length=1)
     topic: str = Field(min_length=1)
     prompt: str = ""
@@ -207,6 +266,7 @@ class GenerateDeckRequest(BaseModel):
 
 class RawInput(BaseModel):
     project_id: str
+    generation_mode: GenerationMode = "legacy"
     topic: str
     prompt: str
     design_prompt: str = ""
@@ -1581,10 +1641,14 @@ class DeckGenerationOrchestrator:
         template_selection = template_selection_for_slide_plans(raw_input, slide_plans)
         slides = self.run_layout_agent(raw_input, slide_plans, theme, template_selection)
         deck = self.build_deck(raw_input, outline, theme, slides)
+        deck = enforce_design_pack_constraints(deck, raw_input)
         self.run_chart_data_agent(deck)
         self.run_media_agent(deck)
         reviewer_validation = self.run_quality_reviewer_agent(deck)
         deck, validation = self.run_refiner_agent(deck, reviewer_validation)
+        if raw_input.generation_mode == "design-pack":
+            deck = enforce_design_pack_constraints(deck, raw_input)
+            deck, validation = validate_and_patch(deck)
         warnings = unique_warnings(
             [
                 *generation_warnings(raw_input, len(slides), validation),
@@ -1942,6 +2006,7 @@ def analyze_input(
     )
     return RawInput(
         project_id=request.project_id,
+        generation_mode=request.generation_mode,
         topic=request.topic.strip(),
         prompt=prompt,
         design_prompt=design_prompt,
@@ -3154,6 +3219,128 @@ def relative_luminance(color: str) -> float:
         for value in values
     ]
     return 0.2126 * channels[0] + 0.7152 * channels[1] + 0.0722 * channels[2]
+
+
+def enforce_design_pack_constraints(
+    deck: dict[str, Any],
+    raw_input: RawInput,
+) -> dict[str, Any]:
+    if raw_input.generation_mode != "design-pack":
+        return deck
+
+    constraints = raw_input.design.constraints or DesignConstraints()
+    color_intent = raw_input.design.color_intent
+    wants_white = constraints.canvas_background == "white" or (
+        color_intent is not None
+        and color_intent.background_preference == "white"
+    )
+    forbidden_styles = design_pack_forbidden_styles(raw_input)
+
+    if wants_white:
+        enforce_white_canvas(deck)
+    if "pastel" in forbidden_styles:
+        neutralize_pastel_surfaces(deck)
+    if "gradient" in forbidden_styles:
+        remove_gradient_props(deck)
+
+    return deck
+
+
+def design_pack_forbidden_styles(raw_input: RawInput) -> set[ForbiddenStyle]:
+    styles: set[ForbiddenStyle] = set()
+    if raw_input.design.constraints:
+        styles.update(raw_input.design.constraints.forbidden_styles)
+    if raw_input.design.color_intent:
+        styles.update(raw_input.design.color_intent.forbidden_styles)
+    return styles
+
+
+def enforce_white_canvas(deck: dict[str, Any]) -> None:
+    theme = deck.setdefault("theme", {})
+    palette = theme.setdefault("palette", {})
+    theme["backgroundColor"] = "#FFFFFF"
+    if contrast_ratio("#FFFFFF", str(theme.get("textColor", "#111827"))) < 4.5:
+        theme["textColor"] = "#111827"
+    palette["surface"] = "#FFFFFF"
+    palette["muted"] = neutral_surface()
+    palette["border"] = "#D1D5DB"
+
+    for slide in deck.get("slides", []):
+        style = slide.setdefault("style", {})
+        style["backgroundColor"] = "#FFFFFF"
+        for element in slide.get("elements", []):
+            if is_canvas_background_element(element):
+                props = element.setdefault("props", {})
+                props["fill"] = "#FFFFFF"
+                props["stroke"] = "transparent"
+
+
+def neutralize_pastel_surfaces(deck: dict[str, Any]) -> None:
+    theme = deck.setdefault("theme", {})
+    palette = theme.setdefault("palette", {})
+    for key, replacement in (("muted", neutral_surface()), ("border", "#D1D5DB")):
+        if is_pastel_hex(str(palette.get(key, ""))):
+            palette[key] = replacement
+
+    for slide in deck.get("slides", []):
+        for element in slide.get("elements", []):
+            props = element.get("props", {})
+            fill = props.get("fill")
+            if is_pastel_hex(str(fill)) and covers_large_area(element):
+                props["fill"] = neutral_surface()
+
+
+def remove_gradient_props(value: Any) -> None:
+    if isinstance(value, list):
+        for item in value:
+            remove_gradient_props(item)
+        return
+    if not isinstance(value, dict):
+        return
+
+    for key in list(value.keys()):
+        item = value[key]
+        if "gradient" in key.lower():
+            del value[key]
+            continue
+        if isinstance(item, str) and "gradient(" in item.lower():
+            value[key] = neutral_surface()
+            continue
+        remove_gradient_props(item)
+
+
+def is_canvas_background_element(element: dict[str, Any]) -> bool:
+    return (
+        element.get("role") == "background"
+        and float(element.get("x", 0)) <= 0
+        and float(element.get("y", 0)) <= 0
+        and float(element.get("width", 0)) >= CANVAS.width
+        and float(element.get("height", 0)) >= CANVAS.height
+    )
+
+
+def covers_large_area(element: dict[str, Any]) -> bool:
+    return (
+        float(element.get("width", 0)) * float(element.get("height", 0))
+        >= CANVAS.width * CANVAS.height * 0.2
+    )
+
+
+def is_pastel_hex(color: str) -> bool:
+    if not re.fullmatch(r"#[0-9a-fA-F]{6}", color):
+        return False
+    red = int(color[1:3], 16) / 255
+    green = int(color[3:5], 16) / 255
+    blue = int(color[5:7], 16) / 255
+    high = max(red, green, blue)
+    low = min(red, green, blue)
+    lightness = (high + low) / 2
+    saturation = 0 if high == low else (high - low) / (1 - abs(2 * lightness - 1))
+    return lightness >= 0.82 and saturation >= 0.12 and color.upper() != "#FFFFFF"
+
+
+def neutral_surface() -> str:
+    return "#F3F4F6"
 
 
 def design_profile_for(

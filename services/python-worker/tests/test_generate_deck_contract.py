@@ -313,6 +313,40 @@ def test_deck_color_options_endpoint_returns_three_fallback_options() -> None:
     )
 
 
+def test_deck_color_options_apply_intent_constraints() -> None:
+    response = client().post(
+        "/ai/deck-color-options",
+        json={
+            "topic": "Trustworthy product update",
+            "colorMood": "white background, trusted point color, no pastel",
+            "stylePackId": "brandlogy-modern",
+            "colorIntent": {
+                "mood": "trustworthy",
+                "trustLevel": "high",
+                "energyLevel": "low",
+                "formality": "professional",
+                "preferredHue": "blue",
+                "backgroundPreference": "white",
+                "forbiddenStyles": ["pastel"],
+            },
+            "constraints": {
+                "canvasBackground": "white",
+                "forbiddenStyles": ["pastel"],
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    options = response.json()["options"]
+
+    assert len(options) == 3
+    assert options[0]["optionId"] == "executive-blue"
+    assert all(option["palette"]["background"] == "#FFFFFF" for option in options)
+    assert all(option["palette"]["surface"] == "#FFFFFF" for option in options)
+    assert all(option["palette"]["muted"] == "#F3F4F6" for option in options)
+    assert all(option["palette"]["border"] == "#D1D5DB" for option in options)
+
+
 def test_export_deck_pptx_creates_pptx_binary() -> None:
     deck = {
         "deckId": "deck_ai_1",
@@ -905,6 +939,66 @@ def test_generate_deck_applies_brandlogy_style_pack_and_palette_override() -> No
     assert theme["palette"]["surface"] == "#FFFFFF"
     assert theme["palette"]["muted"] == "#E0F2FE"
     assert theme["palette"]["border"] == "#BAE6FD"
+
+
+def test_generate_deck_design_pack_enforces_background_constraints() -> None:
+    fake_client = FakeOpenAIClient(
+        {
+            "title": "Trusted update",
+            "slides": [
+                slide_payload(
+                    "Trusted product update",
+                    "White canvas and strong blue accents should drive the slide.",
+                    "Explain the trusted direction.",
+                    slide_type="title",
+                    slot_preset="title_center",
+                )
+            ],
+        }
+    )
+
+    response = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            generationMode="design-pack",
+            topic="서비스 신뢰도 개선",
+            designPrompt="흰 색 배경, 신뢰를 줄 수 있는 포인트 색상. 그라데이션 금지, 파스텔톤 금지",
+            design={
+                "stylePackId": "brandlogy-modern",
+                "colorIntent": {
+                    "mood": "trustworthy",
+                    "trustLevel": "high",
+                    "energyLevel": "low",
+                    "formality": "professional",
+                    "preferredHue": "blue",
+                    "backgroundPreference": "white",
+                    "forbiddenStyles": ["gradient", "pastel"],
+                },
+                "constraints": {
+                    "canvasBackground": "white",
+                    "forbiddenStyles": ["gradient", "pastel"],
+                },
+                "paletteOverride": {
+                    "primary": "#001F3F",
+                    "secondary": "#004080",
+                    "background": "#C5D4E1",
+                    "surface": "#FFFFFF",
+                    "muted": "#C5D4E1",
+                    "border": "#A1B3C4",
+                    "text": "#0B253D",
+                    "accentColor": "#0066CC",
+                },
+            },
+            slideCountRange={"min": 1, "max": 1},
+        ),
+        client=fake_client,
+    )
+
+    deck = response.deck
+    assert deck["theme"]["backgroundColor"] == "#FFFFFF"
+    assert deck["theme"]["palette"]["muted"] == "#F3F4F6"
+    assert deck["slides"][0]["style"]["backgroundColor"] == "#FFFFFF"
+    assert element_by_role(deck["slides"][0], "background")["props"]["fill"] == "#FFFFFF"
 
 
 def test_generate_deck_auto_selects_simple_basic_report_mode() -> None:
