@@ -466,9 +466,10 @@ describe("RehearsalWorkspace", () => {
     const stateBody = source.slice(stateStart, stateEnd);
 
     expect(commandBody).toContain('command.action === "timer-start"');
+    expect(commandBody).toContain("resumePausedRehearsal()");
     expect(commandBody).toContain("void startLiveDemo()");
     expect(commandBody).toContain('command.action === "timer-pause"');
-    expect(commandBody).toContain("stopLiveDemo()");
+    expect(commandBody).toContain("pauseActiveRehearsal()");
     expect(commandBody).toContain('command.action === "timer-reset"');
     expect(commandBody).toContain("resetRehearsalTimerState");
     expect(stateBody).toContain("timing:");
@@ -485,8 +486,9 @@ describe("RehearsalWorkspace", () => {
     const resultBody = source.slice(resultStart, partialStart);
 
     expect(errorBody).toContain("if (!p3SessionRef.current)");
-    expect(resultBody).toContain("if (!p3SessionRef.current)");
-    expect(resultBody.indexOf("if (!p3SessionRef.current)")).toBeLessThan(
+    expect(resultBody).toContain("!p3SessionRef.current");
+    expect(resultBody).toContain('rehearsalRuntimeStatusRef.current === "paused"');
+    expect(resultBody.indexOf("!p3SessionRef.current")).toBeLessThan(
       resultBody.indexOf("handleLivePartialTranscript"),
     );
   });
@@ -667,19 +669,21 @@ describe("RehearsalWorkspace", () => {
     ).toBeLessThan(handleNextPresenterStepBody.indexOf("setCurrentSlideIndex"));
   });
 
-  it("routes the top timer play button through report recording", () => {
+  it("routes the top timer play button through report recording pause and resume", () => {
     const source = fs.readFileSync(rehearsalWorkspaceSourcePath, "utf8");
     const start = source.indexOf("async function handleTimePrimaryAction");
     const end = source.indexOf("function commitElapsedTimeInput");
     const handleTimePrimaryActionBody = source.slice(start, end);
 
     expect(handleTimePrimaryActionBody).toContain("await startRecording()");
-    expect(handleTimePrimaryActionBody).toContain('if (phase === "recording")');
-    expect(handleTimePrimaryActionBody).toContain("stopRecording()");
-    expect(handleTimePrimaryActionBody).toContain("stopLiveDemo()");
+    expect(handleTimePrimaryActionBody).toContain(
+      'if (rehearsalRuntimeStatus === "paused")'
+    );
+    expect(handleTimePrimaryActionBody).toContain("await resumePausedRehearsal()");
+    expect(handleTimePrimaryActionBody).toContain("await pauseActiveRehearsal()");
   });
 
-  it("stops report recording before falling back to standalone Live STT stop", () => {
+  it("pauses report recording before falling back to standalone Live STT pause", () => {
     const source = fs.readFileSync(
       rehearsalWorkspaceSourcePath,
       "utf8"
@@ -689,9 +693,9 @@ describe("RehearsalWorkspace", () => {
     const handleSideTimerPrimaryActionBody = source.slice(start, end);
 
     expect(handleSideTimerPrimaryActionBody).toContain('if (phase === "recording")');
-    expect(handleSideTimerPrimaryActionBody).toContain("stopRecording()");
+    expect(handleSideTimerPrimaryActionBody).toContain("pauseActiveRehearsal()");
     expect(handleSideTimerPrimaryActionBody).toContain("if (canStopLiveDemo)");
-    expect(handleSideTimerPrimaryActionBody).toContain(
+    expect(handleSideTimerPrimaryActionBody).not.toContain(
       "stopLiveDemo({ showCompletionModal: true })"
     );
     expect(handleSideTimerPrimaryActionBody.indexOf('if (phase === "recording")'))
