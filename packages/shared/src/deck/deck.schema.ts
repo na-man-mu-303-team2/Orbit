@@ -171,10 +171,27 @@ export const slideSourceEvidenceSchema = z.object({
   confidence: z.number().finite().min(0).max(1).default(0.5)
 });
 
+export const slideVisualPlanSchema = z.object({
+  visualType: z.string().min(1),
+  imageNeeded: z.boolean().default(false),
+  imageSourcePolicy: z.string().min(1).default("minimal"),
+  reason: z.string().min(1)
+});
+
+export const slideSourceLedgerSchema = z.object({
+  claim: z.string().min(1),
+  source: z.string().min(1),
+  sourceType: z.enum(["topic", "uploaded", "generated", "none"]),
+  confidence: z.number().finite().min(0).max(1).default(0.5),
+  usedInSlideId: deckSlideIdSchema
+});
+
 export const slideAiNotesSchema = z
   .object({
     emphasisPoints: z.array(z.string().min(1)).default([]),
-    sourceEvidence: z.array(slideSourceEvidenceSchema).default([])
+    sourceEvidence: z.array(slideSourceEvidenceSchema).default([]),
+    visualPlan: slideVisualPlanSchema.optional(),
+    sourceLedger: z.array(slideSourceLedgerSchema).default([])
   })
   .default({});
 
@@ -320,6 +337,8 @@ export type SlideBackgroundImageFit = z.infer<
   typeof slideBackgroundImageFitSchema
 >;
 export type SlideSourceEvidence = z.infer<typeof slideSourceEvidenceSchema>;
+export type SlideVisualPlan = z.infer<typeof slideVisualPlanSchema>;
+export type SlideSourceLedger = z.infer<typeof slideSourceLedgerSchema>;
 export type SlideAiNotes = z.infer<typeof slideAiNotesSchema>;
 export type KeywordTerm = z.infer<typeof keywordTermSchema>;
 export type Keyword = z.infer<typeof keywordSchema>;

@@ -41,8 +41,20 @@ export const generateDeckMetadataSchema = z
 
 export const generateDeckReferencePolicySchema = z.enum([
   "topic-only",
+  "user-input-only",
   "references-first",
-  "references-only"
+  "references-only",
+  "research-first"
+]);
+
+export const generateDeckMediaPolicySchema = z.enum([
+  "avoid",
+  "balanced",
+  "placeholder-ok",
+  "provided-only",
+  "public-assets",
+  "ai-generated",
+  "minimal"
 ]);
 
 export const generateDeckGenerationModeSchema = z
@@ -114,6 +126,26 @@ export const generateDeckPaletteOverrideSchema = z
   })
   .partial();
 
+export const generateDeckFontOverrideSchema = z.object({
+  fontId: z.string().trim().min(1),
+  name: z.string().trim().min(1),
+  headingFontFamily: z.string().trim().min(1),
+  bodyFontFamily: z.string().trim().min(1),
+  fallbackFamily: z.string().trim().min(1).default("Arial"),
+  weights: z.array(z.number().int().positive()).default([]),
+  supportsKorean: z.boolean().default(true),
+  pptxEmbeddable: z.boolean().default(true),
+  moodTags: z.array(z.string().trim().min(1)).default([]),
+  license: z.string().trim().default(""),
+  sourceUrl: z.string().trim().default("")
+});
+
+export const generateDeckVisualPlanPolicySchema = z
+  .object({
+    mediaPolicy: generateDeckMediaPolicySchema.default("balanced")
+  })
+  .default({});
+
 export const generateDeckDesignSchema = z
   .object({
     profile: z
@@ -131,13 +163,13 @@ export const generateDeckDesignSchema = z
       .enum(["auto", "clean", "editorial", "bold", "technical"])
       .default("auto"),
     densityTarget: z.enum(["low", "medium", "high"]).default("medium"),
-    mediaPolicy: z
-      .enum(["avoid", "balanced", "placeholder-ok"])
-      .default("balanced"),
+    mediaPolicy: generateDeckMediaPolicySchema.default("balanced"),
     layoutDiversity: z.enum(["stable", "varied"]).default("stable"),
     colorIntent: generateDeckColorIntentSchema.optional(),
     constraints: generateDeckDesignConstraintsSchema.optional(),
-    paletteOverride: generateDeckPaletteOverrideSchema.optional()
+    paletteOverride: generateDeckPaletteOverrideSchema.optional(),
+    fontOverride: generateDeckFontOverrideSchema.optional(),
+    referencePolicy: generateDeckReferencePolicySchema.optional()
   })
   .default({});
 
@@ -168,6 +200,9 @@ export const generateDeckRequestSchema = z.object({
   template: generateDeckTemplateSchema.default("default"),
   metadata: generateDeckMetadataSchema,
   design: generateDeckDesignSchema,
+  visualPlanPolicy: generateDeckVisualPlanPolicySchema.optional(),
+  referencePolicy: generateDeckReferencePolicySchema.optional(),
+  referenceFileIds: z.array(z.string().min(1)).default([]),
   references: z.array(generateDeckReferenceSchema).default([]),
   designReferences: z.array(generateDeckReferenceSchema).default([]),
   templateBlueprintId: templateBlueprintIdSchema.optional(),
@@ -247,6 +282,9 @@ export type GenerateDeckMetadata = z.infer<typeof generateDeckMetadataSchema>;
 export type GenerateDeckReferencePolicy = z.infer<
   typeof generateDeckReferencePolicySchema
 >;
+export type GenerateDeckMediaPolicy = z.infer<
+  typeof generateDeckMediaPolicySchema
+>;
 export type GenerateDeckGenerationMode = z.infer<
   typeof generateDeckGenerationModeSchema
 >;
@@ -262,6 +300,12 @@ export type GenerateDeckColorIntent = z.infer<
 export type GenerateDeckBrief = z.infer<typeof generateDeckBriefSchema>;
 export type GenerateDeckPaletteOverride = z.infer<
   typeof generateDeckPaletteOverrideSchema
+>;
+export type GenerateDeckFontOverride = z.infer<
+  typeof generateDeckFontOverrideSchema
+>;
+export type GenerateDeckVisualPlanPolicy = z.infer<
+  typeof generateDeckVisualPlanPolicySchema
 >;
 export type GenerateDeckDesign = z.infer<typeof generateDeckDesignSchema>;
 export type GenerateDeckSlideCountRange = z.infer<

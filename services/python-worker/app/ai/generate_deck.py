@@ -23,10 +23,24 @@ Tone = Literal["professional", "friendly", "confident", "concise"]
 Template = Literal["default", "pitch", "report", "lesson"]
 VisualRhythm = Literal["auto", "clean", "editorial", "bold", "technical"]
 DensityTarget = Literal["low", "medium", "high"]
-MediaPolicy = Literal["avoid", "balanced", "placeholder-ok"]
+MediaPolicy = Literal[
+    "avoid",
+    "balanced",
+    "placeholder-ok",
+    "provided-only",
+    "public-assets",
+    "ai-generated",
+    "minimal",
+]
 LayoutDiversity = Literal["stable", "varied"]
 ImageReviewMode = Literal["auto", "off"]
-ReferencePolicy = Literal["topic-only", "references-first", "references-only"]
+ReferencePolicy = Literal[
+    "topic-only",
+    "user-input-only",
+    "references-first",
+    "references-only",
+    "research-first",
+]
 GenerationMode = Literal["legacy", "design-pack"]
 ForbiddenStyle = Literal["gradient", "pastel"]
 CanvasBackground = Literal["auto", "white"]
@@ -155,6 +169,28 @@ class PaletteOverride(BaseModel):
     accent_color: str | None = Field(default=None, alias="accentColor")
 
 
+class FontOverride(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, str_strip_whitespace=True)
+
+    font_id: str = Field(alias="fontId", min_length=1)
+    name: str = Field(min_length=1)
+    heading_font_family: str = Field(alias="headingFontFamily", min_length=1)
+    body_font_family: str = Field(alias="bodyFontFamily", min_length=1)
+    fallback_family: str = Field(default="Arial", alias="fallbackFamily", min_length=1)
+    weights: list[int] = Field(default_factory=list)
+    supports_korean: bool = Field(default=True, alias="supportsKorean")
+    pptx_embeddable: bool = Field(default=True, alias="pptxEmbeddable")
+    mood_tags: list[str] = Field(default_factory=list, alias="moodTags")
+    license: str = ""
+    source_url: str = Field(default="", alias="sourceUrl")
+
+
+class VisualPlanPolicy(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    media_policy: MediaPolicy = Field(default="balanced", alias="mediaPolicy")
+
+
 class ColorIntent(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
@@ -202,6 +238,8 @@ class DesignOptions(BaseModel):
         default=None,
         alias="paletteOverride",
     )
+    font_override: FontOverride | None = Field(default=None, alias="fontOverride")
+    reference_policy: ReferencePolicy | None = Field(default=None, alias="referencePolicy")
 
 
 class SlideCountRange(BaseModel):
@@ -237,6 +275,12 @@ class GenerateDeckRequest(BaseModel):
     template: Template = "default"
     metadata: GenerateDeckMetadata = Field(default_factory=GenerateDeckMetadata)
     design: DesignOptions = Field(default_factory=DesignOptions)
+    visual_plan_policy: VisualPlanPolicy | None = Field(
+        default=None,
+        alias="visualPlanPolicy",
+    )
+    reference_policy: ReferencePolicy | None = Field(default=None, alias="referencePolicy")
+    reference_file_ids: list[str] = Field(default_factory=list, alias="referenceFileIds")
     references: list[GenerateDeckReference] = Field(default_factory=list)
     design_references: list[GenerateDeckReference] = Field(
         default_factory=list,
@@ -278,6 +322,9 @@ class RawInput(BaseModel):
     template: Template
     metadata: GenerateDeckMetadata
     design: DesignOptions
+    visual_plan_policy: VisualPlanPolicy | None = None
+    reference_policy: ReferencePolicy | None = None
+    reference_file_ids: list[str] = Field(default_factory=list)
     references: list[GenerateDeckReference]
     design_references: list[GenerateDeckReference]
     reference_keywords: list[GenerateDeckReferenceKeyword]
@@ -1732,6 +1779,7 @@ class DeckGenerationOrchestrator:
             raw_input,
             slide_plans,
         )
+        theme = apply_font_override(theme, raw_input.design.font_override)
         self.record(
             "DesignDirectorAgent",
             "Selected theme and design direction.",
@@ -2006,13 +2054,22 @@ def analyze_input(
     resolved_reference_context = (
         reference_context if reference_context is not None else request.reference_context
     )
+    reference_policy = (
+        request.reference_policy
+        or request.design.reference_policy
+        or request.brief.reference_policy
+    )
+    brief = request.brief.model_copy(update={"reference_policy": reference_policy})
+    references = request.references or [
+        GenerateDeckReference(fileId=file_id) for file_id in request.reference_file_ids
+    ]
     return RawInput(
         project_id=request.project_id,
         generation_mode=request.generation_mode,
         topic=request.topic.strip(),
         prompt=prompt,
         design_prompt=design_prompt,
-        brief=request.brief,
+        brief=brief,
         target_duration_minutes=request.target_duration_minutes,
         slide_count=slide_count,
         min_slide_count=request.slide_count_range.min,
@@ -2020,7 +2077,10 @@ def analyze_input(
         template=request.template,
         metadata=request.metadata,
         design=request.design,
-        references=request.references,
+        visual_plan_policy=request.visual_plan_policy,
+        reference_policy=reference_policy,
+        reference_file_ids=request.reference_file_ids,
+        references=references,
         design_references=request.design_references,
         reference_keywords=request.reference_keywords,
         reference_context=resolved_reference_context,
@@ -2735,9 +2795,15 @@ def media_intent_for_policy(
 ) -> MediaIntent:
     if media_intent.kind == "none":
         return media_intent
+    if media_policy in {"avoid", "minimal"}:
+        return MediaIntent()
     if media_intent.kind == "provided" and media_intent.src.strip():
         return media_intent
+    if media_policy == "provided-only":
+        return MediaIntent()
     if media_policy == "placeholder-ok":
+        return media_intent
+    if media_policy in {"public-assets", "ai-generated"}:
         return media_intent
     return MediaIntent()
 
@@ -3006,6 +3072,21 @@ def direct_design(
     theme = apply_style_pack(theme, select_style_pack(raw_input, slide_plans or []))
     theme = apply_explicit_palette(theme, raw_input, slide_plans)
     return apply_palette_override(theme, raw_input.design.palette_override)
+
+
+def apply_font_override(
+    theme: dict[str, Any],
+    font_override: FontOverride | None,
+) -> dict[str, Any]:
+    if font_override is None:
+        return theme
+
+    typography = dict(theme.get("typography", {}))
+    typography["headingFontFamily"] = font_override.heading_font_family
+    typography["bodyFontFamily"] = font_override.body_font_family
+    theme["typography"] = typography
+    theme["fontFamily"] = font_override.body_font_family
+    return theme
 
 
 def apply_palette_override(
@@ -3797,12 +3878,101 @@ def assemble_design_pack_slide(
                 "easing": "ease-out",
             }
         ],
-        "aiNotes": {
-            "emphasisPoints": [slide_plan.message],
-            "sourceEvidence": [
-                evidence.model_dump(by_alias=True) for evidence in slide_plan.evidence
-            ],
-        },
+        "aiNotes": design_pack_ai_notes(raw_input, slide_plan, recipe),
+    }
+
+
+def design_pack_ai_notes(
+    raw_input: RawInput,
+    slide_plan: SlidePlan,
+    recipe: str,
+) -> dict[str, Any]:
+    return {
+        "emphasisPoints": [slide_plan.message],
+        "sourceEvidence": [
+            evidence.model_dump(by_alias=True) for evidence in slide_plan.evidence
+        ],
+        "visualPlan": design_pack_visual_plan(raw_input, slide_plan, recipe),
+        "sourceLedger": [design_pack_source_ledger(raw_input, slide_plan)],
+    }
+
+
+def design_pack_visual_plan(
+    raw_input: RawInput,
+    slide_plan: SlidePlan,
+    recipe: str,
+) -> dict[str, Any]:
+    media_policy = (
+        raw_input.visual_plan_policy.media_policy
+        if raw_input.visual_plan_policy is not None
+        else raw_input.design.media_policy
+    )
+    image_needed = media_intent_needs_slot(slide_plan.media_intent)
+    visual_type = {
+        "cover_trust_signal": "cover",
+        "overview_cards": "cards",
+        "insight_evidence": "diagram",
+        "process_steps": "process",
+        "comparison_split": "comparison",
+        "closing_summary": "summary",
+    }.get(recipe, "layout")
+    return {
+        "visualType": visual_type,
+        "imageNeeded": image_needed,
+        "imageSourcePolicy": media_policy,
+        "reason": visual_plan_reason(media_policy, image_needed, visual_type),
+    }
+
+
+def visual_plan_reason(
+    media_policy: MediaPolicy,
+    image_needed: bool,
+    visual_type: str,
+) -> str:
+    if media_policy in {"minimal", "avoid"}:
+        return f"{visual_type} layout uses shapes and typography instead of images."
+    if media_policy == "provided-only":
+        return "Images are used only when uploaded assets provide usable sources."
+    if image_needed:
+        return f"{visual_type} layout reserved a media slot from the slide intent."
+    return f"{visual_type} layout does not require an image."
+
+
+def design_pack_source_ledger(
+    raw_input: RawInput,
+    slide_plan: SlidePlan,
+) -> dict[str, Any]:
+    slide_id = f"slide_{slide_plan.order}"
+    if slide_plan.evidence:
+        evidence = slide_plan.evidence[0]
+        return {
+            "claim": slide_plan.message,
+            "source": evidence.file_id,
+            "sourceType": "uploaded",
+            "confidence": evidence.confidence,
+            "usedInSlideId": slide_id,
+        }
+
+    if raw_input.reference_context:
+        context = raw_input.reference_context[0]
+        return {
+            "claim": slide_plan.message,
+            "source": context.file_id,
+            "sourceType": "uploaded",
+            "confidence": 0.72,
+            "usedInSlideId": slide_id,
+        }
+
+    source_type = "topic" if raw_input.brief.reference_policy in {
+        "topic-only",
+        "user-input-only",
+    } else "generated"
+    return {
+        "claim": slide_plan.message,
+        "source": raw_input.topic if source_type == "topic" else "no-reference-context",
+        "sourceType": source_type,
+        "confidence": 0.55 if source_type == "topic" else 0.35,
+        "usedInSlideId": slide_id,
     }
 
 

@@ -1029,6 +1029,21 @@ describe("deckSchema validation", () => {
           quote: "reference",
           confidence: 0.8
         }
+      ],
+      visualPlan: {
+        visualType: "diagram",
+        imageNeeded: false,
+        imageSourcePolicy: "minimal",
+        reason: "Shapes and typography explain the message."
+      },
+      sourceLedger: [
+        {
+          claim: "evidence-based message",
+          source: "file_1",
+          sourceType: "uploaded",
+          confidence: 0.8,
+          usedInSlideId: deck.slides[0].slideId
+        }
       ]
     };
 

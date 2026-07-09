@@ -147,6 +147,39 @@ describe("generateDeckRequestSchema", () => {
     expect(request.design.profile).toBe("startup-pitch");
   });
 
+  it("accepts v2 design-pack font and policy options", () => {
+    const request = generateDeckRequestSchema.parse({
+      generationMode: "design-pack",
+      topic: "AI PPT generation",
+      referencePolicy: "references-first",
+      referenceFileIds: ["file_reference_1"],
+      visualPlanPolicy: { mediaPolicy: "minimal" },
+      design: {
+        mediaPolicy: "minimal",
+        referencePolicy: "references-first",
+        fontOverride: {
+          fontId: "pretendard",
+          name: "Pretendard",
+          headingFontFamily: "Pretendard",
+          bodyFontFamily: "Pretendard",
+          fallbackFamily: "Arial",
+          weights: [400, 600, 700],
+          supportsKorean: true,
+          pptxEmbeddable: true,
+          moodTags: ["professional", "modern"],
+          license: "SIL Open Font License",
+          sourceUrl: "https://github.com/orioncactus/pretendard"
+        }
+      }
+    });
+
+    expect(request.referencePolicy).toBe("references-first");
+    expect(request.referenceFileIds).toEqual(["file_reference_1"]);
+    expect(request.visualPlanPolicy?.mediaPolicy).toBe("minimal");
+    expect(request.design.mediaPolicy).toBe("minimal");
+    expect(request.design.fontOverride?.bodyFontFamily).toBe("Pretendard");
+  });
+
   it("accepts optional v2 design preset overrides", () => {
     const request = generateDeckRequestSchema.parse({
       topic: "AI deck generation",

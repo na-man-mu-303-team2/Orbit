@@ -78,6 +78,42 @@ def test_generate_deck_request_accepts_direct_reference_context() -> None:
     ]
 
 
+def test_generate_deck_request_normalizes_v2_font_and_policy_fields() -> None:
+    raw_input = analyze_input(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="ORBIT",
+            referencePolicy="references-first",
+            referenceFileIds=["file_reference_1"],
+            visualPlanPolicy={"mediaPolicy": "minimal"},
+            design={
+                "mediaPolicy": "minimal",
+                "referencePolicy": "references-first",
+                "fontOverride": {
+                    "fontId": "pretendard",
+                    "name": "Pretendard",
+                    "headingFontFamily": "Pretendard",
+                    "bodyFontFamily": "Pretendard",
+                    "fallbackFamily": "Arial",
+                    "weights": [400, 600, 700],
+                    "supportsKorean": True,
+                    "pptxEmbeddable": True,
+                    "moodTags": ["professional"],
+                    "license": "SIL Open Font License",
+                    "sourceUrl": "https://github.com/orioncactus/pretendard",
+                },
+            },
+        )
+    )
+
+    assert raw_input.brief.reference_policy == "references-first"
+    assert raw_input.visual_plan_policy is not None
+    assert raw_input.visual_plan_policy.media_policy == "minimal"
+    assert raw_input.references[0].file_id == "file_reference_1"
+    assert raw_input.design.font_override is not None
+    assert raw_input.design.font_override.body_font_family == "Pretendard"
+
+
 def test_generate_content_plan_uses_cache_and_returns_copy() -> None:
     raw_input = analyze_input(
         GenerateDeckRequest(
@@ -940,6 +976,62 @@ def test_generate_deck_applies_brandlogy_style_pack_and_palette_override() -> No
     assert theme["palette"]["surface"] == "#FFFFFF"
     assert theme["palette"]["muted"] == "#E0F2FE"
     assert theme["palette"]["border"] == "#BAE6FD"
+
+
+def test_generate_deck_design_pack_applies_font_and_trace_notes() -> None:
+    fake_client = FakeOpenAIClient(
+        {
+            "title": "Policy deck",
+            "slides": [
+                slide_payload(
+                    "Policy direction",
+                    "Font and policy choices should stay traceable.",
+                    "Explain the selected design policy.",
+                    slide_type="title",
+                    slot_preset="title_center",
+                )
+            ],
+        }
+    )
+
+    response = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            generationMode="design-pack",
+            topic="Policy deck",
+            referencePolicy="user-input-only",
+            visualPlanPolicy={"mediaPolicy": "minimal"},
+            design={
+                "stylePackId": "brandlogy-modern",
+                "mediaPolicy": "minimal",
+                "fontOverride": {
+                    "fontId": "gowun-dodum",
+                    "name": "Gowun Dodum",
+                    "headingFontFamily": "Gowun Dodum",
+                    "bodyFontFamily": "Gowun Dodum",
+                    "fallbackFamily": "Arial",
+                    "weights": [400],
+                    "supportsKorean": True,
+                    "pptxEmbeddable": True,
+                    "moodTags": ["friendly", "rounded"],
+                    "license": "SIL Open Font License",
+                    "sourceUrl": "https://github.com/yangheeryu/Gowun-Dodum",
+                },
+            },
+            slideCountRange={"min": 1, "max": 1},
+        ),
+        client=fake_client,
+    )
+
+    theme = response.deck["theme"]
+    ai_notes = response.deck["slides"][0]["aiNotes"]
+
+    assert theme["fontFamily"] == "Gowun Dodum"
+    assert theme["typography"]["headingFontFamily"] == "Gowun Dodum"
+    assert ai_notes["visualPlan"]["imageSourcePolicy"] == "minimal"
+    assert ai_notes["visualPlan"]["imageNeeded"] is False
+    assert ai_notes["sourceLedger"][0]["sourceType"] == "topic"
+    assert ai_notes["sourceLedger"][0]["usedInSlideId"] == "slide_1"
 
 
 def test_generate_deck_design_pack_enforces_background_constraints() -> None:

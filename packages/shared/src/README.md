@@ -90,3 +90,7 @@ ORBIT-27의 공유 타입 작업은 저장된 AI 제안과 승인 후 적용 흐
 - `deck/ai-suggestion.schema.ts`: suggestion patch는 `source: "ai"`여야 하고, suggestion의 `deckId`, `slideId`, `baseVersion`과 patch 내부 값이 일치해야 한다.
 - `deck/ai-suggestion.schema.ts`: 허용 operation은 같은 slide를 대상으로 하는 `update_slide`, `update_slide_style`, element operation, speaker notes, keywords, animation operation만이다. deck/theme/slide add-delete-reorder operation은 거부한다.
 - `deck/ai-suggestion.schema.ts`: apply 응답은 `deck`, `changeRecord`, `snapshot`, `updatedAt`을 포함해 서버 deck patch 적용 결과와 같은 후속 갱신 정보를 제공한다.
+## AI PPT 2차 계약 메모
+
+- `deck/generate-deck.schema.ts`: design-pack 생성은 선택적으로 `design.fontOverride`, 확장된 `design.mediaPolicy`, `design.referencePolicy`, `visualPlanPolicy`, `referencePolicy`, `referenceFileIds`를 받는다. 생략 시 기존 legacy 기본값을 유지한다.
+- `deck/deck.schema.ts`: generated slide의 `aiNotes`는 기존 `emphasisPoints`, `sourceEvidence`에 더해 선택적 `visualPlan`과 `sourceLedger`를 담을 수 있다.
