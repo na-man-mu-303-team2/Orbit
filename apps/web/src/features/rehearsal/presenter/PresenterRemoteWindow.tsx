@@ -32,6 +32,7 @@ import {
   type PresenterRemoteCommand,
 } from "./presentationChannel";
 import type { PresenterSlideshowState } from "./presenterStateStore";
+import { PresenterScriptList, type PresenterScriptListRow } from "./PresenterScriptList";
 import { SlideshowRenderer } from "./SlideshowRenderer";
 import { usePresenterKeyboard } from "./usePresenterKeyboard";
 
@@ -136,10 +137,10 @@ export function PresenterRemoteWindow(props: {
     () => splitPresenterRemoteNotes(notes),
     [notes],
   );
-  const currentSentenceIndex =
-    noteSentences.length > 0
-      ? Math.min(Math.max(state.stepIndex, 0), noteSentences.length - 1)
-      : -1;
+  const currentSentenceIndex = getPresenterRemoteCurrentSentenceIndex(
+    noteSentences,
+    state,
+  );
   const currentCueText =
     currentSentenceIndex >= 0
       ? noteSentences[currentSentenceIndex]
@@ -234,24 +235,26 @@ export function PresenterRemoteWindow(props: {
               현재 문장 {cueProgressCurrent} / {cueProgressTotal}
             </strong>
           </div>
-          <ol className="presenter-remote-script-list">
-            {noteSentences.map((sentence, index) => (
-              <li
-                aria-current={
-                  index === currentSentenceIndex ? "true" : undefined
-                }
-                className={
+          <PresenterScriptList
+            emptyLabel="대본 없음"
+            rows={noteSentences.map((sentence, index): PresenterScriptListRow => {
+              const sentenceId = getPresenterRemoteSentenceId(index);
+              const covered = Boolean(
+                state.speech?.coveredSentenceIds.includes(sentenceId),
+              );
+              return {
+                content: sentence,
+                id: sentenceId,
+                label: covered ? "체크됨" : undefined,
+                status:
                   index === currentSentenceIndex
-                    ? "presenter-remote-script-row presenter-remote-script-row--current"
-                    : "presenter-remote-script-row"
-                }
-                key={`${sentence}-${index}`}
-              >
-                <span>{index + 1}</span>
-                <p>{sentence}</p>
-              </li>
-            ))}
-          </ol>
+                    ? "current"
+                    : covered
+                      ? "covered"
+                      : "pending",
+              };
+            })}
+          />
         </section>
 
         <aside
@@ -561,6 +564,34 @@ export function getPresenterRemoteSlideContext(
 export function splitPresenterRemoteNotes(notes: string) {
   const sentences = splitSpeakerNotesIntoSentences(notes);
   return sentences.length > 0 ? sentences : [notes.trim()].filter(Boolean);
+}
+
+export function getPresenterRemoteCurrentSentenceIndex(
+  sentences: readonly string[],
+  state: PresenterSlideshowState,
+) {
+  if (sentences.length === 0) {
+    return -1;
+  }
+
+  const coveredSentenceIds = state.speech?.coveredSentenceIds;
+  if (!coveredSentenceIds) {
+    return Math.min(Math.max(state.stepIndex, 0), sentences.length - 1);
+  }
+
+  const coveredSet = new Set(coveredSentenceIds);
+  const nextUncoveredIndex = sentences.findIndex(
+    (_sentence, index) => !coveredSet.has(getPresenterRemoteSentenceId(index)),
+  );
+  if (nextUncoveredIndex >= 0) {
+    return nextUncoveredIndex;
+  }
+
+  return sentences.length - 1;
+}
+
+function getPresenterRemoteSentenceId(index: number) {
+  return `sentence_${index + 1}`;
 }
 
 export function getPresenterRemoteKeywordRows(

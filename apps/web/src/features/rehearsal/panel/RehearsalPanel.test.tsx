@@ -41,6 +41,9 @@ describe("RehearsalPanel", () => {
     const html = renderPanel();
 
     expect(html).toContain('data-auto-scroll="true"');
+    expect(html).toContain("presenter-script-row--covered");
+    expect(html).toContain("presenter-script-row--current");
+    expect(html).toContain("체크됨");
   });
 
   it("highlights direct keywords and aliases inside script sentences", () => {

@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { p0AnimationDeck } from "./__fixtures__/animationDeck";
 import {
   applyPresenterRemoteMessage,
+  getPresenterRemoteCurrentSentenceIndex,
   getPresenterRemoteCommandDispatchDelays,
   getPresenterRemoteKeywordRows,
   getPresenterRemoteTimingState,
@@ -151,6 +152,29 @@ describe("PresenterRemoteWindow", () => {
     expect(html).toContain("방금 final STT 문장");
     expect(html).toContain("#1 · 0.910 · 문장 1");
     expect(html).toContain("적용");
+  });
+
+  it("focuses the next uncovered script sentence from owner speech coverage", () => {
+    const state = {
+      ...createPresenterSlideshowState(p0AnimationDeck),
+      stepIndex: 0,
+      speech: {
+        ...createPresenterSpeechState(),
+        coveredSentenceIds: ["sentence_1"],
+      },
+    };
+    const sentences = ["첫 문장입니다", "마지막 문장입니다"];
+    const html = renderToStaticMarkup(
+      <PresenterRemoteWindow
+        deck={p0AnimationDeck}
+        identity={identity}
+        initialState={state}
+      />,
+    );
+
+    expect(getPresenterRemoteCurrentSentenceIndex(sentences, state)).toBe(1);
+    expect(html).toContain("presenter-script-row--covered");
+    expect(html).toContain("presenter-script-row--current");
   });
 
   it("retries idempotent remote timer stop commands across transient channel races", () => {

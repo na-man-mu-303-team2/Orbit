@@ -27,6 +27,7 @@ import {
   type KeywordHighlightOccurrence,
   type KeywordHighlightKeyword
 } from "../../shared/KeywordHighlightedText";
+import { PresenterScriptList, type PresenterScriptListRow } from "../presenter/PresenterScriptList";
 
 export type RehearsalPanelMode = "rehearsal" | "live";
 
@@ -60,7 +61,7 @@ export function RehearsalPanel(props: RehearsalPanelProps) {
     () => getSentenceTextOffsets(props.speakerNotes ?? "", props.sentences),
     [props.speakerNotes, props.sentences]
   );
-  const sentenceRefs = useRef(new Map<string, HTMLParagraphElement>());
+  const sentenceRefs = useRef(new Map<string, HTMLLIElement>());
   const [isScriptAutoFollowEnabled, setIsScriptAutoFollowEnabled] = useState(true);
   const focusSentenceId = useMemo(
     () =>
@@ -213,44 +214,40 @@ export function RehearsalPanel(props: RehearsalPanelProps) {
             onPointerDown={() => setIsScriptAutoFollowEnabled(false)}
             onWheel={() => setIsScriptAutoFollowEnabled(false)}
           >
-            {props.sentences.length > 0 ? (
-              props.sentences.map((sentence) => {
-                const covered = coveredSentenceIds.has(sentence.sentenceId);
-                return (
-                  <p
-                    className={[
-                      "rehearsal-panel-sentence",
-                      covered ? "rehearsal-panel-sentence-covered" : "",
-                      !sentence.matchable ? "rehearsal-panel-sentence-unmatchable" : ""
-                    ]
-                      .filter(Boolean)
-                      .join(" ")}
-                    data-sentence-id={sentence.sentenceId}
-                    key={sentence.sentenceId}
-                    ref={(node) => {
-                      if (node) {
-                        sentenceRefs.current.set(sentence.sentenceId, node);
-                        return;
-                      }
+            <PresenterScriptList
+              emptyLabel="대본 없음"
+              getRowRef={(row) => (node) => {
+                if (node) {
+                  sentenceRefs.current.set(row.id, node);
+                  return;
+                }
 
-                      sentenceRefs.current.delete(sentence.sentenceId);
-                    }}
-                  >
-                    <span>
-                      <KeywordHighlightedText
-                        highlightedOccurrences={props.highlightedKeywordOccurrences}
-                        keywords={props.keywords}
-                        textOffset={sentenceTextOffsets.get(sentence.sentenceId) ?? 0}
-                        text={sentence.text}
-                      />
-                    </span>
-                    {covered ? <em>체크됨</em> : null}
-                  </p>
-                );
-              })
-            ) : (
-              <p className="rehearsal-panel-empty">대본 없음</p>
-            )}
+                sentenceRefs.current.delete(row.id);
+              }}
+              rows={props.sentences.map((sentence): PresenterScriptListRow => {
+                const covered = coveredSentenceIds.has(sentence.sentenceId);
+                const isCurrent = sentence.sentenceId === focusSentenceId;
+                return {
+                  content: (
+                    <KeywordHighlightedText
+                      highlightedOccurrences={props.highlightedKeywordOccurrences}
+                      keywords={props.keywords}
+                      textOffset={sentenceTextOffsets.get(sentence.sentenceId) ?? 0}
+                      text={sentence.text}
+                    />
+                  ),
+                  id: sentence.sentenceId,
+                  label: covered ? "체크됨" : undefined,
+                  status: !sentence.matchable
+                    ? "unmatchable"
+                    : isCurrent
+                      ? "current"
+                      : covered
+                        ? "covered"
+                        : "pending"
+                };
+              })}
+            />
           </div>
         </section>
       ) : null}
