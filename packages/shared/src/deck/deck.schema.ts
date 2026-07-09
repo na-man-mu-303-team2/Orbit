@@ -8,6 +8,7 @@ import {
   deckSlideIdSchema
 } from "./id.schema";
 import { deriveKeywordOccurrences } from "./keyword-occurrences";
+import { semanticCueSchema } from "./semantic-cue.schema";
 import { slideActionSchema } from "./slide-action.schema";
 import { deckElementSchema } from "./slide-object.schema";
 import { themeColorSchema, themeSchema } from "./theme.schema";
@@ -189,13 +190,16 @@ export const slideSchema = z
     speakerNotes: z.string().default(""),
     elements: z.array(deckElementSchema).default([]),
     keywords: slideKeywordsSchema.default([]),
+    semanticCues: z.array(semanticCueSchema).default([]),
     animations: z.array(animationSchema).default([]),
     actions: z.array(slideActionSchema).default([]),
     aiNotes: slideAiNotesSchema.optional()
   })
   .superRefine((slide, ctx) => {
     const actionIds = new Set<string>();
+    const elementIds = new Set(slide.elements.map((element) => element.elementId));
     const keywordIds = new Set(slide.keywords.map((keyword) => keyword.keywordId));
+    const semanticCueIds = new Set<string>();
     const keywordOccurrences = new Map(
       deriveKeywordOccurrences(slide).map((occurrence) => [
         occurrence.occurrenceId,
@@ -288,6 +292,46 @@ export const slideSchema = z
           message: "slide action must target an animation in the same slide"
         });
       }
+    });
+
+    slide.semanticCues.forEach((cue, cueIndex) => {
+      if (semanticCueIds.has(cue.cueId)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["semanticCues", cueIndex, "cueId"],
+          message: "semantic cue IDs must be unique within the same slide"
+        });
+      } else {
+        semanticCueIds.add(cue.cueId);
+      }
+
+      if (cue.slideId !== slide.slideId) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["semanticCues", cueIndex, "slideId"],
+          message: "semantic cue slideId must match the containing slide"
+        });
+      }
+
+      cue.targetElementIds.forEach((elementId, elementIndex) => {
+        if (!elementIds.has(elementId)) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["semanticCues", cueIndex, "targetElementIds", elementIndex],
+            message: "semantic cue target element must exist in the same slide"
+          });
+        }
+      });
+
+      cue.triggerActionIds.forEach((actionId, actionIndex) => {
+        if (!actionIds.has(actionId)) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["semanticCues", cueIndex, "triggerActionIds", actionIndex],
+            message: "semantic cue trigger action must exist in the same slide"
+          });
+        }
+      });
     });
   });
 

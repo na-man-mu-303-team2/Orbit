@@ -6,7 +6,11 @@ import {
   assetUploadUrlResponseSchema
 } from "../files/file.schema";
 import { jobSchema } from "../jobs/job.schema";
-import { deckKeywordIdSchema, deckSlideIdSchema } from "../deck/id.schema";
+import {
+  deckKeywordIdSchema,
+  deckSemanticCueIdSchema,
+  deckSlideIdSchema
+} from "../deck/id.schema";
 
 export const rehearsalRunStatusSchema = z.enum([
   "created",
@@ -139,6 +143,40 @@ export const rehearsalUtteranceOutcomeSchema = z
   })
   .strict();
 
+export const semanticCueDecisionLabelSchema = z.enum([
+  "covered",
+  "partial",
+  "not_covered",
+  "contradicted"
+]);
+
+export const semanticCueNliProviderSchema = z.enum([
+  "browser-transformersjs",
+  "browser-onnx",
+  "mock"
+]);
+
+export const rehearsalSemanticCueDecisionSchema = z
+  .object({
+    slideId: deckSlideIdSchema,
+    cueId: deckSemanticCueIdSchema,
+    label: semanticCueDecisionLabelSchema,
+    finalScore: z.number().finite().min(0).max(1),
+    embeddingScore: z.number().finite().min(-1).max(1).optional(),
+    lexicalScore: z.number().finite().min(0).max(1).optional(),
+    conceptCoverage: z.number().finite().min(0).max(1).optional(),
+    entailmentScore: z.number().finite().min(0).max(1).optional(),
+    neutralScore: z.number().finite().min(0).max(1).optional(),
+    contradictionScore: z.number().finite().min(0).max(1).optional(),
+    premise: z.string().trim().min(1).max(600).optional(),
+    hypothesis: z.string().trim().min(1).max(300).optional(),
+    provider: semanticCueNliProviderSchema,
+    modelId: z.string().trim().min(1).max(160).optional(),
+    reasonCodes: z.array(z.string().trim().min(1).max(80)).min(1).max(12),
+    at: isoDateTimeSchema.optional()
+  })
+  .strict();
+
 export const rehearsalReportSchema = z
   .object({
     reportId: z.string().min(1),
@@ -153,6 +191,9 @@ export const rehearsalReportSchema = z
     pauseDetails: z.array(rehearsalReportPauseDetailSchema).default([]),
     missedKeywords: z.array(rehearsalReportMissedKeywordSchema).default([]),
     utteranceOutcomes: z.array(rehearsalUtteranceOutcomeSchema).default([]),
+    semanticCueDecisions: z
+      .array(rehearsalSemanticCueDecisionSchema)
+      .default([]),
     slideTimings: z.array(rehearsalReportSlideTimingSchema).default([]),
     slideInsights: z.array(rehearsalReportSlideInsightSchema).default([]),
     qnaSummary: rehearsalReportQnaSummarySchema.default({
@@ -269,6 +310,9 @@ export const rehearsalRunMetaSchema = z
       .default([]),
     utteranceOutcomes: z
       .array(rehearsalUtteranceOutcomeSchema)
+      .default([]),
+    semanticCueDecisions: z
+      .array(rehearsalSemanticCueDecisionSchema)
       .default([])
   })
   // Run meta stores bounded report facts only. It may include approved ad-lib
@@ -301,6 +345,9 @@ export type RehearsalReportSlideTiming = z.infer<
 >;
 export type RehearsalReportQnaSummary = z.infer<typeof rehearsalReportQnaSummarySchema>;
 export type RehearsalReport = z.infer<typeof rehearsalReportSchema>;
+export type RehearsalSemanticCueDecision = z.infer<
+  typeof rehearsalSemanticCueDecisionSchema
+>;
 export type CreateRehearsalRunRequest = z.infer<typeof createRehearsalRunRequestSchema>;
 export type CreateRehearsalRunResponse = z.infer<typeof createRehearsalRunResponseSchema>;
 export type CreateRehearsalAudioUploadUrlRequest = z.infer<
