@@ -3745,6 +3745,13 @@ DESIGN_PACK_RECIPE_LAYOUTS: dict[str, DeckLayout] = {
     "closing_summary": "closing",
 }
 
+DESIGN_PACK_ARCHETYPE_RECIPE_SEQUENCES: dict[str, tuple[str, str, str]] = {
+    "executive_report": ("insight_evidence", "overview_cards", "comparison_split"),
+    "pitch": ("insight_evidence", "overview_cards", "process_steps"),
+    "education": ("overview_cards", "process_steps", "insight_evidence"),
+    "technical": ("process_steps", "overview_cards", "comparison_split"),
+}
+
 
 def assemble_design_pack_slide(
     raw_input: RawInput,
@@ -3752,7 +3759,7 @@ def assemble_design_pack_slide(
     slide_plans: list[SlidePlan],
     theme: dict[str, Any],
 ) -> dict[str, Any]:
-    recipe = design_pack_recipe_for(slide_plan, slide_plans)
+    recipe = design_pack_recipe_for(raw_input, slide_plan, slide_plans)
     elements = design_pack_recipe_elements(raw_input, slide_plan, recipe, theme)
     elements = cap_elements(elements, limit=48)
     title_element = next(element for element in elements if element["role"] == "title")
@@ -3800,6 +3807,7 @@ def assemble_design_pack_slide(
 
 
 def design_pack_recipe_for(
+    raw_input: RawInput,
     slide_plan: SlidePlan,
     slide_plans: list[SlidePlan],
 ) -> str:
@@ -3811,9 +3819,167 @@ def design_pack_recipe_for(
         return "process_steps"
     if slide_plan.slide_type == "comparison":
         return "comparison_split"
-    if slide_plan.slide_type in {"feature-grid", "data", "summary"}:
+    if slide_plan.slide_type == "feature-grid":
         return "overview_cards"
-    return "insight_evidence"
+
+    archetype = design_pack_deck_archetype(raw_input, slide_plan)
+    if archetype == "pitch" and slide_plan.slide_type in {"data", "summary"}:
+        return "overview_cards"
+
+    sequence = DESIGN_PACK_ARCHETYPE_RECIPE_SEQUENCES[archetype]
+    return sequence[max(0, slide_plan.order - 2) % len(sequence)]
+
+
+def design_pack_deck_archetype(
+    raw_input: RawInput,
+    slide_plan: SlidePlan | None = None,
+) -> str:
+    text = design_pack_archetype_text(raw_input, slide_plan)
+    scores = {
+        "executive_report": 0,
+        "pitch": 0,
+        "education": 0,
+        "technical": 0,
+    }
+
+    if raw_input.metadata.audience == "executive":
+        scores["executive_report"] += 3
+    if raw_input.metadata.audience == "technical":
+        scores["technical"] += 3
+    if raw_input.metadata.purpose == "report":
+        scores["executive_report"] += 3
+    if raw_input.metadata.purpose == "persuade":
+        scores["pitch"] += 2
+    if raw_input.metadata.purpose == "teach":
+        scores["education"] += 3
+    if raw_input.design.visual_rhythm == "technical":
+        scores["technical"] += 3
+    if raw_input.design.density_target == "high":
+        scores["executive_report"] += 1
+
+    keyword_groups = {
+        "executive_report": (
+            "executive",
+            "leadership",
+            "management",
+            "report",
+            "strategy",
+            "internal",
+            "board",
+            "임원",
+            "경영진",
+            "보고",
+            "보고서",
+            "사내",
+            "성과",
+            "전략",
+        ),
+        "pitch": (
+            "pitch",
+            "proposal",
+            "investor",
+            "investment",
+            "idea",
+            "startup",
+            "planning",
+            "mvp",
+            "sales",
+            "제안",
+            "제안서",
+            "기획",
+            "아이디어",
+            "투자",
+            "설득",
+            "피치",
+            "사업",
+        ),
+        "education": (
+            "school",
+            "student",
+            "class",
+            "lesson",
+            "lecture",
+            "teach",
+            "education",
+            "college",
+            "university",
+            "고등학교",
+            "대학교",
+            "학생",
+            "수업",
+            "교육",
+            "강의",
+            "설명",
+        ),
+        "technical": (
+            "technical",
+            "architecture",
+            "system",
+            "process",
+            "workflow",
+            "api",
+            "engineering",
+            "developer",
+            "기술",
+            "구조",
+            "시스템",
+            "프로세스",
+            "개발",
+            "아키텍처",
+            "데이터",
+            "파이프라인",
+        ),
+    }
+    for archetype, keywords in keyword_groups.items():
+        if any(keyword in text for keyword in keywords):
+            scores[archetype] += 1
+
+    winner, score = max(scores.items(), key=lambda item: item[1])
+    return winner if score > 0 else "pitch"
+
+
+def design_pack_archetype_text(
+    raw_input: RawInput,
+    slide_plan: SlidePlan | None,
+) -> str:
+    parts = [
+        raw_input.topic,
+        raw_input.prompt,
+        raw_input.design_prompt,
+        raw_input.brief.presentation_type,
+        raw_input.brief.presentation_context,
+        raw_input.brief.audience_text,
+        raw_input.brief.success_criteria,
+        raw_input.metadata.audience,
+        raw_input.metadata.purpose,
+        raw_input.metadata.tone,
+        raw_input.design.visual_rhythm,
+        raw_input.design.density_target,
+    ]
+    if slide_plan is not None:
+        visual = slide_plan.visual_intent
+        media = slide_plan.media_intent
+        parts.extend(
+            [
+                slide_plan.slide_type,
+                slide_plan.title,
+                slide_plan.message,
+                visual.emphasis,
+                visual.mood,
+                visual.structure,
+                visual.composition,
+                visual.media_style,
+                media.kind,
+                media.prompt,
+                media.alt,
+                media.caption,
+                media.rationale,
+                media.placement,
+                *slide_plan.keywords,
+            ]
+        )
+
+    return " ".join(part for part in parts if part).lower()
 
 
 def design_pack_recipe_elements(
@@ -3983,14 +4149,14 @@ def design_pack_cover_elements(
             slide_plan.title,
             120,
             230,
-            930,
-            180,
+            1000,
+            150,
             4,
             colors["text"],
-            58,
+            50,
             "bold",
             theme,
-            line_height=1.08,
+            line_height=1.04,
         ),
         design_pack_text(
             slide_plan.order,

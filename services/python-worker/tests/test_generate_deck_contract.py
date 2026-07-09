@@ -1087,6 +1087,9 @@ def test_generate_deck_design_pack_uses_brandlogy_layout_recipes() -> None:
         label = element_by_id(cover, f"el_1_cover_summary_card_{index}_label")
         props = label["props"]
         assert label["height"] - 8 >= props["fontSize"] * props.get("lineHeight", 1.2)
+    cover_title = element_by_id(cover, "el_1_title")
+    assert cover_title["width"] >= 1000
+    assert cover_title["props"]["fontSize"] <= 50
     assert has_element(overview, "el_2_overview_card_1")
     assert has_element(process, "el_3_process_step_card_1")
     assert has_element(process, "el_3_process_step_connector_1")
@@ -1110,6 +1113,140 @@ def test_generate_deck_design_pack_uses_brandlogy_layout_recipes() -> None:
             if element["type"] == "text" and is_text_overflowing(element)
         ]
         assert overflowing == []
+
+
+@pytest.mark.parametrize(
+    ("brief", "metadata", "design", "expected_sequence"),
+    [
+        (
+            {
+                "presentationType": "internal executive report",
+                "presentationContext": "quarterly performance report",
+                "audienceText": "company executives",
+            },
+            {"audience": "executive", "purpose": "report", "tone": "concise"},
+            {"stylePackId": "brandlogy-modern", "densityTarget": "high"},
+            [
+                "cover_trust_signal",
+                "insight_evidence",
+                "overview_cards",
+                "comparison_split",
+                "closing_summary",
+            ],
+        ),
+        (
+            {
+                "presentationType": "고등학교 발표",
+                "presentationContext": "학생 대상 수업 설명",
+                "audienceText": "학생",
+            },
+            {"audience": "general", "purpose": "teach", "tone": "friendly"},
+            {"stylePackId": "brandlogy-modern"},
+            [
+                "cover_trust_signal",
+                "overview_cards",
+                "process_steps",
+                "insight_evidence",
+                "closing_summary",
+            ],
+        ),
+        (
+            {
+                "presentationType": "startup pitch",
+                "presentationContext": "new product idea proposal",
+                "audienceText": "potential investors",
+            },
+            {"audience": "sales", "purpose": "persuade", "tone": "confident"},
+            {"stylePackId": "brandlogy-modern"},
+            [
+                "cover_trust_signal",
+                "insight_evidence",
+                "overview_cards",
+                "process_steps",
+                "closing_summary",
+            ],
+        ),
+        (
+            {
+                "presentationType": "technical system review",
+                "presentationContext": "API architecture and process workflow",
+                "audienceText": "engineering team",
+            },
+            {"audience": "technical", "purpose": "inform", "tone": "professional"},
+            {"stylePackId": "brandlogy-modern", "visualRhythm": "technical"},
+            [
+                "cover_trust_signal",
+                "process_steps",
+                "overview_cards",
+                "comparison_split",
+                "closing_summary",
+            ],
+        ),
+    ],
+)
+def test_generate_deck_design_pack_varies_recipe_sequence_by_archetype(
+    brief: dict[str, object],
+    metadata: dict[str, object],
+    design: dict[str, object],
+    expected_sequence: list[str],
+) -> None:
+    fake_client = FakeOpenAIClient(
+        {
+            "title": "Archetype layout deck",
+            "slides": [
+                slide_payload(
+                    "Opening",
+                    "Set the direction.",
+                    "Open the presentation.",
+                    slide_type="cover",
+                    slot_preset="title_center",
+                ),
+                slide_payload(
+                    "Problem",
+                    "Frame the key tension.",
+                    "Explain the problem.",
+                    slide_type="problem",
+                    slot_preset="insight_with_evidence",
+                ),
+                slide_payload(
+                    "Evidence",
+                    "Show the relevant signals.",
+                    "Explain the evidence.",
+                    slide_type="data",
+                    slot_preset="big_number_focus",
+                ),
+                slide_payload(
+                    "Solution",
+                    "Compare options and clarify the path.",
+                    "Explain the solution.",
+                    slide_type="solution",
+                    slot_preset="insight_with_evidence",
+                ),
+                slide_payload(
+                    "Next steps",
+                    "Close with the recommended next action.",
+                    "Close the presentation.",
+                    slide_type="summary",
+                    slot_preset="title_center",
+                ),
+            ],
+        }
+    )
+
+    response = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            generationMode="design-pack",
+            topic="Archetype layout selector",
+            brief=brief,
+            metadata=metadata,
+            design=design,
+            slideCountRange={"min": 5, "max": 5},
+        ),
+        client=fake_client,
+    )
+
+    assert design_pack_recipe_sequence(response.deck) == expected_sequence
 
 
 def test_generate_deck_auto_selects_simple_basic_report_mode() -> None:
@@ -3979,6 +4116,26 @@ def has_element(slide: dict[str, Any], element_id: str) -> bool:
         element["elementId"] == element_id
         for element in slide["elements"]
     )
+
+
+def design_pack_recipe_sequence(deck: dict[str, Any]) -> list[str]:
+    return [design_pack_recipe_name(slide) for slide in deck["slides"]]
+
+
+def design_pack_recipe_name(slide: dict[str, Any]) -> str:
+    order = slide["order"]
+    recipe_markers = [
+        (f"el_{order}_cover_trust_signal_panel", "cover_trust_signal"),
+        (f"el_{order}_overview_card_1", "overview_cards"),
+        (f"el_{order}_process_step_card_1", "process_steps"),
+        (f"el_{order}_comparison_split_left_panel", "comparison_split"),
+        (f"el_{order}_closing_summary_accent_block", "closing_summary"),
+        (f"el_{order}_insight_evidence_key_panel", "insight_evidence"),
+    ]
+    for element_id, recipe in recipe_markers:
+        if has_element(slide, element_id):
+            return recipe
+    raise AssertionError(f"Unknown Design Pack recipe for slide {order}")
 
 
 def element_by_id(slide: dict[str, Any], element_id: str) -> dict[str, Any]:
