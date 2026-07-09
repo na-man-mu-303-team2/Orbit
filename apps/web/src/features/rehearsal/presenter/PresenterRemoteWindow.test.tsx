@@ -135,6 +135,24 @@ describe("PresenterRemoteWindow", () => {
     expect(html).toContain("멈춤");
   });
 
+  it("renders semantic debug panel from owner presenter speech state", () => {
+    const html = renderToStaticMarkup(
+      <PresenterRemoteWindow
+        deck={p0AnimationDeck}
+        identity={identity}
+        initialState={{
+          ...createPresenterSlideshowState(p0AnimationDeck),
+          speech: createPresenterSpeechState(),
+        }}
+      />,
+    );
+
+    expect(html).toContain("Semantic STT");
+    expect(html).toContain("방금 final STT 문장");
+    expect(html).toContain("#1 · 0.910 · 문장 1");
+    expect(html).toContain("적용");
+  });
+
   it("retries idempotent remote timer stop commands across transient channel races", () => {
     expect(
       getPresenterRemoteCommandDispatchDelays({ action: "timer-pause" }),
@@ -171,3 +189,39 @@ describe("PresenterRemoteWindow", () => {
     });
   });
 });
+
+function createPresenterSpeechState() {
+  return {
+    coveredSentenceIds: [],
+    matchableSentenceCount: 2,
+    semanticDebug: {
+      status: "ready" as const,
+      slideId: "slide_p0_1",
+      transcript: "방금 final STT 문장",
+      isFinal: true,
+      topMatches: [
+        {
+          rank: 1,
+          sentenceId: "sentence_1",
+          sentenceIndex: 0,
+          text: "첫 문장입니다",
+          similarity: 0.91,
+          covered: false,
+        },
+      ],
+      error: null,
+    },
+    semanticMatchingEnabled: true,
+    snapshot: {
+      slideId: "slide_p0_1",
+      coveredSentenceIds: [],
+      matchableSentenceCount: 2,
+      sentenceCoverage: 0,
+      wordCoverage: 0,
+      effectiveCoverage: 0,
+      finalSentenceSpoken: false,
+      hitKeywordIds: [],
+      provisionalMissingKeywordIds: [],
+    },
+  };
+}
