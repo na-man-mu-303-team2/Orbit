@@ -7,6 +7,7 @@ export type AutoAdvancePolicy = {
   live: boolean;
   pauseMs: number;
   rehearsal: boolean;
+  semanticMatching: boolean;
   threshold: number;
 };
 
@@ -36,6 +37,7 @@ export const defaultAutoAdvancePolicy: AutoAdvancePolicy = Object.freeze({
   live: true,
   pauseMs: 700,
   rehearsal: true,
+  semanticMatching: false,
   threshold: 0.7
 });
 
