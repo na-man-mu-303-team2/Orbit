@@ -19,6 +19,7 @@ export * from "./deck/pptx-ooxml-generation.schema";
 export * from "./deck/ppt-advisor.schema";
 export * from "./deck/reference-extraction.schema";
 export * from "./deck/semantic-cue.schema";
+export * from "./deck/semantic-cue-extraction.schema";
 export * from "./deck/slide-action.schema";
 export * from "./deck/slide-object.schema";
 export * from "./deck/template-blueprint.schema";

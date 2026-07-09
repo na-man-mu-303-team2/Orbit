@@ -11,7 +11,19 @@ const redactedPaths = [
   "audioBase64",
   "rawAudio",
   "script",
-  "transcript"
+  "transcript",
+  "speakerNotes",
+  "premise",
+  "hypothesis",
+  "semanticCueDecisions",
+  "*.speakerNotes",
+  "*.premise",
+  "*.hypothesis",
+  "*.semanticCueDecisions",
+  "body.deck.slides.*.speakerNotes",
+  "payload.deck.slides.*.speakerNotes",
+  "payload.semanticCueDecisions",
+  "result.semanticCueDecisions"
 ];
 
 export function createWorkerLoggerParams(

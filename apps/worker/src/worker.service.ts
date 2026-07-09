@@ -8,6 +8,7 @@ import {
   redisConnectionOptions,
   referenceExtractQueueName,
   rehearsalSttQueueName,
+  semanticCueExtractionQueueName,
   workerHealthCheckQueueName,
 } from "@orbit/job-queue";
 import { loadOrbitConfig } from "@orbit/config";
@@ -27,6 +28,7 @@ import { processPptxImportJob } from "./pptx-import.processor";
 import { processReferenceExtractJob } from "./reference-extract.processor";
 import { RedisRehearsalTranscriptCache } from "./rehearsal-transcript-cache";
 import { processRehearsalSttJob } from "./rehearsal-stt.processor";
+import { processSemanticCueExtractionJob } from "./semantic-cue-extraction.processor";
 import { workerStorage } from "./storage";
 import { processWorkerHealthCheckJob } from "./worker-health-check.processor";
 
@@ -39,6 +41,7 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
     generateDeckQueueName,
     deckExportQueueName,
     aiTemplateDeckGenerationQueueName,
+    semanticCueExtractionQueueName,
     pptxOoxmlGenerationQueueName,
     pptxOoxmlSyncQueueName,
     pptxImportQueueName,
@@ -105,6 +108,13 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
         processAiTemplateDeckGenerationJob(
           this.dataSource,
           storage,
+          this.config.PYTHON_WORKER_URL,
+          job.data,
+        ),
+      ),
+      this.createWorker(semanticCueExtractionQueueName, (job) =>
+        processSemanticCueExtractionJob(
+          this.dataSource,
           this.config.PYTHON_WORKER_URL,
           job.data,
         ),

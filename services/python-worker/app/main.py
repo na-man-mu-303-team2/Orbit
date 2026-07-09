@@ -42,6 +42,11 @@ from app.ai.pptx_ooxml_generation import (
 from app.ai.pptx_ooxml_vector_importer import (
     import_pptx_design_with_optional_ooxml_vector,
 )
+from app.ai.semantic_cues import (
+    SemanticCueExtractionRequest,
+    SemanticCueExtractionResponse,
+    extract_semantic_cues,
+)
 from app.audio.transcribe import (
     AudioTranscribeRequest,
     AudioTranscribeResponse,
@@ -584,6 +589,13 @@ def generate_ai_deck_color_options(
 @app.post("/ai/export-deck-pptx", response_model=DeckPptxExportResponse)
 def export_ai_deck_pptx(payload: DeckPptxExportRequest) -> DeckPptxExportResponse:
     return export_deck_pptx(payload)
+
+
+@app.post("/ai/extract-semantic-cues", response_model=SemanticCueExtractionResponse)
+def extract_semantic_cues_endpoint(
+    payload: SemanticCueExtractionRequest,
+) -> SemanticCueExtractionResponse:
+    return extract_semantic_cues(payload)
 
 
 @app.post("/rehearsal/analyze", response_model=RehearsalAnalyzeResponse)
