@@ -112,6 +112,9 @@ def test_generate_deck_request_normalizes_v2_font_and_policy_fields() -> None:
     assert raw_input.references[0].file_id == "file_reference_1"
     assert raw_input.design.font_override is not None
     assert raw_input.design.font_override.body_font_family == "Pretendard"
+    assert raw_input.design.font_override.recommended_body_size == 22
+    assert raw_input.design.font_override.overflow_risk == "medium"
+    assert raw_input.timing_plan.target_slide_count == raw_input.slide_count
 
 
 def test_generate_content_plan_uses_cache_and_returns_copy() -> None:
@@ -1032,6 +1035,115 @@ def test_generate_deck_design_pack_applies_font_and_trace_notes() -> None:
     assert ai_notes["visualPlan"]["imageNeeded"] is False
     assert ai_notes["sourceLedger"][0]["sourceType"] == "topic"
     assert ai_notes["sourceLedger"][0]["usedInSlideId"] == "slide_1"
+
+
+def test_generate_deck_design_pack_applies_v2_timing_media_reference_contract() -> None:
+    fake_client = FakeOpenAIClient(
+        {
+            "title": "1차 MVP 회고",
+            "slides": [
+                slide_payload(
+                    f"1차 MVP 논의 {index}",
+                    "핵심 쟁점과 다음 행동을 짧은 키워드로 정리합니다.",
+                    "짧은 발표자 노트입니다.",
+                    slide_type="cover" if index == 1 else "summary" if index == 7 else "feature-grid",
+                    slot_preset="title_center" if index == 1 else "insight_with_evidence",
+                    keywords=["MVP", "토의", "다음 행동"],
+                )
+                for index in range(1, 8)
+            ],
+        }
+    )
+
+    response = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            generationMode="design-pack",
+            topic="1차 MVP 회고",
+            prompt="직급 관계 없이 자유롭게 토의하는 분위기",
+            designPrompt="배경색은 검은 색, 시인성 좋은 색들 위주로 사용하기",
+            targetDurationMinutes=7,
+            brief={
+                "presentationContext": "직급 관계 없이 자유롭게 토의하는 회의",
+                "audienceText": "PM and engineers",
+                "presentationType": "discussion",
+                "successCriteria": "다음 행동 합의",
+                "durationMinutes": 7,
+                "referencePolicy": "references-first",
+            },
+            metadata={"tone": "friendly"},
+            referencePolicy="references-first",
+            referenceFileIds=["file_mvp"],
+            references=[{"fileId": "file_mvp"}],
+            referenceContext=[
+                {
+                    "fileId": "file_mvp",
+                    "title": "1차MVP.pptx",
+                    "content": "1차 MVP 결과, 사용자 피드백, 다음 행동 합의가 핵심입니다.",
+                }
+            ],
+            visualPlanPolicy={"mediaPolicy": "ai-generated"},
+            design={
+                "stylePackId": "brandlogy-modern",
+                "mediaPolicy": "ai-generated",
+                "fontOverride": {
+                    "fontId": "gmarket-sans",
+                    "name": "Gmarket Sans",
+                    "headingFontFamily": "Gmarket Sans",
+                    "bodyFontFamily": "Gmarket Sans",
+                    "fallbackFamily": "Arial",
+                    "weights": [400, 500, 700],
+                    "supportsKorean": True,
+                    "pptxEmbeddable": True,
+                    "moodTags": ["modern", "playful", "friendly"],
+                    "license": "Gmarket Sans License",
+                    "sourceUrl": "https://corp.gmarket.com/fonts",
+                    "recommendedTitleSize": 40,
+                    "recommendedBodySize": 20,
+                    "lineHeight": 1.18,
+                    "widthFactor": 1.18,
+                    "overflowRisk": "high",
+                },
+            },
+            slideCountRange={"min": 7, "max": 7},
+        ),
+        client=fake_client,
+    )
+
+    deck = response.deck
+    slides = deck["slides"]
+    assert len(slides) == 7
+    assert deck["theme"]["fontFamily"] == "Gmarket Sans"
+    assert deck["theme"]["typography"]["bodySize"] <= 20
+
+    timing_plan = slides[0]["aiNotes"]["timingPlan"]
+    assert timing_plan["charsPerMinute"] == 260
+    assert timing_plan["targetSlideCount"] == 7
+    assert sum(len(slide["speakerNotes"].replace(" ", "")) for slide in slides) >= round(
+        timing_plan["targetTotalChars"] * 0.8
+    )
+
+    for slide in slides:
+        ai_notes = slide["aiNotes"]
+        assert ai_notes["visualPlan"]["imageNeeded"] is True
+        assert ai_notes["visualPlan"]["imageSourcePolicy"] == "ai-generated"
+        assert any(
+            element["elementId"].endswith("_media_placeholder")
+            for element in slide["elements"]
+        )
+        assert ai_notes["sourceLedger"]
+        assert ai_notes["sourceLedger"][0]["sourceType"] == "uploaded"
+
+    validation_messages = [
+        issue.message
+        for issue in [
+            *response.validation.content_issues,
+            *response.validation.design_issues,
+        ]
+    ]
+    assert not any("발표 시간 기준" in message for message in validation_messages)
+    assert not any("visual slot" in message for message in validation_messages)
+    assert not any("sourceLedger" in message for message in validation_messages)
 
 
 def test_generate_deck_design_pack_enforces_background_constraints() -> None:

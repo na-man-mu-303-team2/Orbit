@@ -183,6 +183,14 @@ class FontOverride(BaseModel):
     mood_tags: list[str] = Field(default_factory=list, alias="moodTags")
     license: str = ""
     source_url: str = Field(default="", alias="sourceUrl")
+    recommended_title_size: int = Field(default=48, alias="recommendedTitleSize")
+    recommended_body_size: int = Field(default=22, alias="recommendedBodySize")
+    line_height: float = Field(default=1.15, alias="lineHeight")
+    width_factor: float = Field(default=1.0, alias="widthFactor")
+    overflow_risk: Literal["low", "medium", "high"] = Field(
+        default="medium",
+        alias="overflowRisk",
+    )
 
 
 class VisualPlanPolicy(BaseModel):
@@ -308,7 +316,21 @@ class GenerateDeckRequest(BaseModel):
     )
 
 
+class PresentationTimingPlan(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    chars_per_minute: int = Field(alias="charsPerMinute")
+    target_total_chars: int = Field(alias="targetTotalChars")
+    target_slide_count: int = Field(alias="targetSlideCount")
+    target_seconds_per_slide: int = Field(alias="targetSecondsPerSlide")
+    target_speaker_notes_chars_per_slide: int = Field(
+        alias="targetSpeakerNotesCharsPerSlide",
+    )
+
+
 class RawInput(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
     project_id: str
     generation_mode: GenerationMode = "legacy"
     topic: str
@@ -319,6 +341,7 @@ class RawInput(BaseModel):
     slide_count: int
     min_slide_count: int
     max_slide_count: int
+    timing_plan: PresentationTimingPlan = Field(alias="timingPlan")
     template: Template
     metadata: GenerateDeckMetadata
     design: DesignOptions
@@ -1500,8 +1523,8 @@ Rules:
 - Write concrete slide titles, body messages, and speaker notes for the actual subject.
 - speakerNotes must be the actual Korean presenter script to read aloud, not a guide
   about what the presenter should explain.
-- Keep speakerNotes to 2-4 natural spoken sentences with concrete wording, examples,
-  or transitions for the audience.
+- Size speakerNotes for the requested presentation duration. Prefer enough natural
+  Korean script to support the target speaking time rather than a fixed sentence count.
 - Do not write speakerNotes like "이 슬라이드는 ... 설명합니다", "... 팁을 제공합니다",
   or "... 함께 언급합니다". Say the presentation lines directly.
 - Choose slideType, layoutVariant, slotPreset, visualIntent, and mediaIntent.
@@ -2038,6 +2061,66 @@ def should_promote_design_issue_to_warning(issue: ValidationIssue) -> bool:
     )
 
 
+def presentation_timing_plan_for_request(
+    request: GenerateDeckRequest,
+    slide_count: int,
+) -> PresentationTimingPlan:
+    chars_per_minute = chars_per_minute_for_request(request)
+    target_total_chars = request.target_duration_minutes * chars_per_minute
+    safe_slide_count = max(1, slide_count)
+    return PresentationTimingPlan(
+        charsPerMinute=chars_per_minute,
+        targetTotalChars=target_total_chars,
+        targetSlideCount=slide_count,
+        targetSecondsPerSlide=max(
+            15,
+            round(request.target_duration_minutes * 60 / safe_slide_count),
+        ),
+        targetSpeakerNotesCharsPerSlide=max(
+            90,
+            round(target_total_chars / safe_slide_count),
+        ),
+    )
+
+
+def chars_per_minute_for_request(request: GenerateDeckRequest) -> int:
+    source = " ".join(
+        part
+        for part in [
+            request.metadata.tone,
+            request.prompt,
+            request.design_prompt,
+            request.brief.presentation_context,
+            request.brief.audience_text,
+            request.brief.presentation_type,
+            request.brief.success_criteria,
+        ]
+        if part
+    ).casefold()
+    if has_any(
+        source,
+        [
+            "friendly",
+            "funny",
+            "easy",
+            "casual",
+            "discussion",
+            "workshop",
+            "토의",
+            "토론",
+            "자유롭게",
+            "쉽게",
+            "재미",
+        ],
+    ):
+        return 260
+    if request.metadata.tone == "concise":
+        return 330
+    if request.metadata.tone == "confident":
+        return 310
+    return 300
+
+
 def analyze_input(
     request: GenerateDeckRequest,
     *,
@@ -2074,6 +2157,7 @@ def analyze_input(
         slide_count=slide_count,
         min_slide_count=request.slide_count_range.min,
         max_slide_count=request.slide_count_range.max,
+        timing_plan=presentation_timing_plan_for_request(request, slide_count),
         template=request.template,
         metadata=request.metadata,
         design=request.design,
@@ -2149,6 +2233,8 @@ def plan_deck_content(
     if generated_plan is not None:
         slide_plans = slide_plans_from_generated_content(raw_input, generated_plan)
         if slide_plans:
+            if raw_input.generation_mode == "design-pack":
+                slide_plans = apply_timing_to_slide_plans(raw_input, slide_plans)
             return (
                 DeckOutline(
                     title=deck_title_for_topic(raw_input.topic, generated_plan.title),
@@ -2162,7 +2248,10 @@ def plan_deck_content(
         )
 
     outline = plan_presentation(raw_input)
-    return outline, plan_slides(raw_input, outline)
+    slide_plans = plan_slides(raw_input, outline)
+    if raw_input.generation_mode == "design-pack":
+        slide_plans = apply_timing_to_slide_plans(raw_input, slide_plans)
+    return outline, slide_plans
 
 
 def requires_llm_content(raw_input: RawInput) -> bool:
@@ -2235,6 +2324,73 @@ def plan_slides(raw_input: RawInput, outline: DeckOutline) -> list[SlidePlan]:
         )
 
     return plans
+
+
+def apply_timing_to_slide_plans(
+    raw_input: RawInput,
+    slide_plans: list[SlidePlan],
+) -> list[SlidePlan]:
+    for slide_plan in slide_plans:
+        slide_plan.speaker_notes = speaker_notes_with_target(
+            raw_input,
+            slide_plan,
+            slide_plan.speaker_notes,
+        )
+    return slide_plans
+
+
+def speaker_notes_with_target(
+    raw_input: RawInput,
+    slide_plan: SlidePlan,
+    speaker_notes: str,
+) -> str:
+    target_chars = target_speaker_notes_chars_for_slide(raw_input, slide_plan)
+    notes = " ".join(speaker_notes.split())
+    if count_speaker_note_chars(notes) >= round(target_chars * 0.8):
+        return notes
+
+    for sentence in speaker_note_expansion_sentences(raw_input, slide_plan):
+        if sentence in notes:
+            continue
+        notes = f"{notes} {sentence}".strip()
+        if count_speaker_note_chars(notes) >= round(target_chars * 0.9):
+            break
+    return notes
+
+
+def target_speaker_notes_chars_for_slide(
+    raw_input: RawInput,
+    slide_plan: SlidePlan,
+) -> int:
+    base = raw_input.timing_plan.target_speaker_notes_chars_per_slide
+    if slide_plan.order in {1, raw_input.slide_count}:
+        return max(90, round(base * 0.85))
+    return base
+
+
+def count_speaker_note_chars(text: str) -> int:
+    return len(re.sub(r"\s+", "", text))
+
+
+def speaker_note_expansion_sentences(
+    raw_input: RawInput,
+    slide_plan: SlidePlan,
+) -> list[str]:
+    focus = keyword_phrase(raw_input)
+    audience = raw_input.brief.audience_text or "청중"
+    context = raw_input.brief.presentation_context or raw_input.brief.presentation_type
+    success = raw_input.brief.success_criteria or "다음 행동을 명확히 정하는 것"
+    next_step = "마지막으로 실행 기준을 정리하겠습니다."
+    if slide_plan.order < raw_input.slide_count:
+        next_step = "이어서 이 기준을 더 구체적인 선택지로 연결하겠습니다."
+
+    return [
+        f"여기서는 {slide_plan.title}을 한 문장으로 정리하면 {slide_plan.message}라고 말씀드릴 수 있습니다.",
+        f"특히 {audience}에게 중요한 지점은 {focus}가 실제 의사결정이나 실행 순서로 이어진다는 점입니다.",
+        f"{context}라는 맥락을 놓고 보면, 이 내용은 단순한 설명보다 함께 확인해야 할 기준에 가깝습니다.",
+        f"그래서 이 내용은 정보를 많이 늘리기보다 {success}에 필요한 판단 근거를 또렷하게 잡는 데 초점을 둡니다.",
+        next_step,
+    ]
 
 
 def slide_type_for(order: int, total: int) -> SlideType:
@@ -2399,12 +2555,17 @@ def deck_content_prompt(raw_input: RawInput) -> str:
         f"Purpose: {raw_input.metadata.purpose}",
         f"Tone: {raw_input.metadata.tone}",
         f"Document mode: {document_mode_for(raw_input)}",
+        f"Target speaker notes chars per slide: {raw_input.timing_plan.target_speaker_notes_chars_per_slide}",
         f"Presentation context: {raw_input.brief.presentation_context or '(none)'}",
         f"Audience detail: {raw_input.brief.audience_text or '(none)'}",
         f"Presentation type: {raw_input.brief.presentation_type or '(none)'}",
         f"Success criteria: {raw_input.brief.success_criteria or '(none)'}",
         f"Reference policy: {raw_input.brief.reference_policy}",
     ]
+    if uses_conversational_design_flow(raw_input):
+        lines.append(
+            "Tone guidance: use short keywords, discussion questions, consensus points, and next actions."
+        )
     if raw_input.brief.duration_minutes is not None:
         lines.append(f"Duration minutes: {raw_input.brief.duration_minutes}")
     if uses_full_narrative_design_context(raw_input):
@@ -2551,6 +2712,13 @@ def apply_design_options(
             slide_plan.media_intent,
             raw_input.design.media_policy,
         )
+        if (
+            raw_input.generation_mode == "design-pack"
+            and slide_plan.media_intent.kind == "none"
+        ):
+            slide_plan.media_intent = design_pack_media_intent_for_policy(
+                raw_input.design.media_policy
+            )
         selected_preset = choose_layout_preset(
             slide_plan,
             raw_input,
@@ -2806,6 +2974,19 @@ def media_intent_for_policy(
     if media_policy in {"public-assets", "ai-generated"}:
         return media_intent
     return MediaIntent()
+
+
+def design_pack_media_intent_for_policy(media_policy: MediaPolicy) -> MediaIntent:
+    if media_policy not in {"ai-generated", "public-assets", "placeholder-ok"}:
+        return MediaIntent()
+    return MediaIntent(
+        kind="generate" if media_policy == "ai-generated" else "placeholder",
+        prompt="Create a presentation-safe visual that supports the slide message.",
+        alt="Generated visual placeholder",
+        caption="Visual slot",
+        rationale="Media policy requests a visible visual planning slot.",
+        required=True,
+    )
 
 
 def media_intent_needs_slot(media_intent: MediaIntent) -> bool:
@@ -3084,8 +3265,28 @@ def apply_font_override(
     typography = dict(theme.get("typography", {}))
     typography["headingFontFamily"] = font_override.heading_font_family
     typography["bodyFontFamily"] = font_override.body_font_family
+    typography["titleSize"] = min(
+        int(typography.get("titleSize", font_override.recommended_title_size)),
+        font_override.recommended_title_size,
+    )
+    typography["headingSize"] = min(
+        int(typography.get("headingSize", font_override.recommended_title_size)),
+        max(font_override.recommended_body_size + 8, font_override.recommended_title_size - 4),
+    )
+    typography["bodySize"] = min(
+        int(typography.get("bodySize", font_override.recommended_body_size)),
+        font_override.recommended_body_size,
+    )
+    typography["lineHeight"] = font_override.line_height
+    typography["fontWidthFactor"] = font_override.width_factor
+    typography["overflowRisk"] = font_override.overflow_risk
     theme["typography"] = typography
     theme["fontFamily"] = font_override.body_font_family
+    theme["fontSafety"] = {
+        "fontId": font_override.font_id,
+        "widthFactor": font_override.width_factor,
+        "overflowRisk": font_override.overflow_risk,
+    }
     return theme
 
 
@@ -3856,6 +4057,7 @@ def assemble_design_pack_slide(
             "textColor": theme["textColor"],
             "accentColor": theme["accentColor"],
         },
+        "estimatedSeconds": raw_input.timing_plan.target_seconds_per_slide,
         "speakerNotes": slide_plan.speaker_notes,
         "elements": elements,
         "keywords": [
@@ -3893,7 +4095,29 @@ def design_pack_ai_notes(
             evidence.model_dump(by_alias=True) for evidence in slide_plan.evidence
         ],
         "visualPlan": design_pack_visual_plan(raw_input, slide_plan, recipe),
-        "sourceLedger": [design_pack_source_ledger(raw_input, slide_plan)],
+        "sourceLedger": design_pack_source_ledgers(raw_input, slide_plan),
+        "timingPlan": design_pack_timing_plan(raw_input, slide_plan),
+    }
+
+
+def design_pack_timing_plan(
+    raw_input: RawInput,
+    slide_plan: SlidePlan,
+) -> dict[str, Any]:
+    return {
+        "charsPerMinute": raw_input.timing_plan.chars_per_minute,
+        "targetTotalChars": raw_input.timing_plan.target_total_chars,
+        "targetSlideCount": raw_input.timing_plan.target_slide_count,
+        "targetSecondsPerSlide": raw_input.timing_plan.target_seconds_per_slide,
+        "targetSpeakerNotesCharsPerSlide": (
+            raw_input.timing_plan.target_speaker_notes_chars_per_slide
+        ),
+        "targetSeconds": raw_input.timing_plan.target_seconds_per_slide,
+        "targetSpeakerNotesChars": target_speaker_notes_chars_for_slide(
+            raw_input,
+            slide_plan,
+        ),
+        "actualSpeakerNotesChars": count_speaker_note_chars(slide_plan.speaker_notes),
     }
 
 
@@ -3938,15 +4162,30 @@ def visual_plan_reason(
     return f"{visual_type} layout does not require an image."
 
 
+def design_pack_source_ledgers(
+    raw_input: RawInput,
+    slide_plan: SlidePlan,
+) -> list[dict[str, Any]]:
+    claims = [slide_plan.message]
+    claims.extend(slide_plan.keywords[:2])
+    ledgers = [
+        design_pack_source_ledger(raw_input, slide_plan, claim, index)
+        for index, claim in enumerate(unique_non_empty(claims), start=0)
+    ]
+    return ledgers or [design_pack_source_ledger(raw_input, slide_plan, slide_plan.title, 0)]
+
+
 def design_pack_source_ledger(
     raw_input: RawInput,
     slide_plan: SlidePlan,
+    claim: str,
+    source_index: int,
 ) -> dict[str, Any]:
     slide_id = f"slide_{slide_plan.order}"
     if slide_plan.evidence:
-        evidence = slide_plan.evidence[0]
+        evidence = slide_plan.evidence[source_index % len(slide_plan.evidence)]
         return {
-            "claim": slide_plan.message,
+            "claim": claim,
             "source": evidence.file_id,
             "sourceType": "uploaded",
             "confidence": evidence.confidence,
@@ -3954,12 +4193,21 @@ def design_pack_source_ledger(
         }
 
     if raw_input.reference_context:
-        context = raw_input.reference_context[0]
+        context = raw_input.reference_context[source_index % len(raw_input.reference_context)]
         return {
-            "claim": slide_plan.message,
-            "source": context.file_id,
+            "claim": claim,
+            "source": context.title or context.file_id,
             "sourceType": "uploaded",
             "confidence": 0.72,
+            "usedInSlideId": slide_id,
+        }
+
+    if raw_input.brief.reference_policy == "references-only":
+        return {
+            "claim": claim,
+            "source": "missing-reference-context",
+            "sourceType": "none",
+            "confidence": 0.1,
             "usedInSlideId": slide_id,
         }
 
@@ -3968,12 +4216,25 @@ def design_pack_source_ledger(
         "user-input-only",
     } else "generated"
     return {
-        "claim": slide_plan.message,
+        "claim": claim,
         "source": raw_input.topic if source_type == "topic" else "no-reference-context",
         "sourceType": source_type,
         "confidence": 0.55 if source_type == "topic" else 0.35,
         "usedInSlideId": slide_id,
     }
+
+
+def unique_non_empty(values: list[str]) -> list[str]:
+    result: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        text = " ".join(str(value).split())
+        key = text.casefold()
+        if not text or key in seen:
+            continue
+        seen.add(key)
+        result.append(text)
+    return result
 
 
 def design_pack_recipe_for(
@@ -3992,12 +4253,45 @@ def design_pack_recipe_for(
     if slide_plan.slide_type == "feature-grid":
         return "overview_cards"
 
+    if uses_conversational_design_flow(raw_input):
+        sequence = ("overview_cards", "comparison_split", "process_steps")
+        return sequence[max(0, slide_plan.order - 2) % len(sequence)]
+
     archetype = design_pack_deck_archetype(raw_input, slide_plan)
     if archetype == "pitch" and slide_plan.slide_type in {"data", "summary"}:
         return "overview_cards"
 
     sequence = DESIGN_PACK_ARCHETYPE_RECIPE_SEQUENCES[archetype]
     return sequence[max(0, slide_plan.order - 2) % len(sequence)]
+
+
+def uses_conversational_design_flow(raw_input: RawInput) -> bool:
+    text = " ".join(
+        [
+            raw_input.prompt,
+            raw_input.design_prompt,
+            raw_input.brief.presentation_context,
+            raw_input.brief.audience_text,
+            raw_input.brief.presentation_type,
+            raw_input.brief.success_criteria,
+        ]
+    ).casefold()
+    return has_any(
+        text,
+        [
+            "tone=friendly",
+            "funny",
+            "easy",
+            "casual",
+            "discussion",
+            "workshop",
+            "토의",
+            "토론",
+            "자유롭게",
+            "쉽게",
+            "재미",
+        ],
+    )
 
 
 def design_pack_deck_archetype(
@@ -4171,7 +4465,63 @@ def design_pack_recipe_elements(
         elements.extend(design_pack_closing_elements(slide_plan, theme))
     else:
         elements.extend(design_pack_insight_elements(slide_plan, theme))
+    elements.extend(
+        design_pack_media_placeholder_elements(raw_input, slide_plan, recipe, theme)
+    )
     return elements
+
+
+def design_pack_media_placeholder_elements(
+    raw_input: RawInput,
+    slide_plan: SlidePlan,
+    recipe: str,
+    theme: dict[str, Any],
+) -> list[dict[str, Any]]:
+    if not media_intent_needs_slot(slide_plan.media_intent):
+        return []
+
+    colors = design_pack_colors(raw_input, theme)
+    x, y, width, height = {
+        "cover_trust_signal": (1210, 760, 480, 86),
+        "overview_cards": (1330, 238, 420, 96),
+        "insight_evidence": (1080, 680, 540, 92),
+        "process_steps": (1370, 226, 420, 98),
+        "comparison_split": (1488, 176, 300, 84),
+        "closing_summary": (162, 738, 336, 104),
+    }.get(recipe, (1320, 820, 420, 96))
+    caption = slide_plan.media_intent.caption or "AI visual plan"
+    rationale = slide_plan.media_intent.rationale or slide_plan.media_intent.prompt
+    return [
+        shape_element(
+            slide_plan.order,
+            "design_pack_visual_media_placeholder",
+            "media",
+            x,
+            y,
+            width,
+            height,
+            6,
+            colors["muted"],
+            colors["primary"],
+            8,
+        ),
+        design_pack_text(
+            slide_plan.order,
+            "design_pack_visual_media_caption",
+            "caption",
+            compact_design_pack_text(f"{caption}: {rationale}", 72),
+            x + 24,
+            y + 22,
+            max(120, width - 48),
+            max(36, height - 44),
+            7,
+            colors["text"],
+            16,
+            "medium",
+            theme,
+            line_height=1.08,
+        ),
+    ]
 
 
 def design_pack_chrome_elements(
@@ -4983,6 +5333,8 @@ def design_pack_text(
         if role == "title"
         else theme["typography"]["bodyFontFamily"]
     )
+    font_size = design_pack_safe_font_size(theme, role, font_size)
+    line_height = design_pack_safe_line_height(theme, role, line_height)
     element = text_element(
         order,
         name,
@@ -5001,6 +5353,32 @@ def design_pack_text(
     element["props"]["lineHeight"] = line_height
     shrink_text_to_fit(element)
     return element
+
+
+def design_pack_safe_font_size(
+    theme: dict[str, Any],
+    role: str,
+    requested_size: int,
+) -> int:
+    typography = theme.get("typography", {})
+    if role == "title":
+        return min(requested_size, int(typography.get("titleSize", requested_size)))
+    if role in {"body", "highlight"}:
+        return min(requested_size, int(typography.get("bodySize", requested_size)))
+    if role in {"caption", "footer"}:
+        return min(requested_size, int(typography.get("captionSize", requested_size)))
+    return requested_size
+
+
+def design_pack_safe_line_height(
+    theme: dict[str, Any],
+    role: str,
+    requested_line_height: float,
+) -> float:
+    if role in {"caption", "footer"}:
+        return requested_line_height
+    typography = theme.get("typography", {})
+    return max(requested_line_height, float(typography.get("lineHeight", 1.15)))
 
 
 def design_pack_items(slide_plan: SlidePlan, limit: int) -> list[str]:
@@ -7965,7 +8343,117 @@ def validate_content(deck: dict[str, Any]) -> list[ValidationIssue]:
                     message="발표자 노트가 필요합니다.",
                 )
             )
+        issues.extend(validate_slide_timing_plan(slide, slide_index))
+        issues.extend(validate_slide_source_ledger(slide, slide_index))
+        issues.extend(validate_slide_visual_slot(slide, slide_index))
+    issues.extend(validate_deck_timing_summary(deck))
     return issues
+
+
+def validate_slide_timing_plan(
+    slide: dict[str, Any],
+    slide_index: int,
+) -> list[ValidationIssue]:
+    timing_plan = slide.get("aiNotes", {}).get("timingPlan")
+    if not isinstance(timing_plan, dict):
+        return []
+    target_chars = int(timing_plan.get("targetSpeakerNotesChars") or 0)
+    actual_chars = count_speaker_note_chars(str(slide.get("speakerNotes", "")))
+    if target_chars > 0 and actual_chars < round(target_chars * 0.8):
+        return [
+            ValidationIssue(
+                scope="slide",
+                path=f"slides.{slide_index}.speakerNotes",
+                message=(
+                    "발표 시간 기준보다 발표자 노트가 짧습니다. "
+                    f"목표 {target_chars}자 대비 현재 {actual_chars}자입니다."
+                ),
+            )
+        ]
+    return []
+
+
+def validate_slide_source_ledger(
+    slide: dict[str, Any],
+    slide_index: int,
+) -> list[ValidationIssue]:
+    ai_notes = slide.get("aiNotes", {})
+    if not isinstance(ai_notes, dict) or (
+        "visualPlan" not in ai_notes and "timingPlan" not in ai_notes
+    ):
+        return []
+    source_ledger = ai_notes.get("sourceLedger")
+    if not isinstance(source_ledger, list) or not source_ledger:
+        return [
+            ValidationIssue(
+                scope="slide",
+                path=f"slides.{slide_index}.aiNotes.sourceLedger",
+                message="핵심 주장에 대한 sourceLedger가 필요합니다.",
+            )
+        ]
+    if any(item.get("sourceType") == "none" for item in source_ledger if isinstance(item, dict)):
+        return [
+            ValidationIssue(
+                scope="slide",
+                path=f"slides.{slide_index}.aiNotes.sourceLedger",
+                message="참고자료 우선/전용 정책인데 연결된 근거가 부족합니다.",
+            )
+        ]
+    return []
+
+
+def validate_slide_visual_slot(
+    slide: dict[str, Any],
+    slide_index: int,
+) -> list[ValidationIssue]:
+    visual_plan = slide.get("aiNotes", {}).get("visualPlan")
+    if not isinstance(visual_plan, dict) or not visual_plan.get("imageNeeded"):
+        return []
+    has_visual_slot = any(
+        element.get("type") == "image"
+        or str(element.get("elementId", "")).endswith("_media_placeholder")
+        for element in slide.get("elements", [])
+    )
+    if has_visual_slot:
+        return []
+    return [
+        ValidationIssue(
+            scope="slide",
+            path=f"slides.{slide_index}.elements",
+            message="이미지/시각 자료 정책이 선택됐지만 보이는 visual slot이 없습니다.",
+        )
+    ]
+
+
+def validate_deck_timing_summary(deck: dict[str, Any]) -> list[ValidationIssue]:
+    slides = deck.get("slides", [])
+    timing_plans = [
+        slide.get("aiNotes", {}).get("timingPlan")
+        for slide in slides
+        if isinstance(slide.get("aiNotes", {}).get("timingPlan"), dict)
+    ]
+    if not timing_plans:
+        return []
+    target_total = sum(
+        int(plan.get("targetSpeakerNotesChars") or 0)
+        for plan in timing_plans
+    )
+    actual_total = sum(
+        count_speaker_note_chars(str(slide.get("speakerNotes", "")))
+        for slide in slides
+    )
+    if target_total > 0 and actual_total < round(target_total * 0.8):
+        return [
+            ValidationIssue(
+                scope="deck",
+                path="slides",
+                message=(
+                    "전체 발표 시간 대비 발표자 노트 분량이 부족합니다. "
+                    f"목표 {target_total}자 대비 현재 {actual_total}자입니다."
+                ),
+            )
+        ]
+    return []
 
 
 def validate_design(deck: dict[str, Any]) -> list[ValidationIssue]:
@@ -7978,7 +8466,7 @@ def validate_design(deck: dict[str, Any]) -> list[ValidationIssue]:
         )
         for element_index, element in enumerate(elements):
             element_id = element["elementId"]
-            if element_id.endswith("_media_placeholder"):
+            if element_id.endswith("_media_placeholder") and not is_expected_media_placeholder(slide):
                 issues.append(
                     ValidationIssue(
                         scope="element",
@@ -8072,6 +8560,15 @@ def validate_design(deck: dict[str, Any]) -> list[ValidationIssue]:
     return issues
 
 
+def is_expected_media_placeholder(slide: dict[str, Any]) -> bool:
+    visual_plan = slide.get("aiNotes", {}).get("visualPlan")
+    if not isinstance(visual_plan, dict):
+        return False
+    return bool(visual_plan.get("imageNeeded")) and str(
+        visual_plan.get("imageSourcePolicy", "")
+    ) in {"ai-generated", "public-assets", "placeholder-ok"}
+
+
 def is_text_overflowing(element: dict[str, Any]) -> bool:
     props = element.get("props", {})
     text = str(props.get("text", ""))
@@ -8082,13 +8579,27 @@ def is_text_overflowing(element: dict[str, Any]) -> bool:
     line_height = float(props.get("lineHeight", 1.2))
     width = float(element.get("width", 1))
     height = float(element.get("height", 1))
-    average_character_width = max(1.0, font_size * 0.56)
+    average_character_width = max(
+        1.0,
+        font_size * 0.56 * font_width_factor_from_element(element),
+    )
     characters_per_line = max(1, int(width / average_character_width))
     estimated_lines = sum(
         max(1, (len(line) + characters_per_line - 1) // characters_per_line)
         for line in text.splitlines() or [text]
     )
     return estimated_lines * font_size * line_height > height * 1.08
+
+
+def font_width_factor_from_element(element: dict[str, Any]) -> float:
+    font_family = str(element.get("props", {}).get("fontFamily", "")).casefold()
+    if "gmarket" in font_family:
+        return 1.18
+    if "nanumsquareround" in font_family or "gowun" in font_family:
+        return 1.1
+    if "noto sans kr" in font_family:
+        return 1.04
+    return 1.0
 
 
 def is_low_contrast_text(element: dict[str, Any], background_color: str) -> bool:
