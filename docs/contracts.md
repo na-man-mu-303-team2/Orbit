@@ -661,6 +661,7 @@ AI 덱 생성은 사용자 입력과 참고자료 fileId를 받아 비동기 Job
 - `generationMode`는 `legacy`, `design-pack`만 허용하며 기본값은 `legacy`다. 기존 AI 덱 생성과 템플릿 기반 생성은 `legacy` 경로를 유지하고, `/ai-ppt` wizard만 `design-pack`을 명시한다.
 - AI PPT 1차 wizard는 `brief`를 함께 보낼 수 있다. `brief.referencePolicy`는 `topic-only`, `references-first`, `references-only`만 허용하며, `references-only`는 web에서 참고 파일 1개 이상을 요구한다.
 - AI PPT 1차 wizard는 `design.stylePackId = "brandlogy-modern"`를 기본값으로 사용한다. 이는 PPTX 템플릿이 아니라 worker 내부 Design Pack preset이며, 최종 Deck JSON에는 style pack 중간 필드를 저장하지 않는다.
+- `generationMode = "design-pack"` 경로는 worker의 코드 기반 layout recipe가 좌표, 크기, zIndex, 구조 요소를 계산한다. `legacy` 생성 경로는 기존 layout preset 조립 방식을 유지한다.
 - AI PPT 1차 wizard는 자연어 색상 요청을 `design.colorIntent`와 `design.constraints`로 구조화한다. `designPrompt`는 설명용 보조 필드이며, 흰 배경/금지 스타일 같은 강제 규칙은 `design.constraints`가 source of truth다.
 - `design.colorIntent`는 색상 추천 기준을 담는 선택 필드이며 `mood`, `trustLevel`, `energyLevel`, `formality`, `preferredHue`, `backgroundPreference`, `forbiddenStyles`를 사용한다.
 - `design.constraints`는 `canvasBackground`와 `forbiddenStyles`를 사용한다. 1차에서 `canvasBackground`는 `auto`, `white`만 허용하고 `forbiddenStyles`는 `gradient`, `pastel`만 허용한다.
