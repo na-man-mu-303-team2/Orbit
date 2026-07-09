@@ -3991,7 +3991,7 @@ button:disabled {
   padding: 18px;
 }
 
-.presenter-remote-script-list {
+.presenter-script-list {
   counter-reset: script;
   display: grid;
   gap: 8px;
@@ -4000,18 +4000,18 @@ button:disabled {
   padding: 0;
 }
 
-.presenter-remote-script-row {
+.presenter-script-row {
   align-items: start;
   border: 1px solid transparent;
   border-radius: 8px;
   color: #334155;
   display: grid;
   gap: 12px;
-  grid-template-columns: 34px 1fr;
+  grid-template-columns: 34px minmax(0, 1fr) auto;
   padding: 12px 14px;
 }
 
-.presenter-remote-script-row span {
+.presenter-script-row > span {
   align-items: center;
   background: #e2e8f0;
   border-radius: 999px;
@@ -4024,7 +4024,7 @@ button:disabled {
   width: 28px;
 }
 
-.presenter-remote-script-row p {
+.presenter-script-row p {
   font-size: 1rem;
   font-weight: 800;
   line-height: 1.68;
@@ -4032,15 +4032,44 @@ button:disabled {
   white-space: pre-wrap;
 }
 
-.presenter-remote-script-row--current {
+.presenter-script-row em {
+  align-self: start;
+  background: #dcfce7;
+  border-radius: 999px;
+  color: #166534;
+  font-size: 0.72rem;
+  font-style: normal;
+  font-weight: 850;
+  padding: 3px 8px;
+}
+
+.presenter-script-row--current {
   background: #eff6ff;
   border-color: #bfdbfe;
   color: #0f172a;
 }
 
-.presenter-remote-script-row--current span {
+.presenter-script-row--current > span {
   background: #2563eb;
   color: #ffffff;
+}
+
+.presenter-script-row--covered {
+  color: #64748b;
+}
+
+.presenter-script-row--covered p {
+  opacity: 0.82;
+}
+
+.presenter-script-row--unmatchable {
+  color: #94a3b8;
+}
+
+.presenter-script-list-empty {
+  color: #64748b;
+  font-weight: 750;
+  margin: 0;
 }
 
 .presenter-remote-cue-sidebar {
