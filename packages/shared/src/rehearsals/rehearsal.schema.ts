@@ -215,6 +215,25 @@ export const completeRehearsalAudioUploadResponseSchema = z.object({
   job: jobSchema
 });
 
+export const rehearsalUtteranceOutcomeKindSchema = z.enum([
+  "covered",
+  "paraphrased",
+  "ad-lib",
+  "missed"
+]);
+
+export const rehearsalUtteranceOutcomeSchema = z
+  .object({
+    slideId: deckSlideIdSchema,
+    kind: rehearsalUtteranceOutcomeKindSchema,
+    sentenceId: z.string().trim().min(1).optional(),
+    text: z.string().trim().min(1).max(600).optional(),
+    similarity: z.number().min(-1).max(1).optional(),
+    lexicalOverlap: z.number().min(0).max(1).optional(),
+    at: isoDateTimeSchema.optional()
+  })
+  .strict();
+
 export const rehearsalRunMetaSchema = z
   .object({
     slideTimeline: z
@@ -246,9 +265,13 @@ export const rehearsalRunMetaSchema = z
           })
           .strict()
       )
+      .default([]),
+    utteranceOutcomes: z
+      .array(rehearsalUtteranceOutcomeSchema)
       .default([])
   })
-  // run 메타는 리포트 집계를 위한 사건 정보만 받고 전사/대본/원본 오디오는 받지 않는다.
+  // Run meta stores bounded report facts only. It may include approved ad-lib
+  // snippets, but must not accept full transcript, speaker notes, or raw audio.
   .strict();
 
 export const updateRehearsalRunMetaRequestSchema = rehearsalRunMetaSchema;
@@ -304,6 +327,12 @@ export type UploadRehearsalAudioChunkParams = z.infer<
   typeof uploadRehearsalAudioChunkParamsSchema
 >;
 export type RehearsalRunMeta = z.infer<typeof rehearsalRunMetaSchema>;
+export type RehearsalUtteranceOutcome = z.infer<
+  typeof rehearsalUtteranceOutcomeSchema
+>;
+export type RehearsalUtteranceOutcomeKind = z.infer<
+  typeof rehearsalUtteranceOutcomeKindSchema
+>;
 export type UpdateRehearsalRunMetaRequest = z.infer<
   typeof updateRehearsalRunMetaRequestSchema
 >;
