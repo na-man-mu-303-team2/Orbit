@@ -5084,14 +5084,10 @@ export function getRehearsalPrompterRows(
   }
 
   const coveredSentenceIdSet = new Set(coveredSentenceIds);
-  const incompleteCoveredSentence = getLastIncompleteCoveredSentence(
+  const focusSentenceId = getRehearsalScriptFocusSentenceId(
     sentences,
-    coveredSentenceIdSet,
-    transcript,
+    Array.from(coveredSentenceIdSet),
   );
-  const focusSentenceId =
-    incompleteCoveredSentence?.sentenceId ??
-    getRehearsalScriptFocusSentenceId(sentences, coveredSentenceIds);
   const focusIndex = Math.max(
     0,
     sentences.findIndex((sentence) => sentence.sentenceId === focusSentenceId),
@@ -5107,27 +5103,6 @@ export function getRehearsalPrompterRows(
     ),
     next: sentences[focusIndex + 1]?.text ?? "",
   };
-}
-
-function getLastIncompleteCoveredSentence(
-  sentences: readonly ExtractedSentence[],
-  coveredSentenceIds: ReadonlySet<string>,
-  transcript: string,
-) {
-  for (let index = sentences.length - 1; index >= 0; index -= 1) {
-    const sentence = sentences[index];
-    if (!sentence?.matchable || !coveredSentenceIds.has(sentence.sentenceId)) {
-      continue;
-    }
-
-    if (!isPrompterSentenceFullySpoken(sentence.text, transcript)) {
-      return sentence;
-    }
-
-    break;
-  }
-
-  return null;
 }
 
 function splitPrompterSentence(

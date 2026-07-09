@@ -1818,7 +1818,7 @@ describe("RehearsalWorkspace", () => {
     ]);
   });
 
-  it("keeps the prompter on an incomplete covered sentence until its prefix is spoken", () => {
+  it("moves the prompter to the next uncovered sentence even when the covered sentence transcript is partial", () => {
     const rows = getRehearsalPrompterRows(
       [
         {
@@ -1844,9 +1844,10 @@ describe("RehearsalWorkspace", () => {
     );
 
     expect(rows.currentSegments.map((segment) => segment.text).join("")).toBe(
-      "첫 문장은 아직 끝까지 읽지 않았습니다.",
+      "다음 문장입니다.",
     );
-    expect(rows.next).toBe("다음 문장입니다.");
+    expect(rows.previous).toBe("첫 문장은 아직 끝까지 읽지 않았습니다.");
+    expect(rows.next).toBe("");
   });
 
   it("assigns distinct teleprompter tones to important script terms", () => {
