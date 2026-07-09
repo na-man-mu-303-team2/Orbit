@@ -484,7 +484,8 @@ function createMockSemanticMatcher(options: {
     })),
     matchFinalTranscript: vi.fn(async () => ({
       accepted: options.accepted,
-      topMatches: options.topMatches ?? []
+      topMatches: options.topMatches ?? [],
+      decision: null
     }))
   };
 }
