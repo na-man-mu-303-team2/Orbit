@@ -4,6 +4,7 @@ import type { AdviceEventType } from "./speechTrackingConfig";
 export type RehearsalLogSlide = {
   slideId: string;
   keywordIds: readonly string[];
+  matchableSentenceIds?: readonly string[];
 };
 
 export type RehearsalLogCollectorOptions = {
@@ -16,6 +17,19 @@ export type RehearsalLogCollector = {
   enterSlide: (slideId: string) => void;
   recordKeywordHit: (slideId: string, keywordId: string) => void;
   recordProvisionalMissing: (slideId: string, keywordId: string) => void;
+  recordSentenceCovered: (input: {
+    slideId: string;
+    sentenceId: string;
+    matchKind: "covered" | "paraphrased";
+    similarity?: number;
+    lexicalOverlap?: number;
+  }) => void;
+  recordAdLib: (input: {
+    slideId: string;
+    text: string;
+    nearestSentenceId: string | null;
+    similarity: number | null;
+  }) => void;
   setAdviceState: (type: AdviceEventType, active: boolean) => void;
   finalize: () => RehearsalRunMeta;
 };
@@ -33,6 +47,8 @@ export function createRehearsalLogCollector(
   const slideTimeline: RehearsalRunMeta["slideTimeline"] = [];
   const keywordHits = new Map<string, Set<string>>();
   const provisionalMissing = new Map<string, Set<string>>();
+  const coveredSentenceIds = new Map<string, Set<string>>();
+  const utteranceOutcomes: RehearsalRunMeta["utteranceOutcomes"] = [];
   const adviceState = new Map<AdviceEventType, AdviceState>();
   const adviceEvents: RehearsalRunMeta["adviceEvents"] = [];
 
@@ -49,6 +65,54 @@ export function createRehearsalLogCollector(
 
   function recordProvisionalMissing(slideId: string, keywordId: string) {
     getSet(provisionalMissing, slideId).add(keywordId);
+  }
+
+  function recordSentenceCovered(input: {
+    slideId: string;
+    sentenceId: string;
+    matchKind: "covered" | "paraphrased";
+    similarity?: number;
+    lexicalOverlap?: number;
+  }) {
+    const slideCovered = getSet(coveredSentenceIds, input.slideId);
+    if (slideCovered.has(input.sentenceId)) {
+      return;
+    }
+
+    slideCovered.add(input.sentenceId);
+    utteranceOutcomes.push({
+      slideId: input.slideId,
+      kind: input.matchKind,
+      sentenceId: input.sentenceId,
+      ...(input.similarity === undefined ? {} : { similarity: input.similarity }),
+      ...(input.lexicalOverlap === undefined
+        ? {}
+        : { lexicalOverlap: input.lexicalOverlap }),
+      at: now().toISOString()
+    });
+  }
+
+  function recordAdLib(input: {
+    slideId: string;
+    text: string;
+    nearestSentenceId: string | null;
+    similarity: number | null;
+  }) {
+    const text = input.text.normalize("NFC").replace(/\s+/g, " ").trim().slice(0, 600);
+    if (!text) {
+      return;
+    }
+
+    utteranceOutcomes.push({
+      slideId: input.slideId,
+      kind: "ad-lib",
+      text,
+      ...(input.nearestSentenceId === null
+        ? {}
+        : { sentenceId: input.nearestSentenceId }),
+      ...(input.similarity === null ? {} : { similarity: input.similarity }),
+      at: now().toISOString()
+    });
   }
 
   function setAdviceState(type: AdviceEventType, active: boolean) {
@@ -75,6 +139,7 @@ export function createRehearsalLogCollector(
 
   function finalize(): RehearsalRunMeta {
     const missedKeywords: RehearsalRunMeta["missedKeywords"] = [];
+    const missedSentenceOutcomes: RehearsalRunMeta["utteranceOutcomes"] = [];
 
     for (const slide of options.slides) {
       const hits = keywordHits.get(slide.slideId) ?? new Set<string>();
@@ -83,13 +148,24 @@ export function createRehearsalLogCollector(
           missedKeywords.push({ slideId: slide.slideId, keywordId });
         }
       }
+
+      const covered = coveredSentenceIds.get(slide.slideId) ?? new Set<string>();
+      for (const sentenceId of slide.matchableSentenceIds ?? []) {
+        if (!covered.has(sentenceId)) {
+          missedSentenceOutcomes.push({
+            slideId: slide.slideId,
+            kind: "missed",
+            sentenceId
+          });
+        }
+      }
     }
 
     return {
       slideTimeline: [...slideTimeline],
       missedKeywords,
       adviceEvents: [...adviceEvents],
-      utteranceOutcomes: []
+      utteranceOutcomes: [...utteranceOutcomes, ...missedSentenceOutcomes]
     };
   }
 
@@ -97,6 +173,8 @@ export function createRehearsalLogCollector(
     enterSlide,
     recordKeywordHit,
     recordProvisionalMissing,
+    recordSentenceCovered,
+    recordAdLib,
     setAdviceState,
     finalize
   };
