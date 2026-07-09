@@ -358,7 +358,7 @@
   - Doppler webhook이 GitHub workflow dispatch API를 직접 호출한다.
   - 별도 relay service를 두고 Doppler signature를 검증한 뒤 GitHub workflow를 호출한다.
   - Doppler secret 변경 후 운영자가 GitHub Actions `workflow_dispatch`를 수동 실행한다.
-- Final decision: personal staging에 한해 Doppler `orbit / stg` webhook이 `.github/workflows/deploy-personal-staging.yml`의 `workflow_dispatch`를 호출한다. webhook은 `ref=develop`, `trigger=doppler-stg-secrets-update`, `doppler_config=orbit/stg` metadata만 보낸다. GitHub token은 Doppler webhook authentication에만 저장하고, 앱 secret은 기존처럼 서버의 Doppler service token으로 `doppler run` 실행 시점에 읽는다.
-- Rationale: GitHub에 앱 secret이나 서버 SSH secret을 복사하지 않고, 기존 self-hosted runner와 배포 wrapper 경계를 재사용해 Doppler `stg` 변경만 personal staging 재배포로 연결할 수 있다. config를 `stg`로 제한하면 production secret 변경과 AWS production 배포를 이 경로에서 분리할 수 있다.
+- Final decision: personal staging에 한해 Doppler `orbit / stg` webhook이 `.github/workflows/deploy-personal-staging.yml`의 `workflow_dispatch`를 호출한다. webhook은 `ref=develop`, `trigger=doppler-stg-secrets-update`, `doppler_config=orbit/stg` metadata만 보낸다. Doppler webhook authentication에는 `Actions: write` 권한의 fine-grained personal access token만 저장하고, 앱 secret은 기존처럼 서버의 Doppler service token으로 `doppler run` 실행 시점에 읽는다.
+- Rationale: GitHub에 앱 secret이나 서버 SSH secret을 복사하지 않고, 기존 self-hosted runner와 배포 wrapper 경계를 재사용해 Doppler `stg` 변경만 personal staging 재배포로 연결할 수 있다. config를 `stg`로 제한하면 production secret 변경과 AWS production 배포를 이 경로에서 분리할 수 있다. GitHub App installation token은 짧은 수명 token이므로, relay 없이 Doppler webhook authentication에 정적으로 저장하지 않는다.
 - Affected files: `.github/workflows/deploy-personal-staging.yml`, `docs/runbooks/personal-server-deployment.md`, `docs/decision-log.md`.
 - Follow-up review notes: Doppler Webhook Logs와 GitHub Actions run history에서 첫 `doppler-stg-secrets-update` 실행을 확인한다. webhook 재시도와 중복 이벤트가 있을 수 있으므로 workflow concurrency와 서버 배포 lock을 유지한다. GitHub token은 만료 기한을 짧게 두고 주기적으로 교체한다.
