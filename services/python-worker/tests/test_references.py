@@ -6,6 +6,7 @@ import app.main as api_module
 from app.references import (
     EMBEDDING_DIMENSION,
     EmbeddingResult,
+    PostgresReferenceRepository,
     ReferenceChunkInput,
     ReferenceSearchResult,
     create_embeddings,
@@ -21,6 +22,7 @@ class FakeRepository:
         self.chunks: list[ReferenceChunkInput] = []
         self.search_project_id = ""
         self.search_embedding: list[float] = []
+        self.search_file_ids: list[str] | None = None
         self.project_id = ""
         self.file_id = ""
 
@@ -40,9 +42,11 @@ class FakeRepository:
         query_embedding: list[float],
         *,
         limit: int = 6,
+        file_ids: list[str] | None = None,
     ) -> list[ReferenceSearchResult]:
         self.search_project_id = project_id
         self.search_embedding = query_embedding
+        self.search_file_ids = file_ids
         return [
             ReferenceSearchResult(
                 chunk_id="chunk-1",
@@ -136,14 +140,64 @@ def test_search_reference_chunks_applies_project_boundary() -> None:
         repository=repository,
         project_id="project-a",
         query="deck topic",
+        file_ids=["file-1"],
         embedding_client=FakeEmbeddingClient(),
     )
 
     assert embedding_result.status == "succeeded"
     assert repository.search_project_id == "project-a"
     assert repository.search_embedding == [0.01] * EMBEDDING_DIMENSION
+    assert repository.search_file_ids == ["file-1"]
     assert results[0].project_id == "project-a"
     assert results[0].content == "grounded evidence"
+
+
+def test_postgres_search_filters_file_ids_before_limit(monkeypatch) -> None:
+    captured: dict[str, object] = {}
+
+    class FakeCursor:
+        def __enter__(self) -> "FakeCursor":
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def execute(self, query: str, params: tuple[object, ...]) -> None:
+            captured["query"] = query
+            captured["params"] = params
+
+        def fetchall(self) -> list[tuple[object, ...]]:
+            return []
+
+    class FakeConnection:
+        def __enter__(self) -> "FakeConnection":
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def cursor(self) -> FakeCursor:
+            return FakeCursor()
+
+    repository = PostgresReferenceRepository("postgres://unused")
+    monkeypatch.setattr(repository, "_connect", lambda: FakeConnection())
+
+    repository.search_chunks(
+        "project-a",
+        [0.01] * EMBEDDING_DIMENSION,
+        file_ids=["file-selected"],
+        limit=2,
+    )
+
+    query = str(captured["query"])
+    assert query.index("file_id = ANY(%s)") < query.index("LIMIT %s")
+    assert captured["params"] == (
+        "[" + ",".join(["0.01"] * EMBEDDING_DIMENSION) + "]",
+        "project-a",
+        ["file-selected"],
+        "[" + ",".join(["0.01"] * EMBEDDING_DIMENSION) + "]",
+        2,
+    )
 
 
 def test_create_embeddings_reports_missing_api_key() -> None:

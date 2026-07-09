@@ -887,6 +887,7 @@ def _generate_deck_reference_context(
             project_id=payload.project_id,
             query=query or payload.topic,
             limit=20,
+            file_ids=sorted(file_ids),
             model=config.openai_embedding_model,
             api_key=config.openai_api_key,
         )
