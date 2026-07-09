@@ -6,6 +6,7 @@ import {
   getPresenterRemoteCurrentSentenceIndex,
   getPresenterRemoteCommandDispatchDelays,
   getPresenterRemoteKeywordRows,
+  getPresenterRemoteNextSentenceIndex,
   getPresenterRemoteTimingState,
   splitPresenterRemoteNotes,
   PresenterRemoteWindow,
@@ -133,7 +134,36 @@ describe("PresenterRemoteWindow", () => {
     expect(html).toContain("0:25");
     expect(html).toContain("1:00");
     expect(html).toContain("음성인식 중");
-    expect(html).toContain("멈춤");
+    expect(html).toContain("일시정지");
+  });
+
+  it("renders paused remote timer controls as resume", () => {
+    const state = {
+      ...createPresenterSlideshowState(p0AnimationDeck),
+      timing: {
+        canStartLiveStt: false,
+        currentSlideElapsedSeconds: 25,
+        currentSlideTargetSeconds: 60,
+        displayedSeconds: 275,
+        elapsedSeconds: 25,
+        isLiveSttActive: false,
+        isPaused: true,
+        isRunning: false,
+        liveStatus: "stopped",
+        mode: "timer" as const,
+        timerDurationSeconds: 300,
+      },
+    };
+    const html = renderToStaticMarkup(
+      <PresenterRemoteWindow
+        deck={p0AnimationDeck}
+        identity={identity}
+        initialState={state}
+      />,
+    );
+
+    expect(html).toContain("일시정지됨");
+    expect(html).toContain("다시 시작");
   });
 
   it("renders semantic debug panel from owner presenter speech state", () => {
@@ -177,6 +207,13 @@ describe("PresenterRemoteWindow", () => {
     expect(html).toContain("presenter-script-row--current");
   });
 
+  it("marks the next remote script sentence after current", () => {
+    const state = createPresenterSlideshowState(p0AnimationDeck);
+    const sentences = ["첫 문장입니다", "둘째 문장입니다", "마지막 문장입니다"];
+
+    expect(getPresenterRemoteNextSentenceIndex(sentences, state, 0)).toBe(1);
+  });
+
   it("mirrors semantic paraphrase coverage from owner speech state", () => {
     const state = {
       ...createPresenterSlideshowState(p0AnimationDeck),
@@ -200,7 +237,7 @@ describe("PresenterRemoteWindow", () => {
     expect(html).toContain("의미 전달");
   });
 
-  it("retries idempotent remote timer stop commands across transient channel races", () => {
+  it("retries idempotent remote timer pause commands across transient channel races", () => {
     expect(
       getPresenterRemoteCommandDispatchDelays({ action: "timer-pause" }),
     ).toEqual([0, 150, 500]);

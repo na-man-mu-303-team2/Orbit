@@ -47,6 +47,7 @@ export type RehearsalPanelProps = {
   liveSlot?: ReactNode;
   showAdvicePanel?: boolean;
   showScriptPanel?: boolean;
+  scriptAutoFollowKey?: number | string;
   speakerNotes?: string;
   sentences: readonly ExtractedSentence[];
   snapshot: SpeechTrackerSnapshot;
@@ -114,6 +115,7 @@ export function RehearsalPanel(props: RehearsalPanelProps) {
     isScriptAutoFollowEnabled,
     props.snapshot.coveredSentenceIds,
     props.snapshot.slideId,
+    props.scriptAutoFollowKey,
     scrollScriptToFocus
   ]);
 
