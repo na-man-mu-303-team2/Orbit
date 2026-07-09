@@ -1,12 +1,16 @@
 import {
   Job,
   JobType,
+  deckSchema,
   demoIds,
+  deckExportFormatSchema,
   generateDeckRequestSchema,
   aiTemplateDeckGenerationRequestSchema,
   jobSchema,
   nowIso,
   type AiTemplateDeckGenerationRequest,
+  type Deck,
+  type DeckExportFormat,
   type PptxOoxmlGenerationRequest,
   type GenerateDeckRequest,
 } from "@orbit/shared";
@@ -34,6 +38,8 @@ export const rehearsalSttQueueName = "rehearsal-stt";
 export const rehearsalSttJobName = "rehearsal-stt";
 export const generateDeckQueueName = "generate-deck";
 export const generateDeckJobName = "generate-deck";
+export const deckExportQueueName = "deck-export";
+export const deckExportJobName = "deck-export";
 export const aiTemplateDeckGenerationQueueName = "ai-template-deck-generation";
 export const aiTemplateDeckGenerationJobName = "ai-template-deck-generation";
 export const pptxImportQueueName = "pptx-import";
@@ -83,6 +89,18 @@ export interface GenerateDeckBullMqPayload {
 }
 
 export interface EnqueueGenerateDeckJobInput extends GenerateDeckBullMqPayload {
+  driver: "bullmq" | "sqs";
+  redisUrl: string;
+}
+
+export interface DeckExportBullMqPayload {
+  jobId: string;
+  projectId: string;
+  deck: Deck;
+  format: DeckExportFormat;
+}
+
+export interface EnqueueDeckExportJobInput extends DeckExportBullMqPayload {
   driver: "bullmq" | "sqs";
   redisUrl: string;
 }
@@ -207,6 +225,29 @@ export async function enqueueGenerateDeckJob(
       projectId: input.projectId,
       request: generateDeckRequestSchema.parse(input.request),
     } satisfies GenerateDeckBullMqPayload);
+  } finally {
+    await queue.close();
+  }
+}
+
+export async function enqueueDeckExportJob(
+  input: EnqueueDeckExportJobInput,
+): Promise<void> {
+  if (input.driver === "sqs") {
+    throw new Error("SqsJobQueue adapter is not implemented yet.");
+  }
+
+  const queue = new Queue(deckExportQueueName, {
+    connection: redisConnectionOptions(input.redisUrl),
+  });
+
+  try {
+    await queue.add(deckExportJobName, {
+      jobId: input.jobId,
+      projectId: input.projectId,
+      deck: deckSchema.parse(input.deck),
+      format: deckExportFormatSchema.parse(input.format),
+    } satisfies DeckExportBullMqPayload);
   } finally {
     await queue.close();
   }

@@ -31,11 +31,13 @@ import {
   appendDeckPatchResponseSchema,
   createKeywordOccurrenceId,
   deckApiErrorSchema,
+  deckExportJobResultSchema,
   demoIds,
   getDeckResponseSchema,
   maxAssetUploadSizeBytes,
   meResponseSchema,
-  putDeckResponseSchema
+  putDeckResponseSchema,
+  type DeckExportJobResult
 } from "@orbit/shared";
 import { jobSchema, type Job } from "../../../../../../packages/shared/src/jobs/job.schema";
 import {
@@ -986,6 +988,68 @@ export async function waitForPptxImportJob(
   }
 }
 
+export async function createDeckExportJob(
+  projectId: string,
+  fetcher: typeof fetch = fetch
+): Promise<Job> {
+  const response = await fetcher(
+    `/api/v1/projects/${encodeURIComponent(projectId)}/deck/exports`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ format: "pptx" })
+    }
+  );
+
+  if (!response.ok) {
+    throw new Error(await readPlainError(response, "Deck export job creation failed"));
+  }
+
+  const payload = (await response.json()) as { job?: unknown };
+  return jobSchema.parse(payload.job);
+}
+
+export async function waitForDeckExportJob(
+  jobId: string,
+  fetcher: typeof fetch = fetch,
+  options: { pollIntervalMs?: number; timeoutMs?: number } = {}
+): Promise<Job> {
+  const pollIntervalMs = options.pollIntervalMs ?? 1200;
+  const timeoutMs = options.timeoutMs ?? 120_000;
+  const startedAt = Date.now();
+
+  for (;;) {
+    const response = await fetcher(`/api/v1/jobs/${encodeURIComponent(jobId)}`);
+
+    if (!response.ok) {
+      throw new Error(await readPlainError(response, "Deck export job fetch failed"));
+    }
+
+    const job = jobSchema.parse(await response.json());
+    if (job.status === "succeeded" || job.status === "failed") {
+      return job;
+    }
+
+    if (Date.now() - startedAt > timeoutMs) {
+      throw new Error("Deck export job timed out.");
+    }
+
+    await delay(pollIntervalMs);
+  }
+}
+
+export async function exportDeckToPptx(
+  projectId: string,
+  fetcher: typeof fetch = fetch
+): Promise<DeckExportJobResult> {
+  const queuedJob = await createDeckExportJob(projectId, fetcher);
+  const job = await waitForDeckExportJob(queuedJob.jobId, fetcher);
+  if (job.status === "failed") {
+    throw new Error(job.error?.message ?? "Deck export failed.");
+  }
+  return deckExportJobResultSchema.parse(job.result);
+}
+
 export async function uploadAndImportPptxTemplate(
   projectId: string,
   file: File,
@@ -1361,6 +1425,9 @@ export function EditorShell(props: { projectId?: string }) {
     setSaveState,
     workingDeckRef
   } = useEditorPersistenceState(loadedDeck);
+  const [isPptxExporting, setIsPptxExporting] = useState(false);
+  const [pptxExportStatus, setPptxExportStatus] = useState("");
+  const [pptxExportError, setPptxExportError] = useState("");
   const {
     canManageShare,
     handleShareInvite,
@@ -1610,6 +1677,22 @@ export function EditorShell(props: { projectId?: string }) {
     { icon: Download, label: "PNG 내보내기" },
     { icon: Download, label: "JSON 백업 내보내기" }
   ];
+  const resolvedExportMenuItems = exportMenuItems.map((item, index) =>
+    index === 0
+      ? {
+          ...item,
+          action: "pptx" as const,
+          disabled: isPptxExporting,
+          label: isPptxExporting ? "PPTX 내보내는 중..." : "PPTX 내보내기",
+          meta: pptxExportError || pptxExportStatus
+        }
+      : {
+          ...item,
+          action: "pending" as const,
+          disabled: true,
+          meta: "준비 중"
+        }
+  );
   const resizeMenuItems = [
     {
       label: "와이드 16:9",
@@ -1986,6 +2069,43 @@ export function EditorShell(props: { projectId?: string }) {
       setSaveError("auto-save-failed", toEditorErrorMessage(error));
       void deckQuery.refetch();
       return false;
+    }
+  }
+
+  async function handleExportPptx() {
+    if (isPptxExporting) return;
+
+    const activeProjectId = workingDeckRef.current.projectId || deckQuery.data?.projectId;
+    if (!activeProjectId) {
+      setPptxExportError("내보낼 프로젝트를 찾지 못했습니다.");
+      return;
+    }
+
+    setIsPptxExporting(true);
+    setPptxExportError("");
+    setPptxExportStatus("저장 중...");
+
+    try {
+      const saved = await handleSaveDeck();
+      if (!saved) {
+        throw new Error("최신 편집 내용을 저장한 뒤 다시 시도하세요.");
+      }
+
+      setPptxExportStatus("PPTX 내보내기 중...");
+      const result = await exportDeckToPptx(activeProjectId);
+      setPptxExportStatus(
+        result.warnings.length
+          ? `PPTX 생성 완료, ${result.warnings.length}개 경고`
+          : "PPTX 생성 완료"
+      );
+      window.open(result.url, "_blank", "noopener,noreferrer");
+    } catch (error) {
+      setPptxExportStatus("");
+      setPptxExportError(
+        error instanceof Error ? error.message : "PPTX 내보내기에 실패했습니다."
+      );
+    } finally {
+      setIsPptxExporting(false);
     }
   }
 
@@ -4489,11 +4609,25 @@ export function EditorShell(props: { projectId?: string }) {
                     </button>
                   ))}
                   <span className="menu-section-label">내보내기</span>
-                  {exportMenuItems.map(({ icon: Icon, label }) => (
-                    <button className="file-menu-item" key={label} role="menuitem" type="button">
+                  {resolvedExportMenuItems.map(({ action, disabled, icon: Icon, label, meta }) => (
+                    <button
+                      className="file-menu-item"
+                      disabled={disabled}
+                      key={label}
+                      role="menuitem"
+                      type="button"
+                      onClick={() => {
+                        if (action === "pptx") {
+                          void handleExportPptx();
+                        }
+                      }}
+                    >
                       <span className="file-menu-label">
                         <Icon size={16} />
                         {label}
+                      </span>
+                      <span className="file-menu-meta">
+                        {meta ? <small>{meta}</small> : null}
                       </span>
                     </button>
                   ))}

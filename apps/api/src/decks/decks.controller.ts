@@ -58,6 +58,17 @@ export class DecksController {
     return this.decksService.appendPatch(projectId, body);
   }
 
+  @Post("deck/exports")
+  async createExport(
+    @Param("projectId") projectId: string,
+    @Body() body: unknown,
+    @Req() request: SignedCookieRequest,
+  ) {
+    const user = await this.getCurrentUser(request);
+    await this.projectsService.assertCanWriteProject(projectId, user.userId);
+    return this.decksService.createExportJob(projectId, body);
+  }
+
   @Get("snapshots")
   async listSnapshots(
     @Param("projectId") projectId: string,

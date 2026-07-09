@@ -26,6 +26,7 @@ import {
   buildPatchBatch,
   consumeScheduledUndoRedoPersistLabel,
   createDistributeSelectionPatch,
+  exportDeckToPptx,
   flushEditorPersistenceBeforeManualAction,
   getSpeakerNotesDanglingOccurrenceSaveBlock,
   getImportedSlideThumbnailRefreshSlideIds,
@@ -594,6 +595,50 @@ describe("editor shell", () => {
       templateId: "template_file_template"
     });
     expect(phases).toEqual(["uploading", "importing"]);
+    expect(jobPollCount).toBe(2);
+  });
+
+  it("creates a PPTX export job and returns the exported asset result", async () => {
+    let jobPollCount = 0;
+    const fetcher = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+
+      if (url.endsWith("/deck/exports")) {
+        expect(init?.method).toBe("POST");
+        expect(JSON.parse(String(init?.body))).toEqual({ format: "pptx" });
+        return new Response(
+          JSON.stringify({ job: jobPayload("queued", null, "deck-export") })
+        );
+      }
+
+      if (url.endsWith("/api/v1/jobs/job-pptx")) {
+        jobPollCount += 1;
+        return new Response(
+          JSON.stringify(
+            jobPayload(
+              jobPollCount === 1 ? "running" : "succeeded",
+              {
+                deckId: "deck_ai_1",
+                fileId: "file_export_1",
+                url: "/api/v1/projects/project-a/assets/file_export_1/content",
+                format: "pptx",
+                warnings: []
+              },
+              "deck-export"
+            )
+          )
+        );
+      }
+
+      return new Response("unexpected request", { status: 500 });
+    });
+
+    await expect(
+      exportDeckToPptx("project-a", fetcher)
+    ).resolves.toMatchObject({
+      fileId: "file_export_1",
+      format: "pptx"
+    });
     expect(jobPollCount).toBe(2);
   });
 
@@ -2012,12 +2057,13 @@ function editorTextElement(
 
 function jobPayload(
   status: "queued" | "running" | "succeeded",
-  result: Record<string, unknown> | null = null
+  result: Record<string, unknown> | null = null,
+  type: "pptx-import" | "deck-export" = "pptx-import"
 ) {
   return {
     jobId: "job-pptx",
     projectId: "project-a",
-    type: "pptx-import",
+    type,
     status,
     progress: status === "succeeded" ? 100 : 10,
     message: status,

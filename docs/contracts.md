@@ -658,6 +658,11 @@ AI 덱 생성은 사용자 입력과 참고자료 fileId를 받아 비동기 Job
 - `design.densityTarget`은 `low`, `medium`, `high`만 허용한다.
 - `design.mediaPolicy`는 `avoid`, `balanced`, `placeholder-ok`만 허용하며, source 없는 media placeholder는 `placeholder-ok`에서만 허용한다.
 - `design.layoutDiversity`는 `stable`, `varied`만 허용한다.
+- AI PPT 1차 wizard는 `brief`를 함께 보낼 수 있다. `brief.referencePolicy`는 `topic-only`, `references-first`, `references-only`만 허용하며, `references-only`는 web에서 참고 파일 1개 이상을 요구한다.
+- AI PPT 1차 wizard는 `design.stylePackId = "brandlogy-modern"`를 기본값으로 사용한다. 이는 PPTX 템플릿이 아니라 worker 내부 Design Pack preset이며, 최종 Deck JSON에는 style pack 중간 필드를 저장하지 않는다.
+- 사용자가 선택한 색상은 `design.paletteOverride`에 저장해서 생성 요청에만 전달한다. 허용 key는 `primary`, `secondary`, `background`, `surface`, `muted`, `border`, `text`, `accentColor`이며 `theme.palette.accent`는 추가하지 않는다. 적용 우선순위는 schema/profile fallback < Design Pack < `designPrompt`/LLM palette hint < `paletteOverride`다.
+- 색상 후보 API는 `POST /api/v1/ai/deck-color-options`를 사용한다. 요청은 `{ topic, colorMood, stylePackId }`, 응답은 `{ options: [{ optionId, name, palette, rationale }] }`이며 `options`는 정확히 3개다.
+- PPTX export API는 `POST /api/v1/projects/:projectId/deck/exports`를 사용한다. 요청은 `{ format: "pptx" }`, job type은 `deck-export`, job result는 `{ deckId, fileId, url, format: "pptx", warnings: [] }`다. API는 현재 Deck JSON snapshot을 worker payload에 넣고, worker는 patch replay를 하지 않는다.
 - template은 `default`, `pitch`, `report`, `lesson`만 허용한다.
 - Python worker의 `/ai/generate-deck`은 `projectId`와 요청 본문을 받아 최종 `DeckSchema`를 만든다.
 - LLM/provider가 만드는 내용은 outline, message, design intent까지로 제한하고, 좌표/크기/zIndex는 코드 기반 layout engine이 계산한다.

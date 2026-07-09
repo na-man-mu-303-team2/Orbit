@@ -14,6 +14,11 @@ from app.ai.color_options import (
     DeckColorOptionsResponse,
     generate_deck_color_options,
 )
+from app.ai.deck_pptx_export import (
+    DeckPptxExportRequest,
+    DeckPptxExportResponse,
+    export_deck_pptx,
+)
 from app.ai.generate_deck import (
     DeckContentGenerationError,
     GenerateDeckRequest,
@@ -574,6 +579,11 @@ def generate_ai_deck_color_options(
         model=config.openai_model,
         api_key=config.openai_api_key,
     )
+
+
+@app.post("/ai/export-deck-pptx", response_model=DeckPptxExportResponse)
+def export_ai_deck_pptx(payload: DeckPptxExportRequest) -> DeckPptxExportResponse:
+    return export_deck_pptx(payload)
 
 
 @app.post("/rehearsal/analyze", response_model=RehearsalAnalyzeResponse)

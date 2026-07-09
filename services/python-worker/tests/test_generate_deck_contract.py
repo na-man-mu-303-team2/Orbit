@@ -1,3 +1,4 @@
+import base64
 import json
 from copy import deepcopy
 from typing import Any
@@ -6,6 +7,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 import app.main as api_module
+from app.ai.deck_pptx_export import DeckPptxExportRequest, export_deck_pptx
 from app.ai.generate_deck import (
     AgentOutput,
     DeckContentGenerationError,
@@ -309,6 +311,115 @@ def test_deck_color_options_endpoint_returns_three_fallback_options() -> None:
         }
         for option in options
     )
+
+
+def test_export_deck_pptx_creates_pptx_binary() -> None:
+    deck = {
+        "deckId": "deck_ai_1",
+        "projectId": "project_demo_1",
+        "title": "Export sample",
+        "version": 1,
+        "metadata": {
+            "language": "ko",
+            "locale": "ko-KR",
+            "sourceType": "ai",
+            "generatedBy": "ai",
+        },
+        "canvas": {
+            "preset": "wide-16-9",
+            "width": 1920,
+            "height": 1080,
+            "aspectRatio": "16:9",
+        },
+        "theme": {
+            "name": "brandlogy-modern",
+            "fontFamily": "Pretendard",
+            "backgroundColor": "#FFFFFF",
+            "textColor": "#111827",
+            "accentColor": "#2563EB",
+            "palette": {
+                "primary": "#2563EB",
+                "secondary": "#F472B6",
+                "surface": "#FFFFFF",
+                "muted": "#F8FAFC",
+                "border": "#DBEAFE",
+            },
+            "typography": {
+                "headingFontFamily": "Pretendard",
+                "bodyFontFamily": "Pretendard",
+                "titleSize": 56,
+                "headingSize": 40,
+                "bodySize": 24,
+                "captionSize": 16,
+            },
+            "effects": {"borderRadius": 8},
+        },
+        "slides": [
+            {
+                "slideId": "slide_1",
+                "order": 1,
+                "title": "Opening",
+                "thumbnailUrl": "",
+                "style": {
+                    "backgroundColor": "#FFFFFF",
+                    "textColor": "#111827",
+                    "accentColor": "#2563EB",
+                    "layout": "title",
+                },
+                "speakerNotes": "",
+                "elements": [
+                    {
+                        "elementId": "el_title",
+                        "type": "text",
+                        "role": "title",
+                        "x": 120,
+                        "y": 120,
+                        "width": 960,
+                        "height": 140,
+                        "rotation": 0,
+                        "opacity": 1,
+                        "zIndex": 1,
+                        "locked": False,
+                        "visible": True,
+                        "props": {
+                            "text": "Deck JSON first",
+                            "fontSize": 44,
+                            "fontWeight": "bold",
+                            "color": "#111827",
+                        },
+                    },
+                    {
+                        "elementId": "el_box",
+                        "type": "rect",
+                        "role": "highlight",
+                        "x": 120,
+                        "y": 320,
+                        "width": 360,
+                        "height": 120,
+                        "rotation": 0,
+                        "opacity": 1,
+                        "zIndex": 2,
+                        "locked": False,
+                        "visible": True,
+                        "props": {
+                            "fill": "#E0F2FE",
+                            "stroke": "#2563EB",
+                            "strokeWidth": 2,
+                        },
+                    },
+                ],
+                "keywords": [],
+                "animations": [],
+                "actions": [],
+            }
+        ],
+    }
+
+    response = export_deck_pptx(DeckPptxExportRequest(deck=deck))
+    binary = base64.b64decode(response.content_base64)
+
+    assert binary.startswith(b"PK")
+    assert response.warnings == []
 
 
 def test_generate_deck_endpoint_uses_payload_image_review_mode(
