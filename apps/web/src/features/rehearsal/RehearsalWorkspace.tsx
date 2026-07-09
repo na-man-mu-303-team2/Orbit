@@ -255,6 +255,8 @@ type RehearsalReportStatus =
 
 type RecordingSession = {
   recorder: MediaRecorder;
+  pause: () => void;
+  resume: () => void;
   start: () => void;
   stop: () => void;
 };
@@ -854,6 +856,16 @@ export function createRecordingSession(
 
   return {
     recorder,
+    pause: () => {
+      if (recorder.state === "recording") {
+        recorder.pause();
+      }
+    },
+    resume: () => {
+      if (recorder.state === "paused") {
+        recorder.resume();
+      }
+    },
     start: () => recorder.start(),
     stop: () => {
       if (recorder.state !== "inactive") {
