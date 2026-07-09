@@ -40,7 +40,7 @@ export type P3RehearsalSessionSlide = {
 };
 
 export type P3RehearsalSessionState = {
-  status: "idle" | "starting" | "running" | "stopped" | "failed";
+  status: "idle" | "starting" | "running" | "paused" | "stopped" | "failed";
   slideIndex: number;
   startedAtMs: number | null;
   slideEnteredAtMs: number | null;
@@ -69,6 +69,8 @@ export type P3RehearsalSession = {
     audioSource: MediaStream;
     slideIndex?: number;
   }) => Promise<P3RehearsalSessionState>;
+  pause: () => Promise<P3RehearsalSessionState>;
+  resume: (options: { audioSource: MediaStream }) => Promise<P3RehearsalSessionState>;
   enterSlide: (slideIndex: number) => SpeechTrackingEvent[];
   acceptResult: (result: LiveSttResult) => SpeechTrackingEvent[];
   setAdviceState: (type: AdviceEventType, active: boolean) => void;
@@ -108,6 +110,8 @@ export function createP3RehearsalSession(
   let semanticGeneration = 0;
   let semanticQueue: Promise<void> = Promise.resolve();
   const semanticPrepareBySlideId = new Map<string, Promise<void>>();
+  let resultTimestampOffsetMs = 0;
+  let lastAcceptedResultEndMs = 0;
 
   async function start(options: {
     audioSource: MediaStream;
@@ -118,6 +122,8 @@ export function createP3RehearsalSession(
     status = "starting";
     runMeta = null;
     finalSegments.length = 0;
+    resultTimestampOffsetMs = 0;
+    lastAcceptedResultEndMs = 0;
 
     try {
       cleanupSubscriptions?.();
@@ -158,6 +164,47 @@ export function createP3RehearsalSession(
     return getState();
   }
 
+  async function pause(): Promise<P3RehearsalSessionState> {
+    if (status !== "running") {
+      return getState();
+    }
+
+    semanticGeneration += 1;
+    await input.port.stop();
+    status = "paused";
+    emitSnapshot();
+    return getState();
+  }
+
+  async function resume(options: {
+    audioSource: MediaStream;
+  }): Promise<P3RehearsalSessionState> {
+    if (status !== "paused") {
+      return getState();
+    }
+
+    const slide = getSlide(slideIndex);
+    resultTimestampOffsetMs = lastAcceptedResultEndMs;
+    status = "starting";
+    try {
+      await input.port.start({
+        language: "ko",
+        audioSource: options.audioSource,
+        biasPhrases: buildBiasPhrasesForSlide(slide, input.config)
+      });
+    } catch (error) {
+      status = "failed";
+      cleanupSubscriptions?.();
+      throw error;
+    }
+
+    status = "running";
+    semanticGeneration += 1;
+    scheduleSemanticPrepare(slideIndex, semanticGeneration);
+    emitSnapshot();
+    return getState();
+  }
+
   function enterSlide(nextSlideIndex: number): SpeechTrackingEvent[] {
     if (status !== "running") {
       return [];
@@ -191,18 +238,19 @@ export function createP3RehearsalSession(
       return [];
     }
 
+    const normalizedResult = normalizeResultTimestamp(result);
     if (result.isFinal) {
-      finalSegments.push(result);
+      finalSegments.push(normalizedResult);
     }
 
-    const events = currentTracker.acceptResult(result);
+    const events = currentTracker.acceptResult(normalizedResult);
     applyEventsToLog(events, collector);
     if (events.length > 0) {
       input.onEvents?.(events);
     }
     if (result.isFinal) {
       enqueueSemanticFinalResult({
-        result,
+        result: normalizedResult,
         resultSlideIndex: slideIndex,
         tracker: currentTracker,
         generation: semanticGeneration,
@@ -497,12 +545,28 @@ export function createP3RehearsalSession(
 
   return {
     start,
+    pause,
+    resume,
     enterSlide,
     acceptResult,
     setAdviceState,
     stop,
     getState
   };
+
+  function normalizeResultTimestamp(result: LiveSttResult): LiveSttResult {
+    const startMs = Math.max(result.timestampMs[0] + resultTimestampOffsetMs, 0);
+    const endMs = Math.max(
+      result.timestampMs[1] + resultTimestampOffsetMs,
+      startMs,
+      lastAcceptedResultEndMs
+    );
+    lastAcceptedResultEndMs = endMs;
+    return {
+      ...result,
+      timestampMs: [startMs, endMs]
+    };
+  }
 }
 
 function calculateKeywordCoverage(
