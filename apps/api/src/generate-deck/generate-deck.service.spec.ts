@@ -218,6 +218,68 @@ describe("GenerateDeckService", () => {
     );
   });
 
+  it("keeps design-pack generation mode in the queued worker payload", async () => {
+    const job: Job = {
+      jobId: "job-design-pack",
+      projectId: "project_generated_1",
+      type: "ai-deck-generation",
+      status: "queued",
+      progress: 0,
+      message: "Job queued",
+      result: null,
+      error: null,
+      createdAt: "2026-06-27T00:00:00.000Z",
+      updatedAt: "2026-06-27T00:00:00.000Z"
+    };
+    const jobsService = {
+      create: vi.fn(async () => job),
+      update: vi.fn()
+    } as unknown as JobsService;
+    const projectsService = {
+      getAccessibleProject: vi.fn(async () => ({
+        projectId: "project_generated_1",
+        workspaceId: "workspace_demo_1",
+        title: "AI deck",
+        createdBy: "user_demo_1",
+        createdAt: "2026-06-27T00:00:00.000Z"
+      }))
+    } as unknown as ProjectsService;
+    const enqueueJob = vi.fn(async () => undefined);
+
+    await new GenerateDeckService(
+      jobsService,
+      projectsService,
+      enqueueJob
+    ).createJob("project_generated_1", {
+      generationMode: "design-pack",
+      topic: "AI deck",
+      brief: {},
+      slideCountRange: { min: 4, max: 4 },
+      metadata: {},
+      design: {
+        stylePackId: "brandlogy-modern"
+      }
+    });
+
+    expect(jobsService.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        payload: {
+          request: expect.objectContaining({
+            generationMode: "design-pack"
+          })
+        }
+      })
+    );
+    expect(enqueueJob).toHaveBeenCalledWith(
+      expect.objectContaining({
+        request: expect.objectContaining({
+          generationMode: "design-pack",
+          slideCountRange: { min: 4, max: 4 }
+        })
+      })
+    );
+  });
+
   it("rejects non-PPTX design references", async () => {
     const jobsService = {
       create: vi.fn(),

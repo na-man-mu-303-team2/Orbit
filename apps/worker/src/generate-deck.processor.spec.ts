@@ -168,6 +168,89 @@ describe("processGenerateDeckJob", () => {
     expect(query).toHaveBeenCalledTimes(2);
   });
 
+  it("passes explicit design-pack generation mode to Python deck generation", async () => {
+    const deck = createDeck({
+      slides: [
+        {
+          slideId: "slide_1",
+          order: 1,
+          title: "Design Pack",
+          thumbnailUrl: "",
+          style: { backgroundColor: "#FFFFFF" },
+          speakerNotes: "",
+          elements: [
+            {
+              elementId: "el_1_design_pack_background",
+              type: "rect",
+              role: "background",
+              x: 0,
+              y: 0,
+              width: 1920,
+              height: 1080,
+              rotation: 0,
+              opacity: 1,
+              zIndex: 0,
+              locked: true,
+              visible: true,
+              props: { fill: "#FFFFFF", stroke: "transparent" }
+            }
+          ]
+        }
+      ]
+    });
+    const deckValidation = validation();
+    const query = vi
+      .fn()
+      .mockResolvedValueOnce([jobRow("running", 15, null, null)])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        jobRow(
+          "succeeded",
+          100,
+          {
+            deckId: deck.deckId,
+            deck,
+            warnings: [],
+            validation: deckValidation
+          },
+          null
+        )
+      ]);
+    let pythonRequestBody = "";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_input: unknown, init?: RequestInit) => {
+        pythonRequestBody = String(init?.body ?? "");
+        return new Response(
+          JSON.stringify({ deck, warnings: [], validation: deckValidation })
+        );
+      })
+    );
+
+    const job = await processGenerateDeckJob(
+      { query } as unknown as DataSource,
+      storage,
+      "http://localhost:8000",
+      {
+        ...payload,
+        request: {
+          ...payload.request,
+          generationMode: "design-pack",
+          slideCountRange: { min: 4, max: 4 }
+        }
+      }
+    );
+
+    expect(job.status).toBe("succeeded");
+    expect(JSON.parse(pythonRequestBody)).toEqual(
+      expect.objectContaining({
+        projectId: "project-a",
+        generationMode: "design-pack",
+        slideCountRange: { min: 4, max: 4 }
+      })
+    );
+  });
+
   it("imports PPTX design references and stores derived images before generation", async () => {
     const deck = createDeck({
       metadata: {
