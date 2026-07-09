@@ -726,18 +726,20 @@ export async function runRehearsalUploadFlow(options: {
   const runMeta =
     options.runMeta ??
     (options.slideTimeline?.length
-      ? {
-          slideTimeline: options.slideTimeline,
-          missedKeywords: [],
-          adviceEvents: [],
-        }
-      : null);
+        ? {
+            slideTimeline: options.slideTimeline,
+            missedKeywords: [],
+            adviceEvents: [],
+            utteranceOutcomes: [],
+          }
+        : null);
 
   if (
     runMeta &&
     (runMeta.slideTimeline.length > 0 ||
       runMeta.missedKeywords.length > 0 ||
-      runMeta.adviceEvents.length > 0)
+      runMeta.adviceEvents.length > 0 ||
+      runMeta.utteranceOutcomes.length > 0)
   ) {
     try {
       await updateRehearsalRunMeta(created.run.runId, runMeta, fetcher);

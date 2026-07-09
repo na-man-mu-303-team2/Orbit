@@ -296,6 +296,72 @@ describe("rehearsalRunMetaSchema", () => {
     expect(meta.slideTimeline).toHaveLength(1);
   });
 
+  it("accepts bounded utterance outcomes for coverage, ad-lib, and missed script sentences", () => {
+    const meta = rehearsalRunMetaSchema.parse({
+      utteranceOutcomes: [
+        {
+          slideId: "slide_1",
+          kind: "covered",
+          sentenceId: "sentence_1",
+          similarity: 0.98,
+          lexicalOverlap: 0.75,
+          at: "2026-07-02T00:00:10.000Z"
+        },
+        {
+          slideId: "slide_1",
+          kind: "paraphrased",
+          sentenceId: "sentence_2",
+          similarity: 0.92,
+          lexicalOverlap: 0.2,
+          at: "2026-07-02T00:00:20.000Z"
+        },
+        {
+          slideId: "slide_1",
+          kind: "ad-lib",
+          text: "이 부분은 실제 고객 미팅에서 들었던 추가 사례입니다.",
+          similarity: 0.87,
+          at: "2026-07-02T00:00:30.000Z"
+        },
+        {
+          slideId: "slide_2",
+          kind: "missed",
+          sentenceId: "sentence_3"
+        }
+      ]
+    });
+
+    expect(meta.utteranceOutcomes.map((outcome) => outcome.kind)).toEqual([
+      "covered",
+      "paraphrased",
+      "ad-lib",
+      "missed"
+    ]);
+  });
+
+  it("defaults utterance outcomes to an empty list for existing run meta payloads", () => {
+    const meta = rehearsalRunMetaSchema.parse({
+      slideTimeline: [],
+      missedKeywords: [],
+      adviceEvents: []
+    });
+
+    expect(meta.utteranceOutcomes).toEqual([]);
+  });
+
+  it("rejects oversized ad-lib utterance text", () => {
+    const result = rehearsalRunMetaSchema.safeParse({
+      utteranceOutcomes: [
+        {
+          slideId: "slide_1",
+          kind: "ad-lib",
+          text: "가".repeat(601)
+        }
+      ]
+    });
+
+    expect(result.success).toBe(false);
+  });
+
   it.each(["transcript", "speakerNotes", "rawAudio", "script"])(
     "rejects sensitive run meta field %s",
     (field) => {
