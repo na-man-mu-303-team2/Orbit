@@ -18,7 +18,9 @@ from app.ai.generate_deck import (
     SlideCountRange,
     ValidationIssue,
     ValidationResult,
+    allocate_weighted_integers,
     analyze_input,
+    chars_per_minute_for_request,
     choose_slide_count,
     clear_deck_content_plan_cache,
     deck_content_prompt,
@@ -51,6 +53,42 @@ def test_choose_slide_count_clamps_duration_to_requested_range() -> None:
     assert choose_slide_count(7, slide_range) == 7
     assert choose_slide_count(10, slide_range) == 10
     assert choose_slide_count(30, slide_range) == 10
+
+
+@pytest.mark.parametrize(
+    ("request_patch", "expected"),
+    [
+        ({"metadata": {"audience": "executive", "tone": "friendly"}}, 300),
+        ({"brief": {"presentationType": "초등 교육"}}, 280),
+        ({"metadata": {"tone": "friendly"}}, 320),
+        ({"metadata": {"tone": "concise"}}, 440),
+        ({"brief": {"presentationType": "제품 기획 피치"}}, 400),
+        ({}, 350),
+    ],
+)
+def test_chars_per_minute_uses_ordered_presentation_context(
+    request_patch: dict[str, object],
+    expected: int,
+) -> None:
+    request = GenerateDeckRequest(
+        projectId="project_demo_1",
+        topic="Timing",
+        **request_patch,
+    )
+
+    assert chars_per_minute_for_request(request) == expected
+
+
+def test_weighted_timing_allocation_is_exact_and_respects_minimum() -> None:
+    allocated = allocate_weighted_integers(
+        480,
+        [0.65, 1.0, 1.15, 1.0, 0.75],
+        minimum_each=15,
+    )
+
+    assert sum(allocated) == 480
+    assert min(allocated) >= 15
+    assert len(set(allocated)) > 1
 
 
 def test_generate_deck_request_accepts_direct_reference_context() -> None:
@@ -1038,7 +1076,7 @@ def test_generate_deck_design_pack_applies_font_and_trace_notes() -> None:
 
 
 def test_generate_deck_design_pack_applies_v2_timing_media_reference_contract() -> None:
-    fake_client = FakeOpenAIClient(
+    fake_client = RepairingFakeOpenAIClient(
         {
             "title": "1차 MVP 회고",
             "slides": [
@@ -1134,8 +1172,11 @@ def test_generate_deck_design_pack_applies_v2_timing_media_reference_contract() 
     assert len(set(design_pack_recipe_sequence(deck))) >= 5
 
     timing_plan = slides[0]["aiNotes"]["timingPlan"]
-    assert timing_plan["charsPerMinute"] == 260
+    assert timing_plan["charsPerMinute"] == 320
     assert timing_plan["targetSlideCount"] == 7
+    assert sum(slide["estimatedSeconds"] for slide in slides) == 420
+    assert all(slide["estimatedSeconds"] >= 15 for slide in slides)
+    assert len({slide["estimatedSeconds"] for slide in slides}) > 1
     assert sum(len(slide["speakerNotes"].replace(" ", "")) for slide in slides) >= round(
         timing_plan["targetTotalChars"] * 0.8
     )
@@ -1164,7 +1205,7 @@ def test_generate_deck_design_pack_applies_v2_timing_media_reference_contract() 
 
 
 def test_generate_deck_design_pack_repairs_seven_minute_gowun_reference_deck() -> None:
-    fake_client = FakeOpenAIClient(
+    fake_client = RepairingFakeOpenAIClient(
         {
             "title": "1차 MVP 회고",
             "slides": [
@@ -4601,20 +4642,50 @@ class FakeImageReviewResponses:
 
 
 class FakeOpenAIClient:
-    def __init__(self, payload: dict[str, object]) -> None:
+    def __init__(
+        self,
+        payload: dict[str, object] | list[dict[str, object]],
+    ) -> None:
         self.requests: list[dict[str, object]] = []
         self.responses = FakeResponses(self, payload)
 
 
+class RepairingFakeOpenAIClient(FakeOpenAIClient):
+    def __init__(self, payload: dict[str, object]) -> None:
+        repaired = deepcopy(payload)
+        for index, slide in enumerate(repaired.get("slides", []), start=1):
+            if isinstance(slide, dict):
+                slide["speakerNotes"] = long_speaker_notes(index)
+        super().__init__([payload, repaired])
+
+
 class FakeResponses:
-    def __init__(self, parent: FakeOpenAIClient, payload: dict[str, object]) -> None:
+    def __init__(
+        self,
+        parent: FakeOpenAIClient,
+        payload: dict[str, object] | list[dict[str, object]],
+    ) -> None:
         self.parent = parent
-        self.payload = payload
+        self.payloads = payload if isinstance(payload, list) else [payload]
 
     def create(self, **kwargs: object) -> object:
         self.parent.requests.append(kwargs)
+        payload_index = min(len(self.parent.requests) - 1, len(self.payloads) - 1)
         return type(
             "Response",
             (),
-            {"output_text": json.dumps(self.payload, ensure_ascii=False)},
+            {
+                "output_text": json.dumps(
+                    self.payloads[payload_index],
+                    ensure_ascii=False,
+                )
+            },
         )()
+
+
+def long_speaker_notes(order: int) -> str:
+    sentence = (
+        f"{order}번째 장에서는 확인된 근거와 선택 기준을 연결해 설명하고, "
+        "청중이 다음 행동을 판단할 수 있도록 배경과 예상 효과를 차례로 짚겠습니다. "
+    )
+    return sentence * 8

@@ -432,6 +432,8 @@ class SlidePlan(BaseModel):
     requested_slot_preset: SlotPreset | None = None
     visual_intent: VisualIntent = Field(default_factory=VisualIntent)
     media_intent: MediaIntent = Field(default_factory=MediaIntent)
+    target_seconds: int = 0
+    target_speaker_notes_chars: int = 0
 
 
 class ElementIntent(BaseModel):
@@ -1542,6 +1544,19 @@ Rules:
 - Keep messages concise enough for slide body text.
 """.strip()
 
+DECK_CONTENT_REPAIR_INSTRUCTIONS = """
+You repair an existing Korean presentation content plan for ORBIT.
+Return only JSON that matches the requested schema.
+
+Rules:
+- Preserve the requested slide count, topic, factual meaning, and source boundaries.
+- Repair only slide content planning fields and speakerNotes.
+- speakerNotes must be natural Korean lines that can be read aloud.
+- Meet each slide's requested character range without repetitive filler sentences.
+- Do not add unsupported claims or source references.
+- Do not output coordinates, sizes, zIndex, or final Deck JSON.
+""".strip()
+
 DECK_CONTENT_RESPONSE_FORMAT: dict[str, Any] = {
     "format": {
         "type": "json_schema",
@@ -2102,6 +2117,16 @@ def chars_per_minute_for_request(request: GenerateDeckRequest) -> int:
         ]
         if part
     ).casefold()
+    if request.metadata.audience == "executive" or has_any(
+        source,
+        ["executive", "board", "임원", "경영진", "이사회"],
+    ):
+        return 300
+    if has_any(
+        source,
+        ["child", "children", "elementary", "education", "어린이", "초등", "교육"],
+    ):
+        return 280
     if has_any(
         source,
         [
@@ -2118,12 +2143,18 @@ def chars_per_minute_for_request(request: GenerateDeckRequest) -> int:
             "재미",
         ],
     ):
-        return 260
-    if request.metadata.tone == "concise":
-        return 330
-    if request.metadata.tone == "confident":
-        return 310
-    return 300
+        return 320
+    if request.metadata.tone == "concise" or has_any(
+        source,
+        ["fast", "quick", "빠른", "속도감"],
+    ):
+        return 440
+    if has_any(
+        source,
+        ["product", "planning", "proposal", "pitch", "제품", "기획", "제안", "피치"],
+    ):
+        return 400
+    return 350
 
 
 def analyze_input(
@@ -2135,6 +2166,11 @@ def analyze_input(
         request.target_duration_minutes,
         request.slide_count_range,
     )
+    duration_seconds = request.target_duration_minutes * 60
+    if slide_count > duration_seconds // 15:
+        raise DeckContentGenerationError(
+            "Slide count exceeds the minimum 15 seconds available per slide."
+        )
     prompt, design_prompt = split_content_and_design_prompt(
         request.prompt,
         request.design_prompt,
@@ -2162,7 +2198,7 @@ def analyze_input(
         slide_count=slide_count,
         min_slide_count=request.slide_count_range.min,
         max_slide_count=request.slide_count_range.max,
-        timing_plan=presentation_timing_plan_for_request(request, slide_count),
+        timingPlan=presentation_timing_plan_for_request(request, slide_count),
         template=request.template,
         metadata=request.metadata,
         design=request.design,
@@ -2240,6 +2276,28 @@ def plan_deck_content(
         if slide_plans:
             if raw_input.generation_mode == "design-pack":
                 slide_plans = apply_timing_to_slide_plans(raw_input, slide_plans)
+                repair_reasons = content_plan_repair_reasons(slide_plans)
+                if repair_reasons:
+                    repaired_plan = repair_content_plan_with_llm(
+                        raw_input,
+                        generated_plan,
+                        slide_plans,
+                        repair_reasons,
+                        client=client,
+                        model=model,
+                        api_key=api_key,
+                    )
+                    if repaired_plan is not None:
+                        repaired_slide_plans = slide_plans_from_generated_content(
+                            raw_input,
+                            repaired_plan,
+                        )
+                        if len(repaired_slide_plans) == len(slide_plans):
+                            slide_plans = apply_timing_to_slide_plans(
+                                raw_input,
+                                repaired_slide_plans,
+                            )
+                            generated_plan = repaired_plan
             return (
                 DeckOutline(
                     title=deck_title_for_topic(raw_input.topic, generated_plan.title),
@@ -2335,67 +2393,171 @@ def apply_timing_to_slide_plans(
     raw_input: RawInput,
     slide_plans: list[SlidePlan],
 ) -> list[SlidePlan]:
-    for slide_plan in slide_plans:
-        slide_plan.speaker_notes = speaker_notes_with_target(
-            raw_input,
-            slide_plan,
-            slide_plan.speaker_notes,
-        )
+    if not slide_plans:
+        return slide_plans
+    raw_input.slide_count = len(slide_plans)
+    raw_input.timing_plan.target_slide_count = len(slide_plans)
+    raw_input.timing_plan.target_seconds_per_slide = round(
+        raw_input.target_duration_minutes * 60 / len(slide_plans)
+    )
+    raw_input.timing_plan.target_speaker_notes_chars_per_slide = round(
+        raw_input.timing_plan.target_total_chars / len(slide_plans)
+    )
+    weights = [slide_timing_weight(slide_plan) for slide_plan in slide_plans]
+    seconds = allocate_weighted_integers(
+        raw_input.target_duration_minutes * 60,
+        weights,
+        minimum_each=15,
+    )
+    note_chars = allocate_weighted_integers(
+        raw_input.timing_plan.target_total_chars,
+        weights,
+    )
+    for slide_plan, target_seconds, target_chars in zip(
+        slide_plans,
+        seconds,
+        note_chars,
+        strict=True,
+    ):
+        slide_plan.target_seconds = target_seconds
+        slide_plan.target_speaker_notes_chars = target_chars
+        slide_plan.speaker_notes = " ".join(slide_plan.speaker_notes.split())
     return slide_plans
 
 
-def speaker_notes_with_target(
-    raw_input: RawInput,
-    slide_plan: SlidePlan,
-    speaker_notes: str,
-) -> str:
-    target_chars = target_speaker_notes_chars_for_slide(raw_input, slide_plan)
-    notes = " ".join(speaker_notes.split())
-    if count_speaker_note_chars(notes) >= round(target_chars * 0.8):
-        return notes
+def slide_timing_weight(slide_plan: SlidePlan) -> float:
+    if slide_plan.slide_type in {"title", "cover"}:
+        return 0.65
+    if slide_plan.slide_type == "summary":
+        return 0.75
+    if slide_plan.slide_type in {
+        "process",
+        "comparison",
+        "data",
+        "architecture",
+        "chart",
+    }:
+        return 1.15
+    return 1.0
 
-    for sentence in speaker_note_expansion_sentences(raw_input, slide_plan):
-        if sentence in notes:
-            continue
-        notes = f"{notes} {sentence}".strip()
-        if count_speaker_note_chars(notes) >= round(target_chars * 0.9):
-            break
-    return notes
+
+def allocate_weighted_integers(
+    total: int,
+    weights: list[float],
+    *,
+    minimum_each: int = 0,
+) -> list[int]:
+    if not weights:
+        return []
+    if any(weight <= 0 for weight in weights):
+        raise ValueError("weights must be positive")
+    reserved = minimum_each * len(weights)
+    if reserved > total:
+        raise DeckContentGenerationError(
+            "Allocation total is smaller than the per-slide minimum."
+        )
+
+    distributable = total - reserved
+    weight_total = sum(weights)
+    exact = [distributable * weight / weight_total for weight in weights]
+    floors = [int(value) for value in exact]
+    remainder = distributable - sum(floors)
+    ranked = sorted(
+        range(len(weights)),
+        key=lambda index: (exact[index] - floors[index], weights[index], -index),
+        reverse=True,
+    )
+    for index in ranked[:remainder]:
+        floors[index] += 1
+    return [minimum_each + value for value in floors]
 
 
 def target_speaker_notes_chars_for_slide(
     raw_input: RawInput,
     slide_plan: SlidePlan,
 ) -> int:
-    base = raw_input.timing_plan.target_speaker_notes_chars_per_slide
-    if slide_plan.order in {1, raw_input.slide_count}:
-        return max(90, round(base * 0.85))
-    return base
+    if slide_plan.target_speaker_notes_chars > 0:
+        return slide_plan.target_speaker_notes_chars
+    return raw_input.timing_plan.target_speaker_notes_chars_per_slide
 
 
 def count_speaker_note_chars(text: str) -> int:
     return len(re.sub(r"\s+", "", text))
 
 
-def speaker_note_expansion_sentences(
-    raw_input: RawInput,
-    slide_plan: SlidePlan,
-) -> list[str]:
-    focus = keyword_phrase(raw_input)
-    audience = raw_input.brief.audience_text or "청중"
-    context = raw_input.brief.presentation_context or raw_input.brief.presentation_type
-    success = raw_input.brief.success_criteria or "다음 행동을 명확히 정하는 것"
-    next_step = "마지막으로 실행 기준을 정리하겠습니다."
-    if slide_plan.order < raw_input.slide_count:
-        next_step = "이어서 이 기준을 더 구체적인 선택지로 연결하겠습니다."
+def content_plan_repair_reasons(slide_plans: list[SlidePlan]) -> list[str]:
+    reasons: list[str] = []
+    normalized_notes: dict[str, int] = {}
+    for slide_plan in slide_plans:
+        target = slide_plan.target_speaker_notes_chars
+        actual = count_speaker_note_chars(slide_plan.speaker_notes)
+        if target > 0 and actual < round(target * 0.8):
+            reasons.append(
+                f"slide {slide_plan.order}: speaker notes {actual} chars below target {target}"
+            )
+        elif target > 0 and actual > round(target * 1.25):
+            reasons.append(
+                f"slide {slide_plan.order}: speaker notes {actual} chars above target {target}"
+            )
+        normalized = re.sub(r"\s+", "", slide_plan.speaker_notes).casefold()
+        if normalized:
+            normalized_notes[normalized] = normalized_notes.get(normalized, 0) + 1
+    if any(count > 1 for count in normalized_notes.values()):
+        reasons.append("speaker notes repeat verbatim across slides")
+    return reasons
 
-    return [
-        f"여기서는 {slide_plan.title}을 한 문장으로 정리하면 {slide_plan.message}라고 말씀드릴 수 있습니다.",
-        f"특히 {audience}에게 중요한 지점은 {focus}가 실제 의사결정이나 실행 순서로 이어진다는 점입니다.",
-        f"{context}라는 맥락을 놓고 보면, 이 내용은 단순한 설명보다 함께 확인해야 할 기준에 가깝습니다.",
-        f"그래서 이 내용은 정보를 많이 늘리기보다 {success}에 필요한 판단 근거를 또렷하게 잡는 데 초점을 둡니다.",
-        next_step,
+
+def repair_content_plan_with_llm(
+    raw_input: RawInput,
+    plan: GeneratedDeckContentPlan,
+    slide_plans: list[SlidePlan],
+    reasons: list[str],
+    *,
+    client: Any | None = None,
+    model: str | None = None,
+    api_key: str | None = None,
+) -> GeneratedDeckContentPlan | None:
+    api_client: Any = client
+    if api_client is None:
+        if not api_key:
+            return None
+        from openai import OpenAI
+
+        api_client = OpenAI(api_key=api_key)
+
+    targets = [
+        {
+            "order": slide.order,
+            "targetSeconds": slide.target_seconds,
+            "targetSpeakerNotesChars": slide.target_speaker_notes_chars,
+        }
+        for slide in slide_plans
     ]
+    prompt = "\n".join(
+        [
+            deck_content_prompt(raw_input),
+            "Repair reasons:",
+            *[f"- {reason}" for reason in reasons],
+            f"Per-slide targets: {json.dumps(targets, ensure_ascii=False)}",
+            "Current content plan:",
+            json.dumps(plan.model_dump(by_alias=True), ensure_ascii=False),
+        ]
+    )
+    try:
+        response = api_client.responses.create(
+            model=model or "gpt-4.1-mini",
+            instructions=DECK_CONTENT_REPAIR_INSTRUCTIONS,
+            input=prompt,
+            text=DECK_CONTENT_RESPONSE_FORMAT,
+        )
+        repaired = GeneratedDeckContentPlan.model_validate_json(
+            str(getattr(response, "output_text", "")).strip()
+        )
+    except Exception:
+        return None
+    if len(repaired.slides) != len(slide_plans):
+        return None
+    return repaired
 
 
 def slide_type_for(order: int, total: int) -> SlideType:
@@ -4062,7 +4224,10 @@ def assemble_design_pack_slide(
             "textColor": theme["textColor"],
             "accentColor": theme["accentColor"],
         },
-        "estimatedSeconds": raw_input.timing_plan.target_seconds_per_slide,
+        "estimatedSeconds": (
+            slide_plan.target_seconds
+            or raw_input.timing_plan.target_seconds_per_slide
+        ),
         "speakerNotes": slide_plan.speaker_notes,
         "elements": elements,
         "keywords": [
@@ -4117,7 +4282,10 @@ def design_pack_timing_plan(
         "targetSpeakerNotesCharsPerSlide": (
             raw_input.timing_plan.target_speaker_notes_chars_per_slide
         ),
-        "targetSeconds": raw_input.timing_plan.target_seconds_per_slide,
+        "targetSeconds": (
+            slide_plan.target_seconds
+            or raw_input.timing_plan.target_seconds_per_slide
+        ),
         "targetSpeakerNotesChars": target_speaker_notes_chars_for_slide(
             raw_input,
             slide_plan,
@@ -4263,19 +4431,21 @@ def design_pack_recipe_for(
             return "overview_cards"
 
     if uses_conversational_design_flow(raw_input):
-        sequence = (
+        conversation_sequence = (
             "overview_cards",
             "comparison_split",
             "process_steps",
             "insight_evidence",
         )
-        return sequence[max(0, slide_plan.order - 2) % len(sequence)]
+        return conversation_sequence[
+            max(0, slide_plan.order - 2) % len(conversation_sequence)
+        ]
 
     archetype = design_pack_deck_archetype(raw_input, slide_plan)
     if archetype == "pitch" and slide_plan.slide_type in {"data", "summary"}:
         return "overview_cards"
 
-    sequence = DESIGN_PACK_ARCHETYPE_RECIPE_SEQUENCES[archetype]
+    sequence: tuple[str, ...] = DESIGN_PACK_ARCHETYPE_RECIPE_SEQUENCES[archetype]
     if len(slide_plans) >= 7 and archetype in {"technical", "executive_report"}:
         sequence = (*sequence, "insight_evidence")
     return sequence[max(0, slide_plan.order - 2) % len(sequence)]
@@ -8939,8 +9109,9 @@ def validate_deck_timing_summary(deck: dict[str, Any]) -> list[ValidationIssue]:
         count_speaker_note_chars(str(slide.get("speakerNotes", "")))
         for slide in slides
     )
+    issues: list[ValidationIssue] = []
     if target_total > 0 and actual_total < round(target_total * 0.8):
-        return [
+        issues.append(
             ValidationIssue(
                 scope="deck",
                 path="slides",
@@ -8949,8 +9120,23 @@ def validate_deck_timing_summary(deck: dict[str, Any]) -> list[ValidationIssue]:
                     f"목표 {target_total}자 대비 현재 {actual_total}자입니다."
                 ),
             )
-        ]
-    return []
+        )
+    target_duration_seconds = int(deck.get("targetDurationMinutes") or 0) * 60
+    allocated_seconds = sum(
+        int(plan.get("targetSeconds") or 0) for plan in timing_plans
+    )
+    if target_duration_seconds > 0 and allocated_seconds != target_duration_seconds:
+        issues.append(
+            ValidationIssue(
+                scope="deck",
+                path="slides",
+                message=(
+                    "슬라이드별 발표 시간 합계가 전체 발표 시간과 다릅니다. "
+                    f"목표 {target_duration_seconds}초 대비 현재 {allocated_seconds}초입니다."
+                ),
+            )
+        )
+    return issues
 
 
 def validate_design(deck: dict[str, Any]) -> list[ValidationIssue]:
