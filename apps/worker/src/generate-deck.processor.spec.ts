@@ -10,6 +10,21 @@ const payload = {
   request: {
     topic: "AI 덱 생성",
     designPrompt: "retro pixel palette",
+    brief: {
+      presentationContext: "internal planning",
+      audienceText: "product team",
+      presentationType: "planning proposal",
+      durationMinutes: 12,
+      referencePolicy: "references-first"
+    },
+    design: {
+      stylePackId: "brandlogy-modern",
+      paletteOverride: {
+        primary: "#0EA5E9",
+        text: "#0F172A",
+        accentColor: "#0284C7"
+      }
+    },
     references: [{ fileId: "file_1" }],
     referenceKeywords: [{ text: "실시간 발표 피드백" }]
   }
@@ -93,6 +108,18 @@ describe("processGenerateDeckJob", () => {
     expect(JSON.parse(pythonRequestBody)).toEqual(
       expect.objectContaining({
         designPrompt: "retro pixel palette",
+        brief: expect.objectContaining({
+          presentationContext: "internal planning",
+          referencePolicy: "references-first"
+        }),
+        design: expect.objectContaining({
+          stylePackId: "brandlogy-modern",
+          paletteOverride: {
+            primary: "#0EA5E9",
+            text: "#0F172A",
+            accentColor: "#0284C7"
+          }
+        }),
         referenceKeywords: [{ text: "실시간 발표 피드백" }]
       })
     );

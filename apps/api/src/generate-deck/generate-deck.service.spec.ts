@@ -1,5 +1,5 @@
 import type { Job } from "@orbit/shared";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { FilesService } from "../files/files.service";
 import type { JobsService } from "../jobs/jobs.service";
 import type { ProjectsService } from "../projects/projects.service";
@@ -54,6 +54,10 @@ describe("GenerateDeckService", () => {
     Object.assign(process.env, validEnv);
   });
 
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   it("creates an AI deck generation job and enqueues the worker payload", async () => {
     const job: Job = {
       jobId: "job-1",
@@ -89,6 +93,21 @@ describe("GenerateDeckService", () => {
     ).createJob("project_generated_1", {
       topic: "AI 덱 생성",
       designPrompt: "retro pixel palette",
+      brief: {
+        presentationContext: "internal planning",
+        audienceText: "product team",
+        presentationType: "planning proposal",
+        durationMinutes: 12,
+        referencePolicy: "references-first"
+      },
+      design: {
+        stylePackId: "brandlogy-modern",
+        paletteOverride: {
+          primary: "#0EA5E9",
+          text: "#0F172A",
+          accentColor: "#0284C7"
+        }
+      },
       references: [{ fileId: "file_1" }]
     });
 
@@ -103,6 +122,18 @@ describe("GenerateDeckService", () => {
         request: expect.objectContaining({
           topic: "AI 덱 생성",
           designPrompt: "retro pixel palette",
+          brief: expect.objectContaining({
+            presentationContext: "internal planning",
+            referencePolicy: "references-first"
+          }),
+          design: expect.objectContaining({
+            stylePackId: "brandlogy-modern",
+            paletteOverride: {
+              primary: "#0EA5E9",
+              text: "#0F172A",
+              accentColor: "#0284C7"
+            }
+          }),
           references: [{ fileId: "file_1" }]
         })
       }
@@ -114,7 +145,16 @@ describe("GenerateDeckService", () => {
       projectId: "project_generated_1",
       request: expect.objectContaining({
         topic: "AI 덱 생성",
-        designPrompt: "retro pixel palette"
+        designPrompt: "retro pixel palette",
+        brief: expect.objectContaining({
+          presentationContext: "internal planning"
+        }),
+        design: expect.objectContaining({
+          stylePackId: "brandlogy-modern",
+          paletteOverride: expect.objectContaining({
+            primary: "#0EA5E9"
+          })
+        })
       })
     });
   });
@@ -264,5 +304,94 @@ describe("GenerateDeckService", () => {
         })
       }
     });
+  });
+
+  it("proxies AI deck color option requests to the Python worker", async () => {
+    const jobsService = {
+      create: vi.fn(),
+      update: vi.fn()
+    } as unknown as JobsService;
+    const projectsService = {
+      getAccessibleProject: vi.fn()
+    } as unknown as ProjectsService;
+    const fetchMock = vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          options: [
+            {
+              optionId: "resort-blue",
+              name: "Resort Blue",
+              palette: {
+                primary: "#0EA5E9",
+                secondary: "#0369A1",
+                background: "#F0F9FF",
+                surface: "#FFFFFF",
+                muted: "#E0F2FE",
+                border: "#BAE6FD",
+                text: "#0F172A",
+                accentColor: "#F472B6"
+              },
+              rationale: "Relaxed blue."
+            },
+            {
+              optionId: "executive-blue",
+              name: "Executive Blue",
+              palette: {
+                primary: "#1D4ED8",
+                secondary: "#334155",
+                background: "#F8FAFC",
+                surface: "#FFFFFF",
+                muted: "#E2E8F0",
+                border: "#CBD5E1",
+                text: "#0F172A",
+                accentColor: "#DB2777"
+              },
+              rationale: "Professional blue."
+            },
+            {
+              optionId: "modern-violet",
+              name: "Modern Violet",
+              palette: {
+                primary: "#7C3AED",
+                secondary: "#4F46E5",
+                background: "#FAF5FF",
+                surface: "#FFFFFF",
+                muted: "#EDE9FE",
+                border: "#DDD6FE",
+                text: "#18181B",
+                accentColor: "#EC4899"
+              },
+              rationale: "Modern violet."
+            }
+          ]
+        }),
+        { status: 200, headers: { "content-type": "application/json" } }
+      )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await new GenerateDeckService(
+      jobsService,
+      projectsService,
+      vi.fn(async () => undefined)
+    ).createColorOptions({
+      topic: "Travel strategy",
+      colorMood: "resort blue",
+      stylePackId: "brandlogy-modern"
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://localhost:8000/ai/deck-color-options",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          topic: "Travel strategy",
+          colorMood: "resort blue",
+          stylePackId: "brandlogy-modern"
+        })
+      })
+    );
+    expect(result.options).toHaveLength(3);
+    expect(result.options[0]?.palette.primary).toBe("#0EA5E9");
   });
 });
