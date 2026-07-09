@@ -168,6 +168,7 @@ import {
 import {
   createIdleSemanticDebugState,
   createSemanticDebugState,
+  markSemanticModelReady,
 } from "./speech/semanticSpeechDebug";
 import {
   createSemanticUtteranceMatcher,
@@ -2443,17 +2444,22 @@ export function RehearsalWorkspace(props: {
           error: null,
         }),
       );
-    }).catch((error: unknown) => {
-      const message = error instanceof Error ? error.message : String(error);
-      setSemanticDebugState((current) =>
-        createSemanticDebugState({
-          ...current,
-          status: "error",
-          error: message,
-        }),
-      );
-      throw error;
-    });
+    })
+      .then((service) => {
+        setSemanticDebugState(markSemanticModelReady);
+        return service;
+      })
+      .catch((error: unknown) => {
+        const message = error instanceof Error ? error.message : String(error);
+        setSemanticDebugState((current) =>
+          createSemanticDebugState({
+            ...current,
+            status: "error",
+            error: message,
+          }),
+        );
+        throw error;
+      });
     return semanticEmbeddingServicePromiseRef.current;
   }
 
