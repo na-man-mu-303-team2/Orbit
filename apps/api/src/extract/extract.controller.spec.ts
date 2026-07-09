@@ -1,5 +1,9 @@
-import { demoIds } from "@orbit/shared";
+import { BadRequestException } from "@nestjs/common";
 import { describe, expect, it, vi } from "vitest";
+import { authSessionCookieName } from "../auth/auth.constants";
+import type { AuthService } from "../auth/auth.service";
+import type { SignedCookieRequest } from "../auth/current-user";
+import type { ProjectsService } from "../projects/projects.service";
 import { ExtractController } from "./extract.controller";
 import { ExtractService } from "./extract.service";
 
@@ -13,31 +17,40 @@ const files = [
 
 describe("ExtractController", () => {
   it("uses the multipart projectId when extracting references", async () => {
-    const service = createService();
-    const controller = new ExtractController(service);
+    const { controller, projectsService, service } = createController();
 
-    await controller.extract(files, { projectId: "project_ai_1" });
+    await controller.extract(
+      files,
+      { projectId: "project_ai_1" },
+      signedRequest()
+    );
 
     expect(service.extract).toHaveBeenCalledWith(files, "project_ai_1", undefined);
+    expect(projectsService.assertCanWriteProject).toHaveBeenCalledWith(
+      "project_ai_1",
+      "user-1"
+    );
   });
 
-  it("falls back to the demo project when projectId is omitted", async () => {
-    const service = createService();
-    const controller = new ExtractController(service);
+  it("rejects extraction when projectId is omitted", async () => {
+    const { controller } = createController();
 
-    await controller.extract(files, {});
-
-    expect(service.extract).toHaveBeenCalledWith(files, demoIds.projectId, undefined);
+    await expect(
+      controller.extract(files, {}, signedRequest())
+    ).rejects.toBeInstanceOf(BadRequestException);
   });
 
   it("forwards multipart fileIds for project asset backed references", async () => {
-    const service = createService();
-    const controller = new ExtractController(service);
+    const { controller, service } = createController();
 
-    await controller.extract(files, {
-      projectId: "project_ai_1",
-      fileIds: ["file_design_1"]
-    });
+    await controller.extract(
+      files,
+      {
+        projectId: "project_ai_1",
+        fileIds: ["file_design_1"]
+      },
+      signedRequest()
+    );
 
     expect(service.extract).toHaveBeenCalledWith(files, "project_ai_1", [
       "file_design_1"
@@ -45,8 +58,16 @@ describe("ExtractController", () => {
   });
 });
 
-function createService() {
-  return {
+function createController() {
+  const authService = {
+    me: vi.fn(async () => ({
+      user: { userId: "user-1", email: "user@example.com" }
+    }))
+  } as unknown as AuthService;
+  const projectsService = {
+    assertCanWriteProject: vi.fn(async () => ({ projectId: "project_ai_1" }))
+  };
+  const service = {
     extract: vi.fn(async () => ({
       files: [],
       job: {
@@ -62,5 +83,20 @@ function createService() {
         updatedAt: "2026-06-29T00:00:00.000Z"
       }
     }))
-  } as unknown as ExtractService;
+  };
+  return {
+    controller: new ExtractController(
+      authService,
+      projectsService as unknown as ProjectsService,
+      service as unknown as ExtractService
+    ),
+    projectsService,
+    service
+  };
+}
+
+function signedRequest(): SignedCookieRequest {
+  return {
+    signedCookies: { [authSessionCookieName]: "session-1" }
+  } as unknown as SignedCookieRequest;
 }

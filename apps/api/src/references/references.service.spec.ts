@@ -1,4 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { BadRequestException } from "@nestjs/common";
+import type { ExtractService } from "../extract/extract.service";
+import type { FilesService } from "../files/files.service";
 import type { ReferenceSearchResponse } from "./references.schema";
 import { ReferencesService } from "./references.service";
 
@@ -77,7 +80,7 @@ describe("ReferencesService", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
 
-    const result = await new ReferencesService().search("project-a", {
+    const result = await createService().service.search("project-a", {
       query: "AI deck",
       limit: 2
     });
@@ -96,4 +99,87 @@ describe("ReferencesService", () => {
       limit: 2
     });
   });
+
+  it("reads uploaded project reference assets before enqueueing extraction", async () => {
+    const { service, filesService, extractService } = createService();
+
+    const result = await service.extract("project-a", {
+      fileIds: ["file-1"]
+    });
+
+    expect(filesService.getUploadedAsset).toHaveBeenCalledWith(
+      "project-a",
+      "file-1",
+      "reference-material"
+    );
+    expect(filesService.readUploadedAssetContent).toHaveBeenCalledWith(
+      "project-a",
+      "file-1",
+      "reference-material"
+    );
+    expect(extractService.extract).toHaveBeenCalledWith(
+      [
+        {
+          originalname: "brief.pdf",
+          mimetype: "application/pdf",
+          buffer: Buffer.from("pdf")
+        }
+      ],
+      "project-a",
+      ["file-1"]
+    );
+    expect(result.fileIds).toEqual(["file-1"]);
+  });
+
+  it("rejects unsupported reference asset MIME types before reading content", async () => {
+    const { service, filesService } = createService({
+      mimeType: "text/plain"
+    });
+
+    await expect(
+      service.extract("project-a", { fileIds: ["file-1"] })
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(filesService.readUploadedAssetContent).not.toHaveBeenCalled();
+  });
 });
+
+function createService(options: { mimeType?: string } = {}) {
+  const job = {
+    jobId: "job-1",
+    projectId: "project-a",
+    type: "reference-extract" as const,
+    status: "queued" as const,
+    progress: 0,
+    message: "Job queued",
+    result: null,
+    error: null,
+    createdAt: "2026-07-10T00:00:00.000Z",
+    updatedAt: "2026-07-10T00:00:00.000Z"
+  };
+  const filesService = {
+    getUploadedAsset: vi.fn(async () => ({
+      fileId: "file-1",
+      projectId: "project-a",
+      originalName: "brief.pdf",
+      mimeType: options.mimeType ?? "application/pdf",
+      purpose: "reference-material",
+      status: "uploaded"
+    })),
+    readUploadedAssetContent: vi.fn(async () => ({
+      body: Buffer.from("pdf"),
+      contentType: "application/pdf"
+    }))
+  };
+  const extractService = {
+    extract: vi.fn(async () => ({ files: [], job }))
+  };
+
+  return {
+    filesService,
+    extractService,
+    service: new ReferencesService(
+      filesService as unknown as FilesService,
+      extractService as unknown as ExtractService
+    )
+  };
+}
