@@ -8,6 +8,7 @@ export * from "./deck/ai-suggestion.schema";
 export * from "./deck/ai-template-deck-generation.schema";
 export * from "./deck/chart.schema";
 export * from "./deck/deck-api.schema";
+export * from "./deck/deck-export.schema";
 export * from "./deck/deck.schema";
 export * from "./deck/generate-deck.schema";
 export * from "./deck/id.schema";

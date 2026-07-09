@@ -8,6 +8,7 @@ import {
 } from "./deck.schema";
 import { deckIdSchema } from "./id.schema";
 import { templateBlueprintIdSchema } from "./template-blueprint.schema";
+import { themeColorSchema } from "./theme.schema";
 
 export const generateDeckTemplateSchema = z.enum([
   "default",
@@ -38,6 +39,36 @@ export const generateDeckMetadataSchema = z
   })
   .default({});
 
+export const generateDeckReferencePolicySchema = z.enum([
+  "topic-only",
+  "references-first",
+  "references-only"
+]);
+
+export const generateDeckBriefSchema = z
+  .object({
+    presentationContext: z.string().trim().optional(),
+    audienceText: z.string().trim().optional(),
+    presentationType: z.string().trim().optional(),
+    successCriteria: z.string().trim().optional(),
+    durationMinutes: z.number().int().min(1).max(120).optional(),
+    referencePolicy: generateDeckReferencePolicySchema.default("topic-only")
+  })
+  .default({});
+
+export const generateDeckPaletteOverrideSchema = z
+  .object({
+    primary: themeColorSchema.optional(),
+    secondary: themeColorSchema.optional(),
+    background: themeColorSchema.optional(),
+    surface: themeColorSchema.optional(),
+    muted: themeColorSchema.optional(),
+    border: themeColorSchema.optional(),
+    text: themeColorSchema.optional(),
+    accentColor: themeColorSchema.optional()
+  })
+  .partial();
+
 export const generateDeckDesignSchema = z
   .object({
     profile: z
@@ -58,7 +89,8 @@ export const generateDeckDesignSchema = z
     mediaPolicy: z
       .enum(["avoid", "balanced", "placeholder-ok"])
       .default("balanced"),
-    layoutDiversity: z.enum(["stable", "varied"]).default("stable")
+    layoutDiversity: z.enum(["stable", "varied"]).default("stable"),
+    paletteOverride: generateDeckPaletteOverrideSchema.optional()
   })
   .default({});
 
@@ -82,6 +114,7 @@ export const generateDeckRequestSchema = z.object({
   topic: z.string().trim().min(1),
   prompt: z.string().trim().optional(),
   designPrompt: z.string().trim().optional(),
+  brief: generateDeckBriefSchema,
   targetDurationMinutes: z.number().int().min(1).max(120).default(10),
   slideCountRange: generateDeckSlideCountRangeSchema,
   template: generateDeckTemplateSchema.default("default"),
@@ -92,6 +125,23 @@ export const generateDeckRequestSchema = z.object({
   templateBlueprintId: templateBlueprintIdSchema.optional(),
   referenceKeywords: z.array(generateDeckReferenceKeywordSchema).default([]),
   referenceContext: z.array(generateDeckReferenceContextSchema).default([])
+});
+
+export const deckColorOptionRequestSchema = z.object({
+  topic: z.string().trim().min(1),
+  colorMood: z.string().trim().default(""),
+  stylePackId: z.string().trim().min(1).default("brandlogy-modern")
+});
+
+export const deckColorOptionSchema = z.object({
+  optionId: z.string().trim().min(1),
+  name: z.string().trim().min(1),
+  palette: generateDeckPaletteOverrideSchema,
+  rationale: z.string().trim().default("")
+});
+
+export const deckColorOptionsResponseSchema = z.object({
+  options: z.array(deckColorOptionSchema).length(3)
 });
 
 export const generateDeckValidationIssueSchema = z.object({
@@ -144,11 +194,23 @@ export type GenerateDeckReferenceContext = z.infer<
   typeof generateDeckReferenceContextSchema
 >;
 export type GenerateDeckMetadata = z.infer<typeof generateDeckMetadataSchema>;
+export type GenerateDeckReferencePolicy = z.infer<
+  typeof generateDeckReferencePolicySchema
+>;
+export type GenerateDeckBrief = z.infer<typeof generateDeckBriefSchema>;
+export type GenerateDeckPaletteOverride = z.infer<
+  typeof generateDeckPaletteOverrideSchema
+>;
 export type GenerateDeckDesign = z.infer<typeof generateDeckDesignSchema>;
 export type GenerateDeckSlideCountRange = z.infer<
   typeof generateDeckSlideCountRangeSchema
 >;
 export type GenerateDeckRequest = z.infer<typeof generateDeckRequestSchema>;
+export type DeckColorOptionRequest = z.infer<typeof deckColorOptionRequestSchema>;
+export type DeckColorOption = z.infer<typeof deckColorOptionSchema>;
+export type DeckColorOptionsResponse = z.infer<
+  typeof deckColorOptionsResponseSchema
+>;
 export type GenerateDeckValidationIssue = z.infer<
   typeof generateDeckValidationIssueSchema
 >;

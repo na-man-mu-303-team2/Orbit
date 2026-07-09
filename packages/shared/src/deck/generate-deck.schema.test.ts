@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  deckColorOptionsResponseSchema,
   generateDeckJobResultSchema,
   generateDeckRequestSchema,
   generateDeckResponseSchema
@@ -20,6 +21,9 @@ describe("generateDeckRequestSchema", () => {
       purpose: "inform",
       tone: "professional"
     });
+    expect(request.brief).toEqual({
+      referencePolicy: "topic-only"
+    });
     expect(request.design).toEqual({
       visualRhythm: "auto",
       densityTarget: "medium",
@@ -30,6 +34,66 @@ describe("generateDeckRequestSchema", () => {
     expect(request.designReferences).toEqual([]);
     expect(request.referenceKeywords).toEqual([]);
     expect(request.referenceContext).toEqual([]);
+  });
+
+  it("accepts survey brief fields for AI PPT generation", () => {
+    const request = generateDeckRequestSchema.parse({
+      topic: "Brandlogy renewal",
+      brief: {
+        presentationContext: "internal strategy meeting",
+        audienceText: "executives",
+        presentationType: "planning proposal",
+        successCriteria: "align on MVP scope",
+        durationMinutes: 12,
+        referencePolicy: "references-first"
+      }
+    });
+
+    expect(request.brief).toEqual({
+      presentationContext: "internal strategy meeting",
+      audienceText: "executives",
+      presentationType: "planning proposal",
+      successCriteria: "align on MVP scope",
+      durationMinutes: 12,
+      referencePolicy: "references-first"
+    });
+  });
+
+  it("accepts a one-shot palette override without changing the theme contract", () => {
+    const request = generateDeckRequestSchema.parse({
+      topic: "Travel product strategy",
+      design: {
+        stylePackId: "brandlogy-modern",
+        paletteOverride: {
+          primary: "#0EA5E9",
+          secondary: "#F472B6",
+          background: "#F8FAFC",
+          text: "#111827",
+          accentColor: "#2563EB"
+        }
+      }
+    });
+
+    expect(request.design.paletteOverride).toEqual({
+      primary: "#0EA5E9",
+      secondary: "#F472B6",
+      background: "#F8FAFC",
+      text: "#111827",
+      accentColor: "#2563EB"
+    });
+  });
+
+  it("rejects invalid palette override colors", () => {
+    const result = generateDeckRequestSchema.safeParse({
+      topic: "Travel product strategy",
+      design: {
+        paletteOverride: {
+          primary: "blue"
+        }
+      }
+    });
+
+    expect(result.success).toBe(false);
   });
 
   it("accepts design references separately from content references", () => {
@@ -143,6 +207,77 @@ describe("generateDeckRequestSchema", () => {
         slideCountRange: { min: 8, max: 5 }
       }).success
     ).toBe(false);
+  });
+});
+
+describe("deckColorOptionsResponseSchema", () => {
+  it("requires exactly three color options", () => {
+    const response = deckColorOptionsResponseSchema.parse({
+      options: [
+        {
+          optionId: "ocean",
+          name: "Resort Blue",
+          palette: {
+            primary: "#0EA5E9",
+            secondary: "#0369A1",
+            background: "#F0F9FF",
+            surface: "#FFFFFF",
+            muted: "#E0F2FE",
+            border: "#BAE6FD",
+            text: "#0F172A",
+            accentColor: "#F472B6"
+          },
+          rationale: "Bright and relaxed."
+        },
+        {
+          optionId: "expert",
+          name: "Executive Blue",
+          palette: {
+            primary: "#1D4ED8",
+            secondary: "#334155",
+            background: "#F8FAFC",
+            surface: "#FFFFFF",
+            muted: "#E2E8F0",
+            border: "#CBD5E1",
+            text: "#0F172A",
+            accentColor: "#DB2777"
+          },
+          rationale: "Professional and clear."
+        },
+        {
+          optionId: "violet",
+          name: "Topic Violet",
+          palette: {
+            primary: "#7C3AED",
+            secondary: "#4F46E5",
+            background: "#FAF5FF",
+            surface: "#FFFFFF",
+            muted: "#EDE9FE",
+            border: "#DDD6FE",
+            text: "#18181B",
+            accentColor: "#EC4899"
+          },
+          rationale: "Expressive and modern."
+        }
+      ]
+    });
+
+    expect(response.options).toHaveLength(3);
+  });
+
+  it("rejects color option responses with fewer than three options", () => {
+    const result = deckColorOptionsResponseSchema.safeParse({
+      options: [
+        {
+          optionId: "ocean",
+          name: "Resort Blue",
+          palette: { primary: "#0EA5E9" },
+          rationale: "Bright and relaxed."
+        }
+      ]
+    });
+
+    expect(result.success).toBe(false);
   });
 });
 
