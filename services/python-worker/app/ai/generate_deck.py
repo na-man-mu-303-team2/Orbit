@@ -1960,25 +1960,52 @@ class DeckGenerationOrchestrator:
         theme: dict[str, Any],
         template_selection: list[TemplateSelectionItem],
     ) -> list[dict[str, Any]]:
-        slides = [
-            assemble_slide_from_imported_blueprint(
-                raw_input,
-                slide_plan,
-                theme,
-                template_selection[slide_plan.order - 1]
-                if slide_plan.order <= len(template_selection)
-                else None,
-            )
-            if has_imported_design_blueprint(raw_input)
-            else assemble_design_pack_slide(raw_input, slide_plan, slide_plans, theme)
+        recipes = (
+            select_design_pack_recipes(raw_input, slide_plans)
             if raw_input.generation_mode == "design-pack"
-            else assemble_slide(raw_input, slide_plan, plan_visuals(slide_plan), theme)
-            for slide_plan in slide_plans
-        ]
+            and not has_imported_design_blueprint(raw_input)
+            else []
+        )
+        slides: list[dict[str, Any]] = []
+        for slide_plan in slide_plans:
+            if has_imported_design_blueprint(raw_input):
+                slide = assemble_slide_from_imported_blueprint(
+                    raw_input,
+                    slide_plan,
+                    theme,
+                    template_selection[slide_plan.order - 1]
+                    if slide_plan.order <= len(template_selection)
+                    else None,
+                )
+            elif raw_input.generation_mode == "design-pack":
+                slide = assemble_design_pack_slide(
+                    raw_input,
+                    slide_plan,
+                    slide_plans,
+                    theme,
+                    recipe=recipes[slide_plan.order - 1],
+                )
+            else:
+                slide = assemble_slide(
+                    raw_input,
+                    slide_plan,
+                    plan_visuals(slide_plan),
+                    theme,
+                )
+            slides.append(slide)
         self.record(
             "LayoutAgent",
             "Composed editable slide elements.",
-            artifacts={"slides": slides, "designBlueprint": raw_input.design_blueprint},
+            artifacts={
+                "slides": slides,
+                "designBlueprint": raw_input.design_blueprint,
+                "recipes": recipes,
+                "uniqueCoreLayoutCount": len(
+                    {core_geometry_fingerprint(slide) for slide in slides[1:-1]}
+                )
+                if recipes
+                else 0,
+            },
         )
         return slides
 
@@ -2796,7 +2823,17 @@ def count_speaker_note_chars(text: str) -> int:
 def content_plan_repair_reasons(slide_plans: list[SlidePlan]) -> list[str]:
     reasons: list[str] = []
     normalized_notes: dict[str, int] = {}
+    total_slides = len(slide_plans)
     for slide_plan in slide_plans:
+        minimum_items, maximum_items = content_item_capacity_for_slide(
+            slide_plan,
+            total_slides,
+        )
+        if not minimum_items <= len(slide_plan.content_items) <= maximum_items:
+            reasons.append(
+                f"slide {slide_plan.order}: content item count "
+                f"{len(slide_plan.content_items)} must be {minimum_items}-{maximum_items}"
+            )
         target = slide_plan.target_speaker_notes_chars
         actual = count_speaker_note_chars(slide_plan.speaker_notes)
         if target > 0 and actual < round(target * 0.8):
@@ -2813,6 +2850,21 @@ def content_plan_repair_reasons(slide_plans: list[SlidePlan]) -> list[str]:
     if any(count > 1 for count in normalized_notes.values()):
         reasons.append("speaker notes repeat verbatim across slides")
     return reasons
+
+
+def content_item_capacity_for_slide(
+    slide_plan: SlidePlan,
+    total_slides: int,
+) -> tuple[int, int]:
+    if slide_plan.order == 1 or slide_plan.slide_type in {"title", "cover"}:
+        return DESIGN_PACK_RECIPE_CAPACITIES["cover_trust_signal"]
+    if slide_plan.order == total_slides:
+        return DESIGN_PACK_RECIPE_CAPACITIES["closing_summary"]
+    if slide_plan.slide_type in {"process", "architecture"}:
+        return DESIGN_PACK_RECIPE_CAPACITIES["process_steps"]
+    if slide_plan.slide_type == "comparison":
+        return DESIGN_PACK_RECIPE_CAPACITIES["comparison_split"]
+    return 1, 6
 
 
 def repair_content_plan_with_llm(
@@ -3265,20 +3317,17 @@ def apply_design_options(
     raw_input: RawInput,
     slide_plans: list[SlidePlan],
 ) -> list[SlidePlan]:
-    previous_preset: SlotPreset | None = None
-    preset_usage: dict[SlotPreset, int] = {}
     for slide_plan in slide_plans:
         slide_plan.media_intent = media_intent_for_policy(
             slide_plan.media_intent,
             raw_input.design.media_policy,
         )
-        if (
-            raw_input.generation_mode == "design-pack"
-            and slide_plan.media_intent.kind == "none"
-        ):
-            slide_plan.media_intent = design_pack_media_intent_for_policy(
-                raw_input.design.media_policy
-            )
+    if raw_input.generation_mode == "design-pack":
+        apply_design_pack_media_plan(raw_input, slide_plans)
+
+    previous_preset: SlotPreset | None = None
+    preset_usage: dict[SlotPreset, int] = {}
+    for slide_plan in slide_plans:
         selected_preset = choose_layout_preset(
             slide_plan,
             raw_input,
@@ -3291,6 +3340,64 @@ def apply_design_options(
         previous_preset = selected_preset
 
     return slide_plans
+
+
+def apply_design_pack_media_plan(
+    raw_input: RawInput,
+    slide_plans: list[SlidePlan],
+) -> None:
+    media_policy = raw_input.design.media_policy
+    if media_policy in {"avoid", "minimal"}:
+        for slide_plan in slide_plans:
+            slide_plan.media_intent = MediaIntent()
+        return
+
+    ranked = sorted(
+        (
+            (design_pack_media_score(slide_plan, len(slide_plans)), slide_plan)
+            for slide_plan in slide_plans
+            if media_intent_needs_slot(slide_plan.media_intent)
+            and design_pack_media_score(slide_plan, len(slide_plans)) >= 0
+        ),
+        key=lambda item: (item[0], -item[1].order),
+        reverse=True,
+    )
+    selected_orders = {slide_plan.order for _, slide_plan in ranked[:3]}
+    for slide_plan in slide_plans:
+        if slide_plan.order not in selected_orders:
+            slide_plan.media_intent = MediaIntent()
+
+
+def design_pack_media_score(slide_plan: SlidePlan, total_slides: int) -> int:
+    if slide_plan.order == total_slides or slide_plan.slide_type in {
+        "process",
+        "comparison",
+        "chart",
+        "architecture",
+    }:
+        return -1
+    if slide_plan.order == 1 or slide_plan.slide_type in {"title", "cover"}:
+        return 100
+
+    context = " ".join(
+        [
+            slide_plan.slide_type,
+            slide_plan.visual_intent.structure,
+            slide_plan.visual_intent.composition,
+            slide_plan.visual_intent.emphasis,
+            slide_plan.visual_intent.media_style,
+            slide_plan.media_intent.rationale,
+            slide_plan.media_intent.prompt,
+        ]
+    ).casefold()
+    if slide_plan.evidence or has_any(context, ["evidence", "proof", "signal"]):
+        return 80
+    if slide_plan.slide_type in {"problem", "solution", "data"} or has_any(
+        context,
+        ["concept", "hero", "photo", "illustration", "diagram"],
+    ):
+        return 60
+    return 20
 
 
 def choose_layout_preset(
@@ -3534,19 +3641,6 @@ def media_intent_for_policy(
     if media_policy in {"public-assets", "ai-generated"}:
         return media_intent
     return MediaIntent()
-
-
-def design_pack_media_intent_for_policy(media_policy: MediaPolicy) -> MediaIntent:
-    if media_policy not in {"ai-generated", "public-assets", "placeholder-ok"}:
-        return MediaIntent()
-    return MediaIntent(
-        kind="generate" if media_policy == "ai-generated" else "placeholder",
-        prompt="Create a presentation-safe visual that supports the slide message.",
-        alt="Generated visual placeholder",
-        caption="Visual slot",
-        rationale="Media policy requests a visible visual planning slot.",
-        required=True,
-    )
 
 
 def media_intent_needs_slot(media_intent: MediaIntent) -> bool:
@@ -4101,13 +4195,9 @@ def design_pack_forbidden_styles(raw_input: RawInput) -> set[ForbiddenStyle]:
 
 def enforce_white_canvas(deck: dict[str, Any]) -> None:
     theme = deck.setdefault("theme", {})
-    palette = theme.setdefault("palette", {})
     theme["backgroundColor"] = "#FFFFFF"
     if contrast_ratio("#FFFFFF", str(theme.get("textColor", "#111827"))) < 4.5:
         theme["textColor"] = "#111827"
-    palette["surface"] = "#FFFFFF"
-    palette["muted"] = neutral_surface()
-    palette["border"] = "#D1D5DB"
 
     for slide in deck.get("slides", []):
         style = slide.setdefault("style", {})
@@ -4122,16 +4212,21 @@ def enforce_white_canvas(deck: dict[str, Any]) -> None:
 def neutralize_pastel_surfaces(deck: dict[str, Any]) -> None:
     theme = deck.setdefault("theme", {})
     palette = theme.setdefault("palette", {})
+    replacements: dict[str, str] = {}
     for key, replacement in (("muted", neutral_surface()), ("border", "#D1D5DB")):
-        if is_pastel_hex(str(palette.get(key, ""))):
+        current = str(palette.get(key, ""))
+        if is_pastel_hex(current):
+            replacements[current.casefold()] = replacement
             palette[key] = replacement
 
     for slide in deck.get("slides", []):
         for element in slide.get("elements", []):
             props = element.get("props", {})
-            fill = props.get("fill")
-            if is_pastel_hex(str(fill)) and covers_large_area(element):
-                props["fill"] = neutral_surface()
+            for prop in ("fill", "stroke"):
+                color = str(props.get(prop, ""))
+                mapped_replacement = replacements.get(color.casefold())
+                if mapped_replacement:
+                    props[prop] = mapped_replacement
 
 
 def remove_gradient_props(value: Any) -> None:
@@ -4160,13 +4255,6 @@ def is_canvas_background_element(element: dict[str, Any]) -> bool:
         and float(element.get("y", 0)) <= 0
         and float(element.get("width", 0)) >= CANVAS.width
         and float(element.get("height", 0)) >= CANVAS.height
-    )
-
-
-def covers_large_area(element: dict[str, Any]) -> bool:
-    return (
-        float(element.get("width", 0)) * float(element.get("height", 0))
-        >= CANVAS.width * CANVAS.height * 0.2
     )
 
 
@@ -4581,10 +4669,25 @@ def compose_layout(visual_plan: VisualPlan) -> LayoutPlan:
 DESIGN_PACK_RECIPE_LAYOUTS: dict[str, DeckLayout] = {
     "cover_trust_signal": "title",
     "overview_cards": "title-content",
+    "decision_actions": "two-column",
+    "priority_stack": "title-content",
+    "decision_agenda": "two-column",
     "insight_evidence": "two-column",
     "process_steps": "title-content",
     "comparison_split": "two-column",
     "closing_summary": "closing",
+}
+
+DESIGN_PACK_RECIPE_CAPACITIES: dict[str, tuple[int, int]] = {
+    "cover_trust_signal": (1, 3),
+    "insight_evidence": (1, 3),
+    "overview_cards": (2, 6),
+    "decision_actions": (2, 6),
+    "priority_stack": (2, 6),
+    "decision_agenda": (2, 6),
+    "process_steps": (3, 6),
+    "comparison_split": (2, 4),
+    "closing_summary": (2, 4),
 }
 
 DESIGN_PACK_ARCHETYPE_RECIPE_SEQUENCES: dict[str, tuple[str, ...]] = {
@@ -4600,10 +4703,15 @@ def assemble_design_pack_slide(
     slide_plan: SlidePlan,
     slide_plans: list[SlidePlan],
     theme: dict[str, Any],
+    *,
+    recipe: str | None = None,
 ) -> dict[str, Any]:
-    recipe = design_pack_recipe_for(raw_input, slide_plan, slide_plans)
+    recipe = recipe or design_pack_recipe_for(raw_input, slide_plan, slide_plans)
     elements = design_pack_recipe_elements(raw_input, slide_plan, recipe, theme)
     elements = cap_elements(elements, limit=48)
+    build_design_pack_content_manifest(slide_plan, elements)
+    for element in elements:
+        element.pop("_contentItemIds", None)
     title_element = next(element for element in elements if element["role"] == "title")
 
     return {
@@ -4701,6 +4809,9 @@ def design_pack_visual_plan(
     visual_type = {
         "cover_trust_signal": "cover",
         "overview_cards": "cards",
+        "decision_actions": "decision",
+        "priority_stack": "priority",
+        "decision_agenda": "agenda",
         "insight_evidence": "diagram",
         "process_steps": "process",
         "comparison_split": "comparison",
@@ -4792,40 +4903,140 @@ def design_pack_recipe_for(
     slide_plan: SlidePlan,
     slide_plans: list[SlidePlan],
 ) -> str:
-    if slide_plan.order == 1 or slide_plan.slide_type in {"title", "cover"}:
-        return "cover_trust_signal"
-    if slide_plan.order == len(slide_plans):
-        return "closing_summary"
-    if slide_plan.slide_type in {"process", "architecture"}:
-        return "process_steps"
-    if slide_plan.slide_type == "comparison":
-        return "comparison_split"
-    if slide_plan.slide_type == "feature-grid":
-        feature_grid_count = sum(
-            1 for plan in slide_plans if plan.slide_type == "feature-grid"
-        )
-        if feature_grid_count <= 2:
-            return "overview_cards"
+    sequence = select_design_pack_recipes(raw_input, slide_plans)
+    return sequence[slide_plan.order - 1]
 
-    if uses_conversational_design_flow(raw_input):
-        conversation_sequence = (
+
+DESIGN_PACK_SEMANTIC_RECIPE_ORDER = (
+    "insight_evidence",
+    "overview_cards",
+    "decision_actions",
+    "priority_stack",
+    "decision_agenda",
+    "process_steps",
+    "comparison_split",
+)
+
+
+def select_design_pack_recipes(
+    raw_input: RawInput,
+    slide_plans: list[SlidePlan],
+) -> list[str]:
+    selected: list[str] = []
+    usage: dict[str, int] = {}
+    body_count = max(0, len(slide_plans) - 2)
+    unique_target = (body_count * 3 + 3) // 4 if body_count >= 5 else 0
+
+    for slide_plan in slide_plans:
+        if slide_plan.order == 1 or slide_plan.slide_type in {"title", "cover"}:
+            recipe = "cover_trust_signal"
+        elif slide_plan.order == len(slide_plans):
+            recipe = "closing_summary"
+        else:
+            item_count = design_pack_content_item_count(slide_plan)
+            candidates = [
+                candidate
+                for candidate in DESIGN_PACK_SEMANTIC_RECIPE_ORDER
+                if design_pack_recipe_supports(candidate, item_count)
+            ]
+            if not candidates:
+                raise DeckContentGenerationError(
+                    f"slide {slide_plan.order}: no recipe supports {item_count} content items"
+                )
+            previous = selected[-1] if selected else None
+            recipe = max(
+                candidates,
+                key=lambda candidate: (
+                    design_pack_semantic_recipe_score(
+                        raw_input,
+                        slide_plan,
+                        candidate,
+                        usage,
+                        previous,
+                        unique_target,
+                    ),
+                    -DESIGN_PACK_SEMANTIC_RECIPE_ORDER.index(candidate),
+                ),
+            )
+        selected.append(recipe)
+        if recipe not in {"cover_trust_signal", "closing_summary"}:
+            usage[recipe] = usage.get(recipe, 0) + 1
+    return selected
+
+
+def design_pack_content_item_count(slide_plan: SlidePlan) -> int:
+    if slide_plan.content_items:
+        return len(slide_plan.content_items)
+    return len(content_items_from_message(slide_plan.message, slide_plan.order))
+
+
+def design_pack_recipe_supports(recipe: str, item_count: int) -> bool:
+    minimum, maximum = DESIGN_PACK_RECIPE_CAPACITIES[recipe]
+    return minimum <= item_count <= maximum
+
+
+def design_pack_semantic_recipe_score(
+    raw_input: RawInput,
+    slide_plan: SlidePlan,
+    recipe: str,
+    usage: dict[str, int],
+    previous: str | None,
+    unique_target: int,
+) -> int:
+    score = 0
+    context = design_pack_archetype_text(raw_input, slide_plan).casefold()
+    used_count = usage.get(recipe, 0)
+    if len(usage) < unique_target and used_count == 0:
+        score += 12
+    score -= used_count * 8
+    if used_count >= 2:
+        score -= 40
+    if recipe == previous:
+        score -= 30
+
+    slide_type = slide_plan.slide_type
+    if slide_type in {"process", "architecture"}:
+        score += 22 if recipe == "process_steps" else 0
+    elif slide_type == "comparison":
+        score += 22 if recipe == "comparison_split" else 0
+    elif slide_type in {"data", "chart"}:
+        score += 10 if recipe in {"insight_evidence", "priority_stack"} else 0
+    elif slide_type in {"feature-grid", "solution"}:
+        score += 8 if recipe in {"overview_cards", "decision_actions"} else 0
+
+    if slide_plan.evidence or has_any(context, ["evidence", "proof", "signal", "data"]):
+        score += 9 if recipe == "insight_evidence" else 0
+    if has_any(
+        context,
+        ["discussion", "workshop", "meeting", "decision", "action", "planning"],
+    ):
+        score += 10 if recipe in {"decision_actions", "decision_agenda"} else 0
+        score -= 8 if recipe == "comparison_split" and slide_type != "comparison" else 0
+    if has_any(context, ["priority", "rank", "focus", "executive", "concise"]):
+        score += 9 if recipe == "priority_stack" else 0
+    if has_any(context, ["agenda", "alignment"]):
+        score += 8 if recipe == "decision_agenda" else 0
+    if has_any(context, ["sequence", "roadmap", "workflow", "steps", "timeline"]):
+        score += 8 if recipe == "process_steps" else 0
+
+    item_count = design_pack_content_item_count(slide_plan)
+    if item_count >= 5:
+        score += 5 if recipe in {
             "overview_cards",
-            "comparison_split",
+            "priority_stack",
+            "decision_agenda",
             "process_steps",
-            "insight_evidence",
-        )
-        return conversation_sequence[
-            max(0, slide_plan.order - 2) % len(conversation_sequence)
-        ]
+        } else 0
+    if item_count == 1:
+        score += 20 if recipe == "insight_evidence" else 0
+    if raw_input.design.density_target == "high":
+        score += 4 if recipe in {"priority_stack", "overview_cards"} else 0
 
     archetype = design_pack_deck_archetype(raw_input, slide_plan)
-    if archetype == "pitch" and slide_plan.slide_type in {"data", "summary"}:
-        return "overview_cards"
-
-    sequence: tuple[str, ...] = DESIGN_PACK_ARCHETYPE_RECIPE_SEQUENCES[archetype]
-    if len(slide_plans) >= 7 and archetype in {"technical", "executive_report"}:
-        sequence = (*sequence, "insight_evidence")
-    return sequence[max(0, slide_plan.order - 2) % len(sequence)]
+    preferred = DESIGN_PACK_ARCHETYPE_RECIPE_SEQUENCES[archetype]
+    if recipe in preferred:
+        score += max(1, 4 - preferred.index(recipe))
+    return score
 
 
 def uses_conversational_design_flow(raw_input: RawInput) -> bool:
@@ -5021,6 +5232,12 @@ def design_pack_recipe_elements(
         elements.extend(design_pack_cover_elements(slide_plan, theme))
     elif recipe == "overview_cards":
         elements.extend(design_pack_overview_elements(slide_plan, theme, variant))
+    elif recipe == "decision_actions":
+        elements.extend(design_pack_decision_actions_elements(slide_plan, theme))
+    elif recipe == "priority_stack":
+        elements.extend(design_pack_priority_stack_elements(slide_plan, theme))
+    elif recipe == "decision_agenda":
+        elements.extend(design_pack_decision_agenda_elements(slide_plan, theme))
     elif recipe == "process_steps":
         elements.extend(design_pack_process_elements(slide_plan, theme, variant))
     elif recipe == "comparison_split":
@@ -5107,6 +5324,9 @@ def design_pack_media_placeholder_elements(
     x, y, width, height = {
         "cover_trust_signal": (1210, 760, 480, 86),
         "overview_cards": (1330, 238, 420, 96),
+        "decision_actions": (120, 790, 420, 86),
+        "priority_stack": (1320, 820, 420, 86),
+        "decision_agenda": (120, 760, 420, 86),
         "insight_evidence": (1080, 680, 540, 92),
         "process_steps": (1370, 226, 420, 98),
         "comparison_split": (1488, 176, 300, 84),
@@ -5120,8 +5340,7 @@ def design_pack_media_placeholder_elements(
         x, y, width, height = (1260, 226, 420, 92)
     elif variant == "insight_callout":
         x, y, width, height = (930, 728, 640, 92)
-    caption = slide_plan.media_intent.caption or "AI visual plan"
-    rationale = slide_plan.media_intent.rationale or slide_plan.media_intent.prompt
+    caption = slide_plan.media_intent.caption or "Visual placeholder"
     return [
         shape_element(
             slide_plan.order,
@@ -5140,7 +5359,7 @@ def design_pack_media_placeholder_elements(
             slide_plan.order,
             "design_pack_visual_media_caption",
             "caption",
-            compact_design_pack_text(f"{caption}: {rationale}", 72),
+            compact_design_pack_text(caption, 72),
             x + 24,
             y + 22,
             max(120, width - 48),
@@ -5254,7 +5473,7 @@ def design_pack_cover_elements(
     theme: dict[str, Any],
 ) -> list[dict[str, Any]]:
     colors = design_pack_colors(None, theme)
-    cards = design_pack_items(slide_plan, 3)
+    cards = design_pack_items(slide_plan, "cover_trust_signal")
     elements = [
         shape_element(
             slide_plan.order,
@@ -5358,20 +5577,23 @@ def design_pack_cover_elements(
                     theme,
                     line_height=1.0,
                 ),
-                design_pack_text(
-                    slide_plan.order,
-                    f"cover_summary_card_{index + 1}_text",
-                    "body",
+                mark_design_pack_content_element(
+                    design_pack_text(
+                        slide_plan.order,
+                        f"cover_summary_card_{index + 1}_text",
+                        "body",
+                        item.text,
+                        1240,
+                        y + 60,
+                        400,
+                        44,
+                        5,
+                        colors["text"],
+                        21,
+                        "medium",
+                        theme,
+                    ),
                     item,
-                    1240,
-                    y + 60,
-                    400,
-                    44,
-                    5,
-                    colors["text"],
-                    21,
-                    "medium",
-                    theme,
                 ),
             ]
         )
@@ -5384,8 +5606,11 @@ def design_pack_overview_elements(
     variant: str = "overview_2x2",
 ) -> list[dict[str, Any]]:
     colors = design_pack_colors(None, theme)
-    items = design_pack_items(slide_plan, 4)
+    items = design_pack_items(slide_plan, "overview_cards")
     if variant == "overview_rail":
+        item_height = 76 if len(items) > 4 else 88
+        item_stride = item_height + 20
+        panel_height = min(690, max(420, 104 + len(items) * item_stride))
         elements = [
             design_pack_text(
                 slide_plan.order,
@@ -5424,7 +5649,7 @@ def design_pack_overview_elements(
                 1030,
                 184,
                 650,
-                604,
+                panel_height,
                 3,
                 colors["muted"],
                 colors["border"],
@@ -5432,7 +5657,7 @@ def design_pack_overview_elements(
             ),
         ]
         for index, item in enumerate(items):
-            y = 236 + index * 126
+            y = 236 + index * item_stride
             elements.extend(
                 [
                     shape_element(
@@ -5442,7 +5667,7 @@ def design_pack_overview_elements(
                         1080,
                         y,
                         540,
-                        88,
+                        item_height,
                         4,
                         colors["surface"],
                         colors["border"],
@@ -5453,28 +5678,31 @@ def design_pack_overview_elements(
                         f"overview_rail_item_{index + 1}_marker",
                         "decoration",
                         1108,
-                        y + 28,
-                        34,
-                        34,
+                        y + (item_height - 30) // 2,
+                        30,
+                        30,
                         5,
                         colors["primary"] if index % 2 == 0 else colors["secondary"],
                         "transparent",
                         8,
                     ),
-                    design_pack_text(
-                        slide_plan.order,
-                        f"overview_rail_item_{index + 1}_text",
-                        "body",
+                    mark_design_pack_content_element(
+                        design_pack_text(
+                            slide_plan.order,
+                            f"overview_rail_item_{index + 1}_text",
+                            "body",
+                            item.text,
+                            1172,
+                            y + 15,
+                            390,
+                            item_height - 30,
+                            5,
+                            colors["text"],
+                            21,
+                            "medium",
+                            theme,
+                        ),
                         item,
-                        1172,
-                        y + 22,
-                        390,
-                        48,
-                        5,
-                        colors["text"],
-                        21,
-                        "medium",
-                        theme,
                     ),
                 ]
             )
@@ -5512,11 +5740,14 @@ def design_pack_overview_elements(
             theme,
         ),
     ]
+    row_count = max(1, (len(items) + 1) // 2)
+    card_gap_y = 24
+    card_height = min(176, int((510 - card_gap_y * (row_count - 1)) / row_count))
     for index, item in enumerate(items):
         row = index // 2
         column = index % 2
         x = 120 + column * 860
-        y = 386 + row * 236
+        y = 350 + row * (card_height + card_gap_y)
         elements.extend(
             [
                 shape_element(
@@ -5526,7 +5757,7 @@ def design_pack_overview_elements(
                     x,
                     y,
                     760,
-                    176,
+                    card_height,
                     3,
                     colors["surface"],
                     colors["border"],
@@ -5539,7 +5770,7 @@ def design_pack_overview_elements(
                     x,
                     y,
                     10,
-                    176,
+                    card_height,
                     4,
                     colors["primary"] if index % 2 == 0 else colors["secondary"],
                     "transparent",
@@ -5550,7 +5781,7 @@ def design_pack_overview_elements(
                     "caption",
                     f"{index + 1:02d}",
                     x + 34,
-                    y + 30,
+                    y + 24,
                     62,
                     30,
                     5,
@@ -5559,20 +5790,23 @@ def design_pack_overview_elements(
                     "bold",
                     theme,
                 ),
-                design_pack_text(
-                    slide_plan.order,
-                    f"overview_card_{index + 1}_text",
-                    "body",
+                mark_design_pack_content_element(
+                    design_pack_text(
+                        slide_plan.order,
+                        f"overview_card_{index + 1}_text",
+                        "body",
+                        item.text,
+                        x + 112,
+                        y + 24,
+                        584,
+                        max(54, card_height - 48),
+                        5,
+                        colors["text"],
+                        23,
+                        "medium",
+                        theme,
+                    ),
                     item,
-                    x + 112,
-                    y + 30,
-                    584,
-                    92,
-                    5,
-                    colors["text"],
-                    23,
-                    "medium",
-                    theme,
                 ),
             ]
         )
@@ -5585,7 +5819,7 @@ def design_pack_insight_elements(
     variant: str = "insight_evidence",
 ) -> list[dict[str, Any]]:
     colors = design_pack_colors(None, theme)
-    items = design_pack_items(slide_plan, 3)
+    items = design_pack_items(slide_plan, "insight_evidence")
     if variant == "insight_callout":
         elements = [
             design_pack_text(
@@ -5664,26 +5898,49 @@ def design_pack_insight_elements(
                         "bold",
                         theme,
                     ),
-                    design_pack_text(
-                        slide_plan.order,
-                        f"insight_callout_evidence_text_{index + 1}",
-                        "body",
+                    mark_design_pack_content_element(
+                        design_pack_text(
+                            slide_plan.order,
+                            f"insight_callout_evidence_text_{index + 1}",
+                            "body",
+                            item.text,
+                            1160,
+                            y + 20,
+                            348,
+                            48,
+                            5,
+                            colors["text"],
+                            21,
+                            "medium",
+                            theme,
+                        ),
                         item,
-                        1160,
-                        y + 20,
-                        348,
-                        48,
-                        5,
-                        colors["text"],
-                        21,
-                        "medium",
-                        theme,
                     ),
                 ]
             )
         return elements
 
-    evidence_text = "\n".join(f"{index + 1}. {item}" for index, item in enumerate(items))
+    evidence_text = "\n".join(
+        f"{index + 1}. {item.text}" for index, item in enumerate(items)
+    )
+    evidence_element = mark_design_pack_content_element(
+        design_pack_text(
+            slide_plan.order,
+            "insight_evidence_support_text",
+            "body",
+            evidence_text,
+            1080,
+            410,
+            540,
+            220,
+            5,
+            colors["text"],
+            22,
+            "normal",
+            theme,
+        ),
+        *items,
+    )
     return [
         design_pack_text(
             slide_plan.order,
@@ -5768,22 +6025,352 @@ def design_pack_insight_elements(
             "bold",
             theme,
         ),
+        evidence_element,
+    ]
+
+
+def design_pack_decision_actions_elements(
+    slide_plan: SlidePlan,
+    theme: dict[str, Any],
+) -> list[dict[str, Any]]:
+    colors = design_pack_colors(None, theme)
+    items = design_pack_items(slide_plan, "decision_actions")
+    lead, *actions = items
+    action_count = max(1, len(actions))
+    row_height = min(102, int((500 - 20 * (action_count - 1)) / action_count))
+    elements = [
         design_pack_text(
             slide_plan.order,
-            "insight_evidence_support_text",
-            "body",
-            evidence_text,
-            1080,
-            410,
-            540,
-            220,
-            5,
+            "title",
+            "title",
+            slide_plan.title,
+            120,
+            116,
+            1320,
+            104,
+            4,
             colors["text"],
+            48,
+            "bold",
+            theme,
+        ),
+        shape_element(
+            slide_plan.order,
+            "decision_actions_focus_panel",
+            "highlight",
+            120,
+            292,
+            570,
+            500,
+            3,
+            colors["primary"],
+            "transparent",
+            8,
+        ),
+        design_pack_text(
+            slide_plan.order,
+            "decision_actions_focus_label",
+            "caption",
+            "DECISION",
+            172,
+            344,
+            220,
+            30,
+            5,
+            "#FFFFFF",
+            18,
+            "bold",
+            theme,
+        ),
+        mark_design_pack_content_element(
+            design_pack_text(
+                slide_plan.order,
+                "decision_actions_focus_text",
+                "body",
+                lead.text,
+                172,
+                414,
+                466,
+                250,
+                5,
+                "#FFFFFF",
+                30,
+                "medium",
+                theme,
+            ),
+            lead,
+        ),
+    ]
+    for index, item in enumerate(actions):
+        y = 292 + index * (row_height + 20)
+        elements.extend(
+            [
+                shape_element(
+                    slide_plan.order,
+                    f"decision_actions_row_{index + 1}",
+                    "highlight",
+                    780,
+                    y,
+                    960,
+                    row_height,
+                    3,
+                    colors["surface"],
+                    colors["border"],
+                    8,
+                ),
+                design_pack_text(
+                    slide_plan.order,
+                    f"decision_actions_number_{index + 1}",
+                    "caption",
+                    f"{index + 1:02d}",
+                    818,
+                    y + 24,
+                    60,
+                    30,
+                    5,
+                    colors["secondary"],
+                    20,
+                    "bold",
+                    theme,
+                ),
+                mark_design_pack_content_element(
+                    design_pack_text(
+                        slide_plan.order,
+                        f"decision_actions_text_{index + 1}",
+                        "body",
+                        item.text,
+                        910,
+                        y + 20,
+                        770,
+                        max(46, row_height - 40),
+                        5,
+                        colors["text"],
+                        22,
+                        "medium",
+                        theme,
+                    ),
+                    item,
+                ),
+            ]
+        )
+    return elements
+
+
+def design_pack_priority_stack_elements(
+    slide_plan: SlidePlan,
+    theme: dict[str, Any],
+) -> list[dict[str, Any]]:
+    colors = design_pack_colors(None, theme)
+    items = design_pack_items(slide_plan, "priority_stack")
+    row_height = 74 if len(items) > 4 else 88
+    row_stride = row_height + 18
+    elements = [
+        design_pack_text(
+            slide_plan.order,
+            "title",
+            "title",
+            slide_plan.title,
+            120,
+            116,
+            1320,
+            104,
+            4,
+            colors["text"],
+            48,
+            "bold",
+            theme,
+        ),
+        design_pack_text(
+            slide_plan.order,
+            "body",
+            "body",
+            slide_plan.message,
+            120,
+            226,
+            1200,
+            74,
+            4,
+            colors["text_muted"],
             22,
             "normal",
             theme,
         ),
     ]
+    for index, item in enumerate(items):
+        x = 120 + index * 34
+        y = 326 + index * row_stride
+        width = 1580 - index * 68
+        elements.extend(
+            [
+                shape_element(
+                    slide_plan.order,
+                    f"priority_stack_row_{index + 1}",
+                    "highlight",
+                    x,
+                    y,
+                    width,
+                    row_height,
+                    3,
+                    colors["surface"],
+                    colors["border"],
+                    8,
+                ),
+                shape_element(
+                    slide_plan.order,
+                    f"priority_stack_rank_{index + 1}",
+                    "decoration",
+                    x,
+                    y,
+                    76,
+                    row_height,
+                    4,
+                    colors["primary"] if index == 0 else colors["secondary"],
+                    "transparent",
+                    8,
+                ),
+                design_pack_text(
+                    slide_plan.order,
+                    f"priority_stack_number_{index + 1}",
+                    "caption",
+                    str(index + 1),
+                    x + 29,
+                    y + 22,
+                    24,
+                    28,
+                    5,
+                    "#FFFFFF",
+                    20,
+                    "bold",
+                    theme,
+                ),
+                mark_design_pack_content_element(
+                    design_pack_text(
+                        slide_plan.order,
+                        f"priority_stack_text_{index + 1}",
+                        "body",
+                        item.text,
+                        x + 112,
+                        y + 18,
+                        width - 154,
+                        max(42, row_height - 36),
+                        5,
+                        colors["text"],
+                        22,
+                        "medium",
+                        theme,
+                    ),
+                    item,
+                ),
+            ]
+        )
+    return elements
+
+
+def design_pack_decision_agenda_elements(
+    slide_plan: SlidePlan,
+    theme: dict[str, Any],
+) -> list[dict[str, Any]]:
+    colors = design_pack_colors(None, theme)
+    items = design_pack_items(slide_plan, "decision_agenda")
+    item_height = 68 if len(items) > 4 else 84
+    item_stride = item_height + 18
+    elements = [
+        design_pack_text(
+            slide_plan.order,
+            "title",
+            "title",
+            slide_plan.title,
+            120,
+            116,
+            760,
+            118,
+            4,
+            colors["text"],
+            48,
+            "bold",
+            theme,
+        ),
+        design_pack_text(
+            slide_plan.order,
+            "body",
+            "body",
+            slide_plan.message,
+            120,
+            282,
+            650,
+            230,
+            4,
+            colors["text_muted"],
+            24,
+            "normal",
+            theme,
+        ),
+        shape_element(
+            slide_plan.order,
+            "decision_agenda_side_rule",
+            "decoration",
+            850,
+            242,
+            10,
+            580,
+            3,
+            colors["primary"],
+            "transparent",
+        ),
+        shape_element(
+            slide_plan.order,
+            "decision_agenda_panel",
+            "highlight",
+            930,
+            220,
+            790,
+            620,
+            2,
+            colors["muted"],
+            colors["border"],
+            8,
+        ),
+    ]
+    for index, item in enumerate(items):
+        y = 270 + index * item_stride
+        elements.extend(
+            [
+                design_pack_text(
+                    slide_plan.order,
+                    f"decision_agenda_number_{index + 1}",
+                    "caption",
+                    f"{index + 1:02d}",
+                    986,
+                    y + 18,
+                    58,
+                    28,
+                    5,
+                    colors["primary"],
+                    20,
+                    "bold",
+                    theme,
+                ),
+                mark_design_pack_content_element(
+                    design_pack_text(
+                        slide_plan.order,
+                        f"decision_agenda_text_{index + 1}",
+                        "body",
+                        item.text,
+                        1070,
+                        y + 14,
+                        580,
+                        max(42, item_height - 28),
+                        5,
+                        colors["text"],
+                        21,
+                        "medium",
+                        theme,
+                    ),
+                    item,
+                ),
+            ]
+        )
+    return elements
 
 
 def design_pack_process_elements(
@@ -5792,7 +6379,102 @@ def design_pack_process_elements(
     variant: str = "process_horizontal",
 ) -> list[dict[str, Any]]:
     colors = design_pack_colors(None, theme)
-    items = design_pack_items(slide_plan, 4)
+    items = design_pack_items(slide_plan, "process_steps")
+    if len(items) >= 5:
+        variant = "process_two_row_6"
+
+    if variant == "process_two_row_6":
+        elements = [
+            design_pack_text(
+                slide_plan.order,
+                "title",
+                "title",
+                slide_plan.title,
+                120,
+                116,
+                1320,
+                100,
+                4,
+                colors["text"],
+                48,
+                "bold",
+                theme,
+            ),
+            design_pack_text(
+                slide_plan.order,
+                "body",
+                "body",
+                slide_plan.message,
+                120,
+                228,
+                1180,
+                72,
+                4,
+                colors["text_muted"],
+                22,
+                "normal",
+                theme,
+            ),
+        ]
+        card_width = 500
+        card_height = 190
+        for index, item in enumerate(items):
+            row = index // 3
+            column = index % 3
+            x = 120 + column * 560
+            y = 350 + row * 244
+            elements.extend(
+                [
+                    shape_element(
+                        slide_plan.order,
+                        f"process_two_row_card_{index + 1}",
+                        "highlight",
+                        x,
+                        y,
+                        card_width,
+                        card_height,
+                        3,
+                        colors["surface"],
+                        colors["border"],
+                        8,
+                    ),
+                    design_pack_text(
+                        slide_plan.order,
+                        f"process_two_row_number_{index + 1}",
+                        "caption",
+                        f"{index + 1:02d}",
+                        x + 28,
+                        y + 28,
+                        58,
+                        30,
+                        5,
+                        colors["primary"],
+                        20,
+                        "bold",
+                        theme,
+                    ),
+                    mark_design_pack_content_element(
+                        design_pack_text(
+                            slide_plan.order,
+                            f"process_two_row_text_{index + 1}",
+                            "body",
+                            item.text,
+                            x + 104,
+                            y + 28,
+                            350,
+                            112,
+                            5,
+                            colors["text"],
+                            21,
+                            "medium",
+                            theme,
+                        ),
+                        item,
+                    ),
+                ]
+            )
+        return elements
+
     if variant == "process_vertical":
         elements = [
             design_pack_text(
@@ -5884,20 +6566,23 @@ def design_pack_process_elements(
                         colors["border"],
                         8,
                     ),
-                    design_pack_text(
-                        slide_plan.order,
-                        f"process_vertical_text_{index + 1}",
-                        "body",
+                    mark_design_pack_content_element(
+                        design_pack_text(
+                            slide_plan.order,
+                            f"process_vertical_text_{index + 1}",
+                            "body",
+                            item.text,
+                            1098,
+                            y + 22,
+                            486,
+                            46,
+                            5,
+                            colors["text"],
+                            21,
+                            "medium",
+                            theme,
+                        ),
                         item,
-                        1098,
-                        y + 22,
-                        486,
-                        46,
-                        5,
-                        colors["text"],
-                        21,
-                        "medium",
-                        theme,
                     ),
                 ]
             )
@@ -5983,20 +6668,23 @@ def design_pack_process_elements(
                     "bold",
                     theme,
                 ),
-                design_pack_text(
-                    slide_plan.order,
-                    f"process_step_text_{index + 1}",
-                    "body",
+                mark_design_pack_content_element(
+                    design_pack_text(
+                        slide_plan.order,
+                        f"process_step_text_{index + 1}",
+                        "body",
+                        item.text,
+                        x + 28,
+                        card_y + 116,
+                        card_width - 56,
+                        96,
+                        5,
+                        colors["text"],
+                        23,
+                        "medium",
+                        theme,
+                    ),
                     item,
-                    x + 28,
-                    card_y + 116,
-                    card_width - 56,
-                    96,
-                    5,
-                    colors["text"],
-                    23,
-                    "medium",
-                    theme,
                 ),
             ]
         )
@@ -6025,7 +6713,7 @@ def design_pack_comparison_elements(
     variant: str = "comparison_split",
 ) -> list[dict[str, Any]]:
     colors = design_pack_colors(None, theme)
-    items = design_pack_items(slide_plan, 4)
+    items = design_pack_items(slide_plan, "comparison_split")
     if variant == "comparison_matrix":
         elements = [
             design_pack_text(
@@ -6106,27 +6794,67 @@ def design_pack_comparison_elements(
                         "bold",
                         theme,
                     ),
-                    design_pack_text(
-                        slide_plan.order,
-                        f"comparison_matrix_cell_{index + 1}_text",
-                        "body",
+                    mark_design_pack_content_element(
+                        design_pack_text(
+                            slide_plan.order,
+                            f"comparison_matrix_cell_{index + 1}_text",
+                            "body",
+                            item.text,
+                            x + 36,
+                            y + 76,
+                            650,
+                            62,
+                            5,
+                            colors["text"],
+                            22,
+                            "medium",
+                            theme,
+                        ),
                         item,
-                        x + 36,
-                        y + 76,
-                        650,
-                        62,
-                        5,
-                        colors["text"],
-                        22,
-                        "medium",
-                        theme,
                     ),
                 ]
             )
         return elements
 
-    left_items = items[:2]
-    right_items = items[2:] or items[:2]
+    split_index = max(1, (len(items) + 1) // 2)
+    left_items = items[:split_index]
+    right_items = items[split_index:]
+    left_element = mark_design_pack_content_element(
+        design_pack_text(
+            slide_plan.order,
+            "comparison_left_text",
+            "body",
+            "\n".join(f"- {item.text}" for item in left_items),
+            170,
+            430,
+            650,
+            220,
+            5,
+            colors["text"],
+            24,
+            "normal",
+            theme,
+        ),
+        *left_items,
+    )
+    right_element = mark_design_pack_content_element(
+        design_pack_text(
+            slide_plan.order,
+            "comparison_right_text",
+            "body",
+            "\n".join(f"- {item.text}" for item in right_items),
+            1090,
+            430,
+            650,
+            220,
+            5,
+            colors["text"],
+            24,
+            "normal",
+            theme,
+        ),
+        *right_items,
+    )
     return [
         design_pack_text(
             slide_plan.order,
@@ -6211,36 +6939,8 @@ def design_pack_comparison_elements(
             "bold",
             theme,
         ),
-        design_pack_text(
-            slide_plan.order,
-            "comparison_left_text",
-            "body",
-            "\n".join(f"• {item}" for item in left_items),
-            170,
-            430,
-            650,
-            220,
-            5,
-            colors["text"],
-            24,
-            "normal",
-            theme,
-        ),
-        design_pack_text(
-            slide_plan.order,
-            "comparison_right_text",
-            "body",
-            "\n".join(f"• {item}" for item in right_items),
-            1090,
-            430,
-            650,
-            220,
-            5,
-            colors["text"],
-            24,
-            "normal",
-            theme,
-        ),
+        left_element,
+        right_element,
     ]
 
 
@@ -6250,7 +6950,7 @@ def design_pack_closing_elements(
     variant: str = "closing_action_summary",
 ) -> list[dict[str, Any]]:
     colors = design_pack_colors(None, theme)
-    items = design_pack_items(slide_plan, 3)
+    items = design_pack_items(slide_plan, "closing_summary")
     elements = [
         shape_element(
             slide_plan.order,
@@ -6284,7 +6984,7 @@ def design_pack_closing_elements(
             slide_plan.order,
             "body",
             "body",
-            "다음 행동을 하나로 모아 실행 기준을 정리합니다.",
+            slide_plan.message,
             620,
             296,
             920,
@@ -6328,20 +7028,23 @@ def design_pack_closing_elements(
                     "bold",
                     theme,
                 ),
-                design_pack_text(
-                    slide_plan.order,
-                    f"closing_summary_card_{index + 1}_text",
-                    "body",
+                mark_design_pack_content_element(
+                    design_pack_text(
+                        slide_plan.order,
+                        f"closing_summary_card_{index + 1}_text",
+                        "body",
+                        item.text,
+                        730,
+                        y + 26,
+                        720,
+                        42,
+                        5,
+                        colors["text"],
+                        22,
+                        "medium",
+                        theme,
+                    ),
                     item,
-                    730,
-                    y + 26,
-                    720,
-                    42,
-                    5,
-                    colors["text"],
-                    22,
-                    "medium",
-                    theme,
                 ),
             ]
         )
@@ -6418,31 +7121,52 @@ def design_pack_safe_line_height(
     return max(requested_line_height, float(typography.get("lineHeight", 1.15)))
 
 
-def design_pack_items(slide_plan: SlidePlan, limit: int) -> list[str]:
-    candidates = [
-        keyword.strip()
-        for keyword in slide_plan.keywords
-        if keyword and keyword.strip()
-    ]
-    candidates.extend(
-        part.strip(" •-")
-        for part in re.split(r"[\n;]+|•", slide_plan.message)
-        if part.strip(" •-")
-    )
-    if not candidates:
-        candidates = [slide_plan.message, slide_plan.title]
+def design_pack_items(
+    slide_plan: SlidePlan,
+    recipe: str,
+) -> list[GeneratedContentItem]:
+    items = list(slide_plan.content_items)
+    if not items:
+        items = content_items_from_message(slide_plan.message, slide_plan.order)
+        slide_plan.content_items = items
 
-    items: list[str] = []
-    for candidate in candidates:
-        compact = compact_design_pack_text(candidate, 64)
-        if compact and compact not in items:
-            items.append(compact)
-        if len(items) >= limit:
-            break
-
-    while len(items) < limit:
-        items.append(compact_design_pack_text(slide_plan.message, 64))
+    minimum, maximum = DESIGN_PACK_RECIPE_CAPACITIES[recipe]
+    if not minimum <= len(items) <= maximum:
+        raise DeckContentGenerationError(
+            f"slide {slide_plan.order}: recipe {recipe} requires {minimum}-{maximum} "
+            f"content items, received {len(items)}"
+        )
     return items
+
+
+def mark_design_pack_content_element(
+    element: dict[str, Any],
+    *items: GeneratedContentItem,
+) -> dict[str, Any]:
+    element["_contentItemIds"] = [item.content_item_id for item in items]
+    return element
+
+
+def build_design_pack_content_manifest(
+    slide_plan: SlidePlan,
+    elements: list[dict[str, Any]],
+) -> dict[str, list[str]]:
+    manifest: dict[str, list[str]] = {
+        item.content_item_id: [] for item in slide_plan.content_items
+    }
+    for element in elements:
+        element_id = str(element.get("elementId", ""))
+        for content_item_id in element.get("_contentItemIds", []):
+            if content_item_id in manifest and element_id:
+                manifest[content_item_id].append(element_id)
+
+    missing = [content_item_id for content_item_id, ids in manifest.items() if not ids]
+    if missing:
+        raise DeckContentGenerationError(
+            f"slide {slide_plan.order}: content items were not rendered: "
+            + ", ".join(missing)
+        )
+    return manifest
 
 
 def compact_design_pack_text(value: str, width: int) -> str:
@@ -6456,6 +7180,9 @@ def design_pack_recipe_label(recipe: str) -> str:
     return {
         "cover_trust_signal": "TRUST SIGNAL",
         "overview_cards": "OVERVIEW",
+        "decision_actions": "DECISION",
+        "priority_stack": "PRIORITIES",
+        "decision_agenda": "AGENDA",
         "insight_evidence": "INSIGHT",
         "process_steps": "PROCESS",
         "comparison_split": "COMPARISON",
@@ -9617,7 +10344,99 @@ def validate_design(deck: dict[str, Any]) -> list[ValidationIssue]:
                         message="배경 요소가 텍스트보다 위에 있습니다.",
                     )
                 )
+    issues.extend(validate_design_pack_layout_diversity(deck))
     return issues
+
+
+def validate_design_pack_layout_diversity(
+    deck: dict[str, Any],
+) -> list[ValidationIssue]:
+    slides = deck.get("slides", [])
+    if len(slides) < 3 or not all(is_design_pack_slide(slide) for slide in slides):
+        return []
+
+    body_slides = slides[1:-1]
+    fingerprints = [core_geometry_fingerprint(slide) for slide in body_slides]
+    issues: list[ValidationIssue] = []
+    if any(
+        current == previous
+        for previous, current in zip(fingerprints, fingerprints[1:], strict=False)
+    ):
+        issues.append(
+            ValidationIssue(
+                code="LAYOUT_GEOMETRY_REPEATED",
+                scope="deck",
+                severity="warning",
+                blocking=False,
+                path="slides",
+                message="본문 슬라이드에 같은 core geometry가 연속 배치되었습니다.",
+            )
+        )
+    if any(fingerprints.count(fingerprint) > 2 for fingerprint in set(fingerprints)):
+        issues.append(
+            ValidationIssue(
+                code="LAYOUT_GEOMETRY_OVERUSED",
+                scope="deck",
+                severity="warning",
+                blocking=False,
+                path="slides",
+                message="같은 core geometry가 본문에서 2회를 초과해 사용되었습니다.",
+            )
+        )
+    if len(body_slides) >= 5:
+        required_unique = (len(body_slides) * 3 + 3) // 4
+        if len(set(fingerprints)) < required_unique:
+            issues.append(
+                ValidationIssue(
+                    code="LAYOUT_DIVERSITY_LOW",
+                    scope="deck",
+                    severity="warning",
+                    blocking=False,
+                    path="slides",
+                    message=(
+                        "본문 core geometry 다양성이 부족합니다. "
+                        f"최소 {required_unique}개가 필요합니다."
+                    ),
+                )
+            )
+    return issues
+
+
+def core_geometry_fingerprint(slide: dict[str, Any]) -> str:
+    geometry: list[tuple[str, str, int, int, int, int]] = []
+    for element in slide.get("elements", []):
+        if exclude_from_core_geometry(element):
+            continue
+        geometry.append(
+            (
+                str(element.get("type", "")),
+                str(element.get("role", "")),
+                round(float(element.get("x", 0))),
+                round(float(element.get("y", 0))),
+                round(float(element.get("width", 0))),
+                round(float(element.get("height", 0))),
+            )
+        )
+    return json.dumps(sorted(geometry), separators=(",", ":"))
+
+
+def exclude_from_core_geometry(element: dict[str, Any]) -> bool:
+    role = str(element.get("role", ""))
+    element_id = str(element.get("elementId", ""))
+    if role in {"background", "footer", "media"}:
+        return True
+    return any(
+        token in element_id
+        for token in (
+            "_design_pack_top_rule",
+            "_design_pack_bottom_rule",
+            "_design_pack_section_number",
+            "_design_pack_section_label",
+            "_design_pack_page_marker",
+            "_media_placeholder",
+            "_media_caption",
+        )
+    )
 
 
 def is_expected_media_placeholder(slide: dict[str, Any]) -> bool:
@@ -9810,9 +10629,6 @@ def repair_design_pack_text_element(element: dict[str, Any]) -> None:
     if not is_text_editor_overflow_risk(element):
         return
 
-    text = str(props.get("text", ""))
-    compact_width = max(40, int(float(element.get("width", 1)) / max(float(props.get("fontSize", 16)), 1) * 1.8))
-    props["text"] = compact_design_pack_text(text, compact_width)
     shrink_text_to_fit(element)
     expand_design_pack_text_box(element)
 

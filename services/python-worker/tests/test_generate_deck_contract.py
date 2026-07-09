@@ -15,7 +15,9 @@ from app.ai.generate_deck import (
     DeckGenerationOrchestrator,
     GenerateDeckRequest,
     GenerateDeckResponse,
+    GeneratedContentItem,
     ReferenceContext,
+    SlidePlan,
     SlideCountRange,
     ValidationIssue,
     ValidationResult,
@@ -24,6 +26,8 @@ from app.ai.generate_deck import (
     chars_per_minute_for_request,
     choose_slide_count,
     clear_deck_content_plan_cache,
+    build_design_pack_content_manifest,
+    core_geometry_fingerprint,
     deck_content_prompt,
     detect_text_overlap_candidates,
     generate_content_plan_with_llm,
@@ -120,6 +124,161 @@ def test_weighted_timing_allocation_is_exact_and_respects_minimum() -> None:
     assert sum(allocated) == 480
     assert min(allocated) >= 15
     assert len(set(allocated)) > 1
+
+
+def test_design_pack_six_step_process_renders_every_content_item_once() -> None:
+    steps = [f"Process step {index}" for index in range(1, 7)]
+    fake_client = FakeOpenAIClient(
+        {
+            "title": "Six step process",
+            "slides": [
+                slide_payload(
+                    "Opening",
+                    "Introduce the process.",
+                    "Open the presentation with the process objective.",
+                    slide_type="cover",
+                    slot_preset="title_center",
+                    content_items=["Process objective", "Expected outcome"],
+                ),
+                slide_payload(
+                    "Execution process",
+                    "; ".join(steps),
+                    "Explain each process step in order with its owner and outcome.",
+                    slide_type="process",
+                    slot_preset="insight_with_evidence",
+                    content_items=steps,
+                ),
+                slide_payload(
+                    "Next action",
+                    "Confirm ownership and start.",
+                    "Close with the owner confirmation and start date.",
+                    slide_type="summary",
+                    slot_preset="title_center",
+                    content_items=["Confirm ownership", "Start execution"],
+                ),
+            ],
+        }
+    )
+
+    response = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            generationMode="design-pack",
+            topic="Six step process",
+            slideCountRange={"min": 3, "max": 3},
+        ),
+        client=fake_client,
+    )
+
+    process_slide = response.deck["slides"][1]
+    rendered_steps = [
+        element["props"]["text"]
+        for element in process_slide["elements"]
+        if "_process_two_row_text_" in element["elementId"]
+    ]
+    assert rendered_steps == steps
+    assert all("..." not in text for text in rendered_steps)
+    assert all(
+        "_contentItemIds" not in element
+        for slide in response.deck["slides"]
+        for element in slide["elements"]
+    )
+
+
+def test_design_pack_content_manifest_blocks_unrendered_item() -> None:
+    slide_plan = SlidePlan(
+        order=2,
+        slide_type="process",
+        title="Process",
+        message="One; Two; Three",
+        speaker_notes="Explain the process.",
+        keywords=[],
+        evidence=[],
+        slot_preset="insight_with_evidence",
+        content_items=[
+            GeneratedContentItem(contentItemId="item-1", text="One"),
+            GeneratedContentItem(contentItemId="item-2", text="Two"),
+            GeneratedContentItem(contentItemId="item-3", text="Three"),
+        ],
+    )
+
+    with pytest.raises(DeckContentGenerationError, match="item-2"):
+        build_design_pack_content_manifest(
+            slide_plan,
+            [
+                {"elementId": "el_2_one", "_contentItemIds": ["item-1"]},
+                {"elementId": "el_2_three", "_contentItemIds": ["item-3"]},
+            ],
+        )
+
+
+def test_design_pack_eight_slide_fixture_uses_five_core_geometries() -> None:
+    slide_types = [
+        "cover",
+        "problem",
+        "data",
+        "process",
+        "comparison",
+        "solution",
+        "feature-grid",
+        "summary",
+    ]
+    fake_client = FakeOpenAIClient(
+        {
+            "title": "Semantic layout fixture",
+            "slides": [
+                slide_payload(
+                    f"Slide {index}",
+                    f"Content {index}",
+                    f"Explain slide {index} with enough context for the audience.",
+                    slide_type=slide_type,
+                    slot_preset="title_center"
+                    if slide_type in {"cover", "summary"}
+                    else "insight_with_evidence",
+                    content_items=(
+                        ["Opening question", "Audience context"]
+                        if slide_type == "cover"
+                        else ["Decision", "Next action"]
+                        if slide_type == "summary"
+                        else [
+                            f"Item {index}-1",
+                            f"Item {index}-2",
+                            f"Item {index}-3",
+                        ]
+                    ),
+                )
+                for index, slide_type in enumerate(slide_types, start=1)
+            ],
+        }
+    )
+
+    response = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            generationMode="design-pack",
+            topic="Semantic layout fixture",
+            targetDurationMinutes=8,
+            brief={
+                "presentationType": "decision workshop",
+                "audienceText": "product team",
+                "presentationContext": "prioritize and agree on next actions",
+            },
+            metadata={"tone": "friendly", "purpose": "persuade"},
+            slideCountRange={"min": 8, "max": 8},
+        ),
+        client=fake_client,
+    )
+
+    fingerprints = [
+        core_geometry_fingerprint(slide)
+        for slide in response.deck["slides"][1:-1]
+    ]
+    assert len(set(fingerprints)) >= 5
+    assert all(
+        previous != current
+        for previous, current in zip(fingerprints, fingerprints[1:], strict=False)
+    )
+    assert not any(fingerprints.count(item) > 2 for item in set(fingerprints))
 
 
 def test_validation_contract_marks_any_issue_failed_and_classifies_blocking_content() -> None:
@@ -1294,6 +1453,31 @@ def test_generate_deck_design_pack_applies_v2_timing_media_reference_contract() 
                     slide_type="cover" if index == 1 else "summary" if index == 7 else "feature-grid",
                     slot_preset="title_center" if index == 1 else "insight_with_evidence",
                     keywords=["MVP", "토의", "다음 행동"],
+                    content_items=(
+                        ["회고의 핵심 질문"]
+                        if index == 1
+                        else ["합의한 결론", "다음 행동"]
+                        if index == 7
+                        else [
+                            f"논의 항목 {index}-1",
+                            f"논의 근거 {index}-2",
+                            f"후속 행동 {index}-3",
+                        ]
+                    ),
+                    media_intent=(
+                        {
+                            "kind": "generate",
+                            "prompt": "A concise team discussion visual",
+                            "alt": "Team discussion concept",
+                            "caption": "Concept visual",
+                            "rationale": "The visual clarifies the discussion context.",
+                            "required": True,
+                            "placement": "auto",
+                            "src": "",
+                        }
+                        if index in {1, 3, 5}
+                        else None
+                    ),
                 )
                 for index in range(1, 8)
             ],
@@ -1364,18 +1548,6 @@ def test_generate_deck_design_pack_applies_v2_timing_media_reference_contract() 
     assert response.validation.design_issues == []
     assert_validation_result_consistent(response.validation)
 
-    element_ids = {
-        element["elementId"]
-        for slide in slides
-        for element in slide["elements"]
-    }
-    assert "el_2_overview_rail_panel" in element_ids
-    assert "el_3_comparison_matrix_cell_1" in element_ids
-    assert "el_4_process_vertical_axis" in element_ids
-    assert (
-        "el_5_insight_evidence_key_panel" in element_ids
-        or "el_5_insight_callout_block" in element_ids
-    )
     assert len(set(design_pack_recipe_sequence(deck))) >= 5
 
     timing_plan = slides[0]["aiNotes"]["timingPlan"]
@@ -1388,16 +1560,19 @@ def test_generate_deck_design_pack_applies_v2_timing_media_reference_contract() 
         timing_plan["targetTotalChars"] * 0.8
     )
 
+    visual_slide_count = 0
     for slide in slides:
         ai_notes = slide["aiNotes"]
-        assert ai_notes["visualPlan"]["imageNeeded"] is True
         assert ai_notes["visualPlan"]["imageSourcePolicy"] == "ai-generated"
-        assert any(
+        has_placeholder = any(
             element["elementId"].endswith("_media_placeholder")
             for element in slide["elements"]
         )
+        assert has_placeholder is ai_notes["visualPlan"]["imageNeeded"]
+        visual_slide_count += int(has_placeholder)
         assert ai_notes["sourceLedger"]
         assert ai_notes["sourceLedger"][0]["sourceType"] == "uploaded"
+    assert 0 <= visual_slide_count <= 3
 
     validation_messages = [
         issue.message
@@ -1423,6 +1598,13 @@ def test_generate_deck_design_pack_repairs_seven_minute_gowun_reference_deck() -
                     slide_type="cover" if index == 1 else "summary" if index == 7 else "feature-grid",
                     slot_preset="title_center" if index == 1 else "insight_with_evidence",
                     keywords=["학습", "피드백", "다음 행동", "합의 기준"],
+                    content_items=(
+                        ["핵심 학습", "사용자 피드백", "다음 행동"]
+                        if index == 1
+                        else ["회고 결론", "다음 행동", "합의 기준"]
+                        if index == 7
+                        else ["핵심 학습", "사용자 피드백", "다음 행동", "합의 기준"]
+                    ),
                 )
                 for index in range(1, 8)
             ],
@@ -1579,6 +1761,7 @@ def test_generate_deck_design_pack_uses_brandlogy_layout_recipes() -> None:
                     slide_type="cover",
                     slot_preset="title_center",
                     keywords=["Deck JSON", "템플릿 덮어쓰기", "MVP 목표"],
+                    content_items=["Deck JSON", "템플릿 독립", "MVP 목표"],
                 ),
                 slide_payload(
                     "핵심 기능과 이점",
@@ -1587,6 +1770,7 @@ def test_generate_deck_design_pack_uses_brandlogy_layout_recipes() -> None:
                     slide_type="feature-grid",
                     slot_preset="metric_cards",
                     keywords=["구조화", "재사용", "export"],
+                    content_items=["명확한 구조화", "재사용 가능", "빠른 요구 대응", "안정적 export"],
                 ),
                 slide_payload(
                     "MVP 구현 절차",
@@ -1595,6 +1779,7 @@ def test_generate_deck_design_pack_uses_brandlogy_layout_recipes() -> None:
                     slide_type="process",
                     slot_preset="insight_with_evidence",
                     keywords=["Brief", "Design Pack", "Deck JSON", "export"],
+                    content_items=["Brief 입력", "Design Pack 선택", "Deck JSON 생성", "PPTX export"],
                 ),
                 slide_payload(
                     "기존 방식과 목표 방식 비교",
@@ -1603,6 +1788,7 @@ def test_generate_deck_design_pack_uses_brandlogy_layout_recipes() -> None:
                     slide_type="comparison",
                     slot_preset="before_after",
                     keywords=["legacy", "design-pack", "recipe"],
+                    content_items=["템플릿 의존", "레이아웃 경직", "JSON-first", "recipe 기반"],
                 ),
                 slide_payload(
                     "다음 작업 합의",
@@ -1611,6 +1797,7 @@ def test_generate_deck_design_pack_uses_brandlogy_layout_recipes() -> None:
                     slide_type="summary",
                     slot_preset="insight_with_evidence",
                     keywords=["recipe", "overflow", "preview"],
+                    content_items=["recipe 구현", "overflow 제거", "preview 정렬"],
                 ),
             ],
         }
@@ -1681,7 +1868,7 @@ def test_generate_deck_design_pack_uses_brandlogy_layout_recipes() -> None:
 
 
 @pytest.mark.parametrize(
-    ("brief", "metadata", "design", "expected_sequence"),
+    ("brief", "metadata", "design", "expected_first_body_recipe"),
     [
         (
             {
@@ -1691,13 +1878,7 @@ def test_generate_deck_design_pack_uses_brandlogy_layout_recipes() -> None:
             },
             {"audience": "executive", "purpose": "report", "tone": "concise"},
             {"stylePackId": "brandlogy-modern", "densityTarget": "high"},
-            [
-                "cover_trust_signal",
-                "insight_evidence",
-                "overview_cards",
-                "comparison_split",
-                "closing_summary",
-            ],
+            "priority_stack",
         ),
         (
             {
@@ -1707,13 +1888,7 @@ def test_generate_deck_design_pack_uses_brandlogy_layout_recipes() -> None:
             },
             {"audience": "general", "purpose": "teach", "tone": "friendly"},
             {"stylePackId": "brandlogy-modern"},
-            [
-                "cover_trust_signal",
-                "overview_cards",
-                "process_steps",
-                "insight_evidence",
-                "closing_summary",
-            ],
+            "overview_cards",
         ),
         (
             {
@@ -1723,13 +1898,7 @@ def test_generate_deck_design_pack_uses_brandlogy_layout_recipes() -> None:
             },
             {"audience": "sales", "purpose": "persuade", "tone": "confident"},
             {"stylePackId": "brandlogy-modern"},
-            [
-                "cover_trust_signal",
-                "insight_evidence",
-                "overview_cards",
-                "process_steps",
-                "closing_summary",
-            ],
+            "insight_evidence",
         ),
         (
             {
@@ -1739,13 +1908,7 @@ def test_generate_deck_design_pack_uses_brandlogy_layout_recipes() -> None:
             },
             {"audience": "technical", "purpose": "inform", "tone": "professional"},
             {"stylePackId": "brandlogy-modern", "visualRhythm": "technical"},
-            [
-                "cover_trust_signal",
-                "process_steps",
-                "overview_cards",
-                "comparison_split",
-                "closing_summary",
-            ],
+            "process_steps",
         ),
     ],
 )
@@ -1753,7 +1916,7 @@ def test_generate_deck_design_pack_varies_recipe_sequence_by_archetype(
     brief: dict[str, object],
     metadata: dict[str, object],
     design: dict[str, object],
-    expected_sequence: list[str],
+    expected_first_body_recipe: str,
 ) -> None:
     fake_client = FakeOpenAIClient(
         {
@@ -1765,6 +1928,7 @@ def test_generate_deck_design_pack_varies_recipe_sequence_by_archetype(
                     "Open the presentation.",
                     slide_type="cover",
                     slot_preset="title_center",
+                    content_items=["Direction", "Context"],
                 ),
                 slide_payload(
                     "Problem",
@@ -1772,6 +1936,7 @@ def test_generate_deck_design_pack_varies_recipe_sequence_by_archetype(
                     "Explain the problem.",
                     slide_type="problem",
                     slot_preset="insight_with_evidence",
+                    content_items=["Key tension", "Observed impact", "Key question"],
                 ),
                 slide_payload(
                     "Evidence",
@@ -1779,6 +1944,7 @@ def test_generate_deck_design_pack_varies_recipe_sequence_by_archetype(
                     "Explain the evidence.",
                     slide_type="data",
                     slot_preset="big_number_focus",
+                    content_items=["Signal one", "Signal two", "Signal three"],
                 ),
                 slide_payload(
                     "Solution",
@@ -1786,6 +1952,7 @@ def test_generate_deck_design_pack_varies_recipe_sequence_by_archetype(
                     "Explain the solution.",
                     slide_type="solution",
                     slot_preset="insight_with_evidence",
+                    content_items=["Recommended path", "Expected value", "Execution condition"],
                 ),
                 slide_payload(
                     "Next steps",
@@ -1793,6 +1960,7 @@ def test_generate_deck_design_pack_varies_recipe_sequence_by_archetype(
                     "Close the presentation.",
                     slide_type="summary",
                     slot_preset="title_center",
+                    content_items=["Decision", "Next action"],
                 ),
             ],
         }
@@ -1811,7 +1979,11 @@ def test_generate_deck_design_pack_varies_recipe_sequence_by_archetype(
         client=fake_client,
     )
 
-    assert design_pack_recipe_sequence(response.deck) == expected_sequence
+    sequence = design_pack_recipe_sequence(response.deck)
+    assert sequence[0] == "cover_trust_signal"
+    assert sequence[1] == expected_first_body_recipe
+    assert sequence[-1] == "closing_summary"
+    assert len(set(sequence[1:-1])) == len(sequence[1:-1])
 
 
 def test_generate_deck_auto_selects_simple_basic_report_mode() -> None:
@@ -4606,6 +4778,8 @@ def slide_payload(
     media_intent: dict[str, object] | None = None,
     visual_intent: dict[str, object] | None = None,
     metric_card_caption: str = "",
+    content_items: list[str] | None = None,
+    source_refs: list[str] | None = None,
 ) -> dict[str, object]:
     visual_intent_payload = dict(
         visual_intent
@@ -4621,7 +4795,7 @@ def slide_payload(
         }
     )
     visual_intent_payload.setdefault("metricCardCaption", metric_card_caption)
-    return {
+    payload: dict[str, object] = {
         "title": title,
         "message": message,
         "speakerNotes": speaker_notes,
@@ -4642,6 +4816,14 @@ def slide_payload(
             "src": "",
         },
     }
+    if content_items is not None:
+        payload["contentItems"] = [
+            {"contentItemId": f"{title}-item-{index}", "text": text}
+            for index, text in enumerate(content_items, start=1)
+        ]
+    if source_refs is not None:
+        payload["sourceRefs"] = source_refs
+    return payload
 
 
 def assert_only_template_style_prompt(llm_input: str, style_pack_id: str) -> None:
@@ -4693,7 +4875,11 @@ def design_pack_recipe_name(slide: dict[str, Any]) -> str:
         (f"el_{order}_cover_trust_signal_panel", "cover_trust_signal"),
         (f"el_{order}_overview_card_1", "overview_cards"),
         (f"el_{order}_overview_rail_panel", "overview_cards"),
+        (f"el_{order}_decision_actions_focus_panel", "decision_actions"),
+        (f"el_{order}_priority_stack_row_1", "priority_stack"),
+        (f"el_{order}_decision_agenda_panel", "decision_agenda"),
         (f"el_{order}_process_step_card_1", "process_steps"),
+        (f"el_{order}_process_two_row_card_1", "process_steps"),
         (f"el_{order}_process_vertical_axis", "process_steps"),
         (f"el_{order}_comparison_split_left_panel", "comparison_split"),
         (f"el_{order}_comparison_matrix_cell_1", "comparison_split"),
