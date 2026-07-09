@@ -473,9 +473,31 @@ class LayoutPlan(BaseModel):
 
 
 class ValidationIssue(BaseModel):
+    code: str = "UNSPECIFIED"
     scope: Literal["deck", "slide", "element"]
+    severity: Literal["warning", "error"] = "warning"
+    blocking: bool = False
     path: str = ""
     message: str
+
+    @model_validator(mode="after")
+    def normalize_contract_fields(self) -> ValidationIssue:
+        if self.code == "UNSPECIFIED":
+            if "sourceLedger" in self.path:
+                self.code = "SOURCE_LEDGER_INVALID"
+                self.blocking = True
+            elif self.path == "title" or self.path.endswith(".title"):
+                self.code = "CONTENT_REQUIRED"
+                self.blocking = True
+            elif "speakerNotes" in self.path or self.path == "slides":
+                self.code = "SPEAKER_NOTES_QUALITY"
+            elif ".elements" in self.path:
+                self.code = "LAYOUT_OR_ELEMENT_QUALITY"
+            else:
+                self.code = "DECK_QUALITY"
+        if self.blocking:
+            self.severity = "error"
+        return self
 
 
 class ValidationResult(BaseModel):
@@ -498,6 +520,18 @@ class ValidationResult(BaseModel):
         default_factory=list,
         alias="presentationIssues",
     )
+
+    @model_validator(mode="after")
+    def keep_passed_consistent_with_issues(self) -> ValidationResult:
+        self.passed = not any(
+            (
+                self.layout_issues,
+                self.content_issues,
+                self.design_issues,
+                self.presentation_issues,
+            )
+        )
+        return self
 
 
 class TemplateSelectionItem(BaseModel):

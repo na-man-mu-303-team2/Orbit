@@ -141,6 +141,59 @@ describe("processGenerateDeckJob", () => {
     expect(job.result).toMatchObject({ validation: { passed: false } });
   });
 
+  it("fails before saving a deck when blocking validation issues remain", async () => {
+    const deck = createDeck();
+    const deckValidation = validation({
+      passed: false,
+      contentIssues: [
+        {
+          code: "CONTENT_REQUIRED",
+          scope: "slide",
+          severity: "error",
+          blocking: true,
+          path: "slides.0.title",
+          message: "Slide title is required."
+        }
+      ]
+    });
+    const query = vi
+      .fn()
+      .mockResolvedValueOnce([jobRow("running", 15, null, null)])
+      .mockImplementationOnce(async (_sql: string, params: unknown[]) => [
+        jobRow(
+          "failed",
+          75,
+          params[4] as Record<string, unknown>,
+          params[5] as { code: string; message: string }
+        )
+      ]);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        new Response(
+          JSON.stringify({ deck, warnings: [], validation: deckValidation })
+        )
+      )
+    );
+
+    const job = await processGenerateDeckJob(
+      { query } as unknown as DataSource,
+      storage,
+      "http://localhost:8000",
+      payload
+    );
+
+    expect(job.status).toBe("failed");
+    expect(job.error?.code).toBe("GENERATE_DECK_VALIDATION_BLOCKING");
+    expect(query).toHaveBeenCalledTimes(2);
+    expect(
+      query.mock.calls.some(([sql]) => String(sql).includes("INSERT INTO decks"))
+    ).toBe(false);
+    expect(job.result).toMatchObject({
+      validation: { passed: false }
+    });
+  });
+
   it("marks the DB job failed when Python generation fails", async () => {
     const query = vi
       .fn()

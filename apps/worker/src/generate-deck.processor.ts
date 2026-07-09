@@ -179,6 +179,22 @@ export async function processGenerateDeckJob(
 
   try {
     const workerPayload = generateDeckResponseSchema.parse(await response.json());
+    const blockingIssues = allValidationIssues(workerPayload.validation).filter(
+      (issue) => issue.blocking
+    );
+    if (blockingIssues.length > 0) {
+      return failJob(
+        dataSource,
+        payload.jobId,
+        75,
+        "GENERATE_DECK_VALIDATION_BLOCKING",
+        `Deck generation retained ${blockingIssues.length} blocking validation issue(s).`,
+        {
+          warnings: workerPayload.warnings,
+          validation: workerPayload.validation
+        }
+      );
+    }
     const deck = markDeckForInitialThumbnailRefresh(workerPayload.deck);
 
     await saveDeck(dataSource, deck);
@@ -206,6 +222,17 @@ export async function processGenerateDeckJob(
         : "Python worker returned invalid deck generation response."
     );
   }
+}
+
+function allValidationIssues(
+  validation: ReturnType<typeof generateDeckResponseSchema.parse>["validation"]
+) {
+  return [
+    ...validation.layoutIssues,
+    ...validation.contentIssues,
+    ...validation.designIssues,
+    ...validation.presentationIssues
+  ];
 }
 
 function markDeckForInitialThumbnailRefresh(deck: Deck): Deck {

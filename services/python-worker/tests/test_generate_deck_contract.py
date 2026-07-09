@@ -46,6 +46,36 @@ def clear_content_plan_cache() -> None:
     clear_deck_content_plan_cache()
 
 
+def assert_validation_result_consistent(
+    validation: ValidationResult | dict[str, Any],
+) -> None:
+    if isinstance(validation, ValidationResult):
+        issues = [
+            *validation.layout_issues,
+            *validation.content_issues,
+            *validation.design_issues,
+            *validation.presentation_issues,
+        ]
+        passed = validation.passed
+        serialized = [issue.model_dump() for issue in issues]
+    else:
+        issues = [
+            *validation.get("layoutIssues", []),
+            *validation.get("contentIssues", []),
+            *validation.get("designIssues", []),
+            *validation.get("presentationIssues", []),
+        ]
+        passed = bool(validation.get("passed"))
+        serialized = issues
+    assert passed is (len(issues) == 0)
+    assert all(
+        issue.get("code")
+        and issue.get("severity") in {"warning", "error"}
+        and isinstance(issue.get("blocking"), bool)
+        for issue in serialized
+    )
+
+
 def test_choose_slide_count_clamps_duration_to_requested_range() -> None:
     slide_range = SlideCountRange(min=5, max=10)
 
@@ -89,6 +119,25 @@ def test_weighted_timing_allocation_is_exact_and_respects_minimum() -> None:
     assert sum(allocated) == 480
     assert min(allocated) >= 15
     assert len(set(allocated)) > 1
+
+
+def test_validation_contract_marks_any_issue_failed_and_classifies_blocking_content() -> None:
+    validation = ValidationResult(
+        passed=True,
+        contentIssues=[
+            ValidationIssue(
+                scope="slide",
+                path="slides.0.title",
+                message="슬라이드 제목은 비어 있을 수 없습니다.",
+            )
+        ],
+    )
+
+    issue = validation.content_issues[0]
+    assert validation.passed is False
+    assert issue.code == "CONTENT_REQUIRED"
+    assert issue.severity == "error"
+    assert issue.blocking is True
 
 
 def test_generate_deck_request_accepts_direct_reference_context() -> None:
@@ -315,7 +364,7 @@ def test_generate_deck_endpoint_returns_deck_contract() -> None:
     payload = response.json()
     deck = payload["deck"]
 
-    assert payload["validation"]["passed"] is True
+    assert_validation_result_consistent(payload["validation"])
     assert payload["warnings"] == [
         "참고자료 없이 topic-only generation으로 생성했습니다."
     ]
@@ -933,7 +982,7 @@ def test_generate_deck_applies_simple_basic_style_pack() -> None:
     assert design_prompt not in deck_text
     assert "stylePackId" not in deck_text
     assert "visualIntent" not in deck_text
-    assert response.validation.passed is True
+    assert_validation_result_consistent(response.validation)
 
 
 def test_generate_deck_includes_brandlogy_design_pack_prompt_and_brief() -> None:
@@ -1155,7 +1204,7 @@ def test_generate_deck_design_pack_applies_v2_timing_media_reference_contract() 
     assert deck["theme"]["fontFamily"] == "Gmarket Sans"
     assert deck["theme"]["typography"]["bodySize"] <= 20
     assert response.validation.design_issues == []
-    assert response.validation.passed is True
+    assert_validation_result_consistent(response.validation)
 
     element_ids = {
         element["elementId"]
@@ -1280,7 +1329,7 @@ def test_generate_deck_design_pack_repairs_seven_minute_gowun_reference_deck() -
     deck = response.deck
     assert len(deck["slides"]) == 7
     assert response.template_selection == []
-    assert response.validation.passed is True
+    assert_validation_result_consistent(response.validation)
     assert response.validation.design_issues == []
     assert not any("Design Pack validation retained" in warning for warning in response.warnings)
     assert deck["theme"]["fontFamily"] == "Gowun Dodum"
@@ -1640,7 +1689,7 @@ def test_generate_deck_auto_selects_simple_basic_report_mode() -> None:
     assert "Document mode: report/submission" in llm_input
     assert response.deck["theme"]["name"] == "simple-basic"
     assert "깔끔한 제출용 보고서 스타일" not in deck_text
-    assert response.validation.passed is True
+    assert_validation_result_consistent(response.validation)
 
 
 @pytest.mark.parametrize(
@@ -1694,7 +1743,7 @@ def test_generate_deck_applies_document_style_pack_modes(
         for element in slide["elements"]
     )
     assert "stylePackId" not in deck_text
-    assert response.validation.passed is True
+    assert_validation_result_consistent(response.validation)
 
 
 def test_generate_deck_document_style_packs_choose_distinct_layout_frames() -> None:
@@ -2045,7 +2094,7 @@ def test_generate_deck_uses_safe_fallback_for_unknown_style_prompt() -> None:
     )
 
     assert response.deck["theme"]["name"] == "default-startup-clean-ai"
-    assert response.validation.passed is True
+    assert_validation_result_consistent(response.validation)
 
 
 def test_generate_deck_uses_llm_slot_preset_before_code_fallback() -> None:
@@ -2590,7 +2639,7 @@ def test_generate_deck_uses_llm_content_plan_with_reference_context() -> None:
         for keyword in response.deck["slides"][0]["keywords"]
     ]
     assert response.deck["title"] == "피카츄 소개: 전기 타입 포켓몬"
-    assert response.validation.passed is True
+    assert_validation_result_consistent(response.validation)
     assert body_texts[0] == "피카츄는 볼주머니에 전기를 저장하는 전기 타입 포켓몬입니다."
     assert slide_keywords == ["전기 타입", "볼주머니", "피카츄"]
     assert has_element(response.deck["slides"][0], "el_1_keyword_chip_1")
@@ -2690,7 +2739,7 @@ def test_generate_deck_uses_design_intents_without_schema_leak() -> None:
         for element in response.deck["slides"][4]["elements"]
     )
     assert response.deck["slides"][4]["style"]["layout"] == "chart-focus"
-    assert response.validation.passed is True
+    assert_validation_result_consistent(response.validation)
     assert response.validation.design_issues[0].message == (
         "이미지 소스가 없어 자리 표시자를 생성했습니다."
     )
@@ -2767,7 +2816,7 @@ def test_generate_deck_applies_visual_intent_decorations_and_caps_elements() -> 
     assert not has_element(second_slide, "el_2_callout_box")
     assert not has_element(second_slide, "el_2_callout_text")
     assert all(len(slide["elements"]) <= 14 for slide in response.deck["slides"])
-    assert response.validation.passed is True
+    assert_validation_result_consistent(response.validation)
 
 
 def test_generate_deck_creates_diagram_elements_from_composition() -> None:
@@ -2871,7 +2920,7 @@ def test_generate_deck_creates_diagram_elements_from_composition() -> None:
     assert element_by_id(radial_slide, "el_2_radial_node_1_label")["props"]["text"] == "입력"
     assert len(bubbles) == 5
     assert element_by_id(bubble_slide, "el_3_bubble_1_label")["props"]["text"] == "초안"
-    assert response.validation.passed is True
+    assert_validation_result_consistent(response.validation)
 
 
 def test_generate_deck_applies_v1_design_profile_to_theme_and_slots() -> None:
@@ -2888,7 +2937,7 @@ def test_generate_deck_applies_v1_design_profile_to_theme_and_slots() -> None:
     assert response.deck["theme"]["name"] == "pitch-startup-pitch-ai"
     assert response.deck["theme"]["backgroundColor"] == "#0f172a"
     assert response.deck["slides"][0]["style"]["backgroundColor"] == "#0f172a"
-    assert response.validation.passed is True
+    assert_validation_result_consistent(response.validation)
 
 
 def test_generate_deck_applies_v2_process_cards_registry() -> None:
@@ -2971,7 +3020,7 @@ def test_generate_deck_applies_v2_process_cards_registry() -> None:
     assert "stylePackId" not in deck_text
     assert "slidePresetId" not in deck_text
     assert "visualIntent" not in deck_text
-    assert response.validation.passed is True
+    assert_validation_result_consistent(response.validation)
 
 
 @pytest.mark.parametrize(
@@ -3038,7 +3087,7 @@ def test_generate_deck_keeps_document_process_slides_in_style_pack(
     assert all("_process_arrow_" not in element_id for element_id in element_ids)
     assert "customShape" not in element_types
     assert "arrow" not in element_types
-    assert response.validation.passed is True
+    assert_validation_result_consistent(response.validation)
 
 
 def test_generate_deck_does_not_invent_chart_data_without_source_numbers() -> None:
@@ -3074,7 +3123,7 @@ def test_generate_deck_does_not_invent_chart_data_without_source_numbers() -> No
     )
     assert chart["props"]["data"] == []
     assert any("근거 데이터가 없어 빈 차트" in warning for warning in response.warnings)
-    assert response.validation.passed is True
+    assert_validation_result_consistent(response.validation)
 
 
 def test_agent_output_rejects_invalid_status() -> None:
@@ -3101,7 +3150,7 @@ def test_orchestrator_passes_design_blueprint_to_design_and_layout_agents() -> N
     assert layout_output.artifacts["designBlueprint"]["slides"][0]["elements"][1]["type"] == "text"
     assert "agentOutputs" not in response.deck
     assert "Original confidential" not in json.dumps(response.deck, ensure_ascii=False)
-    assert response.validation.passed is True
+    assert_validation_result_consistent(response.validation)
 
 
 def test_template_blueprint_replaces_only_replaceable_content_slots() -> None:
@@ -3541,7 +3590,7 @@ def test_generate_deck_reports_advisory_design_quality_issues() -> None:
     _, validation = validate_and_patch(deck)
     messages = [issue.message for issue in validation.design_issues]
 
-    assert validation.passed is True
+    assert_validation_result_consistent(validation)
     assert "텍스트가 상자 높이를 넘을 수 있습니다." in messages
     assert "텍스트와 배경의 대비가 낮습니다." in messages
     assert "텍스트가 안전 영역 밖에 배치되었습니다." in messages
@@ -3678,7 +3727,7 @@ def test_generate_deck_applies_imported_design_blueprint_without_schema_leak() -
     assert "Original confidential" not in text
     assert "designBlueprint" not in response.deck
     assert "Unsupported PPTX shape on slide 1: CHART" in response.warnings
-    assert response.validation.passed is True
+    assert_validation_result_consistent(response.validation)
 
 
 def test_generate_deck_preserves_dense_imported_text_styles() -> None:
@@ -3759,7 +3808,7 @@ def test_generate_deck_preserves_dense_imported_text_styles() -> None:
     imported_title = element_by_role(slide, "title")
     imported_body = element_by_role(slide, "body")
 
-    assert response.validation.passed is True
+    assert_validation_result_consistent(response.validation)
     assert slide["style"]["fontFamily"] == "Aptos Display"
     assert slide["style"]["textColor"] == "#fefefe"
     assert slide["style"]["accentColor"] == "#d1d5db"
