@@ -1,4 +1,6 @@
 import type { Deck } from "@orbit/shared";
+import type { SemanticUtteranceDebugState } from "../speech/semanticSpeechDebug";
+import type { SpeechTrackerSnapshot } from "../speech/speechTrackingEvents";
 import { clampSlideshowStepIndex } from "./slideshowStepModel";
 
 export type PresenterHighlightState = {
@@ -19,10 +21,19 @@ export type PresenterTimingState = {
   timerDurationSeconds: number;
 };
 
+export type PresenterSpeechState = {
+  coveredSentenceIds: string[];
+  matchableSentenceCount: number;
+  semanticDebug: SemanticUtteranceDebugState;
+  semanticMatchingEnabled: boolean;
+  snapshot: SpeechTrackerSnapshot | null;
+};
+
 export type PresenterSlideshowState = {
   highlights: PresenterHighlightState[];
   slideId: string;
   slideIndex: number;
+  speech?: PresenterSpeechState;
   stepIndex: number;
   timing?: PresenterTimingState;
 };

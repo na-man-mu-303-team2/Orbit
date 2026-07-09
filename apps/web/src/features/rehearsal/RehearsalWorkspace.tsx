@@ -1911,6 +1911,15 @@ export function RehearsalWorkspace(props: {
         : [],
     [currentSlide?.slideId, currentSlide?.speakerNotes],
   );
+  const p3PanelSnapshot =
+    currentSlide && p3SessionState?.snapshot?.slideId === currentSlide.slideId
+      ? p3SessionState.snapshot
+      : createEmptySpeechTrackerSnapshot({
+          slideId: currentSlide?.slideId ?? "slide-empty",
+          matchableSentenceCount: p3Sentences.filter(
+            (sentence) => sentence.matchable,
+          ).length,
+        });
   const triggerAnimationIds = useMemo(
     () => (currentSlide ? getTriggerAnimationIdsForSlide(currentSlide) : []),
     [currentSlide],
@@ -1922,6 +1931,14 @@ export function RehearsalWorkspace(props: {
             highlights: [],
             slideId: currentSlide.slideId,
             slideIndex: currentSlideIndex,
+            speech: {
+              coveredSentenceIds: p3PanelSnapshot.coveredSentenceIds,
+              matchableSentenceCount: p3PanelSnapshot.matchableSentenceCount,
+              semanticDebug: semanticDebugState,
+              semanticMatchingEnabled:
+                presenterSettings.advancePolicy.semanticMatching,
+              snapshot: p3SessionState?.snapshot ?? null,
+            },
             stepIndex: presenterStepIndex,
             timing: {
               canStartLiveStt: canStartLiveDemo,
@@ -1947,7 +1964,11 @@ export function RehearsalWorkspace(props: {
       isLiveSttActive,
       isTimerRunning,
       liveStatus,
+      p3PanelSnapshot,
+      p3SessionState?.snapshot,
       presenterStepIndex,
+      presenterSettings.advancePolicy.semanticMatching,
+      semanticDebugState,
       slideElapsedSeconds,
       timeMode,
       timerDurationSeconds,
@@ -3297,15 +3318,6 @@ export function RehearsalWorkspace(props: {
   const highlightedKeywordOccurrences = useMemo(() => {
     return getHighlightedKeywordOccurrencesForSlide(currentSlide);
   }, [currentSlide]);
-  const p3PanelSnapshot =
-    currentSlide && p3SessionState?.snapshot?.slideId === currentSlide.slideId
-      ? p3SessionState.snapshot
-      : createEmptySpeechTrackerSnapshot({
-          slideId: currentSlide?.slideId ?? "slide-empty",
-          matchableSentenceCount: p3Sentences.filter(
-            (sentence) => sentence.matchable,
-          ).length,
-        });
   const hasDeletedRawAudio = Boolean(run?.rawAudioDeletedAt);
   const nextSlide = deck?.slides[currentSlideIndex + 1] ?? null;
   const miniSlideScale = deck ? getMiniSlideScale(deck) : 0.14;
