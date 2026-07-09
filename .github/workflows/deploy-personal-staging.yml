@@ -5,6 +5,15 @@ on:
     branches:
       - develop
   workflow_dispatch:
+    inputs:
+      trigger:
+        description: "Deployment trigger source, for example manual or doppler-stg-secrets-update."
+        required: false
+        default: "manual"
+      doppler_config:
+        description: "Doppler config metadata for webhook-triggered redeploys."
+        required: false
+        default: ""
 
 permissions:
   contents: read

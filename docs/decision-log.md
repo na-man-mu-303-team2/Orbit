@@ -350,3 +350,15 @@
 - Rationale: staging에서도 local과 같은 report STT 시간 지표를 재현할 수 있고, Doppler/staging secret에 이전 모델 값이 남아 있어도 개인 서버 staging report STT 실행 경로가 흔들리지 않는다. 표준 OpenAI API key는 계속 서버 환경에만 두며 브라우저에 노출하지 않는다.
 - Affected files: `.env.staging.example`, `docker-compose.staging.yml`, `docs/conventions/environment.md`, `docs/decision-log.md`.
 - Follow-up review notes: production의 report STT 모델은 전사 정확도, 비용, 시간 기반 지표 요구를 따로 검토한 뒤 확정한다. staging 배포 뒤 실제 리허설 녹음에서 `durationSeconds`, `speedSamples`, `pauseDetails`가 채워지는지 확인한다.
+
+## ORBIT personal staging Doppler webhook redeploy policy
+
+- Context: personal staging은 Doppler `orbit / stg` secret과 self-hosted GitHub Actions runner로 배포된다. `develop` push는 이미 자동 배포를 실행하지만, Doppler `stg` secret만 바뀌는 경우에는 코드 push가 없어 최신 런타임 env가 재기동되지 않는다.
+- Options considered:
+  - Doppler webhook이 GitHub workflow dispatch API를 직접 호출한다.
+  - 별도 relay service를 두고 Doppler signature를 검증한 뒤 GitHub workflow를 호출한다.
+  - Doppler secret 변경 후 운영자가 GitHub Actions `workflow_dispatch`를 수동 실행한다.
+- Final decision: personal staging에 한해 Doppler `orbit / stg` webhook이 `.github/workflows/deploy-personal-staging.yml`의 `workflow_dispatch`를 호출한다. webhook은 `ref=develop`, `trigger=doppler-stg-secrets-update`, `doppler_config=orbit/stg` metadata만 보낸다. GitHub token은 Doppler webhook authentication에만 저장하고, 앱 secret은 기존처럼 서버의 Doppler service token으로 `doppler run` 실행 시점에 읽는다.
+- Rationale: GitHub에 앱 secret이나 서버 SSH secret을 복사하지 않고, 기존 self-hosted runner와 배포 wrapper 경계를 재사용해 Doppler `stg` 변경만 personal staging 재배포로 연결할 수 있다. config를 `stg`로 제한하면 production secret 변경과 AWS production 배포를 이 경로에서 분리할 수 있다.
+- Affected files: `.github/workflows/deploy-personal-staging.yml`, `docs/runbooks/personal-server-deployment.md`, `docs/decision-log.md`.
+- Follow-up review notes: Doppler Webhook Logs와 GitHub Actions run history에서 첫 `doppler-stg-secrets-update` 실행을 확인한다. webhook 재시도와 중복 이벤트가 있을 수 있으므로 workflow concurrency와 서버 배포 lock을 유지한다. GitHub token은 만료 기한을 짧게 두고 주기적으로 교체한다.

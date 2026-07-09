@@ -169,6 +169,41 @@ exec /usr/bin/sudo -iu orbit /bin/bash -lc 'cd /var/www/orbit && ./infra/scripts
 
 완전 자동 배포가 목표라면 GitHub Environment `personal-staging`에는 required reviewer를 설정하지 않는다. 승인 단계를 두고 싶을 때만 environment protection rule을 추가한다.
 
+### Doppler stg 변경 자동 재배포
+
+Doppler `orbit / stg` secret이 바뀌었을 때도 같은 workflow를 다시 실행한다. 이 경로는 personal staging에만 사용하며 production secret 동기화나 AWS production 배포에는 사용하지 않는다.
+
+권장 연결 방식은 Doppler Webhook이 GitHub workflow dispatch API를 직접 호출하는 것이다.
+
+1. GitHub에서 이 저장소 전용 fine-grained personal access token 또는 GitHub App installation token을 준비한다.
+   - Repository: `na-man-mu-303-team2/Orbit`
+   - Permission: `Actions: write`
+   - 만료 기한을 짧게 두고, 토큰 값은 저장소나 문서에 남기지 않는다.
+2. Doppler project `orbit`의 Webhooks에서 새 webhook을 추가한다.
+3. Trigger config는 `stg`만 선택한다.
+4. Webhook URL은 다음 GitHub workflow dispatch endpoint를 사용한다.
+
+```text
+https://api.github.com/repos/na-man-mu-303-team2/Orbit/actions/workflows/deploy-personal-staging.yml/dispatches
+```
+
+5. Authentication은 GitHub token을 사용하는 bearer authentication으로 설정한다.
+6. Custom JSON payload는 다음 값으로 설정한다.
+
+```json
+{
+  "ref": "develop",
+  "inputs": {
+    "trigger": "doppler-stg-secrets-update",
+    "doppler_config": "orbit/stg"
+  }
+}
+```
+
+Doppler webhook은 secret 값이 아니라 변경 이벤트로만 배포를 트리거한다. 실제 앱 secret 값은 기존처럼 personal server의 `/var/www/orbit` scope에 등록된 Doppler service token으로 `doppler run` 실행 시점에 읽는다.
+
+Webhook 등록 후 Doppler Webhook Logs와 GitHub Actions의 `Deploy Personal Staging` 실행 이력을 함께 확인한다. Doppler webhook은 재시도될 수 있으므로 `.github/workflows/deploy-personal-staging.yml`의 concurrency와 서버 배포 스크립트의 lock을 유지한다.
+
 ## 검증
 
 서버 내부에서 확인한다.
