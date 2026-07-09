@@ -478,6 +478,11 @@ describe("generateDeckResponseSchema", () => {
         severity: "warning",
         blocking: false
       });
+      expect(response.data.diagnostics).toMatchObject({
+        referencePolicy: "topic-only",
+        repairAttempted: false,
+        validationIssueCount: 0
+      });
     }
   });
 
@@ -582,9 +587,22 @@ describe("generateDeckResponseSchema", () => {
         contentIssues: [],
         designIssues: [],
         presentationIssues: []
+      },
+      diagnostics: {
+        referencePolicy: "research-first",
+        uploadedSourceCount: 1,
+        webSourceCount: 2,
+        repairAttempted: true,
+        repairReasons: ["SPEAKER_NOTES_SHORT"],
+        uniqueCoreLayoutCount: 5,
+        validationIssueCount: 0
       }
     });
 
     expect(response.templateSelection?.[0]?.sourceSlideIndex).toBe(3);
+    expect(response.diagnostics).toMatchObject({
+      webSourceCount: 2,
+      uniqueCoreLayoutCount: 5
+    });
   });
 });

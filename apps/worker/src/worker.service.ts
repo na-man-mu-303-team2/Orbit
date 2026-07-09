@@ -220,6 +220,7 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
           projectId: result.projectId,
           status: result.status,
           durationMs,
+          ...jobDiagnosticFields(result.result),
           error: result.error ?? undefined,
         },
         "Job finished.",
@@ -252,6 +253,32 @@ function jobPayloadFields(data: unknown) {
     fileId: readString(payload, "fileId"),
     fileCount: Array.isArray(payload.files) ? payload.files.length : undefined,
   };
+}
+
+function jobDiagnosticFields(result: unknown) {
+  if (!isRecord(result) || !isRecord(result.diagnostics)) return {};
+  const diagnostics = result.diagnostics;
+  return {
+    referencePolicy: readString(diagnostics, "referencePolicy"),
+    uploadedSourceCount: readNonNegativeNumber(
+      diagnostics,
+      "uploadedSourceCount",
+    ),
+    webSourceCount: readNonNegativeNumber(diagnostics, "webSourceCount"),
+    repairAttempted:
+      typeof diagnostics.repairAttempted === "boolean"
+        ? diagnostics.repairAttempted
+        : undefined,
+    validationIssueCount: readNonNegativeNumber(
+      diagnostics,
+      "validationIssueCount",
+    ),
+  };
+}
+
+function readNonNegativeNumber(value: Record<string, unknown>, key: string) {
+  const candidate = value[key];
+  return typeof candidate === "number" && candidate >= 0 ? candidate : undefined;
 }
 
 function readString(value: Record<string, unknown>, key: string) {

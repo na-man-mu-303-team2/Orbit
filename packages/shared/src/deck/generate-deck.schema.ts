@@ -274,11 +274,31 @@ export const templateSelectionItemSchema = z.object({
   selectionReason: z.string().trim().min(1).optional()
 });
 
+export const generateDeckRepairReasonSchema = z.enum([
+  "CONTENT_CAPACITY",
+  "SPEAKER_NOTES_SHORT",
+  "SPEAKER_NOTES_LONG",
+  "SPEAKER_NOTES_REPEATED"
+]);
+
+export const generateDeckDiagnosticsSchema = z
+  .object({
+    referencePolicy: generateDeckReferencePolicySchema.default("topic-only"),
+    uploadedSourceCount: z.number().int().nonnegative().default(0),
+    webSourceCount: z.number().int().nonnegative().default(0),
+    repairAttempted: z.boolean().default(false),
+    repairReasons: z.array(generateDeckRepairReasonSchema).default([]),
+    uniqueCoreLayoutCount: z.number().int().nonnegative().default(0),
+    validationIssueCount: z.number().int().nonnegative().default(0)
+  })
+  .default({});
+
 export const generateDeckResponseSchema = z.object({
   deck: deckSchema,
   templateSelection: z.array(templateSelectionItemSchema).optional(),
   warnings: z.array(z.string()).default([]),
-  validation: generateDeckValidationSchema
+  validation: generateDeckValidationSchema,
+  diagnostics: generateDeckDiagnosticsSchema
 });
 
 export const generateDeckJobResultSchema = generateDeckResponseSchema
@@ -348,4 +368,7 @@ export type GenerateDeckValidationIssue = z.infer<
 export type GenerateDeckValidation = z.infer<typeof generateDeckValidationSchema>;
 export type TemplateSelectionItem = z.infer<typeof templateSelectionItemSchema>;
 export type GenerateDeckResponse = z.infer<typeof generateDeckResponseSchema>;
+export type GenerateDeckDiagnostics = z.infer<
+  typeof generateDeckDiagnosticsSchema
+>;
 export type GenerateDeckJobResult = z.infer<typeof generateDeckJobResultSchema>;

@@ -191,7 +191,8 @@ export async function processGenerateDeckJob(
         `Deck generation retained ${blockingIssues.length} blocking validation issue(s).`,
         {
           warnings: workerPayload.warnings,
-          validation: workerPayload.validation
+          validation: workerPayload.validation,
+          diagnostics: workerPayload.diagnostics
         }
       );
     }

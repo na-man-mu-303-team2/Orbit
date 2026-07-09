@@ -1549,6 +1549,16 @@ def test_generate_deck_design_pack_applies_v2_timing_media_reference_contract() 
     assert_validation_result_consistent(response.validation)
 
     assert len(set(design_pack_recipe_sequence(deck))) >= 5
+    assert response.diagnostics.reference_policy == "references-first"
+    assert response.diagnostics.uploaded_source_count == 1
+    assert response.diagnostics.web_source_count == 0
+    assert response.diagnostics.repair_attempted is True
+    assert set(response.diagnostics.repair_reasons) & {
+        "SPEAKER_NOTES_SHORT",
+        "SPEAKER_NOTES_LONG",
+    }
+    assert response.diagnostics.unique_core_layout_count >= 4
+    assert response.diagnostics.validation_issue_count == 0
 
     timing_plan = slides[0]["aiNotes"]["timingPlan"]
     assert timing_plan["charsPerMinute"] == 320

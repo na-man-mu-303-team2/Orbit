@@ -88,7 +88,12 @@ describe("processGenerateDeckJob", () => {
     const fetchMock = vi.fn(async (_input: unknown, init?: RequestInit) => {
       pythonRequestBody = String(init?.body ?? "");
       return new Response(
-        JSON.stringify({ deck, warnings, validation: deckValidation })
+        JSON.stringify({
+          deck,
+          warnings,
+          validation: deckValidation,
+          diagnostics: diagnostics({ validationIssueCount: 2 })
+        })
       );
     });
     vi.stubGlobal("fetch", fetchMock);
@@ -137,6 +142,12 @@ describe("processGenerateDeckJob", () => {
     expect(jobResult.deck.slides[0].thumbnailUrl).toBe(
       "asset:generated_slide_render_slide_1"
     );
+    expect(jobResult).toMatchObject({
+      diagnostics: {
+        referencePolicy: "references-first",
+        validationIssueCount: 2
+      }
+    });
     expect(job.result?.warnings).toEqual(warnings);
     expect(job.result).toMatchObject({ validation: { passed: false } });
   });
@@ -190,7 +201,8 @@ describe("processGenerateDeckJob", () => {
       query.mock.calls.some(([sql]) => String(sql).includes("INSERT INTO decks"))
     ).toBe(false);
     expect(job.result).toMatchObject({
-      validation: { passed: false }
+      validation: { passed: false },
+      diagnostics: { referencePolicy: "topic-only" }
     });
   });
 
@@ -674,6 +686,19 @@ function validation(
     contentIssues: [],
     designIssues: [],
     presentationIssues: [],
+    ...overrides
+  };
+}
+
+function diagnostics(overrides: Record<string, unknown> = {}) {
+  return {
+    referencePolicy: "references-first",
+    uploadedSourceCount: 1,
+    webSourceCount: 0,
+    repairAttempted: false,
+    repairReasons: [],
+    uniqueCoreLayoutCount: 1,
+    validationIssueCount: 0,
     ...overrides
   };
 }

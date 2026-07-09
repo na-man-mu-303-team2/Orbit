@@ -44,6 +44,12 @@ ReferencePolicy = Literal[
 ]
 SourceType = Literal["topic", "uploaded", "web", "generated", "none"]
 GenerationMode = Literal["legacy", "design-pack"]
+RepairReasonCode = Literal[
+    "CONTENT_CAPACITY",
+    "SPEAKER_NOTES_SHORT",
+    "SPEAKER_NOTES_LONG",
+    "SPEAKER_NOTES_REPEATED",
+]
 ForbiddenStyle = Literal["gradient", "pastel"]
 CanvasBackground = Literal["auto", "white"]
 ColorMood = Literal[
@@ -376,6 +382,8 @@ class RawInput(BaseModel):
     source_records: list[SourceRecord] = Field(default_factory=list)
     template_blueprint: dict[str, Any] | None = None
     design_blueprint: dict[str, Any] | None = None
+    repair_attempted: bool = False
+    repair_reason_codes: list[RepairReasonCode] = Field(default_factory=list)
 
 
 class DeckOutline(BaseModel):
@@ -578,6 +586,32 @@ class TemplateSelectionItem(BaseModel):
     selection_reason: str = Field(default="", alias="selectionReason")
 
 
+class GenerateDeckDiagnostics(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    reference_policy: ReferencePolicy = Field(
+        default="topic-only",
+        alias="referencePolicy",
+    )
+    uploaded_source_count: int = Field(default=0, alias="uploadedSourceCount", ge=0)
+    web_source_count: int = Field(default=0, alias="webSourceCount", ge=0)
+    repair_attempted: bool = Field(default=False, alias="repairAttempted")
+    repair_reasons: list[RepairReasonCode] = Field(
+        default_factory=list,
+        alias="repairReasons",
+    )
+    unique_core_layout_count: int = Field(
+        default=0,
+        alias="uniqueCoreLayoutCount",
+        ge=0,
+    )
+    validation_issue_count: int = Field(
+        default=0,
+        alias="validationIssueCount",
+        ge=0,
+    )
+
+
 class GenerateDeckResponse(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
@@ -588,6 +622,7 @@ class GenerateDeckResponse(BaseModel):
     )
     warnings: list[str] = Field(default_factory=list)
     validation: ValidationResult
+    diagnostics: GenerateDeckDiagnostics = Field(default_factory=GenerateDeckDiagnostics)
 
 
 class SlideTextOverlapReview(BaseModel):
@@ -1846,6 +1881,7 @@ class DeckGenerationOrchestrator:
             templateSelection=template_selection,
             warnings=warnings,
             validation=validation,
+            diagnostics=generate_deck_diagnostics(raw_input, deck, validation),
         )
 
     def record(
@@ -2150,6 +2186,43 @@ def generate_deck(
         reference_context=reference_context,
         image_review_mode=image_review_mode,
     ).run()
+
+
+def generate_deck_diagnostics(
+    raw_input: RawInput,
+    deck: dict[str, Any],
+    validation: ValidationResult,
+) -> GenerateDeckDiagnostics:
+    source_records = raw_input.source_records
+    uploaded_source_ids = {
+        record.source_id for record in source_records if record.source_type == "uploaded"
+    }
+    web_source_urls = {
+        record.url for record in source_records if record.source_type == "web" and record.url
+    }
+    body_slides = deck.get("slides", [])[1:-1]
+    validation_issue_count = sum(
+        len(issues)
+        for issues in (
+            validation.layout_issues,
+            validation.content_issues,
+            validation.design_issues,
+            validation.presentation_issues,
+        )
+    )
+    return GenerateDeckDiagnostics(
+        referencePolicy=raw_input.brief.reference_policy,
+        uploadedSourceCount=len(uploaded_source_ids),
+        webSourceCount=len(web_source_urls),
+        repairAttempted=raw_input.repair_attempted,
+        repairReasons=raw_input.repair_reason_codes,
+        uniqueCoreLayoutCount=(
+            len({core_geometry_fingerprint(slide) for slide in body_slides})
+            if raw_input.generation_mode == "design-pack"
+            else 0
+        ),
+        validationIssueCount=validation_issue_count,
+    )
 
 
 def generation_warnings(
@@ -2613,6 +2686,10 @@ def plan_deck_content(
                 slide_plans = apply_timing_to_slide_plans(raw_input, slide_plans)
                 repair_reasons = content_plan_repair_reasons(slide_plans)
                 if repair_reasons:
+                    raw_input.repair_attempted = True
+                    raw_input.repair_reason_codes = repair_reason_codes(
+                        repair_reasons
+                    )
                     repaired_plan = repair_content_plan_with_llm(
                         raw_input,
                         generated_plan,
@@ -2850,6 +2927,23 @@ def content_plan_repair_reasons(slide_plans: list[SlidePlan]) -> list[str]:
     if any(count > 1 for count in normalized_notes.values()):
         reasons.append("speaker notes repeat verbatim across slides")
     return reasons
+
+
+def repair_reason_codes(reasons: list[str]) -> list[RepairReasonCode]:
+    codes: list[RepairReasonCode] = []
+    for reason in reasons:
+        code: RepairReasonCode
+        if "content item count" in reason:
+            code = "CONTENT_CAPACITY"
+        elif "below target" in reason:
+            code = "SPEAKER_NOTES_SHORT"
+        elif "above target" in reason:
+            code = "SPEAKER_NOTES_LONG"
+        else:
+            code = "SPEAKER_NOTES_REPEATED"
+        if code not in codes:
+            codes.append(code)
+    return codes
 
 
 def content_item_capacity_for_slide(
