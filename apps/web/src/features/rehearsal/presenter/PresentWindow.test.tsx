@@ -534,6 +534,9 @@ function expectNoAutoAdvancePresenterStatus(html: string) {
 function createPresenterSpeechState() {
   return {
     coveredSentenceIds: ["sentence_1"],
+    coveredSentenceMatchKinds: {
+      sentence_1: "covered" as const,
+    },
     matchableSentenceCount: 2,
     semanticDebug: {
       status: "ready" as const,
@@ -550,12 +553,16 @@ function createPresenterSpeechState() {
           covered: true,
         },
       ],
+      decision: null,
       error: null,
     },
     semanticMatchingEnabled: true,
     snapshot: {
       slideId: "slide_p0_1",
       coveredSentenceIds: ["sentence_1"],
+      coveredSentenceMatchKinds: {
+        sentence_1: "covered" as const,
+      },
       matchableSentenceCount: 2,
       sentenceCoverage: 0.5,
       wordCoverage: 0.1,

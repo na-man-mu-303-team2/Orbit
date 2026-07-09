@@ -242,15 +242,24 @@ export function PresenterRemoteWindow(props: {
               const covered = Boolean(
                 state.speech?.coveredSentenceIds.includes(sentenceId),
               );
+              const matchKind =
+                state.speech?.coveredSentenceMatchKinds[sentenceId];
               return {
                 content: sentence,
                 id: sentenceId,
-                label: covered ? "체크됨" : undefined,
+                label:
+                  matchKind === "paraphrased"
+                    ? "의미 전달"
+                    : covered
+                      ? "체크됨"
+                      : undefined,
                 status:
                   index === currentSentenceIndex
                     ? "current"
                     : covered
-                      ? "covered"
+                      ? matchKind === "paraphrased"
+                        ? "paraphrased"
+                        : "covered"
                       : "pending",
               };
             })}

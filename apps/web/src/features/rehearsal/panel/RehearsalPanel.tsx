@@ -226,6 +226,8 @@ export function RehearsalPanel(props: RehearsalPanelProps) {
               }}
               rows={props.sentences.map((sentence): PresenterScriptListRow => {
                 const covered = coveredSentenceIds.has(sentence.sentenceId);
+                const matchKind =
+                  props.snapshot.coveredSentenceMatchKinds?.[sentence.sentenceId];
                 const isCurrent = sentence.sentenceId === focusSentenceId;
                 return {
                   content: (
@@ -237,13 +239,20 @@ export function RehearsalPanel(props: RehearsalPanelProps) {
                     />
                   ),
                   id: sentence.sentenceId,
-                  label: covered ? "체크됨" : undefined,
+                  label:
+                    matchKind === "paraphrased"
+                      ? "의미 전달"
+                      : covered
+                        ? "체크됨"
+                        : undefined,
                   status: !sentence.matchable
                     ? "unmatchable"
                     : isCurrent
                       ? "current"
                       : covered
-                        ? "covered"
+                        ? matchKind === "paraphrased"
+                          ? "paraphrased"
+                          : "covered"
                         : "pending"
                 };
               })}

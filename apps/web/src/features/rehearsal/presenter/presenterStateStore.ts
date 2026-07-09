@@ -23,6 +23,7 @@ export type PresenterTimingState = {
 
 export type PresenterSpeechState = {
   coveredSentenceIds: string[];
+  coveredSentenceMatchKinds: Record<string, "covered" | "paraphrased">;
   matchableSentenceCount: number;
   semanticDebug: SemanticUtteranceDebugState;
   semanticMatchingEnabled: boolean;

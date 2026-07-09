@@ -46,6 +46,20 @@ describe("RehearsalPanel", () => {
     expect(html).toContain("체크됨");
   });
 
+  it("distinguishes semantic paraphrase coverage in the script rows", () => {
+    const html = renderPanel({
+      snapshot: {
+        ...snapshot,
+        coveredSentenceMatchKinds: {
+          sentence_1: "paraphrased"
+        }
+      }
+    });
+
+    expect(html).toContain("presenter-script-row--paraphrased");
+    expect(html).toContain("의미 전달");
+  });
+
   it("highlights direct keywords and aliases inside script sentences", () => {
     const html = renderPanel({
       keywords: [
@@ -152,6 +166,7 @@ function renderPanel(
     }>;
     speakerNotes?: string;
     sentences?: ExtractedSentence[];
+    snapshot?: SpeechTrackerSnapshot;
   } = {}
 ) {
   void overrides.transcriptText;
@@ -166,7 +181,7 @@ function renderPanel(
       keywords={overrides.keywords ?? keywords}
       sentences={overrides.sentences ?? sentences}
       speakerNotes={overrides.speakerNotes}
-      snapshot={snapshot}
+      snapshot={overrides.snapshot ?? snapshot}
     />
   );
 }
@@ -232,6 +247,9 @@ const sentences: ExtractedSentence[] = [
 const snapshot: SpeechTrackerSnapshot = {
   slideId: "slide_1",
   coveredSentenceIds: ["sentence_1"],
+  coveredSentenceMatchKinds: {
+    sentence_1: "covered"
+  },
   matchableSentenceCount: 2,
   sentenceCoverage: 0.5,
   wordCoverage: 0.45,

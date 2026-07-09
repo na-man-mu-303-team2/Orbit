@@ -282,6 +282,7 @@ export function createP3RehearsalSession(
       transcript: "",
       isFinal: false,
       topMatches: [],
+      decision: null,
       error: null
     });
 
@@ -298,6 +299,7 @@ export function createP3RehearsalSession(
             transcript: "",
             isFinal: false,
             topMatches: [],
+            decision: null,
             error: null
           });
         }
@@ -310,6 +312,7 @@ export function createP3RehearsalSession(
             transcript: "",
             isFinal: false,
             topMatches: [],
+            decision: null,
             error: semanticDebugErrorMessage(error)
           });
         }
@@ -351,6 +354,7 @@ export function createP3RehearsalSession(
       transcript: options.result.text,
       isFinal: true,
       topMatches: [],
+      decision: null,
       error: null
     });
 
@@ -370,6 +374,7 @@ export function createP3RehearsalSession(
         transcript: options.result.text,
         isFinal: true,
         topMatches: match.topMatches,
+        decision: match.decision,
         error: null
       });
 
@@ -414,6 +419,7 @@ export function createP3RehearsalSession(
           transcript: options.result.text,
           isFinal: true,
           topMatches: [],
+          decision: null,
           error: semanticDebugErrorMessage(error)
         });
       }

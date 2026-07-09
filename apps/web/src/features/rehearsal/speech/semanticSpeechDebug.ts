@@ -1,4 +1,5 @@
 import type { SemanticUtteranceMatch } from "./semanticUtteranceMatcher";
+import type { SemanticUtteranceDecision } from "./semanticUtteranceDecision";
 
 export type SemanticUtteranceDebugStatus =
   | "idle"
@@ -15,6 +16,7 @@ export type SemanticUtteranceDebugState = {
   transcript: string;
   isFinal: boolean;
   topMatches: SemanticUtteranceMatch[];
+  decision: SemanticUtteranceDecision | null;
   error: string | null;
 };
 
@@ -25,6 +27,7 @@ export function createIdleSemanticDebugState(): SemanticUtteranceDebugState {
     transcript: "",
     isFinal: false,
     topMatches: [],
+    decision: null,
     error: null
   };
 }
