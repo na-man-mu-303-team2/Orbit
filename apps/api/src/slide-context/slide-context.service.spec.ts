@@ -2,6 +2,10 @@ import type { DataSource } from "typeorm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SlideContextService } from "./slide-context.service";
 
+type SlideContextQueryManager = {
+  query: ReturnType<typeof vi.fn>;
+};
+
 const validEnv = {
   NODE_ENV: "test",
   APP_ENV: "local",
@@ -76,7 +80,7 @@ describe("SlideContextService", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     const insertedAt = new Date("2026-07-09T00:00:00.000Z");
-    const manager = {
+    const manager: SlideContextQueryManager = {
       query: vi
         .fn()
         .mockResolvedValueOnce([])
@@ -94,11 +98,14 @@ describe("SlideContextService", () => {
           }
         ])
     };
+    const transaction = vi.fn(
+      async (
+        callback: (manager: SlideContextQueryManager) => Promise<unknown>
+      ) => callback(manager)
+    );
     const dataSource = {
-      transaction: vi.fn(async (callback: (manager: typeof manager) => Promise<unknown>) =>
-        callback(manager)
-      )
-    } as DataSource;
+      transaction
+    } as unknown as DataSource;
 
     const service = new SlideContextService(dataSource);
     const result = await service.extractItems("project-a", "deck_a", {
@@ -126,7 +133,7 @@ describe("SlideContextService", () => {
     });
     expect(result.items[0]?.createdAt).toEqual(expect.any(String));
     expect(result.items[0]?.updatedAt).toEqual(expect.any(String));
-    expect(dataSource.transaction).toHaveBeenCalledOnce();
+    expect(transaction).toHaveBeenCalledOnce();
     expect(manager.query).toHaveBeenCalledTimes(2);
     expect(fetchMock).toHaveBeenCalledWith(
       "http://localhost:8000/slide-context/extract",
