@@ -4,9 +4,14 @@ import type {
   GenerateDeckMediaPolicy,
   GenerateDeckRequest,
   GenerateDeckReferencePolicy,
-  Job
+  Job,
+  ReferenceExtractionResult
 } from "@orbit/shared";
-import { recommendGenerateDeckFonts } from "@orbit/shared";
+import {
+  recommendGenerateDeckFonts,
+  referenceExtractionResultSchema,
+  referenceExtractionStartResponseSchema
+} from "@orbit/shared";
 import {
   ArrowDownToLine,
   Check,
@@ -65,6 +70,11 @@ export type AiPptAdvisorSuggestion = {
   reason: string;
   value: AiPptWizardState[keyof AiPptWizardState];
 };
+
+type ReferenceGrounding = Pick<
+  GenerateDeckRequest,
+  "referenceContext" | "referenceKeywords"
+>;
 
 const stylePackId = "brandlogy-modern";
 
@@ -154,7 +164,11 @@ export function buildAiPptGenerateDeckPayload(
   state: AiPptWizardState,
   paletteOption: PaletteOption,
   referenceFileIds: string[] = [],
-  selectedFont = recommendGenerateDeckFonts(fontSource(state))[0]
+  selectedFont = recommendGenerateDeckFonts(fontSource(state))[0],
+  referenceGrounding: ReferenceGrounding = {
+    referenceContext: [],
+    referenceKeywords: []
+  }
 ): GenerateDeckRequest {
   const durationMinutes = parsePositiveInteger(state.duration, 10);
   const slideCount = resolveSlideCount(state);
@@ -179,7 +193,6 @@ export function buildAiPptGenerateDeckPayload(
       `colorIntent=${colorIntent.mood}/${colorIntent.preferredHue}`,
       `mediaPolicy=${state.mediaPolicy}`,
       `base=${stylePackId}`,
-      "layout=chart-first cards tables process",
       "output=Deck JSON first"
     ].join("; "),
     brief: {
@@ -220,8 +233,8 @@ export function buildAiPptGenerateDeckPayload(
     referenceFileIds,
     references: referenceFileIds.map((fileId) => ({ fileId })),
     designReferences: [],
-    referenceKeywords: [],
-    referenceContext: []
+    referenceKeywords: referenceGrounding.referenceKeywords,
+    referenceContext: referenceGrounding.referenceContext
   };
 }
 
@@ -274,14 +287,6 @@ export function buildAiPptAdvisorSuggestions(
       label: "신뢰감 있는 한글 고딕",
       reason: "폰트 요청이 비어 있으면 전문적인 고딕 계열을 기본 추천합니다.",
       value: "professional trustworthy Korean sans font"
-    });
-  }
-  if (state.referencePolicy === "research-first") {
-    suggestions.push({
-      field: "referencePolicy",
-      label: "참고자료 우선으로 조정",
-      reason: "웹 리서치 자동화 전에는 참고자료 우선 정책이 더 예측 가능합니다.",
-      value: "references-first"
     });
   }
   return suggestions.slice(0, 3);
@@ -408,6 +413,44 @@ export function AiPptMockupPage() {
         referenceFileIds.push(uploaded.fileId);
       }
 
+      let referenceGrounding: ReferenceGrounding = {
+        referenceContext: [],
+        referenceKeywords: []
+      };
+      if (
+        referenceFileIds.length > 0 &&
+        !["topic-only", "user-input-only"].includes(form.referencePolicy)
+      ) {
+        setStatus("참고자료 추출 job 시작 중...");
+        const extractionJob = await startReferenceExtraction(
+          project.projectId,
+          referenceFileIds
+        );
+        setJob(extractionJob);
+        setStatus("참고자료 분석 중...");
+        const extractionCompleted = await pollJob(extractionJob.jobId);
+        setJob(extractionCompleted);
+
+        if (extractionCompleted.status === "failed") {
+          if (form.referencePolicy !== "research-first") {
+            throw new Error(
+              extractionCompleted.error?.message || extractionCompleted.message
+            );
+          }
+        } else {
+          const extractionResult = referenceExtractionResultSchema.parse(
+            extractionCompleted.result
+          );
+          const referenceError = getReferenceExtractionValidationMessage(
+            form.referencePolicy,
+            referenceFileIds,
+            extractionResult
+          );
+          if (referenceError) throw new Error(referenceError);
+          referenceGrounding = buildReferenceGrounding(extractionResult);
+        }
+      }
+
       setStatus("Deck JSON 생성 job 시작 중...");
       const response = await fetch(
         `/api/v1/projects/${encodeURIComponent(project.projectId)}/jobs/generate-deck`,
@@ -420,7 +463,8 @@ export function AiPptMockupPage() {
               form,
               selectedPalette,
               referenceFileIds,
-              selectedFont
+              selectedFont,
+              referenceGrounding
             )
           )
         }
@@ -1056,6 +1100,71 @@ async function fetchDeckColorOptions(input: {
     rationale: option.rationale,
     palette: option.palette as Required<PaletteOverride>
   }));
+}
+
+export async function startReferenceExtraction(
+  projectId: string,
+  fileIds: string[]
+): Promise<Job> {
+  const response = await fetch(
+    `/api/v1/projects/${encodeURIComponent(projectId)}/references/extractions`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ fileIds })
+    }
+  );
+  if (!response.ok) {
+    throw new Error(
+      await readResponseText(response, "참고자료 분석을 시작하지 못했습니다.")
+    );
+  }
+  return referenceExtractionStartResponseSchema.parse(await response.json()).job;
+}
+
+export function buildReferenceGrounding(
+  result: ReferenceExtractionResult
+): ReferenceGrounding {
+  const usableFiles = result.files.filter((file) => file.usable);
+  const seenKeywords = new Set<string>();
+  const referenceKeywords = usableFiles.flatMap((file) =>
+    file.keywords.flatMap((keyword) => {
+      const text = keyword.keyword.trim();
+      const key = text.toLocaleLowerCase("ko-KR");
+      if (!text || seenKeywords.has(key)) return [];
+      seenKeywords.add(key);
+      return [{ text }];
+    })
+  );
+
+  return {
+    referenceKeywords,
+    referenceContext: usableFiles.map((file) => ({
+      fileId: file.fileId,
+      title: file.fileName,
+      content: file.cleanedText.trim() || file.rawText.trim()
+    }))
+  };
+}
+
+export function getReferenceExtractionValidationMessage(
+  policy: ReferencePolicy,
+  expectedFileIds: string[],
+  result: ReferenceExtractionResult
+): string {
+  const filesById = new Map(result.files.map((file) => [file.fileId, file]));
+  const usableCount = expectedFileIds.filter(
+    (fileId) => filesById.get(fileId)?.usable
+  ).length;
+
+  if (policy === "references-only" && usableCount !== expectedFileIds.length) {
+    return "참고자료만으로 구성하려면 첨부한 모든 파일에서 텍스트를 추출할 수 있어야 합니다.";
+  }
+  if (policy === "references-first" && usableCount === 0) {
+    return "참고자료 우선 구성에는 사용할 수 있는 첨부자료가 1개 이상 필요합니다.";
+  }
+  return "";
 }
 
 export async function pollJob(jobId: string): Promise<Job> {

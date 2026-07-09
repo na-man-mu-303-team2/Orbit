@@ -2,8 +2,11 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   buildAiPptAdvisorSuggestions,
   buildAiPptGenerateDeckPayload,
+  buildReferenceGrounding,
   getAiPptWizardValidationMessage,
+  getReferenceExtractionValidationMessage,
   pollJob,
+  startReferenceExtraction,
   type PaletteOption
 } from "./AiPptMockupPage";
 
@@ -157,6 +160,109 @@ describe("AI PPT wizard payload", () => {
     expect(payload.design.mediaPolicy).toBe("ai-generated");
     expect(payload.visualPlanPolicy).toEqual({ mediaPolicy: "ai-generated" });
     expect(payload.designPrompt).toContain("mediaPolicy=ai-generated");
+  });
+
+  it("includes only usable extraction context and de-duplicated keywords", () => {
+    const result = {
+      files: [
+        {
+          projectId: "project-1",
+          referenceDocumentId: "file-1",
+          fileId: "file-1",
+          fileName: "brief.pdf",
+          kind: "pdf" as const,
+          status: "succeeded" as const,
+          message: "",
+          rawText: "raw brief",
+          cleanedText: "clean brief",
+          cleanupStatus: "succeeded",
+          cleanupMessage: "",
+          keywords: [
+            { keyword: "MVP", reason: "core", priority: "high" },
+            { keyword: "mvp", reason: "duplicate", priority: "medium" }
+          ],
+          keywordStatus: "succeeded",
+          keywordMessage: "",
+          indexingStatus: "unavailable",
+          indexingMessage: "",
+          chunkCount: 0,
+          sections: [],
+          usable: true
+        },
+        {
+          projectId: "project-1",
+          referenceDocumentId: "file-2",
+          fileId: "file-2",
+          fileName: "blank.pdf",
+          kind: "pdf" as const,
+          status: "failed" as const,
+          message: "blank",
+          rawText: "",
+          cleanedText: "",
+          cleanupStatus: "failed",
+          cleanupMessage: "",
+          keywords: [],
+          keywordStatus: "skipped",
+          keywordMessage: "",
+          indexingStatus: "skipped",
+          indexingMessage: "",
+          chunkCount: 0,
+          sections: [],
+          usable: false
+        }
+      ]
+    };
+
+    expect(buildReferenceGrounding(result)).toEqual({
+      referenceKeywords: [{ text: "MVP" }],
+      referenceContext: [
+        { fileId: "file-1", title: "brief.pdf", content: "clean brief" }
+      ]
+    });
+    expect(
+      getReferenceExtractionValidationMessage(
+        "references-only",
+        ["file-1", "file-2"],
+        result
+      )
+    ).toContain("모든 파일");
+    expect(
+      getReferenceExtractionValidationMessage(
+        "references-first",
+        ["file-1", "file-2"],
+        result
+      )
+    ).toBe("");
+  });
+
+  it("starts project-scoped extraction before deck generation", async () => {
+    const job = {
+      jobId: "job_extract_1",
+      projectId: "project-1",
+      type: "reference-extract" as const,
+      status: "queued" as const,
+      progress: 0,
+      message: "queued",
+      result: null,
+      error: null,
+      createdAt: "2026-07-10T00:00:00.000Z",
+      updatedAt: "2026-07-10T00:00:00.000Z"
+    };
+    const fetcher = vi.fn(async () =>
+      new Response(JSON.stringify({ fileIds: ["file-1"], job }))
+    );
+    vi.stubGlobal("fetch", fetcher);
+
+    await expect(
+      startReferenceExtraction("project-1", ["file-1"])
+    ).resolves.toEqual(job);
+    expect(fetcher).toHaveBeenCalledWith(
+      "/api/v1/projects/project-1/references/extractions",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ fileIds: ["file-1"] })
+      })
+    );
   });
 
   it("blocks references-only generation without a reference file", () => {
