@@ -63,6 +63,11 @@ from app.rehearsal import (
     generate_progress_comment,
     generate_rehearsal_coaching,
 )
+from app.slide_context import (
+    SlideContextRepository,
+    SlideInput,
+    extract_slide_context_items,
+)
 
 
 class HealthResponse(BaseModel):
@@ -704,6 +709,138 @@ def rehearsal_progress_comment(
         api_key=config.openai_api_key,
     )
     return RehearsalProgressCommentResponse(projectId=payload.project_id, comment=comment)
+
+
+class SlideInputRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    slide_id: str = Field(alias="slideId", min_length=1)
+    slide_text: str = Field(alias="slideText", default="")
+    speaker_notes: str = Field(alias="speakerNotes", default="")
+
+
+class SlideContextItemResponse(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    item_id: str = Field(alias="itemId")
+    slide_id: str = Field(alias="slideId")
+    item_order: int = Field(alias="itemOrder", ge=0)
+    label: str
+    sentence: str
+
+
+class ExtractSlideContextRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    project_id: str = Field(alias="projectId", min_length=1)
+    deck_id: str = Field(alias="deckId", min_length=1)
+    slides: list[SlideInputRequest] = Field(min_length=1)
+
+
+class ExtractSlideContextResponse(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    project_id: str = Field(alias="projectId")
+    deck_id: str = Field(alias="deckId")
+    items: list[SlideContextItemResponse]
+
+
+class UpdateSlideContextItemRequest(BaseModel):
+    label: str | None = Field(default=None, min_length=1, max_length=200)
+    sentence: str | None = Field(default=None, min_length=1, max_length=1000)
+
+
+class UpdateSlideContextItemResponse(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    item_id: str = Field(alias="itemId")
+    slide_id: str = Field(alias="slideId")
+    item_order: int = Field(alias="itemOrder", ge=0)
+    label: str
+    sentence: str
+
+
+@app.post("/slide-context/extract", response_model=ExtractSlideContextResponse)
+def extract_slide_context(
+    payload: ExtractSlideContextRequest,
+    request: Request,
+) -> ExtractSlideContextResponse:
+    config = _config(request)
+    repository = (
+        SlideContextRepository(config.database_url) if config.database_url else None
+    )
+    result = extract_slide_context_items(
+        project_id=payload.project_id,
+        deck_id=payload.deck_id,
+        slides=[
+            SlideInput(
+                slide_id=s.slide_id,
+                slide_text=s.slide_text,
+                speaker_notes=s.speaker_notes,
+            )
+            for s in payload.slides
+        ],
+        repository=repository,
+        model=config.openai_model,
+        api_key=config.openai_api_key,
+    )
+    if result.status not in {"succeeded", "skipped"}:
+        status_code = 503 if result.status in {"unavailable", "failed"} else 400
+        raise HTTPException(status_code=status_code, detail=result.message)
+
+    return ExtractSlideContextResponse(
+        projectId=payload.project_id,
+        deckId=payload.deck_id,
+        items=[
+            SlideContextItemResponse(
+                itemId=item.item_id,
+                slideId=item.slide_id,
+                itemOrder=item.item_order,
+                label=item.label,
+                sentence=item.sentence,
+            )
+            for item in result.items
+        ],
+    )
+
+
+@app.patch(
+    "/slide-context/{item_id}",
+    response_model=UpdateSlideContextItemResponse,
+)
+def update_slide_context_item(
+    item_id: str,
+    payload: UpdateSlideContextItemRequest,
+    request: Request,
+) -> UpdateSlideContextItemResponse:
+    config = _config(request)
+    if not payload.label and not payload.sentence:
+        raise HTTPException(
+            status_code=400,
+            detail="label 또는 sentence 중 하나 이상 필요합니다.",
+        )
+
+    repository = SlideContextRepository(config.database_url)
+    project_id = request.headers.get("X-Project-Id", "")
+    if not project_id:
+        raise HTTPException(status_code=400, detail="X-Project-Id 헤더가 필요합니다.")
+
+    item = repository.update_item(
+        item_id,
+        project_id,
+        label=payload.label,
+        sentence=payload.sentence,
+    )
+    if item is None:
+        raise HTTPException(status_code=404, detail="항목을 찾을 수 없습니다.")
+
+    return UpdateSlideContextItemResponse(
+        itemId=item.item_id,
+        slideId=item.slide_id,
+        itemOrder=item.item_order,
+        label=item.label,
+        sentence=item.sentence,
+    )
 
 
 def _remap_import_asset_ids(

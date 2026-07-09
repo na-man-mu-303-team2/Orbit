@@ -25,4 +25,5 @@ export * from "./projects/project.schema";
 export * from "./rehearsals/live-stt.schema";
 export * from "./rehearsals/realtime-transcription.schema";
 export * from "./rehearsals/rehearsal.schema";
+export * from "./rehearsals/slide-context-item.schema";
 export * from "./realtime/websocket.schema";
