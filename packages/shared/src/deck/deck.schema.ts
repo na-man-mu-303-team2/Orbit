@@ -191,7 +191,7 @@ export const slideAiNotesSchema = z
     emphasisPoints: z.array(z.string().min(1)).default([]),
     sourceEvidence: z.array(slideSourceEvidenceSchema).default([]),
     visualPlan: slideVisualPlanSchema.optional(),
-    sourceLedger: z.array(slideSourceLedgerSchema).default([])
+    sourceLedger: z.array(slideSourceLedgerSchema).optional()
   })
   .default({});
 

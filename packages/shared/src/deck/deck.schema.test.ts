@@ -47,6 +47,19 @@ type DeckValidationInput = {
         note?: string;
         confidence: number;
       }>;
+      visualPlan?: {
+        visualType: string;
+        imageNeeded: boolean;
+        imageSourcePolicy: string;
+        reason: string;
+      };
+      sourceLedger?: Array<{
+        claim: string;
+        source: string;
+        sourceType: string;
+        confidence: number;
+        usedInSlideId: string;
+      }>;
     };
     keywords: Array<{
       keywordId: string;
