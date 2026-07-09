@@ -57,6 +57,33 @@ describe("SpeechTracker", () => {
     });
   });
 
+  it("final fuzzy phrase match는 covered가 아니라 paraphrased로 기록한다", () => {
+    const tracker = createSpeechTracker({
+      slideId: "slide_1",
+      speakerNotes: "레이스 컨디션은 예측 불가능한 결과를 뜻합니다.",
+      keywords: []
+    });
+
+    const events = tracker.acceptResult({
+      text: "레이스 컨디션은 결과를 예측하기 어렵다는 뜻입니다",
+      isFinal: true,
+      timestampMs: [0, 1200]
+    });
+
+    expect(events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "sentence-covered",
+          sentenceId: "sentence_1",
+          matchKind: "paraphrased"
+        })
+      ])
+    );
+    expect(tracker.snapshot().coveredSentenceMatchKinds).toMatchObject({
+      sentence_1: "paraphrased"
+    });
+  });
+
   it("마지막 문장 발화와 hybrid coverage를 함께 계산한다", () => {
     const tracker = createSpeechTracker({
       slideId: "slide_1",

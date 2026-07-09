@@ -86,10 +86,24 @@ export function createSpeechTracker(input: CreateSpeechTrackerInput): SpeechTrac
         continue;
       }
 
-      if (isSentenceMatched(sentence, finalWindow, config, result.isFinal)) {
+      const phraseMatch = findSentenceMatch(
+        sentence,
+        finalWindow,
+        config,
+        result.isFinal
+      );
+      if (phraseMatch) {
         events.push(
           ...coverSentence(sentence, atMs, {
-            matchKind: "covered"
+            matchKind:
+              phraseMatch.method === "substring" ? "covered" : "paraphrased",
+            lexicalOverlap:
+              phraseMatch.method === "dice"
+                ? calculateWordMultisetRecall({
+                    scriptText: sentence.text,
+                    transcriptText: finalWindow
+                  })
+                : undefined
           })
         );
       }
@@ -282,20 +296,24 @@ function createVisitState() {
   };
 }
 
-function isSentenceMatched(
+function findSentenceMatch(
   sentence: ExtractedSentence,
   finalWindow: string,
   config: SpeechTrackingConfig,
   allowFuzzyMatch: boolean
 ) {
-  return sentence.candidates.some(
-    (candidate) =>
-      matchPhraseCandidate({
-        candidateText: candidate.text,
-        finalSegmentWindow: finalWindow,
-        diceThreshold: allowFuzzyMatch ? config.diceThreshold : 1
-      }).matched
-  );
+  for (const candidate of sentence.candidates) {
+    const match = matchPhraseCandidate({
+      candidateText: candidate.text,
+      finalSegmentWindow: finalWindow,
+      diceThreshold: allowFuzzyMatch ? config.diceThreshold : 1
+    });
+    if (match.matched) {
+      return match;
+    }
+  }
+
+  return null;
 }
 
 function computeCoverage(options: {
