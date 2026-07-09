@@ -3,11 +3,12 @@ import { describe, expect, it, vi } from "vitest";
 import {
   createE5EmbeddingService,
   E5_EMBEDDING_DIMENSIONS,
-  E5_MODEL_ID
+  E5_MODEL_ID,
+  E5_PREFIX_MODE
 } from "./e5EmbeddingService";
 
 describe("createE5EmbeddingService", () => {
-  it("query와 passage prefix를 강제하고 mean pooling normalization으로 호출한다", async () => {
+  it("spike 결정대로 query-query prefix를 강제하고 mean pooling normalization으로 호출한다", async () => {
     const extractor = vi.fn(async (texts: string | string[]) => ({
       data: new Float32Array(Array.isArray(texts) ? [1, 0, 0, 1] : [0.5, 0.5]),
       dims: Array.isArray(texts) ? [2, 2] : [1, 2]
@@ -30,7 +31,7 @@ describe("createE5EmbeddingService", () => {
     });
     expect(extractor).toHaveBeenNthCalledWith(
       2,
-      ["passage: first sentence", "passage: second sentence"],
+      ["query: first sentence", "query: second sentence"],
       {
         pooling: "mean",
         normalize: true
@@ -60,8 +61,9 @@ describe("createE5EmbeddingService", () => {
 });
 
 describe("E5 constants", () => {
-  it("spec의 multilingual-e5-small 모델과 384차원 출력을 고정한다", () => {
+  it("spike의 multilingual-e5-small query-query 정책과 384차원 출력을 고정한다", () => {
     expect(E5_MODEL_ID).toBe("Xenova/multilingual-e5-small");
+    expect(E5_PREFIX_MODE).toBe("query-query");
     expect(E5_EMBEDDING_DIMENSIONS).toBe(384);
   });
 });

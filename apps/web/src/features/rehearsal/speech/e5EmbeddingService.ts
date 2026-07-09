@@ -6,6 +6,7 @@ import {
 
 export const E5_MODEL_ID = "Xenova/multilingual-e5-small" as const;
 export const E5_EMBEDDING_DIMENSIONS = 384;
+export const E5_PREFIX_MODE = "query-query" as const;
 
 export type E5EmbeddingProgress = {
   status: string;
@@ -74,7 +75,7 @@ export function createE5EmbeddingService(
 
       const extractor = await getExtractor();
       const output = await extractor(
-        texts.map((text) => `passage: ${normalizeEmbeddingText(text)}`),
+        texts.map((text) => `query: ${normalizeEmbeddingText(text)}`),
         { pooling: "mean", normalize: true }
       );
       return tensorOutputToRows(output, texts.length);
