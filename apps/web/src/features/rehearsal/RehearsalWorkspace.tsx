@@ -142,6 +142,10 @@ import {
   getRehearsalScriptFocusSentenceId,
 } from "./panel/RehearsalPanel";
 import {
+  SemanticSpeechDebugPanel,
+  shouldShowSemanticSpeechDebugPanel,
+} from "./panel/SemanticSpeechDebugPanel";
+import {
   calculateFinalTranscriptWpm,
   getDeckTargetSeconds as getRehearsalDeckTargetSeconds,
   getTimingAdviceState,
@@ -154,6 +158,18 @@ import {
   type P3RehearsalSession,
   type P3RehearsalSessionState,
 } from "./speech/p3RehearsalSession";
+import {
+  getE5EmbeddingService,
+  type E5EmbeddingService,
+} from "./speech/e5EmbeddingService";
+import {
+  createIdleSemanticDebugState,
+  createSemanticDebugState,
+} from "./speech/semanticSpeechDebug";
+import {
+  createSemanticUtteranceMatcher,
+  type SemanticUtteranceMatcher,
+} from "./speech/semanticUtteranceMatcher";
 import {
   createPauseDetector,
   type PauseDetector,
@@ -1561,6 +1577,9 @@ export function RehearsalWorkspace(props: {
     useState<LiveSttSlideAdvanceEvent | null>(null);
   const [p3SessionState, setP3SessionState] =
     useState<P3RehearsalSessionState | null>(null);
+  const [semanticDebugState, setSemanticDebugState] = useState(
+    createIdleSemanticDebugState,
+  );
   const [p3RunMeta, setP3RunMeta] = useState<RehearsalRunMeta | null>(null);
   const [previousPracticeSummary, setPreviousPracticeSummary] =
     useState<RehearsalPracticeSummary | null>(() =>
@@ -1609,6 +1628,9 @@ export function RehearsalWorkspace(props: {
   const liveSttPortRef = useRef<LiveSttPort | null>(props.liveSttPort ?? null);
   const liveSttSubscriptionCleanupRef = useRef<(() => void) | null>(null);
   const p3SessionRef = useRef<P3RehearsalSession | null>(null);
+  const semanticEmbeddingServicePromiseRef =
+    useRef<Promise<E5EmbeddingService> | null>(null);
+  const semanticMatcherRef = useRef<SemanticUtteranceMatcher | null>(null);
   const p3RunMetaRef = useRef<RehearsalRunMeta | null>(null);
   const pendingP3RunMetaRef = useRef<Promise<RehearsalRunMeta | null> | null>(
     null,
@@ -1639,6 +1661,14 @@ export function RehearsalWorkspace(props: {
   const pauseDetectorRef = useRef<PauseDetector | null>(null);
   const { settings: presenterSettings, save: savePresenterSettings } =
     usePresenterSettings();
+
+  useEffect(() => {
+    if (import.meta.env.MODE === "test") {
+      return;
+    }
+
+    getOrCreateSemanticMatcher();
+  }, []);
 
   useEffect(() => {
     if (props.initialDeck) {
@@ -2389,6 +2419,45 @@ export function RehearsalWorkspace(props: {
     }
   }
 
+  function getOrCreateSemanticMatcher() {
+    if (semanticMatcherRef.current) {
+      return semanticMatcherRef.current;
+    }
+
+    const servicePromise = getOrCreateSemanticEmbeddingService();
+    semanticMatcherRef.current = createSemanticUtteranceMatcher({
+      embeddingService: {
+        embedQuery: async (text) => (await servicePromise).embedQuery(text),
+        embedPassages: async (texts) =>
+          (await servicePromise).embedPassages(texts),
+      },
+    });
+    return semanticMatcherRef.current;
+  }
+
+  function getOrCreateSemanticEmbeddingService() {
+    semanticEmbeddingServicePromiseRef.current ??= getE5EmbeddingService(() => {
+      setSemanticDebugState((current) =>
+        createSemanticDebugState({
+          ...current,
+          status: "loading-model",
+          error: null,
+        }),
+      );
+    }).catch((error: unknown) => {
+      const message = error instanceof Error ? error.message : String(error);
+      setSemanticDebugState((current) =>
+        createSemanticDebugState({
+          ...current,
+          status: "error",
+          error: message,
+        }),
+      );
+      throw error;
+    });
+    return semanticEmbeddingServicePromiseRef.current;
+  }
+
   async function startP3Tracking(stream: MediaStream) {
     const deckSnapshot = deckRef.current ?? deck;
     const startSlideIndex = currentSlideIndexRef.current;
@@ -2445,6 +2514,11 @@ export function RehearsalWorkspace(props: {
           setP3SessionState(session.getState());
         }
       },
+      semanticMatcher:
+        import.meta.env.MODE === "test" ? undefined : getOrCreateSemanticMatcher(),
+      isSemanticMatchingEnabled: () =>
+        presenterSettings.advancePolicy.semanticMatching,
+      onSemanticDebugState: setSemanticDebugState,
     });
     p3SessionRef.current = session;
 
@@ -3561,6 +3635,11 @@ export function RehearsalWorkspace(props: {
     );
   }
 
+  const showSemanticDebugPanel = shouldShowSemanticSpeechDebugPanel({
+    isDevelopment: import.meta.env.DEV,
+    storage: getSemanticDebugPanelStorage(),
+  });
+
   return (
     <main className="rehearsal-presenter-shell">
       <div className="rehearsal-legacy-test-marker" aria-hidden="true">
@@ -3979,6 +4058,14 @@ export function RehearsalWorkspace(props: {
           state={advanceControllerState}
         />
       </section>
+      {showSemanticDebugPanel ? (
+        <SemanticSpeechDebugPanel
+          semanticMatchingEnabled={
+            presenterSettings.advancePolicy.semanticMatching
+          }
+          state={semanticDebugState}
+        />
+      ) : null}
     </main>
   );
 }
@@ -4531,6 +4618,18 @@ function getPreflightTriggerStatus(
     tone: "info",
     value: `음성 트리거 ${triggerCount}개`,
   };
+}
+
+function getSemanticDebugPanelStorage(): Pick<Storage, "getItem"> | null {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  try {
+    return window.localStorage;
+  } catch {
+    return null;
+  }
 }
 
 type RehearsalCompletionSummary = {
