@@ -151,6 +151,7 @@ function reportFixture(patch: Partial<RehearsalReport> = {}): RehearsalReport {
     pauseDetails: [],
     missedKeywords: [],
     utteranceOutcomes: [],
+    semanticCueDecisions: [],
     slideTimings: [],
     slideInsights: [],
     qnaSummary: {

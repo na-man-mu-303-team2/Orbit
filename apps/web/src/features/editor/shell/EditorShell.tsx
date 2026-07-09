@@ -3486,6 +3486,7 @@ export function EditorShell(props: { projectId?: string }) {
         },
         speakerNotes: "",
         keywords: [],
+        semanticCues: [],
         elements: [
           {
             elementId: createElementId(deck),

@@ -2465,6 +2465,7 @@ function reportFixture(patch: Partial<RehearsalReport> = {}): RehearsalReport {
     pauseDetails: [{ startSecond: 12, endSecond: 14, durationSeconds: 2 }],
     missedKeywords: [{ slideId: "slide_1", keywordId: "kw_1", text: "ORBIT" }],
     utteranceOutcomes: [],
+    semanticCueDecisions: [],
     slideTimings: [
       { slideId: "slide_1", targetSeconds: 60, actualSeconds: 52 },
     ],

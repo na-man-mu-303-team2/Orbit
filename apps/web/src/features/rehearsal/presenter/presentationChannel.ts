@@ -147,6 +147,7 @@ function createSlideWindowSlideSnapshot(
     elements: slide.elements,
     estimatedSeconds: slide.estimatedSeconds,
     keywords: [],
+    semanticCues: [],
     order: slide.order,
     // 슬라이드 창은 렌더링 전용이므로 발표 대본과 추적 키워드를 받지 않는다.
     speakerNotes: "",
