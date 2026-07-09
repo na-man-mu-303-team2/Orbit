@@ -181,7 +181,12 @@ export const slideVisualPlanSchema = z.object({
 export const slideSourceLedgerSchema = z.object({
   claim: z.string().min(1),
   source: z.string().min(1),
-  sourceType: z.enum(["topic", "uploaded", "generated", "none"]),
+  sourceType: z.enum(["topic", "uploaded", "web", "generated", "none"]),
+  sourceId: z.string().min(1).optional(),
+  fileId: z.string().min(1).optional(),
+  chunkId: z.string().min(1).optional(),
+  url: z.string().url().optional(),
+  title: z.string().min(1).optional(),
   confidence: z.number().finite().min(0).max(1).default(0.5),
   usedInSlideId: deckSlideIdSchema
 });

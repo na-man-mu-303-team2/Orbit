@@ -430,6 +430,107 @@ describe("generateDeckJobResultSchema", () => {
 });
 
 describe("generateDeckResponseSchema", () => {
+  it("normalizes legacy validation issues with structured defaults", () => {
+    const response = generateDeckResponseSchema.safeParse({
+      deck: {
+        deckId: "deck_ai_1",
+        projectId: "project_demo_1",
+        title: "AI generation",
+        version: 1,
+        metadata: { language: "ko", locale: "ko-KR" },
+        canvas: {
+          preset: "wide-16-9",
+          width: 1920,
+          height: 1080,
+          aspectRatio: "16:9"
+        },
+        slides: [
+          {
+            slideId: "slide_1",
+            order: 1,
+            title: "Opening",
+            thumbnailUrl: "",
+            style: {},
+            speakerNotes: "notes",
+            elements: [],
+            keywords: [],
+            animations: [],
+            actions: []
+          }
+        ]
+      },
+      validation: {
+        passed: false,
+        layoutIssues: [
+          { scope: "slide", path: "slides.0", message: "legacy warning" }
+        ]
+      }
+    });
+
+    expect(response.success).toBe(true);
+    if (response.success) {
+      expect(response.data.validation.layoutIssues[0]).toMatchObject({
+        code: "UNSPECIFIED",
+        severity: "warning",
+        blocking: false
+      });
+    }
+  });
+
+  it("rejects passed validation that still contains issues", () => {
+    const valid = generateDeckJobResultSchema.parse({
+      deckId: "deck_ai_1",
+      deck: {
+        deckId: "deck_ai_1",
+        projectId: "project_demo_1",
+        title: "AI generation",
+        version: 1,
+        metadata: { language: "ko", locale: "ko-KR" },
+        canvas: {
+          preset: "wide-16-9",
+          width: 1920,
+          height: 1080,
+          aspectRatio: "16:9"
+        },
+        slides: [
+          {
+            slideId: "slide_1",
+            order: 1,
+            title: "Opening",
+            thumbnailUrl: "",
+            style: {},
+            speakerNotes: "notes",
+            elements: [],
+            keywords: [],
+            animations: [],
+            actions: []
+          }
+        ]
+      },
+      validation: { passed: true }
+    });
+
+    expect(
+      generateDeckResponseSchema.safeParse({
+        ...valid,
+        validation: {
+          ...valid.validation,
+          passed: true,
+          contentIssues: [
+            {
+              code: "CONTENT_MISSING",
+              scope: "slide",
+              severity: "error",
+              blocking: true,
+              path: "slides.0",
+              message: "content missing"
+            }
+          ]
+        }
+      }).success
+    ).toBe(false);
+  });
+
   it("accepts optional template selection mapping", () => {
     const response = generateDeckResponseSchema.parse({
       deck: {

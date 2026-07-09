@@ -235,18 +235,36 @@ export const deckColorOptionsResponseSchema = z.object({
 });
 
 export const generateDeckValidationIssueSchema = z.object({
+  code: z.string().trim().min(1).default("UNSPECIFIED"),
   scope: z.enum(["deck", "slide", "element"]),
+  severity: z.enum(["warning", "error"]).default("warning"),
+  blocking: z.boolean().default(false),
   path: z.string().default(""),
   message: z.string().min(1)
 });
 
-export const generateDeckValidationSchema = z.object({
-  passed: z.boolean(),
-  layoutIssues: z.array(generateDeckValidationIssueSchema).default([]),
-  contentIssues: z.array(generateDeckValidationIssueSchema).default([]),
-  designIssues: z.array(generateDeckValidationIssueSchema).default([]),
-  presentationIssues: z.array(generateDeckValidationIssueSchema).default([])
-});
+export const generateDeckValidationSchema = z
+  .object({
+    passed: z.boolean(),
+    layoutIssues: z.array(generateDeckValidationIssueSchema).default([]),
+    contentIssues: z.array(generateDeckValidationIssueSchema).default([]),
+    designIssues: z.array(generateDeckValidationIssueSchema).default([]),
+    presentationIssues: z.array(generateDeckValidationIssueSchema).default([])
+  })
+  .superRefine((validation, ctx) => {
+    const issueCount =
+      validation.layoutIssues.length +
+      validation.contentIssues.length +
+      validation.designIssues.length +
+      validation.presentationIssues.length;
+    if (validation.passed && issueCount > 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["passed"],
+        message: "passed must be false when validation contains any issue"
+      });
+    }
+  });
 
 export const templateSelectionItemSchema = z.object({
   generatedOrder: z.number().int().positive(),
