@@ -18,6 +18,12 @@ import {
 } from "./speechTrackingConfig";
 import type { SpeechTrackerKeyword } from "./speechTracker";
 import { createSpeechTracker, type SpeechTracker } from "./speechTracker";
+import {
+  createSemanticDebugState,
+  semanticDebugErrorMessage,
+  type SemanticUtteranceDebugState
+} from "./semanticSpeechDebug";
+import type { SemanticUtteranceMatcher } from "./semanticUtteranceMatcher";
 import type { SpeechTrackerSnapshot, SpeechTrackingEvent } from "./speechTrackingEvents";
 
 export type P3RehearsalSessionSlide = {
@@ -47,6 +53,9 @@ export type CreateP3RehearsalSessionInput = {
   now?: () => number;
   onEvents?: (events: SpeechTrackingEvent[]) => void;
   onSnapshot?: (snapshot: SpeechTrackerSnapshot) => void;
+  semanticMatcher?: SemanticUtteranceMatcher;
+  isSemanticMatchingEnabled?: () => boolean;
+  onSemanticDebugState?: (state: SemanticUtteranceDebugState) => void;
 };
 
 export type P3RehearsalSession = {
@@ -89,6 +98,9 @@ export function createP3RehearsalSession(
   let currentTracker: SpeechTracker | null = null;
   let runMeta: RehearsalRunMeta | null = null;
   let cleanupSubscriptions: (() => void) | null = null;
+  let semanticGeneration = 0;
+  let semanticQueue: Promise<void> = Promise.resolve();
+  const semanticPrepareBySlideId = new Map<string, Promise<void>>();
 
   async function start(options: {
     audioSource: MediaStream;
@@ -133,6 +145,8 @@ export function createP3RehearsalSession(
     currentTracker = getTracker(slideIndex);
     collector.enterSlide(slide.slideId);
     status = "running";
+    semanticGeneration += 1;
+    scheduleSemanticPrepare(slideIndex, semanticGeneration);
     emitSnapshot();
     return getState();
   }
@@ -155,6 +169,8 @@ export function createP3RehearsalSession(
     slideEnteredAtMs = getNowMs();
     collector.enterSlide(slide.slideId);
     input.port.updateBiasPhrases(buildBiasPhrasesForSlide(slide, input.config));
+    semanticGeneration += 1;
+    scheduleSemanticPrepare(slideIndex, semanticGeneration);
     applyEventsToLog(events, collector);
     if (events.length > 0) {
       input.onEvents?.(events);
@@ -177,6 +193,14 @@ export function createP3RehearsalSession(
     if (events.length > 0) {
       input.onEvents?.(events);
     }
+    if (result.isFinal) {
+      enqueueSemanticFinalResult({
+        result,
+        resultSlideIndex: slideIndex,
+        tracker: currentTracker,
+        generation: semanticGeneration
+      });
+    }
     emitSnapshot();
     return events;
   }
@@ -189,6 +213,7 @@ export function createP3RehearsalSession(
     cleanupSubscriptions?.();
     await input.port.stop();
     status = "stopped";
+    semanticGeneration += 1;
     runMeta = collector.finalize();
     return runMeta;
   }
@@ -242,6 +267,151 @@ export function createP3RehearsalSession(
       throw new Error(`P3 rehearsal slide index is out of range: ${index}`);
     }
     return slide;
+  }
+
+  function scheduleSemanticPrepare(index: number, generation: number) {
+    if (!input.semanticMatcher || status !== "running") {
+      return;
+    }
+
+    const slide = getSlide(index);
+    emitSemanticDebugState({
+      status: "indexing-script",
+      slideId: slide.slideId,
+      transcript: "",
+      isFinal: false,
+      topMatches: [],
+      error: null
+    });
+
+    const preparePromise = input.semanticMatcher
+      .prepareSlide({
+        slideId: slide.slideId,
+        speakerNotes: slide.speakerNotes
+      })
+      .then(() => {
+        if (isSemanticGenerationCurrent(generation, index)) {
+          emitSemanticDebugState({
+            status: "ready",
+            slideId: slide.slideId,
+            transcript: "",
+            isFinal: false,
+            topMatches: [],
+            error: null
+          });
+        }
+      })
+      .catch((error: unknown) => {
+        if (isSemanticGenerationCurrent(generation, index)) {
+          emitSemanticDebugState({
+            status: "error",
+            slideId: slide.slideId,
+            transcript: "",
+            isFinal: false,
+            topMatches: [],
+            error: semanticDebugErrorMessage(error)
+          });
+        }
+      });
+
+    semanticPrepareBySlideId.set(slide.slideId, preparePromise);
+  }
+
+  function enqueueSemanticFinalResult(options: {
+    result: LiveSttResult;
+    resultSlideIndex: number;
+    tracker: SpeechTracker;
+    generation: number;
+  }) {
+    if (!input.semanticMatcher) {
+      return;
+    }
+
+    semanticQueue = semanticQueue
+      .catch(() => undefined)
+      .then(() => processSemanticFinalResult(options));
+  }
+
+  async function processSemanticFinalResult(options: {
+    result: LiveSttResult;
+    resultSlideIndex: number;
+    tracker: SpeechTracker;
+    generation: number;
+  }) {
+    const slide = getSlide(options.resultSlideIndex);
+    await semanticPrepareBySlideId.get(slide.slideId);
+    if (!isSemanticGenerationCurrent(options.generation, options.resultSlideIndex)) {
+      return;
+    }
+
+    emitSemanticDebugState({
+      status: "matching",
+      slideId: slide.slideId,
+      transcript: options.result.text,
+      isFinal: true,
+      topMatches: [],
+      error: null
+    });
+
+    try {
+      const match = await input.semanticMatcher?.matchFinalTranscript({
+        slideId: slide.slideId,
+        transcript: options.result.text,
+        coveredSentenceIds: new Set(options.tracker.snapshot().coveredSentenceIds)
+      });
+      if (!match || !isSemanticGenerationCurrent(options.generation, options.resultSlideIndex)) {
+        return;
+      }
+
+      emitSemanticDebugState({
+        status: "ready",
+        slideId: slide.slideId,
+        transcript: options.result.text,
+        isFinal: true,
+        topMatches: match.topMatches,
+        error: null
+      });
+
+      const topMatch = match.topMatches[0];
+      if (!match.accepted || !topMatch || !input.isSemanticMatchingEnabled?.()) {
+        return;
+      }
+
+      const events = options.tracker.acceptSemanticSentenceMatch({
+        sentenceId: topMatch.sentenceId,
+        transcript: options.result.text,
+        similarity: topMatch.similarity,
+        atMs: options.result.timestampMs[1]
+      });
+      applyEventsToLog(events, collector);
+      if (events.length > 0) {
+        input.onEvents?.(events);
+        emitSnapshot();
+      }
+    } catch (error) {
+      if (isSemanticGenerationCurrent(options.generation, options.resultSlideIndex)) {
+        emitSemanticDebugState({
+          status: "error",
+          slideId: slide.slideId,
+          transcript: options.result.text,
+          isFinal: true,
+          topMatches: [],
+          error: semanticDebugErrorMessage(error)
+        });
+      }
+    }
+  }
+
+  function isSemanticGenerationCurrent(generation: number, expectedSlideIndex: number) {
+    return (
+      status === "running" &&
+      generation === semanticGeneration &&
+      slideIndex === expectedSlideIndex
+    );
+  }
+
+  function emitSemanticDebugState(state: SemanticUtteranceDebugState) {
+    input.onSemanticDebugState?.(createSemanticDebugState(state));
   }
 
   return {
