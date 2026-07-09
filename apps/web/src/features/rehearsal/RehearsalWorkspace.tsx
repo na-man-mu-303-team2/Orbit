@@ -162,6 +162,7 @@ import { getSemanticCueRuntimeFlags } from "./speech/semanticCueFeatureFlags";
 import { createSemanticCueDebugRingBuffer } from "./speech/semanticCueDebugEvents";
 import { createSemanticCueRuntime } from "./speech/semanticCueRuntime";
 import { createMockSemanticCueNliProvider } from "./speech/mockSemanticCueNliProvider";
+import { createBrowserTransformersSemanticCueNliProvider } from "./speech/browserSemanticCueNliProvider";
 import {
   getE5EmbeddingService,
   type E5EmbeddingService,
@@ -1638,6 +1639,10 @@ export function RehearsalWorkspace(props: {
     useRef<Promise<E5EmbeddingService> | null>(null);
   const semanticMatcherRef = useRef<SemanticUtteranceMatcher | null>(null);
   const semanticCueDebugBufferRef = useRef(createSemanticCueDebugRingBuffer());
+  const semanticCueNliProviderRef = useRef<{
+    key: string;
+    provider: ReturnType<typeof createBrowserTransformersSemanticCueNliProvider>;
+  } | null>(null);
   const p3RunMetaRef = useRef<RehearsalRunMeta | null>(null);
   const pendingP3RunMetaRef = useRef<Promise<RehearsalRunMeta | null> | null>(
     null,
@@ -1676,6 +1681,14 @@ export function RehearsalWorkspace(props: {
 
     getOrCreateSemanticMatcher();
   }, []);
+
+  useEffect(
+    () => () => {
+      semanticCueNliProviderRef.current?.provider.dispose();
+      semanticCueNliProviderRef.current = null;
+    },
+    [],
+  );
 
   useEffect(() => {
     if (props.initialDeck) {
@@ -2468,7 +2481,29 @@ export function RehearsalWorkspace(props: {
   function createSemanticCueRuntimeFromFlags() {
     const flags = getSemanticCueRuntimeFlags(import.meta.env);
 
-    if (!flags.nliEnabled || flags.provider !== "mock") {
+    if (!flags.nliEnabled || flags.provider === "off") {
+      return undefined;
+    }
+
+    if (flags.provider === "browser-transformersjs") {
+      const key = `${flags.provider}:${flags.modelId}`;
+      if (semanticCueNliProviderRef.current?.key !== key) {
+        semanticCueNliProviderRef.current?.provider.dispose();
+        semanticCueNliProviderRef.current = {
+          key,
+          provider: createBrowserTransformersSemanticCueNliProvider({
+            modelId: flags.modelId,
+          }),
+        };
+      }
+
+      return createSemanticCueRuntime({
+        provider: semanticCueNliProviderRef.current.provider,
+        enabled: true,
+      });
+    }
+
+    if (flags.provider !== "mock") {
       return undefined;
     }
 
