@@ -389,6 +389,74 @@ describe("p3RehearsalSession", () => {
     });
   });
 
+  it("pauses and resumes the same slide tracking state with monotonic STT timestamps", async () => {
+    const port = createMockLiveSttPort();
+    const session = createP3RehearsalSession({
+      slides,
+      port,
+      now: createNow([45_000])
+    });
+
+    await session.start({
+      audioSource: { id: "stream-1" } as unknown as MediaStream,
+      slideIndex: 0
+    });
+
+    port.emit({
+      text: "생성형 AI 초안을 안정적으로 추적합니다.",
+      isFinal: true,
+      timestampMs: [0, 1_000]
+    });
+    expect(session.getState().snapshot?.coveredSentenceIds).toEqual([
+      "sentence_1"
+    ]);
+
+    await session.pause();
+    expect(session.getState().status).toBe("paused");
+    expect(port.stop).toHaveBeenCalledTimes(1);
+    expect(session.enterSlide(1)).toEqual([]);
+
+    port.emit({
+      text: "마지막으로 개인정보를 보호합니다.",
+      isFinal: true,
+      timestampMs: [0, 500]
+    });
+    expect(session.getState().snapshot?.coveredSentenceIds).toEqual([
+      "sentence_1"
+    ]);
+
+    await session.resume({
+      audioSource: { id: "stream-1" } as unknown as MediaStream
+    });
+    expect(session.getState().status).toBe("running");
+    expect(port.start).toHaveBeenCalledTimes(2);
+
+    port.emit({
+      text: "마지막으로 개인정보를 보호합니다.",
+      isFinal: true,
+      timestampMs: [0, 500]
+    });
+
+    const finalSegments = session.getState().finalSegments;
+    expect(session.getState().snapshot).toMatchObject({
+      slideId: "slide_1",
+      coveredSentenceIds: ["sentence_1", "sentence_2"],
+      finalSentenceSpoken: true
+    });
+    expect(finalSegments.map((segment) => segment.timestampMs)).toEqual([
+      [0, 1_000],
+      [1_000, 1_500]
+    ]);
+
+    await expect(session.stop()).resolves.toMatchObject({
+      slideTimeline: [
+        {
+          slideId: "slide_1"
+        }
+      ]
+    });
+  });
+
   it("finalizes active advice state into local run meta", async () => {
     const port = createMockLiveSttPort();
     const session = createP3RehearsalSession({
