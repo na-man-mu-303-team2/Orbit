@@ -28,6 +28,20 @@ describe("RehearsalReportDocument", () => {
               similarity: 0.87
             },
             { slideId: "slide_2", kind: "missed", sentenceId: "sentence_1" }
+          ],
+          semanticCueDecisions: [
+            {
+              slideId: "slide_1",
+              cueId: "scue_intro_1",
+              label: "covered",
+              finalScore: 0.82,
+              entailmentScore: 0.91,
+              premise: "보고서에 그대로 노출하지 않을 전사 근거",
+              hypothesis: "보고서에 그대로 노출하지 않을 가설",
+              provider: "browser-transformersjs",
+              modelId: "model",
+              reasonCodes: ["nli-entailment", "concept-coverage"]
+            }
           ]
         })}
         run={{
@@ -58,6 +72,12 @@ describe("RehearsalReportDocument", () => {
     expect(html).toContain("마무리 문장입니다");
     expect(html).toContain("슬라이드 1 · Opening");
     expect(html).toContain("93%");
+    expect(html).toContain("Semantic cue evidence");
+    expect(html).toContain("scue_intro_1");
+    expect(html).toContain("82%");
+    expect(html).toContain("nli-entailment");
+    expect(html).not.toContain("보고서에 그대로 노출하지 않을 전사 근거");
+    expect(html).not.toContain("보고서에 그대로 노출하지 않을 가설");
   });
 });
 

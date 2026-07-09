@@ -146,6 +146,10 @@ import {
   shouldShowSemanticSpeechDebugPanel,
 } from "./panel/SemanticSpeechDebugPanel";
 import {
+  SemanticCueDebugPanel,
+  shouldShowSemanticCueDebugPanel,
+} from "./panel/SemanticCueDebugPanel";
+import {
   calculateFinalTranscriptWpm,
   getDeckTargetSeconds as getRehearsalDeckTargetSeconds,
   getTimingAdviceState,
@@ -159,7 +163,10 @@ import {
   type P3RehearsalSessionState,
 } from "./speech/p3RehearsalSession";
 import { getSemanticCueRuntimeFlags } from "./speech/semanticCueFeatureFlags";
-import { createSemanticCueDebugRingBuffer } from "./speech/semanticCueDebugEvents";
+import {
+  createSemanticCueDebugRingBuffer,
+  type SemanticCueDebugEvent,
+} from "./speech/semanticCueDebugEvents";
 import { createSemanticCueRuntime } from "./speech/semanticCueRuntime";
 import { createMockSemanticCueNliProvider } from "./speech/mockSemanticCueNliProvider";
 import { createBrowserTransformersSemanticCueNliProvider } from "./speech/browserSemanticCueNliProvider";
@@ -1587,6 +1594,9 @@ export function RehearsalWorkspace(props: {
   const [semanticDebugState, setSemanticDebugState] = useState(
     createIdleSemanticDebugState,
   );
+  const [semanticCueDebugEvents, setSemanticCueDebugEvents] = useState<
+    SemanticCueDebugEvent[]
+  >([]);
   const [p3RunMeta, setP3RunMeta] = useState<RehearsalRunMeta | null>(null);
   const [previousPracticeSummary, setPreviousPracticeSummary] =
     useState<RehearsalPracticeSummary | null>(() =>
@@ -2610,6 +2620,7 @@ export function RehearsalWorkspace(props: {
       onSemanticDebugState: setSemanticDebugState,
       onSemanticCueDebugEvent: (event) => {
         semanticCueDebugBufferRef.current.push(event);
+        setSemanticCueDebugEvents(semanticCueDebugBufferRef.current.snapshot());
       },
     });
     p3SessionRef.current = session;
@@ -3718,6 +3729,25 @@ export function RehearsalWorkspace(props: {
     isDevelopment: import.meta.env.DEV,
     storage: getSemanticDebugPanelStorage(),
   });
+  const showSemanticCueDebugPanel = shouldShowSemanticCueDebugPanel({
+    flagEnabled: getSemanticCueRuntimeFlags(import.meta.env).debugPanelEnabled,
+    locationSearch:
+      typeof window === "undefined" ? "" : window.location.search,
+  });
+
+  function copySemanticCueDebugJson(json: string) {
+    void navigator.clipboard?.writeText(json);
+  }
+
+  function exportSemanticCueDebugJson(json: string) {
+    const blob = new Blob([json], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = "semantic-cue-debug-events.json";
+    anchor.click();
+    URL.revokeObjectURL(url);
+  }
 
   return (
     <main className="rehearsal-presenter-shell">
@@ -4143,6 +4173,13 @@ export function RehearsalWorkspace(props: {
             presenterSettings.advancePolicy.semanticMatching
           }
           state={semanticDebugState}
+        />
+      ) : null}
+      {showSemanticCueDebugPanel ? (
+        <SemanticCueDebugPanel
+          events={semanticCueDebugEvents}
+          onCopyJson={copySemanticCueDebugJson}
+          onExportJson={exportSemanticCueDebugJson}
         />
       ) : null}
     </main>
