@@ -26,7 +26,12 @@ export const generateDeckFontCatalog: GenerateDeckFontOverride[] = [
     pptxEmbeddable: true,
     moodTags: ["professional", "modern", "clear", "tech"],
     license: "SIL Open Font License 1.1",
-    sourceUrl: "https://github.com/orioncactus/pretendard"
+    sourceUrl: "https://github.com/orioncactus/pretendard",
+    recommendedTitleSize: 48,
+    recommendedBodySize: 22,
+    lineHeight: 1.15,
+    widthFactor: 1,
+    overflowRisk: "low"
   },
   {
     fontId: "noto-sans-kr",
@@ -39,7 +44,12 @@ export const generateDeckFontCatalog: GenerateDeckFontOverride[] = [
     pptxEmbeddable: true,
     moodTags: ["professional", "formal", "clear"],
     license: "SIL Open Font License 1.1",
-    sourceUrl: "https://fonts.google.com/noto/specimen/Noto+Sans+KR"
+    sourceUrl: "https://fonts.google.com/noto/specimen/Noto+Sans+KR",
+    recommendedTitleSize: 46,
+    recommendedBodySize: 21,
+    lineHeight: 1.18,
+    widthFactor: 1.04,
+    overflowRisk: "medium"
   },
   {
     fontId: "gowun-dodum",
@@ -52,7 +62,12 @@ export const generateDeckFontCatalog: GenerateDeckFontOverride[] = [
     pptxEmbeddable: true,
     moodTags: ["friendly", "rounded", "editorial"],
     license: "SIL Open Font License 1.1",
-    sourceUrl: "https://github.com/yangheeryu/Gowun-Dodum"
+    sourceUrl: "https://github.com/yangheeryu/Gowun-Dodum",
+    recommendedTitleSize: 45,
+    recommendedBodySize: 21,
+    lineHeight: 1.22,
+    widthFactor: 1.08,
+    overflowRisk: "medium"
   },
   {
     fontId: "nanum-square-round",
@@ -65,7 +80,12 @@ export const generateDeckFontCatalog: GenerateDeckFontOverride[] = [
     pptxEmbeddable: true,
     moodTags: ["rounded", "friendly", "playful"],
     license: "Naver Nanum Font License",
-    sourceUrl: "https://hangeul.naver.com/font"
+    sourceUrl: "https://hangeul.naver.com/font",
+    recommendedTitleSize: 44,
+    recommendedBodySize: 21,
+    lineHeight: 1.2,
+    widthFactor: 1.1,
+    overflowRisk: "medium"
   },
   {
     fontId: "gmarket-sans",
@@ -78,7 +98,12 @@ export const generateDeckFontCatalog: GenerateDeckFontOverride[] = [
     pptxEmbeddable: true,
     moodTags: ["modern", "playful", "bold", "friendly"],
     license: "Gmarket Sans License",
-    sourceUrl: "https://corp.gmarket.com/fonts"
+    sourceUrl: "https://corp.gmarket.com/fonts",
+    recommendedTitleSize: 40,
+    recommendedBodySize: 20,
+    lineHeight: 1.18,
+    widthFactor: 1.18,
+    overflowRisk: "high"
   }
 ];
 

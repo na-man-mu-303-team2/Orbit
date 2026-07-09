@@ -137,7 +137,12 @@ export const generateDeckFontOverrideSchema = z.object({
   pptxEmbeddable: z.boolean().default(true),
   moodTags: z.array(z.string().trim().min(1)).default([]),
   license: z.string().trim().default(""),
-  sourceUrl: z.string().trim().default("")
+  sourceUrl: z.string().trim().default(""),
+  recommendedTitleSize: z.number().int().min(28).max(72).default(48),
+  recommendedBodySize: z.number().int().min(14).max(36).default(22),
+  lineHeight: z.number().min(1).max(1.6).default(1.15),
+  widthFactor: z.number().min(0.8).max(1.4).default(1),
+  overflowRisk: z.enum(["low", "medium", "high"]).default("medium")
 });
 
 export const generateDeckVisualPlanPolicySchema = z

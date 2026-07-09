@@ -245,7 +245,21 @@ export function buildAiPptAdvisorSuggestions(
   state: AiPptWizardState
 ): AiPptAdvisorSuggestion[] {
   const suggestions: AiPptAdvisorSuggestion[] = [];
-  if (parsePositiveInteger(state.duration, 10) <= 3 && !state.slides.trim()) {
+  const recommendedSlideCount = deriveSlideCountFromState(state);
+  const explicitSlideCount = parsePositiveInteger(state.slides, 0);
+
+  if (
+    explicitSlideCount > 0 &&
+    (explicitSlideCount < Math.max(1, recommendedSlideCount - 2) ||
+      explicitSlideCount > recommendedSlideCount + 3)
+  ) {
+    suggestions.push({
+      field: "slides",
+      label: `${parsePositiveInteger(state.duration, 10)}분 발표 ${recommendedSlideCount}장 권장`,
+      reason: "발표 톤과 청중 참여도를 기준으로 장수가 너무 적거나 많으면 대본 분량과 흐름이 흔들릴 수 있습니다.",
+      value: String(recommendedSlideCount)
+    });
+  } else if (parsePositiveInteger(state.duration, 10) <= 3 && !state.slides.trim()) {
     suggestions.push({
       field: "slides",
       label: "3분 발표용 4장 구성",
@@ -1082,11 +1096,54 @@ function parsePositiveInteger(value: string, fallback: number) {
 function resolveSlideCount(state: AiPptWizardState) {
   const requested = parsePositiveInteger(state.slides, 0);
   if (requested > 0) return requested;
-  return deriveSlideCount(parsePositiveInteger(state.duration, 10));
+  return deriveSlideCountFromState(state);
 }
 
-function deriveSlideCount(durationMinutes: number) {
-  return Math.min(12, Math.max(4, Math.round(durationMinutes * 0.55)));
+function deriveSlideCountFromState(state: AiPptWizardState) {
+  return deriveSlideCount(
+    parsePositiveInteger(state.duration, 10),
+    presentationSlideRatioFor(state)
+  );
+}
+
+function deriveSlideCount(durationMinutes: number, slidesPerMinute: number) {
+  return Math.min(14, Math.max(4, Math.round(durationMinutes * slidesPerMinute)));
+}
+
+function presentationSlideRatioFor(state: AiPptWizardState) {
+  const source = [
+    state.purpose,
+    state.context,
+    state.audience,
+    state.presentationType,
+    state.successCriteria,
+    state.fontMood,
+    state.colorMood
+  ]
+    .join(" ")
+    .toLocaleLowerCase("ko-KR");
+
+  if (
+    state.tone === "friendly" ||
+    hasAny(source, [
+      "friendly",
+      "funny",
+      "easy",
+      "casual",
+      "discussion",
+      "workshop",
+      "토의",
+      "토론",
+      "자유롭게",
+      "쉽게",
+      "재미"
+    ])
+  ) {
+    return 1;
+  }
+  if (state.tone === "concise") return 0.65;
+  if (state.tone === "confident") return 0.8;
+  return 0.75;
 }
 
 function resolveDesignConstraints(state: AiPptWizardState): DesignConstraints {
@@ -1215,7 +1272,12 @@ function fontOverrideFromOption(option: GenerateDeckFontOption) {
     pptxEmbeddable: option.pptxEmbeddable,
     moodTags: option.moodTags,
     license: option.license,
-    sourceUrl: option.sourceUrl
+    sourceUrl: option.sourceUrl,
+    recommendedTitleSize: option.recommendedTitleSize,
+    recommendedBodySize: option.recommendedBodySize,
+    lineHeight: option.lineHeight,
+    widthFactor: option.widthFactor,
+    overflowRisk: option.overflowRisk
   };
 }
 

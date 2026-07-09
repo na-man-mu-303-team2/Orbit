@@ -178,6 +178,8 @@ describe("generateDeckRequestSchema", () => {
     expect(request.visualPlanPolicy?.mediaPolicy).toBe("minimal");
     expect(request.design.mediaPolicy).toBe("minimal");
     expect(request.design.fontOverride?.bodyFontFamily).toBe("Pretendard");
+    expect(request.design.fontOverride?.recommendedTitleSize).toBe(48);
+    expect(request.design.fontOverride?.overflowRisk).toBe("medium");
   });
 
   it("accepts optional v2 design preset overrides", () => {

@@ -87,7 +87,9 @@ describe("AI PPT wizard payload", () => {
     expect(payload.designPrompt).toContain("output=Deck JSON first");
     expect(payload.design.fontOverride).toMatchObject({
       fontId: "pretendard",
-      bodyFontFamily: "Pretendard"
+      bodyFontFamily: "Pretendard",
+      recommendedBodySize: 22,
+      overflowRisk: "low"
     });
     expect(payload.design.mediaPolicy).toBe("minimal");
     expect(payload.visualPlanPolicy).toEqual({ mediaPolicy: "minimal" });
@@ -128,6 +130,29 @@ describe("AI PPT wizard payload", () => {
       canvasBackground: "white",
       forbiddenStyles: ["gradient", "pastel"]
     });
+  });
+
+  it("derives seven slides for a 7 minute friendly easy-read deck", () => {
+    const payload = buildAiPptGenerateDeckPayload(
+      {
+        topic: "1차 MVP 회고",
+        purpose: "자유롭게 토의하는 발표",
+        context: "직급 관계 없이 의견을 나누는 자리",
+        audience: "PM and engineers",
+        presentationType: "discussion",
+        successCriteria: "agree on next actions",
+        duration: "7",
+        slides: "",
+        tone: "friendly",
+        colorMood: "black background with readable accents",
+        fontMood: "funny easy read Korean sans font",
+        mediaPolicy: "ai-generated",
+        referencePolicy: "references-first"
+      },
+      palette
+    );
+
+    expect(payload.slideCountRange).toEqual({ min: 7, max: 7 });
   });
 
   it("blocks references-only generation without a reference file", () => {

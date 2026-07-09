@@ -186,12 +186,24 @@ export const slideSourceLedgerSchema = z.object({
   usedInSlideId: deckSlideIdSchema
 });
 
+export const slideTimingPlanSchema = z.object({
+  charsPerMinute: z.number().int().positive().optional(),
+  targetTotalChars: z.number().int().nonnegative().optional(),
+  targetSlideCount: z.number().int().positive().optional(),
+  targetSecondsPerSlide: z.number().int().positive().optional(),
+  targetSpeakerNotesCharsPerSlide: z.number().int().nonnegative().optional(),
+  targetSeconds: z.number().int().positive(),
+  targetSpeakerNotesChars: z.number().int().nonnegative(),
+  actualSpeakerNotesChars: z.number().int().nonnegative()
+});
+
 export const slideAiNotesSchema = z
   .object({
     emphasisPoints: z.array(z.string().min(1)).default([]),
     sourceEvidence: z.array(slideSourceEvidenceSchema).default([]),
     visualPlan: slideVisualPlanSchema.optional(),
-    sourceLedger: z.array(slideSourceLedgerSchema).optional()
+    sourceLedger: z.array(slideSourceLedgerSchema).optional(),
+    timingPlan: slideTimingPlanSchema.optional()
   })
   .default({});
 
@@ -339,6 +351,7 @@ export type SlideBackgroundImageFit = z.infer<
 export type SlideSourceEvidence = z.infer<typeof slideSourceEvidenceSchema>;
 export type SlideVisualPlan = z.infer<typeof slideVisualPlanSchema>;
 export type SlideSourceLedger = z.infer<typeof slideSourceLedgerSchema>;
+export type SlideTimingPlan = z.infer<typeof slideTimingPlanSchema>;
 export type SlideAiNotes = z.infer<typeof slideAiNotesSchema>;
 export type KeywordTerm = z.infer<typeof keywordTermSchema>;
 export type Keyword = z.infer<typeof keywordSchema>;
