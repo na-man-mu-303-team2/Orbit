@@ -41,7 +41,7 @@ Worker (buildRehearsalReport)
 
 ## 1단계: 요청 DTO 확장
 
-현재 `/rehearsal/analyze` 요청에 `slideContexts`, `runEvidence`를 **optional**로 추가한다.
+선택지 B 채택으로 `slideContexts`는 **외부 주입하지 않는다**. python-worker가 0단계에서 내부적으로 생성한다. 대신 그 재료가 되는 `slideRawInputs`와 `runEvidence`를 optional로 추가한다.
 
 ```typescript
 // packages/shared 기준 TypeScript 타입 표현
@@ -56,52 +56,27 @@ type RehearsalAnalyzeRequest = {
   deckKeywords: DeckKeyword[];
   slideTimeline: { slideId: string; enteredSecond: number }[];
 
-  // 신규 optional
-  slideContexts?: SlideContext[];
-  runEvidence?: RunEvidence;
-};
-
-type SlideContext = {
-  slideId: string;
-  title?: string;
-  slidePurpose?: string;              // "이 슬라이드에서 무엇을 전달해야 하는가"
-  expectedAudienceTakeaway?: string;  // "청중이 이 슬라이드를 보고 무엇을 가져가야 하는가"
-  messageUnits?: MessageUnit[];
-  optionalNotes?: string;
-};
-
-type MessageUnit = {
-  messageId: string;
-  importance: "required" | "recommended" | "optional";
-  intent: string;                   // 이 메시지로 청중에게 전달하려는 것
-  acceptableMeanings?: string[];    // 이렇게 말해도 OK
-  misleadingCases?: string[];       // 이렇게 말하면 오해 유발
-  supportingTerms?: string[];       // 이 단어들이 나오면 맥락 증거
-};
-
-type RunEvidence = {
-  adviceEvents?: { type: string; at: string }[];
+  // 신규 optional (B 방식)
+  slideRawInputs?: {          // deck contract 변경 없이 slide 재료만 전달
+    slideId: string;
+    title: string;
+    speakerNotes: string;
+  }[];
+  runEvidence?: {
+    adviceEvents?: { type: string; at: string }[];
+  };
 };
 ```
+
+`SlideContext` / `MessageUnit` 타입은 python-worker 내부 타입이 된다. DTO에서 제거한다.
 
 **python-worker 모델 (`services/python-worker/app/main.py`)**:
 
 ```python
-class SlideMessageUnit(BaseModel):
-    message_id: str = Field(alias="messageId")
-    importance: Literal["required", "recommended", "optional"]
-    intent: str
-    acceptable_meanings: list[str] = Field(default_factory=list, alias="acceptableMeanings")
-    misleading_cases: list[str] = Field(default_factory=list, alias="misleadingCases")
-    supporting_terms: list[str] = Field(default_factory=list, alias="supportingTerms")
-
-class SlideContextRequest(BaseModel):
+class SlideRawInput(BaseModel):
     slide_id: str = Field(alias="slideId")
-    title: str | None = None
-    slide_purpose: str | None = Field(default=None, alias="slidePurpose")
-    expected_audience_takeaway: str | None = Field(default=None, alias="expectedAudienceTakeaway")
-    message_units: list[SlideMessageUnit] = Field(default_factory=list, alias="messageUnits")
-    optional_notes: str | None = Field(default=None, alias="optionalNotes")
+    title: str = ""
+    speaker_notes: str = Field(default="", alias="speakerNotes")
 
 class RunEvidenceRequest(BaseModel):
     advice_events: list[dict] = Field(default_factory=list, alias="adviceEvents")
@@ -117,8 +92,8 @@ class RehearsalAnalyzeRequest(BaseModel):
     deck_keywords: list[DeckKeywordRequest] = Field(default_factory=list, alias="deckKeywords")
     slide_timeline: list[RehearsalSlideTimelineEntryRequest] = Field(default_factory=list, alias="slideTimeline")
 
-    # 신규 optional
-    slide_contexts: list[SlideContextRequest] | None = Field(default=None, alias="slideContexts")
+    # 신규 optional (B 방식 — SlideContextRequest 없음)
+    slide_raw_inputs: list[SlideRawInput] | None = Field(default=None, alias="slideRawInputs")
     run_evidence: RunEvidenceRequest | None = Field(default=None, alias="runEvidence")
 ```
 
@@ -144,7 +119,7 @@ type RehearsalAnalyzeResponse = {
   aiSummary: RehearsalAiSummary;
   coaching: RehearsalCoaching;
 
-  // 신규 optional (slideContexts 있을 때만 생성)
+  // 신규 optional (0단계 derive_slide_contexts 성공 시에만 생성)
   contextSummary?: ContextSummary;
   messageCoverage?: MessageCoverageItem[];
   slideContextInsights?: SlideContextInsight[];
@@ -255,6 +230,8 @@ ActualMessage:
 
 ### analyzeTranscript (line 397)
 
+`slideContexts`는 보내지 않는다. 대신 python-worker 0단계가 사용할 `slideRawInputs`를 추가한다.
+
 ```typescript
 // 기존
 body: JSON.stringify({
@@ -268,12 +245,85 @@ body: JSON.stringify({
 body: JSON.stringify({
   runId: payload.runId,
   // ...기존 필드...
-  slideContexts: buildSlideContexts(deckContext.deck),  // optional, deck에서 추출
+  slideRawInputs: deckContext.deck.slides.map((slide) => ({
+    slideId: slide.slideId,
+    title: slide.title,
+    speakerNotes: slide.speakerNotes,
+  })),
   runEvidence: { adviceEvents: runMeta.adviceEvents ?? [] }
 })
 ```
 
-`buildSlideContexts()`는 deck의 각 slide에서 `keywords`, `speakerNotes`, 향후 추가될 `slideContext` 필드를 추출해서 `SlideContext[]`로 변환한다. deck에 해당 정보가 없으면 `undefined`를 반환해 optional 처리된다.
+#### slideContexts 데이터 출처 계약 — **선택지 B 채택: AI 사전 생성**
+
+현재 `slideSchema`(`packages/shared/src/deck/deck.schema.ts:181`)에는 `slideContext` 관련 필드가 없다. slide가 가진 것은 `title`, `estimatedSeconds`, `speakerNotes`, `keywords`, `aiNotes` 뿐이며, `patch.schema.ts`의 패치 계약도 이 범위 안에 있다. **deck contract와 editor 의존성을 건드리지 않는다.**
+
+**방향**: `slideContexts`는 python-worker 안에서 전사 분석 전에 speakerNotes와 keywords를 읽어 AI가 자동 생성한다. Worker는 `buildSlideContexts()`를 호출하지 않고 deck의 raw 재료만 `/rehearsal/analyze` 요청에 실어 보낸다.
+
+##### 파이프라인 위치
+
+```
+Worker → /rehearsal/analyze 요청
+           ↓
+python-worker: 0단계 — derive_slide_contexts(deck_keywords, slide_raw_inputs)
+               입력: slides[].{ slideId, title, speakerNotes, keywords }
+               출력: SlideContext[] (messageUnits 포함)
+           ↓
+python-worker: 1단계 — summarize_slide_speech(segments, slideTimeline)
+           ↓
+python-worker: 2단계 — evaluate_message_coverage(slideContexts, actualMessages)
+```
+
+`derive_slide_contexts()`는 python-worker 내부 함수이므로 DTO에는 노출되지 않는다. 외부에서 `slideContexts`를 주입할 필요가 없어지기 때문에, Worker → python-worker 요청 DTO에서 `slideContexts` 필드는 **삭제**한다.
+
+##### Worker에서 보내야 할 추가 입력
+
+python-worker가 0단계를 수행하려면 slide 단위 재료가 필요하다. 현재 `/rehearsal/analyze` 요청에 `deckKeywords`는 있지만 `speakerNotes`와 `title`이 없다. 아래 필드를 요청에 추가한다.
+
+```typescript
+// Worker → python-worker 요청 DTO 추가 (선택지 B 전용)
+slideRawInputs?: {
+  slideId: string;
+  title: string;
+  speakerNotes: string;
+}[];
+```
+
+Worker는 `deckContext.deck.slides`에서 이 값을 추출해 보낸다. deck contract는 바뀌지 않는다.
+
+##### python-worker 0단계 구현 스케치
+
+```python
+def derive_slide_contexts(
+    slide_raw_inputs: list[SlideRawInput],  # slideId, title, speakerNotes
+    deck_keywords: list[DeckKeyword],
+    client: Any,
+    model: str,
+) -> list[SlideContext]:
+    """speakerNotes와 keywords를 읽어 messageUnits를 AI로 생성한다."""
+    keywords_by_slide = group_keywords_by_slide(deck_keywords)
+    results = []
+    for slide in slide_raw_inputs:
+        if not slide.speaker_notes.strip():
+            continue  # speakerNotes 없는 슬라이드는 skip
+        slide_keywords = keywords_by_slide.get(slide.slide_id, [])
+        units = generate_message_units(
+            slide_id=slide.slide_id,
+            title=slide.title,
+            speaker_notes=slide.speaker_notes,
+            keywords=slide_keywords,
+            client=client,
+            model=model,
+        )
+        results.append(SlideContext(slide_id=slide.slide_id, message_units=units))
+    return results or None  # 하나도 생성 안 되면 None → 기존 경로
+```
+
+`generate_message_units()`는 speakerNotes를 LLM에 보내 `intent`, `importance`, `acceptableMeanings`, `supportingTerms`를 추출한다. LLM 실패 시 해당 슬라이드는 skip하고 나머지는 계속 진행한다.
+
+##### 실패 격리
+
+0단계 전체 실패(API 오류, 타임아웃 등) 시 `slide_contexts = None`으로 처리하고 1단계·2단계를 건너뛴다. 기존 keyword 기반 분석 결과만 반환한다. 리포트 생성 자체는 막히지 않는다.
 
 ### buildRehearsalReport (line 333)
 
@@ -612,9 +662,11 @@ type RehearsalReport = {
 
 ## 관련 문서
 
-- `docs/rehearsal-report/README.md` — 전체 파이프라인 흐름
-- `docs/rehearsal-report/backend.md` — Worker, Python Worker 책임 상세
-- `docs/rehearsal-report/frontend.md` — 화면, 라우트, 리포트 조회 흐름
+- `docs/report/README.md` — 전체 파이프라인 흐름
+- `docs/report/backend.md` — Worker, Python Worker 책임 상세
+- `docs/report/frontend.md` — 화면, 라우트, 리포트 조회 흐름
 - `packages/shared/src/rehearsals/rehearsal.schema.ts` — 현재 Zod schema
+- `packages/shared/src/deck/deck.schema.ts` — slide contract (slideContext 확장 시 여기를 건드림)
+- `packages/shared/src/deck/patch.schema.ts` — 패치 계약 (deck contract 확장 시 같이 변경)
 - `apps/worker/src/rehearsal-stt.processor.ts` — Worker 핵심 로직
 - `services/python-worker/app/rehearsal.py` — 분석/코칭 로직

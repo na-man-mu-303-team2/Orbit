@@ -8,11 +8,15 @@ import {
   createRehearsalAudioUploadUrlResponseSchema,
   createRehearsalRunRequestSchema,
   createRehearsalRunResponseSchema,
+  deckSlideContextEntrySchema,
+  getDeckSlideContextsResponseSchema,
   getRehearsalProjectSummaryResponseSchema,
   getRehearsalReportResponseSchema,
   getRehearsalRunResponseSchema,
   updateRehearsalRunMetaRequestSchema,
   updateRehearsalRunMetaResponseSchema,
+  updateDeckSlideContextsRequestSchema,
+  updateDeckSlideContextsResponseSchema,
   type RehearsalRun
 } from "@orbit/shared";
 import { BadRequestException, Inject, Injectable, NotFoundException } from "@nestjs/common";
@@ -20,6 +24,7 @@ import { InjectRepository } from "@nestjs/typeorm";
 import { randomUUID } from "node:crypto";
 import { InjectPinoLogger, PinoLogger } from "nestjs-pino";
 import { Repository } from "typeorm";
+import { z } from "zod";
 import { parseRequest } from "../common/zod-request";
 import { DecksService } from "../decks/decks.service";
 import { FilesService } from "../files/files.service";
@@ -27,6 +32,7 @@ import { JobsService } from "../jobs/jobs.service";
 import { serializeLogError } from "../logging";
 import { ProjectEntity } from "../projects/project.entity";
 import { ProjectsService } from "../projects/projects.service";
+import { DeckSlideContextsEntity } from "./deck-slide-contexts.entity";
 import { RehearsalRunEntity } from "./rehearsal-run.entity";
 import { RedisRehearsalTranscriptCache } from "./rehearsal-transcript-cache";
 
@@ -46,6 +52,8 @@ export class RehearsalsService {
     private readonly rehearsalRuns: Repository<RehearsalRunEntity>,
     @InjectRepository(ProjectEntity)
     private readonly projects: Repository<ProjectEntity>,
+    @InjectRepository(DeckSlideContextsEntity)
+    private readonly deckSlideContexts: Repository<DeckSlideContextsEntity>,
     private readonly decksService: DecksService,
     private readonly projectsService: ProjectsService,
     private readonly filesService: FilesService,
@@ -286,6 +294,28 @@ export class RehearsalsService {
       );
       return null;
     }
+  }
+
+  async getSlideContexts(projectId: string) {
+    const row = await this.deckSlideContexts.findOne({ where: { projectId } });
+    const contexts = row
+      ? z.array(deckSlideContextEntrySchema).catch([]).parse(row.contextsJson)
+      : [];
+    return getDeckSlideContextsResponseSchema.parse({
+      contexts,
+      deckId: row?.deckId ?? null,
+      updatedAt: row?.updatedAt.toISOString() ?? null
+    });
+  }
+
+  async updateSlideContexts(projectId: string, body: unknown) {
+    const { deckId, contexts } = parseRequest(updateDeckSlideContextsRequestSchema, body);
+    const now = new Date();
+    await this.deckSlideContexts.upsert(
+      { projectId, deckId, contextsJson: contexts, updatedAt: now },
+      ["projectId"]
+    );
+    return updateDeckSlideContextsResponseSchema.parse({ updatedAt: now.toISOString() });
   }
 
   private async getRunEntity(runId: string) {

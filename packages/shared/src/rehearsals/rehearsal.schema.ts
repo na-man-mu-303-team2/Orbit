@@ -117,8 +117,40 @@ export const rehearsalReportCoachingSchema = z.object({
   strengths: z.array(z.string()).default([]),
   improvements: z.array(z.string()).default([]),
   nextPracticeFocus: z.string().default(""),
+  scriptRevisionSuggestions: z.array(z.string()).default([]),
   message: z.string().default("")
 });
+
+export const rehearsalContextSummarySchema = z
+  .object({
+    overallStatus: z.enum(["clear", "mixed", "weak"]),
+    headline: z.string().trim().min(1),
+    strengths: z.array(z.string().trim().min(1)).default([]),
+    risks: z.array(z.string().trim().min(1)).default([])
+  })
+  .strict();
+
+export const rehearsalMessageCoverageItemSchema = z
+  .object({
+    slideId: deckSlideIdSchema,
+    messageId: z.string().trim().min(1),
+    status: z.enum(["delivered", "partial", "missed", "unclear", "misleading"]),
+    confidence: z.number().min(0).max(1),
+    evidenceSummary: z.string().default(""),
+    feedback: z.string().default("")
+  })
+  .strict();
+
+export const rehearsalSlideContextInsightSchema = z
+  .object({
+    slideId: deckSlideIdSchema,
+    deliveryStatus: z.enum(["clear", "partial", "weak"]),
+    actualSpokenSummary: z.string().default(""),
+    deliveryIssues: z.array(z.string().trim().min(1)).default([]),
+    recommendedFix: z.string().default(""),
+    pronunciationCautions: z.array(z.string().trim().min(1)).default([])
+  })
+  .strict();
 
 export const rehearsalReportSchema = z
   .object({
@@ -142,6 +174,9 @@ export const rehearsalReportSchema = z
     }),
     aiSummary: rehearsalReportAiSummarySchema.nullable().optional(),
     coaching: rehearsalReportCoachingSchema.nullable(),
+    contextSummary: rehearsalContextSummarySchema.nullable().optional(),
+    messageCoverage: z.array(rehearsalMessageCoverageItemSchema).optional(),
+    slideContextInsights: z.array(rehearsalSlideContextInsightSchema).optional(),
     generatedAt: isoDateTimeSchema
   })
   .strict()
@@ -311,6 +346,45 @@ export type UpdateRehearsalRunMetaResponse = z.infer<
   typeof updateRehearsalRunMetaResponseSchema
 >;
 export type GetRehearsalReportResponse = z.infer<typeof getRehearsalReportResponseSchema>;
+export type RehearsalContextSummary = z.infer<typeof rehearsalContextSummarySchema>;
+export type RehearsalMessageCoverageItem = z.infer<typeof rehearsalMessageCoverageItemSchema>;
+export type RehearsalSlideContextInsight = z.infer<typeof rehearsalSlideContextInsightSchema>;
+
+export const deckSlideContextIntentSchema = z
+  .object({
+    messageId: z.string().trim().min(1),
+    importance: z.enum(["required", "recommended", "optional"]),
+    intent: z.string().trim().min(1)
+  })
+  .strict();
+
+export const deckSlideContextEntrySchema = z
+  .object({
+    slideId: deckSlideIdSchema,
+    intents: z.array(deckSlideContextIntentSchema).default([])
+  })
+  .strict();
+
+export const getDeckSlideContextsResponseSchema = z.object({
+  contexts: z.array(deckSlideContextEntrySchema),
+  deckId: z.string().nullable(),
+  updatedAt: isoDateTimeSchema.nullable()
+});
+
+export const updateDeckSlideContextsRequestSchema = z.object({
+  deckId: z.string().min(1),
+  contexts: z.array(deckSlideContextEntrySchema)
+});
+
+export const updateDeckSlideContextsResponseSchema = z.object({
+  updatedAt: isoDateTimeSchema
+});
+
+export type DeckSlideContextIntent = z.infer<typeof deckSlideContextIntentSchema>;
+export type DeckSlideContextEntry = z.infer<typeof deckSlideContextEntrySchema>;
+export type GetDeckSlideContextsResponse = z.infer<typeof getDeckSlideContextsResponseSchema>;
+export type UpdateDeckSlideContextsRequest = z.infer<typeof updateDeckSlideContextsRequestSchema>;
+export type UpdateDeckSlideContextsResponse = z.infer<typeof updateDeckSlideContextsResponseSchema>;
 
 export const runDurationPointSchema = z.object({
   runId: z.string().min(1),

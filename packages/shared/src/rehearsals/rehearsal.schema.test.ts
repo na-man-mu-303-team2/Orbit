@@ -88,7 +88,25 @@ describe("rehearsalReportSchema", () => {
           "발표 흐름은 안정적이었지만 Opening에서 ORBIT 키워드가 빠졌습니다.",
           "다음 연습에서는 도입부 핵심 문장을 먼저 고정해야 합니다."
         ]
-      }
+      },
+      coaching: {
+        ...rehearsalReportFixture().coaching,
+        scriptRevisionSuggestions: [
+          "슬라이드 'Race Condition이란?' speaker notes에 실제 발표에서 쓴 정의 문장을 반영하세요."
+        ]
+      },
+      slideContextInsights: [
+        {
+          slideId: "slide_1",
+          deliveryStatus: "partial",
+          actualSpokenSummary: "레이스 컨디션 정의는 설명했습니다.",
+          deliveryIssues: ["원인 설명이 부족했습니다."],
+          recommendedFix: "임계구역 설명을 한 문장 더 추가하세요.",
+          pronunciationCautions: [
+            "'동치성'으로 들려 '동시성'과 혼동될 수 있습니다."
+          ]
+        }
+      ]
     });
 
     expect(report.speedSamples).toHaveLength(1);
@@ -99,6 +117,8 @@ describe("rehearsalReportSchema", () => {
     expect(report.slideInsights[0]?.fillerWordCount).toBe(2);
     expect(report.qnaSummary.questionCount).toBe(1);
     expect(report.aiSummary?.headline).toBe("도입부 핵심 메시지가 약했습니다.");
+    expect(report.coaching?.scriptRevisionSuggestions).toHaveLength(1);
+    expect(report.slideContextInsights?.[0]?.pronunciationCautions).toHaveLength(1);
   });
 
   it("defaults optional official detail sections to empty values", () => {
@@ -333,6 +353,7 @@ function rehearsalReportFixture() {
       strengths: ["키워드를 언급했습니다."],
       improvements: ["불필요한 filler를 줄이세요."],
       nextPracticeFocus: "도입부를 더 짧게 연습하세요.",
+      scriptRevisionSuggestions: [],
       message: ""
     },
     generatedAt: "2026-06-29T00:00:10.000Z"

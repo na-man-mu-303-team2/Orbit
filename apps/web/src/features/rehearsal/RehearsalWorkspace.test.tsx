@@ -2539,6 +2539,7 @@ function reportFixture(patch: Partial<RehearsalReport> = {}): RehearsalReport {
       strengths: ["키워드를 언급했습니다."],
       improvements: ["불필요한 filler를 줄이세요."],
       nextPracticeFocus: "도입부를 더 짧게 연습하세요.",
+      scriptRevisionSuggestions: [],
       message: "",
     },
     generatedAt: "2026-06-29T00:00:10.000Z",

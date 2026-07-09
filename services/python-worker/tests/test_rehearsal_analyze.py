@@ -6,11 +6,19 @@ import app.main as api_module
 from app.audio.transcribe import TranscriptSegment
 from app.config import load_config
 from app.rehearsal import (
+    ActualSlideMessage,
     DeckKeyword,
     FillerWordDetail,
+    MessageUnit,
     RehearsalMetricsResult,
+    SlideContext,
+    SlideContextInsight,
+    SlideRawInput,
     SlideTimelineEntry,
     analyze_rehearsal_metrics,
+    build_script_revision_suggestions,
+    detect_pronunciation_cautions,
+    evaluate_message_coverage,
     generate_rehearsal_coaching,
 )
 from tests.test_config import VALID_ENV
@@ -43,6 +51,25 @@ class FakeResponses:
 
 class FakeClient:
     responses = FakeResponses()
+
+
+class FakeCoverageResponses:
+    def __init__(self, payload: dict[str, object]) -> None:
+        self.payload = payload
+
+    def create(self, **kwargs: object) -> object:
+        return type(
+            "Response",
+            (),
+            {
+                "output_text": json.dumps(self.payload),
+            },
+        )()
+
+
+class FakeCoverageClient:
+    def __init__(self, payload: dict[str, object]) -> None:
+        self.responses = FakeCoverageResponses(payload)
 
 
 def test_analyze_rehearsal_metrics_counts_pauses_fillers_and_keywords() -> None:
@@ -271,6 +298,227 @@ def test_generate_rehearsal_coaching_parses_structured_llm_response() -> None:
         "다음 연습에서는 도입부를 더 짧게 연습하세요.",
     ]
     assert coaching.next_practice_focus == "도입부를 더 짧게 연습하세요."
+
+
+def test_evaluate_message_coverage_fills_slide_fallbacks_from_message_coverage() -> None:
+    result = evaluate_message_coverage(
+        slide_contexts=[
+            SlideContext(
+                slide_id="slide-1",
+                message_units=[
+                    MessageUnit(
+                        message_id="msg-1",
+                        importance="required",
+                        intent="임계구역을 보호하지 않으면 같은 데이터를 동시에 바꿔 예측 불가능성이 생긴다",
+                    )
+                ],
+            )
+        ],
+        actual_messages=[
+            ActualSlideMessage(
+                slide_id="slide-1",
+                actual_spoken_summary="동시 실행 문제와 충돌 가능성만 설명했다.",
+            )
+        ],
+        client=FakeCoverageClient(
+            {
+                "messageCoverage": [
+                    {
+                        "slideId": "slide-1",
+                        "messageId": "msg-1",
+                        "status": "partial",
+                        "confidence": 0.82,
+                        "evidenceSummary": (
+                            "동시 실행 문제와 충돌 가능성은 언급했지만, 왜 예측 불가능성이 생기는지와 "
+                            "임계구역 보호 필요성은 직접 설명하지 않았다."
+                        ),
+                        "feedback": (
+                            "임계구역을 보호하지 않으면 같은 데이터를 동시에 바꾸게 된다고 먼저 한 문장으로 말하세요."
+                        ),
+                    }
+                ],
+                "slideContextInsights": [
+                    {
+                        "slideId": "slide-1",
+                        "deliveryStatus": "partial",
+                        "actualSpokenSummary": "",
+                        "deliveryIssues": [],
+                        "recommendedFix": "",
+                    }
+                ],
+                "contextSummary": {
+                    "overallStatus": "mixed",
+                    "headline": "핵심 설명이 일부 비어 있습니다.",
+                    "strengths": ["문제 상황 자체는 소개했습니다."],
+                    "risks": ["원인 설명이 빠져 메시지가 덜 선명합니다."],
+                },
+            }
+        ),
+        model="fake-model",
+    )
+
+    assert result is not None
+    assert result.slide_context_insights[0].actual_spoken_summary == "동시 실행 문제와 충돌 가능성만 설명했다."
+    assert result.slide_context_insights[0].delivery_issues == [
+        "동시 실행 문제와 충돌 가능성은 언급했지만, 왜 예측 불가능성이 생기는지와 임계구역 보호 필요성은 직접 설명하지 않았다."
+    ]
+    assert result.slide_context_insights[0].recommended_fix == (
+        "임계구역을 보호하지 않으면 같은 데이터를 동시에 바꾸게 된다고 먼저 한 문장으로 말하세요."
+    )
+    assert result.message_coverage[0].feedback == (
+        "임계구역을 보호하지 않으면 같은 데이터를 동시에 바꾸게 된다고 먼저 한 문장으로 말하세요."
+    )
+
+
+def test_evaluate_message_coverage_fills_message_and_slide_defaults_when_feedback_is_missing() -> None:
+    result = evaluate_message_coverage(
+        slide_contexts=[
+            SlideContext(
+                slide_id="slide-2",
+                message_units=[
+                    MessageUnit(
+                        message_id="msg-2",
+                        importance="required",
+                        intent="레이스 컨디션은 동시에 실행될 때 생기는 예측 불가능한 결과다",
+                    )
+                ],
+            )
+        ],
+        actual_messages=[],
+        client=FakeCoverageClient(
+            {
+                "messageCoverage": [
+                    {
+                        "slideId": "slide-2",
+                        "messageId": "msg-2",
+                        "status": "missed",
+                        "confidence": 0.64,
+                        "evidenceSummary": "",
+                        "feedback": "",
+                    }
+                ],
+                "slideContextInsights": [
+                    {
+                        "slideId": "slide-2",
+                        "deliveryStatus": "weak",
+                        "actualSpokenSummary": "",
+                        "deliveryIssues": [],
+                        "recommendedFix": "",
+                    }
+                ],
+                "contextSummary": {
+                    "overallStatus": "weak",
+                    "headline": "핵심 메시지 전달이 약합니다.",
+                    "strengths": [],
+                    "risks": ["정의가 빠졌습니다."],
+                },
+            }
+        ),
+        model="fake-model",
+    )
+
+    assert result is not None
+    assert result.message_coverage[0].evidence_summary == (
+        "이 슬라이드에서는 실제 발화가 거의 없어 의도한 메시지인 '레이스 컨디션은 동시에 실행될 때 생기는 예측 불가능한 결과다'가 전달되지 않았다."
+    )
+    assert result.message_coverage[0].feedback == (
+        "'레이스 컨디션은 동시에 실행될 때 생기는 예측 불가능한 결과다'를 먼저 한 문장으로 분명히 말한 뒤, 빠진 이유나 조건을 바로 이어서 설명하세요."
+    )
+    assert result.slide_context_insights[0].delivery_issues == [
+        "이 슬라이드에서는 실제 발화가 거의 없어 의도한 메시지인 '레이스 컨디션은 동시에 실행될 때 생기는 예측 불가능한 결과다'가 전달되지 않았다."
+    ]
+    assert result.slide_context_insights[0].recommended_fix == (
+        "'레이스 컨디션은 동시에 실행될 때 생기는 예측 불가능한 결과다'를 먼저 한 문장으로 분명히 말한 뒤, 빠진 이유나 조건을 바로 이어서 설명하세요."
+    )
+
+
+def test_build_script_revision_suggestions_uses_model_output() -> None:
+    suggestions = build_script_revision_suggestions(
+        slide_raw_inputs=[
+            SlideRawInput(
+                slide_id="slide-1",
+                title="Race Condition이란?",
+                speaker_notes="레이스 컨디션의 정의를 짧게 소개합니다.",
+            )
+        ],
+        slide_contexts=[
+            SlideContext(
+                slide_id="slide-1",
+                message_units=[
+                    MessageUnit(
+                        message_id="msg-1",
+                        importance="required",
+                        intent="레이스 컨디션은 동시 실행 순서에 따라 결과가 달라지는 예측 불가능한 상황이다",
+                    )
+                ],
+            )
+        ],
+        actual_messages=[
+            ActualSlideMessage(
+                slide_id="slide-1",
+                actual_spoken_summary="두 스레드가 같은 값을 동시에 바꿀 때 결과가 달라질 수 있다는 예시까지 분명히 설명했다.",
+            )
+        ],
+        slide_context_insights=[
+            SlideContextInsight(
+                slide_id="slide-1",
+                delivery_status="clear",
+                actual_spoken_summary="두 스레드 예시까지 설명했다.",
+            )
+        ],
+        client=FakeCoverageClient(
+            {
+                "suggestions": [
+                    "슬라이드 'Race Condition이란?' speaker notes에도 두 스레드 예시와 예측 불가능성 설명을 반영해 대본을 업데이트하세요."
+                ]
+            }
+        ),
+        model="fake-model",
+    )
+
+    assert suggestions == [
+        "슬라이드 'Race Condition이란?' speaker notes에도 두 스레드 예시와 예측 불가능성 설명을 반영해 대본을 업데이트하세요."
+    ]
+
+
+def test_detect_pronunciation_cautions_flags_nearby_term_confusion() -> None:
+    cautions = detect_pronunciation_cautions(
+        slide_contexts=[
+            SlideContext(
+                slide_id="slide-3",
+                message_units=[
+                    MessageUnit(
+                        message_id="msg-3",
+                        importance="required",
+                        intent="경쟁에서 배운 동시성 도구를 소개한다",
+                    )
+                ],
+            )
+        ],
+        slide_raw_inputs=[
+            SlideRawInput(
+                slide_id="slide-3",
+                title="경쟁에서 배운 동시성 도구",
+                speaker_notes="세마포어와 조건 변수를 소개합니다.",
+            )
+        ],
+        slide_timeline=[SlideTimelineEntry(slide_id="slide-3", entered_second=0)],
+        deck_keywords=[DeckKeyword(text="동시성", slide_id="slide-3")],
+        segments=[
+            TranscriptSegment(
+                text="저희는 동치성 도구인 세마포어를 직접 구현했습니다",
+                startSeconds=0,
+                endSeconds=4,
+            )
+        ],
+        duration_seconds=4,
+    )
+
+    assert cautions == {
+        "slide-3": [
+            "'동치성'으로 들려 '동시성'과 혼동될 수 있습니다. '동시성' 발음을 더 또렷하게 구분해 주세요."
+        ]
+    }
 
 
 def test_rehearsal_analyze_endpoint_fails_when_coaching_is_unavailable() -> None:

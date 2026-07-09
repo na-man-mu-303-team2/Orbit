@@ -7,6 +7,7 @@ import { FilesModule } from "../files/files.module";
 import { JobsModule } from "../jobs/jobs.module";
 import { ProjectsModule } from "../projects/projects.module";
 import { ProjectEntity } from "../projects/project.entity";
+import { DeckSlideContextsEntity } from "./deck-slide-contexts.entity";
 import { RehearsalRunEntity } from "./rehearsal-run.entity";
 import { RedisRehearsalTranscriptCache } from "./rehearsal-transcript-cache";
 import { RehearsalsController } from "./rehearsals.controller";
@@ -14,7 +15,7 @@ import { REHEARSAL_STT_ENQUEUE_JOB, RehearsalsService } from "./rehearsals.servi
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([RehearsalRunEntity, ProjectEntity]),
+    TypeOrmModule.forFeature([DeckSlideContextsEntity, RehearsalRunEntity, ProjectEntity]),
     AuthModule,
     DecksModule,
     FilesModule,

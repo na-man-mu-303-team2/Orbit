@@ -4,12 +4,13 @@ import {
   Download,
   FileText,
   Mic,
+  Settings2,
   Sparkles,
   Target,
   Volume2,
 } from "lucide-react";
-import { useState } from "react";
-import type { Deck, RehearsalReport, RehearsalRun } from "@orbit/shared";
+import { useCallback, useEffect, useState } from "react";
+import type { Deck, DeckSlideContextEntry, RehearsalReport, RehearsalRun } from "@orbit/shared";
 import { navigateTo } from "./rehearsalUtils";
 import { RehearsalSlideAnalysisOverview } from "./RehearsalSlideAnalysisOverview";
 import { RehearsalSlideTimingOverview } from "./RehearsalSlideTimingOverview";
@@ -240,8 +241,94 @@ export function RehearsalReportDocument({
   totalRunCount: _totalRunCount,
 }: Props) {
   const [transcriptOpen, setTranscriptOpen] = useState(false);
+  const [slideContexts, setSlideContexts] = useState<DeckSlideContextEntry[] | null>(null);
+  const [contextsLoaded, setContextsLoaded] = useState(false);
+  const [contextsDeckId, setContextsDeckId] = useState<string | null>(null);
+  const [contextsSaving, setContextsSaving] = useState(false);
+  const [contextsSaved, setContextsSaved] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`/api/v1/projects/${encodeURIComponent(projectId)}/rehearsal-contexts`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data: { contexts?: DeckSlideContextEntry[]; deckId?: string | null } | null) => {
+        if (cancelled) return;
+        if (data?.contexts && data.contexts.length > 0) {
+          setSlideContexts(data.contexts);
+          setContextsDeckId(data.deckId ?? null);
+        }
+        setContextsLoaded(true);
+      })
+      .catch(() => {
+        if (!cancelled) setContextsLoaded(true);
+      });
+    return () => { cancelled = true; };
+  }, [projectId]);
+
+  const handleIntentChange = useCallback(
+    (slideId: string, messageId: string, newIntent: string) => {
+      setContextsSaved(false);
+      setSlideContexts((prev) =>
+        prev?.map((entry) =>
+          entry.slideId !== slideId
+            ? entry
+            : {
+                ...entry,
+                intents: entry.intents.map((intent) =>
+                  intent.messageId !== messageId ? intent : { ...intent, intent: newIntent }
+                ),
+              }
+        ) ?? prev
+      );
+    },
+    []
+  );
+
+  const handleImportanceChange = useCallback(
+    (slideId: string, messageId: string, newImportance: "required" | "recommended" | "optional") => {
+      setContextsSaved(false);
+      setSlideContexts((prev) =>
+        prev?.map((entry) =>
+          entry.slideId !== slideId
+            ? entry
+            : {
+                ...entry,
+                intents: entry.intents.map((intent) =>
+                  intent.messageId !== messageId ? intent : { ...intent, importance: newImportance }
+                ),
+              }
+        ) ?? prev
+      );
+    },
+    []
+  );
+
+  const saveSlideContexts = useCallback(async () => {
+    if (!slideContexts) return;
+    const deckId = contextsDeckId ?? report.deckId;
+    setContextsSaving(true);
+    setContextsSaved(false);
+    try {
+      const res = await fetch(
+        `/api/v1/projects/${encodeURIComponent(projectId)}/rehearsal-contexts`,
+        {
+          method: "PUT",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ deckId, contexts: slideContexts }),
+        }
+      );
+      if (res.ok) {
+        setContextsSaved(true);
+        setTimeout(() => setContextsSaved(false), 2000);
+      }
+    } finally {
+      setContextsSaving(false);
+    }
+  }, [slideContexts, contextsDeckId, report.deckId, projectId]);
 
   const coaching = report.coaching;
+  const scriptRevisionSuggestions =
+    coaching?.scriptRevisionSuggestions?.filter(Boolean).slice(0, 3) ?? [];
   const metrics = report.metrics;
   const slideTimings = report.slideTimings;
   const fillerWordDetails = [...report.fillerWordDetails].sort(
@@ -278,6 +365,12 @@ export function RehearsalReportDocument({
   const title =
     runNumber != null ? `${runNumber}회차 리허설 리포트` : "리허설 리포트";
   const reportWithAiSummary = report as ReportWithOptionalAiSummary;
+  const contextSummary = report.contextSummary ?? null;
+  const aiSummaryHeadline =
+    contextSummary?.headline ??
+    reportWithAiSummary.aiSummary?.headline ??
+    coaching?.summary ??
+    null;
   const aiSummary = reportWithAiSummary.aiSummary ?? (
     coaching?.summary
       ? {
@@ -336,29 +429,67 @@ export function RehearsalReportDocument({
         <header className="rrd-card-head">
           <Sparkles size={16} className="rrd-card-icon rrd-card-icon-ai" />
           <h2>AI 총평</h2>
+          {contextSummary && (
+            <span
+              className={`rrd-context-status-badge rrd-context-status-badge-${contextSummary.overallStatus}`}
+            >
+              {contextSummary.overallStatus === "clear"
+                ? "메시지 전달 명확"
+                : contextSummary.overallStatus === "mixed"
+                  ? "메시지 전달 혼합"
+                  : "메시지 전달 약함"}
+            </span>
+          )}
         </header>
 
         <div className="rrd-summary-block">
           <span className="rrd-summary-block-label">한 줄 요약</span>
-          {aiSummary?.headline ? (
-            <p className="rrd-ai-summary">{aiSummary.headline}</p>
+          {aiSummaryHeadline ? (
+            <p className="rrd-ai-summary">{aiSummaryHeadline}</p>
           ) : (
             <p className="rrd-empty-hint">피드백 데이터가 없습니다.</p>
           )}
         </div>
 
-        <div className="rrd-summary-block">
-          <span className="rrd-summary-block-label">총평</span>
-          {aiSummary?.paragraphs && aiSummary.paragraphs.length > 0 ? (
-            <div className="rrd-ai-paragraphs">
-              {aiSummary.paragraphs.slice(0, 3).map((paragraph) => (
-                <p key={paragraph}>{paragraph}</p>
-              ))}
-            </div>
-          ) : (
-            <p className="rrd-empty-hint">구조화된 AI 총평 데이터가 없습니다.</p>
-          )}
-        </div>
+        {contextSummary && (
+          <div className="rrd-context-summary-cols">
+            {contextSummary.strengths.length > 0 && (
+              <div className="rrd-summary-block">
+                <span className="rrd-summary-block-label">잘 전달된 점</span>
+                <ul className="rrd-context-summary-list">
+                  {contextSummary.strengths.map((s) => (
+                    <li key={s}>{s}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {contextSummary.risks.length > 0 && (
+              <div className="rrd-summary-block">
+                <span className="rrd-summary-block-label">전달 리스크</span>
+                <ul className="rrd-context-summary-list rrd-context-summary-list-risk">
+                  {contextSummary.risks.map((r) => (
+                    <li key={r}>{r}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+        )}
+
+        {!contextSummary && (
+          <div className="rrd-summary-block">
+            <span className="rrd-summary-block-label">총평</span>
+            {aiSummary?.paragraphs && aiSummary.paragraphs.length > 0 ? (
+              <div className="rrd-ai-paragraphs">
+                {aiSummary.paragraphs.slice(0, 3).map((paragraph) => (
+                  <p key={paragraph}>{paragraph}</p>
+                ))}
+              </div>
+            ) : (
+              <p className="rrd-empty-hint">구조화된 AI 총평 데이터가 없습니다.</p>
+            )}
+          </div>
+        )}
       </section>
 
       {/* ── 2. Overview ── */}
@@ -392,11 +523,27 @@ export function RehearsalReportDocument({
             <strong>{metrics.pauseCount}회</strong>
             <em>1초 이상 침묵 기준</em>
           </div>
-          <div className="rrd-overview-metric">
-            <span>키워드 커버리지</span>
-            <strong>{Math.round(metrics.keywordCoverage * 100)}%</strong>
-            <em>저장된 장표 키워드 기준</em>
-          </div>
+          {contextSummary ? (
+            <div className="rrd-overview-metric">
+              <span>핵심 메시지 전달</span>
+              <strong
+                className={`rrd-context-status-value rrd-context-status-value-${contextSummary.overallStatus}`}
+              >
+                {contextSummary.overallStatus === "clear"
+                  ? "명확"
+                  : contextSummary.overallStatus === "mixed"
+                    ? "혼합"
+                    : "약함"}
+              </strong>
+              <em>키워드 커버리지 {Math.round(metrics.keywordCoverage * 100)}%</em>
+            </div>
+          ) : (
+            <div className="rrd-overview-metric">
+              <span>키워드 커버리지</span>
+              <strong>{Math.round(metrics.keywordCoverage * 100)}%</strong>
+              <em>저장된 장표 키워드 기준</em>
+            </div>
+          )}
         </div>
 
         <div className="rrd-overview-columns">
@@ -415,6 +562,10 @@ export function RehearsalReportDocument({
         formatDuration={fmt}
         prevReports={prevReports}
         report={report}
+        slideContextInsights={report.slideContextInsights}
+        slideContexts={slideContexts}
+        projectId={projectId}
+        onSlideContextsSaved={setSlideContexts}
       />
 
       {/* ── 4. 말버릇 / 멈춤 ── */}
@@ -493,6 +644,16 @@ export function RehearsalReportDocument({
           )}
 
           <div className="rrd-coaching-cols">
+            {scriptRevisionSuggestions.length > 0 && (
+              <div>
+                <strong className="rrd-coaching-col-head">대본 수정 제안</strong>
+                <ol className="rrd-coaching-list rrd-coaching-list-ordered">
+                  {scriptRevisionSuggestions.map((item) => (
+                    <li key={item}>{item}</li>
+                  ))}
+                </ol>
+              </div>
+            )}
             {coaching.improvements.length > 0 && (
               <div>
                 <strong className="rrd-coaching-col-head">개선 포인트</strong>
@@ -517,7 +678,71 @@ export function RehearsalReportDocument({
         </section>
       )}
 
-      {/* ── 7. 전사본 ── */}
+      {/* ── 7. 다음 리허설 평가 기준 ── */}
+      {contextsLoaded && slideContexts && slideContexts.length > 0 && (
+        <section className="rrd-card rrd-contexts-card">
+          <header className="rrd-card-head">
+            <Settings2 size={16} className="rrd-card-icon" />
+            <h2>다음 리허설 평가 기준</h2>
+            <span className="rrd-contexts-hint">다음 리허설부터 이 기준으로 메시지 전달을 평가합니다</span>
+          </header>
+
+          <div className="rrd-contexts-slides">
+            {slideContexts.map((entry) => {
+              const slideTitle =
+                deck?.slides.find((s) => s.slideId === entry.slideId)?.title ||
+                entry.slideId;
+              return (
+                <div key={entry.slideId} className="rrd-contexts-slide">
+                  <p className="rrd-contexts-slide-title">{slideTitle}</p>
+                  <div className="rrd-contexts-intents">
+                    {entry.intents.map((intent) => (
+                      <div key={intent.messageId} className="rrd-contexts-intent-row">
+                        <select
+                          className="rrd-contexts-importance-select"
+                          value={intent.importance}
+                          onChange={(e) =>
+                            handleImportanceChange(
+                              entry.slideId,
+                              intent.messageId,
+                              e.target.value as "required" | "recommended" | "optional"
+                            )
+                          }
+                        >
+                          <option value="required">필수</option>
+                          <option value="recommended">권장</option>
+                          <option value="optional">선택</option>
+                        </select>
+                        <input
+                          className="rrd-contexts-intent-input"
+                          type="text"
+                          value={intent.intent}
+                          onChange={(e) =>
+                            handleIntentChange(entry.slideId, intent.messageId, e.target.value)
+                          }
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          <div className="rrd-contexts-footer">
+            <button
+              type="button"
+              className="rrd-contexts-save-btn"
+              disabled={contextsSaving}
+              onClick={saveSlideContexts}
+            >
+              {contextsSaving ? "저장 중…" : contextsSaved ? "저장됨" : "기준 저장"}
+            </button>
+          </div>
+        </section>
+      )}
+
+      {/* ── 8. 전사본 ── */}
       {transcriptAvailable && (
         <section className="rrd-card rrd-transcript-card">
           <header className="rrd-card-head">

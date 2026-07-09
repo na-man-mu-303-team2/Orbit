@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, Query, Req } from "@nestjs/common";
+import { Body, Controller, Get, Param, Patch, Post, Put, Query, Req } from "@nestjs/common";
 import { AuthService } from "../auth/auth.service";
 import {
   getCurrentUser,
@@ -98,6 +98,27 @@ export class RehearsalsController {
     const user = await getCurrentUser(this.authService, request);
     await this.projectsService.assertCanReadProject(projectId, user.userId);
     return this.rehearsalsService.getSummary(projectId);
+  }
+
+  @Get("api/v1/projects/:projectId/rehearsal-contexts")
+  async getSlideContexts(
+    @Param("projectId") projectId: string,
+    @Req() request: SignedCookieRequest,
+  ) {
+    const user = await getCurrentUser(this.authService, request);
+    await this.projectsService.assertCanReadProject(projectId, user.userId);
+    return this.rehearsalsService.getSlideContexts(projectId);
+  }
+
+  @Put("api/v1/projects/:projectId/rehearsal-contexts")
+  async updateSlideContexts(
+    @Param("projectId") projectId: string,
+    @Body() body: unknown,
+    @Req() request: SignedCookieRequest,
+  ) {
+    const user = await getCurrentUser(this.authService, request);
+    await this.projectsService.assertCanWriteProject(projectId, user.userId);
+    return this.rehearsalsService.updateSlideContexts(projectId, body);
   }
 
   private async assertCanReadRun(runId: string, userId: string) {

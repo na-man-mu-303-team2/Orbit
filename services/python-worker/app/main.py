@@ -56,12 +56,23 @@ from app.references import (
     search_reference_chunks,
 )
 from app.rehearsal import (
+    ContextAnalysisResult,
+    ContextSummary,
     DeckKeyword,
     RunSeriesEntry,
+    SlideContext,
+    SlideContextInsight,
+    SlideRawInput,
     SlideTimelineEntry,
     analyze_rehearsal_metrics,
+    build_script_revision_suggestions,
+    detect_pronunciation_cautions,
+    derive_slide_contexts,
+    enrich_intents_to_slide_contexts,
+    evaluate_message_coverage,
     generate_progress_comment,
     generate_rehearsal_coaching,
+    summarize_slide_speech,
 )
 
 
@@ -146,6 +157,35 @@ class RehearsalSlideTimelineEntryRequest(BaseModel):
     entered_second: float = Field(alias="enteredSecond", ge=0)
 
 
+class SlideRawInputRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    slide_id: str = Field(alias="slideId")
+    title: str = ""
+    speaker_notes: str = Field(default="", alias="speakerNotes")
+
+
+class RunEvidenceRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    advice_events: list[dict[str, Any]] = Field(default_factory=list, alias="adviceEvents")
+
+
+class SavedSlideIntentRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    message_id: str = Field(alias="messageId")
+    importance: str = "recommended"
+    intent: str
+
+
+class SavedSlideContextRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    slide_id: str = Field(alias="slideId")
+    intents: list[SavedSlideIntentRequest] = Field(default_factory=list)
+
+
 class RehearsalAnalyzeRequest(BaseModel):
     run_id: str = Field(alias="runId")
     project_id: str = Field(alias="projectId")
@@ -161,6 +201,18 @@ class RehearsalAnalyzeRequest(BaseModel):
         default_factory=list,
         alias="slideTimeline",
     )
+    slide_raw_inputs: list[SlideRawInputRequest] | None = Field(
+        default=None,
+        alias="slideRawInputs",
+    )
+    run_evidence: RunEvidenceRequest | None = Field(
+        default=None,
+        alias="runEvidence",
+    )
+    saved_slide_contexts: list[SavedSlideContextRequest] | None = Field(
+        default=None,
+        alias="savedSlideContexts",
+    )
 
 
 class RehearsalCoachingResponse(BaseModel):
@@ -170,6 +222,10 @@ class RehearsalCoachingResponse(BaseModel):
     strengths: list[str] = Field(default_factory=list)
     improvements: list[str] = Field(default_factory=list)
     next_practice_focus: str = Field(default="", alias="nextPracticeFocus")
+    script_revision_suggestions: list[str] = Field(
+        default_factory=list,
+        alias="scriptRevisionSuggestions",
+    )
     message: str = ""
 
 
@@ -207,6 +263,55 @@ class RehearsalSlideInsightResponse(BaseModel):
     pause_count: int = Field(alias="pauseCount", ge=0)
 
 
+class RehearsalContextSummaryResponse(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    overall_status: str = Field(alias="overallStatus")
+    headline: str
+    strengths: list[str] = Field(default_factory=list)
+    risks: list[str] = Field(default_factory=list)
+
+
+class RehearsalMessageCoverageItemResponse(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    slide_id: str = Field(alias="slideId")
+    message_id: str = Field(alias="messageId")
+    status: str
+    confidence: float
+    evidence_summary: str = Field(default="", alias="evidenceSummary")
+    feedback: str = ""
+
+
+class RehearsalSlideContextInsightResponse(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    slide_id: str = Field(alias="slideId")
+    delivery_status: str = Field(alias="deliveryStatus")
+    actual_spoken_summary: str = Field(default="", alias="actualSpokenSummary")
+    delivery_issues: list[str] = Field(default_factory=list, alias="deliveryIssues")
+    recommended_fix: str = Field(default="", alias="recommendedFix")
+    pronunciation_cautions: list[str] = Field(
+        default_factory=list,
+        alias="pronunciationCautions",
+    )
+
+
+class GeneratedSlideIntentResponse(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    message_id: str = Field(alias="messageId")
+    importance: str
+    intent: str
+
+
+class GeneratedSlideContextResponse(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    slide_id: str = Field(alias="slideId")
+    intents: list[GeneratedSlideIntentResponse] = Field(default_factory=list)
+
+
 class RehearsalAnalyzeResponse(BaseModel):
     run_id: str = Field(alias="runId")
     words_per_minute: float = Field(alias="wordsPerMinute")
@@ -235,6 +340,22 @@ class RehearsalAnalyzeResponse(BaseModel):
     )
     ai_summary: RehearsalAiSummaryResponse = Field(alias="aiSummary")
     coaching: RehearsalCoachingResponse
+    context_summary: RehearsalContextSummaryResponse | None = Field(
+        default=None,
+        alias="contextSummary",
+    )
+    message_coverage: list[RehearsalMessageCoverageItemResponse] | None = Field(
+        default=None,
+        alias="messageCoverage",
+    )
+    slide_context_insights: list[RehearsalSlideContextInsightResponse] | None = Field(
+        default=None,
+        alias="slideContextInsights",
+    )
+    generated_slide_contexts: list[GeneratedSlideContextResponse] | None = Field(
+        default=None,
+        alias="generatedSlideContexts",
+    )
 
 
 @asynccontextmanager
@@ -574,22 +695,171 @@ def analyze_rehearsal(
         )
         for keyword in payload.deck_keywords
     ]
+    slide_timeline = [
+        SlideTimelineEntry(
+            slide_id=entry.slide_id,
+            entered_second=entry.entered_second,
+        )
+        for entry in payload.slide_timeline
+    ]
     metrics = analyze_rehearsal_metrics(
         transcript=payload.transcript,
         duration_seconds=payload.duration_seconds,
         segments=payload.segments,
         deck_keywords=deck_keywords,
-        slide_timeline=[
-            SlideTimelineEntry(
-                slide_id=entry.slide_id,
-                entered_second=entry.entered_second,
-            )
-            for entry in payload.slide_timeline
-        ],
+        slide_timeline=slide_timeline,
     )
+    # 0단계: 저장된 평가 기준이 있으면 AI 보강, 없으면 speakerNotes에서 새로 생성한다.
+    context_analysis = None
+    slide_contexts: list[SlideContext] | None = None
+    generated_slide_contexts: list[GeneratedSlideContextResponse] | None = None
+    actual_messages = []
+    script_revision_suggestions: list[str] = []
+
+    from openai import OpenAI
+    ai_client = OpenAI(api_key=config.openai_api_key) if config.openai_api_key else None
+
+    if ai_client:
+        if payload.saved_slide_contexts:
+            saved_as_dicts = [
+                {
+                    "slideId": entry.slide_id,
+                    "intents": [
+                        {
+                            "messageId": intent.message_id,
+                            "importance": intent.importance,
+                            "intent": intent.intent,
+                        }
+                        for intent in entry.intents
+                    ],
+                }
+                for entry in payload.saved_slide_contexts
+                if entry.intents
+            ]
+            if saved_as_dicts:
+                enriched = enrich_intents_to_slide_contexts(
+                    saved_contexts=saved_as_dicts,
+                    client=ai_client,
+                    model=config.openai_model,
+                )
+                slide_contexts = enriched if enriched else None
+        elif payload.slide_raw_inputs:
+            raw_inputs = [
+                SlideRawInput(
+                    slide_id=s.slide_id,
+                    title=s.title,
+                    speaker_notes=s.speaker_notes,
+                )
+                for s in payload.slide_raw_inputs
+            ]
+            derived = derive_slide_contexts(
+                slide_raw_inputs=raw_inputs,
+                deck_keywords=deck_keywords,
+                client=ai_client,
+                model=config.openai_model,
+            )
+            slide_contexts = derived
+            if derived:
+                generated_slide_contexts = [
+                    GeneratedSlideContextResponse(
+                        slideId=ctx.slide_id,
+                        intents=[
+                            GeneratedSlideIntentResponse(
+                                messageId=u.message_id,
+                                importance=u.importance,
+                                intent=u.intent,
+                            )
+                            for u in ctx.message_units
+                        ],
+                    )
+                    for ctx in derived
+                ]
+
+    # 1단계 + 2단계: slide_contexts가 생성됐을 때만 실행한다.
+    if slide_contexts:
+        actual_messages = summarize_slide_speech(
+            slide_contexts=slide_contexts,
+            segments=payload.segments,
+            slide_timeline=slide_timeline,
+            client=ai_client,
+            model=config.openai_model,
+        )
+        context_analysis = evaluate_message_coverage(
+            slide_contexts=slide_contexts,
+            actual_messages=actual_messages,
+            client=ai_client,
+            model=config.openai_model,
+        )
+        pronunciation_cautions_by_slide = detect_pronunciation_cautions(
+            slide_contexts=slide_contexts,
+            slide_raw_inputs=[
+                SlideRawInput(
+                    slide_id=entry.slide_id,
+                    title=entry.title,
+                    speaker_notes=entry.speaker_notes,
+                )
+                for entry in (payload.slide_raw_inputs or [])
+            ],
+            slide_timeline=slide_timeline,
+            deck_keywords=deck_keywords,
+            segments=payload.segments,
+            duration_seconds=payload.duration_seconds,
+        )
+        if context_analysis:
+            context_analysis = ContextAnalysisResult(
+                context_summary=context_analysis.context_summary,
+                message_coverage=context_analysis.message_coverage,
+                slide_context_insights=[
+                    SlideContextInsight(
+                        slide_id=insight.slide_id,
+                        delivery_status=insight.delivery_status,
+                        actual_spoken_summary=insight.actual_spoken_summary,
+                        delivery_issues=insight.delivery_issues,
+                        recommended_fix=insight.recommended_fix,
+                        pronunciation_cautions=pronunciation_cautions_by_slide.get(
+                            insight.slide_id,
+                            [],
+                        ),
+                    )
+                    for insight in context_analysis.slide_context_insights
+                ],
+            )
+        if payload.slide_raw_inputs and context_analysis:
+            script_revision_suggestions = build_script_revision_suggestions(
+                slide_raw_inputs=[
+                    SlideRawInput(
+                        slide_id=entry.slide_id,
+                        title=entry.title,
+                        speaker_notes=entry.speaker_notes,
+                    )
+                    for entry in payload.slide_raw_inputs
+                ],
+                slide_contexts=slide_contexts,
+                actual_messages=actual_messages,
+                slide_context_insights=context_analysis.slide_context_insights,
+                client=ai_client,
+                model=config.openai_model,
+            )
+
+    context_summary: ContextSummary | None = (
+        context_analysis.context_summary if context_analysis else None
+    )
+
+    total_slide_count = len(payload.slide_raw_inputs) if payload.slide_raw_inputs else 0
+    presented_slide_ids = {entry.slide_id for entry in payload.slide_timeline}
+    presented_slide_count = (
+        sum(1 for s in payload.slide_raw_inputs if s.slide_id in presented_slide_ids)
+        if payload.slide_raw_inputs
+        else 0
+    )
+
     coaching = generate_rehearsal_coaching(
         transcript=payload.transcript,
         metrics=metrics,
+        context_summary=context_summary,
+        total_slide_count=total_slide_count,
+        presented_slide_count=presented_slide_count,
+        script_revision_suggestions=script_revision_suggestions,
         model=config.openai_model,
         api_key=config.openai_api_key,
     )
@@ -661,8 +931,50 @@ def analyze_rehearsal(
             strengths=coaching.strengths,
             improvements=coaching.improvements,
             nextPracticeFocus=coaching.next_practice_focus,
+            scriptRevisionSuggestions=coaching.script_revision_suggestions,
             message=coaching.message,
         ),
+        contextSummary=(
+            RehearsalContextSummaryResponse(
+                overallStatus=context_analysis.context_summary.overall_status,
+                headline=context_analysis.context_summary.headline,
+                strengths=context_analysis.context_summary.strengths,
+                risks=context_analysis.context_summary.risks,
+            )
+            if context_analysis
+            else None
+        ),
+        messageCoverage=(
+            [
+                RehearsalMessageCoverageItemResponse(
+                    slideId=item.slide_id,
+                    messageId=item.message_id,
+                    status=item.status,
+                    confidence=item.confidence,
+                    evidenceSummary=item.evidence_summary,
+                    feedback=item.feedback,
+                )
+                for item in context_analysis.message_coverage
+            ]
+            if context_analysis
+            else None
+        ),
+        slideContextInsights=(
+            [
+                RehearsalSlideContextInsightResponse(
+                    slideId=item.slide_id,
+                    deliveryStatus=item.delivery_status,
+                    actualSpokenSummary=item.actual_spoken_summary,
+                    deliveryIssues=item.delivery_issues,
+                    recommendedFix=item.recommended_fix,
+                    pronunciationCautions=item.pronunciation_cautions,
+                )
+                for item in context_analysis.slide_context_insights
+            ]
+            if context_analysis
+            else None
+        ),
+        generatedSlideContexts=generated_slide_contexts,
     )
 
 

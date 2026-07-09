@@ -347,6 +347,7 @@ const reportMockupReport: RehearsalReport = {
     ],
     nextPracticeFocus:
       "다음 연습에서는 결론 슬라이드의 CTA 문장을 먼저 고정하고, 수치 설명 구간의 호흡을 조금 더 길게 가져가세요.",
+    scriptRevisionSuggestions: [],
     message: ""
   },
   generatedAt: reportMockupGeneratedAt

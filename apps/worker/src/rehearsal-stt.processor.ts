@@ -3,8 +3,10 @@ import {
   type Deck,
   deckPatchSchema,
   deckSchema,
+  deckSlideContextEntrySchema,
   rehearsalReportSchema,
   rehearsalRunMetaSchema,
+  type DeckSlideContextEntry,
   type Job,
   type RehearsalReport,
   type RehearsalReportSlideTiming,
@@ -106,6 +108,37 @@ const analyzeAiSummarySchema = z
   })
   .strict();
 
+const analyzeContextSummarySchema = z
+  .object({
+    overallStatus: z.enum(["clear", "mixed", "weak"]),
+    headline: z.string().trim().min(1),
+    strengths: z.array(z.string()).default([]),
+    risks: z.array(z.string()).default([])
+  })
+  .strict();
+
+const analyzeMessageCoverageItemSchema = z
+  .object({
+    slideId: z.string().min(1),
+    messageId: z.string().min(1),
+    status: z.enum(["delivered", "partial", "missed", "unclear", "misleading"]),
+    confidence: z.number().min(0).max(1),
+    evidenceSummary: z.string().default(""),
+    feedback: z.string().default("")
+  })
+  .strict();
+
+const analyzeSlideContextInsightSchema = z
+  .object({
+    slideId: z.string().min(1),
+    deliveryStatus: z.enum(["clear", "partial", "weak"]),
+    actualSpokenSummary: z.string().default(""),
+    deliveryIssues: z.array(z.string()).default([]),
+    recommendedFix: z.string().default(""),
+    pronunciationCautions: z.array(z.string()).default([])
+  })
+  .strict();
+
 const analyzeResponseSchema = z.object({
   runId: z.string().min(1),
   wordsPerMinute: z.number().nonnegative(),
@@ -118,7 +151,18 @@ const analyzeResponseSchema = z.object({
   missedKeywords: z.array(analyzeMissedKeywordSchema).default([]),
   slideInsights: z.array(analyzeSlideInsightSchema).default([]),
   aiSummary: analyzeAiSummarySchema.optional(),
-  coaching: z.record(z.unknown()).optional()
+  coaching: z.record(z.unknown()).optional(),
+  contextSummary: analyzeContextSummarySchema.nullable().optional(),
+  messageCoverage: z.array(analyzeMessageCoverageItemSchema).nullable().optional(),
+  slideContextInsights: z.array(analyzeSlideContextInsightSchema).nullable().optional(),
+  generatedSlideContexts: z.array(z.object({
+    slideId: z.string().min(1),
+    intents: z.array(z.object({
+      messageId: z.string().min(1),
+      importance: z.enum(["required", "recommended", "optional"]),
+      intent: z.string().min(1)
+    })).default([])
+  })).nullable().optional()
 });
 
 type RehearsalSttPayload = z.infer<typeof rehearsalSttPayloadSchema>;
@@ -244,6 +288,8 @@ export async function processRehearsalSttJob(
 
   await progressJob(dataSource, payload.jobId, 65, "발화 지표 분석 중");
 
+  const savedSlideContexts = await loadSavedSlideContexts(dataSource, payload.projectId);
+
   let analysis: z.infer<typeof analyzeResponseSchema>;
   try {
     analysis = await analyzeTranscript(
@@ -251,7 +297,8 @@ export async function processRehearsalSttJob(
       payload,
       deckContext,
       transcribePayload,
-      runMeta
+      runMeta,
+      savedSlideContexts
     );
   } catch (error) {
     return failAfterDelete(
@@ -263,6 +310,19 @@ export async function processRehearsalSttJob(
       "PYTHON_WORKER_ANALYZE_FAILED",
       error instanceof Error ? error.message : "Python worker analysis failed."
     );
+  }
+
+  if (!savedSlideContexts && analysis.generatedSlideContexts != null && analysis.generatedSlideContexts.length > 0) {
+    try {
+      await saveSlideContexts(
+        dataSource,
+        payload.projectId,
+        payload.deckId,
+        analysis.generatedSlideContexts
+      );
+    } catch {
+      // 평가 기준 초기 저장 실패는 리포트 생성을 막지 않는다.
+    }
   }
 
   await progressJob(dataSource, payload.jobId, 85, "리포트 생성 중");
@@ -365,6 +425,9 @@ function buildRehearsalReport(
     },
     aiSummary: analysis.aiSummary ?? null,
     coaching: analysis.coaching ?? null,
+    contextSummary: analysis.contextSummary ?? undefined,
+    messageCoverage: analysis.messageCoverage ?? undefined,
+    slideContextInsights: analysis.slideContextInsights ?? undefined,
     generatedAt
   });
 }
@@ -399,7 +462,8 @@ async function analyzeTranscript(
   payload: RehearsalSttPayload,
   deckContext: DeckAnalysisContext,
   transcription: z.infer<typeof transcribeResponseSchema>,
-  runMeta: RehearsalRunMeta
+  runMeta: RehearsalRunMeta,
+  savedSlideContexts: DeckSlideContextEntry[] | null
 ) {
   const response = await fetch(workerUrl(pythonWorkerUrl, "/rehearsal/analyze"), {
     method: "POST",
@@ -412,7 +476,14 @@ async function analyzeTranscript(
       durationSeconds: transcription.durationSeconds ?? 0,
       segments: transcription.segments,
       deckKeywords: deckContext.deckKeywords,
-      slideTimeline: buildAnalyzeSlideTimeline(deckContext.deck, runMeta)
+      slideTimeline: buildAnalyzeSlideTimeline(deckContext.deck, runMeta),
+      slideRawInputs: deckContext.deck.slides.map((slide) => ({
+        slideId: slide.slideId,
+        title: slide.title,
+        speakerNotes: slide.speakerNotes
+      })),
+      runEvidence: { adviceEvents: runMeta.adviceEvents ?? [] },
+      savedSlideContexts: savedSlideContexts ?? undefined
     }),
     signal: AbortSignal.timeout(120_000)
   });
@@ -422,6 +493,36 @@ async function analyzeTranscript(
   }
 
   return analyzeResponseSchema.parse(await response.json());
+}
+
+async function loadSavedSlideContexts(
+  dataSource: DataSource,
+  projectId: string
+): Promise<DeckSlideContextEntry[] | null> {
+  const rows = await dataSource.query(
+    `SELECT contexts_json FROM deck_slide_contexts WHERE project_id = $1`,
+    [projectId]
+  );
+  const row = readFirstQueryRow<{ contexts_json: unknown }>(rows);
+  if (!row) return null;
+  const parsed = z.array(deckSlideContextEntrySchema).safeParse(row.contexts_json);
+  return parsed.success && parsed.data.length > 0 ? parsed.data : null;
+}
+
+async function saveSlideContexts(
+  dataSource: DataSource,
+  projectId: string,
+  deckId: string,
+  contexts: DeckSlideContextEntry[]
+): Promise<void> {
+  await dataSource.query(
+    `
+      INSERT INTO deck_slide_contexts (project_id, deck_id, contexts_json, updated_at)
+      VALUES ($1, $2, $3::jsonb, now())
+      ON CONFLICT (project_id) DO NOTHING
+    `,
+    [projectId, deckId, JSON.stringify(contexts)]
+  );
 }
 
 async function loadAudioAsset(dataSource: DataSource, payload: RehearsalSttPayload) {

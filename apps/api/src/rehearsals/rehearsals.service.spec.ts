@@ -7,6 +7,7 @@ import type { DecksService } from "../decks/decks.service";
 import type { FilesService } from "../files/files.service";
 import type { JobsService } from "../jobs/jobs.service";
 import type { ProjectsService } from "../projects/projects.service";
+import { DeckSlideContextsEntity } from "./deck-slide-contexts.entity";
 import { RehearsalRunEntity } from "./rehearsal-run.entity";
 import type { ProjectEntity } from "../projects/project.entity";
 import type {
@@ -106,6 +107,7 @@ const rehearsalReport = {
     strengths: ["키워드를 언급했습니다."],
     improvements: ["불필요한 filler를 줄이세요."],
     nextPracticeFocus: "도입부를 더 짧게 연습하세요.",
+    scriptRevisionSuggestions: [],
     message: ""
   },
   generatedAt: rawAudioDeletedAt
@@ -550,6 +552,13 @@ function createService(
   const service = new RehearsalsService(
     repository,
     { findOne: vi.fn(async () => null) } as unknown as Repository<ProjectEntity>,
+    {
+      find: vi.fn(async () => []),
+      findOne: vi.fn(async () => null),
+      save: vi.fn(async (value) => value),
+      create: vi.fn((value) => value),
+      delete: vi.fn(async () => ({ affected: 0 })),
+    } as unknown as Repository<DeckSlideContextsEntity>,
     {
       getDeck: vi.fn(async () => ({
         projectId: "project-a",
