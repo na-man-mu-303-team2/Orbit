@@ -1083,6 +1083,10 @@ def test_generate_deck_design_pack_uses_brandlogy_layout_recipes() -> None:
     assert has_element(cover, "el_1_cover_trust_signal_panel")
     assert has_element(cover, "el_1_cover_summary_card_1")
     assert not has_element(cover, "el_1_accent_rail")
+    for index in range(1, 4):
+        label = element_by_id(cover, f"el_1_cover_summary_card_{index}_label")
+        props = label["props"]
+        assert label["height"] - 8 >= props["fontSize"] * props.get("lineHeight", 1.2)
     assert has_element(overview, "el_2_overview_card_1")
     assert has_element(process, "el_3_process_step_card_1")
     assert has_element(process, "el_3_process_step_connector_1")
