@@ -158,6 +158,10 @@ import {
   type P3RehearsalSession,
   type P3RehearsalSessionState,
 } from "./speech/p3RehearsalSession";
+import { getSemanticCueRuntimeFlags } from "./speech/semanticCueFeatureFlags";
+import { createSemanticCueDebugRingBuffer } from "./speech/semanticCueDebugEvents";
+import { createSemanticCueRuntime } from "./speech/semanticCueRuntime";
+import { createMockSemanticCueNliProvider } from "./speech/mockSemanticCueNliProvider";
 import {
   getE5EmbeddingService,
   type E5EmbeddingService,
@@ -731,6 +735,7 @@ export async function runRehearsalUploadFlow(options: {
             missedKeywords: [],
             adviceEvents: [],
             utteranceOutcomes: [],
+            semanticCueDecisions: [],
           }
         : null);
 
@@ -739,7 +744,8 @@ export async function runRehearsalUploadFlow(options: {
     (runMeta.slideTimeline.length > 0 ||
       runMeta.missedKeywords.length > 0 ||
       runMeta.adviceEvents.length > 0 ||
-      runMeta.utteranceOutcomes.length > 0)
+      runMeta.utteranceOutcomes.length > 0 ||
+      runMeta.semanticCueDecisions.length > 0)
   ) {
     try {
       await updateRehearsalRunMeta(created.run.runId, runMeta, fetcher);
@@ -1631,6 +1637,7 @@ export function RehearsalWorkspace(props: {
   const semanticEmbeddingServicePromiseRef =
     useRef<Promise<E5EmbeddingService> | null>(null);
   const semanticMatcherRef = useRef<SemanticUtteranceMatcher | null>(null);
+  const semanticCueDebugBufferRef = useRef(createSemanticCueDebugRingBuffer());
   const p3RunMetaRef = useRef<RehearsalRunMeta | null>(null);
   const pendingP3RunMetaRef = useRef<Promise<RehearsalRunMeta | null> | null>(
     null,
@@ -2458,6 +2465,21 @@ export function RehearsalWorkspace(props: {
     return semanticMatcherRef.current;
   }
 
+  function createSemanticCueRuntimeFromFlags() {
+    const flags = getSemanticCueRuntimeFlags(import.meta.env);
+
+    if (!flags.nliEnabled || flags.provider !== "mock") {
+      return undefined;
+    }
+
+    return createSemanticCueRuntime({
+      provider: createMockSemanticCueNliProvider({
+        modelId: flags.modelId,
+      }),
+      enabled: true,
+    });
+  }
+
   function getOrCreateSemanticEmbeddingService() {
     semanticEmbeddingServicePromiseRef.current ??= getE5EmbeddingService(() => {
       setSemanticDebugState((current) =>
@@ -2544,9 +2566,16 @@ export function RehearsalWorkspace(props: {
       },
       semanticMatcher:
         import.meta.env.MODE === "test" ? undefined : getOrCreateSemanticMatcher(),
+      semanticCueRuntime:
+        import.meta.env.MODE === "test"
+          ? undefined
+          : createSemanticCueRuntimeFromFlags(),
       isSemanticMatchingEnabled: () =>
         presenterSettings.advancePolicy.semanticMatching,
       onSemanticDebugState: setSemanticDebugState,
+      onSemanticCueDebugEvent: (event) => {
+        semanticCueDebugBufferRef.current.push(event);
+      },
     });
     p3SessionRef.current = session;
 
@@ -5474,6 +5503,7 @@ function buildP3SessionSlides(deck: Deck) {
     slideId: slide.slideId,
     speakerNotes: slide.speakerNotes,
     keywords: slide.keywords ?? [],
+    semanticCues: slide.semanticCues ?? [],
     controlPhrases: defaultRehearsalCommandConfig.flatMap(
       (command) => command.phrases,
     ),

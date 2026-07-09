@@ -1,4 +1,4 @@
-import type { RehearsalRunMeta } from "@orbit/shared";
+import type { RehearsalRunMeta, RehearsalSemanticCueDecision } from "@orbit/shared";
 import type { AdviceEventType } from "./speechTrackingConfig";
 
 export type RehearsalLogSlide = {
@@ -30,6 +30,9 @@ export type RehearsalLogCollector = {
     nearestSentenceId: string | null;
     similarity: number | null;
   }) => void;
+  recordSemanticCueDecisions: (
+    decisions: readonly RehearsalSemanticCueDecision[]
+  ) => void;
   setAdviceState: (type: AdviceEventType, active: boolean) => void;
   finalize: () => RehearsalRunMeta;
 };
@@ -49,6 +52,7 @@ export function createRehearsalLogCollector(
   const provisionalMissing = new Map<string, Set<string>>();
   const coveredSentenceIds = new Map<string, Set<string>>();
   const utteranceOutcomes: RehearsalRunMeta["utteranceOutcomes"] = [];
+  const semanticCueDecisions: RehearsalRunMeta["semanticCueDecisions"] = [];
   const adviceState = new Map<AdviceEventType, AdviceState>();
   const adviceEvents: RehearsalRunMeta["adviceEvents"] = [];
 
@@ -137,6 +141,25 @@ export function createRehearsalLogCollector(
     adviceState.set(type, current);
   }
 
+  function recordSemanticCueDecisions(
+    decisions: readonly RehearsalSemanticCueDecision[]
+  ) {
+    for (const decision of decisions) {
+      semanticCueDecisions.push({
+        ...decision,
+        premise:
+          decision.premise === undefined
+            ? undefined
+            : normalizeBoundedMetaText(decision.premise, 600),
+        hypothesis:
+          decision.hypothesis === undefined
+            ? undefined
+            : normalizeBoundedMetaText(decision.hypothesis, 300),
+        at: decision.at ?? now().toISOString()
+      });
+    }
+  }
+
   function finalize(): RehearsalRunMeta {
     const missedKeywords: RehearsalRunMeta["missedKeywords"] = [];
     const missedSentenceOutcomes: RehearsalRunMeta["utteranceOutcomes"] = [];
@@ -165,7 +188,8 @@ export function createRehearsalLogCollector(
       slideTimeline: [...slideTimeline],
       missedKeywords,
       adviceEvents: [...adviceEvents],
-      utteranceOutcomes: [...utteranceOutcomes, ...missedSentenceOutcomes]
+      utteranceOutcomes: [...utteranceOutcomes, ...missedSentenceOutcomes],
+      semanticCueDecisions: [...semanticCueDecisions]
     };
   }
 
@@ -175,6 +199,7 @@ export function createRehearsalLogCollector(
     recordProvisionalMissing,
     recordSentenceCovered,
     recordAdLib,
+    recordSemanticCueDecisions,
     setAdviceState,
     finalize
   };
@@ -189,4 +214,8 @@ function getSet(map: Map<string, Set<string>>, key: string) {
   const next = new Set<string>();
   map.set(key, next);
   return next;
+}
+
+function normalizeBoundedMetaText(value: string, maxLength: number) {
+  return value.normalize("NFC").replace(/\s+/g, " ").trim().slice(0, maxLength);
 }
