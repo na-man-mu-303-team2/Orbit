@@ -1,7 +1,8 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   buildAiPptGenerateDeckPayload,
   getAiPptWizardValidationMessage,
+  pollJob,
   type PaletteOption
 } from "./AiPptMockupPage";
 
@@ -22,6 +23,10 @@ const palette: PaletteOption = {
 };
 
 describe("AI PPT wizard payload", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   it("compiles wizard answers into GenerateDeckRequest", () => {
     const payload = buildAiPptGenerateDeckPayload(
       {
@@ -84,5 +89,32 @@ describe("AI PPT wizard payload", () => {
     });
 
     expect(message).toBe("참고자료만으로 구성하려면 파일을 1개 이상 첨부하세요.");
+  });
+
+  it("polls generated deck jobs through the existing job route", async () => {
+    const fetcher = vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          jobId: "job_1",
+          projectId: "project_1",
+          type: "generate-deck",
+          status: "succeeded",
+          progress: 100,
+          message: "done",
+          result: null,
+          error: null,
+          createdAt: "2026-01-01T00:00:00.000Z",
+          updatedAt: "2026-01-01T00:00:00.000Z"
+        }),
+        { status: 200 }
+      )
+    );
+    vi.stubGlobal("fetch", fetcher);
+
+    await expect(pollJob("job_1")).resolves.toMatchObject({
+      jobId: "job_1",
+      status: "succeeded"
+    });
+    expect(String(fetcher.mock.calls[0][0])).toBe("/api/jobs/job_1");
   });
 });

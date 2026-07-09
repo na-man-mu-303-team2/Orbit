@@ -1019,7 +1019,7 @@ export async function waitForDeckExportJob(
   const startedAt = Date.now();
 
   for (;;) {
-    const response = await fetcher(`/api/v1/jobs/${encodeURIComponent(jobId)}`);
+    const response = await fetcher(`/api/jobs/${encodeURIComponent(jobId)}`);
 
     if (!response.ok) {
       throw new Error(await readPlainError(response, "Deck export job fetch failed"));

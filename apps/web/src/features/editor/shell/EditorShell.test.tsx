@@ -611,7 +611,7 @@ describe("editor shell", () => {
         );
       }
 
-      if (url.endsWith("/api/v1/jobs/job-pptx")) {
+      if (url.endsWith("/api/jobs/job-pptx")) {
         jobPollCount += 1;
         return new Response(
           JSON.stringify(

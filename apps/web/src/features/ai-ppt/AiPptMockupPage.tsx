@@ -803,10 +803,10 @@ async function fetchDeckColorOptions(input: {
   }));
 }
 
-async function pollJob(jobId: string): Promise<Job> {
+export async function pollJob(jobId: string): Promise<Job> {
   const startedAt = Date.now();
   while (Date.now() - startedAt < 300_000) {
-    const response = await fetch(`/api/v1/jobs/${encodeURIComponent(jobId)}`, {
+    const response = await fetch(`/api/jobs/${encodeURIComponent(jobId)}`, {
       credentials: "include"
     });
     if (!response.ok) {
