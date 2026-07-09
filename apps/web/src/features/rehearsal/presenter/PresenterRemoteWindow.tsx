@@ -8,10 +8,10 @@ import {
   ListChecks,
   Maximize2,
   Monitor,
+  PauseCircle,
   PlayCircle,
   Power,
   RotateCcw,
-  Square,
   Timer,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -141,6 +141,11 @@ export function PresenterRemoteWindow(props: {
     noteSentences,
     state,
   );
+  const nextSentenceIndex = getPresenterRemoteNextSentenceIndex(
+    noteSentences,
+    state,
+    currentSentenceIndex,
+  );
   const currentCueText =
     currentSentenceIndex >= 0
       ? noteSentences[currentSentenceIndex]
@@ -153,6 +158,13 @@ export function PresenterRemoteWindow(props: {
     getEstimatedRemainingSeconds(slide, noteSentences.length, state.stepIndex),
   );
   const timing = getPresenterRemoteTimingState(deck, slide, state);
+  const isTimerActive = timing.isRunning || timing.isLiveSttActive;
+  const timerPrimaryAction = isTimerActive ? "timer-pause" : "timer-start";
+  const timerPrimaryLabel = timing.isPaused
+    ? "다시 시작"
+    : isTimerActive
+      ? "일시정지"
+      : "시작";
   const timerProgressPercent = getPresenterRemoteTimerProgressPercent(timing);
   const previewScale = getPresenterRemotePreviewScale(deck);
   const visibleSlides = getPresenterRemoteVisibleSlides(deck, state.slideIndex);
@@ -260,7 +272,9 @@ export function PresenterRemoteWindow(props: {
                       ? matchKind === "paraphrased"
                         ? "paraphrased"
                         : "covered"
-                      : "pending",
+                      : index === nextSentenceIndex
+                        ? "next"
+                        : "pending",
               };
             })}
           />
@@ -277,7 +291,11 @@ export function PresenterRemoteWindow(props: {
             <div className="presenter-remote-section-heading">
               <span>타이머</span>
               <strong>
-                {timing.isLiveSttActive ? "음성인식 중" : "음성인식 대기"}
+                {timing.isPaused
+                  ? "일시정지됨"
+                  : timing.isLiveSttActive
+                    ? "음성인식 중"
+                    : "음성인식 대기"}
               </strong>
             </div>
             <strong
@@ -310,21 +328,15 @@ export function PresenterRemoteWindow(props: {
             <div className="presenter-remote-timer-actions">
               <button
                 type="button"
-                onClick={() =>
-                  sendCommand({
-                    action:
-                      timing.isRunning || timing.isLiveSttActive
-                        ? "timer-pause"
-                        : "timer-start",
-                  })
-                }
+                aria-label={`리허설 ${timerPrimaryLabel}`}
+                onClick={() => sendCommand({ action: timerPrimaryAction })}
               >
-                {timing.isRunning || timing.isLiveSttActive ? (
-                  <Square size={16} />
+                {isTimerActive ? (
+                  <PauseCircle size={16} />
                 ) : (
                   <PlayCircle size={16} />
                 )}
-                {timing.isRunning || timing.isLiveSttActive ? "멈춤" : "시작"}
+                {timerPrimaryLabel}
               </button>
               <button
                 type="button"
@@ -599,6 +611,23 @@ export function getPresenterRemoteCurrentSentenceIndex(
   return sentences.length - 1;
 }
 
+export function getPresenterRemoteNextSentenceIndex(
+  sentences: readonly string[],
+  state: PresenterSlideshowState,
+  currentSentenceIndex: number,
+) {
+  if (currentSentenceIndex < 0) {
+    return -1;
+  }
+
+  const coveredSet = new Set(state.speech?.coveredSentenceIds ?? []);
+  return sentences.findIndex(
+    (_sentence, index) =>
+      index > currentSentenceIndex &&
+      !coveredSet.has(getPresenterRemoteSentenceId(index)),
+  );
+}
+
 function getPresenterRemoteSentenceId(index: number) {
   return `sentence_${index + 1}`;
 }
@@ -659,6 +688,7 @@ export function getPresenterRemoteTimingState(
     displayedSeconds: currentSlideTargetSeconds,
     elapsedSeconds: 0,
     isLiveSttActive: false,
+    isPaused: false,
     isRunning: false,
     liveStatus: "idle",
     mode: "timer",

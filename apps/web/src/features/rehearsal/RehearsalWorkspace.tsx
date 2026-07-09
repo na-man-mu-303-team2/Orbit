@@ -1643,6 +1643,7 @@ export function RehearsalWorkspace(props: {
   const [isTimerRunning, setIsTimerRunning] = useState(false);
   const [rehearsalRuntimeStatus, setRehearsalRuntimeStatus] =
     useState<RehearsalRuntimeStatus>("idle");
+  const [scriptAutoFollowKey, setScriptAutoFollowKey] = useState(0);
   const [isSingleScreenOpen, setIsSingleScreenOpen] = useState(false);
   const [isCompletionModalOpen, setIsCompletionModalOpen] = useState(false);
   const [timeMode, setTimeMode] = useState<RehearsalTimeMode>("timer");
@@ -2000,6 +2001,7 @@ export function RehearsalWorkspace(props: {
               displayedSeconds: displayedTimeSeconds,
               elapsedSeconds,
               isLiveSttActive,
+              isPaused: rehearsalRuntimeStatus === "paused",
               isRunning: isTimerRunning,
               liveStatus,
               mode: timeMode,
@@ -2021,6 +2023,7 @@ export function RehearsalWorkspace(props: {
       p3SessionState?.snapshot,
       presenterStepIndex,
       presenterSettings.advancePolicy.semanticMatching,
+      rehearsalRuntimeStatus,
       semanticDebugState,
       slideElapsedSeconds,
       timeMode,
@@ -2448,6 +2451,7 @@ export function RehearsalWorkspace(props: {
       setIsTimerRunning(true);
       setRehearsalRuntimeStatus("running");
       rehearsalRuntimeStatusRef.current = "running";
+      setScriptAutoFollowKey((current) => current + 1);
     } catch (cause) {
       const error = toLiveSttError(cause);
       if (phase === "recording") {
@@ -4012,11 +4016,19 @@ export function RehearsalWorkspace(props: {
             setIsTimerRunning,
           });
         }}
-        primaryActionAriaLabel={isTimerRunning ? "Pause time" : "Start time"}
+        primaryActionAriaLabel={
+          rehearsalRuntimeStatus === "paused"
+            ? "리허설 다시 시작"
+            : isTimerRunning
+              ? "리허설 일시정지"
+              : "리허설 시작"
+        }
         primaryActionDisabled={
           rehearsalRuntimeStatus !== "paused" && !isTimerRunning && !canRecord
         }
-        primaryActionRunning={isTimerRunning}
+        primaryActionRunning={
+          rehearsalRuntimeStatus !== "paused" && isTimerRunning
+        }
         statusActive={isRehearsalRuntimeActive}
         statusLabel={rehearsalRuntimeStatusLabel}
         subtitle="리허설 · 자동 따라가기"
@@ -4136,16 +4148,21 @@ export function RehearsalWorkspace(props: {
               setTimerDurationInput(formatClock(timerDurationSeconds));
             }}
             primaryActionAriaLabel={
-              phase === "recording"
-                ? "리포트 녹음 종료"
-                : canStopLiveDemo
-                  ? "Live STT 종료"
-                  : isTimerRunning
-                    ? "타이머 일시정지"
-                    : "리포트 녹음 시작"
+              rehearsalRuntimeStatus === "paused"
+                ? "리허설 다시 시작"
+                : phase === "recording"
+                  ? "리허설 일시정지"
+                  : canStopLiveDemo
+                    ? "Live STT 일시정지"
+                    : isTimerRunning
+                      ? "타이머 일시정지"
+                      : "리포트 녹음 시작"
             }
             primaryActionDisabled={!deck && !isTimerRunning}
-            primaryActionRunning={canStopLiveDemo || isTimerRunning}
+            primaryActionRunning={
+              rehearsalRuntimeStatus !== "paused" &&
+              (canStopLiveDemo || isTimerRunning)
+            }
             progressPercent={rehearsalProgressPercent}
             timeInputValue={
               editingTimeField === "duration"
@@ -4164,6 +4181,7 @@ export function RehearsalWorkspace(props: {
             adviceState={p3AdviceState}
             highlightedKeywordOccurrences={highlightedKeywordOccurrences}
             keywords={checklistKeywords}
+            scriptAutoFollowKey={scriptAutoFollowKey}
             sentences={p3Sentences}
             showAdvicePanel={false}
             showScriptPanel={false}
