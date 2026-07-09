@@ -5,9 +5,13 @@ import type {
   GenerateDeckRequest,
   GenerateDeckReferencePolicy,
   Job,
+  PptAdvisorHistoryItem,
+  PptAdvisorResponse,
+  PptAdvisorSuggestion,
   ReferenceExtractionResult
 } from "@orbit/shared";
 import {
+  pptAdvisorResponseSchema,
   recommendGenerateDeckFonts,
   referenceExtractionResultSchema,
   referenceExtractionStartResponseSchema
@@ -64,12 +68,7 @@ type AiPptWizardState = {
   referencePolicy: ReferencePolicy;
 };
 
-export type AiPptAdvisorSuggestion = {
-  field: keyof AiPptWizardState;
-  label: string;
-  reason: string;
-  value: AiPptWizardState[keyof AiPptWizardState];
-};
+export type AiPptAdvisorSuggestion = PptAdvisorSuggestion;
 
 type ReferenceGrounding = Pick<
   GenerateDeckRequest,
@@ -271,14 +270,14 @@ export function buildAiPptAdvisorSuggestions(
       field: "slides",
       label: `${parsePositiveInteger(state.duration, 10)}분 발표 ${recommendedSlideCount}장 권장`,
       reason: "발표 톤과 청중 참여도를 기준으로 장수가 너무 적거나 많으면 대본 분량과 흐름이 흔들릴 수 있습니다.",
-      value: String(recommendedSlideCount)
+      value: recommendedSlideCount
     });
   } else if (parsePositiveInteger(state.duration, 10) <= 3 && !state.slides.trim()) {
     suggestions.push({
       field: "slides",
       label: "3분 발표용 4장 구성",
       reason: "짧은 발표는 표지, 문제, 해결, 요약으로 압축하면 안정적입니다.",
-      value: "4"
+      value: 4
     });
   }
   if (!state.fontMood.trim()) {
@@ -935,11 +934,59 @@ function AdvisorPanel(props: {
   ) => void;
 }) {
   const [question, setQuestion] = useState("");
-  const suggestions = useMemo(
-    () => buildAiPptAdvisorSuggestions(props.form),
-    [props.form]
+  const [history, setHistory] = useState<PptAdvisorHistoryItem[]>([]);
+  const [answer, setAnswer] = useState(
+    "현재 brief 기준으로 적용 가능한 제안을 아래에 정리했습니다."
   );
-  const response = advisorResponse(question, props.form);
+  const [suggestions, setSuggestions] = useState<AiPptAdvisorSuggestion[]>(() =>
+    buildAiPptAdvisorSuggestions(props.form)
+  );
+  const [isAsking, setIsAsking] = useState(false);
+
+  async function askAdvisor() {
+    const trimmedQuestion = question.trim();
+    if (!trimmedQuestion || isAsking) return;
+
+    setIsAsking(true);
+    try {
+      const response = await requestPptAdvisor(
+        props.form,
+        trimmedQuestion,
+        history.slice(-6)
+      );
+      setAnswer(response.answer);
+      setSuggestions(response.suggestions);
+      setHistory((current) =>
+        [
+          ...current,
+          { role: "user", content: trimmedQuestion },
+          { role: "assistant", content: response.answer }
+        ].slice(-6) as PptAdvisorHistoryItem[]
+      );
+      setQuestion("");
+    } catch {
+      const fallbackAnswer = advisorResponse(trimmedQuestion, props.form);
+      setAnswer(fallbackAnswer);
+      setSuggestions(buildAiPptAdvisorSuggestions(props.form));
+      setHistory((current) =>
+        [
+          ...current,
+          { role: "user", content: trimmedQuestion },
+          { role: "assistant", content: fallbackAnswer }
+        ].slice(-6) as PptAdvisorHistoryItem[]
+      );
+    } finally {
+      setIsAsking(false);
+    }
+  }
+
+  function applySuggestion(suggestion: AiPptAdvisorSuggestion) {
+    if (suggestion.field === "duration" || suggestion.field === "slides") {
+      props.onApply(suggestion.field, String(suggestion.value));
+      return;
+    }
+    props.onApply(suggestion.field, suggestion.value as never);
+  }
 
   return (
     <section className="ai-ppt-advisor">
@@ -947,22 +994,47 @@ function AdvisorPanel(props: {
         <span>Side AI</span>
         <strong>Decision helper</strong>
       </div>
-      <label className="ai-ppt-advisor-input">
-        <span>Ask</span>
-        <textarea
-          value={question}
-          onChange={(event) => setQuestion(event.target.value)}
-          placeholder="폰트, 이미지 정책, 발표 시간에 대해 물어보기"
-        />
-      </label>
-      <p>{response}</p>
+      {history.length > 0 ? (
+        <div className="ai-ppt-advisor-history" aria-live="polite">
+          {history.map((message, index) => (
+            <p key={`${message.role}-${index}`} data-role={message.role}>
+              {message.content}
+            </p>
+          ))}
+        </div>
+      ) : null}
+      <form
+        className="ai-ppt-advisor-input"
+        onSubmit={(event) => {
+          event.preventDefault();
+          void askAdvisor();
+        }}
+      >
+        <label>
+          <span>Ask</span>
+          <textarea
+            value={question}
+            maxLength={1000}
+            onChange={(event) => setQuestion(event.target.value)}
+            placeholder="폰트, 이미지 정책, 발표 시간에 대해 물어보기"
+          />
+        </label>
+        <button
+          className="ai-ppt-advisor-submit"
+          type="submit"
+          disabled={!question.trim() || isAsking}
+        >
+          <Sparkles size={16} />
+          {isAsking ? "확인 중" : "질문"}
+        </button>
+      </form>
+      <p className="ai-ppt-advisor-answer">{answer}</p>
       {suggestions.map((suggestion) => (
         <button
+          className="ai-ppt-advisor-suggestion"
           key={`${suggestion.field}-${String(suggestion.value)}`}
           type="button"
-          onClick={() =>
-            props.onApply(suggestion.field, suggestion.value as never)
-          }
+          onClick={() => applySuggestion(suggestion)}
         >
           <strong>{suggestion.label}</strong>
           <span>{suggestion.reason}</span>
@@ -1381,6 +1453,44 @@ function fontOverrideFromOption(option: GenerateDeckFontOption) {
     widthFactor: option.widthFactor,
     overflowRisk: option.overflowRisk
   };
+}
+
+export async function requestPptAdvisor(
+  state: AiPptWizardState,
+  question: string,
+  history: PptAdvisorHistoryItem[] = []
+): Promise<PptAdvisorResponse> {
+  const explicitSlides = parsePositiveInteger(state.slides, 0);
+  const response = await fetch("/api/v1/ai/ppt-advisor", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      question: question.trim(),
+      brief: {
+        topic: state.topic.trim(),
+        purpose: state.purpose.trim(),
+        presentationContext: state.context.trim(),
+        audienceText: state.audience.trim(),
+        presentationType: state.presentationType.trim(),
+        successCriteria: state.successCriteria.trim(),
+        duration: parsePositiveInteger(state.duration, 10),
+        ...(explicitSlides > 0 ? { slides: explicitSlides } : {}),
+        tone: state.tone
+      },
+      design: {
+        colorMood: state.colorMood.trim(),
+        fontMood: state.fontMood.trim(),
+        mediaPolicy: state.mediaPolicy,
+        referencePolicy: state.referencePolicy
+      },
+      history: history.slice(-6)
+    }),
+    signal: AbortSignal.timeout(16_000)
+  });
+  if (!response.ok) {
+    throw new Error(await readResponseText(response, "Side AI 응답을 불러오지 못했습니다."));
+  }
+  return pptAdvisorResponseSchema.parse(await response.json());
 }
 
 function advisorResponse(question: string, state: AiPptWizardState) {

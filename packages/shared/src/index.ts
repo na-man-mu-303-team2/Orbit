@@ -16,6 +16,7 @@ export * from "./deck/id.schema";
 export * from "./deck/keyword-occurrences";
 export * from "./deck/patch.schema";
 export * from "./deck/pptx-ooxml-generation.schema";
+export * from "./deck/ppt-advisor.schema";
 export * from "./deck/reference-extraction.schema";
 export * from "./deck/slide-action.schema";
 export * from "./deck/slide-object.schema";

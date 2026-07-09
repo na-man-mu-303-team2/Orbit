@@ -1812,6 +1812,13 @@ button:disabled {
 }
 
 .ai-ppt-advisor-input {
+  align-items: end;
+  display: grid;
+  gap: 6px;
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.ai-ppt-advisor-input label {
   display: grid;
   gap: 6px;
 }
@@ -1839,6 +1846,22 @@ button:disabled {
   margin: 0;
 }
 
+.ai-ppt-advisor-history {
+  display: grid;
+  gap: 8px;
+  max-height: 190px;
+  overflow-y: auto;
+}
+
+.ai-ppt-advisor-history p {
+  border-left: 3px solid #cbd5e1;
+  padding-left: 10px;
+}
+
+.ai-ppt-advisor-history p[data-role="assistant"] {
+  border-left-color: #0f766e;
+}
+
 .ai-ppt-advisor button {
   background: #f8fafc;
   border: 1px solid #e2e8f0;
@@ -1847,6 +1870,27 @@ button:disabled {
   gap: 4px;
   padding: 10px;
   text-align: left;
+}
+
+.ai-ppt-advisor .ai-ppt-advisor-submit {
+  align-items: center;
+  background: #0f172a;
+  color: #ffffff;
+  display: inline-flex;
+  gap: 7px;
+  justify-content: center;
+  min-height: 42px;
+  padding-inline: 14px;
+  text-align: center;
+}
+
+.ai-ppt-advisor .ai-ppt-advisor-submit:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.ai-ppt-advisor-answer {
+  min-height: 20px;
 }
 
 .ai-ppt-advisor button strong {
@@ -1877,6 +1921,10 @@ button:disabled {
 }
 
 @media (max-width: 760px) {
+  .ai-ppt-advisor-input {
+    grid-template-columns: 1fr;
+  }
+
   .ai-ppt-page {
     padding: 18px;
   }

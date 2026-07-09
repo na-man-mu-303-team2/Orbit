@@ -6,6 +6,7 @@ import {
   getAiPptWizardValidationMessage,
   getReferenceExtractionValidationMessage,
   pollJob,
+  requestPptAdvisor,
   startReferenceExtraction,
   type PaletteOption
 } from "./AiPptMockupPage";
@@ -306,7 +307,7 @@ describe("AI PPT wizard payload", () => {
 
     expect(suggestions[0]).toMatchObject({
       field: "slides",
-      value: "4"
+      value: 4
     });
     expect(form.slides).toBe("");
   });
@@ -334,6 +335,61 @@ describe("AI PPT wizard payload", () => {
         value: "minimal"
       })
     );
+  });
+
+  it("sends bounded session state to the authenticated advisor route", async () => {
+    const fetcher = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          answer: "7장이 적당합니다.",
+          suggestions: [
+            {
+              field: "slides",
+              value: 7,
+              label: "7장 구성",
+              reason: "토론 시간을 확보합니다."
+            }
+          ]
+        })
+      )
+    );
+    vi.stubGlobal("fetch", fetcher);
+
+    await expect(
+      requestPptAdvisor(
+        {
+          topic: "MVP 회고",
+          purpose: "다음 행동 합의",
+          context: "팀 토론",
+          audience: "제품팀",
+          presentationType: "discussion",
+          successCriteria: "합의",
+          duration: "7",
+          slides: "",
+          tone: "friendly",
+          colorMood: "신뢰감 있는 파랑",
+          fontMood: "둥근 한글 고딕",
+          mediaPolicy: "ai-generated",
+          referencePolicy: "references-first"
+        },
+        "몇 장이 적당해?",
+        Array.from({ length: 8 }, (_, index) => ({
+          role: index % 2 === 0 ? ("user" as const) : ("assistant" as const),
+          content: `message-${index}`
+        }))
+      )
+    ).resolves.toMatchObject({
+      suggestions: [expect.objectContaining({ field: "slides", value: 7 })]
+    });
+
+    expect(fetcher).toHaveBeenCalledWith(
+      "/api/v1/ai/ppt-advisor",
+      expect.objectContaining({ method: "POST" })
+    );
+    const body = JSON.parse(String((fetcher.mock.calls[0]?.[1] as RequestInit).body));
+    expect(body.history).toHaveLength(6);
+    expect(body.design.mediaPolicy).toBe("ai-generated");
+    expect(body.brief.duration).toBe(7);
   });
 
   it("polls generated deck jobs through the existing job route", async () => {

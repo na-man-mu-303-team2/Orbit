@@ -16,6 +16,7 @@ import { PptxOoxmlGenerationsModule } from "./pptx-ooxml-generations/pptx-ooxml-
 import { PptxImportsModule } from "./pptx-imports/pptx-imports.module";
 import { ProjectsModule } from "./projects/projects.module";
 import { PresentationSessionsModule } from "./presentation-sessions/presentation-sessions.module";
+import { PptAdvisorModule } from "./ppt-advisor/ppt-advisor.module";
 import { ReferencesModule } from "./references/references.module";
 import { RealtimeGateway } from "./realtime/realtime.gateway";
 import { RealtimeTranscriptionModule } from "./realtime-transcription/realtime-transcription.module";
@@ -39,6 +40,7 @@ import { RuntimeConfigModule } from "./runtime-config/runtime-config.module";
     PptxImportsModule,
     JobsModule,
     PresentationSessionsModule,
+    PptAdvisorModule,
     ReferencesModule,
     RuntimeConfigModule,
     RealtimeTranscriptionModule,
