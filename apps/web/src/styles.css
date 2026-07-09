@@ -1455,55 +1455,125 @@ button:disabled {
   aspect-ratio: 16 / 9;
   border: 1px solid;
   border-radius: 6px;
-  display: grid;
-  gap: 6px;
   overflow: hidden;
   padding: 12px;
   position: relative;
 }
 
-.ai-ppt-mini-slide > i {
-  border-radius: 999px;
-  height: 7px;
-  width: 42px;
-}
-
-.ai-ppt-mini-slide strong {
-  font-size: 0.9rem;
-  line-height: 1.1;
-}
-
-.ai-ppt-mini-slide p {
-  color: inherit;
-  font-size: 0.68rem;
-  font-weight: 700;
-  line-height: 1.35;
-  margin: 0;
-  opacity: 0.74;
-}
-
-.ai-ppt-mini-slide div {
-  display: flex;
-  gap: 5px;
-}
-
-.ai-ppt-mini-slide div span {
-  border-radius: 999px;
-  height: 16px;
-  width: 16px;
-}
-
-.ai-ppt-mini-slide em {
-  background: rgba(15, 23, 42, 0.06);
-  border-radius: 6px;
-  bottom: 10px;
-  color: inherit;
-  font-size: 0.66rem;
-  font-style: normal;
-  font-weight: 800;
-  padding: 6px 8px;
+.ai-ppt-mini-top-rule,
+.ai-ppt-mini-bottom-rule {
+  display: block;
+  height: 4px;
+  left: 0;
   position: absolute;
-  right: 10px;
+  right: 0;
+}
+
+.ai-ppt-mini-top-rule {
+  top: 0;
+}
+
+.ai-ppt-mini-bottom-rule {
+  bottom: 0;
+}
+
+.ai-ppt-mini-section {
+  align-items: center;
+  display: flex;
+  gap: 6px;
+  font-size: 0.58rem;
+  font-weight: 900;
+  letter-spacing: 0;
+  line-height: 1;
+}
+
+.ai-ppt-mini-section span {
+  font-size: 0.68rem;
+}
+
+.ai-ppt-mini-cover-recipe,
+.ai-ppt-mini-body-recipe {
+  display: grid;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.ai-ppt-mini-cover-recipe {
+  grid-template-columns: 1fr 0.78fr;
+}
+
+.ai-ppt-mini-cover-recipe section {
+  min-width: 0;
+  padding-top: 10px;
+}
+
+.ai-ppt-mini-cover-recipe strong {
+  display: block;
+  font-size: 0.88rem;
+  line-height: 1.05;
+}
+
+.ai-ppt-mini-cover-recipe p {
+  font-size: 0.62rem;
+  font-weight: 800;
+  line-height: 1.2;
+  margin: 8px 0 0;
+  opacity: 0.68;
+}
+
+.ai-ppt-mini-cover-recipe aside {
+  border: 1px solid;
+  border-radius: 6px;
+  display: grid;
+  gap: 5px;
+  padding: 10px 9px;
+}
+
+.ai-ppt-mini-cover-recipe aside i {
+  border-radius: 4px;
+  display: block;
+  height: 28px;
+  width: 7px;
+}
+
+.ai-ppt-mini-cover-recipe aside span {
+  background: #fff;
+  border: 1px solid;
+  border-radius: 5px;
+  display: block;
+  height: 16px;
+}
+
+.ai-ppt-mini-body-recipe {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.ai-ppt-mini-body-recipe section {
+  border: 1px solid;
+  border-radius: 6px;
+  min-width: 0;
+  padding: 8px 7px;
+}
+
+.ai-ppt-mini-body-recipe i {
+  border-radius: 999px;
+  display: block;
+  height: 18px;
+  width: 18px;
+}
+
+.ai-ppt-mini-body-recipe strong {
+  display: block;
+  font-size: 0.58rem;
+  line-height: 1;
+  margin-top: 8px;
+}
+
+.ai-ppt-mini-body-recipe p {
+  border-radius: 999px;
+  height: 6px;
+  margin: 9px 0 0;
+  width: 100%;
 }
 
 .ai-ppt-swatches {

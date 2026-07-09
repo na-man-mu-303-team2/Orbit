@@ -725,22 +725,46 @@ function MiniSlide(props: { dense?: boolean; palette: Required<PaletteOverride> 
   const { palette } = props;
   return (
     <div
-      className="ai-ppt-mini-slide"
+      className={[
+        "ai-ppt-mini-slide",
+        props.dense ? "ai-ppt-mini-slide-dense" : "ai-ppt-mini-slide-cover"
+      ].join(" ")}
       style={{
         background: palette.background,
         color: palette.text,
         borderColor: palette.border
       }}
     >
-      <i style={{ background: palette.primary }} />
-      <strong>Deck JSON first</strong>
-      <p>Brief + Design Pack + paletteOverride</p>
-      <div>
-        <span style={{ background: palette.accentColor }} />
-        <span style={{ background: palette.primary }} />
-        <span style={{ background: palette.secondary }} />
-      </div>
-      {props.dense ? <em>chart / table / card zone</em> : null}
+      <i className="ai-ppt-mini-top-rule" style={{ background: palette.primary }} />
+      <header className="ai-ppt-mini-section">
+        <span style={{ color: palette.primary }}>01</span>
+        <b>DESIGN PACK</b>
+      </header>
+      {props.dense ? (
+        <main className="ai-ppt-mini-body-recipe">
+          {[palette.primary, palette.secondary, palette.accentColor].map((color, index) => (
+            <section key={color} style={{ borderColor: palette.border }}>
+              <i style={{ background: color }} />
+              <strong>{index === 0 ? "Process" : index === 1 ? "Cards" : "Signal"}</strong>
+              <p style={{ background: palette.muted }} />
+            </section>
+          ))}
+        </main>
+      ) : (
+        <main className="ai-ppt-mini-cover-recipe">
+          <section>
+            <strong>Deck JSON first</strong>
+            <p>Brief + Design Pack</p>
+          </section>
+          <aside style={{ background: palette.muted, borderColor: palette.border }}>
+            <i style={{ background: palette.primary }} />
+            <span style={{ borderColor: palette.border }} />
+            <span style={{ borderColor: palette.border }} />
+            <span style={{ borderColor: palette.border }} />
+          </aside>
+        </main>
+      )}
+      <i className="ai-ppt-mini-bottom-rule" style={{ background: palette.secondary }} />
     </div>
   );
 }
