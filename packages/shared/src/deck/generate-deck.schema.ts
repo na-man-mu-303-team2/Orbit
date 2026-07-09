@@ -28,7 +28,9 @@ export const generateDeckReferenceKeywordSchema = z.object({
 export const generateDeckReferenceContextSchema = z.object({
   fileId: z.string().min(1),
   title: z.string().trim().default(""),
-  content: z.string().trim().min(1)
+  content: z.string().trim().min(1),
+  sourceId: z.string().trim().min(1).optional(),
+  chunkId: z.string().trim().min(1).optional()
 });
 
 export const generateDeckMetadataSchema = z

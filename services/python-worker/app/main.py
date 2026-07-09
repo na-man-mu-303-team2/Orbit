@@ -897,6 +897,8 @@ def _generate_deck_reference_context(
     searched_context = [
         ReferenceContext(
             fileId=result.file_id,
+            sourceId=f"uploaded:{result.file_id}:{result.chunk_id}",
+            chunkId=result.chunk_id,
             title=str(result.metadata.get("fileName", "")),
             content=result.content,
         )

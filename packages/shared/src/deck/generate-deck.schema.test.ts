@@ -256,6 +256,8 @@ describe("generateDeckRequestSchema", () => {
       referenceContext: [
         {
           fileId: "file_design",
+          sourceId: "uploaded:file_design:chunk_1",
+          chunkId: "chunk_1",
           title: " template.pptx ",
           content: " PPTX source text "
         }
@@ -265,6 +267,8 @@ describe("generateDeckRequestSchema", () => {
     expect(request.referenceContext).toEqual([
       {
         fileId: "file_design",
+        sourceId: "uploaded:file_design:chunk_1",
+        chunkId: "chunk_1",
         title: "template.pptx",
         content: "PPTX source text"
       }
