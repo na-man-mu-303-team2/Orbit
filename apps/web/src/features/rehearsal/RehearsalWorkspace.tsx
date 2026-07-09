@@ -252,9 +252,12 @@ type RehearsalReportStatus =
   | "ready"
   | "not-ready"
   | "failed";
+type RehearsalRuntimeStatus = "idle" | "running" | "paused" | "stopping";
 
 type RecordingSession = {
   recorder: MediaRecorder;
+  pause: () => void;
+  resume: () => void;
   start: () => void;
   stop: () => void;
 };
@@ -854,6 +857,16 @@ export function createRecordingSession(
 
   return {
     recorder,
+    pause: () => {
+      if (recorder.state === "recording") {
+        recorder.pause();
+      }
+    },
+    resume: () => {
+      if (recorder.state === "paused") {
+        recorder.resume();
+      }
+    },
     start: () => recorder.start(),
     stop: () => {
       if (recorder.state !== "inactive") {
@@ -1628,6 +1641,8 @@ export function RehearsalWorkspace(props: {
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [slideElapsedSeconds, setSlideElapsedSeconds] = useState(0);
   const [isTimerRunning, setIsTimerRunning] = useState(false);
+  const [rehearsalRuntimeStatus, setRehearsalRuntimeStatus] =
+    useState<RehearsalRuntimeStatus>("idle");
   const [isSingleScreenOpen, setIsSingleScreenOpen] = useState(false);
   const [isCompletionModalOpen, setIsCompletionModalOpen] = useState(false);
   const [timeMode, setTimeMode] = useState<RehearsalTimeMode>("timer");
@@ -1651,6 +1666,7 @@ export function RehearsalWorkspace(props: {
     key: string;
     provider: ReturnType<typeof createBrowserTransformersSemanticCueNliProvider>;
   } | null>(null);
+  const rehearsalRuntimeStatusRef = useRef<RehearsalRuntimeStatus>("idle");
   const p3RunMetaRef = useRef<RehearsalRunMeta | null>(null);
   const pendingP3RunMetaRef = useRef<Promise<RehearsalRunMeta | null> | null>(
     null,
@@ -1773,6 +1789,10 @@ export function RehearsalWorkspace(props: {
     return () => window.clearInterval(timer);
   }, [isTimerRunning]);
 
+  useEffect(() => {
+    rehearsalRuntimeStatusRef.current = rehearsalRuntimeStatus;
+  }, [rehearsalRuntimeStatus]);
+
   const displayedTimeSeconds =
     timeMode === "timer"
       ? Math.max(timerDurationSeconds - elapsedSeconds, 0)
@@ -1790,6 +1810,11 @@ export function RehearsalWorkspace(props: {
     cancelAutoAdvanceForManualCommand();
 
     if (command.action === "timer-start") {
+      if (rehearsalRuntimeStatusRef.current === "paused") {
+        void resumePausedRehearsal();
+        return;
+      }
+
       if (timeMode === "timer" && elapsedSeconds >= timerDurationSeconds) {
         setElapsedSeconds(0);
       }
@@ -1803,11 +1828,7 @@ export function RehearsalWorkspace(props: {
     }
 
     if (command.action === "timer-pause") {
-      if (phase === "recording") {
-        stopRecording();
-      } else {
-        stopLiveDemo();
-      }
+      void pauseActiveRehearsal();
       return;
     }
 
@@ -2220,6 +2241,8 @@ export function RehearsalWorkspace(props: {
       session.start();
       setPhase("recording");
       setIsTimerRunning(true);
+      setRehearsalRuntimeStatus("running");
+      rehearsalRuntimeStatusRef.current = "running";
       void startP3Tracking(stream);
     } catch (cause) {
       stopMediaStream(stream);
@@ -2241,6 +2264,8 @@ export function RehearsalWorkspace(props: {
     setHasLocalCompletion(false);
     setElapsedSeconds(0);
     setIsTimerRunning(true);
+    setRehearsalRuntimeStatus("running");
+    rehearsalRuntimeStatusRef.current = "running";
     resetLivePlaybackForSlide(currentSlide);
     resetAutoAdvanceRuntimeState(currentSlide?.slideId ?? null);
 
@@ -2262,8 +2287,12 @@ export function RehearsalWorkspace(props: {
           liveDemoStreamRef.current = null;
         }
         setIsLiveDemoActive(false);
+        setRehearsalRuntimeStatus("idle");
+        rehearsalRuntimeStatusRef.current = "idle";
       } else {
         setIsTimerRunning(true);
+        setRehearsalRuntimeStatus("running");
+        rehearsalRuntimeStatusRef.current = "running";
       }
     } catch (cause) {
       stopMediaStream(stream);
@@ -2271,6 +2300,8 @@ export function RehearsalWorkspace(props: {
         liveDemoStreamRef.current = null;
       }
       setIsLiveDemoActive(false);
+      setRehearsalRuntimeStatus("idle");
+      rehearsalRuntimeStatusRef.current = "idle";
       setLiveError(toMicrophoneErrorMessage(cause));
       setLiveStatus("failed");
     }
@@ -2278,6 +2309,7 @@ export function RehearsalWorkspace(props: {
 
   function stopLiveDemo(options: { showCompletionModal?: boolean } = {}) {
     const wasLiveDemoActive = isLiveDemoActive || isLiveSttActive;
+    setRehearsalRuntimeStatus("stopping");
     cleanupLiveSttSubscriptions();
     const p3Session = p3SessionRef.current;
     p3SessionRef.current = null;
@@ -2302,6 +2334,8 @@ export function RehearsalWorkspace(props: {
     setLiveAudioLevel(null);
     setIsLiveDemoActive(false);
     setIsTimerRunning(false);
+    setRehearsalRuntimeStatus("idle");
+    rehearsalRuntimeStatusRef.current = "idle";
     setLiveStatus((current) =>
       current === "listening" || current === "starting" ? "stopped" : current,
     );
@@ -2315,6 +2349,7 @@ export function RehearsalWorkspace(props: {
   function stopRecording() {
     if (phase !== "recording") return;
 
+    setRehearsalRuntimeStatus("stopping");
     setPhase("uploading");
     setIsTimerRunning(false);
     resetLivePlaybackForSlide(currentSlide);
@@ -2346,17 +2381,96 @@ export function RehearsalWorkspace(props: {
     stopMediaStream(streamRef.current);
     streamRef.current = null;
     sessionRef.current = null;
+    setRehearsalRuntimeStatus("idle");
+    rehearsalRuntimeStatusRef.current = "idle";
+  }
+
+  async function pauseActiveRehearsal() {
+    if (rehearsalRuntimeStatusRef.current === "paused") {
+      return;
+    }
+
+    cancelAutoAdvanceForManualCommand();
+    pauseDetectorRef.current?.accept({ type: "reset" });
+    setPauseDetectorSnapshot(null);
+    setIsTimerRunning(false);
+    setRehearsalRuntimeStatus("paused");
+    rehearsalRuntimeStatusRef.current = "paused";
+
+    if (phase === "recording") {
+      sessionRef.current?.pause();
+      const p3Session = p3SessionRef.current;
+      if (p3Session) {
+        await p3Session.pause();
+        setP3SessionState(p3Session.getState());
+      } else {
+        await liveSttPortRef.current?.stop();
+      }
+      setLiveStatus((current) =>
+        current === "listening" || current === "starting" ? "stopped" : current,
+      );
+      return;
+    }
+
+    if (isLiveDemoActive || isLiveSttActive) {
+      const p3Session = p3SessionRef.current;
+      if (p3Session) {
+        await p3Session.pause();
+        setP3SessionState(p3Session.getState());
+      } else {
+        await liveSttPortRef.current?.stop();
+      }
+      setLiveStatus((current) =>
+        current === "listening" || current === "starting" ? "stopped" : current,
+      );
+    }
+  }
+
+  async function resumePausedRehearsal() {
+    if (rehearsalRuntimeStatusRef.current !== "paused") {
+      return;
+    }
+
+    const p3Session = p3SessionRef.current;
+    const stream =
+      phase === "recording" ? streamRef.current : liveDemoStreamRef.current;
+    try {
+      if (phase === "recording") {
+        sessionRef.current?.resume();
+      }
+
+      if (p3Session && stream) {
+        await p3Session.resume({ audioSource: stream });
+        setP3SessionState(p3Session.getState());
+        setLiveStatus("listening");
+      }
+
+      setIsTimerRunning(true);
+      setRehearsalRuntimeStatus("running");
+      rehearsalRuntimeStatusRef.current = "running";
+    } catch (cause) {
+      const error = toLiveSttError(cause);
+      if (phase === "recording") {
+        setError(error.message);
+        setPhase("failed");
+      } else {
+        setLiveError(error.message);
+        setLiveStatus(isLiveSttUnavailable(error) ? "unavailable" : "failed");
+      }
+      setIsTimerRunning(false);
+      setRehearsalRuntimeStatus("idle");
+      rehearsalRuntimeStatusRef.current = "idle";
+    }
   }
 
   async function handleTimePrimaryAction() {
+    if (rehearsalRuntimeStatus === "paused") {
+      await resumePausedRehearsal();
+      return;
+    }
+
     if (isTimerRunning) {
-      if (phase === "recording") {
-        stopRecording();
-      } else if (isLiveDemoActive || isLiveSttActive) {
-        stopLiveDemo();
-      } else {
-        setIsTimerRunning(false);
-      }
+      await pauseActiveRehearsal();
       return;
     }
 
@@ -2368,20 +2482,24 @@ export function RehearsalWorkspace(props: {
   }
 
   function handleSideTimerPrimaryAction() {
+    if (rehearsalRuntimeStatus === "paused") {
+      void resumePausedRehearsal();
+      return;
+    }
+
     if (phase === "recording") {
-      setHasLocalCompletion(true);
-      stopRecording();
+      void pauseActiveRehearsal();
       return;
     }
 
     if (canStopLiveDemo) {
-      stopLiveDemo({ showCompletionModal: true });
+      void pauseActiveRehearsal();
       return;
     }
 
     if (isTimerRunning) {
       setIsTimerRunning(false);
-      setHasLocalCompletion(true);
+      setRehearsalRuntimeStatus("paused");
       return;
     }
 
@@ -2396,6 +2514,7 @@ export function RehearsalWorkspace(props: {
 
     if (deck) {
       setIsTimerRunning(true);
+      setRehearsalRuntimeStatus("running");
     }
   }
 
@@ -2687,6 +2806,10 @@ export function RehearsalWorkspace(props: {
   }
 
   function updatePauseDetector(event: PauseDetectorEvent) {
+    if (rehearsalRuntimeStatusRef.current === "paused") {
+      return;
+    }
+
     const atMs =
       "atMs" in event && typeof event.atMs === "number"
         ? event.atMs
@@ -2735,7 +2858,11 @@ export function RehearsalWorkspace(props: {
     finalSentenceSpoken: boolean;
     remainingTriggerSteps: number;
   }) {
-    if (!deck || !currentSlide) {
+    if (
+      !deck ||
+      !currentSlide ||
+      rehearsalRuntimeStatusRef.current === "paused"
+    ) {
       return;
     }
 
@@ -2788,6 +2915,10 @@ export function RehearsalWorkspace(props: {
   }
 
   function handleLiveSttError(error: LiveSttError) {
+    if (rehearsalRuntimeStatusRef.current === "paused") {
+      return;
+    }
+
     if (!p3SessionRef.current) {
       return;
     }
@@ -2796,11 +2927,16 @@ export function RehearsalWorkspace(props: {
     setLiveError(error.message);
     setLiveAudioLevel(null);
     setIsTimerRunning(false);
+    setRehearsalRuntimeStatus("idle");
+    rehearsalRuntimeStatusRef.current = "idle";
     resetAutoAdvanceRuntimeState(currentSlide?.slideId ?? null);
   }
 
   function handleLiveSttResult(result: LiveSttResult) {
-    if (!p3SessionRef.current) {
+    if (
+      !p3SessionRef.current ||
+      rehearsalRuntimeStatusRef.current === "paused"
+    ) {
       return;
     }
 
@@ -2818,6 +2954,10 @@ export function RehearsalWorkspace(props: {
   }
 
   function handleLivePartialTranscript(event: LiveSttPartialTranscriptEvent) {
+    if (rehearsalRuntimeStatusRef.current === "paused") {
+      return;
+    }
+
     const deckSnapshot = deckRef.current;
     const slideIndex = currentSlideIndexRef.current;
     const slide = deckSnapshot?.slides[slideIndex];
@@ -3412,9 +3552,14 @@ export function RehearsalWorkspace(props: {
     targetSeconds: timerDurationSeconds,
   });
   const isRehearsalRuntimeActive =
-    phase === "recording" || isLiveSttActive || isTimerRunning;
+    phase === "recording" ||
+    isLiveSttActive ||
+    isTimerRunning ||
+    rehearsalRuntimeStatus === "paused";
   const rehearsalRuntimeStatusLabel =
-    phase === "recording"
+    rehearsalRuntimeStatus === "paused"
+      ? "일시정지됨"
+      : phase === "recording"
       ? "녹음 · 음성 인식 중"
       : isLiveSttActive
         ? "음성 인식 중"
@@ -3868,7 +4013,9 @@ export function RehearsalWorkspace(props: {
           });
         }}
         primaryActionAriaLabel={isTimerRunning ? "Pause time" : "Start time"}
-        primaryActionDisabled={!isTimerRunning && !canRecord}
+        primaryActionDisabled={
+          rehearsalRuntimeStatus !== "paused" && !isTimerRunning && !canRecord
+        }
         primaryActionRunning={isTimerRunning}
         statusActive={isRehearsalRuntimeActive}
         statusLabel={rehearsalRuntimeStatusLabel}
