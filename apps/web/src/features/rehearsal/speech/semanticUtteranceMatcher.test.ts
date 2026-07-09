@@ -119,14 +119,14 @@ describe("createSemanticUtteranceMatcher", () => {
         transcript: "",
         coveredSentenceIds: new Set()
       })
-    ).resolves.toEqual({ accepted: false, topMatches: [] });
+    ).resolves.toEqual({ accepted: false, topMatches: [], decision: null });
     await expect(
       matcher.matchFinalTranscript({
         slideId: "slide_1",
         transcript: "abc",
         coveredSentenceIds: new Set()
       })
-    ).resolves.toEqual({ accepted: false, topMatches: [] });
+    ).resolves.toEqual({ accepted: false, topMatches: [], decision: null });
     await expect(
       matcher.matchFinalTranscript({
         slideId: "slide_1",
@@ -140,8 +140,9 @@ describe("createSemanticUtteranceMatcher", () => {
     expect(DEFAULT_SEMANTIC_SPEECH_CONFIG).toEqual({
       enabled: false,
       modelId: "Xenova/multilingual-e5-small",
-      threshold: 0.72,
-      ambiguousMargin: 0.03,
+      threshold: 0.89,
+      exactLexicalThreshold: 0.55,
+      ambiguousMargin: 0.04,
       topK: 3,
       maxTokens: 512
     });

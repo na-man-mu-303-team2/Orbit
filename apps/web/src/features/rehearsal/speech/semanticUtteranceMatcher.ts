@@ -8,11 +8,18 @@ import {
   splitSpeakerNotesIntoSemanticSentences,
   type SemanticScriptSentence as SplitSemanticScriptSentence
 } from "./semanticSentenceSplitter";
+import {
+  decideSemanticUtteranceOutcome,
+  SEMANTIC_OUTCOME_POLICY,
+  type SemanticOutcomePolicy,
+  type SemanticUtteranceDecision
+} from "./semanticUtteranceDecision";
 
 export type SemanticSpeechConfig = {
   enabled: boolean;
   modelId: typeof E5_MODEL_ID;
   threshold: number;
+  exactLexicalThreshold: number;
   ambiguousMargin: number;
   topK: number;
   maxTokens: number;
@@ -56,14 +63,16 @@ export type SemanticUtteranceMatcher = {
   }) => Promise<{
     accepted: boolean;
     topMatches: SemanticUtteranceMatch[];
+    decision: SemanticUtteranceDecision | null;
   }>;
 };
 
 export const DEFAULT_SEMANTIC_SPEECH_CONFIG: SemanticSpeechConfig = Object.freeze({
   enabled: false,
   modelId: E5_MODEL_ID,
-  threshold: 0.72,
-  ambiguousMargin: 0.03,
+  threshold: SEMANTIC_OUTCOME_POLICY.adLibRejectThreshold,
+  exactLexicalThreshold: SEMANTIC_OUTCOME_POLICY.exactLexicalThreshold,
+  ambiguousMargin: SEMANTIC_OUTCOME_POLICY.ambiguousMargin,
   topK: 3,
   maxTokens: 512
 });
@@ -119,12 +128,12 @@ export function createSemanticUtteranceMatcher(input: {
   }) {
     const normalizedTranscript = normalizeLiveTranscriptText(inputOptions.transcript);
     if (!inputOptions.transcript.trim() || normalizedTranscript.length < 4) {
-      return { accepted: false, topMatches: [] };
+      return { accepted: false, topMatches: [], decision: null };
     }
 
     const index = indexCache.get(inputOptions.slideId);
     if (!index || index.sentences.length === 0) {
-      return { accepted: false, topMatches: [] };
+      return { accepted: false, topMatches: [], decision: null };
     }
 
     const queryEmbedding = await input.embeddingService.embedQuery(inputOptions.transcript);
@@ -134,13 +143,14 @@ export function createSemanticUtteranceMatcher(input: {
       coveredSentenceIds: inputOptions.coveredSentenceIds,
       topK: config.topK
     });
-    const accepted = isAcceptedSemanticMatch({
+    const decision = decideSemanticUtteranceOutcome({
+      slideId: inputOptions.slideId,
+      transcript: inputOptions.transcript,
       topMatches,
-      threshold: config.threshold,
-      ambiguousMargin: config.ambiguousMargin
+      policy: semanticOutcomePolicy(config)
     });
 
-    return { accepted, topMatches };
+    return { accepted: decision.accepted, topMatches, decision };
   }
 
   return {
@@ -186,23 +196,6 @@ export function dotProduct(left: Float32Array, right: Float32Array) {
   return score;
 }
 
-function isAcceptedSemanticMatch(options: {
-  topMatches: readonly SemanticUtteranceMatch[];
-  threshold: number;
-  ambiguousMargin: number;
-}) {
-  const [first, second] = options.topMatches;
-  if (!first || first.covered || first.similarity < options.threshold) {
-    return false;
-  }
-
-  if (second && first.similarity - second.similarity < options.ambiguousMargin) {
-    return false;
-  }
-
-  return true;
-}
-
 function hashSpeakerNotes(speakerNotes: string) {
   const normalized = speakerNotes.normalize("NFC").replace(/\r\n?/g, "\n");
   let hash = 2166136261;
@@ -215,4 +208,12 @@ function hashSpeakerNotes(speakerNotes: string) {
 
 function roundSimilarity(value: number) {
   return Math.round(value * 1000000) / 1000000;
+}
+
+function semanticOutcomePolicy(config: SemanticSpeechConfig): SemanticOutcomePolicy {
+  return {
+    adLibRejectThreshold: config.threshold,
+    ambiguousMargin: config.ambiguousMargin,
+    exactLexicalThreshold: config.exactLexicalThreshold
+  };
 }
