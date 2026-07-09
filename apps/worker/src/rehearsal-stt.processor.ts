@@ -356,6 +356,7 @@ function buildRehearsalReport(
     fillerWordDetails: analysis.fillerWordDetails,
     pauseDetails: analysis.pauseDetails,
     missedKeywords: buildReportMissedKeywords(analysis.missedKeywords),
+    utteranceOutcomes: runMeta.utteranceOutcomes,
     slideTimings: buildSlideTimings(deckContext.deck, runMeta),
     slideInsights: analysis.slideInsights,
     qnaSummary: {

@@ -325,6 +325,7 @@ const reportMockupReport: RehearsalReport = {
   fillerWordDetails: [{ word: "음", count: 3 }],
   pauseDetails: [{ startSecond: 144, endSecond: 146, durationSeconds: 2 }],
   missedKeywords: [{ slideId: "slide_1", keywordId: "kw_1", text: "핵심 메시지" }],
+  utteranceOutcomes: [],
   slideTimings: [{ slideId: "slide_1", targetSeconds: 60, actualSeconds: 58 }],
   slideInsights: [{ slideId: "slide_1", fillerWordCount: 2, pauseCount: 1 }],
   qnaSummary: {

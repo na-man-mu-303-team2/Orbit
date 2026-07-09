@@ -120,6 +120,25 @@ export const rehearsalReportCoachingSchema = z.object({
   message: z.string().default("")
 });
 
+export const rehearsalUtteranceOutcomeKindSchema = z.enum([
+  "covered",
+  "paraphrased",
+  "ad-lib",
+  "missed"
+]);
+
+export const rehearsalUtteranceOutcomeSchema = z
+  .object({
+    slideId: deckSlideIdSchema,
+    kind: rehearsalUtteranceOutcomeKindSchema,
+    sentenceId: z.string().trim().min(1).optional(),
+    text: z.string().trim().min(1).max(600).optional(),
+    similarity: z.number().min(-1).max(1).optional(),
+    lexicalOverlap: z.number().min(0).max(1).optional(),
+    at: isoDateTimeSchema.optional()
+  })
+  .strict();
+
 export const rehearsalReportSchema = z
   .object({
     reportId: z.string().min(1),
@@ -133,6 +152,7 @@ export const rehearsalReportSchema = z
     fillerWordDetails: z.array(rehearsalReportFillerWordDetailSchema).default([]),
     pauseDetails: z.array(rehearsalReportPauseDetailSchema).default([]),
     missedKeywords: z.array(rehearsalReportMissedKeywordSchema).default([]),
+    utteranceOutcomes: z.array(rehearsalUtteranceOutcomeSchema).default([]),
     slideTimings: z.array(rehearsalReportSlideTimingSchema).default([]),
     slideInsights: z.array(rehearsalReportSlideInsightSchema).default([]),
     qnaSummary: rehearsalReportQnaSummarySchema.default({
@@ -214,25 +234,6 @@ export const completeRehearsalAudioUploadResponseSchema = z.object({
   run: rehearsalRunSchema,
   job: jobSchema
 });
-
-export const rehearsalUtteranceOutcomeKindSchema = z.enum([
-  "covered",
-  "paraphrased",
-  "ad-lib",
-  "missed"
-]);
-
-export const rehearsalUtteranceOutcomeSchema = z
-  .object({
-    slideId: deckSlideIdSchema,
-    kind: rehearsalUtteranceOutcomeKindSchema,
-    sentenceId: z.string().trim().min(1).optional(),
-    text: z.string().trim().min(1).max(600).optional(),
-    similarity: z.number().min(-1).max(1).optional(),
-    lexicalOverlap: z.number().min(0).max(1).optional(),
-    at: isoDateTimeSchema.optional()
-  })
-  .strict();
 
 export const rehearsalRunMetaSchema = z
   .object({

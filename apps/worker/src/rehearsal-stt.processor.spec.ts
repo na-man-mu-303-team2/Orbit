@@ -195,6 +195,7 @@ describe("processRehearsalSttJob", () => {
         expect.stringContaining('"reportId":"report_run-a"'),
         expect.stringContaining('"speedSamples":[{"startSecond":0,"endSecond":3.5,"wordsPerMinute":120}]'),
         expect.stringContaining('"missedKeywords":[{"slideId":"slide_1","keywordId":"kw_1","text":"ORBIT"}]'),
+        expect.stringContaining('"utteranceOutcomes":[{"slideId":"slide_1","kind":"paraphrased","sentenceId":"sentence_1","similarity":0.93}]'),
         expect.stringContaining('"slideTimings":[{"slideId":"slide_1","targetSeconds":60,"actualSeconds":45}]'),
         false
       ])
@@ -821,7 +822,15 @@ function runMetaRow() {
         { slideId: "slide_2", enteredAt: "2026-06-27T00:00:45.000Z" }
       ],
       missedKeywords: [],
-      adviceEvents: []
+      adviceEvents: [],
+      utteranceOutcomes: [
+        {
+          slideId: "slide_1",
+          kind: "paraphrased",
+          sentenceId: "sentence_1",
+          similarity: 0.93
+        }
+      ]
     }
   };
 }

@@ -75,6 +75,10 @@ describe("rehearsalReportSchema", () => {
       fillerWordDetails: [{ word: "음", count: 2 }],
       pauseDetails: [{ startSecond: 2, endSecond: 3.5, durationSeconds: 1.5 }],
       missedKeywords: [{ slideId: "slide_1", keywordId: "kw_1", text: "ORBIT" }],
+      utteranceOutcomes: [
+        { slideId: "slide_1", kind: "covered", sentenceId: "sentence_1" },
+        { slideId: "slide_1", kind: "ad-lib", text: "짧은 추가 설명" }
+      ],
       slideTimings: [{ slideId: "slide_1", targetSeconds: 60, actualSeconds: 52 }],
       slideInsights: [{ slideId: "slide_1", fillerWordCount: 2, pauseCount: 1 }],
       qnaSummary: {
@@ -95,6 +99,10 @@ describe("rehearsalReportSchema", () => {
     expect(report.fillerWordDetails[0]?.word).toBe("음");
     expect(report.pauseDetails[0]?.durationSeconds).toBe(1.5);
     expect(report.missedKeywords[0]?.keywordId).toBe("kw_1");
+    expect(report.utteranceOutcomes.map((outcome) => outcome.kind)).toEqual([
+      "covered",
+      "ad-lib"
+    ]);
     expect(report.slideTimings[0]?.actualSeconds).toBe(52);
     expect(report.slideInsights[0]?.fillerWordCount).toBe(2);
     expect(report.qnaSummary.questionCount).toBe(1);
@@ -106,6 +114,7 @@ describe("rehearsalReportSchema", () => {
 
     expect(report.speedSamples).toEqual([]);
     expect(report.missedKeywords).toEqual([]);
+    expect(report.utteranceOutcomes).toEqual([]);
     expect(report.slideTimings).toEqual([]);
     expect(report.slideInsights).toEqual([]);
     expect(report.qnaSummary).toEqual({

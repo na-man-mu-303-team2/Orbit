@@ -13,6 +13,7 @@ import type { Deck, RehearsalReport, RehearsalRun } from "@orbit/shared";
 import { navigateTo } from "./rehearsalUtils";
 import { RehearsalSlideAnalysisOverview } from "./RehearsalSlideAnalysisOverview";
 import { RehearsalSlideTimingOverview } from "./RehearsalSlideTimingOverview";
+import { createDefaultPhraseExtractor } from "./speech/phraseExtractor";
 
 const TRANSCRIPT_WINDOW_MS = 30 * 60 * 1000;
 const FILLER_CHART_COLORS = [
@@ -53,6 +54,78 @@ function fmtPercent(value: number) {
 function formatDate(iso: string) {
   const d = new Date(iso);
   return `${d.getFullYear()}.${String(d.getMonth() + 1).padStart(2, "0")}.${String(d.getDate()).padStart(2, "0")}`;
+}
+
+type UtteranceOutcome = RehearsalReport["utteranceOutcomes"][number];
+
+const UTTERANCE_OUTCOME_LABELS: Record<
+  UtteranceOutcome["kind"],
+  string
+> = {
+  "ad-lib": "추가로 말한 애드리브",
+  covered: "그대로 말한 문장",
+  missed: "설명하지 않은 문장",
+  paraphrased: "바꿔 말한 문장"
+};
+
+function buildUtteranceOutcomeSections(
+  outcomes: readonly UtteranceOutcome[] = [],
+  deck: Deck | null
+) {
+  const sentenceTextByKey = buildReportSentenceTextMap(deck);
+  const slideLabelById = buildReportSlideLabelMap(deck);
+
+  return (["covered", "paraphrased", "ad-lib", "missed"] as const).map(
+    (kind) => ({
+      kind,
+      label: UTTERANCE_OUTCOME_LABELS[kind],
+      items: outcomes
+        .filter((outcome) => outcome.kind === kind)
+        .map((outcome, index) => ({
+          key: `${kind}-${outcome.slideId}-${outcome.sentenceId ?? "ad-lib"}-${index}`,
+          metric:
+            outcome.similarity === undefined
+              ? ""
+              : `${Math.round(outcome.similarity * 100)}%`,
+          slideLabel: slideLabelById.get(outcome.slideId) ?? outcome.slideId,
+          text:
+            outcome.kind === "ad-lib"
+              ? outcome.text ?? "추가 발화"
+              : sentenceTextByKey.get(
+                  `${outcome.slideId}:${outcome.sentenceId ?? ""}`
+                ) ??
+                outcome.sentenceId ??
+                "문장 정보 없음"
+        }))
+    })
+  );
+}
+
+function buildReportSentenceTextMap(deck: Deck | null) {
+  const result = new Map<string, string>();
+  const extractor = createDefaultPhraseExtractor();
+
+  for (const slide of deck?.slides ?? []) {
+    for (const sentence of extractor.extract(slide.speakerNotes)) {
+      result.set(`${slide.slideId}:${sentence.sentenceId}`, sentence.text);
+    }
+  }
+
+  return result;
+}
+
+function buildReportSlideLabelMap(deck: Deck | null) {
+  const result = new Map<string, string>();
+
+  deck?.slides.forEach((slide, index) => {
+    const title = slide.title.trim();
+    result.set(
+      slide.slideId,
+      title ? `슬라이드 ${index + 1} · ${title}` : `슬라이드 ${index + 1}`
+    );
+  });
+
+  return result;
 }
 
 function escapeHtml(value: string) {
@@ -305,6 +378,10 @@ export function RehearsalReportDocument({
 
   // ── 이전 회차 데이터 계산 ──────────────────────────────────────────
   const prevReport = prevReports[0] ?? null; // 직전 회차
+  const utteranceOutcomeSections = buildUtteranceOutcomeSections(
+    report.utteranceOutcomes ?? [],
+    deck
+  );
 
   const durationDelta = prevReport
     ? report.metrics.durationSeconds - prevReport.metrics.durationSeconds
@@ -408,6 +485,38 @@ export function RehearsalReportDocument({
         </div>
 
       </section>
+
+      {utteranceOutcomeSections.some((section) => section.items.length > 0) ? (
+        <section className="rrd-card rrd-utterance-outcomes">
+          <header className="rrd-card-head">
+            <Target size={16} className="rrd-card-icon" />
+            <h2>발화 커버리지</h2>
+          </header>
+          <div className="rrd-utterance-grid">
+            {utteranceOutcomeSections.map((section) => (
+              <section className="rrd-utterance-group" key={section.kind}>
+                <div className="rrd-utterance-group-head">
+                  <span>{section.label}</span>
+                  <strong>{section.items.length}</strong>
+                </div>
+                {section.items.length > 0 ? (
+                  <ul className="rrd-utterance-list">
+                    {section.items.map((item) => (
+                      <li key={item.key}>
+                        <span>{item.slideLabel}</span>
+                        <p>{item.text}</p>
+                        {item.metric ? <em>{item.metric}</em> : null}
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="rrd-empty-hint">기록 없음</p>
+                )}
+              </section>
+            ))}
+          </div>
+        </section>
+      ) : null}
 
       <RehearsalSlideAnalysisOverview
         deck={deck}
