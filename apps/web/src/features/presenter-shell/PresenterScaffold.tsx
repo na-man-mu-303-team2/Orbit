@@ -1,4 +1,4 @@
-import { ChevronLeft, ChevronRight, PlayCircle, RotateCcw, Square } from "lucide-react";
+import { ChevronLeft, ChevronRight, PauseCircle, PlayCircle, RotateCcw } from "lucide-react";
 import type { ReactNode } from "react";
 
 export type PresenterTimeMode = "stopwatch" | "timer";
@@ -116,7 +116,7 @@ export function PresenterTopbar(props: {
           disabled={props.primaryActionDisabled}
         >
           {props.primaryActionRunning ? (
-            <Square size={16} />
+            <PauseCircle size={16} />
           ) : (
             <PlayCircle size={16} />
           )}
@@ -248,7 +248,7 @@ export function PresenterTimerCard(props: {
               disabled={props.primaryActionDisabled}
             >
               {props.primaryActionRunning ? (
-                <Square size={15} />
+                <PauseCircle size={15} />
               ) : (
                 <PlayCircle size={15} />
               )}

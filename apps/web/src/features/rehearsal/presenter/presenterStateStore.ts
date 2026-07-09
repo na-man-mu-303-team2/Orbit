@@ -15,6 +15,7 @@ export type PresenterTimingState = {
   displayedSeconds: number;
   elapsedSeconds: number;
   isLiveSttActive: boolean;
+  isPaused?: boolean;
   isRunning: boolean;
   liveStatus: string;
   mode: "stopwatch" | "timer";
