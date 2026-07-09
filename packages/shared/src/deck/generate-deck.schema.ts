@@ -45,6 +45,51 @@ export const generateDeckReferencePolicySchema = z.enum([
   "references-only"
 ]);
 
+export const generateDeckGenerationModeSchema = z
+  .enum(["legacy", "design-pack"])
+  .default("legacy");
+
+export const generateDeckForbiddenStyleSchema = z.enum(["gradient", "pastel"]);
+
+export const generateDeckDesignConstraintsSchema = z.object({
+  canvasBackground: z.enum(["auto", "white"]).default("auto"),
+  forbiddenStyles: z.array(generateDeckForbiddenStyleSchema).default([])
+});
+
+export const generateDeckColorIntentSchema = z.object({
+  mood: z
+    .enum([
+      "auto",
+      "calm",
+      "trustworthy",
+      "relaxed",
+      "energetic",
+      "premium",
+      "creative"
+    ])
+    .default("auto"),
+  trustLevel: z.enum(["low", "medium", "high"]).default("medium"),
+  energyLevel: z.enum(["low", "medium", "high"]).default("medium"),
+  formality: z.enum(["casual", "professional", "formal"]).default("professional"),
+  preferredHue: z
+    .enum([
+      "auto",
+      "blue",
+      "teal",
+      "green",
+      "violet",
+      "pink",
+      "orange",
+      "red",
+      "yellow",
+      "slate",
+      "monochrome"
+    ])
+    .default("auto"),
+  backgroundPreference: z.enum(["auto", "white", "light", "dark"]).default("auto"),
+  forbiddenStyles: z.array(generateDeckForbiddenStyleSchema).default([])
+});
+
 export const generateDeckBriefSchema = z
   .object({
     presentationContext: z.string().trim().optional(),
@@ -90,6 +135,8 @@ export const generateDeckDesignSchema = z
       .enum(["avoid", "balanced", "placeholder-ok"])
       .default("balanced"),
     layoutDiversity: z.enum(["stable", "varied"]).default("stable"),
+    colorIntent: generateDeckColorIntentSchema.optional(),
+    constraints: generateDeckDesignConstraintsSchema.optional(),
     paletteOverride: generateDeckPaletteOverrideSchema.optional()
   })
   .default({});
@@ -111,6 +158,7 @@ export const generateDeckSlideCountRangeSchema = z
   });
 
 export const generateDeckRequestSchema = z.object({
+  generationMode: generateDeckGenerationModeSchema,
   topic: z.string().trim().min(1),
   prompt: z.string().trim().optional(),
   designPrompt: z.string().trim().optional(),
@@ -130,7 +178,9 @@ export const generateDeckRequestSchema = z.object({
 export const deckColorOptionRequestSchema = z.object({
   topic: z.string().trim().min(1),
   colorMood: z.string().trim().default(""),
-  stylePackId: z.string().trim().min(1).default("brandlogy-modern")
+  stylePackId: z.string().trim().min(1).default("brandlogy-modern"),
+  colorIntent: generateDeckColorIntentSchema.optional(),
+  constraints: generateDeckDesignConstraintsSchema.optional()
 });
 
 export const deckColorOptionSchema = z.object({
@@ -196,6 +246,18 @@ export type GenerateDeckReferenceContext = z.infer<
 export type GenerateDeckMetadata = z.infer<typeof generateDeckMetadataSchema>;
 export type GenerateDeckReferencePolicy = z.infer<
   typeof generateDeckReferencePolicySchema
+>;
+export type GenerateDeckGenerationMode = z.infer<
+  typeof generateDeckGenerationModeSchema
+>;
+export type GenerateDeckForbiddenStyle = z.infer<
+  typeof generateDeckForbiddenStyleSchema
+>;
+export type GenerateDeckDesignConstraints = z.infer<
+  typeof generateDeckDesignConstraintsSchema
+>;
+export type GenerateDeckColorIntent = z.infer<
+  typeof generateDeckColorIntentSchema
 >;
 export type GenerateDeckBrief = z.infer<typeof generateDeckBriefSchema>;
 export type GenerateDeckPaletteOverride = z.infer<

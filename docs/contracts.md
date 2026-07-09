@@ -658,10 +658,14 @@ AI 덱 생성은 사용자 입력과 참고자료 fileId를 받아 비동기 Job
 - `design.densityTarget`은 `low`, `medium`, `high`만 허용한다.
 - `design.mediaPolicy`는 `avoid`, `balanced`, `placeholder-ok`만 허용하며, source 없는 media placeholder는 `placeholder-ok`에서만 허용한다.
 - `design.layoutDiversity`는 `stable`, `varied`만 허용한다.
+- `generationMode`는 `legacy`, `design-pack`만 허용하며 기본값은 `legacy`다. 기존 AI 덱 생성과 템플릿 기반 생성은 `legacy` 경로를 유지하고, `/ai-ppt` wizard만 `design-pack`을 명시한다.
 - AI PPT 1차 wizard는 `brief`를 함께 보낼 수 있다. `brief.referencePolicy`는 `topic-only`, `references-first`, `references-only`만 허용하며, `references-only`는 web에서 참고 파일 1개 이상을 요구한다.
 - AI PPT 1차 wizard는 `design.stylePackId = "brandlogy-modern"`를 기본값으로 사용한다. 이는 PPTX 템플릿이 아니라 worker 내부 Design Pack preset이며, 최종 Deck JSON에는 style pack 중간 필드를 저장하지 않는다.
-- 사용자가 선택한 색상은 `design.paletteOverride`에 저장해서 생성 요청에만 전달한다. 허용 key는 `primary`, `secondary`, `background`, `surface`, `muted`, `border`, `text`, `accentColor`이며 `theme.palette.accent`는 추가하지 않는다. 적용 우선순위는 schema/profile fallback < Design Pack < `designPrompt`/LLM palette hint < `paletteOverride`다.
-- 색상 후보 API는 `POST /api/v1/ai/deck-color-options`를 사용한다. 요청은 `{ topic, colorMood, stylePackId }`, 응답은 `{ options: [{ optionId, name, palette, rationale }] }`이며 `options`는 정확히 3개다.
+- AI PPT 1차 wizard는 자연어 색상 요청을 `design.colorIntent`와 `design.constraints`로 구조화한다. `designPrompt`는 설명용 보조 필드이며, 흰 배경/금지 스타일 같은 강제 규칙은 `design.constraints`가 source of truth다.
+- `design.colorIntent`는 색상 추천 기준을 담는 선택 필드이며 `mood`, `trustLevel`, `energyLevel`, `formality`, `preferredHue`, `backgroundPreference`, `forbiddenStyles`를 사용한다.
+- `design.constraints`는 `canvasBackground`와 `forbiddenStyles`를 사용한다. 1차에서 `canvasBackground`는 `auto`, `white`만 허용하고 `forbiddenStyles`는 `gradient`, `pastel`만 허용한다.
+- 사용자가 선택한 색상은 `design.paletteOverride`에 저장해서 생성 요청에만 전달한다. 허용 key는 `primary`, `secondary`, `background`, `surface`, `muted`, `border`, `text`, `accentColor`이며 `theme.palette.accent`는 추가하지 않는다. 적용 우선순위는 schema/profile fallback < Design Pack < `designPrompt`/LLM palette hint < `paletteOverride` < `design.constraints`다.
+- 색상 후보 API는 `POST /api/v1/ai/deck-color-options`를 사용한다. 요청은 `{ topic, colorMood, stylePackId, colorIntent?, constraints? }`, 응답은 `{ options: [{ optionId, name, palette, rationale }] }`이며 `options`는 정확히 3개다.
 - PPTX export API는 `POST /api/v1/projects/:projectId/deck/exports`를 사용한다. 요청은 `{ format: "pptx" }`, job type은 `deck-export`, job result는 `{ deckId, fileId, url, format: "pptx", warnings: [] }`다. API는 현재 Deck JSON snapshot을 worker payload에 넣고, worker는 patch replay를 하지 않는다.
 - template은 `default`, `pitch`, `report`, `lesson`만 허용한다.
 - Python worker의 `/ai/generate-deck`은 `projectId`와 요청 본문을 받아 최종 `DeckSchema`를 만든다.

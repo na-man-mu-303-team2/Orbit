@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  deckColorOptionRequestSchema,
   deckColorOptionsResponseSchema,
   generateDeckJobResultSchema,
   generateDeckRequestSchema,
@@ -15,6 +16,7 @@ describe("generateDeckRequestSchema", () => {
     });
 
     expect(request.targetDurationMinutes).toBe(10);
+    expect(request.generationMode).toBe("legacy");
     expect(request.slideCountRange).toEqual({ min: 5, max: 8 });
     expect(request.metadata).toEqual({
       audience: "general",
@@ -169,6 +171,40 @@ describe("generateDeckRequestSchema", () => {
     expect(request.designPrompt).toBe("retro pixel palette");
   });
 
+  it("accepts design-pack color intent and hard design constraints", () => {
+    const request = generateDeckRequestSchema.parse({
+      generationMode: "design-pack",
+      topic: "AI deck generation",
+      design: {
+        stylePackId: "brandlogy-modern",
+        colorIntent: {
+          mood: "trustworthy",
+          trustLevel: "high",
+          energyLevel: "low",
+          formality: "professional",
+          preferredHue: "blue",
+          backgroundPreference: "white",
+          forbiddenStyles: ["gradient", "pastel"]
+        },
+        constraints: {
+          canvasBackground: "white",
+          forbiddenStyles: ["gradient", "pastel"]
+        }
+      }
+    });
+
+    expect(request.generationMode).toBe("design-pack");
+    expect(request.design.colorIntent).toMatchObject({
+      mood: "trustworthy",
+      preferredHue: "blue",
+      backgroundPreference: "white"
+    });
+    expect(request.design.constraints).toEqual({
+      canvasBackground: "white",
+      forbiddenStyles: ["gradient", "pastel"]
+    });
+  });
+
   it("accepts normalized reference keywords", () => {
     const request = generateDeckRequestSchema.parse({
       topic: "AI 덱 생성",
@@ -211,6 +247,29 @@ describe("generateDeckRequestSchema", () => {
 });
 
 describe("deckColorOptionsResponseSchema", () => {
+  it("accepts color intent and constraints in color option requests", () => {
+    const request = deckColorOptionRequestSchema.parse({
+      topic: "Trustworthy product update",
+      colorMood: "white background, no pastel",
+      colorIntent: {
+        mood: "trustworthy",
+        preferredHue: "blue",
+        backgroundPreference: "white"
+      },
+      constraints: {
+        canvasBackground: "white",
+        forbiddenStyles: ["pastel"]
+      }
+    });
+
+    expect(request.stylePackId).toBe("brandlogy-modern");
+    expect(request.colorIntent?.preferredHue).toBe("blue");
+    expect(request.constraints).toEqual({
+      canvasBackground: "white",
+      forbiddenStyles: ["pastel"]
+    });
+  });
+
   it("requires exactly three color options", () => {
     const response = deckColorOptionsResponseSchema.parse({
       options: [
