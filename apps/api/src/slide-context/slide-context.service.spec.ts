@@ -75,7 +75,32 @@ describe("SlideContextService", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
 
-    const service = new SlideContextService({} as DataSource);
+    const insertedAt = new Date("2026-07-09T00:00:00.000Z");
+    const manager = {
+      query: vi
+        .fn()
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([
+          {
+            item_id: "0f5ca794-49c3-4bc3-ae72-1f1760f1e14c",
+            project_id: "project-a",
+            deck_id: "deck_a",
+            slide_id: "slide_1",
+            item_order: 0,
+            label: "문제 정의",
+            sentence: "현재 방식은 충돌 상태를 일으킬 수 있습니다.",
+            created_at: insertedAt,
+            updated_at: insertedAt
+          }
+        ])
+    };
+    const dataSource = {
+      transaction: vi.fn(async (callback: (manager: typeof manager) => Promise<unknown>) =>
+        callback(manager)
+      )
+    } as DataSource;
+
+    const service = new SlideContextService(dataSource);
     const result = await service.extractItems("project-a", "deck_a", {
       projectId: "project-a",
       deckId: "deck_a",
@@ -101,6 +126,8 @@ describe("SlideContextService", () => {
     });
     expect(result.items[0]?.createdAt).toEqual(expect.any(String));
     expect(result.items[0]?.updatedAt).toEqual(expect.any(String));
+    expect(dataSource.transaction).toHaveBeenCalledOnce();
+    expect(manager.query).toHaveBeenCalledTimes(2);
     expect(fetchMock).toHaveBeenCalledWith(
       "http://localhost:8000/slide-context/extract",
       expect.objectContaining({

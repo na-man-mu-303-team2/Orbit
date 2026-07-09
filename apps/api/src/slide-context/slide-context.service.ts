@@ -16,7 +16,7 @@ import {
   NotFoundException
 } from "@nestjs/common";
 import { InjectDataSource } from "@nestjs/typeorm";
-import { DataSource } from "typeorm";
+import { DataSource, EntityManager } from "typeorm";
 import { z } from "zod";
 import { parseRequest } from "../common/zod-request";
 
@@ -96,20 +96,32 @@ export class SlideContextService {
     const raw = pythonWorkerExtractSlideContextResponseSchema.parse(
       await response.json()
     );
-    const now = new Date().toISOString();
+
+    const rows = await this.dataSource.transaction(
+      async (manager: EntityManager) => {
+        await manager.query(
+          `DELETE FROM slide_context_items WHERE project_id = $1 AND deck_id = $2`,
+          [projectId, deckId]
+        );
+        if (raw.items.length === 0) return [] as SlideContextItemRow[];
+        const inserted: SlideContextItemRow[] = [];
+        for (const item of raw.items) {
+          const [row] = await manager.query<SlideContextItemRow[]>(
+            `INSERT INTO slide_context_items
+               (item_id, project_id, deck_id, slide_id, item_order, label, sentence)
+             VALUES ($1, $2, $3, $4, $5, $6, $7)
+             RETURNING item_id, project_id, deck_id, slide_id, item_order,
+                       label, sentence, created_at, updated_at`,
+            [item.itemId, projectId, deckId, item.slideId, item.itemOrder, item.label, item.sentence]
+          );
+          inserted.push(row);
+        }
+        return inserted;
+      }
+    );
+
     return extractSlideContextItemsResponseSchema.parse({
-      items: raw.items.map((item) => ({
-        itemId: item.itemId,
-        projectId,
-        deckId,
-        slideId: item.slideId,
-        itemOrder: item.itemOrder,
-        label: item.label,
-        sentence: item.sentence,
-        hasEmbedding: false,
-        createdAt: now,
-        updatedAt: now
-      }))
+      items: rows.map(toItemResponse)
     });
   }
 

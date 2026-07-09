@@ -8,7 +8,6 @@ import pytest
 from app.slide_context import (
     ContextItem,
     SlideContextExtractionResult,
-    SlideContextRepository,
     SlideInput,
     _build_slide_input,
     extract_slide_context_items,
@@ -51,10 +50,7 @@ class TestExtractSlideContextItems:
     def test_no_api_key_returns_unavailable(self) -> None:
         slides = [SlideInput("slide_1", "본문", "대본")]
         result = extract_slide_context_items(
-            project_id="proj_1",
-            deck_id="deck_1",
             slides=slides,
-            repository=None,
             model="gpt-4o",
             api_key=None,
         )
@@ -63,10 +59,7 @@ class TestExtractSlideContextItems:
 
     def test_empty_slides_returns_skipped(self) -> None:
         result = extract_slide_context_items(
-            project_id="proj_1",
-            deck_id="deck_1",
             slides=[],
-            repository=None,
             model="gpt-4o",
             api_key="key",
         )
@@ -79,10 +72,7 @@ class TestExtractSlideContextItems:
         ])
         slides = [SlideInput("slide_1", "Redis 도입", "Redis 없으면 느립니다")]
         result = extract_slide_context_items(
-            project_id="proj_1",
-            deck_id="deck_1",
             slides=slides,
-            repository=None,
             client=client,
             model="gpt-4o",
             api_key=None,
@@ -121,10 +111,7 @@ class TestExtractSlideContextItems:
             SlideInput("slide_2", "내용 2", "대본 2"),
         ]
         result = extract_slide_context_items(
-            project_id="proj_1",
-            deck_id="deck_1",
             slides=slides,
-            repository=None,
             client=client,
             model="gpt-4o",
             api_key=None,
@@ -138,10 +125,7 @@ class TestExtractSlideContextItems:
         client.responses.create.return_value = MagicMock(output_text="not-json")
         slides = [SlideInput("slide_1", "본문", "대본")]
         result = extract_slide_context_items(
-            project_id="proj_1",
-            deck_id="deck_1",
             slides=slides,
-            repository=None,
             client=client,
             model="gpt-4o",
             api_key=None,
@@ -154,36 +138,12 @@ class TestExtractSlideContextItems:
         client.responses.create.side_effect = RuntimeError("network error")
         slides = [SlideInput("slide_1", "본문", "대본")]
         result = extract_slide_context_items(
-            project_id="proj_1",
-            deck_id="deck_1",
             slides=slides,
-            repository=None,
             client=client,
             model="gpt-4o",
             api_key=None,
         )
         assert result.status == "failed"
-
-    def test_writes_to_repository(self) -> None:
-        client = _make_client([{"label": "항목", "sentence": "내용"}])
-        repo = MagicMock(spec=SlideContextRepository)
-        slides = [SlideInput("slide_1", "본문", "대본")]
-        extract_slide_context_items(
-            project_id="proj_1",
-            deck_id="deck_1",
-            slides=slides,
-            repository=repo,
-            client=client,
-            model="gpt-4o",
-            api_key=None,
-        )
-        repo.replace_items_for_deck.assert_called_once()
-        call_args = repo.replace_items_for_deck.call_args
-        assert call_args[0][0] == "proj_1"
-        assert call_args[0][1] == "deck_1"
-        written: list[ContextItem] = call_args[0][2]
-        assert len(written) == 1
-        assert written[0].label == "항목"
 
     def test_items_trimmed_to_length_limits(self) -> None:
         long_label = "가" * 300
@@ -191,10 +151,7 @@ class TestExtractSlideContextItems:
         client = _make_client([{"label": long_label, "sentence": long_sentence}])
         slides = [SlideInput("slide_1", "본문", "대본")]
         result = extract_slide_context_items(
-            project_id="proj_1",
-            deck_id="deck_1",
             slides=slides,
-            repository=None,
             client=client,
             model="gpt-4o",
             api_key=None,

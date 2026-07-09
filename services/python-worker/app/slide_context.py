@@ -75,140 +75,9 @@ class SlideContextExtractionResult:
     message: str = ""
 
 
-class SlideContextRepository:
-    def __init__(self, database_url: str) -> None:
-        self.database_url = database_url
-
-    def replace_items_for_deck(
-        self,
-        project_id: str,
-        deck_id: str,
-        items: list[ContextItem],
-    ) -> None:
-        with self._connect() as connection:
-            with connection.cursor() as cursor:
-                cursor.execute(
-                    """
-                    DELETE FROM slide_context_items
-                    WHERE project_id = %s AND deck_id = %s
-                    """,
-                    (project_id, deck_id),
-                )
-                for item in items:
-                    cursor.execute(
-                        """
-                        INSERT INTO slide_context_items (
-                            item_id, project_id, deck_id, slide_id,
-                            item_order, label, sentence
-                        )
-                        VALUES (%s, %s, %s, %s, %s, %s, %s)
-                        """,
-                        (
-                            item.item_id,
-                            project_id,
-                            deck_id,
-                            item.slide_id,
-                            item.item_order,
-                            item.label,
-                            item.sentence,
-                        ),
-                    )
-            connection.commit()
-
-    def update_item(
-        self,
-        item_id: str,
-        project_id: str,
-        *,
-        label: str | None,
-        sentence: str | None,
-    ) -> ContextItem | None:
-        if label is None and sentence is None:
-            return self._fetch_item(item_id, project_id)
-
-        set_clauses: list[str] = ["updated_at = now()"]
-        params: list[Any] = []
-        if label is not None:
-            set_clauses.append("label = %s")
-            params.append(label)
-        if sentence is not None:
-            set_clauses.append("sentence = %s")
-            params.append(sentence)
-            set_clauses.append("embedding = NULL")
-
-        params.extend([item_id, project_id])
-        with self._connect() as connection:
-            with connection.cursor() as cursor:
-                cursor.execute(
-                    f"""
-                    UPDATE slide_context_items
-                    SET {", ".join(set_clauses)}
-                    WHERE item_id = %s AND project_id = %s
-                    RETURNING item_id, slide_id, item_order, label, sentence
-                    """,
-                    params,
-                )
-                row = cursor.fetchone()
-            connection.commit()
-
-        if row is None:
-            return None
-        return ContextItem(
-            item_id=str(row[0]),
-            slide_id=str(row[1]),
-            item_order=int(row[2]),
-            label=str(row[3]),
-            sentence=str(row[4]),
-        )
-
-    def delete_item(self, item_id: str, project_id: str) -> bool:
-        with self._connect() as connection:
-            with connection.cursor() as cursor:
-                cursor.execute(
-                    """
-                    DELETE FROM slide_context_items
-                    WHERE item_id = %s AND project_id = %s
-                    """,
-                    (item_id, project_id),
-                )
-                deleted = bool(cursor.rowcount > 0)
-            connection.commit()
-        return deleted
-
-    def _fetch_item(self, item_id: str, project_id: str) -> ContextItem | None:
-        with self._connect() as connection:
-            with connection.cursor() as cursor:
-                cursor.execute(
-                    """
-                    SELECT item_id, slide_id, item_order, label, sentence
-                    FROM slide_context_items
-                    WHERE item_id = %s AND project_id = %s
-                    """,
-                    (item_id, project_id),
-                )
-                row = cursor.fetchone()
-        if row is None:
-            return None
-        return ContextItem(
-            item_id=str(row[0]),
-            slide_id=str(row[1]),
-            item_order=int(row[2]),
-            label=str(row[3]),
-            sentence=str(row[4]),
-        )
-
-    def _connect(self) -> Any:
-        import psycopg
-
-        return psycopg.connect(self.database_url)
-
-
 def extract_slide_context_items(
     *,
-    project_id: str,
-    deck_id: str,
     slides: list[SlideInput],
-    repository: SlideContextRepository | None,
     client: Any | None = None,
     model: str,
     api_key: str | None,
@@ -278,9 +147,6 @@ def extract_slide_context_items(
                 )
             )
             order_counter += 1
-
-    if repository is not None:
-        repository.replace_items_for_deck(project_id, deck_id, all_items)
 
     return SlideContextExtractionResult(status="succeeded", items=all_items)
 
