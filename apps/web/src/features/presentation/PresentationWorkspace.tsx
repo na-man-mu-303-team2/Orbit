@@ -439,6 +439,7 @@ function createEmptySpeechTrackerSnapshot(options: {
 }): SpeechTrackerSnapshot {
   return {
     coveredSentenceIds: [],
+    coveredSentenceMatchKinds: {},
     effectiveCoverage: 0,
     finalSentenceSpoken: false,
     hitKeywordIds: [],

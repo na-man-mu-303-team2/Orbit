@@ -8,6 +8,16 @@ export function SemanticSpeechDebugPanel(props: {
   state: SemanticUtteranceDebugState;
 }) {
   const transcript = props.state.transcript.trim();
+  const decision = props.state.decision;
+  const acceptedSentenceId = decision?.acceptedMatch?.sentenceId ?? null;
+  const acceptedRank = decision?.acceptedMatch?.rank ?? null;
+  const outcomeLabel =
+    decision?.outcome ?? (decision ? "rejected" : "pending");
+  const decisionDisposition = decision
+    ? decision.accepted
+      ? "accepted"
+      : "rejected"
+    : "no-decision";
 
   return (
     <aside
@@ -28,12 +38,28 @@ export function SemanticSpeechDebugPanel(props: {
         <p className="semantic-speech-debug-error">{props.state.error}</p>
       )}
 
+      <section>
+        <span>Decision</span>
+        <p>
+          {outcomeLabel} · {decisionDisposition} ·{" "}
+          {decision?.reason ?? "no-decision"}
+          {decision ? (
+            <>
+              {" "}
+              · threshold {decision.scoreThreshold.toFixed(3)} · margin{" "}
+              {decision.ambiguousMargin.toFixed(3)}
+            </>
+          ) : null}
+        </p>
+      </section>
+
       <ol>
         {props.state.topMatches.map((match) => {
           const isApplied =
             props.semanticMatchingEnabled &&
-            match.rank === 1 &&
-            !match.covered &&
+            acceptedSentenceId === match.sentenceId &&
+            acceptedRank === match.rank &&
+            decision?.accepted === true &&
             props.state.status === "ready";
           return (
             <li key={`${match.rank}-${match.sentenceId}`}>

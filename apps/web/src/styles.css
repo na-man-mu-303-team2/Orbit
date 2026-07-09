@@ -4062,6 +4062,22 @@ button:disabled {
   opacity: 0.82;
 }
 
+.presenter-script-row--paraphrased {
+  background: #f0fdfa;
+  border-color: #99f6e4;
+  color: #0f766e;
+}
+
+.presenter-script-row--paraphrased > span {
+  background: #14b8a6;
+  color: #ffffff;
+}
+
+.presenter-script-row--paraphrased em {
+  background: #ccfbf1;
+  color: #0f766e;
+}
+
 .presenter-script-row--unmatchable {
   color: #94a3b8;
 }

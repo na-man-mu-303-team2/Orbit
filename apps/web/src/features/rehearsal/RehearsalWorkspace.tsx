@@ -1979,6 +1979,8 @@ export function RehearsalWorkspace(props: {
             slideIndex: currentSlideIndex,
             speech: {
               coveredSentenceIds: p3PanelSnapshot.coveredSentenceIds,
+              coveredSentenceMatchKinds:
+                p3PanelSnapshot.coveredSentenceMatchKinds,
               matchableSentenceCount: p3PanelSnapshot.matchableSentenceCount,
               semanticDebug: semanticDebugState,
               semanticMatchingEnabled:
@@ -5633,6 +5635,7 @@ function createEmptySpeechTrackerSnapshot(options: {
   return {
     slideId: options.slideId,
     coveredSentenceIds: [],
+    coveredSentenceMatchKinds: {},
     matchableSentenceCount: options.matchableSentenceCount,
     sentenceCoverage: 0,
     wordCoverage: 0,

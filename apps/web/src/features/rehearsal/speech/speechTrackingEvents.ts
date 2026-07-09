@@ -22,6 +22,7 @@ export type ExtractedSentence = {
 export type SpeechTrackerSnapshot = {
   slideId: string;
   coveredSentenceIds: string[];
+  coveredSentenceMatchKinds: Record<string, "covered" | "paraphrased">;
   matchableSentenceCount: number;
   sentenceCoverage: number;
   wordCoverage: number;

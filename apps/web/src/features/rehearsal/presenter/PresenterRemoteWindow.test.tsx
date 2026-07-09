@@ -177,6 +177,29 @@ describe("PresenterRemoteWindow", () => {
     expect(html).toContain("presenter-script-row--current");
   });
 
+  it("mirrors semantic paraphrase coverage from owner speech state", () => {
+    const state = {
+      ...createPresenterSlideshowState(p0AnimationDeck),
+      speech: {
+        ...createPresenterSpeechState(),
+        coveredSentenceIds: ["sentence_1"],
+        coveredSentenceMatchKinds: {
+          sentence_1: "paraphrased" as const,
+        },
+      },
+    };
+    const html = renderToStaticMarkup(
+      <PresenterRemoteWindow
+        deck={p0AnimationDeck}
+        identity={identity}
+        initialState={state}
+      />,
+    );
+
+    expect(html).toContain("presenter-script-row--paraphrased");
+    expect(html).toContain("의미 전달");
+  });
+
   it("retries idempotent remote timer stop commands across transient channel races", () => {
     expect(
       getPresenterRemoteCommandDispatchDelays({ action: "timer-pause" }),
@@ -217,6 +240,7 @@ describe("PresenterRemoteWindow", () => {
 function createPresenterSpeechState() {
   return {
     coveredSentenceIds: [],
+    coveredSentenceMatchKinds: {},
     matchableSentenceCount: 2,
     semanticDebug: {
       status: "ready" as const,
@@ -233,12 +257,33 @@ function createPresenterSpeechState() {
           covered: false,
         },
       ],
+      decision: {
+        accepted: true,
+        acceptedMatch: {
+          rank: 1,
+          sentenceId: "sentence_1",
+          sentenceIndex: 0,
+          text: "첫 문장입니다",
+          similarity: 0.91,
+          covered: false,
+        },
+        ambiguousMargin: 0.04,
+        isFinal: true as const,
+        lexicalOverlap: 0.2,
+        outcome: "paraphrased" as const,
+        reason: "accepted-paraphrase" as const,
+        scoreThreshold: 0.89,
+        slideId: "slide_p0_1",
+        topMatches: [],
+        transcript: "방금 final STT 문장",
+      },
       error: null,
     },
     semanticMatchingEnabled: true,
     snapshot: {
       slideId: "slide_p0_1",
       coveredSentenceIds: [],
+      coveredSentenceMatchKinds: {},
       matchableSentenceCount: 2,
       sentenceCoverage: 0,
       wordCoverage: 0,

@@ -187,6 +187,9 @@ export function createSpeechTracker(input: CreateSpeechTrackerInput): SpeechTrac
     return {
       slideId: input.slideId,
       coveredSentenceIds: Array.from(visit.coveredSentenceIds),
+      coveredSentenceMatchKinds: Object.fromEntries(
+        visit.coveredSentenceMatchKinds.entries()
+      ),
       matchableSentenceCount: matchableSentenceIds.length,
       sentenceCoverage: visit.sentenceCoverage,
       wordCoverage: visit.wordCoverage,
@@ -216,6 +219,7 @@ export function createSpeechTracker(input: CreateSpeechTrackerInput): SpeechTrac
   ): SpeechTrackingEvent[] {
     const events: SpeechTrackingEvent[] = [];
     visit.coveredSentenceIds.add(sentence.sentenceId);
+    visit.coveredSentenceMatchKinds.set(sentence.sentenceId, match.matchKind);
     events.push({
       type: "sentence-covered",
       slideId: input.slideId,
@@ -269,6 +273,7 @@ function createVisitState() {
   return {
     finalTranscript: "",
     coveredSentenceIds: new Set<string>(),
+    coveredSentenceMatchKinds: new Map<string, "covered" | "paraphrased">(),
     provisionalMissingKeywordIds: new Set<string>(),
     sentenceCoverage: 0,
     wordCoverage: 0,

@@ -343,6 +343,7 @@ function isPresenterSpeechState(value: unknown) {
   return (
     isRecord(value) &&
     isStringArray(value.coveredSentenceIds) &&
+    isCoveredSentenceMatchKindRecord(value.coveredSentenceMatchKinds) &&
     typeof value.matchableSentenceCount === "number" &&
     isSemanticUtteranceDebugState(value.semanticDebug) &&
     typeof value.semanticMatchingEnabled === "boolean" &&
@@ -359,6 +360,7 @@ function isSemanticUtteranceDebugState(value: unknown) {
     typeof value.isFinal === "boolean" &&
     Array.isArray(value.topMatches) &&
     value.topMatches.every(isSemanticUtteranceMatch) &&
+    (value.decision === null || isSemanticUtteranceDecision(value.decision)) &&
     (value.error === null || typeof value.error === "string")
   );
 }
@@ -367,10 +369,33 @@ function isSemanticDebugStatus(value: unknown) {
   return (
     value === "idle" ||
     value === "loading-model" ||
+    value === "model-ready" ||
     value === "indexing-script" ||
     value === "matching" ||
     value === "ready" ||
     value === "error"
+  );
+}
+
+function isSemanticUtteranceDecision(value: unknown) {
+  return (
+    isRecord(value) &&
+    typeof value.accepted === "boolean" &&
+    (value.acceptedMatch === null || isSemanticUtteranceMatch(value.acceptedMatch)) &&
+    typeof value.ambiguousMargin === "number" &&
+    typeof value.isFinal === "boolean" &&
+    typeof value.lexicalOverlap === "number" &&
+    (value.outcome === null ||
+      value.outcome === "covered" ||
+      value.outcome === "paraphrased" ||
+      value.outcome === "ad-lib" ||
+      value.outcome === "missed") &&
+    typeof value.reason === "string" &&
+    typeof value.scoreThreshold === "number" &&
+    typeof value.slideId === "string" &&
+    Array.isArray(value.topMatches) &&
+    value.topMatches.every(isSemanticUtteranceMatch) &&
+    typeof value.transcript === "string"
   );
 }
 
@@ -391,6 +416,7 @@ function isSpeechTrackerSnapshot(value: unknown) {
     isRecord(value) &&
     typeof value.slideId === "string" &&
     isStringArray(value.coveredSentenceIds) &&
+    isCoveredSentenceMatchKindRecord(value.coveredSentenceMatchKinds) &&
     typeof value.matchableSentenceCount === "number" &&
     typeof value.sentenceCoverage === "number" &&
     typeof value.wordCoverage === "number" &&
@@ -398,6 +424,15 @@ function isSpeechTrackerSnapshot(value: unknown) {
     typeof value.finalSentenceSpoken === "boolean" &&
     isStringArray(value.hitKeywordIds) &&
     isStringArray(value.provisionalMissingKeywordIds)
+  );
+}
+
+function isCoveredSentenceMatchKindRecord(value: unknown) {
+  return (
+    isRecord(value) &&
+    Object.values(value).every(
+      (kind) => kind === "covered" || kind === "paraphrased"
+    )
   );
 }
 

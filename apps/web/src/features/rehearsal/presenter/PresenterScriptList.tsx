@@ -4,7 +4,7 @@ export type PresenterScriptListRow = {
   content: ReactNode;
   id: string;
   label?: string;
-  status: "covered" | "current" | "pending" | "unmatchable";
+  status: "covered" | "current" | "paraphrased" | "pending" | "unmatchable";
 };
 
 export function PresenterScriptList(props: {
@@ -25,6 +25,7 @@ export function PresenterScriptList(props: {
             "presenter-script-row",
             row.status === "current" ? "presenter-script-row--current" : "",
             row.status === "covered" ? "presenter-script-row--covered" : "",
+            row.status === "paraphrased" ? "presenter-script-row--paraphrased" : "",
             row.status === "unmatchable" ? "presenter-script-row--unmatchable" : "",
           ]
             .filter(Boolean)
