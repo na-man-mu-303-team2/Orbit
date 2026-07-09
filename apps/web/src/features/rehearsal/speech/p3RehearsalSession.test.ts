@@ -5,6 +5,9 @@ import {
   createP3RehearsalSession,
   type P3RehearsalSessionSlide
 } from "./p3RehearsalSession";
+import type { SemanticCueDebugEvent } from "./semanticCueDebugEvents";
+import { createSemanticCueRuntime } from "./semanticCueRuntime";
+import { createMockSemanticCueNliProvider } from "./mockSemanticCueNliProvider";
 import type { SemanticUtteranceDebugState } from "./semanticSpeechDebug";
 import type { SemanticUtteranceDecision } from "./semanticUtteranceDecision";
 import type {
@@ -158,7 +161,8 @@ describe("p3RehearsalSession", () => {
           slideId: "slide_2",
           sentenceId: "sentence_1"
         }
-      ]
+      ],
+      semanticCueDecisions: []
     });
     expect(JSON.stringify(meta)).not.toContain("생성형 AI 초안");
     expect(JSON.stringify(meta)).not.toContain("speakerNotes");
@@ -477,6 +481,131 @@ describe("p3RehearsalSession", () => {
       sentenceCoverage: 0.5
     });
   });
+
+  it("exact phrase final transcript는 semantic cue NLI를 실행하지 않는다", async () => {
+    const port = createMockLiveSttPort();
+    const provider = createMockSemanticCueNliProvider({
+      scoresByCueId: {
+        scue_cac_reason: {
+          entailmentScore: 0.94,
+          neutralScore: 0.05,
+          contradictionScore: 0.01
+        }
+      }
+    });
+    const evaluate = vi.spyOn(provider, "evaluate");
+    const session = createP3RehearsalSession({
+      slides: semanticCueSlides,
+      port,
+      semanticMatcher: createMockSemanticMatcher({
+        accepted: true,
+        topMatches: [semanticMatch({ sentenceId: "sentence_1" })],
+        decision: semanticDecision({
+          accepted: true,
+          acceptedMatch: semanticMatch({ sentenceId: "sentence_1" }),
+          reason: "accepted-exact",
+          outcome: "covered"
+        })
+      }),
+      semanticCueRuntime: createSemanticCueRuntime({
+        provider,
+        enabled: true,
+        now: () => 95_000
+      }),
+      isSemanticMatchingEnabled: () => true,
+      now: createNow([95_000, 96_000])
+    });
+
+    await session.start({
+      audioSource: {} as MediaStream,
+      slideIndex: 0
+    });
+    port.emit({
+      text: "CAC가 높은 원인은 초기 영업 비용입니다.",
+      isFinal: true,
+      timestampMs: [500, 1000]
+    });
+    await flushSemanticQueue();
+
+    expect(evaluate).not.toHaveBeenCalled();
+    expect((await session.stop()).semanticCueDecisions).toEqual([]);
+  });
+
+  it("ad-lib final transcript는 mock NLI evidence를 meta와 debug event에만 기록한다", async () => {
+    const port = createMockLiveSttPort();
+    const debugEvents: SemanticCueDebugEvent[] = [];
+    const session = createP3RehearsalSession({
+      slides: semanticCueSlides,
+      port,
+      semanticMatcher: createMockSemanticMatcher({
+        accepted: false,
+        topMatches: [semanticMatch({ similarity: 0.87 })],
+        decision: semanticDecision({
+          transcript:
+            "처음엔 세일즈에 돈이 많이 들어 고객 한 명 데려오는 비용이 컸습니다",
+          reason: "ad-lib",
+          outcome: "ad-lib",
+          accepted: false,
+          acceptedMatch: null
+        })
+      }),
+      semanticCueRuntime: createSemanticCueRuntime({
+        provider: createMockSemanticCueNliProvider({
+          scoresByCueId: {
+            scue_cac_reason: {
+              entailmentScore: 0.94,
+              neutralScore: 0.05,
+              contradictionScore: 0.01
+            }
+          }
+        }),
+        enabled: true,
+        now: () => 97_000
+      }),
+      isSemanticMatchingEnabled: () => true,
+      now: createNow([97_000, 98_000]),
+      onSemanticCueDebugEvent: (event) => debugEvents.push(event)
+    });
+
+    await session.start({
+      audioSource: {} as MediaStream,
+      slideIndex: 0
+    });
+    port.emit({
+      text: "처음엔 세일즈에 돈이 많이 들어 고객 한 명 데려오는 비용이 컸습니다",
+      isFinal: true,
+      timestampMs: [500, 1000]
+    });
+    await flushSemanticQueue();
+
+    expect(session.getState().snapshot).toMatchObject({
+      sentenceCoverage: 0
+    });
+    expect(debugEvents.at(-1)).toMatchObject({
+      slideId: "slide_1",
+      decision: {
+        cueId: "scue_cac_reason",
+        label: "covered",
+        reasonCodes: expect.arrayContaining(["nli-entailment"])
+      },
+      actionGate: {
+        allowed: false,
+        blockedReasons: ["nli-cannot-advance-slide-alone"]
+      }
+    });
+
+    const meta = await session.stop();
+    expect(meta.semanticCueDecisions).toEqual([
+      expect.objectContaining({
+        slideId: "slide_1",
+        cueId: "scue_cac_reason",
+        label: "covered",
+        provider: "mock",
+        premise:
+          "처음엔 세일즈에 돈이 많이 들어 고객 한 명 데려오는 비용이 컸습니다"
+      })
+    ]);
+  });
 });
 
 const slides: P3RehearsalSessionSlide[] = [
@@ -507,6 +636,39 @@ const slides: P3RehearsalSessionSlide[] = [
       }
     ],
     controlPhrases: ["다음 슬라이드"]
+  }
+];
+
+const semanticCueSlides: P3RehearsalSessionSlide[] = [
+  {
+    slideId: "slide_1",
+    speakerNotes: "CAC가 높은 원인은 초기 영업 비용입니다.",
+    keywords: [
+      {
+        keywordId: "kw_cac",
+        text: "CAC",
+        synonyms: ["고객 획득 비용"],
+        abbreviations: []
+      }
+    ],
+    semanticCues: [
+      {
+        cueId: "scue_cac_reason",
+        slideId: "slide_1",
+        meaning: "CAC가 높은 원인은 초기 영업 비용입니다",
+        required: true,
+        priority: 1,
+        candidateKeywords: ["CAC", "세일즈"],
+        aliases: {
+          CAC: ["고객 획득 비용"]
+        },
+        requiredConcepts: ["영업 비용", "고객 획득 비용"],
+        nliHypotheses: ["고객 획득 비용이 초기 영업 비용 때문에 높다"],
+        negativeHints: [],
+        targetElementIds: [],
+        triggerActionIds: []
+      }
+    ]
   }
 ];
 

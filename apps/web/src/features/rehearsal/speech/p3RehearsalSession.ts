@@ -1,4 +1,4 @@
-import type { RehearsalRunMeta } from "@orbit/shared";
+import type { RehearsalRunMeta, SemanticCue } from "@orbit/shared";
 
 import type {
   LiveSttBiasPhrase,
@@ -23,13 +23,17 @@ import {
   semanticDebugErrorMessage,
   type SemanticUtteranceDebugState
 } from "./semanticSpeechDebug";
+import type { SemanticMatchDecisionReason } from "./semanticUtteranceDecision";
 import type { SemanticUtteranceMatcher } from "./semanticUtteranceMatcher";
+import type { SemanticCueDebugEvent } from "./semanticCueDebugEvents";
+import type { SemanticCueRuntime } from "./semanticCueRuntime";
 import type { SpeechTrackerSnapshot, SpeechTrackingEvent } from "./speechTrackingEvents";
 
 export type P3RehearsalSessionSlide = {
   slideId: string;
   speakerNotes: string;
   keywords: readonly SpeechTrackerKeyword[];
+  semanticCues?: readonly SemanticCue[];
   controlPhrases?: readonly string[];
   cuePhrases?: readonly string[];
   legacyPhrases?: readonly string[];
@@ -54,8 +58,10 @@ export type CreateP3RehearsalSessionInput = {
   onEvents?: (events: SpeechTrackingEvent[]) => void;
   onSnapshot?: (snapshot: SpeechTrackerSnapshot) => void;
   semanticMatcher?: SemanticUtteranceMatcher;
+  semanticCueRuntime?: SemanticCueRuntime;
   isSemanticMatchingEnabled?: () => boolean;
   onSemanticDebugState?: (state: SemanticUtteranceDebugState) => void;
+  onSemanticCueDebugEvent?: (event: SemanticCueDebugEvent) => void;
 };
 
 export type P3RehearsalSession = {
@@ -199,7 +205,9 @@ export function createP3RehearsalSession(
         result,
         resultSlideIndex: slideIndex,
         tracker: currentTracker,
-        generation: semanticGeneration
+        generation: semanticGeneration,
+        phraseMatched: events.some((event) => event.type === "sentence-covered"),
+        keywordCoverage: calculateKeywordCoverage(currentTracker.snapshot(), getSlide(slideIndex))
       });
     }
     emitSnapshot();
@@ -323,6 +331,8 @@ export function createP3RehearsalSession(
     resultSlideIndex: number;
     tracker: SpeechTracker;
     generation: number;
+    phraseMatched: boolean;
+    keywordCoverage: number;
   }) {
     if (!input.semanticMatcher) {
       return;
@@ -338,6 +348,8 @@ export function createP3RehearsalSession(
     resultSlideIndex: number;
     tracker: SpeechTracker;
     generation: number;
+    phraseMatched: boolean;
+    keywordCoverage: number;
   }) {
     const slide = getSlide(options.resultSlideIndex);
     await semanticPrepareBySlideId.get(slide.slideId);
@@ -374,6 +386,15 @@ export function createP3RehearsalSession(
       });
 
       const decision = match.decision;
+      await processSemanticCueFinalResult({
+        slide,
+        result: options.result,
+        decisionReason: decision?.reason ?? "no_match",
+        generation: options.generation,
+        resultSlideIndex: options.resultSlideIndex,
+        phraseMatched: options.phraseMatched,
+        keywordCoverage: options.keywordCoverage
+      });
       if (!input.isSemanticMatchingEnabled?.()) {
         return;
       }
@@ -432,6 +453,42 @@ export function createP3RehearsalSession(
     input.onSemanticDebugState?.(createSemanticDebugState(state));
   }
 
+  async function processSemanticCueFinalResult(options: {
+    slide: P3RehearsalSessionSlide;
+    result: LiveSttResult;
+    decisionReason: SemanticMatchDecisionReason | "no_match";
+    generation: number;
+    resultSlideIndex: number;
+    phraseMatched: boolean;
+    keywordCoverage: number;
+  }) {
+    if (!input.semanticCueRuntime || (options.slide.semanticCues?.length ?? 0) === 0) {
+      return;
+    }
+
+    const cueResult = await input.semanticCueRuntime.evaluateFinalResult({
+      deckId: "deck_unknown",
+      slideId: options.slide.slideId,
+      transcript: options.result.text,
+      isFinal: options.result.isFinal,
+      cues: options.slide.semanticCues ?? [],
+      coveredCueIds: new Set(),
+      phraseMatched: options.phraseMatched,
+      keywordCoverage: options.keywordCoverage,
+      semanticDecisionReason: options.decisionReason,
+      semanticMatchingEnabled: input.isSemanticMatchingEnabled?.() ?? false,
+      generation: options.generation,
+      nowMs: options.result.timestampMs[1]
+    });
+
+    if (!isSemanticGenerationCurrent(options.generation, options.resultSlideIndex)) {
+      return;
+    }
+
+    collector.recordSemanticCueDecisions(cueResult.decisions);
+    input.onSemanticCueDebugEvent?.(cueResult.debugEvent);
+  }
+
   return {
     start,
     enterSlide,
@@ -440,6 +497,17 @@ export function createP3RehearsalSession(
     stop,
     getState
   };
+}
+
+function calculateKeywordCoverage(
+  snapshot: SpeechTrackerSnapshot,
+  slide: P3RehearsalSessionSlide
+) {
+  if (slide.keywords.length === 0) {
+    return 0;
+  }
+
+  return snapshot.hitKeywordIds.length / slide.keywords.length;
 }
 
 export function buildBiasPhrasesForSlide(
