@@ -17,7 +17,7 @@ describe("autoAdvanceConfig", () => {
       live: true,
       pauseMs: 700,
       rehearsal: true,
-      semanticMatching: true,
+      semanticMatching: false,
       threshold: 0.7
     });
     expect(defaultPauseDetectorConfig).toEqual({
