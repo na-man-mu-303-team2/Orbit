@@ -47,6 +47,7 @@ describe("AI PPT wizard payload", () => {
     );
 
     expect(payload).toMatchObject({
+      generationMode: "design-pack",
       topic: "JSON-first AI PPT",
       brief: {
         presentationContext: "internal review",
@@ -62,6 +63,15 @@ describe("AI PPT wizard payload", () => {
       },
       design: {
         stylePackId: "brandlogy-modern",
+        colorIntent: {
+          mood: "calm",
+          energyLevel: "low",
+          preferredHue: "blue"
+        },
+        constraints: {
+          canvasBackground: "auto",
+          forbiddenStyles: []
+        },
         paletteOverride: {
           primary: "#0EA5E9",
           accentColor: "#F472B6"
@@ -71,6 +81,39 @@ describe("AI PPT wizard payload", () => {
     });
     expect(payload.designPrompt).toContain("base=brandlogy-modern");
     expect(payload.designPrompt).toContain("output=Deck JSON first");
+  });
+
+  it("derives design-pack constraints and slide count from natural language intent", () => {
+    const payload = buildAiPptGenerateDeckPayload(
+      {
+        topic: "서비스 신뢰도 개선",
+        purpose: "사용자에게 신뢰를 주는 발표",
+        context: "임원 회의",
+        audience: "회사 임원",
+        presentationType: "기획 발표",
+        successCriteria: "3분 안에 핵심 합의",
+        duration: "3",
+        slides: "",
+        tone: "professional",
+        colorMood: "흰 색 배경, 사용자들에게 신뢰를 줄 수 있는 포인트 색상. 그라데이션 금지, 파스텔톤 금지",
+        referencePolicy: "topic-only"
+      },
+      palette
+    );
+
+    expect(payload.slideCountRange).toEqual({ min: 4, max: 4 });
+    expect(payload.design.colorIntent).toMatchObject({
+      mood: "trustworthy",
+      trustLevel: "high",
+      formality: "formal",
+      preferredHue: "blue",
+      backgroundPreference: "white",
+      forbiddenStyles: ["gradient", "pastel"]
+    });
+    expect(payload.design.constraints).toEqual({
+      canvasBackground: "white",
+      forbiddenStyles: ["gradient", "pastel"]
+    });
   });
 
   it("blocks references-only generation without a reference file", () => {

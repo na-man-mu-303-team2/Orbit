@@ -27,6 +27,9 @@ type ReferencePolicy = "topic-only" | "references-first" | "references-only";
 type Tone = "professional" | "friendly" | "confident" | "concise";
 
 type PaletteOverride = NonNullable<GenerateDeckRequest["design"]["paletteOverride"]>;
+type ColorIntent = NonNullable<GenerateDeckRequest["design"]["colorIntent"]>;
+type DesignConstraints = NonNullable<GenerateDeckRequest["design"]["constraints"]>;
+type ForbiddenStyle = DesignConstraints["forbiddenStyles"][number];
 
 export type PaletteOption = {
   optionId: string;
@@ -116,7 +119,7 @@ const initialState: AiPptWizardState = {
   presentationType: "기획 발표",
   successCriteria: "1차 구현 범위와 다음 스프린트 우선순위 합의",
   duration: "15",
-  slides: "8",
+  slides: "",
   tone: "professional",
   colorMood: "전문가스럽고 차분한 파란색, Brandlogy다운 포인트 컬러",
   referencePolicy: "references-first"
@@ -137,9 +140,12 @@ export function buildAiPptGenerateDeckPayload(
   referenceFileIds: string[] = []
 ): GenerateDeckRequest {
   const durationMinutes = parsePositiveInteger(state.duration, 10);
-  const slideCount = parsePositiveInteger(state.slides, 8);
+  const slideCount = resolveSlideCount(state);
+  const colorIntent = resolveColorIntent(state);
+  const constraints = resolveDesignConstraints(state);
 
   return {
+    generationMode: "design-pack",
     topic: state.topic.trim(),
     prompt: [
       state.purpose.trim(),
@@ -151,6 +157,7 @@ export function buildAiPptGenerateDeckPayload(
     designPrompt: [
       `tone=${state.tone}`,
       `colorMood=${state.colorMood.trim()}`,
+      `colorIntent=${colorIntent.mood}/${colorIntent.preferredHue}`,
       `base=${stylePackId}`,
       "layout=chart-first cards tables process",
       "output=Deck JSON first"
@@ -180,6 +187,8 @@ export function buildAiPptGenerateDeckPayload(
       densityTarget: "medium",
       mediaPolicy: "balanced",
       layoutDiversity: "varied",
+      colorIntent,
+      constraints,
       paletteOverride: paletteOption.palette
     },
     references: referenceFileIds.map((fileId) => ({ fileId })),
@@ -197,7 +206,7 @@ export function getAiPptWizardValidationMessage(
   if (parsePositiveInteger(state.duration, 0) < 1) {
     return "발표 시간은 1분 이상이어야 합니다.";
   }
-  if (parsePositiveInteger(state.slides, 0) < 1) {
+  if (state.slides.trim() && parsePositiveInteger(state.slides, 0) < 1) {
     return "슬라이드 수는 1장 이상이어야 합니다.";
   }
   if (state.referencePolicy === "references-only" && referenceFiles.length === 0) {
@@ -219,7 +228,13 @@ export function AiPptMockupPage() {
   const [job, setJob] = useState<Job | null>(null);
   const [isLoadingColors, setIsLoadingColors] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
-  const colorRequestKey = `${form.topic}|${form.colorMood}`;
+  const colorRequestKey = [
+    form.topic,
+    form.purpose,
+    form.audience,
+    form.tone,
+    form.colorMood
+  ].join("|");
   const loadedColorRequestKey = useRef("");
   const currentStepIndex = steps.findIndex((step) => step.id === currentStep);
   const selectedPalette =
@@ -264,7 +279,9 @@ export function AiPptMockupPage() {
       const options = await fetchDeckColorOptions({
         topic: form.topic,
         colorMood: form.colorMood,
-        stylePackId
+        stylePackId,
+        colorIntent: resolveColorIntent(form),
+        constraints: resolveDesignConstraints(form)
       });
       setPaletteOptions(options);
       setSelectedPaletteId(options[0].optionId);
@@ -782,6 +799,8 @@ function TextField(props: {
 
 async function fetchDeckColorOptions(input: {
   colorMood: string;
+  colorIntent: ColorIntent;
+  constraints: DesignConstraints;
   stylePackId: string;
   topic: string;
 }): Promise<PaletteOption[]> {
@@ -829,6 +848,124 @@ function filesFromEvent(event: ChangeEvent<HTMLInputElement>) {
 function parsePositiveInteger(value: string, fallback: number) {
   const parsed = Number(value);
   return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function resolveSlideCount(state: AiPptWizardState) {
+  const requested = parsePositiveInteger(state.slides, 0);
+  if (requested > 0) return requested;
+  return deriveSlideCount(parsePositiveInteger(state.duration, 10));
+}
+
+function deriveSlideCount(durationMinutes: number) {
+  return Math.min(12, Math.max(4, Math.round(durationMinutes * 0.55)));
+}
+
+function resolveDesignConstraints(state: AiPptWizardState): DesignConstraints {
+  const source = colorSource(state);
+  return {
+    canvasBackground: hasAny(source, ["white", "흰", "화이트", "백색"])
+      ? "white"
+      : "auto",
+    forbiddenStyles: resolveForbiddenStyles(source)
+  };
+}
+
+function resolveColorIntent(state: AiPptWizardState): ColorIntent {
+  const source = colorSource(state);
+  const constraints = resolveDesignConstraints(state);
+
+  return {
+    mood: resolveMood(source),
+    trustLevel: hasAny(source, ["trust", "reliable", "신뢰", "믿음", "안정"])
+      ? "high"
+      : "medium",
+    energyLevel: hasAny(source, ["energetic", "bold", "launch", "강렬", "활기", "역동"])
+      ? "high"
+      : hasAny(source, ["calm", "차분", "안정"])
+        ? "low"
+        : "medium",
+    formality: hasAny(source, ["executive", "formal", "임원", "격식", "공식"])
+      ? "formal"
+      : hasAny(source, ["friendly", "casual", "친근", "캐주얼"])
+        ? "casual"
+        : "professional",
+    preferredHue: resolvePreferredHue(source),
+    backgroundPreference: constraints.canvasBackground === "white" ? "white" : "auto",
+    forbiddenStyles: constraints.forbiddenStyles
+  };
+}
+
+function resolveMood(source: string): ColorIntent["mood"] {
+  if (hasAny(source, ["trust", "reliable", "신뢰", "믿음"])) return "trustworthy";
+  if (hasAny(source, ["resort", "beach", "ocean", "vacation", "휴양", "바다"])) {
+    return "relaxed";
+  }
+  if (hasAny(source, ["premium", "luxury", "고급", "프리미엄"])) return "premium";
+  if (hasAny(source, ["energetic", "bold", "강렬", "활기"])) return "energetic";
+  if (hasAny(source, ["calm", "차분", "안정"])) return "calm";
+  if (hasAny(source, ["creative", "ai", "창의", "인공지능"])) return "creative";
+  return "auto";
+}
+
+function resolvePreferredHue(source: string): ColorIntent["preferredHue"] {
+  if (hasAny(source, ["violet", "purple", "보라", "바이올렛", "퍼플"])) return "violet";
+  if (hasAny(source, ["blue", "ocean", "바다", "파랑", "파란", "블루"])) return "blue";
+  if (hasAny(source, ["teal", "민트", "청록"])) return "teal";
+  if (hasAny(source, ["green", "초록", "그린"])) return "green";
+  if (hasAny(source, ["pink", "핑크"])) return "pink";
+  if (hasAny(source, ["orange", "오렌지", "주황"])) return "orange";
+  if (hasAny(source, ["red", "빨강", "레드"])) return "red";
+  if (hasAny(source, ["yellow", "노랑", "옐로"])) return "yellow";
+  if (hasAny(source, ["black", "gray", "grey", "slate", "모노", "회색", "무채색"])) {
+    return "slate";
+  }
+  if (hasAny(source, ["trust", "reliable", "신뢰", "믿음"])) return "blue";
+  return "auto";
+}
+
+function resolveForbiddenStyles(source: string): ForbiddenStyle[] {
+  const styles: ForbiddenStyle[] = [];
+  if (
+    hasAny(source, [
+      "no gradient",
+      "without gradient",
+      "그라데이션 금지",
+      "그라데이션 제외"
+    ])
+  ) {
+    styles.push("gradient");
+  }
+  if (
+    hasAny(source, [
+      "no pastel",
+      "without pastel",
+      "파스텔 금지",
+      "파스텔톤 금지",
+      "파스텔 제외"
+    ])
+  ) {
+    styles.push("pastel");
+  }
+  return styles;
+}
+
+function colorSource(state: AiPptWizardState) {
+  return [
+    state.topic,
+    state.purpose,
+    state.context,
+    state.audience,
+    state.presentationType,
+    state.successCriteria,
+    state.tone,
+    state.colorMood
+  ]
+    .join(" ")
+    .toLowerCase();
+}
+
+function hasAny(source: string, keywords: string[]) {
+  return keywords.some((keyword) => source.includes(keyword.toLowerCase()));
 }
 
 function getProjectTitle(topic: string) {
