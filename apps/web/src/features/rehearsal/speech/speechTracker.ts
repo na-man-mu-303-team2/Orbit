@@ -39,6 +39,8 @@ export type SpeechTracker = {
     sentenceId: string;
     transcript: string;
     similarity: number;
+    matchKind?: "covered" | "paraphrased";
+    lexicalOverlap?: number;
     atMs: number;
   }) => SpeechTrackingEvent[];
   exitSlide: (atMs: number) => SpeechTrackingEvent[];
@@ -85,7 +87,11 @@ export function createSpeechTracker(input: CreateSpeechTrackerInput): SpeechTrac
       }
 
       if (isSentenceMatched(sentence, finalWindow, config, result.isFinal)) {
-        events.push(...coverSentence(sentence, atMs));
+        events.push(
+          ...coverSentence(sentence, atMs, {
+            matchKind: "covered"
+          })
+        );
       }
     }
 
@@ -136,6 +142,8 @@ export function createSpeechTracker(input: CreateSpeechTrackerInput): SpeechTrac
     sentenceId: string;
     transcript: string;
     similarity: number;
+    matchKind?: "covered" | "paraphrased";
+    lexicalOverlap?: number;
     atMs: number;
   }): SpeechTrackingEvent[] {
     const sentence = sentences.find(
@@ -146,7 +154,11 @@ export function createSpeechTracker(input: CreateSpeechTrackerInput): SpeechTrac
       return [];
     }
 
-    const events = coverSentence(sentence, options.atMs);
+    const events = coverSentence(sentence, options.atMs, {
+      matchKind: options.matchKind ?? "paraphrased",
+      similarity: options.similarity,
+      lexicalOverlap: options.lexicalOverlap
+    });
     events.push(createCoverageUpdatedEvent(options.atMs));
     return events;
   }
@@ -195,7 +207,12 @@ export function createSpeechTracker(input: CreateSpeechTrackerInput): SpeechTrac
 
   function coverSentence(
     sentence: ExtractedSentence,
-    atMs: number
+    atMs: number,
+    match: {
+      matchKind: "covered" | "paraphrased";
+      similarity?: number;
+      lexicalOverlap?: number;
+    }
   ): SpeechTrackingEvent[] {
     const events: SpeechTrackingEvent[] = [];
     visit.coveredSentenceIds.add(sentence.sentenceId);
@@ -203,6 +220,11 @@ export function createSpeechTracker(input: CreateSpeechTrackerInput): SpeechTrac
       type: "sentence-covered",
       slideId: input.slideId,
       sentenceId: sentence.sentenceId,
+      matchKind: match.matchKind,
+      ...(match.similarity === undefined ? {} : { similarity: match.similarity }),
+      ...(match.lexicalOverlap === undefined
+        ? {}
+        : { lexicalOverlap: match.lexicalOverlap }),
       atMs
     });
 
