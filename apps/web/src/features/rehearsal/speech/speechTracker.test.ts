@@ -28,7 +28,8 @@ describe("SpeechTracker", () => {
       expect.arrayContaining([
         expect.objectContaining({
           type: "sentence-covered",
-          sentenceId: "sentence_1"
+          sentenceId: "sentence_1",
+          matchKind: "covered"
         })
       ])
     );
@@ -223,6 +224,11 @@ describe("SpeechTracker", () => {
       "sentence-covered",
       "coverage-updated"
     ]);
+    expect(firstEvents[0]).toMatchObject({
+      type: "sentence-covered",
+      matchKind: "paraphrased",
+      similarity: 0.82
+    });
     expect(duplicateEvents).toEqual([]);
     expect(finalEvents.map((event) => event.type)).toEqual([
       "sentence-covered",
@@ -246,13 +252,14 @@ describe("SpeechTracker", () => {
       sentenceId: "sentence_1",
       transcript: "보안상 final transcript입니다",
       similarity: 0.88,
+      matchKind: "paraphrased",
+      lexicalOverlap: 0.2,
       atMs: 1000
     });
 
     for (const event of events) {
       expect(Object.keys(event)).not.toContain("transcript");
       expect(Object.keys(event)).not.toContain("speakerNotes");
-      expect(Object.keys(event)).not.toContain("similarity");
       expect(JSON.stringify(event)).not.toContain("보안상 final transcript");
       expect(JSON.stringify(event)).not.toContain("보안상 대본 원문");
     }

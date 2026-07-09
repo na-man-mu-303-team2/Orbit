@@ -114,6 +114,7 @@ describe("SpeechTrackingEvent", () => {
         type: "sentence-covered",
         slideId: "slide_1",
         sentenceId: "sentence_1",
+        matchKind: "covered",
         atMs: 1000
       },
       {

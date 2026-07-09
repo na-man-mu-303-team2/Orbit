@@ -35,6 +35,9 @@ export type SentenceCoveredEvent = {
   type: "sentence-covered";
   slideId: string;
   sentenceId: string;
+  matchKind: "covered" | "paraphrased";
+  similarity?: number;
+  lexicalOverlap?: number;
   atMs: number;
 };
 
@@ -76,10 +79,28 @@ export type AdviceEvent = {
   atMs: number;
 };
 
+export type AdLibDetectedEvent = {
+  type: "ad-lib-detected";
+  slideId: string;
+  text: string;
+  nearestSentenceId: string | null;
+  similarity: number | null;
+  atMs: number;
+};
+
+export type SentenceMissedEvent = {
+  type: "sentence-missed";
+  slideId: string;
+  sentenceId: string;
+  atMs: number;
+};
+
 export type SpeechTrackingEvent =
   | SentenceCoveredEvent
   | CoverageUpdatedEvent
   | LastSentenceSpokenEvent
   | KeywordHitEvent
   | KeywordMissingEvent
-  | AdviceEvent;
+  | AdviceEvent
+  | AdLibDetectedEvent
+  | SentenceMissedEvent;
