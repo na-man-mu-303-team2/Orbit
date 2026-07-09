@@ -334,7 +334,70 @@ function isPresenterSlideshowState(
         typeof highlight.elementId === "string" &&
         typeof highlight.active === "boolean",
     ) &&
+    (value.speech === undefined || isPresenterSpeechState(value.speech)) &&
     (value.timing === undefined || isPresenterTimingState(value.timing))
+  );
+}
+
+function isPresenterSpeechState(value: unknown) {
+  return (
+    isRecord(value) &&
+    isStringArray(value.coveredSentenceIds) &&
+    typeof value.matchableSentenceCount === "number" &&
+    isSemanticUtteranceDebugState(value.semanticDebug) &&
+    typeof value.semanticMatchingEnabled === "boolean" &&
+    (value.snapshot === null || isSpeechTrackerSnapshot(value.snapshot))
+  );
+}
+
+function isSemanticUtteranceDebugState(value: unknown) {
+  return (
+    isRecord(value) &&
+    isSemanticDebugStatus(value.status) &&
+    (value.slideId === null || typeof value.slideId === "string") &&
+    typeof value.transcript === "string" &&
+    typeof value.isFinal === "boolean" &&
+    Array.isArray(value.topMatches) &&
+    value.topMatches.every(isSemanticUtteranceMatch) &&
+    (value.error === null || typeof value.error === "string")
+  );
+}
+
+function isSemanticDebugStatus(value: unknown) {
+  return (
+    value === "idle" ||
+    value === "loading-model" ||
+    value === "indexing-script" ||
+    value === "matching" ||
+    value === "ready" ||
+    value === "error"
+  );
+}
+
+function isSemanticUtteranceMatch(value: unknown) {
+  return (
+    isRecord(value) &&
+    typeof value.rank === "number" &&
+    typeof value.sentenceId === "string" &&
+    typeof value.sentenceIndex === "number" &&
+    typeof value.text === "string" &&
+    typeof value.similarity === "number" &&
+    typeof value.covered === "boolean"
+  );
+}
+
+function isSpeechTrackerSnapshot(value: unknown) {
+  return (
+    isRecord(value) &&
+    typeof value.slideId === "string" &&
+    isStringArray(value.coveredSentenceIds) &&
+    typeof value.matchableSentenceCount === "number" &&
+    typeof value.sentenceCoverage === "number" &&
+    typeof value.wordCoverage === "number" &&
+    typeof value.effectiveCoverage === "number" &&
+    typeof value.finalSentenceSpoken === "boolean" &&
+    isStringArray(value.hitKeywordIds) &&
+    isStringArray(value.provisionalMissingKeywordIds)
   );
 }
 
