@@ -2116,6 +2116,18 @@ describe("RehearsalWorkspace", () => {
     session.start();
     expect(session.recorder.state).toBe("recording");
 
+    session.pause();
+    expect(session.recorder.state).toBe("paused");
+
+    session.pause();
+    expect(session.recorder.state).toBe("paused");
+
+    session.resume();
+    expect(session.recorder.state).toBe("recording");
+
+    session.resume();
+    expect(session.recorder.state).toBe("recording");
+
     session.stop();
     expect(errors).toEqual([]);
     expect(stoppedFiles).toHaveLength(1);
@@ -2412,6 +2424,14 @@ class FakeMediaRecorder {
   ) {}
 
   start() {
+    this.state = "recording";
+  }
+
+  pause() {
+    this.state = "paused";
+  }
+
+  resume() {
     this.state = "recording";
   }
 
