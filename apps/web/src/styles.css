@@ -7824,6 +7824,237 @@ button:disabled {
   padding: 10px;
 }
 
+/* ── slide context checklist ─────────────────────────────────── */
+
+.rehearsal-panel-context-slot {
+  display: contents;
+}
+
+.slide-context-empty {
+  align-items: flex-start;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.slide-context-error {
+  background: #fff1f2;
+  border: 1px solid #fecdd3;
+  border-radius: 8px;
+  color: #be123c;
+  font-size: 0.82rem;
+  font-weight: 700;
+  margin: 0 0 10px;
+  padding: 10px;
+}
+
+.slide-context-extract-button {
+  align-items: center;
+  background: #0f766e;
+  border: 0;
+  border-radius: 6px;
+  color: #ffffff;
+  cursor: pointer;
+  display: inline-flex;
+  font-size: 0.82rem;
+  font-weight: 700;
+  gap: 6px;
+  min-height: 30px;
+  padding: 0 12px;
+}
+
+.slide-context-extract-button:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.slide-context-heading-actions {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+}
+
+.slide-context-reextract-button {
+  background: #f1f5f9;
+  border: 1px solid #cbd5e1;
+  border-radius: 999px;
+  color: #475569;
+  cursor: pointer;
+  font-size: 0.72rem;
+  font-weight: 800;
+  min-height: 22px;
+  padding: 0 8px;
+}
+
+.slide-context-reextract-button:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.slide-context-reextract-button:not(:disabled):hover {
+  background: #e2e8f0;
+}
+
+.slide-context-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.slide-context-item {
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  position: relative;
+}
+
+.slide-context-item-label {
+  font-size: 0.84rem;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.slide-context-item-actions {
+  align-items: center;
+  display: flex;
+  gap: 2px;
+  opacity: 0;
+  transition: opacity 0.1s;
+}
+
+.slide-context-item:hover .slide-context-item-actions,
+.slide-context-item:focus-within .slide-context-item-actions {
+  opacity: 1;
+}
+
+.slide-context-edit-button,
+.slide-context-delete-button {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: 4px;
+  color: #94a3b8;
+  cursor: pointer;
+  display: inline-flex;
+  font-size: 0.9rem;
+  height: 22px;
+  justify-content: center;
+  padding: 0;
+  width: 22px;
+}
+
+.slide-context-edit-button:hover:not(:disabled) {
+  background: #f1f5f9;
+  color: #334155;
+}
+
+.slide-context-delete-button:hover:not(:disabled) {
+  background: #fff1f2;
+  color: #e11d48;
+}
+
+.slide-context-edit-button:disabled,
+.slide-context-delete-button:disabled {
+  cursor: default;
+  opacity: 0.4;
+}
+
+.slide-context-item-deleting {
+  opacity: 0.45;
+  pointer-events: none;
+}
+
+.slide-context-item-editing {
+  background: #f8fafc;
+  border: 1px solid #bfdbfe;
+  border-radius: 8px;
+  display: block;
+  list-style: none;
+  padding: 10px;
+}
+
+.slide-context-edit-form {
+  display: grid;
+  gap: 8px;
+}
+
+.slide-context-label-input,
+.slide-context-sentence-input {
+  background: #f8fafc;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  color: #1e293b;
+  font-family: inherit;
+  font-size: 0.84rem;
+  padding: 6px 8px;
+  width: 100%;
+}
+
+.slide-context-label-input:focus,
+.slide-context-sentence-input:focus {
+  border-color: #3b82f6;
+  outline: none;
+}
+
+.slide-context-label-input:disabled,
+.slide-context-sentence-input:disabled {
+  opacity: 0.6;
+}
+
+.slide-context-sentence-input {
+  font-size: 0.8rem;
+  line-height: 1.5;
+  min-height: 72px;
+  resize: vertical;
+}
+
+.slide-context-edit-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.slide-context-save-button {
+  background: #0f766e;
+  border: 0;
+  border-radius: 5px;
+  color: #ffffff;
+  cursor: pointer;
+  font-size: 0.8rem;
+  font-weight: 700;
+  min-height: 28px;
+  padding: 0 12px;
+}
+
+.slide-context-save-button:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.slide-context-cancel-button {
+  background: transparent;
+  border: 1px solid #e2e8f0;
+  border-radius: 5px;
+  color: #64748b;
+  cursor: pointer;
+  font-size: 0.8rem;
+  font-weight: 700;
+  min-height: 28px;
+  padding: 0 10px;
+}
+
+.slide-context-cancel-button:hover:not(:disabled) {
+  background: #f1f5f9;
+}
+
+.slide-context-cancel-button:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+/* ── end slide context checklist ─────────────────────────────── */
+
 .script-card {
   min-height: 0;
   overflow: hidden;
@@ -8952,13 +9183,13 @@ button:disabled {
   padding: 0 18px;
 }
 
-.rehearsal-completion-card footer button:first-child {
+.rehearsal-completion-footer-secondary {
   background: #ffffff;
   border: 1px solid #d9e7e5;
   color: #0f766e;
 }
 
-.rehearsal-completion-card footer button:last-child {
+.rehearsal-completion-footer-primary {
   background: #003737;
   border: 1px solid #003737;
   color: #ffffff;

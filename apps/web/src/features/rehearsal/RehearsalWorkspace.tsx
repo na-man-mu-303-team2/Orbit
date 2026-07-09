@@ -24,6 +24,7 @@ import {
   type RehearsalRun,
   type RehearsalRunMeta,
   type Slide,
+  type SlideContextItem,
   type UpdateRehearsalRunMetaRequest,
 } from "@orbit/shared";
 import {
@@ -141,6 +142,23 @@ import {
   RehearsalPanel,
   getRehearsalScriptFocusSentenceId,
 } from "./panel/RehearsalPanel";
+import { SlideContextChecklist } from "./panel/SlideContextChecklist";
+import {
+  fetchSlideContextItems,
+  extractSlideContextItems,
+  updateSlideContextItem,
+  deleteSlideContextItem,
+  type SlideInput,
+} from "./panel/slideContextApi";
+import {
+  createContextSlidingWindow,
+  appendToContextWindow,
+  type ContextSlidingWindow,
+} from "./panel/contextSlidingWindow";
+import {
+  buildContextMatchCandidateWindows,
+  selectBestContextItemMatch,
+} from "./panel/contextCoverageMatcher";
 import {
   SemanticSpeechDebugPanel,
   shouldShowSemanticSpeechDebugPanel,
@@ -169,6 +187,7 @@ import {
 } from "./speech/semanticSpeechDebug";
 import {
   createSemanticUtteranceMatcher,
+  dotProduct,
   type SemanticUtteranceMatcher,
 } from "./speech/semanticUtteranceMatcher";
 import {
@@ -214,6 +233,7 @@ type RehearsalPhase =
   | "idle"
   | "loading"
   | "recording"
+  | "reviewing"
   | "uploading"
   | "processing"
   | "succeeded"
@@ -278,7 +298,16 @@ type LiveTranscriptBuffer = {
   draftTranscript: string;
 };
 
+type PendingReportCapture = {
+  deck: Deck;
+  audioFile: File;
+};
+
 type BiasTermDraft = Omit<LiveSttBiasTerm, "text"> & { text: string };
+
+function normalizeContextTranscriptText(value: string) {
+  return value.normalize("NFC").replace(/\s+/g, " ").trim();
+}
 
 const preferredAudioMimeTypes = [
   "audio/webm;codecs=opus",
@@ -1606,6 +1635,12 @@ export function RehearsalWorkspace(props: {
     useState<PauseDetectorSnapshot | null>(null);
   const [isLiveDemoActive, setIsLiveDemoActive] = useState(false);
   const [isLiveStopModalOpen, setIsLiveStopModalOpen] = useState(false);
+  const [contextItems, setContextItems] = useState<SlideContextItem[]>([]);
+  const [contextItemsLoading, setContextItemsLoading] = useState(false);
+  const [contextItemsExtracting, setContextItemsExtracting] = useState(false);
+  const [contextItemsError, setContextItemsError] = useState("");
+  const [coveredContextItemIds, setCoveredContextItemIds] = useState<ReadonlySet<string>>(new Set());
+  const [exitWarningItemIds, setExitWarningItemIds] = useState<ReadonlySet<string>>(new Set());
   const [displayRole, setDisplayRole] = useState<
     "presenter" | "slide-receiver" | "slide-surface"
   >("presenter");
@@ -1615,6 +1650,8 @@ export function RehearsalWorkspace(props: {
   const [isTimerRunning, setIsTimerRunning] = useState(false);
   const [isSingleScreenOpen, setIsSingleScreenOpen] = useState(false);
   const [isCompletionModalOpen, setIsCompletionModalOpen] = useState(false);
+  const [pendingReportCapture, setPendingReportCapture] =
+    useState<PendingReportCapture | null>(null);
   const [timeMode, setTimeMode] = useState<RehearsalTimeMode>("timer");
   const [timerDurationSeconds, setTimerDurationSeconds] = useState(5 * 60);
   const [elapsedTimeInput, setElapsedTimeInput] = useState("00:00");
@@ -1659,6 +1696,10 @@ export function RehearsalWorkspace(props: {
   );
   const lastSentenceSpokenAtMsRef = useRef<number | null>(null);
   const pauseDetectorRef = useRef<PauseDetector | null>(null);
+  const contextEmbeddingsRef = useRef<Map<string, Float32Array>>(new Map());
+  const contextWindowRef = useRef<ContextSlidingWindow>(createContextSlidingWindow());
+  const contextItemsRef = useRef<SlideContextItem[]>([]);
+  const exitWarningTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const { settings: presenterSettings, save: savePresenterSettings } =
     usePresenterSettings();
 
@@ -1706,6 +1747,10 @@ export function RehearsalWorkspace(props: {
   }, [deck]);
 
   useEffect(() => {
+    contextItemsRef.current = contextItems;
+  }, [contextItems]);
+
+  useEffect(() => {
     if (!deck) {
       setPreviousPracticeSummary(null);
       return;
@@ -1717,8 +1762,54 @@ export function RehearsalWorkspace(props: {
   }, [deck?.deckId, deck?.projectId]);
 
   useEffect(() => {
+    if (!deck) return;
+    let cancelled = false;
+    setContextItemsLoading(true);
+    setContextItemsError("");
+    fetchSlideContextItems(deck.projectId, deck.deckId)
+      .then((items) => {
+        if (!cancelled) {
+          setContextItems(items);
+          setContextItemsError("");
+        }
+      })
+      .catch((cause) => {
+        if (!cancelled) {
+          setContextItems([]);
+          setContextItemsError(
+            cause instanceof Error && cause.message
+              ? cause.message
+              : "맥락 항목을 불러오지 못했습니다."
+          );
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setContextItemsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [deck?.projectId, deck?.deckId]);
+
+  useEffect(() => {
     currentSlideIndexRef.current = currentSlideIndex;
   }, [currentSlideIndex]);
+
+  useEffect(() => {
+    if (exitWarningTimerRef.current !== null) {
+      clearTimeout(exitWarningTimerRef.current);
+      exitWarningTimerRef.current = null;
+    }
+    setExitWarningItemIds(new Set());
+  }, [currentSlideIndex]);
+
+  useEffect(() => {
+    return () => {
+      if (exitWarningTimerRef.current !== null) {
+        clearTimeout(exitWarningTimerRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     presenterStepIndexRef.current = presenterStepIndex;
@@ -1897,6 +1988,15 @@ export function RehearsalWorkspace(props: {
   const canStartLiveDemo =
     Boolean(deck) && !isReportBusy && !isLiveSttActive && !isLiveDemoActive;
   const canStopLiveDemo = isLiveDemoActive && isLiveSttActive;
+
+  useEffect(() => {
+    if (!isP3TrackingActive || contextItems.length === 0) {
+      return;
+    }
+
+    void startContextEmbeddings(contextItems);
+  }, [contextItems, isP3TrackingActive]);
+
   const p3Sentences = useMemo(
     () =>
       currentSlide
@@ -2151,6 +2251,7 @@ export function RehearsalWorkspace(props: {
     setRun(null);
     setJob(null);
     setHasLocalCompletion(false);
+    setPendingReportCapture(null);
     finishAfterReportRef.current = false;
     setIsCompletionModalOpen(false);
     setLiveError("");
@@ -2184,7 +2285,8 @@ export function RehearsalWorkspace(props: {
             streamRef.current = null;
           }
           sessionRef.current = null;
-          void submitRecording(activeDeck, audioFile);
+          setPendingReportCapture({ deck: activeDeck, audioFile });
+          setPhase("reviewing");
         },
       });
       streamRef.current = stream;
@@ -2215,6 +2317,8 @@ export function RehearsalWorkspace(props: {
     setIsTimerRunning(true);
     resetLivePlaybackForSlide(currentSlide);
     resetAutoAdvanceRuntimeState(currentSlide?.slideId ?? null);
+    contextWindowRef.current = createContextSlidingWindow();
+    setCoveredContextItemIds(new Set());
 
     if (!navigator.mediaDevices?.getUserMedia) {
       setLiveError("이 브라우저는 마이크 녹음을 지원하지 않습니다.");
@@ -2287,7 +2391,8 @@ export function RehearsalWorkspace(props: {
   function stopRecording() {
     if (phase !== "recording") return;
 
-    setPhase("uploading");
+    setHasLocalCompletion(true);
+    setPhase("reviewing");
     setIsTimerRunning(false);
     resetLivePlaybackForSlide(currentSlide);
     resetAutoAdvanceRuntimeState(currentSlide?.slideId ?? null);
@@ -2486,6 +2591,71 @@ export function RehearsalWorkspace(props: {
     return semanticEmbeddingServicePromiseRef.current;
   }
 
+  async function startContextEmbeddings(items: typeof contextItems) {
+    if (items.length === 0) return;
+    const svc = await getOrCreateSemanticEmbeddingService().catch(() => null);
+    if (!svc) return;
+    const missing = items.filter((item) => !contextEmbeddingsRef.current.has(item.itemId));
+    if (missing.length === 0) return;
+    const embeddings = await svc.embedPassages(missing.map((item) => item.sentence));
+    for (let i = 0; i < missing.length; i += 1) {
+      const item = missing[i];
+      const emb = embeddings[i];
+      if (item && emb) {
+        contextEmbeddingsRef.current.set(item.itemId, emb);
+      }
+    }
+  }
+
+  async function checkContextCoverage(slideId: string, windowText: string) {
+    if (!windowText.trim()) return;
+    const slideItems = contextItemsRef.current.filter((item) => item.slideId === slideId);
+    if (slideItems.length === 0) return;
+    const svc = await getOrCreateSemanticEmbeddingService().catch(() => null);
+    if (!svc) return;
+    await startContextEmbeddings(slideItems);
+    const candidateWindows = buildContextMatchCandidateWindows(windowText);
+    if (candidateWindows.length === 0) return;
+    const queryEmbeddings = await Promise.all(
+      candidateWindows.map((candidate) => svc.embedQuery(candidate))
+    );
+    const newlyCovered = new Set<string>();
+    for (let index = 0; index < candidateWindows.length; index += 1) {
+      const candidateWindow = candidateWindows[index];
+      const queryEmbedding = queryEmbeddings[index];
+      if (!candidateWindow || !queryEmbedding) continue;
+
+      const semanticSimilarities = new Map<string, number>();
+      for (const item of slideItems) {
+        if (coveredContextItemIds.has(item.itemId)) {
+          continue;
+        }
+        const itemEmbedding = contextEmbeddingsRef.current.get(item.itemId);
+        if (!itemEmbedding) continue;
+        semanticSimilarities.set(
+          item.itemId,
+          dotProduct(queryEmbedding, itemEmbedding),
+        );
+      }
+
+      const selected = selectBestContextItemMatch({
+        items: slideItems.filter((item) => !coveredContextItemIds.has(item.itemId)),
+        transcriptWindow: candidateWindow,
+        semanticSimilarities,
+      });
+      if (selected) {
+        newlyCovered.add(selected.item.itemId);
+      }
+    }
+    if (newlyCovered.size > 0) {
+      setCoveredContextItemIds((prev) => {
+        const next = new Set(prev);
+        for (const id of newlyCovered) next.add(id);
+        return next;
+      });
+    }
+  }
+
   async function startP3Tracking(stream: MediaStream) {
     const deckSnapshot = deckRef.current ?? deck;
     const startSlideIndex = currentSlideIndexRef.current;
@@ -2573,6 +2743,7 @@ export function RehearsalWorkspace(props: {
       setP3RunMeta(null);
       setP3SessionState(session.getState());
       setLiveStatus("listening");
+      void startContextEmbeddings(contextItems);
       return true;
     } catch (cause) {
       if (p3SessionRef.current !== session) {
@@ -2757,6 +2928,16 @@ export function RehearsalWorkspace(props: {
       event,
     );
     liveTranscriptBufferRef.current = nextBuffer;
+
+    if (event.isFinal) {
+      const updated = appendToContextWindow(
+        contextWindowRef.current,
+        slide.slideId,
+        normalizeContextTranscriptText(event.transcript)
+      );
+      contextWindowRef.current = updated;
+      void checkContextCoverage(slide.slideId, updated.buffer);
+    }
 
     const transcript = renderLiveTranscriptBuffer(nextBuffer);
     const biasMode = getLiveSttBiasMode();
@@ -2951,6 +3132,7 @@ export function RehearsalWorkspace(props: {
   }
 
   async function submitRecording(activeDeck: Deck, audioFile: File) {
+    setPendingReportCapture(null);
     setPhase("uploading");
     setError("");
 
@@ -3009,13 +3191,43 @@ export function RehearsalWorkspace(props: {
     setPresenterStepIndex(0);
     setCurrentSlideIndex((current) => Math.max(0, current - 1));
   };
+
+  const withExitWarning = (advance: () => void) => {
+    if (!isP3TrackingActive) {
+      advance();
+      return;
+    }
+    const uncovered = contextItemsRef.current.filter(
+      (item) =>
+        item.slideId === currentSlide?.slideId &&
+        !coveredContextItemIds.has(item.itemId)
+    );
+    if (uncovered.length === 0 || exitWarningItemIds.size > 0) {
+      if (exitWarningTimerRef.current !== null) {
+        clearTimeout(exitWarningTimerRef.current);
+        exitWarningTimerRef.current = null;
+      }
+      setExitWarningItemIds(new Set());
+      advance();
+    } else {
+      setExitWarningItemIds(new Set(uncovered.map((i) => i.itemId)));
+      exitWarningTimerRef.current = setTimeout(() => {
+        exitWarningTimerRef.current = null;
+        setExitWarningItemIds(new Set());
+        advance();
+      }, 1500);
+    }
+  };
+
   const goNext = () => {
     if (!deck) return;
     cancelAutoAdvanceForManualCommand();
-    setPresenterStepIndex(0);
-    setCurrentSlideIndex((current) =>
-      Math.min(deck.slides.length - 1, current + 1),
-    );
+    withExitWarning(() => {
+      setPresenterStepIndex(0);
+      setCurrentSlideIndex((current) =>
+        Math.min(deck.slides.length - 1, current + 1),
+      );
+    });
   };
   const handleNextPresenterStep = () => {
     if (!deck || !slideshowAnimationPlan) return;
@@ -3027,8 +3239,15 @@ export function RehearsalWorkspace(props: {
       maxStepIndex: slideshowAnimationPlan.maxStepIndex,
       slideCount: deck.slides.length,
     });
-    setPresenterStepIndex(nextState.stepIndex);
-    setCurrentSlideIndex(nextState.slideIndex);
+    if (nextState.slideIndex > currentSlideIndex) {
+      withExitWarning(() => {
+        setPresenterStepIndex(nextState.stepIndex);
+        setCurrentSlideIndex(nextState.slideIndex);
+      });
+    } else {
+      setPresenterStepIndex(nextState.stepIndex);
+      setCurrentSlideIndex(nextState.slideIndex);
+    }
   };
   const finishRehearsal = () => {
     const projectId = deck?.projectId ?? props.projectId ?? demoIds.projectId;
@@ -3322,6 +3541,89 @@ export function RehearsalWorkspace(props: {
   const highlightedKeywordOccurrences = useMemo(() => {
     return getHighlightedKeywordOccurrencesForSlide(currentSlide);
   }, [currentSlide]);
+
+  const handleExtractContextItems = useCallback(async () => {
+    if (!deck || contextItemsExtracting) return;
+    const slides: SlideInput[] = deck.slides.map((slide) => ({
+      slideId: slide.slideId,
+      slideText: [slide.title, ...getSlideBodyTexts(slide)].filter(Boolean).join("\n"),
+      speakerNotes: slide.speakerNotes ?? ""
+    }));
+    setContextItemsExtracting(true);
+    setContextItemsError("");
+    try {
+      const items = await extractSlideContextItems(deck.projectId, deck.deckId, slides);
+      setContextItems(items);
+      setContextItemsError("");
+      if (isP3TrackingActive) {
+        void startContextEmbeddings(items);
+      }
+    } catch (cause) {
+      setContextItemsError(
+        cause instanceof Error && cause.message
+          ? cause.message
+          : "맥락 항목 추출에 실패했습니다."
+      );
+    } finally {
+      setContextItemsExtracting(false);
+    }
+  }, [deck, contextItemsExtracting, isP3TrackingActive]);
+
+  const handleUpdateContextItem = useCallback(
+    async (itemId: string, label: string, sentence: string) => {
+      if (!deck) return;
+      const prev = contextItems.find((i) => i.itemId === itemId);
+      let updated: SlideContextItem;
+      try {
+        updated = await updateSlideContextItem(deck.projectId, itemId, {
+          label,
+          sentence
+        });
+      } catch (cause) {
+        setContextItemsError(
+          cause instanceof Error && cause.message
+            ? cause.message
+            : "맥락 항목을 수정하지 못했습니다."
+        );
+        throw cause;
+      }
+      setContextItemsError("");
+      contextEmbeddingsRef.current.delete(itemId);
+      setContextItems((items) => items.map((i) => (i.itemId === itemId ? updated : i)));
+      if (prev && prev.sentence !== sentence) {
+        const svc = await getOrCreateSemanticEmbeddingService().catch(() => null);
+        if (!svc) {
+          return;
+        }
+        const [embedding] = await svc.embedPassages([sentence]);
+        if (embedding) {
+          contextEmbeddingsRef.current.set(itemId, embedding);
+        }
+      }
+    },
+    [deck, contextItems]
+  );
+
+  const handleDeleteContextItem = useCallback(
+    async (itemId: string) => {
+      if (!deck) return;
+      try {
+        await deleteSlideContextItem(deck.projectId, itemId);
+      } catch (cause) {
+        setContextItemsError(
+          cause instanceof Error && cause.message
+            ? cause.message
+            : "맥락 항목을 삭제하지 못했습니다."
+        );
+        throw cause;
+      }
+      setContextItemsError("");
+      setContextItems((items) => items.filter((i) => i.itemId !== itemId));
+      contextEmbeddingsRef.current.delete(itemId);
+    },
+    [deck]
+  );
+
   const hasDeletedRawAudio = Boolean(run?.rawAudioDeletedAt);
   const nextSlide = deck?.slides[currentSlideIndex + 1] ?? null;
   const miniSlideScale = deck ? getMiniSlideScale(deck) : 0.14;
@@ -3390,6 +3692,7 @@ export function RehearsalWorkspace(props: {
     setP3SessionState(null);
     p3RunMetaRef.current = null;
     pendingP3RunMetaRef.current = null;
+    setPendingReportCapture(null);
     setRun(null);
     setHasLocalCompletion(false);
     setLiveStatus("idle");
@@ -3419,8 +3722,30 @@ export function RehearsalWorkspace(props: {
     persistCurrentPracticeSummary();
     returnToPreflight();
   };
+  const handleCompletionCreateReport = () => {
+    if (!pendingReportCapture) {
+      return;
+    }
+
+    void submitRecording(
+      pendingReportCapture.deck,
+      pendingReportCapture.audioFile,
+    );
+  };
+  const handleCompletionSkipReport = () => {
+    setPendingReportCapture(null);
+    setPhase("idle");
+    setRun(null);
+    setJob(null);
+    setIsCompletionModalOpen(false);
+  };
   const handleCompletionPrimaryAction = () => {
     persistCurrentPracticeSummary();
+
+    if (pendingReportCapture) {
+      handleCompletionSkipReport();
+      return;
+    }
 
     if (phase === "uploading" || phase === "processing") {
       finishAfterReportRef.current = true;
@@ -3618,8 +3943,11 @@ export function RehearsalWorkspace(props: {
       <RehearsalCompletionScreen
         hasReportTarget={Boolean(run?.runId)}
         isReportPending={phase === "uploading" || phase === "processing"}
+        isReportSelectionPending={Boolean(pendingReportCapture)}
+        onCreateReport={handleCompletionCreateReport}
         onPrimaryAction={handleCompletionPrimaryAction}
         onPracticeAgain={handleCompletionPracticeAgain}
+        onSkipReport={handleCompletionSkipReport}
         summary={rehearsalSummary}
       />
     );
@@ -3930,6 +4258,20 @@ export function RehearsalWorkspace(props: {
             showScriptPanel={false}
             speakerNotes={currentSlide?.speakerNotes ?? ""}
             snapshot={p3PanelSnapshot}
+            contextSlot={
+              <SlideContextChecklist
+                items={contextItems}
+                currentSlideId={currentSlide?.slideId ?? null}
+                isLoading={contextItemsLoading}
+                isExtracting={contextItemsExtracting}
+                errorMessage={contextItemsError}
+                coveredItemIds={coveredContextItemIds}
+                exitWarningItemIds={exitWarningItemIds}
+                onExtract={() => { void handleExtractContextItems(); }}
+                onUpdate={handleUpdateContextItem}
+                onDelete={handleDeleteContextItem}
+              />
+            }
             liveSlot={
               <section className="rehearsal-assist-card checklist-card">
                 <header>
@@ -4670,8 +5012,11 @@ type RehearsalCompletionSummary = {
 function RehearsalCompletionScreen(props: {
   hasReportTarget: boolean;
   isReportPending: boolean;
+  isReportSelectionPending: boolean;
+  onCreateReport: () => void;
   onPracticeAgain: () => void;
   onPrimaryAction: () => void;
+  onSkipReport: () => void;
   summary: RehearsalCompletionSummary;
 }) {
   return (
@@ -4730,9 +5075,15 @@ function RehearsalCompletionScreen(props: {
         </div>
 
         <div className="rehearsal-completion-report-state" role="status">
-          {props.isReportPending ? <span aria-hidden="true" /> : <CheckCircle2 size={16} />}
+          {props.isReportPending || props.isReportSelectionPending ? (
+            props.isReportPending ? <span aria-hidden="true" /> : <CheckCircle2 size={16} />
+          ) : (
+            <CheckCircle2 size={16} />
+          )}
           <p>
-            {props.isReportPending
+            {props.isReportSelectionPending
+              ? "녹음은 끝났습니다. 리포트를 생성하면 음성 업로드와 AI 분석을 시작하고, 건너뛰면 로컬 요약만 남깁니다."
+              : props.isReportPending
               ? "자세한 리포트 준비 중 — 잠시 후 청중 반응·페이스 분석이 도착해요"
               : props.hasReportTarget
                 ? "자세한 리포트를 열어 더 깊은 분석을 확인할 수 있어요"
@@ -4741,16 +5092,43 @@ function RehearsalCompletionScreen(props: {
         </div>
 
         <footer>
-          <button type="button" onClick={props.onPracticeAgain}>
+          <button
+            className="rehearsal-completion-footer-secondary"
+            type="button"
+            onClick={props.onPracticeAgain}
+          >
             다시 연습
           </button>
-          <button type="button" onClick={props.onPrimaryAction}>
-            {props.isReportPending
-              ? "리포트 기다리기"
-              : props.hasReportTarget
-                ? "리포트 보기"
-                : "확인"}
-          </button>
+          {props.isReportSelectionPending ? (
+            <>
+              <button
+                className="rehearsal-completion-footer-secondary"
+                type="button"
+                onClick={props.onSkipReport}
+              >
+                건너뛰기
+              </button>
+              <button
+                className="rehearsal-completion-footer-primary"
+                type="button"
+                onClick={props.onCreateReport}
+              >
+                리포트 생성
+              </button>
+            </>
+          ) : (
+            <button
+              className="rehearsal-completion-footer-primary"
+              type="button"
+              onClick={props.onPrimaryAction}
+            >
+              {props.isReportPending
+                ? "리포트 기다리기"
+                : props.hasReportTarget
+                  ? "리포트 보기"
+                  : "확인"}
+            </button>
+          )}
         </footer>
       </section>
     </main>

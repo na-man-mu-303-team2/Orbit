@@ -41,6 +41,7 @@ export type RehearsalPanelProps = {
   keywords: readonly RehearsalPanelKeyword[];
   highlightedKeywordOccurrences?: readonly KeywordHighlightOccurrence[];
   liveSlot?: ReactNode;
+  contextSlot?: ReactNode;
   showAdvicePanel?: boolean;
   showScriptPanel?: boolean;
   speakerNotes?: string;
@@ -122,6 +123,10 @@ export function RehearsalPanel(props: RehearsalPanelProps) {
           tone={props.timing.currentSlideOvertime ? "warning" : "normal"}
         />
       </div>
+
+      {props.contextSlot ? (
+        <div className="rehearsal-panel-context-slot">{props.contextSlot}</div>
+      ) : null}
 
       <div className="rehearsal-panel-top-grid">
         <section className="rehearsal-panel-section" aria-label="키워드 체크리스트">
