@@ -1113,8 +1113,25 @@ def test_generate_deck_design_pack_applies_v2_timing_media_reference_contract() 
     deck = response.deck
     slides = deck["slides"]
     assert len(slides) == 7
+    assert response.template_selection == []
     assert deck["theme"]["fontFamily"] == "Gmarket Sans"
     assert deck["theme"]["typography"]["bodySize"] <= 20
+    assert response.validation.design_issues == []
+    assert response.validation.passed is True
+
+    element_ids = {
+        element["elementId"]
+        for slide in slides
+        for element in slide["elements"]
+    }
+    assert "el_2_overview_rail_panel" in element_ids
+    assert "el_3_comparison_matrix_cell_1" in element_ids
+    assert "el_4_process_vertical_axis" in element_ids
+    assert (
+        "el_5_insight_evidence_key_panel" in element_ids
+        or "el_5_insight_callout_block" in element_ids
+    )
+    assert len(set(design_pack_recipe_sequence(deck))) >= 5
 
     timing_plan = slides[0]["aiNotes"]["timingPlan"]
     assert timing_plan["charsPerMinute"] == 260
@@ -1144,6 +1161,102 @@ def test_generate_deck_design_pack_applies_v2_timing_media_reference_contract() 
     assert not any("발표 시간 기준" in message for message in validation_messages)
     assert not any("visual slot" in message for message in validation_messages)
     assert not any("sourceLedger" in message for message in validation_messages)
+
+
+def test_generate_deck_design_pack_repairs_seven_minute_gowun_reference_deck() -> None:
+    fake_client = FakeOpenAIClient(
+        {
+            "title": "1차 MVP 회고",
+            "slides": [
+                slide_payload(
+                    f"1차 MVP 회고 {index}",
+                    "핵심 학습\n사용자 피드백\n다음 행동\n합의 기준",
+                    "이번 슬라이드는 7분 발표 흐름에 맞춰 충분한 설명을 제공합니다.",
+                    slide_type="cover" if index == 1 else "summary" if index == 7 else "feature-grid",
+                    slot_preset="title_center" if index == 1 else "insight_with_evidence",
+                    keywords=["학습", "피드백", "다음 행동", "합의 기준"],
+                )
+                for index in range(1, 8)
+            ],
+        }
+    )
+
+    response = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            generationMode="design-pack",
+            topic="1차 MVP 회고",
+            prompt="직급 관계 없이 자유롭게 토의하는 분위기",
+            designPrompt="검은 색 배경, 시인성 좋은 색들 위주로 사용하기",
+            targetDurationMinutes=7,
+            brief={
+                "presentationContext": "직급 관계 없이 자유롭게 토의하는 분위기",
+                "audienceText": "PM and engineers",
+                "presentationType": "discussion",
+                "successCriteria": "다음 행동 합의",
+                "durationMinutes": 7,
+                "referencePolicy": "references-first",
+            },
+            metadata={"tone": "friendly"},
+            referencePolicy="references-first",
+            referenceFileIds=["file_mvp"],
+            references=[{"fileId": "file_mvp"}],
+            referenceContext=[
+                {
+                    "fileId": "file_mvp",
+                    "title": "1차MVP.pptx",
+                    "content": "1차 MVP 결과, 사용자 피드백, 다음 행동 합의가 핵심입니다.",
+                }
+            ],
+            visualPlanPolicy={"mediaPolicy": "minimal"},
+            design={
+                "stylePackId": "brandlogy-modern",
+                "mediaPolicy": "minimal",
+                "fontOverride": {
+                    "fontId": "gowun-dodum",
+                    "name": "Gowun Dodum",
+                    "headingFontFamily": "Gowun Dodum",
+                    "bodyFontFamily": "Gowun Dodum",
+                    "fallbackFamily": "Arial",
+                    "weights": [400],
+                    "supportsKorean": True,
+                    "pptxEmbeddable": True,
+                    "moodTags": ["friendly", "rounded"],
+                    "license": "SIL Open Font License",
+                    "sourceUrl": "https://github.com/yangheeryu/Gowun-Dodum",
+                    "recommendedTitleSize": 40,
+                    "recommendedBodySize": 20,
+                    "lineHeight": 1.18,
+                    "widthFactor": 1.1,
+                    "overflowRisk": "medium",
+                },
+            },
+            slideCountRange={"min": 7, "max": 7},
+        ),
+        client=fake_client,
+    )
+
+    deck = response.deck
+    assert len(deck["slides"]) == 7
+    assert response.template_selection == []
+    assert response.validation.passed is True
+    assert response.validation.design_issues == []
+    assert not any("Design Pack validation retained" in warning for warning in response.warnings)
+    assert deck["theme"]["fontFamily"] == "Gowun Dodum"
+    assert sum(len(slide["speakerNotes"].replace(" ", "")) for slide in deck["slides"]) >= round(
+        deck["slides"][0]["aiNotes"]["timingPlan"]["targetTotalChars"] * 0.8
+    )
+    for slide in deck["slides"]:
+        assert not any(
+            element["type"] == "text" and is_text_overflowing(element)
+            for element in slide["elements"]
+        )
+        assert not any(
+            element["elementId"].endswith("_media_placeholder")
+            for element in slide["elements"]
+        )
+        assert slide["aiNotes"]["visualPlan"]["imageNeeded"] is False
+        assert slide["aiNotes"]["sourceLedger"][0]["sourceType"] == "uploaded"
 
 
 def test_generate_deck_design_pack_enforces_background_constraints() -> None:
@@ -4331,10 +4444,14 @@ def design_pack_recipe_name(slide: dict[str, Any]) -> str:
     recipe_markers = [
         (f"el_{order}_cover_trust_signal_panel", "cover_trust_signal"),
         (f"el_{order}_overview_card_1", "overview_cards"),
+        (f"el_{order}_overview_rail_panel", "overview_cards"),
         (f"el_{order}_process_step_card_1", "process_steps"),
+        (f"el_{order}_process_vertical_axis", "process_steps"),
         (f"el_{order}_comparison_split_left_panel", "comparison_split"),
+        (f"el_{order}_comparison_matrix_cell_1", "comparison_split"),
         (f"el_{order}_closing_summary_accent_block", "closing_summary"),
         (f"el_{order}_insight_evidence_key_panel", "insight_evidence"),
+        (f"el_{order}_insight_callout_block", "insight_evidence"),
     ]
     for element_id, recipe in recipe_markers:
         if has_element(slide, element_id):
