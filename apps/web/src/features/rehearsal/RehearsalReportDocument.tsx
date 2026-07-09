@@ -57,6 +57,7 @@ function formatDate(iso: string) {
 }
 
 type UtteranceOutcome = RehearsalReport["utteranceOutcomes"][number];
+type SemanticCueDecision = RehearsalReport["semanticCueDecisions"][number];
 
 const UTTERANCE_OUTCOME_LABELS: Record<
   UtteranceOutcome["kind"],
@@ -99,6 +100,23 @@ function buildUtteranceOutcomeSections(
         }))
     })
   );
+}
+
+function buildSemanticCueEvidenceItems(
+  decisions: readonly SemanticCueDecision[] = [],
+  deck: Deck | null
+) {
+  const slideLabelById = buildReportSlideLabelMap(deck);
+
+  return decisions.slice(0, 20).map((decision, index) => ({
+    key: `${decision.slideId}-${decision.cueId}-${index}`,
+    cueId: decision.cueId,
+    label: decision.label,
+    provider: decision.provider,
+    score: `${Math.round(decision.finalScore * 100)}%`,
+    slideLabel: slideLabelById.get(decision.slideId) ?? decision.slideId,
+    reasonCodes: decision.reasonCodes.slice(0, 4)
+  }));
 }
 
 function buildReportSentenceTextMap(deck: Deck | null) {
@@ -382,6 +400,10 @@ export function RehearsalReportDocument({
     report.utteranceOutcomes ?? [],
     deck
   );
+  const semanticCueEvidenceItems = buildSemanticCueEvidenceItems(
+    report.semanticCueDecisions ?? [],
+    deck
+  );
 
   const durationDelta = prevReport
     ? report.metrics.durationSeconds - prevReport.metrics.durationSeconds
@@ -515,6 +537,28 @@ export function RehearsalReportDocument({
               </section>
             ))}
           </div>
+        </section>
+      ) : null}
+
+      {semanticCueEvidenceItems.length > 0 ? (
+        <section className="rrd-card rrd-semantic-cue-evidence">
+          <header className="rrd-card-head">
+            <Target size={16} className="rrd-card-icon" />
+            <h2>Semantic cue evidence</h2>
+          </header>
+          <ul className="rrd-utterance-list">
+            {semanticCueEvidenceItems.map((item) => (
+              <li key={item.key}>
+                <span>{item.slideLabel}</span>
+                <p>
+                  {item.cueId} · {item.label} · {item.provider}
+                </p>
+                <em>
+                  {item.score} · {item.reasonCodes.join(", ")}
+                </em>
+              </li>
+            ))}
+          </ul>
         </section>
       ) : null}
 

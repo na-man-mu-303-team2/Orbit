@@ -4,7 +4,7 @@ import type { IncomingHttpHeaders } from "node:http";
 import type { Params } from "nestjs-pino";
 import type { Options as PinoHttpOptions } from "pino-http";
 
-const redactedPaths = [
+export const redactedPaths = [
   "req.headers.authorization",
   "req.headers.cookie",
   "res.headers.set-cookie",

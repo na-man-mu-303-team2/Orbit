@@ -3415,6 +3415,34 @@ button:disabled {
   font-size: 0.78rem;
 }
 
+.semantic-cue-debug-panel {
+  right: min(392px, calc(100vw - 376px));
+}
+
+.semantic-cue-debug-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.semantic-cue-debug-actions button {
+  background: rgba(96, 165, 250, 0.16);
+  border: 1px solid rgba(147, 197, 253, 0.34);
+  border-radius: 6px;
+  color: #bfdbfe;
+  cursor: pointer;
+  font-size: 0.74rem;
+  font-weight: 800;
+  min-height: 30px;
+  padding: 0 10px;
+}
+
+@media (max-width: 760px) {
+  .semantic-cue-debug-panel {
+    bottom: 16px;
+    right: 16px;
+  }
+}
+
 .semantic-speech-debug-error {
   color: #fecaca;
   font-weight: 800;
