@@ -35,6 +35,12 @@ export type CreateSpeechTrackerInput = {
 
 export type SpeechTracker = {
   acceptResult: (result: LiveSttResult) => SpeechTrackingEvent[];
+  acceptSemanticSentenceMatch: (input: {
+    sentenceId: string;
+    transcript: string;
+    similarity: number;
+    atMs: number;
+  }) => SpeechTrackingEvent[];
   exitSlide: (atMs: number) => SpeechTrackingEvent[];
   resetForSlideVisit: () => void;
   snapshot: () => SpeechTrackerSnapshot;
@@ -79,23 +85,7 @@ export function createSpeechTracker(input: CreateSpeechTrackerInput): SpeechTrac
       }
 
       if (isSentenceMatched(sentence, finalWindow, config, result.isFinal)) {
-        visit.coveredSentenceIds.add(sentence.sentenceId);
-        events.push({
-          type: "sentence-covered",
-          slideId: input.slideId,
-          sentenceId: sentence.sentenceId,
-          atMs
-        });
-
-        if (sentence.isFinalTrigger && !visit.finalSentenceSpoken) {
-          visit.finalSentenceSpoken = true;
-          events.push({
-            type: "last-sentence-spoken",
-            slideId: input.slideId,
-            sentenceId: sentence.sentenceId,
-            atMs
-          });
-        }
+        events.push(...coverSentence(sentence, atMs));
       }
     }
 
@@ -142,6 +132,25 @@ export function createSpeechTracker(input: CreateSpeechTrackerInput): SpeechTrac
     return events;
   }
 
+  function acceptSemanticSentenceMatch(options: {
+    sentenceId: string;
+    transcript: string;
+    similarity: number;
+    atMs: number;
+  }): SpeechTrackingEvent[] {
+    const sentence = sentences.find(
+      (candidate) =>
+        candidate.sentenceId === options.sentenceId && candidate.matchable
+    );
+    if (!sentence || visit.coveredSentenceIds.has(sentence.sentenceId)) {
+      return [];
+    }
+
+    const events = coverSentence(sentence, options.atMs);
+    events.push(createCoverageUpdatedEvent(options.atMs));
+    return events;
+  }
+
   function exitSlide(atMs: number): SpeechTrackingEvent[] {
     const missingKeywordIds = input.keywords
       .map((keyword) => keyword.keywordId)
@@ -178,10 +187,60 @@ export function createSpeechTracker(input: CreateSpeechTrackerInput): SpeechTrac
 
   return {
     acceptResult,
+    acceptSemanticSentenceMatch,
     exitSlide,
     resetForSlideVisit,
     snapshot
   };
+
+  function coverSentence(
+    sentence: ExtractedSentence,
+    atMs: number
+  ): SpeechTrackingEvent[] {
+    const events: SpeechTrackingEvent[] = [];
+    visit.coveredSentenceIds.add(sentence.sentenceId);
+    events.push({
+      type: "sentence-covered",
+      slideId: input.slideId,
+      sentenceId: sentence.sentenceId,
+      atMs
+    });
+
+    if (sentence.isFinalTrigger && !visit.finalSentenceSpoken) {
+      visit.finalSentenceSpoken = true;
+      events.push({
+        type: "last-sentence-spoken",
+        slideId: input.slideId,
+        sentenceId: sentence.sentenceId,
+        atMs
+      });
+    }
+
+    return events;
+  }
+
+  function createCoverageUpdatedEvent(atMs: number): SpeechTrackingEvent {
+    const coverage = computeCoverage({
+      coveredSentenceCount: visit.coveredSentenceIds.size,
+      matchableSentenceCount: matchableSentenceIds.length,
+      transcript: visit.finalTranscript,
+      speakerNotes: input.speakerNotes,
+      threshold,
+      config
+    });
+    visit.sentenceCoverage = coverage.sentenceCoverage;
+    visit.wordCoverage = coverage.wordCoverage;
+    visit.effectiveCoverage = coverage.effectiveCoverage;
+
+    return {
+      type: "coverage-updated",
+      slideId: input.slideId,
+      sentenceCoverage: coverage.sentenceCoverage,
+      wordCoverage: coverage.wordCoverage,
+      effectiveCoverage: coverage.effectiveCoverage,
+      atMs
+    };
+  }
 }
 
 function createVisitState() {
