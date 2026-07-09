@@ -758,6 +758,11 @@ function navigateToRehearsal(projectId: string) {
   window.dispatchEvent(new PopStateEvent("popstate"));
 }
 
+function navigateToPresentation(projectId: string) {
+  window.history.pushState({}, "", `/presentation/${encodeURIComponent(projectId)}`);
+  window.dispatchEvent(new PopStateEvent("popstate"));
+}
+
 function navigateToHome() {
   window.history.pushState({}, "", "/");
   window.dispatchEvent(new PopStateEvent("popstate"));
@@ -1305,7 +1310,9 @@ export function EditorShell(props: { projectId?: string }) {
     qualityReport: null,
     message: ""
   });
-  const [isRehearsalPreparing, setIsRehearsalPreparing] = useState(false);
+  const [activePresentationAction, setActivePresentationAction] = useState<
+    "presentation" | "rehearsal" | null
+  >(null);
   const [undoStack, setUndoStack] = useState<HistoryEntry[]>([]);
   const [redoStack, setRedoStack] = useState<HistoryEntry[]>([]);
   const topbarRef = useRef<HTMLElement | null>(null);
@@ -1527,11 +1534,11 @@ export function EditorShell(props: { projectId?: string }) {
   const isUsingFallbackDeck = !deckQuery.data;
   const isDeckLoading = deckQuery.isPending;
   const isDeckError = deckQuery.isError;
-  const canStartRehearsal =
+  const canStartPresentation =
     Boolean(deckQuery.data?.projectId) &&
     !isDeckLoading &&
     !isDeckError &&
-    !isRehearsalPreparing;
+    !activePresentationAction;
   const hasSlides = deck.slides.length > 0;
   const currentSlide = deck.slides[currentSlideIndex] ?? deck.slides[0] ?? null;
   const saveStatusLabel = getEditorStatusLabel({
@@ -2176,16 +2183,23 @@ export function EditorShell(props: { projectId?: string }) {
     }
   }
 
-  async function handleStartRehearsal() {
+  async function handleStartPresentationAction(
+    destination: "presentation" | "rehearsal"
+  ) {
     const activeProjectId = deckQuery.data?.projectId ?? projectId;
 
     if (isDeckLoading || !deckQuery.data) {
       setSaveState("auto-pending");
-      setSaveError("rehearsal-blocked", "발표 자료를 불러온 뒤 리허설을 시작할 수 있습니다.");
+      setSaveError(
+        "rehearsal-blocked",
+        destination === "presentation"
+          ? "발표 자료를 불러온 뒤 발표를 시작할 수 있습니다."
+          : "발표 자료를 불러온 뒤 리허설을 시작할 수 있습니다."
+      );
       return;
     }
 
-    if (isRehearsalPreparing) {
+    if (activePresentationAction) {
       return;
     }
 
@@ -2199,7 +2213,7 @@ export function EditorShell(props: { projectId?: string }) {
       return;
     }
 
-    setIsRehearsalPreparing(true);
+    setActivePresentationAction(destination);
     setSaveState("manual-saving");
     setSaveError(null, null);
     setActiveTopMenu(null);
@@ -2233,7 +2247,11 @@ export function EditorShell(props: { projectId?: string }) {
           currentDeck: workingDeckRef.current
         })
       ) {
-        throw new Error("리허설 준비 중 편집 내용이 변경되었습니다. 다시 시작해 주세요.");
+        throw new Error(
+          destination === "presentation"
+            ? "발표 준비 중 편집 내용이 변경되었습니다. 다시 시작해 주세요."
+            : "리허설 준비 중 편집 내용이 변경되었습니다. 다시 시작해 주세요."
+        );
       }
 
       const thumbnailPatch = buildSlideThumbnailPatch(persistedDeck, renderResult.deck);
@@ -2243,19 +2261,37 @@ export function EditorShell(props: { projectId?: string }) {
 
       applyPersistedDeck(finalDeck);
       setLastSavedAt(new Date().toISOString());
-      setLastPatchLabel(`리허설 준비 완료 · v${finalDeck.version}`);
+      setLastPatchLabel(
+        `${
+          destination === "presentation" ? "발표 화면 준비 완료" : "리허설 준비 완료"
+        } · v${finalDeck.version}`
+      );
       setSaveState("manual-saved");
       setSaveError(null, null);
-      navigateToRehearsal(activeProjectId);
+      if (destination === "presentation") {
+        navigateToPresentation(activeProjectId);
+      } else {
+        navigateToRehearsal(activeProjectId);
+      }
     } catch (error) {
       const message = toEditorErrorMessage(error);
 
-      setLastPatchLabel(`리허설 준비 실패 · ${message}`);
+      setLastPatchLabel(
+        `${destination === "presentation" ? "발표 준비 실패" : "리허설 준비 실패"} · ${message}`
+      );
       setSaveState("error");
       setSaveError("rehearsal-save-failed", message);
     } finally {
-      setIsRehearsalPreparing(false);
+      setActivePresentationAction(null);
     }
+  }
+
+  async function handleStartPresentation() {
+    await handleStartPresentationAction("presentation");
+  }
+
+  async function handleStartRehearsal() {
+    await handleStartPresentationAction("rehearsal");
   }
 
   async function flushPendingSavesBeforeManualAction() {
@@ -4852,13 +4888,14 @@ export function EditorShell(props: { projectId?: string }) {
             </span>
           ) : null}
           <PresentationMenu
-            canStartRehearsal={canStartRehearsal}
+            activeStartAction={activePresentationAction}
+            canStartPresentation={canStartPresentation}
             isOpen={activeTopMenu === "presentation"}
-            isRehearsalPreparing={isRehearsalPreparing}
             onOpenAudienceLink={() => {
               setIsAudienceLinkModalOpen(true);
               setActiveTopMenu(null);
             }}
+            onStartPresentation={() => void handleStartPresentation()}
             onStartRehearsal={() => void handleStartRehearsal()}
             onToggle={() =>
               setActiveTopMenu((current) =>

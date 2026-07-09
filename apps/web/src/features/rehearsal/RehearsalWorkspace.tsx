@@ -32,8 +32,6 @@ import {
   AlertCircle,
   AlertTriangle,
   CheckCircle2,
-  ChevronLeft,
-  ChevronRight,
   Download,
   Gauge,
   Mic,
@@ -41,7 +39,6 @@ import {
   MoreHorizontal,
   PlayCircle,
   Presentation,
-  RotateCcw,
   Square,
   Zap,
 } from "lucide-react";
@@ -199,6 +196,12 @@ import {
   matchKeywordOccurrenceTriggers,
   type KeywordOccurrenceRuntimeMatch,
 } from "./speech/keywordOccurrenceRuntime";
+import {
+  PresenterStageSection,
+  PresenterTimerCard,
+  PresenterTopbar,
+  type PresenterInfoCardItem,
+} from "../presenter-shell/PresenterScaffold";
 import type {
   ExtractedSentence,
   SpeechTrackerSnapshot,
@@ -3464,6 +3467,24 @@ export function RehearsalWorkspace(props: {
         : isTimerRunning
           ? "리허설 진행 중"
           : "준비됨";
+  const rehearsalInfoCards: PresenterInfoCardItem[] = [
+    {
+      detail: currentSlide ? getSlideTitle(currentSlide) : "-",
+      label: "현재 슬라이드",
+      value: `슬라이드 ${currentSlideIndex + 1} / ${deck?.slides.length ?? 0}`,
+    },
+    {
+      detail: `${getRehearsalPaceSummaryLabel(p3AdviceState.pace)} / ${
+        p3AdviceState.slideOvertime ? "슬라이드 시간 초과" : "슬라이드 정상"
+      }`,
+      label: "조언",
+      value: `${p3WordsPerMinute} WPM`,
+      variantClassName: "rehearsal-side-advice-card",
+    },
+  ];
+  const nextSlideHint = nextSlide?.keywords?.[0]
+    ? `"${nextSlide.keywords[0].text}"를 말하면 바로 이어집니다`
+    : "마지막 문장을 정리하고 마무리하세요";
   const shouldShowRehearsalPreflight =
     Boolean(deck) &&
     phase === "idle" &&
@@ -3832,126 +3853,78 @@ export function RehearsalWorkspace(props: {
           </section>
         </div>
       ) : null}
-      <header className="rehearsal-presenter-topbar">
-        <button
-          className={`rehearsal-exit-button ${
-            advanceControllerState.status === "finish-suggested"
-              ? "auto-advance-finish-highlight"
-              : ""
-          }`}
-          type="button"
-          onClick={finishRehearsal}
-        >
-          <Presentation size={16} />
-          {"\ub9ac\ud5c8\uc124 \ub9c8\uce58\uae30"}
-        </button>
-        <h1 className="rehearsal-smoke-heading">리허설</h1>
-        <span className="rehearsal-session-status">
-          <span aria-hidden="true" />
-          리허설 · 자동 따라가기
-        </span>
-
-        {deck ? (
-          <div className="rehearsal-display-toolbar">
-            <DisplayControls
-              channelStatus={presentationChannel.status}
-              onOpenSlideDisplay={openSlideDisplay}
-              onRequestDisplayScreens={requestDisplayScreens}
-              onRequestSlideWindowFullscreen={requestSlideWindowFullscreen}
-            />
-            <button
-              className="presenter-single-screen-button"
-              type="button"
-              onClick={() => setIsSingleScreenOpen(true)}
-            >
-              <Monitor size={16} />
-              단일 화면
-            </button>
-          </div>
-        ) : null}
-
-        <span
-          className={`rehearsal-recording-status ${
-            isRehearsalRuntimeActive ? "rehearsal-recording-status-active" : ""
-          }`}
-        >
-          <span aria-hidden="true" />
-          {rehearsalRuntimeStatusLabel}
-        </span>
-
-        <div className="rehearsal-timer-pill" aria-live="polite">
-          <span className="timer-wave" aria-hidden="true">
-            <i />
-            <i />
-            <i />
-            <i />
-          </span>
-          <label className="rehearsal-time-mode">
-            <select
-              aria-label="Time display mode"
-              value={timeMode}
-              onChange={(event) => {
-                setTimeMode(event.target.value as RehearsalTimeMode);
-                resetRehearsalTimerState({
-                  setElapsedSeconds,
-                  setSlideElapsedSeconds,
-                  setIsTimerRunning,
-                });
-              }}
-            >
-              <option value="stopwatch">{"\uc2a4\ud1b1\uc6cc\uce58"}</option>
-              <option value="timer">{"\ud0c0\uc774\uba38"}</option>
-            </select>
-            <span className="rehearsal-select-caret" aria-hidden="true" />
-          </label>
-          <div className="rehearsal-time-fields">
-            <input
-              aria-label="Elapsed time"
-              inputMode="numeric"
-              value={elapsedTimeInput}
-              onBlur={(event) => commitElapsedTimeInput(event.target.value)}
-              onChange={(event) => {
-                setEditingTimeField("elapsed");
-                setElapsedTimeInput(event.target.value);
-              }}
-              onFocus={() => setEditingTimeField("elapsed")}
-            />
-            <span aria-hidden="true">/</span>
-            <input
-              aria-label="Target time"
-              inputMode="numeric"
-              value={timerDurationInput}
-              onBlur={(event) => commitTimerDurationInput(event.target.value)}
-              onChange={(event) => {
-                setEditingTimeField("duration");
-                setTimerDurationInput(event.target.value);
-              }}
-              onFocus={() => setEditingTimeField("duration")}
-            />
-          </div>
-          <button
-            type="button"
-            aria-label={isTimerRunning ? "Pause time" : "Start time"}
-            onClick={() => void handleTimePrimaryAction()}
-            disabled={!isTimerRunning && !canRecord}
-          >
-            {isTimerRunning ? <Square size={16} /> : <PlayCircle size={16} />}
-          </button>
-          <button
-            type="button"
-            aria-label="Reset timer"
-            onClick={() => {
-              resetRehearsalTimerState({
-                setElapsedSeconds,
-                setSlideElapsedSeconds,
-                setIsTimerRunning,
-              });
-            }}
-          >
-            <RotateCcw size={15} />
-          </button>
-        </div>
-      </header>
+      <PresenterTopbar
+        exitButtonClassName={`rehearsal-exit-button ${
+          advanceControllerState.status === "finish-suggested"
+            ? "auto-advance-finish-highlight"
+            : ""
+        }`}
+        exitButtonContent={
+          <>
+            <Presentation size={16} />
+            {"\ub9ac\ud5c8\uc124 \ub9c8\uce58\uae30"}
+          </>
+        }
+        onDurationInputBlur={commitTimerDurationInput}
+        onDurationInputChange={(value) => {
+          setEditingTimeField("duration");
+          setTimerDurationInput(value);
+        }}
+        onDurationInputFocus={() => setEditingTimeField("duration")}
+        onElapsedInputBlur={commitElapsedTimeInput}
+        onElapsedInputChange={(value) => {
+          setEditingTimeField("elapsed");
+          setElapsedTimeInput(value);
+        }}
+        onElapsedInputFocus={() => setEditingTimeField("elapsed")}
+        onExit={finishRehearsal}
+        onPrimaryAction={() => void handleTimePrimaryAction()}
+        onReset={() => {
+          resetRehearsalTimerState({
+            setElapsedSeconds,
+            setSlideElapsedSeconds,
+            setIsTimerRunning,
+          });
+        }}
+        onTimeModeChange={(value) => {
+          setTimeMode(value as RehearsalTimeMode);
+          resetRehearsalTimerState({
+            setElapsedSeconds,
+            setSlideElapsedSeconds,
+            setIsTimerRunning,
+          });
+        }}
+        primaryActionAriaLabel={isTimerRunning ? "Pause time" : "Start time"}
+        primaryActionDisabled={!isTimerRunning && !canRecord}
+        primaryActionRunning={isTimerRunning}
+        statusActive={isRehearsalRuntimeActive}
+        statusLabel={rehearsalRuntimeStatusLabel}
+        subtitle="리허설 · 자동 따라가기"
+        timeMode={timeMode}
+        timerDurationInput={timerDurationInput}
+        title="리허설"
+        toolbar={
+          deck ? (
+            <div className="rehearsal-display-toolbar">
+              <DisplayControls
+                channelStatus={presentationChannel.status}
+                onOpenSlideDisplay={openSlideDisplay}
+                onRequestDisplayScreens={requestDisplayScreens}
+                onRequestSlideWindowFullscreen={requestSlideWindowFullscreen}
+              />
+              <button
+                className="presenter-single-screen-button"
+                type="button"
+                onClick={() => setIsSingleScreenOpen(true)}
+              >
+                <Monitor size={16} />
+                단일 화면
+              </button>
+            </div>
+          ) : null
+        }
+        totalElapsedInput={elapsedTimeInput}
+      />
       <div
         className="rehearsal-smoke-controls"
         aria-label="리허설 smoke controls"
@@ -3974,203 +3947,95 @@ export function RehearsalWorkspace(props: {
       </div>
 
       <section className="rehearsal-presenter-layout">
-        <section className="rehearsal-presenter-main">
-          <div className="rehearsal-stage-wrap" ref={presenterStageRef}>
-            {deck && currentSlide ? (
-              <>
-                <span className="rehearsal-stage-label">현재</span>
-                <SlideshowRenderer
-                  deck={deck}
-                  scale={presenterScale}
-                  slideId={currentSlide.slideId}
-                  stepIndex={presenterStepIndex}
-                  triggerAnimationIds={triggerAnimationIds}
-                />
-                <span className="rehearsal-stage-index">
-                  {String(currentSlideIndex + 1).padStart(2, "0")} /{" "}
-                  {String(deck.slides.length).padStart(2, "0")}
-                </span>
-              </>
-            ) : (
-              <div className="rehearsal-empty-stage">
-                {"\ubc1c\ud45c\uc790\ub8cc \ub85c\ub529 \uc911"}
-              </div>
-            )}
-          </div>
-
-          <div className="rehearsal-slide-controls">
-            <button
-              type="button"
-              onClick={goPrevious}
-              disabled={currentSlideIndex === 0}
-              aria-label="이전 슬라이드"
-              title="이전 슬라이드"
-            >
-              <ChevronLeft size={24} />
-            </button>
-            <span>
-              {currentSlideIndex + 1} / {deck?.slides.length ?? 0}
-            </span>
-            <button
-              type="button"
-              onClick={goNext}
-              disabled={!deck || currentSlideIndex >= deck.slides.length - 1}
-              aria-label="다음 슬라이드"
-              title="다음 슬라이드"
-            >
-              <ChevronRight size={24} />
-            </button>
-          </div>
-
-          <section className="rehearsal-next-slide-preview" aria-label="다음 슬라이드">
-            <div className="rehearsal-next-slide-frame">
-              {deck && nextSlide ? (
-                <SlideshowRenderer
-                  deck={deck}
-                  playInitialEntryAnimations={false}
-                  renderMode="presenter"
-                  scale={miniSlideScale}
-                  slideId={nextSlide.slideId}
-                  stepIndex={0}
-                />
-              ) : (
-                <span>마지막 슬라이드</span>
-              )}
-            </div>
-            <div>
-              <span>다음 슬라이드</span>
-              <strong>{nextSlide ? getSlideTitle(nextSlide) : "다음 슬라이드 없음"}</strong>
-              {nextSlide?.keywords?.[0] ? (
-                <p>"{nextSlide.keywords[0].text}"를 말하면 바로 이어집니다</p>
-              ) : (
-                <p>마지막 문장을 정리하고 마무리하세요</p>
-              )}
-            </div>
-          </section>
-        </section>
+        <PresenterStageSection
+          currentIndex={currentSlideIndex}
+          emptyStageLabel={"\ubc1c\ud45c\uc790\ub8cc \ub85c\ub529 \uc911"}
+          nextHint={nextSlideHint}
+          nextSlideContent={
+            deck && nextSlide ? (
+              <SlideshowRenderer
+                deck={deck}
+                playInitialEntryAnimations={false}
+                renderMode="presenter"
+                scale={miniSlideScale}
+                slideId={nextSlide.slideId}
+                stepIndex={0}
+              />
+            ) : undefined
+          }
+          nextSlideTitle={nextSlide ? getSlideTitle(nextSlide) : "다음 슬라이드 없음"}
+          onNext={goNext}
+          onPrevious={goPrevious}
+          previousDisabled={currentSlideIndex === 0}
+          renderStage={
+            deck && currentSlide ? (
+              <SlideshowRenderer
+                deck={deck}
+                scale={presenterScale}
+                slideId={currentSlide.slideId}
+                stepIndex={presenterStepIndex}
+                triggerAnimationIds={triggerAnimationIds}
+              />
+            ) : null
+          }
+          stageIndexLabel={
+            deck
+              ? `${String(currentSlideIndex + 1).padStart(2, "0")} / ${String(
+                  deck.slides.length,
+                ).padStart(2, "0")}`
+              : undefined
+          }
+          stageRef={presenterStageRef}
+          totalSlides={deck?.slides.length ?? 0}
+        />
 
         <aside className="rehearsal-presenter-side">
-          <section
-            className="rehearsal-side-timer-card"
-            aria-label="리허설 타이머"
-          >
-            <div className="rehearsal-side-timer-hero">
-              <div className="rehearsal-side-timer-header">
-                <div>
-                  <span className="rehearsal-side-timer-title">
-                    {"\ubc1c\ud45c \uc2dc\uac04"}
-                  </span>
-                  <input
-                    className="rehearsal-side-timer-time"
-                    aria-label="발표 시간 설정"
-                    inputMode="numeric"
-                    value={
-                      editingTimeField === "duration"
-                        ? timerDurationInput
-                        : formatClock(displayedTimeSeconds)
-                    }
-                    onBlur={(event) => {
-                      setTimeMode("timer");
-                      commitTimerDurationInput(event.target.value);
-                    }}
-                    onChange={(event) => {
-                      setEditingTimeField("duration");
-                      setTimerDurationInput(event.target.value);
-                    }}
-                    onFocus={() => {
-                      setEditingTimeField("duration");
-                      setTimerDurationInput(formatClock(timerDurationSeconds));
-                    }}
-                  />
-                </div>
-                <div className="rehearsal-side-timer-actions">
-                  <button
-                    type="button"
-                    aria-label={
-                      phase === "recording"
-                        ? "리포트 녹음 종료"
-                        : canStopLiveDemo
-                        ? "Live STT 종료"
-                        : isTimerRunning
-                          ? "타이머 일시정지"
-                          : "리포트 녹음 시작"
-                    }
-                    onClick={handleSideTimerPrimaryAction}
-                    disabled={!deck && !isTimerRunning}
-                  >
-                    {canStopLiveDemo || isTimerRunning ? (
-                      <Square size={15} />
-                    ) : (
-                      <PlayCircle size={15} />
-                    )}
-                  </button>
-                  <button
-                    type="button"
-                    aria-label="타이머 초기화"
-                    onClick={() => {
-                      resetRehearsalTimerState({
-                        setElapsedSeconds,
-                        setSlideElapsedSeconds,
-                        setIsTimerRunning,
-                      });
-                    }}
-                  >
-                    <RotateCcw size={15} />
-                  </button>
-                </div>
-              </div>
-
-              <div className="rehearsal-side-audio-gauge" aria-hidden="true">
-                <span className="rehearsal-side-timer-wave" aria-hidden="true">
-                  <i />
-                  <i />
-                  <i />
-                  <i />
-                </span>
-                <span className="rehearsal-side-audio-track">
-                  <span style={{ width: `${liveAudioLevelPercent}%` }} />
-                </span>
-              </div>
-
-              <div className="rehearsal-side-timer-progress" aria-hidden="true">
-                <span style={{ width: `${rehearsalProgressPercent}%` }} />
-              </div>
-
-              <div className="rehearsal-side-timer-meta">
-                <span>
-                  {"\ud604\uc7ac "}
-                  {formatClock(p3TimingSnapshot.currentSlideElapsedSeconds)}
-                </span>
-                <span>
-                  {"\uc608\uc0c1 "}
-                  {formatClock(p3TimingSnapshot.currentSlideTargetSeconds)}
-                </span>
-              </div>
-            </div>
-
-            <div className="rehearsal-side-detail-grid">
-              <article className="rehearsal-side-detail-card">
-                <span>{"\ud604\uc7ac \uc2ac\ub77c\uc774\ub4dc"}</span>
-                <strong>
-                  {"\uc2ac\ub77c\uc774\ub4dc "}
-                  {currentSlideIndex + 1} / {deck?.slides.length ?? 0}
-                </strong>
-                <small>
-                  {currentSlide ? getSlideTitle(currentSlide) : "-"}
-                </small>
-              </article>
-              <article className="rehearsal-side-detail-card rehearsal-side-advice-card">
-                <span>{"\uc870\uc5b8"}</span>
-                <strong>{p3WordsPerMinute} WPM</strong>
-                <small>
-                  {getRehearsalPaceSummaryLabel(p3AdviceState.pace)}
-                  {p3AdviceState.slideOvertime
-                    ? " / 슬라이드 시간 초과"
-                    : " / 슬라이드 정상"}
-                </small>
-              </article>
-            </div>
-          </section>
+          <PresenterTimerCard
+            ariaLabel="리허설 타이머"
+            currentTimeLabel="발표 시간 설정"
+            infoCards={rehearsalInfoCards}
+            meterPercent={liveAudioLevelPercent}
+            onPrimaryAction={handleSideTimerPrimaryAction}
+            onReset={() => {
+              resetRehearsalTimerState({
+                setElapsedSeconds,
+                setSlideElapsedSeconds,
+                setIsTimerRunning,
+              });
+            }}
+            onTimeInputBlur={(value) => {
+              setTimeMode("timer");
+              commitTimerDurationInput(value);
+            }}
+            onTimeInputChange={(value) => {
+              setEditingTimeField("duration");
+              setTimerDurationInput(value);
+            }}
+            onTimeInputFocus={() => {
+              setEditingTimeField("duration");
+              setTimerDurationInput(formatClock(timerDurationSeconds));
+            }}
+            primaryActionAriaLabel={
+              phase === "recording"
+                ? "리포트 녹음 종료"
+                : canStopLiveDemo
+                  ? "Live STT 종료"
+                  : isTimerRunning
+                    ? "타이머 일시정지"
+                    : "리포트 녹음 시작"
+            }
+            primaryActionDisabled={!deck && !isTimerRunning}
+            primaryActionRunning={canStopLiveDemo || isTimerRunning}
+            progressPercent={rehearsalProgressPercent}
+            timeInputValue={
+              editingTimeField === "duration"
+                ? timerDurationInput
+                : formatClock(displayedTimeSeconds)
+            }
+            timeMetaLeft={`현재 ${formatClock(p3TimingSnapshot.currentSlideElapsedSeconds)}`}
+            timeMetaRight={`예상 ${formatClock(p3TimingSnapshot.currentSlideTargetSeconds)}`}
+            title={"\ubc1c\ud45c \uc2dc\uac04"}
+          />
 
           <RehearsalPanel
             mode="rehearsal"
