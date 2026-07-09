@@ -5,6 +5,11 @@ import {
   createP3RehearsalSession,
   type P3RehearsalSessionSlide
 } from "./p3RehearsalSession";
+import type { SemanticUtteranceDebugState } from "./semanticSpeechDebug";
+import type {
+  SemanticUtteranceMatcher,
+  SemanticUtteranceMatch
+} from "./semanticUtteranceMatcher";
 import type { SpeechTrackingEvent } from "./speechTrackingEvents";
 
 describe("p3RehearsalSession", () => {
@@ -232,6 +237,112 @@ describe("p3RehearsalSession", () => {
       "slide-overtime"
     ]);
   });
+
+  it("start와 slide enter에서 semantic slide index를 준비한다", async () => {
+    const port = createMockLiveSttPort();
+    const semanticMatcher = createMockSemanticMatcher({ accepted: false });
+    const session = createP3RehearsalSession({
+      slides,
+      port,
+      semanticMatcher,
+      now: createNow([60_000, 61_000])
+    });
+
+    await session.start({
+      audioSource: {} as MediaStream,
+      slideIndex: 0
+    });
+    session.enterSlide(1);
+    await flushSemanticQueue();
+
+    expect(semanticMatcher.prepareSlide).toHaveBeenCalledWith({
+      slideId: "slide_1",
+      speakerNotes: slides[0].speakerNotes
+    });
+    expect(semanticMatcher.prepareSlide).toHaveBeenCalledWith({
+      slideId: "slide_2",
+      speakerNotes: slides[1].speakerNotes
+    });
+  });
+
+  it("partial STT는 semantic matcher에 넣지 않고 final STT top 3만 debug에 반영한다", async () => {
+    const port = createMockLiveSttPort();
+    const debugStates: SemanticUtteranceDebugState[] = [];
+    const semanticMatcher = createMockSemanticMatcher({
+      accepted: true,
+      topMatches: [semanticMatch({ rank: 1, sentenceId: "sentence_1" })]
+    });
+    const session = createP3RehearsalSession({
+      slides,
+      port,
+      semanticMatcher,
+      isSemanticMatchingEnabled: () => false,
+      now: () => 70_000,
+      onSemanticDebugState: (state) => debugStates.push(state)
+    });
+
+    await session.start({
+      audioSource: {} as MediaStream,
+      slideIndex: 0
+    });
+    port.emit({ text: "partial text", isFinal: false, timestampMs: [0, 500] });
+    port.emit({ text: "semantic final text", isFinal: true, timestampMs: [500, 1000] });
+    await flushSemanticQueue();
+
+    expect(semanticMatcher.matchFinalTranscript).toHaveBeenCalledTimes(1);
+    expect(semanticMatcher.matchFinalTranscript).toHaveBeenCalledWith({
+      slideId: "slide_1",
+      transcript: "semantic final text",
+      coveredSentenceIds: expect.any(Set)
+    });
+    expect(debugStates.at(-1)).toMatchObject({
+      status: "ready",
+      slideId: "slide_1",
+      transcript: "semantic final text",
+      isFinal: true,
+      topMatches: [expect.objectContaining({ rank: 1, sentenceId: "sentence_1" })],
+      error: null
+    });
+    expect(session.getState().snapshot).toMatchObject({
+      sentenceCoverage: 0,
+      finalSentenceSpoken: false
+    });
+  });
+
+  it("semantic toggle on일 때 accepted final transcript를 coverage에 반영한다", async () => {
+    const port = createMockLiveSttPort();
+    const events: SpeechTrackingEvent[] = [];
+    const semanticMatcher = createMockSemanticMatcher({
+      accepted: true,
+      topMatches: [semanticMatch({ rank: 1, sentenceId: "sentence_1" })]
+    });
+    const session = createP3RehearsalSession({
+      slides,
+      port,
+      semanticMatcher,
+      isSemanticMatchingEnabled: () => true,
+      now: () => 80_000,
+      onEvents: (nextEvents) => events.push(...nextEvents)
+    });
+
+    await session.start({
+      audioSource: {} as MediaStream,
+      slideIndex: 0
+    });
+    port.emit({ text: "semantic final text", isFinal: true, timestampMs: [500, 1000] });
+    await flushSemanticQueue();
+
+    expect(events).toContainEqual({
+      type: "sentence-covered",
+      slideId: "slide_1",
+      sentenceId: "sentence_1",
+      atMs: 1000
+    });
+    expect(session.getState().snapshot).toMatchObject({
+      sentenceCoverage: 0.5,
+      finalSentenceSpoken: false
+    });
+  });
 });
 
 const slides: P3RehearsalSessionSlide[] = [
@@ -310,4 +421,43 @@ function createMockLiveSttPort(overrides: Partial<LiveSttPort> = {}) {
 function createNow(values: number[]) {
   let index = 0;
   return () => values[Math.min(index++, values.length - 1)] ?? 0;
+}
+
+function createMockSemanticMatcher(options: {
+  accepted: boolean;
+  topMatches?: SemanticUtteranceMatch[];
+}): SemanticUtteranceMatcher {
+  return {
+    prepareSlide: vi.fn(async (input) => ({
+      slideId: input.slideId,
+      speakerNotesHash: input.speakerNotes,
+      modelId: "Xenova/multilingual-e5-small" as const,
+      dimensions: 384 as const,
+      sentences: [],
+      builtAtMs: 0
+    })),
+    matchFinalTranscript: vi.fn(async () => ({
+      accepted: options.accepted,
+      topMatches: options.topMatches ?? []
+    }))
+  };
+}
+
+function semanticMatch(
+  override: Partial<SemanticUtteranceMatch>
+): SemanticUtteranceMatch {
+  return {
+    rank: 1,
+    sentenceId: "sentence_1",
+    sentenceIndex: 0,
+    text: "Semantic sentence.",
+    similarity: 0.82,
+    covered: false,
+    ...override
+  };
+}
+
+async function flushSemanticQueue() {
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  await new Promise((resolve) => setTimeout(resolve, 0));
 }
