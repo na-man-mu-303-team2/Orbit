@@ -4,7 +4,9 @@ import type { ApplyDeckPatchError } from "@orbit/editor-core";
 import { loadOrbitConfig } from "@orbit/config";
 import {
   enqueuePptxOoxmlSyncJob,
+  enqueueSemanticCueExtractionJob,
   type EnqueuePptxOoxmlSyncJobInput,
+  type EnqueueSemanticCueExtractionJobInput,
 } from "@orbit/job-queue";
 import {
   appendDeckPatchRequestSchema,
@@ -19,6 +21,8 @@ import {
   putDeckRequestSchema,
   putDeckResponseSchema,
   restoreDeckSnapshotResponseSchema,
+  createSemanticCueExtractionJobResponseSchema,
+  semanticCueExtractionRequestSchema,
 } from "@orbit/shared";
 import type {
   AppendDeckPatchRequest,
@@ -35,6 +39,7 @@ import type {
   PutDeckRequest,
   PutDeckResponse,
   RestoreDeckSnapshotResponse,
+  CreateSemanticCueExtractionJobResponse,
 } from "@orbit/shared";
 import {
   HttpException,
@@ -95,6 +100,11 @@ export type PptxOoxmlSyncEnqueueJob = (
   input: EnqueuePptxOoxmlSyncJobInput,
 ) => Promise<void>;
 export const PPTX_OOXML_SYNC_ENQUEUE_JOB = "PPTX_OOXML_SYNC_ENQUEUE_JOB";
+export type SemanticCueExtractionEnqueueJob = (
+  input: EnqueueSemanticCueExtractionJobInput,
+) => Promise<void>;
+export const SEMANTIC_CUE_EXTRACTION_ENQUEUE_JOB =
+  "SEMANTIC_CUE_EXTRACTION_ENQUEUE_JOB";
 
 @Injectable()
 export class DecksService {
@@ -104,6 +114,10 @@ export class DecksService {
     @Optional()
     @Inject(PPTX_OOXML_SYNC_ENQUEUE_JOB)
     private readonly enqueueSyncJob: PptxOoxmlSyncEnqueueJob = enqueuePptxOoxmlSyncJob,
+    @Optional()
+    @Inject(SEMANTIC_CUE_EXTRACTION_ENQUEUE_JOB)
+    private readonly enqueueSemanticCueJob: SemanticCueExtractionEnqueueJob =
+      enqueueSemanticCueExtractionJob,
   ) {}
 
   async getDeck(projectId: string): Promise<GetDeckResponse> {
@@ -316,6 +330,68 @@ export class DecksService {
       ...response,
       ooxmlSyncJob,
     });
+  }
+
+  async createSemanticCueExtractionJob(
+    projectId: string,
+    body: unknown,
+  ): Promise<CreateSemanticCueExtractionJobResponse> {
+    const request = semanticCueExtractionRequestSchema.parse(body ?? {});
+    const deck = (await this.getDeck(projectId)).deck;
+    const resolvedRequest = {
+      ...request,
+      deckId: request.deckId ?? deck.deckId,
+    };
+
+    if (resolvedRequest.deckId !== deck.deckId) {
+      throwDeckApiException(
+        "DECK_MISMATCH",
+        HttpStatus.BAD_REQUEST,
+        "Requested deckId must match project deck",
+        [`deck.deckId=${deck.deckId}`, `request.deckId=${resolvedRequest.deckId}`],
+      );
+    }
+
+    if (!this.jobsService) {
+      throwDeckApiException(
+        "DECK_VALIDATION_FAILED",
+        HttpStatus.SERVICE_UNAVAILABLE,
+        "Jobs service is not available",
+      );
+    }
+
+    const queuedJob = await this.jobsService.create({
+      projectId,
+      type: "semantic-cue-extraction",
+      payload: { request: resolvedRequest },
+    });
+
+    try {
+      const config = loadOrbitConfig(process.env, { service: "api" });
+      await this.enqueueSemanticCueJob({
+        driver: config.JOB_QUEUE_DRIVER,
+        redisUrl: config.REDIS_URL,
+        jobId: queuedJob.jobId,
+        projectId,
+        request: resolvedRequest,
+      });
+    } catch (error) {
+      await this.jobsService.update(queuedJob.jobId, {
+        status: "failed",
+        progress: 0,
+        message: "Semantic cue extraction enqueue failed.",
+        error: {
+          code: "SEMANTIC_CUE_EXTRACTION_ENQUEUE_FAILED",
+          message:
+            error instanceof Error
+              ? error.message
+              : "Semantic cue extraction enqueue failed.",
+        },
+      });
+      throw error;
+    }
+
+    return createSemanticCueExtractionJobResponseSchema.parse({ job: queuedJob });
   }
 
   async listSnapshots(projectId: string): Promise<ListDeckSnapshotsResponse> {

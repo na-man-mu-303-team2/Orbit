@@ -15,6 +15,7 @@ export * from "./deck/keyword-occurrences";
 export * from "./deck/patch.schema";
 export * from "./deck/pptx-ooxml-generation.schema";
 export * from "./deck/semantic-cue.schema";
+export * from "./deck/semantic-cue-extraction.schema";
 export * from "./deck/slide-action.schema";
 export * from "./deck/slide-object.schema";
 export * from "./deck/template-blueprint.schema";

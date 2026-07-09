@@ -280,11 +280,14 @@ function createService() {
   return { dataSource, service };
 }
 
-function createJob(jobId = "job_sync_1") {
+function createJob(
+  jobId = "job_sync_1",
+  type: "pptx-ooxml-sync" | "semantic-cue-extraction" = "pptx-ooxml-sync",
+) {
   return jobSchema.parse({
     jobId,
     projectId: "project_demo_1",
-    type: "pptx-ooxml-sync",
+    type,
     status: "queued",
     progress: 0,
     message: "Job queued",
@@ -859,6 +862,58 @@ describe("DecksService", () => {
     expect(response.ooxmlSyncJob).toBeUndefined();
     expect(response.deck.version).toBe(2);
     expect(jobsService.create).not.toHaveBeenCalled();
+    expect(enqueueSyncJob).not.toHaveBeenCalled();
+  });
+
+  it("creates and enqueues a semantic cue extraction preparation job", async () => {
+    stubOrbitEnv();
+    const dataSource = new InMemoryDeckDataSource();
+    const deck = createDeck();
+    const semanticCueJob = createJob(
+      "job_semantic_cues_1",
+      "semantic-cue-extraction",
+    );
+    const jobsService = {
+      create: vi.fn(async () => semanticCueJob),
+      update: vi.fn(),
+    };
+    const enqueueSyncJob = vi.fn(async () => undefined);
+    const enqueueSemanticCueJob = vi.fn(async () => undefined);
+    const service = new DecksService(
+      dataSource as unknown as DataSource,
+      jobsService as never,
+      enqueueSyncJob,
+      enqueueSemanticCueJob,
+    );
+
+    await service.putDeck(deck.projectId, { deck });
+    const response = await service.createSemanticCueExtractionJob(deck.projectId, {
+      force: true,
+    });
+
+    expect(response.job.jobId).toBe(semanticCueJob.jobId);
+    expect(jobsService.create).toHaveBeenCalledWith({
+      projectId: deck.projectId,
+      type: "semantic-cue-extraction",
+      payload: {
+        request: {
+          deckId: deck.deckId,
+          force: true,
+        },
+      },
+    });
+    expect(enqueueSemanticCueJob).toHaveBeenCalledWith(
+      expect.objectContaining({
+        driver: "bullmq",
+        redisUrl: "redis://localhost:6379",
+        jobId: semanticCueJob.jobId,
+        projectId: deck.projectId,
+        request: {
+          deckId: deck.deckId,
+          force: true,
+        },
+      }),
+    );
     expect(enqueueSyncJob).not.toHaveBeenCalled();
   });
 

@@ -37,6 +37,7 @@ function createSlide(slideId: string, order: number): Slide {
     speakerNotes: "",
     elements: [],
     keywords: [],
+    semanticCues: [],
     animations: [],
     actions: [],
   };
