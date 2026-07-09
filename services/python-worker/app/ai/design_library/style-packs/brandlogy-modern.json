@@ -1,0 +1,61 @@
+{
+  "id": "brandlogy-modern",
+  "theme": {
+    "name": "brandlogy-modern",
+    "headingFontFamily": "Pretendard",
+    "bodyFontFamily": "Pretendard",
+    "background": "#ffffff",
+    "surface": "#ffffff",
+    "text": "#111827",
+    "accent": "#2563eb",
+    "secondary": "#f472b6",
+    "muted": "#f8fafc",
+    "border": "#dbeafe",
+    "titleSize": 62,
+    "headingSize": 42,
+    "bodySize": 25,
+    "captionSize": 17
+  },
+  "effects": {
+    "borderRadius": 8,
+    "shadow": {
+      "color": "#000000",
+      "blur": 14,
+      "offsetX": 0,
+      "offsetY": 4,
+      "opacity": 0.1
+    }
+  },
+  "canvas": {
+    "preset": "wide-16-9",
+    "width": 1920,
+    "height": 1080,
+    "contentSafeArea": {
+      "x": 120,
+      "y": 96,
+      "width": 1680,
+      "height": 888
+    }
+  },
+  "layout": {
+    "cover": "left-title-right-visual",
+    "body": "chart-first-dense",
+    "section": "large-title-with-accent-bar",
+    "closing": "summary-cards"
+  },
+  "card": {
+    "fill": "#ffffff",
+    "stroke": "#dbeafe",
+    "borderRadius": 8
+  },
+  "badge": {
+    "fill": "#2563eb",
+    "text": "#ffffff"
+  },
+  "accentBar": {
+    "fill": "#f472b6",
+    "height": 8
+  },
+  "subtitleColor": "#475569",
+  "bodyColor": "#334155"
+}

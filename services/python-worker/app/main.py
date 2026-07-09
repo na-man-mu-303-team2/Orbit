@@ -9,6 +9,11 @@ from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.ai.color_options import (
+    DeckColorOptionsRequest,
+    DeckColorOptionsResponse,
+    generate_deck_color_options,
+)
 from app.ai.generate_deck import (
     DeckContentGenerationError,
     GenerateDeckRequest,
@@ -556,6 +561,19 @@ def generate_ai_deck(
         )
     except DeckContentGenerationError as error:
         raise HTTPException(status_code=503, detail=str(error)) from error
+
+
+@app.post("/ai/deck-color-options", response_model=DeckColorOptionsResponse)
+def generate_ai_deck_color_options(
+    payload: DeckColorOptionsRequest,
+    request: Request,
+) -> DeckColorOptionsResponse:
+    config = _config(request)
+    return generate_deck_color_options(
+        payload,
+        model=config.openai_model,
+        api_key=config.openai_api_key,
+    )
 
 
 @app.post("/rehearsal/analyze", response_model=RehearsalAnalyzeResponse)

@@ -279,6 +279,38 @@ def test_generate_deck_endpoint_supports_topic_only_generation() -> None:
     assert "제공합니다" not in speaker_notes
 
 
+def test_deck_color_options_endpoint_returns_three_fallback_options() -> None:
+    response = client().post(
+        "/ai/deck-color-options",
+        json={
+            "topic": "Resort service launch",
+            "colorMood": "blue ocean resort",
+            "stylePackId": "brandlogy-modern",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    options = payload["options"]
+
+    assert len(options) == 3
+    assert options[0]["optionId"] == "resort-blue"
+    assert all(
+        set(option["palette"].keys())
+        == {
+            "primary",
+            "secondary",
+            "background",
+            "surface",
+            "muted",
+            "border",
+            "text",
+            "accentColor",
+        }
+        for option in options
+    )
+
+
 def test_generate_deck_endpoint_uses_payload_image_review_mode(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -679,6 +711,89 @@ def test_generate_deck_applies_simple_basic_style_pack() -> None:
     assert "stylePackId" not in deck_text
     assert "visualIntent" not in deck_text
     assert response.validation.passed is True
+
+
+def test_generate_deck_includes_brandlogy_design_pack_prompt_and_brief() -> None:
+    raw_input = analyze_input(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="Brandlogy AI PPT",
+            prompt="Create a phase 1 planning deck.",
+            brief={
+                "presentationContext": "internal product planning",
+                "audienceText": "founder and product team",
+                "presentationType": "feature planning",
+                "successCriteria": "agree on first release scope",
+                "durationMinutes": 12,
+                "referencePolicy": "references-first",
+            },
+            design={"stylePackId": "brandlogy-modern"},
+            slideCountRange={"min": 1, "max": 1},
+        )
+    )
+
+    prompt = deck_content_prompt(raw_input)
+
+    assert "Style pack override: brandlogy-modern" in prompt
+    assert "Brandlogy Modern Design Pack" in prompt
+    assert "Presentation context: internal product planning" in prompt
+    assert "Audience detail: founder and product team" in prompt
+    assert "Success criteria: agree on first release scope" in prompt
+    assert "Reference policy: references-first" in prompt
+    assert "Duration minutes: 12" in prompt
+
+
+def test_generate_deck_applies_brandlogy_style_pack_and_palette_override() -> None:
+    fake_client = FakeOpenAIClient(
+        {
+            "title": "Brandlogy planning",
+            "slides": [
+                slide_payload(
+                    "Phase 1 direction",
+                    "Design Pack and selected palette should drive the deck.",
+                    "Explain why the new generation flow matters.",
+                    slide_type="title",
+                    slot_preset="title_center",
+                )
+            ],
+        }
+    )
+
+    response = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="Brandlogy AI PPT",
+            prompt="Create a phase 1 planning deck.",
+            designPrompt="ocean blue presentation",
+            design={
+                "stylePackId": "brandlogy-modern",
+                "paletteOverride": {
+                    "primary": "#0EA5E9",
+                    "secondary": "#F472B6",
+                    "background": "#F0F9FF",
+                    "surface": "#FFFFFF",
+                    "muted": "#E0F2FE",
+                    "border": "#BAE6FD",
+                    "text": "#0F172A",
+                    "accentColor": "#0284C7",
+                },
+            },
+            slideCountRange={"min": 1, "max": 1},
+        ),
+        client=fake_client,
+    )
+
+    theme = response.deck["theme"]
+    assert theme["name"] == "brandlogy-modern"
+    assert theme["fontFamily"] == "Pretendard"
+    assert theme["backgroundColor"] == "#F0F9FF"
+    assert theme["textColor"] == "#0F172A"
+    assert theme["accentColor"] == "#0284C7"
+    assert theme["palette"]["primary"] == "#0EA5E9"
+    assert theme["palette"]["secondary"] == "#F472B6"
+    assert theme["palette"]["surface"] == "#FFFFFF"
+    assert theme["palette"]["muted"] == "#E0F2FE"
+    assert theme["palette"]["border"] == "#BAE6FD"
 
 
 def test_generate_deck_auto_selects_simple_basic_report_mode() -> None:

@@ -26,6 +26,7 @@ DensityTarget = Literal["low", "medium", "high"]
 MediaPolicy = Literal["avoid", "balanced", "placeholder-ok"]
 LayoutDiversity = Literal["stable", "varied"]
 ImageReviewMode = Literal["auto", "off"]
+ReferencePolicy = Literal["topic-only", "references-first", "references-only"]
 DesignProfile = Literal[
     "executive-report",
     "startup-pitch",
@@ -102,6 +103,30 @@ class GenerateDeckMetadata(BaseModel):
     tone: Tone = "professional"
 
 
+class GenerateDeckBrief(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, str_strip_whitespace=True)
+
+    presentation_context: str = Field(default="", alias="presentationContext")
+    audience_text: str = Field(default="", alias="audienceText")
+    presentation_type: str = Field(default="", alias="presentationType")
+    success_criteria: str = Field(default="", alias="successCriteria")
+    duration_minutes: int | None = Field(default=None, alias="durationMinutes", ge=1, le=120)
+    reference_policy: ReferencePolicy = Field(default="topic-only", alias="referencePolicy")
+
+
+class PaletteOverride(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    primary: str | None = None
+    secondary: str | None = None
+    background: str | None = None
+    surface: str | None = None
+    muted: str | None = None
+    border: str | None = None
+    text: str | None = None
+    accent_color: str | None = Field(default=None, alias="accentColor")
+
+
 class DesignOptions(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
@@ -114,6 +139,10 @@ class DesignOptions(BaseModel):
     layout_diversity: LayoutDiversity = Field(
         default="stable",
         alias="layoutDiversity",
+    )
+    palette_override: PaletteOverride | None = Field(
+        default=None,
+        alias="paletteOverride",
     )
 
 
@@ -135,6 +164,7 @@ class GenerateDeckRequest(BaseModel):
     topic: str = Field(min_length=1)
     prompt: str = ""
     design_prompt: str = Field(default="", alias="designPrompt")
+    brief: GenerateDeckBrief = Field(default_factory=GenerateDeckBrief)
     target_duration_minutes: int = Field(
         default=10,
         alias="targetDurationMinutes",
@@ -180,6 +210,7 @@ class RawInput(BaseModel):
     topic: str
     prompt: str
     design_prompt: str = ""
+    brief: GenerateDeckBrief
     target_duration_minutes: int
     slide_count: int
     min_slide_count: int
@@ -423,6 +454,17 @@ def load_json_registry(directory: Path) -> dict[str, dict[str, Any]]:
     return registry
 
 
+def load_text_registry(directory: Path) -> dict[str, str]:
+    if not directory.exists():
+        return {}
+    registry: dict[str, str] = {}
+    for path in sorted(directory.glob("*.md")):
+        content = path.read_text(encoding="utf-8").strip()
+        if content:
+            registry[path.stem] = content
+    return registry
+
+
 def load_icon_map(path: Path) -> dict[str, str]:
     if not path.exists():
         return {}
@@ -440,6 +482,7 @@ DECK_CONTENT_PLAN_CACHE: OrderedDict[
     GeneratedDeckContentPlan,
 ] = OrderedDict()
 STYLE_PACK_REGISTRY = load_json_registry(DESIGN_LIBRARY_DIR / "style-packs")
+STYLE_PACK_PROMPT_REGISTRY = load_text_registry(DESIGN_LIBRARY_DIR / "style-prompts")
 SLIDE_PRESET_REGISTRY = load_json_registry(DESIGN_LIBRARY_DIR / "slide-presets")
 ICON_MAP = load_icon_map(DESIGN_LIBRARY_DIR / "icon-map.json")
 SIMPLE_BASIC_STYLE_PACK_ID = "simple-basic"
@@ -1902,6 +1945,7 @@ def analyze_input(
         topic=request.topic.strip(),
         prompt=prompt,
         design_prompt=design_prompt,
+        brief=request.brief,
         target_duration_minutes=request.target_duration_minutes,
         slide_count=slide_count,
         min_slide_count=request.slide_count_range.min,
@@ -2228,7 +2272,14 @@ def deck_content_prompt(raw_input: RawInput) -> str:
         f"Purpose: {raw_input.metadata.purpose}",
         f"Tone: {raw_input.metadata.tone}",
         f"Document mode: {document_mode_for(raw_input)}",
+        f"Presentation context: {raw_input.brief.presentation_context or '(none)'}",
+        f"Audience detail: {raw_input.brief.audience_text or '(none)'}",
+        f"Presentation type: {raw_input.brief.presentation_type or '(none)'}",
+        f"Success criteria: {raw_input.brief.success_criteria or '(none)'}",
+        f"Reference policy: {raw_input.brief.reference_policy}",
     ]
+    if raw_input.brief.duration_minutes is not None:
+        lines.append(f"Duration minutes: {raw_input.brief.duration_minutes}")
     if uses_full_narrative_design_context(raw_input):
         lines.extend(
             [
@@ -2260,9 +2311,10 @@ def narrative_design_prompt(raw_input: RawInput) -> str:
 
 
 def uses_full_narrative_design_context(raw_input: RawInput) -> bool:
-    return isinstance(raw_input.template_blueprint, dict) or isinstance(
-        raw_input.design_blueprint,
-        dict,
+    return (
+        isinstance(raw_input.template_blueprint, dict)
+        or isinstance(raw_input.design_blueprint, dict)
+        or bool(selected_style_pack_prompt(raw_input))
     )
 
 
@@ -2763,7 +2815,17 @@ def effective_document_style_pack_id(raw_input: RawInput) -> str:
 
 
 def preset_style_prompt_for(raw_input: RawInput) -> str:
+    style_prompt = selected_style_pack_prompt(raw_input)
+    if style_prompt:
+        return style_prompt
     return STYLE_PACK_LLM_PROMPTS.get(effective_document_style_pack_id(raw_input), "")
+
+
+def selected_style_pack_prompt(raw_input: RawInput) -> str:
+    style_pack_id = selected_style_pack_id(raw_input)
+    if not style_pack_id:
+        return ""
+    return STYLE_PACK_PROMPT_REGISTRY.get(style_pack_id, "")
 
 
 def uses_document_style_pack(raw_input: RawInput) -> bool:
@@ -2874,8 +2936,38 @@ def direct_design(
         },
         "effects": {"borderRadius": 8},
     }
+    theme = apply_style_pack(theme, select_style_pack(raw_input, slide_plans or []))
     theme = apply_explicit_palette(theme, raw_input, slide_plans)
-    return apply_style_pack(theme, select_style_pack(raw_input, slide_plans or []))
+    return apply_palette_override(theme, raw_input.design.palette_override)
+
+
+def apply_palette_override(
+    theme: dict[str, Any],
+    palette_override: PaletteOverride | None,
+) -> dict[str, Any]:
+    if palette_override is None:
+        return theme
+
+    values = palette_override.model_dump(by_alias=True, exclude_none=True)
+    background = values.get("background")
+    if background:
+        theme["backgroundColor"] = background
+
+    if values.get("text"):
+        theme["textColor"] = values["text"]
+    elif background:
+        theme["textColor"] = text_color_for_background(background)
+
+    accent = values.get("accentColor") or values.get("primary")
+    if accent:
+        theme["accentColor"] = accent
+
+    palette = dict(theme.get("palette", {}))
+    for key in ("primary", "secondary", "surface", "muted", "border"):
+        if values.get(key):
+            palette[key] = values[key]
+    theme["palette"] = palette
+    return theme
 
 
 def apply_explicit_palette(
