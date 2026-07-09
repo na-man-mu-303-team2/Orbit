@@ -1255,6 +1255,7 @@ PPTX import/export, 참고자료 추출, AI 생성, 리허설 STT, 최종 보고
 
 - 오래 걸리는 작업은 전부 Job으로 처리한다.
 - 프론트는 `jobId`로 진행률을 조회한다.
+- Job 조회 API는 `GET /jobs/:jobId`를 기본 경로로 사용하고, 기존/캐시된 web client 호환을 위해 `GET /api/v1/jobs/:jobId`도 같은 응답을 반환한다.
 - 성공 결과는 `result`, 실패 이유는 `error`에 넣는다.
 
 구현 위치:

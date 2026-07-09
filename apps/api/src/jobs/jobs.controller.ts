@@ -15,7 +15,7 @@ const createJobSchema = z.object({
   payload: z.record(z.unknown()).optional()
 });
 
-@Controller("jobs")
+@Controller(["jobs", "api/v1/jobs"])
 export class JobsController {
   constructor(
     private readonly authService: AuthService,
