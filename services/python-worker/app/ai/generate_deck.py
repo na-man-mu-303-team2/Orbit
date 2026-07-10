@@ -4,6 +4,7 @@ import base64
 from collections import OrderedDict
 import hashlib
 import json
+import math
 import re
 import textwrap
 from copy import deepcopy
@@ -3277,7 +3278,7 @@ def title_for_slide(raw_input: RawInput, order: int, total: int) -> str:
     if order == 1:
         return raw_input.topic
     if order == total:
-        return f"{raw_input.topic} 핵심 정리"
+        return closing_title_for_profile(raw_input)
 
     focus_terms = reference_keywords_for(raw_input.reference_keywords)
     middle_titles = [f"{term}" for term in focus_terms] or [
@@ -3288,6 +3289,14 @@ def title_for_slide(raw_input: RawInput, order: int, total: int) -> str:
         f"{raw_input.topic}를 기억하는 방법",
     ]
     return middle_titles[(order - 2) % len(middle_titles)]
+
+
+def closing_title_for_profile(raw_input: RawInput) -> str:
+    return {
+        "proposal": f"{raw_input.topic}의 다음 실행을 결정하세요",
+        "product-launch": f"{raw_input.topic}의 출시 정보를 확인하세요",
+        "executive-report": f"{raw_input.topic}의 다음 결정을 요청합니다",
+    }.get(raw_input.presentation_profile, f"{raw_input.topic}의 핵심을 정리합니다")
 
 
 def plan_slides(raw_input: RawInput, outline: DeckOutline) -> list[SlidePlan]:
@@ -5557,13 +5566,13 @@ DESIGN_PACK_RECIPE_LAYOUTS: dict[str, DeckLayout] = {
 DESIGN_PACK_RECIPE_CAPACITIES: dict[str, tuple[int, int]] = {
     "cover_trust_signal": (1, 3),
     "insight_evidence": (1, 3),
-    "overview_cards": (2, 6),
-    "decision_actions": (2, 6),
-    "priority_stack": (2, 6),
-    "decision_agenda": (2, 6),
+    "overview_cards": (2, 5),
+    "decision_actions": (2, 5),
+    "priority_stack": (2, 5),
+    "decision_agenda": (2, 5),
     "process_steps": (3, 6),
     "comparison_split": (2, 4),
-    "closing_summary": (2, 4),
+    "closing_summary": (2, 3),
 }
 
 DESIGN_PACK_ARCHETYPE_RECIPE_SEQUENCES: dict[str, tuple[str, ...]] = {
@@ -8142,11 +8151,21 @@ def design_pack_items(
     recipe: str,
 ) -> list[GeneratedContentItem]:
     items = list(slide_plan.content_items)
+    generated_fallback = not items
     if not items:
         items = content_items_from_message(slide_plan.message, slide_plan.order)
-        slide_plan.content_items = items
 
     minimum, maximum = DESIGN_PACK_RECIPE_CAPACITIES[recipe]
+    if generated_fallback and len(items) < minimum:
+        items.extend(
+            GeneratedContentItem(
+                contentItemId=f"content_{slide_plan.order}_{index}",
+                text=f"{slide_plan.title}의 다음 확인 항목",
+            )
+            for index in range(len(items) + 1, minimum + 1)
+        )
+    if generated_fallback:
+        slide_plan.content_items = items
     if not minimum <= len(items) <= maximum:
         raise DeckContentGenerationError(
             f"slide {slide_plan.order}: recipe {recipe} requires {minimum}-{maximum} "
@@ -11714,7 +11733,202 @@ def validate_presentation(deck: dict[str, Any]) -> list[ValidationIssue]:
                 message="덱에는 슬라이드가 최소 1장 필요합니다.",
             )
         ]
-    return []
+    profile = deck.get("metadata", {}).get("presentationProfile")
+    if profile not in PRESENTATION_PROFILE_BEATS:
+        return []
+
+    issues: list[ValidationIssue] = []
+    for slide_index, slide in enumerate(deck["slides"]):
+        visual_type = str(
+            slide.get("aiNotes", {}).get("visualPlan", {}).get("visualType", "")
+        )
+        if slide_index > 0 and visual_type not in {"cover", "quote", "summary"}:
+            if action_title_requires_attention(str(slide.get("title", ""))):
+                issues.append(
+                    ValidationIssue(
+                        code="ACTION_TITLE_WEAK",
+                        scope="slide",
+                        path=f"slides.{slide_index}.title",
+                        message="본문 슬라이드 제목은 40자 이내의 결론형 문장이어야 합니다.",
+                    )
+                )
+        issues.extend(validate_slide_content_density(slide, slide_index, visual_type))
+        issues.extend(validate_slide_visual_hierarchy(slide, slide_index, visual_type))
+
+    if profile in {"proposal", "product-launch", "executive-report"}:
+        closing = deck["slides"][-1]
+        closing_text = visible_slide_text(closing)
+        required_tokens = (
+            EXECUTIVE_CLOSING_TOKENS
+            if profile == "executive-report"
+            else ACTION_CLOSING_TOKENS
+        )
+        if not has_any(closing_text.casefold(), required_tokens):
+            issues.append(
+                ValidationIssue(
+                    code="CTA_MISSING",
+                    scope="slide",
+                    path=f"slides.{len(deck['slides']) - 1}",
+                    message=(
+                        "마지막 슬라이드에 결정 또는 승인 요청이 필요합니다."
+                        if profile == "executive-report"
+                        else "마지막 슬라이드에 구체적인 다음 행동이 필요합니다."
+                    ),
+                )
+            )
+    return issues
+
+
+GENERIC_ACTION_TITLES = {
+    "개요",
+    "배경",
+    "현황",
+    "시장 현황",
+    "문제",
+    "해결책",
+    "결과",
+    "성과",
+    "요약",
+    "결론",
+    "핵심 특징",
+    "주요 포인트",
+}
+ACTION_CLOSING_TOKENS = (
+    "다음",
+    "지금",
+    "시작",
+    "신청",
+    "참여",
+    "확인",
+    "선택",
+    "도입",
+    "실행",
+    "문의",
+    "출시",
+    "구매",
+    "예약",
+    "체험",
+    "next",
+    "start",
+    "join",
+    "contact",
+    "launch",
+    "pre-order",
+)
+EXECUTIVE_CLOSING_TOKENS = (
+    "결정",
+    "승인",
+    "확정",
+    "선택",
+    "검토",
+    "의사결정",
+    "decision",
+    "approve",
+    "approval",
+)
+
+
+def action_title_requires_attention(title: str) -> bool:
+    normalized = " ".join(title.split()).strip(" .,:;!?-_").casefold()
+    return len(normalized) > 40 or normalized in GENERIC_ACTION_TITLES
+
+
+def validate_slide_content_density(
+    slide: dict[str, Any],
+    slide_index: int,
+    visual_type: str,
+) -> list[ValidationIssue]:
+    if visual_type in {"cover", "quote"} or slide.get("style", {}).get("layout") in {
+        "chart-focus",
+        "quote",
+    }:
+        return []
+    body_elements = visible_text_elements_for_roles(slide, {"body", "highlight"})
+    too_many_lines = any(estimated_text_line_count(element) > 6 for element in body_elements)
+    if not too_many_lines:
+        return []
+    return [
+        ValidationIssue(
+            code="BODY_CONTENT_DENSE",
+            scope="slide",
+            path=f"slides.{slide_index}.elements",
+            message="본문 텍스트 박스는 실제 렌더링 기준 6줄 이내여야 합니다.",
+        )
+    ]
+
+
+def validate_slide_visual_hierarchy(
+    slide: dict[str, Any],
+    slide_index: int,
+    visual_type: str,
+) -> list[ValidationIssue]:
+    if visual_type in {"cover", "quote"}:
+        return []
+    visible_elements = [
+        element for element in slide.get("elements", []) if element.get("visible", True)
+    ]
+    content_elements = [
+        element
+        for element in visible_elements
+        if (
+            element.get("type") == "text"
+            and element.get("role") in {"body", "highlight"}
+            and str(element.get("props", {}).get("text", "")).strip()
+        )
+        or element.get("type") in {"image", "chart"}
+        or element.get("role") == "media"
+    ]
+    primary_visuals = [
+        element
+        for element in visible_elements
+        if element.get("type") in {"image", "chart"} or element.get("role") == "media"
+    ]
+    if content_elements and len(primary_visuals) <= 1:
+        return []
+    return [
+        ValidationIssue(
+            code="VISUAL_HIERARCHY_WEAK",
+            scope="slide",
+            path=f"slides.{slide_index}.elements",
+            message="본문 슬라이드에는 하나의 명확한 시각적 중심 요소가 필요합니다.",
+        )
+    ]
+
+
+def visible_text_elements_for_roles(
+    slide: dict[str, Any],
+    roles: set[str],
+) -> list[dict[str, Any]]:
+    return [
+        element
+        for element in slide.get("elements", [])
+        if element.get("visible", True)
+        and element.get("type") == "text"
+        and element.get("role") in roles
+        and str(element.get("props", {}).get("text", "")).strip()
+    ]
+
+
+def estimated_text_line_count(element: dict[str, Any]) -> int:
+    props = element.get("props", {})
+    line_height = max(0.1, float(props.get("lineHeight", 1.2)))
+    font_size = max(1.0, float(props.get("fontSize", 24)))
+    return max(
+        1,
+        math.ceil(estimated_text_content_height(element) / (font_size * line_height)),
+    )
+
+
+def visible_slide_text(slide: dict[str, Any]) -> str:
+    parts = [str(slide.get("title", ""))]
+    parts.extend(
+        str(element.get("props", {}).get("text", ""))
+        for element in slide.get("elements", [])
+        if element.get("visible", True)
+        and element.get("type") == "text"
+        and element.get("role") not in {"caption", "footer"}
+    )
+    return " ".join(part for part in parts if part.strip())
 
 
 def patch_deck(deck: dict[str, Any]) -> dict[str, Any]:

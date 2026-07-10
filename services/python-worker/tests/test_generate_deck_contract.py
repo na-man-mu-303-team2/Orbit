@@ -49,6 +49,7 @@ from app.ai.generate_deck import (
     review_text_overlap_candidates,
     validate_and_patch,
     validate_design,
+    validate_presentation,
     web_source_id,
     web_sources_from_response,
 )
@@ -167,6 +168,100 @@ def test_design_pack_deck_persists_profile_without_changing_legacy_metadata() ->
 
     assert design_pack.deck["metadata"]["presentationProfile"] == "product-launch"
     assert "presentationProfile" not in legacy.deck["metadata"]
+
+
+def test_presentation_validation_detects_action_title_and_dense_body() -> None:
+    deck = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="ORBIT",
+            generationMode="design-pack",
+        )
+    ).deck
+    slide = deck["slides"][1]
+    slide["title"] = "현황"
+    body = next(
+        element
+        for element in slide["elements"]
+        if element["type"] == "text" and element.get("role") == "body"
+    )
+    body["props"]["text"] = "\n".join(f"항목 {index}" for index in range(1, 8))
+
+    codes = {issue.code for issue in validate_presentation(deck)}
+
+    assert "ACTION_TITLE_WEAK" in codes
+    assert "BODY_CONTENT_DENSE" in codes
+
+
+def test_presentation_validation_detects_missing_primary_content() -> None:
+    deck = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="ORBIT",
+            generationMode="design-pack",
+        )
+    ).deck
+    slide = deck["slides"][1]
+    for element in slide["elements"]:
+        if (
+            element.get("role") in {"body", "highlight", "media"}
+            or element.get("type") in {"image", "chart"}
+        ):
+            element["visible"] = False
+
+    codes = {issue.code for issue in validate_presentation(deck)}
+
+    assert "VISUAL_HIERARCHY_WEAK" in codes
+
+
+@pytest.mark.parametrize(
+    ("request_patch", "expected_title"),
+    [
+        ({"design": {"profile": "startup-pitch"}}, "다음 실행을 결정하세요"),
+        ({"brief": {"presentationType": "신상품 공개"}}, "출시 정보를 확인하세요"),
+        ({"design": {"profile": "executive-report"}}, "다음 결정을 요청합니다"),
+    ],
+)
+def test_profile_fallback_closing_contains_required_action(
+    request_patch: dict[str, object],
+    expected_title: str,
+) -> None:
+    response = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="ORBIT",
+            generationMode="design-pack",
+            **request_patch,
+        )
+    )
+
+    assert expected_title in response.deck["slides"][-1]["title"]
+    assert "CTA_MISSING" not in {
+        issue.code for issue in response.validation.presentation_issues
+    }
+
+
+def test_presentation_validation_detects_missing_profile_closing_action() -> None:
+    deck = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="ORBIT",
+            generationMode="design-pack",
+            design={"profile": "startup-pitch"},
+        )
+    ).deck
+    closing = deck["slides"][-1]
+    closing["title"] = "핵심 정리"
+    for element in closing["elements"]:
+        if element.get("type") == "text" and element.get("role") not in {
+            "caption",
+            "footer",
+        }:
+            element["props"]["text"] = "핵심 정리"
+
+    codes = {issue.code for issue in validate_presentation(deck)}
+
+    assert "CTA_MISSING" in codes
 
 
 @pytest.mark.parametrize(
@@ -2451,7 +2546,10 @@ def test_generate_deck_design_pack_applies_v2_timing_media_reference_contract() 
         "SPEAKER_NOTES_LONG",
     }
     assert response.diagnostics.unique_core_layout_count >= 4
-    assert response.diagnostics.validation_issue_count == 0
+    assert response.diagnostics.validation_issue_count == 0, json.dumps(
+        response.validation.model_dump(by_alias=True),
+        ensure_ascii=False,
+    )
 
     timing_plan = slides[0]["aiNotes"]["timingPlan"]
     assert timing_plan["charsPerMinute"] == 320
