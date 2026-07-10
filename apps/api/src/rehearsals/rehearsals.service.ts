@@ -3,6 +3,8 @@ import { loadOrbitConfig } from "@orbit/config";
 import {
   completeRehearsalAudioUploadRequestSchema,
   completeRehearsalAudioUploadResponseSchema,
+  cancelRehearsalRunResponseSchema,
+  createRehearsalEvaluationSnapshot,
   createAssetUploadUrlRequestSchema,
   createRehearsalAudioUploadUrlRequestSchema,
   createRehearsalAudioUploadUrlResponseSchema,
@@ -15,11 +17,17 @@ import {
   updateRehearsalRunMetaResponseSchema,
   type RehearsalRun
 } from "@orbit/shared";
-import { BadRequestException, Inject, Injectable, NotFoundException } from "@nestjs/common";
+import {
+  BadRequestException,
+  ConflictException,
+  Inject,
+  Injectable,
+  NotFoundException
+} from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { randomUUID } from "node:crypto";
 import { InjectPinoLogger, PinoLogger } from "nestjs-pino";
-import { Repository } from "typeorm";
+import { Not, Repository } from "typeorm";
 import { parseRequest } from "../common/zod-request";
 import { DecksService } from "../decks/decks.service";
 import { FilesService } from "../files/files.service";
@@ -64,7 +72,24 @@ export class RehearsalsService {
       throw new BadRequestException("deckId does not match the project deck.");
     }
 
+    if (
+      request.semanticEvaluationMode === "full" &&
+      request.expectedDeckVersion !== undefined &&
+      request.expectedDeckVersion !== deckResponse.deck.version
+    ) {
+      throw new ConflictException({
+        code: "REHEARSAL_DECK_VERSION_MISMATCH",
+        message: "The expected deck version does not match the server deck version.",
+        expectedDeckVersion: request.expectedDeckVersion,
+        actualDeckVersion: deckResponse.deck.version
+      });
+    }
+
     const now = new Date();
+    const evaluationSnapshot =
+      request.semanticEvaluationMode === "full"
+        ? createRehearsalEvaluationSnapshot(deckResponse.deck, now.toISOString())
+        : null;
     const run = await this.rehearsalRuns.save(
       this.rehearsalRuns.create({
         runId: `run_${randomUUID()}`,
@@ -72,6 +97,9 @@ export class RehearsalsService {
         deckId: request.deckId,
         audioFileId: null,
         jobId: null,
+        deckVersion: evaluationSnapshot?.deckVersion ?? null,
+        evaluationSnapshot,
+        semanticEvaluationMode: request.semanticEvaluationMode,
         status: "created",
         error: null,
         rehearsalReport: null,
@@ -82,6 +110,24 @@ export class RehearsalsService {
         updatedAt: now
       })
     );
+
+    if (evaluationSnapshot) {
+      this.logger.info(
+        {
+          event: "rehearsal.evaluation_snapshot.created",
+          projectId,
+          deckId: run.deckId,
+          deckVersion: evaluationSnapshot.deckVersion,
+          runId: run.runId,
+          slideCount: evaluationSnapshot.slides.length,
+          cueCount: evaluationSnapshot.slides.reduce(
+            (count, slide) => count + slide.semanticCues.length,
+            0
+          )
+        },
+        "Rehearsal evaluation snapshot created."
+      );
+    }
 
     return createRehearsalRunResponseSchema.parse({ run: toRehearsalRun(run) });
   }
@@ -226,11 +272,46 @@ export class RehearsalsService {
     return updateRehearsalRunMetaResponseSchema.parse({ run: toRehearsalRun(savedRun) });
   }
 
+  async cancelRun(runId: string) {
+    const run = await this.getRunEntity(runId);
+    if (run.status === "cancelled") {
+      return cancelRehearsalRunResponseSchema.parse({ run: toRehearsalRun(run) });
+    }
+
+    if (!["created", "uploading"].includes(run.status) || run.jobId !== null) {
+      throw new BadRequestException(
+        "Rehearsal run cannot be cancelled after audio processing starts."
+      );
+    }
+
+    const result = await this.rehearsalRuns.update(
+      {
+        runId: run.runId,
+        projectId: run.projectId,
+        status: run.status
+      },
+      {
+        status: "cancelled",
+        error: null,
+        updatedAt: new Date()
+      }
+    );
+
+    if (!result.affected) {
+      throw new BadRequestException(
+        "Rehearsal run cannot be cancelled after audio processing starts."
+      );
+    }
+
+    const cancelled = await this.getRunEntity(run.runId);
+    return cancelRehearsalRunResponseSchema.parse({ run: toRehearsalRun(cancelled) });
+  }
+
   async listRuns(projectId: string, query: Record<string, string> = {}) {
     await this.projectsService.getAccessibleProject(projectId);
     const pageSize = Math.min(Math.max(Number(query.pageSize) || 50, 1), 100);
     const page = Math.max(Number(query.page) || 1, 1);
-    const where: Record<string, unknown> = { projectId };
+    const where: Record<string, unknown> = { projectId, status: Not("cancelled") };
     if (query.status) {
       where["status"] = query.status;
     }
@@ -416,6 +497,9 @@ function toRehearsalRun(run: RehearsalRunEntity): RehearsalRun {
     deckId: run.deckId,
     audioFileId: run.audioFileId,
     jobId: run.jobId,
+    deckVersion: run.deckVersion,
+    evaluationSnapshot: run.evaluationSnapshot,
+    semanticEvaluationMode: run.semanticEvaluationMode,
     status: run.status,
     error: run.error,
     rawAudioDeletedAt: run.rawAudioDeletedAt?.toISOString() ?? null,
