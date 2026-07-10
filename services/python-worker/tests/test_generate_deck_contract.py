@@ -33,6 +33,7 @@ from app.ai.generate_deck import (
     build_design_pack_content_manifest,
     core_geometry_fingerprint,
     deck_content_prompt,
+    design_pack_insight_elements,
     detect_text_overlap_candidates,
     generate_content_plan_with_llm,
     generate_deck,
@@ -543,6 +544,44 @@ def test_design_pack_content_manifest_blocks_unrendered_item() -> None:
                 {"elementId": "el_2_three", "_contentItemIds": ["item-3"]},
             ],
         )
+
+
+def test_single_insight_content_item_is_rendered_once() -> None:
+    theme = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="Single insight",
+            generationMode="design-pack",
+        )
+    ).deck["theme"]
+    slide_plan = SlidePlan(
+        order=2,
+        slide_type="data",
+        title="One clear insight",
+        message="One supporting point",
+        speaker_notes="Explain the supporting point.",
+        keywords=[],
+        evidence=[],
+        content_items=[
+            GeneratedContentItem(contentItemId="item-1", text="One supporting point")
+        ],
+    )
+
+    elements = design_pack_insight_elements(
+        slide_plan,
+        theme,
+        variant="insight_callout",
+    )
+    rendered = [
+        element["props"]["text"]
+        for element in elements
+        if element["type"] == "text"
+    ]
+
+    assert rendered.count("One supporting point") == 1
+    assert build_design_pack_content_manifest(slide_plan, elements)["item-1"] == [
+        "el_2_insight_single_text"
+    ]
 
 
 def test_design_pack_eight_slide_fixture_uses_five_core_geometries() -> None:

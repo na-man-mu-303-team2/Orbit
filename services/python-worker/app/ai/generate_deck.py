@@ -6852,6 +6852,56 @@ def design_pack_insight_elements(
 ) -> list[dict[str, Any]]:
     colors = design_pack_colors(None, theme)
     items = design_pack_items(slide_plan, "insight_evidence")
+    if len(items) == 1:
+        item = items[0]
+        return [
+            design_pack_text(
+                slide_plan.order,
+                "title",
+                "title",
+                slide_plan.title,
+                120,
+                120,
+                1260,
+                110,
+                4,
+                colors["text"],
+                50,
+                "bold",
+                theme,
+            ),
+            shape_element(
+                slide_plan.order,
+                "insight_single_block",
+                "highlight",
+                120,
+                292,
+                1450,
+                380,
+                3,
+                colors["primary"],
+                "transparent",
+                8,
+            ),
+            mark_design_pack_content_element(
+                design_pack_text(
+                    slide_plan.order,
+                    "insight_single_text",
+                    "body",
+                    item.text,
+                    174,
+                    350,
+                    1340,
+                    210,
+                    5,
+                    "#FFFFFF",
+                    32,
+                    "medium",
+                    theme,
+                ),
+                item,
+            ),
+        ]
     if variant == "insight_callout":
         elements = [
             design_pack_text(
