@@ -744,6 +744,32 @@
 
 final result: passed
 
+## Production project report T8 QA
+
+### Source and implementation
+
+- Source visual truth: `/mockup/report-project`, with a project context header, Lilac summary, trend region and direct run-detail rows.
+- Browser implementation: `/reports/project_demo_1` zero-run state at `artifacts/migration/t8/project-report-empty.png`.
+- Desktop viewport: 1440×1024 with `scrollWidth === clientWidth`.
+
+### Required fidelity surfaces
+
+- Fonts and typography: the 56px report title, 24px factual summary and 12–20px chart/list labels use canonical typography.
+- Spacing and layout rhythm: a 72px document topbar, 1180px report body, 150px Lilac summary and 64px run rows establish a clear project-to-run hierarchy.
+- Colors and visual tokens: Lilac marks project context, Cream provides single-run guidance and neutral surfaces hold contract-backed charts and rows.
+- Image quality and asset fidelity: all controls and report markers use Tabler Icons. Existing chart renderers remain data-driven.
+- Copy and content: the summary, duration series, slide averages, run count and dates come from `RehearsalProjectSummary` and rehearsal-run responses only.
+
+### Interaction and findings
+
+- Zero runs show a first-rehearsal CTA; one run explains that a second run enables trend comparison; two or more runs render only available official trend series.
+- The unsupported `실전 리포트 0건` placeholder and fake latest-presentation row were removed.
+- Run rows route to `/rehearsal/:projectId/report/:runId`; the topbar returns to the report hub and starts a new rehearsal.
+- Targeted report and route tests: 52 passed. Web TypeScript validation, production build and `git diff --check` passed. The existing large-bundle warning remains.
+- No derived score, demo summary, or unsupported live-report state is present. No actionable P0/P1/P2 findings remain.
+
+final result: passed
+
 ## Production report hub T7 QA
 
 ### Source and implementation
