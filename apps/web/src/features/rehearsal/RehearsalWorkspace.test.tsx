@@ -876,6 +876,18 @@ describe("RehearsalWorkspace", () => {
     );
   });
 
+  it("P3 capability event를 bounded 상태 UI로 연결한다", () => {
+    const source = fs.readFileSync(rehearsalWorkspaceSourcePath, "utf8");
+    const start = source.indexOf("session = createP3RehearsalSession");
+    const end = source.indexOf("p3SessionRef.current = session", start);
+    const sessionBody = source.slice(start, end);
+
+    expect(sessionBody).toContain("onSemanticCapabilityEvent");
+    expect(sessionBody).toContain("slice(-100)");
+    expect(source).toContain("createSemanticCapabilityStatusItems");
+    expect(source).toContain("semanticCapabilityItems={semanticCapabilityItems}");
+  });
+
   it("requests microphone audio with live STT input quality constraints", async () => {
     const stream = { getTracks: () => [] } as unknown as MediaStream;
     const getUserMedia = vi.fn(async () => stream);
