@@ -4738,6 +4738,9 @@ export function RehearsalWorkspace(props: {
           nowMs={autoAdvanceNowMs}
           onCancel={cancelAutoAdvanceForManualCommand}
           rows={prompterRows}
+          scriptProgressPercent={Math.round(
+            (p3PanelSnapshot.scriptProgress?.ratio ?? 0) * 100,
+          )}
           state={advanceControllerState}
         />
       </section>
@@ -5446,6 +5449,7 @@ function RehearsalTeleprompter(props: {
   nowMs: number;
   onCancel: () => void;
   rows: RehearsalPrompterRows;
+  scriptProgressPercent: number;
   state: AdvanceControllerState;
 }) {
   const countdownSeconds = getAutoAdvanceCountdownSeconds(
@@ -5461,6 +5465,12 @@ function RehearsalTeleprompter(props: {
         {props.rows.current}
       </p>
       <p>{props.rows.next}</p>
+      <output
+        aria-label="원문 기준 실시간 진행률"
+        className="rehearsal-teleprompter-progress"
+      >
+        원문 진행 {props.scriptProgressPercent}%
+      </output>
 
       {countdownSeconds !== null ? (
         <div className="rehearsal-auto-advance-card" role="status">
