@@ -594,8 +594,14 @@ def export_ai_deck_pptx(payload: DeckPptxExportRequest) -> DeckPptxExportRespons
 @app.post("/ai/extract-semantic-cues", response_model=SemanticCueExtractionResponse)
 def extract_semantic_cues_endpoint(
     payload: SemanticCueExtractionRequest,
+    request: Request,
 ) -> SemanticCueExtractionResponse:
-    return extract_semantic_cues(payload)
+    config = _config(request)
+    return extract_semantic_cues(
+        payload,
+        model=config.openai_model,
+        api_key=config.openai_api_key,
+    )
 
 
 @app.post("/rehearsal/analyze", response_model=RehearsalAnalyzeResponse)
