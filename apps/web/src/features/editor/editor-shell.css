@@ -2885,8 +2885,119 @@
 .assistant-panel-slot {
   min-height: 0;
   display: grid;
-  align-content: start;
-  overflow: auto;
+  grid-template-rows: minmax(0, 1fr);
+  align-content: stretch;
+  overflow: hidden;
+}
+
+.ai-chat-panel {
+  min-height: 0;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  gap: 16px;
+  padding-bottom: 18px;
+}
+
+.ai-chat-history {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 4px 2px 8px;
+}
+
+.ai-chat-message {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+}
+
+.ai-chat-message.user {
+  justify-content: flex-end;
+}
+
+.ai-chat-message p {
+  max-width: calc(100% - 42px);
+  margin: 0;
+  padding: 10px 13px;
+  border-radius: 16px;
+  background: #f3f4f6;
+  color: #344054;
+  font-size: 13px;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+.ai-chat-message.user p {
+  border-bottom-right-radius: 5px;
+  background: var(--blue);
+  color: #fff;
+}
+
+.ai-chat-avatar {
+  flex: 0 0 auto;
+  display: inline-grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: var(--blue-soft);
+  color: var(--blue);
+  font-size: 10px;
+  font-weight: 900;
+}
+
+.ai-chat-composer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 48px;
+  padding: 5px 6px 5px 17px;
+  border: 1px solid #d0d5dd;
+  border-radius: 50px;
+  background: #fff;
+  box-shadow: 0 2px 8px rgba(16, 24, 40, 0.06);
+}
+
+.ai-chat-composer:focus-within {
+  border-color: #84adff;
+  box-shadow: 0 0 0 3px rgba(49, 87, 245, 0.12);
+}
+
+.ai-chat-composer input {
+  min-width: 0;
+  flex: 1;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: 13px;
+}
+
+.ai-chat-composer input::placeholder {
+  color: #98a2b3;
+}
+
+.ai-chat-composer button {
+  flex: 0 0 auto;
+  display: inline-grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: var(--blue);
+  color: #fff;
+}
+
+.ai-chat-composer button:disabled {
+  background: #e4e7ec;
+  color: #98a2b3;
+  cursor: default;
 }
 
 .assistant-panel-empty {

@@ -91,6 +91,7 @@ import {
   ShareAccessModal
 } from "./components/ShareAccessModal";
 import { HistoryChevronIcon } from "./components/HistoryChevronIcon";
+import { AiChatPanel } from "./components/AiChatPanel";
 import {
   SelectionQuickBar,
   createExpandTextWidthToFitFrame,
@@ -5525,20 +5526,25 @@ export function EditorShell(props: { projectId?: string }) {
                 </div>
               </div>
               <div className="assistant-panel-slot">
-                <PptxImportQualityPanel state={pptxImportState} />
-                <ValidationPanel
-                  items={editorValidationItems}
-                  onApplyAllTextOverflow={handleApplyAllValidationTextOverflow}
-                  onHighlightElementIds={setValidationHighlightElementIds}
-                  onTextOverflowAction={handleValidationTextOverflowAction}
-                />
-                <SourceLedgerPanel slide={currentSlide ?? null} />
-                <SuggestionPanel
-                  deck={deck}
-                  projectId={projectId}
-                  slideId={currentSlide?.slideId ?? null}
-                  onApplySuccess={handleAiSuggestionApplied}
-                />
+                <AiChatPanel />
+                {false ? (
+                  <>
+                    <PptxImportQualityPanel state={pptxImportState} />
+                    <ValidationPanel
+                      items={editorValidationItems}
+                      onApplyAllTextOverflow={handleApplyAllValidationTextOverflow}
+                      onHighlightElementIds={setValidationHighlightElementIds}
+                      onTextOverflowAction={handleValidationTextOverflowAction}
+                    />
+                    <SourceLedgerPanel slide={currentSlide ?? null} />
+                    <SuggestionPanel
+                      deck={deck}
+                      projectId={projectId}
+                      slideId={currentSlide?.slideId ?? null}
+                      onApplySuccess={handleAiSuggestionApplied}
+                    />
+                  </>
+                ) : null}
               </div>
             </>
           ) : (
