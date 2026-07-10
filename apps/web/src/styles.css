@@ -7515,6 +7515,100 @@ button:disabled {
   min-height: 0;
 }
 
+.semantic-capability-status {
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: 12px;
+  background: rgba(15, 23, 42, 0.58);
+  overflow: hidden;
+}
+
+.semantic-capability-status > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.16);
+  color: #cbd5e1;
+  font-size: 12px;
+}
+
+.semantic-capability-status > header strong {
+  color: #94a3b8;
+}
+
+.semantic-capability-status ul {
+  display: grid;
+  gap: 1px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.semantic-capability-status-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 10px;
+  padding: 10px 12px;
+  background: rgba(15, 23, 42, 0.34);
+}
+
+.semantic-capability-status-row--error > svg {
+  color: #fb7185;
+}
+
+.semantic-capability-status-row--warning > svg {
+  color: #fbbf24;
+}
+
+.semantic-capability-status-row--info > svg {
+  color: #34d399;
+}
+
+.semantic-capability-status-row div {
+  min-width: 0;
+}
+
+.semantic-capability-status-row strong,
+.semantic-capability-status-row p,
+.semantic-capability-status-row small {
+  display: block;
+}
+
+.semantic-capability-status-row strong {
+  color: #f8fafc;
+  font-size: 13px;
+}
+
+.semantic-capability-status-row p {
+  margin: 3px 0 0;
+  color: #cbd5e1;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.semantic-capability-status-row small {
+  margin-top: 4px;
+  color: #94a3b8;
+  font-size: 11px;
+}
+
+.semantic-capability-status-row button {
+  min-height: 30px;
+  padding: 5px 9px;
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  border-radius: 8px;
+  background: rgba(30, 41, 59, 0.9);
+  color: #e2e8f0;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.semantic-capability-status-row button:focus-visible {
+  outline: 2px solid #38bdf8;
+  outline-offset: 2px;
+}
+
 .rehearsal-presenter-side > .rehearsal-panel {
   overflow: auto;
   padding: 14px;

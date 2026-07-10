@@ -32,6 +32,8 @@ import {
   createRehearsalScriptPrompterRows,
   getRehearsalScriptFocusSentenceId
 } from "./rehearsalScriptPrompter";
+import { SemanticCapabilityStatus } from "./SemanticCapabilityStatus";
+import type { SemanticCapabilityStatusItem } from "./semanticCapabilityStatusModel";
 
 export type RehearsalPanelMode = "rehearsal" | "live";
 
@@ -51,6 +53,8 @@ export type RehearsalPanelProps = {
   speakerNotes?: string;
   sentences: readonly ExtractedSentence[];
   snapshot: SpeechTrackerSnapshot;
+  semanticCapabilityItems?: readonly SemanticCapabilityStatusItem[];
+  onSemanticCapabilityAction?: (item: SemanticCapabilityStatusItem) => void;
 };
 
 export function RehearsalPanel(props: RehearsalPanelProps) {
@@ -137,6 +141,11 @@ export function RehearsalPanel(props: RehearsalPanelProps) {
           tone={props.timing.currentSlideOvertime ? "warning" : "normal"}
         />
       </div>
+
+      <SemanticCapabilityStatus
+        items={props.semanticCapabilityItems ?? []}
+        onAction={props.onSemanticCapabilityAction}
+      />
 
       <div className="rehearsal-panel-top-grid">
         <section className="rehearsal-panel-section" aria-label="키워드 체크리스트">

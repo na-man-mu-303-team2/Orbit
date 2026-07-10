@@ -25,6 +25,7 @@ import {
   type RehearsalEvaluationSnapshot,
   type RehearsalRun,
   type RehearsalRunMeta,
+  type SemanticCapabilityEvent,
   type Slide,
   type UpdateRehearsalRunMetaRequest,
 } from "@orbit/shared";
@@ -140,6 +141,11 @@ import {
   type AdvanceControllerState,
 } from "./advance/advanceController";
 import { RehearsalPanel } from "./panel/RehearsalPanel";
+import {
+  createSemanticCapabilityStatusItems,
+  getNextSemanticCapabilityRecoveryDelay,
+  type SemanticCapabilityStatusItem,
+} from "./panel/semanticCapabilityStatusModel";
 import { createRehearsalScriptPrompterRows } from "./panel/rehearsalScriptPrompter";
 import {
   SemanticSpeechDebugPanel,
@@ -1704,6 +1710,15 @@ export function RehearsalWorkspace(props: {
   const [semanticCueDebugEvents, setSemanticCueDebugEvents] = useState<
     SemanticCueDebugEvent[]
   >([]);
+  const [semanticCapabilityEvents, setSemanticCapabilityEvents] = useState<
+    SemanticCapabilityEvent[]
+  >([]);
+  const [semanticCapabilityNowMs, setSemanticCapabilityNowMs] = useState(() =>
+    Date.now(),
+  );
+  const [practiceWithoutVoiceAt, setPracticeWithoutVoiceAt] = useState<
+    number | null
+  >(null);
   const [p3RunMeta, setP3RunMeta] = useState<RehearsalRunMeta | null>(null);
   const [previousPracticeSummary, setPreviousPracticeSummary] =
     useState<RehearsalPracticeSummary | null>(() =>
@@ -2046,6 +2061,49 @@ export function RehearsalWorkspace(props: {
   ]);
 
   const currentSlide = deck?.slides[currentSlideIndex] ?? null;
+  const visibleSemanticCapabilityEvents = useMemo(() => {
+    if (practiceWithoutVoiceAt === null) {
+      return semanticCapabilityEvents;
+    }
+
+    return [
+      ...semanticCapabilityEvents,
+      {
+        eventId: `semantic_cap_voice_disabled_${practiceWithoutVoiceAt}`,
+        capability: "stt" as const,
+        fromState: "available" as const,
+        toState: "unavailable" as const,
+        reason: "user_disabled" as const,
+        measurementMode: "none" as const,
+        retryable: false,
+        cueIds: [],
+        at: new Date(practiceWithoutVoiceAt).toISOString(),
+      },
+    ];
+  }, [practiceWithoutVoiceAt, semanticCapabilityEvents]);
+  const semanticCapabilityItems = useMemo(
+    () =>
+      createSemanticCapabilityStatusItems(visibleSemanticCapabilityEvents, {
+        nowMs: semanticCapabilityNowMs,
+      }).slice(0, 6),
+    [semanticCapabilityNowMs, visibleSemanticCapabilityEvents],
+  );
+
+  useEffect(() => {
+    const delay = getNextSemanticCapabilityRecoveryDelay(
+      visibleSemanticCapabilityEvents,
+      semanticCapabilityNowMs,
+    );
+    if (delay === null) {
+      return;
+    }
+
+    const timer = window.setTimeout(
+      () => setSemanticCapabilityNowMs(Date.now()),
+      delay + 1,
+    );
+    return () => window.clearTimeout(timer);
+  }, [semanticCapabilityNowMs, visibleSemanticCapabilityEvents]);
   const currentSlideTargetSeconds =
     deck && currentSlide ? getSlideTargetSeconds(deck, currentSlide) : 0;
   const canRecord =
@@ -2307,6 +2365,7 @@ export function RehearsalWorkspace(props: {
   async function startRecording() {
     if (!deck || !canRecord) return;
     const activeDeck = deck;
+    setPracticeWithoutVoiceAt(null);
     stopLiveDemo();
 
     setError("");
@@ -2887,6 +2946,12 @@ export function RehearsalWorkspace(props: {
         semanticCueDebugBufferRef.current.push(event);
         setSemanticCueDebugEvents(semanticCueDebugBufferRef.current.snapshot());
       },
+      onSemanticCapabilityEvent: (event) => {
+        setSemanticCapabilityEvents((current) =>
+          [...current, event].slice(-100),
+        );
+        setSemanticCapabilityNowMs(Date.now());
+      },
     });
     p3SessionRef.current = session;
 
@@ -2940,6 +3005,26 @@ export function RehearsalWorkspace(props: {
       "pace-too-slow",
       p3AdviceState.pace === "too-slow",
     );
+  }
+
+  function handleSemanticCapabilityAction(item: SemanticCapabilityStatusItem) {
+    if (item.actionLabel === "Cue 검토로 이동" && deck) {
+      window.location.assign(`/project/${encodeURIComponent(deck.projectId)}`);
+      return;
+    }
+
+    if (item.actionLabel === "서버 재평가" && run) {
+      window.location.assign(getRehearsalReportPath(run.projectId, run.runId));
+      return;
+    }
+
+    if (
+      item.actionLabel === "마이크 권한 확인" ||
+      item.actionLabel === "재시도"
+    ) {
+      setPracticeWithoutVoiceAt(null);
+      void startLiveDemo();
+    }
   }
 
   function ensurePauseDetector() {
@@ -3796,6 +3881,8 @@ export function RehearsalWorkspace(props: {
     setHasLocalCompletion(false);
     setLiveStatus("idle");
     setLiveError("");
+    setPracticeWithoutVoiceAt(null);
+    setSemanticCapabilityEvents([]);
     resetRehearsalTimerState({
       setElapsedSeconds,
       setSlideElapsedSeconds,
@@ -4042,10 +4129,13 @@ export function RehearsalWorkspace(props: {
         previousSummary={previousPracticeSummary}
         resolveLiveSttEngine={resolveEffectiveLiveSttEngine}
         onPracticeWithoutVoice={() => {
+          const disabledAt = Date.now();
           setElapsedSeconds(0);
           setSlideElapsedSeconds(0);
           setHasLocalCompletion(false);
           setIsTimerRunning(true);
+          setPracticeWithoutVoiceAt(disabledAt);
+          setSemanticCapabilityNowMs(disabledAt);
         }}
         onStart={() => void startRecording()}
       />
@@ -4367,6 +4457,8 @@ export function RehearsalWorkspace(props: {
             showScriptPanel={false}
             speakerNotes={currentSlide?.speakerNotes ?? ""}
             snapshot={p3PanelSnapshot}
+            semanticCapabilityItems={semanticCapabilityItems}
+            onSemanticCapabilityAction={handleSemanticCapabilityAction}
             liveSlot={
               <section className="rehearsal-assist-card checklist-card">
                 <header>

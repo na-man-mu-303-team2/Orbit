@@ -37,6 +37,29 @@ describe("RehearsalPanel", () => {
     expect(html).not.toContain("transcript");
   });
 
+  it("debug flag와 무관하게 시스템 capability 상태를 조언과 분리해 표시한다", () => {
+    const html = renderPanel({
+      semanticCapabilityItems: [
+        {
+          key: "semantic_runtime",
+          severity: "error",
+          shortLabel: "의미 체크 오프라인",
+          detail: "수동 발표는 계속할 수 있습니다.",
+          retryable: true,
+          affectedCount: 2,
+          source: "system-status",
+          actionLabel: "재시도",
+          recovered: false,
+          measurementMode: "none"
+        }
+      ]
+    });
+
+    expect(html).toContain("시스템 상태");
+    expect(html).toContain("의미 체크 오프라인");
+    expect(html).not.toContain("AI 코칭");
+  });
+
   it("marks the script region as auto-following by default", () => {
     const html = renderPanel();
 
@@ -168,6 +191,7 @@ function renderPanel(
     speakerNotes?: string;
     sentences?: ExtractedSentence[];
     snapshot?: SpeechTrackerSnapshot;
+    semanticCapabilityItems?: import("./semanticCapabilityStatusModel").SemanticCapabilityStatusItem[];
   } = {}
 ) {
   void overrides.transcriptText;
@@ -183,6 +207,7 @@ function renderPanel(
       sentences={overrides.sentences ?? sentences}
       speakerNotes={overrides.speakerNotes}
       snapshot={overrides.snapshot ?? snapshot}
+      semanticCapabilityItems={overrides.semanticCapabilityItems}
     />
   );
 }
