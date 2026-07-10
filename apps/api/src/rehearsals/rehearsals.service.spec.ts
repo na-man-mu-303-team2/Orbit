@@ -1,5 +1,10 @@
-import type { AssetUploadUrlResponse, Job } from "@orbit/shared";
-import { BadRequestException } from "@nestjs/common";
+import {
+  deckSchema,
+  type AssetUploadUrlResponse,
+  type Deck,
+  type Job
+} from "@orbit/shared";
+import { BadRequestException, ConflictException } from "@nestjs/common";
 import type { PinoLogger } from "nestjs-pino";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Repository } from "typeorm";
@@ -127,9 +132,83 @@ describe("RehearsalsService", () => {
       deckId: "deck-a",
       audioFileId: null,
       jobId: null,
-      status: "created"
+      status: "created",
+      deckVersion: 3,
+      semanticEvaluationMode: "full"
     });
     expect(result.run.runId).toMatch(/^run_/);
+    expect(result.run.evaluationSnapshot).toMatchObject({
+      deckId: "deck-a",
+      deckVersion: 3,
+      slides: [
+        {
+          slideId: "slide_1",
+          semanticCues: [
+            { cueId: "scue_approved", reviewStatus: "approved", revision: 2 },
+            { cueId: "scue_excluded", reviewStatus: "excluded", revision: 1 }
+          ]
+        }
+      ]
+    });
+    expect(JSON.stringify(result.run.evaluationSnapshot)).not.toContain(
+      "민감한 발표자 노트"
+    );
+    expect(service.testLogger.info).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: "rehearsal.evaluation_snapshot.created",
+        projectId: "project-a",
+        deckId: "deck-a",
+        deckVersion: 3,
+        slideCount: 1,
+        cueCount: 2
+      }),
+      "Rehearsal evaluation snapshot created."
+    );
+  });
+
+  it("keeps the evaluation snapshot immutable after the live deck changes", async () => {
+    const mutableDeck = createDeck();
+    const service = createService({ deck: mutableDeck });
+    const created = await service.createRun("project-a", {
+      deckId: "deck-a",
+      expectedDeckVersion: 3
+    });
+
+    mutableDeck.version = 4;
+    mutableDeck.slides[0]!.semanticCues[0]!.meaning = "편집 후 의미";
+
+    const stored = await service.getRun(created.run.runId);
+    expect(stored.run.deckVersion).toBe(3);
+    expect(stored.run.evaluationSnapshot?.slides[0]?.semanticCues[0]?.meaning).toBe(
+      "승인된 원래 의미"
+    );
+  });
+
+  it("rejects a full run when the expected deck version is stale", async () => {
+    const service = createService();
+
+    await expect(
+      service.createRun("project-a", {
+        deckId: "deck-a",
+        expectedDeckVersion: 2
+      })
+    ).rejects.toBeInstanceOf(ConflictException);
+  });
+
+  it("creates a delivery-only run without a semantic snapshot", async () => {
+    const service = createService();
+
+    const result = await service.createRun("project-a", {
+      deckId: "deck-a",
+      expectedDeckVersion: 2,
+      semanticEvaluationMode: "delivery-only"
+    });
+
+    expect(result.run).toMatchObject({
+      deckVersion: null,
+      evaluationSnapshot: null,
+      semanticEvaluationMode: "delivery-only"
+    });
   });
 
   it("rejects run creation when the deckId does not match the project deck", async () => {
@@ -276,8 +355,38 @@ describe("RehearsalsService", () => {
         missedKeywords: [{ slideId: "slide_1", keywordId: "kw_1" }],
         adviceEvents: [{ type: "pace-too-fast", at: "2026-07-02T00:00:30.000Z" }],
         utteranceOutcomes: [],
-        semanticCueDecisions: []
+        semanticCueDecisions: [],
+        semanticCapabilityEvents: []
       });
+  });
+
+  it("cancels an unprocessed run and excludes it from default run lists", async () => {
+    const service = createService();
+    const first = await createRun(service);
+    const second = await createRun(service);
+
+    const cancelled = await service.cancelRun(first.runId);
+    const listed = await service.listRuns("project-a");
+
+    expect(cancelled.run.status).toBe("cancelled");
+    expect(listed.runs.map((run: { runId: string }) => run.runId)).toEqual([
+      second.runId
+    ]);
+  });
+
+  it("rejects cancellation after audio processing starts", async () => {
+    const service = createService();
+    const run = await createRun(service);
+    await service.createAudioUploadUrl(run.runId, {
+      originalName: "rehearsal.webm",
+      mimeType: "audio/webm",
+      size: 1024
+    });
+    await service.completeAudioUpload(run.runId, { fileId: "file-audio" });
+
+    await expect(service.cancelRun(run.runId)).rejects.toBeInstanceOf(
+      BadRequestException
+    );
   });
 
   it("rejects rehearsal run meta updates after processing starts", async () => {
@@ -512,6 +621,7 @@ function createService(
     jobsService?: JobsService;
     filesServicePatch?: Partial<FilesService>;
     transcriptCache?: RehearsalTranscriptCache;
+    deck?: Deck;
   } = {}
 ) {
   const logger = createLogger();
@@ -549,13 +659,14 @@ function createService(
       createdAt: createdAt.toISOString()
     }))
   } as unknown as ProjectsService;
+  const deck = options.deck ?? createDeck();
   const service = new RehearsalsService(
     repository,
     { findOne: vi.fn(async () => null) } as unknown as Repository<ProjectEntity>,
     {
       getDeck: vi.fn(async () => ({
         projectId: "project-a",
-        deck: { deckId: "deck-a" },
+        deck,
         updatedAt: createdAt.toISOString()
       }))
     } as unknown as DecksService,
@@ -611,8 +722,100 @@ function createRunRepository() {
       Object.assign(run, patch);
       runs.set(run.runId, { ...run });
       return { affected: 1 };
+    },
+    async findAndCount(options: {
+      where: { projectId: string; status?: unknown };
+      take: number;
+      skip: number;
+    }) {
+      const status = options.where.status as
+        | string
+        | { _type?: string; _value?: string }
+        | undefined;
+      const matching = [...runs.values()]
+        .filter((run) => run.projectId === options.where.projectId)
+        .filter((run) => {
+          if (typeof status === "string") {
+            return run.status === status;
+          }
+          if (status?._type === "not") {
+            return run.status !== status._value;
+          }
+          return true;
+        })
+        .sort((left, right) => right.createdAt.getTime() - left.createdAt.getTime());
+
+      return [matching.slice(options.skip, options.skip + options.take), matching.length];
     }
   } as unknown as Repository<RehearsalRunEntity>;
+}
+
+function createDeck(): Deck {
+  const deck = deckSchema.parse({
+    deckId: "deck_a",
+    projectId: "project-a",
+    title: "Rehearsal deck",
+    version: 3,
+    targetDurationMinutes: 10,
+    canvas: {
+      preset: "wide-16-9",
+      width: 1920,
+      height: 1080,
+      aspectRatio: "16:9"
+    },
+    slides: [
+      {
+        slideId: "slide_1",
+        order: 1,
+        title: "Opening",
+        speakerNotes: "민감한 발표자 노트",
+        keywords: [
+          {
+            keywordId: "kw_1",
+            text: "ORBIT",
+            synonyms: ["발표 도우미"],
+            abbreviations: [],
+            required: true
+          }
+        ],
+        elements: [],
+        semanticCues: [
+          semanticCue("scue_approved", "approved", 2, "승인된 원래 의미"),
+          semanticCue("scue_excluded", "excluded", 1, "제외된 의미"),
+          semanticCue("scue_suggested", "suggested", 1, "검토 전 의미")
+        ]
+      }
+    ]
+  });
+  deck.deckId = "deck-a";
+  return deck;
+}
+
+function semanticCue(
+  cueId: string,
+  reviewStatus: "suggested" | "approved" | "excluded",
+  revision: number,
+  meaning: string
+) {
+  return {
+    cueId,
+    slideId: "slide_1",
+    meaning,
+    importance: "core",
+    reviewStatus,
+    freshness: "current",
+    origin: "ai",
+    revision,
+    required: true,
+    priority: 1,
+    candidateKeywords: ["ORBIT"],
+    aliases: {},
+    requiredConcepts: ["발표 도우미"],
+    nliHypotheses: ["발표자는 ORBIT이 발표를 돕는다고 설명했다"],
+    negativeHints: [],
+    targetElementIds: [],
+    triggerActionIds: []
+  };
 }
 
 function createLogger() {
