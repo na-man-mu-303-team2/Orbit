@@ -1050,3 +1050,28 @@ final result: passed
 - No actionable P0/P1/P2 findings remain.
 
 final result: passed
+
+## Production live presenter T16 QA
+
+### Source and implementation
+
+- Source visual truth: the approved dark presenter-mode mockup and the production presentation contract for deck navigation, script cues and timing.
+- Browser implementation: `/presentation/project_demo_1` at `artifacts/migration/t16/live-presenter.png`.
+- Desktop viewport: 1440×1024 with `scrollWidth === clientWidth`.
+
+### Required fidelity surfaces
+
+- Fonts and typography: slide context, timer, script and status labels use the canonical readable operational scale with stronger current-state emphasis.
+- Spacing and layout rhythm: the current slide remains dominant, the next-slide cue stays adjacent, and timing/script information occupies a stable secondary rail.
+- Colors and visual tokens: Navy/Ink surfaces establish the live-presentation context; white text and restrained Lilac/Mint accents preserve contrast without introducing new semantic colors.
+- Image quality and asset fidelity: the dark header uses the official white ORBIT raster logo directly. The exit action uses a Tabler presentation icon.
+- Copy and content: slide title, notes, keywords, timing and navigation come from the loaded deck and existing presentation state only.
+
+### Interaction and findings
+
+- Keyboard and explicit previous/next controls still drive the existing slideshow-step model; timer start, pause, reset and editable duration behavior are unchanged.
+- Loading and failure states retain the shared presenter status shell. The live presenter contains no fabricated audience count, question count or engagement metric.
+- Web test suite: 700 passed. Web TypeScript validation, production build and `git diff --check` passed. The existing large-bundle warning remains.
+- No actionable P0/P1/P2 findings remain.
+
+final result: passed

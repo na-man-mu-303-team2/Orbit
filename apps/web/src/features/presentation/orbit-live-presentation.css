@@ -1,0 +1,98 @@
+.orbit-live-presenter-shell {
+  --live-panel: #151b2c;
+  --live-panel-raised: #1d2438;
+  --live-border: rgba(255, 255, 255, 0.13);
+  background: #0b1020;
+  color: #fff;
+}
+
+.orbit-live-presenter-shell .rehearsal-presenter-topbar {
+  background: #0b1020;
+  border-bottom-color: var(--live-border);
+  color: #fff;
+  grid-template-columns: auto auto auto 1fr auto auto;
+}
+
+.orbit-live-presenter-logo {
+  display: block;
+  height: 26px;
+  object-fit: contain;
+  width: auto;
+}
+
+.orbit-live-presenter-shell .rehearsal-exit-button {
+  background: transparent;
+  border-color: rgba(255, 255, 255, 0.26);
+  color: #fff;
+}
+
+.orbit-live-presenter-shell .rehearsal-session-status,
+.orbit-live-presenter-shell .rehearsal-recording-status {
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.orbit-live-presenter-shell .rehearsal-recording-status-active {
+  color: #ff9a96;
+}
+
+.orbit-live-presenter-shell .rehearsal-presenter-main,
+.orbit-live-presenter-shell .rehearsal-presenter-side > section,
+.orbit-live-presenter-shell .rehearsal-assist-card {
+  background: var(--live-panel);
+  border-color: var(--live-border);
+  color: #fff;
+}
+
+.orbit-live-presenter-shell .rehearsal-stage-wrap {
+  background: #05070d;
+}
+
+.orbit-live-presenter-shell .rehearsal-next-slide-preview {
+  border-color: var(--live-border);
+}
+
+.orbit-live-presenter-shell .rehearsal-next-slide-frame {
+  background: #05070d;
+  border-color: var(--live-border);
+}
+
+.orbit-live-presenter-shell .rehearsal-slide-controls button,
+.orbit-live-presenter-shell .rehearsal-side-timer-actions button,
+.orbit-live-presenter-shell .rehearsal-panel button {
+  background: var(--live-panel-raised);
+  border-color: var(--live-border);
+  color: #fff;
+}
+
+.orbit-live-presenter-shell .rehearsal-side-timer-hero {
+  background: rgba(188, 167, 245, 0.16);
+}
+
+.orbit-live-presenter-shell .rehearsal-side-timer-time,
+.orbit-live-presenter-shell .rehearsal-panel,
+.orbit-live-presenter-shell .rehearsal-panel strong,
+.orbit-live-presenter-shell .rehearsal-panel h2,
+.orbit-live-presenter-shell .rehearsal-panel h3 {
+  color: #fff;
+}
+
+.orbit-live-presenter-shell .rehearsal-panel p,
+.orbit-live-presenter-shell .rehearsal-panel span,
+.orbit-live-presenter-shell .rehearsal-side-timer-meta {
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.orbit-live-presenter-shell .rehearsal-panel-keyword-hit {
+  background: rgba(166, 231, 184, 0.15);
+  color: #bff1cb;
+}
+
+@media (max-width: 900px) {
+  .orbit-live-presenter-shell .rehearsal-presenter-topbar {
+    grid-template-columns: auto 1fr auto;
+  }
+
+  .orbit-live-presenter-logo {
+    display: none;
+  }
+}

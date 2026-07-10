@@ -48,8 +48,12 @@ describe("PresentationWorkspace", () => {
     expect(html).toContain("발표 시간");
     expect(html).toContain("키워드");
     expect(html).toContain("대본");
+    expect(html).toContain('class="rehearsal-presenter-shell orbit-live-presenter-shell"');
+    expect(html).toContain('alt="ORBIT"');
     expect(html).not.toContain("Live STT");
     expect(html).not.toContain("Report AI");
+    expect(html).not.toContain("청중 수");
+    expect(html).not.toContain("질문 0개");
   });
 
   it("delegates the presentation view to a dedicated screen component", () => {
