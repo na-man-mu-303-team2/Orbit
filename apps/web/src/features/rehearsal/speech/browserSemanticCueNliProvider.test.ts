@@ -1,3 +1,6 @@
+import { readFile } from "node:fs/promises";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
   createBrowserTransformersSemanticCueNliProvider,
@@ -7,6 +10,8 @@ import type {
   BrowserSemanticCueNliWorkerRequest,
   BrowserSemanticCueNliWorkerResponse
 } from "./browserSemanticCueNliWorkerProtocol";
+
+const currentDir = dirname(fileURLToPath(import.meta.url));
 
 describe("getBrowserSemanticCueNliCapability", () => {
   it("selects WebGPU when available and falls back to WASM otherwise", () => {
@@ -36,6 +41,18 @@ describe("getBrowserSemanticCueNliCapability", () => {
 });
 
 describe("createBrowserTransformersSemanticCueNliProvider", () => {
+  it("keeps the default NLI worker outside Vite import-meta worker bundling", async () => {
+    const source = await readFile(
+      resolve(currentDir, "browserSemanticCueNliProvider.ts"),
+      "utf8"
+    );
+
+    expect(source).not.toContain(
+      'new URL("./browserSemanticCueNliWorker.ts", import.meta.url)'
+    );
+    expect(source).toContain("resolveBrowserSemanticCueNliWorkerUrl");
+  });
+
   it("loads the worker and maps NLI decisions", async () => {
     const worker = new FakeWorker();
     const provider = createBrowserTransformersSemanticCueNliProvider({

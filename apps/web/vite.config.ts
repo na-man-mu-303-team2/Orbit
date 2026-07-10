@@ -71,6 +71,8 @@ export default defineConfig(({ mode }) => {
   return {
     plugins: [react()],
     worker: {
+      // The sherpa live STT runtime is a classic worker that loads WASM with importScripts.
+      // Browser semantic cue NLI is built separately as an ES module worker asset.
       format: "iife"
     },
     resolve: {
