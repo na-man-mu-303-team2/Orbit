@@ -744,6 +744,32 @@
 
 final result: passed
 
+## Production microphone preflight T13 QA
+
+### Source and implementation
+
+- Source visual truth: `/mockup/microphone-check`, interpreted against the real permission and Live STT states in `RehearsalPreflightScreen`.
+- Browser implementation: `/rehearsal/project_demo_1` prompt state, verified by DOM and viewport metrics; capture artifact at `artifacts/migration/t13/preflight-prompt.png`.
+- Desktop viewport: 1440×1024 with `scrollWidth === clientWidth`.
+
+### Required fidelity surfaces
+
+- Fonts and typography: a 40px preflight heading and 12–14px status/device copy use canonical typography.
+- Spacing and layout rhythm: a centered 760px card, 18px radius, compact goal banner, connected status chain and one primary start action follow the approved preflight hierarchy.
+- Colors and visual tokens: Lime carries the current rehearsal goal, Lilac identifies the microphone checkpoint, and neutral status rows preserve actual permission meaning.
+- Image quality and asset fidelity: microphone and state symbols remain library icons; no fake level illustration is introduced.
+- Copy and content: permission, device labels, voice-check transcript/latency, command phrases and slide count come from actual browser/deck state.
+
+### Interaction and findings
+
+- Permission is queried read-only on load and requested only from the explicit `권한 허용 요청` action. Prompt, granted, denied and unsupported states retain different guidance.
+- After permission, real `audioinput` devices populate the selector. The selected device is persisted and added to the existing microphone constraints for preflight and rehearsal capture.
+- Voice check, command matching, latency, silent-practice fallback and disabled-start explanation remain unchanged.
+- `RehearsalWorkspace.test.tsx`: 80 passed. Web TypeScript validation, production build and `git diff --check` passed. The existing large-bundle warning remains.
+- The browser permission prompt was intentionally not accepted during automated QA; granted/denied manual verification remains in Checkpoint E. No code-level P0/P1/P2 findings remain.
+
+final result: passed
+
 ## Production editor share dialog T12 QA
 
 ### Source and implementation

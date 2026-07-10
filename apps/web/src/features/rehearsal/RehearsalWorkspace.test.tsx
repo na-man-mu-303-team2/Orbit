@@ -43,6 +43,7 @@ import {
   getRemainingTriggerStepsForSlide,
   normalizeRecordingMimeType,
   rehearsalMicrophoneAudioConstraints,
+  rehearsalMicrophoneDeviceStorageKey,
   rehearsalRawMicrophoneAudioConstraints,
   renderLiveTranscriptBuffer,
   requestRehearsalMicrophoneStream,
@@ -886,6 +887,19 @@ describe("RehearsalWorkspace", () => {
     );
     expect(getUserMedia).toHaveBeenCalledWith({
       audio: rehearsalRawMicrophoneAudioConstraints,
+    });
+  });
+
+  it("applies the preferred microphone device to rehearsal capture", () => {
+    const storage = {
+      getItem: vi.fn((key: string) =>
+        key === rehearsalMicrophoneDeviceStorageKey ? "mic_external" : null,
+      ),
+    };
+
+    expect(getRehearsalMicrophoneAudioConstraints(storage)).toEqual({
+      ...rehearsalMicrophoneAudioConstraints,
+      deviceId: { exact: "mic_external" },
     });
   });
 

@@ -203,6 +203,7 @@ import type {
   SpeechTrackerSnapshot,
   SpeechTrackingEvent,
 } from "./speech/speechTrackingEvents";
+import "./rehearsal-preflight.css";
 
 export {
   LiveSttAdapterError,
@@ -1248,9 +1249,21 @@ export function requestRehearsalMicrophoneStream(
 export function getRehearsalMicrophoneAudioConstraints(
   storage: Pick<Storage, "getItem"> | null = readBrowserLocalStorage(),
 ) {
-  return isLiveSttRawMicDebugEnabled(storage)
+  const base = isLiveSttRawMicDebugEnabled(storage)
     ? rehearsalRawMicrophoneAudioConstraints
     : rehearsalMicrophoneAudioConstraints;
+  const deviceId = readPreferredRehearsalMicrophoneDevice(storage);
+  return deviceId ? { ...base, deviceId: { exact: deviceId } } : base;
+}
+
+export const rehearsalMicrophoneDeviceStorageKey = "orbit.rehearsal.microphoneDevice";
+
+export function readPreferredRehearsalMicrophoneDevice(storage: Pick<Storage, "getItem"> | null = readBrowserLocalStorage()) {
+  try { return storage?.getItem(rehearsalMicrophoneDeviceStorageKey)?.trim() || ""; } catch { return ""; }
+}
+
+export function setPreferredRehearsalMicrophoneDevice(deviceId: string, storage: Pick<Storage, "setItem"> | null = readBrowserLocalStorage()) {
+  try { storage?.setItem(rehearsalMicrophoneDeviceStorageKey, deviceId); } catch { /* Browser storage is optional. */ }
 }
 
 export function isLiveSttRawMicDebugEnabled(
@@ -4387,6 +4400,10 @@ function RehearsalPreflightScreen(props: {
     null,
   );
   const [matchedPhrases, setMatchedPhrases] = useState<readonly string[]>([]);
+  const [microphoneDevices, setMicrophoneDevices] = useState<MediaDeviceInfo[]>([]);
+  const [selectedMicrophoneId, setSelectedMicrophoneId] = useState(() =>
+    readPreferredRehearsalMicrophoneDevice(),
+  );
   const preflightStreamRef = useRef<MediaStream | null>(null);
   const preflightLiveSttPortRef = useRef<LiveSttPort | null>(null);
   const preflightLiveSttCleanupRef = useRef<(() => void) | null>(null);
@@ -4447,6 +4464,31 @@ function RehearsalPreflightScreen(props: {
       stopPreflightVoiceResources();
     };
   }, []);
+
+  useEffect(() => {
+    if (
+      microphonePermission !== "granted" ||
+      typeof navigator.mediaDevices?.enumerateDevices !== "function"
+    ) {
+      return;
+    }
+    let cancelled = false;
+    void navigator.mediaDevices
+      .enumerateDevices()
+      .then((devices) => {
+        if (cancelled) return;
+        const microphones = devices.filter((device) => device.kind === "audioinput");
+        setMicrophoneDevices(microphones);
+        if (!selectedMicrophoneId && microphones[0]?.deviceId) {
+          setSelectedMicrophoneId(microphones[0].deviceId);
+          setPreferredRehearsalMicrophoneDevice(microphones[0].deviceId);
+        }
+      })
+      .catch(() => setMicrophoneDevices([]));
+    return () => {
+      cancelled = true;
+    };
+  }, [microphonePermission, selectedMicrophoneId]);
 
   const permissionStatus = getPreflightMicrophoneStatus(microphonePermission);
   const voiceStatus = getPreflightVoiceStatus(
@@ -4668,6 +4710,30 @@ function RehearsalPreflightScreen(props: {
             status={permissionStatus}
             value={permissionStatus.value}
           />
+          {isMicrophoneGranted ? (
+            <label className="rehearsal-preflight-device">
+              <span>사용할 마이크</span>
+              <select
+                aria-label="사용할 마이크"
+                onChange={(event) => {
+                  setSelectedMicrophoneId(event.currentTarget.value);
+                  setPreferredRehearsalMicrophoneDevice(event.currentTarget.value);
+                }}
+                value={selectedMicrophoneId}
+              >
+                {microphoneDevices.length ? (
+                  microphoneDevices.map((device, index) => (
+                    <option key={device.deviceId} value={device.deviceId}>
+                      {device.label || `마이크 ${index + 1}`}
+                    </option>
+                  ))
+                ) : (
+                  <option value="">브라우저 기본 마이크</option>
+                )}
+              </select>
+              <small>선택한 장치는 실제 리허설 녹음에도 사용됩니다.</small>
+            </label>
+          ) : null}
           {isMicrophoneGranted ? (
             <PreflightStatusRow
               details={
