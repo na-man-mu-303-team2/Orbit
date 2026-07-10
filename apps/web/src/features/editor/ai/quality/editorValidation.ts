@@ -12,7 +12,16 @@ const editorDuplicateTextMinimumLength = 6;
 export type EditorValidationItem = {
   elementId?: string;
   elementIds?: string[];
-  issue?: "textOverflow" | "titleWrap" | "labelWrap";
+  issue?:
+    | "textOverflow"
+    | "titleWrap"
+    | "labelWrap"
+    | "speakerNotesShort"
+    | "textContrast"
+    | "contrastUnverifiable"
+    | "mediaSlotMissing"
+    | "sourceLedgerMissing"
+    | "slideCountMismatch";
   level?: "warning";
   message: string;
   slideId?: string;
@@ -24,9 +33,71 @@ export function getEditorValidationItems(
   slide?: Slide
 ): EditorValidationItem[] {
   const slides = slide ? [slide] : deck.slides;
-  return slides.flatMap((targetSlide) =>
+  const slideItems = slides.flatMap((targetSlide) =>
     getEditorSlideValidationItems(deck, targetSlide)
   );
+  return slide ? slideItems : [...getEditorDeckValidationItems(deck), ...slideItems];
+}
+
+function getEditorDeckValidationItems(deck: Deck): EditorValidationItem[] {
+  const items: EditorValidationItem[] = [];
+  const timingPlan = deck.slides.find(
+    (slide) => slide.aiNotes?.timingPlan
+  )?.aiNotes?.timingPlan;
+
+  if (timingPlan?.targetSlideCount) {
+    const slideCount = deck.slides.length;
+    if (
+      slideCount < Math.max(1, timingPlan.targetSlideCount - 1) ||
+      slideCount > timingPlan.targetSlideCount + 2
+    ) {
+      items.push({
+        issue: "slideCountMismatch",
+        message: `발표 시간 기준 권장 장수는 ${timingPlan.targetSlideCount}장인데 현재 ${slideCount}장입니다.`,
+        severity: "warning"
+      });
+    }
+  }
+
+  const targetTotalChars = timingPlan?.targetTotalChars ?? 0;
+  if (targetTotalChars > 0) {
+    const actualTotalChars = deck.slides.reduce(
+      (total, slide) => total + countSpokenChars(slide.speakerNotes),
+      0
+    );
+    if (actualTotalChars < Math.round(targetTotalChars * 0.8)) {
+      items.push({
+        issue: "speakerNotesShort",
+        message: `발표자 노트가 발표 시간 기준보다 짧습니다. 목표 ${targetTotalChars}자 대비 현재 ${actualTotalChars}자입니다.`,
+        severity: "warning"
+      });
+    }
+  }
+
+  for (const slide of deck.slides) {
+    if (slide.aiNotes?.visualPlan?.imageNeeded && !hasVisibleVisualSlot(slide)) {
+      items.push({
+        issue: "mediaSlotMissing",
+        message: "이미지/시각 자료 정책이 선택됐지만 보이는 visual slot이 없습니다.",
+        severity: "warning",
+        slideId: slide.slideId
+      });
+    }
+
+    if (
+      slide.aiNotes?.visualPlan &&
+      (!slide.aiNotes.sourceLedger || slide.aiNotes.sourceLedger.length === 0)
+    ) {
+      items.push({
+        issue: "sourceLedgerMissing",
+        message: "핵심 주장에 대한 sourceLedger가 필요합니다.",
+        severity: "warning",
+        slideId: slide.slideId
+      });
+    }
+  }
+
+  return items;
 }
 
 function getEditorSlideValidationItems(
@@ -35,11 +106,27 @@ function getEditorSlideValidationItems(
 ): EditorValidationItem[] {
   const backgroundColor = slide.style.backgroundColor ?? deck.theme.backgroundColor;
   const items: EditorValidationItem[] = [];
+  const targetSpeakerNotesChars = slide.aiNotes?.timingPlan?.targetSpeakerNotesChars ?? 0;
+
+  if (
+    targetSpeakerNotesChars > 0 &&
+    countSpokenChars(slide.speakerNotes) < Math.round(targetSpeakerNotesChars * 0.8)
+  ) {
+    items.push({
+      issue: "speakerNotesShort",
+      message: `발표자 메모가 슬라이드 목표 분량의 80%보다 짧습니다. 목표 ${targetSpeakerNotesChars}자, 현재 ${countSpokenChars(slide.speakerNotes)}자입니다.`,
+      slideId: slide.slideId,
+      severity: "warning"
+    });
+  }
 
   for (const element of slide.elements) {
     if (!element.visible) continue;
 
-    if (element.elementId.endsWith("_media_placeholder")) {
+    if (
+      element.elementId.endsWith("_media_placeholder") &&
+      !isExpectedEditorMediaPlaceholder(slide)
+    ) {
       items.push({
         elementId: element.elementId,
         message: "이미지 자리 표시자가 남아 있습니다.",
@@ -95,14 +182,29 @@ function getEditorSlideValidationItems(
       }
 
       const color = element.props.color ?? slide.style.textColor ?? deck.theme.textColor;
+      const effectiveBackground = getEffectiveTextBackground(
+        slide,
+        element,
+        backgroundColor
+      );
+
+      if (effectiveBackground.kind === "unverifiable") {
+        items.push({
+          elementId: element.elementId,
+          issue: "contrastUnverifiable",
+          message: "이미지, 그라데이션 또는 반투명 배경의 텍스트 대비는 자동 검증할 수 없습니다.",
+          severity: "risk"
+        });
+        continue;
+      }
 
       if (
         isHexColor(color) &&
-        isHexColor(backgroundColor) &&
-        contrastRatio(color, backgroundColor) < 4.5
+        contrastRatio(color, effectiveBackground.color) < 4.5
       ) {
         items.push({
           elementId: element.elementId,
+          issue: "textContrast",
           message: "텍스트와 배경 대비가 낮습니다.",
           severity: "warning"
         });
@@ -128,6 +230,29 @@ function shouldReportExportShapeRisk(element: DeckElement) {
   if (element.type === "group") return true;
   if (element.type !== "customShape") return false;
   return !(element.role === "decoration" && element.elementId.includes("_imported_"));
+}
+
+function countSpokenChars(text: string) {
+  return text.replace(/\s+/g, "").length;
+}
+
+function hasVisibleVisualSlot(slide: Slide) {
+  return slide.elements.some(
+    (element) =>
+      element.visible &&
+      (element.type === "image" ||
+        element.elementId.endsWith("_media_placeholder"))
+  );
+}
+
+function isExpectedEditorMediaPlaceholder(slide: Slide) {
+  const visualPlan = slide.aiNotes?.visualPlan;
+  return Boolean(
+    visualPlan?.imageNeeded &&
+      ["ai-generated", "public-assets", "placeholder-ok"].includes(
+        visualPlan.imageSourcePolicy
+      )
+  );
 }
 
 function isEditorTextOverflowing(
@@ -217,6 +342,83 @@ function isShortLabelTextBoxTooNarrow(
 
 function isHexColor(value: string) {
   return /^#[0-9a-f]{6}$/i.test(value);
+}
+
+type PaintedBackgroundElement = Extract<
+  DeckElement,
+  {
+    type:
+      | "rect"
+      | "ellipse"
+      | "polygon"
+      | "star"
+      | "ring"
+      | "customShape";
+  }
+>;
+
+function isPaintedBackgroundElement(
+  element: DeckElement
+): element is PaintedBackgroundElement {
+  return ["rect", "ellipse", "polygon", "star", "ring", "customShape"].includes(
+    element.type
+  );
+}
+
+function getEffectiveTextBackground(
+  slide: Slide,
+  textElement: Extract<DeckElement, { type: "text" }>,
+  slideBackgroundColor: string
+): { kind: "solid"; color: string } | { kind: "unverifiable" } {
+  const candidates = slide.elements
+    .filter(
+      (candidate) =>
+        candidate.elementId !== textElement.elementId &&
+        candidate.visible &&
+        candidate.zIndex < textElement.zIndex &&
+        (isPaintedBackgroundElement(candidate) ||
+          candidate.type === "image" ||
+          candidate.type === "svg") &&
+        getTextBackgroundCoverage(textElement, candidate) >= 0.5
+    )
+    .sort((first, second) => second.zIndex - first.zIndex);
+
+  for (const candidate of candidates) {
+    if (candidate.type === "image" || candidate.type === "svg") {
+      return { kind: "unverifiable" };
+    }
+    if (candidate.opacity < 1) return { kind: "unverifiable" };
+    if (!isPaintedBackgroundElement(candidate)) continue;
+    const fill = candidate.props.fill;
+    if (fill === "transparent") continue;
+    if (typeof fill === "string" && isHexColor(fill)) {
+      return { kind: "solid", color: fill };
+    }
+    return { kind: "unverifiable" };
+  }
+
+  if (slide.style.backgroundImage?.src) return { kind: "unverifiable" };
+  return isHexColor(slideBackgroundColor)
+    ? { kind: "solid", color: slideBackgroundColor }
+    : { kind: "unverifiable" };
+}
+
+function getTextBackgroundCoverage(textElement: DeckElement, backgroundElement: DeckElement) {
+  const left = Math.max(textElement.x, backgroundElement.x);
+  const top = Math.max(textElement.y, backgroundElement.y);
+  const right = Math.min(
+    textElement.x + textElement.width,
+    backgroundElement.x + backgroundElement.width
+  );
+  const bottom = Math.min(
+    textElement.y + textElement.height,
+    backgroundElement.y + backgroundElement.height
+  );
+  if (right <= left || bottom <= top) return 0;
+  return (
+    ((right - left) * (bottom - top)) /
+    Math.max(1, textElement.width * textElement.height)
+  );
 }
 
 function contrastRatio(first: string, second: string) {

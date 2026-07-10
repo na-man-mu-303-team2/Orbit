@@ -3,7 +3,9 @@ import { applyDeckPatch } from "@orbit/editor-core";
 import type { ApplyDeckPatchError } from "@orbit/editor-core";
 import { loadOrbitConfig } from "@orbit/config";
 import {
+  enqueueDeckExportJob,
   enqueuePptxOoxmlSyncJob,
+  type EnqueueDeckExportJobInput,
   type EnqueuePptxOoxmlSyncJobInput,
 } from "@orbit/job-queue";
 import {
@@ -11,11 +13,13 @@ import {
   appendDeckPatchRequestSchema,
   appendDeckPatchResponseSchema,
   deckApiErrorSchema,
+  deckExportRequestSchema,
   deckSchema,
   deckSnapshotIdSchema,
   deckSnapshotReasonSchema,
   deckSnapshotSchema,
   getDeckResponseSchema,
+  jobSchema,
   listDeckSnapshotsResponseSchema,
   putDeckRequestSchema,
   putDeckResponseSchema,
@@ -93,12 +97,14 @@ type PptxOoxmlSyncJobInput = {
   targetDeckVersion: number;
 };
 
+type DeckExportEnqueueJob = (input: EnqueueDeckExportJobInput) => Promise<void>;
 type QueryExecutor = DataSource | EntityManager;
 const deckCheckpointPatchInterval = 20;
 export type PptxOoxmlSyncEnqueueJob = (
   input: EnqueuePptxOoxmlSyncJobInput,
 ) => Promise<void>;
 export const PPTX_OOXML_SYNC_ENQUEUE_JOB = "PPTX_OOXML_SYNC_ENQUEUE_JOB";
+export const DECK_EXPORT_ENQUEUE_JOB = "DECK_EXPORT_ENQUEUE_JOB";
 
 @Injectable()
 export class DecksService {
@@ -108,6 +114,9 @@ export class DecksService {
     @Optional()
     @Inject(PPTX_OOXML_SYNC_ENQUEUE_JOB)
     private readonly enqueueSyncJob: PptxOoxmlSyncEnqueueJob = enqueuePptxOoxmlSyncJob,
+    @Optional()
+    @Inject(DECK_EXPORT_ENQUEUE_JOB)
+    private readonly enqueueDeckExport: DeckExportEnqueueJob = enqueueDeckExportJob,
   ) {}
 
   async getDeck(projectId: string): Promise<GetDeckResponse> {
@@ -134,6 +143,52 @@ export class DecksService {
       deck: deck.deck,
       updatedAt: deck.updatedAt,
     });
+  }
+
+  async createExportJob(projectId: string, body: unknown) {
+    if (!this.jobsService) {
+      throw new HttpException(
+        "Deck export job service is unavailable",
+        HttpStatus.SERVICE_UNAVAILABLE,
+      );
+    }
+
+    const request = deckExportRequestSchema.parse(body ?? {});
+    const { deck } = await this.getDeck(projectId);
+    const queuedJob = await this.jobsService.create({
+      projectId,
+      type: "deck-export",
+      payload: {
+        deckId: deck.deckId,
+        format: request.format,
+      },
+    });
+
+    try {
+      const config = loadOrbitConfig(process.env, { service: "api" });
+      await this.enqueueDeckExport({
+        driver: config.JOB_QUEUE_DRIVER,
+        redisUrl: config.REDIS_URL,
+        jobId: queuedJob.jobId,
+        projectId,
+        deck,
+        format: request.format,
+      });
+    } catch (error) {
+      await this.jobsService.update(queuedJob.jobId, {
+        status: "failed",
+        progress: 0,
+        message: "Deck export enqueue failed.",
+        error: {
+          code: "DECK_EXPORT_ENQUEUE_FAILED",
+          message:
+            error instanceof Error ? error.message : "Deck export enqueue failed.",
+        },
+      });
+      throw error;
+    }
+
+    return { job: jobSchema.parse(queuedJob) };
   }
 
   async putDeck(projectId: string, body: unknown): Promise<PutDeckResponse> {

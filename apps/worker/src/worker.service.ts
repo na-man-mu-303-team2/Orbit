@@ -1,5 +1,6 @@
 import {
   aiTemplateDeckGenerationQueueName,
+  deckExportQueueName,
   generateDeckQueueName,
   pptxImportQueueName,
   pptxOoxmlGenerationQueueName,
@@ -17,6 +18,7 @@ import { type Job as BullMqJob, Worker as BullMqWorker } from "bullmq";
 import { InjectPinoLogger, PinoLogger } from "nestjs-pino";
 import type { DataSource } from "typeorm";
 import { processAiTemplateDeckGenerationJob } from "./ai-template-deck-generation.processor";
+import { processDeckExportJob } from "./deck-export.processor";
 import { processGenerateDeckJob } from "./generate-deck.processor";
 import { serializeLogError } from "./logging";
 import { processPptxOoxmlGenerationJob } from "./pptx-ooxml-generation.processor";
@@ -35,6 +37,7 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
     referenceExtractQueueName,
     rehearsalSttQueueName,
     generateDeckQueueName,
+    deckExportQueueName,
     aiTemplateDeckGenerationQueueName,
     pptxOoxmlGenerationQueueName,
     pptxOoxmlSyncQueueName,
@@ -84,6 +87,14 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
       ),
       this.createWorker(generateDeckQueueName, (job) =>
         processGenerateDeckJob(
+          this.dataSource,
+          storage,
+          this.config.PYTHON_WORKER_URL,
+          job.data,
+        ),
+      ),
+      this.createWorker(deckExportQueueName, (job) =>
+        processDeckExportJob(
           this.dataSource,
           storage,
           this.config.PYTHON_WORKER_URL,
@@ -209,6 +220,7 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
           projectId: result.projectId,
           status: result.status,
           durationMs,
+          ...jobDiagnosticFields(result.result),
           error: result.error ?? undefined,
         },
         "Job finished.",
@@ -241,6 +253,32 @@ function jobPayloadFields(data: unknown) {
     fileId: readString(payload, "fileId"),
     fileCount: Array.isArray(payload.files) ? payload.files.length : undefined,
   };
+}
+
+function jobDiagnosticFields(result: unknown) {
+  if (!isRecord(result) || !isRecord(result.diagnostics)) return {};
+  const diagnostics = result.diagnostics;
+  return {
+    referencePolicy: readString(diagnostics, "referencePolicy"),
+    uploadedSourceCount: readNonNegativeNumber(
+      diagnostics,
+      "uploadedSourceCount",
+    ),
+    webSourceCount: readNonNegativeNumber(diagnostics, "webSourceCount"),
+    repairAttempted:
+      typeof diagnostics.repairAttempted === "boolean"
+        ? diagnostics.repairAttempted
+        : undefined,
+    validationIssueCount: readNonNegativeNumber(
+      diagnostics,
+      "validationIssueCount",
+    ),
+  };
+}
+
+function readNonNegativeNumber(value: Record<string, unknown>, key: string) {
+  const candidate = value[key];
+  return typeof candidate === "number" && candidate >= 0 ? candidate : undefined;
 }
 
 function readString(value: Record<string, unknown>, key: string) {

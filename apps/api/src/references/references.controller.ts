@@ -1,3 +1,7 @@
+import {
+  referenceExtractionRequestSchema,
+  type ReferenceExtractionRequest
+} from "@orbit/shared";
 import { Body, Controller, Param, Post, Req } from "@nestjs/common";
 import { AuthService } from "../auth/auth.service";
 import {
@@ -8,7 +12,7 @@ import { ProjectsService } from "../projects/projects.service";
 import { referenceSearchRequestSchema } from "./references.schema";
 import { ReferencesService } from "./references.service";
 
-@Controller("projects/:projectId/references")
+@Controller("api/v1/projects/:projectId/references")
 export class ReferencesController {
   constructor(
     private readonly authService: AuthService,
@@ -27,6 +31,20 @@ export class ReferencesController {
     return this.referencesService.search(
       projectId,
       referenceSearchRequestSchema.parse(body)
+    );
+  }
+
+  @Post("extractions")
+  async extractReferences(
+    @Param("projectId") projectId: string,
+    @Body() body: unknown,
+    @Req() request: SignedCookieRequest
+  ) {
+    const user = await getCurrentUser(this.authService, request);
+    await this.projectsService.assertCanWriteProject(projectId, user.userId);
+    return this.referencesService.extract(
+      projectId,
+      referenceExtractionRequestSchema.parse(body) as ReferenceExtractionRequest
     );
   }
 }

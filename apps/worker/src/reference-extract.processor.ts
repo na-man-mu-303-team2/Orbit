@@ -1,4 +1,7 @@
-import type { Job } from "@orbit/shared";
+import {
+  referenceExtractionResultSchema,
+  type Job
+} from "@orbit/shared";
 import type { DataSource } from "typeorm";
 import { z } from "zod";
 
@@ -13,10 +16,6 @@ const referenceExtractPayloadSchema = z.object({
       contentBase64: z.string().min(1)
     })
   )
-});
-
-const referenceExtractWorkerResponseSchema = z.object({
-  files: z.array(z.record(z.unknown()))
 });
 
 type JobRow = {
@@ -112,14 +111,23 @@ export async function processReferenceExtractJob(
   }
 
   try {
-    const workerPayload = referenceExtractWorkerResponseSchema.parse(
+    const workerPayload = referenceExtractionResultSchema.parse(
       await response.json()
     );
+    const mimeTypes = new Map(
+      payload.files.map((file) => [file.fileId, file.mimeType])
+    );
+    const result = referenceExtractionResultSchema.parse({
+      files: workerPayload.files.map((file) => ({
+        ...file,
+        mimeType: file.mimeType ?? mimeTypes.get(file.fileId)
+      }))
+    });
     return updateJob(dataSource, payload.jobId, {
       status: "succeeded",
       progress: 100,
       message: "Reference extraction completed.",
-      result: { files: workerPayload.files },
+      result,
       error: null
     });
   } catch (error) {

@@ -59,7 +59,7 @@ export const databaseOptions: DataSourceOptions = {
   ],
   migrationsTableName: "typeorm_migrations",
   synchronize: false,
-  logging: config.NODE_ENV === "development"
+  logging: false
 };
 
 export default new DataSource(databaseOptions);

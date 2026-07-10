@@ -9,6 +9,16 @@ from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.ai.color_options import (
+    DeckColorOptionsRequest,
+    DeckColorOptionsResponse,
+    generate_deck_color_options,
+)
+from app.ai.deck_pptx_export import (
+    DeckPptxExportRequest,
+    DeckPptxExportResponse,
+    export_deck_pptx,
+)
 from app.ai.generate_deck import (
     DeckContentGenerationError,
     GenerateDeckRequest,
@@ -558,6 +568,24 @@ def generate_ai_deck(
         raise HTTPException(status_code=503, detail=str(error)) from error
 
 
+@app.post("/ai/deck-color-options", response_model=DeckColorOptionsResponse)
+def generate_ai_deck_color_options(
+    payload: DeckColorOptionsRequest,
+    request: Request,
+) -> DeckColorOptionsResponse:
+    config = _config(request)
+    return generate_deck_color_options(
+        payload,
+        model=config.openai_model,
+        api_key=config.openai_api_key,
+    )
+
+
+@app.post("/ai/export-deck-pptx", response_model=DeckPptxExportResponse)
+def export_ai_deck_pptx(payload: DeckPptxExportRequest) -> DeckPptxExportResponse:
+    return export_deck_pptx(payload)
+
+
 @app.post("/rehearsal/analyze", response_model=RehearsalAnalyzeResponse)
 def analyze_rehearsal(
     request: Request,
@@ -859,6 +887,7 @@ def _generate_deck_reference_context(
             project_id=payload.project_id,
             query=query or payload.topic,
             limit=20,
+            file_ids=sorted(file_ids),
             model=config.openai_embedding_model,
             api_key=config.openai_api_key,
         )
@@ -868,6 +897,8 @@ def _generate_deck_reference_context(
     searched_context = [
         ReferenceContext(
             fileId=result.file_id,
+            sourceId=f"uploaded:{result.file_id}:{result.chunk_id}",
+            chunkId=result.chunk_id,
             title=str(result.metadata.get("fileName", "")),
             content=result.content,
         )

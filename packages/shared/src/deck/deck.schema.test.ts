@@ -47,6 +47,25 @@ type DeckValidationInput = {
         note?: string;
         confidence: number;
       }>;
+      visualPlan?: {
+        visualType: string;
+        imageNeeded: boolean;
+        imageSourcePolicy: string;
+        reason: string;
+      };
+      sourceLedger?: Array<{
+        claim: string;
+        source: string;
+        sourceType: string;
+        sourceId?: string;
+        fileId?: string;
+        chunkId?: string;
+        url?: string;
+        title?: string;
+        authority?: string;
+        confidence: number;
+        usedInSlideId: string;
+      }>;
     };
     keywords: Array<{
       keywordId: string;
@@ -1028,6 +1047,35 @@ describe("deckSchema validation", () => {
           fileId: "file_1",
           quote: "reference",
           confidence: 0.8
+        }
+      ],
+      visualPlan: {
+        visualType: "diagram",
+        imageNeeded: false,
+        imageSourcePolicy: "minimal",
+        reason: "Shapes and typography explain the message."
+      },
+      sourceLedger: [
+        {
+          claim: "evidence-based message",
+          source: "file_1",
+          sourceType: "uploaded",
+          sourceId: "uploaded:file_1:chunk_1",
+          fileId: "file_1",
+          chunkId: "chunk_1",
+          confidence: 0.8,
+          usedInSlideId: deck.slides[0].slideId
+        },
+        {
+          claim: "published evidence",
+          source: "https://example.com/report",
+          sourceType: "web",
+          sourceId: "web:https://example.com/report",
+          url: "https://example.com/report",
+          title: "Example report",
+          authority: "independent",
+          confidence: 0.9,
+          usedInSlideId: deck.slides[0].slideId
         }
       ]
     };

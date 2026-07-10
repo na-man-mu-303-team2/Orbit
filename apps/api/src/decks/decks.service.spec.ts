@@ -280,11 +280,14 @@ function createService() {
   return { dataSource, service };
 }
 
-function createJob(jobId = "job_sync_1") {
+function createJob(
+  jobId = "job_sync_1",
+  type: "pptx-ooxml-sync" | "deck-export" = "pptx-ooxml-sync",
+) {
   return jobSchema.parse({
     jobId,
     projectId: "project_demo_1",
-    type: "pptx-ooxml-sync",
+    type,
     status: "queued",
     progress: 0,
     message: "Job queued",
@@ -827,6 +830,50 @@ describe("DecksService", () => {
         projectId: deck.projectId,
         deckId: deck.deckId,
         targetDeckVersion: 2,
+      }),
+    );
+  });
+
+  it("enqueues PPTX export with the current deck snapshot", async () => {
+    stubOrbitEnv();
+    const dataSource = new InMemoryDeckDataSource();
+    const deck = createDeck();
+    const exportJob = createJob("job_export_1", "deck-export");
+    const jobsService = {
+      create: vi.fn(async () => exportJob),
+      update: vi.fn(),
+    };
+    const enqueueExportJob = vi.fn(async () => undefined);
+    const service = new DecksService(
+      dataSource as unknown as DataSource,
+      jobsService as never,
+      vi.fn(async () => undefined),
+      enqueueExportJob,
+    );
+
+    await service.putDeck(deck.projectId, { deck });
+    const response = await service.createExportJob(deck.projectId, {
+      format: "pptx",
+    });
+
+    expect(response.job.jobId).toBe(exportJob.jobId);
+    expect(jobsService.create).toHaveBeenCalledWith({
+      projectId: deck.projectId,
+      type: "deck-export",
+      payload: {
+        deckId: deck.deckId,
+        format: "pptx",
+      },
+    });
+    expect(enqueueExportJob).toHaveBeenCalledWith(
+      expect.objectContaining({
+        jobId: exportJob.jobId,
+        projectId: deck.projectId,
+        deck: expect.objectContaining({
+          deckId: deck.deckId,
+          slides: deck.slides,
+        }),
+        format: "pptx",
       }),
     );
   });

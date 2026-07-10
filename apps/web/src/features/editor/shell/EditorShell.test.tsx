@@ -27,6 +27,7 @@ import {
   buildPatchBatch,
   consumeScheduledUndoRedoPersistLabel,
   createDistributeSelectionPatch,
+  exportDeckToPptx,
   flushEditorPersistenceBeforeManualAction,
   getSpeakerNotesDanglingOccurrenceSaveBlock,
   getImportedSlideThumbnailRefreshSlideIds,
@@ -407,6 +408,7 @@ describe("editor shell", () => {
 
   it("returns a warning for unreadable text overlap", () => {
     const deck = createDemoDeck();
+    deck.slides[0].style.backgroundImage = undefined;
     deck.slides[0].elements = [
       editorTextElement("text_a", 100, 100, "본문 A"),
       editorTextElement("text_b", 150, 120, "본문 B")
@@ -424,6 +426,7 @@ describe("editor shell", () => {
 
   it("does not warn for small decorative text overlap", () => {
     const deck = createDemoDeck();
+    deck.slides[0].style.backgroundImage = undefined;
     deck.slides[0].elements = [
       editorTextElement("text_a", 100, 100, "본문 A"),
       editorTextElement("text_b", 370, 100, "본문 B")
@@ -595,6 +598,50 @@ describe("editor shell", () => {
       templateId: "template_file_template"
     });
     expect(phases).toEqual(["uploading", "importing"]);
+    expect(jobPollCount).toBe(2);
+  });
+
+  it("creates a PPTX export job and returns the exported asset result", async () => {
+    let jobPollCount = 0;
+    const fetcher = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+
+      if (url.endsWith("/deck/exports")) {
+        expect(init?.method).toBe("POST");
+        expect(JSON.parse(String(init?.body))).toEqual({ format: "pptx" });
+        return new Response(
+          JSON.stringify({ job: jobPayload("queued", null, "deck-export") })
+        );
+      }
+
+      if (url.endsWith("/api/jobs/job-pptx")) {
+        jobPollCount += 1;
+        return new Response(
+          JSON.stringify(
+            jobPayload(
+              jobPollCount === 1 ? "running" : "succeeded",
+              {
+                deckId: "deck_ai_1",
+                fileId: "file_export_1",
+                url: "/api/v1/projects/project-a/assets/file_export_1/content",
+                format: "pptx",
+                warnings: []
+              },
+              "deck-export"
+            )
+          )
+        );
+      }
+
+      return new Response("unexpected request", { status: 500 });
+    });
+
+    await expect(
+      exportDeckToPptx("project-a", fetcher)
+    ).resolves.toMatchObject({
+      fileId: "file_export_1",
+      format: "pptx"
+    });
     expect(jobPollCount).toBe(2);
   });
 
@@ -1239,7 +1286,12 @@ describe("editor shell", () => {
         issue: "textOverflow"
       })
     );
-    expect(messages).toContain("텍스트와 배경 대비가 낮습니다.");
+    expect(validationItems).toContainEqual(
+      expect.objectContaining({
+        issue: "contrastUnverifiable",
+        severity: "risk"
+      })
+    );
     expect(riskElementIds).not.toContain("el_1_imported_icon_customShape");
     expect(riskElementIds).toContain("el_manual_customShape");
   });
@@ -2062,12 +2114,13 @@ function editorTextElement(
 
 function jobPayload(
   status: "queued" | "running" | "succeeded",
-  result: Record<string, unknown> | null = null
+  result: Record<string, unknown> | null = null,
+  type: "pptx-import" | "deck-export" = "pptx-import"
 ) {
   return {
     jobId: "job-pptx",
     projectId: "project-a",
-    type: "pptx-import",
+    type,
     status,
     progress: status === "succeeded" ? 100 : 10,
     message: status,
