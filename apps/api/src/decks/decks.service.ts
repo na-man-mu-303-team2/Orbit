@@ -27,6 +27,7 @@ import {
   putDeckResponseSchema,
   restoreDeckSnapshotResponseSchema,
   createSemanticCueExtractionJobResponseSchema,
+  semanticCueExtractionJobPayloadSchema,
   semanticCueExtractionRequestSchema,
 } from "@orbit/shared";
 import type {
@@ -57,9 +58,11 @@ import {
   Optional,
 } from "@nestjs/common";
 import { InjectDataSource } from "@nestjs/typeorm";
+import { InjectPinoLogger, PinoLogger } from "nestjs-pino";
 import { DataSource, EntityManager } from "typeorm";
 import { ZodError } from "zod";
 import { JobsService } from "../jobs/jobs.service";
+import { serializeLogError } from "../logging";
 
 type DeckRow = {
   project_id: string;
@@ -131,6 +134,9 @@ export class DecksService {
     @Inject(SEMANTIC_CUE_EXTRACTION_ENQUEUE_JOB)
     private readonly enqueueSemanticCueJob: SemanticCueExtractionEnqueueJob =
       enqueueSemanticCueExtractionJob,
+    @Optional()
+    @InjectPinoLogger(DecksService.name)
+    private readonly logger?: PinoLogger,
   ) {}
 
   async getDeck(projectId: string): Promise<GetDeckResponse> {
@@ -416,20 +422,6 @@ export class DecksService {
     body: unknown,
   ): Promise<CreateSemanticCueExtractionJobResponse> {
     const request = semanticCueExtractionRequestSchema.parse(body ?? {});
-    const deck = (await this.getDeck(projectId)).deck;
-    const resolvedRequest = {
-      ...request,
-      deckId: request.deckId ?? deck.deckId,
-    };
-
-    if (resolvedRequest.deckId !== deck.deckId) {
-      throwDeckApiException(
-        "DECK_MISMATCH",
-        HttpStatus.BAD_REQUEST,
-        "Requested deckId must match project deck",
-        [`deck.deckId=${deck.deckId}`, `request.deckId=${resolvedRequest.deckId}`],
-      );
-    }
 
     if (!this.jobsService) {
       throwDeckApiException(
@@ -439,10 +431,55 @@ export class DecksService {
       );
     }
 
+    const preparedRequest = await this.dataSource.transaction(async (manager) => {
+      const deckRow = await this.findProjectDeckRowForUpdate(manager, projectId);
+
+      if (!deckRow) {
+        throwDeckApiException(
+          "DECK_NOT_FOUND",
+          HttpStatus.NOT_FOUND,
+          `Deck not found for project: ${projectId}`,
+        );
+      }
+
+      const requestedDeckId = request.deckId ?? deckRow.deck_id;
+      if (requestedDeckId !== deckRow.deck_id) {
+        throwDeckApiException(
+          "DECK_MISMATCH",
+          HttpStatus.BAD_REQUEST,
+          "Requested deckId must match project deck",
+          [
+            `deck.deckId=${deckRow.deck_id}`,
+            `request.deckId=${requestedDeckId}`,
+          ],
+        );
+      }
+
+      const materializedState = await this.readCurrentDeckState(
+        manager,
+        parseDeckRow(deckRow),
+        projectId,
+        deckRow.deck_id,
+        toIso(deckRow.updated_at),
+        true,
+      );
+      const deck = await this.writeDeckCheckpoint(
+        manager,
+        materializedState.deck,
+        nowIso(),
+      );
+
+      return semanticCueExtractionJobPayloadSchema.shape.request.parse({
+        deckId: deck.deckId,
+        force: request.force,
+        baseVersion: deck.version,
+      });
+    });
+
     const queuedJob = await this.jobsService.create({
       projectId,
       type: "semantic-cue-extraction",
-      payload: { request: resolvedRequest },
+      payload: { request: preparedRequest },
     });
 
     try {
@@ -452,8 +489,20 @@ export class DecksService {
         redisUrl: config.REDIS_URL,
         jobId: queuedJob.jobId,
         projectId,
-        request: resolvedRequest,
+        request: preparedRequest,
       });
+      this.logger?.info(
+        {
+          event: "semantic_cue.extraction.queued",
+          jobId: queuedJob.jobId,
+          jobType: queuedJob.type,
+          projectId,
+          deckId: preparedRequest.deckId,
+          deckVersion: preparedRequest.baseVersion,
+          force: preparedRequest.force,
+        },
+        "Semantic cue extraction job enqueued.",
+      );
     } catch (error) {
       await this.jobsService.update(queuedJob.jobId, {
         status: "failed",
@@ -467,6 +516,19 @@ export class DecksService {
               : "Semantic cue extraction enqueue failed.",
         },
       });
+      this.logger?.error(
+        {
+          event: "semantic_cue.extraction.failed",
+          jobId: queuedJob.jobId,
+          jobType: queuedJob.type,
+          projectId,
+          deckId: preparedRequest.deckId,
+          deckVersion: preparedRequest.baseVersion,
+          reason: "enqueue_failed",
+          error: serializeLogError(error),
+        },
+        "Semantic cue extraction enqueue failed.",
+      );
       throw error;
     }
 

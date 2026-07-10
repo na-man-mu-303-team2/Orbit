@@ -7,14 +7,14 @@ import {
   generateDeckRequestSchema,
   aiTemplateDeckGenerationRequestSchema,
   jobSchema,
-  semanticCueExtractionRequestSchema,
+  semanticCueExtractionJobPayloadSchema,
   nowIso,
   type AiTemplateDeckGenerationRequest,
   type Deck,
   type DeckExportFormat,
   type PptxOoxmlGenerationRequest,
   type GenerateDeckRequest,
-  type SemanticCueExtractionRequest,
+  type SemanticCueExtractionJobPayload,
 } from "@orbit/shared";
 import { Queue } from "bullmq";
 
@@ -115,17 +115,13 @@ export interface AiTemplateDeckGenerationBullMqPayload {
   request: AiTemplateDeckGenerationRequest;
 }
 
-export interface SemanticCueExtractionBullMqPayload {
-  jobId: string;
-  projectId: string;
-  request: SemanticCueExtractionRequest;
-}
+export type SemanticCueExtractionBullMqPayload = SemanticCueExtractionJobPayload;
 
-export interface EnqueueSemanticCueExtractionJobInput
-  extends SemanticCueExtractionBullMqPayload {
+export type EnqueueSemanticCueExtractionJobInput =
+  SemanticCueExtractionBullMqPayload & {
   driver: "bullmq" | "sqs";
   redisUrl: string;
-}
+};
 
 export interface EnqueueAiTemplateDeckGenerationJobInput
   extends AiTemplateDeckGenerationBullMqPayload {
@@ -303,11 +299,11 @@ export async function enqueueSemanticCueExtractionJob(
   });
 
   try {
-    await queue.add(semanticCueExtractionJobName, {
+    await queue.add(semanticCueExtractionJobName, semanticCueExtractionJobPayloadSchema.parse({
       jobId: input.jobId,
       projectId: input.projectId,
-      request: semanticCueExtractionRequestSchema.parse(input.request),
-    } satisfies SemanticCueExtractionBullMqPayload);
+      request: input.request,
+    }));
   } finally {
     await queue.close();
   }
