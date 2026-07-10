@@ -10,6 +10,7 @@ import {
   type DeckSnapshotReason,
 } from "@orbit/shared";
 import type { DataSource } from "typeorm";
+import type { PinoLogger } from "nestjs-pino";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { DecksService } from "./decks.service";
 
@@ -296,6 +297,13 @@ function createJob(
     createdAt: "2026-07-03T00:00:00.000Z",
     updatedAt: "2026-07-03T00:00:00.000Z",
   });
+}
+
+function createLogger() {
+  return {
+    info: vi.fn(),
+    error: vi.fn(),
+  } as unknown as PinoLogger;
 }
 
 function stubOrbitEnv() {
@@ -879,14 +887,20 @@ describe("DecksService", () => {
     };
     const enqueueSyncJob = vi.fn(async () => undefined);
     const enqueueSemanticCueJob = vi.fn(async () => undefined);
+    const logger = createLogger();
     const service = new DecksService(
       dataSource as unknown as DataSource,
       jobsService as never,
       enqueueSyncJob,
       enqueueSemanticCueJob,
+      logger,
     );
 
     await service.putDeck(deck.projectId, { deck });
+    await service.appendPatch(deck.projectId, {
+      patch: createUpdateTitlePatch(deck, "enqueue 직전 편집"),
+    });
+    expect(dataSource.patchRows).toHaveLength(1);
     const response = await service.createSemanticCueExtractionJob(deck.projectId, {
       force: true,
     });
@@ -899,6 +913,7 @@ describe("DecksService", () => {
         request: {
           deckId: deck.deckId,
           force: true,
+          baseVersion: 2,
         },
       },
     });
@@ -911,9 +926,31 @@ describe("DecksService", () => {
         request: {
           deckId: deck.deckId,
           force: true,
+          baseVersion: 2,
         },
       }),
     );
+    expect(logger.info).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: "semantic_cue.extraction.queued",
+        jobId: semanticCueJob.jobId,
+        projectId: deck.projectId,
+        deckId: deck.deckId,
+        deckVersion: 2,
+      }),
+      "Semantic cue extraction job enqueued.",
+    );
+    expect(dataSource.patchRows).toEqual([]);
+    expect(dataSource.decks.get(deck.projectId)).toMatchObject({
+      version: 2,
+      deck_json: expect.objectContaining({ title: "enqueue 직전 편집", version: 2 }),
+    });
+    expect(
+      dataSource.executedQueries.some(
+        (query) =>
+          query.includes("FROM deck_patches") && query.includes("FOR UPDATE"),
+      ),
+    ).toBe(true);
     expect(enqueueSyncJob).not.toHaveBeenCalled();
   });
 
