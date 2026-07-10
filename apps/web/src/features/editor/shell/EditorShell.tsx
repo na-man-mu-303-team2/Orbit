@@ -492,6 +492,8 @@ function getSlideRenderBackgroundColor(slide: Slide, deck: Deck) {
   return slide.style.backgroundColor ?? deck.theme.backgroundColor;
 }
 
+const slideThumbnailHeight = 360;
+
 async function canvasToBlob(canvas: HTMLCanvasElement, mimeType = "image/png") {
   return new Promise<Blob>((resolve, reject) => {
     canvas.toBlob((blob) => {
@@ -517,8 +519,10 @@ async function createSlideRenderFile(args: {
     pixelRatio
   }) as HTMLCanvasElement;
   const canvas = document.createElement("canvas");
-  canvas.width = args.deck.canvas.width;
-  canvas.height = args.deck.canvas.height;
+  canvas.width = Math.round(
+    (args.deck.canvas.width / args.deck.canvas.height) * slideThumbnailHeight
+  );
+  canvas.height = slideThumbnailHeight;
 
   const context = canvas.getContext("2d");
 
@@ -2026,6 +2030,15 @@ export function EditorShell(props: { projectId?: string }) {
           new Error("최신 저장 상태를 찾지 못했습니다. 다시 불러온 뒤 저장해 주세요."),
           "missing-persisted-base"
         );
+      }
+
+      if (
+        !shouldApplyManualSaveResult({
+          snapshotDeck: persistedDeck,
+          currentDeck: workingDeckRef.current
+        })
+      ) {
+        throw new Error("리허설 준비 전에 편집 내용이 변경되었습니다. 저장 후 다시 시작해 주세요.");
       }
 
       const renderResult = await syncSlideRenderAssets(activeProjectId, persistedDeck);

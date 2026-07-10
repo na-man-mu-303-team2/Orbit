@@ -799,6 +799,20 @@ describe("editor shell", () => {
         snapshotDeck: deck,
         currentDeck: {
           ...deck,
+          slides: deck.slides.map((slide, index) =>
+            index === 0
+              ? { ...slide, thumbnailUrl: "https://example.com/latest-thumbnail.png" }
+              : slide
+          )
+        }
+      }),
+    ).toBe(true);
+
+    expect(
+      shouldApplyManualSaveResult({
+        snapshotDeck: deck,
+        currentDeck: {
+          ...deck,
           projectId: "project_other"
         }
       }),
