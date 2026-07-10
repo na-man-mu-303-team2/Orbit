@@ -21,7 +21,8 @@ describe("rehearsalLogCollector", () => {
       missedKeywords: [],
       adviceEvents: [],
       utteranceOutcomes: [],
-      semanticCueDecisions: []
+      semanticCueDecisions: [],
+      semanticCapabilityEvents: []
     });
   });
 
