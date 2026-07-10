@@ -135,6 +135,7 @@ import type {
   DeckPatch,
   GroupElementProps,
   ImageElementProps,
+  SemanticCue,
   ShapeElementProps,
   Slide,
   DeckApiErrorCode
@@ -167,7 +168,12 @@ import {
   Wand2,
   Home,
 } from "lucide-react";
-import type { ChangeEvent, CSSProperties, PointerEvent as ReactPointerEvent } from "react";
+import type {
+  ChangeEvent,
+  CSSProperties,
+  KeyboardEvent as ReactKeyboardEvent,
+  PointerEvent as ReactPointerEvent
+} from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal, flushSync } from "react-dom";
 import { io } from "socket.io-client";
@@ -181,6 +187,8 @@ import type { EditorValidationItem } from "../ai/quality/editorValidation";
 import { getEditorValidationItems } from "../ai/quality/editorValidation";
 import { SourceLedgerPanel } from "../ai/quality/SourceLedgerPanel";
 import { SuggestionPanel } from "../suggestions/components/SuggestionPanel";
+import { SemanticCueReviewPanel } from "../semantic-cues/SemanticCueReviewPanel";
+import { createSemanticCueReviewPatch } from "../semantic-cues/semanticCueReviewModel";
 import {
   buildSlideThumbnailPatch,
   getImportedSlideThumbnailRefreshSlideIds,
@@ -1184,6 +1192,9 @@ export function EditorShell(props: { projectId?: string }) {
   const setIsRightPanelOpen = useEditorShellUiStore(
     (state) => state.setIsRightPanelOpen
   );
+  const [rightPanelView, setRightPanelView] = useState<
+    "ai" | "semantic-cues"
+  >("ai");
   const isSlidesPaneCollapsed = useEditorShellUiStore(
     (state) => state.isSlidesPaneCollapsed
   );
@@ -1323,6 +1334,7 @@ export function EditorShell(props: { projectId?: string }) {
 
   useEffect(() => {
     resetProjectUiState();
+    setRightPanelView("ai");
   }, [projectId, resetProjectUiState]);
 
   useEffect(() => {
@@ -2554,6 +2566,34 @@ export function EditorShell(props: { projectId?: string }) {
           setSaveState("auto-pending");
         }
       });
+  }
+
+  function handleSemanticCueReviewChange(semanticCues: SemanticCue[]) {
+    if (!currentSlide) {
+      return;
+    }
+    const slideId = currentSlide.slideId;
+    commitPatch((currentDeck) =>
+      createSemanticCueReviewPatch(currentDeck, slideId, semanticCues)
+    );
+  }
+
+  function handleRightPanelTabKeyDown(
+    event: ReactKeyboardEvent<HTMLButtonElement>
+  ) {
+    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") {
+      return;
+    }
+    event.preventDefault();
+    const nextView = rightPanelView === "ai" ? "semantic-cues" : "ai";
+    setRightPanelView(nextView);
+    requestAnimationFrame(() => {
+      document
+        .getElementById(
+          nextView === "ai" ? "editor-ai-tools-tab" : "editor-semantic-cue-tab"
+        )
+        ?.focus();
+    });
   }
 
   function handleElementSelection(elementId: string, options?: { append?: boolean }) {
@@ -5508,7 +5548,7 @@ export function EditorShell(props: { projectId?: string }) {
                 onPointerDown={handleRightPaneResizeStart}
               />
               <div className="ai-header">
-                <h2>AI</h2>
+                <h2>도구</h2>
                 <div>
                   <button
                     className="collapse-right-pane-button"
@@ -5520,21 +5560,76 @@ export function EditorShell(props: { projectId?: string }) {
                   </button>
                 </div>
               </div>
+              <div
+                aria-label="오른쪽 패널 보기"
+                className="right-panel-tabs"
+                role="tablist"
+              >
+                <button
+                  aria-controls="editor-ai-tools-panel"
+                  aria-selected={rightPanelView === "ai"}
+                  className={rightPanelView === "ai" ? "active" : ""}
+                  id="editor-ai-tools-tab"
+                  role="tab"
+                  tabIndex={rightPanelView === "ai" ? 0 : -1}
+                  type="button"
+                  onClick={() => setRightPanelView("ai")}
+                  onKeyDown={handleRightPanelTabKeyDown}
+                >
+                  AI 도구
+                </button>
+                <button
+                  aria-controls="editor-semantic-cue-panel"
+                  aria-selected={rightPanelView === "semantic-cues"}
+                  className={rightPanelView === "semantic-cues" ? "active" : ""}
+                  id="editor-semantic-cue-tab"
+                  role="tab"
+                  tabIndex={rightPanelView === "semantic-cues" ? 0 : -1}
+                  type="button"
+                  onClick={() => setRightPanelView("semantic-cues")}
+                  onKeyDown={handleRightPanelTabKeyDown}
+                >
+                  발표 메시지
+                  {currentSlide?.semanticCues.length
+                    ? ` ${currentSlide.semanticCues.length}`
+                    : ""}
+                </button>
+              </div>
               <div className="assistant-panel-slot">
-                <PptxImportQualityPanel state={pptxImportState} />
-                <ValidationPanel
-                  items={editorValidationItems}
-                  onApplyAllTextOverflow={handleApplyAllValidationTextOverflow}
-                  onHighlightElementIds={setValidationHighlightElementIds}
-                  onTextOverflowAction={handleValidationTextOverflowAction}
-                />
-                <SourceLedgerPanel slide={currentSlide ?? null} />
-                <SuggestionPanel
-                  deck={deck}
-                  projectId={projectId}
-                  slideId={currentSlide?.slideId ?? null}
-                  onApplySuccess={handleAiSuggestionApplied}
-                />
+                <div
+                  aria-labelledby="editor-ai-tools-tab"
+                  className="assistant-panel-view"
+                  hidden={rightPanelView !== "ai"}
+                  id="editor-ai-tools-panel"
+                  role="tabpanel"
+                >
+                  <PptxImportQualityPanel state={pptxImportState} />
+                  <ValidationPanel
+                    items={editorValidationItems}
+                    onApplyAllTextOverflow={handleApplyAllValidationTextOverflow}
+                    onHighlightElementIds={setValidationHighlightElementIds}
+                    onTextOverflowAction={handleValidationTextOverflowAction}
+                   />
+                  <SourceLedgerPanel slide={currentSlide ?? null} />
+                  <SuggestionPanel
+                    deck={deck}
+                    projectId={projectId}
+                    slideId={currentSlide?.slideId ?? null}
+                    onApplySuccess={handleAiSuggestionApplied}
+                  />
+                </div>
+                <div
+                  aria-labelledby="editor-semantic-cue-tab"
+                  className="assistant-panel-view"
+                  hidden={rightPanelView !== "semantic-cues"}
+                  id="editor-semantic-cue-panel"
+                  role="tabpanel"
+                >
+                  <SemanticCueReviewPanel
+                    slide={currentSlide}
+                    onChange={handleSemanticCueReviewChange}
+                   />
+                 </div>
               </div>
             </>
           ) : (
@@ -5547,7 +5642,7 @@ export function EditorShell(props: { projectId?: string }) {
               >
                 <PanelRightOpen size={16} />
               </button>
-              <span>AI</span>
+              <span>도구</span>
             </div>
           )}
         </aside>

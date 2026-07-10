@@ -2765,7 +2765,7 @@
   min-height: 0;
   min-width: 0;
   display: grid;
-  grid-template-rows: auto 1fr;
+  grid-template-rows: auto auto minmax(0, 1fr);
   gap: 14px;
   padding: 22px 20px;
   background: #fff;
@@ -2882,11 +2882,382 @@
   box-shadow: 0 1px 3px rgba(16, 24, 40, 0.08);
 }
 
+.right-panel-tabs button:focus-visible {
+  outline: 3px solid #bfdbfe;
+  outline-offset: 1px;
+}
+
 .assistant-panel-slot {
   min-height: 0;
   display: grid;
   align-content: start;
   overflow: auto;
+}
+
+.assistant-panel-view {
+  min-width: 0;
+  display: grid;
+  align-content: start;
+  gap: 14px;
+}
+
+.assistant-panel-view[hidden] {
+  display: none;
+}
+
+.semantic-cue-review-panel {
+  min-width: 0;
+  display: grid;
+  align-content: start;
+  gap: 14px;
+}
+
+.semantic-cue-review-panel.empty,
+.semantic-cue-review-empty {
+  padding: 16px;
+  border: 1px dashed var(--line-strong);
+  border-radius: 10px;
+  background: var(--surface-soft);
+}
+
+.semantic-cue-review-panel.empty h3,
+.semantic-cue-review-panel.empty p,
+.semantic-cue-review-empty p {
+  margin: 0;
+}
+
+.semantic-cue-review-panel.empty p,
+.semantic-cue-review-empty p {
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.semantic-cue-review-header,
+.semantic-cue-card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.semantic-cue-review-header span:first-child,
+.semantic-cue-order {
+  display: block;
+  margin-bottom: 3px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+}
+
+.semantic-cue-review-header h3 {
+  margin: 0;
+  color: var(--ink);
+  font-size: 17px;
+}
+
+.semantic-cue-review-count,
+.semantic-cue-review-state,
+.semantic-cue-state-notice {
+  flex: 0 0 auto;
+  padding: 4px 7px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface-soft);
+  color: #475569;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.semantic-cue-review-description {
+  margin: -6px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.semantic-cue-review-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  margin: 0;
+}
+
+.semantic-cue-review-summary div {
+  padding: 9px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-soft);
+}
+
+.semantic-cue-review-summary dt {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.semantic-cue-review-summary dd {
+  margin: 2px 0 0;
+  color: var(--ink);
+  font-size: 16px;
+  font-weight: 900;
+}
+
+.semantic-cue-timing-warning {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 10px;
+  border: 1px solid #f59e0b;
+  border-radius: 8px;
+  background: #fffbeb;
+  color: #78350f;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.semantic-cue-review-list,
+.semantic-cue-warning-list,
+.semantic-cue-evidence ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.semantic-cue-review-list {
+  display: grid;
+  gap: 10px;
+}
+
+.semantic-cue-review-card {
+  display: grid;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+}
+
+.semantic-cue-review-card:focus-visible {
+  outline: 3px solid #bfdbfe;
+  outline-offset: 2px;
+}
+
+.semantic-cue-review-card.stale {
+  border-color: #f59e0b;
+}
+
+.semantic-cue-card-header strong {
+  color: var(--ink);
+  font-size: 14px;
+  line-height: 1.35;
+}
+
+.semantic-cue-meaning {
+  margin: 0;
+  color: #334155;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.semantic-cue-state-notices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.semantic-cue-state-notice.warning {
+  border-color: #f59e0b;
+  background: #fffbeb;
+  color: #92400e;
+}
+
+.semantic-cue-state-notice.visual {
+  border-color: #93c5fd;
+  background: var(--blue-soft);
+  color: var(--blue-strong);
+}
+
+.semantic-cue-choice-group {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 5px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.semantic-cue-choice-group legend,
+.semantic-cue-edit-form > label,
+.semantic-cue-manual-form > label {
+  grid-column: 1 / -1;
+  margin-bottom: 2px;
+  color: #475569;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.semantic-cue-choice-group label {
+  min-width: 0;
+  min-height: 36px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  color: #475569;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.semantic-cue-choice-group label:has(input:checked) {
+  border-color: #93c5fd;
+  background: var(--blue-soft);
+  color: var(--blue-strong);
+}
+
+.semantic-cue-choice-group input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.semantic-cue-choice-group label:has(input:focus-visible) {
+  outline: 3px solid #bfdbfe;
+  outline-offset: 1px;
+}
+
+.semantic-cue-evidence {
+  padding: 9px 10px;
+  border-radius: 8px;
+  background: var(--surface-soft);
+}
+
+.semantic-cue-evidence summary {
+  color: #334155;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.semantic-cue-evidence ul {
+  display: grid;
+  gap: 7px;
+  margin-top: 9px;
+}
+
+.semantic-cue-evidence li {
+  display: grid;
+  gap: 2px;
+}
+
+.semantic-cue-evidence li span,
+.semantic-cue-evidence li small {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.semantic-cue-evidence li strong {
+  color: #334155;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.semantic-cue-evidence p {
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.semantic-cue-warning-list {
+  display: grid;
+  gap: 4px;
+  color: #92400e;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.semantic-cue-warning-list li::before {
+  content: "주의 · ";
+  font-weight: 900;
+}
+
+.semantic-cue-edit-form,
+.semantic-cue-manual-form {
+  display: grid;
+  gap: 6px;
+}
+
+.semantic-cue-edit-form > div,
+.semantic-cue-manual-form > div {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px;
+}
+
+.semantic-cue-edit-form input,
+.semantic-cue-manual-form input {
+  min-width: 0;
+  min-height: 36px;
+  padding: 0 9px;
+  border: 1px solid var(--line-strong);
+  border-radius: 7px;
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  font-size: 12px;
+}
+
+.semantic-cue-edit-form input:focus-visible,
+.semantic-cue-manual-form input:focus-visible {
+  border-color: var(--blue);
+  outline: 3px solid #bfdbfe;
+}
+
+.semantic-cue-edit-form button,
+.semantic-cue-manual-form button {
+  min-height: 36px;
+  padding: 0 10px;
+  border: 1px solid #93c5fd;
+  border-radius: 7px;
+  background: var(--blue-soft);
+  color: var(--blue-strong);
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.semantic-cue-manual-form {
+  padding: 12px;
+  border-top: 1px solid var(--line);
+}
+
+.semantic-cue-manual-form p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+@media (max-width: 720px) {
+  .right-panel-tabs button,
+  .semantic-cue-choice-group label,
+  .semantic-cue-edit-form input,
+  .semantic-cue-edit-form button,
+  .semantic-cue-manual-form input,
+  .semantic-cue-manual-form button {
+    min-height: 44px;
+  }
+
+  .semantic-cue-edit-form > div,
+  .semantic-cue-manual-form > div {
+    grid-template-columns: 1fr;
+  }
+
+  .semantic-cue-review-panel {
+    padding-bottom: 72px;
+  }
 }
 
 .assistant-panel-empty {
@@ -4169,6 +4540,11 @@
 
   .editor-panel.right-panel-closed {
     grid-template-columns: 1fr;
+  }
+
+  .ai-pane:not(.collapsed) {
+    width: 100vw;
+    max-width: 100vw;
   }
 
   .slides-pane {
