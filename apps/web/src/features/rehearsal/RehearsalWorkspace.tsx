@@ -185,7 +185,10 @@ import {
   type P3RehearsalSession,
   type P3RehearsalSessionState,
 } from "./speech/p3RehearsalSession";
-import { getSemanticCueRuntimeFlags } from "./speech/semanticCueFeatureFlags";
+import {
+  getSemanticCueRuntimeFlags,
+  isSemanticCueNliEnabledForMode,
+} from "./speech/semanticCueFeatureFlags";
 import {
   createSemanticCueDebugRingBuffer,
   type SemanticCueDebugEvent,
@@ -1865,6 +1868,18 @@ export function RehearsalWorkspace(props: {
     getOrCreateSemanticMatcher();
   }, []);
 
+  useEffect(() => {
+    if (import.meta.env.MODE === "test") {
+      return;
+    }
+    const flags = getSemanticCueRuntimeFlags(import.meta.env);
+    if (!flags.nliEnabled || flags.provider !== "browser-transformersjs") {
+      return;
+    }
+
+    void getOrCreateBrowserSemanticCueNliProvider(flags).load();
+  }, []);
+
   useEffect(
     () => () => {
       semanticCueNliProviderRef.current?.provider.dispose();
@@ -2859,11 +2874,16 @@ export function RehearsalWorkspace(props: {
     return semanticMatcherRef.current;
   }
 
-  function createSemanticCueRuntimeFromFlags() {
+  function createSemanticCueRuntimeFromFlags(
+    mode: "rehearsal" | "presentation",
+  ) {
     const flags = getSemanticCueRuntimeFlags(import.meta.env);
     const embeddingIndex = getOrCreateSemanticCueEmbeddingIndex();
 
-    if (!flags.nliEnabled || flags.provider === "off") {
+    if (
+      !isSemanticCueNliEnabledForMode(flags, mode) ||
+      flags.provider === "off"
+    ) {
       return createSemanticCueRuntime({
         enabled: false,
         embeddingIndex,
@@ -2871,20 +2891,10 @@ export function RehearsalWorkspace(props: {
     }
 
     if (flags.provider === "browser-transformersjs") {
-      const key = `${flags.provider}:${flags.modelId}`;
-      if (semanticCueNliProviderRef.current?.key !== key) {
-        semanticCueNliProviderRef.current?.provider.dispose();
-        semanticCueNliProviderRef.current = {
-          key,
-          provider: createBrowserTransformersSemanticCueNliProvider({
-            modelId: flags.modelId,
-          }),
-        };
-      }
-
       return createSemanticCueRuntime({
-        provider: semanticCueNliProviderRef.current.provider,
+        provider: getOrCreateBrowserSemanticCueNliProvider(flags),
         enabled: true,
+        nliMode: "shadow",
         embeddingIndex,
       });
     }
@@ -2903,6 +2913,26 @@ export function RehearsalWorkspace(props: {
       enabled: true,
       embeddingIndex,
     });
+  }
+
+  function getOrCreateBrowserSemanticCueNliProvider(
+    flags: ReturnType<typeof getSemanticCueRuntimeFlags>,
+  ) {
+    const key = `${flags.provider}:${flags.modelId}:${flags.nliDevice ?? "none"}`;
+    if (semanticCueNliProviderRef.current?.key !== key) {
+      semanticCueNliProviderRef.current?.provider.dispose();
+      semanticCueNliProviderRef.current = {
+        key,
+        provider: createBrowserTransformersSemanticCueNliProvider({
+          modelId: flags.modelId,
+          loadOnEvaluate: false,
+          ...(flags.nliDevice === null
+            ? {}
+            : { deviceOverride: flags.nliDevice }),
+        }),
+      };
+    }
+    return semanticCueNliProviderRef.current.provider;
   }
 
   function getOrCreateSemanticCueEmbeddingIndex() {
@@ -3015,7 +3045,9 @@ export function RehearsalWorkspace(props: {
       semanticCueRuntime:
         import.meta.env.MODE === "test"
           ? undefined
-          : createSemanticCueRuntimeFromFlags(),
+          : createSemanticCueRuntimeFromFlags(
+              evaluationSnapshot === undefined ? "presentation" : "rehearsal",
+            ),
       isSemanticMatchingEnabled: () =>
         presenterSettings.advancePolicy.semanticMatching,
       onSemanticDebugState: setSemanticDebugState,

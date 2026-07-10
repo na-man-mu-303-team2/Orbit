@@ -15,9 +15,10 @@ import {
   createSemanticCueDebugEvent,
   type SemanticCueDebugEvent
 } from "./semanticCueDebugEvents";
-import type {
-  SemanticCueNliDecision,
-  SemanticCueNliProvider
+import {
+  SemanticCueNliProviderError,
+  type SemanticCueNliDecision,
+  type SemanticCueNliProvider
 } from "./semanticCueNliProvider";
 import {
   buildSemanticCueReportEvidence,
@@ -68,6 +69,7 @@ export function createSemanticCueRuntime(options: {
   deckId?: string;
   maxCandidates?: number;
   nliTimeoutMs?: number;
+  nliMode?: "active" | "shadow";
 }): SemanticCueRuntime {
   const now = options.now ?? (() => Date.now());
   const deckId = options.deckId ?? "deck_unknown";
@@ -284,8 +286,7 @@ export function createSemanticCueRuntime(options: {
           nliTimeoutMs
         );
       } catch (error) {
-        const reason: SemanticFallbackReason =
-          error instanceof SemanticCueNliTimeoutError ? "timeout" : "runtime_error";
+        const reason: SemanticFallbackReason = getNliFailureReason(error);
         const fallbackDecisions = applyFallback(basicDecisions, reason);
         capabilityUpdates.push(
           capability(input, {
@@ -360,7 +361,7 @@ export function createSemanticCueRuntime(options: {
           premise,
           at: new Date(now()).toISOString()
         });
-        if (evidence.label === "covered") {
+        if (options.nliMode !== "shadow" && evidence.label === "covered") {
           coveredCueIds.add(evidence.cueId);
         }
         return [evidence];
@@ -377,11 +378,19 @@ export function createSemanticCueRuntime(options: {
         capability(input, {
           capability: "semantic_runtime",
           toState: "available",
-          measurementMode: "full",
+          measurementMode:
+            options.nliMode === "shadow"
+              ? basicDecisions.length > 0
+                ? "basic"
+                : "none"
+              : "full",
           retryable: false
         })
       );
-      const decisions = [...basicDecisions, ...fullDecisions];
+      const decisions =
+        options.nliMode === "shadow"
+          ? basicDecisions
+          : [...basicDecisions, ...fullDecisions];
       const firstDecision = decisions[0];
       return buildResult({
         input,
@@ -391,7 +400,10 @@ export function createSemanticCueRuntime(options: {
         decisions,
         capabilityUpdates,
         nliDecisions,
-        reasonCodes: firstDecision?.reasonCodes ?? ["insufficient-evidence"]
+        reasonCodes:
+          options.nliMode === "shadow"
+            ? [...(firstDecision?.reasonCodes ?? []), "nli-shadow-only"]
+            : firstDecision?.reasonCodes ?? ["insufficient-evidence"]
       });
     }
   };
@@ -500,8 +512,8 @@ async function evaluateWithTimeout(
       provider.evaluate({ ...input, signal: controller.signal }),
       new Promise<never>((_, reject) => {
         timeoutId = setTimeout(() => {
-          controller.abort();
           reject(new SemanticCueNliTimeoutError());
+          queueMicrotask(() => controller.abort());
         }, timeoutMs);
       })
     ]);
@@ -513,6 +525,16 @@ async function evaluateWithTimeout(
 }
 
 class SemanticCueNliTimeoutError extends Error {}
+
+function getNliFailureReason(error: unknown): SemanticFallbackReason {
+  if (error instanceof SemanticCueNliTimeoutError) {
+    return "timeout";
+  }
+  if (error instanceof SemanticCueNliProviderError) {
+    return error.reason;
+  }
+  return "runtime_error";
+}
 
 function boundNliTokens(value: string, maxTokens: number) {
   return normalizeBoundedText(value, 600).split(/\s+/).slice(-maxTokens).join(" ");
