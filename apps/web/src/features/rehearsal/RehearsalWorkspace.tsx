@@ -25,6 +25,7 @@ import {
   type RehearsalEvaluationSnapshot,
   type RehearsalRun,
   type RehearsalRunMeta,
+  type RetryRehearsalSemanticEvaluationResponse,
   type SemanticCapabilityEvent,
   type Slide,
   type UpdateRehearsalRunMetaRequest,
@@ -253,7 +254,8 @@ type RehearsalFlowStage =
   | "complete"
   | "job-poll"
   | "run-fetch"
-  | "report-fetch";
+  | "report-fetch"
+  | "semantic-retry";
 type LiveSttStatus =
   | "idle"
   | "starting"
@@ -671,6 +673,27 @@ export async function fetchRehearsalReport(
   }
 
   return (await response.json()) as GetRehearsalReportResponse;
+}
+
+export async function retryRehearsalSemanticEvaluation(
+  runId: string,
+  fetcher: Fetcher = fetch,
+) {
+  const response = await fetcher(
+    `/api/v1/rehearsals/${runId}/semantic-evaluation/retry`,
+    { method: "POST" },
+  );
+  if (!response.ok) {
+    throw new RehearsalFlowError(
+      "semantic-retry",
+      await readSemanticRetryError(response),
+      response.status,
+    );
+  }
+
+  const payload =
+    (await response.json()) as RetryRehearsalSemanticEvaluationResponse;
+  return payload.job;
 }
 
 export function resolveRehearsalReportLoadState(
@@ -5362,6 +5385,10 @@ export function RehearsalReportPage(props: {
   );
   const [error, setError] = useState("");
   const [reportJob, setReportJob] = useState<Job | null>(null);
+  const [semanticRetryState, setSemanticRetryState] = useState<{
+    message?: string;
+    status: "idle" | "running" | "succeeded" | "failed";
+  }>({ status: "idle" });
   const [allSucceededRuns, setAllSucceededRuns] = useState<RehearsalRun[]>(() =>
     props.initialRun?.status === "succeeded" ? [props.initialRun] : [],
   );
@@ -5377,6 +5404,7 @@ export function RehearsalReportPage(props: {
     setStatus(props.initialReport ? "ready" : "loading");
     setError("");
     setReportJob(null);
+    setSemanticRetryState({ status: "idle" });
     setPrevReports([]);
   }, [props.initialRun, props.initialReport, props.runId]);
 
@@ -5504,6 +5532,56 @@ export function RehearsalReportPage(props: {
 
   const currentRunNumber = getRehearsalRunNumber(allSucceededRuns, props.runId);
 
+  const handleSemanticRetry = useCallback(async () => {
+    setSemanticRetryState({
+      message: "서버에서 의미 전달을 다시 평가하고 있어요.",
+      status: "running",
+    });
+
+    try {
+      const job = await retryRehearsalSemanticEvaluation(props.runId);
+      const completedJob = await pollRehearsalJob(job.jobId);
+      if (completedJob.status !== "succeeded") {
+        setSemanticRetryState({
+          message:
+            "서버 재평가를 완료하지 못했습니다. 발표 결과는 기존 상태로 유지됩니다.",
+          status: "failed",
+        });
+        return;
+      }
+
+      const response = await fetchRehearsalReport(props.runId);
+      const nextState = resolveRehearsalReportLoadState(
+        response,
+        props.projectId,
+      );
+      if (nextState.status !== "ready" || response.report === null) {
+        setSemanticRetryState({
+          message:
+            "재평가는 끝났지만 새 결과를 불러오지 못했습니다. 잠시 후 다시 열어 주세요.",
+          status: "failed",
+        });
+        return;
+      }
+
+      setRun(response.run);
+      setReport(response.report);
+      setSemanticRetryState({
+        message: "서버 재평가 결과를 반영했습니다.",
+        status: "succeeded",
+      });
+    } catch (cause) {
+      setSemanticRetryState({
+        message:
+          cause instanceof RehearsalFlowError &&
+          cause.stage === "semantic-retry"
+            ? cause.message
+            : "서버 재평가 중 문제가 발생했습니다. 발표 결과는 기존 상태로 유지됩니다.",
+        status: "failed",
+      });
+    }
+  }, [props.projectId, props.runId]);
+
   return (
     <main className="rehearsal-report-page">
       <header className="rehearsal-report-topbar">
@@ -5539,11 +5617,13 @@ export function RehearsalReportPage(props: {
             <RehearsalReportDocument
               report={report}
               deck={deck}
+              onSemanticRetry={handleSemanticRetry}
               run={run}
               runNumber={currentRunNumber}
               projectId={props.projectId}
               totalRunCount={allSucceededRuns.length}
               prevReports={prevReports}
+              semanticRetryState={semanticRetryState}
             />
           ) : (
             <div
@@ -6248,6 +6328,25 @@ function stopMediaStream(stream: MediaStream | null) {
 async function readErrorMessage(response: Response, fallback: string) {
   const message = await response.text();
   return message || fallback;
+}
+
+async function readSemanticRetryError(response: Response) {
+  const raw = await response.text();
+  let code = "";
+  try {
+    const payload = JSON.parse(raw) as { code?: unknown };
+    code = typeof payload.code === "string" ? payload.code : "";
+  } catch {
+    // The report UI intentionally does not expose raw server error details.
+  }
+
+  if (code === "REHEARSAL_SEMANTIC_EVIDENCE_EXPIRED") {
+    return "재평가 가능 시간이 지났습니다. 새 리허설을 시작해 주세요.";
+  }
+  if (code === "REHEARSAL_SEMANTIC_EVALUATION_NOT_READY") {
+    return "현재 리포트는 서버 재평가를 시작할 수 없습니다.";
+  }
+  return "서버 재평가를 시작하지 못했습니다. 잠시 후 다시 시도해 주세요.";
 }
 
 function toMicrophoneErrorMessage(cause: unknown) {

@@ -13,6 +13,11 @@ import type { Deck, RehearsalReport, RehearsalRun } from "@orbit/shared";
 import { navigateTo } from "./rehearsalUtils";
 import { RehearsalSlideAnalysisOverview } from "./RehearsalSlideAnalysisOverview";
 import { RehearsalSlideTimingOverview } from "./RehearsalSlideTimingOverview";
+import {
+  RehearsalSemanticCoverage,
+  type SemanticRetryState,
+} from "./RehearsalSemanticCoverage";
+import { buildRehearsalReportViewModel } from "./rehearsalReportViewModel";
 import { createDefaultPhraseExtractor } from "./speech/phraseExtractor";
 
 const TRANSCRIPT_WINDOW_MS = 30 * 60 * 1000;
@@ -57,7 +62,6 @@ function formatDate(iso: string) {
 }
 
 type UtteranceOutcome = RehearsalReport["utteranceOutcomes"][number];
-type SemanticCueDecision = RehearsalReport["semanticCueDecisions"][number];
 
 const UTTERANCE_OUTCOME_LABELS: Record<
   UtteranceOutcome["kind"],
@@ -100,23 +104,6 @@ function buildUtteranceOutcomeSections(
         }))
     })
   );
-}
-
-function buildSemanticCueEvidenceItems(
-  decisions: readonly SemanticCueDecision[] = [],
-  deck: Deck | null
-) {
-  const slideLabelById = buildReportSlideLabelMap(deck);
-
-  return decisions.slice(0, 20).map((decision, index) => ({
-    key: `${decision.slideId}-${decision.cueId}-${index}`,
-    cueId: decision.cueId,
-    label: decision.label,
-    provider: decision.provider,
-    score: `${Math.round(decision.finalScore * 100)}%`,
-    slideLabel: slideLabelById.get(decision.slideId) ?? decision.slideId,
-    reasonCodes: decision.reasonCodes.slice(0, 4)
-  }));
 }
 
 function buildReportSentenceTextMap(deck: Deck | null) {
@@ -313,21 +300,25 @@ const CRC32_TABLE = Array.from({ length: 256 }, (_, index) => {
 
 type Props = {
   deck: Deck | null;
+  onSemanticRetry?: () => void;
   prevReports: RehearsalReport[];
   projectId: string;
   report: RehearsalReport;
   run: RehearsalRun | null;
   runNumber: number | null;
+  semanticRetryState?: SemanticRetryState;
   totalRunCount: number;
 };
 
 export function RehearsalReportDocument({
   deck,
+  onSemanticRetry,
   prevReports,
   projectId,
   report,
   run,
   runNumber,
+  semanticRetryState = { status: "idle" },
   totalRunCount: _totalRunCount,
 }: Props) {
   const [transcriptOpen, setTranscriptOpen] = useState(false);
@@ -400,10 +391,7 @@ export function RehearsalReportDocument({
     report.utteranceOutcomes ?? [],
     deck
   );
-  const semanticCueEvidenceItems = buildSemanticCueEvidenceItems(
-    report.semanticCueDecisions ?? [],
-    deck
-  );
+  const reportViewModel = buildRehearsalReportViewModel(report, deck);
 
   const durationDelta = prevReport
     ? report.metrics.durationSeconds - prevReport.metrics.durationSeconds
@@ -429,6 +417,12 @@ export function RehearsalReportDocument({
           바로 다시 리허설
         </button>
       </section>
+
+      <RehearsalSemanticCoverage
+        model={reportViewModel.semantic}
+        onRetry={onSemanticRetry}
+        retryState={semanticRetryState}
+      />
 
       {/* ── 1. AI summary ── */}
       <section className="rrd-card rrd-ai-card">
@@ -493,8 +487,8 @@ export function RehearsalReportDocument({
           </div>
           <div className="rrd-overview-metric">
             <span>키워드 커버리지</span>
-            <strong>{Math.round(metrics.keywordCoverage * 100)}%</strong>
-            <em>저장된 장표 키워드 기준</em>
+            <strong>{reportViewModel.keywordCoverage.valueLabel}</strong>
+            <em>{reportViewModel.keywordCoverage.detail}</em>
           </div>
         </div>
 
@@ -537,28 +531,6 @@ export function RehearsalReportDocument({
               </section>
             ))}
           </div>
-        </section>
-      ) : null}
-
-      {semanticCueEvidenceItems.length > 0 ? (
-        <section className="rrd-card rrd-semantic-cue-evidence">
-          <header className="rrd-card-head">
-            <Target size={16} className="rrd-card-icon" />
-            <h2>Semantic cue evidence</h2>
-          </header>
-          <ul className="rrd-utterance-list">
-            {semanticCueEvidenceItems.map((item) => (
-              <li key={item.key}>
-                <span>{item.slideLabel}</span>
-                <p>
-                  {item.cueId} · {item.label} · {item.provider}
-                </p>
-                <em>
-                  {item.score} · {item.reasonCodes.join(", ")}
-                </em>
-              </li>
-            ))}
-          </ul>
         </section>
       ) : null}
 

@@ -54,6 +54,7 @@ import {
   requestRehearsalMicrophoneStream,
   resetRehearsalTimerState,
   resolveRehearsalReportLoadState,
+  retryRehearsalSemanticEvaluation,
   runRehearsalUploadFlow,
   selectRecordingMimeType,
   shouldRenderRehearsalThumbnailImage,
@@ -2548,6 +2549,40 @@ describe("fetchRehearsalReport", () => {
     expect(result.report?.transcriptRetained).toBe(false);
     expect(result.report?.transcript).toBeNull();
   });
+
+  it("queues a semantic evaluation retry without sending report data", async () => {
+    const job = jobFixture("queued", 0);
+    const fetcher = vi.fn(async () => jsonResponse({ job }));
+
+    const result = await retryRehearsalSemanticEvaluation("run-1", fetcher);
+
+    expect(result).toEqual(job);
+    expect(fetcher).toHaveBeenCalledWith(
+      "/api/v1/rehearsals/run-1/semantic-evaluation/retry",
+      { method: "POST" },
+    );
+  });
+
+  it("uses presenter-facing copy when retry evidence has expired", async () => {
+    const fetcher = vi.fn(async () =>
+      jsonResponse(
+        {
+          code: "REHEARSAL_SEMANTIC_EVIDENCE_EXPIRED",
+          message: "internal retry detail",
+          retryable: false,
+        },
+        409,
+      ),
+    );
+
+    await expect(
+      retryRehearsalSemanticEvaluation("run-1", fetcher),
+    ).rejects.toMatchObject({
+      message: "재평가 가능 시간이 지났습니다. 새 리허설을 시작해 주세요.",
+      stage: "semantic-retry",
+      status: 409,
+    });
+  });
 });
 
 class FakeMediaRecorder {
@@ -2678,8 +2713,9 @@ function reportFixture(patch: Partial<RehearsalReport> = {}): RehearsalReport {
   };
 }
 
-function jsonResponse(payload: unknown) {
+function jsonResponse(payload: unknown, status = 200) {
   return new Response(JSON.stringify(payload), {
     headers: { "content-type": "application/json" },
+    status,
   });
 }
