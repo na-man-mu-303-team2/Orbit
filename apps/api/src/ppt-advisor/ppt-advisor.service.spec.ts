@@ -106,6 +106,12 @@ describe("PptAdvisorService", () => {
     const body = JSON.parse(String(init.body));
     expect(body.model).toBe("gpt-4.1-mini");
     expect(body.text.format.name).toBe("ppt_advisor_response");
+    expect(
+      body.text.format.schema.properties.suggestions.items.anyOf.every(
+        (item: { properties: { field: { type?: string } } }) =>
+          item.properties.field.type === "string",
+      ),
+    ).toBe(true);
     expect(init.signal).toBeInstanceOf(AbortSignal);
     expect(logger.info).toHaveBeenCalledWith(
       expect.objectContaining({ fallback: false, suggestionCount: 1 }),

@@ -180,7 +180,7 @@ function suggestionSchema(field: string, value: Record<string, unknown>) {
     type: "object",
     additionalProperties: false,
     properties: {
-      field: { const: field },
+      field: { type: "string", const: field },
       value,
       label: { type: "string", minLength: 1, maxLength: 300 },
       reason: { type: "string", minLength: 1, maxLength: 500 },
