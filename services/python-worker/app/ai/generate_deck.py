@@ -2695,6 +2695,7 @@ def research_web_sources(
 
     attempts = 0
     citations_by_url: OrderedDict[str, SourceRecord] = OrderedDict()
+    diagnostic_urls: list[str] = []
     last_message = "관련성 있는 웹 출처를 확보하지 못했습니다."
     search_aliases = plan_web_search_aliases(
         raw_input,
@@ -2721,6 +2722,7 @@ def research_web_sources(
                     raw_input,
                     attempt=attempt,
                     search_aliases=search_aliases,
+                    diagnostic_urls=diagnostic_urls,
                 ),
                 tools=[{"type": "web_search", "search_context_size": "medium"}],
                 include=["web_search_call.action.sources"],
@@ -2729,6 +2731,9 @@ def research_web_sources(
             last_message = "웹 검색 제공자 호출에 실패했습니다."
             continue
 
+        diagnostic_urls = unique_non_empty(
+            [*diagnostic_urls, *web_search_diagnostic_urls(response)]
+        )[:6]
         for source in web_sources_from_response(response):
             if source.url:
                 citations_by_url[source.url] = source
@@ -2832,6 +2837,7 @@ def web_research_query(
     *,
     attempt: int = 1,
     search_aliases: list[str] | None = None,
+    diagnostic_urls: list[str] | None = None,
 ) -> str:
     keywords = reference_keywords_for(raw_input.reference_keywords)
     return "\n".join(
@@ -2863,6 +2869,14 @@ def web_research_query(
             f"Presentation type: {raw_input.brief.presentation_type}",
             f"Success criteria: {raw_input.brief.success_criteria}",
             f"Extracted keywords: {', '.join(keywords)}" if keywords else "",
+            (
+                "Diagnostic candidate URLs from the previous search (not evidence): "
+                + ", ".join(diagnostic_urls)
+                + ". Open these pages and cite only those that directly support the exact "
+                "subject."
+                if attempt > 1 and diagnostic_urls
+                else ""
+            ),
             (
                 "Retry requirement: The previous result did not satisfy source quality. "
                 "Search the exact topic again and cite the missing official or independent "
@@ -2991,6 +3005,21 @@ def web_sources_from_response(response: Any) -> list[SourceRecord]:
             )
         )
     return records
+
+
+def web_search_diagnostic_urls(response: Any) -> list[str]:
+    urls: list[str] = []
+    for item in object_field(response, "output", []) or []:
+        if object_field(item, "type") != "web_search_call":
+            continue
+        action = object_field(item, "action", {})
+        for source in object_field(action, "sources", []) or []:
+            if object_field(source, "type", "url") != "url":
+                continue
+            url = canonicalize_web_url(str(object_field(source, "url", "")).strip())
+            if is_http_url(url):
+                urls.append(url)
+    return unique_non_empty(urls)[:6]
 
 
 def web_source_id(url: str) -> str:

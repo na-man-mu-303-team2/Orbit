@@ -418,6 +418,53 @@ def test_research_first_retries_then_rejects_fewer_than_two_url_citations() -> N
     assert len([request for request in client.requests if request.get("tools")]) == 2
 
 
+def test_research_retry_uses_action_sources_only_as_diagnostic_hints() -> None:
+    first_url = "https://publisher.example/products/new-game"
+    second_url = "https://news.example/games/new-game"
+    client = FakeResearchOpenAIClient(
+        {
+            "title": "Verified retry",
+            "slides": [
+                slide_payload(
+                    "Verified retry",
+                    "Cited sources support the release facts.",
+                    long_speaker_notes(1),
+                    slide_type="cover",
+                    slot_preset="title_center",
+                )
+            ],
+        },
+        [],
+        retry_citations=[
+            (first_url, "Official product page"),
+            (second_url, "Independent report"),
+        ],
+        action_sources=[first_url, second_url],
+    )
+
+    response = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            generationMode="design-pack",
+            topic="New game",
+            targetDurationMinutes=1,
+            referencePolicy="research-first",
+            brief={"referencePolicy": "research-first"},
+            design={"mediaPolicy": "minimal"},
+            slideCountRange={"min": 1, "max": 1},
+        ),
+        client=client,
+    )
+
+    web_requests = [request for request in client.requests if request.get("tools")]
+    assert len(web_requests) == 2
+    assert "Diagnostic candidate URLs from the previous search" in str(
+        web_requests[1]["input"]
+    )
+    assert first_url in str(web_requests[1]["input"])
+    assert response.diagnostics.relevant_web_source_count == 2
+
+
 def test_web_sources_ignore_search_action_sources_not_cited_in_message() -> None:
     summary = "검색 결과를 비교해 발표 근거와 다음 실행 우선순위를 정리했습니다."
     response = SimpleNamespace(
@@ -5688,6 +5735,7 @@ class FakeResearchOpenAIClient:
         official_required: bool = False,
         authorities: dict[str, str] | None = None,
         search_aliases: list[str] | None = None,
+        action_sources: list[str] | None = None,
     ) -> None:
         self.requests: list[dict[str, object]] = []
         self.responses = FakeResearchResponses(
@@ -5699,6 +5747,7 @@ class FakeResearchOpenAIClient:
             official_required,
             authorities or {},
             search_aliases or [],
+            action_sources or [],
         )
 
 
@@ -5713,6 +5762,7 @@ class FakeResearchResponses:
         official_required: bool,
         authorities: dict[str, str],
         search_aliases: list[str],
+        action_sources: list[str],
     ) -> None:
         self.parent = parent
         self.content_payload = content_payload
@@ -5722,6 +5772,7 @@ class FakeResearchResponses:
         self.official_required = official_required
         self.authorities = authorities
         self.search_aliases = search_aliases
+        self.action_sources = action_sources
         self.web_attempts = 0
         self.seen_citations: dict[str, str] = {}
 
@@ -5761,6 +5812,16 @@ class FakeResearchResponses:
             return SimpleNamespace(
                 output_text=summary,
                 output=[
+                    SimpleNamespace(
+                        type="web_search_call",
+                        action=SimpleNamespace(
+                            type="search",
+                            sources=[
+                                SimpleNamespace(type="url", url=url)
+                                for url in self.action_sources
+                            ],
+                        ),
+                    ),
                     SimpleNamespace(
                         type="message",
                         content=[
