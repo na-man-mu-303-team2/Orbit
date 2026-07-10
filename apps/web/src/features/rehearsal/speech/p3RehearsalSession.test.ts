@@ -71,6 +71,13 @@ describe("p3RehearsalSession", () => {
       {
         capability: "stt",
         fromState: "unavailable",
+        toState: "degraded",
+        reason: "model_not_ready",
+        measurementMode: "none"
+      },
+      {
+        capability: "stt",
+        fromState: "degraded",
         toState: "available",
         measurementMode: "full"
       },
@@ -82,7 +89,7 @@ describe("p3RehearsalSession", () => {
         measurementMode: "none"
       }
     ]);
-    expect(capabilityEvents).toHaveLength(2);
+    expect(capabilityEvents).toHaveLength(3);
   });
 
   it("starts Live STT with current slide bias phrases before exposing running state", async () => {
@@ -292,6 +299,13 @@ describe("p3RehearsalSession", () => {
         expect.objectContaining({
           capability: "stt",
           fromState: "unavailable",
+          toState: "degraded",
+          reason: "model_not_ready",
+          measurementMode: "none"
+        }),
+        expect.objectContaining({
+          capability: "stt",
+          fromState: "degraded",
           toState: "available",
           measurementMode: "full"
         }),
@@ -689,7 +703,7 @@ describe("p3RehearsalSession", () => {
     });
   });
 
-  it("exact phrase final transcript는 semantic cue NLI를 실행하지 않는다", async () => {
+  it("exact phrase final transcript는 NLI 없이 basic cue decision을 기록한다", async () => {
     const port = createMockLiveSttPort();
     const provider = createMockSemanticCueNliProvider({
       scoresByCueId: {
@@ -735,7 +749,15 @@ describe("p3RehearsalSession", () => {
     await flushSemanticQueue();
 
     expect(evaluate).not.toHaveBeenCalled();
-    expect((await session.stop()).semanticCueDecisions).toEqual([]);
+    expect((await session.stop()).semanticCueDecisions).toEqual([
+      expect.objectContaining({
+        cueId: "scue_cac_reason",
+        label: "covered",
+        matchedBy: "lexical",
+        measurementMode: "basic",
+        fallbackUsed: false
+      })
+    ]);
   });
 
   it("ad-lib final transcript는 mock NLI evidence를 meta와 debug event에만 기록한다", async () => {
@@ -940,6 +962,77 @@ describe("p3RehearsalSession", () => {
     );
   });
 
+  it("semantic runtime 예외를 STT 실패와 다른 capability reason으로 기록한다", async () => {
+    const port = createMockLiveSttPort();
+    const session = createP3RehearsalSession({
+      slides: semanticCueSlides,
+      port,
+      semanticCueRuntime: {
+        prepareSlide: vi.fn(async () => undefined),
+        evaluateFinalResult: vi.fn(async () => {
+          throw new Error("unexpected runtime failure");
+        })
+      },
+      isSemanticMatchingEnabled: () => true,
+      now: () => 101_500
+    });
+
+    await session.start({ audioSource: {} as MediaStream, slideIndex: 0 });
+    port.emit({
+      text: "의미 판정 입력",
+      isFinal: true,
+      timestampMs: [0, 1_000]
+    });
+    const meta = await session.stop();
+
+    expect(meta.semanticCapabilityEvents).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          capability: "semantic_runtime",
+          fromState: "available",
+          toState: "unavailable",
+          reason: "runtime_error",
+          measurementMode: "none"
+        })
+      ])
+    );
+  });
+
+  it("approved stale cue를 판정에서 제외하고 freshness capability에 남긴다", async () => {
+    const port = createMockLiveSttPort();
+    const session = createP3RehearsalSession({
+      slides: [
+        {
+          slideId: "slide_1",
+          speakerNotes: "",
+          keywords: [],
+          semanticCues: [semanticCue({ freshness: "stale" })]
+        }
+      ],
+      port,
+      semanticCueRuntime: createSemanticCueRuntime({ enabled: false }),
+      isSemanticMatchingEnabled: () => true,
+      now: () => 101_750
+    });
+
+    await session.start({ audioSource: {} as MediaStream, slideIndex: 0 });
+    const meta = await session.stop();
+
+    expect(meta.semanticCueDecisions).toEqual([]);
+    expect(meta.semanticCapabilityEvents).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          capability: "cue_freshness",
+          fromState: "available",
+          toState: "degraded",
+          reason: "stale_cue",
+          measurementMode: "none",
+          cueIds: ["scue_1"]
+        })
+      ])
+    );
+  });
+
   it("notes와 keyword와 sentence matcher 없이 cue E5 top-k를 준비해 NLI 후보를 만든다", async () => {
     const port = createMockLiveSttPort();
     const debugEvents: SemanticCueDebugEvent[] = [];
@@ -1069,10 +1162,22 @@ describe("p3RehearsalSession", () => {
       ],
       decision: {
         label: "no_candidate",
-        reasonCodes: ["feature_disabled"]
+        reasonCodes: ["user_disabled"]
       }
     });
-    expect((await session.stop()).semanticCueDecisions).toEqual([]);
+    const meta = await session.stop();
+    expect(meta.semanticCueDecisions).toEqual([]);
+    expect(meta.semanticCapabilityEvents).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          capability: "nli",
+          fromState: "available",
+          toState: "unavailable",
+          reason: "user_disabled",
+          measurementMode: "none"
+        })
+      ])
+    );
   });
 
   it("semantic matching이 꺼져 있으면 cue embedding index를 prewarm하지 않는다", async () => {

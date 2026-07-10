@@ -9,5 +9,13 @@ export const semanticCueRuntimeConfig = {
     lexical: 0.2,
     retrieval: 0.55
   },
-  maxCandidates: 3
+  maxCandidates: 3,
+  maxNliCandidates: 2,
+  maxHypothesesPerCue: 2,
+  maxNliTokens: 96,
+  nliTimeoutMs: 1_200,
+  nliThrottleMs: 2_500,
+  basicCoveredRetrieval: 0.6,
+  basicPartialScore: 0.62,
+  basicPartialConceptCoverage: 0.34
 } as const;
