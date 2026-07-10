@@ -373,6 +373,7 @@ DeckPatch 결정 사항:
 - `delete_element`: element 삭제
 - `update_speaker_notes`: 발표자 노트 교체
 - `replace_keywords`: slide keyword 목록 전체 교체
+- `replace_semantic_cues`: slide Semantic Cue 목록 전체 교체
 - `add_animation`: animation 추가
 - `update_animation`: animation 부분 수정
 - `delete_animation`: animation 삭제
