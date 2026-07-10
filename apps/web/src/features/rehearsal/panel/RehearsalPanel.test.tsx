@@ -37,6 +37,22 @@ describe("RehearsalPanel", () => {
     expect(html).not.toContain("transcript");
   });
 
+  it("shows a dismissible one-line reminder for a repeated high-severity cue", () => {
+    const html = renderPanel({
+      comparisonReminder: {
+        key: "run_2:slide_1:cue_1:1",
+        label: "고객 가치",
+        reason: "두 회차 연속 핵심 의미를 충분히 전달하지 못했습니다.",
+        slideId: "slide_1"
+      }
+    });
+
+    expect(html).toContain("지난 회차 반복");
+    expect(html).toContain("고객 가치");
+    expect(html).toContain("두 회차 연속 핵심 의미");
+    expect(html).toContain("반복 이슈 알림 닫기");
+  });
+
   it("debug flag와 무관하게 시스템 capability 상태를 조언과 분리해 표시한다", () => {
     const html = renderPanel({
       semanticCapabilityItems: [
@@ -192,6 +208,7 @@ function renderPanel(
     sentences?: ExtractedSentence[];
     snapshot?: SpeechTrackerSnapshot;
     semanticCapabilityItems?: import("./semanticCapabilityStatusModel").SemanticCapabilityStatusItem[];
+    comparisonReminder?: import("../rehearsalRunComparisonModel").ComparisonReminder;
   } = {}
 ) {
   void overrides.transcriptText;
@@ -208,6 +225,7 @@ function renderPanel(
       speakerNotes={overrides.speakerNotes}
       snapshot={overrides.snapshot ?? snapshot}
       semanticCapabilityItems={overrides.semanticCapabilityItems}
+      comparisonReminder={overrides.comparisonReminder}
     />
   );
 }

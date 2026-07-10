@@ -7,6 +7,7 @@ import {
   createRehearsalRunRequestSchema,
   createRehearsalAudioUploadUrlRequestSchema,
   getRehearsalReportResponseSchema,
+  rehearsalRunComparisonSchema,
   rehearsalSemanticCueOutcomeSchema,
   rehearsalSemanticCueDecisionSchema,
   rehearsalRunMetaSchema,
@@ -14,6 +15,65 @@ import {
   rehearsalRunSchema,
   uploadRehearsalAudioChunkParamsSchema
 } from "./rehearsal.schema";
+
+describe("rehearsalRunComparisonSchema", () => {
+  it("accepts a bounded owner-only comparison without report evidence", () => {
+    const issue = {
+      category: "semantic-cue" as const,
+      slideId: "slide_1",
+      cueId: "scue_1",
+      cueRevision: 2,
+      label: "고객 가치",
+      severity: "high" as const,
+      reason: "두 회차 연속 핵심 의미를 충분히 전달하지 못했습니다."
+    };
+
+    const comparison = rehearsalRunComparisonSchema.parse({
+      currentRunId: "run_2",
+      previousRunId: "run_1",
+      improved: [],
+      repeated: [issue],
+      newIssues: [],
+      incomparable: [],
+      briefing: [issue]
+    });
+
+    expect(comparison.briefing).toEqual([issue]);
+    expect(JSON.stringify(comparison)).not.toContain("evidence");
+    expect(JSON.stringify(comparison)).not.toContain("transcript");
+  });
+
+  it("rejects more than three briefing items and unknown evidence fields", () => {
+    const issue = {
+      category: "timing",
+      slideId: "slide_1",
+      label: "도입부 시간 초과",
+      severity: "medium",
+      reason: "두 회차 연속 목표 시간을 초과했습니다."
+    };
+    const base = {
+      currentRunId: "run_2",
+      previousRunId: "run_1",
+      improved: [],
+      repeated: [],
+      newIssues: [],
+      incomparable: []
+    };
+
+    expect(
+      rehearsalRunComparisonSchema.safeParse({
+        ...base,
+        briefing: [issue, issue, issue, issue]
+      }).success
+    ).toBe(false);
+    expect(
+      rehearsalRunComparisonSchema.safeParse({
+        ...base,
+        briefing: [{ ...issue, evidence: "민감한 발화 근거" }]
+      }).success
+    ).toBe(false);
+  });
+});
 
 describe("rehearsalRunSchema", () => {
   it("accepts deleted raw audio tracking on completed runs", () => {

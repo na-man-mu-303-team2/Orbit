@@ -2,7 +2,8 @@ import {
   AlertTriangle,
   Clock3,
   Gauge,
-  Timer
+  Timer,
+  X
 } from "lucide-react";
 import {
   useCallback,
@@ -34,6 +35,7 @@ import {
 } from "./rehearsalScriptPrompter";
 import { SemanticCapabilityStatus } from "./SemanticCapabilityStatus";
 import type { SemanticCapabilityStatusItem } from "./semanticCapabilityStatusModel";
+import type { ComparisonReminder } from "../rehearsalRunComparisonModel";
 
 export type RehearsalPanelMode = "rehearsal" | "live";
 
@@ -55,6 +57,8 @@ export type RehearsalPanelProps = {
   snapshot: SpeechTrackerSnapshot;
   semanticCapabilityItems?: readonly SemanticCapabilityStatusItem[];
   onSemanticCapabilityAction?: (item: SemanticCapabilityStatusItem) => void;
+  comparisonReminder?: ComparisonReminder | null;
+  onDismissComparisonReminder?: () => void;
 };
 
 export function RehearsalPanel(props: RehearsalPanelProps) {
@@ -146,6 +150,27 @@ export function RehearsalPanel(props: RehearsalPanelProps) {
         items={props.semanticCapabilityItems ?? []}
         onAction={props.onSemanticCapabilityAction}
       />
+
+      {props.comparisonReminder ? (
+        <section
+          className="rehearsal-comparison-reminder"
+          aria-label="지난 회차 반복 이슈"
+          role="status"
+        >
+          <AlertTriangle size={16} aria-hidden="true" />
+          <strong>지난 회차 반복</strong>
+          <span>
+            {props.comparisonReminder.label}: {props.comparisonReminder.reason}
+          </span>
+          <button
+            type="button"
+            aria-label="반복 이슈 알림 닫기"
+            onClick={props.onDismissComparisonReminder}
+          >
+            <X size={15} aria-hidden="true" />
+          </button>
+        </section>
+      ) : null}
 
       <div className="rehearsal-panel-top-grid">
         <section className="rehearsal-panel-section" aria-label="키워드 체크리스트">

@@ -584,6 +584,49 @@ describe("RehearsalsService", () => {
     });
   });
 
+  it("compares a succeeded run with the previous succeeded run", async () => {
+    const service = createService();
+    const previous = await createRun(service);
+    await saveRunPatch(service, previous.runId, {
+      createdAt: new Date("2026-07-10T00:00:00.000Z"),
+      status: "succeeded",
+      rehearsalReport: comparisonReport(previous.runId, "missed")
+    });
+    const cancelled = await createRun(service);
+    await saveRunPatch(service, cancelled.runId, {
+      createdAt: new Date("2026-07-10T00:05:00.000Z"),
+      status: "cancelled"
+    });
+    const current = await createRun(service);
+    await saveRunPatch(service, current.runId, {
+      createdAt: new Date("2026-07-10T00:10:00.000Z"),
+      status: "succeeded",
+      rehearsalReport: comparisonReport(current.runId, "covered")
+    });
+
+    const comparison = await service.getComparison("project-a", current.runId);
+
+    expect(comparison.currentRunId).toBe(current.runId);
+    expect(comparison.previousRunId).toBe(previous.runId);
+    expect(comparison.improved).toMatchObject([
+      { category: "semantic-cue", cueId: "scue_compare", cueRevision: 2 }
+    ]);
+    expect(comparison.repeated).toEqual([]);
+  });
+
+  it("does not return a comparison for a run outside the requested project", async () => {
+    const service = createService();
+    const current = await createRun(service);
+    await saveRunPatch(service, current.runId, {
+      status: "succeeded",
+      rehearsalReport: comparisonReport(current.runId, "covered")
+    });
+
+    await expect(
+      service.getComparison("project-other", current.runId)
+    ).rejects.toMatchObject({ status: 404 });
+  });
+
   it("attaches a retained transcript from Redis cache when the TTL is still alive", async () => {
     const service = createService({
       transcriptCache: {
@@ -777,6 +820,37 @@ function retryableReport() {
   };
 }
 
+function comparisonReport(
+  runId: string,
+  status: "covered" | "partial" | "missed"
+) {
+  return {
+    ...rehearsalReport,
+    runId,
+    semanticEvaluation: {
+      state: "succeeded",
+      measurementMode: "full",
+      reasons: [],
+      retryable: false
+    },
+    semanticCueOutcomes: [
+      {
+        slideId: "slide_1",
+        cueId: "scue_compare",
+        cueRevision: 2,
+        cueMeaningSnapshot: "고객이 얻는 가치를 설명한다.",
+        reportLabelSnapshot: "고객 가치",
+        importance: "core",
+        status,
+        measurementMode: "full",
+        fallbackUsed: false,
+        coveredConcepts: status === "covered" ? ["고객 가치"] : [],
+        missingConcepts: status === "covered" ? [] : ["고객 가치"]
+      }
+    ]
+  };
+}
+
 async function saveRunPatch(
   service: ReturnType<typeof createService>,
   runId: string,
@@ -883,8 +957,40 @@ function createRunRepository() {
       runs.set(run.runId, { ...run });
       return runs.get(run.runId) as RehearsalRunEntity;
     },
-    async findOne(options: { where: { runId: string } }) {
-      return runs.get(options.where.runId) ?? null;
+    async findOne(options: {
+      where: {
+        runId?: string;
+        projectId?: string;
+        status?: string;
+        createdAt?: { _type?: string; _value?: Date };
+      };
+      order?: { createdAt?: "ASC" | "DESC" };
+    }) {
+      if (options.where.runId) {
+        return runs.get(options.where.runId) ?? null;
+      }
+
+      const matching = [...runs.values()]
+        .filter(
+          (run) =>
+            !options.where.projectId || run.projectId === options.where.projectId
+        )
+        .filter(
+          (run) => !options.where.status || run.status === options.where.status
+        )
+        .filter((run) => {
+          const createdAt = options.where.createdAt;
+          return createdAt?._type === "lessThan" && createdAt._value
+            ? run.createdAt < createdAt._value
+            : true;
+        })
+        .sort((left, right) =>
+          options.order?.createdAt === "ASC"
+            ? left.createdAt.getTime() - right.createdAt.getTime()
+            : right.createdAt.getTime() - left.createdAt.getTime()
+        );
+
+      return matching[0] ?? null;
     },
     async update(criteria: Partial<RehearsalRunEntity>, patch: Partial<RehearsalRunEntity>) {
       const run = [...runs.values()].find((candidate) =>
