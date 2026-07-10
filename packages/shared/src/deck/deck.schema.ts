@@ -40,6 +40,16 @@ export const aiDeckToneSchema = z.enum([
   "concise"
 ]);
 
+export const aiDeckPresentationProfileSchema = z.enum([
+  "proposal",
+  "executive-report",
+  "product-launch",
+  "education",
+  "technical",
+  "research",
+  "general-inform"
+]);
+
 export const deckCreatedFromReferenceSchema = z.object({
   fileId: z.string().min(1)
 });
@@ -59,6 +69,7 @@ export const deckMetadataSchema = z.object({
   audience: aiDeckAudienceSchema.optional(),
   purpose: aiDeckPurposeSchema.optional(),
   tone: aiDeckToneSchema.optional(),
+  presentationProfile: aiDeckPresentationProfileSchema.optional(),
   createdFrom: deckCreatedFromSchema.optional()
 });
 
