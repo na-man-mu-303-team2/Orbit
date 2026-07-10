@@ -82,6 +82,8 @@ type TemplateBlueprintRow = {
 
 const pptxMimeType =
   "application/vnd.openxmlformats-officedocument.presentationml.presentation";
+const legacyGenerateDeckTimeoutMs = 120_000;
+const designPackGenerateDeckTimeoutMs = 300_000;
 
 export async function processGenerateDeckJob(
   dataSource: DataSource,
@@ -154,7 +156,11 @@ export async function processGenerateDeckJob(
           ? { templateBlueprint: designTemplate.templateBlueprint }
           : {})
       }),
-      signal: AbortSignal.timeout(120_000)
+      signal: AbortSignal.timeout(
+        payload.request.generationMode === "design-pack"
+          ? designPackGenerateDeckTimeoutMs
+          : legacyGenerateDeckTimeoutMs
+      )
     });
   } catch (error) {
     return failJob(

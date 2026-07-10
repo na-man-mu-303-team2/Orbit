@@ -48,6 +48,7 @@ describe("processGenerateDeckJob", () => {
   });
 
   it("calls Python deck generation, saves the deck, and stores job results", async () => {
+    const timeoutSpy = vi.spyOn(AbortSignal, "timeout");
     const deck = createDeck();
     const warnings = ["근거 데이터가 없어 빈 차트 자리 표시자를 생성했습니다."];
     const deckValidation = validation({
@@ -110,6 +111,7 @@ describe("processGenerateDeckJob", () => {
       "http://localhost:8000/ai/generate-deck",
       expect.objectContaining({ method: "POST" })
     );
+    expect(timeoutSpy).toHaveBeenCalledWith(120_000);
     expect(JSON.parse(pythonRequestBody)).toEqual(
       expect.objectContaining({
         designPrompt: "retro pixel palette",
@@ -234,6 +236,7 @@ describe("processGenerateDeckJob", () => {
   });
 
   it("passes explicit design-pack generation mode to Python deck generation", async () => {
+    const timeoutSpy = vi.spyOn(AbortSignal, "timeout");
     const deck = createDeck({
       slides: [
         {
@@ -314,6 +317,7 @@ describe("processGenerateDeckJob", () => {
         slideCountRange: { min: 4, max: 4 }
       })
     );
+    expect(timeoutSpy).toHaveBeenCalledWith(300_000);
   });
 
   it("imports PPTX design references and stores derived images before generation", async () => {
