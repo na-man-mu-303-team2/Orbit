@@ -2583,12 +2583,39 @@ button:disabled {
   z-index: 60;
 }
 
+.semantic-speech-debug-panel-dragging {
+  cursor: grabbing;
+  user-select: none;
+}
+
 .semantic-speech-debug-panel header,
 .semantic-speech-debug-panel li div {
   align-items: center;
   display: flex;
   gap: 8px;
   justify-content: space-between;
+}
+
+.semantic-speech-debug-panel-handle {
+  cursor: grab;
+  touch-action: none;
+}
+
+.semantic-speech-debug-panel-handle div {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+}
+
+.semantic-speech-debug-panel-handle button {
+  background: rgba(37, 99, 235, 0.18);
+  border: 1px solid rgba(147, 197, 253, 0.36);
+  border-radius: 999px;
+  color: #bfdbfe;
+  cursor: pointer;
+  font-size: 0.68rem;
+  font-weight: 800;
+  padding: 4px 8px;
 }
 
 .semantic-speech-debug-panel header strong {
@@ -2631,6 +2658,11 @@ button:disabled {
 .semantic-speech-debug-panel li strong {
   color: #f8fafc;
   font-size: 0.78rem;
+}
+
+.semantic-speech-debug-context {
+  display: grid;
+  gap: 8px;
 }
 
 .semantic-speech-debug-error {

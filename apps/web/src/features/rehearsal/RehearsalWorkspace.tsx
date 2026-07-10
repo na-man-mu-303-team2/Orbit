@@ -158,6 +158,7 @@ import {
 } from "./panel/contextSlidingWindow";
 import {
   buildContextMatchCandidateWindows,
+  evaluateContextItemCoverage,
   selectBestContextItemMatch,
 } from "./panel/contextCoverageMatcher";
 import {
@@ -167,6 +168,7 @@ import {
 } from "./panel/contextCoverageMeta";
 import {
   SemanticSpeechDebugPanel,
+  type ContextCoverageDebugRow,
   shouldShowSemanticSpeechDebugPanel,
 } from "./panel/SemanticSpeechDebugPanel";
 import {
@@ -1574,6 +1576,52 @@ function readLiveSttPortProjectId(port: LiveSttPort) {
     : null;
 }
 
+function compareContextDebugRows(
+  left: ContextCoverageDebugRow,
+  right: ContextCoverageDebugRow,
+) {
+  if (left.matched !== right.matched) {
+    return left.matched ? -1 : 1;
+  }
+  if (right.strength !== left.strength) {
+    return right.strength - left.strength;
+  }
+  if (right.semanticSimilarity !== left.semanticSimilarity) {
+    return right.semanticSimilarity - left.semanticSimilarity;
+  }
+  if (right.lexicalOverlap !== left.lexicalOverlap) {
+    return right.lexicalOverlap - left.lexicalOverlap;
+  }
+  return left.label.localeCompare(right.label);
+}
+
+function shouldSkipRecentContextTranscript(options: {
+  current: string;
+  previous: string;
+  currentSlideId: string;
+  previousSlideId: string;
+  elapsedMs: number;
+}) {
+  if (
+    options.currentSlideId !== options.previousSlideId ||
+    !options.current ||
+    !options.previous ||
+    options.elapsedMs > 1500
+  ) {
+    return false;
+  }
+
+  return (
+    options.current === options.previous ||
+    options.current.includes(options.previous) ||
+    options.previous.includes(options.current)
+  );
+}
+
+function createContextCoverageTaskQueue() {
+  return Promise.resolve();
+}
+
 export function RehearsalWorkspace(props: {
   initialDeck?: Deck;
   fallbackDeck?: Deck;
@@ -1645,6 +1693,9 @@ export function RehearsalWorkspace(props: {
   const [contextItemsExtracting, setContextItemsExtracting] = useState(false);
   const [contextItemsError, setContextItemsError] = useState("");
   const [coveredContextItemIds, setCoveredContextItemIds] = useState<ReadonlySet<string>>(new Set());
+  const [contextCoverageDebugRows, setContextCoverageDebugRows] = useState<
+    ContextCoverageDebugRow[]
+  >([]);
   const [exitWarningItemIds, setExitWarningItemIds] = useState<ReadonlySet<string>>(new Set());
   const [displayRole, setDisplayRole] = useState<
     "presenter" | "slide-receiver" | "slide-surface"
@@ -1703,10 +1754,17 @@ export function RehearsalWorkspace(props: {
   const pauseDetectorRef = useRef<PauseDetector | null>(null);
   const contextEmbeddingsRef = useRef<Map<string, Float32Array>>(new Map());
   const contextWindowRef = useRef<ContextSlidingWindow>(createContextSlidingWindow());
+  const contextCoverageQueueRef = useRef(createContextCoverageTaskQueue());
+  const lastContextCoverageTranscriptRef = useRef({
+    slideId: "",
+    text: "",
+    atMs: 0,
+  });
   const contextItemsRef = useRef<SlideContextItem[]>([]);
   const coveredContextItemIdsRef = useRef<ReadonlySet<string>>(new Set());
   const contextCoverageDecisionsRef = useRef<RehearsalContextCoverageDecision[]>([]);
   const exitWarningTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const hasAttemptedAutoExtractRef = useRef(false);
   const { settings: presenterSettings, save: savePresenterSettings } =
     usePresenterSettings();
 
@@ -1774,6 +1832,7 @@ export function RehearsalWorkspace(props: {
 
   useEffect(() => {
     if (!deck) return;
+    hasAttemptedAutoExtractRef.current = false;
     let cancelled = false;
     setContextItemsLoading(true);
     setContextItemsError("");
@@ -2328,7 +2387,7 @@ export function RehearsalWorkspace(props: {
     setIsTimerRunning(true);
     resetLivePlaybackForSlide(currentSlide);
     resetAutoAdvanceRuntimeState(currentSlide?.slideId ?? null);
-    contextWindowRef.current = createContextSlidingWindow();
+    resetContextCoverageRuntimeState();
     setCoveredContextItemIds(new Set());
     coveredContextItemIdsRef.current = new Set();
     contextCoverageDecisionsRef.current = [];
@@ -2621,20 +2680,36 @@ export function RehearsalWorkspace(props: {
   }
 
   async function checkContextCoverage(slideId: string, windowText: string) {
-    if (!windowText.trim()) return;
+    if (!windowText.trim()) {
+      setContextCoverageDebugRows([]);
+      return;
+    }
     const slideItems = contextItemsRef.current.filter((item) => item.slideId === slideId);
-    if (slideItems.length === 0) return;
+    if (slideItems.length === 0) {
+      setContextCoverageDebugRows([]);
+      return;
+    }
     const svc = await getOrCreateSemanticEmbeddingService().catch(() => null);
-    if (!svc) return;
+    if (!svc) {
+      setContextCoverageDebugRows([]);
+      return;
+    }
     await startContextEmbeddings(slideItems);
     const candidateWindows = buildContextMatchCandidateWindows(windowText);
-    if (candidateWindows.length === 0) return;
+    if (candidateWindows.length === 0) {
+      setContextCoverageDebugRows([]);
+      return;
+    }
     const queryEmbeddings = await Promise.all(
       candidateWindows.map((candidate) => svc.embedQuery(candidate))
     );
     const newlyCovered = new Set<string>();
     const alreadyCovered = coveredContextItemIdsRef.current;
+    const debugRowsByItemId = new Map<string, ContextCoverageDebugRow>();
     let nextDecisions = contextCoverageDecisionsRef.current;
+    let selectedContextMatch:
+      | ReturnType<typeof selectBestContextItemMatch<SlideContextItem>>
+      | null = null;
     for (let index = 0; index < candidateWindows.length; index += 1) {
       const candidateWindow = candidateWindows[index];
       const queryEmbedding = queryEmbeddings[index];
@@ -2653,6 +2728,31 @@ export function RehearsalWorkspace(props: {
         );
       }
 
+      for (const item of slideItems) {
+        if (alreadyCovered.has(item.itemId) || newlyCovered.has(item.itemId)) {
+          continue;
+        }
+
+        const evaluation = evaluateContextItemCoverage({
+          itemSentence: item.sentence,
+          transcriptWindow: candidateWindow,
+          semanticSimilarity: semanticSimilarities.get(item.itemId) ?? 0,
+        });
+        const row: ContextCoverageDebugRow = {
+          itemId: item.itemId,
+          label: item.label,
+          matched: evaluation.matched,
+          method: evaluation.method,
+          semanticSimilarity: evaluation.semanticSimilarity,
+          lexicalOverlap: evaluation.lexicalOverlap,
+          strength: evaluation.strength,
+        };
+        const previous = debugRowsByItemId.get(item.itemId);
+        if (!previous || compareContextDebugRows(row, previous) < 0) {
+          debugRowsByItemId.set(item.itemId, row);
+        }
+      }
+
       const selected = selectBestContextItemMatch({
         items: slideItems.filter(
           (item) =>
@@ -2661,14 +2761,43 @@ export function RehearsalWorkspace(props: {
         transcriptWindow: candidateWindow,
         semanticSimilarities,
       });
-      if (selected) {
-        newlyCovered.add(selected.item.itemId);
-        nextDecisions = appendCoveredContextDecision(nextDecisions, {
-          item: selected.item,
-          evaluation: selected.evaluation,
-          at: new Date().toISOString(),
-        });
+      if (
+        selected &&
+        (!selectedContextMatch ||
+          compareContextDebugRows(
+            {
+              itemId: selected.item.itemId,
+              label: selected.item.label,
+              matched: selected.evaluation.matched,
+              method: selected.evaluation.method,
+              semanticSimilarity: selected.evaluation.semanticSimilarity,
+              lexicalOverlap: selected.evaluation.lexicalOverlap,
+              strength: selected.evaluation.strength,
+            },
+            {
+              itemId: selectedContextMatch.item.itemId,
+              label: selectedContextMatch.item.label,
+              matched: selectedContextMatch.evaluation.matched,
+              method: selectedContextMatch.evaluation.method,
+              semanticSimilarity: selectedContextMatch.evaluation.semanticSimilarity,
+              lexicalOverlap: selectedContextMatch.evaluation.lexicalOverlap,
+              strength: selectedContextMatch.evaluation.strength,
+            },
+          ) < 0)
+      ) {
+        selectedContextMatch = selected;
       }
+    }
+    setContextCoverageDebugRows(
+      Array.from(debugRowsByItemId.values()).sort(compareContextDebugRows),
+    );
+    if (selectedContextMatch) {
+      newlyCovered.add(selectedContextMatch.item.itemId);
+      nextDecisions = appendCoveredContextDecision(nextDecisions, {
+        item: selectedContextMatch.item,
+        evaluation: selectedContextMatch.evaluation,
+        at: new Date().toISOString(),
+      });
     }
     if (newlyCovered.size > 0) {
       contextCoverageDecisionsRef.current = nextDecisions;
@@ -2679,6 +2808,22 @@ export function RehearsalWorkspace(props: {
         return next;
       });
     }
+  }
+
+  function enqueueContextCoverageCheck(slideId: string, windowText: string) {
+    contextCoverageQueueRef.current = contextCoverageQueueRef.current
+      .catch(() => undefined)
+      .then(() => checkContextCoverage(slideId, windowText));
+  }
+
+  function resetContextCoverageRuntimeState() {
+    contextWindowRef.current = createContextSlidingWindow();
+    contextCoverageQueueRef.current = createContextCoverageTaskQueue();
+    lastContextCoverageTranscriptRef.current = {
+      slideId: "",
+      text: "",
+      atMs: 0,
+    };
   }
 
   async function startP3Tracking(stream: MediaStream) {
@@ -2767,6 +2912,12 @@ export function RehearsalWorkspace(props: {
       pendingP3RunMetaRef.current = null;
       setP3RunMeta(null);
       contextCoverageDecisionsRef.current = [];
+      contextCoverageQueueRef.current = createContextCoverageTaskQueue();
+      lastContextCoverageTranscriptRef.current = {
+        slideId: "",
+        text: "",
+        atMs: 0,
+      };
       setP3SessionState(session.getState());
       setLiveStatus("listening");
       void startContextEmbeddings(contextItems);
@@ -2956,13 +3107,31 @@ export function RehearsalWorkspace(props: {
     liveTranscriptBufferRef.current = nextBuffer;
 
     if (event.isFinal) {
+      const normalizedContextTranscript = normalizeContextTranscriptText(event.transcript);
+      const nowMs = Date.now();
+      const lastContextTranscript = lastContextCoverageTranscriptRef.current;
       const updated = appendToContextWindow(
         contextWindowRef.current,
         slide.slideId,
-        normalizeContextTranscriptText(event.transcript)
+        normalizedContextTranscript
       );
       contextWindowRef.current = updated;
-      void checkContextCoverage(slide.slideId, updated.buffer);
+      if (
+        !shouldSkipRecentContextTranscript({
+          current: normalizedContextTranscript,
+          previous: lastContextTranscript.text,
+          currentSlideId: slide.slideId,
+          previousSlideId: lastContextTranscript.slideId,
+          elapsedMs: nowMs - lastContextTranscript.atMs,
+        })
+      ) {
+        lastContextCoverageTranscriptRef.current = {
+          slideId: slide.slideId,
+          text: normalizedContextTranscript,
+          atMs: nowMs,
+        };
+        enqueueContextCoverageCheck(slide.slideId, normalizedContextTranscript);
+      }
     }
 
     const transcript = renderLiveTranscriptBuffer(nextBuffer);
@@ -3591,7 +3760,7 @@ export function RehearsalWorkspace(props: {
       coveredContextItemIdsRef.current = new Set();
       setExitWarningItemIds(new Set());
       contextCoverageDecisionsRef.current = [];
-      contextWindowRef.current = createContextSlidingWindow();
+      resetContextCoverageRuntimeState();
       if (isP3TrackingActive) {
         void startContextEmbeddings(items);
       }
@@ -3605,6 +3774,14 @@ export function RehearsalWorkspace(props: {
       setContextItemsExtracting(false);
     }
   }, [deck, contextItemsExtracting, isP3TrackingActive]);
+
+  useEffect(() => {
+    if (contextItemsLoading || contextItemsExtracting) return;
+    if (contextItems.length > 0 || !deck) return;
+    if (hasAttemptedAutoExtractRef.current) return;
+    hasAttemptedAutoExtractRef.current = true;
+    void handleExtractContextItems();
+  }, [contextItemsLoading, contextItemsExtracting, contextItems.length, deck, handleExtractContextItems]);
 
   const handleUpdateContextItem = useCallback(
     async (itemId: string, label: string, sentence: string) => {
@@ -3759,6 +3936,7 @@ export function RehearsalWorkspace(props: {
     pendingP3RunMetaRef.current = null;
     contextCoverageDecisionsRef.current = [];
     coveredContextItemIdsRef.current = new Set();
+    resetContextCoverageRuntimeState();
     setCoveredContextItemIds(new Set());
     setExitWarningItemIds(new Set());
     setPendingReportCapture(null);
@@ -4489,6 +4667,7 @@ export function RehearsalWorkspace(props: {
       </section>
       {showSemanticDebugPanel ? (
         <SemanticSpeechDebugPanel
+          contextCoverageDebugRows={contextCoverageDebugRows}
           semanticMatchingEnabled={
             presenterSettings.advancePolicy.semanticMatching
           }
