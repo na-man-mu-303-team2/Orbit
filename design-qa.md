@@ -744,6 +744,32 @@
 
 final result: passed
 
+## Production rehearsal-run report T9 QA
+
+### Source and implementation
+
+- Source visual truth: `/mockup/report`, including a strong report hero, AI summary, factual metric cards, slide analysis, coaching and final retry flow.
+- Browser implementation: `/report_mockup` at `artifacts/migration/t9/report-detail.png`; DOM verification covered the complete long report.
+- Desktop viewport: 1440×1024 with `scrollWidth === clientWidth`.
+
+### Required fidelity surfaces
+
+- Fonts and typography: the 48px run heading, 20px section headings and 12–16px report labels inherit canonical typography.
+- Spacing and layout rhythm: the 1120px document, 146px Lilac hero, 14px factual cards and 18px vertical rhythm match the approved report hierarchy.
+- Colors and visual tokens: Lilac is reserved for AI summary context, Lime highlights duration, Cream supports speaking details and Ink closes the next-practice flow.
+- Image quality and asset fidelity: report actions and headings now use Tabler Icons consistently; charts remain driven by report arrays.
+- Copy and content: only `RehearsalReport`, the current run, previous official reports and deck metadata are rendered. No frontend score is calculated.
+
+### Interaction and findings
+
+- The final Ink action repeats `coaching.nextPracticeFocus` when available and routes to a new rehearsal.
+- `transcriptRetained=false` keeps transcript content and transcript controls out of the DOM. Retained transcript expiry/download behavior remains unchanged.
+- The existing AI-summary fallback, metrics, slide analysis, utterance outcome, semantic cue evidence, filler and coaching sections preserve their contract-backed behavior.
+- Report document and rehearsal workspace tests: 80 passed. Web TypeScript validation, production build and `git diff --check` passed. The existing large-bundle warning remains.
+- No actionable P0/P1/P2 findings remain.
+
+final result: passed
+
 ## Production project report T8 QA
 
 ### Source and implementation

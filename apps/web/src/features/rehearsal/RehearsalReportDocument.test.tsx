@@ -78,6 +78,9 @@ describe("RehearsalReportDocument", () => {
     expect(html).toContain("nli-entailment");
     expect(html).not.toContain("보고서에 그대로 노출하지 않을 전사 근거");
     expect(html).not.toContain("보고서에 그대로 노출하지 않을 가설");
+    expect(html).not.toContain("발표 전사본");
+    expect(html).toContain("다시 리허설");
+    expect(html).toContain("REHEARSAL REPORT · 1 RUNS");
   });
 });
 

@@ -1,0 +1,31 @@
+.rrd-root { background: var(--orbit-ds-canvas); color: var(--orbit-ds-ink); display: grid; gap: 18px; margin: 0 auto; max-width: 1120px; padding: 46px 28px 72px; }
+.rrd-root .rrd-hero { align-items: center; background: var(--orbit-ds-lilac); border: 0; border-radius: 16px; display: flex; justify-content: space-between; margin: 0; min-height: 146px; padding: 28px 32px; }
+.rrd-hero-eyebrow { color: var(--orbit-ds-lilac-strong); font-family: var(--orbit-ds-font-mono); font-size: var(--orbit-ds-type-caption); font-weight: 700; letter-spacing: .07em; }
+.rrd-root .rrd-hero-title { font-size: clamp(34px,3.5vw,48px); letter-spacing: -.05em; line-height: 1; margin: 8px 0 0; }
+.rrd-root .rrd-hero-date { color: var(--orbit-ds-text-muted); display: block; font-size: var(--orbit-ds-type-ui-small); margin-top: 10px; }
+.rrd-root .rrd-hero-action { align-items: center; background: white; border: 1px solid rgba(9,9,9,.14); border-radius: var(--orbit-ds-radius-pill); color: var(--orbit-ds-ink); display: flex; font-weight: 700; gap: 7px; min-height: 42px; padding: 0 16px; }
+.rrd-root .rrd-card { background: white; border: 1px solid var(--orbit-ds-border); border-radius: 14px; box-shadow: none; margin: 0; padding: 22px; }
+.rrd-root .rrd-ai-card { background: var(--orbit-ds-lilac-soft); border-color: #ded3ff; }
+.rrd-root .rrd-card-head { align-items: center; border-bottom: 1px solid var(--orbit-ds-border); display: flex; gap: 9px; margin-bottom: 18px; padding-bottom: 14px; }
+.rrd-root .rrd-card-head h2 { font-size: 20px; margin: 0; }
+.rrd-root .rrd-summary-block, .rrd-root .rrd-overview-metric, .rrd-root .rrd-utterance-group, .rrd-root .rrd-coaching-focus { border-radius: 10px; }
+.rrd-root .rrd-overview-grid { gap: 10px; }
+.rrd-root .rrd-overview-metric { background: var(--orbit-ds-surface); border: 0; }
+.rrd-root .rrd-overview-metric-primary { background: var(--orbit-ds-lime); }
+.rrd-root .rrd-filler-total-chip { background: var(--orbit-ds-cream); border: 0; }
+.rrd-root .rrd-transcript-card { border-color: var(--orbit-ds-border-strong); }
+.rrd-next-practice { align-items: center; background: var(--orbit-ds-ink); border-radius: 16px; color: white; display: flex; justify-content: space-between; padding: 24px 28px; }
+.rrd-next-practice > div { align-items: center; display: flex; gap: 14px; }
+.rrd-next-practice > div > span { display: grid; gap: 5px; }
+.rrd-next-practice p { color: rgba(255,255,255,.72); font-size: var(--orbit-ds-type-ui-small); margin: 0; }
+.rrd-next-practice > button { align-items: center; background: white; border: 0; border-radius: var(--orbit-ds-radius-pill); color: var(--orbit-ds-ink); display: flex; flex: 0 0 auto; font-weight: 700; gap: 7px; min-height: 42px; padding: 0 17px; }
+
+@media (max-width:760px) {
+  .rrd-root { padding: 28px 18px 54px; }
+  .rrd-root .rrd-hero { align-items: stretch; flex-direction: column; gap: 22px; padding: 24px; }
+  .rrd-root .rrd-hero-action { justify-content: center; }
+  .rrd-root .rrd-card { padding: 18px; }
+  .rrd-root .rrd-overview-grid, .rrd-root .rrd-coaching-cols { grid-template-columns: 1fr; }
+  .rrd-next-practice { align-items: stretch; flex-direction: column; gap: 20px; padding: 22px; }
+  .rrd-next-practice > button { justify-content: center; }
+}

@@ -1,19 +1,20 @@
 import {
-  ChevronDown,
-  ChevronUp,
-  Download,
-  FileText,
-  Mic,
-  Sparkles,
-  Target,
-  Volume2,
-} from "lucide-react";
+  IconChevronDown as ChevronDown,
+  IconChevronUp as ChevronUp,
+  IconDownload as Download,
+  IconFileText as FileText,
+  IconMicrophone as Mic,
+  IconSparkles as Sparkles,
+  IconTarget as Target,
+  IconVolume as Volume2,
+} from "@tabler/icons-react";
 import { useState } from "react";
 import type { Deck, RehearsalReport, RehearsalRun } from "@orbit/shared";
 import { navigateTo } from "./rehearsalUtils";
 import { RehearsalSlideAnalysisOverview } from "./RehearsalSlideAnalysisOverview";
 import { RehearsalSlideTimingOverview } from "./RehearsalSlideTimingOverview";
 import { createDefaultPhraseExtractor } from "./speech/phraseExtractor";
+import "./rehearsal-report-detail.css";
 
 const TRANSCRIPT_WINDOW_MS = 30 * 60 * 1000;
 const FILLER_CHART_COLORS = [
@@ -328,7 +329,7 @@ export function RehearsalReportDocument({
   report,
   run,
   runNumber,
-  totalRunCount: _totalRunCount,
+  totalRunCount,
 }: Props) {
   const [transcriptOpen, setTranscriptOpen] = useState(false);
 
@@ -417,6 +418,7 @@ export function RehearsalReportDocument({
       {/* ── Hero ── */}
       <section className="rrd-hero">
         <div className="rrd-hero-text">
+          <span className="rrd-hero-eyebrow">REHEARSAL REPORT · {totalRunCount} RUNS</span>
           <h1 className="rrd-hero-title">{title}</h1>
           <time className="rrd-hero-date">{runDate}</time>
         </div>
@@ -712,6 +714,11 @@ export function RehearsalReportDocument({
           )}
         </section>
       )}
+
+      <section className="rrd-next-practice">
+        <div><Target aria-hidden="true" size={24} /><span><strong>다음 연습에서 한 가지에 집중해 보세요.</strong><p>{coaching?.nextPracticeFocus ?? "이번 리포트의 핵심 지표를 확인하고 같은 발표를 한 번 더 연습해 보세요."}</p></span></div>
+        <button onClick={() => navigateTo(`/rehearsal/${encodeURIComponent(projectId)}`)} type="button"><Mic aria-hidden="true" size={17} />다시 리허설</button>
+      </section>
     </div>
   );
 }
