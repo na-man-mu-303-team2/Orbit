@@ -2844,7 +2844,14 @@ def web_research_query(
         part
         for part in [
             (
-                "Research task: Verify the named subject exactly as written. Confirm "
+                "Research task: Search the exact primary official or romanized subject "
+                "name first. Confirm current official announcements, dates, platforms, "
+                "availability, and defining features. Treat the localized topic as an "
+                "equivalent label, not a replacement search query. Do not replace the "
+                "subject with its broader series, category, or market. Return cited facts "
+                "from distinct sources."
+                if search_aliases
+                else "Research task: Verify the named subject exactly as written. Confirm "
                 "current official announcements, dates, platforms, availability, and "
                 "defining features when applicable. Do not replace it with the broader "
                 "series, category, or market. Return cited facts from distinct sources."
@@ -2864,10 +2871,6 @@ def web_research_query(
             ),
             f"Current date: {date.today().isoformat()}",
             f'Localized exact topic: "{raw_input.topic}"',
-            f"Presentation context: {raw_input.brief.presentation_context}",
-            f"Audience: {raw_input.brief.audience_text}",
-            f"Presentation type: {raw_input.brief.presentation_type}",
-            f"Success criteria: {raw_input.brief.success_criteria}",
             f"Extracted keywords: {', '.join(keywords)}" if keywords else "",
             (
                 "Diagnostic candidate URLs from the previous search (not evidence): "

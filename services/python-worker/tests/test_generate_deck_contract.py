@@ -631,7 +631,12 @@ def test_research_first_adds_official_search_aliases_for_non_ascii_topic() -> No
             topic="스플래툰 레이더스",
             targetDurationMinutes=1,
             referencePolicy="research-first",
-            brief={"referencePolicy": "research-first"},
+            brief={
+                "presentationContext": "Korean audience launch briefing",
+                "audienceText": "Game fans",
+                "successCriteria": "Understand the release",
+                "referencePolicy": "research-first",
+            },
             design={"mediaPolicy": "minimal"},
             slideCountRange={"min": 1, "max": 1},
         ),
@@ -642,6 +647,9 @@ def test_research_first_adds_official_search_aliases_for_non_ascii_topic() -> No
     assert 'Primary web search subject: "Splatoon Raiders"' in str(
         web_request["input"]
     )
+    assert "Presentation context:" not in str(web_request["input"])
+    assert "Audience:" not in str(web_request["input"])
+    assert "Success criteria:" not in str(web_request["input"])
 
 
 def test_references_first_falls_back_without_leaking_attachment_commands_to_search() -> None:
