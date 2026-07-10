@@ -745,6 +745,7 @@ export async function runRehearsalUploadFlow(options: {
             adviceEvents: [],
             utteranceOutcomes: [],
             semanticCueDecisions: [],
+            semanticCapabilityEvents: [],
           }
         : null);
 

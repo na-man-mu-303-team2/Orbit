@@ -315,7 +315,8 @@ const reportMockupReport: RehearsalReport = {
     wordsPerMinute: 128,
     fillerWordCount: 3,
     pauseCount: 2,
-    keywordCoverage: 0.86
+    keywordCoverage: 0.86,
+    keywordCoverageMeasurement: { state: "measured" }
   },
   speedSamples: [
     { startSecond: 0, endSecond: 30, wordsPerMinute: 118 },
@@ -327,6 +328,13 @@ const reportMockupReport: RehearsalReport = {
   missedKeywords: [{ slideId: "slide_1", keywordId: "kw_1", text: "핵심 메시지" }],
   utteranceOutcomes: [],
   semanticCueDecisions: [],
+  semanticEvaluation: {
+    state: "unavailable",
+    measurementMode: "none",
+    reasons: ["evaluation_not_run"],
+    retryable: false
+  },
+  semanticCueOutcomes: [],
   slideTimings: [{ slideId: "slide_1", targetSeconds: 60, actualSeconds: 58 }],
   slideInsights: [{ slideId: "slide_1", fillerWordCount: 2, pauseCount: 1 }],
   qnaSummary: {

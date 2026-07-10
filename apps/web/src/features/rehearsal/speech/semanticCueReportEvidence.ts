@@ -24,6 +24,9 @@ export function buildSemanticCueReportEvidence(options: {
     contradictionScore: options.nliDecision.contradictionScore,
     premise: normalizeBoundedText(options.premise, 600),
     hypothesis: normalizeBoundedText(options.nliDecision.hypothesis, 300),
+    matchedBy: "nli",
+    measurementMode: "full",
+    fallbackUsed: false,
     provider: options.nliDecision.provider,
     ...(options.nliDecision.modelId === undefined
       ? {}
