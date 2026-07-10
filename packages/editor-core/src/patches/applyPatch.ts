@@ -263,7 +263,16 @@ function applyOperation(
       }
 
       const element = elementResult.element as ElementWithProps;
+      const previousSemanticContent = getSemanticElementContent(element);
       mergeRecordPatch(element.props, operation.props);
+      const nextSemanticContent = getSemanticElementContent(element);
+
+      if (previousSemanticContent !== nextSemanticContent) {
+        const slide = findSlide(deck, operation.slideId);
+        if (slide) {
+          markSemanticCuesStale(slide);
+        }
+      }
       return { ok: true };
     }
 
@@ -285,13 +294,20 @@ function applyOperation(
       const removedAnimationIds = slide.animations
         .filter((animation) => animation.elementId === operation.elementId)
         .map((animation) => animation.animationId);
+      const removedElement = slide.elements[elementIndex];
 
       slide.elements.splice(elementIndex, 1);
       slide.animations = slide.animations.filter(
         (animation) => animation.elementId !== operation.elementId,
       );
-      removeActionsForAnimations(slide, removedAnimationIds);
+      const removedActionIds = removeActionsForAnimations(slide, removedAnimationIds);
       removeElementFromGroups(slide, operation.elementId);
+      removeElementReferences(slide, operation.elementId);
+      removeActionReferences(slide, removedActionIds);
+
+      if (isSemanticContentElement(removedElement)) {
+        markSemanticCuesStale(slide);
+      }
       return { ok: true };
     }
 
@@ -302,7 +318,10 @@ function applyOperation(
         return slideNotFound(operation.type, operation.slideId);
       }
 
-      slide.speakerNotes = operation.speakerNotes;
+      if (slide.speakerNotes !== operation.speakerNotes) {
+        slide.speakerNotes = operation.speakerNotes;
+        markSemanticCuesStale(slide);
+      }
       return { ok: true };
     }
 
@@ -314,7 +333,7 @@ function applyOperation(
       }
 
       slide.keywords = cloneJson(operation.keywords);
-      removeActionsForMissingKeywords(slide);
+      removeActionReferences(slide, removeActionsForMissingKeywords(slide));
       return { ok: true };
     }
 
@@ -402,7 +421,10 @@ function applyOperation(
       }
 
       slide.animations.splice(animationIndex, 1);
-      removeActionsForAnimations(slide, [operation.animationId]);
+      removeActionReferences(
+        slide,
+        removeActionsForAnimations(slide, [operation.animationId]),
+      );
       return { ok: true };
     }
 
@@ -508,6 +530,7 @@ function applyOperation(
       }
 
       slide.actions.splice(actionIndex, 1);
+      removeActionReferences(slide, [operation.actionId]);
       return { ok: true };
     }
 
@@ -581,27 +604,132 @@ function removeElementFromGroups(slide: Slide, elementId: string): void {
 function removeActionsForAnimations(
   slide: Slide,
   animationIds: string[],
-): void {
+): string[] {
   if (animationIds.length === 0) {
-    return;
+    return [];
   }
 
   const animationIdSet = new Set(animationIds);
-  slide.actions = slide.actions.filter(
-    (action) =>
-      action.effect.kind !== "play-animation" ||
-      !animationIdSet.has(action.effect.animationId),
+  const removedActionIds: string[] = [];
+  slide.actions = slide.actions.filter((action) => {
+    const removed =
+      action.effect.kind === "play-animation" &&
+      animationIdSet.has(action.effect.animationId);
+    if (removed) {
+      removedActionIds.push(action.actionId);
+    }
+    return !removed;
+  });
+  return removedActionIds;
+}
+
+function removeActionsForMissingKeywords(slide: Slide): string[] {
+  const keywordIds = new Set(slide.keywords.map((keyword) => keyword.keywordId));
+
+  const removedActionIds: string[] = [];
+  slide.actions = slide.actions.filter((action) => {
+    const removed =
+      isKeywordBasedTrigger(action.trigger) &&
+      !keywordIds.has(action.trigger.keywordId);
+    if (removed) {
+      removedActionIds.push(action.actionId);
+    }
+    return !removed;
+  });
+  return removedActionIds;
+}
+
+function markSemanticCuesStale(slide: Slide): void {
+  for (const cue of slide.semanticCues) {
+    cue.freshness = "stale";
+  }
+}
+
+function removeElementReferences(slide: Slide, elementId: string): void {
+  for (const cue of slide.semanticCues) {
+    const nextTargetElementIds = cue.targetElementIds.filter(
+      (targetElementId) => targetElementId !== elementId,
+    );
+    const nextSourceRefs = cue.sourceRefs.filter(
+      (sourceRef) =>
+        sourceRef.refId !== elementId ||
+        !isElementSourceRefKind(sourceRef.kind),
+    );
+
+    if (
+      nextTargetElementIds.length !== cue.targetElementIds.length ||
+      nextSourceRefs.length !== cue.sourceRefs.length
+    ) {
+      cue.targetElementIds = nextTargetElementIds;
+      cue.sourceRefs = nextSourceRefs;
+      cue.freshness = "stale";
+    }
+  }
+}
+
+function removeActionReferences(slide: Slide, actionIds: string[]): void {
+  if (actionIds.length === 0) {
+    return;
+  }
+
+  const actionIdSet = new Set(actionIds);
+  for (const cue of slide.semanticCues) {
+    const nextTriggerActionIds = cue.triggerActionIds.filter(
+      (actionId) => !actionIdSet.has(actionId),
+    );
+    if (nextTriggerActionIds.length !== cue.triggerActionIds.length) {
+      cue.triggerActionIds = nextTriggerActionIds;
+      cue.freshness = "stale";
+    }
+  }
+}
+
+function isSemanticContentElement(element: DeckElement): boolean {
+  return (
+    element.type === "text" ||
+    element.type === "table" ||
+    element.type === "chart"
   );
 }
 
-function removeActionsForMissingKeywords(slide: Slide): void {
-  const keywordIds = new Set(slide.keywords.map((keyword) => keyword.keywordId));
-
-  slide.actions = slide.actions.filter(
-    (action) =>
-      !isKeywordBasedTrigger(action.trigger) ||
-      keywordIds.has(action.trigger.keywordId),
+function isElementSourceRefKind(
+  kind: Slide["semanticCues"][number]["sourceRefs"][number]["kind"],
+): boolean {
+  return (
+    kind === "element" ||
+    kind === "table" ||
+    kind === "chart" ||
+    kind === "image-analysis"
   );
+}
+
+function getSemanticElementContent(element: DeckElement): string | null {
+  switch (element.type) {
+    case "text":
+      return JSON.stringify({
+        text: element.props.text,
+        runs: element.props.runs?.map((run) => run.text),
+        paragraphs: element.props.paragraphs?.map((paragraph) => ({
+          text: paragraph.text,
+          runs: paragraph.runs?.map((run) => run.text),
+        })),
+      });
+    case "table":
+      return JSON.stringify(
+        element.props.rows.map((row) => row.map((cell) => cell.text)),
+      );
+    case "chart":
+      return JSON.stringify({
+        type: element.props.type,
+        title: element.props.title,
+        data: element.props.data,
+        xAxisTitle: element.props.style.xAxisTitle,
+        yAxisTitle: element.props.style.yAxisTitle,
+        unit: element.props.style.unit,
+      });
+    default:
+      return null;
+  }
 }
 
 function isKeywordBasedTrigger(
