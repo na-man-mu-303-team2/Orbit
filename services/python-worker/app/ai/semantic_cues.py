@@ -15,6 +15,7 @@ from app.ai.semantic_cue_filters import (
     is_meaningful_phrase as _is_meaningful_phrase,
 )
 from app.ai.semantic_cue_llm import SemanticCueLlmError, generate_semantic_cue_payload
+from app.ai.semantic_cue_merge import merge_semantic_cues
 from app.ai.semantic_cue_quality import (
     cue_quality_warnings,
     is_content_rich,
@@ -46,6 +47,35 @@ SemanticCueSourceKind = Literal[
 ]
 
 
+class SemanticCueSourceRef(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    kind: SemanticCueSourceKind
+    ref_id: str | None = Field(default=None, alias="refId")
+    source_hash: str = Field(alias="sourceHash")
+
+
+class ExistingSemanticCue(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    cue_id: str = Field(alias="cueId")
+    slide_id: str = Field(alias="slideId")
+    meaning: str
+    report_label: str | None = Field(default=None, alias="reportLabel")
+    cue_type: SemanticCueType | None = Field(default=None, alias="cueType")
+    importance: SemanticCueImportance = "supporting"
+    review_status: Literal["suggested", "approved", "excluded"] = Field(
+        default="suggested", alias="reviewStatus"
+    )
+    freshness: Literal["current", "stale"] = "current"
+    origin: Literal["ai", "manual", "imported"] = "imported"
+    revision: int = Field(default=1, gt=0)
+    source_fingerprint: str | None = Field(default=None, alias="sourceFingerprint")
+    source_refs: list[SemanticCueSourceRef] = Field(default_factory=list, alias="sourceRefs")
+    quality_warnings: list[str] = Field(default_factory=list, alias="qualityWarnings")
+    required_concepts: list[str] = Field(default_factory=list, alias="requiredConcepts")
+
+
 class SemanticCueKeyword(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
@@ -62,6 +92,9 @@ class SemanticCueSlide(BaseModel):
     speaker_notes: str = Field(default="", alias="speakerNotes")
     estimated_seconds: int | None = Field(default=None, alias="estimatedSeconds", gt=0)
     keywords: list[SemanticCueKeyword] = Field(default_factory=list)
+    semantic_cues: list[ExistingSemanticCue] = Field(
+        default_factory=list, alias="semanticCues"
+    )
     elements: list[dict[str, Any]] = Field(default_factory=list)
     actions: list[dict[str, Any]] = Field(default_factory=list)
 
@@ -88,14 +121,6 @@ class SemanticCueExtractionRequest(BaseModel):
 
     project_id: str = Field(alias="projectId")
     deck: SemanticCueDeck
-
-
-class SemanticCueSourceRef(BaseModel):
-    model_config = ConfigDict(populate_by_name=True)
-
-    kind: SemanticCueSourceKind
-    ref_id: str | None = Field(default=None, alias="refId")
-    source_hash: str = Field(alias="sourceHash")
 
 
 class SemanticCue(BaseModel):
@@ -253,9 +278,20 @@ def _generate_results(
             )
             continue
 
-        cues = _semantic_cues_from_llm(
+        generated_cues = _semantic_cues_from_llm(
             slide, generated_slide.semantic_cues, payload.deck.version
         )
+        merge_result = merge_semantic_cues(
+            [
+                cue.model_dump(by_alias=True, exclude_none=True)
+                for cue in generated_cues
+            ],
+            [
+                cue.model_dump(by_alias=True, exclude_none=True)
+                for cue in slide.semantic_cues
+            ],
+        )
+        cues = [SemanticCue.model_validate(cue) for cue in merge_result.cues]
         slide_warnings = slide_quality_warnings(
             cue_count=len(cues),
             all_core=bool(cues) and all(cue.importance == "core" for cue in cues),
@@ -272,6 +308,7 @@ def _generate_results(
                 semanticCues=cues,
                 warnings=_dedupe(
                     [
+                        *merge_result.warnings,
                         *slide_warnings,
                         *(warning for cue in cues for warning in cue.quality_warnings),
                     ]

@@ -260,6 +260,82 @@ describe("processSemanticCueExtractionJob", () => {
     expect(job.error?.code).toBe("SEMANTIC_CUE_RESULT_INVALID");
     expect(harness.deck.version).toBe(1);
   });
+
+  it("preserves lifecycle fields from provider cues with stable identity", async () => {
+    const deck = createDeck();
+    deck.slides[0]!.semanticCues = [
+      createCue("scue_stable", "slide_intro", { origin: "ai" })
+    ];
+    const harness = createHarness(deck);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        Response.json({
+          deckId: deck.deckId,
+          sourceDeckVersion: 1,
+          slides: [
+            {
+              slideId: "slide_intro",
+              status: "succeeded",
+              semanticCues: [
+                {
+                  ...providerCue("scue_stable", "slide_intro"),
+                  sourceFingerprint: "f".repeat(64),
+                  sourceDeckVersion: 1,
+                  reviewStatus: "excluded",
+                  origin: "ai",
+                  revision: 4
+                }
+              ],
+              warnings: []
+            }
+          ]
+        })
+      )
+    );
+
+    await runExtraction(harness.dataSource);
+
+    expect(harness.deck.slides[0]?.semanticCues[0]).toMatchObject({
+      cueId: "scue_stable",
+      sourceFingerprint: "f".repeat(64),
+      reviewStatus: "excluded",
+      origin: "ai",
+      revision: 4
+    });
+  });
+
+  it("surfaces removed suggestions in job warnings", async () => {
+    const deck = createDeck();
+    deck.slides[0]!.semanticCues = [
+      createCue("scue_removed", "slide_intro", { origin: "ai" })
+    ];
+    const harness = createHarness(deck);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        Response.json({
+          deckId: deck.deckId,
+          sourceDeckVersion: 1,
+          slides: [
+            {
+              slideId: "slide_intro",
+              status: "succeeded",
+              semanticCues: [],
+              warnings: ["removed-suggestion:scue_removed"]
+            }
+          ]
+        })
+      )
+    );
+
+    const job = await runExtraction(harness.dataSource);
+
+    expect(harness.deck.slides[0]?.semanticCues).toEqual([]);
+    expect(job.result?.warnings).toEqual([
+      "slide_intro:removed-suggestion:scue_removed"
+    ]);
+  });
 });
 
 function runExtraction(dataSource: DataSource, force = false) {
