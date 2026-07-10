@@ -1075,3 +1075,28 @@ final result: passed
 - No actionable P0/P1/P2 findings remain.
 
 final result: passed
+
+## Production audience slide window T17 QA
+
+### Source and implementation
+
+- Source visual truth: the approved slideshow mockup and the existing `BroadcastChannel` presentation-session contract.
+- Browser implementation: `/present/deck_demo_1?sessionId=session_demo` waiting state at `artifacts/migration/t17/present-window-waiting.png`.
+- Desktop viewport: 1440×1024 with `scrollWidth === clientWidth`.
+
+### Required fidelity surfaces
+
+- Fonts and typography: connection status uses a small mono eyebrow, a 26–40px state heading and readable 15px guidance copy.
+- Spacing and layout rhythm: the connected slide remains edge-to-edge; waiting, error and stale states use one centered status surface, while fallback controls stay at the lower-right edge.
+- Colors and visual tokens: the display uses a near-black presentation canvas with a restrained Lilac glow and high-contrast white text.
+- Image quality and asset fidelity: waiting and error states use the official white ORBIT logo. Control symbols use Tabler Icons.
+- Copy and content: the window communicates only session connection state and the sanitized slide snapshot.
+
+### Interaction and findings
+
+- Missing-session, waiting, connected, stale, fullscreen-fallback and channel-error states continue to use the existing presentation channel and fullscreen request behavior.
+- The connected slide window renders the sanitized deck snapshot only; speaker notes, transcript, semantic debug state and presenter-only script remain absent by contract and tests.
+- Web test suite: 700 passed. Web TypeScript validation and `git diff --check` passed.
+- No actionable P0/P1/P2 findings remain.
+
+final result: passed

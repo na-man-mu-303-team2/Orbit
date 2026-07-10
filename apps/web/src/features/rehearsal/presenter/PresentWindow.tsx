@@ -1,7 +1,14 @@
 import type { Deck } from "@orbit/shared";
-import { ChevronLeft, ChevronRight, Maximize2, X } from "lucide-react";
+import {
+  IconArrowsMaximize,
+  IconChevronLeft,
+  IconChevronRight,
+  IconX,
+} from "@tabler/icons-react";
 import type { ReactNode, Ref } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import orbitLogoWhite from "../../../assets/orbit-logo-white.png";
+import "../../presentation/orbit-live-presentation.css";
 import { SlideshowRenderer } from "./SlideshowRenderer";
 import {
   slideWindowFullscreenRequestType,
@@ -300,7 +307,7 @@ export function PresentWindowContent(props: {
                 void requestPresentWindowFullscreen(rootRef.current);
               }}
             >
-              <Maximize2 size={17} />
+              <IconArrowsMaximize size={18} stroke={1.8} />
               전체화면
             </button>
           ) : null}
@@ -310,7 +317,7 @@ export function PresentWindowContent(props: {
               type="button"
               onClick={onPreviousSlide}
             >
-              <ChevronLeft size={17} />
+              <IconChevronLeft size={18} stroke={1.8} />
               이전
             </button>
           ) : null}
@@ -321,7 +328,7 @@ export function PresentWindowContent(props: {
               onClick={onNextStep}
             >
               다음
-              <ChevronRight size={17} />
+              <IconChevronRight size={18} stroke={1.8} />
             </button>
           ) : null}
           {shouldShowReconnect && onReconnectPresenter ? (
@@ -330,7 +337,7 @@ export function PresentWindowContent(props: {
               type="button"
               onClick={() => onReconnectPresenter(snapshot)}
             >
-              <Maximize2 size={17} />
+              <IconArrowsMaximize size={18} stroke={1.8} />
               발표자 창 다시 열기
             </button>
           ) : null}
@@ -340,7 +347,7 @@ export function PresentWindowContent(props: {
               type="button"
               onClick={onExit}
             >
-              <X size={17} />
+              <IconX size={18} stroke={1.8} />
               발표자 화면으로 돌아가기
             </button>
           ) : null}
@@ -397,6 +404,8 @@ export function getSlideWindowScale(deck: Deck, viewport = readViewportSize()) {
 function PresentWindowStatus(props: { message: string; title: string }) {
   return (
     <section className="present-window-status" role="status">
+      <img src={orbitLogoWhite} alt="ORBIT" />
+      <span>SLIDE DISPLAY</span>
       <h1>{props.title}</h1>
       <p>{props.message}</p>
     </section>

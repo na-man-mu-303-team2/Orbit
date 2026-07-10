@@ -96,3 +96,65 @@
     display: none;
   }
 }
+
+.present-window-shell {
+  background:
+    radial-gradient(circle at 50% 35%, rgba(188, 167, 245, 0.12), transparent 34%),
+    #05070d;
+}
+
+.present-window-status {
+  align-items: center;
+  gap: 12px;
+  max-width: 560px;
+}
+
+.present-window-status > img {
+  height: 32px;
+  margin-bottom: 18px;
+  object-fit: contain;
+  width: auto;
+}
+
+.present-window-status > span {
+  color: var(--orbit-ds-lilac);
+  font-family: var(--orbit-ds-font-mono);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.16em;
+}
+
+.present-window-status h1 {
+  font-size: clamp(26px, 3vw, 40px);
+  letter-spacing: -0.04em;
+}
+
+.present-window-status p {
+  color: rgba(255, 255, 255, 0.68);
+  font-size: 15px;
+}
+
+.present-window-actions {
+  gap: 10px;
+}
+
+.present-window-action-message,
+.present-window-fullscreen,
+.present-window-previous,
+.present-window-next,
+.present-window-reconnect,
+.present-window-exit {
+  backdrop-filter: blur(16px);
+  background: rgba(21, 27, 44, 0.86);
+  border-color: rgba(255, 255, 255, 0.16);
+  border-radius: var(--orbit-ds-radius-pill);
+  min-height: 42px;
+}
+
+.present-window-fullscreen:hover,
+.present-window-previous:hover,
+.present-window-next:hover,
+.present-window-reconnect:hover,
+.present-window-exit:hover {
+  background: rgba(188, 167, 245, 0.22);
+}
