@@ -11,15 +11,74 @@ import {
   deckSemanticCueIdSchema,
   deckSlideIdSchema
 } from "../deck/id.schema";
-import { semanticCueImportanceSchema } from "../deck/semantic-cue.schema";
+import { keywordSchema } from "../deck/deck.schema";
+import {
+  semanticCueImportanceSchema,
+  semanticCueSchema
+} from "../deck/semantic-cue.schema";
 
 export const rehearsalRunStatusSchema = z.enum([
   "created",
   "uploading",
   "processing",
   "succeeded",
-  "failed"
+  "failed",
+  "cancelled"
 ]);
+
+export const rehearsalSemanticEvaluationModeSchema = z.enum([
+  "full",
+  "delivery-only"
+]);
+
+export const rehearsalEvaluationSnapshotKeywordSchema = keywordSchema
+  .pick({
+    keywordId: true,
+    text: true,
+    synonyms: true,
+    abbreviations: true,
+    required: true
+  })
+  .strict();
+
+export const rehearsalEvaluationSnapshotSlideSchema = z
+  .object({
+    slideId: deckSlideIdSchema,
+    order: z.number().int().positive(),
+    title: z.string().trim().min(1).max(240),
+    estimatedSeconds: z.number().int().positive(),
+    keywords: z.array(rehearsalEvaluationSnapshotKeywordSchema),
+    semanticCues: z.array(semanticCueSchema)
+  })
+  .strict()
+  .superRefine((slide, context) => {
+    slide.semanticCues.forEach((cue, cueIndex) => {
+      if (cue.slideId !== slide.slideId) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "snapshot semantic cue must reference its containing slide.",
+          path: ["semanticCues", cueIndex, "slideId"]
+        });
+      }
+
+      if (cue.reviewStatus !== "approved" && cue.reviewStatus !== "excluded") {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "snapshot semantic cue must be approved or excluded.",
+          path: ["semanticCues", cueIndex, "reviewStatus"]
+        });
+      }
+    });
+  });
+
+export const rehearsalEvaluationSnapshotSchema = z
+  .object({
+    deckId: z.string().trim().min(1),
+    deckVersion: z.number().int().positive(),
+    capturedAt: isoDateTimeSchema,
+    slides: z.array(rehearsalEvaluationSnapshotSlideSchema)
+  })
+  .strict();
 
 export const rehearsalRunErrorSchema = z.object({
   code: z.string().min(1),
@@ -33,6 +92,9 @@ export const rehearsalRunSchema = z.object({
   audioFileId: z.string().min(1).nullable(),
   jobId: z.string().min(1).nullable(),
   status: rehearsalRunStatusSchema,
+  deckVersion: z.number().int().positive().nullable().default(null),
+  evaluationSnapshot: rehearsalEvaluationSnapshotSchema.nullable().default(null),
+  semanticEvaluationMode: rehearsalSemanticEvaluationModeSchema.default("full"),
   error: rehearsalRunErrorSchema.nullable(),
   rawAudioDeletedAt: isoDateTimeSchema.nullable(),
   createdAt: isoDateTimeSchema,
@@ -442,9 +504,13 @@ export const rehearsalReportSchema = z
     }
   });
 
-export const createRehearsalRunRequestSchema = z.object({
-  deckId: z.string().min(1)
-});
+export const createRehearsalRunRequestSchema = z
+  .object({
+    deckId: z.string().min(1),
+    expectedDeckVersion: z.number().int().positive().optional(),
+    semanticEvaluationMode: rehearsalSemanticEvaluationModeSchema.default("full")
+  })
+  .strict();
 
 export const createRehearsalRunResponseSchema = z.object({
   run: rehearsalRunSchema
@@ -559,12 +625,22 @@ export const getRehearsalRunResponseSchema = z.object({
   run: rehearsalRunSchema
 });
 
+export const cancelRehearsalRunResponseSchema = z.object({
+  run: rehearsalRunSchema
+});
+
 export const getRehearsalReportResponseSchema = z.object({
   run: rehearsalRunSchema,
   report: rehearsalReportSchema.nullable()
 });
 
 export type RehearsalRunStatus = z.infer<typeof rehearsalRunStatusSchema>;
+export type RehearsalSemanticEvaluationMode = z.infer<
+  typeof rehearsalSemanticEvaluationModeSchema
+>;
+export type RehearsalEvaluationSnapshot = z.infer<
+  typeof rehearsalEvaluationSnapshotSchema
+>;
 export type RehearsalRunError = z.infer<typeof rehearsalRunErrorSchema>;
 export type RehearsalRun = z.infer<typeof rehearsalRunSchema>;
 export type RehearsalReportMetrics = z.infer<typeof rehearsalReportMetricsSchema>;

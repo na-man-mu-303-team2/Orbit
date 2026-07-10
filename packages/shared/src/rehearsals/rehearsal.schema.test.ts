@@ -4,6 +4,7 @@ import {
   beginRehearsalAudioUploadRequestSchema,
   completeRehearsalAudioChunkUploadRequestSchema,
   completeRehearsalAudioUploadRequestSchema,
+  createRehearsalRunRequestSchema,
   createRehearsalAudioUploadUrlRequestSchema,
   getRehearsalReportResponseSchema,
   rehearsalSemanticCueOutcomeSchema,
@@ -31,6 +32,50 @@ describe("rehearsalRunSchema", () => {
 
     expect(run.status).toBe("succeeded");
     expect(run.rawAudioDeletedAt).toBe("2026-06-29T00:00:10.000Z");
+    expect(run.deckVersion).toBeNull();
+    expect(run.evaluationSnapshot).toBeNull();
+    expect(run.semanticEvaluationMode).toBe("full");
+  });
+
+  it("accepts cancelled runs without report processing fields", () => {
+    const run = rehearsalRunSchema.parse({
+      runId: "run_cancelled",
+      projectId: "project_demo_1",
+      deckId: "deck_demo_1",
+      audioFileId: null,
+      jobId: null,
+      status: "cancelled",
+      error: null,
+      rawAudioDeletedAt: null,
+      createdAt: "2026-06-29T00:00:00.000Z",
+      updatedAt: "2026-06-29T00:00:10.000Z"
+    });
+
+    expect(run.status).toBe("cancelled");
+  });
+});
+
+describe("createRehearsalRunRequestSchema", () => {
+  it("defaults semantic evaluation to full and accepts an expected deck version", () => {
+    expect(
+      createRehearsalRunRequestSchema.parse({
+        deckId: "deck_demo_1",
+        expectedDeckVersion: 7
+      })
+    ).toEqual({
+      deckId: "deck_demo_1",
+      expectedDeckVersion: 7,
+      semanticEvaluationMode: "full"
+    });
+  });
+
+  it("accepts an explicit delivery-only run", () => {
+    expect(
+      createRehearsalRunRequestSchema.parse({
+        deckId: "deck_demo_1",
+        semanticEvaluationMode: "delivery-only"
+      }).semanticEvaluationMode
+    ).toBe("delivery-only");
   });
 });
 

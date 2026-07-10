@@ -1078,6 +1078,7 @@ Run 상태:
 - `processing`
 - `succeeded`
 - `failed`
+- `cancelled`
 
 Run 응답 구조:
 
@@ -1088,6 +1089,14 @@ Run 응답 구조:
   "deckId": "deck_demo_1",
   "audioFileId": "file_audio_1",
   "jobId": "job_1",
+  "deckVersion": 7,
+  "evaluationSnapshot": {
+    "deckId": "deck_demo_1",
+    "deckVersion": 7,
+    "capturedAt": "2026-07-10T08:00:00.000Z",
+    "slides": []
+  },
+  "semanticEvaluationMode": "full",
   "status": "processing",
   "error": null,
   "rawAudioDeletedAt": null,
@@ -1099,7 +1108,12 @@ Run 응답 구조:
 API:
 
 - `POST /api/v1/projects/:projectId/rehearsals`
-  - request: `{ "deckId": "deck_demo_1" }`
+  - request: `{ "deckId": "deck_demo_1", "expectedDeckVersion": 7, "semanticEvaluationMode": "full" }`
+  - `expectedDeckVersion`은 optional이며 `full` run에서 현재 서버 deck version과 다르면 `REHEARSAL_DECK_VERSION_MISMATCH` 충돌로 거부한다.
+  - `semanticEvaluationMode`는 `full | delivery-only`이고 기본값은 `full`이다.
+  - response: `{ "run": RehearsalRun }`
+- `POST /api/v1/rehearsals/:runId/cancel`
+  - audio processing 시작 전 `created/uploading` run만 `cancelled`로 바꾼다.
   - response: `{ "run": RehearsalRun }`
 - `POST /api/v1/rehearsals/:runId/audio/upload-url`
   - request: `{ "originalName": "rehearsal.webm", "mimeType": "audio/webm", "size": 1048576 }`
@@ -1221,6 +1235,11 @@ Report 응답 구조:
 - raw audio 삭제 성공은 `rawAudioDeletedAt`과 `project_assets.status=deleted`, `deleted_at`으로 남긴다.
 - 삭제 실패는 `RAW_AUDIO_DELETE_FAILED` error로 run/job 양쪽에 남긴다.
 - 공식 보고서 원본은 `jobs.result`가 아니라 `rehearsal_runs.report_json`이다.
+- `full` run은 생성 시점의 materialized deck으로 owner-only `evaluationSnapshot`을 저장한다. snapshot에는 slide identity/order/title/estimatedSeconds, keyword 요약, `approved/excluded` Semantic Cue만 포함하고 `speakerNotes`, elements, transcript, raw audio는 포함하지 않는다.
+- `freshness=stale`인 reviewed cue도 snapshot에 유지해 최종 결과를 `unmeasured(stale_cue)`로 설명할 수 있게 한다.
+- snapshot은 생성 후 수정하지 않는다. `deckVersion`과 cue `revision`은 해당 run의 immutable 평가 기준이다.
+- `delivery-only`와 legacy run은 `deckVersion=null`, `evaluationSnapshot=null`이며 Semantic Cue 최종 평가는 각각 `evaluation_snapshot_mismatch`, `evaluation_not_run`으로 구분한다.
+- 기본 run 목록은 `cancelled`를 제외한다. processing이 시작된 run은 cancel할 수 없다.
 - `transcript_retained` 기본값은 `false`이며, `false`일 때 `report.transcript`는 반드시 `null`이다.
 - `GET /api/v1/rehearsals/:runId/report` 접근은 현재 프로젝트 접근 경계(`ProjectsService.getAccessibleProject`)를 재사용한다.
 - ORBIT-37의 고급 0-100 점수 산식은 이 계약에 포함하지 않으며, 실제 산식이 확정되기 전까지 UI에서도 점수를 표시하지 않는다.
