@@ -108,6 +108,7 @@ export function createP3RehearsalSession(
   let semanticGeneration = 0;
   let semanticQueue: Promise<void> = Promise.resolve();
   const semanticPrepareBySlideId = new Map<string, Promise<void>>();
+  const semanticCuePrepareBySlideId = new Map<string, Promise<void>>();
 
   async function start(options: {
     audioSource: MediaStream;
@@ -118,6 +119,7 @@ export function createP3RehearsalSession(
     status = "starting";
     runMeta = null;
     finalSegments.length = 0;
+    scheduleSemanticCuePrewarm(slideIndex);
 
     try {
       cleanupSubscriptions?.();
@@ -169,6 +171,7 @@ export function createP3RehearsalSession(
       events.push(...currentTracker.exitSlide(atMs));
     }
 
+    scheduleSemanticCuePrewarm(nextSlideIndex);
     slideIndex = nextSlideIndex;
     const slide = getSlide(slideIndex);
     currentTracker = getTracker(slideIndex);
@@ -334,6 +337,27 @@ export function createP3RehearsalSession(
     semanticPrepareBySlideId.set(slide.slideId, preparePromise);
   }
 
+  function scheduleSemanticCuePrewarm(index: number) {
+    if (
+      !input.semanticCueRuntime ||
+      !(input.isSemanticMatchingEnabled?.() ?? false)
+    ) {
+      return;
+    }
+    for (const targetIndex of [index, index - 1, index + 1]) {
+      const slide = input.slides[targetIndex];
+      if (!slide) {
+        continue;
+      }
+      const preparePromise = input.semanticCueRuntime.prepareSlide({
+        slideId: slide.slideId,
+        cues: slide.semanticCues ?? []
+      });
+      semanticCuePrepareBySlideId.set(slide.slideId, preparePromise);
+      void preparePromise.catch(() => undefined);
+    }
+  }
+
   function enqueueSemanticFinalResult(options: {
     result: LiveSttResult;
     resultSlideIndex: number;
@@ -342,7 +366,7 @@ export function createP3RehearsalSession(
     phraseMatched: boolean;
     keywordCoverage: number;
   }) {
-    if (!input.semanticMatcher) {
+    if (!input.semanticMatcher && !input.semanticCueRuntime) {
       return;
     }
 
@@ -375,6 +399,18 @@ export function createP3RehearsalSession(
     });
 
     try {
+      if (!input.semanticMatcher) {
+        await processSemanticCueFinalResult({
+          slide,
+          result: options.result,
+          decisionReason: "no_match",
+          generation: options.generation,
+          resultSlideIndex: options.resultSlideIndex,
+          phraseMatched: options.phraseMatched,
+          keywordCoverage: options.keywordCoverage
+        });
+        return;
+      }
       const match = await input.semanticMatcher?.matchFinalTranscript({
         slideId: slide.slideId,
         transcript: options.result.text,
@@ -473,6 +509,8 @@ export function createP3RehearsalSession(
     if (!input.semanticCueRuntime || (options.slide.semanticCues?.length ?? 0) === 0) {
       return;
     }
+
+    await semanticCuePrepareBySlideId.get(options.slide.slideId);
 
     const cueResult = await input.semanticCueRuntime.evaluateFinalResult({
       deckId: "deck_unknown",

@@ -4,6 +4,7 @@ import {
   selectSemanticCueCandidates,
   type SemanticCueCandidate
 } from "./semanticCueCandidateSelector";
+import type { SemanticCueEmbeddingIndex } from "./semanticCueEmbeddingIndex";
 import {
   createSemanticCueDebugEvent,
   type SemanticCueDebugEvent
@@ -12,9 +13,14 @@ import { shouldRunSemanticCueNli } from "./semanticCueNliPolicy";
 import type { SemanticCueNliProvider } from "./semanticCueNliProvider";
 import { buildSemanticCueReportEvidence, normalizeBoundedText } from "./semanticCueReportEvidence";
 import { combineSemanticCueScore } from "./semanticCueScoreCombiner";
+import { semanticCueRuntimeConfig } from "./semanticCueRuntimeConfig";
 import type { SemanticMatchDecisionReason } from "./semanticUtteranceDecision";
 
 export type SemanticCueRuntime = {
+  prepareSlide: (input: {
+    slideId: string;
+    cues: readonly SemanticCue[];
+  }) => Promise<void>;
   evaluateFinalResult: (input: SemanticCueRuntimeInput) => Promise<SemanticCueRuntimeResult>;
 };
 
@@ -40,8 +46,9 @@ export type SemanticCueRuntimeResult = {
 };
 
 export function createSemanticCueRuntime(options: {
-  provider: SemanticCueNliProvider;
+  provider?: SemanticCueNliProvider;
   enabled: boolean;
+  embeddingIndex?: SemanticCueEmbeddingIndex;
   now?: () => number;
   deckId?: string;
   maxCandidates?: number;
@@ -52,8 +59,17 @@ export function createSemanticCueRuntime(options: {
   const coveredCueIds = new Set<string>();
 
   return {
+    async prepareSlide(input) {
+      await options.embeddingIndex?.prepareSlide(input);
+    },
+
     async evaluateFinalResult(input) {
       const stableWindow = normalizeBoundedText(input.transcript, 600);
+      const retrievalScoresByCueId =
+        (await options.embeddingIndex?.retrieveScores({
+          slideId: input.slideId,
+          transcript: stableWindow
+        })) ?? new Map<string, number>();
       const allCoveredCueIds = new Set([
         ...Array.from(input.coveredCueIds),
         ...Array.from(coveredCueIds)
@@ -63,8 +79,9 @@ export function createSemanticCueRuntime(options: {
         transcript: stableWindow,
         cues: input.cues,
         coveredCueIds: allCoveredCueIds,
-        semanticDecisionReason: input.semanticDecisionReason,
-        maxCandidates: options.maxCandidates
+        retrievalScoresByCueId,
+        maxCandidates:
+          options.maxCandidates ?? semanticCueRuntimeConfig.maxCandidates
       });
       const selectedCandidate = candidates.find((candidate) => candidate.selectedForNli);
 
@@ -81,20 +98,22 @@ export function createSemanticCueRuntime(options: {
         };
       }
 
+      const provider = options.provider;
       const policy = shouldRunSemanticCueNli({
-        nliFeatureEnabled: options.enabled,
+        nliFeatureEnabled: options.enabled && provider !== undefined,
         semanticMatchingEnabled: input.semanticMatchingEnabled,
         isFinal: input.isFinal,
         phraseMatched: input.phraseMatched,
         keywordCoverage: input.keywordCoverage,
         semanticDecisionReason: input.semanticDecisionReason,
         cuePriority: selectedCandidate.cue.priority,
+        cueRetrievalScore: selectedCandidate.retrievalScore,
         isRequired: selectedCandidate.cue.required,
         nowMs: input.nowMs,
         lastNliRunAtMs
       });
 
-      if (!policy.run) {
+      if (!policy.run || !provider) {
         return {
           decisions: [],
           debugEvent: buildDebugEvent({
@@ -122,7 +141,7 @@ export function createSemanticCueRuntime(options: {
           cueId: selectedCandidate.cue.cueId,
           hypothesis: normalizeBoundedText(hypothesis, 300)
         }));
-      const nliDecisions = await options.provider.evaluate({
+      const nliDecisions = await provider.evaluate({
         premise: stableWindow,
         hypotheses
       });
@@ -146,6 +165,7 @@ export function createSemanticCueRuntime(options: {
       const combination = combineSemanticCueScore({
         lexicalScore: selectedCandidate.lexicalScore,
         conceptCoverage: selectedCandidate.conceptCoverage,
+        embeddingScore: selectedCandidate.retrievalScore,
         nli: bestNliDecision
       });
       if (combination.label === "covered") {
@@ -217,6 +237,7 @@ function buildDebugEvent(options: {
       meaning: candidate.cue.meaning,
       lexicalScore: candidate.lexicalScore,
       conceptCoverage: candidate.conceptCoverage,
+      embeddingScore: candidate.retrievalScore,
       selectedForNli: candidate.selectedForNli,
       ...(candidate.nliSkippedReason === undefined
         ? {}

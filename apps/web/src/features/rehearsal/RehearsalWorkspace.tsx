@@ -162,7 +162,14 @@ import {
   type P3RehearsalSessionState,
 } from "./speech/p3RehearsalSession";
 import { getSemanticCueRuntimeFlags } from "./speech/semanticCueFeatureFlags";
-import { createSemanticCueDebugRingBuffer } from "./speech/semanticCueDebugEvents";
+import {
+  createSemanticCueDebugRingBuffer,
+  type SemanticCueDebugEvent,
+} from "./speech/semanticCueDebugEvents";
+import {
+  createSemanticCueEmbeddingIndex,
+  type SemanticCueEmbeddingIndex,
+} from "./speech/semanticCueEmbeddingIndex";
 import { createSemanticCueRuntime } from "./speech/semanticCueRuntime";
 import { createMockSemanticCueNliProvider } from "./speech/mockSemanticCueNliProvider";
 import { createBrowserTransformersSemanticCueNliProvider } from "./speech/browserSemanticCueNliProvider";
@@ -1638,6 +1645,8 @@ export function RehearsalWorkspace(props: {
   const semanticEmbeddingServicePromiseRef =
     useRef<Promise<E5EmbeddingService> | null>(null);
   const semanticMatcherRef = useRef<SemanticUtteranceMatcher | null>(null);
+  const semanticCueEmbeddingIndexRef =
+    useRef<SemanticCueEmbeddingIndex | null>(null);
   const semanticCueDebugBufferRef = useRef(createSemanticCueDebugRingBuffer());
   const semanticCueNliProviderRef = useRef<{
     key: string;
@@ -2457,9 +2466,13 @@ export function RehearsalWorkspace(props: {
 
   function createSemanticCueRuntimeFromFlags() {
     const flags = getSemanticCueRuntimeFlags(import.meta.env);
+    const embeddingIndex = getOrCreateSemanticCueEmbeddingIndex();
 
     if (!flags.nliEnabled || flags.provider === "off") {
-      return undefined;
+      return createSemanticCueRuntime({
+        enabled: false,
+        embeddingIndex,
+      });
     }
 
     if (flags.provider === "browser-transformersjs") {
@@ -2477,11 +2490,15 @@ export function RehearsalWorkspace(props: {
       return createSemanticCueRuntime({
         provider: semanticCueNliProviderRef.current.provider,
         enabled: true,
+        embeddingIndex,
       });
     }
 
     if (flags.provider !== "mock") {
-      return undefined;
+      return createSemanticCueRuntime({
+        enabled: false,
+        embeddingIndex,
+      });
     }
 
     return createSemanticCueRuntime({
@@ -2489,7 +2506,23 @@ export function RehearsalWorkspace(props: {
         modelId: flags.modelId,
       }),
       enabled: true,
+      embeddingIndex,
     });
+  }
+
+  function getOrCreateSemanticCueEmbeddingIndex() {
+    if (semanticCueEmbeddingIndexRef.current) {
+      return semanticCueEmbeddingIndexRef.current;
+    }
+    semanticCueEmbeddingIndexRef.current = createSemanticCueEmbeddingIndex({
+      embeddingService: {
+        embedQuery: async (text) =>
+          (await getOrCreateSemanticEmbeddingService()).embedQuery(text),
+        embedPassages: async (texts) =>
+          (await getOrCreateSemanticEmbeddingService()).embedPassages(texts),
+      },
+    });
+    return semanticCueEmbeddingIndexRef.current;
   }
 
   function getOrCreateSemanticEmbeddingService() {
