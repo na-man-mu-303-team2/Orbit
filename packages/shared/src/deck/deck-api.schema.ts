@@ -165,8 +165,41 @@ export const putDeckResponseSchema = z
 
 export const appendDeckPatchRequestSchema = z.object({
   patch: deckPatchSchema,
+  responseMode: z.literal("ack").optional(),
   snapshotReason: deckSnapshotReasonSchema.optional(),
 });
+
+export const appendDeckPatchAckResponseSchema = z
+  .object({
+    deckId: deckIdSchema,
+    version: z.number().int().positive(),
+    changeRecord: deckChangeRecordSchema,
+    snapshot: deckSnapshotSchema.optional(),
+    ooxmlSyncJob: jobSchema.optional(),
+    updatedAt: isoDateTimeSchema,
+  })
+  .superRefine((response, ctx) => {
+    requireMatchingDeckId(ctx, response.deckId, response.changeRecord.deckId, [
+      "changeRecord",
+      "deckId",
+    ]);
+    requireMatchingVersion(
+      ctx,
+      response.version,
+      response.changeRecord.afterVersion,
+      ["changeRecord", "afterVersion"],
+    );
+    if (response.snapshot) {
+      requireMatchingDeckId(ctx, response.deckId, response.snapshot.deckId, [
+        "snapshot",
+        "deckId",
+      ]);
+      requireMatchingVersion(ctx, response.version, response.snapshot.version, [
+        "snapshot",
+        "version",
+      ]);
+    }
+  });
 
 export const appendDeckPatchResponseSchema = z
   .object({
@@ -268,6 +301,17 @@ export type PutDeckRequest = z.infer<typeof putDeckRequestSchema>;
 export type PutDeckResponse = z.infer<typeof putDeckResponseSchema>;
 export type AppendDeckPatchRequest = z.infer<
   typeof appendDeckPatchRequestSchema
+>;
+export type AppendDeckPatchAckRequest = Omit<
+  AppendDeckPatchRequest,
+  "responseMode"
+> & { responseMode: "ack" };
+export type AppendDeckPatchFullRequest = Omit<
+  AppendDeckPatchRequest,
+  "responseMode"
+> & { responseMode?: undefined };
+export type AppendDeckPatchAckResponse = z.infer<
+  typeof appendDeckPatchAckResponseSchema
 >;
 export type AppendDeckPatchResponse = z.infer<
   typeof appendDeckPatchResponseSchema

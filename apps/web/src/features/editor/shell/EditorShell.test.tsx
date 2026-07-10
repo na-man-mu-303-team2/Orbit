@@ -22,6 +22,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   EditorShell,
   EditorStateNotice,
+  applyDeckPatchAcknowledgement,
   buildSlideThumbnailPatch,
   buildPatchBatch,
   consumeScheduledUndoRedoPersistLabel,
@@ -871,6 +872,41 @@ describe("editor shell", () => {
         expect.objectContaining({ slideId: remoteSlide.slideId })
       ])
     );
+  });
+
+  it("rebuilds the persisted deck from a lightweight patch acknowledgement", () => {
+    const deck = createDemoDeck();
+    const patch: DeckPatch = {
+      deckId: deck.deckId,
+      baseVersion: deck.version,
+      source: "user",
+      operations: [{ type: "update_deck", title: "Ack title" }]
+    };
+    const applied = applyDeckPatch(deck, patch, {
+      createdAt: "2026-07-10T00:00:00.000Z"
+    });
+
+    expect(applied.ok).toBe(true);
+    if (!applied.ok) {
+      return;
+    }
+
+    const acknowledgement = {
+      deckId: deck.deckId,
+      version: applied.deck.version,
+      changeRecord: applied.changeRecord,
+      updatedAt: applied.changeRecord.createdAt
+    };
+
+    expect(applyDeckPatchAcknowledgement(deck, patch, acknowledgement)).toEqual(
+      applied.deck
+    );
+    expect(() =>
+      applyDeckPatchAcknowledgement(deck, patch, {
+        ...acknowledgement,
+        version: acknowledgement.version + 1
+      })
+    ).toThrow("acknowledgement version");
   });
 
   it("renders supported canvas object types without exposing grouped child labels", () => {
