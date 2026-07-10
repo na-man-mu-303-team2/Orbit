@@ -39,3 +39,5 @@ redis-data/
 __MACOSX/
 sherpa-onnx-streaming-zipformer-korean-*/
 docker-compose.override.yml
+artifacts/
+.codex/
