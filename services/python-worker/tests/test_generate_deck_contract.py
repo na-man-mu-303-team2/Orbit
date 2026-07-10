@@ -592,7 +592,9 @@ def test_research_first_adds_official_search_aliases_for_non_ascii_topic() -> No
     )
 
     web_request = next(request for request in client.requests if request.get("tools"))
-    assert "Official search aliases: Splatoon Raiders" in str(web_request["input"])
+    assert 'Primary web search subject: "Splatoon Raiders"' in str(
+        web_request["input"]
+    )
 
 
 def test_references_first_falls_back_without_leaking_attachment_commands_to_search() -> None:

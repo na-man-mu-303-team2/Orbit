@@ -2708,7 +2708,8 @@ def research_web_sources(
             response = api_client.responses.create(
                 model=model or "gpt-4.1-mini",
                 instructions=(
-                    "Research current factual sources for a Korean presentation. "
+                    "You must use web search for current factual sources for a Korean "
+                    "presentation. "
                     "Cite every factual source in the response text and provide at least "
                     "two distinct authoritative public URLs. Prefer a primary "
                     "official publisher, manufacturer, company, or public-body source "
@@ -2844,13 +2845,19 @@ def web_research_query(
                 " For conceptual topics, cover the underlying technology, market, or "
                 "operating concepts supported by those sources."
             ),
-            f"Current date: {date.today().isoformat()}",
-            f'Exact topic: "{raw_input.topic}"',
+            (
+                f'Primary web search subject: "{search_aliases[0]}". '
+                "Search this exact official English or romanized name first."
+                if search_aliases
+                else ""
+            ),
             (
                 f"Official search aliases: {', '.join(search_aliases)}"
                 if search_aliases
                 else ""
             ),
+            f"Current date: {date.today().isoformat()}",
+            f'Localized exact topic: "{raw_input.topic}"',
             f"Presentation context: {raw_input.brief.presentation_context}",
             f"Audience: {raw_input.brief.audience_text}",
             f"Presentation type: {raw_input.brief.presentation_type}",
