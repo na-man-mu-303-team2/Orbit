@@ -60,6 +60,7 @@ export type LiveSttErrorCode =
   | "unsupported_runtime"
   | "model_unavailable"
   | "consent_required"
+  | "permission_denied"
   | "start_failed"
   | "runtime_error";
 
