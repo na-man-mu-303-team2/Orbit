@@ -12,6 +12,7 @@ import type {
   DeckPatch,
   DeckElement,
   ListAiSuggestionsResponse,
+  SemanticCue,
   TableElementProps
 } from "@orbit/shared";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -207,11 +208,47 @@ describe("editor shell", () => {
   });
 
   it("resolves undo redo history navigation without state updater side effects", () => {
-    const previousDeck = { ...createDemoDeck(), title: "Previous deck" };
+    const cue = {
+      cueId: "scue_history_1",
+      slideId: "slide_demo_1",
+      meaning: "발표자는 이전 핵심 메시지를 설명한다",
+      importance: "core",
+      reviewStatus: "approved",
+      freshness: "current",
+      origin: "manual",
+      revision: 1,
+      sourceRefs: [],
+      qualityWarnings: [],
+      required: true,
+      priority: 1,
+      candidateKeywords: [],
+      aliases: {},
+      requiredConcepts: ["핵심 메시지"],
+      nliHypotheses: ["발표자는 이전 핵심 메시지를 설명했다"],
+      negativeHints: [],
+      targetElementIds: [],
+      triggerActionIds: []
+    } satisfies SemanticCue;
+    const previousBase = createDemoDeck();
+    const previousDeck = {
+      ...previousBase,
+      title: "Previous deck",
+      slides: previousBase.slides.map((slide, index) =>
+        index === 0 ? { ...slide, semanticCues: [cue] } : slide
+      )
+    };
     const currentDeck = {
-      ...createDemoDeck(),
+      ...previousDeck,
       title: "Current deck",
-      version: previousDeck.version + 1
+      version: previousDeck.version + 1,
+      slides: previousDeck.slides.map((slide, index) =>
+        index === 0
+          ? {
+              ...slide,
+              semanticCues: [{ ...cue, freshness: "stale" as const }]
+            }
+          : slide
+      )
     };
 
     const transition = resolveHistoryNavigation({
@@ -226,6 +263,12 @@ describe("editor shell", () => {
       targetEntry: { deck: previousDeck },
       targetSlideIndex: previousDeck.slides.length - 1
     });
+    expect(transition?.targetEntry.deck.slides[0].semanticCues[0].freshness).toBe(
+      "current"
+    );
+    expect(transition?.currentEntry.deck.slides[0].semanticCues[0].freshness).toBe(
+      "stale"
+    );
     expect(
       resolveHistoryNavigation({
         currentDeck,

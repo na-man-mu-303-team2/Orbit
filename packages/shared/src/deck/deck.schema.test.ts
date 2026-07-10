@@ -136,6 +136,19 @@ type DeckValidationInput = {
       negativeHints?: string[];
       targetElementIds?: string[];
       triggerActionIds?: string[];
+      reviewStatus?: "suggested" | "approved" | "excluded";
+      freshness?: "current" | "stale";
+      sourceRefs?: Array<{
+        kind:
+          | "slide-title"
+          | "speaker-notes"
+          | "element"
+          | "table"
+          | "chart"
+          | "image-analysis";
+        refId?: string;
+        sourceHash: string;
+      }>;
     }>;
   }>;
 };
@@ -335,6 +348,30 @@ describe("deckSchema validation", () => {
     ];
 
     expectInvalidDeck(deck);
+  });
+
+  it("accepts an approved stale cue after element and action references are removed", () => {
+    const deck = createValidDeck();
+    deck.slides[0].semanticCues = [
+      {
+        cueId: "scue_1",
+        slideId: "slide_1",
+        meaning: "발표자는 핵심 원인을 설명한다",
+        required: true,
+        priority: 1,
+        candidateKeywords: ["원인"],
+        aliases: {},
+        requiredConcepts: ["핵심 원인"],
+        nliHypotheses: ["발표자는 핵심 원인을 설명했다"],
+        targetElementIds: [],
+        triggerActionIds: [],
+        sourceRefs: [],
+        reviewStatus: "approved",
+        freshness: "stale"
+      }
+    ];
+
+    expectValidDeck(deck);
   });
 
   it("accepts explicit deck and slide presenter timing fields", () => {
