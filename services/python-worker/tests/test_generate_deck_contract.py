@@ -1619,6 +1619,78 @@ def test_short_speaker_note_repair_trims_model_output_above_limit() -> None:
     assert "Verified detail 1" in repaired.speaker_notes
 
 
+def test_short_speaker_note_repair_batches_large_decks() -> None:
+    raw_input = analyze_input(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            generationMode="design-pack",
+            topic="Batched notes",
+            prompt="Explain the deck.",
+            targetDurationMinutes=4,
+            slideCountRange={"min": 4, "max": 4},
+        )
+    )
+    slides = [
+        SlidePlan(
+            order=order,
+            slide_type="cover" if order == 1 else "summary" if order == 4 else "data",
+            title=f"Slide {order}",
+            message=f"Message {order}",
+            speaker_notes="Short notes.",
+            keywords=[],
+            evidence=[],
+            content_items=[
+                GeneratedContentItem(
+                    contentItemId=f"item-{order}",
+                    text=f"Supported point {order}",
+                )
+            ],
+            target_seconds=60,
+            target_speaker_notes_chars=200,
+        )
+        for order in range(1, 5)
+    ]
+    fake_client = FakeOpenAIClient(
+        [
+                {
+                    "slides": [
+                        {
+                            "order": order,
+                            "speakerNotes": " ".join(
+                                f"Slide {order} detail {index} explains a supported decision point."
+                                for index in range(1, 12)
+                            ),
+                        }
+                        for order in range(1, 4)
+                    ]
+                },
+                {
+                    "slides": [
+                        {
+                            "order": 4,
+                            "speakerNotes": " ".join(
+                                f"Slide 4 detail {index} explains a supported decision point."
+                                for index in range(1, 12)
+                            ),
+                        }
+                    ]
+                },
+        ]
+    )
+
+    repaired = repair_short_speaker_notes_with_llm(
+        raw_input,
+        slides,
+        client=fake_client,
+    )
+
+    assert len(fake_client.requests) == 2
+    assert all(
+        160 <= len("".join(slide.speaker_notes.split())) <= 250
+        for slide in repaired
+    )
+
+
 def test_single_uploaded_context_uses_short_unambiguous_source_id() -> None:
     raw_input = analyze_input(
         GenerateDeckRequest(
