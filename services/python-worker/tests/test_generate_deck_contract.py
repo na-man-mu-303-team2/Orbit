@@ -22,6 +22,7 @@ from app.ai.generate_deck import (
     ReferenceContext,
     SlidePlan,
     SlideCountRange,
+    SourceRecord,
     ValidationIssue,
     ValidationResult,
     allocate_weighted_integers,
@@ -782,6 +783,105 @@ def test_content_plan_repair_prompt_declares_non_whitespace_ranges() -> None:
     assert '"currentNonWhitespaceChars": 4' in prompt
     assert '"minimumNonWhitespaceChars": 288' in prompt
     assert '"maximumNonWhitespaceChars": 352' in prompt
+
+
+def test_research_first_content_plan_requires_verified_source_grounding() -> None:
+    payload = {
+        "title": "Verified product update",
+        "slides": [
+            slide_payload(
+                "Official release",
+                "The verified release details.",
+                "The verified release details are presented directly.",
+                slide_type="cover",
+                slot_preset="title_center",
+                source_refs=["web:official"],
+            )
+        ],
+    }
+    raw_input = analyze_input(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            generationMode="design-pack",
+            topic="Named product",
+            prompt="Summarize current release facts.",
+            referencePolicy="research-first",
+            brief={"referencePolicy": "research-first"},
+            slideCountRange={"min": 1, "max": 1},
+        )
+    )
+    raw_input.source_records = [
+        SourceRecord(
+            sourceType="web",
+            sourceId="web:official",
+            url="https://example.com/official-release",
+            title="Official release",
+            content="Release date and platform details.",
+            authority="official",
+        )
+    ]
+    fake_client = FakeOpenAIClient(payload)
+
+    plan = generate_content_plan_with_llm(raw_input, client=fake_client)
+
+    assert plan is not None
+    request = fake_client.requests[0]
+    assert "For research-first decks, every factual statement" in str(
+        request["instructions"]
+    )
+    prompt = str(request["input"])
+    assert "authority=official" in prompt
+    assert "url=https://example.com/official-release" in prompt
+
+
+def test_design_pack_repairs_only_remaining_short_speaker_notes() -> None:
+    short_plan = {
+        "title": "Focused repair",
+        "slides": [
+            slide_payload(
+                "Verified point",
+                "A concise verified point.",
+                "Short note.",
+                slide_type="cover",
+                slot_preset="title_center",
+                content_items=["A concise verified point."],
+            )
+        ],
+    }
+    repaired_notes = (
+        "검증된 근거를 중심으로 핵심 사실과 의미를 차례로 설명합니다. " * 12
+    ).strip()
+    fake_client = FakeOpenAIClient(
+        [
+            short_plan,
+            short_plan,
+            {
+                "slides": [
+                    {"order": 1, "speakerNotes": repaired_notes},
+                ]
+            },
+        ]
+    )
+
+    response = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            generationMode="design-pack",
+            topic="Focused repair",
+            prompt="Create a grounded one-minute update.",
+            targetDurationMinutes=1,
+            slideCountRange={"min": 1, "max": 1},
+        ),
+        client=fake_client,
+    )
+
+    assert len(fake_client.requests) == 3
+    assert "speaker_notes_repair" in str(fake_client.requests[2]["text"])
+    slide = response.deck["slides"][0]
+    timing = slide["aiNotes"]["timingPlan"]
+    assert len(slide["speakerNotes"].replace(" ", "")) >= round(
+        timing["targetSpeakerNotesChars"] * 0.8
+    )
 
 
 def test_single_uploaded_context_uses_short_unambiguous_source_id() -> None:

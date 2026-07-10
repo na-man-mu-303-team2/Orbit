@@ -485,6 +485,17 @@ class GeneratedDeckContentPlan(BaseModel):
     slides: list[GeneratedSlideContent] = Field(min_length=1)
 
 
+class SpeakerNotesRepairItem(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    order: int = Field(ge=1)
+    speaker_notes: str = Field(alias="speakerNotes", min_length=1)
+
+
+class SpeakerNotesRepairPlan(BaseModel):
+    slides: list[SpeakerNotesRepairItem] = Field(min_length=1)
+
+
 class SlidePlan(BaseModel):
     order: int
     slide_type: SlideType
@@ -1681,6 +1692,12 @@ Rules:
 - Do not write meta placeholders such as "목적과 기대 결과를 소개합니다" or
   "결정 사항, 실행 순서, 후속 검증 기준을 정리합니다" unless the source is actually about that.
 - Do not invent unsupported facts. If excerpts are sparse, stay close to the topic and keywords.
+- For research-first decks, every factual statement in titles, messages, contentItems,
+  and speakerNotes must be directly supported by the supplied verified source records.
+- Preserve exact product names, release dates, platforms, availability, and defining
+  features from sources. Never replace a named subject with its broader series or category.
+- Do not describe a fact as unannounced, unknown, or speculative when a supplied source
+  confirms it. Omit unsupported details instead of guessing.
 - Keep messages concise enough for slide body text.
 """.strip()
 
@@ -1700,6 +1717,21 @@ Rules:
 - A short script is invalid even when the JSON shape is otherwise correct.
 - Do not add unsupported claims or source references.
 - Do not output coordinates, sizes, zIndex, or final Deck JSON.
+""".strip()
+
+SPEAKER_NOTES_REPAIR_INSTRUCTIONS = """
+You repair only the Korean speakerNotes of selected ORBIT slides.
+Return only JSON that matches the requested schema.
+
+Rules:
+- Return exactly one entry for each requested slide order and do not add slide orders.
+- Keep every note between minimumNonWhitespaceChars and maximumNonWhitespaceChars.
+- Write natural Korean presenter lines that can be read aloud.
+- Use only facts directly supported by the supplied slide content and verified sources.
+- Preserve exact names, dates, platforms, availability, and defining features.
+- Do not add generic filler, repeated sentences, unsupported claims, or instructions to
+  the presenter.
+- Do not modify titles, messages, content items, source references, or design fields.
 """.strip()
 
 DECK_CONTENT_RESPONSE_FORMAT: dict[str, Any] = {
@@ -1901,6 +1933,33 @@ WEB_SOURCE_VETTING_RESPONSE_FORMAT: dict[str, Any] = {
                 },
             },
             "required": ["officialRequired", "sources"],
+        },
+    }
+}
+
+SPEAKER_NOTES_REPAIR_RESPONSE_FORMAT: dict[str, Any] = {
+    "format": {
+        "type": "json_schema",
+        "name": "speaker_notes_repair",
+        "strict": True,
+        "schema": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "slides": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "additionalProperties": False,
+                        "properties": {
+                            "order": {"type": "integer", "minimum": 1},
+                            "speakerNotes": {"type": "string"},
+                        },
+                        "required": ["order", "speakerNotes"],
+                    },
+                }
+            },
+            "required": ["slides"],
         },
     }
 }
@@ -2978,6 +3037,13 @@ def plan_deck_content(
                                 slide_plans,
                             )
                             generated_plan = repaired_plan
+                    slide_plans = repair_short_speaker_notes_with_llm(
+                        raw_input,
+                        slide_plans,
+                        client=client,
+                        model=model,
+                        api_key=api_key,
+                    )
             return (
                 DeckOutline(
                     title=deck_title_for_topic(raw_input.topic, generated_plan.title),
@@ -3425,6 +3491,105 @@ def repair_content_plan_with_llm(
     return repaired
 
 
+def repair_short_speaker_notes_with_llm(
+    raw_input: RawInput,
+    slide_plans: list[SlidePlan],
+    *,
+    client: Any | None = None,
+    model: str | None = None,
+    api_key: str | None = None,
+) -> list[SlidePlan]:
+    short_slides = [
+        slide
+        for slide in slide_plans
+        if slide.target_speaker_notes_chars > 0
+        and count_speaker_note_chars(slide.speaker_notes)
+        < round(slide.target_speaker_notes_chars * 0.8)
+    ]
+    if not short_slides:
+        return slide_plans
+
+    api_client: Any = client
+    if api_client is None:
+        if not api_key:
+            return slide_plans
+        from openai import OpenAI
+
+        api_client = OpenAI(api_key=api_key)
+
+    source_records = {
+        source.source_id: source
+        for source in (raw_input.source_records or initial_source_records(raw_input))
+    }
+    requested_orders = {slide.order for slide in short_slides}
+    slide_payloads: list[dict[str, Any]] = []
+    referenced_source_ids: list[str] = []
+    for slide in short_slides:
+        source_refs = slide.source_refs or default_source_refs(raw_input, slide.order)
+        referenced_source_ids.extend(source_refs)
+        slide_payloads.append(
+            {
+                "order": slide.order,
+                "title": slide.title,
+                "message": slide.message,
+                "contentItems": [item.text for item in slide.content_items],
+                "currentSpeakerNotes": slide.speaker_notes,
+                "sourceRefs": source_refs,
+                "minimumNonWhitespaceChars": round(
+                    slide.target_speaker_notes_chars * 0.8
+                ),
+                "maximumNonWhitespaceChars": round(
+                    slide.target_speaker_notes_chars * 1.25
+                ),
+            }
+        )
+    sources = [
+        {
+            "sourceId": source.source_id,
+            "sourceType": source.source_type,
+            "authority": source.authority,
+            "title": source.title,
+            "url": source.url,
+            "content": source.content[:1600],
+        }
+        for source_id in unique_non_empty(referenced_source_ids)
+        if (source := source_records.get(source_id)) is not None
+    ]
+    try:
+        response = api_client.responses.create(
+            model=model or "gpt-4.1-mini",
+            instructions=SPEAKER_NOTES_REPAIR_INSTRUCTIONS,
+            input=json.dumps(
+                {
+                    "topic": raw_input.topic,
+                    "referencePolicy": raw_input.brief.reference_policy,
+                    "slides": slide_payloads,
+                    "verifiedSources": sources,
+                },
+                ensure_ascii=False,
+            ),
+            text=SPEAKER_NOTES_REPAIR_RESPONSE_FORMAT,
+        )
+        repaired = SpeakerNotesRepairPlan.model_validate_json(
+            str(getattr(response, "output_text", "")).strip()
+        )
+    except Exception:
+        return slide_plans
+
+    if {item.order for item in repaired.slides} != requested_orders:
+        return slide_plans
+    repaired_by_order = {item.order: item for item in repaired.slides}
+    for slide in short_slides:
+        item = repaired_by_order[slide.order]
+        actual_chars = count_speaker_note_chars(item.speaker_notes)
+        if not round(slide.target_speaker_notes_chars * 0.8) <= actual_chars <= round(
+            slide.target_speaker_notes_chars * 1.25
+        ):
+            continue
+        slide.speaker_notes = " ".join(item.speaker_notes.split())
+    return slide_plans
+
+
 def slide_type_for(order: int, total: int) -> SlideType:
     if order == 1:
         return "cover"
@@ -3590,7 +3755,9 @@ def deck_content_prompt(raw_input: RawInput) -> str:
             [
                 (
                     f"[{source.source_id}] type={source.source_type} "
-                    f"title={source.title or '(untitled)'}"
+                    f"authority={source.authority} "
+                    f"title={source.title or '(untitled)'} "
+                    f"url={source.url or '(none)'}"
                 ),
                 source.content[:1600],
             ]
