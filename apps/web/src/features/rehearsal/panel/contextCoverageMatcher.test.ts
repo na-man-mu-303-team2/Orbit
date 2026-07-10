@@ -53,6 +53,79 @@ describe("isContextItemCovered", () => {
     ).toBe(true);
   });
 
+  it("accepts TC-02 slide 1 자연스러운 재표현 when semantic similarity is high", () => {
+    const transcriptWindow =
+      "학교 카페에서 나오는 일회용컵 양이 꽤 많습니다 매일 버려지는 컵 때문에 처리 비용도 계속 부담이 됩니다 학생들이 다회용컵을 안 쓰는 이유는 의지가 없어서라기보다 어디에 돌려줘야 하는지 불편하고 절차가 귀찮기 때문입니다 그래서 쉽게 반납할 수 있는 구조가 필요합니다";
+
+    expect(
+      isContextItemCovered({
+        itemSentence: "일회용컵 다량 사용 문제",
+        transcriptWindow,
+        semanticSimilarity: 0.81,
+      }),
+    ).toBe(true);
+    expect(
+      isContextItemCovered({
+        itemSentence: "폐기물 처리 비용 증가",
+        transcriptWindow,
+        semanticSimilarity: 0.81,
+      }),
+    ).toBe(true);
+    expect(
+      isContextItemCovered({
+        itemSentence: "반납 시스템의 불편함",
+        transcriptWindow,
+        semanticSimilarity: 0.81,
+      }),
+    ).toBe(true);
+    expect(
+      isContextItemCovered({
+        itemSentence: "편리한 반납 시스템 필요성",
+        transcriptWindow,
+        semanticSimilarity: 0.81,
+      }),
+    ).toBe(true);
+  });
+
+  it("does not cover cost increase when the user only says disposable cup volume is high", () => {
+    const transcriptWindow = "학교 카페에서 나오는 일회용컵 양이 꽤 많습니다";
+
+    expect(
+      isContextItemCovered({
+        itemSentence: "일회용컵 다량 사용 문제",
+        transcriptWindow,
+        semanticSimilarity: 0.86,
+      }),
+    ).toBe(true);
+    expect(
+      isContextItemCovered({
+        itemSentence: "폐기물 처리 비용 증가",
+        transcriptWindow,
+        semanticSimilarity: 0.86,
+      }),
+    ).toBe(false);
+  });
+
+  it("does not cover solution necessity when the user only explains return friction", () => {
+    const transcriptWindow =
+      "학생들이 다회용컵을 안 쓰는 이유는 의지가 없어서라기보다 어디에 돌려줘야 하는지 불편하고 절차가 귀찮기 때문입니다";
+
+    expect(
+      isContextItemCovered({
+        itemSentence: "반납 시스템 불편함",
+        transcriptWindow,
+        semanticSimilarity: 0.86,
+      }),
+    ).toBe(true);
+    expect(
+      isContextItemCovered({
+        itemSentence: "편리한 반납 시스템 필요성",
+        transcriptWindow,
+        semanticSimilarity: 0.86,
+      }),
+    ).toBe(false);
+  });
+
   it("does not accept semantic-only matches without enough lexical grounding", () => {
     expect(
       isContextItemCovered({

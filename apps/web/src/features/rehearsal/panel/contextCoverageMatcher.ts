@@ -9,8 +9,8 @@ import { normalizeLiveTranscriptText } from "../stt/liveTranscriptText";
 
 export const CONTEXT_DICE_MATCH_THRESHOLD = 0.78;
 export const CONTEXT_WORD_RECALL_THRESHOLD = 0.5;
-export const CONTEXT_SEMANTIC_MATCH_THRESHOLD = 0.84;
-export const CONTEXT_SEMANTIC_WORD_RECALL_THRESHOLD = 0.2;
+export const CONTEXT_SEMANTIC_MATCH_THRESHOLD = 0.8;
+export const CONTEXT_SEMANTIC_WORD_RECALL_THRESHOLD = 0.15;
 export const CONTEXT_MATCH_MIN_WORDS = 4;
 export const CONTEXT_MATCH_MAX_WINDOWS = 12;
 
@@ -103,7 +103,11 @@ export function evaluateContextItemCoverage(input: {
   if (
     input.semanticSimilarity >=
       Math.max(CONTEXT_MATCH_THRESHOLD, CONTEXT_SEMANTIC_MATCH_THRESHOLD) &&
-    lexicalOverlap >= CONTEXT_SEMANTIC_WORD_RECALL_THRESHOLD
+    hasSemanticLexicalGrounding({
+      itemSentence: input.itemSentence,
+      transcriptWindow: input.transcriptWindow,
+      lexicalOverlap,
+    })
   ) {
     return {
       lexicalOverlap,
@@ -122,6 +126,118 @@ export function evaluateContextItemCoverage(input: {
     strength: 0,
   };
 }
+
+function hasSemanticLexicalGrounding(input: {
+  itemSentence: string;
+  transcriptWindow: string;
+  lexicalOverlap: number;
+}) {
+  const itemAnchors = collectContextAnchors(input.itemSentence);
+  const transcriptAnchors = collectContextAnchors(input.transcriptWindow);
+  if (
+    !hasRequiredContextAnchors({
+      itemSentence: input.itemSentence,
+      itemAnchors,
+      transcriptAnchors,
+    })
+  ) {
+    return false;
+  }
+
+  if (input.lexicalOverlap >= CONTEXT_SEMANTIC_WORD_RECALL_THRESHOLD) {
+    return true;
+  }
+
+  if (itemAnchors.size === 0) {
+    return false;
+  }
+
+  let sharedAnchors = 0;
+  for (const anchor of itemAnchors) {
+    if (transcriptAnchors.has(anchor)) {
+      sharedAnchors += 1;
+    }
+  }
+
+  return sharedAnchors > 0 && sharedAnchors / itemAnchors.size >= 0.25;
+}
+
+function hasRequiredContextAnchors(input: {
+  itemSentence: string;
+  itemAnchors: ReadonlySet<string>;
+  transcriptAnchors: ReadonlySet<string>;
+}) {
+  const normalizedItem = normalizeLiveTranscriptText(input.itemSentence);
+  if (
+    input.itemAnchors.has("비용") &&
+    input.itemAnchors.has("폐기물") &&
+    (!input.transcriptAnchors.has("비용") || !input.transcriptAnchors.has("폐기물"))
+  ) {
+    return false;
+  }
+
+  if (
+    input.itemAnchors.has("불편") &&
+    input.itemAnchors.has("반납") &&
+    (!input.transcriptAnchors.has("불편") || !input.transcriptAnchors.has("반납"))
+  ) {
+    return false;
+  }
+
+  if (
+    isNeedOrSolutionContext(normalizedItem) &&
+    (!input.transcriptAnchors.has("필요") ||
+      (!input.transcriptAnchors.has("반납") && !input.transcriptAnchors.has("시스템")))
+  ) {
+    return false;
+  }
+
+  return true;
+}
+
+function isNeedOrSolutionContext(normalizedItem: string) {
+  return (
+    normalizedItem.includes("필요") ||
+    normalizedItem.includes("편리") ||
+    normalizedItem.includes("해결") ||
+    normalizedItem.includes("개선")
+  );
+}
+
+function collectContextAnchors(value: string) {
+  const normalized = normalizeLiveTranscriptText(value);
+  const anchors = new Set<string>();
+  for (const group of CONTEXT_ANCHOR_GROUPS) {
+    if (group.some((term) => normalized.includes(term))) {
+      anchors.add(group[0] ?? "");
+    }
+  }
+  anchors.delete("");
+  return anchors;
+}
+
+const CONTEXT_ANCHOR_GROUPS = [
+  ["일회용컵", "일회용", "컵"],
+  ["다회용컵", "다회용"],
+  ["폐기물", "쓰레기", "버려", "버리"],
+  ["비용", "부담", "처리비"],
+  ["반납", "돌려주", "돌려줘", "반환"],
+  ["불편", "번거", "귀찮", "어렵"],
+  ["시스템", "구조", "절차", "과정", "방식"],
+  ["편리", "쉽", "간편", "빠르"],
+  ["필요", "필요성", "해야", "마련", "요구", "개선", "해결"],
+  ["보증금", "보증"],
+  ["qr", "큐알", "코드", "스캔", "찍"],
+  ["장벽", "참여", "이용률"],
+  ["파일럿", "실험", "검증"],
+  ["4주", "한달", "한 달"],
+  ["감축", "줄이", "줄어"],
+  ["30", "30%"],
+  ["반납률", "회수율"],
+  ["80", "80%"],
+  ["데이터", "측정", "분석", "수집"],
+  ["확대", "넓히", "늘리"],
+] as const;
 
 export function isContextItemCovered(input: {
   itemSentence: string;
