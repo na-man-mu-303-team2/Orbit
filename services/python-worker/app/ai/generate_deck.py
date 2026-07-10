@@ -2978,36 +2978,50 @@ def web_sources_from_response(response: Any) -> list[SourceRecord]:
                 output_text = content_text
             annotations.extend(object_field(content, "annotations", []) or [])
 
-    records: list[SourceRecord] = []
-    seen_urls: set[str] = set()
+    records_by_url: OrderedDict[str, SourceRecord] = OrderedDict()
     for annotation in annotations:
         if object_field(annotation, "type") != "url_citation":
             continue
         url = canonicalize_web_url(str(object_field(annotation, "url", "")).strip())
-        if not is_http_url(url) or url in seen_urls:
+        if not is_http_url(url):
             continue
-        seen_urls.add(url)
         start = int(object_field(annotation, "start_index", 0) or 0)
         end = int(object_field(annotation, "end_index", 0) or 0)
-        cited_text = output_text[max(0, start) : max(start, end)].strip()
-        content = cited_text if len(cited_text) >= 20 else output_text[:1200].strip()
+        content = web_citation_claim_excerpt(output_text, start, end)
         if not content:
             continue
-        records.append(
-            SourceRecord(
-                sourceType="web",
-                sourceId=web_source_id(url),
-                url=url,
-                title=(
-                    str(object_field(annotation, "title", "")).strip()
-                    or urlparse(url).hostname
-                    or url
-                ),
-                content=content,
-                confidence=0.82,
-            )
+        current = records_by_url.get(url)
+        if current is not None:
+            if content not in current.content:
+                current.content = "\n".join([current.content, content])[:4000]
+            continue
+        records_by_url[url] = SourceRecord(
+            sourceType="web",
+            sourceId=web_source_id(url),
+            url=url,
+            title=(
+                str(object_field(annotation, "title", "")).strip()
+                or urlparse(url).hostname
+                or url
+            ),
+            content=content,
+            confidence=0.82,
         )
-    return records
+    return list(records_by_url.values())
+
+
+def web_citation_claim_excerpt(text: str, start: int, end: int) -> str:
+    safe_start = min(max(0, start), len(text))
+    safe_end = min(max(safe_start, end), len(text))
+    line_start = max(text.rfind("\n", 0, safe_start) + 1, safe_start - 700)
+    next_line = text.find("\n", safe_end)
+    line_end = min(next_line if next_line >= 0 else len(text), safe_end + 300)
+    claim = " ".join(
+        f"{text[line_start:safe_start]} {text[safe_end:line_end]}".split()
+    ).strip(" -*\t")
+    if len(claim) >= 20:
+        return claim
+    return " ".join(text[safe_start:safe_end].split()).strip()
 
 
 def web_search_diagnostic_urls(response: Any) -> list[str]:

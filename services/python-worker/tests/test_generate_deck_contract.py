@@ -545,6 +545,58 @@ def test_web_sources_canonicalize_and_dedupe_citation_urls() -> None:
     assert [source.url for source in sources] == ["https://example.com/news?id=7"]
 
 
+def test_web_sources_merge_claim_lines_for_repeated_citation_url() -> None:
+    url = "https://publisher.example/products/new-game?utm_source=openai"
+    first_claim = "The game releases on July 23, 2026."
+    second_claim = "It is exclusive to Nintendo Switch 2."
+    third_claim = "Players explore islands and raid them for treasure."
+    citation = f"([publisher.example]({url}))"
+    summary = "\n".join(
+        [
+            f"{first_claim} {citation}",
+            f"{second_claim} {citation}",
+            f"{third_claim} {citation}",
+        ]
+    )
+    annotations = []
+    offset = 0
+    for line in summary.splitlines(keepends=True):
+        start = offset + line.index(citation)
+        annotations.append(
+            SimpleNamespace(
+                type="url_citation",
+                url=url,
+                title="Official product page",
+                start_index=start,
+                end_index=start + len(citation),
+            )
+        )
+        offset += len(line)
+    response = SimpleNamespace(
+        output_text=summary,
+        output=[
+            SimpleNamespace(
+                type="message",
+                content=[
+                    SimpleNamespace(
+                        type="output_text",
+                        text=summary,
+                        annotations=annotations,
+                    )
+                ],
+            )
+        ],
+    )
+
+    sources = web_sources_from_response(response)
+
+    assert len(sources) == 1
+    assert sources[0].url == "https://publisher.example/products/new-game"
+    assert first_claim in sources[0].content
+    assert second_claim in sources[0].content
+    assert third_claim in sources[0].content
+
+
 def test_research_first_retries_until_official_and_independent_sources_exist() -> None:
     official_url = "https://publisher.example/products/new-game"
     independent_url = "https://news.example/reviews/new-game"
