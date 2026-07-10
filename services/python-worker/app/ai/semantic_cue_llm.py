@@ -22,6 +22,8 @@ Rules:
 - Return 0 cues for slides with no meaningful content.
 - Prefer 3-7 cues for content-rich slides, but never force filler-only slides.
 - targetElementIds and triggerActionIds may only reference IDs listed in the input.
+- For technical terms, code identifiers, acronyms, English terms, and mixed Korean-English phrases,
+  aliasEntries are required. Include Korean pronunciations, common STT variants, and semantic Korean equivalents.
 """.strip()
 
 
