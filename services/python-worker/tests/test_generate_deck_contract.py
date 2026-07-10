@@ -27,6 +27,7 @@ from app.ai.generate_deck import (
     ValidationResult,
     allocate_weighted_integers,
     analyze_input,
+    apply_design_options,
     apply_timing_to_slide_plans,
     chars_per_minute_for_request,
     choose_slide_count,
@@ -681,6 +682,41 @@ def test_dense_speaker_notes_are_compacted_without_repeated_fillers() -> None:
     assert round(160 * 0.7) <= compacted_chars <= round(160 * 1.15)
     assert compacted_chars < original_chars
     assert slide.speaker_notes.count("Distinct evidence sentence") == 3
+
+
+def test_design_pack_finalization_compacts_notes_and_adds_profile_action() -> None:
+    raw_input = analyze_input(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="Executive decision",
+            generationMode="design-pack",
+            design={"profile": "executive-report"},
+            brief={"successCriteria": "다음 분기 예산 승인"},
+        )
+    )
+    slide = SlidePlan(
+        order=5,
+        slide_type="summary",
+        title="운영 현황 요약",
+        message="핵심 성과와 위험을 정리합니다.",
+        speaker_notes=(
+            "확인된 성과와 현재 위험을 차례로 설명합니다. "
+            "예산 범위와 일정에 미치는 영향을 구체적으로 짚습니다. "
+            "마지막으로 다음 분기에 필요한 후속 과제를 정리합니다."
+        ),
+        keywords=["성과", "위험"],
+        evidence=[],
+        target_speaker_notes_chars=80,
+        content_items=[
+            GeneratedContentItem(contentItemId="item-1", text="성과와 위험 확인")
+        ],
+    )
+
+    apply_design_options(raw_input, [slide])
+
+    actual_chars = len("".join(slide.speaker_notes.split()))
+    assert round(80 * 0.7) <= actual_chars <= round(80 * 1.15)
+    assert any("승인" in item.text for item in slide.content_items)
 
 
 def test_design_pack_six_step_process_renders_every_content_item_once() -> None:

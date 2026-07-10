@@ -4383,6 +4383,9 @@ def apply_design_options(
             raw_input.design.media_policy,
         )
     if raw_input.generation_mode == "design-pack":
+        for slide_plan in slide_plans:
+            compact_dense_speaker_notes(slide_plan)
+        ensure_profile_closing_action(raw_input, slide_plans)
         apply_design_pack_media_plan(raw_input, slide_plans)
 
     previous_preset: SlotPreset | None = None
@@ -4400,6 +4403,50 @@ def apply_design_options(
         previous_preset = selected_preset
 
     return slide_plans
+
+
+def ensure_profile_closing_action(
+    raw_input: RawInput,
+    slide_plans: list[SlidePlan],
+) -> None:
+    if not slide_plans or raw_input.presentation_profile not in {
+        "proposal",
+        "product-launch",
+        "executive-report",
+    }:
+        return
+    closing = slide_plans[-1]
+    required_tokens = (
+        EXECUTIVE_CLOSING_TOKENS
+        if raw_input.presentation_profile == "executive-report"
+        else ACTION_CLOSING_TOKENS
+    )
+    closing_text = " ".join(
+        [closing.title, closing.message, *[item.text for item in closing.content_items]]
+    ).casefold()
+    if has_any(closing_text, required_tokens):
+        return
+
+    success_criteria = raw_input.brief.success_criteria.strip()
+    fallback = {
+        "proposal": "다음 실행을 결정하고 시작하세요.",
+        "product-launch": "출시 정보를 확인하고 다음 행동을 선택하세요.",
+        "executive-report": "다음 단계의 결정과 승인을 요청합니다.",
+    }[raw_input.presentation_profile]
+    action = (
+        success_criteria
+        if has_any(success_criteria.casefold(), required_tokens)
+        else fallback
+    )
+    action_item = GeneratedContentItem(
+        contentItemId=f"content_{closing.order}_profile_action",
+        text=action,
+    )
+    _, maximum = DESIGN_PACK_RECIPE_CAPACITIES["closing_summary"]
+    if len(closing.content_items) >= maximum:
+        closing.content_items[-1] = action_item
+    else:
+        closing.content_items.append(action_item)
 
 
 def apply_design_pack_media_plan(
