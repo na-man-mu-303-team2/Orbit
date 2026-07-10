@@ -4014,6 +4014,14 @@ def slide_plans_from_generated_content(
         content_items = list(slide.content_items)
         if raw_input.generation_mode == "design-pack" and not content_items:
             content_items = content_items_from_message(slide.message, index)
+        elif raw_input.generation_mode == "design-pack":
+            content_items = [
+                GeneratedContentItem(
+                    contentItemId=f"content_{index}_{item_index}",
+                    text=item.text,
+                )
+                for item_index, item in enumerate(content_items, start=1)
+            ]
         duplicate_content_ids = [
             item.content_item_id
             for item in content_items

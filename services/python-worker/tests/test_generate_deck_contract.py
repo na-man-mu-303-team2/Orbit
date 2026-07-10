@@ -43,6 +43,7 @@ from app.ai.generate_deck import (
     refine_design_issues,
     repair_content_plan_with_llm,
     repair_short_speaker_notes_with_llm,
+    slide_plans_from_generated_content,
     review_text_overlap_candidates,
     validate_and_patch,
     validate_design,
@@ -1106,6 +1107,51 @@ def test_short_speaker_note_repair_merges_grounded_content_below_model_limit() -
     assert request_payload["slides"][0]["minimumNonWhitespaceChars"] == 440
     assert 320 <= len(repaired.speaker_notes.replace(" ", "")) <= 500
     assert "official source confirms" in repaired.speaker_notes
+
+
+def test_design_pack_normalizes_reused_llm_content_item_ids() -> None:
+    raw_input = analyze_input(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            generationMode="design-pack",
+            topic="Stable identifiers",
+            prompt="Create two slides.",
+            slideCountRange={"min": 2, "max": 2},
+        )
+    )
+    plan = GeneratedDeckContentPlan.model_validate(
+        {
+            "title": "Stable identifiers",
+            "slides": [
+                slide_payload(
+                    "First",
+                    "First message",
+                    "First speaker notes",
+                    slide_type="cover",
+                    slot_preset="title_center",
+                    content_items=["First fact"],
+                ),
+                slide_payload(
+                    "Second",
+                    "Second message",
+                    "Second speaker notes",
+                    slide_type="summary",
+                    slot_preset="title_left_visual_right",
+                    content_items=["Second fact"],
+                ),
+            ],
+        }
+    )
+    plan.slides[0].content_items[0].content_item_id = "reused"
+    plan.slides[1].content_items[0].content_item_id = "reused"
+
+    slides = slide_plans_from_generated_content(raw_input, plan)
+
+    assert [
+        item.content_item_id
+        for slide in slides
+        for item in slide.content_items
+    ] == ["content_1_1", "content_2_1"]
 
 
 def test_single_uploaded_context_uses_short_unambiguous_source_id() -> None:
