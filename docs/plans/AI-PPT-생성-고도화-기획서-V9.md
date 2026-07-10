@@ -1,10 +1,10 @@
 # AI PPT 생성 고도화 기획서 V9
 
 > 기준일: 2026-07-11
-> 
-> 
+>
+>
 > 상태: 1차 완료, 2차 및 기본 생성 계약 완료, 3차 선행 규칙 최종 승인 완료, 3차 착수 가능
-> 
+>
 
 ---
 
@@ -1083,4 +1083,3 @@ LLM 담당:
 9. 대표 profile 및 Saved Design Pack 브라우저 승인
 
 완료된 exact-count, 구조적 중복, 발화 예산, profile, typography, grid, Worker·Editor 동기화와 legacy 분리 회귀 suite는 모든 3차 작업에서 유지한다. Saved Design Pack이나 Brand Kit의 사용자 설정이 Hard Rule을 해제하지 못하도록 규칙 우선순위를 공통 계약으로 먼저 고정한다.
-
