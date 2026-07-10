@@ -5,6 +5,8 @@ from dataclasses import dataclass, field
 from typing import Any
 from uuid import uuid4
 
+from app.ai.semantic_cue_filters import compact_meaningful_phrases, is_meaningful_phrase
+
 EXTRACT_INSTRUCTIONS = """
 You are an expert Korean presentation coach analyzing slides for ORBIT.
 Given a slide's body text and the speaker's script (speaker notes), identify 2-4 semantic context units that the presenter MUST cover on this slide.
@@ -130,20 +132,15 @@ def extract_slide_context_items(
         if not isinstance(raw_items, list):
             continue
 
-        for raw in raw_items:
-            if not isinstance(raw, dict):
-                continue
-            label = str(raw.get("label", "")).strip()[:200]
-            sentence = str(raw.get("sentence", "")).strip()[:1000]
-            if not label or not sentence:
-                continue
+        normalized_items = _normalize_context_items(raw_items)
+        for item in normalized_items:
             all_items.append(
                 ContextItem(
                     item_id=str(uuid4()),
                     slide_id=slide.slide_id,
                     item_order=order_counter,
-                    label=label,
-                    sentence=sentence,
+                    label=item["label"],
+                    sentence=item["sentence"],
                 )
             )
             order_counter += 1
@@ -158,3 +155,43 @@ def _build_slide_input(slide: SlideInput) -> str:
     if slide.speaker_notes.strip():
         parts.append(f"[발표자 대본]\n{slide.speaker_notes.strip()}")
     return "\n\n".join(parts) if parts else "(내용 없음)"
+
+
+def _normalize_context_items(raw_items: list[object]) -> list[dict[str, str]]:
+    normalized_items: list[dict[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+
+    for raw in raw_items:
+        if not isinstance(raw, dict):
+            continue
+
+        raw_label = _normalize_space(str(raw.get("label", "")))[:200]
+        label_candidates = compact_meaningful_phrases(
+            [raw_label],
+            max_items=1,
+            max_length=200,
+        )
+        label = label_candidates[0] if label_candidates else ""
+        sentence = _normalize_space(str(raw.get("sentence", "")))[:1000]
+        if not label or not sentence:
+            continue
+        if not _has_meaningful_sentence_content(sentence):
+            continue
+
+        dedupe_key = (label.casefold(), sentence.casefold())
+        if dedupe_key in seen:
+            continue
+        seen.add(dedupe_key)
+        normalized_items.append({"label": label, "sentence": sentence})
+
+    return normalized_items
+
+
+def _normalize_space(value: str) -> str:
+    return " ".join(value.strip().split())
+
+
+def _has_meaningful_sentence_content(value: str) -> bool:
+    if len(value.strip()) < 4:
+        return False
+    return is_meaningful_phrase(value, max_length=1000)

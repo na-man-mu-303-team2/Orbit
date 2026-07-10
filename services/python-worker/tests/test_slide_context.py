@@ -10,6 +10,7 @@ from app.slide_context import (
     SlideContextExtractionResult,
     SlideInput,
     _build_slide_input,
+    _normalize_context_items,
     extract_slide_context_items,
 )
 
@@ -93,12 +94,12 @@ class TestExtractSlideContextItems:
             mock = MagicMock()
             if call_count == 0:
                 mock.output_text = json.dumps({"items": [
-                    {"label": "A", "sentence": "문장 A"},
+                    {"label": "개념 A", "sentence": "문장 A를 설명합니다."},
                 ]})
             else:
                 mock.output_text = json.dumps({"items": [
-                    {"label": "B", "sentence": "문장 B"},
-                    {"label": "C", "sentence": "문장 C"},
+                    {"label": "개념 B", "sentence": "문장 B를 설명합니다."},
+                    {"label": "개념 C", "sentence": "문장 C를 설명합니다."},
                 ]})
             call_count += 1
             return mock
@@ -146,8 +147,8 @@ class TestExtractSlideContextItems:
         assert result.status == "failed"
 
     def test_items_trimmed_to_length_limits(self) -> None:
-        long_label = "가" * 300
-        long_sentence = "나" * 1100
+        long_label = "Redis 성능 개선 " * 30
+        long_sentence = "Redis 캐시는 응답 시간을 줄여 줍니다. " * 60
         client = _make_client([{"label": long_label, "sentence": long_sentence}])
         slides = [SlideInput("slide_1", "본문", "대본")]
         result = extract_slide_context_items(
@@ -158,3 +159,33 @@ class TestExtractSlideContextItems:
         )
         assert len(result.items[0].label) <= 200
         assert len(result.items[0].sentence) <= 1000
+
+    def test_generic_or_duplicate_items_are_filtered(self) -> None:
+        client = _make_client([
+            {"label": "슬라이드 3", "sentence": "Redis 캐시는 응답 지연을 줄입니다."},
+            {"label": "성능 개선", "sentence": "Redis 캐시는 응답 지연을 줄입니다."},
+            {"label": "성능 개선", "sentence": "Redis 캐시는 응답 지연을 줄입니다."},
+        ])
+        slides = [SlideInput("slide_1", "본문", "대본")]
+        result = extract_slide_context_items(
+            slides=slides,
+            client=client,
+            model="gpt-4o",
+            api_key=None,
+        )
+        assert result.status == "succeeded"
+        assert [(item.label, item.sentence) for item in result.items] == [
+            ("성능 개선", "Redis 캐시는 응답 지연을 줄입니다.")
+        ]
+
+    def test_items_without_meaningful_sentence_content_are_skipped(self) -> None:
+        normalized = _normalize_context_items([
+            {"label": "문제 정의", "sentence": "오늘은"},
+            {"label": "해결책", "sentence": "Redis 캐시는 응답 시간을 줄여 줍니다."},
+        ])
+        assert normalized == [
+            {
+                "label": "해결책",
+                "sentence": "Redis 캐시는 응답 시간을 줄여 줍니다.",
+            }
+        ]
