@@ -125,6 +125,7 @@ import { SlideshowRenderer } from "./presenter/SlideshowRenderer";
 import { createSlideshowAnimationPlan } from "./presenter/slideshowStepModel";
 import { getNextPresenterStepState } from "./presenter/presenterStepNavigation";
 import {
+  createAudiencePresenterState,
   createSlideWindowDeckSnapshot,
   type PresenterRemoteCommand,
 } from "./presenter/presentationChannel";
@@ -144,6 +145,7 @@ import { RehearsalPanel } from "./panel/RehearsalPanel";
 import {
   createSemanticCapabilityStatusItems,
   getNextSemanticCapabilityRecoveryDelay,
+  isSemanticAutoActionAllowed,
   type SemanticCapabilityStatusItem,
 } from "./panel/semanticCapabilityStatusModel";
 import { createRehearsalScriptPrompterRows } from "./panel/rehearsalScriptPrompter";
@@ -2170,6 +2172,7 @@ export function RehearsalWorkspace(props: {
               semanticDebug: semanticDebugState,
               semanticMatchingEnabled:
                 presenterSettings.advancePolicy.semanticMatching,
+              semanticCapabilityItems,
               snapshot: p3SessionState?.snapshot ?? null,
             },
             stepIndex: presenterStepIndex,
@@ -2204,6 +2207,7 @@ export function RehearsalWorkspace(props: {
       presenterSettings.advancePolicy.semanticMatching,
       rehearsalRuntimeStatus,
       semanticDebugState,
+      semanticCapabilityItems,
       slideElapsedSeconds,
       timeMode,
       timerDurationSeconds,
@@ -3143,6 +3147,9 @@ export function RehearsalWorkspace(props: {
         },
         policy: presenterSettings.advancePolicy,
         remainingTriggerSteps: input.remainingTriggerSteps,
+        semanticAutoActionAllowed: isSemanticAutoActionAllowed(
+          semanticCapabilityItems,
+        ),
         slideId: currentSlide.slideId,
       },
       defaultAutoAdvanceConfig,
@@ -4020,7 +4027,7 @@ export function RehearsalWorkspace(props: {
       deck && presentationChannelState
         ? {
             deck: createSlideWindowDeckSnapshot(deck),
-            state: presentationChannelState,
+            state: createAudiencePresenterState(presentationChannelState),
             triggerAnimationIds,
           }
         : null,

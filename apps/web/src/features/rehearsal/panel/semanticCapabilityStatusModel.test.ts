@@ -1,7 +1,10 @@
 import type { SemanticCapabilityEvent } from "@orbit/shared";
 import { describe, expect, it } from "vitest";
 
-import { createSemanticCapabilityStatusItems } from "./semanticCapabilityStatusModel";
+import {
+  createSemanticCapabilityStatusItems,
+  isSemanticAutoActionAllowed
+} from "./semanticCapabilityStatusModel";
 
 describe("semanticCapabilityStatusModel", () => {
   it("capability별 최신 상태를 정해진 우선순위로 정렬한다", () => {
@@ -63,6 +66,20 @@ describe("semanticCapabilityStatusModel", () => {
 
     expect(serialized).not.toContain("scue_private");
     expect(serialized).not.toContain("transcript");
+  });
+
+  it("활성 fallback 상태에서는 semantic auto action을 보수적으로 차단한다", () => {
+    const active = createSemanticCapabilityStatusItems(
+      [event({ capability: "nli", reason: "timeout" })],
+      { nowMs: Date.parse("2026-07-10T00:00:01.000Z") }
+    );
+
+    expect(isSemanticAutoActionAllowed(active)).toBe(false);
+    expect(
+      isSemanticAutoActionAllowed(
+        active.map((item) => ({ ...item, recovered: true }))
+      )
+    ).toBe(true);
   });
 });
 

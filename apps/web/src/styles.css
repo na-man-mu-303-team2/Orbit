@@ -3858,6 +3858,61 @@ button:disabled {
   padding: 5px 10px;
 }
 
+.presenter-semantic-status {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+  padding: 7px 18px;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.16);
+  background: rgba(30, 41, 59, 0.94);
+  color: #e2e8f0;
+  font-size: 12px;
+}
+
+.presenter-semantic-status--error > svg {
+  color: #fb7185;
+}
+
+.presenter-semantic-status--warning > svg {
+  color: #fbbf24;
+}
+
+.presenter-semantic-status--info > svg {
+  color: #34d399;
+}
+
+.presenter-semantic-status > span {
+  color: #94a3b8;
+}
+
+.presenter-semantic-status > p {
+  position: absolute;
+  z-index: 5;
+  top: calc(100% + 6px);
+  left: 18px;
+  display: none;
+  max-width: min(420px, calc(100vw - 36px));
+  margin: 0;
+  padding: 8px 10px;
+  border: 1px solid rgba(148, 163, 184, 0.26);
+  border-radius: 8px;
+  background: #0f172a;
+  color: #cbd5e1;
+  line-height: 1.45;
+}
+
+.presenter-semantic-status:hover > p,
+.presenter-semantic-status:focus-visible > p {
+  display: block;
+}
+
+.presenter-semantic-status:focus-visible {
+  outline: 2px solid #38bdf8;
+  outline-offset: -2px;
+}
+
 .presenter-remote-status {
   background: #ffffff;
   border: 1px solid #dbe3ef;
