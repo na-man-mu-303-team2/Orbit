@@ -32,6 +32,7 @@ export type P3RehearsalSessionSlide = {
   keywords: readonly SpeechTrackerKeyword[];
   controlPhrases?: readonly string[];
   cuePhrases?: readonly string[];
+  contextPhrases?: readonly string[];
   legacyPhrases?: readonly string[];
 };
 
@@ -475,6 +476,7 @@ export function buildBiasPhrasesForSlide(
     finalTriggerPhrases,
     cuePhrases: slide.cuePhrases,
     keywords: slide.keywords,
+    contextPhrases: slide.contextPhrases,
     representativePhrases,
     legacyPhrases: slide.legacyPhrases
   }).map((term) => ({

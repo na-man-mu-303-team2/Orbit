@@ -2715,7 +2715,7 @@ export function RehearsalWorkspace(props: {
 
     let session: P3RehearsalSession | null = null;
     session = createP3RehearsalSession({
-      slides: buildP3SessionSlides(deckSnapshot),
+      slides: buildP3SessionSlides(deckSnapshot, contextItemsRef.current),
       port,
       threshold: presenterSettings.advancePolicy.threshold,
       config: {
@@ -5926,7 +5926,10 @@ export function getHighlightedKeywordOccurrencesForSlide(slide: Slide | null) {
   );
 }
 
-function buildP3SessionSlides(deck: Deck) {
+function buildP3SessionSlides(
+  deck: Deck,
+  contextItems: readonly SlideContextItem[] = [],
+) {
   return deck.slides.map((slide) => ({
     slideId: slide.slideId,
     speakerNotes: slide.speakerNotes,
@@ -5934,6 +5937,9 @@ function buildP3SessionSlides(deck: Deck) {
     controlPhrases: defaultRehearsalCommandConfig.flatMap(
       (command) => command.phrases,
     ),
+    contextPhrases: contextItems
+      .filter((item) => item.slideId === slide.slideId)
+      .map((item) => item.sentence),
     legacyPhrases: [slide.title, ...getSlideBodyTexts(slide)].filter(Boolean),
   }));
 }

@@ -8,6 +8,7 @@ export type SpeechBiasSource =
   | "keyword"
   | "synonym"
   | "abbreviation"
+  | "context-item"
   | "representative-phrase"
   | "legacy";
 
@@ -32,6 +33,7 @@ export type BuildSpeechTrackingBiasPhrasesInput = {
   finalTriggerPhrases?: readonly string[];
   cuePhrases?: readonly string[];
   keywords?: readonly SpeechBiasKeyword[];
+  contextPhrases?: readonly string[];
   representativePhrases?: readonly string[];
   legacyPhrases?: readonly string[];
 };
@@ -100,6 +102,10 @@ export function buildSpeechTrackingBiasPhrases(
         canonicalText: keyword.text
       });
     }
+  }
+
+  for (const phrase of input.contextPhrases ?? []) {
+    addTerm({ text: phrase, source: "context-item", weight: 0.88 });
   }
 
   for (const phrase of input.representativePhrases ?? []) {

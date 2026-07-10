@@ -72,6 +72,11 @@ describe("p3RehearsalSession", () => {
           source: "keyword",
           keywordId: "kw_ai",
           canonicalText: "생성형 AI"
+        }),
+        expect.objectContaining({
+          text: "개인정보 보호 원칙을 설명합니다",
+          weight: 0.88,
+          source: "context-item"
         })
       ])
     });
@@ -494,6 +499,7 @@ const slides: P3RehearsalSessionSlide[] = [
       }
     ],
     controlPhrases: ["다음 슬라이드"],
+    contextPhrases: ["개인정보 보호 원칙을 설명합니다"],
     legacyPhrases: ["레거시 본문"]
   },
   {

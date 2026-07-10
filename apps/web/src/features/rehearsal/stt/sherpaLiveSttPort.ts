@@ -167,6 +167,8 @@ function toSherpaBiasSource(
     case "nearby-slide-text":
     case "control-phrase":
       return source;
+    case "context-item":
+      return "speaker-notes";
     case "final-trigger":
     case "cue-trigger":
     case "representative-phrase":

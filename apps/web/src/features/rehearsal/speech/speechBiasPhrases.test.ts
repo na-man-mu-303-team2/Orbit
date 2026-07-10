@@ -80,6 +80,7 @@ describe("buildSpeechTrackingBiasPhrases", () => {
           abbreviations: []
         }
       ],
+      contextPhrases: ["발표자가 전달해야 하는 핵심 의미"],
       representativePhrases: ["발표 흐름 점검"],
       legacyPhrases: ["레거시 제목"]
     });
@@ -89,6 +90,7 @@ describe("buildSpeechTrackingBiasPhrases", () => {
       "final-trigger",
       "cue-trigger",
       "keyword",
+      "context-item",
       "representative-phrase",
       "legacy"
     ]);

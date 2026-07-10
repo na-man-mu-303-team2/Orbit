@@ -21,6 +21,7 @@ export type LiveSttBiasPhraseSource =
   | "synonym"
   | "abbreviation"
   | "representative-phrase"
+  | "context-item"
   | "legacy"
   | "title"
   | "slide-text"
