@@ -1160,6 +1160,11 @@ API:
 - `GET /api/v1/rehearsals/:runId/report`
   - response: `{ "run": RehearsalRun, "report": RehearsalReport | null }`
   - run이 아직 `processing`이거나 과거 run에 `report_json`이 없으면 `report`는 `null`이다.
+- `POST /api/v1/rehearsals/:runId/semantic-evaluation/retry`
+  - response: `{ "job": Job }`
+  - 성공한 `full` run에 retryable semantic report, immutable evaluation snapshot, Redis semantic evidence cache가 모두 있을 때만 `rehearsal-semantic-evaluation` Job을 enqueue한다.
+  - cache가 만료됐으면 HTTP 409 `{ "code": "REHEARSAL_SEMANTIC_EVIDENCE_EXPIRED", "retryable": false }`를 반환한다.
+  - Job payload에는 `jobId`, `projectId`, `runId`만 포함하고 transcript/segment 원문은 넣지 않는다.
 - `PATCH /api/v1/rehearsals/:runId/meta`
   - request: `{ "slideTimeline": [{ "slideId": "slide_1", "enteredAt": "2026-07-02T00:00:00.000Z" }], "missedKeywords": [{ "slideId": "slide_1", "keywordId": "kw_1" }], "adviceEvents": [{ "type": "pace-too-fast", "at": "2026-07-02T00:00:30.000Z" }] }`
   - transcript, speaker notes, raw audio, script 원문은 받지 않는다.
@@ -1303,6 +1308,9 @@ live `semanticCueDecisions`는 provisional/debug 호환 필드이며 canonical r
 - `basic` mode는 positive evidence가 있는 `covered/partial`만 허용하며 absence를 `missed`로 바꾸지 않는다.
 - legacy report는 `semanticEvaluation=unavailable/none/evaluation_not_run`, `semanticCueOutcomes=[]`, `keywordCoverageMeasurement.state=measured`로 parse한다.
 - 새 report의 keyword 분모가 0이면 숫자 `keywordCoverage=0`은 계산 placeholder로만 두고 `keywordCoverageMeasurement={ state: "unmeasured", reason: "no-keywords" }`를 저장한다. UI는 숫자 대신 `N/A`를 표시한다.
+- timestamped transcript segment는 DB나 Job payload에 저장하지 않고 `rehearsal:semantic-evidence:<runId>` Redis key에 최대 30분만 보존한다. cache key와 server log에는 segment text를 넣지 않는다.
+- semantic retry worker는 cache와 run snapshot으로 Python semantic endpoint만 다시 호출하며 `report_json.semanticEvaluation`과 `report_json.semanticCueOutcomes`만 멱등 교체한다. 기존 metrics, coaching, delivery 분석, generatedAt은 변경하지 않는다.
+- retry가 다시 실패하거나 partial/unavailable이면 기존 report를 유지하고 Job을 실패 처리하며 `rehearsal.semantic_evaluation.retry_failed`에 ID와 reason만 기록한다.
 
 구현 위치:
 
@@ -1348,6 +1356,7 @@ PPTX import/export, 참고자료 추출, AI 생성, 리허설 STT, 최종 보고
 - `pptx-ooxml-sync`
 - `worker-health-check`
 - `rehearsal-stt`
+- `rehearsal-semantic-evaluation`
 - `final-report-generation`
 - `report-pdf-export`
 

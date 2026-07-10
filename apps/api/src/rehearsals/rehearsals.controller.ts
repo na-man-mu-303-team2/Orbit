@@ -58,6 +58,16 @@ export class RehearsalsController {
     return this.rehearsalsService.cancelRun(runId);
   }
 
+  @Post("api/v1/rehearsals/:runId/semantic-evaluation/retry")
+  async retrySemanticEvaluation(
+    @Param("runId") runId: string,
+    @Req() request: SignedCookieRequest
+  ) {
+    const user = await getCurrentUser(this.authService, request);
+    await this.assertCanWriteRun(runId, user.userId);
+    return this.rehearsalsService.retrySemanticEvaluation(runId);
+  }
+
   @Patch("api/v1/rehearsals/:runId/meta")
   async updateRunMeta(
     @Param("runId") runId: string,
