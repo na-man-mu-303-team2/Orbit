@@ -6,11 +6,15 @@ import {
   shouldShowSemanticCueDebugPanel
 } from "./SemanticCueDebugPanel";
 import type { SemanticCueDebugEvent } from "../speech/semanticCueDebugEvents";
+import type { SemanticCapabilityEvent } from "@orbit/shared";
 
 describe("SemanticCueDebugPanel", () => {
   it("renders NLI execution and blocked action reasons", () => {
     const html = renderToStaticMarkup(
-      <SemanticCueDebugPanel events={[debugEvent()]} />
+      <SemanticCueDebugPanel
+        capabilityEvents={[capabilityEvent()]}
+        events={[debugEvent()]}
+      />
     );
 
     expect(html).toContain("Semantic Cue NLI");
@@ -18,21 +22,18 @@ describe("SemanticCueDebugPanel", () => {
     expect(html).toContain("browser-transformersjs");
     expect(html).toContain("nli-cannot-advance-slide-alone");
     expect(html).toContain("scue_intro_1");
+    expect(html).toContain("degraded → available");
+    expect(html).toContain("timeout");
+    expect(html).toContain("복구");
   });
 
   it("serializes ring buffer snapshots for copy and export", () => {
     const json = serializeSemanticCueDebugEvents([debugEvent()]);
 
     expect(JSON.parse(json)).toMatchObject({
-      events: [
-        {
-          eventId: "scue_dbg_1",
-          nli: {
-            premise: "bounded premise"
-          }
-        }
-      ]
+      timeline: [expect.objectContaining({ eventId: "scue_dbg_1" })]
     });
+    expect(json).not.toContain("bounded premise");
   });
 });
 
@@ -99,9 +100,29 @@ function debugEvent(): SemanticCueDebugEvent {
       label: "covered",
       reasonCodes: ["nli-entailment"]
     },
+    fallback: {
+      used: true,
+      reason: "timeout",
+      measurementMode: "basic"
+    },
     actionGate: {
       allowed: false,
       blockedReasons: ["nli-cannot-advance-slide-alone"]
     }
+  };
+}
+
+function capabilityEvent(): SemanticCapabilityEvent {
+  return {
+    eventId: "cap_1",
+    capability: "nli",
+    fromState: "degraded",
+    toState: "available",
+    measurementMode: "full",
+    retryable: false,
+    cueIds: ["scue_intro_1"],
+    provider: "browser-transformersjs",
+    latencyMs: 42,
+    at: new Date(2).toISOString()
   };
 }

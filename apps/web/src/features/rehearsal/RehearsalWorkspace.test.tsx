@@ -886,6 +886,7 @@ describe("RehearsalWorkspace", () => {
     expect(sessionBody).toContain("slice(-100)");
     expect(source).toContain("createSemanticCapabilityStatusItems");
     expect(source).toContain("semanticCapabilityItems={semanticCapabilityItems}");
+    expect(source).toContain("capabilityEvents={semanticCapabilityEvents}");
   });
 
   it("requests microphone audio with live STT input quality constraints", async () => {
