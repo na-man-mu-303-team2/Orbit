@@ -6,8 +6,10 @@ import {
   getAiPptWizardValidationMessage,
   getReferenceExtractionValidationMessage,
   pollJob,
+  removeAppliedAdvisorSuggestion,
   requestPptAdvisor,
   startReferenceExtraction,
+  toAiPptUserErrorMessage,
   type PaletteOption
 } from "./AiPptMockupPage";
 
@@ -310,6 +312,35 @@ describe("AI PPT wizard payload", () => {
       value: 4
     });
     expect(form.slides).toBe("");
+  });
+
+  it("removes an applied side advisor suggestion", () => {
+    const suggestions = [
+      { field: "slides" as const, value: 7, label: "7 slides", reason: "fit" },
+      {
+        field: "fontMood" as const,
+        value: "friendly",
+        label: "Friendly font",
+        reason: "tone"
+      }
+    ];
+
+    expect(removeAppliedAdvisorSuggestion(suggestions, suggestions[0])).toEqual([
+      suggestions[1]
+    ]);
+  });
+
+  it("converts research quality failures into an actionable message", () => {
+    expect(
+      toAiPptUserErrorMessage(
+        JSON.stringify({
+          detail:
+            "WEB_RESEARCH_QUALITY_FAILED: official and independent sources missing"
+        })
+      )
+    ).toBe(
+      "주제와 직접 관련된 공식 출처와 독립 출처를 충분히 확인하지 못했습니다. 주제명을 더 구체적으로 입력하거나 잠시 후 다시 시도해 주세요."
+    );
   });
 
   it("keeps ai-generated media policy out of advisor override suggestions", () => {

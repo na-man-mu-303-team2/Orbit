@@ -485,7 +485,10 @@ export function AiPptMockupPage() {
       navigateToProject(project.projectId);
     } catch (submitError) {
       setError(
-        submitError instanceof Error ? submitError.message : "AI PPT 생성에 실패했습니다."
+        toAiPptUserErrorMessage(
+          submitError instanceof Error ? submitError.message : "",
+          "AI PPT 생성에 실패했습니다."
+        )
       );
       setStatus("");
     } finally {
@@ -983,9 +986,10 @@ function AdvisorPanel(props: {
   function applySuggestion(suggestion: AiPptAdvisorSuggestion) {
     if (suggestion.field === "duration" || suggestion.field === "slides") {
       props.onApply(suggestion.field, String(suggestion.value));
-      return;
+    } else {
+      props.onApply(suggestion.field, suggestion.value as never);
     }
-    props.onApply(suggestion.field, suggestion.value as never);
+    setSuggestions((current) => removeAppliedAdvisorSuggestion(current, suggestion));
   }
 
   return (
@@ -1521,7 +1525,37 @@ function navigateToProject(projectId: string) {
 
 async function readResponseText(response: Response, fallback: string) {
   const text = await response.text();
-  return text || fallback;
+  return toAiPptUserErrorMessage(text, fallback);
+}
+
+export function removeAppliedAdvisorSuggestion(
+  suggestions: AiPptAdvisorSuggestion[],
+  applied: AiPptAdvisorSuggestion
+) {
+  return suggestions.filter(
+    (suggestion) =>
+      suggestion.field !== applied.field || suggestion.value !== applied.value
+  );
+}
+
+export function toAiPptUserErrorMessage(message: string, fallback = "AI PPT 생성에 실패했습니다.") {
+  let detail = message.trim();
+  if (detail.startsWith("{")) {
+    try {
+      const parsed = JSON.parse(detail) as { detail?: unknown; message?: unknown };
+      const candidate = parsed.detail ?? parsed.message;
+      if (typeof candidate === "string") detail = candidate.trim();
+    } catch {
+      // Keep the original server text when it is not valid JSON.
+    }
+  }
+  if (
+    detail.includes("WEB_RESEARCH_QUALITY_FAILED") ||
+    detail.includes("research-first requires at least two distinct URL citations")
+  ) {
+    return "주제와 직접 관련된 공식 출처와 독립 출처를 충분히 확인하지 못했습니다. 주제명을 더 구체적으로 입력하거나 잠시 후 다시 시도해 주세요.";
+  }
+  return detail || fallback;
 }
 
 function delay(ms: number) {

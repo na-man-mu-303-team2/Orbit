@@ -176,6 +176,7 @@ import {
 } from "../ai/quality/ValidationPanel";
 import type { EditorValidationItem } from "../ai/quality/editorValidation";
 import { getEditorValidationItems } from "../ai/quality/editorValidation";
+import { SourceLedgerPanel } from "../ai/quality/SourceLedgerPanel";
 import { SuggestionPanel } from "../suggestions/components/SuggestionPanel";
 import {
   buildSlideThumbnailPatch,
@@ -5455,6 +5456,7 @@ export function EditorShell(props: { projectId?: string }) {
                   onHighlightElementIds={setValidationHighlightElementIds}
                   onTextOverflowAction={handleValidationTextOverflowAction}
                 />
+                <SourceLedgerPanel slide={currentSlide ?? null} />
                 <SuggestionPanel
                   deck={deck}
                   projectId={projectId}
