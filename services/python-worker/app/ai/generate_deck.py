@@ -3720,8 +3720,8 @@ def repair_short_speaker_notes_with_llm(
         source.source_id: source
         for source in (raw_input.source_records or initial_source_records(raw_input))
     }
-    for batch_start in range(0, len(short_slides), 3):
-        batch = short_slides[batch_start : batch_start + 3]
+
+    def repair_batch(batch: list[SlidePlan]) -> None:
         requested_orders = {slide.order for slide in batch}
         slide_payloads: list[dict[str, Any]] = []
         referenced_source_ids: list[str] = []
@@ -3775,10 +3775,10 @@ def repair_short_speaker_notes_with_llm(
                 str(getattr(response, "output_text", "")).strip()
             )
         except Exception:
-            continue
+            return
 
         if {item.order for item in repaired.slides} != requested_orders:
-            continue
+            return
         repaired_by_order = {item.order: item for item in repaired.slides}
         for slide in batch:
             item = repaired_by_order[slide.order]
@@ -3802,6 +3802,14 @@ def repair_short_speaker_notes_with_llm(
             if not minimum_chars <= actual_chars <= maximum_chars:
                 continue
             slide.speaker_notes = speaker_notes
+
+    for batch_start in range(0, len(short_slides), 3):
+        repair_batch(short_slides[batch_start : batch_start + 3])
+    for slide in short_slides:
+        if count_speaker_note_chars(slide.speaker_notes) < round(
+            slide.target_speaker_notes_chars * 0.8
+        ):
+            repair_batch([slide])
     return slide_plans
 
 

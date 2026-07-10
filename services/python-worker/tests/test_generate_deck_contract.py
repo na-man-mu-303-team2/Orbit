@@ -1691,6 +1691,52 @@ def test_short_speaker_note_repair_batches_large_decks() -> None:
     )
 
 
+def test_short_speaker_note_repair_retries_remaining_slide_individually() -> None:
+    raw_input = analyze_input(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            generationMode="design-pack",
+            topic="Retry notes",
+            prompt="Explain the deck.",
+            targetDurationMinutes=1,
+            slideCountRange={"min": 1, "max": 1},
+        )
+    )
+    slide = SlidePlan(
+        order=1,
+        slide_type="cover",
+        title="Retry notes",
+        message="A supported message",
+        speaker_notes="Short notes.",
+        keywords=[],
+        evidence=[],
+        content_items=[
+            GeneratedContentItem(contentItemId="item-1", text="A supported point")
+        ],
+        target_seconds=60,
+        target_speaker_notes_chars=200,
+    )
+    repaired_note = " ".join(
+        f"Supported detail {index} explains a distinct decision point."
+        for index in range(1, 12)
+    )
+    fake_client = FakeOpenAIClient(
+        [
+            {"slides": [{"order": 1, "speakerNotes": "Still short."}]},
+            {"slides": [{"order": 1, "speakerNotes": repaired_note}]},
+        ]
+    )
+
+    repaired = repair_short_speaker_notes_with_llm(
+        raw_input,
+        [slide],
+        client=fake_client,
+    )[0]
+
+    assert len(fake_client.requests) == 2
+    assert 160 <= len("".join(repaired.speaker_notes.split())) <= 250
+
+
 def test_single_uploaded_context_uses_short_unambiguous_source_id() -> None:
     raw_input = analyze_input(
         GenerateDeckRequest(
