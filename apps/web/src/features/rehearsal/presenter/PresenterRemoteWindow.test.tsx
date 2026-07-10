@@ -184,6 +184,53 @@ describe("PresenterRemoteWindow", () => {
     expect(html).toContain("적용");
   });
 
+  it("입력 순서와 무관하게 가장 높은 severity 한 개와 추가 개수만 표시한다", () => {
+    const html = renderToStaticMarkup(
+      <PresenterRemoteWindow
+        deck={p0AnimationDeck}
+        identity={identity}
+        initialState={{
+          ...createPresenterSlideshowState(p0AnimationDeck),
+          speech: {
+            ...createPresenterSpeechState(),
+            semanticCapabilityItems: [
+              {
+                key: "semantic_runtime" as const,
+                severity: "warning" as const,
+                shortLabel: "의미 체크 오프라인",
+                detail: "수동 발표는 계속할 수 있습니다.",
+                retryable: true,
+                affectedCount: 2,
+                source: "system-status" as const,
+                actionLabel: "재시도" as const,
+                recovered: false,
+                measurementMode: "none" as const
+              },
+              {
+                key: "nli" as const,
+                severity: "error" as const,
+                shortLabel: "정밀 판정 비활성",
+                detail: "기본 의미 체크로 계속합니다.",
+                retryable: true,
+                affectedCount: 1,
+                source: "system-status" as const,
+                recovered: false,
+                measurementMode: "basic" as const
+              }
+            ]
+          }
+        }}
+      />
+    );
+
+    expect(html).toContain('aria-label="발표자 시스템 상태"');
+    expect(html).toContain("정밀 판정 비활성");
+    expect(html).toContain("+1");
+    expect(html).toContain("기본 의미 체크로 계속합니다.");
+    expect(html).not.toContain("의미 체크 오프라인");
+    expect(html).not.toContain("AI 코칭");
+  });
+
   it("focuses the next uncovered script sentence from owner speech coverage", () => {
     const state = {
       ...createPresenterSlideshowState(p0AnimationDeck),

@@ -6,12 +6,15 @@ import {
   createPresenterHeartbeatMessage,
   createPresenterRemoteHeartbeatMessage,
   createPresenterRemoteReadyMessage,
+  createPresenterRemoteSnapshotMessage,
+  createPresenterRemoteStateMessage,
   createPresenterSnapshotMessage,
   createPresenterStateMessage,
   createSlideWindowDeckSnapshot,
   createSlideWindowHeartbeatMessage,
   createSlideWindowReadyMessage,
   getPresentationChannelName,
+  getPresenterRemoteChannelName,
   isPresentationChannelMessage,
   matchesPresentationChannelIdentity,
 } from "./presentationChannel";
@@ -32,6 +35,12 @@ describe("presentationChannel", () => {
         sessionId: "session-presenter-2",
       }),
     ).not.toBe(getPresentationChannelName(identity));
+    expect(getPresenterRemoteChannelName(identity)).toBe(
+      "orbit:presenter-screen:deck_p0_animation:session-presenter-1:owner"
+    );
+    expect(getPresenterRemoteChannelName(identity)).not.toBe(
+      getPresentationChannelName(identity)
+    );
   });
 
   it("keeps only render-required slide data in the slide-window deck snapshot", () => {
@@ -156,7 +165,7 @@ describe("presentationChannel", () => {
     expect(serialized).not.toContain("finish-suggested");
   });
 
-  it("creates and validates presenter messages with presenter-only speech state", () => {
+  it("audience message에서 presenter speech 상태를 제거하고 owner channel에만 유지한다", () => {
     const state = {
       ...createPresenterSlideshowState(p0AnimationDeck),
       speech: createPresenterSpeechState(),
@@ -174,10 +183,25 @@ describe("presentationChannel", () => {
       state,
       triggerAnimationIds: [],
     });
+    const remoteSnapshot = createPresenterRemoteSnapshotMessage({
+      deck: p0AnimationDeck,
+      identity,
+      sentAt: 23,
+      state,
+      triggerAnimationIds: []
+    });
+    const remoteState = createPresenterRemoteStateMessage({
+      identity,
+      sentAt: 24,
+      state,
+      triggerAnimationIds: []
+    });
 
     expect(isPresentationChannelMessage(snapshotMessage)).toBe(true);
     expect(isPresentationChannelMessage(stateMessage)).toBe(true);
-    expect(snapshotMessage.state.speech).toMatchObject({
+    expect(snapshotMessage.state.speech).toBeUndefined();
+    expect(stateMessage.state.speech).toBeUndefined();
+    expect(remoteSnapshot.state.speech).toMatchObject({
       coveredSentenceIds: ["sentence_1"],
       semanticMatchingEnabled: true,
       semanticDebug: {
@@ -190,12 +214,16 @@ describe("presentationChannel", () => {
         ],
       },
     });
+    expect(remoteState.state.speech).toBeDefined();
     expect(JSON.stringify(snapshotMessage.deck)).not.toContain(
       "비공개 final transcript",
     );
     expect(JSON.stringify(snapshotMessage.deck)).not.toContain(
       "비공개 speaker note sentence",
     );
+    const audiencePayload = JSON.stringify([snapshotMessage, stateMessage]);
+    expect(audiencePayload).not.toContain("semanticCapabilityItems");
+    expect(audiencePayload).not.toContain("비공개 final transcript");
   });
 
   it("validates channel messages and ignores wrong identities", () => {

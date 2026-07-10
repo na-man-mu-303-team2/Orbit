@@ -119,6 +119,25 @@ describe("advanceController", () => {
     });
   });
 
+  it("semantic capability가 degraded이면 자동 전환만 차단한다", () => {
+    const result = evaluateAdvanceController(
+      createInitialAdvanceControllerState(),
+      createSnapshot({
+        effectiveCoverage: 1,
+        finalSentenceSpoken: true,
+        pause: { isPaused: true, silenceDurationMs: 3_000 },
+        semanticAutoActionAllowed: false
+      }),
+      defaultAutoAdvanceConfig
+    );
+
+    expect(result.commands).toEqual([]);
+    expect(result.state.status).toBe("tracking");
+    expect(
+      cancelAdvanceCountdown(result.state, "manual").state.status
+    ).toBe("tracking");
+  });
+
   it("blocks auto advance while trigger steps remain", () => {
     const result = evaluateAdvanceController(
       createInitialAdvanceControllerState(),
