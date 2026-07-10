@@ -1,4 +1,4 @@
-import type { SemanticCue } from "@orbit/shared";
+import type { SemanticCapabilityEvent, SemanticCue } from "@orbit/shared";
 import { describe, expect, it, vi } from "vitest";
 
 import { LiveSttError, type LiveSttPort, type LiveSttResult } from "../stt/liveSttPort";
@@ -45,8 +45,44 @@ describe("p3RehearsalSession", () => {
       slideEnteredAtMs: null,
       snapshot: null,
       finalSegments: [],
-      runMeta: null
+      runMeta: null,
+      capabilityStatuses: expect.objectContaining({
+        stt: "unavailable",
+        transcript_evidence: "unavailable"
+      })
     });
+  });
+
+  it("capability 상태 변경만 callback과 run meta에 기록한다", async () => {
+    const port = createMockLiveSttPort();
+    const capabilityEvents: SemanticCapabilityEvent[] = [];
+    const session = createP3RehearsalSession({
+      slides,
+      port,
+      now: createNow([1_000, 2_000, 3_000]),
+      onSemanticCapabilityEvent: (event) => capabilityEvents.push(event)
+    });
+
+    await session.start({ audioSource: {} as MediaStream, slideIndex: 0 });
+    await session.resume({ audioSource: {} as MediaStream });
+    port.emitError(new LiveSttError("permission_denied", "permission denied"));
+
+    expect(capabilityEvents).toMatchObject([
+      {
+        capability: "stt",
+        fromState: "unavailable",
+        toState: "available",
+        measurementMode: "full"
+      },
+      {
+        capability: "stt",
+        fromState: "available",
+        toState: "unavailable",
+        reason: "permission_denied",
+        measurementMode: "none"
+      }
+    ]);
+    expect(capabilityEvents).toHaveLength(2);
   });
 
   it("starts Live STT with current slide bias phrases before exposing running state", async () => {
@@ -252,7 +288,20 @@ describe("p3RehearsalSession", () => {
         }
       ],
       semanticCueDecisions: [],
-      semanticCapabilityEvents: []
+      semanticCapabilityEvents: [
+        expect.objectContaining({
+          capability: "stt",
+          fromState: "unavailable",
+          toState: "available",
+          measurementMode: "full"
+        }),
+        expect.objectContaining({
+          capability: "transcript_evidence",
+          fromState: "unavailable",
+          toState: "available",
+          measurementMode: "full"
+        })
+      ]
     });
     expect(JSON.stringify(meta)).not.toContain("생성형 AI 초안");
     expect(JSON.stringify(meta)).not.toContain("speakerNotes");

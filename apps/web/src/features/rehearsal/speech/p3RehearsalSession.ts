@@ -1,4 +1,8 @@
-import type { RehearsalRunMeta, SemanticCue } from "@orbit/shared";
+import type {
+  RehearsalRunMeta,
+  SemanticCapabilityEvent,
+  SemanticCue
+} from "@orbit/shared";
 
 import type {
   LiveSttBiasPhrase,
@@ -27,6 +31,11 @@ import type { SemanticMatchDecisionReason } from "./semanticUtteranceDecision";
 import type { SemanticUtteranceMatcher } from "./semanticUtteranceMatcher";
 import type { SemanticCueDebugEvent } from "./semanticCueDebugEvents";
 import type { SemanticCueRuntime } from "./semanticCueRuntime";
+import {
+  createSemanticCapabilityState,
+  type SemanticCapabilityStatuses,
+  type SemanticCapabilityTransition
+} from "./semanticCapabilityState";
 import type { SpeechTrackerSnapshot, SpeechTrackingEvent } from "./speechTrackingEvents";
 
 export type P3RehearsalSessionSlide = {
@@ -47,6 +56,7 @@ export type P3RehearsalSessionState = {
   snapshot: SpeechTrackerSnapshot | null;
   finalSegments: LiveSttResult[];
   runMeta: RehearsalRunMeta | null;
+  capabilityStatuses: SemanticCapabilityStatuses;
 };
 
 export type CreateP3RehearsalSessionInput = {
@@ -62,6 +72,7 @@ export type CreateP3RehearsalSessionInput = {
   isSemanticMatchingEnabled?: () => boolean;
   onSemanticDebugState?: (state: SemanticUtteranceDebugState) => void;
   onSemanticCueDebugEvent?: (event: SemanticCueDebugEvent) => void;
+  onSemanticCapabilityEvent?: (event: SemanticCapabilityEvent) => void;
 };
 
 export type P3RehearsalSession = {
@@ -99,6 +110,9 @@ export function createP3RehearsalSession(
       defaultSpeechTrackingConfig.adviceReentryCooldownMs
   });
   const trackers = new Map<number, SpeechTracker>();
+  const capabilityState = createSemanticCapabilityState({
+    now: () => currentNowMs || now()
+  });
   const finalSegments: LiveSttResult[] = [];
   let status: P3RehearsalSessionState["status"] = "idle";
   let slideIndex = 0;
@@ -130,7 +144,16 @@ export function createP3RehearsalSession(
     try {
       cleanupSubscriptions?.();
       const unsubscribeResult = input.port.onResult(acceptResult);
-      const unsubscribeError = input.port.onError(() => {
+      const unsubscribeError = input.port.onError((error) => {
+        transitionCapability({
+          capability: "stt",
+          toState: "unavailable",
+          reason: error.code === "permission_denied" ? "permission_denied" : "stt_unavailable",
+          measurementMode: "none",
+          retryable: error.code !== "permission_denied",
+          slideId: slide.slideId,
+          cueIds: (slide.semanticCues ?? []).map((cue) => cue.cueId)
+        });
         status = "failed";
         cleanupSubscriptions?.();
       });
@@ -160,6 +183,14 @@ export function createP3RehearsalSession(
     currentTracker = getTracker(slideIndex);
     collector.enterSlide(slide.slideId);
     status = "running";
+    transitionCapability({
+      capability: "stt",
+      toState: "available",
+      measurementMode: "full",
+      retryable: false,
+      slideId: slide.slideId,
+      cueIds: []
+    });
     semanticGeneration += 1;
     scheduleSemanticPrepare(slideIndex, semanticGeneration);
     emitSnapshot();
@@ -201,6 +232,14 @@ export function createP3RehearsalSession(
     }
 
     status = "running";
+    transitionCapability({
+      capability: "stt",
+      toState: "available",
+      measurementMode: "full",
+      retryable: false,
+      slideId: getSlide(slideIndex).slideId,
+      cueIds: []
+    });
     semanticGeneration += 1;
     scheduleSemanticPrepare(slideIndex, semanticGeneration);
     emitSnapshot();
@@ -244,6 +283,14 @@ export function createP3RehearsalSession(
     const normalizedResult = normalizeResultTimestamp(result);
     if (result.isFinal) {
       finalSegments.push(normalizedResult);
+      transitionCapability({
+        capability: "transcript_evidence",
+        toState: "available",
+        measurementMode: "full",
+        retryable: false,
+        slideId: getSlide(slideIndex).slideId,
+        cueIds: []
+      });
     }
 
     const events = currentTracker.acceptResult(normalizedResult);
@@ -286,7 +333,8 @@ export function createP3RehearsalSession(
       slideEnteredAtMs,
       snapshot: currentTracker?.snapshot() ?? null,
       finalSegments: [...finalSegments],
-      runMeta
+      runMeta,
+      capabilityStatuses: capabilityState.snapshot()
     };
   }
 
@@ -400,12 +448,60 @@ export function createP3RehearsalSession(
       if (!slide) {
         continue;
       }
+      const staleCueIds = (slide.semanticCues ?? [])
+        .filter(
+          (cue) => cue.reviewStatus === "approved" && cue.freshness !== "current"
+        )
+        .map((cue) => cue.cueId);
+      if (targetIndex === index) {
+        transitionCapability(
+          staleCueIds.length > 0
+            ? {
+                capability: "cue_freshness",
+                toState: "degraded",
+                reason: "stale_cue",
+                measurementMode: "none",
+                retryable: false,
+                slideId: slide.slideId,
+                cueIds: staleCueIds
+              }
+            : {
+                capability: "cue_freshness",
+                toState: "available",
+                measurementMode: "full",
+                retryable: false,
+                slideId: slide.slideId,
+                cueIds: []
+              }
+        );
+      }
       const preparePromise = input.semanticCueRuntime.prepareSlide({
         slideId: slide.slideId,
         cues: slide.semanticCues ?? []
       });
-      semanticCuePrepareBySlideId.set(slide.slideId, preparePromise);
-      void preparePromise.catch(() => undefined);
+      const observedPreparePromise = preparePromise
+        .then(() => {
+          transitionCapability({
+            capability: "embedding",
+            toState: "available",
+            measurementMode: "full",
+            retryable: false,
+            slideId: slide.slideId,
+            cueIds: []
+          });
+        })
+        .catch(() => {
+          transitionCapability({
+            capability: "embedding",
+            toState: "unavailable",
+            reason: "model_load_failed",
+            measurementMode: "basic",
+            retryable: true,
+            slideId: slide.slideId,
+            cueIds: (slide.semanticCues ?? []).map((cue) => cue.cueId)
+          });
+        });
+      semanticCuePrepareBySlideId.set(slide.slideId, observedPreparePromise);
     }
   }
 
@@ -549,6 +645,15 @@ export function createP3RehearsalSession(
 
   function emitSemanticDebugState(state: SemanticUtteranceDebugState) {
     input.onSemanticDebugState?.(createSemanticDebugState(state));
+  }
+
+  function transitionCapability(transition: SemanticCapabilityTransition) {
+    const event = capabilityState.transition(transition);
+    if (!event) {
+      return;
+    }
+    collector.recordSemanticCapabilityEvent(event);
+    input.onSemanticCapabilityEvent?.(event);
   }
 
   async function processSemanticCueFinalResult(options: {

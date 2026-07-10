@@ -160,6 +160,22 @@ describe("WebSpeechLiveSttPort", () => {
     expect(recognition.startCount).toBe(1);
   });
 
+  it("권한 거부를 permission_denied 코드로 구분한다", async () => {
+    const recognition = new FakeSpeechRecognition();
+    const port = new WebSpeechLiveSttPort({
+      createRecognition: () => recognition,
+      recognitionConstructor: FakeSpeechRecognition,
+      now: () => 1000
+    });
+    const codes: string[] = [];
+    port.onError((error) => codes.push(error.code));
+
+    await port.start({ language: "ko", audioSource: fakeMediaStream() });
+    recognition.emitError("not-allowed", "permission denied");
+
+    expect(codes).toEqual(["permission_denied"]);
+  });
+
   it("final result에는 alternatives를 방출하고 interim result에는 생략한다", async () => {
     const recognition = new FakeSpeechRecognition();
     const port = new WebSpeechLiveSttPort({

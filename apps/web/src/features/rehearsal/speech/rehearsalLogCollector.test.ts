@@ -138,4 +138,29 @@ describe("rehearsalLogCollector", () => {
       }
     ]);
   });
+
+  it("capability event를 100개로 제한해 run meta에 보존한다", () => {
+    const collector = createRehearsalLogCollector({
+      slides: [{ slideId: "slide_1", keywordIds: [] }]
+    });
+
+    for (let index = 0; index < 105; index += 1) {
+      collector.recordSemanticCapabilityEvent({
+        eventId: `cap_${index}`,
+        capability: "nli",
+        fromState: index % 2 === 0 ? "available" : "degraded",
+        toState: index % 2 === 0 ? "degraded" : "available",
+        ...(index % 2 === 0 ? { reason: "timeout" as const } : {}),
+        measurementMode: index % 2 === 0 ? "basic" : "full",
+        retryable: true,
+        cueIds: [],
+        at: new Date(index).toISOString()
+      });
+    }
+
+    const events = collector.finalize().semanticCapabilityEvents;
+    expect(events).toHaveLength(100);
+    expect(events[0]?.eventId).toBe("cap_5");
+    expect(events.at(-1)?.eventId).toBe("cap_104");
+  });
 });

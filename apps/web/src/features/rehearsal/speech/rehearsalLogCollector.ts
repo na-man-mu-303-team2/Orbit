@@ -1,4 +1,8 @@
-import type { RehearsalRunMeta, RehearsalSemanticCueDecision } from "@orbit/shared";
+import type {
+  RehearsalRunMeta,
+  RehearsalSemanticCueDecision,
+  SemanticCapabilityEvent
+} from "@orbit/shared";
 import type { AdviceEventType } from "./speechTrackingConfig";
 
 export type RehearsalLogSlide = {
@@ -33,6 +37,7 @@ export type RehearsalLogCollector = {
   recordSemanticCueDecisions: (
     decisions: readonly RehearsalSemanticCueDecision[]
   ) => void;
+  recordSemanticCapabilityEvent: (event: SemanticCapabilityEvent) => void;
   setAdviceState: (type: AdviceEventType, active: boolean) => void;
   finalize: () => RehearsalRunMeta;
 };
@@ -53,6 +58,7 @@ export function createRehearsalLogCollector(
   const coveredSentenceIds = new Map<string, Set<string>>();
   const utteranceOutcomes: RehearsalRunMeta["utteranceOutcomes"] = [];
   const semanticCueDecisions: RehearsalRunMeta["semanticCueDecisions"] = [];
+  const semanticCapabilityEvents: RehearsalRunMeta["semanticCapabilityEvents"] = [];
   const adviceState = new Map<AdviceEventType, AdviceState>();
   const adviceEvents: RehearsalRunMeta["adviceEvents"] = [];
 
@@ -160,6 +166,13 @@ export function createRehearsalLogCollector(
     }
   }
 
+  function recordSemanticCapabilityEvent(event: SemanticCapabilityEvent) {
+    semanticCapabilityEvents.push(event);
+    if (semanticCapabilityEvents.length > 100) {
+      semanticCapabilityEvents.splice(0, semanticCapabilityEvents.length - 100);
+    }
+  }
+
   function finalize(): RehearsalRunMeta {
     const missedKeywords: RehearsalRunMeta["missedKeywords"] = [];
     const missedSentenceOutcomes: RehearsalRunMeta["utteranceOutcomes"] = [];
@@ -190,7 +203,7 @@ export function createRehearsalLogCollector(
       adviceEvents: [...adviceEvents],
       utteranceOutcomes: [...utteranceOutcomes, ...missedSentenceOutcomes],
       semanticCueDecisions: [...semanticCueDecisions],
-      semanticCapabilityEvents: []
+      semanticCapabilityEvents: [...semanticCapabilityEvents]
     };
   }
 
@@ -201,6 +214,7 @@ export function createRehearsalLogCollector(
     recordSentenceCovered,
     recordAdLib,
     recordSemanticCueDecisions,
+    recordSemanticCapabilityEvent,
     setAdviceState,
     finalize
   };

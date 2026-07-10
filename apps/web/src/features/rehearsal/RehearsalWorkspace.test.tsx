@@ -499,6 +499,17 @@ describe("RehearsalWorkspace", () => {
     );
   });
 
+  it("Live STT runtime 오류가 나도 수동 발표와 타이머는 계속 유지한다", () => {
+    const source = fs.readFileSync(rehearsalWorkspaceSourcePath, "utf8");
+    const errorStart = source.indexOf("function handleLiveSttError");
+    const resultStart = source.indexOf("function handleLiveSttResult");
+    const errorBody = source.slice(errorStart, resultStart);
+
+    expect(errorBody).not.toContain("setIsTimerRunning(false)");
+    expect(errorBody).not.toContain('setRehearsalRuntimeStatus("idle")');
+    expect(errorBody).toContain("resetAutoAdvanceRuntimeState");
+  });
+
   it("requests Window Management screens for automatic slide-window placement", () => {
     const source = fs.readFileSync(rehearsalWorkspaceSourcePath, "utf8");
     const requestStart = source.indexOf("const requestDisplayScreens =");
