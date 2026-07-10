@@ -1103,7 +1103,7 @@ def test_short_speaker_note_repair_merges_grounded_content_below_model_limit() -
     )[0]
 
     request_payload = json.loads(str(fake_client.requests[0]["input"]))
-    assert request_payload["slides"][0]["minimumNonWhitespaceChars"] == 360
+    assert request_payload["slides"][0]["minimumNonWhitespaceChars"] == 440
     assert 320 <= len(repaired.speaker_notes.replace(" ", "")) <= 500
     assert "official source confirms" in repaired.speaker_notes
 

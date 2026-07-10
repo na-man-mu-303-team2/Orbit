@@ -3672,7 +3672,7 @@ def repair_short_speaker_notes_with_llm(
                 "currentSpeakerNotes": slide.speaker_notes,
                 "sourceRefs": source_refs,
                 "minimumNonWhitespaceChars": round(
-                    slide.target_speaker_notes_chars * 0.9
+                    slide.target_speaker_notes_chars * 1.1
                 ),
                 "maximumNonWhitespaceChars": round(
                     slide.target_speaker_notes_chars * 1.25
