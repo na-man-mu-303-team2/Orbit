@@ -350,6 +350,54 @@ def test_design_pack_generation_applies_role_based_typography_floor() -> None:
                 assert element["props"]["lineHeight"] >= 1.2
 
 
+def test_design_pack_pptx_export_preserves_body_typography() -> None:
+    deck = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="ORBIT",
+            generationMode="design-pack",
+            design={
+                "fontOverride": {
+                    "fontId": "pretendard",
+                    "name": "Pretendard",
+                    "headingFontFamily": "Pretendard",
+                    "bodyFontFamily": "Pretendard",
+                    "recommendedTitleSize": 44,
+                    "recommendedBodySize": 20,
+                    "lineHeight": 1.24,
+                }
+            },
+        )
+    ).deck
+    body = next(
+        element
+        for slide in deck["slides"]
+        for element in slide["elements"]
+        if element["type"] == "text"
+        and element.get("role") == "body"
+        and element["props"].get("text")
+    )
+
+    response = export_deck_pptx(DeckPptxExportRequest(deck=deck))
+    presentation = Presentation(BytesIO(base64.b64decode(response.content_base64)))
+    exported_paragraph = next(
+        paragraph
+        for slide in presentation.slides
+        for shape in slide.shapes
+        if getattr(shape, "has_text_frame", False)
+        for paragraph in shape.text_frame.paragraphs
+        if paragraph.text == body["props"]["text"]
+    )
+
+    assert exported_paragraph.font.name == body["props"]["fontFamily"]
+    assert exported_paragraph.font.size.pt == pytest.approx(
+        body["props"]["fontSize"] * 0.5
+    )
+    assert exported_paragraph.line_spacing == pytest.approx(
+        body["props"]["lineHeight"]
+    )
+
+
 def test_design_pack_core_geometry_uses_grid_and_detects_drift() -> None:
     deck = generate_deck(
         GenerateDeckRequest(
