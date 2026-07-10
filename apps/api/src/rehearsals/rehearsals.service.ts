@@ -13,6 +13,7 @@ import {
   createRehearsalAudioUploadUrlResponseSchema,
   createRehearsalRunRequestSchema,
   createRehearsalRunResponseSchema,
+  getRehearsalRunComparisonResponseSchema,
   getRehearsalProjectSummaryResponseSchema,
   getRehearsalReportResponseSchema,
   getRehearsalRunResponseSchema,
@@ -32,7 +33,7 @@ import {
 import { InjectRepository } from "@nestjs/typeorm";
 import { randomUUID } from "node:crypto";
 import { InjectPinoLogger, PinoLogger } from "nestjs-pino";
-import { Not, Repository } from "typeorm";
+import { LessThan, Not, Repository } from "typeorm";
 import { parseRequest } from "../common/zod-request";
 import { DecksService } from "../decks/decks.service";
 import { FilesService } from "../files/files.service";
@@ -42,6 +43,7 @@ import { ProjectEntity } from "../projects/project.entity";
 import { ProjectsService } from "../projects/projects.service";
 import { RehearsalRunEntity } from "./rehearsal-run.entity";
 import { RedisRehearsalTranscriptCache } from "./rehearsal-transcript-cache";
+import { buildRehearsalRunComparison } from "./rehearsal-run-comparison";
 
 export type RehearsalSttEnqueueJob = (input: EnqueueRehearsalSttJobInput) => Promise<void>;
 export type RehearsalSemanticEvaluationEnqueueJob = (
@@ -363,6 +365,50 @@ export class RehearsalsService {
       run: toRehearsalRun(run),
       report: responseReport
     });
+  }
+
+  async getComparison(projectId: string, runId: string) {
+    await this.projectsService.getAccessibleProject(projectId);
+    const currentRun = await this.rehearsalRuns.findOne({ where: { runId } });
+    if (!currentRun || currentRun.projectId !== projectId) {
+      throw new NotFoundException(`Rehearsal run not found: ${runId}`);
+    }
+    if (currentRun.status !== "succeeded" || currentRun.rehearsalReport === null) {
+      throw new ConflictException({
+        code: "REHEARSAL_COMPARISON_NOT_READY",
+        message: "Rehearsal comparison is available after the report succeeds."
+      });
+    }
+
+    const currentReport = rehearsalReportSchema.safeParse(
+      currentRun.rehearsalReport
+    );
+    if (!currentReport.success) {
+      throw new ConflictException({
+        code: "REHEARSAL_COMPARISON_REPORT_INVALID",
+        message: "The current rehearsal report cannot be compared."
+      });
+    }
+
+    const previousRun = await this.rehearsalRuns.findOne({
+      where: {
+        projectId,
+        status: "succeeded",
+        createdAt: LessThan(currentRun.createdAt)
+      },
+      order: { createdAt: "DESC" }
+    });
+    const previousReport = previousRun?.rehearsalReport
+      ? rehearsalReportSchema.safeParse(previousRun.rehearsalReport)
+      : null;
+    const comparison = buildRehearsalRunComparison({
+      currentReport: currentReport.data,
+      currentRunId: currentRun.runId,
+      previousReport: previousReport?.success ? previousReport.data : null,
+      previousRunId: previousReport?.success ? previousRun?.runId ?? null : null
+    });
+
+    return getRehearsalRunComparisonResponseSchema.parse(comparison);
   }
 
   async retrySemanticEvaluation(runId: string) {

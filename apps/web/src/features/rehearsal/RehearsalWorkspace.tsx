@@ -22,6 +22,7 @@ import {
   type LiveSttSlideAdvanceEvent,
   type PutDeckResponse,
   type RehearsalReport,
+  type RehearsalRunComparison,
   type RehearsalEvaluationSnapshot,
   type RehearsalRun,
   type RehearsalRunMeta,
@@ -57,6 +58,19 @@ import {
 import { JobProgressDisplay } from "./JobProgressDisplay";
 import { RehearsalReportDocument } from "./RehearsalReportDocument";
 import { RehearsalRunNav } from "./RehearsalRunNav";
+import { RehearsalRunComparisonOverview } from "./RehearsalRunComparisonOverview";
+import {
+  fetchProjectRehearsalReportRuns,
+  fetchRehearsalRunComparison,
+} from "./reportApi";
+import {
+  buildRehearsalRunComparisonViewModel,
+  createComparisonReminderState,
+  dismissComparisonReminder,
+  enterComparisonSlide,
+  type ComparisonReminderState,
+  type RehearsalRunComparisonViewModel,
+} from "./rehearsalRunComparisonModel";
 import {
   getRehearsalRunNumber,
   sortRehearsalRunsByCreatedAt,
@@ -1754,6 +1768,11 @@ export function RehearsalWorkspace(props: {
           )
         : null,
     );
+  const [runComparison, setRunComparison] =
+    useState<RehearsalRunComparison | null>(null);
+  const [comparisonRefreshVersion, setComparisonRefreshVersion] = useState(0);
+  const [comparisonReminderState, setComparisonReminderState] =
+    useState<ComparisonReminderState>(createComparisonReminderState);
   const [hasLocalCompletion, setHasLocalCompletion] = useState(false);
   const [slidePlaybackState, setSlidePlaybackState] = useState(
     createSlidePlaybackState,
@@ -1899,6 +1918,37 @@ export function RehearsalWorkspace(props: {
   useEffect(() => {
     deckRef.current = deck;
   }, [deck]);
+
+  useEffect(() => {
+    const projectId = deck?.projectId ?? props.projectId ?? demoIds.projectId;
+    let isCancelled = false;
+    setRunComparison(null);
+
+    void fetchProjectRehearsalReportRuns(projectId)
+      .then(({ runs }) => {
+        const succeededRuns = sortRehearsalRunsByCreatedAt(
+          runs,
+        );
+        const latestRun = succeededRuns[succeededRuns.length - 1];
+        return latestRun
+          ? fetchRehearsalRunComparison(projectId, latestRun.runId)
+          : null;
+      })
+      .then((comparison) => {
+        if (!isCancelled) setRunComparison(comparison);
+      })
+      .catch(() => {
+        if (!isCancelled) setRunComparison(null);
+      });
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [comparisonRefreshVersion, deck?.projectId, props.projectId]);
+
+  useEffect(() => {
+    setComparisonReminderState(createComparisonReminderState());
+  }, [runComparison?.currentRunId]);
 
   useEffect(() => {
     if (!deck) {
@@ -3855,6 +3905,13 @@ export function RehearsalWorkspace(props: {
     isLiveSttActive ||
     isTimerRunning ||
     rehearsalRuntimeStatus === "paused";
+  const comparisonModel = runComparison
+    ? buildRehearsalRunComparisonViewModel(
+        runComparison,
+        deck,
+        deck?.projectId ?? props.projectId ?? demoIds.projectId,
+      )
+    : null;
   const rehearsalRuntimeStatusLabel =
     rehearsalRuntimeStatus === "paused"
       ? "일시정지됨"
@@ -3901,6 +3958,19 @@ export function RehearsalWorkspace(props: {
         !isLiveSttActive &&
         !isTimerRunning &&
         phase !== "recording"));
+  useEffect(() => {
+    if (!isRehearsalRuntimeActive || !currentSlide) {
+      setComparisonReminderState((state) =>
+        state.active ? { ...state, active: null } : state,
+      );
+      return;
+    }
+
+    setComparisonReminderState((state) =>
+      enterComparisonSlide(state, runComparison, currentSlide.slideId),
+    );
+  }, [currentSlide?.slideId, isRehearsalRuntimeActive, runComparison]);
+
   const returnToPreflight = () => {
     setIsLiveStopModalOpen(false);
     setP3RunMeta(null);
@@ -3913,6 +3983,8 @@ export function RehearsalWorkspace(props: {
     setLiveError("");
     setPracticeWithoutVoiceAt(null);
     setSemanticCapabilityEvents([]);
+    setComparisonReminderState(createComparisonReminderState());
+    setComparisonRefreshVersion((version) => version + 1);
     resetRehearsalTimerState({
       setElapsedSeconds,
       setSlideElapsedSeconds,
@@ -4148,6 +4220,7 @@ export function RehearsalWorkspace(props: {
     return (
       <RehearsalPreflightScreen
         canStart={canRecord}
+        comparisonModel={comparisonModel}
         createLiveSttPort={(engineId) =>
           createDefaultLiveSttPort({
             engineId,
@@ -4489,6 +4562,10 @@ export function RehearsalWorkspace(props: {
             snapshot={p3PanelSnapshot}
             semanticCapabilityItems={semanticCapabilityItems}
             onSemanticCapabilityAction={handleSemanticCapabilityAction}
+            comparisonReminder={comparisonReminderState.active}
+            onDismissComparisonReminder={() =>
+              setComparisonReminderState(dismissComparisonReminder)
+            }
             liveSlot={
               <section className="rehearsal-assist-card checklist-card">
                 <header>
@@ -4654,6 +4731,7 @@ export function RehearsalWorkspace(props: {
 
 function RehearsalPreflightScreen(props: {
   canStart: boolean;
+  comparisonModel: RehearsalRunComparisonViewModel | null;
   createLiveSttPort: (engineId: LiveSttEngineId) => LiveSttPort;
   deck: Deck;
   onPracticeWithoutVoice: () => void;
@@ -4941,6 +5019,13 @@ function RehearsalPreflightScreen(props: {
         <Zap size={17} />
         <span>{preflightBanner}</span>
       </div>
+
+      {props.comparisonModel ? (
+        <RehearsalRunComparisonOverview
+          compact
+          model={props.comparisonModel}
+        />
+      ) : null}
 
       <section className="rehearsal-preflight-card">
         <div className="rehearsal-preflight-mic" aria-hidden="true">

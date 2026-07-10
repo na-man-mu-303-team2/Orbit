@@ -90,6 +90,17 @@ export class RehearsalsController {
     return this.rehearsalsService.listRuns(projectId, query);
   }
 
+  @Get("api/v1/projects/:projectId/rehearsals/:runId/comparison")
+  async getComparison(
+    @Param("projectId") projectId: string,
+    @Param("runId") runId: string,
+    @Req() request: SignedCookieRequest
+  ) {
+    const user = await getCurrentUser(this.authService, request);
+    await this.projectsService.assertCanReadProject(projectId, user.userId);
+    return this.rehearsalsService.getComparison(projectId, runId);
+  }
+
   @Get("api/v1/rehearsals/:runId")
   async getRun(
     @Param("runId") runId: string,

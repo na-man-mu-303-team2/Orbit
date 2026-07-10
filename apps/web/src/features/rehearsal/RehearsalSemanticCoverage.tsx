@@ -4,6 +4,7 @@ import type {
   RehearsalReportViewModel,
   RehearsalSemanticReportItem,
 } from "./rehearsalReportViewModel";
+import { getSemanticOutcomeAnchor } from "./rehearsalRunComparisonModel";
 
 export type SemanticRetryState = {
   message?: string;
@@ -204,6 +205,7 @@ function SemanticOutcomeGroup(props: {
         {props.items.map((item) => (
           <li
             className={`is-${item.tone}`}
+            id={getSemanticOutcomeAnchor(item.cueId, item.cueRevision)}
             key={`${item.cueId}-${item.cueRevision}`}
           >
             <div className="rrd-semantic-item-head">
