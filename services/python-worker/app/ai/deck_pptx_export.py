@@ -47,6 +47,7 @@ def export_deck_pptx(request: DeckPptxExportRequest) -> DeckPptxExportResponse:
             if not element.get("visible", True):
                 continue
             add_element(slide, element, deck, warnings)
+        add_speaker_notes(slide, slide_data, warnings)
 
     output = BytesIO()
     presentation.save(output)
@@ -54,6 +55,24 @@ def export_deck_pptx(request: DeckPptxExportRequest) -> DeckPptxExportResponse:
         contentBase64=base64.b64encode(output.getvalue()).decode("ascii"),
         warnings=dedupe(warnings),
     )
+
+
+def add_speaker_notes(
+    slide: Any,
+    slide_data: dict[str, Any],
+    warnings: list[str],
+) -> None:
+    speaker_notes = str(slide_data.get("speakerNotes", "")).strip()
+    if not speaker_notes:
+        return
+    notes_text_frame = slide.notes_slide.notes_text_frame
+    if notes_text_frame is None:
+        warnings.append(
+            f"Skipped speaker notes for slide {slide_data.get('order', '?')}: "
+            "notes placeholder is unavailable."
+        )
+        return
+    notes_text_frame.text = speaker_notes
 
 
 def apply_slide_background(slide: Any, slide_data: dict[str, Any], deck: dict[str, Any]) -> None:

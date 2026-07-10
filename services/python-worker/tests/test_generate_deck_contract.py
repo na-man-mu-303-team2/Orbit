@@ -527,6 +527,48 @@ def test_design_pack_pptx_export_preserves_body_typography() -> None:
     )
 
 
+def test_design_pack_pptx_export_preserves_exact_count_text_and_speaker_notes() -> None:
+    deck = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="PPTX contract",
+            generationMode="design-pack",
+            targetDurationMinutes=8,
+            slideCountRange={"min": 8, "max": 8},
+        )
+    ).deck
+
+    response = export_deck_pptx(DeckPptxExportRequest(deck=deck))
+    presentation = Presentation(BytesIO(base64.b64decode(response.content_base64)))
+
+    assert len(presentation.slides) == len(deck["slides"]) == 8
+    assert response.warnings == []
+    for slide_data, exported_slide in zip(
+        deck["slides"],
+        presentation.slides,
+        strict=True,
+    ):
+        assert exported_slide.notes_slide.notes_text_frame is not None
+        assert exported_slide.notes_slide.notes_text_frame.text == slide_data["speakerNotes"]
+        expected_texts = [
+            normalize_structural_content_text(str(element.get("props", {}).get("text", "")))
+            for element in slide_data["elements"]
+            if element.get("visible", True)
+            and element.get("type") == "text"
+            and str(element.get("props", {}).get("text", "")).strip()
+        ]
+        exported_texts = [
+            normalize_structural_content_text(shape.text)
+            for shape in exported_slide.shapes
+            if getattr(shape, "has_text_frame", False) and shape.text.strip()
+        ]
+        assert sorted(exported_texts) == sorted(expected_texts)
+        message_key = normalize_structural_content_text(
+            slide_data["aiNotes"]["emphasisPoints"][0]
+        )
+        assert exported_texts.count(message_key) <= 1
+
+
 def test_design_pack_core_geometry_uses_grid_and_detects_drift() -> None:
     deck = generate_deck(
         GenerateDeckRequest(
