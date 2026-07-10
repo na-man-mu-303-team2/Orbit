@@ -1339,6 +1339,39 @@ describe("deckPatchSchema validation", () => {
     expect(deckPatchSchema.safeParse(patch).success).toBe(false);
   });
 
+  it("accepts a slide-scoped semantic cue replacement patch", () => {
+    const patch: unknown = {
+      ...createValidPatch(),
+      operations: [
+        {
+          type: "replace_semantic_cues",
+          slideId: "slide_1",
+          semanticCues: [
+            {
+              cueId: "scue_1",
+              slideId: "slide_1",
+              meaning: "발표자는 핵심 원인을 설명한다",
+              nliHypotheses: ["발표자는 핵심 원인을 설명했다"]
+            }
+          ]
+        }
+      ]
+    };
+
+    const result = deckPatchSchema.parse(patch);
+    const operation = result.operations[0];
+
+    expect(operation.type).toBe("replace_semantic_cues");
+    if (operation.type === "replace_semantic_cues") {
+      expect(operation.semanticCues[0]).toMatchObject({
+        reviewStatus: "suggested",
+        freshness: "current",
+        origin: "imported",
+        revision: 1
+      });
+    }
+  });
+
   it("rejects empty patch operations", () => {
     const patch = createValidPatch();
 

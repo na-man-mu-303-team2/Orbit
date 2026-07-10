@@ -318,6 +318,17 @@ function applyOperation(
       return { ok: true };
     }
 
+    case "replace_semantic_cues": {
+      const slide = findSlide(deck, operation.slideId);
+
+      if (!slide) {
+        return slideNotFound(operation.type, operation.slideId);
+      }
+
+      slide.semanticCues = cloneJson(operation.semanticCues);
+      return { ok: true };
+    }
+
     case "add_animation": {
       const slide = findSlide(deck, operation.slideId);
 

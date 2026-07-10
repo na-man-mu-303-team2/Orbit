@@ -5,6 +5,7 @@ import type {
   DeckElement,
   DeckPatch,
   DeckPatchOperation,
+  SemanticCue,
   Slide,
 } from "@orbit/shared";
 
@@ -65,6 +66,31 @@ function createTextElement(elementId: string): DeckElement {
       verticalAlign: "top",
       lineHeight: 1.2,
     },
+  };
+}
+
+function createSemanticCue(overrides: Partial<SemanticCue> = {}): SemanticCue {
+  return {
+    cueId: "scue_1",
+    slideId: "slide_1",
+    meaning: "발표자는 ORBIT의 핵심 가치를 설명한다",
+    importance: "core",
+    reviewStatus: "approved",
+    freshness: "current",
+    origin: "manual",
+    revision: 1,
+    sourceRefs: [],
+    qualityWarnings: [],
+    required: true,
+    priority: 1,
+    candidateKeywords: ["ORBIT"],
+    aliases: {},
+    requiredConcepts: ["핵심 가치"],
+    nliHypotheses: ["발표자는 ORBIT의 핵심 가치를 설명했다"],
+    negativeHints: [],
+    targetElementIds: [],
+    triggerActionIds: [],
+    ...overrides,
   };
 }
 
@@ -560,6 +586,60 @@ describe("applyDeckPatch", () => {
 
     expect(result.deck.slides[0].keywords).toEqual([]);
     expect(result.deck.slides[0].actions).toEqual([]);
+  });
+
+  it("replaces semantic cues with an independent slide-scoped copy", () => {
+    const deck = createPatchTestDeck();
+    deck.slides[0].semanticCues = [createSemanticCue({ cueId: "scue_old" })];
+    const semanticCues = [
+      createSemanticCue({
+        cueId: "scue_new",
+        meaning: "발표자는 교체된 핵심 메시지를 설명한다",
+        revision: 2,
+      }),
+    ];
+
+    const result = applyPatchOrFail(
+      deck,
+      createPatch([
+        {
+          type: "replace_semantic_cues",
+          slideId: "slide_1",
+          semanticCues,
+        },
+      ]),
+    );
+
+    expect(result.deck.slides[0].semanticCues).toEqual(semanticCues);
+    expect(result.changeRecord.operations[0]).toEqual({
+      type: "replace_semantic_cues",
+      slideId: "slide_1",
+      semanticCues,
+    });
+    semanticCues[0].meaning = "호출자에서 변경된 문구";
+    expect(result.deck.slides[0].semanticCues[0].meaning).toBe(
+      "발표자는 교체된 핵심 메시지를 설명한다",
+    );
+  });
+
+  it("fails when a semantic cue replacement targets a missing slide", () => {
+    const result = applyDeckPatch(
+      createPatchTestDeck(),
+      createPatch([
+        {
+          type: "replace_semantic_cues",
+          slideId: "slide_missing",
+          semanticCues: [],
+        },
+      ]),
+    );
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: {
+        code: "SLIDE_NOT_FOUND",
+      },
+    });
   });
 
   it("fails when deckId does not match", () => {
