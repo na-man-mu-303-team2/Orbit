@@ -692,6 +692,30 @@ describe("DecksService", () => {
     ).toEqual([1]);
   });
 
+  it("returns a lightweight acknowledgement when requested", async () => {
+    const { service } = createService();
+    const deck = createDeck();
+    await service.putDeck(deck.projectId, { deck });
+
+    const response = await service.appendPatch(deck.projectId, {
+      patch: createUpdateTitlePatch(deck, "Ack title"),
+      responseMode: "ack",
+    });
+    const persisted = await service.getDeck(deck.projectId);
+
+    expect(response).not.toHaveProperty("deck");
+    expect(response).toMatchObject({
+      deckId: deck.deckId,
+      version: 2,
+      changeRecord: {
+        beforeVersion: 1,
+        afterVersion: 2,
+      },
+    });
+    expect(response.snapshot).toBeUndefined();
+    expect(persisted.deck).toMatchObject({ title: "Ack title", version: 2 });
+  });
+
   it("persists keyword occurrence action triggers in checkpointed deck JSON", async () => {
     const { dataSource, service } = createService();
     const deck = createRepeatedKeywordDeck();
