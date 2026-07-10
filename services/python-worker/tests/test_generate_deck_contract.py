@@ -43,6 +43,7 @@ from app.ai.generate_deck import (
     repair_content_plan_with_llm,
     review_text_overlap_candidates,
     validate_and_patch,
+    web_source_id,
     web_sources_from_response,
 )
 from tests.test_config import VALID_ENV
@@ -382,7 +383,9 @@ def test_research_first_uses_one_web_search_and_keeps_cited_sources() -> None:
         "https://example.org/report-b",
     }
     content_request = next(
-        request for request in client.requests if not request.get("tools")
+        request
+        for request in client.requests
+        if "design_pack_content_plan" in str(request.get("text"))
     )
     slide_schema = content_request["text"]["format"]["schema"]["properties"][
         "slides"
@@ -391,13 +394,13 @@ def test_research_first_uses_one_web_search_and_keeps_cited_sources() -> None:
     assert "sourceRefs" in slide_schema["required"]
 
 
-def test_research_first_rejects_fewer_than_two_url_citations() -> None:
+def test_research_first_retries_then_rejects_fewer_than_two_url_citations() -> None:
     client = FakeResearchOpenAIClient(
         {"title": "unused", "slides": []},
         [("https://example.com/only", "Only source")],
     )
 
-    with pytest.raises(DeckContentGenerationError, match="two distinct URL citations"):
+    with pytest.raises(DeckContentGenerationError, match="WEB_RESEARCH_QUALITY_FAILED"):
         generate_deck(
             GenerateDeckRequest(
                 projectId="project_demo_1",
@@ -410,10 +413,10 @@ def test_research_first_rejects_fewer_than_two_url_citations() -> None:
             client=client,
         )
 
-    assert len([request for request in client.requests if request.get("tools")]) == 1
+    assert len([request for request in client.requests if request.get("tools")]) == 2
 
 
-def test_web_sources_include_search_action_sources_not_cited_in_message() -> None:
+def test_web_sources_ignore_search_action_sources_not_cited_in_message() -> None:
     summary = "검색 결과를 비교해 발표 근거와 다음 실행 우선순위를 정리했습니다."
     response = SimpleNamespace(
         output_text=summary,
@@ -451,13 +454,97 @@ def test_web_sources_include_search_action_sources_not_cited_in_message() -> Non
 
     sources = web_sources_from_response(response)
 
-    assert [source.url for source in sources] == [
-        "https://example.com/report-a",
-        "https://example.org/report-b",
-    ]
+    assert [source.url for source in sources] == ["https://example.com/report-a"]
     assert sources[0].title == "Report A"
-    assert sources[1].content == summary
-    assert sources[1].confidence == 0.72
+
+
+def test_web_sources_canonicalize_and_dedupe_citation_urls() -> None:
+    summary = "공식 발표와 독립 보도를 비교해 현재 출시 정보를 확인했습니다."
+    response = SimpleNamespace(
+        output_text=summary,
+        output=[
+            SimpleNamespace(
+                type="message",
+                content=[
+                    SimpleNamespace(
+                        type="output_text",
+                        text=summary,
+                        annotations=[
+                            SimpleNamespace(
+                                type="url_citation",
+                                url="https://example.com/news?id=7&utm_source=openai",
+                                title="Release news",
+                                start_index=0,
+                                end_index=len(summary),
+                            ),
+                            SimpleNamespace(
+                                type="url_citation",
+                                url="https://example.com/news?utm_medium=referral&id=7",
+                                title="Release news duplicate",
+                                start_index=0,
+                                end_index=len(summary),
+                            ),
+                        ],
+                    )
+                ],
+            )
+        ],
+    )
+
+    sources = web_sources_from_response(response)
+
+    assert [source.url for source in sources] == ["https://example.com/news?id=7"]
+
+
+def test_research_first_retries_until_official_and_independent_sources_exist() -> None:
+    official_url = "https://publisher.example/products/new-game"
+    independent_url = "https://news.example/reviews/new-game"
+    client = FakeResearchOpenAIClient(
+        {
+            "title": "검증된 신작 소개",
+            "slides": [
+                slide_payload(
+                    "공식 출시 정보",
+                    "공식 발표와 독립 보도로 출시 정보를 확인합니다.",
+                    long_speaker_notes(1),
+                    slide_type="cover",
+                    slot_preset="title_center",
+                )
+            ],
+        },
+        [(official_url, "Official product page")],
+        retry_citations=[(independent_url, "Independent report")],
+        official_required=True,
+        authorities={
+            official_url: "official",
+            independent_url: "independent",
+        },
+    )
+
+    response = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            generationMode="design-pack",
+            topic="새 게임 소개",
+            targetDurationMinutes=1,
+            referencePolicy="research-first",
+            brief={"referencePolicy": "research-first"},
+            design={"mediaPolicy": "minimal"},
+            slideCountRange={"min": 1, "max": 1},
+        ),
+        client=client,
+    )
+
+    web_requests = [request for request in client.requests if request.get("tools")]
+    assert len(web_requests) == 2
+    assert response.diagnostics.research_attempts == 2
+    assert response.diagnostics.relevant_web_source_count == 2
+    assert response.diagnostics.official_web_source_count == 1
+    ledgers = response.deck["slides"][0]["aiNotes"]["sourceLedger"]
+    assert {ledger["authority"] for ledger in ledgers} == {
+        "official",
+        "independent",
+    }
 
 
 def test_references_first_falls_back_without_leaking_attachment_commands_to_search() -> None:
@@ -5357,6 +5444,9 @@ class FakeResearchOpenAIClient:
         citations: list[tuple[str, str]],
         *,
         web_error: bool = False,
+        retry_citations: list[tuple[str, str]] | None = None,
+        official_required: bool = False,
+        authorities: dict[str, str] | None = None,
     ) -> None:
         self.requests: list[dict[str, object]] = []
         self.responses = FakeResearchResponses(
@@ -5364,6 +5454,9 @@ class FakeResearchOpenAIClient:
             content_payload,
             citations,
             web_error,
+            retry_citations,
+            official_required,
+            authorities or {},
         )
 
 
@@ -5374,17 +5467,32 @@ class FakeResearchResponses:
         content_payload: dict[str, object],
         citations: list[tuple[str, str]],
         web_error: bool,
+        retry_citations: list[tuple[str, str]] | None,
+        official_required: bool,
+        authorities: dict[str, str],
     ) -> None:
         self.parent = parent
         self.content_payload = content_payload
         self.citations = citations
         self.web_error = web_error
+        self.retry_citations = retry_citations
+        self.official_required = official_required
+        self.authorities = authorities
+        self.web_attempts = 0
+        self.seen_citations: dict[str, str] = {}
 
     def create(self, **kwargs: object) -> object:
         self.parent.requests.append(kwargs)
         if kwargs.get("tools"):
+            self.web_attempts += 1
             if self.web_error:
                 raise RuntimeError("web unavailable")
+            citations = (
+                self.retry_citations
+                if self.web_attempts > 1 and self.retry_citations is not None
+                else self.citations
+            )
+            self.seen_citations.update(dict(citations))
             summary = (
                 "공개된 자료는 시장 변화와 실행 우선순위를 함께 검토해야 한다고 설명합니다. "
                 "서로 다른 기관의 근거를 비교해 의사결정 기준을 정리할 수 있습니다."
@@ -5397,7 +5505,7 @@ class FakeResearchResponses:
                     start_index=0,
                     end_index=len(summary),
                 )
-                for url, title in self.citations
+                for url, title in citations
             ]
             return SimpleNamespace(
                 output_text=summary,
@@ -5413,6 +5521,21 @@ class FakeResearchResponses:
                         ],
                     )
                 ],
+            )
+        if "web_source_vetting" in str(kwargs.get("text")):
+            payload = {
+                "officialRequired": self.official_required,
+                "sources": [
+                    {
+                        "sourceId": web_source_id(url),
+                        "relevant": True,
+                        "authority": self.authorities.get(url, "independent"),
+                    }
+                    for url in self.seen_citations
+                ],
+            }
+            return SimpleNamespace(
+                output_text=json.dumps(payload, ensure_ascii=False)
             )
         return SimpleNamespace(
             output_text=json.dumps(self.content_payload, ensure_ascii=False)
