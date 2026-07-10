@@ -43,6 +43,7 @@ from app.ai.generate_deck import (
     presentation_profile_for_request,
     presentation_rule_prompt,
     refine_design_issues,
+    repair_design_pack_text_element,
     repair_content_plan_with_llm,
     repair_short_speaker_notes_with_llm,
     slide_plans_from_generated_content,
@@ -262,6 +263,91 @@ def test_presentation_validation_detects_missing_profile_closing_action() -> Non
     codes = {issue.code for issue in validate_presentation(deck)}
 
     assert "CTA_MISSING" in codes
+
+
+def test_presentation_validation_detects_typography_rule_violations() -> None:
+    deck = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="ORBIT",
+            generationMode="design-pack",
+        )
+    ).deck
+    slide = deck["slides"][1]
+    text_elements = [
+        element for element in slide["elements"] if element["type"] == "text"
+    ]
+    body = next(element for element in text_elements if element.get("role") == "body")
+    body["props"]["fontSize"] = 17
+    body["props"]["lineHeight"] = 1.1
+    for index, element in enumerate(text_elements[:3], start=1):
+        element["props"]["fontFamily"] = f"Test Font {index}"
+
+    codes = {issue.code for issue in validate_presentation(deck)}
+
+    assert "FONT_SIZE_BELOW_MINIMUM" in codes
+    assert "LINE_HEIGHT_OUT_OF_RANGE" in codes
+    assert "FONT_FAMILY_OVERUSED" in codes
+
+
+def test_design_pack_text_repair_preserves_body_readability_floor() -> None:
+    element = {
+        "elementId": "el_2_body",
+        "type": "text",
+        "role": "body",
+        "x": 120,
+        "y": 200,
+        "width": 160,
+        "height": 40,
+        "props": {
+            "text": "아주 긴 본문을 작은 텍스트 박스에 배치해도 읽기 기준을 유지합니다.",
+            "fontFamily": "Pretendard",
+            "fontSize": 24,
+            "lineHeight": 1.2,
+        },
+    }
+
+    repair_design_pack_text_element(element)
+
+    assert element["props"]["fontSize"] >= 18
+    assert element["props"]["lineHeight"] >= 1.2
+
+
+def test_design_pack_generation_applies_role_based_typography_floor() -> None:
+    response = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="ORBIT",
+            generationMode="design-pack",
+            design={
+                "fontOverride": {
+                    "fontId": "pretendard",
+                    "name": "Pretendard",
+                    "headingFontFamily": "Pretendard",
+                    "bodyFontFamily": "Pretendard",
+                    "recommendedTitleSize": 40,
+                    "recommendedBodySize": 16,
+                    "lineHeight": 1.1,
+                }
+            },
+        )
+    )
+
+    assert not {
+        "FONT_SIZE_BELOW_MINIMUM",
+        "LINE_HEIGHT_OUT_OF_RANGE",
+        "FONT_FAMILY_OVERUSED",
+    } & {issue.code for issue in response.validation.presentation_issues}
+    for slide_index, slide in enumerate(response.deck["slides"]):
+        for element in slide["elements"]:
+            if element["type"] != "text":
+                continue
+            role = element.get("role")
+            if role == "title":
+                assert element["props"]["fontSize"] >= (44 if slide_index == 0 else 32)
+            elif role in {"body", "highlight"}:
+                assert element["props"]["fontSize"] >= 18
+                assert element["props"]["lineHeight"] >= 1.2
 
 
 @pytest.mark.parametrize(

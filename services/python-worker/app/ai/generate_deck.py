@@ -8098,7 +8098,7 @@ def design_pack_text(
         if role == "title"
         else theme["typography"]["bodyFontFamily"]
     )
-    font_size = design_pack_safe_font_size(theme, role, font_size)
+    font_size = design_pack_safe_font_size(theme, role, font_size, order - 1)
     line_height = design_pack_safe_line_height(theme, role, line_height)
     element = text_element(
         order,
@@ -8116,7 +8116,11 @@ def design_pack_text(
         font_family,
     )
     element["props"]["lineHeight"] = line_height
-    shrink_text_to_fit(element)
+    shrink_text_to_fit(
+        element,
+        minimum_font_size=design_pack_minimum_font_size(order - 1, role),
+        minimum_line_height=design_pack_minimum_line_height(role),
+    )
     return element
 
 
@@ -8124,14 +8128,20 @@ def design_pack_safe_font_size(
     theme: dict[str, Any],
     role: str,
     requested_size: int,
+    slide_index: int,
 ) -> int:
     typography = theme.get("typography", {})
     if role == "title":
-        return min(requested_size, int(typography.get("titleSize", requested_size)))
+        minimum = design_pack_minimum_font_size(slide_index, role)
+        return max(
+            minimum,
+            min(requested_size, int(typography.get("titleSize", requested_size))),
+        )
     if role in {"body", "highlight"}:
-        return min(requested_size, int(typography.get("bodySize", requested_size)))
+        return max(18, min(requested_size, int(typography.get("bodySize", requested_size))))
     if role in {"caption", "footer"}:
-        return min(requested_size, int(typography.get("captionSize", requested_size)))
+        minimum = 12 if role == "footer" else 14
+        return max(minimum, min(requested_size, int(typography.get("captionSize", requested_size))))
     return requested_size
 
 
@@ -8143,7 +8153,10 @@ def design_pack_safe_line_height(
     if role in {"caption", "footer"}:
         return requested_line_height
     typography = theme.get("typography", {})
-    return max(requested_line_height, float(typography.get("lineHeight", 1.15)))
+    requested = max(requested_line_height, float(typography.get("lineHeight", 1.15)))
+    if role == "title":
+        return min(1.2, max(1.05, requested))
+    return min(1.3, max(1.2, requested))
 
 
 def design_pack_items(
@@ -11754,6 +11767,25 @@ def validate_presentation(deck: dict[str, Any]) -> list[ValidationIssue]:
                 )
         issues.extend(validate_slide_content_density(slide, slide_index, visual_type))
         issues.extend(validate_slide_visual_hierarchy(slide, slide_index, visual_type))
+        issues.extend(validate_slide_typography(slide, slide_index))
+
+    font_families = {
+        str(element.get("props", {}).get("fontFamily", "")).strip().casefold()
+        for slide in deck["slides"]
+        for element in slide.get("elements", [])
+        if element.get("visible", True)
+        and element.get("type") == "text"
+        and str(element.get("props", {}).get("fontFamily", "")).strip()
+    }
+    if len(font_families) > 2:
+        issues.append(
+            ValidationIssue(
+                code="FONT_FAMILY_OVERUSED",
+                scope="deck",
+                path="slides",
+                message="발표 자료에는 최대 두 개의 글꼴 패밀리만 사용할 수 있습니다.",
+            )
+        )
 
     if profile in {"proposal", "product-launch", "executive-report"}:
         closing = deck["slides"][-1]
@@ -11909,6 +11941,46 @@ def visible_text_elements_for_roles(
     ]
 
 
+def validate_slide_typography(
+    slide: dict[str, Any],
+    slide_index: int,
+) -> list[ValidationIssue]:
+    issues: list[ValidationIssue] = []
+    for element_index, element in enumerate(slide.get("elements", [])):
+        if not element.get("visible", True) or element.get("type") != "text":
+            continue
+        role = str(element.get("role", ""))
+        props = element.get("props", {})
+        font_size = float(props.get("fontSize", 24))
+        minimum_size = design_pack_minimum_font_size(slide_index, role)
+        if font_size < minimum_size:
+            issues.append(
+                ValidationIssue(
+                    code="FONT_SIZE_BELOW_MINIMUM",
+                    scope="element",
+                    path=f"slides.{slide_index}.elements.{element_index}.props.fontSize",
+                    message=f"{role or 'text'} 텍스트는 최소 {minimum_size}pt가 필요합니다.",
+                )
+            )
+        line_height = float(props.get("lineHeight", 1.2))
+        if role == "title":
+            valid_line_height = 1.05 <= line_height <= 1.2
+        elif role in {"body", "highlight", "subtitle"}:
+            valid_line_height = 1.2 <= line_height <= 1.3
+        else:
+            valid_line_height = True
+        if not valid_line_height:
+            issues.append(
+                ValidationIssue(
+                    code="LINE_HEIGHT_OUT_OF_RANGE",
+                    scope="element",
+                    path=f"slides.{slide_index}.elements.{element_index}.props.lineHeight",
+                    message="제목과 본문의 역할별 권장 행간 범위를 벗어났습니다.",
+                )
+            )
+    return issues
+
+
 def estimated_text_line_count(element: dict[str, Any]) -> int:
     props = element.get("props", {})
     line_height = max(0.1, float(props.get("lineHeight", 1.2)))
@@ -11963,21 +12035,34 @@ def repair_design_pack_text_element(element: dict[str, Any]) -> None:
     if not str(props.get("text", "")).strip():
         return
 
-    shrink_text_to_fit(element)
+    minimum_font_size = design_pack_minimum_font_size_for_element(element)
+    minimum_line_height = design_pack_minimum_line_height(str(element.get("role", "")))
+    shrink_text_to_fit(
+        element,
+        minimum_font_size=minimum_font_size,
+        minimum_line_height=minimum_line_height,
+    )
     for _ in range(6):
         if not is_text_editor_overflow_risk(element):
             return
         font_size = float(props.get("fontSize", 24))
-        if font_size <= 12:
+        if font_size <= minimum_font_size:
             break
-        props["fontSize"] = max(12, round(font_size * 0.94))
-        props["lineHeight"] = max(1.0, round(float(props.get("lineHeight", 1.2)) - 0.03, 2))
+        props["fontSize"] = max(minimum_font_size, round(font_size * 0.94))
+        props["lineHeight"] = max(
+            minimum_line_height,
+            round(float(props.get("lineHeight", 1.2)) - 0.03, 2),
+        )
 
     expand_design_pack_text_box(element)
     if not is_text_editor_overflow_risk(element):
         return
 
-    shrink_text_to_fit(element)
+    shrink_text_to_fit(
+        element,
+        minimum_font_size=minimum_font_size,
+        minimum_line_height=minimum_line_height,
+    )
     expand_design_pack_text_box(element)
 
 
@@ -12026,7 +12111,19 @@ def refine_design_issues(
             "backgroundColor",
             refined.get("theme", {}).get("backgroundColor", "#ffffff"),
         )
-        shrink_text_to_fit(element)
+        if refined.get("metadata", {}).get("presentationProfile"):
+            shrink_text_to_fit(
+                element,
+                minimum_font_size=design_pack_minimum_font_size(
+                    slide_index,
+                    str(element.get("role", "")),
+                ),
+                minimum_line_height=design_pack_minimum_line_height(
+                    str(element.get("role", ""))
+                ),
+            )
+        else:
+            shrink_text_to_fit(element)
         if should_clamp_text_to_safe_area(element):
             clamp_text_to_safe_area(element)
         contrast_kind, effective_background = effective_text_background(
@@ -12053,16 +12150,50 @@ def design_issue_element_paths(
     return paths
 
 
-def shrink_text_to_fit(element: dict[str, Any]) -> None:
+def shrink_text_to_fit(
+    element: dict[str, Any],
+    *,
+    minimum_font_size: float = 12,
+    minimum_line_height: float = 1.0,
+) -> None:
     props = element.get("props", {})
     for _ in range(8):
         if not is_text_overflowing(element):
             return
         font_size = float(props.get("fontSize", 24))
-        if font_size <= 12:
+        if font_size <= minimum_font_size:
             return
-        props["fontSize"] = max(12, round(font_size * 0.9))
-        props["lineHeight"] = max(1.0, round(float(props.get("lineHeight", 1.2)) - 0.05, 2))
+        props["fontSize"] = max(minimum_font_size, round(font_size * 0.9))
+        props["lineHeight"] = max(
+            minimum_line_height,
+            round(float(props.get("lineHeight", 1.2)) - 0.05, 2),
+        )
+
+
+def design_pack_minimum_font_size(slide_index: int, role: str) -> int:
+    if role == "title":
+        return 44 if slide_index == 0 else 32
+    if role in {"body", "highlight", "subtitle"}:
+        return 18
+    if role == "caption":
+        return 14
+    if role == "footer":
+        return 12
+    return 12
+
+
+def design_pack_minimum_font_size_for_element(element: dict[str, Any]) -> int:
+    element_id = str(element.get("elementId", ""))
+    slide_index = 0 if element_id.startswith("el_1_") else 1
+    return design_pack_minimum_font_size(slide_index, str(element.get("role", "")))
+
+
+def design_pack_minimum_line_height(role: str) -> float:
+    if role == "title":
+        return 1.05
+    if role in {"body", "highlight", "subtitle"}:
+        return 1.2
+    return 1.0
 
 
 def clamp_text_to_safe_area(element: dict[str, Any]) -> None:
