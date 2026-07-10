@@ -3074,9 +3074,6 @@ export function RehearsalWorkspace(props: {
     setLiveStatus(isLiveSttUnavailable(error) ? "unavailable" : "failed");
     setLiveError(error.message);
     setLiveAudioLevel(null);
-    setIsTimerRunning(false);
-    setRehearsalRuntimeStatus("idle");
-    rehearsalRuntimeStatusRef.current = "idle";
     resetAutoAdvanceRuntimeState(currentSlide?.slideId ?? null);
   }
 

@@ -1,3 +1,8 @@
+import type {
+  SemanticFallbackReason,
+  SemanticMeasurementMode
+} from "@orbit/shared";
+
 import type { SemanticCueNliProviderId } from "./semanticCueNliProvider";
 
 export type SemanticCueDebugEvent = {
@@ -31,6 +36,11 @@ export type SemanticCueDebugEvent = {
     finalScore: number;
     label: "covered" | "partial" | "not_covered" | "contradicted" | "no_candidate";
     reasonCodes: string[];
+  };
+  fallback?: {
+    used: boolean;
+    reason: SemanticFallbackReason;
+    measurementMode: SemanticMeasurementMode;
   };
   actionGate?: {
     requestedAction?: string;

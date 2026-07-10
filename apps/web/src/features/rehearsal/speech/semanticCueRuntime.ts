@@ -1,5 +1,11 @@
-import type { RehearsalSemanticCueDecision, SemanticCue } from "@orbit/shared";
+import type {
+  RehearsalSemanticCueDecision,
+  SemanticCue,
+  SemanticFallbackReason,
+  SemanticMeasurementMode
+} from "@orbit/shared";
 
+import { normalizeSpeechText } from "./phraseExtractor";
 import {
   selectSemanticCueCandidates,
   type SemanticCueCandidate
@@ -9,11 +15,17 @@ import {
   createSemanticCueDebugEvent,
   type SemanticCueDebugEvent
 } from "./semanticCueDebugEvents";
-import { shouldRunSemanticCueNli } from "./semanticCueNliPolicy";
-import type { SemanticCueNliProvider } from "./semanticCueNliProvider";
-import { buildSemanticCueReportEvidence, normalizeBoundedText } from "./semanticCueReportEvidence";
+import type {
+  SemanticCueNliDecision,
+  SemanticCueNliProvider
+} from "./semanticCueNliProvider";
+import {
+  buildSemanticCueReportEvidence,
+  normalizeBoundedText
+} from "./semanticCueReportEvidence";
 import { combineSemanticCueScore } from "./semanticCueScoreCombiner";
 import { semanticCueRuntimeConfig } from "./semanticCueRuntimeConfig";
+import type { SemanticCapabilityTransition } from "./semanticCapabilityState";
 import type { SemanticMatchDecisionReason } from "./semanticUtteranceDecision";
 
 export type SemanticCueRuntime = {
@@ -38,11 +50,14 @@ export type SemanticCueRuntimeInput = {
   semanticMatchingEnabled: boolean;
   generation: number;
   nowMs: number;
+  evidenceStartMs?: number;
+  evidenceEndMs?: number;
 };
 
 export type SemanticCueRuntimeResult = {
   decisions: RehearsalSemanticCueDecision[];
   debugEvent: SemanticCueDebugEvent;
+  capabilityUpdates: SemanticCapabilityTransition[];
 };
 
 export function createSemanticCueRuntime(options: {
@@ -52,9 +67,11 @@ export function createSemanticCueRuntime(options: {
   now?: () => number;
   deckId?: string;
   maxCandidates?: number;
+  nliTimeoutMs?: number;
 }): SemanticCueRuntime {
   const now = options.now ?? (() => Date.now());
   const deckId = options.deckId ?? "deck_unknown";
+  const nliTimeoutMs = options.nliTimeoutMs ?? semanticCueRuntimeConfig.nliTimeoutMs;
   let lastNliRunAtMs: number | null = null;
   const coveredCueIds = new Set<string>();
 
@@ -65,11 +82,85 @@ export function createSemanticCueRuntime(options: {
 
     async evaluateFinalResult(input) {
       const stableWindow = normalizeBoundedText(input.transcript, 600);
-      const retrievalScoresByCueId =
-        (await options.embeddingIndex?.retrieveScores({
-          slideId: input.slideId,
-          transcript: stableWindow
-        })) ?? new Map<string, number>();
+      const capabilityUpdates: SemanticCapabilityTransition[] = [];
+      if (!stableWindow) {
+        capabilityUpdates.push(
+          capability(input, {
+            capability: "transcript_evidence",
+            toState: "degraded",
+            reason: "no_transcript",
+            measurementMode: "none",
+            retryable: true
+          })
+        );
+        return resultWithoutDecision({
+          input,
+          deckId,
+          stableWindow,
+          candidates: [],
+          reasonCodes: ["no-transcript"],
+          capabilityUpdates,
+          fallback: {
+            used: true,
+            reason: "no_transcript",
+            measurementMode: "none"
+          }
+        });
+      }
+
+      capabilityUpdates.push(
+        capability(input, {
+          capability: "transcript_evidence",
+          toState: "available",
+          measurementMode: "full",
+          retryable: false
+        })
+      );
+
+      if (!input.semanticMatchingEnabled) {
+        capabilityUpdates.push(
+          capability(input, {
+            capability: "nli",
+            toState: "unavailable",
+            reason: "user_disabled",
+            measurementMode: "none",
+            retryable: false
+          })
+        );
+        return resultWithoutDecision({
+          input,
+          deckId,
+          stableWindow,
+          candidates: [],
+          reasonCodes: ["semantic_matching_disabled"],
+          capabilityUpdates,
+          fallback: {
+            used: true,
+            reason: "user_disabled",
+            measurementMode: "none"
+          }
+        });
+      }
+
+      let retrievalScoresByCueId: ReadonlyMap<string, number> = new Map();
+      try {
+        retrievalScoresByCueId =
+          (await options.embeddingIndex?.retrieveScores({
+            slideId: input.slideId,
+            transcript: stableWindow
+          })) ?? new Map();
+      } catch {
+        capabilityUpdates.push(
+          capability(input, {
+            capability: "embedding",
+            toState: "unavailable",
+            reason: "runtime_error",
+            measurementMode: "basic",
+            retryable: true
+          })
+        );
+      }
+
       const allCoveredCueIds = new Set([
         ...Array.from(input.coveredCueIds),
         ...Array.from(coveredCueIds)
@@ -80,121 +171,397 @@ export function createSemanticCueRuntime(options: {
         cues: input.cues,
         coveredCueIds: allCoveredCueIds,
         retrievalScoresByCueId,
-        maxCandidates:
-          options.maxCandidates ?? semanticCueRuntimeConfig.maxCandidates
+        maxCandidates: options.maxCandidates ?? semanticCueRuntimeConfig.maxCandidates
       });
-      const selectedCandidate = candidates.find((candidate) => candidate.selectedForNli);
+      const basicDecisions = candidates
+        .map((candidate) => buildBasicDecision(input, candidate, stableWindow, now()))
+        .filter(
+          (decision): decision is RehearsalSemanticCueDecision => decision !== null
+        );
+      for (const decision of basicDecisions) {
+        if (decision.label === "covered") {
+          coveredCueIds.add(decision.cueId);
+        }
+      }
 
-      if (!selectedCandidate) {
-        return {
-          decisions: [],
-          debugEvent: buildDebugEvent({
-            input,
-            deckId,
-            stableWindow,
-            candidates,
-            reasonCodes: [candidates[0]?.nliSkippedReason ?? "no-candidate"]
+      const ambiguousCandidates = candidates
+        .filter(
+          (candidate) =>
+            candidate.selectedForNli &&
+            !basicDecisions.some((decision) => decision.cueId === candidate.cue.cueId)
+        )
+        .slice(0, semanticCueRuntimeConfig.maxNliCandidates);
+      const providerFailure = getProviderFailure(options.enabled, options.provider);
+      if (providerFailure) {
+        const fallbackDecisions = applyFallback(basicDecisions, providerFailure);
+        capabilityUpdates.push(
+          capability(input, {
+            capability: "nli",
+            toState: "unavailable",
+            reason: providerFailure,
+            measurementMode: fallbackDecisions.length > 0 ? "basic" : "none",
+            retryable: providerFailure === "provider_unavailable"
+          }),
+          capability(input, {
+            capability: "semantic_runtime",
+            toState: fallbackDecisions.length > 0 ? "degraded" : "available",
+            ...(fallbackDecisions.length > 0
+              ? { reason: providerFailure }
+              : {}),
+            measurementMode: fallbackDecisions.length > 0 ? "basic" : "none",
+            retryable: providerFailure === "provider_unavailable"
           })
-        };
-      }
-
-      const provider = options.provider;
-      const policy = shouldRunSemanticCueNli({
-        nliFeatureEnabled: options.enabled && provider !== undefined,
-        semanticMatchingEnabled: input.semanticMatchingEnabled,
-        isFinal: input.isFinal,
-        phraseMatched: input.phraseMatched,
-        keywordCoverage: input.keywordCoverage,
-        semanticDecisionReason: input.semanticDecisionReason,
-        cuePriority: selectedCandidate.cue.priority,
-        cueRetrievalScore: selectedCandidate.retrievalScore,
-        isRequired: selectedCandidate.cue.required,
-        nowMs: input.nowMs,
-        lastNliRunAtMs
-      });
-
-      if (!policy.run || !provider) {
-        return {
-          decisions: [],
-          debugEvent: buildDebugEvent({
-            input,
-            deckId,
-            stableWindow,
-            candidates: candidates.map((candidate) =>
-              candidate === selectedCandidate
-                ? {
-                    ...candidate,
-                    selectedForNli: false,
-                    nliSkippedReason: policy.reason
-                  }
-                : candidate
-            ),
-            reasonCodes: [policy.reason]
-          })
-        };
-      }
-
-      lastNliRunAtMs = input.nowMs;
-      const hypotheses = selectedCandidate.cue.nliHypotheses
-        .slice(0, selectedCandidate.cue.required && selectedCandidate.cue.priority === 1 ? 2 : 1)
-        .map((hypothesis) => ({
-          cueId: selectedCandidate.cue.cueId,
-          hypothesis: normalizeBoundedText(hypothesis, 300)
-        }));
-      const nliDecisions = await provider.evaluate({
-        premise: stableWindow,
-        hypotheses
-      });
-      const bestNliDecision = nliDecisions.sort(
-        (left, right) => right.entailmentScore - left.entailmentScore
-      )[0];
-
-      if (!bestNliDecision) {
-        return {
-          decisions: [],
-          debugEvent: buildDebugEvent({
-            input,
-            deckId,
-            stableWindow,
-            candidates,
-            reasonCodes: ["nli-empty-result"]
-          })
-        };
-      }
-
-      const combination = combineSemanticCueScore({
-        lexicalScore: selectedCandidate.lexicalScore,
-        conceptCoverage: selectedCandidate.conceptCoverage,
-        embeddingScore: selectedCandidate.retrievalScore,
-        nli: bestNliDecision
-      });
-      if (combination.label === "covered") {
-        coveredCueIds.add(selectedCandidate.cue.cueId);
-      }
-      const evidence = buildSemanticCueReportEvidence({
-        slideId: input.slideId,
-        candidate: selectedCandidate,
-        nliDecision: bestNliDecision,
-        combination,
-        premise: stableWindow,
-        at: new Date(now()).toISOString()
-      });
-
-      return {
-        decisions: [evidence],
-        debugEvent: buildDebugEvent({
+        );
+        return buildResult({
           input,
           deckId,
           stableWindow,
           candidates,
-          selectedCandidate,
-          nliDecisions,
-          finalScore: combination.finalScore,
-          label: combination.label,
-          reasonCodes: combination.reasonCodes
+          decisions: fallbackDecisions,
+          capabilityUpdates,
+          reasonCodes:
+            fallbackDecisions[0]?.reasonCodes ??
+            [ambiguousCandidates.length > 0 ? providerFailure : "no-candidate"],
+          fallback: {
+            used: true,
+            reason: providerFailure,
+            measurementMode: fallbackDecisions.length > 0 ? "basic" : "none"
+          }
+        });
+      }
+
+      if (ambiguousCandidates.length === 0 || !options.provider) {
+        capabilityUpdates.push(
+          capability(input, {
+            capability: "semantic_runtime",
+            toState: "available",
+            measurementMode: basicDecisions.length > 0 ? "basic" : "none",
+            retryable: false
+          })
+        );
+        return buildResult({
+          input,
+          deckId,
+          stableWindow,
+          candidates,
+          decisions: basicDecisions,
+          capabilityUpdates,
+          reasonCodes: basicDecisions[0]?.reasonCodes ?? ["no-candidate"]
+        });
+      }
+
+      if (
+        lastNliRunAtMs !== null &&
+        input.nowMs - lastNliRunAtMs < semanticCueRuntimeConfig.nliThrottleMs
+      ) {
+        return buildResult({
+          input,
+          deckId,
+          stableWindow,
+          candidates,
+          decisions: basicDecisions,
+          capabilityUpdates,
+          reasonCodes: ["throttled"]
+        });
+      }
+
+      lastNliRunAtMs = input.nowMs;
+      const hypotheses = ambiguousCandidates.flatMap((candidate) =>
+        candidate.cue.nliHypotheses
+          .slice(0, semanticCueRuntimeConfig.maxHypothesesPerCue)
+          .map((hypothesis) => ({
+            cueId: candidate.cue.cueId,
+            hypothesis: boundNliText(hypothesis, 300)
+          }))
+      );
+      const premise = boundNliTokens(stableWindow, semanticCueRuntimeConfig.maxNliTokens);
+
+      let nliDecisions: SemanticCueNliDecision[];
+      try {
+        nliDecisions = await evaluateWithTimeout(
+          options.provider,
+          { premise, hypotheses },
+          nliTimeoutMs
+        );
+      } catch (error) {
+        const reason: SemanticFallbackReason =
+          error instanceof SemanticCueNliTimeoutError ? "timeout" : "runtime_error";
+        const fallbackDecisions = applyFallback(basicDecisions, reason);
+        capabilityUpdates.push(
+          capability(input, {
+            capability: "nli",
+            toState: reason === "timeout" ? "degraded" : "unavailable",
+            reason,
+            measurementMode: "basic",
+            retryable: true
+          }),
+          capability(input, {
+            capability: "semantic_runtime",
+            toState: "degraded",
+            reason,
+            measurementMode: "basic",
+            retryable: true
+          })
+        );
+        return buildResult({
+          input,
+          deckId,
+          stableWindow,
+          candidates,
+          decisions: fallbackDecisions,
+          capabilityUpdates,
+          reasonCodes: [reason],
+          fallback: { used: true, reason, measurementMode: "basic" }
+        });
+      }
+
+      if (nliDecisions.length === 0) {
+        const reason = "provider_unavailable" as const;
+        const fallbackDecisions = applyFallback(basicDecisions, reason);
+        capabilityUpdates.push(
+          capability(input, {
+            capability: "nli",
+            toState: "unavailable",
+            reason,
+            measurementMode: "basic",
+            retryable: true
+          })
+        );
+        return buildResult({
+          input,
+          deckId,
+          stableWindow,
+          candidates,
+          decisions: fallbackDecisions,
+          capabilityUpdates,
+          reasonCodes: ["nli-empty-result"],
+          fallback: { used: true, reason, measurementMode: "basic" }
+        });
+      }
+
+      const fullDecisions = ambiguousCandidates.flatMap((candidate) => {
+        const best = nliDecisions
+          .filter((decision) => decision.cueId === candidate.cue.cueId)
+          .sort((left, right) => right.entailmentScore - left.entailmentScore)[0];
+        if (!best) {
+          return [];
+        }
+        const combination = combineSemanticCueScore({
+          lexicalScore: candidate.lexicalScore,
+          conceptCoverage: candidate.conceptCoverage,
+          embeddingScore: candidate.retrievalScore,
+          nli: best
+        });
+        const evidence = buildSemanticCueReportEvidence({
+          slideId: input.slideId,
+          candidate,
+          nliDecision: best,
+          combination,
+          premise,
+          at: new Date(now()).toISOString()
+        });
+        if (evidence.label === "covered") {
+          coveredCueIds.add(evidence.cueId);
+        }
+        return [evidence];
+      });
+      capabilityUpdates.push(
+        capability(input, {
+          capability: "nli",
+          toState: "available",
+          measurementMode: "full",
+          retryable: false,
+          provider: nliDecisions[0]?.provider,
+          latencyMs: nliDecisions[0]?.latencyMs
+        }),
+        capability(input, {
+          capability: "semantic_runtime",
+          toState: "available",
+          measurementMode: "full",
+          retryable: false
         })
-      };
+      );
+      const decisions = [...basicDecisions, ...fullDecisions];
+      const firstDecision = decisions[0];
+      return buildResult({
+        input,
+        deckId,
+        stableWindow,
+        candidates,
+        decisions,
+        capabilityUpdates,
+        nliDecisions,
+        reasonCodes: firstDecision?.reasonCodes ?? ["insufficient-evidence"]
+      });
     }
+  };
+}
+
+function buildBasicDecision(
+  input: SemanticCueRuntimeInput,
+  candidate: SemanticCueCandidate,
+  premise: string,
+  atMs: number
+): RehearsalSemanticCueDecision | null {
+  const normalizedPremise = normalizeSpeechText(premise);
+  const normalizedMeaning = normalizeSpeechText(candidate.cue.meaning);
+  const meaningMatched =
+    normalizedMeaning.length > 0 && normalizedPremise.includes(normalizedMeaning);
+  const aliasMatched = Object.values(candidate.cue.aliases)
+    .flat()
+    .some((alias) => {
+      const normalized = normalizeSpeechText(alias);
+      return normalized.length > 0 && normalizedPremise.includes(normalized);
+    });
+  const strongConceptEvidence =
+    candidate.conceptCoverage === 1 &&
+    (candidate.retrievalScore >= semanticCueRuntimeConfig.basicCoveredRetrieval ||
+      candidate.lexicalScore >= semanticCueRuntimeConfig.candidateEligibility.lexical);
+  const covered = meaningMatched || (aliasMatched && candidate.conceptCoverage === 1) || strongConceptEvidence;
+  const partial =
+    !covered &&
+    candidate.score >= semanticCueRuntimeConfig.basicPartialScore &&
+    (candidate.lexicalScore >= semanticCueRuntimeConfig.candidateEligibility.lexical ||
+      candidate.conceptCoverage >= semanticCueRuntimeConfig.basicPartialConceptCoverage);
+  if (!covered && !partial) {
+    return null;
+  }
+
+  const matchedBy = aliasMatched
+    ? "alias"
+    : candidate.lexicalScore > 0
+      ? "lexical"
+      : "embedding";
+  return {
+    slideId: input.slideId,
+    cueId: candidate.cue.cueId,
+    label: covered ? "covered" : "partial",
+    finalScore: covered ? Math.max(candidate.score, 0.75) : candidate.score,
+    embeddingScore: candidate.retrievalScore,
+    lexicalScore: candidate.lexicalScore,
+    conceptCoverage: candidate.conceptCoverage,
+    premise,
+    matchedBy,
+    measurementMode: "basic",
+    fallbackUsed: false,
+    reasonCodes: covered
+      ? [meaningMatched ? "exact-meaning" : aliasMatched ? "alias-support" : "deterministic-support"]
+      : ["deterministic-partial"],
+    at: new Date(atMs).toISOString()
+  };
+}
+
+function applyFallback(
+  decisions: readonly RehearsalSemanticCueDecision[],
+  reason: SemanticFallbackReason
+) {
+  return decisions.map((decision) => ({
+    ...decision,
+    fallbackUsed: true,
+    fallbackReason: reason,
+    measurementMode: "basic" as const,
+    reasonCodes: [...new Set([...decision.reasonCodes, `fallback-${reason}`])]
+  }));
+}
+
+function getProviderFailure(
+  enabled: boolean,
+  provider: SemanticCueNliProvider | undefined
+): "user_disabled" | "provider_unavailable" | null {
+  if (!enabled) {
+    return "user_disabled";
+  }
+  return provider ? null : "provider_unavailable";
+}
+
+function capability(
+  input: SemanticCueRuntimeInput,
+  transition: Omit<SemanticCapabilityTransition, "slideId" | "cueIds"> & {
+    provider?: string;
+    latencyMs?: number;
+  }
+): SemanticCapabilityTransition {
+  return {
+    ...transition,
+    slideId: input.slideId,
+    cueIds: input.cues.map((cue) => cue.cueId)
+  };
+}
+
+async function evaluateWithTimeout(
+  provider: SemanticCueNliProvider,
+  input: Parameters<SemanticCueNliProvider["evaluate"]>[0],
+  timeoutMs: number
+) {
+  const controller = new AbortController();
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      provider.evaluate({ ...input, signal: controller.signal }),
+      new Promise<never>((_, reject) => {
+        timeoutId = setTimeout(() => {
+          controller.abort();
+          reject(new SemanticCueNliTimeoutError());
+        }, timeoutMs);
+      })
+    ]);
+  } finally {
+    if (timeoutId !== undefined) {
+      clearTimeout(timeoutId);
+    }
+  }
+}
+
+class SemanticCueNliTimeoutError extends Error {}
+
+function boundNliTokens(value: string, maxTokens: number) {
+  return normalizeBoundedText(value, 600).split(/\s+/).slice(-maxTokens).join(" ");
+}
+
+function boundNliText(value: string, maxLength: number) {
+  return normalizeBoundedText(value, maxLength);
+}
+
+function resultWithoutDecision(
+  options: Omit<Parameters<typeof buildResult>[0], "decisions">
+) {
+  return buildResult({ ...options, decisions: [] });
+}
+
+function buildResult(options: {
+  input: SemanticCueRuntimeInput;
+  deckId: string;
+  stableWindow: string;
+  candidates: readonly SemanticCueCandidate[];
+  decisions: RehearsalSemanticCueDecision[];
+  capabilityUpdates: SemanticCapabilityTransition[];
+  nliDecisions?: readonly SemanticCueNliDecision[];
+  reasonCodes: string[];
+  fallback?: {
+    used: boolean;
+    reason: SemanticFallbackReason;
+    measurementMode: SemanticMeasurementMode;
+  };
+}): SemanticCueRuntimeResult {
+  const firstDecision = options.decisions[0];
+  const selectedCandidate = options.candidates.find(
+    (candidate) => candidate.cue.cueId === firstDecision?.cueId
+  );
+  return {
+    decisions: options.decisions,
+    capabilityUpdates: options.capabilityUpdates,
+    debugEvent: buildDebugEvent({
+      input: options.input,
+      deckId: options.deckId,
+      stableWindow: options.stableWindow,
+      candidates: options.candidates,
+      selectedCandidate,
+      nliDecisions: options.nliDecisions,
+      finalScore: firstDecision?.finalScore,
+      label: firstDecision?.label,
+      reasonCodes: options.reasonCodes,
+      fallback: options.fallback
+    })
   };
 }
 
@@ -204,30 +571,23 @@ function buildDebugEvent(options: {
   stableWindow: string;
   candidates: readonly SemanticCueCandidate[];
   selectedCandidate?: SemanticCueCandidate;
-  nliDecisions?: readonly {
-    cueId: string;
-    hypothesis: string;
-    entailmentScore: number;
-    neutralScore: number;
-    contradictionScore: number;
-    provider: "mock" | "browser-transformersjs" | "browser-onnx";
-    modelId?: string;
-    latencyMs?: number;
-  }[];
+  nliDecisions?: readonly SemanticCueNliDecision[];
   finalScore?: number;
   label?: "covered" | "partial" | "not_covered" | "contradicted";
   reasonCodes: string[];
+  fallback?: {
+    used: boolean;
+    reason: SemanticFallbackReason;
+    measurementMode: SemanticMeasurementMode;
+  };
 }) {
   const firstNli = options.nliDecisions?.[0];
-
   return createSemanticCueDebugEvent({
     eventId: `scue_dbg_${options.input.generation}_${Math.round(options.input.nowMs)}`,
     timestamp: options.input.nowMs,
     deckId: options.input.deckId || options.deckId,
     slideId: options.input.slideId,
-    ...(options.input.slideTitle === undefined
-      ? {}
-      : { slideTitle: options.input.slideTitle }),
+    ...(options.input.slideTitle === undefined ? {} : { slideTitle: options.input.slideTitle }),
     transcript: {
       final: options.input.transcript,
       stableWindow: options.stableWindow
@@ -250,16 +610,18 @@ function buildDebugEvent(options: {
             provider: firstNli.provider,
             ...(firstNli.modelId === undefined ? {} : { modelId: firstNli.modelId }),
             premise: options.stableWindow,
-            hypotheses: options.nliDecisions?.map((decision) => ({
-              cueId: decision.cueId,
-              hypothesis: decision.hypothesis,
-              entailmentScore: decision.entailmentScore,
-              neutralScore: decision.neutralScore,
-              contradictionScore: decision.contradictionScore
-            })) ?? [],
+            hypotheses:
+              options.nliDecisions?.map((decision) => ({
+                cueId: decision.cueId,
+                hypothesis: decision.hypothesis,
+                entailmentScore: decision.entailmentScore,
+                neutralScore: decision.neutralScore,
+                contradictionScore: decision.contradictionScore
+              })) ?? [],
             latencyMs: firstNli.latencyMs ?? 0
           }
         }),
+    ...(options.fallback === undefined ? {} : { fallback: options.fallback }),
     decision: {
       ...(options.selectedCandidate === undefined
         ? {}
@@ -270,7 +632,10 @@ function buildDebugEvent(options: {
     },
     actionGate: {
       allowed: false,
-      blockedReasons: ["nli-cannot-advance-slide-alone"]
+      blockedReasons: [
+        "nli-cannot-advance-slide-alone",
+        ...(options.fallback?.used ? ["semantic-fallback-manual-only"] : [])
+      ]
     }
   });
 }
