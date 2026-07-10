@@ -7,6 +7,7 @@ import json
 import math
 import re
 import textwrap
+import unicodedata
 from copy import deepcopy
 from dataclasses import dataclass
 from datetime import date
@@ -1727,6 +1728,10 @@ Rules:
 - Do not describe a fact as unannounced, unknown, or speculative when a supplied source
   confirms it. Omit unsupported details instead of guessing.
 - Keep messages concise enough for slide body text.
+- Treat message as the slide's concise conclusion. Treat contentItems as distinct
+  evidence, steps, comparisons, or actions that support that conclusion.
+- Never repeat message verbatim in an individual contentItem or reconstruct the
+  complete message by joining contentItems.
 """.strip()
 
 DECK_CONTENT_REPAIR_INSTRUCTIONS = """
@@ -1744,6 +1749,8 @@ Rules:
   transitions. Never use generic or repeated filler to reach the range.
 - A short script is invalid even when the JSON shape is otherwise correct.
 - Do not add unsupported claims or source references.
+- Keep message as the conclusion and contentItems as distinct supporting evidence,
+  steps, comparisons, or actions. Remove structural duplication between them.
 - Do not output coordinates, sizes, zIndex, or final Deck JSON.
 """.strip()
 
@@ -3596,6 +3603,32 @@ def count_speaker_note_chars(text: str) -> int:
     return len(re.sub(r"\s+", "", text))
 
 
+def normalize_structural_content_text(text: str) -> str:
+    normalized = unicodedata.normalize("NFKC", text).casefold()
+    return "".join(character for character in normalized if character.isalnum())
+
+
+def message_duplicates_content_items(
+    message: str,
+    content_items: list[GeneratedContentItem],
+) -> bool:
+    message_key = normalize_structural_content_text(message)
+    item_keys = [
+        normalized
+        for item in content_items
+        if (normalized := normalize_structural_content_text(item.text))
+    ]
+    if not message_key or not item_keys:
+        return False
+    if any(item_key == message_key for item_key in item_keys):
+        return True
+    if "".join(item_keys) == message_key:
+        return True
+    return all(item_key in message_key for item_key in item_keys) and sum(
+        len(item_key) for item_key in item_keys
+    ) >= len(message_key) * 0.8
+
+
 def content_plan_repair_reasons(slide_plans: list[SlidePlan]) -> list[str]:
     reasons: list[str] = []
     normalized_notes: dict[str, int] = {}
@@ -3609,6 +3642,13 @@ def content_plan_repair_reasons(slide_plans: list[SlidePlan]) -> list[str]:
             reasons.append(
                 f"slide {slide_plan.order}: content item count "
                 f"{len(slide_plan.content_items)} must be {minimum_items}-{maximum_items}"
+            )
+        if message_duplicates_content_items(
+            slide_plan.message,
+            slide_plan.content_items,
+        ):
+            reasons.append(
+                f"slide {slide_plan.order}: message duplicates content items"
             )
         target = slide_plan.target_speaker_notes_chars
         actual = count_speaker_note_chars(slide_plan.speaker_notes)
@@ -3634,6 +3674,8 @@ def repair_reason_codes(reasons: list[str]) -> list[RepairReasonCode]:
         code: RepairReasonCode
         if "content item count" in reason:
             code = "CONTENT_CAPACITY"
+        elif "message duplicates content items" in reason:
+            code = "CONTENT_DUPLICATED"
         elif "below target" in reason:
             code = "SPEAKER_NOTES_SHORT"
         elif "above target" in reason:
@@ -6394,7 +6436,33 @@ def design_pack_recipe_elements(
             variant,
         )
     )
-    return elements
+    return remove_duplicate_primary_message_elements(slide_plan, elements)
+
+
+def remove_duplicate_primary_message_elements(
+    slide_plan: SlidePlan,
+    elements: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    if not message_duplicates_content_items(
+        slide_plan.message,
+        slide_plan.content_items,
+    ):
+        return elements
+
+    message_key = normalize_structural_content_text(slide_plan.message)
+    return [
+        element
+        for element in elements
+        if not (
+            element.get("type") == "text"
+            and element.get("role") in {"subtitle", "body", "highlight"}
+            and not element.get("_contentItemIds")
+            and normalize_structural_content_text(
+                str(element.get("props", {}).get("text", ""))
+            )
+            == message_key
+        )
+    ]
 
 
 def design_pack_recipe_variant_for(

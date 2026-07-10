@@ -31,10 +31,12 @@ from app.ai.generate_deck import (
     choose_slide_count,
     clear_deck_content_plan_cache,
     build_design_pack_content_manifest,
+    content_plan_repair_reasons,
     core_geometry_fingerprint,
     deck_content_prompt,
     deck_content_response_format_for,
     design_pack_insight_elements,
+    design_pack_recipe_elements,
     detect_text_overlap_candidates,
     generate_content_plan_with_llm,
     generate_deck,
@@ -42,11 +44,14 @@ from app.ai.generate_deck import (
     initial_source_records,
     is_text_overflowing,
     merge_grounded_repair_notes,
+    message_duplicates_content_items,
+    normalize_structural_content_text,
     presentation_profile_for_request,
     presentation_rule_prompt,
     refine_design_issues,
     repair_design_pack_text_element,
     repair_content_plan_with_llm,
+    repair_reason_codes,
     repair_short_speaker_notes_with_llm,
     slide_plans_from_generated_content,
     review_text_overlap_candidates,
@@ -648,6 +653,98 @@ def test_single_insight_content_item_is_rendered_once() -> None:
     assert build_design_pack_content_manifest(slide_plan, elements)["item-1"] == [
         "el_2_insight_single_text"
     ]
+
+
+@pytest.mark.parametrize(
+    ("message", "items", "expected"),
+    [
+        ("One clear conclusion.", ["One clear conclusion"], True),
+        ("First reason, second reason.", ["First reason", "second reason"], True),
+        ("알파와 베타", ["알파", "베타"], True),
+        ("A useful conclusion: reason one and reason two.", ["reason one", "reason two"], False),
+    ],
+)
+def test_message_content_item_structural_duplication(
+    message: str,
+    items: list[str],
+    expected: bool,
+) -> None:
+    content_items = [
+        GeneratedContentItem(contentItemId=f"item-{index}", text=text)
+        for index, text in enumerate(items, start=1)
+    ]
+
+    assert message_duplicates_content_items(message, content_items) is expected
+
+
+def test_content_plan_repair_marks_structural_duplication() -> None:
+    slide_plan = SlidePlan(
+        order=1,
+        slide_type="cover",
+        title="Duplicate planning",
+        message="First point.\nSecond point!",
+        speaker_notes="A distinct presentation script.",
+        keywords=[],
+        evidence=[],
+        content_items=[
+            GeneratedContentItem(contentItemId="item-1", text="First point"),
+            GeneratedContentItem(contentItemId="item-2", text="Second point"),
+        ],
+    )
+
+    reasons = content_plan_repair_reasons([slide_plan])
+
+    assert "slide 1: message duplicates content items" in reasons
+    assert "CONTENT_DUPLICATED" in repair_reason_codes(reasons)
+
+
+@pytest.mark.parametrize(
+    ("recipe", "slide_type", "order"),
+    [
+        ("cover_trust_signal", "cover", 1),
+        ("overview_cards", "feature-grid", 2),
+        ("insight_evidence", "data", 3),
+        ("closing_summary", "summary", 6),
+    ],
+)
+def test_design_pack_recipes_hide_duplicated_primary_message(
+    recipe: str,
+    slide_type: str,
+    order: int,
+) -> None:
+    request = GenerateDeckRequest(
+        projectId="project_demo_1",
+        topic="Structural duplicate",
+        generationMode="design-pack",
+    )
+    raw_input = analyze_input(request)
+    theme = generate_deck(request).deck["theme"]
+    items = [
+        GeneratedContentItem(contentItemId="item-1", text="First point"),
+        GeneratedContentItem(contentItemId="item-2", text="Second point"),
+    ]
+    slide_plan = SlidePlan(
+        order=order,
+        slide_type=slide_type,
+        title="One conclusion",
+        message="First point. Second point.",
+        speaker_notes="Explain the conclusion without repetition.",
+        keywords=[],
+        evidence=[],
+        content_items=items,
+    )
+
+    elements = design_pack_recipe_elements(raw_input, slide_plan, recipe, theme)
+    rendered_keys = [
+        normalize_structural_content_text(str(element.get("props", {}).get("text", "")))
+        for element in elements
+        if element.get("type") == "text"
+    ]
+
+    assert normalize_structural_content_text(slide_plan.message) not in rendered_keys
+    for item in items:
+        assert normalize_structural_content_text(item.text) in rendered_keys
+    build_design_pack_content_manifest(slide_plan, elements)
 
 
 def test_design_pack_eight_slide_fixture_uses_five_core_geometries() -> None:
