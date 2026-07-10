@@ -40,6 +40,8 @@ from app.ai.generate_deck import (
     initial_source_records,
     is_text_overflowing,
     merge_grounded_repair_notes,
+    presentation_profile_for_request,
+    presentation_rule_prompt,
     refine_design_issues,
     repair_content_plan_with_llm,
     repair_short_speaker_notes_with_llm,
@@ -100,6 +102,71 @@ def test_choose_slide_count_clamps_duration_to_requested_range() -> None:
     assert choose_slide_count(7, slide_range) == 7
     assert choose_slide_count(10, slide_range) == 10
     assert choose_slide_count(30, slide_range) == 10
+
+
+@pytest.mark.parametrize(
+    ("request_patch", "expected"),
+    [
+        ({"design": {"profile": "startup-pitch"}}, "proposal"),
+        ({"metadata": {"audience": "executive", "purpose": "report"}}, "executive-report"),
+        ({"brief": {"presentationType": "신상품 기획 공개"}}, "product-launch"),
+        ({"metadata": {"purpose": "teach"}}, "education"),
+        ({"design": {"profile": "technical"}}, "technical"),
+        ({"brief": {"presentationType": "기술 연구 발표"}}, "research"),
+        ({}, "general-inform"),
+    ],
+)
+def test_presentation_profile_resolver_uses_stable_precedence(
+    request_patch: dict[str, object],
+    expected: str,
+) -> None:
+    request = GenerateDeckRequest(
+        projectId="project_demo_1",
+        topic="ORBIT",
+        generationMode="design-pack",
+        **request_patch,
+    )
+
+    assert presentation_profile_for_request(request) == expected
+    assert analyze_input(request).presentation_profile == expected
+
+
+def test_presentation_rule_prompt_is_compact_and_profile_specific() -> None:
+    raw_input = analyze_input(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="ORBIT 신상품 공개",
+            generationMode="design-pack",
+            targetDurationMinutes=10,
+            slideCountRange={"min": 10, "max": 10},
+            brief={"presentationType": "신상품 공개"},
+        )
+    )
+
+    rules = presentation_rule_prompt(raw_input)
+
+    assert len(rules) <= 10
+    assert rules[0] == "Presentation profile: product-launch"
+    assert "release information" in rules[1]
+    assert any("concrete next action" in rule for rule in rules)
+    assert "Presentation profile: product-launch" in deck_content_prompt(raw_input)
+
+
+def test_design_pack_deck_persists_profile_without_changing_legacy_metadata() -> None:
+    design_pack = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="ORBIT",
+            generationMode="design-pack",
+            brief={"presentationType": "신상품 공개"},
+        )
+    )
+    legacy = generate_deck(
+        GenerateDeckRequest(projectId="project_demo_1", topic="ORBIT")
+    )
+
+    assert design_pack.deck["metadata"]["presentationProfile"] == "product-launch"
+    assert "presentationProfile" not in legacy.deck["metadata"]
 
 
 @pytest.mark.parametrize(

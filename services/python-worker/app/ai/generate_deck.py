@@ -86,6 +86,15 @@ DesignProfile = Literal[
     "technical",
     "training",
 ]
+PresentationProfile = Literal[
+    "proposal",
+    "executive-report",
+    "product-launch",
+    "education",
+    "technical",
+    "research",
+    "general-inform",
+]
 SlideType = Literal[
     "title",
     "cover",
@@ -400,6 +409,7 @@ class RawInput(BaseModel):
     template: Template
     metadata: GenerateDeckMetadata
     design: DesignOptions
+    presentation_profile: PresentationProfile = "general-inform"
     visual_plan_policy: VisualPlanPolicy | None = None
     reference_policy: ReferencePolicy | None = None
     reference_file_ids: list[str] = Field(default_factory=list)
@@ -2302,32 +2312,36 @@ class DeckGenerationOrchestrator:
         theme: dict[str, Any],
         slides: list[dict[str, Any]],
     ) -> dict[str, Any]:
+        metadata: dict[str, Any] = {
+            "language": "ko",
+            "locale": "ko-KR",
+            "sourceType": "ai",
+            "generatedBy": "ai",
+            "audience": raw_input.metadata.audience,
+            "purpose": raw_input.metadata.purpose,
+            "tone": raw_input.metadata.tone,
+            "createdFrom": {
+                "topic": raw_input.topic,
+                "references": [
+                    {"fileId": reference.file_id}
+                    for reference in raw_input.references
+                ],
+                "designReferences": [
+                    {"fileId": reference.file_id}
+                    for reference in raw_input.design_references
+                ],
+            },
+        }
+        if raw_input.generation_mode == "design-pack":
+            metadata["presentationProfile"] = raw_input.presentation_profile
+
         return {
             "deckId": f"deck_ai_{safe_token(raw_input.project_id)}",
             "projectId": raw_input.project_id,
             "title": outline.title,
             "version": 1,
             "targetDurationMinutes": raw_input.target_duration_minutes,
-            "metadata": {
-                "language": "ko",
-                "locale": "ko-KR",
-                "sourceType": "ai",
-                "generatedBy": "ai",
-                "audience": raw_input.metadata.audience,
-                "purpose": raw_input.metadata.purpose,
-                "tone": raw_input.metadata.tone,
-                "createdFrom": {
-                    "topic": raw_input.topic,
-                    "references": [
-                        {"fileId": reference.file_id}
-                        for reference in raw_input.references
-                    ],
-                    "designReferences": [
-                        {"fileId": reference.file_id}
-                        for reference in raw_input.design_references
-                    ],
-                },
-            },
+            "metadata": metadata,
             "canvas": {
                 "preset": "wide-16-9",
                 "width": CANVAS.width,
@@ -2607,6 +2621,10 @@ def analyze_input(
         reference_context=resolved_reference_context,
         template_blueprint=normalize_template_blueprint(request.template_blueprint),
         design_blueprint=normalize_imported_design_blueprint(request.design_blueprint),
+    ).model_copy(
+        update={
+            "presentation_profile": presentation_profile_for_request(request),
+        }
     )
 
 
@@ -3960,6 +3978,8 @@ def deck_content_prompt(raw_input: RawInput) -> str:
         f"Success criteria: {raw_input.brief.success_criteria or '(none)'}",
         f"Reference policy: {raw_input.brief.reference_policy}",
     ]
+    if raw_input.generation_mode == "design-pack":
+        lines.extend(presentation_rule_prompt(raw_input))
     if uses_conversational_design_flow(raw_input):
         lines.append(
             "Tone guidance: use short keywords, discussion questions, consensus points, and next actions."
@@ -5950,6 +5970,115 @@ def uses_conversational_design_flow(raw_input: RawInput) -> bool:
             "재미",
         ],
     )
+
+
+PRESENTATION_PROFILE_BEATS: dict[PresentationProfile, tuple[str, ...]] = {
+    "proposal": ("context", "problem", "question", "solution", "evidence", "execution", "CTA"),
+    "executive-report": ("conclusion", "evidence", "impact", "risk", "decision request"),
+    "product-launch": ("anticipation", "differentiator", "experience", "evidence", "release information", "CTA"),
+    "education": ("objective", "concept", "example", "application", "summary", "questions"),
+    "technical": ("problem", "principle", "architecture", "flow", "trade-off", "result"),
+    "research": ("research question", "method", "result", "interpretation", "limitation", "conclusion"),
+    "general-inform": ("context", "key information", "evidence", "meaning", "summary"),
+}
+
+PRESENTATION_PROFILE_TIE_ORDER: tuple[PresentationProfile, ...] = (
+    "research",
+    "product-launch",
+    "executive-report",
+    "proposal",
+    "education",
+    "technical",
+    "general-inform",
+)
+
+PRESENTATION_PROFILE_KEYWORDS: dict[PresentationProfile, tuple[str, ...]] = {
+    "research": ("research", "study", "paper", "thesis", "학술", "연구", "논문"),
+    "product-launch": ("product launch", "new product", "launch", "reveal", "신상품", "신제품", "출시", "신작", "공개"),
+    "executive-report": ("executive", "board", "leadership", "performance report", "임원", "경영진", "성과 보고", "보고"),
+    "proposal": ("proposal", "pitch", "planning", "sales", "investor", "제안", "피치", "기획", "영업", "설득", "투자", "아이디어"),
+    "education": ("education", "lesson", "lecture", "class", "training", "교육", "강의", "수업", "학습"),
+    "technical": ("technical", "architecture", "system", "engineering", "api", "기술", "아키텍처", "시스템", "개발"),
+    "general-inform": (),
+}
+
+
+def presentation_profile_for_request(
+    request: GenerateDeckRequest,
+) -> PresentationProfile:
+    explicit_profiles: dict[DesignProfile, PresentationProfile] = {
+        "startup-pitch": "proposal",
+        "executive-report": "executive-report",
+        "training": "education",
+        "technical": "technical",
+    }
+    if request.design.profile in explicit_profiles:
+        return explicit_profiles[request.design.profile]
+
+    scores = {profile: 0 for profile in PRESENTATION_PROFILE_TIE_ORDER}
+    primary_text = " ".join(
+        [
+            request.brief.presentation_type,
+            request.brief.presentation_context,
+        ]
+    ).casefold()
+    secondary_text = " ".join(
+        [
+            request.topic,
+            request.prompt,
+            request.brief.audience_text,
+            request.brief.success_criteria,
+        ]
+    ).casefold()
+    for profile, keywords in PRESENTATION_PROFILE_KEYWORDS.items():
+        if any(keyword in primary_text for keyword in keywords):
+            scores[profile] += 3
+        if any(keyword in secondary_text for keyword in keywords):
+            scores[profile] += 1
+
+    if request.metadata.audience == "executive" or request.metadata.purpose == "report":
+        scores["executive-report"] += 3
+    if request.metadata.audience == "sales" or request.metadata.purpose == "persuade":
+        scores["proposal"] += 3
+    if request.metadata.purpose == "teach":
+        scores["education"] += 3
+    if request.metadata.audience == "technical":
+        scores["technical"] += 3
+
+    highest_score = max(scores.values())
+    if highest_score == 0:
+        return "general-inform"
+    return next(
+        profile
+        for profile in PRESENTATION_PROFILE_TIE_ORDER
+        if scores[profile] == highest_score
+    )
+
+
+def presentation_rule_prompt(raw_input: RawInput) -> list[str]:
+    profile = raw_input.presentation_profile
+    beats = " -> ".join(PRESENTATION_PROFILE_BEATS[profile])
+    agenda = (
+        "Include an agenda only when useful for 8+ slide report, education, technical, or research decks."
+        if raw_input.slide_count >= 8
+        and profile in {"executive-report", "education", "technical", "research"}
+        else "Do not add an agenda unless the user explicitly requested one."
+    )
+    closing = {
+        "proposal": "End with a concrete next action.",
+        "product-launch": "End with release information and a concrete next action.",
+        "executive-report": "End with a decision or approval request.",
+    }.get(profile, "End with a concise summary or question appropriate to the profile.")
+    return [
+        f"Presentation profile: {profile}",
+        f"Required narrative beats: {beats}",
+        "Use one core message per slide and make each body title state its conclusion.",
+        "Use 1-5 supporting content items per body slide; process slides may use up to 6.",
+        "Keep body content within six rendered lines and move detail into speakerNotes.",
+        "Ground every factual claim and number in the supplied sources.",
+        agenda,
+        closing,
+    ]
 
 
 def design_pack_deck_archetype(
