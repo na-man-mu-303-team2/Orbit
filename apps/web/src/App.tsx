@@ -45,6 +45,8 @@ import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { createDemoDeck } from "../../../packages/editor-core/src/index";
 import orbitLogo from "./assets/orbit-logo.png";
 import { AppSidebar } from "./components/AppSidebar";
+import { OrbitDesignSystemPage } from "./design-system/OrbitDesignSystemPage";
+import { OrbitMockupFlow, type OrbitMockupScreen } from "./features/mockups/OrbitMockupFlow";
 import {
   createProject,
   deleteProject,
@@ -194,6 +196,8 @@ type RejectedFile = {
 };
 
 export type Route =
+  | { name: "design-system" }
+  | { name: "mockup"; screen: OrbitMockupScreen }
   | { name: "login" }
   | { name: "home"; templateStyleId?: HomeTemplateStyleId }
   | { name: "create-deck" }
@@ -436,6 +440,23 @@ export function getRoute(
   const normalized = currentPathname.replace(/\/+$/, "") || "/";
 
   if (normalized === "/login") return { name: "login" };
+  if (normalized === "/design-system") return { name: "design-system" };
+  if (normalized === "/mockup") return { name: "mockup", screen: "public" };
+  if (normalized === "/mockup/home") return { name: "mockup", screen: "home" };
+  if (normalized === "/mockup/create") return { name: "mockup", screen: "create" };
+  if (normalized === "/mockup/editor") return { name: "mockup", screen: "editor" };
+  if (normalized === "/mockup/microphone-check") return { name: "mockup", screen: "microphone-check" };
+  if (normalized === "/mockup/project-request") return { name: "mockup", screen: "project-request" };
+  if (normalized === "/mockup/rehearsal") return { name: "mockup", screen: "rehearsal" };
+  if (normalized === "/mockup/presenter") return { name: "mockup", screen: "presenter" };
+  if (normalized === "/mockup/rehearsal-complete") return { name: "mockup", screen: "rehearsal-complete" };
+  if (normalized === "/mockup/reports") return { name: "mockup", screen: "reports" };
+  if (normalized === "/mockup/report") return { name: "mockup", screen: "report" };
+  if (normalized === "/mockup/report-project") return { name: "mockup", screen: "report-project" };
+  if (normalized === "/mockup/live") return { name: "mockup", screen: "live" };
+  if (normalized === "/mockup/live-presenter") return { name: "mockup", screen: "live-presenter" };
+  if (normalized === "/mockup/login") return { name: "mockup", screen: "login" };
+  if (normalized === "/mockup/signup") return { name: "mockup", screen: "signup" };
   if (normalized === "/createdeck") return { name: "create-deck" };
   if (normalized === "/project") return { name: "project-list" };
   if (normalized === "/reports") return { name: "report-list" };
@@ -557,6 +578,8 @@ export function App() {
 export function shouldRenderAppFrame(route: Route) {
   return (
     route.name !== "login" &&
+    route.name !== "design-system" &&
+    route.name !== "mockup" &&
     route.name !== "project-editor" &&
     route.name !== "presentation" &&
     route.name !== "present" &&
@@ -570,6 +593,10 @@ export function shouldRenderAppFrame(route: Route) {
 }
 
 function renderRoute(route: Route, user?: AuthUser) {
+  if (route.name === "design-system") return <OrbitDesignSystemPage />;
+  if (route.name === "mockup") {
+    return <OrbitMockupFlow onNavigate={navigateTo} screen={route.screen} />;
+  }
   if (route.name === "login") return <LoginPage isAuthenticated={Boolean(user)} />;
   if (route.name === "create-deck") return <GenerateDeckView />;
   if (route.name === "project-list") return <ProjectListPage />;

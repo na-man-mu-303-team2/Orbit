@@ -110,6 +110,33 @@ describe("App shell routing", () => {
     expect(shouldRenderAppFrame({ name: "home" })).toBe(true);
   });
 
+  it("exposes the design-system preview outside the product shell", () => {
+    const route = getRoute("/design-system");
+
+    expect(route).toEqual({ name: "design-system" });
+    expect(shouldRenderAppFrame(route)).toBe(false);
+  });
+
+  it("parses the isolated mockup flow routes outside the product shell", () => {
+    expect(getRoute("/mockup")).toEqual({ name: "mockup", screen: "public" });
+    expect(getRoute("/mockup/home")).toEqual({ name: "mockup", screen: "home" });
+    expect(getRoute("/mockup/create")).toEqual({ name: "mockup", screen: "create" });
+    expect(getRoute("/mockup/editor")).toEqual({ name: "mockup", screen: "editor" });
+    expect(getRoute("/mockup/microphone-check")).toEqual({ name: "mockup", screen: "microphone-check" });
+    expect(getRoute("/mockup/project-request")).toEqual({ name: "mockup", screen: "project-request" });
+    expect(getRoute("/mockup/rehearsal")).toEqual({ name: "mockup", screen: "rehearsal" });
+    expect(getRoute("/mockup/rehearsal-complete")).toEqual({ name: "mockup", screen: "rehearsal-complete" });
+    expect(getRoute("/mockup/reports")).toEqual({ name: "mockup", screen: "reports" });
+    expect(getRoute("/mockup/report")).toEqual({ name: "mockup", screen: "report" });
+    expect(getRoute("/mockup/report-project")).toEqual({ name: "mockup", screen: "report-project" });
+    expect(getRoute("/mockup/live")).toEqual({ name: "mockup", screen: "live" });
+    expect(getRoute("/mockup/live-presenter")).toEqual({ name: "mockup", screen: "live-presenter" });
+    expect(getRoute("/mockup/login")).toEqual({ name: "mockup", screen: "login" });
+    expect(getRoute("/mockup/signup")).toEqual({ name: "mockup", screen: "signup" });
+    expect(getRoute("/mockup/presenter")).toEqual({ name: "mockup", screen: "presenter" });
+    expect(shouldRenderAppFrame({ name: "mockup", screen: "public" })).toBe(false);
+  });
+
   it("parses presenter slide-window routes with an optional session id", () => {
     expect(getRoute("/present/deck_demo_1", "?sessionId=session_demo_1")).toEqual({
       name: "present",
