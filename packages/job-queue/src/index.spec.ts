@@ -180,7 +180,8 @@ describe("enqueueSemanticCueExtractionJob", () => {
       projectId: "project-a",
       request: {
         deckId: "deck_demo_1",
-        force: false
+        force: false,
+        baseVersion: 3
       }
     });
 
@@ -198,7 +199,8 @@ describe("enqueueSemanticCueExtractionJob", () => {
       projectId: "project-a",
       request: {
         deckId: "deck_demo_1",
-        force: false
+        force: false,
+        baseVersion: 3
       }
     });
     expect(queueMock.close).toHaveBeenCalled();

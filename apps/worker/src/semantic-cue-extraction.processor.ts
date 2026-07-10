@@ -1,22 +1,33 @@
 import {
   deckSchema,
+  semanticCueExtractionJobPayloadSchema,
   semanticCueExtractionResultSchema,
+  semanticCueExtractionSlideStatusSchema,
+  semanticCueSchema,
   type Deck,
-  type Job
+  type Job,
+  type SemanticCue,
+  type SemanticCueExtractionResult
 } from "@orbit/shared";
 import type { DataSource } from "typeorm";
 import { z } from "zod";
 
-const semanticCueExtractionPayloadSchema = z.object({
-  jobId: z.string().min(1),
-  projectId: z.string().min(1),
-  request: z
-    .object({
-      deckId: z.string().min(1),
-      force: z.boolean().default(false)
-    })
-    .strict()
-});
+const pythonSemanticCueExtractionSlideSchema = z
+  .object({
+    slideId: z.string().min(1),
+    status: semanticCueExtractionSlideStatusSchema.optional(),
+    semanticCues: z.array(semanticCueSchema).default([]),
+    warnings: z.array(z.string().trim().min(1).max(160)).default([])
+  })
+  .strict();
+
+const pythonSemanticCueExtractionResultSchema = z
+  .object({
+    deckId: z.string().min(1),
+    sourceDeckVersion: z.number().int().positive().optional(),
+    slides: z.array(pythonSemanticCueExtractionSlideSchema).default([])
+  })
+  .strict();
 
 const deckRowSchema = z.object({
   deck_json: z.record(z.unknown()),
@@ -37,24 +48,31 @@ type JobRow = {
   updated_at: Date | string;
 };
 
+class SemanticCueDeckVersionConflictError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "SemanticCueDeckVersionConflictError";
+  }
+}
+
 export async function processSemanticCueExtractionJob(
   dataSource: DataSource,
   pythonWorkerUrl: string,
   rawPayload: unknown
 ): Promise<Job> {
-  const payloadResult = semanticCueExtractionPayloadSchema.safeParse(rawPayload);
+  const payloadResult = semanticCueExtractionJobPayloadSchema.safeParse(rawPayload);
   if (!payloadResult.success) {
-    const jobId =
-      rawPayload &&
-      typeof rawPayload === "object" &&
-      "jobId" in rawPayload &&
-      typeof rawPayload.jobId === "string"
-        ? rawPayload.jobId
-        : "";
+    const jobId = readPayloadJobId(rawPayload);
     if (!jobId) {
       throw new Error(payloadResult.error.message);
     }
-    return failJob(dataSource, jobId, 0, "SEMANTIC_CUE_PAYLOAD_INVALID", payloadResult.error.message);
+    return failJob(
+      dataSource,
+      jobId,
+      0,
+      "SEMANTIC_CUE_PAYLOAD_INVALID",
+      payloadResult.error.message
+    );
   }
 
   const payload = payloadResult.data;
@@ -68,8 +86,22 @@ export async function processSemanticCueExtractionJob(
 
   let deck: Deck;
   try {
-    deck = await loadCheckpointDeckWithoutPendingPatches(dataSource, payload.projectId, payload.request.deckId);
+    deck = await loadExtractionDeck(
+      dataSource,
+      payload.projectId,
+      payload.request.deckId,
+      payload.request.baseVersion
+    );
   } catch (error) {
+    if (error instanceof SemanticCueDeckVersionConflictError) {
+      return failJob(
+        dataSource,
+        payload.jobId,
+        10,
+        "SEMANTIC_CUE_DECK_VERSION_CONFLICT",
+        error.message
+      );
+    }
     return failJob(
       dataSource,
       payload.jobId,
@@ -77,6 +109,13 @@ export async function processSemanticCueExtractionJob(
       "SEMANTIC_CUE_DECK_UNAVAILABLE",
       error instanceof Error ? error.message : "Semantic cue deck unavailable."
     );
+  }
+
+  const targetSlides = deck.slides.filter(
+    (slide) => payload.request.force || shouldExtractSlide(slide.semanticCues)
+  );
+  if (targetSlides.length === 0) {
+    return completeJob(dataSource, payload.jobId, deck, deck.version, [], 0);
   }
 
   await updateJob(dataSource, payload.jobId, {
@@ -87,14 +126,14 @@ export async function processSemanticCueExtractionJob(
     error: null
   });
 
-  let extraction: z.infer<typeof semanticCueExtractionResultSchema>;
+  let providerPayload: unknown;
   try {
     const response = await fetch(workerUrl(pythonWorkerUrl, "/ai/extract-semantic-cues"), {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
         projectId: payload.projectId,
-        deck
+        deck: { ...deck, slides: targetSlides }
       }),
       signal: AbortSignal.timeout(120_000)
     });
@@ -105,11 +144,11 @@ export async function processSemanticCueExtractionJob(
         payload.jobId,
         45,
         "PYTHON_WORKER_SEMANTIC_CUE_FAILED",
-        (await response.text()) || "Python worker semantic cue extraction failed."
+        "Python worker semantic cue extraction failed."
       );
     }
 
-    extraction = semanticCueExtractionResultSchema.parse(await response.json());
+    providerPayload = await response.json();
   } catch (error) {
     return failJob(
       dataSource,
@@ -120,18 +159,14 @@ export async function processSemanticCueExtractionJob(
     );
   }
 
-  let nextDeck: Deck;
+  let extraction: SemanticCueExtractionResult;
   try {
-    nextDeck = deckSchema.parse({
-      ...deck,
-      version: deck.version + 1,
-      slides: deck.slides.map((slide) => ({
-        ...slide,
-        semanticCues:
-          extraction.slides.find((result) => result.slideId === slide.slideId)
-            ?.semanticCues ?? slide.semanticCues
-      }))
-    });
+    extraction = normalizeProviderExtraction(
+      pythonSemanticCueExtractionResultSchema.parse(providerPayload),
+      deck,
+      new Set(targetSlides.map((slide) => slide.slideId)),
+      payload.request.baseVersion
+    );
   } catch (error) {
     return failJob(
       dataSource,
@@ -142,8 +177,50 @@ export async function processSemanticCueExtractionJob(
     );
   }
 
+  let merged: ReturnType<typeof mergeExtractionResult>;
   try {
-    await saveDeckCheckpoint(dataSource, nextDeck);
+    merged = mergeExtractionResult(
+      deck,
+      extraction,
+      new Set(targetSlides.map((slide) => slide.slideId)),
+      payload.request.force
+    );
+  } catch (error) {
+    return failJob(
+      dataSource,
+      payload.jobId,
+      70,
+      "SEMANTIC_CUE_RESULT_INVALID",
+      error instanceof Error ? error.message : "Semantic cue result invalid."
+    );
+  }
+
+  if (merged.processedSlideCount === 0) {
+    return completeJob(
+      dataSource,
+      payload.jobId,
+      deck,
+      payload.request.baseVersion,
+      merged.warnings,
+      0
+    );
+  }
+
+  try {
+    const saved = await saveDeckCheckpointWithCas(
+      dataSource,
+      merged.deck,
+      payload.request.baseVersion
+    );
+    if (!saved) {
+      return failJob(
+        dataSource,
+        payload.jobId,
+        85,
+        "SEMANTIC_CUE_DECK_VERSION_CONFLICT",
+        "Deck changed after semantic cue extraction started."
+      );
+    }
   } catch (error) {
     return failJob(
       dataSource,
@@ -154,53 +231,236 @@ export async function processSemanticCueExtractionJob(
     );
   }
 
-  return updateJob(dataSource, payload.jobId, {
-    status: "succeeded",
-    progress: 100,
-    message: "Semantic cue extraction completed.",
-    result: {
-      deckId: nextDeck.deckId,
-      version: nextDeck.version,
-      cueCount: nextDeck.slides.reduce(
-        (sum, slide) => sum + slide.semanticCues.length,
-        0
-      )
-    },
-    error: null
-  });
+  return completeJob(
+    dataSource,
+    payload.jobId,
+    merged.deck,
+    payload.request.baseVersion,
+    merged.warnings,
+    merged.processedSlideCount
+  );
 }
 
-async function loadCheckpointDeckWithoutPendingPatches(
+async function loadExtractionDeck(
   dataSource: DataSource,
   projectId: string,
-  deckId: string
+  deckId: string,
+  baseVersion: number
 ): Promise<Deck> {
   const rows = await dataSource.query(
     `SELECT deck_id, deck_json, version FROM decks WHERE project_id = $1 AND deck_id = $2`,
     [projectId, deckId]
   );
   const row = deckRowSchema.parse(readFirstQueryRow<unknown>(rows));
+  const deck = deckSchema.parse(row.deck_json);
+
+  if (row.version !== baseVersion || deck.version !== baseVersion) {
+    throw new SemanticCueDeckVersionConflictError(
+      "Deck version does not match the extraction baseVersion."
+    );
+  }
+
   const patchRows = await dataSource.query(
     `SELECT 1 FROM deck_patches WHERE project_id = $1 AND deck_id = $2 AND after_version > $3 LIMIT 1`,
-    [projectId, deckId, row.version]
+    [projectId, deckId, baseVersion]
   );
   if (readFirstQueryRow<unknown>(patchRows)) {
-    throw new Error("Semantic cue extraction requires a deck checkpoint without pending patches.");
+    throw new SemanticCueDeckVersionConflictError(
+      "Deck has pending patches after the extraction baseVersion."
+    );
   }
-  return deckSchema.parse(row.deck_json);
+
+  return deck;
 }
 
-async function saveDeckCheckpoint(dataSource: DataSource, deck: Deck) {
-  await dataSource.query(
+function shouldExtractSlide(cues: SemanticCue[]): boolean {
+  return (
+    cues.length === 0 ||
+    cues.some(
+      (cue) =>
+        !isProtectedCue(cue) &&
+        (cue.freshness === "stale" ||
+          (cue.origin === "ai" && cue.reviewStatus === "suggested"))
+    )
+  );
+}
+
+function normalizeProviderExtraction(
+  providerResult: z.infer<typeof pythonSemanticCueExtractionResultSchema>,
+  deck: Deck,
+  targetSlideIds: Set<string>,
+  baseVersion: number
+): SemanticCueExtractionResult {
+  if (providerResult.deckId !== deck.deckId) {
+    throw new Error("Semantic cue extraction returned another deckId.");
+  }
+  if (
+    providerResult.sourceDeckVersion !== undefined &&
+    providerResult.sourceDeckVersion !== baseVersion
+  ) {
+    throw new Error("Semantic cue extraction returned another sourceDeckVersion.");
+  }
+
+  const slidesById = new Map(deck.slides.map((slide) => [slide.slideId, slide]));
+  return semanticCueExtractionResultSchema.parse({
+    deckId: providerResult.deckId,
+    sourceDeckVersion: baseVersion,
+    slides: providerResult.slides.map((result) => {
+      if (!targetSlideIds.has(result.slideId)) {
+        throw new Error("Semantic cue extraction returned an untargeted slide.");
+      }
+      const existingSlide = slidesById.get(result.slideId);
+      if (!existingSlide) {
+        throw new Error("Semantic cue extraction returned an unknown slide.");
+      }
+
+      const legacyEmptyResult =
+        result.status === undefined &&
+        result.semanticCues.length === 0 &&
+        existingSlide.semanticCues.length > 0;
+      return {
+        slideId: result.slideId,
+        status: result.status ?? (legacyEmptyResult ? "skipped" : "succeeded"),
+        semanticCues: result.semanticCues,
+        warnings: legacyEmptyResult
+          ? [...result.warnings, "empty-slide-result-preserved"]
+          : result.warnings
+      };
+    })
+  });
+}
+
+function mergeExtractionResult(
+  deck: Deck,
+  extraction: SemanticCueExtractionResult,
+  targetSlideIds: Set<string>,
+  force: boolean
+): { deck: Deck; warnings: string[]; processedSlideCount: number } {
+  if (
+    extraction.deckId !== deck.deckId ||
+    extraction.sourceDeckVersion !== deck.version
+  ) {
+    throw new Error("Semantic cue extraction source does not match the loaded deck.");
+  }
+
+  const resultBySlideId = new Map(
+    extraction.slides.map((result) => [result.slideId, result])
+  );
+  const warnings: string[] = [];
+  let processedSlideCount = 0;
+  const slides = deck.slides.map((slide) => {
+    const result = resultBySlideId.get(slide.slideId);
+    if (!result) {
+      if (targetSlideIds.has(slide.slideId)) {
+        warnings.push(`provider-omitted-slide:${slide.slideId}`);
+      }
+      return slide;
+    }
+
+    warnings.push(...result.warnings.map((warning) => `${slide.slideId}:${warning}`));
+    if (result.status !== "succeeded") {
+      return slide;
+    }
+
+    processedSlideCount += 1;
+    const preserved = slide.semanticCues.filter((cue) => shouldPreserveCue(cue, force));
+    const preservedIds = new Set(preserved.map((cue) => cue.cueId));
+    const generated = result.semanticCues
+      .filter((cue) => {
+        if (!preservedIds.has(cue.cueId)) {
+          return true;
+        }
+        warnings.push(`protected-cue-id-collision:${slide.slideId}:${cue.cueId}`);
+        return false;
+      })
+      .map((cue) => ({
+        ...cue,
+        reviewStatus: "suggested" as const,
+        freshness: "current" as const,
+        origin: "ai" as const,
+        sourceDeckVersion: deck.version
+      }));
+
+    return { ...slide, semanticCues: [...preserved, ...generated] };
+  });
+
+  return {
+    deck: deckSchema.parse({ ...deck, version: deck.version + 1, slides }),
+    warnings,
+    processedSlideCount
+  };
+}
+
+function shouldPreserveCue(cue: SemanticCue, force: boolean): boolean {
+  if (isProtectedCue(cue)) {
+    return true;
+  }
+  if (force) {
+    return false;
+  }
+  return !(
+    cue.freshness === "stale" ||
+    (cue.origin === "ai" && cue.reviewStatus === "suggested")
+  );
+}
+
+function isProtectedCue(cue: SemanticCue): boolean {
+  return cue.origin === "manual" || cue.reviewStatus === "approved";
+}
+
+async function saveDeckCheckpointWithCas(
+  dataSource: DataSource,
+  deck: Deck,
+  baseVersion: number
+): Promise<boolean> {
+  const rows = await dataSource.query(
     `
       UPDATE decks
       SET deck_json = $3,
           version = $4,
           updated_at = now()
-      WHERE project_id = $1 AND deck_id = $2
+      WHERE project_id = $1
+        AND deck_id = $2
+        AND version = $5
+        AND NOT EXISTS (
+          SELECT 1
+          FROM deck_patches
+          WHERE project_id = $1
+            AND deck_id = $2
+            AND after_version > $5
+        )
+      RETURNING version
     `,
-    [deck.projectId, deck.deckId, deck, deck.version]
+    [deck.projectId, deck.deckId, deck, deck.version, baseVersion]
   );
+  return readFirstQueryRow<unknown>(rows) !== null;
+}
+
+function completeJob(
+  dataSource: DataSource,
+  jobId: string,
+  deck: Deck,
+  sourceDeckVersion: number,
+  warnings: string[],
+  processedSlideCount: number
+): Promise<Job> {
+  return updateJob(dataSource, jobId, {
+    status: "succeeded",
+    progress: 100,
+    message: "Semantic cue extraction completed.",
+    result: {
+      deckId: deck.deckId,
+      sourceDeckVersion,
+      version: deck.version,
+      cueCount: deck.slides.reduce(
+        (sum, slide) => sum + slide.semanticCues.length,
+        0
+      ),
+      processedSlideCount,
+      warnings
+    },
+    error: null
+  });
 }
 
 async function failJob(
@@ -249,6 +509,15 @@ async function updateJob(
     throw new Error(`Job not found: ${jobId}`);
   }
   return rowToJob(row);
+}
+
+function readPayloadJobId(rawPayload: unknown): string {
+  return rawPayload &&
+    typeof rawPayload === "object" &&
+    "jobId" in rawPayload &&
+    typeof rawPayload.jobId === "string"
+    ? rawPayload.jobId
+    : "";
 }
 
 function readFirstQueryRow<T>(queryResult: unknown): T | null {
