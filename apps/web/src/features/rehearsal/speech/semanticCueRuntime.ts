@@ -24,8 +24,15 @@ import {
   buildSemanticCueReportEvidence,
   normalizeBoundedText
 } from "./semanticCueReportEvidence";
-import { combineSemanticCueScore } from "./semanticCueScoreCombiner";
-import { semanticCueRuntimeConfig } from "./semanticCueRuntimeConfig";
+import {
+  combineSemanticCueScore,
+  defaultSemanticCueCombinerConfig,
+  type SemanticCueCombinerConfig
+} from "./semanticCueScoreCombiner";
+import {
+  semanticCueRuntimeConfig,
+  type SemanticCueRuntimeConfig
+} from "./semanticCueRuntimeConfig";
 import type { SemanticCapabilityTransition } from "./semanticCapabilityState";
 import type { SemanticMatchDecisionReason } from "./semanticUtteranceDecision";
 
@@ -70,10 +77,15 @@ export function createSemanticCueRuntime(options: {
   maxCandidates?: number;
   nliTimeoutMs?: number;
   nliMode?: "active" | "shadow";
+  config?: SemanticCueRuntimeConfig;
+  combinerConfig?: SemanticCueCombinerConfig;
 }): SemanticCueRuntime {
   const now = options.now ?? (() => Date.now());
   const deckId = options.deckId ?? "deck_unknown";
-  const nliTimeoutMs = options.nliTimeoutMs ?? semanticCueRuntimeConfig.nliTimeoutMs;
+  const config = options.config ?? semanticCueRuntimeConfig;
+  const combinerConfig =
+    options.combinerConfig ?? defaultSemanticCueCombinerConfig;
+  const nliTimeoutMs = options.nliTimeoutMs ?? config.nliTimeoutMs;
   let lastNliRunAtMs: number | null = null;
   const coveredCueIds = new Set<string>();
 
@@ -173,10 +185,13 @@ export function createSemanticCueRuntime(options: {
         cues: input.cues,
         coveredCueIds: allCoveredCueIds,
         retrievalScoresByCueId,
-        maxCandidates: options.maxCandidates ?? semanticCueRuntimeConfig.maxCandidates
+        maxCandidates: options.maxCandidates ?? config.maxCandidates,
+        config
       });
       const basicDecisions = candidates
-        .map((candidate) => buildBasicDecision(input, candidate, stableWindow, now()))
+        .map((candidate) =>
+          buildBasicDecision(input, candidate, stableWindow, now(), config)
+        )
         .filter(
           (decision): decision is RehearsalSemanticCueDecision => decision !== null
         );
@@ -192,7 +207,7 @@ export function createSemanticCueRuntime(options: {
             candidate.selectedForNli &&
             !basicDecisions.some((decision) => decision.cueId === candidate.cue.cueId)
         )
-        .slice(0, semanticCueRuntimeConfig.maxNliCandidates);
+        .slice(0, config.maxNliCandidates);
       const providerFailure = getProviderFailure(options.enabled, options.provider);
       if (providerFailure) {
         const fallbackDecisions = applyFallback(basicDecisions, providerFailure);
@@ -254,7 +269,7 @@ export function createSemanticCueRuntime(options: {
 
       if (
         lastNliRunAtMs !== null &&
-        input.nowMs - lastNliRunAtMs < semanticCueRuntimeConfig.nliThrottleMs
+        input.nowMs - lastNliRunAtMs < config.nliThrottleMs
       ) {
         return buildResult({
           input,
@@ -270,13 +285,13 @@ export function createSemanticCueRuntime(options: {
       lastNliRunAtMs = input.nowMs;
       const hypotheses = ambiguousCandidates.flatMap((candidate) =>
         candidate.cue.nliHypotheses
-          .slice(0, semanticCueRuntimeConfig.maxHypothesesPerCue)
+          .slice(0, config.maxHypothesesPerCue)
           .map((hypothesis) => ({
             cueId: candidate.cue.cueId,
             hypothesis: boundNliText(hypothesis, 300)
           }))
       );
-      const premise = boundNliTokens(stableWindow, semanticCueRuntimeConfig.maxNliTokens);
+      const premise = boundNliTokens(stableWindow, config.maxNliTokens);
 
       let nliDecisions: SemanticCueNliDecision[];
       try {
@@ -347,12 +362,15 @@ export function createSemanticCueRuntime(options: {
         if (!best) {
           return [];
         }
-        const combination = combineSemanticCueScore({
-          lexicalScore: candidate.lexicalScore,
-          conceptCoverage: candidate.conceptCoverage,
-          embeddingScore: candidate.retrievalScore,
-          nli: best
-        });
+        const combination = combineSemanticCueScore(
+          {
+            lexicalScore: candidate.lexicalScore,
+            conceptCoverage: candidate.conceptCoverage,
+            embeddingScore: candidate.retrievalScore,
+            nli: best
+          },
+          combinerConfig
+        );
         const evidence = buildSemanticCueReportEvidence({
           slideId: input.slideId,
           candidate,
@@ -413,7 +431,8 @@ function buildBasicDecision(
   input: SemanticCueRuntimeInput,
   candidate: SemanticCueCandidate,
   premise: string,
-  atMs: number
+  atMs: number,
+  config: SemanticCueRuntimeConfig = semanticCueRuntimeConfig
 ): RehearsalSemanticCueDecision | null {
   const normalizedPremise = normalizeSpeechText(premise);
   const normalizedMeaning = normalizeSpeechText(candidate.cue.meaning);
@@ -427,14 +446,14 @@ function buildBasicDecision(
     });
   const strongConceptEvidence =
     candidate.conceptCoverage === 1 &&
-    (candidate.retrievalScore >= semanticCueRuntimeConfig.basicCoveredRetrieval ||
-      candidate.lexicalScore >= semanticCueRuntimeConfig.candidateEligibility.lexical);
+    (candidate.retrievalScore >= config.basicCoveredRetrieval ||
+      candidate.lexicalScore >= config.candidateEligibility.lexical);
   const covered = meaningMatched || (aliasMatched && candidate.conceptCoverage === 1) || strongConceptEvidence;
   const partial =
     !covered &&
-    candidate.score >= semanticCueRuntimeConfig.basicPartialScore &&
-    (candidate.lexicalScore >= semanticCueRuntimeConfig.candidateEligibility.lexical ||
-      candidate.conceptCoverage >= semanticCueRuntimeConfig.basicPartialConceptCoverage);
+    candidate.score >= config.basicPartialScore &&
+    (candidate.lexicalScore >= config.candidateEligibility.lexical ||
+      candidate.conceptCoverage >= config.basicPartialConceptCoverage);
   if (!covered && !partial) {
     return null;
   }
