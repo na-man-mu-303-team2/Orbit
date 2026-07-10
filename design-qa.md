@@ -1100,3 +1100,28 @@ final result: passed
 - No actionable P0/P1/P2 findings remain.
 
 final result: passed
+
+## Production audience entrance T18 QA
+
+### Source and implementation
+
+- Source visual truth: the ORBIT live palette, canonical form hierarchy and the existing audience-access API contract; no separate audience mockup exists.
+- Browser implementation: `/audience/session_demo_1` at `artifacts/migration/t18/audience-mobile.png`.
+- Mobile viewport: 390×844 with `scrollWidth === clientWidth`; the primary action remained inside the viewport after the passcode field received focus context.
+
+### Required fidelity surfaces
+
+- Fonts and typography: a 34–38px entry heading, readable 14px guidance and 24px passcode digits use the canonical type scale.
+- Spacing and layout rhythm: the portrait card keeps the logo, context, passcode/room choice and one sticky primary action in a single vertical flow.
+- Colors and visual tokens: Lilac Soft marks the live entry context; Ink is reserved for the enabled primary action and Mint/semantic tokens represent verified/error states.
+- Image quality and asset fidelity: the light entrance uses the official ORBIT logo and Tabler room icons.
+- Copy and content: loading, verification error, verified and room-selection states match the existing access and passcode APIs.
+
+### Interaction and findings
+
+- The four-digit numeric input, verification request and room-selection state are unchanged; disabled actions remain explicit until the required input or selection exists.
+- The audience component receives only `sessionId` and access responses. Presenter script, transcript, raw audio and semantic speech state are absent from the DOM and mapping.
+- Web test suite: 702 passed. Web TypeScript validation and `git diff --check` passed.
+- No actionable P0/P1/P2 findings remain.
+
+final result: passed
