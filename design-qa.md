@@ -1138,7 +1138,7 @@ final result: passed
 
 - Fonts and typography: public, auth, workspace, report, editor, rehearsal, presentation and audience surfaces now share the canonical Pretendard/Inter and mono scales.
 - Spacing and layout rhythm: production routes use the approved document header, page width, field height, panel radius and responsive stacking rules; mockups remain isolated under `/mockup/*`.
-- Colors and visual tokens: migrated production surfaces use ORBIT Ink, Lilac, Lime, Cream, Mint and Navy semantics. The public rehearsal editorial is now a token-driven product preview rather than a production import from mockup assets.
+- Colors and visual tokens: migrated production surfaces use ORBIT Ink, Lilac, Lime, Cream, Mint and Navy semantics. The public rehearsal editorial now imports its production-owned raster asset rather than depending on the mockup directory.
 - Image quality and asset fidelity: light surfaces use `orbit-logo.png`; dark presenter and slide-window surfaces use `orbit-logo-white.png` directly. Operational icons use Tabler Icons in migrated slices.
 - Copy and content: authentication, project access, reports, rehearsal, live presentation and audience copy now follows current API contracts and excludes unsupported identity fields, audience metrics and presenter-private data.
 

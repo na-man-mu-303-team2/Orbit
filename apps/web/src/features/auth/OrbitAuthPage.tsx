@@ -14,6 +14,7 @@ import {
 import { useQueryClient } from "@tanstack/react-query";
 import { useState, type FormEvent, type ReactNode } from "react";
 import orbitLogo from "../../assets/orbit-logo.png";
+import rehearsalEditorialImage from "../../assets/rehearsal-editorial.png";
 import {
   OrbitButton,
   OrbitField,
@@ -88,12 +89,7 @@ export function OrbitPublicLandingPage(props: { onNavigate: Navigate }) {
               <p>발음, 속도, 구성에 대한 AI 피드백으로 완성도를 높여보세요.</p>
               <button onClick={() => props.onNavigate("/signup")} type="button">리허설 보기 <IconArrowRight aria-hidden="true" size={18} /></button>
             </div>
-            <div aria-label="ORBIT 리허설 피드백 미리보기" className="orbit-public-rehearsal-preview">
-              <header><IconPresentation aria-hidden="true" size={18} /><span>AI 리허설</span></header>
-              <div className="orbit-public-rehearsal-wave" aria-hidden="true">{[3, 7, 5, 10, 6, 9, 4, 8, 5, 7, 3, 6].map((height, index) => <i key={index} style={{ height: `${height * 4}px` }} />)}</div>
-              <strong>핵심 메시지를 더 또렷하게 전달해 보세요.</strong>
-              <small>발표 흐름과 핵심 키워드를 한눈에 점검합니다.</small>
-            </div>
+            <img alt="노트북으로 ORBIT 리허설 피드백을 확인하는 발표자" src={rehearsalEditorialImage} />
           </article>
         </section>
 
