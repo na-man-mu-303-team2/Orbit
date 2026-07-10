@@ -306,6 +306,13 @@ describe("deckSchema validation", () => {
     const result = deckSchema.parse(deck);
 
     expect(result.slides[0].semanticCues[0]?.nliHypotheses).toHaveLength(1);
+    expect(result.slides[0].semanticCues[0]).toMatchObject({
+      importance: "supporting",
+      reviewStatus: "suggested",
+      freshness: "current",
+      origin: "imported",
+      revision: 1
+    });
   });
 
   it("rejects semantic cue references outside the same slide", () => {
