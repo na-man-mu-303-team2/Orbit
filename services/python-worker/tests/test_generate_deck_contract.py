@@ -1104,7 +1104,8 @@ def test_short_speaker_note_repair_merges_grounded_content_below_model_limit() -
     )[0]
 
     request_payload = json.loads(str(fake_client.requests[0]["input"]))
-    assert request_payload["slides"][0]["minimumNonWhitespaceChars"] == 440
+    assert request_payload["slides"][0]["minimumNonWhitespaceChars"] == 560
+    assert request_payload["slides"][0]["maximumNonWhitespaceChars"] == 640
     assert 320 <= len(repaired.speaker_notes.replace(" ", "")) <= 500
     assert "official source confirms" in repaired.speaker_notes
 
@@ -1152,6 +1153,49 @@ def test_design_pack_normalizes_reused_llm_content_item_ids() -> None:
         for slide in slides
         for item in slide.content_items
     ] == ["content_1_1", "content_2_1"]
+
+
+def test_short_speaker_note_repair_trims_model_output_above_limit() -> None:
+    raw_input = analyze_input(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            generationMode="design-pack",
+            topic="Bounded notes",
+            prompt="Explain verified facts.",
+            targetDurationMinutes=1,
+            slideCountRange={"min": 1, "max": 1},
+        )
+    )
+    slide = SlidePlan(
+        order=1,
+        slide_type="cover",
+        title="Bounded notes",
+        message="The verified facts define the announcement.",
+        speaker_notes="Short notes.",
+        keywords=["verified"],
+        evidence=[],
+        content_items=[
+            {"contentItemId": "fact-1", "text": "A verified release fact"}
+        ],
+        target_seconds=60,
+        target_speaker_notes_chars=200,
+    )
+    long_repaired_note = " ".join(
+        f"Verified detail {index} explains a distinct supported announcement fact."
+        for index in range(1, 20)
+    )
+    fake_client = FakeOpenAIClient(
+        {"slides": [{"order": 1, "speakerNotes": long_repaired_note}]}
+    )
+
+    repaired = repair_short_speaker_notes_with_llm(
+        raw_input,
+        [slide],
+        client=fake_client,
+    )[0]
+
+    assert 160 <= len(repaired.speaker_notes.replace(" ", "")) <= 250
+    assert "Verified detail 1" in repaired.speaker_notes
 
 
 def test_single_uploaded_context_uses_short_unambiguous_source_id() -> None:

@@ -3672,10 +3672,10 @@ def repair_short_speaker_notes_with_llm(
                 "currentSpeakerNotes": slide.speaker_notes,
                 "sourceRefs": source_refs,
                 "minimumNonWhitespaceChars": round(
-                    slide.target_speaker_notes_chars * 1.1
+                    slide.target_speaker_notes_chars * 1.4
                 ),
                 "maximumNonWhitespaceChars": round(
-                    slide.target_speaker_notes_chars * 1.25
+                    slide.target_speaker_notes_chars * 1.6
                 ),
             }
         )
@@ -3721,7 +3721,7 @@ def repair_short_speaker_notes_with_llm(
         maximum_chars = round(slide.target_speaker_notes_chars * 1.25)
         speaker_notes = " ".join(item.speaker_notes.split())
         actual_chars = count_speaker_note_chars(speaker_notes)
-        if actual_chars < minimum_chars:
+        if not minimum_chars <= actual_chars <= maximum_chars:
             speaker_notes = fit_grounded_speaker_note_candidates(
                 [
                     *speaker_note_fragments(speaker_notes),
