@@ -89,3 +89,9 @@ export function getNextSemanticCapabilityRecoveryDelay(
     .filter((delay) => delay >= 0);
   return delays.length > 0 ? Math.min(...delays) : null;
 }
+
+export function isSemanticAutoActionAllowed(
+  items: readonly SemanticCapabilityStatusItem[]
+) {
+  return items.every((item) => item.recovered);
+}
